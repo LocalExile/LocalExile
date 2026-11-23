@@ -5,7 +5,7 @@
 # IdleSeconds records each process's CPU time, private bytes (its commit) and working set, and stops exactly the processes
 # it started. No player connects. Never touches the default ports. Run from the repository root after `dotnet build`
 # (or `dotnet build -c Release` with -Configuration Release).
-# PortBase: a block of 10 ports of the worktree's own; the defaults of stack.ps1 (23000), watch.ps1 (23010) and
+# PortBase: a block of 10 ports of the worktree's own; the defaults of stack.ps1 (23000) and
 # startup.ps1 (23020) do not overlap. The shell's location and environment are as they were afterwards.
 param(
     [int] $PortBase = 23000,

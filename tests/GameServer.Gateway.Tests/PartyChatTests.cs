@@ -31,19 +31,19 @@ public class PartyChatTests
         using var runtime = new PartyFollowerTests.Runtime();
         var instance = new InstanceState();
         using var wire = new PartyFollowerTests.Wire();
-        var leader = runtime.Connection(instance, wire, "ChatLeader");
-        var member = runtime.Connection(instance, wire, "ChatMember");
-        var outsider = runtime.Connection(instance, wire, "ChatOutsider");
+        var leader = runtime.PlayerOf(instance, wire, "ChatLeader");
+        var member = runtime.PlayerOf(instance, wire, "ChatMember");
+        var outsider = runtime.PlayerOf(instance, wire, "ChatOutsider");
         var (leaderMessages, leaderOutbox) = Capture();
         var (memberMessages, memberOutbox) = Capture();
         var (outsiderMessages, outsiderOutbox) = Capture();
-        leader.Outbox = leaderOutbox;
-        member.Outbox = memberOutbox;
-        outsider.Outbox = outsiderOutbox;
+        leader.Connection.Outbox = leaderOutbox;
+        member.Connection.Outbox = memberOutbox;
+        outsider.Connection.Outbox = outsiderOutbox;
         leader.Controlled = member.Controlled = outsider.Controlled = false;
         try
         {
-            await PartyRoster.InviteHuman(leader, member.Character!);
+            await PartyRoster.InviteHuman(leader, member.Character.Name!);
             uint party = PartyRoster.PartyOf(leader);
             await PartyRoster.AcceptHuman(member, party);
             leaderMessages.Clear();

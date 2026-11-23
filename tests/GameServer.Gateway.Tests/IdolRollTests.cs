@@ -67,29 +67,29 @@ public class IdolRollTests
         var second = uniques.Create(def, new Random(2))!;
         var other = uniques.Create(uniques.All.First(d => d.Name == "Black Thumb"), new Random(3))!;
         var inventories = new PlayerInventories();
-        var conn = new ClientState(new(1, "idol-swap", 100, 100, 100, 100, null, []), 1, 1);
+        var player = new Player(new(1, "idol-swap", 100, 100, 100, 100, null, []), 1, 1);
         PlayerInventories.Shape? ShapeOf(Item item) => items.ByHash(item.TypeHash) is { } t ? new(t.Width, t.Height, t.Class, t.MaxStack) : null;
         var placedFirst = inventories.Add(idolRow, 0, 0, first);
         var placedOther = inventories.Add(idolRow, 1, 0, other);
         inventories.Add(PlayerInventories.Cursor, 0, 0, second);
         // Simulate a per-unique limit subscriber (like IdolsModule) through GameEvents.InventoryPlacementRefusal.
         using var sub = GameEvents.InventoryPlacementRefusal.Add("Game", p =>
-            !ReferenceEquals(p.Conn, conn) || p.Row != idolRow || p.Item.Rarity != ItemRarity.Unique || p.Item.NameWords.Count == 0 ? null
+            !ReferenceEquals(p.Player, player) || p.Row != idolRow || p.Item.Rarity != ItemRarity.Unique || p.Item.NameWords.Count == 0 ? null
             : inventories.Items(idolRow).Any(i => (p.Replaced is null || i.Id != p.Replaced.Id)
                 && i.Item.Rarity == ItemRarity.Unique && i.Item.NameWords.Contains(p.Item.NameWords[0]))
                 ? "limited to 1" : null);
         // Placing the second copy into an empty cell has no replaced item and is refused.
         Assert.Null(inventories.DisplacedByPlace(idolRow, 2, 0, ShapeOf));
-        Assert.Equal("limited to 1", GameEvents.FirstInventoryRefusal(conn, idolRow, second, inventories.DisplacedByPlace(idolRow, 2, 0, ShapeOf)));
+        Assert.Equal("limited to 1", GameEvents.FirstInventoryRefusal(player, idolRow, second, inventories.DisplacedByPlace(idolRow, 2, 0, ShapeOf)));
         // Swapping onto a different unique while the first copy sits elsewhere is still refused.
         Assert.Equal(placedOther.Id, inventories.DisplacedByPlace(idolRow, 1, 0, ShapeOf)?.Id);
-        Assert.Equal("limited to 1", GameEvents.FirstInventoryRefusal(conn, idolRow, second, inventories.DisplacedByPlace(idolRow, 1, 0, ShapeOf)));
-        Assert.Equal("limited to 1", GameEvents.FirstInventoryRefusal(conn, idolRow, second, inventories.DisplacedByMerge(idolRow, placedOther.Id, ShapeOf)));
+        Assert.Equal("limited to 1", GameEvents.FirstInventoryRefusal(player, idolRow, second, inventories.DisplacedByPlace(idolRow, 1, 0, ShapeOf)));
+        Assert.Equal("limited to 1", GameEvents.FirstInventoryRefusal(player, idolRow, second, inventories.DisplacedByMerge(idolRow, placedOther.Id, ShapeOf)));
         // Swapping onto the existing copy of the same unique passes replaced = placedFirst and succeeds (both 0x2a and 0x4a).
         Assert.Equal(placedFirst.Id, inventories.DisplacedByPlace(idolRow, 0, 0, ShapeOf)?.Id);
         Assert.Equal(placedFirst.Id, inventories.DisplacedByMerge(idolRow, placedFirst.Id, ShapeOf)?.Id);
-        Assert.Null(GameEvents.FirstInventoryRefusal(conn, idolRow, second, inventories.DisplacedByPlace(idolRow, 0, 0, ShapeOf)));
-        Assert.Null(GameEvents.FirstInventoryRefusal(conn, idolRow, second, inventories.DisplacedByMerge(idolRow, placedFirst.Id, ShapeOf)));
+        Assert.Null(GameEvents.FirstInventoryRefusal(player, idolRow, second, inventories.DisplacedByPlace(idolRow, 0, 0, ShapeOf)));
+        Assert.Null(GameEvents.FirstInventoryRefusal(player, idolRow, second, inventories.DisplacedByMerge(idolRow, placedFirst.Id, ShapeOf)));
         var swap = inventories.Place(idolRow, 0, 0, ShapeOf, out _);
         Assert.NotNull(swap);
         Assert.Equal(placedFirst.Id, swap.Displaced?.Id);

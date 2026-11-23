@@ -2,7 +2,7 @@
 # Regenerate the input with (about 15 s):
 #   bash scripts/re/ghidra/g.sh SendSites.java 'C:\...\Tools\re\out\sendsites.json'
 # Also reads Tools/re/out/decomp-all (writer lengths), Tools/re/out/readschema.json (shared S->C classes) and
-# Client/Game.exe (vtable slots). Exits 1 if an exact length disagrees with the Gateway's KnownClientLength.
+# Client/Game.exe (vtable slots). Exits 1 if an exact length disagrees with the Gateway's ClientPackets.
 import argparse, collections, json, os, re, struct, sys
 
 REPO = os.path.dirname(os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
@@ -100,41 +100,23 @@ def gateway_framing():
             raise ValueError(f"cannot resolve Gateway constant {token}")
         return constants[qualified]
 
-    protocol = os.path.join(REPO, "src", "GameServer.Core", "Protocol", "Instance", "InstanceProtocol.cs")
-    with open(protocol, encoding="utf-8") as source:
+    catalog = os.path.join(REPO, "src", "GameServer.Core", "Protocol", "Instance", "ClientPackets.cs")
+    with open(catalog, encoding="utf-8") as source:
         text = re.sub(r"//[^\n]*", "", source.read())
-
-    def section(start, end):
-        _, start_found, rest = text.partition(start)
-        body, end_found, _ = rest.partition(end)
-        if not (start_found and end_found):
-            raise ValueError(f"cannot locate {start} in InstanceProtocol")
-        return body
-
-    _, opening, table = section("KnownClientLength(ushort id) => id switch", "};").partition("{")
-    if not opening:
-        raise ValueError("cannot locate the KnownClientLength switch body")
-    fixed = {}
-    for part in table.split(","):
-        if not part.strip():
-            continue
-        arm = re.fullmatch(r"([\w.]+)\s*=>\s*([\w.]+)", part.strip())
-        if not arm:
-            raise ValueError(f"unsupported KnownClientLength arm {part.strip()}")
-        key, length = arm.groups()
-        if (key, length) == ("_", "null"):
-            continue
-        packet_id = resolve(key)
-        if packet_id in fixed:
-            raise ValueError(f"duplicate Gateway fixed length for {packet_id:#06x}")
-        fixed[packet_id] = resolve(length)
-
-    framers = section("int? known =", ": KnownClientLength(id);")
-    patterns = re.findall(r"(?m)^\s*:?\s*id\s+(?:==|is)\s+([\w.]+(?:\s+or\s+[\w.]+)*)\s*\?", framers)
-    if len(patterns) != len(re.findall(r"(?<!\?)\?(?!\?)", framers)):
-        raise ValueError("unsupported SplitClientMessages framing condition")
-    excluded = {resolve("TicketId"), resolve("HelloId")}
-    excluded.update(resolve(token) for pattern in patterns for token in re.split(r"\s+or\s+", pattern))
+    _, found, rows = text.partition("static readonly ClientPacket[] Rows =")
+    rows, closed, _ = rows.partition("];")
+    if not (found and closed):
+        raise ValueError("cannot locate the ClientPackets rows")
+    fixed, excluded = {}, {resolve("TicketId"), resolve("HelloId")}
+    for kind, args in re.findall(r"\b([PV])\(([^()]*)\)", rows):
+        parts = [part.strip() for part in args.split(",")]
+        packet_id = resolve(parts[0])
+        if packet_id in fixed or packet_id in excluded:
+            raise ValueError(f"duplicate ClientPackets row for {packet_id:#06x}")
+        if kind == "V":
+            excluded.add(packet_id)
+        else:
+            fixed[packet_id] = resolve(parts[1])
     return fixed, excluded
 
 
@@ -275,7 +257,7 @@ def generate(sendsites):
           "**Length** is the whole message in bytes, id included, when the writer is exact (only fixed-size stream writes,",
           "no branch, no call that takes the stream). `≥ N` = N fixed bytes plus variable or conditional parts.", "",
           "## Validation against the Gateway", "",
-          f"`InstanceProtocol.KnownClientLength` has {len(gw)} fixed lengths: {agree} agree with an exact extracted length, "
+          f"`ClientPackets` has {len(gw)} fixed lengths: {agree} agree with an exact extracted length, "
           f"{len(bad)} disagree" + (": " + ", ".join(f"{i:#x} (Gateway {n}, extracted {x})" for i, n, x in bad) if bad else "")
           + (f"; {len(missing)} not found: " + ", ".join(f"{i:#x}" for i in missing) if missing else "")
           + (f"; {len(nolen)} have no exact extracted length (branching or variable writers): " + ", ".join(f"{i:#x}" for i in nolen) if nolen else "") + ".", ""]

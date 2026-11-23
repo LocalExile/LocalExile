@@ -7,8 +7,8 @@
 /// </summary>
 public static class LifeReservation
 {
-    public const string ItemPercentStat = "life_reserved_by_stat_%";
-    public const string EnergyShieldPerReservedStat = "maximum_energy_shield_+_per_100_life_reserved";
+    public const uint ItemPercentStat = Stat.LifeReservedByStatPct;
+    public const uint EnergyShieldPerReservedStat = Stat.MaximumEnergyShieldPlusPer100LifeReserved;
 
     public readonly record struct Value(int Maximum, int ItemReserved, int SkillRequired, int Reserved, int Unreserved)
     {

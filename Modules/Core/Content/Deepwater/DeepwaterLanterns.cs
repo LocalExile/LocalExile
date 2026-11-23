@@ -21,27 +21,28 @@ internal static class DeepwaterLanterns
     /// <summary>A candidate at least 60 cells from the cursor is dropped (<c>d2 &lt; 3601</c>).</summary>
     const long CursorReach = 3601;
 
-    static readonly Lazy<StateMachineData?> States = new(() => ObjectTypes.All().Where(t => t.Type == DeepwaterConstants.Lantern)
-        .Select(t => ObjectTypes.StateMachine(t.Row, ObjectTypes.SharedStates())).FirstOrDefault());
+    static StateMachineData? States;
+
+    public static void LoadGameData() => States = ObjectTypes.All().Where(t => t.Type == DeepwaterConstants.Lantern)
+        .Select(t => ObjectTypes.StateMachine(t.Row, ObjectTypes.SharedStates())).FirstOrDefault();
 
     /// <summary>The run's lantern count: a Chart's or a Voyage's, a Voyage 40 more once the league's first Voyage is done
     /// (league quest flag 1893; G that this flag is the one, the wiki gives 65), plus ship upgrade row 0
     /// (<c>LQF 1829</c>, <c>map_deepwater_max_lanterns +1</c>).</summary>
-    public static int Total(ClientState conn, bool voyage)
+    public static int Total(Player player, bool voyage)
     {
-        int extra = DeepwaterUpgrades.ExtraLanterns(conn);
+        int extra = DeepwaterUpgrades.ExtraLanterns(player);
         if (!voyage) return DeepwaterConstants.BaseLanternCount1x1 + extra;
-        bool more;
-        lock (conn.Monsters) more = conn.LeagueQuestFlags.Contains(DeepwaterConstants.VoyagesEnabledLeagueFlag);
+        bool more = player.Character.LeagueQuestFlags.Contains(DeepwaterConstants.VoyagesEnabledLeagueFlag);
         return DeepwaterConstants.BaseLanternCountVoyage + (more ? DeepwaterConstants.VoyagesEnabledExtraLanterns : 0) + extra;
     }
 
-    static readonly ConditionalWeakTable<ClientState, StrongBox<double>> AutoCooldowns = new();
+    static readonly ConditionalWeakTable<Player, StrongBox<double>> AutoCooldowns = new();
     const double AutoCooldownSeconds = 0.5;
     const int AutoEdgeMargin = 20;
 
     /// <summary>Clears any cached Auto-Lanterns cooldown when a connection leaves an area.</summary>
-    public static void ForgetAuto(ClientState conn) => AutoCooldowns.Remove(conn);
+    public static void ForgetAuto(Player player) => AutoCooldowns.Remove(player);
 
     /// <summary>Clears cached Auto-Lanterns state on module unload.</summary>
     internal static void ClearCache() => AutoCooldowns.Clear();
@@ -49,24 +50,22 @@ internal static class DeepwaterLanterns
     /// <summary>Server-side Auto-Lanterns (<c>LQF 1841</c>): when enabled, on a <c>0.5 s</c> cooldown while exploring,
     /// places a lantern automatically as the controller approaches the edge of light (<c>BaseLanternRadius − 20</c>),
     /// outside the deck and Velka's boss arena. Zero allocations when <c>LQF 1841</c> is off.</summary>
-    public static (int X, int Y)? TryAutoLantern(ClientState conn, DeepwaterRun run, double now, out string note)
+    public static (int X, int Y)? TryAutoLantern(Player player, DeepwaterRun run, double now, out string note)
     {
         note = "";
-        if (run.Phase != DeepwaterRun.RunPhase.Exploring || conn.PlayerLife == 0 || conn.Closed || conn.LeavingArea)
+        if (run.Phase != DeepwaterRun.RunPhase.Exploring || player.PlayerLife == 0 || player.Closed || player.LeavingArea)
             return null;
-        bool auto;
-        lock (conn.Monsters) auto = conn.LeagueQuestFlags.Contains(DeepwaterConstants.AutoLanternsLeagueFlag);
-        if (!auto) return null;
-        if (!CharacterName(conn).Equals(run.Controller, StringComparison.OrdinalIgnoreCase)
-            || !ClientHasQuestFlag(conn, DeepwaterConstants.LanternController))
+        if (!player.Character.LeagueQuestFlags.Contains(DeepwaterConstants.AutoLanternsLeagueFlag)) return null;
+        if (!CharacterName(player).Equals(run.Controller, StringComparison.OrdinalIgnoreCase)
+            || !ClientHasQuestFlag(player, DeepwaterConstants.LanternController))
             return null;
         lock (run.Gate) if (run.Placed >= run.Total) return null;
 
-        var gate = AutoCooldowns.GetValue(conn, _ => new StrongBox<double>(0));
+        var gate = AutoCooldowns.GetValue(player, _ => new StrongBox<double>(0));
         if (now < gate.Value) return null;
 
-        var player = conn.Walk.Position(now);
-        if (run.Board.OnDeck(player) || DeepwaterVelka.InArenaLight(run, player)) return null;
+        var pos = player.Walk.Position(now);
+        if (run.Board.OnDeck(pos) || DeepwaterVelka.InArenaLight(run, pos)) return null;
 
         int threshold = Math.Max(DeepwaterConstants.MinimumLanternRadius, DeepwaterConstants.BaseLanternRadius - AutoEdgeMargin);
         long thresholdSq = (long)threshold * threshold;
@@ -78,14 +77,14 @@ internal static class DeepwaterLanterns
             {
                 var l = run.Lanterns[i];
                 if (l.Radius(now) <= 0) continue;
-                long dx = player.X - l.X, dy = player.Y - l.Y;
+                long dx = pos.X - l.X, dy = pos.Y - l.Y;
                 if (dx * dx + dy * dy <= thresholdSq) return null;
             }
             anchors = [.. run.Lanterns];
         }
 
         gate.Value = now + AutoCooldownSeconds;
-        if (Snap(conn, run, player, out note) is { } snapped) return snapped;
+        if (Snap(player, run, pos, out note) is { } snapped) return snapped;
 
         // Fallback: project BaseLanternPlacementRange from the closest anchor toward the player when the player walked
         // slightly past Snap's cursor reach.
@@ -97,12 +96,12 @@ internal static class DeepwaterLanterns
         for (int i = 0; i < anchors.Length; i++)
         {
             var a = anchors[i];
-            int vx = player.X - a.X, vy = player.Y - a.Y;
+            int vx = pos.X - a.X, vy = pos.Y - a.Y;
             float len = MathF.Sqrt((float)vx * vx + (float)vy * vy);
             if (len < 1f) continue;
             float s = range / len;
             var p = (X: a.X + (int)MathF.Floor(vx * s + 0.5f), Y: a.Y + (int)MathF.Floor(vy * s + 0.5f));
-            long dx = p.X - player.X, dy = p.Y - player.Y;
+            long dx = p.X - pos.X, dy = p.Y - pos.Y;
             long d2 = dx * dx + dy * dy;
             if (d2 > maxReach || d2 >= bestDistSq) continue;
             bool tooClose = false;
@@ -114,13 +113,13 @@ internal static class DeepwaterLanterns
             if (!tooClose) (best, bestDistSq) = (p, d2);
         }
         if (best is not { } target) return null;
-        if (conn.Layout.WalkableFor(target.X, target.Y, 3)) return target;
+        if (player.Layout.WalkableFor(target.X, target.Y, 3)) return target;
         for (int r = 1; r <= 9; r++)
             for (int dy = -r; dy <= r; dy++)
                 for (int dx = -r; dx <= r; dx++)
                 {
                     if (Math.Abs(dx) != r && Math.Abs(dy) != r) continue;
-                    if (conn.Layout.WalkableFor(target.X + dx, target.Y + dy, 3))
+                    if (player.Layout.WalkableFor(target.X + dx, target.Y + dy, 3))
                         return (target.X + dx, target.Y + dy);
                 }
         return null;
@@ -130,9 +129,9 @@ internal static class DeepwaterLanterns
     /// 0 for one shown again; <c>dropped</c> = the animation either way, which goes straight to idle; its collapse states)
     /// with its light task as it stands now (none once it went out), then its anchor. False when the type is not written
     /// (its components or states are missing).</summary>
-    public static async Task<bool> Show(IModuleContext module, ClientState conn, DeepwaterRun run, DeepwaterRun.Lantern lantern, bool dropping)
+    public static async Task<bool> Show(IModuleContext module, Player player, DeepwaterRun run, DeepwaterRun.Lantern lantern, bool dropping)
     {
-        double now = conn.Clock.Elapsed.TotalSeconds;
+        double now = AreaTime(player);
         lantern = lantern.Restated(now);
         bool shrinking, extinguished, collected;
         lock (run.Gate)
@@ -140,11 +139,11 @@ internal static class DeepwaterLanterns
             var shrink = run.Shrinks.GetValueOrDefault(lantern.Id);
             (shrinking, extinguished, collected) = (shrink?.Started == true, shrink?.Out == true, run.Flared.Contains(lantern.Id));
         }
-        var player = PlayerOf(conn);
-        if (QuestObjectTypes.Find(DeepwaterConstants.Lantern) is not { } info || States.Value is not { } states
+        var modPlayer = PlayerOf(player);
+        if (QuestObjectTypes.Find(DeepwaterConstants.Lantern) is not { } info || States is not { } states
             || !QuestObject.CanSerialize(info.Components, true))
         {
-            module.Log($"{player.Character}: the Lantern's components are not written ({string.Join(", ", QuestObjectTypes.Find(DeepwaterConstants.Lantern)?.Components ?? [])})");
+            module.Log($"{modPlayer.Character}: the Lantern's components are not written ({string.Join(", ", QuestObjectTypes.Find(DeepwaterConstants.Lantern)?.Components ?? [])})");
             return false;
         }
         var blob = new QuestObject(lantern.X, lantern.Y, info.Components, 0, null, info.Model)
@@ -153,56 +152,56 @@ internal static class DeepwaterLanterns
                 .Set("shrinking", shrinking ? 1 : 0).Set("extinguished", extinguished ? 1 : 0),
             Tasks = extinguished ? [] : [(DeepwaterConstants.LanternTask, lantern.TaskData())],
         }.Blob();
-        if (!await global::Game.SendWorldCreate(player, lantern.Id, InstanceEntities.CreateObject(lantern.Id, InstanceEntities.ObjectTypeHash(DeepwaterConstants.Lantern), blob),
+        if (!await global::Game.SendWorldCreate(modPlayer, lantern.Id, InstanceEntities.CreateObject(lantern.Id, InstanceEntities.ObjectTypeHash(DeepwaterConstants.Lantern), blob),
             $"0x02bb Allflame lantern {lantern.Order} 0x{lantern.Id:x} at ({lantern.X}, {lantern.Y}), task (a {lantern.A}, {lantern.RateA}/s, b {lantern.B}, {lantern.RateB}/s)"))
             return false;
-        await global::Game.SendWorldRecord(player, lantern.Id, InstanceProtocol.EnterWakeZone(lantern.Id));
-        WorldOf(player).SetBlocker(lantern.Id, lantern.X, lantern.Y, Math.Max(1, info.Size));
+        await global::Game.SendWorldRecord(modPlayer, lantern.Id, InstanceProtocol.EnterWakeZone(lantern.Id));
+        WorldOf(modPlayer).SetBlocker(lantern.Id, lantern.X, lantern.Y, Math.Max(1, info.Size));
         if (DeepwaterRuleset.Anchor(lantern.X, lantern.Y, lantern.Id) is { } anchor)
-            await player.Send(anchor, $"0x02c9 ruleset DeepwaterRules mode 0: lantern anchor ({lantern.X}, {lantern.Y}) 0x{lantern.Id:x}");
+            await modPlayer.Send(anchor, $"0x02c9 ruleset DeepwaterRules mode 0: lantern anchor ({lantern.X}, {lantern.Y}) 0x{lantern.Id:x}");
         return true;
     }
 
     /// <summary>The lantern's <c>collected_resource</c> = 1 (0x2bc to its StateMachine): its collection flare, the beam to
     /// the Sulphur it gathered.</summary>
-    public static Task Flare(ClientState conn, DeepwaterRun.Lantern lantern) =>
-        SendStates(conn, lantern, collected: true, shrinking: false, extinguished: false, "collected_resource = 1");
+    public static Task Flare(Player player, DeepwaterRun.Lantern lantern) =>
+        SendStates(player, lantern, collected: true, shrinking: false, extinguished: false, "collected_resource = 1");
 
     /// <summary>The lantern's StateMachine (0x2bc) with every state the server sets: the drop animation, the collection
     /// flare and the collapse's <c>shrinking</c> (the flicker) and <c>extinguished</c>.</summary>
-    public static async Task SendStates(ClientState conn, DeepwaterRun.Lantern lantern, bool collected, bool shrinking, bool extinguished, string why)
+    public static async Task SendStates(Player player, DeepwaterRun.Lantern lantern, bool collected, bool shrinking, bool extinguished, string why)
     {
-        if (QuestObjectTypes.Find(DeepwaterConstants.Lantern) is not { } info || States.Value is not { } states) return;
+        if (QuestObjectTypes.Find(DeepwaterConstants.Lantern) is not { } info || States is not { } states) return;
         int index = info.Components.ToList().IndexOf("StateMachine");
         if (index < 0) return;
         var update = states.Set("drop", lantern.Drop).Set("dropped", lantern.Drop).Set("collected_resource", collected ? 1 : 0)
             .Set("shrinking", shrinking ? 1 : 0).Set("extinguished", extinguished ? 1 : 0);
-        await global::Game.SendWorldRecord(PlayerOf(conn), lantern.Id, InstanceEntities.StateMachineUpdate(lantern.Id, (byte)index, update),
+        await global::Game.SendWorldRecord(PlayerOf(player), lantern.Id, InstanceEntities.StateMachineUpdate(lantern.Id, (byte)index, update),
             $"0x02bc Allflame lantern {lantern.Order} 0x{lantern.Id:x} {why}");
     }
 
     /// <summary>S→C 0x2c3: the lantern's light task restarts from its new data (a, rate_a, b, rate_b).</summary>
-    public static Task SendTask(ClientState conn, DeepwaterRun.Lantern lantern, string why) =>
-        global::Game.SendWorldRecord(PlayerOf(conn), lantern.Id, InstanceEntities.UpdateTask(lantern.Id, DeepwaterConstants.LanternTask, lantern.TaskData()),
+    public static Task SendTask(Player player, DeepwaterRun.Lantern lantern, string why) =>
+        global::Game.SendWorldRecord(PlayerOf(player), lantern.Id, InstanceEntities.UpdateTask(lantern.Id, DeepwaterConstants.LanternTask, lantern.TaskData()),
             $"0x02c3 Allflame lantern {lantern.Order} 0x{lantern.Id:x} task (a {lantern.A:0.###}, {lantern.RateA:0.###}/s, b {lantern.B:0.###}, {lantern.RateB:0.###}/s): {why}");
 
     /// <summary>S→C 0x2c5: the lantern's light task ends (it went out).</summary>
-    public static Task RemoveTask(ClientState conn, DeepwaterRun.Lantern lantern) =>
-        global::Game.SendWorldRecord(PlayerOf(conn), lantern.Id, InstanceEntities.RemoveTask(lantern.Id, DeepwaterConstants.LanternTask),
+    public static Task RemoveTask(Player player, DeepwaterRun.Lantern lantern) =>
+        global::Game.SendWorldRecord(PlayerOf(player), lantern.Id, InstanceEntities.RemoveTask(lantern.Id, DeepwaterConstants.LanternTask),
             $"0x02c5 Allflame lantern {lantern.Order} 0x{lantern.Id:x} task removed (extinguished)");
 
-    public static async Task SendCount(ClientState conn, DeepwaterRun run)
+    public static async Task SendCount(Player player, DeepwaterRun run)
     {
         int placed, total;
         lock (run.Gate) (placed, total) = (run.Placed, run.Total);
         if (DeepwaterRuleset.Lanterns(placed, total) is { } count)
-            await PlayerOf(conn).Send(count, $"0x02c9 ruleset DeepwaterRules mode 2: lanterns {placed}/{total}");
+            await PlayerOf(player).Send(count, $"0x02c9 ruleset DeepwaterRules mode 2: lanterns {placed}/{total}");
     }
 
     /// <summary>Atomically adds a new lantern of the run at (x, y) under <c>run.Gate</c>, returning null if
     /// <paramref name="counts"/> is true and the run is no longer exploring or has no lanterns left (prevents concurrent
     /// manual + Auto-Lanterns races). Lit at full radius for good (task (1, 0, 1, 0)), random drop animation 1-3 (G).</summary>
-    public static DeepwaterRun.Lantern? TryAdd(ClientState conn, DeepwaterRun run, int x, int y, bool counts, out int placed, out int total)
+    public static DeepwaterRun.Lantern? TryAdd(Player player, DeepwaterRun run, int x, int y, bool counts, out int placed, out int total)
     {
         bool consume = counts && DeepwaterChartStats.ConsumesLantern(run.CellRules, run.CellIndex(x, y));
         lock (run.Gate)
@@ -212,8 +211,8 @@ internal static class DeepwaterLanterns
                 (placed, total) = (run.Placed, run.Total);
                 return null;
             }
-            var lantern = new DeepwaterRun.Lantern(conn.TakeObjectId(), x, y, 1, 0, 1, 0, conn.Clock.Elapsed.TotalSeconds,
-                Random.Shared.Next(1, 4), run.Lanterns.Count);
+            var lantern = new DeepwaterRun.Lantern(player.TakeObjectId(), x, y, 1, 0, 1, 0, AreaTime(player),
+                AreaRng(player).Next(1, 4), run.Lanterns.Count);
             run.Lanterns.Add(lantern);
             if (consume) run.Placed++;
             (placed, total) = (run.Placed, run.Total);
@@ -226,15 +225,15 @@ internal static class DeepwaterLanterns
     /// client's snap (<see cref="Snap"/>) finds a cell for the cursor. The client does not ask for the player to stand in
     /// light, so neither does the server: a player who has just stepped into the dark may still place one to save
     /// themselves.</summary>
-    public static string? Refusal(ClientState conn, DeepwaterRun run, (int X, int Y) cursor, out (int X, int Y) at, out string note)
+    public static string? Refusal(Player player, DeepwaterRun run, (int X, int Y) cursor, out (int X, int Y) at, out string note)
     {
         (at, note) = (cursor, "");
-        if (!CharacterName(conn).Equals(run.Controller, StringComparison.OrdinalIgnoreCase)
-            || !ClientHasQuestFlag(conn, DeepwaterConstants.LanternController)) return "not the lantern controller";
+        if (!CharacterName(player).Equals(run.Controller, StringComparison.OrdinalIgnoreCase)
+            || !ClientHasQuestFlag(player, DeepwaterConstants.LanternController)) return "not the lantern controller";
         if (run.Phase != DeepwaterRun.RunPhase.Exploring) return $"the run is {run.Phase}";
         lock (run.Gate) if (run.Placed >= run.Total) return $"no lanterns left ({run.Placed}/{run.Total})";
-        if (conn.PlayerLife == 0) return "dead";
-        if (Snap(conn, run, cursor, out string why) is not { } snapped) return why;
+        if (player.PlayerLife == 0) return "dead";
+        if (Snap(player, run, cursor, out string why) is not { } snapped) return why;
         (at, note) = (snapped, why);
         return null;
     }
@@ -249,9 +248,9 @@ internal static class DeepwaterLanterns
     /// The player-distance tests run with the client's limits, then, when no candidate fits, with <see cref="Slack"/>
     /// more, as the server's estimate of the player trails the client's.
     /// With a cell, <paramref name="why"/> is a note for the log (empty, or the blocked line).</summary>
-    public static (int X, int Y)? Snap(ClientState conn, DeepwaterRun run, (int X, int Y) cursor, out string why)
+    public static (int X, int Y)? Snap(Player player, DeepwaterRun run, (int X, int Y) cursor, out string why)
     {
-        var player = conn.Walk.Position(conn.Clock.Elapsed.TotalSeconds);
+        var pos = player.Walk.Position(AreaTime(player));
         int range = DeepwaterConstants.BaseLanternPlacementRange;
         long apart = (long)(range - 5) * (range - 5);
         var anchors = run.Snapshot();
@@ -260,7 +259,7 @@ internal static class DeepwaterLanterns
         var best = Pick(PlayerReach, Behind) ?? Pick(PlayerReach + Slack, Behind + Slack);
         if (best is not { } at)
         {
-            why = $"no lantern in reach of the cursor ({cursor.X}, {cursor.Y}) with the player at ({player.X}, {player.Y})";
+            why = $"no lantern in reach of the cursor ({cursor.X}, {cursor.Y}) with the player at ({pos.X}, {pos.Y})";
             return null;
         }
         if (!Walkable(at.X, at.Y))
@@ -282,8 +281,8 @@ internal static class DeepwaterLanterns
         }
         // The client also refuses a line from the player crossing its layer 1 below 1 (0x141d8a7f0). G: with the
         // server's trailing estimate of the player that test would refuse lanterns the client allowed, so it is logged.
-        why = conn.Layout.Sight is { } sight && ClientPathfinder.LineBelow(player, at, sight, 1)
-            ? $" (the line from the player's estimate ({player.X}, {player.Y}) is blocked; placed anyway)" : "";
+        why = player.Layout.Sight is { } sight && ClientPathfinder.LineBelow(pos, at, sight, 1)
+            ? $" (the line from the player's estimate ({pos.X}, {pos.Y}) is blocked; placed anyway)" : "";
         return at;
 
         (int X, int Y)? Pick(int reach, int back)
@@ -299,16 +298,16 @@ internal static class DeepwaterLanterns
                 (int X, int Y) p = (a.X + (int)MathF.Floor(vx * s + 0.5f), a.Y + (int)MathF.Floor(vy * s + 0.5f));
                 long d2 = Square(p.X - cursor.X, p.Y - cursor.Y);
                 if (d2 >= CursorReach) continue;
-                long wx = p.X - player.X, wy = p.Y - player.Y, w2 = wx * wx + wy * wy;
+                long wx = p.X - pos.X, wy = p.Y - pos.Y, w2 = wx * wx + wy * wy;
                 if (w2 >= far) continue;
-                if (wx * (cursor.X - player.X) + wy * (cursor.Y - player.Y) < 0 && w2 >= behind) continue;
+                if (wx * (cursor.X - pos.X) + wy * (cursor.Y - pos.Y) < 0 && w2 >= behind) continue;
                 if (anchors.Any(b => Square(b.X - p.X, b.Y - p.Y) <= apart)) continue;
                 // The client sorts by d2 ascending (0x141fd6240); the first kept of equals wins here (G for ties).
                 if (d2 < bestD2) (best, bestD2) = (p, d2);
             }
             return best;
         }
-        bool Walkable(int x, int y) => conn.Layout.WalkableFor(x, y, 3);
+        bool Walkable(int x, int y) => player.Layout.WalkableFor(x, y, 3);
         static long Square(long x, long y) => x * x + y * y;
     }
 }

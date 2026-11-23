@@ -76,15 +76,14 @@ Items keep the Roadmap's priority groups, and are in rough priority order within
   This follows the real game on purpose: the area and position a character was in are not saved, because the real
   client never logs anyone into them.
   New characters start on The Twilight Strand and log in there until they enter a town;
-  the ground weapon, dying-exile/zombie skill-gem encounter and support chest are implemented and live-checked.
-  Tutorial popup acknowledgements and force walls 1/2 remain open, and placements still need local captures.
+  the ground weapon (with `auto_equip` on pickup), dying-exile/zombie skill-gem encounter, support chest, `C→S 0x020a`
+  tutorial skip/completion flags, force walls 1/2/3, and Doorman are implemented.
   Hillock's death (quest a1q1) opens the gate into Lioneye's Watch ([12](../docs/protocol/12-quests.md) §6).
   The death screen's "Resurrect in Town" goes to the last town, with a loading screen, and is not offered before the
   character has one; "Resurrect at Checkpoint" goes next to the area's activated waypoint, else to the area's arrival
   point ([09](../docs/protocol/09-area-change.md) §7).
 - **Done when** (low priority: the start and the gate work, these are visual): the Strand's gate plays its opening
-  when Hillock dies, the force wall blocks the way while he lives and the Doorman opens the door
-  ([12](../docs/protocol/12-quests.md) §6, "The gate's animation");
+  animation when Hillock dies ([12](../docs/protocol/12-quests.md) §6, "The gate's animation");
   "Resurrect at Checkpoint" goes to the last activated checkpoint of the area, with no loading screen.
   Waypoints are checkpoints, and the activated waypoint is done;
   the separate `Metadata/MiscellaneousObjects/Checkpoint` objects are not placed yet, so "last activated" across
@@ -197,7 +196,7 @@ Items keep the Roadmap's priority groups, and are in rough priority order within
   swap places between client and server ([07](../docs/protocol/07-latency-visibility-movement.md) §5, "Open").
 - **Lockstep network mode:** the server decides every action and the client plays it back by server frames, each
   action start putting the client on the server's cell, which ends the parted copies of a crowd.
-  It works locally when selected by the client; Predictive remains preferred, and network parity is not verified
+  It is the default way of playing (a client is served in it until it sends predictive messages); network parity is not verified
   ([status](../status/world.md)).
   - **Known:** M5's dormant-body membership and saved-cell restoration are accepted with open issues.
     The player's walk, attacks, spells, pick-ups and object uses, monsters' orders, hit recoveries, emerges and

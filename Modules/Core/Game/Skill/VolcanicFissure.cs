@@ -33,7 +33,7 @@ public static partial class Game
 {
     static bool IsVolcanicFissure(int effect) => Skills.EffectId(effect) == "VolcanicFissure";
 
-    static void ScheduleFissureEruption(ClientState conn, ProjectileSession session, ushort skillId,
+    static void ScheduleFissureEruption(Player player, ProjectileSession session, ushort skillId,
         (ushort Id, int Effect, string Name, int Level, int Quality, uint Gem) gem,
         (int X, int Y) from, (int X, int Y) end, double now, int epoch, SkillCriticalRoll roll,
         ushort sequence, int repeat, double more, bool cryExerted)
@@ -42,15 +42,15 @@ public static partial class Game
         var direction = (origin - ProjectileSession.Vector(from)).Unit;
         var aim = direction.Length > 0 ? origin + direction * 20 : origin + new ProjectileVector(20, 0);
         var target = ((int)Math.Round(aim.X), (int)Math.Round(aim.Y));
-        var use = CaptureGemProjectile(conn, session, skillId, gem, target, roll, sequence,
+        var use = CaptureGemProjectile(player, session, skillId, gem, target, roll, sequence,
             cryExerted: cryExerted, repeat: repeat);
         var shot = (ProjectileOffense)use.Payload!;
         var profile = use.Profile with
         {
-            NativeVolley = new() { Angles = RandomVolleyAngles(sequence, use.Profile.Count, PlayerId, aim - origin, (uint)repeat) }
+            NativeVolley = new() { Angles = RandomVolleyAngles(sequence, use.Profile.Count, player.Id, aim - origin, (uint)repeat) }
         };
         session.Schedule(ProjectileRuntime.Time(now + GroundSlamWave.AdvanceSeconds(Dist(from, end))),
-            () => conn.ProjectileActive(epoch) && conn.PlayerLife > 0,
+            () => player.ProjectileActive(epoch) && player.PlayerLife > 0,
             () => use with
             {
                 Origin = origin, Aim = aim, Profile = profile,

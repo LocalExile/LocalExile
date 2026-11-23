@@ -11,166 +11,169 @@ static class VendorsFeature
     static bool CampaignLilly(string id) => id is "Metadata/NPC/Act6/Lilly" or "Metadata/NPC/Act10/Lilly"
         or "Metadata/NPC/Epilogue/Lilly" or "Metadata/NPC/Epilogue/Lilly2";
 
-    internal static async Task<bool> BeginLillyGemIntroduction(ClientState conn, uint id, SpawnedNpc npc)
+    internal static async Task<bool> BeginLillyGemIntroduction(Player player, uint id, SpawnedNpc npc)
     {
-        if (!CampaignLilly(npc.Npc.Id) || LeagueFor(conn).HardMode || conn.LeagueQuestFlags.Contains(LillyGemShopLeagueFlag)) return false;
-        var flags = conn.QuestFlagsSnapshot();
+        if (!CampaignLilly(npc.Npc.Id) || LeagueFor(player).HardMode || player.Character.LeagueQuestFlags.Contains(LillyGemShopLeagueFlag)) return false;
+        var flags = player.Character.QuestFlagsSnapshot();
         // These rows have an account context, so the generic automatic-conversation selector leaves them to a module.
-        var talk = Npcs.Value.TalksOf(npc.Npc).FirstOrDefault(t => t.Introduction
+        var talk = Npcs.TalksOf(npc.Npc).FirstOrDefault(t => t.Introduction
             && t.StartFlag == GemVendorStock.LillyUnlock && t.Available(flags));
         if (talk is null) return false;
-        var (remote, stream, ciphers) = conn.Wire;
-        await global::Game.ExecuteQuestConversation(remote, stream, ciphers, conn, id, npc, talk);
-        return conn.InNpcTalk;
+        await global::Game.ExecuteQuestConversation(player, id, npc, talk);
+        return player.InNpcTalk;
     }
 
-    internal static async Task FinishLillyGemIntroduction(ClientState conn)
+    internal static async Task FinishLillyGemIntroduction(Player player)
     {
-        if (!conn.InNpcTalk || conn.NpcFinishFlag != GemVendorStock.LillyUnlock
-            || conn.LeagueQuestFlags.Contains(LillyGemShopLeagueFlag)) return;
-        lock (conn.Npcs)
-            if (conn.Npcs.GetValueOrDefault(conn.TalkingTo) is not { } npc || !CampaignLilly(npc.Npc.Id)) return;
-        var (remote, stream, ciphers) = conn.Wire;
-        await SetLeagueQuestFlags(remote, stream, ciphers, conn, [LillyGemShopLeagueFlag]);
+        if (!player.InNpcTalk || player.NpcFinishFlag != GemVendorStock.LillyUnlock
+            || player.Character.LeagueQuestFlags.Contains(LillyGemShopLeagueFlag)) return;
+        lock (player.Npcs)
+            if (player.Npcs.GetValueOrDefault(player.TalkingTo) is not { } npc || !CampaignLilly(npc.Npc.Id)) return;
+        await SetLeagueQuestFlags(player, [LillyGemShopLeagueFlag]);
     }
 
-    internal static IReadOnlySet<string> VendorQuestFlags(ClientState conn)
+    internal static IReadOnlySet<string> VendorQuestFlags(Player player)
     {
-        var flags = conn.QuestFlagsSnapshot();
-        if (conn.LeagueQuestFlags.Contains(LillyGemShopLeagueFlag)) flags.Add(GemVendorStock.LillyUnlock);
+        var flags = player.Character.QuestFlagsSnapshot();
+        if (player.Character.LeagueQuestFlags.Contains(LillyGemShopLeagueFlag)) flags.Add(GemVendorStock.LillyUnlock);
         return flags;
     }
 
-    internal static async Task BuyFromShop(string remote, NetworkStream stream, ConnectionCiphers ciphers, ClientState conn, InstanceNpcs.Buy buy)
+    internal static async Task BuyFromShop(Player player, InstanceNpcs.Buy buy)
     {
-        if (conn.NpcRewardOffer is not null)
+        if (player.NpcRewardOffer is not null)
         {
             if (PlayerInventories.Row(buy.InventoryId) is byte rewardRow)
-                await ClaimNpcReward(remote, stream, ciphers, conn, buy.ItemId, rewardRow);
+                await ClaimNpcReward(player, buy.ItemId, rewardRow);
             return;
         }
         if (PlayerInventories.Row(buy.InventoryId) is byte row)
-            await Purchase(remote,stream,ciphers,conn,buy.ItemId,row,buy.X,buy.Y);
+            await Purchase(player,buy.ItemId,row,buy.X,buy.Y);
     }
 
-    internal static async Task CtrlBuyFromShop(string remote, NetworkStream stream, ConnectionCiphers ciphers, ClientState conn, InstanceNpcs.CtrlBuy buy)
+    internal static async Task CtrlBuyFromShop(Player player, InstanceNpcs.CtrlBuy buy)
     {
-        if (conn.NpcRewardOffer is not null) { await ClaimNpcReward(remote,stream,ciphers,conn,buy.ItemId); return; }
-        await Purchase(remote,stream,ciphers,conn,buy.ItemId);
+        if (player.NpcRewardOffer is not null) { await ClaimNpcReward(player,buy.ItemId); return; }
+        await Purchase(player,buy.ItemId);
     }
 
-    static async Task Purchase(string remote, NetworkStream stream, ConnectionCiphers ciphers, ClientState conn,
+    static async Task Purchase(Player player,
         uint id, byte? row = null, byte x = 0, byte y = 0)
     {
-        var shop = conn.Shop;
+        var shop = player.Shop;
         if (shop is null || !shop.Items.TryGetValue(id,out var offer)) return;
-        var items = ItemsOf(conn);
-        var stash = StashOf(conn);
-        var catalog = ItemsFor(conn);
-        if (row is byte requested && LevelTooLow(conn, requested, offer.Item.Item) is { } low)
-        { await conn.Commands!.Reply(low); return; }
+        var items = ItemsOf(player);
+        var stash = StashOf(player);
+        var catalog = ItemsFor(player);
+        if (row is byte requested && LevelTooLow(player, requested, offer.Item.Item) is { } low)
+        { await player.Commands!.Reply(low); return; }
         var before = items.Items(PlayerInventories.MainInventory).Select(i => i.Id).ToArray();
         bool finite = shop.Finite.TryGetValue(id,out var token);
-        bool Consume() => !finite || shop.StockKey is { } key && VendorStock.Consume(CharacterName(conn),key,token,PersonalStashOf(conn));
+        bool Consume() => !finite || shop.StockKey is { } key && VendorStock.Consume(CharacterName(player),key,token,PersonalStashOf(player));
         var bought = offer.Item.Item;
         if (Gambling.OfferOf(shop,id) is { } gamble)
         {
             // A gamble: a new item of the offer's kind at its price. It need not have the shown item's size, so it goes to the
             // cell asked for when it fits there and to the inventory's first free cell otherwise; never straight onto equipment.
-            if (gamble.Roll(Random.Shared) is not { } rolled) { await conn.Commands!.Reply("Nothing to gamble for at your level."); return; }
+            if (gamble.Roll(AreaRng(player)) is not { } rolled) { await player.Commands!.Reply("Nothing to gamble for at your level."); return; }
             bought = rolled with { Price = bought.Price };
             if (row is byte asked && asked != PlayerInventories.MainInventory && asked != PlayerInventories.Cursor) row = null;
         }
         // A gamble window opened before a module reload lost its offers (Gambling.Open): never sell the "Random …" item itself.
         else if (catalog.ByHash(bought.TypeHash)?.Class == "HiddenItem")
-        { await conn.Commands!.Reply("Talk to the gambler again to gamble."); return; }
+        { await player.Commands!.Reply("Talk to the gambler again to gamble."); return; }
         var purchase = ItemMoves.PurchaseVendor(items,
-            shop.Npc.Npc.Id.EndsWith("/Siosa",StringComparison.Ordinal) ? null : stash, PersonalStashOf(conn),
+            shop.Npc.Npc.Id.EndsWith("/Siosa",StringComparison.Ordinal) ? null : stash, PersonalStashOf(player),
             bought,catalog,ShapeOf,Consume,row,x,y);
         if (purchase is null && row is not null && bought != offer.Item.Item)
         {
             row = null;
-            purchase = ItemMoves.PurchaseVendor(items, stash, PersonalStashOf(conn), bought, catalog, ShapeOf, Consume);
+            purchase = ItemMoves.PurchaseVendor(items, stash, PersonalStashOf(player), bought, catalog, ShapeOf, Consume);
         }
-        if (purchase is null) { await conn.Commands!.Reply("Unable to buy: check the price, inventory space and available stock."); return; }
+        if (purchase is null) { await player.Commands!.Reply("Unable to buy: check the price, inventory space and available stock."); return; }
         if (finite) shop.Items.Remove(id);
-        foreach (var payment in purchase.Payments) await SendStashPayment(remote,stream,ciphers,conn,stash,payment.Stash);
-        await Send(remote,stream,ciphers,InstanceItems.InventoryChange(PlayerInventories.InventoryId(PlayerInventories.MainInventory),
+        foreach (var payment in purchase.Payments) await SendStashPayment(player,stash,payment.Stash);
+        await Send(player,InstanceItems.InventoryChange(PlayerInventories.InventoryId(PlayerInventories.MainInventory),
             items.NextRevision(PlayerInventories.MainInventory),before,items.Items(PlayerInventories.MainInventory)),"0x00bf vendor payment and purchase");
         if (purchase.Equipped is { } equipped)
         {
             if (equipped.Row == PlayerInventories.Flask)
-                equipped = equipped with { Placed = EmptyIfEquippedInHostileArea(conn, items, equipped.Placed) };
-            await Send(remote,stream,ciphers,InstanceItems.InventoryChange(PlayerInventories.InventoryId(equipped.Row),
+                equipped = equipped with { Placed = EmptyIfEquippedInHostileArea(player, items, equipped.Placed) };
+            await Send(player,InstanceItems.InventoryChange(PlayerInventories.InventoryId(equipped.Row),
                 items.NextRevision(equipped.Row),equipped.Displaced is { } old ? [old.Id] : [],[equipped.Placed]),
                 "0x00bf vendor item equipped");
             if (equipped.Displaced is { } displaced)
-                await Send(remote,stream,ciphers,InstanceItems.InventoryChange(PlayerInventories.InventoryId(PlayerInventories.Cursor),
+                await Send(player,InstanceItems.InventoryChange(PlayerInventories.InventoryId(PlayerInventories.Cursor),
                     items.NextRevision(PlayerInventories.Cursor),[],[displaced]),"0x00bf replaced equipment to cursor");
-            await SendEquipment(remote,stream,ciphers,conn,items);
-            if (equipped.Row == PlayerInventories.Flask) await RefreshMagebloodFlasks(remote,stream,ciphers,conn);
+            await SendEquipment(player,items);
+            if (equipped.Row == PlayerInventories.Flask)
+            {
+                await ReconcileTincturesAfterFlaskBarChange(player);
+                await RefreshMagebloodFlasks(player);
+            }
         }
         else if (row is byte destination && destination != PlayerInventories.MainInventory)
-            await Send(remote,stream,ciphers,InstanceItems.InventoryChange(PlayerInventories.InventoryId(destination),
+            await Send(player,InstanceItems.InventoryChange(PlayerInventories.InventoryId(destination),
                 items.NextRevision(destination),[],purchase.Bought),"0x00bf vendor item to cursor");
-        await Send(remote,stream,ciphers,InstanceItems.InventoryChange(offer.Tab,shop.NextRevision(offer.Tab),[id],
+        await Send(player,InstanceItems.InventoryChange(offer.Tab,shop.NextRevision(offer.Tab),[id],
             finite ? [] : [offer.Item],NpcShops.Manager),"0x00bf vendor offer updated");
-        await Send(remote,stream,ciphers,InstanceEntities.Gold(PersonalStashOf(conn).Gold),"0x02aa vendor gold balance");
-        Console.WriteLine($"[gateway] {remote} vendor purchased {id} from {shop.Npc.Npc.Name}; finite={finite}");
+        await Send(player,InstanceEntities.Gold(PersonalStashOf(player).Gold),"0x02aa vendor gold balance");
+        Console.WriteLine($"[gateway] {player.Connection.Remote} vendor purchased {id} from {shop.Npc.Npc.Name}; finite={finite}");
     }
 
     // An item goes into the sell offer (C→S 0xb2, or 0x2a on the offer inventory) from the inventory it is in (the cursor, or
     // the main inventory on a Ctrl-click); the NPC answers with one Scroll Fragment per offered item in its own offer. As in
     // the saved item and its inventory cell remain reserved until the sale ends (PlayerInventories.Offer).
     // The client sees the item only in its offer grid.
-    internal static async Task OfferForSale(string remote, NetworkStream stream, ConnectionCiphers ciphers, ClientState conn, NpcSale sale,
+    internal static async Task OfferForSale(Player player, NpcSale sale,
         uint fromInventory, uint itemId, byte x, byte y)
     {
-        var items = ItemsOf(conn);
+        var items = ItemsOf(player);
         if (PlayerInventories.Row(fromInventory) is not byte row || items.Offer(row, itemId, x, y, ShapeOf) is not var (waits, offered))
         {
-            Console.WriteLine($"[gateway] {remote} sell offer: item {itemId} is not in inventory {fromInventory} (or no cell to wait in)");
+            Console.WriteLine($"[gateway] {player.Connection.Remote} sell offer: item {itemId} is not in inventory {fromInventory} (or no cell to wait in)");
             return;
         }
         // Keep the durable item in its reserved server cell, but show it only in the offer grid.
-        await Send(remote, stream, ciphers, InstanceItems.InventoryChange(fromInventory, items.NextRevision(row), [offered.Id], []),
+        await Send(player, InstanceItems.InventoryChange(fromInventory, items.NextRevision(row), [offered.Id], []),
             $"0x00bf inventory {fromInventory}: hide offered item {offered.Id}");
+        if (row == PlayerInventories.Flask) await ReconcileTincturesAfterFlaskBarChange(player);
         var inOffer = offered with { X = x, Y = y };
-        await Send(remote, stream, ciphers, InstanceItems.InventoryChange(sale.Mine, ++sale.MineRevision, [], [inOffer], NpcShops.Manager),
+        await Send(player, InstanceItems.InventoryChange(sale.Mine, ++sale.MineRevision, [], [inOffer], NpcShops.Manager),
             $"0x00bf sell offer: item {inOffer.Id} at ({x}, {y})");
-        await SendSaleReward(remote, stream, ciphers, conn, sale);
+        await SendSaleReward(player, sale);
     }
 
     // Taking an offered item back restores its original inventory view and removes its offer entry.
-    internal static async Task TakeFromSale(string remote, NetworkStream stream, ConnectionCiphers ciphers, ClientState conn, NpcSale sale, uint itemId)
+    internal static async Task TakeFromSale(Player player, NpcSale sale, uint itemId)
     {
-        var items = ItemsOf(conn);
+        var items = ItemsOf(player);
         if (items.TakeBack(itemId) is not var (row, back))
         {
-            Console.WriteLine($"[gateway] {remote} sell offer item {itemId}: not offered");
+            Console.WriteLine($"[gateway] {player.Connection.Remote} sell offer item {itemId}: not offered");
             return;
         }
-        await Send(remote, stream, ciphers, InstanceItems.InventoryChange(sale.Mine, ++sale.MineRevision, [itemId], [], NpcShops.Manager),
+        await Send(player, InstanceItems.InventoryChange(sale.Mine, ++sale.MineRevision, [itemId], [], NpcShops.Manager),
             $"0x00bf sell offer: remove item {itemId} (back in inventory {PlayerInventories.InventoryId(row)} at ({back.X}, {back.Y}))");
-        await Send(remote, stream, ciphers, InstanceItems.InventoryChange(PlayerInventories.InventoryId(row), items.NextRevision(row), [], [back]),
+        await Send(player, InstanceItems.InventoryChange(PlayerInventories.InventoryId(row), items.NextRevision(row), [], [back]),
             $"0x00bf return item {back.Id} to inventory {PlayerInventories.InventoryId(row)}");
-        await SendSaleReward(remote, stream, ciphers, conn, sale);
+        await SendSaleReward(player, sale);
     }
 
     // Quote once on each offer change. The same immutable outputs are displayed and paid at acceptance.
-    internal static async Task SendSaleReward(string remote, NetworkStream stream, ConnectionCiphers ciphers, ClientState conn, NpcSale sale)
+    internal static async Task SendSaleReward(Player player, NpcSale sale)
     {
-        var items = ItemsOf(conn);
+        var items = ItemsOf(player);
         var offered = items.Offered().OrderBy(i => i.Id).ToList();
         sale.QuoteError = null;
         VendorRecipes.Quote quote;
-        try { quote = VendorSales.Value.Evaluate(offered,
-            basicSaleMultiplier: LeagueFor(conn).Rules.VendorRewardMultiplier); }
+        try { quote = VendorSales.Evaluate(offered, Game.AreaRng(player),
+            basicSaleMultiplier: LeagueFor(player).Rules.VendorRewardMultiplier); }
         catch (Exception ex) when (ex is NotSupportedException or InvalidOperationException)
         {
             sale.QuoteError = ex.Message;
             quote = new([], []);
-            Console.WriteLine($"[gateway] {remote} vendor quote refused: {ex.Message}");
+            Console.WriteLine($"[gateway] {player.Connection.Remote} vendor quote refused: {ex.Message}");
         }
         var reward = new List<InventoryItem>();
         bool[,] occupied = new bool[NpcShops.Offer.Width, NpcShops.Offer.Height];
@@ -188,57 +191,57 @@ static class VendorsFeature
             var preview = item.Rarity != ItemRarity.Normal ? item with { Identified = false } : item;
             reward.Add(new(items.NewItemId(), cell.X, cell.Y, preview));
         }
-        if (sale.QuoteError is not null) { reward.Clear(); await conn.Commands!.Reply(sale.QuoteError); }
+        if (sale.QuoteError is not null) { reward.Clear(); await player.Commands!.Reply(sale.QuoteError); }
         List<uint> before;
-        lock (conn.Npcs)
+        lock (player.Npcs)
         {
             before = [.. sale.Reward.Select(r => r.Id)];
             sale.Reward = reward;
             sale.QuotedItems = offered;
             sale.QuotedRewards = quote.Rewards;
         }
-        await Send(remote, stream, ciphers, InstanceItems.InventoryChange(sale.Theirs, ++sale.TheirsRevision, before, reward, NpcShops.Manager),
+        await Send(player, InstanceItems.InventoryChange(sale.Theirs, ++sale.TheirsRevision, before, reward, NpcShops.Manager),
             $"0x00bf {sale.Npc.Npc.Name}'s offer: {reward.Count} reward stack(s); {string.Join(", ", quote.Recipes)}");
     }
 
     // C→S 0xb1: Cancel (u8 0). The offered items go back to the inventory and S→C 0xb9 closes the window.
-    internal static async Task AnswerSale(string remote, NetworkStream stream, ConnectionCiphers ciphers, ClientState conn, (uint Other, byte Answer) a)
+    internal static async Task AnswerSale(Player player, (uint Other, byte Answer) a)
     {
-        Console.WriteLine($"[gateway] {remote} <= 0x00b1 trade answer {a.Answer} (trade {a.Other})");
-        await CloseSale(remote, stream, ciphers, conn, accepted: a.Answer != 0);
+        Console.WriteLine($"[gateway] {player.Connection.Remote} <= 0x00b1 trade answer {a.Answer} (trade {a.Other})");
+        await CloseSale(player, accepted: a.Answer != 0);
     }
 
     // An item Shift-clicked in an inventory while the sell window is open goes into a free cell of the offer.
-    internal static async Task OfferFromInventory(string remote, NetworkStream stream, ConnectionCiphers ciphers, ClientState conn, NpcSale sale, uint inventory, uint itemId)
+    internal static async Task OfferFromInventory(Player player, NpcSale sale, uint inventory, uint itemId)
     {
-        var items = ItemsOf(conn);
+        var items = ItemsOf(player);
         byte? row = PlayerInventories.Row(inventory);
         var it = row is byte r ? items.Items(r).FirstOrDefault(i => i.Id == itemId) : null;
-        if (it is null || ShapeOf(it.Item) is not { } shape) { Console.WriteLine($"[gateway] {remote} sell offer: item {itemId} not in inventory {inventory}"); return; }
+        if (it is null || ShapeOf(it.Item) is not { } shape) { Console.WriteLine($"[gateway] {player.Connection.Remote} sell offer: item {itemId} not in inventory {inventory}"); return; }
         List<(InventoryItem Item, PlayerInventories.Shape? Shape)> offered = [.. items.Offered().Select(o => (o, ShapeOf(o.Item)))];
         (byte X, byte Y)? cell = null;
         for (int x = 0; x + shape.Width <= NpcShops.Offer.Width && cell is null; x++)
             for (int y = 0; y + shape.Height <= NpcShops.Offer.Height && cell is null; y++)
                 if (!offered.Any(o => o.Shape is { } s && o.Item.X < x + shape.Width && x < o.Item.X + s.Width && o.Item.Y < y + shape.Height && y < o.Item.Y + s.Height))
                     cell = ((byte)x, (byte)y);
-        if (cell is not { } c) { Console.WriteLine($"[gateway] {remote} sell offer: no room for item {itemId}"); return; }
-        await OfferForSale(remote, stream, ciphers, conn, sale, inventory, itemId, c.X, c.Y);
+        if (cell is not { } c) { Console.WriteLine($"[gateway] {player.Connection.Remote} sell offer: no room for item {itemId}"); return; }
+        await OfferForSale(player, sale, inventory, itemId, c.X, c.Y);
     }
 
     // Ends the sale. Accepted: the offered items are gone and the NPC's offer goes into the inventory, in one save; when the
     // offer doesn't fit (the offered items' cells free up first, so it nearly always does), nothing changes and the window
     // stays open. Cancelled: every offered item is in its cell again (it kept it). Then S→C 0xb9 closes the window.
-    internal static async Task CloseSale(string remote, NetworkStream stream, ConnectionCiphers ciphers, ClientState conn, bool accepted)
+    internal static async Task CloseSale(Player player, bool accepted)
     {
         NpcSale? sale;
-        lock (conn.Npcs) sale = conn.Sale;
-        if (sale is null) Console.WriteLine($"[gateway] {remote} trade: no sale open");
+        lock (player.Npcs) sale = player.Sale;
+        if (sale is null) Console.WriteLine($"[gateway] {player.Connection.Remote} trade: no sale open");
         accepted &= sale is not null;
-        var items = ItemsOf(conn);
+        var items = ItemsOf(player);
         if (accepted)
         {
             var offered = items.Offered().OrderBy(i => i.Id).ToList();
-            if (offered.Count == 0) { await CloseSale(remote, stream, ciphers, conn, accepted: false); return; }
+            if (offered.Count == 0) { await CloseSale(player, accepted: false); return; }
             bool sameQuote = sale!.QuotedItems.Select(i => (i.Id, i.Item)).SequenceEqual(offered.Select(i => (i.Id, i.Item)));
             PlayerInventories.Stacking? added = null;
             string? refused = sale.QuoteError ?? (!sameQuote ? "The offer has changed. Review the vendor's new offer before accepting." : null);
@@ -246,14 +249,14 @@ static class VendorsFeature
                 refused = "Not enough room in your inventory for the complete vendor reward.";
             if (refused is not null)
             {
-                Console.WriteLine($"[gateway] {remote} sale refused: {refused}");
-                await conn.Commands!.Reply(refused);
+                Console.WriteLine($"[gateway] {player.Connection.Remote} sale refused: {refused}");
+                await player.Commands!.Reply(refused);
                 return;
             }
-            Console.WriteLine($"[gateway] {remote} sale accepted: {offered.Count} item(s), {sale.QuotedRewards.Count} reward stack(s)");
+            Console.WriteLine($"[gateway] {player.Connection.Remote} sale accepted: {offered.Count} item(s), {sale.QuotedRewards.Count} reward stack(s)");
             // Offered items were already removed from the client's inventory view.
             if (added is { Any: true })
-                await Send(remote, stream, ciphers, InstanceItems.InventoryChange(PlayerInventories.InventoryId(PlayerInventories.MainInventory),
+                await Send(player, InstanceItems.InventoryChange(PlayerInventories.InventoryId(PlayerInventories.MainInventory),
                     items.NextRevision(PlayerInventories.MainInventory),
                     added.RemovedIds, added.AddedItems),
                     $"0x00bf inventory 1: sold items out, {added.Changed.Count} stack(s) grown, {added.Added.Count} new (the NPC's offer)");
@@ -263,108 +266,108 @@ static class VendorsFeature
             // Restore the hidden inventory view before closing the offer.
             var returned = items.CancelOffers();
             foreach (var group in returned.GroupBy(i => i.Row))
-                await Send(remote, stream, ciphers, InstanceItems.InventoryChange(PlayerInventories.InventoryId(group.Key), items.NextRevision(group.Key),
+                await Send(player, InstanceItems.InventoryChange(PlayerInventories.InventoryId(group.Key), items.NextRevision(group.Key),
                     [], [.. group.Select(i => i.Item)]), $"0x00bf sale cancelled: restore {group.Count()} item(s)");
         }
-        lock (conn.Npcs) if (conn.Sale == sale) conn.Sale = null;
-        await Send(remote, stream, ciphers, InstanceNpcs.TradeClose(0, accepted), $"0x00b9 sell window closed ({(accepted ? "accepted" : "cancelled")})");
+        lock (player.Npcs) if (player.Sale == sale) player.Sale = null;
+        await Send(player, InstanceNpcs.TradeClose(0, accepted), $"0x00b9 sell window closed ({(accepted ? "accepted" : "cancelled")})");
         // The client is still talking to the NPC (session +0xd7c0 = 2, +0xd7c4 = the NPC, live 2026-10-19) and the player cannot
         // move until 0x84 with object 0 ends the talk. Cancel sends 0x85 for it, Accept sends nothing, so end it here.
-        conn.TalkingTo = 0;
-        conn.InNpcTalk = false;
-        await Send(remote, stream, ciphers, InstanceNpcs.Talk(0), "0x0084 object 0: npc dialogue closed (sale over)");
+        player.TalkingTo = 0;
+        player.InNpcTalk = false;
+        await Send(player, InstanceNpcs.Talk(0), "0x0084 object 0: npc dialogue closed (sale over)");
     }
 
     // Sell Items: two empty offer inventories (manager 1: the player's offer, the NPC's), then S→C 0xb8 with no other party
     // (an NPC sale) opens the sell window. Being tested.
-    internal static async Task OpenNpcSale(string remote, NetworkStream stream, ConnectionCiphers ciphers, ClientState conn, SpawnedNpc npc)
+    internal static async Task OpenNpcSale(Player player, SpawnedNpc npc)
     {
-        conn.Shop = null;
-        if (conn.Sale is not null) await CloseSale(remote, stream, ciphers, conn, accepted: false);
+        player.Shop = null;
+        if (player.Sale is not null) await CloseSale(player, accepted: false);
         uint mine = NpcShops.FirstTabId + 0x10, theirs = mine + 1;
-        ItemsOf(conn).CancelOffers();   // none should be left; a new sale must not count them
-        lock (conn.Npcs) conn.Sale = new NpcSale(npc, mine, theirs);
-        await Send(remote, stream, ciphers, InstanceInventories.AddInventory(mine, NpcShops.Offer, NpcShops.Manager), $"0x00c0 sell offer {mine} (manager {NpcShops.Manager})");
-        await Send(remote, stream, ciphers, InstanceInventories.AddInventory(theirs, NpcShops.Offer, NpcShops.Manager), $"0x00c0 {npc.Npc.Name}'s offer {theirs} (manager {NpcShops.Manager})");
-        conn.InNpcTalk = false;
-        await Send(remote, stream, ciphers, InstanceNpcs.TradeOpen(0, mine, theirs, InstanceNpcs.TradeActive | InstanceNpcs.TradeNoMouseOver, npc.Npc.Name, npc.Npc.Row),
+        ItemsOf(player).CancelOffers();   // none should be left; a new sale must not count them
+        lock (player.Npcs) player.Sale = new NpcSale(npc, mine, theirs);
+        await Send(player, InstanceInventories.AddInventory(mine, NpcShops.Offer, NpcShops.Manager), $"0x00c0 sell offer {mine} (manager {NpcShops.Manager})");
+        await Send(player, InstanceInventories.AddInventory(theirs, NpcShops.Offer, NpcShops.Manager), $"0x00c0 {npc.Npc.Name}'s offer {theirs} (manager {NpcShops.Manager})");
+        player.InNpcTalk = false;
+        await Send(player, InstanceNpcs.TradeOpen(0, mine, theirs, InstanceNpcs.TradeActive | InstanceNpcs.TradeNoMouseOver, npc.Npc.Name, npc.Npc.Row),
             $"0x00b8 open the sell window with {npc.Npc.Name} (offers {mine}, {theirs})");
     }
 
     // Purchase Items: the NPC's stock as one shop tab (S→C 0xc0, inventory manager 1), then S→C 0x8c opens the buy window on it.
     // Gamble for Items: the gamble window's tabs (Gambling.Window), opened as the black market (window kind 10).
-    internal static async Task OpenGamble(string remote, NetworkStream stream, ConnectionCiphers ciphers, ClientState conn, uint npcObject, SpawnedNpc npc)
+    internal static async Task OpenGamble(Player player, uint npcObject, SpawnedNpc npc)
     {
-        if (Items.Error is not null) { await OpenNpcShop(remote, stream, ciphers, conn, npcObject, npc); return; }
+        if (Items.Error is not null) { await OpenNpcShop(player, npcObject, npc); return; }
         var notes = new List<string>();
-        var (window, offers) = Gambling.Window(conn, npc.Npc.Id, ItemsOf(conn).NewItemId, notes);
-        foreach (var n in notes) Console.WriteLine($"[gateway] {remote} gamble {npc.Npc.Name}: {n}");
-        await OpenNpcShop(remote, stream, ciphers, conn, npcObject, npc, window, Gambling.WindowKind);
-        if (conn.Shop is { } shop) Gambling.Remember(shop, offers);
+        var (window, offers) = Gambling.Window(player, npc.Npc.Id, ItemsOf(player).NewItemId, notes);
+        foreach (var n in notes) Console.WriteLine($"[gateway] {player.Connection.Remote} gamble {npc.Npc.Name}: {n}");
+        await OpenNpcShop(player, npcObject, npc, window, Gambling.WindowKind);
+        if (player.Shop is { } shop) Gambling.Remember(shop, offers);
     }
 
-    internal static async Task OpenNpcShop(string remote, NetworkStream stream, ConnectionCiphers ciphers, ClientState conn, uint npcObject, SpawnedNpc npc, VendorStock.Window? prepared = null,
+    internal static async Task OpenNpcShop(Player player, uint npcObject, SpawnedNpc npc, VendorStock.Window? prepared = null,
         ushort windowKind = 0)
     {
-        if (conn.Sale is not null) await CloseSale(remote, stream, ciphers, conn, accepted: false);
-        await RefreshBenchBalance(remote, stream, ciphers, conn, clear: true);
-        conn.BenchOpen = false;
-        conn.ModuleWindow = null;
-        if (Items.Error is { } error) { Console.WriteLine($"[gateway] {remote} shop: {error}"); return; }
+        if (player.Sale is not null) await CloseSale(player, accepted: false);
+        await RefreshBenchBalance(player, clear: true);
+        player.BenchOpen = false;
+        player.ModuleWindow = null;
+        if (Items.Error is { } error) { Console.WriteLine($"[gateway] {player.Connection.Remote} shop: {error}"); return; }
         var notes = new List<string>();
-        var window = prepared ?? BuildWindow(conn,npc,notes);
+        var window = prepared ?? BuildWindow(player,npc,notes);
         var tabs = window.Tabs;
         bool nativeTabs = window.Key.Length > 0 && !window.Labelled;
-        foreach (var n in notes) Console.WriteLine($"[gateway] {remote} shop {npc.Npc.Name}: {n}");
+        foreach (var n in notes) Console.WriteLine($"[gateway] {player.Connection.Remote} shop {npc.Npc.Name}: {n}");
         // One manager-1 inventory per tab (S→C 0xc0), then 0x8c lists them with their names.
         var ids = tabs.Select((_, i) => NpcShops.FirstTabId + (uint)i).ToList();
-        lock (conn.Npcs) conn.Shop = new OpenShop(npc, tabs.SelectMany((t, i) => t.Items.Select(item => (Tab: ids[i], Item: item))).ToDictionary(p => p.Item.Id)) { StockKey = window.Key, Finite = window.Finite };
+        lock (player.Npcs) player.Shop = new OpenShop(npc, tabs.SelectMany((t, i) => t.Items.Select(item => (Tab: ids[i], Item: item))).ToDictionary(p => p.Item.Id)) { StockKey = window.Key, Finite = window.Finite };
         for (int i = 0; i < tabs.Count; i++)
-            await Send(remote, stream, ciphers, InstanceInventories.AddInventory(ids[i], nativeTabs ? NpcShops.NativeTab : NpcShops.Tab,
+            await Send(player, InstanceInventories.AddInventory(ids[i], nativeTabs ? NpcShops.NativeTab : NpcShops.Tab,
                 NpcShops.Manager, tabs[i].Items, nativeTabs ? (byte)0x60 : null),
                 $"0x00c0 shop tab {ids[i]} \"{tabs[i].Name}\" (manager {NpcShops.Manager}) of {npc.Npc.Name}: {tabs[i].Items.Count} items");
-        conn.InNpcTalk = false;
+        player.InNpcTalk = false;
         // 0x8c's u16 is the window kind (0x140740840, +0x5f0: 0 buy, 1-4 haggle/deal/exchange/expedition, 9 Azmeri, 10 black
         // market, 11 unset), its u8 the async trade mode ("Merchant" title, +78 height, 0x14073ef50). The NPC's DialogueStyle
         // picks the window, not the u8 (0x140dca580). A tab's compact value is its colour (0x14073ef50: ARGB, 0 the default).
-        await Send(remote, stream, ciphers, InstanceNpcs.Dialogue(npcObject, windowKind, false, ids,
+        await Send(player, InstanceNpcs.Dialogue(npcObject, windowKind, false, ids,
             nativeTabs ? [] : [.. tabs.Select(t => new InstanceNpcs.Choice(unchecked((int)t.TabColour), t.Name))]),
             $"0x008c open the buy window of {npc.Npc.Name} with tabs {string.Join(", ", tabs.Select(t => t.Name))}");
     }
 
-    static VendorStock.Window BuildWindow(ClientState conn, SpawnedNpc npc, List<string> notes, bool refresh = false)
+    static VendorStock.Window BuildWindow(Player player, SpawnedNpc npc, List<string> notes, bool refresh = false)
     {
-        var catalog = ItemsFor(conn);
-        var league = LeagueFor(conn);
+        var catalog = ItemsFor(player);
+        var league = LeagueFor(player);
         var gems = GemVendorStock.Sells(npc.Npc.Id)
-            ? GemVendorStock.For(catalog,Npcs.Value,SkillsFor(conn),league.HardMode,league.Rules.SupportGemRewards) : null;
+            ? GemVendorStock.For(catalog,Npcs,SkillsFor(player),league.HardMode,league.Rules.SupportGemRewards) : null;
         var stock = gems is not null
-            ? gems.Stock(npc.Npc.Id,conn.ClassRow,VendorQuestFlags(conn),league.HardMode,conn.Pools.Level,league.Rules) : [];
+            ? gems.Stock(npc.Npc.Id,player.Character.ClassRow,VendorQuestFlags(player),league.HardMode,player.Pools.Level,league.Rules) : [];
         if (league.Rules.FullGemStock && npc.Npc.Id == "Metadata/NPC/Act1/Nessa")
-            return new(NpcShops.Tabs(npc.Npc.Id,catalog,ItemsOf(conn).NewItemId,notes,gemStock:stock,
+            return new(NpcShops.Tabs(npc.Npc.Id,catalog,ItemsOf(player).NewItemId,notes,gemStock:stock,
                 gemPrice:gems!.Price,fullGemStock:true,hardMode:league.HardMode,rules:league.Rules),"",[]);
-        var window = VendorStock.Open(CharacterName(conn),conn.League ?? "Standard",npc.Npc.Id,conn.Pools.Level,
-            catalog,SkillsFor(conn),stock,ItemsOf(conn).NewItemId,league.Rules,league.HardMode,notes,refresh,account:PersonalStashOf(conn));
+        var window = VendorStock.Open(CharacterName(player),player.Character.League ?? "Standard",npc.Npc.Id,player.Pools.Level,
+            catalog,RollsFor(player),SkillsFor(player),stock,ItemsOf(player).NewItemId,league.Rules,league.HardMode,notes,refresh,account:PersonalStashOf(player));
         if (!league.Rules.DevelopmentShopTabs || npc.Npc.Id != "Metadata/NPC/Act1/Nessa") return window;
-        var development = NpcShops.Tabs(npc.Npc.Id,catalog,ItemsOf(conn).NewItemId,notes,gemPrice:gems is null ? null : gems.Price,
+        var development = NpcShops.Tabs(npc.Npc.Id,catalog,ItemsOf(player).NewItemId,notes,gemPrice:gems is null ? null : gems.Price,
             hardMode:league.HardMode,rules:league.Rules,developmentOnly:true);
         return window with { Tabs = [.. window.Tabs, .. development], Labelled = true };
     }
 
-    internal static async Task RefreshKirac(ClientState conn)
+    internal static async Task RefreshKirac(Player player)
     {
-        if (conn.Shop is not { } shop || VendorCatalog.Default.Find(shop.Npc.Npc.Id)?.Kind != "Kirac")
-        { await conn.Commands!.Reply("Open Kirac's shop first."); return; }
+        if (player.Shop is not { } shop || VendorCatalog.Default.Find(shop.Npc.Npc.Id)?.Kind != "Kirac")
+        { await player.Commands!.Reply("Open Kirac's shop first."); return; }
         var window = Saves.Atomically(() =>
         {
-            if (PersonalStashOf(conn).TrySpendGold(KiracProgress.For(PersonalStashOf(conn)).ShopRerollCost) is null) return null;
-            return BuildWindow(conn,shop.Npc,[],refresh:true);
+            if (PersonalStashOf(player).TrySpendGold(KiracProgress.For(PersonalStashOf(player)).ShopRerollCost) is null) return null;
+            return BuildWindow(player,shop.Npc,[],refresh:true);
         });
-        if (window is null) { await conn.Commands!.Reply($"Kirac's refresh costs {KiracProgress.For(PersonalStashOf(conn)).ShopRerollCost} Gold."); return; }
-        var (remote,stream,ciphers) = conn.Wire;
-        await Send(remote,stream,ciphers,InstanceEntities.Gold(PersonalStashOf(conn).Gold),"0x02aa Kirac refresh");
-        uint npcObject = conn.Npcs.FirstOrDefault(p => p.Value == shop.Npc).Key;
-        await OpenNpcShop(remote,stream,ciphers,conn,npcObject,shop.Npc,window);
+        if (window is null) { await player.Commands!.Reply($"Kirac's refresh costs {KiracProgress.For(PersonalStashOf(player)).ShopRerollCost} Gold."); return; }
+        
+        await Send(player,InstanceEntities.Gold(PersonalStashOf(player).Gold),"0x02aa Kirac refresh");
+        uint npcObject = player.Npcs.FirstOrDefault(p => p.Value == shop.Npc).Key;
+        await OpenNpcShop(player,npcObject,shop.Npc,window);
     }
 
 }

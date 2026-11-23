@@ -26,7 +26,7 @@ public static class DeepwaterCrafting
     /// <summary>Sentinel value in <c>DeepwaterCraftingCurrencies.__col5</c> meaning no league quest flag is required (H).</summary>
     public const int NoLeagueFlag = 1911;
 
-    const string TreatUniqueAsRareStat = "can_be_ghostflame_crafted_as_though_rare";
+    const uint TreatUniqueAsRareStat = Stat.CanBeGhostflameCraftedAsThoughRare;
 
     // 6 Influenced Exalted Orbs (BaseItemTypes Id → ItemInfluence).
     static readonly Dictionary<string, ItemInfluence> InfluencedExalts = new(StringComparer.Ordinal)
@@ -52,9 +52,13 @@ public static class DeepwaterCrafting
     /// item level scales cost via <c>DeepwaterBalancePerLevel</c> (false only for Jewel).</summary>
     public sealed record ClassRow(int ItemClass, int Multiplier, bool ScalesWithLevel);
 
-    // ---- lazy client.db tables ----
+    // ---- client.db tables ----
 
-    static readonly Lazy<Dictionary<uint, CurrencyRow[]>> Currencies = new(() =>
+    static Dictionary<uint, CurrencyRow[]> Currencies = [];
+    static Dictionary<int, ClassRow> Classes = [];
+    static (Dictionary<int, int> ByLevel, int MinLevel, int MaxLevel) Balance = ([], 0, 0);
+
+    public static void LoadGameData()
     {
         var map = new Dictionary<uint, List<CurrencyRow>>();
         var currencyItems = ClientTables.TableOrEmpty("CurrencyItems");
@@ -83,41 +87,40 @@ public static class DeepwaterCrafting
             if (!map.TryGetValue(hash, out var list)) map[hash] = list = [];
             list.Add(entry);
         }
-        return map.ToDictionary(kv => kv.Key, kv => kv.Value.OrderBy(e => e.Tier).ToArray());
-    });
+        Currencies = map.ToDictionary(kv => kv.Key, kv => kv.Value.OrderBy(e => e.Tier).ToArray());
 
-    static readonly Lazy<Dictionary<int, ClassRow>> Classes = new(() =>
-    {
-        var map = new Dictionary<int, ClassRow>();
+        var classes = new Dictionary<int, ClassRow>();
         foreach (var r in ClientTables.TableOrEmpty("DeepwaterCraftingClasses"))
         {
             if (r.IntOrNull("ItemClass") is not int cls) continue;
-            map[cls] = new ClassRow(cls, r.IntOrNull("__col1") ?? 100, r.BoolOrNull("__col2") ?? true);
+            classes[cls] = new ClassRow(cls, r.IntOrNull("__col1") ?? 100, r.BoolOrNull("__col2") ?? true);
         }
-        return map;
-    });
+        Classes = classes;
 
-    static readonly Lazy<(Dictionary<int, int> ByLevel, int MinLevel, int MaxLevel)> Balance = new(() =>
-    {
-        var map = new Dictionary<int, int>();
+        var byLevel = new Dictionary<int, int>();
         int min = int.MaxValue, max = int.MinValue;
         foreach (var r in ClientTables.TableOrEmpty("DeepwaterBalancePerLevel"))
         {
             if (r.IntOrNull("__col0") is not int lvl) continue;
-            map[lvl] = r.IntOrNull("__col1") ?? 0;
+            byLevel[lvl] = r.IntOrNull("__col1") ?? 0;
             if (lvl < min) min = lvl;
             if (lvl > max) max = lvl;
         }
-        return (map, min, max);
-    });
+        Balance = (byLevel, min, max);
 
-    public static bool HasCurrency(uint currencyHash) => Currencies.Value.ContainsKey(currencyHash);
+        VatInfo = QuestObjectTypes.Find(VatType) is { } info && QuestObject.CanSerialize(info.Components, true) ? info : null;
+        VatStates = ObjectTypes.All().Where(t => t.Type == VatType)
+            .Select(t => ObjectTypes.StateMachine(t.Row, ObjectTypes.SharedStates()))
+            .FirstOrDefault();
+    }
+
+    public static bool HasCurrency(uint currencyHash) => Currencies.ContainsKey(currencyHash);
 
     /// <summary>Resolves the highest unlocked tier row for <paramref name="currencyHash"/> (matching client
     /// <c>FUN_141d64b80</c>, H), or null when the currency is unknown or all tiers are locked.</summary>
     public static CurrencyRow? ResolveCurrency(uint currencyHash, Func<int, bool> hasLeagueFlag)
     {
-        if (!Currencies.Value.TryGetValue(currencyHash, out var rows)) return null;
+        if (!Currencies.TryGetValue(currencyHash, out var rows)) return null;
         CurrencyRow? best = null;
         foreach (var row in rows)
             if ((row.RequiredLeagueFlag == NoLeagueFlag || hasLeagueFlag(row.RequiredLeagueFlag))
@@ -126,16 +129,16 @@ public static class DeepwaterCrafting
         return best;
     }
 
-    public static CurrencyRow? ResolveCurrency(ClientState conn, uint currencyHash) =>
-        ResolveCurrency(currencyHash, f => HasLeagueFlag(conn, f));
+    public static CurrencyRow? ResolveCurrency(Player player, uint currencyHash) =>
+        ResolveCurrency(currencyHash, f => HasLeagueFlag(player, f));
 
-    public static ClassRow? ClassOf(int itemClassRow) => Classes.Value.TryGetValue(itemClassRow, out var cls) ? cls : null;
+    public static ClassRow? ClassOf(int itemClassRow) => Classes.TryGetValue(itemClassRow, out var cls) ? cls : null;
 
     /// <summary><c>DeepwaterBalancePerLevel.__col1</c> at <paramref name="level"/> (−66 at 1, 0 at 67, +144 at 85..100),
     /// clamped to the table bounds.</summary>
     public static int BalanceAt(int level)
     {
-        var (byLevel, min, max) = Balance.Value;
+        var (byLevel, min, max) = Balance;
         if (byLevel.Count == 0) return 0;
         return byLevel.GetValueOrDefault(Math.Clamp(level, min, max));
     }
@@ -162,23 +165,21 @@ public static class DeepwaterCrafting
         return (((baseCost * classMul) / 100) * levelMul) / 100;
     }
 
-    static bool HasLeagueFlag(ClientState conn, int flag)
-    {
-        lock (conn.Monsters) return conn.LeagueQuestFlags.Contains(flag);
-    }
+    static bool HasLeagueFlag(Player player, int flag) =>
+        player.Character.LeagueQuestFlags.Contains(flag);
 
     // ---- inventory 105 / 106 validation & C→S 0x010f quick-move ----
 
     /// <summary><c>GameEvents.InventoryRefusal</c> for inventories 105 and 106.</summary>
-    public static string? Refusal(ClientState conn, byte row, Item item)
+    public static string? Refusal(Player player, byte row, Item item)
     {
         if (row == OutputRow) return "the Allflame crafting outputs are taken from the display cases";
         if (row != InputRow) return null;
-        if (ItemsOf(conn).Items(OutputRow).Count > 0 || conn.HasQuestFlag(CraftInProgress))
+        if (ItemsOf(player).Items(OutputRow).Count > 0 || player.Character.HasQuestFlag(CraftInProgress))
             return "claim a Ghostly Copy from the display cases before crafting again";
-        if (DeepwaterDredge.Unmarked(conn, item))
+        if (DeepwaterDredge.Unmarked(player, item))
             return "contraband items cannot be Allflame crafted";
-        return InputItemRefusal(ItemsFor(conn), item);
+        return InputItemRefusal(ItemsFor(player), item);
     }
 
     /// <summary>Validates whether <paramref name="item"/> can sit in inventory 105 (<c>DeepwaterCraftingInput</c>) as a craft target.</summary>
@@ -199,22 +200,22 @@ public static class DeepwaterCrafting
 
     /// <summary>C→S 0x010f (<see cref="InstanceItems.CraftingSlotMoveId"/>): Ctrl + click an item into or out of
     /// inventory 105 (<c>DeepwaterCraftingInput</c>).</summary>
-    public static async Task QuickMove(IModuleContext module, ClientState conn, InstanceItems.LeagueWindowMove move)
+    public static async Task QuickMove(IModuleContext module, Player player, InstanceItems.LeagueWindowMove move)
     {
-        var player = PlayerOf(conn);
-        if (player.AreaId != DeepwaterModule.HubId)
+        var modPlayer = PlayerOf(player);
+        if (modPlayer.AreaId != DeepwaterModule.HubId)
         {
-            module.Log($"{player.Character} <= 0x010f Allflame Crafting quick-move: refused (not on The Sovereign)");
+            module.Log($"{modPlayer.Character} <= 0x010f Allflame Crafting quick-move: refused (not on The Sovereign)");
             return;
         }
-        var items = ItemsOf(conn);
+        var items = ItemsOf(player);
         byte from = move.Into ? move.FromExpanded ? PlayerInventories.ExpandedInventory : PlayerInventories.MainInventory : InputRow;
         string what = $"0x010f Ctrl + click item {move.ItemId} {(move.Into ? "into" : "out of")} Allflame Crafting";
         var it = items.Items(from).FirstOrDefault(i => i.Id == move.ItemId);
-        string? why = it is null ? $"not in row {from}" : move.Into ? Refusal(conn, InputRow, it.Item) : null;
+        string? why = it is null ? $"not in row {from}" : move.Into ? Refusal(player, InputRow, it.Item) : null;
         if (why is not null)
         {
-            module.Log($"{player.Character} <= {what}: refused ({why})");
+            module.Log($"{modPlayer.Character} <= {what}: refused ({why})");
             return;
         }
         if (move.Into)
@@ -227,7 +228,7 @@ public static class DeepwaterCrafting
                 swapCell = FindSwapCell(items, from, it!, existingShape);
                 if (swapCell is null)
                 {
-                    module.Log($"{player.Character} <= {what}: refused (existing item does not fit back in row {from})");
+                    module.Log($"{modPlayer.Character} <= {what}: refused (existing item does not fit back in row {from})");
                     return;
                 }
             }
@@ -242,29 +243,29 @@ public static class DeepwaterCrafting
             });
             if (placed is null)
             {
-                module.Log($"{player.Character} <= {what}: refused (item moved)");
+                module.Log($"{modPlayer.Character} <= {what}: refused (item moved)");
                 return;
             }
-            await player.Send(InstanceItems.InventoryChange(PlayerInventories.InventoryId(from), items.NextRevision(from),
+            await modPlayer.Send(InstanceItems.InventoryChange(PlayerInventories.InventoryId(from), items.NextRevision(from),
                     [it!.Id], swapped is null ? [] : [swapped]),
                 $"0x00bf inventory {PlayerInventories.InventoryId(from)}: remove item {it.Id}" + (swapped is null ? "" : $", swap in {swapped.Id}"));
-            await player.Send(InstanceItems.InventoryChange(PlayerInventories.InventoryId(InputRow), items.NextRevision(InputRow),
+            await modPlayer.Send(InstanceItems.InventoryChange(PlayerInventories.InventoryId(InputRow), items.NextRevision(InputRow),
                     existing is null ? [] : [existing.Id], [placed]),
                 $"0x00bf inventory {PlayerInventories.InventoryId(InputRow)}: place item {placed.Id}");
-            module.Log($"{player.Character} <= {what}: moved row {from} → {InputRow}" + (swapped is null ? "" : $" (swapped with {swapped.Id})"));
+            module.Log($"{modPlayer.Character} <= {what}: moved row {from} → {InputRow}" + (swapped is null ? "" : $" (swapped with {swapped.Id})"));
             return;
         }
         var shape = ShapeOf(it!.Item) ?? new(1, 1, "");
         byte to = PlayerInventories.MainInventory;
         var cell = items.FreeCell(to, shape.Width, shape.Height, ShapeOf);
-        if (cell is null && ExpandedInventoryGranted(conn))
+        if (cell is null && ExpandedInventoryGranted(player))
         {
             to = PlayerInventories.ExpandedInventory;
             cell = items.FreeCell(to, shape.Width, shape.Height, ShapeOf);
         }
         if (cell is not { } dest)
         {
-            module.Log($"{player.Character} <= {what}: refused (no room)");
+            module.Log($"{modPlayer.Character} <= {what}: refused (no room)");
             return;
         }
         InventoryItem? moved = null;
@@ -274,14 +275,14 @@ public static class DeepwaterCrafting
         });
         if (moved is null)
         {
-            module.Log($"{player.Character} <= {what}: refused (item moved)");
+            module.Log($"{modPlayer.Character} <= {what}: refused (item moved)");
             return;
         }
-        await player.Send(InstanceItems.InventoryChange(PlayerInventories.InventoryId(InputRow), items.NextRevision(InputRow), [moved.Id], []),
+        await modPlayer.Send(InstanceItems.InventoryChange(PlayerInventories.InventoryId(InputRow), items.NextRevision(InputRow), [moved.Id], []),
             $"0x00bf inventory {PlayerInventories.InventoryId(InputRow)}: remove item {moved.Id}");
-        await player.Send(InstanceItems.InventoryChange(PlayerInventories.InventoryId(to), items.NextRevision(to), [], [moved]),
+        await modPlayer.Send(InstanceItems.InventoryChange(PlayerInventories.InventoryId(to), items.NextRevision(to), [], [moved]),
             $"0x00bf inventory {PlayerInventories.InventoryId(to)}: add item {moved.Id} at ({moved.X}, {moved.Y})");
-        module.Log($"{player.Character} <= {what}: moved row {InputRow} → {to} at ({moved.X}, {moved.Y})");
+        module.Log($"{modPlayer.Character} <= {what}: moved row {InputRow} → {to} at ({moved.X}, {moved.Y})");
     }
 
     static (byte X, byte Y)? FindSwapCell(PlayerInventories items, byte row, InventoryItem removing, PlayerInventories.Shape incoming)
@@ -304,40 +305,41 @@ public static class DeepwaterCrafting
 
     /// <summary><c>GameEvents.NpcOptionPicked</c> for Vesper (#795): opens <c>DeepwaterCraftingWindow</c> (S→C 0x7b 0x69)
     /// when her option runs <c>SendOpenScreen( DeepwaterCraftingWindow )</c>. Returns false when handled, true to pass through.</summary>
-    public static async Task<bool> TryOpenOption(IModuleContext module, ClientState conn, NpcCatalog.Talk talk, bool isHubOwner)
+    public static async Task<bool> TryOpenOption(IModuleContext module, Player player, NpcCatalog.Talk talk, bool isHubOwner)
     {
         if (talk.Npc != VesperNpc || !talk.Script.Contains("DeepwaterCraftingWindow", StringComparison.Ordinal))
             return true;
-        var player = PlayerOf(conn);
-        if (!isHubOwner || ItemsOf(conn).Items(OutputRow).Count > 0 || conn.HasQuestFlag(CraftInProgress))
+        var modPlayer = PlayerOf(player);
+        if (!isHubOwner || ItemsOf(player).Items(OutputRow).Count > 0 || player.Character.HasQuestFlag(CraftInProgress))
         {
             string why = !isHubOwner ? "not the hub owner" : "unclaimed Ghostly Copies are waiting in the display cases";
-            module.Log($"{player.Character} <= Vesper NPCTalk {talk.Row} \"{talk.Option}\": refused ({why})");
+            module.Log($"{modPlayer.Character} <= Vesper NPCTalk {talk.Row} \"{talk.Option}\": refused ({why})");
             return false;
         }
-        conn.TalkingTo = 0;
-        conn.InNpcTalk = false;
-        conn.NpcFinishFlag = null;
-        conn.NpcTalkScript = null;
-        await player.Send(InstanceNpcs.Talk(0), $"0x0084 object 0: Vesper's dialogue ends (FinishNPCChat, NPCTalk {talk.Row})");
-        await player.Send(InstanceWaypoints.OpenUi(CraftingUi), $"0x007b open DeepwaterCraftingWindow (kind 0x{CraftingUi:x2}, NPCTalk {talk.Row})");
+        player.TalkingTo = 0;
+        player.InNpcTalk = false;
+        player.NpcFinishFlag = null;
+        player.NpcFinishLeagueFlag = null;
+        player.NpcTalkScript = null;
+        await modPlayer.Send(InstanceNpcs.Talk(0), $"0x0084 object 0: Vesper's dialogue ends (FinishNPCChat, NPCTalk {talk.Row})");
+        await modPlayer.Send(InstanceWaypoints.OpenUi(CraftingUi), $"0x007b open DeepwaterCraftingWindow (kind 0x{CraftingUi:x2}, NPCTalk {talk.Row})");
         return false;
     }
 
     // ---- executing a craft (C→S 0x02ca ruleset 172 op 2 DoCraft) ----
 
     /// <summary>Ruleset 172 op 2 (<c>DoCraft</c>): payload <c>u32 LE currencyInvId, u32 LE currencyItemId</c>.</summary>
-    public static async Task DoCraft(IModuleContext module, ClientState conn, byte[] args, bool isHubOwner)
+    public static async Task DoCraft(IModuleContext module, Player player, byte[] args, bool isHubOwner)
     {
-        var player = PlayerOf(conn);
-        string who = player.Character;
-        if (player.AreaId != DeepwaterModule.HubId || !isHubOwner || args.Length < 8)
+        var modPlayer = PlayerOf(player);
+        string who = modPlayer.Character;
+        if (modPlayer.AreaId != DeepwaterModule.HubId || !isHubOwner || args.Length < 8)
         {
-            module.Log($"{who} <= 0x02ca DeepwaterHubRules DoCraft: refused (area={player.AreaId}, owner={isHubOwner}, len={args.Length})");
+            module.Log($"{who} <= 0x02ca DeepwaterHubRules DoCraft: refused (area={modPlayer.AreaId}, owner={isHubOwner}, len={args.Length})");
             return;
         }
-        var items = ItemsOf(conn);
-        if (items.Items(OutputRow).Count > 0 || conn.HasQuestFlag(CraftInProgress))
+        var items = ItemsOf(player);
+        if (items.Items(OutputRow).Count > 0 || player.Character.HasQuestFlag(CraftInProgress))
         {
             module.Log($"{who} <= 0x02ca DeepwaterHubRules DoCraft: refused (unclaimed outputs in inventory 106)");
             return;
@@ -352,7 +354,7 @@ public static class DeepwaterCrafting
             return;
         }
         var currencyInvItem = items.Items(currencyRow).FirstOrDefault(i => i.Id == currencyItemId);
-        var catalog = ItemsFor(conn);
+        var catalog = ItemsFor(player);
         if (currencyInvItem is null || catalog.ByHash(currencyInvItem.Item.TypeHash) is not { } currencyType)
         {
             module.Log($"{who} <= 0x02ca DeepwaterHubRules DoCraft: refused (currency item {currencyItemId} not found in row {currencyRow})");
@@ -363,13 +365,13 @@ public static class DeepwaterCrafting
             module.Log($"{who} <= 0x02ca DeepwaterHubRules DoCraft: refused ({currencyType.Name} is not an Allflame crafting currency)");
             return;
         }
-        var row = ResolveCurrency(conn, currencyType.Hash);
+        var row = ResolveCurrency(player, currencyType.Hash);
         if (row is null)
         {
             module.Log($"{who} <= 0x02ca DeepwaterHubRules DoCraft: refused ({currencyType.Name} is locked by league quest flags)");
             return;
         }
-        bool hardMode = LeagueFor(conn).HardMode;
+        bool hardMode = LeagueFor(player).HardMode;
         if (hardMode && row.DisabledInRuthless)
         {
             module.Log($"{who} <= 0x02ca DeepwaterHubRules DoCraft: refused ({currencyType.Name} is disabled in Ruthless)");
@@ -402,14 +404,14 @@ public static class DeepwaterCrafting
         }
 
         int cost = SulphurCost(row, targetInvItem?.Item, targetType, hardMode);
-        int held = DeepwaterLocker.SulphurHeld(conn);
+        int held = DeepwaterLocker.SulphurHeld(player);
         if (held < cost)
         {
             module.Log($"{who} <= 0x02ca DeepwaterHubRules DoCraft: refused ({cost} Sulphur needed, {held} held)");
             return;
         }
 
-        var random = Random.Shared;
+        var random = AreaRng(player);
         int copyCount = Math.Clamp(row.MaxCopies, 1, 4);
         bool intangTriggered = targetInvItem is { Item.Intangibility: > 0 } && copyCount > 1
             && random.Next(100) < targetInvItem.Item.Intangibility;
@@ -436,7 +438,7 @@ public static class DeepwaterCrafting
         {
             for (int i = 0; i < copyCount; i++)
             {
-                var rolled = ApplyCraftCurrency(conn, currencyType, targetInvItem?.Item, targetType, random);
+                var rolled = ApplyCraftCurrency(player, currencyType, targetInvItem?.Item, targetType, random);
                 if (rolled is null)
                 {
                     if (i == 0)
@@ -476,8 +478,8 @@ public static class DeepwaterCrafting
                 if (!items.Items(currencyRow).Any(i => i.Id == currencyItemId)) return;
                 if (!isChangeling && !items.Items(InputRow).Any(i => i.Id == targetInvItem!.Id)) return;
                 // Check Sulphur availability before mutating items so insufficient Sulphur exits cleanly without rolling back live inventories.
-                if (cost > 0 && DeepwaterLocker.SulphurHeld(conn) < cost) return;
-                if (!DeepwaterLocker.TryPaySulphurInTransaction(conn, cost, out sulphurPayment))
+                if (cost > 0 && DeepwaterLocker.SulphurHeld(player) < cost) return;
+                if (!DeepwaterLocker.TryPaySulphurInTransaction(player, cost, out sulphurPayment))
                     return;
                 consumed = items.ConsumeOne(currencyRow, currencyItemId);
                 if (consumed is null) throw new DeepwaterLocker.AbortTransactionException();
@@ -508,56 +510,55 @@ public static class DeepwaterCrafting
             return;
         }
 
-        await player.Send(InstanceItems.InventoryChange(PlayerInventories.InventoryId(currencyRow), items.NextRevision(currencyRow),
+        await modPlayer.Send(InstanceItems.InventoryChange(PlayerInventories.InventoryId(currencyRow), items.NextRevision(currencyRow),
                 [currencyItemId], consumed.Left is null ? [] : [consumed.Left]),
             $"0x00bf inventory {PlayerInventories.InventoryId(currencyRow)}: consume 1 {currencyType.Name}");
         if (removedTarget is not null)
-            await player.Send(InstanceItems.InventoryChange(PlayerInventories.InventoryId(InputRow), items.NextRevision(InputRow),
+            await modPlayer.Send(InstanceItems.InventoryChange(PlayerInventories.InventoryId(InputRow), items.NextRevision(InputRow),
                     [removedTarget.Id], []),
                 $"0x00bf inventory {PlayerInventories.InventoryId(InputRow)}: remove crafted target {removedTarget.Id}");
-        await DeepwaterLocker.SendSulphurPayment(conn, sulphurPayment);
+        await DeepwaterLocker.SendSulphurPayment(player, sulphurPayment);
         if (placedOutputs.Count > 0)
-            await player.Send(InstanceItems.InventoryChange(PlayerInventories.InventoryId(OutputRow), items.NextRevision(OutputRow),
+            await modPlayer.Send(InstanceItems.InventoryChange(PlayerInventories.InventoryId(OutputRow), items.NextRevision(OutputRow),
                     [], placedOutputs),
                 $"0x00bf inventory {PlayerInventories.InventoryId(OutputRow)}: {placedOutputs.Count} Ghostly Copies stored");
 
-        var (remote, stream, ciphers) = conn.Wire;
-        if (!HasLeagueFlag(conn, DeepwaterConstants.CraftingTutorialCompletedLeagueFlag))
+        if (!HasLeagueFlag(player, DeepwaterConstants.CraftingTutorialCompletedLeagueFlag))
         {
-            await SetLeagueQuestFlags(remote, stream, ciphers, conn, [DeepwaterConstants.CraftingTutorialCompletedLeagueFlag]);
-            await DeepwaterProgression.RefreshHubNpcs(module, conn);
+            await SetLeagueQuestFlags(player, [DeepwaterConstants.CraftingTutorialCompletedLeagueFlag]);
+            await DeepwaterProgression.RefreshHubNpcs(module, player);
         }
 
         if (destroyed)
         {
             module.Log($"{who} <= 0x02ca DeepwaterHubRules DoCraft: {currencyType.Name} ({cost} Sulphur) destroyed {targetType?.Name}");
-            await player.Send(InstanceChat.ChatLine("Tzamoto's Ducat destroyed your item."),
+            await modPlayer.Send(InstanceChat.ChatLine("Tzamoto's Ducat destroyed your item."),
                 "0x0017 chat line: Tzamoto's Ducat destroyed item");
             return;
         }
 
-        await SetQuestFlags(remote, stream, ciphers, conn, [CraftInProgress]);
+        await SetQuestFlags(player, [CraftInProgress]);
         module.Log($"{who} <= 0x02ca DeepwaterHubRules DoCraft: {currencyType.Name} on {targetType?.Name ?? "(none)"} for {cost} Sulphur → {placedOutputs.Count} copies"
             + (intangTriggered ? $" (Intangibility {targetInvItem!.Item.Intangibility}% triggered → 1 copy)" : ""));
 
         // If the crafting window pauses a lone player, update the world vats once unpaused so lockstep records never stall.
-        if (conn.Paused)
+        if (player.Paused)
         {
-            var instance = conn.Instance;
+            var instance = player.Instance;
             _ = Task.Run(async () =>
             {
                 try
                 {
-                    await global::Program.WhilePaused(conn);
-                    if (!conn.Closed && !conn.LeavingArea && conn.Instance == instance)
-                        await ShowCopies(module, conn, placedOutputs, targetInvItem?.Item);
+                    await global::Program.WhilePaused(player);
+                    if (!player.Closed && !player.LeavingArea && player.Instance == instance)
+                        await ShowCopies(module, player, placedOutputs, targetInvItem?.Item);
                 }
                 catch (Exception ex) { module.Log($"{who}: Allflame crafting vat update failed: {ex.Message}"); }
             });
         }
         else
         {
-            await ShowCopies(module, conn, placedOutputs, targetInvItem?.Item);
+            await ShowCopies(module, player, placedOutputs, targetInvItem?.Item);
         }
     }
 
@@ -566,9 +567,9 @@ public static class DeepwaterCrafting
     /// <summary>Applies a single Allflame crafting currency to <paramref name="target"/> (or null for Changeling's Ducat).
     /// Returns null for invalid targets or deferred niche currencies (Resonators, Veiled, Conflict/Dominance, Heist, Memory)
     /// before any Sulphur or currency is spent.</summary>
-    public static Item? ApplyCraftCurrency(ClientState conn, ItemCatalog.BaseType currencyType, Item? target,
+    public static Item? ApplyCraftCurrency(Player player, ItemCatalog.BaseType currencyType, Item? target,
         ItemCatalog.BaseType? targetType, Random random) =>
-        ApplyCraftCurrency(ItemsFor(conn), RollsFor(conn), EssencesFor(conn), UniquesFor(conn), DropsFor(conn),
+        ApplyCraftCurrency(ItemsFor(player), RollsFor(player), EssencesFor(player), UniquesFor(player), DropsFor(player),
             currencyType, target, targetType, random);
 
     public static Item? ApplyCraftCurrency(ItemCatalog catalog, ItemRolls rolls, EssenceCrafting essences,
@@ -728,35 +729,30 @@ public static class DeepwaterCrafting
 
     static readonly ConditionalWeakTable<InstanceState, VatGroup> Vats = new();
 
-    static readonly Lazy<QuestObjectTypes.Info?> VatInfo = new(() =>
-        QuestObjectTypes.Find(VatType) is { } info && QuestObject.CanSerialize(info.Components, true) ? info : null);
-
-    static readonly Lazy<StateMachineData?> VatStates = new(() =>
-        ObjectTypes.All().Where(t => t.Type == VatType)
-            .Select(t => ObjectTypes.StateMachine(t.Row, ObjectTypes.SharedStates()))
-            .FirstOrDefault());
+    static QuestObjectTypes.Info? VatInfo;
+    static StateMachineData? VatStates;
 
     /// <summary>Spawns the 4 <c>GhostflameCraftingOutput</c> vats below deck on The Sovereign, reconstructing any unclaimed
     /// Ghostly Copies from inventory 106 and syncing <c>QF 3578 HasDeepwaterCraftInProgress</c>.</summary>
-    public static async Task SpawnVats(IModuleContext module, ClientState conn, bool isHubOwner)
+    public static async Task SpawnVats(IModuleContext module, Player player, bool isHubOwner)
     {
-        var player = PlayerOf(conn);
-        if (player.AreaId != DeepwaterModule.HubId || conn.Instance is not { } instance) return;
-        if (VatInfo.Value is not { } info || VatStates.Value is null)
+        var modPlayer = PlayerOf(player);
+        if (modPlayer.AreaId != DeepwaterModule.HubId || player.Instance is not { } instance) return;
+        if (VatInfo is not { } info || VatStates is null)
         {
-            module.Log($"{player.Character}: {VatType} cannot be serialized ({string.Join(", ", QuestObjectTypes.Find(VatType)?.Components ?? [])})");
+            module.Log($"{modPlayer.Character}: {VatType} cannot be serialized ({string.Join(", ", QuestObjectTypes.Find(VatType)?.Components ?? [])})");
             return;
         }
 
         var group = Vats.GetOrCreateValue(instance);
-        var outputs = ItemsOf(conn).Items(OutputRow).OrderBy(i => i.X).ToList();
+        var outputs = ItemsOf(player).Items(OutputRow).OrderBy(i => i.X).ToList();
         Vat[] snapshot;
 
         lock (group.Gate)
         {
             if (group.List.Count == 0)
             {
-                var placements = (conn.Layout.Level?.RoomObjects ?? [])
+                var placements = (player.Layout.Level?.RoomObjects ?? [])
                     .Where(o => o.Type == VatType)
                     .OrderBy(o => o.Y).ThenBy(o => o.X)
                     .ToList();
@@ -764,7 +760,7 @@ public static class DeepwaterCrafting
                 {
                     group.List.Add(new Vat
                     {
-                        Id = conn.TakeObjectId(),
+                        Id = player.TakeObjectId(),
                         X = o.X,
                         Y = o.Y,
                         Reach = info.Size + 2,
@@ -777,7 +773,7 @@ public static class DeepwaterCrafting
             // Reconstruct unclaimed copies from inventory 106 on fresh hub entry / relog.
             if (isHubOwner && outputs.Count > 0 && !group.List.Any(v => v.Copy is not null))
             {
-                group.Owner = player.Character;
+                group.Owner = modPlayer.Character;
                 for (int i = 0; i < group.List.Count; i++)
                 {
                     var v = group.List[i];
@@ -792,29 +788,28 @@ public static class DeepwaterCrafting
 
         // Sync QF 3578 HasDeepwaterCraftInProgress with inventory 106.
         bool hasOutputs = outputs.Count > 0;
-        var (remote, stream, ciphers) = conn.Wire;
-        if (hasOutputs && !conn.HasQuestFlag(CraftInProgress))
-            await SetQuestFlags(remote, stream, ciphers, conn, [CraftInProgress]);
-        else if (!hasOutputs && conn.HasQuestFlag(CraftInProgress))
-            await SetQuestFlags(remote, stream, ciphers, conn, [CraftInProgress], on: false);
+        if (hasOutputs && !player.Character.HasQuestFlag(CraftInProgress))
+            await SetQuestFlags(player, [CraftInProgress]);
+        else if (!hasOutputs && player.Character.HasQuestFlag(CraftInProgress))
+            await SetQuestFlags(player, [CraftInProgress], on: false);
 
-        foreach (var vat in snapshot) await CreateVat(conn, vat);
+        foreach (var vat in snapshot) await CreateVat(player, vat);
     }
 
     /// <summary>Populates the 4 vats with the newly rolled Ghostly Copies (and pre-craft <paramref name="original"/> as
     /// <c>Secondary</c> so hovering shows the client's native mod diff).</summary>
-    public static async Task ShowCopies(IModuleContext module, ClientState conn, IReadOnlyList<InventoryItem> outputs, Item? original)
+    public static async Task ShowCopies(IModuleContext module, Player player, IReadOnlyList<InventoryItem> outputs, Item? original)
     {
-        if (conn.Instance is not { } instance || !Vats.TryGetValue(instance, out var group)) return;
+        if (player.Instance is not { } instance || !Vats.TryGetValue(instance, out var group)) return;
         var updates = new List<(Vat Vat, uint OldId)>();
         lock (group.Gate)
         {
-            group.Owner = PlayerOf(conn).Character;
+            group.Owner = PlayerOf(player).Character;
             for (int i = 0; i < group.List.Count; i++)
             {
                 var v = group.List[i];
                 uint oldId = v.Id;
-                v.Id = conn.TakeObjectId();
+                v.Id = player.TakeObjectId();
                 if (i < outputs.Count)
                     (v.OutputItemId, v.Copy, v.Original, v.OpenAttempts, v.TakeState) = (outputs[i].Id, outputs[i].Item, original, 0, 0);
                 else
@@ -822,30 +817,30 @@ public static class DeepwaterCrafting
                 updates.Add((v, oldId));
             }
         }
-        foreach (var (vat, oldId) in updates) await RecreateVat(conn, vat, oldId);
+        foreach (var (vat, oldId) in updates) await RecreateVat(player, vat, oldId);
     }
 
     /// <summary>C→S 0x0024 (<c>Interact</c>) on one of the 4 <c>GhostflameCraftingOutput</c> vats: click 1 cracks the glass
     /// (<c>openAttempts = 1</c>, uncracking any other cracked vat), click 2 claims the copy, clears all 4 vats and inventory
     /// 106, and clears <c>QF 3578</c>. Returns false when <paramref name="use"/> is not a vat.</summary>
-    public static async Task<bool> UseVat(IModuleContext module, ClientState conn, InstanceTransfer.UseSkillOnObject use, double at, bool isHubOwner)
+    public static async Task<bool> UseVat(IModuleContext module, Player player, InstanceTransfer.UseSkillOnObject use, double at, bool isHubOwner)
     {
-        var player = PlayerOf(conn);
-        if (player.AreaId != DeepwaterModule.HubId || conn.Instance is not { } instance || !Vats.TryGetValue(instance, out var group))
+        var modPlayer = PlayerOf(player);
+        if (modPlayer.AreaId != DeepwaterModule.HubId || player.Instance is not { } instance || !Vats.TryGetValue(instance, out var group))
             return false;
 
         Vat? clicked;
         lock (group.Gate) clicked = group.List.FirstOrDefault(v => v.Id == use.TargetId);
         if (clicked is null) return false;
 
-        if (!await WorldOf(conn).WalkUpTo(clicked.X, clicked.Y, clicked.Reach, at)) return true;
+        if (!await WorldOf(player).WalkUpTo(clicked.X, clicked.Y, clicked.Reach, at)) return true;
 
         bool ownsVats;
         lock (group.Gate) ownsVats = isHubOwner && group.Owner is not null
-            && group.Owner.Equals(player.Character, StringComparison.OrdinalIgnoreCase);
+            && group.Owner.Equals(modPlayer.Character, StringComparison.OrdinalIgnoreCase);
         if (!ownsVats || clicked.Copy is null)
         {
-            await DeepwaterLoot.EndAction(conn);
+            await DeepwaterLoot.EndAction(player);
             return true;
         }
 
@@ -866,18 +861,18 @@ public static class DeepwaterCrafting
                         if (other == clicked || other.OpenAttempts == 0) continue;
                         uint oldOtherId = other.Id;
                         other.OpenAttempts = 0;
-                        other.Id = conn.TakeObjectId();
+                        other.Id = player.TakeObjectId();
                         updates.Add((other, oldOtherId));
                     }
                     uint oldId = clicked.Id;
                     clicked.OpenAttempts = 1;
-                    clicked.Id = conn.TakeObjectId();
+                    clicked.Id = player.TakeObjectId();
                     updates.Add((clicked, oldId));
                 }
             }
-            foreach (var (vat, oldId) in updates) await RecreateVat(conn, vat, oldId);
-            module.Log($"{player.Character} <= 0x0024 GhostflameCraftingOutput at ({clicked.X}, {clicked.Y}): cracked (attempt 1/2)");
-            await DeepwaterLoot.EndAction(conn);
+            foreach (var (vat, oldId) in updates) await RecreateVat(player, vat, oldId);
+            module.Log($"{modPlayer.Character} <= 0x0024 GhostflameCraftingOutput at ({clicked.X}, {clicked.Y}): cracked (attempt 1/2)");
+            await DeepwaterLoot.EndAction(player);
             return true;
         }
 
@@ -891,14 +886,14 @@ public static class DeepwaterCrafting
         }
         if (claimedCopy is null || claimedOutputId == 0)
         {
-            await DeepwaterLoot.EndAction(conn);
+            await DeepwaterLoot.EndAction(player);
             return true;
         }
 
-        var items = ItemsOf(conn);
+        var items = ItemsOf(player);
         var shape = ShapeOf(claimedCopy) ?? new(1, 1, "");
-        bool canDrop = GameEvents.AllowsLoot(conn) && Environment.GetEnvironmentVariable("Game_DROPS") != "0"
-            && ItemsFor(conn).ByHash(claimedCopy.TypeHash) is not null;
+        bool canDrop = GameEvents.AllowsLoot(player) && Environment.GetEnvironmentVariable("Game_DROPS") != "0"
+            && ItemsFor(player).ByHash(claimedCopy.TypeHash) is not null;
 
         var removedIds = new List<uint>();
         InventoryItem? placed = null;
@@ -910,7 +905,7 @@ public static class DeepwaterCrafting
             var outputs = items.Items(OutputRow);
             if (!outputs.Any(o => o.Id == claimedOutputId)) return;
             var cell = items.FreeCell(destRow, shape.Width, shape.Height, ShapeOf);
-            if (cell is null && ExpandedInventoryGranted(conn))
+            if (cell is null && ExpandedInventoryGranted(player))
             {
                 destRow = PlayerInventories.ExpandedInventory;
                 cell = items.FreeCell(destRow, shape.Width, shape.Height, ShapeOf);
@@ -925,14 +920,14 @@ public static class DeepwaterCrafting
 
         if (noRoom)
         {
-            await player.Send(InstanceChat.ChatLine("Make room in your inventory to claim this Ghostly Copy."),
+            await modPlayer.Send(InstanceChat.ChatLine("Make room in your inventory to claim this Ghostly Copy."),
                 "0x0017 chat line: inventory full when claiming Allflame crafting vat");
-            await DeepwaterLoot.EndAction(conn);
+            await DeepwaterLoot.EndAction(player);
             return true;
         }
         if (!claimed)
         {
-            await DeepwaterLoot.EndAction(conn);
+            await DeepwaterLoot.EndAction(player);
             return true;
         }
 
@@ -943,53 +938,52 @@ public static class DeepwaterCrafting
             foreach (var v in group.List)
             {
                 uint oldId = v.Id;
-                v.Id = conn.TakeObjectId();
+                v.Id = player.TakeObjectId();
                 (v.OutputItemId, v.Copy, v.Original, v.OpenAttempts, v.TakeState) = (0, null, null, 0, v == clicked ? 2 : 0);
                 clearedVats.Add((v, oldId));
             }
         }
 
         if (removedIds.Count > 0)
-            await player.Send(InstanceItems.InventoryChange(PlayerInventories.InventoryId(OutputRow), items.NextRevision(OutputRow), removedIds, []),
+            await modPlayer.Send(InstanceItems.InventoryChange(PlayerInventories.InventoryId(OutputRow), items.NextRevision(OutputRow), removedIds, []),
                 $"0x00bf inventory {PlayerInventories.InventoryId(OutputRow)}: cleared {removedIds.Count} Ghostly Copies");
         if (placed is not null)
-            await player.Send(InstanceItems.InventoryChange(PlayerInventories.InventoryId(destRow), items.NextRevision(destRow), [], [placed]),
+            await modPlayer.Send(InstanceItems.InventoryChange(PlayerInventories.InventoryId(destRow), items.NextRevision(destRow), [], [placed]),
                 $"0x00bf inventory {PlayerInventories.InventoryId(destRow)}: claimed Ghostly Copy {placed.Id} at ({placed.X}, {placed.Y})");
-        else if (ItemsFor(conn).ByHash(claimedCopy.TypeHash) is { } claimedType)
+        else if (ItemsFor(player).ByHash(claimedCopy.TypeHash) is { } claimedType)
         {
-            var here = conn.Walk.Position(conn.Clock.Elapsed.TotalSeconds);
-            await DeepwaterLoot.Drop(conn, here.X, here.Y, 1, "Allflame crafting vat", [new(claimedCopy, claimedType)]);
+            var here = player.Walk.Position(AreaTime(player));
+            await DeepwaterLoot.Drop(player, here.X, here.Y, 1, "Allflame crafting vat", [new(claimedCopy, claimedType)]);
         }
 
-        foreach (var (vat, oldId) in clearedVats) await RecreateVat(conn, vat, oldId);
+        foreach (var (vat, oldId) in clearedVats) await RecreateVat(player, vat, oldId);
 
-        var (remote, stream, ciphers) = conn.Wire;
-        await SetQuestFlags(remote, stream, ciphers, conn, [CraftInProgress], on: false);
-        module.Log($"{player.Character} <= 0x0024 GhostflameCraftingOutput at ({clicked.X}, {clicked.Y}): claimed copy"
+        await SetQuestFlags(player, [CraftInProgress], on: false);
+        module.Log($"{modPlayer.Character} <= 0x0024 GhostflameCraftingOutput at ({clicked.X}, {clicked.Y}): claimed copy"
             + (placed is not null ? $" into row {destRow} ({placed.X}, {placed.Y})" : " (dropped on ground)"));
-        await DeepwaterLoot.EndAction(conn);
+        await DeepwaterLoot.EndAction(player);
         return true;
     }
 
-    static async Task CreateVat(ClientState conn, Vat vat)
+    static async Task CreateVat(Player player, Vat vat)
     {
-        if (VatInfo.Value is not { } info || VatStates.Value is not { } states) return;
+        if (VatInfo is not { } info || VatStates is not { } states) return;
         var blob = new QuestObject(vat.X, vat.Y, info.Components, vat.Rotation, vat.Z, vat.Model)
         {
             StateMachine = states.Set("has_item", vat.Copy is not null ? 1 : 0).Set("take", vat.TakeState),
             RewardDisplay = new RewardDisplayData(vat.Copy, vat.Original, vat.OpenAttempts),
         }.Blob();
-        var player = PlayerOf(conn);
-        if (!await global::Game.SendWorldCreate(player, vat.Id, InstanceEntities.CreateObject(vat.Id, InstanceEntities.ObjectTypeHash(VatType), blob),
+        var modPlayer = PlayerOf(player);
+        if (!await global::Game.SendWorldCreate(modPlayer, vat.Id, InstanceEntities.CreateObject(vat.Id, InstanceEntities.ObjectTypeHash(VatType), blob),
             $"0x02bb GhostflameCraftingOutput 0x{vat.Id:x} at ({vat.X}, {vat.Y}), has_item {(vat.Copy is not null ? 1 : 0)}, open {vat.OpenAttempts}, take {vat.TakeState}"))
             return;
-        await global::Game.SendWorldRecord(player, vat.Id, InstanceProtocol.EnterWakeZone(vat.Id));
-        if (info.Blocking) conn.SetBlocker(vat.Id, vat.X, vat.Y, Math.Max(1, info.Size));
+        await global::Game.SendWorldRecord(modPlayer, vat.Id, InstanceProtocol.EnterWakeZone(vat.Id));
+        if (info.Blocking) player.SetBlocker(vat.Id, vat.X, vat.Y, Math.Max(1, info.Size));
     }
 
-    static async Task RecreateVat(ClientState conn, Vat vat, uint oldId)
+    static async Task RecreateVat(Player player, Vat vat, uint oldId)
     {
-        foreach (var member in DeepwaterLoot.Members(conn))
+        foreach (var member in DeepwaterLoot.Members(player))
         {
             member.RemoveBlocker(oldId);
             await global::Game.SendWorldRemoval(PlayerOf(member), oldId, $"0x02bc remove GhostflameCraftingOutput 0x{oldId:x}");

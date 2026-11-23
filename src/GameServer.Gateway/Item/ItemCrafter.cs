@@ -120,12 +120,12 @@ public static class ItemCrafter
                 ["tags"] = new JsonArray([.. m.Tags.Order(StringComparer.Ordinal).Select(g => JsonValue.Create(g))]),
                 ["stats"] = new JsonArray([.. m.Stats.Select((s, i) => (JsonNode)new JsonObject
                 {
-                    ["id"] = s.Id, ["min"] = m.RangeAt(i).Min, ["max"] = m.RangeAt(i).Max,
+                    ["id"] = s.Name, ["min"] = m.RangeAt(i).Min, ["max"] = m.RangeAt(i).Max,
                 })]),
             };
         foreach (var b in baseLines) yield return b;
         var described = new HashSet<StatDescriptions.Description>(ReferenceEqualityComparer.Instance);
-        foreach (var stat in mods.Values.SelectMany(m => m.Stats).Select(s => s.Id).Concat(themeStats).Distinct(StringComparer.Ordinal))
+        foreach (var stat in mods.Values.SelectMany(m => m.Stats).Select(s => s.Name).Concat(themeStats).Distinct(StringComparer.Ordinal))
             if (descriptions.For(stat) is { } d && described.Add(d))
                 yield return new JsonObject
                 {

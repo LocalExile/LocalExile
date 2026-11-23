@@ -16,9 +16,9 @@ public static class AtlasStats
         "torment", "ultimatum",
     };
 
-    static uint? Key(string id) => Program.Stats.Key(id);
+    static uint? Key(uint id) => (id);
 
-    static int Sum(IEnumerable<AtlasPassives.Node> nodes, string id) =>
+    static int Sum(IEnumerable<AtlasPassives.Node> nodes, uint id) =>
         Key(id) is uint key ? nodes.Sum(n => n.Stats.Where(s => s.Key == key).Sum(s => s.Value)) : 0;
 
     public static bool IsSmall(AtlasPassives.Node node) => !node.IsNotable && !node.IsKeystone && !node.IsWormhole && !node.IsJustIcon;
@@ -31,10 +31,10 @@ public static class AtlasStats
     /// truncated; map_pack_size_+%_per_atlas_notable_passive_allocated adds pack size per allocated Notable.</summary>
     public static Dictionary<uint, int> Compose(IReadOnlyCollection<AtlasPassives.Node> nodes)
     {
-        bool notablesNothing = Sum(nodes, "display_notable_atlas_passives_grant_nothing") > 0;
-        bool smallNothing = Sum(nodes, "display_small_atlas_passives_grant_nothing") > 0;
-        int smallEffect = Sum(nodes, "small_atlas_passive_effect_+%");
-        int extraEffect = Sum(nodes, "map_atlas_extra_content_small_node_effect_+%");
+        bool notablesNothing = Sum(nodes, Stat.DisplayNotableAtlasPassivesGrantNothing) > 0;
+        bool smallNothing = Sum(nodes, Stat.DisplaySmallAtlasPassivesGrantNothing) > 0;
+        int smallEffect = Sum(nodes, Stat.SmallAtlasPassiveEffectPlusPct);
+        int extraEffect = Sum(nodes, Stat.MapAtlasExtraContentSmallNodeEffectPlusPct);
         var stats = new Dictionary<uint, int>();
         foreach (var node in nodes)
         {
@@ -44,8 +44,8 @@ public static class AtlasStats
             foreach (var (key, value) in node.Stats)
                 stats[key] = stats.GetValueOrDefault(key) + (int)Math.Clamp((long)value * effect / 100, int.MinValue, int.MaxValue);
         }
-        if (Sum(nodes, "map_pack_size_+%_per_atlas_notable_passive_allocated") is int perNotable and not 0
-            && Key("map_pack_size_+%") is uint packSize)
+        if (Sum(nodes, Stat.MapPackSizePlusPctPerAtlasNotablePassiveAllocated) is int perNotable and not 0
+            && Stat.MapPackSizePlusPct is var packSize)
             stats[packSize] = stats.GetValueOrDefault(packSize) + perNotable * nodes.Count(n => n.IsNotable);
         return stats;
     }
@@ -55,8 +55,8 @@ public static class AtlasStats
     /// fragment.</summary>
     public static int ModEffect(IReadOnlyDictionary<uint, int> atlas, bool unique, int explicitMods, int fragments)
     {
-        int Get(string id) => Key(id) is uint key ? atlas.GetValueOrDefault(key) : 0;
-        return (unique ? 0 : Get("map_mod_effect_+%_for_non_unique_maps")) + Get("map_mod_effect_+%_per_mod") * explicitMods
-            + Get("map_mod_effect_+%_per_fragment_used") * fragments;
+        int Get(uint id) => Key(id) is uint key ? atlas.GetValueOrDefault(key) : 0;
+        return (unique ? 0 : Get(Stat.MapModEffectPlusPctForNonUniqueMaps)) + Get(Stat.MapModEffectPlusPctPerMod) * explicitMods
+            + Get(Stat.MapModEffectPlusPctPerFragmentUsed) * fragments;
     }
 }

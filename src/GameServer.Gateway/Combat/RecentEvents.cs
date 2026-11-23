@@ -3,7 +3,7 @@
 /// "recently" is a fixed four-second window, the same one <see cref="RecentEnemyHits"/> already uses for the hits
 /// taken: a stat whose id says <c>if you have crit recently</c> holds while the last such event is inside it.
 /// <para>
-/// Owned by one area connection; use under its Monsters lock, like the rest of the per-area combat state. The keys are
+/// Owned by one area connection; use in the area's frame, like the rest of the per-area combat state. The keys are
 /// <see cref="StatConditions"/>'s (<c>hit_enemy</c>, <c>killed_enemy</c>, …), so the stat layer can ask for exactly the
 /// ones it names and answer <c>NotModelled</c> for anything it does not carry.
 /// </para>
@@ -27,7 +27,13 @@ public sealed class RecentEvents
         if (!amounts.TryGetValue(key, out var entries)) amounts[key] = entries = [];
         entries.RemoveAll(e => !Recent(e.At, now, WindowSeconds));
         entries.Add((now, amount));
+        Changed?.Invoke();
     }
+
+    /// <summary>What happened changed: an event that had not happened recently did, an amount was counted, or all
+    /// were forgotten. (An event repeated within its window changes nothing a condition reads until it ages out, which
+    /// <see cref="NextExpiry"/> tells.)</summary>
+    public Action? Changed;
 
     public Dictionary<string, long> Amounts(double now)
     {
@@ -64,9 +70,11 @@ public sealed class RecentEvents
     /// explicitly says eight seconds supplies that duration instead.</summary>
     public void Record(string key, double now, double? seconds = null)
     {
+        bool happened = Happened(key, now);
         last[key] = now;
         if (seconds is double duration && duration > 0) windows[key] = duration;
         else windows.Remove(key);
+        if (!happened) Changed?.Invoke();
     }
 
     /// <summary>A successful player hit commits its direction and critical outcome. The eight-second key is separate
@@ -121,5 +129,5 @@ public sealed class RecentEvents
     }
 
     /// <summary>Forgets every event (a new area, a death, a login).</summary>
-    public void Clear() { last.Clear(); windows.Clear(); amounts.Clear(); }
+    public void Clear() { last.Clear(); windows.Clear(); amounts.Clear(); Changed?.Invoke(); }
 }
