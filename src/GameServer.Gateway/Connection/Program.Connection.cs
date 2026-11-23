@@ -12,6 +12,18 @@ public partial class Program
     static readonly Lazy<PacketLogQueue> PacketSummaries = new(() => new(Console.WriteLine));
     public static string CharacterName(Player player) => string.IsNullOrEmpty(player.Character.Name) ? "Exile" : player.Character.Name;
 
+    /// <summary>Whether <paramref name="player"/> owns the hideout instance they are in (same character or same account).</summary>
+    public static bool OwnsHideoutInstance(Player player)
+    {
+        if (HideoutCatalog.ByArea(player.Layout.Hash) is null) return false;
+        if (player.InstanceOwner is null || string.Equals(player.InstanceOwner, CharacterName(player), StringComparison.OrdinalIgnoreCase))
+            return true;
+        if (player.Character.Account is null || !Saves.IsOpen) return false;
+        var store = new SqliteAccountStore(Saves.Db);
+        return store.FindCharacter(player.InstanceOwner) is { } owner
+            && string.Equals(store.GetAccount(owner.AccountId)?.Name, player.Character.Account, StringComparison.OrdinalIgnoreCase);
+    }
+
     // Set while a projectile's output is sent: false drops it (Send).
     public static readonly AsyncLocal<Func<bool>?> ProjectileOutputGuard = new();
 
@@ -118,7 +130,6 @@ public partial class Program
                     pending.AddRange(buffer.AsSpan(0, n));
                     opening = InstanceProtocol.TryReadOpening([.. pending]);
                 }
-                ticket = opening.Ticket;
                 if (GameLogicOrNull is null)
                 {
                     Console.WriteLine($"[gateway] {remote} the game module is not loaded; connection refused");
@@ -126,6 +137,12 @@ public partial class Program
                 }
                 Console.WriteLine($"[gateway] {remote} opening: ticket=0x{opening.Ticket:x8} digest={Convert.ToHexString(opening.Digest)} " +
                                   $"address=0x{opening.Address:x8} u32={opening.U32_128} realm=0x{opening.Realm:x2} flag={opening.Flag}");
+                if (!InstanceProtocol.VerifyOpeningDigest(opening, keyring.Data8(opening.Ticket), DateTimeOffset.UtcNow.ToUnixTimeSeconds()))
+                {
+                    Console.WriteLine($"[gateway] {remote} opening digest mismatch for ticket 0x{opening.Ticket:x8}; connection refused");
+                    return;
+                }
+                ticket = opening.Ticket;
 
                 // Which area and instance this ticket was issued for (Auth's instance registry).
                 var resolved = await InstanceControl.CallAsync(new ControlRequest { Op = "resolve", Ticket = ticket });
@@ -203,7 +220,7 @@ public partial class Program
                 prepared = true;
                 byte requestAreaLevel = areaLevel;
                 var layoutBeforeHeader = player.Layout;
-                var moduleHeader = GameEvents.RunAreaHeader(player);
+                var moduleHeader = MergeAreaHeaders(player);
                 bool headerReplacedLayout = !ReferenceEquals(player.Layout, layoutBeforeHeader);
                 if (headerReplacedLayout) layout = player.Layout;
                 byte headerLevel = moduleHeader?.Level ?? areaLevel;
@@ -244,7 +261,9 @@ public partial class Program
                 var area = new AreaInstance(InstanceId: (uint)instanceId, AreaHash: areaHash, Seed: seed, Level: areaLevel,
                     Text: resolved.League ?? "", LeagueStats: InstanceEvents.Merge(areaStats, Logic.AreaLeagueStats(player)),
                     TerrainData: terrainData,
-                    AchievementSets: moduleHeader?.AchievementSets, B28: (byte)leagueCategory);
+                    AchievementSets: moduleHeader?.AchievementSets, B28: (byte)leagueCategory,
+                    HideoutPermissions: OwnsHideoutInstance(player),
+                    ReturnAreaHash: player.ReturnAreaHash);
                 await Send(remote, stream, ciphers, area.Encode(), $"0x001d {area}; {areaStats.Count} area stat(s); ascendancy family {player.Character.MainAscendancy.Selection?.Family}" +
                     (labyrinthNode is null ? "" : $"; labyrinth day {labyrinthNode.Seed} node {labyrinthNode.Row} difficulty {labyrinthNode.Difficulty}") +
                     string.Concat(pluginStates.Select(p => $"; plugin {p.Plugin} state {Convert.ToHexString(p.State)}")));
@@ -433,8 +452,14 @@ public partial class Program
         ClientInbox inbox, long readAt)
     {
         ciphers.Receive.Process(data);
-        byte[] all = [.. player.Connection.Session.Carry, .. data];
-        var messages = InstanceProtocol.SplitClientMessages(all, out player.Connection.Session.Carry, out byte[] unknown);
+        var session = player.Connection.Session;
+        byte[] all = session.Carry.Length == 0 ? data : [.. session.Carry, .. data];
+        var messages = InstanceProtocol.SplitClientMessages(all, out session.Carry, out byte[] unknown);
+        if (session.Carry.Length > InstanceProtocol.MaxClientCarryBytes)
+        {
+            unknown = unknown.Length == 0 ? session.Carry : [.. unknown, .. session.Carry];
+            session.Carry = [];
+        }
         (ushort[] Predictive, ushort[] Lockstep)? mixed = null;
         foreach (var (id, bytes) in messages)
         {
@@ -816,6 +841,32 @@ public partial class Program
     public static Task SendPong(NetworkStream stream, ConnectionCiphers ciphers, byte[] bytes) => Write(stream, ciphers, bytes);
     /// <summary>A reply written at once, outside the send gate's order (the lockstep probe's AFK request).</summary>
     public static Task SendPong(Player player, byte[] bytes) => Write(player.Connection.Session.Stream, player.Connection.Session.Ciphers, bytes);
+
+    // Composes every AreaHeader subscriber so an AchievementSets-only contributor cannot shadow a later module's
+    // Terrain or Level override (e.g. Delve mine terrain or Simulacrum wave level).
+    static AreaHeader? MergeAreaHeaders(Player player)
+    {
+        byte[]? terrain = null;
+        byte? level = null;
+        List<byte>? sets = null;
+        bool any = false;
+        foreach (var (owner, run) in GameEvents.AreaHeader.Subscribers(player))
+        {
+            AreaHeader? next = null;
+            GameEventOwners.Guard(owner, nameof(GameEvents.AreaHeader), () => next = run(player));
+            if (next is null) continue;
+            any = true;
+            terrain ??= next.Terrain;
+            if (level is null && next.Level is > 0) level = next.Level;
+            if (next.AchievementSets is { Count: > 0 } nextSets)
+            {
+                sets ??= [];
+                foreach (byte set in nextSets)
+                    if (!sets.Contains(set)) sets.Add(set);
+            }
+        }
+        return any ? new AreaHeader(terrain, sets) { Level = level } : null;
+    }
 
     public static readonly System.Runtime.CompilerServices.ConditionalWeakTable<ConnectionCiphers, SemaphoreSlim> WireGates = new();
     public static readonly System.Runtime.CompilerServices.ConditionalWeakTable<ConnectionCiphers, ConnectionPerformance> ConnectionMetrics = new();

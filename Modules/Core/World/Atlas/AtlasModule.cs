@@ -38,6 +38,7 @@ public sealed class AtlasModule : IModule
     public static void LoadData()
     {
         AtlasProgress.LoadAtlasProgressData();
+        AtlasFeature.LoadAtlasFeatureData();
     }
 
     /// <inheritdoc/>
@@ -68,12 +69,15 @@ public sealed class AtlasModule : IModule
             int earned = bonus ? ApplyBonusPoints(player, data) : 0;
             if (completed)
             {
-                await Send(player, AtlasProgress.NodeMessage(node),
+                await Send(player, AtlasProgress.NodeMessage(node, bonus),
                     $"0x01a4 Atlas map completed: {node.Name} ({node.Id}) by {kill.Monster.Name}");
                 await AtlasFeature.Refresh(player);
                 await kill.ModPlayer.Tell($"Atlas: {node.Name} completed.");
             }
+            else if (bonus)
+                await AtlasFeature.Refresh(player);
             if (bonus) await PublishBonusPoints(player, kill.ModPlayer, earned, "Atlas bonus objective completed");
+            else if (completed) await AtlasFeature.SyncTreeFlags(player);
         });
         GameEvents.Command(module.Manifest.Id, "atlas_complete", "/atlas_complete <map name or AtlasNode id | all> (dev: mark Atlas maps completed, saved)",
             async (player, args) =>
@@ -113,13 +117,33 @@ public sealed class AtlasModule : IModule
         });
         GameEvents.Packet(InstanceEntities.AtlasRefundId).Add(module.Manifest.Id, async (player, bytes) =>
         {
-            var (preset, node, _) = InstanceEntities.ReadAtlasRefund(bytes);
-            await AtlasFeature.ChangeAtlasPassive(player, preset, node, allocate: false);
+            var (preset, node, goldFlag) = InstanceEntities.ReadAtlasRefund(bytes);
+            await AtlasFeature.ChangeAtlasPassive(player, preset, node, allocate: false, gold: goldFlag != 0);
+            return true;
+        });
+        GameEvents.Packet(InstanceEntities.AtlasRefundAllId).Add(module.Manifest.Id, async (player, bytes) =>
+        {
+            await AtlasFeature.RefundAllAtlasPassives(player, bytes[2]);
+            return true;
+        });
+        GameEvents.Packet(InstanceEntities.AtlasResetAllId).Add(module.Manifest.Id, async (player, bytes) =>
+        {
+            await AtlasFeature.ResetAtlasPassivesFree(player, bytes[2]);
             return true;
         });
         GameEvents.Packet(InstanceEntities.AtlasTreeTabId).Add(module.Manifest.Id, async (player, bytes) =>
         {
             await AtlasFeature.SelectPreset(player, bytes[2]);
+            return true;
+        });
+        GameEvents.Packet(InstanceEntities.AtlasTreeRenameId).Add(module.Manifest.Id, async (player, bytes) =>
+        {
+            await AtlasFeature.RenameAtlasPreset(player, InstanceEntities.ReadAtlasTreeRename(bytes));
+            return true;
+        });
+        GameEvents.Packet(InstanceEntities.AtlasWindowRequestId).Add(module.Manifest.Id, async (player, _) =>
+        {
+            await Send(player, InstanceEntities.AtlasWindowReply(), "0x0091 Atlas window reply");
             return true;
         });
         GameEvents.Packet(InstanceMapDevice.SocketId).Add(module.Manifest.Id, async (player, bytes) =>
@@ -158,7 +182,7 @@ public sealed class AtlasModule : IModule
     }
 }
 
-static class AtlasFeature
+public static class AtlasFeature
 {
     /// <summary>Saved QuestFlags only. SessionQuestFlags (PickUpMavenAlteration, HaveTangleMapDeviceAlteration, …)
     /// are never written to the save: granting them on every area re-fires the client's "beacon complete" toast.</summary>
@@ -243,11 +267,13 @@ static class AtlasFeature
         var modPlayer = PlayerOf(player);
         var data = WorldOf(modPlayer).CharacterData;
         var completed = AtlasProgress.Completed(data);
+        var bonusCompleted = AtlasProgress.BonusCompleted(data);
         bool pointsChanged = AtlasModule.ApplyBonusPoints(player, data) > 0;
         var slots = SlotsOf(modPlayer);
         byte stones = AtlasProgress.VoidstoneMask(slots);
-        yield return ($"0x01a3 Atlas progress, {completed.Count} map(s) saved, {AtlasProgress.OnAtlasRows.Count} on-atlas row(s), voidstones 0x{stones:X2} ({slots.Count})",
-            AtlasProgress.FullMessage(completed, stones, (byte)slots.Count));
+        yield return ("0x003c Atlas tree names", global::Game.AtlasTreeNamesMessage(player));
+        yield return ($"0x01a3 Atlas progress, {completed.Count} map(s) completed, {bonusCompleted.Count} bonus, voidstones 0x{stones:X2} ({slots.Count})",
+            AtlasProgress.FullMessage(completed, bonusCompleted, stones, (byte)slots.Count));
         // The presets in the player batch were built before the budget above changed: send them again so the tree's
         // counter follows on this login.
         if (pointsChanged)
@@ -261,22 +287,33 @@ static class AtlasFeature
     /// <summary>AtlasTrees' flag columns for trees II and III: Unlocked (329, 331) and Active (330, 332).</summary>
     static readonly (int Unlocked, int Active)[] TreeFlags = [(0, 0), (329, 330), (331, 332)];
 
+    /// <summary>LeagueQuestFlags id 295 (wire bit 294): zooms the Atlas out to scale 0.5 once a map is completed (0x1407b2500).</summary>
+    internal const int CompletedMapFlag = 295;
+
     /// <summary>The bonus count unlocks a tree. Existing allocations keep their tree available.</summary>
-    internal static bool TreeUnlocked(Player player, int tree) =>
+    public static bool TreeUnlocked(Player player, int tree) =>
         tree == 0 || (tree < TreeUnlockMaps.Length && tree < player.Character.AtlasPassives.Length
             && (player.Character.AtlasPassives[tree].Count > 0
                 || AtlasProgress.BonusCompleted(WorldOf(PlayerOf(player)).CharacterData).Count >= TreeUnlockMaps[tree]));
 
-    /// <summary>Sets trees II and III's league flags on the connection (never saved to the account: they follow each
-    /// character's own maps and active preset, so a shared save would leak one character's trees to another). The client
-    /// shows the tree selector when more than one tree is unlocked and starts on the last tree with Unlocked and Active.</summary>
-    internal static bool ApplyTreeFlags(Player player)
+    /// <summary>Sets per-character Atlas league flags (CompletedMap and trees II/III) on the connection (never saved to
+    /// the account: they follow each character's own maps and active preset, so a shared save would leak one character's
+    /// Atlas state to another). The client shows the tree selector when more than one tree is unlocked and starts on the
+    /// last tree with Unlocked and Active.</summary>
+    public static bool ApplyTreeFlags(Player player)
     {
         bool changed = false;
+        var data = WorldOf(PlayerOf(player)).CharacterData;
+        int completedCount = AtlasProgress.Completed(data).Count;
+        int bonusCount = AtlasProgress.BonusCompleted(data).Count;
+        changed |= completedCount > 0
+            ? player.Character.LeagueQuestFlags.Add(CompletedMapFlag)
+            : player.Character.LeagueQuestFlags.Remove(CompletedMapFlag);
         int active = AtlasActivePreset(player);
         for (int tree = 1; tree < TreeFlags.Length; tree++)
         {
-            bool unlocked = TreeUnlocked(player, tree);
+            bool unlocked = tree < TreeUnlockMaps.Length && tree < player.Character.AtlasPassives.Length
+                && (player.Character.AtlasPassives[tree].Count > 0 || bonusCount >= TreeUnlockMaps[tree]);
             changed |= unlocked ? player.Character.LeagueQuestFlags.Add(TreeFlags[tree].Unlocked) : player.Character.LeagueQuestFlags.Remove(TreeFlags[tree].Unlocked);
             bool on = unlocked && active == tree;
             changed |= on ? player.Character.LeagueQuestFlags.Add(TreeFlags[tree].Active) : player.Character.LeagueQuestFlags.Remove(TreeFlags[tree].Active);
@@ -342,18 +379,140 @@ static class AtlasFeature
             $"0x003d Atlas tree tab: preset {preset} active, {player.Character.AtlasPassives[preset].Count}/{player.Character.AtlasPassivePoints} points");
     }
 
-    // C→S 0x3e/0x3f: a click in the Atlas passive tree. Validate the node, the budget and the respec points, save the
-    // preset and send all three presets back so the client and the save agree. The server holds the Atlas graph
-    // (client.db) and refuses a node that is off it, an icon-only node, an allocation not touching the start or an
-    // allocated node, and a refund that would cut allocated nodes off from the start.
-    internal static async Task ChangeAtlasPassive(Player player,
-        byte preset, uint node, bool allocate)
+    const int MaxTreeNameLength = 64;
+
+    /// <summary>Gold cost per Atlas passive node refund (GameConstants.AtlasPassiveRespecCost = 2000; 0x141ef5ad0).</summary>
+    static uint AtlasGoldRespecCost = 2000u;
+
+    internal static void LoadAtlasFeatureData()
     {
-        if (preset >= player.Character.AtlasPassives.Length || node > ushort.MaxValue
+        uint cost = 2000u;
+        if (GameServer.Core.ClientTables.Has("GameConstants"))
+            foreach (var row in GameServer.Core.ClientTables.Table("GameConstants"))
+                if (row.Text("Id") == "AtlasPassiveRespecCost" && row.IntOrNull("Value") is > 0 and int found)
+                {
+                    cost = (uint)found;
+                    break;
+                }
+        AtlasGoldRespecCost = cost;
+    }
+
+    // C→S 0x2a7: rename one Atlas passive tree preset (0..2), persisted in module data and echoed via S→C 0x3c.
+    public static async Task RenameAtlasPreset(Player player, (byte Preset, string Name) rename)
+    {
+        if (rename.Preset >= player.Character.AtlasPassives.Length || !TreeUnlocked(player, rename.Preset))
+        {
+            Console.WriteLine($"[gateway] {player.Connection.Remote} <= 0x02a7 Atlas tree rename preset {rename.Preset} refused: " +
+                (rename.Preset >= player.Character.AtlasPassives.Length ? "no such preset" : "locked"));
+            return;
+        }
+        string trimmed = new string(rename.Name.Where(c => !char.IsControl(c)).ToArray()).Trim();
+        if (trimmed.Length > MaxTreeNameLength) trimmed = trimmed[..MaxTreeNameLength];
+        SetAtlasTreeName(player, rename.Preset, trimmed);
+        Console.WriteLine($"[gateway] {player.Connection.Remote} <= 0x02a7 Atlas tree preset {rename.Preset} renamed to \"{trimmed}\"");
+        await Send(player, AtlasTreeNamesMessage(player), $"0x003c Atlas tree names (preset {rename.Preset})");
+    }
+
+    // C→S 0x40: refund every allocated node in one Atlas preset for gold (GameConstants.AtlasPassiveRespecCost each).
+    public static async Task RefundAllAtlasPassives(Player player, byte preset)
+    {
+        if (preset >= player.Character.AtlasPassives.Length || !TreeUnlocked(player, preset))
+        {
+            Console.WriteLine($"[gateway] {player.Connection.Remote} <= 0x0040 Atlas refund all preset {preset} refused: " +
+                (preset >= player.Character.AtlasPassives.Length ? "no such preset" : "locked"));
+            await SendAtlasSlots(player, "Atlas refund all refused");
+            return;
+        }
+        var nodes = player.Character.AtlasPassives[preset];
+        if (nodes.Count == 0)
+        {
+            await SendAtlasSlots(player, "Atlas refund all (empty)");
+            return;
+        }
+        var links = AtlasPassiveNodes.Links;
+        uint perNode = AtlasGoldRespecCost;
+        long totalCost = 0;
+        foreach (ushort id in nodes)
+        {
+            var passive = AtlasPassiveNodes.Find(id);
+            bool stale = passive is null || links.Count > 0 && (passive.IsJustIcon || !links.ContainsKey(id)
+                || !AtlasPassives.IsReached(nodes, id, links, AtlasPassives.StartGraphId));
+            if (!stale) totalCost += perNode;
+        }
+        var character = CharacterName(player);
+        uint goldLeft = 0;
+        var nextPresets = player.Character.AtlasPassives.Select((p, i) => i == preset ? new List<ushort>() : p).ToArray();
+        string? error = Saves.Atomically(() =>
+        {
+            if (totalCost > 0)
+            {
+                if (PersonalStashOf(player).TrySpendGold(totalCost) is not uint left)
+                    return $"not enough gold ({totalCost} needed, {PersonalStashOf(player).Gold} held)";
+                goldLeft = left;
+            }
+            if (character is not null)
+                CharacterSaves.SetAtlasPassives(character, nextPresets, player.Character.AtlasPassivePoints);
+            return null;
+        });
+        if (error is not null)
+        {
+            Console.WriteLine($"[gateway] {player.Connection.Remote} <= 0x0040 Atlas refund all preset {preset} refused: {error}");
+            await SendAtlasSlots(player, "Atlas refund all refused");
+            return;
+        }
+        int refunded = nodes.Count;
+        nodes.Clear();
+        Console.WriteLine($"[gateway] {player.Connection.Remote} <= 0x0040 Atlas refund all preset {preset}: {refunded} node(s), {totalCost} gold paid");
+        await SyncTreeFlags(player);
+        if (totalCost > 0)
+            await Send(player, InstanceEntities.Gold(goldLeft), $"0x02aa gold: {goldLeft} (Atlas refund all, {totalCost} paid)");
+        await SendAtlasSlots(player, "Atlas refund all");
+    }
+
+    // C→S 0x41: consume an unused one-off free full reset on an Atlas preset.
+    public static async Task ResetAtlasPassivesFree(Player player, byte preset)
+    {
+        if (preset >= player.Character.AtlasPassives.Length || !TreeUnlocked(player, preset) || !HasAtlasFreeReset(player))
+        {
+            Console.WriteLine($"[gateway] {player.Connection.Remote} <= 0x0041 Atlas free reset preset {preset} refused: " +
+                (preset >= player.Character.AtlasPassives.Length ? "no such preset" : !TreeUnlocked(player, preset) ? "locked" : "none available"));
+            await SendAtlasSlots(player, "Atlas free reset refused");
+            return;
+        }
+        var nodes = player.Character.AtlasPassives[preset];
+        if (nodes.Count == 0)
+        {
+            Console.WriteLine($"[gateway] {player.Connection.Remote} <= 0x0041 Atlas free reset preset {preset} refused: no nodes allocated");
+            await SendAtlasSlots(player, "Atlas free reset (empty)");
+            return;
+        }
+        var character = CharacterName(player);
+        var nextPresets = player.Character.AtlasPassives.Select((p, i) => i == preset ? new List<ushort>() : p).ToArray();
+        Saves.Atomically(() =>
+        {
+            if (character is not null)
+                CharacterSaves.SetAtlasPassives(character, nextPresets, player.Character.AtlasPassivePoints);
+            SetAtlasFreeReset(player, false);
+        });
+        int refunded = nodes.Count;
+        nodes.Clear();
+        Console.WriteLine($"[gateway] {player.Connection.Remote} <= 0x0041 Atlas free reset preset {preset}: {refunded} node(s) cleared");
+        await SyncTreeFlags(player);
+        await SendAtlasSlots(player, "Atlas free reset");
+    }
+
+    // C→S 0x3e/0x3f: a click in the Atlas passive tree. Validate the node, the budget and the respec points (or gold
+    // when the gold flag is set), save the preset and send all three presets back so the client and the save agree. The
+    // server holds the Atlas graph (client.db) and refuses a node that is off it, an icon-only node, an allocation not
+    // touching the start or an allocated node, and a refund that would cut allocated nodes off from the start.
+    public static async Task ChangeAtlasPassive(Player player,
+        byte preset, uint node, bool allocate, bool gold = false)
+    {
+        if (preset >= player.Character.AtlasPassives.Length || !TreeUnlocked(player, preset) || node > ushort.MaxValue
             || AtlasPassiveNodes.Find((ushort)node) is not { } passive || passive.Id == "atlas_start_node")
         {
             Console.WriteLine($"[gateway] {player.Connection.Remote} <= Atlas passive {(allocate ? "allocate" : "refund")} {node} refused: " +
-                "preset or node unknown");
+                (preset < player.Character.AtlasPassives.Length && !TreeUnlocked(player, preset) ? $"preset {preset} locked" : "preset or node unknown"));
             await SendAtlasSlots(player, "Atlas refused");
             return;
         }
@@ -373,6 +532,8 @@ static class AtlasFeature
             await SendAtlasSlots(player, "Atlas refused");
             return;
         }
+        uint goldCost = 0;
+        uint goldLeft = 0;
         if (allocate)
         {
             if (nodes.Contains((ushort)node))
@@ -386,6 +547,15 @@ static class AtlasFeature
                 await SendAtlasSlots(player, "Atlas no points");
                 return;
             }
+            var updated = new List<ushort>(nodes) { (ushort)node };
+            updated.Sort();
+            var nextPresets = player.Character.AtlasPassives.Select((p, i) => i == preset ? updated : p).ToArray();
+            Saves.Atomically(() =>
+            {
+                if (character is not null)
+                    CharacterSaves.SetAtlasPassives(character, nextPresets, player.Character.AtlasPassivePoints);
+                if (HasAtlasFreeReset(player)) SetAtlasFreeReset(player, false);
+            });
             nodes.Add((ushort)node);
             nodes.Sort();
         }
@@ -396,27 +566,58 @@ static class AtlasFeature
                 await SendAtlasSlots(player, "Atlas not allocated");
                 return;
             }
-            // A refund spends one respec point (the client's check 0x141ef3710), and may not take away the points
+            // A refund spends one respec point (0x141ef3710) or gold (0x141ef5ad0), and may not take away the points
             // that the remaining nodes use (a node granting points, such as Unwavering Vision).
             // A stale node (icon-only, off the graph or cut off from the start) is refunded free.
             var rest = nodes.Where(n => n != node).ToList();
             bool stale = links.Count > 0 && (passive.IsJustIcon || !links.ContainsKey((ushort)node)
                 || !AtlasPassives.IsReached(nodes, (ushort)node, links, AtlasPassives.StartGraphId));
-            if ((respec == 0 && !stale) || rest.Count > AtlasPassiveNodes.Budget(player.Character.AtlasPassivePoints, rest, hardMode))
+            if ((!gold && respec == 0 && !stale) || rest.Count > AtlasPassiveNodes.Budget(player.Character.AtlasPassivePoints, rest, hardMode))
             {
                 Console.WriteLine($"[gateway] {player.Connection.Remote} <= Atlas refund {passive.Name} ({node}) refused: " +
-                    (respec == 0 && !stale ? "no respec points" : "the remaining nodes need its points"));
+                    (!gold && respec == 0 && !stale ? "no respec points" : "the remaining nodes need its points"));
                 await SendAtlasSlots(player, "Atlas refund refused");
                 return;
             }
+            var nextPresets = player.Character.AtlasPassives.Select((p, i) => i == preset ? rest : p).ToArray();
+            if (gold && !stale)
+            {
+                goldCost = AtlasGoldRespecCost;
+                string? error = Saves.Atomically(() =>
+                {
+                    if (PersonalStashOf(player).TrySpendGold(goldCost) is not uint left)
+                        return $"not enough gold ({goldCost} needed, {PersonalStashOf(player).Gold} held)";
+                    goldLeft = left;
+                    if (character is not null)
+                        CharacterSaves.SetAtlasPassives(character, nextPresets, player.Character.AtlasPassivePoints);
+                    return null;
+                });
+                if (error is not null)
+                {
+                    Console.WriteLine($"[gateway] {player.Connection.Remote} <= Atlas gold refund {passive.Name} ({node}) refused: {error}");
+                    await SendAtlasSlots(player, "Atlas gold refund refused");
+                    return;
+                }
+            }
+            else
+            {
+                ushort nextRespec = stale ? respec : (ushort)(respec - 1);
+                Saves.Atomically(() =>
+                {
+                    if (character is not null)
+                        CharacterSaves.SetAtlasPassives(character, nextPresets, player.Character.AtlasPassivePoints);
+                    if (!stale) SetAtlasRespecPoints(player, nextRespec);
+                });
+                respec = nextRespec;
+            }
             nodes.Remove((ushort)node);
-            if (!stale) SetAtlasRespecPoints(player, --respec);
+            if (nodes.Count == 0) await SyncTreeFlags(player);
         }
-        if (character is not null)
-            CharacterSaves.SetAtlasPassives(character, player.Character.AtlasPassives, player.Character.AtlasPassivePoints);
         Console.WriteLine($"[gateway] {player.Connection.Remote} <= Atlas preset {preset} {(allocate ? "allocate" : "refund")} " +
             $"{passive.Name} ({node}), {nodes.Count}/{AtlasPassiveNodes.Budget(player.Character.AtlasPassivePoints, nodes, hardMode)} " +
-            $"points, {respec} respec");
+            $"points, {(goldCost > 0 ? $"{goldCost} gold paid" : $"{respec} respec")}");
+        if (goldCost > 0)
+            await Send(player, InstanceEntities.Gold(goldLeft), $"0x02aa gold: {goldLeft} (Atlas respec, {goldCost} paid)");
         await SendAtlasSlots(player, "Atlas changed");
     }
 
@@ -511,11 +712,13 @@ static class AtlasFeature
     {
         await EnsureUnlocked(player);
         var modPlayer = PlayerOf(player);
-        var completed = AtlasProgress.Completed(WorldOf(modPlayer).CharacterData);
+        var data = WorldOf(modPlayer).CharacterData;
+        var completed = AtlasProgress.Completed(data);
+        var bonusCompleted = AtlasProgress.BonusCompleted(data);
         var slots = SlotsOf(modPlayer);
         byte stones = AtlasProgress.VoidstoneMask(slots);
-        await Send(player, AtlasProgress.FullMessage(completed, stones, (byte)slots.Count),
-            $"0x01a3 Atlas voidstones 0x{stones:X2} ({slots.Count} socketed), {completed.Count} map(s)");
+        await Send(player, AtlasProgress.FullMessage(completed, bonusCompleted, stones, (byte)slots.Count),
+            $"0x01a3 Atlas voidstones 0x{stones:X2} ({slots.Count} socketed), {completed.Count} completed, {bonusCompleted.Count} bonus");
     }
 
     /// <summary>Stones actually in AtlasUpgrades1, not the save (a missing item still left the old 4-slot mask and

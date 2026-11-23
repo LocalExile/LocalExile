@@ -62,6 +62,7 @@ public sealed record ControlRequest
     public int Level { get; init; }
     public ushort Portrait { get; init; }
     public ushort PortraitFrame { get; init; }
+    public string? Owner { get; init; }
 }
 
 public sealed record ControlResponse

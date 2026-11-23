@@ -31,9 +31,10 @@ public sealed class QuestObjectsModule : IModule
         module.Lifetime.Own(Quests.Register(module.Manifest.Id, acts));
         GameEvents.Packet(InstanceNpcs.VoteAnswerId).Add(module.Manifest.Id, async (conn, bytes) =>
         {
-            if (bytes[2] <= 1) await BanditChoices.VoteAnswer(conn, bytes[2] == 1);
+            if (bytes.Length >= InstanceNpcs.VoteAnswerLength && bytes[2] <= 1) await BanditChoices.VoteAnswer(conn, bytes[2] == 1);
             return true;
         });
+        GameEvents.PlayerLeaving.Add(module.Manifest.Id, (conn, why) => BanditChoices.OnPlayerLeaving(conn, why));
         Console.WriteLine($"[gateway] quest engine: {string.Join(", ", acts)}");
         // The player's quest view: what their quest state shows them (the walls and blockers they have not opened, quest
         // objects and chests as they left them, NPCs, the opening tutorial) is theirs alone to see and to bump into.
@@ -58,6 +59,7 @@ public sealed class QuestObjectsModule : IModule
                 await TickBeacon(player);
             }
             finally { Program.ViewOf.Value = null; }
+            await BanditChoices.OnAreaGenerated(player);
         });
         GameEvents.AreaTick.Add(module.Manifest.Id, GameEvents.InArea(Act6Areas.Beacon, TickBeacon));
         GameEvents.AreaTick.Add(module.Manifest.Id, GameEvents.InArea(TutorialObjects.Strand, SyncTutorialWalls));

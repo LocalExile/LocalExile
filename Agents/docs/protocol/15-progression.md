@@ -112,11 +112,22 @@ yet confirmed on screen).
     (AtlasTrees.UnlockObjective); the server has no bonus-objective count and uses the completed-map count (50 and 100)
     per character, a tree holding nodes counting as unlocked so an old save keeps its tree. The flags live on the
     connection (re-sent with 0x2bc when they change), never in the account's saved league flags.
-- **C→S 0x3e/0x3f** allocate or refund one Atlas node (u8 the active preset, u32 BE node; 0x3f adds u8 the "gold
-  respec" flag of 0x36). A refund spends one respec point (none for a stale node: icon-only, off the graph or cut off from the start); an Orb of Unmaking grants one (the Atlas Book of Skill's two
-  are not modelled). **C→S 0x40** (the Atlas "Refund All", from 0x37's senders) and **0x41** (0x38's, the widget
-  shown by 0x3d bit0) are 3 bytes, u8 the active preset, and are not handled. Completed maps:
-  [21](21-hideouts.md) §4.
+- **C→S 0x3e/0x3f** allocate or refund one Atlas node (u8 the active preset, u32 BE node; 0x3f adds u8 the gold
+  respec flag).
+  Flag 0 spends one respec point (Orb of Unmaking); flag 1 spends `GameConstants.AtlasPassiveRespecCost` (2000 gold,
+  `0x141ef5ad0`) and sends 0x2aa; stale nodes refund free.
+  Kirac's `RespecAtlasPassivePointsForGold` opens the Atlas tree in gold-respec mode (S→C 0x7b kind 0x11 arg 1).
+- **C→S 0x40** (3 bytes, u8 preset) refunds all allocated nodes in that Atlas preset for gold.
+- **One-off free resets:** S→C 0x33 / 0x3d flags bit 0 sets `instance+0xcd34` / `instance+0xcd35` to enable the Reset
+  button (`0x1409d9446` / `0x1409d941a`).
+  C→S 0x38 (2 bytes) and C→S 0x41 (3 bytes, u8 preset) refund all ordinary or preset Atlas nodes free and clear the
+  saved `ModuleData` flag (`passives.free_reset` / `atlas.free_reset`).
+- **Atlas tree names:** C→S 0x2a7 (u8 preset, WStr name) renames a preset, persisted in `ModuleData` (`atlas.name.0..2`).
+  S→C 0x3c (vtable `0x1435e72b0`, write `0x1421a52c0`, read `0x1421a53e0`, dispatcher case 0x10) carries three narrow
+  UTF-8 length-prefixed strings (`u16 BE` byte length + bytes), sent at login and on rename.
+- **C→S 0x129 / S→C 0x91:** `AtlasWindow::Show` (`0x1407b2ea0`) sends 2-byte 0x129; S→C 0x91 (read `0x1421a77b0`,
+  dispatcher case 0x23) encodes `CompactUInt` count followed by `(WStr, 8 raw bytes)` entries (`009100` when empty).
+  Completed maps: [21](21-hideouts.md) §4.
 - **Masteries**: `PassiveSkillMasteryGroups.dat` maps a mastery node's `MasteryGroup` to its effects and
   `PassiveSkillMasteryEffects.dat` holds their stats. The selected effect is stored per node and its stats are summed
   with the node's (`Passives.Stats`). Block Mastery's four effects are max attack block +2, max spell block +2, 20

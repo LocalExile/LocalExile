@@ -13,7 +13,7 @@ public sealed partial class PlayerInventories
     public const byte MainInventory = 0, BodyArmour = 1, Weapon1 = 2, Offhand1 = 3, Helmet = 4, Amulet = 5,
         Ring1 = 6, Ring2 = 7, Gloves = 8, Boots = 9, Belt = 10, Flask = 11, MapDevice = 13, Weapon2 = 14,
         Offhand2 = 15, CraftingBench = 16, PassiveJewels = 23, AtlasUpgrades = 39, HarvestCrafting = 43,
-        ExpandedInventory = 84, Ring3 = 102, Cursor = InstanceInventories.CursorRow;
+        ExpandedInventory = 84, MavenInvitations = 86, MemoryLineMaps = 94, Ring3 = 102, Cursor = InstanceInventories.CursorRow;
 
     private static readonly ConcurrentDictionary<string, PlayerInventories> ByCharacter = new(StringComparer.OrdinalIgnoreCase);
 
@@ -143,9 +143,10 @@ public sealed partial class PlayerInventories
         return item;
     }
 
-    /// <summary>What an item needs for placement: its grid size, ItemClasses Id, how many share a cell (1: no stack) and
-    /// what a full stack becomes (null: it stays; 5 Scroll Fragments → a Scroll of Wisdom).</summary>
-    public readonly record struct Shape(byte Width, byte Height, string Class, ushort MaxStack = 1, Func<Item>? FullStack = null);
+    /// <summary>What an item needs for placement: its grid size, ItemClasses Id, how many share a cell (1: no stack),
+    /// what a full stack becomes (null: it stays; 5 Scroll Fragments → a Scroll of Wisdom) and whether it is a Delve Fossil.</summary>
+    public readonly record struct Shape(byte Width, byte Height, string Class, ushort MaxStack = 1, Func<Item>? FullStack = null,
+        bool IsFossil = false);
 
     /// <summary>A stack that reached its max becomes its full-stack item (one of it, same id and cell).</summary>
     public static InventoryItem Completed(InventoryItem it, Shape shape) =>
@@ -233,6 +234,8 @@ public sealed partial class PlayerInventories
                 if (x < 0 || y < 0 || x + shape.Width > slot.Width || y + shape.Height > slot.Height) { why = "outside the grid"; return null; }
                 if (row == Flask && !Accepts(row, shape.Class)) { why = $"{shape.Class} does not go in the flask slots"; return null; }
                 if (row == MapDevice && !global::MapDevice.AcceptsItem(held.Item.TypeHash, shape.Class)) { why = $"{shape.Class} does not go in the map device"; return null; }
+                if (row == MavenInvitations && !AcceptsItem(row, held.Item.TypeHash, shape.Class)) { why = "only Maven invitations go in the Maven invitation slots"; return null; }
+                if (row == MemoryLineMaps && !AcceptsItem(row, held.Item.TypeHash, shape.Class)) { why = $"{shape.Class} does not go in the memory line map device"; return null; }
                 inTheWay = [.. ItemsIn(row).Where(i => shapeOf(i.Item) is { } s && i.X < x + shape.Width && x < i.X + s.Width && i.Y < y + shape.Height && y < i.Y + s.Height)];
             }
             if (inTheWay.Count > 1) { why = $"{inTheWay.Count} items in the way"; return null; }
@@ -353,7 +356,8 @@ public sealed partial class PlayerInventories
             why = "";
             if (!_items.TryGetValue(Cursor, out var cursor) || cursor.Count == 0) { why = "nothing held"; return null; }
             var held = cursor[0];
-            var heldClass = shapeOf(held.Item)?.Class;
+            var heldShape = shapeOf(held.Item);
+            var heldClass = heldShape?.Class;
             var items = ItemsIn(row);
             int at = items.FindIndex(i => i.Id == itemId);
             if (at < 0) { why = "no such item"; return null; }
@@ -361,19 +365,43 @@ public sealed partial class PlayerInventories
             var item = items[at];
             if (socket < 0 || socket >= item.Item.Sockets.Count) { why = "no such socket"; return null; }
             var sockets = item.Item.Sockets.ToList();
-            if (sockets[socket].Colour == SocketColour.Abyss ? heldClass != "AbyssJewel"
-                : heldClass is not ("Active Skill Gem" or "Support Skill Gem"))
+            var colour = sockets[socket].Colour;
+            if (colour == SocketColour.Abyss)
             {
-                why = sockets[socket].Colour == SocketColour.Abyss ? "an Abyss socket requires an Abyss jewel" : "the held item is not a gem";
+                if (heldClass != "AbyssJewel") { why = "an Abyss socket requires an Abyss jewel"; return null; }
+            }
+            else if (colour == SocketColour.Delve)
+            {
+                if (heldShape?.IsFossil != true) { why = "a Delve socket requires a Fossil"; return null; }
+                if (item.Item.StackSize > 1) { why = "split the resonator stack before socketing a Fossil"; return null; }
+                for (int i = 0; i < sockets.Count; i++)
+                    if (i != socket && sockets[i].Gem?.TypeHash == held.Item.TypeHash)
+                    { why = "cannot socket identical Fossils into the same Resonator"; return null; }
+                if (held.Item.StackSize > 1 && sockets[socket].Gem is not null)
+                { why = "cannot swap a stack of Fossils into an occupied socket"; return null; }
+            }
+            else if (heldClass is not ("Active Skill Gem" or "Support Skill Gem"))
+            {
+                why = "the held item is not a gem";
                 return null;
             }
             var old = sockets[socket].Gem;
-            sockets[socket] = sockets[socket] with { Gem = held.Item };
+            bool splitStack = colour == SocketColour.Delve && held.Item.StackSize > 1;
+            sockets[socket] = sockets[socket] with { Gem = splitStack ? held.Item with { StackSize = 1 } : held.Item };
             items[at] = item with { Item = item.Item with { Sockets = sockets } };
             _gemSourceLifetimes.RetireSocket(item.Id, socket);
-            cursor.RemoveAt(0);
-            InventoryItem? now = old is null ? null : new InventoryItem(newId(), 0, 0, old);
-            if (now is not null) cursor.Add(now);
+            InventoryItem? now;
+            if (splitStack)
+            {
+                now = held with { Item = held.Item with { StackSize = (ushort)(held.Item.StackSize - 1) } };
+                cursor[0] = now;
+            }
+            else
+            {
+                cursor.RemoveAt(0);
+                now = old is null ? null : new InventoryItem(newId(), 0, 0, old);
+                if (now is not null) cursor.Add(now);
+            }
             return (items[at], held, now);
         }
     }
@@ -448,8 +476,26 @@ public sealed partial class PlayerInventories
     {
         lock (_lock)
             return [.. VisibleSlots.Keys.Order().SelectMany(r => (_items.TryGetValue(r, out var l) ? l : []).Select(i => (Row: r, Item: i)))
-                .SelectMany(x => x.Item.Item.Sockets.Select((s, socket) => (x.Row, x.Item.Id, socket, s.Gem, s.Colour)).Where(g => g.Colour != SocketColour.Abyss && g.Gem is not null)
+                .SelectMany(x => x.Item.Item.Sockets.Select((s, socket) => (x.Row, x.Item.Id, socket, s.Gem, s.Colour)).Where(g => g.Colour is not (SocketColour.Abyss or SocketColour.Delve) && g.Gem is not null)
                     .Select(g => (g.Row, g.Id, g.socket, g.Gem!)))];
+    }
+
+    /// <summary>Whether any gem socketed in <see cref="GemExperienceRows"/> matches <paramref name="predicate"/>, without allocating.</summary>
+    public bool AnySocketedGem(Func<uint, Item, bool> predicate)
+    {
+        lock (_lock)
+            foreach (var row in GemExperienceRows)
+            {
+                if (!_items.TryGetValue(row, out var items)) continue;
+                for (int at = 0; at < items.Count; at++)
+                {
+                    if (items[at].Item.Sockets is not { Count: > 0 } held) continue;
+                    for (int socket = 0; socket < held.Count; socket++)
+                        if (held[socket] is { Colour: not SocketColour.Abyss, Gem: { } gem } && predicate(items[at].Id, gem))
+                            return true;
+                }
+            }
+        return false;
     }
 
     /// <summary>
@@ -473,7 +519,7 @@ public sealed partial class PlayerInventories
                     var sockets = held.ToArray();
                     var gems = new List<(Item, Item)>();
                     for (int socket = 0; socket < sockets.Length; socket++)
-                        if (sockets[socket] is { Colour: not SocketColour.Abyss, Gem: { } gem } && change(items[at].Id, gem) is { } after)
+                        if (sockets[socket] is { Colour: not (SocketColour.Abyss or SocketColour.Delve), Gem: { } gem } && change(items[at].Id, gem) is { } after)
                         {
                             after = PreserveGemIdentity(gem, after);
                             gems.Add((gem, after));
@@ -507,8 +553,19 @@ public sealed partial class PlayerInventories
         9 => itemClass == "Boots",
         10 => itemClass == "Belt",
         MapDevice => global::MapDevice.AcceptsClass(itemClass),
+        MavenInvitations => itemClass is global::MapDevice.MiscClass or "QuestItem",
+        MemoryLineMaps => global::MapDevice.AcceptsMemoryLineClass(itemClass),
         Flask => itemClass is "LifeFlask" or "ManaFlask" or "HybridFlask" or "UtilityFlask" or "UtilityFlaskCritical" or "Tincture",
         _ => true,
+    };
+
+    /// <summary>Item-specific placement check for grid receptacles that restrict beyond ItemClass (Map1, MavenInvitations, MemoryLineMaps).</summary>
+    public static bool AcceptsItem(byte row, uint typeHash, string itemClass) => row switch
+    {
+        MapDevice => global::MapDevice.AcceptsItem(typeHash, itemClass),
+        MavenInvitations => global::MapDevice.IsMavenInvitation(typeHash),
+        MemoryLineMaps => global::MapDevice.AcceptsMemoryLineClass(itemClass),
+        _ => Accepts(row, itemClass),
     };
 
     /// <summary>

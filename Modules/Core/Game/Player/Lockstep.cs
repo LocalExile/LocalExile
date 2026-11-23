@@ -261,20 +261,26 @@ public static partial class Game
             });
             _ = OnUseObject(player, use with { Sequence = sequence, Started = true }, at);
         }
-        else await SendWorldRecord(player, player.Id, [], $"0x01ab lockstep walk to ({target.X}, {target.Y})",
-            atGate: () =>
-            {
-                using (ProjectileMutation(player, phase: "send"))
+        else
+        {
+            bool moved = false;
+            await SendWorldRecord(player, player.Id, [], $"0x01ab lockstep walk to ({target.X}, {target.Y})",
+                atGate: () =>
                 {
-                    if (!PlayerActionCurrent(player, action)) return null;
-                    double gateAt = player.Connection.LockstepFrame?.Start ?? frameStart;
-                    StepWalkers(player, gateAt);
-                    if (PlaceLockstepPlayerMove(player, target, gateAt) is not { } placed) return null;
-                    from = placed;
-                    return LockstepActionStart(player, from, target, sequence);
-                }
-            },
-            still: () => PlayerActionCurrent(player, action));
+                    using (ProjectileMutation(player, phase: "send"))
+                    {
+                        if (!PlayerActionCurrent(player, action)) return null;
+                        double gateAt = player.Connection.LockstepFrame?.Start ?? frameStart;
+                        StepWalkers(player, gateAt);
+                        if (PlaceLockstepPlayerMove(player, target, gateAt) is not { } placed) return null;
+                        from = placed;
+                        moved = true;
+                        return LockstepActionStart(player, from, target, sequence);
+                    }
+                },
+                still: () => PlayerActionCurrent(player, action));
+            if (moved) await CloseInteractionsIfMovingAway(player, target, AreaTime(player));
+        }
     }
 
     // A player Move due at `at`: placed and its start cell returned when the client takes it (LockstepTakesMove). The

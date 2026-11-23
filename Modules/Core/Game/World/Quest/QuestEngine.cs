@@ -113,14 +113,14 @@ public static partial class Game
     public static async Task DropQuestItemsForKill(Player player,
         string varietyId, (int X, int Y) at, string source)
     {
-        foreach (string item in QuestsOf(player).DropsOnKill(player.Layout.Id, varietyId))
+        foreach (string item in QuestDropsOnKill(player, varietyId))
             foreach (var output in CommitQuestItem(player, item, at, source))
                 await SendWorldReceipt(player, output);
     }
 
     public static void CommitAcceptedQuestKill(KillContext kill)
     {
-        foreach (string item in QuestsOf(kill.Player).DropsOnKill(kill.Player.Layout.Id, kill.VarietyId))
+        foreach (string item in QuestDropsOnKill(kill.Player, kill.VarietyId))
             kill.Player.Minions.OutputQueue.AddRange(CommitQuestItem(kill.Player, item, kill.At, kill.Monster.Label));
         kill.Player.Minions.OutputQueue.Add(new([], "quest kill effects (current Game)", Target: kill.Monster,
             Kind: PlayerMinions.OutputKind.QuestKill, At: kill.At));
@@ -263,7 +263,7 @@ public static partial class Game
                     if (peer is { } other) QueueDoorRefresh(other, [opened]);
             }
         }
-        foreach (string item in dropsCommitted ? [] : QuestsOf(player).DropsOnKill(area, variety.Id))
+        foreach (string item in dropsCommitted ? [] : QuestDropsOnKill(player, variety.Id))
             await DropQuestItem(player, item, at, m.Label);
         // A fight of several bosses (Quests.KilledAllRule): its flags once none of them is left alive in the instance.
         foreach (var rule in QuestsOf(player).KilledAllOf(area, variety.Id))

@@ -139,22 +139,29 @@ public static class AtlasProgress
 
     /// <summary>S→C 0x1a3: u8 → +0x71 (socketed count), u8 → +0x72, u8 → +0x70 (Voidstone T16 bits), u8 sections
     /// (bit 0: first mask, bit 1: second mask), then always 0x141faaa80 (u8 count of u16 pairs, 0 here) and the
-    /// selected 22-byte masks (bit r of byte r / 8 = AtlasNode row r). The first mask is every on-Atlas row
-    /// (voidstone sockets, Ziggurat, Abomination, Eater / Exarch) so the client keeps the bottom of the panel;
-    /// the second is completed maps plus those same rows so their Connections open.</summary>
-    public static byte[] FullMessage(IReadOnlySet<string> completed, byte voidstones = 0, byte awakening = 0)
+    /// selected 22-byte masks (bit r of byte r / 8 = AtlasNode row r). The first mask carries saved completed maps
+    /// (+0xd030: clears fog and opens connected maps, +0x9ca), and the second carries bonus-completed maps (+0xd070:
+    /// draws the bonus completion frame +0x9cb/+0x9ce and drives the bonus counter). Uncompleted maps stay fogged
+    /// and uncounted.</summary>
+    public static byte[] FullMessage(IReadOnlySet<string> completed, byte voidstones = 0, byte awakening = 0) =>
+        FullMessage(completed, completed, voidstones, awakening);
+
+    public static byte[] FullMessage(IReadOnlySet<string> completed, IReadOnlySet<string> bonusCompleted,
+        byte voidstones = 0, byte awakening = 0)
     {
         var revealed = new byte[MaskBytes];
         var done = new byte[MaskBytes];
-        foreach (int row in OnAtlasRows) SetBit(revealed, row);
         foreach (var node in Maps)
-            if (completed.Contains(node.Id)) SetBit(done, node.Row);
-        foreach (int row in OnAtlasRows) SetBit(done, row);
+        {
+            if (completed.Contains(node.Id)) SetBit(revealed, node.Row);
+            if (bonusCompleted.Contains(node.Id)) SetBit(done, node.Row);
+        }
         return [0x01, 0xa3, awakening, 0, voidstones, 0x03, 0, .. revealed, .. done];
     }
 
-    /// <summary>S→C 0x1a4: u16 BE AtlasNode HASH16, u8 ×2 (unknown, 0), u8 flags (bit 1: also the second set).</summary>
-    public static byte[] NodeMessage(Node node) => [0x01, 0xa4, (byte)(node.Hash16 >> 8), (byte)node.Hash16, 0, 0, 0x02];
+    /// <summary>S→C 0x1a4: u16 BE AtlasNode HASH16, u8 ×2 (unknown, 0), u8 flags (bit 1: also the second set, bonus).</summary>
+    public static byte[] NodeMessage(Node node, bool bonus = true) =>
+        [0x01, 0xa4, (byte)(node.Hash16 >> 8), (byte)node.Hash16, 0, 0, bonus ? (byte)0x02 : (byte)0x00];
 
     static (IReadOnlyList<Node> Maps, IReadOnlySet<int> OnAtlas) Load(string folder)
     {
