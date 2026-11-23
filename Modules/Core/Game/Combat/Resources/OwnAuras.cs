@@ -387,6 +387,7 @@ public static partial class Game
     public static void ReconcileOwnAuras(Player player, bool validateSkills = false)
     {
         ExpireTemporaryAuras(player);
+        ReconcileGuardianBlessingLocked(player);
         // Raw sources remain live (charges, flasks, temporary buffs and their expiry included).
         // Cache only the lifecycle decision after comparing its complete effective inputs. A full
         // replay bypasses it; module reload discards these connection-weak entries automatically.

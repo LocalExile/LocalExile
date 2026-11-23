@@ -1615,6 +1615,7 @@ public static partial class Game
             return false;
         else
         {
+            if (!GuardianBlessingAvailableLocked(player, supported)) return false;
             var (supportEffect, affectsSelf) = AuraSupport(player, skillId);
             var context = ReservationContext(player, skillId);
             string? stance = AuraCatalog.IsStance(effectId) ? player.Stance : null;
@@ -1647,6 +1648,7 @@ public static partial class Game
             }
             if (blessing) EndOtherBlessingsLocked(player);
             player.Auras[skillId] = aura;
+            StartGuardianBlessingLocked(player, aura, supported);
             if (eternal) SuspendManaReservedAurasLocked(player);
             started = aura;
             ClampReservedResources(player);

@@ -77,6 +77,7 @@ Part of [Status](../Status.md); what to build next in this area is in
 - Divine Blessing (including March of the Legion) pays a one-time cost and grants one temporary Blessing;
   Vaal Haste has a soul-paid temporary aura. Smite has separate melee/lightning hits and a timed on-hit aura.
   Smite impacts and Vaal Haste's speed buff are verified live; complete build and party parity remain partial.
+- Eternal Blessing suspends other skills' mana reservations while its aura is active and preserves life reservations.
 
 - Leap Slam: landing hits and full-life stuns; recovery cadence awaits a client check. Docs: [11](../docs/protocol/11-skills.md) Â§9a.
 

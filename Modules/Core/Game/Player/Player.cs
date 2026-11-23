@@ -99,6 +99,7 @@ public static partial class Game
             }
             else
             {
+                StartGuardianBlessingLocked(player, aura, SupportedSkill(player, aura.SkillId));
                 if (EternalBlessingAura(aura)) SuspendManaReservedAurasLocked(player);
                 restored.Add(aura);
             }
