@@ -48,7 +48,7 @@ public static partial class Game
     // Presentation only: Burning Arrow's real local input emits its own primary. Keep its existing simulation
     // geometry separate from ClientPredicted, which also selects native range/contact/volley specialization.
     public static bool ClientDrawsPrimaryProjectile(bool predicted, string? effect) =>
-        predicted || effect is "BurningArrow" or "CausticArrow" or "CausticArrowAltX" or "CausticArrowAltY" or "VaalCausticArrow";
+        predicted || effect is "BurningArrow" or "BurningArrowAltX" or "BurningArrowAltY" or "CausticArrow" or "CausticArrowAltX" or "CausticArrowAltY" or "VaalCausticArrow";
 
     // Validate adopted paths before accepting an action, spending mana or reserving a cooldown.
     // Release still resolves again: equipment/stats may change during the ordinary cancellable windup.

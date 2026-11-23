@@ -1748,6 +1748,8 @@ public static partial class Game
         if (IsWinterOrb(gem.Effect)) return Task.CompletedTask;
         // Snipe charges stages while channelling and fires on release (Snipe.cs), not at channel start.
         if (IsSnipe(gem.Effect)) return Task.CompletedTask;
+        // Flameblast deals its damage only when it is released (Flameblast.cs).
+        if (IsFlameblast(gem.Effect)) return Task.CompletedTask;
         bool cryExerted;
         cryExerted = ConsumeIntimidatingCryExertLocked(player,
             channelGeneration is null && IntimidatingCryCanExert(player, skillId, gem.Effect));
@@ -1896,12 +1898,17 @@ public static partial class Game
         uint orbEffect = 0;
         bool snipe = IsSnipe(gem.Effect);
         bool firstSnipeStage = snipe;
+        // Flameblast builds stages and explodes on release (Flameblast.cs); the cast paid for its first stage.
+        bool flameblast = IsFlameblast(gem.Effect);
+        bool firstFlameblastStage = flameblast;
         try
         {
             if (IsWinterOrb(gem.Effect))
                 orbEffect = await WinterOrbStart(player, skillId, gem, action);
             else if (snipe)
                 await SnipeStart(player, skillId, gem, action, initialAim);
+            else if (flameblast)
+                await FlameblastStart(player, skillId, gem, action, initialAim);
             // Overheat's per-3 value, read once for the channel rather than a skill build on every tick.
             const uint overheatStat = Stat.SupportOverheatAilmentDamagePlusPctFinalPer3FortificationConsumed;
             int overheatPerThree = overheatStat is var overheatKey
@@ -1926,7 +1933,13 @@ public static partial class Game
                 if (!Running() || player.Paused || now < player.NextChannelHitAt) continue;
                 // A freeze or a stun's hit recovery interrupts the channelled action: no stage is paid or swept until it
                 // ends. The client's updates are dropped meanwhile, so a longer one ends the channel by silence.
-                if (PlayerActionBlocked(player, now, now)) { player.NextChannelHitAt = now + TickSeconds; continue; }
+                if (PlayerActionBlocked(player, now, now))
+                {
+                    // An interrupted Flameblast goes off at the stages it has (Flameblast.cs, on the loop's exit).
+                    if (flameblast) { player.ChannelSkill = 0; player.ChannelGeneration++; player.PaidChannel = null; continue; }
+                    player.NextChannelHitAt = now + TickSeconds;
+                    continue;
+                }
                 var activeGem = GemSkillEffects(player).FirstOrDefault(g => g.Id == skillId);
                 if (activeGem.Name is null || activeGem.Effect != gem.Effect
                     || GemSkillInstanceDisabled(player, activeGem.Effect, skillId) is not null)
@@ -1937,11 +1950,11 @@ public static partial class Game
                 { player.ChannelSkill = 0; player.ChannelGeneration++; player.PaidChannel = null; return; }
                 player.NextChannelHitAt = Math.Max(player.NextChannelHitAt, now - 0.05) + interval;
                 // Payment and admission share the channel's generation check.
-                if (firstSnipeStage)
+                if (firstSnipeStage || firstFlameblastStage)
                 {
                     // The cast already paid for the first stage.
                     cost = lifeCost = 0;
-                    firstSnipeStage = false;
+                    firstSnipeStage = firstFlameblastStage = false;
                 }
                 else if (!PayMana(player, skillId, out cost, out lifeCost))
                 { player.ChannelSkill = 0; player.ChannelGeneration++; player.PaidChannel = null; }
@@ -1971,6 +1984,11 @@ public static partial class Game
                     await SnipePresentStages(player);
                     continue;
                 }
+                if (flameblast)
+                {
+                    await FlameblastStageStep(player, generation, action);
+                    continue;
+                }
                 var at = player.Walk.Position(AreaTime(player));
                 await AreaSkillHit(player, skillId, gem, at, at,
                     immediate: true, sequence: player.ChannelSkillSequence, actionToken: action, channelGeneration: generation,
@@ -1986,6 +2004,7 @@ public static partial class Game
             // of its own to remove: the client draws the orb from the stage buff.
             if (orbEffect != 0) WinterOrbRelease(player, generation, action);
             if (snipe) await SnipeRelease(player, generation, action);
+            if (flameblast) await FlameblastRelease(player, generation, action);
         }
     }
 
@@ -2090,6 +2109,7 @@ public static partial class Game
             // this a still hold released at five stages while the bar kept counting (live 2026-11-10).
             && (player.OrbRuntime is { Channelling: true } orb && orb.SkillId == skill
                 || IsSnipeChannelling(player, skill)
+                || IsFlameblastChannelling(player, skill)
                 || player.PaidChannel is { } paid && paid.Skill == skill
                     && SkillsFor(player).EffectId(paid.Effect) is "LightningTendrils" or "LightningTendrilsAltX" or "LightningTendrilsAltY" or "LightningTendrilsRoyale"
                 || AreaTime(player) - player.LastChannelUpdateAt <= ChannelSilenceSeconds);
