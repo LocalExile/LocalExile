@@ -235,6 +235,18 @@ public sealed class BetrayalEncounter
                 await SendWorldRecord(player, run.Member, InstanceEntities.ComponentUpdate(run.Member, (byte)npc, [1, 1]), "0x02bc member NPC 01 01");
             body.Aggro = false;
             body.BusyUntil = double.PositiveInfinity;
+            // Stop it where it kneels: an in-flight swing would otherwise still complete and hit while it kneels
+            // (MonsterActionCurrent checks the generation), and a walk left running would drift the MakeChoice cell.
+            body.Walk.StopAt(AreaTime(player));
+            body.ActionGeneration++;
+            body.SwingGeneration = null;
+            body.LastTarget = null;
+            body.Target = null;
+            // Non-hostile while it kneels, so MonsterTargetsLocked never wakes it back up onto another player in
+            // multiplayer. Hostile is init-only, so TemporaryAllyUntil is the runtime lever; it is not a conversion
+            // (nothing drives it: the AI pass already skips it while the kneel gate holds, and no minion attack is
+            // ever queued for a non-minion). Invulnerable already holds through the kneel gate (LifePhases.Active).
+            body.TemporaryAllyUntil = double.PositiveInfinity;
         }
         run.Choice = instance.World.TakeObjectId();
         byte[] choice = BetrayalWire.Create(run.Choice, BetrayalWire.ChoiceType, BetrayalWire.ChoiceBody(cell, plan.MemberRotation, run.Member, plan.Member.Row));
