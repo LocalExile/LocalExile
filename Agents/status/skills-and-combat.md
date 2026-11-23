@@ -128,6 +128,10 @@ Part of [Status](../Status.md); what to build next in this area is in
   Docs: [20](../docs/protocol/20-damage.md).
 - Bow arrow counts from bow and quiver modifiers. Docs: [11](../docs/protocol/11-skills.md) Â§10,
   [RE count inputs](../docs/re/projectiles/count-stat-inputs.md) Â§3.
+- Explosive Arrow adds fuses on terminal contacts. The first fuse times the combined blast, and hitting the fuse cap
+  detonates it early.
+- Ensnaring Arrow tethers a surviving final target until it leaves the anchor's radius. Its projectile attack
+  damage taken modifier does not multiply with each additional tether.
 - Tornado Shot's terminal secondary arrows. Docs: [11](../docs/protocol/11-skills.md) Â§10,
   [RE terminal geometry](../docs/re/projectiles/tornado-geometry.md).
 - Kinetic Bolt's zig-zags (including multi-projectile volley parity). Docs: [11](../docs/protocol/11-skills.md) Â§10.
