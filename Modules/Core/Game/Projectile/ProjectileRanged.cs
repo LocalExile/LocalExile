@@ -86,12 +86,18 @@ public static partial class Game
             WeaponAttack = true,
             TinctureKill = TinctureKillBonusFor(player, character, hand),
             NoExtraCriticalDamage = CriticalHitsDealNoExtraDamage(character),
-            Spider = !HasSpiderDamage(Get) ? null : new(raw, conversion, new Dictionary<uint, int>(character),
+            TargetCritical = TargetCriticalBonuses.From(character, null),
+            Spider = !HasSpiderDamage(Get) && !HasLowLifeDamage(Get)
+                && Get(Stat.AttackDamagePlusPctVsMaimedEnemies) == 0 ? null
+                : new(raw, conversion, new Dictionary<uint, int>(character),
                 new Dictionary<uint, int>(character), true, false, false, true, [], new HashSet<int> { 0, 2 }, 1,
                 WieldingWand: sourceWeapon.WieldingWand, Volatile: false,
                 Local: sourceWeapon.LocalSources is null ? null : new Dictionary<uint, int>(sourceWeapon.LocalSources),
                 Bow: !wand, WeaponIncreased: SupportedAttackDamage.WeaponIncrease(sourceWeapon, Get),
-                WeaponTypedIncreases: WeaponTypeDamage.Of(sourceWeapon, Get)),
+                WeaponTypedIncreases: WeaponTypeDamage.Of(sourceWeapon, Get))
+            {
+                Armed = WeaponAttributeDamage.Armed(sourceWeapon), OffHand = hand == AttackHand.Off,
+            },
             SkillStats = SkillsFor(player).EffectStats(effect, 1).ToDictionary(s => s.Item1, s => s.Item2),
             VsBlindedCriticalChance = AttackCriticalChanceVsBlinded(player, character, release: true, hand: hand),
             VsGroundCriticalChance = AttackCriticalChanceVsGround(player, character, release: true, hand: hand),

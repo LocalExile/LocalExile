@@ -556,7 +556,8 @@ public static partial class Game
             bool crit = RollCriticalStrike(player, chance, skill.Stats, attack: false, skillRoll: criticalRoll, playerStats: caster);
             var (damage, _, mitigated) = MonsterHitDamage(m, rolled, crit, false, now, resistance, penetration,
                 GamblerFor(caster).InvertsResistance(AreaRng(player)), AreaRng(player));
-            if (crit) damage = DamageModel.CriticalDamage(damage, CriticalMultiplierOn(m, SupportedCriticalMultiplier(player, totem.SkillId)));
+            if (crit) damage = DamageModel.CriticalDamage(damage,
+                CriticalMultiplierOn(m, SupportedCriticalMultiplier(player, totem.SkillId), now, caster, skill.Stats));
             if (ApplyMonsterHitLocked(player, m, damage, allyAt: totem.At) is not { } accepted) continue;
             if (accepted.StageStarts) { CommitProjectileBossStage(session, id, m, session.Runtime.Now); accepted = accepted with { StageStarts = false }; }
             if (!m.Dead && damage > 0)

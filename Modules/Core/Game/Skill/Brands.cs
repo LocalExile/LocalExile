@@ -1569,7 +1569,7 @@ public static partial class Game
             SupportedCriticalChanceVsBlinded(player, skillId, release: false),
             SupportedCriticalChanceVsGround(player, skillId, release: false));
         bool critical = RollCriticalStrike(player, critChance, gem.Stats, attack: false, playerStats: playerStats);
-        int critMult = CriticalMultiplierOn(m, SupportedCriticalMultiplier(player, skillId), playerStats, gem.Stats);
+        int critMult = CriticalMultiplierOn(m, SupportedCriticalMultiplier(player, skillId), now, playerStats, gem.Stats);
 
         var pen = Penetration.Of(playerStats, Stats, attack: false, gem.Stats);
         if (extraPenetrationType is { } ep)
@@ -1591,7 +1591,7 @@ public static partial class Game
         var leech = HitLeechSources(playerStats, attack: false, gem.Stats, null, melee: false);
         LeechOnHitLocked(player, m, taken, damage, leech);
 
-        var stun = OwnerStun(player, m, damage, mitigated, melee: false, spell: true, critical, playerStats, gem.Stats);
+        var stun = OwnerStun(player, gem.Effect, m, damage, mitigated, melee: false, spell: true, critical, playerStats, gem.Stats);
         if (ApplyMonsterHitLocked(player, m, damage, null, null, allyAt: null,
                 cull: Cull.Of(playerStats, gem.Stats, critical, spell: true), cullPlayer: playerStats)
             is not { } applied) return;

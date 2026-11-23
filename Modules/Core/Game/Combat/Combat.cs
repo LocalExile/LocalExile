@@ -560,10 +560,12 @@ public static partial class Game
                         AttackCriticalChanceVsBlinded(player, playerStats, hand: hand), AttackCriticalChanceVsGround(player, playerStats, hand: hand)),
                         ownPenetration, skillRoll: criticalRoll)
                     && GameServer.Core.World.EvasionEntropy.ConfirmsCritical(hitChance, player.AttackAccuracyRandom);
-                int sourceCriticalMultiplier = CriticalMultiplierWithWeapon(AttackCriticalMultiplier(player, playerStats),
-                    m, weapon.LocalSources);
-                int criticalMultiplier = CriticalMultiplierOn(m, sourceCriticalMultiplier, playerStats, ownPenetration);
+                long weaponMultiplier = (long)AttackCriticalMultiplier(player, playerStats)
+                    + ClawDaggerCriticalBonus(weapon, playerStats, ownPenetration);
+                int sourceCriticalMultiplier = CriticalMultiplierWithWeapon(
+                    CriticalHitMultiplier(weaponMultiplier, playerStats, ownPenetration), m, weapon.LocalSources);
                 double at = ProjectileWorldTime(player);
+                int criticalMultiplier = CriticalMultiplierOn(m, sourceCriticalMultiplier, at, playerStats, ownPenetration);
                 (damage, resistance, var mitigated) = MonsterHitDamage(m, ownRolled, critical, attack: true, at, resistanceMods, pen,
                     gambler.InvertsResistance(AreaRng(player)), AreaRng(player));
                 hitCode = HitCode(mitigated);
@@ -674,14 +676,26 @@ public static partial class Game
         int webs = target.SpiderWebs.Count(at);
         additionalIncreased += SpiderDamageIncrease(n => GolemStat(playerStats, n), webs);
         playerStats = SpiderAttackStats(playerStats, webs);
-        playerStats = TypedTargetDamageStats(playerStats, target.Ignites.Burning, target.Bleeds.Burning, EnemyOnLowLife(target));
+        bool lowLife = EnemyOnLowLife(target);
+        int Get(uint key) => GolemStat(playerStats, key);
+        var contact = ContactDamage(player, target, at, playerStats);
+        var modifiers = TargetModifiers(Get, lowLife, target.MaimedUntil > at,
+            weapon.Melee && Get(Stat.MeleeDamagePlusPctAtCloseRange) != 0 && InCloseRange(player, target, at),
+            claw: lowLife && WeaponIdentity.CountsAs(weapon.ItemClass, weapon.LocalSources, "Claw"), contact: contact);
+        playerStats = TypedTargetDamageStats(playerStats, target.Ignites.Burning, target.Bleeds.Burning, lowLife);
         playerStats = WithElementalOverload(player, SkillCatalog.FirstSkillId, playerStats);
         int rating = accuracy ?? PlayerAccuracy(player, playerStats);
         // The swinging hand's rating: an off-hand swing uses its own local accuracy (accuracy-scaled added damage).
-        return new(AttackHitConverted(weapon, playerStats, weapon.Melee, conversion, new(rating), additionalIncreased),
-            DefaultAttackIgnite(player, playerStats, weapon, additionalIncreased, conversion, rating),
-            DefaultAttackBleed(player, playerStats, weapon, additionalIncreased, conversion, rating),
-            DefaultAttackPoison(player, playerStats, weapon, additionalIncreased, conversion, rating));
+        var hit = AttackHitConverted(weapon, TargetHitStats(playerStats, contact), weapon.Melee, conversion, new(rating),
+            additionalIncreased + modifiers.HitIncrease);
+        if (modifiers.HitMore != 1) hit = hit.Scale(modifiers.HitMore);
+        long ailmentIncrease = additionalIncreased + modifiers.AilmentIncrease;
+        var ignite = DefaultAttackIgnite(player, playerStats, weapon, ailmentIncrease, conversion, rating);
+        var bleed = DefaultAttackBleed(player, playerStats, weapon, ailmentIncrease, conversion, rating);
+        var poison = DefaultAttackPoison(player, playerStats, weapon, ailmentIncrease, conversion, rating);
+        return modifiers.AilmentMore == 1 ? new(hit, ignite, bleed, poison) : new(hit,
+            RepeatAilment(ignite, modifiers.AilmentMore), RepeatAilment(bleed, modifiers.AilmentMore),
+            RepeatAilment(poison, modifiers.AilmentMore));
     }
 
     // A gem skill used on a monster (C→S 0x24 with a skill id other than the default attack's). A spell stops and casts from
@@ -1137,8 +1151,9 @@ public static partial class Game
         if (!Current()) return false;
         if (gem.Name is not null && !ProjectilePathAvailable(player, skillId, gem.Effect)) return false;
         if (locationInstant && (gem.Name is null || !InstantLocationSkill.Supported(SkillsFor(player), gem.Effect))) return false;
-        if (gem.Name is not null && SkillsFor(player).IsSpell(gem.Effect) && !SkillsFor(player).IsAttack(gem.Effect)
-            && CastMs(player, gem.Effect, skillId) is null)
+        bool spell = CastingSpell(player, gem.Effect);
+        int? spellCastMs = spell ? CastMs(player, gem.Effect, skillId) : null;
+        if (spell && spellCastMs is null)
         {
             Console.WriteLine($"[gateway] {player.Connection.Remote} skill 0x{skillId:x4} {gem.Name}: invalid cast duration (no effect or mana cost)");
             await SendPlayerMana(player, $"0x01b1 player mana {player.PlayerMana} (invalid cast duration, cost back)");
@@ -1248,8 +1263,22 @@ public static partial class Game
             }
         }
         // A link gem (Soul Link …) links its target at the end of its cast; it has no upfront cost, only its cost over time.
+        void RecordSpellWindup()
+        {
+            if (actionToken is null || locationInstant || placedAdmission is not null || spellCastMs is not > 0
+                || SkillsFor(player).IsInstant(gem.Effect) || SkillsFor(player).IsChannelled(gem.Effect)
+                || IsTotemSkill(player, skillId)) return;
+            if (CharacterPlayerStats(player).GetValueOrDefault(Stat.AvoidInterruptionWhileCastingPct) <= 0) return;
+
+            double duration = spellCastMs.Value / 1000d * (1d + SpellRepeats(player, skillId, gem.Effect));
+            SpellWindups.AddOrUpdate(player, new(action, player.ActionInterruptionGeneration, player.ProjectileEpoch,
+                AreaTime(player) + duration));
+        }
         if (gem.Name is not null && IsLinkSkill(player, gem.Effect))
+        {
+            RecordSpellWindup();
             return await CastLink(player, skillId, gem.Effect, targetId, Current);
+        }
         if (placedAdmission is null && !vaalCast && gem.Name is not null && PlacedKind(SupportedSkill(player, skillId)) is { Trap: false, Mine: false }
             && SupportedReservationCost(player, skillId) is { } reservation)
         {
@@ -1301,6 +1330,7 @@ public static partial class Game
                 if (paid && dash) player.Walk.Teleport(dashTo.X, dashTo.Y, ProjectileWorldTime(player));
                 if (paid)
                 {
+                    RecordSpellWindup();
                     if (!locationInstant && placedAdmission is null)
                     {
                         if (paymentGem.Stats.GetValueOrDefault(Stat.VirtualSkillGainsIntensity) != 0) paidIntensity = paymentGem;
@@ -1358,6 +1388,7 @@ public static partial class Game
         if (vaalCast)
         {
             recoveryGeneration = vaalUse!.RecoveryGeneration;
+            if (Current()) RecordSpellWindup();
             await PublishVaalUse(player, vaalUse);
         }
         if (!Current() || gem.Name is not null && GemSkillInstanceDisabled(player, gem.Effect, skillId) is not null)
@@ -2319,6 +2350,7 @@ public static partial class Game
         sacrifice ??= new SacrificeUse(player, skillId, gem.Effect, gem.Gem, triggered: triggeredCurrent is not null);
         var admittedGem = SupportedSkill(player, skillId);
         var skillStats = admittedGem.Stats;
+        bool retaliation = SkillsFor(player).IsRetaliation(gem.Effect);
         // An attack gem's share of the weapon's damage ("Deals 177.3% of base Attack Damage"): the hit below uses it.
         int effectiveness = SkillsFor(player).DamageEffectiveness(gem.Effect, gem.Level);
         int Stat(uint k) => skillStats.GetValueOrDefault(k);
@@ -2551,7 +2583,8 @@ public static partial class Game
         HitResistances.Mods mods = default;
         AreaSkillDamageProfile sweepProfile = default!;
         AreaSkillDamageProfile? blindedProfile = null;
-        SpiderDamageSource? sweepSpider = null;
+        SpiderDamageSource? sweepSpider = null, sweepOffSpider = null;
+        double mainHandMore = 1, dualWieldMore = 1;
         int sweepMultiplier = 0;
         AttackAccuracyProfile accuracy = default;
         LeechSources? leech = null;
@@ -2653,12 +2686,23 @@ public static partial class Game
                                 SupportedPoison(player, skillId, spell, playerStats, swingWeapon, increased, capturedInputs));
                         }
                         sweepProfile = Profile(0);
-                        sweepSpider = CaptureSpiderDamage(player, capturedInputs,
-                            AddedEffectiveness(player, admittedGem.Effect, admittedGem.Level), context: true, local: local);
+                        double targetEffectiveness = AddedEffectiveness(player, admittedGem.Effect, admittedGem.Level);
+                        sweepSpider = CaptureSpiderDamage(player, capturedInputs, targetEffectiveness, context: true, local: local,
+                            bow: false, offHand: hand == AttackHand.Off);
+                        if (sweepSpider is not null && !spell && shield is null)
+                        {
+                            if (hand != AttackHand.Off)
+                                (mainHandMore, dualWieldMore) = HandDamageMore(player, admittedGem.Stats);
+                            else
+                                (_, dualWieldMore) = HandDamageMore(player, admittedGem.Stats);
+                            if (offInputs is not null)
+                                sweepOffSpider = CaptureSpiderDamage(player, offInputs, targetEffectiveness, context: true,
+                                    local: OffhandWeaponFor(player)?.LocalSources, bow: false, offHand: true, required: true);
+                        }
                         if (additionalIncreased != 0) blindedProfile = Profile(additionalIncreased);
                         pen = Penetration.Of(playerStats, Stats, attack: !spell, skillStats, local);
                         mods = HitResistMods(playerStats, skillStats);
-                        sweepMultiplier = SupportedCriticalMultiplier(player, skillId);
+                        sweepMultiplier = SupportedCriticalMultiplier(player, skillId, sourceWeapon);
                         if (!spell) accuracy = SupportedAccuracy(player, skillId, hand);
                         leech = HitLeechSources(playerStats, !spell, skillStats, local, !spell && SkillsFor(player).IsMelee(gem.Effect));
                         impale = ImpaleStats.From(playerStats, Stats, !spell, skillStats, local);
@@ -2669,9 +2713,23 @@ public static partial class Game
                         ? blindedProfile : sweepProfile;
                     if (sweepSpider is { } spider)
                     {
-                        var woven = SpiderDamageProfile(spider, m.SpiderWebs.Count(ProjectileWorldTime(player)),
-                            Blinded(player, id), m.Ignites.Burning, m.Bleeds.Burning, EnemyOnLowLife(m));
-                        profile = new(woven.Hit.Scale(ruthless), woven.Ignite, woven.Bleed, woven.Poison);
+                        double hitAt = ProjectileWorldTime(player);
+                        int webs = m.SpiderWebs.Count(hitAt);
+                        bool maimed = m.MaimedUntil > hitAt, lowLife = EnemyOnLowLife(m);
+                        bool close = spider.Melee && spider.Stats.GetValueOrDefault(global::Stat.MeleeDamagePlusPctAtCloseRange) != 0
+                            && InCloseRange(player, m, hitAt);
+                        bool blinded = Blinded(player, id, hitAt);
+                        var conditionalDamage = ContactDamage(player, m, hitAt, spider.Stats);
+                        var woven = SpiderDamageProfile(spider, webs, blinded, m.Ignites.Burning, m.Bleeds.Burning,
+                            lowLife, maimed, close, conditionalDamage);
+                        var conditionalHit = mainHandMore == 1 ? woven.Hit : woven.Hit.Scale(mainHandMore);
+                        if (sweepOffSpider is { } off)
+                            conditionalHit = conditionalHit.Add(SpiderDamageProfile(off, webs, blinded, m.Ignites.Burning, m.Bleeds.Burning,
+                                lowLife, maimed, close, conditionalDamage).Hit);
+                        double contactMore = ruthless * dualWieldMore;
+                        if (contactMore != 1) conditionalHit = conditionalHit.Scale(contactMore);
+                        if (scaledBlastChaos > 0) conditionalHit = conditionalHit.Add(DamageType.Chaos, new(scaledBlastChaos, scaledBlastChaos));
+                        profile = new(conditionalHit, woven.Ignite, woven.Bleed, woven.Poison);
                     }
                     if (!spell && repeat > 0)
                     {
@@ -2735,8 +2793,8 @@ public static partial class Game
                             attack: !spell, skillRoll: criticalRoll, playerStats: playerStats)
                         && (spell || GameServer.Core.World.EvasionEntropy.ConfirmsCritical(hitChance, player.AttackAccuracyRandom));
                     int sourceMultiplier = CriticalMultiplierWithWeapon(sweepMultiplier, m, weaponLocal);
-                    int multiplier = CriticalMultiplierOn(m, sourceMultiplier, playerStats, skillStats);
                     double at = ProjectileWorldTime(player);
+                    int multiplier = CriticalMultiplierOn(m, sourceMultiplier, at, playerStats, skillStats);
                     // Deferred manual hits use the same lifetime guard as automatic payloads. The native link
                     // resolver excludes triggered skills from these supports.
                     var resonance = WithResonanceHitLocked(player, skillStats, rolled, mods, pen, at);
@@ -2755,8 +2813,27 @@ public static partial class Game
                     LeechOnHitTargetLocked(player, m, taken, damage, leech!, id);
                     damage = WithImpaleHitLocked(player, m, damage, rolled, critical, sourceMultiplier,
                         critical ? criticalImpale : impale, more).Damage;
-                    stun = OwnerStun(player, m, damage, mitigated, !spell && SkillsFor(player).IsMelee(gem.Effect), spell, critical,
+                    stun = OwnerStun(player, gem.Effect, m, damage, mitigated, !spell && SkillsFor(player).IsMelee(gem.Effect), spell, critical,
                         playerStats, skillStats, weaponClass: sweepWeaponClass);
+                    var ailmentStats = skillStats;
+                    if (retaliation)
+                    {
+                        long Bonus(uint key) => (long)playerStats.GetValueOrDefault(key) + skillStats.GetValueOrDefault(key);
+                        stun = stun with
+                        {
+                            // The native modifier is negative for reduced enemy threshold.
+                            ThresholdReductionPct = ActorScale.Saturate(stun.ThresholdReductionPct - Bonus(global::Stat.RetaliationSkillStunThresholdPlusPct)),
+                            DurationPct = ActorScale.Saturate(stun.DurationPct + Bonus(global::Stat.RetaliationSkillStunDurationPlusPct)),
+                        };
+                        if (Bonus(global::Stat.RetaliationSkillsAllAilmentDurationPlusPct) is long duration and not 0)
+                        {
+                            uint key = global::Stat.BaseAllAilmentDurationPlusPct;
+                            ailmentStats = new Dictionary<uint, int>(skillStats)
+                            {
+                                [key] = ActorScale.Saturate(skillStats.GetValueOrDefault(key) + duration),
+                            };
+                        }
+                    }
                     // Only the first victim has a freshly built player snapshot. After notification awaits, resolve the
                     // current raw source so a refund between victims cannot keep granting from the sweep's old snapshot.
                     var rampagePlayer = freshPlayer ? playerStats : null;
@@ -2791,7 +2868,7 @@ public static partial class Game
                         if (!spell && player.TinctureEffects.AnyEffective) TinctureOnWeaponHitLocked(player, playerStats, m, lifeBefore, at, AreaRng(player));
                         // Devour: a killing blow recovers the support's life/mana and consumes the corpse (the kill removes it).
                         if (applied.Value.Life == 0) DevourOnKill(player, m, skillStats);
-                        AilmentsOnHitLocked(player, id, m, mitigated, spell, critical, multiplier, playerStats, skillStats, at,
+                        AilmentsOnHitLocked(player, id, m, mitigated, spell, critical, multiplier, playerStats, ailmentStats, at,
                             AreaRng(player), reflected: reflected, poison: profile.Poison, sourceSkill: skillId,
                             blind: BlindHitInput.Capture(playerStats, skillStats),
                             hitOrigin: IsLeapSlam(player, gem.Effect) ? centre : null,
@@ -3227,6 +3304,15 @@ public static partial class Game
 
     public sealed record PlayerRecoveryIntent(int Epoch, int Action, double Until, float Seconds);
 
+    sealed record SpellWindup(int Action, int Recovery, int Epoch, double Until);
+    static readonly RuleTable<Player, SpellWindup> SpellWindups = new();
+
+    static bool InSpellCast(Player player, double now) =>
+        player.PaidChannel is { } channel && CastingSpell(player, channel.Effect) && PaidChannelCurrent(player, channel)
+        || SpellWindups.TryGetValue(player, out var windup)
+            && now < windup.Until && windup.Action == player.ActionCount
+            && windup.Recovery == player.ActionInterruptionGeneration && windup.Epoch == player.ProjectileEpoch;
+
     // Cancellation belongs to the hit boundary; the native animation is a projection of that committed interval.
     public static PlayerRecoveryIntent? CommitPlayerHitRecoveryLocked(Player player, int damage, double now)
     {
@@ -3251,6 +3337,9 @@ public static partial class Game
         // A freeze already holds the player, and its action factor would stretch the recovery a hundredfold.
         if (player.ElementalAilments.ActionFactor(now) == 0) { Trace("frozen"); return null; }
         double chance = PlayerHitRecovery.Chance(damage, player.PlayerMaxLife, Get);
+        int ignoreWhileCasting = Get(Stat.AvoidInterruptionWhileCastingPct);
+        if (chance > 0 && ignoreWhileCasting > 0 && InSpellCast(player, now))
+            chance *= (100 - Math.Min(ignoreWhileCasting, 100)) / 100d;
         float seconds = PlayerHitRecovery.Duration(Get, PlayerActionFactor(player));
         if (seconds <= 0 || AreaRng(player).NextDouble() * 100 >= chance
             || player.Closed || player.PlayerLife == 0 || !player.HitRecovery.Begin(now, seconds))
@@ -3545,6 +3634,7 @@ public static partial class Game
     {
         // Guarantee the mini life bar is hidden for every kill path (AreaStats deduplicates when already set at the hit/DoT site).
         SetStats(player, id, [(Stat.HideMiniLifeBar, 1)]);
+        TransferMarksOnDeathLocked(player, m, ProjectileWorldTime(player));
         TinctureKillBonus? tinctureKill;
         // The lethal hit froze this decision before its notifications could yield. Consume only that exact receipt.
         bool destroyCorpse;

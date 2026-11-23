@@ -560,7 +560,7 @@ public static partial class Game
         {
             var profile = WeaponProfileFor(player);
             double factor = profile.DualWield || profile.Unarmed ? 1.1 : 1;
-            int skillSpeed = gem.Stats.GetValueOrDefault(raw);
+            int skillSpeed = gem.Stats.GetValueOrDefault(raw) + TaggedAttackAndCastSpeedPct(SkillsFor(player), gem.Effect, Get);
             if (Supports.Of(gem.Effect)?.Types.Contains(120) == true)
                 skillSpeed += Get(Stat.RetaliationSkillSpeedPlusPct);
             stats[final] = stats.GetValueOrDefault(final) + (int)Math.Round(skillSpeed * factor);
@@ -704,6 +704,7 @@ public static partial class Game
         public int WeaponIncreased { get; init; }
         public HitIncreases WeaponTypedIncreases { get; init; }
         public bool Armed { get; init; }
+        public bool Claw { get; init; }
     }
 
     public static SupportedHitInputs? SupportedHitInputsFor(Player player, ushort skillId, bool? area = null,
@@ -733,6 +734,12 @@ public static partial class Game
             : name is var k ? stats.GetValueOrDefault(k) : 0;
         bool attack = SkillsFor(player).IsAttack(gem.Effect);
         var types = Supports.Of(gem.Effect)?.Types.ToHashSet() ?? [];
+        if (skills.IsRetaliation(gem.Effect))
+        {
+            if (Get(Stat.RetaliationSkillDamagePlusPct) is int retaliation and not 0)
+                stats[Stat.DamagePlusPct] = ActorScale.Add(Stat.DamagePlusPct, Get(Stat.DamagePlusPct), retaliation);
+            ApplyRetaliationAilmentDuration(stats);
+        }
         // Lightning Strike's two components share a gem, not a damage context. Its bolts do not gain melee
         // modifiers, and its strike does not gain projectile modifiers or the projectile-only less multiplier.
         bool lightningStrike = IsLightningStrike(gem.Effect);
@@ -832,6 +839,8 @@ public static partial class Game
                     && WeaponTypeDamage.FamilyOf(WeaponFor(player).ItemClass) == "staff" ? staff : 0,
             WeaponTypedIncreases = attackWeapon is null || secondary ? default : WeaponTypeDamage.Of(attackWeapon, Get),
             Armed = attackWeapon is not null && !secondary && WeaponAttributeDamage.Armed(attackWeapon),
+            Claw = attackWeapon is not null && !secondary
+                && WeaponIdentity.CountsAs(attackWeapon.ItemClass, attackWeapon.LocalSources, "Claw"),
         };
     }
 
@@ -852,14 +861,20 @@ public static partial class Game
             additional: inputs.WeaponTypedIncreases, trackPhysicalOrigin: inputs.Melee && !inputs.Secondary
                 && inputs.Get(Stat.SupportBloodlustMeleePhysicalDamagePlusPctFinalVsBleedingEnemies) != 0);
         if (inputs.Attack) hit = MaximumAttackDamage.Apply(Volatility.Apply(RageStats.ApplyAttack(hit, inputs.Get), inputs.Get), inputs.Get);
+        double intensityMore = SupportedHitIntensityMore(inputs);
+        if (intensityMore != 1) hit = hit.Scale(intensityMore);
+        return suppress ? new SkillDamageContext(inputs.Plan.Kind, inputs.Caster).Hit(hit) : hit;
+    }
+
+    static double SupportedHitIntensityMore(SupportedHitInputs inputs)
+    {
         double intensityMore = 1;
         if (inputs.Projectile)
             intensityMore *= Math.Max(0, 1 + inputs.Get(Stat.SupportGreaterProjectileIntensityProjectileDamagePlusPctFinal) / 100d)
                 * Math.Max(0, 1 + inputs.Get(Stat.SupportGreaterProjectileIntensityProjectileDamagePlusPctFinalFromIntensity) / 100d);
         if (inputs.Area)
             intensityMore *= Math.Max(0, 1 + inputs.Get(Stat.AreaDamagePlusPctFinalFromSpellBoostCharges) / 100d);
-        if (intensityMore != 1) hit = hit.Scale(intensityMore);
-        return suppress ? new SkillDamageContext(inputs.Plan.Kind, inputs.Caster).Hit(hit) : hit;
+        return intensityMore;
     }
 
     // The damaging-ailment rows of a supported skill's hit in one context (AilmentPanelStats): the main or off hand of
@@ -996,7 +1011,10 @@ public static partial class Game
             : (cost.ManaFlat, cost.ManaPercent);
     }
 
-    public static int SupportedCriticalMultiplier(Player player, ushort skillId)
+    public static int SupportedCriticalMultiplier(Player player, ushort skillId) =>
+        SupportedCriticalMultiplier(player, skillId, hitWeapon: null);
+
+    static int SupportedCriticalMultiplier(Player player, ushort skillId, SkillCatalog.Unarmed? hitWeapon)
     {
         var gem = SupportedSkill(player, skillId);
         long extra = (long)gem.Stats.GetValueOrDefault(Stat.BaseCriticalStrikeMultiplierPlus) + NightbladeCriticalMultiplier(player, gem.Stats);
@@ -1015,8 +1033,10 @@ public static partial class Game
             extra += trapPerPower * GolemStat(playerStats, Stat.CurrentPowerCharges);
         if (SkillsFor(player).IsBrand(gem.Effect) || GolemStat(gem.Stats, Stat.SkillGetsBrandDamageCritModifiers) != 0)
             extra += GolemStat(playerStats, Stat.SigilCriticalStrikeMultiplierPlus) + GolemStat(gem.Stats, Stat.SigilCriticalStrikeMultiplierPlus);
-        return CriticalHitMultiplier((long)(SkillsFor(player).IsAttack(gem.Effect)
-            ? AttackCriticalMultiplier(player, playerStats, gem.Effect, gem.Stats)
+        bool attack = SkillsFor(player).IsAttack(gem.Effect);
+        if (attack && Sum(Stat.CriticalStrikeMultiplierPlusPctWithClawsDaggers) != 0)
+            extra += ClawDaggerCriticalBonus(hitWeapon ?? WeaponFor(player), playerStats, gem.Stats);
+        return CriticalHitMultiplier((long)(attack ? AttackCriticalMultiplier(player, playerStats, gem.Effect, gem.Stats)
             : player.Pools.SpellCriticalStrikeMultiplier) + extra, playerStats, gem.Stats);
     }
 }

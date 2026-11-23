@@ -35,7 +35,8 @@ public static class DamageStats
         (double)get(Stat.DamagePlusPct) + get(Stat.AttackDamagePlusPct) + get(Stat.Of($"{type.ToString().ToLowerInvariant()}_damage_+%"))
         + (DamageTypes.IsElemental(type) ? get(Stat.ElementalDamagePlusPct) : 0)
         + (melee ? get(Stat.MeleeDamagePlusPct) : 0)
-        + (melee && type == DamageType.Physical ? get(Stat.MeleePhysicalDamagePlusPct) : 0)
+        + (type == DamageType.Physical ? (double)get(Stat.PhysicalAttackDamagePlusPct)
+            + (melee ? get(Stat.MeleePhysicalDamagePlusPct) : 0) : 0)
         // Iron Grip: Strength's physical damage bonus also applies to projectile attacks.
         + (!melee && projectile && type == DamageType.Physical && get(Stat.KeystoneStrongBowman) != 0
             ? StrengthDamageBonus(get) : 0)

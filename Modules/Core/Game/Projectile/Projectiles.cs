@@ -747,8 +747,9 @@ public static partial class Game
             // The damage profile is selected once from the target state before outgoing hooks or hit side effects.
             // AilmentsOnHit can Blind on this hit; that must not retroactively boost the hit or the ailments it applies.
             double at = contact.At / (double)ProjectileRuntime.QuantaPerSecond;
+            var conditional = shot.Spider is { } spider ? ContactDamage(Player, target, at, spider.Stats) : default;
             shot = shot.Against(Blinded(Player, contact.Target.Id), target.SpiderWebs.Count(at),
-                target.Ignites.Burning, target.Bleeds.Burning, EnemyOnLowLife(target));
+                target.Ignites.Burning, target.Bleeds.Burning, EnemyOnLowLife(target), target.MaimedUntil > at, conditional);
             double overexertionMore = OverexertionMore(shot.SkillStats, shot.IntimidatingCryExerted);
             if (overexertionMore != 1)
                 shot = shot with
@@ -790,7 +791,7 @@ public static partial class Game
                 && (shot.Spell || EvasionEntropy.ConfirmsCritical(hitChance, Player.AttackAccuracyRandom));
             var weaponLocal = shot.WeaponAttack ? shot.WeaponLocal : null;
             int sourceMultiplier = CriticalMultiplierWithWeapon(shot.CriticalMultiplier, target, weaponLocal);
-            int multiplier = CriticalMultiplierOn(target, sourceMultiplier, noExtra: shot.NoExtraCriticalDamage);
+            int multiplier = CriticalMultiplierOn(target, sourceMultiplier, shot.TargetCritical, at, shot.NoExtraCriticalDamage);
             bool canBenefitResonance = !shot.FromTrapOrMine && (shot.ActualCaster is null || shot.Mirage);
             bool canGainResonance = canBenefitResonance && !shot.Mirage;
             var resonance = canBenefitResonance
@@ -879,7 +880,7 @@ public static partial class Game
             if (shot.ActualCaster is null) ChargesOnHit(Player, target, critical, shot.Spell, shot.Effect, shot.Level, shot.Quality, melee: false,
                 primary: shot.FirstHit?.Claim() ?? true, skillStats: shot.SkillStats);
             CommitProjectileHit(this, contact, target, hit.Value, damage, shot, critical,
-                OwnerStun(Player, target, damage, mitigated, melee: false, shot.Spell, critical, player, shot.SkillStats, lifeBefore,
+                OwnerStun(Player, shot.Effect, target, damage, mitigated, melee: false, shot.Spell, critical, player, shot.SkillStats, lifeBefore,
                     localStunReduction: shot.LocalStunThresholdReduction, weaponClass: shot.WeaponClass));
             if (critical) Enqueue(() => MaybeCreateProfaneGround(Player, target.Walk.Position(at)));
             return ProjectileHitResult.Hit;

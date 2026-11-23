@@ -587,14 +587,16 @@ public static partial class Game
                     MonsterIgnites.Settings.None, MonsterPoisons.Settings.None);
             if (placed.Offense?.Spider is { } spider)
                 profile = SpiderDamageProfile(spider, m.SpiderWebs.Count(now), Blinded(player, id),
-                    m.Ignites.Burning, m.Bleeds.Burning, EnemyOnLowLife(m));
+                    m.Ignites.Burning, m.Bleeds.Burning, EnemyOnLowLife(m), m.MaimedUntil > now,
+                    spider.Melee && TargetAccuracy.InCloseRange(Dist(placed.At, m.Walk.Position(now))),
+                    ContactDamage(player, m, now, spider.Stats));
             var rolled = WithConditionalSupportDamageLocked(player, placed.Own, !spell, m,
                 profile.Hit.Scale(more).Roll(AreaRng(player)), now);
             var mitigated = DamageModel.Mitigate(rolled, type => MonsterHitResistance(m, type, default, now));
             int damage = MonsterTakesTrapOrMineHit(m, mitigated, spell, now, AreaRng(player));
             bool critical = currentSkill && RollCriticalStrike(player, CriticalChanceOn(player, id, chance, vsBlinded, vsGround),
                 placed.Own, attack, criticalRoll, owner);
-            int hitMultiplier = critical ? CriticalMultiplierOn(m, multiplier, owner, placed.Own) : 100;
+            int hitMultiplier = critical ? CriticalMultiplierOn(m, multiplier, now, owner, placed.Own) : 100;
             if (critical) damage = DamageModel.CriticalDamage(damage, hitMultiplier);
             if (placed.Mine)
             {
