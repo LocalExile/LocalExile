@@ -48,12 +48,14 @@ public sealed class BetrayalEncounter
     static List<Player> Clients(Player player) => [.. player.Instance.PlayersExcept(player.Id).Prepend(player)
         .Where(c => Current(c) && ReferenceEquals(c.Instance, player.Instance)).Distinct()];
 
-    /// <summary>Sends to everyone in the instance; the player whose entry populates it may not count as in the area yet.</summary>
+    /// <summary>Sends to everyone in the instance; the player whose entry populates it may not count as in the area yet.
+    /// Each recipient gets its own copy: the wire encrypts the buffer in place, so sharing one array across clients
+    /// would send peer #2+ peer #1's ciphertext re-encrypted with their own keystream (review #1379 point 1).</summary>
     static async Task Broadcast(Player player, byte[] message, string log)
     {
         var clients = Clients(player);
         if (!clients.Contains(player) && !player.Closed) clients.Insert(0, player);
-        foreach (var member in clients) await Send(member, message, log);
+        foreach (var member in clients) await Send(member, message.ToArray(), log);
     }
 
     static double Distance((int X, int Y) a, (int X, int Y) b) => double.Hypot(a.X - b.X, a.Y - b.Y);
