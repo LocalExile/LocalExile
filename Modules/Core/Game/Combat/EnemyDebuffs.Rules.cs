@@ -307,7 +307,7 @@ public static partial class Game
         Next(m.MaimedUntil); Next(m.HinderedUntil); Next(m.CoveredInAshUntil);
         foreach (double until in m.ExposureUntil) Next(until);
         foreach (var stack in m.Withered) Next(stack.Until);
-        foreach (var curse in m.Curses.All.Values) Next(curse.Until);
+        foreach (var curse in m.Curses.All.Values) { Next(curse.Until); Next(curse.AmplifiesAt); }
         if (!double.IsFinite(wake)) return;
         lock (steps.Gate)
         {

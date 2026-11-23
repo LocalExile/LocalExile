@@ -125,7 +125,8 @@ public static partial class Game
         if (baseCrit == 0 && e[Stat.CriticalStrikeChancePlusPct] is int incCrit and > 0)
             baseCrit = (int)Math.Clamp(500L * (100 + incCrit) / 100, 0, 10_000);
         int chance = baseCrit + additionalCritical;
-        critical = !cannotCrit && chance > 0 && random.Next(10_000) < chance;
+        critical = !cannotCrit && chance > 0 && !(m.HasCurses && m.Curses.PreventsCritical(now))
+            && random.Next(10_000) < chance;
         int extraMult = critical
             ? Math.Max(0, (MonsterModEffects.CriticalMultiplier - 100) + e[Stat.BaseCriticalStrikeMultiplierPlus] + (extraCriticalMultiplier?.Invoke() ?? 0))
             : 0;
