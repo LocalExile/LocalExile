@@ -19,15 +19,15 @@ public sealed class CommandsModule : IModule
     {
         var played = new CharacterPlaytime();
         module.Lifetime.Own(played);
-        GameEvents.CommandsBuilding.Add(module.Manifest.Id, (commands, remote, stream, ciphers, conn) =>
-            CommandsFeature.Register(commands, remote, stream, ciphers, conn, played, () => module.Settings<DepositSettings>().DepositKeep));
-        GameEvents.EnterMessages.Add(module.Manifest.Id, conn => { played.Begin(conn); return []; });
-        GameEvents.Tick.Add(module.Manifest.Id, (conn, _) => { played.Step(conn); return Task.CompletedTask; });
-        GameEvents.PlayerLeaving.Add(module.Manifest.Id, (conn, _) => { played.End(conn); return Task.CompletedTask; });
-        GameEvents.Packet(GameServer.Core.Protocol.Instance.InstanceItems.CommandId).Add(module.Manifest.Id, async (conn, bytes) =>
+        GameEvents.CommandsBuilding.Add(module.Manifest.Id, (commands, player) =>
+            CommandsFeature.Register(commands, player, played, () => module.Settings<DepositSettings>().DepositKeep));
+        GameEvents.EnterMessages.Add(module.Manifest.Id, player => { played.Begin(player); return []; });
+        GameEvents.AreaTick.Add(module.Manifest.Id, GameEvents.Always((player, _) => { played.Step(player); return Task.CompletedTask; }));
+        GameEvents.PlayerLeaving.Add(module.Manifest.Id, (player, _) => { played.End(player); return Task.CompletedTask; });
+        GameEvents.Packet(GameServer.Core.Protocol.Instance.InstanceItems.CommandId).Add(module.Manifest.Id, async (player, bytes) =>
         {
             if (GameServer.Core.Protocol.Instance.InstanceItems.ReadCommand(bytes).Id != PlayedCommand) return false;
-            await conn.Commands!.Reply(CharacterPlaytime.Describe(played.Seconds(conn)));
+            await player.Commands!.Reply(CharacterPlaytime.Describe(played.Seconds(player)));
             return true;
         });
     }

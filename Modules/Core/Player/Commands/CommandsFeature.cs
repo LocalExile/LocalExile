@@ -5,17 +5,17 @@ using GameServer.Core.Protocol.Login;
 /// (LocalExile-Mods).</summary>
 static class CommandsFeature
 {
-    internal static ChatCommands Register(ChatCommands commands, string remote, NetworkStream stream, ConnectionCiphers ciphers, ClientState conn, GameServer.Modules.M_commands.CharacterPlaytime played, Func<string?> depositKeep)
+    internal static ChatCommands Register(ChatCommands commands, Player player, GameServer.Modules.M_commands.CharacterPlaytime played, Func<string?> depositKeep)
     {
         return commands
         .Add("played", "/played (time spent online with this character)", async _ =>
-            await conn.Commands!.Reply(GameServer.Modules.M_commands.CharacterPlaytime.Describe(played.Seconds(conn))))
+            await player.Commands!.Reply(GameServer.Modules.M_commands.CharacterPlaytime.Describe(played.Seconds(player))))
         .Add("passives", "/passives (passive skill points and the allocated passives)", async _ =>
         {
-            var (points, refundPoints, nodes, _) = PassiveState(conn);
-            int unspent = points + PassivesFor(conn).PointsGranted(nodes) + AscendancyOrdinaryPoints(conn) - nodes.Count;
-            await conn.Commands!.Reply($"Level {conn.Pools.Level}, {conn.Experience} experience: {points} passive skill point(s), {unspent} unspent, {refundPoints} refund point(s).\n" +
-                string.Join("\n", nodes.Select(n => $"{n} {PassivesFor(conn).Find(n)?.Name}").DefaultIfEmpty("No passives allocated.")));
+            var (points, refundPoints, nodes, _) = PassiveState(player);
+            int unspent = points + PassivesFor(player).PointsGranted(nodes) + AscendancyOrdinaryPoints(player) - nodes.Count;
+            await player.Commands!.Reply($"Level {player.Pools.Level}, {player.Character.Experience} experience: {points} passive skill point(s), {unspent} unspent, {refundPoints} refund point(s).\n" +
+                string.Join("\n", nodes.Select(n => $"{n} {PassivesFor(player).Find(n)?.Name}").DefaultIfEmpty("No passives allocated.")));
         })
         .Add("deposit", "/deposit [keep] (at your stash: currency, essences, fragments, cards, gems and flasks go to their tabs, except the items the Commands module's depositKeep setting names; /deposit keep lists them)", async args =>
         {
@@ -23,12 +23,12 @@ static class CommandsFeature
                 .ToHashSet(StringComparer.OrdinalIgnoreCase);
             if (args.Length > 0 && args[0].Equals("keep", StringComparison.OrdinalIgnoreCase))
                 await commands.Reply(keep.Count == 0 ? "/deposit keeps nothing." : "/deposit keeps: " + string.Join(", ", keep) + ".");
-            else await DepositAll(remote, stream, ciphers, conn, keep);
+            else await DepositAll(player, keep);
         })
         .Add("oos", "/oos (puts you and the monsters around you back where the server has them when you are out of sync)", async _ =>
         {
-            await SendResync(remote, stream, ciphers, conn, "/oos");
-            await conn.Commands!.Reply("Resynced.");
+            await SendResync(player, "/oos");
+            await player.Commands!.Reply("Resynced.");
         });
     }
 }

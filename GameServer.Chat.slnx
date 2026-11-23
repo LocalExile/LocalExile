@@ -1,6 +1,0 @@
-<Solution>
-  <Folder Name="/src/">
-    <Project Path="src/GameServer.Chat/GameServer.Chat.csproj" />
-    <Project Path="src/GameServer.Core/GameServer.Core.csproj" />
-  </Folder>
-</Solution>

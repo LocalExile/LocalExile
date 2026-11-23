@@ -9,11 +9,11 @@ public class AlternateAilmentTests
 {
     const int Scorch = (int)Game.AlternateKind.Scorch, Brittle = (int)Game.AlternateKind.Brittle, Sap = (int)Game.AlternateKind.Sap;
 
-    static Func<string, int> With(params (string Stat, int Value)[] stats) =>
+    static Func<uint, int> With(params (uint Stat, int Value)[] stats) =>
         name => stats.Where(s => s.Stat == name).Sum(s => s.Value);
 
-    static Dictionary<uint, int> Raw(params (string Name, int Value)[] stats) =>
-        stats.ToDictionary(s => Program.Stats.Key(s.Name)!.Value, s => s.Value);
+    static Dictionary<uint, int> Raw(params (uint Name, int Value)[] stats) =>
+        stats.ToDictionary(s => s.Name, s => s.Value);
 
     static DamagePacket Taken(DamageType type, double amount) => DamagePacket.Of(type, amount, amount);
 
@@ -23,25 +23,25 @@ public class AlternateAilmentTests
     public void Magnitude_duration_strongest_and_effects_follow_the_source_stats()
     {
         var m = new SpawnedMonster("scorched", new(105, 100, 0), 0, 0, 100);
-        List<(Game.AlternateAilment A, RuleAilments.Instance I)> Hit(DamagePacket damage, Func<string, int> attacker, double now,
+        List<(Game.AlternateAilment A, RuleAilments.Instance Instance)> Hit(DamagePacket damage, Func<uint, int> attacker, double now,
             bool critical = false) => Game.AlternateAilmentsOnHitLocked(m, damage, critical, now, attacker, new Random(1));
 
         // No source, no Scorch: a critical strike alone does not inflict it.
         Assert.Empty(Hit(Taken(DamageType.Fire, 10), With(), 0, critical: true));
         int unscorched = Game.MonsterHitResistance(m, DamageType.Fire, default, now: 1).Value;
 
-        var always = With(("chance_to_scorch_%", 100), ("virtual_scorch_duration_+%", 50));
-        var scorch = Assert.Single(Hit(Taken(DamageType.Fire, 10), always, 0)).I;
+        var always = With((Stat.ChanceToScorchPct, 100), (Stat.VirtualScorchDurationPlusPct, 50));
+        var scorch = Assert.Single(Hit(Taken(DamageType.Fire, 10), always, 0)).Instance;
         Assert.Equal((Scorch, 19.0, 6.0), (scorch.Kind, scorch.Magnitude, scorch.Until));
         // Its effect modifiers, the cap of 30, and only the fire part counts.
         Assert.Equal(29, Assert.Single(Hit(Taken(DamageType.Fire, 10),
-            With(("chance_to_scorch_%", 100), ("virtual_scorch_effect_+%", 50)), 0)).I.Magnitude);
-        Assert.Equal(30, Assert.Single(Hit(Taken(DamageType.Fire, 100), always, 0)).I.Magnitude);
+            With((Stat.ChanceToScorchPct, 100), (Stat.VirtualScorchEffectPlusPct, 50)), 0)).Instance.Magnitude);
+        Assert.Equal(30, Assert.Single(Hit(Taken(DamageType.Fire, 100), always, 0)).Instance.Magnitude);
         Assert.Empty(Hit(Taken(DamageType.Cold, 10), always, 0));
         // A weaker, longer one (floor(50 × 0.01^0.4) = 7, until 7 s) is kept beside the strongest, which applies until it ends.
         m = new SpawnedMonster("scorched", new(105, 100, 0), 0, 0, 100);
-        Hit(Taken(DamageType.Fire, 10), With(("chance_to_scorch_%", 100)), 0);
-        Assert.Equal(7, Assert.Single(Hit(Taken(DamageType.Fire, 1), always, 1)).I.Magnitude);
+        Hit(Taken(DamageType.Fire, 10), With((Stat.ChanceToScorchPct, 100)), 0);
+        Assert.Equal(7, Assert.Single(Hit(Taken(DamageType.Fire, 1), always, 1)).Instance.Magnitude);
         Assert.Equal(19, m.RuleAilments.Magnitude(Scorch, 3.9));
         Assert.Equal(7, m.RuleAilments.Magnitude(Scorch, 4.5));
         Assert.Equal(0, m.RuleAilments.Magnitude(Scorch, 7));
@@ -59,7 +59,7 @@ public class AlternateAilmentTests
             var secrets = With((Game.SecretsOfSuffering, 1));
             var hit = Taken(DamageType.Fire, 10).Add(DamageType.Cold, new(10, 10)).Add(DamageType.Lightning, new(10, 10));
             Assert.Equal([(Scorch, 19.0), (Brittle, 398.0), (Sap, 13.0)],
-                Hit(hit, secrets, 10, critical: true).Select(e => (e.I.Kind, e.I.Magnitude)));
+                Hit(hit, secrets, 10, critical: true).Select(e => (e.Instance.Kind, e.Instance.Magnitude)));
             Assert.Empty(Hit(hit, secrets, 10, critical: false));
             Assert.Empty(m.Ailments.Inflict(hit, critical: true, 100, 10, secrets, n => m.Effects[n], new Random(1)));
         }
@@ -69,16 +69,16 @@ public class AlternateAilmentTests
         Assert.Equal(1, Game.SappedDamageFactor(m, 15), 9);
         var immune = new RuleAilments();
         Assert.Empty(Game.AlternateAilmentsOnHit(immune, Taken(DamageType.Lightning, 10), false, 100, 0,
-            With(("chance_to_inflict_sapped_%", 100)), With(("immune_to_sap", 1)), new Random(1)));
+            With((Stat.ChanceToInflictSappedPct, 100)), With((Stat.ImmuneToSap, 1)), new Random(1)));
         // From no hit (a block's): Sap's set 6% for 4 s.
         Assert.Equal((6.0, 24.0), Game.AlternateAilmentWithoutHit(immune, Game.AlternateKind.Sap, 20, With(), With()) is { } blockSap
             ? (blockSap.Magnitude, blockSap.Until) : default);
 
         // The buff: scorched (1243) with base_resist_all_elements_% negative, on its fixed instance, which NextBuff skips.
         var scorchRule = Game.AlternateAilmentOf(Game.AlternateKind.Scorch);
-        Assert.Equal(InstanceEntities.AddBuff(5, ClientState.FixedBuffInstances, 1243, Program.PlayerId, u82: 0,
+        Assert.Equal(InstanceEntities.AddBuff(5, Player.FixedBuffInstances, 1243, 0, u82: 0,
             values: [unchecked((uint)-19)]), Game.AlternateAilmentBuff(5, scorchRule, 19));
-        Assert.True(Game.AlternateAilments.All(a => a.Instance >= ClientState.FixedBuffInstances
+        Assert.True(Game.AlternateAilments.All(a => a.Instance >= Player.FixedBuffInstances
             && a.Instance < MonsterElementalAilments.FirstInstance - 2));
     }
 
@@ -88,19 +88,16 @@ public class AlternateAilmentTests
     public void Two_players_scorches_on_a_shared_monster_keep_the_stronger_until_it_ends()
     {
         var instance = new InstanceState();
-        ClientState Player(string name) => new(new(1, name, 1000, 1000, 100, 100, null, []), 1, 1)
-            { Character = name, Instance = instance, PlayerLife = 1000 };
-        var (strong, weak) = (Player("ScorchA"), Player("ScorchB"));
+        Player MakePlayer(string name) => new(new(1, name, 1000, 1000, 100, 100, null, []), 1, 1)
+            { Character = { Name = name }, Instance = instance, PlayerLife = 1000 };
+        var (strong, weak) = (MakePlayer("ScorchA"), MakePlayer("ScorchB"));
         var m = new SpawnedMonster("shared", new(105, 100, 0), 0, 0, 100);
-        lock (strong.Monsters) strong.Monsters[1] = m;
-        Assert.Same(m, weak.Monsters[1]);
-        var scorches = Raw(("chance_to_scorch_%", 100));
-        void Hit(ClientState conn, double fire, double now)
-        {
-            lock (conn.Monsters)
-                Game.AilmentsOnHitLocked(conn, m, Taken(DamageType.Fire, fire), spell: true, critical: false, 150,
-                    scorches, null, now, new Random(1));
-        }
+        strong.Area.Monsters[1] = m;
+        Assert.Same(m, weak.Area.Monsters[1]);
+        var scorches = Raw((Stat.ChanceToScorchPct, 100));
+        void Hit(Player player, double fire, double now) =>
+            Game.AilmentsOnHitLocked(player, m, Taken(DamageType.Fire, fire), spell: true, critical: false, 150,
+                scorches, null, now, new Random(1));
 
         Hit(strong, 10, 0);      // 19% until 4 s
         Hit(weak, 1, 1);         // 7% until 5 s: a later, weaker hit does not replace it

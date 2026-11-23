@@ -72,11 +72,11 @@ line and changes nothing.
 ## What stays in the Gateway
 
 The framework, and what the game's rules read and write: connections and packets, framing and the message loop (`Connection/Program.Connection.cs`), the hosts (`Modding/`), game data and its catalogs, saves and inventories, and the
-connection's state (`ClientState`), with the types its fields have. State stays so that a reload of the rules leaves a player in game.
+connection's state (`Player`), with the types its fields have. State stays so that a reload of the rules leaves a player in game.
 Its files are in folders by subject: `Connection/`, `Modding/`, `Data/`, `Saves/`, `Combat/`, `Flask/`, `Item/`, `Monster/`, `NPC/`, `Passive/`, `Player/`, `Quest/`, `Skill/`, `World/`.
 
 The framework reaches the rules through `IGameLogic` (`Modding/GameLogic.cs`), which the `Game` module gives when it loads, and `GameEvents`, whose subscribers run per league. Without `Game`, connections are refused.
-A catalog type holding some rules stays when `ClientState` has a field of it (`ChargeEffects`, `AuraCatalog`, `UniqueItemSeed`): cutting that field is what lets it move.
+A catalog type holding some rules stays when `Player` has a field of it (`ChargeEffects`, `AuraCatalog`, `UniqueItemSeed`): cutting that field is what lets it move.
 
 ## Modules
 
@@ -117,7 +117,7 @@ The player and its world are the Gateway's: `PlayerOf(conn)` (an `IPlayer`) and 
 `IPlayerWorld` is objects, blockers, walking up, hideout stations, windows, stats, travel, NPC actions, crafting in a slot (with payment), item rules
 (`IItemCrafting`), and saved text per account and league or per character (`ISavedData`).
 A module can alter the game fully: it compiles against the Gateway and the Game module, both public, with `using static Program`, `using static Game` (both global in a module) and `ConnOf(player)`. A mod reaches the same ([modding](modding.md)). Per-player state in a module's own
-`ConditionalWeakTable<IPlayer, …>` starts over with a hot reload, and objects it placed stop answering until the player's next area; state in `ClientState` survives.
+`ConditionalWeakTable<IPlayer, …>` starts over with a hot reload, and objects it placed stop answering until the player's next area; state in `Player` survives.
 Another module's internal extension members (an `extension(...)` block, such as `ClientStateRules` in Game) are out of reach:
 the 10.0.1xx SDKs, the ones Linux distributions ship, reject them with CS0570, though newer SDKs build them. Read what
 they wrap instead, or call a static method.

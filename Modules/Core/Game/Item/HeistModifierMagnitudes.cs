@@ -14,9 +14,9 @@ static class HeistModifierMagnitudes
             if (mods.ByHash(mod.Hash) is { } row)
                 for (int index = 0; index < row.Stats.Count && index < mod.Values.Count; index++)
                 {
-                    if (row.Stats[index].Id == "local_enchant_stat_magnitude_+%")
+                    if (row.Stats[index].Id == Stat.LocalEnchantStatMagnitudePlusPct)
                     { enchantEffect += mod.Values[index]; hasEffectStat = true; continue; }
-                    if (Tag(row.Stats[index].Id) is not { } tag) continue;
+                    if (Tag(row.Stats[index].Name) is not { } tag) continue;
                     hasEffectStat = true;
                     if (mod.Section != ModSection.Enchant) continue;
                     effects ??= new(StringComparer.Ordinal);
@@ -28,7 +28,7 @@ static class HeistModifierMagnitudes
         {
             var stat = row.Stats[index];
             int value = mod.Values[index];
-            if (Tag(stat.Id) is not null || stat.Id == "local_enchant_stat_magnitude_+%") return value;
+            if (Tag(stat.Name) is not null || stat.Id == Stat.LocalEnchantStatMagnitudePlusPct) return value;
             if (row.Unscalable
                 || row.GrantedEffects != 0 || !stat.Scalable) return null;
 

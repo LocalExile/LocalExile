@@ -144,7 +144,7 @@ static class DivinationEquipmentRewards
         return items.Mods.All.Where(m => m.GenerationType is 1 or 2
             && (rule.Special == "elevated" ? m.Name.Contains("Elevated", StringComparison.Ordinal) && m.Id.Contains("Maven", StringComparison.Ordinal)
                 : rule.Affix.StartsWith("id:", StringComparison.Ordinal) ? m.Id == rule.Affix[3..]
-                : rule.Affix == "life" ? m.Stats.Any(s => s.Id == "base_maximum_life")
+                : rule.Affix == "life" ? m.Stats.Any(s => s.Id == Stat.BaseMaximumLife)
                 : UniqueCatalog.NameKey(m.Name) == rule.Affix)
             && (m.Domain == type.ModDomain || rule.Affix.StartsWith("id:", StringComparison.Ordinal) && m.Domain == 9)
             && (m.WeightFor(tags) > 0 || rule.Special == "elevated" && m.SpawnWeights.Any(w => w.Tag != "default" && tags.Contains(w.Tag))

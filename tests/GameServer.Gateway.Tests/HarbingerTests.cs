@@ -38,7 +38,7 @@ public sealed class HarbingerTests
         Assert.Equal((8, 61, 181), Wave(HarbingerCatalog.HarbingerKind.Strong, 75));
         var kingWave = HarbingerCatalog.Profile(HarbingerCatalog.HarbingerKind.King, 83);
         Assert.Equal((15, 15, 1), (kingWave.BaseCount, kingWave.MaxMagic, kingWave.MaxRare));
-        var atlasShards = new MapMods(new Dictionary<string, int> { ["map_harbingers_drops_additional_currency_shards"] = 38 });
+        var atlasShards = new MapMods(new Dictionary<uint, int> { [Stat.MapHarbingersDropsAdditionalCurrencyShards] = 38 });
         Assert.Equal(6, HarbingerCatalog.RollShards(Program.Items, 75, HarbingerCatalog.NormalBaseTenths, 0, atlasShards, new Random(1)).Count);
 
         // Exactly 11 active 3.29 currency shards; disabled 3.29 shards (Horizon, Harbinger's, Engineer's) excluded.
@@ -70,10 +70,10 @@ public sealed class HarbingerTests
             Slot("ScarabHarbingerNew4"),
         ];
         var mods = catalog.Of(slots, Program.Items.Mods);
-        Assert.Equal(3, mods.Get("map_num_extra_harbingers"));
-        Assert.Equal(1, mods.Get("map_harbinger_scarab_empower"));
-        Assert.Equal(50, mods.Get("map_harbingers_%_chance_to_be_replaced_as_atlas_boss"));
-        Assert.Equal(100, mods.Get("map_harbinger_currency_shards_duplicate_chance"));
+        Assert.Equal(3, mods.Get(Stat.MapNumExtraHarbingers));
+        Assert.Equal(1, mods.Get(Stat.MapHarbingerScarabEmpower));
+        Assert.Equal(50, mods.Get(Stat.MapHarbingersPctChanceToBeReplacedAsAtlasBoss));
+        Assert.Equal(100, mods.Get(Stat.MapHarbingerCurrencyShardsDuplicateChance));
 
         var opening = new MapOpening(new(new(1, "harbinger", 100, 100, 10, 10, null, []), 1, 1), slots, false,
             new(new(1, "MapWorldsStrand", "Strand Map", 8) { Level = 75 }, mods), "");
@@ -83,11 +83,11 @@ public sealed class HarbingerTests
         Assert.Empty(opening.UnhandledContent);
 
         // Warhoards duplication emits identical pairs; bonus tenths increase stack counts; single-type locks one shard.
-        var warhoards = new MapMods(new Dictionary<string, int>
+        var warhoards = new MapMods(new Dictionary<uint, int>
         {
-            ["map_harbinger_currency_shards_duplicate_chance"] = 100,
-            ["map_harbinger_additional_currency_shard_stack_tenths_to_drop"] = 8,
-            ["map_harbinger_single_currency_type"] = 1,
+            [Stat.MapHarbingerCurrencyShardsDuplicateChance] = 100,
+            [Stat.MapHarbingerAdditionalCurrencyShardStackTenthsToDrop] = 8,
+            [Stat.MapHarbingerSingleCurrencyType] = 1,
         });
         var dupDrops = HarbingerCatalog.RollShards(Program.Items, 75, HarbingerCatalog.NormalBaseTenths, 0, warhoards, new Random(42));
         Assert.Equal(6, dupDrops.Count); // (22 + 8) / 10 = 3 stacks, duplicated -> 6 stacks
@@ -96,10 +96,10 @@ public sealed class HarbingerTests
             Assert.Equal((dupDrops[i].Type.Id, dupDrops[i].Item.StackSize), (dupDrops[i + 1].Type.Id, dupDrops[i + 1].Item.StackSize));
 
         // Full-currency upgrade stat converts rolled shard stacks into their full orb (StackSize 1, non-shard).
-        var fullCurrencyMods = new MapMods(new Dictionary<string, int>
+        var fullCurrencyMods = new MapMods(new Dictionary<uint, int>
         {
-            ["map_harbingers_have_chance_to_drop_full_currency"] = 3, // 75% per stack
-            ["map_harbinger_lucky_shard_drops"] = 1,
+            [Stat.MapHarbingersHaveChanceToDropFullCurrency] = 3, // 75% per stack
+            [Stat.MapHarbingerLuckyShardDrops] = 1,
         });
         var upgraded = HarbingerCatalog.RollShards(Program.Items, 75, HarbingerCatalog.KingBaseTenths, HarbingerCatalog.KingStackSizePct, fullCurrencyMods, new Random(7));
         Assert.InRange(upgraded.Count, 10, 11);
@@ -119,11 +119,11 @@ public sealed class HarbingerTests
         var scarabMods = catalog.Of(slots, Program.Items.Mods);
         // Add 1 guaranteed King Harbinger + cooldown speed + bonus tenths via composed stats so both regular and King
         // encounters and obelisk shard drops run deterministically without flakiness.
-        var combined = new Dictionary<string, int>(scarabMods.Stats, StringComparer.Ordinal)
+        var combined = new Dictionary<uint, int>(scarabMods.Stats)
         {
-            ["map_contains_X_additional_uber_harbingers"] = 1,
-            ["map_harbinger_cooldown_speed_+%"] = 100,
-            ["map_harbinger_additional_currency_shard_stack_tenths_to_drop"] = 5,
+            [Stat.MapContainsXAdditionalUberHarbingers] = 1,
+            [Stat.MapHarbingerCooldownSpeedPlusPct] = 100,
+            [Stat.MapHarbingerAdditionalCurrencyShardStackTenthsToDrop] = 5,
         };
         var mods = new MapMods(combined);
 
@@ -143,70 +143,70 @@ public sealed class HarbingerTests
         Program.SetGameLogic(new GameServer.Modules.Game.GameLogic(lifetime));
         await using var owner = await ScarabEncounterTests.Wire.Open(instance, layout, seed);
         await using var peer = await ScarabEncounterTests.Wire.Open(instance, layout, seed);
-        instance.World.Runner = owner.Conn;
+        instance.World.Runner = owner.Player;
         try
         {
             MapHarbinger.Encounter[] Encounters() => JsonSerializer.Deserialize<MapHarbinger.Encounter[]>(instance.ContentState["Harbinger/encounters"])!;
 
-            await MapHarbinger.Enter(owner.Conn);
+            await MapHarbinger.Enter(owner.Player);
             var list = Encounters();
             Assert.Equal(4, list.Length); // 3 from scarab + 1 guaranteed King
             Assert.Contains(list, h => h.Kind == HarbingerCatalog.HarbingerKind.King && h.Variety == HarbingerCatalog.KingVariety);
             // Second entrant shares the same encounters without double-spawning.
-            await MapHarbinger.Enter(peer.Conn);
+            await MapHarbinger.Enter(peer.Player);
             Assert.Equal(list.Select(h => h.Monster), Encounters().Select(h => h.Monster));
 
             var king = list.First(h => h.Kind == HarbingerCatalog.HarbingerKind.King);
             var normal = list.First(h => h.Kind != HarbingerCatalog.HarbingerKind.King);
-            var kingBody = owner.Conn.Monsters[king.Monster];
+            var kingBody = owner.Player.Area.Monsters[king.Monster];
             Assert.Equal((MonsterRarity.Unique, true, true, MapHarbinger.HarbingerMaxLife),
                 (kingBody.Rarity, kingBody.Scripted, kingBody.NoRewards, kingBody.MaxLife));
-            Assert.Equal(1, kingBody.EncounterStats!["base_cannot_be_damaged"]);
+            Assert.Equal(1, kingBody.EncounterStats![Stat.BaseCannotBeDamaged]);
 
             // Non-runner peer standing on the King Harbinger does not activate it.
-            peer.Conn.Walk.Teleport(king.X, king.Y, 0);
-            await MapHarbinger.Tick(peer.Conn, 0.25);
+            peer.Player.Walk.Teleport(king.X, king.Y, 0);
+            await MapHarbinger.Tick(peer.Player, 0.25);
             Assert.Equal(MapHarbinger.HarbingerState.Waiting, Encounters()[king.Index].State);
 
             // Runner approaches the King Harbinger: activates, spawns 3 invulnerable helpers and first wave of minions.
-            owner.Conn.Walk.Teleport(king.X + 8, king.Y, 0);
-            await MapHarbinger.Tick(owner.Conn, 0.25);
+            owner.Player.Walk.Teleport(king.X + 8, king.Y, 0);
+            await MapHarbinger.Tick(owner.Player, 0.25);
             king = Encounters()[king.Index];
             Assert.Equal(MapHarbinger.HarbingerState.Active, king.State);
             Assert.Equal(3, king.Helpers.Count);
             Assert.NotEmpty(king.Minions);
-            Assert.All(king.Helpers, hid => Assert.Equal(1, owner.Conn.Monsters[hid].EncounterStats!["base_cannot_be_damaged"]));
+            Assert.All(king.Helpers, hid => Assert.Equal(1, owner.Player.Area.Monsters[hid].EncounterStats![Stat.BaseCannotBeDamaged]));
 
             // Advance timer (zero real-time sleep): Empowered Obelisk spawns from Scarab of Obelisks.
-            await MapHarbinger.Tick(owner.Conn, 5.0);
+            await MapHarbinger.Tick(owner.Player, 5.0);
             king = Encounters()[king.Index];
             Assert.Single(king.Obelisks);
             uint obeliskId = king.Obelisks[0];
-            var obeliskBody = owner.Conn.Monsters[obeliskId];
+            var obeliskBody = owner.Player.Area.Monsters[obeliskId];
             Assert.Contains(obeliskBody.Variety!.Id, HarbingerCatalog.EmpoweredObeliskVarieties);
 
             // Killing the Empowered Obelisk drops duplicated currency shard stacks (Warhoards).
             int groundBeforeObelisk = instance.Ground.All().Count();
-            lock (owner.Conn.Monsters) { obeliskBody.Life = 0; obeliskBody.Dead = true; }
-            MapHarbinger.Kill(new(owner.Conn, obeliskBody, obeliskBody.Variety!.Id, (king.X, king.Y)));
-            await MapHarbinger.Tick(owner.Conn, 0.25);
+            obeliskBody.Life = 0; obeliskBody.Dead = true;
+            MapHarbinger.Kill(new(owner.Player, obeliskBody, obeliskBody.Variety!.Id, (king.X, king.Y)));
+            await MapHarbinger.Tick(owner.Player, 0.25);
             var obeliskDrops = instance.Ground.All().Skip(groundBeforeObelisk).ToArray();
             Assert.True(obeliskDrops.Length >= 2 && obeliskDrops.Length % 2 == 0,
                 $"Expected even (>=2) Warhoards-duplicated obelisk drops, got {obeliskDrops.Length}");
 
             // Now activate a Normal/Strong Harbinger, kill its summoned waves until defeated, and verify life-loss & shard drops.
-            owner.Conn.Walk.Teleport(normal.X + 8, normal.Y, 0);
-            await MapHarbinger.Tick(owner.Conn, 0.25);
+            owner.Player.Walk.Teleport(normal.X + 8, normal.Y, 0);
+            await MapHarbinger.Tick(owner.Player, 0.25);
             normal = Encounters()[normal.Index];
             Assert.Equal(MapHarbinger.HarbingerState.Active, normal.State);
             Assert.NotEmpty(normal.Minions);
 
             uint startLife = normal.Life;
             uint firstMinion = normal.Minions[0];
-            var firstBody = owner.Conn.Monsters[firstMinion];
-            lock (owner.Conn.Monsters) { firstBody.Life = 0; firstBody.Dead = true; }
-            MapHarbinger.Kill(new(owner.Conn, firstBody, firstBody.Variety!.Id, (normal.X, normal.Y)));
-            await MapHarbinger.Tick(owner.Conn, 0.25);
+            var firstBody = owner.Player.Area.Monsters[firstMinion];
+            firstBody.Life = 0; firstBody.Dead = true;
+            MapHarbinger.Kill(new(owner.Player, firstBody, firstBody.Variety!.Id, (normal.X, normal.Y)));
+            await MapHarbinger.Tick(owner.Player, 0.25);
             Assert.True(Encounters()[normal.Index].Life < startLife, "Killing a summoned minion must reduce Harbinger life");
 
             int groundBeforeDefeat = instance.Ground.All().Count();
@@ -215,18 +215,18 @@ public sealed class HarbingerTests
                 var cur = Encounters()[normal.Index];
                 foreach (uint mid in cur.Minions.ToArray())
                 {
-                    if (!owner.Conn.Monsters.TryGetValue(mid, out var mm) || mm.Dead) continue;
-                    lock (owner.Conn.Monsters) { mm.Life = 0; mm.Dead = true; }
-                    MapHarbinger.Kill(new(owner.Conn, mm, mm.Variety!.Id, (cur.X, cur.Y)));
+                    if (!owner.Player.Area.Monsters.TryGetValue(mid, out var mm) || mm.Dead) continue;
+                    mm.Life = 0; mm.Dead = true;
+                    MapHarbinger.Kill(new(owner.Player, mm, mm.Variety!.Id, (cur.X, cur.Y)));
                 }
-                await MapHarbinger.Tick(owner.Conn, 3.5);
+                await MapHarbinger.Tick(owner.Player, 3.5);
             }
 
             var defeated = Encounters()[normal.Index];
             Assert.Equal(MapHarbinger.HarbingerState.Defeated, defeated.State);
             Assert.Equal(0u, defeated.Life);
             Assert.Empty(defeated.Obelisks);
-            Assert.False(owner.Conn.Monsters.ContainsKey(normal.Monster));
+            Assert.False(owner.Player.Area.Monsters.ContainsKey(normal.Monster));
             var harbingerDrops = instance.Ground.All().Skip(groundBeforeDefeat).ToArray();
             Assert.True(harbingerDrops.Length >= 4 && harbingerDrops.Length % 2 == 0,
                 $"Expected even (>=4) Warhoards-duplicated Harbinger shard stacks, got {harbingerDrops.Length}");
@@ -234,25 +234,21 @@ public sealed class HarbingerTests
             // Kept-instance restore: a stray unmanaged Harbinger copy is replaced without duplicating encounters.
             var strayTarget = list.First(h => h.Index != king.Index && h.Index != normal.Index);
             uint oldMonster = strayTarget.Monster;
-            uint strayId;
-            lock (owner.Conn.Monsters)
-            {
-                var kept = owner.Conn.Monsters[oldMonster];
-                owner.Conn.Monsters.Remove(oldMonster);
-                strayId = owner.Conn.Instance.World.NewMonsterId();
-                owner.Conn.Monsters[strayId] = kept;
-            }
-            MapHarbinger.Leave(owner.Conn);
-            await MapHarbinger.Enter(owner.Conn);
+            var kept = owner.Player.Area.Monsters[oldMonster];
+            owner.Player.Area.Monsters.Remove(oldMonster);
+            uint strayId = owner.Player.Instance.World.NewMonsterId();
+            owner.Player.Area.Monsters[strayId] = kept;
+            MapHarbinger.Leave(owner.Player);
+            await MapHarbinger.Enter(owner.Player);
             var restored = Encounters()[strayTarget.Index];
             Assert.NotEqual(oldMonster, restored.Monster);
-            Assert.False(owner.Conn.Monsters.ContainsKey(strayId));
-            Assert.True(owner.Conn.Monsters[restored.Monster].Scripted);
+            Assert.False(owner.Player.Area.Monsters.ContainsKey(strayId));
+            Assert.True(owner.Player.Area.Monsters[restored.Monster].Scripted);
         }
         finally
         {
-            PlayerInventories.Forget(owner.Conn.Character!);
-            PlayerInventories.Forget(peer.Conn.Character!);
+            PlayerInventories.Forget(owner.Player.Character.Name!);
+            PlayerInventories.Forget(peer.Player.Character.Name!);
             lifetime.Stop(ex => throw ex);
             Game.CombatLifetime = previousLifetime;
             Program.SetGameLogic(previousLogic!);
@@ -315,30 +311,29 @@ public sealed class HarbingerTests
         var auraObelisk = HarbingerCatalog.KitFor("Metadata/Monsters/Totems/HarbingerTotemScarab3");
         Assert.Empty(auraObelisk.Skills);
         var dmgRed = Assert.Single(auraObelisk.ObeliskAuras, a => a.BuffRow == HarbingerCatalog.DamageReductionAuraBuffRow);
-        Assert.Equal(-75, dmgRed.Stats["base_damage_taken_+%"]);
+        Assert.Equal(-75, dmgRed.Stats[Stat.BaseDamageTakenPlusPct]);
         Assert.True(dmgRed.Radius > 140, $"Expected scaled damage reduction aura radius > 140, got {dmgRed.Radius}");
         var speed = Assert.Single(auraObelisk.ObeliskAuras, a => a.BuffRow == HarbingerCatalog.ActionSpeedAuraBuffRow);
-        Assert.Equal(-20, speed.Stats["action_speed_-%"]);
+        Assert.Equal(-20, speed.Stats[Stat.ActionSpeedMinusPct]);
         Assert.True(speed.Radius > 180, $"Expected scaled action speed aura radius > 180, got {speed.Radius}");
 
         // Single-level Harbinger skills scale cleanly via GolemData.Skill (level 75 >> level 1).
         int mortarRow = Program.Skills.EffectRow("AvatarFireMortarAtlas");
         var mortarL1 = Game.GolemData.Skill(Program.Skills, mortarRow, 1);
         var mortarL75 = Game.GolemData.Skill(Program.Skills, mortarRow, 75);
-        uint fireMaxKey = Program.Stats.Key("spell_maximum_base_fire_damage")!.Value;
-        Assert.True(mortarL75.Stats[fireMaxKey] * mortarL75.Multiplier > mortarL1.Stats[fireMaxKey] * mortarL1.Multiplier * 10);
+        Assert.True(mortarL75.Stats[Stat.SpellMaximumBaseFireDamage] * mortarL75.Multiplier > mortarL1.Stats[Stat.SpellMaximumBaseFireDamage] * mortarL1.Multiplier * 10);
     }
 
-    sealed class CaptureWire(TcpClient writer, TcpClient reader, ClientState conn, MemoryStream captured, Task drain) : IAsyncDisposable
+    sealed class CaptureWire(TcpClient writer, TcpClient reader, Player player, MemoryStream captured, Task drain) : IAsyncDisposable
     {
         bool finished;
-        public ClientState Conn => conn;
+        public Player Player => player;
         public async Task<byte[]> FinishAndCaptureAsync()
         {
             if (!finished)
             {
                 finished = true;
-                conn.Closed = true;
+                player.Closed = true;
                 try { writer.Client.Shutdown(SocketShutdown.Send); } catch { }
                 await drain;
             }
@@ -354,13 +349,13 @@ public sealed class HarbingerTests
             var reader = await accepting;
             var captured = new MemoryStream();
             var clientCiphers = new ConnectionCiphers(new byte[64], true);
-            var conn = new ClientState(layout, 1, seed)
+            var player = new Player(layout, 1, seed)
             {
-                Character = "HarbSkill" + Guid.NewGuid().ToString("N"), Instance = instance,
-                PlayerLife = 5000, PlayerMana = 1000, PlayerSent = true, Pools = new(75, 5000, 1000, 1000, 0),
+                Character = { Name = "HarbSkill" + Guid.NewGuid().ToString("N") }, Instance = instance,
+                PlayerLife = 5000, PlayerMana = 1000, Pools = new(75, 5000, 1000, 1000, 0),
                 LeagueModule = new(new GameServer.Core.Accounts.League("harb-skills", "Standard", false, false),
                     new HashSet<string>(["Game", "harb-skills"])),
-                Wire = ("harb-skills", writer.GetStream(), new ConnectionCiphers(new byte[64], false)),
+                Connection = { PlayerSent = true, Session = new("harb-skills", writer.GetStream(), new ConnectionCiphers(new byte[64], false)) },
             };
             var drain = Task.Run(async () =>
             {
@@ -376,11 +371,11 @@ public sealed class HarbingerTests
                 }
                 catch { }
             });
-            return new(writer, reader, conn, captured, drain);
+            return new(writer, reader, player, captured, drain);
         }
         public async ValueTask DisposeAsync()
         {
-            Conn.Closed = true;
+            Player.Closed = true;
             writer.Dispose();
             await drain;
             reader.Dispose();
@@ -405,9 +400,9 @@ public sealed class HarbingerTests
     {
         var layout = new AreaLayout(1, "MapWorldsStrand", 300, 300, 150, 150, (_, _) => true, []);
         var instance = new InstanceState();
-        var mods = new MapMods(new Dictionary<string, int>(StringComparer.Ordinal)
+        var mods = new MapMods(new Dictionary<uint, int>
         {
-            ["map_harbinger_cooldown_speed_+%"] = 100,
+            [Stat.MapHarbingerCooldownSpeedPlusPct] = 100,
         });
         instance.OpenedWith(new("HarbSkillsOwner", new(layout.Hash, layout.Id, "Strand", 8) { Level = 75 }, mods));
 
@@ -418,17 +413,15 @@ public sealed class HarbingerTests
         Game.CombatLifetime = lifetime;
         Program.SetGameLogic(new GameServer.Modules.Game.GameLogic(lifetime));
         await using var wire = await CaptureWire.Open(instance, layout, 0x5544);
-        var conn = wire.Conn;
-        IDisposable? tankHook = Program.Stats.Key("base_maximum_life") is uint maxLifeKey
-            ? GameEvents.PlayerStatSources.Add("harb-skills", (c, s) =>
-            {
-                if (ReferenceEquals(c, conn)) s[maxLifeKey] = s.GetValueOrDefault(maxLifeKey) + 100_000;
-                return s;
-            })
-            : null;
-        conn.Pools = Game.PoolsFor(conn, 75);
-        conn.PlayerLife = conn.PlayerMaxLife;
-        instance.World.Runner = conn;
+        var player = wire.Player;
+        IDisposable tankHook = GameEvents.PlayerStatSources.Add("harb-skills", (c, s) =>
+        {
+            if (ReferenceEquals(c, player)) s[Stat.BaseMaximumLife] = s.GetValueOrDefault(Stat.BaseMaximumLife) + 100_000;
+            return s;
+        });
+        player.Pools = Game.PoolsFor(player, 75);
+        player.PlayerLife = player.PlayerMaxLife;
+        instance.World.Runner = player;
         try
         {
             // Seed two deterministic encounters:
@@ -438,12 +431,11 @@ public sealed class HarbingerTests
             async Task<uint> SpawnHelper(string varietyId, int x, int y, bool invulnerable = true)
             {
                 var v = Assert.IsType<MonsterCatalog.Variety>(Game.Monsters.Find(varietyId));
-                var w = conn.Wire;
-                return await Game.SpawnMonster(w.Remote, w.Stream, w.Ciphers, conn, v, 75,
+                return await Game.SpawnMonster(player, v, 75,
                     invulnerable ? MonsterRarity.Unique : MonsterRarity.Normal, x, y, name: null, alone: true, unrisen: false,
                     owned: (_, m) =>
                     {
-                        if (invulnerable) m.EncounterStats = new Dictionary<string, int>(StringComparer.Ordinal) { ["base_cannot_be_damaged"] = 1 };
+                        if (invulnerable) m.EncounterStats = new Dictionary<uint, int> { [Stat.BaseCannotBeDamaged] = 1 };
                         m.NoRewards = true;
                     },
                     scripted: true);
@@ -472,7 +464,7 @@ public sealed class HarbingerTests
                 },
             };
             instance.ContentState["Harbinger/encounters"] = JsonSerializer.Serialize(seeded);
-            await MapHarbinger.Enter(conn);
+            await MapHarbinger.Enter(player);
 
             MapHarbinger.Encounter[] Encounters() =>
                 JsonSerializer.Deserialize<MapHarbinger.Encounter[]>(instance.ContentState["Harbinger/encounters"])!;
@@ -483,18 +475,18 @@ public sealed class HarbingerTests
             Assert.NotEqual(0u, buffer.Monster);
 
             // 1. Repeat-wave summoning (skill_repeat_count = 2 => 3 sub-waves per activation).
-            conn.Walk.Teleport(152, 150, 0);
-            await MapHarbinger.Tick(conn, 0.2);
+            player.Walk.Teleport(152, 150, 0);
+            await MapHarbinger.Tick(player, 0.2);
             king = Encounters()[0];
             int wave1 = king.Minions.Count;
             Assert.InRange(wave1, 1, 10);
 
-            await MapHarbinger.Tick(conn, 0.4); // sub-wave 2 (repeat 1)
+            await MapHarbinger.Tick(player, 0.4); // sub-wave 2 (repeat 1)
             king = Encounters()[0];
             int wave2 = king.Minions.Count;
             Assert.True(wave2 > wave1, $"Expected repeat sub-wave 2 to add minions ({wave1} -> {wave2})");
 
-            await MapHarbinger.Tick(conn, 0.4); // sub-wave 3 (repeat 2)
+            await MapHarbinger.Tick(player, 0.4); // sub-wave 3 (repeat 2)
             king = Encounters()[0];
             int wave3 = king.Minions.Count;
             Assert.True(wave3 > wave2, $"Expected repeat sub-wave 3 to add minions ({wave2} -> {wave3})");
@@ -502,56 +494,56 @@ public sealed class HarbingerTests
 
             // 2. Obelisk Scarab3 ally auras (-75% damage taken, -20% action speed) + Minion5 curse aura active!
             uint sampleMinionId = king.Minions[0];
-            var sampleMinion = conn.Monsters[sampleMinionId];
-            Assert.Equal(-75, sampleMinion.Effects["base_damage_taken_+%"]);
-            Assert.True(sampleMinion.Effects["action_speed_-%"] <= -20,
-                $"Expected obelisk action_speed_-% <= -20, got {sampleMinion.Effects["action_speed_-%"]}");
+            var sampleMinion = player.Area.Monsters[sampleMinionId];
+            Assert.Equal(-75, sampleMinion.Effects[Stat.BaseDamageTakenPlusPct]);
+            Assert.True(sampleMinion.Effects[Stat.ActionSpeedMinusPct] <= -20,
+                $"Expected obelisk action_speed_-% <= -20, got {sampleMinion.Effects[Stat.ActionSpeedMinusPct]}");
 
-            var playerCurseStats = MapHarbinger.PlayerStats(conn, []);
+            var playerCurseStats = MapHarbinger.PlayerStats(player, []);
             Assert.True(playerCurseStats.Count > 0, "Expected Minion5 Enfeeble/TemporalChains curse aura stats on nearby player");
 
             // An immune player is not cursed, and is cursed again once the immunity ends.
-            conn.Immune = true;
-            await MapHarbinger.Tick(conn, 0.01);
-            Assert.Empty(MapHarbinger.PlayerStats(conn, []));
-            conn.Immune = false;
-            await MapHarbinger.Tick(conn, 0.01);
-            Assert.NotEmpty(MapHarbinger.PlayerStats(conn, []));
+            player.Immune = true;
+            await MapHarbinger.Tick(player, 0.01);
+            Assert.Empty(MapHarbinger.PlayerStats(player, []));
+            player.Immune = false;
+            await MapHarbinger.Tick(player, 0.01);
+            Assert.NotEmpty(MapHarbinger.PlayerStats(player, []));
 
             // 3. Advance ticks so King Harbinger, Avatar6, helpers (FireMortar, BeamCannon, ActionSpeedAura) and
             //    Empowered Obelisks (Scarab2 BallLightning, Scarab4 WarpFlame) cast their real skills.
-            uint lifeBefore = conn.PlayerLife;
+            uint lifeBefore = player.PlayerLife;
             for (int step = 0; step < 12; step++)
-                await MapHarbinger.Tick(conn, 0.5);
+                await MapHarbinger.Tick(player, 0.5);
 
             // Verify King Harbinger warped away from its initial (150, 150) cell near its anchor.
-            var kingPos = conn.Monsters[king.Monster].Walk.Position(conn.Clock.Elapsed.TotalSeconds);
+            var kingPos = player.Area.Monsters[king.Monster].Walk.Position(Game.AreaTime(player));
             Assert.NotEqual((150, 150), kingPos);
 
             // Verify Avatar6 buffed its living minions with damage_+% >= 60 and base_actor_scale_+% == 25.
             var bufferEnc = Encounters()[1];
             Assert.NotEmpty(bufferEnc.Minions);
             Assert.Contains(bufferEnc.Minions, mid =>
-                conn.Monsters[mid].Effects["damage_+%"] >= 60 && conn.Monsters[mid].Effects.ActorScalePct == 25);
+                player.Area.Monsters[mid].Effects[Stat.DamagePlusPct] >= 60 && player.Area.Monsters[mid].Effects.ActorScalePct == 25);
 
             // Verify King helper Minion6 applied HarbingerActionSpeedAuraAtlas (-30 action_speed_-% on top of -20 obelisk).
-            Assert.True(sampleMinion.Effects["action_speed_-%"] <= -50,
-                $"Expected combined obelisk (-20) + Minion6 (-30) action_speed_-% <= -50, got {sampleMinion.Effects["action_speed_-%"]}");
+            Assert.True(sampleMinion.Effects[Stat.ActionSpeedMinusPct] <= -50,
+                $"Expected combined obelisk (-20) + Minion6 (-30) action_speed_-% <= -50, got {sampleMinion.Effects[Stat.ActionSpeedMinusPct]}");
 
             // Verify BeamCannon delayed impact / WarpFlame burning ground dealt real hostile damage to the player.
-            Assert.True(conn.PlayerLife < lifeBefore, $"Expected hostile Harbinger/helper/obelisk skills to damage player ({lifeBefore} -> {conn.PlayerLife})");
+            Assert.True(player.PlayerLife < lifeBefore, $"Expected hostile Harbinger/helper/obelisk skills to damage player ({lifeBefore} -> {player.PlayerLife})");
 
             // 4. Killing HarbingerTotemScarab3 immediately removes its damage-reduction & action-speed aura stats!
-            var ob3Body = conn.Monsters[ob3];
-            lock (conn.Monsters) { ob3Body.Life = 0; ob3Body.Dead = true; }
-            MapHarbinger.Kill(new(conn, ob3Body, ob3Body.Variety!.Id, (158, 152)));
-            await MapHarbinger.Tick(conn, 0.1);
-            Assert.Equal(0, sampleMinion.Effects["base_damage_taken_+%"]);
+            var ob3Body = player.Area.Monsters[ob3];
+            ob3Body.Life = 0; ob3Body.Dead = true;
+            MapHarbinger.Kill(new(player, ob3Body, ob3Body.Variety!.Id, (158, 152)));
+            await MapHarbinger.Tick(player, 0.1);
+            Assert.Equal(0, sampleMinion.Effects[Stat.BaseDamageTakenPlusPct]);
             Assert.DoesNotContain(sampleMinion.TemporaryStats.Keys, k => k.StartsWith($"harbinger:obelisk:{ob3}:", StringComparison.Ordinal));
 
             // 5. Leaving cleans up player curse stats (zero-alloc early-out restored).
-            MapHarbinger.Leave(conn);
-            var afterLeave = MapHarbinger.PlayerStats(conn, []);
+            MapHarbinger.Leave(player);
+            var afterLeave = MapHarbinger.PlayerStats(player, []);
             Assert.Empty(afterLeave);
 
             // 6. Verify real 0x1ab action packets were emitted on the decrypted wire for Harbinger, helpers, and spell obelisks.
@@ -565,9 +557,9 @@ public sealed class HarbingerTests
         }
         finally
         {
-            tankHook?.Dispose();
-            MapHarbinger.Leave(conn);
-            PlayerInventories.Forget(conn.Character!);
+            tankHook.Dispose();
+            MapHarbinger.Leave(player);
+            PlayerInventories.Forget(player.Character.Name!);
             lifetime.Stop(ex => throw ex);
             Game.CombatLifetime = previousLifetime;
             Program.SetGameLogic(previousLogic!);

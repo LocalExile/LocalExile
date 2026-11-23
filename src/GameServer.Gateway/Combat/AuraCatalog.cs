@@ -12,41 +12,36 @@ public static class AuraCatalog
         WornGrantedSkills.Grant? WornGrant = null, IReadOnlyList<(uint Key, int Value)>? SkillStats = null,
         int SupportEffectPct = 0, bool AffectsSelf = true, string? Stance = null, int? ExternalEffectPct = null,
         bool ReservesLife = false, int ReservationEfficiencyPct = 0, bool IsHerald = false,
-        int LifeFlat = 0, int LifePercent = 0)
+        int LifeFlat = 0, int LifePercent = 0,
+        int ArtVariation = 0, bool HideVisual = false, ushort? SourceVisual = null, ushort? BuffVisual = null)
     {
         public object? StanceOwner { get; init; }
     }
 
     // The source supplies the ground art; the received buff supplies the HUD icon and active-skill association.
-    // Distinct ids let both survive area restoration and end together without counting the aura's bonuses twice.
-    public static IEnumerable<byte[]> StartPackets(Aura aura, uint player, ushort? action, byte? receivedDisplayState = null)
+    // Both are the aura's (one row, one source), told apart by the source flag; they end together.
+    public static IEnumerable<Buff> Buffs(Aura aura, uint player, ushort? action, byte? receivedDisplayState = null)
     {
         // Both source and received buffs instantiate these native behaviours, which read two words unchecked.
         uint[]? behaviourData = aura.EffectId switch
         {
-            "TempestShield" => [0u, 0u],
+            "TempestShield" => [(uint)Math.Max(0, aura.ArtVariation), aura.HideVisual ? 1u : 0u],
             "TemporalRift" => [42u, 100u],
             _ => null,
         };
-        if (aura.SourceBuff is ushort source)
-            yield return GameServer.Core.Protocol.Instance.InstanceEntities.AddBuff(player, source, aura.BuffRow,
-                player, aura.SkillId, auraSource: true, displayState: 0, list: behaviourData);
+        if (aura.SourceBuff is not null)
+            yield return new(aura.BuffRow, player, aura.SkillId, AuraSource: true, DisplayState: 0, Visual: aura.SourceVisual, List: behaviourData);
         // An enemy hex aura has a source on its caster, never a received self curse.
         if (!CurseCatalog.Hex(aura.EffectId))
-            yield return GameServer.Core.Protocol.Instance.InstanceEntities.AddBuff(player, aura.Buff, aura.BuffRow,
-                player, aura.SkillId, activeSkill: action is ushort hash ? (aura.SkillId, hash) : null,
-                displayState: receivedDisplayState,
-                // TempestShieldBuff's native behaviour reads the art variation and alternate-shield flag
-                // from the first two list entries without checking its length (0x1417a9410).
-                list: behaviourData);
+            // TempestShieldBuff's native behaviour reads the art variation and hide-user-buff flag
+            // from the first two list entries without checking its length (0x1417a9410).
+            yield return new(aura.BuffRow, player, aura.SkillId, ActiveSkill: action is ushort hash ? (aura.SkillId, hash) : null,
+                DisplayState: receivedDisplayState, Visual: aura.BuffVisual, List: behaviourData);
     }
 
-    public static IEnumerable<byte[]> EndPackets(Aura aura, uint player)
-    {
-        yield return GameServer.Core.Protocol.Instance.InstanceEntities.RemoveBuff(player, aura.Buff);
-        if (aura.SourceBuff is ushort source)
-            yield return GameServer.Core.Protocol.Instance.InstanceEntities.RemoveBuff(player, source);
-    }
+    /// <summary>Whether a buff row is one of the auras' (a player's own aura buffs are replaced as one group).</summary>
+    public static bool IsAuraRow(ushort row) => (auraRows ??= [.. BuffRows.Values]).Contains(row);
+    static HashSet<ushort>? auraRows;
 
     /// <summary>The BuffDefinitions row that draws each aura's visual and buff icon.</summary>
     private static readonly Dictionary<string, ushort> BuffRows = new()
@@ -137,11 +132,11 @@ public static class AuraCatalog
 
     /// <summary>The character stat that exempts a supported aura family from Mana reservation. The shipped rows use the
     /// lower snake-case effect family (for example EnvyNoReservationUnique__1 carries envy_reserves_no_mana).</summary>
-    public static string NoManaReservationStat(string effectId)
+    public static uint NoManaReservationStat(string effectId)
     {
-        if (Family(effectId) == "AspectOfTheAvian") return "bird_aspect_reserves_no_mana";
-        if (Family(effectId) == "AspectOfTheSpider") return "spider_aspect_reserves_no_mana";
-        if (Family(effectId) == "AspectOfTheCrab") return "crab_aspect_reserves_no_mana";
+        if (Family(effectId) == "AspectOfTheAvian") return Stat.BirdAspectReservesNoMana;
+        if (Family(effectId) == "AspectOfTheSpider") return Stat.SpiderAspectReservesNoMana;
+        if (Family(effectId) == "AspectOfTheCrab") return Stat.Of("crab_aspect_reserves_no_mana");
         string family = Family(effectId);
         var stat = new System.Text.StringBuilder(family.Length + 16);
         for (int i = 0; i < family.Length; i++)
@@ -150,14 +145,14 @@ public static class AuraCatalog
             if (i > 0 && char.IsUpper(c)) stat.Append('_');
             stat.Append(char.ToLowerInvariant(c));
         }
-        return stat.Append("_reserves_no_mana").ToString();
+        return Stat.Of(stat.Append("_reserves_no_mana").ToString());
     }
 
     /// <summary>Pride's "more Physical Damage taken" at its minimum and maximum, scaled by aura effect.</summary>
     public static (int Min, int Max) PridePhysicalDamageTaken(Aura aura, int auraEffectPct, SkillCatalog skills,
         StatCatalog stats) =>
-        (Value(skills, stats, aura, "physical_damage_aura_nearby_enemies_physical_damage_taken_+%", auraEffectPct + aura.SupportEffectPct),
-         Value(skills, stats, aura, "physical_damage_aura_nearby_enemies_physical_damage_taken_+%_max", auraEffectPct + aura.SupportEffectPct));
+        (Value(skills, stats, aura, Stat.PhysicalDamageAuraNearbyEnemiesPhysicalDamageTakenPlusPct, auraEffectPct + aura.SupportEffectPct),
+         Value(skills, stats, aura, Stat.PhysicalDamageAuraNearbyEnemiesPhysicalDamageTakenPlusPctMax, auraEffectPct + aura.SupportEffectPct));
 
     /// <summary>Pride's ramp: at least <paramref name="min"/> more Physical Damage, reaching
     /// <paramref name="max"/> after 4 seconds in the aura (linear).</summary>
@@ -166,13 +161,13 @@ public static class AuraCatalog
 
     /// <summary>Blood Stance's more Physical Hit Damage taken at distance zero, scaled by aura effect.</summary>
     public static int FleshAndStonePhysicalTaken(Aura aura, int auraEffectPct, SkillCatalog skills, StatCatalog stats) =>
-        Value(skills, stats, aura, "flesh_stone_blood_stance_enemies_physical_damage_taken_when_hit_+%_final_from_player_distance",
+        Value(skills, stats, aura, Stat.FleshStoneBloodStanceEnemiesPhysicalDamageTakenWhenHitPlusPctFinalFromPlayerDistance,
             auraEffectPct + aura.SupportEffectPct);
 
     /// <summary>Flesh and Stone's Sand Stance: the share of an enemy hit's damage the player does not take at distance 0.
     /// The hit executor scales it with the attacker's distance.</summary>
     public static int FleshAndStoneDamageReduction(Aura aura, int auraEffectPct, SkillCatalog skills, StatCatalog stats) =>
-        Value(skills, stats, aura, "flesh_stone_sand_stance_damage_taken_+%_final_from_distance_from_enemy_hits", 0);
+        Value(skills, stats, aura, Stat.FleshStoneSandStanceDamageTakenPlusPctFinalFromDistanceFromEnemyHits, 0);
 
     public static IReadOnlyList<Aura> Restore(IEnumerable<string> saved, IEnumerable<Aura> available, CharacterStats.Pools pools, bool inTown = false)
     {
@@ -243,50 +238,50 @@ public static class AuraCatalog
         foreach (var group in auras.GroupBy(StatFamily))
         {
             var aura = group.First();
-            int Strongest(string name) => group.Max(a => Value(skills, stats, a, name, auraEffectPct + a.SupportEffectPct));
+            int Strongest(uint name) => group.Max(a => Value(skills, stats, a, name, auraEffectPct + a.SupportEffectPct));
             switch (Family(aura.EffectId))
             {
                 case "Determination":
-                    armour += Strongest("base_physical_damage_reduction_rating");
-                    armourMore += Strongest("determination_aura_armour_+%_final");
+                    armour += Strongest(Stat.BasePhysicalDamageReductionRating);
+                    armourMore += Strongest(Stat.DeterminationAuraArmourPlusPctFinal);
                     break;
                 case "Grace":
-                    evasion += Strongest("base_evasion_rating");
-                    evasionMore += Strongest("grace_aura_evasion_rating_+%_final");
+                    evasion += Strongest(Stat.BaseEvasionRating);
+                    evasionMore += Strongest(Stat.GraceAuraEvasionRatingPlusPctFinal);
                     break;
                 case "Zealotry":
-                    spellCrit += Strongest("spell_critical_strike_chance_+%");
+                    spellCrit += Strongest(Stat.SpellCriticalStrikeChancePlusPct);
                     break;
                 case "Discipline":
                     // Flat energy shield before the increases (PoB: a BASE mod); RawStats only publishes the raw stat.
-                    energyShield += Strongest("base_maximum_energy_shield");
+                    energyShield += Strongest(Stat.BaseMaximumEnergyShield);
                     break;
                 case "PurityOfElements":
-                    int all = Strongest("base_resist_all_elements_%");
+                    int all = Strongest(Stat.BaseResistAllElementsPct);
                     fire += all;
                     cold += all;
                     lightning += all;
                     break;
                 case "PurityOfFire":
-                    fire += Strongest("base_fire_damage_resistance_%");
-                    fireMax += Strongest("base_maximum_fire_damage_resistance_%");
+                    fire += Strongest(Stat.BaseFireDamageResistancePct);
+                    fireMax += Strongest(Stat.BaseMaximumFireDamageResistancePct);
                     break;
                 case "PurityOfIce":
-                    cold += Strongest("base_cold_damage_resistance_%");
-                    coldMax += Strongest("base_maximum_cold_damage_resistance_%");
+                    cold += Strongest(Stat.BaseColdDamageResistancePct);
+                    coldMax += Strongest(Stat.BaseMaximumColdDamageResistancePct);
                     break;
                 case "PurityOfLightning":
-                    lightning += Strongest("base_lightning_damage_resistance_%");
-                    lightningMax += Strongest("base_maximum_lightning_damage_resistance_%");
+                    lightning += Strongest(Stat.BaseLightningDamageResistancePct);
+                    lightningMax += Strongest(Stat.BaseMaximumLightningDamageResistancePct);
                     break;
                 case "Precision":
-                    accuracy += Strongest("accuracy_rating");
-                    int crit = Strongest("skill_buff_grants_critical_strike_chance_+%");
+                    accuracy += Strongest(Stat.AccuracyRating);
+                    int crit = Strongest(Stat.SkillBuffGrantsCriticalStrikeChancePlusPct);
                     criticalChance += crit;
                     break;
                 case "Haste":
-                    attackSpeed += Strongest("attack_speed_+%_granted_from_skill");
-                    movementSpeed += Strongest("base_movement_velocity_+%");
+                    attackSpeed += Strongest(Stat.AttackSpeedPlusPctGrantedFromSkill);
+                    movementSpeed += Strongest(Stat.BaseMovementVelocityPlusPct);
                     break;
             }
         }
@@ -310,12 +305,11 @@ public static class AuraCatalog
             {
                 "PurityOfFire" => "fire", "PurityOfIce" => "cold", "PurityOfLightning" => "lightning", _ => null,
             };
-            string[] names = aura.EffectId == "PurityOfElements" ? ["base_resist_all_elements_%"]
-                : element is not null ? [$"base_{element}_damage_resistance_%", $"base_maximum_{element}_damage_resistance_%"]
+            uint[] names = aura.EffectId == "PurityOfElements" ? [Stat.BaseResistAllElementsPct]
+                : element is not null ? [Stat.Of($"base_{element}_damage_resistance_%"), Stat.Of($"base_maximum_{element}_damage_resistance_%")]
                 : [];
-            foreach (string name in names)
-                if (stats.Key(name) is uint key)
-                    yield return (key, group.Max(a => Value(skills, stats, a, name, auraEffectPct + a.SupportEffectPct)));
+            foreach (uint name in names)
+                yield return (name, group.Max(a => Value(skills, stats, a, name, auraEffectPct + a.SupportEffectPct)));
         }
     }
 
@@ -347,109 +341,108 @@ public static class AuraCatalog
                 switch (aura.EffectId)
                 {
                     case "AvianMightShared":
-                        Add("chance_to_deal_double_damage_%"); Add("minion_chance_to_deal_double_damage_%");
-                        if (stats.Key("has_avians_might") is uint might) family[might] = 1;
+                        Add(Stat.ChanceToDealDoubleDamagePct); Add(Stat.MinionChanceToDealDoubleDamagePct);
+                        if (Stat.HasAviansMight is var might) family[might] = 1;
                         break;
                     case "AvianFlightShared":
-                        Add("base_movement_velocity_+%"); Add("minion_movement_speed_+%");
-                        if (stats.Key("has_avians_flight") is uint flight) family[flight] = 1;
+                        Add(Stat.BaseMovementVelocityPlusPct); Add(Stat.MinionMovementSpeedPlusPct);
+                        if (Stat.HasAviansFlight is var flight) family[flight] = 1;
                         break;
                     case "PurityOfElements":
                         foreach (string ailment in new[] { "ignite", "freeze", "chill", "shock", "scorch", "brittle", "sap" })
                             if (stats.Key($"base_immune_to_{ailment}") is uint immune) family[immune] = 1;
                         break;
                     case "ArcticArmour":
-                        Add("base_immune_to_freeze");
+                        Add(Stat.BaseImmuneToFreeze);
                         break;
                     case "TemporalRift":
-                        Add("base_cooldown_speed_+%");
-                        if (stats.Key("unaffected_by_temporal_chains") is uint temporal) family[temporal] = 1;
+                        Add(Stat.BaseCooldownSpeedPlusPct);
+                        if (Stat.UnaffectedByTemporalChains is var temporal) family[temporal] = 1;
                         break;
                     case "SummonSkitterbots":
-                        Add("skitterbots_trap_mine_damage_+%_final");
+                        Add(Stat.SkitterbotsTrapMineDamagePlusPctFinal);
                         break;
                     case "TempestShield":
-                        Add("shield_spell_block_%");
-                        if (stats.Key("base_immune_to_shock") is uint shock) family[shock] = 1;
+                        Add(Stat.ShieldSpellBlockPct);
+                        if (Stat.BaseImmuneToShock is var shock) family[shock] = 1;
                         break;
                     case "HeraldOfAsh":
-                        Add("physical_damage_%_to_add_as_fire");
+                        Add(Stat.PhysicalDamagePctToAddAsFire);
                         break;
                     case "HeraldOfIce":
-                        Add("attack_minimum_added_cold_damage"); Add("attack_maximum_added_cold_damage");
-                        Add("spell_minimum_added_cold_damage"); Add("spell_maximum_added_cold_damage");
+                        Add(Stat.AttackMinimumAddedColdDamage); Add(Stat.AttackMaximumAddedColdDamage);
+                        Add(Stat.SpellMinimumAddedColdDamage); Add(Stat.SpellMaximumAddedColdDamage);
                         break;
                     case "HeraldOfThunder":
-                        Add("attack_minimum_added_lightning_damage"); Add("attack_maximum_added_lightning_damage");
-                        Add("spell_minimum_added_lightning_damage"); Add("spell_maximum_added_lightning_damage");
+                        Add(Stat.AttackMinimumAddedLightningDamage); Add(Stat.AttackMaximumAddedLightningDamage);
+                        Add(Stat.SpellMinimumAddedLightningDamage); Add(Stat.SpellMaximumAddedLightningDamage);
                         break;
                     case "HeraldOfPurity":
-                        Add("herald_of_purity_physical_damage_+%_final");
+                        Add(Stat.HeraldOfPurityPhysicalDamagePlusPctFinal);
                         break;
                     case "HeraldOfAgony":
-                        Add("base_chance_to_poison_on_hit_%", "skill_buff_grants_chance_to_poison_%");
-                        Add("herald_of_agony_poison_damage_+%_final");
+                        Add(Stat.BaseChanceToPoisonOnHitPct, Stat.SkillBuffGrantsChanceToPoisonPct);
+                        Add(Stat.HeraldOfAgonyPoisonDamagePlusPctFinal);
                         break;
                     case "Anger":
-                        Add("attack_minimum_added_fire_damage"); Add("attack_maximum_added_fire_damage");
-                        Add("spell_minimum_added_fire_damage"); Add("spell_maximum_added_fire_damage");
+                        Add(Stat.AttackMinimumAddedFireDamage); Add(Stat.AttackMaximumAddedFireDamage);
+                        Add(Stat.SpellMinimumAddedFireDamage); Add(Stat.SpellMaximumAddedFireDamage);
                         break;
                     case "Hatred":
-                        Add("physical_damage_%_to_add_as_cold");
+                        Add(Stat.PhysicalDamagePctToAddAsCold);
                         break;
                     case "Wrath":
-                        Add("attack_minimum_added_lightning_damage"); Add("attack_maximum_added_lightning_damage");
-                        Add("wrath_aura_spell_lightning_damage_+%_final");
+                        Add(Stat.AttackMinimumAddedLightningDamage); Add(Stat.AttackMaximumAddedLightningDamage);
+                        Add(Stat.WrathAuraSpellLightningDamagePlusPctFinal);
                         break;
                     case "Envy":
-                        Add("attack_minimum_added_chaos_damage"); Add("attack_maximum_added_chaos_damage");
-                        Add("spell_minimum_added_chaos_damage"); Add("spell_maximum_added_chaos_damage");
+                        Add(Stat.AttackMinimumAddedChaosDamage); Add(Stat.AttackMaximumAddedChaosDamage);
+                        Add(Stat.SpellMinimumAddedChaosDamage); Add(Stat.SpellMaximumAddedChaosDamage);
                         break;
                     case "Zealotry":
-                        Add("spell_damage_aura_spell_damage_+%_final");
-                        Add("spell_critical_strike_chance_+%");
-                        Add("create_consecrated_ground_on_hit_%_vs_rare_or_unique_enemy");
+                        Add(Stat.SpellDamageAuraSpellDamagePlusPctFinal);
+                        Add(Stat.SpellCriticalStrikeChancePlusPct);
+                        Add(Stat.CreateConsecratedGroundOnHitPctVsRareOrUniqueEnemy);
                         break;
                     case "Precision":
-                        Add("critical_strike_chance_+%", "skill_buff_grants_critical_strike_chance_+%");
+                        Add(Stat.CriticalStrikeChancePlusPct, Stat.SkillBuffGrantsCriticalStrikeChancePlusPct);
                         break;
                     case "Malevolence":
-                        Add("delirium_aura_damage_over_time_+%_final");
-                        Add("skill_effect_duration_+%", "delirium_skill_effect_duration_+%");
+                        Add(Stat.DeliriumAuraDamageOverTimePlusPctFinal);
+                        Add(Stat.SkillEffectDurationPlusPct, Stat.DeliriumSkillEffectDurationPlusPct);
                         break;
                     case "Discipline":
-                        Add("base_maximum_energy_shield");
-                        Add("energy_shield_recharge_rate_+%");
+                        Add(Stat.BaseMaximumEnergyShield);
+                        Add(Stat.EnergyShieldRechargeRatePlusPct);
                         break;
                     case "Clarity":
-                        Add("base_mana_regeneration_rate_per_minute");
+                        Add(Stat.BaseManaRegenerationRatePerMinute);
                         break;
                     case "Vitality":
-                        Add("base_life_regeneration_rate_per_minute");
+                        Add(Stat.BaseLifeRegenerationRatePerMinute);
                         break;
                     case "Haste":
-                        Add("cast_speed_+%", "cast_speed_+%_granted_from_skill");
+                        Add(Stat.CastSpeedPlusPct, Stat.CastSpeedPlusPctGrantedFromSkill);
                         break;
                     case "BloodAndSand" or "BloodStance" or "SandStance" or "FleshAndStone":
-                        if (stats.Key(aura.Stance == "Sand" ? "in_sand_stance" : "in_blood_stance") is uint stanceKey)
+                        if ((aura.Stance == "Sand" ? Stat.InSandStance : Stat.InBloodStance) is var stanceKey)
                             result[stanceKey] = 1;
                         break;
                 }
 
             // Only size inputs compose here; this does not activate or add any aura.
             var effectStats = EffectStats(aura, skills);
-            foreach (string name in ActorScale.Inputs)
+            foreach (uint key in ActorScale.Inputs)
             {
-                if (stats.Key(name) is not uint key) continue;
                 var source = effectStats.FirstOrDefault(s => s.Item1 == key);
                 if (source.Item1 != key) continue; // Preserve present zero limits as well as nonzero size sources.
-                int value = Value(skills, stats, aura, name, auraEffectPct + aura.SupportEffectPct);
+                int value = Value(skills, stats, aura, key, auraEffectPct + aura.SupportEffectPct);
                 result[key] = ActorScale.Add(key, result.GetValueOrDefault(key), value);
             }
 
-                void Add(string name, string? source = null)
+                void Add(uint name, uint? source = null)
                 {
-                    if (stats.Key(name) is not uint key) return;
+                    if (!(name is var key)) return;
                     int value = Value(skills, stats, aura, source ?? name, auraEffectPct + aura.SupportEffectPct,
                         aura.IsHerald ? heraldEffectPct : 0);
                     family[key] = family.TryGetValue(key, out int previous) ? Math.Max(previous, value) : value;
@@ -460,10 +453,10 @@ public static class AuraCatalog
         return result.Select(kv => (kv.Key, kv.Value));
     }
 
-    private static int Value(SkillCatalog skills, StatCatalog stats, Aura aura, string name, int auraEffectPct,
+    private static int Value(SkillCatalog skills, StatCatalog stats, Aura aura, uint name, int auraEffectPct,
         int extraEffectPct = 0)
     {
-        if (stats.Key(name) is not uint key) return 0;
+        if (!(name is var key)) return 0;
         auraEffectPct = aura.ExternalEffectPct ?? auraEffectPct;
         if (!skills.IsAura(aura.Effect)) auraEffectPct = 0;
         auraEffectPct += extraEffectPct;

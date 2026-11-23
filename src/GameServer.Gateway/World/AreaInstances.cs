@@ -16,8 +16,8 @@ public static class AreaInstances
         WaypointCatalog.Areas.Find(area) is { IsTown: true } || HideoutCatalog.ByArea(area) is not null;
 
     /// <summary>Asks Auth for the area's live instances and whether the instance is missing from them.</summary>
-    public static async Task<bool> Gone(ClientState conn, ushort area, ulong instance) =>
-        Gone(await InstanceControl.CallAsync(new ControlRequest { Op = "list", Ticket = conn.Ticket, Area = area }), instance);
+    public static async Task<bool> Gone(Player player, ushort area, ulong instance) =>
+        Gone(await InstanceControl.CallAsync(new ControlRequest { Op = "list", Ticket = player.Ticket, Area = area }), instance);
 
     /// <summary>Whether the instance list, when it answered, no longer has the instance (a transfer to it would be
     /// refused).</summary>

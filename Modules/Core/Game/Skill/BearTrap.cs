@@ -18,23 +18,23 @@ public static partial class Game
         : 15 * Math.Min(1d / 3, Math.Max(0, damage) / (double)maximumLife);
 
     public static void BearTrapOnHitLocked(SpawnedMonster monster, int damage, double now,
-        Func<string, int> player, Func<string, int> own)
+        Func<uint, int> player, Func<uint, int> own)
     {
         if (monster.Dead || monster.Life == 0 || monster.Invulnerable || damage <= 0) return;
         double rate = Math.Max(.01, monster.RecipientDebuffRate);
         double root = BearTrapRootSeconds(damage, monster.MaxLife)
             * SkillDurationModifiers.Seconds(1000, player, own) / rate;
-        double tail = SkillDurationModifiers.Seconds(own("base_skill_effect_duration"), player, own) / rate;
+        double tail = SkillDurationModifiers.Seconds(own(Stat.BaseSkillEffectDuration), player, own) / rate;
         var state = BearTraps.GetOrCreateValue(monster);
         state.Effects.RemoveAll(e => e.Until <= now);
         state.Effects.Add(new(now + root, now + root + tail,
-            Math.Clamp(-own("bear_trap_movement_speed_+%_final"), 0, 100),
+            Math.Clamp(-own(Stat.BearTrapMovementSpeedPlusPctFinal), 0, 100),
             // The helmet enchantment's additional increase is the player's (Mods EnchantmentBearTrapDamageTaken1/2).
-            Math.Max(0, own("bear_trap_damage_taken_+%_from_traps_and_mines")
-                + player("bear_trap_additional_damage_taken_+%_from_traps_and_mines"))));
+            Math.Max(0, own(Stat.BearTrapDamageTakenPlusPctFromTrapsAndMines)
+                + player(Stat.BearTrapAdditionalDamageTakenPlusPctFromTrapsAndMines))));
         // This holds walking only. No flinch, stun, action-speed change or phase grace is introduced. The walk under way
         // is stopped by the monster AI (BearTrapHoldStarts), as the client's is.
-        if (monster.Effects["movement_speed_cannot_be_reduced_below_base"] <= 0)
+        if (monster.Effects[Stat.MovementSpeedCannotBeReducedBelowBase] <= 0)
         {
             monster.Walk.BlockMovementUntil(now + root, now);
             state.HoldHandled = false;
@@ -51,7 +51,7 @@ public static partial class Game
 
     public static double BearTrapWalkFactor(SpawnedMonster monster, double now)
     {
-        if (monster.Effects["movement_speed_cannot_be_reduced_below_base"] > 0
+        if (monster.Effects[Stat.MovementSpeedCannotBeReducedBelowBase] > 0
             || !BearTraps.TryGetValue(monster, out var state)) return 1;
         double slow = state.Effects.Where(e => e.Until > now)
             .Select(e => now < e.RootUntil ? e.Slow : e.Slow * (e.Until - now) / Math.Max(.001, e.Until - e.RootUntil))
@@ -65,12 +65,12 @@ public static partial class Game
         BearTraps.TryGetValue(monster, out var state)
             ? state.Effects.Where(e => e.Until > now).Select(e => e.Taken).DefaultIfEmpty().Max() : 0;
 
-    static void BearTrapChangesLocked(ClientState conn, uint id, SpawnedMonster monster, double now,
+    static void BearTrapChangesLocked(Player player, uint id, SpawnedMonster monster, double now,
         List<(byte[] Packet, string Log)> packets)
     {
         if (!BearTraps.TryGetValue(monster, out var state)) return;
         state.Effects.RemoveAll(e => e.Until <= now || monster.Dead || monster.Life == 0);
-        bool root = monster.Effects["movement_speed_cannot_be_reduced_below_base"] <= 0
+        bool root = monster.Effects[Stat.MovementSpeedCannotBeReducedBelowBase] <= 0
             && state.Effects.Any(e => e.RootUntil > now);
         double until = state.Effects.Select(e => root ? e.RootUntil : e.Until).DefaultIfEmpty().Max();
         if (state.Buff != 0 && (until != state.ShownUntil || root != state.RootShown))
@@ -81,8 +81,8 @@ public static partial class Game
         if (until > now && state.Buff == 0)
         {
             state.RootShown = root; state.ShownUntil = until;
-            packets.Add((InstanceEntities.AddBuff(id, state.Buff = conn.NextBuff++, root ? (ushort)162 : (ushort)163,
-                PlayerId, u68: BitConverter.SingleToUInt32Bits((float)(until - now))), "Bear Trap debuff"));
+            packets.Add((InstanceEntities.AddBuff(id, state.Buff = player.NextBuff++, root ? (ushort)162 : (ushort)163,
+                player.Id, u68: BitConverter.SingleToUInt32Bits((float)(until - now))), "Bear Trap debuff"));
         }
         if (state.Effects.Count == 0) BearTraps.Remove(monster);
     }

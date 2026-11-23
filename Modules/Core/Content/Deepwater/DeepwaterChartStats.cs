@@ -63,29 +63,31 @@ public static class DeepwaterChartStats
     const string DeepwaterItemPrefix = "Metadata/Items/Deepwater/";
 
     // Exact 11 currency-orb stats from Domain 40 (Mods WHERE Domain = 40, DeepwaterBorderRareMonster*).
-    static readonly (string Stat, string ItemId)[] RareCurrencyStats =
+    static readonly (uint Stat, string ItemId)[] RareCurrencyStats =
     [
-        ("chart_rare_monster_drop_x_additional_ancient", "Metadata/Items/Currency/CurrencyRerollUnique"),
-        ("chart_rare_monster_drop_x_additional_annulment", "Metadata/Items/Currency/CurrencyRemoveMod"),
-        ("chart_rare_monster_drop_x_additional_blessed", "Metadata/Items/Currency/CurrencyRerollImplicit"),
-        ("chart_rare_monster_drop_x_additional_chaos", "Metadata/Items/Currency/CurrencyRerollRare"),
-        ("chart_rare_monster_drop_x_additional_chromatic", "Metadata/Items/Currency/CurrencyRerollSocketColours"),
-        ("chart_rare_monster_drop_x_additional_divine", "Metadata/Items/Currency/CurrencyModValues"),
-        ("chart_rare_monster_drop_x_additional_exalted", "Metadata/Items/Currency/CurrencyAddModToRare"),
-        ("chart_rare_monster_drop_x_additional_gemcutters", "Metadata/Items/Currency/CurrencyGemQuality"),
-        ("chart_rare_monster_drop_x_additional_regal", "Metadata/Items/Currency/CurrencyUpgradeMagicToRare"),
-        ("chart_rare_monster_drop_x_additional_regret", "Metadata/Items/Currency/CurrencyPassiveRefund"),
-        ("chart_rare_monster_drop_x_additional_vaal", "Metadata/Items/Currency/CurrencyCorrupt"),
+        (Stat.ChartRareMonsterDropXAdditionalAncient, "Metadata/Items/Currency/CurrencyRerollUnique"),
+        (Stat.ChartRareMonsterDropXAdditionalAnnulment, "Metadata/Items/Currency/CurrencyRemoveMod"),
+        (Stat.ChartRareMonsterDropXAdditionalBlessed, "Metadata/Items/Currency/CurrencyRerollImplicit"),
+        (Stat.ChartRareMonsterDropXAdditionalChaos, "Metadata/Items/Currency/CurrencyRerollRare"),
+        (Stat.ChartRareMonsterDropXAdditionalChromatic, "Metadata/Items/Currency/CurrencyRerollSocketColours"),
+        (Stat.ChartRareMonsterDropXAdditionalDivine, "Metadata/Items/Currency/CurrencyModValues"),
+        (Stat.ChartRareMonsterDropXAdditionalExalted, "Metadata/Items/Currency/CurrencyAddModToRare"),
+        (Stat.ChartRareMonsterDropXAdditionalGemcutters, "Metadata/Items/Currency/CurrencyGemQuality"),
+        (Stat.ChartRareMonsterDropXAdditionalRegal, "Metadata/Items/Currency/CurrencyUpgradeMagicToRare"),
+        (Stat.ChartRareMonsterDropXAdditionalRegret, "Metadata/Items/Currency/CurrencyPassiveRefund"),
+        (Stat.ChartRareMonsterDropXAdditionalVaal, "Metadata/Items/Currency/CurrencyCorrupt"),
     ];
 
-    static readonly Lazy<ItemCatalog.BaseType[]> SupportGems = new(() =>
+    static ItemCatalog.BaseType[] SupportGems = [];
+
+    public static void LoadGameData()
     {
         var list = new List<ItemCatalog.BaseType>();
         foreach (int row in GemSources.DropPool(Program.Items, "data"))
             if (Program.Items.Row(row) is { Class: "Support Skill Gem", DropLevel: >= 1 } t && ItemDrops.Droppable(t))
                 list.Add(t);
-        return [.. list];
-    });
+        SupportGems = [.. list];
+    }
 
     // Cached droppable uniques per jewellery class for chart_{ring,amulet,belt}_to_unique_*_%_chance.
     sealed record JewelleryUniques(
@@ -99,30 +101,30 @@ public static class DeepwaterChartStats
     /// on a Voyage, its cell-only stats (so stats already applied via <c>MapModsOf</c> on 1×1 Charts are never
     /// double-counted).</summary>
     public static DeepwaterCellRules ParseCell(
-        IReadOnlyDictionary<string, int> effective,
-        IReadOnlyDictionary<string, int>? cellOnly,
+        IReadOnlyDictionary<uint, int> effective,
+        IReadOnlyDictionary<uint, int>? cellOnly,
         bool voyage)
     {
-        int expPct = effective.GetValueOrDefault("map_experience_gain_+%");
+        int expPct = effective.GetValueOrDefault(Stat.MapExperienceGainPlusPct);
         double expFactor = expPct == 0 ? 1.0 : Math.Max(0, 100 + expPct) / 100.0;
-        int sulphurFound = effective.GetValueOrDefault("map_deepwater_league_resource_found_+%");
-        bool freeLanterns = effective.GetValueOrDefault("chart_do_not_consume_lanterns_on_placement") > 0;
-        // On a 1×1 Chart, MapModsOf(conn) already holds cellOnly + global; on a Voyage, MapModsOf holds global only.
+        int sulphurFound = effective.GetValueOrDefault(Stat.MapDeepwaterLeagueResourceFoundPlusPct);
+        bool freeLanterns = effective.GetValueOrDefault(Stat.ChartDoNotConsumeLanternsOnPlacement) > 0;
+        // On a 1×1 Chart, MapModsOf(player) already holds cellOnly + global; on a Voyage, MapModsOf holds global only.
         int magicExtra = voyage && cellOnly is not null
-            ? Math.Max(0, cellOnly.GetValueOrDefault("map_magic_monster_num_additional_modifiers"))
+            ? Math.Max(0, cellOnly.GetValueOrDefault(Stat.MapMagicMonsterNumAdditionalModifiers))
             : 0;
-        bool rareEssence = effective.GetValueOrDefault("map_rare_monsters_trapped_in_essences") > 0;
-        bool rareSulphur = effective.GetValueOrDefault("chart_rare_monsters_drop_dead_mans_sulphur") > 0;
+        bool rareEssence = effective.GetValueOrDefault(Stat.MapRareMonstersTrappedInEssences) > 0;
+        bool rareSulphur = effective.GetValueOrDefault(Stat.ChartRareMonstersDropDeadMansSulphur) > 0;
 
-        // Scarab and currency uber more-drop mods: MapModApply.ExtraDropsFromMap handles MapModsOf(conn)
+        // Scarab and currency uber more-drop mods: MapModApply.ExtraDropsFromMap handles MapModsOf(player)
         // (1×1 Chart + Voyage global), so only apply cellOnly on Voyages to avoid double-counting.
         double scarabFactor = 1.0;
         double currencyFactor = 1.0;
         if (voyage && cellOnly is not null)
         {
-            int scarabPct = cellOnly.GetValueOrDefault("map_scarab_drop_chance_+%_final_from_uber_mod");
+            int scarabPct = cellOnly.GetValueOrDefault(Stat.MapScarabDropChancePlusPctFinalFromUberMod);
             if (scarabPct > 0) scarabFactor = (100 + scarabPct) / 100.0;
-            int currencyPct = cellOnly.GetValueOrDefault("map_currency_drop_chance_+%_final_from_uber_mod");
+            int currencyPct = cellOnly.GetValueOrDefault(Stat.MapCurrencyDropChancePlusPctFinalFromUberMod);
             if (currencyPct > 0) currencyFactor = (100 + currencyPct) / 100.0;
         }
 
@@ -133,19 +135,19 @@ public static class DeepwaterChartStats
             int count = effective.GetValueOrDefault(stat);
             if (count > 0) (rareDrops ??= []).Add((itemId, Math.Min(count, 20)));
         }
-        int rareScarab = Math.Clamp(effective.GetValueOrDefault("chart_rare_monster_drop_x_additional_scarab"), 0, 20);
-        int rareSupport = Math.Clamp(effective.GetValueOrDefault("chart_rare_monster_drop_support_gem_chance_%"), 0, 100);
+        int rareScarab = Math.Clamp(effective.GetValueOrDefault(Stat.ChartRareMonsterDropXAdditionalScarab), 0, 20);
+        int rareSupport = Math.Clamp(effective.GetValueOrDefault(Stat.ChartRareMonsterDropSupportGemChancePct), 0, 100);
 
-        int equipToGold = Math.Clamp(effective.GetValueOrDefault("chart_monster_equipment_drops_converted_to_gold_%"), 0, 100);
-        bool toStackedDecks = effective.GetValueOrDefault("chart_dropped_currency_converted_to_stacked_decks") > 0;
-        bool noEquip = effective.GetValueOrDefault("chart_monsters_drop_no_equipment") > 0;
-        bool noFlask = effective.GetValueOrDefault("chart_monsters_drop_no_flask") > 0;
-        bool dropCorrupted = effective.GetValueOrDefault("map_items_drop_corrupted") > 0;
-        int fracturedPct = Math.Clamp(effective.GetValueOrDefault("map_dropped_items_are_fractured_chance_%"), 0, 100);
-        int maxQualityFlaskPct = Math.Clamp(effective.GetValueOrDefault("map_flasks_drop_with_max_quality_chance_%"), 0, 100);
-        int ringUniquePct = Math.Clamp(effective.GetValueOrDefault("chart_ring_to_unique_ring_%_chance"), 0, 100);
-        int amuletUniquePct = Math.Clamp(effective.GetValueOrDefault("chart_amulet_to_unique_amulet_%_chance"), 0, 100);
-        int beltUniquePct = Math.Clamp(effective.GetValueOrDefault("chart_belt_to_unique_belt_%_chance"), 0, 100);
+        int equipToGold = Math.Clamp(effective.GetValueOrDefault(Stat.ChartMonsterEquipmentDropsConvertedToGoldPct), 0, 100);
+        bool toStackedDecks = effective.GetValueOrDefault(Stat.ChartDroppedCurrencyConvertedToStackedDecks) > 0;
+        bool noEquip = effective.GetValueOrDefault(Stat.ChartMonstersDropNoEquipment) > 0;
+        bool noFlask = effective.GetValueOrDefault(Stat.ChartMonstersDropNoFlask) > 0;
+        bool dropCorrupted = effective.GetValueOrDefault(Stat.MapItemsDropCorrupted) > 0;
+        int fracturedPct = Math.Clamp(effective.GetValueOrDefault(Stat.MapDroppedItemsAreFracturedChancePct), 0, 100);
+        int maxQualityFlaskPct = Math.Clamp(effective.GetValueOrDefault(Stat.MapFlasksDropWithMaxQualityChancePct), 0, 100);
+        int ringUniquePct = Math.Clamp(effective.GetValueOrDefault(Stat.ChartRingToUniqueRingPctChance), 0, 100);
+        int amuletUniquePct = Math.Clamp(effective.GetValueOrDefault(Stat.ChartAmuletToUniqueAmuletPctChance), 0, 100);
+        int beltUniquePct = Math.Clamp(effective.GetValueOrDefault(Stat.ChartBeltToUniqueBeltPctChance), 0, 100);
 
         return new DeepwaterCellRules(
             ExpFactor: expFactor,
@@ -182,7 +184,7 @@ public static class DeepwaterChartStats
         for (int i = 0; i < count; i++)
         {
             var effective = plan.Effective(i);
-            var cellOnly = plan.Voyage ? DeepwaterPlan.Named(plan.CellStats[i]) : null;
+            var cellOnly = plan.Voyage ? plan.CellStats[i] : null;
             var r = ParseCell(effective, cellOnly, plan.Voyage);
             rules[i] = r;
             if (r.Any) any = true;
@@ -201,7 +203,7 @@ public static class DeepwaterChartStats
     /// <summary>Picks a random droppable support gem whose DropLevel fits <paramref name="level"/> and league rules allow.</summary>
     public static Item? RollSupportGem(int level, Random rng, LeagueRules? league = null)
     {
-        var all = SupportGems.Value;
+        var all = SupportGems;
         int eligible = 0;
         for (int i = 0; i < all.Length; i++)
             if (all[i].DropLevel <= level && league?.AllowsGemBase(all[i].Id) != false) eligible++;

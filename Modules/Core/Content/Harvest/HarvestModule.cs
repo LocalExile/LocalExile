@@ -17,27 +17,34 @@ public sealed class HarvestModule : IModule
     readonly ConditionalWeakTable<IPlayer, State> _states = new();
     readonly ConditionalWeakTable<IItemCrafting, HarvestCrafting> _recipes = new();
 
+    public static void LoadData()
+    {
+        HarvestTables.LoadGameData();
+        SacredGrove.LoadGameData();
+    }
+
     /// <inheritdoc/>
     public void Load(IModuleContext module)
     {
-        GameEvents.HideoutReady.Add(module.Manifest.Id, async conn =>
+        LoadData();
+        GameEvents.HideoutReady.Add(module.Manifest.Id, async player =>
         {
-            var player = PlayerOf(conn);
-            if (await WorldOf(player).SpawnHideoutStation(HideoutSlot.Large, StationType, "harvest", "Horticrafting Station") is { } id)
-                _states.GetOrCreateValue(player).Station = id;
+            var modPlayer = PlayerOf(player);
+            if (await WorldOf(modPlayer).SpawnHideoutStation(HideoutSlot.Large, StationType, "harvest", "Horticrafting Station") is { } id)
+                _states.GetOrCreateValue(modPlayer).Station = id;
         });
         GameEvents.FeatureFilled.Add(module.Manifest.Id, (_, row) => SacredGrove.FeatureRows.Contains(row));
         GameEvents.MapOpening.Add(module.Manifest.Id, SacredGrove.Opening);
-        GameEvents.AreaGenerated.Add(module.Manifest.Id, async conn =>
+        GameEvents.AreaGenerated.Add(module.Manifest.Id, async player =>
         {
-            await SacredGrove.Enter(conn);
-            await OshabiEncounter.Enter(conn);
+            await SacredGrove.Enter(player);
+            await OshabiEncounter.Enter(player);
         });
-        GameEvents.Tick.Add(module.Manifest.Id, async (conn, _) =>
+        GameEvents.AreaTick.Add(module.Manifest.Id, GameEvents.Always(async (player, _) =>
         {
-            await SacredGrove.Tick(conn);
-            await OshabiEncounter.Tick(conn);
-        });
+            await SacredGrove.Tick(player);
+            await OshabiEncounter.Tick(player);
+        }));
         GameEvents.Drops.Add(module.Manifest.Id, drop =>
         {
             HarvestLifeforce.Drops(drop);
@@ -47,18 +54,18 @@ public sealed class HarvestModule : IModule
         GameEvents.Experience.Add(module.Manifest.Id, HarvestLifeforce.Experience);
         // The grove monsters' more life: HarvestLifeScalingPerLevel and the Doubling scarab's.
         module.Lifetime.Own(MonsterModEffects.HandOverMore([SacredGrove.LevelMoreLife, SacredGrove.SextantMoreLife], []));
-        GameEvents.ObjectUse.Add(module.Manifest.Id, async (conn, use, at) =>
+        GameEvents.ObjectUse.Add(module.Manifest.Id, async (player, use, at) =>
         {
-            if (!_states.TryGetValue(PlayerOf(conn), out var state) || state.Station == 0 || use.TargetId != state.Station)
-                return await SacredGrove.Use(conn, use, at) || await OshabiEncounter.Use(conn, use, at);
-            var world = WorldOf(conn);
+            if (!_states.TryGetValue(PlayerOf(player), out var state) || state.Station == 0 || use.TargetId != state.Station)
+                return await SacredGrove.Use(player, use, at) || await OshabiEncounter.Use(player, use, at);
+            var world = WorldOf(player);
             if (await world.WalkUpToStation(state.Station, at))
                 await world.OpenWindow(Window, InstanceWaypoints.HorticraftingUi, "0x007b open Horticrafting Station recipe browser");
             return true;
         });
-        GameEvents.Packet(InstanceHarvest.CraftId).Add(module.Manifest.Id, async (conn, bytes) =>
+        GameEvents.Packet(InstanceHarvest.CraftId).Add(module.Manifest.Id, async (player, bytes) =>
         {
-            await Craft(module, PlayerOf(conn), InstanceHarvest.ReadCraft(bytes), LeagueFor(conn).HardMode);
+            await Craft(module, PlayerOf(player), InstanceHarvest.ReadCraft(bytes), LeagueFor(player).HardMode);
             return true;
         });
     }
@@ -72,7 +79,7 @@ public sealed class HarvestModule : IModule
         // world.Crafting is one instance per game mode, so the cached recipes keep the mode they were made for.
         var harvest = _recipes.GetValue(world.Crafting, items => new HarvestCrafting(items, hardMode: hardMode));
         string name = harvest.ByHash(recipe)?.Id ?? $"0x{recipe:x4}";
-        var crafted = await world.CraftInSlot(Slot, item => harvest.Apply(recipe, item, Random.Shared), $"Harvest recipe {name}");
+        var crafted = await world.CraftInSlot(Slot, item => harvest.Apply(recipe, item, global::Game.AreaRng(PlayerOf(player))), $"Harvest recipe {name}");
         if (crafted is null)
         {
             module.Log($"{player.Character} recipe {name} refused (item, recipe or lifeforce)");

@@ -21,8 +21,8 @@ Part of [Status](../Status.md); what to build next in this area is in
   of the character's league (normal, premium, quad, currency, essence, fragment, map, flask, gem) from the tab list in
   S→C 0x21; each tab's contents come on the client's request (C→S 0xc7 → 0xc0 row 26 + 0xc8);
   items go into and out of tabs by click (0x28 / 0x2a) and Ctrl + click (C→S 0xe0 in, 0xe3 out, stacks onto stacks);
-  every change to a tab that a tab switch unloaded (a click, a split, currency used from or on an item there) re-loads
-  that tab's inventory (0xc0 + 0xc8) first, which stopped the client aborting on
+  every change to an unopened tab (an affinity deposit or hidden Map/Unique child) registers that tab's inventory
+  (0xc0 + 0xc8) first, which stopped the client aborting on
   `Got an inventory set change for an inventory that isn't in the set` (#605, #710);
   special tabs hold only their own items (the map tab on the hidden page of the map's kind), the currency, essence and fragment tabs each item
   in its own slot, from the game data's stash tables (18 §7);
@@ -51,6 +51,14 @@ Part of [Status](../Status.md); what to build next in this area is in
   Gateway tests cover the unload, the price tab that stays, the first open's two requests and the 0xc1 bytes.
   See protocol/18-stash.md §3.
 - **Deposit all (`/deposit`, Commands module).** At the personal stash, with any tab shown, every main-inventory item with a tab affinity goes to a tab tagged for it in tab settings, else its special tab, each as one Ctrl + click; gear stays. The `depositKeep` setting (Waypoint: Modules → Commands → "/deposit keeps") lists item names it leaves, by default Portal Scroll and Scroll of Wisdom; `/deposit keep` shows them. Verified live (3.29.3c).
+- **Stash loading and manual placement.** Area entry preloads only the tabs with shop currency (`PreloadsForPrices`); other tabs load
+  lazily on first click (`C→S 0xc7`) and stay registered for the connection so revisited cached pages accept manual
+  placement without showing a red overlay. The chest detaches ordinary inactive pages on reopen. With five populated
+  tabs, a small tab reopened with a 14–19 ms frame gap in both network modes on the regular 3.29.3d client.
+  `SendTabChange`/`EnsureTabLoaded` registers unopened tabs before `0xbf` (affinity deposits and Map/Unique children).
+  Quest items (`QuestItem` class or `Quest` component) are refused from personal and guild stashes.
+  Gateway tests cover lazy preloading, keeping visited tabs registered, quest-item refusal, and unopened-tab registration before `0xbf`.
+  See protocol/18-stash.md §3–4.
 - **Dev tab fill (`/item_tab <tab name> <count>`).** On a currency, essence, fragment, delve, blight, delirium or divination tab it
   adds up to `count` more, at most 1000 per command, of every item type that has its own slot, as far as each slot holds.
   Divination cards are filled to complete sets.

@@ -3,7 +3,7 @@ using GameServer.Core.World;
 public static partial class Game
 {
     public const double ControlledFollowerLeash = 60;
-    static readonly RuleTable<ClientState, ControlledFollowing> FollowerPlans = new();
+    static readonly Store<Player, ControlledFollowing> FollowerPlans = new();
     sealed class ControlledFollowing
     {
         public bool Following;
@@ -13,15 +13,15 @@ public static partial class Game
         public uint Target;
     }
 
-    public static (int X, int Y) ControlledFollowerPoint(ClientState conn, ClientState leader, bool arrival = false, double? atTime = null)
+    public static (int X, int Y) ControlledFollowerPoint(Player player, Player leader, bool arrival = false, double? atTime = null)
     {
-        double now = atTime ?? conn.Clock.Elapsed.TotalSeconds;
+        double now = atTime ?? AreaTime(player);
         var origin = leader.Walk.Position(now);
         var destination = leader.Walk.Destination;
         double dx = destination.X - origin.X, dy = destination.Y - origin.Y;
         if (!leader.Walk.Moving(now) && arrival)
         {
-            var entry = conn.Layout.AreaTransitions.Select(p => p.Transition)
+            var entry = player.Layout.AreaTransitions.Select(p => p.Transition)
                 .OrderBy(t => Dist(origin, (t.GridX, t.GridY))).FirstOrDefault();
             if (entry is not null && Dist(origin, (entry.GridX, entry.GridY)) < 50)
                 (dx, dy) = (origin.X - entry.GridX, origin.Y - entry.GridY);
@@ -29,10 +29,10 @@ public static partial class Game
         bool forward = arrival || leader.Walk.Moving(now);
         double heading = Math.Atan2(dy, dx) + (forward ? 0 : Math.PI);
         // Try the front/behind formation first, then the other side of a narrow passage. Bodies are live inputs.
-        double side = (conn.PeerId % 5 - 2.0) * .22;
-        var bodies = conn.Blockers;
-        bool Floor(int x, int y) => x >= 0 && y >= 0 && x < conn.Layout.GridW && y < conn.Layout.GridH
-            && conn.Layout.WalkableFor(x, y, 2) && !conn.Barrier.Contains((x, y));
+        double side = (player.Id % 5 - 2.0) * .22;
+        var bodies = player.Blockers;
+        bool Floor(int x, int y) => x >= 0 && y >= 0 && x < player.Layout.GridW && y < player.Layout.GridH
+            && player.Layout.WalkableFor(x, y, 2) && !player.Barrier.Contains((x, y));
         foreach (int radius in forward ? new[] { 30, 24, 18 } : new[] { 16, 22, 12 })
             foreach (double turn in new[] { 0.0, .5, -.5, 1.0, -1.0, 1.5, -1.5, Math.PI })
             {
@@ -40,17 +40,17 @@ public static partial class Game
                 var at = (X: origin.X + (int)Math.Round(Math.Cos(angle) * radius),
                     Y: origin.Y + (int)Math.Round(Math.Sin(angle) * radius));
                 if (!Floor(at.X, at.Y) || ClientPathfinder.ObjectBlocks(bodies, at.X, at.Y, 3, 6)) continue;
-                var path = ClientPathfinder.FindPath(origin, at, Floor, conn.Layout.GridW, conn.Layout.GridH, [], 2);
+                var path = ClientPathfinder.FindPath(origin, at, Floor, player.Layout.GridW, player.Layout.GridH, [], 2);
                 if (path.Count > 1 && path[^1] == at) return at;
             }
         // No room to form up: stay in the leader's reachable pocket rather than teleport across a wall.
         return origin;
     }
 
-    public static bool KeepControlledFollowerNear(ClientState conn, ClientState leader, double now, bool externalMovement = false)
+    public static bool KeepControlledFollowerNear(Player player, Player leader, double now, bool externalMovement = false)
     {
-        var plan = FollowerPlans.GetOrCreateValue(conn);
-        var here = conn.Walk.Position(now);
+        var plan = FollowerPlans.GetOrCreateValue(player);
+        var here = player.Walk.Position(now);
         var follow = leader.Walk.Position(now);
         double distance = Dist(here, follow);
         if (distance > ControlledFollowerLeash && double.IsNaN(plan.FarSince)) plan.FarSince = now;
@@ -58,22 +58,19 @@ public static partial class Game
         // Brief gaps are caught on foot; a blink or an obstructed follower cannot stay off screen.
         if (distance > 100 || distance > ControlledFollowerLeash && now - plan.FarSince >= 1.25)
         {
-            var at = ControlledFollowerPoint(conn, leader, atTime: now);
-            lock (conn.Monsters)
-            {
-                Interlocked.Increment(ref conn.ActionCount);
-                Interlocked.Increment(ref conn.ChannelGeneration);
-                conn.ChannelSkill = 0;
-                conn.Walk.Teleport(at.X, at.Y, now);
-                conn.ControlledNextAction = now + .35;
-            }
+            var at = ControlledFollowerPoint(player, leader, atTime: now);
+            Interlocked.Increment(ref player.ActionCount);
+            Interlocked.Increment(ref player.ChannelGeneration);
+            player.ChannelSkill = 0;
+            player.Walk.Teleport(at.X, at.Y, now);
+            player.ControlledNextAction = now + .35;
             plan.Following = false;
             plan.AttackUntil = 0;
             plan.Target = 0;
             plan.FarSince = double.NaN;
-            ScheduleControlledIdle(conn, plan, now);
-            PublishPlayerPose(conn);
-            Console.WriteLine($"[bots] {CharacterName(conn)} returns to leader: {distance:0.0} cells -> ({at.X}, {at.Y})");
+            ScheduleControlledIdle(player, plan, now);
+            PublishPlayerPose(player);
+            Console.WriteLine($"[bots] {CharacterName(player)} returns to leader: {distance:0.0} cells -> ({at.X}, {at.Y})");
             return true;
         }
         // Hysteresis: a moving leader is followed in legs, not by constantly finding a new formation cell.
@@ -83,23 +80,23 @@ public static partial class Game
             && Math.Max(0, distance * distance - ahead * ahead) <= 20 * 20)
         {
             // Already ahead on the route: wait for the leader rather than running backwards to a formation point.
-            if (plan.Following) ScheduleControlledIdle(conn, plan, now);
+            if (plan.Following) ScheduleControlledIdle(player, plan, now);
             plan.Following = false;
             return false;
         }
         if (plan.Following && !moving && distance <= 30)
         {
             plan.Following = false;
-            ScheduleControlledIdle(conn, plan, now);
+            ScheduleControlledIdle(player, plan, now);
         }
         if (moving || distance > ControlledFollowerLeash) plan.Following = true;
         if (externalMovement && distance <= ControlledFollowerLeash) return plan.Following;
         if (!plan.Following) return false;
         if (now < plan.AttackUntil) return true;
-        if (now >= plan.RepathAt && (!conn.Walk.Moving(now) || Dist(plan.LeaderAt, follow) >= 12
+        if (now >= plan.RepathAt && (!player.Walk.Moving(now) || Dist(plan.LeaderAt, follow) >= 12
             || Dist(plan.LeaderGoal, leader.Walk.Destination) >= 12))
         {
-            MoveControlledFollower(conn, ControlledFollowerPoint(conn, leader, atTime: now), now);
+            MoveControlledFollower(player, ControlledFollowerPoint(player, leader, atTime: now), now);
             plan.LeaderAt = follow;
             plan.LeaderGoal = leader.Walk.Destination;
             plan.RepathAt = now + .75;
@@ -107,27 +104,27 @@ public static partial class Game
         return true;
     }
 
-    static void ScheduleControlledIdle(ClientState conn, ControlledFollowing plan, double now)
+    static void ScheduleControlledIdle(Player player, ControlledFollowing plan, double now)
     {
-        uint seed = unchecked(conn.PeerId * 2654435761u + plan.IdleTurn * 2246822519u);
+        uint seed = unchecked(player.Id * 2654435761u + plan.IdleTurn * 2246822519u);
         plan.IdleAt = now + 14 + seed % 18;
     }
 
-    public static void IdleControlledFollower(ClientState conn, ClientState leader, double now)
+    public static void IdleControlledFollower(Player player, Player leader, double now)
     {
-        var plan = FollowerPlans.GetOrCreateValue(conn);
+        var plan = FollowerPlans.GetOrCreateValue(player);
         plan.Target = 0;
-        if (double.IsNaN(plan.IdleAt)) ScheduleControlledIdle(conn, plan, now);
-        if (now < plan.IdleAt || now < plan.AttackUntil || conn.Walk.Moving(now) || leader.Walk.Moving(now)) return;
+        if (double.IsNaN(plan.IdleAt)) ScheduleControlledIdle(player, plan, now);
+        if (now < plan.IdleAt || now < plan.AttackUntil || player.Walk.Moving(now) || leader.Walk.Moving(now)) return;
         uint turn = ++plan.IdleTurn;
-        ScheduleControlledIdle(conn, plan, now);
+        ScheduleControlledIdle(player, plan, now);
         // Most idle decisions leave the bot standing. A rare adjustment stays by its own feet.
         if (turn % 3 != 1) return;
-        uint seed = unchecked(conn.PeerId * 2654435761u + turn * 2246822519u);
-        var here = conn.Walk.Position(now);
-        var bodies = conn.Blockers;
-        bool Floor(int x, int y) => x >= 0 && y >= 0 && x < conn.Layout.GridW && y < conn.Layout.GridH
-            && conn.Layout.WalkableFor(x, y, 2) && !conn.Barrier.Contains((x, y));
+        uint seed = unchecked(player.Id * 2654435761u + turn * 2246822519u);
+        var here = player.Walk.Position(now);
+        var bodies = player.Blockers;
+        bool Floor(int x, int y) => x >= 0 && y >= 0 && x < player.Layout.GridW && y < player.Layout.GridH
+            && player.Layout.WalkableFor(x, y, 2) && !player.Barrier.Contains((x, y));
         for (int trial = 0; trial < 8; trial++)
         {
             double angle = (seed % 360) * Math.PI / 180 + trial * Math.PI / 4;
@@ -139,13 +136,13 @@ public static partial class Game
             if (Dist(here, at) < 3) continue;
             if (Dist(at, leader.Walk.Position(now)) > ControlledFollowerLeash || !Floor(at.X, at.Y)
                 || ClientPathfinder.ObjectBlocks(bodies, at.X, at.Y, 3, 6)) continue;
-            var path = ClientPathfinder.FindPath(here, at, Floor, conn.Layout.GridW, conn.Layout.GridH, bodies, 2);
+            var path = ClientPathfinder.FindPath(here, at, Floor, player.Layout.GridW, player.Layout.GridH, bodies, 2);
             if (path.Count < 2 || path[^1] != at) continue;
             // Rounded path cells can briefly leave the circle even with both endpoints inside it.
             var origin = leader.Walk.Position(now);
             if (path.Zip(path.Skip(1)).Any(p => ClientPathfinder.Line(p.First, p.Second)
                 .Any(cell => Dist(cell, origin) > ControlledFollowerLeash))) continue;
-            if (MoveControlledFollower(conn, at, now)) break;
+            if (MoveControlledFollower(player, at, now)) break;
         }
     }
 
@@ -161,28 +158,25 @@ public static partial class Game
         return gap <= 48 && Math.Max(0, gap * gap - ahead * ahead) + after * after <= 55 * 55;
     }
 
-    public static void HoldControlledFollowerAttack(ClientState conn, double now, double seconds, uint target)
+    public static void HoldControlledFollowerAttack(Player player, double now, double seconds, uint target)
     {
-        var plan = FollowerPlans.GetOrCreateValue(conn);
+        var plan = FollowerPlans.GetOrCreateValue(player);
         plan.Target = target;
         plan.AttackUntil = now + Math.Max(.35, seconds) + .1;
-        conn.ControlledNextAction = plan.AttackUntil;
+        player.ControlledNextAction = plan.AttackUntil;
         plan.RepathAt = plan.AttackUntil;
-        ScheduleControlledIdle(conn, plan, plan.AttackUntil);
+        ScheduleControlledIdle(player, plan, plan.AttackUntil);
     }
 
-    static bool MoveControlledFollower(ClientState conn, (int X, int Y) at, double now)
+    static bool MoveControlledFollower(Player player, (int X, int Y) at, double now)
     {
-        lock (conn.Monsters)
-        {
-            if (conn.Walk.Moving(now) && Dist(conn.Walk.Destination, at) < 6) return false;
-            if (Dist(conn.Walk.Position(now), at) < 3) return false;
-            Interlocked.Increment(ref conn.ActionCount);
-            Interlocked.Increment(ref conn.ChannelGeneration);
-            conn.ChannelSkill = 0;
-            conn.Walk.Order(at.X, at.Y, now);
-        }
-        PublishPlayerPose(conn);
+        if (player.Walk.Moving(now) && Dist(player.Walk.Destination, at) < 6) return false;
+        if (Dist(player.Walk.Position(now), at) < 3) return false;
+        Interlocked.Increment(ref player.ActionCount);
+        Interlocked.Increment(ref player.ChannelGeneration);
+        player.ChannelSkill = 0;
+        player.Walk.Order(at.X, at.Y, now);
+        PublishPlayerPose(player);
         return true;
     }
 }

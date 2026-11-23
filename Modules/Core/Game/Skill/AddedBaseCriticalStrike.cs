@@ -4,14 +4,14 @@
 /// completed intrinsic base before INC (pinned PoB CalcOffence.lua3102-3107). Published final chances are not inputs.</summary>
 public static class AddedBaseCriticalStrike
 {
-    public const string Generic = "additional_base_critical_strike_chance";
-    public const string Attack = "attack_additional_critical_strike_chance_permyriad";
-    public const string Spell = "spell_additional_critical_strike_chance_permyriad";
+    public const uint Generic = Stat.AdditionalBaseCriticalStrikeChance;
+    public const uint Attack = Stat.AttackAdditionalCriticalStrikeChancePermyriad;
+    public const uint Spell = Stat.SpellAdditionalCriticalStrikeChancePermyriad;
 
-    public static int Chance(int intrinsic, long increasedPct, bool spell, Func<string, int> player,
-        Func<string, int>? skill = null)
+    public static int Chance(int intrinsic, long increasedPct, bool spell, Func<uint, int> player,
+        Func<uint, int>? skill = null)
     {
-        string typed = spell ? Spell : Attack;
+        uint typed = spell ? Spell : Attack;
         long basis = (long)intrinsic + player(Generic) + player(typed)
             + (skill?.Invoke(Generic) ?? 0) + (skill?.Invoke(typed) ?? 0);
         return CriticalChanceFinal.Project(basis, increasedPct, player, skill);

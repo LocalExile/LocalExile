@@ -14,8 +14,20 @@ namespace GameServer.Modules.Harvest;
 /// GameMode is the column the Mods and BestiaryRecipes tables share: 0 every league, 1 not in Ruthless, 2 Ruthless only
 /// (the HardMode Mods and Einhar recipes are the 2 rows). <paramref name="hardMode"/> is the character's league.
 /// </summary>
-public sealed class HarvestCrafting(IItemCrafting items, string folder = "data", bool hardMode = false)
+public sealed class HarvestCrafting
 {
+    readonly IItemCrafting items;
+    readonly string folder;
+    readonly bool hardMode;
+
+    public HarvestCrafting(IItemCrafting items, string folder = "data", bool hardMode = false)
+    {
+        this.items = items;
+        this.folder = folder;
+        this.hardMode = hardMode;
+        _all = Load(items, folder);
+    }
+
     public enum Operation { Unsupported, ReforgeTag, ReforgeAffinity, AugmentTag, Convert }
 
     public sealed record Recipe(ushort Hash, string Id, Operation Operation, string? Tag, int Affinity,
@@ -39,8 +51,8 @@ public sealed class HarvestCrafting(IItemCrafting items, string folder = "data",
         "item_generation_cannot_roll_attack_affixes", "item_generation_cannot_roll_caster_affixes",
     ];
 
-    readonly Lazy<IReadOnlyList<Recipe>> _all = new(() => Load(items, folder));
-    public IReadOnlyList<Recipe> All => _all.Value;
+    readonly IReadOnlyList<Recipe> _all;
+    public IReadOnlyList<Recipe> All => _all;
     public Recipe? ByHash(ushort hash) => All.FirstOrDefault(r => r.Hash == hash);
 
     /// <summary>The crafted item and its exact cost, or null when the recipe is unknown, unsupported or does not fit
