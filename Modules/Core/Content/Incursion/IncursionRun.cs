@@ -19,6 +19,7 @@ public sealed class IncursionRun(IReadOnlyList<(int X, int Y)> spots, byte level
     Stage stage = Stage.Hidden;
     int used, total, killed, sentSeconds = -1, sentKilled = -1;
     double? left;
+    bool running;
 
     public IReadOnlyList<(int X, int Y)> Spots { get; } = spots;
     public byte Level { get; } = level;
@@ -30,8 +31,8 @@ public sealed class IncursionRun(IReadOnlyList<(int X, int Y)> spots, byte level
     /// <summary>The spot Alva stands at next, null once every spot is used.</summary>
     public (int X, int Y)? Spot { get { lock (gate) return used < Spots.Count ? Spots[used] : null; } }
 
-    /// <summary>Seconds left; null until the start delay is over.</summary>
-    public double? Left { get { lock (gate) return left; } }
+    /// <summary>Seconds left; null until the start delay is over (<see cref="Begin"/>).</summary>
+    public double? Left { get { lock (gate) return running ? left : null; } }
     public int Total { get { lock (gate) return total; } }
     public int Killed { get { lock (gate) return killed; } }
     public IReadOnlyList<int> KilledArchitects { get { lock (gate) return [.. killedArchitects]; } }
@@ -67,7 +68,20 @@ public sealed class IncursionRun(IReadOnlyList<(int X, int Y)> spots, byte level
             killed = 0;
             sentSeconds = sentKilled = -1;
             left = startSeconds;
+            running = false;
             return true;
+        }
+    }
+
+    /// <summary>The start delay is over: the clock runs, and a treasure can cost seconds. The next messages carry the
+    /// timer and the bar.</summary>
+    public void Begin()
+    {
+        lock (gate)
+        {
+            if (stage != Stage.Inside) return;
+            running = true;
+            sentSeconds = sentKilled = -1;
         }
     }
 
@@ -89,12 +103,13 @@ public sealed class IncursionRun(IReadOnlyList<(int X, int Y)> spots, byte level
         }
     }
 
-    /// <summary>A cursed treasure costs seconds off the clock.</summary>
+    /// <summary>A cursed treasure costs seconds off the clock. Not while the start delay runs or once the clock has
+    /// reached 0 (the next tick ends the run).</summary>
     public bool Cost(double seconds)
     {
         lock (gate)
         {
-            if (stage != Stage.Inside || left is null) return false;
+            if (stage != Stage.Inside || !running || left is not > 0) return false;
             left -= seconds;
             return true;
         }
@@ -105,7 +120,7 @@ public sealed class IncursionRun(IReadOnlyList<(int X, int Y)> spots, byte level
     {
         lock (gate)
         {
-            if (stage != Stage.Inside || left is null) return false;
+            if (stage != Stage.Inside || !running || left is null) return false;
             left -= seconds;
             return left <= 0;
         }
@@ -116,7 +131,7 @@ public sealed class IncursionRun(IReadOnlyList<(int X, int Y)> spots, byte level
     {
         lock (gate)
         {
-            if (left is not { } l) return null;
+            if (!running || left is not { } l) return null;
             int seconds = Math.Max(0, (int)l);
             if (seconds == sentSeconds) return null;
             sentSeconds = seconds;
@@ -175,6 +190,7 @@ public sealed class IncursionRun(IReadOnlyList<(int X, int Y)> spots, byte level
         monsters.Clear();
         architects.Clear();
         left = null;
+        running = false;
         total = killed = 0;
         sentSeconds = sentKilled = -1;
     }

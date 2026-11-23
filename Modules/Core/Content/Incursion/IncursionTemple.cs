@@ -106,19 +106,21 @@ public sealed class IncursionTemple
 
     /// <summary>
     /// An incursion: any slot below tier 3, its room, its resident architect (unless killed) and one other architect
-    /// not in the temple and not killed [external]; two others for a tier-0 slot. Null when no slot or no free
+    /// not in the temple and not killed [external]; two others for a tier-0 slot. Null when the temple is open, no slot or no free
     /// architect is left. A slot already opened can be drawn again: a temple is 12 incursions over 11 slots, and a
     /// room's tiers 2 and 3 come from opening the same slot again.
     /// </summary>
     public PickedRoom? Pick(int level, Random rng)
     {
-        var slots = _graph.Slots.Where(s => Tier(s) < 3).ToList();
+        if (IsOpen) return null;
+        // A slot whose resident the server cannot write at this level is not drawn: the run's architects come from the same
+        // test (IncursionTables.Usable), so what is picked is what is created.
+        var slots = _graph.Slots.Where(s => Tier(s) < 3 && (Family(s) is not { } f || _killed.Contains(f) || IncursionTables.Usable(f, level))).ToList();
         if (slots.Count == 0) return null;
         int slot = slots[rng.Next(slots.Count)];
         var present = FamiliesPresent();
         var free = IncursionTables.TempleFamilies
-            .Where(f => !present.Contains(f.Key) && !_killed.Contains(f.Key) && f.Value.ContainsKey(1)
-                && IncursionTables.ArchitectByRow(f.Key) is { MinLevel: var min } && min <= level)
+            .Where(f => !present.Contains(f.Key) && !_killed.Contains(f.Key) && f.Value.ContainsKey(1) && IncursionTables.Usable(f.Key, level))
             .Select(f => f.Key).ToList();
         int? resident = Family(slot);
         if (resident is { } r && _killed.Contains(r)) resident = null;
@@ -135,6 +137,8 @@ public sealed class IncursionTemple
     public int Apply(PickedRoom pick, IReadOnlyList<int> killed, int areaLevel)
     {
         int slot = pick.Slot;
+        // An open temple is finished: later runs change nothing.
+        if (IsOpen) return _rooms[slot];
         Done++;
         _levels.Add(areaLevel);
         int? first = killed.Count > 0 ? killed[0] : null;

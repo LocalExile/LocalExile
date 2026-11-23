@@ -38,6 +38,9 @@ public static class IncursionTables
     /// 34].</summary>
     public const int StartDelayFrames = 28;
     public const double FrameSeconds = 1.0 / 30;
+    /// <summary>Alva's arrival effect is removed this many frames after it is created [capture: 46 0x2b5 frame ends between
+    /// the create and the removal, in the first incursion capture].</summary>
+    public const int EffectFrames = 46;
     /// <summary>A cursed treasure costs this many seconds [external; capture: −7 at the whole second, 4/4].</summary>
     public const double TreasureCostSeconds = 8;
 
@@ -168,6 +171,11 @@ public static class IncursionTables
     /// can write [data; capture 22/22 architects unique, at the area level].</summary>
     public static IReadOnlyList<Architect> Architects(int level) =>
         [.. _architects.Where(a => a.MinLevel <= level && global::Game.Monsters.Find(a.Path) is { Supported: true })];
+
+    /// <summary>Whether an architect row can meet a character at this level: the same test as <see cref="Architects"/>, so a
+    /// pick and the architects a run creates are always the same two.</summary>
+    public static bool Usable(int row, int level) =>
+        ArchitectByRow(row) is { } a && a.MinLevel <= level && global::Game.Monsters.Find(a.Path) is { Supported: true };
 
     /// <summary>An IncursionArchitect row, whether or not the server can write its variety.</summary>
     public static Architect? ArchitectByRow(int row) => _architects.FirstOrDefault(a => a.Row == row);

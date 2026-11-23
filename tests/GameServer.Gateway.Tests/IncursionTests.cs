@@ -177,6 +177,10 @@ public class IncursionTests
             temple.Apply(last, [], 68);
         }
         Assert.True(temple.IsOpen);
+        // An open temple is finished: no more incursions are drawn, and one already drawn changes nothing.
+        Assert.Null(temple.Pick(68, rng));
+        Assert.Equal(temple.Rooms[last!.Slot], temple.Apply(last, [], 68));
+        Assert.Equal(IncursionTemple.RunsToOpen, temple.Done);
         // Killing the resident gives the room to the other architect's family; killing the other raises it a tier.
         var fresh = IncursionTemple.Create("Exile", 68)!;
         var withResident = Enumerable.Range(0, 50).Select(_ => fresh.Pick(68, rng)).First(p => p?.Resident is not null)!;
@@ -223,7 +227,13 @@ public class IncursionTests
         Assert.True(incursion.Step(IncursionRun.Stage.PortalShown, IncursionRun.Stage.Shown));
         Assert.True(incursion.Step(IncursionRun.Stage.Shown, IncursionRun.Stage.Open));
         Assert.True(incursion.Start([1, 2, 3, 4, 5], new Dictionary<uint, int> { [5] = 13 }, 10));
-        Assert.Equal((4, 0, 10.0), (incursion.Total, incursion.Killed, incursion.Left));
+        // The clock is not running during the start delay: no time left to read, none to send, no treasure to cost it.
+        Assert.Equal((4, 0), (incursion.Total, incursion.Killed));
+        Assert.Null(incursion.Left);
+        Assert.Null(incursion.SecondsToSend());
+        Assert.False(incursion.Cost(8));
+        incursion.Begin();
+        Assert.Equal(10.0, incursion.Left);
         Assert.Equal(10, incursion.SecondsToSend());
         Assert.Null(incursion.SecondsToSend());
         Assert.False(incursion.Kill(99, 1));
@@ -236,12 +246,15 @@ public class IncursionTests
         Assert.True(incursion.Cost(8));
         Assert.False(incursion.Tick(2.0));
         Assert.True(incursion.Tick(1.0));
+        // At 0 the next tick ends the run: a treasure no longer costs anything.
+        Assert.False(incursion.Cost(8));
         // A dropped incursion (its owner left): the survivors are handed back, the spot stays and the portal is open again.
         var dropped = new IncursionRun([(1, 1)], 68, 7);
         dropped.Step(IncursionRun.Stage.Hidden, IncursionRun.Stage.PortalShown);
         dropped.Step(IncursionRun.Stage.PortalShown, IncursionRun.Stage.Shown);
         dropped.Step(IncursionRun.Stage.Shown, IncursionRun.Stage.Open);
         dropped.Start([1, 2], new Dictionary<uint, int>(), 10);
+        dropped.Begin();
         Assert.Equal<uint>([1, 2], dropped.Abandon().Order().ToArray());
         Assert.Equal((IncursionRun.Stage.Open, 0), (dropped.Current, dropped.Used));
         Assert.True(dropped.Start([3], new Dictionary<uint, int>(), 10));
