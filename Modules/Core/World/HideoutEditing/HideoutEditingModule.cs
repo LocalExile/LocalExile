@@ -14,21 +14,18 @@ public sealed class HideoutEditingModule : IModule
     /// <inheritdoc/>
     public void Load(IModuleContext module)
     {
-        GameEvents.AreaGenerated.Add(module.Manifest.Id, async conn =>
+        GameEvents.AreaGenerated.Add(module.Manifest.Id, async player =>
         {
-            var (remote, stream, ciphers) = conn.Wire;
-            await SpawnMonsterStatues(remote, stream, ciphers, conn);
+            await SpawnMonsterStatues(player);
         });
-        GameEvents.Packet(InstanceHideoutEditing.MoveId).Add(module.Manifest.Id, async (conn, bytes) =>
+        GameEvents.Packet(InstanceHideoutEditing.MoveId).Add(module.Manifest.Id, async (player, bytes) =>
         {
-            var (remote, stream, ciphers) = conn.Wire;
-            await MoveHideoutObject(remote, stream, ciphers, conn, InstanceHideoutEditing.ReadMove(bytes));
+            await MoveHideoutObject(player, InstanceHideoutEditing.ReadMove(bytes));
             return true;
         });
-        GameEvents.Packet(InstanceMonsterStatue.CreateId).Add(module.Manifest.Id, async (conn, bytes) =>
+        GameEvents.Packet(InstanceMonsterStatue.CreateId).Add(module.Manifest.Id, async (player, bytes) =>
         {
-            var (remote, stream, ciphers) = conn.Wire;
-            await CreateMonsterStatue(remote, stream, ciphers, conn, InstanceMonsterStatue.ReadCreate(bytes.AsSpan()));
+            await CreateMonsterStatue(player, InstanceMonsterStatue.ReadCreate(bytes.AsSpan()));
             return true;
         });
     }

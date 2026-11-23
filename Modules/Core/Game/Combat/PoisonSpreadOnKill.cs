@@ -20,6 +20,8 @@ public sealed class SpreadPoisonRegeneration
     double recoveredUntil = double.NegativeInfinity;
 
     public bool Applied { get { lock (gate) return double.IsFinite(sentUntil); } }
+    /// <summary>When the granted regeneration ends.</summary>
+    public double Until { get { lock (gate) return until; } }
 
     /// <summary>A kill at <paramref name="now"/> grants <paramref name="seconds"/>; a shorter grant never shortens it.</summary>
     public bool Grant(double now, double seconds, bool trackRecovery = false)
@@ -78,121 +80,116 @@ public static partial class Game
     /// <summary>"Enemies within 3 metres" (10 cells to the metre).</summary>
     public const int PoisonSpreadRadius = 30;
 
-    static readonly RuleTable<ClientState, SpreadPoisonRegeneration> SpreadPoisonRegenerations = new();
+    static readonly Store<Player, SpreadPoisonRegeneration> SpreadPoisonRegenerations = new();
     static readonly RuleTable<SpawnedMonster, SpreadPoisonRegeneration> AllySpreadPoisonRegenerations = new();
-    public static SpreadPoisonRegeneration SpreadPoisonRegenerationOf(ClientState conn) =>
-        SpreadPoisonRegenerations.GetValue(conn, _ => new());
+    public static SpreadPoisonRegeneration SpreadPoisonRegenerationOf(Player player) =>
+        SpreadPoisonRegenerations.GetValue(player, _ => new());
 
     // The ordinary monster regeneration step also owns minion and other allied-monster recovery. No second timer.
     static double SpreadPoisonRecovery(SpawnedMonster monster, double now) =>
         AllySpreadPoisonRegenerations.TryGetValue(monster, out var regeneration) ? regeneration.Recover(now) * PanelStats.LifeRegenerationMultiplier(name => monster.Effects[name]) : 0;
 
-    static int SourceStat(ClientState conn, string name) => Stats.Key(name) is uint key && conn.StatSourcesCache is { } cached
-        ? cached.Sources.GetValueOrDefault(key) : 0;
+    static int SourceStat(Player player, uint name) => player.StatSourcesCache is { } cached
+        ? cached.Sources.GetValueOrDefault(name) : 0;
 
     /// <summary>Bino's Kitchen Knife (GameEvents.Kill): the player killed a poisoned enemy, so its strongest poison stack
     /// is applied as a new poison (<see cref="SpreadPoisonSeconds"/>) to every living enemy within 3 metres of it, and
     /// the player and living allies within 3 metres regenerate Life for that time. A spread poison can spread again from its own kill.</summary>
     public static void SpreadPoisonOnKill(KillContext kill)
     {
-        var conn = kill.Conn;
-        if (!CurrentGameWork || conn.Closed || conn.LeavingArea || !kill.PlayerKill || SourceStat(conn, "unique_spread_poison_to_nearby_enemies_on_kill") <= 0) return;
-        bool regenerates = SourceStat(conn, "unique_spread_poison_to_nearby_allies_as_200_life_regeneration_per_second_on_kill") > 0;
+        var player = kill.Player;
+        if (!CurrentGameWork || player.Closed || player.LeavingArea || !kill.PlayerKill || SourceStat(player, Stat.UniqueSpreadPoisonToNearbyEnemiesOnKill) <= 0) return;
+        bool regenerates = SourceStat(player, Stat.UniqueSpreadPoisonToNearbyAlliesAs200LifeRegenerationPerSecondOnKill) > 0;
         var dead = kill.Monster;
         int spread = 0;
         double dps, seconds;
-        lock (conn.Monsters)
+        if (player.PlayerLife == 0) return;
+        double now = ProjectileWorldTime(player);
+        if (dead.Poisons.Strongest(now) is not var (perSecond, _)) return;
+        dps = perSecond;
+        seconds = SpreadPoisonSeconds(name => SourceStat(player, name));
+        foreach (var (mid, m) in player.Area.Monsters)
         {
-            if (conn.PlayerLife == 0) return;
-            double now = ProjectileWorldTime(conn);
-            if (dead.Poisons.Strongest(now) is not var (perSecond, _)) return;
-            dps = perSecond;
-            seconds = SpreadPoisonSeconds(name => SourceStat(conn, name));
-            foreach (var (_, m) in conn.Monsters)
+            if (ReferenceEquals(m, dead) || m.Dead || m.Life == 0 || !m.Hostile
+                || Dist(m.Walk.Position(now), kill.At) > PoisonSpreadRadius) continue;
+            if (m.Effects[Stat.CannotBePoisoned] != 0) continue;
+            int avoid = m.Effects[Stat.AvoidPoisonPct];
+            if (avoid > 0 && RandomRolls.Chance(avoid, 100, AreaRng(player))) continue;
+            double lasts = seconds * MonsterPoisons.SelfDuration(name => m.Effects[name]);
+            if (m.Poisons.Add(now, dps, lasts))
             {
-                if (ReferenceEquals(m, dead) || m.Dead || m.Life == 0 || !m.Hostile
-                    || Dist(m.Walk.Position(now), kill.At) > PoisonSpreadRadius) continue;
-                if (m.Effects["cannot_be_poisoned"] != 0) continue;
-                int avoid = m.Effects["avoid_poison_%"];
-                if (avoid > 0 && RandomRolls.Chance(avoid, 100, Random.Shared)) continue;
-                double lasts = seconds * MonsterPoisons.SelfDuration(name => m.Effects[name]);
-                if (!m.Poisons.Add(now, dps, lasts)) continue;
-                InflictedLocked(conn, m, AilmentType.Poison, now + lasts);
+                player.Area.ActivePoisonMonsters.Add(mid);
+                InflictedLocked(player, m, AilmentType.Poison, now + lasts);
                 spread++;
             }
-            if (spread > 0) ReservationPoisonLocked(conn, now);
-            if (regenerates)
-                foreach (var ally in conn.Monsters.Values)
-                    if (ally is { Hostile: false, Dead: false, Life: > 0 }
-                        && Dist(ally.Walk.Position(now), kill.At) <= PoisonSpreadRadius)
-                        AllySpreadPoisonRegenerations.GetValue(ally, _ => new()).Grant(now, seconds, trackRecovery: true);
         }
+        if (spread > 0) ReservationPoisonLocked(player, now);
+        if (regenerates)
+            foreach (var ally in player.Area.Monsters.Values)
+                if (ally is { Hostile: false, Dead: false, Life: > 0 }
+                    && Dist(ally.Walk.Position(now), kill.At) <= PoisonSpreadRadius)
+                    AllySpreadPoisonRegenerations.GetValue(ally, _ => new()).Grant(now, seconds, trackRecovery: true);
+        PresentStats(player);
         Console.WriteLine($"[gateway] Bino's: poison spread to {spread} enemies ({dps:0} dps, {seconds:0.0} s)");
         if (!regenerates) return;
-        bool self = false;
-        lock (conn.Monsters)
-            if (conn.PlayerLife > 0 && Dist(conn.Walk.Position(conn.Clock.Elapsed.TotalSeconds), kill.At) <= PoisonSpreadRadius)
-                self = SpreadPoisonRegenerationOf(conn).Grant(conn.Clock.Elapsed.TotalSeconds, seconds);
-        // Another player's grant is theirs, on their clock; their own tick presents it.
-        foreach (var peer in conn.Instance?.Presence.PlayersExcept(conn.PeerId) ?? [])
-            if (peer.Owner is { } other && peer.Current && peer.Life > 0 && Dist((peer.X, peer.Y), kill.At) <= PoisonSpreadRadius
-                && !other.Closed && !other.LeavingArea && SpreadPoisonRegenerationOf(other).Grant(other.Clock.Elapsed.TotalSeconds, seconds))
+        if (player.PlayerLife > 0 && Dist(player.Walk.Position(AreaTime(player)), kill.At) <= PoisonSpreadRadius)
+            SpreadPoisonRegenerationOf(player).Grant(AreaTime(player), seconds);
+        // Another player's grant is theirs, on their clock; their Stats phase presents it.
+        foreach (var peer in player.Instance?.Presence.PlayersExcept(player.Id) ?? [])
+            if (peer is { } other && peer.PlayerLife > 0 && Dist(peer.Walk.Position(AreaTime(peer)), kill.At) <= PoisonSpreadRadius
+                && !other.Closed && !other.LeavingArea && SpreadPoisonRegenerationOf(other).Grant(AreaTime(other), seconds)
+                && Logged(true, () => PresentStats(other)))
                 Console.WriteLine($"[gateway] Bino's: regeneration granted to player 0x{peer.Id:x} for {seconds:0.0} s");
-        if (self && kill.CommittedOutput is null)
-        {
-            var (remote, stream, ciphers) = conn.Wire;
-            kill.Later(() => SendSpreadPoisonRegeneration(remote, stream, ciphers, conn));
-        }
     }
 
     /// <summary>The spread starts a fresh default-duration poison, with global duration modifiers. Its copied DPS
     /// already includes faster-poison modifiers; applying those a second time would shorten the new poison twice.</summary>
-    public static double SpreadPoisonSeconds(Func<string, int> get) => Ailments.PoisonDurationSeconds
-        * Math.Max(0, 1 + ((double)get("poison_duration_+%") + get("base_all_ailment_duration_+%")) / 100);
+    public static double SpreadPoisonSeconds(Func<uint, int> get) => Ailments.PoisonDurationSeconds
+        * Math.Max(0, 1 + ((double)get(Stat.PoisonDurationPlusPct) + get(Stat.BaseAllAilmentDurationPlusPct)) / 100);
 
     /// <summary>The regeneration's Life per minute while it applies (CharacterStatSources).</summary>
-    static Dictionary<uint, int> WithSpreadPoisonRegeneration(ClientState conn, Dictionary<uint, int> sources)
+    static Dictionary<uint, int> WithSpreadPoisonRegeneration(Player player, Dictionary<uint, int> sources)
     {
-        if (conn.PlayerLife == 0 || !SpreadPoisonRegenerationOf(conn).Applied || Stats.Key("base_life_regeneration_rate_per_minute") is not uint key)
+        if (player.PlayerLife == 0 || !SpreadPoisonRegenerationOf(player).Applied || !(Stat.BaseLifeRegenerationRatePerMinute is var key))
             return sources;
         var result = new Dictionary<uint, int>(sources);
         result[key] = result.GetValueOrDefault(key) + SpreadPoisonRegeneration.PerMinute;
         return result;
     }
 
-    public static byte[]? SpreadPoisonRegenerationPresentation(ClientState conn)
+    public static byte[]? SpreadPoisonRegenerationPresentation(Player player)
     {
-        lock (conn.Monsters)
-        {
-            if (conn.Closed || conn.LeavingArea || conn.RageRetired) return null;
-            double now = ProjectileWorldTime(conn);
-            foreach (var (id, monster) in conn.Monsters)
-                if (AllySpreadPoisonRegenerations.TryGetValue(monster, out var ally)
-                    && ally.Present(now, !monster.Dead && monster.Life > 0, () => conn.NextBuff++) is var (gone, fresh, _))
-                {
-                    if (gone != 0) conn.Minions.OutputQueue.Add(new(InstanceEntities.RemoveBuff(id, gone), null, WorldId: id));
-                    if (fresh is var (instance, duration))
-                        conn.Minions.OutputQueue.Add(new(InstanceEntities.AddBuff(id, instance, SpreadPoisonRegeneration.BuffRow, PlayerId,
-                            u68: BitConverter.SingleToUInt32Bits((float)duration)), null, WorldId: id));
-                }
-            var regeneration = SpreadPoisonRegenerationOf(conn);
-            if (regeneration.Present(conn.Clock.Elapsed.TotalSeconds, conn.PlayerLife > 0, () => conn.NextBuff++)
-                is not var (removed, added, stats)) return null;
-            var bytes = new List<byte>();
-            if (removed != 0) bytes.AddRange(InstanceEntities.RemoveBuff(PlayerId, removed));
-            if (added is var (buff, seconds))
-                bytes.AddRange(InstanceEntities.AddBuff(PlayerId, buff, SpreadPoisonRegeneration.BuffRow, PlayerId,
-                    u68: BitConverter.SingleToUInt32Bits((float)seconds)));
-            if (stats)
+        if (player.Closed || player.LeavingArea || player.RageRetired) return null;
+        double now = ProjectileWorldTime(player), clock = AreaTime(player);
+        foreach (var (_, monster) in player.Area.Monsters)
+            if (AllySpreadPoisonRegenerations.TryGetValue(monster, out var ally) && ally.Until > now)
+                PresentIn(player, ally.Until - now);
+        if (SpreadPoisonRegenerationOf(player).Until > clock) PresentIn(player, SpreadPoisonRegenerationOf(player).Until - clock);
+        foreach (var (id, monster) in player.Area.Monsters)
+            if (AllySpreadPoisonRegenerations.TryGetValue(monster, out var ally)
+                && ally.Present(now, !monster.Dead && monster.Life > 0, () => player.NextBuff++) is var (gone, fresh, _))
             {
-                RecomputePoolsAndSpeed(conn);
-                bytes.AddRange(PlayerStatsUpdateAtGate(conn, PlayerStatsWithCleared(conn)));
-                Console.WriteLine($"[gateway] Bino's regeneration {(added is var (_, s) ? $"started, {s:0.0} s" : "ended")}");
+                if (fresh is var (_, duration))
+                    player.Area.Buffs.Set(id, new(SpreadPoisonRegeneration.BuffRow, player.Id, U68: Buff.Seconds(duration)));
+                else if (gone != 0) player.Area.Buffs.Clear(id, SpreadPoisonRegeneration.BuffRow, player.Id);
             }
-            return [.. bytes];
+        var regeneration = SpreadPoisonRegenerationOf(player);
+        if (regeneration.Present(AreaTime(player), player.PlayerLife > 0, () => player.NextBuff++)
+            is not var (removed, added, stats)) return null;
+        var bytes = new List<byte>();
+        if (added is var (_, seconds))
+            player.Area.Buffs.Set(player.Id, new(SpreadPoisonRegeneration.BuffRow, player.Id, U68: Buff.Seconds(seconds)));
+        else if (removed != 0) player.Area.Buffs.Clear(player.Id, SpreadPoisonRegeneration.BuffRow, player.Id);
+        if (stats)
+        {
+            MarkPlayerStats(player, PlayerStatStep.Sources);
+            RecomputePoolsAndSpeed(player);
+            bytes.AddRange(PlayerStatsOffFrames(player));
+            Console.WriteLine($"[gateway] Bino's regeneration {(added is var (_, s) ? $"started, {s:0.0} s" : "ended")}");
         }
+        return [.. bytes];
     }
 
-    public static Task SendSpreadPoisonRegeneration(string remote, NetworkStream stream, ConnectionCiphers ciphers, ClientState conn) =>
-        Send(remote, stream, ciphers, [], null, atGate: () => SpreadPoisonRegenerationPresentation(conn));
+    public static Task SendSpreadPoisonRegeneration(Player player) =>
+        Send(player, [], null, atGate: () => SpreadPoisonRegenerationPresentation(player));
 }

@@ -31,7 +31,7 @@ public class FleshAndStoneAuraTests
         var together = AuraCatalog.Bonus([haste, stronger], 0, skills, Program.Stats);
         Assert.Equal(Math.Max(own.AttackSpeedPct, external.AttackSpeedPct), together.AttackSpeedPct);
         Assert.Equal(Math.Max(own.MovementVelocityPct, external.MovementVelocityPct), together.MovementVelocityPct);
-        uint cast = Program.Stats.Key("cast_speed_+%")!.Value;
+        uint cast = Stat.CastSpeedPlusPct;
         Assert.Equal(30, AuraCatalog.RawStats([haste, stronger], 0, skills, Program.Stats).Single(p => p.Key == cast).Value);
     }
 
@@ -47,7 +47,7 @@ public class FleshAndStoneAuraTests
 
         int reduction = AuraCatalog.FleshAndStoneDamageReduction(sand, 0, skills, Program.Stats);
         Assert.NotEqual(0, reduction);
-        uint? takenKey = Program.Stats.Key("base_damage_taken_+%");
+        uint? takenKey = Stat.BaseDamageTakenPlusPct;
         Assert.NotNull(takenKey);
         var sandStats = AuraCatalog.RawStats([sand], 0, skills, Program.Stats).ToDictionary(x => x.Key, x => x.Value);
         Assert.DoesNotContain(takenKey!.Value, sandStats.Keys); // An enemy-distance reduction is never a global reduced-taken stat.

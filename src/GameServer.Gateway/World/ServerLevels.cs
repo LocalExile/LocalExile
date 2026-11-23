@@ -14,6 +14,12 @@ using LeagueCategory = GameServer.Core.World.LeagueCategory;
 /// files extracted to data/game-files.zip (<see cref="GamePack"/>); Game_SERVER_LEVELS=0 turns it off.</summary>
 public static class ServerLevels
 {
+    /// <summary>Fills this type's game data at startup (the world loader, before the Gateway listens).</summary>
+    public static void LoadGameData()
+    {
+        Levels = LoadLevels();
+    }
+
     public const string UnsupportedMessage = "This map is generated on client-side and is not supported yet by the Server.";
 
     /// <summary>A generated layout: Width × Height cells, one walk value (0 … 5, walkable from 2) and one ground height
@@ -452,9 +458,21 @@ public static class ServerLevels
     // Opened on the first generation and kept.
     static TerrainCache Files() => _files ??= new TerrainCache(Read);
 
+    static readonly System.Collections.Concurrent.ConcurrentDictionary<string, DoodadHull?> ModelHulls = new(StringComparer.OrdinalIgnoreCase);
+
+    /// <summary>The cells a model's Hull (its .ao, or the .ao it extends) closes to the player where the object stands, as
+    /// the client stamps it (a static object's at its creation, a TriggerableBlockage's when it blocks): the stamped cells
+    /// and the ring a stamp gives a value under the player's 2 (<see cref="Walkability.ClosedTo"/>); empty when the model
+    /// has none.</summary>
+    public static HashSet<(int X, int Y)> ModelWalkCells(string model, int x, int y, float angle, float scale = 1, bool mirrored = false) =>
+        ModelHulls.GetOrAdd(model, m => DoodadHull.Load(Files().Text, m)) is { IsEmpty: false } hull
+            ? Walkability.ClosedTo(Walkability.WalkCells(hull, new PlacedDoodad(model, x, y, angle, scale, mirrored))) : [];
+
     static byte[]? Read(string path) => GamePack.Default.TryRead(path);
 
-    static readonly Lazy<Dictionary<string, int>> Levels = new(() =>
+    static Dictionary<string, int> Levels = default!;
+
+    static Dictionary<string, int> LoadLevels()
     {
         var levels = new Dictionary<string, int>(StringComparer.Ordinal);
         try
@@ -464,8 +482,8 @@ public static class ServerLevels
         }
         catch (Exception ex) when (ex is FileNotFoundException or InvalidOperationException or KeyNotFoundException) { }
         return levels;
-    });
+    }
 
     // The WorldAreas row's area level (the generator's AreaInfo reads level-dependent rows); 1 without the table.
-    public static int AreaLevel(string areaId) => Math.Max(1, Levels.Value.GetValueOrDefault(areaId, 1));
+    public static int AreaLevel(string areaId) => Math.Max(1, Levels.GetValueOrDefault(areaId, 1));
 }

@@ -7,10 +7,10 @@ public sealed class CharmPhysicalAddedTests
     [Fact]
     public void Global_physical_added_if_crit_recently_counts_for_attacks_and_spells()
     {
-        static int Get(string name) => name switch
+        static int Get(uint name) => name switch
         {
-            "minimum_added_physical_damage_if_have_crit_recently" => 12,
-            "maximum_added_physical_damage_if_have_crit_recently" => 22,
+            Stat.MinimumAddedPhysicalDamageIfHaveCritRecently => 12,
+            Stat.MaximumAddedPhysicalDamageIfHaveCritRecently => 22,
             _ => 0,
         };
         foreach (bool spell in new[] { false, true })

@@ -9,7 +9,7 @@ using DamageType = GameServer.Core.World.DamageType;
 /// friendly monsters into the player's surround; one with a teleport jumps back to him from beyond its aggro range),
 /// may fight his enemies, cast an aura and explode when it ends. Timed relics and chieftains leave with the connection;
 /// golems keep their activation separately across areas and can take hostile damage. Never kept by the instance.
-/// Guarded by the connection's Monsters lock.
+/// Owned by the area's frame.
 /// </summary>
 public sealed class PlayerMinions
 {
@@ -50,7 +50,7 @@ public sealed class PlayerMinions
         public bool Started;
     }
     public readonly Dictionary<uint, Attack> Attacks = [];
-    // Accepted gameplay finishes under Monsters; only neutral output/projection data crosses Game replacement.
+    // Accepted gameplay finishes in the area's frame; only neutral output/projection data crosses Game replacement.
     public enum OutputKind { Packet, Life, EnergyShield, Experience, Flinch, Remove, Vaal, QuestFlags, QuestKill, QuestTransition, QuestRoomRemove, PlayerKill, Charges, Passives, GemInventory, MonsterType, GolemAction, GolemIncoming, RighteousFireRing, GroundItem }
     /// <summary>An exact retained RF owner and ring id for create/wake output; never the generic monster-target path.</summary>
     public sealed record RighteousFireRingReceipt(RighteousFireState State, uint Ring);
@@ -104,8 +104,8 @@ public sealed class PlayerMinions
     }
 }
 
-public sealed partial class ClientState
+public sealed partial class Player
 {
-    /// <summary>The player's minions (PlayerMinions), under the Monsters lock.</summary>
+    /// <summary>The player's minions (PlayerMinions), in the area's frame.</summary>
     public readonly PlayerMinions Minions = new();
 }

@@ -50,13 +50,13 @@ public static partial class MapStrongboxes
     };
 
     /// <summary>The daemons of the box's mods: each mod's MonsterMetadata variety and that variety's GrantedEffects ids.</summary>
-    static List<(string Mod, string Daemon, string[] Skills)> Daemons(ClientState conn, StrongboxCatalog.Definition type, Box box)
+    static List<(string Mod, string Daemon, string[] Skills)> Daemons(Player player, StrongboxCatalog.Definition type, Box box)
     {
         var result = new List<(string, string, string[])>();
         var mods = ClientTables.TableOrEmpty("Mods");
         var varieties = ClientTables.TableOrEmpty("MonsterVarieties");
         var effects = ClientTables.TableOrEmpty("GrantedEffects");
-        foreach (var (mod, _) in StrongboxMods.Lines(ItemsFor(conn).Mods, type, box.Explicits))
+        foreach (var (mod, _) in StrongboxMods.Lines(ItemsFor(player).Mods, type, box.Explicits))
         {
             if (mods.Row(mod.Row) is not { } row || row.TextOrNull("MonsterMetadata") is not { Length: > 0 } daemon) continue;
             var variety = varieties.FirstOrDefault(v => v.Text("Id") == daemon);
@@ -67,13 +67,13 @@ public static partial class MapStrongboxes
     }
 
     /// <summary>The waves of the box's summoning daemons, the first at <paramref name="now"/>.</summary>
-    static List<Wave> SummonWaves(ClientState conn, StrongboxCatalog.Definition type, Box box, DateTime now, Random random)
+    static List<Wave> SummonWaves(Player player, StrongboxCatalog.Definition type, Box box, DateTime now, Random random)
     {
         var waves = new List<Wave>();
-        var skills = SkillsFor(conn);
-        int level = AreaLevel(conn);
+        var skills = SkillsFor(player);
+        int level = AreaLevel(player);
         int spot = 0;
-        foreach (var (mod, daemon, effects) in Daemons(conn, type, box))
+        foreach (var (mod, daemon, effects) in Daemons(player, type, box))
             foreach (string skill in effects)
             {
                 if (CoveredSummons.Contains(skill)) continue;
@@ -81,7 +81,7 @@ public static partial class MapStrongboxes
                 if (row < 0) continue;
                 var stats = skills.EffectStats(row, Math.Clamp(level, 1, 100)).ToDictionary(s => s.Item1, s => s.Item2);
                 int Get(string name) => Stats.Key(name) is uint key ? stats.GetValueOrDefault(key) : 0;
-                var pool = SummonPool(conn, skill, skills.MonsterSummon(row, level)?.Variety, level, random);
+                var pool = SummonPool(player, skill, skills.MonsterSummon(row, level)?.Variety, level, random);
                 if (pool.Length == 0) continue;
                 int count = Math.Max(1, Get("number_of_monsters_to_summon") + Get("number_of_melee_skeletons_to_summon"));
                 int repeats = Get("skill_repeat_count");
@@ -95,7 +95,7 @@ public static partial class MapStrongboxes
                     {
                         int variety = distinct ? pool[i % pool.Length] : pool[random.Next(pool.Length)];
                         double angle = spot++ * 2.399963229728653;
-                        var (x, y) = conn.Layout.Near((box.X + (int)Math.Round(Math.Cos(angle) * 7), box.Y + (int)Math.Round(Math.Sin(angle) * 7)));
+                        var (x, y) = player.Layout.Near((box.X + (int)Math.Round(Math.Cos(angle) * 7), box.Y + (int)Math.Round(Math.Sin(angle) * 7)));
                         spawns.Add(new(variety, x, y, rarity, skill));
                     }
                     waves.Add(new((now + TimeSpan.FromSeconds(wave * interval)).Ticks, spawns));
@@ -106,7 +106,7 @@ public static partial class MapStrongboxes
     }
 
     /// <summary>The monsters a summon skill may bring, as supported MonsterVarieties rows.</summary>
-    static int[] SummonPool(ClientState conn, string skill, int? variety, int level, Random random)
+    static int[] SummonPool(Player player, string skill, int? variety, int level, Random random)
     {
         IEnumerable<int> rows;
         if (variety is int v) rows = [v];
@@ -119,7 +119,7 @@ public static partial class MapStrongboxes
                 .Select(r => r.IntOrNull("MonsterVarietiesKey") ?? -1);
         // Rallying's stream: the area's own monsters.
         else if (skill == "ChestSummonMonstersContinuous")
-            rows = (Packs.For(conn.Layout.Id)?.Scattered ?? []).SelectMany(p => p.Pack.Entries).Select(e => e.Variety);
+            rows = (Packs.For(player.Layout.Id)?.Scattered ?? []).SelectMany(p => p.Pack.Entries).Select(e => e.Variety);
         else return [];
         return [.. rows.Distinct().Where(r => r >= 0 && Monsters.Find(r.ToString()) is { Supported: true })];
     }
