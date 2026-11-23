@@ -603,7 +603,7 @@ public static partial class Game
                     if (spendPct > 0)
                     {
                         if (SupportedSkill(player, brand.SkillId).Effect != brand.Effect ||
-                            !PayMana(player, brand.SkillId, out var mana, out var life, spendPct)) continue;
+                            !PayMana(player, brand.SkillId, out var mana, out var life, spendPct, useSpell: false)) continue;
                         paid |= mana > 0 || life > 0;
                         extraLifeSpent += life;
                     }
@@ -1583,7 +1583,7 @@ public static partial class Game
         var resistMods = HitResistMods(playerStats, gem.Stats);
 
         var (damage, _, mitigated) = MonsterHitDamage(m, rolled, critical, attack: false, now, resistMods, pen,
-            gambler.InvertsResistance(AreaRng(player)));
+            gambler.InvertsResistance(AreaRng(player)), AreaRng(player));
         if (critical) damage = DamageModel.CriticalDamage(damage, critMult);
         if (damage <= 0) return;
 

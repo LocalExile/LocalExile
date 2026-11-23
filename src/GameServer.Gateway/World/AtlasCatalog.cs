@@ -15,14 +15,20 @@ public sealed class AtlasCatalog
     {
         this.catalog = catalog;
         this.folder = folder;
-        _layouts = LoadLayouts(folder);
-        _keyTiers = LoadKeyTiers(catalog, folder);
+        (_keyTiers, _specialKeys) = LoadKeys(catalog, folder);
+        _layouts = LoadLayouts(catalog, folder);
     }
 
-    public sealed record Layout(string Id, ushort Hash16, string Name, int Tier, bool Starting);
+    public sealed record Layout(string Id, ushort Hash16, string Name, int Tier, bool Starting)
+    {
+        public bool RequiresSpecificItem { get; init; }
+        public uint? RequiredKeyHash { get; init; }
+        public int AreaLevel { get; init; }
+    }
 
     readonly IReadOnlyList<Layout> _layouts;
     readonly IReadOnlyDictionary<uint, int> _keyTiers;
+    readonly IReadOnlySet<uint> _specialKeys;
 
     public IReadOnlyList<Layout> Layouts => _layouts;
 
@@ -44,13 +50,28 @@ public sealed class AtlasCatalog
     /// <summary>The map tier of a generic MapKey base item, or null for an old area-named map.</summary>
     public int? TierOf(uint itemType) => _keyTiers.TryGetValue(itemType, out int tier) ? tier : null;
 
-    public uint? KeyOfTier(int tier) => _keyTiers.FirstOrDefault(kv => kv.Value == tier) is { Key: not 0 } hit ? hit.Key : null;
+    /// <summary>Whether this MapKey base item is a special key (MapKeys.IsSpecial) reserved for specific layouts.</summary>
+    public bool IsSpecialKey(uint itemType) => _specialKeys.Contains(itemType);
 
-    static IReadOnlyList<Layout> LoadLayouts(string folder)
+    public uint? KeyOfTier(int tier)
+    {
+        uint? fallback = null;
+        foreach (var (key, value) in _keyTiers)
+        {
+            if (value != tier) continue;
+            if (!_specialKeys.Contains(key)) return key;
+            fallback ??= key;
+        }
+        return fallback;
+    }
+
+    static IReadOnlyList<Layout> LoadLayouts(ItemCatalog catalog, string folder)
     {
         if (!ClientTables.Has("AtlasNode") || !ClientTables.Has("WorldAreas")) return [];
         var n = ClientTables.Table("AtlasNode");
         var a = ClientTables.Table("WorldAreas");
+        var deviceLayouts = ClientTables.Has("MapDeviceLayouts") ? ClientTables.Table("MapDeviceLayouts") : null;
+        var mapKeys = ClientTables.Has("MapKeys") ? ClientTables.Table("MapKeys") : null;
         var result = new List<Layout>();
         foreach (var row in n)
         {
@@ -60,22 +81,38 @@ public sealed class AtlasCatalog
             if (index < 0 || index >= a.Count) continue;
             var wa = a[index];
             if (wa.IntOrNull("HASH16") is not int hash) continue;
+            uint? requiredKey = null;
+            if (deviceLayouts is not null && mapKeys is not null
+                && row.IntOrNull("MapDeviceLayout") is int layoutRow && layoutRow >= 0 && layoutRow < deviceLayouts.Count
+                && deviceLayouts[layoutRow].IntOrNull("MapKey") is int mapKeyRow && mapKeyRow >= 0 && mapKeyRow < mapKeys.Count
+                && mapKeys[mapKeyRow].IntOrNull("BaseItemType") is int baseRow
+                && catalog.Row(baseRow) is { } keyType)
+                requiredKey = keyType.Hash;
             result.Add(new(row.Text("Id") ?? "", (ushort)hash,
                 wa.Text("Name") ?? "", row.Int("Tier"),
-                row.Bool("StartingNode")));
+                row.Bool("StartingNode"))
+            {
+                RequiresSpecificItem = row.Bool("RequiresSpecificItem"),
+                RequiredKeyHash = requiredKey,
+                AreaLevel = wa.IntOrNull("AreaLevel") ?? 0,
+            });
         }
         return result;
     }
 
-    static IReadOnlyDictionary<uint, int> LoadKeyTiers(ItemCatalog catalog, string folder)
+    static (IReadOnlyDictionary<uint, int> Tiers, IReadOnlySet<uint> Special) LoadKeys(ItemCatalog catalog, string folder)
     {
-        if (!ClientTables.Has("MapKeys")) return new Dictionary<uint, int>();
+        var tiers = new Dictionary<uint, int>();
+        var special = new HashSet<uint>();
+        if (!ClientTables.Has("MapKeys")) return (tiers, special);
         var doc = ClientTables.Table("MapKeys");
-        var result = new Dictionary<uint, int>();
         foreach (var row in doc)
             if (row.IntOrNull("BaseItemType") is int baseRow &&
                 catalog.Row(baseRow) is { } type && row.IntOrNull("MapTier") is int tier)
-                result.TryAdd(type.Hash, tier);
-        return result;
+            {
+                tiers.TryAdd(type.Hash, tier);
+                if (row.Bool("IsSpecial")) special.Add(type.Hash);
+            }
+        return (tiers, special);
     }
 }

@@ -36,9 +36,11 @@ Dispatcher case 6. Class `0x1435e4c20` (0x168 bytes, ctor `0x1421a42b0`), write 
 | 22 | vec16⟨u8⟩ | +0x150 | only if flag 0x22 bit 2 |
 
 Flag bits read by the handler (from the 3 bytes at +0x21): 0, 1, 2, 4, 5 (inverted) → `+0xc3e5..` bytes; 0xc, 0xd, 0xe →
-world setters; 3 = second area hash; 2 → `0x142149680`; 0xa → `0x1421495e0(+0x150)`; 0xf → with the area's own flag.
+world setters; 3 = second area hash (`AreaState +0xc0` via `0x142149620`, Delve return area); 2 → `0x142149680`;
+0xa → `0x1421495e0(+0x150)`; 0xf (byte 1 bit `0x80`) → `AreaState +0xda` via `0x142149670` in hideouts.
 
-`AreaInstance.Encode()` defaults to the minimal form, with optional league stat lists and extra terrain data.
+`AreaInstance.Encode()` defaults to the minimal form, with optional league stat lists, hideout permissions, return area
+hash and extra terrain data.
 `TerrainData` sets flag 0x22 bit 2 and appends a big-endian u16 byte count followed by the extra-data bytes.
 The extra-data decoder (`0x141ecdad0`) has its own two-byte flags and little-endian nested records.
 Its first flag byte's bit 5 selects the Delve terrain block (`0x141ecc7d0`).
@@ -67,9 +69,12 @@ An old real-server session in `Client/logs/Client.txt` (2026-02-13, Highgate) ha
 
 ## 2. C→S 0x7d: area generated
 
-When generation finishes, the tick (`0x14214f1d0`, flag `+0xe1f9`) sends **0x7d** with two u32 from world `+0x114`:
-the **tile hash** and the **doodad hash** that were just logged. Live: `007D 43E6886D 8EA8DD43` (0x43E6886D =
-1139181677, 0x8EA8DD43 = 2393431363). The Gateway sends the player and enters the area on this message.
+When generation finishes, the tick (`0x14214f1d0`, flag `+0xe1f9`) sends **0x7d** with two u32 BE hashes from world `+0x114`:
+the **tile hash** (`0x142054070`) and the **doodad hash** (`0x142048e20`) that were just logged. Live: `007D 43E6886D 8EA8DD43`
+(0x43E6886D = 1139181677, 0x8EA8DD43 = 2393431363). `InstanceProtocol.ReadAreaGenerated` parses both hashes; the Gateway logs
+them, stores them on `Player`, and when `ServerLevels` generated the area compares `TileHash` against
+`ServerLevels.Level.TileHash` (flagging `Player.LevelDesynced`, logging a warning, and notifying the player in chat on a
+non-zero mismatch) before entering the area.
 
 ## 3. S→C 0x22: local player id
 

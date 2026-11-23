@@ -32,7 +32,7 @@ public static partial class Game
     public static bool TriggerGuardReady(Player player, double now) => CurrentTriggeredGuard(player, now)
         is not { } guard || guard.Until == 0 && now >= guard.ReadyAt;
 
-    static void EndTriggeredGuard(Player player, TriggeredGuard guard, double now)
+    static void EndTriggeredGuard(Player player, TriggeredGuard guard, double now, bool triggerExplosion = true)
     {
         guard.Until = 0;
         guard.ReadyAt = now + guard.RecoverySeconds;
@@ -43,7 +43,7 @@ public static partial class Game
         if (guard.Session is not { } session) return;
         ushort buff = guard.Buff; guard.Buff = 0;
         if (buff != 0) player.Area.Buffs.Clear(player.Id, GuardRow(guard.Effect), player.Id);
-        if (guard.Effect == "MoltenShell" && guard.Absorbed > 0)
+        if (triggerExplosion && guard.Effect == "MoltenShell" && guard.Absorbed > 0)
         {
             double reflected = guard.Absorbed * guard.Reflection / 100d;
             int radius = SkillRadius(player, guard.Gem!.Stats, true, guard.Gem.Effect);
@@ -176,10 +176,13 @@ public static partial class Game
             guard.Percent = Math.Clamp(Own(Stat.MoltenShellDamageAbsorbedPct), 0, 100);
             guard.Reflection = Own(Stat.MoltenShellPctOfAbsorbedDamageDealtAsReflectedFire);
         }
+        duration /= RecipientEffectTime.Rate(1, key => GolemStat(playerStats, key));
         guard.Until = now + duration;
         // It ends at Until (Molten Shell reflects then), whoever reads it first.
         AfterSeconds(player, duration, () => { _ = CurrentTriggeredGuard(player, AreaTime(player)); });
-        double recovery = Math.Max(0, 1 + Get(Stat.VirtualCooldownSpeedPlusPct) / 100d + Own(Stat.BaseCooldownSpeedPlusPct) / 100d);
+        double recovery = CooldownForSkill(player, skill)?.RecoveryRate
+            ?? Math.Max(0, 1 + ((double)Get(Stat.VirtualCooldownSpeedPlusPct) + Own(Stat.BaseCooldownSpeedPlusPct)
+                + Get(Stat.GuardSkillCooldownRecoveryPlusPct)) / 100d);
         guard.RecoverySeconds = recovery > 0 ? SkillsFor(player).CooldownMs(gem.Effect, gem.Level) / 1000d / recovery : double.PositiveInfinity;
         player.Pools = PoolsFor(player, player.Pools.Level);
         if (guard.Effect == "MoltenShell")

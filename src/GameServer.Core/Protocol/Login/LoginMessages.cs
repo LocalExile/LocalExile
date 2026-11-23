@@ -149,7 +149,7 @@ public sealed record List15(IReadOnlyList<ListEntry15> Entries, byte B28, byte B
 /// <item>Flags0 (+0xe0): bit 0 private (password box), bit 1 hardcore (confirmation, hardcore banner), bit 4 shown only
 /// while +0xc8 is in the future, bit 7 main league (gets a card). Flags1 (+0xe1): bit 1 variant (no card of its own),
 /// bit 5 hidden on some platforms, bit 6 ruthless (confirmation). Flags2 (+0xe2): bit 0 counted into login+0xe58.</item>
-/// <item>StartStateSet (+0xc0): CharacterStartStateSet row for new characters. C1 (+0xc1): 1 scrolls to the league's card.</item>
+/// <item>StartStateSet (+0xc0): CharacterStartStateSet row for new characters. C1 (+0xc1): LeagueCategory id (compared against ActiveSettings.Current = 59 at 0x140d1800b for the current challenge league launch plaque).</item>
 /// </list>
 /// Description (+0x40, view +0x30): the card text, a ClientStrings-style key when it starts with '#'; empty crashes the
 /// client ("invalid string position", 0x140cc9370). The times (+0xd0, +0xd8, +0xc8, little-endian) are unconfirmed;

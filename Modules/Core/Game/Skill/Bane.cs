@@ -44,7 +44,7 @@ public static partial class Game
         }
         {
             var live = SupportedSkill(player, skill);
-            if (player.Closed || player.LeavingArea || !current() || !SameSocketedSkillSource(gem, live)) return;
+            if (player.Closed || player.LeavingArea || !current() || !SameLinkedSkillSource(gem, live)) return;
             BaneContactLocked(player, skill, live, SpellCentre(player, gem.Effect, from, to), radiusMore, ProjectileWorldTime(player));
         }
     }

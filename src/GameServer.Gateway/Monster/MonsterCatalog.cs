@@ -352,19 +352,50 @@ public sealed class MonsterCatalog
         static int Column(ClientRow row, string name) =>
             (row.IntOrNull(name) ?? 0);
         var (visualHashes, classStances) = WeaponTables();
-        // The ItemClasses row of bows, and the type and stance of a model entry that is no weapon (as Game.BowSetup's).
-        int bowClass = ClientTables.Has("ItemClasses")
-            ? ClientTables.Table("ItemClasses").Select(r => r.Text("Id")).ToList().IndexOf("Bow") : -1;
+        // The ItemClasses rows for bows and armour pieces, and the type and stance of a model entry that is no weapon
+        // (as Game.BowSetup's).
         const byte NoWeaponType = 0x68, NoStance = 0xff;
+        int bowClass = -1, bodyArmourClass = -1, helmetClass = -1, glovesClass = -1, bootsClass = -1;
+        if (ClientTables.Has("ItemClasses"))
+        {
+            var itemClasses = ClientTables.Table("ItemClasses");
+            for (int i = 0; i < itemClasses.Count; i++)
+            {
+                switch (itemClasses[i].Text("Id"))
+                {
+                    case "Bow": bowClass = i; break;
+                    case "Body Armour": bodyArmourClass = i; break;
+                    case "Helmet": helmetClass = i; break;
+                    case "Gloves": glovesClass = i; break;
+                    case "Boots": bootsClass = i; break;
+                }
+            }
+        }
+        static byte ClassType(int row) => row is >= 0 and < 255 ? (byte)(row + 1) : NoWeaponType;
+        byte bodyType = ClassType(bodyArmourClass), helmetType = ClassType(helmetClass),
+            glovesType = ClassType(glovesClass), bootsType = ClassType(bootsClass);
+        var monsterArmours = MonsterArmourVisuals(bodyType, helmetType, glovesType, bootsType);
         IReadOnlyList<GameServer.Core.Protocol.Instance.VisibleItem> Weapons(ClientRow row)
         {
             var held = new List<GameServer.Core.Protocol.Instance.VisibleItem>();
+            int usedSlots = 0;
+            void AddSlot(GameServer.Core.Protocol.Instance.VisibleItem item)
+            {
+                if ((usedSlots & (1 << item.Slot)) != 0) return;
+                usedSlots |= 1 << item.Slot;
+                held.Add(item);
+            }
             void Hold(byte slot, string visuals, string itemClass)
             {
                 int visual = row.Ints(visuals).FirstOrDefault(-1);
                 if (visual < 0 || row.IntOrNull(itemClass) is not int type) return;
                 if (visual < visualHashes.Count && type < classStances.Count && type < 255)
-                    held.Add(new(slot, visualHashes[visual], classStances[type], (byte)(type + 1)));
+                    AddSlot(new(slot, visualHashes[visual], classStances[type], (byte)(type + 1)));
+            }
+            void Visual(byte slot, int visual, byte type = NoWeaponType)
+            {
+                if (visual >= 0 && visual < visualHashes.Count)
+                    AddSlot(new(slot, visualHashes[visual], NoStance, type));
             }
             Hold(0, "Weapon1_ItemVisualIdentityKeys", "MainHand_ItemClassesKey");
             // A bow is held as a player's is (13-items.md "Bow model records"): the row's Weapon1 is the arrow in the
@@ -372,15 +403,14 @@ public sealed class MonsterCatalog
             // (slot 7), both of those no weapon (0x68) and no stance. The row names no off-hand class for it: every one
             // of the 518 bow varieties lists the arrow first and the bow second (Ainsley Varrich held only an arrow).
             if (bowClass >= 0 && row.IntOrNull("MainHand_ItemClassesKey") == bowClass && row.IsNull("OffHand_ItemClassesKey"))
-            {
-                void Worn(byte slot, int visual)
-                {
-                    if (visual >= 0 && visual < visualHashes.Count) held.Add(new(slot, visualHashes[visual], NoStance, NoWeaponType));
-                }
-                Worn(1, row.Ints("Weapon2_ItemVisualIdentityKeys").FirstOrDefault(-1));
-                Worn(7, row.IntOrNull("Back_ItemVisualIdentityKey") ?? -1);
-            }
-            else Hold(1, "Weapon2_ItemVisualIdentityKeys", "OffHand_ItemClassesKey");
+                Visual(1, row.Ints("Weapon2_ItemVisualIdentityKeys").FirstOrDefault(-1));
+            else
+                Hold(1, "Weapon2_ItemVisualIdentityKeys", "OffHand_ItemClassesKey");
+            // Client 0x1416632b0: slot 4 = Head_Attachment (helmet), slot 7 = Back (quiver, cloak, wings).
+            if (row.IntOrNull("Helmet_ItemVisualIdentityKey") is int helmet) Visual(4, helmet, helmetType);
+            if (row.IntOrNull("Back_ItemVisualIdentityKey") is int back) Visual(7, back);
+            if (row.IntOrNull("MonsterArmoursKey") is int armourKey && armourKey >= 0 && armourKey < monsterArmours.Count)
+                foreach (var piece in monsterArmours[armourKey]) AddSlot(piece);
             return held;
         }
         var rows = new List<Variety>();
@@ -442,6 +472,110 @@ public sealed class MonsterCatalog
         if (!ClientTables.Has("ItemVisualIdentity") || !ClientTables.Has("ItemClasses")) return ([], []);
         return ([.. ClientTables.Table("ItemVisualIdentity").Select(r => (ushort)r.Int("HASH16"))],
             [.. ClientTables.Table("ItemClasses").Select(r => r.IntOrNull("ItemStance") is int s ? (byte)s : (byte)0xff)]);
+    }
+
+    static readonly string[] VisualSmColumns =
+    [
+        "SMFiles", "MarauderSMFiles", "RangerSMFiles", "WitchSMFiles",
+        "DuelistDexSMFiles", "TemplarSMFiles", "ShadowSMFiles", "ScionSMFiles",
+    ];
+
+    static string? ArmourFolderKey(string normalizedPath)
+    {
+        int start = normalizedPath.IndexOf("items/armours/", StringComparison.OrdinalIgnoreCase);
+        if (start < 0) return null;
+        string rel = normalizedPath[start..];
+        int slash = rel.LastIndexOf('/');
+        if (slash <= "items/armours/".Length) return null;
+        string folder = rel[..slash];
+        string leaf = folder[(folder.LastIndexOf('/') + 1)..];
+        if (leaf.Equals("bodyarmours", StringComparison.OrdinalIgnoreCase)
+            || leaf.Equals("helmets", StringComparison.OrdinalIgnoreCase)
+            || leaf.Equals("gloves", StringComparison.OrdinalIgnoreCase)
+            || leaf.Equals("boots", StringComparison.OrdinalIgnoreCase)
+            || leaf.Equals("unique", StringComparison.OrdinalIgnoreCase)
+            || leaf.Equals("microtransactions", StringComparison.OrdinalIgnoreCase))
+            return null;
+        return folder;
+    }
+
+    static string? ArmourAoStemKey(string normalizedPath)
+    {
+        if (!normalizedPath.EndsWith(".ao", StringComparison.OrdinalIgnoreCase)) return null;
+        int start = normalizedPath.IndexOf("items/armours/", StringComparison.OrdinalIgnoreCase);
+        if (start < 0) return null;
+        return normalizedPath[start..^3];
+    }
+
+    // Resolves MonsterArmours.ArtString_SMFile entries into Actor model slots (2=BodyArmour, 4=Helmet, 5=Gloves, 6=Boots)
+    // matching ItemVisualIdentity HASH16 values by exact .sm path first, then by armour folder key.
+    static List<IReadOnlyList<GameServer.Core.Protocol.Instance.VisibleItem>> MonsterArmourVisuals(
+        byte bodyType, byte helmetType, byte glovesType, byte bootsType)
+    {
+        if (!ClientTables.Has("MonsterArmours") || !ClientTables.Has("ItemVisualIdentity")) return [];
+        const byte noStance = 0xff;
+        var bySmFile = new Dictionary<string, ushort>(StringComparer.OrdinalIgnoreCase);
+        var byArmourFolder = new Dictionary<string, ushort>(StringComparer.OrdinalIgnoreCase);
+        foreach (var row in ClientTables.Table("ItemVisualIdentity"))
+        {
+            ushort hash = (ushort)row.Int("HASH16");
+            foreach (string col in VisualSmColumns)
+            {
+                foreach (string raw in row.Texts(col))
+                {
+                    if (string.IsNullOrWhiteSpace(raw)) continue;
+                    string norm = raw.Replace('\\', '/');
+                    bySmFile.TryAdd(norm, hash);
+                    if (ArmourFolderKey(norm) is string folder) byArmourFolder.TryAdd(folder, hash);
+                }
+            }
+            foreach (string aoCol in new[] { "AOFile", "AOFile2" })
+            {
+                if (row.Text(aoCol) is not { Length: > 0 } ao) continue;
+                string norm = ao.Replace('\\', '/');
+                if (ArmourAoStemKey(norm) is string stem) byArmourFolder.TryAdd(stem, hash);
+                if (ArmourFolderKey(norm) is string folder) byArmourFolder.TryAdd(folder, hash);
+            }
+        }
+        var result = new List<IReadOnlyList<GameServer.Core.Protocol.Instance.VisibleItem>>();
+        foreach (var row in ClientTables.Table("MonsterArmours"))
+        {
+            string? art = row.Text("ArtString_SMFile");
+            if (string.IsNullOrWhiteSpace(art)) { result.Add([]); continue; }
+            var pieces = new List<GameServer.Core.Protocol.Instance.VisibleItem>();
+            int usedSlots = 0;
+            foreach (string group in art.Split('&', StringSplitOptions.RemoveEmptyEntries))
+            {
+                foreach (string variant in group.Split('!', StringSplitOptions.RemoveEmptyEntries))
+                {
+                    string clean = variant;
+                    int tilde = clean.IndexOf('~');
+                    if (tilde >= 0) clean = clean[..tilde];
+                    int dash = clean.IndexOf(" -", StringComparison.Ordinal);
+                    if (dash >= 0) clean = clean[..dash];
+                    string sm = clean.Trim().Replace('\\', '/');
+                    if (!sm.EndsWith(".sm", StringComparison.OrdinalIgnoreCase))
+                        sm = sm.Split(' ', StringSplitOptions.RemoveEmptyEntries)
+                            .FirstOrDefault(p => p.EndsWith(".sm", StringComparison.OrdinalIgnoreCase)) ?? "";
+                    if (sm.Length == 0) continue;
+                    (byte Slot, byte Type)? target = sm.Contains("/bodyarmours/", StringComparison.OrdinalIgnoreCase)
+                        ? ((byte)2, bodyType)
+                        : sm.Contains("/helmets/", StringComparison.OrdinalIgnoreCase) ? ((byte)4, helmetType)
+                        : sm.Contains("/gloves/", StringComparison.OrdinalIgnoreCase) ? ((byte)5, glovesType)
+                        : sm.Contains("/boots/", StringComparison.OrdinalIgnoreCase) ? ((byte)6, bootsType)
+                        : null;
+                    if (target is not { } t || (usedSlots & (1 << t.Slot)) != 0) continue;
+                    if (!bySmFile.TryGetValue(sm, out ushort hash)
+                        && (ArmourFolderKey(sm) is not string folder || !byArmourFolder.TryGetValue(folder, out hash)))
+                        continue;
+                    usedSlots |= 1 << t.Slot;
+                    pieces.Add(new(t.Slot, hash, noStance, t.Type));
+                    break;
+                }
+            }
+            result.Add(pieces);
+        }
+        return result;
     }
 
     static HashSet<int> RangedWeaponVisuals(string folder)

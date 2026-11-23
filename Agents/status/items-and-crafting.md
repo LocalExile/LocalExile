@@ -34,6 +34,10 @@ Part of [Status](../Status.md); what to build next in this area is in
 
 ## Partly working
 
+- Soul Ripper spends charges for Vaal souls when allowed, and Forbidden Taste applies its recovery and chaos damage.
+- The Wise Oak, Taste of Hate and Soul Catcher apply their qualified damage modifiers during the flask effect.
+- Map flask penalties apply to utility and recovery flask effects and to awarded charges.
+
 - Native skin-transfer bind/reclaim preserves complete donors across character and stash saves. Optional item-stat
   sources exclude socket/skill hosts; 3.29.3c picker binding and protocol reclaim pass, with the shift-click gesture
   and 3.29.3d picker untested. Docs: [23](../docs/protocol/23-microtransactions.md).
@@ -127,6 +131,8 @@ Part of [Status](../Status.md); what to build next in this area is in
 - **Orb of Fusing** (verified live). Docs: [13](../docs/protocol/13-items.md), "Orb of Fusing".
 - Currency metamods: prefix/suffix locks and attack/caster restrictions.
   Docs: [13](../docs/protocol/13-items.md), "Currency metamod protection".
+- Repeat currency use by type on passives (`C→S 0x78`) and world objects (`C→S 0x79`) routes to Tattoo/Scouring,
+  Strongbox and Essence handlers (offline verified; live client check pending).
 
 ## Not working yet
 

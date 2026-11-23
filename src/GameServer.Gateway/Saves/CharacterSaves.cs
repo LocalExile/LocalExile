@@ -63,6 +63,7 @@ public static class CharacterSaves
         [JsonIgnore(Condition = JsonIgnoreCondition.WhenWritingNull)] public SavedWeaponPassiveTree? WeaponPassiveTree { get; init; }
         [JsonIgnore(Condition = JsonIgnoreCondition.WhenWritingDefault)] public uint StoredExperience { get; init; }
         [JsonIgnore(Condition = JsonIgnoreCondition.WhenWritingNull)] public ChartData? Chart { get; init; }
+        [JsonIgnore(Condition = JsonIgnoreCondition.WhenWritingNull)] public string? Note { get; init; }
     }
 
     public sealed record SavedPlacement(uint Id, byte X, byte Y, SavedItem Item);
@@ -315,7 +316,12 @@ public static class CharacterSaves
 
     /// <summary>Records the character's inventories and its start weapon still on the ground, keeping the rest of the save.</summary>
     public static void SetInventories(string character, Dictionary<byte, List<SavedPlacement>> inventories, SavedItem? startWeapon = null) =>
-        Update(character, s => s with { Inventories = inventories, StartWeapon = startWeapon });
+        Saves.Atomically(() =>
+        {
+            uint? unsavedXp = UnsavedExperience.TryGetValue(character, out uint xp) ? xp : null;
+            if (!Saves.PutCharacterInventories(character, inventories, startWeapon, unsavedXp))
+                Write(character, new Save(inventories, Experience: unsavedXp, StartWeapon: startWeapon));
+        });
 
     /// <summary>The character's level: from its saved experience. The account's level (Auth, the ticket's) is only a copy
     /// for the character list, which a failed update at a level-up leaves behind; it counts only for a save without
@@ -425,7 +431,7 @@ public static class CharacterSaves
         {
             // Sample inside the write transaction: a queued flush must not restore XP captured before a level reset.
             if (!UnsavedExperience.TryGetValue(character, out uint xp)) return;
-            if (Saves.LoadCharacter(character) is { } save) Write(character, save with { Experience = xp });
+            Saves.PutCharacterExperience(character, xp);
             flushed = xp;
         });
         if (flushed is { } saved)
@@ -639,7 +645,7 @@ public static class CharacterSaves
         i.DefenceBaseRoll, i.Influences, i.Split, i.Synthesised, i.Foreseeing, i.ForeseeSeed, i.AlternateQualityType,
         i.OriginalItem is null ? null : ToSaved(i.OriginalItem, mods), i.Vestigial, i.HeistBlueprint)
         { SkinTransferSource = i.SkinTransferSource is null ? null : ToSaved(i.SkinTransferSource, mods), MemoryStrands = i.MemoryStrands, Intangibility = i.Intangibility, RequiredLevel = i.RequiredLevel,
-            RelicStyle = i.RelicStyle, Chart = i.Chart,
+            RelicStyle = i.RelicStyle, Chart = i.Chart, Note = i.Note,
             WeaponPassiveTree = i.WeaponPassiveTree is null ? null : ToSaved(i.WeaponPassiveTree, mods),
             StoredExperience = i.StoredExperience };
 
@@ -666,7 +672,7 @@ public static class CharacterSaves
             HeistBlueprint = s.HeistBlueprint, Chart = s.Chart,
             Foreseeing = s.Foreseeing, ForeseeSeed = s.ForeseeSeed, AlternateQualityType = s.AlternateQualityType,
             MemoryStrands = s.MemoryStrands, Intangibility = s.Intangibility,
-            RelicStyle = s.RelicStyle,
+            RelicStyle = s.RelicStyle, Note = s.Note,
             WeaponPassiveTree = s.WeaponPassiveTree is null ? null : FromSaved(s.WeaponPassiveTree, catalog.Mods),
             StoredExperience = s.StoredExperience,
         };

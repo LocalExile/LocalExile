@@ -505,11 +505,14 @@ static partial class SurvivorsRunRules
         int bossNumber = 0;
         // Every boss's id and the run experience its kill pays in total (the ordinary unique kill pays 50 of it).
         var bossBonuses = new Dictionary<uint, int>();
-        bool carried = false;
+        bool carried = false, wasPaused = false;
         var horde = new HashSet<uint>();
         var nextFire = new Dictionary<int, double>();
         try
         {
+            uint stageSeconds = (uint)Math.Ceiling(Math.Max(1, SurvivorsRules.StageSeconds));
+            await Send(player, InstanceTimers.MissionTimer(InstanceTimers.MissionTimerType.Generic, stageSeconds),
+                $"0x0163 mission timer Generic: {stageSeconds} s (survivors stage {stage + 1})");
             while (!token.IsCancellationRequested && !player.Closed && !player.LeavingArea && player.PendingTransfer is null && ReferenceEquals(StateOf(player).Survivors, run))
             {
                 double now = AreaTime(player);
@@ -517,8 +520,19 @@ static partial class SurvivorsRunRules
                 last = now;
                 if (player.Paused || step <= 0)
                 {
+                    if (player.Paused) wasPaused = true;
                     await AreaDelay(player, SurvivorsStepMs / 1000.0, token);
                     continue;
+                }
+                if (wasPaused)
+                {
+                    wasPaused = false;
+                    if (!gateSpawned)
+                    {
+                        uint remaining = (uint)Math.Ceiling(Math.Max(1, SurvivorsRules.StageSeconds - (run.Elapsed - stageStart)));
+                        await Send(player, InstanceTimers.MissionTimer(InstanceTimers.MissionTimerType.Generic, remaining),
+                            $"0x0163 mission timer Generic: {remaining} s (survivors stage {stage + 1} resumed)");
+                    }
                 }
                 run.Advance(step);
                 if (InGracePeriod(player)) await EndGracePeriod(player, action: true);
@@ -553,6 +567,8 @@ static partial class SurvivorsRunRules
                 if (!gateSpawned && run.Elapsed - stageStart >= SurvivorsRules.StageSeconds)
                 {
                     gateSpawned = true;
+                    await Send(player, InstanceTimers.HideMissionTimer(InstanceTimers.MissionTimerType.Generic),
+                        "0x0163 hide mission timer Generic (survivors gate boss)");
                     gateFight = await SpawnSurvivorsGateBoss(player, roster, run, stage, horde, token);
                     if (gateFight is not null) bossBonuses[gateFight.BossId] = SurvivorsRules.BossExperience(stage);
                 }
