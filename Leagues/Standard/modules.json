@@ -1,6 +1,7 @@
 {
   "modules": [
     "Core/Content/Anarchy",
+    "Core/Content/Mercenary",
     "Core/Content/Delve",
     "Core/Content/Delirium",
     "Core/Content/Harvest",
