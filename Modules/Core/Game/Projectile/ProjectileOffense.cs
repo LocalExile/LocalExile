@@ -40,6 +40,7 @@ public sealed record ProjectileOffense(DamagePacket Hit, bool Spell, int Accurac
     /// <summary>Caustic Arrow's non-stacking caustic ground cloud, spawned at every arrow impact and end (CausticClouds.cs).</summary>
     public sealed record CausticCloudSpec(int Radius, double Duration, double Dps, int ArtVariation);
     public CausticCloudSpec? CausticCloud { get; init; }
+    public Game.ExplosiveFuseSpec? ExplosiveFuse { get; init; }
     public ImpaleStats.Settings? ImpaleSettings { get; init; }
     public ImpaleStats.Settings? CriticalImpaleSettings { get; init; }
     public AttackAccuracyProfile? AccuracyProfile { get; init; }

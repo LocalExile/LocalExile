@@ -329,7 +329,11 @@ public sealed record ProjectileDamage(ProjectileEntity Projectile, ProjectileAct
 }
 
 public sealed record ProjectileEvent(ProjectileEventKind Kind, ProjectileEntity Projectile, long At,
-    ProjectileVector Position, ProjectileEndReason? Reason = null, double Radius = 0, string? Stage = null);
+    ProjectileVector Position, ProjectileEndReason? Reason = null, double Radius = 0, string? Stage = null)
+{
+    /// <summary>The enemy damaged by the final contact, when the projectile did not continue or return.</summary>
+    public ProjectileActorKey? HitTarget { get; init; }
+}
 
 /// <summary>All methods run synchronously under the host's combat lock. Hit commits gameplay before returning.
 /// Publish records presentation intents; it must not perform network IO or delay simulation.</summary>

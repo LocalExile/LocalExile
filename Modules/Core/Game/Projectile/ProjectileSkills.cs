@@ -9,6 +9,8 @@ public static partial class Game
             if (Skills.ProjectileFor(Skills.EffectRow(effect)) is { } projectile)
                 definitions.Add(effect, SkillProjectileDefinition(effect, projectile.Id,
                     SkillProjectileParameters(effect, projectile.Id)));
+        definitions["ExplosiveArrow"] = SkillProjectileDefinition("ExplosiveArrow", OrdinaryRangedAttack.Arrow,
+            SkillProjectileParameters("ExplosiveArrow", OrdinaryRangedAttack.Arrow));
         const string holyFlameProjectile = "Metadata/Projectiles/TotemHolyFireSpray";
         definitions["HolyFlameTotem"] = SkillProjectileDefinition("HolyFlameTotem", holyFlameProjectile,
             SkillProjectileParameters("HolyFlameTotem", holyFlameProjectile));

@@ -495,6 +495,8 @@ public static partial class Game
         var use = new ProjectileUse(profile, new(emitter, player.ProjectileEpoch), new(emitter, player.ProjectileEpoch), 1, origin, target)
             { Payload = shot, ReturnAnchor = new(emitter, player.ProjectileEpoch), Sequence = sequence, RepeatsLeft = repeatsLeft };
         var context = new ProjectileReleaseContext(player, session, skillId, gem, variation, Get, Player, Own);
+        if (SkillsFor(player).EffectId(gem.Effect) == "ExplosiveArrow" && areaHitInputs is not null)
+            use = use with { Payload = shot with { ExplosiveFuse = CaptureExplosiveFuse(context, areaHitInputs, hand, local) } };
         return definition.SpecializeRelease?.Invoke(context, use) ?? use;
     }
 }

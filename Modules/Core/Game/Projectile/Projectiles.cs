@@ -781,7 +781,11 @@ public static partial class Game
                     ImpactClip = rigImpact.Index,
                     ImpactLifetime = ProjectileRuntime.Time(Math.Max(0.1, rigImpact.Ms / 1000.0)),
                 };
-            if (valid) CausticGroundAtEnd(value);
+            if (valid && value.Kind == ProjectileEventKind.End)
+            {
+                CausticGroundAtEnd(value);
+                ExplosiveArrowAtEnd(value);
+            }
             if (value.Kind == ProjectileEventKind.End && p.ParentId == 0 && ServerTrace.Projectiles && !Quiet(p.Use.Payload))
                 Console.WriteLine($"[gateway] {Player.Connection.Remote} projectile end use={p.UseId} entity={p.Id}"
                     + $" reason={value.Reason} position={value.Position} metadata={p.Profile.Id}"
