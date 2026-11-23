@@ -7,6 +7,7 @@ public static class AttributeOffenceSources
         (Stat.AreaOfEffectPlusPctPer50Strength, Stat.BaseSkillAreaOfEffectPlusPct, 0, 50),
         (Stat.AttackSpeedPlusPctPer10Dex, Stat.AttackSpeedPlusPct, 1, 10),
         (Stat.AttackSpeedPlusPctPer25Dex, Stat.AttackSpeedPlusPct, 1, 25),
+        (Stat.CriticalStrikeChancePlusPctPer10Strength, Stat.CriticalStrikeChancePlusPct, 0, 10),
         (Stat.CriticalStrikeChancePlusPctPer25Intelligence, Stat.CriticalStrikeChancePlusPct, 2, 25),
         (Stat.DamagePlusPctPer15Strength, Stat.DamagePlusPct, 0, 15),
         (Stat.DamagePlusPctPer15Dex, Stat.DamagePlusPct, 1, 15),
