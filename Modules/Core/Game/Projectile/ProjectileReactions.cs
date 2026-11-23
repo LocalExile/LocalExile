@@ -226,6 +226,7 @@ public static partial class Game
         List<ItemDrops.Drop> drops = [];
         if (modded is not { Cancel: true })
         {
+            drops.AddRange(EncounterJewelDrops(player, monster, random));
             int mapTier = MapRunOf(player)?.Area.Tier ?? 0;
             drops.AddRange(DropsFor(player).Roll(monster.Level, monster.Rarity, random, IncreasedItemRarity(player, monster),
                 balance.ItemDropMultiplier * (modded?.Quantity ?? 1) * ItemQuantityFactor(player, monster), balance.EquipmentRarityMultiplier * (modded?.Rarity ?? 1), mapTier, MapModsOf(player)));

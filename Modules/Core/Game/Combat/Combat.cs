@@ -3363,6 +3363,10 @@ public static partial class Game
         }
     }
 
+    static IReadOnlyList<ItemDrops.Drop> EncounterJewelDrops(Player player, SpawnedMonster monster, Random random) =>
+        monster.Rarity == MonsterRarity.Unique && monster.Variety is { } boss
+            ? DropsFor(player).EncounterJewels(boss.Id, monster.Level, random, DropDataProvider.Default.Current) : [];
+
     // A monster died (its life reached 0 from the player's attack or skill): the player gains its experience when near
     // enough and it drops its items around where it fell (ItemDrops). Its corpse stays where it fell for as long as the
     // player is in the area (it stays in Monsters as Dead: no AI, body cleared by StopCorpseBlocking); leaving does not save it.
@@ -3475,8 +3479,7 @@ public static partial class Game
             drops.AddRange(DropsFor(player).KingInMists(m.Level, AreaRng(player)));
         if (modded is not { Cancel: true })
         {
-            if (m.Rarity == MonsterRarity.Unique && m.Variety is { } boss)
-                drops.AddRange(DropsFor(player).EncounterJewels(boss.Id, m.Level, AreaRng(player), DropDataProvider.Default.Current));
+            drops.AddRange(EncounterJewelDrops(player, m, AreaRng(player)));
             // A generic map drop (approximate rates): use the open map's tier in a map, or tier 1 in the late campaign
             // once the monster meets MapKeyTier1's DropLevel. The same tier gates base card/scarab and atlas-base drops.
             int mapTier = MapRunOf(player)?.Area.Tier ?? 0;

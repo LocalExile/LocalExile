@@ -101,6 +101,7 @@ public static partial class Game
         var drops = new List<ItemDrops.Drop>();
         if (modded is not { Cancel: true })
         {
+            drops.AddRange(EncounterJewelDrops(player, monster, AreaRng(player)));
             int mapTier = MapRunOf(player)?.Area.Tier ?? 0;
             drops.AddRange(DropsFor(player).Roll(monster.Level, monster.Rarity, AreaRng(player), IncreasedItemRarity(player, monster),
                 balance.ItemDropMultiplier * (modded?.Quantity ?? 1) * ItemQuantityFactor(player, monster),
