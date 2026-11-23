@@ -1361,7 +1361,7 @@ public static partial class Game
         if (gem.Name is not null && !IsTotemSkill(player, skillId) && SummonData.Find(SkillsFor(player).EffectId(gem.Effect)) is { } summon)
             return await CastSummon(player, skillId, summon, to, targetId, recoveryGeneration, Current);
         if (gem.Name is not null && SkillsFor(player).EffectId(gem.Effect) == "Desecrate")
-            return await Desecrate(player, skillId, to, Current);
+            return CompleteIntensity(await Desecrate(player, skillId, to, Current));
         if (gem.Name is not null && IsTotemSkill(player, skillId) && TotemVariety(player, gem.Effect) is { } totem)
         {
             _ = PlaceTotem(player, skillId, gem.Effect, gem.Level, totem, to, TotemPlacementCurrent);

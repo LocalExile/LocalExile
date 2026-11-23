@@ -47,6 +47,11 @@ public sealed class SupportIntensityTests
             player.Walk.Teleport(170, 100, clock.At);
             Assert.Equal(0, Modifier());
             Assert.Equal(baseline, Radius());
+
+            skillId = Assert.Single(fixture.Equip(("Desecrate", 1), ("Intensify Support", 1)));
+            Assert.Equal(1, Game.SupportedSkill(player, skillId).Stats.GetValueOrDefault(Stat.VirtualSkillGainsIntensity));
+            Assert.True(await Game.CastGemSkill(player, skillId, (170, 100), (170, 100)));
+            Assert.Equal(perStack, Modifier());
         }
         finally { Game.AreaUpdateContext.Value = previous; }
     }
