@@ -16,7 +16,6 @@ public sealed class EnergyShield
     public Action? Changed;
     double interruptedAt = double.NegativeInfinity, fraction;
     double rechargeStartedAt = double.NegativeInfinity, rechargeProtection;
-    public static readonly uint RechargeRateModifier = Stat.Of("server_energy_shield_recharge_rate_permyriad_final");
 
     public void SetRechargeProtection(double seconds) => rechargeProtection = Math.Max(0, seconds);
 
@@ -109,7 +108,8 @@ public sealed class EnergyShield
         max * 20.0 * Math.Max(0, 1 + get(Stat.EnergyShieldRechargeRatePlusPct) / 100.0)
         * Math.Max(0, 1 + get(Stat.EnergyShieldRecoveryRatePlusPct) / 100.0)
         * PanelStats.MapRecoveryMultiplier(get)
-        * Math.Max(0, 1 + get(RechargeRateModifier) / 10_000.0)
+        // Wicked Ward: "40% less Energy Shield Recharge Rate".
+        * (get(Stat.KeystoneWickedWard) != 0 ? 0.6 : 1)
         // Eldritch Battery: "50% less Energy Shield Recharge Rate".
         * (get(Stat.KeystoneEldritchBattery) != 0 ? 0.5 : 1);
     public static double RegenPerMinute(uint max, Func<uint, int> get) =>

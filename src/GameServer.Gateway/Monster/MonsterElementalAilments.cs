@@ -250,7 +250,7 @@ public sealed class MonsterElementalAilments
         bool Counts(DamageType type)
         {
             string name = type.ToString().ToLowerInvariant();
-            bool reassigned = (type, ailment) is (DamageType.Cold, "freeze") && attacker(Stat.UniqueColdDamageIgnites) != 0
+            bool reassigned = (type, ailment) is (DamageType.Cold, "freeze" or "chill") && attacker(Stat.UniqueColdDamageIgnites) != 0
                 || (type, ailment) is (DamageType.Lightning, "shock") && attacker(Stat.UniqueLightningDamageFreezes) != 0;
             bool enabled = (type, ailment) is (DamageType.Fire, "shock") && attacker(Stat.UniqueFireDamageShocks) != 0
                 || (type, ailment) is (DamageType.Lightning, "freeze") && attacker(Stat.UniqueLightningDamageFreezes) != 0;

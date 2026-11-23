@@ -220,7 +220,6 @@ public static partial class Game
             // here with the other live state flags so it cannot go stale with the cached stat head.
             stats[Stat.OnLowLife] = CriticalOnLowLife(player, stats) ? 1 : 0;
             if (Get(Stat.KeystoneCorruptedDefences) != 0) AddTo(stats, IncomingResourceDefences.BypassStat, 50);
-            if (Get(Stat.KeystoneWickedWard) != 0) stats[EnergyShield.RechargeRateModifier] = -4000;
             // The unmodified recovery baseline, before the temporary contribution. The resource writer integrates
             // Fortification separately across exact expiry boundaries.
             outputs.BaselineLifePerSecond = PanelStats.LifePerMinute(recovery, player.Pools.Life) / 60;
@@ -244,13 +243,7 @@ public static partial class Game
         });
         Step(PlayerStatStep.TailPanels, (player, stats, _) => ComputeStatSnapshotTail(PlayerTailInputs(player, stats), StatSnapshotStage.Panels));
         Step(PlayerStatStep.Rampage, (player, stats, _) => WithRampage(player, stats));
-        Step(PlayerStatStep.TailOffence, (player, stats, _) =>
-        {
-            ComputeStatSnapshotTail(PlayerTailInputs(player, stats), StatSnapshotStage.Offence);
-            if (GetIn(stats, Stat.AttackDamagePlus1PctPer300OfMinOfArmourOrEvasion) is int coefficient and not 0)
-                AddTo(stats, Stat.AttackDamagePlusPct,
-                    coefficient * (Math.Min(player.Pools.Armour, GetIn(stats, Stat.EvasionRating)) / 300L));
-        });
+        Step(PlayerStatStep.TailOffence, (player, stats, _) => ComputeStatSnapshotTail(PlayerTailInputs(player, stats), StatSnapshotStage.Offence));
         Step(PlayerStatStep.TailCritical, (player, stats, _) =>
         {
             int Get(uint name) => GetIn(stats, name);

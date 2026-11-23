@@ -173,7 +173,10 @@ public static partial class Game
         sources = WithRighteousFireSpellBonus(player, sources);
         sources = WithSpreadPoisonRegeneration(player, sources);
         double now = AreaTime(player);
-        int Get(uint k) => sources.GetValueOrDefault(k);
+        int mapBuffTime = MapModsOf(player)?.Get(Stat.MapPlayerBuffTimePassedPlusPctOnlyBuffCategory) ?? 0;
+        int Get(uint k) => k == Stat.BuffTimePassedPlusPctOnlyBuffCategory
+            ? ActorScale.Saturate((long)sources.GetValueOrDefault(k) + mapBuffTime)
+            : sources.GetValueOrDefault(k);
         FortificationOf(player).SetExpiryRate(now, RecipientEffectTime.Rate(1, Get));
         player.UtilityFlaskEffects.SetExpiryRate(now, RecipientEffectTime.Rate(16, Get));
         player.ElementalAilments.SetExpiryRate(now, RecipientEffectTime.Rate(2, Get));
