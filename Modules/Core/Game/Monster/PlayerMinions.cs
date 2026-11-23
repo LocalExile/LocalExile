@@ -56,6 +56,8 @@ public static partial class Game
     {
         var rules = CombatLifetime;
         bool Current() => CurrentGameWork && ReferenceEquals(CombatLifetime, rules);
+        if (!Current()) return;
+        RetireDisallowedMinions(player, now);
         foreach (var tick in GameEvents.CompanionTick.For(player))
         {
             if (!Current()) return;
@@ -190,8 +192,9 @@ public static partial class Game
     // shortcut: Combat Focus's element exclusions (RandomElement skills) are not modelled; every element can come.
     static async Task SummonElementalRelic(Player player, double now)
     {
-        if (!CurrentGameWork || player.Closed || player.LeavingArea) return;
+        if (!CurrentGameWork || player.Closed || player.LeavingArea || player.Minions.PendingRelics == 0) return;
         var playerStats = CharacterPlayerStats(player);
+        if (!CanHaveMinion(playerStats, OwnedMinionFamily.Other)) { player.Minions.PendingRelics = 0; return; }
         int Player(uint k) => playerStats.GetValueOrDefault(k);
         MonsterCatalog.Variety? variety;
         DamageType element;
@@ -237,7 +240,8 @@ public static partial class Game
                 {
                     Until = now + seconds, OwnerAura = aura, Explodes = new(element, lifePct, RelicExplosionRadius), Teleports = teleports,
                 });
-            }, ownedCurrent: () => player.PlayerLife > 0 && player.Minions.PendingRelics > 0 && RelicTriggerOf(player) is not null);
+            }, ownedCurrent: () => player.PlayerLife > 0 && player.Minions.PendingRelics > 0
+                && RelicTriggerOf(player) is not null && CanHaveOtherMinions(player));
         if (!CurrentGameWork) return;
         Console.WriteLine($"[gateway] {player.Connection.Remote} {element} Relic summoned at level {level} for {seconds:0.##} s" +
             (aura is null ? "" : $", {aura.EffectId} within {aura.Radius} cells: {string.Join(", ", aura.Stats.Select(s => $"{Stats.Name(s.Key)} {s.Value}"))}"));
@@ -279,11 +283,13 @@ public static partial class Game
             var at = minion.Monster.Walk.Position(now);
             amount = (int)Math.Min(int.MaxValue, minion.Monster.MaxLife * (long)blast.LifePct / 100);
             var packet = DamagePacket.Of(blast.Type, amount, amount);
+            var ownerStats = CharacterPlayerStats(player);
             foreach (var (id, m) in player.Area.Monsters.ToArray())
             {
                 if (!m.Hostile || m.Dead || m.Life == 0 || Dist(m.Walk.Position(now), at) > blast.Radius) continue;
                 int damage = MonsterTakesRolled(m, packet, spell: false, now: now);
-                if (ApplyMonsterHitLocked(player, m, damage, allyAt: at) is not { } hit) continue;
+                var cull = MinionIgniteKillRule(ownerStats, m, now);
+                if (ApplyMonsterHitLocked(player, m, damage, allyAt: at, cull: cull) is not { } hit) continue;
                 if (hit.StageStarts)
                 {
                     CommitBossStage(player, id, m, ProjectileWorldTime(player));

@@ -23,10 +23,24 @@ public static partial class Game
 
         var inherited = golem.InheritedMods.Effects;
         double rawBaseLife = (double)(monsters.BaseLife(variety, level) ?? 100)
-            + golem.Gear.GetValueOrDefault(Stat.BaseMaximumLife);
+            + golem.Gear.GetValueOrDefault(Stat.BaseMaximumLife)
+            + (golem.Definition.Kind == "Zombie" ? Player(Stat.ZombieMaximumLifePlus) : 0);
+        int familyLife = golem.Definition.IsGolem ? Player(Stat.GolemMaximumLifePlusPct) : golem.Definition.Kind switch
+        {
+            "Zombie" => Player(Stat.BaseZombieMaximumLifePlusPct),
+            "Spectre" => Player(Stat.BaseSpectreMaximumLifePlusPct),
+            "RagingSpirit" => Player(Stat.MinionRagingSpiritMaximumLifePlusPct),
+            _ => 0,
+        };
         double lifeIncreased = (long)Player(Stat.MinionMaximumLifePlusPct) + Own(Stat.MinionMaximumLifePlusPct)
-            + (golem.Definition.IsGolem ? Player(Stat.GolemMaximumLifePlusPct) : 0)
-            + golem.Gear.GetValueOrDefault(Stat.MaximumLifePlusPct) + inherited[Stat.MaximumLifePlusPct];
+            + familyLife + golem.Gear.GetValueOrDefault(Stat.MaximumLifePlusPct) + inherited[Stat.MaximumLifePlusPct];
+        if (Player(Stat.MinionLifeIncreasedByOvercappedFireResistance) != 0)
+        {
+            const GameServer.Core.World.DamageType fire = GameServer.Core.World.DamageType.Fire;
+            long resistance = (long)HitMitigation.Resistance(monsters, variety, level, fire).Value + effects.Resistance(fire);
+            int maximum = Math.Min(GameServer.Core.World.DamageModel.MaxResistCap, effects.MaximumResistance(fire));
+            lifeIncreased += Math.Max(0, resistance - maximum);
+        }
         double lifeMore = Math.Max(0, 1 + Own(Stat.ActiveSkillMinionLifePlusPctFinal) / 100.0)
             * Math.Max(0, 1 + Own(Stat.SupportMinionMaximumLifePlusPctFinal) / 100.0)
             * Math.Max(0, 1 + Own(Stat.SupportMinionDamageMinionLifePlusPctFinal) / 100.0)

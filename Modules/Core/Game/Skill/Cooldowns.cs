@@ -8,10 +8,9 @@ public static partial class Game
     public static SingleUseCooldown? CooldownFor(Player player, int effect, int level, int quality)
     {
         var sources = GemSkillEffects(player).Where(g => g.Effect == effect).ToArray();
-        if (SkillsFor(player).CooldownMs(effect, level) <= 0) return null;
         if (sources.Length == 0)
         {
-            if (!IsDashEffect(SkillsFor(player).EffectId(effect))) return null;
+            if (SkillsFor(player).CooldownMs(effect, level) <= 0 || !IsDashEffect(SkillsFor(player).EffectId(effect))) return null;
             var fallback = SingleUseCooldown.ForSkill(SkillsFor(player), Stats, effect, level,
                 CharacterPlayerStats(player), SkillsFor(player).EffectStats(effect, level, quality).ToDictionary(s => s.Item1, s => s.Item2));
             return WithMapCooldown(player, fallback is { } dash ? dash with { SharedGroup = 9 } : null);
@@ -74,7 +73,11 @@ public static partial class Game
                 own = new Dictionary<uint, int>(own) { [Stat.BaseCooldownSpeedPlusPct] =
                     ActorScale.Saturate(scoped + own.GetValueOrDefault(Stat.BaseCooldownSpeedPlusPct)) };
         }
-        if (SingleUseCooldown.ForSkill(skills, Stats, effect, supported.Level, playerStats, own) is not { } plan) return null;
+        int addedMilliseconds = skills.EffectId(effect) == "SummonSkeletons"
+            ? ActorScale.Saturate((long)playerStats.GetValueOrDefault(Stat.SummonSkeletonsCooldownModifierMs)
+                + own.GetValueOrDefault(Stat.SummonSkeletonsCooldownModifierMs)) : 0;
+        if (SingleUseCooldown.ForSkill(skills, Stats, effect, supported.Level, playerStats, own, addedMilliseconds) is not { } plan)
+            return null;
         if (skills.EffectId(effect) == MadnessEffect && MadnessActiveLocked(player))
             plan = plan with { BaseMilliseconds = plan.BaseMilliseconds
                 + MadnessSkillValue(player, Stat.EmbraceMadnessAmountOfCooldownToGainMs) };
