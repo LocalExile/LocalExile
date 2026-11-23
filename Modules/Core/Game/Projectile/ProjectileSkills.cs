@@ -63,13 +63,13 @@ public static partial class Game
     // from the client.
     static ProjectileUse AtNearbyTargets(ProjectileReleaseContext context, ProjectileUse use)
     {
-        int most = context.Get("power_siphon_base_fire_at_x_targets");
+        int most = context.Get(Stat.PowerSiphonBaseFireAtXTargets);
         if (most <= 0) return use;
-        var conn = context.Conn;
+        var player = context.Player;
         double now = context.Session.Runtime.Now / (double)ProjectileRuntime.QuantaPerSecond;
-        var caster = ProjectileSession.Vector(conn.Walk.Position(now));
+        var caster = ProjectileSession.Vector(player.Walk.Position(now));
         var aim = use.Aim - caster;
-        var targets = conn.Monsters.Values
+        var targets = player.Area.Monsters.Values
             .Where(m => m.Hostile && !m.Dead && m.Life > 0 && m.OwnerId is null && !m.WorldHidden)
             .Select(m => ProjectileSession.Vector(m.Walk.Position(now)))
             .Where(at => (at - caster).Length <= use.Profile.Range && (at - caster).X * aim.X + (at - caster).Y * aim.Y >= 0)
@@ -95,7 +95,7 @@ public static partial class Game
             PanelStats = (profile, stats) =>
             {
                 if (GatewayProjectileSkillProfiles.IsKineticBlast(effect) && profile.ContactArea is { } area
-                    && Stats.Key("virtual_kinectic_blast_number_of_clusters") is uint key)
+                    && Stat.VirtualKinecticBlastNumberOfClusters is var key)
                     stats[key] = area.Count;
             }
         };
@@ -107,11 +107,23 @@ public static partial class Game
             {
                 // Player base increased area is already included in the panel total. Lay the skill's own
                 // supported stats over the area-specific player snapshot, then scale each base radius once.
-                var areaStats = SkillAreaStats(context.Conn, SupportedSkill(context.Conn, context.SkillId).Stats, context.Gem.Effect);
-                int Get(string key) => Stats.Key(key) is uint id ? areaStats.GetValueOrDefault(id) : 0;
+                var areaStats = SkillAreaStats(context.Player, SupportedSkill(context.Player, context.SkillId).Stats, context.Gem.Effect);
+                int Get(uint id) => areaStats.GetValueOrDefault(id);
                 use = use with { Profile = GatewayProjectileSkillProfiles.ScaleAreas(use.Profile, effect, Get,
                     !Skills.IsAttack(context.Gem.Effect)) };
                 var shot = (ProjectileOffense)use.Payload!;
+                if (GatewayProjectileSkillProfiles.IsCausticArrow(effect) && effect != "CausticArrowAltX")
+                {
+                    int radius = (int)(use.Profile.ContactArea?.Radius ?? 12);
+                    double duration = SkillDurationModifiers.Seconds(context.Own(Stat.BaseSkillEffectDuration),
+                        context.PlayerStat, k => k == Stat.SkillEffectDurationPlusPct
+                            ? context.Own(k) + context.Get(Stat.CausticArrowDurationPlusPct) : context.Own(k));
+                    var damageContext = new SkillDamageContext(SkillHitKind.Attack, shot.ActualCaster ?? CharacterPlayerStats(context.Player));
+                    double dps = damageContext.Suppressed ? 0 : CausticGroundDps(context.Get, context.Own);
+                    if (radius > 0 && duration > 0 && dps > 0)
+                        shot = shot with { CausticCloud = new(radius, duration, dps, context.Get(Stat.GroundCausticArtVariation)) };
+                    return use with { Payload = shot };
+                }
                 if (GatewayProjectileSkillProfiles.IsKineticBlast(effect))
                     return use with { Payload = shot with { AreaVisual = Art.AnimatedInPlaceOf(KineticBlastExplosionAo, context.Variation),
                         Presentation = new() { EffectLifetime = ProjectileRuntime.Time(.35) } } };

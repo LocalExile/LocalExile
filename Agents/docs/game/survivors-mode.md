@@ -110,7 +110,7 @@ The world clock stops for a choice, and S→C `0x1d3` pauses the client's world 
 message): the server already stops ordering monster walks, but only `0x1d3` stops the client walking each monster to
 its last ordered cell. Closing the window (or the run ending) sends `0x1d3 00` and restarts the clock.
 The window owns the pause: the client's own Escape-menu unpause (`C→S 0x1d4 0`, which the window's opening can send)
-is ignored while it is open (`ClientState.PauseHeld`), so the horde cannot kill the player mid-choice; a multi-level
+is ignored while it is open (`Player.PauseHeld`), so the horde cannot kill the player mid-choice; a multi-level
 kill deals its windows one at a time and the clock resumes only after the last choice.
 The opening window is dealt before the runner starts, so the first reward pauses the run before any monster spawns:
 the horde is already frozen at the very first second, not after the first wave.

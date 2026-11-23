@@ -189,24 +189,27 @@ public static class DeepwaterVelka
 
     static readonly ConditionalWeakTable<DeepwaterRun, EncounterState> Encounters = new();
 
-    static readonly Lazy<Dictionary<string, StateMachineData?>> States = new(() => DeepwaterLoot.StatesOf(
-        new HashSet<string>(StringComparer.Ordinal)
-        {
-            PreFightType, ArenaTeleporterType, InvisibleLanternType, DescensionObjectType,
-            RightEelLocatorType, LeftEelLocatorType,
-        }));
+    static Dictionary<string, StateMachineData?> States = [];
+    static HashSet<uint> QuestDropHashes = [];
 
-    static readonly Lazy<HashSet<uint>> QuestDropHashes = new(() =>
-    [
-        InstanceEntities.ObjectTypeHash(BossAllflameId),
-        InstanceEntities.ObjectTypeHash(ForbiddenScriptureId),
-        InstanceEntities.ObjectTypeHash(TsoathaDucatId),
-    ]);
-
-    static bool HasLeagueFlag(ClientState conn, int flag)
+    public static void LoadGameData()
     {
-        lock (conn.Monsters) return conn.LeagueQuestFlags.Contains(flag);
+        States = DeepwaterLoot.StatesOf(
+            new HashSet<string>(StringComparer.Ordinal)
+            {
+                PreFightType, ArenaTeleporterType, InvisibleLanternType, DescensionObjectType,
+                RightEelLocatorType, LeftEelLocatorType,
+            });
+        QuestDropHashes =
+        [
+            InstanceEntities.ObjectTypeHash(BossAllflameId),
+            InstanceEntities.ObjectTypeHash(ForbiddenScriptureId),
+            InstanceEntities.ObjectTypeHash(TsoathaDucatId),
+        ];
     }
+
+    static bool HasLeagueFlag(Player player, int flag) =>
+        player.Character.LeagueQuestFlags.Contains(flag);
 
     static bool Near((int X, int Y) a, (int X, int Y) b, double distance)
     {
@@ -217,21 +220,21 @@ public static class DeepwaterVelka
     static QuestObjectTypes.Info? Info(string type)
     {
         if (QuestObjectTypes.Find(type) is not { } info) return null;
-        bool hasSm = States.Value.GetValueOrDefault(type) is not null || info.Components.Contains("StateMachine");
+        bool hasSm = States.GetValueOrDefault(type) is not null || info.Components.Contains("StateMachine");
         return QuestObject.CanSerialize(info.Components, hasSm) ? info : null;
     }
 
     static StateMachineData? BaseStates(string type) =>
-        States.Value.GetValueOrDefault(type) ?? (QuestObjectTypes.Find(type)?.Components.Contains("StateMachine") == true
+        States.GetValueOrDefault(type) ?? (QuestObjectTypes.Find(type)?.Components.Contains("StateMachine") == true
             ? new StateMachineData([], 0) : null);
 
     // ---- eligibility & pure helpers (public for Part 3 & Gateway tests) ----
 
     /// <summary>Whether this player may enter the imbued Kishara's Rest boss arena (<c>#29 → #30</c>) in a Voyage at
     /// <paramref name="areaLevel"/>: requires level ≥ 83 and Vesper's barrier power (<c>LQF 1889</c> or <c>QF 3610</c>).</summary>
-    public static bool CanEnterArena(ClientState conn, int areaLevel) =>
+    public static bool CanEnterArena(Player player, int areaLevel) =>
         areaLevel >= MinArenaLevel
-        && (HasLeagueFlag(conn, VesperPowerGivenLeagueFlag) || ClientHasQuestFlag(conn, VesperPowerGivenFlag));
+        && (HasLeagueFlag(player, VesperPowerGivenLeagueFlag) || ClientHasQuestFlag(player, VesperPowerGivenFlag));
 
     /// <summary>Rolls one guaranteed Velka unique name from <see cref="UniqueDropWeights"/> (ignores IIQ/IIR).</summary>
     public static string RollVelkaUniqueName(Random random)
@@ -269,20 +272,20 @@ public static class DeepwaterVelka
     /// <summary>Whether <paramref name="item"/> is one of Velka's non-Dredge first-kill quest drops (or any quest item
     /// that must not be marked Dredge on pickup).</summary>
     public static bool IsQuestDrop(ItemCatalog catalog, Item item) =>
-        QuestDropHashes.Value.Contains(item.TypeHash)
+        QuestDropHashes.Contains(item.TypeHash)
         || (catalog.ByHash(item.TypeHash) is { } bt && bt.Components.Contains("Quest"));
 
     /// <summary>Syncs Velka's quest-item flags (<c>QF 3607</c> for <c>Velka's Allflame</c>,
     /// <c>QF 3567</c> for <c>Forbidden Scripture</c>, <c>QF 3631</c> for <c>Ducat of Tsoatha's Gift</c>) from the
     /// player's carried inventories.</summary>
-    public static async Task SyncVelkaQuestFlags(ClientState conn)
+    public static async Task SyncVelkaQuestFlags(Player player)
     {
-        if (conn.Closed || conn.LeavingArea) return;
+        if (player.Closed || player.LeavingArea) return;
         uint allflameHash = InstanceEntities.ObjectTypeHash(BossAllflameId);
         uint scriptureHash = InstanceEntities.ObjectTypeHash(ForbiddenScriptureId);
         uint ducatHash = InstanceEntities.ObjectTypeHash(TsoathaDucatId);
         bool hasAllflame = false, hasScripture = false, hasDucat = false;
-        foreach (var (_, entry) in QuestItems.Carried(ItemsOf(conn)))
+        foreach (var (_, entry) in QuestItems.Carried(ItemsOf(player)))
         {
             uint h = entry.Item.TypeHash;
             if (h == allflameHash) hasAllflame = true;
@@ -293,30 +296,28 @@ public static class DeepwaterVelka
         List<string>? qfOn = null, qfOff = null;
         void WantQf(string flag, bool want)
         {
-            bool has = conn.HasQuestFlag(flag);
+            bool has = player.Character.HasQuestFlag(flag);
             if (want && !has) (qfOn ??= []).Add(flag);
             else if (!want && has) (qfOff ??= []).Add(flag);
         }
-        WantQf(HaveBossAllflameFlag, hasAllflame && !HasLeagueFlag(conn, VelkaFlameGivenLeagueFlag));
-        WantQf(HaveUpgradePiece5Flag, hasScripture && !HasLeagueFlag(conn, UpgradePiece5TurnedInLeagueFlag));
+        WantQf(HaveBossAllflameFlag, hasAllflame && !HasLeagueFlag(player, VelkaFlameGivenLeagueFlag));
+        WantQf(HaveUpgradePiece5Flag, hasScripture && !HasLeagueFlag(player, UpgradePiece5TurnedInLeagueFlag));
         WantQf(HaveQuestDucat3Flag, hasDucat);
 
         if (qfOn is null && qfOff is null) return;
-        var (remote, stream, ciphers) = conn.Wire;
-        if (qfOn is not null) await SetQuestFlags(remote, stream, ciphers, conn, qfOn, on: true);
-        if (qfOff is not null) await SetQuestFlags(remote, stream, ciphers, conn, qfOff, on: false);
+        if (qfOn is not null) await SetQuestFlags(player, qfOn, on: true);
+        if (qfOff is not null) await SetQuestFlags(player, qfOff, on: false);
     }
 
     /// <summary>Sets <c>Velka's Allflame</c> pickup flag (<c>QF 3607</c>) when a player picks up
     /// <see cref="BossAllflameId"/>.</summary>
-    public static async Task OnQuestItemPickup(IModuleContext module, ClientState conn, Item item)
+    public static async Task OnQuestItemPickup(IModuleContext module, Player player, Item item)
     {
         if (item.TypeHash == InstanceEntities.ObjectTypeHash(BossAllflameId))
         {
-            var (remote, stream, ciphers) = conn.Wire;
-            if (!ClientHasQuestFlag(conn, HaveBossAllflameFlag))
-                await SetQuestFlags(remote, stream, ciphers, conn, [HaveBossAllflameFlag]);
-            module.Log($"{CharacterName(conn)}: picked up Velka's Allflame (QF 3607)");
+            if (!ClientHasQuestFlag(player, HaveBossAllflameFlag))
+                await SetQuestFlags(player, [HaveBossAllflameFlag]);
+            module.Log($"{CharacterName(player)}: picked up Velka's Allflame (QF 3607)");
         }
     }
 
@@ -324,20 +325,20 @@ public static class DeepwaterVelka
 
     /// <summary>Plans Kishara's Rest (<c>#29</c> barrier or <c>#30</c> arena) once at <c>StartRun</c> when the run's
     /// board contains either room. Zero cost when absent.</summary>
-    internal static void Plan(ClientState conn, DeepwaterRun run, Action<string> log)
+    internal static void Plan(Player player, DeepwaterRun run, Action<string> log)
     {
         var barrierCell = run.Board.Cells.FirstOrDefault(c => c.Room == BarrierRoom);
         var arenaCell = run.Board.Cells.FirstOrDefault(c => c.Room == ArenaRoom);
         if (barrierCell is null && arenaCell is null) return;
 
-        var roomObjects = conn.Layout.Level?.RoomObjects ?? [];
+        var roomObjects = player.Layout.Level?.RoomObjects ?? [];
         var enc = new EncounterState();
 
         if (barrierCell is not null)
         {
             var trigger = FindOrPlace(roomObjects, barrierCell, WaterWallTriggerType, 316, 251, 0f, null, null);
-            var barrier = FindOrPlaceObj(conn, roomObjects, barrierCell, BarrierType, 420, 359, -0.458992f, -96f, BarrierModel, forceModel: false);
-            var preFight = FindOrPlaceObj(conn, roomObjects, barrierCell, PreFightType, 477, 428, -1.61045f, 15.625f, PreFightModel, forceModel: false);
+            var barrier = FindOrPlaceObj(player, roomObjects, barrierCell, BarrierType, 420, 359, -0.458992f, -96f, BarrierModel, forceModel: false);
+            var preFight = FindOrPlaceObj(player, roomObjects, barrierCell, PreFightType, 477, 428, -1.61045f, 15.625f, PreFightModel, forceModel: false);
             enc.Barrier = new BarrierState
             {
                 Cell = barrierCell,
@@ -350,14 +351,14 @@ public static class DeepwaterVelka
 
         if (arenaCell is not null)
         {
-            var barrier = FindOrPlaceObj(conn, roomObjects, arenaCell, FightBarrierType, 410, 363, -0.444627f, null, BarrierModel, forceModel: false);
-            var teleporter = FindOrPlaceObj(conn, roomObjects, arenaCell, ArenaTeleporterType, 411, 343, 2.79516f, null, TeleporterModel, forceModel: false);
-            var lantern = FindOrPlaceObj(conn, roomObjects, arenaCell, InvisibleLanternType, 446, 456, -0.395142f, null, InvisibleLanternModel, forceModel: false);
-            var preFight = FindOrPlaceObj(conn, roomObjects, arenaCell, PreFightType, 481, 433, -2.01426f, 11f, PreFightModel, forceModel: false);
+            var barrier = FindOrPlaceObj(player, roomObjects, arenaCell, FightBarrierType, 410, 363, -0.444627f, null, BarrierModel, forceModel: false);
+            var teleporter = FindOrPlaceObj(player, roomObjects, arenaCell, ArenaTeleporterType, 411, 343, 2.79516f, null, TeleporterModel, forceModel: false);
+            var lantern = FindOrPlaceObj(player, roomObjects, arenaCell, InvisibleLanternType, 446, 456, -0.395142f, null, InvisibleLanternModel, forceModel: false);
+            var preFight = FindOrPlaceObj(player, roomObjects, arenaCell, PreFightType, 481, 433, -2.01426f, 11f, PreFightModel, forceModel: false);
             // CRITICAL: VelkaDescensionObject.ot defaults to SareshBloodlineAscendancy.ao; always pass the .arm override!
-            var altar = FindOrPlaceObj(conn, roomObjects, arenaCell, DescensionObjectType, 478, 527, -0.219186f, -12f, DescensionModel, forceModel: true);
-            var rightPool = FindOrPlaceObj(conn, roomObjects, arenaCell, RightEelLocatorType, 481, 433, 0f, 20f, null, forceModel: false);
-            var leftPool = FindOrPlaceObj(conn, roomObjects, arenaCell, LeftEelLocatorType, 407, 466, 0f, 20f, null, forceModel: false);
+            var altar = FindOrPlaceObj(player, roomObjects, arenaCell, DescensionObjectType, 478, 527, -0.219186f, -12f, DescensionModel, forceModel: true);
+            var rightPool = FindOrPlaceObj(player, roomObjects, arenaCell, RightEelLocatorType, 481, 433, 0f, 20f, null, forceModel: false);
+            var leftPool = FindOrPlaceObj(player, roomObjects, arenaCell, LeftEelLocatorType, 407, 466, 0f, 20f, null, forceModel: false);
             var centre = FindOrPlace(roomObjects, arenaCell, CentreEelLocatorType, 449, 471, -0.404933f, null, null);
             enc.Arena = new ArenaState
             {
@@ -396,7 +397,7 @@ public static class DeepwaterVelka
         return (px, py, angle, fallbackZ, fallbackModel);
     }
 
-    static PlacedObj FindOrPlaceObj(ClientState conn, IReadOnlyList<PlacedTileObject> roomObjects, DeepwaterBoard.Cell cell,
+    static PlacedObj FindOrPlaceObj(Player player, IReadOnlyList<PlacedTileObject> roomObjects, DeepwaterBoard.Cell cell,
         string type, float fallbackX, float fallbackY, float fallbackRot, float? fallbackZ, string? fallbackModel, bool forceModel)
     {
         var (x, y, rot, z, model) = FindOrPlace(roomObjects, cell, type, fallbackX, fallbackY, fallbackRot, fallbackZ, fallbackModel);
@@ -406,7 +407,7 @@ public static class DeepwaterVelka
             : (info is { OwnModel: true } && (string.IsNullOrEmpty(model) || model == info.AnimatedModel) ? null : model);
         return new PlacedObj
         {
-            Id = conn.TakeObjectId(),
+            Id = player.TakeObjectId(),
             Type = type,
             X = x,
             Y = y,
@@ -416,8 +417,8 @@ public static class DeepwaterVelka
         };
     }
 
-    /// <summary>Creates Kishara's Rest objects on <paramref name="conn"/> at entry/re-entry in their current state.</summary>
-    internal static async Task Show(ClientState conn, DeepwaterRun run)
+    /// <summary>Creates Kishara's Rest objects on <paramref name="player"/> at entry/re-entry in their current state.</summary>
+    internal static async Task Show(Player player, DeepwaterRun run)
     {
         if (!Encounters.TryGetValue(run, out var enc)) return;
         await enc.Gate.WaitAsync();
@@ -425,50 +426,50 @@ public static class DeepwaterVelka
         {
             if (enc.Barrier is { } b)
             {
-                await CreateObject(conn, b.Barrier, transitionState: 1, blocked: true, states: null, hideMinimap: false);
-                SetBarrierCells(conn, b.Barrier, blocked: true);
+                await CreateObject(player, b.Barrier, transitionState: 1, blocked: true, states: null, hideMinimap: false);
+                SetBarrierCells(player, b.Barrier, blocked: true);
                 var pfStates = BaseStates(PreFightType)?.Set("active", b.Seen ? 1 : 0).Set("lantern", 1);
-                await CreateObject(conn, b.PreFight, transitionState: 1, blocked: false, states: pfStates, hideMinimap: true);
+                await CreateObject(player, b.PreFight, transitionState: 1, blocked: false, states: pfStates, hideMinimap: true);
             }
 
             if (enc.Arena is { } a)
             {
                 bool closed = a.BarrierClosed;
-                await CreateObject(conn, a.Barrier, transitionState: (byte)(closed ? 2 : 1), blocked: closed, states: null, hideMinimap: false);
-                SetBarrierCells(conn, a.Barrier, blocked: closed);
+                await CreateObject(player, a.Barrier, transitionState: (byte)(closed ? 2 : 1), blocked: closed, states: null, hideMinimap: false);
+                SetBarrierCells(player, a.Barrier, blocked: closed);
 
                 var tpStates = BaseStates(ArenaTeleporterType)?.Set("active", closed ? 1 : 0);
-                await CreateObject(conn, a.Teleporter, transitionState: 1, blocked: false, states: tpStates, hideMinimap: !closed);
+                await CreateObject(player, a.Teleporter, transitionState: 1, blocked: false, states: tpStates, hideMinimap: !closed);
 
                 var lanternStates = BaseStates(InvisibleLanternType);
-                await CreateObject(conn, a.InvisibleLantern, transitionState: 1, blocked: false, states: lanternStates, hideMinimap: true);
+                await CreateObject(player, a.InvisibleLantern, transitionState: 1, blocked: false, states: lanternStates, hideMinimap: true);
 
                 var rightStates = BaseStates(RightEelLocatorType)?.Set("splash", closed && !a.CressieDead && a.CressiePool == 2 ? 1 : 0);
-                await CreateObject(conn, a.RightPool, transitionState: 1, blocked: false, states: rightStates, hideMinimap: true);
+                await CreateObject(player, a.RightPool, transitionState: 1, blocked: false, states: rightStates, hideMinimap: true);
 
                 var leftStates = BaseStates(LeftEelLocatorType)?.Set("splash", closed && !a.CressieDead && a.CressiePool == 1 ? 1 : 0);
-                await CreateObject(conn, a.LeftPool, transitionState: 1, blocked: false, states: leftStates, hideMinimap: true);
+                await CreateObject(player, a.LeftPool, transitionState: 1, blocked: false, states: leftStates, hideMinimap: true);
 
                 if (!a.PreFightRemoved)
                 {
                     int pfActive = a.Phase == ArenaPhase.Intro ? 2 : 0;
                     int pfLantern = a.Phase == ArenaPhase.Intro ? 2 : 1;
                     var pfStates = BaseStates(PreFightType)?.Set("active", pfActive).Set("lantern", pfLantern);
-                    await CreateObject(conn, a.PreFight, transitionState: 1, blocked: false, states: pfStates, hideMinimap: true);
+                    await CreateObject(player, a.PreFight, transitionState: 1, blocked: false, states: pfStates, hideMinimap: true);
                 }
 
                 var altarStates = BaseStates(DescensionObjectType)
                     ?.Set("enabled", a.AltarEnabled ? 1 : 0)
                     .Set("visible", a.AltarEnabled ? 1 : 0);
-                await CreateObject(conn, a.Altar, transitionState: 1, blocked: false, states: altarStates, hideMinimap: !a.AltarEnabled);
+                await CreateObject(player, a.Altar, transitionState: 1, blocked: false, states: altarStates, hideMinimap: !a.AltarEnabled);
                 if (a.AltarEnabled && Info(DescensionObjectType) is { Blocking: true } altarInfo)
-                    conn.SetBlocker(a.Altar.Id, a.Altar.X, a.Altar.Y, Math.Max(1, altarInfo.Size));
+                    player.SetBlocker(a.Altar.Id, a.Altar.X, a.Altar.Y, Math.Max(1, altarInfo.Size));
             }
         }
         finally { enc.Gate.Release(); }
     }
 
-    static async Task CreateObject(ClientState conn, PlacedObj o, byte transitionState, bool blocked, StateMachineData? states, bool hideMinimap)
+    static async Task CreateObject(Player player, PlacedObj o, byte transitionState, bool blocked, StateMachineData? states, bool hideMinimap)
     {
         if (Info(o.Type) is not { } info) return;
         var obj = new QuestObject(o.X, o.Y, info.Components, o.Rotation, o.Height, o.Model,
@@ -477,29 +478,29 @@ public static class DeepwaterVelka
             StateMachine = states,
             HideMinimapIcon = hideMinimap,
         };
-        var player = PlayerOf(conn);
-        if (!await global::Game.SendWorldCreate(player, o.Id,
+        var modPlayer = PlayerOf(player);
+        if (!await global::Game.SendWorldCreate(modPlayer, o.Id,
             InstanceEntities.CreateObject(o.Id, InstanceEntities.ObjectTypeHash(o.Type), obj.Blob()),
             $"0x02bb Allflame Velka {o.Type.Split('/')[^1]} 0x{o.Id:x} at ({o.X}, {o.Y})"))
             return;
-        await global::Game.SendWorldRecord(player, o.Id, InstanceProtocol.EnterWakeZone(o.Id));
+        await global::Game.SendWorldRecord(modPlayer, o.Id, InstanceProtocol.EnterWakeZone(o.Id));
     }
 
-    static async Task SendObjectStates(ClientState conn, PlacedObj o, StateMachineData states, string what)
+    static async Task SendObjectStates(Player player, PlacedObj o, StateMachineData states, string what)
     {
         if (Info(o.Type) is not { } info) return;
         int index = info.Components.ToList().IndexOf("StateMachine");
         if (index < 0) return;
-        await global::Game.SendWorldRecord(PlayerOf(conn), o.Id, InstanceEntities.StateMachineUpdate(o.Id, (byte)index, states),
+        await global::Game.SendWorldRecord(PlayerOf(player), o.Id, InstanceEntities.StateMachineUpdate(o.Id, (byte)index, states),
             $"0x02bc Allflame Velka {o.Type.Split('/')[^1]} 0x{o.Id:x}: {what}");
     }
 
-    static async Task SetFightBarrier(ClientState conn, PlacedObj barrier, bool closed)
+    static async Task SetFightBarrier(Player player, PlacedObj barrier, bool closed)
     {
         if (Info(barrier.Type) is not { } info) return;
         int tIdx = QuestObject.TransitionableIndex(info.Components);
         byte state = (byte)(closed ? 2 : 1);
-        foreach (var member in DeepwaterLoot.Members(conn))
+        foreach (var member in DeepwaterLoot.Members(player))
         {
             SetBarrierCells(member, barrier, closed);
             if (tIdx >= 0)
@@ -512,54 +513,43 @@ public static class DeepwaterVelka
         }
     }
 
-    static void SetBarrierCells(ClientState conn, PlacedObj barrier, bool blocked)
+    static void SetBarrierCells(Player player, PlacedObj barrier, bool blocked)
     {
-        lock (conn.Monsters)
+        if (!blocked)
         {
-            if (!blocked)
+            if (player.DoorBarriers.Remove(barrier.Id)) player.UpdateBarrier();
+            return;
+        }
+        if (player.Layout.Walkable is not { } walk) return;
+        var cells = new HashSet<(int X, int Y)>();
+        double cos = Math.Cos(barrier.Rotation), sin = Math.Sin(barrier.Rotation);
+        for (int u = -BarrierHalfWidth; u <= BarrierHalfWidth; u++)
+            for (int v = -BarrierHalfThickness; v <= BarrierHalfThickness; v++)
             {
-                if (conn.DoorBarriers.Remove(barrier.Id)) conn.UpdateBarrier();
-                return;
+                int cx = barrier.X + (int)Math.Round(u * cos - v * sin);
+                int cy = barrier.Y + (int)Math.Round(u * sin + v * cos);
+                if (walk(cx, cy)) cells.Add((cx, cy));
             }
-            if (conn.Layout.Walkable is not { } walk) return;
-            var cells = new HashSet<(int X, int Y)>();
-            double cos = Math.Cos(barrier.Rotation), sin = Math.Sin(barrier.Rotation);
-            for (int u = -BarrierHalfWidth; u <= BarrierHalfWidth; u++)
-                for (int v = -BarrierHalfThickness; v <= BarrierHalfThickness; v++)
-                {
-                    int cx = barrier.X + (int)Math.Round(u * cos - v * sin);
-                    int cy = barrier.Y + (int)Math.Round(u * sin + v * cos);
-                    if (walk(cx, cy)) cells.Add((cx, cy));
-                }
-            if (cells.Count > 0)
-            {
-                conn.DoorBarriers[barrier.Id] = cells;
-                conn.UpdateBarrier();
-            }
+        if (cells.Count > 0)
+        {
+            player.DoorBarriers[barrier.Id] = cells;
+            player.UpdateBarrier();
         }
     }
 
-    static async Task BossStates(ClientState conn, uint id, params (string Name, int Value)[] changes)
+    static async Task BossStates(Player player, uint id, params (string Name, int Value)[] changes)
     {
-        StateMachineData states;
-        int component;
-        lock (conn.Monsters)
-        {
-            if (!conn.Monsters.TryGetValue(id, out var boss) || boss.States is not { } current || boss.Variety is not { } variety) return;
-            foreach (var (name, value) in changes) current = current.Set(name, value);
-            boss.States = states = current;
-            if (conn.Instance.World.MonsterOrigins.TryGetValue(id, out var origin))
-                conn.Instance.World.MonsterOrigins[id] = origin with { Object = origin.Object with { StateMachine = states } };
-            component = variety.ComponentsOrBase.ToList().IndexOf("StateMachine");
-        }
+        if (!player.Area.Monsters.TryGetValue(id, out var boss) || boss.States is not { } current || boss.Variety is not { } variety) return;
+        foreach (var (name, value) in changes) current = current.Set(name, value);
+        var states = boss.States = current;
+        if (player.Instance.World.MonsterOrigins.TryGetValue(id, out var origin))
+            player.Instance.World.MonsterOrigins[id] = origin with { Object = origin.Object with { StateMachine = states } };
+        int component = variety.ComponentsOrBase.ToList().IndexOf("StateMachine");
         if (component < 0) return;
-        foreach (var member in DeepwaterLoot.Members(conn))
+        foreach (var member in DeepwaterLoot.Members(player))
         {
-            bool sees;
-            lock (member.Monsters) sees = member.MonsterViews.ContainsKey(id) && !member.AsleepMonsters.Contains(id);
-            if (!sees) continue;
-            var (remote, stream, ciphers) = member.Wire;
-            await global::Game.SendWorldRecord(remote, stream, ciphers, member, id,
+            if (!member.Area.Monsters.TryGetValue(id, out var m) || m.Asleep) continue;
+            await global::Game.SendWorldRecord(member, id,
                 InstanceEntities.StateMachineUpdate(id, (byte)component, states), null);
         }
     }
@@ -576,162 +566,153 @@ public static class DeepwaterVelka
     /// <summary>Per tick inside an Allflame run: handles Room <c>#29</c> water-wall discovery (<c>QF 3612</c> + taunt)
     /// and Room <c>#30</c> arena engage, Cressie emerge, 60% Phase 2 dismount, pool swaps, Cressie-death Stormcall
     /// enrage, and Victory. Zero allocations when the run has no Kishara's Rest cell or after completion.</summary>
-    internal static async Task Tick(IModuleContext module, ClientState conn, DeepwaterRun run)
+    internal static async Task Tick(IModuleContext module, Player player, DeepwaterRun run)
     {
-        if (conn.Closed || conn.LeavingArea || !conn.PlayerSent || run.Phase == DeepwaterRun.RunPhase.Ended) return;
+        if (player.Closed || player.LeavingArea || !player.Connection.PlayerSent || run.Phase == DeepwaterRun.RunPhase.Ended) return;
         if (!Encounters.TryGetValue(run, out var enc)) return;
 
         bool needBarrier = enc.Barrier is { Seen: false };
         bool needArena = enc.Arena is { Phase: not ArenaPhase.Defeated };
         if (!needBarrier && !needArena) return;
 
-        double now = conn.Clock.Elapsed.TotalSeconds;
-        var playerAt = conn.Walk.Position(now);
+        double now = AreaTime(player);
+        var playerAt = player.Walk.Position(now);
 
         // Quick distance pre-filter before taking the semaphore (0 allocs on idle ticks).
-        if (needBarrier && !needArena && (conn.PlayerLife == 0 || !Near(playerAt, enc.Barrier!.TriggerAt, WaterWallTriggerRange)))
+        if (needBarrier && !needArena && (player.PlayerLife == 0 || !Near(playerAt, enc.Barrier!.TriggerAt, WaterWallTriggerRange)))
             return;
         if (!needBarrier && needArena && enc.Arena!.Phase == ArenaPhase.Waiting
-            && (conn.PlayerLife == 0 || !Near(playerAt, enc.Arena.Centre, ArenaEngageRange)))
+            && (player.PlayerLife == 0 || !Near(playerAt, enc.Arena.Centre, ArenaEngageRange)))
             return;
 
         if (!enc.Gate.Wait(0)) return;
         try
         {
-            if (enc.Barrier is { Seen: false } b && conn.PlayerLife > 0 && Near(playerAt, b.TriggerAt, WaterWallTriggerRange))
-                await TriggerWaterWall(module, conn, b);
+            if (enc.Barrier is { Seen: false } b && player.PlayerLife > 0 && Near(playerAt, b.TriggerAt, WaterWallTriggerRange))
+                await TriggerWaterWall(module, player, b);
 
             if (enc.Arena is { Phase: not ArenaPhase.Defeated } a)
-                await StepArena(module, conn, run, a, playerAt, now);
+                await StepArena(module, player, run, a, playerAt, now);
         }
         finally { enc.Gate.Release(); }
     }
 
-    static async Task TriggerWaterWall(IModuleContext module, ClientState conn, BarrierState b)
+    static async Task TriggerWaterWall(IModuleContext module, Player player, BarrierState b)
     {
         b.Seen = true;
         var taunt = BaseStates(PreFightType)?.Set("active", 1).Set("lantern", 1);
-        foreach (var member in DeepwaterLoot.Members(conn))
+        foreach (var member in DeepwaterLoot.Members(player))
         {
-            var (remote, stream, ciphers) = member.Wire;
             if (!ClientHasQuestFlag(member, WaterWallSeenFlag))
-                await SetQuestFlags(remote, stream, ciphers, member, [WaterWallSeenFlag]);
+                await SetQuestFlags(member, [WaterWallSeenFlag]);
             if (taunt is not null)
                 await SendObjectStates(member, b.PreFight, taunt, "active=1 (Velka_Taunt)");
         }
-        module.Log($"{CharacterName(conn)}: saw Velka's water wall in Kishara's Rest (#29); set {WaterWallSeenFlag} (QF 3612)");
+        module.Log($"{CharacterName(player)}: saw Velka's water wall in Kishara's Rest (#29); set {WaterWallSeenFlag} (QF 3612)");
     }
 
-    static async Task StepArena(IModuleContext module, ClientState conn, DeepwaterRun run, ArenaState a, (int X, int Y) playerAt, double now)
+    static async Task StepArena(IModuleContext module, Player player, DeepwaterRun run, ArenaState a, (int X, int Y) playerAt, double now)
     {
         switch (a.Phase)
         {
             case ArenaPhase.Waiting:
-                if (conn.PlayerLife == 0 || !Near(playerAt, a.Centre, ArenaEngageRange)) return;
-                await BeginArenaIntro(module, conn, a, now);
+                if (player.PlayerLife == 0 || !Near(playerAt, a.Centre, ArenaEngageRange)) return;
+                await BeginArenaIntro(module, player, a, now);
                 return;
 
             case ArenaPhase.Intro:
                 if (now < a.IntroEndsAt) return;
-                await StartPhase1(module, conn, run, a, now);
+                await StartPhase1(module, player, run, a, now);
                 return;
 
             case ArenaPhase.Phase1:
-                await StepPhase1(module, conn, run, a, now);
+                await StepPhase1(module, player, run, a, now);
                 return;
 
             case ArenaPhase.Dismounting:
-                await StepDismounting(module, conn, run, a, now);
+                await StepDismounting(module, player, run, a, now);
                 return;
 
             case ArenaPhase.Phase2:
-                await StepPhase2(module, conn, run, a, now);
+                await StepPhase2(module, player, run, a, now);
                 return;
 
             case ArenaPhase.Enrage:
-                await StepEnrage(module, conn, run, a, now);
+                await StepEnrage(module, player, run, a, now);
                 return;
         }
     }
 
-    static async Task BeginArenaIntro(IModuleContext module, ClientState conn, ArenaState a, double now)
+    static async Task BeginArenaIntro(IModuleContext module, Player player, ArenaState a, double now)
     {
         a.Phase = ArenaPhase.Intro;
         a.IntroEndsAt = now + IntroSeconds;
-        await SetFightBarrier(conn, a.Barrier, closed: true);
+        await SetFightBarrier(player, a.Barrier, closed: true);
 
         var tpOn = BaseStates(ArenaTeleporterType)?.Set("active", 1);
         var pfIntro = BaseStates(PreFightType)?.Set("active", 2).Set("lantern", 2);
         var rightSplash = BaseStates(RightEelLocatorType)?.Set("splash", 1);
-        foreach (var member in DeepwaterLoot.Members(conn))
+        foreach (var member in DeepwaterLoot.Members(player))
         {
-            var (remote, stream, ciphers) = member.Wire;
             if (!ClientHasQuestFlag(member, VelkaSeenFlag))
-                await SetQuestFlags(remote, stream, ciphers, member, [VelkaSeenFlag]);
+                await SetQuestFlags(member, [VelkaSeenFlag]);
             if (tpOn is not null) await SendObjectStates(member, a.Teleporter, tpOn, "active=1");
             if (pfIntro is not null) await SendObjectStates(member, a.PreFight, pfIntro, "active=2, lantern=2 (emerge)");
             if (rightSplash is not null) await SendObjectStates(member, a.RightPool, rightSplash, "splash=1");
         }
-        module.Log($"{CharacterName(conn)}: entered Kishara's Rest boss arena (#30); barrier sealed, ArenaTeleporter active, {VelkaSeenFlag} set");
+        module.Log($"{CharacterName(player)}: entered Kishara's Rest boss arena (#30); barrier sealed, ArenaTeleporter active, {VelkaSeenFlag} set");
     }
 
-    static async Task StartPhase1(IModuleContext module, ClientState conn, DeepwaterRun run, ArenaState a, double now)
+    static async Task StartPhase1(IModuleContext module, Player player, DeepwaterRun run, ArenaState a, double now)
     {
         if (!a.PreFightRemoved)
         {
             a.PreFightRemoved = true;
-            foreach (var member in DeepwaterLoot.Members(conn))
+            foreach (var member in DeepwaterLoot.Members(player))
                 await global::Game.SendWorldRemoval(PlayerOf(member), a.PreFight.Id, $"0x02bd remove VelkaPreFight 0x{a.PreFight.Id:x}");
         }
 
         if (Monsters.Find(CressieRow.ToString()) is not { Supported: true } cressieVariety)
         {
-            module.Log($"{CharacterName(conn)}: {CressieVariety} (#{CressieRow}) is not supported; aborting arena seal");
+            module.Log($"{CharacterName(player)}: {CressieVariety} (#{CressieRow}) is not supported; aborting arena seal");
             a.Phase = ArenaPhase.Defeated;
-            await SetFightBarrier(conn, a.Barrier, closed: false);
+            await SetFightBarrier(player, a.Barrier, closed: false);
             return;
         }
 
-        var (remote, stream, ciphers) = conn.Wire;
         var bossMods = (run.CellMods is { } cm && a.Cell.Index < cm.Length ? cm[a.Cell.Index] : null)
             ?? run.RunMods ?? DeepwaterMonsters.ModsFor(run.Level, null);
-        uint id = await SpawnMonster(remote, stream, ciphers, conn, cressieVariety, (byte)Math.Clamp(run.Level, 1, 100),
+        uint id = await SpawnMonster(player, cressieVariety, (byte)Math.Clamp(run.Level, 1, 100),
             MonsterRarity.Unique, a.RightPool.X, a.RightPool.Y, log: true, alone: false, unrisen: false,
             rotation: a.PreFight.Rotation, extraMods: bossMods,
             owned: (_, m) => m.Aggro = true, placement: MonsterPlacement.Established, instanceOwned: true);
         if (id == 0) return;
 
-        lock (conn.Monsters)
+        if (player.Area.Monsters.TryGetValue(id, out var boss))
         {
-            if (conn.Monsters.TryGetValue(id, out var boss))
-            {
-                boss.LifePhases = new([DismountThresholdPercent]);
-                boss.Aggro = true;
-            }
+            boss.LifePhases = new([DismountThresholdPercent]);
+            boss.Aggro = true;
         }
         a.CressieId = id;
         a.CressiePool = 2;
         a.Phase = ArenaPhase.Phase1;
         a.NextPoolSwapAt = now + PoolSwapInterval;
-        await BossStates(conn, id, ("boss_life_bar", 1), ("rider", 1), ("pool", 2), ("phase", 1), ("velkaalive", 1));
-        module.Log($"{CharacterName(conn)}: Phase 1 started — Cressie 0x{id:x} spawned at RightEelLocator ({a.RightPool.X}, {a.RightPool.Y}) with mounted Velka (rider=1)");
+        await BossStates(player, id, ("boss_life_bar", 1), ("rider", 1), ("pool", 2), ("phase", 1), ("velkaalive", 1));
+        module.Log($"{CharacterName(player)}: Phase 1 started — Cressie 0x{id:x} spawned at RightEelLocator ({a.RightPool.X}, {a.RightPool.Y}) with mounted Velka (rider=1)");
     }
 
-    static async Task StepPhase1(IModuleContext module, ClientState conn, DeepwaterRun run, ArenaState a, double now)
+    static async Task StepPhase1(IModuleContext module, Player player, DeepwaterRun run, ArenaState a, double now)
     {
         bool dead, dismount = false;
         (int X, int Y) cressieAt = a.Centre;
-        lock (conn.Monsters)
+        dead = !player.Area.Monsters.TryGetValue(a.CressieId, out var cressie) || cressie.Dead || cressie.Life == 0;
+        if (!dead)
         {
-            dead = !conn.Monsters.TryGetValue(a.CressieId, out var cressie) || cressie.Dead || cressie.Life == 0;
-            if (!dead)
-            {
-                cressieAt = cressie!.Walk.Position(now);
-                if (cressie.LifePhases is { Active: false } phases)
-                    dismount = phases.Begin(cressie.Life, cressie.MaxLife);
-                else if ((ulong)cressie.Life * 100 <= (ulong)Math.Max(1u, cressie.MaxLife) * DismountThresholdPercent)
-                    dismount = true;
-            }
+            cressieAt = cressie!.Walk.Position(now);
+            if (cressie.LifePhases is { Active: false } phases)
+                dismount = phases.Begin(cressie.Life, cressie.MaxLife);
+            else if ((ulong)cressie.Life * 100 <= (ulong)Math.Max(1u, cressie.MaxLife) * DismountThresholdPercent)
+                dismount = true;
         }
 
         if (dead)
@@ -739,7 +720,7 @@ public static class DeepwaterVelka
             // Defensive: if Cressie somehow died before dismount (e.g., dev command), spawn Velka directly in Enrage so fight never soft-locks.
             a.CressieDead = true;
             a.LastKillAt = cressieAt;
-            await SpawnVelka(module, conn, run, a, enrageAtOnce: true, now);
+            await SpawnVelka(module, player, run, a, enrageAtOnce: true, now);
             return;
         }
 
@@ -747,131 +728,118 @@ public static class DeepwaterVelka
         {
             a.Phase = ArenaPhase.Dismounting;
             a.DismountEndsAt = now + DismountSeconds;
-            await BossStates(conn, a.CressieId, ("rider", 2), ("phase", 2));
-            await SpawnVelka(module, conn, run, a, enrageAtOnce: false, now);
+            await BossStates(player, a.CressieId, ("rider", 2), ("phase", 2));
+            await SpawnVelka(module, player, run, a, enrageAtOnce: false, now);
             return;
         }
 
         if (now >= a.NextPoolSwapAt)
-            await SwapCressiePool(module, conn, a, now);
+            await SwapCressiePool(module, player, a, now);
     }
 
-    static async Task SpawnVelka(IModuleContext module, ClientState conn, DeepwaterRun run, ArenaState a, bool enrageAtOnce, double now)
+    static async Task SpawnVelka(IModuleContext module, Player player, DeepwaterRun run, ArenaState a, bool enrageAtOnce, double now)
     {
         if (a.VelkaId != 0) return;
         if (Monsters.Find(VelkaRow.ToString()) is not { Supported: true } velkaVariety)
         {
-            module.Log($"{CharacterName(conn)}: {VelkaVariety} (#{VelkaRow}) is not supported");
+            module.Log($"{CharacterName(player)}: {VelkaVariety} (#{VelkaRow}) is not supported");
             a.VelkaDead = true;
-            if (a.CressieDead) await CompleteVictory(module, conn, run, a);
+            if (a.CressieDead) await CompleteVictory(module, player, run, a);
             return;
         }
 
-        var spawnAt = conn.Layout.Near(a.Centre);
-        var (remote, stream, ciphers) = conn.Wire;
+        var spawnAt = player.Layout.Near(a.Centre);
         var bossMods = (run.CellMods is { } cm && a.Cell.Index < cm.Length ? cm[a.Cell.Index] : null)
             ?? run.RunMods ?? DeepwaterMonsters.ModsFor(run.Level, null);
-        uint id = await SpawnMonster(remote, stream, ciphers, conn, velkaVariety, (byte)Math.Clamp(run.Level, 1, 100),
+        uint id = await SpawnMonster(player, velkaVariety, (byte)Math.Clamp(run.Level, 1, 100),
             MonsterRarity.Unique, spawnAt.X, spawnAt.Y, log: true, alone: false, unrisen: false,
             extraMods: bossMods,
             owned: (_, m) => m.Aggro = true, placement: MonsterPlacement.Proposed, instanceOwned: true);
         if (id == 0) return;
 
         a.VelkaId = id;
-        await BossStates(conn, id, ("boss_life_bar", 1));
-        module.Log($"{CharacterName(conn)}: Phase 2 dismount — Velka, the Tide Witch 0x{id:x} spawned at ({spawnAt.X}, {spawnAt.Y})");
-        if (enrageAtOnce) await BeginEnrage(module, conn, a, now);
+        await BossStates(player, id, ("boss_life_bar", 1));
+        module.Log($"{CharacterName(player)}: Phase 2 dismount — Velka, the Tide Witch 0x{id:x} spawned at ({spawnAt.X}, {spawnAt.Y})");
+        if (enrageAtOnce) await BeginEnrage(module, player, a, now);
     }
 
-    static async Task StepDismounting(IModuleContext module, ClientState conn, DeepwaterRun run, ArenaState a, double now)
+    static async Task StepDismounting(IModuleContext module, Player player, DeepwaterRun run, ArenaState a, double now)
     {
-        if (a.VelkaId == 0 && !a.VelkaDead) await SpawnVelka(module, conn, run, a, enrageAtOnce: false, now);
+        if (a.VelkaId == 0 && !a.VelkaDead) await SpawnVelka(module, player, run, a, enrageAtOnce: false, now);
         if (a.VelkaId == 0 && !a.VelkaDead) return;
         if (now < a.DismountEndsAt) return;
-        lock (conn.Monsters)
-        {
-            if (conn.Monsters.TryGetValue(a.CressieId, out var cressie)) cressie.LifePhases?.Finish();
-        }
+        if (player.Area.Monsters.TryGetValue(a.CressieId, out var cressie)) cressie.LifePhases?.Finish();
         a.Phase = ArenaPhase.Phase2;
         a.NextPoolSwapAt = now + PoolSwapInterval;
-        await CheckDualBossState(module, conn, run, a, now);
+        await CheckDualBossState(module, player, run, a, now);
     }
 
-    static async Task StepPhase2(IModuleContext module, ClientState conn, DeepwaterRun run, ArenaState a, double now)
+    static async Task StepPhase2(IModuleContext module, Player player, DeepwaterRun run, ArenaState a, double now)
     {
-        if (await CheckDualBossState(module, conn, run, a, now)) return;
+        if (await CheckDualBossState(module, player, run, a, now)) return;
         if (!a.CressieDead && now >= a.NextPoolSwapAt)
-            await SwapCressiePool(module, conn, a, now);
+            await SwapCressiePool(module, player, a, now);
     }
 
-    static async Task<bool> CheckDualBossState(IModuleContext module, ClientState conn, DeepwaterRun run, ArenaState a, double now)
+    static async Task<bool> CheckDualBossState(IModuleContext module, Player player, DeepwaterRun run, ArenaState a, double now)
     {
         bool cressieDead, velkaDead;
         (int X, int Y) cressieAt = a.LastKillAt, velkaAt = a.LastKillAt;
-        lock (conn.Monsters)
-        {
-            cressieDead = a.CressieDead || a.CressieId == 0 || !conn.Monsters.TryGetValue(a.CressieId, out var c) || c.Dead || c.Life == 0;
-            if (!cressieDead && conn.Monsters.TryGetValue(a.CressieId, out var cb)) cressieAt = cb.Walk.Position(now);
-            velkaDead = a.VelkaDead || a.VelkaId == 0 || !conn.Monsters.TryGetValue(a.VelkaId, out var v) || v.Dead || v.Life == 0;
-            if (!velkaDead && conn.Monsters.TryGetValue(a.VelkaId, out var vb)) velkaAt = vb.Walk.Position(now);
-        }
+        cressieDead = a.CressieDead || a.CressieId == 0 || !player.Area.Monsters.TryGetValue(a.CressieId, out var c) || c.Dead || c.Life == 0;
+        if (!cressieDead && player.Area.Monsters.TryGetValue(a.CressieId, out var cb)) cressieAt = cb.Walk.Position(now);
+        velkaDead = a.VelkaDead || a.VelkaId == 0 || !player.Area.Monsters.TryGetValue(a.VelkaId, out var v) || v.Dead || v.Life == 0;
+        if (!velkaDead && player.Area.Monsters.TryGetValue(a.VelkaId, out var vb)) velkaAt = vb.Walk.Position(now);
 
         if (cressieDead && !a.CressieDead)
         {
             a.CressieDead = true;
             a.LastKillAt = cressieAt;
-            await ClearPoolSplashes(conn, a);
+            await ClearPoolSplashes(player, a);
         }
         if (velkaDead && !a.VelkaDead)
         {
             a.VelkaDead = true;
             a.LastKillAt = velkaAt;
             if (!a.CressieDead && a.CressieId != 0)
-                await BossStates(conn, a.CressieId, ("velkaalive", 0));
+                await BossStates(player, a.CressieId, ("velkaalive", 0));
         }
 
         if (a.CressieDead && a.VelkaDead)
         {
-            await CompleteVictory(module, conn, run, a);
+            await CompleteVictory(module, player, run, a);
             return true;
         }
         if (a.CressieDead && !a.VelkaDead && a.Phase != ArenaPhase.Enrage)
         {
-            await BeginEnrage(module, conn, a, now);
+            await BeginEnrage(module, player, a, now);
             return true;
         }
         return false;
     }
 
-    static async Task BeginEnrage(IModuleContext module, ClientState conn, ArenaState a, double now)
+    static async Task BeginEnrage(IModuleContext module, Player player, ArenaState a, double now)
     {
         a.Phase = ArenaPhase.Enrage;
         a.EnrageGraceEndsAt = now + EnrageGraceSeconds;
         a.EnrageGraceCleared = false;
         a.NextStormcallAt = now + 0.5;
-        lock (conn.Monsters)
-        {
-            if (conn.Monsters.TryGetValue(a.VelkaId, out var velka)) velka.EntranceGrace = true;
-        }
-        await BossStates(conn, a.VelkaId, ("eel_death", 1), ("stormcall", 1));
-        module.Log($"{CharacterName(conn)}: Cressie defeated while Velka 0x{a.VelkaId:x} lives — Velka enters Stormcall enrage (eel_death=1, {EnrageGraceSeconds:0.0}s grace)");
+        if (player.Area.Monsters.TryGetValue(a.VelkaId, out var velka)) velka.EntranceGrace = true;
+        await BossStates(player, a.VelkaId, ("eel_death", 1), ("stormcall", 1));
+        module.Log($"{CharacterName(player)}: Cressie defeated while Velka 0x{a.VelkaId:x} lives — Velka enters Stormcall enrage (eel_death=1, {EnrageGraceSeconds:0.0}s grace)");
     }
 
-    static async Task StepEnrage(IModuleContext module, ClientState conn, DeepwaterRun run, ArenaState a, double now)
+    static async Task StepEnrage(IModuleContext module, Player player, DeepwaterRun run, ArenaState a, double now)
     {
         bool velkaDead;
         (int X, int Y) velkaAt = a.LastKillAt;
-        lock (conn.Monsters)
+        velkaDead = a.VelkaDead || a.VelkaId == 0 || !player.Area.Monsters.TryGetValue(a.VelkaId, out var v) || v.Dead || v.Life == 0;
+        if (!velkaDead && player.Area.Monsters.TryGetValue(a.VelkaId, out var vb))
         {
-            velkaDead = a.VelkaDead || a.VelkaId == 0 || !conn.Monsters.TryGetValue(a.VelkaId, out var v) || v.Dead || v.Life == 0;
-            if (!velkaDead && conn.Monsters.TryGetValue(a.VelkaId, out var vb))
+            velkaAt = vb.Walk.Position(now);
+            if (!a.EnrageGraceCleared && now >= a.EnrageGraceEndsAt)
             {
-                velkaAt = vb.Walk.Position(now);
-                if (!a.EnrageGraceCleared && now >= a.EnrageGraceEndsAt)
-                {
-                    vb.EntranceGrace = false;
-                    a.EnrageGraceCleared = true;
-                }
+                vb.EntranceGrace = false;
+                a.EnrageGraceCleared = true;
             }
         }
         if (velkaDead)
@@ -879,7 +847,7 @@ public static class DeepwaterVelka
             a.VelkaDead = true;
             a.LastKillAt = velkaAt;
             a.PendingStormcalls.Clear();
-            await CompleteVictory(module, conn, run, a);
+            await CompleteVictory(module, player, run, a);
             return;
         }
 
@@ -891,7 +859,7 @@ public static class DeepwaterVelka
                 var strike = a.PendingStormcalls[i];
                 if (now < strike.HitAt) continue;
                 a.PendingStormcalls.RemoveAt(i);
-                await ResolveStormcallHit(conn, run, a, (strike.X, strike.Y));
+                await ResolveStormcallHit(player, run, a, (strike.X, strike.Y));
             }
         }
 
@@ -899,57 +867,49 @@ public static class DeepwaterVelka
         if (now >= a.NextStormcallAt && a.PendingStormcalls.Count < MaxPendingStormcalls)
         {
             a.NextStormcallAt = now + StormcallInterval;
-            await CastStormcall(conn, a, now);
+            await CastStormcall(player, a, now);
         }
     }
 
-    static async Task CastStormcall(ClientState conn, ArenaState a, double now)
+    static async Task CastStormcall(Player player, ArenaState a, double now)
     {
-        var members = DeepwaterLoot.Members(conn).Where(m => m.PlayerLife > 0).ToList();
+        var members = DeepwaterLoot.Members(player).Where(m => m.PlayerLife > 0).ToList();
         if (members.Count == 0) return;
-        var targetMember = members[Random.Shared.Next(members.Count)];
+        var targetMember = members[AreaRng(player).Next(members.Count)];
         var targetAt = targetMember.Walk.Position(now);
         if (!a.Contains(targetAt)) return;
 
         ushort? skillId = null;
         (int X, int Y) from = a.Centre;
-        lock (conn.Monsters)
-        {
-            if (!conn.Monsters.TryGetValue(a.VelkaId, out var velka) || velka.Dead) return;
-            from = velka.Walk.Position(now);
-            foreach (var entry in velka.Kit)
-                if (entry.Effect == StormcallEffect) { skillId = entry.Attack.SkillId; break; }
-        }
+        if (!player.Area.Monsters.TryGetValue(a.VelkaId, out var velka) || velka.Dead) return;
+        from = velka.Walk.Position(now);
+        foreach (var entry in velka.Kit)
+            if (entry.Effect == StormcallEffect) { skillId = entry.Attack.SkillId; break; }
 
         a.PendingStormcalls.Add((now + StormcallTelegraph, targetAt.X, targetAt.Y));
         if (skillId is ushort sid)
         {
             foreach (var member in members)
             {
-                var w = member.Wire;
-                await global::Game.SendWorldRecord(w.Remote, w.Stream, w.Ciphers, member, a.VelkaId,
+                await global::Game.SendWorldRecord(member, a.VelkaId,
                     InstanceProtocol.ActionStartedNow(a.VelkaId, from.X, from.Y, targetAt.X, targetAt.Y,
                         sid, member.NextActionSequence(), 0x0800, 0), null);
             }
         }
     }
 
-    static async Task ResolveStormcallHit(ClientState conn, DeepwaterRun run, ArenaState a, (int X, int Y) at)
+    static async Task ResolveStormcallHit(Player player, DeepwaterRun run, ArenaState a, (int X, int Y) at)
     {
-        SpawnedMonster? velka;
         MonsterAttack? attack = null;
-        lock (conn.Monsters)
-        {
-            if (!conn.Monsters.TryGetValue(a.VelkaId, out velka) || velka.Dead) return;
-            foreach (var entry in velka.Kit)
-                if (entry.Effect == StormcallEffect) { attack = entry.Attack; break; }
-            attack ??= velka.Attack;
-        }
+        if (!player.Area.Monsters.TryGetValue(a.VelkaId, out var velka) || velka.Dead) return;
+        foreach (var entry in velka.Kit)
+            if (entry.Effect == StormcallEffect) { attack = entry.Attack; break; }
+        attack ??= velka.Attack;
         if (attack is null && velka.Variety is { } variety)
-            attack = BossKits.AttackFor(conn, variety, (byte)Math.Clamp(run.Level, 1, 100), StormcallEffect, 0x4000);
+            attack = BossKits.AttackFor(player, variety, (byte)Math.Clamp(run.Level, 1, 100), StormcallEffect, 0x4000);
         if (attack is null || attack.Damage.IsZero) return;
 
-        foreach (var member in DeepwaterLoot.Members(conn))
+        foreach (var member in DeepwaterLoot.Members(player))
         {
             if (member.PlayerLife == 0) continue;
             await ArenaHazards.Hit(member, a.VelkaId, velka, attack,
@@ -958,35 +918,32 @@ public static class DeepwaterVelka
         }
     }
 
-    static async Task SwapCressiePool(IModuleContext module, ClientState conn, ArenaState a, double now)
+    static async Task SwapCressiePool(IModuleContext module, Player player, ArenaState a, double now)
     {
         a.NextPoolSwapAt = now + PoolSwapInterval;
         int nextPool = a.CressiePool == 2 ? 1 : 2;
         var dest = nextPool == 1 ? a.LeftPool : a.RightPool;
-        lock (conn.Monsters)
-        {
-            if (!conn.Monsters.TryGetValue(a.CressieId, out var cressie) || cressie.Dead || cressie.Invulnerable) return;
-            cressie.Walk.Teleport(dest.X, dest.Y, now);
-        }
+        if (!player.Area.Monsters.TryGetValue(a.CressieId, out var cressie) || cressie.Dead || cressie.Invulnerable) return;
+        cressie.Walk.Teleport(dest.X, dest.Y, now);
         a.CressiePool = nextPool;
         var leftSplash = BaseStates(LeftEelLocatorType)?.Set("splash", nextPool == 1 ? 1 : 0);
         var rightSplash = BaseStates(RightEelLocatorType)?.Set("splash", nextPool == 2 ? 1 : 0);
-        foreach (var member in DeepwaterLoot.Members(conn))
+        foreach (var member in DeepwaterLoot.Members(player))
         {
             await global::Game.SendWorldRecord(PlayerOf(member), a.CressieId, InstanceProtocol.Teleport(a.CressieId, dest.X, dest.Y),
                 $"0x01b7 Cressie pool swap -> {(nextPool == 1 ? "Left" : "Right")} ({dest.X}, {dest.Y})");
             if (leftSplash is not null) await SendObjectStates(member, a.LeftPool, leftSplash, $"splash={(nextPool == 1 ? 1 : 0)}");
             if (rightSplash is not null) await SendObjectStates(member, a.RightPool, rightSplash, $"splash={(nextPool == 2 ? 1 : 0)}");
         }
-        await BossStates(conn, a.CressieId, ("pool", nextPool));
-        module.Log($"{CharacterName(conn)}: Cressie 0x{a.CressieId:x} swapped to pool {nextPool} ({dest.X}, {dest.Y})");
+        await BossStates(player, a.CressieId, ("pool", nextPool));
+        module.Log($"{CharacterName(player)}: Cressie 0x{a.CressieId:x} swapped to pool {nextPool} ({dest.X}, {dest.Y})");
     }
 
-    static async Task ClearPoolSplashes(ClientState conn, ArenaState a)
+    static async Task ClearPoolSplashes(Player player, ArenaState a)
     {
         var leftOff = BaseStates(LeftEelLocatorType)?.Set("splash", 0);
         var rightOff = BaseStates(RightEelLocatorType)?.Set("splash", 0);
-        foreach (var member in DeepwaterLoot.Members(conn))
+        foreach (var member in DeepwaterLoot.Members(player))
         {
             if (leftOff is not null) await SendObjectStates(member, a.LeftPool, leftOff, "splash=0");
             if (rightOff is not null) await SendObjectStates(member, a.RightPool, rightOff, "splash=0");
@@ -1008,15 +965,15 @@ public static class DeepwaterVelka
         try
         {
             if (a.Phase == ArenaPhase.Defeated) return;
-            double now = kill.Conn.Clock.Elapsed.TotalSeconds;
+            double now = AreaTime(kill.Player);
             if (id == a.CressieId)
             {
                 a.CressieDead = true;
                 a.LastKillAt = (kill.Monster.X, kill.Monster.Y);
-                await ClearPoolSplashes(kill.Conn, a);
+                await ClearPoolSplashes(kill.Player, a);
                 if (a.VelkaId == 0)
                 {
-                    await SpawnVelka(module, kill.Conn, run, a, enrageAtOnce: true, now);
+                    await SpawnVelka(module, kill.Player, run, a, enrageAtOnce: true, now);
                     return;
                 }
             }
@@ -1025,27 +982,27 @@ public static class DeepwaterVelka
                 a.VelkaDead = true;
                 a.LastKillAt = (kill.Monster.X, kill.Monster.Y);
                 if (!a.CressieDead && a.CressieId != 0)
-                    await BossStates(kill.Conn, a.CressieId, ("velkaalive", 0));
+                    await BossStates(kill.Player, a.CressieId, ("velkaalive", 0));
             }
 
             if (a.CressieDead && a.VelkaDead)
-                await CompleteVictory(module, kill.Conn, run, a);
+                await CompleteVictory(module, kill.Player, run, a);
             else if (a.CressieDead && !a.VelkaDead && a.Phase != ArenaPhase.Enrage)
-                await BeginEnrage(module, kill.Conn, a, now);
+                await BeginEnrage(module, kill.Player, a, now);
         }
         finally { enc.Gate.Release(); }
     }
 
-    static async Task CompleteVictory(IModuleContext module, ClientState conn, DeepwaterRun run, ArenaState a)
+    static async Task CompleteVictory(IModuleContext module, Player player, DeepwaterRun run, ArenaState a)
     {
         if (a.Phase == ArenaPhase.Defeated) return;
         a.Phase = ArenaPhase.Defeated;
         a.AltarEnabled = true;
         a.PendingStormcalls.Clear();
 
-        var members = DeepwaterLoot.Members(conn).ToList();
-        await SetFightBarrier(conn, a.Barrier, closed: false);
-        await ClearPoolSplashes(conn, a);
+        var members = DeepwaterLoot.Members(player).ToList();
+        await SetFightBarrier(player, a.Barrier, closed: false);
+        await ClearPoolSplashes(player, a);
 
         var tpOff = BaseStates(ArenaTeleporterType)?.Set("active", 0);
         var altarOn = BaseStates(DescensionObjectType)?.Set("enabled", 1).Set("visible", 1);
@@ -1057,23 +1014,22 @@ public static class DeepwaterVelka
             if (altarOn is not null) await SendObjectStates(member, a.Altar, altarOn, "enabled=1, visible=1 (Velka Bloodline)");
             member.SetBlocker(a.Altar.Id, a.Altar.X, a.Altar.Y, altarSize);
 
-            var (remote, stream, ciphers) = member.Wire;
-            await SetQuestFlags(remote, stream, ciphers, member, [VelkaDefeatedJustNowFlag, VelkaDefeatedFlag]);
+            await SetQuestFlags(member, [VelkaDefeatedJustNowFlag, VelkaDefeatedFlag]);
             if (!HasLeagueFlag(member, VelkaKilledLeagueFlag))
-                await SetLeagueQuestFlags(remote, stream, ciphers, member, [VelkaKilledLeagueFlag]);
+                await SetLeagueQuestFlags(member, [VelkaKilledLeagueFlag]);
         }
 
-        await DropVictoryLoot(module, conn, run, a, members);
-        module.Log($"{CharacterName(conn)}: Velka & Cressie defeated — barrier reopened, {VelkaDefeatedJustNowFlag}/{VelkaDefeatedFlag}/LQF {VelkaKilledLeagueFlag} set, VelkaDescensionObject 0x{a.Altar.Id:x} activated");
+        await DropVictoryLoot(module, player, run, a, members);
+        module.Log($"{CharacterName(player)}: Velka & Cressie defeated — barrier reopened, {VelkaDefeatedJustNowFlag}/{VelkaDefeatedFlag}/LQF {VelkaKilledLeagueFlag} set, VelkaDescensionObject 0x{a.Altar.Id:x} activated");
     }
 
-    static async Task DropVictoryLoot(IModuleContext module, ClientState conn, DeepwaterRun run, ArenaState a, List<ClientState> members)
+    static async Task DropVictoryLoot(IModuleContext module, Player player, DeepwaterRun run, ArenaState a, List<Player> members)
     {
-        var catalog = ItemsFor(conn);
-        var uniques = UniquesFor(conn);
-        var random = Random.Shared;
+        var catalog = ItemsFor(player);
+        var uniques = UniquesFor(player);
+        var random = AreaRng(player);
         int level = Math.Clamp(run.Level, 1, 100);
-        var dropAt = conn.Layout.Near(a.LastKillAt);
+        var dropAt = player.Layout.Near(a.LastKillAt);
 
         // 1. Guaranteed unique + independent 8% Coursing Current Support (ignores IIQ/IIR; marked Dredge on pickup).
         var dredgeDrops = new List<ItemDrops.Drop>(2);
@@ -1083,7 +1039,7 @@ public static class DeepwaterVelka
         {
             dredgeDrops.Add(new(uniqueItem with { ItemLevel = (byte)Math.Clamp(level + 2, 1, 100), Identified = false }, uniqueBase));
         }
-        else module.Log($"{CharacterName(conn)}: Velka unique '{uniqueName}' could not be created");
+        else module.Log($"{CharacterName(player)}: Velka unique '{uniqueName}' could not be created");
 
         if (random.Next(100) < CoursingCurrentChancePercent
             && catalog.Find(CoursingCurrentSupportId) is { Supported: true } gemType)
@@ -1092,7 +1048,7 @@ public static class DeepwaterVelka
         }
 
         if (dredgeDrops.Count > 0)
-            await DeepwaterLoot.Drop(conn, dropAt.X, dropAt.Y, 4, "Velka, the Tide Witch", dredgeDrops);
+            await DeepwaterLoot.Drop(player, dropAt.X, dropAt.Y, 4, "Velka, the Tide Witch", dredgeDrops);
 
         // 2. First-kill quest drops (private per eligible member, NOT Dredge: BossAllflameDeepwater, Forbidden Scripture,
         //    Ducat of Tsoatha's Gift).
@@ -1129,16 +1085,15 @@ public static class DeepwaterVelka
             foreach (var d in memberDrops) allQuestNames.Add(d.Type.Name);
         }
 
-        module.Log($"{CharacterName(conn)}: Velka drops: {string.Join(", ", dredgeDrops.Select(d => d.Type.Name).Concat(allQuestNames))}");
+        module.Log($"{CharacterName(player)}: Velka drops: {string.Join(", ", dredgeDrops.Select(d => d.Type.Name).Concat(allQuestNames))}");
     }
 
-    static bool CarriesHash(ClientState conn, uint typeHash) =>
-        DeepwaterProgression.CarriesQuestItem(conn, typeHash);
+    static bool CarriesHash(Player player, uint typeHash) =>
+        DeepwaterProgression.CarriesQuestItem(player, typeHash);
 
-    static async Task DropPrivateQuestItems(ClientState member, int x, int y, IReadOnlyList<ItemDrops.Drop> drops)
+    static async Task DropPrivateQuestItems(Player member, int x, int y, IReadOnlyList<ItemDrops.Drop> drops)
     {
         if (!GameEvents.AllowsLoot(member)) return;
-        var (remote, stream, ciphers) = member.Wire;
         for (int i = 0; i < drops.Count; i++)
         {
             double angle = i * 2.399963229728653 + 0.7;
@@ -1146,7 +1101,7 @@ public static class DeepwaterVelka
             var ground = new WorldItemObject(at.X, at.Y, drops[i].Item);
             // Quest items stay private to each eligible player (matching DeepwaterFairgraves.DropAllflame).
             uint id = member.Instance.Ground.Add(ground, member, shared: false);
-            await SendGroundItem(remote, stream, ciphers, member, id, ground,
+            await SendGroundItem(member, id, ground,
                 $"Velka quest drop {drops[i].Type.Name}", justDropped: true);
         }
     }
@@ -1156,7 +1111,7 @@ public static class DeepwaterVelka
     /// <summary><c>C→S 0x24</c> on <c>ArenaTeleporter</c> (re-enter sealed arena) or <c>VelkaDescensionObject</c>
     /// (open Velka Bloodline <c>Descendancy#15 Brinerot</c> selector, matching <c>OshabiEncounter.cs</c> verbatim).
     /// Returns <c>false</c> for unrelated objects.</summary>
-    internal static async Task<bool> Use(IModuleContext module, ClientState conn, DeepwaterRun run,
+    internal static async Task<bool> Use(IModuleContext module, Player player, DeepwaterRun run,
         InstanceTransfer.UseSkillOnObject use, double requestedAt)
     {
         if (!Encounters.TryGetValue(run, out var enc) || enc.Arena is not { } a) return false;
@@ -1164,63 +1119,59 @@ public static class DeepwaterVelka
         bool isAltar = !isTeleporter && use.TargetId == a.Altar.Id;
         if (!isTeleporter && !isAltar) return false;
 
-        if (conn.PlayerLife == 0 || conn.Closed || conn.LeavingArea || run.Failed)
+        if (player.PlayerLife == 0 || player.Closed || player.LeavingArea || run.Failed)
         {
-            await DeepwaterLoot.EndAction(conn);
+            await DeepwaterLoot.EndAction(player);
             return true;
         }
 
-        var (remote, stream, ciphers) = conn.Wire;
-        Task End(int action) => global::Game.SendWorldRecord(remote, stream, ciphers, conn, PlayerId,
-            InstanceProtocol.ActionEnded(PlayerId), null, still: () => PlayerActionCurrent(conn, action));
+        Task End(int action) => global::Game.SendWorldRecord(player, player.Id,
+            InstanceProtocol.ActionEnded(player.Id), null, still: () => PlayerActionCurrent(player, action));
 
         if (isTeleporter)
         {
-            if (!a.BarrierClosed) { await End(conn.ActionCount); return true; }
+            if (!a.BarrierClosed) { await End(player.ActionCount); return true; }
             int tpReach = Math.Max(1, Info(ArenaTeleporterType)?.Size ?? 6) + 2;
-            if (!TryBeginObjectWalk(conn, requestedAt, a.Teleporter.X, a.Teleporter.Y, tpReach, out var tpWalk)) return true;
+            if (!TryBeginObjectWalk(player, requestedAt, a.Teleporter.X, a.Teleporter.Y, tpReach, out var tpWalk)) return true;
             var (action, now, here, stop, arrive) = tpWalk;
             if (!use.Started)
-                await global::Game.SendWorldRecord(remote, stream, ciphers, conn, PlayerId,
-                    InstanceProtocol.ActionStarted(PlayerId, here.X, here.Y, a.Teleporter.X, a.Teleporter.Y,
+                await global::Game.SendWorldRecord(player, player.Id,
+                    InstanceProtocol.ActionStarted(player.Id, here.X, here.Y, a.Teleporter.X, a.Teleporter.Y,
                         use.SkillId, use.Sequence, use.Flags, targetObjectId: a.Teleporter.Id), null,
-                    still: () => PlayerActionCurrent(conn, action));
-            if (arrive > now) await Task.Delay(TimeSpan.FromSeconds(arrive - now));
+                    still: () => PlayerActionCurrent(player, action));
+            if (arrive > now) await AreaDelay(player, arrive - now);
             try
             {
-                if (!PlayerActionCurrent(conn, action) || conn.PlayerLife == 0 || !a.BarrierClosed
+                if (!PlayerActionCurrent(player, action) || player.PlayerLife == 0 || !a.BarrierClosed
                     || !PlayerWalk.InWalkUpRange(stop, (a.Teleporter.X, a.Teleporter.Y), tpReach)) return true;
-                var to = conn.Layout.Near(a.Centre);
-                lock (conn.Monsters)
-                {
-                    Interlocked.Increment(ref conn.ActionCount);
-                    conn.Walk.Teleport(to.X, to.Y, conn.Clock.Elapsed.TotalSeconds);
-                }
-                await global::Game.SendWorldRecord(PlayerOf(conn), PlayerId, InstanceProtocol.Teleport(PlayerId, to.X, to.Y),
+                var to = player.Layout.Near(a.Centre);
+                Interlocked.Increment(ref player.ActionCount);
+                player.Walk.Teleport(to.X, to.Y, AreaTime(player));
+                await global::Game.SendWorldRecord(PlayerOf(player), player.Id, InstanceProtocol.Teleport(player.Id, to.X, to.Y),
                     $"0x01b7 Allflame ArenaTeleporter 0x{a.Teleporter.Id:x} -> ({to.X}, {to.Y})");
-                module.Log($"{CharacterName(conn)}: used ArenaTeleporter 0x{a.Teleporter.Id:x} -> ({to.X}, {to.Y})");
+                module.Log($"{CharacterName(player)}: used ArenaTeleporter 0x{a.Teleporter.Id:x} -> ({to.X}, {to.Y})");
             }
             finally { await End(action); }
             return true;
         }
 
         // VelkaDescensionObject -> Velka Bloodline (Descendancy#15 Brinerot), matching OshabiEncounter.cs verbatim.
-        if (!a.AltarEnabled) { await End(conn.ActionCount); return true; }
+        if (!a.AltarEnabled) { await End(player.ActionCount); return true; }
         int altarReach = Math.Max(0, StationaryCollision.Resolve(DescensionObjectType).Size);
-        if (!TryBeginObjectWalk(conn, requestedAt, a.Altar.X, a.Altar.Y, altarReach, out var walk)) return true;
+        if (!TryBeginObjectWalk(player, requestedAt, a.Altar.X, a.Altar.Y, altarReach, out var walk)) return true;
         {
             var (action, now, here, stop, arrive) = walk;
             if (!use.Started)
-                await global::Game.SendWorldRecord(remote, stream, ciphers, conn, PlayerId,
-                    InstanceProtocol.ActionStarted(PlayerId, here.X, here.Y, a.Altar.X, a.Altar.Y,
+                await global::Game.SendWorldRecord(player, player.Id,
+                    InstanceProtocol.ActionStarted(player.Id, here.X, here.Y, a.Altar.X, a.Altar.Y,
                         use.SkillId, use.Sequence, use.Flags, targetObjectId: a.Altar.Id), null,
-                    still: () => PlayerActionCurrent(conn, action));
-            if (arrive > now) await Task.Delay(TimeSpan.FromSeconds(arrive - now));
-            if (PlayerActionCurrent(conn, action) && conn.PlayerLife > 0 && !conn.Closed && !conn.LeavingArea
+                    still: () => PlayerActionCurrent(player, action));
+            if (arrive > now) await AreaDelay(player, arrive - now);
+            if (PlayerActionCurrent(player, action) && player.PlayerLife > 0 && !player.Closed && !player.LeavingArea
                 && !run.Failed && a.AltarEnabled && PlayerWalk.InWalkUpRange(stop, (a.Altar.X, a.Altar.Y), altarReach))
             {
                 byte row = Descendancies.Find(BloodlineId)?.Index ?? BloodlineRow;
-                await OpenDescendancySelector(remote, stream, ciphers, conn, row);
+                await OpenDescendancySelector(player, row);
             }
             await End(action);
             return true;

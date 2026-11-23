@@ -4,22 +4,32 @@ using GameServer.Core;
 namespace GameServer.Modules.PhreciaAscendancies.Classes.Harbinger;
 
 /// <summary>Fixed curse flags on the target variety's own mods, separate from rolled rarity/affix effects.</summary>
-sealed class HarbingerCurseSources(ModCatalog mods, string folder = "data")
+sealed class HarbingerCurseSources
 {
-    static readonly HashSet<string> Flags = ["reflect_curses", "immune_to_curses", "hexproof", HarbingerActionSpeed.ActionFloor];
-    readonly Lazy<Dictionary<int, Dictionary<string, int>>> sources = new(() => Load(mods, folder));
+    readonly ModCatalog mods;
+    readonly string folder;
 
-    public int Get(SpawnedMonster monster, string name) => monster.Mods.Effects[name]
-        + (monster.Variety is { } variety && sources.Value.TryGetValue(variety.Row, out var stats)
+    public HarbingerCurseSources(ModCatalog mods, string folder = "data")
+    {
+        this.mods = mods;
+        this.folder = folder;
+        sources = Load(mods, folder);
+    }
+
+    static readonly HashSet<uint> Flags = [Stat.ReflectCurses, Stat.ImmuneToCurses, Stat.Hexproof, HarbingerActionSpeed.ActionFloor];
+    readonly Dictionary<int, Dictionary<uint, int>> sources;
+
+    public int Get(SpawnedMonster monster, uint name) => monster.Mods.Effects[name]
+        + (monster.Variety is { } variety && sources.TryGetValue(variety.Row, out var stats)
             ? stats.GetValueOrDefault(name) : 0);
 
-    static Dictionary<int, Dictionary<string, int>> Load(ModCatalog mods, string folder)
+    static Dictionary<int, Dictionary<uint, int>> Load(ModCatalog mods, string folder)
     {
-        var result = new Dictionary<int, Dictionary<string, int>>();
+        var result = new Dictionary<int, Dictionary<uint, int>>();
         if (!ClientTables.Has("MonsterVarieties")) return result;
         foreach (var variety in ClientTables.Table("MonsterVarieties"))
         {
-            var stats = new Dictionary<string, int>();
+            var stats = new Dictionary<uint, int>();
             foreach (int key in variety.Ints("ModsKeys"))
                 if (mods.Row(key) is { } mod)
                     foreach (var stat in mod.Stats.Where(s => Flags.Contains(s.Id) && s.Min == s.Max))

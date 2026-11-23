@@ -8,12 +8,12 @@
 /// </summary>
 public static class CooldownBypass
 {
-    public const string PowerOverride = "active_skill_cooldown_bypass_type_override_to_power_charge";
+    public const uint PowerOverride = Stat.ActiveSkillCooldownBypassTypeOverrideToPowerCharge;
 
     /// <summary>The character's stat that makes Flicker Strike and Vigilant Strike bypass with Power Charges instead
     /// of Frenzy or Endurance Charges (a Crucible weapon passive). The client reads only <see cref="PowerOverride"/> on
     /// the skill (<c>0x141ea4290</c>), so the server sends it there.</summary>
-    public const string FlickerVigilantPowerOverride = "vigilant_and_flicker_strike_active_skill_cooldown_bypass_type_override_to_power_charge";
+    public const uint FlickerVigilantPowerOverride = Stat.VigilantAndFlickerStrikeActiveSkillCooldownBypassTypeOverrideToPowerCharge;
 
     /// <summary>Whether <see cref="FlickerVigilantPowerOverride"/> turns this skill's bypass into a Power Charge: Flicker
     /// Strike, Vigilant Strike and their transfigured gems (<c>AltX</c>, <c>AltY</c>), whose bypass is Endurance or Frenzy;

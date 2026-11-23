@@ -18,7 +18,7 @@ public sealed class TornadoShotSecondaryTests
     [Fact]
     public void Tornado_shot_primary_pierces_and_releases_hidden_secondaries()
     {
-        static int Get(string _) => 0;
+        static int Get(uint _) => 0;
         var profile = GatewayProjectileSkillProfiles.Resolve("TornadoShot",
             "Metadata/Projectiles/TornadoShotArrow", Get, 200, attack: true);
 

@@ -1,24 +1,24 @@
 public static partial class Game
 {
     // Every accepted enemy hit records the same events, whether it came from a monster action or a testing tool.
-    // Call under Monsters after applying damage. Presentation must not create gameplay events a second time.
-    static void RecordIncomingHitLocked(ClientState conn, double now, bool spell, bool blocked, bool suppressed,
+    // Call in the area's frame after applying damage. Presentation must not create gameplay events a second time.
+    static void RecordIncomingHitLocked(Player player, double now, bool spell, bool blocked, bool suppressed,
         long lifeDamage, bool critical = false)
     {
-        conn.RecentEnemyHits.Record(now);
-        conn.RecentEvents.Record(StatConditions.BeenHit, now);
+        player.RecentEnemyHits.Record(now);
+        player.RecentEvents.Record(StatConditions.BeenHit, now);
         if (blocked)
         {
-            conn.RecentEvents.Record(StatConditions.Blocked, now);
-            conn.RecentEvents.Record(spell ? StatConditions.BlockedSpell : StatConditions.BlockedAttack, now);
-            QueueFlaskTrigger(conn, FlaskEnchantments.Trigger.Block);
+            player.RecentEvents.Record(StatConditions.Blocked, now);
+            player.RecentEvents.Record(spell ? StatConditions.BlockedSpell : StatConditions.BlockedAttack, now);
+            QueueFlaskTrigger(player, FlaskEnchantments.Trigger.Block);
         }
-        if (suppressed) conn.RecentEvents.Record(StatConditions.SuppressedSpell, now);
-        if (lifeDamage > 0 && lifeDamage * 100 >= (long)conn.PlayerMaxLife * 15)
+        if (suppressed) player.RecentEvents.Record(StatConditions.SuppressedSpell, now);
+        if (lifeDamage > 0 && lifeDamage * 100 >= (long)player.PlayerMaxLife * 15)
         {
-            conn.RecentEvents.Record(StatConditions.TakenSavageHit, now);
-            QueueFlaskTrigger(conn, FlaskEnchantments.Trigger.SavageHit);
+            player.RecentEvents.Record(StatConditions.TakenSavageHit, now);
+            QueueFlaskTrigger(player, FlaskEnchantments.Trigger.SavageHit);
         }
-        ChargesWhenHit(conn, blocked, spell, critical);
+        ChargesWhenHit(player, blocked, spell, critical);
     }
 }

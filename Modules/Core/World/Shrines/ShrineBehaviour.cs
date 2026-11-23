@@ -3,7 +3,7 @@ using GameServer.Modding;
 namespace GameServer.Modules.Shrines;
 
 /// <summary>What runs a shrine lifecycle step: the connection it belongs to and the connection clock's seconds.</summary>
-public sealed record ShrineContext(ClientState Conn, double Now);
+public sealed record ShrineContext(Player Player, double Now);
 
 /// <summary>
 /// One reusable piece of a shrine type's gameplay. A <see cref="ShrineDefinition"/> lists the pieces it runs while the

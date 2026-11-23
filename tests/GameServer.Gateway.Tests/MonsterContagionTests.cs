@@ -47,7 +47,7 @@ public sealed class MonsterContagionTests
         Assert.Same(b, owned.WinnerAt(0.55)?.Caster);
     }
 
-    static ClientState Player(string name) => new(new(1, name, 1000, 1000, 100, 100, null, []), 1, 1);
+    static Player Player(string name) => new(new(1, name, 1000, 1000, 100, 100, null, []), 1, 1);
 
     [Fact]
     public void Contagion_spreads_the_time_it_had_left_once()

@@ -1,4 +1,4 @@
-// Connection-owned values only; replaceable game rules settle and retire them under the Monsters lock.
+// Connection-owned values only; replaceable game rules settle and retire them in the area's frame.
 public sealed class SiphoningState
 {
     public object? Rules;
@@ -11,7 +11,7 @@ public sealed class SiphoningState
     public long Revision;
 }
 
-public sealed partial class ClientState
+public sealed partial class Player
 {
     public readonly SiphoningState Siphoning = new();
 }

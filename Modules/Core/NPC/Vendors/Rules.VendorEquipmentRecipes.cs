@@ -54,7 +54,7 @@ sealed partial class VendorRecipes
             int old = boots.Item.Mods.Where(m => m.Section == ModSection.Explicit)
                 .Select(m => (_catalog.Mods.ByHash(m.Hash), m)).Where(p => p.Item1 is not null)
                 .SelectMany(p => p.Item1!.Stats.Select((s, n) => (s.Id, Value: p.m.Values[n])))
-                .Where(s => s.Id == "base_movement_velocity_+%").Select(s => s.Value).DefaultIfEmpty(0).Max();
+                .Where(s => s.Id == Stat.BaseMovementVelocityPlusPct).Select(s => s.Value).DefaultIfEmpty(0).Max();
             int target = boots.Item.Rarity == ItemRarity.Normal ? 10 : old > 0 && old < 30 ? old + 5 : 0;
             if (target == 0 || _catalog.Mods.All.FirstOrDefault(m =>
             {
@@ -98,8 +98,8 @@ sealed partial class VendorRecipes
                 }
             }
             if (!has("Orb of Augmentation", 1)) continue;
-            foreach (var (flaskName, stat) in new[] { ("Granite Flask", "local_minimum_added_physical_damage"), ("Ruby Flask", "local_minimum_added_fire_damage"),
-                         ("Sapphire Flask", "local_minimum_added_cold_damage"), ("Topaz Flask", "local_minimum_added_lightning_damage") })
+            foreach (var (flaskName, stat) in new[] { ("Granite Flask", Stat.LocalMinimumAddedPhysicalDamage), ("Ruby Flask", Stat.LocalMinimumAddedFireDamage),
+                         ("Sapphire Flask", Stat.LocalMinimumAddedColdDamage), ("Topaz Flask", Stat.LocalMinimumAddedLightningDamage) })
             {
                 var flask = Find(i => i.Type.Name == flaskName);
                 if (flask is null) continue;

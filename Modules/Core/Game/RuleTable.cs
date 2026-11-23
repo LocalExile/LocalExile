@@ -106,3 +106,91 @@ public static class RuleTables
         foreach (var table in all) table.Empty();
     }
 }
+
+/// <summary>The rules' store of something kept on a player or an area (a component in its <see cref="Components"/>): read
+/// by slot, with <see cref="RuleTable{TKey, TValue}"/>'s calls. Emptied with the module's unload (<see cref="RuleTables.Empty"/>),
+/// which takes its values off every player and area that has one.</summary>
+public sealed class Store<TKey, TValue> : IEnumerable<KeyValuePair<TKey, TValue>>, RuleTables.IEmptied
+    where TKey : class, IHasComponents where TValue : class?
+{
+    readonly int slot = Components.NewSlot();
+    readonly List<WeakReference<TKey>> holders = [];
+    volatile bool emptied;
+
+    public Store() => RuleTables.Register(this);
+
+    public bool TryGetValue(TKey key, [MaybeNullWhen(false)] out TValue value)
+    {
+        if (!emptied && key.Components.Get(slot) is TValue found) { value = found; return true; }
+        value = default;
+        return false;
+    }
+
+    public TValue GetValue(TKey key, Func<TKey, TValue> create)
+    {
+        if (emptied) return create(key);
+        bool made = false;
+        var value = key.Components.GetOrAdd(slot, () => { made = true; return create(key); });
+        if (made) Held(key);
+        return value;
+    }
+
+    public TValue GetOrCreateValue(TKey key) => GetValue(key, _ => Activator.CreateInstance<TValue>());
+
+    public void Add(TKey key, TValue value)
+    {
+        if (key.Components.Get(slot) is not null) throw new ArgumentException("The key already has a value.");
+        AddOrUpdate(key, value);
+    }
+
+    public void AddOrUpdate(TKey key, TValue value)
+    {
+        if (emptied) return;
+        key.Components.Set(slot, value);
+        Held(key);
+    }
+
+    public bool Remove(TKey key)
+    {
+        bool had = key.Components.Get(slot) is not null;
+        key.Components.Set(slot, null);
+        return had;
+    }
+
+    public void Clear()
+    {
+        lock (holders)
+        {
+            foreach (var weak in holders)
+                if (weak.TryGetTarget(out var key)) key.Components.Set(slot, null);
+            holders.Clear();
+        }
+    }
+
+    public IEnumerator<KeyValuePair<TKey, TValue>> GetEnumerator()
+    {
+        List<KeyValuePair<TKey, TValue>> all = [];
+        lock (holders)
+            foreach (var weak in holders)
+                if (weak.TryGetTarget(out var key) && key.Components.Get(slot) is TValue value) all.Add(new(key, value));
+        return all.GetEnumerator();
+    }
+
+    IEnumerator IEnumerable.GetEnumerator() => GetEnumerator();
+
+    void Held(TKey key)
+    {
+        lock (holders)
+        {
+            if (holders.Count > 64 && holders.Count % 64 == 0) holders.RemoveAll(w => !w.TryGetTarget(out _));
+            holders.Add(new(key));
+        }
+        if (emptied) key.Components.Set(slot, null);
+    }
+
+    void RuleTables.IEmptied.Empty()
+    {
+        emptied = true;
+        Clear();
+    }
+}

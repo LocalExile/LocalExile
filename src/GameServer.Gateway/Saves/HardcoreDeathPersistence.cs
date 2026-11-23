@@ -1,5 +1,6 @@
 using System.Collections.Concurrent;
 using GameServer.Core.Accounts;
+using AccountCharacter = GameServer.Core.Accounts.Character;
 using GameServer.Storage;
 using GameServer.Core.Diagnostics;
 
@@ -11,7 +12,7 @@ public static class HardcoreDeathPersistence
     static readonly ConcurrentDictionary<(string Database, Guid Id), PendingDeath> Pending = new();
     static string DatabaseKey(SaveDatabase db) => Path.GetFullPath(db.Path).ToUpperInvariant();
 
-    public static Character Commit(SaveDatabase db, string character, League source, Action flushProgress,
+    public static AccountCharacter Commit(SaveDatabase db, string character, League source, Action flushProgress,
         DateTimeOffset? atUtc = null, Guid? expectedCharacterId = null)
     {
         string database = DatabaseKey(db);
@@ -20,7 +21,7 @@ public static class HardcoreDeathPersistence
         var entry = new PendingDeath(database, character, id, source, flushProgress, atUtc ?? DateTimeOffset.UtcNow);
         // Queue before opening the transaction: even BEGIN can fail while storage is unavailable.
         var pending = Pending.AddOrUpdate((database, id), entry, (_, prior) => entry with { AtUtc = prior.AtUtc });
-        Character dead;
+        AccountCharacter dead;
         try
         {
             dead = db.Atomically(() =>

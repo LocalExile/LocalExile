@@ -74,51 +74,48 @@ sealed class SkeletonSummonEffect : IShrineEffect
 
     public async Task Tick(ShrineContext ctx, ShrineInstance shrine)
     {
-        var conn = ctx.Conn;
-        if (conn.Closed) return;
+        var player = ctx.Player;
+        if (player.Closed) return;
         double now = ctx.Now;
         List<uint> ended = [];
         List<(uint Id, SpawnedMonster Monster, (int X, int Y) From, (int X, int Y) To)> behind = [];
         (int X, int Y) at;
         bool summon = false;
-        lock (conn.Monsters)
+        // A connection that has left the area keeps none of them: the skeletons went with the area.
+        if (player.LeavingArea)
         {
-            // A connection that has left the area keeps none of them: the skeletons went with the area.
-            if (conn.LeavingArea)
-            {
-                _expires.Clear();
-                _spots.Clear();
-                _nextSummon = 0;
-                return;
-            }
-            var player = conn.Walk.Position(now);
-            foreach (var (id, until) in _expires)
-            {
-                if (now >= until || !conn.Monsters.TryGetValue(id, out var m) || m.Dead || m.Life == 0)
-                {
-                    ended.Add(id);
-                    continue;
-                }
-                // The player's allies follow him: one the AI left behind (a fight it walked out of, a slot it keeps) is
-                // ordered to him, at most once a second each.
-                if (shrine.State == ShrineState.Inactive || now < _nextFollow.GetValueOrDefault(id)) continue;
-                var here = m.Walk.Position(now);
-                if (Dist(here, player) <= FollowCells) continue;
-                // A skeleton with a swing in flight is left to finish it; it is pulled after the player once it lands.
-                if (conn.Minions.Attacks.ContainsKey(id)) continue;
-                _nextFollow[id] = now + FollowSeconds;
-                m.Walk.Order(player.X, player.Y, now);
-                m.LastTarget = null;
-                behind.Add((id, m, here, player));
-            }
-            at = shrine.State == ShrineState.Inactive ? shrine.At : conn.Walk.Position(now);
-            if (now >= _nextSummon && _expires.Count < MaxAlive)
-            {
-                _nextSummon = now + SummonSeconds;
-                summon = true;
-            }
+            _expires.Clear();
+            _spots.Clear();
+            _nextSummon = 0;
+            return;
         }
-        foreach (uint id in ended) End(conn, id);
+        var playerAt = player.Walk.Position(now);
+        foreach (var (id, until) in _expires)
+        {
+            if (now >= until || !player.Area.Monsters.TryGetValue(id, out var m) || m.Dead || m.Life == 0)
+            {
+                ended.Add(id);
+                continue;
+            }
+            // The player's allies follow him: one the AI left behind (a fight it walked out of, a slot it keeps) is
+            // ordered to him, at most once a second each.
+            if (shrine.State == ShrineState.Inactive || now < _nextFollow.GetValueOrDefault(id)) continue;
+            var here = m.Walk.Position(now);
+            if (Dist(here, playerAt) <= FollowCells) continue;
+            // A skeleton with a swing in flight is left to finish it; it is pulled after the player once it lands.
+            if (player.Minions.Attacks.ContainsKey(id)) continue;
+            _nextFollow[id] = now + FollowSeconds;
+            m.Walk.Order(playerAt.X, playerAt.Y, now);
+            m.LastTarget = null;
+            behind.Add((id, m, here, playerAt));
+        }
+        at = shrine.State == ShrineState.Inactive ? shrine.At : player.Walk.Position(now);
+        if (now >= _nextSummon && _expires.Count < MaxAlive)
+        {
+            _nextSummon = now + SummonSeconds;
+            summon = true;
+        }
+        foreach (uint id in ended) End(player, id);
         if (summon) await Summon(ctx, shrine, at);
         foreach (var (id, m, from, to) in behind) await Follow(ctx, id, m, from, to);
     }
@@ -127,29 +124,27 @@ sealed class SkeletonSummonEffect : IShrineEffect
     /// same pair the monster AI sends for its own Move orders (move skill 0x2909).</summary>
     async Task Follow(ShrineContext ctx, uint id, SpawnedMonster m, (int X, int Y) from, (int X, int Y) to)
     {
-        var conn = ctx.Conn;
-        var (remote, stream, ciphers) = conn.Wire;
-        await SendWorldRecord(remote, stream, ciphers, conn, id,
-            InstanceProtocol.ActionStarted(id, from.X, from.Y, to.X, to.Y, 0x2909, 0xffff, conn.MonsterOrderFlags),
+        var player = ctx.Player;
+        await SendWorldRecord(player, id,
+            InstanceProtocol.ActionStarted(id, from.X, from.Y, to.X, to.Y, 0x2909, 0xffff, player.MonsterOrderFlags),
             $"0x01ab shrine ally 0x{id:x} follows the player from ({from.X}, {from.Y}) to ({to.X}, {to.Y})",
-            still: () => CurrentGameWork && !conn.Closed && !conn.LeavingArea
-                && conn.Monsters.TryGetValue(id, out var held) && ReferenceEquals(held, m) && !m.Dead && m.Life > 0);
+            still: () => CurrentGameWork && !player.Closed && !player.LeavingArea
+                && player.Area.Monsters.TryGetValue(id, out var held) && ReferenceEquals(held, m) && !m.Dead && m.Life > 0);
     }
 
     /// <summary>One Skeleton Warrior beside the caster: the shrine's own around the statue while it stands, the player's
     /// beside him once the buff is up.</summary>
     async Task Summon(ShrineContext ctx, ShrineInstance shrine, (int X, int Y) at)
     {
-        var conn = ctx.Conn;
+        var player = ctx.Player;
         if (Monsters.Find(Variety) is not { Supported: true } variety) return;
         bool allied = shrine.State != ShrineState.Inactive;
-        byte level = ShrineManager.AreaLevel(conn);
+        byte level = ShrineManager.AreaLevel(player);
         double now = ctx.Now, until = now + LifetimeSeconds;
         (int X, int Y) spot;
-        lock (conn.Monsters) spot = SpotLocked(conn, at, allied);
+        spot = SpotLocked(player, at, allied);
         var (x, y) = spot;
-        var (remote, stream, ciphers) = conn.Wire;
-        uint id = await SpawnMonster(remote, stream, ciphers, conn, variety, level, MonsterRarity.Normal, x, y,
+        uint id = await SpawnMonster(player, variety, level, MonsterRarity.Normal, x, y,
             friendly: allied, log: false, alone: false,
             owned: (id, m) =>
             {
@@ -164,9 +159,9 @@ sealed class SkeletonSummonEffect : IShrineEffect
                 m.Aggro = true;
                 m.AlliedFighter = true;
             },
-            ownedCurrent: () => conn.PlayerLife > 0 && !conn.LeavingArea);
+            ownedCurrent: () => player.PlayerLife > 0 && !player.LeavingArea);
         if (id == 0) return;
-        Console.WriteLine($"[gateway] {remote} shrine {shrine.Definition.Id} skeleton 0x{id:x} at ({x}, {y}) " +
+        Console.WriteLine($"[gateway] {player.Connection.Remote} shrine {shrine.Definition.Id} skeleton 0x{id:x} at ({x}, {y}) " +
             $"level {level}, {(allied ? "the player's ally" : "the shrine's")}, {_expires.Count} of {MaxAlive}");
     }
 
@@ -174,9 +169,9 @@ sealed class SkeletonSummonEffect : IShrineEffect
     /// Where the next skeleton rises: a ring clear of the statue's seven-cell body while the shrine stands (or a few cells
     /// around the player once its buff is up), the slot advancing every summon, and each candidate two cells from every
     /// skeleton still up and on walkable ground — otherwise the spawn's own collision escape lays them on one cell.
-    /// Under the Monsters lock.
+    /// In the area's frame.
     /// </summary>
-    (int X, int Y) SpotLocked(ClientState conn, (int X, int Y) at, bool allied)
+    (int X, int Y) SpotLocked(Player player, (int X, int Y) at, bool allied)
     {
         int slot = _placed++;
         int inner = allied ? 3 : ShrinePlacement.ObjectSize + 1;
@@ -187,7 +182,7 @@ sealed class SkeletonSummonEffect : IShrineEffect
                 double angle = start + turn * Math.PI / 6 + ring * 0.13;
                 int radius = inner + ring + slot % 2;
                 var (x, y) = (at.X + (int)Math.Round(Math.Cos(angle) * radius), at.Y + (int)Math.Round(Math.Sin(angle) * radius));
-                if (conn.Layout.Walkable is { } walk && !walk(x, y)) continue;
+                if (player.Layout.Walkable is { } walk && !walk(x, y)) continue;
                 if (_spots.Values.Any(s => Math.Abs(s.X - x) + Math.Abs(s.Y - y) < 2)) continue;
                 return (x, y);
             }
@@ -195,38 +190,35 @@ sealed class SkeletonSummonEffect : IShrineEffect
     }
 
     /// <summary>An ended skeleton leaves the world as a summoned monster does: no corpse, no life bar.</summary>
-    void End(ClientState conn, uint id)
+    void End(Player player, uint id)
     {
-        lock (conn.Monsters)
-        {
-            _expires.Remove(id);
-            _spots.Remove(id);
-            _nextFollow.Remove(id);
-            conn.Minions.Remove(id);
-            if (!conn.Monsters.Remove(id, out var m)) return;
-            m.Aggro = false;
-            m.Dead = true;
-            m.Life = 0;
-            m.ActionGeneration++;
-            conn.MonsterViews.Remove(id);
-            conn.AsleepMonsters.Remove(id);
-            conn.Minions.OutputQueue.Add(new(InstanceProtocol.RemoveObject(id), "shrine skeleton ends", id, m,
-                PlayerMinions.OutputKind.Remove, WorldId: id, RemovesObject: true));
-        }
+        _expires.Remove(id);
+        _spots.Remove(id);
+        _nextFollow.Remove(id);
+        player.Minions.Remove(id);
+        if (!player.Area.Monsters.Remove(id, out var m)) return;
+        m.Aggro = false;
+        m.Dead = true;
+        m.Life = 0;
+        m.ActionGeneration++;
+
+
+        player.Minions.OutputQueue.Add(new(InstanceProtocol.RemoveObject(id), "shrine skeleton ends", id, m,
+            PlayerMinions.OutputKind.Remove, WorldId: id, RemovesObject: true));
     }
 
     /// <summary>Claiming and expiring both end the skeletons this effect brought.</summary>
-    public Task OnActivation(ShrineContext ctx, ShrineInstance shrine) => Clear(ctx.Conn);
+    public Task OnActivation(ShrineContext ctx, ShrineInstance shrine) => Clear(ctx.Player);
 
-    public Task OnExpired(ShrineContext ctx, ShrineInstance shrine) => Clear(ctx.Conn);
+    public Task OnExpired(ShrineContext ctx, ShrineInstance shrine) => Clear(ctx.Player);
 
-    public Task OnMapUnload(ShrineContext ctx, ShrineInstance shrine) => Clear(ctx.Conn);
+    public Task OnMapUnload(ShrineContext ctx, ShrineInstance shrine) => Clear(ctx.Player);
 
-    Task Clear(ClientState conn)
+    Task Clear(Player player)
     {
         uint[] ids;
-        lock (conn.Monsters) ids = [.. _expires.Keys];
-        foreach (uint id in ids) End(conn, id);
+        ids = [.. _expires.Keys];
+        foreach (uint id in ids) End(player, id);
         return Task.CompletedTask;
     }
 }

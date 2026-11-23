@@ -8,22 +8,22 @@ public sealed class MinionPathRecoveryTests
         using var f = new MinionUtilityTests.Fixture();
         f.Equip(("Raise Zombie", 20));
         var variety = Game.Monsters.Find("Metadata/Monsters/Zombies/Zombie")!;
-        f.Conn.Monsters[901] = new("corpse", new(100, 100, 0), 0, 0, 1000)
+        f.Player.Area.Monsters[901] = new("corpse", new(100, 100, 0), 0, 0, 1000)
             { Dead = true, Life = 0, Hostile = true, Variety = variety, Level = 70 };
         var id = await f.Summon("RaiseZombie", 901);
-        var fighter = f.Conn.Summons.Fighters[id];
-        f.Conn.Use(f.Conn.Layout with { Walkable = (_, _) => true });
-        f.Conn.Walk.Teleport(150, 100, 0);
+        var fighter = f.Player.Summons.Fighters[id];
+        f.Player.Use(f.Player.Layout with { Walkable = (_, _) => true });
+        f.Player.Walk.Teleport(150, 100, 0);
         fighter.Monster.Walk = new(100, 100, 8, (x, y) => x == 100 && y == 100);
-        f.Conn.Minions.OutputQueue.Clear();
-        Game.GolemStepLocked("no-path", f.Stream, f.Ciphers, f.Conn, fighter, 10);
+        f.Player.Minions.OutputQueue.Clear();
+        Game.GolemStepLocked(f.Player, fighter, 10);
         Assert.Equal((100, 100), fighter.Monster.Walk.Destination);
-        Assert.DoesNotContain(f.Conn.Minions.OutputQueue, o => o.Packet.Length > 1 && o.Packet[0] == 1 && o.Packet[1] == 0xab);
+        Assert.DoesNotContain(f.Player.Minions.OutputQueue, o => o.Packet.Length > 1 && o.Packet[0] == 1 && o.Packet[1] == 0xab);
         fighter.Monster.Walk = new(100, 100, 8);
-        f.Conn.Minions.OutputQueue.Clear();
-        Game.GolemStepLocked("path-ready", f.Stream, f.Ciphers, f.Conn, fighter, 11);
+        f.Player.Minions.OutputQueue.Clear();
+        Game.GolemStepLocked(f.Player, fighter, 11);
         Assert.NotEqual((100, 100), fighter.Monster.Walk.Destination);
-        Assert.Contains(f.Conn.Minions.OutputQueue, o => o.Packet.Length > 1 && o.Packet[0] == 1 && o.Packet[1] == 0xab);
+        Assert.Contains(f.Player.Minions.OutputQueue, o => o.Packet.Length > 1 && o.Packet[0] == 1 && o.Packet[1] == 0xab);
     }
 
 }
