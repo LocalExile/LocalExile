@@ -252,7 +252,7 @@ public static class UtilityFlasks
     /// base × (1 + local increased) × (1 + global increased) × (1 + quality) × (1 + local more), quality multiplying the other increases; effect
     /// = 1 + the local and the character's increased effect.</summary>
     public static (IReadOnlyList<Source> Stats, double Seconds) For(Utility u, Item flask,
-        IReadOnlyDictionary<uint, int> local, Func<uint, int> character, int playerLevel = 1)
+        IReadOnlyDictionary<uint, int> local, Func<uint, int> character, int playerLevel = 1, double finalMultiplier = 1)
     {
         int Get(uint name) => local.GetValueOrDefault(name);
         double durationInc = PanelStats.FlaskDurationIncrease(character, playerLevel);
@@ -261,7 +261,7 @@ public static class UtilityFlasks
             * (100.0 + durationInc) / 100.0 * (100.0 + flask.Quality) / 100.0
             * (100.0 + Get(Stat.LocalFlaskDurationPlusPctFinal)) / 100.0;
         double effect = FlaskEffectScaling.Multiplier(character, playerLevel, Get(Stat.LocalFlaskEffectPlusPct),
-            flask.Rarity == ItemRarity.Magic ? character(Stat.MagicUtilityFlaskEffectPlusPct) : 0);
+            flask.Rarity == ItemRarity.Magic ? character(Stat.MagicUtilityFlaskEffectPlusPct) : 0, finalMultiplier);
         bool Applies(uint stat) => SupportOf(stat) != Support.Unsupported;
         List<Source> stats = [.. u.Stats.Where(s => Applies(s.Stat))
             .Select(s => new Source($"buff {u.BuffRow}", s.Stat, s.Stat == Stat.PhaseThroughObjects ? s.Value

@@ -31,19 +31,17 @@ public static partial class Game
         (Stat.UncappedLightningDamageResistancePct, Stat.BaseReduceEnemyLightningResistancePct, Stat.LightningDamageTakenPlusPct),
     ];
 
-    static Func<uint, int> WithMapFlaskEffect(Player player, Func<uint, int> stats) =>
-        MapModsOf(player)?.Get(Stat.MapPlayerFlaskEffectPlusPctFinal) is int effect and not 0
-            ? key => key == Stat.MapPlayerFlaskEffectPlusPctFinal ? effect : stats(key)
-            : stats;
+    static double MapFlaskEffectMultiplier(Player player) =>
+        Math.Max(0, 100L + (MapModsOf(player)?.Get(Stat.MapPlayerFlaskEffectPlusPctFinal) ?? 0)) / 100.0;
 
     public static (IReadOnlyList<UtilityFlasks.Source> Stats, double Seconds) ItemUtilityFlaskFor(
         UtilityFlasks.Utility utility, Item flask, IReadOnlyDictionary<uint, int> local,
-        Func<uint, int> character, int playerLevel = 0)
+        Func<uint, int> character, int playerLevel = 0, double finalMultiplier = 1)
     {
-        var ordinary = UtilityFlasks.For(utility, flask, local, character, playerLevel);
+        var ordinary = UtilityFlasks.For(utility, flask, local, character, playerLevel, finalMultiplier);
         if (!ItemUtilityFlaskSources.Any(row => local.GetValueOrDefault(row.Local) != 0)) return ordinary;
         double effect = FlaskEffectScaling.Multiplier(character, playerLevel, local.GetValueOrDefault(Stat.LocalFlaskEffectPlusPct),
-            flask.Rarity == ItemRarity.Magic ? character(Stat.MagicUtilityFlaskEffectPlusPct) : 0);
+            flask.Rarity == ItemRarity.Magic ? character(Stat.MagicUtilityFlaskEffectPlusPct) : 0, finalMultiplier);
         var sources = ordinary.Stats.ToList();
         foreach (var (input, target, flag) in ItemUtilityFlaskSources)
             if (local.GetValueOrDefault(input) is int value and not 0)
