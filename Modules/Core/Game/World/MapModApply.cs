@@ -23,6 +23,11 @@ public static partial class Game
 
     static readonly System.Runtime.CompilerServices.ConditionalWeakTable<IReadOnlyDictionary<uint, int>, MapMods> MapModsByStats = new();
 
+    static readonly uint[] RandomPhysicalGain =
+        [Stat.PhysicalDamagePctToAddAsFire, Stat.PhysicalDamagePctToAddAsCold, Stat.PhysicalDamagePctToAddAsLightning];
+    sealed record MapElement(uint Stat);
+    static readonly System.Runtime.CompilerServices.ConditionalWeakTable<MapMods, MapElement> PhysicalGainElementByMap = new();
+
     /// <summary>The vital and deadly Atlas keystones' more monster life and damage (Wellspring of Creation, Dance of
     /// Destruction): the area's map_ stat becomes the monster stat of the same name, which acts as a more modifier on
     /// the monster's life or hit (handed over to MonsterModEffects.HandOverMore in GameModule.Load).</summary>
@@ -49,11 +54,20 @@ public static partial class Game
         Gain(Stat.MapMonstersPctPhysicalDamageToAddAsCold, Stat.PhysicalDamagePctToAddAsCold);
         Gain(Stat.MapMonstersPctPhysicalDamageToAddAsLightning, Stat.PhysicalDamagePctToAddAsLightning);
         Gain(Stat.MapMonstersPctPhysicalDamageToAddAsChaos, Stat.PhysicalDamagePctToAddAsChaos);
+        if (mods.Get(Stat.MapMonstersPhysicalDamagePctToAddAsRandomElement) is int elementalGain and > 0)
+        {
+            uint element = PhysicalGainElementByMap.GetValue(mods, static _ =>
+                new(RandomPhysicalGain[Random.Shared.Next(RandomPhysicalGain.Length)])).Stat;
+            extra[element] = ActorScale.Saturate((long)extra.GetValueOrDefault(element) + elementalGain);
+        }
         Gain(Stat.MapMonstersAttackSpeedPlusPct, Stat.AttackSpeedPlusPct);
         Gain(Stat.MapMonstersCastSpeedPlusPct, Stat.BaseCastSpeedPlusPct);
         Gain(Stat.MapMonstersMovementSpeedPlusPct, Stat.BaseMovementVelocityPlusPct);
         if (mods.Get(Stat.MapMonstersMovementSpeedCannotBeReducedBelowBase) != 0)
             extra[Stat.MovementSpeedCannotBeReducedBelowBase] = 1;
+        if (mods.Get(Stat.MapMonsterActionSpeedCannotBeReducedBelowBase) != 0)
+            extra[Stat.ActionSpeedCannotBeReducedBelowBase] = 1;
+        Gain(Stat.MapMonsterDebuffTimePassedPlusPct, Stat.DebuffTimePassedPlusPct);
         Gain(Stat.MapMonstersAdditionalPhysicalDamageReduction, Stat.BaseAdditionalPhysicalDamageReductionPct);
         Gain(Stat.MapMonstersBaseBlockPct, Stat.MonsterBaseBlockPct);
         Gain(Stat.MapMonstersAdditionalElementalResistance, Stat.BaseResistAllElementsPct);

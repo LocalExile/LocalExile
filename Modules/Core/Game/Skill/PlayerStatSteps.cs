@@ -83,6 +83,8 @@ public static partial class Game
                 AddTo(stats, Stat.MapPlayerLifeAndEsRecoverySpeedPlusPctFinal,
                     map.Get(Stat.MapPlayerLifeAndEsRecoverySpeedPlusPctFinal));
                 AddTo(stats, Stat.MapPlayersSkillAreaOfEffectPlusPctFinal, map.Get(Stat.MapPlayersSkillAreaOfEffectPlusPctFinal));
+                AddTo(stats, Stat.MapPlayerMaximumLeechRatePlusPct, map.Get(Stat.MapPlayerMaximumLeechRatePlusPct));
+                AddTo(stats, Stat.BuffTimePassedPlusPctOnlyBuffCategory, map.Get(Stat.MapPlayerBuffTimePassedPlusPctOnlyBuffCategory));
             }
             // Their "recently" conditions change by themselves when an event ages out of its window.
             double now = AreaTime(player);

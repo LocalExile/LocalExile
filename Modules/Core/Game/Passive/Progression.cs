@@ -1016,6 +1016,14 @@ public static partial class Game
         var map = MapModsOf(player);
         if (map?.Get(Stat.MapPlayersSpellDamagePctSuppressed) is int prevention and not 0)
             bonus = bonus with { SpellSuppressionEffect = ActorScale.Saturate((long)bonus.SpellSuppressionEffect + prevention) };
+        if (map?.Get(Stat.MapAdditionalPlayerMaximumResistancesPct) is int maximumResistance and not 0)
+            bonus = bonus with
+            {
+                FireMaxResistance = ActorScale.Saturate((long)bonus.FireMaxResistance + maximumResistance),
+                ColdMaxResistance = ActorScale.Saturate((long)bonus.ColdMaxResistance + maximumResistance),
+                LightningMaxResistance = ActorScale.Saturate((long)bonus.LightningMaxResistance + maximumResistance),
+                ChaosMaxResistance = ActorScale.Saturate((long)bonus.ChaosMaxResistance + maximumResistance),
+            };
         if (EquipmentInput(Stat.KeystonePrismaticBulwark) != 0)
             bonus = bonus with
             {
