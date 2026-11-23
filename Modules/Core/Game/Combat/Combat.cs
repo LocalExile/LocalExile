@@ -524,7 +524,8 @@ public static partial class Game
                     with { Rating = HandAccuracy(player, hand, playerStats) };
                 IEnumerable<(uint, int)> conversionStats = ownPenetration is null ? [] :
                     ownPenetration.Select(pair => (pair.Key, pair.Value));
-                var conversion = DamageStats.Conversion(playerStats, conversionStats, Stats, attack: true);
+                var conversion = SupportedAttackDamage.WithWeaponGains(
+                    DamageStats.Conversion(playerStats, conversionStats, Stats, attack: true), weapon);
                 var prehit = DefaultMeleePrehitProfileLocked(player, targetId, m, playerStats, weapon, conversion,
                     ownPenetration, ProjectileWorldTime(player), accuracy.Rating);
                 if (prehit is null)

@@ -749,15 +749,22 @@ public static partial class Game
             raw = raw.Add(GameServer.Core.World.DamageType.Physical,
                 raw[GameServer.Core.World.DamageType.Physical].Scale(Math.Max(-1, phase / 100.0)));
         // The Frenzy gem's "5% more Attack Damage per Frenzy Charge": its hit and the ailments from it.
+        double frenzyDamageFactor = 1;
         if (attack && Get(Stat.FrenzySkillAttackDamagePlusPctFinalPerFrenzyCharge) is int frenzyMore and not 0)
-            raw = raw.Scale(Math.Max(0, 1 + (double)frenzyMore * Get(Stat.CurrentFrenzyCharges) / 100));
+        {
+            frenzyDamageFactor = Math.Max(0, 1 + (double)frenzyMore * Get(Stat.CurrentFrenzyCharges) / 100);
+            raw = raw.Scale(frenzyDamageFactor);
+        }
         var modifiers = gem.Supports.SelectMany(s => s.Stats).Select(s => (s.Key, s.Value)).ToList();
         modifiers.AddRange(gem.Stats.Where(s => s.Key == Stat.BloodSandStanceMeleeSkillsAreaDamagePlusPctFinal).Select(s => (s.Key, s.Value)));
         // Elemental Overload's per-skill window (see WithElementalOverload): this skill's hits and ailments, including a
         // totem's or a trap's use of it, gain the bonus while its own eight-second crit window is open.
         if (HasElementalOverload(stats)) AddElementalOverload(player, SkillsFor(player).EffectId(gem.Effect), stats);
         Func<uint, int> hitStats = attackWeapon is null || secondary ? Get : SupportedAttackDamage.HitModifiers(attackWeapon, Get);
-        return new(raw, hitStats, DamageStats.Conversion(stats, Stats, secondary ? null : attack), attack,
+        var conversion = DamageStats.Conversion(stats, Stats, secondary ? null : attack);
+        if (attackWeapon is not null && !secondary)
+            SupportedAttackDamage.WithWeaponGains(conversion, attackWeapon, coefficients.Base, frenzyDamageFactor);
+        return new(raw, hitStats, conversion, attack,
             Melee: attack && types.Contains(19), Area: attack ? types.Contains(7) : Get(Stat.IsAreaDamage) != 0,
             Projectile: attack ? types.Contains(2) : Get(Stat.BaseIsProjectile) != 0, modifiers, types, plan, caster,
             WieldingWand: attackWeapon?.WieldingWand == true, WieldingBow: attackWeapon?.Bow == true, Secondary: secondary)
