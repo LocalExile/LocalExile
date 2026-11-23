@@ -338,6 +338,7 @@ public sealed class VillageModule : IModule
     /// <inheritdoc/>
     public void Load(IModuleContext module)
     {
+        VillageWorkers.LoadGameData();
         MappingCommands.Register(module.Manifest.Id);
         GameEvents.CommandsBuilding.Add(module.Manifest.Id, (commands, connection) =>
         {

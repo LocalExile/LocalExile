@@ -1,4 +1,4 @@
-using System.Text.Json;
+using GameServer.Core;
 
 namespace GameServer.Modules.Village;
 
@@ -18,52 +18,32 @@ namespace GameServer.Modules.Village;
 public static class VillageWorkers
 {
     /// <summary>The words a worker's name is made of (the client's <c>Words.dat</c>, wordlist 1).</summary>
-    const string WordsFile = "data/tables/Words.json";
+    const string WordsTable = "Words";
 
     /// <summary>The jobs a worker can hold (the client's <c>VillageJobs.dat</c>).</summary>
-    const string JobsFile = "data/tables/VillageJobs.json";
+    const string JobsTable = "VillageJobs";
 
-    static readonly Lazy<(uint[] Words, byte[] JobTypes)> Tables = new(Load);
+    /// <summary>The name words, by their hash (the client's <c>Words</c> table, wordlist 1).</summary>
+    static uint[] Words = [];
 
-    static (uint[] Words, byte[] JobTypes) Load()
+    /// <summary>The job type of every <c>VillageJobs</c> row: the client resolves a row to a job with it.</summary>
+    static byte[] JobTypes = [];
+
+    /// <summary>Reads the client's tables. The village module calls this when it loads, with the rest of the game data.</summary>
+    public static void LoadGameData()
     {
-        var words = new List<uint>();
-        foreach (var row in Rows(WordsFile))
-        {
-            // the name words come from wordlist 1, the one the town panel's names live in
-            if (row.TryGetValue("Wordlist", out var list) && list.ValueKind == JsonValueKind.Number && list.GetInt32() != 1)
-                continue;
-            if (row.TryGetValue("HASH32", out var hash) && hash.ValueKind == JsonValueKind.Number)
-                words.Add(hash.GetUInt32());
-        }
-
-        var types = new List<byte>();
-        foreach (var row in Rows(JobsFile))
-            types.Add(row.TryGetValue("JobType", out var type) && type.ValueKind == JsonValueKind.Number
-                ? (byte)type.GetInt32() : (byte)0);
-
-        return (words.ToArray(), types.ToArray());
-    }
-
-    static IEnumerable<Dictionary<string, JsonElement>> Rows(string file)
-    {
-        if (!File.Exists(file)) return [];
-        try
-        {
-            return JsonSerializer.Deserialize<List<Dictionary<string, JsonElement>>>(File.ReadAllText(file)) ?? [];
-        }
-        catch (JsonException)
-        {
-            return [];
-        }
+        Words = [.. ClientTables.TableOrEmpty(WordsTable)
+            .Where(row => row.IntOrNull("Wordlist") == 1)
+            .Select(row => row.UIntOrNull("HASH32") ?? 0)];
+        JobTypes = [.. ClientTables.TableOrEmpty(JobsTable)
+            .Select(row => (byte)(row.IntOrNull("JobType") ?? 0))];
     }
 
     /// <summary>The job type the client resolves a <c>VillageJobs</c> row to (the <c>VillageJobTypes</c> row index).</summary>
     /// <param name="jobRow">The <c>VillageJobs</c> row the worker's name points at.</param>
     public static byte JobType(int jobRow)
     {
-        var (_, types) = Tables.Value;
-        return jobRow >= 0 && jobRow < types.Length ? types[jobRow] : (byte)0;
+        return jobRow >= 0 && jobRow < JobTypes.Length ? JobTypes[jobRow] : (byte)0;
     }
 
     /// <summary>One worker's row.</summary>
@@ -96,9 +76,8 @@ public static class VillageWorkers
     /// pairs. The job reference that follows it is read by whoever reads the row.</summary>
     static List<byte> Core(int jobRow, int worker, byte skill)
     {
-        var (words, _) = Tables.Value;
-        uint name1 = words.Length > 0 ? words[(worker * 2) % words.Length] : 0;
-        uint name2 = words.Length > 1 ? words[(worker * 2 + 1) % words.Length] : 0;
+        uint name1 = Words.Length > 0 ? Words[(worker * 2) % Words.Length] : 0;
+        uint name2 = Words.Length > 1 ? Words[(worker * 2 + 1) % Words.Length] : 0;
 
         var payload = new List<byte>(13);
         payload.AddRange(BitConverter.GetBytes(name1)[..4]);
