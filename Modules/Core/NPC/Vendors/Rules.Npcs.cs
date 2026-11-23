@@ -22,7 +22,7 @@ static partial class VendorsRules
     }
 
     internal static async Task ClaimNpcReward(Player player, uint itemId,
-        byte row = PlayerInventories.MainInventory)
+        byte row = PlayerInventories.MainInventory, byte? x = null, byte? y = null)
     {
         if (player.NpcRewardOffer is not int offer || !player.NpcRewardItems.TryGetValue(itemId, out var reward)) return;
         SpawnedNpc? npc;
@@ -32,13 +32,143 @@ static partial class VendorsRules
         if (catalog.Find(offer) is not { } data) return;
         var items = ItemsOf(player);
         var quest = ItemsFor(player).ByHash(reward.TypeHash)?.Quest;
-        // A league quest flag taken flag is read and set in the account's stash inside the claim's transaction.
-        var claimed = QuestRewardCatalog.Claim(CharacterName(player), data.TakenFlag, quest, items, reward, ShapeOf, row,
-            expandedAllowed: ExpandedInventoryGranted(player), leagueFlag: data.TakenLeagueFlag,
-            leagueFlags: data.TakenLeagueFlag is null ? null : PersonalStashOf(player), reclaimable: data.Reclaimable);
-        if (claimed is null) return;
-        await Send(player, InstanceItems.InventoryChange(PlayerInventories.InventoryId(row),
-            items.NextRevision(row), claimed.RemovedIds, claimed.AddedItems), "0x00bf claimed quest reward");
+        bool expandedAllowed = ExpandedInventoryGranted(player);
+        var leagueStash = data.TakenLeagueFlag is null ? null : PersonalStashOf(player);
+        if (x is byte px && y is byte py)
+        {
+            if (LevelTooLow(player, row, reward) is { } low) { await player.Commands!.Reply(low); return; }
+            var displacedPreview = row == PlayerInventories.Cursor ? null
+                : items.PreviewPurchase(row, px, py, reward, ShapeOf, expandedAllowed,
+                    allowDisplace: row is >= 1 and <= 11 or 14 or 15 or 102)?.Displaced;
+            if (GameEvents.FirstInventoryRefusal(player, row, reward, displacedPreview) is { } objection)
+            {
+                Console.WriteLine($"[gateway] {player.Connection.Remote} <= 0x0088 quest reward {itemId}: refused ({objection})");
+                return;
+            }
+            PlayerInventories.Placement? placement;
+            if (PlayerInventories.ShowsOnModel(row))
+            {
+                using (ProjectileMutation(player, advance: false, phase: "quest reward equipment"))
+                using (new PlayerStatScope(player, fresh: true))
+                {
+                    var sourcesBefore = CaptureGemSourceRowsLocked(player);
+                    placement = QuestRewardCatalog.ClaimAt(CharacterName(player), data.TakenFlag, quest, items, reward,
+                        ShapeOf, row, px, py, expandedAllowed, data.TakenLeagueFlag, leagueStash, data.Reclaimable);
+                    if (placement is not null)
+                    {
+                        RecomputePoolsAndSpeed(player);
+                        ReconcileBeastCompanionsLocked(player);
+                        ReconcileEquipmentSourceLifetimesLocked(player, sourcesBefore);
+                    }
+                }
+            }
+            else
+            {
+                placement = QuestRewardCatalog.ClaimAt(CharacterName(player), data.TakenFlag, quest, items, reward,
+                    ShapeOf, row, px, py, expandedAllowed, data.TakenLeagueFlag, leagueStash, data.Reclaimable);
+            }
+            if (placement is null) return;
+            if (placement.Row == PlayerInventories.Flask)
+                placement = placement with { Placed = EmptyIfEquippedInHostileArea(player, items, placement.Placed) };
+            uint[] removed = placement.Merged ? [placement.Placed.Id]
+                : placement.Displaced is { } old ? [old.Id] : [];
+            await Send(player, InstanceItems.InventoryChange(PlayerInventories.InventoryId(placement.Row),
+                items.NextRevision(placement.Row), removed, [placement.Placed]),
+                $"0x00bf claimed quest reward at ({placement.Placed.X}, {placement.Placed.Y})");
+            if (placement.Displaced is { } displaced)
+                await Send(player, InstanceItems.InventoryChange(PlayerInventories.InventoryId(PlayerInventories.Cursor),
+                    items.NextRevision(PlayerInventories.Cursor), [], [displaced]), "0x00bf replaced item to cursor");
+            else if (placement.Rest is { } rest)
+                await Send(player, InstanceItems.InventoryChange(PlayerInventories.InventoryId(PlayerInventories.Cursor),
+                    items.NextRevision(PlayerInventories.Cursor), [], [rest]), "0x00bf quest reward overflow to cursor");
+            if (PlayerInventories.ShowsOnModel(placement.Row)) await SendEquipment(player, items);
+            if (placement.Row == PlayerInventories.Flask)
+            {
+                await ReconcileTincturesAfterFlaskBarChange(player);
+                await RefreshMagebloodFlasks(player);
+            }
+        }
+        else
+        {
+            // A league quest flag taken flag is read and set in the account's stash inside the claim's transaction.
+            var claimed = QuestRewardCatalog.Claim(CharacterName(player), data.TakenFlag, quest, items, reward, ShapeOf, row,
+                expandedAllowed: expandedAllowed, leagueFlag: data.TakenLeagueFlag,
+                leagueFlags: leagueStash, reclaimable: data.Reclaimable);
+            if (claimed is null) return;
+            await Send(player, InstanceItems.InventoryChange(PlayerInventories.InventoryId(row),
+                items.NextRevision(row), claimed.RemovedIds, claimed.AddedItems), "0x00bf claimed quest reward");
+        }
+        await FinishClaimedNpcReward(player, offer, data, quest);
+    }
+
+    internal static async Task ClaimNpcRewardIntoSocket(Player player, InstanceNpcs.BuyAndSocket buy)
+    {
+        if (player.NpcRewardOffer is not int offer || !player.NpcRewardItems.TryGetValue(buy.OfferItemId, out var reward)) return;
+        SpawnedNpc? npc;
+        lock (player.Npcs) npc = player.Npcs.GetValueOrDefault(player.TalkingTo);
+        if (npc is null || !HasAvailableReward(player, npc.Npc, offer)) return;
+        var catalog = QuestRewardCatalog.Load(hardMode: LeagueFor(player).HardMode, supportGems: LeagueFor(player).Rules.SupportGemRewards);
+        if (catalog.Find(offer) is not { } data) return;
+        if (PlayerInventories.Row(buy.InventoryId) is not byte targetRow)
+        {
+            Console.WriteLine($"[gateway] {player.Connection.Remote} <= 0x0089 quest reward socket {buy}: refused (unknown inventory)");
+            return;
+        }
+        var items = ItemsOf(player);
+        var quest = ItemsFor(player).ByHash(reward.TypeHash)?.Quest;
+        var leagueStash = data.TakenLeagueFlag is null ? null : PersonalStashOf(player);
+        bool equipped = ItemModStats.EquipmentRows.Contains(targetRow);
+        (InventoryItem Item, InventoryItem? Displaced)? result = null;
+        string why = "";
+        string? missing = null;
+        using (ProjectileMutation(player, advance: false, phase: "quest reward gem socket"))
+        {
+            IReadOnlyList<PlayerSkillSource> displacedSources = [];
+            if (equipped && items.Items(targetRow).FirstOrDefault(i => i.Id == buy.TargetItemId) is { } host
+                && buy.Socket < host.Item.Sockets.Count && host.Item.Sockets[(int)buy.Socket].Gem is { } oldGem)
+                displacedSources = GemSourceRowsLocked(player, host.Id, (int)buy.Socket, oldGem);
+            if (equipped && GemRequirementsUnmetAt(player, reward, null, targetItemId: buy.TargetItemId) is { } unmet)
+                missing = unmet;
+            else
+            {
+                result = QuestRewardCatalog.ClaimIntoSocket(CharacterName(player), data.TakenFlag, quest, items, reward,
+                    targetRow, buy.TargetItemId, (int)buy.Socket, ShapeOf, out why,
+                    data.TakenLeagueFlag, leagueStash, data.Reclaimable);
+                if (result is not null && equipped)
+                {
+                    if (result.Value.Displaced is { } displaced)
+                    {
+                        RetireDirectMinionSourcesLocked(player, displacedSources);
+                        ForgetGemActivation(player, displaced.Item);
+                    }
+                    RecomputePoolsAndSpeed(player);
+                    ReconcileBeastCompanionsLocked(player);
+                }
+            }
+        }
+        if (missing is not null)
+        {
+            Console.WriteLine($"[gateway] {player.Connection.Remote} <= 0x0089 quest reward socket {buy}: refused ({missing})");
+            return;
+        }
+        if (result is not var (updatedHost, displacedGem))
+        {
+            Console.WriteLine($"[gateway] {player.Connection.Remote} <= 0x0089 quest reward socket {buy}: refused ({why})");
+            return;
+        }
+        if (displacedGem is not null)
+            await Send(player, InstanceItems.InventoryChange(PlayerInventories.InventoryId(PlayerInventories.Cursor),
+                items.NextRevision(PlayerInventories.Cursor), [], [displacedGem]),
+                $"0x00bf cursor: hold displaced gem {displacedGem.Id} from socket {buy.Socket}");
+        await Send(player, InstanceItems.InventoryChange(buy.InventoryId, items.NextRevision(targetRow),
+            [updatedHost.Id], [updatedHost]),
+            $"0x00bf inventory {buy.InventoryId}: item {updatedHost.Id} with quest reward gem in socket {buy.Socket}");
+        if (equipped) await SendEquipment(player, items);
+        await FinishClaimedNpcReward(player, offer, data, quest);
+    }
+
+    static async Task FinishClaimedNpcReward(Player player, int offer, QuestRewardCatalog.Offer data, QuestItemFlags? quest)
+    {
         // Empty the offer inventory so the native reward window finishes its pending purchase and closes.
         await Send(player, InstanceItems.InventoryChange(0x600, 1, [.. player.NpcRewardItems.Keys], [], NpcShops.Manager),
             $"0x00bf quest reward offer {offer}: all choices removed");
