@@ -65,6 +65,9 @@ Part of [Status](../Status.md); what to build next in this area is in
 
 ## Partly working
 
+- Weapon-conditioned attack damage, bow bleeding, attack ignite and spell poison read their qualifying stats.
+  Trap and mine damage, Battlemage, Perseverance, physical reduction bypass and elemental ailment swaps apply offline.
+
 - Summoned followers stop pathless walk orders and retry when a route becomes available.
 - Spell-totem summons keep their minion identity instead of inheriting their summoning skill's totem flags.
 - Righteous Fire's enemy burn with linked supports. Docs: [11](../docs/protocol/11-skills.md) Â§12.

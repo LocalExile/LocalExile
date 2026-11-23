@@ -183,8 +183,9 @@ public static partial class Game
         bool ignorePhysicalReduction = false, Random? random = null)
         => MonsterTakesMitigatedCore(m, mitigated, spell, now, 0, ignorePhysicalReduction, random);
 
-    public static int MonsterTakesTrapOrMineHit(SpawnedMonster m, DamagePacket mitigated, bool spell, double now, Random? random = null)
-        => MonsterTakesMitigatedCore(m, mitigated, spell, now, BearTrapDamageTaken(m, now), ignorePhysicalReduction: false, random);
+    public static int MonsterTakesTrapOrMineHit(SpawnedMonster m, DamagePacket mitigated, bool spell, double now,
+        Random? random = null, bool ignorePhysicalReduction = false)
+        => MonsterTakesMitigatedCore(m, mitigated, spell, now, BearTrapDamageTaken(m, now), ignorePhysicalReduction, random);
 
     static int MonsterTakesMitigatedCore(SpawnedMonster m, DamagePacket mitigated, bool spell, double now,
         int additionalTakenPct, bool ignorePhysicalReduction, Random? random)
