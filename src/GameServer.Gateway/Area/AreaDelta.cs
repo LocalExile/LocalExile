@@ -50,7 +50,8 @@ public sealed class AreaDelta(GameArea area)
     public void Add(Record record)
     {
         area.AssertOwner();
-        if (record.Kind == Kind.Create && record.Only is { } owner && record.Except is null && !area.Monsters.ContainsKey(record.Entity))
+        if (record.Kind == Kind.Create && record.Only is { } owner && record.Except is null
+            && !area.Monsters.ContainsKey(record.Entity) && !area.Objects.Has(record.Entity))
         {
             lock (viewers)
             {

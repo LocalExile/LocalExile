@@ -171,6 +171,7 @@ public static class CosmeticsFeature
         var (px, py) = player.Walk.Position(now);
         foreach (var worn in WornCosmetics(player).Where(w => w.Slot is 18 or 19))
         {
+            if (player.Closed) break;
             if (MtxEffects.Of(worn.MtxTypeHash) is not { PetType: { Length: > 0 } type } fx) continue;
             if (!PetObject.CanSerialize(fx.PetComponents, fx.PetStates is not null))
             {
@@ -182,6 +183,7 @@ public static class CosmeticsFeature
             var pet = new PetObject(x, y, player.Id, fx.PetComponents, fx.PetStates);
             if (!await global::Game.SendWorldCreate(player, id, InstanceEntities.CreateObject(id, InstanceEntities.ObjectTypeHash(type), pet.Blob()),
                 $"0x02bb create pet 0x{id:x} {type} at ({x}, {y})")) continue;
+            if (player.Closed) { RemoveDepartedPet(player, id); break; }
             lock (player.Pets) player.Pets[id] = new SpawnedPet(player.NewWalk(x, y, player.Walk.Speed), worn.Slot == 18 ? 1 : -1);
             await global::Game.SendWorldRecord(player, id, InstanceProtocol.EnterWakeZone(id), $"0x01a9 pet 0x{id:x} enters wake zone");
         }
@@ -197,14 +199,16 @@ public static class CosmeticsFeature
         }
     }
 
+    static void RemoveDepartedPet(Player player, uint id)
+    {
+        var remove = InstanceProtocol.RemoveObject(id);
+        System.Buffers.Binary.BinaryPrimitives.WriteUInt32BigEndian(remove.AsSpan(6), uint.MaxValue);
+        player.Area.Delta.RemoveSharedObject(id, remove, $"0x02bd remove pet 0x{id:x} (owner left the area)");
+    }
+
     internal static void RemoveDepartedPets(Player player)
     {
-        foreach (uint id in TakePetIds(player))
-        {
-            var remove = InstanceProtocol.RemoveObject(id);
-            System.Buffers.Binary.BinaryPrimitives.WriteUInt32BigEndian(remove.AsSpan(6), uint.MaxValue);
-            player.Area.Delta.RemoveSharedObject(id, remove, $"0x02bd remove pet 0x{id:x} (owner left the area)");
-        }
+        foreach (uint id in TakePetIds(player)) RemoveDepartedPet(player, id);
     }
 
     // Where a pet stands by the player: PetDistance cells to the player's side (side +1 or −1, the two Pet slots), on the

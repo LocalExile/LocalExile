@@ -62,6 +62,13 @@ public sealed class AreaLifetimesTests
 
         area.Objects.Join(rejoiningViewer);
         Assert.Same(rejoiningViewer, Assert.Single(area.Delta.Take()).Only);
+
+        area.Delta.Add(id, InstanceProtocol.EnterWakeZone(id));
+        var moved = Assert.Single(area.Delta.Take());
+        Assert.Null(moved.Only);
+        Assert.True(moved.For(firstViewer));
+        Assert.True(moved.For(rejoiningViewer));
+
         var removed = InstanceProtocol.RemoveObject(id);
         area.Delta.RemoveSharedObject(id, removed);
         var record = Assert.Single(area.Delta.Take());
