@@ -288,7 +288,7 @@ public static partial class Game
                     hit = hit with { StageStarts = false };
                 }
                 hits.Add((id, m, hit, damage));
-                CommitMinionHitLocked(player, id, m, hit, damage, now, $"{minion.Kind} Relic explosion");
+                CommitMinionHitLocked(player, id, m, hit, damage, now, $"{minion.Kind} Relic explosion", source: minion.Monster);
             }
         }
         Console.WriteLine($"[gateway] {player.Connection.Remote} {minion.Kind} Relic 0x{minion.Id:x} explodes for {amount} {blast.Type} within {blast.Radius} cells: {hits.Count} hit, {hits.Count(h => h.Hit.Life == 0)} killed");

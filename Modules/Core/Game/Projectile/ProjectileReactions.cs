@@ -158,6 +158,7 @@ public static partial class Game
         ShareKill(player, id, monster, variety, position, partyShares);
         if (playerKill)
         {
+            WitchbaneOnKill(player, monster, now);
             // The kill's bookkeeping goes behind the presentation queued with it (EnqueueLater): queued in line, it ended
             // the projectile step's world group, and the first kill's life update went a frame before the others.
             session.EnqueueLater(() => GameEvents.RunMonsterKilled(new(PlayerOf(killer), modMonster)));
@@ -165,7 +166,8 @@ public static partial class Game
             ChargesOnKill(player, monster);
             RecoverOnKill(player, monster, tinctureKill);
             GainPhasingOnKill(player);
-            session.EnqueueLater(async () => await ExplodeOnKill(player, id, monster, position));
+            var explosionEquipment = CaptureKillEquipment(player, monster, position, now);
+            session.EnqueueLater(async () => await ExplodeOnKill(player, id, monster, position, explosionEquipment));
         }
         SoulEaterSoul(player, id, position);
         if (CommitQuestFlags(player, QuestsOf(player).OnMonsterKilled(player.Layout.Id, variety.Id)) is { } quest)
