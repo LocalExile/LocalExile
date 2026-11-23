@@ -87,8 +87,8 @@ public static partial class Game
             TinctureKill = TinctureKillBonusFor(player, character, hand),
             NoExtraCriticalDamage = CriticalHitsDealNoExtraDamage(character),
             TargetCritical = TargetCriticalBonuses.From(character, null),
-            Spider = !HasSpiderDamage(Get) && !HasLowLifeDamage(Get)
-                && Get(Stat.AttackDamagePlusPctVsMaimedEnemies) == 0 ? null
+            Spider = !HasSpiderDamage(Get) && !HasLowLifeDamage(Get) && !HasTypedTargetDamage(Get)
+                && !HasContactDamage(Get) && Get(Stat.AttackDamagePlusPctVsMaimedEnemies) == 0 ? null
                 : new(raw, conversion, new Dictionary<uint, int>(character),
                 new Dictionary<uint, int>(character), true, false, false, true, [], new HashSet<int> { 0, 2 }, 1,
                 WieldingWand: sourceWeapon.WieldingWand, Volatile: false,

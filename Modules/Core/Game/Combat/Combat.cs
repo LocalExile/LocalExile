@@ -1569,6 +1569,7 @@ public static partial class Game
             // it freezes again; the remaining time stays full throughout, so neither flicker moves the ring.
             if (guard && GuardCooldownPreEntry(player, skillId, gem.Effect) is { Length: > 0 } preEntry)
                 await Send(player, preEntry, "0x02bc guard cooldown held before its instant action");
+            bool committed = false;
             await SendWorldRecord(player, player.Id, [],
                 $"0x01ce player skill 0x{skillId:x4}: instant action (its use and cooldown)",
                 atGate: () =>
@@ -1576,9 +1577,10 @@ public static partial class Game
                     if (!player.ProjectileActive(epoch) || player.PlayerLife <= 0 || player.Paused
                         || ActorSkillInstanceDisabled(player, gem.Effect, skillId) is not null
                         || cooldownUse?.CommitNativeUse(player, skillId) == false) return null;
+                    committed = true;
                     return PlayerInstantAction(player, skillId, at, targetId);
                 });
-            guardStart?.Invoke();
+            if (committed) guardStart?.Invoke();
             await SendNativeCooldownRefresh(player);
         }
     }
@@ -3640,7 +3642,11 @@ public static partial class Game
     {
         // Guarantee the mini life bar is hidden for every kill path (AreaStats deduplicates when already set at the hit/DoT site).
         SetStats(player, id, [(Stat.HideMiniLifeBar, 1)]);
-        TransferMarksOnDeathLocked(player, m, ProjectileWorldTime(player));
+        if (m.HasCurses)
+            using (ProjectileMutation(player, advance: false))
+                if (CurrentGameWork && !player.Closed && !player.LeavingArea
+                    && player.Area.Monsters.GetValueOrDefault(id) == m)
+                    TransferMarksOnDeathLocked(player, m, ProjectileWorldTime(player));
         TinctureKillBonus? tinctureKill;
         // The lethal hit froze this decision before its notifications could yield. Consume only that exact receipt.
         bool destroyCorpse;

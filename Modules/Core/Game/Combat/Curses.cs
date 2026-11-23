@@ -96,7 +96,8 @@ public static partial class Game
             n => GolemStat(playerStats, n) + (n == SkillDurationModifiers.IncreasedDuration ? Get(Stat.CurseDurationPlusPct) + Get(Stat.CurseSkillEffectDurationPlusPct) : 0),
             n => Own(n) + (n == SkillDurationModifiers.IncreasedDuration ? Own(Stat.BaseCurseDurationPlusPct) : 0));
         var recipientEffects = monster.Effects;
-        double rate = RecipientEffectTime.Rate(5, n => recipientEffects[n], temporalChains: effect == "TemporalChains");
+        bool temporalChains = effect == "TemporalChains";
+        double rate = RecipientEffectTime.Rate(5, n => recipientEffects[n], temporalChains);
         seconds *= Math.Max(0, 1 + Own(Stat.HextouchSupportCurseDurationPlusPctFinal) / 100d);
         int damageTaken = GolemStat(playerStats, Stat.EnemiesDamageTakenPlusPctWhileCursed);
         bool preventsCritical = Get(definition.Mark ? Stat.MarkedEnemiesCannotDealCriticalStrikes : Stat.HexedEnemiesCannotDealCriticalStrikes) != 0;
@@ -118,6 +119,7 @@ public static partial class Game
             PreventsCriticalStrikes = preventsCritical,
             TransferChance = definition.Mark ? Get(Stat.YourMarksTransferToNearbyEnemiesOnDeathPctChance) : 0,
             Rate = rate,
+            UsesBaseExpiryRate = temporalChains,
             AmplifiesAt = amplify == 0 ? double.PositiveInfinity : now + (until - now) / 2,
             AmplifiedStats = amplify == 0 ? null : RecipientStats(amplify),
         };

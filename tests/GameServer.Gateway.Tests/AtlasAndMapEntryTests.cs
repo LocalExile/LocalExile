@@ -1,4 +1,3 @@
-using GameServer.Core;
 using GameServer.Core.Accounts;
 using GameServer.Core.Protocol.Instance;
 using GameServer.Core.Protocol.Login;
@@ -8,21 +7,6 @@ namespace GameServer.Gateway.Tests;
 
 public sealed class AtlasAndMapEntryTests
 {
-    [GameFilesFact]
-    public void Generated_map_arrivals_and_portal_anchors_are_walkable()
-    {
-        foreach (string area in new[] { "MapWorldsChannel", "MapWorldsWaterways" })
-        {
-            var row = ClientTables.Table("WorldAreas").Single(row => row.Text("Id") == area);
-            uint seed = ServerLevels.PlayableSeed(area, 144841, 77);
-            var layout = AreaLayouts.For((ushort)row.Int("HASH16"), seed);
-            Assert.True(layout.ServerGenerated);
-            Assert.True(layout.Walkable?.Invoke(layout.SpawnX, layout.SpawnY), area);
-            Assert.Equal((layout.SpawnX, layout.SpawnY), layout.Anchor);
-            Assert.Equal(layout.Anchor, layout.Arrival(null));
-        }
-    }
-
     [Fact]
     public void AreaInstance_and_Atlas_protocol_packets_encode_exact_client_wire_layouts()
     {

@@ -33,7 +33,7 @@ Part of [Status](../Status.md); what to build next in this area is in
   notables roll for it; the single-keystone smalls' keystone stats, nesting (including smaller clusters in larger
   sockets), unidentified/empty-jewel refusal, block bases, refund-point sync and the client's layout; keystones,
   radius rules and the vendor recipe are missing.
-  Additional small-passive stats and notable IDs with punctuation have offline regression coverage.
+  Small-passive stats and notable IDs with punctuation are recognized.
   Docs: [cluster jewels](../docs/game/cluster-jewels.md).
 - Timeless jewels: the alternate tree in radius and Militant Faith's Devotion mods; conqueror keystone mechanics are
   missing. Docs: [timeless jewels](../docs/game/timeless-jewels.md).

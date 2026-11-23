@@ -127,7 +127,7 @@ Part of [Status](../Status.md); what to build next in this area is in
 
 - Nightmare maps apply their levelled hexes while the player is in the map.
 - Map and Atlas modifiers govern scarab drops, monster combat and player recovery, skill area, defences, accuracy and aura effect.
-- Channel and Waterways use walkable arrival and portal anchors on generated layouts (offline regression checks).
+- Channel and Waterways use walkable arrival and portal anchors on generated layouts.
 
 - Named scarabs: Domination/Cloister, Ambush boxes, Essence release/Ascent/Calcification/Stability and Terrors bosses;
   Essence supports Vaal corruption, Adaptation transfers, low-life enrage, Decay, Toughness (damage-taken, not life),

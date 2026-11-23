@@ -9,6 +9,7 @@ public sealed class MonsterCurses(Action? changed = null)
         public int TransferChance { get; init; }
         public bool PreventsCriticalStrikes { get; init; }
         public double Rate { get; init; } = 1;
+        public bool UsesBaseExpiryRate { get; init; }
         public double AmplifiesAt { get; init; } = double.PositiveInfinity;
         public IReadOnlyDictionary<uint, int>? AmplifiedStats { get; init; }
     }
@@ -86,10 +87,10 @@ public sealed class MonsterCurses(Action? changed = null)
     }
 
     // The recipient's other effects can change its clock after a curse has already started. Retiming its two
-    // boundaries settles the elapsed portion at the old speed; Temporal Chains never slows its own clock.
-    public void Retime(double now, double hexRate, double temporalChainsRate)
+    // boundaries settles the elapsed portion at the old speed. The source chooses which rate a curse follows.
+    public void Retime(double now, double effectRate, double baseRate)
     {
-        double Rate(Curse curse) => curse.Effect == "TemporalChains" ? temporalChainsRate : hexRate;
+        double Rate(Curse curse) => curse.UsesBaseExpiryRate ? baseRate : effectRate;
         foreach (var curse in All.Values.Where(c => double.IsFinite(c.Until) && c.Rate != Rate(c)).ToArray())
         {
             double rate = Rate(curse);
