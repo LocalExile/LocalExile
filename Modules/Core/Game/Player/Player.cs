@@ -252,6 +252,7 @@ public static partial class Game
         ChargesOnDeath(player);
         ClearBloodChargesOnDeath(player);
         ClearResonance(player);
+        ClearConvergence(player);
         player.WitchbaneImmunityUntil = 0;
         ClearMomentum(player);
         VaalAuraStates.Remove(player); // CancelOnDeath: it cannot return after resurrection.
@@ -1343,7 +1344,8 @@ public static partial class Game
         double dotMultiplier = Combined(Stat.DotMultiplierPlus) + Combined(Stat.FireDotMultiplierPlus);
         dps = dps * Math.Max(0, 100 + dotMultiplier) / 100;
         int deliriumMore = playerStats.GetValueOrDefault(Stat.DeliriumAuraDamageOverTimePlusPctFinal);
-        return dps * Math.Max(0, 1 + deliriumMore / 100d) * ChargeDamageMore(playerStats);
+        return dps * Math.Max(0, 1 + deliriumMore / 100d) * ChargeDamageMore(playerStats)
+            * DamageStats.ConvergenceMore(playerStats.GetValueOrDefault(Stat.ConvergenceElementalDamagePlusPctFinal));
     }
 
     // Righteous Fire's burn: a damage aura (DamageAuras.cs) around the player, its fire damage a share of the player's

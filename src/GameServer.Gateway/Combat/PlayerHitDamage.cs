@@ -62,6 +62,7 @@ public static class PlayerHitDamage
             attackCold = attack ? get(Stat.ColdDamageWithAttackSkillsPlusPct) : 0,
             attackLightning = attack ? get(Stat.LightningDamageWithAttackSkillsPlusPct) : 0;
         double charges = ChargeEffects.DamageMore(get, spell);
+        double convergence = DamageStats.ConvergenceMore(get(Stat.ConvergenceElementalDamagePlusPctFinal));
         var result = DamagePacket.Empty;
         foreach (var path in conversion.Trace(raw))
         {
@@ -103,7 +104,7 @@ public static class PlayerHitDamage
             // stat is the client's own carrier, published by the live stat view; a converted portion is elemental by
             // its history, as the other elemental buckets are.
             if ((path.History & DamageTypeHistory.Elemental) != 0)
-                range = range.Scale(Math.Max(0, 1 + get(Stat.KeystoneElementalOverloadDamagePlusPctFinal) / 100.0));
+                range = range.Scale(convergence * Math.Max(0, 1 + get(Stat.KeystoneElementalOverloadDamagePlusPctFinal) / 100.0));
             result = result.Add(path.Type, range, trackPhysicalOrigin && (path.History & DamageTypeHistory.Physical) != 0);
         }
         // WithCharges expands increases and additions, but leaves more multipliers separate. Spell portions retain
