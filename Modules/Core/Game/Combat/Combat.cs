@@ -1268,6 +1268,8 @@ public static partial class Game
                         && !SkillsFor(player).IsChannelled(gem.Effect))
                         ReserveMeleeRepeats(player, skillId, SupportedAttackSeconds(player, skillId, sequence));
                 }
+                if (paid && cost > 0 && placedAdmission is null)
+                    RecordPaidBowAttackLocked(player, skillId, paymentGem, cost, to);
                 if (paid && beastCompanion is { } beast)
                     QueueBeastCompanionLocked(player, beast, skillId, actionToken);
                 // The native Holy Flame skill is tagged Channel for the totem's payload. Its owner places it with a
@@ -3114,6 +3116,7 @@ public static partial class Game
         // A predictive client stops for the recovery and then goes on with its walk (live 2026-11-01: 30 cells apart when
         // this ended it). A lockstep one ends its walk in the frame the 0x1d1 reaches it (PlayerHitRecoveryRecordLocked).
         if (!player.Connection.LockstepClient) player.Walk.Pause(now, seconds);
+        RecordIncomingHitTriggers(player, 0, now, stunned: true);
         return new(player.ProjectileEpoch, action, player.HitRecovery.Until, seconds);
     }
 
