@@ -75,7 +75,8 @@ public static partial class Game
                 handAccuracy, criticalChance, player.Pools.CriticalStrikeMultiplier,
                 additionalBlindedIncreased);
         var raw = SupportedAttackDamage.Raw(sourceWeapon, Get, new(handAccuracy));
-        var conversion = DamageStats.Conversion(character, Stats, attack: true);
+        var conversion = SupportedAttackDamage.WithWeaponGains(
+            DamageStats.Conversion(character, Stats, attack: true), sourceWeapon);
         var ailmentRows = AilmentPanelStats.Compute(new("main_hand", Spell: false), raw, conversion, Get);
         var blindedRows = blindedCapture is null ? null
             : AilmentPanelStats.Compute(new("main_hand", Spell: false), raw, conversion, Get, additionalBlindedIncreased);

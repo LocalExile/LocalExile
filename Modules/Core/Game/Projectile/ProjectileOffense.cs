@@ -50,6 +50,7 @@ public sealed record ProjectileOffense(DamagePacket Hit, bool Spell, int Accurac
     public bool FromTrapOrMine { get; init; }
     /// <summary>The local stats of the weapon an attack was made with (GamblerModifiers.ForWeapon); null for a spell.</summary>
     public IReadOnlyDictionary<uint, int>? WeaponLocal { get; init; }
+    public string? WeaponClass { get; init; }
     public LeechSources Leech { get; init; } = new(DamagePacket.Empty, DamagePacket.Empty, DamagePacket.Empty);
     public int Effect { get; init; } = -1;
     public ushort SourceSkill { get; init; }
@@ -121,6 +122,13 @@ public sealed record ProjectileOffense(DamagePacket Hit, bool Spell, int Accurac
         }
         : this;
     }
+
+    public ProjectileOffense ScaleDamage(double more) => more == 1 ? this : this with
+    {
+        Hit = Hit.Scale(more), AreaHit = AreaHit?.Scale(more),
+        HitProfileMore = HitProfileMore * more, AilmentProfileMore = AilmentProfileMore * more,
+        Ignite = Scale(Ignite, more), Bleed = Scale(Bleed, more), Poison = Scale(Poison, more),
+    };
 
     static MonsterIgnites.Settings Scale(MonsterIgnites.Settings value, double more) => value with
     {

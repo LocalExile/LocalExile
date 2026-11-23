@@ -378,7 +378,7 @@ public static partial class Game
                 bool critical = RollCriticalStrike(player, CriticalChanceOn(player, id, chance, vsBlinded, vsProfane), own, attack: false);
                 double hitAt = ProjectileWorldTime(player);
                 var (damage, _, mitigated) = MonsterHitDamage(m, rolled, critical, attack: false, hitAt, mods, pen,
-                    gambler.InvertsResistance(AreaRng(player)));
+                    gambler.InvertsResistance(AreaRng(player)), AreaRng(player));
                 if (critical) damage = DamageModel.CriticalDamage(damage, CriticalMultiplierOn(m, multiplier, playerStats, own));
                 var stun = OwnerStun(player, m, damage, mitigated, melee: false, spell: true, critical, playerStats, own);
                 var applied = ApplyMonsterHitLocked(player, m, damage);

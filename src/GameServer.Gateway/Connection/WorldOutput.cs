@@ -276,11 +276,16 @@ public sealed class WorldOutput
     /// done here at once (the area writes them to every connection in order), so nothing waits on them.</summary>
     public void Shared(OutputBatch batch, WorldAdmission admission)
     {
+        if (!TryShared(batch, admission)) throw new ObjectDisposedException(nameof(WorldOutput));
+    }
+
+    internal bool TryShared(OutputBatch batch, WorldAdmission admission)
+    {
         var born = new List<WorldObject>();
         var removed = new List<WorldObject>();
         lock (sync)
         {
-            ObjectDisposedException.ThrowIf(closed, this);
+            if (closed) return false;
             foreach (var birth in admission.Births) { birth.State = WorldObject.BirthState.Ready; born.Add(birth); }
             foreach (var record in batch.Records)
                 if (record.Kind == OutputRecord.RecordKind.Remove && record.Object is { } target && ReferenceEquals(target.Owner, this))
@@ -292,14 +297,18 @@ public sealed class WorldOutput
         }
         foreach (var birth in born) birth.Birth.TrySetResult(true);
         foreach (var target in removed) { target.Invalidated.TrySetResult(false); target.Removal.TrySetResult(true); }
+        return true;
     }
 
-    // Called under SendGate. Validate the complete batch before admitting any of it.
-    public IReadOnlyList<Packet> Admit(OutputBatch batch, WorldAdmission admission, bool framed)
+    public IReadOnlyList<Packet> Admit(OutputBatch batch, WorldAdmission admission, bool framed) =>
+        TryAdmit(batch, admission, framed) ?? throw new ObjectDisposedException(nameof(WorldOutput));
+
+    // Called under SendGate. Refuse a retired connection atomically with admission under the state lock.
+    internal IReadOnlyList<Packet>? TryAdmit(OutputBatch batch, WorldAdmission admission, bool framed)
     {
         lock (sync)
         {
-            ObjectDisposedException.ThrowIf(closed, this);
+            if (closed) return null;
             var births = admission.Births;
             if (births.Distinct().Count() != births.Count) throw new ArgumentException("Duplicate birth declaration.");
             foreach (var birth in births)

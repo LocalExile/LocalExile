@@ -31,12 +31,13 @@ public static class SupportedAttackDamage
             Stat.Of($"attack_maximum_added_{t.ToString().ToLowerInvariant()}_damage_with_bow"),
             Stat.Of($"attack_maximum_added_{t.ToString().ToLowerInvariant()}_damage_with_bows")))];
 
-    // This pair is IsWeaponLocal, not IsLocal: it belongs to attacks by its source weapon, not the item's base range.
+    // These weapon-scoped stats belong to attacks by their source hand; base weapon construction reads the local packet.
     public static IReadOnlyDictionary<uint, int> WeaponSources(Item item, ModCatalog mods)
     {
         var sources = ItemModStats.Local(item, mods);
         var other = Game.PlainItemSum(item, mods);
-        foreach (uint name in new[] { ColdPerDexterityMin, ColdPerDexterityMax })
+        foreach (uint name in new[] { ColdPerDexterityMin, ColdPerDexterityMax, Stat.WeaponPhysicalDamagePctToAddAsEachElement,
+            Stat.HitsHaveCriticalStrikeMultiplerPlusPerMonsterPower, Stat.HitsHaveLeechPctIsInstantPerMonsterPower })
             if (other.TryGetValue(name, out int value)) sources[name] = value;
         return sources.ToFrozenDictionary();
     }
@@ -51,7 +52,8 @@ public static class SupportedAttackDamage
         AttackAccuracyProfile accuracy)
     {
         get = WeaponAttributeDamage.Read(WeaponAttributeDamage.Armed(weapon), get);
-        return PlayerHitDamage.Resolve(Raw(weapon, get, accuracy), HitModifiers(weapon, get), new DamageConversion(), spell: false,
+        return PlayerHitDamage.Resolve(Raw(weapon, get, accuracy, melee: types.Contains(19)), HitModifiers(weapon, get),
+            WithWeaponGains(new(), weapon), spell: false,
             melee: types.Contains(19), area: types.Contains(7), projectile: types.Contains(2), skillTypes: types,
             wieldingBow: weapon.Bow, wieldingWand: weapon.WieldingWand, retaliation: types.Contains(120),
             additionalIncreased: WeaponIncrease(weapon, get), additional: WeaponTypeDamage.Of(weapon, get));
@@ -73,11 +75,14 @@ public static class SupportedAttackDamage
     /// wands, claws and both dagger classes take their corresponding weapon-family ranges.
     /// Item-local flat additions belong to the base coefficient; weapon-scoped attribute grants take added effectiveness.</summary>
     public static DamagePacket Raw(SkillCatalog.Unarmed weapon, Func<uint, int> get, AttackAccuracyProfile accuracy,
-        int baseMultiplier = 10_000, int addedEffectiveness = 10_000)
+        int baseMultiplier = 10_000, int addedEffectiveness = 10_000, bool melee = false)
     {
-        var local = weapon.LocalDamage ?? DamagePacket.Of(DamageType.Physical,
-            new(weapon.MinDamage, weapon.MaxDamage)).Add(weapon.LocalAdded);
+        var local = WeaponBase(weapon);
         var added = DamageStats.RawAdded(DamagePacket.Empty, get, spell: false);
+        if (melee && !WeaponAttributeDamage.Armed(weapon))
+            added = added.Add(DamageType.Lightning, new DamageRange(
+                get(Stat.AttackMinimumAddedMeleeLightningDamageWhileUnarmed),
+                get(Stat.AttackMaximumAddedMeleeLightningDamageWhileUnarmed)));
         // Use the hand/skill's resolved rating, before target-conditional hit-chance modifiers.
         long accuracyGroups = Math.Max(0, accuracy.Rating) / 200;
         added = added.Add(DamageType.Lightning, new(
@@ -107,6 +112,19 @@ public static class SupportedAttackDamage
                 if (bow.Min != 0 || bow.Max != 0) added = added.Add(type, bow);
             }
         return WithCoefficients(local, added, baseMultiplier, addedEffectiveness);
+    }
+
+    static DamagePacket WeaponBase(SkillCatalog.Unarmed weapon) => weapon.LocalDamage
+        ?? DamagePacket.Of(DamageType.Physical, new(weapon.MinDamage, weapon.MaxDamage)).Add(weapon.LocalAdded);
+
+    internal static DamageConversion WithWeaponGains(DamageConversion conversion, SkillCatalog.Unarmed weapon)
+    {
+        if (!WeaponAttributeDamage.Armed(weapon)) return conversion;
+        int gain = weapon.LocalSources?.GetValueOrDefault(Stat.WeaponPhysicalDamagePctToAddAsEachElement) ?? 0;
+        if (gain <= 0) return conversion;
+        return conversion.AddGain(DamageType.Physical, DamageType.Lightning, gain)
+            .AddGain(DamageType.Physical, DamageType.Cold, gain)
+            .AddGain(DamageType.Physical, DamageType.Fire, gain);
     }
 
     public static DamagePacket WithCoefficients(DamagePacket local, DamagePacket added,
