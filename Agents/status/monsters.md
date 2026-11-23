@@ -195,6 +195,7 @@ Part of [Status](../Status.md); what to build next in this area is in
 - Abyss: pit, crack arms, wave, reward chest per instance. [Docs](../docs/game/league-encounters.md)
 - Mercenaries: a map area may hold one to talk to, duel and hire.
   Docs: [league encounters](../docs/game/league-encounters.md).
+- Ritual: a map instance rolls 3-4 altars, shared by its players; guards, click, waves, tribute; not seen live.
 - Population follows local gates and waits for walkability; isolated pockets stay empty and cleared saves stay cleared.
 
 - Native variety weapons, helmets, back attachments, `MonsterArmours` slots, and deterministic non-zero `Actor`
