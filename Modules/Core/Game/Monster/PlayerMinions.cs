@@ -73,6 +73,7 @@ public static partial class Game
         MinionUtilityTick(player, now);
         InfernalLegionTickLocked(player, now);
         TickEssenceAurasLocked(player, now);
+        TickRemnantAurasLocked(player, now);
         await GolemsTick(player, now);
         if (!Current()) return;
         await SummonsTick(player, now);

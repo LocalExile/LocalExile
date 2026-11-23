@@ -197,6 +197,11 @@ sealed class ChatService : IDisposable
         _namedLinks.TryRemove(player, out var namedLinks);
         if (chat.IsCommand) return false;
         string name = CharacterName(player);
+        if (GameEvents.GetChatAvailability(player).Dnd)
+        {
+            await Send(player, InstanceChat.ChatLine("You cannot chat while DND mode is active."), "0x0017 DND chat blocked");
+            return true;
+        }
         await GameEvents.RunChatActivity(player);
         Log($"{player.Connection.Remote} <= 0x0015 chat \"{chat.Text}\"");
         var (channel, typed) = InstanceChat.SplitChannel(chat.Text);
@@ -271,6 +276,7 @@ sealed class ChatService : IDisposable
     {
         foreach (var other in InGame.Keys)
             if (other is { Controlled: false, Closed: false, Connection.Outbox: { } outbox } && ReferenceEquals(other.Instance.Presence, player.Instance.Presence)
+                && !GameEvents.GetChatAvailability(other).Dnd
                 && (ReferenceEquals(other, player) || !IsIgnored(other, player.Character.Account ?? name)))
             {
                 try { await outbox(InstanceChat.ChatLine(text, name, items: items), $"0x0017 chat line from {name}"); }

@@ -67,6 +67,8 @@ public static partial class MonsterSkills
         if (skills.HasType(effect, "Hex")) return MonsterSkillShape.Curse;
         // A travel that summons or channels plays as no simple move (Blink Arrow's clone, Charged Dash's hold).
         if (skills.IsTravel(effect) && !skills.IsChannelled(effect) && !skills.HasType(effect, "Minion")) return MonsterSkillShape.Travel;
+        // A boss's own teleport and a monster-only movement skill carry it the same way (BossMoves).
+        if (BossMoves.IsMove(skills, effect)) return MonsterSkillShape.Travel;
         if (skills.IsWarcry(effect)) return MonsterSkillShape.Self;
         if (skills.HasType(effect, "Buff") && !skills.IsAttack(effect) && !skills.IsProjectile(effect)) return MonsterSkillShape.Self;
         return null;
@@ -162,7 +164,9 @@ public static partial class MonsterSkills
     /// none, not again over the one that stands). In the area's frame.</summary>
     public static bool Usable(Player player, uint id, SpawnedMonster m, MonsterAttack a, double now) =>
         (a.Use is not { OnCorpse: true } || CorpseFor(player, m, a, now) is not null)
-        && (a.Summon is not { Limit: > 0 } summon || Game.LivingSummonsLocked(player, id, summon) < summon.Limit);
+        && (a.Summon is not { Limit: > 0 } summon || Game.LivingSummonsLocked(player, id, summon) < summon.Limit)
+        // A summon on its cooldown or at the cap of living summons waits too: chosen, the boss stood until it could.
+        && Game.SummonReadyLocked(player, id, m, a, now);
 
     /// <summary>Takes the corpse and, for a skill that takes several, others within its radius: they leave the client
     /// (0x2bd) and every corpse use. Returns where each was.</summary>
@@ -328,7 +332,7 @@ public static partial class MonsterSkills
                 // 2026-11-17).
                 MonsterSkillShape.Travel when a.Effect is int effect && IsDash(effect) => Game.DashLanding(player.Layout, player.Barrier, from,
                     order.Player, TravelPct(player, effect, m.Level), false, m.Variety?.ObjectSize ?? 1),
-                MonsterSkillShape.Travel => Landing(player, from, order.Player),
+                MonsterSkillShape.Travel => Landing(player, m, from, order.Player),
                 MonsterSkillShape.Self => from,
                 _ => order.Player,
             };
@@ -437,7 +441,7 @@ public static partial class MonsterSkills
             if (MonsterSwingOrderLocked(player, m, a, action, false, a.Seconds, AreaTime(player), seq) is not { } order) return null;
             (startedAt, seq) = (order.StartedAt, order.Sequence);
             from = order.From;
-            target = Landing(player, from, order.Player);
+            target = Landing(player, m, from, order.Player);
             // The client drops a charge whose straight line meets terrain: its monster stays where it stands, so there is
             // no charge to send (sync trace 2026-11-17: Jonah Unchained stood still on five lines past a pillar that the
             // server's run stopped at, 1 to 10 cells along).
@@ -476,16 +480,17 @@ public static partial class MonsterSkills
             await MonsterContact(player, id, m, action, seq, a with { Range = ChargeEndRadius, Use = null });
     }
 
-    /// <summary>Where a travel lands: short of the player on the line from the monster, on a walkable cell; else the
-    /// player's own.</summary>
-    static (int X, int Y) Landing(Player player, (int X, int Y) from, (int X, int Y) playerAt)
+    /// <summary>Where a travel lands: short of the player on the line from the monster, on a walkable cell outside
+    /// barriers; else the player's own.</summary>
+    static (int X, int Y) Landing(Player player, SpawnedMonster m, (int X, int Y) from, (int X, int Y) playerAt)
     {
         double dx = from.X - playerAt.X, dy = from.Y - playerAt.Y, d = Math.Sqrt(dx * dx + dy * dy);
         if (d < 1) return playerAt;
+        int size = Math.Max(0, LivingCollision.Size(m));
         for (double back = LandShort; back >= 0; back--)
         {
             int x = playerAt.X + (int)Math.Round(dx / d * back), y = playerAt.Y + (int)Math.Round(dy / d * back);
-            if (player.Layout.WalkableFor(x, y, 0)) return (x, y);
+            if (player.Layout.WalkableFor(x, y, size) && !player.Barrier.Contains((x, y))) return (x, y);
         }
         return playerAt;
     }

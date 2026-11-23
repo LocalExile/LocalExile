@@ -36,6 +36,8 @@
     <ProjectReference Include="..\..\Modules\Core\Content\Delirium\Delirium.csproj" />
     <!-- The Expedition encounter (ExpeditionTests). -->
     <ProjectReference Include="..\..\Modules\Core\Content\Expedition\Expedition.csproj" />
+    <!-- The Smuggler's Cache encounter (HeistCacheTests). -->
+    <ProjectReference Include="..\..\Modules\Core\Content\HeistCache\HeistCache.csproj" />
     <!-- The Atlas's completed maps (AtlasProgressTests). -->
     <ProjectReference Include="..\..\Modules\Core\World\Atlas\Atlas.csproj" />
     <ProjectReference Include="..\..\Modules\Core\World\Shrines\Shrines.csproj" />

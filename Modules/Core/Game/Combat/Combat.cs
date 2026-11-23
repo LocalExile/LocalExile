@@ -3134,6 +3134,9 @@ public static partial class Game
         // EncounterStats, whether it was there when the shrine spawned or walked in later) takes no hit at all, so every
         // path through this funnel leaves its life alone.
         if (m.Effects[Stat.BaseCannotBeDamaged] > 0) return null;
+        // A Misery essence's proximity shield blocks a hit from outside its ring; Scorn's avoid_damage_% can avoid the hit.
+        if (MapEssences.ProximityShieldBlocksLocked(player, m, allyAt)) return null;
+        if (damage > 0 && m.Effects[Stat.AvoidDamagePct] is > 0 and var avoid && Random.Shared.Next(100) < avoid) return null;
         uint before = m.Life;
         if (allyAt is null) SpiderHitRewardsLocked(player, m, ProjectileWorldTime(player), playerStats);
         (m.Life, bool starts) = TakeOwnerHitLocked(player, m, damage, cull, rampageSource, playerStats, cullPlayer);
@@ -3151,6 +3154,13 @@ public static partial class Game
         if (allyAt is null && damage > 0 && !player.Reservations.Secondary) ReservationHitLocked(player, m);
         return new(m.Life, starts);
     }
+
+    // Keep the signature used by mods built against 0.6.0-beta.
+    public static Task NotifyMonsterHit(Player player, uint id, SpawnedMonster m,
+        MonsterHit hit, int damage, string by, bool log, bool melee, ushort sequence,
+        List<(uint Id, SpawnedMonster M)>? deaths, byte hitCode, StunHit? stun, bool critical, string? impactArt) =>
+        NotifyMonsterHit(player, id, m, hit, damage, by, log, melee, sequence, deaths, hitCode, stun, critical, impactArt,
+            knockback: null);
 
     public static Task NotifyMonsterHit(Player player, uint id, SpawnedMonster m,
         MonsterHit hit, int damage, string by, bool log = true, bool melee = false, ushort sequence = 0,

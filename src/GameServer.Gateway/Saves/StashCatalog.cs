@@ -28,8 +28,9 @@ public static class StashCatalog
         [SanctumHub] = new(116, 160, 0),
         // Kingsmarch: next to the arrival (an offset, FromArrival), to be placed live with /stash_place.
         [Kingsmarch] = new(6, 6, 0),
-        // The Rogue Harbour: next to the arrival (an offset, FromArrival), to be placed live with /stash_place.
-        [HeistHub] = new(6, 8, 0),
+        // The Rogue Harbour: hub_1.arm's own object line (174, 298, -1.07947), placed at (92, 92) with code 0 (TownNpcs), so
+        // the cell is (266, 390) and the angle 2 pi - 1.07947. The official server creates its stash at that cell and angle.
+        [HeistHub] = new(266, 390, 2 * MathF.PI - 1.07947f),
         // The Monastery of the Keepers: next to the arrival (an offset, FromArrival), to be placed live with /stash_place.
         [ChayulaHub] = new(6, 8, 0),
         // The Sovereign (DeepwaterHub): hub.arm's own object line (306, 218, -0.261801), placed at (0, 276) with code 0 by
@@ -46,7 +47,8 @@ public static class StashCatalog
         MenagerieHub => new(440, 480, 0),
         SanctumHub => new(106, 166, 0),
         Kingsmarch => new(-6, 6, 0),
-        HeistHub => new(-6, 8, 0),
+        // The Rogue Harbour: hub_1.arm's guild stash line (174, 287, -1.56009), the cell (266, 379).
+        HeistHub => new(266, 379, 2 * MathF.PI - 1.56009f),
         ChayulaHub => new(-6, 8, 0),
         AreaLayouts.LioneyesWatch => new(317, 270, 0),
         OriathDocks => new(542, 276, -MathF.PI),
@@ -78,7 +80,7 @@ public static class StashCatalog
     public const ushort Kingsmarch = 0x8f53;
 
     /// <summary>Areas whose stash, guild stash and NPC places are offsets from the arrival cell: not placed live yet.</summary>
-    public static bool FromArrival(ushort areaHash) => areaHash is Kingsmarch or HeistHub or ChayulaHub;
+    public static bool FromArrival(ushort areaHash) => areaHash is Kingsmarch or ChayulaHub;
 
     /// <summary>HASH16 of the Monastery of the Keepers (WorldAreas ChayulaLeague).</summary>
     public const ushort ChayulaHub = 0xcb44;

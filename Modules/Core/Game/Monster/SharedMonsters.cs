@@ -241,7 +241,7 @@ public static partial class Game
                 $"0x0020 the area's {area.MonsterTypes.Count} monster type(s)", AreaDelta.Kind.Message, only: player);
         foreach (var (id, m) in area.Monsters.Concat(area.DormantMonsters).OrderBy(e => e.Key))
         {
-            if (player.Connection.WorldOutput.Has(id)) continue;
+            if (player.Connection.WorldOutput.HasDirect(id) || area.Delta.HasCreateFor(id, player)) continue;
             bool corpse = (m.Dead || m.Life == 0) && m.CreatedAsCorpse && !m.CorpseConsumed;
             if (!m.WorldHidden && ((!m.Dead && m.Life > 0) || corpse) && m.OwnerId != player.Id)
                 AddMonsterCreate(player, id, m, now, only: player);

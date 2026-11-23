@@ -39,6 +39,10 @@ public sealed record MonsterKitSkill(int Effect, MonsterAttack Attack, double Co
     /// <summary>A trigger on damage taken: the damage its user takes before it is cast (0: no trigger, a skill the kit
     /// picks).</summary>
     public int TriggerThreshold { get; init; }
+    /// <summary>Whether this kit skill is a boss teleport (<c>BossMoves.IsTeleport</c>).</summary>
+    public bool IsTeleport { get; init; }
+    /// <summary>Whether one cast of this kit skill fires a barrage of shots (<c>BossMoves.BarrageOf</c>).</summary>
+    public bool IsBarrage { get; init; }
 }
 
 /// <summary>A delayed strike: how long its marker waits, the art it shows while it waits and as it strikes (null for
@@ -138,6 +142,10 @@ public sealed record MonsterAttack(ushort SkillId, double Seconds, double Range,
     public bool Proxy { get; init; }
     /// <summary>Native source ailment chances and modifiers, consumed once by the ordinary incoming-hit path.</summary>
     public PlayerElementalAilments.HitSettings Ailments { get; init; }
+    /// <summary>The skill's own poison chance (%) and duration (seconds), applied on an unblocked hit beside the monster's
+    /// mods (an essence boulder whose skill carries 100% poison). Zero: the skill adds none.</summary>
+    public int PoisonChance { get; init; }
+    public double PoisonSeconds { get; init; }
     public CorruptedBloodOnHit? CorruptedBlood { get; init; }
     public bool Ranged { get; init; }
     /// <summary>When and from where a projectile skill releases its shot; null: half the attack time, 1.5 cells ahead at

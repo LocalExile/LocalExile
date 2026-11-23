@@ -73,7 +73,7 @@ public sealed class AreaObjectRecords(GameArea area)
     }
 
     static (ushort Message, byte Component) Kind(AreaDelta.Record record) => (BinaryPrimitives.ReadUInt16BigEndian(record.Bytes),
-        BinaryPrimitives.ReadUInt16BigEndian(record.Bytes) == InstanceEntities.ComponentUpdateId && record.Bytes.Length > 12 ? record.Bytes[12] : (byte)0);
+        BinaryPrimitives.ReadUInt16BigEndian(record.Bytes) == InstanceEntities.ComponentUpdateId && record.Bytes.Length > 14 ? record.Bytes[14] : (byte)0);
 
     public bool Has(uint id) { lock (objects) return objects.ContainsKey(id); }
 
@@ -87,6 +87,7 @@ public sealed class AreaObjectRecords(GameArea area)
             {
                 if (IsPlayer(id) || IsSharedMonster(id) || area.Monsters.ContainsKey(id) || area.DormantMonsters.ContainsKey(id)) continue;
                 if (directRecipients.TryGetValue(id, out var sent) && sent.Contains(player)) continue;
+                if (area.Delta.HasCreateFor(id, player)) continue;
                 foreach (var record in records) area.Delta.Add(record with { Only = player, Except = null });
             }
         }
