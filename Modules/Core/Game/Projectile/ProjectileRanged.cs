@@ -128,13 +128,14 @@ public static partial class Game
         };
         var origin = ProjectileSession.Vector(player.Walk.Position(session.Runtime.Now / (double)ProjectileRuntime.QuantaPerSecond));
         var target = ProjectileSession.Vector(aim);
-        // The shot leaves from the clip's contact keyframe, in front of the body along the aim (the Ranger's bow
-        // 5.5 cells, a wand's tip 7.5), else 1.5 cells ahead; never past half way to the aim, so a close target
-        // is not behind the release. The lateral part of the keyframe is not applied (ContactPoint).
-        double ahead = release is { ForwardCells: > 0 } point ? point.ForwardCells : OrdinaryRangedAttack.ReleaseAheadCells;
-        origin += (target - origin).Unit * Math.Min(ahead, (target - origin).Length / 2);
+        // 3.29.3c client spawn forward offset (0x141ba7840 -> 0x141ba7c30): 30 world units (~2.76 cells) for ordinary
+        // bows/wands (projectile_uses_contact_position is 0 on PlayerMelee), clamped so a close aim is not behind origin.
+        double ahead = NativeProjectileForwardCells(Get, release);
+        if (ahead > 0)
+            origin += (target - origin).Unit * Math.Min(ahead, (target - origin).Length / 2);
         var profile = OrdinaryRangedProfile(player, projectileId, weapon.Bow, Get);
-        profile = clientDrawn ? ClientDrawnProfile(player, profile, Get, sequence, target - origin) : NativeVolley(profile, Get);
+        profile = clientDrawn ? ClientDrawnProfile(player, profile, Get, sequence, target - origin)
+            : NativeVolley(profile, Get, sequence, target - origin, player.Id);
         return new(profile, new(player.Id, session.Player.ProjectileEpoch), new(player.Id, session.Player.ProjectileEpoch), 1,
             origin, target)
             { Payload = shot, ReturnAnchor = new(player.Id, session.Player.ProjectileEpoch) };

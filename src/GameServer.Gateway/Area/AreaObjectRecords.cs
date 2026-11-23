@@ -87,6 +87,7 @@ public sealed class AreaObjectRecords(GameArea area)
             {
                 if (IsPlayer(id) || IsSharedMonster(id) || area.Monsters.ContainsKey(id) || area.DormantMonsters.ContainsKey(id)) continue;
                 if (directRecipients.TryGetValue(id, out var sent) && sent.Contains(player)) continue;
+                if (area.Delta.HasCreateFor(id, player)) continue;
                 foreach (var record in records) area.Delta.Add(record with { Only = player, Except = null });
             }
         }
