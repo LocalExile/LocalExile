@@ -106,7 +106,7 @@ public static partial class Game
                 balance.ItemDropMultiplier * (modded?.Quantity ?? 1) * ItemQuantityFactor(player, monster),
                 balance.EquipmentRarityMultiplier * (modded?.Rarity ?? 1), mapTier, MapModsOf(player)));
             drops.AddRange(PartyCurrency(player, drops, AreaRng(player)));
-            if (DropsFor(player).Map(monster.Level, monster.Rarity, mapTier, AreaRng(player), chanceFactor: modded?.MapRelated ?? 1) is { } map) drops.Add(map);
+            if (ProgressionMapDrop(player, monster, mapTier, AreaRng(player), modded?.MapRelated ?? 1) is { } map) drops.Add(map);
             if (DropsFor(player).Gold(monster.Level, monster.Rarity, AreaRng(player),
                 balance.GoldMultiplier * SystemSettings.Default.GoldDropMultiplier * (modded?.Gold ?? 1)) is { } gold) drops.Add(gold);
         }

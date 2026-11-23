@@ -3482,10 +3482,8 @@ public static partial class Game
             drops.AddRange(DropsFor(player).Roll(m.Level, m.Rarity, AreaRng(player), IncreasedItemRarity(player, m),
                 balance.ItemDropMultiplier * (modded?.Quantity ?? 1) * ItemQuantityFactor(player, m), balance.EquipmentRarityMultiplier * (modded?.Rarity ?? 1), mapTier, MapModsOf(player)));
             drops.AddRange(PartyCurrency(player, drops, AreaRng(player)));
-            bool mapBoss = mapTier > 0 && m.Rarity == MonsterRarity.Unique && m.Variety is { } variety
-                && Packs.For(player.Layout.Id)?.Bosses.Contains(variety.Row) == true;
-            if (DropsFor(player).Map(m.Level, m.Rarity, mapTier, AreaRng(player), chanceFactor: modded?.MapRelated ?? 1,
-                mapBoss: mapBoss) is { } mapDrop) drops.Add(mapDrop);
+            if (ProgressionMapDrop(player, m, mapTier, AreaRng(player), modded?.MapRelated ?? 1) is { } mapDrop)
+                drops.Add(mapDrop);
             // And a pile of gold (ItemDrops.Gold), picked up into the stash's gold.
             if (DropsFor(player).Gold(m.Level, m.Rarity, AreaRng(player),
                 balance.GoldMultiplier * SystemSettings.Default.GoldDropMultiplier * (modded?.Gold ?? 1)) is { } gold) drops.Add(gold);
