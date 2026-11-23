@@ -76,7 +76,7 @@ public sealed class PortalsModule : IModule
             }
             HideoutCatalog.Doodad? doodad;
             lock (player.HideoutDoodads) doodad = player.HideoutDoodads.GetValueOrDefault(use.TargetId);
-            if (doodad is null) return false;
+            if (doodad is null || !HideoutCatalog.IsPlaced(doodad)) return false;
             await UseMapDevice(player, use, doodad, requestedAt);
             return true;
         });

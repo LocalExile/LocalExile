@@ -74,7 +74,7 @@ public static partial class Game
                         return (id, obj.At.X, obj.At.Y, true);
         lock (player.HideoutDoodads)
             foreach (var (id, device) in player.HideoutDoodads)
-                return (id, device.X, device.Y, false);
+                if (HideoutCatalog.IsPlaced(device)) return (id, device.X, device.Y, false);
         return null;
     }
     // Lists the portals already standing again, so a portal cosmetic takes effect without reopening the map device or
