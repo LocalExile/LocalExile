@@ -851,10 +851,18 @@ public static partial class Game
             if (!immune && shot.SourceSkill == 0 && shot.WeaponAttack && shot.ActualCaster is null && !shot.FromTrapOrMine)
                 CaptureEquippedHitExplosionLocked(target, player);
             if (!immune)
+            {
+                var emitterTotem = shot.FromTotem
+                    ? Player.Totems.All.FirstOrDefault(t => t.Id == contact.Projectile.Use.Emitter.Id)
+                    : null;
                 AilmentsOnHitLocked(Player, contact.Target.Id, target, mitigated, shot.Spell, critical, multiplier, player,
                     shot.SkillStats, at, contact.Projectile.ReactionRandomSource, poison: shot.Poison,
                     sourceSkill: shot.SourceSkill, blind: shot.Blind,
-                    attackGains: AttackAilmentGains.Capture(player, shot.ActualCaster is null && !shot.Spell));
+                    attackGains: AttackAilmentGains.Capture(player, shot.ActualCaster is null && !shot.Spell),
+                    hitOrigin: emitterTotem?.At,
+                    attackerSize: emitterTotem?.BodySize ?? LivingCollision.PlayerSize,
+                    attackerHasReversedStat: emitterTotem is null);
+            }
             if (!immune && hit.Value.Life > 0 && shot.EssenceDrain is { } drain)
                 EssenceDrainOnHitLocked(contact.Target.Id, target, drain, at);
             if (!immune && hit.Value.Life > 0 && !shot.Spell && shot.MaimChance > 0)

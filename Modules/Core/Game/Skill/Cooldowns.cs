@@ -1,6 +1,7 @@
 using System.Net.Sockets;
 using GameServer.Core.Protocol.Instance;
 using GameServer.Core.Protocol.Login;
+using GameServer.Core.World;
 
 public static partial class Game
 {
@@ -242,7 +243,8 @@ public static partial class Game
                 attack = (attacking, at, seconds);
             }
             if (admit is not null && !admit()) return false;
-            bool bypassed = false;
+            bool bypassed = false, cooldownReset = false;
+            int resetBaseMilliseconds = 0;
             ushort? payer = reserve && vaal is null && skillId is ushort candidate && PaysOnUse(player, candidate, effect)
                 ? candidate : null;
             if (payer is ushort paying && !CanPaySkillCost(player, paying)) return false;
@@ -251,7 +253,14 @@ public static partial class Game
                 double now = AreaTime(player);
                 state = CooldownStateLocked(player, key, cooldown, now);
                 var peers = SharedCooldownPeers(player, effect, key, cooldown, now);
-                if (reserve ? !state.TryUse(now, cooldown) : !state.Ready)
+                state.Refresh(now, cooldown.RecoveryRate);
+                state.Capacity(cooldown.Uses);
+                if (reserve && state.Ready && CooldownResetTriggered(player, effect, skillId, AreaRng(player)))
+                {
+                    cooldownReset = true;
+                    resetBaseMilliseconds = cooldown.BaseMilliseconds;
+                }
+                else if (reserve ? !state.TryUse(now, cooldown) : !state.Ready)
                 {
                     // Cooling down: a skill with a cooldown bypass is used for a charge instead (CooldownBypass).
                     if (CooldownBypassCharge(player, effect, skillId) is not { } charge) return false;
@@ -259,7 +268,7 @@ public static partial class Game
                     bypassed = true;
                 }
                 player.SkillReadyAt[key] = now + state.RemainingSeconds;
-                if (reserve && !bypassed)
+                if (reserve && !bypassed && !cooldownReset)
                     sharedUses = SpendSharedCooldownPeers(player, key, effect, skillId, cooldown, now, peers);
             }
             // The accepted use pays its cost now, with its cooldown use or bypass charge, as the client pays at the start of
@@ -280,9 +289,34 @@ public static partial class Game
                 ? ApplyStancePlanLocked(player, receiptSkill, committedPlan, player.ActionCount, player.ProjectileEpoch)
                 : null;
             if (plan is not null || stance is not null || attack is not null) ticket = new(effect, player.ActionCount, player.ProjectileEpoch,
-                instant, reserve, bypassed ? null : state, bypassed ? 0 : state?.UseVersion ?? 0, stance) { SharedUses = sharedUses, Paid = paid, Attack = attack };
+                instant, reserve, bypassed ? null : state, bypassed ? 0 : state?.UseVersion ?? 0, stance)
+            {
+                SharedUses = sharedUses, Paid = paid, Attack = attack,
+                CooldownReset = cooldownReset, ResetBaseMilliseconds = resetBaseMilliseconds
+            };
             return true;
         }
+    }
+
+    // Native instant cooldown reset / prevention stats (Client/Game.exe 0x141ef06bd..0x141ef0765, 0x141ef0b83):
+    // 0x50cd (retaliation_skill_keep_use_requirement_and_prevent_cooldown_on_use_chance_%) for Retaliation skills,
+    // and 0x52e2 (base_cooldown_refresh_chance_%) for any skill with a cooldown.
+    internal const uint RetaliationPreventCooldownStat = Stat.RetaliationSkillKeepUseRequirementAndPreventCooldownOnUseChancePct;
+    internal const uint BaseCooldownRefreshChanceStat = Stat.BaseCooldownRefreshChancePct;
+
+    internal static bool CooldownResetTriggered(Player player, int effect, ushort? skillId, Random random)
+    {
+        // Guard skills hold their cooldown frozen until their buff ends (Hold/Resume + guard.RecoverySeconds);
+        // skipping instant reset keeps the held cooldown bar and server guard lockout synchronized.
+        if (SkillsFor(player).IsGuard(effect)) return false;
+        var stats = PlayerStatValues(player);
+        var own = skillId is ushort id ? SupportedSkill(player, id).Stats : null;
+        int Value(uint key) => (int)Math.Clamp((long)stats.GetValueOrDefault(key) + (own?.GetValueOrDefault(key) ?? 0),
+            int.MinValue, int.MaxValue);
+        if (SkillsFor(player).IsRetaliation(effect)
+            && RandomRolls.Chance(Value(RetaliationPreventCooldownStat), 100, random))
+            return true;
+        return RandomRolls.Chance(Value(BaseCooldownRefreshChanceStat), 100, random);
     }
 
     // A link gem links its target with no upfront cost, only its cost over time (CastLink).

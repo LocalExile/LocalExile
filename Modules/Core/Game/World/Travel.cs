@@ -85,6 +85,7 @@ public static partial class Game
                 still: () => acknowledged = SkillAcknowledgementAllowed(player, gem.Effect, use.SkillId,
                     () => cooldownUse?.CommitNativeUse(player, use.SkillId) ?? true));
             if (!acknowledged) return;
+            await SendNativeCooldownRefresh(player);
             await CastGemSkill(player, use.SkillId, self, self, player.Id, sequence: use.Sequence,
                 actionToken: cooldownUse?.ActionToken, cooldownUse: cooldownUse);
             return;

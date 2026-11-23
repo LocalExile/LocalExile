@@ -55,14 +55,15 @@ public static partial class Game
             var direction = contact.Projectile.Direction;
             byte code = HitCode(shot.Hit, damage, target.MaxLife, critical || hit.Life == 0);
             ushort flags = (ushort)(0x4000 | HitTypeFlag(code) | (shot.Spell ? 0 : 0x0200) | (critical ? 0x0020 : 0));
+            byte kind = 0x03, angle = HitAngle((int)Math.Round(direction.X * 1000), (int)Math.Round(direction.Y * 1000));
+            ConsumeNativeKnockbackLocked(target, ref flags, ref kind, ref angle, out ushort u3c, out ushort u3e);
             // The emitter is the attacker: the player, or his totem. Only the player's own hit goes into his turn of the frame
             // (HitOrder); a totem's stays at the frame's start, as monsters' and minions' hits do.
             uint attacker = contact.Projectile.Use.Emitter.Id;
             if (attacker == player.Id) order = HitOrder(player, player.Id);
             byte derived = shot.ActionSequence is not null && !shot.Spell ? (byte)2 : (byte)0;
             session.World(attacker, InstanceProtocol.ActionHit(attacker, shot.ActionSequence ?? 0xffff, id, skillIndex: derived,
-                flags: flags, kind: 0x03, code: code,
-                angle: HitAngle((int)Math.Round(direction.X * 1000), (int)Math.Round(direction.Y * 1000)),
+                flags: flags, kind: kind, code: code, angle: angle, u3c: u3c, u3e: u3e,
                 orderKey: order.Key, checkpoint: order.Hit));
         }
         if (GameServer.Core.Diagnostics.ServerTrace.Projectiles)

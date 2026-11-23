@@ -95,6 +95,21 @@ public sealed class AreaBuffs(GameArea area)
                 || written.Any(w => w.Key.Entity == entity && w.Key.Row == row && w.Value.Ends > area.Time && !pending.ContainsKey(w.Key));
     }
 
+    /// <summary>The live buff on <paramref name="entity"/> published under wire <paramref name="instance"/>, or null
+    /// when no active buff matches (expired or already cleared).</summary>
+    public Buff? Find(uint entity, ushort instance)
+    {
+        if (instance == 0) return null;
+        lock (gate)
+        {
+            double now = area.Time;
+            foreach (var (key, entry) in written)
+                if (key.Entity == entity && entry.Instance == instance && entry.Ends > now)
+                    return pending.TryGetValue(key, out var next) ? next : entry.Buff;
+        }
+        return null;
+    }
+
     /// <summary>A client that joins the area is written every buff the area's entities have, with their instances.</summary>
     public void Join(Player player)
     {

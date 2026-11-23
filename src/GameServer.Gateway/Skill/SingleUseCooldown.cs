@@ -160,6 +160,16 @@ public sealed class SingleUseCooldownState(double at, double rate, double remain
         NativeSkillId = skillId;
         nativeDirty |= synchronizeProgress || Uses > 1;
     }
+
+    /// <summary>Marks a skill whose use triggered an instant cooldown reset/prevention (0x50cd/0x52e2) so the next
+    /// <c>PlayerSingleUseCooldowns</c> update clears the client's predicted cooldown sweep.</summary>
+    public void SynchronizeNativeReset(ushort skillId, int baseMilliseconds)
+    {
+        TotalBaseMilliseconds = Math.Max(1, baseMilliseconds);
+        NativeSkillId = skillId;
+        nativeAcknowledged = true;
+        nativeDirty = true;
+    }
     public bool NeedsNativeRefresh => nativeAcknowledged && nativeDirty;
     public void NativeRefreshed()
     {

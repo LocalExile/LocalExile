@@ -573,6 +573,9 @@ public sealed class SpawnedMonster(string label, PlayerWalk walk, int aggroRange
     public ushort HinderBuff;
     // Knocked back by a hit (Game.KnockbackOnHitLocked): the cell the AI tick presents with a Teleport, null when none.
     public (int X, int Y)? KnockbackPending;
+    // Pending native 0x1af knockback presentation (Client/Game.exe 0x141e9d030) to fold into the hit's ActionHit packet.
+    public readonly record struct NativeKnockback(byte Angle, short SpeedMod, short DistanceMod);
+    public NativeKnockback? NativeKnockbackPending;
     // Hallowing Flame (Hallow Support): until when the next attack against it gains extra fire, and that share.
     public double HallowingFlameUntil = double.NegativeInfinity;
     public double HallowingFlamePct;

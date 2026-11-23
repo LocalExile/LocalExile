@@ -331,6 +331,18 @@ public static class InstanceProtocol
         return w.ToArray();
     }
 
+    public const ushort ActionResultFlagId = 0x1b0;
+
+    /// <summary>
+    /// S→C 0x1b0 (world group, reader 0x141fe4440, writer 0x141fe43f0; Actor handler 0x14219bc1a → 0x141e974d0):
+    /// resolves a queued <see cref="ActionHit"/> package matching the 8-byte key (sequence, actionByte, skillIndex,
+    /// targetObjectId) and, when <paramref name="flag"/> is true, runs ProcessDamagePackageInternal (0x141e97e20).
+    /// </summary>
+    public static byte[] ActionResultFlag(uint objectId, ushort sequence, uint targetObjectId, bool flag,
+        byte actionByte = 0, byte skillIndex = 0, uint orderKey = 0, ushort checkpoint = 0) =>
+        new LoginWriter().U16(ActionResultFlagId).U32(objectId).U32(orderKey).U16(checkpoint)
+            .U16(sequence).U8(actionByte).U8(skillIndex).U32(targetObjectId).U8(flag ? (byte)1 : (byte)0).ToArray();
+
     public const ushort InstantActionId = 0x1ce;
 
     /// <summary>

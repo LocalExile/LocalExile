@@ -68,6 +68,8 @@ Part of [Status](../Status.md); what to build next in this area is in
   Docs: [Phrecia modules](../docs/game/phrecia-modules.md), [Harbinger](../docs/game/harbinger.md),
   [ascendancies](../docs/game/ascendancies.md).
 - Ruthless experience and passive alternatives. Docs: [league modes](../docs/game/league-modes.md).
+- Standard death experience penalty: 5% after Act 5 Kitava and 10% after Act 10 Kitava, clamped to the current level's
+  floor (0% in Hardcore, towns, hideouts, and PvP areas; not checked live). Docs: [15](../docs/protocol/15-progression.md) §1.
 
 ## Not working yet
 

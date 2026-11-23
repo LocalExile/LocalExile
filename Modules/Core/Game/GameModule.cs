@@ -72,6 +72,8 @@ public sealed class GameModule : IModule, IDisposable
         Rules.LoadMinionSupportsData();
         Rules.LoadWornGrantedSkillsData();
         Rules.LoadPhasingData();
+        Rules.LoadBuffCancelData();
+        Rules.LoadDeathPenaltyData();
         Rules.LoadModuleWorldData();
         Rules.LoadMonsterModsData();
         Rules.LoadPassiveGrantedSkillsRulesData();
@@ -173,6 +175,7 @@ public sealed class GameModule : IModule, IDisposable
         GameEvents.PlayerLeaving.Add(module.Manifest.Id, (conn, _) => { MapTorment.Leave(conn); return Task.CompletedTask; });
         GameEvents.PlayerStatSources.Add(module.Manifest.Id, MapTorment.PlayerStats);
         GameEvents.BuffCancel.Add(module.Manifest.Id, MapTorment.CancelBuff);
+        GameEvents.BuffCancel.Add(module.Manifest.Id, Rules.CancelRemovableBuff);
         GameEvents.StateBuilding.Add(module.Manifest.Id, MapTorment.Describe);
         GameEvents.MapOpening.Add(module.Manifest.Id, MapHarbinger.Opening);
         GameEvents.AreaGenerated.Add(module.Manifest.Id, MapHarbinger.Enter);
