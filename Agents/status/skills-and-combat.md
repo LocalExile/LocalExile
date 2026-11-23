@@ -163,6 +163,9 @@ Part of [Status](../Status.md); what to build next in this area is in
   Docs: [11](../docs/protocol/11-skills.md) Â§13.
 - Ordinary aura expansion: Determination, Grace, Anger, Hatred, Wrath, Zealotry, Malevolence and Envy.
   Docs: [11](../docs/protocol/11-skills.md) Â§13.
+- Watcher's Eye modifiers for Pride combat, elemental and critical penetration, Grace blind, Haste debuff expiry,
+  and Clarity mana recovery apply while the matching aura is active. The legacy Zealotry modifiers apply to
+  owned Consecrated Ground and grant Arcane Surge when creating it.
 - Flesh and Stone and Blood and Sand. Docs: [11](../docs/protocol/11-skills.md) Â§12.
 - Passive-granted skills and Summon Elemental Relic.
   Docs: [11](../docs/protocol/11-skills.md) §13, [Paladin](../docs/game/paladin.md).
