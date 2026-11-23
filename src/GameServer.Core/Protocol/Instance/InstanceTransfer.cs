@@ -92,11 +92,11 @@ public static class InstanceTransfer
     /// area, key, data8, u8 +0x89) and hands it to the game state's listener at instance+0xa00, which calls
     /// 0x140d57090 ("Got Instance Details from login server") and opens the new instance connection.
     /// </summary>
-    public static byte[] ConnectInstance(string host, ushort port, uint ticket, ushort areaHash16, byte[] key64)
+    public static byte[] ConnectInstance(string host, ushort port, uint ticket, ushort areaHash16, byte[] key64, byte[]? data8 = null)
     {
         uint ip = System.Buffers.Binary.BinaryPrimitives.ReadUInt32BigEndian(System.Net.IPAddress.Parse(host).GetAddressBytes());
         return new LoginWriter().U16(ConnectInstanceId).Str(host).U16(port).U32(ip).U32(0).U16(areaHash16).U32(ticket)
-            .U8(0).U8(0).Fixed(key64, 64).Fixed(new byte[8], 8).ToArray();
+            .U8(0).U8(0).Fixed(key64, 64).Fixed(data8 ?? new byte[8], 8).ToArray();
     }
 
     /// <summary>One row of the instance chooser (ClientInstanceListEntry, 0x28 bytes in the client). Live 2026-10-16: the

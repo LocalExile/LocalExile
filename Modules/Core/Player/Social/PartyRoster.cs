@@ -372,12 +372,14 @@ public static class PartyRoster
     {
         if (!RemoveHuman(c, party)) return false;
         await Publish(party);
+        await BanditChoices.OnPartyChanged(c);
         return true;
     }
 
     public static async Task<bool> Kick(Player actor, string name)
     {
         uint party;
+        Player? kickedHuman = null;
         lock (Gate)
         {
             // 0x94 also cancels an invitation this participant sent; the target has not joined yet.
@@ -398,7 +400,11 @@ public static class PartyRoster
                 if (!Same(Humans[party][0], actor)) return true;
                 var human = Humans[party].Skip(1).FirstOrDefault(c => string.Equals(c.Character.Account, name, StringComparison.OrdinalIgnoreCase)
                     || string.Equals(CharacterName(c), name, StringComparison.OrdinalIgnoreCase));
-                if (human is not null) RemoveHuman(human, party);
+                if (human is not null)
+                {
+                    RemoveHuman(human, party);
+                    kickedHuman = human;
+                }
                 else if (Companions.GetValueOrDefault(party)?.RemoveAll(m =>
                     string.Equals(m.Account, name, StringComparison.OrdinalIgnoreCase)
                         || string.Equals(m.Character, name, StringComparison.OrdinalIgnoreCase)) != 1) return true;
@@ -406,6 +412,7 @@ public static class PartyRoster
             }
         }
         await Publish(party);
+        if (kickedHuman is not null) await BanditChoices.OnPartyChanged(kickedHuman);
         return true;
     }
 

@@ -32,7 +32,7 @@ public static partial class Game
     public static bool TriggerGuardReady(Player player, double now) => CurrentTriggeredGuard(player, now)
         is not { } guard || guard.Until == 0 && now >= guard.ReadyAt;
 
-    static void EndTriggeredGuard(Player player, TriggeredGuard guard, double now)
+    static void EndTriggeredGuard(Player player, TriggeredGuard guard, double now, bool triggerExplosion = true)
     {
         guard.Until = 0;
         guard.ReadyAt = now + guard.RecoverySeconds;
@@ -43,7 +43,7 @@ public static partial class Game
         if (guard.Session is not { } session) return;
         ushort buff = guard.Buff; guard.Buff = 0;
         if (buff != 0) player.Area.Buffs.Clear(player.Id, GuardRow(guard.Effect), player.Id);
-        if (guard.Effect == "MoltenShell" && guard.Absorbed > 0)
+        if (triggerExplosion && guard.Effect == "MoltenShell" && guard.Absorbed > 0)
         {
             double reflected = guard.Absorbed * guard.Reflection / 100d;
             int radius = SkillRadius(player, guard.Gem!.Stats, true, guard.Gem.Effect);

@@ -546,8 +546,9 @@ public static partial class Game
         var resistance = HitResistMods(caster, skill.Stats);
         foreach (var (id, m) in player.Area.Monsters.ToArray())
         {
+            var targetAt = m.Walk.Position(now);
             if (!TotemTargetable(m) || MonsterAsleep(player, id)
-                || Dist(m.Walk.Position(now), totem.At) > strike.Radius || MonsterBlocks(m, AreaRng(player), spell: true)) continue;
+                || Dist(targetAt, totem.At) > strike.Radius || MonsterBlocks(m, AreaRng(player), spell: true)) continue;
             var rolled = WithConditionalSupportDamageLocked(player, skill.Stats, false, m,
                 GameEvents.WithOutgoingDamage(player, caster, m, hit.Roll(AreaRng(player))), now);
             int chance = CriticalChanceOn(player, id, SupportedCriticalChance(player, totem.SkillId),
@@ -558,10 +559,15 @@ public static partial class Game
             if (crit) damage = DamageModel.CriticalDamage(damage, CriticalMultiplierOn(m, SupportedCriticalMultiplier(player, totem.SkillId)));
             if (ApplyMonsterHitLocked(player, m, damage, allyAt: totem.At) is not { } accepted) continue;
             if (accepted.StageStarts) { CommitProjectileBossStage(session, id, m, session.Runtime.Now); accepted = accepted with { StageStarts = false }; }
-            session.World(totem.Id, InstanceProtocol.ActionHit(totem.Id, sequence, id, flags: (ushort)(crit ? 0x4221 : 0x4201),
-                kind: 3, code: HitCode(hit)));
             if (!m.Dead && damage > 0)
-                AilmentsOnHitLocked(player, id, m, mitigated, true, crit, 100, caster, skill.Stats, now, AreaRng(player), blind: blind);
+                AilmentsOnHitLocked(player, id, m, mitigated, true, crit, 100, caster, skill.Stats, now, AreaRng(player),
+                    blind: blind, hitOrigin: totem.At, attackerSize: totem.BodySize, attackerHasReversedStat: false);
+            byte hitCode = HitCode(mitigated, damage, m.MaxLife, crit || accepted.Life == 0);
+            ushort hitFlags = (ushort)(0x4200 | HitTypeFlag(hitCode) | (crit ? 0x0020 : 0));
+            byte hitKind = 3, hitAngle = HitAngle(targetAt.X - totem.At.X, targetAt.Y - totem.At.Y);
+            ConsumeNativeKnockbackLocked(m, ref hitFlags, ref hitKind, ref hitAngle, out ushort u3c, out ushort u3e);
+            session.World(totem.Id, InstanceProtocol.ActionHit(totem.Id, sequence, id, flags: hitFlags,
+                kind: hitKind, code: hitCode, angle: hitAngle, u3c: u3c, u3e: u3e));
             CommitAcceptedHitLocked(player, id, m, accepted, damage, now, "totem", playerKill: false);
         }
     }

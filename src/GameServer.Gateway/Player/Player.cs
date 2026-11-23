@@ -396,6 +396,7 @@ public sealed class SpawnedMonster(string label, PlayerWalk walk, int aggroRange
     MonsterModSet mods = MonsterModSet.None;
     // A curse put on or taken off changes its stats.
     public MonsterCurses Curses => curses ??= new(() => MarkStats(CursesLayer));
+    public bool HasCurses => curses is not null && (curses.All.Count > 0 || curses.Presented.Count > 0 || curses.PresentedVersion != curses.Version);
     MonsterCurses? curses;
     /// <summary>Stats an encounter's script gives it for a while (Izaro's statues' buffs), on top of its mods: they add to
     /// its hits (<see cref="MonsterModEffects.AddedTo"/>) and to what it takes.</summary>
@@ -575,6 +576,9 @@ public sealed class SpawnedMonster(string label, PlayerWalk walk, int aggroRange
     public ushort HinderBuff;
     // Knocked back by a hit (Game.KnockbackOnHitLocked): the cell the AI tick presents with a Teleport, null when none.
     public (int X, int Y)? KnockbackPending;
+    // Pending native 0x1af knockback presentation (Client/Game.exe 0x141e9d030) to fold into the hit's ActionHit packet.
+    public readonly record struct NativeKnockback(byte Angle, short SpeedMod, short DistanceMod);
+    public NativeKnockback? NativeKnockbackPending;
     // Hallowing Flame (Hallow Support): until when the next attack against it gains extra fire, and that share.
     public double HallowingFlameUntil = double.NegativeInfinity;
     public double HallowingFlamePct;
@@ -844,10 +848,14 @@ public sealed partial class Player(AreaLayout layout, uint ticket, uint seed) : 
     public HideoutScene? CurrentHideoutScene;
     /// <summary>The module whose native window is open (IPlayerWorld.OpenWindow).</summary>
     public string? ModuleWindow;
+    /// <summary>Where the player stood when <see cref="ModuleWindow"/> opened, for walk-away closing.</summary>
+    public (string Owner, int X, int Y)? ModuleWindowAnchor;
     public bool BossRecoveryHandled;
     /// <summary>The area the player left through an exit to come here, or null (login, Resurrect in Town).</summary>
     public ushort? CameFrom { get; init; }
     public int? ArrivalEntrance { get; init; }
+    /// <summary>Optional return area WorldAreas HASH16 emitted in S→C 0x1d (flags byte 0 bit 0x08), set by a module during AreaHeader.</summary>
+    public ushort? ReturnAreaHash;
     /// <summary>The instance's game time (InstanceWorld.Clock), shared with everyone in it.</summary>
     public System.Diagnostics.Stopwatch Clock => Instance?.World.Clock ?? ownClock;
     readonly System.Diagnostics.Stopwatch ownClock = System.Diagnostics.Stopwatch.StartNew();
@@ -989,6 +997,11 @@ public sealed partial class Player(AreaLayout layout, uint ticket, uint seed) : 
     public const int NpcBlockerSize = 4, StashBlockerSize = 2, MapDeviceBlockerSize = 3;
     readonly Dictionary<uint, ClientPathfinder.Blocker> _blockers = [];
     volatile IReadOnlyList<ClientPathfinder.Blocker> _blockerList = [];
+    // Cached player blocker snapshot (Blockers): reused while stationary, monster and peer bodies stay on the same cells.
+    // Never mutated after publication so concurrent readers stay race-free.
+    readonly Lock _playerBlockersGate = new();
+    IReadOnlyList<ClientPathfinder.Blocker>? keptPlayerBlockers;
+    List<ClientPathfinder.Blocker>? sparePlayerBlockers;
     public IReadOnlyList<ClientPathfinder.Blocker> Blockers
     {
         get
@@ -996,20 +1009,56 @@ public sealed partial class Player(AreaLayout layout, uint ticket, uint seed) : 
             var fixedOnes = _blockerList;
             if (IsPhasing) return fixedOnes;   // phasing (Quartz Flask, Rampage threshold): monsters do not block
             double now = Clock.Elapsed.TotalSeconds;
-            List<ClientPathfinder.Blocker>? all = null;
-            foreach (var (id, m) in CollisionMonsters)
+            lock (_playerBlockersGate)
             {
-                if (MonsterBody(id, m, now) is { } body) (all ??= [.. fixedOnes]).Add(body);
-            }
-            // Another player stands where its own walk has it.
-            foreach (var peer in Instance?.PlayersExcept(Id) ?? [])
-                if (peer.PlayerLife > 0 && peer is { } other)
+                var list = sparePlayerBlockers ?? new List<ClientPathfinder.Blocker>();
+                sparePlayerBlockers = null;
+                list.Clear();
+                for (int i = 0; i < fixedOnes.Count; i++) list.Add(fixedOnes[i]);
+                if (Area.DormantMonsters.Count == 0)
                 {
-                    var at = other.Walk.Position(now);
-                    (all ??= [.. fixedOnes]).Add(new(at.X, at.Y, LivingCollision.PlayerSize));
+                    foreach (var (id, m) in Area.Monsters)
+                        if (MonsterBody(id, m, now) is { } body) list.Add(body);
                 }
-            return all is null ? fixedOnes : new GameServer.Core.World.BlockerSet(all);
+                else
+                {
+                    foreach (var (id, m) in CollisionMonsters)
+                        if (MonsterBody(id, m, now) is { } body) list.Add(body);
+                }
+                // Another player stands where its own walk has it.
+                var peers = Instance?.PlayersExcept(Id);
+                if (peers is { Length: > 0 })
+                    foreach (var peer in peers)
+                        if (peer.PlayerLife > 0)
+                        {
+                            var at = peer.Walk.Position(now);
+                            list.Add(new(at.X, at.Y, LivingCollision.PlayerSize));
+                        }
+                if (list.Count == fixedOnes.Count)
+                {
+                    keptPlayerBlockers = null;
+                    sparePlayerBlockers = list;
+                    return fixedOnes;
+                }
+                if (keptPlayerBlockers is { } kept && SameBlockers(kept, list))
+                {
+                    sparePlayerBlockers = list;
+                    return kept;
+                }
+                var built = new GameServer.Core.World.BlockerSet(list);
+                keptPlayerBlockers = built;
+                sparePlayerBlockers = list;
+                return built;
+            }
         }
+    }
+
+    static bool SameBlockers(IReadOnlyList<ClientPathfinder.Blocker> a, List<ClientPathfinder.Blocker> b)
+    {
+        if (a.Count != b.Count) return false;
+        for (int i = 0; i < b.Count; i++)
+            if (a[i] != b[i]) return false;
+        return true;
     }
 
     public IReadOnlyList<ClientPathfinder.Blocker> StationaryBlockers => _blockerList;
@@ -1046,10 +1095,15 @@ public sealed partial class Player(AreaLayout layout, uint ticket, uint seed) : 
     private PlayerWalk NewPlayerWalk()
     {
         var l = Layout;
-        Func<int, int, bool>? walkable = l.Walkable is { } w ? (cx, cy) => w(cx, cy) && !Barrier.Contains((cx, cy)) : null;
+        Func<int, int, bool>? walkable = l.Walkable is { } w ? (cx, cy) => w(cx, cy) && (Barrier is not { Count: > 0 } b || !b.Contains((cx, cy))) : null;
         return new(l.SpawnX, l.SpawnY, Program.WalkSpeed, walkable, l.GridW > 0 ? l.GridW : 4096, l.GridH > 0 ? l.GridH : 4096,
             () => Blockers, sight: l.Sight) { FrameOf = LockstepFrameOf };
     }
+    /// <summary>True when C→S 0x7d's tile hash differed from the server's generated <see cref="ServerLevels.Level.TileHash"/>.</summary>
+    public bool LevelDesynced { get; set; }
+    /// <summary>The tile and doodad hashes reported by the client in C→S 0x7d.</summary>
+    public uint ClientTileHash { get; set; }
+    public uint ClientDoodadHash { get; set; }
     /// <summary>The worn pets by object id (SpawnPets), replaced when a Pet slot changes; StepPetFollow walks them.</summary>
     public readonly Dictionary<uint, SpawnedPet> Pets = [];
     /// <summary>How map portals are turned around the vertical axis (degrees; Positioned rotation). Dev: /portal_rotation,
@@ -1349,7 +1403,9 @@ public sealed partial class Player(AreaLayout layout, uint ticket, uint seed) : 
     public (int X, int Y) StashAt;
     public void MoveWaypoint(WaypointObject waypoint) => Layout = Layout with { Waypoint = waypoint };
     public (int X, int Y) CraftingBenchAt;
+    public bool StashOpen;
     public bool GuildStashOpen;
+    public int InteractionClosing;
     // Whether this connection opened the stash already (only the first open selects the account's last tab), and while
     // that first open runs (until StashForcedUntil, Clock seconds) the tab it selects: the panel's own request for the
     // tab it was on is then not the player's choice.

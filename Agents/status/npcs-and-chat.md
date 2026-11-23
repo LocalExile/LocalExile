@@ -91,11 +91,14 @@ Part of [Status](../Status.md); what to build next in this area is in
 
 ## Partly working
 
+- PvP queue bar (S→C 0x118/0x119, C→S 0x11a/0x18d): protocol encoders and queue/challenge leave and withdraw handlers
+  in `Modules/Core/Player/Social` (not yet checked live).
 - Direct vendor equipment purchases validate placement, preserve payment on failure and refresh equipped items; 3.29.3c belt purchase/swap protocol controls pass; rendered UI checks remain open.
 
-- Faustus's Currency Exchange at official prices works through `/exchange` (orders, claims, cancelling; live 2026-11-08).
-  Spreads by volume, a market of 6 steps, fills limited per hour, orders filling while away and with time are written and not yet played.
-  Faustus stands in every hideout; his dialogue option there is not yet played.
+- Faustus's Currency Exchange works with built-in baseline chaos ratios when `liveeconomy` rates are absent,
+  distinct `0x2f9` refusal codes for gold/currency/slots/market, and cursor vs Ctrl-click `0x2ed` claim modes.
+  Spreads by volume, a market of 6 steps, fills limited per hour, orders filling while away and with time are written.
+  Moving out of reach closes open NPC dialogue, shops, vendor sales (`0x00b9`/`0x0084` object 0), stashes and benches.
   See [29](../docs/protocol/29-currency-exchange.md).
 - Ruthless selects its native gem/reward restrictions and purchase costs; equipment uses local generation policy.
   Ordinary vendors offer no gems or jewellery; unlocked Siosa exchanges Uncarved Gemstones for eligible active gems.

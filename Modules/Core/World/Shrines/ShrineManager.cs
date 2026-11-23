@@ -342,6 +342,27 @@ public static class ShrineManager
         foreach (var effect in shrine.After) await effect.OnBuffApplied(ctx, shrine);
     }
 
+    /// <summary>Right-click cancellation (C→S 0x004b): ends the active shrine buff published under wire instance
+    /// <paramref name="buffInstance"/> when its BuffDefinitions row is marked Removable.</summary>
+    public static async Task<bool> CancelBuff(Player player, ushort buffInstance)
+    {
+        if (buffInstance == 0 || player.Closed || player.LeavingArea || player.PlayerLife == 0) return false;
+        if (player.Area.Buffs.Find(player.Id, buffInstance) is not { } active
+            || active.Source != player.Id || !global::Game.IsRemovableBuff(active.Row))
+            return false;
+        if (!States.TryGetValue(player, out var state)) return false;
+        await state.Area.Gate.WaitAsync();
+        try
+        {
+            if (player.Closed || player.LeavingArea || player.PlayerLife == 0
+                || !state.Buffs.TryGetValue(active.Row, out var buff))
+                return false;
+            await EndBuff(player, active.Row, buff);
+            return true;
+        }
+        finally { state.Area.Gate.Release(); }
+    }
+
     /// <summary>The buff's duration ending: the icon, its stats and its effect go together, and only if this granted
     /// buff is still the connection's buff of that row (a later shrine of the same row replaced it otherwise). Called
     /// from the tick at <see cref="ActiveBuff.EndsAt"/>, so it stops with the area instead of outliving it.</summary>

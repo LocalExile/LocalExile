@@ -2,9 +2,31 @@ using System.Buffers.Binary;
 
 namespace GameServer.Core.Protocol.Instance;
 
-/// <summary>Native hideout editor: sender 0x142166ab0, serializer 0x141f9a110 (3.29.3c).</summary>
+/// <summary>Native hideout editor, music box and Item Display Case messages (3.29.3c).</summary>
 public static class InstanceHideoutEditing
 {
+    /// <summary>C→S 0x59 (personal) / 0x5a (guild), 16 bytes (writer 0x141f99e90): place a hideout decoration.
+    /// u32 BE MtxTypeGameSpecific HASH32, u16 BE x, u16 BE y, f32 BE rotation, u8 variation, u8 flags (bit 0 = mirrored).</summary>
+    public const ushort PlaceId = 0x59, PlaceGuildId = 0x5a;
+    public const int PlaceLength = 16;
+
+    public readonly record struct Place(uint Hash, ushort X, ushort Y, float Rotation, byte Variation, byte Flags)
+    {
+        public bool Mirrored => (Flags & 1) != 0;
+    }
+
+    public static Place ReadPlace(ReadOnlySpan<byte> m)
+    {
+        ushort op = m.Length >= 2 ? BinaryPrimitives.ReadUInt16BigEndian(m) : (ushort)0;
+        if (m.Length != PlaceLength || (op != PlaceId && op != PlaceGuildId))
+            throw new ArgumentException("Invalid hideout place packet", nameof(m));
+        return new(BinaryPrimitives.ReadUInt32BigEndian(m[2..]), BinaryPrimitives.ReadUInt16BigEndian(m[6..]),
+            BinaryPrimitives.ReadUInt16BigEndian(m[8..]),
+            BitConverter.UInt32BitsToSingle(BinaryPrimitives.ReadUInt32BigEndian(m[10..])),
+            m[14], m[15]);
+    }
+
+    /// <summary>C→S 0x5b (15 bytes, sender 0x142166ab0, writer 0x141f9a110): move/rotate/flip a placed hideout object.</summary>
     public const ushort MoveId = 0x5b;
     public const int MoveLength = 15;
     public readonly record struct Move(uint ObjectId, ushort X, ushort Y, byte Flags, float Rotation)
@@ -20,6 +42,74 @@ public static class InstanceHideoutEditing
         return new(BinaryPrimitives.ReadUInt32BigEndian(m[2..]), BinaryPrimitives.ReadUInt16BigEndian(m[6..]),
             BinaryPrimitives.ReadUInt16BigEndian(m[8..]), m[10],
             BitConverter.UInt32BitsToSingle(BinaryPrimitives.ReadUInt32BigEndian(m[11..])));
+    }
+
+    /// <summary>C→S 0x5d (6 bytes): reclaim/remove a placed decoration by object id (u32 BE).</summary>
+    public const ushort ReclaimId = 0x5d;
+    public const int ReclaimLength = 6;
+
+    public static uint ReadReclaim(ReadOnlySpan<byte> m)
+    {
+        if (m.Length != ReclaimLength || BinaryPrimitives.ReadUInt16BigEndian(m) != ReclaimId)
+            throw new ArgumentException("Invalid hideout reclaim packet", nameof(m));
+        return BinaryPrimitives.ReadUInt32BigEndian(m[2..]);
+    }
+
+    /// <summary>C→S 0x5e (3 bytes, sender 0x140213f10, writer 0x140e27920): u8 mode (0 = reclaim all decorations,
+    /// 1 = reset hideout to defaults).</summary>
+    public const ushort ResetId = 0x5e;
+    public const int ResetLength = 3;
+
+    public static byte ReadReset(ReadOnlySpan<byte> m)
+    {
+        if (m.Length != ResetLength || BinaryPrimitives.ReadUInt16BigEndian(m) != ResetId)
+            throw new ArgumentException("Invalid hideout reset packet", nameof(m));
+        return m[2];
+    }
+
+    /// <summary>C→S 0x255 (4 bytes, writer 0x141f99160, sender 0x140bb8010): select hideout music box track
+    /// (u16 BE Music.dat row; 0xffff = default).</summary>
+    public const ushort MusicId = 0x255;
+    public const int MusicLength = 4;
+    public const ushort DefaultMusicRow = 0xffff;
+
+    public static ushort ReadMusic(ReadOnlySpan<byte> m)
+    {
+        if (m.Length != MusicLength || BinaryPrimitives.ReadUInt16BigEndian(m) != MusicId)
+            throw new ArgumentException("Invalid hideout music packet", nameof(m));
+        return BinaryPrimitives.ReadUInt16BigEndian(m[2..]);
+    }
+
+    /// <summary>S→C 0x7b kind 0x49 (handler 0x140dcb9c0): opens the Item Display Case window bound to the object id.</summary>
+    public const byte DisplayCaseUi = 0x49;
+
+    /// <summary>C→S 0x67 (14 bytes, writer 0x141f973b0, sender 0x140705a40): place/swap cursor item in Item Display Case.
+    /// u32 BE object id, u32 BE inventory id (cursor), u32 BE item id.</summary>
+    public const ushort DisplayCasePlaceId = 0x67;
+    public const int DisplayCasePlaceLength = 14;
+
+    public readonly record struct DisplayCasePlace(uint ObjectId, uint InventoryId, uint ItemId);
+
+    public static DisplayCasePlace ReadDisplayCasePlace(ReadOnlySpan<byte> m)
+    {
+        if (m.Length != DisplayCasePlaceLength || BinaryPrimitives.ReadUInt16BigEndian(m) != DisplayCasePlaceId)
+            throw new ArgumentException("Invalid display case place packet", nameof(m));
+        return new(BinaryPrimitives.ReadUInt32BigEndian(m[2..]), BinaryPrimitives.ReadUInt32BigEndian(m[6..]),
+            BinaryPrimitives.ReadUInt32BigEndian(m[10..]));
+    }
+
+    /// <summary>C→S 0x68 (7 bytes, writer 0x141f96e50, senders 0x140705940 / 0x1407059c0): toggle or remove displayed item.
+    /// u32 BE object id, u8 flag.</summary>
+    public const ushort DisplayCaseToggleId = 0x68;
+    public const int DisplayCaseToggleLength = 7;
+
+    public readonly record struct DisplayCaseToggle(uint ObjectId, bool Flag);
+
+    public static DisplayCaseToggle ReadDisplayCaseToggle(ReadOnlySpan<byte> m)
+    {
+        if (m.Length != DisplayCaseToggleLength || BinaryPrimitives.ReadUInt16BigEndian(m) != DisplayCaseToggleId)
+            throw new ArgumentException("Invalid display case toggle packet", nameof(m));
+        return new(BinaryPrimitives.ReadUInt32BigEndian(m[2..]), m[6] != 0);
     }
 
     /// <summary>Positioned's update reader 0x141e33c50: little-endian mask bit 3, then f32 radians.</summary>

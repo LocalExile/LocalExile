@@ -48,9 +48,9 @@ public sealed class LoginServerSession(AccountService accounts)
         // Note: Create Account on the login screen (new_account_button, 0x140d04b97) launches a browser URL via ShellExecuteW
         // and sends no login TCP message.
         TwoWStringsBool { MessageId: RenameCharacterId } m => Rename(m),
-        // "Leagues with progress" (0x140d166d0): the leagues a character could migrate progress from. None yet; the
-        // client then shows "There are no available leagues to migrate progress from."
-        EmptyMessage { MessageId: 0x19 } => Session is null ? [] : [new LeaguesWithProgress(0, [])],
+        // "Leagues with progress" (0x140d166d0 → 0x140cc82a0): consecutive (source, parent) league pairs a character
+        // could migrate progress from. Empty shows "There are no available leagues to migrate progress from."
+        EmptyMessage { MessageId: 0x19 } => Session is null ? [] : [new LeaguesWithProgress(0, LeaguesWithProgressList())],
         _ => [],
     };
 
@@ -65,8 +65,8 @@ public sealed class LoginServerSession(AccountService accounts)
     /// 0x14 for the account's first character. The area hash is WorldAreas.HASH16 (Lioneye's Watch, 1_1_town = 0x235c
     /// in 3.29.3b); an unknown hash makes the client throw "Area reported by instance does not exist". +0x30 is the port
     /// (live-verified). The client echoes +0x34 (here the IPv4 address) in instance 0x0E and the ticket at +0x38 in
-    /// instance 0x0F. The 64 key bytes become the instance connection's Salsa20 key material (Agents/docs/re/010). Data8 goes
-    /// into the 0x0E digest and stays zero.
+    /// instance 0x0F. The 64 key bytes become the instance connection's Salsa20 key material (Agents/docs/re/010). Data8 is
+    /// derived per ticket via <see cref="InstanceKeyring.Data8"/> and verified against the client's 0x0E SipHash-2-4 digest.
     /// </summary>
     private ILoginMessage[] EnterGame(U8U32 play)
     {
@@ -124,7 +124,7 @@ public sealed class LoginServerSession(AccountService accounts)
     public InstanceInfo InstanceAssignment(ushort areaHash16, uint ticket)
     {
         uint ip = System.Buffers.Binary.BinaryPrimitives.ReadUInt32BigEndian(System.Net.IPAddress.Parse(InstanceHost).GetAddressBytes());
-        return new InstanceInfo(InstanceHost, InstancePort, ip, areaHash16, ticket, Keyring.Key(ticket), new byte[8], 0);
+        return new InstanceInfo(InstanceHost, InstancePort, ip, areaHash16, ticket, Keyring.Key(ticket), Keyring.Data8(ticket), 0);
     }
 
     private ILoginMessage[] Login(AccountLogin m)
@@ -303,6 +303,49 @@ public sealed class LoginServerSession(AccountService accounts)
         foreach (uint v in (ReadOnlySpan<uint>)[m.U50, m.U54])
             if (v <= (uint)CharacterClass.Shadow) return (CharacterClass)v;
         return null;
+    }
+
+    /// <summary>
+    /// Builds the S→C 0x1a (<see cref="LeaguesWithProgress"/>) vector for C→S 0x19. The client migration panel
+    /// (<c>0x140d171a0</c> → <c>0x140d166d0</c> → <c>0x140cc82a0</c>) iterates the vector in consecutive
+    /// <c>(source, parent)</c> pairs (<c>r15 += 2</c>, row constructor <c>0x140cc72b0</c>), formatting the first entry
+    /// with <c>LeaguesWithProgressEntryLabel</c> (<c>"League: {0}"</c>, ClientString <c>0x16ca</c>) and the second with
+    /// <c>LeaguesWithProgressEntryParentLabel</c> (<c>"Parent League: {0}"</c>, ClientString <c>0x16cb</c>).
+    /// </summary>
+    private LeagueEntry[] LeaguesWithProgressList()
+    {
+        if (Session is null) return [];
+        var seen = new HashSet<string>(StringComparer.OrdinalIgnoreCase);
+        var pairs = new List<(League Source, League Parent)>();
+        foreach (var c in accounts.Characters(Session.AccountId))
+        {
+            if (c.HardcoreDeath?.PermanentlyDead == true) continue;
+            if (Leagues.FindLoaded(c.League) is not { Parent: { Length: > 0 } parentName } source) continue;
+            if (string.Equals(parentName, HardcoreDeathRules.VoidLeague, StringComparison.OrdinalIgnoreCase)) continue;
+            if (Leagues.FindLoaded(parentName) is not { } parent) continue;
+            if (!SupportsManualProgressMigration(source, parent)) continue;
+            if (!seen.Add(source.Name)) continue;
+            pairs.Add((source, parent));
+        }
+        if (pairs.Count == 0) return [];
+        pairs.Sort((a, b) => StringComparer.OrdinalIgnoreCase.Compare(a.Source.Name, b.Source.Name));
+        var entries = new LeagueEntry[pairs.Count * 2];
+        for (int i = 0; i < pairs.Count; i++)
+        {
+            entries[i * 2] = pairs[i].Source.Entry();
+            entries[i * 2 + 1] = pairs[i].Parent.Entry();
+        }
+        return entries;
+    }
+
+    static bool SupportsManualProgressMigration(League source, League parent)
+    {
+        if (source.Ended) return true;
+        // Plain Hardcore -> Softcore moves characters on death, never via manual "Migrate All".
+        if (source.Hardcore && !parent.Hardcore && !source.Ssf) return false;
+        return source.Ssf
+            || !string.IsNullOrEmpty(source.Form)
+            || string.Equals(source.DataSet, "HardMode", StringComparison.OrdinalIgnoreCase);
     }
 
     /// <summary>

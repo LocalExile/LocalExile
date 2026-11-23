@@ -27,7 +27,32 @@ public static class SaveRows
     public static void WriteCharacter(SaveDatabase db, string name, Save save) => db.Atomically(() =>
     {
         long id = CharacterId(db, name) ?? Insert(db, "INSERT INTO character_saves (name, has_inventories) VALUES ($name, 0) RETURNING id", ("$name", name));
-        WriteCharacterRow(db, id, save);
+        var cache = CacheFor(db);
+        WriteCharacterRow(db, cache, id, save);
+    });
+
+    /// <summary>Updates only a character's inventories and start weapon (plus any unsaved experience), leaving every
+    /// other column, child table and unchanged inventory row untouched. Returns false when the character has no save row yet.</summary>
+    public static bool WriteCharacterInventories(SaveDatabase db, string name,
+        Dictionary<byte, List<SavedPlacement>> inventories, SavedItem? startWeapon, uint? unsavedExperience) => db.Atomically(() =>
+    {
+        if (CharacterId(db, name) is not { } id) return false;
+        var cache = CacheFor(db);
+        if (unsavedExperience is { } xp)
+            Run(db, "UPDATE character_saves SET has_inventories = 1, experience = $xp WHERE id = $id", ("$id", id), ("$xp", (long)xp));
+        else
+            Run(db, "UPDATE character_saves SET has_inventories = 1 WHERE id = $id AND has_inventories = 0", ("$id", id));
+        WriteCharacterInventoryItems(db, cache, id, inventories);
+        WriteCharacterNullInventoryRole(db, cache, id, "start_weapon", startWeapon);
+        return true;
+    });
+
+    /// <summary>Updates only a character's experience column. Returns false when the character has no save row.</summary>
+    public static bool WriteCharacterExperience(SaveDatabase db, string name, uint experience) => db.Atomically(() =>
+    {
+        using var c = db.Command("UPDATE character_saves SET experience = $xp WHERE name = $name AND deleted_utc IS NULL",
+            ("$xp", (long)experience), ("$name", name));
+        return c.ExecuteNonQuery() > 0;
     });
 
     /// <summary>Whether the character has a save (not a deleted one) and the experience it holds, from its row alone: the
@@ -56,12 +81,12 @@ public static class SaveRows
 
     static readonly string[] CharacterChildren =
     [
-        "character_inventories", "character_skill_bar", "character_masteries", "character_cosmetics", "character_skill_cosmetics",
+        "character_skill_bar", "character_masteries", "character_cosmetics", "character_skill_cosmetics",
         "character_hideout_placements", "character_monster_statues", "character_tattoos", "character_tattoo_keystones",
         "character_module_data", "character_tutorials", "character_ascendancies",
     ];
 
-    static void WriteCharacterRow(SaveDatabase db, long id, Save s)
+    static void WriteCharacterRow(SaveDatabase db, DbWriteCache cache, long id, Save s)
     {
         object?[] values =
         [
@@ -77,8 +102,6 @@ public static class SaveRows
             update.ExecuteNonQuery();
         foreach (string table in CharacterChildren) Run(db, $"DELETE FROM {table} WHERE save = $id", ("$id", id));
 
-        foreach (byte inventory in s.Inventories?.Keys ?? Enumerable.Empty<byte>())
-            Run(db, "INSERT INTO character_inventories (save, inventory) VALUES ($s, $i)", ("$s", id), ("$i", (long)inventory));
         foreach (var (slot, skill) in s.SkillBar ?? [])
             Run(db, "INSERT INTO character_skill_bar (save, slot, skill) VALUES ($s, $k, $v)", ("$s", id), ("$k", (long)slot), ("$v", skill));
         foreach (var (node, effect) in s.MasteryEffects ?? [])
@@ -119,17 +142,11 @@ public static class SaveRows
                 ("$a", Value(a.Selection?.Id)), ("$r", Value(a.Selection?.Revision)), ("$su", Value(JsonOf(a.Selection?.Unknown))),
                 ("$n", Value(JsonOf(a.Nodes))), ("$w", Value(JsonOf(a.Awards))), ("$u", Value(JsonOf(a.Unknown))));
 
-        // The items: a save written again with the same items (most writes change progress, not items) keeps its rows.
-        var items = new List<(long? Inventory, string Role, int Ord, SavedPlacement? Placement, SavedItem Item)>();
-        foreach (var (inventory, list) in s.Inventories ?? [])
-            for (int i = 0; i < list.Count; i++) items.Add((inventory, "placed", i, list[i], list[i].Item));
-        if (s.StartWeapon is { } weapon) items.Add((null, "start_weapon", 0, null, weapon));
-        if (s.Tutorial is { } tutorial)
-        {
-            items.Add((null, "tutorial_skill", 0, null, tutorial.SkillGem));
-            items.Add((null, "tutorial_support", 0, null, tutorial.SupportGem));
-        }
-        WriteItems(db, Owner.Character, id, null, items);
+        // The items: partitioned by inventory row so moving an item in one bag never rewrites unchanged worn gear.
+        WriteCharacterInventoryItems(db, cache, id, s.Inventories);
+        WriteCharacterNullInventoryRole(db, cache, id, "start_weapon", s.StartWeapon);
+        WriteCharacterNullInventoryRole(db, cache, id, "tutorial_skill", s.Tutorial?.SkillGem);
+        WriteCharacterNullInventoryRole(db, cache, id, "tutorial_support", s.Tutorial?.SupportGem);
     }
 
     static Save ReadCharacter(SaveDatabase db, long id)
@@ -230,22 +247,68 @@ public static class SaveRows
     {
         long id = StashId(db, account) ?? Insert(db, "INSERT INTO stash_saves (account, last_tab, next_item_id, gold) VALUES ($a, 0, 0, 0) RETURNING id",
             ("$a", account));
+        var cache = CacheFor(db);
         Run(db, "UPDATE stash_saves SET last_tab = $l, next_item_id = $n, gold = $g, delve = $d, league_quest_flags = $q, unknown = $u WHERE id = $id",
             ("$id", id), ("$l", (long)header.LastTab), ("$n", (long)header.NextItemId), ("$g", (long)header.Gold),
             ("$d", Value(header.Delve is { } delve ? delve.GetRawText() : null)), ("$q", Value(JsonOf(header.LeagueQuestFlags))),
             ("$u", Value(JsonOf(header.Unknown))));
-        Run(db, "DELETE FROM stash_tab_headers WHERE stash = $id", ("$id", id));
-        Run(db, "DELETE FROM stash_module_data WHERE stash = $id", ("$id", id));
-        for (int i = 0; i < header.Tabs.Count; i++)
+
+        string tabsFingerprint = StashTabsFingerprint(header.Tabs);
+        if (!cache.StashHeaders.TryGetValue(id, out string? prevTabs) || prevTabs != tabsFingerprint)
         {
-            var t = header.Tabs[i];
-            Run(db, "INSERT INTO stash_tab_headers (stash, tab, name, type, r, g, b, affinities, position, colour, unique_category, parent, hidden) " +
-                    "VALUES ($s, $t, $n, $ty, $r, $g, $b, $a, $p, $c, $u, $pa, $h)", ("$s", id), ("$t", (long)i), ("$n", t.Name), ("$ty", (long)t.Type),
-                ("$r", (long)t.R), ("$g", (long)t.G), ("$b", (long)t.B), ("$a", (long)t.Affinities), ("$p", Value(t.Position)),
-                ("$c", (long)t.Colour), ("$u", unchecked((long)t.UniqueCategory)), ("$pa", (long)t.Parent), ("$h", t.Hidden ? 1L : 0L));
+            db.OnRollback(() => cache.StashHeaders.Remove(id));
+            Run(db, "DELETE FROM stash_tab_headers WHERE stash = $id", ("$id", id));
+            if (header.Tabs.Count > 0)
+            {
+                using var insert = db.Command(
+                    "INSERT INTO stash_tab_headers (stash, tab, name, type, r, g, b, affinities, position, colour, unique_category, parent, hidden) " +
+                    "VALUES ($s, $t, $n, $ty, $r, $g, $b, $a, $p, $c, $u, $pa, $h)");
+                var pS = insert.Parameters.Add("$s", SqliteType.Integer); pS.Value = id;
+                var pT = insert.Parameters.Add("$t", SqliteType.Integer);
+                var pN = insert.Parameters.Add("$n", SqliteType.Text);
+                var pTy = insert.Parameters.Add("$ty", SqliteType.Integer);
+                var pR = insert.Parameters.Add("$r", SqliteType.Integer);
+                var pG = insert.Parameters.Add("$g", SqliteType.Integer);
+                var pB = insert.Parameters.Add("$b", SqliteType.Integer);
+                var pA = insert.Parameters.Add("$a", SqliteType.Integer);
+                var pP = insert.Parameters.Add("$p", SqliteType.Integer);
+                var pC = insert.Parameters.Add("$c", SqliteType.Integer);
+                var pU = insert.Parameters.Add("$u", SqliteType.Integer);
+                var pPa = insert.Parameters.Add("$pa", SqliteType.Integer);
+                var pH = insert.Parameters.Add("$h", SqliteType.Integer);
+                for (int i = 0; i < header.Tabs.Count; i++)
+                {
+                    var t = header.Tabs[i];
+                    pT.Value = (long)i; pN.Value = t.Name; pTy.Value = (long)t.Type;
+                    pR.Value = (long)t.R; pG.Value = (long)t.G; pB.Value = (long)t.B;
+                    pA.Value = (long)t.Affinities; pP.Value = Value(t.Position);
+                    pC.Value = (long)t.Colour; pU.Value = unchecked((long)t.UniqueCategory);
+                    pPa.Value = (long)t.Parent; pH.Value = t.Hidden ? 1L : 0L;
+                    insert.ExecuteNonQuery();
+                }
+            }
+            cache.StashHeaders[id] = tabsFingerprint;
         }
-        foreach (var (key, value) in header.ModuleData ?? [])
-            Run(db, "INSERT INTO stash_module_data (stash, key, value) VALUES ($s, $k, $v)", ("$s", id), ("$k", key), ("$v", value));
+
+        string moduleFingerprint = StringMapFingerprint(header.ModuleData);
+        if (!cache.StashModuleData.TryGetValue(id, out string? prevMod) || prevMod != moduleFingerprint)
+        {
+            db.OnRollback(() => cache.StashModuleData.Remove(id));
+            Run(db, "DELETE FROM stash_module_data WHERE stash = $id", ("$id", id));
+            if (header.ModuleData is { Count: > 0 })
+            {
+                using var insert = db.Command("INSERT INTO stash_module_data (stash, key, value) VALUES ($s, $k, $v)");
+                var pS = insert.Parameters.Add("$s", SqliteType.Integer); pS.Value = id;
+                var pK = insert.Parameters.Add("$k", SqliteType.Text);
+                var pV = insert.Parameters.Add("$v", SqliteType.Text);
+                foreach (var (key, value) in header.ModuleData)
+                {
+                    pK.Value = key; pV.Value = value;
+                    insert.ExecuteNonQuery();
+                }
+            }
+            cache.StashModuleData[id] = moduleFingerprint;
+        }
     });
 
     /// <summary>One stash tab's items (none for a tab with no items), or null when the stash has no row.</summary>
@@ -258,7 +321,10 @@ public static class SaveRows
     public static void WriteStashTab(SaveDatabase db, string account, int tab, List<SavedPlacement> items) => db.Atomically(() =>
     {
         long id = StashId(db, account) ?? throw new InvalidOperationException($"stash of {account}: its header is not saved");
-        WriteItems(db, Owner.Stash, id, tab, [.. items.Select((p, i) => ((long?)tab, "placed", i, (SavedPlacement?)p, p.Item))]);
+        var cache = CacheFor(db);
+        var bucket = new List<(long? Inventory, string Role, int Ord, SavedPlacement? Placement, SavedItem Item)>(items.Count);
+        for (int i = 0; i < items.Count; i++) bucket.Add((tab, "placed", i, items[i], items[i].Item));
+        WriteItemBucket(db, cache, Owner.Stash, id, tab, bucket);
     });
 
     static long? StashId(SaveDatabase db, string account)
@@ -273,26 +339,185 @@ public static class SaveRows
 
     sealed record ItemRow(long Id, string Role, long? Parent, int Ord, long? Inventory, uint Placement, byte X, byte Y, SavedItem Item);
 
-    /// <summary>The items last written per database, owner and inventory (null: all of a character's), as JSON: a save
-    /// written again with the same items keeps its item rows. Dropped when the transaction is undone.</summary>
-    static readonly ConditionalWeakTable<SaveDatabase, System.Collections.Concurrent.ConcurrentDictionary<(Owner, long, long?), string>> Written = [];
+    /// <summary>Per-database write fingerprints serialized under SaveDatabase's write lock. Cleared whenever SQLite's
+    /// external data_version advances (another process/connection wrote) and invalidated per-entry on rollback.</summary>
+    sealed class DbWriteCache
+    {
+        public long DataVersion = -1;
+        public readonly Dictionary<(Owner, long, long), string> Items = [];
+        public readonly Dictionary<(long, string), string> NullRoleItems = [];
+        public readonly Dictionary<long, HashSet<byte>> CharacterInventoryHeaderRows = [];
+        public readonly Dictionary<long, HashSet<byte>> CharacterItemRows = [];
+        public readonly Dictionary<long, string> StashHeaders = [];
+        public readonly Dictionary<long, string> StashModuleData = [];
 
-    static void WriteItems(SaveDatabase db, Owner owner, long id, long? inventory,
+        public void Sync(SaveDatabase db)
+        {
+            long v = db.ExternalVersion;
+            if (DataVersion == v) return;
+            DataVersion = v;
+            Items.Clear();
+            NullRoleItems.Clear();
+            CharacterInventoryHeaderRows.Clear();
+            CharacterItemRows.Clear();
+            StashHeaders.Clear();
+            StashModuleData.Clear();
+        }
+    }
+
+    static readonly ConditionalWeakTable<SaveDatabase, DbWriteCache> Caches = [];
+    static readonly List<(long? Inventory, string Role, int Ord, SavedPlacement? Placement, SavedItem Item)> EmptyBucketItems = [];
+
+    static DbWriteCache CacheFor(SaveDatabase db)
+    {
+        var cache = Caches.GetOrCreateValue(db);
+        cache.Sync(db);
+        return cache;
+    }
+
+    static string StashTabsFingerprint(List<AccountStash.SavedTab> tabs)
+    {
+        var sb = new System.Text.StringBuilder(tabs.Count * 40);
+        sb.Append(tabs.Count).Append(':');
+        for (int i = 0; i < tabs.Count; i++)
+        {
+            var t = tabs[i];
+            sb.Append(t.Name.Length).Append(':').Append(t.Name).Append('|')
+              .Append(t.Type).Append(',').Append(t.R).Append(',').Append(t.G).Append(',').Append(t.B).Append(',')
+              .Append(t.Affinities).Append(',');
+            if (t.Position is ushort pos) sb.Append(pos);
+            sb.Append(',').Append(t.Colour).Append(',').Append(t.UniqueCategory).Append(',').Append(t.Parent).Append(',')
+              .Append(t.Hidden ? '1' : '0').Append(';');
+        }
+        return sb.ToString();
+    }
+
+    static string StringMapFingerprint(Dictionary<string, string>? map)
+    {
+        if (map is null || map.Count == 0) return "";
+        var sb = new System.Text.StringBuilder(map.Count * 32);
+        foreach (var (k, v) in map.OrderBy(p => p.Key, StringComparer.Ordinal))
+            sb.Append(k.Length).Append(':').Append(k).Append('=').Append(v.Length).Append(':').Append(v).Append(';');
+        return sb.ToString();
+    }
+
+    static HashSet<byte> QueryByteColumn(SaveDatabase db, string sql, long id)
+    {
+        var set = new HashSet<byte>();
+        using var c = db.Command(sql, ("$s", id));
+        using var r = c.ExecuteReader();
+        while (r.Read()) set.Add((byte)r.GetInt64(0));
+        return set;
+    }
+
+    static void WriteCharacterInventoryItems(SaveDatabase db, DbWriteCache cache, long id, Dictionary<byte, List<SavedPlacement>>? inventories)
+    {
+        // Keep character_inventories rows in sync with inventories.Keys (diffing avoids touching unchanged rows).
+        if (!cache.CharacterInventoryHeaderRows.TryGetValue(id, out var existingHeaders))
+            cache.CharacterInventoryHeaderRows[id] = existingHeaders = QueryByteColumn(db, "SELECT inventory FROM character_inventories WHERE save = $s", id);
+        var nextHeaders = inventories is null ? new HashSet<byte>() : new HashSet<byte>(inventories.Keys);
+        if (!existingHeaders.SetEquals(nextHeaders))
+        {
+            db.OnRollback(() => cache.CharacterInventoryHeaderRows.Remove(id));
+            foreach (byte removed in existingHeaders)
+                if (!nextHeaders.Contains(removed))
+                    Run(db, "DELETE FROM character_inventories WHERE save = $s AND inventory = $i", ("$s", id), ("$i", (long)removed));
+            foreach (byte added in nextHeaders)
+                if (!existingHeaders.Contains(added))
+                    Run(db, "INSERT INTO character_inventories (save, inventory) VALUES ($s, $i)", ("$s", id), ("$i", (long)added));
+            cache.CharacterInventoryHeaderRows[id] = nextHeaders;
+        }
+
+        // Partition items by inventory row so editing one bag only rewrites that bag's rows.
+        if (!cache.CharacterItemRows.TryGetValue(id, out var existingItemRows))
+            cache.CharacterItemRows[id] = existingItemRows = QueryByteColumn(db, "SELECT DISTINCT inventory FROM items WHERE character = $s AND inventory IS NOT NULL", id);
+        var nextItemRows = new HashSet<byte>();
+        foreach (byte row in existingItemRows)
+            if (inventories is null || !inventories.TryGetValue(row, out var list) || list.Count == 0)
+                WriteItemBucket(db, cache, Owner.Character, id, row, EmptyBucketItems);
+        if (inventories is not null)
+            foreach (var (row, list) in inventories)
+            {
+                if (list.Count == 0) continue;
+                nextItemRows.Add(row);
+                var bucket = new List<(long? Inventory, string Role, int Ord, SavedPlacement? Placement, SavedItem Item)>(list.Count);
+                for (int i = 0; i < list.Count; i++) bucket.Add((row, "placed", i, list[i], list[i].Item));
+                WriteItemBucket(db, cache, Owner.Character, id, row, bucket);
+            }
+        if (!existingItemRows.SetEquals(nextItemRows))
+        {
+            db.OnRollback(() => cache.CharacterItemRows.Remove(id));
+            cache.CharacterItemRows[id] = nextItemRows;
+        }
+    }
+
+    static void WriteCharacterNullInventoryRole(SaveDatabase db, DbWriteCache cache, long id, string role, SavedItem? item)
+    {
+        var key = (id, role);
+        string json = item is null ? "" : JsonSerializer.Serialize(item, Json);
+        if (cache.NullRoleItems.TryGetValue(key, out string? last) && last == json) return;
+
+        var roots = new List<long>();
+        using (var c = db.Command("SELECT id FROM items WHERE character = $o AND inventory IS NULL AND role = $role", ("$o", id), ("$role", role)))
+        using (var r = c.ExecuteReader())
+            while (r.Read()) roots.Add(r.GetInt64(0));
+
+        if (roots.Count == 0 && item is null)
+        {
+            cache.NullRoleItems[key] = "";
+            return;
+        }
+
+        db.OnRollback(() => cache.NullRoleItems.Remove(key));
+        if (roots.Count > 0)
+        {
+            // Collect any socketed gems / original items nested under these root items.
+            var allIds = new List<long>(roots);
+            var frontier = roots;
+            while (frontier.Count > 0)
+            {
+                var next = new List<long>();
+                using var c = db.Command($"SELECT id FROM items WHERE parent IN ({string.Join(',', frontier)})");
+                using var r = c.ExecuteReader();
+                while (r.Read()) next.Add(r.GetInt64(0));
+                allIds.AddRange(next);
+                frontier = next;
+            }
+            string idList = string.Join(',', allIds);
+            Run(db, $"DELETE FROM item_skin_transfers WHERE target IN ({idList})");
+            Run(db, $"DELETE FROM item_mods WHERE item IN ({idList})");
+            Run(db, $"DELETE FROM items WHERE id IN ({idList})");
+        }
+        if (item is not null)
+            InsertItemTree(db, Owner.Character, id, [(null, role, 0, null, item)]);
+        cache.NullRoleItems[key] = json;
+    }
+
+    static void WriteItemBucket(SaveDatabase db, DbWriteCache cache, Owner owner, long id, long inventory,
         List<(long? Inventory, string Role, int Ord, SavedPlacement? Placement, SavedItem Item)> items)
     {
-        var written = Written.GetOrCreateValue(db);
         var key = (owner, id, inventory);
-        string json = JsonSerializer.Serialize(items.Select(i => new object?[] { i.Inventory, i.Role, i.Ord, i.Placement?.Id, i.Placement?.X, i.Placement?.Y, i.Item }), Json);
-        if (written.TryGetValue(key, out string? last) && last == json) return;
-        db.OnRollback(() => written.TryRemove(key, out _));
+        string json = items.Count == 0
+            ? "[]"
+            : JsonSerializer.Serialize(items.Select(i => new object?[] { i.Inventory, i.Role, i.Ord, i.Placement?.Id, i.Placement?.X, i.Placement?.Y, i.Item }), Json);
+        if (cache.Items.TryGetValue(key, out string? last) && last == json) return;
+        db.OnRollback(() => cache.Items.Remove(key));
 
         string column = owner == Owner.Character ? "character" : "stash";
-        string where = inventory is null ? $"{column} = $o" : $"{column} = $o AND inventory = $i";
-        (string, object)[] filter = inventory is null ? [("$o", id)] : [("$o", id), ("$i", inventory.Value)];
+        string where = $"{column} = $o AND inventory = $i";
+        (string, object)[] filter = [("$o", id), ("$i", inventory)];
         Run(db, $"DELETE FROM item_skin_transfers WHERE target IN (SELECT id FROM items WHERE {where})", filter);
         Run(db, $"DELETE FROM item_mods WHERE item IN (SELECT id FROM items WHERE {where})", filter);
         Run(db, $"DELETE FROM items WHERE {where}", filter);
 
+        if (items.Count > 0) InsertItemTree(db, owner, id, items);
+        cache.Items[key] = json;
+    }
+
+    static void InsertItemTree(SaveDatabase db, Owner owner, long id,
+        IReadOnlyList<(long? Inventory, string Role, int Ord, SavedPlacement? Placement, SavedItem Item)> items)
+    {
+        string column = owner == Owner.Character ? "character" : "stash";
         using var insert = db.Command($"INSERT INTO items ({column}, inventory, role, parent, ord, placement, x, y, {string.Join(", ", ItemColumns)}) " +
             $"VALUES ($o, $inv, $role, $parent, $ord, $placement, $x, $y, {string.Join(", ", ItemColumns.Select((_, i) => $"$c{i}"))}) RETURNING id");
         foreach (string name in new[] { "$o", "$inv", "$role", "$parent", "$ord", "$placement", "$x", "$y" }.Concat(ItemColumns.Select((_, i) => $"$c{i}")))
@@ -336,7 +561,6 @@ public static class SaveRows
         }
 
         foreach (var i in items) Add(i.Inventory, i.Role, null, i.Ord, i.Placement, i.Item);
-        written[key] = json;
     }
 
     static readonly string[] ItemColumns =
@@ -444,12 +668,13 @@ public static class SaveRows
         }
         int moved = db.Atomically(() =>
         {
+            var cache = CacheFor(db);
             int count = 0;
             foreach (var (name, json) in Pairs(db, "SELECT name, save FROM characters ORDER BY name"))
             {
                 var save = Parse<Save>(db, json, $"character {name}");
                 long id = Insert(db, "INSERT INTO character_saves (name, has_inventories) VALUES ($name, 0) RETURNING id", ("$name", name));
-                WriteCharacterRow(db, id, save);
+                WriteCharacterRow(db, cache, id, save);
                 Same(json, ReadCharacter(db, id), $"character {name}");
                 count++;
             }
@@ -458,7 +683,7 @@ public static class SaveRows
                 var save = Parse<Save>(db, json, $"deleted character {name}");
                 long id = Insert(db, "INSERT INTO character_saves (name, deleted_utc, has_inventories) VALUES ($name, $at, 0) RETURNING id",
                     ("$name", name), ("$at", deleted));
-                WriteCharacterRow(db, id, save);
+                WriteCharacterRow(db, cache, id, save);
                 Same(json, ReadCharacter(db, id), $"deleted character {name}");
                 count++;
             }

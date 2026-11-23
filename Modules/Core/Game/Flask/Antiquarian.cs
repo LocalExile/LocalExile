@@ -70,6 +70,14 @@ public static partial class Game
         if (player.SentWard == ward && player.SentAdrenalineUntil == adrenaline
             && player.SentStunRecoveryUntil == recovery && player.SentEnduringCryUntil == cry)
             return null;
+        // First area tick with no Ward, Adrenaline, Stun Recovery or Enduring Cry active: baseline already sent at area entry.
+        if (player.SentWard is null && ward == (0u, false)
+            && double.IsNegativeInfinity(adrenaline) && double.IsNegativeInfinity(recovery) && double.IsNegativeInfinity(cry))
+        {
+            player.SentWard = ward; player.SentAdrenalineUntil = adrenaline;
+            player.SentStunRecoveryUntil = recovery; player.SentEnduringCryUntil = cry;
+            return null;
+        }
         var bytes = new List<byte>();
         var buffs = player.Area.Buffs;
         if (ward.Maximum > 0 && ward.Broken) buffs.Set(player.Id, new(AntiquarianEffects.WardBrokenDefinition, player.Id));

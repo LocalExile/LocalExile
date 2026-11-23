@@ -70,6 +70,17 @@ public sealed class SocialModule : IModule
         GameEvents.PlayerIgnored.Add(module.Manifest.Id, (viewer, sender) => FriendsFeature.IsIgnoring(viewer.Character.Account, sender));
         GameEvents.HideoutVisitAllowed.Add(module.Manifest.Id, FriendsFeature.CanVisitHideout);
         GameEvents.PlayerLeaving.Add(module.Manifest.Id, (player, why) => SocialFeature.CancelPlayerTrade(player, why));
+        GameEvents.PlayerLeaving.Add(module.Manifest.Id, (player, _) => PvpQueue.Leaving(player));
+        GameEvents.Packet(InstancePvp.LeaveQueueId).Add(module.Manifest.Id, async (player, _) =>
+        {
+            await PvpQueue.Leave(player, withdraw: false);
+            return true;
+        });
+        GameEvents.Packet(InstancePvp.WithdrawId).Add(module.Manifest.Id, async (player, _) =>
+        {
+            await PvpQueue.Leave(player, withdraw: true);
+            return true;
+        });
         GameEvents.Packet(InstanceNpcs.TradeOfferId).Add(module.Manifest.Id, async (player, bytes) =>
         {
             if (player.Trade is not { } trade) return false;
@@ -144,6 +155,12 @@ public sealed class SocialModule : IModule
             PartyTravel.Travel(player, InstanceSocial.ReadPartyTravel(bytes)));
         // A "%…" line: only this module knows the party, so it carries the line to the members.
         GameEvents.PartyChat.Add(module.Manifest.Id, PartyChat.Deliver);
+        // Supply out-of-area party members for Act 2 Bandit party votes (WaitingToEnterArea).
+        module.Lifetime.Own(BanditChoices.RegisterPartyMembers(player =>
+        {
+            uint party = PartyRoster.PartyOf(player);
+            return party == 0 ? [] : PartyRoster.Players(party);
+        }));
     }
 }
 
