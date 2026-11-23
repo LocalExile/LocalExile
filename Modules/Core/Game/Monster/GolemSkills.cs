@@ -93,6 +93,16 @@ public static partial class Game
                 + 50 * charges.Held(ChargeType.Power);
         }
         int Get(uint n) => GolemStat(playerStats, n);
+        GolemAdd(values, Stat.GlobalChanceToBlindOnHitPct, Get(Stat.MinionsPctChanceToBlindOnHit));
+        GolemAdd(values, Stat.BaseChanceToPoisonOnHitPct, Get(Stat.MinionsChanceToPoisonOnHitPct));
+        GolemAdd(values, Stat.WitheredOnHitFor2SecondsPctChance, Get(Stat.MinionsHavePctChanceToInflictWitherOnHit));
+        int ashChance = golem.Definition.Kind switch
+        {
+            "Skeleton" or "VaalSkeleton" => Get(Stat.SummonedSkeletonsCoverInAshOnHitPct),
+            "Zombie" => Get(Stat.RaisedZombiesCoverInAshOnHitPct),
+            _ => 0,
+        };
+        GolemAdd(values, Stat.CoverInAshOnHitPct, ashChance);
         if (Get(Stat.NecromancerMinionDamagePlusPctFinal) is int damageMore and not 0)
             values[Stat.NecromancerMinionDamagePlusPctFinal] = damageMore;
         // Ancient Skull's real MinionCriticalStrikeChanceMaximumPowerChargeUnique__1 row uses the owner's maximum Power

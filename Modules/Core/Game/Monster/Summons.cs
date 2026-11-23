@@ -84,6 +84,8 @@ public static partial class Game
                 + PerAttribute(Stat.Intelligence, Stat.NumberOfZombiesAllowedPlus1PerXIntelligenceFromFoulbornBaron);
             return (int)Math.Clamp(value * (1 + GolemStat(playerStats, Stat.NumberOfZombiesAllowedPlusPct) / 100d), 0, 200);
         }
+        if (definition.Family == "Skeleton")
+            value += GolemStat(playerStats, Stat.NumberOfSkeletonsAllowedPer2Old);
         if (definition.Family == "RagingSpirit")
             return (int)Math.Clamp(value * (1 + GolemStat(playerStats, Stat.PctNumberOfRagingSpiritsAllowed) / 100d), 0, 200);
         // Clones have no ordinary cap; duration is their lifetime constraint.

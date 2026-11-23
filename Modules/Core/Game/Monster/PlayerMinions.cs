@@ -283,11 +283,13 @@ public static partial class Game
             var at = minion.Monster.Walk.Position(now);
             amount = (int)Math.Min(int.MaxValue, minion.Monster.MaxLife * (long)blast.LifePct / 100);
             var packet = DamagePacket.Of(blast.Type, amount, amount);
+            var ownerStats = CharacterPlayerStats(player);
             foreach (var (id, m) in player.Area.Monsters.ToArray())
             {
                 if (!m.Hostile || m.Dead || m.Life == 0 || Dist(m.Walk.Position(now), at) > blast.Radius) continue;
                 int damage = MonsterTakesRolled(m, packet, spell: false, now: now);
-                if (ApplyMonsterHitLocked(player, m, damage, allyAt: at) is not { } hit) continue;
+                var cull = MinionIgniteKillRule(ownerStats, m, now);
+                if (ApplyMonsterHitLocked(player, m, damage, allyAt: at, cull: cull) is not { } hit) continue;
                 if (hit.StageStarts)
                 {
                     CommitBossStage(player, id, m, ProjectileWorldTime(player));
