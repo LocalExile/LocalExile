@@ -26,8 +26,11 @@ public sealed class WarcryExertionTests
         Assert.False(Game.ConsumeIntimidatingCryExertLocked(player, eligible: true));
     }
 
-    [Fact]
-    public async Task A_molten_strike_hit_inherits_its_exertion_and_both_overexertion_multipliers()
+    [Theory]
+    [InlineData("Molten Strike", false)]
+    [InlineData("Shield Charge", false)]
+    [InlineData("Shield Charge", true)]
+    public async Task Paid_attacks_apply_both_multipliers_only_when_eligible(string attack, bool blockTravelExertion)
     {
         using var f = new TriggeredSummonTests.Fixture();
         var player = f.Player;
@@ -42,6 +45,7 @@ public sealed class WarcryExertionTests
             {
                 values[Stat.GlobalAlwaysHit] = 1;
                 values[Stat.GlobalCannotCrit] = 1;
+                if (blockTravelExertion) values[Stat.TravelSkillsCannotBeExerted] = 1;
             }
             return values;
         });
@@ -49,7 +53,14 @@ public sealed class WarcryExertionTests
             ? DamagePacket.Of(DamageType.Physical, 1000, 1000) : rolled);
         try
         {
-            ushort skill = Assert.Single(f.Equip(("Molten Strike", 1), ("Overexertion Support", 1)));
+            if (attack == "Shield Charge")
+            {
+                var items = Game.ItemsOf(player);
+                items.Change(PlayerInventories.Weapon1, items.Items(PlayerInventories.Weapon1).Single().Id,
+                    _ => ItemCatalog.Create(Program.Items.Find("Driftwood Club")!));
+                items.Add(PlayerInventories.Offhand1, 0, 0, ItemCatalog.Create(Program.Items.Find("Splintered Tower Shield")!));
+            }
+            ushort skill = Assert.Single(f.Equip((attack, 1), ("Overexertion Support", 1)));
             var native = Game.SupportedSkill(player, skill).Stats;
             Assert.Equal(7, native[Stat.SupportOverexertionDamagePlusPctFinalPerWarcryExertingAction]);
             Assert.Equal(10, native[Stat.SupportOverexertionDamagePlusPctFinalIfExerted]);
@@ -58,15 +69,17 @@ public sealed class WarcryExertionTests
 
             Game.ApplyIntimidatingCryLocked(player, IntimidatingCryStats(), new Dictionary<uint, int>(), clock.At);
             Assert.Equal(2, Game.IntimidatingCryExerts(player));
-            Assert.Equal(1177u, await Hit(902));
-            Assert.Equal(1, Game.IntimidatingCryExerts(player));
+            Assert.Equal(blockTravelExertion ? normal : 1177u, await Hit(902));
+            Assert.Equal(blockTravelExertion ? 2 : 1, Game.IntimidatingCryExerts(player));
 
             async Task<uint> Hit(uint id)
             {
                 var target = new SpawnedMonster("exerted attack target", new(104, 100, 0), 0, 0, 1_000_000);
                 player.Area.Monsters.Add(id, target);
                 player.NextAttackAt = 0;
-                Assert.True(await Game.CastGemSkill(player, skill, (100, 100), (104, 100), id));
+                // At zero travel distance Shield Charge lands one hit and has no distance bonus.
+                var aim = attack == "Shield Charge" ? (100, 100) : (104, 100);
+                Assert.True(await Game.CastGemSkill(player, skill, (100, 100), aim, id));
                 while (target.Life == target.MaxLife && clock.At < 10)
                 {
                     clock.At += .05;

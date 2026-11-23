@@ -198,7 +198,9 @@ public static partial class Game
     static bool IntimidatingCryCanExert(Player player, ushort skill, int effect) =>
         SkillsFor(player).IsAttack(effect) && SkillsFor(player).IsMelee(effect) && !SkillsFor(player).IsVaal(effect)
         && !SkillsFor(player).IsChannelled(effect) && MeleeAttackRepeats(player, skill) == 0
-        && !IsTotemSkill(player, skill) && PlacedKind(SupportedSkill(player, skill)) is { Trap: false, Mine: false };
+        && !IsTotemSkill(player, skill) && PlacedKind(SupportedSkill(player, skill)) is { Trap: false, Mine: false }
+        && SupportedSkill(player, skill).Stats.GetValueOrDefault(Stat.SkillCannotBeExerted) == 0
+        && (!SkillsFor(player).IsTravel(effect) || CharacterPlayerStats(player).GetValueOrDefault(Stat.TravelSkillsCannotBeExerted) == 0);
 
     public static GamblerModifiers WithIntimidatingCryExert(GamblerModifiers modifiers, bool exerted) =>
         exerted ? modifiers with { DoubleDamageChance = Math.Max(100, modifiers.DoubleDamageChance) } : modifiers;
