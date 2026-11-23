@@ -316,7 +316,7 @@ Not implemented: `UnlockPantheonPowerFromItem`, `RemoveQuestItem`, `DispatchRule
   (live 2026-11-02).
   Awakened stock restores disabled rows; exceptional stock uses GemTags, excluding awakened rows.
   Maps use generic tier keys and Nightmare Map; Originator Maps carry `MapZanaInfluenced`.
-  Unique maps have catalogue identities; full unique modifiers and unique-area routing remain incomplete.
+  Unique maps have catalogue identities and open their own areas; full unique modifiers remain incomplete.
 - **Custom tab protocol**: development tabs fill row by row. 0x8c's u16 is the window kind (`0x140740840`, +0x5f0), not an NPCShop row: 0 buy, 1-4 haggle,
   deal, exchange and expedition, 9 Azmeri, 10 black market, 11 unset; the Gateway sends 0. The window is chosen by the
   NPC's DialogueStyle (`0x14072c7a0`: not LEGACY → UI +0x7b8), not by the u8. The u8 is the async trade mode (title
