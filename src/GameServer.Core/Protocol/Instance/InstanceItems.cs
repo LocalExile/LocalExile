@@ -466,11 +466,17 @@ public static class InstanceItems
     /// <summary>Commands.dat row 4 (<c>ShowDeaths</c>, "/deaths") + 1.</summary>
     public const byte DeathsCommand = 5;
 
+    /// <summary>Commands.dat row 6 (<c>ShowLadder</c>, "/ladder") + 1.</summary>
+    public const byte LadderCommand = 7;
+
     /// <summary>Commands.dat row 8 (DestroyCursorItem, "/destroy") + 1: what the Keep / Destroy popup's Destroy sends.</summary>
     public const byte DestroyCursorItemCommand = 9;
 
     /// <summary>Commands.dat row 9 (<c>Whois</c>, "/whois") + 1.</summary>
     public const byte WhoisCommand = 10;
+
+    /// <summary>Commands.dat row 11 (<c>ShowCursorItemLevel</c>, "/itemlevel") + 1.</summary>
+    public const byte ItemLevelCommand = 12;
 
     /// <summary>Commands.dat row 34 (<c>AutoReply</c>, "/autoreply") + 1.</summary>
     public const byte AutoReplyCommand = 35;
@@ -480,6 +486,12 @@ public static class InstanceItems
 
     /// <summary>Commands.dat row 49 (SaveHideout, "/save_hideout") + 1: exports/saves the current hideout layout.</summary>
     public const byte SaveHideoutCommand = 50;
+
+    /// <summary>Commands.dat row 52 (<c>ForceResyncPlayer</c>, "/oosme") + 1.</summary>
+    public const byte ForceResyncPlayerCommand = 53;
+
+    /// <summary>Commands.dat row 55 (<c>ShowKills</c>, "/kills") + 1.</summary>
+    public const byte KillsCommand = 56;
 
     /// <summary>Commands.dat row 70 (WarpToDeepwaterHub, "/boat") + 1: the chat command that goes to The Sovereign.</summary>
     public const byte WarpToDeepwaterHubCommand = 71;

@@ -577,7 +577,7 @@ public static partial class Game
                 if (command.Id == InstanceItems.DestroyCursorItemCommand) await DestroyHeldItem(player);
                 else if (command.Id == InstanceItems.WarpToHideoutCommand) await WarpToHideout(player, "/hideout");
                 else if (command.Id == InstanceItems.SaveHideoutCommand) await SaveHideoutLayout(player);
-                else if (command.Id == InstanceItems.ForceResyncCommand) await SendResync(player, "the client asked");
+                else if (command.Id is InstanceItems.ForceResyncCommand or InstanceItems.ForceResyncPlayerCommand) await SendResync(player, "the client asked");
                 else if (command.Id == InstanceItems.AfkCommand && player.Connection.LockstepClient) AnswerLockstepProbe(player, readAt);
                 else Console.WriteLine($"[gateway] {player.Connection.Remote} <= 0x0016 command {command} (not handled)");
             }

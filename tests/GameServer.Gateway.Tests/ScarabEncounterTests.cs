@@ -167,6 +167,11 @@ public sealed class ScarabEncounterTests
             Assert.True(await MapStrongboxes.Use(boxOwner.Player, new(firstBox.Id, 0, 1, 0), 0));
             var active = Boxes()[0];
             Assert.Equal(1, active.Phase);
+            // The guards wait for the box's opening clip, a real-time wait tests never take: release the wave now.
+            Assert.Empty(active.Guards);
+            Assert.Contains(active.Waves, w => w.Spawns.Count > 0);
+            await MapStrongboxes.SpawnWavesNow(boxOwner.Player);
+            active = Boxes()[0];
             Assert.NotEmpty(active.Guards);
             Assert.Empty(active.Pending);
             int guardCount = boxOwner.Player.Area.Monsters.Count;
@@ -207,7 +212,8 @@ public sealed class ScarabEncounterTests
             Assert.Equal(sealedMonoliths.Length + 1, Monoliths().Length);
             var converted = Monoliths()[^1];
             Assert.Equal(Game.Monsters.Find(naturalRare.Variety.ToString())!.Id, converted.Variety);
-            Assert.Empty(essenceOwner.Player.Area.Monsters);
+            // The encased previews are instance monsters too (NoRewards, invulnerable); only a released monster counts.
+            Assert.DoesNotContain(essenceOwner.Player.Area.Monsters, m => !m.Value.NoRewards);
             Assert.True(await MapEssences.Imprison(essencePeer.Player, naturalRare));
             Assert.Equal(sealedMonoliths.Length + 1, Monoliths().Length);
             Assert.False(await MapEssences.Imprison(essenceOwner.Player, naturalRare with { Rarity = GameServer.Core.Protocol.Instance.MonsterRarity.Unique }));
@@ -217,7 +223,8 @@ public sealed class ScarabEncounterTests
             {
                 Assert.True(await MapEssences.Use(essenceOwner.Player, new(firstMonolith.Id, 0, stage, 0), 0));
                 Assert.Equal(stage, Monoliths()[0].Stage);
-                Assert.Equal(stage == 4 ? 1 : 0, essenceOwner.Player.Area.Monsters.Count);
+                // The rare and its pack's magic monsters release together (the essence daemons are friendly casters).
+                Assert.Equal(stage == 4 ? 1 + firstMonolith.Minis.Count : 0, essenceOwner.Player.Area.Monsters.Count(m => m.Value.Hostile && !m.Value.NoRewards));
             }
             var released = Monoliths()[0];
             Assert.True(released.Monster > 0);
@@ -237,7 +244,7 @@ public sealed class ScarabEncounterTests
             MapEssences.Drops(duplicate);
             Assert.Empty(duplicate.Items);
             await MapEssences.Use(essencePeer.Player, new(firstMonolith.Id, 0, 5, 0), 0);
-            Assert.Single(essenceOwner.Player.Area.Monsters);
+            Assert.Equal(1 + released.Minis.Count, essenceOwner.Player.Area.Monsters.Count(m => m.Value.Hostile && !m.Value.NoRewards));
             MapEssences.Leave(essenceOwner.Player);
             await MapEssences.Enter(essenceOwner.Player);
             Assert.Equal((released.Id, released.Stage, released.Monster), (Monoliths()[0].Id, Monoliths()[0].Stage, Monoliths()[0].Monster));

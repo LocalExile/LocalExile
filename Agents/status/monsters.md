@@ -214,6 +214,8 @@ Part of [Status](../Status.md); what to build next in this area is in
   refreshes the timer. The five-second duration follows the other three-stack monster beam since Piety's rows omit it.
   In a shared instance the same sweep reached a Predictive and a Lockstep player. Both reached ten stacks, and clearing
   or escaping the effect on one player left the other player's stacks independent.
+  A skill that declares a duration and a per-stack percentage but no stack count applies one stack: the blood-projectile
+  and bonespire family (Greed's essence nova, Belly Totem, Breach, Pyramid, Vendigo) rows omit the count.
   Death-triggered skills such as the Noble Dead and Rhys of Abram soul explosions stay out of living monsters’ attack choices.
   Arakaali's unsafe generic laser activators stay out; a dedicated controller supplies linked native turret rails.
   Her Silk transition and stance-specific attacks run; corner travel, laser ordering and collision calibration remain.
@@ -225,7 +227,9 @@ Part of [Status](../Status.md); what to build next in this area is in
   Effects that hit for nothing, summon nothing and fire nothing (a breath's own segments, geometry triggers,
   `EmptyAction`s) stay out, and the attack a boss had before is still its first, unchanged. Checked against the tables
   and in `BossKitsTests`; **not yet played against the real client**: which of the list a client animates, and how the
-  bosses' official AI weights compare, are unverified. Code: `BossKits`, `MonsterKitSkill`, `Monsters.PlanMonsterAi`.
+  bosses' official AI weights compare, are unverified.
+  Boss kits also cover teleports, movement moves, family summons, barrages, geyser hazards and second-form transitions.
+  Code: `BossKits`, `BossMoves`, `BossSummons`, `BossForms`, `MonsterKitSkill`, `Monsters.PlanMonsterAi`.
 - The campaign Trinity has native attacks and two scorpion phases; organ portals use their native domain labels,
   room entrance pads and return pairs; Doedre's soul starts visible on creation and instance restore.
   Exact official AI weights remain unverified.

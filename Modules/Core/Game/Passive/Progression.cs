@@ -1971,6 +1971,11 @@ public static partial class Game
         return CharacterClassByte.Encode(baseClass, number);
     }
 
+    // Keep the signature used by mods built against 0.6.0-beta.
+    public static Task<string?> ChangePassives(Player player, IReadOnlyList<ushort> nodes, bool allocate, string why,
+        ushort? masteryEffect, bool goldRespec, bool refundPoints) =>
+        ChangePassives(player, nodes, allocate, why, masteryEffect, goldRespec, refundPoints, consumeFreeReset: false);
+
     // Allocates (or, with allocate false, refunds) passive nodes: checked against the tree's nodes and the character's
     // points and complete ordinary/ascendancy connectivity, then saved, applied to the stats and sent back (0x33).
     // A gold respec (goldRespec) refunds only allocated nodes and charges their cost (PassiveTree.GoldRespecCost); a

@@ -1257,6 +1257,7 @@ public sealed class SkillCatalog
     /// <summary>Also reads weapon projectile metadata when the caller explicitly enables those attacks.</summary>
     public MonsterProjectileInfo? MonsterProjectile(int effectRow, bool includeWeaponAttacks)
     {
+        if (MonsterProjectileOverrides.TryGetValue(effectRow, out var overridden)) return overridden;
         var projectiles = includeWeaponAttacks ? _weaponMonsterProjectiles : _monsterProjectiles;
         if (!projectiles.TryGetValue(effectRow, out var projectile)) return null;
         // Constants of the skill's stat set, so level 1 reads them.
@@ -1276,6 +1277,11 @@ public sealed class SkillCatalog
                 || Get(Stat.ProjectileBallisticAngleFromTargetDistance) != 0),
         };
     }
+
+    /// <summary>Module-provided monster-projectile art for skills the client tables give no MonsterProjectile row (an
+    /// essence daemon's Ball Lightning / Fireball): effect row -> projectile. Populated once at startup by a module; empty
+    /// for a build that provides none. Consulted before the tables, so no boss or skill class has to name an essence.</summary>
+    public static readonly Dictionary<int, MonsterProjectileInfo> MonsterProjectileOverrides = [];
 
     /// <summary>What a monster's summoning skill brings: its stat set's <c>alternate_minion</c> (a SummonedSpecificMonsters
     /// Id, whose MonsterVarietiesKey is the monster), <c>number_of_monsters_to_summon</c>, <c>summon_specific_monsters_in_front_offset</c>
