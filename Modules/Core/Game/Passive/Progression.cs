@@ -1139,8 +1139,8 @@ public static partial class Game
         foreach (var (key, value) in AuraCatalog.ResistanceStats(auras.Where(a => a.AffectsSelf), bonus.AuraEffectPct, SkillsFor(player), Stats))
             resistanceSources[key] = resistanceSources.GetValueOrDefault(key) + value;
         int mapTemporalChains = 0;
-        var map = MapModsOf(player);
-        if (HasMapHexes(map))
+        var hexMap = MapModsOf(player);
+        if (HasMapHexes(hexMap))
         {
             int Get(uint key) => resistanceSources.GetValueOrDefault(key);
             int allBefore = Get(Stat.BaseResistAllElementsPct);
@@ -1150,7 +1150,7 @@ public static partial class Game
             int actionBefore = Get(Stat.TemporalChainsActionSpeedPlusPctFinal);
             int curseEffect = utilityStats.Concat(player.FlaskGrounds.PlayerStats())
                 .Where(row => row.Stat == Stat.CurseEffectOnSelfPlusPct).Sum(row => row.Value);
-            AddMapHexStats(player, map, new PlainStatMap(resistanceSources), auras, curseEffect);
+            AddMapHexStats(player, hexMap, new PlainStatMap(resistanceSources), auras, curseEffect);
             int all = Get(Stat.BaseResistAllElementsPct) - allBefore;
             bonus = bonus with
             {
