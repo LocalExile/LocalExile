@@ -98,13 +98,12 @@ public static partial class Game
     // Read when the player stats are built, not per death: an area hit that kills a pack does not rebuild them per corpse.
     public static void ConfigureKillOnslaught(Player player, Func<uint, int> get)
     {
-        // A stat an effect rule drives is the rule's now: this code reads it as 0 (EffectRules.Unhandled), so each
-        // gain is rolled once, by the row that replaced its line here.
-        var unhandled = EffectRules.Unhandled(get);
-        var rolls = KillOnslaught.From(unhandled);
+        // The stats as its caller gives them: the stat build hands over EffectRules.Unhandled, where a stat an effect
+        // rule drives reads 0, so each gain is rolled once, by the row that replaced its line here.
+        var rolls = KillOnslaught.From(get);
         var onslaught = KillOnslaughtOf(player);
         onslaught.Rolls = rolls;
-        onslaught.HitMs = unhandled(Stat.GainOnslaughtOnHitDurationMs);
+        onslaught.HitMs = get(Stat.GainOnslaughtOnHitDurationMs);
     }
 
     // A hostile monster the player killed (MonsterKilled, CommitProjectileKill): whether Onslaught started or lengthened.
