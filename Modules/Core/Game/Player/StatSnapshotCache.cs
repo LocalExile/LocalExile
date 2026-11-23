@@ -160,6 +160,10 @@ public static partial class Game
                 stats[attackDamage] = ArmourAttackDamage.Total(Get(Stat.AttackDamagePlusPct),
                     Get(Stat.PhysicalDamageReductionRating), Get(ArmourAttackDamage.Per450Armour),
                     Get(Stat.EvasionRating), Get(ArmourAttackDamage.Per450Evasion));
+            if (Get(Stat.AttackDamagePlus1PctPer300OfMinOfArmourOrEvasion) is int perseverance and not 0
+                && Stat.AttackDamagePlusPct is var perseveranceAttack)
+                stats[perseveranceAttack] = ActorScale.Saturate(Get(perseveranceAttack)
+                    + (long)perseverance * (Math.Max(0, Math.Min(Get(Stat.PhysicalDamageReductionRating), Get(Stat.EvasionRating))) / 300L));
             return stats;
         }
         if (stage == StatSnapshotStage.Offence)
@@ -194,22 +198,26 @@ public static partial class Game
             // agrees with the damage the server applies. Only the main hand: the server attacks with it. Those rows are gated by
             // skill_uses_main_hand, which nothing sent before, so the numbers alone would leave them blank.
             if (Stat.SkillUsesMainHand is var usesMainHand) stats[usesMainHand] = 1;
-            var attackConversion = DamageStats.Conversion(stats, Stats, attack: true);
-            var attack = AttackHitConverted(WeaponFor(), stats, MeleeAttack(), attackConversion, new(mainAccuracy));
+            var mainWeapon = WeaponFor();
+            var attackConversion = SupportedAttackDamage.WithWeaponGains(
+                DamageStats.Conversion(stats, Stats, attack: true), mainWeapon);
+            var attack = AttackHitConverted(mainWeapon, stats, MeleeAttack(), attackConversion, new(mainAccuracy));
             foreach (var (stat, value) in PanelStats.HandDamage(attack, "main_hand"))
                 if (stat is var key) stats[key] = value;
             // The default attack's damaging-ailment rows per hand (AilmentPanelStats), from the same raw packet and
             // conversion as its hit; an off hand that is not swung keeps no stale rows.
             var ailmentContext = new AilmentPanelStats.Context("main_hand", Spell: false, Melee: MeleeAttack());
             var ailmentRows = AilmentPanelStats.Compute(ailmentContext,
-                SupportedAttackDamage.Raw(WeaponFor(), Get, new(mainAccuracy)), attackConversion, Get);
+                SupportedAttackDamage.Raw(mainWeapon, Get, new(mainAccuracy), melee: ailmentContext.Melee), attackConversion, Get);
             if (OffhandWeaponFor() is { } offWeapon)
             {
                 long localDifference = (long)offLocal.GetValueOrDefault(Stat.LocalAccuracyRating) - mainLocal.GetValueOrDefault(Stat.LocalAccuracyRating);
                 int offAccuracy = PlayerAccuracyModifiers.Selected(pools, Profile(), _ => 0,
                     Get(PlayerAccuracyModifiers.BootsMore), localDifference, inputs.BlindLess);
+                var offConversion = SupportedAttackDamage.WithWeaponGains(
+                    DamageStats.Conversion(stats, Stats, attack: true), offWeapon);
                 ailmentRows.AddRange(AilmentPanelStats.Compute(ailmentContext with { Hand = "off_hand" },
-                    SupportedAttackDamage.Raw(offWeapon, Get, new(offAccuracy)), attackConversion, Get));
+                    SupportedAttackDamage.Raw(offWeapon, Get, new(offAccuracy)), offConversion, Get));
             }
             foreach (var (stat, value) in ailmentRows)
                 if (stat is var key) stats[key] = value;

@@ -89,9 +89,11 @@ public static partial class Game
         return state;
     }
 
-    public static void SiphoningSkillUsedLocked(Player player, double at, Random? random = null)
+    public static void SiphoningSkillUsedLocked(Player player, double at, Random? random = null) =>
+        ApplySiphoningSkillUseLocked(player, at, StatSourceValues(player), random);
+
+    static void ApplySiphoningSkillUseLocked(Player player, double at, IReadOnlyDictionary<uint, int> raw, Random? random = null)
     {
-        var raw = StatSourceValues(player);
         var state = SiphoningAt(player, at, raw);
         if (player.Paused || InTown(player) || state.Maximum <= 0 || state.Sources.Count == 0) return;
         // Install the existing transfer hook before any accepted charge can leave this area.

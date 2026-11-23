@@ -158,8 +158,8 @@ public static partial class Game
             PlayerStatStep.SpiritLeadership, PlayerStatStep.TotemAura, PlayerStatStep.AuraRestriction,
         ];
         readers[(int)PlayerStatChange.Flasks] =
-            [PlayerStatStep.Sources, PlayerStatStep.UtilityFlasks, PlayerStatStep.Onslaught, PlayerStatStep.UsingFlask,
-             PlayerStatStep.AuraRestriction];
+            [PlayerStatStep.Sources, PlayerStatStep.UtilityFlasks, PlayerStatStep.SelfVulnerability,
+             PlayerStatStep.Onslaught, PlayerStatStep.UsingFlask, PlayerStatStep.AuraRestriction];
         readers[(int)PlayerStatChange.Minions] = [PlayerStatStep.Sources, PlayerStatStep.Golems, PlayerStatStep.Offerings];
         readers[(int)PlayerStatChange.Leech] =
             [PlayerStatStep.Sources, PlayerStatStep.AttackSpeed, PlayerStatStep.Recovery, PlayerStatStep.LeechingDefences];
@@ -462,6 +462,7 @@ public static partial class Game
         lock (sent)
         {
             if (sent.Bytes is { } last && last.AsSpan().SequenceEqual(bytes)) return [];
+            if (DeferMomentumChannelSkills(player) && player.ClientSkillIds.SetEquals(skills.Select(s => s.Id))) return [];
             (sent.Bytes, sent.Skills) = (bytes, skills);
         }
         // Any 0x02bc Actor skill-list update can reset client-side skill bar bindings; schedule a coalesced 0x0053 restore.

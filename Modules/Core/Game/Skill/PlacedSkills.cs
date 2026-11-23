@@ -364,7 +364,10 @@ public static partial class Game
                         land + PlacedDurationSeconds(admission.Mine, Get),
                         damage, new Dictionary<uint, int>(gem.Stats), reserve?.Flat ?? 0, reserve?.Percent ?? 0,
                         context.Life, context.Efficiency)
-                        { LandAt = land, Landed = false, Offense = offense, TriggerRadius = TrapTriggerRadius(Get) };
+                    {
+                        LandAt = land, Landed = false, Offense = offense, TriggerRadius = TrapTriggerRadius(Get),
+                        EffectDurationSeconds = GolemStat(payload, Stat.SkillEffectDuration) / 1000d,
+                    };
                     player.Placed.All.Add(id, placement);
                     if (!ReservationBudgetFits(player))
                     {
@@ -394,7 +397,7 @@ public static partial class Game
                     committed = true;
                 }
                 if (!committed) return null;
-                RecordAcceptedGemUse(player, gem.Effect);
+                RecordAcceptedGemUse(player, gem.Effect, clamped);
                 player.Placed.Dirty = true;
                 player.Minions.StatRevision++;
                 ClampReservedResources(player);
@@ -572,7 +575,7 @@ public static partial class Game
             var rolled = WithConditionalSupportDamageLocked(player, placed.Own, !spell, m,
                 profile.Hit.Scale(more).Roll(AreaRng(player)), now);
             var mitigated = DamageModel.Mitigate(rolled, type => MonsterHitResistance(m, type, default, now));
-            int damage = MonsterTakesTrapOrMineHit(m, mitigated, spell, now);
+            int damage = MonsterTakesTrapOrMineHit(m, mitigated, spell, now, AreaRng(player));
             bool critical = currentSkill && RollCriticalStrike(player, CriticalChanceOn(player, id, chance, vsBlinded, vsGround),
                 placed.Own, attack, criticalRoll, owner);
             int hitMultiplier = critical ? CriticalMultiplierOn(m, multiplier, owner, placed.Own) : 100;
@@ -619,6 +622,7 @@ public static partial class Game
             int Get(uint n) => GolemStat(placed.Own, n) + GolemStat(playerStats, n);
             double increased = new[] { Stat.DamagePlusPct, Stat.FireDamagePlusPct, Stat.ElementalDamagePlusPct, Stat.DamageOverTimePlusPct,
                 Stat.FireDamageOverTimePlusPct, Stat.BurnDamagePlusPct, Stat.AreaDamagePlusPct }.Sum(Get);
+            increased += (double)Get(placed.Mine ? Stat.MineDamagePlusPct : Stat.TrapDamagePlusPct) + Get(Stat.TrapOrMineDamagePlusPct);
             if (Get(Stat.SpellDamageModifiersApplyToSkillDot) != 0) increased += Get(Stat.SpellDamagePlusPct);
             double groundMore = new[] { "damage_+%_final", "fire_damage_+%_final", "elemental_damage_+%_final",
                 "damage_over_time_+%_final", "trap_damage_+%_final", "area_damage_+%_final" }
@@ -703,17 +707,23 @@ public static partial class Game
                             else { skitter = true; bot.NextOrb = now + 3; }
                         }
                     }
-                    bool nearby = !placed.Mine && player.Area.MonstersNear(placed.At, placed.TriggerRadius).Any(m => m.Value is { Hostile: true, Dead: false, Life: > 0 }
-                        && Dist(m.Value.Walk.Position(now), placed.At) <= placed.TriggerRadius);
+                    string? effect = SkillsFor(player).EffectId(placed.Effect);
+                    bool conversion = !placed.Mine && effect == "ConversionTrap";
+                    var trigger = conversion ? ConversionTrapTarget(player, placed, now) : default;
+                    bool nearby = !placed.Mine && (conversion ? trigger.Value is not null
+                        : player.Area.MonstersNear(placed.At, placed.TriggerRadius).Any(m => m.Value is { Hostile: true, Dead: false, Life: > 0 }
+                            && Dist(m.Value.Walk.Position(now), placed.At) <= placed.TriggerRadius));
                     if (!skitter && !nearby && now < placed.DetonateAt) continue;
                     // Scheduling, an unarmed mine, a retired placement and a Skitterbot's detonation are not a
                     // player detonation. Record only this accepted player-chain trigger, even without a hit target.
                     if (placed.Mine && !skitter)
                         player.RecentEvents.Record(StatConditions.DetonatedMine, AreaTime(player));
-                    PlacedDamageLocked(player, placed, now, bytes);
+                    if (conversion) TriggerConversionTrap(player, placed, trigger, now, bytes);
+                    else PlacedDamageLocked(player, placed, now, bytes);
                     PlacedChargesLocked(player, placed, nearby, now);
-                    Console.WriteLine($"[gateway] placed skill 0x{placed.Id:x} {(skitter ? "Skitterbot" : nearby ? "proximity" : "chain")} trigger; rearm={skitter && placed.Mine && SkillsFor(player).EffectId(placed.Effect) != "SmokeMine"}");
-                    if (skitter && placed.Mine && SkillsFor(player).EffectId(placed.Effect) != "SmokeMine")
+                    bool rearm = skitter && placed.Mine && effect != "SmokeMine";
+                    Console.WriteLine($"[gateway] placed skill 0x{placed.Id:x} {(skitter ? "Skitterbot" : nearby ? "proximity" : "chain")} trigger; rearm={rearm}");
+                    if (rearm)
                     {
                         placed.SkitterTriggered = true; placed.DetonateAt = double.PositiveInfinity;
                         player.Placed.All[placed.Id] = placed with { Armed = now + .5 };

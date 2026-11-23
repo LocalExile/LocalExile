@@ -20,6 +20,8 @@ using GameServer.Core.Protocol.Instance;
 /// </summary>
 public static class StatConditions
 {
+    public const string UsingPride = "using_pride";
+
     /// <summary>What the server can say about a stat's condition.</summary>
     public enum State
     {
@@ -62,6 +64,8 @@ public static class StatConditions
         "accuracy_rating_while_dual_wielding_+%",
         "add_frenzy_charge_on_kill_%_chance_while_dual_wielding",
         "attack_speed_while_dual_wielding_+%",
+        "consecrated_ground_enemy_damage_taken_+%_while_affected_by_zealotry",
+        "gain_arcane_surge_for_4_seconds_when_you_create_consecrated_ground_while_affected_by_zealotry",
         "block_while_dual_wielding_%",
         "block_while_dual_wielding_claws_%",
         "critical_strike_chance_while_dual_wielding_+%",
@@ -177,8 +181,20 @@ public static class StatConditions
         return name.Length > 0 && name.All(c => c is >= 'a' and <= 'z' or >= '0' and <= '9' or '_') ? (at, suffix) : null;
     }
 
+    // These Watcher's Eye stat IDs encode the caster's active Pride, which is an aura on enemies.
+    static string? PrideStat(string statId) => statId switch
+    {
+        "pride_chance_to_deal_double_damage_%" => "chance_to_deal_double_damage_%",
+        "pride_intimidate_enemy_for_4_seconds_on_hit" => "intimidate_enemies_on_hit",
+        "pride_physical_damage_+%" => "physical_damage_+%",
+        "pride_chance_to_impale_with_attacks_%" => "attacks_impale_on_hit_%_chance",
+        "pride_your_impaled_debuff_lasts_+_additional_hits" => "impaled_debuff_number_of_reflected_hits",
+        _ => null,
+    };
+
     static string? ParsePlainName(string statId)
     {
+        if (PrideStat(statId) is { } pride) return pride;
         var property = EquipmentPropertyThresholdId.Match(statId);
         if (property.Success)
         {
@@ -290,6 +306,7 @@ public static class StatConditions
         // Table spellings shared by several conditional rolls, mapped to the existing unconditional consumer.
         plain = plain switch
         {
+            "attack_skills_damage_+%" => "attack_damage_+%",
             "evasion_+%" => "evasion_rating_+%",
             // The tree spells the global one without "global" on its conditional rows (Staff Mastery's "30% increased
             // Defences while wielding a Staff"); the pools read global_defences_+% for armour, evasion, ES and ward.
@@ -321,6 +338,8 @@ public static class StatConditions
             "critical_strike_multiplier_+" or "global_critical_strike_multiplier_+" => "base_critical_strike_multiplier_+",
             "critical_strike_multiplier_+%" => "base_critical_strike_multiplier_+",
             "cooldown_recovery_+%" => "base_cooldown_speed_+%",
+            "debuff_time_passed_-%" => "debuff_time_passed_+%",
+            "recover_10%_mana_on_skill_use_%_chance" => "recover_10%_of_maximum_mana_on_skill_use_%",
             "gain_frenzy_charge_on_hit_%" => "add_frenzy_charge_on_skill_hit_%",
             "hits_ignore_enemy_fire_resistance" => "virtual_hits_ignore_enemy_fire_resistance",
             "hits_ignore_enemy_chaos_resistance" => "virtual_hits_ignore_enemy_chaos_resistance",
@@ -333,7 +352,9 @@ public static class StatConditions
             "physical_damage_%_to_gain_as_chaos" => "physical_damage_%_to_add_as_chaos",
             "physical_damage_%_to_add_as_fire_damage" => "physical_damage_%_to_add_as_fire",
             "physical_damage_%_to_add_as_lightning_damage" => "physical_damage_%_to_add_as_lightning",
-            "fire_penetration_%" => "base_reduce_enemy_fire_resistance_%",
+            "fire_penetration_%" or "reduce_enemy_fire_resistance_%" => "base_reduce_enemy_fire_resistance_%",
+            "reduce_enemy_cold_resistance_%" => "base_reduce_enemy_cold_resistance_%",
+            "reduce_enemy_lightning_resistance_%" => "base_reduce_enemy_lightning_resistance_%",
             "elemental_penetration_%" => "base_penetrate_elemental_resistances_%",
             "block_%" => "additional_block_%",
             "chance_to_deal_triple_damage_%" => "base_chance_to_deal_triple_damage_%",
@@ -439,7 +460,7 @@ public static class StatConditions
 
     public static int ValueForFold(string statId, int value) => PlainOf(statId) switch
     {
-        "extra_damage_taken_from_crit_+%" => ActorScale.Saturate(-(long)value),
+        "extra_damage_taken_from_crit_+%" or "debuff_time_passed_-%" => ActorScale.Saturate(-(long)value),
         "intimidate_enemies_on_hit" or "inflict_withered_for_2_seconds_on_hit" or "inflict_fire_exposure"
             or "inflict_cold_exposure" or "inflict_lightning_exposure" => value == 0 ? 0 : 100,
         _ => value,
@@ -557,6 +578,9 @@ public static class StatConditions
 
     static Func<Subject, State> ParseKnownCondition(string statId)
     {
+        if (PrideStat(statId) is not null)
+            return static subject => subject.Flags is { } flags && flags.TryGetValue(UsingPride, out bool active)
+                ? active ? State.Holds : State.Fails : State.NotModelled;
         var property = EquipmentPropertyThresholdId.Match(statId);
         if (property.Success)
         {
@@ -787,7 +811,8 @@ public static class StatConditions
         new(@"_if_(?:other_ring_is_(?:shaper|elder)_item|(?:left|right)_ring_is_magic_item)$", System.Text.RegularExpressions.RegexOptions.Compiled);
 
     // These table-local values describe a relationship to the source, then project onto the recipient's stats.
-    public static bool SourceLocalCondition(string id) => RingConditionId.IsMatch(id)
+    public static bool SourceLocalCondition(string id) => id == "spell_chance_to_shock_frozen_enemies_%"
+        || RingConditionId.IsMatch(id)
         && id.Contains("_if_other_ring_", StringComparison.Ordinal);
 
     static State And(State left, State right) => left is State.Fails || right is State.Fails ? State.Fails

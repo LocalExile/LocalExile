@@ -9,6 +9,10 @@ public static partial class Game
         int Get(uint key) => stats.GetValueOrDefault(key);
         PresentStats(player);
         RecoveryRatesChanged(player);
+        double now = AreaTime(player);
+        FortificationOf(player).SetExpiryRate(now, RecipientEffectTime.Rate(1, Get));
+        player.UtilityFlaskEffects.SetExpiryRate(now, RecipientEffectTime.Rate(16, Get));
+        player.EnergyShield.SetRechargeProtection(Get(Stat.KeystoneWickedWard) != 0 ? RecentlySeconds : 0);
         // A periodic charge gain's stat may have come (ChargeSession.Observe): the charges ticker runs while it has work.
         WakeCharges(player);
         WakeFootsteps(player);
