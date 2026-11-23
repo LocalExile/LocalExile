@@ -39,6 +39,8 @@ public static partial class Game
         if (ArcaneSurgeSpellMore is var arcane) caster.Remove(arcane);
         // "Gain Arcane Surge when you deal a Critical Strike": the owner's critical strikes, not his totems'.
         caster.Remove(Stat.GainArcaneSurgeOnCritPctChance);
+        // "Curse Enemies with <Hex> on Hit" is the owner's hits too.
+        foreach (var (stat, _) in ItemCurseOnHitStats) caster.Remove(stat);
         return caster;
     }
 
