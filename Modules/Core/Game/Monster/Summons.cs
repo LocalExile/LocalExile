@@ -1,5 +1,6 @@
 using System.Net.Sockets;
 using System.Text.Json;
+using GameServer.Core;
 using GameServer.Core.Protocol.Instance;
 using GameServer.Core.Protocol.Login;
 
@@ -8,6 +9,8 @@ public static partial class Game
     public static SummonCatalog SummonData = null!;
     const string SummonSaveKey = "Game.SummonedMinions";
     const string GuardianSaveKey = "Game.AnimatedGuardianEquipment";
+    static readonly Lazy<Dictionary<int, int>> SpectreOverrides = new(() =>
+        ClientTables.TableOrEmpty("SpectreOverrides").ToDictionary(row => row.Int("Monster"), row => row.Int("Spectre")));
 
     public static void SaveSummons(Player player)
     {
@@ -98,6 +101,11 @@ public static partial class Game
         return player.Area.Monsters.Values.Where(Allowed).Where(m => Dist(m.Walk.Position(AreaTime(player)), aim) <= radius)
             .MinBy(m => Dist(m.Walk.Position(AreaTime(player)), aim));
     }
+
+    // The living actor uses the raised body's row, including the old saves that recorded the ordinary monster's row.
+    static MonsterCatalog.Variety RaisedSpectreVariety(MonsterCatalog.Variety corpse) =>
+        SpectreOverrides.Value.TryGetValue(corpse.Row, out int row) && (uint)row < (uint)Monsters.All.Count
+            ? Monsters.All[row] : corpse;
 
     internal static int SummonCount(SummonCatalog.Definition definition, SupportedGem gem, Random random)
     {
@@ -192,13 +200,14 @@ public static partial class Game
         if (limit < 1) return 0;
         if (resources is { Life: 0 } || legacyArrival && (!double.IsFinite(life) || life <= 0)) return 0;
         SpawnedMonster? corpse = consumedCorpse;
+        MonsterCatalog.Variety? corpseVariety = null;
         AnimatedSource? animated = null;
         string path = restoredVariety ?? definition.Variety;
         if (restoredVariety is null && definition.Corpse)
         {
             corpse = SummonCorpse(player, aim, target);
             if (corpse is null) return 0;
-            if (definition.Family == "Spectre") path = corpse.Variety!.Id;
+            if (definition.Family == "Spectre") corpseVariety = corpse.Variety;
             aim = corpse.Walk.Position(AreaTime(player));
         }
         if (definition.Family is "AnimatedWeapon" or "VaalAnimatedWeapon" or "AnimatedGuardian" or "Clone")
@@ -216,7 +225,13 @@ public static partial class Game
             path = "Metadata/Monsters/Clone/" + (player.Character.ClassRow switch { 0 => "Marauder", 1 => "Witch", 2 => "Scion", 3 => "Ranger", 4 => "Duelist", 5 => "Shadow", _ => "Templar" })
                 + "CloneImmobile" + variant + (player.Character.ClassRow == 2 && variant.Length > 0 ? "__" : "");
         }
-        if (Monsters.Find(path) is not { Supported: true } variety) return 0;
+        var variety = corpseVariety ?? Monsters.Find(path);
+        if (definition.Family == "Spectre" && variety is not null)
+        {
+            variety = RaisedSpectreVariety(variety);
+            path = variety.Id;
+        }
+        if (variety is not { Supported: true }) return 0;
         int actorLevel = GolemStat(gem.Stats, definition.Family == "Spectre" ? Stat.RaisedSpectreLevel : Stat.BaseDisplayMinionActorLevel);
         if (actorLevel <= 0 && (definition.Family.StartsWith("Dominating", StringComparison.Ordinal) || definition.Family == "VaalDomination"))
             actorLevel = SkillsFor(player).PlayerLevelReq(gem.Effect, gem.Level);
