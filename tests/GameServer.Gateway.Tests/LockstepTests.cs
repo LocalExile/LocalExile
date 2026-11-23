@@ -469,4 +469,80 @@ public class LockstepTests : IDisposable
         Assert.Null(skill.ChannelReleased());
         Assert.True(skill.Due(free: true));
     }
+
+    [Fact]
+    public void Close_range_held_move_continues_smoothly_and_nimis_randomizes_attack_volleys()
+    {
+        // Close-range held Move (4 cells left) must project from here when LockstepClientCell lags behind or the
+        // short walk is about to finish within 2 frames, and stop cleanly once released or held on feet.
+        var player = new Player(new(1, "close-hold", 300, 300, 100, 100, null, []), 1, 1)
+        {
+            Connection = { LockstepClient = true }
+        };
+        player.LockstepHold.Press((96, 100), 0x2909, 0x0400, (-4, 0));
+        Assert.Equal((96, 100), Game.LockstepMoveDue(player, 0));
+        player.Walk.Order(96, 100, 0);
+        // 66 ms in: walk finishes at ~108 ms (within 2 frames of 66 ms) -> seamlessly projects (-4, 0) from here.
+        var extended = Game.LockstepMoveDue(player, 0.066);
+        Assert.NotNull(extended);
+        var here = player.Walk.Position(0.066);
+        Assert.Equal((here.X - 4, here.Y), extended.Value);
+        // Lagged 0x192 whose target (98, 100) lands within 2 cells of here still projects (-4, 0) from here.
+        player.LockstepHold.Update((here.X - 1, here.Y), (-4, 0));
+        Assert.Equal((here.X - 4, here.Y), Game.LockstepMoveDue(player, 0.066));
+        // Cursor moved directly onto feet (< 3 cells) stops cleanly.
+        player.LockstepHold.Update((here.X - 1, here.Y), (-1, 0));
+        Assert.Null(Game.LockstepMoveDue(player, 0.066));
+        // Releasing clears offset and stops cleanly.
+        player.LockstepHold.Update((here.X - 4, here.Y), (-4, 0));
+        player.LockstepHold.Release();
+        Assert.Null(player.LockstepHold.Offset);
+        Assert.Equal((here.X - 4, here.Y), Game.LockstepMoveDue(player, 0.066));
+        Assert.Null(Game.LockstepMoveDue(player, 0.066));
+
+        // Nimis (random_projectile_direction) randomizes non-ClientPredicted attack volleys using the client's
+        // seeded angles, and IceShot is natively client-drawn so no duplicate server arrow is spawned.
+        var baseProfile = new GameServer.Core.Projectiles.ProjectileProfile("ice-arrow")
+        {
+            Count = 5, Speed = 326, Range = 150, Lifetime = GameServer.Core.Projectiles.ProjectileRuntime.Time(2)
+        };
+        var randomized = Game.NativeVolley(baseProfile, key => key == Stat.RandomProjectileDirection ? 1 : 0,
+            sequence: 7, aim: new(20, 0), emitter: 0x1000);
+        Assert.NotNull(randomized.NativeVolley?.Angles);
+        Assert.Equal(Game.RandomVolleyAngles(7, 5, 0x1000, new(20, 0)), randomized.NativeVolley!.Angles);
+        Assert.True(Game.ClientDrawsPrimaryProjectile(predicted: false, "IceShot"));
+
+        // 1:1 3.29.3c spawn forward offset (0x141ba7840 -> 0x141ba7c30): default 30 world units (~2.76 cells),
+        // zero when projectiles_not_offset / trap / mine, override when set, contact offset only if stat 0x1230 != 0.
+        var bowContact = new ContactPoint(0, -60f, -125f);
+        Assert.Equal(30.0 / WorldUnits.PerCell, Game.NativeProjectileForwardCells(_ => 0, bowContact), 6);
+        Assert.Equal(0, Game.NativeProjectileForwardCells(k => k == Stat.ProjectilesNotOffset ? 1 : 0, bowContact));
+        Assert.Equal(0, Game.NativeProjectileForwardCells(k => k == Stat.IsTrapObject ? 1 : 0, bowContact));
+        Assert.Equal(0, Game.NativeProjectileForwardCells(k => k == Stat.IsRemoteMine ? 1 : 0, bowContact));
+        Assert.Equal(50.0 / WorldUnits.PerCell, Game.NativeProjectileForwardCells(
+            k => k == Stat.ProjectileFiringForwardDistanceOverride ? 50 : 0, bowContact), 6);
+        Assert.Equal(bowContact.ForwardCells, Game.NativeProjectileForwardCells(
+            k => k == Stat.ProjectileUsesContactPosition ? 1 : 0, bowContact), 6);
+
+        // 1:1 3.29.3c 3D sloped height ray (0x141bac460 / 0x141bb31a0 / 0x141bb5570 / 0x141e35a50):
+        // Walkable rising slope (0 -> +20 over 10 cells) never blocks an uphill arrow; flat shot at cliff base blocks
+        // when (int)projSteps < terrain (16 < 23); aiming at cliff top clears it; return preserves turnaround Z and slopes
+        // by (terrain(anchor) - terrain(turnaround)) / dist.
+        int? Ramp(int x, int _) => Math.Clamp(x * 2, 0, 20);
+        var uphill = ProjectileAimHeight.Primary(new(0, 0), new(10, 0), launchSteps: 16, Ramp);
+        Assert.NotNull(uphill);
+        for (int x = 0; x <= 10; x++) Assert.False(uphill!.Value.Blocks(x, 0, Ramp));
+        Assert.Equal(36, uphill!.Value.MarkerAt(new(10, 0)).Marker);
+
+        int? Cliff(int x, int _) => x >= 10 ? 23 : 0;
+        var flatAtBase = ProjectileAimHeight.Primary(new(0, 0), new(8, 0), launchSteps: 16, Cliff);
+        Assert.True(flatAtBase!.Value.Blocks(10, 0, Cliff));
+        var aimedAtTop = ProjectileAimHeight.Primary(new(0, 0), new(10, 0), launchSteps: 16, Cliff);
+        Assert.False(aimedAtTop!.Value.Blocks(10, 0, Cliff));
+
+        int? OceanAndBeach(int x, int _) => x >= 20 ? -15 : 0;
+        var returning = ProjectileAimHeight.Return(new(20, 0), new(0, 0), currentSteps: 10, OceanAndBeach);
+        Assert.NotNull(returning);
+        Assert.Equal(25, returning!.Value.MarkerAt(new(0, 0)).Marker);
+    }
 }

@@ -19,6 +19,9 @@ public sealed class WorldObject
     public readonly WorldOutput Owner;
     public BirthState State;
     public bool RemovalRequested;
+    /// <summary>Whether this object's create was admitted/written through this connection's own output rather than only
+    /// marked ready via shared AreaDelta (which may drain before a newly-joining client receives its first frame).</summary>
+    public bool Direct;
     public readonly TaskCompletionSource<bool> Invalidated = new(TaskCreationOptions.RunContinuationsAsynchronously);
     public readonly TaskCompletionSource<bool> Removal = new(TaskCreationOptions.RunContinuationsAsynchronously);
     public readonly TaskCompletionSource<bool> Birth = new(TaskCreationOptions.RunContinuationsAsynchronously);
@@ -169,7 +172,7 @@ public sealed class WorldOutput
         {
             ObjectDisposedException.ThrowIf(closed, this);
             if (objects.ContainsKey(id)) throw new InvalidOperationException("World object ID already has an incarnation.");
-            var established = new WorldObject(this, id, true); objects.Add(id, established); return established;
+            var established = new WorldObject(this, id, true) { Direct = true }; objects.Add(id, established); return established;
         }
     }
     /// <summary>Whether the id has an incarnation in this output: a create reserved, admitted or published. One without
@@ -178,6 +181,12 @@ public sealed class WorldOutput
     public bool Has(uint id)
     {
         lock (sync) return objects.ContainsKey(id);
+    }
+
+    /// <summary>Whether this connection's own output has admitted or written a create for <paramref name="id"/>.</summary>
+    public bool HasDirect(uint id)
+    {
+        lock (sync) return objects.TryGetValue(id, out var target) && target.Direct;
     }
 
     // The caller identifies an already published object. A pending birth is returned as pending, never bypassed.
@@ -355,7 +364,7 @@ public sealed class WorldOutput
                     }
                 }
             }
-            foreach (var birth in births) { birth.State = WorldObject.BirthState.Admitted; birth.CreationFrame = framed ? number : null; }
+            foreach (var birth in births) { birth.State = WorldObject.BirthState.Admitted; birth.Direct = true; birth.CreationFrame = framed ? number : null; }
             foreach (var target in removing) { target.RemovalRequested = true; target.Invalidated.TrySetResult(false); }
             List<Packet> immediate = [];
             foreach (var record in records)
