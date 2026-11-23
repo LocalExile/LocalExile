@@ -790,7 +790,7 @@ public static partial class Game
         double castAt = AreaTime(player);
         int castAction = 0;
         (int X, int Y) aim = default, stand = default, landing = default;
-        int chargeBonus = gem.Name is null ? 0 : ShieldChargeBonusPct(player, use.SkillId, gem.Effect), chargeToken = 0;
+        int chargeBonus = gem.Name is null ? 0 : ShieldChargeBonusPct(player, use.SkillId, gem.Effect);
         bool moves = gem.Name is not null && chargeBonus == 0 && LandsAtAim(player, gem.Effect);
         if (gem.Name is not null && IsDashEffect(SkillsFor(player).EffectId(gem.Effect)))
         {
@@ -844,13 +844,12 @@ public static partial class Game
             else player.Walk.Order(stand.X, stand.Y, castAt);
             // A movement skill aimed at a monster travels as one aimed at the ground does.
             if (leap is not null) CommitLeapSlam(player, leap);
-            else if (chargeBonus != 0) chargeToken = BeginShieldCharge(player, use.SkillId, chargeBonus, aim.X, aim.Y, castAt);
             else if (flicker && flickerTo is { } to)
             {
                 (aim, landing, flickers, struckId) = (to.At, to.Landing, true, to.Id);
                 player.Walk.Teleport(landing.X, landing.Y, castAt);
             }
-            else if (moves)
+            else if (moves && chargeBonus == 0)
             {
                 landing = MovementLanding(player, gem.Effect, stand, aim, use.SkillId, use.Flags);
                 player.Walk.Teleport(landing.X, landing.Y, castAt);
@@ -870,8 +869,6 @@ public static partial class Game
             if (noFlickerTarget) await FlickerRefused(player, gem.Name!);
             return;
         }
-        if (chargeToken != 0) _ = RunShieldCharge(player, chargeToken, player.Walk.ArrivesAt,
-            use.SkillId, use.Sequence, spellUse?.ActionToken ?? castAction, spellUse);
         bool spellAcknowledged = false;
         bool spellProjectileRuntime = UsesProjectileRuntime(gem.Effect) || leapSkill;
         double? immediateSwingAt = leap?.At ?? (immediateAttack ? castAt : null);
@@ -1759,8 +1756,6 @@ public static partial class Game
             });
             return Task.CompletedTask;
         }
-        // Shield Charge hits along its own walk and where it ends (RunShieldCharge), not once where it started.
-        if (ShieldChargeBonusPct(player, skillId, gem.Effect) != 0) return Task.CompletedTask;
         // Winter Orb's orb fires its own volleys while the channel runs (WinterOrb.cs), not once at the cast.
         if (IsWinterOrb(gem.Effect)) return Task.CompletedTask;
         // Snipe charges stages while channelling and fires on release (Snipe.cs), not at channel start.
@@ -1768,6 +1763,14 @@ public static partial class Game
         bool cryExerted;
         cryExerted = ConsumeIntimidatingCryExertLocked(player,
             channelGeneration is null && IntimidatingCryCanExert(player, skillId, gem.Effect));
+        // The paid charge owns one exertion decision for every path hit and its landing.
+        int chargeBonus = ShieldChargeBonusPct(player, skillId, gem.Effect);
+        if (chargeBonus != 0)
+        {
+            int token = BeginShieldCharge(player, skillId, chargeBonus, to.X, to.Y, AreaTime(player));
+            return RunShieldCharge(player, token, player.Walk.ArrivesAt, skillId, sequence,
+                actionToken ?? player.ActionCount, cooldownUse, cryExerted);
+        }
         criticalRoll ??= CaptureSkillCriticalRoll(player, skillId);
         if (GatewayProjectileSkillProfiles.IsMoltenStrike(SkillsFor(player).EffectId(gem.Effect)))
             return ScheduleMoltenStrike(player, skillId, gem, from, to, recoveryGeneration,
