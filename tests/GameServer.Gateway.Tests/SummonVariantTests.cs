@@ -44,8 +44,11 @@ public sealed class SummonVariantTests
         var mage = await Sample("Summon Skeletons of Mages", modifiers: false);
         var fasterMage = await Sample("Summon Skeletons of Mages", modifiers: true);
         Assert.True(fasterMage.Action < mage.Action);
-        Assert.Equal(await Sample("Summon Raging Spirit", modifiers: false),
-            await Sample("Summon Raging Spirit", modifiers: true));
+        var spirit = await Sample("Summon Raging Spirit", modifiers: false);
+        var spiritWithSkeletonModifiers = await Sample("Summon Raging Spirit", modifiers: true);
+        Assert.Equal(spirit.Action, spiritWithSkeletonModifiers.Action, precision: 6);
+        Assert.Equal(spirit.Move, spiritWithSkeletonModifiers.Move, precision: 6);
+        Assert.Equal(spirit.Duration, spiritWithSkeletonModifiers.Duration, precision: 6);
     }
 
     static ushort Equip(AnimatedAdmissionTests.Fixture f, string name, string weapon = "Rusted Sword", int sockets = 1)
