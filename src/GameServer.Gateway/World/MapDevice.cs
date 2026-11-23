@@ -34,6 +34,9 @@ public sealed class MapDevice
         /// <summary>The area level: the WorldAreas level for old area-named maps, or the map tier's level for generic
         /// maps. 0 leaves the client's own WorldAreas level in place.</summary>
         public int Level { get; init; }
+
+        /// <summary>Whether a map device run for this area uses the owner's Atlas stats.</summary>
+        public bool UsesAtlas { get; init; } = true;
     }
 
     private readonly Dictionary<uint, MapArea> _byItemType;
@@ -172,7 +175,28 @@ public sealed class MapDevice
             if (area is null && _atlas?.TierOf(maps[0].TypeHash) is int tier)
             {
                 if (_atlas.Selected(character) is { } layout)
-                    area = new(layout.Hash16, layout.Id, layout.Name, tier) { Level = MapLevel(tier) };
+                {
+                    int level;
+                    if (layout.RequiresSpecificItem)
+                    {
+                        if (layout.RequiredKeyHash is not uint required || maps[0].TypeHash != required)
+                        {
+                            why = $"{layout.Name} requires its own map item.";
+                            return null;
+                        }
+                        level = Math.Max(MapLevel(tier), layout.AreaLevel);
+                    }
+                    else
+                    {
+                        if (_atlas.IsSpecialKey(maps[0].TypeHash))
+                        {
+                            why = $"{maps[0].Name} cannot be used on {layout.Name}.";
+                            return null;
+                        }
+                        level = MapLevel(tier);
+                    }
+                    area = new(layout.Hash16, layout.Id, layout.Name, tier) { Level = level };
+                }
                 else
                 {
                     why = "No Atlas layout is available: extract AtlasNode.dat and WorldAreas.dat.";
@@ -223,7 +247,8 @@ public sealed class MapDevice
     /// last portal is taken or the owner opens another map, and guests see the same one.</summary>
     public sealed record Run(string Owner, MapArea Area, MapMods Mods, int ItemRow = 0, Origin? ReturnTo = null)
     {
-        public static Run Of(string owner, OpenMap map) => new(owner, map.Area, map.Mods, map.ItemRow, map.ReturnTo);
+        public static Run Of(string owner, OpenMap map) =>
+            new(owner, map.Area, map.Mods, map.ItemRow, map.ReturnTo) { Atlas = map.Area.UsesAtlas };
 
         /// <summary>The run is an Atlas map: the atlas tree, the tier block and the device stats apply. False for a run a
         /// module starts with its own mods (only those mods' stats apply).</summary>

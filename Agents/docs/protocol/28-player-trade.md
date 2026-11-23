@@ -139,6 +139,7 @@ Invite, accept and leave work. The Social module keeps human and module-owned pa
   already disconnected cleans up the stale invite and sends `0xaa` instead of throwing on a disposed socket; true
   disconnects (`DisconnectHuman`) remove the member from parties and cancel pending invites while preserving area-change
   rebinds.
+- **Party votes and PvP queue.** Party bandit votes (`HUD +0x4e8`, `VoteType.dat` / `VoteState.dat`, S→C `0xbe` / C→S `0xbd`) and the PvP queue bar (`HUD +0x4b0`, S→C `0x118` / `0x119`, C→S `0x11a` / `0x18d`) are documented in [30](30-hud-signals-and-timers.md) §3–§4.
 
 ## 6. Friends, ignore list, status, hideout invites and duels
 
