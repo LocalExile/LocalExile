@@ -439,6 +439,7 @@ public static partial class Game
         bool cryExerted;
         player.RecentEvents.Record(StatConditions.UsedSkill, begun);
         SiphoningSkillUsedLocked(player, begun);
+        SpiritBurstOnSkillUse(player, target, begun);
         cryExerted = ConsumeIntimidatingCryExertLocked(player, weapon.Melee && !ranged);
         PhaseRunOnSkillUse(player, use.SkillId, duration);
         // As GGG does for every action but Move: the client counts unanswered actions and would ask for a resync.
@@ -1016,7 +1017,7 @@ public static partial class Game
             int action = beginAction ? Interlocked.Increment(ref player.ActionCount) : player.ActionCount;
             if (beginAction) player.Walk.Order(from.X, from.Y, acceptedAt);
             player.Walk.Teleport(to.X, to.Y, acceptedAt);
-            RecordAcceptedGemUseAt(player, effect, acceptedAt);
+            RecordAcceptedGemUseAt(player, effect, to, acceptedAt);
             receipt = new(player, CombatLifetime!, skillId, effect, source.Identity, action, player.ProjectileEpoch,
                 acceptedAt, from, to, state, state.UseVersion, manaCost, lifeCost) { SharedUses = sharedUses };
             return true;
@@ -1171,13 +1172,17 @@ public static partial class Game
             }
         }
         if (gem.Name is not null && SkillsFor(player).EffectId(gem.Effect) == ApproachingFlamesEffect)
-            return await ToggleApproachingFlames(player, skillId, Current);
+        {
+            bool accepted = await ToggleApproachingFlames(player, skillId, Current);
+            if (accepted) RecordAcceptedGemUse(player, gem.Effect, to);
+            return accepted;
+        }
         if (gem.Name is not null && SkillsFor(player).EffectId(gem.Effect) == UnhingeEffect)
             return await ToggleUnhinged(player, skillId, gem.Effect, Current);
         if (gem.Name is not null && SkillsFor(player).EffectId(gem.Effect) == MadnessEffect)
         {
             bool accepted = await ToggleMadness(player, skillId, gem.Effect, Current, cooldownUse);
-            if (accepted) RecordAcceptedGemUse(player, gem.Effect);
+            if (accepted) RecordAcceptedGemUse(player, gem.Effect, to);
             return accepted;
         }
         // An attack gem swings with the weapon's attack time, like the default attack (see Attack): while the button is held
@@ -1226,7 +1231,7 @@ public static partial class Game
             else
                 accepted = await ToggleAura(player, skillId, gem.Effect, gem.Name, reservation,
                     SupportedSkill(player, skillId).Level, SupportedSkill(player, skillId).Quality);
-            if (accepted) RecordAcceptedGemUse(player, gem.Effect);
+            if (accepted) RecordAcceptedGemUse(player, gem.Effect, to);
             return accepted;
         }
         (int X, int Y) dashFrom = default, dashTo = default;
@@ -1309,7 +1314,7 @@ public static partial class Game
             return false;
         if (!PlacedCastFamilyCurrent(player, skillId, placedAdmission))
             return false;
-        if (!locationInstant && gem.Name is not null && placedAdmission is null) RecordAcceptedGemUse(player, gem.Effect);
+        if (!locationInstant && gem.Name is not null && placedAdmission is null) RecordAcceptedGemUse(player, gem.Effect, to);
         if (gem.Name is not null) PhaseRunOnSkillUse(player, skillId);
         if (beastCompanion is not null) return true;
         if (channelGeneration is not null)
@@ -1398,13 +1403,14 @@ public static partial class Game
 
     // Record only after payment/cooldown/effect admission. The instant-location path calls this after its own
     // final 0x1ce at-gate commit, so a stale or cancelled Frostblink cannot activate a recent event.
-    static void RecordAcceptedGemUse(Player player, int effect) =>
-        RecordAcceptedGemUseAt(player, effect, AreaTime(player));
+    static void RecordAcceptedGemUse(Player player, int effect, (int X, int Y) aim) =>
+        RecordAcceptedGemUseAt(player, effect, aim, AreaTime(player));
 
-    static void RecordAcceptedGemUseAt(Player player, int effect, double acceptedAt)
+    static void RecordAcceptedGemUseAt(Player player, int effect, (int X, int Y) aim, double acceptedAt)
     {
         player.RecentEvents.Record(StatConditions.UsedSkill, acceptedAt);
         SiphoningSkillUsedLocked(player, acceptedAt);
+        SpiritBurstOnSkillUse(player, aim, acceptedAt);
         bool movement = SkillsFor(player).IsMovement(effect);
         if (movement) player.RecentEvents.Record(StatConditions.UsedMovementSkill, acceptedAt);
         if (movement && IsDashEffect(SkillsFor(player).EffectId(effect)))
@@ -1549,7 +1555,7 @@ public static partial class Game
             });
         if (accepted)
         {
-            RecordAcceptedGemUse(player, gem.Effect);
+            RecordAcceptedGemUse(player, gem.Effect, to);
             if (SkillsFor(player).IsTravel(gem.Effect)) { QueueFlaskTrigger(player, FlaskEnchantments.Trigger.Travel); LoyaltyTravelSkillTriggered(player); }
             await FrostblinkAreas(player, gem, from, to, cooldownUse);
             await SendNativeCooldownRefresh(player);

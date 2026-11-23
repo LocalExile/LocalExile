@@ -394,7 +394,7 @@ public static partial class Game
                     committed = true;
                 }
                 if (!committed) return null;
-                RecordAcceptedGemUse(player, gem.Effect);
+                RecordAcceptedGemUse(player, gem.Effect, clamped);
                 player.Placed.Dirty = true;
                 player.Minions.StatRevision++;
                 ClampReservedResources(player);

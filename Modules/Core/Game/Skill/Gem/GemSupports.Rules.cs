@@ -6,7 +6,14 @@ public static partial class Game
 
     /// <summary>Fills the item-granted skills at startup (the world loader, before the Gateway listens); the Ruthless
     /// set is built with the HardMode data (LoadHardModeData).</summary>
-    public static void LoadWornGrantedSkillsData() => WornGrantedSkillCatalog = new(Skills, Items.Mods);
+    public static void LoadWornGrantedSkillsData() =>
+        WornGrantedSkillCatalog = new(Skills, Items.Mods, legacyGrantMods: LegacyWornGrantMods);
+
+    // Older and generated Lightpoacher items can carry only the display mod. Its companion owns the exact trigger level.
+    static readonly Dictionary<string, string> LegacyWornGrantMods = new()
+    {
+        ["LocalDisplayGrantLevelXSpiritBurstUnique__1"] = "SpiritBurstOnSkillUseUnique",
+    };
 
     static WornGrantedSkills WornGrantedSkillCatalog = default!;
     static WornGrantedSkills RuthlessWornGrantedSkillCatalog = default!;
@@ -32,19 +39,19 @@ public static partial class Game
         WornGrantsFor(player, equipment ?? ItemsOf(player).EquipmentSnapshot());
 
     /// <summary>
-    /// Item-granted active skills with an executor. Twister's exported manual flag is true even though its intrinsic
-    /// trigger owns admission; its Actor row is needed to receive the triggered action. Unsupported grants remain
+    /// Item-granted active skills with an executor. Twister and Spirit Burst have Actor rows for their
+    /// built-in triggers. Unsupported grants remain
     /// available from <see cref="AllWornGrantedSkillsOf"/> but are not presented as usable Actor skills.
     /// </summary>
     public static IReadOnlyList<WornGrantedSkills.Grant> WornGrantedSkillsOf(Player player,
         IReadOnlyList<(byte Row, InventoryItem Item)>? equipment = null)
     {
         equipment ??= ItemsOf(player).EquipmentSnapshot();
-        return [.. AllWornGrantedSkillsOf(player, equipment).Where(g => !g.Support && g.ManuallyCast
+        return [.. AllWornGrantedSkillsOf(player, equipment).Where(g => !g.Support && (g.ManuallyCast || g.EffectId == SpiritBurstEffect)
             && LeagueFor(player).Rules.AllowsGemEffect(g.EffectId)
             && (g.EffectId == UnhingeEffect || g.EffectId == MadnessEffect || IsDashEffect(g.EffectId)
                 || IsSummonBeastialCompanionEffect(g.EffectId) || g.EffectId == TwisterEffect || g.EffectId == CatStealthCryEffect
-                || g.EffectId is SnipeEffect or "DoryanisTouch" or ApproachingFlamesEffect
+                || g.EffectId is SnipeEffect or SpiritBurstEffect or "DoryanisTouch" or ApproachingFlamesEffect
                     or "BearTrap" or "WintertideBrand" or "DecoyTotem" or "Smite" or "Frostblink"
                     or "SummonStoneGolem" or "Convocation" or "EnduringCry" or "IntimidatingCry"
                 || AuraCatalog.Supported(g.EffectId)

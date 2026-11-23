@@ -73,6 +73,7 @@ public static partial class Game
     public static void ChargesOnDeath(Player player)
     {
         ChargesOf(player).Die(); ClearSiphoningOnDeath(player);
+        if (SpiritCharges.TryGetValue(player, out var spirit)) ChangeSpiritCharges(player, spirit, 0, AreaTime(player));
     }
 
     // A hostile monster the player killed (MonsterKilled): its "on kill" gains, "on Killing a Frozen Enemy" too when the
@@ -88,6 +89,7 @@ public static partial class Game
         if (player.TinctureEffects.BurnStacks > 0) TinctureOnKillLocked(player, CharacterPlayerStats(player));
         TryGainElusiveLocked(player, critical: false, kill: true, now);
         ChargesOf(player).Enqueue(new ChargeEvent.Kill(m.Rarity, frozen, poisons));
+        SpiritChargeOnKill(player, AreaTime(player));
         SelfBuffsOnKill(player);
         CurseCharges(player, m, true);
     }

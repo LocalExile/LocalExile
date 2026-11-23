@@ -11,7 +11,7 @@ using GameServer.Core.World;
 /// </summary>
 public enum PlayerStatStep : byte
 {
-    Sources, Siphoning, CryMovement, Golems, Offerings, PanelDefaults, God, Auras, AuraPenetration, CatAspect,
+    Sources, Siphoning, SpiritCharges, CryMovement, Golems, Offerings, PanelDefaults, God, Auras, AuraPenetration, CatAspect,
     AvianCrab, Subscribers, ClassAttributes, OvercapCrit, AttackSpeed, UtilityFlasks, SelfVulnerability,
     Onslaught, VaalPrevention, VaalAura, SpiritLeadership, TotemAura, Rage, Blind, UsingFlask, SoulEater, MaximumPoolItems,
     ActorScale, Recovery, TimedRecovery, TailPanels, Rampage, TailOffence, TailCritical, LeechingDefences, AuraRestriction, AlwaysHit, RecentHits, Ward,
@@ -90,6 +90,7 @@ public static partial class Game
             siphoning = SiphoningRawStatsLocked(player, stats);
             foreach (var (key, value) in siphoning) AddTo(stats, key, value);
         });
+        Step(PlayerStatStep.SpiritCharges, (player, stats, _) => ApplySpiritChargeStats(player, stats));
         Step(PlayerStatStep.CryMovement, (player, stats, _) =>
         {
             if (Stat.BaseMovementVelocityPlusPct is var cryMovement) AddTo(stats, cryMovement, IntimidatingCryMovement(player));
