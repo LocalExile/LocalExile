@@ -435,6 +435,8 @@ public static partial class Game
             write(ItemChargeCosts.ManaEfficiency, ActorScale.Saturate(read(ItemChargeCosts.ManaEfficiency) + conditionalEfficiency));
         if (Stat.ManaCost is var mana && own.TryGetValue(mana, out int baseCost))
             write(mana, ManaRecoveryRules.Cost(baseCost, name => name is var key ? read(key) : 0, channelled, costMore));
+        // "Socketed Movement Skills Cost no Mana": the item's support grants no_mana_cost to the skills it supports.
+        if (own.GetValueOrDefault(Stat.NoManaCost) != 0) write(Stat.ManaCost, 0);
         long nativeLife = own.GetValueOrDefault(Stat.LifeCost);
         int additiveLife = read(Stat.BaseSkillGainLifeCostPctOfManaCost);
         if (additiveLife > 0 && !ManaRecoveryRules.ConvertsManaToLife(read))
