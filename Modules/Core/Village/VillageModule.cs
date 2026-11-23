@@ -1,4 +1,5 @@
 using System.Runtime.CompilerServices;
+using System.Text.Json;
 using GameServer.Core.Protocol.Instance;
 using GameServer.Modding;
 using GameServer.Modules.Village.Mapping;
@@ -102,6 +103,76 @@ public sealed class VillageModule : IModule
 
     /// <summary>The village of a player in the league.</summary>
     public Settlement Of(IPlayer player) => _settlements.GetValue(player, _ => new Settlement());
+
+    /// <summary>Where the farm module writes the town's numbers (its gold, its workers and their jobs, its crops). The
+    /// farm lives in the Game module and the panel is pushed from this one, so the numbers cross in a small file: a file
+    /// rather than a reference, so neither module has to load the other's assembly.</summary>
+    public const string FarmFile = "data/kingsmarch-village.json";
+
+    /// <summary>What the farm file said last, per connection: the settlement is only pushed again when it changes.</summary>
+    static readonly ConditionalWeakTable<IPlayer, string> _farm = new();
+
+    /// <summary>Copies the farm's numbers into the settlement the panel is drawn from.</summary>
+    /// <param name="player">The player whose panel is open.</param>
+    void SyncFarm(IPlayer player)
+    {
+        var file = new FileInfo(FarmFile);
+        if (!file.Exists) return;
+        string text;
+        try
+        {
+            text = File.ReadAllText(FarmFile);
+        }
+        catch (IOException)
+        {
+            // A writer in the middle of replacing it: the next tick reads it again.
+            return;
+        }
+        if (_farm.TryGetValue(player, out string? seen) && seen == text) return;
+        _farm.AddOrUpdate(player, text);
+        JsonDocument doc;
+        try
+        {
+            doc = JsonDocument.Parse(text);
+        }
+        catch (JsonException e)
+        {
+            Console.WriteLine($"[gateway] kingsmarch village file is not JSON: {e.Message}");
+            return;
+        }
+        using (doc)
+        {
+            var root = doc.RootElement;
+            var settlement = Of(player);
+            int version = settlement.Version;
+            if (root.TryGetProperty("gold", out var gold)) settlement.Gold = (uint)Math.Max(0, gold.GetInt64());
+            if (root.TryGetProperty("capacity", out var capacity)) settlement.Capacity = (byte)capacity.GetInt32();
+            settlement.Assignments.Clear();
+            settlement.Ranks.Clear();
+            if (root.TryGetProperty("workers", out var workers))
+            {
+                foreach (var worker in workers.EnumerateArray())
+                {
+                    int row = worker.GetProperty("row").GetInt32();
+                    // A worker with no job is VillageJobs row 0 (its JobType is 0, idling): the panel lists it under
+                    // the idle column rather than dropping it, so the town's population is everyone who was hired.
+                    byte order = (byte)worker.GetProperty("order").GetInt32();
+                    settlement.Assignments[order] = (byte)row;
+                    settlement.Ranks[order] = (byte)Math.Clamp(worker.GetProperty("rank").GetInt32() - 1, 0, 4);
+                }
+            }
+            settlement.Workers = (byte)settlement.Assignments.Count;
+            // The panel's crop counters are VillageResources rows 10..14, in the order the farm grows them.
+            string[] crops = ["Wheat", "Corn", "Pumpkin", "Globulora", "Orbisfera"];
+            if (root.TryGetProperty("crops", out var store))
+            {
+                for (int i = 0; i < crops.Length; i++)
+                    settlement.Resources[10 + i] = store.TryGetProperty(crops[i], out var have) ? (uint)Math.Max(0, have.GetInt32()) : 0;
+            }
+            // The pushes compare this against what the panel already has.
+            settlement.Version = version + 1;
+        }
+    }
 
     /// <summary>The states the client has already been sent, per connection: the file's stamp and what went out.</summary>
     static readonly System.Runtime.CompilerServices.ConditionalWeakTable<IPlayer, string> _sent = new();
@@ -233,8 +304,11 @@ public sealed class VillageModule : IModule
         settlement.StatePushed = settlement.Version;
         long clock = DateTimeOffset.UtcNow.ToUnixTimeSeconds();
         // The block the client reads, in the order its reader 0x1424c8190 takes it: 21 resource counters, 15 production
-        // counters, the gold, one more number, six farm-adjacency markers, three pairs, three named blocks (a u64, the
-        // length of the name, two bytes, the name), a u64, two packed bytes, the village's clock and four packed bytes.
+        // counters, the gold, one more number, six flag bytes, three pairs (the site slot bytes are believed to live here,
+        // one VillageResources row per slot: a zero slot makes the client's label resolver dereference row 0 and fault at
+        // 0x1404f9fa0, but shifting the frame to reach 0xa0 killed the client on entry, so the alignment is still open);
+        // then three named blocks (a u64, the length of the name, two bytes, the name), a u64, two packed bytes, the
+        // village's clock and four packed bytes.
         var payload = new List<byte>(245);
         for (int i = 0; i < 21; i++)
             payload.AddRange(BitConverter.GetBytes(settlement.Resources.GetValueOrDefault(i)));
@@ -378,6 +452,7 @@ public sealed class VillageModule : IModule
         GameEvents.AreaTick.Add(module.Manifest.Id, GameEvents.Always(async (connection, now) =>
         {
             var player = Program.PlayerOf(connection);
+            SyncFarm(player);
             await OpenPort(player);
             await StatePoll(player, now);
             await PushWorkers(player);

@@ -86,6 +86,42 @@ public static class KingsmarchTown
     // has started and its window has been built.
     const string UiFile = "data/kingsmarch-ui.txt";
 
+    /// <summary>What the client's town panel is told about the town. The farm, the workers and the treasury live in this
+    /// module and the panel is pushed by the Village module, so the numbers are handed over in a small file: a file
+    /// rather than a reference, so neither module needs the other's assembly loaded.</summary>
+    const string VillageFile = "data/kingsmarch-village.json";
+
+    /// <summary>When the village file was last written: the town's numbers move every tick, one write a second is enough.</summary>
+    static double _villageAt;
+
+    /// <summary>Writes the town's numbers for the Village module, which pushes them to the panel.</summary>
+    static void PublishVillage(Progress progress)
+    {
+        double now = UtcNow();
+        if (now - _villageAt < 1) return;
+        _villageAt = now;
+        var workers = progress.Workers
+            .Select((w, i) => new { order = i + 1, row = w.Plot is >= 0 and < 6 ? 11 + w.Plot : 0, rank = w.Rank })
+            .ToArray();
+        var file = new
+        {
+            character = progress.Who,
+            gold = KingsmarchPort.Gold(progress.Who),
+            capacity = 90,
+            paid = workers.Count(w => w.row != 0),
+            workers,
+            crops = progress.Store,
+        };
+        try
+        {
+            File.WriteAllText(VillageFile, JsonSerializer.Serialize(file));
+        }
+        catch (IOException)
+        {
+            // A client that is starting up can hold the file for a moment; the next tick writes it again.
+        }
+    }
+
     static byte[] RecordKinds()
     {
         if (!File.Exists(RecordsFile)) return [];
@@ -541,6 +577,7 @@ public static class KingsmarchTown
         await EnsureSettlementRecords(player, progress);
         await EnsureVillageUi(player, progress);
         await ProbeLadder(player, progress, clock);
+        PublishVillage(progress);
         if (!_armed) return;
         if (clock < progress.Ready) return;
         // The boards are the town's buttons and stand on their own: they are created whatever the object limit says, so a

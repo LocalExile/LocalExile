@@ -293,10 +293,11 @@ public sealed class GameModule : IModule, IDisposable
                     { await me.Tell("Kingsmarch: " + KingsmarchPort.Send(me, port, args[2], count)); return; }
                     await me.Tell($"Kingsmarch port: {KingsmarchPort.Report(me)}");
                 });
-            commands.Add("ui", "/ui <kind in hex> [a] [b] [c] [d] (dev: ask the client to open one of its screens)", async args =>
+            commands.Add("kmui", "/kmui <kind in hex> [a] [b] [c] [d] (dev: ask the client to open one of its screens)", async args =>
             {
-                if (args.Length < 1 || !int.TryParse(args[0], out int kind))
-                { await me.Tell("usage: /ui <kind in hex> [a] [b] [c] [d]"); return; }
+                string hex = args.Length > 0 && args[0].StartsWith("0x", StringComparison.OrdinalIgnoreCase) ? args[0][2..] : args.Length > 0 ? args[0] : "";
+                if (!int.TryParse(hex, System.Globalization.NumberStyles.HexNumber, System.Globalization.CultureInfo.InvariantCulture, out int kind))
+                { await me.Tell("usage: /kmui <kind in hex> [a] [b] [c] [d]"); return; }
                 uint[] slot = new uint[4];
                 for (int i = 0; i < 4 && i + 1 < args.Length; i++)
                     uint.TryParse(args[i + 1], out slot[i]);
