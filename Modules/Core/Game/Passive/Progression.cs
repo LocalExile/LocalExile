@@ -274,6 +274,7 @@ public static partial class Game
         var measured = player.RecentEvents.Amounts(conditionNow);
         measured.TryAdd(StatConditions.KilledEnemy, 0);
         measured.TryAdd(StatConditions.SpentMana, 0);
+        measured.TryAdd(StatConditions.UsedWarcry, 0);
         measured[StatConditions.ActiveNonVaalSkillMinionCount] =
             ActiveNonVaalSkillMinionCountLocked(player, conditionNow);
         OwnedCountItemStats.Capture(player, conditionNow, AreaTime(player), measured);

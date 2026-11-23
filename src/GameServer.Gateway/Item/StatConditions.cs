@@ -832,7 +832,7 @@ public static class StatConditions
         : left is State.Holds || right is State.Holds ? State.Holds : State.None;
 
     static readonly System.Text.RegularExpressions.Regex RecentAmountId =
-        new(@"_per_(?:(?<unit>\d+)_)?(?<event>enemy_killed|mana_spent)_recently(?:_up_to_(?<cap>\d+)%)?$", System.Text.RegularExpressions.RegexOptions.Compiled);
+        new(@"_per_(?:(?<unit>\d+)_)?(?<event>enemy_killed|mana_spent|warcry_used)_recently(?:_up_to_(?<cap>\d+)%)?$", System.Text.RegularExpressions.RegexOptions.Compiled);
 
     public static bool TryRecentAmount(string id, out string key, out long unit, out int? cap)
     {
@@ -845,7 +845,12 @@ public static class StatConditions
             if (!int.TryParse(match.Groups["cap"].Value, out int maximum)) return false;
             cap = maximum;
         }
-        key = match.Groups["event"].Value == "enemy_killed" ? KilledEnemy : SpentMana;
+        key = match.Groups["event"].Value switch
+        {
+            "enemy_killed" => KilledEnemy,
+            "warcry_used" => UsedWarcry,
+            _ => SpentMana,
+        };
         return true;
     }
 

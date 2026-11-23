@@ -166,8 +166,11 @@ public static partial class Game
     public static async Task WarcryReleased(Player player,
         (int X, int Y) at, int radius, int epoch)
     {
-        if (!player.ProjectileActive(epoch) || player.PlayerLife == 0) return;
-        player.RecentEvents.Record(StatConditions.UsedWarcry, ProjectileWorldTime(player));
+        using (ProjectileMutation(player, advance: false))
+        {
+            if (!player.ProjectileActive(epoch) || player.PlayerLife == 0) return;
+            player.RecentEvents.RecordAmount(StatConditions.UsedWarcry, ProjectileWorldTime(player));
+        }
         var stats = AreaPlayerStats(player);
         int Get(uint key) => stats.GetValueOrDefault(key);
         if (Get(CorpseExplosionStat) is int percent and > 0)
