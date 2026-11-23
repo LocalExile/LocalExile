@@ -128,6 +128,7 @@ public static class PietyLunarisEncounter
             var entry = runner.Area.Monsters.FirstOrDefault(p => p.Value.Hostile && p.Value.Variety?.Id == Boss);
             if (entry.Value is not { } boss)
             {
+                if (!runner.MonstersPlaced) return;
                 if (initialized && !cleaned) await Cleanup(runner, 0, null);
                 return;
             }
@@ -136,6 +137,7 @@ public static class PietyLunarisEncounter
                 // Re-bound after portal re-entry / SavedMonster restore: reset transient form state cleanly.
                 bossId = entry.Key;
                 form = Form.Normal;
+                if (Alive(boss)) cleaned = false;
             }
 
             if (!Alive(boss))

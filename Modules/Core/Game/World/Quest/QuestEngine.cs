@@ -805,8 +805,8 @@ public static partial class Game
             ("Metadata/Monsters/Skeletons/SkeletonMelee2Black2", 4, -3),
             ("Metadata/Monsters/Skeletons/SkeletonMelee2Black", -4, 3),
             ("Metadata/Monsters/Skeletons/SkeletonMelee2Black2", 4, 3),
-            ("Metadata/Monsters/Skeletons/SkeletonBlackCaster1_", 0, -5),
-            ("Metadata/Monsters/Skeletons/SkeletonBlackCaster1_", 0, 5),
+            ("Metadata/Monsters/Skeletons/SkeletonCasterBlack", 0, -5),
+            ("Metadata/Monsters/Skeletons/SkeletonCasterBlack", 0, 5),
         ];
         foreach (var (varietyId, dx, dy) in ambush)
         {

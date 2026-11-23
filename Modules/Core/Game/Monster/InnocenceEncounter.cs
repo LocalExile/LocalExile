@@ -201,12 +201,13 @@ public static class InnocenceEncounter
                 await EnsureDormantStatues(runner, bossId, boss.Level, pos);
                 if (activeStatueIndex is >= 0 and < 4)
                 {
-                    // Restored from SavedMonsters mid-statue phase: ensure targetable guardian exists.
+                    // Restored from SavedMonsters mid-statue phase: keep LifePhases synchronized so phases.Begin
+                    // does not trigger a second AnimateStatue call, and ensure one targetable guardian exists.
+                    if (!boss.LifePhases.Active)
+                        boss.LifePhases.Begin(0, 1);
+                    SetInvulnerable(runner, bossId, boss, true, CannotBeDamagedBuff);
                     if (activeGuardianId == 0 || !runner.Area.Monsters.TryGetValue(activeGuardianId, out var g) || !Alive(g))
-                    {
-                        SetInvulnerable(runner, bossId, boss, true, CannotBeDamagedBuff);
                         await AnimateStatue(runner, bossId, boss.Level, activeStatueIndex);
-                    }
                 }
             }
 
@@ -218,22 +219,7 @@ public static class InnocenceEncounter
                 Console.WriteLine($"[gateway] Innocence controller active for 0x{bossId:x} with 4 statue phases");
             }
 
-            var target = NearestLivingTarget(runner, pos, now, maxRange: 135, awakeId: bossId);
-            if (target is null) return;
-
             var phases = boss.LifePhases;
-            if (!phases.Active && phases.Completed < 4 && phases.Begin(boss.Life, boss.MaxLife))
-            {
-                activeStatueIndex = phases.Completed;
-                activeBeam = null;
-                activeNova = null;
-                SetInvulnerable(runner, bossId, boss, true, CannotBeDamagedBuff);
-                boss.Walk.Teleport(arenaMiddle.X, arenaMiddle.Y, now);
-                await SendWorldRecord(runner, bossId, InstanceProtocol.Teleport(bossId, arenaMiddle.X, arenaMiddle.Y), null);
-                await SpawnTimedEffect(runner, effects, arenaMiddle, ActivateStatuesArt, now + 2.2, scale: 1.2f);
-                await AnimateStatue(runner, bossId, boss.Level, activeStatueIndex);
-            }
-
             if (phases.Active)
             {
                 bool guardianDead = activeGuardianId == 0
@@ -254,6 +240,22 @@ public static class InnocenceEncounter
             // Safety guarantee: never leave Innocence invulnerable outside an active statue phase.
             if (boss.Effects[Stat.BaseCannotBeDamaged] != 0)
                 SetInvulnerable(runner, bossId, boss, false, CannotBeDamagedBuff);
+
+            var target = NearestLivingTarget(runner, pos, now, maxRange: 135, awakeId: bossId);
+            if (target is null) return;
+
+            if (!phases.Active && phases.Completed < 4 && phases.Begin(boss.Life, boss.MaxLife))
+            {
+                activeStatueIndex = phases.Completed;
+                activeBeam = null;
+                activeNova = null;
+                SetInvulnerable(runner, bossId, boss, true, CannotBeDamagedBuff);
+                boss.Walk.Teleport(arenaMiddle.X, arenaMiddle.Y, now);
+                await SendWorldRecord(runner, bossId, InstanceProtocol.Teleport(bossId, arenaMiddle.X, arenaMiddle.Y), null);
+                await SpawnTimedEffect(runner, effects, arenaMiddle, ActivateStatuesArt, now + 2.2, scale: 1.2f);
+                await AnimateStatue(runner, bossId, boss.Level, activeStatueIndex);
+                return;
+            }
 
             await StepBeam(runner, now);
             await StepBulletHell(runner, now);

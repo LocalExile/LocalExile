@@ -298,24 +298,15 @@ public static class MalachaiEncounter
                 await EnsureRemainingHearts(runner, bossId, boss, pos);
                 if (activeHeartIndex is >= 0 and < 3)
                 {
+                    if (!boss.LifePhases.Active)
+                        boss.LifePhases.Begin(0, 1);
                     SetInvulnerable(runner, bossId, boss, true, MalachaiInvulnBuff);
                     await ActivateHeart(runner, bossId, boss, activeHeartIndex, pos);
                 }
                 Console.WriteLine($"[gateway] Malachai P2: Black Core synced for 0x{bossId:x} ({p2HeartsCompleted}/3 hearts done)");
             }
 
-            var target = NearestLivingTarget(runner, pos, now, maxRange: 135, awakeId: bossId);
-            if (target is null) return;
-
             var phases = boss.LifePhases;
-            if (!phases.Active && phases.Completed < 3 && phases.Begin(boss.Life, boss.MaxLife))
-            {
-                activeHeartIndex = phases.Completed;
-                SetInvulnerable(runner, bossId, boss, true, MalachaiInvulnBuff);
-                await EnsureRemainingHearts(runner, bossId, boss, pos);
-                await ActivateHeart(runner, bossId, boss, activeHeartIndex, pos);
-            }
-
             if (phases.Active && activeHeartIndex is >= 0 and < 3)
             {
                 uint hid = heartIds[activeHeartIndex];
@@ -331,6 +322,17 @@ public static class MalachaiEncounter
                     p2HeartsCompleted = phases.Completed;
                     Console.WriteLine($"[gateway] Malachai P2: Heart {p2HeartsCompleted}/3 destroyed; Malachai vulnerable");
                 }
+            }
+
+            var target = NearestLivingTarget(runner, pos, now, maxRange: 135, awakeId: bossId);
+            if (target is null) return;
+
+            if (!phases.Active && phases.Completed < 3 && phases.Begin(boss.Life, boss.MaxLife))
+            {
+                activeHeartIndex = phases.Completed;
+                SetInvulnerable(runner, bossId, boss, true, MalachaiInvulnBuff);
+                await EnsureRemainingHearts(runner, bossId, boss, pos);
+                await ActivateHeart(runner, bossId, boss, activeHeartIndex, pos);
             }
 
             if (now >= nextRuneAt)

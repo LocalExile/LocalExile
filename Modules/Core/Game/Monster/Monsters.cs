@@ -595,17 +595,35 @@ public static partial class Game
         {
             // A type the client already has needs no send, and so no turn at the gate: holding the gate while waiting
             // for the combat lock stalled the next cast behind the monster AI, 297 ms on one spawn (live 2026-11-17).
-            // A new one is registered and written in one turn at the gate, so no other producer's create of this type
-            // can be written before its 0x20.
-            bool known;
-            known = player.MonsterTypes.Contains((variety.Row, level));
-            if (!known)
-                await Send(player, [], $"0x0020 monster type {variety.Id}@{level} (row {variety.Row})", atGate: () =>
+            // In the area's frame, register via Area.Delta (Kind.Message, WorldOrder.First) so every party member
+            // receives 0x0020 before the 0x02bb create (WorldOrder.Last) in the same frame.
+            if (!player.MonsterTypes.Contains((variety.Row, level)))
+            {
+                string typeLog = $"0x0020 monster type {variety.Id}@{level} (row {variety.Row})";
+                if (player.Area.Owned)
                 {
-                    return CurrentGameWork && !player.Closed && !player.LeavingArea
-                        && (ownedCurrent is null || ownedCurrent()) && player.MonsterTypes.Add((variety.Row, level))
-                        ? InstanceEntities.MonsterTypes([((ushort)variety.Row, level)]) : null;
-                });
+                    if (CurrentGameWork && !player.Closed && !player.LeavingArea
+                        && (ownedCurrent is null || ownedCurrent()))
+                        await RegisterMonsterType(player, (ushort)variety.Row, level, typeLog);
+                }
+                else
+                {
+                    byte[]? typeBytes = null;
+                    await Send(player, [], typeLog, atGate: () =>
+                    {
+                        if (!CurrentGameWork || player.Closed || player.LeavingArea
+                            || (ownedCurrent is not null && !ownedCurrent())
+                            || !player.MonsterTypes.Add((variety.Row, level)))
+                            return null;
+                        typeBytes = InstanceEntities.MonsterTypes([((ushort)variety.Row, level)]);
+                        return typeBytes;
+                    });
+                    if (typeBytes is not null)
+                        foreach (var peer in player.Frames.Players())
+                            if (!ReferenceEquals(peer, player) && !peer.Closed && !peer.LeavingArea)
+                                await Send(peer, typeBytes, typeLog);
+                }
+            }
         }
         uint type = InstanceEntities.ObjectTypeHash(MonsterObject.TypePath(variety.Id, level));
         // The client multiplies this monster's pathing speed by its own roll in the variety's range, drawn from [id, type]

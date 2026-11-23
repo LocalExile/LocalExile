@@ -43,6 +43,21 @@ public static class DominusEncounter
     const string LightningExplosionArt = "Metadata/Effects/Spells/monsters_effects/act3/dominus/lightning_souls/lightningexplosion.ao";
     const string BirdcageModel = "Metadata/Terrain/Doodads/RuinedCity/Scepter_of_god/birdcage.ao";
 
+    // Verified from metadata/npc/act3/scioncage.ot (extends "nothing"): 5 deserialized common-pass components;
+    // client-only Render and Targetable are never serialized in the 0x02bb blob.
+    static readonly QuestObjectTypes.Info ScionCageFallback = new(
+        ScionCageType,
+        ["Positioned", "BaseEvents", "Animated", "InteractionAction", "Transitionable"],
+        States: 2,
+        Size: 6,
+        Blocking: false,
+        Model: null)
+    {
+        AnimatedModel = BirdcageModel,
+        OwnModel = true,
+        Static = true,
+    };
+
     static readonly RuleTable<InstanceState, Fight> Fights = new();
     static readonly RuleTable<Player, BloodRainExposure> BloodExposures = new();
 
@@ -183,7 +198,8 @@ public static class DominusEncounter
         {
             if (cageCreated) return;
             cageCreated = true;
-            if (QuestObjectTypes.Find(ScionCageType) is not { } info || !QuestObject.CanSerialize(info.Components))
+            var info = QuestObjectTypes.Find(ScionCageType) ?? ScionCageFallback;
+            if (!QuestObject.CanSerialize(info.Components))
                 return;
             cageTransitionIdx = QuestObject.TransitionableIndex(info.Components);
             CageAt = cagePlacement ?? WalkableNear(player, (player.Layout.SpawnX + 12, player.Layout.SpawnY + 8));

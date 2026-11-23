@@ -35,13 +35,22 @@ public static partial class Game
                             : OutputRecord.Immediate(flags, output.Log));
                     continue;
                 }
-                byte[] bytes = output.Kind switch
+                byte[] bytes;
+                if (output.Kind == PlayerMinions.OutputKind.MonsterType)
                 {
-                    PlayerMinions.OutputKind.MonsterType => player.MonsterTypes.Add(output.MonsterType!.Value)
-                        ? GameServer.Core.Protocol.Instance.InstanceEntities.MonsterTypes([output.MonsterType.Value]) : [],
-                    PlayerMinions.OutputKind.Passives => PassivesMessage(player).Bytes,
-                    _ => output.Packet,
-                };
+                    bytes = player.MonsterTypes.Add(output.MonsterType!.Value)
+                        ? GameServer.Core.Protocol.Instance.InstanceEntities.MonsterTypes([output.MonsterType.Value]) : [];
+                    if (bytes.Length != 0 && player.Area.Owned)
+                        player.Area.Delta.Add(0, bytes, output.Log, AreaDelta.Kind.Message, except: player);
+                }
+                else
+                {
+                    bytes = output.Kind switch
+                    {
+                        PlayerMinions.OutputKind.Passives => PassivesMessage(player).Bytes,
+                        _ => output.Packet,
+                    };
+                }
                 if (output.WorldId is { } target)
                 {
                     var builder = new WorldRecordBuilder(player, admission);
