@@ -16,7 +16,8 @@ public static partial class Game
         Dictionary<string, Dictionary<string, HideoutPlacement>> Placements,
         Dictionary<string, List<CharacterSaves.SavedMonsterStatue>> Statues,
         Dictionary<string, List<SavedHideoutDecoration>>? Decorations = null,
-        Dictionary<string, ushort>? Music = null);
+        Dictionary<string, ushort>? Music = null,
+        Dictionary<string, SavedHideoutDecoration>? MapDevices = null);
     public sealed class HideoutMigrationSettings
     {
         public string? LegacySourceCharacter { get; set; }
@@ -211,14 +212,38 @@ public static partial class Game
             var decorations = p.Decorations is null ? new Dictionary<string, List<SavedHideoutDecoration>>() : new(p.Decorations);
             decorations.Remove(area);
             var placements = p.Placements;
+            var devices = p.MapDevices;
             if (resetPlacements)
             {
                 placements = new Dictionary<string, Dictionary<string, HideoutPlacement>>(p.Placements);
                 placements.Remove(area);
+                devices = devices is null ? null : new(devices);
+                devices?.Remove(area);
             }
-            return p with { Placements = placements, Decorations = decorations };
+            return p with { Placements = placements, Decorations = decorations, MapDevices = devices };
         });
         return true;
+    }
+
+    public const string MapDeviceKey = "map-device";
+
+    /// <summary>The map device variant placed in this hideout instead of its template's device, or null.</summary>
+    public static SavedHideoutDecoration? AccountMapDevice(Player player) =>
+        SharedHideout(player, instanceOwner: true)?.MapDevices?.GetValueOrDefault(player.Layout.Id);
+
+    /// <summary>Saves the hideout's map device variant (null: back to the template's) and where the device stands.</summary>
+    public static void SetAccountMapDevice(Player player, SavedHideoutDecoration? device, HideoutPlacement? at)
+    {
+        if (player.Character.Account is null) return;
+        ChangeSharedHideout(player, p =>
+        {
+            var devices = p.MapDevices is null ? new Dictionary<string, SavedHideoutDecoration>() : new(p.MapDevices);
+            if (device is null) devices.Remove(player.Layout.Id); else devices[player.Layout.Id] = device;
+            var placements = new Dictionary<string, Dictionary<string, HideoutPlacement>>(p.Placements);
+            if (at is not null)
+                placements[player.Layout.Id] = new(placements.GetValueOrDefault(player.Layout.Id) ?? []) { [MapDeviceKey] = at };
+            return p with { MapDevices = devices, Placements = placements };
+        });
     }
 
     public static ushort? AccountHideoutMusic(Player player, string? area = null)

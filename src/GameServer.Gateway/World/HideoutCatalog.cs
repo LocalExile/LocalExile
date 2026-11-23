@@ -14,6 +14,7 @@ public static class HideoutCatalog
     public static void LoadGameData()
     {
         DoodadTypeIndex = DoodadTypes();
+        Devices = LoadDevices();
         CollisionRadii = LoadCollisionRadii();
         HideoutMusicRows = LoadHideoutMusicRows();
         All = LoadAll();
@@ -85,9 +86,13 @@ public static class HideoutCatalog
         h.First(WaypointObject.MetadataPath) is { } d
             ? new WaypointObject(d.X, d.Y, d.Model, d.Rotation, Hideout: new HideoutDoodad(d.Hash, (byte)d.Variation)) : null;
 
-    /// <summary>The doodads the server creates in a hideout besides the waypoint and stash: the map device (21-hideouts.md
-    /// §2). Decorations are not created yet.</summary>
-    public static bool IsPlaced(Doodad d) => d.Type?.EndsWith("MappingDevice", StringComparison.Ordinal) == true;
+    /// <summary>The doodad of a hideout's template the server creates besides the waypoint and stash: the map device
+    /// (21-hideouts.md §2), or the variant the owner placed instead.</summary>
+    public static bool IsPlaced(Doodad d) => d.Type is { } type && IsMapDevice(type);
+
+    /// <summary>A map device type: the templates' own (…MappingDevice) and the Decorations panel's variants, which replace it.</summary>
+    public static bool IsMapDevice(string type) => type.EndsWith("MappingDevice", StringComparison.Ordinal)
+        || type.Contains("/MapDeviceVariants/", StringComparison.Ordinal) || type.StartsWith("Metadata/MapDevices/", StringComparison.Ordinal);
 
     // Our own cells for some doodads, replacing the decoration's: (hideout area, doodad name) → cell. The Lush Hideout's
     // map device stands far out at (449, 460) in its decoration; the user picked (257, 283), near the waypoint (2026-10-20).
@@ -99,6 +104,40 @@ public static class HideoutCatalog
     /// <summary>Looks up a decoration by MtxTypeGameSpecific HASH32 (from HideoutDoodads).</summary>
     public static (string? Type, string[]? Models)? DoodadByHash(uint hash) =>
         DoodadTypeIndex.TryGetValue(hash, out var entry) ? entry : null;
+
+    /// <summary>A map device's separate button (the object a click on opens the device, e.g. the Eldritch Reaper's
+    /// brazier), from MapDevices.dat: the row whose HideoutDoodads row is the device's names the button's MiscObjects row
+    /// and its offset from the device in grid cells (unrotated). A doodad's rows are its variations in order (the template
+    /// device's Hideout_Small, without a button, is CartographyDevice2.ao). Null for a variation without one.</summary>
+    public static (string Type, int Dx, int Dy)? MapDeviceButton(uint hash, int variation) =>
+        Devices.TryGetValue((hash, variation), out var d) && d.Button is { } type ? (type, d.Dx, d.Dy) : null;
+
+    sealed record DeviceRow(string? Button, int Dx, int Dy, int Radius);
+
+    static Dictionary<(uint Hash, int Variation), DeviceRow> Devices = default!;
+
+    static Dictionary<(uint, int), DeviceRow> LoadDevices()
+    {
+        var result = new Dictionary<(uint, int), DeviceRow>();
+        if (!ClientTables.Has("MapDevices") || !ClientTables.Has("MiscObjects") || !ClientTables.Has("HideoutDoodads")
+            || !ClientTables.Has("MtxTypeGameSpecific")) return result;
+        var hashOfRow = ClientTables.Table("MtxTypeGameSpecific").Select(r => r.UInt("HASH32")).ToList();
+        var doodadHash = ClientTables.Table("HideoutDoodads")
+            .Select(r => r.IntOrNull("MtxTypeGameSpecific") is (>= 0 and int g) && g < hashOfRow.Count ? hashOfRow[g] : (uint?)null).ToList();
+        var misc = ClientTables.Table("MiscObjects").Select(r => r.TextOrNull("EffectVirtualPath")).ToList();
+        var variations = new Dictionary<int, int>();
+        foreach (var r in ClientTables.Table("MapDevices"))
+        {
+            if (r.IntOrNull("HideoutDoodan") is not (>= 0 and int doodad) || doodad >= doodadHash.Count) continue;
+            int variation = variations[doodad] = variations.GetValueOrDefault(doodad, -1) + 1;
+            if (doodadHash[doodad] is not uint hash) continue;
+            var offset = r.Ints("__col5");
+            string? button = r.IntOrNull("MiscObject") is (>= 0 and int m) && m < misc.Count && misc[m] is { Length: > 0 } type
+                && offset.Length >= 2 ? type : null;
+            result.TryAdd((hash, variation), new(button, button is null ? 0 : offset[0], button is null ? 0 : offset[1], r.IntOrNull("__col2") ?? 0));
+        }
+        return result;
+    }
 
     /// <summary>Collision hull radius for a hideout decoration model, or 0 when none is extracted.</summary>
     public static double CollisionRadius(string? model) =>
@@ -140,7 +179,8 @@ public static class HideoutCatalog
     static Dictionary<string, (IReadOnlyList<string>, IReadOnlyList<string>)> LoadObjectTypes()
     {
         var result = new Dictionary<string, (IReadOnlyList<string>, IReadOnlyList<string>)>(StringComparer.Ordinal);
-        var doodadTypes = DoodadTypeIndex.Values.Select(v => v.Type).OfType<string>().ToHashSet(StringComparer.Ordinal);
+        var doodadTypes = DoodadTypeIndex.Values.Select(v => v.Type).OfType<string>()
+            .Concat(Devices.Values.Select(d => d.Button).OfType<string>()).ToHashSet(StringComparer.Ordinal);
         var sharedStates = ClientTables.TableOrEmpty("object_type_shared_states").By("type");
         foreach (var (type, t) in global::ObjectTypes.All())
         {
