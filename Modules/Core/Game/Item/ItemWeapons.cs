@@ -10,7 +10,7 @@ using GameServer.Core.World;
 public static class ItemWeapons
 {
     public static SkillCatalog.Unarmed Of(int attackMs, int minDamage, int maxDamage, int range,
-        IReadOnlyDictionary<string, int> local, int quality)
+        IReadOnlyDictionary<uint, int> local, int quality)
     {
         var result = ItemWeaponStats.Calculate((attackMs, minDamage, maxDamage, range),
             name => local.GetValueOrDefault(name), quality);

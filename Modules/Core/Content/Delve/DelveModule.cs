@@ -12,6 +12,11 @@ namespace GameServer.Modules.Delve;
 /// upgrades, account checkpoints and route trips. Darkness and biome-specific encounter scripts remain partial.</summary>
 public sealed partial class DelveModule : IModule
 {
+    /// <summary>Fills this type's game data at startup (the world loader, before the Gateway listens).</summary>
+    public static void LoadDelveModuleData()
+    {
+    }
+
     /// <summary>The Azurite Mine Encampment (<c>WorldAreas</c> Delve_Hub).</summary>
     public const ushort Hub = 0x8b9b;
     const string HubId = "Delve_Hub";
@@ -52,29 +57,23 @@ public sealed partial class DelveModule : IModule
     readonly ConditionalWeakTable<IPlayer, State> _states = new();
     readonly ConcurrentDictionary<string, ushort> _lastWorldArea = new(StringComparer.OrdinalIgnoreCase);
 
-    void RememberReturnArea(ClientState conn, ushort areaHash)
+    void RememberReturnArea(Player player, ushort areaHash)
     {
         if (areaHash is 0 or Hub or InstanceDelve.MineArea) return;
-        _lastWorldArea[CharacterName(conn)] = areaHash;
-        WorldOf(PlayerOf(conn)).CharacterData.Change(ReturnAreaKey, _ => areaHash.ToString());
+        _lastWorldArea[CharacterName(player)] = areaHash;
+        WorldOf(player).CharacterData.Change(ReturnAreaKey, _ => areaHash.ToString());
     }
 
-    ushort ResolveReturnArea(ClientState conn)
+    ushort ResolveReturnArea(Player player)
     {
-        if (ushort.TryParse(WorldOf(PlayerOf(conn)).CharacterData.Get(ReturnAreaKey), out ushort saved)
+        if (ushort.TryParse(WorldOf(player).CharacterData.Get(ReturnAreaKey), out ushort saved)
             && saved is not (0 or Hub or InstanceDelve.MineArea))
             return saved;
-        if (_lastWorldArea.TryGetValue(CharacterName(conn), out ushort recent)
+        if (_lastWorldArea.TryGetValue(CharacterName(player), out ushort recent)
             && recent is not (0 or Hub or InstanceDelve.MineArea))
             return recent;
         return Hub;
     }
-    static readonly Lazy<string?[]> StatIds = new(() =>
-    {
-        if (!ClientTables.Has("Stats")) return [];
-        var doc = ClientTables.Table("Stats");
-        return [.. doc.Select(r => r.Text("Id"))];
-    });
 
     /// <summary>The account's equipment, in the league.</summary>
     public static DelveProgress Equipment(ISavedData account) =>
@@ -96,72 +95,89 @@ public sealed partial class DelveModule : IModule
             (short)Math.Clamp(current.X, short.MinValue, short.MaxValue), (ushort)Math.Clamp(current.Y, 0, ushort.MaxValue));
     }
 
+    /// <summary>This module's game data, built in a fixed order when it loads: before the Gateway listens, as the
+    /// Gateway's own (WorldLoader). Tests that use the module call it once.</summary>
+    public static void LoadData()
+    {
+        LoadDelveModuleData();
+        LoadDelveRoutesData();
+        DelveEquipment.LoadDelveProgressData();
+    }
+
     /// <inheritdoc/>
     public void Load(IModuleContext module)
     {
+        LoadData();
         DelveRailRoute.Warmup();
         module.Lifetime.Own(DelveRailRoute.ForgetOnUnload());
         RegisterSulphite(module);
         RegisterTrips(module);
         // The gauge and the Subterranean Chart read the character's sulphite from it, in the encampment and the mine.
-        GameEvents.EnterMessages.Add(module.Manifest.Id, conn =>
+        GameEvents.EnterMessages.Add(module.Manifest.Id, player =>
         {
-            var player = PlayerOf(conn);
-            if (!player.AreaId.StartsWith("Delve", StringComparison.Ordinal)) return [];
-            var world = WorldOf(player);
+            var modPlayer = PlayerOf(player);
+            if (!modPlayer.AreaId.StartsWith("Delve", StringComparison.Ordinal)) return [];
+            var world = WorldOf(modPlayer);
             return [("0x0228 Delve resources and equipment", DelveData(world))];
         });
-        GameEvents.AreaHeader.Add(module.Manifest.Id, conn =>
+        GameEvents.AreaHeader.Add(module.Manifest.Id, player =>
         {
-            var player = PlayerOf(conn);
-            switch (player.AreaId)
+            var modPlayer = PlayerOf(player);
+            switch (modPlayer.AreaId)
             {
                 case "Delve_Main":
-                    if (conn.CameFrom is ushort fromMine and not 0) RememberReturnArea(conn, fromMine);
-                    conn.ReturnAreaHash = ResolveReturnArea(conn);
-                    return MineHeader(module, player);
+                    if (player.CameFrom is ushort fromMine and not 0) RememberReturnArea(player, fromMine);
+                    player.ReturnAreaHash = ResolveReturnArea(player);
+                    return MineHeader(module, modPlayer);
                 case HubId:
-                    if (conn.CameFrom is ushort fromHub and not 0) RememberReturnArea(conn, fromHub);
-                    else if (_lastWorldArea.TryGetValue(CharacterName(conn), out ushort recent)) RememberReturnArea(conn, recent);
+                    if (player.CameFrom is ushort fromHub and not 0) RememberReturnArea(player, fromHub);
+                    else if (_lastWorldArea.TryGetValue(CharacterName(player), out ushort recent)) RememberReturnArea(player, recent);
                     return new AreaHeader(null, [2]);
                 default:
-                    if (conn.Layout.Hash is not (0 or Hub or InstanceDelve.MineArea))
-                        _lastWorldArea[CharacterName(conn)] = conn.Layout.Hash;
+                    if (player.Layout.Hash is not (0 or Hub or InstanceDelve.MineArea))
+                        _lastWorldArea[CharacterName(player)] = player.Layout.Hash;
                     return null;
             }
         });
-        GameEvents.Stats.Add(module.Manifest.Id, sheet =>
+        GameEvents.Stats.Add(module.Manifest.Id, (Action<StatSheet>)(sheet =>
         {
-            foreach (var (key, value) in DelveEquipment.Stats(Equipment(WorldOf(sheet.Player).AccountData)))
-                if (key >= 1 && key <= StatIds.Value.Length && StatIds.Value[key - 1] is { } id
-                    && (id == "delve_sulphite_capacity" || sheet.Player.AreaId.StartsWith("Delve", StringComparison.Ordinal))) sheet.Add(id, value);
-        });
-        GameEvents.Tick.Add(module.Manifest.Id, async (conn, _) =>
+            foreach (var (key, value) in DelveEquipment.Stats(Equipment(WorldOf(sheet.ModPlayer).AccountData)))
+                if (key == Stat.DelveSulphiteCapacity || sheet.ModPlayer.AreaId.StartsWith("Delve", StringComparison.Ordinal)) sheet.Add(key, value);
+        }));
+        GameEvents.AreaTick.Add(module.Manifest.Id, start => !start.Layout.Id.StartsWith("Delve", StringComparison.Ordinal) ? null : async (player, _) =>
         {
-            if (!conn.PlayerSent || conn.LeavingArea || conn.Closed || !conn.Layout.Id.StartsWith("Delve", StringComparison.Ordinal)) return;
-            var player = PlayerOf(conn);
-            var state = _states.GetOrCreateValue(player);
+            if (!player.Connection.PlayerSent || player.LeavingArea || player.Closed) return;
+            var modPlayer = PlayerOf(player);
+            var state = _states.GetOrCreateValue(modPlayer);
             if (!state.GaugePending) return;
             state.GaugePending = false;
-            try { await RefreshGauge(player, WorldOf(player)); }
+            try { await RefreshGauge(modPlayer, WorldOf(modPlayer)); }
             catch { state.GaugePending = true; throw; }
         });
-        GameEvents.AreaGenerated.Add(module.Manifest.Id, async conn =>
+        // The Crawler and the Generator are each player's own (their Delve state): theirs alone to see.
+        GameEvents.PlayerEntered.Add(module.Manifest.Id, async player =>
         {
-            var player = PlayerOf(conn);
-            _states.GetOrCreateValue(player).GaugePending = true;
-            await SpawnCrawler(module, player);
-            await SpawnGenerator(module, player);
-            await StartPendingTrip(module, player);
+            var modPlayer = PlayerOf(player);
+            if (modPlayer.AreaId is HubId or "Delve_Main" && !player.Character.HasQuestFlag("DelveOwner"))
+                await SetQuestFlags(player, ["DelveOwner"]);
+            _states.GetOrCreateValue(modPlayer).GaugePending = true;
+            Program.ViewOf.Value = player;
+            try
+            {
+                await SpawnCrawler(module, modPlayer);
+                await SpawnGenerator(module, modPlayer);
+            }
+            finally { Program.ViewOf.Value = null; }
+            await StartPendingTrip(module, modPlayer);
         });
-        GameEvents.ObjectUse.Add(module.Manifest.Id, async (conn, use, at) =>
+        GameEvents.ObjectUse.Add(module.Manifest.Id, async (player, use, at) =>
         {
-            if (!_states.TryGetValue(PlayerOf(conn), out var state)) return false;
-            var world = WorldOf(PlayerOf(conn));
+            if (!_states.TryGetValue(PlayerOf(player), out var state)) return false;
+            var world = WorldOf(PlayerOf(player));
             if (state.Checkpoints.TryGetValue(use.TargetId, out var checkpoint))
             {
                 if (await world.WalkUpTo(checkpoint.X, checkpoint.Y, ObjectReach, at))
-                    await OpenChart(module, PlayerOf(conn));
+                    await OpenChart(module, PlayerOf(player));
                 return true;
             }
             if (state.Generator != 0 && use.TargetId == state.Generator)
@@ -169,8 +185,8 @@ public sealed partial class DelveModule : IModule
                 if (await world.WalkUpTo(GeneratorAt.X, GeneratorAt.Y, ObjectReach, at))
                 {
                     state.GeneratorOpen = true;
-                    await PlayerOf(conn).Send(DelveData(world), "Voltaxic Generator resources");
-                    await PlayerOf(conn).Send(InstanceWaypoints.OpenUi(InstanceDelve.UpgradesUi, 1), "Open Delve equipment upgrades");
+                    await PlayerOf(player).Send(DelveData(world), "Voltaxic Generator resources");
+                    await PlayerOf(player).Send(InstanceWaypoints.OpenUi(InstanceDelve.UpgradesUi, 1), "Open Delve equipment upgrades");
                 }
                 return true;
             }
@@ -178,7 +194,7 @@ public sealed partial class DelveModule : IModule
             {
                 // Walk there, then the Subterranean Chart (S→C 0x7b kind 0x1c with 1).
                 if (await world.WalkUpTo(state.CrawlerCell.X, state.CrawlerCell.Y, ObjectReach, at))
-                    await OpenChart(module, PlayerOf(conn));
+                    await OpenChart(module, PlayerOf(player));
                 return true;
             }
             return false;
@@ -191,84 +207,83 @@ public sealed partial class DelveModule : IModule
             // Niko's View Subterranean Chart: SendOpenScreen( DelveMapScreen, 1 ), S→C 0x7b kind 0x1c with 1.
             if (talk.Script.Contains("DelveMapScreen", StringComparison.Ordinal))
             {
-                world.NpcEndTalk();
-                await OpenChart(module, talk.Player);
+                await world.NpcClose("0x0084 close NPC dialogue for Subterranean Chart");
+                await OpenChart(module, talk.ModPlayer);
                 return true;
             }
             // Niko's Visit Mine Encampment: BeginDelve(), to the Azurite Mine Encampment, as /goto does.
             if (talk.Script.Contains("BeginDelve", StringComparison.Ordinal))
             {
-                world.NpcEndTalk();
-                var conn = ConnOf(talk.Player); var wire = conn.Wire;
-                if (conn.Layout.Hash != Hub)
+                await world.NpcClose("0x0084 close NPC dialogue for Mine Encampment");
+                var player = talk.Player;
+                if (player.Layout.Hash != Hub)
                 {
-                    RememberReturnArea(conn, conn.Layout.Hash);
-                    await ChangeArea(wire.Remote, wire.Stream, wire.Ciphers, conn,
+                    RememberReturnArea(player, player.Layout.Hash);
+                    await ChangeArea(player,
                         new PendingTransfer(Hub, 0, false, AtWaypoint: true), $"{talk.Npc}: {talk.Option}");
                 }
                 return true;
             }
             return false;
         });
-        GameEvents.Packet(InstanceDelve.ReturnToWorldId).Add(module.Manifest.Id, async (conn, _) =>
+        GameEvents.Packet(InstanceDelve.ReturnToWorldId).Add(module.Manifest.Id, async (player, _) =>
         {
-            if (conn.Layout.Hash is not (InstanceDelve.MineArea or Hub)) return false;
-            ushort dest = ResolveReturnArea(conn);
-            if (dest == conn.Layout.Hash) dest = Hub;
+            if (player.Layout.Hash is not (InstanceDelve.MineArea or Hub)) return false;
+            ushort dest = ResolveReturnArea(player);
+            if (dest == player.Layout.Hash) dest = Hub;
             bool atWaypoint = dest == Hub || WaypointCatalog.Areas.Find(dest) is not null || HideoutCatalog.ByArea(dest) is not null;
-            var wire = conn.Wire;
-            Console.WriteLine($"[gateway] {wire.Remote} <= 0x0186 Delve return to world 0x{dest:x4}");
-            await ChangeArea(wire.Remote, wire.Stream, wire.Ciphers, conn,
+            Console.WriteLine($"[gateway] {player.Connection.Remote} <= 0x0186 Delve return to world 0x{dest:x4}");
+            await ChangeArea(player,
                 new PendingTransfer(dest, 0, false, AtWaypoint: atWaypoint, AtSpawn: !atWaypoint), "Delve return to world");
             return true;
         });
-        GameEvents.Packet(InstanceDelve.RouteId).Add(module.Manifest.Id, async (conn, bytes) =>
+        GameEvents.Packet(InstanceDelve.RouteId).Add(module.Manifest.Id, async (player, bytes) =>
         {
-            await RequestTrip(module, PlayerOf(conn), InstanceDelve.ReadRoute(bytes));
+            await RequestTrip(module, PlayerOf(player), InstanceDelve.ReadRoute(bytes));
             return true;
         });
         foreach (ushort id in new[] { InstanceDelve.UpgradesRequestId, InstanceDelve.UpgradeId, InstanceDelve.PurchaseId })
-            GameEvents.Packet(id).Add(module.Manifest.Id, async (conn, bytes) =>
+            GameEvents.Packet(id).Add(module.Manifest.Id, async (player, bytes) =>
             {
-                await UseEquipment(module, PlayerOf(conn), id, bytes);
+                await UseEquipment(module, PlayerOf(player), id, bytes);
                 return true;
             });
         // C→S 0x23f: the Delve chart (opened by Niko) asks for its data; S→C 0x240 answers (an empty chart for now).
-        GameEvents.Packet(InstanceDelve.ChartRequestId).Add(module.Manifest.Id, async (conn, bytes) =>
+        GameEvents.Packet(InstanceDelve.ChartRequestId).Add(module.Manifest.Id, async (player, bytes) =>
         {
             if (bytes.Length != 2) return false;
-            var mine = Mine(module, PlayerOf(conn));
-            var probe = _states.GetOrCreateValue(PlayerOf(conn)).ChartProbe;
+            var mine = Mine(module, PlayerOf(player));
+            var probe = _states.GetOrCreateValue(PlayerOf(player)).ChartProbe;
             uint a = probe?.A ?? mine.Seed; ushort b = probe?.B ?? 0;
             IReadOnlyList<InstanceDelve.Cell> cells = probe is { } value ? value.Cells : mine.Chart();
-            await PlayerOf(conn).Send(InstanceDelve.Chart(a, b, cells), $"0x0240 Delve chart: {a}, {b}, {cells.Count} cell(s) {string.Join(" ", cells)}");
-            var world = WorldOf(PlayerOf(conn));
-            await PlayerOf(conn).Send(DelveData(world), "Delve chart resource snapshot");
-            await RefreshGauge(PlayerOf(conn), world);
+            await PlayerOf(player).Send(InstanceDelve.Chart(a, b, cells), $"0x0240 Delve chart: {a}, {b}, {cells.Count} cell(s) {string.Join(" ", cells)}");
+            var world = WorldOf(PlayerOf(player));
+            await PlayerOf(player).Send(DelveData(world), "Delve chart resource snapshot");
+            await RefreshGauge(PlayerOf(player), world);
             return true;
         });
-        GameEvents.Command(module.Manifest.Id, "delve_crawler", "/delve_crawler [x y degrees] (dev: create the Delve Crawler in the Azurite Mine Encampment, or move and turn the one there; a click on it opens the Subterranean Chart)", (conn, args) => CrawlerCommand(module, PlayerOf(conn), args));
-        GameEvents.Command(module.Manifest.Id, "sulphite", "/sulphite <amount 0-65535> (dev: the character's Voltaxic Sulphite, saved and sent as the Delve data 0x228)", async (conn, args) =>
+        GameEvents.Command(module.Manifest.Id, "delve_crawler", "/delve_crawler [x y degrees] (dev: create the Delve Crawler in the Azurite Mine Encampment, or move and turn the one there; a click on it opens the Subterranean Chart)", (player, args) => CrawlerCommand(module, PlayerOf(player), args));
+        GameEvents.Command(module.Manifest.Id, "sulphite", "/sulphite <amount 0-65535> (dev: the character's Voltaxic Sulphite, saved and sent as the Delve data 0x228)", async (player, args) =>
         {
             if (args.Length != 1 || !ushort.TryParse(args[0], out ushort amount)) throw new ArgumentException("/sulphite <amount 0-65535>");
-            var world = WorldOf(PlayerOf(conn));
+            var world = WorldOf(PlayerOf(player));
             world.CharacterData.Change(SulphiteKey, _ => amount.ToString());
-            await PlayerOf(conn).Send(DelveData(world), $"0x0228 Delve data: {amount} sulphite (/sulphite)");
-            await RefreshGauge(PlayerOf(conn), world);
-            await PlayerOf(conn).Tell($"Sulphite: {amount}");
+            await PlayerOf(player).Send(DelveData(world), $"0x0228 Delve data: {amount} sulphite (/sulphite)");
+            await RefreshGauge(PlayerOf(player), world);
+            await PlayerOf(player).Tell($"Sulphite: {amount}");
         });
-        GameEvents.Command(module.Manifest.Id, "delve_chart", "/delve_chart <u32> <u16> [<u16> <u16> <u64> <u8> <u32> ...] (dev: what the next Delve chart (S→C 0x240) carries, to work out its fields)", async (conn, args) =>
+        GameEvents.Command(module.Manifest.Id, "delve_chart", "/delve_chart <u32> <u16> [<u16> <u16> <u64> <u8> <u32> ...] (dev: what the next Delve chart (S→C 0x240) carries, to work out its fields)", async (player, args) =>
         {
             try
             {
                 var n = args.Select(a => a.StartsWith("0x") ? Convert.ToUInt64(a[2..], 16) : ulong.Parse(a)).ToArray();
                 var cells = new List<InstanceDelve.Cell>();
                 for (int i = 2; i + 4 < n.Length; i += 5) cells.Add(new((ushort)n[i], (ushort)n[i + 1], n[i + 2], (byte)n[i + 3], (uint)n[i + 4]));
-                var state = _states.GetOrCreateValue(PlayerOf(conn));
+                var state = _states.GetOrCreateValue(PlayerOf(player));
                 state.ChartProbe = (n.Length > 0 ? (uint)n[0] : 0, n.Length > 1 ? (ushort)n[1] : (ushort)0, cells);
-                await PlayerOf(conn).Tell($"Next Delve chart: {state.ChartProbe.Value.A}, {state.ChartProbe.Value.B}, {cells.Count} cell(s). Open it from Niko.");
+                await PlayerOf(player).Tell($"Next Delve chart: {state.ChartProbe.Value.A}, {state.ChartProbe.Value.B}, {cells.Count} cell(s). Open it from Niko.");
             }
-            catch (FormatException) { await PlayerOf(conn).Tell("Numbers only (decimal or 0x…)."); }
+            catch (FormatException) { await PlayerOf(player).Tell("Numbers only (decimal or 0x…)."); }
         });
     }
 
@@ -284,7 +299,7 @@ public sealed partial class DelveModule : IModule
             float radians = degrees * MathF.PI / 180;
             state.CrawlerCell = (x, y);
             if (world.AreaHash == InstanceDelve.MineArea && state.Rail?.Points[^1] == (x, y) && Mine(module, player).Pending is null)
-                ConnOf(player).Instance.SetState(DestinationFlag(player));
+                PlayerOf(player).Instance.SetState(DestinationFlag(player));
             await global::Game.SendWorldRecord(player, state.Crawler, InstanceProtocol.Teleport(state.Crawler, x, y, 0x7fffffff), $"Delve Crawler to ({x}, {y})");
             await global::Game.SendWorldRecord(player, state.Crawler, InstanceHideoutEditing.Rotation(state.Crawler, radians), $"Delve Crawler turned {degrees}°");
             foreach (uint part in state.Attachments)
@@ -333,7 +348,22 @@ public sealed partial class DelveModule : IModule
         else if (id == InstanceDelve.PurchaseId && bytes[2] <= 1)
             changed = ChangeEquipment(world.AccountData, p => DelveEquipment.Purchase(p, bytes[2] != 0, bytes[3]));
         await player.Send(DelveData(world), "Delve equipment state");
-        if (changed) await world.RefreshStats("Delve equipment upgrade");
+        if (changed)
+        {
+            await world.RefreshStats();
+            if (id == InstanceDelve.PurchaseId)
+            {
+                var p = PlayerOf(player);
+                var equipment = Equipment(world.AccountData);
+                List<int> crafted = [];
+                if (equipment.Dynamite >= 1 && !p.Character.LeagueQuestFlags.Contains(Quests.League.DelveCraftedDynamite))
+                    crafted.Add(Quests.League.DelveCraftedDynamite);
+                if (equipment.Flares >= 2 && !p.Character.LeagueQuestFlags.Contains(Quests.League.DelveCraftedFlares))
+                    crafted.Add(Quests.League.DelveCraftedFlares);
+                if (crafted.Count > 0)
+                    await SetLeagueQuestFlags(p, crafted);
+            }
+        }
     }
 
     // The Delve Crawler in the Azurite Mine Encampment. A click on it opens the Subterranean Chart, as Niko's option does.
@@ -342,10 +372,10 @@ public sealed partial class DelveModule : IModule
         var world = WorldOf(player);
         var state = _states.GetOrCreateValue(player);
         if (world.AreaHash is not (Hub or InstanceDelve.MineArea) || state.Crawler != 0) return;
-        var rails = world.AreaHash == InstanceDelve.MineArea ? DelveRailRoute.Load(player.AreaId, ConnOf(player).Seed) : null;
+        var rails = world.AreaHash == InstanceDelve.MineArea ? DelveRailRoute.Load(player.AreaId, PlayerOf(player).Seed) : null;
         state.Rail = rails;
         if (world.AreaHash == InstanceDelve.MineArea && rails is null) return;
-        bool savedDestination = world.AreaHash == InstanceDelve.MineArea && ConnOf(player).Instance.HasState(DestinationFlag(player));
+        bool savedDestination = world.AreaHash == InstanceDelve.MineArea && PlayerOf(player).Instance.HasState(DestinationFlag(player));
         var (x, y) = world.AreaHash == Hub ? CrawlerAt : rails!.Points[savedDestination ? ^1 : 0];
         const uint id = 0x0d200000;
         state.Crawler = id;
@@ -373,10 +403,10 @@ public sealed partial class DelveModule : IModule
             await ShowStartBoundary(player, state, rails!.Points[0]);
     }
 
-    static Task RemoveSceneObject(IPlayer player, uint id)
+    static Task RemoveSceneObject(IPlayer modPlayer, uint id)
     {
-        var conn = ConnOf(player); var wire = conn.Wire;
-        return global::Game.SendWorldRemoval(wire.Remote, wire.Stream, wire.Ciphers, conn, id);
+        var player = PlayerOf(modPlayer);
+        return global::Game.SendWorldRemoval(player, id);
     }
 
     async Task OpenChart(IModuleContext module, IPlayer player)

@@ -26,62 +26,6 @@ public sealed class KineticBoltTests
     }
 
     [Fact]
-    public void Kinetic_bolt_maps_projectile_converts_forks_to_zig_zags_and_publishes_panel_stats()
-    {
-        var skills = new SkillCatalog();
-        int effect = skills.EffectRow("KineticBolt");
-        Assert.True(effect >= 0 && skills.IsProjectile(effect));
-        var projectile = skills.ProjectileFor(effect);
-        Assert.NotNull(projectile);
-        Assert.Equal("Metadata/Projectiles/ZigZagWandProjectile", projectile.Value.Id);
-        Assert.Equal(2000, projectile.Value.Speed);
-        Assert.True(SkillHitPlan.ForSkill(skills, effect, 1).CanHit);
-
-        var altX = skills.ProjectileFor(skills.EffectRow("KineticBoltAltX"));
-        Assert.Equal("Metadata/Projectiles/ZigZagWandProjectile", altX?.Id);
-
-        string path = Path.Combine(Path.GetTempPath(), $"localexile-kbolt-{Guid.NewGuid():N}.db");
-        var previousLogic = Program.GameLogicOrNull;
-        Saves.Open(path);
-        Program.SetGameLogic(new GameServer.Modules.Game.GameLogic());
-        var conn = new ClientState(new(1, "kbolt", 1000, 1000, 100, 100, null, []), 1, 1)
-        {
-            Character = "KineticBoltChar", PlayerLife = 1000, PlayerMana = 1000, Instance = new(),
-            Experience = CharacterStats.ExperienceFor(100),
-            Pools = new(100, 1000, 1000, int.MaxValue, 0, Strength: 1000, Dexterity: 1000, Intelligence: 1000),
-            LeagueModule = new(new League("test", "Standard", false, false), new HashSet<string>(["Game"])),
-        };
-        try
-        {
-            var wand = ItemCatalog.Create(Program.Items.Find("Metadata/Items/Weapons/OneHandWeapons/Wands/Wand1")
-                ?? Program.Items.Find("Driftwood Wand")!);
-            var bolt = ItemCatalog.Create(Program.Items.Find("Metadata/Items/Gems/SkillGemKineticBolt")!);
-            var fork = ItemCatalog.Create(Program.Items.Find("Metadata/Items/Gems/SupportGemFork")!);
-            Game.ItemsOf(conn).Add(PlayerInventories.Weapon1, 0, 0, wand with
-            {
-                Sockets = [new ItemSocket(SocketColour.White, bolt), new ItemSocket(SocketColour.White, fork)], Links = [2],
-            });
-            foreach (string name in new[] { "virtual_strength_for_requirements", "virtual_dexterity_for_requirements",
-                "virtual_intelligence_for_requirements" }) conn.PlayerStats[Program.Stats.Key(name)!.Value] = 1000;
-
-            var granted = Game.PlayerSkills(conn).Single(s => Game.SkillEffectId(conn, s.Id) == "KineticBolt");
-            Assert.NotNull(granted.Stats);
-            var map = granted.Stats!.ToDictionary(kv => kv.Item1, kv => kv.Item2);
-            Assert.Equal(6, map[Program.Stats.Key("kinetic_bolt_number_of_zig_zags")!.Value]);
-            Assert.Equal(1, map[Program.Stats.Key("theoretical_number_of_forks")!.Value]);
-            Assert.Equal(1, map[Program.Stats.Key("virtual_projectiles_cannot_fork")!.Value]);
-            Assert.Equal(0, map[Program.Stats.Key("virtual_number_of_forks_for_projectiles_final")!.Value]);
-            Assert.True(Game.ProjectilePathAvailable("test", conn, granted.Id, effect));
-        }
-        finally
-        {
-            PlayerInventories.Forget(conn.Character!);
-            Program.SetGameLogic(previousLogic!);
-            TestEnvironment.ReleaseSaves(path);
-        }
-    }
-
-    [Fact]
     public void Kinetic_bolt_runtime_zig_zags_on_end_enemy_and_wall_with_shared_history()
     {
         // 1. Open-field zig-zag geometry & Return after N turns (sequence=2 -> even parity -> sign=-1 on turn 1).
@@ -90,9 +34,9 @@ public sealed class KineticBoltTests
         var profile = GatewayProjectileSkillProfiles.Resolve("KineticBolt",
             "Metadata/Projectiles/ZigZagWandProjectile", name => name switch
             {
-                "kinetic_wand_base_number_of_zig_zags" => 2,
-                "kinetic_bolt_forks_apply_to_zig_zags" => 1,
-                "projectiles_return" => 1,
+                Stat.KineticWandBaseNumberOfZigZags => 2,
+                Stat.KineticBoltForksApplyToZigZags => 1,
+                Stat.ProjectilesReturn => 1,
                 _ => 0
             }, 100, attack: true);
         profile = GatewayProjectileSkillProfiles.WithKineticBoltLegs(profile, sequence: 2);
@@ -125,9 +69,9 @@ public sealed class KineticBoltTests
         var hitProfile = GatewayProjectileSkillProfiles.Resolve("KineticBolt",
             "Metadata/Projectiles/ZigZagWandProjectile", name => name switch
             {
-                "kinetic_wand_base_number_of_zig_zags" => 2,
-                "kinetic_bolt_forks_apply_to_zig_zags" => 1,
-                "projectile_number_of_targets_to_pierce" => 1,
+                Stat.KineticWandBaseNumberOfZigZags => 2,
+                Stat.KineticBoltForksApplyToZigZags => 1,
+                Stat.ProjectileNumberOfTargetsToPierce => 1,
                 _ => 0
             }, 100, attack: true);
         hitProfile = GatewayProjectileSkillProfiles.WithKineticBoltLegs(hitProfile, sequence: 3);

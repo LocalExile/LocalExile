@@ -37,17 +37,21 @@ public class PartyAreaTests
         const ushort town = 0x235c, graveyard = 0xd801; // 1_1_town and The Ship Graveyard, as WorldAreas lists them.
         var presence = new InstancePresence();
         var instance = new InstanceState(presence);
-        var sent = new Dictionary<ClientState, List<byte[]>>();
-        var players = new List<ClientState>();
-        ClientState Player(string name, ushort area, string areaId, InstanceState? world = null, string league = "Standard", ulong? number = null)
+        var sent = new Dictionary<Player, List<byte[]>>();
+        var players = new List<Player>();
+        Player Player(string name, ushort area, string areaId, InstanceState? world = null, string league = "Standard", ulong? number = null)
         {
-            var c = new ClientState(new(area, areaId, 100, 100, 20, 20, null, []), 1, 1)
+            var c = new Player(new(area, areaId, 100, 100, 20, 20, null, []), 1, 1)
             {
-                Character = name, Account = name, League = league, Instance = world ?? instance, PlayerSent = true,
-                PlayerLife = 100, ClassRow = 0, Controlled = false, InstanceNumber = number ?? (ulong)players.Count + 10,
+                Character = { Name = name, Account = name, League = league, ClassRow = 0 },
+                Instance = world ?? instance,
+                Connection = { PlayerSent = true },
+                PlayerLife = 100,
+                Controlled = false,
+                InstanceNumber = number ?? (ulong)players.Count + 10
             };
             var packets = new List<byte[]>();
-            c.Outbox = (bytes, _) => { lock (packets) packets.Add(bytes); return Task.CompletedTask; };
+            c.Connection.Outbox = (bytes, _) => { lock (packets) packets.Add(bytes); return Task.CompletedTask; };
             sent[c] = packets;
             players.Add(c);
             Program.InGame.TryAdd(c, 0);
@@ -57,7 +61,7 @@ public class PartyAreaTests
         {
             var leader = Player("AreaLeader", town, "1_1_town");
             var member = Player("AreaMember", graveyard, "1_1_9");
-            Assert.True(await PartyRoster.InviteHuman(leader, member.Character!));
+            Assert.True(await PartyRoster.InviteHuman(leader, member.Character.Name!));
             uint party = PartyRoster.PartyOf(leader);
             await PartyRoster.AcceptHuman(member, party);
             foreach (var packets in sent.Values) lock (packets) packets.Clear();
@@ -67,24 +71,24 @@ public class PartyAreaTests
             member = Player("AreaMember", graveyard, "1_1_9", new());
             await PartyRoster.Rebind(member);
             // Each side's row for the other names the area the other is in, so the panel has something to draw and travel to.
-            Assert.Equal(graveyard, AreaOf(sent[leader], member.Account!));
-            Assert.Equal(town, AreaOf(sent[member], leader.Account!));
-            Assert.Same(member, PartyTravel.Member(leader, member.Character!));
-            var foreign = Player(member.Character!, graveyard, "1_1_9", new(), "DifferentLeague");
+            Assert.Equal(graveyard, AreaOf(sent[leader], member.Character.Account!));
+            Assert.Equal(town, AreaOf(sent[member], leader.Character.Account!));
+            Assert.Same(member, PartyTravel.Member(leader, member.Character.Name!));
+            var foreign = Player(member.Character.Name!, graveyard, "1_1_9", new(), "DifferentLeague");
             await PartyRoster.Rebind(foreign);
-            Assert.Null(PartyTravel.Member(leader, member.Character!));
+            Assert.Null(PartyTravel.Member(leader, member.Character.Name!));
             foreign.Closed = true;
             await PartyRoster.Rebind(member);
-            Assert.Null(PartyTravel.Member(leader, leader.Character!));
+            Assert.Null(PartyTravel.Member(leader, leader.Character.Name!));
             Assert.Null(PartyTravel.Member(leader, "NotInThisParty"));
-            Assert.Equal(member.Character, InstanceSocial.ReadPartyTravel(
-                new LoginWriter().U16(InstanceSocial.PartyTravelId).WStr(member.Character!).ToArray()));
+            Assert.Equal(member.Character.Name, InstanceSocial.ReadPartyTravel(
+                new LoginWriter().U16(InstanceSocial.PartyTravelId).WStr(member.Character.Name!).ToArray()));
             // The area gate uses the travelling player's flags, not the destination owner's.
             var required = GameServer.Core.ClientTables.Table("WorldAreas")
                 .First(r => r.Int("HASH16") == graveyard).Ints("EndQuestFlags");
             Assert.NotEmpty(required);
             Assert.Null(PartyTravel.Destination(leader, member));
-            leader.QuestFlags.UnionWith(required.Select(r => GameServer.Core.ClientTables.Table("QuestFlags")[r].Text("Id")!));
+            leader.Character.QuestFlags.UnionWith(required.Select(r => GameServer.Core.ClientTables.Table("QuestFlags")[r].Text("Id")!));
             var travel = Assert.IsType<PendingTransfer>(PartyTravel.Destination(leader, member));
             Assert.Equal((graveyard, member.InstanceNumber), (travel.Area, travel.Instance));
             Assert.Equal((20, 20), travel.ArriveAt);
@@ -93,39 +97,39 @@ public class PartyAreaTests
             member.ReturnPortal = null;
             // Same area is not the same instance; another member must not win the selected target's destination.
             var other = Player("OtherAreaMember", graveyard, "1_1_9");
-            await PartyRoster.InviteHuman(leader, other.Character!); await PartyRoster.AcceptHuman(other, party);
-            other.QuestFlags.UnionWith(leader.QuestFlags);
+            await PartyRoster.InviteHuman(leader, other.Character.Name!); await PartyRoster.AcceptHuman(other, party);
+            other.Character.QuestFlags.UnionWith(leader.Character.QuestFlags);
             Assert.Equal(member.InstanceNumber, PartyTravel.Destination(other, member)?.Instance);
             // Rebound connections retire the previous identity even if it has not yet been marked closed.
-            var replaced = Player(leader.Character!, town, "1_1_town");
+            var replaced = Player(leader.Character.Name!, town, "1_1_town");
             await PartyRoster.Rebind(replaced);
-            Assert.Null(PartyTravel.Member(leader, member.Character!));
-            Assert.Same(member, PartyTravel.Member(replaced, member.Character!));
+            Assert.Null(PartyTravel.Member(leader, member.Character.Name!));
+            Assert.Same(member, PartyTravel.Member(replaced, member.Character.Name!));
             leader = replaced;
-            member.Closed = true; Assert.Null(PartyTravel.Member(leader, member.Character!)); member.Closed = false;
-            member.LeavingArea = true; Assert.Null(PartyTravel.Member(leader, member.Character!)); member.LeavingArea = false;
-            leader.PlayerLife = 0; Assert.Null(PartyTravel.Member(leader, member.Character!)); leader.PlayerLife = 100;
+            member.Closed = true; Assert.Null(PartyTravel.Member(leader, member.Character.Name!)); member.Closed = false;
+            member.LeavingArea = true; Assert.Null(PartyTravel.Member(leader, member.Character.Name!)); member.LeavingArea = false;
+            leader.PlayerLife = 0; Assert.Null(PartyTravel.Member(leader, member.Character.Name!)); leader.PlayerLife = 100;
             var mapArea = new MapDevice.MapArea(graveyard, "test-map", "test map", 12) { Level = 79 };
-            var mods = new MapMods(new Dictionary<string, int> { ["map_item_drop_quantity_+%"] = 40, ["map_item_drop_rarity_+%"] = 30 });
+            var mods = new MapMods(new Dictionary<uint, int> { [Stat.MapItemDropQuantityPlusPct] = 40, [Stat.MapItemDropRarityPlusPct] = 30 });
             var origin = new MapDevice.Origin(town, leader.InstanceNumber, 70, 80);
             try
             {
-                var opened = MapDevice.Activate(member.Character!, mapArea, mods, entrance: origin);
+                var opened = MapDevice.Activate(member.Character.Name!, mapArea, mods, entrance: origin);
                 Assert.Equal(opened.Run, MapDevice.AtEntrance(town, leader.InstanceNumber)?.Run);
                 Assert.Null(MapDevice.AtEntrance(town, leader.InstanceNumber + 1));
-                Assert.Equal(5, MapDevice.TakePortal(member.Character!, 0, opened.Run)?.Left);
-                Assert.Null(MapDevice.TakePortal(member.Character!, 1, opened.Run)); // First transfer not resolved yet.
-                MapDevice.Entered(member.Character!, mapArea, member.InstanceNumber);
+                Assert.Equal(5, MapDevice.TakePortal(member.Character.Name!, 0, opened.Run)?.Left);
+                Assert.Null(MapDevice.TakePortal(member.Character.Name!, 1, opened.Run)); // First transfer not resolved yet.
+                MapDevice.Entered(member.Character.Name!, mapArea, member.InstanceNumber);
                 // A real connection admits the retained run before publishing its map-dependent loot rules.
                 MapDevice.Admit(member.Instance!, 0x50415254, graveyard, member.InstanceNumber);
-                leader.QuestFlags.UnionWith(GameServer.Core.ClientTables.Table("WorldAreas")
+                leader.Character.QuestFlags.UnionWith(GameServer.Core.ClientTables.Table("WorldAreas")
                     .First(r => r.Int("HASH16") == town).Ints("EndQuestFlags")
                     .Select(r => GameServer.Core.ClientTables.Table("QuestFlags")[r].Text("Id")!));
                 var entrance = Assert.IsType<PendingTransfer>(PartyTravel.Destination(leader, member));
                 Assert.Equal((town, leader.InstanceNumber, (70, 80)), (entrance.Area, entrance.Instance, entrance.ArriveAt));
-                Assert.Equal(5, MapDevice.OpenOf(member.Character!)!.PortalsLeft); // Party travel spends none.
+                Assert.Equal(5, MapDevice.OpenOf(member.Character.Name!)!.PortalsLeft); // Party travel spends none.
                 var guest = Player("MapGuest", graveyard, "test-map", member.Instance, number: member.InstanceNumber);
-                MapDevice.Activate(guest.Character!, mapArea); // Same map area, but a different personal run.
+                MapDevice.Activate(guest.Character.Name!, mapArea); // Same map area, but a different personal run.
                 try
                 {
                     Assert.Equal(opened.Run, MapDevice.ForInstance(guest)?.Run);
@@ -134,27 +138,27 @@ public class PartyAreaTests
                     Assert.Equal(1.4, Game.ItemQuantityFactor(guest), 8);
                     Assert.Equal(30, Game.IncreasedItemRarity(guest));
                     for (int i = 1; i < 6; i++)
-                        Assert.Equal(5 - i, MapDevice.TakePortal(member.Character!, i, opened.Run)?.Left);
-                    Assert.Equal(6, MapDevice.OpenOf(guest.Character!)!.PortalsLeft);
+                        Assert.Equal(5 - i, MapDevice.TakePortal(member.Character.Name!, i, opened.Run)?.Left);
+                    Assert.Equal(6, MapDevice.OpenOf(guest.Character.Name!)!.PortalsLeft);
                     Assert.Equal(origin, MapDevice.ForInstance(guest)?.Entrance); // Last entry retains the return route.
-                    var replacement = MapDevice.Activate(member.Character!, mapArea, entrance: origin);
-                    Assert.Null(MapDevice.TakePortal(member.Character!, 0, opened.Run));
-                    MapDevice.Entered(member.Character!, mapArea, 999, opened.Run);
-                    MapDevice.Close(member.Character!, opened.Run);
-                    Assert.Equal(replacement.Run, MapDevice.OpenOf(member.Character!)?.Run);
-                    Assert.Equal(0ul, MapDevice.OpenOf(member.Character!)!.Instance);
+                    var replacement = MapDevice.Activate(member.Character.Name!, mapArea, entrance: origin);
+                    Assert.Null(MapDevice.TakePortal(member.Character.Name!, 0, opened.Run));
+                    MapDevice.Entered(member.Character.Name!, mapArea, 999, opened.Run);
+                    MapDevice.Close(member.Character.Name!, opened.Run);
+                    Assert.Equal(replacement.Run, MapDevice.OpenOf(member.Character.Name!)?.Run);
+                    Assert.Equal(0ul, MapDevice.OpenOf(member.Character.Name!)!.Instance);
                     Assert.Equal(origin, MapDevice.ForInstance(guest)?.Entrance);
                     Assert.Equal(origin.Instance, PartyTravel.Destination(leader, member)?.Instance);
                     // A first transfer finishing after replacement must retain its own destination's rules too.
                     MapDevice.Entered(opened, 999);
                     var delayed = new InstanceState();
                     Assert.Same(mods, MapDevice.ForInstance(mapArea.Hash16, 999, delayed)?.Mods);
-                    Assert.Equal(replacement.Run, MapDevice.OpenOf(member.Character!)?.Run);
-                    Assert.Equal(0ul, MapDevice.OpenOf(member.Character!)!.Instance);
+                    Assert.Equal(replacement.Run, MapDevice.OpenOf(member.Character.Name!)?.Run);
+                    Assert.Equal(0ul, MapDevice.OpenOf(member.Character.Name!)!.Instance);
                 }
-                finally { MapDevice.Close(guest.Character!); }
+                finally { MapDevice.Close(guest.Character.Name!); }
             }
-            finally { MapDevice.Close(member.Character!); }
+            finally { MapDevice.Close(member.Character.Name!); }
             // Visiting another player's personal area must never turn it into the visitor's default home.
             var registry = new GameServer.Core.World.InstanceRegistry { PersonalAreas = new HashSet<ushort> { graveyard } };
             var own = registry.Enter(graveyard, "Owner");
@@ -166,7 +170,7 @@ public class PartyAreaTests
             Assert.Same(own, registry.Enter(graveyard, "Owner"));
             var homeArea = HideoutCatalog.Default!;
             var homeMember = Player("HomeMember", homeArea.AreaHash16, homeArea.AreaId);
-            await PartyRoster.InviteHuman(leader, homeMember.Character!); await PartyRoster.AcceptHuman(homeMember, party);
+            await PartyRoster.InviteHuman(leader, homeMember.Character.Name!); await PartyRoster.AcceptHuman(homeMember, party);
             Assert.Equal(0ul, PartyRoster.SharedInstance(leader, new(homeArea.AreaHash16, 0, false)));
         }
         finally

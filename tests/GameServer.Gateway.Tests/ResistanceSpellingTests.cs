@@ -10,11 +10,11 @@ public class ResistanceSpellingTests
     {
         var stats = new Dictionary<uint, int>
         {
-            [Program.Stats.Key("elemental_damage_resistance_+%")!.Value] = 20,
-            [Program.Stats.Key("fire_damage_resistance_+%")!.Value] = -50,
-            [Program.Stats.Key("cold_damage_resistance_+%")!.Value] = 5,
-            [Program.Stats.Key("lightning_damage_resistance_+%")!.Value] = -5,
-            [Program.Stats.Key("base_fire_damage_resistance_%")!.Value] = 7,
+            [Stat.ElementalDamageResistancePlusPct] = 20,
+            [Stat.FireDamageResistancePlusPct] = -50,
+            [Stat.ColdDamageResistancePlusPct] = 5,
+            [Stat.LightningDamageResistancePlusPct] = -5,
+            [Stat.BaseFireDamageResistancePct] = 7,
         };
         var bonus = Game.PassiveBonus(stats, default, default);
         Assert.Equal(20 - 50 + 7, bonus.FireResistance);
@@ -29,7 +29,7 @@ public class ResistanceSpellingTests
         var items = new ItemCatalog("data");
         var uniques = new UniqueCatalog(items, "data");
         var stats = new StatCatalog();
-        uint fire = stats.Key("fire_damage_resistance_+%")!.Value, cold = stats.Key("cold_damage_resistance_+%")!.Value;
+        uint fire = Stat.FireDamageResistancePlusPct, cold = Stat.ColdDamageResistancePlusPct;
         var eye = uniques.Create(uniques.All.First(d => d.Name == "Eye of Malice"), new Random(1))!;
         var eyeStats = ItemModStats.Global([eye], items.Mods, stats);
         Assert.Equal(0, eyeStats.GetValueOrDefault(fire));

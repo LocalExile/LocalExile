@@ -27,8 +27,7 @@ public sealed record HideoutObject(int GridX, int GridY, float Rotation, IReadOn
         foreach (string c in Components)
             switch (c)
             {
-                // As the stash's: x, y, rotation, u16 team 0, flags0, flags1 0x02 + two u8 (shown).
-                case "Positioned": w.I32(GridX).I32(GridY).F32(Rotation).U16(0).U8(0).U8(0x02).U8(0).U8(1); break;
+                case "Positioned": w.Positioned(GridX, GridY, Rotation); break;
                 case "Animated": if (Model is null) w.U8(0); else w.U8(1).WStr32(Model); break;
                 case "InteractionAction": w.U8(0); break;
                 case "HideoutDoodad": (Doodad ?? throw new ArgumentException("a HideoutDoodad component needs its doodad")).Write(w); break;
@@ -185,7 +184,7 @@ public sealed record MapPortalObject(int GridX, int GridY, int DeviceIndex, byte
     {
         var w = new BlobWriter();
         w.U8(0).U8(0);                                                              // object flags, base data entry count
-        w.I32(GridX).I32(GridY).F32(Rotation).U16(0).U8(0).U8(0x02).U8(0).U8(1);    // Positioned, as the hideout doodads'
+        w.Positioned(GridX, GridY, Rotation);                                       // Positioned
         // StateMachine: standard_portal, portal, map_device_index, map_device_large; each a compact value and u8 flags.
         w.U8(4).U8(0);
         foreach (int v in new[] { 1, PortalType, DeviceIndex, 0 }) w.CompactI(v).U8(0);

@@ -14,6 +14,8 @@ public sealed class VendorEquipmentPurchaseTests
         var catalog = new ItemCatalog("data");
         string name = "VendorEquip" + Guid.NewGuid().ToString("N");
         var items = PlayerInventories.For(name, catalog);
+        // A new character starts with three Scrolls of Wisdom: this test counts from none.
+        foreach (var starter in items.Items(PlayerInventories.MainInventory).ToArray()) items.Remove(PlayerInventories.MainInventory, starter.Id);
         var stash = AccountStash.For(name, catalog);
         var wisdom = catalog.Find("Scroll of Wisdom")!;
         var ring = ItemCatalog.Create(catalog.Find("Iron Ring")!) with { Price = [(wisdom.Hash, 1)] };

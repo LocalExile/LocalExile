@@ -30,19 +30,21 @@ internal static class DeepwaterLocker
         public bool Holds(int x, int y, int width, int height) => x >= X && y >= Y && x + width <= X + Width && y + height <= Y + Height;
     }
 
-    public static readonly Lazy<Region[]> Regions = new(() =>
+    public static Region[] Regions { get; private set; } = [];
+
+    public static void LoadGameData()
     {
         var bases = ClientTables.TableOrEmpty("BaseItemTypes");
-        return [.. ClientTables.TableOrEmpty("DeepwaterLockerLayout")
+        Regions = [.. ClientTables.TableOrEmpty("DeepwaterLockerLayout")
             .Where(r => r.IntOrNull("BaseItemType") is int b && b < bases.Count && bases[b].Text("Id") is not null)
             .Select(r => new Region(InstanceEntities.ObjectTypeHash(bases[r.Int("BaseItemType")].Text("Id")!), r.Text("__col13") ?? bases[r.Int("BaseItemType")].Text("Name") ?? "",
                 r.IntOrNull("__col7") ?? 0, r.IntOrNull("__col8") ?? 0, r.IntOrNull("__col5") ?? 1,
                 (r.IntOrNull("__col6") ?? 1) * Math.Max(1, r.IntOrNull("__col12") ?? 0)))];
-    });
+    }
 
     public static Region? RegionOf(uint typeHash)
     {
-        foreach (var r in Regions.Value) if (r.TypeHash == typeHash) return r;
+        foreach (var r in Regions) if (r.TypeHash == typeHash) return r;
         return null;
     }
 
@@ -53,10 +55,10 @@ internal static class DeepwaterLocker
     /// <summary>GameEvents.InventoryRefusal for the chart rows: 103 takes a chart (the client's own gate, <c>0x141d65f80</c>
     /// wants the DeepwaterChart component); 104 only a charted chart (G: the real server may have filled it only itself);
     /// 109 nothing (the server moves the running chart); 112 only the layout's base types.</summary>
-    public static string? Refusal(ClientState conn, byte row, Item item) => row switch
+    public static string? Refusal(Player player, byte row, Item item) => row switch
     {
-        UnchartedRow => DeepwaterCharts.IsChart(ItemsFor(conn), item) ? null : "only a Chart goes into the chart device",
-        ChartedRow => Charted(ItemsFor(conn), item) ? null : "only a charted Chart goes into the charted inventory (G)",
+        UnchartedRow => DeepwaterCharts.IsChart(ItemsFor(player), item) ? null : "only a Chart goes into the chart device",
+        ChartedRow => Charted(ItemsFor(player), item) ? null : "only a charted Chart goes into the charted inventory (G)",
         ActiveRow => "the active chart slot is the server's",
         LockerRow => RegionOf(item.TypeHash) is null ? "the Chart Locker takes only Charts and Dead Man's Sulphur" : null,
         _ => null,
@@ -64,41 +66,41 @@ internal static class DeepwaterLocker
 
     /// <summary>GameEvents.InventoryPlace: a drop into the locker outside the held item's tab region is refused (true:
     /// handled, nothing changes); anything else goes on to the Game module.</summary>
-    public static bool RefusedPlace(IModuleContext module, ClientState conn, InstanceItems.PlaceItem place)
+    public static bool RefusedPlace(IModuleContext module, Player player, InstanceItems.PlaceItem place)
     {
         if (place.InventoryId != PlayerInventories.InventoryId(LockerRow)) return false;
-        if (ItemsOf(conn).Items(PlayerInventories.Cursor).FirstOrDefault() is not { } held || RegionOf(held.Item.TypeHash) is not { } region) return false;
+        if (ItemsOf(player).Items(PlayerInventories.Cursor).FirstOrDefault() is not { } held || RegionOf(held.Item.TypeHash) is not { } region) return false;
         var shape = ShapeOf(held.Item) ?? new(1, 1, "");
         if (region.Holds((int)place.X, (int)place.Y, shape.Width, shape.Height)) return false;
-        module.Log($"{PlayerOf(conn).Character} <= 0x002a place item {held.Id} in the Chart Locker at ({place.X}, {place.Y}): refused (outside the {region.Name} tab)");
+        module.Log($"{PlayerOf(player).Character} <= 0x002a place item {held.Id} in the Chart Locker at ({place.X}, {place.Y}): refused (outside the {region.Name} tab)");
         return true;
     }
 
     /// <summary>C→S 0x0111, Ctrl + click with the locker open: an item from the main (or expanded) inventory into its tab
     /// (Sulphur onto the tab's stacks first, then the tab's first free cell), or one out of the locker into the main
     /// inventory. The client waits for the 0xbf pair (as for 0x0112), so a refusal is only logged.</summary>
-    public static async Task QuickMove(IModuleContext module, ClientState conn, InstanceItems.LeagueWindowMove move)
+    public static async Task QuickMove(IModuleContext module, Player player, InstanceItems.LeagueWindowMove move)
     {
-        var player = PlayerOf(conn);
-        var items = ItemsOf(conn);
+        var modPlayer = PlayerOf(player);
+        var items = ItemsOf(player);
         byte from = move.Into ? move.FromExpanded ? PlayerInventories.ExpandedInventory : PlayerInventories.MainInventory : LockerRow;
         string what = $"0x0111 Ctrl + click item {move.ItemId} {(move.Into ? "into" : "out of")} the Chart Locker";
         var it = items.Items(from).FirstOrDefault(i => i.Id == move.ItemId);
-        string? why = it is null ? $"not in row {from}" : conn.ModuleWindow != LockerWindow ? "the locker is not open" : null;
+        string? why = it is null ? $"not in row {from}" : player.ModuleWindow != LockerWindow ? "the locker is not open" : null;
         if (why is null && move.Into && RegionOf(it!.Item.TypeHash) is null) why = "the Chart Locker takes only Charts and Dead Man's Sulphur";
         if (why is not null)
         {
-            module.Log($"{player.Character} <= {what}: refused ({why})");
+            module.Log($"{modPlayer.Character} <= {what}: refused ({why})");
             return;
         }
-        bool done = move.Into ? await Store(conn, it!, from) : await Take(conn, it!);
-        module.Log($"{player.Character} <= {what}: {(done ? "moved" : "refused (no room)")}");
+        bool done = move.Into ? await Store(player, it!, from) : await Take(player, it!);
+        module.Log($"{modPlayer.Character} <= {what}: {(done ? "moved" : "refused (no room)")}");
     }
 
     // Into the item's tab: a stack first fills the tab's stacks of its type, the rest takes a free cell of the tab.
-    static async Task<bool> Store(ClientState conn, InventoryItem it, byte from)
+    static async Task<bool> Store(Player player, InventoryItem it, byte from)
     {
-        var items = ItemsOf(conn);
+        var items = ItemsOf(player);
         var region = RegionOf(it.Item.TypeHash)!.Value;
         var shape = ShapeOf(it.Item) ?? new(1, 1, "");
         var changed = new List<InventoryItem>();
@@ -127,19 +129,19 @@ internal static class DeepwaterLocker
             else if (count < live.Item.StackSize) left = items.SetStackSize(from, live.Id, count);
         });
         if (changed.Count == 0 && placed is null) return false;
-        var player = PlayerOf(conn);
-        await player.Send(InstanceItems.InventoryChange(PlayerInventories.InventoryId(from), items.NextRevision(from), [it.Id], left is null ? [] : [left]),
+        var modPlayer = PlayerOf(player);
+        await modPlayer.Send(InstanceItems.InventoryChange(PlayerInventories.InventoryId(from), items.NextRevision(from), [it.Id], left is null ? [] : [left]),
             $"0x00bf inventory {PlayerInventories.InventoryId(from)}: " + (left is null ? $"remove item {it.Id}" : $"stack {it.Id} now {left.Item.StackSize}"));
         List<InventoryItem> added = [.. changed, .. placed is null ? [] : new[] { placed }];
-        await player.Send(InstanceItems.InventoryChange(PlayerInventories.InventoryId(LockerRow), items.NextRevision(LockerRow), [.. changed.Select(c => c.Id)], added),
+        await modPlayer.Send(InstanceItems.InventoryChange(PlayerInventories.InventoryId(LockerRow), items.NextRevision(LockerRow), [.. changed.Select(c => c.Id)], added),
             $"0x00bf inventory {PlayerInventories.InventoryId(LockerRow)}: " + string.Join(", ", added.Select(a => $"item {a.Id} at ({a.X}, {a.Y}) x{a.Item.StackSize}")));
         return emptied || changed.Count > 0;
     }
 
     // Out of the locker: the first free cell of the main inventory.
-    static async Task<bool> Take(ClientState conn, InventoryItem it)
+    static async Task<bool> Take(Player player, InventoryItem it)
     {
-        var items = ItemsOf(conn);
+        var items = ItemsOf(player);
         var shape = ShapeOf(it.Item) ?? new(1, 1, "");
         if (items.FreeCell(PlayerInventories.MainInventory, shape.Width, shape.Height, ShapeOf) is not { } cell) return false;
         InventoryItem? placed = null;
@@ -148,10 +150,10 @@ internal static class DeepwaterLocker
             if (items.Remove(LockerRow, it.Id) is { } taken) placed = items.Put(PlayerInventories.MainInventory, taken with { X = cell.X, Y = cell.Y });
         });
         if (placed is null) return false;
-        var player = PlayerOf(conn);
-        await player.Send(InstanceItems.InventoryChange(PlayerInventories.InventoryId(LockerRow), items.NextRevision(LockerRow), [placed.Id], []),
+        var modPlayer = PlayerOf(player);
+        await modPlayer.Send(InstanceItems.InventoryChange(PlayerInventories.InventoryId(LockerRow), items.NextRevision(LockerRow), [placed.Id], []),
             $"0x00bf inventory {PlayerInventories.InventoryId(LockerRow)}: remove item {placed.Id}");
-        await player.Send(InstanceItems.InventoryChange(PlayerInventories.InventoryId(PlayerInventories.MainInventory), items.NextRevision(PlayerInventories.MainInventory), [], [placed]),
+        await modPlayer.Send(InstanceItems.InventoryChange(PlayerInventories.InventoryId(PlayerInventories.MainInventory), items.NextRevision(PlayerInventories.MainInventory), [], [placed]),
             $"0x00bf inventory {PlayerInventories.InventoryId(PlayerInventories.MainInventory)}: add item {placed.Id} at ({placed.X}, {placed.Y})");
         return true;
     }
@@ -169,17 +171,17 @@ internal static class DeepwaterLocker
     /// <summary>C→S 0x010e, Ctrl + click with the Chart window (inventory 103) open: a chart from the main (or expanded)
     /// inventory into slot 103 at (0, 0) (swapping with an existing chart in 103 if it fits back), or a chart out of 103
     /// into the first free cell of the main inventory (or expanded if granted).</summary>
-    public static async Task QuickMoveChart(IModuleContext module, ClientState conn, InstanceItems.LeagueWindowMove move)
+    public static async Task QuickMoveChart(IModuleContext module, Player player, InstanceItems.LeagueWindowMove move)
     {
-        var player = PlayerOf(conn);
-        var items = ItemsOf(conn);
+        var modPlayer = PlayerOf(player);
+        var items = ItemsOf(player);
         byte from = move.Into ? move.FromExpanded ? PlayerInventories.ExpandedInventory : PlayerInventories.MainInventory : UnchartedRow;
         string what = $"0x010e Ctrl + click item {move.ItemId} {(move.Into ? "into" : "out of")} the Chart window";
         var it = items.Items(from).FirstOrDefault(i => i.Id == move.ItemId);
-        string? why = it is null ? $"not in row {from}" : move.Into ? Refusal(conn, UnchartedRow, it.Item) : null;
+        string? why = it is null ? $"not in row {from}" : move.Into ? Refusal(player, UnchartedRow, it.Item) : null;
         if (why is not null)
         {
-            module.Log($"{player.Character} <= {what}: refused ({why})");
+            module.Log($"{modPlayer.Character} <= {what}: refused ({why})");
             return;
         }
         if (move.Into)
@@ -192,7 +194,7 @@ internal static class DeepwaterLocker
                 var existingShape = ShapeOf(existing.Item) ?? new(1, 1, "");
                 if (existingShape.Width > itShape.Width || existingShape.Height > itShape.Height)
                 {
-                    module.Log($"{player.Character} <= {what}: refused (existing chart does not fit back into cell ({src.X}, {src.Y}))");
+                    module.Log($"{modPlayer.Character} <= {what}: refused (existing chart does not fit back into cell ({src.X}, {src.Y}))");
                     return;
                 }
             }
@@ -206,29 +208,29 @@ internal static class DeepwaterLocker
             });
             if (placed is null)
             {
-                module.Log($"{player.Character} <= {what}: refused (item moved)");
+                module.Log($"{modPlayer.Character} <= {what}: refused (item moved)");
                 return;
             }
-            await player.Send(InstanceItems.InventoryChange(PlayerInventories.InventoryId(from), items.NextRevision(from),
+            await modPlayer.Send(InstanceItems.InventoryChange(PlayerInventories.InventoryId(from), items.NextRevision(from),
                     [src.Id], swapped is null ? [] : [swapped]),
                 $"0x00bf inventory {PlayerInventories.InventoryId(from)}: remove item {src.Id}" + (swapped is null ? "" : $", swap in {swapped.Id}"));
-            await player.Send(InstanceItems.InventoryChange(PlayerInventories.InventoryId(UnchartedRow), items.NextRevision(UnchartedRow),
+            await modPlayer.Send(InstanceItems.InventoryChange(PlayerInventories.InventoryId(UnchartedRow), items.NextRevision(UnchartedRow),
                     existing is null ? [] : [existing.Id], [placed]),
                 $"0x00bf inventory {PlayerInventories.InventoryId(UnchartedRow)}: place chart {placed.Id}");
-            module.Log($"{player.Character} <= {what}: moved row {from} → {UnchartedRow}" + (swapped is null ? "" : $" (swapped with {swapped.Id})"));
+            module.Log($"{modPlayer.Character} <= {what}: moved row {from} → {UnchartedRow}" + (swapped is null ? "" : $" (swapped with {swapped.Id})"));
             return;
         }
         var shape = ShapeOf(it!.Item) ?? new(1, 1, "");
         byte to = PlayerInventories.MainInventory;
         var cell = items.FreeCell(to, shape.Width, shape.Height, ShapeOf);
-        if (cell is null && ExpandedInventoryGranted(conn))
+        if (cell is null && ExpandedInventoryGranted(player))
         {
             to = PlayerInventories.ExpandedInventory;
             cell = items.FreeCell(to, shape.Width, shape.Height, ShapeOf);
         }
         if (cell is not { } dest)
         {
-            module.Log($"{player.Character} <= {what}: refused (no room)");
+            module.Log($"{modPlayer.Character} <= {what}: refused (no room)");
             return;
         }
         InventoryItem? moved = null;
@@ -238,25 +240,25 @@ internal static class DeepwaterLocker
         });
         if (moved is null)
         {
-            module.Log($"{player.Character} <= {what}: refused (item moved)");
+            module.Log($"{modPlayer.Character} <= {what}: refused (item moved)");
             return;
         }
-        await player.Send(InstanceItems.InventoryChange(PlayerInventories.InventoryId(UnchartedRow), items.NextRevision(UnchartedRow), [moved.Id], []),
+        await modPlayer.Send(InstanceItems.InventoryChange(PlayerInventories.InventoryId(UnchartedRow), items.NextRevision(UnchartedRow), [moved.Id], []),
             $"0x00bf inventory {PlayerInventories.InventoryId(UnchartedRow)}: remove item {moved.Id}");
-        await player.Send(InstanceItems.InventoryChange(PlayerInventories.InventoryId(to), items.NextRevision(to), [], [moved]),
+        await modPlayer.Send(InstanceItems.InventoryChange(PlayerInventories.InventoryId(to), items.NextRevision(to), [], [moved]),
             $"0x00bf inventory {PlayerInventories.InventoryId(to)}: add item {moved.Id} at ({moved.X}, {moved.Y})");
-        module.Log($"{player.Character} <= {what}: moved row {UnchartedRow} → {to} at ({moved.X}, {moved.Y})");
+        module.Log($"{modPlayer.Character} <= {what}: moved row {UnchartedRow} → {to} at ({moved.X}, {moved.Y})");
     }
 
     /// <summary>Sulphur the player holds across the inventories the client sums (<c>0x140410110</c>, <c>0x141d6b020</c>):
     /// the Chart Locker (112), main inventory (0), expanded inventory (84) and personal stash tabs.</summary>
-    public static int SulphurHeld(ClientState conn)
+    public static int SulphurHeld(Player player)
     {
-        var items = ItemsOf(conn);
+        var items = ItemsOf(player);
         long total = (long)items.Count(LockerRow, SulphurHash)
             + items.Count(PlayerInventories.MainInventory, SulphurHash)
             + items.Count(PlayerInventories.ExpandedInventory, SulphurHash)
-            + PersonalStashOf(conn).CountOf(SulphurHash);
+            + PersonalStashOf(player).CountOf(SulphurHash);
         return (int)Math.Clamp(total, 0, int.MaxValue);
     }
 
@@ -270,7 +272,7 @@ internal static class DeepwaterLocker
     /// priority order: Chart Locker (112), main inventory (0), expanded inventory (84), then personal stash (G: order).
     /// Returns false (nothing taken) before any mutation; throws <see cref="AbortTransactionException"/> if a later
     /// deduction fails after an earlier row was mutated so SQLite and in-memory state roll back cleanly.</summary>
-    internal static bool TryPaySulphurInTransaction(ClientState conn, int amount, out SulphurPayment payment)
+    internal static bool TryPaySulphurInTransaction(Player player, int amount, out SulphurPayment payment)
     {
         var rows = new List<(byte Row, PlayerInventories.Payment Paid)>();
         AccountStash? touchedStash = null;
@@ -280,8 +282,8 @@ internal static class DeepwaterLocker
             payment = new(rows, null, null);
             return true;
         }
-        var items = ItemsOf(conn);
-        var stash = PersonalStashOf(conn);
+        var items = ItemsOf(player);
+        var stash = PersonalStashOf(player);
         int inLocker = items.Count(LockerRow, SulphurHash);
         int inMain = items.Count(PlayerInventories.MainInventory, SulphurHash);
         int inExpanded = items.Count(PlayerInventories.ExpandedInventory, SulphurHash);
@@ -343,30 +345,27 @@ internal static class DeepwaterLocker
     }
 
     /// <summary>Sends the 0x00bf updates for a completed <see cref="SulphurPayment"/>.</summary>
-    internal static async Task SendSulphurPayment(ClientState conn, SulphurPayment payment)
+    internal static async Task SendSulphurPayment(Player player, SulphurPayment payment)
     {
-        var items = ItemsOf(conn);
-        var player = PlayerOf(conn);
+        var items = ItemsOf(player);
+        var modPlayer = PlayerOf(player);
         foreach (var (row, p) in payment.Rows)
-            await player.Send(InstanceItems.InventoryChange(PlayerInventories.InventoryId(row), items.NextRevision(row), [.. p.Removed, .. p.Changed.Select(c => c.Id)], p.Changed),
+            await modPlayer.Send(InstanceItems.InventoryChange(PlayerInventories.InventoryId(row), items.NextRevision(row), [.. p.Removed, .. p.Changed.Select(c => c.Id)], p.Changed),
                 $"0x00bf inventory {PlayerInventories.InventoryId(row)}: paid Sulphur");
         if (payment.Stash is { } stash && payment.StashPaid is { } stashPaid)
-        {
-            var (remote, stream, ciphers) = conn.Wire;
-            await SendStashPayment(remote, stream, ciphers, conn, stash, stashPaid);
-        }
+            await SendStashPayment(player, stash, stashPaid);
     }
 
     /// <summary>Pays <paramref name="amount"/> Sulphur from the locker (112), main inventory (0), expanded inventory (84),
     /// then personal stash (G: priority order), and sends every modified row's or tab's 0x00bf; false (nothing taken) when
     /// the player holds less.</summary>
-    public static async Task<bool> PaySulphur(ClientState conn, int amount)
+    public static async Task<bool> PaySulphur(Player player, int amount)
     {
         SulphurPayment payment = default;
         bool paid = false;
-        try { Saves.Atomically(() => paid = TryPaySulphurInTransaction(conn, amount, out payment)); }
+        try { Saves.Atomically(() => paid = TryPaySulphurInTransaction(player, amount, out payment)); }
         catch (AbortTransactionException) { paid = false; }
-        if (paid) await SendSulphurPayment(conn, payment);
+        if (paid) await SendSulphurPayment(player, payment);
         return paid;
     }
 }

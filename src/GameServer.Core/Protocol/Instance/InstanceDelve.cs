@@ -188,7 +188,7 @@ public sealed record DelveRobotObject(int GridX, int GridY, float Rotation)
     {
         var w = new BlobWriter();
         w.U8(0).U8(0);                                                                    // object flags, base data entries
-        w.I32(GridX).I32(GridY).F32(Rotation).U16(0).U8(0).U8(0x02).U8(0).U8(1);         // Positioned (shown)
+        w.Positioned(GridX, GridY, Rotation);                                            // Positioned
         w.U8(1).WStr32(Model);                                                            // Animated
         w.U8(1);                                                                          // Transitionable: state 1
         w.Stats([]).U32(0).U32(0).U8(0);                                                  // Stats

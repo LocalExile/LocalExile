@@ -18,6 +18,35 @@ static class QuestBarriers
     /// <summary>How far (cells) either side of the line the closed band reaches.</summary>
     public const double HalfWidth = 2.5;
 
+    // force_wall.ao's Hull (proj_tri) in local cells before Positioned uniform scale (DoodadHull / 0x141d8ad70):
+    // x in [-19.52, +19.24], y in [-3.96, +5.16].
+    const double ForceWallMinX = -19.52, ForceWallMaxX = 19.24, ForceWallMinY = -3.96, ForceWallMaxY = 5.16;
+
+    /// <summary>Walkable cells inside a scaled <c>force_wall.ao</c> Hull (matching the client's 0x141d8ad70 blockage),
+    /// kept when closing them separates <paramref name="from"/> from <paramref name="guarded"/>; falls back to
+    /// <see cref="Cells"/> otherwise.</summary>
+    public static HashSet<(int X, int Y)> ForceWallCells(Func<int, int, bool> walkable, int w, int h, (int X, int Y) centre,
+        float angle, float scale, (int X, int Y) from, IReadOnlyList<(int X, int Y)> guarded)
+    {
+        if (guarded.Count == 0 || !walkable(from.X, from.Y)) return [];
+        bool Inside(int x, int y) => x >= 0 && y >= 0 && x < w && y < h && walkable(x, y);
+        if (Separates(Inside, w, h, [], from, guarded)) return [];
+        double sc = scale > 0 ? scale : 1;
+        double minX = ForceWallMinX * sc, maxX = ForceWallMaxX * sc, minY = ForceWallMinY * sc, maxY = ForceWallMaxY * sc;
+        double cos = Math.Cos(angle), sin = Math.Sin(angle);
+        int reach = (int)Math.Ceiling(Math.Sqrt(Math.Max(minX * minX, maxX * maxX) + Math.Max(minY * minY, maxY * maxY))) + 1;
+        var hull = new HashSet<(int X, int Y)>();
+        for (int dy = -reach; dy <= reach; dy++)
+            for (int dx = -reach; dx <= reach; dx++)
+            {
+                double lx = dx * cos + dy * sin, ly = -dx * sin + dy * cos;
+                if (lx >= minX && lx <= maxX && ly >= minY && ly <= maxY && Inside(centre.X + dx, centre.Y + dy))
+                    hull.Add((centre.X + dx, centre.Y + dy));
+            }
+        if (hull.Count > 0 && Separates(Inside, w, h, hull, from, guarded)) return hull;
+        return Cells(walkable, w, h, centre, angle, from, guarded);
+    }
+
     public static HashSet<(int X, int Y)> Cells(Func<int, int, bool> walkable, int w, int h, (int X, int Y) centre, float angle,
         (int X, int Y) from, IReadOnlyList<(int X, int Y)> guarded)
     {
@@ -26,26 +55,25 @@ static class QuestBarriers
         bool Inside(int x, int y) => x >= 0 && y >= 0 && x < w && y < h && walkable(x, y);
         // Exits the boss's side cannot reach anyway are not guarded by this wall.
         if (Separates(Inside, w, h, [], from, guarded)) return result;
-        foreach (int dir in new[] { 1, -1 })
+        // Sweep one continuous line across centre (-Reach..+Reach) so a wall whose centre lies on walkable terrain
+        // (Tutorial_Blocker_1) keeps both halves of the crossing in a single stretch.
+        double dx = Math.Cos(angle), dy = Math.Sin(angle);
+        var run = new HashSet<(int X, int Y)>();
+        int r = (int)Math.Ceiling(HalfWidth);
+        for (double t = -Reach; t <= Reach; t += 0.5)
+        {
+            double x = centre.X + dx * t, y = centre.Y + dy * t;
+            if (Inside((int)Math.Round(x), (int)Math.Round(y)))
             {
-                double dx = Math.Cos(angle) * dir, dy = Math.Sin(angle) * dir;
-                var run = new HashSet<(int X, int Y)>();
-                for (double t = 0; t <= Reach; t += 0.5)
-                {
-                    double x = centre.X + dx * t, y = centre.Y + dy * t;
-                    if (Inside((int)Math.Round(x), (int)Math.Round(y)))
-                    {
-                        int r = (int)Math.Ceiling(HalfWidth);
-                        for (int cy = (int)Math.Floor(y) - r; cy <= (int)Math.Ceiling(y) + r; cy++)
-                            for (int cx = (int)Math.Floor(x) - r; cx <= (int)Math.Ceiling(x) + r; cx++)
-                                if ((cx - x) * (cx - x) + (cy - y) * (cy - y) <= HalfWidth * HalfWidth && Inside(cx, cy)) run.Add((cx, cy));
-                        continue;
-                    }
-                    if (run.Count > 0 && Separates(Inside, w, h, run, from, guarded)) result.UnionWith(run);
-                    run = [];
-                }
-                if (run.Count > 0 && Separates(Inside, w, h, run, from, guarded)) result.UnionWith(run);
+                for (int cy = (int)Math.Floor(y) - r; cy <= (int)Math.Ceiling(y) + r; cy++)
+                    for (int cx = (int)Math.Floor(x) - r; cx <= (int)Math.Ceiling(x) + r; cx++)
+                        if ((cx - x) * (cx - x) + (cy - y) * (cy - y) <= HalfWidth * HalfWidth && Inside(cx, cy)) run.Add((cx, cy));
+                continue;
             }
+            if (run.Count > 0 && Separates(Inside, w, h, run, from, guarded)) result.UnionWith(run);
+            run = [];
+        }
+        if (run.Count > 0 && Separates(Inside, w, h, run, from, guarded)) result.UnionWith(run);
         return result;
     }
 
@@ -54,21 +82,29 @@ static class QuestBarriers
     static bool Separates(Func<int, int, bool> inside, int w, int h, HashSet<(int X, int Y)> closed, (int X, int Y) from,
         IReadOnlyList<(int X, int Y)> guarded)
     {
-        if (closed.Contains(from)) return false;
+        if (closed.Contains(from) || guarded.Any(g => g.X < 0 || g.Y < 0 || g.X >= w || g.Y >= h)) return false;
+        // Stops at the first guarded cell reached: walking all of a 1357x989 trial map, several times a door, made a door
+        // cost 150-175 ms of the area entry (live 2026-11-20).
+        var targets = guarded.Select(g => g.Y * w + g.X).ToHashSet();
         var seen = new bool[w * h];
-        var queue = new Queue<(int X, int Y)>();
-        seen[from.Y * w + from.X] = true;
-        queue.Enqueue(from);
+        var queue = new Queue<int>();
+        int start = from.Y * w + from.X;
+        seen[start] = true;
+        queue.Enqueue(start);
         while (queue.Count > 0)
         {
-            var (x, y) = queue.Dequeue();
-            foreach (var (nx, ny) in new[] { (x + 1, y), (x - 1, y), (x, y + 1), (x, y - 1) })
-            {
-                if (!inside(nx, ny) || seen[ny * w + nx] || closed.Contains((nx, ny))) continue;
-                seen[ny * w + nx] = true;
-                queue.Enqueue((nx, ny));
-            }
+            int at = queue.Dequeue();
+            if (targets.Contains(at)) return false;
+            int x = at % w, y = at / w;
+            Visit(x + 1, y); Visit(x - 1, y); Visit(x, y + 1); Visit(x, y - 1);
         }
-        return guarded.All(g => g.X >= 0 && g.Y >= 0 && g.X < w && g.Y < h && !seen[g.Y * w + g.X]);
+        return true;
+
+        void Visit(int nx, int ny)
+        {
+            if (!inside(nx, ny) || seen[ny * w + nx] || closed.Contains((nx, ny))) return;
+            seen[ny * w + nx] = true;
+            queue.Enqueue(ny * w + nx);
+        }
     }
 }

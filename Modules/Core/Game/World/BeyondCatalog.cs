@@ -16,9 +16,9 @@ public static class BeyondCatalog
         string Id,
         string BossVariety,
         int BossVarietyRow,
-        string ChanceStat,
+        uint ChanceStat,
         ushort BossBuffRow,
-        IReadOnlyList<(string Stat, int Value)> BossBuffStats,
+        IReadOnlyList<(uint Stat, int Value)> BossBuffStats,
         IReadOnlyList<PackCatalog.Pack> FodderPacks,
         IReadOnlyList<PackCatalog.Pack> ElitePacks);
 
@@ -39,19 +39,30 @@ public static class BeyondCatalog
         ("Metadata/Items/Currency/CurrencyHellscapeUpgradeModTier", 2),
     ];
 
-    static readonly Lazy<IReadOnlyList<Faction>> Data = new(Load);
-    static readonly Lazy<int[]> LifeScaling = new(LoadLifeScaling);
-    static readonly Lazy<Dictionary<string, PortalSpec>> Portals = new(LoadPortals);
+    static IReadOnlyList<Faction> Data = [];
+    static int[] LifeScaling = [];
+    static Dictionary<string, PortalSpec> Portals = new(StringComparer.Ordinal);
+    static Dictionary<int, Faction> ByRows = [];
+    static Dictionary<string, Faction> ByBoss = new(StringComparer.Ordinal);
+    static HashSet<int> BossRows = [];
 
-    public static IReadOnlyList<Faction> All => Data.Value;
+    public static void LoadGameData()
+    {
+        var data = Load();
+        Data = data;
+        ByRows = data.ToDictionary(f => f.Row);
+        ByBoss = data.ToDictionary(f => f.BossVariety, StringComparer.Ordinal);
+        BossRows = [.. data.Select(f => f.BossVarietyRow)];
+        LifeScaling = LoadLifeScaling();
+        Portals = LoadPortals();
+        PortalFinals.Clear();
+    }
 
-    static readonly Lazy<Dictionary<int, Faction>> ByRows = new(() => All.ToDictionary(f => f.Row));
-    static readonly Lazy<Dictionary<string, Faction>> ByBoss = new(() => All.ToDictionary(f => f.BossVariety, StringComparer.Ordinal));
-    static readonly Lazy<HashSet<int>> BossRows = new(() => [.. All.Select(f => f.BossVarietyRow)]);
+    public static IReadOnlyList<Faction> All => Data;
 
-    public static Faction? ByRow(int row) => ByRows.Value.GetValueOrDefault(row);
-    public static Faction? ByBossVariety(string? varietyId) => varietyId is not null ? ByBoss.Value.GetValueOrDefault(varietyId) : null;
-    public static bool IsBoss(MonsterCatalog.Variety? variety) => variety is not null && BossRows.Value.Contains(variety.Row);
+    public static Faction? ByRow(int row) => ByRows.GetValueOrDefault(row);
+    public static Faction? ByBossVariety(string? varietyId) => varietyId is not null ? ByBoss.GetValueOrDefault(varietyId) : null;
+    public static bool IsBoss(MonsterCatalog.Variety? variety) => variety is not null && BossRows.Contains(variety.Row);
 
     /// <summary>Fast prefix check: all Beyond/Hellscape demon varieties sit under <see cref="MonsterPrefix"/>.</summary>
     public static bool IsBeyondVariety(string? varietyId) =>
@@ -78,23 +89,24 @@ public static class BeyondCatalog
             int final = 0;
             foreach (int row in variety.SpeciesModsOrEmpty)
                 foreach (var stat in Program.Items.Mods.Row(row)?.Stats ?? [])
-                    if (stat.Id == "monster_no_beyond_portal" && stat.Min > 0) return null;
-                    else if (stat.Id == "monster_beyond_portal_chance_+%_final") final += stat.Min;
+                    if (stat.Id == Stat.MonsterNoBeyondPortal && stat.Min > 0) return null;
+                    else if (stat.Id == Stat.MonsterBeyondPortalChancePlusPctFinal) final += stat.Min;
             return final;
         });
 
     /// <summary>Portal object specification (components, Transitionable index, StateMachine) from client.db.</summary>
-    public static PortalSpec? Portal(string type) => Portals.Value.GetValueOrDefault(type);
+    public static PortalSpec? Portal(string type) => Portals.GetValueOrDefault(type);
 
     /// <summary>Picks one faction weighted by <c>max(0, 100 + stat(ChanceStat))</c> (uniform fallback if all zero).</summary>
-    public static Faction? PickFaction(Func<string, int> stat, Random random)
+    public static Faction? PickFaction(Func<uint, int> stat, Random random)
     {
         if (All.Count == 0) return null;
         var weights = new int[All.Count];
         int total = 0;
         for (int i = 0; i < All.Count; i++)
         {
-            weights[i] = Math.Max(0, 100 + stat(All[i].ChanceStat));
+            uint key = All[i].ChanceStat;
+            weights[i] = Math.Max(0, 100 + (key == 0 ? 0 : stat(key)));
             total += weights[i];
         }
         if (total <= 0) return All[random.Next(All.Count)];
@@ -124,7 +136,7 @@ public static class BeyondCatalog
     /// +50% at level 1, +318% at 68, +378% at 83, +382% at 84+.</summary>
     public static int LifePct(int level)
     {
-        var table = LifeScaling.Value;
+        var table = LifeScaling;
         return table.Length == 0 ? 0 : table[Math.Clamp(level, 1, table.Length) - 1];
     }
 
@@ -151,10 +163,10 @@ public static class BeyondCatalog
             string id = row.Text("Id") ?? "";
             int bossRow = row.Int("Boss");
             if (Game.Monsters.Find(bossRow.ToString()) is not { Supported: true } boss) continue;
-            string chanceStat = row.IntOrNull("FactionChanceStat") is int statRow && statRow >= 0
-                ? Program.Stats.Name((uint)statRow + 1) : "";
+            uint chanceStat = row.IntOrNull("FactionChanceStat") is int statRow && statRow >= 0
+                ? (uint)statRow + 1 : 0u;
             ushort buffRow = 0;
-            var buffStats = new List<(string Stat, int Value)>();
+            var buffStats = new List<(uint Stat, int Value)>();
             if (buffTemplates is not null && buffDefs is not null
                 && row.IntOrNull("BuffTemplate") is int templateRow && templateRow >= 0 && templateRow < buffTemplates.Count)
             {
@@ -166,8 +178,7 @@ public static class BeyondCatalog
                     var statVals = tmpl.Ints("Buff_StatValues");
                     for (int i = 0; i < statKeys.Length && i < statVals.Length; i++)
                     {
-                        string name = Program.Stats.Name((uint)statKeys[i] + 1);
-                        if (!string.IsNullOrEmpty(name)) buffStats.Add((name, statVals[i]));
+                        if (statKeys[i] >= 0) buffStats.Add(((uint)statKeys[i] + 1, statVals[i]));
                     }
                 }
             }

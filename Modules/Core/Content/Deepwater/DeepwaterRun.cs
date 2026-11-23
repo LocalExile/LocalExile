@@ -98,7 +98,7 @@ internal sealed class DeepwaterRun
     public bool HasAnyRareSulphur { get; init; }
     /// <summary>Called once when the run ends (DeepwaterExtraction.End or Fail) with the players it ended for and whether it
     /// succeeded.</summary>
-    public Func<IReadOnlyList<ClientState>, bool, Task>? OnEnd { get; set; }
+    public Func<IReadOnlyList<Player>, bool, Task>? OnEnd { get; set; }
 
     // The board's cell rectangles as x0, y0, x1, y1 per cell, for CellIndex (built with Board).
     readonly int[] _rects = [];

@@ -20,7 +20,7 @@ public sealed class SplitArrowAndLightningArrowTests
         Assert.NotNull(lightningArrowProj);
 
         var lightningArrowProfile = GatewayProjectileSkillProfiles.Resolve("LightningArrow", lightningArrowProj!.Value.Id,
-            name => name == "lightning_arrow_maximum_number_of_extra_targets" ? 3 : 0, 3260, attack: true, arrows: true);
+            name => name == Stat.LightningArrowMaximumNumberOfExtraTargets ? 3 : 0, 3260, attack: true, arrows: true);
         Assert.NotNull(lightningArrowProfile.ContactTargets);
         Assert.Equal(3, lightningArrowProfile.ContactTargets!.Count);
         Assert.Equal(18, lightningArrowProfile.ContactTargets.Radius);

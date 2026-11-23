@@ -36,6 +36,12 @@ public sealed class AtlasAndMapEntryTests
 
         Assert.Equal(2, InstanceMapDevice.ReadActivateMemoryLine([0x02, 0x97, 0x02]));
         Assert.Equal(5, InstanceMapDevice.ReadActivateMavenInvitation([0x02, 0x98, 0x05]));
+        Assert.Equal(2, ClientPackets.Find(InstanceEntities.ResetAllPassivesId)?.FixedLength);
+        Assert.Equal(2, ClientPackets.Find(InstanceEntities.AtlasWindowRequestId)?.FixedLength);
+        Assert.Equal(2, ClientPackets.Find(InstanceDelve.ReturnToWorldId)?.FixedLength);
+        Assert.Equal(3, ClientPackets.Find(InstanceMapDevice.ActivateMemoryLineId)?.FixedLength);
+        Assert.Equal(3, ClientPackets.Find(InstanceMapDevice.ActivateMavenInvitationId)?.FixedLength);
+        Assert.Equal(renameWire.Length, ClientPackets.Length(InstanceEntities.AtlasTreeRenameId, renameWire));
 
         var leagues = LeagueCatalog.FromEnvironment();
         Assert.Equal((byte)59, leagues.Find("Allflame")!.Entry().C1);
@@ -54,29 +60,29 @@ public sealed class AtlasAndMapEntryTests
             Assert.Equal((byte)2, open.BossOption);
             Assert.Equal((byte)2, run.BossOption);
 
-            var withBoss = Game.ComposeMapAreaStats(MapMods.None, 16, new Dictionary<uint, int>(), new HashSet<string>(), 0, bossOption: 2);
+            var withBoss = Game.ComposeMapAreaStats(MapMods.None, 16, new Dictionary<uint, int>(), new HashSet<string>(), 0, deepwater: true, bossOption: 2);
             var withoutBoss = Game.ComposeMapAreaStats(MapMods.None, 16, new Dictionary<uint, int>(), new HashSet<string>(), 0, bossOption: 0);
-            uint influenceKey = Program.Stats.Key("map_atlas_primordial_boss_influence")!.Value;
-            Assert.Equal(2, withBoss[influenceKey]);
-            Assert.False(withoutBoss.ContainsKey(influenceKey));
+            Assert.Equal(1, withBoss[Stat.MapDeepwaterLeague]);
+            Assert.Equal(2, withBoss[Stat.MapAtlasPrimordialBossInfluence]);
+            Assert.False(withoutBoss.ContainsKey(Stat.MapAtlasPrimordialBossInfluence));
 
-            var conn = new ClientState(new(1, "1_1_town", 100, 100, 10, 10, null, []), 1, 1) { Character = owner };
-            Game.SetAtlasTreeName(conn, 0, "Mapping");
-            Game.SetAtlasTreeName(conn, 2, "Bosses");
-            Assert.Equal(["Mapping", "", "Bosses"], Game.AtlasTreeNames(conn));
-            Assert.Equal(InstanceEntities.AtlasTreeNames("Mapping", "", "Bosses"), Game.AtlasTreeNamesMessage(conn));
+            var player = new Player(new(1, "1_1_town", 100, 100, 10, 10, null, []), 1, 1) { Character = { Name = owner } };
+            Game.SetAtlasTreeName(player, 0, "Mapping");
+            Game.SetAtlasTreeName(player, 2, "Bosses");
+            Assert.Equal(["Mapping", "", "Bosses"], Game.AtlasTreeNames(player));
+            Assert.Equal(InstanceEntities.AtlasTreeNames("Mapping", "", "Bosses"), Game.AtlasTreeNamesMessage(player));
 
-            Assert.Equal(0, Game.AtlasSlots(conn, 0)[6] & InstanceEntities.PassiveFreeResetFlag);
-            Game.SetAtlasFreeReset(conn, true);
-            Assert.Equal(InstanceEntities.PassiveFreeResetFlag, Game.AtlasSlots(conn, 0)[6] & InstanceEntities.PassiveFreeResetFlag);
-            Game.SetAtlasFreeReset(conn, false);
-            Assert.Equal(0, Game.AtlasSlots(conn, 0)[6] & InstanceEntities.PassiveFreeResetFlag);
+            Assert.Equal(0, Game.AtlasSlots(player, 0)[6] & InstanceEntities.PassiveFreeResetFlag);
+            Game.SetAtlasFreeReset(player, true);
+            Assert.Equal(InstanceEntities.PassiveFreeResetFlag, Game.AtlasSlots(player, 0)[6] & InstanceEntities.PassiveFreeResetFlag);
+            Game.SetAtlasFreeReset(player, false);
+            Assert.Equal(0, Game.AtlasSlots(player, 0)[6] & InstanceEntities.PassiveFreeResetFlag);
 
-            Assert.Equal(0, Game.PassivesMessage(conn).Bytes[11] & InstanceEntities.PassiveFreeResetFlag);
-            Game.SetPassiveFreeReset(conn, true);
-            Assert.Equal(InstanceEntities.PassiveFreeResetFlag, Game.PassivesMessage(conn).Bytes[11] & InstanceEntities.PassiveFreeResetFlag);
-            Game.SetPassiveFreeReset(conn, false);
-            Assert.Equal(0, Game.PassivesMessage(conn).Bytes[11] & InstanceEntities.PassiveFreeResetFlag);
+            Assert.Equal(0, Game.PassivesMessage(player).Bytes[11] & InstanceEntities.PassiveFreeResetFlag);
+            Game.SetPassiveFreeReset(player, true);
+            Assert.Equal(InstanceEntities.PassiveFreeResetFlag, Game.PassivesMessage(player).Bytes[11] & InstanceEntities.PassiveFreeResetFlag);
+            Game.SetPassiveFreeReset(player, false);
+            Assert.Equal(0, Game.PassivesMessage(player).Bytes[11] & InstanceEntities.PassiveFreeResetFlag);
         }
         finally
         {
