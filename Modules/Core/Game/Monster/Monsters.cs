@@ -370,11 +370,12 @@ public static partial class Game
         bool bulk = false, bool nonBlocking = false,
         // The create's own shape where its variety's row does not say (a mercenary's team, states and build); it is what the
         // instance keeps for a later player too.
-        Func<MonsterObject, MonsterObject>? shape = null) =>
+        Func<MonsterObject, MonsterObject>? shape = null,
+        StateMachineData? startStates = null) =>
         SpawnPackMonster(0, player, variety, level, rarity, x, y, name, friendly, log, damagedLife, mods, alone, unrisen,
             rotation, extraStats, owned, ownedCurrent, ownedSkills, ownedMaximumLife, ownedMaximumEnergyShield,
             ownedEnergyShield, extraMods, scripted, ownedLooks, extraKit, ownedAdmission, ownedInitialDeath, placement,
-            lifePercent, movement, attachTo, instanceOwned, bulk, nonBlocking, shape);
+            lifePercent, movement, attachTo, instanceOwned, bulk, nonBlocking, shape, startStates);
 
     static async Task<uint> SpawnPackMonster(int packId, Player player, MonsterCatalog.Variety variety,
         byte level, MonsterRarity rarity, int x, int y, string? name = null, bool friendly = false, bool log = true, uint? damagedLife = null,
@@ -392,7 +393,10 @@ public static partial class Game
         bool bulk = false, bool nonBlocking = false,
         // The create's own shape where its variety's row does not say (a mercenary's team, states and build); it is what the
         // instance keeps for a later player too.
-        Func<MonsterObject, MonsterObject>? shape = null)
+        Func<MonsterObject, MonsterObject>? shape = null,
+        // The StateMachine values the monster is created in, in place of its type's own defaults (an encounter that holds it
+        // from its first frame).
+        StateMachineData? startStates = null)
     {
         movement ??= MonsterMovement.Default;
         // A hostile unique (a Rogue Exile, a kept one too) holds the weapons its variety names, as Izaro's are given.
@@ -653,7 +657,7 @@ public static partial class Game
             (stats ??= []).Add((maximumEnergyShield, (int)maximumEnergyShieldValue));
         bool waitingForBanditChoice = !friendly && BanditChoices.In(player) is { } bandit
             && bandit.Variety == variety.Id && variety.ComponentsOrBase.Contains("NPC") && BanditChoices.Held(player, bandit);
-        var states = Sirus.StartStates(variety) ?? DoedreSewers.StartStates(variety) ?? DepravedTrinity.StartStates(variety) ?? (player.Layout.Id == "2_6_15" ? BrineKing.StartStates(variety) : brine ? variety.StateMachine?.Set("rock_mode", 1) : null) ?? MavenNucleus.StartStates(variety) ?? MapBeyond.StartStates(variety) ?? BossKits.StartStates(variety) ?? variety.StateMachine;
+        var states = startStates ?? Sirus.StartStates(variety) ?? DoedreSewers.StartStates(variety) ?? DepravedTrinity.StartStates(variety) ?? (player.Layout.Id == "2_6_15" ? BrineKing.StartStates(variety) : brine ? variety.StateMachine?.Set("rock_mode", 1) : null) ?? MavenNucleus.StartStates(variety) ?? MapBeyond.StartStates(variety) ?? BossKits.StartStates(variety) ?? variety.StateMachine;
         // MonsterObject.Blob() omits Actor's two dead-on-birth bytes, so a create packet must carry life >= 1;
         // a dead-on-arrival owned spawn is born with life 1 and immediately zeroed by LifeUpdate(id, 0).
         uint initialLife = Math.Min(damagedLife ?? life, life);
