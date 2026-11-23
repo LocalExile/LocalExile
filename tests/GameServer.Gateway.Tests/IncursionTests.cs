@@ -73,7 +73,7 @@ public class IncursionTests
         Assert.Equal("007b1800000000000000000000000000000000", Hex(InstanceWaypoints.OpenUi(IncursionWire.TempleUiKind, 0)));
     }
 
-    [Fact]
+    [GameFilesFact]
     public void The_temple_plan_and_the_past_rooms_come_from_the_clients_tables_and_files()
     {
         // The rooms a temple slot starts with when it is not a family's tier-1 room: tier 0 with a past room, not the
