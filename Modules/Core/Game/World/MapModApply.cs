@@ -188,7 +188,7 @@ public static partial class Game
             if (snapshot.CurrencyWeights.Count > 0)
             {
                 foreach (var row in snapshot.CurrencyWeights.Values)
-                    if (row.Weight > 0 && catalog.Find(row.CurrencyId) is { Supported: true } t && t.Id == row.CurrencyId)
+                    if (row is { Enabled: true, Weight: > 0 } && catalog.Find(row.CurrencyId) is { Supported: true } t && t.Id == row.CurrencyId)
                         list.Add((t, row.Weight, Math.Max(t.DropLevel, row.DropLevel)));
             }
             if (list.Count == 0)
