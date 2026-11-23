@@ -55,14 +55,17 @@ public static partial class Game
 
     // Called only at an accepted melee damage commit, before any notification can yield to another action/area.
     public static bool FortificationOnHitLocked(Player player, SpawnedMonster target, decimal rawDamage,
-        bool melee, IReadOnlyDictionary<uint, int> playerStats, IReadOnlyDictionary<uint, int>? skill = null, Random? random = null)
+        bool melee, IReadOnlyDictionary<uint, int> playerStats, IReadOnlyDictionary<uint, int>? skill = null, Random? random = null,
+        bool movement = false)
     {
         if (!melee || !target.Hostile || player.Closed || player.LeavingArea || player.Paused || player.PlayerLife == 0) return false;
-        int Get(uint name)
+        int Get(uint key)
         {
-            if (!(name is var key)) return 0;
-            return (int)Math.Clamp((long)playerStats.GetValueOrDefault(key) + (skill?.GetValueOrDefault(key) ?? 0),
-                int.MinValue, int.MaxValue);
+            long value = (long)playerStats.GetValueOrDefault(key) + (skill?.GetValueOrDefault(key) ?? 0);
+            // "Melee Movement Skills have #% chance to Fortify on Hit".
+            if (movement && key == FortificationSession.ChanceOnMeleeHit)
+                value += playerStats.GetValueOrDefault(Stat.MeleeMovementSkillChanceToFortifyOnHitPct);
+            return (int)Math.Clamp(value, int.MinValue, int.MaxValue);
         }
         return FortificationOf(player).Hit(AreaTime(player), rawDamage, target.MaxLife,
             target.Rarity, Get, random ?? AreaRng(player));

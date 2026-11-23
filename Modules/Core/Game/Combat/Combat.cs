@@ -2818,7 +2818,8 @@ public static partial class Game
                     {
                         var fortificationDamage = RawFortificationDamage(rolled, critical, multiplier);
                         bool fortifiedThisHit = !fortificationGranted && (fortificationGranted = FortificationOnHitLocked(player, m,
-                            fortificationDamage, !spell && SkillsFor(player).IsMelee(gem.Effect), playerStats, skillStats));
+                            fortificationDamage, !spell && SkillsFor(player).IsMelee(gem.Effect), playerStats, skillStats,
+                            movement: SkillsFor(player).IsMovement(gem.Effect)));
                         stun = stun with { FortificationDamage = fortificationDamage, Fortified = fortifiedThisHit };
                         if (!rageGranted) rageGranted = RageOnHitLocked(player, attack: !spell,
                             melee: !spell && SkillsFor(player).IsMelee(gem.Effect), critical, skillStats, playerStats: playerStats);
