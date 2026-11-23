@@ -100,12 +100,17 @@ public static partial class Game
             aim = seen;
         }
         FlameblastRuntime runtime;
-        
+        FlameblastRuntime? interrupted = null;
         {
             if (FlameblastRuntimes.TryGetValue(player, out var old))
             {
                 staleMarker = old.Marker;
                 old.Marker = 0;
+                // A hit or stun that interrupted the channel can let the client cast again before the old channel's
+                // release runs; that release then finds this new runtime and does nothing. The old stages go off here.
+                if (old.Channelling && old.Stages > 0 && CurrentGameRules && ReferenceEquals(old.Rules, CombatLifetime)
+                    && old.Epoch == player.ProjectileEpoch && !player.RageRetired && player.PlayerLife > 0 && !InTown(player))
+                    interrupted = old;
                 old.Channelling = false;
             }
             runtime = new FlameblastRuntime
@@ -117,6 +122,8 @@ public static partial class Game
             FlameblastRuntimes.AddOrUpdate(player, runtime);
         }
         if (staleMarker != 0) await SendWorldRemoval(player, staleMarker);
+        if (interrupted is not null)
+            await FlameblastExplode(player, interrupted.SkillId, interrupted.Gem, interrupted.Stages, interrupted.Aim, "interrupted");
         Console.WriteLine($"[gateway] {player.Connection.Remote} flameblast 0x{skillId:x4} {gem.Name} channel start at ({aim.X}, {aim.Y}), {start} stage(s)");
         await FlameblastDrawMarker(player, runtime);
         _ = AreaFrames.Start(() => FlameblastMarkerLoop(player, runtime));
