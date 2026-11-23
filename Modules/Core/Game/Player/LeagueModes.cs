@@ -118,7 +118,7 @@ public static partial class Game
         }
         player.PlayerLife = initial.Life;
         player.PlayerMana = initial.Mana;
-        player.EnergyShield.SetMaximum(player.Pools.EnergyShield, refill: true);
+        InitializePlayerEnergyShield(player);
         player.AuraDeathHandled = false;
     }
 

@@ -1013,7 +1013,8 @@ public static partial class Game
                         PanelStats.WhileMoving(RecoveryStat, player.Walk.Moving(AreaTime(player))));
                     int periodic = RecoveryStat(Stat.VirtualGainLifeRegenerationPerMinutePctFor1SecondEvery4Seconds);
                     periodicRegenStart = periodic > 0 && player.PlayerLife > 0 ? periodicRegenStart ?? now : null;
-                    periodicRegenPerSecond = player.PlayerMaxLife * (double)periodic / 6000 * PanelStats.LifeRegenerationMultiplier(RecoveryStat);
+                    periodicRegenPerSecond = player.PlayerMaxLife * (double)periodic / 6000
+                        * PanelStats.LifeRegenerationMultiplier(RecoveryStat) * LifeRegenerationKeystoneFactor(RecoveryStat);
                     zealotsOath = PanelStats.ZealotsOath(RecoveryStat);
                     convertLifeRegen = zealotsOath && EnergyShield.ConversionAllowed(RecoveryStat);
                     vaalPact = RecoveryStat(Stat.KeystoneVaalPact) != 0;
@@ -1047,6 +1048,7 @@ public static partial class Game
                     player.LifeRecoup.Clear();
                     PreventedDamageOf(player).Clear();
                     player.EnergyShield.Empty();
+                    KeystoneRecovery.Remove(player);
                     ClearAntiquarianOnDeath(player);
                     periodicRegenStart = null;
                     lifeAfter = lifeBefore;
@@ -1073,6 +1075,8 @@ public static partial class Game
                     int trapWhole = (int)Math.Truncate(trapCarry); trapCarry -= trapWhole;
                     int lifeTrap = IncomingResourceDefences.DamageOverTime(player.EnergyShield, trapWhole,
                         IncomingStat(IncomingResourceDefences.BypassStat), now, ref player.NonChaosDotBypassCarry);
+                    RecordRechargeLifeDamage(player, Math.Max(lifeBurn, lifeTrap), now, recoveryStats);
+                    double lifeRecharge = AdvanceKeystoneRecovery(player, recoveryFrom, now, lifeBefore < lifeCap, RecoveryStat);
                     player.EnergyShield.Advance(recoveryFrom, now, RecoveryStat, true);
                     double periodicLife = periodicRegenStart is double start ? periodicRegenPerSecond
                         * (PeriodicRegenSeconds(now - start) - PeriodicRegenSeconds(recoveryFrom - start)) : 0;
@@ -1091,7 +1095,8 @@ public static partial class Game
                     // Flask recovery alone may pass Low Life under Petrified Blood. Every other source, leech included,
                     // stops at the boundary; leech instances stay alive, but their recovery above Low Life is ignored.
                     double nonFlaskLife = (zealotsOath ? 0 : lifeRate * seconds + periodicLife) + (zealotsOath ? 0 : fortificationLife)
-                        + leeched.Life + (zealotsOath ? 0 : antiquarianLife) + (zealotsOath ? 0 : enduringCryLife + preventedLife) + recoupLife;
+                        + leeched.Life + (zealotsOath ? 0 : antiquarianLife) + (zealotsOath ? 0 : enduringCryLife + preventedLife)
+                        + recoupLife + lifeRecharge;
                     if (!zealotsOath) nonFlaskLife += unhingedHitLife;
                     // Vaal Pact: "Cannot Recover Life other than from Leech" — only leech recovers life here; the
                     // regeneration, flask, recoup and other non-leech shares are blocked. Their Energy Shield
@@ -1405,7 +1410,7 @@ public static partial class Game
         player.InvalidateIncomingHits();
         LeechOf(player).Clear(AreaTime(player));
         player.PlayerLife = LifeCap(player);
-        player.EnergyShield.SetMaximum(player.Pools.EnergyShield, refill: true);
+        InitializePlayerEnergyShield(player);
         player.HitRecovery.Clear();
         player.Ward.SetMaximum(player.Pools.Ward); player.Ward.Restore();
         player.AuraDeathHandled = false;

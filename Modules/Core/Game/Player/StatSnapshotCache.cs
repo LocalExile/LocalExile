@@ -81,7 +81,8 @@ public static partial class Game
         var (bloodHeld, bloodShown) = BloodChargePanelInputs(player);
         var (lifeRegenPerMinute, _) = PanelStats.LifeRegeneration(
             name => name is var key ? stats.GetValueOrDefault(key) : 0, player.Pools.Life);
-        uint recoveryMargin = PetrifiedBlood.RecoveryMargin(lifeRegenPerMinute / 60);
+        double factor = LifeRegenerationKeystoneFactor(name => stats.GetValueOrDefault(name));
+        uint recoveryMargin = PetrifiedBlood.RecoveryMargin(lifeRegenPerMinute * factor / 60);
         return new()
         {
             Stats = stats, Pools = player.Pools with { Evasion = PlayerEvasion(player, stats) },
@@ -132,7 +133,8 @@ public static partial class Game
                 offProjectileAttack: projectileAttack && ActiveOffHand() is { Type.Class: "Wand" })
                 .Concat(PanelStats.FromPools(Get, pools))
                 .Concat(PanelStats.Defence(Get, pools, Monsters.BaseDamage(pools.Level), Monsters.BaseAccuracy(pools.Level)))
-                .Concat(PanelStats.Recovery(PanelStats.WhileMoving(Get, inputs.Moving), pools.Life, pools.Mana))
+                .Concat(PanelStats.Recovery(PanelStats.WhileMoving(Get, inputs.Moving), pools.Life, pools.Mana,
+                    LifeRegenerationKeystoneFactor(Get)))
                 // Leech limits and the client display use the full maximum pool. Petrified Blood caps only the
                 // recovery actually applied, not the instance's contribution or its displayed cap.
                 .Concat(LeechLimits.Compute(Get, pools.Life, pools.Mana, pools.EnergyShield, OnLowLife(stats)))

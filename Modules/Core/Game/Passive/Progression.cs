@@ -172,6 +172,7 @@ public static partial class Game
         sources = WithSummonBuffs(player, sources);
         sources = WithRighteousFireSpellBonus(player, sources);
         sources = WithSpreadPoisonRegeneration(player, sources);
+        ApplyRecoveryKeystoneStats(sources);
         double now = AreaTime(player);
         int Get(uint k) => sources.GetValueOrDefault(k);
         FortificationOf(player).SetExpiryRate(now, RecipientEffectTime.Rate(1, Get));

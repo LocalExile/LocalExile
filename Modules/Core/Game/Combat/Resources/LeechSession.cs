@@ -9,6 +9,8 @@ public sealed class LeechSession
     LeechLimits.Snapshot? limits;
     bool keepLife, keepEnergyShield, keepAttackEnergyShield;
     bool convertLifeToEnergyShield;
+    bool immortalAmbition, fullLife, fullShield;
+    double routedAt, pendingLifeRecovery, pendingShieldRecovery;
     public bool ConvertsLifeToEnergyShield => convertLifeToEnergyShield;
     double lifeInstant, manaInstant, shieldInstant, convertedLifeInstant;
     // Vaal Pact: "Life Leech from Melee Damage is Instant" — the life instant fraction a melee hit uses instead.
@@ -42,6 +44,7 @@ public sealed class LeechSession
     /// <summary>When the next instance ends; null without one.</summary>
     public double? NextExpiry(double now)
     {
+        SettleRedirectedLife(now);
         double next = double.PositiveInfinity;
         foreach (var state in new[] { Life, Mana, EnergyShield })
             if (state.NextExpiry(now) is double expires) next = Math.Min(next, expires);
@@ -51,6 +54,7 @@ public sealed class LeechSession
     /// <summary>When the leech of a resource next stops on its own; null while none leeches.</summary>
     public double? NextChangeAt(double now)
     {
+        SettleRedirectedLife(now);
         double next = double.PositiveInfinity;
         foreach (var state in new[] { Life, Mana, EnergyShield })
             if (state.Until(now) is double until) next = Math.Min(next, until);
@@ -74,9 +78,12 @@ public sealed class LeechSession
         limits = value;
         convertLifeToEnergyShield = replacement(Stat.VirtualLeechEnergyShieldInsteadOfLife) is int converted
             ? converted != 0 : get(Stat.KeystoneGhostReaver) != 0 || get(Stat.LeechEnergyShieldInsteadOfLife) != 0;
-        keepLife = replacement(Stat.VirtualLifeLeechDoesNotStopAtFullLife) is int lifeOverleech
+        bool redirect = get(Stat.KeystoneSoulTether) != 0;
+        if (redirect && !immortalAmbition) routedAt = now;
+        immortalAmbition = redirect;
+        keepLife = immortalAmbition || (replacement(Stat.VirtualLifeLeechDoesNotStopAtFullLife) is int lifeOverleech
             ? lifeOverleech != 0 : get(Stat.LifeLeechDoesNotStopAtFullLife) != 0
-                || get(Stat.VirtualLifeLeechDoesNotStopAtFullLife) != 0;
+                || get(Stat.VirtualLifeLeechDoesNotStopAtFullLife) != 0);
         keepEnergyShield = get(Stat.EnergyShieldLeechDoesNotStopOnFullEnergyShield) != 0;
         keepAttackEnergyShield = get(Stat.EnergyShieldLeechFromAttacksDoesNotStopOnFullEnergyShield) != 0;
         recoverLife = get(Stat.CannotRecoverLife) == 0;
@@ -159,7 +166,9 @@ public sealed class LeechSession
     {
         // Full Life, not Low Life: Petrified Blood ignores leech recovery above Low Life without removing the
         // instance, so it keeps its full-pool cap and can resume when Life drops.
-        if (life) LifeInstantCarry = 0;
+        fullLife = life; fullShield = shield;
+        if (life) { LifeInstantCarry = 0; pendingLifeRecovery = 0; }
+        if (shield) pendingShieldRecovery = 0;
         if (mana) ManaInstantCarry = 0;
         if (life && !keepLife) Life.Clear(now);
         if (mana) Mana.Clear(now);
@@ -170,16 +179,62 @@ public sealed class LeechSession
         }
     }
 
-    public (double Life, double Mana, double EnergyShield) TakeRecovery(double now) =>
-        (Life.TakeRecovery(now), Mana.TakeRecovery(now), EnergyShield.TakeRecovery(now));
+    double RedirectedRate(double at)
+    {
+        double freeRate = Math.Max(0, EnergyShield.MaximumPerSecond - EnergyShield.OfferedPerSecond(at));
+        return Math.Min(freeRate, Life.OfferedPerSecond(at)) * EnergyShield.RecoveryMultiplier;
+    }
+
+    // Accrue to each expiry so the additional ES recovery shares the remaining native ES cap at every interval.
+    // Instances retain the original Life grant's duration and base rate when the destination pool changes.
+    void SettleRedirectedLife(double now)
+    {
+        if (!immortalAmbition || now <= routedAt) return;
+        if (fullLife && !fullShield)
+        {
+            while (routedAt < now)
+            {
+                double end = Math.Min(now, Math.Min(Life.NextExpiry(routedAt) ?? now, EnergyShield.NextExpiry(routedAt) ?? now));
+                pendingShieldRecovery += (end - routedAt) * RedirectedRate(routedAt);
+                routedAt = end;
+            }
+        }
+        double life = Life.TakeRecovery(now);
+        if (!fullLife) pendingLifeRecovery += life;
+        routedAt = now;
+    }
+
+    public (double Life, double Mana, double EnergyShield) TakeRecovery(double now)
+    {
+        SettleRedirectedLife(now);
+        var values = (Life.TakeRecovery(now) + pendingLifeRecovery, Mana.TakeRecovery(now),
+            EnergyShield.TakeRecovery(now) + pendingShieldRecovery);
+        pendingLifeRecovery = pendingShieldRecovery = 0;
+        return values;
+    }
 
     public (LeechRecoveryState.DisplayState Life, LeechRecoveryState.DisplayState Mana,
-        LeechRecoveryState.DisplayState EnergyShield) Display(double now) =>
-        (Life.Display(now), Mana.Display(now), EnergyShield.Display(now));
+        LeechRecoveryState.DisplayState EnergyShield) Display(double now)
+    {
+        SettleRedirectedLife(now);
+        var life = Life.Display(now);
+        var shield = EnergyShield.Display(now);
+        if (immortalAmbition && fullLife)
+        {
+            double bonus = fullShield ? 0 : RedirectedRate(now) * 60;
+            if (bonus > 0)
+                shield = new((int)Math.Min(int.MaxValue, Math.Round(shield.PerMinute + bonus)), Math.Max(shield.Expiry, life.Expiry));
+            life = new(0, now);
+        }
+        return (life, Mana.Display(now), shield);
+    }
 
     // Reading conditions expires instances without consuming the recovery accumulated for the resource writer.
-    public (bool Life, bool Mana, bool EnergyShield) Active(double now) =>
-        (Life.Active(now), Mana.Active(now), EnergyShield.Active(now));
+    public (bool Life, bool Mana, bool EnergyShield) Active(double now)
+    {
+        SettleRedirectedLife(now);
+        return (Life.Active(now), Mana.Active(now), EnergyShield.Active(now));
+    }
 
     public void Clear(double now)
     {
@@ -188,6 +243,9 @@ public sealed class LeechSession
         Life.Clear(now); Mana.Clear(now); EnergyShield.Clear(now);
         Report(now, before, count);
         LifeInstantCarry = ManaInstantCarry = 0;
+        pendingLifeRecovery = pendingShieldRecovery = 0;
+        fullLife = fullShield = false;
+        routedAt = now;
         InstantLifeChanged = InstantManaChanged = false;
     }
 
