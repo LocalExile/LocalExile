@@ -110,6 +110,8 @@ public static class KingsmarchTown
             capacity = 90,
             paid = workers.Count(w => w.row != 0),
             workers,
+            // What each plot grows, in plot order: the panel's state frame carries one VillageResources row per plot.
+            plots = progress.Plots.Values.OrderBy(p => p.Order).Select(p => new { order = p.Order, crop = p.Crop }).ToArray(),
             crops = progress.Store,
         };
         try

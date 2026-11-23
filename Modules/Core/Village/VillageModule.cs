@@ -61,6 +61,10 @@ public sealed class VillageModule : IModule
         public int StatePushed = -1;
         /// <summary>The VillageResources rows the town holds (the panel's resource counters).</summary>
         public readonly Dictionary<int, uint> Resources = [];
+        /// <summary>One "VillageResources" row per farm plot, six of them, in plot order: 10..14 for the five crops and
+        /// 0xff for a bare plot. The client's label resolver reads these bytes directly and faults on row 0, so a bare
+        /// plot must name a row that does not exist rather than row zero.</summary>
+        public readonly byte[] Slots = [0xff, 0xff, 0xff, 0xff, 0xff, 0xff];
     }
 
     readonly ConditionalWeakTable<IPlayer, Settlement> _settlements = new();
@@ -168,6 +172,20 @@ public sealed class VillageModule : IModule
             {
                 for (int i = 0; i < crops.Length; i++)
                     settlement.Resources[10 + i] = store.TryGetProperty(crops[i], out var have) ? (uint)Math.Max(0, have.GetInt32()) : 0;
+            }
+            // The six plot slots the client names on the map icons: a plot growing crop n is row 9 + n, a bare one is
+            // 0xff (out of range, which the client treats as "no row" instead of dereferencing row 0).
+            Array.Fill(settlement.Slots, (byte)0xff);
+            if (root.TryGetProperty("plots", out var plots))
+            {
+                foreach (var plot in plots.EnumerateArray())
+                {
+                    int order = plot.GetProperty("order").GetInt32();
+                    int crop = plot.GetProperty("crop").GetInt32();
+                    if (order is < 0 or > 5) continue;
+                    if (crop is < 1 or > 5) continue;
+                    settlement.Slots[order] = (byte)(9 + crop);
+                }
             }
             // The pushes compare this against what the panel already has.
             settlement.Version = version + 1;
@@ -288,14 +306,13 @@ public sealed class VillageModule : IModule
             $"0x02c9 village recruits: {settlement.Recruits.Count}");
     }
 
-    /// <summary>Tells the panel the settlement's numbers: the treasury, the resource and production counters and the
-    /// village clock (S→C 0x2c9, kind 0x9b, subtag 4). The client's reader 0x1424c8190 takes, in this order: 21 u32 (the
-    /// resource counters), 15 u32 (the production counters), the gold, one more u32, six flag bytes, three u64, four
-    /// entries (a u64, three bytes and the name they carry), a u64, two bytes and the village's clock; the handler then
-    /// reads one more u64 and adds (its now − that value) to the clock, so both have to be the client's own time in whole
-    /// seconds — zero or milliseconds push the clock into the future and the client kills itself with its own "advancing
-    /// village state to a time in the past" complaint. A frame one byte short aborts the client with 0xc000041d, so the
-    /// layout has to be exact.</summary>
+    /// <summary>Tells the panel the settlement's numbers: the treasury, the resource and production counters, the six
+    /// plot slots and the village clock (S→C 0x2c9, kind 0x9b, subtag 4). Its reader 0x1424c8190 takes exactly 0xa6
+    /// (166) bytes and returns: 21 u32 (resource counters) → village+0x1a0, 15 u32 (production counters) → +0x1f4, a u32
+    /// → +0x198, a u32 → +0x19c, six u8 (one VillageResources row per farm plot) → +0x230, then a u64 that is consumed
+    /// but not stored — the time the frame was made in Unix seconds, which the caller subtracts from its own clock
+    /// (0x1417683e1) and adds to the village's. Anything after 0xa6 is invisible, and a wrong time there pushes the
+    /// clock into the past.</summary>
     async Task PushState(IPlayer player)
     {
         if (player.AreaId != "KalguuranSettlersLeague") return;
@@ -303,41 +320,21 @@ public sealed class VillageModule : IModule
         if (settlement.StatePushed == settlement.Version) return;
         settlement.StatePushed = settlement.Version;
         long clock = DateTimeOffset.UtcNow.ToUnixTimeSeconds();
-        // The block the client reads, in the order its reader 0x1424c8190 takes it: 21 resource counters, 15 production
-        // counters, the gold, one more number, six flag bytes, three pairs (the site slot bytes are believed to live here,
-        // one VillageResources row per slot: a zero slot makes the client's label resolver dereference row 0 and fault at
-        // 0x1404f9fa0, but shifting the frame to reach 0xa0 killed the client on entry, so the alignment is still open);
-        // then three named blocks (a u64, the length of the name, two bytes, the name), a u64, two packed bytes, the
-        // village's clock and four packed bytes.
-        var payload = new List<byte>(245);
+        var payload = new List<byte>(166);
         for (int i = 0; i < 21; i++)
             payload.AddRange(BitConverter.GetBytes(settlement.Resources.GetValueOrDefault(i)));
         for (int j = 0; j < 15; j++) payload.AddRange(BitConverter.GetBytes(0u));
         payload.AddRange(BitConverter.GetBytes(settlement.Gold));
         payload.AddRange(BitConverter.GetBytes(0u));
-        payload.AddRange(new byte[6]);
-        for (int k = 0; k < 3; k++)
-        {
-            payload.AddRange(BitConverter.GetBytes(0u));
-            payload.AddRange(BitConverter.GetBytes(0u));
-        }
-        for (int e = 0; e < 3; e++)
-        {
-            payload.AddRange(BitConverter.GetBytes((ulong)0));
-            payload.Add(0);
-            payload.Add(0);
-            payload.Add(0);
-        }
-        payload.AddRange(BitConverter.GetBytes((ulong)0));
-        payload.Add(0);
-        payload.Add(0);
+        // The six plot slots the map icons name: a plot growing crop n is VillageResources row 9 + n, a bare plot is
+        // 0xff. Row 0 has no name object and the client's label resolver does not check, so a zero slot faults at 0x8.
+        payload.AddRange(settlement.Slots);
         payload.AddRange(BitConverter.GetBytes((ulong)clock));
-        payload.AddRange(new byte[4]);
-        // The handler reads one more u64 after the block: the time the frame was made, which it subtracts from its own
-        // clock and adds to the village's. Both have to be the client's own time in whole seconds.
-        payload.AddRange(BitConverter.GetBytes((ulong)clock));
+        // The reader stops at 0xa6, but the frame's declared length has to cover what the client's other readers walk
+        // over: a 166-byte frame made it raise "Buffer Underflow", so the unused tail stays as zeros.
+        payload.AddRange(new byte[245 - payload.Count]);
         await player.Send(StateFrame(TownRecordKind, 4, payload.ToArray()),
-            $"0x02c9 village state: gold {settlement.Gold}, 21 resources, 15 production counters");
+            $"0x02c9 village state: gold {settlement.Gold}, slots [{string.Join(' ', settlement.Slots)}]");
     }
 
     /// <summary>Puts a worker in the town and tells the panel about it: the dev stand-in for the recruitment panel's hire
