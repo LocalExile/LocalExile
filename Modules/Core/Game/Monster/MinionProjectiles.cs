@@ -27,12 +27,14 @@ public static partial class Game
     static bool MinionProjectileAttackCurrent(Player player, PlayerMinions.Attack attack)
     {
         var (id, m, _, targetId, targetMonster, _, _) = attack;
-        if (!CurrentGameWork || player.Closed || player.LeavingArea || player.PlayerLife == 0
-            || !player.Minions.Fights(id) || !player.Minions.Owns(id, m)
+        if (!CurrentGameWork || player.Closed || player.LeavingArea
             || !player.Minions.Attacks.TryGetValue(id, out var accepted) || !ReferenceEquals(accepted, attack)
             || m.Dead || m.Life == 0 || !player.Area.Monsters.TryGetValue(id, out var held) || !ReferenceEquals(held, m)
             || targetMonster.Dead || targetMonster.Life == 0 || !targetMonster.Hostile
-            || !player.Area.Monsters.TryGetValue(targetId, out var target) || !ReferenceEquals(target, targetMonster)
+            || !player.Area.Monsters.TryGetValue(targetId, out var target) || !ReferenceEquals(target, targetMonster))
+            return false;
+        if (attack.TemporaryAllyUntil is not null) return TemporaryAllyAttackCurrent(attack, AreaTime(player));
+        if (player.PlayerLife == 0 || !player.Minions.Fights(id) || !player.Minions.Owns(id, m)
             || player.Beasts.Active is not { } active || active.Id != id || !ReferenceEquals(active.Monster, m)
             || !ReferenceEquals(active.Area, player.Instance) || !ReferenceEquals(active.Lifetime, CombatLifetime))
             return false;
@@ -75,7 +77,7 @@ public static partial class Game
         return new ProjectileUse(profile, owner, owner, 1, origin, aim)
         {
             Payload = new MinionProjectileOffense(id, m, m.Attack!, accuracy, $"{m.Label} {projectile.Metadata}")
-                { Presentation = presentation },
+                { Presentation = presentation, TemporaryAllyUntil = attack.TemporaryAllyUntil },
         };
     }
 
@@ -83,13 +85,20 @@ public static partial class Game
         MinionProjectileOffense shot)
     {
         var player = session.Player;
-        if (!HasSourceValidBeastMinion(player) || player.Beasts.Active is not { } active
-            || active.Id != shot.MinionId || !ReferenceEquals(active.Monster, shot.Monster)
-            || !player.Area.Monsters.TryGetValue(contact.Target.Id, out var target))
+        if (!player.Area.Monsters.TryGetValue(contact.Target.Id, out var target)
+            || session.ActorKey(contact.Target.Id, target) != contact.Target)
             return ProjectileHitResult.Miss;
-        if (session.ActorKey(contact.Target.Id, target) != contact.Target) return ProjectileHitResult.Miss;
         double now = Math.Max(contact.At / (double)ProjectileRuntime.QuantaPerSecond,
             AreaTime(player));
+        if (shot.TemporaryAllyUntil is double until)
+        {
+            if (now >= until || shot.Monster.TemporaryAllyUntil != until
+                || !player.Area.Monsters.TryGetValue(shot.MinionId, out var converted)
+                || !ReferenceEquals(converted, shot.Monster)) return ProjectileHitResult.Miss;
+        }
+        else if (!HasSourceValidBeastMinion(player) || player.Beasts.Active is not { } active
+            || active.Id != shot.MinionId || !ReferenceEquals(active.Monster, shot.Monster))
+            return ProjectileHitResult.Miss;
         var landed = MinionHitTargetLocked(player, shot.MinionId, shot.Monster, contact.Target.Id, target, now,
             contact.Projectile.RandomSource, checkReach: false, shot.Attack, shot.Accuracy);
         if (landed is not { } accepted) return ProjectileHitResult.Miss;
@@ -120,4 +129,5 @@ public sealed record MinionProjectileOffense(uint MinionId, SpawnedMonster Monst
     string Label)
 {
     public Game.ProjectilePresentation? Presentation { get; init; }
+    public double? TemporaryAllyUntil { get; init; }
 }

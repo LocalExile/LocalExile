@@ -299,9 +299,13 @@ public static partial class Game
                 ? Math.Max(0, 1 - (m.Effects.PhysicalReduction - CrushReduction(m, now)) / 100.0)
                     * (1 + MaimedPhysicalTaken(m, now) / 100.0) : 1)));
         bool tinctureWeapon = !spell && Player(Stat.TinctureApplied) != 0;
+        int frozenShock = spell && m.Ailments.Magnitude(Kind.Freeze, now) > 0
+            ? ActorScale.Saturate((long)Player(Stat.SpellChanceToShockFrozenEnemiesPct) +
+                Skill(Stat.SpellChanceToShockFrozenEnemiesPct)) : 0;
         int Attacker(uint name)
         {
             int value = Player(name) + PanelStats.Of(name, Skill);
+            if (name == Stat.ChanceToShockPct) value = ActorScale.Saturate((long)value + frozenShock);
             if (!tinctureWeapon) return value;
             return name switch
             {
@@ -422,6 +426,7 @@ public static partial class Game
     {
         ProliferateLocked(player, now);
         var packets = new List<(byte[], string)>();
+        ExpireConversionTrapsLocked(player, now, packets);
         ProliferateIgnitesLocked(player, now, packets);
         if (!MonsterElementalAilments.AnyApplied && !player.Area.HasProliferatedAilments && !player.Area.HasSpiderWebs)
         {
@@ -440,6 +445,8 @@ public static partial class Game
 
     static void ProcessMonsterAilmentLocked(Player player, uint id, SpawnedMonster m, double now, List<(byte[] Packet, string Log)> packets)
     {
+        if (m.TemporaryAllyUntil > 0 && (now >= m.TemporaryAllyUntil || m.Dead || m.Life == 0))
+            EndConversionTrap(player, id, m, now, packets);
         BearTrapChangesLocked(player, id, m, now, packets);
         // A knockback is presented before the ailment-idle skip: an idle monster still moves.
         if (m.KnockbackPending is (int kx, int ky))

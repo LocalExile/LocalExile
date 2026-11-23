@@ -6,6 +6,7 @@ public sealed class VaalImmortalCallTests
     public async Task Vaal_immortal_call_spends_its_souls_and_charges_and_holds_life_at_one()
     {
         using var f = new MinionUtilityTests.Fixture();
+        using var clock = new CastClock(f);
         // 1000 more of each attribute so CurrentGemRequirements meets Vaal Immortal Call's Strength requirement.
         f.Player.God = true;
         f.Equip(("Vaal Immortal Call", 1));
@@ -37,5 +38,17 @@ public sealed class VaalImmortalCallTests
             GameServer.Core.World.DamagePacket.Of(GameServer.Core.World.DamageType.Physical, 100_000, 100_000)));
         Assert.Equal(1u, Game.VaalImmortalCallLife(f.Player, 0, castAt));
         Assert.Equal(0u, Game.VaalImmortalCallLife(f.Player, 0, castAt + 2.5));
+    }
+
+    sealed class CastClock : IPlayerUpdateSchedule, IDisposable
+    {
+        readonly PlayerUpdatesState? previous = Game.AreaUpdateContext.Value;
+
+        public CastClock(MinionUtilityTests.Fixture fixture) =>
+            Game.AreaUpdateContext.Value = new(fixture.Lifetime, this);
+
+        public double Now(Player player) => 1;
+        public Task Wait(int milliseconds, CancellationToken stopping) => Task.CompletedTask;
+        public void Dispose() => Game.AreaUpdateContext.Value = previous;
     }
 }
