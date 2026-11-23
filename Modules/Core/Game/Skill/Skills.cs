@@ -173,7 +173,7 @@ public static partial class Game
     // Each hand's local speed is already in its own duration; both receive only the character's shared speed bucket.
     public static List<(uint, int)> WeaponStats(Player player, SkillCatalog.Unarmed weapon, IReadOnlyDictionary<uint, int> stats)
     {
-        var conversion = DamageStats.Conversion(stats, Stats, attack: true);
+        var conversion = SupportedAttackDamage.WithWeaponGains(DamageStats.Conversion(stats, Stats, attack: true), weapon);
         var accuracy = OrdinaryAccuracy(player, stats, weapon.LocalSources);
         var mainHit = AttackHitConverted(weapon, stats, MeleeAttack(player), conversion, accuracy);
         double damageFactor = CriticalStrikePolicy.DamageFactor(CriticalProhibitedBy(stats, attack: true, own: null)
@@ -183,7 +183,8 @@ public static partial class Game
         AddHand(mainHit, "main_hand");
         if (OffhandWeaponFor(player) is { } off)
         {
-            var offHit = AttackHitConverted(off, stats, MeleeAttack(player), conversion, new(WeaponAccuracyFor(player, off, stats)));
+            var offConversion = SupportedAttackDamage.WithWeaponGains(DamageStats.Conversion(stats, Stats, attack: true), off);
+            var offHit = AttackHitConverted(off, stats, MeleeAttack(player), offConversion, new(WeaponAccuracyFor(player, off, stats)));
             list.AddRange(off.OffStats(stats, offHit));
             AddHand(offHit, "off_hand");
             // The hands alternate: the panel's per-use, per-second and attacks-per-second rows average both, each hand

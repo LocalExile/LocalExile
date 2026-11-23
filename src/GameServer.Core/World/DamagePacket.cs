@@ -247,13 +247,11 @@ public sealed class DamageConversion
     private readonly int[,] _global = new int[5, 5];
     private readonly int[,] _skill = new int[5, 5];
     private readonly int[,] _gain = new int[5, 5];
-    private List<DamageConversionPath>? _gainsFromRange;
 
     public bool IsEmpty
     {
         get
         {
-            if (_gainsFromRange is not null) return false;
             for (int from = 0; from < 5; from++)
                 for (int to = 0; to < 5; to++)
                     if (_global[from, to] != 0 || _skill[from, to] != 0 || _gain[from, to] != 0) return false;
@@ -293,17 +291,6 @@ public sealed class DamageConversion
             throw new ArgumentOutOfRangeException(nameof(to),
                 $"{from} cannot be gained as {to}; the conversion order is physical → lightning → cold → fire → chaos");
         _gain[(int)from, (int)to] = _gain[(int)from, (int)to] + percent;
-        return this;
-    }
-
-    /// <summary>Add a gain from a specific portion of the source damage, with the source's conversion history.</summary>
-    public DamageConversion AddGain(DamageType from, DamageType to, int percent, DamageRange source)
-    {
-        if (percent <= 0 || source.IsZero) return this;
-        if (!DamageTypes.CanConvert(from, to))
-            throw new ArgumentOutOfRangeException(nameof(to), $"{from} cannot be gained as {to}");
-        (_gainsFromRange ??= []).Add(new(to, DamageTypes.HistoryOf(from) | DamageTypes.HistoryOf(to),
-            new(source.Min * percent / 100.0, source.Max * percent / 100.0)));
         return this;
     }
 
@@ -350,9 +337,6 @@ public sealed class DamageConversion
         var incoming = new DamageRange[5, 32];
         foreach (var (type, range) in packet.Components)
             incoming[(int)type, (int)DamageTypes.HistoryOf(type)] = range;
-        if (_gainsFromRange is { } gains)
-            foreach (var (type, history, range) in gains)
-                incoming[(int)type, (int)history] = incoming[(int)type, (int)history].Add(range);
 
         var result = new List<DamageConversionPath>(31);
         int from = 0;
@@ -391,12 +375,6 @@ public sealed class DamageConversion
         var incomingMin = new double[5];
         var incomingMax = new double[5];
         var result = new DamageRange[5];
-        if (_gainsFromRange is { } gains)
-            foreach (var (type, _, range) in gains)
-            {
-                incomingMin[(int)type] += range.Min;
-                incomingMax[(int)type] += range.Max;
-            }
         int from = 0;
         foreach (var type in DamageTypes.ConversionOrder)
         {

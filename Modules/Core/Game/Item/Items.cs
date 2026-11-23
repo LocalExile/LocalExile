@@ -884,7 +884,7 @@ public static partial class Game
 
     // FillFlasks, and the changed flasks to the client (one S→C 0xbf).
     public static Task GainFlaskCharges(Player player, int charges, string why) =>
-        charges != int.MaxValue && MapFlaskChargeGain(player) != 0
+        charges != int.MaxValue
             ? GainFlaskCharges(player, (_, _) => charges, why)
             : ChangeFlaskBar(player, items => Flasks.Fill(items, ItemsFor(player), charges, saveNow: false,
                     canGain: flask => CanGainFlaskCharges(player, flask)) is { Count: > 0 } changed

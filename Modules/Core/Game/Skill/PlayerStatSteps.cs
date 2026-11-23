@@ -174,9 +174,10 @@ public static partial class Game
         Step(PlayerStatStep.UtilityFlasks, (player, stats, _) =>
         {
             int FlaskGet(uint name) => GetIn(stats, name);
-            AddItemUtilityFlaskRawStats(stats, UtilityStats(player, FlaskGet)
-                .Concat(player.FlaskGrounds.PlayerStats(FlaskGet(Stat.ConsecratedGroundEffectPlusPct))).ToList(), Stats);
-            ApplyWiseOak(stats);
+            var running = UtilityStats(player, FlaskGet)
+                .Concat(player.FlaskGrounds.PlayerStats(FlaskGet(Stat.ConsecratedGroundEffectPlusPct))).ToList();
+            AddItemUtilityFlaskRawStats(stats, running, Stats);
+            ApplyWiseOak(stats, running);
         });
         Step(PlayerStatStep.SelfVulnerability, (player, stats, _) => AddSelfVulnerabilityStats(player, stats));
         Step(PlayerStatStep.Onslaught, (player, stats, _) =>

@@ -144,7 +144,8 @@ public static partial class Game
         var exemptions = GameEvents.ExemptItems(player);
         if (exemptions.Count > 0)
             before = new HashSet<uint>((before ?? []).Where(id => !exemptions.Contains(id)));
-        var (sources, attributes, inactive, worn) = EquipmentStatSources(player, ItemsOf(player).EquipmentSnapshot(), nodes, level);
+        var equipment = ItemsOf(player).EquipmentSnapshot();
+        var (sources, attributes, inactive, worn) = EquipmentStatSources(player, equipment, nodes, level);
         if (!player.Closed && !player.LeavingArea && !player.RageRetired)
         {
             // A queued old-area calculation must not replace the new connection's qualification snapshot.
@@ -166,7 +167,7 @@ public static partial class Game
         sources = WithHerEmbrace(player, sources);
         sources = WithElusive(player, sources);
         sources = WithTinctures(player, sources);
-        sources = WithLinks(player, GameEvents.WithPlayerStatSources(player, WithQuestStats(player, WithAntiquarian(player, WithFortification(player, WithCharges(player, WithSupportGemBuffs(player, sources)))))));
+        sources = WithLinks(player, GameEvents.WithPlayerStatSources(player, WithQuestStats(player, WithAntiquarian(player, WithFortification(player, WithCharges(player, WithSupportGemBuffs(player, sources))), equipment, inactive))));
         // The stat buffs on the player's entity in its area (AreaStatBuffs): sources like any other, so the pools have them.
         if (player.Frames.Area is { } statArea) statArea.AddStatBuffs(new EntityId(player.Id), sources);
         sources = WithSummonBuffs(player, sources);

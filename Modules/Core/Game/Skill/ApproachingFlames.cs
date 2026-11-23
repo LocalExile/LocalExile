@@ -47,11 +47,15 @@ public static partial class Game
     static FlameTouchedState? FlameTouchedOf(Player player) =>
         (player.ResourceEffectsState as ResourceEffectsState)?.FlameTouched;
 
-    static bool FlameSourceCurrent(Player player, WornGrantedSkills.Grant source) =>
-        !IsInactive(player, source.Host) && AllWornGrantedSkillsOf(player).Contains(source);
+    static bool FlameSourceCurrent(Player player, WornGrantedSkills.Grant source,
+        IReadOnlyList<(byte Row, InventoryItem Item)>? equipment = null, IReadOnlySet<uint>? inactive = null) =>
+        !(inactive?.Contains(source.Host) ?? IsInactive(player, source.Host))
+        && AllWornGrantedSkillsOf(player, equipment).Contains(source);
 
-    static bool FlameTouchedActive(Player player) =>
-        player.PlayerLife > 0 && FlameTouchedOf(player)?.Source is { } source && FlameSourceCurrent(player, source);
+    static bool FlameTouchedActive(Player player,
+        IReadOnlyList<(byte Row, InventoryItem Item)>? equipment = null, IReadOnlySet<uint>? inactive = null) =>
+        player.PlayerLife > 0 && FlameTouchedOf(player)?.Source is { } source
+        && FlameSourceCurrent(player, source, equipment, inactive);
 
     static void ReconcileFlameTouched(Player player, double now)
     {
@@ -120,7 +124,7 @@ public static partial class Game
         if (raw <= 0 || player.Closed || player.LeavingArea || player.Immune || InGracePeriod(player) || InTown(player)
             || HardcoreProgressBlocked(player)) return;
         int Get(uint stat) => stats.GetValueOrDefault(stat);
-        if (DamageImmunities.From(Get).Contains(DamageType.Fire)) return;
+        if (PlayerImmunities(player, stats).Contains(DamageType.Fire)) return;
         double resisted = DamageModel.Mitigate(raw, Resistance(player, DamageType.Fire), MaxResistance(player, DamageType.Fire));
         int damage = IncomingResourceDefences.TakenOverTime(resisted, Get, ref flame.TakenCarry,
             IncomingResourceDefences.LessTakenPct(player.Pools, Get),

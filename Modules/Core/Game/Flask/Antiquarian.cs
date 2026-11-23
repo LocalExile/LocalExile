@@ -9,9 +9,10 @@ public static partial class Game
     public static bool PlayerAlwaysHits(Player player) => Stat.GlobalAlwaysHit is var key
         && CharacterPlayerStats(player).GetValueOrDefault(key) != 0;
 
-    public static Dictionary<uint, int> WithAntiquarian(Player player, Dictionary<uint, int> sources)
+    public static Dictionary<uint, int> WithAntiquarian(Player player, Dictionary<uint, int> sources,
+        IReadOnlyList<(byte Row, InventoryItem Item)>? equipment = null, IReadOnlySet<uint>? inactive = null)
     {
-        bool flameTouched = FlameTouchedActive(player);
+        bool flameTouched = FlameTouchedActive(player, equipment, inactive);
         if (flameTouched) sources[Stat.AffectedByTouchOfFire] = 1;
         var state = player.Antiquarian;
         double now = AreaTime(player);

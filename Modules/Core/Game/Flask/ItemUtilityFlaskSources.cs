@@ -57,7 +57,8 @@ public static partial class Game
         UtilityFlasks.AddRawStats(stats, snapshot, catalog);
         foreach (var (name, value) in snapshot)
             // Block chances are already published from the pools. Avoidance is already in the generic raw view.
-            if (name is not (Stat.AdditionalBlockPct or Stat.BaseSpellBlockPct)
+            // Wise Oak's local flask stats are resolved in ApplyWiseOak and never written to the player's StatMap.
+            if (name is not (Stat.AdditionalBlockPct or Stat.BaseSpellBlockPct or WiseOakPenetration or WiseOakDamageTaken)
                 && ItemUtilityFlaskSources.Any(row => row.Target == name) && name is var key
                 && !ordinary.Contains(key))
                 stats[key] = ActorScale.Add(key, stats.GetValueOrDefault(key), value);
@@ -75,9 +76,20 @@ public static partial class Game
         };
     }
 
-    static void ApplyWiseOak(StatMap stats)
+    static void ApplyWiseOak(StatMap stats, IReadOnlyCollection<(uint Stat, int Value)> running)
     {
-        int penetration = stats.GetValueOrDefault(WiseOakPenetration), taken = stats.GetValueOrDefault(WiseOakDamageTaken);
+        int penetration = 0, taken = 0;
+        foreach (var (stat, value) in running)
+        {
+            if (stat == WiseOakPenetration
+                && (Math.Abs((long)value) > Math.Abs((long)penetration)
+                    || Math.Abs((long)value) == Math.Abs((long)penetration) && value > penetration))
+                penetration = value;
+            else if (stat == WiseOakDamageTaken
+                && (Math.Abs((long)value) > Math.Abs((long)taken)
+                    || Math.Abs((long)value) == Math.Abs((long)taken) && value > taken))
+                taken = value;
+        }
         if (penetration == 0 && taken == 0) return;
         int fire = stats.GetValueOrDefault(Stat.UncappedFireDamageResistancePct);
         int cold = stats.GetValueOrDefault(Stat.UncappedColdDamageResistancePct);

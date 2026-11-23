@@ -117,15 +117,14 @@ public static class SupportedAttackDamage
     static DamagePacket WeaponBase(SkillCatalog.Unarmed weapon) => weapon.LocalDamage
         ?? DamagePacket.Of(DamageType.Physical, new(weapon.MinDamage, weapon.MaxDamage)).Add(weapon.LocalAdded);
 
-    internal static DamageConversion WithWeaponGains(DamageConversion conversion, SkillCatalog.Unarmed weapon,
-        int baseMultiplier = 10_000, double damageFactor = 1)
+    internal static DamageConversion WithWeaponGains(DamageConversion conversion, SkillCatalog.Unarmed weapon)
     {
+        if (!WeaponAttributeDamage.Armed(weapon)) return conversion;
         int gain = weapon.LocalSources?.GetValueOrDefault(Stat.WeaponPhysicalDamagePctToAddAsEachElement) ?? 0;
         if (gain <= 0) return conversion;
-        var physical = Scale(WeaponBase(weapon), baseMultiplier)[DamageType.Physical].Scale(damageFactor);
-        return conversion.AddGain(DamageType.Physical, DamageType.Lightning, gain, physical)
-            .AddGain(DamageType.Physical, DamageType.Cold, gain, physical)
-            .AddGain(DamageType.Physical, DamageType.Fire, gain, physical);
+        return conversion.AddGain(DamageType.Physical, DamageType.Lightning, gain)
+            .AddGain(DamageType.Physical, DamageType.Cold, gain)
+            .AddGain(DamageType.Physical, DamageType.Fire, gain);
     }
 
     public static DamagePacket WithCoefficients(DamagePacket local, DamagePacket added,

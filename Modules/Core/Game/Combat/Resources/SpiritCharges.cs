@@ -69,6 +69,13 @@ public static partial class Game
         if (mana > 0 || life > 0) session.Enqueue(() => SendSkillCost(player, life, "Spirit Burst cost"));
     }
 
+    static readonly uint[] SpiritChargeGainStats =
+    [
+        Stat.PhysicalDamagePctToAddAsFire,
+        Stat.PhysicalDamagePctToAddAsCold,
+        Stat.PhysicalDamagePctToAddAsLightning,
+    ];
+
     static void ApplySpiritChargeStats(Player player, StatMap stats)
     {
         int cap = SpiritChargeLimit(stats);
@@ -82,7 +89,7 @@ public static partial class Game
         stats[Stat.CurrentSpiritCharges] = held;
         long gain = (long)held * stats.GetValueOrDefault(Stat.PhysicalDamagePctToAddAsEachElementPerSpiritCharge);
         if (gain == 0) return;
-        foreach (uint type in new[] { Stat.PhysicalDamagePctToAddAsFire, Stat.PhysicalDamagePctToAddAsCold, Stat.PhysicalDamagePctToAddAsLightning })
+        foreach (uint type in SpiritChargeGainStats)
             stats[type] = ActorScale.Saturate(stats.GetValueOrDefault(type) + gain);
     }
 }
