@@ -74,9 +74,11 @@ public static partial class Game
         if (definition.LimitStat == 0) return 1;
         var playerStats = CharacterPlayerStats(player);
         uint final = definition.FinalLimitStat;
-        int value = GolemStat(gem.Stats, definition.LimitStat) + GolemStat(playerStats, definition.LimitStat) + GolemStat(playerStats, final);
+        long value = (long)GolemStat(gem.Stats, definition.LimitStat) + GolemStat(playerStats, definition.LimitStat) + GolemStat(playerStats, final);
+        if (definition.Family == "Zombie")
+            return (int)Math.Clamp(value * (1 + GolemStat(playerStats, Stat.NumberOfZombiesAllowedPlusPct) / 100d), 0, 200);
         // Clones have no ordinary cap; duration is their lifetime constraint.
-        return Math.Clamp(value == 0 && definition.Family == "Clone" ? 100 : value, 0, 200);
+        return (int)Math.Clamp(value == 0 && definition.Family == "Clone" ? 100 : value, 0, 200);
     }
 
     static double SummonDuration(Player player, SummonCatalog.Definition definition, SupportedGem gem)

@@ -23,7 +23,8 @@ public static partial class Game
 
         var inherited = golem.InheritedMods.Effects;
         double rawBaseLife = (double)(monsters.BaseLife(variety, level) ?? 100)
-            + golem.Gear.GetValueOrDefault(Stat.BaseMaximumLife);
+            + golem.Gear.GetValueOrDefault(Stat.BaseMaximumLife)
+            + (golem.Definition.Kind == "Zombie" ? Player(Stat.ZombieMaximumLifePlus) : 0);
         double lifeIncreased = (long)Player(Stat.MinionMaximumLifePlusPct) + Own(Stat.MinionMaximumLifePlusPct)
             + (golem.Definition.IsGolem ? Player(Stat.GolemMaximumLifePlusPct) : 0)
             + golem.Gear.GetValueOrDefault(Stat.MaximumLifePlusPct) + inherited[Stat.MaximumLifePlusPct];

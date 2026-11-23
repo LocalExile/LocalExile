@@ -142,6 +142,13 @@ public static partial class Game
                 values[Stat.BaseMovementVelocityPlusPct] = ActorScale.Saturate((long)values.GetValueOrDefault(Stat.BaseMovementVelocityPlusPct)
                     + Get(Stat.SkeletonMovementSpeedPlusPct));
             }
+            if (golem.Definition.Kind == "Zombie" && Get(Stat.ZombieChaosElementalDamageResistancePct) is int zombieResistance and not 0)
+            {
+                values[Stat.BaseResistAllElementsPct] = ActorScale.Saturate((long)values.GetValueOrDefault(Stat.BaseResistAllElementsPct)
+                    + zombieResistance);
+                values[Stat.BaseChaosDamageResistancePct] = ActorScale.Saturate((long)values.GetValueOrDefault(Stat.BaseChaosDamageResistancePct)
+                    + zombieResistance);
+            }
             values.Remove(Stat.LifeRegenerationRatePerMinutePct);
             return golem.InheritedMods with { Effects = new(values) };
         }
@@ -233,6 +240,8 @@ public static partial class Game
         double now = at ?? AreaTime(player);
         var mods = GolemModifiers(player, golem, playerStats, now, ownerResistances).Effects;
         int shieldChaos = SkeletonShieldChaos(player, golem, playerStats);
+        double zombiePhysicalMore = golem.Definition.Kind == "Zombie"
+            ? Math.Max(0, 1 + GolemStat(playerStats, Stat.ZombiePhysicalDamagePlusPctFinal) / 100d) : 1;
         int Own(uint name) => GolemStat(golem.Own, name);
         foreach (var (effect, index) in (variety.GrantedEffects ?? []).Select((e, i) => (e, i)))
         {
@@ -334,7 +343,7 @@ public static partial class Game
                 if ((path.History & DamageTypeHistory.Elemental) != 0) increase += mods[Stat.ElementalDamagePlusPct];
                 var (general, typed) = GemSupportDamage.Multipliers(path.History, supportStats, types);
                 double physicalMore = (path.History & DamageTypeHistory.Physical) != 0
-                    ? Math.Max(0, 1 + Own(Stat.ActiveSkillMinionPhysicalDamagePlusPctFinal) / 100.0) : 1;
+                    ? Math.Max(0, 1 + Own(Stat.ActiveSkillMinionPhysicalDamagePlusPctFinal) / 100.0) * zombiePhysicalMore : 1;
                 double auraMore = spell ? Math.Max(0, 1 + mods[Stat.SpellDamageAuraSpellDamagePlusPctFinal] / 100.0) : 1;
                 if (spell && (path.History & DamageTypeHistory.Lightning) != 0)
                     auraMore *= Math.Max(0, 1 + mods[Stat.WrathAuraSpellLightningDamagePlusPctFinal] / 100.0);
@@ -372,7 +381,7 @@ public static partial class Game
             var rows = AilmentPanelStats.Compute(new(hand, spell, !spell && projectile is null), rawDamage.Scale(more), conversion, AilmentStat);
             var ignite = MonsterIgnites.Settings.From(rows, hand, AilmentStat);
             var bleed = spell ? MonsterIgnites.Settings.None : BleedSettings(rows, hand, AilmentStat, golem.Weapon?.LocalSources, projectile is null, projectile is not null);
-            double bleedMore = Math.Max(0, 1 + Own(Stat.ActiveSkillMinionBleedingDamagePlusPctFinal) / 100d);
+            double bleedMore = Math.Max(0, 1 + Own(Stat.ActiveSkillMinionBleedingDamagePlusPctFinal) / 100d) * zombiePhysicalMore;
             bleed = bleed with { Min = bleed.Min * bleedMore, Max = bleed.Max * bleedMore, CriticalMin = bleed.CriticalMin * bleedMore, CriticalMax = bleed.CriticalMax * bleedMore };
             var poison = MonsterPoisons.Settings.From(rows, hand, AilmentStat, golem.Weapon?.LocalSources);
             int chance = AilmentStat(Stat.BaseChanceToPoisonOnHitPct) + AilmentStat(spell ? Stat.SpellsChanceToPoisonOnHitPct : Stat.ChanceToPoisonOnHitWithAttacksPct) + poison.WeaponChance;
