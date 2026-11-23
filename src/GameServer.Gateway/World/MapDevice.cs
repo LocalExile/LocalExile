@@ -175,7 +175,14 @@ public sealed class MapDevice
             if (area is null && _atlas?.TierOf(maps[0].TypeHash) is int tier)
             {
                 if (_atlas.Selected(character) is { } layout)
+                {
+                    if (layout.RequiresSpecificItem)
+                    {
+                        why = $"{layout.Name} requires its own map item.";
+                        return null;
+                    }
                     area = new(layout.Hash16, layout.Id, layout.Name, tier) { Level = MapLevel(tier) };
+                }
                 else
                 {
                     why = "No Atlas layout is available: extract AtlasNode.dat and WorldAreas.dat.";

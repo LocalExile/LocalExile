@@ -19,7 +19,10 @@ public sealed class AtlasCatalog
         _keyTiers = LoadKeyTiers(catalog, folder);
     }
 
-    public sealed record Layout(string Id, ushort Hash16, string Name, int Tier, bool Starting);
+    public sealed record Layout(string Id, ushort Hash16, string Name, int Tier, bool Starting)
+    {
+        public bool RequiresSpecificItem { get; init; }
+    }
 
     readonly IReadOnlyList<Layout> _layouts;
     readonly IReadOnlyDictionary<uint, int> _keyTiers;
@@ -62,7 +65,7 @@ public sealed class AtlasCatalog
             if (wa.IntOrNull("HASH16") is not int hash) continue;
             result.Add(new(row.Text("Id") ?? "", (ushort)hash,
                 wa.Text("Name") ?? "", row.Int("Tier"),
-                row.Bool("StartingNode")));
+                row.Bool("StartingNode")) { RequiresSpecificItem = row.Bool("RequiresSpecificItem") });
         }
         return result;
     }

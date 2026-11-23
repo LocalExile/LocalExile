@@ -1,6 +1,10 @@
+using System.Collections.Concurrent;
+using System.Runtime.CompilerServices;
 using System.Text.Json;
 using GameServer.Core.Protocol.Instance;
 using GameServer.Core;
+using GameServer.Data.Ggpk;
+using GameServer.Data.Terrain.Generation;
 
 /// <summary>The native sulphite resource curve and the map-owner scarab modifier, separate from player item quantity.</summary>
 public static class MapSulphite
@@ -25,7 +29,37 @@ public static class MapSulphite
         return ClientTables.Table("DelveResourcePerLevel").ToDictionary(r => r.Int("AreaLevel"), r => r.Int("Sulphite"));
     }
 
+    const int DelveLeagueRow = 13, DelveChanceOffset = 144;
+    sealed record Placement(bool Present);
+    static readonly ConditionalWeakTable<InstanceState, Placement> Placements = new();
+    static readonly ConcurrentDictionary<(string Area, int Level), AreaInfo?> Areas = new();
+
     public static bool Present(MapMods mods) => mods.Get(Stat.MapDelveLeague) > 0;
+
+    public static bool Present(Player player, MapDevice.MapArea map, MapMods mods)
+    {
+        if (Present(mods)) return true;
+        if (player.Instance?.KeptAreaStats is null) return false;
+        return Placements.GetValue(player.Instance, _ =>
+        {
+            var area = Areas.GetOrAdd((map.Id, map.Level), static key =>
+            {
+                try { return AreaInfo.Load(GamePack.Default.TryRead, key.Area, key.Level); }
+                catch (Exception error) when (error is ArgumentException or FileNotFoundException) { return null; }
+            });
+            if (area is not { IsMapArea: true, RandomnessDisabled: false, LeagueChance: { } nativeChance }
+                || (mods.Get(Stat.MapDisableLeagues) & (1 << DelveLeagueRow)) != 0
+                || mods.Get(Stat.MapDisableMissions) != 0 || mods.Get(Stat.AtlasKeystoneNoExtraContent) != 0
+                || mods.Get(Stat.MapNukeEverything) != 0 || mods.Get(Stat.MapAreaUnderlevelled) != 0)
+                return new(false);
+            long chance = nativeChance(DelveChanceOffset) * (100L + mods.Get(Stat.MapLeagueBaseChancePlusPctFinal)) / 100
+                + mods.Get(Stat.MapLeagueContentAdditionalChancePct) + mods.Get(Stat.MapMasterMissionNikoPctChance);
+            chance = chance * (100L + mods.Get(Stat.MapMasterMissionNikoChancePlusPct)) / 100;
+            // Sulphite is placed after terrain generation, using its own roll for the map's seed.
+            return new(chance >= 100 || chance > 0 && new LevelRandom(player.Seed, false).Next(100u) < chance);
+        }).Present;
+    }
+
     public static bool Fumes(MapMods mods) => mods.Get(Stat.MapEnragingSulphite) > 0;
 
     public static int Yield(int level, MapMods mods, bool owner, int nearbyPlayers = 1)
