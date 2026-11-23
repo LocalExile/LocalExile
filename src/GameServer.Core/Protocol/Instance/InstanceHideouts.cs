@@ -15,7 +15,8 @@ public sealed record HideoutObject(int GridX, int GridY, float Rotation, IReadOn
 {
     public IReadOnlyList<string> Components { get; init => field = Owned.List(value); } = Owned.List(Components);
     public IReadOnlyList<int>? States { get; init => field = Owned.List(value); } = Owned.List(States);
-    static readonly HashSet<string> Supported = ["Positioned", "BaseEvents", "Animated", "InteractionAction", "HideoutDoodad", "StateMachine", "MinimapIcon", "ItemDisplayCase"];
+    static readonly HashSet<string> Supported = ["Positioned", "BaseEvents", "Animated", "InteractionAction", "HideoutDoodad", "StateMachine", "MinimapIcon", "ItemDisplayCase",
+        "Functions", "ControlZone"];
 
     public static bool CanSerialize(IReadOnlyList<string> components) => components.All(Supported.Contains);
 
@@ -36,7 +37,7 @@ public sealed record HideoutObject(int GridX, int GridY, float Rotation, IReadOn
                     foreach (int v in States ?? []) w.CompactI(v).U8(0);   // value, flags
                     break;
                 case "MinimapIcon": w.U8(0); break;
-                // BaseEvents is server-only: nothing on the wire.
+                // BaseEvents is server-only, Functions and ControlZone carry no data: nothing on the wire.
             }
         w.U8(0);                                                                    // tasks
         return w.ToArray();

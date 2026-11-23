@@ -36,6 +36,8 @@ static class HideoutEditingFeature
 
     static async Task<uint?> SpawnDecorationObject(Player player, global::Game.SavedHideoutDecoration saved, string label)
     {
+        if (HideoutCatalog.DoodadByHash(saved.Hash) is null && global::Game.MtxEffects.Of(saved.Hash) is { PetType: { Length: > 0 } petType } pet)
+            return await SpawnPet(player, saved, petType, pet, label);
         if (HideoutCatalog.DoodadByHash(saved.Hash) is not var (type, models) || string.IsNullOrEmpty(type)) return null;
         if (HideoutCatalog.TypeOf(type) is not var (components, states) || !HideoutObject.CanSerialize(components)) return null;
         string? model = models is { Length: > 0 } ? models[Math.Clamp(saved.Variation, 0, models.Length - 1)] : null;
@@ -53,12 +55,37 @@ static class HideoutEditingFeature
         {
             CollisionRadius = HideoutCatalog.CollisionRadius(model),
         };
+        AddAreaDecoration(player, id, doodad);
+        await RegisterStationaryCollision(player, id, type, saved.X, saved.Y, saved.Rotation, saved.Key, model);
+        return id;
+    }
+
+    // A pet has no HideoutDoodads row: its Pet.dat object stands with no owner to follow (PetAi 0), at its saved facing.
+    static async Task<uint?> SpawnPet(Player player, global::Game.SavedHideoutDecoration saved, string type,
+        CosmeticEffects.Effect pet, string label)
+    {
+        if (!PetObject.CanSerialize(pet.PetComponents, pet.PetStates is not null))
+        {
+            Console.WriteLine($"[gateway] {player.Connection.Remote} {label} pet {type}: components {string.Join(", ", pet.PetComponents ?? [])} not supported");
+            return null;
+        }
+        uint id = player.TakeObjectId();
+        await global::Game.SendWorldCreate(player, id, InstanceEntities.CreateObject(id, InstanceEntities.ObjectTypeHash(type),
+            new PetObject(saved.X, saved.Y, 0, pet.PetComponents, pet.PetStates) { Rotation = saved.Rotation }.Blob()),
+            $"0x02bb {label} pet 0x{id:x} ({type}) at ({saved.X}, {saved.Y})");
+        await global::Game.SendWorldRecord(player, id, InstanceProtocol.EnterWakeZone(id),
+            $"0x01a9 {label} pet 0x{id:x} enters wake zone");
+        AddAreaDecoration(player, id, new HideoutCatalog.Doodad(saved.Key, saved.Hash, type, null, saved.X, saved.Y, saved.Rotation, saved.Variation));
+        await RegisterStationaryCollision(player, id, type, saved.X, saved.Y, saved.Rotation, saved.Key);
+        return id;
+    }
+
+    static void AddAreaDecoration(Player player, uint id, HideoutCatalog.Doodad doodad)
+    {
         var areaDecorations = DecorationsOf(player);
         lock (areaDecorations) areaDecorations[id] = doodad;
         foreach (var member in AreaPlayers(player))
             lock (member.HideoutDoodads) member.HideoutDoodads[id] = doodad;
-        await RegisterStationaryCollision(player, id, type, saved.X, saved.Y, saved.Rotation, saved.Key, model);
-        return id;
     }
 
     /// <summary>Copies the area's spawned custom hideout decorations into a late-joining player's doodad lookup.</summary>
@@ -80,37 +107,57 @@ static class HideoutEditingFeature
             await SpawnDecorationObject(player, saved, "saved hideout decoration");
     }
 
-    /// <summary>C→S 0x59: places a hideout decoration at the requested grid cell, saves it and updates collision.</summary>
+    /// <summary>C→S 0x59 / 0x5a: places a hideout decoration at the requested grid cell, saves it and updates collision.</summary>
     internal static async Task PlaceDecoration(Player player, InstanceHideoutEditing.Place place)
     {
-        if (!CanEditHere(player) || player.Character.Account is null || !float.IsFinite(place.Rotation)) return;
-        if (!PlacementInBounds(player.Layout, place.X, place.Y))
+        Task Tell(string text) => Send(player, InstanceChat.ChatLine(text), $"0x0017 chat line \"{text}\"");
+        string what = place.ByHash ? $"hash 0x{place.Id:x8}" : $"record {place.Id}";
+        Console.WriteLine($"[gateway] {player.Connection.Remote} <= 0x{(place.ByHash ? InstanceHideoutEditing.PlaceByHashId : InstanceHideoutEditing.PlaceId):x4} place decoration "
+            + $"{what} at ({place.X},{place.Y}) rotation {place.Rotation:0.###} variation {place.Variation} mirrored {place.Mirrored}");
+        if (!CanEditHere(player) || player.Character.Account is null || !float.IsFinite(place.Rotation))
         {
-            Console.WriteLine($"[gateway] {player.Connection.Remote} refused hideout place 0x{place.Hash:x8} at ({place.X},{place.Y}): out of bounds or unwalkable cell");
+            Console.WriteLine($"[gateway] {player.Connection.Remote} refused hideout place {what}: not the character's own hideout, no account or a bad rotation");
             return;
         }
-        if (HideoutCatalog.DoodadByHash(place.Hash) is not var (type, _) || string.IsNullOrEmpty(type)
-            || HideoutCatalog.TypeOf(type) is not var (components, _) || !HideoutObject.CanSerialize(components))
+        if (!PlacementInBounds(player.Layout, place.X, place.Y))
         {
-            Console.WriteLine($"[gateway] {player.Connection.Remote} refused hideout place 0x{place.Hash:x8}: unknown or unsupported decoration type");
+            Console.WriteLine($"[gateway] {player.Connection.Remote} refused hideout place {what} at ({place.X},{place.Y}): out of bounds or unwalkable cell");
+            return;
+        }
+        if ((place.ByHash ? place.Id : global::Game.Mtx.Find(place.Id)?.MtxTypeHash) is not uint hash)
+        {
+            Console.WriteLine($"[gateway] {player.Connection.Remote} refused hideout place {what}: not an owned record");
+            return;
+        }
+        bool pet = HideoutCatalog.DoodadByHash(hash) is null && global::Game.MtxEffects.Of(hash) is { PetType.Length: > 0 };
+        if (!pet && (HideoutCatalog.DoodadByHash(hash) is not var (type, _) || string.IsNullOrEmpty(type)
+            || HideoutCatalog.TypeOf(type) is not var (components, _) || !HideoutObject.CanSerialize(components)))
+        {
+            Console.WriteLine($"[gateway] {player.Connection.Remote} refused hideout place {what} (0x{hash:x8}): unknown or unsupported decoration type");
+            await Tell("This decoration cannot be placed on this server yet.");
             return;
         }
         string key = DecorationKeyPrefix + Guid.NewGuid().ToString("N")[..12];
-        var saved = new global::Game.SavedHideoutDecoration(key, place.Hash, place.X, place.Y, place.Rotation, place.Variation, place.Mirrored);
+        var saved = new global::Game.SavedHideoutDecoration(key, hash, place.X, place.Y, place.Rotation, place.Variation, place.Mirrored);
         if (!global::Game.AddAccountHideoutDecoration(player, player.Layout.Id, saved))
         {
             int limit = global::Game.MaxHideoutDecorations;
-            Console.WriteLine($"[gateway] {player.Connection.Remote} refused hideout place 0x{place.Hash:x8}: hideout decoration limit ({limit}) reached");
-            if (player.Commands is { } cmd)
-                await cmd.Reply($"Hideout decoration limit ({limit}) reached.");
+            Console.WriteLine($"[gateway] {player.Connection.Remote} refused hideout place {what}: hideout decoration limit ({limit}) reached");
+            await Tell($"Hideout decoration limit ({limit}) reached.");
             return;
         }
-        if (await SpawnDecorationObject(player, saved, "hideout decoration") is not uint id) return;
+        if (await SpawnDecorationObject(player, saved, "hideout decoration") is not uint id)
+        {
+            global::Game.RemoveAccountHideoutDecoration(player, player.Layout.Id, key);
+            await Tell("This decoration cannot be placed on this server yet.");
+            return;
+        }
         await BroadcastRebuildCollision(player, $"rebuild hideout collision after placing {key} (0x{id:x})");
         await PushOutOfCollision(player);
     }
 
-    /// <summary>C→S 0x5d: reclaims a placed custom decoration (core stations and NPCs cannot be reclaimed).</summary>
+    /// <summary>C→S 0x5c (the editor's Delete key) / 0x5d: reclaims a placed custom decoration (core stations and NPCs
+    /// cannot be reclaimed).</summary>
     internal static async Task ReclaimDecoration(Player player, uint objectId)
     {
         if (!CanEditHere(player)) return;

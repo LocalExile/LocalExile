@@ -934,6 +934,8 @@ public sealed record PetObject(int GridX, int GridY, uint Owner, IReadOnlyList<s
 {
     public IReadOnlyList<string>? Components { get; init => field = Owned.List(value); } = Owned.List(Components);
     public static readonly string[] BaseComponents = ["Positioned", "Stats", "Pathfinding", "Buffs", "Life", "Animated", "Actor", "PetAi"];
+    /// <summary>Facing in radians (a hideout pet's saved rotation).</summary>
+    public float Rotation { get; init; }
 
     static readonly HashSet<string> Extras = ["StateMachine", "Functions", "BaseEvents"];
 
@@ -949,7 +951,7 @@ public sealed record PetObject(int GridX, int GridY, uint Owner, IReadOnlyList<s
         w.U8(0).U8(0);                                                        // object flags, base data entries
         // Positioned: team 0 (the player's), and flags1 0x08 with 1 (→ +0x1e6 bit 0x40), which the client's object
         // collision test (0x141e65ae0) skips: walkers, the player's own included, pass through the pet.
-        w.Positioned(GridX, GridY, blocksNoWalker: true);
+        w.Positioned(GridX, GridY, Rotation, blocksNoWalker: true);
         w.Stats([]).U32(0).U32(0).U8(0);                                      // Stats
         w.U16(0);                                                             // Buffs
         Pool(w, 1); Pool(w, 0); Pool(w, 0); w.U8(0);                          // Life: alive
