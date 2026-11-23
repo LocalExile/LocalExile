@@ -16,6 +16,9 @@ public static partial class Game
     {
         ["VaalClarity"] = 158,
         ["VaalHaste"] = 161,
+        ["VaalImpurityOfFire"] = 971,
+        ["VaalImpurityOfIce"] = 972,
+        ["VaalImpurityOfLightning"] = 973,
     };
 
     internal static bool IsBlessing(SupportedGem skill) => IsBlessingSkill(skill)
@@ -159,10 +162,36 @@ public static partial class Game
 
     static CharacterStats.Bonus WithTemporaryAuraBonus(IEnumerable<AuraCatalog.Aura> auras, int effect, CharacterStats.Bonus bonus)
     {
-        var haste = auras.Where(a => a.AffectsSelf && a.EffectId == "VaalHaste").ToArray();
-        int Best(uint stat) => haste.Select(a => TemporaryAuraValue(a, stat, effect)).DefaultIfEmpty().Max();
-        return bonus with { AttackSpeedPct = bonus.AttackSpeedPct + Best(Stat.AttackSpeedPlusPctGrantedFromSkill),
-            MovementVelocityPct = bonus.MovementVelocityPct + Best(Stat.BaseMovementVelocityPlusPct) };
+        int attackSpeed = 0, movementSpeed = 0, fireMaximum = 0, coldMaximum = 0, lightningMaximum = 0;
+        foreach (var aura in auras)
+        {
+            if (!aura.AffectsSelf) continue;
+            int Value(uint stat) => TemporaryAuraValue(aura, stat, effect);
+            switch (aura.EffectId)
+            {
+                case "VaalHaste":
+                    attackSpeed = Math.Max(attackSpeed, Value(Stat.AttackSpeedPlusPctGrantedFromSkill));
+                    movementSpeed = Math.Max(movementSpeed, Value(Stat.BaseMovementVelocityPlusPct));
+                    break;
+                case "VaalImpurityOfFire":
+                    fireMaximum = Math.Max(fireMaximum, Value(Stat.BaseMaximumFireDamageResistancePct));
+                    break;
+                case "VaalImpurityOfIce":
+                    coldMaximum = Math.Max(coldMaximum, Value(Stat.BaseMaximumColdDamageResistancePct));
+                    break;
+                case "VaalImpurityOfLightning":
+                    lightningMaximum = Math.Max(lightningMaximum, Value(Stat.BaseMaximumLightningDamageResistancePct));
+                    break;
+            }
+        }
+        return bonus with
+        {
+            AttackSpeedPct = bonus.AttackSpeedPct + attackSpeed,
+            MovementVelocityPct = bonus.MovementVelocityPct + movementSpeed,
+            FireMaxResistance = bonus.FireMaxResistance + fireMaximum,
+            ColdMaxResistance = bonus.ColdMaxResistance + coldMaximum,
+            LightningMaxResistance = bonus.LightningMaxResistance + lightningMaximum,
+        };
     }
 
     static void WithTemporaryAuraStats(Player player, IDictionary<uint, int> stats)
@@ -192,7 +221,20 @@ public static partial class Game
         if (extra != 0)
             stats[Stat.BaseSmiteNumberOfTargets] = (stats.TryGetValue(Stat.BaseSmiteNumberOfTargets, out int curExtra) ? curExtra : 0) + extra;
         Add(Stat.CastSpeedPlusPct, auras.Where(a => a.AffectsSelf && a.EffectId == "VaalHaste"), Stat.CastSpeedPlusPctGrantedFromSkill);
-        if (auras.Any(a => a.AffectsSelf && a.EffectId == "VaalClarity")) stats[Stat.NoManaCost] = 1;
+        foreach (var aura in auras)
+        {
+            if (!aura.AffectsSelf) continue;
+            switch (aura.EffectId)
+            {
+                case "VaalClarity": stats[Stat.NoManaCost] = 1; break;
+                case "VaalImpurityOfFire": stats[Stat.BaseImmuneToIgnite] = stats[Stat.ImmuneToIgnite] = 1; break;
+                case "VaalImpurityOfIce":
+                    stats[Stat.BaseImmuneToFreeze] = stats[Stat.ImmuneToFreeze] = 1;
+                    stats[Stat.BaseImmuneToChill] = stats[Stat.ImmuneToChill] = 1;
+                    break;
+                case "VaalImpurityOfLightning": stats[Stat.BaseImmuneToShock] = stats[Stat.ImmuneToShock] = 1; break;
+            }
+        }
     }
 
     sealed class TemporaryAuraCleanup : IDisposable

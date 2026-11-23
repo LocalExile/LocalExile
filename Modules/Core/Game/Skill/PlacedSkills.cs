@@ -590,7 +590,9 @@ public static partial class Game
                     m.Ignites.Burning, m.Bleeds.Burning, EnemyOnLowLife(m));
             var rolled = WithConditionalSupportDamageLocked(player, placed.Own, !spell, m,
                 profile.Hit.Scale(more).Roll(AreaRng(player)), now);
-            var mitigated = DamageModel.Mitigate(rolled, type => MonsterHitResistance(m, type, default, now));
+            var mitigated = MitigateMonsterHit(m, rolled, now, cannotPenetrateOrIgnore:
+                Math.Max(GolemStat(owner, Stat.CannotPenetrateOrIgnoreElementalResistances),
+                    GolemStat(placed.Own, Stat.CannotPenetrateOrIgnoreElementalResistances)));
             int damage = MonsterTakesTrapOrMineHit(m, mitigated, spell, now, AreaRng(player));
             bool critical = currentSkill && RollCriticalStrike(player, CriticalChanceOn(player, id, chance, vsBlinded, vsGround),
                 placed.Own, attack, criticalRoll, owner);

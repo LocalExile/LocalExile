@@ -170,8 +170,7 @@ public static partial class Game
     // Already rolled: no extra RNG or per-component rounding, including ordinary bow contact snapshots.
     public static int MonsterTakesRolled(SpawnedMonster m, DamagePacket rolled, bool spell, Penetration.PerType pen = default,
         double now = double.NaN, Random? random = null)
-        => MonsterTakesMitigated(m, DamageModel.Mitigate(rolled, type => MonsterHitResistance(m, type, pen, now)),
-            spell, now, random: random);
+        => MonsterTakesMitigated(m, MitigateMonsterHit(m, rolled, now, pen), spell, now, random: random);
 
     /// <summary>
     /// The damage a resisted hit of the player deals to a monster: the physical part less its physical damage reduction,
