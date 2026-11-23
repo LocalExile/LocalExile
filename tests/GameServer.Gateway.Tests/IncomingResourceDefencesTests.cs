@@ -7,7 +7,7 @@ public sealed class IncomingResourceDefencesTests
     public void Attribute_implicits_take_one_percent_less_damage_per_their_X()
     {
         var pools = new CharacterStats.Pools(1, 100, 0, 0, 0, Strength: 450, Dexterity: 1000, Intelligence: 2000);
-        int Get(string name) => name switch
+        int Get(uint name) => name switch
         {
             IncomingResourceDefences.LessPerStrength => 200,
             IncomingResourceDefences.LessPerDexterity => 400,
@@ -23,7 +23,7 @@ public sealed class IncomingResourceDefencesTests
     [Fact]
     public void Less_damage_taken_multiplies_the_final_taken_stat_on_hits_and_over_time()
     {
-        int Harbinger(string name) => name == IncomingResourceDefences.TakenStat ? -50 : 0;
+        int Harbinger(uint name) => name == IncomingResourceDefences.TakenStat ? -50 : 0;
 
         Assert.Equal(90, IncomingResourceDefences.Taken(100, _ => 0, lessPct: 10));
         Assert.Equal(45, IncomingResourceDefences.Taken(100, Harbinger, lessPct: 10));
@@ -37,14 +37,14 @@ public sealed class IncomingResourceDefencesTests
     [Fact]
     public void Handed_over_final_taken_stats_multiply_hits_over_time_and_factors_until_disposed()
     {
-        const string stat = "test_handed_over_damage_taken_+%_final";
+        uint stat = Stat.Of("test_handed_over_damage_taken_+%_final");
         var pools = new CharacterStats.Pools(1, 100, 0, 0, 0, Strength: 2000);
-        int LessOnly(string name) => name == stat ? -10 : 0;
-        int Combined(string name) => name switch
+        int LessOnly(uint key) => key == stat ? -10 : 0;
+        int Combined(uint key) => key switch
         {
             IncomingResourceDefences.TakenStat => -50,
             IncomingResourceDefences.LessPerStrength => 200, // 10% less
-            stat => -10,
+            var k when k == stat => -10,
             _ => 0,
         };
 

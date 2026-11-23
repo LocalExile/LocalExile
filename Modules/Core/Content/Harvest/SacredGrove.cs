@@ -24,9 +24,9 @@ public static class SacredGrove
         TankType = ObjectRoot + "StorageTank", SeedType = ObjectRoot + "MonsterSeed";
     const string SaveKey = "Harvest/grove";
     /// <summary>A module-defined monster stat for HarvestLifeScalingPerLevel's more life (handed over in HarvestModule).</summary>
-    public const string LevelMoreLife = "harvest_level_scaling_life_+%_final";
+    public static readonly uint LevelMoreLife = Stat.Of("harvest_level_scaling_life_+%_final");
     /// <summary>The monster stat the Doubling scarab's map_harvest_monster_life_+%_final_from_sextant gives.</summary>
-    public const string SextantMoreLife = "harvest_monster_life_+%_final_from_sextant";
+    public static readonly uint SextantMoreLife = Stat.Of("harvest_monster_life_+%_final_from_sextant");
     internal static readonly string[] FeatureRows = ["HarvestEncounter", MemoryLineFeature];
     const string MemoryLineFeature = "HarvestEncounterMemoryLine";
     /// <summary>The Overgrown Grove's world area (MapDeviceRecipes RandomContentHarvestGrove): the grove is the whole level.</summary>
@@ -87,7 +87,7 @@ public static class SacredGrove
     /// <param name="Roll">Runs once when the grove is built, before its crops, with the grove's stats and the area's own
     /// Random; true replaces the grove.</param>
     /// <param name="Place">Puts the replacement's content in the replaced grove, on every entry to the area.</param>
-    public sealed record Replacement(string Key, Func<ClientState, HarvestStats, Random, bool> Roll, Func<ClientState, GroveSite, Task> Place);
+    public sealed record Replacement(string Key, Func<Player, HarvestStats, Random, bool> Roll, Func<Player, GroveSite, Task> Place);
 
     static Replacement[] Replacements = [];
     static readonly Lock ReplacementsLock = new();
@@ -108,10 +108,10 @@ public static class SacredGrove
         }
     }
 
-    static GroveSite SiteOf(ClientState conn, Grove grove)
+    static GroveSite SiteOf(Player player, Grove grove)
     {
-        var r = GroveRecords(conn.Layout.Level!).First();
-        return new(conn.Layout.Near(((r.X * 2 + r.W) * 23 / 2, (r.Y * 2 + r.H) * 23 / 2)), grove.Level);
+        var r = GroveRecords(player.Layout.Level!).First();
+        return new(player.Layout.Near(((r.X * 2 + r.W) * 23 / 2, (r.Y * 2 + r.H) * 23 / 2)), grove.Level);
     }
 
     sealed class Area
@@ -125,21 +125,27 @@ public static class SacredGrove
     }
 
     static readonly RuleTable<InstanceState, Area> Areas = new();
-    static readonly RuleTable<ClientState, HashSet<uint>> Presented = new();
+    static readonly RuleTable<Player, HashSet<uint>> Presented = new();
     // Rulesets "HarvestRules" (row 105): the client's Harvest ruleset, created by S→C 0x1f.
-    static readonly Lazy<byte?> HarvestRules = new(() => ClientTables.TableOrEmpty("Rulesets")
-        .FirstOrDefault(r => r.Text("Id") == "HarvestRules") is { } r ? (byte)r.Index : null);
-    static readonly Lazy<string> Refusal = new(() => ClientTables.TableOrEmpty("ClientStrings")
-        .FirstOrDefault(r => r.Text("Id") == "HarvestDisabledDuringCombat") is { Table: not null } row && row.Text("Text") is { } text
-        ? text : "You cannot perform that action while a Harvest encounter is in progress.");
+    static byte? HarvestRules;
+    static string Refusal = "You cannot perform that action while a Harvest encounter is in progress.";
+
+    public static void LoadGameData()
+    {
+        HarvestRules = ClientTables.TableOrEmpty("Rulesets")
+            .FirstOrDefault(r => r.Text("Id") == "HarvestRules") is { } r ? (byte)r.Index : null;
+        Refusal = ClientTables.TableOrEmpty("ClientStrings")
+            .FirstOrDefault(r => r.Text("Id") == "HarvestDisabledDuringCombat") is { Table: not null } row && row.Text("Text") is { } text
+            ? text : "You cannot perform that action while a Harvest encounter is in progress.";
+    }
 
     /// <summary>Whether a monster hatched from one of the instance's crops, with its tag and the grove's stats. Runs per kill:
     /// outside a grove instance it costs one table lookup.</summary>
-    public static bool TryMonster(ClientState conn, uint id, out MonsterTag tag, out HarvestStats stats)
+    public static bool TryMonster(Player player, uint id, out MonsterTag tag, out HarvestStats stats)
     {
         tag = null!;
         stats = HarvestStats.None;
-        if (conn.Instance is not { } instance || !Areas.TryGetValue(instance, out var area) || area.Grove is not { } grove
+        if (player.Instance is not { } instance || !Areas.TryGetValue(instance, out var area) || area.Grove is not { } grove
             || grove.Monsters.Count == 0) return false;
         lock (grove.Monsters)
             if (!grove.Monsters.TryGetValue(id, out tag!)) return false;
@@ -234,28 +240,28 @@ public static class SacredGrove
     static IEnumerable<int> Expand(IEnumerable<GroveCrops.SeedCount> seeds) => seeds.SelectMany(s => Enumerable.Repeat(s.Row, s.Count));
 
     /// <summary>Whether the layout is the whole-area Overgrown Grove (no grove sub-area of a map).</summary>
-    static bool WholeArea(ClientState conn, ServerLevels.Level level) => conn.Layout.Id == MemoryLineArea && !GroveRecords(level).Any();
+    static bool WholeArea(Player player, ServerLevels.Level level) => player.Layout.Id == MemoryLineArea && !GroveRecords(level).Any();
 
-    static Grove Build(ClientState conn, HarvestTables tables, HarvestStats stats, int areaLevel, Random random)
+    static Grove Build(Player player, HarvestTables tables, HarvestStats stats, int areaLevel, Random random)
     {
         var grove = new Grove { Level = areaLevel };
-        var level = conn.Layout.Level!;
-        bool whole = WholeArea(conn, level);
+        var level = player.Layout.Level!;
+        bool whole = WholeArea(player, level);
         bool memoryLine = whole || stats.BigHarvest || GroveRecords(level).Any(r => r.FeatureRow == MemoryLineFeature);
         grove.MemoryLine = memoryLine;
         var rects = GroveRecords(level).Select(r => (X0: r.X * 23, Y0: r.Y * 23, X1: (r.X + r.W) * 23, Y1: (r.Y + r.H) * 23)).ToList();
         var lines = level.RoomObjects.Where(o => o.Type.StartsWith(ObjectRoot, StringComparison.Ordinal)
             && (whole || rects.Any(r => o.X >= r.X0 && o.X < r.X1 && o.Y >= r.Y0 && o.Y < r.Y1))).ToList();
         var sites = Sites(lines, memoryLine);
-        if (!whole && Replacements.FirstOrDefault(r => r.Roll(conn, stats, random)) is { } replacement)
+        if (!whole && Replacements.FirstOrDefault(r => r.Roll(player, stats, random)) is { } replacement)
         {
             grove.ReplacedBy = replacement.Key;
-            Console.WriteLine($"[harvest] grove area={conn.Layout.Id} level={areaLevel}: replaced by {replacement.Key}, no crops");
+            Console.WriteLine($"[harvest] grove area={player.Layout.Id} level={areaLevel}: replaced by {replacement.Key}, no crops");
             return grove;
         }
         if (tables.Level(areaLevel) is not { } values || sites.Count == 0)
         {
-            Console.WriteLine($"[harvest] grove area={conn.Layout.Id}: {sites.Count} plot sites from {lines.Count} lines; no crops");
+            Console.WriteLine($"[harvest] grove area={player.Layout.Id}: {sites.Count} plot sites from {lines.Count} lines; no crops");
             return grove;
         }
         var crops = memoryLine ? GroveCrops.RollMemoryLine(random, tables, values, stats, sites.Count)
@@ -263,7 +269,7 @@ public static class SacredGrove
         var taken = new HashSet<(int X, int Y)>();
         GroveObject Add(string type, PlacedTileObject at, params (string, int)[] states)
         {
-            var o = new GroveObject { Id = conn.Instance.World.NewMonsterId(), Type = type, X = at.X, Y = at.Y, Rotation = at.Rotation };
+            var o = new GroveObject { Id = player.Instance.World.NewMonsterId(), Type = type, X = at.X, Y = at.Y, Rotation = at.Rotation };
             foreach (var (name, value) in states) o.States[name] = value;
             grove.Objects[o.Id] = o;
             return o;
@@ -287,7 +293,7 @@ public static class SacredGrove
                     Extractor = extractor.Id, Irrigator = irrigator.Id,
                 };
                 var rows = Expand(seeds).ToList();
-                var cells = SeedCells(e, i, rows.Count, (x, y) => conn.Layout.WalkableFor(x, y, 1), taken);
+                var cells = SeedCells(e, i, rows.Count, (x, y) => player.Layout.WalkableFor(x, y, 1), taken);
                 for (int s = 0; s < rows.Count; s++)
                 {
                     var seed = Add(SeedType, e with { X = cells[s].X, Y = cells[s].Y, Rotation = (float)(random.NextDouble() * Math.Tau) },
@@ -299,7 +305,7 @@ public static class SacredGrove
                 grove.Crops.Add(state);
             }
         }
-        Console.WriteLine($"[harvest] grove area={conn.Layout.Id} level={areaLevel}: {sites.Count} sites, "
+        Console.WriteLine($"[harvest] grove area={player.Layout.Id} level={areaLevel}: {sites.Count} sites, "
             + (memoryLine ? $"{crops.Count} single crops: " : $"{crops.Count / 2} pairs: ")
             + string.Join("; ", grove.Crops.Select(c => $"site {c.Site}.{c.Slot} colour {c.Colour} "
                 + string.Join(",", c.Seeds.Select(s => $"{s.Count}x{tables.Seeds[s.Row].Id}")))));
@@ -310,27 +316,27 @@ public static class SacredGrove
     static int SeedColour(HarvestTables tables, int row, int cropColour) =>
         tables.SeedRow(row) is { Colour: >= HarvestTables.Red and <= HarvestTables.Blue } seed ? seed.Colour : cropColour;
 
-    static void Keep(ClientState conn, Grove grove) => conn.Instance.ContentState[SaveKey] = JsonSerializer.Serialize(grove);
+    static void Keep(Player player, Grove grove) => player.Instance.ContentState[SaveKey] = JsonSerializer.Serialize(grove);
 
     /// <summary>The instance's grove, built on first entry or restored from its saved state (after a module reload);
     /// null on a layout without one. Call under no gate.</summary>
-    static async Task<Area?> Load(ClientState conn)
+    static async Task<Area?> Load(Player player)
     {
-        if (conn.Instance is null || conn.Layout.Level is not { } level || !GroveRecords(level).Any() && !WholeArea(conn, level)
-            || MapRunOf(conn) is not { } run) return null;
-        var area = Areas.GetOrCreateValue(conn.Instance);
+        if (player.Instance is null || player.Layout.Level is not { } level || !GroveRecords(level).Any() && !WholeArea(player, level)
+            || MapRunOf(player) is not { } run) return null;
+        var area = Areas.GetOrCreateValue(player.Instance);
         if (area.Grove is not null) return area;
         await area.Gate.WaitAsync();
         try
         {
             if (area.Grove is not null) return area;
-            area.Stats = HarvestStats.From(MapModsOf(conn));
-            var grove = conn.Instance.ContentState.TryGetValue(SaveKey, out string? saved) ? JsonSerializer.Deserialize<Grove>(saved) : null;
-            area.Random = new Random(unchecked((int)(conn.Seed ^ 0x48525654u) ^ (grove?.Activations ?? 0) * 7919));
+            area.Stats = HarvestStats.From(MapModsOf(player));
+            var grove = player.Instance.ContentState.TryGetValue(SaveKey, out string? saved) ? JsonSerializer.Deserialize<Grove>(saved) : null;
+            area.Random = new Random(unchecked((int)(player.Seed ^ 0x48525654u) ^ (grove?.Activations ?? 0) * 7919));
             if (grove is null)
             {
-                grove = Build(conn, HarvestTables.Current, area.Stats, run.Area.Level, area.Random);
-                Keep(conn, grove);
+                grove = Build(player, HarvestTables.Current, area.Stats, run.Area.Level, area.Random);
+                Keep(player, grove);
             }
             area.Running = grove.Crops.Any(c => c.Phase == Phase.Running);
             area.Grove = grove;
@@ -339,9 +345,9 @@ public static class SacredGrove
         finally { area.Gate.Release(); }
     }
 
-    internal static IEnumerable<ClientState> Members(ClientState conn) => conn.Instance.PlayersExcept(conn.PeerId)
-        .Select(p => p.Owner).OfType<ClientState>().Prepend(conn)
-        .Where(p => !p.Closed && !p.LeavingArea && p.Instance == conn.Instance).Distinct();
+    internal static IEnumerable<Player> Members(Player player) => player.Instance.PlayersExcept(player.Id)
+        .Prepend(player)
+        .Where(p => !p.Closed && !p.LeavingArea && p.Instance == player.Instance).Distinct();
 
     internal static (QuestObject Object, HarvestTables.ObjectType Type)? Describe(GroveObject o)
     {
@@ -356,42 +362,39 @@ public static class SacredGrove
     }
 
     /// <summary>The object's footprint as the client's object type gives it (positioned_blocking; the soul tree has none).</summary>
-    internal static void Block(ClientState conn, GroveObject o)
+    internal static void Block(Player player, GroveObject o)
     {
         var (size, hull) = StationaryCollision.Resolve(o.Type);
-        if (size >= 0) conn.SetBlocker(o.Id, o.X, o.Y, size, hull);
-        else conn.RemoveBlocker(o.Id);
+        if (size >= 0) player.SetBlocker(o.Id, o.X, o.Y, size, hull);
+        else player.RemoveBlocker(o.Id);
     }
 
     static bool Blocks(GroveObject o) => o.Type != SeedType || o.States.GetValueOrDefault("hatched") == 0 && o.States.GetValueOrDefault("withered") == 0;
 
-    static async Task Present(ClientState conn, GroveObject o)
+    static async Task Present(Player player, GroveObject o)
     {
-        var shown = Presented.GetOrCreateValue(conn);
+        var shown = Presented.GetOrCreateValue(player);
         if (shown.Contains(o.Id) || Describe(o) is not var (quest, _)) return;
         byte[] blob = InstanceEntities.CreateObject(o.Id, InstanceEntities.ObjectTypeHash(o.Type), quest.Blob());
-        await SendWorldCreate(conn, o.Id, () => blob, $"grove {o.Type[ObjectRoot.Length..]} 0x{o.Id:x} at ({o.X}, {o.Y})",
+        await SendWorldCreate(player, o.Id, () => blob, $"grove {o.Type[ObjectRoot.Length..]} 0x{o.Id:x} at ({o.X}, {o.Y})",
             wake: true, awaitBirth: false);
-        if (Blocks(o)) Block(conn, o);
-        else conn.RemoveBlocker(o.Id);
+        if (Blocks(o)) Block(player, o);
+        else player.RemoveBlocker(o.Id);
         shown.Add(o.Id);
     }
 
-    /// <summary>Shows the grove's objects to a connection entering the area (GameEvents.AreaGenerated).</summary>
-    public static async Task Enter(ClientState conn)
+    /// <summary>Shows the grove's objects to a player entering the area (GameEvents.AreaGenerated).</summary>
+    public static async Task Enter(Player player)
     {
-        if (await Load(conn) is not { Grove: { } grove } area) return;
+        if (await Load(player) is not { Grove: { } grove } area) return;
         // The client's HarvestRules ruleset must exist before an Extractor turns targetable: its label looks the ruleset up
         // once and the client crashes without it (live 2026-11-18).
-        if (HarvestRules.Value is byte rules)
-        {
-            var (remote, stream, ciphers) = conn.Wire;
-            await Send(remote, stream, ciphers, InstanceProtocol.AddRuleset(rules), $"0x001f ruleset HarvestRules (row {rules})");
-        }
+        if (HarvestRules is byte rules)
+            await Send(player, InstanceProtocol.AddRuleset(rules), $"0x001f ruleset HarvestRules (row {rules})");
         if (grove.ReplacedBy is { } key)
         {
-            if (Replacements.FirstOrDefault(r => r.Key == key) is { } replacement) await replacement.Place(conn, SiteOf(conn, grove));
-            else Console.WriteLine($"[harvest] grove area={conn.Layout.Id}: replaced by {key}, which is not loaded; the grove stays empty");
+            if (Replacements.FirstOrDefault(r => r.Key == key) is { } replacement) await replacement.Place(player, SiteOf(player, grove));
+            else Console.WriteLine($"[harvest] grove area={player.Layout.Id}: replaced by {key}, which is not loaded; the grove stays empty");
             return;
         }
         GroveObject[] objects;
@@ -404,12 +407,12 @@ public static class SacredGrove
                 { Id = o.Id, Type = o.Type, X = o.X, Y = o.Y, Rotation = o.Rotation, Model = o.Model, States = new(o.States), Seeds = o.Seeds })];
         }
         finally { area.Gate.Release(); }
-        foreach (var o in objects) await Present(conn, o);
+        foreach (var o in objects) await Present(player, o);
     }
 
     // Sets states on grove objects, keeps the grove, and sends each changed object's StateMachine (0x2bc) to every
     // member that has it.
-    static async Task SetStates(ClientState conn, Grove grove, IEnumerable<(uint Id, string Name, int Value)> changes)
+    static async Task SetStates(Player player, Grove grove, IEnumerable<(uint Id, string Name, int Value)> changes)
     {
         var changed = new List<GroveObject>();
         foreach (var (id, name, value) in changes)
@@ -418,58 +421,56 @@ public static class SacredGrove
                 o.States[name] = value;
                 if (!changed.Contains(o)) changed.Add(o);
             }
-        Keep(conn, grove);
-        foreach (var member in Members(conn))
+        Keep(player, grove);
+        foreach (var member in Members(player))
         {
             var shown = Presented.GetOrCreateValue(member);
-            var (remote, stream, ciphers) = member.Wire;
             foreach (var o in changed)
             {
                 if (Describe(o) is not var (quest, type)) continue;
                 if (!Blocks(o)) member.RemoveBlocker(o.Id);
                 if (!shown.Contains(o.Id)) continue;
                 int index = type.Components.ToList().IndexOf("StateMachine");
-                await SendWorldRecord(remote, stream, ciphers, member, o.Id,
+                await SendWorldRecord(member, o.Id,
                     InstanceEntities.StateMachineUpdate(o.Id, (byte)index, quest.StateMachine!), null);
             }
         }
     }
 
     /// <summary>A click on a crop (its Extractor or its Irrigator): walk up, then start it, unless another crop runs.</summary>
-    public static async Task<bool> Use(ClientState conn, InstanceTransfer.UseSkillOnObject use, double requestedAt)
+    public static async Task<bool> Use(Player player, InstanceTransfer.UseSkillOnObject use, double requestedAt)
     {
-        if (conn.Instance is null || !Areas.TryGetValue(conn.Instance, out var area) || area.Grove is not { } grove) return false;
+        if (player.Instance is null || !Areas.TryGetValue(player.Instance, out var area) || area.Grove is not { } grove) return false;
         int index = grove.Crops.FindIndex(c => c.Extractor == use.TargetId || c.Irrigator == use.TargetId);
         if (index < 0) return false;
-        if (conn.PlayerLife == 0 || conn.Closed || conn.LeavingArea) return true;
+        if (player.PlayerLife == 0 || player.Closed || player.LeavingArea) return true;
         var crop = grove.Crops[index];
         var target = grove.Objects[use.TargetId];
-        var (remote, stream, ciphers) = conn.Wire;
-        Task End(int action) => SendWorldRecord(remote, stream, ciphers, conn, PlayerId, InstanceProtocol.ActionEnded(PlayerId), null,
-            still: () => PlayerActionCurrent(conn, action));
-        if (crop.Phase != Phase.Idle) { await End(conn.ActionCount); return true; }
+        Task End(int action) => SendWorldRecord(player, player.Id, InstanceProtocol.ActionEnded(player.Id), null,
+            still: () => PlayerActionCurrent(player, action));
+        if (crop.Phase != Phase.Idle) { await End(player.ActionCount); return true; }
         if (area.Running)
         {
-            await PlayerOf(conn).Tell(Refusal.Value);
-            await End(conn.ActionCount);
+            await PlayerOf(player).Tell(Refusal);
+            await End(player.ActionCount);
             return true;
         }
         // The walk stops at the post's footprint, as for an NPC: its blocker size is the reach.
         int reach = Math.Max(0, StationaryCollision.Resolve(target.Type).Size);
-        if (!TryBeginObjectWalk(conn, requestedAt, target.X, target.Y, reach, out var walk)) return true;
+        if (!TryBeginObjectWalk(player, requestedAt, target.X, target.Y, reach, out var walk)) return true;
         var (action, now, here, stop, arrive) = walk;
         if (!use.Started)
-            await SendWorldRecord(remote, stream, ciphers, conn, PlayerId,
-                InstanceProtocol.ActionStarted(PlayerId, here.X, here.Y, target.X, target.Y, use.SkillId, use.Sequence, use.Flags, targetObjectId: target.Id), null,
-                still: () => PlayerActionCurrent(conn, action));
-        if (arrive > now) await Task.Delay(TimeSpan.FromSeconds(arrive - now));
+            await SendWorldRecord(player, player.Id,
+                InstanceProtocol.ActionStarted(player.Id, here.X, here.Y, target.X, target.Y, use.SkillId, use.Sequence, use.Flags, targetObjectId: target.Id), null,
+                still: () => PlayerActionCurrent(player, action));
+        if (arrive > now) await AreaDelay(player, arrive - now);
         await area.Gate.WaitAsync();
         try
         {
-            if (crop.Phase != Phase.Idle || area.Running || !PlayerActionCurrent(conn, action) || conn.PlayerLife == 0
+            if (crop.Phase != Phase.Idle || area.Running || !PlayerActionCurrent(player, action) || player.PlayerLife == 0
                 // The walk's stop, not the position now: the delay can end a frame before the last cell.
                 || !PlayerWalk.InWalkUpRange(stop, (target.X, target.Y), reach)) return true;
-            await Start(conn, area, grove, index);
+            await Start(player, area, grove, index);
         }
         finally
         {
@@ -494,7 +495,7 @@ public static class SacredGrove
     }
 
     // Under the area's gate.
-    static async Task Start(ClientState conn, Area area, Grove grove, int index)
+    static async Task Start(Player player, Area area, Grove grove, int index)
     {
         var tables = HarvestTables.Current;
         var crop = grove.Crops[index];
@@ -518,27 +519,26 @@ public static class SacredGrove
             else withered = $", site {pair.Site}.{pair.Slot} kept (not-wither chance {area.Stats.NotWitherChance}%)";
         }
         changes.AddRange(crop.SeedObjects.Select(id => (id, "hatched", 1)));
-        Console.WriteLine($"[harvest] {CharacterName(conn)} started site {crop.Site}.{crop.Slot} colour {crop.Colour}{withered}");
-        await SetStates(conn, grove, changes);
+        Console.WriteLine($"[harvest] {CharacterName(player)} started site {crop.Site}.{crop.Slot} colour {crop.Colour}{withered}");
+        await SetStates(player, grove, changes);
 
         byte level = (byte)Math.Clamp(grove.Level, 1, 100);
-        var life = new MonsterModSet([], [], new MonsterModEffects(new Dictionary<string, int>
+        var life = new MonsterModSet([], [], new MonsterModEffects(new Dictionary<uint, int>
         {
             [LevelMoreLife] = tables.MoreLife(grove.Level),
             [SextantMoreLife] = area.Stats.MonsterMoreLife,
         }.Where(kv => kv.Value != 0).ToDictionary()));
-        var (remote, stream, ciphers) = conn.Wire;
         int spawned = 0, unsupported = 0;
         foreach (uint seedId in crop.SeedObjects)
         {
-            if (conn.Closed || conn.LeavingArea) break;
+            if (player.Closed || player.LeavingArea) break;
             var seedObject = grove.Objects[seedId];
             if (seedObject.Seeds is not [{ } seedRow, ..] || tables.SeedRow(seedRow.Row) is not { } seed) continue;
             if (Monsters.Find(seed.Monster.ToString()) is not { Supported: true } variety) { unsupported++; continue; }
             int count = MonsterCount(random, area.Stats, seed.Tier);
             for (int k = 0; k < count; k++)
             {
-                uint id = await SpawnMonster(remote, stream, ciphers, conn, variety, level,
+                uint id = await SpawnMonster(player, variety, level,
                     seed.Tier >= 4 ? MonsterRarity.Unique : MonsterRarity.Normal, seedObject.X + k % 2 * 3, seedObject.Y + k / 2 * 3,
                     unrisen: false, alone: false, extraMods: life);
                 if (id == 0) continue;
@@ -549,33 +549,32 @@ public static class SacredGrove
         }
         // MonsterSeed.ot: hatched 1 is the infusion (the crop started), 2 the hatch itself, which ends the infusion effect
         // and plays the colour's hatch effect.
-        await SetStates(conn, grove, crop.SeedObjects.Select(id => (id, "hatched", 2)));
+        await SetStates(player, grove, crop.SeedObjects.Select(id => (id, "hatched", 2)));
         Console.WriteLine($"[harvest] site {crop.Site}.{crop.Slot}: {spawned} monsters hatched"
             + (unsupported > 0 ? $", {unsupported} seeds of unsupported varieties" : ""));
     }
 
-    /// <summary>Completes a running crop whose monsters are all dead (GameEvents.Tick): its Extractor is done, the other
+    /// <summary>Completes a running crop whose monsters are all dead (GameEvents.AreaTick): its Extractor is done, the other
     /// crops can be targeted again, and under Crop Rotation idle crops of other colours roll tier upgrades.</summary>
-    public static async Task Tick(ClientState conn)
+    public static async Task Tick(Player player)
     {
-        if (conn.Instance is null) return;
-        if (!Areas.TryGetValue(conn.Instance, out var area))
+        if (player.Instance is null) return;
+        if (!Areas.TryGetValue(player.Instance, out var area))
         {
             // After a module reload: the saved grove comes back, and the players already in the area have its objects.
-            if (!conn.Instance.ContentState.ContainsKey(SaveKey) || await Load(conn) is not { Grove: { } restored } loaded) return;
-            foreach (var member in Members(conn)) Presented.GetOrCreateValue(member).UnionWith(restored.Objects.Keys);
+            if (!player.Instance.ContentState.ContainsKey(SaveKey) || await Load(player) is not { Grove: { } restored } loaded) return;
+            foreach (var member in Members(player)) Presented.GetOrCreateValue(member).UnionWith(restored.Objects.Keys);
             area = loaded;
         }
-        if (!area.Running || area.Grove is not { } grove || conn.Closed || conn.LeavingArea || !area.Gate.Wait(0)) return;
+        if (!area.Running || area.Grove is not { } grove || player.Closed || player.LeavingArea || !area.Gate.Wait(0)) return;
         try
         {
             for (int index = 0; index < grove.Crops.Count; index++)
             {
                 var crop = grove.Crops[index];
                 if (crop.Phase != Phase.Running) continue;
-                lock (conn.Monsters)
-                    if (crop.Monsters.Any(id => conn.Monsters.TryGetValue(id, out var m) && !m.Dead && m.Life > 0)) continue;
-                await Complete(conn, area, grove, crop);
+                if (crop.Monsters.Any(id => player.Area.Monsters.TryGetValue(id, out var m) && !m.Dead && m.Life > 0)) continue;
+                await Complete(player, area, grove, crop);
             }
             area.Running = grove.Crops.Any(c => c.Phase == Phase.Running);
         }
@@ -583,7 +582,7 @@ public static class SacredGrove
     }
 
     // Under the area's gate.
-    static async Task Complete(ClientState conn, Area area, Grove grove, CropState crop)
+    static async Task Complete(Player player, Area area, Grove grove, CropState crop)
     {
         var tables = HarvestTables.Current;
         crop.Phase = Phase.Done;
@@ -624,16 +623,15 @@ public static class SacredGrove
             }
         Console.WriteLine($"[harvest] site {crop.Site}.{crop.Slot} complete"
             + (regrown.Count > 0 ? $"; Crop Rotation changed {regrown.Count} objects" : ""));
-        await SetStates(conn, grove, changes);
+        await SetStates(player, grove, changes);
         if (regrown.Count == 0) return;
-        foreach (var member in Members(conn))
+        foreach (var member in Members(player))
         {
             var shown = Presented.GetOrCreateValue(member);
-            var (remote, stream, ciphers) = member.Wire;
             var again = regrown.Where(o => shown.Contains(o.Id)).ToList();
             // Together: a lockstep client's removal is written at the frame end, so one after another they would hold
             // this tick for a frame per object.
-            await Task.WhenAll(again.Select(o => SendWorldRemoval(remote, stream, ciphers, member, o.Id, null)));
+            await Task.WhenAll(again.Select(o => SendWorldRemoval(member, o.Id, null)));
             if (member.Closed || member.LeavingArea) continue;
             foreach (var o in again)
             {

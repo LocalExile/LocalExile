@@ -1,16 +1,19 @@
 using System.Collections.Concurrent;
+using System.Diagnostics;
 using System.Reflection;
+using System.Runtime.CompilerServices;
 using System.Runtime.Loader;
 using GameServer.Modding;
 
 /// <summary>
-/// One mod's or module's assemblies, collectible: unloading it lets the runtime free them once nothing holds one of its objects.
-/// It sees the framework, the server's own assemblies (GameServer.*, the host's copies, so <see cref="IMod"/> and every server
+/// One version of a mod's or module's assemblies. Not collectible: the runtime ignores precompiled code (ReadyToRun,
+/// Directory.Build.targets) in a collectible context and compiles every method on its first call instead, a stall in game.
+/// So an unloaded version stays in memory, inert, until the Gateway restarts. It sees the framework, the server's own assemblies (GameServer.*, the host's copies, so <see cref="IMod"/> and every server
 /// type are one type for all), the assemblies of the mods and modules it depends on, and the files in its own folder. A mod
 /// can alter the game as fully as a module (Agents/docs/dev/modding.md).
 /// </summary>
 public sealed class ModLoadContext(string id, string folder, IReadOnlyList<ModLoadContext> dependencies)
-    : AssemblyLoadContext($"mod {id}", isCollectible: true)
+    : AssemblyLoadContext($"mod {id}", isCollectible: false)
 {
     static readonly string CopyRoot = Path.Combine(Path.GetTempPath(), "localexile-mod-copy");
     /// <summary>Only Windows refuses to delete a loaded assembly. Elsewhere this file, locked for as long as a copy is in
@@ -50,8 +53,7 @@ public sealed class ModLoadContext(string id, string folder, IReadOnlyList<ModLo
         return null;
     }
 
-    /// <summary>Loads a private disk copy (and its .pdb), leaving the build output free. Path-backed collectible
-    /// assemblies avoid the LoadFromStream loader/finalizer failure observed on the supported Windows runtime.</summary>
+    /// <summary>Loads a private disk copy (and its .pdb), leaving the build output free for the next build.</summary>
     public Assembly LoadCopy(string path)
     {
         lock (copyGate)
@@ -69,8 +71,7 @@ public sealed class ModLoadContext(string id, string folder, IReadOnlyList<ModLo
         }
     }
 
-    // Called only after the context is collected and its copied modules have released their file handles.
-    public static bool TryDeleteCopy(string directory)
+    static bool TryDeleteCopy(string directory)
     {
         string full = Path.GetFullPath(directory);
         if (!string.Equals(Path.GetDirectoryName(full), Path.GetFullPath(CopyRoot), StringComparison.OrdinalIgnoreCase)
@@ -81,7 +82,7 @@ public sealed class ModLoadContext(string id, string folder, IReadOnlyList<ModLo
         catch (UnauthorizedAccessException) { return false; }
     }
 
-    /// <summary>Deletes what earlier runs left behind (a stopped Gateway collects nothing). A copy a running Gateway has
+    /// <summary>Deletes what earlier runs left behind (a version's copy stays while the Gateway runs). A copy a running Gateway has
     /// loaded is skipped: its assembly cannot be deleted on Windows, and elsewhere it is held. Recent ones may be a starting Gateway's, before it loaded them.</summary>
     public static void DeleteOldCopies()
     {
@@ -109,5 +110,32 @@ public sealed class ModLoadContext(string id, string folder, IReadOnlyList<ModLo
             if (symbols is not null) File.WriteAllBytes(Path.ChangeExtension(copy, ".pdb"), symbols);
             return LoadFromAssemblyPath(copy);
         }
+    }
+
+    /// <summary>Compiles every method of a version's assemblies before any of it runs: a no-op for what was precompiled,
+    /// the whole compile for what was not (a mod built without it, compiled scripts), so no first call compiles in game.
+    /// Generic methods compile per type argument, at their first use.</summary>
+    public static (int Methods, TimeSpan Took) Precompile(IEnumerable<Assembly> assemblies)
+    {
+        long start = Stopwatch.GetTimestamp();
+        int methods = 0;
+        const BindingFlags Declared = BindingFlags.DeclaredOnly | BindingFlags.Public | BindingFlags.NonPublic | BindingFlags.Instance | BindingFlags.Static;
+        foreach (var type in assemblies.SelectMany(Types))
+        {
+            if (type.ContainsGenericParameters) continue;
+            foreach (MethodBase method in type.GetMethods(Declared).Concat<MethodBase>(type.GetConstructors(Declared)))
+            {
+                if (method.IsAbstract || method.ContainsGenericParameters || method.GetMethodBody() is null) continue;
+                RuntimeHelpers.PrepareMethod(method.MethodHandle);
+                methods++;
+            }
+        }
+        return (methods, Stopwatch.GetElapsedTime(start));
+    }
+
+    static Type[] Types(Assembly assembly)
+    {
+        try { return assembly.GetTypes(); }
+        catch (ReflectionTypeLoadException ex) { return [.. ex.Types.OfType<Type>()]; }
     }
 }

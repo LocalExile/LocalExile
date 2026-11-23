@@ -1,4 +1,4 @@
-# usage: python -I scripts/re/monster_contacts.py [--json data/monster-contacts.json] [--cached-only]
+# usage: python -I scripts/re/monster_contacts.py [--json data/monster-contacts.json] [--stances data/monster-stances.json] [--cached-only]
 #
 # For every MonsterVarieties row: the clips its .act maps to the animation keys of its projectile attacks (Animation.dat
 # Ids: "Melee" and the keys MonsterMortar / MonsterProjectileSpell name, e.g. the Sand Spitter mortar's
@@ -18,6 +18,14 @@
 # its own. The keys include the Animation of every monster_mortar / monster_projectile_spell / monster_projectile_weapon
 # granted effect (the Kelp Dreg's Snipe), and an .act entry that names an effect after its clips keeps its clips. Files
 # come from the GGPK through scripts/re/ggdump (cached in Tools/re/out/ot, see ot_components.py), fetched in batches first.
+#
+# monster-stances.json: an .act with stances (the Rogue Exiles' Metadata/Monsters/Exiles/Characters/*.act, like the
+# character classes') plays a skill by the Animation.dat row its action class asks for (ACTION_KEYS) in the stance its
+# hands' items select: an exile with a sword and a shield leaps with OneHandSwordShield's LeapSlam =
+# "leapslam_sword_shield", an unarmed one with the root's "leapslam_sword". Per .act (not per variety: 500 varieties
+# share 50 of them), each key's root pool and, as "<stance>/<key>", a stance's pool where it differs from the root's. A
+# stance takes its parent's entry for a key it does not set, and "@Key" names the stance's own entry for Key; both are
+# resolved here. Town stances (never in combat) and pools with no contact anywhere are left out.
 # Separate melee_clocks use the variety's actual AO, retaining slow_begin/slow_end and the ACT attack_time budget.
 # "clock" distinguishes verified absence of a slow span from old/incomplete data; malformed spans or ambiguous
 # AO/ACT bindings never acquire that marker. --cached-only fetches nothing.
@@ -109,6 +117,78 @@ def root_assignments(text):
         return {}
 
 
+def act_blocks(text):
+    """{stance: [own entries of the root, ..., of the stance]} for every stance of the .act ("" for the root), each
+    entry {key: tokens after "="}. A nested stance (OneHandSwordShield in OneHandSword) lists its parents first."""
+    tokens = act_tokens(text)
+    if "{" not in tokens:
+        return {}
+    start = tokens.index("{")
+    result = {}
+
+    def walk(name, body, chain):
+        own, children, i = {}, [], 0
+        while i < len(body):
+            if body[i] == "stance" and i + 2 < len(body) and body[i + 2] == "{":
+                end = closing_brace(body, i + 2)
+                children.append((body[i + 1], body[i + 3:end]))
+                i = end + 1
+            elif body[i] == "{":
+                i = closing_brace(body, i) + 1
+            elif i + 2 < len(body) and body[i + 1] == "=":
+                end = i + 2
+                while end < len(body) and body[end] != ";":
+                    end += 1
+                own.setdefault(body[i], body[i + 2:end])
+                i = end + 1
+            else:
+                i += 1
+        result[name] = chain = chain + [own]
+        for child, child_body in children:
+            walk(child, child_body, chain)
+
+    try:
+        walk("", tokens[start + 1:closing_brace(tokens, start)], [])
+    except ValueError:
+        return {}
+    return result
+
+
+def stance_entry(chain, key, depth=0):
+    """The clip list a stance plays for an Animation key: its own entry, else its nearest parent's; "@Other" is the
+    stance's entry for Other. Only plain lists of clip names count (trailing effect_* and item flags do not change the
+    clip); anything else is None."""
+    for own in reversed(chain):
+        if key in own:
+            expression = own[key]
+            if not expression or not expression[0].startswith('"'):
+                return None
+            value = expression[0][1:-1].strip()
+            if value.startswith("@"):
+                return stance_entry(chain, value[1:], depth + 1) if depth < 8 else None
+            clips = [c.strip() for c in value.split(",")]
+            return clips if all(NAME.fullmatch(c) for c in clips) else None
+    return None
+
+
+def stance_pools(text, keys):
+    """{pool: [clip, ...]} of an .act with stances: every key at the root, and "<stance>/<key>" where the stance's clips
+    differ from the root's; {} for an .act without stances."""
+    blocks = act_blocks(text)
+    if len(blocks) < 2:
+        return {}
+    root = {key: stance_entry(blocks[""], key) for key in keys}
+    pools = {key: clips for key, clips in root.items() if clips}
+    for stance, chain in blocks.items():
+        if not stance:
+            continue
+        for key in keys:
+            clips = stance_entry(chain, key)
+            if clips and clips != root[key]:
+                pools[f"{stance}/{key}"] = clips
+    return pools
+
+
 def act_pools(text, keys, budgets=False):
     """{key: [(clip, optional budget seconds), ...]} for supported root-block pools, and the .ao the act animates.
     A single unsupported entry rejects the whole pool: removing one would change sequence-seeded selection."""
@@ -138,6 +218,23 @@ def act_pools(text, keys, budgets=False):
             pools[key] = clips
     m = re.search(r'^\s*animated_object\s+"([^"]+)"', text, re.M)
     return pools, (m.group(1) if m else None)
+
+
+# The Animation.dat rows the client's skill action classes request for their main animation (Agents/docs/protocol/
+# 11-skills.md §9, "Skill animation rows"): the start routines' row argument (0x141b58830 attacks, 0x141c9b060 the
+# melee family, 0x141ba58f0 projectiles; 0x141b720e0 bow and thrown attacks: GrantedEffects.Animation, else Melee)
+# and the spell base's slot +0x4e0 (warcries +0x4d8).
+ACTION_KEYS = [
+    "BlastRain", "CastFast", "Charge", "ChargeStart", "Cleave", "CloneShot", "DoubleStrike", "DualStrike", "Flurry",
+    "Frenzy", "GlacialHammer", "GroundSlam", "HeavyStrike", "LeapSlam", "Melee", "Puncture", "RainOfArrows",
+    "ShadowProjectiles", "Snipe", "SpellAreaOfEffect", "SpellAreaOfEffectChaos", "SpellAreaOfEffectCold",
+    "SpellAreaOfEffectFire", "SpellAreaOfEffectLightning", "SpellBuff", "SpellBuffCold", "SpellBuffFast", "SpellBuffFire",
+    "SpellProjectile", "SpellProjectileChaos", "SpellProjectileCold", "SpellProjectileFire", "SpellProjectileLightning",
+    "Throw", "Warcry",
+]
+# A key whose action hits on another event than "contact": the LeapSlam action's event slot (0x1419fd8e0) lifts on
+# leave_ground and slams on hit_ground (leapslam_sword: 933 of 1400 ms; event hashes 0xf1d5, 0xf2b2).
+HIT_EVENT = {"LeapSlam": "hit_ground"}
 
 
 def complete_ao_events(text):
@@ -221,7 +318,14 @@ def main():
     if fetch_missing:
         fetch(acts)
         fetch(aos)
-    parsed = {act: act_pools(read_text(act) or "", keys) for act in acts}
+    stances_dest = sys.argv[sys.argv.index("--stances") + 1] if "--stances" in sys.argv         else os.path.join(os.path.dirname(dest), "monster-stances.json")
+    parsed, stanced = {}, {}
+    for act in acts:
+        text = read_text(act) or ""
+        parsed[act] = act_pools(text, keys)
+        if pools := {k: v for k, v in stance_pools(text, ACTION_KEYS).items() if not k.split("/")[0].endswith("Town")
+                     or "/" not in k}:
+            stanced[act] = pools
     melee_pools = {act: act_pools(read_text(act) or "", ["Melee"], budgets=True)[0].get("Melee") for act in acts}
     act_aos = {ao for _, ao in parsed.values() if ao}
     all_aos = fetch_ao_chain(aos + sorted(act_aos), fetch_missing)
@@ -313,6 +417,42 @@ def main():
         json.dump(out, f, indent=1, sort_keys=True)
     os.replace(dest + ".tmp", dest)   # never leave a truncated file for the Gateway
     print(f"wrote {dest}: {len(out)} of {len(variants)} monster varieties have a pool ({pools_written} pools)",
+          file=sys.stderr, flush=True)
+
+    # The stanced .acts, with the .ao each animates: its own animated_object, else its first variety's.
+    first_ao = {}
+    for row in variants:
+        for act in row.get("ACTFiles") or []:
+            if row.get("AOFiles"):
+                first_ao.setdefault(act, row["AOFiles"][0])
+    stance_out, stance_pools_written = {}, 0
+    for act, pools in sorted(stanced.items()):
+        ao = parsed[act][1] or first_ao.get(act)
+        amd = amds.get(ao) if ao else None
+        if not amd:
+            continue
+        clips = rig(amd, ao)
+        recorded = {}
+        for k, names in sorted(pools.items()):
+            if not all(name in clips for name in names):
+                continue
+            pool, event = [], HIT_EVENT.get(k.split("/")[-1], "contact")
+            for name in names:
+                i, a = clips[name]
+                hits = [ms for e, ms, _ in a["events"] if e == event]
+                # contacts: every hit frame in order, for a skill that strikes more than once in one action (Double
+                # Strike's second hit lands on the clip's second contact, as the player's does: animation-contacts).
+                pool.append({"animation": name, "index": i, "length": a["length"], "contact": min(hits) if hits else None,
+                             "contacts": sorted(hits)})
+            if any(c["contact"] is not None for c in pool):
+                recorded[k] = pool
+        if recorded:
+            stance_out[act] = {"ao": ao, "amd": amd, "pools": recorded}
+            stance_pools_written += len(recorded)
+    with open(stances_dest + ".tmp", "w", encoding="utf-8") as f:
+        json.dump(stance_out, f, indent=1, sort_keys=True)
+    os.replace(stances_dest + ".tmp", stances_dest)
+    print(f"wrote {stances_dest}: {len(stance_out)} stanced .act files ({stance_pools_written} pools)",
           file=sys.stderr, flush=True)
 
 

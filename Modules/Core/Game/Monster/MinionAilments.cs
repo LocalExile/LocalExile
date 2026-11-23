@@ -8,11 +8,32 @@ public static partial class Game
         MonsterPoisons.Settings Poison, int PoisonChance);
     static readonly RuleTable<GolemState.Ability, MinionAilmentProfile> MinionAilmentProfiles = new();
 
-    static void MinionAilmentsLocked(ClientState conn, GolemState.Golem fighter, GolemState.Ability ability,
+    static void MinionExposureOnHitLocked(IReadOnlyDictionary<uint, int> skillStats, SpawnedMonster target,
+        DamagePacket mitigated, double now, Random random)
+    {
+        int chance = GolemStat(skillStats, Stat.Of("minions_inflict_exposure_on_hit_%_chance"));
+        if (chance <= 0) return;
+        var effects = target.Effects;
+        if (effects[Stat.Of("immune_to_exposure")] != 0) return;
+        int element = -1;
+        double highest = 0;
+        for (int i = 0; i < ExposureTypes.Length; i++)
+        {
+            var type = ExposureTypes[i];
+            double amount = mitigated[type].Min * (100 + ElementalHitTakenPercent(effects, target, type, now));
+            if (amount <= highest) continue;
+            element = i;
+            highest = amount;
+        }
+        if (element >= 0 && RandomRolls.Chance(chance, 100, random))
+            Expose(target, element, DefaultExposure, now);
+    }
+
+    static void MinionAilmentsLocked(Player player, GolemState.Golem fighter, GolemState.Ability ability,
         uint id, SpawnedMonster target, bool critical, double now)
     {
         if (!MinionAilmentProfiles.TryGetValue(ability, out var profile)) return;
-        double factor = DoedreSewers.MinionDamageFactor(conn) * MinionTacticsDamage(conn, fighter, id, target, now);
+        double factor = DoedreSewers.MinionDamageFactor(player) * MinionTacticsDamage(player, fighter, id, target, now);
         if (factor != 1)
         {
             MonsterIgnites.Settings Scale(MonsterIgnites.Settings s) => s with
@@ -24,17 +45,22 @@ public static partial class Game
         }
         var packets = new List<byte[]>();
         if (target.Ignites.TryApply(profile.Ignite with { Seconds = profile.Ignite.Seconds * MonsterIgnites.SelfDuration(n => target.Effects[n]) }, critical, now,
-            target.Effects["avoid_ignite_%"],
-            target.Effects["immune_to_ignite"] != 0, Random.Shared))
-            packets.AddRange(ShowDotBuffLocked(conn, id, target.Ignites, IgnitedBuffRow, now));
-        if (BleedOnHitLocked(conn, id, target, profile.Bleed, critical, now) is { } bleeding) packets.AddRange(bleeding);
-        if (profile.Poison.Seconds > 0 && profile.PoisonChance > 0 && RandomRolls.Chance(profile.PoisonChance, 100, Random.Shared)
-            && target.Effects["cannot_be_poisoned"] == 0 && !RandomRolls.Chance(target.Effects["avoid_poison_%"], 100, Random.Shared))
+            target.Effects[Stat.AvoidIgnitePct],
+            target.Effects[Stat.ImmuneToIgnite] != 0, AreaRng(player)))
+        {
+            player.Area.ActiveIgniteMonsters.Add(id);
+            player.Area.RecentlyIgnitedMonsters.Add(id);
+            ShowDotBuffLocked(player, id, target.Ignites, IgnitedBuffRow, now);
+        }
+        if (BleedOnHitLocked(player, id, target, profile.Bleed, critical, now) is { } bleeding) packets.AddRange(bleeding);
+        if (profile.Poison.Seconds > 0 && profile.PoisonChance > 0 && RandomRolls.Chance(profile.PoisonChance, 100, AreaRng(player))
+            && target.Effects[Stat.CannotBePoisoned] == 0 && !RandomRolls.Chance(target.Effects[Stat.AvoidPoisonPct], 100, AreaRng(player)))
         {
             var p = profile.Poison;
             double min = critical ? p.CriticalMin : p.Min, max = critical ? p.CriticalMax : p.Max;
-            target.Poisons.Add(now, min + (max - min) * Random.Shared.NextDouble(), p.Seconds * MonsterPoisons.SelfDuration(n => target.Effects[n]));
+            if (target.Poisons.Add(now, min + (max - min) * AreaRng(player).NextDouble(), p.Seconds * MonsterPoisons.SelfDuration(n => target.Effects[n])))
+                player.Area.ActivePoisonMonsters.Add(id);
         }
-        foreach (var packet in packets) conn.Minions.OutputQueue.Add(new(packet, null));
+        foreach (var packet in packets) player.Minions.OutputQueue.Add(new(packet, null));
     }
 }

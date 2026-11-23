@@ -32,23 +32,23 @@ public class PartyKickTests
         using var runtime = new PartyFollowerTests.Runtime();
         var instance = new InstanceState();
         using var wire = new PartyFollowerTests.Wire();
-        var leader = runtime.Connection(instance, wire, "KickLeader");
-        var first = runtime.Connection(instance, wire, "KickMemberA");
-        var second = runtime.Connection(instance, wire, "KickMemberB");
+        var leader = runtime.PlayerOf(instance, wire, "KickLeader");
+        var first = runtime.PlayerOf(instance, wire, "KickMemberA");
+        var second = runtime.PlayerOf(instance, wire, "KickMemberB");
         var (leaderMessages, leaderOutbox) = Capture();
         var (firstMessages, firstOutbox) = Capture();
         var (secondMessages, secondOutbox) = Capture();
-        leader.Outbox = leaderOutbox;
-        first.Outbox = firstOutbox;
-        second.Outbox = secondOutbox;
+        leader.Connection.Outbox = leaderOutbox;
+        first.Connection.Outbox = firstOutbox;
+        second.Connection.Outbox = secondOutbox;
         uint party = 0;
         leader.Controlled = first.Controlled = second.Controlled = false;
         try
         {
-            await PartyRoster.InviteHuman(leader, first.Character!);
+            await PartyRoster.InviteHuman(leader, first.Character.Name!);
             party = PartyRoster.PartyOf(leader);
             await PartyRoster.AcceptHuman(first, party);
-            await PartyRoster.InviteHuman(leader, second.Character!);
+            await PartyRoster.InviteHuman(leader, second.Character.Name!);
             await PartyRoster.AcceptHuman(second, party);
             leaderMessages.Clear(); firstMessages.Clear(); secondMessages.Clear();
             // The leader kicks one of three: it is told (0xaa) and the remaining two get the smaller party (0xa9).
@@ -57,7 +57,7 @@ public class PartyKickTests
             Assert.Equal(party, PartyOf(removed));
             var left = PartyRoster.Players(party);
             Assert.Equal(2, left.Length);
-            Assert.Equal(["KickLeader", "KickMemberB"], left.Select(c => c.Character));
+            Assert.Equal(["KickLeader", "KickMemberB"], left.Select(c => c.Character.Name));
             foreach (var (to, messages) in new[] { (leader, leaderMessages), (second, secondMessages) })
             {
                 var info = Assert.Single(WithId(messages, InstanceSocial.PartyInfoId));
@@ -88,12 +88,12 @@ public class PartyKickTests
         using var runtime = new PartyFollowerTests.Runtime();
         var instance = new InstanceState();
         using var wire = new PartyFollowerTests.Wire();
-        var leader = runtime.Connection(instance, wire, "CancelLeader");
-        var invited = runtime.Connection(instance, wire, "CancelTarget");
+        var leader = runtime.PlayerOf(instance, wire, "CancelLeader");
+        var invited = runtime.PlayerOf(instance, wire, "CancelTarget");
         var (invitedMessages, invitedOutbox) = Capture();
-        invited.Outbox = invitedOutbox;
+        invited.Connection.Outbox = invitedOutbox;
         leader.Controlled = invited.Controlled = false;
-        await PartyRoster.InviteHuman(leader, invited.Character!);
+        await PartyRoster.InviteHuman(leader, invited.Character.Name!);
         uint invite = PartyRoster.PartyOf(leader);
         invitedMessages.Clear();
         try
@@ -111,11 +111,11 @@ public class PartyKickTests
             await PartyRoster.LeaveHuman(invited, PartyRoster.PartyOf(invited));
         }
 
-        var member = runtime.Connection(instance, wire, "CancelMember");
+        var member = runtime.PlayerOf(instance, wire, "CancelMember");
         var (messages, outbox) = Capture();
-        member.Outbox = outbox;
+        member.Connection.Outbox = outbox;
         member.Controlled = false;
-        await PartyRoster.InviteHuman(leader, member.Character!);
+        await PartyRoster.InviteHuman(leader, member.Character.Name!);
         uint party = PartyRoster.PartyOf(leader);
         await PartyRoster.AcceptHuman(member, party);
         messages.Clear();

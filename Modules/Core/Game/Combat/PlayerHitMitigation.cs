@@ -5,16 +5,16 @@ using GameServer.Core.World;
 /// Callers retain immunity, suppression and block ordering. DoT uses resistance directly and never enters this pass.</summary>
 public static class PlayerHitMitigation
 {
-    public const string ArmourAppliesToChaos = "base_armour_applies_to_chaos_damage";
+    public const uint ArmourAppliesToChaos = Stat.BaseArmourAppliesToChaosDamage;
 
-    public const string ArmourPercentToElemental = "armour_%_applies_to_fire_cold_lightning_damage",
-        ArmourPercentToChaos = "base_armour_%_applies_to_chaos_damage";
+    public const uint ArmourPercentToElemental = Stat.ArmourPctAppliesToFireColdLightningDamage,
+        ArmourPercentToChaos = Stat.BaseArmourPctAppliesToChaosDamage;
 
     /// <summary>The share of armour that applies to a hit's damage of this type, 0-100 (PoB CalcDefence
     /// percentOfArmourApplies, its BASE sum capped at 100): all of it to physical, and to chaos with
     /// base_armour_applies_to_chaos_damage; else "X% of Armour applies to Fire, Cold and Lightning / Chaos Damage from
     /// Hits" (Kahuturoa's Leadership).</summary>
-    public static int ArmourPercent(CharacterStats.Pools pools, DamageType type, Func<string, int> get) => type switch
+    public static int ArmourPercent(CharacterStats.Pools pools, DamageType type, Func<uint, int> get) => type switch
     {
         DamageType.Physical => 100,
         DamageType.Chaos => pools.ArmourAppliesToChaosDamage ? 100 : Math.Clamp(get(ArmourPercentToChaos), 0, 100),

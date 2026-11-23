@@ -1,3 +1,4 @@
+using GameServer.Core;
 using GameServer.Core.Protocol.Instance;
 using GameServer.Core.World;
 
@@ -15,30 +16,42 @@ public static partial class Game
     /// for Sap), up to <paramref name="Cap"/> (ReminderText: up to 30%, +6% and 20%; PoB data.nonDamagingAilment), with
     /// no minimum. <paramref name="WithoutHit"/>: its effect from a source that is no hit (ReminderTextScorchNonHit: 10%,
     /// ReminderTextBrittleNonHit: +2%, ReminderTextSapNonHit: 6%). Brittle's numbers are in hundredths of a percent (PoB
-    /// precision 2), the unit of the stat its buff grants. <paramref name="Stat"/> names it in the stats (Brittle is
+    /// precision 2), the unit of the stat its buff grants. <paramref name="StatName"/> names it in the stats (Brittle is
     /// frostburn), <paramref name="Can"/> in all_damage_can_X. Its buff is BuffDefinitions <paramref name="BuffRow"/>
     /// on the fixed <paramref name="Instance"/>; <paramref name="Sign"/> turns the magnitude into its GrantedStats value.
     /// <paramref name="OnPlayer"/>: whether the player side models its effect (Sap on the player's damage is not).</summary>
-    public sealed record AlternateAilment(AlternateKind Kind, string Stat, string Past, DamageType Element, string Can,
-        string Chance, string OnCritical, string OnBlock, double Base, int Cap, int WithoutHit, ushort BuffRow, ushort Instance,
-        int Sign, string? SelfEffect, string? Threshold, string? TakenCan, string? WhenHit, bool OnPlayer);
+    public sealed record AlternateAilment(AlternateKind Kind, string StatName, string Past, DamageType Element, string Can,
+        uint Chance, uint OnCritical, uint OnBlock, double Base, int Cap, int WithoutHit, ushort BuffRow, ushort Instance,
+        int Sign, uint? SelfEffect, uint? Threshold, uint? TakenCan, uint? WhenHit, bool OnPlayer)
+    {
+        public uint VirtualEffect { get; } = Stat.Of($"virtual_{StatName}_effect_+%");
+        public uint VirtualDuration { get; } = Stat.Of($"virtual_{StatName}_duration_+%");
+        public uint Never { get; } = Stat.Of($"never_{StatName}");
+        public uint VirtualNever { get; } = Stat.Of($"virtual_never_{StatName}");
+        public uint Immune { get; } = Stat.Of($"immune_to_{StatName}");
+        public uint CannotBe { get; } = Stat.Of($"cannot_be_{Past}");
+        public uint BaseCannotBe { get; } = Stat.Of($"base_cannot_be_{Past}");
+        public uint VirtualCannotBe { get; } = Stat.Of($"virtual_cannot_be_{Past}");
+        public uint Avoid { get; } = Stat.Of($"avoid_{StatName}_%");
+        public uint BaseAvoid { get; } = Stat.Of($"base_avoid_{StatName}_%");
+    }
 
     public static readonly AlternateAilment[] AlternateAilments =
     [
         // scorched: base_resist_all_elements_% ("+X% to all Elemental Resistances"), negative.
-        new(AlternateKind.Scorch, "scorch", "scorched", DamageType.Fire, "scorch", "chance_to_scorch_%",
-            "scorch_on_critical_strike", "chance_to_inflict_scorch_on_enemy_on_block_%", 50, 30, 10, 1243,
-            ClientState.FixedBuffInstances, -1, "scorch_ailment_effect_on_self_+%", null, "all_damage_taken_can_scorch",
-            "chance_to_be_scorched_when_hit_%", OnPlayer: true),
+        new(AlternateKind.Scorch, "scorch", "scorched", DamageType.Fire, "scorch", Stat.Of("chance_to_scorch_%"),
+            Stat.Of("scorch_on_critical_strike"), Stat.Of("chance_to_inflict_scorch_on_enemy_on_block_%"), 50, 30, 10, 1243,
+            Player.FixedBuffInstances, -1, Stat.Of("scorch_ailment_effect_on_self_+%"), null, Stat.Of("all_damage_taken_can_scorch"),
+            Stat.Of("chance_to_be_scorched_when_hit_%"), OnPlayer: true),
         // frostburn ("Brittle"): enemy_additional_critical_strike_chance_against_self, divided by 100 in its description.
-        new(AlternateKind.Brittle, "frostburn", "frostburned", DamageType.Cold, "inflict_brittle", "chance_to_inflict_frostburn_%",
-            "frostburn_on_critical_strike", "chance_to_inflict_brittle_on_enemy_on_block_%", 1000, 600, 200, 1244,
-            (ushort)(ClientState.FixedBuffInstances + 1), 1, null, "brittle_ailment_threshold_+%_final", null, null, OnPlayer: true),
+        new(AlternateKind.Brittle, "frostburn", "frostburned", DamageType.Cold, "inflict_brittle", Stat.Of("chance_to_inflict_frostburn_%"),
+            Stat.Of("frostburn_on_critical_strike"), Stat.Of("chance_to_inflict_brittle_on_enemy_on_block_%"), 1000, 600, 200, 1244,
+            (ushort)(Player.FixedBuffInstances + 1), 1, null, Stat.Of("brittle_ailment_threshold_+%_final"), null, null, OnPlayer: true),
         // sapped: sapped_damage_+%_final, negative.
-        new(AlternateKind.Sap, "sap", "sapped", DamageType.Lightning, "sap", "chance_to_inflict_sapped_%",
-            "sap_on_critical_strike", "chance_to_inflict_sap_on_enemy_on_block_%", 100 / 3.0, 20, 6, 1245,
-            (ushort)(ClientState.FixedBuffInstances + 2), -1, null, "sap_ailment_threshold_+%_final", "all_damage_taken_can_sap",
-            "chance_to_be_sapped_when_hit_%", OnPlayer: false),
+        new(AlternateKind.Sap, "sap", "sapped", DamageType.Lightning, "sap", Stat.Of("chance_to_inflict_sapped_%"),
+            Stat.Of("sap_on_critical_strike"), Stat.Of("chance_to_inflict_sap_on_enemy_on_block_%"), 100 / 3.0, 20, 6, 1245,
+            (ushort)(Player.FixedBuffInstances + 2), -1, null, Stat.Of("sap_ailment_threshold_+%_final"), Stat.Of("all_damage_taken_can_sap"),
+            Stat.Of("chance_to_be_sapped_when_hit_%"), OnPlayer: false),
     ];
 
     /// <summary>Their base duration (ReminderText: "for 4 seconds"; PoB duration 4).</summary>
@@ -47,18 +60,18 @@ public static partial class Game
     // "Critical Strikes inflict Scorch, Brittle and Sapped" (ReminderTextKeystoneSecretsOfSuffering), with "Cannot Ignite,
     // Chill, Freeze or Shock" (SecretsOfSufferingProhibitions, handed over in GameModule.Load). The cluster jewel's
     // keystone and Replica Malachai's Artifice's socketed gems (the skill's own stat) both carry it.
-    public const string SecretsOfSuffering = "keystone_secrets_of_suffering";
-    internal static readonly (string Stat, string Ailment)[] SecretsOfSufferingProhibitions =
+    public const uint SecretsOfSuffering = Stat.KeystoneSecretsOfSuffering;
+    internal static readonly (uint Stat, string Ailment)[] SecretsOfSufferingProhibitions =
         [(SecretsOfSuffering, "ignite"), (SecretsOfSuffering, "chill"), (SecretsOfSuffering, "freeze"), (SecretsOfSuffering, "shock")];
     // Stormblood and its cold sibling: all damage from critical strikes can apply lightning (cold) ailments during the
     // effect, Sap (Brittle) among them; a source still has to inflict it.
-    internal static readonly (string Local, string Stat)[] AlternateAilmentFlaskFlags =
+    internal static readonly (uint Local, uint Stat)[] AlternateAilmentFlaskFlags =
     [
-        ("local_unique_flask_all_damage_from_critical_strikes_can_sap_during_effect", "all_damage_from_critical_strikes_can_sap"),
-        ("local_unique_flask_all_damage_from_critical_strikes_can_inflict_brittle_during_effect",
-            "all_damage_from_critical_strikes_can_inflict_brittle"),
+        (Stat.LocalUniqueFlaskAllDamageFromCriticalStrikesCanSapDuringEffect, Stat.AllDamageFromCriticalStrikesCanSap),
+        (Stat.LocalUniqueFlaskAllDamageFromCriticalStrikesCanInflictBrittleDuringEffect,
+            Stat.AllDamageFromCriticalStrikesCanInflictBrittle),
     ];
-    const string AnyAlternateChance = "chance_to_inflict_scorch_brittle_sap_%";
+    const uint AnyAlternateChance = Stat.ChanceToInflictScorchBrittleSapPct;
 
     public static AlternateAilment AlternateAilmentOf(AlternateKind kind) => AlternateAilments[(int)kind];
 
@@ -70,29 +83,29 @@ public static partial class Game
 
     // The attacker's increased effect (the panel's virtual_X_effect_+%: the ailment's own, its element's and "Non-Damaging
     // Ailments") and the target's on itself.
-    static double AlternateEffectModifier(AlternateAilment a, Func<string, int> attacker, Func<string, int> target) =>
-        Math.Max(0, 1 + attacker($"virtual_{a.Stat}_effect_+%") / 100.0) * AlternateEffectOnSelf(a, target);
+    static double AlternateEffectModifier(AlternateAilment a, Func<uint, int> attacker, Func<uint, int> target) =>
+        Math.Max(0, 1 + attacker(a.VirtualEffect) / 100.0) * AlternateEffectOnSelf(a, target);
 
-    static double AlternateEffectOnSelf(AlternateAilment a, Func<string, int> target) =>
-        Math.Max(0, 1 + (target("non_damaging_ailment_effect_+%_on_self") + (a.SelfEffect is { } self ? target(self) : 0)) / 100.0);
+    static double AlternateEffectOnSelf(AlternateAilment a, Func<uint, int> target) =>
+        Math.Max(0, 1 + (target(Stat.NonDamagingAilmentEffectPlusPctOnSelf) + (a.SelfEffect is uint self ? target(self) : 0)) / 100.0);
 
     // The attacker's duration modifiers (the panel's virtual_X_duration_+%: elemental, all and the element's ailments').
-    static double AlternateSeconds(AlternateAilment a, Func<string, int> attacker) =>
-        AlternateAilmentSeconds * Math.Max(0, 1 + attacker($"virtual_{a.Stat}_duration_+%") / 100.0);
+    static double AlternateSeconds(AlternateAilment a, Func<uint, int> attacker) =>
+        AlternateAilmentSeconds * Math.Max(0, 1 + attacker(a.VirtualDuration) / 100.0);
 
     // Elemental Focus's cannot_inflict_status_ailments and the never_X stats.
-    static bool CannotInflictAlternate(AlternateAilment a, Func<string, int> attacker) =>
-        attacker("cannot_inflict_status_ailments") != 0 || attacker($"never_{a.Stat}") != 0 || attacker($"virtual_never_{a.Stat}") != 0;
+    static bool CannotInflictAlternate(AlternateAilment a, Func<uint, int> attacker) =>
+        attacker(Stat.CannotInflictStatusAilments) != 0 || attacker(a.Never) != 0 || attacker(a.VirtualNever) != 0;
 
     // The target's immunities to it.
-    static bool AlternateImmune(AlternateAilment a, Func<string, int> target) =>
-        target($"immune_to_{a.Stat}") != 0 || target($"cannot_be_{a.Past}") != 0 || target($"base_cannot_be_{a.Past}") != 0
-        || target($"virtual_cannot_be_{a.Past}") != 0 || a.Kind == AlternateKind.Brittle && target("cannot_gain_brittle") != 0;
+    static bool AlternateImmune(AlternateAilment a, Func<uint, int> target) =>
+        target(a.Immune) != 0 || target(a.CannotBe) != 0 || target(a.BaseCannotBe) != 0
+        || target(a.VirtualCannotBe) != 0 || a.Kind == AlternateKind.Brittle && target(Stat.CannotGainBrittle) != 0;
 
     // The damage that can inflict it: its own element's, and another type's with all_damage_can_X, the type's
     // X_damage_can_X or, on a critical strike, all_damage_from_critical_strikes_can_X (Stormblood). Runs per hit with a
-    // source: the stat names are built once (AlternateCanNames), and no LINQ.
-    static double AlternateInflicting(AlternateAilment a, DamagePacket damage, Func<string, int> attacker, bool critical)
+    // source: the stat ids are built once (AlternateCanNames), and no LINQ.
+    static double AlternateInflicting(AlternateAilment a, DamagePacket damage, Func<uint, int> attacker, bool critical)
     {
         var names = AlternateCanNames[(int)a.Kind];
         bool all = attacker(names.All) != 0 || critical && attacker(names.FromCritical) != 0;
@@ -102,9 +115,9 @@ public static partial class Game
         return sum;
     }
 
-    static readonly (string All, string FromCritical, string[] PerType)[] AlternateCanNames = AlternateAilments
-        .Select(a => ($"all_damage_can_{a.Can}", $"all_damage_from_critical_strikes_can_{a.Can}",
-            Enum.GetValues<DamageType>().Select(t => $"{t.ToString().ToLowerInvariant()}_damage_can_{a.Can}").ToArray()))
+    static readonly (uint All, uint FromCritical, uint[] PerType)[] AlternateCanNames = AlternateAilments
+        .Select(a => (Stat.Of($"all_damage_can_{a.Can}"), Stat.Of($"all_damage_from_critical_strikes_can_{a.Can}"),
+            Enum.GetValues<DamageType>().Select(t => Stat.Of($"{t.ToString().ToLowerInvariant()}_damage_can_{a.Can}")).ToArray()))
         .ToArray();
 
     /// <summary>
@@ -117,7 +130,7 @@ public static partial class Game
     /// rolls only when there is one, so a hit without a source draws nothing.
     /// </summary>
     public static List<(AlternateAilment A, RuleAilments.Instance Instance)> AlternateAilmentsOnHit(RuleAilments store,
-        DamagePacket damage, bool critical, double threshold, double now, Func<string, int> attacker, Func<string, int> target,
+        DamagePacket damage, bool critical, double threshold, double now, Func<uint, int> attacker, Func<uint, int> target,
         Random random)
     {
         var added = new List<(AlternateAilment, RuleAilments.Instance)>();
@@ -134,8 +147,8 @@ public static partial class Game
             if (inflicting <= 0) continue;
             if (!(sure || RandomRolls.Chance(chance, 100, random))
                 || CannotInflictAlternate(a, attacker) || AlternateImmune(a, target)) continue;
-            double asThough = Math.Max(0, 1 + attacker("non_damaging_ailments_as_though_damage_+%_final") / 100.0);
-            double scaled = threshold * (a.Threshold is { } stat ? Math.Max(0, 1 + target(stat) / 100.0) : 1);
+            double asThough = Math.Max(0, 1 + attacker(Stat.NonDamagingAilmentsAsThoughDamagePlusPctFinal) / 100.0);
+            double scaled = threshold * (a.Threshold is uint stat ? Math.Max(0, 1 + target(stat) / 100.0) : 1);
             int magnitude = AlternateMagnitude(a, inflicting * asThough, scaled, AlternateEffectModifier(a, attacker, target));
             if (store.Add((int)a.Kind, now, AlternateSeconds(a, attacker), magnitude) is { } instance) added.Add((a, instance));
         }
@@ -145,13 +158,13 @@ public static partial class Game
     /// <summary>The Scorch, Brittle and Sap a player's hit inflicts on a monster (<see cref="AlternateAilmentsOnHit"/>),
     /// none during an encounter's grace (SpawnedMonster.EntranceGrace). Under the Monsters lock.</summary>
     public static List<(AlternateAilment A, RuleAilments.Instance Instance)> AlternateAilmentsOnHitLocked(SpawnedMonster m,
-        DamagePacket damage, bool critical, double now, Func<string, int> attacker, Random random) =>
+        DamagePacket damage, bool critical, double now, Func<uint, int> attacker, Random random) =>
         m.EntranceGrace ? [] : AlternateAilmentsOnHit(m.RuleAilments, damage, critical, m.MaxLife, now, attacker, name => m.Effects[name], random);
 
     /// <summary>A Scorch, Brittle or Sap from a source that is no hit ("Scorch Enemies when you Block their Damage"):
     /// the ailment's set effect (10%, +2%, 6%) through the effect modifiers, up to its cap, for 4 s.</summary>
     public static RuleAilments.Instance? AlternateAilmentWithoutHit(RuleAilments store, AlternateKind kind, double now,
-        Func<string, int> attacker, Func<string, int> target)
+        Func<uint, int> attacker, Func<uint, int> target)
     {
         var a = AlternateAilmentOf(kind);
         if (CannotInflictAlternate(a, attacker) || AlternateImmune(a, target)) return null;
@@ -161,7 +174,7 @@ public static partial class Game
 
     /// <summary>The player's "X% chance to Scorch Enemies when you Block their Damage" (and Brittle's, Sap's) on the
     /// monster whose hit was blocked, each on its own roll of Random.Shared. Under the Monsters lock.</summary>
-    static void AlternateAilmentsOnBlockLocked(SpawnedMonster m, Func<string, int> player, double now)
+    static void AlternateAilmentsOnBlockLocked(SpawnedMonster m, Func<uint, int> player, double now)
     {
         foreach (var a in AlternateAilments)
             if (RandomRolls.Chance(player(a.OnBlock), 100, Random.Shared) && !m.EntranceGrace)
@@ -184,8 +197,8 @@ public static partial class Game
     /// <summary>The buff of an alternate ailment (0x1c1), with its magnitude as its one GrantedStats value. The scorched,
     /// frostburn and sapped rows have the chilled and shocked rows' shape (IsRecovery, one value, the +0xff bool so
     /// +0x82 is read and sent 0); no duration, as the server ends it with 0x1c2.</summary>
-    public static byte[] AlternateAilmentBuff(uint id, AlternateAilment a, int magnitude) =>
-        InstanceEntities.AddBuff(id, a.Instance, a.BuffRow, PlayerId, u82: 0, values: [unchecked((uint)(a.Sign * magnitude))]);
+    public static byte[] AlternateAilmentBuff(uint id, AlternateAilment a, int magnitude, uint source = 0) =>
+        InstanceEntities.AddBuff(id, a.Instance, a.BuffRow, source, u82: 0, values: [unchecked((uint)(a.Sign * magnitude))]);
 
     /// <summary>A magnitude as the logs print it.</summary>
     public static string AlternateMagnitudeText(AlternateAilment a, int magnitude) =>
@@ -218,52 +231,52 @@ public static partial class Game
     /// (ReminderTextElementalAilments lists them). Sap is not inflicted on the player: its less damage dealt is not
     /// modelled for the player's hits. Under the Monsters lock.
     /// </summary>
-    public static void AlternateAilmentsOnPlayerLocked(ClientState conn, SpawnedMonster m, DamagePacket taken, bool blocked,
+    public static void AlternateAilmentsOnPlayerLocked(Player player, SpawnedMonster m, DamagePacket taken, bool blocked,
         double now, IReadOnlyDictionary<uint, int> stats, PlayerElementalAilments.HitSettings settings)
     {
-        if (blocked || conn.Immune || conn.Closed || conn.LeavingArea || conn.PlayerLife == 0 || InGracePeriod(conn)
-            || conn.PlayerMaxLife == 0) return;
-        int Get(string name) => Stats.Key(name) is uint key ? stats.GetValueOrDefault(key) : 0;
+        if (blocked || player.Immune || player.Closed || player.LeavingArea || player.PlayerLife == 0 || InGracePeriod(player)
+            || player.PlayerMaxLife == 0) return;
+        int Get(uint key) => stats.GetValueOrDefault(key);
         foreach (var a in AlternateAilments)
         {
             if (!a.OnPlayer) continue;
             int chance = (settings.SourceStats is { } skill ? skill(a.Chance) + skill(AnyAlternateChance) : 0)
-                + m.Effects[a.Chance] + (a.WhenHit is { } whenHit ? Get(whenHit) : 0);
-            double damage = a.TakenCan is { } can && Get(can) != 0 ? taken.MinTotal : taken[a.Element].Min;
-            if (chance <= 0 || damage <= 0 || !RandomRolls.Chance(chance, 100, conn.IncomingHitRandom)) continue;
-            int magnitude = AlternateMagnitude(a, damage, conn.PlayerMaxLife, AlternateEffectOnSelf(a, Get));
-            AlternateOnPlayerLocked(conn, a, magnitude, now, Get, conn.IncomingHitRandom);
+                + m.Effects[a.Chance] + (a.WhenHit is uint whenHit ? Get(whenHit) : 0);
+            double damage = a.TakenCan is uint can && Get(can) != 0 ? taken.MinTotal : taken[a.Element].Min;
+            if (chance <= 0 || damage <= 0 || !RandomRolls.Chance(chance, 100, player.IncomingHitRandom)) continue;
+            int magnitude = AlternateMagnitude(a, damage, player.PlayerMaxLife, AlternateEffectOnSelf(a, Get));
+            AlternateOnPlayerLocked(player, a, magnitude, now, Get, player.IncomingHitRandom);
         }
     }
 
     // One Scorch or Brittle on the player: its immunity, then the avoidance roll, then its duration on self.
-    static void AlternateOnPlayerLocked(ClientState conn, AlternateAilment a, double magnitude, double now, Func<string, int> get,
+    static void AlternateOnPlayerLocked(Player player, AlternateAilment a, double magnitude, double now, Func<uint, int> get,
         Random random)
     {
         if (!a.OnPlayer || magnitude <= 0 || AlternateImmune(a, get)
-            || RandomRolls.Chance(get($"avoid_{a.Stat}_%") + get($"base_avoid_{a.Stat}_%") + get("avoid_all_elemental_status_%"), 100, random))
+            || RandomRolls.Chance(get(a.Avoid) + get(a.BaseAvoid) + get(Stat.AvoidAllElementalStatusPct), 100, random))
             return;
         double seconds = AlternateAilmentSeconds
-            * Math.Max(0, 1 - (get("self_elemental_status_duration_-%") - get("base_all_ailment_duration_on_self_+%")) / 100.0);
-        conn.RuleAilments.Add((int)a.Kind, now, seconds, magnitude);
+            * Math.Max(0, 1 - (get(Stat.SelfElementalStatusDurationMinusPct) - get(Stat.BaseAllAilmentDurationOnSelfPlusPct)) / 100.0);
+        player.RuleAilments.Add((int)a.Kind, now, seconds, magnitude);
     }
 
     /// <summary>Mirrored: the Scorch and Brittle a hit added act on the player as well, the effect they landed with
     /// through the player's effect on self, up to the cap. Under the Monsters lock.</summary>
-    static void ReflectAlternateAilmentsLocked(ClientState conn, List<(AlternateAilment A, RuleAilments.Instance Instance)> added,
-        double now, Func<string, int> player, Random random)
+    static void ReflectAlternateAilmentsLocked(Player player, List<(AlternateAilment A, RuleAilments.Instance Instance)> added,
+        double now, Func<uint, int> playerStats, Random random)
     {
-        if (conn.PlayerLife == 0) return;
+        if (player.PlayerLife == 0) return;
         foreach (var (a, instance) in added)
-            AlternateOnPlayerLocked(conn, a, Math.Min(a.Cap, Math.Floor(instance.Magnitude * AlternateEffectOnSelf(a, player))),
-                now, player, random);
+            AlternateOnPlayerLocked(player, a, Math.Min(a.Cap, Math.Floor(instance.Magnitude * AlternateEffectOnSelf(a, playerStats))),
+                now, playerStats, random);
     }
 
     /// <summary>Scorch on the player: its fire, cold and lightning resistances lowered by its strongest scorch.</summary>
-    public static int PlayerScorchedResistance(ClientState conn, DamageType type) =>
-        DamageTypes.IsElemental(type) ? -(int)conn.RuleAilments.Magnitude((int)AlternateKind.Scorch, conn.Clock.Elapsed.TotalSeconds) : 0;
+    public static int PlayerScorchedResistance(Player player, DamageType type) =>
+        DamageTypes.IsElemental(type) ? -(int)player.RuleAilments.Magnitude((int)AlternateKind.Scorch, AreaTime(player)) : 0;
 
     /// <summary>Brittle on the player: the critical strike chance (hundredths) monster hits against it have in addition.</summary>
-    public static int PlayerBrittleCriticalChance(ClientState conn, double now) =>
-        (int)conn.RuleAilments.Magnitude((int)AlternateKind.Brittle, now);
+    public static int PlayerBrittleCriticalChance(Player player, double now) =>
+        (int)player.RuleAilments.Magnitude((int)AlternateKind.Brittle, now);
 }

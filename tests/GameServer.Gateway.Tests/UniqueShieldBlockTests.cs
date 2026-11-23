@@ -14,7 +14,7 @@ public class UniqueShieldBlockTests
         var aegisType = Assert.IsType<ItemCatalog.BaseType>(items.ByHash(aegis.TypeHash));
         int baseBlock = items.ShieldBlock(aegisType);
         Assert.True(baseBlock > 0);
-        Assert.Equal(baseBlock + ItemModStats.Local(aegis, items.Mods).GetValueOrDefault("local_additional_block_chance_%"),
+        Assert.Equal(baseBlock + ItemModStats.Local(aegis, items.Mods).GetValueOrDefault(Stat.LocalAdditionalBlockChancePct),
             ItemModStats.ShieldBlock(items, aegis, aegisType));
         Assert.True(ItemModStats.ShieldBlock(items, aegis, aegisType) > baseBlock);
 

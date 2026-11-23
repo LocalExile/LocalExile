@@ -36,8 +36,9 @@ public sealed class HarvestTables
     public IReadOnlyDictionary<int, (int BaseItem, int DropStat)> SeedItems { get; }
     public IReadOnlyDictionary<string, ObjectType> Objects { get; }
 
-    static readonly Lazy<HarvestTables> Loaded = new(() => new HarvestTables());
-    public static HarvestTables Current => Loaded.Value;
+    static HarvestTables? Loaded;
+    public static void LoadGameData() => Loaded = new HarvestTables();
+    public static HarvestTables Current => Loaded ??= new HarvestTables();
 
     public HarvestTables(IReadOnlyList<Seed> seeds, IReadOnlyList<LevelValues> levels, IReadOnlyDictionary<int, int> moreLife)
     {

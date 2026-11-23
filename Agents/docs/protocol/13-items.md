@@ -1317,7 +1317,8 @@ gems must not be granted:** a support's effect in the list crashed the client in
 ## 7. Start kit, saves and dev command
 
 A new character gets Characters.dat StartSkillGem and StartSupportGem in the main inventory, and in the flask bar two
-Small Life Flasks (cells 0 and 1: flask keys 1 and 2) and a Small Mana Flask (cell 4: key 5). Its StartWeapons[0], with
+Small Life Flasks (cells 0 and 1: flask keys 1 and 2) and a Small Mana Flask (cell 4: key 5), and a stack of three
+Scrolls of Wisdom in the main inventory's first cell. Its StartWeapons[0], with
 two linked white sockets (3.29: a gem fits any colour), is worn
 in Weapon1. With `Game_START_WEAPON=ground` it lies on the ground instead, as on the real game's Twilight Strand: `PlayerInventories.StartWeapon` keeps it (in the save as
 `StartWeapon`) until it is picked up, and on entering an instance outside towns the Gateway puts it once per character, weapon
@@ -1411,7 +1412,7 @@ Otherwise:
    the flask-bar cell as its source skill (u16 +0x60) (`Flasks.Buff`). Until 2026-10-25 a u32 3000 (milliseconds) went
    there, which the client read as a float of almost 0 s. `Game_FLASK_BUFF_DURATION=0` sends no duration. The life orb
    rose as before with the f32 duration (live 2026-10-25); the life and mana buffs are invisible and draw no timer bar.
-4. `RunResourceRecovery` adds the recovery evenly by the clock, every 16 ms while a flask recovers, and sends each whole
+4. `StartResourceRecovery` adds the recovery evenly by the clock, every 16 ms while a flask recovers, and sends each whole
    point at once (S→C 0x1b1): the orb rises by +1 about every 43 ms for a Small Life Flask, not in the player tick's 250
    ms steps of 6 (live 2026-10-20: those looked jerky). Recovery flasks queue (poewiki: "Recovery flasks queue up if
    multiple flasks are active. The effect with the highest regeneration rate is always applied first"): of the life (and
@@ -1694,7 +1695,7 @@ mods or the jewel's stats, where the player or the struck monster stands (radii 
 **Quartz Flask's phasing.** The client's Pathfinding keeps "Phase Through Objects" (+0x52e) from the player's
 `virtual_phase_through_objects` (`0x141ea3618`) and picks its blocker filter with it (`0x141e81e6c`). The Gateway sends
 `virtual_phase_through_objects` 1 while a Quartz Flask runs (live: the client's stat setter got 1), and its walk
-estimate then does not count monsters as blockers (`ClientState.Phasing`); NPCs and stashes still block, since which
+estimate then does not count monsters as blockers (`Player.Phasing`); NPCs and stashes still block, since which
 objects the client's filter lets through is not traced.
 
 **Gold Flask's rarity.** The player's increased rarity of items found (`base_item_found_rarity_+%` 30 from the buff,

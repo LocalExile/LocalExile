@@ -196,7 +196,7 @@ Items keep the Roadmap's priority groups, and are in rough priority order within
   swap places between client and server ([07](../docs/protocol/07-latency-visibility-movement.md) §5, "Open").
 - **Lockstep network mode:** the server decides every action and the client plays it back by server frames, each
   action start putting the client on the server's cell, which ends the parted copies of a crowd.
-  It works locally when selected by the client; Predictive remains preferred, and network parity is not verified
+  It is the default way of playing (a client is served in it until it sends predictive messages); network parity is not verified
   ([status](../status/world.md)).
   - **Known:** M5's dormant-body membership and saved-cell restoration are accepted with open issues.
     The player's walk, attacks, spells, pick-ups and object uses, monsters' orders, hit recoveries, emerges and

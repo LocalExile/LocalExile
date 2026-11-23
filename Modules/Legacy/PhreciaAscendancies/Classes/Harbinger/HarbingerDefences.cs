@@ -4,7 +4,7 @@ namespace GameServer.Modules.PhreciaAscendancies.Classes.Harbinger;
 /// <summary>Extra base ES from final pools; eligible non-chaos bypass after Ward and before ES.</summary>
 static class HarbingerDefences
 {
-    public static int Taken(int damage, Func<string, int> get) => IncomingResourceDefences.Taken(damage, get);
+    public static int Taken(int damage, Func<uint, int> get) => IncomingResourceDefences.Taken(damage, get);
 
     public static uint Maximum(uint ordinary, uint life, uint mana, int increased, int lifePercent, int manaPercent)
     {

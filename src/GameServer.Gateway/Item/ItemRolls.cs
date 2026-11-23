@@ -10,9 +10,24 @@ using GameServer.Core;
 /// by default (jewels 3-4), at most the configured prefix/suffix caps (three/three and two/two by default), and a name
 /// from Words.dat word lists 1 (prefix) and 2 (suffix), drawn by the same tag weights.
 /// </summary>
-public sealed class ItemRolls(ItemCatalog catalog, string folder = "data", SystemSettings? settings = null)
+public sealed class ItemRolls
 {
-    readonly SystemSettings _settings = settings ?? SystemSettings.Default;
+    readonly ItemCatalog catalog;
+    readonly string folder;
+    readonly SystemSettings? settings;
+
+    public ItemRolls(ItemCatalog catalog, string folder = "data", SystemSettings? settings = null)
+    {
+        this.catalog = catalog;
+        this.folder = folder;
+        this.settings = settings;
+        _settings = settings ?? SystemSettings.Default;
+        _words = LoadWords(folder);
+        _influenceTags = LoadInfluenceTags(folder);
+        _mirrorMapTypes = LoadMirrorMapTypes();
+    }
+
+    readonly SystemSettings _settings;
 
     public const int Prefix = 1, Suffix = 2;
 
@@ -22,12 +37,12 @@ public sealed class ItemRolls(ItemCatalog catalog, string folder = "data", Syste
     /// <summary>A Words.dat row: the key the client looks it up by (HASH32), its text and spawn weights.</summary>
     public sealed record Word(uint Key, string Text, int List, IReadOnlyList<(string Tag, int Weight)> SpawnWeights);
 
-    private readonly Lazy<List<Word>> _words = new(() => LoadWords(folder));
+    private readonly List<Word> _words;
 
     /// <summary>Words.dat: rare name words (lists 1 and 2) and the other lists.</summary>
-    public IReadOnlyList<Word> Words => _words.Value;
+    public IReadOnlyList<Word> Words => _words;
     private readonly System.Collections.Concurrent.ConcurrentDictionary<(int Row, int Level, ItemInfluence Influences, string? Tag), IReadOnlyList<(ModCatalog.Mod, int)>> _pools = new();
-    private readonly Lazy<Dictionary<(int Class, int Influence), string>> _influenceTags = new(() => LoadInfluenceTags(folder));
+    private readonly Dictionary<(int Class, int Influence), string> _influenceTags;
 
     /// <summary>The affixes that can roll on this base at this item level. Influence mods are ordinary affixes behind a
     /// tag per item class (InfluenceTags.dat: boots_shaper, ring_eyrie …), so an influence opens them.</summary>
@@ -57,7 +72,7 @@ public sealed class ItemRolls(ItemCatalog catalog, string folder = "data", Syste
         if (influences == ItemInfluence.None) return t.Tags;
         var tags = new HashSet<string>(t.Tags);
         foreach (var influence in Enum.GetValues<ItemInfluence>().Where(i => i != ItemInfluence.None && influences.HasFlag(i)))
-            if (_influenceTags.Value.TryGetValue((t.ClassRow, System.Numerics.BitOperations.TrailingZeroCount((int)influence)), out string? tag))
+            if (_influenceTags.TryGetValue((t.ClassRow, System.Numerics.BitOperations.TrailingZeroCount((int)influence)), out string? tag))
                 tags.Add(tag);
         return tags;
     }
@@ -185,8 +200,8 @@ public sealed class ItemRolls(ItemCatalog catalog, string folder = "data", Syste
             ? (_settings.RareJewelMaxPrefixes, _settings.RareJewelMaxSuffixes)
             : (_settings.RareMaxPrefixes, _settings.RareMaxSuffixes);
         var local = ItemModStats.Local(item, catalog.Mods);
-        return (Math.Max(0, prefix + local.GetValueOrDefault("local_maximum_prefixes_allowed_+")),
-            Math.Max(0, suffix + local.GetValueOrDefault("local_maximum_suffixes_allowed_+")));
+        return (Math.Max(0, prefix + local.GetValueOrDefault(Stat.LocalMaximumPrefixesAllowedPlus)),
+            Math.Max(0, suffix + local.GetValueOrDefault(Stat.LocalMaximumSuffixesAllowedPlus)));
     }
 
     /// <summary>The item classes with two affixes a side and three or four on a rare: jewels, and Idols (AtlasRelic),
@@ -296,21 +311,23 @@ public sealed class ItemRolls(ItemCatalog catalog, string folder = "data", Syste
         return item with { Mods = mods, FracturedCount = 1 };
     }
 
-    HashSet<uint>? _mirrorMapTypes;
+    readonly HashSet<uint> _mirrorMapTypes;
+
+    /// <summary>The map bases of tiers 1-16 (atlas or map device): the maps a Mirror of Kalandra copies.</summary>
+    HashSet<uint> LoadMirrorMapTypes()
+    {
+            string mapFolder = folder;
+        var atlas = new AtlasCatalog(catalog, mapFolder);
+        var maps = MapDevice.Load(mapFolder, row => catalog.Row(row)?.Hash, catalog);
+        return [.. catalog.All.Where(t => (atlas.TierOf(t.Hash) ?? maps.AreaOf(t.Hash)?.Tier) is >= 1 and <= 16)
+            .Select(t => t.Hash)];
+    }
 
     bool MirrorTarget(ItemCatalog.BaseType type)
     {
         if (type.CanBeMirrored || type.Components.Contains("Flask")) return true;
         if (!type.Components.Contains("Map") && !type.Components.Contains("MapKey")) return false;
-        return LazyInitializer.EnsureInitialized(ref _mirrorMapTypes, () =>
-        {
-            // Older instances predate the primary-constructor field added by hot reload.
-            string mapFolder = folder ?? "data";
-            var atlas = new AtlasCatalog(catalog, mapFolder);
-            var maps = MapDevice.Load(mapFolder, row => catalog.Row(row)?.Hash, catalog);
-            return [.. catalog.All.Where(t => (atlas.TierOf(t.Hash) ?? maps.AreaOf(t.Hash)?.Tier) is >= 1 and <= 16)
-                .Select(t => t.Hash)];
-        }).Contains(type.Hash);
+        return _mirrorMapTypes.Contains(type.Hash);
     }
 
     /// <summary>Mirror of Kalandra: a mirrored copy of non-unique equipment, a flask or a tier 1-16 map, not corrupted, mirrored or
@@ -548,7 +565,7 @@ public sealed class ItemRolls(ItemCatalog catalog, string folder = "data", Syste
     {
         uint? Draw(int list)
         {
-            var words = _words.Value.Where(w => w.List == list)
+            var words = _words.Where(w => w.List == list)
                 .Select(w => (w, w.SpawnWeights.FirstOrDefault(s => t.Tags.Contains(s.Tag)).Weight)).Where(p => p.Weight > 0).ToList();
             return words.Count == 0 ? null : Pick(words, rng).Key;
         }
@@ -572,7 +589,7 @@ public sealed class ItemRolls(ItemCatalog catalog, string folder = "data", Syste
     public IReadOnlyList<uint> RareName(Item item, Random rng) => catalog.ByHash(item.TypeHash) is { } t ? RareName(t, rng) : [];
 
     /// <summary>"Dire Bane" from the keys (for logs and /item_mods).</summary>
-    public string NameOf(IReadOnlyList<uint> keys) => string.Concat(keys.Select(k => _words.Value.FirstOrDefault(w => w.Key == k)?.Text ?? $"[{k:x8}]"));
+    public string NameOf(IReadOnlyList<uint> keys) => string.Concat(keys.Select(k => _words.FirstOrDefault(w => w.Key == k)?.Text ?? $"[{k:x8}]"));
 
     static T Pick<T>(IReadOnlyList<(T Item, int Weight)> choices, Random rng)
     {

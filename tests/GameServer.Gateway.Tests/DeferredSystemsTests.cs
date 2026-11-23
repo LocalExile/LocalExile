@@ -32,9 +32,9 @@ public sealed class DeferredSystemsTests
         return ItemCatalog.Create(found.Type) with { GemVariant = found.Variant.Index };
     }
 
-    static void EquipLinked(ClientState conn, string weaponName, params string[] gems)
+    static void EquipLinked(Player player, string weaponName, params string[] gems)
     {
-        var items = Game.ItemsOf(conn);
+        var items = Game.ItemsOf(player);
         foreach (var existing in items.EquipmentSnapshot().Where(e => e.Row == PlayerInventories.Weapon1))
             items.Remove(PlayerInventories.Weapon1, existing.Item.Id);
         var weapon = ItemCatalog.Create(Program.Items.Find(weaponName)!);
@@ -52,22 +52,32 @@ public sealed class DeferredSystemsTests
         Saves.Open(path);
         Game.CombatLifetime = lifetime;
         Program.SetGameLogic(new GameServer.Modules.Game.GameLogic());
-        var conn = SpellTotemExecutionTests.Connection("DeferredCombat");
-        conn.Clock.Start();
-        conn.Walk.Teleport(100, 100, 0);
-        conn.PlayerStats[Program.Stats.Key("global_always_hit")!.Value] = 1;
-        foreach (string attr in new[] { "strength", "dexterity", "intelligence" })
-            conn.PlayerStats[Program.Stats.Key($"additional_{attr}")!.Value] = 300;
+        var player = SpellTotemExecutionTests.PlayerOf("DeferredCombat");
+        player.Clock.Start();
+        player.Walk.Teleport(100, 100, 0);
+        using var statHook = GameEvents.PlayerStatSources.Add("Game", (p, s) =>
+        {
+            if (!ReferenceEquals(p, player)) return s;
+            var merged = new Dictionary<uint, int>(s)
+            {
+                [Stat.GlobalAlwaysHit] = 1,
+                [Stat.AdditionalStrength] = 300,
+                [Stat.AdditionalDexterity] = 300,
+                [Stat.AdditionalIntelligence] = 300,
+            };
+            return merged;
+        });
         using var wire = new SpellTotemExecutionTests.Wire();
-        var session = Game.ProjectilesFor("deferred", wire.Stream, wire.Ciphers, conn);
+        player.Connection.Session = new("deferred", wire.Stream, wire.Ciphers);
+        var session = Game.ProjectilesFor(player);
         try
         {
             // 1. Brands: limits, presentation, Penance Brand of Dissipation pulses & Brand Recall
             var emptyStats = new Dictionary<uint, int>();
             var equityStats = new Dictionary<uint, int>
             {
-                [Program.Stats.Key("base_total_number_of_sigils_allowed")!.Value] = 5,
-                [Program.Stats.Key("keystone_runebinder")!.Value] = 1,
+                [Stat.BaseTotalNumberOfSigilsAllowed] = 5,
+                [Stat.KeystoneRunebinder] = 1,
             };
             Assert.Equal(3, Game.BrandMaxTotal(emptyStats, emptyStats));
             Assert.Equal(5, Game.BrandMaxTotal(equityStats, emptyStats));
@@ -77,21 +87,21 @@ public sealed class DeferredSystemsTests
             Assert.Equal((ushort)1547, magmaPres.AttachedBuffRow);
             Assert.Equal(4481u, magmaPres.AttachedMiscAnimatedRow);
 
-            EquipLinked(conn, "Gnarled Branch", "Penance Brand of Dissipation", "Brand Recall");
-            var brandEffects = Game.GemSkillEffects(conn).ToDictionary(g => g.Name);
+            EquipLinked(player, "Gnarled Branch", "Penance Brand of Dissipation", "Brand Recall");
+            var brandEffects = Game.GemSkillEffects(player).ToDictionary(g => g.Name);
             var penance = brandEffects["Penance Brand of Dissipation"];
             var recall = brandEffects["Brand Recall"];
-            Assert.True(Game.IsBrandSkill(conn, penance.Effect));
-            Assert.True(Game.IsBrandRecall(conn, recall.Effect));
+            Assert.True(Game.IsBrandSkill(player, penance.Effect));
+            Assert.True(Game.IsBrandRecall(player, recall.Effect));
 
             var enemy = new SpawnedMonster("brand target", new(110, 100, 0), 0, 0, 100000) { Hostile = true };
-            conn.Monsters[701] = enemy;
+            player.Area.Monsters[701] = enemy;
 
-            Assert.True(await Game.ResolveCastBrand("brand", wire.Stream, wire.Ciphers, conn, penance.Id, penance,
-                (110, 100), conn.ActionInterruptionGeneration, () => true));
-            Assert.Equal(1, Game.BrandCountFor(conn));
-            Assert.Equal(1, Game.AttachedBrandCountFor(conn));
-            var activeBrand = Assert.Single(Game.ActiveBrandsFor(conn));
+            Assert.True(await Game.ResolveCastBrand(player, penance.Id, penance,
+                (110, 100), player.ActionInterruptionGeneration, () => true));
+            Assert.Equal(1, Game.BrandCountFor(player));
+            Assert.Equal(1, Game.AttachedBrandCountFor(player));
+            var activeBrand = Assert.Single(Game.ActiveBrandsFor(player));
             Assert.Equal(701u, activeBrand.AttachedMonsterId);
 
             // Deterministic activation tick ramps Penance Brand of Dissipation energy and deals damage
@@ -99,65 +109,65 @@ public sealed class DeferredSystemsTests
             Assert.Equal(1, energyAfterAttach);
             uint lifeBefore = enemy.Life;
             double t = activeBrand.NextActivationAt + 0.05;
-            await Game.TickBrands("brand", wire.Stream, wire.Ciphers, conn, t);
+            await Game.TickBrands(player, t);
             Assert.Equal(energyAfterAttach + 1, activeBrand.Energy);
             Assert.True(enemy.Life < lifeBefore);
 
             // Brand Recall detaches (resetting Dissipation energy), reattaches, and fires an immediate pulse
             double remainingBeforeRecall = activeBrand.AttachedRemaining;
             uint lifeBeforeRecall = enemy.Life;
-            Assert.True(await Game.CastBrandRecall("brand", wire.Stream, wire.Ciphers, conn, recall.Id, recall, () => true));
+            Assert.True(await Game.CastBrandRecall(player, recall.Id, recall, () => true));
             Assert.Equal(1, activeBrand.Energy);
             Assert.True(enemy.Life < lifeBeforeRecall);
             Assert.Equal(remainingBeforeRecall, activeBrand.AttachedRemaining);
-            Game.ClearBrands(conn);
-            Assert.Equal(0, Game.BrandCountFor(conn));
+            Game.ClearBrands(player);
+            Assert.Equal(0, Game.BrandCountFor(player));
 
-            EquipLinked(conn, "Gnarled Branch", "Arcanist Brand", "Ice Nova");
-            var arcanistEffects = Game.GemSkillEffects(conn).ToDictionary(g => g.Name);
+            EquipLinked(player, "Gnarled Branch", "Arcanist Brand", "Ice Nova");
+            var arcanistEffects = Game.GemSkillEffects(player).ToDictionary(g => g.Name);
             var nova = arcanistEffects["Ice Nova"];
-            Assert.Contains(Game.SupportedSkill(conn, nova.Id).Supports, s => s.Effect.Id == "SupportBrandSupport");
-            Assert.NotNull(Game.GemSkillInstanceDisabled(conn, nova.Effect, nova.Id));
-            Assert.Null(Game.GemSkillInstanceDisabled(conn, nova.Effect, nova.Id, triggered: true));
+            Assert.Contains(Game.SupportedSkill(player, nova.Id).Supports, s => s.Effect.Id == "SupportBrandSupport");
+            Assert.NotNull(Game.GemSkillInstanceDisabled(player, nova.Effect, nova.Id));
+            Assert.Null(Game.GemSkillInstanceDisabled(player, nova.Effect, nova.Id, triggered: true));
 
-            EquipLinked(conn, "Gnarled Branch", "Wintertide Brand", "Brand Recall");
-            var winterEffects = Game.GemSkillEffects(conn).ToDictionary(g => g.Name);
+            EquipLinked(player, "Gnarled Branch", "Wintertide Brand", "Brand Recall");
+            var winterEffects = Game.GemSkillEffects(player).ToDictionary(g => g.Name);
             var winter = winterEffects["Wintertide Brand"];
-            Assert.True(await Game.ResolveCastBrand("winter", wire.Stream, wire.Ciphers, conn, winter.Id, winter,
-                (110, 100), conn.ActionInterruptionGeneration, () => true));
-            var winterBrand = Assert.Single(Game.ActiveBrandsFor(conn));
+            Assert.True(await Game.ResolveCastBrand(player, winter.Id, winter,
+                (110, 100), player.ActionInterruptionGeneration, () => true));
+            var winterBrand = Assert.Single(Game.ActiveBrandsFor(player));
             int stages = winterBrand.Stages;
             var winterRecall = winterEffects["Brand Recall"];
-            Assert.True(await Game.CastBrandRecall("winter", wire.Stream, wire.Ciphers, conn,
+            Assert.True(await Game.CastBrandRecall(player,
                 winterRecall.Id, winterRecall, () => true));
             Assert.Equal(stages + 1, winterBrand.Stages);
-            Game.ClearBrands(conn);
+            Game.ClearBrands(player);
 
             // 2. Snipe: stage math, manual-cast disable on linked bow skill, and staged bow release
-            EquipLinked(conn, "Crude Bow", "Snipe", "Burning Arrow");
-            var snipeEffects = Game.GemSkillEffects(conn).ToDictionary(g => g.Name);
+            EquipLinked(player, "Crude Bow", "Snipe", "Burning Arrow");
+            var snipeEffects = Game.GemSkillEffects(player).ToDictionary(g => g.Name);
             var snipe = snipeEffects["Snipe"];
             var burningArrow = snipeEffects["Burning Arrow"];
-            Assert.NotNull(Game.GemSkillInstanceDisabled(conn, burningArrow.Effect, burningArrow.Id, triggered: false));
-            Assert.Null(Game.GemSkillInstanceDisabled(conn, burningArrow.Effect, burningArrow.Id, triggered: true));
-            Assert.Equal(6, Game.SnipeMaxStages(conn, snipe.Id));
+            Assert.NotNull(Game.GemSkillInstanceDisabled(player, burningArrow.Effect, burningArrow.Id, triggered: false));
+            Assert.Null(Game.GemSkillInstanceDisabled(player, burningArrow.Effect, burningArrow.Id, triggered: true));
+            Assert.Equal(6, Game.SnipeMaxStages(player, snipe.Id));
 
-            var snipeSupported = Game.SupportedSkill(conn, snipe.Id);
-            var baSupported = Game.SupportedSkill(conn, burningArrow.Id);
-            int hitPerStage = snipeSupported.Stats[Program.Stats.Key("snipe_triggered_skill_hit_damage_+%_final_per_stage")!.Value];
-            int ailmentPerStage = snipeSupported.Stats[Program.Stats.Key("snipe_triggered_skill_ailment_damage_+%_final_per_stage")!.Value];
+            var snipeSupported = Game.SupportedSkill(player, snipe.Id);
+            var baSupported = Game.SupportedSkill(player, burningArrow.Id);
+            int hitPerStage = snipeSupported.Stats[Stat.SnipeTriggeredSkillHitDamagePlusPctFinalPerStage];
+            int ailmentPerStage = snipeSupported.Stats[Stat.SnipeTriggeredSkillAilmentDamagePlusPctFinalPerStage];
             var (hitMult, ailmentMult) = Game.SnipeStageMultipliers(snipeSupported.Stats, 4, baSupported.Stats);
             Assert.Equal(0.6 * (1 + 4 * hitPerStage / 100.0), hitMult, 6);
             Assert.Equal(0.6 * (1 + 4 * ailmentPerStage / 100.0), ailmentMult, 6);
 
-            Assert.Equal(0, await Game.ReleaseSnipeStages("snipe", wire.Stream, wire.Ciphers, conn, snipe.Id, snipe, 0, (120, 100)));
-            int released = await Game.ReleaseSnipeStages("snipe", wire.Stream, wire.Ciphers, conn, snipe.Id, snipe, 3, (120, 100));
+            Assert.Equal(0, await Game.ReleaseSnipeStages(player, snipe.Id, snipe, 0, (120, 100)));
+            int released = await Game.ReleaseSnipeStages(player, snipe.Id, snipe, 3, (120, 100));
             Assert.Equal(1, released);
 
             // End the bow encounter before placing the warcry targets in its arrow path.
             session.Invalidate();
             await session.OutputCompleted;
-            session = Game.ProjectilesFor("gc", wire.Stream, wire.Ciphers, conn);
+            session = Game.ProjectilesFor(player);
 
             // 3. General's Cry & Mirage Warriors: non-blocking wire flags, corpse reuse, rush & strike
             var nonBlockingBlob = new MonsterObject(100, 100, 100, MonsterObject.BaseComponents) { Blocking = false }.Blob();
@@ -166,46 +176,46 @@ public sealed class DeferredSystemsTests
             Assert.Equal((byte)0, nonBlockingBlob[19]);
             Assert.Equal((byte)1, nonBlockingBlob[20]);
 
-            EquipLinked(conn, "OneHandSword1", "General's Cry", "Heavy Strike");
-            var cryEffects = Game.GemSkillEffects(conn).ToDictionary(g => g.Name);
+            EquipLinked(player, "OneHandSword1", "General's Cry", "Heavy Strike");
+            var cryEffects = Game.GemSkillEffects(player).ToDictionary(g => g.Name);
             var cry = cryEffects["General's Cry"];
-            var crySupported = Game.SupportedSkill(conn, cry.Id);
-            var linkedMelee = Game.GeneralsCryLinkedMeleeSkills(conn, crySupported);
+            var crySupported = Game.SupportedSkill(player, cry.Id);
+            var linkedMelee = Game.GeneralsCryLinkedMeleeSkills(player, crySupported);
             Assert.Contains(linkedMelee, s => s.Effect.Name == "Heavy Strike");
-            Assert.InRange(Game.MirageWarriorDamageFactor(conn, cry.Level, cry.Quality), 0.35, 0.55);
+            Assert.InRange(Game.MirageWarriorDamageFactor(player, cry.Level, cry.Quality), 0.35, 0.55);
 
             var zombie = Game.Monsters.Find("Metadata/Monsters/Zombies/Zombie")!;
             var corpse = new SpawnedMonster("corpse", new(106, 100, 0), 0, 0, 1000) { Hostile = true, Dead = true, Life = 0, Variety = zombie };
             var target = new SpawnedMonster("gc target", new(108, 100, 0), 0, 0, 100000) { Hostile = true, Variety = zombie, Rarity = MonsterRarity.Unique };
-            conn.Monsters.Clear();
-            conn.Monsters[710] = corpse;
-            conn.Monsters[711] = target;
+            player.Area.Monsters.Clear();
+            player.Area.Monsters[710] = corpse;
+            player.Area.Monsters[711] = target;
 
             var weaker = new SpawnedMonster("closer normal", new(106, 100, 0), 0, 0, 100000) { Hostile = true, Variety = zombie };
-            conn.Monsters[712] = weaker;
-            var summoning = Game.GeneralsCryReleased("gc", wire.Stream, wire.Ciphers, conn, cry.Id, (100, 100), 60, conn.ProjectileEpoch);
-            Assert.DoesNotContain(conn.Monsters.Values, m => m.NonBlocking && !m.Hostile);
+            player.Area.Monsters[712] = weaker;
+            var summoning = Game.GeneralsCryReleased(player, cry.Id, (100, 100), 60, player.ProjectileEpoch);
+            Assert.DoesNotContain(player.Area.Monsters.Values, m => m.NonBlocking && !m.Hostile);
             Assert.Equal(1, await summoning);
-            Assert.Same(corpse, conn.Monsters[710]);
+            Assert.Same(corpse, player.Area.Monsters[710]);
             Assert.False(corpse.CorpseConsumed);
-            var warrior = conn.Monsters.Values.Single(m => m.NonBlocking && !m.Hostile);
+            var warrior = player.Area.Monsters.Values.Single(m => m.NonBlocking && !m.Hostile);
             Assert.False(LivingCollision.Blocks(warrior));
 
             uint gcTargetBefore = target.Life;
-            double gcNow = Game.AreaTime(conn);
-            await Game.MirageWarriorsTick("gc", wire.Stream, wire.Ciphers, conn, gcNow + 0.05);
-            await Game.MirageWarriorsTick("gc", wire.Stream, wire.Ciphers, conn, gcNow + 1.5);
+            double gcNow = Game.AreaTime(player);
+            await Game.MirageWarriorsTick(player, gcNow + 0.05);
+            await Game.MirageWarriorsTick(player, gcNow + 1.5);
             Assert.True(target.Life < gcTargetBefore);
             Assert.Equal(weaker.MaxLife, weaker.Life);
         }
         finally
         {
-            Game.ClearBrands(conn);
+            Game.ClearBrands(player);
             session.Invalidate();
-            conn.Closed = true;
+            player.Closed = true;
             lifetime.Stop(_ => { });
             Game.CombatLifetime = previousLifetime;
-            PlayerInventories.Forget(conn.Character!);
+            PlayerInventories.Forget(player.Character.Name!);
             Program.SetGameLogic(previous!);
             TestEnvironment.ReleaseSaves(path);
         }
@@ -215,7 +225,7 @@ public sealed class DeferredSystemsTests
     public void Lore_interactables_trick_chests_and_character_voice_lines()
     {
         // 1. Lore interactables: Transitionable state 2 + single/cycling/multi-page selection
-        var npcs = Game.Npcs.Value;
+        var npcs = Game.Npcs;
         var diary = npcs.Find("Metadata/NPC/Info/MerveilDiary");
         Assert.NotNull(diary);
         var preparedDiary = QuestobjectsRules.PrepareLoreNpc(diary!, "Metadata/NPC/Info/MerveilDiary.ao", 12.5f);
@@ -270,7 +280,7 @@ public sealed class DeferredSystemsTests
         }
 
         // 3. Player character voice lines (CharacterAudioEvents) catalog, triggers & 0x2bc wire bytes
-        var audio = CharacterAudioCatalog.Default.Value;
+        var audio = CharacterAudioCatalog.Default;
         Assert.Equal(291, audio.All.Count);
         Assert.Equal(261, audio.ServerDriven.Count);
 

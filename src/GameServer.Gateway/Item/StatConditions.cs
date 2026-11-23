@@ -153,11 +153,10 @@ public static class StatConditions
     /// <summary>The plain stat a conditional id names: <c>spell_damage_+%_while_dual_wielding</c> →
     /// <c>spell_damage_+%</c>, and <c>damage_+%_if_you_have_frozen_enemy_recently</c> → <c>damage_+%</c>. Null when the
     /// id carries no condition this build can move.</summary>
-    static System.Collections.Concurrent.ConcurrentDictionary<string, string?>? PlainNames;
+    static readonly System.Collections.Concurrent.ConcurrentDictionary<string, string?> PlainNames = new(StringComparer.Ordinal);
 
     public static string? PlainOf(string statId) =>
-        System.Threading.LazyInitializer.EnsureInitialized(ref PlainNames,
-            static () => new(StringComparer.Ordinal)).GetOrAdd(statId, ParsePlainName);
+        PlainNames.GetOrAdd(statId, ParsePlainName);
 
     /// <summary>A module-supplied trailing named fact, recognized only when the subject explicitly carries it.</summary>
     public static string? PlainOf(string statId, in Subject subject)
@@ -285,8 +284,8 @@ public static class StatConditions
 
     static string? FoldFromPlain(string statId, Func<string, bool> exists, string? candidate)
     {
-        if (DedicatedConsumers.Contains(statId) || ChargeEffects.Expands(statId)
-            || IncomingAilmentEffects.Expands(statId)) return null;
+        if (DedicatedConsumers.Contains(statId) || Program.Stats.Key(statId) is uint id
+            && (ChargeEffects.Expands(id) || IncomingAilmentEffects.Expands(id))) return null;
         if (candidate is not { } plain) return null;
         // Table spellings shared by several conditional rolls, mapped to the existing unconditional consumer.
         plain = plain switch
@@ -535,11 +534,10 @@ public static class StatConditions
     /// twice.
     /// </para>
     /// </summary>
-    static System.Collections.Concurrent.ConcurrentDictionary<string, Func<Subject, State>>? ParsedConditions;
+    static readonly System.Collections.Concurrent.ConcurrentDictionary<string, Func<Subject, State>> ParsedConditions = new(StringComparer.Ordinal);
 
     public static State Of(string statId, in Subject subject) =>
-        System.Threading.LazyInitializer.EnsureInitialized(ref ParsedConditions,
-            static () => new(StringComparer.Ordinal)).GetOrAdd(statId, ParseCondition)(subject);
+        ParsedConditions.GetOrAdd(statId, ParseCondition)(subject);
 
     // Parse the immutable stat id once; the predicate still reads the live subject on every call.
     static Func<Subject, State> ParseCondition(string statId)

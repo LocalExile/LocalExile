@@ -23,7 +23,7 @@ public class BladefallTrarthusTests
             Own("bladefall_volley_frequency_+%_per_100_maximum_mana"), 691));
         Assert.Equal(700, BladefallVolleys.FrequencyMs(700, 2, 99));
         Assert.Equal(2073, BladefallVolleys.ManaPerMinute(Own("base_mana_cost_%_per_minute"), 691));
-        var conn = new ClientState(new(1, "bladefall", 100, 100, 100, 100, null, []), 1, 1);
+        var conn = new Player(new(1, "bladefall", 100, 100, 100, 100, null, []), 1, 1);
         var state = conn.BladefallTrarthus = new(1, 2, 3) { CostPerMinute = 300 };
         Assert.Equal(5, Game.BladefallManaSpent(conn, 1));
         state.PaysLife = true;
