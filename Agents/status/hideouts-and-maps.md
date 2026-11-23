@@ -193,6 +193,11 @@ Part of [Status](../Status.md); what to build next in this area is in
   selector). Not compared with a retail capture: Oshabi's state sequence (soul tree progression, interactable, emerge, energy and colour stages, death; her emerge,
   travelling and repeat_fight states).
 
+- Legion (partial, not checked in the client): the Timeless Monolith stands at the Legion room locator.
+  Using it charges and shatters it and starts the Legion timer, which scales with area level and
+  `map_legion_duration_+%`, and the monolith locks at the end.
+  The armies are not built yet; the timer length is not confirmed from `LegionBalancePerLevel`.
+
 - Simulacrum: five arenas and a 15-wave controller; opening and the wave-start prompt checked in the client, wave
   combat and the reward display not yet. Starting a wave destroys every item on the ground, as the client warns.
   Its arenas use their encounter rules independently of the owner's Atlas preset.
