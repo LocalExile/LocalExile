@@ -11,8 +11,8 @@ public static class MonsterRegeneration
 
     public static void Start(GameArea area, Player player, object source)
     {
-        // The instance's monster table (its lock too, while the rest of the game still takes it).
-        var monsters = player.Area.Monsters;
+        // Capture area-scoped handles (never the joining Player, who may leave while others stay in the instance).
+        var frames = player.Frames;
         var instance = player.Instance;
         double last = double.NaN;
         area.Systems.Add("monster regeneration", AreaPhase.Recovery, a =>
@@ -23,24 +23,27 @@ public static class MonsterRegeneration
             var living = a.SyncLivingMonsters();
             if (living.Count > 0)
             {
-                Game.RegenerateMonstersLocked(living, seconds, now, OnHitPct(instance, player, now, seconds));
+                Game.RegenerateMonstersLocked(living, seconds, now, OnHitPct(instance, frames, now, seconds));
                 for (int i = 0; i < living.Count; i++)
                 {
                     var (id, m) = living[i];
                     Game.StepMonsterEnergyShieldLocked(a, id, m, seconds, now);
                 }
-                Game.StepMonsterChargesLocked(a, living, now);
+                Game.StepMonsterChargesLocked(a, living, now, frames.Rng);
             }
-            Game.StepMonsterAurasLocked(a, player, living, seconds, now);
+            Game.StepMonsterAurasLocked(a, frames, living, seconds, now);
         }, every: EveryFrames, source: source);
     }
 
     // Devout of Ryslatha's enemy regeneration on hit (Pools.EnemyRegenerationOnHitPct) of a player who hit an enemy in the
     // last 4 s; with several, the strongest.
-    static int OnHitPct(InstanceState? instance, Player first, double now, double seconds)
+    static int OnHitPct(InstanceState? instance, AreaFrames frames, double now, double seconds)
     {
         int pct = 0;
-        foreach (var player in instance is null ? [first] : Program.InGame.Keys.Where(c => ReferenceEquals(c.Instance, instance)))
+        var players = instance is null
+            ? (IEnumerable<Player>)frames.Players()
+            : Program.InGame.Keys.Where(c => ReferenceEquals(c.Instance, instance));
+        foreach (var player in players)
             if (now - seconds - player.LastEnemyHitAt <= Game.RecentlySeconds && player.Pools.EnemyRegenerationOnHitPct is var p
                 && Math.Abs(p) > Math.Abs(pct))
                 pct = p;

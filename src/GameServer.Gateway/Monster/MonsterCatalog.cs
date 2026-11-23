@@ -21,6 +21,7 @@ public sealed class MonsterCatalog
         _rows = Load(folder);
         _life = LifeTables.Load(folder);
         _mapBoss = MapBossScalingTable.Load(folder);
+        _areaTiers = LoadAreaTiers();
         _takeHit = LoadTakeHit();
         _corpse = LoadCorpse();
         _degenDeath = LoadDegenDeath();
@@ -86,6 +87,7 @@ public sealed class MonsterCatalog
     private readonly (List<Variety> Rows, string? Error) _rows;
     private readonly LifeTables? _life;
     private readonly MapBossScalingTable? _mapBoss;
+    private readonly (Dictionary<string, int> ById, Dictionary<ushort, int> ByHash) _areaTiers;
     private readonly MonsterResistanceCatalog _resistance;
     private readonly Dictionary<string, HitAnimation[]> _takeHit;
 
@@ -293,7 +295,7 @@ public sealed class MonsterCatalog
 
     /// <summary>A variety's ailment threshold for a monster with <paramref name="maxLife"/>: scales <paramref name="maxLife"/>
     /// by MonsterVarieties.AilmentThreshold / LifeMultiplier (e.g. Kitava A5 3000/7200 and reduced-threshold map bosses)
-    /// and DefaultMonsterStats.AilmentThreshold / MonsterLife (verified in Game.exe 0x141e781f8).</summary>
+    /// and DefaultMonsterStats.AilmentThreshold / matching base life column (verified in Game.exe 0x141e781f8).</summary>
     public long AilmentThreshold(Variety? variety, int level, long maxLife)
     {
         if (maxLife <= 1 || variety is null) return Math.Max(1, maxLife);
@@ -303,22 +305,75 @@ public sealed class MonsterCatalog
         if (_life is { } t && level >= 1 && level <= t.Levels.Count)
         {
             var row = t.Levels[level - 1];
-            if (row.AilmentThreshold > 0 && row.MonsterLife > 0 && row.AilmentThreshold != row.MonsterLife)
-                threshold *= (double)row.AilmentThreshold / row.MonsterLife;
+            var type = variety.MonsterType >= 0 && variety.MonsterType < t.Types.Count ? t.Types[variety.MonsterType] : default;
+            int baseRowLife = type.AltLife1 ? row.AltLife1 : type.AltLife2 ? row.AltLife2 : type.Minion ? row.MinionLife : row.MonsterLife;
+            if (row.AilmentThreshold > 0 && baseRowLife > 0 && row.AilmentThreshold != baseRowLife)
+                threshold *= (double)row.AilmentThreshold / baseRowLife;
         }
         return Math.Max(1L, (long)Math.Round(threshold));
     }
 
-    /// <summary>DefaultMonsterStats `MonsterPhysConversionMulti` at this level (stat 0x55c1 in Game.exe 0x141e7822f).</summary>
-    public int? PhysConversionMultiplier(int level) =>
-        _life is { } t && level >= 1 && level <= t.Levels.Count ? t.Levels[level - 1].PhysConversionMulti : null;
+    /// <summary>Area progression tier for <see cref="SpeciesModsForArea(Variety, int)"/>: 1 = Part 1 (Acts 1–5, Normal
+    /// Labyrinth), 2 = Part 2 (Acts 6–10, Cruel Labyrinth), 3 = Endgame (maps, Act 11+, Merciless/Eternal Labyrinth,
+    /// Delve, Heist).</summary>
+    public int AreaTier(string? areaId, ushort areaHash, bool isMap)
+    {
+        if (isMap) return 3;
+        if (!string.IsNullOrEmpty(areaId) && _areaTiers.ById.TryGetValue(areaId, out int byId)) return byId;
+        if (areaHash != 0 && _areaTiers.ByHash.TryGetValue(areaHash, out int byHash)) return byHash;
+        if (string.IsNullOrEmpty(areaId)) return 1;
+        return ClassifyAreaTier(areaId, act: 0, areaLevel: 0, isMapArea: false, isLabyrinth: false);
+    }
+
+    static int ClassifyAreaTier(string id, int act, int areaLevel, bool isMapArea, bool isLabyrinth)
+    {
+        if (isMapArea || act >= 11) return 3;
+        if (isLabyrinth || id.Contains("Labyrinth", StringComparison.OrdinalIgnoreCase))
+        {
+            if (id.StartsWith("EndGame_", StringComparison.OrdinalIgnoreCase)
+                || id.StartsWith("3_Labyrinth", StringComparison.OrdinalIgnoreCase)
+                || areaLevel >= 68)
+                return 3;
+            if (id.StartsWith("2_Labyrinth", StringComparison.OrdinalIgnoreCase) || areaLevel >= 55)
+                return 2;
+            return 1;
+        }
+        if (id.StartsWith("Delve_", StringComparison.OrdinalIgnoreCase)
+            || id.StartsWith("Heist", StringComparison.OrdinalIgnoreCase)
+            || id.StartsWith("EndGame_", StringComparison.OrdinalIgnoreCase)
+            || id.StartsWith("Map", StringComparison.OrdinalIgnoreCase))
+            return 3;
+        if (act is >= 6 and <= 10 || id.StartsWith("2_", StringComparison.Ordinal)) return 2;
+        return 1;
+    }
+
+    static (Dictionary<string, int> ById, Dictionary<ushort, int> ByHash) LoadAreaTiers()
+    {
+        var byId = new Dictionary<string, int>(StringComparer.OrdinalIgnoreCase);
+        var byHash = new Dictionary<ushort, int>();
+        if (ClientTables.TableOrNull("WorldAreas") is not { } areas) return (byId, byHash);
+        foreach (var r in areas)
+        {
+            string id = r.Text("Id") ?? "";
+            if (id.Length == 0) continue;
+            int act = r.IntOrNull("Act") ?? 0;
+            int areaLevel = r.IntOrNull("AreaLevel") ?? 0;
+            bool isMap = r.BoolOrNull("IsMapArea") == true || r.BoolOrNull("IsUniqueMapArea") == true;
+            bool isLab = r.BoolOrNull("IsLabyrinthArea") == true || r.BoolOrNull("IsLabyrinthBossArea") == true;
+            int tier = ClassifyAreaTier(id, act, areaLevel, isMap, isLab);
+            byId[id] = tier;
+            if (r.IntOrNull("HASH16") is int h and > 0 and <= ushort.MaxValue)
+                byHash.TryAdd((ushort)h, tier);
+        }
+        return (byId, byHash);
+    }
 
     /// <summary>The active species Mods.dat rows for a variety in an area: ModsKeys + Special_ModsKeys plus the area's
-    /// tier mods (Part1 in Acts 1–5, Part2 in Acts 6–10, Endgame in maps).</summary>
-    public static IReadOnlyList<int> SpeciesModsForArea(Variety variety, int part, bool isMap)
+    /// tier mods (1 = Part 1, 2 = Part 2, 3 = Endgame).</summary>
+    public static IReadOnlyList<int> SpeciesModsForArea(Variety variety, int tier)
     {
         var baseMods = variety.ActiveSpeciesModsOrEmpty;
-        var tierMods = isMap ? variety.EndgameModsOrEmpty : part >= 2 ? variety.Part2ModsOrEmpty : variety.Part1ModsOrEmpty;
+        var tierMods = tier >= 3 ? variety.EndgameModsOrEmpty : tier == 2 ? variety.Part2ModsOrEmpty : variety.Part1ModsOrEmpty;
         if (tierMods.Count == 0) return baseMods;
         if (baseMods.Count == 0) return tierMods;
         var merged = new List<int>(baseMods.Count + tierMods.Count);
@@ -326,6 +381,10 @@ public sealed class MonsterCatalog
         foreach (int m in tierMods) if (!merged.Contains(m)) merged.Add(m);
         return merged;
     }
+
+    /// <summary>Compatibility overload mapping (part, isMap) to area tier (1 = Part 1, 2 = Part 2, 3 = Endgame).</summary>
+    public static IReadOnlyList<int> SpeciesModsForArea(Variety variety, int part, bool isMap) =>
+        SpeciesModsForArea(variety, isMap ? 3 : part >= 2 ? 2 : 1);
 
     /// <summary>
     /// The life and damage a unique map boss has more than its base life and hit at this map level: MonsterMapBossDifficulty
@@ -362,7 +421,7 @@ public sealed class MonsterCatalog
 
     private sealed record LifeTables(List<(int MonsterLife, int MinionLife, int AltLife1, int AltLife2, double Damage,
         int Experience, int Accuracy, int Evasion, int EvasiveEvasion, double MinionDamage,
-        int Armour, int AilmentThreshold, int PhysConversionMulti, double AltDamage1, double AltDamage2)> Levels,
+        int Armour, int AilmentThreshold, double AltDamage1, double AltDamage2)> Levels,
         List<(bool Minion, bool AltLife1, bool AltLife2, int DamageSpread, bool IgnoresAttackSpeed,
             int Armour, int EnergyShield, int Evasion, int Accuracy)> Types,
         int EnergyShieldRatioOfLife)
@@ -393,7 +452,6 @@ public sealed class MonsterCatalog
                     r.Int("EvasiveEvasion"), r.Real("MinionDamage"),
                     r.IntOrNull("Armour") ?? 0,
                     r.IntOrNull("AilmentThreshold") ?? r.Int("MonsterLife"),
-                    r.IntOrNull("MonsterPhysConversionMulti") ?? 0,
                     r.RealOrNull("AltDamage1") ?? r.Real("Damage"),
                     r.RealOrNull("AltDamage2") ?? r.Real("Damage")))],
                 [.. t.Select(r => (r.Bool("IsPlayerMinion"), r.Bool("AltLife1"),

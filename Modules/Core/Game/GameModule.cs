@@ -149,9 +149,12 @@ public sealed class GameModule : IModule, IDisposable
             // A Misery proximity shield dies with its monster: the counter is a hot-path guard, not a state that
             // outlives the monster (nothing would ever decrement it for a monster that leaves the area).
             MapEssences.ClearProximityShield(kill.Player, kill.Monster.ObjectId);
+            if (kill.Player.Area.Monsters.TryGetValue(kill.Monster.ObjectId, out var killedMonster))
+                Rules.CleanupDeadMonsterLocked(kill.Player.Area, kill.Monster.ObjectId, killedMonster);
             foreach (var p in kill.Player.Frames.Players()) global::Game.MonsterDebuffsChanged(p, kill.Monster.ObjectId);
             return Task.CompletedTask;
         });
+        GameEvents.PlayerLeaving.Add(module.Manifest.Id, (player, _) => Rules.ClearPlayerMonsterAurasAsync(player));
         GameEvents.PlayerLeaving.Add(module.Manifest.Id, (player, _) => global::Sirus.Leaving(player));
         GameEvents.PlayerStatSources.Add(module.Manifest.Id, global::Sirus.PlayerStats);
         InstanceEvents.AreaStats.Add(module.Manifest.Id, Rules.MapAreaStats);

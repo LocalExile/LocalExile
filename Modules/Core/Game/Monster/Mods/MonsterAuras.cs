@@ -49,6 +49,11 @@ public static partial class Game
         public bool HasTemporalShield;
     }
 
+    sealed class AreaTemporalCounter
+    {
+        public int Count;
+    }
+
     sealed class PlayerAuraExposure
     {
         public bool Hindered;
@@ -60,15 +65,32 @@ public static partial class Game
     }
 
     static readonly RuleTable<SpawnedMonster, MonsterAuraState> MonsterAuraStates = new();
+    static readonly RuleTable<GameArea, AreaTemporalCounter> AreaTemporalShieldCounts = new();
     static readonly RuleTable<Player, PlayerAuraExposure> PlayerMonsterAuraExposures = new();
-    static int ActiveTemporalShieldCount;
 
     static readonly IReadOnlyDictionary<uint, int> HinderAuraPlayerStats =
         new Dictionary<uint, int> { [Stat.BaseMovementVelocityPlusPct] = -30 };
     static readonly IReadOnlyDictionary<uint, int> TemporalAuraPlayerStats =
         new Dictionary<uint, int> { [Stat.ActionSpeedMinusPct] = 25, [Stat.DebuffTimePassedPlusPct] = -40, [Stat.BaseCooldownSpeedPlusPct] = -60 };
 
-    static ushort ModHashOf(string id) => MonsterModRolls.Mods.ById(id)?.Hash ?? 0;
+    static ushort _auraSpeedHash, _auraDamageHash, _auraAccCritHash, _auraEsHash, _auraHinderHash,
+        _auraTemporalHash, _auraHealHash, _auraConsecratedHash, _auraSiphonHash, _auraEsImplicitHash;
+
+    /// <summary>Pre-resolves monster aura mod hashes once at startup (<see cref="LoadMonsterModsData"/>).</summary>
+    public static void LoadMonsterAurasData()
+    {
+        ushort HashOf(string id) => MonsterModRolls.Mods.ById(id)?.Hash ?? 0;
+        _auraSpeedHash = HashOf("MonsterModSpeedAura");
+        _auraDamageHash = HashOf("MonsterModPhysicalDamageAura");
+        _auraAccCritHash = HashOf("MonsterModAccuracyAndCritAura");
+        _auraEsHash = HashOf("MonsterModEnergyShieldAura");
+        _auraHinderHash = HashOf("MonsterModHinderAura");
+        _auraTemporalHash = HashOf("MonsterModTemporalAura");
+        _auraHealHash = HashOf("MonsterModHealingAura");
+        _auraConsecratedHash = HashOf("MonsterModConsecratedGround");
+        _auraSiphonHash = HashOf("MonsterModManaSiphonAura");
+        _auraEsImplicitHash = HashOf("MonsterImplicitAuraEnergyShield1");
+    }
 
     static MonsterAuraFlags DetectCarrierFlags(SpawnedMonster m)
     {
@@ -80,48 +102,35 @@ public static partial class Game
         var list = m.Mods.Mods;
         if (list.Count > 0)
         {
-            ushort hSpeed = ModHashOf("MonsterModSpeedAura"),
-                   hDmg = ModHashOf("MonsterModPhysicalDamageAura"),
-                   hAcc = ModHashOf("MonsterModAccuracyAndCritAura"),
-                   hEs = ModHashOf("MonsterModEnergyShieldAura"),
-                   hHinder = ModHashOf("MonsterModHinderAura"),
-                   hTemporal = ModHashOf("MonsterModTemporalAura"),
-                   hHeal = ModHashOf("MonsterModHealingAura"),
-                   hCons = ModHashOf("MonsterModConsecratedGround"),
-                   hSiphon = ModHashOf("MonsterModManaSiphonAura");
             for (int i = 0; i < list.Count; i++)
             {
                 ushort h = list[i].Hash;
                 if (h == 0) continue;
-                if (h == hSpeed) flags |= MonsterAuraFlags.Speed;
-                else if (h == hDmg) flags |= MonsterAuraFlags.Damage;
-                else if (h == hAcc) flags |= MonsterAuraFlags.AccuracyCrit;
-                else if (h == hEs) flags |= MonsterAuraFlags.EnergyShield40;
-                else if (h == hHinder) flags |= MonsterAuraFlags.Hinder;
-                else if (h == hTemporal) flags |= MonsterAuraFlags.Temporal;
-                else if (h == hHeal) flags |= MonsterAuraFlags.Recovery;
-                else if (h == hCons) flags |= MonsterAuraFlags.Consecrated;
-                else if (h == hSiphon) flags |= MonsterAuraFlags.ManaSiphon;
+                if (h == _auraSpeedHash) flags |= MonsterAuraFlags.Speed;
+                else if (h == _auraDamageHash) flags |= MonsterAuraFlags.Damage;
+                else if (h == _auraAccCritHash) flags |= MonsterAuraFlags.AccuracyCrit;
+                else if (h == _auraEsHash) flags |= MonsterAuraFlags.EnergyShield40;
+                else if (h == _auraHinderHash) flags |= MonsterAuraFlags.Hinder;
+                else if (h == _auraTemporalHash) flags |= MonsterAuraFlags.Temporal;
+                else if (h == _auraHealHash) flags |= MonsterAuraFlags.Recovery;
+                else if (h == _auraConsecratedHash) flags |= MonsterAuraFlags.Consecrated;
+                else if (h == _auraSiphonHash) flags |= MonsterAuraFlags.ManaSiphon;
             }
         }
 
         // Species implicit ES aura (MonsterImplicitAuraEnergyShield1).
-        if (m.Variety is { } v && v.ActiveSpeciesModsOrEmpty.Count > 0)
+        if (_auraEsImplicitHash != 0 && m.Variety is { } v && v.ActiveSpeciesModsOrEmpty.Count > 0)
         {
-            var esImplicit = MonsterModRolls.Mods.ById("MonsterImplicitAuraEnergyShield1");
-            if (esImplicit is not null)
-            {
-                var rows = v.ActiveSpeciesModsOrEmpty;
-                for (int i = 0; i < rows.Count; i++)
-                    if (MonsterModRolls.Mods.Row(rows[i])?.Hash == esImplicit.Hash) { flags |= MonsterAuraFlags.EnergyShield35; break; }
-            }
+            var rows = v.ActiveSpeciesModsOrEmpty;
+            for (int i = 0; i < rows.Count; i++)
+                if (MonsterModRolls.Mods.Row(rows[i])?.Hash == _auraEsImplicitHash) { flags |= MonsterAuraFlags.EnergyShield35; break; }
         }
         return flags;
     }
 
     /// <summary>Registers a monster's proximity shield (Temporal Bubble, radius 32) on spawn so the hot-path check in
-    /// <see cref="MonsterProximityShieldBlocksLocked"/> stays zero-cost when no Temporal rare exists.</summary>
-    public static void RegisterMonsterAuraCarrier(SpawnedMonster m)
+    /// <see cref="MonsterProximityShieldBlocksLocked"/> stays zero-cost when no Temporal rare exists in the area.</summary>
+    public static void RegisterMonsterAuraCarrier(GameArea area, SpawnedMonster m)
     {
         if (!m.Hostile) return;
         var flags = DetectCarrierFlags(m);
@@ -132,15 +141,15 @@ public static partial class Game
         if ((flags & MonsterAuraFlags.Temporal) != 0 && !state.HasTemporalShield)
         {
             state.HasTemporalShield = true;
-            Interlocked.Increment(ref ActiveTemporalShieldCount);
+            AreaTemporalShieldCounts.GetValue(area, _ => new AreaTemporalCounter()).Count++;
         }
     }
 
-    /// <summary>Zero-allocation hot-path check called from <see cref="ApplyMonsterHitLocked"/>: blocks direct hits from
-    /// attackers standing outside a Temporal Bubble monster's 32-cell proximity shield.</summary>
+    /// <summary>Zero-allocation hot-path check called from hit paths: blocks direct hits from attackers standing outside
+    /// a Temporal Bubble monster's 32-cell proximity shield.</summary>
     public static bool MonsterProximityShieldBlocksLocked(Player player, SpawnedMonster m, (int X, int Y)? attackerAt)
     {
-        if (Volatile.Read(ref ActiveTemporalShieldCount) == 0) return false;
+        if (!AreaTemporalShieldCounts.TryGetValue(player.Area, out var c) || c.Count == 0) return false;
         int radius = m.Effects[Stat.CannotBeDamagedByThingsOutsideRadius];
         if (radius <= 0) return false;
         double now = AreaTime(player);
@@ -151,7 +160,7 @@ public static partial class Game
     }
 
     /// <summary>Steps allied monster auras and player-affecting monster aura debuffs/siphon once per recovery tick.</summary>
-    public static void StepMonsterAurasLocked(GameArea area, Player firstPlayer, IReadOnlyList<(uint Id, SpawnedMonster Monster)> living, double seconds, double now)
+    public static void StepMonsterAurasLocked(GameArea area, AreaFrames frames, IReadOnlyList<(uint Id, SpawnedMonster Monster)> living, double seconds, double now)
     {
         // 1. Gather living aura carriers (fast pass; avoids allocations when no carriers exist).
         List<(uint Id, SpawnedMonster Monster, (int X, int Y) At, MonsterAuraFlags Flags)>? carriers = null;
@@ -174,7 +183,7 @@ public static partial class Game
                 if ((flags & MonsterAuraFlags.Temporal) != 0 && !created.HasTemporalShield)
                 {
                     created.HasTemporalShield = true;
-                    Interlocked.Increment(ref ActiveTemporalShieldCount);
+                    AreaTemporalShieldCounts.GetValue(area, _ => new AreaTemporalCounter()).Count++;
                 }
             }
             else
@@ -231,13 +240,13 @@ public static partial class Game
         }
 
         // 3. Apply/release player-affecting auras (Hinder, Temporal Bubble, Mana Siphoner).
-        var players = firstPlayer.Frames.Players();
+        var players = frames.Players();
         for (int p = 0; p < players.Length; p++)
         {
             var player = players[p];
             if (player.Closed || player.LeavingArea || player.PlayerLife == 0 || InGracePeriod(player))
             {
-                ClearPlayerMonsterAuras(player);
+                QueueClearPlayerMonsterAuras(player);
                 continue;
             }
             uint hinderCaster = 0, temporalCaster = 0;
@@ -266,22 +275,24 @@ public static partial class Game
             if (hinderCaster != 0 && !exp.Hindered)
             {
                 exp.Hindered = true;
-                _ = HoldPlayerDebuff(player, exp.HinderHolder, HinderedBuffRow, hinderCaster, HinderAuraPlayerStats);
+                uint caster = hinderCaster;
+                _ = AreaFrames.Start(() => HoldPlayerDebuff(player, exp.HinderHolder, HinderedBuffRow, caster, HinderAuraPlayerStats));
             }
             else if (hinderCaster == 0 && exp.Hindered)
             {
                 exp.Hindered = false;
-                _ = ReleasePlayerDebuff(player, exp.HinderHolder);
+                _ = AreaFrames.Start(() => ReleasePlayerDebuff(player, exp.HinderHolder));
             }
             if (temporalCaster != 0 && !exp.Temporal)
             {
                 exp.Temporal = true;
-                _ = HoldPlayerDebuff(player, exp.TemporalHolder, TemporalBubbleBuffRow, temporalCaster, TemporalAuraPlayerStats);
+                uint caster = temporalCaster;
+                _ = AreaFrames.Start(() => HoldPlayerDebuff(player, exp.TemporalHolder, TemporalBubbleBuffRow, caster, TemporalAuraPlayerStats));
             }
             else if (temporalCaster == 0 && exp.Temporal)
             {
                 exp.Temporal = false;
-                _ = ReleasePlayerDebuff(player, exp.TemporalHolder);
+                _ = AreaFrames.Start(() => ReleasePlayerDebuff(player, exp.TemporalHolder));
             }
             if (siphonSource is not null && seconds > 0 && !player.Immune)
             {
@@ -329,10 +340,11 @@ public static partial class Game
                 stats[Stat.LifeRegenerationRatePerMinutePct] = regenPerMin;
             m.SetTemporaryStats(AlliedAuraStatsKey, stats);
         }
+        // Always rebuild stats so allied Haste/Damage/Precision/Recovery auras take effect immediately even if ES is off.
+        m.RebuildStats();
         // Recompute Monster ES if an ES aura entered or left.
         if (MonsterEsEnabled && m.Variety is { } variety)
         {
-            m.RebuildStats();
             int baseLife = Monsters.BaseLife(variety, m.Level) ?? (int)m.MaxLife;
             uint newMaxEs = ComputeMonsterMaxEnergyShield(variety, m.Level, baseLife, m.MaxLife, m.Effects);
             SyncMonsterMaxEnergyShieldLocked(area, id, m, newMaxEs);
@@ -361,23 +373,38 @@ public static partial class Game
         }
     }
 
-    static void ClearPlayerMonsterAuras(Player player)
+    static void QueueClearPlayerMonsterAuras(Player player)
     {
         if (!PlayerMonsterAuraExposures.TryGetValue(player, out var exp)) return;
-        if (exp.Hindered) { exp.Hindered = false; _ = ReleasePlayerDebuff(player, exp.HinderHolder); }
-        if (exp.Temporal) { exp.Temporal = false; _ = ReleasePlayerDebuff(player, exp.TemporalHolder); }
+        if (exp.Hindered) { exp.Hindered = false; _ = AreaFrames.Start(() => ReleasePlayerDebuff(player, exp.HinderHolder)); }
+        if (exp.Temporal) { exp.Temporal = false; _ = AreaFrames.Start(() => ReleasePlayerDebuff(player, exp.TemporalHolder)); }
         if (exp.SiphonDps > 0) { exp.SiphonDps = 0; player.Degens[exp] = 0; }
         exp.SiphonManaCarry = 0;
     }
 
-    /// <summary>Cleans up temporal proximity shield counter when a monster dies.</summary>
-    public static void ClearMonsterAuraCarrier(SpawnedMonster m)
+    /// <summary>Awaited cleanup on <see cref="GameEvents.PlayerLeaving"/> so monster aura debuffs and Mana Siphoner
+    /// degens never survive zone transitions or disconnects.</summary>
+    public static async Task ClearPlayerMonsterAurasAsync(Player player)
+    {
+        if (!PlayerMonsterAuraExposures.TryGetValue(player, out var exp)) return;
+        bool releaseHinder = exp.Hindered;
+        bool releaseTemporal = exp.Temporal;
+        exp.Hindered = false;
+        exp.Temporal = false;
+        if (exp.SiphonDps > 0) { exp.SiphonDps = 0; player.Degens[exp] = 0; }
+        exp.SiphonManaCarry = 0;
+        if (releaseHinder) await ReleasePlayerDebuff(player, exp.HinderHolder);
+        if (releaseTemporal) await ReleasePlayerDebuff(player, exp.TemporalHolder);
+    }
+
+    /// <summary>Cleans up temporal proximity shield counter for <paramref name="area"/> when a monster dies.</summary>
+    public static void ClearMonsterAuraCarrier(GameArea area, SpawnedMonster m)
     {
         if (!MonsterAuraStates.TryGetValue(m, out var state)) return;
         if (state.HasTemporalShield)
         {
             state.HasTemporalShield = false;
-            Interlocked.Decrement(ref ActiveTemporalShieldCount);
+            if (AreaTemporalShieldCounts.TryGetValue(area, out var c) && c.Count > 0) c.Count--;
         }
     }
 }

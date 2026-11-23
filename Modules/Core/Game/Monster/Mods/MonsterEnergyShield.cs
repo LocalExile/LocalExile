@@ -3,9 +3,10 @@ using GameServer.Core.Protocol.Instance;
 
 // Hostile monster Energy Shield: initialized from MonsterCatalog.BaseEnergyShield (Game.exe 0x141e780ef:
 // 40% × MonsterTypes.EnergyShield% of base life) plus ES mods (maximum_life_%_to_add_as_maximum_energy_shield,
-// maximum_energy_shield_+%). Non-chaos hit damage is absorbed before Life, chaos bypasses ES unless the monster has
-// chaos_damage_does_not_bypass_energy_shield or Chaos Inoculation, and recharge begins after 4 s without taking damage
-// (scaled by energy_shield_delay_-%) at 20%/s (scaled by energy_shield_recharge_rate_+%, e.g. Merveil/Piety -65%).
+// maximum_energy_shield_+%). Non-chaos hit and DoT damage is absorbed before Life, chaos bypasses ES unless the
+// monster has chaos_damage_does_not_bypass_energy_shield or Chaos Inoculation, and recharge begins after 4 s without
+// taking damage (scaled by energy_shield_delay_-%) at 20%/s (scaled by energy_shield_recharge_rate_+%, e.g.
+// Merveil/Piety -65%).
 public static partial class Game
 {
     const double MonsterEsBaseRechargeDelaySeconds = 4.0;
@@ -17,11 +18,19 @@ public static partial class Game
         public uint Current;
         public double LastHitAt = double.NegativeInfinity;
         public double RechargeCarry;
-        public int PendingChaosDamage;
+        public bool Counted;
+    }
+
+    sealed class AreaMonsterEsCounter
+    {
+        public int Count;
     }
 
     static readonly RuleTable<SpawnedMonster, MonsterEsState> MonsterEsStates = new();
-    static int ActiveMonsterEsCount;
+    static readonly RuleTable<GameArea, AreaMonsterEsCounter> AreaMonsterEsCounts = new();
+
+    static bool HasAreaMonsterEs(GameArea area) =>
+        AreaMonsterEsCounts.TryGetValue(area, out var c) && c.Count > 0;
 
     static bool MonsterEsEnabled =>
         (SystemSettings.Default.Values.TryGetValue("monster_es_enabled", out double v) ? v : 1.0) != 0;
@@ -48,23 +57,24 @@ public static partial class Game
     }
 
     /// <summary>Initializes Energy Shield state for a newly spawned hostile monster. No-op when <paramref name="maxEs"/> is 0.</summary>
-    public static void InitMonsterEnergyShield(SpawnedMonster m, uint maxEs)
+    public static void InitMonsterEnergyShield(GameArea area, SpawnedMonster m, uint maxEs)
     {
         if (maxEs == 0) return;
-        var state = MonsterEsStates.GetValue(m, _ =>
+        var state = MonsterEsStates.GetValue(m, _ => new MonsterEsState());
+        if (!state.Counted)
         {
-            Interlocked.Increment(ref ActiveMonsterEsCount);
-            return new MonsterEsState();
-        });
+            state.Counted = true;
+            AreaMonsterEsCounts.GetValue(area, _ => new AreaMonsterEsCounter()).Count++;
+        }
         state.Max = maxEs;
         state.Current = maxEs;
         state.LastHitAt = double.NegativeInfinity;
         state.RechargeCarry = 0;
-        state.PendingChaosDamage = 0;
     }
 
     /// <summary>Updates a monster's maximum Energy Shield dynamically (e.g., entering/leaving an allied Discipline aura)
-    /// and syncs the client's <c>maximum_energy_shield</c> stat and ES pool when it changes.</summary>
+    /// and syncs the client's <c>maximum_energy_shield</c> stat (via <see cref="AreaStats"/> so late joiners see it)
+    /// and ES pool when it changes.</summary>
     public static void SyncMonsterMaxEnergyShieldLocked(GameArea area, uint id, SpawnedMonster m, uint newMax)
     {
         if (!MonsterEsEnabled || m.Dead || m.Life == 0) return;
@@ -72,15 +82,18 @@ public static partial class Game
         uint oldMax = had ? state!.Max : 0;
         if (oldMax == newMax) return;
         if (!had && newMax == 0) return;
-        if (!had)
+        state ??= MonsterEsStates.GetValue(m, _ => new MonsterEsState());
+        if (newMax > 0 && !state.Counted)
         {
-            state = MonsterEsStates.GetValue(m, _ =>
-            {
-                Interlocked.Increment(ref ActiveMonsterEsCount);
-                return new MonsterEsState();
-            });
+            state.Counted = true;
+            AreaMonsterEsCounts.GetValue(area, _ => new AreaMonsterEsCounter()).Count++;
         }
-        state!.Max = newMax;
+        else if (newMax == 0 && state.Counted)
+        {
+            state.Counted = false;
+            if (AreaMonsterEsCounts.TryGetValue(area, out var c) && c.Count > 0) c.Count--;
+        }
+        state.Max = newMax;
         if (newMax > oldMax)
         {
             uint gained = newMax - oldMax;
@@ -90,38 +103,28 @@ public static partial class Game
         {
             state.Current = Math.Min(state.Current, newMax);
         }
-        area.Delta.Add(id, InstanceEntities.StatsUpdate(id, [(Stat.MaximumEnergyShield, (int)newMax)]));
+        area.Stats.Set(id, Stat.MaximumEnergyShield, (int)newMax);
         area.Life.Set(id, AreaLife.EnergyShieldPool, state.Current);
     }
 
     /// <summary>True if the monster currently has a positive Energy Shield pool.</summary>
     public static bool HasMonsterEnergyShield(SpawnedMonster m) =>
-        Volatile.Read(ref ActiveMonsterEsCount) > 0 && MonsterEsStates.TryGetValue(m, out var s) && s.Max > 0;
+        MonsterEsStates.TryGetValue(m, out var s) && s.Max > 0;
 
     /// <summary>Current and maximum Energy Shield of <paramref name="m"/> (0, 0 when it has none).</summary>
     public static (uint Current, uint Max) MonsterEnergyShieldOf(SpawnedMonster m) =>
-        Volatile.Read(ref ActiveMonsterEsCount) > 0 && MonsterEsStates.TryGetValue(m, out var s) ? (s.Current, s.Max) : (0u, 0u);
+        MonsterEsStates.TryGetValue(m, out var s) ? (s.Current, s.Max) : (0u, 0u);
 
-    /// <summary>Records the chaos-damage share of an outgoing hit just computed by <c>MonsterTakesMitigatedCore</c> so
-    /// <see cref="AbsorbMonsterEnergyShieldLocked"/> lets chaos bypass Energy Shield.</summary>
-    public static void NoteMonsterHitChaosDamage(SpawnedMonster m, int chaosDamage)
-    {
-        if (chaosDamage <= 0 || Volatile.Read(ref ActiveMonsterEsCount) == 0) return;
-        if (MonsterEsStates.TryGetValue(m, out var state) && state.Max > 0)
-            state.PendingChaosDamage = chaosDamage;
-    }
-
-    /// <summary>Absorbs non-chaos hit damage into the monster's Energy Shield before Life, interrupts ES recharge,
+    /// <summary>Absorbs non-chaos hit or DoT damage into the monster's Energy Shield before Life, interrupts ES recharge,
     /// publishes the updated ES pool via S→C 0x1b1 (pool 2), and returns the remaining damage to apply to Life.</summary>
-    public static int AbsorbMonsterEnergyShieldLocked(Player player, SpawnedMonster m, int damage, double now)
+    public static int AbsorbMonsterEnergyShieldLocked(GameArea area, SpawnedMonster m, int damage, int chaosDamage, double now)
     {
-        if (damage <= 0 || Volatile.Read(ref ActiveMonsterEsCount) == 0) return damage;
+        if (damage <= 0 || !HasAreaMonsterEs(area)) return damage;
         if (!MonsterEsStates.TryGetValue(m, out var state) || state.Max == 0) return damage;
-        int chaosDamage = Math.Clamp(state.PendingChaosDamage, 0, damage);
-        state.PendingChaosDamage = 0;
         if (double.IsFinite(now)) state.LastHitAt = now;
         state.RechargeCarry = 0;
 
+        chaosDamage = Math.Clamp(chaosDamage, 0, damage);
         bool ci = m.Effects[Stat.KeystoneChaosInoculation] != 0;
         if (ci)
         {
@@ -138,17 +141,23 @@ public static partial class Game
         if (absorbed > 0)
         {
             state.Current -= absorbed;
-            if (m.ObjectId != 0) player.Area.Life.Set(m.ObjectId, AreaLife.EnergyShieldPool, state.Current);
+            if (m.ObjectId != 0) area.Life.Set(m.ObjectId, AreaLife.EnergyShieldPool, state.Current);
         }
         return (shieldDamage - (int)absorbed) + bypassDamage;
     }
+
+    /// <summary>Routes a damage-over-time tick through Energy Shield absorption: non-chaos DoTs deplete ES before Life
+    /// and interrupt recharge; chaos DoTs interrupt recharge and bypass ES unless CI or Shavronne's-style non-bypass
+    /// applies.</summary>
+    public static int ApplyMonsterDotEnergyShieldLocked(GameArea area, SpawnedMonster m, int damage, bool chaos, double now) =>
+        AbsorbMonsterEnergyShieldLocked(area, m, damage, chaos ? damage : 0, now);
 
     /// <summary>Advances Energy Shield recharge for one living monster in <see cref="MonsterRegeneration"/>. Starts
     /// recharging after 4 s out of hit (shortened by <c>energy_shield_delay_-%</c>) at 20%/s (scaled by
     /// <c>energy_shield_recharge_rate_+%</c>).</summary>
     public static void StepMonsterEnergyShieldLocked(GameArea area, uint id, SpawnedMonster m, double seconds, double now)
     {
-        if (Volatile.Read(ref ActiveMonsterEsCount) == 0 || seconds <= 0 || m.Dead || m.Life == 0) return;
+        if (!HasAreaMonsterEs(area) || seconds <= 0 || m.Dead || m.Life == 0) return;
         if (!MonsterEsStates.TryGetValue(m, out var state) || state.Max == 0 || state.Current >= state.Max) return;
         double delay = MonsterEsBaseRechargeDelaySeconds / Math.Max(0.01, 1 + m.Effects[Stat.EnergyShieldDelayMinusPct] / 100.0);
         if (now < state.LastHitAt + delay) return;
@@ -166,13 +175,27 @@ public static partial class Game
         area.Life.Set(id, AreaLife.EnergyShieldPool, state.Current);
     }
 
-    /// <summary>Clears Energy Shield on death so the client ES bar zeroes cleanly.</summary>
-    public static void ClearMonsterEnergyShieldLocked(Player player, SpawnedMonster m)
+    /// <summary>Clears Energy Shield state and per-area counter on death so the client ES bar zeroes cleanly.</summary>
+    public static void ClearMonsterEnergyShieldLocked(GameArea area, SpawnedMonster m)
     {
-        if (Volatile.Read(ref ActiveMonsterEsCount) == 0) return;
-        if (!MonsterEsStates.TryGetValue(m, out var state) || state.Current == 0) return;
-        state.Current = 0;
+        if (!MonsterEsStates.TryGetValue(m, out var state)) return;
+        if (state.Counted)
+        {
+            state.Counted = false;
+            if (AreaMonsterEsCounts.TryGetValue(area, out var c) && c.Count > 0) c.Count--;
+        }
         state.RechargeCarry = 0;
-        if (m.ObjectId != 0) player.Area.Life.Set(m.ObjectId, AreaLife.EnergyShieldPool, 0);
+        if (state.Current == 0) return;
+        state.Current = 0;
+        if (m.ObjectId != 0) area.Life.Set(m.ObjectId, AreaLife.EnergyShieldPool, 0);
+    }
+
+    /// <summary>Unified monster death cleanup for ES, Temporal proximity shield counters, and charge buffs across
+    /// hit, default melee, and damage-over-time kills.</summary>
+    public static void CleanupDeadMonsterLocked(GameArea area, uint id, SpawnedMonster m)
+    {
+        ClearMonsterEnergyShieldLocked(area, m);
+        ClearMonsterAuraCarrier(area, m);
+        ClearMonsterChargesLocked(area, id, m);
     }
 }

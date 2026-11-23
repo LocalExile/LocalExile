@@ -334,18 +334,20 @@ public static partial class Game
         if (!friendly || ownedSkills is null || mods is null)
             mods = MonsterModsFor(player, variety, level, rarity, mods, alone);
         // Passive species mods (ModsKeys + Special_ModsKeys + area-tier Part1/Part2/Endgame_ModsKeys) compose into
-        // Effects without polluting the client's explicit affix list.
-        if (!friendly && MonsterSpeciesModsEnabled)
+        // Effects once per monster (tracked by SpeciesApplied so SavedMonster re-entry never stacks them again).
+        if (!friendly && MonsterSpeciesModsEnabled && !mods.SpeciesApplied)
         {
             bool isMap = MapDevices.IsMapArea(player.Layout.Hash);
-            int part = player.Layout.Id.StartsWith("2_", StringComparison.Ordinal) ? 2 : 1;
-            var speciesRows = MonsterCatalog.SpeciesModsForArea(variety, part, isMap);
+            int tier = Monsters.AreaTier(player.Layout.Id, player.Layout.Hash, isMap);
+            var speciesRows = MonsterCatalog.SpeciesModsForArea(variety, tier);
+            var nextEffects = mods.Effects;
             if (speciesRows.Count > 0)
             {
                 var speciesEffects = MonsterModRolls.SpeciesEffects(speciesRows, AreaRng(player));
                 if (speciesEffects.Ids.Count > 0)
-                    mods = mods with { Effects = mods.Effects.Plus(speciesEffects) };
+                    nextEffects = nextEffects.Plus(speciesEffects);
             }
+            mods = mods with { Effects = nextEffects, SpeciesApplied = true };
         }
         // A hostile unique keeps its auras up (a Rogue Exile's Hatred, Haste): their stats are its own from the spawn, and
         // a kept one keeps them in its mods.
@@ -685,8 +687,8 @@ public static partial class Game
             {
                 if (owned is null && !friendly)
                 {
-                    if (maximumEnergyShieldValue > 0) InitMonsterEnergyShield(added, maximumEnergyShieldValue);
-                    RegisterMonsterAuraCarrier(added);
+                    if (maximumEnergyShieldValue > 0) InitMonsterEnergyShield(player.Area, added, maximumEnergyShieldValue);
+                    RegisterMonsterAuraCarrier(player.Area, added);
                 }
                 if (owned is not null) owned(id, added);
             }

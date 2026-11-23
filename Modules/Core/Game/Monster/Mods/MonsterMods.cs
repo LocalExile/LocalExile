@@ -13,6 +13,8 @@ public static partial class Game
     public static void LoadMonsterModsData()
     {
         MonsterModRolls = new MonsterModCatalog(Items.Mods);
+        LoadMonsterChargesData();
+        LoadMonsterAurasData();
     }
 
     static bool MonsterOnLowLife(SpawnedMonster monster) => !monster.Dead && monster.Life > 0
@@ -223,17 +225,49 @@ public static partial class Game
             + mitigated[DamageType.Lightning].Min * ElementalHitTakenPercent(e, m, DamageType.Lightning, now);
         double damage = (total - elementalDamage) * factor + elementalDamage * elementalFactor + withered
             + physicalTaken * factor * (physicalFactor - 1) + typed / 100.0 * elementalFactor;
-        double chaosTaken = mitigated[DamageType.Chaos].Min * chaosFactor;
         if (spell && e[Stat.BaseSpellSuppressionChancePct] is int chance and > 0
             && GameServer.Core.World.RandomRolls.Chance(chance, 100, random ?? Random.Shared))
         {
             int prevented = Math.Clamp(DamageModel.SpellSuppressionEffect + e[Stat.BaseSpellDamagePctSuppressed], 0, 100);
-            double mult = (100 - prevented) / 100d;
-            damage *= mult;
-            chaosTaken *= mult;
+            damage *= (100 - prevented) / 100d;
         }
-        if (chaosTaken > 0) NoteMonsterHitChaosDamage(m, (int)Math.Round(chaosTaken));
         return (int)Math.Round(damage);
+    }
+
+    /// <summary>Computes the explicit chaos-damage portion of <paramref name="finalDamage"/> (after crits, suppression,
+    /// and global multipliers, before physical Impale reflection) so <see cref="AbsorbMonsterEnergyShieldLocked"/> lets
+    /// chaos bypass monster Energy Shield without any mutable side-channel state.</summary>
+    public static int MonsterHitChaosDamage(SpawnedMonster m, DamagePacket mitigated, bool spell, double now,
+        int finalDamage, int additionalTakenPct = 0, bool ignorePhysicalReduction = false)
+    {
+        double rawChaos = mitigated[DamageType.Chaos].Min;
+        if (finalDamage <= 0 || rawChaos <= 0 || m.Effects[Stat.BaseCannotBeDamaged] > 0) return 0;
+        var e = m.Effects;
+        double physical = mitigated[DamageType.Physical].Min;
+        double physReduction = HitMitigation.PhysicalReduction(Monsters, m, physical,
+            e.PhysicalReduction - CrushReduction(m, now), MonsterArmourEnabled);
+        if (ignorePhysicalReduction && physReduction > 0) physReduction = 0;
+        double physicalTaken = physical * Math.Max(0, 1 - physReduction / 100.0)
+            * (1 + MaimedPhysicalTaken(m, now) / 100.0);
+        double total = mitigated.MinTotal - physical + physicalTaken;
+        double factor = MonsterDamageTaken(m, spell, now, elemental: false, hit: true, chaos: false, increasedPct: additionalTakenPct);
+        double chaosFactor = m.Withered.Count == 0 ? factor
+            : MonsterDamageTaken(m, spell, now, elemental: false, hit: true, chaos: true, increasedPct: additionalTakenPct);
+        double withered = m.Withered.Count == 0 ? 0 : rawChaos * (chaosFactor - factor);
+        double elementalDamage = mitigated[DamageType.Fire].Min + mitigated[DamageType.Cold].Min + mitigated[DamageType.Lightning].Min;
+        double elementalFactor = m.TakenFromPlayer.Elemental == 0 ? factor
+            : MonsterDamageTaken(m, spell, now, elemental: true, hit: true, chaos: false, increasedPct: additionalTakenPct);
+        double physicalFactor = (1 + Math.Max(0, m.PridePhysicalMore) / 100.0)
+            * (1 + Math.Max(0, FleshTaken(m, now)) / 100.0)
+            * (1 + e[Stat.PhysicalDamageTakenPlusPct] / 100.0);
+        double typed = mitigated[DamageType.Fire].Min * ElementalHitTakenPercent(e, m, DamageType.Fire, now)
+            + mitigated[DamageType.Cold].Min * ElementalHitTakenPercent(e, m, DamageType.Cold, now)
+            + mitigated[DamageType.Lightning].Min * ElementalHitTakenPercent(e, m, DamageType.Lightning, now);
+        double totalTaken = (total - elementalDamage) * factor + elementalDamage * elementalFactor + withered
+            + physicalTaken * factor * (physicalFactor - 1) + typed / 100.0 * elementalFactor;
+        if (totalTaken <= 0) return 0;
+        double chaosTaken = rawChaos * chaosFactor;
+        return Math.Clamp((int)Math.Round(finalDamage * Math.Clamp(chaosTaken / totalTaken, 0.0, 1.0)), 0, finalDamage);
     }
 
     static double ElementalHitTakenPercent(MonsterModEffects effects, SpawnedMonster m, DamageType type, double now) => type switch

@@ -16,6 +16,10 @@ public sealed record MonsterModSet(IReadOnlyList<ItemMod> Mods, IReadOnlyList<ui
 {
     public static readonly MonsterModSet None = new([], [], MonsterModEffects.None);
 
+    /// <summary>True once the monster's passive species and area-tier mods have been folded into <see cref="Effects"/>,
+    /// so restoring a <see cref="SavedMonster"/> on area re-entry never stacks them a second time.</summary>
+    public bool SpeciesApplied { get; init; }
+
     /// <summary>The rolled affixes (the explicit list), without the rarity's own mods.</summary>
     public IEnumerable<ItemMod> Affixes => Mods.Where(m => m.Section == ModSection.Explicit);
 }
@@ -328,9 +332,6 @@ public sealed class MonsterModEffects
     /// <summary>The chance to block a spell (base_spell_block_%), capped at Monster.ot's base_maximum_spell_block_%.</summary>
     public int SpellBlockChance => Math.Clamp(this[Stat.BaseSpellBlockPct], 0, MaxBlock);
 
-    /// <summary>Share of damage that bypasses a monster's block (base_block_%_damage_taken from species block mods).</summary>
-    public int BlockDamageTakenPct => Math.Clamp(this[Stat.BaseBlockPctDamageTaken], 0, 100);
-
     /// <summary>Additional projectiles from species or rolled mods (number_of_additional_projectiles).</summary>
     public int AdditionalProjectiles => Math.Max(0, this[Stat.NumberOfAdditionalProjectiles]);
 
@@ -342,7 +343,9 @@ public sealed class MonsterModEffects
     /// rarity's innate XP mod (Magic 250, Rare 750, Unique 450) so Progression.RarityMultiplier never double-counts.</summary>
     public int SpeciesExperienceBonusPct(MonsterRarity rarity)
     {
-        int innate = rarity switch { MonsterRarity.Magic => 250, MonsterRarity.Rare => 750, MonsterRarity.Unique => 450, _ => 0 };
+        int innate = this[Stat.MonsterLifePlusPctFinalFromRarity] > 0
+            ? rarity switch { MonsterRarity.Magic => 250, MonsterRarity.Rare => 750, MonsterRarity.Unique => 450, _ => 0 }
+            : 0;
         return Math.Max(0, this[Stat.MonsterSlainExperiencePlusPct] - innate);
     }
 
@@ -434,14 +437,14 @@ public sealed class MonsterModCatalog
         Stat.ChanceToCrushOnHitPct,
         Stat.FireExposureOnHitMagnitude, Stat.ColdExposureOnHitMagnitude, Stat.LightningExposureOnHitMagnitude,
         Stat.BaseChanceToFreezePct, Stat.AlwaysIgnite, Stat.AlwaysShock, Stat.AlwaysStun,
-        Stat.LifeLeechFromAnyDamagePermyriad, Stat.LifeLeechSpeedPlusPct,
+        Stat.LifeLeechFromAnyDamagePermyriad,
         Stat.GainEnduranceChargePerSecondIfHaveBeenHitRecently, Stat.AddFrenzyChargeOnSkillHitPct,
         Stat.GainXPowerChargesOnCastingASpell, Stat.AddPowerChargeOnSkillHitPct,
         Stat.CannotBeDamagedByThingsOutsideRadius, Stat.ActionSpeedMinusPct,
         Stat.DebuffTimePassedPlusPct, Stat.BaseCooldownSpeedPlusPct,
         Stat.PhysicalDamageReductionRatingPlusPct, Stat.BasePhysicalDamageReductionRating,
-        Stat.BaseSpellBlockPct, Stat.BaseBlockPctDamageTaken,
-        Stat.RemoveChargesOnHitPct, Stat.ProjectileDamagePlusPctMaxAsDistanceTravelledIncreases,
+        Stat.BaseSpellBlockPct,
+        Stat.RemoveChargesOnHitPct,
         Stat.AttackAndCastSpeedPlusPct,
         MapHiddenLifeStat, MapHiddenDamageStat,
     };
@@ -458,7 +461,7 @@ public sealed class MonsterModCatalog
     static readonly HashSet<string> SupportedAuraMods =
     [
         "MonsterModSpeedAura", "MonsterModPhysicalDamageAura", "MonsterModAccuracyAndCritAura",
-        "MonsterModEnergyShieldAura", "MonsterModEnergyShieldStunNova",
+        "MonsterModEnergyShieldAura",
         "MonsterModHinderAura", "MonsterModTemporalAura",
     ];
 
@@ -609,13 +612,31 @@ public sealed class MonsterModCatalog
         void Add(uint stat, int value) => stats[stat] = stats.GetValueOrDefault(stat) + value;
         foreach (var m in list)
             if (mods.ByHash(m.Hash) is { } mod)
-                for (int i = 0; i < mod.Stats.Count && i < m.Values.Count; i++) Add(mod.Stats[i].Id, m.Values[i]);
+            {
+                bool temporal = mod.Id == "MonsterModTemporalAura";
+                for (int i = 0; i < mod.Stats.Count && i < m.Values.Count; i++)
+                {
+                    uint id = mod.Stats[i].Id;
+                    // MonsterModTemporalAura's action-speed/debuff/cooldown stats belong to its enemy player debuff
+                    // aura (MonsterAuras.cs), never to the carrier itself; only its proximity shield applies to self.
+                    if (temporal && id != Stat.CannotBeDamagedByThingsOutsideRadius) continue;
+                    Add(id, m.Values[i]);
+                }
+            }
         if (rarity != MonsterRarity.Normal && !stats.ContainsKey(Stat.MonsterLifePlusPctFinalFromRarity))
         {
             Add(Stat.MonsterLifePlusPctFinalFromRarity, MonsterCatalog.RarityLifePct(rarity));
-            var (more, faster) = rarity switch { MonsterRarity.Magic => (30, 20), MonsterRarity.Rare => (50, 33), MonsterRarity.Unique => (70, 33), _ => (0, 0) };
+            var (more, faster, xp) = rarity switch
+            {
+                MonsterRarity.Magic => (30, 20, 250),
+                MonsterRarity.Rare => (50, 33, 750),
+                MonsterRarity.Unique => (70, 33, 450),
+                _ => (0, 0, 0),
+            };
             Add(Stat.MonsterRarityDamagePlusPctFinal, more);
             Add(Stat.MonsterRarityAttackCastSpeedPlusPctAndDamageMinusPctFinal, faster);
+            if (!stats.ContainsKey(Stat.MonsterSlainExperiencePlusPct))
+                Add(Stat.MonsterSlainExperiencePlusPct, xp);
         }
         if (RarityTableLifePct(rarity, level) is int table and > 0) Add(RarityTableLifeStat, table);
         return new MonsterModSet(list, nameWords, new MonsterModEffects(stats));

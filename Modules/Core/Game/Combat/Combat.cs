@@ -536,6 +536,10 @@ public static partial class Game
                     return true;
                 }
                 double contactAt = AreaTime(player);
+                if (m.Effects[Stat.BaseCannotBeDamaged] > 0
+                    || MapEssences.ProximityShieldBlocksLocked(player, m, null)
+                    || MonsterProximityShieldBlocksLocked(player, m, null))
+                    return true;
                 int hitChance = AttackHitChanceAt(player, targetId, m, contactAt, accuracy, playerStats);
                 if (!accuracy.CannotBeEvaded && !m.AttackEvasion.Hits(hitChance, contactAt, player.AttackAccuracyRandom))
                 {
@@ -568,6 +572,7 @@ public static partial class Game
                     gambler.InvertsResistance(AreaRng(player)), AreaRng(player));
                 hitCode = HitCode(mitigated);
                 if (critical) damage = DamageModel.CriticalDamage(damage, criticalMultiplier);
+                int chaosDamage = MonsterHitChaosDamage(m, mitigated, spell: false, at, damage);
                 LeechOnHitTargetLocked(player, m, MonsterTakenComponents(m, mitigated, spell: false, at), damage,
                     HitLeechSources(playerStats, true, ownPenetration, weapon.LocalSources, weapon.Melee), targetId);
                 (damage, stored, impaled) = WithImpaleHitLocked(player, m, damage, ownRolled, critical, sourceCriticalMultiplier,
@@ -582,7 +587,8 @@ public static partial class Game
                     with { FortificationDamage = fortificationDamage, Fortified = fortifiedThisHit };
                 uint lifeBefore = m.Life;
                 var rampageSource = RampageOnMeleeHitLocked(player, m, weapon.Melee, playerStats);
-                (m.Life, stageStarts) = TakeOwnerHitLocked(player, m, damage,
+                int lifeDamage = AbsorbMonsterEnergyShieldLocked(player.Area, m, damage, chaosDamage, contactAt);
+                (m.Life, stageStarts) = TakeOwnerHitLocked(player, m, lifeDamage,
                     Cull.Of(playerStats, ownPenetration, critical, spell: false).WithWeapon(weapon.LocalSources), rampageSource, playerStats);
                 CaptureUnhingedHitKillLocked(player, m, playerHit: true);
                 CaptureEquippedHitExplosionLocked(m, playerStats);
@@ -597,7 +603,7 @@ public static partial class Game
                 player.RecentEvents.RecordHit(AreaTime(player), critical);
                 if (ElementalOverloadCritLocked(player, SkillCatalog.FirstSkillId, null, playerStats, critical) is { } eoBuff)
                     ProjectilesFor(player).Packet(eoBuff, "elemental overload (default attack)");
-                if (life == 0) { m.Aggro = false; m.Dead = true; CollectVaalSoulAtDeathLocked(player, m); }
+                if (life == 0) { m.Aggro = false; m.Dead = true; CleanupDeadMonsterLocked(player.Area, targetId, m); CollectVaalSoulAtDeathLocked(player, m); }
                 AilmentsOnHitLocked(player, targetId, m, mitigated, spell: false, critical, criticalMultiplier, playerStats,
                     ownPenetration, at, AreaRng(player), poison: prehit.Poison,
                     blind: BlindHitInput.Capture(playerStats), attackGains: AttackAilmentGains.Capture(playerStats, attack: true));
@@ -2752,6 +2758,7 @@ public static partial class Game
                         more *= Math.Max(0, 1 + GolemStat(skillStats, global::Stat.TriggerBrandSupportHitDamagePlusPctFinalVsBrandedEnemy) / 100.0);
                     if (splashMore.TryGetValue(id, out double splashScale)) more *= splashScale;
                     if (more != 1) damage = (int)Math.Floor(damage * Math.Max(0, more));
+                    int chaosDamage = MonsterHitChaosDamage(m, mitigated, spell, at, damage);
                     LeechOnHitTargetLocked(player, m, taken, damage, leech!, id);
                     damage = WithImpaleHitLocked(player, m, damage, rolled, critical, sourceMultiplier,
                         critical ? criticalImpale : impale, more).Damage;
@@ -2763,7 +2770,8 @@ public static partial class Game
                     var rampageSource = RampageOnMeleeHitLocked(player, m, !spell && SkillsFor(player).IsMelee(gem.Effect), rampagePlayer);
                     uint lifeBefore = m.Life;
                     applied = ApplyMonsterHitLocked(player, m, damage, rampageSource, rampagePlayer, allyAt: null,
-                        cull: Cull.Of(playerStats, skillStats, critical, spell).WithWeapon(weaponLocal), cullPlayer: playerStats);
+                        cull: Cull.Of(playerStats, skillStats, critical, spell).WithWeapon(weaponLocal), cullPlayer: playerStats,
+                        chaosDamage: chaosDamage);
                     if (applied is not null)
                     {
                         if (applied.Value.Life < lifeBefore)
@@ -3127,7 +3135,12 @@ public static partial class Game
     // extra optional parameter so the seven-argument entry point keeps its reflection-visible signature.
     public static MonsterHit? ApplyMonsterHitLocked(Player player, SpawnedMonster m, int damage,
         bool? rampageSource, IReadOnlyDictionary<uint, int>? playerStats, (int X, int Y)? allyAt,
-        Cull cull, IReadOnlyDictionary<uint, int>? cullPlayer)
+        Cull cull, IReadOnlyDictionary<uint, int>? cullPlayer) =>
+        ApplyMonsterHitLocked(player, m, damage, rampageSource, playerStats, allyAt, cull, cullPlayer, chaosDamage: 0);
+
+    public static MonsterHit? ApplyMonsterHitLocked(Player player, SpawnedMonster m, int damage,
+        bool? rampageSource, IReadOnlyDictionary<uint, int>? playerStats, (int X, int Y)? allyAt,
+        Cull cull, IReadOnlyDictionary<uint, int>? cullPlayer, int chaosDamage)
     {
         if (m.Dead || m.Life == 0) return null;
         // The Divine shrine's aura: a monster wearing base_cannot_be_damaged (MonsterAuraEffect puts it in the monster's
@@ -3138,7 +3151,7 @@ public static partial class Game
         if (MapEssences.ProximityShieldBlocksLocked(player, m, allyAt) || MonsterProximityShieldBlocksLocked(player, m, allyAt)) return null;
         if (damage > 0 && m.Effects[Stat.AvoidDamagePct] is > 0 and var avoid && Random.Shared.Next(100) < avoid) return null;
         double hitNow = ProjectileWorldTime(player);
-        int lifeDamage = AbsorbMonsterEnergyShieldLocked(player, m, damage, hitNow);
+        int lifeDamage = AbsorbMonsterEnergyShieldLocked(player.Area, m, damage, chaosDamage, AreaTime(player));
         uint before = m.Life;
         if (allyAt is null) SpiderHitRewardsLocked(player, m, hitNow, playerStats);
         (m.Life, bool starts) = TakeOwnerHitLocked(player, m, lifeDamage, cull, rampageSource, playerStats, cullPlayer);
@@ -3154,8 +3167,7 @@ public static partial class Game
         {
             m.Aggro = false;
             m.Dead = true;
-            ClearMonsterEnergyShieldLocked(player, m);
-            ClearMonsterAuraCarrier(m);
+            CleanupDeadMonsterLocked(player.Area, m.ObjectId, m);
             CollectVaalSoulAtDeathLocked(player, m);
         }
         else if (m.Hostile) { m.Aggro = true; m.LastTarget = null; }

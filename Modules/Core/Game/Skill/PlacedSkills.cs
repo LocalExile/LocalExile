@@ -596,6 +596,7 @@ public static partial class Game
                 placed.Own, attack, criticalRoll, owner);
             int hitMultiplier = critical ? CriticalMultiplierOn(m, multiplier, owner, placed.Own) : 100;
             if (critical) damage = DamageModel.CriticalDamage(damage, hitMultiplier);
+            int chaosDamage = MonsterHitChaosDamage(m, mitigated, spell, now, damage, BearTrapDamageTaken(m, now));
             if (placed.Mine)
             {
                 // This is an explicit owner-leech grant, not the player's ordinary attack/spell leech.
@@ -608,7 +609,7 @@ public static partial class Game
                         new(life, DamagePacket.Empty, DamagePacket.Empty));
                 }
             }
-            if (ApplyMonsterHitLocked(player, m, damage, allyAt: placed.At) is not { } hit) continue;
+            if (ApplyMonsterHitLocked(player, m, damage, null, null, allyAt: placed.At, default, null, chaosDamage) is not { } hit) continue;
             if (hit.StageStarts) { CommitBossStage(player, id, m, now); hit = hit with { StageStarts = false }; }
             OwnedKillLocked(m, hit.Life);
             var poison = profile.Poison with { Min = profile.Poison.Min * more, Max = profile.Poison.Max * more,
@@ -683,7 +684,7 @@ public static partial class Game
             double total = ground.DamagePerSecond * (Math.Min(now, ground.Until) - ground.LastAt)
                 * MonsterDotTaken(monster, DamageType.Fire, now) + ground.Carry.GetValueOrDefault(id);
             int damage = (int)Math.Min(int.MaxValue, Math.Floor(total)); ground.Carry[id] = total - damage;
-            if (damage <= 0 || ApplyMonsterHitLocked(player, monster, damage, allyAt: ground.At) is not { } hit) continue;
+            if (damage <= 0 || ApplyMonsterHitLocked(player, monster, damage, allyAt: monster.Walk.Position(now)) is not { } hit) continue;
             if (hit.StageStarts) { CommitBossStage(player, id, monster, now); hit = hit with { StageStarts = false }; }
             OwnedKillLocked(monster, hit.Life);
             CommitAcceptedHitLocked(player, id, monster, hit, damage, now, "Fire Trap burning ground", playerKill: false);
