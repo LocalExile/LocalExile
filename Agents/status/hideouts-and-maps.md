@@ -194,9 +194,9 @@ Part of [Status](../Status.md); what to build next in this area is in
   travelling and repeat_fight states).
 
 - Legion (partial, not checked in the client): the Timeless Monolith stands at the Legion room locator.
-  Using it charges and shatters it and starts the Legion timer, which scales with area level and
-  `map_legion_duration_+%`, and the monolith locks at the end.
-  The two factions and the army composition are chosen and logged on use, not spawned yet; the timer length is not confirmed from `LegionBalancePerLevel`.
+  Using it charges and shatters it and starts the Legion timer (from `LegionBalancePerLevel`: 30 s at level 1
+  to 15 s from level 68, times `map_legion_duration_+%`; not checked in the client), and the monolith locks at
+  the end. The two factions and the army composition are chosen and logged on use, not spawned yet.
 
 - Simulacrum: five arenas and a 15-wave controller; opening and the wave-start prompt checked in the client, wave
   combat and the reward display not yet. Starting a wave destroys every item on the ground, as the client warns.

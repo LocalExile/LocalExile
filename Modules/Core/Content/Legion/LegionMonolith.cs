@@ -160,11 +160,16 @@ static class LegionMonolith
         await global::Game.SendWorldRecord(modPlayer, id, InstanceProtocol.EnterWakeZone(id));
     }
 
-    /// <summary>The Legion timer's length: 20 s at area level 1 falling linearly to 14 s from level 68 (the wiki's
-    /// 14-20 s; the client's LegionBalancePerLevel column is not confirmed), times map_legion_duration_+%.</summary>
-    public static int TimerSeconds(int level, int durationPercent)
+    /// <summary>The Legion timer's length: the LegionBalancePerLevel row with the highest MinLevel &lt;= level (the first row if
+    /// none), DurationMs / 1000 seconds (30 s at level 1 to 15 s from 68), times map_legion_duration_+% (client 0x1416290a0).
+    /// The endless-mode stat is ignored: endless is the Domain, phase 3.</summary>
+    public static int TimerSeconds(LegionData data, int level, int durationPercent)
     {
-        double seconds = 20 - 6.0 * (Math.Clamp(level, 1, 68) - 1) / 67;
+        LegionData.Balance? row = null;
+        foreach (var b in data.Balances)
+            if (b.MinLevel <= level && (row is null || b.MinLevel > row.MinLevel)) row = b;
+        row ??= data.Balances.Count > 0 ? data.Balances[0] : null;
+        double seconds = (row?.DurationMs ?? 20000) / 1000.0;
         return Math.Max(1, (int)Math.Round(seconds * Math.Max(0, 100 + durationPercent) / 100));
     }
 
@@ -183,7 +188,7 @@ static class LegionMonolith
             // TODO(phase 4): the other map_legion_* stats (monster counts, chests, factions) are read with the atlas.
             var stats = global::Game.AreaLeagueStats(player);
             int percent = stats.GetValueOrDefault(Stat.MapLegionDurationPlusPct);
-            seconds = TimerSeconds(e.Level, percent);
+            seconds = TimerSeconds(LegionData.Current, e.Level, percent);
             e.Plan = LegionArmy.Plan(LegionData.Current, e.Level, player.Layout.Id, stats, global::Game.AreaRng(player));
             plan = LegionArmy.Summary(e.Plan);
             double now = global::Game.AreaTime(player);

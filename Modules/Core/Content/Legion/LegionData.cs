@@ -27,8 +27,12 @@ public sealed class LegionData
     /// <summary>A LegionChestCounts row; cols 2-5 and 7 meaning unknown.</summary>
     public sealed record ChestCount(int Row, int Faction, int RankKey, int MinLevel, int Col2, int Col3, int Col4, int Col5, int Col7);
 
-    /// <summary>A LegionBalancePerLevel row from MinLevel; Cols holds col1..col15, meaning unknown.</summary>
-    public sealed record Balance(int Row, int MinLevel, int[] Cols);
+    /// <summary>A LegionBalancePerLevel row from MinLevel; Cols holds col1..col15, meaning unknown except col3.</summary>
+    public sealed record Balance(int Row, int MinLevel, int[] Cols)
+    {
+        /// <summary>col3: timer length in ms (client 0x1416290a0).</summary>
+        public int DurationMs => Cols[2];
+    }
 
     public IReadOnlyList<Faction> Factions { get; }
     public IReadOnlyList<Rank> Ranks { get; }

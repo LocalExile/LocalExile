@@ -68,24 +68,6 @@ static class LegionArmy
         return chosen;
     }
 
-    /// <summary>
-    /// THE COUNT MODEL AND THE GENERAL AND CHEST ROLLS, A GUESS FROM THE DATA; reverse engineering can correct them here
-    /// and nowhere else. Per faction and area level:
-    /// - the rank group is the LegionRanks rows (one per tier 0..3, tier = col0) of the balance row with the highest
-    ///   MinLevel &lt;= level, falling back to a lower group that has LegionMonsterCounts for the faction (ranks 12-15 have none);
-    /// - LegionMonsterCounts per rank row: col2..col3 = the min and max count (inclusive), col4..col5 = the band of the
-    ///   formation's depth in percent where the group stands, col6 = the number of varieties (matches LegionMonsterVarieties);
-    ///   tier 0 and 1 are the normal and elite monsters, tier 2 sergeants, tier 3 the general (counted only when it appears);
-    /// - the general: the chosen rank group's tier 3 row col7 is the base percent chance (0 below level 46, 1 at 46, up to 8
-    ///   at 82; the endless row 0) of one general in the whole encounter, times (100 + map_legion_general_chance_+%) / 100,
-    ///   and it goes to one of the two armies at random (at most one);
-    /// - varieties are the faction's LegionMonsterVarieties rows of the same tier (those exist only for rank rows 0..3; rows
-    ///   whose rank is endless, MinLevel &gt; 100, are left out), each monster picking one uniformly;
-    /// - LegionChestCounts: the faction's rows with the highest MinLevel &lt;= level; the tier 0 row gives col2..col3 chests
-    ///   (0 to 2, no forced minimum) and the band col4..col5; the tier 1 row's col7 is the percent chance, rolled once per army,
-    ///   that one of its chests (or one extra if it has none) is a War Hoard (HardmodeChest). The other reading, a roll per chest,
-    ///   gives more hoards; the chest's type is one of the faction's two LegionChestTypes.
-    /// </summary>
     /// <summary>The rank rows (by row) of the group with the highest MinLevel &lt;= level that has monster counts for the faction.</summary>
     static Dictionary<int, LegionData.Rank>? FindGroup(LegionData data, LegionData.Faction faction, int level)
     {
@@ -108,17 +90,29 @@ static class LegionArmy
         return rng.Next(100) < pct ? rng.Next(chosen.Count) : -1;
     }
 
+    /// <summary>
+    /// THE COUNT MODEL AND THE GENERAL AND CHEST ROLLS, A GUESS FROM THE DATA; reverse engineering can correct them here
+    /// and nowhere else. Per faction and area level:
+    /// - the rank group is the LegionRanks rows (one per tier 0..3, tier = col0) of the balance row with the highest
+    ///   MinLevel &lt;= level, falling back to a lower group that has LegionMonsterCounts for the faction (ranks 12-15 have none);
+    /// - LegionMonsterCounts per rank row: col2..col3 = the min and max count (inclusive), col4..col5 = the band of the
+    ///   formation's depth in percent where the group stands, col6 = the number of varieties (matches LegionMonsterVarieties);
+    ///   tier 0 and 1 are the normal and elite monsters, tier 2 sergeants, tier 3 the general (counted only when it appears);
+    /// - the general: the chosen rank group's tier 3 row col7 is the base percent chance (0 below level 46, 1 at 46, up to 8
+    ///   at 82; the endless row 0) of one general in the whole encounter, times (100 + map_legion_general_chance_+%) / 100,
+    ///   and it goes to one of the two armies at random (at most one);
+    /// - varieties are the faction's LegionMonsterVarieties rows of the same tier (those exist only for rank rows 0..3; rows
+    ///   whose rank is endless, MinLevel &gt; 100, are left out), each monster picking one uniformly;
+    /// - LegionChestCounts: the faction's rows with the highest MinLevel &lt;= level; the tier 0 row gives col2..col3 chests
+    ///   (0 to 2, no forced minimum) and the band col4..col5; the tier 1 row's col7 is the percent chance, rolled once per army,
+    ///   that one of its chests (or one extra if it has none) is a War Hoard (HardmodeChest). The other reading, a roll per chest,
+    ///   gives more hoards; the chest's type is one of the faction's two LegionChestTypes.
+    /// </summary>
     static FactionPlan Compose(LegionData data, LegionData.Faction faction, int level, bool general, Random rng)
     {
         var squads = new List<Squad>();
-        var groups = data.Ranks.Where(r => MinLevelOf(data, r.BalanceKey) <= Math.Min(level, MaxLevel))
-            .GroupBy(r => r.BalanceKey).OrderByDescending(g => MinLevelOf(data, g.Key));
-        foreach (var group in groups)
-        {
-            var rows = group.ToDictionary(r => r.Row);
-            var counts = data.MonsterCounts.Where(c => c.Faction == faction.Row && rows.ContainsKey(c.RankKey)).ToList();
-            if (counts.Count == 0) continue;
-            foreach (var count in counts.OrderBy(c => rows[c.RankKey].Col0))
+        if (FindGroup(data, faction, level) is { } rows)
+            foreach (var count in data.MonsterCounts.Where(c => c.Faction == faction.Row && rows.ContainsKey(c.RankKey)).OrderBy(c => rows[c.RankKey].Col0))
             {
                 int tier = rows[count.RankKey].Col0;
                 if (tier == 3 && !general) continue;
@@ -131,8 +125,6 @@ static class LegionArmy
                 for (int i = 0; i < per.Length; i++)
                     if (per[i] > 0) squads.Add(new Squad(tier, varieties[i].Monster, per[i], count.Col4, count.Col5));
             }
-            break;
-        }
         return new FactionPlan(faction.Row, faction.Id, [.. squads], [.. PlanChests(data, faction, level, rng)]);
     }
 
