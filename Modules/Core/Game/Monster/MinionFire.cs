@@ -152,6 +152,6 @@ public static partial class Game
             CommitBossStage(player, id, target, now);
             hit = hit with { StageStarts = false };
         }
-        CommitMinionHitLocked(player, id, target, hit, damage, now, effect, source: minion.Monster, skill: minion.Own);
+        CommitMinionHitLocked(player, id, target, hit, damage, now, effect, source: minion.Monster, skill: minion.Own, fighter: minion);
     }
 }

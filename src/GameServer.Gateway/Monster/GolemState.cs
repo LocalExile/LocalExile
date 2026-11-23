@@ -21,6 +21,7 @@ public sealed class GolemState
         public Dictionary<uint, int> RetainedSkillStats = [];
         public double SummonedAt, NextMove, LastStep, ReviveAt = double.PositiveInfinity;
         public double FreshMeatUntil;
+        public double OnslaughtUntil;
         public double Regeneration;
         public readonly EnergyShield ShieldPool = new();
         public uint Shield => ShieldPool.Current;

@@ -194,6 +194,7 @@ public static partial class Game
         target.RecipientDebuffRate = old.RecipientDebuffRate;
         target.FlinchUntil = old.FlinchUntil;
         target.StunImmuneUntil = old.StunImmuneUntil;
+        replacement.OnslaughtUntil = oldGolem.OnslaughtUntil;
         if (double.IsFinite(old.BusyUntil) && old.BusyUntil > now) target.BusyUntil = old.BusyUntil;
         if (oldGolem.HolyRegenerationUntil > now)
         {

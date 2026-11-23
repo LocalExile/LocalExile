@@ -75,7 +75,8 @@ public static partial class Game
                 && name.EndsWith("_damage", StringComparison.Ordinal)) continue;
             values[id] = values.GetValueOrDefault(id) + value;
         }
-        if (FreshMeatActive(golem, double.IsNegativeInfinity(at) ? AreaTime(player) : at))
+        double now = double.IsNegativeInfinity(at) ? AreaTime(player) : at;
+        if (FreshMeatActive(golem, now))
         {
             foreach (var (key, value) in AntiquarianEffects.AdrenalineStats)
                 values[key] = ActorScale.Saturate((long)values.GetValueOrDefault(key) + value);
@@ -85,6 +86,13 @@ public static partial class Game
         }
         foreach (var (name, value) in golem.Auras.Concat(golem.Utility)) values[name] = values.GetValueOrDefault(name) + value;
         foreach (var (name, value) in golem.Gear) values[name] = values.GetValueOrDefault(name) + value;
+        if (now < golem.OnslaughtUntil && ItemsFor(player).Onslaught is { } onslaught)
+        {
+            double effect = Math.Max(0, 1 + values.GetValueOrDefault(Stat.OnslaughtEffectPlusPct) / 100d);
+            foreach (var source in UtilityFlasks.OnslaughtSources(onslaught, effect))
+                values[source.Stat] = ActorScale.Saturate((long)values.GetValueOrDefault(source.Stat) + source.Value);
+            values[Stat.HasOnslaught] = 1;
+        }
         if (golem.CombatCharges is { } charges)
         {
             int frenzy = charges.Held(ChargeType.Frenzy);
@@ -444,6 +452,7 @@ public static partial class Game
         hash.Add(CombatLifetime);
         hash.Add(GolemSummonedInPastEightSeconds(golem, now));
         hash.Add(FreshMeatActive(golem, now));
+        hash.Add(now < golem.OnslaughtUntil);
         hash.Add(SkeletonShieldChaos(player, golem, playerStats));
         foreach (var p in playerStats.Where(p => (Stats.Name(p.Key) ?? "").Contains("minion", StringComparison.Ordinal)
             || (Stats.Name(p.Key) ?? "").Contains("golem", StringComparison.Ordinal)).OrderBy(p => p.Key)) hash.Add(p);
