@@ -162,7 +162,9 @@ public static class BossKits
                         ? Math.Max(attack.Range, Math.Min(variety.AggroRange, ActionClasses.SpellActionDistance(effect, UseStat)))
                         : Math.Max(variety.AggroRange, attack.Range);
                 attack = attack with { Use = use, Range = reach };
-                cooldown = use.Shape == MonsterSkillShape.Travel ? Math.Max(cooldown, 3)
+                cooldown = BossMoves.IsTeleport(catalog, effect) ? (cooldown > 0 ? cooldown : BossMoves.TeleportCooldown)
+                    : BossMoves.IsMove(catalog, effect) ? (cooldown > 0 ? Math.Max(cooldown, 3) : BossMoves.MoveCooldown)
+                    : use.Shape == MonsterSkillShape.Travel ? Math.Max(cooldown, 3)
                     : use.Shape == MonsterSkillShape.Corpse ? Math.Max(cooldown, 2) : Math.Max(cooldown, use.Seconds + 2);
                 kit.Add(new(effect, attack, cooldown) { TriggerThreshold = trigger });
                 continue;
@@ -493,7 +495,9 @@ public static class BossKits
         var projectile = ranged ? MavenNucleus.Shot(catalog, effect) : null;
         if (projectile is not null && !spell && reach < 45)
             reach = 45;
-        var summon = MonsterSummonOf(catalog, effect, actorLevel);
+        var summon = MonsterSummonOf(catalog, effect, actorLevel) 
+            // A boss's own summon the tables name no monster for; a player minion skill's monster version stays as it is.
+            ?? (SummonData.ForActiveSkill(effect) is null ? BossSummons.For(catalog, variety, effect) : null);
         int hits = 1 + Math.Max(0, Raw(Stat.BaseSkillNumberOfAdditionalHits))
             + (Raw(Stat.SkillDoubleHitsWhenDualWielding) != 0 && DualWields(variety) ? 1 : 0);
         return new(skillId, summon is { CastSeconds: > 0 } ? summon.CastSeconds : Math.Max(.25, seconds), reach, damage)
@@ -520,6 +524,21 @@ public static class BossKits
     public static MonsterAttack? Choose(SpawnedMonster monster, double now, double distance, Func<MonsterAttack, bool>? usable = null)
     {
         if (monster.Kit.Count == 0) return monster.Attack;
+        // A boss whose other skills all reach across the room (Merveil's Ice Spear: her whole aggro range) would never
+        // walk again: its melee swing is only a candidate in reach, and the spell always is. When the swing has waited
+        // its turn, the boss walks up for it (the ordinary chase does, with the swing as its attack).
+        if (WalkUpFor(monster, now, distance) is { } walk) return walk;
+        // Specials take a ready turn, but not every one: with several cooldowns between them (Merveil, the Twisted, has
+        // five) they would take every turn and the skills without one would never come. So after a special, a skill
+        // without a cooldown goes next when one can, and after one of those a ready special does.
+        double lastSpecial = 0, lastPlain = 0;
+        foreach (var entry in monster.Kit)
+        {
+            if (!monster.KitReadyAt.TryGetValue(entry.Effect, out double at)) continue;
+            if (entry.CooldownSeconds > 0) lastSpecial = Math.Max(lastSpecial, Math.Min(now, at - entry.CooldownSeconds));
+            else if (at <= now) lastPlain = Math.Max(lastPlain, at);
+        }
+        bool plainFirst = lastSpecial > 0 && lastSpecial >= lastPlain;
         MonsterKitSkill? best = null;
         int bestTier = -1;
         double bestUsed = 0;
@@ -540,7 +559,7 @@ public static class BossKits
             if (tier == 2 && monster.KitDamageTaken.GetValueOrDefault(entry.Effect) < entry.TriggerThreshold) continue;
             bool better;
             if (best is null) better = true;
-            else if (tier != bestTier) better = tier > bestTier;
+            else if (tier != bestTier) better = plainFirst && tier < 2 && bestTier < 2 ? tier < bestTier : tier > bestTier;
             else if (used != bestUsed) better = used < bestUsed;
             else better = entry.Effect == monster.Kit[0].Effect;
             if (!better) continue;
@@ -549,6 +568,37 @@ public static class BossKits
             bestUsed = used;
         }
         return best?.Attack ?? Fallback(monster, usable);
+    }
+
+    // When a boss began walking up for its melee turn: it gives up after WalkUpSeconds (a player on a ledge, or one it
+    // cannot reach), and its turn comes round again later.
+    static readonly System.Runtime.CompilerServices.ConditionalWeakTable<SpawnedMonster, System.Runtime.CompilerServices.StrongBox<double>> WalkingSince = new();
+
+    /// <summary>How long a melee swing waits before the boss walks up for it, how long it tries, and the farthest player
+    /// it walks to (seconds, seconds, cells; ours).</summary>
+    public static double MeleeTurnSeconds = 7, WalkUpSeconds = 5, WalkUpFarthest = 60;
+
+    static MonsterAttack? WalkUpFor(SpawnedMonster monster, double now, double distance)
+    {
+        // Its melee swing: a damaging attack with no cooldown that is neither a spell, ranged nor a move.
+        if (monster.Kit.FirstOrDefault(k => !k.Attack.Ranged && !k.Attack.Spell && k.CooldownSeconds == 0 && !k.Attack.Damage.IsZero
+            && k.Attack.Use is null && k.Attack.Summon is null) is not { } melee) return null;
+        if (monster.Variety is { MovementSpeed: 0 } or { Immobile: true }) return null;
+        // Only a boss with something else to do from here: one that has nothing but the swing walks up for it anyway.
+        if (!monster.Kit.Any(k => k != melee && k.Attack.Range >= distance && k.Attack.Use is null)) return null;
+        var since = WalkingSince.GetOrCreateValue(monster);
+        if (distance <= melee.Attack.Range) { since.Value = 0; return null; }
+        double used = monster.KitReadyAt.GetValueOrDefault(melee.Effect);
+        if (now - used < MeleeTurnSeconds || distance > WalkUpFarthest) { since.Value = 0; return null; }
+        if (since.Value == 0) since.Value = now;
+        if (now - since.Value > WalkUpSeconds)
+        {
+            // It could not get there: the turn is spent, as if it had swung.
+            monster.KitReadyAt[melee.Effect] = now;
+            since.Value = 0;
+            return null;
+        }
+        return melee.Attack;
     }
 
     // When no kit skill is both in reach and off cooldown, never return the last-used special in monster.Attack (which

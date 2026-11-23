@@ -224,7 +224,13 @@ Part of [Status](../Status.md); what to build next in this area is in
   Effects that hit for nothing, summon nothing and fire nothing (a breath's own segments, geometry triggers,
   `EmptyAction`s) stay out, and the attack a boss had before is still its first, unchanged. Checked against the tables
   and in `BossKitsTests`; **not yet played against the real client**: which of the list a client animates, and how the
-  bosses' official AI weights compare, are unverified. Code: `BossKits`, `MonsterKitSkill`, `Monsters.PlanMonsterAi`.
+  bosses' official AI weights compare, are unverified. A boss's own teleport and a monster-only movement skill are
+  played as a travel (`BossMoves`; a teleport waits 8 s, a move 6 s when the tables give no cooldown); a summon the
+  tables name no monster for brings one of the boss's family the skill names (`BossSummons`: Piety's blood elementals,
+  Daresso's clones); a summon on cooldown or at the cap is passed over instead of stalling the boss; after a special a
+  skill without a cooldown goes next; a boss whose spells reach its whole aggro range walks up for its melee swing once
+  it has waited 7 s (Merveil, the Siren). Checked offline only.
+  Code: `BossKits`, `MonsterKitSkill`, `Monsters.PlanMonsterAi`.
 - The campaign Trinity has native attacks and two scorpion phases; organ portals use their native domain labels,
   room entrance pads and return pairs; Doedre's soul starts visible on creation and instance restore.
   Exact official AI weights remain unverified.

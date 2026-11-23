@@ -67,6 +67,8 @@ public static partial class MonsterSkills
         if (skills.HasType(effect, "Hex")) return MonsterSkillShape.Curse;
         // A travel that summons or channels plays as no simple move (Blink Arrow's clone, Charged Dash's hold).
         if (skills.IsTravel(effect) && !skills.IsChannelled(effect) && !skills.HasType(effect, "Minion")) return MonsterSkillShape.Travel;
+        // A boss's own teleport and a monster-only movement skill carry it the same way (BossMoves).
+        if (BossMoves.IsMove(skills, effect)) return MonsterSkillShape.Travel;
         if (skills.IsWarcry(effect)) return MonsterSkillShape.Self;
         if (skills.HasType(effect, "Buff") && !skills.IsAttack(effect) && !skills.IsProjectile(effect)) return MonsterSkillShape.Self;
         return null;
@@ -162,7 +164,9 @@ public static partial class MonsterSkills
     /// none, not again over the one that stands). In the area's frame.</summary>
     public static bool Usable(Player player, uint id, SpawnedMonster m, MonsterAttack a, double now) =>
         (a.Use is not { OnCorpse: true } || CorpseFor(player, m, a, now) is not null)
-        && (a.Summon is not { Limit: > 0 } summon || Game.LivingSummonsLocked(player, id, summon) < summon.Limit);
+        && (a.Summon is not { Limit: > 0 } summon || Game.LivingSummonsLocked(player, id, summon) < summon.Limit)
+        // A summon on its cooldown or at the cap of living summons waits too: chosen, the boss stood until it could.
+        && Game.SummonReadyLocked(player, id, m, a, now);
 
     /// <summary>Takes the corpse and, for a skill that takes several, others within its radius: they leave the client
     /// (0x2bd) and every corpse use. Returns where each was.</summary>

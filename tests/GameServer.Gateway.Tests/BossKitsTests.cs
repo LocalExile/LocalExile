@@ -198,6 +198,26 @@ public sealed class BossKitsTests
         Assert.Equal(0x4000, BossKits.Choose(boss, 40, 500)!.SkillId);
     }
 
+    [Fact]
+    public void A_boss_teleports_and_walks_up_for_its_swing()
+    {
+        InGame(conn =>
+        {
+            var catalog = Game.SkillsFor(conn);
+            // Merveil, the Siren: her teleport is a move of the kit (BossMoves), with a cooldown the tables do not give.
+            var siren = Assert.IsType<MonsterCatalog.Variety>(Game.Monsters.Find("Metadata/Monsters/seawitchillusion/BossMerveil"));
+            var kit = BossKits.Kit(conn, siren, 13, Game.MavenNucleus.CombatEffect(catalog, siren), unique: true);
+            var teleport = Assert.Single(kit, k => catalog.EffectId(k.Effect) == "MerveilTeleport");
+            Assert.Equal(MonsterSkillShape.Travel, teleport.Attack.Use?.Shape);
+            Assert.True(teleport.CooldownSeconds >= BossMoves.TeleportCooldown);
+            // Ice Spear reaches her whole aggro range: once her swing has waited its turn she walks up for it.
+            var boss = new SpawnedMonster("Merveil", new(0, 0, 1), 60, 2, maxLife: 100) { Kit = kit, Attack = kit[0].Attack, Variety = siren };
+            var melee = Assert.Single(kit, k => catalog.EffectId(k.Effect) == "Melee");
+            foreach (var entry in kit) boss.KitReadyAt[entry.Effect] = 1;
+            Assert.Equal(melee.Attack.SkillId, BossKits.Choose(boss, 9, 30)!.SkillId);
+        });
+    }
+
     /// <summary>Runs the body with the game module mounted on a connection of its own, as BossStageTests does.</summary>
     static void InGame(Action<Player> body)
     {
