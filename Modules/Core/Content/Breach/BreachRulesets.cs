@@ -78,7 +78,7 @@ public static class BreachRulesets
                 _ => Ramp(step),
             };
             float second = state is BreachTables.Enraged or BreachTables.Closing ? value : Rate;
-            float[] numbers = [progress, radius, value, second, 0, -Rate, 0];
+            ReadOnlySpan<float> numbers = [progress, radius, value, second, 0, -Rate, 0];
             for (int i = 0; i < numbers.Length; i++) BinaryPrimitives.WriteSingleLittleEndian(body.AsSpan(11 + 4 * i), numbers[i]);
         }
         BinaryPrimitives.WriteSingleLittleEndian(body.AsSpan(40), FullRadius);
