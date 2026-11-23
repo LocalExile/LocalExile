@@ -41,6 +41,8 @@ public static partial class Game
         // Apply it before every resource pool so it is not repeated between mitigation and allocation.
         physical = ApplyUnhingedTaken(physical, DamageType.Physical, Get);
         chaos = ApplyUnhingedTaken(chaos, DamageType.Chaos, Get);
+        // Recoup counts the hit's damage before the guards, Aegis, Ward and Energy Shield take any of it.
+        int recoupable = (int)Math.Min(int.MaxValue, (long)physical + other + chaos);
         (physical, other, chaos) = MitigateTriggeredGuardHit(player, physical, other, chaos, at);
         // Physical Aegis follows mitigation and totem redirection. Path of Exile's damage order puts an Aegis before
         // Ward; only the Aegis overflow reaches Ward, ES, Mana and Life.
@@ -56,14 +58,16 @@ public static partial class Game
         int otherLife = protectsMana ? player.EnergyShield.Damage(other, true, at)
             : IncomingResourceDefences.Damage(player.EnergyShield, other, bypass, at);
         int nonChaosLife = (int)Math.Min(int.MaxValue, (long)physicalLife + otherLife);
-        int chaosLife = player.EnergyShield.Damage(chaos, true, at);
+        // Chaos bypasses Energy Shield by default; "Chaos Damage taken does not bypass Energy Shield" and its conditional
+        // forms opt out of that, which only Energy Shield that still protects Life can honour.
+        int chaosLife = player.EnergyShield.Damage(chaos, protectsMana || ChaosDamageBypassesEnergyShield(player, playerStats), at);
         var manaTypes = RemainingManaDamageTypes(types, physicalLife, otherLife);
         int manaPool = protectsMana ? (int)Math.Min(int.MaxValue, (long)player.PlayerMana + player.EnergyShield.Current) : (int)player.PlayerMana;
         int fromMana = PlayerDamageTaken.FromMana(nonChaosLife, chaosLife, manaTypes, manaPool, Get);
         int toMana = protectsMana ? player.EnergyShield.Damage(fromMana, false, at) : fromMana;
         player.PlayerMana -= (uint)Math.Min(toMana, player.PlayerMana);
-        if (ResourceEffectsCurrent(player, state)) state.Mana.Hit(at,
-            (int)Math.Min(int.MaxValue, (long)physical + other + chaos), Get(Stat.DamageTakenGoesToManaPct));
+        if (ResourceEffectsCurrent(player, state))
+            state.Mana.Hit(at, recoupable, Get(Stat.DamageTakenGoesToManaPct), ManaRecoupSeconds(Get));
         // Petrified Blood sees the life loss after Ward, Energy Shield and Mana: it protects Life, not the other pools.
         // Vaal Immortal Call's "you cannot die" holds that Life at 1 (wiki); the hit and its effects still land.
         int lifeDamage = VaalImmortalCallHitLife(player,
