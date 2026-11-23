@@ -114,6 +114,8 @@ Part of [Status](../Status.md); what to build next in this area is in
   Docs: [11](../docs/protocol/11-skills.md) Â§12.
 - Lifetap Support and Blood Magic publish converted wire `life_cost` / `life_cost_per_minute` (zeroing wire mana cost)
   so the client spends Life only. Docs: [25](../docs/protocol/25-gem-supports.md).
+- Movement, travel and stance skill cooldowns read their recovery stats. Spell and curse costs read their efficiency.
+  Mark waivers, Cannibalistic Rite, the Covenant and Rathpith Globe use the server's resource admission.
 - Energy Shield skill costs (Energy Blade, Wild Strike of Extremes, Replica Covenant) and Eldritch Battery: costs paid
   from Energy Shield first, hits past it to Life, its Mana share taken from it, 50% less recharge (not checked live).
   Docs: [20](../docs/protocol/20-damage.md).

@@ -358,8 +358,19 @@ public static partial class Game
     {
         var playerStats = FinalPlayerStats(player).ToDictionary(kv => kv.Item1, kv => kv.Item2);
         var skill = SupportedSkill(player, skillId);
-        return MergeSkillStats(playerStats, WithBlessingCost(player, skill), SkillsFor(player).IsChannelled(skill.Effect), SkillCostMore(player, skill.Stats));
+        var skills = SkillsFor(player);
+        MergeSkillStatsInto(playerStats.GetValueOrDefault, (key, value) => playerStats[key] = value,
+            WithBlessingCost(player, skill), skills.IsChannelled(skill.Effect), SkillCostMore(player, skill.Stats),
+            CostEfficiencyFor(skills, skill.Effect));
+        return playerStats;
     }
+
+    [Flags]
+    enum CostEfficiency { None = 0, Spell = 1, Curse = 2 }
+
+    static CostEfficiency CostEfficiencyFor(SkillCatalog skills, int effect) =>
+        (skills.IsSpell(effect) ? CostEfficiency.Spell : CostEfficiency.None)
+        | (skills.HasType(effect, "AppliesCurse") ? CostEfficiency.Curse : CostEfficiency.None);
 
     static double SkillCostMore(Player player, IReadOnlyDictionary<uint, int> own)
     {
@@ -377,17 +388,25 @@ public static partial class Game
     }
 
     public static Dictionary<uint, int> MergeSkillStats(IReadOnlyDictionary<uint, int> player, IReadOnlyDictionary<uint, int> own,
-        bool? channelled = null, double costMore = 1)
+        bool? channelled = null, double costMore = 1) =>
+        MergeSkillStats(player, own, channelled, costMore, CostEfficiency.None);
+
+    static Dictionary<uint, int> MergeSkillStats(IReadOnlyDictionary<uint, int> player, IReadOnlyDictionary<uint, int> own,
+        bool? channelled, double costMore, CostEfficiency efficiency)
     {
         var result = new Dictionary<uint, int>(player);
-        MergeSkillStatsInto(result.GetValueOrDefault, (key, value) => result[key] = value, own, channelled, costMore);
+        MergeSkillStatsInto(result.GetValueOrDefault, (key, value) => result[key] = value, own, channelled, costMore, efficiency);
         return result;
     }
 
     /// <summary>A skill's own stats over the player's: <paramref name="read"/> gives a stat as merged so far (the player's
     /// until the skill's wrote it), <paramref name="write"/> sets one. Only the skill's own stats and its costs are written.</summary>
     public static void MergeSkillStatsInto(Func<uint, int> read, Action<uint, int> write, IReadOnlyDictionary<uint, int> own,
-        bool? channelled = null, double costMore = 1)
+        bool? channelled = null, double costMore = 1) =>
+        MergeSkillStatsInto(read, write, own, channelled, costMore, CostEfficiency.None);
+
+    static void MergeSkillStatsInto(Func<uint, int> read, Action<uint, int> write, IReadOnlyDictionary<uint, int> own,
+        bool? channelled, double costMore, CostEfficiency efficiency)
     {
         foreach (var (key, value) in own)
         {
@@ -400,11 +419,18 @@ public static partial class Game
             write(key, replace ? value : ArcaneMight.IsGrant(key)
                 ? ArcaneMight.Combine(key, read(key), value) : read(key) + value);
         }
+        long conditionalEfficiency = ((efficiency & CostEfficiency.Spell) != 0 ? (long)read(Stat.BaseSpellManaCostEfficiencyPlusPct) : 0)
+            + ((efficiency & CostEfficiency.Curse) != 0 ? read(Stat.BaseManaCostEfficiencyPlusPctOfCurseSkills) : 0);
+        if (conditionalEfficiency != 0)
+            write(ItemChargeCosts.ManaEfficiency, ActorScale.Saturate(read(ItemChargeCosts.ManaEfficiency) + conditionalEfficiency));
         if (Stat.ManaCost is var mana && own.TryGetValue(mana, out int baseCost))
             write(mana, ManaRecoveryRules.Cost(baseCost, name => name is var key ? read(key) : 0, channelled, costMore));
-        if (Stat.LifeCost is var life && own.TryGetValue(life, out int nativeLife))
-            write(life, (int)Math.Clamp(decimal.Floor(nativeLife * Math.Max(0m,
-                100m + read(Stat.BaseCostPlusPct) + read(Stat.BaseLifeCostPlusPct) + read(Stat.LifeCostPlusPct)) / 100m), 0, int.MaxValue));
+        long nativeLife = own.GetValueOrDefault(Stat.LifeCost);
+        int additiveLife = read(Stat.BaseSkillGainLifeCostPctOfManaCost);
+        if (additiveLife > 0 && !ManaRecoveryRules.ConvertsManaToLife(read))
+            nativeLife += (long)Math.Max(0, own.GetValueOrDefault(Stat.ManaCost)) * additiveLife / 100;
+        if (nativeLife != 0 || own.ContainsKey(Stat.LifeCost))
+            write(Stat.LifeCost, ManaRecoveryRules.LifeCost(nativeLife, read));
         // An Energy Shield cost: the skill's own (CostTypes 2) plus "Skills gain a Base Energy Shield Cost equal to X% of
         // Base Mana Cost" (Replica Covenant), taken from the supported base mana cost, then the increased cost of skills.
         if (Stat.EsCost is var esKey)
