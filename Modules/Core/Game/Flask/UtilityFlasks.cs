@@ -44,6 +44,7 @@ public static partial class Game
         int adjacentEffect = AdjacentTinctureFlaskEffect(player, (byte)slot, Get, AreaTime(player));
         Func<uint, int> flaskCharacter = adjacentEffect == 0 ? Get
             : stat => stat == Stat.FlaskEffectPlusPct ? Get(stat) + adjacentEffect : Get(stat);
+        flaskCharacter = WithMapFlaskEffect(player, flaskCharacter);
         var (stats, seconds) = ItemUtilityFlaskFor(utility, flask.Item, local, flaskCharacter, playerLevel);
         int heal = local.GetValueOrDefault(Stat.LocalUniqueFlaskInstantlyRecoversPctMaximumLife);
         int selfChaos = local.GetValueOrDefault(Stat.LocalUniqueFlaskChaosDamagePctOfMaximumLifeToDealPerMinuteWhileHealing);

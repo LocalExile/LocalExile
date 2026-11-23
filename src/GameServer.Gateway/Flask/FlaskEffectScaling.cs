@@ -14,5 +14,6 @@ public static class FlaskEffectScaling
     /// <summary>Preserves the existing nonnegative multiplier; wide arithmetic avoids overflowing signed inputs.</summary>
     public static double Multiplier(Func<uint, int> raw, int playerLevel = 1, int localIncrease = 0,
         int applicableMagicIncrease = 0) =>
-        Math.Max(0L, 100L + GlobalIncrease(raw, playerLevel) + localIncrease + applicableMagicIncrease) / 100.0;
+        Math.Max(0L, 100L + GlobalIncrease(raw, playerLevel) + localIncrease + applicableMagicIncrease) / 100.0
+        * Math.Max(0L, 100L + raw(Stat.MapPlayerFlaskEffectPlusPctFinal)) / 100.0;
 }

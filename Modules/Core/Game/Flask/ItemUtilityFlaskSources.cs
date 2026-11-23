@@ -31,6 +31,11 @@ public static partial class Game
         (Stat.UncappedLightningDamageResistancePct, Stat.BaseReduceEnemyLightningResistancePct, Stat.LightningDamageTakenPlusPct),
     ];
 
+    static Func<uint, int> WithMapFlaskEffect(Player player, Func<uint, int> stats) =>
+        MapModsOf(player)?.Get(Stat.MapPlayerFlaskEffectPlusPctFinal) is int effect and not 0
+            ? key => key == Stat.MapPlayerFlaskEffectPlusPctFinal ? effect : stats(key)
+            : stats;
+
     public static (IReadOnlyList<UtilityFlasks.Source> Stats, double Seconds) ItemUtilityFlaskFor(
         UtilityFlasks.Utility utility, Item flask, IReadOnlyDictionary<uint, int> local,
         Func<uint, int> character, int playerLevel = 0)

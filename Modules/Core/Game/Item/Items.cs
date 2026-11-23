@@ -835,6 +835,7 @@ public static partial class Game
         int adjacentEffect = AdjacentTinctureFlaskEffect(player, (byte)slot, Get, AreaTime(player));
         Func<uint, int> flaskCharacter = adjacentEffect == 0 ? Get
             : stat => stat == Stat.FlaskEffectPlusPct ? Get(stat) + adjacentEffect : Get(stat);
+        flaskCharacter = WithMapFlaskEffect(player, flaskCharacter);
         recoveryOwner = ResourceEffectsOf(player);
         r = FlaskRecovery.For(use, flask.Item, local,
             stat => flaskCharacter(stat) + (stat == Stat.FlaskLifeToRecoverPlusPct ? Lifetap.FlaskRecovery(player) : 0), player.PlayerLife, player.PlayerMaxLife, playerLevel);

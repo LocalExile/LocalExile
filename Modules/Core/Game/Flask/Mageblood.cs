@@ -69,6 +69,7 @@ public static partial class Game
         var items = ItemsFor(player);
         var count = MagebloodFlaskCount(belt, items);
         if (count.Count == 0) return [];
+        character = WithMapFlaskEffect(player, character);
         List<UtilityFlasks.Source> sources = [];
         double now = AreaTime(player);
         foreach (var flask in MagebloodFlasks(ItemsOf(player).Items(PlayerInventories.Flask), count, items))

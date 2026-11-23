@@ -34,6 +34,10 @@ Part of [Status](../Status.md); what to build next in this area is in
 
 ## Partly working
 
+- Soul Ripper spends charges for Vaal souls when allowed, and Forbidden Taste applies its recovery and chaos damage.
+- The Wise Oak, Taste of Hate and Soul Catcher apply their qualified damage modifiers during the flask effect.
+- Map flask effect penalties multiply the applicable utility and recovery flask effects.
+
 - Native skin-transfer bind/reclaim preserves complete donors across character and stash saves. Optional item-stat
   sources exclude socket/skill hosts; 3.29.3c picker binding and protocol reclaim pass, with the shift-click gesture
   and 3.29.3d picker untested. Docs: [23](../docs/protocol/23-microtransactions.md).
