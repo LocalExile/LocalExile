@@ -117,10 +117,11 @@ public static partial class Game
         var modifiers = skill.Supports.SelectMany(s => s.Stats)
             .Select(s => (s.Key, s.Value)).ToArray();
         var types = Supports.Of(aura.Effect)?.Types.ToHashSet();
+        int herald = aura.IsHerald ? Get(Stat.DamagePlusPctWithHeraldSkills) : 0;
         return (increased, webs, ignited, bleeding, lowLife) =>
         {
             int TargetStat(uint name) => TypedTargetDamageStat(Get, name, ignited, bleeding, lowLife, attack: false);
-            increased += SpiderDamageIncrease(Get, webs);
+            increased += herald + SpiderDamageIncrease(Get, webs);
             var woven = SpiderRawDamage(raw, Get, webs, AddedEffectiveness(player, aura.Effect, aura.Level));
             var hit = PlayerHitDamage.Resolve(woven, TargetStat, conversion,
                 spell: false, area: aura.EffectId != "HeraldOfThunder", secondary: true,

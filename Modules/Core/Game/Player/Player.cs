@@ -520,10 +520,20 @@ public static partial class Game
     static SpellCastTiming? SpellTiming(Player player, int effect, Func<uint, int> playerStat, Func<uint, int> own, Func<uint, int> merged)
     {
         int speed = playerStat(Stat.CastSpeedPlusPct) + own(Stat.BaseCastSpeedPlusPct);
-        speed += BrandCastSpeedBonusPct(player, effect, playerStat, own);
+        speed += BrandCastSpeedBonusPct(player, effect, playerStat, own)
+            + TaggedCastSpeedBonusPct(player, effect, playerStat, own);
         speed = FinalCastSpeedPct(merged, () => HoldingFishingRod(player), speed);
         return own(Stat.BaseSpellCastTimeMsOverride) is int basis and > 0
             ? SpellCastTiming.Calculate(basis, speed) : SpellCastTiming.ForSkill(SkillsFor(player), effect, speed);
+    }
+
+    static int TaggedCastSpeedBonusPct(Player player, int effect, Func<uint, int> playerStat, Func<uint, int> own)
+    {
+        int Total(uint stat) => ActorScale.Saturate((long)playerStat(stat) + own(stat));
+        var skills = SkillsFor(player);
+        return (skills.HasType(effect, "AppliesCurse") ? Total(Stat.CurseCastSpeedPlusPct) : 0)
+            + (skills.HasType(effect, "Mark") ? Total(Stat.MarkSkillCastSpeedPlusPct) : 0)
+            + (skills.HasType(effect, "Link") ? Total(Stat.LinkSkillCastSpeedPlusPct) : 0);
     }
 
     // A genuine spell's final server wait; native actions instead receive the unadjusted base milliseconds.

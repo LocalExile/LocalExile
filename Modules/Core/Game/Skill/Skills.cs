@@ -522,7 +522,8 @@ public static partial class Game
             // The native spell action divides virtual BASE time by cast speed itself. Keep the catalog base
             // intact; only the panel's final casts-per-second stat is adjusted here.
             int supportCastSpeed = own.GetValueOrDefault(Stat.BaseCastSpeedPlusPct)
-                + BrandCastSpeedBonusPct(player, effect, playerStats, own);
+                + BrandCastSpeedBonusPct(player, effect, playerStats, own)
+                + TaggedCastSpeedBonusPct(player, effect, playerStats.GetValueOrDefault, own.GetValueOrDefault);
             int castSpeedTotal = FinalCastSpeedPct(player, stats, CastSpeedPct(stats) + supportCastSpeed);
             var supportedTiming = GolemStat(own, Stat.BaseSpellCastTimeMsOverride) is int castBasis and > 0
                 ? SpellCastTiming.Calculate(castBasis, castSpeedTotal) : SpellCastTiming.ForSkill(SkillsFor(player), effect, castSpeedTotal);

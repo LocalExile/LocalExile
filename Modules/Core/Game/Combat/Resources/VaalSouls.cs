@@ -115,18 +115,20 @@ public static partial class Game
         // (WithVaalPrevention publishes has_soul_gain_prevention from it). Vaal Immortal Call holds soul gain for
         // its duration (the buff's cannot_gain_souls); its state is a cheap table read, not a stat build.
         bool held = VaalImmortalCallActive(player, now);
-        bool prevented = player.VaalPreventionUntil > VaalResourceTime(player)
-            || CharacterPlayerStats(player).GetValueOrDefault(Stat.HasSoulGainPrevention) != 0;
-        if (prevented || held)
+        var stats = player.VaalPreventionUntil > VaalResourceTime(player) ? null : CharacterPlayerStats(player);
+        if (stats is null || stats.GetValueOrDefault(Stat.HasSoulGainPrevention) != 0 || held)
         {
             Console.WriteLine($"[gateway] Vaal soul not gained from monster 0x{id:x}: " +
                 $"{(held ? "Vaal Immortal Call" : "soul gain prevention")} (t={VaalResourceTime(player):0.000})");
             return false;
         }
         if (!player.VaalSouls.Gain()) return false;
-        // "Kills grant an additional Vaal Soul if you have Rampaged Recently": only a streak needs the stat read.
+        // These are two separate sources of additional souls on an eligible kill.
+        if (stats.GetValueOrDefault(Stat.ChanceToGainVaalSoulOnKillPct) is int chance and > 0
+            && GameServer.Core.World.RandomRolls.Chance(chance, 100, AreaRng(player)))
+            player.VaalSouls.Gain();
         if (player.Rampage.Current.Active
-            && CharacterPlayerStats(player).GetValueOrDefault(Stat.GainAnAdditionalVaalSoulOnKillIfHaveRampagedRecently) != 0)
+            && stats.GetValueOrDefault(Stat.GainAnAdditionalVaalSoulOnKillIfHaveRampagedRecently) != 0)
             player.VaalSouls.Gain();
         return true;
     }
