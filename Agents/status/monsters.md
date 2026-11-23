@@ -86,7 +86,7 @@ Part of [Status](../Status.md); what to build next in this area is in
   physical reduction, block, evasion, critical strikes and regeneration act on the server (each checked live); the
   instance keeps them.
   Only the 37 mods the server can honour roll; the other 74 are listed in [14](../docs/protocol/14-monster-packs.md)
-  §5.
+  §5. Monster species mods, ES/armour/evasion/accuracy/crit/ailment thresholds, pack aggro and leash also apply.
   Code: `MonsterMods.cs`, `Modules/Core/Game/Monster/Mods/MonsterMods.cs`, `MagicProperties.cs`.
   Docs: [14](../docs/protocol/14-monster-packs.md) §5.
 - Monster decisions use 50 ms of elapsed game time, with no catch-up burst after pauses or slow steps.
@@ -236,6 +236,8 @@ Part of [Status](../Status.md); what to build next in this area is in
   Docs: [Act 9](../docs/game/campaign/act9.md).
 - Act 10 Kitava: three hearts, finale and manual Epilogue portal; allies retain visibility for later observers.
   AI provisional ([Act 10](../docs/game/campaign/act10.md)).
+- Act 1–5 boss encounters have dedicated staged controllers (Hillock, Brutus, Merveil, Oversoul, Piety, Dominus, Voll,
+  Kaom, Daresso, Malachai, Innocence, Kitava) and ordinary monsters use multi-skill AI (not all verified live).
 - Act 5 Kitava: body/heart sequence and rescue; AI tuning provisional ([Act 5](../docs/game/campaign/act5.md)).
 - Doedre: cauldron and effluent modes; AI tuning provisional ([Act 8](../docs/game/campaign/act8.md)).
 
@@ -357,23 +359,8 @@ Part of [Status](../Status.md); what to build next in this area is in
   74 monster mods need systems the server lacks (auras on allies, monster skills, ailments on the player …) and do
   not roll;
   Drowned ignore their ground types; how near the player must come before an emerge monster rises is our choice;
-  a boss's stages exist for Hillock only (`BossFights.cs`; other bosses with `BossHealthBar` get the bar, and a
-  campaign boss with no controller plays its kit, but no act boss changes phase mid-fight); monsters respawn on every
-  entry;
-  a new (area, seed) needs a `-Walkmaps` visit for its unique boss ([14](../docs/protocol/14-monster-packs.md) §4).
-  the boss life bar and boss stages exist for Hillock only (`BossFights.cs`;
-  other bosses with `BossHealthBar` get the bar too); monsters respawn on every entry;
   a layout that gives an area no boss room point stands its unique boss at the walk map's deepest cell from the
   entrance, so a new (area, seed) has its boss; the room points themselves are still what `-Walkmaps` captures
   ([14](../docs/protocol/14-monster-packs.md) §4).
-  Act 2's bandit lords (Kraityn, Alira, Oak) are created hostile without their help-or-kill dialogue
-  ([17](../docs/protocol/17-npcs.md)).
   Not placed: Marceus the Defaced (a tile's statue spawner), The Solaris Temple Level 2's three Banners (a room the
   layouts never place) and Thistlesage (no room names his pack) ([14](../docs/protocol/14-monster-packs.md) §3).
-  A boss's later form is created where its act forms one: the quest's second-form rule spawns it on the boss's death
-  (Merveil's twisted form, Abberath2, Shakari2, Malachai's second form; `Act1.cs`, `Act4.cs`, `Act6.cs`, `Act9.cs`).
-  Marceus the Defaced (a tile's statue spawner) and Thistlesage (no room names his pack) have no boss room point of
-  their own: the deepest-cell fallback above is where they stand, not at the statue or the pack room
-  ([14](../docs/protocol/14-monster-packs.md) §3).
-  A boss's later form (Abberath2, Shakari2, Malachai's second form) is left to a fight or quest
-  that does not create it yet.

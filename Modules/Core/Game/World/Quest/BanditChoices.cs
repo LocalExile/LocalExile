@@ -78,6 +78,76 @@ public static class BanditChoices
 
     static bool Finished(Func<string, bool> has) => has(Delivered) || has(EramirReward) || All.Any(b => has(b.Reward));
 
+    public static bool HasCompleted(Player player) => Finished(player.Character.HasQuestFlag);
+
+    static readonly Dictionary<string, (string Flag, string Name)> BookOfReformTargets = new(StringComparer.Ordinal)
+    {
+        ["Metadata/Items/QuestItems/SkillBooks/BanditRespecKraityn"] = (Kraityn.Reward, Kraityn.Name),
+        ["Metadata/Items/QuestItems/SkillBooks/BanditRespecAlira"] = (Alira.Reward, Alira.Name),
+        ["Metadata/Items/QuestItems/SkillBooks/BanditRespecOak"] = (Oak.Reward, Oak.Name),
+        ["Metadata/Items/QuestItems/SkillBooks/BanditRespecEramir"] = (EramirReward, "Eramir"),
+    };
+
+    static readonly string[] AllRewardFlags = [Kraityn.Reward, Alira.Reward, Oak.Reward, EramirReward];
+
+    public static bool IsBookOfReform(string itemId) => BookOfReformTargets.ContainsKey(itemId);
+
+    // Right-click consumption of a Book of Reform (C→S 0x58): validates quest completion, differing choice, and at least
+    // one unallocated passive point when leaving Eramir (QSR 8 grants +1 passive point dynamically via a2q7-QuestRewardTaken),
+    // then atomically consumes the book, swaps the bandit reward quest flag, refreshes stats/passives, and persists the save.
+    public static async Task UseBookOfReform(Player player, PlayerInventories items, byte row, InventoryItem item, ItemCatalog.BaseType type)
+    {
+        if (!BookOfReformTargets.TryGetValue(type.Id, out var target)) return;
+        await player.Character.QuestGate.WaitAsync();
+        try
+        {
+            if (HardcoreProgressBlocked(player)) return;
+            string character = CharacterName(player);
+            var (taken, cleared, error) = Saves.Atomically<(PlayerInventories.Consumption? Taken, string[] Cleared, string? Error)>(() =>
+            {
+                var saved = (CharacterSaves.Load(character)?.QuestFlags ?? []).ToHashSet();
+                if (!Finished(saved.Contains))
+                    return (null, [], "You have not completed Deal with the Bandits.");
+                if (saved.Contains(target.Flag))
+                    return (null, [], $"You already have {target.Name}'s favour.");
+                if (saved.Contains(EramirReward) && target.Flag != EramirReward)
+                {
+                    int budget = GameServer.Core.World.Progression.PassivePoints(player.Pools.Level)
+                        + player.Character.ExtraPassivePoints
+                        + QuestStaticRewards.Default.PassivePoints(saved)
+                        + PassivesFor(player).PointsGranted(player.Character.Passives)
+                        + AscendancyOrdinaryPoints(player);
+                    int allocated = player.Character.Passives.Count + player.Character.ClusterPassives.Count;
+                    if (budget - allocated < 1)
+                        return (null, [], "You have insufficient unallocated Passive Skill Points to remove Eramir's favour.");
+                }
+                var consumption = items.ConsumeOne(row, item.Id);
+                if (consumption is null)
+                    return (null, [], null);
+                string[] toClear = [.. AllRewardFlags.Where(f => f != target.Flag && saved.Contains(f))];
+                if (toClear.Length > 0) CharacterSaves.ChangeQuestFlags(character, toClear, false);
+                CharacterSaves.ChangeQuestFlags(character, [target.Flag], true);
+                return (consumption, toClear, null);
+            });
+            if (taken is null)
+            {
+                if (error is not null)
+                    await Send(player, InstanceChat.ChatLine(error), $"0x0017 Book of Reform refused: {error}");
+                return;
+            }
+            uint inventoryId = PlayerInventories.InventoryId(row);
+            await Send(player, InstanceItems.InventoryChange(inventoryId, items.NextRevision(row), [item.Id], taken.Left is { } left ? [left] : []),
+                $"0x00bf inventory {inventoryId}: {type.Name} used ({target.Name})");
+            var clearedCommit = cleared.Length > 0 ? CommitQuestFlags(player, cleared, on: false) : null;
+            var setCommit = CommitQuestFlags(player, [target.Flag], on: true);
+            if (clearedCommit is not null) await PublishQuestFlags(player, clearedCommit, on: false);
+            if (setCommit is not null) await PublishQuestFlags(player, setCommit, on: true);
+            await Send(player, InstanceChat.ChatLine($"You have changed your bandit favour to {target.Name}."),
+                $"0x0017 Book of Reform applied: {target.Name}");
+        }
+        finally { player.Character.QuestGate.Release(); }
+    }
+
     static bool Available(Player player, Bandit bandit) =>
         QuestsOf(player).OnMonsterKilled(bandit.Area, bandit.Variety).Contains(bandit.Killed);
 

@@ -126,6 +126,12 @@ public sealed class NpcCatalog
         public string? OpensScreen => System.Text.RegularExpressions.Regex.Match(Scripts, @"SendOpenScreen\(\s*(\w+)\s*\)") is { Success: true } m
             ? m.Groups[1].Value : null;
 
+        /// <summary><c>StartTimer()</c> in Script2 (Act 3 Fairgraves NPCTalk 502): starts the NPC's scripted countdown timer.</summary>
+        public bool StartsTimer => Script2.Contains("StartTimer(", StringComparison.Ordinal);
+
+        /// <summary><c>IncrementCounter()</c> in Script2 (Act 3 Fairgraves NPCTalk 503): advances the NPC's scripted state counter.</summary>
+        public bool IncrementsCounter => Script2.Contains("IncrementCounter(", StringComparison.Ordinal);
+
         /// <summary>A top-level <c>DirtyTransition();</c>: the NPC itself steps to its next Transitionable state (Dialla at
         /// the Rapture Device, NPCTalk 534: state 1 → 2, withered).</summary>
         public bool TransitionsSelf => System.Text.RegularExpressions.Regex.Replace(Scripts, @"\{[^{}]*\}", "")

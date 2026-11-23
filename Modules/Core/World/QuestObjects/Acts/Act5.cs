@@ -44,6 +44,8 @@ static class Act5Objects
     public const string TemplarCourtsDoor = "Metadata/QuestObjects/Act5/TemplarCourtsDoor";
     public const string ArenaMiddle = "Metadata/Monsters/AvariusCasticus/ArenaMiddle";                    // boss_02.arm
     public const string ArenaSocket = "Metadata/Terrain/Act5/Area8/Objects/ArenaSocket";                  // bossentry.arm
+    public const string KitavaDoor = "Metadata/Terrain/Act5/Area8/Objects/KitavaDoor";
+    public const string DestroyedOriathObstructions = "Metadata/QuestObjects/Act5/DestroyedOriathObstructions";
     public const string PurityBox = "Metadata/Chests/QuestChests/Ossuary/PurityBox";                     // the Tomb of the First Templar
     public const string CathedralRoofBlocker = "Metadata/QuestObjects/Act5/CathedralRoofBlocker",
         CathedralRoofFlame = "Metadata/QuestObjects/Act5/CathedralRoofFlame";
@@ -130,6 +132,8 @@ sealed class Act5 : Act
                 On.Appears(ChamberOfInnocence, Act5Monsters.Innocence, Act5Npcs.SinInnocence, "a5q6-QuestReceived", advanceOnAppearance: true, atObject: Act5Objects.ArenaMiddle),
                 On.Exists(Act5Objects.ControlBlocksToSquare, until: "a5q4-KilledBoss", to: OriathSquare),
                 On.Exists(Act5Objects.ControlBlocksToDestroyedSquare, from: "a5q4-KilledBoss", to: RuinedSquare),
+                On.Exists(Act5Objects.DestroyedOriathObstructions, from: "a5q4-KilledBoss"),
+                On.Object(ControlBlocks, Act5Objects.DestroyedOriathObstructions),
                 On.Exists(Act5Objects.InnocenceToCourts, until: "a5q4-KilledBoss", to: TemplarCourts),
                 On.Exists(Act5Objects.InnocenceToDestroyedCourts, from: "a5q4-KilledBoss", to: TorchedCourts),
             },
@@ -164,6 +168,8 @@ sealed class Act5 : Act
                 On.Npc(Ossuary, Act5Npcs.SinOssuary, null, transitionedBy: "a5q6-SeenItem", shownBy: "a5q6-SeenItem"),
                 On.Object(CathedralRooftop, Act5Objects.ArenaSocket, "a5q6-DeliveredItem"),
                 On.UsedWith(CathedralRooftop, Act5Objects.ArenaSocket, ["a5q6-HaveItem"], "a5q6-DeliveredItem"),
+                On.Object(CathedralRooftop, Act5Objects.KitavaDoor, "a5q6-DeliveredItem"),
+                On.Blocker(CathedralRooftop, Act5Objects.KitavaDoor, 4, "a5q6-DeliveredItem"),
                 On.Spawns(CathedralRooftop, Act5Objects.ArenaSocket, Act5Monsters.Kitava),
                 On.Seen(CathedralRooftop, Act5Monsters.Kitava, "a5q6-SeenBoss"),
                 On.Threshold(CathedralRooftop, Act5Monsters.Kitava, 50, "a5q6-CompletedBoss"),

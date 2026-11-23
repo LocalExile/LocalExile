@@ -35,7 +35,8 @@ static partial class VendorsRules
         // A league quest flag taken flag is read and set in the account's stash inside the claim's transaction.
         var claimed = QuestRewardCatalog.Claim(CharacterName(player), data.TakenFlag, quest, items, reward, ShapeOf, row,
             expandedAllowed: ExpandedInventoryGranted(player), leagueFlag: data.TakenLeagueFlag,
-            leagueFlags: data.TakenLeagueFlag is null ? null : PersonalStashOf(player), reclaimable: data.Reclaimable);
+            leagueFlags: data.TakenLeagueFlag is null ? null : PersonalStashOf(player), reclaimable: data.Reclaimable,
+            repeatable: data.Repeatable);
         if (claimed is null) return;
         await Send(player, InstanceItems.InventoryChange(PlayerInventories.InventoryId(row),
             items.NextRevision(row), claimed.RemovedIds, claimed.AddedItems), "0x00bf claimed quest reward");
@@ -46,7 +47,7 @@ static partial class VendorsRules
         // The taken flag (or, for a quest item, its pickup flags: an Act 1 book's HaveRewardBook), in memory and to the client.
         var takenFlags = new List<string>();
         if (data.TakenFlag is { } taken) takenFlags.Add(taken);
-        if (quest is not null) takenFlags.AddRange(new[] { quest.Grant, quest.Extra }.OfType<string>());
+        if (quest is not null) takenFlags.AddRange(new[] { quest.Grant, quest.Extra, quest.Extra2 }.OfType<string>());
         if (takenFlags.Count > 0) await SetQuestFlags(player, takenFlags);
         // The claim saved the league flag already; this applies it in memory and sends it.
         if (data.TakenLeagueFlag is int league) await SetLeagueQuestFlags(player, [league]);

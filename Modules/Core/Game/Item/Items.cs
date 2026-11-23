@@ -1430,6 +1430,11 @@ public static partial class Game
             return;
         }
         if (await GameEvents.AnyItemUse(player, r, item, type)) return;
+        if (BanditChoices.IsBookOfReform(type.Id))
+        {
+            await BanditChoices.UseBookOfReform(player, items, r, item, type);
+            return;
+        }
         // A quest item with a use_flag (the quest books, Book of Regrets included): its flag, and QuestStaticRewards' points.
         if (type.Quest?.Use is not null)
         {

@@ -21,7 +21,7 @@ public sealed class NpcDialogueModule : IModule
                 await world.NpcClose("0x0084 close NPC dialogue for Menagerie travel");
                 await world.TravelTo(WaypointCatalog.MenagerieHub, $"{talk.Npc}: {talk.Option}");
                 return true;
-            case "QuestReward" when talk.RewardOffer is { } offer && await world.NpcOfferReward(offer):
+            case "QuestReward" or "BanditRespec" when talk.RewardOffer is { } offer && await world.NpcOfferReward(offer):
                 return true;
             case "Gossip" or "Quests" or "QuestReward" when talk.HasText:
                 // 0x84 with the row's index: the client opens the dialogue window on that NPCTalk row (its text and audio).

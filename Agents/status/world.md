@@ -100,6 +100,8 @@ Part of [Status](../Status.md); what to build next in this area is in
   without dropping trailing messages; C→S 0x0E verifies its SipHash-2-4 digest against per-ticket `Data8`, and C→S 0x7d
   compares client tile hashes against server-generated `TileHash` (not yet checked live).
   Docs: [02](../docs/protocol/02-instance-connection.md), [03](../docs/protocol/03-area-and-world.md).
+- Campaign world objects and encounters: ordinary clickable doors, ordinary breakables/chests, biome-filtered packs,
+  and campaign Essences and Voltaxic Sulphite deposits spawn across Acts 1–5 (not checked live).
 - HUD mission timers (S→C 0x163) and countdown timers (S→C 0x162): protocol encoders implemented and wired into
   Allflame lantern collapse (`Deepwater`) and Survivors stage countdowns (`Generic`); not yet checked live.
 - Shrines from generated room lines share their claim state and object IDs for the instance's lifetime, including
@@ -133,9 +135,8 @@ Part of [Status](../Status.md); what to build next in this area is in
   clip, as the daemons do). The spell daemons' hits act, but their falling projectiles are not right yet: Firestorm and
   Lightning Storm show only the client's first meteor/bolt, and Putrifying's single delayed corpse explosion finds
   nothing unless corpses already lie within 21 cells (the "Strongbox daemon spells" issue). Gems with experience drop at a random level up to 20;
-  Deshret's weapons drop identified; the party's currency bonus applies (not to Diviner's or Cartographer's). Not done:
-  Rogue Exile (`MapStrongboxes.RogueExiles` waits for a module that spawns exiles), the Vaalsmithed daemons (roadmap,
-  "Vaal Vessels"). Currency changes a closed
+  Deshret's weapons drop identified; the party's currency bonus applies (not to Diviner's or Cartographer's). Strongbox
+  Rogue Exiles spawn on ambush; Vaalsmithed daemons remain open (roadmap, "Vaal Vessels"). Currency changes a closed
   box (C→S 0x74, live: Transmutation, Alteration, Regal, Chaos), Annulment, Divine and Chance (which may make it
   unique, at our 5%) included; a Vaal Orb corrupts it and its contents; unique boxes take none (our choice). The orb is
   consumed from the character inventory or the open stash / currency tab (live: an orb right-clicked in the currency tab

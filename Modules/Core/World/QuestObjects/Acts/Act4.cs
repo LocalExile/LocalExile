@@ -47,6 +47,9 @@ static class Act4Objects
     public const string RoomFolder = "Metadata/Terrain/Mountain/Belly/Rooms/Unique/";
     public const string DeshretSpirit = "Metadata/QuestObjects/Act4/DeshretSpirit", DeshretHand = "Metadata/QuestObjects/Act4/DeshretHand";
     public const string RaptureDevice = "Metadata/QuestObjects/Act4/RaptureDevice";
+    public const string BeastSkinDoor = "Metadata/Terrain/Mountain/Mines/Objects/BeastSkinDoor",
+        BeastSkinDoorFX = "Metadata/Terrain/Mountain/Mines/Objects/BeastSkinDoorFX",
+        BeastSkinDoorExplosion = "Metadata/Terrain/Mountain/Mines/Objects/BeastSkinDoorExplosion";
     public const string ResonatorLever = "Metadata/Terrain/Act4/Area7/Objects/PortalDeviceLever",
         Resonator = "Metadata/Terrain/Act4/Area7/Objects/PortalDevice";   // ascent_summit_01.arm: a room room-points does not keep
 }
@@ -94,6 +97,11 @@ sealed class Act4 : Act
                 On.Npc(CrystalVeins, Act4Npcs.DiallaRapture, null, transitionedBy: "a4q1-RaptureActivated"),
                 On.Near(CrystalVeins, Act4Npcs.DiallaRapture, "a4q1-SeenRaptureDialla"),
                 On.Object(CrystalVeins, Act4Objects.RaptureDevice, "a4q1-RaptureActivated"),
+                On.Object(CrystalVeins, Act4Objects.BeastSkinDoor, "a4q1-RaptureActivated"),
+                On.Object(CrystalVeins, Act4Objects.BeastSkinDoorFX, "a4q1-RaptureActivated"),
+                On.Object(CrystalVeins, Act4Objects.BeastSkinDoorExplosion, "a4q1-RaptureActivated"),
+                On.Exit(CrystalVeins, KaomsDream, "a4q1-GemQuestsReceived"),
+                On.Exit(CrystalVeins, DaressosDream, "a4q1-GemQuestsReceived"),
                 On.Exit(CrystalVeins, Belly1, "a4q1-DiallaOnTransformed"),
                 On.Seen(Belly2, Act4Monsters.PietyBeast, "a4q1-SeenPiety"),
                 On.Killed(Belly2, Act4Monsters.PietyBeast, "a4q1-KilledPiety"),
