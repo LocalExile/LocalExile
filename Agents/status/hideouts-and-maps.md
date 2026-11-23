@@ -113,6 +113,8 @@ Part of [Status](../Status.md); what to build next in this area is in
 
 ## Partly working
 
+- Map and Atlas modifiers govern scarab drops, monster combat and player recovery, skill area, defences, accuracy and aura effect.
+
 - Named scarabs: Domination/Cloister, Ambush boxes, Essence release/Ascent/Calcification/Stability and Terrors bosses;
   Essence: corruption/transfers, Toughness, enrage, Decay, Envy, Karui and death insects; other skills/scaling partial (#505).
 - Tormented Spirits in maps and the campaign: touch, possession, right-click Possession cancellation (`C→S 0x004b`),
@@ -160,6 +162,8 @@ Part of [Status](../Status.md); what to build next in this area is in
 
 - Simulacrum: five arenas and a 15-wave controller; opening and the wave-start prompt checked in the client, wave
   combat and the reward display not yet. Starting a wave destroys every item on the ground, as the client warns.
+  Its arenas use their encounter rules independently of the owner's Atlas preset.
+  Scheduled bosses spawn before a scaled wave can award its rewards.
 
 - **Waypoint arrival.** Hideout entry uses the exact saved waypoint cell for spawn and movement origin,
   including login and returns from other areas.

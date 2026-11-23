@@ -16,9 +16,10 @@ public static class PlayerHitMitigation
     /// Hits" (Kahuturoa's Leadership).</summary>
     public static int ArmourPercent(CharacterStats.Pools pools, DamageType type, Func<uint, int> get) => type switch
     {
-        DamageType.Physical => 100,
+        DamageType.Physical => get(Stat.KeystonePrismaticBulwark) == 0 ? 100 : 0,
         DamageType.Chaos => pools.ArmourAppliesToChaosDamage ? 100 : Math.Clamp(get(ArmourPercentToChaos), 0, 100),
-        _ when DamageTypes.IsElemental(type) => Math.Clamp(get(ArmourPercentToElemental), 0, 100),
+        _ when DamageTypes.IsElemental(type) => get(Stat.KeystonePrismaticBulwark) != 0
+            ? 100 : Math.Clamp(get(ArmourPercentToElemental), 0, 100),
         _ => 0,
     };
 
@@ -28,13 +29,18 @@ public static class PlayerHitMitigation
     /// damage reduction under the shared cap; additional physical reduction stays physical. A per-hit armour decision
     /// overrides only this calculation and never writes the permanent pools.</summary>
     public static int AfterResistance(CharacterStats.Pools pools, DamageType type, int damage,
-        int physicalReduction = 0, int elementalReduction = 0, int? effectiveArmour = null, int? armourPercent = null)
+        int physicalReduction = 0, int elementalReduction = 0, int? effectiveArmour = null, int? armourPercent = null,
+        bool imbalancedGuard = false)
     {
         int armour = effectiveArmour ?? pools.Armour;
-        if (type == DamageType.Physical) return DamageModel.MitigatePhysical(damage, armour, physicalReduction);
-        int share = armourPercent ?? (type == DamageType.Chaos && pools.ArmourAppliesToChaosDamage ? 100 : 0);
+        int cap = imbalancedGuard ? 50 : DamageModel.DamageReductionCap;
+        if (imbalancedGuard) armour = ActorScale.Saturate(2L * armour);
+        int share = armourPercent ?? (type == DamageType.Physical || type == DamageType.Chaos && pools.ArmourAppliesToChaosDamage ? 100 : 0);
         int fromArmour = share > 0 ? DamageModel.ArmourReduction((int)((long)armour * share / 100), damage) : 0;
-        if (DamageTypes.IsElemental(type)) return DamageModel.Reduce(damage, fromArmour + elementalReduction);
-        return share > 0 ? DamageModel.Reduce(damage, fromArmour) : damage;
+        if (type == DamageType.Physical)
+            return DamageModel.Reduce(damage, (int)Math.Min(cap, (long)fromArmour + Math.Max(0, physicalReduction)));
+        if (DamageTypes.IsElemental(type))
+            return DamageModel.Reduce(damage, (int)Math.Min(cap, (long)fromArmour + elementalReduction));
+        return share > 0 ? DamageModel.Reduce(damage, Math.Min(cap, fromArmour)) : damage;
     }
 }

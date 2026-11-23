@@ -151,7 +151,7 @@ public static partial class Game
     /// Base and mod resistance compose before the cap; penetration subtracts once after that cap.
     /// </summary>
     public static int MonsterTakes(SpawnedMonster m, DamagePacket hit, Random random, bool spell,
-        Penetration.PerType pen = default, double now = double.NaN) => MonsterTakesRolled(m, hit.Roll(random), spell, pen, now);
+        Penetration.PerType pen = default, double now = double.NaN) => MonsterTakesRolled(m, hit.Roll(random), spell, pen, now, random);
 
     /// <summary>A monster's resistance to one type of the player's hit: base and mod resistance compose before
     /// Monster.ot's 75% cap; penetration subtracts once after that cap, the cold one against a chilled monster at
@@ -169,8 +169,9 @@ public static partial class Game
 
     // Already rolled: no extra RNG or per-component rounding, including ordinary bow contact snapshots.
     public static int MonsterTakesRolled(SpawnedMonster m, DamagePacket rolled, bool spell, Penetration.PerType pen = default,
-        double now = double.NaN)
-        => MonsterTakesMitigated(m, DamageModel.Mitigate(rolled, type => MonsterHitResistance(m, type, pen, now)), spell, now);
+        double now = double.NaN, Random? random = null)
+        => MonsterTakesMitigated(m, DamageModel.Mitigate(rolled, type => MonsterHitResistance(m, type, pen, now)),
+            spell, now, random: random);
 
     /// <summary>
     /// The damage a resisted hit of the player deals to a monster: the physical part less its physical damage reduction,
@@ -179,14 +180,15 @@ public static partial class Game
     /// (<see cref="MonsterBlocks"/>).
     /// </summary>
     public static int MonsterTakesMitigated(SpawnedMonster m, DamagePacket mitigated, bool spell, double now = double.NaN,
-        bool ignorePhysicalReduction = false)
-        => MonsterTakesMitigatedCore(m, mitigated, spell, now, 0, ignorePhysicalReduction);
+        bool ignorePhysicalReduction = false, Random? random = null)
+        => MonsterTakesMitigatedCore(m, mitigated, spell, now, 0, ignorePhysicalReduction, random);
 
-    public static int MonsterTakesTrapOrMineHit(SpawnedMonster m, DamagePacket mitigated, bool spell, double now)
-        => MonsterTakesMitigatedCore(m, mitigated, spell, now, BearTrapDamageTaken(m, now), ignorePhysicalReduction: false);
+    public static int MonsterTakesTrapOrMineHit(SpawnedMonster m, DamagePacket mitigated, bool spell, double now,
+        Random? random = null, bool ignorePhysicalReduction = false)
+        => MonsterTakesMitigatedCore(m, mitigated, spell, now, BearTrapDamageTaken(m, now), ignorePhysicalReduction, random);
 
     static int MonsterTakesMitigatedCore(SpawnedMonster m, DamagePacket mitigated, bool spell, double now,
-        int additionalTakenPct, bool ignorePhysicalReduction = false)
+        int additionalTakenPct, bool ignorePhysicalReduction, Random? random)
     {
         // The shrine aura's base_cannot_be_damaged (MonsterAuraEffect, temporary stats by name): the Divine shrine's
         // monsters cannot be damaged while it is unclaimed, as the row's own buff promises.
@@ -217,8 +219,15 @@ public static partial class Game
         double typed = mitigated[DamageType.Fire].Min * ElementalHitTakenPercent(e, m, DamageType.Fire, now)
             + mitigated[DamageType.Cold].Min * ElementalHitTakenPercent(e, m, DamageType.Cold, now)
             + mitigated[DamageType.Lightning].Min * ElementalHitTakenPercent(e, m, DamageType.Lightning, now);
-        return (int)Math.Round((total - elementalDamage) * factor + elementalDamage * elementalFactor + withered
-            + physicalTaken * factor * (physicalFactor - 1) + typed / 100.0 * elementalFactor);
+        double damage = (total - elementalDamage) * factor + elementalDamage * elementalFactor + withered
+            + physicalTaken * factor * (physicalFactor - 1) + typed / 100.0 * elementalFactor;
+        if (spell && e[Stat.BaseSpellSuppressionChancePct] is int chance and > 0
+            && GameServer.Core.World.RandomRolls.Chance(chance, 100, random ?? Random.Shared))
+        {
+            int prevented = Math.Clamp(DamageModel.SpellSuppressionEffect + e[Stat.BaseSpellDamagePctSuppressed], 0, 100);
+            damage *= (100 - prevented) / 100d;
+        }
+        return (int)Math.Round(damage);
     }
 
     static double ElementalHitTakenPercent(MonsterModEffects effects, SpawnedMonster m, DamageType type, double now) => type switch
@@ -277,12 +286,20 @@ public static partial class Game
     public static MonsterHit? HitUnlessBlockedLocked(Player player, SpawnedMonster m, int damage) =>
         damage is Blocked or Evaded ? null : ApplyMonsterHitLocked(player, m, damage);
 
-    /// <summary>The critical strike multiplier a critical hit of the player has on this monster: 100% when it takes no
-    /// extra damage from critical strikes (of Toughness).</summary>
+    /// <summary>The critical strike multiplier against this monster after reductions to the bonus above 100%.</summary>
     public static int CriticalMultiplierOn(SpawnedMonster m, int multiplier,
-        IReadOnlyDictionary<uint, int>? player = null, IReadOnlyDictionary<uint, int>? own = null, bool noExtra = false) =>
-        CriticalHitMultiplier((long)multiplier + m.Curses[Stat.EnemyAdditionalCriticalStrikeMultiplierAgainstSelf],
-            noExtra || m.Effects.NoExtraCriticalDamage || player is not null && CriticalHitsDealNoExtraDamage(player, own));
+        IReadOnlyDictionary<uint, int>? player = null, IReadOnlyDictionary<uint, int>? own = null, bool noExtra = false)
+    {
+        if (noExtra || m.Effects.NoExtraCriticalDamage || player is not null && CriticalHitsDealNoExtraDamage(player, own))
+            return 100;
+        long ordinary = (long)multiplier + m.Curses[Stat.EnemyAdditionalCriticalStrikeMultiplierAgainstSelf];
+        if (ordinary > 100)
+        {
+            int reduction = Math.Clamp(m.Effects[Stat.BaseSelfCriticalStrikeMultiplierMinusPct], 0, 100);
+            ordinary = 100 + (ordinary - 100) * (100 - reduction) / 100;
+        }
+        return CriticalHitMultiplier(ordinary, noExtra: false);
+    }
 
     /// <summary>One burn tick on a monster (Righteous Fire, fire damage over time), less <see cref="MonsterDotTaken"/>.</summary>
     public static (int Damage, double Carry) MonsterBurn(SpawnedMonster m, DamageOverTime burn, double seconds,
