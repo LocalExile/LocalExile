@@ -56,6 +56,48 @@ public partial class Program
         return null;
     }
 
+    /// <summary>The destination instance's resolved area rules, playable seed and layout: prepared during a transfer
+    /// while the client displays "Entering &lt;area&gt;", then reused when the client connects during its loading screen.</summary>
+    public sealed record PreparedArea(InstanceState Instance, MapDevice.Run? Map, byte AreaLevel,
+        IReadOnlyDictionary<uint, int> AreaStats, int LeagueCategory,
+        IReadOnlyList<(ushort Plugin, byte[] State)> PluginStates, uint Seed, AreaLayout Layout);
+
+    /// <summary>Prepares the destination instance's map, area stats, league category, terrain plugin states, playable
+    /// seed and generated layout before S→C 0x27 opens the client's loading screen.</summary>
+    public static PreparedArea PrepareTransferArea(ulong instanceId, long created, string? soloOwner, uint ticket,
+        ushort areaHash, uint authSeed, string characterName, string? league, string? leagueForm) =>
+        PrepareInstanceArea(Instances.Prepare(instanceId, created, soloOwner), ticket, areaHash, instanceId, authSeed,
+            characterName, league, leagueForm);
+
+    /// <summary>Resolves or reuses the area rules, playable seed and layout for <paramref name="instance"/>.</summary>
+    public static PreparedArea PrepareInstanceArea(InstanceState instance, uint ticket, ushort areaHash, ulong instanceId,
+        uint authSeed, string characterName, string? league, string? leagueForm)
+    {
+        var map = MapDevice.Admit(instance, ticket, areaHash, instanceId);
+        // An opened map's level goes in 0x1d (0: the client takes the area's WorldAreas level).
+        byte areaLevel = map is { Area.Level: > 0 } ? (byte)Math.Clamp(map.Area.Level, 1, 100) : (byte)0;
+        // The area stats the instance is played with (0x1d's first list, InstanceEvents.AreaStats): the client
+        // generates its level with them, so the Gateway does too. Composed by the instance's first preparation.
+        var areaLeague = ServerLeagues.Resolve(leagueForm, league, LeagueCatalog.Startup);
+        var areaRequest = new AreaStatsRequest(characterName, league, areaHash, map);
+        var areaStats = instance.AreaStats(() => InstanceEvents.ComposeAreaStats(areaLeague, areaRequest));
+        // The league content category (0x1d +0x28, InstanceEvents.LeagueCategory): the client picks the topology by it.
+        int leagueCategory = instance.LeagueCategory(() => InstanceEvents.ComposeLeagueCategory(areaLeague, areaRequest));
+        // The terrain plugin states (0x1d extra data, InstanceEvents.TerrainPluginStates), which a plugin builds its part
+        // of the level from. A Labyrinth room's extra data is its node, so it gets none.
+        var pluginStates = LabyrinthDay.DifficultyOf(AreaLayouts.IdOf(areaHash)) is not null ? []
+            : instance.TerrainPluginStates(() => InstanceEvents.ComposeTerrainPluginStates(areaLeague, areaRequest));
+        // The client generates the area at the seed, level, stats, category and plugin states of 0x1d: a seed the
+        // Gateway can generate too. Cached on the instance so a transfer that pre-generated it while the client showed
+        // "Entering <area>" hands the finished layout straight to HandleAsync without regenerating on the loading screen.
+        var (seed, layout) = instance.PreparedLayout(authSeed, areaLevel, () =>
+        {
+            uint playable = AreaLayouts.PlayableSeed(areaHash, authSeed, areaLevel, areaStats, leagueCategory, pluginStates);
+            return (playable, AreaLayouts.For(areaHash, playable));
+        }, knownSeed => AreaLayouts.For(areaHash, knownSeed), Instances.Now);
+        return new(instance, map, areaLevel, areaStats, leagueCategory, pluginStates, seed, layout);
+    }
+
     public static async Task HandleAsync(TcpClient client, InstanceKeyring keyring)
     {
         string remote = client.Client.RemoteEndPoint?.ToString() ?? "?";
@@ -120,24 +162,15 @@ public partial class Program
                 ulong instanceId = resolved.Instance;
                 var instance = Instances.Enter(instanceId, resolved.Created, resolved.Ssf ? resolved.CharacterId?.ToString("N") : null);
                 entered = instance;
-                var map = MapDevice.Admit(instance, ticket, areaHash, instanceId);
-                // An opened map's level goes in 0x1d (0: the client takes the area's WorldAreas level).
-                byte areaLevel = map is { Area.Level: > 0 } ? (byte)Math.Clamp(map.Area.Level, 1, 100) : (byte)0;
-                // The area stats the instance is played with (0x1d's first list, InstanceEvents.AreaStats): the client
-                // generates its level with them, so the Gateway does too. Composed by the instance's first connection.
                 string characterName = string.IsNullOrEmpty(resolved.Character) ? "Exile" : resolved.Character;
-                var areaLeague = ServerLeagues.Resolve(resolved.LeagueForm, resolved.League, LeagueCatalog.Startup);
-                var areaRequest = new AreaStatsRequest(characterName, resolved.League, areaHash, map);
-                var areaStats = instance.AreaStats(() => InstanceEvents.ComposeAreaStats(areaLeague, areaRequest));
-                // The league content category (0x1d +0x28, InstanceEvents.LeagueCategory): the client picks the topology by it.
-                // Composed by the instance's first connection, as the area stats.
-                int leagueCategory = instance.LeagueCategory(() => InstanceEvents.ComposeLeagueCategory(areaLeague, areaRequest));
-                // The terrain plugin states (0x1d extra data, InstanceEvents.TerrainPluginStates), which a plugin builds its part
-                // of the level from. A Labyrinth room's extra data is its node, so it gets none.
-                var pluginStates = LabyrinthDay.DifficultyOf(AreaLayouts.IdOf(areaHash)) is not null ? []
-                    : instance.TerrainPluginStates(() => InstanceEvents.ComposeTerrainPluginStates(areaLeague, areaRequest));
-                uint seed = AreaLayouts.PlayableSeed(areaHash, resolved.Seed, areaLevel, areaStats, leagueCategory, pluginStates);
-                var layout = AreaLayouts.For(areaHash, seed);
+                var preparedArea = PrepareInstanceArea(instance, ticket, areaHash, instanceId, resolved.Seed,
+                    characterName, resolved.League, resolved.LeagueForm);
+                byte areaLevel = preparedArea.AreaLevel;
+                var areaStats = preparedArea.AreaStats;
+                int leagueCategory = preparedArea.LeagueCategory;
+                var pluginStates = preparedArea.PluginStates;
+                uint seed = preparedArea.Seed;
+                var layout = preparedArea.Layout;
                 AreaLayouts.Announce(layout, seed);
                 Console.WriteLine($"[gateway] {remote} ticket 0x{ticket:x8}: {resolved.Character ?? "?"} → instance {instanceId}, {layout.Describe()}");
 
@@ -180,7 +213,11 @@ public partial class Program
                 pinnedSession = (pinnedName, player.Character.Account, player.Character.League);
                 int level = Logic.PrepareCharacter(player, resolved.Level);
                 prepared = true;
+                byte requestAreaLevel = areaLevel;
+                var layoutBeforeHeader = player.Layout;
                 var moduleHeader = GameEvents.RunAreaHeader(player);
+                bool headerReplacedLayout = !ReferenceEquals(player.Layout, layoutBeforeHeader);
+                if (headerReplacedLayout) layout = player.Layout;
                 byte headerLevel = moduleHeader?.Level ?? areaLevel;
                 bool levelChanged = headerLevel > 0 && headerLevel != areaLevel;
                 areaLevel = headerLevel;
@@ -200,13 +237,19 @@ public partial class Program
                     pluginStates = [];
                     droppedPluginStates = true;
                 }
-                // Refresh player.Layout when AreaHeader dropped plugin states or changed the area level sent in 0x1d,
-                // so the server's layout matches what the client builds.
+                // Refresh player.Layout when AreaHeader dropped plugin states, changed the area level sent in 0x1d,
+                // or replaced player.Layout directly (e.g. DelveRoutes.MineHeader), keeping the original requestAreaLevel key
+                // so party joins and re-entries into Simulacrum/Delve still hit the cache instead of advancing the seed.
                 if (droppedPluginStates || levelChanged)
                 {
                     if (levelChanged) ServerLevels.PlayAtLevel(layout.Id, seed, areaLevel);
                     layout = AreaLayouts.For(areaHash, seed);
+                    instance.UpdatePreparedLayout(resolved.Seed, requestAreaLevel, seed, layout, Instances.Now);
                     player.Use(layout);
+                }
+                else if (headerReplacedLayout)
+                {
+                    instance.UpdatePreparedLayout(resolved.Seed, requestAreaLevel, seed, layout, Instances.Now);
                 }
                 byte[]? terrainData = moduleHeader?.Terrain ?? (labyrinthNode is not null ? LabyrinthDay.ExtraData(labyrinthNode)
                     : pluginStates.Count > 0 ? InstanceProtocol.TerrainPluginStates(pluginStates) : null);
