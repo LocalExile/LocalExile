@@ -280,7 +280,7 @@ public static partial class Game
     {
         HitSummonsOnHitLocked(player, m, skill, sourceSkill, now, random);
         PhantasmsOnHitLocked(player, m, sourceSkill, now, random, skill: skill);
-        CursesOnHitLocked(player, m, sourceSkill, spell, now, skill);
+        CursesOnHitLocked(player, m, sourceSkill, spell, now, skill, playerStats, playerHit, random);
         KnockbackOnHitLocked(player, m, playerStats, skill, now, random, hitOrigin);
         // "You gain Onslaught for 4 seconds on Hit" and "Gain Arcane Surge on Hit with Spells" (Honoured Berserker
         // and Flood tattoos): every player hit, the spells-only one gated by the hit's own spell flag.
@@ -337,6 +337,9 @@ public static partial class Game
         }
         if (m.Dead || m.Life == 0)
         {
+            if (playerHit && Player(Stat.ExplodeOnKillPctFireDamageToDeal) > 0
+                && (spell || sourceSkill != 0 && SkillsFor(player).IsAttack(SupportedSkill(player, sourceSkill).Effect)))
+                CaptureEquippedHitExplosionLocked(m, playerStats);
             // Shatter (wiki Shatter, Freeze): a non-unique monster a hit kills while frozen, the killing hit's own freeze
             // included, leaves no corpse, so nothing spreads from it and the kill's shock has nothing to land on.
             if (m.Rarity != MonsterRarity.Unique && m.Ailments.Magnitude(Kind.Freeze, now) > 0)
@@ -426,6 +429,7 @@ public static partial class Game
     {
         ProliferateLocked(player, now);
         var packets = new List<(byte[], string)>();
+        ExpireConversionTrapsLocked(player, now, packets);
         ProliferateIgnitesLocked(player, now, packets);
         if (!MonsterElementalAilments.AnyApplied && !player.Area.HasProliferatedAilments && !player.Area.HasSpiderWebs)
         {
@@ -444,6 +448,8 @@ public static partial class Game
 
     static void ProcessMonsterAilmentLocked(Player player, uint id, SpawnedMonster m, double now, List<(byte[] Packet, string Log)> packets)
     {
+        if (m.TemporaryAllyUntil > 0 && (now >= m.TemporaryAllyUntil || m.Dead || m.Life == 0))
+            EndConversionTrap(player, id, m, now, packets);
         BearTrapChangesLocked(player, id, m, now, packets);
         // A knockback is presented before the ailment-idle skip: an idle monster still moves.
         if (m.KnockbackPending is (int kx, int ky))

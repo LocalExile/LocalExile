@@ -10,6 +10,7 @@ public sealed class ResourceEffectsState(IModuleLifetime? rules, IModuleLifetime
     public long Generation;
     public readonly ManaRecoupState Mana = new();
     public readonly TimedBlind PlayerBlind = new();
+    internal FlameTouchedState? FlameTouched;
     public readonly Dictionary<uint, (SpawnedMonster Target, TimedBlind Blind)> Targets = [];
     readonly HashSet<(uint Actor, ushort Buff)> retired = [];
     public sealed record Snapshot(ManaRecoupState.Carried Mana, (double Seconds, int Less)[] Blind,
@@ -85,6 +86,7 @@ public sealed class ResourceEffectsState(IModuleLifetime? rules, IModuleLifetime
         {
             Game.RetireAvatarOfFire(player);
             Game.RetireHerEmbrace(player);
+            Game.RetireFlameTouched(player, this);
             Game.RetireRecentHitLifeLoss(player);
             Game.RetireElusive(player);
             if (Game.ChargeSessions.TryGetValue(player, out var charges)) charges.Degeneration.Clear(Game.ResourceEffectsTime(player));
@@ -170,9 +172,17 @@ public static partial class Game
     public static bool CompleteResourceRecoveryLocked(Player player, double from, double now,
         IReadOnlyDictionary<uint, int> stats, double earnedMana, uint manaBefore, uint manaCap, ref double manaCarry)
     {
+        if (player.WitchbaneImmunityUntil is > 0 and var expiry && now >= expiry)
+        {
+            player.WitchbaneImmunityUntil = 0;
+            if (HasMapHexes(MapModsOf(player))) RecomputePoolsAndSpeed(player);
+            MarkPlayerStats(player, PlayerStatStep.SelfVulnerability);
+        }
         AdvancePlayerAilmentsLocked(player, from, now, stats);
         if (player.PlayerLife > 0) AdvanceSiphoningDamageLocked(player, now, stats);
         if (player.PlayerLife > 0) AdvanceHerEmbraceDamageLocked(player, now, stats);
+        if (player.PlayerLife > 0) AdvanceFlameTouchedDamage(player, now, stats);
+        if (player.PlayerLife > 0) AdvanceUtilityFlaskChaosDamageLocked(player, now, stats);
         if (player.PlayerLife > 0) AdvanceChargeDegenerationLocked(player, now, stats);
         if (player.PlayerLife > 0) AdvanceRecentHitLifeLossLocked(player, now);
         if (player.PlayerLife == 0)

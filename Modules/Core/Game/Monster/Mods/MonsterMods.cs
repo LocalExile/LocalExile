@@ -301,6 +301,12 @@ public static partial class Game
         return CriticalHitMultiplier(ordinary, noExtra: false);
     }
 
+    static int CriticalMultiplierWithWeapon(int multiplier, SpawnedMonster target, IReadOnlyDictionary<uint, int>? local)
+    {
+        int perPower = local?.GetValueOrDefault(Stat.HitsHaveCriticalStrikeMultiplerPlusPerMonsterPower) ?? 0;
+        return perPower == 0 ? multiplier : ActorScale.Saturate((long)multiplier + (long)perPower * WarcryPower(target.Rarity));
+    }
+
     /// <summary>One burn tick on a monster (Righteous Fire, fire damage over time), less <see cref="MonsterDotTaken"/>.</summary>
     public static (int Damage, double Carry) MonsterBurn(SpawnedMonster m, DamageOverTime burn, double seconds,
         double now = double.NaN) =>

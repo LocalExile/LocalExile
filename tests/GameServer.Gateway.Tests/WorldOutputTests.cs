@@ -26,6 +26,46 @@ public class WorldOutputTests : IDisposable
     }
 
     [Fact]
+    public async Task Closing_a_connection_during_projection_refuses_the_unadmitted_batch()
+    {
+        using var listener = new TcpListener(IPAddress.Loopback, 0);
+        listener.Start();
+        using var writer = new TcpClient();
+        var accepting = listener.AcceptTcpClientAsync();
+        await writer.ConnectAsync(IPAddress.Loopback, ((IPEndPoint)listener.LocalEndpoint).Port);
+        using var reader = await accepting;
+        var ciphers = new ConnectionCiphers(new byte[64], isClient: false);
+        var player = new Player(new(1, "world-retire", 300, 300, 100, 100, null, []), 1, 1)
+        {
+            Connection = { Session = new("world-retire", writer.GetStream(), ciphers) },
+        };
+        Assert.False(await Program.SendRecords(player, [], _ =>
+        {
+            player.Closed = true;
+            return new OutputBatch([OutputRecord.Immediate(InstanceProtocol.FrameEnd())]);
+        }));
+        Assert.Empty(Program.HistoryFor(ciphers).Lines());
+
+        var sharedPlayer = new Player(new(1, "world-retire-shared", 300, 300, 100, 100, null, []), 1, 1);
+        sharedPlayer.Connection.WorldOutput.Begin(1);
+        var previous = GameArea.Own(sharedPlayer.Area);
+        try
+        {
+            Assert.False(await Program.SendRecords(sharedPlayer, [], _ =>
+            {
+                sharedPlayer.Closed = true;
+                return new OutputBatch([OutputRecord.Immediate(InstanceProtocol.FrameEnd())]);
+            }));
+            Assert.Empty(sharedPlayer.Area.Delta.Take());
+            Assert.False(sharedPlayer.Connection.WorldOutput.TryShared(OutputBatch.Empty,
+                new WorldAdmission(sharedPlayer.Connection.WorldOutput, [])));
+            Assert.Throws<ObjectDisposedException>(() => sharedPlayer.Connection.WorldOutput.Shared(OutputBatch.Empty,
+                new WorldAdmission(sharedPlayer.Connection.WorldOutput, [])));
+        }
+        finally { GameArea.Own(previous); }
+    }
+
+    [Fact]
     public async Task Producers_publish_stable_native_order_and_release_births_only_after_the_delimiter()
     {
         using var listener = new TcpListener(IPAddress.Loopback, 0);
