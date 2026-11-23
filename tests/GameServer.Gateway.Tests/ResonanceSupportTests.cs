@@ -249,7 +249,9 @@ public sealed class ResonanceSupportTests
             Stat(global::Stat.LightningResonance));
         public void Advance(double seconds)
         {
-            Now += seconds;
+            using var mutation = Game.ProjectileMutation(Player, advance: false);
+            double committed = fixture.Session.Runtime.Now / (double)ProjectileRuntime.QuantaPerSecond;
+            Now = Math.Max(Now, committed) + seconds;
             fixture.Session.AdvanceTo(ProjectileRuntime.Time(Now));
         }
         public void Dispose()
