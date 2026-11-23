@@ -229,7 +229,7 @@ Part of [Status](../Status.md); what to build next in this area is in
   tables name no monster for brings one of the boss's family the skill names (`BossSummons`: Piety's blood elementals,
   Daresso's clones); a summon on cooldown or at the cap is passed over instead of stalling the boss; after a special a
   skill without a cooldown goes next; a boss whose spells reach its whole aggro range walks up for its melee swing once
-  it has waited 10 s (Merveil, the Siren); a boss's own skill the unique shaping has no form for stays a plain action
+  it has waited 10 s (Merveil, the Siren); a unique's own monster skill the unique shaping has no form for stays a plain action (`BossKits.KeepsUnshaped`: not a set-off piece, not a Rogue Exile's player skill)
   (Merveil, the Twisted's geysers). Checked offline only.
   Code: `BossKits`, `MonsterKitSkill`, `Monsters.PlanMonsterAi`.
 - The campaign Trinity has native attacks and two scorpion phases; organ portals use their native domain labels,

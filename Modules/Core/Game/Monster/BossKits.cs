@@ -188,10 +188,10 @@ public static class BossKits
                 else if (attack.Summon is null)
                 {
                     if (Shaped(player, variety, level, effect, attack) is { } shaped) attack = shaped;
-                    // A boss's own skill the shaping has no form for stays the action it was: the client plays its
+                    // A monster's own skill the shaping has no form for stays the action it was: the client plays its
                     // clip and what that draws (Merveil, the Twisted's geysers, screech and cascade), and it hits as a
-                    // plain hit. A Rogue Exile's is a player skill that needs its form.
-                    else if (kit.Count > 0 && !(IsKitBoss(catalog, variety) && Acts(attack))) continue;
+                    // plain hit.
+                    else if (kit.Count > 0 && !(Acts(attack) && KeepsUnshaped(catalog, variety, effect))) continue;
                 }
             }
             if (!Acts(attack) && kit.Count > 0) continue;
@@ -199,6 +199,30 @@ public static class BossKits
         }
         return kit;
     }
+
+    // Words of an id that mark a piece another skill sets off (an impact, an explosion, a death effect, a ground), not
+    // an action the monster starts itself.
+    static readonly string[] SetOffWords = ["Impact", "Explode", "Explosion", "Death", "GroundEffect", "Trigger", "Daemon", "NoEffects"];
+
+    /// <summary>Whether a unique keeps a skill the shaping has no form for, as the plain action it was before the shaping
+    /// (<see cref="Kit"/>). A boss keeps every one: its list was played so before. Any other unique keeps a monster's
+    /// own skill, but not a piece another skill sets off (a triggered skill, a geometry spell's hit "GS…", an id with a
+    /// word of SetOffWords) and not a player skill used by a Rogue Exile, a shade or a mercenary: those need their form
+    /// (a Flameblast's channel, a mine), and a plain hit would land with nothing drawn.</summary>
+    public static bool KeepsUnshaped(SkillCatalog catalog, MonsterCatalog.Variety variety, int effect)
+    {
+        if (IsKitBoss(catalog, variety)) return true;
+        if (!KeepUnshapedForUniques) return false;
+        string id = catalog.EffectId(effect) ?? "";
+        if (id.Length == 0 || catalog.HasType(effect, "Triggered") || id.StartsWith("GS", StringComparison.Ordinal)
+            || SetOffWords.Any(w => id.Contains(w, StringComparison.Ordinal))) return false;
+        return !(variety.Id.Contains("/Exiles/", StringComparison.Ordinal) || variety.Id.Contains("Mercenar", StringComparison.Ordinal)
+            || id.Contains("Exile", StringComparison.Ordinal) || id.Contains("Mercenary", StringComparison.Ordinal)
+            || id.Contains("MasterAlly", StringComparison.Ordinal));
+    }
+
+    /// <summary>The switch for uniques that are no boss keeping their unshaped skills.</summary>
+    public static bool KeepUnshapedForUniques = true;
 
     /// <summary>Whether an attack does anything: it hits for damage, summons, flies a projectile, throws a trap, puts a
     /// debuff on the player or leaves a ground.</summary>
