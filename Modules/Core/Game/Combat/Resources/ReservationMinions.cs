@@ -61,21 +61,29 @@ public static partial class Game
             ? actorLevel : SkillsFor(player).PlayerLevelReq(aura.Effect, aura.Level), 1, 100);
         var definition = new GolemCatalog.Definition(aura.Effect, aura.EffectId, kind, path, 0, [], false, false, IsGolem: false);
         var playerStats = CharacterPlayerStats(player);
+        bool skitter = kind.StartsWith("Skitter", StringComparison.Ordinal);
+        double summonDuration = kind == "Purity"
+            ? ReservationDuration(player, aura, Stat.BaseSkillEffectDuration, 12000) : double.PositiveInfinity;
+        double freshMeat = !skitter ? FreshMeatSeconds(supported.Stats, summonDuration) : 0;
+        double preparedNow = AreaTime(player);
         var fighter = new GolemState.Golem(0, null!, definition, aura.SkillId)
-        { GemLevel = supported.Level, Quality = supported.Quality, Own = ReservationMinionStats(player, aura, kind), Player = new(playerStats), Limit = limit };
-        var mods = GolemModifiers(player, fighter, playerStats);
+        {
+            GemLevel = supported.Level, Quality = supported.Quality, Own = ReservationMinionStats(player, aura, kind),
+            Player = new(playerStats), Limit = limit,
+            FreshMeatUntil = freshMeat > 0 ? preparedNow + freshMeat : 0,
+        };
+        var mods = GolemModifiers(player, fighter, playerStats, preparedNow);
         var pools = GolemPools.Calculate(Monsters, variety, level, fighter, playerStats, mods.Effects);
         uint transportMaximum = pools.Fatal ? 1 : pools.MaximumLife;
         uint maximumEnergyShield = NativeEnergyShield(pools.MaximumEnergyShield);
         uint energyShield = maximumEnergyShield;
         if (!pools.Fatal)
         {
-            fighter.Abilities = kind.StartsWith("Skitter", StringComparison.Ordinal)
-                ? [] : GolemAbilities(player, variety, level, fighter, playerStats);
+            fighter.Abilities = skitter
+                ? [] : GolemAbilities(player, variety, level, fighter, playerStats, preparedNow);
             fighter.Skills = GolemNativeSkills(player, level, fighter.Abilities);
         }
         var at = NextToPlayer(player);
-        bool skitter = kind.StartsWith("Skitter", StringComparison.Ordinal);
         await SpawnMonster(player, variety, level, MonsterRarity.Normal, at.X, at.Y,
             friendly: true, mods: mods, unrisen: false, extraStats: skitter ? SkitterMinionStats : MinionStats, ownedSkills: fighter.Skills,
             ownedMaximumLife: transportMaximum, ownedMaximumEnergyShield: maximumEnergyShield,
@@ -84,16 +92,17 @@ public static partial class Game
             ownedCurrent: () => ReservationAura(player, aura.EffectId)?.SkillId == aura.SkillId,
             owned: (id, monster) =>
             {
+                double committed = AreaTime(player);
                 fighter.Id = id; fighter.Monster = monster;
-                fighter.SummonedAt = fighter.LastStep = AreaTime(player);
+                fighter.SummonedAt = fighter.LastStep = committed;
+                if (freshMeat > 0) fighter.FreshMeatUntil = committed + freshMeat;
                 fighter.ShieldPool.SetMaximum(maximumEnergyShield, refill: true);
                 monster.Mods = mods;
                 player.Reservations.Fighters.Add(id, fighter);
-                player.Reservations.Until[id] = kind == "Purity"
-                    ? AreaTime(player) + ReservationDuration(player, aura, Stat.BaseSkillEffectDuration, 12000) : double.PositiveInfinity;
+                player.Reservations.Until[id] = double.IsFinite(summonDuration) ? committed + summonDuration : double.PositiveInfinity;
                 player.Minions.Add(new(id, monster, aura.EffectId, kind) { Until = player.Reservations.Until[id] });
                 monster.NoRewards = true; monster.Aggro = true;
-                if (pools.Fatal) GolemDieLocked(player, fighter, AreaTime(player), emitLife: false);
+                if (pools.Fatal) GolemDieLocked(player, fighter, committed, emitLife: false);
             });
     }
 
@@ -138,7 +147,7 @@ public static partial class Game
                 if (refresh)
                 {
                     fighter.Own = ReservationMinionStats(player, aura, fighter.Definition.Kind);
-                    RefreshGolemLocked(player, fighter, playerStats!);
+                    RefreshGolemLocked(player, fighter, playerStats!, now);
                 }
                 if (fighter.Monster.Dead || fighter.Monster.Life == 0) continue;
                 var pending = fighter.Definition.Kind.StartsWith("Skitter", StringComparison.Ordinal) && now >= fighter.NextOrb
