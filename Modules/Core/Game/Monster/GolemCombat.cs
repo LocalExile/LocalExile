@@ -313,8 +313,7 @@ public static partial class Game
     {
         if (SpectreChargeRoar(g, action.Ability.Effect) is { } charge)
         {
-            var cast = action.Ability;
-            ReleaseSpectreChargeRoarLocked(player, g.Monster.Walk.Position(now), charge, cast.Radius, now, cast.Id);
+            ReleaseSpectreChargeRoarLocked(player, g.Monster.Walk.Position(now), charge, action.Ability, now);
             return;
         }
         var a = action.Ability; var at = g.Monster.Walk.Position(now);

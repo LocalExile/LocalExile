@@ -30,6 +30,9 @@ public static partial class Game
     static double GolemMeatShieldDamageFactor(GolemState.Golem golem) =>
         Math.Max(0, 1 + GolemStat(golem.Own, Stat.SupportMinionDefensiveStanceMinionDamageTakenPlusPctFinal) / 100d);
 
+    static double GolemElementalReductionFactor(MonsterModEffects effects) =>
+        (100 - Math.Clamp(effects[Stat.AdditionalElementalDamageReductionPct], 0, DamageModel.DamageReductionCap)) / 100d;
+
     static void QueueGolemDotPacket(Player player, GolemState.Golem golem, byte[] packet, string? log = null) =>
         player.Minions.OutputQueue.Add(new(packet, log, golem.Id, golem.Monster, WorldId: golem.Id));
 
@@ -42,7 +45,8 @@ public static partial class Game
         bool elementalImmune = GolemElementalImmune(golem);
         bool ignoresDots = GolemIgnoresDots(golem);
         double meatShield = GolemMeatShieldDamageFactor(golem);
-        double fireFactor = elementalImmune || ignoresDots ? 0 : MonsterDotTaken(m, DamageType.Fire, to);
+        double fireFactor = elementalImmune || ignoresDots ? 0
+            : MonsterDotTaken(m, DamageType.Fire, to) * GolemElementalReductionFactor(m.Effects);
         int fire = m.Ignites.Advance(to, fireFactor * meatShield, 0, out double? fireAt);
         int legion = InfernalLegionSelfDamage(golem, to - from, fireFactor);
         int blessing = ignoresDots ? 0 : GuardianBlessingMinionDamage(player, golem, from, to);

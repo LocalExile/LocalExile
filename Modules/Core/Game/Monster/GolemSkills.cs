@@ -92,6 +92,11 @@ public static partial class Game
             values[Stat.CastSpeedPlusPct] = values.GetValueOrDefault(Stat.CastSpeedPlusPct) + 4 * frenzy;
             values[Stat.CriticalStrikeChancePlusPct] = values.GetValueOrDefault(Stat.CriticalStrikeChancePlusPct)
                 + 50 * charges.Held(ChargeType.Power);
+            int endurance = charges.Held(ChargeType.Endurance);
+            values[Stat.BaseAdditionalPhysicalDamageReductionPct] = values.GetValueOrDefault(Stat.BaseAdditionalPhysicalDamageReductionPct)
+                + 4 * endurance;
+            values[Stat.AdditionalElementalDamageReductionPct] = values.GetValueOrDefault(Stat.AdditionalElementalDamageReductionPct)
+                + 4 * endurance;
         }
         int Get(uint n) => GolemStat(playerStats, n);
         if (Get(Stat.NecromancerMinionDamagePlusPctFinal) is int damageMore and not 0)
@@ -436,6 +441,7 @@ public static partial class Game
         hash.Add(OwnerMaximumPowerCharges(playerStats));
         if (golem.CombatCharges is { } charges)
         {
+            hash.Add(charges.Held(ChargeType.Endurance));
             hash.Add(charges.Held(ChargeType.Frenzy));
             hash.Add(charges.Held(ChargeType.Power));
         }

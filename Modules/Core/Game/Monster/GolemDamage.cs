@@ -151,6 +151,8 @@ public static partial class Game
                 double reduction = Math.Min(.9, armour / Math.Max(1, armour + 5 * value) + effects.PhysicalReduction / 100.0);
                 value = (int)Math.Round(value * (1 - reduction));
             }
+            else if (DamageTypes.IsElemental(type))
+                value = (int)Math.Round(value * GolemElementalReductionFactor(effects));
             value = (int)Math.Round(value * effects.DamageTaken(spellHit)
                 * GolemMeatShieldDamageFactor(g)
                 * Math.Max(0, 1 + GolemStat(g.Own, Stat.VaalUpgradeMinionDamageTakenPlusPctFinal) / 100d)

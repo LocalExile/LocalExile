@@ -5,22 +5,26 @@ public static partial class Game
     static ChargeType? SpectreChargeRoar(GolemState.Golem minion, int effect) =>
         minion.Definition.Kind != "Spectre" ? null : effect switch
         {
+            273 => ChargeType.Endurance,
             1598 => ChargeType.Frenzy,
             1607 => ChargeType.Power,
             _ => null
         };
 
     static void ReleaseSpectreChargeRoarLocked(Player player, (int X, int Y) at, ChargeType type,
-        double radius, double now, string effect)
+        GolemState.Ability ability, double now)
     {
-        var grant = new ChargeEvent.Grant(type, 1, effect);
+        int amount = type == ChargeType.Endurance
+            ? GolemStat(ability.Stats, Stat.EnduringCryGrantsXAdditionalEnduranceCharges) : 1;
+        if (amount <= 0) return;
+        var grant = new ChargeEvent.Grant(type, amount, ability.Id);
         void Grant(Player recipient, (int X, int Y) playerAt, double recipientTime)
         {
-            if (recipient.PlayerLife > 0 && Dist(at, playerAt) <= radius)
+            if (recipient.PlayerLife > 0 && Dist(at, playerAt) <= ability.Radius)
                 ChargesOf(recipient).Enqueue(grant);
             foreach (var fighter in UtilityFighters(recipient))
-                if (Dist(at, fighter.Monster.Walk.Position(now)) <= radius)
-                    GrantMinionChargeLocked(recipient, fighter, type, recipientTime);
+                if (Dist(at, fighter.Monster.Walk.Position(recipientTime)) <= ability.Radius)
+                    GrantMinionChargeLocked(recipient, fighter, type, amount, recipientTime);
         }
 
         Grant(player, player.Walk.Position(now), now);
@@ -30,12 +34,12 @@ public static partial class Game
                 Grant(recipient, recipient.Walk.Position(AreaTime(recipient)), AreaTime(recipient));
     }
 
-    static void GrantMinionChargeLocked(Player owner, GolemState.Golem fighter, ChargeType type, double now)
+    static void GrantMinionChargeLocked(Player owner, GolemState.Golem fighter, ChargeType type, int amount, double now)
     {
         ExpireMinionChargesLocked(owner, fighter, now);
         var charges = fighter.CombatCharges ??= new();
         var limits = Charges.LimitsOf(type, name => fighter.Monster.Effects[name], charges.Held(type));
-        var (_, count) = charges.Gain(type, 1, now, limits);
+        var (_, count) = charges.Gain(type, amount, now, limits);
         if (count == 0) return;
         PublishMinionChargeLocked(owner, fighter, type, count, charges.ExpiresAt(type), now);
     }
@@ -44,10 +48,10 @@ public static partial class Game
     {
         if (fighter.CombatCharges is not { } charges) return;
         bool Due(ChargeType type) => charges.Held(type) > 0 && now >= charges.ExpiresAt(type);
-        if (!Due(ChargeType.Frenzy) && !Due(ChargeType.Power)) return;
+        if (!Due(ChargeType.Endurance) && !Due(ChargeType.Frenzy) && !Due(ChargeType.Power)) return;
         foreach (var expired in charges.Expire(now))
             PublishMinionChargeLocked(owner, fighter, expired, 0, 0, now);
-        if (charges.Held(ChargeType.Frenzy) == 0 && charges.Held(ChargeType.Power) == 0)
+        if (charges.Held(ChargeType.Endurance) == 0 && charges.Held(ChargeType.Frenzy) == 0 && charges.Held(ChargeType.Power) == 0)
             fighter.CombatCharges = null;
     }
 
