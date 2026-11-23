@@ -164,14 +164,22 @@ public sealed class AreaBuffs(GameArea area)
             {
                 uint entity = key.Entity;
                 bool had = written.TryGetValue(key, out var was);
-                // A countdown that ran out ended the buff on the client already.
-                if (had && was.Ends <= now) { written.Remove(key); had = false; }
+                // A countdown that ran out leaves the buff on the client at 0:00 until it is removed: a buff stated
+                // again after its end stacked on the old instance, and one cleared after its end stayed (live
+                // 2026-11-22: Onslaught and Adrenaline at "0:00" with a count). So an instance whose time is over is
+                // removed when its key is next cleared or set.
                 if (buff is null)
                 {
                     if (!had) continue;
                     written.Remove(key);
                     area.Delta.Add(entity, InstanceEntities.RemoveBuff(entity, was.Instance));
                     continue;
+                }
+                if (had && was.Ends <= now)
+                {
+                    written.Remove(key);
+                    area.Delta.Add(entity, InstanceEntities.RemoveBuff(entity, was.Instance));
+                    had = false;
                 }
                 if (had && was.Buff.Same(buff)) continue;
                 // The client runs a buff's countdown from its instance's creation: a new duration is a new instance.
