@@ -65,6 +65,11 @@ Part of [Status](../Status.md); what to build next in this area is in
 
 ## Partly working
 
+- Cursed and ignited kill effects use the accepted hit and corpse state. Retained hexes support Asenath's corpse effects.
+  Witchbane grants its timed immunity on player kills, and minion curse explosions use the killing minion's damage.
+- Hex Master and Defiled Forces govern curse duration and ailment refresh. Firestorm schedules timed hits.
+- Weapon-local Bloodseeker instant Life leech, Elder life gained against blinded enemies and culling against bleeding
+  enemies, and Nametaker critical multiplier and instant leech follow the hand that makes the hit.
 - Weapon-conditioned attack damage, bow bleeding, attack ignite and spell poison read their qualifying stats.
   Trap and mine damage, Battlemage, Perseverance, physical reduction bypass and elemental ailment swaps apply offline.
 - Acrobatics, The Agnostic, Imbalanced Guard, Wicked Ward, Corrupted Soul and Transcendence resolve their defences.
@@ -82,17 +87,19 @@ Part of [Status](../Status.md); what to build next in this area is in
 - Divine Blessing (including March of the Legion) pays a one-time cost and grants one temporary Blessing;
   Vaal Haste has a soul-paid temporary aura. Smite has separate melee/lightning hits and a timed on-hit aura.
   Smite impacts and Vaal Haste's speed buff are verified live; complete build and party parity remain partial.
+- Eternal Blessing suspends other skills' mana reservations while its aura is active and preserves life reservations.
+- Guardian's Blessing needs a living minion that shares its support link. The minion takes physical damage over time,
+  and the aura ends when the last qualifying minion is gone.
 
 - Leap Slam: landing hits and full-life stuns; recovery cadence awaits a client check. Docs: [11](../docs/protocol/11-skills.md) Â§9a.
 
 - Contagion and Contagion of Subsiding: a chaos damage over time with no hit; a monster that dies affected spreads
-  it for the time it had left. Not yet: the debuff icon (BuffDefinitions 504 crashes the client), Contagion of
-  Transference, a spread when a projectile or a minion makes the kill.
+  it for the time it had left. Contagion of Transference spreads on hit. The debuff icon and some kill paths remain open.
 - Bane and Bane of Condemnation: independent chaos damage over time and linked Hex application. Damage and duration
   use the Hexes applied to each target. The Bane-specific buff presentation remains open.
 - Essence Drain: a surviving hit leaves a chaos damage over time that recovers life for its caster, and
-  Contagion's spread carries it. Not yet: the debuff icon (503 crashes the client), Essence Drain of
-  Desperation's life loss, the debuff in Survivors.
+  Contagion's spread carries it. Desperation drains the caster's Life and Energy Shield while its debuff deals damage.
+  The debuff icon and Survivors support remain open.
 - Ice Shot: its primary arrows (`IceArrow`) hit; the cone splash is open.
   Docs: [11](../docs/protocol/11-skills.md) Â§10.
 - Multi-strike skills (Double Strike): each strike is its own hit, sharing one critical roll.
@@ -114,6 +121,8 @@ Part of [Status](../Status.md); what to build next in this area is in
   Docs: [11](../docs/protocol/11-skills.md) Â§12.
 - Lifetap Support and Blood Magic publish converted wire `life_cost` / `life_cost_per_minute` (zeroing wire mana cost)
   so the client spends Life only. Docs: [25](../docs/protocol/25-gem-supports.md).
+- Movement, travel and stance skill cooldowns read their recovery stats. Spell and curse costs read their efficiency.
+  Mark waivers, Cannibalistic Rite, the Covenant and Rathpith Globe use the server's resource admission.
 - Energy Shield skill costs (Energy Blade, Wild Strike of Extremes, Replica Covenant) and Eldritch Battery: costs paid
   from Energy Shield first, hits past it to Life, its Mana share taken from it, 50% less recharge (not checked live).
   Docs: [20](../docs/protocol/20-damage.md).
@@ -170,6 +179,12 @@ Part of [Status](../Status.md); what to build next in this area is in
 - Flesh and Stone and Blood and Sand. Docs: [11](../docs/protocol/11-skills.md) Â§12.
 - Passive-granted skills and Summon Elemental Relic.
   Docs: [11](../docs/protocol/11-skills.md) §13, [Paladin](../docs/game/paladin.md).
+- Equipment-granted Bear Trap, Wintertide Brand, Decoy Totem, Smite, Frostblink, Summon Stone Golem, Convocation,
+  Enduring Cry and Intimidating Cry use their existing skill actions. A restored golem retains its equipment source.
+- Doryani's Touch uses the gloves' unarmed lightning damage and requires both hands to have no weapon.
+- Lightpoacher can earn Spirit Charges on kills with an equipped Abyss Jewel. An accepted skill use can spend a
+  live charge to launch Spirit Burst.
+- Approaching Flames from Annihilation's Approach toggles Flame-Touched, its Adrenaline and its fire damage.
 - Owned minions: relics, chieftains and the 17 golems. Docs: [11](../docs/protocol/11-skills.md) §10h.
   Mindless Aggression and minion area mastery scale minions. Fresh Meat grants timed Adrenaline and Wakened Fury.
 - Raised Host and Carnage Chieftains grant Power and Frenzy Charges with their native roars. Spectre charge visuals still need live verification.
@@ -201,6 +216,9 @@ Part of [Status](../Status.md); what to build next in this area is in
   Frenzy gives one Frenzy Charge per use and its more attack damage and speed per charge.
   Puncture always bleeds, for its skill duration and with its more bleeding damage.
   Power Siphon fires one projectile at each of the nearest enemies ahead, with its per-Power-Charge criticals.
+- Doomfletch's weapon physical gain reaches attacks as separate fire, cold and lightning damage.
+- Equipment modifiers scale from final attributes, Oskarm uses final Accuracy for attack critical chance, and
+  Mask of the Stitched Demon uses full maximum Energy Shield for Life regeneration.
 - Blink Arrow and its variants leave clones at departure; clones use arrows, arrow rain or elemental shots.
   Lightning Warp queues teleports and hits both endpoints.
 - Instant skills, shared Blink and Guard cooldowns (a guard skill cast from the bar as well as one a trigger releases),
@@ -233,6 +251,8 @@ Part of [Status](../Status.md); what to build next in this area is in
 - Absolution and Dominating sentinels, Phantasms, direct Vaal Skeletons and Vaal Absolution/Domination ascensions. Docs: [11](../docs/protocol/11-skills.md) Â§10h.
   Vaal minion totem, trap and mine casts are refused before spending souls or starting an action.
 - Vaal Animate Weapon transforms eligible melee drops and landed Bladefall of Trarthus blades into temporary unique weapons.
+- Conversion Trap temporarily changes the triggering enemy's allegiance. Converted enemies can attack hostiles,
+  and unique enemies are immune.
 - Bear Trap's single secondary hit immobilises the target, then applies a decaying slow and trap/mine hit vulnerability.
 - Hexes and marks. Docs: [11](../docs/protocol/11-skills.md) Â§12.
 - Totems: Rejuvenation, Arc, projectile spells, supported summons, ballistas, Shockwave, Devouring and Decoy Totem

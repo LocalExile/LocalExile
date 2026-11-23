@@ -50,6 +50,9 @@ public static partial class Game
         var candidates = GemSkillEffects(player).Where(g => SkillsFor(player).EffectId(g.Effect) == effect).ToArray();
         if (host is uint item && socket is int index)
         {
+            if (index < 0)
+                return candidates.FirstOrDefault(g => SupportedSkill(player, g.Id).WornGrant is { } grant
+                    && grant.Host == item && grant.Socket == index).Id;
             var place = ItemsOf(player).SocketedGemPlaces().FirstOrDefault(p => p.ItemId == item && p.Socket == index);
             if (place.Gem is null) return 0;
             object placeId = PlayerInventories.GemIdentity(place.Gem);
@@ -287,7 +290,7 @@ public static partial class Game
                     && (definition.Family != "Clone" || player.Summons.Definitions[g.Id].LimitStat == definition.LimitStat);
                 while (replacement is null && player.Summons.Fighters.Values.Count(SameLimit) >= limit)
                     RemoveSummonLocked(player, player.Summons.Fighters.Values.Where(SameLimit)
-                        .MinBy(g => g.SummonedAt)!, AreaTime(player));
+                        .MinBy(g => g.SummonedAt)!, AreaTime(player), reconcileBlessing: false);
                 double committed = AreaTime(player);
                 SummonReplacementResources? committedResources = replacement is null
                     ? null : CaptureReplacementResources(replacement.Old, committed);
@@ -322,6 +325,7 @@ public static partial class Game
                 player.Minions.StatRevision++;
                 if (!pools.Fatal) PresentTransferredGolemDotBuffsLocked(player, fighter, committed);
                 if (pools.Fatal) GolemDieLocked(player, fighter, AreaTime(player), emitLife: false);
+                else ReconcileGuardianBlessingLocked(player);
             });
         return id;
     }
@@ -334,11 +338,11 @@ public static partial class Game
         if (playerConsumesCorpse) NoteCorpseConsumedLocked(player, corpse);
     }
 
-    static void RemoveSummonLocked(Player player, GolemState.Golem fighter, double now)
+    static void RemoveSummonLocked(Player player, GolemState.Golem fighter, double now, bool reconcileBlessing = true)
     {
         player.Summons.Fighters.Remove(fighter.Id); player.Summons.Until.Remove(fighter.Id);
         player.Summons.Definitions.Remove(fighter.Id); player.Summons.Weapons.Remove(fighter.Id);
-        RemoveGolemLocked(player, fighter, now);
+        RemoveGolemLocked(player, fighter, now, reconcileBlessing);
         player.Minions.StatRevision++;
     }
 

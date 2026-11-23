@@ -154,13 +154,17 @@ public static partial class Game
         bool curseImmune = covered && state.Grounds.Any(g => g.GrantsCurseImmunity
             && (InZone(player, player.Id, FlaskGroundZones, g.Id, player.Id) || g.Covers(here)));
         bool wasCurseImmune = state.CurseImmune;
+        bool consecratedChanged = false;
         if (state.SetConsecrated(state.OnConsecrated(alive, covered, now, curseImmune), () => 1) is { } consecrated)
         {
             if (consecrated.Added) player.Area.Buffs.Set(player.Id, new(FlaskGrounds.ConsecratedBuffRow, player.Id));
             else player.Area.Buffs.Clear(player.Id, FlaskGrounds.ConsecratedBuffRow, player.Id);
             pending.StatRevision++;
+            consecratedChanged = true;
         }
         else if (wasCurseImmune != state.CurseImmune) pending.StatRevision++;
+        if ((consecratedChanged || wasCurseImmune != state.CurseImmune) && HasMapHexes(MapModsOf(player)))
+            RecomputePoolsAndSpeed(player);
         state.StopTickerIfIdle();
     }
 

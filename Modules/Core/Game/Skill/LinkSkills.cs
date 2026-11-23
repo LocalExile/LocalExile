@@ -204,7 +204,8 @@ public static partial class Game
     {
         if (flask.Rarity == ItemRarity.Unique || character(Stat.FlasksApplyToYourLinkedTargets) == 0) return;
         var (stats, seconds) = ItemUtilityFlaskFor(utility, flask, local,
-            name => name is Stat.FlaskEffectPlusPct or Stat.MagicUtilityFlaskEffectPlusPct ? 0 : character(name));
+            key => key is Stat.FlaskEffectPlusPct or Stat.MagicUtilityFlaskEffectPlusPct ? 0 : character(key),
+            finalMultiplier: MapFlaskEffectMultiplier(player));
         uint duration = BitConverter.SingleToUInt32Bits((float)seconds);
         var bytes = new List<byte>();
         double now = AreaTime(player);

@@ -144,7 +144,8 @@ public static partial class Game
         var exemptions = GameEvents.ExemptItems(player);
         if (exemptions.Count > 0)
             before = new HashSet<uint>((before ?? []).Where(id => !exemptions.Contains(id)));
-        var (sources, attributes, inactive, worn) = EquipmentStatSources(player, ItemsOf(player).EquipmentSnapshot(), nodes, level);
+        var equipment = ItemsOf(player).EquipmentSnapshot();
+        var (sources, attributes, inactive, worn) = EquipmentStatSources(player, equipment, nodes, level);
         if (!player.Closed && !player.LeavingArea && !player.RageRetired)
         {
             // A queued old-area calculation must not replace the new connection's qualification snapshot.
@@ -166,7 +167,7 @@ public static partial class Game
         sources = WithHerEmbrace(player, sources);
         sources = WithElusive(player, sources);
         sources = WithTinctures(player, sources);
-        sources = WithLinks(player, GameEvents.WithPlayerStatSources(player, WithQuestStats(player, WithAntiquarian(player, WithFortification(player, WithCharges(player, WithSupportGemBuffs(player, sources)))))));
+        sources = WithLinks(player, GameEvents.WithPlayerStatSources(player, WithQuestStats(player, WithAntiquarian(player, WithFortification(player, WithCharges(player, WithSupportGemBuffs(player, sources))), equipment, inactive))));
         // The stat buffs on the player's entity in its area (AreaStatBuffs): sources like any other, so the pools have them.
         if (player.Frames.Area is { } statArea) statArea.AddStatBuffs(new EntityId(player.Id), sources);
         sources = WithSummonBuffs(player, sources);
@@ -1161,6 +1162,28 @@ public static partial class Game
         var resistanceSources = new Dictionary<uint, int>(sources);
         foreach (var (key, value) in AuraCatalog.ResistanceStats(auras.Where(a => a.AffectsSelf), bonus.AuraEffectPct, SkillsFor(player), Stats))
             resistanceSources[key] = resistanceSources.GetValueOrDefault(key) + value;
+        int mapTemporalChains = 0;
+        var hexMap = MapModsOf(player);
+        if (HasMapHexes(hexMap))
+        {
+            int Get(uint key) => resistanceSources.GetValueOrDefault(key);
+            int allBefore = Get(Stat.BaseResistAllElementsPct);
+            int fireBefore = Get(Stat.BaseFireDamageResistancePct);
+            int coldBefore = Get(Stat.BaseColdDamageResistancePct);
+            int lightningBefore = Get(Stat.BaseLightningDamageResistancePct);
+            int actionBefore = Get(Stat.TemporalChainsActionSpeedPlusPctFinal);
+            int curseEffect = utilityStats.Concat(player.FlaskGrounds.PlayerStats())
+                .Where(row => row.Stat == Stat.CurseEffectOnSelfPlusPct).Sum(row => row.Value);
+            AddMapHexStats(player, hexMap, new PlainStatMap(resistanceSources), auras, curseEffect, includeResistances: true);
+            int all = Get(Stat.BaseResistAllElementsPct) - allBefore;
+            bonus = bonus with
+            {
+                FireResistance = ActorScale.Saturate((long)bonus.FireResistance + all + Get(Stat.BaseFireDamageResistancePct) - fireBefore),
+                ColdResistance = ActorScale.Saturate((long)bonus.ColdResistance + all + Get(Stat.BaseColdDamageResistancePct) - coldBefore),
+                LightningResistance = ActorScale.Saturate((long)bonus.LightningResistance + all + Get(Stat.BaseLightningDamageResistancePct) - lightningBefore),
+            };
+            mapTemporalChains = Get(Stat.TemporalChainsActionSpeedPlusPctFinal) - actionBefore;
+        }
         bonus = ResistanceOvercap.Applied(bonus, resistanceSources, ResistancePenalty(player), Stats);
         var classInfo = SkillsFor(player).ClassFor(player.Character.ClassRow);
         int perDexterity = EquipmentStat(ManaRecoveryRules.PerDexterity);
@@ -1189,9 +1212,14 @@ public static partial class Game
             {
                 EnergyShield = (int)Math.Min(int.MaxValue, (long)bonus.EnergyShield + reservationEnergyShield)
             }, ResolveAccuracy);
+        pools = pools with { MapTemporalChainsActionSpeedPct = mapTemporalChains };
         if (true)
             pools = pools with { SpellCriticalStrikeChancePct = pools.SpellCriticalStrikeChancePct
                 + MaximumPoolItemSources.Amount(EquipmentInput(MaximumPoolItemSources.SpellCriticalPerLife), pools.Life) };
+        int criticalPerAccuracy = EquipmentInput(Stat.AttackCriticalStrikeChancePlusPctPer200AccuracyRating);
+        if (criticalPerAccuracy != 0)
+            pools = pools with { CriticalStrikeChancePct = pools.CriticalStrikeChancePct
+                + (long)criticalPerAccuracy * (Math.Max(0, pools.Accuracy) / 200) };
         player.PlayerLifeCap = reservedLife.Unreserved;
         // The pure base critical stats (/set_stat too) sit outside the passive increases: the weapon override replaces
         // the armed main hand's base and the unarmed base replaces the empty one, before the global increases.

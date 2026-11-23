@@ -90,7 +90,10 @@ public static partial class Game
 
     // Invoke only inside an accepted direct-hit transaction, after evasion/block and before impale reflection.
     public static void LeechOnHitLocked(Player player, SpawnedMonster target, DamagePacket taken,
-        int directDamage, LeechSources sources)
+        int directDamage, LeechSources sources) => LeechOnHitTargetLocked(player, target, taken, directDamage, sources, targetId: 0);
+
+    static void LeechOnHitTargetLocked(Player player, SpawnedMonster target, DamagePacket taken,
+        int directDamage, LeechSources sources, uint targetId)
     {
         if (!target.Hostile || target.Dead || target.Life == 0 || target.Invulnerable || player.Closed || player.LeavingArea || player.Paused || player.PlayerLife == 0) return;
         if (sources.Attack)
@@ -117,9 +120,18 @@ public static partial class Game
             }
         }
         double now = ProjectileWorldTime(player);
-        var instant = session.Hit(now, amounts, player.PlayerLife >= LifeCap(player),
-            player.PlayerMana >= UnreservedMana(player), player.EnergyShield.Current >= player.EnergyShield.Maximum, sources.Attack, sources.Melee);
+        double powerInstant = sources.InstantLeechPerEnemyPower == 0 ? 0
+            : (double)sources.InstantLeechPerEnemyPower * WarcryPower(target.Rarity);
+        var instant = session.HitWithWeapon(now, amounts, player.PlayerLife >= LifeCap(player),
+            player.PlayerMana >= UnreservedMana(player), player.EnergyShield.Current >= player.EnergyShield.Maximum,
+            sources.Attack, sources.Melee, sources.WeaponLifeLeechInstant, powerInstant);
         var gain = sources.GainOnHit;
+        if (sources.LifeOnBlindedHit > 0)
+        {
+            if (targetId == 0) targetId = player.Area.Monsters.FirstOrDefault(entry => ReferenceEquals(entry.Value, target)).Key;
+            if (targetId != 0 && Blinded(player, targetId, now))
+                gain.Life = ActorScale.Saturate((long)gain.Life + sources.LifeOnBlindedHit);
+        }
         uint life = player.PlayerLife, mana = player.PlayerMana;
         // Instant portions and the gain per enemy hit resolve in this hit transaction, so a later enemy hit sees the
         // recovered resource. Keep sub-point recovery between hits, and discard overflow at a full pool. Petrified

@@ -158,8 +158,8 @@ public static partial class Game
             PlayerStatStep.SpiritLeadership, PlayerStatStep.TotemAura, PlayerStatStep.AuraRestriction,
         ];
         readers[(int)PlayerStatChange.Flasks] =
-            [PlayerStatStep.Sources, PlayerStatStep.UtilityFlasks, PlayerStatStep.Onslaught, PlayerStatStep.UsingFlask,
-             PlayerStatStep.AuraRestriction];
+            [PlayerStatStep.Sources, PlayerStatStep.UtilityFlasks, PlayerStatStep.SelfVulnerability,
+             PlayerStatStep.Onslaught, PlayerStatStep.UsingFlask, PlayerStatStep.AuraRestriction];
         readers[(int)PlayerStatChange.Minions] = [PlayerStatStep.Sources, PlayerStatStep.Golems, PlayerStatStep.Offerings];
         readers[(int)PlayerStatChange.Leech] =
             [PlayerStatStep.Sources, PlayerStatStep.AttackSpeed, PlayerStatStep.Recovery, PlayerStatStep.LeechingDefences];
