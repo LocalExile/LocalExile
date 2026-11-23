@@ -20,6 +20,11 @@ public sealed class PassiveConditionTests
         // One weapon only: the stat does not count at all.
         Assert.Empty(Game.FoldPassiveConditions(passives, new StatConditions.Subject(DualWield: false)));
 
+        var shieldResistances = new Dictionary<uint, int> { [Stat.ResistAllElementsPlusPctWhileHoldingShield] = 12 };
+        var holdingShield = Game.FoldPassiveConditions(shieldResistances, new StatConditions.Subject(Shield: true));
+        Assert.Equal(12, holdingShield.GetValueOrDefault(Stat.BaseResistAllElementsPct));
+        Assert.Empty(Game.FoldPassiveConditions(shieldResistances, new StatConditions.Subject(Shield: false)));
+
         // A condition this build cannot answer keeps the stat as it was, never dropping or moving it.
         var unknown = Game.FoldPassiveConditions(passives, StatConditions.Subject.Unknown);
         Assert.Equal(25, unknown.GetValueOrDefault(conditional));
