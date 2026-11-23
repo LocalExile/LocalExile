@@ -86,7 +86,7 @@ Part of [Status](../Status.md); what to build next in this area is in
   Presence updates both ways when an entry finishes (a hideout's too) and at logout; an area change sends none.
   Persistence/reopen, rollback and native packet framing have automated coverage.
   Ignore lists (`0x80` list 1), status (`0xca`), hideout invites (`0x179`) and duels (`0x155`) are implemented.
-  Friend notes and live verification of those actions remain open.
+  S→C ignore list tab UI synchronization, friend notes and live verification of those actions remain open.
   See [28](../docs/protocol/28-player-trade.md) §6.
 
 ## Partly working

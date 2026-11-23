@@ -1,74 +1,108 @@
 using System.Collections.Concurrent;
+using GameServer.Core.Chat;
+using GameServer.Core.Protocol.Instance;
+using static Program;
 
 namespace GameServer.Modules.M_commands;
 
-/// <summary>Per-character AFK and Do Not Disturb status shared with the Chat module through a BCL-only
-/// <see cref="AppContext"/> dictionary so collectible reloads retain no unloaded module types.</summary>
+/// <summary>Per-character AFK and Do Not Disturb status exposed to other modules through league-scoped
+/// <see cref="GameEvents.ChatAvailabilityQuery"/> and <see cref="GameEvents.ChatActivity"/>.</summary>
 static class ChatPresence
 {
-    public const string StatusKey = "LocalExile.Chat.Status";
     public const string DefaultAfkMessage = "This player is AFK.";
     public const string DefaultDndMessage = "This player is in DND mode.";
+    const int MaxMessageLength = 200;
+    static readonly TimeSpan TransferGrace = TimeSpan.FromSeconds(60);
 
-    static ConcurrentDictionary<string, (bool, string, bool, string)> Table()
+    static readonly ConcurrentDictionary<string, ChatAvailability> Table = new(StringComparer.OrdinalIgnoreCase);
+
+    static string Sanitize(string? arg)
     {
-        if (AppContext.GetData(StatusKey) is ConcurrentDictionary<string, (bool, string, bool, string)> existing)
-            return existing;
-        var created = new ConcurrentDictionary<string, (bool, string, bool, string)>(StringComparer.OrdinalIgnoreCase);
-        AppContext.SetData(StatusKey, created);
-        return created;
+        string clean = ChatWire.Clean(arg).Trim();
+        return clean.Length > MaxMessageLength ? clean[..MaxMessageLength] : clean;
     }
+
+    public static ChatAvailability? Get(Player player) =>
+        Table.TryGetValue(CharacterName(player), out var status) ? status : null;
 
     public static string ToggleAfk(Player player, string? arg)
     {
         string name = CharacterName(player);
-        var table = Table();
-        var (afk, afkMsg, dnd, dndMsg) = table.GetValueOrDefault(name, (false, DefaultAfkMessage, false, DefaultDndMessage));
-        string trimmed = arg?.Trim() ?? "";
-        if (!afk || trimmed.Length > 0)
-        {
-            string message = trimmed.Length > 0 ? trimmed : DefaultAfkMessage;
-            table[name] = (true, message, dnd, dndMsg);
-            return $"AFK mode is now ON. Autoreply \"{message}\"";
-        }
-        table[name] = (false, afkMsg, dnd, dndMsg);
-        return "AFK mode is now OFF.";
+        string trimmed = Sanitize(arg);
+        var updated = Table.AddOrUpdate(name,
+            _ => new ChatAvailability(true, trimmed.Length > 0 ? trimmed : DefaultAfkMessage, false, DefaultDndMessage),
+            (_, cur) => !cur.Afk || trimmed.Length > 0
+                ? cur with { Afk = true, AfkMessage = trimmed.Length > 0 ? trimmed : DefaultAfkMessage }
+                : cur with { Afk = false });
+        return updated.Afk ? $"AFK mode is now ON. Autoreply \"{updated.AfkMessage}\"" : "AFK mode is now OFF.";
     }
 
     public static string ToggleDnd(Player player, string? arg)
     {
         string name = CharacterName(player);
-        var table = Table();
-        var (afk, afkMsg, dnd, dndMsg) = table.GetValueOrDefault(name, (false, DefaultAfkMessage, false, DefaultDndMessage));
-        string trimmed = arg?.Trim() ?? "";
-        if (!dnd || trimmed.Length > 0)
-        {
-            string message = trimmed.Length > 0 ? trimmed : DefaultDndMessage;
-            table[name] = (afk, afkMsg, true, message);
-            return $"Do Not Disturb mode is now ON. Autoreply \"{message}\"";
-        }
-        table[name] = (afk, afkMsg, false, dndMsg);
-        return "Do Not Disturb mode is now OFF.";
+        string trimmed = Sanitize(arg);
+        var updated = Table.AddOrUpdate(name,
+            _ => new ChatAvailability(false, DefaultAfkMessage, true, trimmed.Length > 0 ? trimmed : DefaultDndMessage),
+            (_, cur) => !cur.Dnd || trimmed.Length > 0
+                ? cur with { Dnd = true, DndMessage = trimmed.Length > 0 ? trimmed : DefaultDndMessage }
+                : cur with { Dnd = false });
+        return updated.Dnd ? $"Do Not Disturb mode is now ON. Autoreply \"{updated.DndMessage}\"" : "Do Not Disturb mode is now OFF.";
     }
 
     public static string SetAutoReply(Player player, string? arg)
     {
         string name = CharacterName(player);
-        var table = Table();
-        var (_, _, dnd, dndMsg) = table.GetValueOrDefault(name, (false, DefaultAfkMessage, false, DefaultDndMessage));
-        string trimmed = arg?.Trim() ?? "";
+        string trimmed = Sanitize(arg);
         if (trimmed.Length == 0)
         {
-            table[name] = (false, DefaultAfkMessage, dnd, dndMsg);
+            Table.AddOrUpdate(name,
+                _ => new ChatAvailability(false, DefaultAfkMessage, false, DefaultDndMessage),
+                (_, cur) => cur with { Afk = false, AfkMessage = DefaultAfkMessage });
             return "Autoreply cleared.";
         }
-        table[name] = (true, trimmed, dnd, dndMsg);
+        Table.AddOrUpdate(name,
+            _ => new ChatAvailability(true, trimmed, false, DefaultDndMessage),
+            (_, cur) => cur with { Afk = true, AfkMessage = trimmed });
         return $"Autoreply set to \"{trimmed}\"";
+    }
+
+    public static async Task ClearAfkOnActivity(Player player)
+    {
+        string name = CharacterName(player);
+        while (Table.TryGetValue(name, out var current))
+        {
+            if (!current.Afk) return;
+            var updated = current with { Afk = false };
+            if (Table.TryUpdate(name, updated, current))
+            {
+                if (player is { Closed: false, Connection.Outbox: { } outbox })
+                {
+                    try { await outbox(InstanceChat.ChatLine("AFK mode is now OFF."), "0x0017 AFK cleared on chat"); }
+                    catch (Exception e) when (e is IOException or ObjectDisposedException) { }
+                }
+                return;
+            }
+        }
     }
 
     public static void Clear(Player player, string why)
     {
-        if (why == "disconnected" && !player.LeavingArea && player.PendingTransfer is null)
-            Table().TryRemove(CharacterName(player), out _);
+        if (why != "disconnected") return;
+        string name = CharacterName(player);
+        if (!player.LeavingArea && player.PendingTransfer is null)
+        {
+            Table.TryRemove(name, out _);
+            return;
+        }
+        _ = ClearIfNotReturned(player, name);
+    }
+
+    static async Task ClearIfNotReturned(Player leaving, string name)
+    {
+        await Task.Delay(TransferGrace);
+        if (InGame.Keys.Any(p => !ReferenceEquals(p, leaving) && !p.Closed
+            && string.Equals(CharacterName(p), name, StringComparison.OrdinalIgnoreCase)))
+            return;
+        Table.TryRemove(name, out _);
     }
 }

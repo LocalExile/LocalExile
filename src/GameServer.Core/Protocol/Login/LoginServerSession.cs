@@ -187,6 +187,12 @@ public sealed class LoginServerSession(AccountService accounts)
     /// <summary>Called with the deleted character's name (GameServer.Auth: sets its save aside).</summary>
     public Action<string>? CharacterDeleted { get; init; }
 
+    /// <summary>True when the named character currently has an active login link, ticket or instance and cannot be renamed.</summary>
+    public Func<string, bool>? IsCharacterActive { get; init; }
+
+    /// <summary>Called with (oldName, newName) after a character rename commits (GameServer.Auth: migrates any legacy JSON save).</summary>
+    public Action<string, string>? CharacterRenamed { get; init; }
+
     /// <summary>Change password (0x0a) → 0x0b result 0 (ChangePasswordScreen 0x140cf3650 clears saved password and
     /// succeeds), or BackendErrors code on invalid old password.</summary>
     private ILoginMessage[] ChangePassword(TwoDigests m)
@@ -206,6 +212,9 @@ public sealed class LoginServerSession(AccountService accounts)
         var c = accounts.Characters(Session.AccountId)
             .FirstOrDefault(ch => string.Equals(ch.Name, m.A.Trim(), StringComparison.OrdinalIgnoreCase));
         if (c is null) return [new U16Bool(ResultCharacterDoesNotExist, m.Flag)];
+        if (string.Equals(CharacterName, c.Name, StringComparison.OrdinalIgnoreCase)
+            || IsCharacterActive?.Invoke(c.Name) == true)
+            return [new U16Bool(ResultCharacterNameInvalid, m.Flag)];
         string newName = m.B.Trim();
         if (newName.Length < 3) return [new U16Bool(ResultCharacterNameTooShort, m.Flag)];
         if (newName.Length > 23) return [new U16Bool(ResultCharacterNameTooLong, m.Flag)];
@@ -217,6 +226,7 @@ public sealed class LoginServerSession(AccountService accounts)
                 AuthError.NotFound => ResultCharacterDoesNotExist,
                 _ => ResultCharacterNameInvalid,
             }, m.Flag)];
+        CharacterRenamed?.Invoke(c.Name, newName);
         return [CharacterList(), new U16Bool(ResultOk, m.Flag)];
     }
 

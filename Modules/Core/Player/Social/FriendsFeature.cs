@@ -1,6 +1,8 @@
 using System.Collections.Concurrent;
+using System.Runtime.CompilerServices;
 using System.Text.Json;
 using GameServer.Core.Accounts;
+using GameServer.Core.Chat;
 using GameServer.Core.Protocol.Instance;
 using GameServer.Storage;
 using static Program;
@@ -14,23 +16,21 @@ static class FriendsFeature
     const string StatusDataKey = "social.status";
     const string IgnoreDataKey = "social.ignore";
     const int MaxStatusLength = 200;
+    const int MaxIgnoreEntries = 100;
+    static readonly TimeSpan HideoutInviteTtl = TimeSpan.FromMinutes(30);
 
-    static T Keep<T>(string name, Func<T> create) where T : class
+    sealed class SocialDbCache
     {
-        string key = "LocalExile.Social." + name;
-        if (AppContext.GetData(key) is T existing) return existing;
-        var value = create();
-        AppContext.SetData(key, value);
-        return value;
+        public ConcurrentDictionary<string, string> Status { get; } = new(StringComparer.OrdinalIgnoreCase);
+        public ConcurrentDictionary<string, HashSet<string>> Ignores { get; } = new(StringComparer.OrdinalIgnoreCase);
+        public ConcurrentDictionary<string, object> AccountGates { get; } = new(StringComparer.OrdinalIgnoreCase);
     }
 
+    static readonly ConditionalWeakTable<SaveDatabase, SocialDbCache> DbCaches = new();
+    static SocialDbCache Cache => DbCaches.GetOrCreateValue(Saves.Db);
+
     static readonly ConcurrentDictionary<string, Player> Online = new(StringComparer.OrdinalIgnoreCase);
-    static readonly ConcurrentDictionary<string, string> StatusCache =
-        Keep("StatusCache", () => new ConcurrentDictionary<string, string>(StringComparer.OrdinalIgnoreCase));
-    static readonly ConcurrentDictionary<string, HashSet<string>> IgnoreCache =
-        Keep("IgnoreCache", () => new ConcurrentDictionary<string, HashSet<string>>(StringComparer.OrdinalIgnoreCase));
-    static readonly ConcurrentDictionary<string, byte> HideoutInvites =
-        Keep("HideoutInvites", () => new ConcurrentDictionary<string, byte>(StringComparer.OrdinalIgnoreCase));
+    static readonly ConcurrentDictionary<string, long> HideoutInvites = new(StringComparer.OrdinalIgnoreCase);
     static SqliteAccountStore Accounts => new(Saves.Db);
     static SqliteFriendStore Store => new(Saves.Db);
 
@@ -57,33 +57,71 @@ static class FriendsFeature
             && (string.Equals(CharacterName(c), name, StringComparison.OrdinalIgnoreCase)
                 || string.Equals(c.Character.Account, name, StringComparison.OrdinalIgnoreCase)));
 
+    static void PruneExpiredHideoutInvites(long nowTicks)
+    {
+        foreach (var kv in HideoutInvites)
+            if (kv.Value <= nowTicks) HideoutInvites.TryRemove(kv.Key, out _);
+    }
+
+    static void RemoveHideoutInvite(string ownerKey, string guestKey) =>
+        HideoutInvites.TryRemove($"{ownerKey}\0{guestKey}", out _);
+
+    static void ClearHideoutInvitesFor(string key)
+    {
+        if (string.IsNullOrWhiteSpace(key)) return;
+        foreach (var entryKey in HideoutInvites.Keys)
+        {
+            int sep = entryKey.IndexOf('\0');
+            if (sep <= 0) continue;
+            if (entryKey.AsSpan(0, sep).Equals(key, StringComparison.OrdinalIgnoreCase)
+                || entryKey.AsSpan(sep + 1).Equals(key, StringComparison.OrdinalIgnoreCase))
+                HideoutInvites.TryRemove(entryKey, out _);
+        }
+    }
+
+    static void EvictAccountCaches(string accountName, string? characterName = null)
+    {
+        var cache = Cache;
+        cache.Status.TryRemove(accountName, out _);
+        cache.Ignores.TryRemove(accountName, out _);
+        cache.AccountGates.TryRemove(accountName, out _);
+        ClearHideoutInvitesFor(accountName);
+        if (!string.IsNullOrWhiteSpace(characterName)
+            && !string.Equals(characterName, accountName, StringComparison.OrdinalIgnoreCase))
+            ClearHideoutInvitesFor(characterName);
+    }
+
     public static string StatusOf(string? account)
     {
         if (string.IsNullOrWhiteSpace(account)) return "";
-        if (StatusCache.TryGetValue(account, out var cached)) return cached;
-        string saved = AccountStash.For(account, Items).ModuleData(StatusDataKey) ?? "";
-        StatusCache[account] = saved;
+        var statusCache = Cache.Status;
+        if (statusCache.TryGetValue(account, out var cached)) return cached;
+        string saved = ChatWire.Clean(AccountStash.For(account, Items).ModuleData(StatusDataKey)).Trim();
+        if (saved.Length > MaxStatusLength) saved = saved[..MaxStatusLength];
+        statusCache[account] = saved;
         return saved;
     }
 
     static HashSet<string> IgnoredSet(string account)
     {
-        if (IgnoreCache.TryGetValue(account, out var cached)) return cached;
+        var ignoreCache = Cache.Ignores;
+        if (ignoreCache.TryGetValue(account, out var cached)) return cached;
         var loaded = new HashSet<string>(StringComparer.OrdinalIgnoreCase);
         if (AccountStash.For(account, Items).ModuleData(IgnoreDataKey) is { Length: > 0 } json)
         {
             try
             {
                 foreach (var entry in JsonSerializer.Deserialize<List<string>>(json) ?? [])
-                    if (!string.IsNullOrWhiteSpace(entry)) loaded.Add(entry);
+                    if (!string.IsNullOrWhiteSpace(entry) && loaded.Count < MaxIgnoreEntries) loaded.Add(entry);
             }
             catch (JsonException) { }
         }
-        return IgnoreCache.GetOrAdd(account, loaded);
+        return ignoreCache.GetOrAdd(account, loaded);
     }
 
     /// <summary>True when <paramref name="viewerAccount"/> has ignored the account identified by
-    /// <paramref name="senderAccountOrCharacter"/> (either an account name or a character name).</summary>
+    /// <paramref name="senderAccountOrCharacter"/> (direct account match or locally online/transferring character).
+    /// Avoids synchronous SQLite queries on hot chat paths for unknown/remote speakers.</summary>
     public static bool IsIgnoring(string? viewerAccount, string? senderAccountOrCharacter)
     {
         if (string.IsNullOrWhiteSpace(viewerAccount) || string.IsNullOrWhiteSpace(senderAccountOrCharacter))
@@ -97,10 +135,14 @@ static class FriendsFeature
         var online = FindOnline(senderAccountOrCharacter);
         if (online?.Character.Account is { } onlineAcc)
             lock (ignored) return ignored.Contains(onlineAcc);
-        var accounts = Accounts;
-        if (accounts.FindCharacter(senderAccountOrCharacter) is { } ch
-            && accounts.GetAccount(ch.AccountId) is { } acc)
-            lock (ignored) return ignored.Contains(acc.Name);
+        DateTime now = DateTime.UtcNow;
+        foreach (var kv in Moving)
+        {
+            if (now - kv.Value.Since < MovingGrace
+                && (string.Equals(kv.Key, senderAccountOrCharacter, StringComparison.OrdinalIgnoreCase)
+                    || string.Equals(CharacterName(kv.Value.From), senderAccountOrCharacter, StringComparison.OrdinalIgnoreCase)))
+                lock (ignored) return ignored.Contains(kv.Key);
+        }
         return false;
     }
 
@@ -177,10 +219,18 @@ static class FriendsFeature
     {
         Discover(c);
         if (c.Character.Account is not { } name || Accounts.FindAccount(name) is not { } me) return;
-        string status = (rawStatus ?? "").Trim();
+        string status = ChatWire.Clean(rawStatus).Trim();
         if (status.Length > MaxStatusLength) status = status[..MaxStatusLength];
-        Saves.Atomically(() => AccountStash.For(me.Name, Items).ChangeModuleData(StatusDataKey, _ => status));
-        StatusCache[me.Name] = status;
+        var cache = Cache;
+        lock (cache.AccountGates.GetOrAdd(me.Name, _ => new object()))
+        {
+            Saves.Atomically(() =>
+            {
+                Saves.Db.OnRollback(() => cache.Status.TryRemove(me.Name, out _));
+                AccountStash.For(me.Name, Items).ChangeModuleData(StatusDataKey, _ => status);
+            });
+            cache.Status[me.Name] = status;
+        }
         Console.WriteLine($"[gateway] <= 0x00ca social status from {me.Name}: \"{status}\"");
         await SocialFeature.Introduce(c, c);
         foreach (var other in Online.Values.Where(o => !ReferenceEquals(o, c) && !o.Closed && !o.LeavingArea).ToList())
@@ -233,7 +283,9 @@ static class FriendsFeature
         string target = rawTarget.Trim();
         var accounts = Accounts;
         var character = accounts.FindCharacter(target);
-        var other = (character is null ? null : accounts.GetAccount(character.AccountId)) ?? accounts.FindAccount(target);
+        var other = action != 0
+            ? accounts.FindAccount(target) ?? (character is null ? null : accounts.GetAccount(character.AccountId))
+            : (character is null ? null : accounts.GetAccount(character.AccountId)) ?? accounts.FindAccount(target);
         if (other is null || other.Id == me.Id)
         {
             if (c.Commands is { } commands)
@@ -241,17 +293,48 @@ static class FriendsFeature
             return;
         }
         bool add = action == 0;
-        var ignored = IgnoredSet(me.Name);
-        bool changed;
-        string[] snapshot;
-        lock (ignored)
+        var cache = Cache;
+        bool changed = false, full = false;
+        lock (cache.AccountGates.GetOrAdd(me.Name, _ => new object()))
         {
-            changed = add ? ignored.Add(other.Name) : ignored.Remove(other.Name);
-            snapshot = [.. ignored.Order(StringComparer.OrdinalIgnoreCase)];
+            var ignored = IgnoredSet(me.Name);
+            lock (ignored)
+            {
+                if (add)
+                {
+                    if (ignored.Contains(other.Name)) changed = false;
+                    else if (ignored.Count >= MaxIgnoreEntries) full = true;
+                    else changed = true;
+                }
+                else changed = ignored.Contains(other.Name);
+            }
+            if (changed)
+            {
+                Saves.Atomically(() =>
+                {
+                    string[] snapshot;
+                    lock (ignored)
+                    {
+                        if (add) ignored.Add(other.Name);
+                        else ignored.Remove(other.Name);
+                        snapshot = [.. ignored.Order(StringComparer.OrdinalIgnoreCase)];
+                    }
+                    Saves.Db.OnRollback(() => cache.Ignores.TryRemove(me.Name, out _));
+                    AccountStash.For(me.Name, Items).ChangeModuleData(IgnoreDataKey,
+                        _ => JsonSerializer.Serialize(snapshot));
+                });
+                if (add)
+                {
+                    RemoveHideoutInvite(me.Name, other.Name);
+                    RemoveHideoutInvite(other.Name, me.Name);
+                }
+            }
         }
-        if (changed)
-            Saves.Atomically(() => AccountStash.For(me.Name, Items).ChangeModuleData(IgnoreDataKey,
-                _ => JsonSerializer.Serialize(snapshot)));
+        if (full)
+        {
+            if (c.Commands is { } limitReply) await limitReply.Reply($"Your ignore list is full (maximum {MaxIgnoreEntries}).");
+            return;
+        }
         Console.WriteLine($"[gateway] ignore: {me.Name} {(add ? "added" : "removed")} {other.Name}");
         if (c.Commands is { } reply)
             await reply.Reply(add
@@ -288,7 +371,9 @@ static class FriendsFeature
         if (IsIgnoring(target.Character.Account, player.Character.Account ?? CharacterName(player))) return;
         string ownerKey = player.Character.Account ?? CharacterName(player);
         string guestKey = target.Character.Account ?? CharacterName(target);
-        HideoutInvites[$"{ownerKey}\0{guestKey}"] = 1;
+        long nowTicks = DateTime.UtcNow.Ticks;
+        PruneExpiredHideoutInvites(nowTicks);
+        HideoutInvites[$"{ownerKey}\0{guestKey}"] = nowTicks + HideoutInviteTtl.Ticks;
         Console.WriteLine($"[gateway] <= 0x0179 hideout invite: {CharacterName(player)} -> {CharacterName(target)}");
         try
         {
@@ -300,13 +385,21 @@ static class FriendsFeature
         if (player.Commands is { } confirm) await confirm.Reply($"Invited {CharacterName(target)} to your hideout.");
     }
 
-    /// <summary>Hideout visit permission check for C→S 0x017a: same party, accepted friend, or invited via 0x0179.</summary>
+    /// <summary>Hideout visit permission check for C→S 0x017a: blocked if owner ignores visitor; otherwise same party,
+    /// accepted friend, or unexpired invite via 0x0179.</summary>
     public static bool CanVisitHideout(Player visitor, Player owner)
     {
+        if (IsIgnoring(owner.Character.Account, visitor.Character.Account ?? CharacterName(visitor)))
+            return false;
         if (PartyRoster.SameParty(visitor, owner)) return true;
         string ownerKey = owner.Character.Account ?? CharacterName(owner);
         string guestKey = visitor.Character.Account ?? CharacterName(visitor);
-        if (HideoutInvites.ContainsKey($"{ownerKey}\0{guestKey}")) return true;
+        string inviteKey = $"{ownerKey}\0{guestKey}";
+        if (HideoutInvites.TryGetValue(inviteKey, out long expiresAt))
+        {
+            if (DateTime.UtcNow.Ticks < expiresAt) return true;
+            HideoutInvites.TryRemove(inviteKey, out _);
+        }
         if (visitor.Character.Account is { } vAcc && owner.Character.Account is { } oAcc)
         {
             var accounts = Accounts;
@@ -347,15 +440,20 @@ static class FriendsFeature
     public static async Task Leaving(Player c)
     {
         if (c.Character.Account is not { } name || !Online.TryRemove(new KeyValuePair<string, Player>(name, c))) return;
-        if (Accounts.FindAccount(name) is not { } me) return;
+        if (Accounts.FindAccount(name) is not { } me)
+        {
+            if (!c.LeavingArea && !c.TransferAccepted) EvictAccountCaches(name, CharacterName(c));
+            return;
+        }
         // An area change: the player is still online, on the next connection. The friends hear nothing of it (an offline
         // and an online notice on every area change, live 2026-11-05); a player who does not come back is told offline.
         if (c.LeavingArea || c.TransferAccepted)
         {
             Moving[name] = (DateTime.UtcNow, c);
-            _ = OfflineIfNotBack(name, me);
+            _ = OfflineIfNotBack(name, me, CharacterName(c));
             return;
         }
+        EvictAccountCaches(name, CharacterName(c));
         foreach (var other in Online.Values) await RefreshSafely(other, me);
     }
 
@@ -363,11 +461,12 @@ static class FriendsFeature
     static readonly ConcurrentDictionary<string, (DateTime Since, Player From)> Moving = new(StringComparer.OrdinalIgnoreCase);
     static readonly TimeSpan MovingGrace = TimeSpan.FromSeconds(60);
 
-    static async Task OfflineIfNotBack(string name, Account me)
+    static async Task OfflineIfNotBack(string name, Account me, string characterName)
     {
         await Task.Delay(MovingGrace);
         if (!Moving.TryGetValue(name, out var moving) || DateTime.UtcNow - moving.Since < MovingGrace || Connected(name) is not null) return;
         Moving.TryRemove(name, out _);
+        EvictAccountCaches(name, characterName);
         foreach (var other in Online.Values) await RefreshSafely(other, me);
     }
 }

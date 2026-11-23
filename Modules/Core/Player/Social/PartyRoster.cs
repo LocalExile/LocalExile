@@ -1,3 +1,4 @@
+using GameServer.Core.Chat;
 using GameServer.Core.Protocol.Instance;
 using static Program;
 
@@ -11,6 +12,7 @@ public static class PartyRoster
 {
     public const int Capacity = 6;
     const int MaxDescriptionLength = 120;
+    static readonly TimeSpan TransferGrace = TimeSpan.FromSeconds(60);
     // BCL-only values survive a collectible Social reload without retaining the old module's types.
     static T Keep<T>(string name, Func<T> create) where T : class
     {
@@ -209,38 +211,49 @@ public static class PartyRoster
         if (to is null) return false; // Another module may own this character's name.
         if (FriendsFeature.IsIgnoring(to.Character.Account, from.Character.Account ?? CharacterName(from))) return true;
         uint party;
-        Player[] humans;
-        (string Account, string Character, byte[] Known)[] guests;
-        string title;
+        string toName = CharacterName(to);
         lock (Gate)
         {
             party = Find(from);
             if (!Compatible(from, to) || Find(to) != 0 || party != 0 && Count(party) >= Capacity) return true;
             if (party == 0) Humans[party = Allocate()] = [from];
-            humans = [.. Humans[party]];
-            guests = Companions.TryGetValue(party, out var extra) ? [.. extra] : [];
-            title = PublicDescriptions.GetValueOrDefault(party) ?? CharacterName(from);
-            Invites[(party, CharacterName(to))] = (from, to);
+            Invites[(party, toName)] = (from, to);
         }
-        // Clear only the invitee's old knowledge of this id: the native notification requires an unknown party.
-        // The party id itself stays stable for its existing members and module-owned actors.
-        await Deliver(to, async () =>
+        await Output.WaitAsync();
+        try
         {
-            await Send(to, InstanceSocial.PartyRemove(party));
-            foreach (var human in humans) await Send(to, Known(human));
-            foreach (var guest in guests) await Send(to, [.. guest.Known]);
-            await Send(to, Known(to));
-            (string, byte)[] entries = [.. humans.Select((c, i) => (c.Character.Account ?? CharacterName(c), i == 0 ? (byte)2 : (byte)1)),
-                .. guests.Select(m => (m.Account, (byte)1)), (to.Character.Account ?? CharacterName(to), (byte)0)];
-            await Send(to, InstanceSocial.PartyInfo(party, title, from.Character.Account ?? CharacterName(from),
-                (byte)(entries.Length - 1), 0, 1, 0, entries));
-        });
+            Player[] humans;
+            (string Account, string Character, byte[] Known)[] guests;
+            string title;
+            lock (Gate)
+            {
+                if (!Invites.TryGetValue((party, toName), out var pending) || !ReferenceEquals(pending.To, to)
+                    || !Humans.TryGetValue(party, out var list) || list.Count == 0)
+                    return true;
+                humans = [.. list];
+                guests = Companions.TryGetValue(party, out var extra) ? [.. extra] : [];
+                title = PublicDescriptions.GetValueOrDefault(party) ?? CharacterName(from);
+            }
+            // Clear only the invitee's old knowledge of this id: the native notification requires an unknown party.
+            // The party id itself stays stable for its existing members and module-owned actors.
+            await Deliver(to, async () =>
+            {
+                await Send(to, InstanceSocial.PartyRemove(party));
+                foreach (var human in humans) await Send(to, Known(human));
+                foreach (var guest in guests) await Send(to, [.. guest.Known]);
+                await Send(to, Known(to));
+                (string, byte)[] entries = [.. humans.Select((c, i) => (c.Character.Account ?? CharacterName(c), i == 0 ? (byte)2 : (byte)1)),
+                    .. guests.Select(m => (m.Account, (byte)1)), (to.Character.Account ?? toName, (byte)0)];
+                await Send(to, InstanceSocial.PartyInfo(party, title, from.Character.Account ?? CharacterName(from),
+                    (byte)(entries.Length - 1), 0, 1, 0, entries));
+            });
+        }
+        finally { Output.Release(); }
         return true;
     }
 
     public static async Task AcceptHuman(Player to, uint party)
     {
-        bool accepted = false;
         lock (Gate)
         {
             var key = (party, CharacterName(to));
@@ -253,23 +266,22 @@ public static class PartyRoster
                 int idx = members.FindIndex(m => Same(m, liveFrom));
                 if (idx >= 0) members[idx] = liveFrom;
                 members.Add(to);
-                accepted = true;
             }
             else
             {
                 // The inviter disconnected or became unavailable before acceptance: clean up an orphaned party.
+                Forget(party, to);
                 Normalize(party);
             }
         }
-        if (accepted) await Publish(party);
-        else await Deliver(to, () => Send(to, InstanceSocial.PartyRemove(party)));
+        await Publish(party);
     }
 
     /// <summary>C→S 0x0098: create or rename a public party (empty description makes the party private).</summary>
     public static async Task SetPublicParty(Player actor, string rawDescription, byte flag)
     {
         if (!Available(actor)) return;
-        string desc = (rawDescription ?? "").Trim();
+        string desc = ChatWire.Clean(rawDescription).Trim();
         if (desc.Length > MaxDescriptionLength) desc = desc[..MaxDescriptionLength];
         uint party;
         lock (Gate)
@@ -292,14 +304,40 @@ public static class PartyRoster
         await Publish(party);
     }
 
-    /// <summary>Cleans up party membership and pending invitations when a human player actually disconnects (never on
-    /// area transfers, which rebind via <see cref="Rebind"/>).</summary>
+    /// <summary>Cleans up party membership and pending invitations when a human player actually disconnects.
+    /// Area transfers defer cleanup by <see cref="TransferGrace"/> so clients that close mid-transfer are still evicted
+    /// if they never rebind via <see cref="Rebind"/>.</summary>
     public static async Task DisconnectHuman(Player c, string why)
     {
-        if (why != "disconnected" || c.LeavingArea || c.PendingTransfer is not null) return;
+        if (why != "disconnected") return;
+        if (c.LeavingArea || c.PendingTransfer is not null)
+        {
+            _ = DisconnectIfNotRebound(c);
+            return;
+        }
+        await RemoveDisconnectedHuman(c);
+    }
+
+    static async Task DisconnectIfNotRebound(Player c)
+    {
+        try
+        {
+            await Task.Delay(TransferGrace);
+            await RemoveDisconnectedHuman(c, requireOffline: true);
+        }
+        catch (Exception ex)
+        {
+            Console.WriteLine($"[gateway] party disconnect grace cleanup failed: {ex.Message}");
+        }
+    }
+
+    static async Task RemoveDisconnectedHuman(Player c, bool requireOffline = false)
+    {
         HashSet<uint> affected = [];
         lock (Gate)
         {
+            if (requireOffline && InGame.Keys.Any(p => !ReferenceEquals(p, c) && !p.Closed && Same(p, c)))
+                return;
             uint party = Find(c);
             if (party != 0 && RemoveHuman(c, party)) affected.Add(party);
             foreach (var key in Invites.Keys.Where(k => Same(Invites[k].From, c) || Same(Invites[k].To, c)).ToArray())

@@ -89,6 +89,8 @@ public static class InstanceChat
     /// u8 n + n linked items, in the order of the text. An empty sender and zeros print the text alone. Live 2026-10-20.</summary>
     public static byte[] ChatLine(string text, string sender = "", ushort flags = 0, IReadOnlyList<ChatLineItem>? items = null)
     {
+        if ((flags & 0x0008) != 0)
+            throw new ArgumentOutOfRangeException(nameof(flags), "S→C 0x17 bit 0x0008 requires a trailing field not serialized by ChatLine.");
         var w = new LoginWriter().U16(ChatLineId).WStr(sender).WStr(text).WStr("").U16(flags).U8(0).U8(0).RawU64(0).U8(0).U8((byte)(items?.Count ?? 0));
         foreach (var item in items ?? []) w.U32(item.At).Bytes(item.Wire);
         return w.ToArray();
@@ -103,7 +105,7 @@ public static class InstanceChat
     /// whisper (<see cref="TradeWhisperFlag"/>), bit 6 "Autoreply: " prefix &amp; DND bypass (<see cref="AutoReplyFlag"/>),
     /// bit 7 force local channel without prefix (<see cref="ForceLocalFlag"/>).
     /// Low byte (+0x79): bit 0 route to +0xd78 listeners (<see cref="ListenerRouteFlag"/>), bit 2 red text
-    /// (<see cref="RedTextFlag"/>), bit 3 extra trailing string (<see cref="HasExtraFieldFlag"/>).
+    /// (<see cref="RedTextFlag"/>); bit 3 (0x0008) expects a trailing field not written by <see cref="ChatLine"/>.
     /// </remarks>
     public const ushort
         StaffOrDevFlag = 0x0100,
@@ -114,8 +116,7 @@ public static class InstanceChat
         AutoReplyFlag = 0x4000,
         ForceLocalFlag = 0x8000,
         ListenerRouteFlag = 0x0001,
-        RedTextFlag = 0x0004,
-        HasExtraFieldFlag = 0x0008;
+        RedTextFlag = 0x0004;
 
     public static ChatInput ReadChat(ReadOnlySpan<byte> m)
     {

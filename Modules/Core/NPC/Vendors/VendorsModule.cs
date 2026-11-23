@@ -113,11 +113,15 @@ public sealed class VendorsModule : IModule
                 uint type = offeredTarget.Item.TypeHash;
                 uint[] ids = [itemId, .. items.Offered().Where(i => i.Id != itemId && i.Item.TypeHash == type)
                     .OrderBy(i => i.Y).ThenBy(i => i.X).Select(i => i.Id)];
+                bool moved = false;
                 foreach (uint id in ids)
                 {
                     if (player.Sale != sale) break;
-                    await TakeFromSale(player, sale, id);
+                    int before = items.Offered().Count;
+                    await TakeFromSale(player, sale, id, sendReward: false);
+                    if (items.Offered().Count != before) moved = true;
                 }
+                if (moved && player.Sale == sale) await SendSaleReward(player, sale);
                 return true;
             }
             byte? row = PlayerInventories.Row(inventory);
@@ -126,13 +130,16 @@ public sealed class VendorsModule : IModule
             uint matchType = clicked.Item.TypeHash;
             uint[] toOffer = [itemId, .. items.Items(row!.Value).Where(i => i.Id != itemId && i.Item.TypeHash == matchType)
                 .OrderBy(i => i.Y).ThenBy(i => i.X).Select(i => i.Id)];
+            bool offeredAny = false;
             foreach (uint id in toOffer)
             {
                 if (player.Sale != sale) break;
                 int before = items.Offered().Count;
-                await OfferFromInventory(player, sale, inventory, id);
+                await OfferFromInventory(player, sale, inventory, id, sendReward: false);
                 if (items.Offered().Count == before) break;
+                offeredAny = true;
             }
+            if (offeredAny && player.Sale == sale) await SendSaleReward(player, sale);
             return true;
         });
         GameEvents.Packet(InstanceNpcs.TradeAcceptId).Add(module.Manifest.Id, async (player, bytes) =>

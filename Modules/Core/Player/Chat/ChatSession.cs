@@ -171,14 +171,14 @@ sealed class ChatSession(ChatService chat, string name, Player player) : IDispos
     async Task ReceiveWhisper(string from, string text, IReadOnlyList<ChatFrameItem>? items)
     {
         if (ChatService.IsIgnored(Player, from)) return;
-        var status = ChatService.StatusOf(name);
+        var status = GameEvents.GetChatAvailability(Player);
         if (status.Dnd)
         {
-            await chat.SendAutoReply(name, from, status.DndMessage);
+            await chat.SendAutoReply(Player, name, from, status.DndMessage);
             return;
         }
         await Deliver(InstanceChat.ChatLine(text, "@" + from, items: chat.LineItems(Player, text, items)), $"0x0017 whisper from {from}");
-        if (status.Afk) await chat.SendAutoReply(name, from, status.AfkMessage);
+        if (status.Afk) await chat.SendAutoReply(Player, name, from, status.AfkMessage);
     }
 
     Task Tell(string text) => Deliver(InstanceChat.ChatLine(text), $"0x0017 chat line \"{text}\"");

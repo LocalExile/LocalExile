@@ -23,6 +23,8 @@ public sealed class CommandsModule : IModule
         GameEvents.EnterMessages.Add(module.Manifest.Id, player => { played.Begin(player); deaths.Observe(player); return []; });
         GameEvents.AreaTick.Add(module.Manifest.Id, GameEvents.Always((player, _) => { played.Step(player); deaths.Observe(player); return Task.CompletedTask; }));
         GameEvents.Resurrected.Add(module.Manifest.Id, player => { deaths.Observe(player); return Task.CompletedTask; });
+        GameEvents.ChatAvailabilityQuery.Add(module.Manifest.Id, ChatPresence.Get);
+        GameEvents.ChatActivity.Add(module.Manifest.Id, ChatPresence.ClearAfkOnActivity);
         GameEvents.PlayerLeaving.Add(module.Manifest.Id, (player, why) =>
         {
             played.End(player);
@@ -54,9 +56,10 @@ public sealed class CommandsModule : IModule
                     await player.Commands!.Reply(ChatPresence.SetAutoReply(player, command.Argument));
                     return true;
                 case InstanceItems.AfkCommand:
-                    // Preserve lockstep latency probing: S→C 0x194 elicits an automatic C→S 0x16 AfkCommand response
-                    // that Messages.cs handles via AnswerLockstepProbe when a probe is in flight.
-                    if (player.Connection.LockstepClient && Volatile.Read(ref player.Connection.LockstepProbeSentAt) != 0) return false;
+                    // Preserve lockstep latency probing: S→C 0x194 elicits an automatic empty-arg C→S 0x16 AfkCommand
+                    // response that Messages.cs handles via AnswerLockstepProbe when a probe is in flight.
+                    if (player.Connection.LockstepClient && command.Argument.Length == 0
+                        && Volatile.Read(ref player.Connection.LockstepProbeSentAt) != 0) return false;
                     await player.Commands!.Reply(ChatPresence.ToggleAfk(player, command.Argument));
                     return true;
                 case InstanceItems.DndCommand or InstanceItems.DoNotDisturbCommand:

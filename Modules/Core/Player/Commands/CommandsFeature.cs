@@ -112,8 +112,7 @@ public static class CommandsFeature
             await player.Commands!.Reply("Usage: /invite <character name>");
             return;
         }
-        if (AppContext.GetData("LocalExile.Social.InviteHook") is Func<Player, string, Task<bool>> invite
-            && await invite(player, targetName))
+        if (await GameEvents.RunPartyInvite(player, targetName))
             return;
         await player.Commands!.Reply("Player not found.");
     }

@@ -4,24 +4,19 @@ using System.Runtime.CompilerServices;
 namespace GameServer.Modules.M_commands;
 
 /// <summary>Tracks per-character death counts in <see cref="CharacterSaves.ModuleData"/> using
-/// <see cref="Player.DeathNotificationEpoch"/> so each death is persisted once across ticks, resurrections,
-/// area changes and collectible module reloads.</summary>
+/// <see cref="Player.DeathNotificationEpoch"/> so each death is persisted once across ticks, resurrections and
+/// area changes.</summary>
 public sealed class CharacterDeaths
 {
     public const string SaveKey = "commands.deaths";
 
-    static readonly object Gate = Keep("DeathGate", () => new object());
-    static readonly ConditionalWeakTable<Player, long[]> SeenEpochs =
-        Keep("DeathEpochs", () => new ConditionalWeakTable<Player, long[]>());
-
-    static T Keep<T>(string name, Func<T> create) where T : class
+    sealed class DeathTracker
     {
-        string key = "LocalExile.Commands." + name;
-        if (AppContext.GetData(key) is T existing) return existing;
-        var value = create();
-        AppContext.SetData(key, value);
-        return value;
+        public readonly Lock Gate = new();
+        public long LastEpoch = -1;
     }
+
+    static readonly ConditionalWeakTable<Player, DeathTracker> Trackers = new();
 
     static int Parse(string? text) => int.TryParse(text, NumberStyles.Integer, CultureInfo.InvariantCulture, out int value)
         && value >= 0 ? value : 0;
@@ -32,14 +27,17 @@ public sealed class CharacterDeaths
         if (player.Controlled || player.Character.Name is not { Length: > 0 } name) return;
         long epoch = player.DeathNotificationEpoch;
         if (epoch < 0) return;
-        lock (Gate)
+        // Fast lock-free short-circuit on every AreaTick once this death epoch has been committed.
+        if (Trackers.TryGetValue(player, out var existing) && Volatile.Read(ref existing.LastEpoch) == epoch)
+            return;
+        var tracker = Trackers.GetOrCreateValue(player);
+        lock (tracker.Gate)
         {
-            long[] seen = SeenEpochs.GetValue(player, _ => [-1L]);
-            if (seen[0] == epoch) return;
-            seen[0] = epoch;
+            if (Volatile.Read(ref tracker.LastEpoch) == epoch) return;
+            Saves.Atomically(() => CharacterSaves.ChangeModuleData(name, SaveKey,
+                current => (Parse(current) + 1).ToString(CultureInfo.InvariantCulture)));
+            Volatile.Write(ref tracker.LastEpoch, epoch);
         }
-        Saves.Atomically(() => CharacterSaves.ChangeModuleData(name, SaveKey,
-            current => (Parse(current) + 1).ToString(CultureInfo.InvariantCulture)));
     }
 
     public int Count(Player player)

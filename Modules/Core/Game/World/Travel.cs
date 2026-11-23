@@ -396,6 +396,7 @@ public static partial class Game
     // C→S 0x17a: visit a named character's hideout (self, same party, friend, or invited via 0x179).
     public static async Task WarpToPlayerHideout(Player player, string rawTarget, string why)
     {
+        if (player.PlayerLife == 0 || player.Character.HardcoreDeathRecorded) return;
         string targetName = rawTarget.Trim();
         if (targetName.Length == 0
             || string.Equals(targetName, CharacterName(player), StringComparison.OrdinalIgnoreCase)
@@ -404,7 +405,7 @@ public static partial class Game
             await WarpToHideout(player, why);
             return;
         }
-        var target = InGame.Keys.FirstOrDefault(c => !c.Controlled && !c.Closed
+        var target = InGame.Keys.FirstOrDefault(c => !c.Controlled && !c.Closed && !c.LeavingArea
             && (string.Equals(CharacterName(c), targetName, StringComparison.OrdinalIgnoreCase)
                 || string.Equals(c.Character.Account, targetName, StringComparison.OrdinalIgnoreCase)));
         if (target is null)
@@ -456,12 +457,7 @@ public static partial class Game
     {
         if (visitor.Character.Account is not null && string.Equals(visitor.Character.Account, owner.Character.Account, StringComparison.OrdinalIgnoreCase))
             return true;
-        if (AppContext.GetData("LocalExile.Social.HideoutAccessHook") is Func<Player, Player, bool> check)
-            return check(visitor, owner);
-        if (visitor.Character.Account is not { } vAcc || owner.Character.Account is not { } oAcc) return false;
-        var accounts = new GameServer.Storage.SqliteAccountStore(Saves.Db);
-        if (accounts.FindAccount(vAcc) is not { } v || accounts.FindAccount(oAcc) is not { } o) return false;
-        return new GameServer.Storage.SqliteFriendStore(Saves.Db).Friends(o.Id).Contains(v.Id);
+        return GameEvents.CanVisitHideout(visitor, owner);
     }
 
     public static HideoutCatalog.Hideout? HomeHideout(Player player) =>

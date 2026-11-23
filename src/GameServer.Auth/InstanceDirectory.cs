@@ -23,8 +23,20 @@ sealed class InstanceDirectory(InstanceRegistry registry, AccountService? accoun
     private readonly ConcurrentDictionary<uint, TicketInfo> _tickets = new();
     // Each character's latest ticket: a connection closing after its character re-entered the same instance (Instance
     // Manager) must not take it out of that instance.
-    private readonly ConcurrentDictionary<string, uint> _latest = new();
+    private readonly ConcurrentDictionary<string, uint> _latest = new(StringComparer.OrdinalIgnoreCase);
     private readonly ConcurrentDictionary<string, LoginLink> _links = new(StringComparer.OrdinalIgnoreCase);
+
+    /// <summary>True when <paramref name="character"/> currently has an active login link or live instance presence.</summary>
+    public bool IsCharacterActive(string character)
+    {
+        if (_links.ContainsKey(character)) return true;
+        if (_latest.TryGetValue(character, out uint ticket)
+            && _tickets.TryGetValue(ticket, out var info)
+            && registry.Get(info.Instance) is { } inst
+            && inst.Players.Contains(character))
+            return true;
+        return false;
+    }
 
     public sealed record TicketInfo(string Character, ulong Instance, ushort Area, League? League, CharacterClass Class,
         int Level, Guid? CharacterId, ushort PortraitFrame = 0);

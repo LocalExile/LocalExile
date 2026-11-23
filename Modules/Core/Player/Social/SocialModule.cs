@@ -66,14 +66,9 @@ public sealed class SocialModule : IModule
             await FriendsFeature.ChallengeDuel(player, InstanceSocial.ReadDuelChallenge(bytes));
             return true;
         });
-        // Expose BCL-only hooks for Commands, Chat and Game without holding collectible delegates after unload.
-        Func<Player, string, Task<bool>> inviteHook = PartyRoster.InviteHuman;
-        Func<string?, string?, bool> ignoreHook = FriendsFeature.IsIgnoring;
-        Func<Player, Player, bool> hideoutAccessHook = FriendsFeature.CanVisitHideout;
-        AppContext.SetData("LocalExile.Social.InviteHook", inviteHook);
-        AppContext.SetData("LocalExile.Social.IgnoreHook", ignoreHook);
-        AppContext.SetData("LocalExile.Social.HideoutAccessHook", hideoutAccessHook);
-        module.Lifetime.Own(new HookCleanup(inviteHook, ignoreHook, hideoutAccessHook));
+        GameEvents.PartyInvite.Add(module.Manifest.Id, PartyRoster.InviteHuman);
+        GameEvents.PlayerIgnored.Add(module.Manifest.Id, (viewer, sender) => FriendsFeature.IsIgnoring(viewer.Character.Account, sender));
+        GameEvents.HideoutVisitAllowed.Add(module.Manifest.Id, FriendsFeature.CanVisitHideout);
         GameEvents.PlayerLeaving.Add(module.Manifest.Id, (player, why) => SocialFeature.CancelPlayerTrade(player, why));
         GameEvents.Packet(InstanceNpcs.TradeOfferId).Add(module.Manifest.Id, async (player, bytes) =>
         {
@@ -149,19 +144,6 @@ public sealed class SocialModule : IModule
             PartyTravel.Travel(player, InstanceSocial.ReadPartyTravel(bytes)));
         // A "%…" line: only this module knows the party, so it carries the line to the members.
         GameEvents.PartyChat.Add(module.Manifest.Id, PartyChat.Deliver);
-    }
-
-    sealed class HookCleanup(object invite, object ignore, object hideout) : IDisposable
-    {
-        public void Dispose()
-        {
-            if (ReferenceEquals(AppContext.GetData("LocalExile.Social.InviteHook"), invite))
-                AppContext.SetData("LocalExile.Social.InviteHook", null);
-            if (ReferenceEquals(AppContext.GetData("LocalExile.Social.IgnoreHook"), ignore))
-                AppContext.SetData("LocalExile.Social.IgnoreHook", null);
-            if (ReferenceEquals(AppContext.GetData("LocalExile.Social.HideoutAccessHook"), hideout))
-                AppContext.SetData("LocalExile.Social.HideoutAccessHook", null);
-        }
     }
 }
 
@@ -273,17 +255,26 @@ static class SocialFeature
     // C→S 0xb4 (Ctrl + right-click): move every item of the clicked item's base type between inventory and trade offer.
     internal static async Task PlayerTradeMoveSameType(Player player, PlayerTrade trade, uint inventory, uint itemId)
     {
+        if (!PlayerTradeAllowed(player, trade.Other(player)))
+        {
+            await CancelPlayerTrade(player, "player or game mode no longer permits trading");
+            return;
+        }
         var items = ItemsOf(player);
         if (items.Offered().FirstOrDefault(i => i.Id == itemId) is { } offeredTarget)
         {
             uint type = offeredTarget.Item.TypeHash;
             uint[] ids = [itemId, .. items.Offered().Where(i => i.Id != itemId && i.Item.TypeHash == type)
                 .OrderBy(i => i.Y).ThenBy(i => i.X).Select(i => i.Id)];
+            bool moved = false;
             foreach (uint id in ids)
             {
                 if (player.Trade != trade || trade.Over) break;
-                await PlayerTradeTakeBack(player, trade, id);
+                int before = items.Offered().Count;
+                await PlayerTradeTakeBack(player, trade, id, sendState: false);
+                if (items.Offered().Count != before) moved = true;
             }
+            if (moved && player.Trade == trade && !trade.Over) await SendTradeState(trade);
             return;
         }
         byte? row = PlayerInventories.Row(inventory);
@@ -296,18 +287,21 @@ static class SocialFeature
         uint matchType = clicked.Item.TypeHash;
         uint[] toOffer = [itemId, .. items.Items(row!.Value).Where(i => i.Id != itemId && i.Item.TypeHash == matchType)
             .OrderBy(i => i.Y).ThenBy(i => i.X).Select(i => i.Id)];
+        bool offeredAny = false;
         foreach (uint id in toOffer)
         {
             if (player.Trade != trade || trade.Over) break;
             int before = items.Offered().Count;
-            await PlayerTradeOffer(player, trade, inventory, id);
+            await PlayerTradeOffer(player, trade, inventory, id, sendState: false);
             if (items.Offered().Count == before) break;
+            offeredAny = true;
         }
+        if (offeredAny && player.Trade == trade && !trade.Over) await SendTradeState(trade);
     }
 
     // C→S 0xb2 / 0xb3 / 0xb5 while a player trade is open: an item into the offer (a drop at x, y, or Ctrl / Shift
     // click into the first free cell), or an offered item taken back.
-    internal static async Task PlayerTradeOffer(Player player, PlayerTrade trade, uint inventory, uint itemId, byte? x = null, byte? y = null)
+    internal static async Task PlayerTradeOffer(Player player, PlayerTrade trade, uint inventory, uint itemId, byte? x = null, byte? y = null, bool sendState = true)
     {
         if (!PlayerTradeAllowed(player, trade.Other(player)))
         {
@@ -315,7 +309,7 @@ static class SocialFeature
             return;
         }
         var items = ItemsOf(player);
-        if (items.Offered().Any(i => i.Id == itemId)) { await PlayerTradeTakeBack(player, trade, itemId); return; }
+        if (items.Offered().Any(i => i.Id == itemId)) { await PlayerTradeTakeBack(player, trade, itemId, sendState); return; }
         byte? row = PlayerInventories.Row(inventory);
         var it = row is byte r ? items.Items(r).FirstOrDefault(i => i.Id == itemId) : null;
         if (it is null || ShapeOf(it.Item) is not { } shape) { Console.WriteLine($"[gateway] {player.Connection.Remote} trade offer: item {itemId} not in inventory {inventory}"); return; }
@@ -352,10 +346,10 @@ static class SocialFeature
         await SendTo(player, InstanceItems.InventoryChange(PlayerTradeMine, mine, [], [shown], NpcShops.Manager), $"0x00bf trade offer: item {itemId} at ({at.X}, {at.Y})");
         await SendTo(other, InstanceItems.InventoryChange(PlayerTradeTheirs, theirs, [], [shown with { Id = view }], NpcShops.Manager),
             $"0x00bf {CharacterName(player)}'s offer: item {view} at ({at.X}, {at.Y})");
-        await SendTradeState(trade);
+        if (sendState) await SendTradeState(trade);
     }
 
-    internal static async Task PlayerTradeTakeBack(Player player, PlayerTrade trade, uint itemId)
+    internal static async Task PlayerTradeTakeBack(Player player, PlayerTrade trade, uint itemId, bool sendState = true)
     {
         var items = ItemsOf(player);
         if (items.TakeBack(itemId) is not var (row, back)) return;
@@ -375,7 +369,7 @@ static class SocialFeature
             $"0x00bf return item {itemId} to inventory {PlayerInventories.InventoryId(row)}");
         await SendTo(other, InstanceItems.InventoryChange(PlayerTradeTheirs, theirs, [view], [], NpcShops.Manager),
             $"0x00bf {CharacterName(player)}'s offer: remove item {view}");
-        await SendTradeState(trade);
+        if (sendState) await SendTradeState(trade);
     }
 
     // C→S 0xb6: Accept, with the revision of the other's offer this client saw. Both accepted on the current offers

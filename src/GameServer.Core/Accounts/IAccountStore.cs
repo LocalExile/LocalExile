@@ -13,6 +13,6 @@ public interface IAccountStore
     Character? GetCharacter(Guid id);
     void AddCharacter(Character character);
     void UpdateCharacter(Character character);
-    void RenameCharacter(Guid id, string newName);
+    bool RenameCharacter(Guid id, string newName);
     void DeleteCharacter(Guid id);
 }

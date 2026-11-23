@@ -1,5 +1,6 @@
 using System.Buffers.Binary;
 using GameServer.Core.Accounts;
+using GameServer.Core.Chat;
 using GameServer.Core.Protocol.Instance;
 using GameServer.Core.Protocol.Login;
 using GameServer.Core.World;
@@ -29,40 +30,41 @@ public class SocialChatCommandsTests
     public async Task Social_handlers_party_disconnect_safety_and_chat_trade_framing_work()
     {
         string saves = Path.Combine(Path.GetTempPath(), $"localexile-social-chat-{Guid.NewGuid():N}.db");
-        Saves.Open(saves);
-        using var runtime = new PartyFollowerTests.Runtime();
-        var instance = new InstanceState();
-        using var wire = new PartyFollowerTests.Wire();
-        var store = new SqliteAccountStore(Saves.Db);
-        var accA = new Account(Guid.NewGuid(), "SocialAccA", "", "", DateTimeOffset.UtcNow);
-        var accB = new Account(Guid.NewGuid(), "SocialAccB", "", "", DateTimeOffset.UtcNow);
-        store.AddAccount(accA);
-        store.AddAccount(accB);
-        store.AddCharacter(new(Guid.NewGuid(), accA.Id, "SocialAlpha", CharacterClass.Witch, 12, "Standard",
-            AccountService.StartingArea, DateTimeOffset.UtcNow, DateTimeOffset.UtcNow));
-        store.AddCharacter(new(Guid.NewGuid(), accB.Id, "SocialBeta", CharacterClass.Ranger, 14, "Standard",
-            AccountService.StartingArea, DateTimeOffset.UtcNow, DateTimeOffset.UtcNow));
-
-        var layout = new AreaLayout(0x235c, "1_1_town", 300, 300, 100, 100, null, []);
-        var alpha = new Player(layout, 1, 1) { Instance = instance, Character = { Account = accA.Name, Name = "SocialAlpha" } };
-        var beta = new Player(layout, 1, 1) { Instance = instance, Character = { Account = accB.Name, Name = "SocialBeta" } };
-        alpha.PlayerLife = beta.PlayerLife = 1000;
-        alpha.Connection.PlayerSent = beta.Connection.PlayerSent = true;
-        alpha.Connection.Session = new("alpha-test", wire.Stream, wire.Ciphers);
-        beta.Connection.Session = new("beta-test", wire.Stream, wire.Ciphers);
-        Program.InGame.TryAdd(alpha, 0);
-        Program.InGame.TryAdd(beta, 0);
-        var (alphaMsgs, alphaOutbox) = Capture();
-        var (betaMsgs, betaOutbox) = Capture();
-        var alphaReplies = new List<string>();
-        var betaReplies = new List<string>();
-        alpha.Connection.Outbox = alphaOutbox;
-        beta.Connection.Outbox = betaOutbox;
-        alpha.Commands = new() { Send = (_, _) => Task.CompletedTask, Reply = s => { alphaReplies.Add(s); return Task.CompletedTask; } };
-        beta.Commands = new() { Send = (_, _) => Task.CompletedTask, Reply = s => { betaReplies.Add(s); return Task.CompletedTask; } };
-
+        Player? alpha = null, beta = null;
         try
         {
+            Saves.Open(saves);
+            using var runtime = new PartyFollowerTests.Runtime();
+            var instance = new InstanceState();
+            using var wire = new PartyFollowerTests.Wire();
+            var store = new SqliteAccountStore(Saves.Db);
+            var accA = new Account(Guid.NewGuid(), "SocialAccA", "", "", DateTimeOffset.UtcNow);
+            var accB = new Account(Guid.NewGuid(), "SocialAccB", "", "", DateTimeOffset.UtcNow);
+            store.AddAccount(accA);
+            store.AddAccount(accB);
+            store.AddCharacter(new(Guid.NewGuid(), accA.Id, "SocialAlpha", CharacterClass.Witch, 12, "Standard",
+                AccountService.StartingArea, DateTimeOffset.UtcNow, DateTimeOffset.UtcNow));
+            store.AddCharacter(new(Guid.NewGuid(), accB.Id, "SocialBeta", CharacterClass.Ranger, 14, "Standard",
+                AccountService.StartingArea, DateTimeOffset.UtcNow, DateTimeOffset.UtcNow));
+
+            var layout = new AreaLayout(0x235c, "1_1_town", 300, 300, 100, 100, null, []);
+            alpha = new Player(layout, 1, 1) { Instance = instance, Character = { Account = accA.Name, Name = "SocialAlpha" } };
+            beta = new Player(layout, 1, 1) { Instance = instance, Character = { Account = accB.Name, Name = "SocialBeta" } };
+            alpha.PlayerLife = beta.PlayerLife = 1000;
+            alpha.Connection.PlayerSent = beta.Connection.PlayerSent = true;
+            alpha.Connection.Session = new("alpha-test", wire.Stream, wire.Ciphers);
+            beta.Connection.Session = new("beta-test", wire.Stream, wire.Ciphers);
+            Program.InGame.TryAdd(alpha, 0);
+            Program.InGame.TryAdd(beta, 0);
+            var (alphaMsgs, alphaOutbox) = Capture();
+            var (betaMsgs, betaOutbox) = Capture();
+            var alphaReplies = new List<string>();
+            var betaReplies = new List<string>();
+            alpha.Connection.Outbox = alphaOutbox;
+            beta.Connection.Outbox = betaOutbox;
+            alpha.Commands = new() { Send = (_, _) => Task.CompletedTask, Reply = s => { alphaReplies.Add(s); return Task.CompletedTask; } };
+            beta.Commands = new() { Send = (_, _) => Task.CompletedTask, Reply = s => { betaReplies.Add(s); return Task.CompletedTask; } };
+
             // 1. Party invite accept after inviter disconnected must not throw ObjectDisposedException.
             await PartyRoster.InviteHuman(alpha, beta.Character.Name!);
             uint inviteParty = PartyRoster.PartyOf(alpha);
@@ -113,8 +115,14 @@ public class SocialChatCommandsTests
             await FriendsFeature.Change(alpha, ("SocialBeta", 0x0101));
             Assert.False(FriendsFeature.IsIgnoring(accA.Name, accB.Name));
 
-            // 5. Hideout invite (0x179) grants visit access and duel challenge (0x155) sends S->C 0x157.
+            // 5. Hideout invite (0x179) grants visit access, ignore revokes/blocks hideout visit, and duel sends S->C 0x157.
             Assert.False(FriendsFeature.CanVisitHideout(beta, alpha));
+            await FriendsFeature.InviteToHideout(alpha, "SocialBeta");
+            Assert.True(FriendsFeature.CanVisitHideout(beta, alpha));
+            await FriendsFeature.Change(alpha, ("SocialBeta", 0x0001));
+            Assert.False(FriendsFeature.CanVisitHideout(beta, alpha));
+            await FriendsFeature.Change(alpha, ("SocialBeta", 0x0101));
+            Assert.False(FriendsFeature.CanVisitHideout(beta, alpha)); // Prior invite cleared when ignored.
             await FriendsFeature.InviteToHideout(alpha, "SocialBeta");
             Assert.True(FriendsFeature.CanVisitHideout(beta, alpha));
             betaMsgs.Clear();
@@ -125,7 +133,7 @@ public class SocialChatCommandsTests
             Assert.Equal("SocialAlpha", dr.WStr());
             Assert.Equal((byte)0, dr.U8());
 
-            // 6. Chat flags, chat link readers (0x12/0x13/0x14), Ctrl+right-click trade (0xb4), and EnterPersonal.
+            // 6. Chat flags, ExpandNamedLinks amplification/dedup/MaxText caps, chat link readers, 0xb4, and EnterPersonal.
             byte[] autoReply = InstanceChat.ChatLine("Away", "@SocialAlpha", InstanceChat.AutoReplyFlag);
             var cr = new LoginReader(autoReply);
             Assert.Equal(InstanceChat.ChatLineId, cr.U16());
@@ -136,6 +144,19 @@ public class SocialChatCommandsTests
             Assert.Equal((ushort)0x4000, InstanceChat.AutoReplyFlag);
             Assert.Equal((ushort)0x8000, InstanceChat.ForceLocalFlag);
             Assert.Equal((ushort)0x0004, InstanceChat.RedTextFlag);
+            Assert.Throws<ArgumentOutOfRangeException>(() => InstanceChat.ChatLine("Bad", flags: 0x0008));
+
+            var dupNamed = Enumerable.Range(0, 10).ToDictionary(i => (byte)i, _ => "[Portal]");
+            var (dupText, _) = ChatWire.ExpandNamedLinks("_ ok", Enumerable.Repeat(0u, 10).ToArray(), 0, dupNamed);
+            Assert.Equal("[Portal] ok", dupText);
+            var manyNamed = Enumerable.Range(0, 8).ToDictionary(i => (byte)i, i => $"[M{i}]");
+            var (cappedText, _) = ChatWire.ExpandNamedLinks("________", Enumerable.Range(0, 8).Select(i => (uint)i).ToArray(), 0, manyNamed);
+            Assert.Equal("[M0][M1][M2][M3][M4]___", cappedText);
+            string nearMax = new string('a', ChatWire.MaxText - 4) + "_ _";
+            var bigNamed = new Dictionary<byte, string> { [0] = "[LongLabel]", [1] = "[X]" };
+            var (maxText, _) = ChatWire.ExpandNamedLinks(nearMax, [(uint)(ChatWire.MaxText - 4), (uint)(ChatWire.MaxText - 2), uint.MaxValue], 0, bigNamed);
+            Assert.True(maxText.Length <= ChatWire.MaxText);
+            Assert.Equal(nearMax, maxText);
 
             byte[] linkItem = new LoginWriter().U16(InstanceChat.LinkItemId).U8(2).U32(0x10000001).U32(77).U8(1).ToArray();
             Assert.Equal(new InstanceChat.LinkItem(2, 1, 77, 1), InstanceChat.ReadLinkItem(linkItem));
@@ -170,6 +191,7 @@ public class SocialChatCommandsTests
         {
             foreach (var c in new[] { alpha, beta })
             {
+                if (c is null) continue;
                 await PartyRoster.LeaveHuman(c, PartyRoster.PartyOf(c));
                 c.Closed = true;
                 Program.InGame.TryRemove(c, out _);
@@ -192,6 +214,8 @@ public class SocialChatCommandsTests
             accounts.CreateCharacter(acc.Id, "OldExile", CharacterClass.Witch);
             accounts.CreateCharacter(acc.Id, "TakenName", CharacterClass.Ranger);
             CharacterSaves.Write("OldExile", new([], Experience: 777));
+            string priorToken = accounts.Login("loginuser", "oldpw123").Value!.Token;
+            Assert.True(accounts.Resume(priorToken).Ok);
 
             // Death counter persists distinct epochs in CharacterSaves.ModuleData without double-counting.
             var deaths = new CharacterDeaths();
@@ -207,23 +231,33 @@ public class SocialChatCommandsTests
             // Login with Remember Password (Flag94) to verify credential invalidation on 0x0a password change.
             byte[] machineA = Enumerable.Repeat((byte)3, 32).ToArray();
             byte[] machineB = Enumerable.Repeat((byte)4, 32).ToArray();
-            var session = new LoginServerSession(accounts);
+            bool activeBlocked = false;
+            var session = new LoginServerSession(accounts)
+            {
+                IsCharacterActive = n => activeBlocked && string.Equals(n, "OldExile", StringComparison.OrdinalIgnoreCase),
+            };
             var loginReplies = session.Handle(new AccountLogin(2, "loginuser", machineA,
                 AccountService.ClientPasswordDigest("oldpw123"), machineB, true, false, 0x40, 0));
             var loginOk = Assert.IsType<LoginResult>(loginReplies[0]);
             Assert.Equal(LoginServerSession.ResultOk, loginOk.Result);
 
-            // Change password (0x0a -> 0x0b): wrong old digest and empty new digest fail; valid digest succeeds.
+            // Change password (0x0a -> 0x0b): wrong old digest, all-zero digest, and empty-password digest all fail.
             byte[] oldDigest = AccountService.ClientPasswordDigest("oldpw123");
             byte[] newDigest = AccountService.ClientPasswordDigest("newpw456");
             var badOld = Assert.IsType<U16Message>(Assert.Single(session.Handle(
                 new TwoDigests(AccountService.ClientPasswordDigest("wrong"), newDigest))));
             Assert.Equal((LoginServerSession.ChangePasswordResultId, LoginServerSession.ResultInvalidPassword), (badOld.MessageId, badOld.Value));
-            var emptyNew = Assert.IsType<U16Message>(Assert.Single(session.Handle(new TwoDigests(oldDigest, new byte[32]))));
+            var zeroNew = Assert.IsType<U16Message>(Assert.Single(session.Handle(new TwoDigests(oldDigest, new byte[32]))));
+            Assert.Equal(LoginServerSession.ResultInvalidPassword, zeroNew.Value);
+            var emptyNew = Assert.IsType<U16Message>(Assert.Single(session.Handle(new TwoDigests(oldDigest, AccountService.ClientPasswordDigest("")))));
             Assert.Equal(LoginServerSession.ResultInvalidPassword, emptyNew.Value);
 
             var changed = Assert.IsType<U16Message>(Assert.Single(session.Handle(new TwoDigests(oldDigest, newDigest))));
             Assert.Equal((LoginServerSession.ChangePasswordResultId, LoginServerSession.ResultOk), (changed.MessageId, changed.Value));
+            Assert.False(accounts.Resume(priorToken).Ok); // Active sessions invalidated on password change.
+            Assert.True(accounts.Login("loginuser", "newpw456").Ok);
+            Assert.False(accounts.Login("loginuser", "oldpw123").Ok);
+            Assert.False(accounts.Login("loginuser", Convert.ToHexString(newDigest)).Ok);
             Assert.Equal(LoginServerSession.ResultInvalidPassword, Assert.IsType<LoginResult>(
                 new LoginServerSession(accounts).Handle(new AccountLogin(2, "loginuser", machineA, oldDigest, machineB, false, false, 0x40, 0))[0]).Result);
             Assert.Equal(LoginServerSession.ResultInvalidPassword, Assert.IsType<LoginResult>(
@@ -231,7 +265,17 @@ public class SocialChatCommandsTests
             Assert.Equal(LoginServerSession.ResultOk, Assert.IsType<LoginResult>(
                 new LoginServerSession(accounts).Handle(new AccountLogin(2, "loginuser", machineA, newDigest, machineB, false, false, 0x40, 0))[0]).Result);
 
-            // Rename character (0x3d -> 0x15 + 0x3e): validation errors and atomic save rename.
+            // Rename character (0x3d -> 0x15 + 0x3e): active-character refusal, validation errors, orphan save collision and atomic save rename.
+            activeBlocked = true;
+            var activeRefused = Assert.IsType<U16Bool>(Assert.Single(session.Handle(new TwoWStringsBool("OldExile", "FreshName", false))));
+            Assert.Equal(LoginServerSession.ResultCharacterNameInvalid, activeRefused.Value);
+            activeBlocked = false;
+
+            CharacterSaves.Write("OrphanSave", new([], Experience: 1));
+            var orphanConflict = Assert.IsType<U16Bool>(Assert.Single(session.Handle(new TwoWStringsBool("OldExile", "OrphanSave", false))));
+            Assert.Equal(LoginServerSession.ResultCharacterNameTaken, orphanConflict.Value);
+            Assert.NotNull(accounts.FindCharacter("OldExile")); // Transaction rolled back cleanly.
+
             var tooShort = Assert.IsType<U16Bool>(Assert.Single(session.Handle(new TwoWStringsBool("OldExile", "ab", false))));
             Assert.Equal((LoginServerSession.ResultCharacterNameTooShort, false), (tooShort.Value, tooShort.Flag));
             var taken = Assert.IsType<U16Bool>(Assert.Single(session.Handle(new TwoWStringsBool("OldExile", "TakenName", true))));
@@ -252,6 +296,11 @@ public class SocialChatCommandsTests
             Assert.Equal(777u, savedAfter!.Experience);
             Assert.Equal("2", CharacterSaves.ModuleData("NewExile", CharacterDeaths.SaveKey));
             Assert.Null(CharacterSaves.Load("OldExile"));
+
+            // Renaming the session's currently active played character is also refused.
+            session.Handle(new U8U32(0, 0));
+            var inGameRefused = Assert.IsType<U16Bool>(Assert.Single(session.Handle(new TwoWStringsBool(session.CharacterName!, "AnotherName", false))));
+            Assert.Equal(LoginServerSession.ResultCharacterNameInvalid, inGameRefused.Value);
         }
         finally
         {

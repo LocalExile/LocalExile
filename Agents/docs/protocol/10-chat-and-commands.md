@@ -24,7 +24,7 @@ The counter starts when this support is installed; earlier playtime cannot be re
 Other retail `C→S 0x16` commands handled by `Modules/Core/Player/Commands/`: `/age` (3), `/remaining` (4),
 `/deaths` (5, distinct death epochs persisted in character module data), `/whois` (10), `/afk` / `/autoreply` (35,
 preserving the lockstep probe when active), and `/dnd` / `/donotdisturb` (37, 38).
-`/invite <name>` arrives as chat (`0x15`) and delegates to `PartyRoster.InviteHuman`.
+`/invite <name>` sends `C→S 0x93` (`PartyInviteId`, [28](28-player-trade.md) §1), and `Commands` also registers `/invite` for chat (`0x15`) via `GameEvents.PartyInvite`.
 
 The prefixes are `#` global, `$` trade, `%` party, `&` guild and `@` whisper; local has none (live 2026-10-25, typed in
 the chat box: `hello local`, `#hello global`, `$hello trade`).
