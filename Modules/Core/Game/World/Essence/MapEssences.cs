@@ -1,5 +1,6 @@
 using System.Text.Json;
 using System.Text.Json.Nodes;
+using GameServer.Core;
 using GameServer.Core.Protocol.Instance;
 using GameServer.Core.World;
 using GameServer.Data.Ggpk;
@@ -60,6 +61,26 @@ public static partial class MapEssences
     sealed class Parse { public volatile Snapshot? Last; }
     static readonly RuleTable<InstanceState, Parse> Parsed = new();
     static readonly System.Collections.Concurrent.ConcurrentDictionary<(string Area, int Level), AreaInfo> AreaInfos = new();
+    static HashSet<string> TrappedBossAreas = new(StringComparer.Ordinal);
+
+    /// <summary>Loads campaign WorldAreas whose ModsKeys include MapBossTrappedInEssence / MapBossDocksTrappedInEssence.</summary>
+    public static void LoadGameData()
+    {
+        var areas = new HashSet<string>(StringComparer.Ordinal);
+        if (ClientTables.Has("WorldAreas") && ClientTables.Has("Mods"))
+        {
+            var essenceMods = new HashSet<int>();
+            foreach (var mod in ClientTables.Table("Mods"))
+                if (mod.Text("Id") is "MapBossTrappedInEssence" or "MapBossDocksTrappedInEssence")
+                    essenceMods.Add(mod.Index);
+            if (essenceMods.Count > 0)
+                foreach (var area in ClientTables.Table("WorldAreas"))
+                    if (area.Text("Id") is { Length: > 0 } id && !area.Bool("IsTown") && !area.Bool("IsHideout")
+                        && area.Ints("ModsKeys").Any(essenceMods.Contains))
+                        areas.Add(id);
+        }
+        TrappedBossAreas = areas;
+    }
 
     public static void Opening(MapOpening request)
     {
@@ -87,11 +108,17 @@ public static partial class MapEssences
 
     public static int Count(Player player)
     {
-        if (MapRunOf(player) is not { } map || player.Instance.KeptAreaStats is not { } stats) return 0;
-        // Loading the WorldAreas row costs ~3 ms on every new map instance; the row does not change.
-        var area = AreaInfos.GetOrAdd((map.Area.Id, map.Area.Level), k => AreaInfo.Load(GamePack.Default.TryRead, k.Area, k.Level)) with
+        if (player.Instance is null || InTown(player) || HideoutCatalog.ByArea(player.Layout.Hash) is not null || player.Layout.Walkable is null) return 0;
+        var map = MapRunOf(player);
+        string areaId = map?.Area.Id ?? player.Layout.Id;
+        int level = AreaLevel(player);
+        var stats = player.Instance.KeptAreaStats ?? new Dictionary<uint, int>();
+        // Loading the WorldAreas row costs ~3 ms on every new instance; the row does not change.
+        var area = AreaInfos.GetOrAdd((areaId, level), k => AreaInfo.Load(GamePack.Default.TryRead, k.Area, k.Level)) with
         { Stats = stats.ToDictionary(s => (int)s.Key, s => s.Value) };
-        return ExtraTerrainFeatures.LeagueCount(area, new LevelRandom(player.Seed ^ 0x45535345, false), 6);
+        int count = ExtraTerrainFeatures.LeagueCount(area, new LevelRandom(player.Seed ^ 0x45535345, false), 6);
+        if (map is null && TrappedBossAreas.Contains(areaId)) count = Math.Max(count, 1);
+        return count;
     }
 
     static double Dist((int X, int Y) a, (int X, int Y) b) => Math.Sqrt((double)(a.X - b.X) * (a.X - b.X) + (double)(a.Y - b.Y) * (a.Y - b.Y));
@@ -257,7 +284,9 @@ public static partial class MapEssences
 
     public static async Task Enter(Player player)
     {
-        if (MapRunOf(player) is not { } map || MapModsOf(player) is not { } mods) return;
+        if (player.Instance is null || InTown(player) || HideoutCatalog.ByArea(player.Layout.Hash) is not null || player.Layout.Walkable is null) return;
+        int level = AreaLevel(player);
+        var mods = MapModsOf(player) ?? MapMods.None;
         var area = Areas.GetValue(player.Instance, _ => new());
         await area.Gate.WaitAsync();
         try
@@ -275,9 +304,9 @@ public static partial class MapEssences
                     var random = new Random(unchecked((int)(player.Seed ^ 0x45535345)));
                     var weights = pool.Select(e => (e.Variety, e.Weight)).ToArray();
                     if (pool.Length > 0)
-                        foreach (var (x, y) in MapStrongboxes.Positions(player.Layout, player.Seed ^ 0x45535345, count))
+                        foreach (var (x, y) in MapStrongboxes.Positions(player.Layout, player.Seed ^ 0x45535345, count, preferAmbushPoints: false))
                         {
-                            var essences = MapEssenceCatalog.Roll(map.Area.Level, mods, random);
+                            var essences = MapEssenceCatalog.Roll(level, mods, random);
                             if (essences.Count == 0) break;
                             int roll = random.Next(pool.Sum(e => e.Weight));
                             int variety = pool[^1].Variety;
@@ -288,7 +317,7 @@ public static partial class MapEssences
                             area.Monoliths.Add(await SpawnEncasedPreviews(player, monolith));
                         }
                     Keep(player, area);
-                    if (count > 0) Console.WriteLine($"[map-content] essences area={player.Layout.Id}: placed {area.Monoliths.Count}/{count}");
+                    if (count > 0) Console.WriteLine($"[map-content] essences area={player.Layout.Id} level={level}: placed {area.Monoliths.Count}/{count}");
                 }
             }
             bool respawned = false;

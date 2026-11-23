@@ -26,11 +26,25 @@ public sealed class PackCatalog
     public sealed record Pack(int Row, string Id, int MinCount, int MaxCount, int BossChance, int BossCount,
         IReadOnlyList<int> BossVarieties, IReadOnlyList<(int Variety, int Weight)> Entries, IReadOnlyDictionary<int, int> AreaWeights)
     {
+        /// <summary>MonsterPackEntries rows with Flag = 0: exact fixed member counts (Weight = count).</summary>
+        public IReadOnlyList<(int Variety, int Count)> FixedEntries { get; init; } = [];
+        /// <summary>MonsterPackEntries rows with Flag != 0: weighted random roll pool.</summary>
+        public IReadOnlyList<(int Variety, int Weight)> RandomEntries { get; init; } = [];
+        /// <summary>MonsterPacks.__col1: total fixed member count.</summary>
+        public int FixedCount { get; init; }
+        /// <summary>MonsterPacks.__col8: true for named mini-boss packs whose boss spawns at Unique rarity.</summary>
+        public bool UniqueBossPack { get; init; }
+        /// <summary>MonsterPacks.Grounds: required tile ground names (empty = any ground).</summary>
+        public IReadOnlyList<string> RequiredGrounds { get; init; } = [];
+        /// <summary>MonsterPacks.__col19: excluded tile ground names.</summary>
+        public IReadOnlyList<string> ExcludedGrounds { get; init; } = [];
+
         public int PickVariety(Random rng)
         {
-            int roll = rng.Next(Math.Max(1, Entries.Sum(e => e.Weight)));
-            foreach (var (variety, weight) in Entries) if ((roll -= weight) < 0) return variety;
-            return Entries[^1].Variety;
+            var pool = RandomEntries.Count > 0 ? RandomEntries : Entries;
+            int roll = rng.Next(Math.Max(1, pool.Sum(e => e.Weight)));
+            foreach (var (variety, weight) in pool) if ((roll -= weight) < 0) return variety;
+            return pool[^1].Variety;
         }
     }
 
@@ -65,6 +79,8 @@ public sealed class PackCatalog
             if (p.Entries.Count == 0) continue;
             if (p.Id.StartsWith(areaId + "-", StringComparison.Ordinal)) named[p.Id[(areaId.Length + 1)..]] = p;
             else if (p.AreaWeights.GetValueOrDefault(row) is int w and > 0) scattered.Add((p, w));
+            else if (p.UniqueBossPack && p.AreaWeights.ContainsKey(row) && p.Id.IndexOf('-') is int dash and >= 0)
+                named.TryAdd(p.Id[(dash + 1)..], p);
         }
         foreach (int pack in d.MapPacks.GetValueOrDefault(row) ?? [])
             if (pack < d.Packs.Count && d.Packs[pack].Entries.Count > 0 && !scattered.Any(s => s.Item1.Row == pack))
@@ -107,13 +123,30 @@ public sealed class PackCatalog
     {
         if (!ClientTables.Has("MonsterPacks") || !ClientTables.Has("MonsterPackEntries") || !ClientTables.Has("WorldAreas")) return null;
         var byPack = new Dictionary<int, List<(int, int)>>();
+        var fixedByPack = new Dictionary<int, List<(int, int)>>();
+        var randomByPack = new Dictionary<int, List<(int, int)>>();
         foreach (var e in ClientTables.Table("MonsterPackEntries"))
         {
             if (e.IsNull("MonsterPacksKey") || e.IsNull("MonsterVarietiesKey")) continue;
             int pack = e.Int("MonsterPacksKey");
+            int variety = e.Int("MonsterVarietiesKey");
+            int weight = e.Int("Weight");
+            int flag = e.IntOrNull("Flag") ?? 1;
             if (!byPack.TryGetValue(pack, out var list)) byPack[pack] = list = [];
-            list.Add((e.Int("MonsterVarietiesKey"), e.Int("Weight")));
+            list.Add((variety, weight));
+            if (flag == 0)
+            {
+                if (!fixedByPack.TryGetValue(pack, out var fl)) fixedByPack[pack] = fl = [];
+                fl.Add((variety, weight));
+            }
+            else
+            {
+                if (!randomByPack.TryGetValue(pack, out var rl)) randomByPack[pack] = rl = [];
+                rl.Add((variety, weight));
+            }
         }
+        static string[] CleanGrounds(string[] raw) =>
+            raw.Length == 0 ? [] : [.. raw.Where(g => !string.IsNullOrWhiteSpace(g) && g != "-")];
         var result = new List<Pack>();
         foreach (var p in ClientTables.Table("MonsterPacks"))
         {
@@ -126,7 +159,15 @@ public sealed class PackCatalog
             result.Add(new Pack(row, p.Text("Id") ?? "", p.Int("MinCount"), p.Int("MaxCount"),
                 p.Int("BossMonsterSpawnChance"), p.Int("BossMonsterCount"),
                 [.. p.Ints("BossMonster_MonsterVarietiesKeys")],
-                byPack.GetValueOrDefault(row) ?? [], areaWeights));
+                byPack.GetValueOrDefault(row) ?? [], areaWeights)
+            {
+                FixedEntries = fixedByPack.GetValueOrDefault(row) ?? [],
+                RandomEntries = randomByPack.GetValueOrDefault(row) ?? [],
+                FixedCount = p.IntOrNull("__col1") ?? 0,
+                UniqueBossPack = p.BoolOrNull("__col8") == true,
+                RequiredGrounds = CleanGrounds(p.Texts("Grounds")),
+                ExcludedGrounds = CleanGrounds(p.Texts("__col19")),
+            });
         }
         var areaRows = new List<(string, int, int[])>();
         foreach (var a in ClientTables.Table("WorldAreas"))
@@ -162,7 +203,11 @@ public static class AreaPopulation
     public static int PopulationSeed(ushort areaHash, uint areaSeed) => unchecked((int)InstanceEntities.ObjectTypeHash(
         FormattableString.Invariant($"population:{areaHash:x4}:{areaSeed:x8}")));
 
-    public sealed record Spawn(int Variety, int X, int Y, MonsterRarity Rarity, string Pack);
+    public sealed record Spawn(int Variety, int X, int Y, MonsterRarity Rarity, string Pack)
+    {
+        /// <summary>Per-area pack group id (&gt; 0 for grouped pack members, 0 for ungrouped/single spawns), for pack-wide aggro and emerge.</summary>
+        public int PackId { get; init; }
+    }
 
     public sealed record AdditionalPacks(string Source, IReadOnlyList<PackCatalog.Pack> Packs, int Count, double Size = 1);
 
@@ -174,13 +219,18 @@ public static class AreaPopulation
         var result = new List<Spawn>();
         var taken = occupied is null ? [] : occupied.ToHashSet();
         var random = new Random(seed);
+        int nextPackId = 1;
         foreach (var p in packs)
-            AddPack(result, taken, walkable, (p.X, p.Y), p.Pack, p.Rarity, true, random, spawnable, packSize: size);
+            AddPack(result, taken, walkable, (p.X, p.Y), p.Pack, p.Rarity, true, random, spawnable, packSize: size, packId: nextPackId++);
         return result;
     }
 
     /// <summary>A named point of a room the client placed (found by <see cref="LoadPoints"/>).</summary>
-    public sealed record RoomPoint(string Name, int X, int Y, float Angle = 0);
+    public sealed record RoomPoint(string Name, int X, int Y, float Angle = 0)
+    {
+        /// <summary>Source .arm room path when known (used to prefer dedicated boss rooms over golden_chest.arm).</summary>
+        public string? Room { get; init; }
+    }
 
     /// <summary>A server object of a room the client placed (an NPC, a quest blocker): its type and model, grid cell,
     /// angle (radians) and scale, through the room's placement.</summary>
@@ -264,6 +314,8 @@ public static class AreaPopulation
     public static readonly IReadOnlyDictionary<string, string> BossSpawners = new Dictionary<string, string>(StringComparer.OrdinalIgnoreCase)
     {
         ["Metadata/Monsters/Zombies/Tolman/TolmanBossSpawner"] = "Metadata/Monsters/Zombies/ZombieBossTolman_",
+        ["Metadata/Monsters/Statue/MaleLarge/Spawner_StoneStatueLargeMaleMapBoss"] = "Metadata/Monsters/Statue/StoneStatueLargeBossMale",
+        ["Metadata/Monsters/Statue/MaleLarge/Spawner_StoneStatueLargeMaleBoss"] = "Metadata/Monsters/Statue/StoneStatueLargeBossMale",
     };
 
     /// <summary>The boss points of the area's <see cref="BossSpawners"/> among a placed room's server objects:
@@ -274,6 +326,45 @@ public static class AreaPopulation
             if (BossSpawners.TryGetValue(o.Type, out var boss)
                 && Enumerable.Range(0, area.Bosses.Count).FirstOrDefault(i => varietyId(area.Bosses[i]) == boss, -1) is int row and >= 0)
                 yield return new RoomPoint($"mapboss{row + 1}", o.X, o.Y, o.Angle);
+    }
+
+    /// <summary>The boss points of the area's <see cref="BossSpawners"/> among tile-placed objects (e.g. Marketplace's
+    /// Marceus statue spawner).</summary>
+    public static IEnumerable<RoomPoint> SpawnerPoints(PackCatalog.AreaPacks area, IEnumerable<GameServer.Data.Terrain.Generation.PlacedTileObject> objects, Func<int, string?> varietyId)
+    {
+        foreach (var o in objects)
+            if (BossSpawners.TryGetValue(o.Type, out var boss)
+                && Enumerable.Range(0, area.Bosses.Count).FirstOrDefault(i => varietyId(area.Bosses[i]) == boss, -1) is int row and >= 0)
+                yield return new RoomPoint($"mapboss{row + 1}", o.X, o.Y, o.Rotation);
+    }
+
+    /// <summary>Monster points (mapboss*, %area%-*) and pre-placed Metadata/Monsters/* points directly from a generated
+    /// level's placed .arm rooms, catching rooms not indexed in room_point_areas (e.g. Imperial Gardens open_*_boss.arm).</summary>
+    public static (List<RoomPoint> MonsterPoints, List<(string Room, RoomPoint Point)> DirectMonsters) LayoutRoomPoints(
+        IEnumerable<GameServer.Data.Terrain.Generation.DoodadRecord> records)
+    {
+        var monsterPoints = new List<RoomPoint>();
+        var direct = new List<(string Room, RoomPoint Point)>();
+        var seenRooms = new HashSet<(string, int, int, int)>();
+        foreach (var record in records)
+            foreach (var room in record.Rooms)
+            {
+                if (room.Orientation is < 0 or > 7) continue;
+                string path = room.Room.Path;
+                if (!seenRooms.Add((path.ToLowerInvariant(), room.X, room.Y, room.Orientation))) continue;
+                foreach (var p in room.Room.Points)
+                {
+                    if (string.IsNullOrEmpty(p.Name)) continue;
+                    bool isBossOrNamed = IsMonsterPoint(p.Name);
+                    bool isDirect = !isBossOrNamed && p.Name.StartsWith("Metadata/Monsters/", StringComparison.Ordinal);
+                    if (!isBossOrNamed && !isDirect) continue;
+                    var (px, py, angle) = GameServer.Data.Terrain.Generation.AreaObjects.Place(room, p.X, p.Y, p.Angle);
+                    var placed = new RoomPoint(p.Name, px, py, angle) { Room = path };
+                    if (isBossOrNamed) monsterPoints.Add(placed);
+                    else direct.Add((path, placed));
+                }
+            }
+        return (monsterPoints, direct);
     }
 
     static readonly System.Text.RegularExpressions.Regex BossPointName =new("^(?:force:)?mapboss(?:([1-9][0-9]*(?:&[1-9][0-9]*)*)|pack)?(?:WG)?$");
@@ -332,17 +423,36 @@ public static class AreaPopulation
         Func<int, int, bool>? scatterable = null,
         IReadOnlyList<(string Shrine, ShrineGuards.Rule Rule, IReadOnlyList<PackCatalog.Pack> Packs, int X, int Y)>? shrineGuards = null,
         Func<int, bool>? guardSpawnable = null, IReadOnlyList<AdditionalPacks>? additionalPacks = null, bool ordinaryPacks = true,
-        IReadOnlyList<((int X, int Y) From, (int X, int Y) To)>? localTransitions = null)
+        IReadOnlyList<((int X, int Y) From, (int X, int Y) To)>? localTransitions = null) =>
+        Plan(area, w, h, walkable, arrival, transitions, points, seed, spawnable, notes, scale, unassignedAtArrival,
+            roomPacks, scatterable, shrineGuards, guardSpawnable, additionalPacks, ordinaryPacks, localTransitions, null);
+
+    public static List<Spawn> Plan(PackCatalog.AreaPacks area, int w, int h, Func<int, int, bool> walkable, (int X, int Y) arrival,
+        IReadOnlyList<(int X, int Y)> transitions, IReadOnlyList<RoomPoint> points, int seed, Func<int, bool> spawnable, List<string> notes,
+        PackScale scale, bool unassignedAtArrival, IReadOnlyList<RoomPoint>? roomPacks,
+        Func<int, int, bool>? scatterable,
+        IReadOnlyList<(string Shrine, ShrineGuards.Rule Rule, IReadOnlyList<PackCatalog.Pack> Packs, int X, int Y)>? shrineGuards,
+        Func<int, bool>? guardSpawnable, IReadOnlyList<AdditionalPacks>? additionalPacks, bool ordinaryPacks,
+        IReadOnlyList<((int X, int Y) From, (int X, int Y) To)>? localTransitions,
+        GameServer.Data.Terrain.Generation.TileGrounds? grounds)
     {
         var rng = new Random(seed);
         var spawns = new List<Spawn>();
         var taken = new HashSet<(int, int)>();
         var centres = new SpatialPoints(PackSpacing);
+        int nextPackId = 1;
         int spawnClearance = Math.Min(SpawnClearance, Math.Max(25, Math.Min(w, h) / 4));
         int transitionClearance = Math.Min(TransitionClearance, Math.Max(25, Math.Min(w, h) / 4));
         int memberSpawnClearance = Math.Max(0, spawnClearance - MemberRadius);
         int memberTransitionClearance = Math.Max(0, transitionClearance - MemberRadius);
         bool InSafeZone((int X, int Y) p, int sc, int tc) => Near(p, arrival, sc) || transitions.Any(t => Near(p, t, tc));
+        bool GroundAllows(PackCatalog.Pack pack, (int X, int Y) c)
+        {
+            if (grounds is null) return true;
+            if (pack.ExcludedGrounds.Count > 0 && grounds.CellExcluded(c.X, c.Y, pack.ExcludedGrounds)) return false;
+            if (pack.RequiredGrounds.Count > 0 && !grounds.CellMatchesAny(c.X, c.Y, pack.RequiredGrounds)) return false;
+            return true;
+        }
 
         // The room points first. Each boss of WorldAreas Bosses stands once: at its own numbered point ("mapboss2"), in a
         // named pack whose boss it is (The Mines Level 1's "%area%-minerhammerbosspack": Pikerivet), or else, with every
@@ -352,27 +462,30 @@ public static class AreaPopulation
         // (before, every boss point added one: The Cavern of Anger, The Dried Lake and The Lunaris Temple Level 2 had it
         // up to three times).
         var placedRows = new HashSet<int>(area.Absent);
+        var placedNamedPacks = new HashSet<string>(StringComparer.Ordinal);
         bool guarded = points.Any(p => p.Name == "%area%-bosspack");
         void Bosses((int X, int Y) at, string point, IReadOnlyList<int> rows)
         {
+            int bossPackId = nextPackId++;
             for (int i = 0; i < rows.Count; i++)
             {
                 int variety = area.Bosses[rows[i]];
                 if (!spawnable(variety)) { notes.Add($"room point {point} at {at}: boss {variety} cannot be created"); continue; }
-                if (AddMember(spawns, taken, walkable, at, variety, MonsterRarity.Unique, point, rng, i == 0 ? 0 : 3)) continue;
+                if (AddMember(spawns, taken, walkable, at, variety, MonsterRarity.Unique, point, rng, i == 0 ? 0 : 3, packId: bossPackId)) continue;
                 // Some bosses' points are off the walk map (Kitava in his pit, Arakaali in her web, Doedre the Vile at her
                 // cauldron): the nearest free walkable cell, so the server's walk and AI have a cell to start from.
                 if (Nearest(at, walkable, taken, BossSearchRadius) is { } cell)
                 {
                     taken.Add(cell);
-                    spawns.Add(new Spawn(variety, cell.X, cell.Y, MonsterRarity.Unique, point));
+                    spawns.Add(new Spawn(variety, cell.X, cell.Y, MonsterRarity.Unique, point) { PackId = bossPackId });
                     notes.Add($"room point {point} at {at} is not walkable: boss {variety} at {cell}");
                 }
                 else notes.Add($"room point {point} at {at}: no free walkable cell within {BossSearchRadius} for boss {variety}");
             }
             if (!guarded && area.Named.TryGetValue("bosspack", out var guards))
             {
-                AddPack(spawns, taken, walkable, at, guards, MonsterRarity.Normal, false, rng, spawnable);
+                AddPack(spawns, taken, walkable, at, guards, MonsterRarity.Normal, false, rng, spawnable, packId: bossPackId);
+                placedNamedPacks.Add("bosspack");
                 guarded = true;
             }
             centres.Add(at);
@@ -392,25 +505,29 @@ public static class AreaPopulation
         {
             string name = p.Name["%area%-".Length..];
             if (!area.Named.TryGetValue(name, out var pack)) { notes.Add($"room point {p.Name} at ({p.X}, {p.Y}): no pack {area.AreaId}-{name}"); continue; }
-            bool bossNamed = name == "bosspack" || pack.BossVarieties.Any(area.Bosses.Contains);
+            bool bossNamed = name == "bosspack" || pack.UniqueBossPack || pack.BossVarieties.Any(area.Bosses.Contains);
             if (!ordinaryPacks && !bossNamed) continue;
             if (!bossNamed && InSafeZone((p.X, p.Y), spawnClearance, transitionClearance)) continue;
-            // A named pack's own boss (BossMonster_MonsterVarietiesKeys) comes with it; one of the area's unique bosses is
-            // unique, and stands only once.
+            // A named pack's own boss (BossMonster_MonsterVarietiesKeys) comes with it; one of the area's unique bosses
+            // or a MonsterPacks.__col8 mini-boss pack is unique, and an area boss stands only once.
             int Row(int variety) => Enumerable.Range(0, area.Bosses.Count).FirstOrDefault(i => area.Bosses[i] == variety && !placedRows.Contains(i), -1);
             bool IsBoss(int variety) => area.Bosses.Contains(variety);
             Func<int, int, bool> namedWalkable = bossNamed ? walkable
                 : (x, y) => walkable(x, y) && !InSafeZone((x, y), memberSpawnClearance, memberTransitionClearance);
             foreach (int b in AddPack(spawns, taken, namedWalkable, (p.X, p.Y), pack, MonsterRarity.Normal, true, rng, spawnable,
-                b => !IsBoss(b) ? false : Row(b) >= 0 ? true : (bool?)null))
-                placedRows.Add(Row(b));
+                b => !IsBoss(b) ? pack.UniqueBossPack : Row(b) >= 0 ? true : (bool?)null, packId: nextPackId++))
+                if (Row(b) is int r and >= 0) placedRows.Add(r);
+            placedNamedPacks.Add(name);
             centres.Add((p.X, p.Y));
         }
         var rest = Enumerable.Range(0, area.Bosses.Count).Where(i => !placedRows.Contains(i)).ToList();
         var any = bossPoints.Where(b => b.Rows!.Count == 0).Select(b => b.Point).ToList();
         if (any.Count > 0 && rest.Count > 0)
         {
-            var p = any[rng.Next(any.Count)];
+            // Prefer dedicated boss rooms over treasure alcoves (golden_chest.arm carries a generic mapboss point).
+            var dedicated = any.Where(pt => pt.Room is null || !pt.Room.EndsWith("/golden_chest.arm", StringComparison.OrdinalIgnoreCase)).ToList();
+            var pool = dedicated.Count > 0 ? dedicated : any;
+            var p = pool[rng.Next(pool.Count)];
             Bosses((p.X, p.Y), p.Name, rest);
         }
         else if (rest.Count > 0 && unassignedAtArrival)
@@ -468,7 +585,7 @@ public static class AreaPopulation
             // the pack rings it a little further out than an ordinary pack's members stand.
             int first = spawns.Count;
             AddPack(spawns, taken, walkable, at, guard, rule.Rarity, true, rng, PackStands(guard) ? visible : spawnable, memberLimit: rule.Fixed ?? int.MaxValue,
-                keepClear: ShrinePlacement.ObjectSize, maxRadius: ShrineGuardRadius, ring: true);
+                keepClear: ShrinePlacement.ObjectSize, maxRadius: ShrineGuardRadius, ring: true, packId: nextPackId++);
             centres.Add(at);
             var mine = spawns.Skip(first).ToList();
             notes.Add($"shrine {shrine} at {at}: guarded by {guard.Id} " +
@@ -485,10 +602,11 @@ public static class AreaPopulation
             if (PackPoint(p.Name) is { } rarity)
             {
                 if (InSafeZone((p.X, p.Y), spawnClearance, transitionClearance)) continue;
-                var pack = PickPack(packs, rng);
+                var groundMatching = grounds is null ? packs : packs.Where(s => GroundAllows(s.Pack, (p.X, p.Y))).ToList();
+                var pack = PickPack(groundMatching.Count > 0 ? groundMatching : packs, rng);
                 int before = spawns.Count;
                 AddPack(spawns, taken, (x, y) => walkable(x, y) && !InSafeZone((x, y), memberSpawnClearance, memberTransitionClearance),
-                    (p.X, p.Y), pack, rarity, true, rng, spawnable);
+                    (p.X, p.Y), pack, rarity, true, rng, spawnable, packId: nextPackId++);
                 if (spawns.Count > before) roomPlaced++;
                 centres.Add((p.X, p.Y));
                 notes.Add($"room point {p.Name} at ({p.X}, {p.Y}): {pack.Id}");
@@ -522,6 +640,44 @@ public static class AreaPopulation
         bool ReachableMember(int x, int y) => (uint)x < (uint)w && (uint)y < (uint)h
             && (reach is null || reach[y * w + x]) && cells[y * w + x]
             && !InSafeZone((x, y), memberSpawnClearance, memberTransitionClearance);
+        // Roaming MonsterPacks.__col8 mini-boss packs (Ungulath, The Burning Menace, Seleslatha, Targa, Soulmourn, Voidscream)
+        // that have no dedicated .arm room point in this seed stand at a free reachable cell with their Unique mini-boss.
+        bool strand = area.AreaId == TutorialObjects.Strand;
+        if (ordinaryPacks && !strand)
+        {
+            foreach (var (name, miniPack) in area.Named.OrderBy(kv => kv.Key, StringComparer.Ordinal))
+            {
+                if (!miniPack.UniqueBossPack || miniPack.BossChance <= 0 || miniPack.BossVarieties.Count == 0
+                    || placedNamedPacks.Contains(name)) continue;
+                bool bossAlreadyPlaced = miniPack.BossVarieties.Any(bv =>
+                    Enumerable.Range(0, area.Bosses.Count).Any(i => area.Bosses[i] == bv && placedRows.Contains(i)));
+                if (bossAlreadyPlaced || !miniPack.BossVarieties.Any(spawnable)) continue;
+                (int X, int Y)? spot = null;
+                foreach (var c in candidates)
+                {
+                    if (InSafeZone(c, spawnClearance, transitionClearance) || centres.AnyNear(c)
+                        || scatterable is not null && !scatterable(c.X, c.Y) || !GroundAllows(miniPack, c)) continue;
+                    spot = c;
+                    break;
+                }
+                if (spot is null && grounds is not null)
+                    foreach (var c in candidates)
+                    {
+                        if (InSafeZone(c, spawnClearance, transitionClearance) || centres.AnyNear(c)
+                            || scatterable is not null && !scatterable(c.X, c.Y)) continue;
+                        spot = c;
+                        break;
+                    }
+                if (spot is not { } at) continue;
+                foreach (int b in AddPack(spawns, taken, ReachableMember, at, miniPack, MonsterRarity.Normal, true, rng, spawnable,
+                    _ => true, packId: nextPackId++))
+                    for (int i = 0; i < area.Bosses.Count; i++)
+                        if (area.Bosses[i] == b) placedRows.Add(i);
+                placedNamedPacks.Add(name);
+                centres.Add(at);
+                notes.Add($"named mini-boss pack {miniPack.Id} at {at}");
+            }
+        }
         foreach (var request in additionalPacks ?? [])
         {
             int placed = 0, first = spawns.Count;
@@ -534,7 +690,7 @@ public static class AreaPopulation
                         || centres.AnyNear(c) || scatterable is not null && !scatterable(c.X, c.Y)) continue;
                     var pack = choices[rng.Next(choices.Count)];
                     int before = spawns.Count;
-                    AddPack(spawns, taken, ReachableMember, c, pack, RollRarity(rng.Next(100)), true, rng, spawnable, packSize: request.Size);
+                    AddPack(spawns, taken, ReachableMember, c, pack, RollRarity(rng.Next(100)), true, rng, spawnable, packSize: request.Size, packId: nextPackId++);
                     if (spawns.Count == before) continue;
                     centres.Add(c);
                     placed++;
@@ -550,15 +706,27 @@ public static class AreaPopulation
         wanted = Math.Max(0, wanted - roomPlaced) + scale.ExtraNormal + scale.ExtraMagic + scale.ExtraRare;
         if (wanted <= 0) { notes.Add($"{roomPlaced} room pack point(s) place the area's packs"); return spawns; }
         var plans = new List<((int X, int Y) At, PackCatalog.Pack Pack)>();
+        bool hasGroundFilter = grounds is not null && packs.Any(p => p.Pack.RequiredGrounds.Count > 0 || p.Pack.ExcludedGrounds.Count > 0);
         foreach (var c in candidates)
         {
             if (plans.Count >= wanted) break;
             if (InSafeZone(c, spawnClearance, transitionClearance) || centres.AnyNear(c)
                 || scatterable is not null && !scatterable(c.X, c.Y)) continue;
+            var eligible = hasGroundFilter ? packs.Where(p => GroundAllows(p.Pack, c)).ToList() : packs;
+            if (eligible.Count == 0) continue;
             centres.Add(c);
-            plans.Add((c, PickPack(packs, rng)));
+            plans.Add((c, PickPack(eligible, rng)));
         }
-        bool strand = area.AreaId == TutorialObjects.Strand;
+        // Safe unconstrained fallback if strict ground-type filtering left the area underpopulated on a seed.
+        if (hasGroundFilter && plans.Count < wanted)
+            foreach (var c in candidates)
+            {
+                if (plans.Count >= wanted) break;
+                if (InSafeZone(c, spawnClearance, transitionClearance) || centres.AnyNear(c)
+                    || scatterable is not null && !scatterable(c.X, c.Y)) continue;
+                centres.Add(c);
+                plans.Add((c, PickPack(packs, rng)));
+            }
         List<MonsterRarity> rarities;
         if (strand)
             // The Twilight Strand (1_1_1) spawns only normal scattered packs; Hillock is its sole non-normal monster.
@@ -578,7 +746,7 @@ public static class AreaPopulation
         for (int i = 0; i < plans.Count && spawns.Count - scatteredStart < memberBudget; i++)
         {
             AddPack(spawns, taken, ReachableMember, plans[i].At, plans[i].Pack, rarities[i], true, rng, spawnable, packSize: size,
-                memberLimit: memberBudget - (spawns.Count - scatteredStart));
+                memberLimit: memberBudget - (spawns.Count - scatteredStart), packId: nextPackId++);
             placedPacks++;
         }
         notes.Add($"{placedPacks} scattered packs ({rarities.Take(placedPacks).Count(r => r == MonsterRarity.Magic)} magic, {rarities.Take(placedPacks).Count(r => r == MonsterRarity.Rare)} with a rare) " +
@@ -601,22 +769,33 @@ public static class AreaPopulation
 
     static List<int> AddPack(List<Spawn> spawns, HashSet<(int, int)> taken, Func<int, int, bool> walkable, (int X, int Y) at, PackCatalog.Pack pack,
         MonsterRarity rarity, bool withBoss, Random rng, Func<int, bool> spawnable, Func<int, bool?>? uniqueBoss = null, double packSize = 1,
-        int memberLimit = int.MaxValue, int keepClear = 0, int maxRadius = MemberRadius, bool ring = false)
+        int memberLimit = int.MaxValue, int keepClear = 0, int maxRadius = MemberRadius, bool ring = false, int packId = 0)
     {
-        int rolled = rng.Next(pack.MinCount, Math.Max(pack.MinCount, pack.MaxCount) + 1);
-        int count = Math.Max(1, (int)Math.Round(rolled * SystemSettings.Default.MonsterPackSizeMultiplier * (packSize > 0 ? packSize : 1)));
         var members = new List<(int Variety, bool Unique)>();
-        for (int i = 0; i < count; i++)
+        // MonsterPackEntries with Flag = 0 spawn exact Weight counts (boss/encounter packs such as 1_3_3_1-bosspack,
+        // 1_3_18_2-dominusportal, 1_1_11_1-bosspack, 1_5_3-TemplarElite).
+        foreach (var (variety, fixedCount) in pack.FixedEntries)
+            if (fixedCount > 0 && spawnable(variety))
+                for (int i = 0; i < fixedCount; i++)
+                    members.Add((variety, false));
+        bool rollRandom = pack.FixedEntries.Count == 0 || (pack.RandomEntries.Count > 0 && pack.MaxCount > 0);
+        if (rollRandom)
         {
-            int v = pack.PickVariety(rng);
-            if (spawnable(v)) members.Add((v, false));
+            int rolled = rng.Next(pack.MinCount, Math.Max(pack.MinCount, pack.MaxCount) + 1);
+            int minMembers = pack.FixedEntries.Count > 0 ? 0 : 1;
+            int count = Math.Max(minMembers, (int)Math.Round(rolled * SystemSettings.Default.MonsterPackSizeMultiplier * (packSize > 0 ? packSize : 1)));
+            for (int i = 0; i < count; i++)
+            {
+                int v = pack.PickVariety(rng);
+                if (spawnable(v)) members.Add((v, false));
+            }
         }
         // The pack's boss monster (Act1-CoastCrabs: 80% for one large Savage Crab; The Mines Level 1's
-        // minerhammerbosspack: always Pikerivet).
+        // minerhammerbosspack: always Pikerivet; MonsterPacks.__col8 mini-boss packs: Unique rarity).
         if (withBoss && pack.BossVarieties.Count > 0 && rng.Next(100) < pack.BossChance)
             for (int i = 0; i < pack.BossCount; i++)
                 if (pack.BossVarieties[rng.Next(pack.BossVarieties.Count)] is int b && spawnable(b)
-                    && (uniqueBoss is null ? false : uniqueBoss(b)) is bool unique && !members.Contains((b, true)))
+                    && (uniqueBoss is null ? (bool?)pack.UniqueBossPack : uniqueBoss(b)) is bool unique && !members.Contains((b, true)))
                     members.Insert(0, (b, unique));
         var uniques = new List<int>();
         int before = spawns.Count;
@@ -634,7 +813,7 @@ public static class AreaPopulation
             var r = members[i].Unique ? MonsterRarity.Unique : rarity == MonsterRarity.Rare ? (i == 0 ? MonsterRarity.Rare : MonsterRarity.Normal) : rarity;
             if (AddMember(spawns, taken, walkable, at, members[i].Variety, r, pack.Id, rng,
                     keepClear > 0 ? keepClear : i == 0 ? 0 : 2, keepClear, packRadius,
-                    ringCells is null ? null : ringCells[i]) && members[i].Unique) uniques.Add(members[i].Variety);
+                    ringCells is null ? null : ringCells[i], packId) && members[i].Unique) uniques.Add(members[i].Variety);
         }
         return uniques;
     }
@@ -665,7 +844,7 @@ public static class AreaPopulation
 
     static bool AddMember(List<Spawn> spawns, HashSet<(int, int)> taken, Func<int, int, bool> walkable, (int X, int Y) at, int variety,
         MonsterRarity rarity, string pack, Random rng, int minRadius, int keepClear = 0, int maxRadius = MemberRadius,
-        (int X, int Y)? preferred = null)
+        (int X, int Y)? preferred = null, int packId = 0)
     {
         // The ring cell first, when it is free ground: that is what makes the guards a circle around the shrine.
         if (preferred is { } p && walkable(p.X, p.Y)
@@ -673,7 +852,7 @@ public static class AreaPopulation
             && !Crowded(taken, p.X, p.Y))
         {
             taken.Add(p);
-            spawns.Add(new Spawn(variety, p.X, p.Y, rarity, pack));
+            spawns.Add(new Spawn(variety, p.X, p.Y, rarity, pack) { PackId = packId });
             return true;
         }
         for (int attempt = 0; attempt < 60; attempt++)
@@ -686,7 +865,7 @@ public static class AreaPopulation
             if (keepClear > 0 && Math.Max(Math.Abs(x - at.X), Math.Abs(y - at.Y)) < keepClear) continue;
             if (!walkable(x, y) || Crowded(taken, x, y)) continue;
             taken.Add((x, y));
-            spawns.Add(new Spawn(variety, x, y, rarity, pack));
+            spawns.Add(new Spawn(variety, x, y, rarity, pack) { PackId = packId });
             return true;
         }
         return false;
@@ -764,8 +943,16 @@ public static class AreaPopulation
         return best;
     }
 
-    static MonsterRarity RollRarity(int roll) =>
-        roll < RareChance ? MonsterRarity.Rare : roll < RareChance + MagicChance ? MonsterRarity.Magic : MonsterRarity.Normal;
+    static int PackSettingPct(string key, int fallback) =>
+        SystemSettings.Default.Values.TryGetValue(key, out double v) && double.IsFinite(v)
+            ? Math.Clamp((int)Math.Round(v), 0, 100) : fallback;
+
+    static MonsterRarity RollRarity(int roll)
+    {
+        int rare = PackSettingPct("campaign_pack_rare_chance_pct", RareChance);
+        int magic = PackSettingPct("campaign_pack_magic_chance_pct", MagicChance);
+        return roll < rare ? MonsterRarity.Rare : roll < rare + magic ? MonsterRarity.Magic : MonsterRarity.Normal;
+    }
 
     static PackCatalog.Pack PickPack(List<(PackCatalog.Pack Pack, int Weight)> packs, Random rng)
     {
@@ -1045,7 +1232,7 @@ public static class AreaPopulation
                     foreach (var p in room.Points)
                     {
                         var g = At(p.X, p.Y);
-                        points.Add(new RoomPoint(p.Name, g.X, g.Y, TurnAngle(a, b, cc, dd, p.Angle)));
+                        points.Add(new RoomPoint(p.Name, g.X, g.Y, TurnAngle(a, b, cc, dd, p.Angle)) { Room = path });
                     }
                     foreach (var d in room.Doodads.Where(d => d.Type is not null))
                     {
@@ -1073,7 +1260,7 @@ public static class AreaPopulation
                 points.RemoveRange(fitted, points.Count - fitted);
                 foreach (var placement in placements)
                 {
-                    points.AddRange(room.Points.Select(placement.Place));
+                    points.AddRange(room.Points.Select(p => placement.Place(p) with { Room = path }));
                     capturedRooms.Add(path);
                     notes.Add($"room {path.Split('/')[^1]} at its captured placement ({placement.X}, {placement.Y}) code {placement.Code}: " +
                         string.Join(", ", room.Points.Select(p => $"{p.Name} at ({placement.Place(p).X}, {placement.Place(p).Y})")));
