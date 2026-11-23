@@ -2392,6 +2392,9 @@ public static partial class Game
         sacrifice ??= new SacrificeUse(player, skillId, gem.Effect, gem.Gem, triggered: triggeredCurrent is not null);
         var admittedGem = SupportedSkill(player, skillId);
         var skillStats = admittedGem.Stats;
+        // Vaal Heavy Strike's action knocks back its target on contact.
+        if (SkillsFor(player).EffectId(gem.Effect) == "VaalHeavyStrike")
+            skillStats = new Dictionary<uint, int>(skillStats) { [global::Stat.GlobalKnockback] = 1 };
         // An attack gem's share of the weapon's damage ("Deals 177.3% of base Attack Damage"): the hit below uses it.
         int effectiveness = SkillsFor(player).DamageEffectiveness(gem.Effect, gem.Level);
         int Stat(uint k) => skillStats.GetValueOrDefault(k);

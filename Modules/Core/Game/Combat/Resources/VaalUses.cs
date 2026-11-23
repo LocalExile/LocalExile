@@ -15,7 +15,7 @@ public static partial class Game
     // A Vaal name never opts into the generic area fallback. Each executor is admitted explicitly.
     public static bool VaalExecutor(Player player, int effect) =>
         SkillsFor(player).EffectId(effect) is "VaalGroundSlam" or "VaalFireball" or "VaalSpark" or "VaalMoltenStrike"
-            or VaalImmortalCallEffect or "VaalHaste" or "VaalSmite"
+            or VaalImmortalCallEffect or "VaalHaste" or "VaalSmite" or "VaalHeavyStrike"
             || IsVaalMinion(SkillsFor(player).EffectId(effect)) || VaalAuras.ContainsKey(SkillsFor(player).EffectId(effect) ?? "");
     static double VaalResourceTime(Player player) => player.LeavingArea && player.RampageTransferAt is double frozen
         ? frozen : ProjectileWorldTime(player);
