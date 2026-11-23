@@ -164,6 +164,8 @@ Part of [Status](../Status.md); what to build next in this area is in
   hits once instead of zapping as it flies, The Beachhead unique map portal encounter and Harbinger unique piece
   assembly.
 
+- Incursion (Alva, map master mission): per-instance spots, portal, timed room run; no temple area; not client-tested
+
 - Sacred Grove (Harvest): the map rolls it from the composed area stats (Atlas, scarabs, sextants, Idols), on `.dgr`
   and `.tgr` maps; its `link` rooms are a gate each way inside the map instance where the league runs Harvest, and map
   packs stay out of the grove.
