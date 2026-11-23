@@ -473,37 +473,46 @@ public class LockstepTests : IDisposable
     [Fact]
     public void Close_range_held_move_continues_smoothly_and_nimis_randomizes_attack_volleys()
     {
-        // Close-range held Move (4 cells left): seamlessly extends within 2 frames of arrival so 3-5 cell walks do not
-        // stutter between 69-99 ms 0x0192 updates, projects here + offset when lagged 0x192 lands shorter or behind
-        // here (preventing backwards oscillation), never drops repeated 0x192 while offset is held, and stops on feet/release.
+        // Close-range held Move: scales 2-4 cell held offsets along their direction (~5 cells / ~140 ms at base speed)
+        // so walks run smoothly across the 69-99 ms 0x0192 cadence without 33 ms integer-cell snaps or stutters,
+        // projects forward when lagged 0x192 lands shorter or behind here, and stops on feet (< 2 cells) or release.
         var player = new Player(new(1, "close-hold", 300, 300, 100, 100, null, []), 1, 1)
         {
             Connection = { LockstepClient = true }
         };
         player.LockstepHold.Press((96, 100), 0x2909, 0x0400, (-4, 0));
-        Assert.Equal((96, 100), Game.LockstepMoveDue(player, 0));
-        player.Walk.Order(96, 100, 0);
-        // 66 ms in: walk finishes at ~105 ms (within 2 frames of 66 ms) -> seamlessly extends (-4, 0) from here.
-        var here = player.Walk.Position(0.066);
-        Assert.Equal((here.X - 4, here.Y), Game.LockstepMoveDue(player, 0.066));
-        // A lagged 0x192 whose target lands within 2 cells of here projects (-4, 0) forward from here.
-        player.LockstepHold.Update((here.X - 1, here.Y), (-4, 0));
-        Assert.Equal((here.X - 4, here.Y), Game.LockstepMoveDue(player, 0.066));
+        var first = Game.LockstepMoveDue(player, 0);
+        Assert.NotNull(first);
+        Assert.Equal(100, first.Value.Y);
+        Assert.True(first.Value.X <= 95);
+        player.Walk.Order(first.Value.X, first.Value.Y, 0);
+        // 33 ms in: plenty of walk left (> 1 frame) -> no 33 ms position-snap spam.
+        Assert.Null(Game.LockstepMoveDue(player, 0.033));
+        // Within 1 frame of arrival -> seamlessly extends without stopping.
+        double nearEnd = player.Walk.ArrivesAt - 0.02;
+        var here = player.Walk.Position(nearEnd);
+        var extended = Game.LockstepMoveDue(player, nearEnd);
+        Assert.NotNull(extended);
+        Assert.True(extended.Value.X <= here.X - 5);
+        // Very close offset (2 cells beside feet) smoothly walks in that direction.
+        player.LockstepHold.Update((here.X - 2, here.Y), (-2, 0));
+        var veryClose = Game.LockstepMoveDue(player, nearEnd);
+        Assert.NotNull(veryClose);
+        Assert.True(veryClose.Value.X <= here.X - 5);
         // A lagged 0x192 whose target lands behind here (dot <= 0) projects forward instead of walking backwards.
         player.LockstepHold.Update((here.X + 2, here.Y), (-4, 0));
-        Assert.Equal((here.X - 4, here.Y), Game.LockstepMoveDue(player, 0.066));
-        // A repeated 0x192 at the same target cell is NOT dropped while an offset is held.
-        player.LockstepHold.Update((here.X - 4, here.Y), (-4, 0));
-        Assert.Equal((here.X - 4, here.Y), Game.LockstepMoveDue(player, 0.066));
-        // Cursor moved directly onto feet (< 3 cells) stops cleanly.
+        var forward = Game.LockstepMoveDue(player, nearEnd);
+        Assert.NotNull(forward);
+        Assert.True(forward.Value.X <= here.X - 5);
+        // Cursor moved directly onto feet (< 2 cells) stops cleanly.
         player.LockstepHold.Update((here.X - 1, here.Y), (-1, 0));
-        Assert.Null(Game.LockstepMoveDue(player, 0.066));
-        // Releasing clears offset and issues the final target at most once.
+        Assert.Null(Game.LockstepMoveDue(player, nearEnd));
+        // Releasing clears offset and issues the final target at most once without extending.
         player.LockstepHold.Update((here.X - 4, here.Y), (-4, 0));
         player.LockstepHold.Release();
         Assert.Null(player.LockstepHold.Offset);
-        Assert.Equal((here.X - 4, here.Y), Game.LockstepMoveDue(player, 0.066));
-        Assert.Null(Game.LockstepMoveDue(player, 0.066));
+        Assert.Equal((here.X - 4, here.Y), Game.LockstepMoveDue(player, nearEnd));
+        Assert.Null(Game.LockstepMoveDue(player, nearEnd));
 
         // Nimis (random_projectile_direction) randomizes non-ClientPredicted attack volleys using the client's
         // seeded angles, and IceShot is natively client-drawn so no duplicate server arrow is spawned.
@@ -549,5 +558,173 @@ public class LockstepTests : IDisposable
         var returning = ProjectileAimHeight.Return(new(20, 0), new(0, 0), currentSteps: 10, OceanAndBeach);
         Assert.NotNull(returning);
         Assert.Equal(25, returning!.Value.MarkerAt(new(0, 0)).Marker);
+    }
+
+    [Fact]
+    public void Shield_charge_lockstep_distance_threshold_speed_stats_and_travel_hold()
+    {
+        // Forward raycast stops before a wall at x=115 (15 cells away < 24 -> no-charge, stands in place).
+        var walled = new PlayerWalk(100, 100, 37, (x, y) => x < 115);
+        walled.Charge(160, 100, 75, 0, extraDistance: 0, minDistance: Game.ShieldChargeMinDistance, out bool wallCharged);
+        Assert.False(wallCharged);
+        Assert.Equal((100, 100), walled.Position(1));
+
+        // Open floor < 24 cells (23 cells, dx²+dy² = 529 < 576): no-charge. At 24 cells (576): charges.
+        var open = new PlayerWalk(100, 100, 37);
+        open.Charge(123, 100, 75, 0, extraDistance: 0, minDistance: Game.ShieldChargeMinDistance, out bool shortCharged);
+        Assert.False(shortCharged);
+        Assert.Equal((100, 100), open.Position(1));
+        open.Charge(124, 100, 75, 0, extraDistance: 0, minDistance: Game.ShieldChargeMinDistance, out bool exactCharged);
+        Assert.True(exactCharged);
+        Assert.Equal((124, 100), open.Destination);
+
+        // Equipped character with a sword, shield, Shield Charge gem, and increased attack speed:
+        // verify published off-hand speed stats (0x127 / 0x211e / 0x531e), travel speed multiplier, dynamic
+        // LockstepPlayerFree hold through travel, and immediate release + bonus cleanup when stopped early.
+        using var fixture = new TriggeredSummonTests.Fixture();
+        var player = fixture.Player;
+        player.Connection.PlayerSent = true;
+        player.Connection.LockstepClient = true;
+        player.Connection.LockstepFrame = (1.0, 1.033);
+        player.Walk.Teleport(100, 100, 1.0);
+        var items = Game.ItemsOf(player);
+        items.Change(PlayerInventories.Weapon1, items.Items(PlayerInventories.Weapon1).Single().Id,
+            _ => ItemCatalog.Create(Program.Items.Find("Driftwood Club")!));
+        items.Add(PlayerInventories.Offhand1, 0, 0, ItemCatalog.Create(Program.Items.Find("Splintered Tower Shield")!));
+        ushort chargeId = Assert.Single(fixture.Equip(("Shield Charge", 1)));
+        player.Pools = Game.PoolsFor(player, 20) with { AttackSpeedPct = 50 };
+
+        var scGem = Game.GemSkillEffects(player).Single(g => g.Id == chargeId);
+        var scSkill = Game.PlayerSkills(player).Single(s => s.Id == chargeId);
+        var scStats = scSkill.Stats!.ToDictionary(s => s.Item1, s => s.Item2);
+        Assert.True(scStats.TryGetValue(Stat.OffHandAttackSpeedPlusPct, out int offFinal));
+        Assert.True(scStats.TryGetValue(Stat.CombinedOffHandAttackSpeedPlusPct, out int offInc));
+        Assert.True(scStats.ContainsKey(Stat.CombinedOffHandAttackSpeedPlusPctFinal));
+        Assert.True(offInc >= 50);
+        Assert.Equal(SkillAttackTiming.FinalSpeedPercent(offInc, 1.0), offFinal);
+
+        int bonusPct = Game.ShieldChargeBonusPct(player, chargeId, scGem.Effect);
+        Assert.True(bonusPct > 0);
+        Assert.Equal(0, Game.LockstepActionHold(player, chargeId, 0x8001));
+
+        int action = ++player.ActionCount;
+        double baseSpeed = player.Walk.Speed;
+        Game.BeginShieldCharge(player, chargeId, bonusPct, 175, 100, 1.0, action, out bool startedCharge);
+        Assert.True(startedCharge);
+        Assert.True(player.Walk.Speed > baseSpeed * 1.5, $"Expected charge speed > {baseSpeed * 1.5:0.0} (with +90% move and off-hand attack speed), got {player.Walk.Speed:0.0}");
+        Assert.False(Game.LockstepPlayerFree(player, 1.033));
+
+        // Early stop on a wall/body immediately ends the travel hold and clears the +90% movement bonus.
+        player.Walk.StopAt(1.12);
+        Assert.True(Game.LockstepPlayerFree(player, 1.132));
+        Assert.Equal(0, Game.ShieldChargeMovementPct(player));
+        Assert.Equal(1.0, Game.MovementSpeedMultiplier(player));
+    }
+
+    [Fact]
+    public async Task Lockstep_leap_slam_hold_published_speed_sync_and_no_silent_collision_teleport()
+    {
+        // Leap Slam in Lockstep holds until startup-skipped landing (timing.Land), not unskipped AttackCutIn.
+        using var fixture = new TriggeredSummonTests.Fixture();
+        var player = fixture.Player;
+        player.Connection.PlayerSent = true;
+        player.Connection.LockstepClient = true;
+        player.Connection.LockstepFrame = (2.0, 2.033);
+        player.Walk.Teleport(100, 100, 2.0);
+        var items = Game.ItemsOf(player);
+        items.Change(PlayerInventories.Weapon1, items.Items(PlayerInventories.Weapon1).Single().Id,
+            _ => ItemCatalog.Create(Program.Items.Find("Driftwood Club")!));
+        ushort leapId = Assert.Single(fixture.Equip(("Leap Slam", 1)));
+        var leapGem = Game.GemSkillEffects(player).Single(g => g.Id == leapId);
+
+        double attackSeconds = Game.SupportedAttackSeconds(player, leapId);
+        double expectedLand = Game.LeapSlamTiming(player, leapId, leapGem.Effect, attackSeconds).Land;
+        double unskippedCutIn = Game.LockstepAttackCutIn(player, leapId, 0x8001);
+        double lockstepHold = Game.LockstepActionHold(player, leapId, 0x8001);
+        Assert.Equal(expectedLand, lockstepHold, 6);
+        Assert.True(lockstepHold < unskippedCutIn - 0.15, $"Expected startup-skipped hold ({lockstepHold:0.000}s) well below unskipped cut-in ({unskippedCutIn:0.000}s).");
+
+        // PushOutOfCollision(tell: false) must not silently teleport a lockstep player off its cell.
+        player.SetBlocker(0x5000, 100, 100, size: 2);
+        await Game.PushOutOfCollision(player, living: true, tell: false);
+        Assert.Equal((100, 100), player.Walk.Position(2.0));
+
+        // AreaStats tracks published movement speed for lockstep clients.
+        player.Area.Stats.Created(player.Id, [(Stat.MovementVelocityPlusPct, 0)]);
+        Assert.True(player.Area.Stats.HasWritten(player.Id));
+        Assert.Equal(0, player.Area.Stats.WrittenValue(player.Id, Stat.MovementVelocityPlusPct));
+        player.Area.Stats.Set(player.Id, Stat.MovementVelocityPlusPct, 40);
+        // Before Publish(), WrittenValue still reflects what the client currently holds (0%).
+        Assert.Equal(0, player.Area.Stats.WrittenValue(player.Id, Stat.MovementVelocityPlusPct));
+        player.Area.Stats.Publish();
+        Assert.Equal(40, player.Area.Stats.WrittenValue(player.Id, Stat.MovementVelocityPlusPct));
+
+        // Ground melee attack gems (e.g. Double Strike) use LockstepGroundMelee walk-ups (0x141e95400) and defer
+        // LockstepBusyUntil until arrival; attack-in-place (flags & 1) and movement attacks (Leap Slam) do not.
+        ushort doubleStrikeId = fixture.Equip(("Leap Slam", 1), ("Double Strike", 1))[1];
+        Assert.True(Game.LockstepGroundMelee(player, doubleStrikeId, 0x0408));
+        Assert.False(Game.LockstepGroundMelee(player, doubleStrikeId, 0x0409));
+        Assert.False(Game.LockstepGroundMelee(player, leapId, 0x0408));
+        player.LockstepBusyUntil = 2.0;
+        player.LockstepSkill.Press((120, 100), null, doubleStrikeId, 0x0408, repeats: true);
+        Game.HoldLockstepSkill(player, 0x8002, 2.0, 2.0);
+        Assert.Equal(2.0, player.LockstepBusyUntil);
+        player.LockstepSkill.Clear();
+
+        // Non-Move actions (LockstepUse pickups, skills) wait for NextAttackAt during a swing's late window
+        // (0x141e9479e / 0x141e947aa), while Move can still cut in after LockstepBusyUntil.
+        player.LockstepBusyUntil = 2.33;
+        player.NextAttackAt = 2.79;
+        player.LockstepUse = new(0x100001, 0x0266, 0, 0x0408);
+        await Game.StartLockstepActions(player, 2.40);
+        Assert.NotNull(player.LockstepUse);
+        player.LockstepHold.Press((120, 100), 0x2909, 0x0408, (20, 0));
+        await Game.StartLockstepActions(player, 2.40);
+        Assert.Equal((120, 100), player.Walk.Destination);
+
+        // Post-pickup 0x18e inputs without 0x400 (held-LMB Move fallback and queued skills) are accepted and wait on
+        // the post-pickup LockstepBusyUntil hold instead of being dropped.
+        byte[] useObjPacket = [0x01, 0x8f, 0x00, 0x10, 0x00, 0x02, 0x02, 0x66, 0x04, 0x08, 0x00];
+        Game.OnLockstepRequest(player, InstanceProtocol.LockstepUseOnObjectId, useObjPacket);
+        byte[] heldMovePacket = [0x01, 0x8e, 0x00, 0x00, 0x00, 0x0a, 0x00, 0x00, 0x00, 0x00, 0x29, 0x09, 0x00, 0x08, 0x00];
+        Game.OnLockstepRequest(player, InstanceProtocol.LockstepMoveStartId, heldMovePacket);
+        Assert.True(player.LockstepHold.Active);
+        Game.OnLockstepRequest(player, InstanceProtocol.LockstepUseOnObjectId, useObjPacket);
+        byte[] queuedSkillPacket = [0x01, 0x8e, 0x00, 0x00, 0x00, 0x0a, 0x00, 0x00, 0x00, 0x00, (byte)(doubleStrikeId >> 8), (byte)doubleStrikeId, 0x00, 0x08, 0x03];
+        Game.OnLockstepRequest(player, InstanceProtocol.LockstepMoveStartId, queuedSkillPacket);
+        Assert.True(player.LockstepSkill.Pending);
+        player.LockstepHold.Clear();
+        player.LockstepSkill.Clear();
+
+        // TryBeginObjectWalk anchors lockstep walk-ups to LockstepFrame.Start instead of drifting with ProjectileWorldTime.
+        player.Connection.LockstepFrame = (3.5, 3.533);
+        player.Walk.Teleport(100, 100, 3.5);
+        Assert.True(Game.TryBeginObjectWalk(player, 3.5, 130, 100, 20, out var objWalk, centreRange: true, tolerance: 1));
+        Assert.Equal(3.5, objWalk.Now, 6);
+
+        // Stale/taken ground item LockstepUse does not allocate a sequence or send a bogus Interaction.
+        var goldItem = ItemCatalog.Create(Program.Items.Find("Metadata/Items/Currency/GoldCoin")!) with { StackSize = 15 };
+        var goldGround = new WorldItemObject(105, 100, goldItem);
+        uint takenId = player.Instance.Ground.Add(goldGround, player);
+        Assert.NotNull(player.Instance.Ground.Take(takenId, goldGround));
+        player.LockstepBusyUntil = 3.5;
+        player.NextAttackAt = 3.5;
+        player.LockstepHold.Clear();
+        player.LockstepSkill.Clear();
+        ushort seqBefore = player.LockstepSequence;
+        byte[] staleUsePacket = [0x01, 0x8f, (byte)(takenId >> 24), (byte)(takenId >> 16), (byte)(takenId >> 8), (byte)takenId, 0x02, 0x66, 0x04, 0x08, 0x00];
+        Game.OnLockstepRequest(player, InstanceProtocol.LockstepUseOnObjectId, staleUsePacket);
+        await Game.StartLockstepActions(player, 3.5);
+        Assert.Null(player.LockstepUse);
+        Assert.Equal(seqBefore, player.LockstepSequence);
+
+        // Gold pickup feedback (0x278 WorldPopupIcon + AutoPickupWorldItem task 0x9c67) & full-inventory 0x0117 wire bytes.
+        Assert.Equal([0x01, 0x17], InstanceItems.InventoryFull());
+        byte[] popup = InstanceEntities.WorldPopupIcon(100, 200, 0x20000001, Game.WorldPopupGoldCoin, 15);
+        Assert.Equal(19, popup.Length);
+        Assert.Equal([0x02, 0x78, 0x00, 0x00, 0x00, 0x64, 0x00, 0x00, 0x00, 0xc8, 0x20, 0x00, 0x00, 0x01, 0x04, 0x00, 0x00, 0x00, 0x0f], popup);
+        byte[] goldBlob = goldGround.Blob(justDropped: true, tasks: [Game.AutoPickupWorldItemTask]);
+        Assert.Equal([0x01, 0x67, 0x9c], goldBlob[^3..]);
+        Assert.Equal(0x00, goldGround.Blob(justDropped: false)[^1]);
     }
 }

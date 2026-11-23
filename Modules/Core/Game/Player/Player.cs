@@ -1567,9 +1567,9 @@ public static partial class Game
             lock (player.Character.Waypoints)
                 activated = WaypointCatalog.Areas.Find(player.Layout.Hash) is { } entry && player.Character.Waypoints.Contains(entry.Id);
             var (x, y) = player.Layout.Checkpoint(activated);
-            // Darken to full black first (while the player is still dead on the ground), then revive and teleport behind
-            // the black screen before it fades back in — matching lab trials and GGG's checkpoint resurrect.
-            await SendTransitionFade(player, (x, y), "resurrect at checkpoint");
+            // Darken to full black and pause briefly (while the player is still dead on the ground), then revive and
+            // teleport behind the black screen before the client's fade-out animation begins.
+            await SendResurrectFade(player, (x, y));
             if (player.Closed || player.LeavingArea) return;
             RestorePlayerOnResurrect(player);
             player.Walk.Teleport(x, y, AreaTime(player));

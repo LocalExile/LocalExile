@@ -14,9 +14,13 @@ public static partial class Game
         started = default;
         using (ProjectileMutation(player))
         {
-            double now = ProjectileWorldTime(player);
-            if (player.Closed || player.PlayerLife == 0 || PlayerActionBlocked(player, requestedAt, now)) return false;
-            CancelMeleeRepeats(player, now);
+            double checkNow = ProjectileWorldTime(player);
+            if (player.Closed || player.PlayerLife == 0 || PlayerActionBlocked(player, requestedAt, checkNow)) return false;
+            CancelMeleeRepeats(player, checkNow);
+            double now = player.Connection.LockstepClient
+                ? player.Connection.LockstepFrame?.Start ?? checkNow
+                : checkNow;
+            if (player.Connection.LockstepClient) StepWalkers(player, now);
             int action = Interlocked.Increment(ref player.ActionCount);
             player.ChannelSkill = 0;
             var (here, stop, arrive) = centreRange ? player.Walk.Approach(x, y, reach, now, tolerance) : player.Walk.WalkUpTo(x, y, (int)reach, now);
@@ -236,6 +240,23 @@ public static partial class Game
                 .. InstanceProtocol.FadeMove(player.Id, to.X, to.Y, TransitionDarkenSeconds)],
             $"0x00cb fade through {through} to ({to.X}, {to.Y}), {TransitionMoveSeconds} s and {TransitionDarkenSeconds} s");
         double until = AreaTime(player) + 0.8 * TransitionDarkenSeconds;
+        while (!player.Closed && AreaTime(player) < until) await AreaDelay(player, 0.016);
+    }
+
+    // Resurrect at Checkpoint uses one 0x00cb FadeMove(0.35 s): the client darkens to full black over 0.28 s (0.8 * s),
+    // holds pitch black until 0.70 s (2 * s), and clears over 0.56 s (1.6 * s). Waiting 0.45 s guarantees full blackout
+    // plus a ~170 ms black pause before reviving and teleporting, with ~250 ms of blackout left for camera/wake settle
+    // before the fade-out begins.
+    const float ResurrectFadeSeconds = 0.35f;
+    const double ResurrectBlackHoldSeconds = 0.45;
+
+    /// <summary>Darkens the screen to full black and pauses briefly before reviving and teleporting on checkpoint
+    /// resurrection, leaving time behind full black before the client's fade-out animation begins.</summary>
+    public static async Task SendResurrectFade(Player player, (int X, int Y) to)
+    {
+        await Send(player, InstanceProtocol.FadeMove(player.Id, to.X, to.Y, ResurrectFadeSeconds),
+            $"0x00cb resurrect fade to ({to.X}, {to.Y}), {ResurrectFadeSeconds} s");
+        double until = AreaTime(player) + ResurrectBlackHoldSeconds;
         while (!player.Closed && AreaTime(player) < until) await AreaDelay(player, 0.016);
     }
 

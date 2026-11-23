@@ -758,15 +758,20 @@ Pickup arrival also starts Interaction's default 0.1 s completion (`0x1419478b0`
 A Move queued inside it starts in `0x141e95f10`, then `0x141e9b860` discards its new path.
 The Gateway holds subsequent lockstep input through that completion, only after arrival; walking up stays interruptible.
 Once the held pickup's object disappears, the client's held path sends a Move `0x18e` without `0x400`, which the Gateway
-accepts and starts once the post-pickup hold finishes (+4 frames) so holding LMB through a ground pickup keeps moving.
+accepts and starts once the post-pickup hold finishes (+4 frames) so holding LMB through a ground pickup keeps moving
+and skills or queued clicks right after a pickup are never dropped.
+Lockstep object walk-ups anchor to `LockstepFrame.Start` (`TryBeginObjectWalk`) after `StepWalkers`, skip waiting when
+already in reach at frame start (avoiding a 1-frame delay from `StopAfter`), poll out-of-reach walk-ups per server
+frame, and skip emitting `0x01ab` Interaction for ground items already taken (e.g. auto-looted gold).
 Readiness uses the client frame start: live, a Move at arrival +3 frames (99 ms) lost its path, while +4 frames
 preserved it. The projectile clock can already exceed 100 ms during that third frame and must not release the hold.
 
 A held attack whose target died goes on at the ground. The stationary GGG sample (101 attacks aimed 18–29 cells
 away) does not establish that every ground attack stands still. Actor `0x141e95400` uses flag 1 to force a stationary
-swing; otherwise it starts MoveTo toward the aim. A default melee ground use has the weapon's range minus one,
-tolerance -1 and precision 1 (`0x141e81c20`): live, an aim 17 cells right and 9 up with range 10 walked 8 right and
-5 up before swinging, both near a monster and on empty ground. The swing's hold and repeat timer begin on arrival.
+swing; otherwise it starts MoveTo toward the aim. Default melee attacks and melee attack gems (e.g. `DoubleStrike`,
+vtable `0x143541c70` `+0x168 -> 0x14123fa00`) use the weapon's range minus one, tolerance -1 and precision 1
+(`0x141e81c20`): live, an aim 17 cells right and 9 up with range 10 walked 8 right and 5 up before swinging, both near
+a monster and on empty ground. The swing's hold, cost and repeat timer begin on arrival (`StartLockstepGroundMelee`).
 
 The tutorial support chest's Interaction uses MoveTo max range 6, tolerance 3, precision 1. Its blocking footprint
 is only 1; using that footprint for interaction makes the server walk four cells past the native stopping point.
@@ -893,7 +898,12 @@ all ran at 0.60 s; a bow's 0.40 s into a 0.714 s attack, its clip's `lock_cancel
 contact at 399: Moves 0.37 to 0.40 s in ran at 0.40 to 0.43 s). So the hold after a swing is that keyframe as the
 client plays the clip ([11](11-skills.md) §4: a one-hand sword's contact lands late in the swing, not at the attack1
 keyframe's fraction) plus the client's two frames (`LockstepActionTail`, `LockstepAttackCutIn`), for a swing at a
-monster and at the ground alike. A held attack's next use, at a monster or at
+monster and at the ground alike. In Actor's gate (`0x141e941a0`), once past contact (`+0x1b8` `0x141942e20`), only
+`Move` (`0x2909`) and `MoveSpecial` (`0xc266`) return true immediately (`0x141e944f6`); every non-Move (object
+interactions `0x0266`, spells, attacks) falls through to `0x141e9479e` (`!IsPastContact` -> false), and cancelling a
+swing with a Move writes the remaining duration into Actor `+0x2a0` (`0x141e947d0 -> 0x141e9482d`), which `0x141e947aa`
+still checks for non-Move actions. Accordingly, `StartLockstepActions` gates both `LockstepUse` and skills on
+`NextAttackAt`, while still allowing `Move` to cut in after `LockstepBusyUntil`. A held attack's next use, at a monster or at
 the ground, waits for the attack time of the one before (`NextAttackAt`): one sent as soon as the player was free came
 0.4 s into a 0.645 s swing and was queued to its end, with the server's swing and hit ahead of the client's by as much.
 
