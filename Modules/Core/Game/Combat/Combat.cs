@@ -1851,6 +1851,9 @@ public static partial class Game
         if (IsSmite(gem.Effect))
             return ScheduleSmite(player, skillId, gem, from, to, targetId,
                 recoveryGeneration, cooldownUse, criticalRoll, sequence, swingAt, cryExerted);
+        if (IsStaticStrike(gem.Effect))
+            return ScheduleStaticStrike(player, skillId, gem, from, to, targetId,
+                recoveryGeneration, cooldownUse, criticalRoll, sequence, swingAt, cryExerted);
         var supported = SupportedSkill(player, skillId);
         int seals = UnleashSeals(player, skillId, supported, ProjectileWorldTime(player), spend: true);
         double reoccurrenceMore = Math.Max(0, 1 + GolemStat(supported.Stats, Stat.SupportSpellRapidFireRepeatUseDamagePlusPctFinal) / 100d);

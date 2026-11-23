@@ -51,6 +51,39 @@ public sealed class TemporaryAuraTests
     }
 
     [Fact]
+    public async Task StaticStrike_grants_static_energy_only_after_a_melee_hit()
+    {
+        using var f = new Fixture();
+        var c = f.Conn;
+        Game.ItemsOf(c).Add(PlayerInventories.Weapon1, 0, 0,
+            ItemCatalog.Create(Program.Items.Find("Driftwood Club")!) with
+            { Sockets = [new(SocketColour.White, Gem("Static Strike"))], Links = [1] });
+        var skill = Game.GemSkillEffects(c).Single();
+        Game.ReleaseStaticStrike(c, f.Session, skill.Id, skill,
+            (100, 100), (108, 100), 0, new SkillCriticalRoll(10000), 1);
+        Assert.False(c.Area.Buffs.HasRow(c.Id, 1172));
+
+        var target = new SpawnedMonster("target", new(108, 100, 0), 0, 1, 1000000);
+        c.Area.Monsters[41] = target;
+        Game.ReleaseStaticStrike(c, f.Session, skill.Id, skill,
+            (100, 100), (108, 100), 41, new SkillCriticalRoll(10000), 2);
+        Assert.True(target.Life < target.MaxLife);
+        Assert.True(c.Area.Buffs.Has(c.Id, 1172, c.Id, tag: 2));
+        c.Area.Buffs.Publish();
+        var buff = c.Area.Buffs.Find(c.Id, 1);
+        Assert.NotNull(buff);
+        Assert.Equal((ushort)1172, buff!.Row);
+        Assert.Equal((ushort)2, buff.SourceSkill);
+        Assert.Equal((skill.Id, (ushort)0x2254), buff.ActiveSkill);
+
+        uint lifeBeforePulse = target.Life;
+        c.TemporarySkillEffects.Clear();
+        await Game.PulseStaticStrike(c);
+        Assert.True(target.Life < lifeBeforePulse);
+        Assert.Empty(c.TemporarySkillEffects);
+    }
+
+    [Fact]
     public void Smite_hits_each_normal_target_once_and_grants_a_temporary_buff_only_on_a_hit()
     {
         using var f = new Fixture();
