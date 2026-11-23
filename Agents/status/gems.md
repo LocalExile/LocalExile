@@ -98,8 +98,10 @@ Nothing yet.
   Multistrike repeats full swings within one paid use, cancels remaining repeats with the action, and keeps
   the native panel's per-hit damage convention; Melee Splash hits the enemies around each struck one
   ([25](../docs/protocol/25-gem-supports.md)).
-  Maim, Bloodlust, Pulverise, Rage, Power Charge on Critical, Volatility, Combustion, Item Quantity, Item Rarity,
+  Maim, Bloodlust for melee physical-origin damage, Pulverise, Rage, Power Charge on Critical, Volatility, Combustion, Item Quantity, Item Rarity,
   Iron Grip and Iron Will apply their stats as well ([25](../docs/protocol/25-gem-supports.md)).
+  Intensify and Pinpoint gain Intensity on supported casts, lose it while moving or teleporting, and project their area
+  and projectile modifiers from the cast's starting stack count ([25](../docs/protocol/25-gem-supports.md)).
   Immolate, Bloodthirst, Bonechill, Coursing Current, Fist of War, Sacrifice, Spellblade, Hallow and
   Excommunicate apply too. Devour recovers life/mana and consumes the killing blow's corpse. Sacrifice adds chaos
   damage at a valid spell release, including projectile hits and poison
