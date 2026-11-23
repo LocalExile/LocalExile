@@ -78,6 +78,7 @@ Its citations of `Agents/docs/re/client-*.md` at fixed commits, and 11-skills' `
 | [dev/modules.md](dev/modules.md) | the layers: leagues and their `league.json`, what stays in the Gateway, modules, what a module sees |
 | [dev/modding.md](dev/modding.md) | mods in `Mods/Binaries/<id>/`: `mod.json`, writing one (LocalExile-Mods), the hooks, reloading, limits |
 | [dev/effect-rules.md](dev/effect-rules.md) | the effect rules: one data-driven system for what things do (item mods, skills, buffs, later monster and map modifiers and atlas passives), as rows in world.db (`effect_rules`, `effect_skills`, `effect_buffs`), the rule format, kinds and executors, adding one, the client findings behind them |
+| [re/item-triggered-skills.md](re/item-triggered-skills.md) | what the client does with a triggered action (0x1ce) for item skills, why it draws nothing, where their art is, a buff row's two effect lists |
 | [dev/item-crafter.md](dev/item-crafter.md) | the item crafter hook for tools: the Gateway's `crafter` mode (bases, mod pools, stat descriptions) and `/item_give` |
 | [dev/player-bots.md](dev/player-bots.md) | the PlayerBots module: server-driven characters that play the campaign and visit towns, settings, logs, the client findings behind their walk and stance |
 | [dev/campaign-automation.md](dev/campaign-automation.md) | the campaign driver: `campaign.ps1`, the runner, quest step files and verbs, `/state`, `/kill`, `/quest_preset`, its own ports and client session |

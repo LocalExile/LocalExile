@@ -30,6 +30,16 @@ features.
   (#60's follow-ups), and area and monster mods (#61).
   The Mud Flats glyphs are quest items (`Metadata/Items/QuestItems/Glyphs/Glyph1..3`,
   [12](../docs/protocol/12-quests.md)).
+- **Effect rules, next** ([guide](../docs/dev/effect-rules.md); what works is in Status): in order, (1) the rest of the
+  item-granted skills: real projectiles for the volleys (Bone Nova, Icicle Burst, Molten Burst, Starfall, Unseen Strike,
+  Ghostly Artillery, Void Shot, Twister, Spirit Burst), ground and lasting effects (Consecrate, Shocked Ground, Contaminate,
+  Volatile Anomaly, Arcane Wake, Fog of War), the four elemental aegises, Death Walk, Tears of Rot and Cinders, the
+  "with this weapon", "socketed in this item" and "cursed" facts, item-stat triggers (Atziri's Rule, the offerings,
+  Intimidating Cry), Animate Weapon and the Ancestor spirits; (2) minions and monsters as actors (their hits as events,
+  monster modifiers as rows: only `MonsterModCatalog.Modelled` stats act today and 74 modifiers do not roll); (3) areas as
+  carriers (map mods, fragments, atlas passives, a worn item's map modifier); (4) ground patches as carriers; (5) every
+  item mod one for one, the charge rules moving over then; and checking each `effect_skills` row's art and radius against
+  the real game (`checked = 0`).
 - **Start:** special mods and the uniques' own mechanics (#60, 13 §2e: `UniqueCatalog`
   has every unique's base, mods and rolls, the mechanics behind those mods are the open part), and chancing.
   Mageblood's "effects cannot be removed" waits for a server mechanic that removes flask effects (13 §2e).

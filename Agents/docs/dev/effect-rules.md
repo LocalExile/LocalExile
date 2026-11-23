@@ -132,6 +132,22 @@ Per hit with no hit rule on the actor: 25 to 35 ns. With two rules that do not f
 plus the effect. A rule's stat, chance, cooldown and `need` are resolved when the actor's stats change
 (`EffectRules.Configure`, from `PlayerStatsUpdated`), not per event.
 
+## Design decisions
+
+- Simple rows live in world.db so packs and mods can add them; an effect kind that needs code lives in code.
+- Several rules on one event each roll on their own, in a fixed order (`ord`).
+- The default chain depth is 0: a triggered skill triggers no other. It is a value on the row, and the guard a switch.
+- A rule whose condition the server does not model does not load, and says so in the log; it is never half-applied.
+- Old code is kept until its row matches what it did, then reads 0 for the stat (`EffectRules.Unhandled`).
+- "The character's own" excludes totems, traps and mines; brands, heralds and mirages count as the character's.
+- In a party an area takes the stats of the player who opens the map (for the area carrier, not built yet).
+- A stat that changes how an area is generated must be on the area before it is generated, so a worn area stat is
+  read at map opening (`GameEvents.MapOpening`).
+- An applied `pending_world` file is never edited: every later change to a row is a new file with an `UPDATE`.
+
+The reverse-engineering behind the art and buff choices is in
+[item-triggered skills](../re/item-triggered-skills.md).
+
 ## Client findings behind it (3.29.3c)
 
 - S→C 0x1ce (`InstantAction`, triggered) makes the client run a skill's action as a triggered one, but for the item
