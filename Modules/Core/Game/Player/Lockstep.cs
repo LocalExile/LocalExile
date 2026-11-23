@@ -183,7 +183,6 @@ public static partial class Game
                 else if (player.LastLockstepChannelAim is not { } previous || at - previous.At >= MovingChannelAimInterval)
                 {
                     ChannelAimedAt(player, aim.X, aim.Y, at);
-                    AimChannelTriggers(player, aim);
                     player.LastLockstepChannelAim = (aim, at);
                     player.LockstepChannelAimPending = false;
                     channelAim = (player.ChannelSkillSequence, aim);
