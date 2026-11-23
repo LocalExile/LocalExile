@@ -462,8 +462,11 @@ public sealed class ExpeditionEncounter : IDisposable
                 else if (action == "chest") await ReadyChest(player, state, (uint)index);
                 else if (action == "gone") await SendWorldRemoval(player, (uint)index, $"Expedition effect 0x{index:x} removed");
             }
-            foreach (var (id, body) in state.Monsters.ToArray())
-                if (body.Dead || body.Life == 0) state.Monsters.TryRemove(id, out _);
+            // The dictionary is walked as it is (removing while walking is safe for it): no copy per frame, and nothing at all
+            // while no dug monster is alive.
+            if (!state.Monsters.IsEmpty)
+                foreach (var (id, body) in state.Monsters)
+                    if (body.Dead || body.Life == 0) state.Monsters.TryRemove(id, out _);
             // Every blast went off, none of the dug monsters lives and nothing is still queued (a chest that is not ready yet,
             // an effect not removed yet): Over stops the clock.
             if (state.Stage == Stage.Fight && state.Blasts >= state.Explosives.Count && state.Monsters.IsEmpty && state.Queue.Count == 0)
