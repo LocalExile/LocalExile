@@ -184,12 +184,12 @@ public static partial class Game
     /// stacks.</summary>
     public static double BleedTaken(SpawnedMonster m, double now) =>
         MonsterDotTaken(m, DamageType.Physical, now) * m.Ruptures.More(now)
-        * (m.Bleeds.Stacks == 1 && m.Walk.Moving(now) ? BleedMovingMore : 1);
+        * (m.Bleeds.Stacks == 1 && (m.Walk.Moving(now) || IsEnsnared(m, now)) ? BleedMovingMore : 1);
 
     /// <summary>A standing monster's strongest aggravated bleed deals its moving bonus on top of the strongest bleed's
     /// damage; moving, the strongest already deals it, and the two do not stack (wiki Bleeding, Aggravate).</summary>
     public static double AggravatedExtra(SpawnedMonster m, double now) =>
-        m.Bleeds.Stacks == 1 && !m.Walk.Moving(now) ? BleedMovingMore - 1 : 0;
+        m.Bleeds.Stacks == 1 && !m.Walk.Moving(now) && !IsEnsnared(m, now) ? BleedMovingMore - 1 : 0;
 
     // Rupture changes the target's running bleed clocks, including the bleed from the hit that applied it.
     // GGG's mechanics Q&A: https://www.pathofexile.com/forum/view-thread/3123794

@@ -3025,7 +3025,7 @@ public static partial class Game
     // resisted packet that AilmentsOnHitLocked needs: every player hit path calls both (surfcaster.md, Hit paths).
     public static (int Damage, string? Resistance, DamagePacket Mitigated) MonsterHitDamage(SpawnedMonster m, DamagePacket rolled,
         bool critical, bool attack, double now, HitResistances.Mods mods, Penetration.PerType pen = default,
-        bool invertElemental = false, Random? random = null, bool trapOrMine = false)
+        bool invertElemental = false, Random? random = null, bool trapOrMine = false, int additionalTakenPct = 0)
     {
         var described = new List<string>();
         var strike = new HitResistances.Strike(Critical: critical, Attack: attack);
@@ -3040,8 +3040,8 @@ public static partial class Game
             + (attack ? mods.TincturedWeaponIgnorePhysicalReductionChance : 0));
         bool ignorePhys = rolled[DamageType.Physical].Max > 0
             && GameServer.Core.World.RandomRolls.Chance(ignorePhysicalChance, 100, random ?? Random.Shared);
-        int damage = trapOrMine ? MonsterTakesTrapOrMineHit(m, mitigated, spell: !attack, now, random, ignorePhys)
-            : MonsterTakesMitigated(m, mitigated, spell: !attack, now, ignorePhys, random);
+        int takenPct = additionalTakenPct + (trapOrMine ? BearTrapDamageTaken(m, now) : 0);
+        int damage = MonsterTakesMitigatedCore(m, mitigated, spell: !attack, now, takenPct, ignorePhys, random);
         return (damage,
             described.Count > 0 ? string.Join(", ", described) : null, mitigated);
     }
@@ -3492,6 +3492,7 @@ public static partial class Game
         QueueEssenceDeathSpawnLocked(player, id, m);
         if (playerKill) QueueMadnessExplosionLocked(player, id, m);
         StopCorpseBlocking(player, id, m);
+        DetonateExplosiveFusesOnDeath(m);
         if (SpreadContagion(player, id, m) is { } contagion)
             await ShowContagionSpread(player, contagion.At, contagion.Radius, contagion.Ao);
         double now = AreaTime(player);
