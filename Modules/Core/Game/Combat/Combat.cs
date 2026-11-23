@@ -2315,6 +2315,7 @@ public static partial class Game
             && (channelGeneration is not int generation || ChannelCurrent(player, skillId, actionToken ?? player.ActionCount, generation));
         if (!Current()) return;
         var criticalTrigger = spell ? null : CaptureCriticalTriggerSource(player, skillId);
+        var itemCriticalTrigger = spell ? null : CaptureItemCriticalTriggerSource(player, skillId);
         var meleeKillTrigger = spell ? null : CaptureMeleeKillTriggerSource(player, skillId);
         sacrifice ??= new SacrificeUse(player, skillId, gem.Effect, gem.Gem, triggered: triggeredCurrent is not null);
         var admittedGem = SupportedSkill(player, skillId);
@@ -2771,6 +2772,8 @@ public static partial class Game
                         CrueltyOnHitLocked(player, skillId, damage, lifeBefore, m.MaxLife, skillStats, at);
                         if (!spell) ReleaseCriticalTrigger(player, ProjectilesFor(player),
                             criticalTrigger, critical, m.Hostile, m.Walk.Position(at), at);
+                        if (!spell) ReleaseItemCriticalTrigger(player, ProjectilesFor(player),
+                            itemCriticalTrigger, critical, m.Hostile, m.Walk.Position(at), at);
                         else ArcaneSurgeOnSpellHitLocked(player, playerStats, m);
                         if (!spell && applied.Value.Life == 0) ReleaseMeleeKillTrigger(player,
                             ProjectilesFor(player), meleeKillTrigger, true, m.Hostile, m.Walk.Position(at), at);
