@@ -33,9 +33,9 @@ public static partial class Game
         {
             if (player.UtilityFlaskEffects.Of(flask.Id) is { } effect && effect.Slot == cell && effect.Ends > now)
                 player.Area.Buffs.Set(player.Id, Flasks.Buff(player.Id, effect.Buff, effect.Flask.BuffRow, cell,
-                    (effect.Ends - now) * effect.ExpiryRate, visual: visual));
+                    (effect.Ends - now) * effect.ExpiryRate, values: null, visual: visual));
             if (player.MagebloodBuffs.TryGetValue(flask.Id, out var mageblood) && mageblood.Slot == cell)
-                player.Area.Buffs.Set(player.Id, Flasks.Buff(player.Id, mageblood.Buff, mageblood.Row, cell, seconds: null, visual: visual));
+                player.Area.Buffs.Set(player.Id, Flasks.Buff(player.Id, mageblood.Buff, mageblood.Row, cell, seconds: null, values: null, visual: visual));
         }
         Console.WriteLine($"[gateway] {player.Connection.Remote} flask cell {cell}: flask effect visual now {visual?.ToString() ?? "the buff's own"}");
     }

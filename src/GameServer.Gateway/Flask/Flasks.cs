@@ -42,8 +42,11 @@ public static class Flasks
     /// the client draws the effect's draining timer bar under that flask (live 2026-10-25). <paramref name="values"/>: the
     /// IsRecovery rows' one u32 per GrantedStats entry.</summary>
     /// Two effects of one row run side by side (two Life flasks): each is its own buff (<paramref name="tag"/>: its number).
-    public static Buff Buff(uint player, ushort tag, ushort row, byte slot, double? seconds, IReadOnlyList<uint>? values = null,
-        ushort? visual = null) =>
+    public static Buff Buff(uint player, ushort tag, ushort row, byte slot, double? seconds, IReadOnlyList<uint>? values = null) =>
+        Buff(player, tag, row, slot, seconds, values, null);
+
+    public static Buff Buff(uint player, ushort tag, ushort row, byte slot, double? seconds, IReadOnlyList<uint>? values,
+        ushort? visual) =>
         new(row, player, slot, values, U68: seconds is double s ? global::Buff.Seconds(s) : null, Visual: visual, Tag: tag);
 
     /// <summary>A hybrid's Life and Mana recover and end independently (wiki Hybrid flask; PoB CalcPerform).
