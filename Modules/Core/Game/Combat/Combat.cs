@@ -439,9 +439,9 @@ public static partial class Game
         bool cryExerted;
         player.RecentEvents.Record(StatConditions.UsedSkill, begun);
         SiphoningSkillUsedLocked(player, begun);
-        SpiritBurstOnSkillUse(player, target, begun);
         cryExerted = ConsumeIntimidatingCryExertLocked(player, weapon.Melee && !ranged);
         PhaseRunOnSkillUse(player, use.SkillId, duration);
+        SpiritBurstOnSkillUse(player, target, begun);
         // As GGG does for every action but Move: the client counts unanswered actions and would ask for a resync.
         byte[][] actionRecords = [InstanceProtocol.ActionStarted(player.Id, stop.X, stop.Y, target.X, target.Y, use.SkillId, use.Sequence, use.Flags, targetObjectId: use.TargetId), InstanceProtocol.ActionEnded(player.Id)];
         string actionLog = $"0x01ab player skill 0x{use.SkillId:x4} on monster 0x{use.TargetId:x} ({m.Label}, life {m.Life}/{m.MaxLife}), attack time {duration:0.000} s{handNote}";
@@ -1412,7 +1412,6 @@ public static partial class Game
     {
         player.RecentEvents.Record(StatConditions.UsedSkill, acceptedAt);
         SiphoningSkillUsedLocked(player, acceptedAt);
-        SpiritBurstOnSkillUse(player, aim, acceptedAt);
         bool movement = SkillsFor(player).IsMovement(effect);
         if (movement) player.RecentEvents.Record(StatConditions.UsedMovementSkill, acceptedAt);
         if (movement && IsDashEffect(SkillsFor(player).EffectId(effect)))
@@ -1423,6 +1422,7 @@ public static partial class Game
             player.RecentEvents.Record(StatConditions.UsedColdSkill, acceptedAt);
         if (SkillsFor(player).IsBrand(effect))
             RecordBrandSkillUsedLocked(player, acceptedAt);
+        SpiritBurstOnSkillUse(player, aim, acceptedAt);
     }
 
     // Lockstep instant replies join the ordinary action sequence. At 0x14219c1f0, flag 0x100 reaches
