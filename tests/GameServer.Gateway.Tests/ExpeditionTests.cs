@@ -11,12 +11,30 @@ namespace GameServer.Gateway.Tests;
 
 public sealed class ExpeditionTests
 {
-    // An area that rolls an Expedition is played with the ExpeditionPlugin state, which the instance's state composition
-    // keeps (its row is ported) and the generation turns into the encounter room. The official MapWorldsForbiddenWoods
-    // seed 1304805886 creates its detonator at cell (839, 631) turned 3π/2: the room's own server object line, generated
-    // here with the state, and no such line without it.
-    [Fact]
+    // The level files (data/game-files.zip) generate the room: the official MapWorldsForbiddenWoods seed 1304805886 creates
+    // its detonator at cell (839, 631) turned 3π/2: the room's own server object line, generated here with the plugin state,
+    // and no such line without it. Then the encounter's lifecycle on that area: its owner, the plan made once, and every
+    // player who enters, the later one too, replayed what stands.
+    [GameFilesFact]
     public async Task Expedition_plugin_state_places_the_encounter_room_at_the_official_detonator()
+    {
+        ExpeditionModule.LoadData();
+        byte[] kept = [0x04, 0x00];
+        const string area = "MapWorldsForbiddenWoods";
+        uint seed = ServerLevels.PlayableSeed(area, 1304805886, 0, null, LeagueCategory.None, [((ushort)0x086a, kept)]);
+        Assert.Equal(1304805886u, seed);
+        ushort hash = (ushort)ClientTables.Table("WorldAreas").First(r => r.TextOrNull("Id") == area).Int("HASH16");
+        var room = ExpeditionEncounter.RoomDetonator(AreaLayouts.For(hash, seed));
+        Assert.NotNull(room);
+        Assert.Equal((839, 631), room.Value.Cell);
+        Assert.Equal(3 * Math.PI / 2, room.Value.Rotation, 4);
+        uint plain = ServerLevels.PlayableSeed(area, 1304805887, 0, null, LeagueCategory.None, null);
+        Assert.Null(ExpeditionEncounter.RoomDetonator(AreaLayouts.For(hash, plain)));
+        await Encounter_is_the_instances_and_every_entering_player_is_replayed_it();
+    }
+
+    // What the plugin state, the roll and the monster pools are: no level file is read.
+    static void The_roll_the_state_and_the_pools()
     {
         ExpeditionModule.LoadData();
         Assert.Equal((ushort)0x086a, ExpeditionTables.PluginId);
@@ -35,6 +53,16 @@ public sealed class ExpeditionTests
         Assert.All(rolled, s => Assert.Equal((ushort)0x086a, s.Plugin));
         Assert.Equal(4, rolled.Select(s => ExpeditionTables.FactionOf(s.State)).Distinct().Count());
         Assert.Equal(1, ExpeditionTables.FactionOf([0x04, 0x00]));
+        // A map's switches: the league's own bit of MapDisableLeagues (not any bit), nothing-more maps, the keystone, Blighted
+        // maps and the league's disable stat each stop the roll; a test's forced chance reaches no area without a chance.
+        var forest = ExpeditionEncounter.PluginStates("MapWorldsForbiddenWoods", new Random(2), MapModsOf((Stat.MapExtraContentHasNoBaseChanceToSpawn, 1),
+            (Stat.MapLeagueContentAdditionalChancePct, 100)));
+        Assert.NotNull(forest);
+        foreach (var (stat, value) in new (uint, int)[] { (Stat.MapDisableLeagues, 1 << LeagueChances.Expedition), (Stat.MapNukeEverything, 1),
+                     (Stat.AtlasKeystoneNoExtraContent, 1), (Stat.IsBlightedMap, 1), (Stat.MapDisableExpeditionFromChance, 1) })
+            Assert.Null(ExpeditionEncounter.PluginStates("MapWorldsForbiddenWoods", new Random(2), MapModsOf((Stat.MapLeagueContentAdditionalChancePct, 100), (stat, value))));
+        Assert.NotNull(ExpeditionEncounter.PluginStates("MapWorldsForbiddenWoods", new Random(2), MapModsOf((Stat.MapLeagueContentAdditionalChancePct, 100),
+            (Stat.MapDisableLeagues, 1 << LeagueChances.Breach))));
 
         // Every GGG-like league lists the module; its state is kept by the composition, one the generator does not port
         // is dropped.
@@ -49,16 +77,6 @@ public sealed class ExpeditionTests
         using (InstanceEvents.TerrainPluginStates.Add("Expedition", _ => [((ushort)0x086a, [0x06, 0x00])]))
             Assert.Empty(InstanceEvents.ComposeTerrainPluginStates(runtime, request));
 
-        const string area = "MapWorldsForbiddenWoods";
-        uint seed = ServerLevels.PlayableSeed(area, 1304805886, 0, null, LeagueCategory.None, [((ushort)0x086a, kept)]);
-        Assert.Equal(1304805886u, seed);
-        ushort hash = (ushort)ClientTables.Table("WorldAreas").First(r => r.TextOrNull("Id") == area).Int("HASH16");
-        var room = ExpeditionEncounter.RoomDetonator(AreaLayouts.For(hash, seed));
-        Assert.NotNull(room);
-        Assert.Equal((839, 631), room.Value.Cell);
-        Assert.Equal(3 * Math.PI / 2, room.Value.Rotation, 4);
-        uint plain = ServerLevels.PlayableSeed(area, 1304805887, 0, null, LeagueCategory.None, null);
-        Assert.Null(ExpeditionEncounter.RoomDetonator(AreaLayouts.For(hash, plain)));
 
         // The monster pools come from the faction's MonsterPacks rows, never from names: five regular packs, two elite packs
         // per faction, and none of the 173 pinnacle bosses, daemons, totems, spectres or Kalandra monsters.
@@ -67,7 +85,6 @@ public sealed class ExpeditionTests
         Assert.NotEmpty(ExpeditionTables.VarietiesOf("Faction2"));
         Assert.All(ExpeditionTables.VarietiesOf("Faction2"), v =>
             Assert.DoesNotMatch("Boss|Daemon|Totem|Spectre|LeagueLake|Orb", ClientTables.Table("MonsterVarieties").First(r => r.Index == v).Text("Id")));
-        await Encounter_is_the_instances_and_every_entering_player_is_replayed_it();
     }
 
     // The encounter belongs to the instance: its owner has the client's IsMapOwner in the area (not the character's saved
@@ -88,6 +105,13 @@ public sealed class ExpeditionTests
 
         Assert.Equal(["IsMapOwner"], encounter.QuestFlags(first.Player));
         Assert.Empty(encounter.QuestFlags(second.Player));
+        // The check the combat code runs for every quest flag it reads (GameEvents.HasAreaQuestFlag).
+        using (GameEvents.AreaQuestFlags.Add("Expedition", encounter.QuestFlags))
+        {
+            Assert.True(GameEvents.HasAreaQuestFlag(first.Player, "IsMapOwner"));
+            Assert.False(GameEvents.HasAreaQuestFlag(second.Player, "IsMapOwner"));
+            Assert.False(GameEvents.HasAreaQuestFlag(first.Player, "SomeOtherFlag"));
+        }
         Assert.Single(encounter.RulesetMessages(second.Player));
 
         await encounter.OnAreaGenerated(_ => { }, first.Player);
@@ -102,6 +126,8 @@ public sealed class ExpeditionTests
         // The same messages, so the late player sees what the first does.
         Assert.Equal(one.Length, two.Length);
     }
+
+    static MapMods MapModsOf(params (uint Stat, int Value)[] stats) => new(stats.ToDictionary(s => s.Stat, s => s.Value));
 
     static bool Contains(byte[] bytes, byte[] pattern) => bytes.AsSpan().IndexOf(pattern) >= 0;
 
@@ -167,6 +193,7 @@ public sealed class ExpeditionTests
     public void Expedition_creates_and_messages_carry_the_official_bytes()
     {
         ExpeditionModule.LoadData();
+        The_roll_the_state_and_the_pools();
         byte[] official = Convert.FromHexString("0000ff030000cd040000c8cb964000000000400103000000000000000000");
         byte[]? detonator = ExpeditionWire.Object(ExpeditionEncounter.DetonatorType, (1023, 1229), 3 * Math.PI / 2,
             animated: 0x40, interaction: 0x01);
