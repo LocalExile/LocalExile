@@ -33,6 +33,8 @@ public static partial class Game
             return "this skill can only trigger while a linked skill is channelled";
         if (GolemStat(gem.Stats, Stat.SkillTriggeredBySnipe) != 0)
             return "this skill can only be triggered by Snipe";
+        if (GolemStat(gem.Stats, Stat.TriggerOnSkillUsePctIfYouHaveASpiritCharge) > 0)
+            return "Spirit Burst triggers on skill use while a Spirit Charge is held";
         if (GolemStat(gem.Stats, Stat.SpellUncastableIfTriggerable) != 0
             || gem.Supports.Any(s => s.Effect.Added.Contains(36)))
             return "this trigger has no server executor; manual use is unavailable";

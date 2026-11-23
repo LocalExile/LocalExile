@@ -2,7 +2,10 @@
 public sealed class MonsterCurses(Action? changed = null)
 {
     public sealed record Curse(uint Caster, string Effect, ushort Skill, ushort Row, ushort Buff,
-        double Applied, double Until, bool Aura, bool Mark, IReadOnlyDictionary<uint, int> Stats);
+        double Applied, double Until, bool Aura, bool Mark, IReadOnlyDictionary<uint, int> Stats)
+    {
+        public bool RemainsOnDeath { get; init; }
+    }
     public readonly Dictionary<(uint Caster, string Effect), Curse> All = [];
     public readonly Dictionary<(uint Caster, string Effect), Curse> Presented = [];
     public readonly HashSet<uint> PresentedStats = [];
