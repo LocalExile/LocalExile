@@ -34,15 +34,16 @@ public sealed class MonsterModEffects
     /// <summary>By stat id (StatCatalog.Id): a monster's stat graph's values, held as they are.</summary>
     public MonsterModEffects(IReadOnlyDictionary<uint, int> ids) => this.ids = ids;
 
-    /// <summary>Monster.ot's <c>base_critical_strike_multiplier</c> (130), the critical multiplier of every monster. Their
-    /// attacks have no base critical strike chance in the data (the monster Melee stat sets' AttackCritChance is 0), so
-    /// only a mod that sets one (always_crit) makes them crit.</summary>
-    public const int CriticalMultiplier = 130;
+    /// <summary>Monster.ot's <c>base_critical_strike_multiplier</c> (130), the critical multiplier of every monster.
+    /// Game.exe (0x141e77eef) gives every monster weapon a 500 permyriad (5.00%) base critical strike chance.</summary>
+    public const int CriticalMultiplier = 130, DefaultBaseCriticalChance = 500;
 
-    /// <summary>Monster.ot's <c>maximum_physical_damage_reduction_%</c> and <c>base_maximum_all_resistances_%</c>.</summary>
-    public const int MaxPhysicalReduction = 75, MaxResistance = 75;
+    /// <summary>Monster.ot's <c>maximum_physical_damage_reduction_%</c> (75) for flat PDR, 90% total combined PDR with
+    /// armour (3.16+), and <c>base_maximum_all_resistances_%</c> (75).</summary>
+    public const int MaxPhysicalReduction = 75, MaxTotalPhysicalReduction = 90, MaxResistance = 75;
 
-    /// <summary>The highest block chance a monster can have: Monster.ot's <c>maximum_block_%</c>.</summary>
+    /// <summary>The highest block and spell block chance a monster can have: Monster.ot's <c>maximum_block_%</c> and
+    /// <c>base_maximum_spell_block_%</c> (both 75).</summary>
     public const int MaxBlock = 75;
 
     /// <summary>The stats by id.</summary>
@@ -83,11 +84,27 @@ public sealed class MonsterModEffects
     /// <summary>Maximum life: the base for the level and variety × (1 + maximum_life_+%) × (1 +
     /// monster_life_+%_final_from_rarity) × (1 + monster_life_+%_final_from_rarity_table) × (1 +
     /// map_hidden_monster_life_+%_final, a map tier's) × (1 + the encounter's own more life,
-    /// <see cref="MonsterModCatalog.EncounterLifeStat"/>) × the handed-over more life stats (<see cref="HandOverMore"/>).</summary>
-    public int MaxLife(int baseLife) => Math.Max(1, (int)Math.Floor(baseLife * (1 + this[Stat.MaximumLifePlusPct] / 100.0)
-        * (1 + this[Stat.MonsterLifePlusPctFinalFromRarity] / 100.0) * (1 + this[MonsterModCatalog.RarityTableLifeStat] / 100.0)
-        * (1 + this[MonsterModCatalog.MapHiddenLifeStat] / 100.0) * (1 + this[MonsterModCatalog.EncounterLifeStat] / 100.0)
-        * More(_moreLife)));
+    /// <see cref="MonsterModCatalog.EncounterLifeStat"/>) × level-conditional species life mods × the handed-over more
+    /// life stats (<see cref="HandOverMore"/>).</summary>
+    public int MaxLife(int baseLife) => MaxLife(baseLife, 0);
+
+    public int MaxLife(int baseLife, int level)
+    {
+        double levelFactor = 1.0;
+        if (level > 0)
+        {
+            if (level <= 40 && this[Stat.Level1To40LifePlusPctFinal] is int l40 and not 0)
+                levelFactor *= Math.Max(0, 1 + l40 / 100.0);
+            if (level is >= 41 and <= 57 && this[Stat.Level41To57LifePlusPctFinal] is int l57 and not 0)
+                levelFactor *= Math.Max(0, 1 + l57 / 100.0);
+            if (level <= 33 && this[Stat.Level33OrLowerLifePlusPctFinal] is int l33 and not 0)
+                levelFactor *= Math.Max(0, 1 + l33 / 100.0);
+        }
+        return Math.Max(1, (int)Math.Floor(baseLife * (1 + this[Stat.MaximumLifePlusPct] / 100.0)
+            * (1 + this[Stat.MonsterLifePlusPctFinalFromRarity] / 100.0) * (1 + this[MonsterModCatalog.RarityTableLifeStat] / 100.0)
+            * (1 + this[MonsterModCatalog.MapHiddenLifeStat] / 100.0) * (1 + this[MonsterModCatalog.EncounterLifeStat] / 100.0)
+            * levelFactor * More(_moreLife)));
+    }
 
     // The more life and more damage stats modules handed over, in the order they were handed over.
     static volatile uint[] _moreLife = [], _moreDamage = [], _moreTaken = [];
@@ -142,14 +159,19 @@ public sealed class MonsterModEffects
 
     /// <summary>The monster's hit before the player's defences: each base damage component raised by damage_+% (and
     /// physical_damage_+% on physical), by the rarity's monster_rarity_damage_+%_final (more) and lowered by
-    /// monster_rarity_attack_cast_speed_+%_and_damage_-%_final (less), rounded and at least 1 as the rarity's hit always
-    /// was (Hillock at level 1: 6.6–12.3 → 7–12); then physical conversion / "gain as extra" stats add their types (fire,
-    /// cold or lightning from physical, chaos from the non-chaos part), rounded.</summary>
-    public DamagePacket Hit(DamagePacket baseHit)
+    /// monster_rarity_attack_cast_speed_+%_and_damage_-%_final and species fixup/level-conditional less-damage stats,
+    /// rounded and at least 1 as the rarity's hit always was (Hillock at level 1: 6.6–12.3 → 7–12); then physical
+    /// conversion / "gain as extra" stats add their types (fire, cold or lightning from physical, chaos from the
+    /// non-chaos part), rounded.</summary>
+    public DamagePacket Hit(DamagePacket baseHit) => Hit(baseHit, 0);
+
+    public DamagePacket Hit(DamagePacket baseHit, int level)
     {
         double more = (1 + this[Stat.MonsterRarityDamagePlusPctFinal] / 100.0)
             * (1 + this[MonsterModCatalog.MapHiddenDamageStat] / 100.0) * More(_moreDamage)
-            * (1 - this[Stat.MonsterRarityAttackCastSpeedPlusPctAndDamageMinusPctFinal] / 100.0);
+            * (1 - this[Stat.MonsterRarityAttackCastSpeedPlusPctAndDamageMinusPctFinal] / 100.0)
+            * Math.Max(0, 1 - this[Stat.MonsterBaseTypeAttackCastSpeedPlusPctAndDamageMinusPctFinal] / 100.0)
+            * (level is > 0 and <= 33 ? Math.Max(0, 1 + this[Stat.Level33OrLowerDamagePlusPctFinal] / 100.0) : 1.0);
         var conversion = new DamageConversion()
             .Add(DamageType.Physical, DamageType.Fire, this[Stat.BasePhysicalDamagePctToConvertToFire])
             .Add(DamageType.Physical, DamageType.Cold, this[Stat.BasePhysicalDamagePctToConvertToCold])
@@ -202,25 +224,28 @@ public sealed class MonsterModEffects
         return added.Round();
     }
 
-    /// <summary>The attack time: the base over (1 + attack_speed_+%) and the rarity's more speed
-    /// (monster_rarity_attack_cast_speed_+%_and_damage_-%_final). Every attack-speed mod of the pool gives cast speed
-    /// alike, so a casting monster's skill uses the same time.</summary>
+    /// <summary>The attack time: the base over (1 + attack_speed_+%) and the rarity/species more speed
+    /// (monster_rarity_attack_cast_speed_+%_and_damage_-%_final and monster_base_type_attack_cast_speed_+%_and_damage_-%_final).
+    /// Every attack-speed mod of the pool gives cast speed alike, so a casting monster's skill uses the same time.</summary>
     public double AttackSeconds(double baseSeconds, bool spell = false) => baseSeconds
-        / Math.Max(0.1, 1 + this[spell ? Stat.BaseCastSpeedPlusPct : Stat.AttackSpeedPlusPct] / 100.0)
-        / (1 + this[Stat.MonsterRarityAttackCastSpeedPlusPctAndDamageMinusPctFinal] / 100.0);
+        / Math.Max(0.1, 1 + (this[spell ? Stat.BaseCastSpeedPlusPct : Stat.AttackSpeedPlusPct] + this[Stat.AttackAndCastSpeedPlusPct]) / 100.0)
+        / (1 + this[Stat.MonsterRarityAttackCastSpeedPlusPctAndDamageMinusPctFinal] / 100.0)
+        / Math.Max(0.1, 1 + this[Stat.MonsterBaseTypeAttackCastSpeedPlusPctAndDamageMinusPctFinal] / 100.0);
 
     /// <summary>The attack time with a skill's own increased and more/less attack speed modifiers.</summary>
     public double AttackSeconds(double baseSeconds, int skillIncreasedPct, int skillMorePct) => baseSeconds
-        / Math.Max(0.1, 1 + (this[Stat.AttackSpeedPlusPct] + skillIncreasedPct) / 100.0)
+        / Math.Max(0.1, 1 + (this[Stat.AttackSpeedPlusPct] + this[Stat.AttackAndCastSpeedPlusPct] + skillIncreasedPct) / 100.0)
         / Math.Max(0.1, 1 + skillMorePct / 100.0)
-        / (1 + this[Stat.MonsterRarityAttackCastSpeedPlusPctAndDamageMinusPctFinal] / 100.0);
+        / (1 + this[Stat.MonsterRarityAttackCastSpeedPlusPctAndDamageMinusPctFinal] / 100.0)
+        / Math.Max(0.1, 1 + this[Stat.MonsterBaseTypeAttackCastSpeedPlusPctAndDamageMinusPctFinal] / 100.0);
 
     /// <summary>The cast time with monster cast-speed mods and the skill's own base_cast_speed_+% /
     /// active_skill_cast_speed_+%_final modifiers (e.g. Flame Mother -66%, Inua Totem -33%).</summary>
     public double CastSeconds(double baseSeconds, int skillIncreasedPct = 0, int skillMorePct = 0) => baseSeconds
         / Math.Max(0.1, 1 + (this[Stat.BaseCastSpeedPlusPct] + this[Stat.AttackAndCastSpeedPlusPct] + skillIncreasedPct) / 100.0)
         / Math.Max(0.1, 1 + skillMorePct / 100.0)
-        / (1 + this[Stat.MonsterRarityAttackCastSpeedPlusPctAndDamageMinusPctFinal] / 100.0);
+        / (1 + this[Stat.MonsterRarityAttackCastSpeedPlusPctAndDamageMinusPctFinal] / 100.0)
+        / Math.Max(0.1, 1 + this[Stat.MonsterBaseTypeAttackCastSpeedPlusPctAndDamageMinusPctFinal] / 100.0);
 
     /// <summary>An attack time of <see cref="AttackSeconds"/> with <paramref name="extraPct"/> more increased attack speed (a
     /// debuff on the monster, additive with its own attack_speed_+%).</summary>
@@ -251,12 +276,36 @@ public sealed class MonsterModEffects
     /// <summary>Physical damage reduction (Carapaced, the god-touched mods), capped at Monster.ot's 75%.</summary>
     public int PhysicalReduction => Math.Clamp(this[Stat.BaseAdditionalPhysicalDamageReductionPct], 0, MaxPhysicalReduction);
 
+    /// <summary>Final armour rating from the variety's base armour plus flat/increased armour mods.</summary>
+    public int Armour(int baseArmour) => (int)Math.Clamp(
+        Math.Round(((long)Math.Max(0, baseArmour) + this[Stat.BasePhysicalDamageReductionRating])
+            * Math.Max(0, 1 + this[Stat.PhysicalDamageReductionRatingPlusPct] / 100.0)),
+        0, int.MaxValue);
+
+    /// <summary>Maximum energy shield from base ES (MonsterTypes.EnergyShield × 40% of base life) plus
+    /// <c>maximum_life_%_to_add_as_maximum_energy_shield</c> (Resplendent, of Discipline, of Arcane Energy) scaled by
+    /// <c>maximum_energy_shield_+%</c>.</summary>
+    public uint MaxEnergyShield(int baseEnergyShield, uint maxLife)
+    {
+        double addedFromLife = maxLife * Math.Max(0, this[Stat.MaximumLifePctToAddAsMaximumEnergyShield]) / 100.0;
+        double total = (Math.Max(0, baseEnergyShield) + addedFromLife)
+            * Math.Max(0, 1 + this[Stat.MaximumEnergyShieldPlusPct] / 100.0);
+        return (uint)Math.Clamp(Math.Floor(total), 0, int.MaxValue);
+    }
+
     public int Accuracy(int baseAccuracy) => (int)Math.Round(baseAccuracy * (1 + this[Stat.AccuracyRatingPlusPct] / 100.0));
 
     public int Evasion(int baseEvasion) => (int)Math.Round(baseEvasion * (1 + this[Stat.EvasionRatingPlusPct] / 100.0));
 
-    /// <summary>The chance its hit is a critical strike, permyriad: always_crit, else none (no base chance to increase).</summary>
+    /// <summary>The chance its hit is a critical strike, permyriad: always_crit, else none (no base chance supplied).</summary>
     public int CriticalChance => this[Stat.AlwaysCrit] > 0 ? 10_000 : 0;
+
+    /// <summary>The chance its hit is a critical strike, permyriad, given a base critical strike chance (e.g. 500 = 5% for
+    /// monster attacks, or GrantedEffectStatSetsPerLevel.SpellCritChance for spells), scaled by critical_strike_chance_+%.</summary>
+    public int CriticalChanceWith(int basePermyriad) =>
+        this[Stat.AlwaysCrit] > 0 ? 10_000
+        : basePermyriad <= 0 ? 0
+        : (int)Math.Clamp((long)basePermyriad * Math.Max(0, 100 + this[Stat.CriticalStrikeChancePlusPct]) / 100, 0, 10_000);
 
     /// <summary>A monster's critical multiplier on the player: Monster.ot's 130%, less the player's
     /// base_self_critical_strike_multiplier_-% (the panel's extra_damage_taken_from_crit_+%), at least 100%.</summary>
@@ -275,6 +324,27 @@ public sealed class MonsterModEffects
 
     /// <summary>The chance to block an attack (monster_base_block_%), capped at Monster.ot's maximum_block_%.</summary>
     public int BlockChance => Math.Clamp(this[Stat.MonsterBaseBlockPct], 0, MaxBlock);
+
+    /// <summary>The chance to block a spell (base_spell_block_%), capped at Monster.ot's base_maximum_spell_block_%.</summary>
+    public int SpellBlockChance => Math.Clamp(this[Stat.BaseSpellBlockPct], 0, MaxBlock);
+
+    /// <summary>Share of damage that bypasses a monster's block (base_block_%_damage_taken from species block mods).</summary>
+    public int BlockDamageTakenPct => Math.Clamp(this[Stat.BaseBlockPctDamageTaken], 0, 100);
+
+    /// <summary>Additional projectiles from species or rolled mods (number_of_additional_projectiles).</summary>
+    public int AdditionalProjectiles => Math.Max(0, this[Stat.NumberOfAdditionalProjectiles]);
+
+    /// <summary>Radius scale factor from base_skill_area_of_effect_+% (of Giants +80% → √1.8 ≈ 1.34× radius).</summary>
+    public double AreaScaleFactor => this[Stat.BaseSkillAreaOfEffectPlusPct] is int pct and not 0
+        ? Math.Sqrt(Math.Max(0.1, 1 + pct / 100.0)) : 1.0;
+
+    /// <summary>Extra monster_slain_experience_+% from species/boss mods (e.g. MonsterActBossAct1 +250%), excluding the
+    /// rarity's innate XP mod (Magic 250, Rare 750, Unique 450) so Progression.RarityMultiplier never double-counts.</summary>
+    public int SpeciesExperienceBonusPct(MonsterRarity rarity)
+    {
+        int innate = rarity switch { MonsterRarity.Magic => 250, MonsterRarity.Rare => 750, MonsterRarity.Unique => 450, _ => 0 };
+        return Math.Max(0, this[Stat.MonsterSlainExperiencePlusPct] - innate);
+    }
 
     public bool CannotBeStunned => this[Stat.BaseCannotBeStunned] > 0;
 
@@ -357,6 +427,22 @@ public sealed class MonsterModCatalog
         Stat.ChillEffectivenessOnSelfPlusPct, Stat.BaseSelfFreezeDurationMinusPct,
         Stat.ShockedEffectOnSelfPlusPct, Stat.ActionSpeedCannotBeReducedBelowBase, Stat.MovementSpeedCannotBeReducedBelowBase,
         Stat.ReflectNonDamagingAilmentsPctChance, Stat.MonsterChanceToNotFleePct, Stat.ImmuneToCullingStrike,
+        Stat.GlobalChanceToBlindOnHitPct, Stat.BlindEffectPlusPct, Stat.CriticalStrikeChancePlusPct,
+        Stat.MaximumLifePctToAddAsMaximumEnergyShield, Stat.EnergyShieldDelayMinusPct,
+        Stat.MaximumEnergyShieldPlusPct, Stat.EnergyShieldRechargeRatePlusPct,
+        Stat.NumberOfAdditionalProjectiles, Stat.BaseSkillAreaOfEffectPlusPct,
+        Stat.ChanceToCrushOnHitPct,
+        Stat.FireExposureOnHitMagnitude, Stat.ColdExposureOnHitMagnitude, Stat.LightningExposureOnHitMagnitude,
+        Stat.BaseChanceToFreezePct, Stat.AlwaysIgnite, Stat.AlwaysShock, Stat.AlwaysStun,
+        Stat.LifeLeechFromAnyDamagePermyriad, Stat.LifeLeechSpeedPlusPct,
+        Stat.GainEnduranceChargePerSecondIfHaveBeenHitRecently, Stat.AddFrenzyChargeOnSkillHitPct,
+        Stat.GainXPowerChargesOnCastingASpell, Stat.AddPowerChargeOnSkillHitPct,
+        Stat.CannotBeDamagedByThingsOutsideRadius, Stat.ActionSpeedMinusPct,
+        Stat.DebuffTimePassedPlusPct, Stat.BaseCooldownSpeedPlusPct,
+        Stat.PhysicalDamageReductionRatingPlusPct, Stat.BasePhysicalDamageReductionRating,
+        Stat.BaseSpellBlockPct, Stat.BaseBlockPctDamageTaken,
+        Stat.RemoveChargesOnHitPct, Stat.ProjectileDamagePlusPctMaxAsDistanceTravelledIncreases,
+        Stat.AttackAndCastSpeedPlusPct,
         MapHiddenLifeStat, MapHiddenDamageStat,
     };
 
@@ -368,22 +454,36 @@ public sealed class MonsterModCatalog
         Stat.SelfWitherDurationPlusPct, Stat.Hexproof, Stat.ReflectHexesChancePct,
     };
 
-    /// <summary>Monster-buff templates whose stats are the mod's own and apply to the monster that has the aura
-    /// (Speed, Large Physical Damage, Accuracy and Crits aura): the allies around it get nothing yet.</summary>
-    static readonly HashSet<string> SelfAuraMods = ["MonsterModSpeedAura", "MonsterModPhysicalDamageAura", "MonsterModAccuracyAndCritAura"];
+    /// <summary>Monster-buff aura mods whose buffs apply to the carrier and nearby allies/players (MonsterAuras.cs).</summary>
+    static readonly HashSet<string> SupportedAuraMods =
+    [
+        "MonsterModSpeedAura", "MonsterModPhysicalDamageAura", "MonsterModAccuracyAndCritAura",
+        "MonsterModEnergyShieldAura", "MonsterModEnergyShieldStunNova",
+        "MonsterModHinderAura", "MonsterModTemporalAura",
+    ];
+
+    /// <summary>Daemon/buff-backed monster mods with empty Mods.dat stat lists whose mechanics are modelled in
+    /// MonsterAuras.cs and MonsterCharges.cs.</summary>
+    static readonly HashSet<string> SupportedSpecialMods =
+    [
+        "MonsterModHinderAura", "MonsterModHealingAura", "MonsterModManaSiphonAura",
+        "MonsterModConsecratedGround", "MonsterModGainCharges", "MonsterModFrenzied",
+    ];
 
     /// <summary>Whether a monster mod can be honoured (the pool's filter, and the PR's table). A mod with a buff, a
-    /// granted skill, a monster on death or no stats needs a system the server lacks; Berserking's buff has its own
-    /// server-side trigger. Stats the server applies (or that only stop what it never does) make it Full; with others
-    /// besides (exposure on hit) or an aura that reaches only its owner, Partial; none of its stats, None.</summary>
+    /// granted skill, a monster on death or no stats needs a system the server lacks unless listed in
+    /// <see cref="SupportedAuraMods"/> or <see cref="SupportedSpecialMods"/>. Stats the server applies (or that only stop
+    /// what it never does) make it Full; with others besides, Partial; none of its stats, None.</summary>
     public static Support SupportOf(ModCatalog.Mod m)
     {
-        if (m.Stats.Count == 0 || m.GrantedEffects > 0 || m.MonsterOnDeath.Length > 0) return Support.None;
+        if (m.GrantedEffects > 0 || m.MonsterOnDeath.Length > 0) return Support.None;
+        if (SupportedSpecialMods.Contains(m.Id)) return Support.Full;
+        if (m.Stats.Count == 0) return Support.None;
         bool aura = m.BuffTemplate is not null;
-        if (aura && !SelfAuraMods.Contains(m.Id)) return Support.None;
+        if (aura && !SupportedAuraMods.Contains(m.Id)) return Support.None;
         int modelled = m.Stats.Count(s => Modelled.Contains(s.Id)), vacuous = m.Stats.Count(s => Vacuous.Contains(s.Id));
         // Hexproof and the like: every stat stops what the server never does, so the mod holds as it stands.
-        if (modelled + vacuous == m.Stats.Count) return aura ? Support.Partial : Support.Full;
+        if (modelled + vacuous == m.Stats.Count) return Support.Full;
         return modelled > 0 ? Support.Partial : Support.None;
     }
 
@@ -524,6 +624,29 @@ public sealed class MonsterModCatalog
     /// <summary>The fixed Mods.dat rows referenced by a MonsterVarieties row, rolled once when the monster spawns.</summary>
     public IReadOnlyList<ItemMod> Species(IReadOnlyList<int> rows, Random rng) =>
         [.. rows.Select(row => mods.Row(row)).OfType<ModCatalog.Mod>().Select(m => m.Roll(ModSection.Explicit, rng))];
+
+    /// <summary>Sums the stat effects of a monster's passive species Mods.dat rows (excluding stance-only mods whose
+    /// effects apply only while in a specific animation stance), rolled with <paramref name="rng"/>.</summary>
+    public MonsterModEffects SpeciesEffects(IReadOnlyList<int> rows, Random rng)
+    {
+        if (rows.Count == 0) return MonsterModEffects.None;
+        Dictionary<uint, int>? stats = null;
+        for (int r = 0; r < rows.Count; r++)
+        {
+            if (mods.Row(rows[r]) is not { } mod) continue;
+            if (mod.Stats.Count == 0 || mod.Id == "Nothing" || mod.Id.StartsWith("Stance", StringComparison.Ordinal)) continue;
+            var rolled = mod.Roll(ModSection.Hidden, rng);
+            stats ??= [];
+            for (int i = 0; i < mod.Stats.Count && i < rolled.Values.Count; i++)
+            {
+                int val = rolled.Values[i];
+                if (val == 0) continue;
+                uint id = mod.Stats[i].Id;
+                stats[id] = stats.GetValueOrDefault(id) + val;
+            }
+        }
+        return stats is null ? MonsterModEffects.None : new MonsterModEffects(stats);
+    }
 
     (int MaxPrefix, int MaxSuffix) MaxAffixes(MonsterRarity rarity)
     {

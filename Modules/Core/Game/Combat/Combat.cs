@@ -39,7 +39,7 @@ public static partial class Game
     public static int AttackHitChanceAt(Player player, uint id, SpawnedMonster target, double at,
         AttackAccuracyProfile profile, IReadOnlyDictionary<uint, int>? playerStats = null)
     {
-        int evasion = target.Effects.Evasion(Monsters.BaseEvasion(target.Level) ?? 0);
+        int evasion = target.Effects.Evasion(Monsters.BaseEvasion(target.Variety, target.Level) ?? 0);
         evasion = MonsterBlindRating(player, id, target, evasion, at, playerStats);
         bool close = TargetAccuracy.InCloseRange(Dist(player.Walk.Position(at), target.Walk.Position(at)));
         return profile.Chance(evasion, target.Rarity == MonsterRarity.Unique, close);
@@ -3134,21 +3134,30 @@ public static partial class Game
         // EncounterStats, whether it was there when the shrine spawned or walked in later) takes no hit at all, so every
         // path through this funnel leaves its life alone.
         if (m.Effects[Stat.BaseCannotBeDamaged] > 0) return null;
-        // A Misery essence's proximity shield blocks a hit from outside its ring; Scorn's avoid_damage_% can avoid the hit.
-        if (MapEssences.ProximityShieldBlocksLocked(player, m, allyAt)) return null;
+        // A Misery essence's or Temporal rare's proximity shield blocks a hit from outside its ring; Scorn's avoid_damage_% can avoid the hit.
+        if (MapEssences.ProximityShieldBlocksLocked(player, m, allyAt) || MonsterProximityShieldBlocksLocked(player, m, allyAt)) return null;
         if (damage > 0 && m.Effects[Stat.AvoidDamagePct] is > 0 and var avoid && Random.Shared.Next(100) < avoid) return null;
+        double hitNow = ProjectileWorldTime(player);
+        int lifeDamage = AbsorbMonsterEnergyShieldLocked(player, m, damage, hitNow);
         uint before = m.Life;
-        if (allyAt is null) SpiderHitRewardsLocked(player, m, ProjectileWorldTime(player), playerStats);
-        (m.Life, bool starts) = TakeOwnerHitLocked(player, m, damage, cull, rampageSource, playerStats, cullPlayer);
-        if (m.Life == 0) m.Overkill = (int)Math.Clamp((long)damage - before, 0, int.MaxValue);
+        if (allyAt is null) SpiderHitRewardsLocked(player, m, hitNow, playerStats);
+        (m.Life, bool starts) = TakeOwnerHitLocked(player, m, lifeDamage, cull, rampageSource, playerStats, cullPlayer);
+        if (m.Life == 0) m.Overkill = (int)Math.Clamp((long)lifeDamage - before, 0, int.MaxValue);
         if (m.Kit.Count > 0) BossKits.TakeDamage(m, (long)before - m.Life);
         CaptureUnhingedHitKillLocked(player, m, playerHit: allyAt is null);
         if (allyAt is null)
         {
-            player.LastEnemyHitAt = m.PlayerHitAt = ProjectileWorldTime(player);
+            player.LastEnemyHitAt = m.PlayerHitAt = hitNow;
             player.RecentEvents.Record(StatConditions.HitEnemy, m.PlayerHitAt);
         }
-        if (m.Life == 0) { m.Aggro = false; m.Dead = true; CollectVaalSoulAtDeathLocked(player, m); }
+        if (m.Life == 0)
+        {
+            m.Aggro = false;
+            m.Dead = true;
+            ClearMonsterEnergyShieldLocked(player, m);
+            ClearMonsterAuraCarrier(m);
+            CollectVaalSoulAtDeathLocked(player, m);
+        }
         else if (m.Hostile) { m.Aggro = true; m.LastTarget = null; }
         TriggerElementalRelicLocked(player, m, hit: damage > 0, killed: m.Life == 0, allyAt);
         if (allyAt is null && damage > 0 && !player.Reservations.Secondary) ReservationHitLocked(player, m);
@@ -3603,7 +3612,11 @@ public static partial class Game
         // (BossMods: Malachai, Shakari and Piety's escape give no experience; their own rows say so).
         if (!m.NoRewards && !BossMods.NoRewards(variety) && alive && Dist(at, playerAt) <= ExperienceRange && Monsters.BaseExperience(variety, m.Level) is int baseXp)
         {
-            var (xp, gemXp) = KillExperience(killer, monster, baseXp, variety.ExperienceMultiplier, m.Rarity,
+            int speciesXpBonus = m.Effects.SpeciesExperienceBonusPct(m.Rarity);
+            int xpMultiplier = speciesXpBonus > 0
+                ? (int)Math.Round(variety.ExperienceMultiplier * (1 + speciesXpBonus / 100.0))
+                : variety.ExperienceMultiplier;
+            var (xp, gemXp) = KillExperience(killer, monster, baseXp, xpMultiplier, m.Rarity,
                 player.Pools.Level, m.Level, PartyExperienceShareOf(partyShares, player));
             // The gems gain their share of the kill only (not a quest's level or /add_xp), at the character's cap too:
             // 10% of the kill's experience before the level penalty.

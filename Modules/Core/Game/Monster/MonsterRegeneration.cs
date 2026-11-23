@@ -21,8 +21,17 @@ public static class MonsterRegeneration
             last = now;
             if (seconds <= 0) return;
             var living = a.SyncLivingMonsters();
-            if (living.Count == 0) return;
-            Game.RegenerateMonstersLocked(living, seconds, now, OnHitPct(instance, player, now, seconds));
+            if (living.Count > 0)
+            {
+                Game.RegenerateMonstersLocked(living, seconds, now, OnHitPct(instance, player, now, seconds));
+                for (int i = 0; i < living.Count; i++)
+                {
+                    var (id, m) = living[i];
+                    Game.StepMonsterEnergyShieldLocked(a, id, m, seconds, now);
+                }
+                Game.StepMonsterChargesLocked(a, living, now);
+            }
+            Game.StepMonsterAurasLocked(a, player, living, seconds, now);
         }, every: EveryFrames, source: source);
     }
 

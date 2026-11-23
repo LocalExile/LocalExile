@@ -97,7 +97,7 @@ public static class BossMods
     static readonly string[] StatsKeyColumns = ["StatsKey1", "StatsKey2", "StatsKey3", "StatsKey4", "StatsKey5", "StatsKey6", "StatsKey7", "StatsKey8"];
     static readonly string[] StatMinColumns = ["Stat1Min", "Stat2Min", "Stat3Min", "Stat4Min", "Stat5Min", "Stat6Min", "Stat7Min", "Stat8Min"];
     static readonly string[] StatMaxColumns = ["Stat1Max", "Stat2Max", "Stat3Max", "Stat4Max", "Stat5Max", "Stat6Max", "Stat7Max", "Stat8Max"];
-    static readonly string[] VarietyModColumns = ["ModsKeys", "Special_ModsKeys"];
+    static readonly string[] VarietyModColumns = ["ModsKeys", "Special_ModsKeys", "Part1_ModsKeys", "Part2_ModsKeys", "Endgame_ModsKeys"];
 
     /// <summary>From the MonsterVarieties, Mods and (for the stat values) Stats client tables: each variety's mod ids, how
     /// long it cannot be stunned after a stun, and the floor under its action speed, both its own keys into Mods.</summary>
