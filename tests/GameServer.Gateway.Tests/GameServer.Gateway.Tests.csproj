@@ -57,5 +57,7 @@
     <ProjectReference Include="..\..\Modules\Core\Content\Betrayal\Betrayal.csproj" />
     <ProjectReference Include="..\..\Modules\Core\Content\Mercenary\Mercenary.csproj" />
     <ProjectReference Include="..\..\Modules\Core\Content\Anarchy\Anarchy.csproj" />
+    <!-- The Ritual altar's bodies and tables (RitualTests). -->
+    <ProjectReference Include="..\..\Modules\Core\Content\Ritual\Ritual.csproj" />
   </ItemGroup>
 </Project>
