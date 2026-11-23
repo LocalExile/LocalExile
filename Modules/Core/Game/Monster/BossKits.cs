@@ -181,6 +181,8 @@ public static class BossKits
         {
             int effectLevel = catalog.MaxLevelAt(effect, level);
             double cooldown = catalog.CooldownMs(effect, effectLevel) / 1000d;
+            bool isBarrage = BossMoves.BarrageOf(catalog, effect) is not null;
+            bool isTeleport = BossMoves.IsTeleport(catalog, effect);
             int trigger = DamageTakenThreshold(catalog, effect, effectLevel);
             ushort id = (ushort)(0x4000 + kit.Count);
             var built = AttackFor(player, variety, level, effect, id);
@@ -199,9 +201,11 @@ public static class BossKits
                         ? Math.Max(attack.Range, Math.Min(variety.AggroRange, ActionClasses.SpellActionDistance(effect, UseStat)))
                         : Math.Max(variety.AggroRange, attack.Range);
                 attack = attack with { Use = use, Range = reach };
-                cooldown = use.Shape == MonsterSkillShape.Travel ? Math.Max(cooldown, 3)
+                cooldown = isTeleport ? (cooldown > 0 ? cooldown : BossMoves.TeleportCooldown)
+                    : BossMoves.IsMove(catalog, effect) ? (cooldown > 0 ? Math.Max(cooldown, 3) : BossMoves.MoveCooldown)
+                    : use.Shape == MonsterSkillShape.Travel ? Math.Max(cooldown, 3)
                     : use.Shape == MonsterSkillShape.Corpse ? Math.Max(cooldown, 2) : Math.Max(cooldown, use.Seconds + 2);
-                kit.Add(new(effect, attack, cooldown) { TriggerThreshold = trigger });
+                kit.Add(new(effect, attack, cooldown) { TriggerThreshold = trigger, IsTeleport = isTeleport, IsBarrage = isBarrage });
                 continue;
             }
             // An effect that hits for nothing, summons nothing and fires nothing is no action: a flame breath's own
@@ -222,15 +226,47 @@ public static class BossKits
                 }
                 else if (attack.Summon is null)
                 {
-                    if (Shaped(player, variety, level, effect, attack) is { } shaped) attack = shaped;
-                    else if (kit.Count > 0) continue;
+                    // A hazard raised under the player that strikes a moment later (Merveil's geysers).
+                    if (BossMoves.StrikeOf(catalog, effect, level) is { } hazard)
+                    {
+                        attack = attack with { Strike = hazard.Strike, AreaRadius = hazard.Radius, Projectile = null, Release = null, ReleaseEffect = null };
+                        cooldown = Math.Max(cooldown, hazard.Cooldown);
+                    }
+                    else if (Shaped(player, variety, level, effect, attack) is { } shaped) attack = shaped;
+                    // A monster's own skill the shaping has no form for stays the action it was: the client plays its
+                    // clip and what that draws (Merveil, the Twisted's geysers, screech and cascade), and it hits as a
+                    // plain hit.
+                    else if (kit.Count > 0 && !(Acts(attack) && KeepsUnshaped(catalog, variety, effect))) continue;
                 }
             }
             if (!Acts(attack) && kit.Count > 0) continue;
-            kit.Add(new(effect, attack, Math.Max(0, cooldown)) { TriggerThreshold = trigger });
+            kit.Add(new(effect, attack, Math.Max(0, cooldown)) { TriggerThreshold = trigger, IsTeleport = isTeleport, IsBarrage = isBarrage });
         }
         return kit;
     }
+
+    // Words of an id that mark a piece another skill sets off (an impact, an explosion, a death effect, a ground), not
+    // an action the monster starts itself.
+    static readonly string[] SetOffWords = ["Impact", "Explode", "Explosion", "Death", "GroundEffect", "Trigger", "Daemon", "NoEffects"];
+
+    /// <summary>Whether a unique keeps a skill the shaping has no form for, as the plain action it was before the shaping
+    /// (<see cref="Kit"/>). Bosses and uniques keep a monster's own skill, but not a piece another skill sets off (a
+    /// triggered skill, a geometry spell's hit "GS…", an id with a word of SetOffWords) and not a player skill used by a
+    /// Rogue Exile, a shade or a mercenary: those need their form (a Flameblast's channel, a mine), and a plain hit would
+    /// land with nothing drawn.</summary>
+    public static bool KeepsUnshaped(SkillCatalog catalog, MonsterCatalog.Variety variety, int effect)
+    {
+        if (!KeepUnshapedForUniques && !IsKitBoss(catalog, variety)) return false;
+        string id = catalog.EffectId(effect) ?? "";
+        if (id.Length == 0 || catalog.HasType(effect, "Triggered") || id.StartsWith("GS", StringComparison.Ordinal)
+            || SetOffWords.Any(w => id.Contains(w, StringComparison.Ordinal))) return false;
+        return !(variety.Id.Contains("/Exiles/", StringComparison.Ordinal) || variety.Id.Contains("Mercenar", StringComparison.Ordinal)
+            || id.Contains("Exile", StringComparison.Ordinal) || id.Contains("Mercenary", StringComparison.Ordinal)
+            || id.Contains("MasterAlly", StringComparison.Ordinal));
+    }
+
+    /// <summary>The switch for uniques that are no boss keeping their unshaped skills.</summary>
+    public static bool KeepUnshapedForUniques = true;
 
     /// <summary>Whether an attack does anything: it hits for damage, summons, flies a projectile, throws a trap, puts a
     /// debuff on the player or leaves a ground.</summary>
@@ -530,7 +566,9 @@ public static class BossKits
         var projectile = ranged ? MavenNucleus.Shot(catalog, effect) : null;
         if (projectile is not null && !spell && reach < 45)
             reach = 45;
-        var summon = MonsterSummonOf(catalog, effect, actorLevel);
+        var summon = MonsterSummonOf(catalog, effect, actorLevel) 
+            // A boss's own summon the tables name no monster for; a player minion skill's monster version stays as it is.
+            ?? (SummonData.ForActiveSkill(effect) is null ? BossSummons.For(catalog, variety, effect) : null);
         int hits = 1 + Math.Max(0, Raw(Stat.BaseSkillNumberOfAdditionalHits))
             + (Raw(Stat.SkillDoubleHitsWhenDualWielding) != 0 && DualWields(variety) ? 1 : 0);
         return new(skillId, summon is { CastSeconds: > 0 } ? summon.CastSeconds : Math.Max(.25, seconds), reach, damage)
@@ -557,6 +595,44 @@ public static class BossKits
     public static MonsterAttack? Choose(SpawnedMonster monster, double now, double distance, Func<MonsterAttack, bool>? usable = null)
     {
         if (monster.Kit.Count == 0) return monster.Attack;
+        // A form that has just taken shape teleports first (OpenWithTeleport), when it has a teleport and the player is
+        // in its reach (respecting MinRange so it is not consumed while out of range or point-blank).
+        if (States.TryGetValue(monster, out var state) && state.OpenWithTeleport)
+        {
+            MonsterKitSkill? opener = null;
+            for (int i = 0; i < monster.Kit.Count; i++)
+                if (monster.Kit[i].IsTeleport) { opener = monster.Kit[i]; break; }
+            if (opener is null) state.OpenWithTeleport = false;
+            else if (opener.Attack.Range >= distance
+                && distance >= (opener.Attack.Use?.MinRange ?? 0)
+                && Arakaali.Allowed(monster, opener.Effect)
+                && (usable is null || usable(opener.Attack)))
+            {
+                state.OpenWithTeleport = false;
+                return opener.Attack;
+            }
+        }
+        // A ranged default attack comes in a burst (Merveil, the Siren's Ice Spears follow one another): once begun it
+        // is used again until the burst is full, then the list takes its turns.
+        if (monster.Kit[0] is { CooldownSeconds: 0, IsBarrage: false, Attack: { Ranged: true, Use: null, Summon: null } first }
+            && state is { StreakCount: > 0 } && state.StreakCount < DefaultBurst
+            && first.Range >= distance && Arakaali.Allowed(monster, monster.Kit[0].Effect) && (usable is null || usable(first)))
+            return first;
+        // A boss whose other skills all reach across the room (Merveil's Ice Spear: her whole aggro range) would never
+        // walk again: its melee swing is only a candidate in reach, and the spell always is. When the swing has waited
+        // its turn, the boss walks up for it (the ordinary chase does, with the swing as its attack).
+        if (WalkUpFor(monster, now, distance) is { } walk) return walk;
+        // Specials take a ready turn, but not every one: with several cooldowns between them (Merveil, the Twisted, has
+        // five) they would take every turn and the skills without one would never come. So after a special, a skill
+        // without a cooldown goes next when one can, and after one of those a ready special does.
+        double lastSpecial = 0, lastPlain = 0;
+        foreach (var entry in monster.Kit)
+        {
+            if (!monster.KitReadyAt.TryGetValue(entry.Effect, out double at)) continue;
+            if (entry.CooldownSeconds > 0) lastSpecial = Math.Max(lastSpecial, Math.Min(now, at - entry.CooldownSeconds));
+            else if (at <= now) lastPlain = Math.Max(lastPlain, at);
+        }
+        bool plainFirst = lastSpecial > 0 && lastSpecial >= lastPlain;
         MonsterKitSkill? best = null;
         int bestTier = -1;
         double bestUsed = 0;
@@ -577,7 +653,7 @@ public static class BossKits
             if (tier == 2 && monster.KitDamageTaken.GetValueOrDefault(entry.Effect) < entry.TriggerThreshold) continue;
             bool better;
             if (best is null) better = true;
-            else if (tier != bestTier) better = tier > bestTier;
+            else if (tier != bestTier) better = plainFirst && tier < 2 && bestTier < 2 ? tier < bestTier : tier > bestTier;
             else if (used != bestUsed) better = used < bestUsed;
             else better = entry.Effect == monster.Kit[0].Effect;
             if (!better) continue;
@@ -586,6 +662,74 @@ public static class BossKits
             bestUsed = used;
         }
         return best?.Attack ?? Fallback(monster, usable);
+    }
+
+    // Per-monster kit state: walk-up/fight timers (NaN when unset), default-attack burst count, and pending teleport opener.
+    sealed class KitState
+    {
+        public double WalkingSince = double.NaN;
+        public double FightSince = double.NaN;
+        public int StreakCount;
+        public double StreakAt = double.NegativeInfinity;
+        public bool OpenWithTeleport;
+    }
+
+    static readonly System.Runtime.CompilerServices.ConditionalWeakTable<SpawnedMonster, KitState> States = new();
+
+    /// <summary>Makes the monster's first kit action its teleport, if its kit has one (a boss's later form).</summary>
+    public static void OpenWithTeleport(SpawnedMonster monster) => States.GetOrCreateValue(monster).OpenWithTeleport = true;
+
+    /// <summary>How many times in a row a boss uses a ranged default attack once it begins (ours: the official AI's
+    /// weights are not in the client).</summary>
+    public static int DefaultBurst = 3;
+
+    /// <summary>How long a melee swing waits before the boss walks up for it, how long it tries, and the farthest player
+    /// it walks to (seconds, seconds, cells; ours).</summary>
+    public static double MeleeTurnSeconds = 10, WalkUpSeconds = 5, WalkUpFarthest = 60;
+
+    static MonsterAttack? WalkUpFor(SpawnedMonster monster, double now, double distance)
+    {
+        // Its melee swing: a damaging attack with no cooldown that is neither a spell, ranged nor a move.
+        MonsterKitSkill? melee = null;
+        for (int i = 0; i < monster.Kit.Count; i++)
+        {
+            var k = monster.Kit[i];
+            if (!k.Attack.Ranged && !k.Attack.Spell && k.CooldownSeconds == 0 && !k.Attack.Damage.IsZero
+                && k.Attack.Use is null && k.Attack.Summon is null)
+            {
+                melee = k;
+                break;
+            }
+        }
+        if (melee is null) return null;
+        if (monster.Variety is { MovementSpeed: 0 } or { Immobile: true }) return null;
+        // Only a boss with something else to do from here: one that has nothing but the swing walks up for it anyway.
+        bool hasOtherInReach = false;
+        for (int i = 0; i < monster.Kit.Count; i++)
+        {
+            var k = monster.Kit[i];
+            if (!ReferenceEquals(k, melee) && k.Attack.Range >= distance && k.Attack.Use is null)
+            {
+                hasOtherInReach = true;
+                break;
+            }
+        }
+        if (!hasOtherInReach) return null;
+        var state = States.GetOrCreateValue(monster);
+        if (distance <= melee.Attack.Range) { state.WalkingSince = double.NaN; return null; }
+        // A swing not used yet has waited since the fight began, not for ever: the boss opens with its spells.
+        if (double.IsNaN(state.FightSince)) state.FightSince = now;
+        double used = Math.Max(state.FightSince, monster.KitReadyAt.GetValueOrDefault(melee.Effect));
+        if (now - used < MeleeTurnSeconds || distance > WalkUpFarthest) { state.WalkingSince = double.NaN; return null; }
+        if (double.IsNaN(state.WalkingSince)) state.WalkingSince = now;
+        if (now - state.WalkingSince > WalkUpSeconds)
+        {
+            // It could not get there: the turn is spent, as if it had swung.
+            monster.KitReadyAt[melee.Effect] = now;
+            state.WalkingSince = double.NaN;
+            return null;
+        }
+        return melee.Attack;
     }
 
     // When no kit skill is both in reach and off cooldown, never return the last-used special in monster.Attack (which
@@ -623,6 +767,11 @@ public static class BossKits
         foreach (var entry in monster.Kit)
             if (entry.Attack.SkillId == attack.SkillId)
             {
+                // The burst of the default attack (Choose): counted once a swing, ended by any other skill.
+                var state = States.GetOrCreateValue(monster);
+                if (entry != monster.Kit[0]) state.StreakCount = 0;
+                else if (now - state.StreakAt > .2)
+                    (state.StreakCount, state.StreakAt) = (state.StreakCount >= DefaultBurst ? 1 : state.StreakCount + 1, now);
                 monster.KitReadyAt[entry.Effect] = now + entry.CooldownSeconds;
                 if (entry.TriggerThreshold > 0) monster.KitDamageTaken[entry.Effect] = 0;
                 return;

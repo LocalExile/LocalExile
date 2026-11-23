@@ -2102,7 +2102,7 @@ public static partial class Game
                 : InstanceProtocol.ActionStarted(id, from.X, from.Y, playerAt.X, playerAt.Y, a.SkillId, seq, player.MonsterOrderFlags, targetObjectId: player.Id);
         }, ServerTrace.Combat || ServerTrace.Ai
             ? (a.Summon is not null ? $"0x01d1 monster 0x{id:x} ({m.Label}) summons, cast time {seconds:0.00} s"
-                : $"0x01ab monster 0x{id:x} ({m.Label}) attacks the player, attack time {seconds:0.00} s")
+                : $"0x01ab monster 0x{id:x} ({m.Label}) attacks the player with {(a.Effect is int used ? SkillsFor(player).EffectId(used) : null) ?? "its attack"} 0x{a.SkillId:x4}, attack time {seconds:0.00} s")
             : null)) return false;
 // A clip-only action (a dev command's NoContact) lands nothing: its hit or area belongs to the caller, which
         // sends it on its own clock. A zero-damage contact here would only play the clip's hit effect.
@@ -2147,6 +2147,10 @@ public static partial class Game
             // clock does not select this unused fallback or load the legacy contact corpus at its first swing.
             double contact = a.Release?.Fraction ?? stanceContact ?? (walkUp && m.Variety is { } variety
                 ? SkillsFor(player).MonsterContact(variety.Id, "Melee", seq)?.ContactFraction : null) ?? 0.5;
+            if (a.Projectile is not null && a.Effect is int barrageEffect
+                && BossMoves.BarrageOf(SkillsFor(player), barrageEffect) is { } pendingBarrage)
+                m.BusyUntil = Math.Max(m.BusyUntil,
+                    startedAt + seconds * contact + (pendingBarrage.Count - 1) * pendingBarrage.Seconds + player.LockstepActionTail);
             if (player.Connection.LockstepClient && a.Projectile is { Variation: > 0, Lobbed: false } nativeProjectile)
             {
                 // Like the player's native shot, the monster emits at the end of the frame that crosses contact.
@@ -2169,6 +2173,20 @@ public static partial class Game
         }
         if (a.Strike is { } strike)
         {
+            // A hazard that stays (BossMoves.Strikes: Merveil's geysers): several come up, the first under the player and
+            // the rest around it, and each strikes again while its art stands.
+            if (a.Effect is int strikeEffect && BossMoves.StrikeOf(SkillsFor(player), strikeEffect, m.Level) is { } many)
+            {
+                List<(int X, int Y)> spots = [areaAim, .. BossMoves.StrikeSpots(areaAim, many.Count - 1, many.Spread, AreaRng(player), player.Layout, player.Barrier)];
+                foreach (var spot in spots)
+                {
+                    await PlaceMonsterMarker(player, id, m, a, strike, spot);
+                    for (int pulse = 1; pulse <= many.Pulses; pulse++)
+                        await PlaceMonsterMarker(player, id, m, a,
+                            strike with { Seconds = strike.Seconds + pulse * many.Pulse, MarkerArt = null, ImpactArt = null }, spot);
+                }
+                return false;
+            }
             await PlaceMonsterMarker(player, id, m, a, strike, areaAim);
             return false;
         }
@@ -2176,6 +2194,16 @@ public static partial class Game
         {
             // The shot leaves at the contact and flies; its hit lands when it reaches the player (Program.ProjectileHostile.cs).
             LaunchMonsterProjectile(player, id, m, a, projectile, action, projectileAim, sequence: seq);
+            // A barrage (BossMoves.Barrages: Merveil's Ice Spears): the rest follow from the same cast, each at where
+            // the player then stands, while the action is still the monster's.
+            if (a.Effect is int shotEffect && BossMoves.BarrageOf(SkillsFor(player), shotEffect) is { } barrage)
+            {
+                double releaseNow = AreaTime(player);
+                m.BusyUntil = Math.Max(m.BusyUntil, releaseNow + (barrage.Count - 1) * barrage.Seconds + player.LockstepActionTail);
+                for (int i = 1; i < barrage.Count; i++)
+                    LaunchMonsterProjectile(player, id, m, a, projectile, action, null, releaseNow + i * barrage.Seconds,
+                        sequence: seq, turn: true);
+            }
             return false;
         }
         if (a.AreaRadius > 0 && !area)

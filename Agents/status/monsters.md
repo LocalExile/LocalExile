@@ -227,7 +227,9 @@ Part of [Status](../Status.md); what to build next in this area is in
   Effects that hit for nothing, summon nothing and fire nothing (a breath's own segments, geometry triggers,
   `EmptyAction`s) stay out, and the attack a boss had before is still its first, unchanged. Checked against the tables
   and in `BossKitsTests`; **not yet played against the real client**: which of the list a client animates, and how the
-  bosses' official AI weights compare, are unverified. Code: `BossKits`, `MonsterKitSkill`, `Monsters.PlanMonsterAi`.
+  bosses' official AI weights compare, are unverified.
+  Boss kits also cover teleports, movement moves, family summons, barrages, geyser hazards and second-form transitions.
+  Code: `BossKits`, `BossMoves`, `BossSummons`, `BossForms`, `MonsterKitSkill`, `Monsters.PlanMonsterAi`.
 - The campaign Trinity has native attacks and two scorpion phases; organ portals use their native domain labels,
   room entrance pads and return pairs; Doedre's soul starts visible on creation and instance restore.
   Exact official AI weights remain unverified.

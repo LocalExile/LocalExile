@@ -39,6 +39,10 @@ public sealed record MonsterKitSkill(int Effect, MonsterAttack Attack, double Co
     /// <summary>A trigger on damage taken: the damage its user takes before it is cast (0: no trigger, a skill the kit
     /// picks).</summary>
     public int TriggerThreshold { get; init; }
+    /// <summary>Whether this kit skill is a boss teleport (<c>BossMoves.IsTeleport</c>).</summary>
+    public bool IsTeleport { get; init; }
+    /// <summary>Whether one cast of this kit skill fires a barrage of shots (<c>BossMoves.BarrageOf</c>).</summary>
+    public bool IsBarrage { get; init; }
 }
 
 /// <summary>A delayed strike: how long its marker waits, the art it shows while it waits and as it strikes (null for
