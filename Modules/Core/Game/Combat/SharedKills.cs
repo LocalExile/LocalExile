@@ -54,15 +54,13 @@ public static partial class Game
                 await CharacterVoiceLines.GrantKillFlags(other, other.Layout.Id, variety.Id);
                 // The kill's quest items: each player gets their own (none for one who has it or is past that quest).
                 await DropQuestItemsForKill(other, variety.Id, at, $"{m.Label} (party kill)");
-                if (!m.NoRewards && Monsters.BaseExperience(variety, m.Level) is int baseXp)
+                if (!MonsterGivesNoRewards(m))
                 {
-                    int xpMult = variety.ExperienceMultiplier;
-                    int speciesXpBonus = m.Effects.SpeciesExperienceBonusPct(m.Rarity);
-                    if (speciesXpBonus > 0) xpMult = (int)Math.Round(xpMult * (100 + speciesXpBonus) / 100.0);
-                    var (xp, gemXp) = KillExperience(PlayerOf(other), monster, baseXp, xpMult, m.Rarity,
-                        other.Pools.Level, m.Level, share.Multiplier);
-                    await GainGemExperience(other, gemXp);
-                    await GainExperience(other, xp, $"party kill: {m.Rarity} {m.Label} (by {CharacterName(host)})");
+                    var (xp, gemXp) = ComputeKillExperience(other, m, variety, monster, share.Multiplier);
+                    if (gemXp > 0) await GainGemExperience(other, gemXp);
+                    if (xp > 0) await GainExperience(other, xp, $"party kill: {m.Rarity} {m.Label} (by {CharacterName(host)})");
+                    // Retail party parity: every living party member within kill range receives kill flask charges.
+                    await GainKillCharges(other, m.Rarity, $"party kill: {m.Rarity} {m.Label}");
                 }
                 if (QuestsOf(other).LevelAfterKill(other.Layout.Id, variety.Id) is int level and > 1 && level <= CharacterStats.LevelStarts.Count)
                 {

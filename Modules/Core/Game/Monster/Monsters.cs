@@ -219,10 +219,10 @@ public static partial class Game
     public static Task<uint> RestoreMonster(Player player, MonsterCatalog.Variety variety, SavedMonster saved, bool bulk = false) =>
         saved.Planned
             ? SpawnMonster(player, variety, saved.Level, saved.Rarity, saved.X, saved.Y,
-                log: false, alone: false, bulk: bulk)
+                log: false, alone: false, bulk: bulk, packId: saved.PackId)
             : SpawnMonster(player, variety, saved.Level, saved.Rarity, saved.X, saved.Y,
                 friendly: !saved.Hostile, log: false, damagedLife: saved.Life, mods: saved.Mods,
-                unrisen: saved.Unrisen, placement: MonsterPlacement.Established, bulk: bulk);
+                unrisen: saved.Unrisen, placement: MonsterPlacement.Established, bulk: bulk, packId: saved.PackId);
 
     // An area's monsters are all placed at its first entry (14-monster-packs.md §2). One placed far from the player is
     // held back (InstanceWorld.HeldBackMonsters): it is the instance's, counted and saved with it, but it is not
@@ -308,7 +308,7 @@ public static partial class Game
         MonsterMovement? movement = null, (uint Parent, string Bone, byte Kind, byte Flags)? attachTo = null, bool instanceOwned = false,
         // An area's population (PopulateArea) is created in bulk: its create carries the wake and its glow, and the
         // producer does not wait for the birth, which on a lockstep client is a frame per monster.
-        bool bulk = false, bool nonBlocking = false)
+        bool bulk = false, bool nonBlocking = false, int packId = 0)
     {
         movement ??= MonsterMovement.Default;
         // A hostile unique (a Rogue Exile, a kept one too) holds the weapons its variety names, as Izaro's are given.
@@ -516,11 +516,21 @@ public static partial class Game
             ?? AtlasBosses.SkillsFor(player, variety, level, attack)
             ?? (KingInMists.IsFetish(variety) ? KingInMists.FetishSkillsFor(player, variety, level, attack) : null);
         // A monster the campaign places as a boss, one with a bar of its own, or a hostile unique (a Rogue Exile), and that
-        // has no encounter controller: it plays the rest of its granted effects through the ordinary AI (BossKits). Every
-        // other campaign boss walked up and swung one default attack forever. A scripted encounter keeps its own list and
-        // its own actions.
+        // has no encounter controller: it plays the rest of its granted effects through the ordinary AI (BossKits). Ordinary
+        // Normal/Magic/Rare multi-skill monsters use the cached MonsterKits template so casters, summoners, chargers, leapers,
+        // flicker-strikers and charge-ralliers play their retail kits instead of falling back to MeleeAtAnimationSpeed.
         var kit = scripted || kingSkills is not null ? (IReadOnlyList<MonsterKitSkill>)[]
             : BossKits.Kit(player, variety, level, effect, attack, unique: !friendly && rarity == MonsterRarity.Unique);
+        if (kit.Count == 0 && !friendly && !scripted && kingSkills is null && extraKit is not { Count: > 0 })
+        {
+            var (ordinaryKit, ordinaryAuraStats, ordinaryAuraRows) = MonsterKits.ForOrdinary(player, variety, level, effect,
+                mods.Effects, mapBoss ? mapBossScaling.Damage : 1.0, applyAuraStats: freshMods && auras.Stats is null);
+            if (ordinaryKit.Count > 0) kit = ordinaryKit;
+            if (freshMods && auras.Stats is null && ordinaryAuraStats.Count > 0)
+                mods = mods with { Effects = mods.Effects.Combine(ordinaryAuraStats) };
+            if ((auras.Rows is null || auras.Rows.Count == 0) && ordinaryAuraRows.Count > 0)
+                auras = (auras.Stats ?? new Dictionary<uint, int>(), [.. ordinaryAuraRows]);
+        }
         // An extra-only kit (the essence spells on a monster with no kit of its own) starts with the monster's own attack:
         // BossKits.Choose replaces the attack with a kit entry on every pass, so without that entry the essence rare lost
         // its melee and only ever cast the kit's cooldown spells — or, given an instant summon, swung that at nothing.
@@ -665,6 +675,8 @@ public static partial class Game
             MonsterEmerge.AddLocked(player, id, new SpawnedMonster($"{variety.Name}@{level}", player.NewMonsterWalk(id, x, y, walkSpeed, bodySize, rarity == MonsterRarity.Unique, movement.ThroughBodies),
                 variety.AggroRange, Math.Max(2, variety.ObjectSize + 1), life)
             {
+                PackId = packId,
+                SpawnAnchor = (x, y),
                 PresentationChanged = () => { foreach (var p in player.Frames.Players()) MonsterDebuffsChanged(p, id); },
                 Asleep = asleep,
                 Attack = skill is null && kit.Count == 0 ? null : kit.Count > 0 ? kit[0].Attack : attack,
@@ -786,7 +798,7 @@ public static partial class Game
             if (HeldBackAt(Monsters.Find(s.Variety.ToString())!, s.Rarity, hostile: true, (s.X, s.Y), here))
             {
                 player.Instance.World.HeldBackMonsters.Add(new(s.Variety, level, s.Rarity, Hostile: true, s.X, s.Y,
-                    Life: uint.MaxValue, Unrisen: true) { Planned = true });
+                    Life: uint.MaxValue, Unrisen: true) { Planned = true, PackId = s.PackId });
                 continue;
             }
             now.Add(s);
@@ -795,7 +807,7 @@ public static partial class Game
         // packs took a frame each (292 monsters in 9.6 s in The Coast), so they go out together and share frames. Each
         // starts in order, so the ids and rolls are taken in order before its first wait.
         Task<uint> Spawn(AreaPopulation.Spawn s) => SpawnMonster(player, Monsters.Find(s.Variety.ToString())!, level,
-            s.Rarity, s.X, s.Y, log: s.Rarity is MonsterRarity.Unique or MonsterRarity.Rare, alone: false, bulk: true);
+            s.Rarity, s.X, s.Y, log: s.Rarity is MonsterRarity.Unique or MonsterRarity.Rare, alone: false, bulk: true, packId: s.PackId);
         if (player.Connection.LockstepClient) await Task.WhenAll(now.Select(Spawn).ToList());
         else foreach (var s in now) await Spawn(s);
         if (ServerTrace.Latency)
@@ -901,6 +913,80 @@ public static partial class Game
             || VaalOversoul.IsBoss(v) || DoedreSewers.IsBoss(v) || BrineKing.IsBoss(v) || KingInMists.IsBoss(v)
             || KingInMists.IsFetish(v) || KingInMists.IsGuidingLight(v) || AtlasBosses.IsBoss(v));
 
+    /// <summary>Pack-wide aggro propagation: when one pack member aggros or takes a hit, nearby living hostile
+    /// packmates sharing <see cref="SpawnedMonster.PackId"/> alert immediately and unrisen buried/lurking packmates
+    /// schedule a staggered emerge wave. In the area's frame.</summary>
+    public static void AlertPackLocked(Player player, SpawnedMonster source, (int X, int Y) origin, double now)
+    {
+        int packId = source.PackId;
+        if (packId <= 0 || !source.Hostile) return;
+        int alertRadius = Math.Max(60, source.AggroRange);
+        double r2 = (double)alertRadius * alertRadius;
+        var lurking = player.Area.EmergeGround.Lurking;
+        foreach (var (mateId, mate) in player.Area.MonstersNear(origin, alertRadius + 4))
+        {
+            if (ReferenceEquals(mate, source) || mate.PackId != packId || !mate.Hostile || mate.Dead || mate.Life == 0
+                || mate.Asleep || mate.WorldHidden || mate.EntranceGrace || mate.Scripted)
+                continue;
+            if (lurking.Contains(mateId)) continue;
+            if (mate.Aggro) continue;
+            var at = mate.Walk.Position(now);
+            double dx = at.X - origin.X, dy = at.Y - origin.Y;
+            if (dx * dx + dy * dy > r2) continue;
+            mate.Aggro = true;
+            mate.ReturningHome = false;
+            mate.LastTarget = null;
+            if (mate.Target is null && player.PlayerLife > 0 && !InGracePeriod(player))
+                mate.Target = player;
+        }
+        if (MonsterEmerge.SchedulePackEmergeLocked(player, packId, origin, now, excludeId: source.ObjectId))
+            WatchBuried(player);
+    }
+
+    static bool CanLeashReturn(Player player, uint id, SpawnedMonster m) =>
+        m.Hostile && !m.Fleeing && m.SpawnAnchor != default
+        && m.Rarity != MonsterRarity.Unique && !BossKits.IsCampaignBoss(m.Variety)
+        && m.Variety is not { BossHealthBar: true }
+        && m.Variety is not { MovementSpeed: 0 } and not { Immobile: true }
+        && !m.Scripted && !m.Invulnerable && !m.StageRunning && m.LifePhases is null
+        && m.OwnerId is null && m.SummonerId is null && !player.Minions.Owns(id) && !m.TemporarilyAllied;
+
+    static (int X, int Y)? FindBackoffCell(Player player, SpawnedMonster m, (int X, int Y) from, (int X, int Y) threat,
+        int minDistance, double maxRange)
+    {
+        int size = Math.Max(0, LivingCollision.Size(m));
+        double away = from == threat ? AreaRng(player).NextDouble() * Math.Tau
+            : Math.Atan2(from.Y - threat.Y, from.X - threat.X);
+        double desired = Math.Clamp(minDistance + 10.0, minDistance + 4.0, Math.Max(minDistance + 4.0, maxRange - 4.0));
+        double currentDist = Dist(from, threat);
+        double step1 = Math.Max(4.0, desired - currentDist);
+        double step2 = Math.Max(4.0, step1 * 0.6);
+        ReadOnlySpan<double> distances = [step1, step2];
+        ReadOnlySpan<double> angles = [0, 0.52, -0.52, 1.05, -1.05];
+        for (int di = 0; di < distances.Length; di++)
+        {
+            double dist = distances[di];
+            for (int i = 0; i < angles.Length; i++)
+            {
+                double a = away + angles[i];
+                int tx = from.X + (int)Math.Round(Math.Cos(a) * dist);
+                int ty = from.Y + (int)Math.Round(Math.Sin(a) * dist);
+                if (!LockstepTakesMove(from, (tx, ty))) continue;
+                if (Dist((tx, ty), threat) <= currentDist + 2) continue;
+                if (!player.Layout.WalkableFor(tx, ty, size) || player.Barrier.Contains((tx, ty))) continue;
+                // Ensure the backoff line does not cut through walls or closed doors.
+                bool clear = true;
+                foreach (var cell in GameServer.Core.World.ClientPathfinder.Line(from, (tx, ty)))
+                {
+                    if (cell != from && (!m.Walk.Floor(cell.X, cell.Y) || player.Barrier.Contains(cell)))
+                    { clear = false; break; }
+                }
+                if (clear) return (tx, ty);
+            }
+        }
+        return null;
+    }
+
     public static MonsterAiPlan PlanMonsterAi(Player player, MonsterAiCadence cadence, double now)
     {
         var plan = new MonsterAiPlan();
@@ -954,6 +1040,62 @@ public static partial class Game
                 if (m.Hostile && protectedEntry) continue;
                 var (mx, my) = m.Walk.Position(now);
                 double d = Math.Sqrt((double)(mx - px) * (mx - px) + (double)(my - py) * (my - py));
+                // Leash return walk back to SpawnAnchor: stepped on the runner even after dropping its player target.
+                if (m.ReturningHome && !m.Aggro)
+                {
+                    if (!runner || !CanLeashReturn(player, id, m) || m.Walk.MovementBlocked(now))
+                    {
+                        if (runner) m.ReturningHome = false;
+                        continue;
+                    }
+                    double homeDist = Dist((mx, my), m.SpawnAnchor);
+                    double reaggroAnchorCap = 1.5 * Math.Max(40, m.AggroRange);
+                    Player? reaggroTarget = null;
+                    if (homeDist <= reaggroAnchorCap)
+                    {
+                        double bestDist = m.AggroRange;
+                        foreach (var peer in player.Frames.Players())
+                        {
+                            if (peer.Closed || peer.LeavingArea || peer.PlayerLife == 0 || InGracePeriod(peer)) continue;
+                            double pd = Dist((mx, my), peer.Walk.Position(now));
+                            if (pd <= bestDist) { bestDist = pd; reaggroTarget = peer; }
+                        }
+                    }
+                    if (reaggroTarget is not null)
+                    {
+                        m.ReturningHome = false;
+                        m.Target = reaggroTarget;
+                        if (!ReferenceEquals(reaggroTarget, player))
+                        {
+                            m.Aggro = true;
+                            m.LastTarget = null;
+                            AlertPackLocked(reaggroTarget, m, (mx, my), now);
+                            continue;
+                        }
+                        // Fall through to normal aggro/combat on this player!
+                    }
+                    else if (homeDist <= 6 || (m.Walk.Reached && !m.Walk.ReachedGoal && m.LastTarget == m.SpawnAnchor))
+                    {
+                        m.ReturningHome = false;
+                        m.LastTarget = null;
+                        continue;
+                    }
+                    else
+                    {
+                        if (now < m.BusyUntil || cadence.SwingPending(m)) continue;
+                        bool onLeg = m.Leg is not null;
+                        if (LockstepReorderDue(player, plan, m, cadence, now)
+                            && cadence.TryChase(m, m.SpawnAnchor, now, retryAfterArrival: now >= m.Walk.ArrivesAt && !onLeg, walking: now < m.Walk.ArrivesAt || onLeg))
+                        {
+                            m.LastTarget = m.SpawnAnchor;
+                            m.SwingGeneration = null;
+                            var beforeHome = m.Walk.Save();
+                            var fromHome = PlaceMove(plan, m, m.SpawnAnchor, now);
+                            plan.MoveLegs.Add((id, m, NextPlannedAction(m), fromHome, double.IsNaN(plan.FrameStart) ? CutToLeg(m, m.SpawnAnchor, now, beforeHome) : m.SpawnAnchor));
+                        }
+                        continue;
+                    }
+                }
                 // One player at a time: the instance's monster acts for whoever it targets, on that one's connection.
                 if (m.Hostile && !MonsterTargetsLocked(player, id, m, (mx, my), d, now)) continue;
                 if (m.TemporarilyAllied && !TemporaryAllyDriverLocked(player, id, m, (mx, my), now)) continue;
@@ -969,7 +1111,13 @@ public static partial class Game
                     if (chosen?.SkillId != m.Attack?.SkillId) m.ClientChase = null;
                     m.Attack = chosen;
                 }
-                if (!m.Aggro && d <= m.AggroRange) { m.Aggro = true; m.LastTarget = null; }
+                if (!m.Aggro && d <= m.AggroRange)
+                {
+                    m.Aggro = true;
+                    m.ReturningHome = false;
+                    m.LastTarget = null;
+                    AlertPackLocked(player, m, (mx, my), now);
+                }
                 // No boss bar during an encounter's entrance: its script shows the bar as the fight starts.
                 if (m.Aggro && !m.BossBarShown && !m.EntranceGrace && m.Variety is { BossHealthBar: true } && m.States?.IndexOf("boss_life_bar") >= 0)
                 {
@@ -977,12 +1125,25 @@ public static partial class Game
                     plan.BossBars.Add((id, m));
                 }
                 // A flee walk is not cut short. A minion or temporary ally keeps its own target policy.
-                else if (decoy is null && m.Aggro && !m.Fleeing && d > 2 * m.AggroRange
-                    && !player.Minions.Owns(id) && !m.TemporarilyAllied)
+                // Retail leash: break pursuit when the player pulls beyond 2 × AggroRange OR when an ordinary monster is
+                // dragged beyond 2 × AggroRange from its SpawnAnchor, then walk back to SpawnAnchor.
+                else if (decoy is null && m.Aggro && !m.Fleeing && !player.Minions.Owns(id) && !m.TemporarilyAllied
+                    && (d > 2 * m.AggroRange || (CanLeashReturn(player, id, m) && Dist((mx, my), m.SpawnAnchor) > 2.0 * Math.Max(40, m.AggroRange))))
                 {
                     m.Aggro = false;
+                    m.Target = null;
                     m.SwingGeneration = null;
                     m.LastTarget = null;
+                    m.ClientChase = null;
+                    if (CanLeashReturn(player, id, m) && Dist((mx, my), m.SpawnAnchor) > 6 && !m.Walk.MovementBlocked(now))
+                    {
+                        m.ReturningHome = true;
+                        var beforeLeash = m.Walk.Save();
+                        var fromLeash = PlaceMove(plan, m, m.SpawnAnchor, now);
+                        m.LastTarget = m.SpawnAnchor;
+                        plan.MoveLegs.Add((id, m, NextPlannedAction(m), fromLeash, double.IsNaN(plan.FrameStart) ? CutToLeg(m, m.SpawnAnchor, now, beforeLeash) : m.SpawnAnchor));
+                        continue;
+                    }
                     // On a lockstep client it gets no order, as GGG's gets none when a pursuit ends: any order still at the
                     // gate is dropped and the estimate goes on with its last order, as the client's monster does (a
                     // chase's walk-up after the player, NextPlannedAction), so the wake zone's return (LockstepPlace)
@@ -1167,6 +1328,25 @@ public static partial class Game
                 // at the edge of the reach. A lockstep client's walking melee monster swings only by its chase's goal test
                 // (above): standing in reach, it gets the chase, which starts the swing in the order's own frame.
                 // A summon is no shot: a summoner whose attack row also flies a projectile still summons, as before.
+                // Ranged MinimumAttackDistance backoff: ranged archers/casters kite back when the player steps inside
+                // Variety.MinimumAttackDistance (cooldown-gated and walkability-checked to prevent jitter or wall-clipping).
+                if (!still && m.Hostile && m.Aggro && !m.Fleeing && !m.ReturningHome
+                    && m.Variety is { MinimumAttackDistance: > 0 } mv
+                    && m.Attack is { Ranged: true, Summon: null, Use: null } rangedBackoff
+                    && rangedBackoff.Range >= mv.MinimumAttackDistance + 6
+                    && d < mv.MinimumAttackDistance && now >= m.NextBackoffAt)
+                {
+                    m.NextBackoffAt = now + 3.0;
+                    if (FindBackoffCell(player, m, (mx, my), (px, py), mv.MinimumAttackDistance, rangedBackoff.Range) is { } back)
+                    {
+                        m.LastTarget = back;
+                        m.SwingGeneration = null;
+                        var beforeBack = m.Walk.Save();
+                        var fromBack = PlaceMove(plan, m, back, now);
+                        plan.MoveLegs.Add((id, m, NextPlannedAction(m), fromBack, double.IsNaN(plan.FrameStart) ? CutToLeg(m, back, now, beforeBack) : back));
+                        continue;
+                    }
+                }
                 // Any non-lobbed ranged attack or spell (with or without a projectile object) requires line of sight.
                 bool blockedShot = m.Hostile && m.Attack is { Ranged: true, Summon: null } shot && shot.Projectile?.Lobbed != true && d <= shot.Range
                     && player.Layout.Sight is { } sight && GameServer.Core.World.ClientPathfinder.LineBelow((mx, my), (px, py), sight, 1);
@@ -2249,6 +2429,11 @@ public static partial class Game
                         sequence: seq, turn: true);
             }
             return false;
+        }
+        if (a.IsDischarge)
+        {
+            if (MonsterKits.PrepareDischargeContactLocked(player, id, m, a) is not { } charged) return false;
+            a = charged;
         }
         if (a.AreaRadius > 0 && !area)
         {
