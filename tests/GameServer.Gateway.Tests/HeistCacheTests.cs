@@ -11,10 +11,7 @@ using Xunit;
 namespace GameServer.Gateway.Tests;
 
 /// <summary>
-/// The Smuggler's Cache encounter (Modules/Core/Content/HeistCache). The create is a measured 39-byte body; the open
-/// is the two component updates transplanted from another Heist chest's open (no cache's own open is known) and drops
-/// nothing. What a player who joins later is given is read from the area's own object records (<c>Objects.Join</c>),
-/// which is what the world sends record into.
+/// The measured 39-byte cache create and the opened object replayed to a player who joins later.
 /// </summary>
 public class HeistCacheTests
 {
@@ -74,13 +71,11 @@ public class HeistCacheTests
     }
 
     /// <summary>
-    /// Opening a cache sends only the two component updates (Chest, empty; ObjectMagicProperties, 08 00 00 00): no
-    /// create, no item, and a second open does nothing. A player who joins afterwards, or after a reload, finds it
-    /// open. A click while dead is the cache's (swallowed), a click on another object is not, and an area that is not
-    /// a map places none.
+    /// Opening replaces the closed cache. The next player receives the open flag in the create,
+    /// including after a module reload. Other objects and non-map areas are unaffected.
     /// </summary>
     [Fact]
-    public async Task Opening_a_cache_sends_only_two_updates_and_a_reentry_finds_it_open()
+    public async Task Opening_a_cache_replaces_its_closed_create_and_a_reentry_finds_it_open()
     {
         using var world = new Fixture();
         var encounter = new HeistCacheEncounter();
@@ -91,14 +86,9 @@ public class HeistCacheTests
         Assert.False(await encounter.Open(world.First, box));
         Assert.Equal("open", box.Stage);
 
-        var updates = world.Join(world.Second).Where(r => r.Entity == box.Id && r.Kind == AreaDelta.Kind.World).Select(r => r.Bytes).ToList();
-        Assert.Equal(2, updates.Count);
-        Assert.All(updates, m => Assert.Equal(InstanceEntities.ComponentUpdateId, BinaryPrimitives.ReadUInt16BigEndian(m)));
-        var chest = updates.Single(m => m[14] == HeistCacheTables.ChestComponent);
-        var magic = updates.Single(m => m[14] == HeistCacheTables.MagicPropertiesComponent);
-        Assert.Equal(15, chest.Length);
-        Assert.Equal(19, magic.Length);
-        Assert.Equal(new byte[] { 0x08, 0x00, 0x00, 0x00 }, magic.AsSpan(magic.Length - 4).ToArray());
+        var create = Assert.Single(world.Join(world.Second), r => r.Entity == box.Id);
+        Assert.Equal(AreaDelta.Kind.Create, create.Kind);
+        Assert.True(create.Bytes.AsSpan(18, 39).SequenceEqual(HeistCacheEncounter.CreateBody(box.Cell, box.Level, true)));
 
         // After a reload the saved text brings the cache back open, on the same object.
         var reloaded = new HeistCacheEncounter();

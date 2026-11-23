@@ -12,10 +12,8 @@ namespace GameServer.Modules.HeistCache;
 /// <item>The create is a measured 39-byte body of one cache (level 70): no StateMachine segment, the extra 0x01 at
 /// offset 16, ObjectMagicProperties 08 00 00 00. The cache's component list has no StateMachine, so the Strongbox
 /// writers must not be used here.</item>
-/// <item>The open is a transplant, not a measurement of a cache: no cache being opened was captured. It is another
-/// Heist chest's open, replayed by component name on the cache's own list: the Chest (component 3, empty) and the
-/// ObjectMagicProperties (component 5, 08 00 00 00) updates. That chest's third update is not sent: on this type
-/// component 7 is MinimapIcon. No item is dropped: nothing settles what a cache contains.</item>
+/// <item>The Chest component reads its opened bit on creation. Its update reader returns immediately, so opening
+/// the cache replaces its closed presentation. An arriving player receives the same opened create.</item>
 /// <item>There is no daemon, no guard wave and no frame clock: the open is immediate, on the click's frame.</item>
 /// </list>
 /// </summary>
@@ -174,14 +172,6 @@ public sealed class HeistCacheEncounter
         return w.U8(0x00).ToArray();                              // tasks
     }
 
-    /// <summary>The open: another Heist chest's open, replayed by component name on the cache's own list. A transplant,
-    /// not a measurement of a cache (see the class comment).</summary>
-    public static (byte Component, byte[] Payload)[] OpenUpdates() =>
-    [
-        (HeistCacheTables.ChestComponent, []),
-        (HeistCacheTables.MagicPropertiesComponent, HeistCacheTables.OpenMagicProperties),
-    ];
-
     /// <summary>Create the box in the player's area, as the area's object: every client of the area is given it, and a
     /// client that joins later is given it with the area's objects. Called under the state's gate.</summary>
     async Task Present(Player player, Box box)
@@ -202,9 +192,8 @@ public sealed class HeistCacheEncounter
     // ---- the click ----------------------------------------------------------------------------------------------------
 
     /// <summary>A click on one of this instance's caches: the character walks up to it and it opens there,
-    /// immediately: the two component updates, and nothing else. True when the click was a cache's. The client's "open"
-    /// word for this type is not known, so none is sent: the click is answered by the updates alone. A cache spawns
-    /// nothing, so a click in the arrival's grace period needs no guard beyond the walk's own.</summary>
+    /// immediately. A cache spawns nothing, so a click in the arrival's grace period needs no guard beyond the walk's own.
+    /// </summary>
     public async Task<bool> OnUse(Player player, InstanceTransfer.UseSkillOnObject use, double requestedAt)
     {
         if (Existing(player) is not { } state) return false;
@@ -235,22 +224,20 @@ public sealed class HeistCacheEncounter
         return true;
     }
 
-    /// <summary>
-    /// The open, on the click's frame: the two component updates (Chest, empty; ObjectMagicProperties, 08 00 00 00), and
-    /// nothing else. One open a cache: two clicks past their walks claim it under its lock, and only the first goes on.
-    /// </summary>
+    /// <summary>Present the opened cache once when players finish their walks together.</summary>
     public async Task<bool> Open(Player player, Box box, State? state = null)
     {
-        lock (box)
+        state ??= For(player);
+        await state.Gate.WaitAsync();
+        try
         {
             if (box.Stage != "closed") return false;
             box.Stage = "open";
+            Save(player, state);
+            await SendWorldRemoval(player, box.Id);
+            await Present(player, box);
         }
-        state ??= For(player);
-        Save(player, state);
-        foreach (var (component, payload) in OpenUpdates())
-            await SendWorldRecord(player, box.Id, InstanceEntities.ComponentUpdate(box.Id, component, payload),
-                $"0x2bc Smuggler's Cache 0x{box.Id:x} component {component} (opened)");
+        finally { state.Gate.Release(); }
         return true;
     }
 }
