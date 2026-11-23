@@ -3488,8 +3488,9 @@ public static partial class Game
             // A generic map drop (approximate rates): use the open map's tier in a map, or tier 1 in the late campaign
             // once the monster meets MapKeyTier1's DropLevel. The same tier gates base card/scarab and atlas-base drops.
             int mapTier = MapRunOf(player)?.Area.Tier ?? 0;
+            var mapMods = MapModsOf(player);
             drops.AddRange(DropsFor(player).Roll(m.Level, m.Rarity, AreaRng(player), IncreasedItemRarity(player, m),
-                balance.ItemDropMultiplier * (modded?.Quantity ?? 1) * ItemQuantityFactor(player, m), balance.EquipmentRarityMultiplier * (modded?.Rarity ?? 1), mapTier, MapModsOf(player)));
+                balance.ItemDropMultiplier * (modded?.Quantity ?? 1) * ItemQuantityFactor(player, m), balance.EquipmentRarityMultiplier * (modded?.Rarity ?? 1), mapTier, mapMods, MapScarabQuantity(mapMods)));
             drops.AddRange(PartyCurrency(player, drops, AreaRng(player)));
             if (DropsFor(player).Map(m.Level, m.Rarity, mapTier, AreaRng(player), chanceFactor: modded?.MapRelated ?? 1) is { } mapDrop) drops.Add(mapDrop);
             // And a pile of gold (ItemDrops.Gold), picked up into the stash's gold.

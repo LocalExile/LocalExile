@@ -264,8 +264,6 @@ public static partial class Game
         {
             if (!(name is var key)) return 0;
             long value = sources.GetValueOrDefault(key);
-            if (key == Stat.TemporalChainsActionSpeedPlusPctFinal)
-                value += player.Pools.MapTemporalChainsActionSpeedPct;
             if (leadership is { } active)
                 foreach (var (stat, amount) in active.Stats)
                     if (stat == key) value += amount;

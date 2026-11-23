@@ -114,7 +114,6 @@ Part of [Status](../Status.md); what to build next in this area is in
 ## Partly working
 
 - Map and Atlas modifiers govern scarab drops, monster combat and player recovery, skill area, defences, accuracy and aura effect.
-  Nightmare maps apply their levelled hexes while the player is in the map.
 
 - Named scarabs: Domination/Cloister, Ambush boxes, Essence release/Ascent/Calcification/Stability and Terrors bosses;
   Essence: corruption/transfers, Toughness, enrage, Decay, Envy, Karui and death insects; other skills/scaling partial (#505).

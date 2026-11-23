@@ -225,7 +225,7 @@ public static class StrongboxLoot
                 case Contents.Card: return drops.Card(rng, level);
                 case Contents.Scarab:
                 {
-                    if (ItemDrops.ScarabsDisabled(stats)) return null;
+                    if (ScarabsDisabled(stats)) return null;
                     if (sameScarab is not null) return new(ItemCatalog.Create(sameScarab) with { StackSize = 1 }, sameScarab);
                     var drop = drops.Scarab(rng, level, stats);
                     if (drop is not null && boxStat("chest_all_dropped_scarabs_are_same_content_type") != 0) sameScarab = drop.Type;
@@ -300,7 +300,7 @@ public static class StrongboxLoot
 
         ItemDrops.Drop? Scarab(string family)
         {
-            if (ItemDrops.ScarabsDisabled(stats)) return null;
+            if (ScarabsDisabled(stats)) return null;
             string prefix = "Metadata/Items/Scarabs/Scarab" + family;
             // The current scarabs, not the retired Rusted / Polished / Gilded / Winged tiers.
             var pool = catalog.All.Where(t => t.Supported && t.DropLevel <= level && t.Id.StartsWith(prefix, StringComparison.Ordinal)

@@ -240,17 +240,11 @@ public sealed class ItemDrops
     /// otherwise it is uniform among the client's scarabs. <paramref name="level"/> 0 skips the DropLevel gate.</summary>
     public Drop? Scarab(Random rng, int level = 0) => Scarab(rng, level, null);
 
-    public static bool ScarabsDisabled(MapMods? mods) => (mods?.Get(Stat.MapDisableScarabDrops) ?? 0) > 0;
-
-    public static double ScarabQuantityFactor(MapMods? mods) =>
-        Math.Max(0, 1 + (mods?.Get(Stat.MapPlusPctIncreasedScarabDrops) ?? 0) / 100d);
-
     /// <summary>A random scarab, with the area's scarab-type stats (ScarabTypes): its <c>MoreLikely</c> stat (the Atlas
     /// "Carapaces" notables, <c>map_&lt;type&gt;_scarab_more_likely_%</c>: "Scarabs found in your Maps are X% more likely to be
     /// &lt;type&gt; Scarabs") multiplies the type's weight by (100 + X)%, and its <c>DisableDrops</c> stat drops none of it.</summary>
     public Drop? Scarab(Random rng, int level, MapMods? mods)
     {
-        if (ScarabsDisabled(mods)) return null;
         if (mods is not null && ScarabFactors(mods) is { Count: > 0 } factors)
         {
             var weights = _scarabWeights;
@@ -312,7 +306,7 @@ public sealed class ItemDrops
 
     /// <param name="mods">The map's stats, for its scarab-type weights (<see cref="Scarab(Random, int, MapMods?)"/>).</param>
     public IReadOnlyList<Drop> Roll(int monsterLevel, MonsterRarity rarity, Random rng, int increasedRarity,
-        double quantityMultiplier, double rarityMultiplier, int mapTier, MapMods? mods)
+        double quantityMultiplier, double rarityMultiplier, int mapTier, MapMods? mods, double scarabQuantity = 1)
     {
         double quantity = double.IsFinite(quantityMultiplier) ? Math.Max(0, quantityMultiplier) : 1;
         int whole = (int)Math.Min(Math.Floor(quantity), int.MaxValue);
@@ -336,7 +330,7 @@ public sealed class ItemDrops
         }
         if (mapTier > 0)
         {
-            if (!ScarabsDisabled(mods) && MapExtra("drop_scarab_chance_pct", quantity * ScarabQuantityFactor(mods), rng)
+            if (scarabQuantity > 0 && MapExtra("drop_scarab_chance_pct", quantity * scarabQuantity, rng)
                 && Scarab(rng, monsterLevel, mods) is { } scarab)
                 drops.Add(scarab with { Item = scarab.Item with { ItemLevel = (byte)Math.Clamp(monsterLevel, 1, 100) } });
             if (MapExtra("drop_card_chance_pct", quantity, rng) && Card(rng, monsterLevel) is { } card)
