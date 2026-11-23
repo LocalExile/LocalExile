@@ -147,9 +147,9 @@ public static partial class Game
                 // click walked straight through a stamped wall), so a ground move into a blocked cell is refused here
                 // and the player is snapped back to where it stands. A player already standing on a blocked cell may
                 // still move, or it could never walk out of one it was put into.
-                if (KingsmarchTown.BounceOn() && KingsmarchTown.IsTown(conn.Layout.Id) && conn.Layout.Walkable is { } cells)
+                if (KingsmarchTown.BounceOn() && KingsmarchTown.IsTown(player.Layout.Id) && player.Layout.Walkable is { } cells)
                 {
-                    var stand = conn.Walk.Position(at);
+                    var stand = player.Walk.Position(at);
                     if (cells(stand.X, stand.Y))
                     {
                         // Slide picks a reachable cell near the clicked one, bending around walls and barrels so the player
@@ -160,11 +160,11 @@ public static partial class Game
                         {
                             // Nothing at all moves from here: let the click through the way it was before the grid
                             // existed, so a tight corner can never lock the player in place.
-                            Console.WriteLine($"[gateway] {remote} 0x25 boxed in at ({stand.X}, {stand.Y}): letting the click through");
+                            Console.WriteLine($"[gateway] {player.Connection.Remote} 0x25 boxed in at ({stand.X}, {stand.Y}): letting the click through");
                         }
                         else if (stopX != use.X || stopY != use.Y)
                         {
-                            Console.WriteLine($"[gateway] {remote} 0x25 wall slide: ({use.X}, {use.Y}) -> ({stopX}, {stopY})");
+                            Console.WriteLine($"[gateway] {player.Connection.Remote} 0x25 wall slide: ({use.X}, {use.Y}) -> ({stopX}, {stopY})");
                             use = use with { X = stopX, Y = stopY };
                         }
                     }

@@ -47,6 +47,10 @@ import time
 
 import frida
 
+# The bridge imports its sibling helpers (scripts/dev/clientdb.py). A standalone Python runs in isolated mode
+# (-I, sys.flags.safe_path), which drops the script's own directory from sys.path, so add it explicitly.
+sys.path.insert(0, str(Path(__file__).resolve().parent))
+
 import clientdb
 
 ROOT = Path(__file__).resolve().parents[2]

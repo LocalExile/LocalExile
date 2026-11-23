@@ -171,7 +171,8 @@ public static class AreaLayouts
         }
         // An area the port reproduces is generated here from the seed; any other needs the client's capture.
         if (ServerLevels.For(id, seed) is { } generated)
-            return WithCells(hash, id, seed, generated.Walk, generated.Width, generated.Height,
+        {
+            var layout = WithCells(hash, id, seed, generated.Walk, generated.Width, generated.Height,
                 SightOf(generated.Projectile, generated.Width, generated.Height), generated.Start) with
             {
                 CellHeights = generated.Heights,

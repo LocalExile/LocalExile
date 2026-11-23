@@ -79,10 +79,10 @@ public sealed class NpcDialogueModule : IModule
             // ends and the panel opens. What the panel shows is the village state the server must send (not written yet).
             case var _ when OpenedScreen(talk.Script) is { } screen && Screens.TryGetValue(screen, out byte ui):
                 await world.NpcClose($"0x0084 close {talk.Npc}'s dialogue for {screen}");
-                await talk.Player.Send(InstanceWaypoints.OpenUi(ui), $"0x007b 0x{ui:x2} open {screen} (NPCTalk {talk.Row})");
+                await talk.ModPlayer.Send(InstanceWaypoints.OpenUi(ui), $"0x007b 0x{ui:x2} open {screen} (NPCTalk {talk.Row})");
                 // Some of those windows are never built by this client (its village UI element stays null, so 0x7b is a
                 // no-op): say what to use instead, so the dialogue does not just end with nothing on screen.
-                if (Hints.TryGetValue(ui, out string? hint)) await talk.Player.Tell(hint);
+                if (Hints.TryGetValue(ui, out string? hint)) await talk.ModPlayer.Tell(hint);
                 return true;
             default:
                 return false;

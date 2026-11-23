@@ -34,11 +34,11 @@ static partial class Game
             if (everything ? UnlockEvery is { } every : UnlockSafe is { } safe) return everything ? UnlockEvery! : UnlockSafe!;
             string folder = Path.Combine("data", "tables");
             List<string> names;
-            using (var doc = GameTables.Open(Path.Combine(folder, "QuestFlags.json")))
+            using (var doc = JsonDocument.Parse(File.ReadAllBytes(Path.Combine(folder, "QuestFlags.json"))))
                 names = [.. doc.RootElement.EnumerateArray().Select(f => f.GetProperty("Id").GetString() ?? "")];
             var required = new HashSet<string>(StringComparer.Ordinal);
             var hidden = new HashSet<string>(StringComparer.Ordinal);
-            using (var doc = GameTables.Open(Path.Combine(folder, "NPCTalk.json")))
+            using (var doc = JsonDocument.Parse(File.ReadAllBytes(Path.Combine(folder, "NPCTalk.json"))))
                 foreach (var row in doc.RootElement.EnumerateArray())
                 {
                     foreach (string column in new[] { "QuestFlag1", "QuestFlag2" })
@@ -79,13 +79,12 @@ static partial class Game
     /// <summary>Grants the unlocked flags to the character (saved, and sent to the client at once).</summary>
     internal static async Task<int> Unlock(IPlayer player, bool everything)
     {
-        var conn = Program.ConnOf(player);
-        var (remote, stream, ciphers) = conn.Wire;
+        var game = Program.PlayerOf(player);
         List<string> flags = UnlockFlags(everything);
-        int before = conn.QuestFlagsSnapshot().Count;
-        await SetQuestFlags(remote, stream, ciphers, conn, flags);
-        int after = conn.QuestFlagsSnapshot().Count;
-        Console.WriteLine($"[gateway] {remote} {CharacterName(conn)}: unlock ({(everything ? "all" : "default")}) "
+        int before = game.Character.QuestFlagsSnapshot().Count;
+        await SetQuestFlags(game, flags);
+        int after = game.Character.QuestFlagsSnapshot().Count;
+        Console.WriteLine($"[gateway] {game.Connection.Remote} {Program.CharacterName(game)}: unlock ({(everything ? "all" : "default")}) "
             + $"{flags.Count} flag(s), {after - before} newly set, {after} total");
         return after - before;
     }
@@ -94,9 +93,9 @@ static partial class Game
     internal static async Task UnlockTick(IPlayer player)
     {
         if (!UnlockAutomatic(out bool everything)) return;
-        object conn = Program.ConnOf(player);
-        if (Unlocked.TryGetValue(conn, out _)) return;
-        Unlocked.Add(conn, conn);
+        var game = Program.PlayerOf(player);
+        if (Unlocked.TryGetValue(game, out _)) return;
+        Unlocked.Add(game, game);
         int set = await Unlock(player, everything);
         if (set > 0) await player.Tell($"Unlocked {set} post-campaign quest flag(s) ({(everything ? "all" : "default")}).");
     }

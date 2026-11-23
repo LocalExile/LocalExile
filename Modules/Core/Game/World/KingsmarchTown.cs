@@ -47,11 +47,11 @@ internal static class KingsmarchTown
     // The town's own panels are gated on the IsMapOwner quest flag (NPCTalk 667 "Manage Town", 670 "Town Recruitment",
     // 672 "Disenchanting", 674 "Shipping"): without it their options are in the list but the server refuses them. The town
     // instance belongs to the player, so they own it.
-    static void EnsureOwnerFlag(IPlayer player)
+    static async Task EnsureOwnerFlag(IPlayer player)
     {
-        var conn = Program.ConnOf(player);
-        if (conn is null || conn.HasQuestFlag("IsMapOwner")) return;
-        lock (conn.Monsters) conn.QuestFlags.Add("IsMapOwner");
+        var game = Program.PlayerOf(player);
+        if (game.Character.HasQuestFlag("IsMapOwner")) return;
+        await Game.SetQuestFlags(game, ["IsMapOwner"]);
     }
 
     // Brackets, Functions, Render, Preload and Targetable write nothing: their client readers are the ret-family (0x1400f1180)
@@ -276,7 +276,7 @@ internal static class KingsmarchTown
         if (_diag.GetValue(player, _ => new Counter()).Value++ < 2)
             Console.WriteLine($"[gateway] kingsmarch tick: area '{player.AreaId}' character {player.Character} seed {player.Seed} limit {Limit()} objects {Ordered().Count} cwd {Directory.GetCurrentDirectory()} file {File.Exists(DataFile)} filter {Filter().Length}");
         if (!string.Equals(player.AreaId, Area, StringComparison.Ordinal)) return;
-        EnsureOwnerFlag(player);
+        await EnsureOwnerFlag(player);
         // Spawning waits for an explicit /village_spawn: a module reload starts with an empty Progress, and re-sending the
         // town's objects into an area where the client already has them is what killed the client on 2026-11-19 (the
         // client logged ObjectInWakeZone … already in the wake zone and dropped the connection).
@@ -447,12 +447,12 @@ internal static class KingsmarchTown
     /// <summary>Dev: server-side blockers over a rectangle, to see whether the client's walker honours one at all.</summary>
     public static string Block(IPlayer player, int x0, int y0, int x1, int y1)
     {
-        var conn = Program.ConnOf(player);
+        var world = Program.WorldOf(player);
         int n = 0;
         for (int x = Math.Min(x0, x1); x <= Math.Max(x0, x1); x++)
             for (int y = Math.Min(y0, y1); y <= Math.Max(y0, y1); y++)
             {
-                conn.SetBlocker(0x5B000000u + (uint)n, x, y, 4);
+                world.SetBlocker(0x5B000000u + (uint)n, x, y, 4);
                 n++;
             }
         return $"blocked {n} cell(s) from ({x0}, {y0}) to ({x1}, {y1})";
@@ -462,8 +462,8 @@ internal static class KingsmarchTown
     /// 'P' the player. Answers "is the stamp where I think it is" without walking anywhere.</summary>
     public static string Cells(IPlayer player, int halfX, int halfY)
     {
-        var conn = Program.ConnOf(player);
-        if (conn is null || conn.Layout.Walkable is not { } walk) return "no walk grid in this area";
+        var layout = Program.PlayerOf(player).Layout;
+        if (layout.Walkable is not { } walk) return "no walk grid in this area";
         var (px, py) = player.Position;
         halfX = Math.Clamp(halfX, 1, 60);
         halfY = Math.Clamp(halfY, 1, 30);
@@ -929,7 +929,7 @@ internal static class KingsmarchTown
     public static async Task<string> FundTreasury(IPlayer player, int amount)
     {
         var progress = State(player);
-        var stash = Game.PersonalStashOf(Program.ConnOf(player));
+        var stash = Game.PersonalStashOf(Program.PlayerOf(player));
         int take = (int)Math.Min(Math.Max(amount, 0), stash.Gold);
         if (take <= 0) return "the account has no gold to put into the treasury";
         uint? left = stash.TrySpendGold(take);

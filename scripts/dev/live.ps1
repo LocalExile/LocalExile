@@ -334,12 +334,12 @@ function Get-Python([string]$purpose) {
         }
     }
     if (-not $python) {
-        if ($IsLinux -and $purpose -eq '-Walkmaps')
+        if ($IsLinux -and $purpose -eq '-Walkmaps') {
             Need $false "could not prepare the Proton recorder (needs g++ and the official Frida GumJS development kit)"
+        }
         Need $false "no Python with the Frida package was found (needed for $purpose): set LOCALEXILE_PYTHON, or python -m pip install frida"
     }
     $python
-}
 }
 
 # Long-running processes start through `cmd /c ... > log` rather than Start-Process -RedirectStandardOutput: the

@@ -9,6 +9,9 @@ namespace GameServer.Modules.Game;
 /// <summary>The game's rules: gives the framework its <see cref="IGameLogic"/>.</summary>
 public sealed class GameModule : IModule, IDisposable
 {
+    /// <summary>What Johan's "Fund the Treasury" NPCTalk row puts into the town per click.</summary>
+    private const int TreasuryPerPick = 1000;
+
     /// <summary>
     /// Builds, when the module loads, the catalogues every first login and first arrival reads (the stash rules, gems,
     /// monster contacts, life tables, golem scaling, the room index, the hideouts). Each is built on first use otherwise,
@@ -135,6 +138,19 @@ public sealed class GameModule : IModule, IDisposable
         // A map device's portal labels read "<area> (Completed)" once that run's boss is dead (World/Portals.cs).
         GameEvents.AreaTick.Add(module.Manifest.Id, GameEvents.Always((player, _) => Rules.TickMapRunBoss(player)));
         GameEvents.MonsterKilled.Add(module.Manifest.Id, kill => Rules.TickMapRunBoss(kill.Player, force: true));
+        // The Kingsmarch town: the post-campaign unlock, the town's objects, the farm, the port and the treasury
+        // (World/KingsmarchTown.cs, World/KingsmarchPort.cs, World/UnlockAll.cs). The client never draws the town's
+        // buildings, and has no working village panel in this build, so the rules are server-side and reach the player
+        // through these hooks and the chat commands below.
+        GameEvents.CompanionTick.Add(module.Manifest.Id, (player, now) => KingsmarchTown.Tick(Program.PlayerOf(player), now));
+        GameEvents.CompanionTick.Add(module.Manifest.Id, (player, now) => KingsmarchPort.Tick(Program.PlayerOf(player), now));
+        GameEvents.AreaGenerated.Add(module.Manifest.Id, player =>
+        {
+            KingsmarchTown.Entered(Program.PlayerOf(player));
+            return Task.CompletedTask;
+        });
+        GameEvents.ObjectUse.Add(module.Manifest.Id, (player, use, now) => KingsmarchTown.Use(Program.PlayerOf(player), use.TargetId));
+        GameEvents.PlayerEntered.Add(module.Manifest.Id, player => Rules.UnlockTick(Program.PlayerOf(player)));
         // A dead monster's debuffs come off: each player's step for it.
         GameEvents.MonsterKilled.Add(module.Manifest.Id, kill =>
         {
@@ -205,6 +221,114 @@ public sealed class GameModule : IModule, IDisposable
         Program.SetGameLogic(new GameLogic(module.Lifetime));
         module.Lifetime.Own(Rules.InstallJoining());
         string id = module.Manifest.Id;
+        // Kingsmarch's chat commands (the client's own town panel is never built in this build: World/KingsmarchTown.cs
+        // and World/KingsmarchPort.cs carry the rules and these are how the player reaches them).
+        GameEvents.CommandsBuilding.Add(id, (commands, player) =>
+        {
+            // The Kingsmarch rules carry the modding-layer player (World/KingsmarchTown.cs); the game's own
+            // connection, layout and walk stay on the game's player.
+            IPlayer me = Program.PlayerOf(player);
+            commands.Add("village", "/village [hire | assign <worker> <plot 1-6 | mine | smelter>] (the Kingsmarch farm, mine and smeltery)",
+                async args =>
+                {
+                    if (args.Length > 0 && args[0] == "hire")
+                    { await me.Tell("Kingsmarch: " + await KingsmarchTown.Hire(me)); return; }
+                    if (args.Length >= 2 && args[0] == "assign")
+                    {
+                        if (!int.TryParse(args[1], out int worker)) { await me.Tell("usage: /village assign <worker> <plot 1-6 | mine | smelter>"); return; }
+                        if (args.Length >= 3 && args[2] is "mine" or "smelter")
+                        { await me.Tell("Kingsmarch: " + KingsmarchTown.AssignJob(me, worker, args[2])); return; }
+                        if (args.Length >= 3 && int.TryParse(args[2], out int plot))
+                        { await me.Tell("Kingsmarch: " + await KingsmarchTown.Assign(me, worker, plot)); return; }
+                        await me.Tell("usage: /village assign <worker> <plot 1-6 | mine | smelter>"); return;
+                    }
+                    await me.Tell($"Kingsmarch farm: {KingsmarchTown.StoreText(me)}");
+                });
+            commands.Add("recruit", "/recruit [hire <1-3>] (Kingsmarch's workers)", async args =>
+            {
+                if (args.Length > 0 && args[0] == "hire")
+                {
+                    if (args.Length < 2 || !int.TryParse(args[1], out int index)) { await me.Tell("usage: /recruit hire <1-3>"); return; }
+                    await me.Tell("Kingsmarch: " + await KingsmarchTown.Recruit(me, index)); return;
+                }
+                await me.Tell($"Kingsmarch recruiter: {KingsmarchTown.RecruitText(me)}");
+            });
+            commands.Add("treasury", "/treasury [gold] (Kingsmarch's treasury, which pays the workers)", async args =>
+            {
+                if (args.Length > 0 && int.TryParse(args[0], out int amount))
+                { await me.Tell("Kingsmarch: " + await KingsmarchTown.FundTreasury(me, amount)); return; }
+                await me.Tell($"Kingsmarch treasury: {KingsmarchTown.TreasuryText(me)}");
+            });
+            commands.Add("port", "/port [send <port> <crop> <count> | storm <percent> | crew <count>] (Kingsmarch shipping)",
+                async args =>
+                {
+                    if (args.Length > 0 && args[0] == "storm")
+                    {
+                        if (args.Length < 2 || !int.TryParse(args[1], out int percent)) { await me.Tell("usage: /port storm <percent> | /port storm off"); return; }
+                        await me.Tell("Kingsmarch: " + KingsmarchPort.Storm(percent)); return;
+                    }
+                    if (args.Length > 0 && args[0] == "crew")
+                    {
+                        if (args.Length < 2 || !int.TryParse(args[1], out int hands)) { await me.Tell("usage: /port crew <count>"); return; }
+                        await me.Tell("Kingsmarch: " + KingsmarchPort.Crew(me, hands)); return;
+                    }
+                    if (args.Length >= 4 && args[0] == "send" && int.TryParse(args[1], out int port) && int.TryParse(args[3], out int count))
+                    { await me.Tell("Kingsmarch: " + KingsmarchPort.Send(me, port, args[2], count)); return; }
+                    await me.Tell($"Kingsmarch port: {KingsmarchPort.Report(me)}");
+                });
+            commands.Add("village_spawn", "/village_spawn (dev: place the Kingsmarch town objects)", async args =>
+            { KingsmarchTown.Arm(); await me.Tell("Kingsmarch: placing the town's objects."); });
+            commands.Add("ui", "/ui <kind in hex>", async args =>
+                await me.Tell(args.Length > 0 && int.TryParse(args[0], out int kind)
+                    ? $"0x007b open UI kind 0x{kind:x2}" : "usage: /ui <kind in hex>"));
+            commands.Add("goto", "/goto <area id> (dev: walk the character into another area)", async args =>
+            {
+                if (args.Length < 1) { await me.Tell("usage: /goto <area id>"); return; }
+                await me.Tell("Kingsmarch: travelling to " + await Program.WorldOf(me).TravelTo(args[0], "dev /goto"));
+            });
+            commands.Add("pos", "/pos (where the server thinks you stand)", async _ =>
+                await me.Tell(me.Position.ToString()));
+            commands.Add("cell", "/cell <x> <y> (dev: does the server think a cell is walkable)", async args =>
+            {
+                if (args.Length < 2 || !int.TryParse(args[0], out int x) || !int.TryParse(args[1], out int y))
+                { await me.Tell("usage: /cell <x> <y>"); return; }
+                var layout = player.Layout;
+                var cells = layout.Walkable;
+                var answer = cells is null ? "no walk map" : (cells(x, y) ? "walkable" : "blocked");
+                await me.Tell($"cell ({x}, {y}) in {layout.Id}: {answer}");
+            });
+            commands.Add("cells", "/cells [halfWidth] [halfHeight] (dev: the walk grid around you)", async args =>
+            {
+                int halfX = 24, halfY = 8;
+                if (args.Length > 0 && int.TryParse(args[0], out halfX)) { if (args.Length > 1 && int.TryParse(args[1], out halfY)) { } }
+                await me.Tell(KingsmarchTown.Cells(me, halfX, halfY));
+            });
+            // /blk, not /block: the game already answers /block with the block-chance report.
+            commands.Add("blk", "/blk <x0> <y0> <x1> <y1> (dev: server-side blockers over a rectangle)", async args =>
+            {
+                if (args.Length < 4 || !int.TryParse(args[0], out int x0) || !int.TryParse(args[1], out int y0)
+                    || !int.TryParse(args[2], out int x1) || !int.TryParse(args[3], out int y1))
+                { await me.Tell("usage: /blk <x0> <y0> <x1> <y1>"); return; }
+                await me.Tell("Kingsmarch: " + KingsmarchTown.Block(me, x0, y0, x1, y1));
+            });
+            commands.Add("prop", "/prop <type> <model> <dx> <dy> (dev: an object of any type with any model)", async args =>
+            {
+                if (args.Length < 4) { await me.Tell("usage: /prop <type> <model> <dx> <dy>"); return; }
+                if (!int.TryParse(args[2], out int dx) || !int.TryParse(args[3], out int dy))
+                { await me.Tell("usage: /prop <type> <model> <dx> <dy>"); return; }
+                await me.Tell("Kingsmarch: " + await KingsmarchTown.Prop(me, args[0], args[1], dx, dy));
+            });
+            return commands;
+        });
+        // The town's treasury: the "Fund the Treasury" NPCTalk row (the client never builds its button).
+        GameEvents.NpcOptionPicked.Add(id, async (player, talk) =>
+        {
+            if (talk.Option != "Fund the Treasury") return false;
+            IPlayer me = Program.PlayerOf(player);
+            await Program.WorldOf(me).NpcClose("0x0084 close the dialogue for Fund the Treasury");
+            await me.Tell("Kingsmarch: " + await KingsmarchTown.FundTreasury(me, TreasuryPerPick));
+            return true;
+        });
         GameEvents.PlayerLeaving.Add(id, (player, _) => { Rules.LeaveArea(player); return Task.CompletedTask; });
         GameEvents.AreaTick.Add(id, GameEvents.InArea(global::DoedreSewers.Area, global::DoedreSewers.Tick));
         GameEvents.ObjectUse.Add(module.Manifest.Id, global::DoedreSewers.Use);

@@ -397,9 +397,12 @@ public static partial class Game
         if (player.Auras.Count > 0 && (validateSkills || player.AuraStatsDirty))
         {
             var available = GemSkillEffects(player).ToDictionary(g => g.Id, g => g.Effect);
-            var gone = player.Auras.Values.Where(a => InTown(player)
+            // Dev auras (/aura_on) have no socketed gem behind them: their SkillId is a virtual 0x7000+ id and their
+            // stored record already carries the reservation ToggleAura computed. Keep them instead of dropping them as "no gem".
+            var dev = player.Auras.Values.Where(a => a.SkillId >= 0x7000).ToDictionary(a => a.SkillId);
+            var gone = player.Auras.Values.Where(a => a.SkillId < 0x7000 && (InTown(player)
                 || !available.TryGetValue(a.SkillId, out int effect) || effect != a.Effect
-                || GemSkillInstanceDisabled(player, a.Effect, a.SkillId) is not null).ToArray();
+                || GemSkillInstanceDisabled(player, a.Effect, a.SkillId) is not null)).ToArray();
             // Worn grants are equipment sources, not resumable gem intent. A removed/inactive host must not restore its
             // aura from stale family intent when another item or area publication follows. A still-valid gem or worn
             // host of the same family keeps the intent and takes ownership at the restore step below.
@@ -412,6 +415,9 @@ public static partial class Game
                          .GroupBy(a => AuraCatalog.Family(a.EffectId)))
                     CharacterSaves.SetAuraActive(CharacterName(player), aura.First().EffectId, false);
             foreach (var aura in gone) { player.Auras.Remove(aura.SkillId); EndReservationRuntimeLocked(player, aura); }
+            // Same pool guard as the socketed path: an out-of-budget dev aura ends like a real one.
+            foreach (var aura in dev.Values.Where(a => !ReservationBudgetFits(player)).ToArray())
+            { player.Auras.Remove(aura.SkillId); EndReservationRuntimeLocked(player, aura); player.AuraStatsDirty = true; }
             if (gone.Length > 0 || player.AuraStatsDirty)
             {
                 player.AuraStatsDirty = true;
