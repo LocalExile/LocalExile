@@ -20,7 +20,7 @@ sealed partial class BotDirector
     // C→S 0x93 "Invite to Party" with a bot's name: NotFound when no bot the player can reach has that name, Refused when
     // their party is already full (the invite is still consumed, so it does not reach the Social module), Joined
     // otherwise.
-    public async Task<BotInvite> Invite(ClientState conn, string name)
+    public async Task<BotInvite> Invite(Player player, string name)
     {
         Bot? bot;
         uint party;
@@ -32,12 +32,12 @@ sealed partial class BotDirector
                 // the bot's next publish, which otherwise refuses an invite for a bot the player can see. Town alone
                 // is not presence — BeginQuest hides the bot and then sets Town to the quest's town — so the fallback
                 // asks for a town phase too.
-                && (b.Shown.Contains(conn.Instance)
-                    || (string.Equals(b.Town, conn.Layout.Id, StringComparison.OrdinalIgnoreCase)
+                && (b.Shown.Contains(player.Instance)
+                    || (string.Equals(b.Town, player.Layout.Id, StringComparison.OrdinalIgnoreCase)
                         && b.Phase is BotPhase.Arriving or BotPhase.Walking or BotPhase.Idling)));
             if (bot is null) return BotInvite.NotFound;
 
-            if (!PartyRoster.TryAddCompanion(conn, Companion(bot, conn.Layout.Hash), out party)) return BotInvite.Refused;
+            if (!PartyRoster.TryAddCompanion(player, Companion(bot, player.Layout.Hash), out party)) return BotInvite.Refused;
             try
             {
                 // Select from the inviting town once. Later area changes preserve earned levels and experience.
@@ -55,10 +55,10 @@ sealed partial class BotDirector
             Hide(bot);
             (bot.Leader, bot.Party, bot.Phase, bot.FollowIn) = (leader, party, BotPhase.Following, null);
             (bot.LeaderName, bot.LeaderGoneSince) = (Program.CharacterName(leader), null);
-            bot.Doing = $"в группе с {Program.CharacterName(conn)}";
-            _log.Write(bot.Account, bot.Name, $"принял приглашение в группу от {Program.CharacterName(conn)}: идёт следом");
+            bot.Doing = $"в группе с {Program.CharacterName(player)}";
+            _log.Write(bot.Account, bot.Name, $"принял приглашение в группу от {Program.CharacterName(player)}: идёт следом");
         }
-        await SendParty(conn, party);
+        await SendParty(player, party);
         return BotInvite.Joined;
     }
 
@@ -89,7 +89,7 @@ sealed partial class BotDirector
             CharacterClassByte.Encode((byte)cls.IntegerId, 0)));
     }
 
-    async Task SendParty(ClientState leader, uint party)
+    async Task SendParty(Player leader, uint party)
     {
         lock (_bots)
             foreach (var bot in _bots.Where(b => b.Party == party && b.Phase == BotPhase.Following))
@@ -98,20 +98,20 @@ sealed partial class BotDirector
     }
 
     // Social's first-entry tick publishes the roster when a connection is not ready yet.
-    Task SendPartyWhenReady(ClientState conn, uint party) =>
-        conn is { Closed: false, PlayerSent: true } ? SendParty(conn, party) : Task.CompletedTask;
+    Task SendPartyWhenReady(Player player, uint party) =>
+        player is { Closed: false, Connection.PlayerSent: true } ? SendParty(player, party) : Task.CompletedTask;
 
-    static Task Send(ClientState conn, byte[] bytes, string? log) => conn.Outbox is { } outbox ? outbox(bytes, log) : Task.CompletedTask;
+    static Task Send(Player player, byte[] bytes, string? log) => player.Connection.Outbox is { } outbox ? outbox(bytes, log) : Task.CompletedTask;
 
     /// <summary>A chat line back to the player who ran a bot command.</summary>
     public Task Tell(IPlayer player, string text) =>
-        Send(Program.ConnOf(player), InstanceChat.ChatLine(text), $"0x0017 {text}");
+        Send(Program.PlayerOf(player), InstanceChat.ChatLine(text), $"0x0017 {text}");
 
     /// <summary>'/botleave': every bot following this player leaves and goes back to its quests.</summary>
-    public async Task<bool> LeaveAny(ClientState conn)
+    public async Task<bool> LeaveAny(Player player)
     {
-        uint party = PartyRoster.PartyOf(conn);
-        if (!PartyRoster.IsLeader(conn, party)) return false;
+        uint party = PartyRoster.PartyOf(player);
+        if (!PartyRoster.IsLeader(player, party)) return false;
         bool left = false;
         lock (_bots)
             foreach (var bot in _bots.Where(b => b.Party == party && b.Phase == BotPhase.Following))
@@ -164,8 +164,8 @@ sealed partial class BotDirector
             if (first) _ = PartyRoster.Rebind(next);
             leader = next;
         }
-        if (leader.LeavingArea || !leader.PlayerSent || leader.Instance is not { } instance
-            || instance.Player(leader.PeerId) is not { } pose)
+        if (leader.LeavingArea || !leader.Connection.PlayerSent || leader.Instance is not { } instance
+            || instance.Player(leader.Id) is null)
         {
             Hide(bot);
             return;
@@ -179,6 +179,7 @@ sealed partial class BotDirector
             Show(bot, [leader]);
             return;
         }
+        var pose = leader.Walk.Position(leader.Frames.Now(leader));
         double far = Math.Max(Math.Abs(bot.X - pose.X), Math.Abs(bot.Y - pose.Y));
         // A new area (or a jump: a portal, a waypoint, a blink): it comes out beside the leader.
         if (!ReferenceEquals(bot.FollowIn, instance) || far > CatchUp)

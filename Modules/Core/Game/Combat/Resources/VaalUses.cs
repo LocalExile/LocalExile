@@ -13,186 +13,182 @@ public sealed record VaalUseReservation(ushort Skill, int Effect, int Action, in
 public static partial class Game
 {
     // A Vaal name never opts into the generic area fallback. Each executor is admitted explicitly.
-    public static bool VaalExecutor(ClientState conn, int effect) =>
-        SkillsFor(conn).EffectId(effect) is "VaalGroundSlam" or "VaalFireball" or "VaalSpark" or "VaalMoltenStrike"
+    public static bool VaalExecutor(Player player, int effect) =>
+        SkillsFor(player).EffectId(effect) is "VaalGroundSlam" or "VaalFireball" or "VaalSpark" or "VaalMoltenStrike"
             or VaalImmortalCallEffect or "VaalHaste" or "VaalSmite"
-            || IsVaalMinion(SkillsFor(conn).EffectId(effect)) || VaalAuras.ContainsKey(SkillsFor(conn).EffectId(effect) ?? "");
-    static double VaalResourceTime(ClientState conn) => conn.LeavingArea && conn.RampageTransferAt is double frozen
-        ? frozen : ProjectileWorldTime(conn);
+            || IsVaalMinion(SkillsFor(player).EffectId(effect)) || VaalAuras.ContainsKey(SkillsFor(player).EffectId(effect) ?? "");
+    static double VaalResourceTime(Player player) => player.LeavingArea && player.RampageTransferAt is double frozen
+        ? frozen : ProjectileWorldTime(player);
 
-    static void WithVaalPrevention(ClientState conn, Dictionary<uint, int> stats)
+    static void WithVaalPrevention(Player player, StatMap stats)
     {
-        lock (conn.Monsters)
+        if (player.PlayerLife == 0) { player.VaalPreventionUntil = 0; player.VaalUse = null; }
+        double now = VaalResourceTime(player);
+        if (player.VaalPreventionUntil > now && Stat.HasSoulGainPrevention is var key)
         {
-            if (conn.PlayerLife == 0) { conn.VaalPreventionUntil = 0; conn.VaalUse = null; }
-            if (conn.VaalPreventionUntil > VaalResourceTime(conn) && Stats.Key("has_soul_gain_prevention") is uint key)
-                stats[key] = 1;
+            stats[key] = 1;
+            StatsChangeAt(player.VaalPreventionUntil, () => VaalResourceTime(player));
         }
     }
 
-    static VaalUseReservation? PlanVaalUse(ClientState conn, ushort id)
+    static VaalUseReservation? PlanVaalUse(Player player, ushort id)
     {
-        var gem = SupportedSkill(conn, id);
-        if (!gem.RequirementsMet || !VaalMinionAvailable(conn, id) || WeaponRestricted(conn, gem.Effect) is not null
-            || SkillsFor(conn).VaalBudget(gem.Effect, gem.Level) is not { } definition) return null;
-        var player = CharacterPlayerStats(conn);
-        int Get(string name) => VaalSoulInput(conn, player, gem.Stats, name);
-        int Sum(params string[] names) => (int)Math.Clamp(names.Sum(n => (long)Get(n)), int.MinValue, int.MaxValue);
-        bool conversion = VaalRageCost.ReplacesSouls(Get("vaal_attack_rage_cost_instead_of_souls_per_use") != 0,
-            true, SkillsFor(conn).IsAttack(gem.Effect), true);
-        bool free = Get("no_cost") != 0 || Get("virtual_no_cost") != 0 || Get("skill_no_cost_or_reservation") != 0;
-        int rage = VaalRageCost.Calculate(Math.Max(0, Get("total_base_rage_cost")), (int)definition.BaseCost,
-            conversion, true, SkillsFor(conn).IsAttack(gem.Effect), true, new(Get("base_cost_+%"), Get("base_rage_cost_+%"),
-                Get("cost_+%_final"), Sum("base_skill_cost_efficiency_+%", "base_attack_skill_cost_efficiency_+%"),
-                Get("base_rage_cost_efficiency_+%"), free));
+        var gem = SupportedSkill(player, id);
+        if (!gem.RequirementsMet || !VaalMinionAvailable(player, id) || WeaponRestricted(player, gem.Effect) is not null
+            || SkillsFor(player).VaalBudget(gem.Effect, gem.Level) is not { } definition) return null;
+        var playerStats = CharacterPlayerStats(player);
+        int Get(uint name) => VaalSoulInput(player, playerStats, gem.Stats, name);
+        int Sum(params uint[] names) => (int)Math.Clamp(names.Sum(n => (long)Get(n)), int.MinValue, int.MaxValue);
+        bool conversion = VaalRageCost.ReplacesSouls(Get(Stat.VaalAttackRageCostInsteadOfSoulsPerUse) != 0,
+            true, SkillsFor(player).IsAttack(gem.Effect), true);
+        bool free = Get(Stat.NoCost) != 0 || Get(Stat.VirtualNoCost) != 0 || Get(Stat.SkillNoCostOrReservation) != 0;
+        int rage = VaalRageCost.Calculate(Math.Max(0, Get(Stat.TotalBaseRageCost)), (int)definition.BaseCost,
+            conversion, true, SkillsFor(player).IsAttack(gem.Effect), true, new(Get(Stat.BaseCostPlusPct), Get(Stat.BaseRageCostPlusPct),
+                Get(Stat.CostPlusPctFinal), Sum(Stat.BaseSkillCostEfficiencyPlusPct, Stat.BaseAttackSkillCostEfficiencyPlusPct),
+                Get(Stat.BaseRageCostEfficiencyPlusPct), free));
         uint souls = conversion || free ? 0 : (uint)VaalSoulCost.Required(definition.BaseCost, Get);
-        uint mana = free ? 0 : (uint)Math.Max(0, SupportedStats(conn, id).GetValueOrDefault(Stats.Key("mana_cost") ?? 0));
+        uint mana = free ? 0 : (uint)Math.Max(0, SupportedStats(player, id).GetValueOrDefault(Stat.ManaCost));
         // Lifetap and Blood Magic turn the whole upfront Mana cost into Life.
         uint life = 0;
-        if (!free && Lifetap.ConvertsCostToLife(gem.Stats, player))
+        if (!free && Lifetap.ConvertsCostToLife(gem.Stats, CharacterPlayerStats(player)))
         {
             life = mana;
             mana = 0;
         }
-        int preventionMs = SkillsFor(conn).SoulGainPreventionMs(gem.Effect, gem.Level);
+        int preventionMs = SkillsFor(player).SoulGainPreventionMs(gem.Effect, gem.Level);
         // Vaal auras: "Modifiers to Buff Duration also apply to this Skill's Soul Gain Prevention".
-        bool buffScaled = Get("modifiers_to_buff_effect_duration_also_affect_soul_prevention_duration") != 0;
-        double preventionBase = buffScaled ? VaalAuraSeconds(preventionMs, player, gem.Stats, SkillDurationModifiers.Kinds.Buff)
-            : Get("modifiers_to_skill_effect_duration_also_affect_soul_prevention_duration") != 0
-            ? SkillDurationModifiers.Seconds(preventionMs, n => GolemStat(player, n), n => GolemStat(gem.Stats, n))
+        bool buffScaled = Get(Stat.ModifiersToBuffEffectDurationAlsoAffectSoulPreventionDuration) != 0;
+        double preventionBase = buffScaled ? VaalAuraSeconds(preventionMs, playerStats, gem.Stats, SkillDurationModifiers.Kinds.Buff)
+            : Get(Stat.ModifiersToSkillEffectDurationAlsoAffectSoulPreventionDuration) != 0
+            ? SkillDurationModifiers.Seconds(preventionMs, n => GolemStat(playerStats, n), n => GolemStat(gem.Stats, n))
             : preventionMs / 1000d;
-        double prevention = Get("vaal_skill_does_not_apply_soul_gain_prevention") != 0
-            || Get("map_player_disable_soul_gain_prevention") != 0 ? 0
+        double prevention = Get(Stat.VaalSkillDoesNotApplySoulGainPrevention) != 0
+            || Get(Stat.MapPlayerDisableSoulGainPrevention) != 0 ? 0
             : Math.Max(0, preventionBase
-                * (1 + Get("vaal_skill_soul_gain_prevention_+%_final_from_pact_of_ktash") / 100.0));
-        return new(id, gem.Effect, conn.ActionCount, conn.ProjectileEpoch, rage, souls, mana, life, prevention)
+                * (1 + Get(Stat.VaalSkillSoulGainPreventionPlusPctFinalFromPactOfKtash) / 100.0));
+        return new(id, gem.Effect, player.ActionCount, player.ProjectileEpoch, rage, souls, mana, life, prevention)
             { RageConverted = conversion };
     }
 
-    static bool CanPayVaalUse(ClientState conn, VaalUseReservation plan)
+    static bool CanPayVaalUse(Player player, VaalUseReservation plan)
     {
-        var stats = CharacterPlayerStats(conn);
-        var rage = conn.Rage.Read(VaalResourceTime(conn), RageStats.Inputs(n => RageStat(stats, n)));
-        if (conn.PlayerMana < plan.Mana || plan.Life > 0 && conn.PlayerLife <= plan.Life
+        var stats = CharacterPlayerStats(player);
+        var rage = player.Rage.Read(VaalResourceTime(player), RageStats.Inputs(n => RageStat(stats, n)));
+        if (player.PlayerMana < plan.Mana || plan.Life > 0 && player.PlayerLife <= plan.Life
             || rage.Current < plan.Rage) return false;
         if (plan.Souls == 0) return true;
-        RefreshVaalSouls(conn);
-        var definition = SkillsFor(conn).VaalBudget(plan.Effect, SupportedSkill(conn, plan.Skill).Level)!.Value;
-        return conn.VaalSouls.Read().Any(b => b.ActiveSkillsRow == definition.ActiveSkillsRow && b.Current >= plan.Souls);
+        RefreshVaalSouls(player);
+        var definition = SkillsFor(player).VaalBudget(plan.Effect, SupportedSkill(player, plan.Skill).Level)!.Value;
+        return player.VaalSouls.Read().Any(b => b.ActiveSkillsRow == definition.ActiveSkillsRow && b.Current >= plan.Souls);
     }
 
     // Paid attacks reserve the same cadence as ordinary attacks, before an action/echo or any resource is spent.
     // Approach-only checks leave the timer alone; arrival must reserve the actual swing under its action token.
-    static bool TryVaalAttackDeadline(ClientState conn, VaalUseReservation plan, out double? deadline)
+    static bool TryVaalAttackDeadline(Player player, VaalUseReservation plan, out double? deadline)
     {
         deadline = null;
-        if (!SkillsFor(conn).IsAttack(plan.Effect)) return true;
-        double now = conn.Clock.Elapsed.TotalSeconds, duration = SupportedAttackSeconds(conn, plan.Skill);
-        if (!AttackTiming.Ready(now, conn.NextAttackAt, duration)) return false;
-        deadline = AttackTiming.After(now, conn.NextAttackAt, duration);
+        if (!SkillsFor(player).IsAttack(plan.Effect)) return true;
+        double now = AreaTime(player), duration = SupportedAttackSeconds(player, plan.Skill);
+        if (!AttackTiming.Ready(now, player.NextAttackAt, duration)) return false;
+        deadline = AttackTiming.After(now, player.NextAttackAt, duration);
         return true;
     }
 
-    static void CommitVaalUse(ClientState conn, VaalUseReservation plan, double? attackDeadline)
+    static void CommitVaalUse(Player player, VaalUseReservation plan, double? attackDeadline)
     {
         // The caller checked every resource under this same combat lock before changing action/cooldown state.
-        var stats = CharacterPlayerStats(conn);
-        double now = VaalResourceTime(conn);
-        if (!conn.Rage.Spend(plan.Rage, now, RageStats.Inputs(n => RageStat(stats, n))))
+        var stats = CharacterPlayerStats(player);
+        double now = VaalResourceTime(player);
+        if (!player.Rage.Spend(plan.Rage, now, RageStats.Inputs(n => RageStat(stats, n))))
             throw new InvalidOperationException("Vaal Rage reservation changed inside admission");
         if (plan.Souls > 0)
         {
-            var definition = SkillsFor(conn).VaalBudget(plan.Effect, SupportedSkill(conn, plan.Skill).Level)!.Value;
-            if (!conn.VaalSouls.TryConsume(definition.ActiveSkillsRow, plan.Souls))
+            var definition = SkillsFor(player).VaalBudget(plan.Effect, SupportedSkill(player, plan.Skill).Level)!.Value;
+            if (!player.VaalSouls.TryConsume(definition.ActiveSkillsRow, plan.Souls))
                 throw new InvalidOperationException("Vaal soul reservation changed inside admission");
         }
-        conn.PlayerMana -= plan.Mana;
-        conn.PlayerLife -= plan.Life;
-        ManaSpentLocked(conn, plan.Mana, stats);
+        player.PlayerMana -= plan.Mana;
+        player.PlayerLife -= plan.Life;
+        ManaSpentLocked(player, plan.Mana, stats);
         if (plan.Life > 0 || plan.Mana > 0)
-            ApplyPaidSupportCostsLocked(conn, plan.Skill, SupportedSkill(conn, plan.Skill).Stats, plan.Mana, (int)plan.Life, now);
-        if (attackDeadline is double next) conn.NextAttackAt = next;
-        conn.VaalPreventionUntil = Math.Max(conn.VaalPreventionUntil, now + plan.PreventionSeconds);
-        Console.WriteLine($"[gateway] Vaal use paid: skill 0x{plan.Skill:x4} {SkillsFor(conn).EffectId(plan.Effect)}, " +
-            $"-{plan.Souls} souls, -{plan.Rage} Rage, soul gain prevention {plan.PreventionSeconds:0.##} s (until t={conn.VaalPreventionUntil:0.000})");
-        conn.VaalUse = plan with { Action = conn.ActionCount, Epoch = conn.ProjectileEpoch,
-            CriticalRoll = CaptureSkillCriticalRoll(conn, plan.Skill), RecoveryGeneration = conn.ActionInterruptionGeneration };
+            ApplyPaidSupportCostsLocked(player, plan.Skill, SupportedSkill(player, plan.Skill).Stats, plan.Mana, (int)plan.Life, now);
+        if (plan.Life > 0) PresentStats(player);
+        if (attackDeadline is double next) player.NextAttackAt = next;
+        player.VaalPreventionUntil = Math.Max(player.VaalPreventionUntil, now + plan.PreventionSeconds);
+        Console.WriteLine($"[gateway] Vaal use paid: skill 0x{plan.Skill:x4} {SkillsFor(player).EffectId(plan.Effect)}, " +
+            $"-{plan.Souls} souls, -{plan.Rage} Rage, soul gain prevention {plan.PreventionSeconds:0.##} s (until t={player.VaalPreventionUntil:0.000})");
+        player.VaalUse = plan with { Action = player.ActionCount, Epoch = player.ProjectileEpoch,
+            CriticalRoll = CaptureSkillCriticalRoll(player, plan.Skill), RecoveryGeneration = player.ActionInterruptionGeneration };
     }
 
-    public const string MaximumPowerOnVaalUse = "gain_maximum_power_charges_on_vaal_skill_use";
-    public static void GrantVaalUseChargesLocked(ClientState conn, double at)
+    public const uint MaximumPowerOnVaalUse = Stat.GainMaximumPowerChargesOnVaalSkillUse;
+    public static void GrantVaalUseChargesLocked(Player player, double at)
     {
-        if (conn.Paused || conn.Closed || conn.LeavingArea || conn.PlayerLife == 0 || !CurrentGameWork) return;
-        var stats = CharacterPlayerStats(conn);
-        int Get(string name) => Stats.Key(name) is uint key ? stats.GetValueOrDefault(key) : 0;
+        if (player.Paused || player.Closed || player.LeavingArea || player.PlayerLife == 0 || !CurrentGameWork) return;
+        var stats = CharacterPlayerStats(player);
+        int Get(uint key) => stats.GetValueOrDefault(key);
         if (Get(MaximumPowerOnVaalUse) <= 0) return;
-        var session = ChargesOf(conn); session.Observe(Get);
+        var session = ChargesOf(player); session.Observe(Get);
         var step = session.Admit(at, [new ChargeEvent.Grant(ChargeType.Power, session.Limits(ChargeType.Power).Maximum,
-            MaximumPowerOnVaalUse)], Get, () => WeaponProfileFor(conn), true, Random.Shared);
-        if (step.CountsChanged) { conn.Pools = PoolsFor(conn, conn.Pools.Level); conn.ApplyMovementSpeed(); }
+            Stats.Name(MaximumPowerOnVaalUse))], Get, () => WeaponProfileFor(player), true, AreaRng(player));
+        if (step.CountsChanged) { player.Pools = PoolsFor(player, player.Pools.Level); player.ApplyMovementSpeed(); }
     }
 
-    static VaalUseReservation? ExecuteVaalUse(ClientState conn, ushort id, int effect)
+    static VaalUseReservation? ExecuteVaalUse(Player player, ushort id, int effect)
     {
-        lock (conn.Monsters)
-        {
-            if (!VaalExecutor(conn, effect) || conn.VaalUse is not { Executed: false } paid || paid.Skill != id
-                || paid.Effect != effect || paid.Action != conn.ActionCount || paid.Epoch != conn.ProjectileEpoch
-                || !VaalAdmissionCurrent(conn, paid) || !PlayerActionCurrent(conn, paid.Action)) return null;
-            paid.Executed = true;
-            conn.RecentEvents.Record(StatConditions.UsedVaalSkill, VaalResourceTime(conn));
-            GrantVaalUseChargesLocked(conn, VaalResourceTime(conn));
-            return paid;
-        }
+        if (!VaalExecutor(player, effect) || player.VaalUse is not { Executed: false } paid || paid.Skill != id
+            || paid.Effect != effect || paid.Action != player.ActionCount || paid.Epoch != player.ProjectileEpoch
+            || !VaalAdmissionCurrent(player, paid) || !PlayerActionCurrent(player, paid.Action)) return null;
+        paid.Executed = true;
+        player.RecentEvents.Record(StatConditions.UsedVaalSkill, VaalResourceTime(player));
+        GrantVaalUseChargesLocked(player, VaalResourceTime(player));
+        return paid;
     }
 
-    static bool VaalAdmissionCurrent(ClientState conn, VaalUseReservation paid) => CurrentGameRules
-        && ReferenceEquals(conn.VaalUse, paid) && conn.OwnedCombatState is RampageWorld world
-        && ReferenceEquals(world.SourceOwner, AscendancyPolicies.SourceOwner(conn))
-        && conn.OwnedCombatWorker.Current(CombatLifetime!, world.SourceOwner, world, paid.WorkGeneration)
-        && (!paid.RageConverted || Stats.Key("vaal_attack_rage_cost_instead_of_souls_per_use") is uint conversion
-            && conn.PlayerStats.GetValueOrDefault(conversion, CharacterStatSources(conn).Stats.GetValueOrDefault(conversion)) != 0);
+    static bool VaalAdmissionCurrent(Player player, VaalUseReservation paid) => CurrentGameRules
+        && ReferenceEquals(player.VaalUse, paid) && player.OwnedCombatState is RampageWorld world
+        && ReferenceEquals(world.SourceOwner, AscendancyPolicies.SourceOwner(player))
+        && player.OwnedCombatWorker.Current(CombatLifetime!, world.SourceOwner, world, paid.WorkGeneration)
+        && (!paid.RageConverted || Stat.VaalAttackRageCostInsteadOfSoulsPerUse is var conversion
+            && StatSourceValues(player).GetValueOrDefault(conversion) != 0);
 
     // All native action acknowledgements share the same accepted-use guard at their send gate.
-    public static bool SkillAcknowledgementAllowed(ClientState conn, int effect, ushort skillId, Func<bool> nativeUse)
+    public static bool SkillAcknowledgementAllowed(Player player, int effect, ushort skillId, Func<bool> nativeUse)
     {
-        lock (conn.Monsters)
-        {
-            if (SkillsFor(conn).VaalBudget(effect, 1) is not null
-                && (conn.VaalUse is not { } paid || paid.Skill != skillId || paid.Effect != effect
-                    || !VaalAdmissionCurrent(conn, paid) || !PlayerActionCurrent(conn, paid.Action))) return false;
-            return OwnAuraAcknowledgementAllowed(conn, effect, skillId, nativeUse);
-        }
+        if (SkillsFor(player).VaalBudget(effect, 1) is not null
+            && (player.VaalUse is not { } paid || paid.Skill != skillId || paid.Effect != effect
+                || !VaalAdmissionCurrent(player, paid) || !PlayerActionCurrent(player, paid.Action))) return false;
+        return OwnAuraAcknowledgementAllowed(player, effect, skillId, nativeUse);
     }
 
-    static void PublishVaalRageCost(ClientState conn, ushort id, Dictionary<uint, int> stats)
+    static void PublishVaalRageCost(Player player, ushort id, Dictionary<uint, int> stats)
     {
-        if (PlanVaalUse(conn, id) is not { } plan) return;
-        void Put(string name, int value) { if (Stats.Key(name) is uint key) stats[key] = value; }
-        Put("rage_cost", plan.Rage);
-        var gem = SupportedSkill(conn, id);
-        var player = CharacterPlayerStats(conn);
-        if (VaalSoulInput(conn, player, gem.Stats, "vaal_attack_rage_cost_instead_of_souls_per_use") != 0
-            && SkillsFor(conn).IsAttack(gem.Effect)) Put("virtual_vaal_skill_require_no_souls_per_use", 1);
+        if (PlanVaalUse(player, id) is not { } plan) return;
+        void Put(uint name, int value) { if (name is var key) stats[key] = value; }
+        Put(Stat.RageCost, plan.Rage);
+        var gem = SupportedSkill(player, id);
+        var playerStats = CharacterPlayerStats(player);
+        if (VaalSoulInput(player, playerStats, gem.Stats, Stat.VaalAttackRageCostInsteadOfSoulsPerUse) != 0
+            && SkillsFor(player).IsAttack(gem.Effect)) Put(Stat.VirtualVaalSkillRequireNoSoulsPerUse, 1);
     }
 
-    static async Task PublishVaalUse(string remote, NetworkStream stream, ConnectionCiphers ciphers, ClientState conn,
+    static async Task PublishVaalUse(Player player,
         VaalUseReservation paid)
     {
         var previous = Program.ProjectileOutputGuard.Value;
-        bool Current() => VaalAdmissionCurrent(conn, paid) && PlayerActionCurrent(conn, paid.Action)
+        bool Current() => VaalAdmissionCurrent(player, paid) && PlayerActionCurrent(player, paid.Action)
             && (previous?.Invoke() ?? true);
         Program.ProjectileOutputGuard.Value = Current;
         try
         {
             if (!Current()) return;
-            await SendRage(remote, stream, ciphers, conn);
+            await SendRage(player);
             if (!Current()) return;
-            await SendVaalSouls(remote, stream, ciphers, conn);
+            await SendVaalSouls(player);
             if (!Current()) return;
-            await SendChargeStats(remote, stream, ciphers, conn, "accepted Vaal use");
+            await SendChargeStats(player, "accepted Vaal use");
             if (!Current()) return;
-            await SendSkillCost(remote, stream, ciphers, conn, paid.Life, "Vaal use paid");
+            await SendSkillCost(player, paid.Life, "Vaal use paid");
         }
         finally { Program.ProjectileOutputGuard.Value = previous; }
     }

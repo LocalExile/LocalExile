@@ -9,7 +9,7 @@ public class UniqueClusterKeystoneTests
     {
         var items = Program.Items;
         var catalog = new UniqueCatalog(items);
-        var conn = new ClientState(new(1, "keystone", 100, 100, 100, 100, null, []), 1, 1);
+        var player = new Player(new(1, "keystone", 100, 100, 100, 100, null, []), 1, 1);
         foreach (var (name, stat) in new[]
         {
             ("Calamitous Visions", "keystone_herald_of_doom"), ("Kitava's Teachings", "keystone_disciple_of_kitava"),
@@ -28,13 +28,13 @@ public class UniqueClusterKeystoneTests
                 Assert.Equal(ClusterJewelLayout.Kind.Keystone, position.Value);
                 ushort id = (ushort)(layout.Base + position.Key);
                 InventoryItem[] placed = [new(11, (byte)cell, 0, jewel)];
-                conn.ClusterPassives.Clear();
-                Assert.Empty(ClusterJewelStats.For(conn, placed, items.Mods, Program.Stats));
-                conn.ClusterPassives.Add(id);
-                var granted = Assert.Single(ClusterJewelStats.For(conn, placed, items.Mods, Program.Stats));
+                player.Character.ClusterPassives.Clear();
+                Assert.Empty(ClusterJewelStats.For(player, placed, items.Mods, Program.Stats));
+                player.Character.ClusterPassives.Add(id);
+                var granted = Assert.Single(ClusterJewelStats.For(player, placed, items.Mods, Program.Stats));
                 Assert.Equal(Program.Stats.Key(stat)!.Value, granted.Key);
                 Assert.Equal(1, granted.Value);
-                Assert.Empty(ClusterJewelStats.For(conn, [], items.Mods, Program.Stats));
+                Assert.Empty(ClusterJewelStats.For(player, [], items.Mods, Program.Stats));
             }
         }
     }

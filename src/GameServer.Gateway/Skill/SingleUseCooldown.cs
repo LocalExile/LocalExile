@@ -4,12 +4,12 @@ public readonly record struct SingleUseCooldown(int BaseMilliseconds, int Recove
 {
     public double RecoveryRate => Math.Max(0, 1 + RecoveryPercent / 100.0);
 
-    static readonly string[] Unsupported = [
-        "base_added_cooldown_count", "virtual_added_cooldown_count", "quick_dodge_added_cooldown_count",
-        "shockwave_support_added_cooldown_count", "support_double_number_of_cooldown_uses",
-        "support_triple_number_of_cooldown_uses", "skill_cooldown_time_override_ms", "skill_cooldown_is_4_seconds",
-        "virtual_cooldown_modifier_ms", "base_cooldown_speed_+%_final",
-        "active_skill_cooldown_speed_+%_final_from_skill_specific_stat",
+    static readonly uint[] Unsupported = [
+        Stat.BaseAddedCooldownCount, Stat.VirtualAddedCooldownCount, Stat.QuickDodgeAddedCooldownCount,
+        Stat.ShockwaveSupportAddedCooldownCount, Stat.SupportDoubleNumberOfCooldownUses,
+        Stat.SupportTripleNumberOfCooldownUses, Stat.SkillCooldownTimeOverrideMs, Stat.SkillCooldownIs4Seconds,
+        Stat.VirtualCooldownModifierMs, Stat.BaseCooldownSpeedPlusPctFinal,
+        Stat.ActiveSkillCooldownSpeedPlusPctFinalFromSkillSpecificStat,
     ];
 
     public static SingleUseCooldown? ForSkill(SkillCatalog skills, StatCatalog catalog, int effect, int level,
@@ -22,28 +22,28 @@ public readonly record struct SingleUseCooldown(int BaseMilliseconds, int Recove
             || skills.EffectId(effect)?.StartsWith("TriggerSummonedAncestor", StringComparison.Ordinal) == true;
         if (ms <= 0 || skills.CooldownUses(effect, level) <= 0 || skills.CooldownPausesWhileActive(effect) || !castable)
             return null;
-        int Get(IReadOnlyDictionary<uint, int> values, string name) => catalog.Key(name) is uint key ? values.GetValueOrDefault(key) : 0;
+        int Get(IReadOnlyDictionary<uint, int> values, uint name) => name is var key ? values.GetValueOrDefault(key) : 0;
         if (Unsupported.Any(name => Get(player, name) != 0 || Get(own, name) != 0)) return null;
         int uses = skills.CooldownUses(effect, level);
         // Second Wind adds a stored use only to a non-instant skill. Its recovery penalty still affects instant skills.
-        if (!skills.IsInstant(effect)) uses += Math.Max(0, Get(own, "support_added_cooldown_count_if_not_instant"));
+        if (!skills.IsInstant(effect)) uses += Math.Max(0, Get(own, Stat.SupportAddedCooldownCountIfNotInstant));
         if (uses is < 1 or > 255) return null;
         // The player's virtual total already includes its base input. Skill inputs are separate, including quality.
-        long recovery = (long)Get(player, "virtual_cooldown_speed_+%")
-            + Get(own, "base_cooldown_speed_+%") + Get(own, "virtual_cooldown_speed_+%");
+        long recovery = (long)Get(player, Stat.VirtualCooldownSpeedPlusPct)
+            + Get(own, Stat.BaseCooldownSpeedPlusPct) + Get(own, Stat.VirtualCooldownSpeedPlusPct);
         // Warcry recovery is an increase for the Warcry type (PoB ModParser); the client adds it when is_warcry (0x142824b50).
         if (skills.IsWarcry(effect))
-            recovery += (long)Get(player, "warcry_cooldown_speed_+%") + Get(own, "warcry_cooldown_speed_+%");
+            recovery += (long)Get(player, Stat.WarcryCooldownSpeedPlusPct) + Get(own, Stat.WarcryCooldownSpeedPlusPct);
         if (skills.EffectId(effect) is "GeneralsCry" or "GeneralsCryAltX" or "GeneralsCryAltY")
-            recovery += (long)Get(player, "generals_cry_cooldown_speed_+%") + Get(own, "generals_cry_cooldown_speed_+%");
+            recovery += (long)Get(player, Stat.GeneralsCryCooldownSpeedPlusPct) + Get(own, Stat.GeneralsCryCooldownSpeedPlusPct);
         if (skills.EffectId(effect) is { } id && id.StartsWith("Summon", StringComparison.Ordinal) && id.Contains("Golem", StringComparison.Ordinal))
-            recovery += (long)Get(player, "golem_cooldown_recovery_+%") + Get(own, "golem_cooldown_recovery_+%");
+            recovery += (long)Get(player, Stat.GolemCooldownRecoveryPlusPct) + Get(own, Stat.GolemCooldownRecoveryPlusPct);
         // Native construction adds 100 in a signed i32. Zero recovery stalls rather than reversing the clock.
         return new(ms, (int)Math.Clamp(recovery, -100, int.MaxValue - 100), uses);
     }
 }
 
-/// <summary>Elapsed game-time budget, used under the connection's Monsters lock. Rate changes settle the old rate
+/// <summary>Elapsed game-time budget, used in the area's frame. Rate changes settle the old rate
 /// first, preserving progress through equipment/stat refreshes and pause.</summary>
 public sealed class SingleUseCooldownState(double at, double rate, double remainingBaseMilliseconds = 0,
     int totalBaseMilliseconds = 0)

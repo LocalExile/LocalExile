@@ -6,10 +6,12 @@ namespace GameServer.Modules.Deepwater;
 /// values as fallbacks), object paths, GameObjectTasks ids, BuffDefinitions rows and QuestFlags names.</summary>
 internal static class DeepwaterConstants
 {
-    static readonly Lazy<Dictionary<string, int>> Rows = new(() => ClientTables.TableOrEmpty("DeepwaterConstants")
-        .Where(r => r.Text("Id") is not null).ToDictionary(r => r.Text("Id")!, r => r.Int("Value")));
+    static Dictionary<string, int> Rows = [];
 
-    static int Value(string id, int fallback) => Rows.Value.TryGetValue(id, out int v) ? v : fallback;
+    public static void LoadGameData() => Rows = ClientTables.TableOrEmpty("DeepwaterConstants")
+        .Where(r => r.Text("Id") is not null).ToDictionary(r => r.Text("Id")!, r => r.Int("Value"));
+
+    static int Value(string id, int fallback) => Rows.TryGetValue(id, out int v) ? v : fallback;
 
     /// <summary>DeepwaterConstants 0: a lantern's full light radius in grid cells (the client's circle, <c>0x141ebe600</c>).</summary>
     public static int BaseLanternRadius => Value("BaseLanternRadius", 110);
@@ -61,7 +63,7 @@ internal static class DeepwaterConstants
     /// says −50 in 3.29.3, but the wiki says 3.29.0 hotfix 3 cut the slow by 33 %; a server-side hotfix leaves the client's
     /// data as it was, so 50 × 2/3.</summary>
     public const int DrowningMaximumSlow = 33;
-    public const string ActionSpeedReduction = "action_speed_-%";
+    public const uint ActionSpeedReduction = Stat.ActionSpeedMinusPct;
 
     /// <summary>QuestFlags 3550: the player who holds the lanterns (the client's placement gate <c>0x1416835e0</c>).</summary>
     public const string LanternController = "IsDeepwaterLanternController";

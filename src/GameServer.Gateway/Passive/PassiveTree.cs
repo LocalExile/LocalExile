@@ -4,7 +4,7 @@ using GameServer.Core;
 /// <summary>
 /// The passive skill tree's nodes: PassiveSkills.dat rows by PassiveSkillGraphId (the id the client allocates and S→C
 /// 0x3d lists), with their stats (Stats.dat rows + 1 = the client's stat keys) and the skill points they grant. Game data:
-/// the PassiveSkills client table, loaded on first use. OrdinaryPassiveRules validates ordinary connectivity against
+/// the PassiveSkills client table, read when the catalog is made. OrdinaryPassiveRules validates ordinary connectivity against
 /// the selected generated PSG topology; AscendancyRules validates the separate ascendancy allocation.
 /// Masteries: PassiveSkillMasteryGroups.dat groups a mastery node's options and PassiveSkillMasteryEffects.dat holds the
 /// effects' stats. The client's 0x3d list carries the selected effects as node | effect &lt;&lt; 16; the effect is the
@@ -12,8 +12,25 @@ using GameServer.Core;
 /// Gold respec (Bestel's Respecialisation): a node costs VillageBalancePerLevelShared.dat's GoldRespecCost at the
 /// character's level times the node's multiplier, as the client's per-node cost 0x141f019b0 computes it.
 /// </summary>
-public sealed class PassiveTree(string folder = "data", bool hardMode = false)
+public sealed class PassiveTree
 {
+    readonly string folder;
+    readonly bool hardMode;
+
+    public PassiveTree(string folder = "data", bool hardMode = false)
+    {
+        this.folder = folder;
+        this.hardMode = hardMode;
+        _nodes = LoadNodes(folder, hardMode);
+        _rows = LoadRows(folder);
+        _nodesById = LoadNodesById();
+        _effects = LoadEffects(folder);
+        _groups = LoadGroups(folder, LoadEffects(folder));
+        _respecCosts = LoadRespecCosts(folder);
+        _jewelSockets = LoadJewelSockets(folder);
+        _positions = LoadPositions(folder);
+    }
+
     public sealed record Node(ushort GraphId, string Id, string Name, IReadOnlyList<(uint Key, int Value)> Stats, int PointsGranted,
         bool IsAscendancy, bool IsStart, int MasteryGroup, int RespecMultiplier = 1, bool IsKeystone = false,
         bool IsNotable = false, bool IsJewelSocket = false, bool IsProxy = false, bool IsExpansion = false,
@@ -24,16 +41,18 @@ public sealed class PassiveTree(string folder = "data", bool hardMode = false)
 
     public sealed record MasteryEffect(int Row, ushort Hash, string Id, IReadOnlyList<(uint Key, int Value)> Stats);
 
-    private readonly Lazy<Dictionary<ushort, Node>> _nodes = new(() => LoadNodes(folder, hardMode));
-    private readonly Lazy<Dictionary<int, ushort>> _rows = new(() => LoadRows(folder));
-    private readonly Lazy<Dictionary<string, Node>> _nodesById = new(() =>
+    private readonly Dictionary<ushort, Node> _nodes;
+    private readonly Dictionary<int, ushort> _rows;
+    private readonly Dictionary<string, Node> _nodesById;
+
+    Dictionary<string, Node> LoadNodesById() =>
         LoadNodes(folder, hardMode).Values.GroupBy(n => n.Id, StringComparer.Ordinal)
-            .ToDictionary(g => g.Key, g => g.First(), StringComparer.Ordinal));
-    private readonly Lazy<Dictionary<int, MasteryEffect>> _effects = new(() => LoadEffects(folder));
-    private readonly Lazy<Dictionary<int, List<MasteryEffect>>> _groups = new(() => LoadGroups(folder, LoadEffects(folder)));
-    private readonly Lazy<Dictionary<int, int>> _respecCosts = new(() => LoadRespecCosts(folder));
-    private readonly Lazy<JewelSockets> _jewelSockets = new(() => LoadJewelSockets(folder));
-    private readonly Lazy<Dictionary<ushort, (double X, double Y)>> _positions = new(() => LoadPositions(folder));
+            .ToDictionary(g => g.Key, g => g.First(), StringComparer.Ordinal);
+    private readonly Dictionary<int, MasteryEffect> _effects;
+    private readonly Dictionary<int, List<MasteryEffect>> _groups;
+    private readonly Dictionary<int, int> _respecCosts;
+    private readonly JewelSockets _jewelSockets;
+    private readonly Dictionary<ushort, (double X, double Y)> _positions;
 
     /// <summary>The PassiveJewels1 pane cells: the ordinary sockets (0..20, six of which also take large cluster
     /// jewels), the cluster expansion cells and the parent/child links between them, and the three Wildwood Primalist
@@ -43,67 +62,67 @@ public sealed class PassiveTree(string folder = "data", bool hardMode = false)
         Dictionary<int, int> Sizes, Dictionary<int, int[]> Starts, Dictionary<int, int> ClusterIndexes,
         Dictionary<int, ushort> CharmBySlot, Dictionary<ushort, int> CharmByNode);
 
-    public Node? Find(ushort graphId) => _nodes.Value.GetValueOrDefault(graphId);
+    public Node? Find(ushort graphId) => _nodes.GetValueOrDefault(graphId);
 
     /// <summary>The graph id of a PassiveSkills.dat row (the 0-based table row used by the client's keystone
     /// tables), or null.</summary>
     public ushort? GraphIdForRow(int row) =>
-        _rows.Value.TryGetValue(row, out ushort graphId) ? graphId : null;
+        _rows.TryGetValue(row, out ushort graphId) ? graphId : null;
 
     /// <summary>The node with this PassiveSkills.dat Id (<c>affliction_notable_*</c> …), or null.</summary>
-    public Node? FindById(string id) => _nodesById.Value.GetValueOrDefault(id);
+    public Node? FindById(string id) => _nodesById.GetValueOrDefault(id);
 
     /// <summary>The PassiveJewels1 pane slot (0..59) of a normal passive tree jewel socket, or null. Cluster expansion
     /// rows and the three ascendancy charm sockets are not ordinary jewel sockets.</summary>
     public ushort? JewelNodeForSlot(int slot) =>
-        _jewelSockets.Value.BySlot.TryGetValue(slot, out ushort node) ? node : null;
+        _jewelSockets.BySlot.TryGetValue(slot, out ushort node) ? node : null;
 
     /// <summary>The PassiveJewels1 pane slot that holds the jewel of this passive node, or null when it is not a normal
     /// jewel socket.</summary>
     public int? JewelSlotForNode(ushort graphId) =>
-        _jewelSockets.Value.ByNode.TryGetValue(graphId, out int slot) ? slot : null;
+        _jewelSockets.ByNode.TryGetValue(graphId, out int slot) ? slot : null;
 
-    public bool IsJewelSocket(ushort graphId) => _jewelSockets.Value.ByNode.ContainsKey(graphId);
+    public bool IsJewelSocket(ushort graphId) => _jewelSockets.ByNode.ContainsKey(graphId);
 
     /// <summary>The PassiveJewels1 pane cell (57..59) of a Wildwood Primalist charm socket, or null. The cell accepts a
     /// charm (ItemClasses AnimalCharm) only while its Charm Socket node is allocated.</summary>
     public ushort? CharmNodeForSlot(int slot) =>
-        _jewelSockets.Value.CharmBySlot.TryGetValue(slot, out ushort node) ? node : null;
+        _jewelSockets.CharmBySlot.TryGetValue(slot, out ushort node) ? node : null;
 
-    public bool IsCharmSocket(ushort graphId) => _jewelSockets.Value.CharmByNode.ContainsKey(graphId);
+    public bool IsCharmSocket(ushort graphId) => _jewelSockets.CharmByNode.ContainsKey(graphId);
 
     /// <summary>A tree socket that accepts a large cluster jewel (PassiveJewelSlots' ClusterJewelSize 2), not only a
     /// normal jewel.</summary>
-    public bool IsLargeJewelSlot(int slot) => _jewelSockets.Value.Large.Contains(slot);
+    public bool IsLargeJewelSlot(int slot) => _jewelSockets.Large.Contains(slot);
 
     /// <summary>The expansion pane cell's node (the cluster jewel's own socket/notable/small nodes), or null for an
     /// ordinary cell.</summary>
     public ushort? ClusterNodeForSlot(int slot) =>
-        _jewelSockets.Value.Cluster.TryGetValue(slot, out ushort node) ? node : null;
+        _jewelSockets.Cluster.TryGetValue(slot, out ushort node) ? node : null;
 
     /// <summary>The expansion pane cells a socket creates, in cluster index order (a large cluster jewel's three
     /// medium sockets, a medium one's single small socket); empty for the rest.</summary>
     public IReadOnlyList<int> ClusterSlots(int slot) =>
-        _jewelSockets.Value.Children.TryGetValue(slot, out var children) ? children : [];
+        _jewelSockets.Children.TryGetValue(slot, out var children) ? children : [];
 
     /// <summary>The pane cell whose cluster jewel creates this expansion cell, or null for a tree socket.</summary>
     public int? ClusterParent(int cell) =>
-        _jewelSockets.Value.Parents.TryGetValue(cell, out int parent) ? parent : null;
+        _jewelSockets.Parents.TryGetValue(cell, out int parent) ? parent : null;
 
     /// <summary>The cluster jewel size the pane cell takes: 2 large, 1 medium, 0 small, -1 for a basic tree socket that
     /// takes normal jewels only.</summary>
     public int ClusterCellSize(int cell) =>
-        _jewelSockets.Value.Sizes.TryGetValue(cell, out int size) ? size : -1;
+        _jewelSockets.Sizes.TryGetValue(cell, out int size) ? size : -1;
 
     /// <summary>PassiveJewelSlots.dat's StartIndices for the cell: the orbit offset the client applies to the
     /// cluster template for each size (0 small, 1 medium, 2 large), i.e. the proxy node's orbit position.</summary>
     public IReadOnlyList<int> ClusterStartIndices(int cell) =>
-        _jewelSockets.Value.Starts.TryGetValue(cell, out int[]? starts) ? starts : [];
+        _jewelSockets.Starts.TryGetValue(cell, out int[]? starts) ? starts : [];
 
     /// <summary>PassiveJewelSlots.dat's ClusterIndex for the cell: the position among the cell's siblings (0-based),
     /// which the client turns into the cluster graph's id block.</summary>
     public int ClusterIndex(int cell) =>
-        _jewelSockets.Value.ClusterIndexes.TryGetValue(cell, out int index) ? index : 0;
+        _jewelSockets.ClusterIndexes.TryGetValue(cell, out int index) ? index : 0;
 
     /// <summary>The first id of a tree socket's cluster jewel block: the six tree sockets take 39 ids each in
     /// ClusterIndex order (0, 39, 78, 117, 156, 195; measured: cell 20, ClusterIndex 5, uses 195..206). Null for an
@@ -126,15 +145,15 @@ public sealed class PassiveTree(string folder = "data", bool hardMode = false)
         return ids;
     }
 
-    public bool Loaded => _nodes.Value.Count > 0;
+    public bool Loaded => _nodes.Count > 0;
 
     /// <summary>Whether the extracted passive graph carries group and orbit geometry (passive-graphs v5).</summary>
-    public bool HasGeometry => _positions.Value.Count > 0;
+    public bool HasGeometry => _positions.Count > 0;
 
     /// <summary>The client's tree position of a node: its group's centre plus its orbit radius at the orbit angle. Null
     /// for a node the graph does not carry (cluster expansion nodes are not in the ordinary PSG).</summary>
     public (double X, double Y)? Position(ushort graphId) =>
-        _positions.Value.TryGetValue(graphId, out var position) ? position : null;
+        _positions.TryGetValue(graphId, out var position) ? position : null;
 
     /// <summary>The squared distance between two tree nodes, or null when either has no graph position.</summary>
     public double? DistanceSquared(ushort from, ushort to) =>
@@ -149,7 +168,7 @@ public sealed class PassiveTree(string folder = "data", bool hardMode = false)
         if (Position(socket) is not { } centre) return [];
         double radiusSquared = radius * radius;
         var result = new List<ushort>();
-        foreach (var (id, position) in _positions.Value)
+        foreach (var (id, position) in _positions)
         {
             if (id == socket) continue;
             double dx = position.X - centre.X, dy = position.Y - centre.Y;
@@ -165,7 +184,7 @@ public sealed class PassiveTree(string folder = "data", bool hardMode = false)
         if (Position(socket) is not { } centre) return [];
         double innerSquared = inner * inner, outerSquared = outer * outer;
         var result = new List<ushort>();
-        foreach (var (id, position) in _positions.Value)
+        foreach (var (id, position) in _positions)
         {
             if (id == socket) continue;
             double dx = position.X - centre.X, dy = position.Y - centre.Y;
@@ -177,12 +196,12 @@ public sealed class PassiveTree(string folder = "data", bool hardMode = false)
 
     /// <summary>The effects a mastery node offers, in the table's order (the client shows them in this order).</summary>
     public IReadOnlyList<MasteryEffect> EffectsFor(ushort graphId) =>
-        Find(graphId) is { MasteryGroup: >= 0 } node && _groups.Value.TryGetValue(node.MasteryGroup, out var effects)
+        Find(graphId) is { MasteryGroup: >= 0 } node && _groups.TryGetValue(node.MasteryGroup, out var effects)
             ? effects : [];
 
     /// <summary>The effect by the client's HASH16, falling back to the data-table row index.</summary>
     public MasteryEffect? FindEffect(int id) =>
-        _effects.Value.Values.FirstOrDefault(e => e.Hash == id) ?? _effects.Value.GetValueOrDefault(id);
+        _effects.Values.FirstOrDefault(e => e.Hash == id) ?? _effects.GetValueOrDefault(id);
 
     /// <summary>The skill points the allocated nodes grant themselves (the client counts them as extra points).</summary>
     public int PointsGranted(IEnumerable<ushort> nodes) => nodes.Sum(n => Find(n)?.PointsGranted ?? 0);
@@ -195,7 +214,7 @@ public sealed class PassiveTree(string folder = "data", bool hardMode = false)
     /// </summary>
     public long GoldRespecCost(IEnumerable<ushort> nodes, int level)
     {
-        long perNode = _respecCosts.Value.GetValueOrDefault(level);
+        long perNode = _respecCosts.GetValueOrDefault(level);
         return nodes.Sum(n => Find(n) is { IsAscendancy: false } node ? perNode * node.RespecMultiplier : 0);
     }
 
