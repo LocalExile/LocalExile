@@ -92,17 +92,19 @@ def gateway_framing():
                 continue
             for declaration in re.findall(r"\bconst\s+(?:ushort|int|byte)\s+([^;]+);", text):
                 for part in declaration.split(","):
-                    pair = re.fullmatch(r"\s*(\w+)\s*=\s*(0x[0-9a-fA-F]+|\d+)\s*", part)
+                    pair = re.fullmatch(r"\s*(\w+)\s*=\s*(\w+(?:\.\w+)?)\s*", part)
                     if pair:
-                        constants[f"{cls[1]}.{pair[1]}"] = int(pair[2], 0)
+                        constants[f"{cls[1]}.{pair[1]}"] = pair[2]
 
     def resolve(token):
-        if re.fullmatch(r"0x[0-9a-fA-F]+|\d+", token):
-            return int(token, 0)
-        qualified = token if "." in token else f"InstanceProtocol.{token}"
-        if qualified not in constants:
-            raise ValueError(f"cannot resolve Gateway constant {token}")
-        return constants[qualified]
+        owner, seen = "InstanceProtocol", set()
+        while not re.fullmatch(r"0x[0-9a-fA-F]+|\d+", token):
+            qualified = token if "." in token else f"{owner}.{token}"
+            if qualified not in constants or qualified in seen:
+                raise ValueError(f"cannot resolve Gateway constant {qualified}")
+            seen.add(qualified)
+            owner, token = qualified.split(".")[0], constants[qualified]
+        return int(token, 0)
 
     catalog = os.path.join(REPO, "src", "GameServer.Core", "Protocol", "Instance", "ClientPackets.cs")
     with open(catalog, encoding="utf-8") as source:
@@ -111,6 +113,15 @@ def gateway_framing():
     rows, closed, _ = rows.partition("];")
     if not (found and closed):
         raise ValueError("cannot locate the ClientPackets rows")
+    # The catalog groups unnamed fixed packets of one length in a ushort array.
+    def expand_group(match):
+        ids, length = match.groups()
+        return ",".join(f"P({packet_id.strip()}, {length})" for packet_id in ids.split(","))
+
+    rows = re.sub(r"\.\.\s*new ushort\[\]\s*\{([^}]+)\}\.Select\(id => P\(id, (\d+), name: [^)]*\)\)",
+                  expand_group, rows)
+    if ".." in rows:
+        raise ValueError("unsupported group in ClientPackets rows")
     fixed, excluded = {}, {resolve("TicketId"), resolve("HelloId")}
     for kind, args in re.findall(r"\b([PV])\(([^()]*)\)", rows):
         parts = [part.strip() for part in args.split(",")]
