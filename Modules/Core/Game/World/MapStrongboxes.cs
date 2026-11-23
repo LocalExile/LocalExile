@@ -146,12 +146,45 @@ public static partial class MapStrongboxes
         return StrongboxCatalog.Roll(level, hardMode, mods, random);
     }
 
-    public static IReadOnlyList<(int X, int Y)> Positions(AreaLayout layout, uint seed, int count)
+    public static IReadOnlyList<(int X, int Y)> Positions(AreaLayout layout, uint seed, int count) =>
+        Positions(layout, seed, count, preferAmbushPoints: true);
+
+    public static IReadOnlyList<(int X, int Y)> Positions(AreaLayout layout, uint seed, int count, bool preferAmbushPoints)
     {
         if (count <= 0 || layout.Walkable is not { } walk) return [];
         var reach = AreaPopulation.Reachable(layout.GridW, layout.GridH, walk, (layout.SpawnX, layout.SpawnY));
         if (reach is null) return [];
         var random = new Random(unchecked((int)(seed ^ 0x414d4255)));
+        var result = new List<(int X, int Y)>();
+        // Prefer authored .arm AmbushPoint / AmbushPointSmall markers when present in the generated layout.
+        if (preferAmbushPoints && layout.Level?.RoomObjects is { Count: > 0 } roomObjects)
+        {
+            var markers = new List<(int X, int Y)>();
+            foreach (var o in roomObjects)
+            {
+                if (!o.Type.Equals("Metadata/MiscellaneousObjects/AmbushPoint", StringComparison.OrdinalIgnoreCase)
+                    && !o.Type.Equals("Metadata/MiscellaneousObjects/AmbushPointSmall", StringComparison.OrdinalIgnoreCase))
+                    continue;
+                var spot = (uint)o.X < (uint)layout.GridW && (uint)o.Y < (uint)layout.GridH && layout.WalkableFor(o.X, o.Y, 2)
+                    ? (X: o.X, Y: o.Y) : layout.Near((o.X, o.Y));
+                if ((uint)spot.X >= (uint)layout.GridW || (uint)spot.Y >= (uint)layout.GridH || !reach[spot.Y * layout.GridW + spot.X]) continue;
+                if (MapSulphite.Distance(spot, (layout.SpawnX, layout.SpawnY)) < 45
+                    || layout.AreaTransitions.Any(t => MapSulphite.Distance(spot, (t.Transition.GridX, t.Transition.GridY)) < 30))
+                    continue;
+                markers.Add(spot);
+            }
+            for (int i = markers.Count - 1; i > 0; i--)
+            {
+                int j = random.Next(i + 1);
+                (markers[i], markers[j]) = (markers[j], markers[i]);
+            }
+            foreach (var p in markers)
+            {
+                if (result.Count >= count) break;
+                if (result.All(other => MapSulphite.Distance(p, other) >= 30)) result.Add(p);
+            }
+            if (result.Count >= count) return result;
+        }
         var candidates = new List<(int X, int Y)>();
         for (int y = 3; y < layout.GridH - 3; y += 7)
             for (int x = 3; x < layout.GridW - 3; x += 7)
@@ -164,7 +197,6 @@ public static partial class MapStrongboxes
             int j = random.Next(i + 1);
             (candidates[i], candidates[j]) = (candidates[j], candidates[i]);
         }
-        var result = new List<(int X, int Y)>();
         foreach (var p in candidates)
         {
             if (result.Count >= count) break;
