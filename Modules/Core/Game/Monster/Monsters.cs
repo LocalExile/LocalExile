@@ -894,6 +894,7 @@ public static partial class Game
                 double d = Math.Sqrt((double)(mx - px) * (mx - px) + (double)(my - py) * (my - py));
                 // One player at a time: the instance's monster acts for whoever it targets, on that one's connection.
                 if (m.Hostile && !MonsterTargetsLocked(player, id, m, (mx, my), d, now)) continue;
+                if (m.TemporarilyAllied && !TemporaryAllyDriverLocked(player, id, m, (mx, my), now)) continue;
                 var decoy = DecoyTarget(m, now);
                 if (m.Hostile && decoy is null && GolemEnemyOrderLocked(player, id, m, now, d)) continue;
                 // A boss's kit (BossKits): the skill that is ready and reaches the player, else its chase swing. Never
@@ -1010,11 +1011,15 @@ public static partial class Game
                 if (player.Minions.Attacks.TryGetValue(id, out var pendingMinion))
                 {
                     if (ReferenceEquals(pendingMinion.Monster, m) && (player.Minions.Fights(id) || m.FightsForPlayers)
-                        && ConversionAttackCurrent(pendingMinion, now))
+                        && TemporaryAllyAttackCurrent(pendingMinion, now))
                     { plan.MinionSwings.Add(pendingMinion); continue; }
                     player.Minions.Attacks.Remove(id);
                 }
                 if (!m.Aggro || !MonsterAiCadence.Due(now, m.BusyUntil) || cadence.SwingPending(m)) continue;
+                // Totems, statues, vines and the like (MovementSpeed 0) never walk: the estimate's minimum speed must not
+                // move them, so they get no chase. Neither does a type the client never walks (Pathfinding immobile),
+                // whatever its speed column says: the client would only hop it to each order's from cell.
+                bool still = m.Variety is { MovementSpeed: 0 } or { Immobile: true } || m.Walk.MovementBlocked(now);
                 // The player's fighting minions attack his enemies near them; with none they follow him.
                 if ((player.Minions.Fights(id) || m.FightsForPlayers) && m.Attack is { } ma
                     && MinionTargetLocked(player, id, m, (mx, my), (px, py), now) is { } target)
@@ -1024,7 +1029,7 @@ public static partial class Game
                     // (0x141e9afc0), as a melee leg that short does (PlaceLockstepLeg), and swings in the frame it gets
                     // there (07 §6): the estimate walks the same walk-up and times the swing from its end. An in-place
                     // one (skill_is_non_pathing) plays where the minion stands, once its walk has ended.
-                    bool walkUp = !target.InReach && !double.IsNaN(plan.FrameStart) && !LockstepTakesMove((mx, my), target.Approach);
+                    bool walkUp = !still && !target.InReach && !double.IsNaN(plan.FrameStart) && !LockstepTakesMove((mx, my), target.Approach);
                     // Stand, then act, as a hostile monster does (below): an in-place action waits for the walk's end.
                     if ((target.InReach || walkUp) && StandsToAct(ma) && m.Walk.Moving(now)) continue;
                     if (target.InReach || walkUp)
@@ -1040,13 +1045,13 @@ public static partial class Game
                         m.LastTarget = null;
                         var attack = new PlayerMinions.Attack(id, m, (mx, my), target.Id, target.Monster, target.At,
                             begins + ma.Seconds * (ma.Release?.Fraction ?? .5))
-                            { ConversionUntil = m.TemporarilyAllied ? m.TemporaryAllyUntil : null };
+                            { TemporaryAllyUntil = m.TemporarilyAllied ? m.TemporaryAllyUntil : null };
                         player.Minions.Attacks[id] = attack;
                         plan.MinionSwings.Add(attack);
                     }
                     // A new path when the target moved, else again after arriving short, at most twice a second.
-                    else if (m.LastTarget is not { } last || Math.Abs(last.X - target.Approach.X) + Math.Abs(last.Y - target.Approach.Y) >= 3
-                        || now >= m.Walk.ArrivesAt && now >= m.NextChaseRetryAt)
+                    else if (!still && (m.LastTarget is not { } last || Math.Abs(last.X - target.Approach.X) + Math.Abs(last.Y - target.Approach.Y) >= 3
+                        || now >= m.Walk.ArrivesAt && now >= m.NextChaseRetryAt))
                     {
                         m.NextChaseRetryAt = now + 0.5;
                         m.LastTarget = target.Approach;
@@ -1094,10 +1099,6 @@ public static partial class Game
                         continue;
                     }
                 }
-                // Totems, statues, vines and the like (MovementSpeed 0) never walk: the estimate's minimum speed must not
-                // move them, so they get no chase. Neither does a type the client never walks (Pathfinding immobile),
-                // whatever its speed column says: the client would only hop it to each order's from cell.
-                bool still = m.Variety is { MovementSpeed: 0 } or { Immobile: true } || m.Walk.MovementBlocked(now);
                 // A swing order: a monster's in-place skill, a summoner's (its actor's clip, not a walk-up), a melee attack
                 // of a monster that never walks (the chase's own 0x1ab, whose goal test passes as it applies: 0x141e81c20),
                 // and any attack on a predictive client, where a walking player has already gone farther: no swing right

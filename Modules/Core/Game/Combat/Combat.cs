@@ -1069,7 +1069,8 @@ public static partial class Game
         if (actionToken is null && cooldownUse is null && !locationInstant && placedAdmission is { } placement
             && CooldownForSkill(player, skillId) is { } placedCooldown
             && !TryBeginSkillCooldownUse(player, skillId, placement.Effect, placedCooldown, false, () => { },
-                out cooldownUse, requestedAt: AreaTime(player), admit: () => PlacedCastAdmissionCurrent(player, placement)))
+                out cooldownUse, requestedAt: AreaTime(player),
+                admit: () => PlacedCastAdmissionCurrent(player, placement) && GemSkillInstanceDisabled(player, placement.Effect, skillId) is null))
             return false;
         await EndGracePeriod(player, action: true);
         var gem = GemSkillEffects(player).FirstOrDefault(g => g.Id == skillId);

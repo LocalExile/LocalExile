@@ -271,7 +271,13 @@ public static partial class Game
         bool dormant = area.DormantMonsters.ContainsKey(id);
         bool corpse = (m.Dead || m.Life == 0) && m.CreatedAsCorpse && !m.CorpseConsumed;
         var at = m.Walk.Position(now);
-        var shown = o.Object with { GridX = at.X, GridY = at.Y, Life = corpse ? 1u : m.Life };
+        var shown = o.Object with
+        {
+            GridX = at.X,
+            GridY = at.Y,
+            Life = corpse ? 1u : m.Life,
+            Team = m.TemporarilyAllied ? (ushort)0 : o.Object.Team,
+        };
         // One that has risen meanwhile is created risen (targetable), not in the wait it was placed in.
         if (!corpse && !dormant && m.Variety is { } v && Emerges.Kind(v, m.Rarity) != EmergeKind.None
             && !MonsterEmerge.Waiting(player, id) && shown.TransitionState != MonsterEmerge.RisenState(v)

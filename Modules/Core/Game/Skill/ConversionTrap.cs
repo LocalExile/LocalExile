@@ -1,11 +1,54 @@
+using System.Runtime.CompilerServices;
 using GameServer.Core.Protocol.Instance;
 
 public static partial class Game
 {
     const ushort ConversionTrapBuffRow = 165; // trap_convert_buff
+    static readonly ConditionalWeakTable<GameArea, HashSet<uint>> ConvertedMonsters = new();
 
-    static bool ConversionAttackCurrent(PlayerMinions.Attack attack, double at) =>
-        attack.ConversionUntil is not double until || at < until && attack.Monster.TemporaryAllyUntil == until;
+    static bool TemporaryAllyAttackCurrent(PlayerMinions.Attack attack, double at) =>
+        attack.TemporaryAllyUntil is not double until || at < until && attack.Monster.TemporaryAllyUntil == until;
+
+    static IEnumerable<Player> AreaPlayers(Player player)
+    {
+        yield return player;
+        HashSet<Player>? seen = null;
+        foreach (var peer in player.Frames.Players())
+        {
+            if (ReferenceEquals(peer, player)) continue;
+            seen ??= new(ReferenceEqualityComparer.Instance) { player };
+            if (seen.Add(peer)) yield return peer;
+        }
+        foreach (var peer in player.Instance?.PlayersExcept(player.Id) ?? [])
+        {
+            if (ReferenceEquals(peer, player)) continue;
+            seen ??= new(ReferenceEqualityComparer.Instance) { player };
+            if (seen.Add(peer)) yield return peer;
+        }
+    }
+
+    // One living nearby player drives a converted monster per frame so peers do not race in PlanMonsterAi.
+    static bool TemporaryAllyDriverLocked(Player player, uint id, SpawnedMonster m, (int X, int Y) at, double now)
+    {
+        Player? winner = null;
+        double bestDistance = double.MaxValue;
+        foreach (var peer in AreaPlayers(player))
+        {
+            if (peer.Minions.Attacks.TryGetValue(id, out var pending)
+                && ReferenceEquals(pending.Monster, m)
+                && TemporaryAllyAttackCurrent(pending, now)
+                && (peer.PlayerLife > 0 || pending.Started))
+                return ReferenceEquals(peer, player);
+            if (peer.Closed || peer.LeavingArea || !peer.AiEnabled || peer.Paused || peer.PlayerLife == 0
+                || !ReferenceEquals(peer.Instance, player.Instance)) continue;
+            if (!ReferenceEquals(peer, player) && !peer.Connection.PlayerSent) continue;
+            double distance = Dist(at, peer.Walk.Position(now));
+            if (!ReferenceEquals(peer, player) && distance > WakeZoneRadius + 16) continue;
+            if (winner is null || distance < bestDistance || distance == bestDistance && peer.Id < winner.Id)
+                (winner, bestDistance) = (peer, distance);
+        }
+        return ReferenceEquals(winner, player);
+    }
 
     static KeyValuePair<uint, SpawnedMonster> ConversionTrapTarget(Player player, PlacedSkills.Placed placed, double now)
     {
@@ -33,21 +76,45 @@ public static partial class Game
             || monster.Effects[Stat.CannotBeConvertedOrDominated] > 0) return;
 
         monster.TemporaryAllyUntil = now + placed.EffectDurationSeconds;
+        ConvertedMonsters.GetOrCreateValue(player.Area).Add(target.Key);
         ResetConversionTarget(player, target.Key, monster, now);
         // The native buff takes damage, taunt chance and original team. The area owns its instance for all observers.
         player.Area.Buffs.Set(target.Key, new(ConversionTrapBuffRow, Values: [0, 0, 1],
             U68: Buff.Seconds(placed.EffectDurationSeconds)));
+        records.World(target.Key, InstanceProtocol.SetTeam(target.Key, 0), "Conversion Trap sets player team");
         records.World(target.Key, InstanceProtocol.ActionEnded(target.Key), "Conversion Trap changes allegiance");
+    }
+
+    static void ExpireConversionTrapsLocked(Player player, double now, List<(byte[] Packet, string Log)> records)
+    {
+        if (!ConvertedMonsters.TryGetValue(player.Area, out var active) || active.Count == 0) return;
+        foreach (uint id in active.ToArray())
+        {
+            if (!player.Area.Monsters.TryGetValue(id, out var monster))
+            {
+                active.Remove(id);
+                player.Area.Buffs.Clear(id, ConversionTrapBuffRow);
+                foreach (var peer in AreaPlayers(player)) peer.Minions.Attacks.Remove(id);
+                continue;
+            }
+            if (monster.TemporaryAllyUntil <= 0) { active.Remove(id); continue; }
+            if (now >= monster.TemporaryAllyUntil || monster.Dead || monster.Life == 0)
+                EndConversionTrap(player, id, monster, now, records);
+        }
     }
 
     static void EndConversionTrap(Player player, uint id, SpawnedMonster monster, double now,
         List<(byte[] Packet, string Log)> records)
     {
         monster.TemporaryAllyUntil = 0;
+        if (ConvertedMonsters.TryGetValue(player.Area, out var active)) active.Remove(id);
         ResetConversionTarget(player, id, monster, now);
         player.Area.Buffs.Clear(id, ConversionTrapBuffRow);
         if (!monster.Dead && monster.Life > 0)
+        {
+            records.Add((InstanceProtocol.SetTeam(id, (ushort)(monster.OriginallyHostile ? 1 : 0)), "Conversion Trap restores team"));
             records.Add((InstanceProtocol.ActionEnded(id), "Conversion Trap allegiance ends"));
+        }
     }
 
     static void ResetConversionTarget(Player player, uint id, SpawnedMonster monster, double now)
@@ -65,6 +132,7 @@ public static partial class Game
         monster.Aggro = monster.TemporarilyAllied;
         monster.BusyUntil = now;
         monster.Walk.StopAt(now);
-        player.Minions.Attacks.Remove(id);
+        foreach (var peer in AreaPlayers(player))
+            peer.Minions.Attacks.Remove(id);
     }
 }

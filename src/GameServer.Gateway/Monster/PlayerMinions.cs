@@ -48,7 +48,7 @@ public sealed class PlayerMinions
         SpawnedMonster Target, (int X, int Y) To, double ContactAt)
     {
         public bool Started;
-        public double? ConversionUntil { get; init; }
+        public double? TemporaryAllyUntil { get; init; }
     }
     public readonly Dictionary<uint, Attack> Attacks = [];
     // Accepted gameplay finishes in the area's frame; only neutral output/projection data crosses Game replacement.

@@ -422,6 +422,7 @@ public static partial class Game
     {
         ProliferateLocked(player, now);
         var packets = new List<(byte[], string)>();
+        ExpireConversionTrapsLocked(player, now, packets);
         ProliferateIgnitesLocked(player, now, packets);
         if (!MonsterElementalAilments.AnyApplied && !player.Area.HasProliferatedAilments && !player.Area.HasSpiderWebs)
         {
@@ -440,7 +441,7 @@ public static partial class Game
 
     static void ProcessMonsterAilmentLocked(Player player, uint id, SpawnedMonster m, double now, List<(byte[] Packet, string Log)> packets)
     {
-        if (m.TemporaryAllyUntil > 0 && now >= m.TemporaryAllyUntil)
+        if (m.TemporaryAllyUntil > 0 && (now >= m.TemporaryAllyUntil || m.Dead || m.Life == 0))
             EndConversionTrap(player, id, m, now, packets);
         BearTrapChangesLocked(player, id, m, now, packets);
         // A knockback is presented before the ailment-idle skip: an idle monster still moves.

@@ -18,6 +18,9 @@ public sealed class ConversionTrapTests
         uint cost = Game.ManaCost(Program.Stats, Game.SkillsFor(player), supported.Effect, supported.Level, 0);
         var clock = new AreaClock();
         var prior = Game.AreaUpdateContext.Value;
+        var outgoing = Program.Outgoing;
+        var packets = new List<byte[]>();
+        Program.Outgoing = (recipient, bytes) => { if (ReferenceEquals(recipient, player)) packets.Add(bytes.ToArray()); };
         Game.AreaUpdateContext.Value = new(fixture.Lifetime, clock);
         try
         {
@@ -25,21 +28,48 @@ public sealed class ConversionTrapTests
             Assert.Equal(mana - cost, player.PlayerMana);
             Assert.Equal(1, Game.SingleUseState(player, supported.Effect, skill)!.SpentUses);
 
-            var converted = SpawnEnemy(player, 704, placed.At);
+            var converted = SpawnEnemy(player, 704, placed.At, variety: Game.Monsters.Find("Metadata/Monsters/Zombies/Zombie"));
             converted.Target = player;
-            var enemy = SpawnEnemy(player, 705, (placed.At.X + 4, placed.At.Y));
+            var enemy = SpawnEnemy(player, 705, (placed.At.X + 25, placed.At.Y));
             clock.At = placed.Armed + .01;
+            packets.Clear();
             await Tick(player, clock.At);
+            double convertedAt = clock.At;
             Assert.Empty(player.Placed.All);
             Assert.False(converted.Hostile);
+            Assert.True(converted.OriginallyHostile);
+            Assert.True(Assert.Single(SavedMonster.Save([converted], clock.At)).Hostile);
             Assert.Equal(converted.MaxLife, converted.Life);
             Assert.Null(converted.Target);
             Assert.True(enemy.Hostile);
             Assert.True(player.Area.Buffs.HasRow(converted.ObjectId, 165));
+            byte[] setTeamPlayer = InstanceProtocol.SetTeam(converted.ObjectId, 0);
+            Assert.Equal(new byte[] { 0x01, 0xbe, 0x00, 0x00, 0x02, 0xc0, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00 }, setTeamPlayer);
+            Assert.Contains(packets, p => p.AsSpan().IndexOf(setTeamPlayer) >= 0);
 
+            // Rooted / immobile converted monsters must not be ordered to walk or chase out-of-reach hostiles.
             var cadence = new MonsterAiCadence();
+            converted.Walk.BlockMovementUntil(clock.At + .1, clock.At);
+            var rootedPlan = Game.PlanMonsterAi(player, cadence, clock.At);
+            Assert.Empty(rootedPlan.Moves);
+            Assert.Empty(rootedPlan.MinionSwings);
+
+            // Once in reach, multiplayer arbitration assigns the converted monster to exactly one nearby living player.
+            clock.At += .25;
+            enemy.Walk.Teleport(placed.At.X + 4, placed.At.Y, clock.At);
+            var peer = new Player(player.Layout, 1, 2)
+            {
+                Instance = player.Instance,
+                PlayerLife = 10000,
+                AiEnabled = true,
+                Connection = { PlayerSent = true },
+            };
+            peer.Walk.Teleport(placed.At.X, placed.At.Y, clock.At);
+            player.Instance.AddPlayer(peer);
             var plan = Game.PlanMonsterAi(player, cadence, clock.At);
-            var swing = Assert.Single(plan.MinionSwings);
+            var peerPlan = Game.PlanMonsterAi(peer, new MonsterAiCadence(), clock.At);
+            Assert.Equal(1, plan.MinionSwings.Count + peerPlan.MinionSwings.Count);
+            var swing = plan.MinionSwings.Count == 1 ? Assert.Single(plan.MinionSwings) : Assert.Single(peerPlan.MinionSwings);
             Assert.Same(converted, swing.Monster);
             Assert.Equal(enemy.ObjectId, swing.TargetId);
             Assert.DoesNotContain(plan.Swings, order => ReferenceEquals(order.Monster, converted));
@@ -48,19 +78,28 @@ public sealed class ConversionTrapTests
             Assert.True(enemy.Life < enemy.MaxLife);
 
             int duration = supported.Stats[Stat.BaseSkillEffectDuration];
-            double expiry = clock.At + duration / 1000d;
+            double expiry = convertedAt + duration / 1000d;
             clock.At = expiry - .05;
             Game.AreaAilmentChangesLocked(player, clock.At);
             Assert.False(converted.Hostile);
             clock.At = expiry + .01;
-            Game.AreaAilmentChangesLocked(player, clock.At);
+            var expiryPackets = Game.AreaAilmentChangesLocked(player, clock.At);
+            byte[] setTeamHostile = InstanceProtocol.SetTeam(converted.ObjectId, 1);
+            Assert.Equal(new byte[] { 0x01, 0xbe, 0x00, 0x00, 0x02, 0xc0, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x01 }, setTeamHostile);
+            Assert.Contains(expiryPackets, p => p.Packet.SequenceEqual(setTeamHostile));
+            player.Instance.RemovePlayer(peer.Id);
             Game.PlanMonsterAi(player, cadence, clock.At);
             Assert.True(converted.Hostile);
             Assert.Same(player, converted.Target);
             Assert.False(player.Area.Buffs.HasRow(converted.ObjectId, 165));
             Assert.False(player.Minions.Attacks.ContainsKey(converted.ObjectId));
+            Assert.False(peer.Minions.Attacks.ContainsKey(converted.ObjectId));
         }
-        finally { Game.AreaUpdateContext.Value = prior; }
+        finally
+        {
+            Program.Outgoing = outgoing;
+            Game.AreaUpdateContext.Value = prior;
+        }
     }
 
     [Fact]
@@ -97,6 +136,22 @@ public sealed class ConversionTrapTests
             Assert.Empty(player.Placed.All);
             Assert.True(late.Hostile);
             Assert.Equal(late.MaxLife, late.Life);
+
+            // Dying before conversion expires clears TemporaryAllyUntil and buff 165 without emitting SetTeam(1) for a corpse.
+            player.Area.Monsters.Clear();
+            clock.At += 10;
+            placed = await Throw(player, skill, preflight: false);
+            var dying = SpawnEnemy(player, 707, placed.At);
+            clock.At = placed.Armed + .01;
+            await Tick(player, clock.At);
+            Assert.True(dying.TemporarilyAllied);
+            Assert.True(player.Area.Buffs.HasRow(dying.ObjectId, 165));
+            dying.Dead = true;
+            dying.Life = 0;
+            var deathPackets = Game.AreaAilmentChangesLocked(player, clock.At + .05);
+            Assert.Equal(0d, dying.TemporaryAllyUntil);
+            Assert.False(player.Area.Buffs.HasRow(dying.ObjectId, 165));
+            Assert.DoesNotContain(deathPackets, p => p.Packet.SequenceEqual(InstanceProtocol.SetTeam(dying.ObjectId, 1)));
         }
         finally { Game.AreaUpdateContext.Value = prior; }
     }
@@ -117,12 +172,14 @@ public sealed class ConversionTrapTests
         return Assert.Single(player.Placed.All.Values);
     }
 
-    static SpawnedMonster SpawnEnemy(Player player, uint id, (int X, int Y) at, MonsterRarity rarity = MonsterRarity.Normal)
+    static SpawnedMonster SpawnEnemy(Player player, uint id, (int X, int Y) at, MonsterRarity rarity = MonsterRarity.Normal,
+        MonsterCatalog.Variety? variety = null)
     {
         var monster = new SpawnedMonster("conversion target", new(at.X, at.Y, 0), 60, 4, 1000)
         {
             ObjectId = id,
             Rarity = rarity,
+            Variety = variety,
             Attack = new(0x2909, .5, 10, DamagePacket.Of(DamageType.Physical, new(10, 10))),
         };
         player.Area.Monsters.Add(id, monster);

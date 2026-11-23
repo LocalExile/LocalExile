@@ -327,6 +327,7 @@ public sealed class SpawnedMonster(string label, PlayerWalk walk, int aggroRange
     /// <summary>The damage taken toward each kit trigger on damage taken since it was last cast, by granted effect.</summary>
     public readonly Dictionary<int, double> KitDamageTaken = [];
     bool originallyHostile = true;
+    public bool OriginallyHostile => originallyHostile;
     public bool Hostile { get => originallyHostile && !TemporarilyAllied; init => originallyHostile = value; }
     /// <summary>The area's time when a temporary ally returns to its original allegiance.</summary>
     public double TemporaryAllyUntil;
