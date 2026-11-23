@@ -298,7 +298,7 @@ public static partial class Game
         byte level, MonsterRarity rarity, int x, int y, string? name = null, bool friendly = false, bool log = true, uint? damagedLife = null,
         MonsterModSet? mods = null, bool alone = true, bool? unrisen = null, float rotation = 0,
         IReadOnlyList<(uint Key, int Value)>? extraStats = null, Action<uint, SpawnedMonster>? owned = null, Func<bool>? ownedCurrent = null,
-        IReadOnlyList<GrantedSkill>? ownedSkills = null, IReadOnlyList<int>? ownedSkillEffects = null,
+        IReadOnlyList<GrantedSkill>? ownedSkills = null,
         uint? ownedMaximumLife = null, uint ownedMaximumEnergyShield = 0,
         uint ownedEnergyShield = 0,
         MonsterModSet? extraMods = null, bool scripted = false, IReadOnlyList<VisibleItem>? ownedLooks = null,
@@ -496,14 +496,12 @@ public static partial class Game
         if (skills is not null) skills = Yugul.AddSkills(player, variety, level, skills);
         if (skills is not null) skills = SolarisLunaris.AddSkills(player, variety, level, skills);
         // The effect behind each actor skill id, so a mod's command can play one of the monster's own skills by the
-        // GrantedEffects Id the client shows (AtlasBosses.ActorAction). The list matches the actor's skills: the
-        // caller's own (ownedSkills with ownedSkillEffects), the kit's, or the single swing.
-        IReadOnlyList<(int Effect, ushort Id)> skillIds =
-            ownedSkills is not null && ownedSkillEffects is not null && ownedSkillEffects.Count == ownedSkills.Count
-                ? [.. ownedSkills.Select((s, i) => (ownedSkillEffects[i], s.Id))]
-            : kit.Count > 0 ? [.. kit.Select(k => (k.Effect, k.Attack.SkillId))]
-            : skill is not null && effect >= 0 ? [(effect, skill.Id)]
-            : [];
+        // GrantedEffects Id the client shows (AtlasBosses.ActorAction). Derived from the actor's actual skills list so
+        // scripted bosses (kingSkills), kit skills, stage skills, ownedSkills and added boss skills all match what the
+        // client received on the actor.
+        IReadOnlyList<(int Effect, ushort Id)> skillIds = skills is null ? []
+            : [.. skills.Select(s => catalog.EffectsPerLevel((int)s.EffectsPerLevelRow) is { } ge
+                ? (ge.Effect, s.Id) : (-1, (ushort)0)).Where(x => x.Item1 >= 0)];
         List<(uint, int)>? stats = skill is null ? null : [.. attack.Stats()];
         // The final maximum too: the client applies no modifier of its own (as for the player's maximum_life), so without it
         // the life bars kept the base maximum and a unique showed full until its life fell below it (live 2026-10-21).

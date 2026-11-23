@@ -363,6 +363,7 @@ static class AtlasBosses
     internal static async Task<bool> ActorAction(Player player, uint id, string action)
     {
         if (!player.Area.Monsters.TryGetValue(id, out var monster)) return false;
+        if (monster.Dead || monster.Life == 0 || !CurrentGameWork || InGracePeriod(player)) return false;
         int effect = EffectByName(monster, action);
         if (effect < 0) return false;
         ushort skillId = 0;
@@ -370,7 +371,7 @@ static class AtlasBosses
             if (e == effect) { skillId = s; break; }
         if (skillId == 0) return false;
         var attack = new MonsterAttack(skillId, 1, Math.Max(20, monster.Attack?.Range ?? 20), DamagePacket.Empty)
-            { Spell = true, Scripted = true, NoContact = true };
+            { Spell = Game.SkillsFor(player).IsSpell(effect), Scripted = true, NoContact = true };
         int generation = Interlocked.Increment(ref monster.ActionGeneration);
         bool played = await MonsterSwingCore(player, id, monster, generation, attack);
         if (played)
