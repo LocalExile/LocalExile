@@ -141,38 +141,35 @@ public static class CrucibleEncounter
     internal static bool IsInAreaFrame(Player player) =>
         player.Area.Owned && player.Connection.WorldOutput.Started;
 
-    internal static async Task SendSharedCreate(Player player, uint id, byte[] blob, string? log)
+    static async Task SendShared(Player player, Func<Player, Task> send)
     {
         if (IsInAreaFrame(player))
         {
-            await SendWorldCreate(player, id, () => blob, log, wake: true, awaitBirth: false);
+            await send(player);
             return;
         }
-        await Settle(Task.WhenAll(Members(player).Select(member =>
-            SendWorldCreate(member, id, () => [.. blob], log, wake: true, awaitBirth: false))));
+        bool sentFramed = false;
+        var targets = new List<Player>();
+        foreach (var member in Members(player))
+        {
+            if (IsInAreaFrame(member))
+            {
+                if (sentFramed) continue;
+                sentFramed = true;
+            }
+            targets.Add(member);
+        }
+        await Settle(Task.WhenAll(targets.Select(send)));
     }
 
-    internal static async Task SendSharedRecord(Player player, uint id, byte[] record, string? log)
-    {
-        if (IsInAreaFrame(player))
-        {
-            await SendWorldRecord(player, id, record, log);
-            return;
-        }
-        await Settle(Task.WhenAll(Members(player).Select(member =>
-            SendWorldRecord(member, id, [.. record], log))));
-    }
+    internal static Task SendSharedCreate(Player player, uint id, byte[] blob, string? log) =>
+        SendShared(player, member => SendWorldCreate(member, id, () => [.. blob], log, wake: true, awaitBirth: false));
 
-    internal static async Task SendSharedRemoval(Player player, uint id, string? log)
-    {
-        if (IsInAreaFrame(player))
-        {
-            await SendWorldRemoval(player, id, log);
-            return;
-        }
-        await Settle(Task.WhenAll(Members(player).Select(member =>
-            SendWorldRemoval(member, id, log))));
-    }
+    internal static Task SendSharedRecord(Player player, uint id, byte[] record, string? log) =>
+        SendShared(player, member => SendWorldRecord(member, id, [.. record], log));
+
+    internal static Task SendSharedRemoval(Player player, uint id, string? log) =>
+        SendShared(player, member => SendWorldRemoval(member, id, log));
 
     /// <summary>True when the player's current area layout placed a <c>CrucibleDevice</c> (not Forge of the Titans).</summary>
     public static bool HasForgePlacement(Player player) =>
@@ -227,8 +224,7 @@ public static class CrucibleEncounter
 
     static void Build(Player player, EncounterState encounter, GameServer.Data.Terrain.Generation.PlacedTileObject deviceAt)
     {
-        int worldLevel = ClientTables.TableOrEmpty("WorldAreas")
-            .FirstOrDefault(r => r.Text("Id") == player.Layout.Id) is { Table: not null } wa ? wa.Int("AreaLevel") : 1;
+        int worldLevel = ServerLevels.AreaLevel(player.Layout.Id);
         encounter.AreaLevel = Math.Clamp(MapRunOf(player)?.Area.Level is > 0 ? MapRunOf(player)!.Area.Level : worldLevel, 1, 100);
 
         var device = new WorldObj
@@ -322,19 +318,21 @@ public static class CrucibleEncounter
         sheet.Add(CrucibleTables.ChannelWeaponAnimStat, view.AnimSet);
     }
 
-    /// <summary>Grants <c>ActiveSkills 1815</c> (<c>crucible_channel</c>) while in an area with an active Crucible Forge.</summary>
+    /// <summary>Grants <c>ActiveSkills 1815</c> (<c>crucible_channel</c>) while in the Forge ring before release.</summary>
     public static IReadOnlyList<GrantedSkill> GrantedSkills(Player player)
     {
-        if (!HasForge(player, out var encounter) || encounter.Phase is Phase.Completed) return [];
+        if (!HasForge(player, out var encounter) || encounter.Phase is not (Phase.Idle or Phase.Channeling)
+            || !Views.TryGetValue(player, out var view) || !view.InZone) return [];
         var skill = SkillsFor(player).Find(CrucibleChannelSkillId, "CrucibleChannel", 1);
         return skill is not null ? [skill] : [];
     }
 
-    /// <summary>Binds <c>crucible_channel</c> onto the first open skill-bar slot when granted. Ours: the real game
-    /// channels by click-and-hold in the popup, which the 3.29 client's empty popup cannot start.</summary>
+    /// <summary>Binds <c>crucible_channel</c> onto the first open skill-bar slot while in the Forge ring. Ours: the
+    /// real game channels by click-and-hold in the popup, which the 3.29 client's empty popup cannot start.</summary>
     public static void OnSkillBarBuilding(Player player, ushort[] ids)
     {
-        if (!HasForge(player, out var encounter) || encounter.Phase is Phase.Completed) return;
+        if (!HasForge(player, out var encounter) || encounter.Phase is not (Phase.Idle or Phase.Channeling)
+            || !Views.TryGetValue(player, out var view) || !view.InZone) return;
         if (Array.IndexOf(ids, CrucibleChannelSkillId) >= 0) return;
         for (int i = 3; i < ids.Length; i++)
         {
@@ -419,7 +417,7 @@ public static class CrucibleEncounter
 
         view.TargetRow = itemRow;
         view.TargetItemId = itemId;
-        view.VisualHash = type.VisualIdentity;
+        view.VisualHash = item.VisualIdentity != 0 ? item.VisualIdentity : type.VisualIdentity;
         view.AnimSet = CrucibleTreeEngine.CategoryOf(item, type, catalog.Mods) switch
         {
             CrucibleTreeEngine.WeaponCategory.TwoHand => TwoHandAnimSet,
@@ -434,13 +432,13 @@ public static class CrucibleEncounter
     }
 
     /// <summary>The player's target if it still stands, else the server's default: the first eligible of the main
-    /// hand, the off hand and the second set's two (our own order), with no skill chosen.</summary>
+    /// hand, the off hand, the second set's two and the helmet (our own order), with no skill chosen.</summary>
     static async Task<bool> EnsureTarget(Player player, PlayerView view)
     {
         if (view.TargetItemId != 0 && Eligible(player, view.TargetRow, view.TargetItemId, out _, out _)) return true;
         view.TargetItemId = 0;
         view.VisualHash = 0;
-        foreach (byte itemRow in (ReadOnlySpan<byte>)[PlayerInventories.Weapon1, PlayerInventories.Offhand1, PlayerInventories.Weapon2, PlayerInventories.Offhand2])
+        foreach (byte itemRow in (ReadOnlySpan<byte>)[PlayerInventories.Weapon1, PlayerInventories.Offhand1, PlayerInventories.Weapon2, PlayerInventories.Offhand2, PlayerInventories.Helmet])
             foreach (var item in ItemsOf(player).Items(itemRow))
                 if (Eligible(player, itemRow, item.Id, out _, out _))
                     return await SelectTarget(player, itemRow, item.Id, -1, 0);
@@ -916,7 +914,7 @@ public static class CrucibleEncounter
     }
 
     /// <summary>A channeller who leaves the area gets no experience; one who was channelling ends the channel for those
-    /// who stay.</summary>
+    /// who stay, or resets the Forge cleanly back to idle when the last player leaves.</summary>
     public static async Task OnPlayerLeaving(Player player)
     {
         if (!Views.TryGetValue(player, out var view)) return;
@@ -924,9 +922,76 @@ public static class CrucibleEncounter
         if (player.Instance is null || !Instances.TryGetValue(player.Instance, out var encounter)) return;
         lock (encounter.Channellers) encounter.Channellers.Remove(player);
         if (encounter.Phase is not (Phase.Idle or Phase.Channeling)) return;
-        if (view.InZone) Interlocked.Decrement(ref encounter.InZone);
-        // Released by one who stays: the one leaving can no longer form the channel's first monster.
-        if (view.Holding && Members(player).FirstOrDefault(m => !ReferenceEquals(m, player)) is { } other) await Release(other, encounter);
+
+        int inZone = encounter.InZone;
+        if (view.InZone)
+        {
+            inZone = Interlocked.Decrement(ref encounter.InZone);
+            if (inZone < 0)
+            {
+                Interlocked.CompareExchange(ref encounter.InZone, 0, inZone);
+                inZone = 0;
+            }
+        }
+
+        var other = Members(player).FirstOrDefault(m => !ReferenceEquals(m, player));
+        if (encounter.Phase == Phase.Channeling)
+        {
+            // Released by one who stays: the one leaving can no longer form the channel's first monster.
+            if (other is not null)
+            {
+                if (view.Holding) await Release(other, encounter);
+                return;
+            }
+            Player? joined = null;
+            await encounter.Gate.WaitAsync();
+            try
+            {
+                if (encounter.Phase != Phase.Channeling) return;
+                joined = Members(player).FirstOrDefault(m => !ReferenceEquals(m, player));
+                if (joined is null)
+                {
+                    encounter.Phase = Phase.Idle;
+                    encounter.InZone = 0;
+                    encounter.Charge = 0;
+                    encounter.Steps = 0;
+                    encounter.Theme = null;
+                    encounter.BreakoutAt = 0;
+                    lock (encounter.Channellers) encounter.Channellers.Clear();
+                    foreach (var held in encounter.Held)
+                    {
+                        if (player.Area.Monsters.Remove(held.Id, out var body))
+                        {
+                            body.Dead = true;
+                            body.Life = 0;
+                            ++body.ActionGeneration;
+                        }
+                        player.Instance.World.MonsterOrigins.TryRemove(held.Id, out _);
+                        player.Area.Buffs.Removed(held.Id);
+                    }
+                    encounter.Held.Clear();
+                    encounter.Fissures.Clear();
+                    encounter.Pools.Clear();
+                    encounter.AllObjects.Clear();
+                    if (encounter.Device is { } dev)
+                    {
+                        dev.States["activated"] = 0;
+                        dev.States["channelling"] = 0;
+                        dev.States["in_zone"] = 0;
+                        encounter.AllObjects.Add(dev);
+                    }
+                }
+            }
+            finally { encounter.Gate.Release(); }
+            if (joined is not null && view.Holding) await Release(joined, encounter);
+            return;
+        }
+
+        if (view.InZone && inZone == 0 && encounter.Phase == Phase.Idle && encounter.Device is { } device)
+        {
+            device.States["in_zone"] = 0;
+            if (other is not null) await Settle(SendStates(other, [device]));
+        }
     }
 
     /// <summary>Every monster is dead: each channeller's target item gets the experience ("only on completion", GGG
@@ -935,13 +1000,15 @@ public static class CrucibleEncounter
     {
         Player[] channellers;
         uint experience;
+        int killedExperience;
         await encounter.Gate.WaitAsync();
         try
         {
             if (encounter.Phase != Phase.Active) return;
             encounter.Phase = Phase.Completed;
+            killedExperience = encounter.KilledExperience;
             experience = (uint)Math.Round(CrucibleTables.Current.BalanceFor(encounter.AreaLevel).Bar1
-                * (encounter.KilledExperience / XpReferenceSum) * ExperienceMultiplier);
+                * (killedExperience / XpReferenceSum) * ExperienceMultiplier);
             lock (encounter.Channellers)
             {
                 channellers = [.. encounter.Channellers];
@@ -969,22 +1036,30 @@ public static class CrucibleEncounter
             byte itemRow = view.TargetRow;
             uint itemId = view.TargetItemId;
             if (experience == 0 || items.Items(itemRow).FirstOrDefault(i => i.Id == itemId) is not { } found
-                || catalog.ByHash(found.Item.TypeHash) is not { } type) continue;
+                || catalog.ByHash(found.Item.TypeHash) is not { } type
+                || !CrucibleTreeEngine.CanChannelInForge(found.Item, type, catalog.Mods)) continue;
 
             // On the item as it is now: this does not run on the channeller's own loop.
             bool revealedNow = false;
             int newlyAllocated = 0;
-            if (items.Change(itemRow, itemId, current => CrucibleTreeEngine.AwardExperience(current, type, catalog.Mods,
-                    experience, rng, out revealedNow, out newlyAllocated)) is not { } updated) continue;
+            bool awarded = false;
+            if (items.Change(itemRow, itemId, current =>
+                {
+                    if (!CrucibleTreeEngine.CanChannelInForge(current, type, catalog.Mods)) return current;
+                    awarded = true;
+                    return CrucibleTreeEngine.AwardExperience(current, type, catalog.Mods,
+                        experience, rng, out revealedNow, out newlyAllocated);
+                }) is not { } updated || !awarded) continue;
             await Settle(Send(channeller,
                 InstanceItems.InventoryChange(PlayerInventories.InventoryId(itemRow), items.NextRevision(itemRow), [itemId], [updated]),
                 $"0x00bf inventory {PlayerInventories.InventoryId(itemRow)}: Crucible Forge +{experience} XP on {type.Name}"));
             Console.WriteLine($"[crucible] {CharacterName(channeller)} completed Forge: +{experience} XP on {type.Name} " +
-                $"(killed {encounter.KilledExperience}, revealed={revealedNow}, allocated={newlyAllocated})");
+                $"(killed {killedExperience}, revealed={revealedNow}, allocated={newlyAllocated})");
         }
 
         var allItems = ItemsFor(player);
-        if (CrucibleRemnants.RollGeodeDrop(allItems, encounter.AreaLevel, encounter.Charge >= 1f, GeodeDropRate, rng) is { } geode
+        if (killedExperience > 0
+            && CrucibleRemnants.RollGeodeDrop(allItems, encounter.AreaLevel, encounter.Charge >= 1f, GeodeDropRate, rng) is { } geode
             && encounter.Device is { } dev)
         {
             var dropCell = player.Layout.Near((dev.X + 3, dev.Y + 3));

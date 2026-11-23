@@ -109,9 +109,9 @@ public static class CrucibleRemnants
         if (remnantSlot.TypeHash == 0) return;
 
         var modCatalog = ItemsFor(request.Player).Mods;
-        var explicitMods = new List<IReadOnlyDictionary<uint, int>>();
-        var implicitStats = new Dictionary<uint, int>();
-        var sum = new Dictionary<uint, int>();
+        var explicitMods = new List<IReadOnlyDictionary<uint, int>>(opening.Mods.ExplicitMods);
+        var implicitStats = new Dictionary<uint, int>(opening.Mods.Implicit);
+        var sum = new Dictionary<uint, int>(opening.Mods.Stats);
 
         foreach (var itemMod in remnantSlot.Mods)
         {
@@ -127,10 +127,6 @@ public static class CrucibleRemnants
             if (itemMod.Section == ModSection.Explicit && target.Count > 0)
                 explicitMods.Add(target);
         }
-
-        // Preserve any existing mods already placed on opening.Mods (e.g., from Idols or other modules).
-        foreach (var (k, v) in opening.Mods.Stats)
-            if (!sum.ContainsKey(k)) sum[k] = v;
 
         var updatedMods = new MapMods(sum, remnantSlot.Quality)
         {

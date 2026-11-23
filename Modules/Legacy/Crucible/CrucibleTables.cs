@@ -175,7 +175,10 @@ public sealed class CrucibleTables
     }
 
     /// <summary>XP bars for an item level (clamped to the table's 1..100).</summary>
-    public LevelBalance BalanceFor(int itemLevel) => _balance[Math.Clamp(itemLevel, 1, _balance.Length - 1)]!;
+    public LevelBalance BalanceFor(int itemLevel) => _balance.Length <= 1
+        ? new LevelBalance(Math.Clamp(itemLevel, 1, 100), 1, 2, 3, 4, 5)
+        : _balance[Math.Clamp(itemLevel, 1, _balance.Length - 1)]
+            ?? new LevelBalance(Math.Clamp(itemLevel, 1, 100), 1, 2, 3, 4, 5);
 
     /// <summary>CrucibleLifeScalingPerLevel MoreLife percentage for an area level.</summary>
     public int MoreLife(int areaLevel) =>

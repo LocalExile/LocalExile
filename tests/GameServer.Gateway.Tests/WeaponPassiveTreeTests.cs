@@ -255,13 +255,22 @@ public class WeaponPassiveTreeTests : IDisposable
             Assert.Equal(-1, reached.PendingRow(1));
             Assert.Null(CrucibleTreeEngine.SelectOrAllocateNode(reached, 1, 1));
 
-            // Another choice in a locked column drops the choices behind it; scouring falls back to the bar before.
+            // Another choice in a locked column drops the choices behind it; scouring falls back to the bar before,
+            // clears deeper pending choices and foreseeing, and refuses corrupted, mirrored or vestigial items.
             var deep = CrucibleTreeEngine.SelectOrAllocateNode(CrucibleTreeEngine.SelectOrAllocateNode(path, 1, 1)!, 2, 1)!;
             Assert.Equal(1, deep.PendingRow(2));
             Assert.Equal(-1, CrucibleTreeEngine.SelectOrAllocateNode(deep, 1, 0)!.PendingRow(2));
-            var scoured = CrucibleTreeEngine.UnallocateWithScouring(bow with { WeaponPassiveTree = reached }, 1, 0)!.WeaponPassiveTree!;
+            var scouredItem = CrucibleTreeEngine.UnallocateWithScouring(
+                bow with { WeaponPassiveTree = reached with { PendingCol2 = 1 }, Foreseeing = true, ForeseeSeed = 99 }, 1, 0)!;
+            Assert.False(scouredItem.Foreseeing);
+            Assert.Equal(0u, scouredItem.ForeseeSeed);
+            var scoured = scouredItem.WeaponPassiveTree!;
             Assert.Equal((uint)bars.Bar1, scoured.Experience);
             Assert.Equal(1, scoured.Allocation);
+            Assert.Equal(-1, scoured.PendingRow(2));
+            Assert.Null(CrucibleTreeEngine.UnallocateWithScouring(bow with { WeaponPassiveTree = reached, Corrupted = true }, 1, 0));
+            Assert.Null(CrucibleTreeEngine.UnallocateWithScouring(bow with { WeaponPassiveTree = reached, Mirrored = true }, 1, 0));
+            Assert.Null(CrucibleTreeEngine.UnallocateWithScouring(bow with { WeaponPassiveTree = reached, Vestigial = true }, 1, 0));
 
             // An unlocked column is never left empty: without a pending row the server takes the child that leads on.
             var filled = CrucibleTreeEngine.AwardExperience(bow with { WeaponPassiveTree = path with { Experience = 0, Allocation = 0 } },
@@ -300,6 +309,8 @@ public class WeaponPassiveTreeTests : IDisposable
             Assert.Equal(0, CrucibleTreeEngine.CombineRefusal(Forged(rapier), rapier, Forged(sword), sword, mods, uber: false));
             Assert.Equal(6789, CrucibleTreeEngine.CombineRefusal(Forged(axe), axe, Forged(sword), sword, mods, uber: true));
             Assert.Equal(6785, CrucibleTreeEngine.CombineRefusal(ItemCatalog.Create(sword), sword, Forged(sword), sword, mods, uber: true));
+            var headless = path with { Layout = (ushort)(1 << c10), Allocation = 0, Nodes = [new(physMod.Hash, [2, 6])] };
+            Assert.Equal(6785, CrucibleTreeEngine.CombineRefusal(Forged(sword) with { WeaponPassiveTree = headless }, sword, Forged(sword), sword, mods, uber: true));
             Assert.Equal(1203, CrucibleTreeEngine.CombineRefusal(Forged(sword) with { Corrupted = true }, sword, Forged(sword), sword, mods, uber: false));
             Assert.Equal(0, CrucibleTreeEngine.CombineRefusal(Forged(sword) with { Corrupted = true }, sword, Forged(sword), sword, mods, uber: true));
             Assert.Equal(6791, CrucibleTreeEngine.CombineRefusal(Forged(sword) with { Rarity = ItemRarity.Unique }, sword, Forged(sword), sword, mods, uber: true));

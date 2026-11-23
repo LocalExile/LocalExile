@@ -682,9 +682,9 @@ public static partial class Game
             return granted;
         }
 
-        void AddItemGrantedAttributes(Dictionary<uint, long> target, IReadOnlyList<Item> activeItems)
+        void AddItemGrantedAttributes(Dictionary<uint, long> target, HashSet<ushort>? granted)
         {
-            if (ItemGrantedPassives(activeItems) is not { } granted) return;
+            if (granted is null) return;
             foreach (ushort graphId in granted)
                 if (tree.Find(graphId) is { } grantedNode)
                     foreach (var (key, value) in grantedNode.Stats)
@@ -695,16 +695,17 @@ public static partial class Game
         Dictionary<uint, long> RawAttributes(IEnumerable<Item> active)
         {
             var items = active.ToArray();
+            var granted = ItemGrantedPassives(items);
             var raw = ItemModStats.RawAttributes(items, ItemsFor(player).Mods);
             foreach (var (name, value) in passiveAttributes) raw[name] = raw.GetValueOrDefault(name) + value;
-            AddItemGrantedAttributes(raw, items);
+            AddItemGrantedAttributes(raw, granted);
             // Independent equipment-count modifiers settle before comparisons that read those final attributes.
             // Keep wide attribute inputs and use the same conditional view for qualification and final pools.
             for (int pass = 0; pass < 4; pass++)
             {
                 var next = ItemModStats.RawAttributes(items, ItemsFor(player).Mods, ConditionSubject(raw, items), Stats.Has);
                 foreach (var (name, value) in passiveAttributes) next[name] = next.GetValueOrDefault(name) + value;
-                AddItemGrantedAttributes(next, items);
+                AddItemGrantedAttributes(next, granted);
                 bool same = raw.Count == next.Count && raw.All(p => next.TryGetValue(p.Key, out long value) && p.Value == value);
                 raw = next;
                 if (same) break;

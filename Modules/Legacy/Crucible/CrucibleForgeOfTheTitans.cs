@@ -149,25 +149,29 @@ public static class CrucibleForgeOfTheTitans
 
         int totalSpawned = 0;
 
-        foreach (var sp in spawners)
+        using (HoldMonstersRemaining(player))
         {
-            if (player.Closed || player.LeavingArea) break;
-            if (rng.Next(100) < EmptySpawnerPercent) continue;
-
-            // Ours: a random theme per spawner.
-            var theme = CrucibleMonsters.ThemeFor(rng.Next(Math.Max(1, CrucibleMonsters.Pools.Count)), rng);
-            var pack = CrucibleMonsters.RollEndgamePack(tables, theme, rng);
-
-            for (int k = 0; k < pack.Count; k++)
+            foreach (var sp in spawners)
             {
                 if (player.Closed || player.LeavingArea) break;
-                var (variety, rarity) = pack[k];
-                var cell = player.Layout.Near((sp.X + (k % 3 - 1) * 4, sp.Y + (k / 3 - 1) * 4));
-                uint id = await SpawnMonster(player, variety, monsterLevel, rarity,
-                    cell.X, cell.Y, unrisen: false, alone: false, extraMods: scaling);
-                if (id != 0) totalSpawned++;
+                if (rng.Next(100) < EmptySpawnerPercent) continue;
+
+                // Ours: a random theme per spawner.
+                var theme = CrucibleMonsters.ThemeFor(rng.Next(Math.Max(1, CrucibleMonsters.Pools.Count)), rng);
+                var pack = CrucibleMonsters.RollEndgamePack(tables, theme, rng);
+
+                for (int k = 0; k < pack.Count; k++)
+                {
+                    if (player.Closed || player.LeavingArea) break;
+                    var (variety, rarity) = pack[k];
+                    var cell = player.Layout.Near((sp.X + (k % 3 - 1) * 4, sp.Y + (k / 3 - 1) * 4));
+                    uint id = await SpawnMonster(player, variety, monsterLevel, rarity,
+                        cell.X, cell.Y, unrisen: false, alone: false, extraMods: scaling, bulk: true);
+                    if (id != 0) totalSpawned++;
+                }
             }
         }
+        await SendRemainingMonsters(player);
 
         Console.WriteLine($"[crucible] Forge of the Titans: spawned {totalSpawned} Crucible monsters across {spawners.Count} spawners");
     }
@@ -257,29 +261,35 @@ public static class CrucibleForgeOfTheTitans
             PlayerInventories.Row(inventoryId) is byte row && row != PlayerInventories.Cursor
             && items.Items(row).FirstOrDefault(i => i.Id == itemId) is { } item
             && catalog.ByHash(item.Item.TypeHash) is { } type ? (row, item, type) : null;
-        if (Find(req.TopInventoryId, req.TopItemId) is not var (topRow, topItem, topType)
-            || Find(req.BottomInventoryId, req.BottomItemId) is not var (botRow, botItem, botType))
-        {
-            Console.WriteLine($"[crucible] {CharacterName(player)} combine refused: no item at inventory {req.TopInventoryId} id {req.TopItemId}"
-                + $" or inventory {req.BottomInventoryId} id {req.BottomItemId}");
-            return true;
-        }
 
-        // ClientStrings 6790 "Inputs cannot be the same item." (0x1424bb850).
-        int refusal = topItem.Id == botItem.Id ? 6790
-            : CrucibleTreeEngine.CombineRefusal(topItem.Item, topType, botItem.Item, botType, catalog.Mods, area.Uber);
-        if (refusal != 0)
-        {
-            Console.WriteLine($"[crucible] {CharacterName(player)} combine of {topType.Name} into {botType.Name} refused: ClientStrings {refusal}");
-            return true;
-        }
-
-        InventoryItem? updatedBottom;
-        IReadOnlyList<InstanceCrucible.NodeMutation> mutations;
+        byte topRow = 0, botRow = 0;
+        InventoryItem topItem = null!, botItem = null!;
+        ItemCatalog.BaseType topType = null!, botType = null!;
+        InventoryItem? updatedBottom = null;
+        IReadOnlyList<InstanceCrucible.NodeMutation> mutations = [];
         await area.Gate.WaitAsync();
         try
         {
             if (area.CombiningUsed) return true;
+            if (Find(req.TopInventoryId, req.TopItemId) is not var (tRow, tItem, tType)
+                || Find(req.BottomInventoryId, req.BottomItemId) is not var (bRow, bItem, bType))
+            {
+                Console.WriteLine($"[crucible] {CharacterName(player)} combine refused: no item at inventory {req.TopInventoryId} id {req.TopItemId}"
+                    + $" or inventory {req.BottomInventoryId} id {req.BottomItemId}");
+                return true;
+            }
+            (topRow, topItem, topType) = (tRow, tItem, tType);
+            (botRow, botItem, botType) = (bRow, bItem, bType);
+
+            // ClientStrings 6790 "Inputs cannot be the same item." (0x1424bb850).
+            int refusal = topItem.Id == botItem.Id ? 6790
+                : CrucibleTreeEngine.CombineRefusal(topItem.Item, topType, botItem.Item, botType, catalog.Mods, area.Uber);
+            if (refusal != 0)
+            {
+                Console.WriteLine($"[crucible] {CharacterName(player)} combine of {topType.Name} into {botType.Name} refused: ClientStrings {refusal}");
+                return true;
+            }
+
             (var combined, mutations) = CrucibleTreeEngine.CombineTrees(
                 topItem.Item, botItem.Item, botType, catalog.Mods, area.CombineMods, AreaRng(player));
             // The throw takes the removal back out of the save and closes the connection (Saves).
@@ -313,11 +323,10 @@ public static class CrucibleForgeOfTheTitans
         if (area.Objects.FirstOrDefault(o => o.Id == area.CombiningBenchId) is { } benchObj)
             await TransitionUsed(player, benchObj);
 
-        if (CrucibleItemActions.IsEquipmentRow(topRow) || CrucibleItemActions.IsEquipmentRow(botRow))
+        if (PlayerInventories.ShowsOnModel(topRow))
+            await SendEquipment(player, items);
+        else if (CrucibleItemActions.IsEquipmentRow(topRow) || CrucibleItemActions.IsEquipmentRow(botRow))
             await WorldOf(player).RefreshStats();
-        // An equipped top item leaves the hands.
-        if (CrucibleItemActions.IsEquipmentRow(topRow))
-            await SendModelIfHandsChanged(player);
 
         Console.WriteLine($"[crucible] {CharacterName(player)} combined {topType.Name} into {botType.Name} ({mutations.Count} changed skill(s))");
         return true;

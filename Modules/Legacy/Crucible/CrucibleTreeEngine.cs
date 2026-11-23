@@ -110,6 +110,8 @@ public static class CrucibleTreeEngine
         }
 
         masks = CrucibleTreeTopology.Normalize(filledLayout, masks.LeftParents, masks.RightParents);
+        if (masks.Layout == 0)
+            return new WeaponPassiveTreeState(BalanceItemLevel: (uint)ilvl, Experience: 0, HasTree: false);
         var finalBits = CrucibleTreeTopology.BitsInOrder(masks.Layout);
         var nodes = new List<WeaponPassiveTreeNode>(finalBits.Count);
         foreach (int bit in finalBits) nodes.Add(rolledByBit[bit]);
@@ -155,6 +157,8 @@ public static class CrucibleTreeEngine
             if (newXp < (uint)balance.Bar1)
                 return item with { WeaponPassiveTree = new WeaponPassiveTreeState(balanceLevel, newXp, HasTree: false) };
             current = GenerateTree(item, type, mods, random) with { BalanceItemLevel = balanceLevel };
+            if (!current.HasTree)
+                return item with { WeaponPassiveTree = current with { Experience = newXp } };
             revealedNow = true;
         }
 
@@ -242,6 +246,7 @@ public static class CrucibleTreeEngine
     /// </summary>
     public static Item? UnallocateWithScouring(Item target, int col, int row)
     {
+        if (target.Corrupted || target.Mirrored || target.Vestigial) return null;
         if (target.WeaponPassiveTree is not { HasTree: true } tree) return null;
         if (!CrucibleTreeTopology.CanUnallocate(tree.Allocation, col, row)) return null;
 
@@ -251,12 +256,16 @@ public static class CrucibleTreeEngine
         uint newXp = col == 0 ? 0u : (uint)balance.BarToUnlock(col - 1);
         if (tree.Experience < newXp) newXp = tree.Experience;
 
-        var updated = tree.WithPendingRow(col, -1) with
+        for (int c = col; c < CrucibleTreeTopology.Columns; c++)
+            tree = tree.WithPendingRow(c, -1);
+
+        var updated = tree with
         {
             Allocation = newAlloc,
             Experience = newXp,
         };
-        return target with { WeaponPassiveTree = updated };
+        var result = target with { WeaponPassiveTree = updated };
+        return result.Foreseeing ? ItemRolls.ClearForesee(result) : result;
     }
 
     /// <summary>Applies a Magmatic Ore: its stored experience as it is, because the ore shows that number
@@ -305,7 +314,7 @@ public static class CrucibleTreeEngine
             if (!item.Identified) return 1211;
             if (item.Sockets.Any(s => s.Gem is not null)) return 1229;
             // The client tests the tree's layout ([+0x140] == 0): a tree whose first skill could not be filled is none.
-            if (item.WeaponPassiveTree is not { HasTree: true, Layout: not 0 }) return 6785;
+            if (item.WeaponPassiveTree is not { HasTree: true } tree || (tree.Layout & 1) == 0 || tree.NodeAt(0, 0) is null) return 6785;
             if (item.Mirrored) return 1223;
             if (uber) continue;
             if (item.Rarity == ItemRarity.Unique) return 1392;

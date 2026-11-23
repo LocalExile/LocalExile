@@ -36,7 +36,7 @@ public static class CrucibleItemActions
         var updated = CrucibleTreeEngine.UnallocateWithScouring(tgtItem.Item, (int)req.Column, (int)req.Row);
         if (updated is null)
         {
-            Console.WriteLine($"[crucible] {remote} <= 0x0116 unallocate ({req.Column},{req.Row}) on item {tgtItem.Id}: refused (not deepest allocated node)");
+            Console.WriteLine($"[crucible] {remote} <= 0x0116 unallocate ({req.Column},{req.Row}) on item {tgtItem.Id}: refused (corrupted / mirrored / vestigial / not deepest allocated node)");
             return true;
         }
 
@@ -60,6 +60,8 @@ public static class CrucibleItemActions
             leftCurrency = taken.Left;
             changedTarget = changed;
         }
+        if (tgtItem.Item.Foreseeing && player.ForesightRequest?.TargetId == tgtItem.Id)
+            player.ForesightRequest = null;
 
         async Task SendPlace(int? tab, byte row, List<uint> gone, List<InventoryItem> now, string what)
         {
