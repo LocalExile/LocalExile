@@ -248,10 +248,21 @@ public static partial class Game
         }
         foreach (var peer in player.Instance.PlayersExcept(player.Id))
             if (peer is { } other && other.Connection.PlayerSent && !other.Closed && !other.LeavingArea && other.PeerTemplate is not null)
-                foreach (var (bytes, kind) in PlayerCreate(other, player, now)) area.Delta.Add(other.Id, bytes, null, kind, only: player);
+            {
+                var otherAt = other.Walk.Position(now);
+                foreach (var (bytes, kind) in PlayerCreate(other, player, now))
+                    area.Delta.Add(other.Id, bytes,
+                        kind == AreaDelta.Kind.Create ? $"0x02bb create peer player 0x{other.Id:x} ({CharacterName(other)}) at ({otherAt.X}, {otherAt.Y})" : null,
+                        kind, only: player);
+            }
         if (player.PeerTemplate is not null)
+        {
+            var selfAt = player.Walk.Position(now);
             foreach (var (bytes, kind) in PlayerCreate(player, player, now))
-                area.Delta.Add(player.Id, bytes, $"player 0x{player.Id:x} {CharacterName(player)} joins the area", kind, except: player);
+                area.Delta.Add(player.Id, bytes,
+                    kind == AreaDelta.Kind.Create ? $"0x02bb create peer player 0x{player.Id:x} ({CharacterName(player)}) at ({selfAt.X}, {selfAt.Y})" : null,
+                    kind, except: player);
+        }
         // The area's objects as the others have them, then what the area's entities have now: their buffs and the stats
         // written since their creates.
         area.Objects.Join(player);

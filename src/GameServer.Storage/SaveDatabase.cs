@@ -213,6 +213,44 @@ public sealed class SaveDatabase : IDisposable
         c.ExecuteNonQuery();
     });
 
+    /// <summary>Renames a character's live save row (character_saves.name, or legacy characters.name before the move)
+    /// inside the active transaction. Child tables reference character_saves.id, so only the name column changes.
+    /// Returns false if a live save already exists under <paramref name="newName"/> or a database error occurs.</summary>
+    public bool RenameCharacterSave(string oldName, string newName)
+    {
+        try
+        {
+            return Atomically(() =>
+            {
+                bool sameName = oldName.Equals(newName, StringComparison.OrdinalIgnoreCase);
+                if (!sameName)
+                {
+                    using var conflict = Command("SELECT 1 FROM character_saves WHERE name = $new AND deleted_utc IS NULL LIMIT 1",
+                        ("$new", newName));
+                    if (conflict.ExecuteScalar() is not null) return false;
+                }
+                using (var rename = Command("UPDATE character_saves SET name = $new WHERE name = $old AND deleted_utc IS NULL",
+                           ("$old", oldName), ("$new", newName)))
+                    if (rename.ExecuteNonQuery() > 0) return true;
+                if (Relational) return true;
+                if (!sameName)
+                {
+                    using var legacyConflict = Command("SELECT 1 FROM characters WHERE name = $new LIMIT 1", ("$new", newName));
+                    if (legacyConflict.ExecuteScalar() is not null) return false;
+                }
+                using var legacy = Command("UPDATE characters SET name = $new WHERE name = $old",
+                    ("$old", oldName), ("$new", newName));
+                legacy.ExecuteNonQuery();
+                return true;
+            });
+        }
+        catch (SqliteException ex)
+        {
+            Console.WriteLine($"[saves] renaming character save {oldName} -> {newName} failed: {ServerLog.Describe(ex)}");
+            return false;
+        }
+    }
+
     /// <summary>Sets a deleted character's save aside (character_saves.deleted_utc), so a new character of that name starts
     /// over and the old one can still be put back by hand. Before the saves were moved into the save tables, the JSON save
     /// goes to deleted_characters instead. False when it had no save.</summary>
