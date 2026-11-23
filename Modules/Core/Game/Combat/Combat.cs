@@ -1611,7 +1611,9 @@ public static partial class Game
         AuraCatalog.Aura? started = null;
         // Locked commit backstop: a source may have changed after dispatch/cooldown preflight.
         if (player.Closed || player.LeavingArea || player.PlayerLife == 0 || InTown(player)
-            || OwnAuraSkillRestricted(player, effect, skillId) || CastingSpell(player, effect) && SpellsDisabled(player)) return false;
+            || EternalBlessingDisables(player, skillId) || OwnAuraSkillRestricted(player, effect, skillId)
+            || CastingSpell(player, effect) && SpellsDisabled(player)) return false;
+        var supported = SupportedSkill(player, skillId);
         if (effectId == "TemporalRift" && player.Auras.ContainsKey(skillId))
         {
             var packets = RecallTemporalRiftLocked(player);
@@ -1620,7 +1622,10 @@ public static partial class Game
         }
         else if (player.Auras.Remove(skillId, out var old))
         { ended = old; EndReservationRuntimeLocked(player, old); }
-        else if (player.Auras.Values.FirstOrDefault(a => a.EffectId == effectId) is { } same)
+        else if (player.Auras.Values.FirstOrDefault(a => a.EffectId == effectId) is { } same
+            && !(IsBlessingSkill(supported) && IsBlessingAura(same))
+            && !(supported.Stats.GetValueOrDefault(Stat.SkillAuraAlsoDisablesNonBlessingManaReservationSkills) != 0
+                && AuraSupport(player, skillId).AffectsSelf && OrdinaryManaAura(same)))
         {
             // One aura of a kind at a time: a second gem of the same aura can't start it.
             Console.WriteLine($"[gateway] {player.Connection.Remote} skill 0x{skillId:x4} {name}: refused, {same.Name} already runs (skill 0x{same.SkillId:x4})");
@@ -1630,7 +1635,7 @@ public static partial class Game
             return false;
         else
         {
-            var supported = SupportedSkill(player, skillId);
+            if (!GuardianBlessingAvailableLocked(player, supported)) return false;
             var (supportEffect, affectsSelf) = AuraSupport(player, skillId);
             var context = ReservationContext(player, skillId);
             string? stance = AuraCatalog.IsStance(effectId) ? player.Stance : null;
@@ -1646,9 +1651,12 @@ public static partial class Game
                 SupportEffectPct: supportEffect, AffectsSelf: affectsSelf, Stance: stance,
                 ReservesLife: context.Life, ReservationEfficiencyPct: context.Efficiency, IsHerald: IsHeraldAura(effectId),
                 ArtVariation: artVariation, HideVisual: hideVisual, SourceVisual: sourceVisual, BuffVisual: buffVisual);
-            var proposedAuras = player.Auras.Values.Append(aura).ToArray();
+            bool blessing = IsBlessingAura(aura);
+            bool eternal = EternalBlessingAura(aura);
+            var proposedAuras = player.Auras.Values.Where(a => (!blessing || !IsBlessingAura(a))
+                && (!eternal || !OrdinaryManaAura(a))).Append(aura).ToArray();
             long reserved = (long)AuraCatalog.RequiredMana(player.Pools, proposedAuras)
-                + PetrifiedBlood.RequiredMana(player.Pools, player.PetrifiedBlood)
+                + (eternal ? 0 : PetrifiedBlood.RequiredMana(player.Pools, player.PetrifiedBlood))
                 + PlacedSkills.Reserved(player.Pools, player.Placed.All.Values, false);
             var lifeReservation = LifeReservationFor(player, proposedAuras);
             int requiredLife = lifeReservation.Required;
@@ -1658,7 +1666,10 @@ public static partial class Game
                     $"{requiredLife} life reserved, maximum is {player.Pools.Mana} mana and {player.Pools.Life} life");
                 return false;
             }
+            if (blessing) EndOtherBlessingsLocked(player);
             player.Auras[skillId] = aura;
+            StartGuardianBlessingLocked(player, aura, supported);
+            if (eternal) SuspendManaReservedAurasLocked(player);
             started = aura;
             ClampReservedResources(player);
         }

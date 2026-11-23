@@ -283,7 +283,7 @@ public static partial class Game
                     && (definition.Family != "Clone" || player.Summons.Definitions[g.Id].LimitStat == definition.LimitStat);
                 while (replacement is null && player.Summons.Fighters.Values.Count(SameLimit) >= limit)
                     RemoveSummonLocked(player, player.Summons.Fighters.Values.Where(SameLimit)
-                        .MinBy(g => g.SummonedAt)!, AreaTime(player));
+                        .MinBy(g => g.SummonedAt)!, AreaTime(player), reconcileBlessing: false);
                 double committed = AreaTime(player);
                 SummonReplacementResources? committedResources = replacement is null
                     ? null : CaptureReplacementResources(replacement.Old, committed);
@@ -317,6 +317,7 @@ public static partial class Game
                 player.Minions.StatRevision++;
                 if (!pools.Fatal) PresentTransferredGolemDotBuffsLocked(player, fighter, committed);
                 if (pools.Fatal) GolemDieLocked(player, fighter, AreaTime(player), emitLife: false);
+                else ReconcileGuardianBlessingLocked(player);
             });
         return id;
     }
@@ -329,11 +330,11 @@ public static partial class Game
         if (playerConsumesCorpse) NoteCorpseConsumedLocked(player, corpse);
     }
 
-    static void RemoveSummonLocked(Player player, GolemState.Golem fighter, double now)
+    static void RemoveSummonLocked(Player player, GolemState.Golem fighter, double now, bool reconcileBlessing = true)
     {
         player.Summons.Fighters.Remove(fighter.Id); player.Summons.Until.Remove(fighter.Id);
         player.Summons.Definitions.Remove(fighter.Id); player.Summons.Weapons.Remove(fighter.Id);
-        RemoveGolemLocked(player, fighter, now);
+        RemoveGolemLocked(player, fighter, now, reconcileBlessing);
         player.Minions.StatRevision++;
     }
 

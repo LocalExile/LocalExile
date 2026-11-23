@@ -880,6 +880,9 @@ public static partial class Game
             var weapon = WeaponProfileFor(player, activeSet: true);
             int basis = weapon.Unarmed && (!SkillsFor(player).IsMelee(gem.Effect) || SkillsFor(player).IsSpell(gem.Effect)) ? 0
                 : AttackBaseCriticalStrike.OfMainHand(!weapon.Unarmed, weaponCritical ?? weapon.Critical, Player);
+            if (Own(Stat.AdditionalCriticalStrikeChancePermyriadWhileAffectedByElusive) is int elusiveBase and not 0
+                && ElusiveFactor(player) > 0)
+                basis = ActorScale.Saturate((long)basis + elusiveBase);
             long increased = player.Pools.CriticalStrikeChancePct + extraIncrease
                 + AttackBaseCriticalStrike.IncreasedSum(weapon, name => Own(name));
             int chance = AttackBaseCriticalStrike.ChanceOfBase(basis, increased, Player, Own);
@@ -910,6 +913,9 @@ public static partial class Game
                 && curseSources.GetValueOrDefault(free) != 0) return new(0, 0, 0, 0);
         }
         if (sourceReservation is not { } reservation) return null;
+        if (gem.Stats.GetValueOrDefault(Stat.BaseSkillNoReservation) != 0
+            || gem.Stats.GetValueOrDefault(Stat.AuraSkillNoReservation) != 0)
+            return new(0, 0, 0, 0);
         var sources = StatSourceValues(player);
         int Own(uint name) => GolemStat(gem.Stats, name);
         int Get(uint name) => Own(name) + (name is var key
@@ -955,7 +961,7 @@ public static partial class Game
     public static int SupportedCriticalMultiplier(Player player, ushort skillId)
     {
         var gem = SupportedSkill(player, skillId);
-        int extra = gem.Stats.GetValueOrDefault(Stat.BaseCriticalStrikeMultiplierPlus);
+        long extra = (long)gem.Stats.GetValueOrDefault(Stat.BaseCriticalStrikeMultiplierPlus) + NightbladeCriticalMultiplier(player, gem.Stats);
         var playerStats = CharacterPlayerStats(player);
         // The skill's own "+X% to Critical Strike Multiplier per Power Charge" (Power Siphon): the character's own
         // per-charge stats are already in its stats (ChargeEffects), this one only on the skill.
