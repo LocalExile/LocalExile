@@ -76,7 +76,15 @@ public static partial class Game
         uint final = definition.FinalLimitStat;
         long value = (long)GolemStat(gem.Stats, definition.LimitStat) + GolemStat(playerStats, definition.LimitStat) + GolemStat(playerStats, final);
         if (definition.Family == "Zombie")
+        {
+            int PerAttribute(uint attribute, uint threshold) => GolemStat(playerStats, threshold) is int step and > 0
+                ? Math.Max(0, GolemStat(playerStats, attribute)) / step : 0;
+            value += (long)PerAttribute(Stat.Strength, Stat.NumberOfZombiesAllowedPlus1PerXStrength)
+                + PerAttribute(Stat.Intelligence, Stat.NumberOfZombiesAllowedPlus1PerXIntelligenceFromFoulbornBaron);
             return (int)Math.Clamp(value * (1 + GolemStat(playerStats, Stat.NumberOfZombiesAllowedPlusPct) / 100d), 0, 200);
+        }
+        if (definition.Family == "RagingSpirit")
+            return (int)Math.Clamp(value * (1 + GolemStat(playerStats, Stat.PctNumberOfRagingSpiritsAllowed) / 100d), 0, 200);
         // Clones have no ordinary cap; duration is their lifetime constraint.
         return (int)Math.Clamp(value == 0 && definition.Family == "Clone" ? 100 : value, 0, 200);
     }
@@ -88,13 +96,21 @@ public static partial class Game
         int ms = GolemStat(gem.Stats, definition.Family == "Spectre" ? Stat.SpectresHaveBaseDurationMs
             : secondary ? Stat.BaseSecondarySkillEffectDuration : Stat.BaseSkillEffectDuration);
         var playerStats = CharacterPlayerStats(player);
-        bool skeleton = definition.Family is "Skeleton" or "VaalSkeleton";
-        int Read(uint key) => key == SkillDurationModifiers.IncreasedDuration && skeleton
-            ? ActorScale.Saturate((long)GolemStat(playerStats, key) + GolemStat(playerStats, Stat.SkeletonDurationPlusPct))
+        uint familyDuration = definition.Family switch
+        {
+            "Skeleton" or "VaalSkeleton" => Stat.SkeletonDurationPlusPct,
+            "RagingSpirit" => Stat.SummonedRagingSpiritDurationPlusPct,
+            _ => 0,
+        };
+        int Read(uint key) => key == SkillDurationModifiers.IncreasedDuration && familyDuration != 0
+            ? ActorScale.Saturate((long)GolemStat(playerStats, key) + GolemStat(playerStats, familyDuration))
             : GolemStat(playerStats, key);
         return SkillDurationModifiers.Seconds(ms, Read, n => GolemStat(gem.Stats, n),
             DurationKinds(player, gem.Effect) | (secondary ? SkillDurationModifiers.Kinds.Secondary : 0));
     }
+
+    static bool SummonNeedsCorpse(SummonCatalog.Definition definition, IReadOnlyDictionary<uint, int> playerStats) =>
+        definition.Corpse && (definition.Family != "Zombie" || GolemStat(playerStats, Stat.RaiseZombieDoesNotUseCorpses) == 0);
 
     static SpawnedMonster? SummonCorpse(Player player, (int X, int Y) aim, uint target, double radius = 15)
     {
@@ -122,6 +138,9 @@ public static partial class Game
         {
             var gem = SupportedSkill(player, source);
             int count = SummonCount(definition, gem, AreaRng(player));
+            if (definition.Family == "Skeleton" && GolemStat(gem.Stats, Stat.NumberOfMeleeSkeletonsToSummon) > 0
+                && GolemStat(CharacterPlayerStats(player), Stat.SummonSkeletonsNumAdditionalWarriorSkeletons) is int extra and not 0)
+                count = Math.Min(Math.Max(1, ActorScale.Add(Stat.NumberOfMeleeSkeletonsToSummon, count, extra)), SummonLimit(player, definition, gem));
             for (int i = 0; i < count && current(); i++)
             {
                 if (definition.Family == "Reaper" && definition.Id != "SummonReaperAltX")
@@ -200,7 +219,7 @@ public static partial class Game
         SpawnedMonster? corpse = consumedCorpse;
         AnimatedSource? animated = null;
         string path = restoredVariety ?? definition.Variety;
-        if (restoredVariety is null && definition.Corpse)
+        if (restoredVariety is null && SummonNeedsCorpse(definition, playerStats))
         {
             corpse = SummonCorpse(player, aim, target);
             if (corpse is null) return 0;

@@ -127,6 +127,8 @@ public static partial class Game
         }
         if (!golem.Definition.IsGolem)
         {
+            if (golem.Definition.Kind == "RagingSpirit" && Get(Stat.RagingSpiritDamagePlusPct) is int spiritDamage and not 0)
+                values[Stat.DamagePlusPct] = ActorScale.Saturate((long)values.GetValueOrDefault(Stat.DamagePlusPct) + spiritDamage);
             values[Stat.GlobalMinimumAddedPhysicalDamage] = values.GetValueOrDefault(Stat.GlobalMinimumAddedPhysicalDamage)
                 + Get(Stat.NonGolemMinionGlobalMinimumAddedPhysicalDamage);
             values[Stat.GlobalMaximumAddedPhysicalDamage] = values.GetValueOrDefault(Stat.GlobalMaximumAddedPhysicalDamage)

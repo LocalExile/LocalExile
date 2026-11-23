@@ -125,7 +125,7 @@ public static partial class Game
                 || TotemCastSeconds(player, totem.SkillId) is not double seconds) continue;
             var aim = target.Value?.Walk.Position(now) ?? totem.At;
             uint summonTarget = 0;
-            if (summon?.Corpse == true)
+            if (summon is { Corpse: true } && SummonNeedsCorpse(summon, CharacterPlayerStats(player)))
             {
                 if (SummonCorpse(player, totem.At, 0, range) is not { } corpse) continue;
                 summonTarget = player.Area.Monsters.First(p => ReferenceEquals(p.Value, corpse)).Key;

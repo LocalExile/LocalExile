@@ -25,9 +25,14 @@ public static partial class Game
         double rawBaseLife = (double)(monsters.BaseLife(variety, level) ?? 100)
             + golem.Gear.GetValueOrDefault(Stat.BaseMaximumLife)
             + (golem.Definition.Kind == "Zombie" ? Player(Stat.ZombieMaximumLifePlus) : 0);
+        int familyLife = golem.Definition.IsGolem ? Player(Stat.GolemMaximumLifePlusPct) : golem.Definition.Kind switch
+        {
+            "Zombie" => Player(Stat.BaseZombieMaximumLifePlusPct),
+            "RagingSpirit" => Player(Stat.MinionRagingSpiritMaximumLifePlusPct),
+            _ => 0,
+        };
         double lifeIncreased = (long)Player(Stat.MinionMaximumLifePlusPct) + Own(Stat.MinionMaximumLifePlusPct)
-            + (golem.Definition.IsGolem ? Player(Stat.GolemMaximumLifePlusPct) : 0)
-            + golem.Gear.GetValueOrDefault(Stat.MaximumLifePlusPct) + inherited[Stat.MaximumLifePlusPct];
+            + familyLife + golem.Gear.GetValueOrDefault(Stat.MaximumLifePlusPct) + inherited[Stat.MaximumLifePlusPct];
         double lifeMore = Math.Max(0, 1 + Own(Stat.ActiveSkillMinionLifePlusPctFinal) / 100.0)
             * Math.Max(0, 1 + Own(Stat.SupportMinionMaximumLifePlusPctFinal) / 100.0)
             * Math.Max(0, 1 + Own(Stat.SupportMinionDamageMinionLifePlusPctFinal) / 100.0)
