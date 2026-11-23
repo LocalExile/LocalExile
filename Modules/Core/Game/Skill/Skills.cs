@@ -418,9 +418,7 @@ public static partial class Game
         var c = Skills.ClassFor(classRow);
         var (str, dex, intel) = pools.AttributesResolved || pools.Strength != 0 || pools.Dexterity != 0 || pools.Intelligence != 0
             ? (pools.Strength, pools.Dexterity, pools.Intelligence) : (c.Strength, c.Dexterity, c.Intelligence);
-        foreach (var (stat, value) in new[] { (Stat.Strength, str), (Stat.Dexterity, dex), (Stat.Intelligence, intel),
-            (Stat.VirtualStrengthForRequirements, str), (Stat.VirtualDexterityForRequirements, dex),
-            (Stat.VirtualIntelligenceForRequirements, intel) })
+        foreach (var (stat, value) in new[] { (Stat.Strength, str), (Stat.Dexterity, dex), (Stat.Intelligence, intel) })
             if (stat is var key) yield return (key, value);
     }
 

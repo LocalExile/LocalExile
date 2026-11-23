@@ -927,6 +927,8 @@ public static partial class Game
     {
         bool paymentPublished, completed, nativeCommitted;
         public IReadOnlyList<(SingleUseCooldownState State, int Version, ushort Skill)> SharedUses { get; init; } = [];
+        public bool CooldownReset { get; init; }
+        public int ResetBaseMilliseconds { get; init; }
 
         public bool Matches(ushort skillId, int effect) => SkillId == skillId && Effect == effect;
 
@@ -948,7 +950,10 @@ public static partial class Game
         {
             if (!ReferenceEquals(Player, player)) return false;
             if (nativeCommitted || !CurrentLocked(player)) return false;
-            Cooldown.ConfirmNativeUse(UseVersion, SkillId, synchronizeProgress: false);
+            if (CooldownReset)
+                Cooldown.SynchronizeNativeReset(SkillId, ResetBaseMilliseconds);
+            else
+                Cooldown.ConfirmNativeUse(UseVersion, SkillId, synchronizeProgress: false);
             foreach (var (state, version, skill) in SharedUses)
                 state.ConfirmNativeUse(version, skill, synchronizeProgress: true);
             nativeCommitted = true;
@@ -1019,15 +1024,23 @@ public static partial class Game
             if (!PayMana(player, skillId, out uint manaCost, out uint lifeCost)) return false;
 
             // Nothing below can refuse: payment, cooldown use, action, displacement and recents are one commit.
-            _ = state.TryUse(acceptedAt, plan);
+            state.Refresh(acceptedAt, plan.RecoveryRate);
+            state.Capacity(plan.Uses);
+            bool cooldownReset = CooldownResetTriggered(player, effect, skillId, AreaRng(player));
+            if (!cooldownReset) _ = state.TryUse(acceptedAt, plan);
             player.SkillReadyAt[key] = acceptedAt + state.RemainingSeconds;
-            var sharedUses = SpendSharedCooldownPeers(player, key, effect, skillId, plan, acceptedAt, peers);
+            var sharedUses = cooldownReset ? [] : SpendSharedCooldownPeers(player, key, effect, skillId, plan, acceptedAt, peers);
             int action = beginAction ? Interlocked.Increment(ref player.ActionCount) : player.ActionCount;
             if (beginAction) player.Walk.Order(from.X, from.Y, acceptedAt);
             player.Walk.Teleport(to.X, to.Y, acceptedAt);
             RecordAcceptedGemUseAt(player, effect, to, acceptedAt);
             receipt = new(player, CombatLifetime!, skillId, effect, source.Identity, action, player.ProjectileEpoch,
-                acceptedAt, from, to, state, state.UseVersion, manaCost, lifeCost) { SharedUses = sharedUses };
+                acceptedAt, from, to, state, state.UseVersion, manaCost, lifeCost)
+            {
+                SharedUses = sharedUses,
+                CooldownReset = cooldownReset,
+                ResetBaseMilliseconds = cooldownReset ? plan.BaseMilliseconds : 0,
+            };
             return true;
         }
     }

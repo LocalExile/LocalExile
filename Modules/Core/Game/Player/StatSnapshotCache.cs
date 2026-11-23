@@ -159,11 +159,11 @@ public static partial class Game
             // only clamps to the maximum pool. Publish 0 while the buff stops non-flask recovery at Low Life.
             if (inputs.PetrifiedBloodRecoveryCapped && Stat.LifeRecoveryPerMinute is var lifeRecovery)
                 stats[lifeRecovery] = 0;
-            // Requirement checks read virtual_*_for_requirements (0x3d1b-0x3d1d, 0x1421f3a40); keep them aligned with
-            // the resolved attributes.
-            stats[Stat.VirtualStrengthForRequirements] = Get(Stat.Strength);
-            stats[Stat.VirtualDexterityForRequirements] = Get(Stat.Dexterity);
-            stats[Stat.VirtualIntelligenceForRequirements] = Get(Stat.Intelligence);
+            // Requirement checks read virtual_*_for_requirements (0x3d1b-0x3d1d, 0x1421f3a40); default them to the
+            // resolved attributes without clobbering pre-existing overrides.
+            stats.TryAdd(Stat.VirtualStrengthForRequirements, Get(Stat.Strength));
+            stats.TryAdd(Stat.VirtualDexterityForRequirements, Get(Stat.Dexterity));
+            stats.TryAdd(Stat.VirtualIntelligenceForRequirements, Get(Stat.Intelligence));
             // Client player light (0x141659b80 / 0x141656e50) reads virtual_light_radius_+% (0x1e59, calculator
             // 0x142745510: light_radius_+% + light_radius_+%_while_phased while phased) and
             // virtual_blind_does_not_affect_light_radius (0x2fa8, calculator 0x1428b52f0: keystone_blind_monk ||

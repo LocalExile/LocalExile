@@ -27,25 +27,38 @@ static partial class Game
     /// <c>cannot_be_knocked_back</c> by a mod it was spawned or upgraded with.</summary>
     internal static bool KnockbackAllowed(SpawnedMonster m) =>
         m.Hostile && !m.Dead && m.Life > 0 && !m.StageRunning && !m.Scripted && !m.Asleep
+        && m.Variety is not ({ MovementSpeed: 0 } or { Immobile: true })
         && !BossMods.KnockbackImmune(m.Variety) && m.Effects[Stat.CannotBeKnockedBack] <= 0;
 
-    /// <summary>The push destination: the farthest walkable cell along the direction from <paramref name="from"/>
-    /// (the player) to <paramref name="at"/> (the monster), from <paramref name="cells"/> down to 1 away; null when
-    /// even the next cell is blocked or the two stand on the same cell.</summary>
+    /// <summary>The push (or pull, when <paramref name="reversed"/> is set) destination: walks step-by-step from 1 up
+    /// to <paramref name="cells"/> along the knockback direction, stopping at the first unwalkable/barrier cell so the
+    /// monster never tunnels through walls; reversed knockback clamps pull distance before overlapping
+    /// <paramref name="from"/>.</summary>
     internal static (int X, int Y)? KnockbackDestination((int X, int Y) from, (int X, int Y) at, double cells,
-        Func<int, int, bool> walkable)
+        Func<int, int, bool> walkable, bool reversed = false, int minSeparation = 0)
     {
         double dx = at.X - from.X, dy = at.Y - from.Y;
         double length = Math.Sqrt(dx * dx + dy * dy);
         if (length <= 0) return null;
         dx /= length; dy /= length;
-        for (int step = Math.Max(1, (int)Math.Round(cells)); step >= 1; step--)
+        if (reversed)
+        {
+            dx = -dx; dy = -dy;
+            double maxPull = Math.Max(0, length - Math.Max(1, minSeparation));
+            cells = Math.Min(cells, maxPull);
+            if (cells < 0.5) return null;
+        }
+        else if (cells <= 0) return null;
+        int maxStep = Math.Max(1, (int)Math.Round(cells));
+        (int X, int Y)? best = null;
+        for (int step = 1; step <= maxStep; step++)
         {
             var cell = ((int)Math.Round(at.X + dx * step), (int)Math.Round(at.Y + dy * step));
-            if (cell == at || !walkable(cell.Item1, cell.Item2)) continue;
-            return cell;
+            if (cell == at) continue;
+            if (!walkable(cell.Item1, cell.Item2)) break;
+            best = cell;
         }
-        return null;
+        return best;
     }
 
     /// <summary>Clears enemies overlapping a Leap Slam landing, independently of the later hit's accuracy, block or damage.
@@ -144,7 +157,8 @@ static partial class Game
     /// ActionHit and <see cref="SpawnedMonster.KnockbackPending"/> falls back to the AI tick's Teleport for hits that
     /// do not. Under the Monsters lock, after the hit's damage.</summary>
     internal static bool KnockbackOnHitLocked(Player player, SpawnedMonster m, IReadOnlyDictionary<uint, int> playerStats,
-        IReadOnlyDictionary<uint, int>? skill, double now, Random random, (int X, int Y)? origin = null)
+        IReadOnlyDictionary<uint, int>? skill, double now, Random random, (int X, int Y)? origin = null,
+        int attackerSize = LivingCollision.PlayerSize, bool attackerHasReversedStat = true)
     {
         if (!KnockbackAllowed(m)) return false;
         int Stat(uint name)
@@ -156,12 +170,17 @@ static partial class Game
         if (!RandomRolls.Chance(Stat(KnockbackChanceStat), 100, random)) return false;
         var at = m.Walk.Position(now);
         var from = origin ?? player.Walk.Position(now);
+        bool reversed = Stat(KnockbackReversedStat) != 0;
         double cells = KnockbackMinimumMetres * CellsPerMetre * Math.Max(0, 1 + Stat(KnockbackDistanceStat) / 100d);
         int size = Math.Max(0, LivingCollision.Size(m));
+        int effAttackerSize = Math.Max(0, attackerSize);
+        int minSeparation = reversed ? Math.Max(1, effAttackerSize + size + 1) : 0;
         if (KnockbackDestination(from, at, cells,
-                (x, y) => player.Layout.WalkableFor(x, y, size) && !player.Barrier.Contains((x, y))) is not { } to) return false;
+                (x, y) => player.Layout.WalkableFor(x, y, size) && !player.Barrier.Contains((x, y)),
+                reversed: reversed, minSeparation: minSeparation) is not { } to) return false;
         KnockbackCommitLocked(m, to, now);
-        m.NativeKnockbackPending = NativeKnockbackFor(at, to, size, reversed: Stat(KnockbackReversedStat) != 0);
+        m.NativeKnockbackPending = NativeKnockbackFor(at, to, size,
+            reversed: reversed && attackerHasReversedStat, attackerSize: effAttackerSize);
         return true;
     }
 }

@@ -253,6 +253,8 @@ public static partial class Game
                 double now = AreaTime(player);
                 state = CooldownStateLocked(player, key, cooldown, now);
                 var peers = SharedCooldownPeers(player, effect, key, cooldown, now);
+                state.Refresh(now, cooldown.RecoveryRate);
+                state.Capacity(cooldown.Uses);
                 if (reserve && state.Ready && CooldownResetTriggered(player, effect, skillId, AreaRng(player)))
                 {
                     cooldownReset = true;
@@ -304,6 +306,9 @@ public static partial class Game
 
     internal static bool CooldownResetTriggered(Player player, int effect, ushort? skillId, Random random)
     {
+        // Guard skills hold their cooldown frozen until their buff ends (Hold/Resume + guard.RecoverySeconds);
+        // skipping instant reset keeps the held cooldown bar and server guard lockout synchronized.
+        if (SkillsFor(player).IsGuard(effect)) return false;
         var stats = PlayerStatValues(player);
         var own = skillId is ushort id ? SupportedSkill(player, id).Stats : null;
         int Value(uint key) => (int)Math.Clamp((long)stats.GetValueOrDefault(key) + (own?.GetValueOrDefault(key) ?? 0),

@@ -80,9 +80,10 @@ public static partial class Game
             int baseLight = current.GetValueOrDefault(Stat.LightRadiusPlusPct);
             int mapLight = MapModsOf(player)?.Get(Stat.MapPlayerLightRadiusPlusPct) ?? 0;
             int desiredLight = ActorScale.Saturate((long)baseLight + (active ? phasedBonus : 0) + mapLight);
-            stats.Add((Stat.VirtualLightRadiusPlusPct, desiredLight));
             if (current.GetValueOrDefault(Stat.VirtualLightRadiusPlusPct) != desiredLight)
                 MarkPlayerStats(player, PlayerStatStep.TailPanels);
+            if (!player.Frames.Running)
+                stats.Add((Stat.VirtualLightRadiusPlusPct, desiredLight));
         }
         SetStats(player, player.Id, stats);
         return Task.CompletedTask;

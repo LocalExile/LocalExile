@@ -24,6 +24,7 @@ public static partial class Game
             "Phantasm" => 11,
             "AnimatedGuardian" => 18,
             "AnimatedWeapon" => minion.Definition.Id == "AnimateWeaponAltY" ? (ushort)27 : (ushort)19,
+            "VaalAnimatedWeapon" => minion.Definition.Id == "VaalAnimateWeaponAltY" ? (ushort)57 : (ushort)56,
             "RagingSpirit" => 20,
             "Clone" => minion.Definition.Id.EndsWith("AltX", StringComparison.Ordinal) ? (ushort)66
                 : minion.Definition.Id.EndsWith("AltY", StringComparison.Ordinal) ? (ushort)67 : (ushort)38,
@@ -92,20 +93,24 @@ public static partial class Game
                 current.Add(minion.Id, new(minion.Id, group, sentinelType));
                 continue;
             }
-            if (minion.Source != 0 && MinionNativeType(minion) is ushort summonType)
+            if (minion.Source != 0 && player.Area.Monsters.ContainsKey(minion.Id)
+                && MinionNativeType(minion) is ushort summonType)
                 current[minion.Id] = new(minion.Id, minion.Source, summonType);
         }
         foreach (var golem in player.Golems.All.Values)
             if (!golem.Monster.Dead && golem.Monster.Life > 0 && golem.Source != 0
+                && player.Area.Monsters.ContainsKey(golem.Id)
                 && MinionNativeType(golem) is ushort golemType)
                 current[golem.Id] = new(golem.Id, golem.Source, golemType);
         foreach (var fighter in player.Reservations.Fighters.Values)
             if (!fighter.Monster.Dead && fighter.Monster.Life > 0 && fighter.Source != 0
+                && player.Area.Monsters.ContainsKey(fighter.Id)
                 && MinionNativeType(fighter) is ushort reservationType)
                 current[fighter.Id] = new(fighter.Id, fighter.Source, reservationType);
         foreach (var minion in player.Minions.All)
         {
-            if (current.ContainsKey(minion.Id) || minion.Monster.Dead || minion.Monster.Life == 0) continue;
+            if (current.ContainsKey(minion.Id) || minion.Monster.Dead || minion.Monster.Life == 0
+                || !player.Area.Monsters.ContainsKey(minion.Id)) continue;
             if (ElementalRelicNativeType(minion.Kind) is not ushort relicType) continue;
             ushort skillId = gems.FirstOrDefault(g => SkillsFor(player).EffectId(g.Effect) == minion.Skill).Id;
             if (skillId != 0) current[minion.Id] = new(minion.Id, skillId, relicType);

@@ -45,7 +45,7 @@ public static partial class Game
             var targetAt = m.Walk.Position(now);
             if (!m.Dead && damage > 0)
                 AilmentsOnHitLocked(player, id, m, mitigated, true, crit, 100, caster, skill.Stats, now, AreaRng(player),
-                    blind: blind, hitOrigin: from);
+                    blind: blind, hitOrigin: from, attackerSize: totem.BodySize, attackerHasReversedStat: false);
             byte hitCode = HitCode(mitigated, damage, m.MaxLife, crit || accepted.Life == 0);
             ushort hitFlags = (ushort)(0x4200 | HitTypeFlag(hitCode) | (crit ? 0x0020 : 0));
             byte hitKind = 3, hitAngle = HitAngle(targetAt.X - from.X, targetAt.Y - from.Y);

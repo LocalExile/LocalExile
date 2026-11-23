@@ -1388,11 +1388,13 @@ public static partial class Game
         PvpAreaIds = ids;
     }
 
-    /// <summary>Retail Standard death experience penalty percentage: 0% in Hardcore, PvP areas, or before Act 5
-    /// Kitava; 5% after Act 5 Kitava; 10% after Act 10 Kitava (same quest flags as <see cref="ResistancePenalty"/>).</summary>
+    /// <summary>Retail Standard death experience penalty percentage: 0% in Hardcore, town, hideouts, PvP areas, or
+    /// before Act 5 Kitava; 5% after Act 5 Kitava; 10% after Act 10 Kitava (same quest flags as <see cref="ResistancePenalty"/>).</summary>
     public static int DeathExperiencePenaltyPercent(Player player)
     {
-        if (player.Character.Hardcore || PvpAreaIds.Contains(player.Layout.Id)) return 0;
+        if (ForceHardcore || player.Character.Hardcore || InTown(player)
+            || HideoutCatalog.ByArea(player.Layout.Hash) is not null
+            || PvpAreaIds.Contains(player.Layout.Id)) return 0;
         bool act5 = ResistancePenaltyAct5.Any(player.Character.QuestFlags.Contains);
         bool act10 = ResistancePenaltyAct10.Any(f => player.Character.QuestFlags.Contains(f) && !player.Character.UnearnedQuestFlags.Contains(f));
         if (act10) return 10;

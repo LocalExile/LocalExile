@@ -165,7 +165,7 @@ public sealed class SingleUseCooldownState(double at, double rate, double remain
     /// <c>PlayerSingleUseCooldowns</c> update clears the client's predicted cooldown sweep.</summary>
     public void SynchronizeNativeReset(ushort skillId, int baseMilliseconds)
     {
-        if (TotalBaseMilliseconds <= 0) TotalBaseMilliseconds = Math.Max(1, baseMilliseconds);
+        TotalBaseMilliseconds = Math.Max(1, baseMilliseconds);
         NativeSkillId = skillId;
         nativeAcknowledged = true;
         nativeDirty = true;

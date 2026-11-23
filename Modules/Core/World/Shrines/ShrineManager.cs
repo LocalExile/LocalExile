@@ -346,15 +346,21 @@ public static class ShrineManager
     /// <paramref name="buffInstance"/> when its BuffDefinitions row is marked Removable.</summary>
     public static async Task<bool> CancelBuff(Player player, ushort buffInstance)
     {
-        if (buffInstance == 0 || player.Closed || player.LeavingArea) return false;
+        if (buffInstance == 0 || player.Closed || player.LeavingArea || player.PlayerLife == 0) return false;
         if (player.Area.Buffs.Find(player.Id, buffInstance) is not { } active
             || active.Source != player.Id || !global::Game.IsRemovableBuff(active.Row))
             return false;
-        if (!States.TryGetValue(player, out var state)
-            || !state.Buffs.TryGetValue(active.Row, out var buff))
-            return false;
-        await EndBuff(player, active.Row, buff);
-        return true;
+        if (!States.TryGetValue(player, out var state)) return false;
+        await state.Area.Gate.WaitAsync();
+        try
+        {
+            if (player.Closed || player.LeavingArea || player.PlayerLife == 0
+                || !state.Buffs.TryGetValue(active.Row, out var buff))
+                return false;
+            await EndBuff(player, active.Row, buff);
+            return true;
+        }
+        finally { state.Area.Gate.Release(); }
     }
 
     /// <summary>The buff's duration ending: the icon, its stats and its effect go together, and only if this granted
