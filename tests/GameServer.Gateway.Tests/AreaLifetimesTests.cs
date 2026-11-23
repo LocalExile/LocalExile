@@ -50,6 +50,42 @@ public sealed class AreaLifetimesTests
         Assert.Empty(area.Delta.Take());
     }
 
+    [Fact]
+    public void Same_duration_timed_buff_refresh_replaces_instance_and_extends_expiry()
+    {
+        var area = new GameArea(1);
+        const uint entity = 420;
+        var lifetap = new Buff(Lifetap.BuffRow, entity, U68: Buff.Seconds(4));
+
+        area.Step(1, 0);
+        ushort first = area.Buffs.Next;
+        area.Buffs.Set(entity, lifetap);
+        area.Buffs.Publish();
+        Assert.Equal(lifetap.Add(entity, first), Assert.Single(area.Delta.Take()).Bytes);
+
+        // Refreshing with the same 4.0 s duration must replace the instance and extend the expiry deadline.
+        area.Step(2, 2.5);
+        ushort second = area.Buffs.Next;
+        area.Buffs.Set(entity, lifetap);
+        area.Buffs.Publish();
+        var refreshed = area.Delta.Take();
+        Assert.Equal(2, refreshed.Count);
+        Assert.Equal(InstanceEntities.RemoveBuff(entity, first), refreshed[0].Bytes);
+        Assert.Equal(lifetap.Add(entity, second), refreshed[1].Bytes);
+
+        // Original 4.0 s deadline must NOT remove the refreshed buff.
+        area.Step(3, 4.5);
+        area.Buffs.Publish();
+        Assert.Empty(area.Delta.Take());
+        Assert.True(area.Buffs.Has(entity, Lifetap.BuffRow, entity));
+
+        // Extended deadline (2.5 + 4.0 = 6.5 s) removes only the refreshed instance cleanly.
+        area.Step(4, 6.6);
+        area.Buffs.Publish();
+        Assert.Equal(InstanceEntities.RemoveBuff(entity, second), Assert.Single(area.Delta.Take()).Bytes);
+        Assert.False(area.Buffs.Has(entity, Lifetap.BuffRow, entity));
+    }
+
     [Theory]
     [InlineData(true)]
     [InlineData(false)]
