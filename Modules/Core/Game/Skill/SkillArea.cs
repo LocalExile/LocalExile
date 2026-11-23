@@ -84,6 +84,8 @@ public static class SkillArea
         double mod = Math.Max(0, 1 + increased / 100.0);
         foreach (uint more in MoreArea) mod *= Math.Max(0, 1 + get(more) / 100.0);
         foreach (uint more in SupportMoreArea) mod *= Math.Max(0, 1 + get(more) / 100.0);
+        if (get(Stat.IsTotem) != 0)
+            mod *= Math.Max(0, 1 + get(Stat.StygianSpireTotemAreaOfEffectPlusPctFinalPerMaximumTotem) / 100.0);
         // Discharge: more area per removable charge it will spend (the charges above the minimum).
         if (get(MorePerRemovableCharge) is int perCharge and not 0)
             mod *= Math.Max(0, 1 + perCharge * Charges.Types.Sum(t => Math.Max(0, get(Stat.Of($"current_removable_{Charges.Name(t)}_charges")))) / 100.0);

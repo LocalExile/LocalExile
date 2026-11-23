@@ -13,8 +13,11 @@ public static partial class Game
         && !SkillsFor(player).IsAttack(effect) && !SkillsFor(player).IsTravel(effect)
         && Supports.Of(effect)?.Types.Contains(47) != true
         && (TotemSummon(player, effect) is not null || GolemData.Find(SkillsFor(player).EffectId(effect)) is not null
-            || (SkillsFor(player).EffectId(effect) == "Arc" || UsesProjectileRuntime(effect) && ResolveProjectileDefinition(effect) is not null)
+            || (SkillsFor(player).EffectId(effect) == "Arc" || SpellTotemNova(player, effect)
+                || UsesProjectileRuntime(effect) && ResolveProjectileDefinition(effect) is not null)
                 && SkillHitPlan.ForSkill(SkillsFor(player), effect, 1).CanHit);
+
+    static bool SpellTotemNova(Player player, int effect) => SkillsFor(player).EffectId(effect) is "IceNova" or "IceNovaAltY";
 
     static SummonCatalog.Definition? TotemSummon(Player player, int effect) =>
         SummonData.Find(SkillsFor(player).EffectId(effect)) is { Family: not "Clone", Id: not "AnimateWeaponAltX" } summon ? summon : null;
@@ -69,6 +72,8 @@ public static partial class Game
             (Stat.VirtualBaseSpellCastTimeMs, SkillsFor(player).CastTimeMs(gem.Effect)) })
             if (name is var key) payload[key] = value;
         payload[Stat.SkillIsNonPathing] = 1;
+        if (SpellTotemNova(player, gem.Effect))
+            payload[Stat.ActiveSkillAreaOfEffectRadius] = SkillRadius(player, gem.Stats, spell: true, gem.Effect);
         if (!SkillsFor(player).IsAttack(gem.Effect) && TotemCastSeconds(player, skill) is double seconds && Stat.CastSpeedPlusPct is var speed)
             payload[speed] = (int)Math.Round(100 * (SkillsFor(player).CastTimeMs(gem.Effect) / (seconds * 1000) - 1));
         if (SkillsFor(player).IsAttack(gem.Effect))
@@ -124,7 +129,8 @@ public static partial class Game
                 .OrderBy(p => Dist(p.Value.Walk.Position(now), totem.At)).FirstOrDefault();
             if (target.Value is null && summon is null && golem is null
                 || TotemCastSeconds(player, totem.SkillId) is not double seconds) continue;
-            var aim = target.Value?.Walk.Position(now) ?? totem.At;
+            bool nova = SpellTotemNova(player, gem.Effect);
+            var aim = nova ? totem.At : target.Value?.Walk.Position(now) ?? totem.At;
             uint summonTarget = 0;
             if (summon?.Corpse == true)
             {
@@ -170,13 +176,18 @@ public static partial class Game
                 continue;
             }
             bool rain = totem.Ballista && BallistaRain(player, gem.Effect);
-            if (arc || rain)
+            if (arc || rain || nova)
             {
                 session.Runtime.Schedule(Math.Max(session.Runtime.Now, ProjectileRuntime.Time(totem.NextCast)), () =>
                 {
                     if (!session.Active || !ReferenceEquals(lifetime, CombatLifetime) || !SpellTotemCurrent(player, totem))
                         return;
-                    if (rain)
+                    if (nova)
+                    {
+                        int radius = SkillRadius(player, SupportedSkill(player, totem.SkillId).Stats, spell: true, gem.Effect);
+                        ReleaseTotemNova(player, session, totem, radius, sequence, SkillArtVariation(player, gem.Gem));
+                    }
+                    else if (rain)
                         ReleaseArrowRain(session, totem.SkillId, gem, aim, CaptureSkillCriticalRoll(player, totem.SkillId),
                             sequence, mirage: false, transform: null, podDamageFactor: 1, totem);
                     else if (player.Area.Monsters.GetValueOrDefault(target.Key) == target.Value)
