@@ -1158,11 +1158,14 @@ public static partial class Game
         var resistanceSources = new Dictionary<uint, int>(sources);
         foreach (var (key, value) in AuraCatalog.ResistanceStats(auras.Where(a => a.AffectsSelf), bonus.AuraEffectPct, SkillsFor(player), Stats))
             resistanceSources[key] = resistanceSources.GetValueOrDefault(key) + value;
+        int mapTemporalChains = 0;
         if (map is not null && MapHexes.Any(hex => map.Get(hex.Level) > 0))
         {
+            int before = resistanceSources.GetValueOrDefault(Stat.TemporalChainsActionSpeedPlusPctFinal);
             int curseEffect = utilityStats.Concat(player.FlaskGrounds.PlayerStats())
                 .Where(row => row.Stat == Stat.CurseEffectOnSelfPlusPct).Sum(row => row.Value);
             AddMapHexStats(player, map, new PlainStatMap(resistanceSources), curseEffect);
+            mapTemporalChains = resistanceSources.GetValueOrDefault(Stat.TemporalChainsActionSpeedPlusPctFinal) - before;
         }
         bonus = ResistanceOvercap.Applied(bonus, resistanceSources, ResistancePenalty(player), Stats);
         var classInfo = SkillsFor(player).ClassFor(player.Character.ClassRow);
@@ -1284,6 +1287,7 @@ public static partial class Game
         return pools with
         {
             AccuracyAreaMorePct = areaAccuracy,
+            MapTemporalChainsActionSpeedPct = mapTemporalChains,
             FortificationRevision = FortificationOf(player).Revision,
             AttackerSlowPct = EquipmentInput(AttackerSlow), EnemyRegenerationOnHitPct = EquipmentInput(EnemyRegenerationOnHit),
             VsBlindedCriticalPct = EquipmentInput(VsBlindedCriticalStat), WhileMovingStats = WhileMovingInputs.Any(n => EquipmentInput(n) != 0),
