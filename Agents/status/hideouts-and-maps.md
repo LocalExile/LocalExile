@@ -47,7 +47,7 @@ Part of [Status](../Status.md); what to build next in this area is in
   so the client ends on it; the lists are sorted; the budget adds node-granted points (Unwavering Vision). A refund
   spends one respec point (`atlas.respec`, starting at 0) and an Orb of Unmaking (Kirac's shop) grants one
   ([15](../docs/protocol/15-progression.md) §2; not yet tried live). Trees II and III unlock at 50 and 100 completed
-  maps (the stand-in for bonus objectives) through league flags 329-332, per character; a locked tab is refused. A map's area stats take the active preset's
+  bonus objectives through league flags 329-332, per character; a locked tab is refused. A map's area stats take the active preset's
   nodes (HardMode vectors in a HardMode league) composed by the tree's own rules (`AtlasStats`: Wandering Path, Grand
   Design, Unfettered Concentration, mod effect per mod and per fragment), with rarity-gated packs and Meticulous
   Appraiser resolved in the list; the vital/deadly keystones' monster life and damage, the map's card and scarab
@@ -55,13 +55,14 @@ Part of [Status](../Status.md); what to build next in this area is in
   The selected layout is kept in the character save (an AtlasNode Id, `CharacterSaves.SelectedAtlasLayout`, chosen with
   `/atlas <layout>`), and a restarted Gateway reads it back instead of resetting to the starting node (#382). Generic
   maps use their tier as the area level (tier + 67).
-  Atlas progress (2026-11-01): killing a map's WorldAreas boss (or any unique) in it completes its AtlasNode, saved per
+  Atlas progress (2026-11-01): killing the map's final WorldAreas boss completes its AtlasNode, saved per
   character; S→C 0x1a4 and one chat line mark it the first time only. Area entry sends one 0x1a3 (both masks still include all on-Atlas rows) with the 0x3d
   presets, before 0x21, so login does not announce every saved map. A completion re-sends that 0x1a3 right after the
-  0x1a4, so both panels (the Atlas and the map device's portals) draw the new mark without an area change.
+  0x1a4, so both panels draw the new mark. Map-device rarity and corruption qualify a separate, one-time passive point
+  and objective count ([21](../docs/protocol/21-hideouts.md)).
   `/atlas_complete <map | all>` and `/atlas_reset` (dev).
   Live: 0x1a4 for Chateau showed it completed and opened Springs and Arachnid Nest; a native Beach boss kill also sent
-  the completion and refreshed the Atlas state. Bonus objectives, Voidstones, map stash placement and official drop pools remain open.
+  the completion and refreshed the Atlas state. The bonus-objective UI mask, Voidstones, map stash placement and official drop pools remain open.
   Code: `AtlasCatalog.cs`, `AtlasPassives.cs`, `AtlasProgress.cs`, `MapDevice.cs`, `ItemDrops.cs`, `InstanceItems.cs`.
   Docs: [21](../docs/protocol/21-hideouts.md), [re/013](../docs/re/013-atlas-progress.md), [maps](../docs/game/maps.md), [05](../docs/protocol/05-inventories-and-ui.md).
 - Portal Scroll and the Portal skill (its 2.5 s cast): outside towns and hideouts a portal opens beside the player,
