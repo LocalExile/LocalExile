@@ -1,3 +1,4 @@
+using GameServer.Core.Protocol.Instance;
 using GameServer.Core.Projectiles;
 using GameServer.Core.World;
 
@@ -23,9 +24,14 @@ public sealed class MomentumSupportTests
         Assert.True(Game.SupportedAttackSeconds(f.Player, f.Skill) < initial);
         Assert.True(await f.Cast());
         Assert.Equal(baseline + 30, f.SkillSpeed);
+        ushort instance = f.Player.Area.Buffs.Next;
         Assert.True(await f.Cast());
         Assert.Equal(baseline, f.SkillSpeed);
         Assert.Equal(movement + 45, f.Movement);
+
+        f.Player.Area.Buffs.Publish();
+        var swiftness = InstanceEntities.AddBuff(f.Player.Id, instance, 2221, f.Player.Id, u68: Buff.Seconds(1.5));
+        Assert.Contains(f.Player.Area.Delta.Take(), record => record.Bytes.AsSpan().SequenceEqual(swiftness));
 
         f.Advance(1.51);
         Assert.Equal(movement, f.Movement);
