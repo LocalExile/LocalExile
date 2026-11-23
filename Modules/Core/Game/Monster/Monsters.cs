@@ -298,7 +298,8 @@ public static partial class Game
         byte level, MonsterRarity rarity, int x, int y, string? name = null, bool friendly = false, bool log = true, uint? damagedLife = null,
         MonsterModSet? mods = null, bool alone = true, bool? unrisen = null, float rotation = 0,
         IReadOnlyList<(uint Key, int Value)>? extraStats = null, Action<uint, SpawnedMonster>? owned = null, Func<bool>? ownedCurrent = null,
-        IReadOnlyList<GrantedSkill>? ownedSkills = null, uint? ownedMaximumLife = null, uint ownedMaximumEnergyShield = 0,
+        IReadOnlyList<GrantedSkill>? ownedSkills = null,
+        uint? ownedMaximumLife = null, uint ownedMaximumEnergyShield = 0,
         uint ownedEnergyShield = 0,
         MonsterModSet? extraMods = null, bool scripted = false, IReadOnlyList<VisibleItem>? ownedLooks = null,
         Func<bool>? ownedAdmission = null, bool ownedInitialDeath = false,
@@ -494,6 +495,13 @@ public static partial class Game
         if (ownedSkills is not null) skills = ownedSkills;
         if (skills is not null) skills = Yugul.AddSkills(player, variety, level, skills);
         if (skills is not null) skills = SolarisLunaris.AddSkills(player, variety, level, skills);
+        // The effect behind each actor skill id, so a mod's command can play one of the monster's own skills by the
+        // GrantedEffects Id the client shows (AtlasBosses.ActorAction). Derived from the actor's actual skills list so
+        // scripted bosses (kingSkills), kit skills, stage skills, ownedSkills and added boss skills all match what the
+        // client received on the actor.
+        IReadOnlyList<(int Effect, ushort Id)> skillIds = skills is null ? []
+            : [.. skills.Select(s => catalog.EffectsPerLevel((int)s.EffectsPerLevelRow) is { } ge
+                ? (ge.Effect, s.Id) : (-1, (ushort)0)).Where(x => x.Item1 >= 0)];
         List<(uint, int)>? stats = skill is null ? null : [.. attack.Stats()];
         // The final maximum too: the client applies no modifier of its own (as for the player's maximum_life), so without it
         // the life bars kept the base maximum and a unique showed full until its life fell below it (live 2026-10-21).
@@ -614,7 +622,7 @@ public static partial class Game
                 PresentationChanged = () => { foreach (var p in player.Frames.Players()) MonsterDebuffsChanged(p, id); },
                 Asleep = asleep,
                 Attack = skill is null && kit.Count == 0 ? null : kit.Count > 0 ? kit[0].Attack : attack,
-                Kit = kit, Hostile = !friendly, Variety = variety, Level = level, Rarity = rarity, Movement = movement,
+                Kit = kit, SkillIds = skillIds, Hostile = !friendly, Variety = variety, Level = level, Rarity = rarity, Movement = movement,
                 Scripted = scripted || !friendly && atlas,
                 NonBlocking = nonBlocking,
                 Life = initialLife, Stage = stageSkill is null ? null : stage, States = states,
@@ -1986,7 +1994,7 @@ public static partial class Game
         double? begunAt = null) =>
         MonsterSwingCore(player, id, m, action, use, area, areaRadius, sequence, begunAt, cadence: null);
 
-    static async Task<bool> MonsterSwingCore(Player player, uint id,
+    internal static async Task<bool> MonsterSwingCore(Player player, uint id,
         SpawnedMonster m, int action, MonsterAttack? use = null, bool area = false, double areaRadius = 0, ushort? sequence = null,
         double? begunAt = null, MonsterAiCadence? cadence = null)
     {
@@ -2086,6 +2094,9 @@ public static partial class Game
             ? (a.Summon is not null ? $"0x01d1 monster 0x{id:x} ({m.Label}) summons, cast time {seconds:0.00} s"
                 : $"0x01ab monster 0x{id:x} ({m.Label}) attacks the player, attack time {seconds:0.00} s")
             : null)) return false;
+        // A clip-only action (a dev command's NoContact) lands nothing: its hit or area belongs to the caller, which
+        // sends it on its own clock. A zero-damage contact here would only play the clip's hit effect.
+        if (a.NoContact) return true;
         if (m.Variety?.Id == EssenceExplosiveInsect)
         {
             if (await WaitMonsterActionTime(player, id, m, action, startedAt + seconds))
