@@ -28,7 +28,7 @@ static class LegionMonolith
 
     enum Phase { Idle, Charging, Running, Finished }
 
-    sealed record Saved(uint Id, int X, int Y, int Level, int Phase, double ChargeEnd, double EndsAt, uint Pulse, float Rotation = 0, float? Z = null);
+    sealed record Saved(uint Id, int X, int Y, int Level, int Phase, double ChargeEnd, double EndsAt, uint Pulse, float Rotation = 0, float? Z = null, LegionArmy.ArmyPlan? Plan = null);
 
     /// <summary>The instance's encounter. Fields change under the object's lock.</summary>
     sealed class Encounter(Saved saved)
@@ -40,7 +40,8 @@ static class LegionMonolith
         public uint Pulse = saved.Pulse;
         public float Rotation = saved.Rotation;
         public float? Z = saved.Z;
-        public Saved ToSaved() => new(Id, X, Y, Level, (int)Phase, ChargeEnd, EndsAt, Pulse, Rotation, Z);
+        public LegionArmy.ArmyPlan? Plan = saved.Plan;
+        public Saved ToSaved() => new(Id, X, Y, Level, (int)Phase, ChargeEnd, EndsAt, Pulse, Rotation, Z, Plan);
     }
 
     static readonly ConditionalWeakTable<object, Encounter> Encounters = new();
@@ -174,18 +175,23 @@ static class LegionMonolith
         lock (e) if (e.Phase != Phase.Idle) return true;
         if (!await WorldOf(player).WalkUpTo(e.X, e.Y, Reach, requestedAt)) return true;
         int seconds;
+        string plan;
         lock (e)
         {
             if (e.Phase != Phase.Idle) return true;   // a second use does nothing
             // AreaLeagueStats reads the clicker's atlas passives, as Anarchy does (phase 4 settles whose stats count).
             // TODO(phase 4): the other map_legion_* stats (monster counts, chests, factions) are read with the atlas.
-            int percent = global::Game.AreaLeagueStats(player).GetValueOrDefault(Stat.MapLegionDurationPlusPct);
+            var stats = global::Game.AreaLeagueStats(player);
+            int percent = stats.GetValueOrDefault(Stat.MapLegionDurationPlusPct);
             seconds = TimerSeconds(e.Level, percent);
+            e.Plan = LegionArmy.Plan(LegionData.Current, e.Level, player.Layout.Id, stats, global::Game.AreaRng(player));
+            plan = LegionArmy.Summary(e.Plan);
             double now = global::Game.AreaTime(player);
             (e.Phase, e.ChargeEnd, e.EndsAt) = (Phase.Charging, now + ChargeSeconds, now + seconds);
             Keep(player, e);
         }
         module.Log($"{PlayerOf(player).Character}: monolith activated at ({e.X}, {e.Y}), timer {seconds} s");
+        module.Log($"{PlayerOf(player).Character}: {plan}");
         await ToAll(player, e, StatesOf(Phase.Charging), "charging=1");
         foreach (var member in Members(player)) member.RemoveBlocker(e.Id);
         foreach (var member in Members(player))
