@@ -368,7 +368,10 @@ public static partial class Game
                 bool critical = RollCriticalStrike(player, criticalChance, skillStats, attack: true, skillRoll: criticalRoll, playerStats: playerStats)
                     && EvasionEntropy.ConfirmsCritical(hitChance, player.AttackAccuracyRandom);
                 int multiplier = CriticalMultiplierOn(m, criticalMultiplierBase);
-                var (damage, resistance, mitigated) = MonsterHitDamage(m, rolled, critical, attack: true, now, mods, pen,
+                var resonance = WithResonanceHitLocked(player, skillStats, rolled, mods, pen, now);
+                rolled = resonance.Packet;
+                var (damage, resistance, mitigated) = MonsterHitDamage(m, rolled, critical, attack: true, now,
+                    resonance.Mods, resonance.Penetration,
                     gambler.InvertsResistance(AreaRng(player)));
                 var taken = MonsterTakenComponents(m, mitigated, spell: false, now);
                 if (critical) damage = DamageModel.CriticalDamage(damage, multiplier);
@@ -384,6 +387,7 @@ public static partial class Game
                 var applied = ApplyMonsterHitLocked(player, m, damage, rampageSource, playerStats,
                     cull: Cull.Of(playerStats, skillStats, critical, spell: false));
                 if (applied is not { } hit) continue;
+                if (hit.Life < lifeBefore) RecordResonanceHitLocked(player, m, skillStats, rolled, now);
                 if (weapon.ItemClass is not null) player.RecentEvents.Record(StatConditions.HitEnemyWithWeapon, now);
                 if (hit.Life == 0) RecordTinctureKill(m, TinctureKillBonusFor(player, playerStats, hand));
                 // Cruelty, as AreaSkillHit's hit grants it: this pipeline is a copy of that one.

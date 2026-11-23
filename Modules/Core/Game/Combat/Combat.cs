@@ -2618,7 +2618,12 @@ public static partial class Game
                         && (spell || GameServer.Core.World.EvasionEntropy.ConfirmsCritical(hitChance, player.AttackAccuracyRandom));
                     int multiplier = CriticalMultiplierOn(m, sweepMultiplier, playerStats, skillStats);
                     double at = ProjectileWorldTime(player);
-                    (damage, resistance, var mitigated) = MonsterHitDamage(m, rolled, critical, attack: !spell, at, mods, pen,
+                    // Deferred manual hits use the same lifetime guard as automatic payloads. The native link
+                    // resolver excludes triggered skills from these supports.
+                    var resonance = WithResonanceHitLocked(player, skillStats, rolled, mods, pen, at);
+                    rolled = resonance.Packet;
+                    (damage, resistance, var mitigated) = MonsterHitDamage(m, rolled, critical, attack: !spell, at,
+                        resonance.Mods, resonance.Penetration,
                         gambler.InvertsResistance(AreaRng(player)));
                     hitCode = HitCode(mitigated);
                     var taken = MonsterTakenComponents(m, mitigated, spell, at);
@@ -2641,6 +2646,8 @@ public static partial class Game
                         cull: Cull.Of(playerStats, skillStats, critical, spell), cullPlayer: playerStats);
                     if (applied is not null)
                     {
+                        if (applied.Value.Life < lifeBefore)
+                            RecordResonanceHitLocked(player, m, skillStats, rolled, at);
                         CrueltyOnHitLocked(player, skillId, damage, lifeBefore, m.MaxLife, skillStats, at);
                         if (!spell) ReleaseCriticalTrigger(player, ProjectilesFor(player),
                             criticalTrigger, critical, m.Hostile, m.Walk.Position(at), at);
@@ -2953,8 +2960,8 @@ public static partial class Game
             double effective = HitResistances.FinalValue(type, value, strike, mods, invertElemental);
             return range.Scale(Math.Max(0, 1 - effective / 100));
         });
-        bool ignorePhys = attack && mods.IgnorePhysicalReductionChance > 0
-            && GameServer.Core.World.RandomRolls.Chance(mods.IgnorePhysicalReductionChance, 100, Random.Shared);
+        bool ignorePhys = mods.IgnorePhysicalReduction || (attack && mods.IgnorePhysicalReductionChance > 0
+            && GameServer.Core.World.RandomRolls.Chance(mods.IgnorePhysicalReductionChance, 100, Random.Shared));
         return (MonsterTakesMitigated(m, mitigated, spell: !attack, now, ignorePhys),
             described.Count > 0 ? string.Join(", ", described) : null, mitigated);
     }

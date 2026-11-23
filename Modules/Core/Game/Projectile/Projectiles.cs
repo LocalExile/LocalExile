@@ -696,8 +696,13 @@ public static partial class Game
             bool critical = RollCriticalStrike(Player, chance, shot.SkillStats, attack: !shot.Spell, skillRoll: shot.CriticalRoll, playerStats: player)
                 && (shot.Spell || EvasionEntropy.ConfirmsCritical(hitChance, Player.AttackAccuracyRandom));
             int multiplier = CriticalMultiplierOn(target, shot.CriticalMultiplier, noExtra: shot.NoExtraCriticalDamage);
-            var (damage, _, mitigated) = MonsterHitDamage(target, rolled, critical, !shot.Spell, at, shot.ResistanceMods,
-                shot.Penetration, gambler.InvertsResistance(random));
+            bool ownerHit = shot.ActualCaster is null && !shot.FromTrapOrMine && !shot.Mirage;
+            var resonance = ownerHit
+                ? WithResonanceHitLocked(Player, shot.SkillStats, rolled, shot.ResistanceMods, shot.Penetration, at)
+                : (Packet: rolled, Mods: shot.ResistanceMods, Penetration: shot.Penetration);
+            rolled = resonance.Packet;
+            var (damage, _, mitigated) = MonsterHitDamage(target, rolled, critical, !shot.Spell, at, resonance.Mods,
+                resonance.Penetration, gambler.InvertsResistance(random));
             if (shot.FromTrapOrMine) damage = MonsterTakesTrapOrMineHit(target, mitigated, shot.Spell, at);
             if (critical) damage = DamageModel.CriticalDamage(damage, multiplier);
             bool immune = target.Invulnerable;
@@ -714,6 +719,8 @@ public static partial class Game
                 cull: Cull.Of(player, shot.SkillStats, critical, shot.Spell),
                 allyAt: shot.ActualCaster is null ? null : ((int)contact.Projectile.Use.Origin.X, (int)contact.Projectile.Use.Origin.Y));
             if (hit is null) return ProjectileHitResult.Miss;
+            if (ownerHit && !immune && hit.Value.Life < lifeBefore)
+                RecordResonanceHitLocked(Player, target, shot.SkillStats, rolled, at);
             Player.RecentEvents.RecordCriticalOutcome(at, critical);
             if (ElementalOverloadCritLocked(Player, shot.SourceSkill, null, player, critical) is { } eoBuff)
                 Packet(eoBuff, $"elemental overload on skill 0x{shot.SourceSkill:x4}");
