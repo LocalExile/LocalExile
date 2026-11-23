@@ -802,6 +802,9 @@ once (0x1ab aimed at the object, from the player's current cell) and picks the i
 reach: WorldItem.ot `InteractionAction interaction_distance_override = 20` is in grid cells, and the client's walk adds
 the item's size on the ground (BaseItemTypes `SizeOnGround`, 1 to 3) as its tolerance, so it stops on the first cell
 within 21, 22 or 23 ([07](07-latency-visibility-movement.md) Pickups).
+When the inventory has no room, S→C **0x0117** (2 bytes, id only; dispatcher case `0x44` at `0x142155509` →
+`0x140d60680`) plays the character's `InvFull` voice event (`CharacterAudioEvents` row 247), and re-creating the item
+under a fresh object id with `WorldItem +0x50 = 1` (`justDropped: true`) replays its ground bounce and drop/filter sound.
 
 Dying monsters drop items as WorldItems around the corpse (`DropLoot`, [15](15-progression.md) §3).
 Gold can be auto-picked before a committed kill's presentation queue drains.
