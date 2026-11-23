@@ -272,7 +272,7 @@ public static class StatConditions
             int at = statId.LastIndexOf(stateSuffix, StringComparison.Ordinal);
             return Trim(statId, at, at + stateSuffix.Length);
         }
-        foreach (string prefix in new[] { WhileAffectedBy, IfAffectedBy })
+        foreach (string prefix in AuraConditions)
         {
             int at = statId.IndexOf(prefix, StringComparison.Ordinal);
             if (at >= 0 && TryAuraName(statId, out string family) && IsModelledAura(family))
@@ -479,6 +479,7 @@ public static class StatConditions
 
     const string WhileAffectedBy = "_while_affected_by_";
     const string IfAffectedBy = "_if_affected_by_";
+    static readonly string[] AuraConditions = [WhileAffectedBy, IfAffectedBy, "_while_you_are_affected_by_"];
 
     /// <summary>
     /// The "recently" phrase a stat id uses, the event <see cref="Subject.Recent"/> answers it with, and whether the id
@@ -923,12 +924,13 @@ public static class StatConditions
     public static bool TryAuraName(string statId, out string family)
     {
         family = "";
-        int at = statId.IndexOf(WhileAffectedBy, StringComparison.Ordinal);
-        int skip = WhileAffectedBy.Length;
-        if (at < 0)
+        int at = -1, skip = 0;
+        foreach (string prefix in AuraConditions)
         {
-            at = statId.IndexOf(IfAffectedBy, StringComparison.Ordinal);
-            skip = IfAffectedBy.Length;
+            at = statId.IndexOf(prefix, StringComparison.Ordinal);
+            if (at < 0) continue;
+            skip = prefix.Length;
+            break;
         }
         if (at < 0) return false;
         family = statId[(at + skip)..];

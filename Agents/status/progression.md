@@ -32,7 +32,9 @@ Part of [Status](../Status.md); what to build next in this area is in
 - Cluster jewels: a new one has its theme, passive count and sockets, its small passives grant the theme and its
   notables roll for it; the single-keystone smalls' keystone stats, nesting (including smaller clusters in larger
   sockets), unidentified/empty-jewel refusal, block bases, refund-point sync and the client's layout; keystones,
-  radius rules and the vendor recipe are missing. Docs: [cluster jewels](../docs/game/cluster-jewels.md).
+  radius rules and the vendor recipe are missing.
+  Additional small-passive stats and notable IDs with punctuation have offline regression coverage.
+  Docs: [cluster jewels](../docs/game/cluster-jewels.md).
 - Timeless jewels: the alternate tree in radius and Militant Faith's Devotion mods; conqueror keystone mechanics are
   missing. Docs: [timeless jewels](../docs/game/timeless-jewels.md).
 - Radius unique jewels: 42 implemented and the 33 threshold jewels; skill-specific consumers are partial.

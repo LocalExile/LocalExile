@@ -560,7 +560,7 @@ public static partial class Game
         {
             var profile = WeaponProfileFor(player);
             double factor = profile.DualWield || profile.Unarmed ? 1.1 : 1;
-            int skillSpeed = gem.Stats.GetValueOrDefault(raw);
+            int skillSpeed = gem.Stats.GetValueOrDefault(raw) + TaggedAttackAndCastSpeedPct(SkillsFor(player), gem.Effect, Get);
             if (Supports.Of(gem.Effect)?.Types.Contains(120) == true)
                 skillSpeed += Get(Stat.RetaliationSkillSpeedPlusPct);
             stats[final] = stats.GetValueOrDefault(final) + (int)Math.Round(skillSpeed * factor);

@@ -34,6 +34,18 @@ public sealed class PassiveConditionTests
         Assert.Equal(30, wielding.GetValueOrDefault(globalDefences));
         Assert.Empty(Game.FoldPassiveConditions(staff, new StatConditions.Subject(
             Flags: new Dictionary<string, bool> { ["_while_wielding_staff"] = false })));
+
+        var heraldSpeed = new Dictionary<uint, int>
+        {
+            [Stat.AttackAndCastSpeedPlusPctWhileAffectedByAHerald] = 2,
+            [Stat.MinionAttackAndCastSpeedPlusPctWhileYouAreAffectedByAHerald] = 3,
+        };
+        var affected = Game.FoldPassiveConditions(heraldSpeed,
+            new StatConditions.Subject(Auras: StatConditions.AuraSet(["HeraldOfIce"])));
+        Assert.Equal(2, affected.GetValueOrDefault(Stat.AttackAndCastSpeedPlusPct));
+        Assert.Equal(3, affected.GetValueOrDefault(Stat.MinionAttackAndCastSpeedPlusPct));
+        Assert.Empty(Game.FoldPassiveConditions(heraldSpeed,
+            new StatConditions.Subject(Auras: StatConditions.AuraSet(["Haste"]))));
     }
 
     [Fact]
