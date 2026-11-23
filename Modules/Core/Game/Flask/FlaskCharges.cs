@@ -5,6 +5,28 @@ using GameServer.Core.Diagnostics;
 
 public static partial class Game
 {
+    // Apply the flask's area-entry rule before publishing the inventory. An entry reset takes priority over a refill.
+    static void SettleAreaEntryFlasks(Player player, PlayerInventories inventory)
+    {
+        bool refill = LeagueFor(player).Rules.TownRefillsFlasks && (InTown(player) || HideoutCatalog.ByArea(player.Layout.Hash) is not null);
+        var catalog = ItemsFor(player);
+        int emptied = 0, refilled = 0;
+        foreach (var flask in inventory.Items(PlayerInventories.Flask))
+        {
+            if (catalog.ByHash(flask.Item.TypeHash) is not { } type || catalog.FlaskChargesOf(type) is not { } baseUse) continue;
+            var local = ItemModStats.Local(flask.Item, catalog.Mods);
+            bool empty = local.GetValueOrDefault(Stat.LocalFlaskLoseAllChargesOnEnteringNewArea) != 0;
+            int current = flask.Item.Charges;
+            int requested = empty ? 0 : refill ? Math.Max(current, FlaskCharges.Of(baseUse, local).MaxCharges) : current;
+            if (requested == current || inventory.ChangeUnsaved(PlayerInventories.Flask, flask.Id,
+                item => item with { Charges = requested }) is null) continue;
+            if (empty) emptied++; else refilled++;
+        }
+        if (emptied == 0 && refilled == 0) return;
+        inventory.SaveUnsaved();
+        Console.WriteLine($"[gateway] {player.Connection.Remote} area entry: {emptied} flasks emptied, {refilled} flasks refilled");
+    }
+
     // A change of the flask bar and its S→C 0xbf as one step under the connection's flask-bar gate: the crit, hit, kill and
     // every-3-seconds gains and the flask uses run on their own tasks, and the client must see their revisions in order,
     // each with the flask's latest charges. `change` makes the change and returns what to send (removed ids and the changed
