@@ -60,6 +60,8 @@ public static class ThresholdJewels
                     continue;
                 }
                 if (!TryParse(Program.Stats.Name(id), out string target, out Attributes attributes, out int required)) continue;
+                // Collateral Damage shows 40 Dexterity for both terms in the client stat descriptions.
+                if (id == Stat.LocalUniqueJewelShrapnelShotRadiusPlusPctWith50DexInRadius) required = 40;
                 int value = mod.Values[i];
                 uint? key = Program.Stats.Key(target);
                 if (Aliases.TryGetValue(target, out var alias))

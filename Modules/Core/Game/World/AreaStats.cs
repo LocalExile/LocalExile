@@ -25,8 +25,19 @@ public static partial class Game
             known && skills.IsWarcry(effect), known && skills.IsVaal(effect),
             Get(Stat.IsTotem) != 0, Get(Stat.IsTrap) != 0, Get(Stat.IsRemoteMine) != 0);
         int typed = SkillArea.TypedIncrease(Get, types);
-        if (known && skills.EffectId(effect) is { } id && IsHeraldAura(id))
-            typed += Get(Stat.AreaOfEffectPlusPctWithHeraldSkills);
+        if (known && skills.EffectId(effect) is { } id)
+        {
+            if (IsHeraldAura(id)) typed += Get(Stat.AreaOfEffectPlusPctWithHeraldSkills);
+            if (IsGalvanicArrow(id))
+            {
+                typed += Get(Stat.ShrapnelShotRadiusPlusPct);
+                if (Get(Stat.AdditiveArrowSpeedModifiersApplyToAreaOfEffect) != 0)
+                    typed += (playerStats?.GetValueOrDefault(Stat.ProjectileSpeedPlusPct)
+                            ?? stats.GetValueOrDefault(Stat.ProjectileSpeedPlusPct))
+                        + own.GetValueOrDefault(Stat.BaseProjectileSpeedPlusPct)
+                        + Get(Stat.GalvanicArrowProjectileSpeedPlusPct);
+            }
+        }
         if (Get(Stat.AreaOfEffectPlusPctWhileWieldingBow) is int bow and not 0 && WeaponFor(player).Bow)
             typed += bow;
         if (typed != 0)

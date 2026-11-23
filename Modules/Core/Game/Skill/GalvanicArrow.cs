@@ -8,15 +8,10 @@ static partial class Game
         string effect, Dictionary<uint, int> areaStats)
     {
         bool energy = effect == "GalvanicArrowAltX", surging = effect == "GalvanicArrowAltY";
-        int areaBonus = context.Get(Stat.ShrapnelShotRadiusPlusPct);
         int speedBonus = context.Get(Stat.GalvanicArrowProjectileSpeedPlusPct);
         int ordinarySpeed = context.PlayerStat(Stat.ProjectileSpeedPlusPct) + context.Own(Stat.BaseProjectileSpeedPlusPct);
-        if (context.Own(Stat.AdditiveArrowSpeedModifiersApplyToAreaOfEffect) != 0)
-            areaBonus += ordinarySpeed + speedBonus;
-        if (areaBonus != 0)
-            areaStats[SkillArea.Increase] = ActorScale.Saturate((long)areaStats.GetValueOrDefault(SkillArea.Increase) + areaBonus);
-        int radius = SkillArea.Radius(28 + context.Own(Stat.ActiveSkillBaseRadiusPlus),
-            key => areaStats.GetValueOrDefault(key), spell: false);
+        int Area(uint key) => areaStats.GetValueOrDefault(key);
+        int radius = SkillArea.Radius(SkillArea.BaseRadius(effect, Area), Area, spell: false);
         var cone = new ProjectileAreaRecipe("galvanic cone", radius)
         {
             ConeHalfAngle = Math.PI / 4,
