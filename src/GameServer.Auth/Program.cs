@@ -268,7 +268,7 @@ static async Task HandleConnection(TcpClient tcp, LoginServerKeys keys, AccountS
             var incoming = new LoginMessageStream(LoginDirection.ClientToServer);
             InstanceDirectory.LoginLink? link = null;
             var session = new LoginServerSession(accounts) { CharacterListClass = characterListClass.For, InstanceHost = GatewayEndpoint.Host, InstancePort = GatewayEndpoint.Port, Keyring = keyring, Leagues = LeagueCatalog.Startup, CharacterDeleted = SetSaveAside, Assign = s => directory.AssignStart(s, link!) };
-            link = new InstanceDirectory.LoginLink(stream, ciphers, session, peer);
+            link = new InstanceDirectory.LoginLink(stream, ciphers, session, peer, () => tcp.Close());
             byte[] rest = buf[used..have];
             try
             {
@@ -286,7 +286,7 @@ static async Task HandleConnection(TcpClient tcp, LoginServerKeys keys, AccountS
                 Console.WriteLine($"[auth] {peer} closed with {incoming.Undecoded.Count} bytes of an incomplete message");
         }
     }
-    catch (Exception ex) when (ex is IOException or SocketException or InvalidDataException or System.Security.Cryptography.CryptographicException)
+    catch (Exception ex) when (ex is IOException or SocketException or ObjectDisposedException or InvalidDataException or System.Security.Cryptography.CryptographicException)
     {
         Console.WriteLine($"[auth] {peer} error: {GameServer.Core.Diagnostics.ServerLog.Describe(ex)}");
     }

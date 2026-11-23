@@ -23,7 +23,7 @@ static partial class QuestobjectsRules
         new(Act1Areas.CavernOfAnger, Act1Objects.AmbrosiaTrickChest, Act1Monsters.Ambrosia, DaughterAddVariety, 3, TrickChestModel),
     ];
 
-    static readonly RuleTable<ClientState, Dictionary<uint, PlacedTrickChest>> ActiveTrickChests = new();
+    static readonly RuleTable<Player, Dictionary<uint, PlacedTrickChest>> ActiveTrickChests = new();
 
     internal static TrickChestRule? TrickChestForArea(string areaId) =>
         TrickChestRules.FirstOrDefault(r => r.Area.Equals(areaId, StringComparison.Ordinal));
@@ -86,166 +86,157 @@ static partial class QuestobjectsRules
         return layout.Walkable is { } walk && !walk(desired.X, desired.Y) ? layout.Near(desired) : desired;
     }
 
-    internal static async Task SpawnTrickChests(string remote, NetworkStream stream, ConnectionCiphers ciphers, ClientState conn)
+    internal static async Task SpawnTrickChests(Player player)
     {
-        if (TrickChestForArea(conn.Layout.Id) is not { } rule) return;
+        if (TrickChestForArea(player.Layout.Id) is not { } rule) return;
         if (QuestObjectTypes.Find(rule.ChestType) is not { } info || !QuestObject.CanSerialize(info.Components))
         {
-            Console.WriteLine($"[gateway] {remote} trick chest {rule.ChestType}: unsupported or missing object type");
+            Console.WriteLine($"[gateway] {player.Connection.Remote} trick chest {rule.ChestType}: unsupported or missing object type");
             return;
         }
-        var level = conn.Layout.Level ?? ServerLevels.For(conn.Layout.Id, conn.Seed);
-        if (FindTrickChestPlacement(conn.Layout.Id, conn.Seed, level, rule) is not { } chest)
+        var level = player.Layout.Level ?? ServerLevels.For(player.Layout.Id, player.Seed);
+        if (FindTrickChestPlacement(player.Layout.Id, player.Seed, level, rule) is not { } chest)
         {
-            Console.WriteLine($"[gateway] {remote} trick chest {rule.ChestType}: no placement in {conn.Layout.Id} seed {conn.Seed}");
+            Console.WriteLine($"[gateway] {player.Connection.Remote} trick chest {rule.ChestType}: no placement in {player.Layout.Id} seed {player.Seed}");
             return;
         }
-        bool opened = conn.Instance.ChestOpened(chest.X, chest.Y);
-        uint id = conn.TakeObjectId();
-        var map = ActiveTrickChests.GetOrCreateValue(conn);
+        bool opened = player.Instance.ChestOpened(chest.X, chest.Y);
+        uint id = player.TakeObjectId();
+        var map = ActiveTrickChests.GetOrCreateValue(player);
         lock (map) map[id] = chest;
-        conn.SetBlocker(id, chest.X, chest.Y, info.Size);
-        await SendWorldCreate(remote, stream, ciphers, conn, id,
+        player.SetBlocker(id, chest.X, chest.Y, info.Size);
+        await SendWorldCreate(player, id,
             InstanceEntities.CreateObject(id, InstanceEntities.ObjectTypeHash(rule.ChestType), TrickChestBlob(chest, info, opened)),
             $"0x02bb trick chest 0x{id:x} {rule.ChestType} at ({chest.X}, {chest.Y}), opened={opened}");
-        await SendWorldRecord(remote, stream, ciphers, conn, id, InstanceProtocol.EnterWakeZone(id), null);
+        await SendWorldRecord(player, id, InstanceProtocol.EnterWakeZone(id), null);
     }
 
-    internal static async Task<bool> UseTrickChest(string remote, NetworkStream stream, ConnectionCiphers ciphers, ClientState conn,
-        InstanceTransfer.UseSkillOnObject use, double requestedAt)
+    internal static async Task<bool> UseTrickChest(Player player, InstanceTransfer.UseSkillOnObject use, double requestedAt)
     {
-        if (!ActiveTrickChests.TryGetValue(conn, out var map)) return false;
+        if (!ActiveTrickChests.TryGetValue(player, out var map)) return false;
         PlacedTrickChest? chest;
         lock (map) chest = map.GetValueOrDefault(use.TargetId);
         if (chest is null) return false;
         if (QuestObjectTypes.Find(chest.Rule.ChestType) is not { } info) return true;
-        if (conn.Instance.ChestOpened(chest.X, chest.Y))
+        if (player.Instance.ChestOpened(chest.X, chest.Y))
         {
-            await SendWorldRecord(remote, stream, ciphers, conn, PlayerId, InstanceProtocol.ActionEnded(PlayerId), null);
+            await SendWorldRecord(player, player.Id, InstanceProtocol.ActionEnded(player.Id), null);
             return true;
         }
-        if (!TryBeginObjectWalk(conn, requestedAt, chest.X, chest.Y, info.Size, out var walk)) return true;
+        if (!TryBeginObjectWalk(player, requestedAt, chest.X, chest.Y, info.Size, out var walk)) return true;
         var (action, now, here, stop, arrive) = walk;
         if (!use.Started)
-            await SendWorldRecord(remote, stream, ciphers, conn, PlayerId,
-                InstanceProtocol.ActionStarted(PlayerId, here.X, here.Y, chest.X, chest.Y, use.SkillId, use.Sequence, use.Flags, targetObjectId: use.TargetId),
+            await SendWorldRecord(player, player.Id,
+                InstanceProtocol.ActionStarted(player.Id, here.X, here.Y, chest.X, chest.Y, use.SkillId, use.Sequence, use.Flags, targetObjectId: use.TargetId),
                 $"0x01ab player opens trick chest 0x{use.TargetId:x} {chest.Rule.ChestType} from ({here.X}, {here.Y}): reached at ({stop.X}, {stop.Y}) in {arrive - now:0.00} s",
-                still: () => PlayerActionCurrent(conn, action));
-        if (arrive > now) await Task.Delay(TimeSpan.FromSeconds(arrive - now));
-        if (!PlayerActionCurrent(conn, action)) return true;
+                still: () => PlayerActionCurrent(player, action));
+        if (arrive > now) await AreaDelay(player, arrive - now);
+        if (!PlayerActionCurrent(player, action)) return true;
         try
         {
-            if (!PlayerWalk.InReach(stop, (chest.X, chest.Y), info.Size, conn.Layout.Walkable))
+            if (!PlayerWalk.InReach(stop, (chest.X, chest.Y), info.Size, player.Layout.Walkable))
             {
-                Console.WriteLine($"[gateway] {remote} {chest.Rule.ChestType}: out of reach from ({stop.X}, {stop.Y})");
+                Console.WriteLine($"[gateway] {player.Connection.Remote} {chest.Rule.ChestType}: out of reach from ({stop.X}, {stop.Y})");
                 return true;
             }
-            await OpenTrickChestCore(remote, stream, ciphers, conn, use.TargetId, chest, info);
+            await OpenTrickChestCore(player, use.TargetId, chest, info);
         }
         finally
         {
-            await SendWorldRecord(remote, stream, ciphers, conn, PlayerId, InstanceProtocol.ActionEnded(PlayerId), null,
-                still: () => PlayerActionCurrent(conn, action));
+            await SendWorldRecord(player, player.Id, InstanceProtocol.ActionEnded(player.Id), null,
+                still: () => PlayerActionCurrent(player, action));
         }
         return true;
     }
 
-    internal static async Task OpenTrickChestsNear(string remote, NetworkStream stream, ConnectionCiphers ciphers, ClientState conn,
-        (int X, int Y) at, int radius)
+    internal static async Task OpenTrickChestsNear(Player player, (int X, int Y) at, int radius)
     {
-        if (!ActiveTrickChests.TryGetValue(conn, out var map)) return;
+        if (!ActiveTrickChests.TryGetValue(player, out var map)) return;
         List<(uint Id, PlacedTrickChest Chest)> nearby;
         lock (map)
             nearby = [.. map.Where(e => Dist((e.Value.X, e.Value.Y), at) <= radius).Select(e => (e.Key, e.Value))];
         foreach (var (id, chest) in nearby)
             if (QuestObjectTypes.Find(chest.Rule.ChestType) is { } info)
-                await OpenTrickChestCore(remote, stream, ciphers, conn, id, chest, info);
+                await OpenTrickChestCore(player, id, chest, info);
     }
 
-    static async Task<bool> OpenTrickChestCore(string remote, NetworkStream stream, ConnectionCiphers ciphers, ClientState conn,
-        uint id, PlacedTrickChest chest, QuestObjectTypes.Info info)
+    static async Task<bool> OpenTrickChestCore(Player player, uint id, PlacedTrickChest chest, QuestObjectTypes.Info info)
     {
-        if (!conn.Instance.OpenChest(chest.X, chest.Y)) return false;
-        await ReplaceOpenedTrickChest(remote, stream, ciphers, conn, id, chest, info);
+        if (!player.Instance.OpenChest(chest.X, chest.Y)) return false;
+        await ReplaceOpenedTrickChest(player, id, chest, info);
         // Mirror the opened chest state to any party peers in the same instance.
-        foreach (var peer in conn.Instance.PlayersExcept(conn.PeerId))
-            if (peer.Owner is { Closed: false, LeavingArea: false } other && ReferenceEquals(other.Instance, conn.Instance)
+        foreach (var other in player.Instance.PlayersExcept(player.Id))
+            if (!other.Closed && !other.LeavingArea && ReferenceEquals(other.Instance, player.Instance)
                 && ActiveTrickChests.TryGetValue(other, out var peerMap))
             {
                 uint peerId = 0;
                 lock (peerMap)
                     peerId = peerMap.FirstOrDefault(e => e.Value.X == chest.X && e.Value.Y == chest.Y && e.Value.Rule.ChestType == chest.Rule.ChestType).Key;
                 if (peerId != 0)
-                {
-                    var pw = other.Wire;
-                    await ReplaceOpenedTrickChest(pw.Remote, pw.Stream, pw.Ciphers, other, peerId, chest, info);
-                }
+                    await ReplaceOpenedTrickChest(other, peerId, chest, info);
             }
-        byte level = (byte)Math.Clamp(Packs.For(conn.Layout.Id)?.AreaLevel ?? ServerLevels.AreaLevel(conn.Layout.Id), 1, 100);
-        await DropTrickChestLoot(remote, stream, ciphers, conn, chest, level);
-        await SpringTrickChestAmbush(remote, stream, ciphers, conn, chest, level);
+        byte level = (byte)Math.Clamp(Packs.For(player.Layout.Id)?.AreaLevel ?? ServerLevels.AreaLevel(player.Layout.Id), 1, 100);
+        await DropTrickChestLoot(player, chest, level);
+        await SpringTrickChestAmbush(player, chest, level);
         return true;
     }
 
-    static async Task ReplaceOpenedTrickChest(string remote, NetworkStream stream, ConnectionCiphers ciphers, ClientState conn,
-        uint oldId, PlacedTrickChest chest, QuestObjectTypes.Info info)
+    static async Task ReplaceOpenedTrickChest(Player player, uint oldId, PlacedTrickChest chest, QuestObjectTypes.Info info)
     {
         // Chest has no update reader: replace with a new object id in Opened=true state (plays CopperChestEpicTrick.ao's trap sound).
-        uint openedId = conn.TakeObjectId();
-        var map = ActiveTrickChests.GetOrCreateValue(conn);
+        uint openedId = player.TakeObjectId();
+        var map = ActiveTrickChests.GetOrCreateValue(player);
         lock (map)
         {
             map.Remove(oldId);
             map[openedId] = chest;
         }
-        conn.RemoveBlocker(oldId);
-        conn.SetBlocker(openedId, chest.X, chest.Y, info.Size);
-        await SendWorldRemoval(remote, stream, ciphers, conn, oldId, null);
-        await SendWorldCreate(remote, stream, ciphers, conn, openedId,
+        player.RemoveBlocker(oldId);
+        player.SetBlocker(openedId, chest.X, chest.Y, info.Size);
+        await SendWorldRemoval(player, oldId, null);
+        await SendWorldCreate(player, openedId,
             InstanceEntities.CreateObject(openedId, InstanceEntities.ObjectTypeHash(chest.Rule.ChestType), TrickChestBlob(chest, info, opened: true)),
             $"0x02bb opened trick chest 0x{openedId:x} {chest.Rule.ChestType} (was 0x{oldId:x})");
-        await SendWorldRecord(remote, stream, ciphers, conn, openedId, InstanceProtocol.EnterWakeZone(openedId), null);
+        await SendWorldRecord(player, openedId, InstanceProtocol.EnterWakeZone(openedId), null);
     }
 
-    static async Task DropTrickChestLoot(string remote, NetworkStream stream, ConnectionCiphers ciphers, ClientState conn,
-        PlacedTrickChest chest, byte level)
+    static async Task DropTrickChestLoot(Player player, PlacedTrickChest chest, byte level)
     {
-        if (Environment.GetEnvironmentVariable("Game_DROPS") == "0" || !GameEvents.AllowsLoot(conn)) return;
-        var rules = LeagueFor(conn).Rules;
+        if (Environment.GetEnvironmentVariable("Game_DROPS") == "0" || !GameEvents.AllowsLoot(player)) return;
+        var rules = LeagueFor(player).Rules;
         int count = Math.Max(1, (int)Math.Round(3 * Math.Max(0, rules.ItemDropMultiplier)));
-        var drops = new List<ItemDrops.Drop>(DropsFor(conn).Container(level, count, 50, Random.Shared));
-        if (DropsFor(conn).Gold(level, MonsterRarity.Magic, Random.Shared,
+        var rng = AreaRng(player);
+        var drops = new List<ItemDrops.Drop>(DropsFor(player).Container(level, count, 50, rng));
+        if (DropsFor(player).Gold(level, MonsterRarity.Magic, rng,
             rules.GoldMultiplier * SystemSettings.Default.GoldDropMultiplier) is { } gold)
             drops.Add(gold);
         foreach (var drop in ItemDrops.Stacked(drops))
         {
-            var at = conn.Layout.Near((chest.X + Random.Shared.Next(-4, 5), chest.Y + Random.Shared.Next(-4, 5)));
+            var at = player.Layout.Near((chest.X + rng.Next(-4, 5), chest.Y + rng.Next(-4, 5)));
             var ground = new WorldItemObject(at.X, at.Y, drop.Item);
-            uint dropId = conn.Instance.Ground.Add(ground, conn);
-            await SendGroundItem(remote, stream, ciphers, conn, dropId, ground,
+            uint dropId = player.Instance.Ground.Add(ground, player);
+            await SendGroundItem(player, dropId, ground,
                 $"0x02bb trick chest drops {drop.Type.Name} at ({at.X}, {at.Y})", justDropped: true);
         }
     }
 
-    static async Task SpringTrickChestAmbush(string remote, NetworkStream stream, ConnectionCiphers ciphers, ClientState conn,
-        PlacedTrickChest chest, byte level)
+    static async Task SpringTrickChestAmbush(Player player, PlacedTrickChest chest, byte level)
     {
         string claim = Quests.InstanceFlag($"trick-chest-ambush:{chest.Rule.ChestType}:{chest.X},{chest.Y}");
-        if (!conn.Instance.SetState(claim)) return;
+        if (!player.Instance.SetState(claim)) return;
         if (Environment.GetEnvironmentVariable("Game_MONSTERS") == "0") return;
-        var origin = TrickChestAmbushPoint(conn.Layout, chest);
+        var origin = TrickChestAmbushPoint(player.Layout, chest);
         bool spawnedAny = false;
         if (Monsters.Find(chest.Rule.BossVariety) is { Supported: true } boss && boss.Id == chest.Rule.BossVariety)
         {
-            Console.WriteLine($"[gateway] {remote} trick chest {chest.Rule.ChestType}: ambush! {boss.Name} appears at ({origin.X}, {origin.Y})");
+            Console.WriteLine($"[gateway] {player.Connection.Remote} trick chest {chest.Rule.ChestType}: ambush! {boss.Name} appears at ({origin.X}, {origin.Y})");
             // Spawn risen (Transitionable state 2: create_transitioned runs EnableTargetable(), immediately targetable & collidable).
-            uint bossId = await SpawnMonster(remote, stream, ciphers, conn, boss, level, MonsterRarity.Unique, origin.X, origin.Y,
+            uint bossId = await SpawnMonster(player, boss, level, MonsterRarity.Unique, origin.X, origin.Y,
                 unrisen: false, alone: false, log: true);
             if (bossId != 0)
             {
                 spawnedAny = true;
-                lock (conn.Monsters)
-                    if (conn.Monsters.TryGetValue(bossId, out var m)) m.Aggro = true;
+                if (player.Area.Monsters.TryGetValue(bossId, out var m)) m.Aggro = true;
             }
         }
         if (chest.Rule.AddCount > 0 && Monsters.Find(chest.Rule.AddVariety) is { Supported: true } add && add.Id == chest.Rule.AddVariety)
@@ -253,17 +244,16 @@ static partial class QuestobjectsRules
             for (int i = 0; i < chest.Rule.AddCount; i++)
             {
                 double angle = i * Math.Tau / chest.Rule.AddCount;
-                var spot = conn.Layout.Near((chest.X + (int)Math.Round(Math.Cos(angle) * 7), chest.Y + (int)Math.Round(Math.Sin(angle) * 7)));
-                uint addId = await SpawnMonster(remote, stream, ciphers, conn, add, level, MonsterRarity.Normal, spot.X, spot.Y,
+                var spot = player.Layout.Near((chest.X + (int)Math.Round(Math.Cos(angle) * 7), chest.Y + (int)Math.Round(Math.Sin(angle) * 7)));
+                uint addId = await SpawnMonster(player, add, level, MonsterRarity.Normal, spot.X, spot.Y,
                     unrisen: false, alone: false, log: false);
                 if (addId != 0)
                 {
                     spawnedAny = true;
-                    lock (conn.Monsters)
-                        if (conn.Monsters.TryGetValue(addId, out var m)) m.Aggro = true;
+                    if (player.Area.Monsters.TryGetValue(addId, out var m)) m.Aggro = true;
                 }
             }
         }
-        if (spawnedAny) await SendRemainingMonsters(remote, stream, ciphers, conn);
+        if (spawnedAny) await SendRemainingMonsters(player);
     }
 }

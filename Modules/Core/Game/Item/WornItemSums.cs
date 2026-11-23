@@ -7,11 +7,11 @@ public static partial class Game
     // 108 us, under the combat lock). ItemModStats.Sum is a pure function of the items (immutable records), the mod
     // and stat catalogs, the game rules and, for the recent-event form, the events: the sums below are remembered for
     // exactly those inputs. The tables are this module's and empty with it.
-    sealed record ItemSum(ModCatalog Mods, object? Rules, IReadOnlyDictionary<string, int> Sum);
+    sealed record ItemSum(ModCatalog Mods, object? Rules, IReadOnlyDictionary<uint, int> Sum);
     static readonly RuleTable<Item, ItemSum> ItemSums = new();
 
     /// <summary>One item's global mod stats with no subject: <c>ItemModStats.Sum([item], mods)</c>.</summary>
-    internal static IReadOnlyDictionary<string, int> PlainItemSum(Item item, ModCatalog mods)
+    internal static IReadOnlyDictionary<uint, int> PlainItemSum(Item item, ModCatalog mods)
     {
         var rules = Program.GameLogicOrNull;
         if (ItemSums.TryGetValue(item, out var known) && ReferenceEquals(known.Mods, mods) && ReferenceEquals(known.Rules, rules))
@@ -22,19 +22,19 @@ public static partial class Game
     }
 
     sealed record WornSum(Item[] Items, ModCatalog Mods, object? Rules, object Stats, HashSet<string>? Recent,
-        IReadOnlyDictionary<string, int> Sum);
+        IReadOnlyDictionary<uint, int> Sum);
     // The callers pass a few different views of the worn items (all, the active ones): one remembered sum for each.
     sealed class WornSums { public readonly WornSum?[] Kept = new WornSum?[4]; public int Next; }
-    static readonly RuleTable<ClientState, WornSums> WornSumsOf = new();
+    static readonly Store<Player, WornSums> WornSumsOf = new();
 
     /// <summary>The items' global mod stats together: with no subject, or, given the recent events, with the stats
     /// that depend on them decided and folded onto their plain names (as SelfCurseConditionInputs sums its gear).</summary>
-    static IReadOnlyDictionary<string, int> WornItemSum(ClientState conn, IEnumerable<Item> items, IReadOnlySet<string>? recent = null)
+    static IReadOnlyDictionary<uint, int> WornItemSum(Player player, IEnumerable<Item> items, IReadOnlySet<string>? recent = null)
     {
         var list = items as Item[] ?? [.. items];
-        var mods = ItemsFor(conn).Mods;
+        var mods = ItemsFor(player).Mods;
         var rules = Program.GameLogicOrNull;
-        var memo = WornSumsOf.GetOrCreateValue(conn);
+        var memo = WornSumsOf.GetOrCreateValue(player);
         foreach (var kept in memo.Kept)
             if (kept is not null && ReferenceEquals(kept.Mods, mods) && ReferenceEquals(kept.Rules, rules)
                 && ReferenceEquals(kept.Stats, Stats) && SameItems(kept.Items, list)
@@ -59,15 +59,15 @@ public static partial class Game
     // WornGrantedSkills.For reads every mod of every worn item; its answer is a pure function of the catalog and of
     // the items in their rows. The Physical Aegis condition asks on every stat-sources lookup (12 us of one).
     sealed record WornGrants(WornGrantedSkills Owner, (byte Row, InventoryItem Item)[] Equipment, IReadOnlyList<WornGrantedSkills.Grant> Grants);
-    static readonly RuleTable<ClientState, WornGrants> WornGrantsOf = new();
+    static readonly Store<Player, WornGrants> WornGrantsOf = new();
 
-    static IReadOnlyList<WornGrantedSkills.Grant> WornGrantsFor(ClientState conn, IReadOnlyList<(byte Row, InventoryItem Item)> equipment)
+    static IReadOnlyList<WornGrantedSkills.Grant> WornGrantsFor(Player player, IReadOnlyList<(byte Row, InventoryItem Item)> equipment)
     {
-        var owner = WornGrantedSkillOwner(conn);
-        if (WornGrantsOf.TryGetValue(conn, out var known) && ReferenceEquals(known.Owner, owner) && Same(known.Equipment, equipment))
+        var owner = WornGrantedSkillOwner(player);
+        if (WornGrantsOf.TryGetValue(player, out var known) && ReferenceEquals(known.Owner, owner) && Same(known.Equipment, equipment))
             return known.Grants;
         WornGrantedSkills.Grant[] grants = [.. owner.For(equipment)];
-        WornGrantsOf.AddOrUpdate(conn, new(owner, [.. equipment], grants));
+        WornGrantsOf.AddOrUpdate(player, new(owner, [.. equipment], grants));
         return grants;
 
         // An inventory item is a new record whenever its place, its id or its item changes.

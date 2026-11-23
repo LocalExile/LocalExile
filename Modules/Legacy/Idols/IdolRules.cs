@@ -29,16 +29,29 @@ public static class IdolRules
 
     // UniqueMapRelicLimits: how many of a unique Idol may lie in the Idol inventory, by the name's Words HASH32, which
     // is what a unique item carries as its name.
-    static readonly Lazy<Dictionary<uint, int>> UniqueLimits = new(() =>
+    static Dictionary<uint, int> UniqueLimits = new();
+
+    public static void LoadGameData()
     {
         var limits = new Dictionary<uint, int>();
-        if (!ClientTables.Has("UniqueMapRelicLimits") || !ClientTables.Has("Words")) return limits;
-        var words = ClientTables.Table("Words");
-        foreach (var row in ClientTables.Table("UniqueMapRelicLimits"))
-            if (row.Int("Idol") is int word && word >= 0 && word < words.Count)
-                limits[words[word].UInt("HASH32")] = row.Int("Limit");
-        return limits;
-    });
+        if (ClientTables.Has("UniqueMapRelicLimits") && ClientTables.Has("Words"))
+        {
+            var words = ClientTables.Table("Words");
+            foreach (var row in ClientTables.Table("UniqueMapRelicLimits"))
+                if (row.Int("Idol") is int word && word >= 0 && word < words.Count)
+                    limits[words[word].UInt("HASH32")] = row.Int("Limit");
+        }
+        UniqueLimits = limits;
+
+        var mults = new Dictionary<string, double>(StringComparer.Ordinal);
+        if (ClientTables.Has("GoldPriceMultiFromTag") && ClientTables.Has("Tags"))
+        {
+            var tags = ClientTables.Table("Tags");
+            foreach (var row in ClientTables.Table("GoldPriceMultiFromTag"))
+                if (row.IntOrNull("Tag") is int tag && tags.Row(tag)?.Text("Id") is { } id) mults[id] = row.Real("Multiplier");
+        }
+        GoldMultipliers = mults;
+    }
 
     /// <summary>Why this Idol may not join the ones placed, or null: a unique Idol is limited to its
     /// UniqueMapRelicLimits count (one of each). When <paramref name="replaced"/> is the item being swapped out of the
@@ -46,7 +59,7 @@ public static class IdolRules
     public static string? LimitRefusal(PlayerInventories items, Item idol, InventoryItem? replaced = null)
     {
         if (idol.Rarity != ItemRarity.Unique || idol.NameWords.Count == 0
-            || !UniqueLimits.Value.TryGetValue(idol.NameWords[0], out int limit)) return null;
+            || !UniqueLimits.TryGetValue(idol.NameWords[0], out int limit)) return null;
         int placed = items.Items(Row).Count(i =>
             (replaced is null || i.Id != replaced.Id)
             && i.Item.Rarity == ItemRarity.Unique && i.Item.NameWords.Contains(idol.NameWords[0]));
@@ -55,11 +68,11 @@ public static class IdolRules
 
     /// <summary>The map's modifiers with the Idols' stats added: unscaled, as the device's fragments are, so the map's
     /// modifier effect does not multiply them.</summary>
-    public static MapMods With(MapMods mods, IReadOnlyDictionary<string, int> idols)
+    public static MapMods With(MapMods mods, IReadOnlyDictionary<uint, int> idols)
     {
-        static Dictionary<string, int> Added(IReadOnlyDictionary<string, int> to, IReadOnlyDictionary<string, int> more)
+        static Dictionary<uint, int> Added(IReadOnlyDictionary<uint, int> to, IReadOnlyDictionary<uint, int> more)
         {
-            var sum = new Dictionary<string, int>(to);
+            var sum = new Dictionary<uint, int>(to);
             foreach (var (stat, value) in more)
                 sum[stat] = (int)Math.Clamp((long)sum.GetValueOrDefault(stat) + value, int.MinValue, int.MaxValue);
             return sum;
@@ -133,15 +146,7 @@ public static class IdolRules
 
     // GoldPriceMultiFromTag: the client's gold value multiplier of each Idol size (atlas_relic_small 1.2 to
     // atlas_relic_very_large 2.5), by Tags Id.
-    static readonly Lazy<Dictionary<string, double>> GoldMultipliers = new(() =>
-    {
-        var result = new Dictionary<string, double>(StringComparer.Ordinal);
-        if (!ClientTables.Has("GoldPriceMultiFromTag") || !ClientTables.Has("Tags")) return result;
-        var tags = ClientTables.Table("Tags");
-        foreach (var row in ClientTables.Table("GoldPriceMultiFromTag"))
-            if (row.IntOrNull("Tag") is int tag && tags.Row(tag)?.Text("Id") is { } id) result[id] = row.Real("Multiplier");
-        return result;
-    });
+    static Dictionary<string, double> GoldMultipliers = new(StringComparer.Ordinal);
 
     /// <summary>
     /// The gold price of gambling for an Idol. GGG's is not published: ours is the 3.29 ring price at the window's
@@ -150,7 +155,7 @@ public static class IdolRules
     /// </summary>
     public static uint GamblePrice(ItemCatalog.BaseType idol, int priceLevel)
     {
-        double multiplier = idol.Tags.Select(t => GoldMultipliers.Value.GetValueOrDefault(t)).DefaultIfEmpty(0).Max();
+        double multiplier = idol.Tags.Select(t => GoldMultipliers.GetValueOrDefault(t)).DefaultIfEmpty(0).Max();
         double ring = 90.74 * Math.Pow(1.047, Math.Clamp(priceLevel, 4, 83));
         return (uint)Math.Max(1, Math.Truncate(ring * (multiplier > 0 ? multiplier : 1)));
     }

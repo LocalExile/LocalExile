@@ -24,6 +24,6 @@ public sealed class ThirdRingSlotTests
 
         var equipment = inventories.EquipmentSnapshot();
         Assert.Contains(equipment, e => e.Row == 102);
-        Assert.Equal(50, ItemModStats.Sum(equipment.Select(e => e.Item.Item), Program.Items.Mods)["additional_dexterity"]);
+        Assert.Equal(50, ItemModStats.Sum(equipment.Select(e => e.Item.Item), Program.Items.Mods)[Stat.AdditionalDexterity]);
     }
 }

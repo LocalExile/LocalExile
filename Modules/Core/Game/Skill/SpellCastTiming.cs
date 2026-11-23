@@ -9,11 +9,11 @@ public readonly record struct SpellCastTiming(int BaseMilliseconds, int? Duratio
     {
         foreach (var (name, value) in new[]
         {
-            ("base_spell_cast_time_ms", BaseMilliseconds),
-            ("virtual_base_spell_cast_time_ms", BaseMilliseconds),
-            ("hundred_times_casts_per_second", HundredTimesCastsPerSecond),
+            (Stat.BaseSpellCastTimeMs, BaseMilliseconds),
+            (Stat.VirtualBaseSpellCastTimeMs, BaseMilliseconds),
+            (Stat.HundredTimesCastsPerSecond, HundredTimesCastsPerSecond),
         })
-            if (catalog.Key(name) is uint key) stats[key] = value;
+            if (name is var key) stats[key] = value;
     }
 
     public static SpellCastTiming? ForSkill(SkillCatalog skills, int effect, int increasedCastSpeed) =>

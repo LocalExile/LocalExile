@@ -1,6 +1,7 @@
 using System.Collections.Concurrent;
 using System.Text.Json;
 using System.Text.Json.Nodes;
+using GameServer.Core;
 using GameServer.Core.Protocol.Instance;
 using GameServer.Core.World;
 using GameServer.Data.Ggpk;
@@ -25,7 +26,7 @@ public static partial class MapBeyond
     const uint Salt = 0x42455944; // "BEYD"
 
     /// <summary>HellscapeLifeScalingPerLevel more-life stat, handed over to MonsterModEffects in GameModule.Load.</summary>
-    public const string LifeStat = "beyond_monster_life_+%_final";
+    public static readonly uint LifeStat = Stat.Of("beyond_monster_life_+%_final");
 
     // 3.19–3.29 Beyond spawn/merge parameters (poewiki "Beyond": 15% base orb chance, 4 orbs merge; 1 screen ~50 cells).
     public const double BasePortalChance = 15.0;
@@ -73,7 +74,7 @@ public static partial class MapBeyond
         public List<Portal> Portals { get; set; } = [];
     }
 
-    sealed record KillEvent(ClientState Killer, MonsterRarity Rarity, (int X, int Y) At, int ChanceFinal);
+    sealed record KillEvent(Player Killer, MonsterRarity Rarity, (int X, int Y) At, int ChanceFinal);
 
     sealed class Area
     {
@@ -82,30 +83,30 @@ public static partial class MapBeyond
         public readonly ConcurrentQueue<KillEvent> Kills = new();
     }
 
-    static readonly RuleTable<InstanceState, Area> Areas = new();
-    static readonly RuleTable<ClientState, Dictionary<uint, byte>> Presented = new();
+    static readonly Store<InstanceState, Area> Areas = new();
+    static readonly Store<Player, Dictionary<uint, byte>> Presented = new();
     static readonly ConcurrentDictionary<(string Area, int Level), AreaInfo?> AreaInfos = new();
 
     // Non-core / supporter / Mirage stats not acted on; reported once on map opening if present.
-    static readonly string[] Unsupported =
+    static readonly uint[] Unsupported =
     [
-        "map_beyond_demon_desecrate_on_spawn_damage_per_second",
-        "map_beyond_boss_enrage",
-        "map_beyond_faridun_recreate_enabled",
+        Stat.MapBeyondDemonDesecrateOnSpawnDamagePerSecond,
+        Stat.MapBeyondBossEnrage,
+        Stat.MapBeyondFaridunRecreateEnabled,
     ];
 
-    static IEnumerable<ClientState> Members(ClientState conn) => conn.Instance.PlayersExcept(conn.PeerId)
-        .Select(p => p.Owner).OfType<ClientState>().Prepend(conn)
-        .Where(c => !c.Closed && !c.LeavingArea && c.Instance == conn.Instance).Distinct();
+    static IEnumerable<Player> Members(Player player) => player.Instance.PlayersExcept(player.Id)
+        .Prepend(player)
+        .Where(c => !c.Closed && !c.LeavingArea && c.Instance == player.Instance).Distinct();
 
-    static byte AreaLevel(ClientState conn) =>
-        (byte)Math.Clamp(MapRunOf(conn) is { Area.Level: > 0 } map ? map.Area.Level : ServerLevels.AreaLevel(conn.Layout.Id), 1, 100);
+    static byte AreaLevel(Player player) =>
+        (byte)Math.Clamp(MapRunOf(player) is { Area.Level: > 0 } map ? map.Area.Level : ServerLevels.AreaLevel(player.Layout.Id), 1, 100);
 
-    static int Stat(ClientState conn, string id)
+    static int AreaStat(Player player, uint id)
     {
-        if (MapModsOf(conn) is { } mods) return mods.Get(id);
-        if (conn.Instance?.KeptAreaStats is { Count: > 0 } kept && Program.Stats.Key(id) is uint key)
-            return kept.GetValueOrDefault(key);
+        if (MapModsOf(player) is { } mods) return mods.Get(id);
+        if (player.Instance?.KeptAreaStats is { Count: > 0 } kept)
+            return kept.GetValueOrDefault(id);
         return 0;
     }
 
@@ -117,9 +118,9 @@ public static partial class MapBeyond
         if (request.Opening is not { } opening || BeyondCatalog.All.Count == 0) return;
         request.HandledContent.Add(Content);
         // Scarab of the Invasion (ScarabBeyond5) rolls 8..12 portals per rare/unique kill.
-        MapScarabPacks.RollFragmentCount(request, "map_rare_monsters_spawn_X_beyond_portals", Random.Shared);
-        MapScarabPacks.RollFragmentCount(request, "map_unique_monsters_spawn_X_beyond_portals", Random.Shared);
-        var present = Unsupported.Where(s => opening.Mods.Get(s) != 0).ToArray();
+        MapScarabPacks.RollFragmentCount(request, Stat.MapRareMonstersSpawnXBeyondPortals, Random.Shared);
+        MapScarabPacks.RollFragmentCount(request, Stat.MapUniqueMonstersSpawnXBeyondPortals, Random.Shared);
+        var present = Unsupported.Where(s => opening.Mods.Get(s) != 0).Select(Program.Stats.Name).ToArray();
         if (present.Length > 0)
             request.ContentWarnings.Add(("Beyond.Parity",
                 $"area={opening.Area.Id} content=Beyond: enabled; not acted on: {string.Join(", ", present)}"));
@@ -127,10 +128,10 @@ public static partial class MapBeyond
 
     /// <summary>Merging radius in grid cells: 45 × (1 + increased%) × (1 + final%), minimum 10 cells.
     /// Endless Tide keystone applies -50% final radius (the Idol already carries its own final stat).</summary>
-    public static double MergeRadius(ClientState conn) => MergeRadius(
-        Stat(conn, "map_beyond_portal_search_radius_+%"),
-        Stat(conn, "map_beyond_portal_search_radius_+%_final"),
-        Stat(conn, "atlas_keystone_endless_tide") > 0);
+    public static double MergeRadius(Player player) => MergeRadius(
+        AreaStat(player, Stat.MapBeyondPortalSearchRadiusPlusPct),
+        AreaStat(player, Stat.MapBeyondPortalSearchRadiusPlusPctFinal),
+        AreaStat(player, Stat.AtlasKeystoneEndlessTide) > 0);
 
     public static double MergeRadius(int increasedPct, int finalPct, bool endlessTide)
     {
@@ -153,27 +154,27 @@ public static partial class MapBeyond
         return Math.Clamp(baseChance * Math.Max(0, 100 + increasedPct) / 100.0, 0, 100);
     }
 
-    static bool RollLeague(ClientState conn, byte level)
+    static bool RollLeague(Player player, byte level)
     {
-        var info = AreaInfos.GetOrAdd((conn.Layout.Id, level), k =>
+        var info = AreaInfos.GetOrAdd((player.Layout.Id, level), k =>
         {
             try { return AreaInfo.Load(GamePack.Default.TryRead, k.Area, k.Level); }
             catch (Exception e) when (e is ArgumentException or FileNotFoundException) { return null; }
         });
         if (info is not null)
         {
-            var stats = conn.Instance.KeptAreaStats?.ToDictionary(s => (int)s.Key, s => s.Value) ?? [];
-            return ExtraTerrainFeatures.LeagueCount(info with { Stats = stats }, new LevelRandom(conn.Seed ^ Salt, false), LeagueRow) > 0;
+            var stats = player.Instance.KeptAreaStats?.ToDictionary(s => (int)s.Key, s => s.Value) ?? [];
+            return ExtraTerrainFeatures.LeagueCount(info with { Stats = stats }, new LevelRandom(player.Seed ^ Salt, false), LeagueRow) > 0;
         }
-        int chance = Math.Clamp(Stat(conn, "map_beyond_rules_chance_%") + Stat(conn, "map_league_content_additional_chance_%"), 0, 100);
-        return chance > 0 && (chance >= 100 || new Random(unchecked((int)(conn.Seed ^ Salt))).Next(100) < chance);
+        int chance = Math.Clamp(AreaStat(player, Stat.MapBeyondRulesChancePct) + AreaStat(player, Stat.MapLeagueContentAdditionalChancePct), 0, 100);
+        return chance > 0 && (chance >= 100 || new Random(unchecked((int)(player.Seed ^ Salt))).Next(100) < chance);
     }
 
-    static Area? Of(ClientState conn)
+    static Area? Of(Player player)
     {
-        if (Areas.TryGetValue(conn.Instance, out var area)) return area;
-        if (!conn.Instance.ContentState.TryGetValue(SaveKey, out string? saved)) return null;
-        area = Areas.GetValue(conn.Instance, _ => new());
+        if (Areas.TryGetValue(player.Instance, out var area)) return area;
+        if (!player.Instance.ContentState.TryGetValue(SaveKey, out string? saved)) return null;
+        area = Areas.GetValue(player.Instance, _ => new());
         if (area.State is null) Load(area, saved);
         return area;
     }
@@ -185,37 +186,37 @@ public static partial class MapBeyond
         foreach (var p in area.State.Portals) p.Published = true;
     }
 
-    static void Keep(ClientState conn, Area area) =>
-        conn.Instance.ContentState[SaveKey] = JsonSerializer.Serialize(area.State);
+    static void Keep(Player player, Area area) =>
+        player.Instance.ContentState[SaveKey] = JsonSerializer.Serialize(area.State);
 
-    public static async Task Enter(ClientState conn)
+    public static async Task Enter(Player player)
     {
-        if (BeyondCatalog.All.Count == 0 || conn.Layout.Walkable is null) return;
-        await RestoreBossBuffs(conn);
-        bool hasMap = MapRunOf(conn) is not null;
-        bool forced = Stat(conn, "map_beyond_rules") > 0;
-        bool invasion = Stat(conn, "map_rare_monsters_spawn_X_beyond_portals") > 0
-            || Stat(conn, "map_unique_monsters_spawn_X_beyond_portals") > 0;
+        if (BeyondCatalog.All.Count == 0 || player.Layout.Walkable is null) return;
+        await RestoreBossBuffs(player);
+        bool hasMap = MapRunOf(player) is not null;
+        bool forced = AreaStat(player, Stat.MapBeyondRules) > 0;
+        bool invasion = AreaStat(player, Stat.MapRareMonstersSpawnXBeyondPortals) > 0
+            || AreaStat(player, Stat.MapUniqueMonstersSpawnXBeyondPortals) > 0;
         // Fast path outside maps when no Beyond stat or saved state is present.
-        if (!hasMap && !forced && !invasion && !conn.Instance.ContentState.ContainsKey(SaveKey)) return;
+        if (!hasMap && !forced && !invasion && !player.Instance.ContentState.ContainsKey(SaveKey)) return;
 
-        var area = Areas.GetValue(conn.Instance, _ => new());
+        var area = Areas.GetValue(player.Instance, _ => new());
         await area.Gate.WaitAsync();
         try
         {
             if (area.State is null)
             {
-                if (conn.Instance.ContentState.TryGetValue(SaveKey, out string? saved)) Load(area, saved);
+                if (player.Instance.ContentState.TryGetValue(SaveKey, out string? saved)) Load(area, saved);
                 else
                 {
-                    byte level = AreaLevel(conn);
-                    bool rolled = !forced && hasMap && RollLeague(conn, level);
+                    byte level = AreaLevel(player);
+                    bool rolled = !forced && hasMap && RollLeague(player, level);
                     bool active = forced || rolled || invasion;
                     int factionRow = -1;
                     if (active)
                     {
-                        var rng = new Random(unchecked((int)(conn.Seed ^ Salt ^ 0x46414354)));
-                        var faction = BeyondCatalog.PickFaction(s => Stat(conn, s), rng);
+                        var rng = new Random(unchecked((int)(player.Seed ^ Salt ^ 0x46414354)));
+                        var faction = BeyondCatalog.PickFaction(s => AreaStat(player, s), rng);
                         factionRow = faction?.Row ?? 0;
                     }
                     area.State = new State
@@ -224,13 +225,13 @@ public static partial class MapBeyond
                         InvasionOnly = !forced && !rolled && invasion,
                         FactionRow = factionRow,
                     };
-                    Keep(conn, area);
+                    Keep(player, area);
                     if (active)
-                        Console.WriteLine($"[map-content] beyond area={conn.Layout.Id} level={level}: active faction={BeyondCatalog.ByRow(factionRow)?.Id ?? "?"}"
+                        Console.WriteLine($"[map-content] beyond area={player.Layout.Id} level={level}: active faction={BeyondCatalog.ByRow(factionRow)?.Id ?? "?"}"
                             + (area.State.InvasionOnly ? " (invasion-only)" : ""));
                 }
             }
-            if (area.State is { Active: true }) await Present(conn, area);
+            if (area.State is { Active: true }) await Present(player, area);
         }
         finally { area.Gate.Release(); }
     }
@@ -239,8 +240,8 @@ public static partial class MapBeyond
     /// Demonic Power boss buffs on Beyond kills; queues non-Beyond kills for portal spawning and merging.</summary>
     public static void Kill(KillContext kill)
     {
-        var conn = kill.Conn;
-        if (conn.Instance is null) return;
+        var player = kill.Player;
+        if (player.Instance is null) return;
 
         // Beyond monsters never spawn portals, but still trigger Haemophilia and Demonic Power.
         if (BeyondCatalog.IsBeyondVariety(kill.VarietyId))
@@ -249,36 +250,36 @@ public static partial class MapBeyond
             return;
         }
 
-        if (!Areas.TryGetValue(conn.Instance, out var area) || area.State is not { Active: true, BossSpawned: false }
+        if (!Areas.TryGetValue(player.Instance, out var area) || area.State is not { Active: true, BossSpawned: false }
             || BeyondCatalog.PortalChanceFinal(kill.Monster.Variety) is not int final) return;
-        area.Kills.Enqueue(new(conn, kill.Monster.Rarity, kill.At, final));
+        area.Kills.Enqueue(new(player, kill.Monster.Rarity, kill.At, final));
     }
 
-    public static async Task Tick(ClientState conn, double seconds)
+    public static async Task Tick(Player player, double seconds)
     {
-        if (!conn.Closed && !conn.LeavingArea) await TickBossBuffs(conn);
-        if (conn.Closed || conn.LeavingArea || !conn.PlayerSent || conn.Instance is null
-            || Of(conn) is not { State.Active: true } area) return;
+        if (!player.Closed && !player.LeavingArea) await TickBossBuffs(player);
+        if (player.Closed || player.LeavingArea || !player.Connection.PlayerSent || player.Instance is null
+            || Of(player) is not { State.Active: true } area) return;
 
         await area.Gate.WaitAsync();
         try
         {
-            if (area.State is not { Active: true } || conn.Closed || conn.LeavingArea) return;
+            if (area.State is not { Active: true } || player.Closed || player.LeavingArea) return;
             bool changed = false;
-            if (IsMonsterRunner(conn))
-                changed = await Step(conn, area, Math.Clamp(seconds, 0, 1));
+            if (IsMonsterRunner(player))
+                changed = await Step(player, area, Math.Clamp(seconds, 0, 1));
             if (changed)
             {
-                Keep(conn, area);
-                foreach (var member in Members(conn)) await Present(member, area);
+                Keep(player, area);
+                foreach (var member in Members(player)) await Present(member, area);
             }
             else
-                await Present(conn, area);
+                await Present(player, area);
         }
         finally { area.Gate.Release(); }
     }
 
-    static async Task<bool> Step(ClientState conn, Area area, double seconds)
+    static async Task<bool> Step(Player player, Area area, double seconds)
     {
         var state = area.State!;
         bool changed = false;
@@ -286,12 +287,12 @@ public static partial class MapBeyond
         // 1. Drain queued non-Beyond kills -> spawn blood orbs & merge clusters of 4.
         if (!state.BossSpawned && !area.Kills.IsEmpty)
         {
-            double radius = MergeRadius(conn);
+            double radius = MergeRadius(player);
             double chance = state.InvasionOnly ? 0
-                : PortalChance(Stat(conn, "map_beyond_portal_chance_+%") + Stat(conn, "map_monster_beyond_portal_chance_+%"));
-            
-            int rareInvasion = Stat(conn, "map_rare_monsters_spawn_X_beyond_portals");
-            int uniqueInvasion = Stat(conn, "map_unique_monsters_spawn_X_beyond_portals");
+                : PortalChance(AreaStat(player, Stat.MapBeyondPortalChancePlusPct) + AreaStat(player, Stat.MapMonsterBeyondPortalChancePlusPct));
+
+            int rareInvasion = AreaStat(player, Stat.MapRareMonstersSpawnXBeyondPortals);
+            int uniqueInvasion = AreaStat(player, Stat.MapUniqueMonstersSpawnXBeyondPortals);
             var rng = Random.Shared;
 
             while (!state.BossSpawned && area.Kills.TryDequeue(out var kill))
@@ -299,7 +300,7 @@ public static partial class MapBeyond
                 double own = chance * Math.Max(0, 100 + kill.ChanceFinal) / 100.0;
                 if (own > 0 && (own >= 100 || rng.NextDouble() * 100.0 < own))
                 {
-                    AddOrbAndMerge(conn, state, kill.At, radius, rng);
+                    AddOrbAndMerge(player, state, kill.At, radius, rng);
                     changed = true;
                 }
                 int extra = kill.Rarity switch
@@ -312,7 +313,7 @@ public static partial class MapBeyond
                 {
                     var scatter = (kill.At.X + rng.Next(-InvasionScatter, InvasionScatter + 1),
                         kill.At.Y + rng.Next(-InvasionScatter, InvasionScatter + 1));
-                    AddOrbAndMerge(conn, state, scatter, radius, rng);
+                    AddOrbAndMerge(player, state, scatter, radius, rng);
                     changed = true;
                 }
             }
@@ -346,8 +347,8 @@ public static partial class MapBeyond
                 p.Stage = 2;
                 p.Spawned = true;
                 changed = true;
-                if (p.Kind == PortalKind.Boss) await SpawnBosses(conn, state, p);
-                else await SpawnPack(conn, state, p);
+                if (p.Kind == PortalKind.Boss) await SpawnBosses(player, state, p);
+                else await SpawnPack(player, state, p);
             }
             if (p.Stage < 3 && p.Age >= closeAt)
             {
@@ -364,12 +365,12 @@ public static partial class MapBeyond
         return changed;
     }
 
-    static void AddOrbAndMerge(ClientState conn, State state, (int X, int Y) at, double radius, Random rng)
+    static void AddOrbAndMerge(Player player, State state, (int X, int Y) at, double radius, Random rng)
     {
-        var cell = conn.Layout.Near(at);
+        var cell = player.Layout.Near(at);
         var orb = new Portal
         {
-            Id = conn.Instance.World.NewMonsterId(),
+            Id = player.Instance.World.NewMonsterId(),
             Kind = PortalKind.Small,
             X = cell.X,
             Y = cell.Y,
@@ -400,7 +401,7 @@ public static partial class MapBeyond
 
         int cx = (int)Math.Round(near.Average(e => (double)e.Portal.X));
         int cy = (int)Math.Round(near.Average(e => (double)e.Portal.Y));
-        var center = conn.Layout.Near((cx, cy));
+        var center = player.Layout.Near((cx, cy));
         foreach (var (p, _) in near)
         {
             p.Consumed = true;
@@ -409,9 +410,9 @@ public static partial class MapBeyond
         }
 
         bool canSpawnBoss = !state.BossSpawned
-            && Stat(conn, "map_beyond_bosses_cannot_spawn") <= 0
-            && Stat(conn, "atlas_keystone_endless_tide") <= 0;
-        double bossChance = canSpawnBoss ? BossSpawnChance(state.PacksSpawned, Stat(conn, "map_beyond_boss_spawn_chance_+%")) : 0;
+            && AreaStat(player, Stat.MapBeyondBossesCannotSpawn) <= 0
+            && AreaStat(player, Stat.AtlasKeystoneEndlessTide) <= 0;
+        double bossChance = canSpawnBoss ? BossSpawnChance(state.PacksSpawned, AreaStat(player, Stat.MapBeyondBossSpawnChancePlusPct)) : 0;
         bool isBoss = bossChance > 0 && (bossChance >= 100 || rng.NextDouble() * 100.0 < bossChance);
 
         if (isBoss)
@@ -427,7 +428,7 @@ public static partial class MapBeyond
                 }
             var portal = new Portal
             {
-                Id = conn.Instance.World.NewMonsterId(),
+                Id = player.Instance.World.NewMonsterId(),
                 Kind = PortalKind.Boss,
                 X = center.X,
                 Y = center.Y,
@@ -441,7 +442,7 @@ public static partial class MapBeyond
             state.PacksSpawned++;
             var portal = new Portal
             {
-                Id = conn.Instance.World.NewMonsterId(),
+                Id = player.Instance.World.NewMonsterId(),
                 Kind = PortalKind.Pack,
                 X = center.X,
                 Y = center.Y,
@@ -452,7 +453,7 @@ public static partial class MapBeyond
         }
     }
 
-    static async Task SpawnPack(ClientState conn, State state, Portal portal)
+    static async Task SpawnPack(Player player, State state, Portal portal)
     {
         var faction = BeyondCatalog.ByRow(state.FactionRow) ?? BeyondCatalog.All.FirstOrDefault();
         if (faction is null) return;
@@ -462,12 +463,11 @@ public static partial class MapBeyond
         if (pool.Count == 0) return;
         var pack = pool[rng.Next(pool.Count)];
 
-        byte level = AreaLevel(conn);
-        double packFactor = Math.Max(0, 100 + Stat(conn, "map_beyond_demon_pack_size_+%")) / 100.0;
+        byte level = AreaLevel(player);
+        double packFactor = Math.Max(0, 100 + AreaStat(player, Stat.MapBeyondDemonPackSizePlusPct)) / 100.0;
         int rawCount = rng.Next(Math.Max(1, pack.MinCount), Math.Max(pack.MinCount, pack.MaxCount) + 1);
         int count = Math.Max(1, (int)Math.Round(rawCount * packFactor));
         var extraMods = LifeExtraMods(level);
-        var w = conn.Wire;
 
         // Spawn elite leader (if this is an elite pack) as Rare (60%) or Magic (40%).
         if (pack.BossVarieties.Count > 0)
@@ -475,9 +475,9 @@ public static partial class MapBeyond
             int leaderRow = pack.BossVarieties[rng.Next(pack.BossVarieties.Count)];
             if (Monsters.Find(leaderRow.ToString()) is { Supported: true } leader)
             {
-                var cell = conn.Layout.Near((portal.X + rng.Next(-4, 5), portal.Y + rng.Next(-4, 5)));
+                var cell = player.Layout.Near((portal.X + rng.Next(-4, 5), portal.Y + rng.Next(-4, 5)));
                 var leaderRarity = rng.Next(100) < 60 ? MonsterRarity.Rare : MonsterRarity.Magic;
-                await SpawnMonster(w.Remote, w.Stream, w.Ciphers, conn, leader, level, leaderRarity, cell.X, cell.Y,
+                await SpawnMonster(player, leader, level, leaderRarity, cell.X, cell.Y,
                     extraMods: extraMods, unrisen: false);
             }
         }
@@ -499,22 +499,21 @@ public static partial class MapBeyond
             var entry = entries[^1];
             foreach (var e in entries) if ((pick -= Math.Max(1, e.Weight)) < 0) { entry = e; break; }
             var variety = Monsters.Find(entry.Variety.ToString())!;
-            var cell = conn.Layout.Near((portal.X + rng.Next(-7, 8), portal.Y + rng.Next(-7, 8)));
+            var cell = player.Layout.Near((portal.X + rng.Next(-7, 8), portal.Y + rng.Next(-7, 8)));
             var rarity = rareLeader && i == 0 ? MonsterRarity.Rare : followerRarity;
-            await SpawnMonster(w.Remote, w.Stream, w.Ciphers, conn, variety, level, rarity, cell.X, cell.Y,
+            await SpawnMonster(player, variety, level, rarity, cell.X, cell.Y,
                 extraMods: extraMods, unrisen: false);
         }
     }
 
-    static async Task SpawnBosses(ClientState conn, State state, Portal portal)
+    static async Task SpawnBosses(Player player, State state, Portal portal)
     {
-        bool three = Stat(conn, "map_beyond_spawn_three_bosses_instead_of_one") > 0;
+        bool three = AreaStat(player, Stat.MapBeyondSpawnThreeBossesInsteadOfOne) > 0;
         var factions = three
             ? BeyondCatalog.All
             : BeyondCatalog.ByRow(state.FactionRow) is { } single ? [single] : BeyondCatalog.All.Take(1).ToArray();
-        byte level = AreaLevel(conn);
+        byte level = AreaLevel(player);
         var extraMods = LifeExtraMods(level);
-        var w = conn.Wire;
 
         for (int i = 0; i < factions.Count; i++)
         {
@@ -523,8 +522,8 @@ public static partial class MapBeyond
             var offset = factions.Count == 1 ? (portal.X, portal.Y)
                 : (portal.X + (int)Math.Round(6 * Math.Cos(Math.Tau * i / factions.Count)),
                    portal.Y + (int)Math.Round(6 * Math.Sin(Math.Tau * i / factions.Count)));
-            var cell = conn.Layout.Near(offset);
-            uint id = await SpawnMonster(w.Remote, w.Stream, w.Ciphers, conn, variety, level, MonsterRarity.Unique, cell.X, cell.Y,
+            var cell = player.Layout.Near(offset);
+            uint id = await SpawnMonster(player, variety, level, MonsterRarity.Unique, cell.X, cell.Y,
                 extraMods: extraMods, alone: true, unrisen: false);
             if (id != 0)
                 Console.WriteLine($"[beyond] spawned boss {variety.Name} ({variety.Id}) 0x{id:x} at ({cell.X}, {cell.Y})");
@@ -532,7 +531,7 @@ public static partial class MapBeyond
     }
 
     static MonsterModSet LifeExtraMods(byte level) =>
-        new([], [], new MonsterModEffects(new Dictionary<string, int> { [LifeStat] = BeyondCatalog.LifePct(level) }));
+        new([], [], new MonsterModEffects(new Dictionary<uint, int> { [LifeStat] = BeyondCatalog.LifePct(level) }));
 
     static string PortalTypePath(PortalKind kind) => kind switch
     {
@@ -542,19 +541,18 @@ public static partial class MapBeyond
         _ => BeyondCatalog.SmallPortalType,
     };
 
-    static async Task Present(ClientState conn, Area area)
+    static async Task Present(Player player, Area area)
     {
-        if (conn.Closed || conn.LeavingArea || area.State is not { } state) return;
-        var shown = Presented.GetValue(conn, _ => []);
+        if (player.Closed || player.LeavingArea || area.State is not { } state) return;
+        var shown = Presented.GetValue(player, _ => []);
         if (state.Portals.Count == 0 && shown.Count == 0) return;
-        var w = conn.Wire;
 
         // Remove portals that are no longer in state.Portals.
         var live = new HashSet<uint>(state.Portals.Select(p => p.Id));
         foreach (uint old in shown.Keys.Where(id => !live.Contains(id)).ToArray())
         {
             shown.Remove(old);
-            await SendWorldRemoval(w.Remote, w.Stream, w.Ciphers, conn, old, $"[beyond] portal 0x{old:x} removed");
+            await SendWorldRemoval(player, old, $"[beyond] portal 0x{old:x} removed");
         }
 
         // Create new portals and transition any whose stage changed.
@@ -565,25 +563,25 @@ public static partial class MapBeyond
             if (!shown.TryGetValue(p.Id, out byte sent))
             {
                 var obj = new QuestObject(p.X, p.Y, spec.Components, TransitionState: p.Stage) { StateMachine = spec.StateMachine };
-                await SendWorldCreate(w.Remote, w.Stream, w.Ciphers, conn, p.Id,
+                await SendWorldCreate(player, p.Id,
                     InstanceEntities.CreateObject(p.Id, InstanceEntities.ObjectTypeHash(path), obj.Blob()),
                     $"beyond portal {p.Kind} 0x{p.Id:x} stage={p.Stage} at ({p.X}, {p.Y})");
-                await SendWorldRecord(w.Remote, w.Stream, w.Ciphers, conn, p.Id, InstanceProtocol.EnterWakeZone(p.Id), null);
+                await SendWorldRecord(player, p.Id, InstanceProtocol.EnterWakeZone(p.Id), null);
                 shown[p.Id] = p.Stage;
                 p.Published = true;
             }
             else if (sent != p.Stage)
             {
-                await SendWorldRecord(w.Remote, w.Stream, w.Ciphers, conn, p.Id,
+                await SendWorldRecord(player, p.Id,
                     InstanceEntities.TransitionableUpdate(p.Id, spec.TransitionableIndex, p.Stage), null);
                 shown[p.Id] = p.Stage;
             }
         }
     }
 
-    public static void Describe(ClientState conn, JsonObject state)
+    public static void Describe(Player player, JsonObject state)
     {
-        if (conn.Instance is null || !Areas.TryGetValue(conn.Instance, out var area) || area.State is not { Active: true } beyond) return;
+        if (player.Instance is null || !Areas.TryGetValue(player.Instance, out var area) || area.State is not { Active: true } beyond) return;
         state["beyond"] = new JsonObject
         {
             ["faction"] = BeyondCatalog.ByRow(beyond.FactionRow)?.Id,
@@ -593,9 +591,9 @@ public static partial class MapBeyond
         };
     }
 
-    public static void Leave(ClientState conn)
+    public static void Leave(Player player)
     {
-        Presented.Remove(conn);
-        BossBuffs.Remove(conn);
+        Presented.Remove(player);
+        BossBuffs.Remove(player);
     }
 }
