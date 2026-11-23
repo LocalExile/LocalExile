@@ -315,6 +315,12 @@ public sealed class ProjectileEntity
     internal long ContactEpoch = -1, ContactAt, ContactEnd;
     internal int ContactIndex = -1;
     internal ProjectileVector ContactFrom, ContactTo;
+    // Clear straight terrain segment already traced in this terrainEpoch (no wall between TerrainOrigin and
+    // TerrainOrigin + TerrainDirection * TerrainClearLength).
+    internal long TerrainEpoch = -1;
+    internal int TerrainPhase;
+    internal ProjectileVector TerrainOrigin, TerrainDirection;
+    internal double TerrainClearLength;
 
     // Freeze trigger-time flight state while sharing the use's chronological combat RNG streams.
     internal ProjectileEntity AreaSnapshot() => (ProjectileEntity)MemberwiseClone();
@@ -340,6 +346,8 @@ public sealed record ProjectileEvent(ProjectileEventKind Kind, ProjectileEntity 
 public interface IProjectileWorld
 {
     IReadOnlyList<ProjectileActor> Actors(long from, long until);
+    /// <summary>Looks up a single actor by key (e.g. a returning projectile's anchor) without scanning the area.</summary>
+    ProjectileActor? Actor(ProjectileActorKey key, long at) => Actors(at, at).FirstOrDefault(a => a.Key == key);
     /// <summary>Actors that may come within <paramref name="radius"/> of <paramref name="centre"/> at <paramref name="at"/>.
     /// A host with a spatial grid overrides this so area explosions avoid scanning every actor in the instance.</summary>
     IReadOnlyList<ProjectileActor> ActorsNear(ProjectileVector centre, double radius, long at) => Actors(at, at);
