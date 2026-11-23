@@ -10,7 +10,7 @@ public class LioneyesFallTests
     {
         var path = Path.Combine(Path.GetTempPath(), $"lioneyes-fall-{Guid.NewGuid():N}.db");
         Saves.Open(path);
-        var conn = new ClientState(new(1, "bow", 100, 100, 100, 100, null, []), 1, 1) { Character = "BowConversion" };
+        var player = new Player(new(1, "bow", 100, 100, 100, 100, null, []), 1, 1) { Character = { Name = "BowConversion" } };
         try
         {
             var tree = Program.Passives;
@@ -30,24 +30,24 @@ public class LioneyesFallTests
             var point = location.Node;
             var source = location.Move.From;
             var target = location.Move.To;
-            Dictionary<uint, int> Read(params ushort[] nodes) => Game.EquipmentStatSources(conn, [], nodes, 100).Sources;
+            Dictionary<uint, int> Read(params ushort[] nodes) => Game.EquipmentStatSources(player, [], nodes, 100).Sources;
             var before = Read(point, location.Socket);
             int original = before.GetValueOrDefault(source);
             Assert.True(original > 0);
-            Game.ItemsOf(conn).Put(PlayerInventories.PassiveJewels, new(11, (byte)location.Slot, 0, jewel));
+            Game.ItemsOf(player).Put(PlayerInventories.PassiveJewels, new(11, (byte)location.Slot, 0, jewel));
             var converted = Read(point, location.Socket);
             Assert.Equal(0, converted.GetValueOrDefault(source));
             Assert.True(converted.GetValueOrDefault(target) >= before.GetValueOrDefault(target) + original);
             Assert.Equal(original, Read(point).GetValueOrDefault(source));
         }
-        finally { PlayerInventories.Forget(conn.Character!); TestEnvironment.ReleaseSaves(path); }
+        finally { PlayerInventories.Forget(player.Character.Name!); TestEnvironment.ReleaseSaves(path); }
     }
 
     [Fact]
     public void Bow_damage_follows_a_physical_hit_through_conversion_and_excludes_other_weapons()
     {
-        int Get(string n) => n switch { "physical_bow_damage_+%" => 10, "bow_damage_+%" => 20,
-            "bow_hit_and_ailment_damage_+%" => 30, "bow_elemental_damage_+%" => 40, _ => 0 };
+        int Get(uint n) => n switch { Stat.PhysicalBowDamagePlusPct => 10, Stat.BowDamagePlusPct => 20,
+            Stat.BowHitAndAilmentDamagePlusPct => 30, Stat.BowElementalDamagePlusPct => 40, _ => 0 };
         var packet = DamagePacket.Of(DamageType.Physical, 100, 100);
         var conversion = new DamageConversion();
         conversion.AddSkill(DamageType.Physical, DamageType.Fire, 100);
@@ -58,7 +58,7 @@ public class LioneyesFallTests
         Assert.Equal(100, Hit(true, true));
 
         int Ignite(bool bow) => AilmentPanelStats.Compute(new("main_hand", Spell: false),
-            packet, conversion, n => n == "main_hand_weapon_type" ? WeaponTypeStats.Of(bow ? "Bow" : "Wand") : Get(n)).Single(row => row.Stat == "minimum_ignite_damage_to_deal_per_minute_from_non_critical_main_hand_damage").Value;
+            packet, conversion, n => n == Stat.MainHandWeaponType ? WeaponTypeStats.Of(bow ? "Bow" : "Wand") : Get(n)).Single(row => row.Stat == Stat.MinimumIgniteDamageToDealPerMinuteFromNonCriticalMainHandDamage).Value;
         Assert.Equal(2 * Ignite(false), Ignite(true));
         Assert.True(Ignite(false) > 0);
     }

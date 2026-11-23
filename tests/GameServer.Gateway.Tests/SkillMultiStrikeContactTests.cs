@@ -30,8 +30,8 @@ public sealed class SkillMultiStrikeContactTests
         var skills = new SkillCatalog();
         int effect = skills.EffectRow("DoubleStrike");
         var stats = skills.EffectStats(effect, 1).ToDictionary(entry => entry.Item1, entry => entry.Item2);
-        uint additionalHits = Program.Stats.Key("base_skill_number_of_additional_hits")!.Value;
-        uint bleedOnHit = Program.Stats.Key("bleed_on_hit_with_attacks_%")!.Value;
+        uint additionalHits = Stat.BaseSkillNumberOfAdditionalHits;
+        uint bleedOnHit = Stat.BleedOnHitWithAttacksPct;
         Assert.Equal(1, stats[additionalHits]);
         Assert.Equal(25, stats[bleedOnHit]);
         Assert.Equal(2, SkillMultiStrike.StrikeCount("DoubleStrike", stats[additionalHits],

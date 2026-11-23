@@ -2,7 +2,7 @@ using GameServer.Core.World;
 
 /// <summary>
 /// The player's poisons on one monster. Multiple poisons can stack indefinitely; each deals chaos damage concurrently
-/// and maintains its own duration (default 2 s). Guarded by the connection's Monsters lock.
+/// and maintains its own duration (default 2 s). Owned by the area's frame.
 /// </summary>
 public sealed class MonsterPoisons
 {
@@ -28,46 +28,47 @@ public sealed class MonsterPoisons
         public static readonly Settings None = new(0, 0, 0, 0, 0, 0);
 
         /// <summary><paramref name="local"/>: the attacking weapon's local stats (none for a spell).</summary>
-        public static Settings From(IEnumerable<(string Stat, int Value)> rows, string hand, Func<string, int> get,
-            IReadOnlyDictionary<string, int>? local = null, bool projectileAttack = false)
+        public static Settings From(IEnumerable<(uint Stat, int Value)> rows, string hand, Func<uint, int> get,
+            IReadOnlyDictionary<uint, int>? local = null, bool projectileAttack = false)
         {
             if (Prohibited(get)) return None;
             var r = rows.ToDictionary(x => x.Stat, x => x.Value);
             double faster = Faster(get);
             if (faster <= 0) return None;
             double Row(string bound, string kind) =>
-                r.GetValueOrDefault($"{bound}_poison_damage_to_deal_per_minute_from_{kind}_{hand}_damage") / 60.0 * faster;
-            long chance = (long)get("base_chance_to_poison_on_hit_%") + get("chaos_damage_chance_to_poison_%");
+                r.GetValueOrDefault(Stat.Of($"{bound}_poison_damage_to_deal_per_minute_from_{kind}_{hand}_damage")) / 60.0 * faster;
+            long chance = (long)get(Stat.BaseChanceToPoisonOnHitPct) + get(Stat.ChaosDamageChanceToPoisonPct);
             int projectileChance = projectileAttack
-                ? Math.Clamp(get("projectile_attacks_chance_to_poison_on_hit_%_if_you_have_beast_minion"), 0, 100) : 0;
+                ? Math.Clamp(get(Stat.ProjectileAttacksChanceToPoisonOnHitPctIfYouHaveBeastMinion), 0, 100) : 0;
             double seconds = Ailments.PoisonDurationSeconds
-                * Math.Max(0, 1 + ((double)get("poison_duration_+%") + get("base_all_ailment_duration_+%")) / 100) / faster
+                * Math.Max(0, 1 + ((double)get(Stat.PoisonDurationPlusPct) + get(Stat.BaseAllAilmentDurationPlusPct)) / 100) / faster
                 * MonsterIgnites.DurationMultiplier(get);
             return new((int)Math.Clamp(chance, 0, 100), Row("minimum", "non_critical"), Row("maximum", "non_critical"),
                 Row("minimum", "critical"), Row("maximum", "critical"), seconds,
-                local?.GetValueOrDefault("local_poison_on_hit_%") ?? 0, projectileChance, Secondary: hand == "secondary",
-                NeverFromCrit: get("keystone_elemental_overload") != 0,
-                OnlyFromCrit: get("keystone_ailment_crit") != 0);
+                local?.GetValueOrDefault(Stat.LocalPoisonOnHitPct) ?? 0, projectileChance, Secondary: hand == "secondary",
+                NeverFromCrit: get(Stat.KeystoneElementalOverload) != 0,
+                OnlyFromCrit: get(Stat.KeystoneAilmentCrit) != 0);
         }
     }
 
     /// <summary>Whether the attacker cannot poison: poison deals chaos damage, so a chaos prohibition stops it even from
     /// physical damage (PoB CalcOffence gates poison on <c>canDeal.Chaos</c>).</summary>
-    public static bool Prohibited(Func<string, int> get) =>
-        get("cannot_poison_enemies") != 0 || get("never_damaging_ailments") != 0
+    public static bool Prohibited(Func<uint, int> get) =>
+        get(Stat.Of("cannot_poison_enemies")) != 0 || get(Stat.NeverDamagingAilments) != 0
         || DamageStats.Prohibited(DamageType.Chaos, get);
 
-    public static double Faster(Func<string, int> get) =>
-        Math.Max(0, 1 + ((double)get("faster_poison_%") + get("damaging_ailments_deal_damage_+%_faster")) / 100.0);
+    public static double Faster(Func<uint, int> get) =>
+        Math.Max(0, 1 + ((double)get(Stat.FasterPoisonPct) + get(Stat.DamagingAilmentsDealDamagePlusPctFaster)) / 100.0);
 
-    public static double SelfDuration(Func<string, int> target) =>
-        Math.Max(0, 1 - target("base_self_poison_duration_-%") / 100.0);
+    public static double SelfDuration(Func<uint, int> target) =>
+        Math.Max(0, 1 - target(Stat.Of("base_self_poison_duration_-%")) / 100.0);
 
     readonly record struct Poison(double From, double Until, double DamagePerSecond);
     readonly List<Poison> active = [];
     double last, carry;
 
     /// <summary>The native <c>poison</c> buff instance on the monster (BuffDefinitions row 10).</summary>
+    /// <summary>The row of the buff that shows the set (its source: BuffSource), null while none (Game.ShowDot).</summary>
     public ushort? Buff;
 
     /// <summary>The attacking object shown as the buff source (0 for generic self-created poisons).</summary>

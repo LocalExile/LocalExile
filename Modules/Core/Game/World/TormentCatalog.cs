@@ -25,9 +25,26 @@ public static class TormentCatalog
     /// <summary>A possessed player's buff (BuffDefinitions torment_possessed_player: "Possession"), Speaker of the Dead.</summary>
     public const ushort PossessedPlayerBuff = 2113;
 
-    static readonly Lazy<IReadOnlyList<Spirit>> Data = new(Load);
-    static readonly Lazy<int[]> LifeScaling = new(LoadLifeScaling);
-    public static IReadOnlyList<Spirit> All => Data.Value;
+    static IReadOnlyList<Spirit> Data = [];
+    static int[] LifeScaling = [];
+    static Dictionary<string, Spirit> Varieties = new(StringComparer.Ordinal);
+    static Dictionary<int, Spirit> Rows = [];
+    static Dictionary<int, Spirit> GripMods = [];
+    static (ushort Touched, ushort Possessed) EffectHashes;
+
+    public static void LoadGameData()
+    {
+        var data = Load();
+        Data = data;
+        LifeScaling = LoadLifeScaling();
+        Varieties = data.ToDictionary(s => s.Variety, StringComparer.Ordinal);
+        Rows = data.ToDictionary(s => s.Row);
+        GripMods = data.Where(s => s.Grip.Count > 0)
+            .GroupBy(s => s.Grip[0]).ToDictionary(g => g.Key, g => g.First());
+        EffectHashes = (Program.Items.Mods.ById(TouchedEffect)?.Hash ?? 0, Program.Items.Mods.ById(PossessedEffect)?.Hash ?? 0);
+    }
+
+    public static IReadOnlyList<Spirit> All => Data;
 
     static IReadOnlyList<Spirit> Load()
     {
@@ -44,14 +61,10 @@ public static class TormentCatalog
         return result;
     }
 
-    static readonly Lazy<Dictionary<string, Spirit>> Varieties = new(() => All.ToDictionary(s => s.Variety, StringComparer.Ordinal));
-    static readonly Lazy<Dictionary<int, Spirit>> Rows = new(() => All.ToDictionary(s => s.Row));
-    public static Spirit? ByVariety(string? variety) => variety is not null && Varieties.Value.TryGetValue(variety, out var s) ? s : null;
-    public static Spirit? ByRow(int row) => Rows.Value.GetValueOrDefault(row);
+    public static Spirit? ByVariety(string? variety) => variety is not null && Varieties.TryGetValue(variety, out var s) ? s : null;
+    public static Spirit? ByRow(int row) => Rows.GetValueOrDefault(row);
     // A spirit by its own Grip mod (the first of its Possessed_ModsKeys: the shared ones are in every spirit's list).
-    static readonly Lazy<Dictionary<int, Spirit>> GripMods = new(() => All.Where(s => s.Grip.Count > 0)
-        .GroupBy(s => s.Grip[0]).ToDictionary(g => g.Key, g => g.First()));
-    public static Spirit? ByGripMod(int modRow) => GripMods.Value.GetValueOrDefault(modRow);
+    public static Spirit? ByGripMod(int modRow) => GripMods.GetValueOrDefault(modRow);
 
     /// <summary>The spirits an area of this level rolls from: the weighted ones, or the unusual ones with the Torment Scarab
     /// of Peculiarity (<c>map_tormented_spirits_rare_varieties</c>), equally likely (their table weight is 0).</summary>
@@ -73,7 +86,7 @@ public static class TormentCatalog
     /// <c>set_additional_life_scaling_index = 16</c>): 0 to level 55, 20 per level to 240 at 67, 40 per level to 920.</summary>
     public static int LifePct(int level)
     {
-        var table = LifeScaling.Value;
+        var table = LifeScaling;
         return table.Length == 0 ? 0 : table[Math.Clamp(level, 1, table.Length) - 1];
     }
 
@@ -89,10 +102,10 @@ public static class TormentCatalog
     }
 
     /// <summary>Mods.dat rows rolled as a monster's explicit mods (the list its name plate shows), with their summed stats.</summary>
-    public static (IReadOnlyList<ItemMod> Mods, Dictionary<string, int> Stats) Roll(IEnumerable<int> rows, Random random)
+    public static (IReadOnlyList<ItemMod> Mods, Dictionary<uint, int> Stats) Roll(IEnumerable<int> rows, Random random)
     {
         var mods = new List<ItemMod>();
-        var stats = new Dictionary<string, int>(StringComparer.Ordinal);
+        var stats = new Dictionary<uint, int>();
         foreach (var mod in rows.Select(Program.Items.Mods.Row).OfType<ModCatalog.Mod>())
         {
             var rolled = mod.Roll(ModSection.Explicit, random);
@@ -103,13 +116,10 @@ public static class TormentCatalog
         return (mods, stats);
     }
 
-    static readonly Lazy<(ushort Touched, ushort Possessed)> EffectHashes = new(() =>
-        (Program.Items.Mods.ById(TouchedEffect)?.Hash ?? 0, Program.Items.Mods.ById(PossessedEffect)?.Hash ?? 0));
-
     /// <summary>Whether a monster's mods carry a spirit's Touch (or, <paramref name="grip"/>, a Grip).</summary>
     public static bool Has(MonsterModSet mods, bool grip)
     {
-        ushort hash = grip ? EffectHashes.Value.Possessed : EffectHashes.Value.Touched;
+        ushort hash = grip ? EffectHashes.Possessed : EffectHashes.Touched;
         if (hash == 0) return false;
         foreach (var mod in mods.Mods) if (mod.Hash == hash) return true;
         return false;

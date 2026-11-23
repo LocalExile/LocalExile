@@ -72,7 +72,7 @@ public static class OshabiEncounter
     }
 
     static readonly RuleTable<InstanceState, Encounter> Encounters = new();
-    static readonly RuleTable<ClientState, HashSet<uint>> Presented = new();
+    static readonly RuleTable<Player, HashSet<uint>> Presented = new();
     static readonly JsonSerializerOptions Json = new() { IncludeFields = true };
 
     /// <summary>Stops the running fights' steps and forgets the module's tables (module unload); the saved state brings
@@ -89,60 +89,58 @@ public static class OshabiEncounter
         }
     }
 
-    static void Keep(ClientState conn, Saved state) => conn.Instance.ContentState[SaveKey] = JsonSerializer.Serialize(state, Json);
+    static void Keep(Player player, Saved state) => player.Instance.ContentState[SaveKey] = JsonSerializer.Serialize(state, Json);
 
-    static Saved? Restored(ClientState conn) =>
-        conn.Instance.ContentState.TryGetValue(SaveKey, out string? saved) ? JsonSerializer.Deserialize<Saved>(saved, Json) : null;
+    static Saved? Restored(Player player) =>
+        player.Instance.ContentState.TryGetValue(SaveKey, out string? saved) ? JsonSerializer.Deserialize<Saved>(saved, Json) : null;
 
     /// <summary>GameEvents.AreaGenerated: Oshabi's own grove (the Sacred Blossom's map device area). The tree stands at the
     /// arena's OshabiEncounterSpawner point [G: garden_boss.arm has no soul tree line], else at the level's centre.</summary>
-    public static async Task Enter(ClientState conn)
+    public static async Task Enter(Player player)
     {
-        if (conn.Layout.Id != AreaId || MapRunOf(conn) is not { } run) return;
-        var spawner = conn.Layout.Level?.RoomObjects.FirstOrDefault(o => o.Type == SpawnerType);
-        var at = spawner is null ? conn.Layout.Near((conn.Layout.GridW / 2, conn.Layout.GridH / 2)) : (spawner.X, spawner.Y);
-        await Place(conn, at, run.Area.Level, new(Altar: true, Log: "Oshabi"));
+        if (player.Layout.Id != AreaId || MapRunOf(player) is not { } run) return;
+        var spawner = player.Layout.Level?.RoomObjects.FirstOrDefault(o => o.Type == SpawnerType);
+        var at = spawner is null ? player.Layout.Near((player.Layout.GridW / 2, player.Layout.GridH / 2)) : (spawner.X, spawner.Y);
+        await Place(player, at, run.Area.Level, new(Altar: true, Log: "Oshabi"));
     }
 
     /// <summary>Creates the instance's encounter once, with the soul tree at <paramref name="tree"/> and its monsters at
-    /// <paramref name="level"/>, and shows its objects to <paramref name="conn"/>. False when the client data lacks the
+    /// <paramref name="level"/>, and shows its objects to <paramref name="player"/>. False when the client data lacks the
     /// tree's type.</summary>
-    public static async Task<bool> Place(ClientState conn, (int X, int Y) tree, int level, Options options)
+    public static async Task<bool> Place(Player player, (int X, int Y) tree, int level, Options options)
     {
-        if (conn.Instance is null) return false;
-        var e = Encounters.GetOrCreateValue(conn.Instance);
+        if (player.Instance is null) return false;
+        var e = Encounters.GetOrCreateValue(player.Instance);
         await e.Gate.WaitAsync();
         try
         {
-            if (e.State is null && !Load(conn, e, () => Build(conn, tree, level, options))) return false;
+            if (e.State is null && !Load(player, e, () => Build(player, tree, level, options))) return false;
         }
         finally { e.Gate.Release(); }
-        await Present(conn, e);
+        await Present(player, e);
         return true;
     }
 
     // Under the encounter's gate: the saved state, else a new one.
-    static bool Load(ClientState conn, Encounter e, Func<Saved?> build)
+    static bool Load(Player player, Encounter e, Func<Saved?> build)
     {
-        var state = Restored(conn);
+        var state = Restored(player);
         if (state is null)
         {
             if (build() is not { } built) return false;
             state = built;
-            Keep(conn, state);
+            Keep(player, state);
         }
-        e.Random = new Random(unchecked((int)(conn.Seed ^ 0x4f534842u)) ^ (state.Started ? 7919 : 0));
+        e.Random = new Random(unchecked((int)(player.Seed ^ 0x4f534842u)) ^ (state.Started ? 7919 : 0));
         e.State = state;
         e.Running = state.Started && !state.Done;
         // An emerge or a colour change cut short by a reload: its adds come at once and the gate opens again.
-        if (e.Running)
-            lock (conn.Monsters)
-                if (!state.Emerged || conn.Monsters.TryGetValue(state.Boss, out var boss) && boss.LifePhases is { Active: true })
-                    e.AddsAt = conn.Clock.Elapsed.TotalSeconds;
+        if (e.Running && (!state.Emerged || player.Area.Monsters.TryGetValue(state.Boss, out var boss) && boss.LifePhases is { Active: true }))
+            e.AddsAt = AreaTime(player);
         return true;
     }
 
-    static Saved? Build(ClientState conn, (int X, int Y) tree, int level, Options options)
+    static Saved? Build(Player player, (int X, int Y) tree, int level, Options options)
     {
         var objects = HarvestTables.Current.Objects;
         if (!objects.ContainsKey(TreeType))
@@ -150,19 +148,19 @@ public static class OshabiEncounter
             Console.WriteLine($"[harvest] {options.Log}: client.db has no {TreeType} object type (object-types v12); no encounter");
             return null;
         }
-        var random = new Random(unchecked((int)(conn.Seed ^ 0x4f534842u)));
+        var random = new Random(unchecked((int)(player.Seed ^ 0x4f534842u)));
         // The fight opens in orange (Sacred): only current_colour 1 reaches the emerge effects (soultree.ot
         // on_state_current_colour_1 with oshabi_emerge 1 calls DoEmergeEffects, oshabiboss.ot's the same with emerge 1);
         // 2-4 play only SwapTo*. [G] The other three come in a random order.
         List<int> colours = [Blue, Green, Red];
         random.Shuffle(System.Runtime.InteropServices.CollectionsMarshal.AsSpan(colours));
         colours.Insert(0, Orange);
-        var roomObjects = conn.Layout.Level?.RoomObjects ?? [];
+        var roomObjects = player.Layout.Level?.RoomObjects ?? [];
         var state = new Saved
         {
             Tree = new()
             {
-                Id = conn.Instance.World.NewMonsterId(), Type = TreeType, X = tree.X, Y = tree.Y,
+                Id = player.Instance.World.NewMonsterId(), Type = TreeType, X = tree.X, Y = tree.Y,
                 // The full tree (progression 9: OshabiSoulTree.ao), targetable (unlocked 1) and ready (interactable 1).
                 States = { ["progression"] = 9, ["interactable"] = 1, ["unlocked"] = 1 },
             },
@@ -172,9 +170,9 @@ public static class OshabiEncounter
         if (options.Altar && objects.ContainsKey(AltarType))
         {
             var point = roomObjects.FirstOrDefault(o => o.Type == AltarType);
-            var at = point is null ? conn.Layout.Near((tree.X, tree.Y + 30)) : (point.X, point.Y);
+            var at = point is null ? player.Layout.Near((tree.X, tree.Y + 30)) : (point.X, point.Y);
             // Hidden until Oshabi dies (OshabiDescensionObject's defaults: enabled 0, visible 0).
-            state.Altar = new() { Id = conn.Instance.World.NewMonsterId(), Type = AltarType, X = at.X, Y = at.Y, Rotation = point?.Rotation ?? 0 };
+            state.Altar = new() { Id = player.Instance.World.NewMonsterId(), Type = AltarType, X = at.X, Y = at.Y, Rotation = point?.Rotation ?? 0 };
         }
         Console.WriteLine($"[harvest] {options.Log}: soul tree at ({tree.X}, {tree.Y}), level {state.Level}, colours "
             + string.Join(",", colours) + $", {state.VineEnds.Count} vine ends" + (state.Altar is { } a ? $", altar at ({a.X}, {a.Y})" : ""));
@@ -183,7 +181,7 @@ public static class OshabiEncounter
 
     static IEnumerable<SacredGrove.GroveObject> Objects(Saved state) => state.Altar is { } altar ? [state.Tree, altar] : [state.Tree];
 
-    static async Task Present(ClientState conn, Encounter e)
+    static async Task Present(Player player, Encounter e)
     {
         SacredGrove.GroveObject[] objects;
         string log;
@@ -196,21 +194,21 @@ public static class OshabiEncounter
             log = state.Log;
         }
         finally { e.Gate.Release(); }
-        var shown = Presented.GetOrCreateValue(conn);
+        var shown = Presented.GetOrCreateValue(player);
         foreach (var o in objects)
         {
             if (shown.Contains(o.Id) || SacredGrove.Describe(o) is not var (quest, _)) continue;
             byte[] blob = InstanceEntities.CreateObject(o.Id, InstanceEntities.ObjectTypeHash(o.Type), quest.Blob());
-            await SendWorldCreate(conn, o.Id, () => blob, $"{log} {o.Type[(o.Type.LastIndexOf('/') + 1)..]} 0x{o.Id:x} at ({o.X}, {o.Y})",
+            await SendWorldCreate(player, o.Id, () => blob, $"{log} {o.Type[(o.Type.LastIndexOf('/') + 1)..]} 0x{o.Id:x} at ({o.X}, {o.Y})",
                 wake: true, awaitBirth: false);
-            SacredGrove.Block(conn, o);
+            SacredGrove.Block(player, o);
             shown.Add(o.Id);
         }
     }
 
     // Under the gate: sets states on the encounter's objects and sends each changed object's StateMachine to the members
     // that have it.
-    static async Task SetStates(ClientState conn, Saved state, params (SacredGrove.GroveObject Object, string Name, int Value)[] changes)
+    static async Task SetStates(Player player, Saved state, params (SacredGrove.GroveObject Object, string Name, int Value)[] changes)
     {
         var changed = new List<SacredGrove.GroveObject>();
         foreach (var (o, name, value) in changes)
@@ -218,15 +216,14 @@ public static class OshabiEncounter
             o.States[name] = value;
             if (!changed.Contains(o)) changed.Add(o);
         }
-        foreach (var member in SacredGrove.Members(conn))
+        foreach (var member in SacredGrove.Members(player))
         {
             if (!Presented.TryGetValue(member, out var shown)) continue;
-            var (remote, stream, ciphers) = member.Wire;
             foreach (var o in changed)
             {
                 if (!shown.Contains(o.Id) || SacredGrove.Describe(o) is not var (quest, type)) continue;
                 int index = type.Components.ToList().IndexOf("StateMachine");
-                await SendWorldRecord(remote, stream, ciphers, member, o.Id,
+                await SendWorldRecord(member, o.Id,
                     InstanceEntities.StateMachineUpdate(o.Id, (byte)index, quest.StateMachine!), null);
             }
         }
@@ -234,65 +231,56 @@ public static class OshabiEncounter
 
     // Sets Oshabi's own states (oshabiboss.ot) and sends them to the members that see her; a member who creates her
     // later takes them from the instance's record.
-    static async Task BossStates(ClientState conn, uint id, params (string Name, int Value)[] changes)
+    static async Task BossStates(Player player, uint id, params (string Name, int Value)[] changes)
     {
-        StateMachineData states;
-        int component;
-        lock (conn.Monsters)
-        {
-            if (!conn.Monsters.TryGetValue(id, out var boss) || boss.States is not { } current || boss.Variety is not { } variety) return;
-            foreach (var (name, value) in changes) current = current.Set(name, value);
-            boss.States = states = current;
-            if (conn.Instance.World.MonsterOrigins.TryGetValue(id, out var origin))
-                conn.Instance.World.MonsterOrigins[id] = origin with { Object = origin.Object with { StateMachine = states } };
-            component = variety.ComponentsOrBase.ToList().IndexOf("StateMachine");
-        }
+        if (!player.Area.Monsters.TryGetValue(id, out var boss) || boss.States is not { } current || boss.Variety is not { } variety) return;
+        foreach (var (name, value) in changes) current = current.Set(name, value);
+        var states = boss.States = current;
+        if (player.Instance.World.MonsterOrigins.TryGetValue(id, out var origin))
+            player.Instance.World.MonsterOrigins[id] = origin with { Object = origin.Object with { StateMachine = states } };
+        int component = variety.ComponentsOrBase.ToList().IndexOf("StateMachine");
         if (component < 0) return;
-        foreach (var member in SacredGrove.Members(conn))
+        foreach (var member in SacredGrove.Members(player))
         {
-            bool sees;
-            lock (member.Monsters) sees = member.MonsterViews.ContainsKey(id) && !member.AsleepMonsters.Contains(id);
-            if (!sees) continue;
-            var (remote, stream, ciphers) = member.Wire;
-            await SendWorldRecord(remote, stream, ciphers, member, id, InstanceEntities.StateMachineUpdate(id, (byte)component, states), null);
+            if (!member.Area.Monsters.TryGetValue(id, out var m) || m.Asleep) continue;
+            await SendWorldRecord(member, id, InstanceEntities.StateMachineUpdate(id, (byte)component, states), null);
         }
     }
 
     /// <summary>GameEvents.ObjectUse: the soul tree starts the fight; the Groveseed Altar, once open, offers the Oshabi
     /// Bloodline.</summary>
-    public static async Task<bool> Use(ClientState conn, InstanceTransfer.UseSkillOnObject use, double requestedAt)
+    public static async Task<bool> Use(Player player, InstanceTransfer.UseSkillOnObject use, double requestedAt)
     {
-        if (conn.Instance is null || !Encounters.TryGetValue(conn.Instance, out var e) || e.State is not { } state) return false;
+        if (player.Instance is null || !Encounters.TryGetValue(player.Instance, out var e) || e.State is not { } state) return false;
         bool tree = use.TargetId == state.Tree.Id;
         if (!tree && state.Altar?.Id != use.TargetId) return false;
-        if (conn.PlayerLife == 0 || conn.Closed || conn.LeavingArea) return true;
+        if (player.PlayerLife == 0 || player.Closed || player.LeavingArea) return true;
         var target = tree ? state.Tree : state.Altar!;
-        var (remote, stream, ciphers) = conn.Wire;
-        Task End(int action) => SendWorldRecord(remote, stream, ciphers, conn, PlayerId, InstanceProtocol.ActionEnded(PlayerId), null,
-            still: () => PlayerActionCurrent(conn, action));
-        if (tree ? state.Started : target.States.GetValueOrDefault("enabled") == 0) { await End(conn.ActionCount); return true; }
+        Task End(int action) => SendWorldRecord(player, player.Id, InstanceProtocol.ActionEnded(player.Id), null,
+            still: () => PlayerActionCurrent(player, action));
+        if (tree ? state.Started : target.States.GetValueOrDefault("enabled") == 0) { await End(player.ActionCount); return true; }
         // [G] The tree is 17 cells across: the player stops at its edge.
         int reach = tree ? 9 : Math.Max(0, StationaryCollision.Resolve(AltarType).Size);
-        if (!TryBeginObjectWalk(conn, requestedAt, target.X, target.Y, reach, out var walk)) return true;
+        if (!TryBeginObjectWalk(player, requestedAt, target.X, target.Y, reach, out var walk)) return true;
         var (action, now, here, stop, arrive) = walk;
         if (!use.Started)
-            await SendWorldRecord(remote, stream, ciphers, conn, PlayerId,
-                InstanceProtocol.ActionStarted(PlayerId, here.X, here.Y, target.X, target.Y, use.SkillId, use.Sequence, use.Flags, targetObjectId: target.Id), null,
-                still: () => PlayerActionCurrent(conn, action));
-        if (arrive > now) await Task.Delay(TimeSpan.FromSeconds(arrive - now));
+            await SendWorldRecord(player, player.Id,
+                InstanceProtocol.ActionStarted(player.Id, here.X, here.Y, target.X, target.Y, use.SkillId, use.Sequence, use.Flags, targetObjectId: target.Id), null,
+                still: () => PlayerActionCurrent(player, action));
+        if (arrive > now) await AreaDelay(player, arrive - now);
         if (!tree)
         {
-            if (PlayerActionCurrent(conn, action) && Descendancies.Find("Oshabi") is { } bloodline)
-                await OpenDescendancySelector(remote, stream, ciphers, conn, bloodline.Index);
+            if (PlayerActionCurrent(player, action) && Descendancies.Find("Oshabi") is { } bloodline)
+                await OpenDescendancySelector(player, bloodline.Index);
             await End(action);
             return true;
         }
         await e.Gate.WaitAsync();
         try
         {
-            if (state.Started || !PlayerActionCurrent(conn, action) || conn.PlayerLife == 0
+            if (state.Started || !PlayerActionCurrent(player, action) || player.PlayerLife == 0
                 || !PlayerWalk.InWalkUpRange(stop, (target.X, target.Y), reach)) return true;
-            await Start(conn, e, state);
+            await Start(player, e, state);
         }
         finally
         {
@@ -303,92 +291,81 @@ public static class OshabiEncounter
     }
 
     // Under the gate: the tree wakes and Oshabi emerges from it.
-    static async Task Start(ClientState conn, Encounter e, Saved state)
+    static async Task Start(Player player, Encounter e, Saved state)
     {
         if (Monsters.Find(BossRow.ToString()) is not { Supported: true } variety)
         {
             Console.WriteLine($"[harvest] {state.Log}: {BossId} cannot be written; no fight");
             return;
         }
-        var (remote, stream, ciphers) = conn.Wire;
         var tree = state.Tree;
-        uint id = await SpawnMonster(remote, stream, ciphers, conn, variety, (byte)state.Level, MonsterRarity.Unique, tree.X, tree.Y,
+        uint id = await SpawnMonster(player, variety, (byte)state.Level, MonsterRarity.Unique, tree.X, tree.Y,
             unrisen: false);
         if (id == 0) return;
-        double now = conn.Clock.Elapsed.TotalSeconds;
-        (int X, int Y) at;
-        lock (conn.Monsters)
-        {
-            if (!conn.Monsters.TryGetValue(id, out var boss)) return;
-            boss.LifePhases = new(Thresholds);
-            boss.BusyUntil = Math.Max(boss.BusyUntil, now + EmergeSeconds);
-            at = boss.Walk.Position(now);
-        }
+        double now = AreaTime(player);
+        if (!player.Area.Monsters.TryGetValue(id, out var boss)) return;
+        boss.LifePhases = new(Thresholds);
+        boss.BusyUntil = Math.Max(boss.BusyUntil, now + EmergeSeconds);
+        var at = boss.Walk.Position(now);
         state.Started = true;
         state.Boss = id;
         state.Stage = 0;
         e.Running = true;
         e.AddsAt = now + EmergeSeconds;
-        Keep(conn, state);
+        Keep(player, state);
         int first = state.Colours[0];
-        bool repeat = SacredGrove.Members(conn).Any(m => ClientHasQuestFlag(m, DefeatedFlag));
-        Console.WriteLine($"[harvest] {CharacterName(conn)} woke the soul tree: {state.Log} 0x{id:x} emerges (colour {first}"
+        bool repeat = SacredGrove.Members(player).Any(m => ClientHasQuestFlag(m, DefeatedFlag));
+        Console.WriteLine($"[harvest] {CharacterName(player)} woke the soul tree: {state.Log} 0x{id:x} emerges (colour {first}"
             + (repeat ? ", repeat fight" : "") + ")");
         // soultree.ot: interactable 2 is the fight's start (camera and BossFightStart.ao), disable_interactables hides the
         // tree's marker, oshabi_emerge 1 plays its emerge clip.
-        await SetStates(conn, state, (tree, "interactable", 2), (tree, "disable_interactables", 1), (tree, "pre_emerge_effects", 1),
+        await SetStates(player, state, (tree, "interactable", 2), (tree, "disable_interactables", 1), (tree, "pre_emerge_effects", 1),
             (tree, "oshabi_emerge", 1), (tree, "current_colour", first), (tree, "next_colour", state.Colours[1]));
-        await BossStates(conn, id, ("visible", 1), ("emerge", 1), ("minimap_icon", 1), ("current_colour", first), ("repeat_fight", repeat ? 1 : 0));
+        await BossStates(player, id, ("visible", 1), ("emerge", 1), ("minimap_icon", 1), ("current_colour", first), ("repeat_fight", repeat ? 1 : 0));
         // Her basic action (oshabiboss.ot Actor basic_action) plays the emerge.
-        if (SkillsFor(conn).ActionSkillId("Emerge") is { } emerge)
-            foreach (var member in SacredGrove.Members(conn))
-            {
-                var w = member.Wire;
-                await SendWorldRecord(w.Remote, w.Stream, w.Ciphers, member, id,
+        if (SkillsFor(player).ActionSkillId("Emerge") is { } emerge)
+            foreach (var member in SacredGrove.Members(player))
+                await SendWorldRecord(member, id,
                     InstanceProtocol.ActionStartedNow(id, at.X, at.Y, at.X, at.Y, emerge, member.NextActionSequence(), 0x0800, id), null);
-            }
     }
 
-    /// <summary>GameEvents.Tick: the colour changes, their adds, the tree's energy and Oshabi's death.</summary>
-    public static async Task Tick(ClientState conn)
+    /// <summary>GameEvents.AreaTick: the colour changes, their adds, the tree's energy and Oshabi's death.</summary>
+    public static async Task Tick(Player player)
     {
-        if (conn.Instance is null) return;
-        if (!Encounters.TryGetValue(conn.Instance, out var e))
+        if (player.Instance is null) return;
+        if (!Encounters.TryGetValue(player.Instance, out var e))
         {
             // After a module reload: the saved encounter comes back (its objects were shown before).
-            if (!conn.Instance.ContentState.ContainsKey(SaveKey)) return;
-            e = Encounters.GetOrCreateValue(conn.Instance);
+            if (!player.Instance.ContentState.ContainsKey(SaveKey)) return;
+            e = Encounters.GetOrCreateValue(player.Instance);
             await e.Gate.WaitAsync();
             try
             {
-                if (e.State is null && Load(conn, e, () => null))
-                    foreach (var member in SacredGrove.Members(conn))
+                if (e.State is null && Load(player, e, () => null))
+                    foreach (var member in SacredGrove.Members(player))
                         Presented.GetOrCreateValue(member).UnionWith(Objects(e.State!).Select(o => o.Id));
             }
             finally { e.Gate.Release(); }
         }
-        if (!e.Running || conn.Closed || conn.LeavingArea || !e.Gate.Wait(0)) return;
+        if (!e.Running || player.Closed || player.LeavingArea || !e.Gate.Wait(0)) return;
         try
         {
-            if (e.Running && e.State is { } state) await Step(conn, e, state, conn.Clock.Elapsed.TotalSeconds);
+            if (e.Running && e.State is { } state) await Step(player, e, state, AreaTime(player));
         }
         finally { e.Gate.Release(); }
     }
 
-    static async Task Step(ClientState conn, Encounter e, Saved state, double now)
+    static async Task Step(Player player, Encounter e, Saved state, double now)
     {
-        bool dead, begun = false;
+        bool dead = !player.Area.Monsters.TryGetValue(state.Boss, out var boss) || boss.Dead || boss.Life == 0;
+        bool begun = false;
         int lifePercent = 100;
-        lock (conn.Monsters)
+        if (!dead)
         {
-            dead = !conn.Monsters.TryGetValue(state.Boss, out var boss) || boss.Dead || boss.Life == 0;
-            if (!dead)
-            {
-                lifePercent = (int)((ulong)boss!.Life * 100 / Math.Max(1u, boss.MaxLife));
-                if (double.IsNaN(e.AddsAt) && boss.LifePhases is { Active: false } phases) begun = phases.Begin(boss.Life, boss.MaxLife);
-            }
+            lifePercent = (int)((ulong)boss!.Life * 100 / Math.Max(1u, boss.MaxLife));
+            if (double.IsNaN(e.AddsAt) && boss.LifePhases is { Active: false } phases) begun = phases.Begin(boss.Life, boss.MaxLife);
         }
-        if (dead) { await Death(conn, e, state); return; }
+        if (dead) { await Death(player, e, state); return; }
         var tree = state.Tree;
         if (!double.IsNaN(e.AddsAt))
         {
@@ -398,13 +375,12 @@ public static class OshabiEncounter
             {
                 // soultree.ot: "oshabi sets it to 2 on end Emerge action".
                 state.Emerged = true;
-                await SetStates(conn, state, (tree, "oshabi_emerge", 2));
-                await BossStates(conn, state.Boss, ("emerge", 2));
+                await SetStates(player, state, (tree, "oshabi_emerge", 2));
+                await BossStates(player, state.Boss, ("emerge", 2));
             }
-            await Adds(conn, e, state, state.Colours[state.Stage]);
-            lock (conn.Monsters)
-                if (conn.Monsters.TryGetValue(state.Boss, out var boss)) boss.LifePhases?.Finish();
-            Keep(conn, state);
+            await Adds(player, e, state, state.Colours[state.Stage]);
+            if (player.Area.Monsters.TryGetValue(state.Boss, out var liveBoss)) liveBoss.LifePhases?.Finish();
+            Keep(player, state);
             return;
         }
         if (begun)
@@ -412,13 +388,12 @@ public static class OshabiEncounter
             int ended = state.Colours[state.Stage];
             state.Stage = Math.Min(state.Stage + 1, state.Colours.Count - 1);
             int colour = state.Colours[state.Stage], next = state.Stage + 1 < state.Colours.Count ? state.Colours[state.Stage + 1] : 0;
-            lock (conn.Monsters)
-                lock (state.Adds) state.Adds.RemoveAll(id => !conn.Monsters.TryGetValue(id, out var m) || m.Dead || m.Life == 0);
+            lock (state.Adds) state.Adds.RemoveAll(id => !player.Area.Monsters.TryGetValue(id, out var m) || m.Dead || m.Life == 0);
             e.AddsAt = now + TransitionSeconds;
-            Keep(conn, state);
+            Keep(player, state);
             Console.WriteLine($"[harvest] {state.Log} at {lifePercent}%: colour {ended} -> {colour}");
-            await SetStates(conn, state, (tree, Energy[colour], 12), (tree, "current_colour", colour), (tree, "next_colour", next));
-            await BossStates(conn, state.Boss, ("current_colour", colour));
+            await SetStates(player, state, (tree, Energy[colour], 12), (tree, "current_colour", colour), (tree, "next_colour", next));
+            await BossStates(player, state.Boss, ("current_colour", colour));
             return;
         }
         // The next colour's energy fills (12 stages, one per tick) as her life falls to the next threshold.
@@ -427,7 +402,7 @@ public static class OshabiEncounter
         int target = Math.Clamp((from - lifePercent) * 12 / Math.Max(1, from - to), 0, 12);
         string energy = Energy[state.Colours[state.Stage + 1]];
         int current = tree.States.GetValueOrDefault(energy);
-        if (target > current) await SetStates(conn, state, (tree, energy, current + 1));
+        if (target > current) await SetStates(player, state, (tree, energy, current + 1));
     }
 
     // The seed colour (HarvestTables: 1 Wild red, 2 Vivid green, 3 Primal blue) of a phase's Harvest monsters; the Sacred
@@ -440,17 +415,15 @@ public static class OshabiEncounter
     // Under the gate: the colour's adds. [W] Sacred: a Root Wall cage around a player; Primal: Volatile Orchards;
     // Vivid: a Vine Hammer; Wild: her own kit. Every colour: two Groveguard Vines at the vine paths' ends and Harvest
     // monsters of the colour.
-    static async Task Adds(ClientState conn, Encounter e, Saved state, int colour)
+    static async Task Adds(Player player, Encounter e, Saved state, int colour)
     {
         var random = e.Random;
         var tables = HarvestTables.Current;
-        double now = conn.Clock.Elapsed.TotalSeconds;
-        (int X, int Y) centre;
-        lock (conn.Monsters)
-            centre = conn.Monsters.TryGetValue(state.Boss, out var boss) ? boss.Walk.Position(now) : (state.Tree.X, state.Tree.Y);
-        var player = SacredGrove.Members(conn).FirstOrDefault(m => m.PlayerLife > 0) ?? conn;
-        var near = player.Walk.Position(now);
-        var life = new MonsterModSet([], [], new MonsterModEffects(new Dictionary<string, int>
+        double now = AreaTime(player);
+        var centre = player.Area.Monsters.TryGetValue(state.Boss, out var boss) ? boss.Walk.Position(now) : (state.Tree.X, state.Tree.Y);
+        var alive = SacredGrove.Members(player).FirstOrDefault(m => m.PlayerLife > 0) ?? player;
+        var near = alive.Walk.Position(now);
+        var life = new MonsterModSet([], [], new MonsterModEffects(new Dictionary<uint, int>
         {
             [SacredGrove.LevelMoreLife] = tables.MoreLife(state.Level),
         }.Where(kv => kv.Value != 0).ToDictionary()));
@@ -459,17 +432,16 @@ public static class OshabiEncounter
         async Task Spawn(int row, (int X, int Y) at, MonsterRarity rarity = MonsterRarity.Normal, bool established = false)
         {
             // The ticking player may take a portal mid-colour: the rest come through another player still here.
-            if (SacredGrove.Members(conn).FirstOrDefault() is not { } by) { lost++; return; }
+            if (SacredGrove.Members(player).FirstOrDefault() is not { } by) { lost++; return; }
             if (Monsters.Find(row.ToString()) is not { Supported: true } variety) { skipped.Add(row.ToString()); return; }
-            var (remote, stream, ciphers) = by.Wire;
-            uint id = await SpawnMonster(remote, stream, ciphers, by, variety, (byte)state.Level, rarity, at.X, at.Y,
+            uint id = await SpawnMonster(by, variety, (byte)state.Level, rarity, at.X, at.Y,
                 alone: false, extraMods: life, placement: established ? MonsterPlacement.Established : MonsterPlacement.Proposed);
             if (id == 0) return;
             lock (state.Adds) state.Adds.Add(id);
             spawned++;
         }
         (int X, int Y) Around((int X, int Y) at, double radius, double angle) =>
-            conn.Layout.Near(((int)Math.Round(at.X + Math.Cos(angle) * radius), (int)Math.Round(at.Y + Math.Sin(angle) * radius)));
+            player.Layout.Near(((int)Math.Round(at.X + Math.Cos(angle) * radius), (int)Math.Round(at.Y + Math.Sin(angle) * radius)));
         switch (colour)
         {
             case Orange:
@@ -501,46 +473,35 @@ public static class OshabiEncounter
     }
 
     // Under the gate: Oshabi died.
-    static async Task Death(ClientState conn, Encounter e, Saved state)
+    static async Task Death(Player player, Encounter e, Saved state)
     {
         e.Running = false;
         e.AddsAt = double.NaN;
         state.Done = true;
-        Keep(conn, state);
-        var members = SacredGrove.Members(conn).ToList();
+        Keep(player, state);
+        var members = SacredGrove.Members(player).ToList();
         Console.WriteLine($"[harvest] {state.Log} defeated; {DefeatedFlag} for {string.Join(", ", members.Select(CharacterName))}");
-        await SetStates(conn, state, (state.Tree, "oshabi_death", 1), (state.Tree, "reset_colour", 1));
+        await SetStates(player, state, (state.Tree, "oshabi_death", 1), (state.Tree, "reset_colour", 1));
         foreach (var member in members)
-        {
-            var w = member.Wire;
-            await SetQuestFlags(w.Remote, w.Stream, w.Ciphers, member, [DefeatedFlag]);
-        }
+            await SetQuestFlags(member, [DefeatedFlag]);
         if (state.AltarOn && state.Altar is { } altar)
-            await SetStates(conn, state, (altar, "visible", 1), (altar, "enabled", 1));
+            await SetStates(player, state, (altar, "visible", 1), (altar, "enabled", 1));
         uint[] adds;
         // Her own kit summons Vine Hammers (the boss AI, not Adds): they go with the encounter's adds.
-        lock (conn.Monsters)
-            lock (state.Adds)
-            {
-                adds = [.. state.Adds.Union(conn.Monsters.Where(kv => !kv.Value.Dead && kv.Value.Variety?.Row is { } row && AddRows.Contains(row))
-                    .Select(kv => kv.Key))];
-                state.Adds.Clear();
-            }
+        lock (state.Adds)
+        {
+            adds = [.. state.Adds.Union(player.Area.Monsters.Where(kv => !kv.Value.Dead && kv.Value.Variety?.Row is { } row && AddRows.Contains(row))
+                .Select(kv => kv.Key))];
+            state.Adds.Clear();
+        }
         foreach (uint id in adds)
         {
-            lock (conn.Monsters)
-            {
-                if (conn.Monsters.Remove(id, out var m)) { m.Dead = true; m.Life = 0; m.ActionGeneration++; }
-                conn.Instance.World.MonsterOrigins.TryRemove(id, out _);
-            }
+            if (player.Area.Monsters.Remove(id, out var m)) { m.Dead = true; m.Life = 0; m.ActionGeneration++; }
+            player.Instance.World.MonsterOrigins.TryRemove(id, out _);
             foreach (var member in members)
-            {
-                var w = member.Wire;
-                await SendWorldRemoval(w.Remote, w.Stream, w.Ciphers, member, id);
-                lock (member.Monsters) { member.MonsterViews.Remove(id); member.AsleepMonsters.Remove(id); member.BossBarsSeen.Remove(id); }
-            }
+                await SendWorldRemoval(member, id);
         }
-        Keep(conn, state);
+        Keep(player, state);
     }
 
     sealed record RewardTable(DropDataProvider.Snapshot Source, (string Item, double Weight)[] Uniques,
@@ -570,10 +531,10 @@ public static class OshabiEncounter
     /// instance it costs one table lookup.</summary>
     public static void Drops(DropRoll drop)
     {
-        if (drop.Conn.Instance is not { } instance || !Encounters.TryGetValue(instance, out var e) || e.State is not { Boss: not 0 } state
+        if (drop.Player.Instance is not { } instance || !Encounters.TryGetValue(instance, out var e) || e.State is not { Boss: not 0 } state
             || drop.Monster.ObjectId != state.Boss) return;
         var table = Rewards(DropDataProvider.Default.Current);
-        var random = Random.Shared;
+        var random = AreaRng(drop.Player);
         double total = 0;
         foreach (var (_, weight) in table.Uniques) total += weight;
         if (total > 0)

@@ -16,12 +16,12 @@ public sealed record SkillHitPlan(SkillHitKind Kind, DamagePacket SpellBase,
     public bool SpendsCharges => ChargeBase is { Count: > 0 };
 
     /// <summary>The spell's base hit with <c>current_removable_*_charges</c> from <paramref name="get"/>.</summary>
-    public DamagePacket SpellBaseWith(Func<string, int> get)
+    public DamagePacket SpellBaseWith(Func<uint, int> get)
     {
         var hit = SpellBase;
         if (ChargeBase is { } perCharge)
             foreach (var (type, range) in perCharge)
-                if (get($"current_removable_{Charges.Name(type)}_charges") is int held and > 0) hit = hit.Add(range.Scale((double)held));
+                if (get(Stat.Of($"current_removable_{Charges.Name(type)}_charges")) is int held and > 0) hit = hit.Add(range.Scale((double)held));
         return hit;
     }
 

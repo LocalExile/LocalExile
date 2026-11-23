@@ -16,9 +16,14 @@ public sealed class PhysicalAegisState
     public ushort StageBuff;
     public ushort PersistBuff;
     public ushort StageRow;
-    public int PresentedCurrent = -1;
 
     public readonly PassiveBuffAuras.BlindState Blind = new();
+
+    // Fast-path cache for PhysicalAegisAt when worn equipment has no PhysicalAegis grant.
+    public object? CheckedOwner;
+    public object? CheckedStatSources;
+    public long CheckedInventoryMutations = -1;
+    public bool CheckedHasGrant;
 
     public sealed record Carried(WornGrantedSkills.Grant Source, int Maximum, int Current, int Variation,
         double RechargeDelay, double Remaining);
@@ -26,6 +31,9 @@ public sealed class PhysicalAegisState
     public bool Exists => Source is not null && Maximum > 0;
     public bool Depleted => Exists && Current == 0;
     public bool Active => Exists && Current > 0;
+
+    /// <summary>An absorb changed the shield (its buff follows).</summary>
+    public Action? Changed;
 
     public void Install(object owner, WornGrantedSkills.Grant source, int maximum, double rechargeDelay, int variation)
     {
@@ -54,6 +62,7 @@ public sealed class PhysicalAegisState
         Current -= absorbed;
         // The extracted BuffDefinitions text says restoration follows a break in physical damage, not merely depletion.
         RestoresAt = now + RechargeDelay;
+        Changed?.Invoke();
         return amount - absorbed;
     }
 
@@ -84,7 +93,6 @@ public sealed class PhysicalAegisState
         RestoresAt = double.PositiveInfinity;
         StageBuff = PersistBuff = 0;
         StageRow = 0;
-        PresentedCurrent = -1;
         return [.. buffs.Where(buff => buff != 0).Distinct()];
     }
 }

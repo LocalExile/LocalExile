@@ -7,8 +7,16 @@ using GameServer.Core;
 /// engineered by Vilsol/timeless-jewels and used to build Path of Building's LUTs; the data comes from the target
 /// client's AlternateTreeVersions, AlternatePassiveSkills and AlternatePassiveAdditions tables.
 /// </summary>
-public sealed class TimelessJewelEngine(string folder = "data")
+public sealed class TimelessJewelEngine
 {
+    readonly string folder;
+
+    public TimelessJewelEngine(string folder = "data")
+    {
+        this.folder = folder;
+        _data = Load(folder);
+    }
+
     public sealed record AlternateNode(bool Replaces, IReadOnlyList<(uint Key, int Value)> Stats, string Name);
 
     sealed record TreeVersion(int Key, bool ReplaceSmallAttribute, bool ReplaceSmallNormal,
@@ -27,16 +35,16 @@ public sealed class TimelessJewelEngine(string folder = "data")
         IReadOnlyDictionary<(int Version, int Type), AltAddition[]> Additions,
         IReadOnlyDictionary<(int Version, int Conqueror, int ConquerorVersion), AltSkill> Keystones);
 
-    readonly Lazy<Data?> _data = new(() => Load(folder));
+    readonly Data? _data;
 
-    public bool Loaded => _data.Value is not null;
+    public bool Loaded => _data is not null;
 
     /// <summary>The alternate version of a node, or null when the node is not a passive a timeless jewel may conquer.
     /// <see cref="AlternateNode.Replaces"/> says whether the original stats are removed (replacement) or kept and the
     /// returned stats are additions.</summary>
     public AlternateNode? Alternate(PassiveTree.Node node, TimelessSpec spec, uint graphId)
     {
-        if (_data.Value is not { } data || !Eligible(node)) return null;
+        if (_data is not { } data || !Eligible(node)) return null;
         int type = Type(node);
         if (!data.Versions.TryGetValue(spec.TreeVersion, out var version)) return null;
 

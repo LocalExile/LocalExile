@@ -4,7 +4,7 @@ public static partial class Game
 {
     // Parameter rules do not require native projectile metadata or an executable release path.
     public sealed record ProjectileSkillParameters(
-        Func<Func<string, int>, double, bool, ProjectileProfile> Resolve)
+        Func<Func<uint, int>, double, bool, ProjectileProfile> Resolve)
     {
         public Action<ProjectileProfile, Dictionary<uint, int>>? PanelStats { get; init; }
     }
@@ -14,14 +14,14 @@ public static partial class Game
     {
         public bool RequiresTerrain { get; init; }
         public bool CancelWindupOnNewAction { get; init; }
-        public Func<ClientState, string?>? Unavailable { get; init; }
+        public Func<Player, string?>? Unavailable { get; init; }
         public Func<ProjectileReleaseContext, ProjectileUse, ProjectileUse>? SpecializeRelease { get; init; }
         public Func<ProjectileEntity, ProjectilePresentation>? Presentation { get; init; }
     }
 
-    public sealed record ProjectileReleaseContext(ClientState Conn, ProjectileSession Session, ushort SkillId,
+    public sealed record ProjectileReleaseContext(Player Player, ProjectileSession Session, ushort SkillId,
         (ushort Id, int Effect, string Name, int Level, int Quality, uint Gem) Gem,
-        int Variation, Func<string, int> Get, Func<string, int> Player, Func<string, int> Own);
+        int Variation, Func<uint, int> Get, Func<uint, int> PlayerStat, Func<uint, int> Own);
 
     public sealed record ProjectilePresentation
     {

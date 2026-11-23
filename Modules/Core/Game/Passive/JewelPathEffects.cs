@@ -4,14 +4,23 @@ using GameServer.Core.Protocol.Instance;
 /// <summary>Split Personality's socket effect along the shortest allocated path, including nested cluster rings.</summary>
 public static class JewelPathEffects
 {
-    public const string EffectStat = "local_jewel_+%_effect_per_passive_between_jewel_and_class_start";
+    /// <summary>Fills this type's game data at startup (the world loader, before the Gateway listens).</summary>
+    public static void LoadJewelPathEffectsData()
+    {
+        Graphs = Enum.GetValues<AscendancyFamily>().ToDictionary(f => f, PassiveGraphs.Links);
+        Starts = LoadStarts();
+    }
+
+    public const uint EffectStat = Stat.LocalJewelPlusPctEffectPerPassiveBetweenJewelAndClassStart;
     const int Expansion = 1 << 16;
-    static readonly Lazy<Dictionary<AscendancyFamily, Dictionary<ushort, HashSet<ushort>>>> Graphs = new(() =>
-        Enum.GetValues<AscendancyFamily>().ToDictionary(f => f, PassiveGraphs.Links));
-    static readonly Lazy<Dictionary<int, ushort>> Starts = new(() => ClientTables.Table("PassiveSkills")
+    static Dictionary<AscendancyFamily, Dictionary<ushort, HashSet<ushort>>> Graphs = default!;
+    static Dictionary<int, ushort> Starts = default!;
+
+    static Dictionary<int, ushort> LoadStarts() =>
+        ClientTables.Table("PassiveSkills")
         .SelectMany(p => p.Ints("Characters").Select(c => (Class: ClientTables.Table("Characters")[c].Int("IntegerId"),
             Node: checked((ushort)p.Int("PassiveSkillGraphId")))))
-        .ToDictionary(p => p.Class, p => p.Node));
+        .ToDictionary(p => p.Class, p => p.Node);
 
     sealed record Cache(PassiveTree Tree, ItemCatalog Catalog, AscendancyFamily Family, int Class,
         ushort[] Nodes, ushort[] Clusters, InventoryItem[] Jewels, Dictionary<int, int> Counts)
@@ -23,21 +32,21 @@ public static class JewelPathEffects
             && Jewels.Length == jewels.Count && Jewels.Zip(jewels).All(p => p.First.Id == p.Second.Id
                 && p.First.X == p.Second.X && ReferenceEquals(p.First.Item, p.Second.Item));
     }
-    static readonly RuleTable<ClientState, Cache> Caches = new();
+    static readonly Store<Player, Cache> Caches = new();
 
-    public static List<InventoryItem> Apply(ClientState conn, PassiveTree tree, ItemCatalog catalog,
+    public static List<InventoryItem> Apply(Player player, PassiveTree tree, ItemCatalog catalog,
         AscendancyFamily family, ushort[] nodes, ushort[] clusters, IReadOnlyList<InventoryItem> jewels,
         List<InventoryItem> active)
     {
         var targets = active.Select(j => (Jewel: j, Percent: ItemModStats.Local(j.Item, catalog.Mods).GetValueOrDefault(EffectStat)))
             .Where(j => j.Percent != 0).ToArray();
         if (targets.Length == 0) return active;
-        int cls = Program.Skills.ClassFor(conn.ClassRow).IntegerId;
-        if (!Caches.TryGetValue(conn, out var cache) || !cache.Matches(tree, catalog, family, cls, nodes, clusters, jewels))
+        int cls = Program.Skills.ClassFor(player.Character.ClassRow).IntegerId;
+        if (!Caches.TryGetValue(player, out var cache) || !cache.Matches(tree, catalog, family, cls, nodes, clusters, jewels))
         {
             var counts = Counts(tree, family, cls, nodes, clusters, jewels);
             cache = new(tree, catalog, family, cls, [.. nodes], [.. clusters], [.. jewels], counts);
-            Caches.AddOrUpdate(conn, cache);
+            Caches.AddOrUpdate(player, cache);
         }
         var scaled = targets.ToDictionary(t => t.Jewel.Id, t => Scale(t.Jewel.Item, catalog.Mods,
             (long)t.Percent * cache.Counts.GetValueOrDefault(t.Jewel.X)));
@@ -48,7 +57,7 @@ public static class JewelPathEffects
         IEnumerable<ushort> ordinary, IEnumerable<ushort> clusters, IReadOnlyList<InventoryItem> jewels)
     {
         var result = new Dictionary<int, int>();
-        if (!Starts.Value.TryGetValue(cls, out ushort start)) return result;
+        if (!Starts.TryGetValue(cls, out ushort start)) return result;
         var allocated = ordinary.Where(n => tree.Find(n) is { IsAscendancy: false, IsMastery: false,
             IsProxy: false, IsExpansion: false }).Select(n => (int)n).ToHashSet();
         allocated.Add(start);
@@ -63,7 +72,7 @@ public static class JewelPathEffects
             x.Add(b); y.Add(a);
         }
         foreach (int n in allocated.Where(n => n < Expansion))
-            foreach (ushort adjacent in Graphs.Value[family].GetValueOrDefault((ushort)n) ?? []) Edge(n, adjacent);
+            foreach (ushort adjacent in Graphs[family].GetValueOrDefault((ushort)n) ?? []) Edge(n, adjacent);
         var layouts = jewels.Select(j => (j.X, Layout: ClusterJewelLayout.For(j.X, j.Item)))
             .Where(p => p.Layout is not null).ToDictionary(p => (int)p.X, p => p.Layout!);
         foreach (var (cell, layout) in layouts)
