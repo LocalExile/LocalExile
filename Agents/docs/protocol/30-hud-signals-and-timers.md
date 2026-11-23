@@ -6,7 +6,7 @@ Static reverse-engineering notes for four HUD / dialogue wire protocols in the 3
 disassembly of `Client/Game.exe` build 328228 (3.29.3d; identical `.pdata` functions, `.text` code VAs, and message
 IDs to 3.29.3c release build 327984 per [re/tooling.md](../re/tooling.md) §11) and `data/client.db`. Message class
 vtables (`Cls`) are the 3.29.3c release addresses from [schema.json](schema.json) and [c2s.json](c2s.json). No
-3.29.3d-only data addresses are recorded here. No live server-client trace has been run for these four areas yet.
+3.29.3d-only data addresses are recorded here. ClientStrings lookup IDs are one-based unless labeled as zero-based database rows. No live server-client trace has been run for these four areas yet.
 
 ---
 
@@ -132,8 +132,8 @@ Both HUD timer widgets are driven by adjacent instance S→C opcodes (`0x162` an
 |---|---|---|---|---|---|---|
 | S→C | `0x118` | case `0x45` | `0x1435e7120` | `0x1421ac250` / `0x1421ac320` | `0x14215551a` → `+0x8cf8` | `u8 otherPlayers` (`+0x12`), `wstr queueName` (`+0x18`/`+0x28`), `u8 isChallenge` (`+0x10`, bool), `u8 showWithdraw` (`+0x11`, bool), `u64 LE nextMatchTime` (`+0x48`, raw 8 bytes) |
 | S→C | `0x119` | case `0x46` | `0x1431768d8` | `0x140911160` / `0x1400f1180` | `0x142155612` → `+0x8d78` | empty (2 bytes total) — cancels/hides the PvP queue bar |
-| C→S | `0x11a` | 2 bytes | `0x1431768d8` | `0x140911160` | `0x140ac1750`, `0x1408e7070` | empty — "Leave Queue" button (`0x447`) on PvP queue bar, and decline on match-ready dialog |
-| C→S | `0x18d` | 2 bytes | `0x1431768d8` | `0x140911160` | `0x140ac1700` | empty — "Withdraw" button (`0x448`) on PvP queue bar |
+| C→S | `0x11a` | 2 bytes | `0x1431768d8` | `0x140911160` | `0x140ac1750`, `0x1408e7070` | empty — "Leave Queue" button (ClientStrings ID `0x447`) on PvP queue bar, and decline on match-ready dialog |
+| C→S | `0x18d` | 2 bytes | `0x1431768d8` | `0x140911160` | `0x140ac1700` | empty — "Withdraw" button (ClientStrings ID `0x448`) on PvP queue bar |
 
 ### Client behavior (`S→C 0x118`, `0x119`)
 
@@ -245,8 +245,8 @@ u8      choice              1 = Help button (+0x2d8), 0 = Kill button (+0x2e0)
 5. **S→C `0x7b` (`0x142169dd0`, jump table `0x14216bb74`, kinds `0x00..0x72`)**: contains no Endless Heist UI kind;
    Heist has only `0x34` (`HeistMission`), `0x35` (`HeistBlueprint`), `0x36` (`HeistNPCInventory`), and `0x37`
    (`HeistStorageWindow`).
-6. **Conclusion**: `EndlessHeistContracts` has no dedicated client UI, art, or opcode in 3.29.3c/d. When a server runs
-   an Endless Heist instance (`world +0xd0 == 0x2b`) and receives `C→S 0x82 0x11` for Adiyah, it answers via the
+6. **Conclusion**: `EndlessHeistContracts` has no dedicated client UI, art, or opcode in 3.29.3c/d. The client data supports the following inferred server response. When a server runs
+   an Endless Heist instance (`world +0xd0 == 0x2b`) and receives `C→S 0x82 0x11` for Adiyah, it can answer via the
    standard vendor shop protocol (`S→C 0xc0` manager 1 shop tabs + `S→C 0x8c` window kind `0`, matching `NPCShop` row
    `37`). The server-side contract stock list itself is not present in client data (`NPCShop` row `37` has an empty
    item list) and remains server-defined.
