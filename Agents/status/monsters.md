@@ -182,8 +182,10 @@ Part of [Status](../Status.md); what to build next in this area is in
   shaped by type and client action class (rains, class radii and projectiles, grounds that burn and debuffs on the
   player: Fire Trap, Bear Trap, Desecrate, Caustic Arrow, Wither, Ensnaring Arrow, the totems' arrows and flames)); the
   map's, the Anarchy scarabs' and the Atlas wheel's stats add, pair, gigantify and make exceptional exiles, guard map
-  bosses and change their drops (extra jewels; fully linked, fractured, corrupted, duplicated items). All 71 exile
-  varieties played headless against the real client; map stats and guards not yet seen live. Left out: Flameblast and Toxic Rain (no radius found), Desecrate's corpses, the tether's break by distance, the
+  bosses and strongboxes and change their drops (extra jewels; fully linked, fractured, corrupted, duplicated items).
+  Rewards follow retained world ids across players and reentry; Anarchy scarab counts and strongbox guards seen live.
+  All 71 exile varieties played headless; other map modifiers and boss guards not yet seen live.
+  Left out: Flameblast and Toxic Rain (no radius found), Desecrate's corpses, the tether's break by distance, the
   alternate-minion skills (Raise Zombie, Summon Raging Spirit, Ice Golem), Cremation's and Volatile Dead's flights;
   possessed exiles (Torment) and the special and exceptional rewards' contents are guesses or missing; the active Atlas
   preset is the last one changed.
