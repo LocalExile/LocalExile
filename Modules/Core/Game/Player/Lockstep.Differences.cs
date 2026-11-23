@@ -38,12 +38,26 @@ public static partial class Game
     // the handlers a predictive client's request reaches, with the server's sequence in place of the client's, so their
     // echo starts the action, in key 0 as every other send here is. Those handlers hold the skills' rules; a second copy
     // for lockstep would drift from them. Beside the frames, which must not wait for a cast.
-    static void StartLockstepSkill(Player player, ushort sequence, double at)
+    static void StartLockstepSkill(Player player, ushort sequence, double at,
+        int actionBefore = -1, double busyBefore = 0, double busySet = 0)
     {
+        void ReleaseIfRejected()
+        {
+            if (actionBefore >= 0 && player.ActionCount == actionBefore && player.LockstepBusyUntil == busySet)
+            {
+                player.LockstepBusyUntil = busyBefore;
+                player.LockstepCastWindow = null;
+            }
+        }
         var request = player.LockstepSkill;
         if (request.Target is { } target)
         {
-            _ = OnUseObject(player, new(target, request.Skill, sequence, request.Flags), at);
+            _ = AreaFrames.Start(async () =>
+            {
+                try { await OnUseObject(player, new(target, request.Skill, sequence, request.Flags), at); }
+                catch (Exception ex) when (ex is IOException or ObjectDisposedException) { }
+                finally { ReleaseIfRejected(); }
+            });
             return;
         }
         if (LockstepGroundMelee(player, request.Skill, request.Flags))
@@ -60,6 +74,7 @@ public static partial class Game
                 await OnClientMessages([(InstanceProtocol.UseSkillAtLocationId, use)], [], player);
             }
             catch (Exception ex) when (ex is IOException or ObjectDisposedException) { }
+            finally { ReleaseIfRejected(); }
         });
     }
 

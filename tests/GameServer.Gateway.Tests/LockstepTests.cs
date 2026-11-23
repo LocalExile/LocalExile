@@ -545,4 +545,104 @@ public class LockstepTests : IDisposable
         Assert.NotNull(returning);
         Assert.Equal(25, returning!.Value.MarkerAt(new(0, 0)).Marker);
     }
+
+    [Fact]
+    public void Shield_charge_lockstep_distance_threshold_speed_stats_and_travel_hold()
+    {
+        // Forward raycast stops before a wall at x=115 (15 cells away < 24 -> no-charge, stands in place).
+        var walled = new PlayerWalk(100, 100, 37, (x, y) => x < 115);
+        walled.Charge(160, 100, 75, 0, extraDistance: 0, minDistance: Game.ShieldChargeMinDistance, out bool wallCharged);
+        Assert.False(wallCharged);
+        Assert.Equal((100, 100), walled.Position(1));
+
+        // Open floor < 24 cells (23 cells, dx²+dy² = 529 < 576): no-charge. At 24 cells (576): charges.
+        var open = new PlayerWalk(100, 100, 37);
+        open.Charge(123, 100, 75, 0, extraDistance: 0, minDistance: Game.ShieldChargeMinDistance, out bool shortCharged);
+        Assert.False(shortCharged);
+        Assert.Equal((100, 100), open.Position(1));
+        open.Charge(124, 100, 75, 0, extraDistance: 0, minDistance: Game.ShieldChargeMinDistance, out bool exactCharged);
+        Assert.True(exactCharged);
+        Assert.Equal((124, 100), open.Destination);
+
+        // Equipped character with a sword, shield, Shield Charge gem, and increased attack speed:
+        // verify published off-hand speed stats (0x127 / 0x211e / 0x531e), travel speed multiplier, dynamic
+        // LockstepPlayerFree hold through travel, and immediate release + bonus cleanup when stopped early.
+        using var fixture = new TriggeredSummonTests.Fixture();
+        var player = fixture.Player;
+        player.Connection.PlayerSent = true;
+        player.Connection.LockstepClient = true;
+        player.Connection.LockstepFrame = (1.0, 1.033);
+        player.Walk.Teleport(100, 100, 1.0);
+        var items = Game.ItemsOf(player);
+        items.Change(PlayerInventories.Weapon1, items.Items(PlayerInventories.Weapon1).Single().Id,
+            _ => ItemCatalog.Create(Program.Items.Find("Driftwood Club")!));
+        items.Add(PlayerInventories.Offhand1, 0, 0, ItemCatalog.Create(Program.Items.Find("Splintered Tower Shield")!));
+        ushort chargeId = Assert.Single(fixture.Equip(("Shield Charge", 1)));
+        player.Pools = Game.PoolsFor(player, 20) with { AttackSpeedPct = 50 };
+
+        var scGem = Game.GemSkillEffects(player).Single(g => g.Id == chargeId);
+        var scSkill = Game.PlayerSkills(player).Single(s => s.Id == chargeId);
+        var scStats = scSkill.Stats!.ToDictionary(s => s.Item1, s => s.Item2);
+        Assert.True(scStats.TryGetValue(Stat.OffHandAttackSpeedPlusPct, out int offFinal));
+        Assert.True(scStats.TryGetValue(Stat.CombinedOffHandAttackSpeedPlusPct, out int offInc));
+        Assert.True(scStats.ContainsKey(Stat.CombinedOffHandAttackSpeedPlusPctFinal));
+        Assert.True(offInc >= 50);
+        Assert.Equal(SkillAttackTiming.FinalSpeedPercent(offInc, 1.0), offFinal);
+
+        int bonusPct = Game.ShieldChargeBonusPct(player, chargeId, scGem.Effect);
+        Assert.True(bonusPct > 0);
+        Assert.Equal(0, Game.LockstepActionHold(player, chargeId, 0x8001));
+
+        int action = ++player.ActionCount;
+        double baseSpeed = player.Walk.Speed;
+        Game.BeginShieldCharge(player, chargeId, bonusPct, 175, 100, 1.0, action, out bool startedCharge);
+        Assert.True(startedCharge);
+        Assert.True(player.Walk.Speed > baseSpeed * 1.5, $"Expected charge speed > {baseSpeed * 1.5:0.0} (with +90% move and off-hand attack speed), got {player.Walk.Speed:0.0}");
+        Assert.False(Game.LockstepPlayerFree(player, 1.033));
+
+        // Early stop on a wall/body immediately ends the travel hold and clears the +90% movement bonus.
+        player.Walk.StopAt(1.12);
+        Assert.True(Game.LockstepPlayerFree(player, 1.132));
+        Assert.Equal(0, Game.ShieldChargeMovementPct(player));
+        Assert.Equal(1.0, Game.MovementSpeedMultiplier(player));
+    }
+
+    [Fact]
+    public async Task Lockstep_leap_slam_hold_published_speed_sync_and_no_silent_collision_teleport()
+    {
+        // Leap Slam in Lockstep holds until startup-skipped landing (timing.Land), not unskipped AttackCutIn.
+        using var fixture = new TriggeredSummonTests.Fixture();
+        var player = fixture.Player;
+        player.Connection.PlayerSent = true;
+        player.Connection.LockstepClient = true;
+        player.Connection.LockstepFrame = (2.0, 2.033);
+        player.Walk.Teleport(100, 100, 2.0);
+        var items = Game.ItemsOf(player);
+        items.Change(PlayerInventories.Weapon1, items.Items(PlayerInventories.Weapon1).Single().Id,
+            _ => ItemCatalog.Create(Program.Items.Find("Driftwood Club")!));
+        ushort leapId = Assert.Single(fixture.Equip(("Leap Slam", 1)));
+        var leapGem = Game.GemSkillEffects(player).Single(g => g.Id == leapId);
+
+        double attackSeconds = Game.SupportedAttackSeconds(player, leapId);
+        double expectedLand = Game.LeapSlamTiming(player, leapId, leapGem.Effect, attackSeconds).Land;
+        double unskippedCutIn = Game.LockstepAttackCutIn(player, leapId, 0x8001);
+        double lockstepHold = Game.LockstepActionHold(player, leapId, 0x8001);
+        Assert.Equal(expectedLand, lockstepHold, 6);
+        Assert.True(lockstepHold < unskippedCutIn - 0.15, $"Expected startup-skipped hold ({lockstepHold:0.000}s) well below unskipped cut-in ({unskippedCutIn:0.000}s).");
+
+        // PushOutOfCollision(tell: false) must not silently teleport a lockstep player off its cell.
+        player.SetBlocker(0x5000, 100, 100, size: 2);
+        await Game.PushOutOfCollision(player, living: true, tell: false);
+        Assert.Equal((100, 100), player.Walk.Position(2.0));
+
+        // AreaStats tracks published movement speed for lockstep clients.
+        player.Area.Stats.Created(player.Id, [(Stat.MovementVelocityPlusPct, 0)]);
+        Assert.True(player.Area.Stats.HasWritten(player.Id));
+        Assert.Equal(0, player.Area.Stats.WrittenValue(player.Id, Stat.MovementVelocityPlusPct));
+        player.Area.Stats.Set(player.Id, Stat.MovementVelocityPlusPct, 40);
+        // Before Publish(), WrittenValue still reflects what the client currently holds (0%).
+        Assert.Equal(0, player.Area.Stats.WrittenValue(player.Id, Stat.MovementVelocityPlusPct));
+        player.Area.Stats.Publish();
+        Assert.Equal(40, player.Area.Stats.WrittenValue(player.Id, Stat.MovementVelocityPlusPct));
+    }
 }

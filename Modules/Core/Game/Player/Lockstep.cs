@@ -116,6 +116,7 @@ public static partial class Game
     // A Move can cancel at either end of a spell. A different spell can replace it only early; a held repeat waits.
     public static bool LockstepPlayerFree(Player player, double at)
     {
+        if (ShieldChargeTraveling(player, at)) return false;
         if (!MeleeRepeatAllowsMove(player, at)) return false;
         if (at >= player.LockstepBusyUntil) return true;
         if (!player.Connection.LockstepClient || player.LockstepCastWindow is not { } cast) return false;
@@ -138,6 +139,8 @@ public static partial class Game
         ushort sequence = 0, ended = 0;
         (ushort Sequence, (int X, int Y) Aim)? channelAim = null;
         bool skill = false;
+        int skillActionBefore = 0;
+        double skillBusyBefore = 0, skillBusySet = 0;
         double at;
         InstanceTransfer.UseSkillOnObject? use = null;
         using (ProjectileMutation(player, phase: "lockstep"))
@@ -146,6 +149,7 @@ public static partial class Game
             // What a dead player asked for dies with it: a skill kept for the revival moved it off its checkpoint.
             if (player.PlayerLife == 0)
             {
+                EndShieldChargeIfInterrupted(player);
                 player.LockstepHold.Clear();
                 player.LockstepSkill.Clear();
                 player.LockstepChannelAimPending = false;
@@ -219,12 +223,16 @@ public static partial class Game
                 {
                     skill = true;
                     sequence = NextLockstepSequence(player);
+                    skillActionBefore = player.ActionCount;
+                    skillBusyBefore = player.LockstepBusyUntil;
                     player.LockstepCastWindow = null;
                     HoldLockstepSkill(player, sequence, frameStart, at);
+                    skillBusySet = player.LockstepBusyUntil;
                 }
                 else if (!pinned && LockstepMoveDue(player, frameStart) is { } due)
                 {
                     target = due;
+                    EndShieldChargeIfInterrupted(player);
                     CancelMeleeRepeats(player, at);
                     action = Interlocked.Increment(ref player.ActionCount);
                     player.ChannelSkill = 0;
@@ -243,7 +251,7 @@ public static partial class Game
         if (ended != 0) await SendWorldRecord(player, player.Id, InstanceProtocol.ChannelFinished(player.Id, ended), $"0x01ae channel 0x{ended:x4} ended");
         if (channelAim is { } aimed) await SendLockstepChannelAim(player, aimed.Sequence, aimed.Aim);
         if (sequence == 0) return;
-        if (skill) StartLockstepSkill(player, sequence, at);
+        if (skill) StartLockstepSkill(player, sequence, at, skillActionBefore, skillBusyBefore, skillBusySet);
         else if (use is not null)
         {
             // The client walks up on this 0x1ab, where a predictive client starts by itself; the server's use goes on as
@@ -514,6 +522,18 @@ public static partial class Game
                 return (SpellTimingFor(player, gem.Effect, skill)?.DurationSeconds ?? 0)
                     * (1d + SpellRepeats(player, skill, gem.Effect)) / PlayerActionFactor(player);
             if (!SkillsFor(player).IsAttack(gem.Effect)) return SkillsFor(player).CastTimeMs(gem.Effect) / 1000d / PlayerActionFactor(player);
+            // LeapSlam::CanCancel (0x1412faf60) clears +0x368 at hit_ground and allows cancellation at contact = hit_ground
+            // (0x141942cf0). With startup skip (0x1419fda80, seek to leave_ground - 10 ms), the client lands at timing.Land
+            // (~36% of attack time), not the unskipped clip fraction (~67-74%) which locked the player after landing.
+            if (IsLeapSlam(player, gem.Effect))
+            {
+                try { return LeapSlamTiming(player, skill, gem.Effect, SupportedAttackSeconds(player, skill, sequence)).Land; }
+                catch (InvalidOperationException) { }
+            }
+            // ShieldCharge::CanCancel (0x141a6fd50) blocks cancellation while traveling (+0x3e5 != 0), which LockstepPlayerFree
+            // enforces dynamically via ShieldChargeTraveling (automatically shortening on body/wall stops); once arrived,
+            // charge_*_end has contact = 0. No-charge uses (< 24 cells) set their own in-place bash hold in BeginShieldCharge.
+            if (ShieldChargeBonusPct(player, skill, gem.Effect) != 0) return 0;
         }
         return LockstepAttackCutIn(player, skill, sequence) + player.LockstepActionTail;
     }
