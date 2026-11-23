@@ -212,11 +212,36 @@ public static partial class Game
         return (aim.X + (int)Math.Round(Math.Cos(angle) * distance), aim.Y + (int)Math.Round(Math.Sin(angle) * distance));
     }
 
-    // Preserve the existing placement-time offensive snapshot. A recipient's Blind is selected only at contact.
+    static readonly RuleTable<PlacedSkills.DamageSnapshot, PlacedSkills.DamageSnapshot> RecentMineAreaProfiles = new();
+
+    // Preserve the placement-time offensive inputs. A mine chooses the recent-detonation area profile at release.
     static PlacedSkills.DamageSnapshot? CapturePlacedDamage(Player player, ushort skill, SupportedGem gem)
     {
         if (SupportedHitInputsFor(player, skill, capturedGem: gem) is not { } inputs) return null;
         inputs = inputs with { Caster = TotemCasterStats(inputs.Caster) };
+        int recentArea = inputs.Area && PlacedKind(gem).Mine
+            ? inputs.Get(Stat.MineAreaDamagePlusPctIfDetonatedMineRecently) : 0;
+        if (recentArea == 0) return CapturePlacedProfile(player, skill, gem, inputs);
+        bool recent = player.RecentEvents.Happened(StatConditions.DetonatedMine, AreaTime(player));
+        var normal = CapturePlacedProfile(player, skill, gem, recent ? AddAreaDamage(inputs, -(long)recentArea) : inputs);
+        var active = CapturePlacedProfile(player, skill, gem, recent ? inputs : AddAreaDamage(inputs, recentArea));
+        RecentMineAreaProfiles.Add(normal, active);
+        return normal;
+    }
+
+    static SupportedHitInputs AddAreaDamage(SupportedHitInputs inputs, long increase)
+    {
+        int area = ActorScale.Saturate((long)inputs.Get(Stat.AreaDamagePlusPct) + increase);
+        var stats = new Dictionary<uint, int>(inputs.FrozenStats) { [Stat.AreaDamagePlusPct] = area };
+        return inputs with
+        {
+            FrozenStats = stats,
+            Get = name => name == Stat.AreaDamagePlusPct ? area : inputs.Get(name),
+        };
+    }
+
+    static PlacedSkills.DamageSnapshot CapturePlacedProfile(Player player, ushort skill, SupportedGem gem, SupportedHitInputs inputs)
+    {
         bool spell = !inputs.Attack;
         long additionalIncreased = inputs.Get(PlayerHitDamage.VsBlindedDamageStat);
         PlacedSkills.DamageProfile Profile(long increased) => new(
@@ -575,8 +600,12 @@ public static partial class Game
             ? Math.Max(0, 1 + ReservationStat(player, skitter, Stat.SkitterbotsTrapMineDamagePlusPctFinal) / 100d) : 1;
         more *= inventionMore;
         var owner = CharacterPlayerStats(player);
-        var playerStats = placed.Offense?.Caster ?? owner;
-        bool spell = placed.Offense?.Spell ?? spellDamage;
+        var offenseSnapshot = placed.Offense;
+        if (offenseSnapshot is not null && placed.Mine && RecentMineAreaProfiles.TryGetValue(offenseSnapshot, out var active)
+            && player.RecentEvents.Happened(StatConditions.DetonatedMine, now))
+            offenseSnapshot = active;
+        var playerStats = offenseSnapshot?.Caster ?? owner;
+        bool spell = offenseSnapshot?.Spell ?? spellDamage;
         bool attack = SkillsFor(player).IsAttack(placed.Effect);
         int chance = currentSkill ? SupportedReleaseCriticalChance(player, placed.Skill) : 0;
         int? vsBlinded = currentSkill ? SupportedCriticalChanceVsBlinded(player, placed.Skill, release: true) : null;
@@ -588,11 +617,11 @@ public static partial class Game
             if (m is not { Hostile: true, Dead: false, Life: > 0, Invulnerable: false, Asleep: false }
                 || bear && id != target.Key || MonsterAsleep(player, id) || Dist(m.Walk.Position(now), placed.At) > radius
                 || !player.Area.Monsters.TryGetValue(id, out var current) || !ReferenceEquals(current, m)) continue;
-            var profile = placed.Offense is { } captured
+            var profile = offenseSnapshot is { } captured
                 ? Blinded(player, id) ? captured.Blinded : captured.Normal
                 : new PlacedSkills.DamageProfile(placed.Damage, MonsterIgnites.Settings.None,
                     MonsterIgnites.Settings.None, MonsterPoisons.Settings.None);
-            if (placed.Offense?.Spider is { } spider)
+            if (offenseSnapshot?.Spider is { } spider)
                 profile = SpiderDamageProfile(spider, m.SpiderWebs.Count(now), Blinded(player, id),
                     m.Ignites.Burning, m.Bleeds.Burning, EnemyOnLowLife(m));
             var rolled = WithConditionalSupportDamageLocked(player, placed.Own, !spell, m,

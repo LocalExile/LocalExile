@@ -764,6 +764,9 @@ public static partial class Game
             uint placedDamage = placed.Mine ? Stat.MineDamagePlusPct : Stat.TrapDamagePlusPct;
             long increased = (long)GolemStat(stats, placedDamage) + GolemStat(stats, Stat.TrapOrMineDamagePlusPct);
             if (increased != 0) stats[Stat.DamagePlusPct] = ActorScale.Saturate(stats.GetValueOrDefault(Stat.DamagePlusPct) + increased);
+            if (placed.Mine && GolemStat(stats, Stat.MineAreaDamagePlusPctIfDetonatedMineRecently) is int recentArea and not 0
+                && player.RecentEvents.Happened(StatConditions.DetonatedMine, AreaTime(player)))
+                stats[Stat.AreaDamagePlusPct] = ActorScale.Add(Stat.AreaDamagePlusPct, GolemStat(stats, Stat.AreaDamagePlusPct), recentArea);
         }
         int Get(uint name) => name == Stat.IsAreaDamage && area is bool isArea ? isArea ? 1 : 0
             : name is var k ? stats.GetValueOrDefault(k) : 0;
