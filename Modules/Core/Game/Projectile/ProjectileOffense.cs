@@ -41,6 +41,7 @@ public sealed record ProjectileOffense(DamagePacket Hit, bool Spell, int Accurac
     public sealed record CausticCloudSpec(int Radius, double Duration, double Dps, int ArtVariation);
     public CausticCloudSpec? CausticCloud { get; init; }
     public Game.ExplosiveFuseSpec? ExplosiveFuse { get; init; }
+    public Game.EnsnareSpec? Ensnare { get; init; }
     public ImpaleStats.Settings? ImpaleSettings { get; init; }
     public ImpaleStats.Settings? CriticalImpaleSettings { get; init; }
     public AttackAccuracyProfile? AccuracyProfile { get; init; }

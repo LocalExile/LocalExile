@@ -11,6 +11,9 @@ public static partial class Game
                     SkillProjectileParameters(effect, projectile.Id)));
         definitions["ExplosiveArrow"] = SkillProjectileDefinition("ExplosiveArrow", OrdinaryRangedAttack.Arrow,
             SkillProjectileParameters("ExplosiveArrow", OrdinaryRangedAttack.Arrow));
+        const string tetheringArrow = "Metadata/Projectiles/TetheringArrow";
+        foreach (string effect in new[] { "EnsnaringArrow", "EnsnaringArrowAltX", "EnsnaringArrowAltY", "EnsnaringArrowRoyale" })
+            definitions[effect] = SkillProjectileDefinition(effect, tetheringArrow, SkillProjectileParameters(effect, tetheringArrow));
         const string holyFlameProjectile = "Metadata/Projectiles/TotemHolyFireSpray";
         definitions["HolyFlameTotem"] = SkillProjectileDefinition("HolyFlameTotem", holyFlameProjectile,
             SkillProjectileParameters("HolyFlameTotem", holyFlameProjectile));
@@ -129,6 +132,7 @@ public static partial class Game
                 if (GatewayProjectileSkillProfiles.IsKineticBlast(effect))
                     return use with { Payload = shot with { AreaVisual = Art.AnimatedInPlaceOf(KineticBlastExplosionAo, context.Variation),
                         Presentation = new() { EffectLifetime = ProjectileRuntime.Time(.35) } } };
+                if (IsEnsnaringArrow(effect)) return use with { Payload = shot with { Ensnare = CaptureEnsnare(context, Get) } };
                 if (!GatewayProjectileSkillProfiles.IsFireball(metadata)) return use;
                 string ao = Art.AnimatedInPlaceOf(DefaultProjectileImpactAo, context.Variation);
                 return use with { Payload = shot with { Presentation = new()

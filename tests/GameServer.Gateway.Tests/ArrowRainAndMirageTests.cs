@@ -67,6 +67,71 @@ public class ArrowRainAndMirageTests
         }
     }
 
+    [Fact]
+    public void Explosive_arrow_detonates_at_the_fuse_cap_or_first_fuse_deadline_and_only_final_ensnaring_hits_tether()
+    {
+        static ProjectileUse Capture(Battle battle)
+        {
+            var gem = Game.GemSkillEffects(battle.Player).Single();
+            return Game.CaptureGemProjectile(battle.Player, battle.Session, gem.Id, gem, (180, 100),
+                Game.CaptureSkillCriticalRoll(battle.Player, gem.Id));
+        }
+
+        using (var b = new Battle("Explosive Arrow"))
+        {
+            var use = Capture(b);
+            var shot = Assert.IsType<ProjectileOffense>(use.Payload);
+            var fuse = Assert.IsType<Game.ExplosiveFuseSpec>(shot.ExplosiveFuse);
+            Assert.Equal(20, fuse.Limit);
+            Assert.Equal(ProjectileRuntime.Time(1), fuse.Duration);
+            Assert.True(fuse.Damage.Hit[DamageType.Fire].Min > shot.Hit[DamageType.Fire].Min);
+            var runtime = b.Session.Runtime;
+            var witness = new SpawnedMonster("explosion witness", new(120, 110, 0), 0, 0, 100000) { Hostile = true };
+            b.Player.Area.Monsters[202] = witness;
+            var shortStack = use with { Payload = shot with { ExplosiveFuse = fuse with { Limit = 2 } } };
+            runtime.Release(shortStack);
+            runtime.AdvanceTo(ProjectileRuntime.Time(.2));
+            Assert.True(b.Enemy.Life < 100000);
+            Assert.Equal(100000u, witness.Life);
+            runtime.Release(shortStack);
+            runtime.AdvanceTo(ProjectileRuntime.Time(.4));
+            Assert.True(witness.Life < 100000);
+            uint life = witness.Life;
+            runtime.AdvanceTo(ProjectileRuntime.Time(1.5));
+            Assert.Equal(life, witness.Life);
+            runtime.Release(use);
+            runtime.AdvanceTo(ProjectileRuntime.Time(2.4));
+            runtime.Release(use);
+            runtime.AdvanceTo(ProjectileRuntime.Time(2.49));
+            Assert.Equal(life, witness.Life);
+            runtime.AdvanceTo(ProjectileRuntime.Time(2.8));
+            Assert.True(witness.Life < life);
+            Assert.Equal(100000u, b.Ally.Life);
+        }
+
+        using (var b = new Battle("Ensnaring Arrow"))
+        {
+            var use = Capture(b);
+            var runtime = b.Session.Runtime;
+            var profile = use.Profile with { Pierce = 1 };
+            var last = new SpawnedMonster("terminal target", new(140, 100, 0), 0, 0, 100000) { Hostile = true };
+            b.Player.Area.Monsters[202] = last;
+            for (int i = 1; i <= 4; i++)
+            {
+                runtime.Release(use with { Profile = profile });
+                runtime.AdvanceTo(ProjectileRuntime.Time(i * .25));
+            }
+            Assert.True(b.Enemy.Life < 100000);
+            Assert.Equal(0, Game.EnsnaredProjectileAttackTaken(b.Enemy, 1));
+            Assert.Equal(.6 * .6 * .6, Game.EnsnaredWalkFactor(last, 1), 9);
+            Assert.Equal(15, Game.EnsnaredProjectileAttackTaken(last, 1));
+            last.Walk.Teleport(190, 100, 1);
+            runtime.AdvanceTo(ProjectileRuntime.Time(1.2));
+            Assert.Equal(1, Game.EnsnaredWalkFactor(last, 1.2));
+            Assert.Equal(0, Game.EnsnaredProjectileAttackTaken(last, 1.2));
+        }
+    }
+
     sealed class Battle : IDisposable
     {
         readonly IGameLogic? previous = Program.GameLogicOrNull;
