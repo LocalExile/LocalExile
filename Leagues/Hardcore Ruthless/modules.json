@@ -5,6 +5,7 @@
     "Core/Content/Delirium",
     "Core/Content/Harvest",
     "Core/Content/Heist",
+    "Core/Content/HeistCache",
     "Core/Game",
     "Core/Item/Bench",
     "Core/Item/Cosmetics",
