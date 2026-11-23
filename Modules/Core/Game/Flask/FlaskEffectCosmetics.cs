@@ -16,4 +16,27 @@ public static partial class Game
         int variation = effect.Stats.FirstOrDefault(s => s.Stat == Stat.FlaskEffectVariation).Value;
         return variation switch { 0 => null, < 0 => (ushort)0, _ => Art.BuffVisual("flask_effect", variation) };
     }
+
+    // A pick in a Flask Effect slot shows at once, not at the next area: the buffs of that cell's flask (its running
+    // utility effect with its remaining time, the one Mageblood keeps) are set again with the cell's visual now. Phasing
+    // follows with the stat presentations (SyncPhasing), which a pick does not otherwise run: the slot's variation is no
+    // character stat.
+    public static void RefreshFlaskEffectCosmetic(Player player, int cosmeticSlot)
+    {
+        if (!IsFlaskEffectSlot(cosmeticSlot) || !CurrentGameWork || player.Closed || player.LeavingArea) return;
+        PresentStats(player);
+        if (player.PlayerLife == 0) return;
+        byte cell = (byte)(cosmeticSlot - FirstFlaskEffectSlot);
+        ushort? visual = FlaskEffectVisual(player, cell);
+        double now = AreaTime(player);
+        foreach (var flask in ItemsOf(player).Items(PlayerInventories.Flask).Where(f => f.X == cell))
+        {
+            if (player.UtilityFlaskEffects.Of(flask.Id) is { } effect && effect.Slot == cell && effect.Ends > now)
+                player.Area.Buffs.Set(player.Id, Flasks.Buff(player.Id, effect.Buff, effect.Flask.BuffRow, cell,
+                    (effect.Ends - now) * effect.ExpiryRate, visual: visual));
+            if (player.MagebloodBuffs.TryGetValue(flask.Id, out var mageblood) && mageblood.Slot == cell)
+                player.Area.Buffs.Set(player.Id, Flasks.Buff(player.Id, mageblood.Buff, mageblood.Row, cell, seconds: null, visual: visual));
+        }
+        Console.WriteLine($"[gateway] {player.Connection.Remote} flask cell {cell}: flask effect visual now {visual?.ToString() ?? "the buff's own"}");
+    }
 }
