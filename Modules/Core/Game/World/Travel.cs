@@ -660,7 +660,7 @@ public static partial class Game
             }
             string host = GatewayEndpoint.Host;
             ushort port = GatewayEndpoint.Port;
-            await Send(player, InstanceTransfer.ConnectInstance(host, port, r.Ticket, r.Area, player.Connection.TicketKey(r.Ticket)),
+            await Send(player, InstanceTransfer.ConnectInstance(host, port, r.Ticket, r.Area, player.Connection.TicketKey(r.Ticket), data8: player.Connection.TicketData8(r.Ticket)),
                 $"0x0027 connect to instance {r.Instance} of area 0x{r.Area:x4} (seed {prepared.Seed}) at {host}:{port}, ticket 0x{r.Ticket:x8}");
         }).ConfigureAwait(false);
         if (abandoned)

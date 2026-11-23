@@ -131,7 +131,11 @@ public static partial class Game
         foreach (uint id in change.Removed)
             await SendWorldRemoval(player, id, $"0x02bd remove room object 0x{id:x} (quest flag set)", atGate: () =>
             { return player.Closed || player.LeavingArea || player.QuestRoomObjects.ContainsKey(id) ? null : InstanceProtocol.RemoveObject(id); });
-        if (on) await CharacterVoiceLines.OnQuestFlagsPublishedHeld(player, change.Effective);
+        if (on)
+        {
+            await CharacterVoiceLines.OnQuestFlagsPublishedHeld(player, change.Effective);
+            await CheckQuestFlagAchievements(player, change.Changed);
+        }
     }
 
     // Whole flag sets are projections, not snapshots: combat can commit while a normal setter awaits the cipher gate.
@@ -223,6 +227,16 @@ public static partial class Game
     // QuestObjects). The area's layout is the same for every league, so what the tables add or change there is decided
     // here, per player (TransitionShown).
     public static Quests.RuleSet QuestsOf(Player player) => Quests.For(ModulesFor(player));
+
+    /// <summary>Quest flags granted when <paramref name="varietyId"/> dies in <paramref name="player"/>'s area,
+    /// excluding conflicting bandit kill flags when the player already allied with that bandit.</summary>
+    public static IReadOnlyList<string> QuestFlagsOnKill(Player player, string varietyId) =>
+        BanditChoices.FilterKillFlags(player, QuestsOf(player).OnMonsterKilled(player.Layout.Id, varietyId));
+
+    /// <summary>Quest item drops granted when <paramref name="varietyId"/> dies in <paramref name="player"/>'s area,
+    /// excluding an allied bandit's own amulet during a mixed-vote fight.</summary>
+    public static IReadOnlyList<string> QuestDropsOnKill(Player player, string varietyId) =>
+        BanditChoices.FilterKillDrops(player, varietyId, QuestsOf(player).DropsOnKill(player.Layout.Id, varietyId));
 
     // The flag a dialogue row sets when chosen: its QuestFlag4, unless the player's tables say only an event sets it.
     public static string? TalkStartFlag(Player player, NpcCatalog.Talk talk) => QuestsOf(player).TalkStartFlag(talk);

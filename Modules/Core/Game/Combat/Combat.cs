@@ -3582,7 +3582,7 @@ public static partial class Game
         }
         // Soul Eater eats the souls of anything killed nearby, the player's kill or not.
         SoulEaterSoul(player, id, at);
-        await SetQuestFlags(player, QuestsOf(player).OnMonsterKilled(player.Layout.Id, variety.Id));
+        await SetQuestFlags(player, QuestFlagsOnKill(player, variety.Id));
         // The party's kill: every living player within the experience range takes their share
         // (Progression.PartyMultiplier), the killer included. The presence of a private area is the party (an area is
         // entered as the party's instance).

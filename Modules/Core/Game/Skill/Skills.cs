@@ -1320,6 +1320,7 @@ public static partial class Game
         Note($"0x01b1 player life {player.PlayerLife}");
         await SendPlayerMana(player, $"0x01b1 player mana {player.PlayerMana}");
         await SendPassives(player);
+        await CheckLevelAchievements(player, level);
     }
 
     // The player's stats (0x1b3) and the skills computed with them (0x2bc Actor), after the level or the passives changed.

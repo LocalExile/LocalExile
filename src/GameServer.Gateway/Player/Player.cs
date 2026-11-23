@@ -1092,6 +1092,11 @@ public sealed partial class Player(AreaLayout layout, uint ticket, uint seed) : 
         return new(l.SpawnX, l.SpawnY, Program.WalkSpeed, walkable, l.GridW > 0 ? l.GridW : 4096, l.GridH > 0 ? l.GridH : 4096,
             () => Blockers, sight: l.Sight) { FrameOf = LockstepFrameOf };
     }
+    /// <summary>True when C→S 0x7d's tile hash differed from the server's generated <see cref="ServerLevels.Level.TileHash"/>.</summary>
+    public bool LevelDesynced { get; set; }
+    /// <summary>The tile and doodad hashes reported by the client in C→S 0x7d.</summary>
+    public uint ClientTileHash { get; set; }
+    public uint ClientDoodadHash { get; set; }
     /// <summary>The worn pets by object id (SpawnPets), replaced when a Pet slot changes; StepPetFollow walks them.</summary>
     public readonly Dictionary<uint, SpawnedPet> Pets = [];
     /// <summary>How map portals are turned around the vertical axis (degrees; Positioned rotation). Dev: /portal_rotation,

@@ -1682,6 +1682,7 @@ public static partial class Game
             player.Character.SavedPassiveProgress = new(next, player.Character.Passives, player.Character.MasteryEffects, player.Character.RefundPoints);
         }
         await SendPassives(player);
+        await CheckAscendancyAwardAchievements(player, awards);
         return next.EarnedPoints;
     }
 
@@ -1790,6 +1791,7 @@ public static partial class Game
             Console.WriteLine($"[gateway] {player.Connection.Remote} {chosen.Name} refused: {ex.Message}");
             return;
         }
+        await AwardAchievementItem(player, "ChooseAscendancyClass");
         await ChangeArea(player, AscendancyReload(player), $"ascendancy {chosen.Name} chosen at the font");
     }
 
@@ -2117,6 +2119,7 @@ public static partial class Game
         }
         // Sent either way: on a refusal it puts the client's tree back to the server's.
         await SendPassives(player);
+        if (error is null && allocate) await CheckPassiveAchievements(player, now);
         return error;
     }
 

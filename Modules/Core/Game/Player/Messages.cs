@@ -555,7 +555,11 @@ public static partial class Game
                 await ChangePassives(player, nodes, allocate: false, "Respecialisation, Refund All", goldRespec: true);
             }
             else if (id == InstanceEntities.PanelToggleId)
-                Console.WriteLine($"[gateway] {player.Connection.Remote} <= 0x0123 panel {(bytes[2] != 0 ? "opened" : "closed")}");
+            {
+                bool opened = bytes.Length >= 3 && bytes[2] != 0;
+                Console.WriteLine($"[gateway] {player.Connection.Remote} <= 0x0123 panel {(opened ? "opened" : "closed")}");
+                if (opened) await SendAchievementProgress(player);
+            }
             else if (id == InstanceEntities.CancelBuffId)
             {
                 uint raw = InstanceEntities.ReadCancelBuff(bytes);
@@ -874,7 +878,17 @@ public static partial class Game
                 Console.WriteLine($"[gateway] {player.Connection.Remote} <= 0x0080 add friend \"{InstanceSocial.ReadFriendAdd(bytes).Name}\" (not handled yet)");
             else if (id == InstanceProtocol.AreaGeneratedId)
             {
-                Console.WriteLine($"[gateway] {player.Connection.Remote} <= 0x007d area generated: {Convert.ToHexString(bytes)}");
+                var (clientTileHash, clientDoodadHash) = InstanceProtocol.ReadAreaGenerated(bytes);
+                player.ClientTileHash = clientTileHash;
+                player.ClientDoodadHash = clientDoodadHash;
+                Console.WriteLine($"[gateway] {player.Connection.Remote} <= 0x007d area generated: tileHash=0x{clientTileHash:x8} ({clientTileHash}) doodadHash=0x{clientDoodadHash:x8} ({clientDoodadHash})");
+                uint serverTileHash = player.Layout.Level?.TileHash ?? 0;
+                bool tileHashMismatch = serverTileHash != 0 && clientTileHash != 0 && clientTileHash != serverTileHash;
+                if (tileHashMismatch)
+                {
+                    player.LevelDesynced = true;
+                    Console.WriteLine($"[gateway] {player.Connection.Remote} level desync in {player.Layout.Id} seed {player.Seed}: client tileHash={clientTileHash} (0x{clientTileHash:x8}) != server tileHash={serverTileHash} (0x{serverTileHash:x8}) (doodadHash={clientDoodadHash})");
+                }
                 if (!player.Connection.PlayerSent)
                 {
                     // The first player whose client is ready generates the area (its monsters and objects, once); every
@@ -944,6 +958,8 @@ public static partial class Game
                     // All stationary objects must exist before validating the arrival cell.
                     await PushOutOfCollision(player, tell: true);
                     await player.Commands!.Reply($"Area generated at Seed: {player.Seed}");
+                    if (tileHashMismatch && player.Commands is { } desyncCommands)
+                        await desyncCommands.Reply($"Warning: client terrain hash differs from server generation (client {clientTileHash}, server {serverTileHash}); area layout may be desynchronised.");
                     // An area the Gateway does not generate itself (ServerLevels) runs on the client's layout alone.
                     if (!ServerLevels.IsSupported(player.Layout.Id) && !CaptureTour.Active(CharacterName(player)))
                         await player.Commands!.Reply(ServerLevels.UnsupportedMessage);

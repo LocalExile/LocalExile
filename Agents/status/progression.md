@@ -54,6 +54,8 @@ Part of [Status](../Status.md); what to build next in this area is in
 
 ## Partly working
 
+- Permanent Achievements (S→C 0x124–0x127, C→S 0x123): tracks permanent achievement items (`SetId == 2`), persists
+  progress account-wide, syncs packed bitsets on entry and panel open, and emits completion toasts (not yet checked live).
 - Dual Wielding Mastery's different-weapon-types damage. Docs: [20](../docs/protocol/20-damage.md) §2b.
 - Armour Mastery grants +1 to all maximum elemental resistances when all four armour pieces provide Armour.
 - Hierophant, except the Brand nodes. Docs: [Hierophant](../docs/game/hierophant.md).

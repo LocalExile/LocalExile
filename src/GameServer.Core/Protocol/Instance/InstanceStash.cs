@@ -248,8 +248,11 @@ public static class InstanceStash
     /// an orb: <c>00E1 000037D5 02 00 6A7D 01 0005 03</c>. The server moves every stack of that type, as the player asked.</summary>
     public const byte MoveAllOfType = 0x02;
 
-    /// <summary>C→S 0xd3: the tab settings' affinities, confirmed (the window's check mark).</summary>
-    public sealed record SetAffinities(ushort Tab, byte Kind, IReadOnlyList<(byte Affinity, bool On)> Changes);
+    /// <summary>C→S / S→C 0xd3: stash tab affinity updates (tab settings confirmation or guild stash broadcast).</summary>
+    public sealed record SetAffinities(ushort Tab, byte Kind, IReadOnlyList<(byte Affinity, bool On)> Changes)
+    {
+        public byte[] Encode() => EncodeSetAffinities(Tab, Kind, Changes);
+    }
 
     /// <summary>
     /// C→S 0xd3 (class 0x1435cad70, read 0x141f9d9a0, write 0x141f9d7d0; built by 0x14216de70): u16 BE tab, u8 kind, u8 n,
@@ -263,6 +266,19 @@ public static class InstanceStash
         var changes = new List<(byte, bool)>();
         for (int i = 0, n = r.U8(); i < n; i++) changes.Add((r.U8(), r.U8() != 0));
         return new(tab, kind, changes);
+    }
+
+    /// <summary>
+    /// S→C 0xd3 (class 0x1435cad70, read 0x141f9d9a0, write 0x141f9d7d0; dispatcher case 0x3f at 0x142155f46 →
+    /// 0x142174850): guild stash tab affinity broadcast. Uses the same wire layout as C→S 0xd3: u16 BE 0x00d3, u16 BE
+    /// tab, u8 kind (<see cref="Guild"/> = 1; dispatcher ignores other kinds), u8 count, count × (u8 affinity, u8 on).
+    /// </summary>
+    public static byte[] EncodeSetAffinities(ushort tab, byte kind, IReadOnlyList<(byte Affinity, bool On)> changes)
+    {
+        if (changes.Count > byte.MaxValue) throw new ArgumentOutOfRangeException(nameof(changes));
+        var w = new LoginWriter().U16(SetAffinitiesId).U16(tab).U8(kind).U8((byte)changes.Count);
+        foreach (var (affinity, on) in changes) w.U8(affinity).U8((byte)(on ? 1 : 0));
+        return w.ToArray();
     }
 
     /// <summary>The length of a C→S 0xd3 at the start of <paramref name="m"/>, or null until its count arrived.</summary>

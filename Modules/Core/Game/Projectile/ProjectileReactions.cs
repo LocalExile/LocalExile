@@ -175,7 +175,7 @@ public static partial class Game
                 session.EnqueueLater(async () => await ExplodeOnKill(player, id, monster, position, explosionEquipment));
         }
         SoulEaterSoul(player, id, position);
-        if (CommitQuestFlags(player, QuestsOf(player).OnMonsterKilled(player.Layout.Id, variety.Id)) is { } quest)
+        if (CommitQuestFlags(player, QuestFlagsOnKill(player, variety.Id)) is { } quest)
             session.EnqueueLater(() => PublishQuestFlags(player, quest));
         var kill = new KillContext(player, monster, variety.Id, position) { PlayerKill = playerKill };
         foreach (var run in GameEvents.Kill.For(player)) run(kill);

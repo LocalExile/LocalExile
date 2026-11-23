@@ -179,7 +179,7 @@ public sealed class AreaTransferPreparationTests
                     Assert.Equal((AreaLayouts.TheCoast, instanceId), player.TransferredTo);
 
                     byte[] expected = InstanceTransfer.ConnectInstance(
-                        GatewayEndpoint.Host, GatewayEndpoint.Port, newTicket, AreaLayouts.TheCoast, keyring.Key(newTicket));
+                        GatewayEndpoint.Host, GatewayEndpoint.Port, newTicket, AreaLayouts.TheCoast, keyring.Key(newTicket), keyring.Data8(newTicket));
                     Assert.Equal(expected, wire.Read(expected.Length));
 
                     // Before the new TCP connection arrives, the destination instance already holds the generated layout.
