@@ -46,7 +46,10 @@ public static partial class Game
         int fire = m.Ignites.Advance(to, fireFactor * meatShield, 0, out double? fireAt);
         int legion = InfernalLegionSelfDamage(golem, to - from, fireFactor);
         int blessing = ignoresDots ? 0 : GuardianBlessingMinionDamage(player, golem, from, to);
-        int bleed = m.Bleeds.Advance(to, ignoresDots ? 0 : BleedTaken(m, to) * meatShield,
+        double bleedFactor = ignoresDots ? 0
+            : BleedTaken(m, to, m.Effects[Stat.NoExtraBleedDamageWhileMoving] != 0) * meatShield
+                * (100 - m.Effects.PhysicalReduction) / 100d;
+        int bleed = m.Bleeds.Advance(to, bleedFactor,
             ignoresDots ? 0 : AggravatedExtra(m, to), out double? bleedAt);
         int poison = m.Poisons.Advance(to, ignoresDots ? 0 : MonsterDotTaken(m, DamageType.Chaos, to) * meatShield,
             out double? poisonAt);
