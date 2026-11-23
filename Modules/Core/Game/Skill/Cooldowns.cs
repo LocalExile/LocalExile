@@ -69,12 +69,16 @@ public static partial class Game
         bool retaliation = skills.IsRetaliation(effect);
         long scoped = skills.IsGuard(effect) ? Bonus(Stat.GuardSkillCooldownRecoveryPlusPct)
             : retaliation ? Bonus(Stat.CounterattacksCooldownRecoveryPlusPct) : 0;
-        if (PlacedKind(supported).Trap)
+        long trapRecovery = Bonus(Stat.PlacingTrapsCooldownRecoveryPlusPct);
+        int perMine = ActorScale.Saturate(Bonus(Stat.TrapCooldownSpeedPlusPctPerRecentMineDetonation));
+        long trapUses = Bonus(Stat.TrapSkillAddedCooldownCount);
+        if ((trapRecovery != 0 || perMine != 0 || trapUses != 0) && PlacedKind(supported).Trap)
         {
-            scoped += Bonus(Stat.PlacingTrapsCooldownRecoveryPlusPct);
-            if (Bonus(Stat.TrapCooldownSpeedPlusPctPerRecentMineDetonation) is long perMine and not 0)
-                scoped += perMine * Math.Max(0, playerStats.GetValueOrDefault(Stat.NumberOfMinesDetonatedRecently));
+            scoped += trapRecovery;
+            if (perMine != 0)
+                scoped += (long)perMine * Math.Max(0, playerStats.GetValueOrDefault(Stat.NumberOfMinesDetonatedRecently));
         }
+        else trapUses = 0;
         if (skills.EffectId(effect) is "BlinkArrow" or "BlinkArrowAltX" or "BlinkArrowAltY"
                 or "MirrorArrow" or "MirrorArrowAltX" or "MirrorArrowAltY")
             scoped += Bonus(Stat.BlinkAndMirrorArrowCooldownSpeedPlusPct);
@@ -82,6 +86,12 @@ public static partial class Game
             own = new Dictionary<uint, int>(own) { [Stat.BaseCooldownSpeedPlusPct] =
                 ActorScale.Saturate(scoped + own.GetValueOrDefault(Stat.BaseCooldownSpeedPlusPct)) };
         if (SingleUseCooldown.ForSkill(skills, Stats, effect, supported.Level, playerStats, own) is not { } plan) return null;
+        if (trapUses != 0)
+        {
+            long capacity = plan.Uses + trapUses;
+            if (capacity is < 1 or > 255) return null;
+            plan = plan with { Uses = (int)capacity };
+        }
         if (skills.EffectId(effect) == MadnessEffect && MadnessActiveLocked(player))
             plan = plan with { BaseMilliseconds = plan.BaseMilliseconds
                 + MadnessSkillValue(player, Stat.EmbraceMadnessAmountOfCooldownToGainMs) };
