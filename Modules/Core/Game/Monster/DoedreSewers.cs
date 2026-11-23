@@ -543,7 +543,7 @@ public static partial class Game
             int amount = (int)Math.Floor(damage); carry[g.Id] = damage - amount;
             m.Life = (uint)Math.Max(0, (long)m.Life - amount);
             c.Minions.OutputQueue.Add(new([], "Doedre sewage cloud damages minion", g.Id, m, PlayerMinions.OutputKind.Life));
-            if (m.Life == 0) GolemDieLocked(c, g, now);
+            if (m.Life == 0) GolemDieLocked(c, g, now, killedByEnemy: true);
         }
     }
 }

@@ -170,7 +170,7 @@ public static partial class Game
         GolemState.MinionResourceSnapshot? resources = null, bool legacyArrival = false,
         GolemState.Golem? replacingOld = null, bool triggered = false, SpawnedMonster? consumedCorpse = null, bool playerConsumesCorpse = true, MonsterModSet? inheritedMods = null,
         MonsterRarity rarity = MonsterRarity.Normal, IReadOnlyDictionary<uint, int>? retainedStats = null,
-        AnimatedSource? preparedEquipment = null)
+        AnimatedSource? preparedEquipment = null, GolemState.Golem? reformingSpectre = null)
     {
         SupportedGem gem;
         Dictionary<uint, int> playerStats;
@@ -239,14 +239,16 @@ public static partial class Game
         if (actorLevel <= 0 && (definition.Family.StartsWith("Dominating", StringComparison.Ordinal) || definition.Family == "VaalDomination"))
             actorLevel = SkillsFor(player).PlayerLevelReq(gem.Effect, gem.Level);
         byte level = (byte)Math.Clamp(actorLevel, 1, 100);
-        if (inheritedMods is null && definition.Family == "RagingSpirit")
+        if (inheritedMods is null && (definition.Family == "RagingSpirit"
+            || definition.Family == "Spectre" && ItemisedCorpses.Value.Bodies.Contains(variety.Row)))
             inheritedMods = MonsterModRolls.Create(MonsterModRolls.Species(variety.SpeciesModsOrEmpty, Random.Shared),
                 [], MonsterRarity.Normal, level);
         var native = new GolemCatalog.Definition(gem.Effect, definition.Id, definition.Family, path, 0, [], false, false, false);
         double freshMeat = remaining is null && replacement is null && restoredVariety is null && resources is null && !legacyArrival
             && GolemStat(gem.Stats, FreshMeatDurationPercent) > 0
             ? FreshMeatSeconds(gem.Stats, SummonDuration(player, definition, gem)) : 0;
-        var fighter = new GolemState.Golem(0, null!, native, source)
+        var fighter = new GolemState.Golem(0, null!, native, source,
+            definition.Family == "Spectre" ? gemSource : null)
         { GemLevel = gem.Level, Quality = gem.Quality, Own = new(gem.Stats), Player = new(playerStats), Limit = limit,
             FreshMeatUntil = replacingOld?.FreshMeatUntil ?? (freshMeat > 0 ? AreaTime(player) + freshMeat : 0),
             InheritedMods = inheritedMods ?? MonsterModSet.None, RetainedSkillStats = retainedStats is null ? [] : new(retainedStats),
@@ -281,6 +283,9 @@ public static partial class Game
         }
         if (!player.Layout.WalkableFor(aim.X, aim.Y, 0)) aim = NextToPlayer(player);
         var consumed = corpse;
+        bool SameLimit(GolemState.Golem g) => g.Definition.Kind == definition.Family
+            && (!g.Monster.Dead || double.IsFinite(g.ReviveAt))
+            && (definition.Family != "Clone" || player.Summons.Definitions[g.Id].LimitStat == definition.LimitStat);
         uint id = await SpawnMonster(player, variety, level, rarity, aim.X, aim.Y,
             friendly: true, mods: mods, unrisen: false, extraStats: MinionStats,
             ownedSkills: fighter.Skills, ownedMaximumLife: transportMaximum, ownedMaximumEnergyShield: maximumEnergyShield,
@@ -292,6 +297,8 @@ public static partial class Game
                 && (animated?.GuardianGear is not { } guardian || AnimatedGuardianGearCurrentLocked(player, guardian))
                 && ConsumeAnimatedSourceLocked(player, animated),
             ownedCurrent: () => player.PlayerLife > 0 && (current?.Invoke() ?? true) && (consumed is null || !consumed.CorpseConsumed)
+                && (reformingSpectre is null || CanReformSpectreLocked(player, reformingSpectre, AreaTime(player))
+                    && player.Summons.Fighters.Values.Count(SameLimit) <= limit)
                 && (replacement is { } admission
                     ? SummonReplacementCurrentLocked(player, admission)
                     : fresh is { } captured && FreshSummonCurrentLocked(player, captured)
@@ -304,19 +311,23 @@ public static partial class Game
                 if (animated?.BladeSource is not null)
                     player.Minions.OutputQueue.Add(new(InstanceProtocol.RemoveObject(animated.Id), "lingering blade animated"));
                 if (definition.Family == "AnimatedGuardian") player.Summons.GuardianEquipment = new(fighter.Equipment);
-                bool SameLimit(GolemState.Golem g) => g.Definition.Kind == definition.Family && !g.Monster.Dead
-                    && (definition.Family != "Clone" || player.Summons.Definitions[g.Id].LimitStat == definition.LimitStat);
-                while (replacement is null && player.Summons.Fighters.Values.Count(SameLimit) >= limit)
-                    RemoveSummonLocked(player, player.Summons.Fighters.Values.Where(SameLimit)
-                        .MinBy(g => g.SummonedAt)!, AreaTime(player), reconcileBlessing: false);
                 double committed = AreaTime(player);
+                double? reformUntil = null;
+                if (reformingSpectre is not null)
+                {
+                    reformUntil = player.Summons.Until[reformingSpectre.Id];
+                    RemoveSummonLocked(player, reformingSpectre, committed, reconcileBlessing: false);
+                }
+                while (replacement is null && reformingSpectre is null && player.Summons.Fighters.Values.Count(SameLimit) >= limit)
+                    RemoveSummonLocked(player, player.Summons.Fighters.Values.Where(SameLimit)
+                        .MinBy(g => g.SummonedAt)!, committed, reconcileBlessing: false);
                 SummonReplacementResources? committedResources = replacement is null
                     ? null : CaptureReplacementResources(replacement.Old, committed);
                 fighter.Id = id; fighter.Monster = monster;
                 if (replacement is not null)
                     TransferIncomingReplacementStateLocked(replacement.Old, fighter, committed);
                 if (replacement is not null) RetireReplacementLocked(player, replacement, committed);
-                fighter.SummonedAt = replacement?.SummonedAt ?? committed;
+                fighter.SummonedAt = replacement?.SummonedAt ?? reformingSpectre?.SummonedAt ?? committed;
                 if (freshMeat > 0) fighter.FreshMeatUntil = committed + freshMeat;
                 fighter.LastStep = replacement?.LastStep ?? committed;
                 fighter.ShieldPool.SetMaximum(maximumEnergyShield,
@@ -335,7 +346,7 @@ public static partial class Game
                 monster.Mods = mods;
                 player.Summons.Fighters.Add(id, fighter); player.Summons.Definitions[id] = definition;
                 player.Summons.Until[id] = remaining is double duration ? committed + duration
-                    : replacement?.Until ?? committed + SummonDuration(player, definition, gem);
+                    : replacement?.Until ?? reformUntil ?? committed + SummonDuration(player, definition, gem);
                 player.Minions.Add(new(id, monster, definition.Id, definition.Family) { Until = player.Summons.Until[id] });
                 monster.NoRewards = true; monster.Aggro = true;
                 if (definition.Id == "RaiseZombieAltY" && fighter.Abilities.FirstOrDefault(a => a.Effect == 7133) is { } fall)
@@ -363,6 +374,11 @@ public static partial class Game
         RemoveGolemLocked(player, fighter, now, reconcileBlessing);
         player.Minions.StatRevision++;
     }
+
+    static bool CanReformSpectreLocked(Player player, GolemState.Golem spectre, double now) =>
+        GolemCurrent(player, spectre) && spectre.Monster.Dead && now >= spectre.ReviveAt
+        && now < player.Summons.Until[spectre.Id]
+        && GemSourceLifetimeCurrentLocked(player, spectre.Source, spectre.Definition.Effect, spectre.GemSource);
 
     public static async Task SummonsTick(Player player, double now)
     {
@@ -395,6 +411,7 @@ public static partial class Game
         bool changed = false;
         var rescaled = new List<(GolemState.Golem Old, SummonCatalog.Definition Definition,
             Dictionary<byte, Item>? Equipment, string Variety, (int X, int Y) Aim)>();
+        var reforming = new List<(GolemState.Golem Old, SummonCatalog.Definition Definition)>();
         using (ProjectileMutation(player))
         {
             if (!CurrentGameWork || player.Closed || player.LeavingArea || player.Paused) return;
@@ -407,8 +424,21 @@ public static partial class Game
             if (playerStats is not null) state.RefreshAt = now + .5;
             foreach (var fighter in state.Fighters.Values.ToArray())
             {
-                if (player.PlayerLife == 0 || fighter.Monster.Dead || fighter.Monster.Life == 0 || now >= state.Until[fighter.Id])
+                if (player.PlayerLife == 0 || now >= state.Until[fighter.Id])
                 {
+                    RemoveSummonLocked(player, fighter, now); changed = true; continue;
+                }
+                if (fighter.Monster.Dead || fighter.Monster.Life == 0)
+                {
+                    if (double.IsFinite(fighter.ReviveAt))
+                    {
+                        if (now < fighter.ReviveAt) continue;
+                        if (CanReformSpectreLocked(player, fighter, now))
+                        {
+                            reforming.Add((fighter, state.Definitions[fighter.Id]));
+                            continue;
+                        }
+                    }
                     RemoveSummonLocked(player, fighter, now); changed = true; continue;
                 }
                 if (playerStats is null) { GolemStepLocked(player, fighter, now); continue; }
@@ -436,6 +466,10 @@ public static partial class Game
                 GolemStepLocked(player, fighter, now);
             }
         }
+        foreach (var (old, definition) in reforming)
+            if (await SummonFighterCore(player, old.Source, definition, old.Monster.Walk.Position(now),
+                restoredVariety: old.Monster.Variety!.Id, inheritedMods: old.InheritedMods, reformingSpectre: old) != 0)
+                changed = true;
         foreach (var (old, definition, equipment, variety, aim) in rescaled)
             if (await SummonFighter(player, old.Source, definition, aim,
                 restoredVariety: variety, restoredEquipment: equipment, replacingOld: old) != 0)

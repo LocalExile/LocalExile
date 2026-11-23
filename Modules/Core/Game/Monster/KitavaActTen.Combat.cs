@@ -236,7 +236,7 @@ static partial class KitavaActTen
                         PublishEnergyShieldLocked(p, g);
                         g.Monster.Life = (uint)Math.Max(0, (long)g.Monster.Life - damage);
                         if (incoming > 0) p.Minions.OutputQueue.Add(new([], "Kitava ground damages minion", g.Id, g.Monster, PlayerMinions.OutputKind.Life));
-                        if (g.Monster.Life == 0) GolemDieLocked(p, g, now);
+                        if (g.Monster.Life == 0) GolemDieLocked(p, g, now, killedByEnemy: true);
                     }
                 }
         }
