@@ -280,7 +280,7 @@ public static partial class Game
     {
         HitSummonsOnHitLocked(player, m, skill, sourceSkill, now, random);
         PhantasmsOnHitLocked(player, m, sourceSkill, now, random, skill: skill);
-        CursesOnHitLocked(player, m, sourceSkill, spell, now, skill);
+        CursesOnHitLocked(player, m, sourceSkill, spell, now, skill, playerStats, playerHit, random);
         KnockbackOnHitLocked(player, m, playerStats, skill, now, random, hitOrigin);
         // "You gain Onslaught for 4 seconds on Hit" and "Gain Arcane Surge on Hit with Spells" (Honoured Berserker
         // and Flood tattoos): every player hit, the spells-only one gated by the hit's own spell flag.

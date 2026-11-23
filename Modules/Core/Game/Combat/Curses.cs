@@ -25,6 +25,8 @@ public static partial class Game
         Stat.AlchemistsMarkIgniterCreatesBurningGroundPctIgniteDamage, Stat.AlchemistsMarkPoisonerCreatesCausticGroundPctPoisonDamage
     ];
 
+    static readonly RuleTable<SkillCatalog, IReadOnlyDictionary<uint, int>> TemporalChainsOnHitStats = new();
+
     static bool ExternalTemporalChains(Player player, string effect) => effect == "TemporalChains"
         && GameEvents.GrantedSkillExecutable.For(player).Any(accept => accept(player, effect));
 
@@ -60,11 +62,19 @@ public static partial class Game
     static bool ApplyCurseLocked(Player player, SpawnedMonster monster, ushort skill, double now, bool aura,
         SupportedGem? captured, IReadOnlyDictionary<uint, int>? sources, int addedEffect, double effectMultiplier)
     {
-        var gem = captured ?? SupportedSkill(player, skill); string effect = SkillsFor(player).EffectId(gem.Effect) ?? "";
+        var gem = captured ?? SupportedSkill(player, skill);
+        return gem.RequirementsMet && ApplyCurseDataLocked(player, monster, skill, SkillsFor(player).EffectId(gem.Effect) ?? "",
+            gem.Stats, now, aura, sources, addedEffect, effectMultiplier);
+    }
+
+    static bool ApplyCurseDataLocked(Player player, SpawnedMonster monster, ushort skill, string effect,
+        IReadOnlyDictionary<uint, int> curseStats, double now, bool aura, IReadOnlyDictionary<uint, int>? sources,
+        int addedEffect = 0, double effectMultiplier = 1)
+    {
         if (!CurseCatalog.All.TryGetValue(effect, out var definition) || ExternalTemporalChains(player, effect)
-            || monster.Dead || monster.Life == 0 || !monster.Hostile || !gem.RequirementsMet) return false;
+            || monster.Dead || monster.Life == 0 || !monster.Hostile) return false;
         var playerStats = sources ?? CharacterPlayerStats(player);
-        int Own(uint n) => GolemStat(gem.Stats, n);
+        int Own(uint n) => GolemStat(curseStats, n);
         int Get(uint n) => GolemStat(playerStats, n) + Own(n);
         if (monster.Mods.Effects[Stat.ImmuneToCurses] != 0 || !definition.Mark && monster.Mods.Effects[Stat.Hexproof] != 0
             && Get(Stat.IgnoreHexproof) == 0 && Get(Stat.Of("hexes_ignore_hexproof")) == 0
@@ -78,7 +88,7 @@ public static partial class Game
             * Math.Max(0, 1 + monster.Mods.Effects[Stat.CurseEffectOnSelfPlusPctFinal] / 100.0)
             * Math.Max(0, 1 + monster.Mods.Effects[Stat.MapMonstersCurseEffectOnSelfPlusPctFinal] / 100.0)
             * effectMultiplier;
-        var stats = gem.Stats.Where(p => CurseRecipientStats.Contains(p.Key))
+        var stats = curseStats.Where(p => CurseRecipientStats.Contains(p.Key))
             .ToDictionary(p => p.Key, p => (int)Math.Truncate(p.Value * factor));
         double seconds = definition.Mark ? double.PositiveInfinity : SkillDurationModifiers.Seconds(Own(Stat.BaseSkillEffectDuration),
             n => GolemStat(playerStats, n) + (n == SkillDurationModifiers.IncreasedDuration ? Get(Stat.CurseDurationPlusPct) + Get(Stat.CurseSkillEffectDurationPlusPct) : 0),
@@ -98,9 +108,16 @@ public static partial class Game
     }
 
     static void CursesOnHitLocked(Player player, SpawnedMonster target, ushort sourceSkill, bool spell, double now,
-        IReadOnlyDictionary<uint, int>? sourceStats = null)
+        IReadOnlyDictionary<uint, int>? sourceStats, IReadOnlyDictionary<uint, int> hitStats, bool playerHit, Random random)
     {
         if (target.Dead || target.Life == 0 || player.Reservations.Secondary) return;
+        if (playerHit && RandomRolls.Chance(hitStats.GetValueOrDefault(Stat.CurseOnHitPctTemporalChains), 100, random))
+        {
+            const string effect = "TemporalChains";
+            var curse = TemporalChainsOnHitStats.GetValue(SkillsFor(player), static catalog =>
+                catalog.EffectStats(catalog.EffectRow(effect), 1).ToDictionary(p => p.Item1, p => p.Item2));
+            if (curse.Count != 0) ApplyCurseDataLocked(player, target, 0, effect, curse, now, false, hitStats);
+        }
         bool mayHextouch = sourceSkill != 0
             && (sourceStats is null || GolemStat(sourceStats, Stat.ApplyLinkedCursesOnHitPct) > 0);
         if (!mayHextouch && (spell || target.Rarity is not (MonsterRarity.Rare or MonsterRarity.Unique))) return;
