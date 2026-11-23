@@ -114,7 +114,7 @@ public partial class Program
         try
         {
             if (atGate(admission) is not { } batch) return false;
-            output.Shared(batch, admission);
+            if (!output.TryShared(batch, admission)) return false;
             var delta = player.Area.Delta;
             // A message that is not about an object (a death screen, a window) is the sender's own; what a player's view
             // makes (ViewOf) is that player's alone.

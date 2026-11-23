@@ -222,7 +222,7 @@ public static partial class Game
             inheritedMods = MonsterModRolls.Create(MonsterModRolls.Species(variety.SpeciesModsOrEmpty, Random.Shared),
                 [], MonsterRarity.Normal, level);
         var native = new GolemCatalog.Definition(gem.Effect, definition.Id, definition.Family, path, 0, [], false, false, false);
-        double freshMeat = remaining is null && replacement is null && !legacyArrival
+        double freshMeat = remaining is null && replacement is null && restoredVariety is null && resources is null && !legacyArrival
             && GolemStat(gem.Stats, FreshMeatDurationPercent) > 0
             ? FreshMeatSeconds(gem.Stats, SummonDuration(player, definition, gem)) : 0;
         var fighter = new GolemState.Golem(0, null!, native, source)
@@ -410,7 +410,7 @@ public static partial class Game
                     continue;
                 }
                 fighter.Own = new(gem.Stats); fighter.GemLevel = gem.Level; fighter.Quality = gem.Quality;
-                RefreshGolemLocked(player, fighter, playerStats);
+                RefreshGolemLocked(player, fighter, playerStats, now);
                 GolemStepLocked(player, fighter, now);
             }
         }

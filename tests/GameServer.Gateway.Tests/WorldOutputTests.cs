@@ -45,6 +45,24 @@ public class WorldOutputTests : IDisposable
             return new OutputBatch([OutputRecord.Immediate(InstanceProtocol.FrameEnd())]);
         }));
         Assert.Empty(Program.HistoryFor(ciphers).Lines());
+
+        var sharedPlayer = new Player(new(1, "world-retire-shared", 300, 300, 100, 100, null, []), 1, 1);
+        sharedPlayer.Connection.WorldOutput.Begin(1);
+        var previous = GameArea.Own(sharedPlayer.Area);
+        try
+        {
+            Assert.False(await Program.SendRecords(sharedPlayer, [], _ =>
+            {
+                sharedPlayer.Closed = true;
+                return new OutputBatch([OutputRecord.Immediate(InstanceProtocol.FrameEnd())]);
+            }));
+            Assert.Empty(sharedPlayer.Area.Delta.Take());
+            Assert.False(sharedPlayer.Connection.WorldOutput.TryShared(OutputBatch.Empty,
+                new WorldAdmission(sharedPlayer.Connection.WorldOutput, [])));
+            Assert.Throws<ObjectDisposedException>(() => sharedPlayer.Connection.WorldOutput.Shared(OutputBatch.Empty,
+                new WorldAdmission(sharedPlayer.Connection.WorldOutput, [])));
+        }
+        finally { GameArea.Own(previous); }
     }
 
     [Fact]
