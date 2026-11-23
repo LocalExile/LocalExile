@@ -2484,6 +2484,7 @@ public static partial class Game
                 Console.WriteLine($"[gateway] {player.Connection.Remote} monster 0x{id:x} missed: the player is {Dist(here, from):0.0} away");
             return null;
         }
+        if (spellHit && DodgesSpellHit(player)) return null;
         // The monster's accuracy comes from DefaultMonsterStats at its level. Evasion uses PoE's shared entropy
         // counter: every attack adds its hit chance, and reaching 100 consumes 100 and hits (evasion cannot streak
         // indefinitely). A new counter starts after 3.33 s without an attack.
@@ -2558,7 +2559,8 @@ public static partial class Game
             int value = immune.Contains(type) ? 0 : (int)Math.Round(range.Min);
             value = PlayerHitMitigation.AfterResistance(player.Pools, type, value,
                 reduction.Physical, reduction.Elemental, armour.EffectiveArmour,
-                PlayerHitMitigation.ArmourPercent(player.Pools, type, StatOf));
+                PlayerHitMitigation.ArmourPercent(player.Pools, type, StatOf),
+                imbalancedGuard: StatOf(Stat.KeystoneSacredBastion) != 0);
             // Flat damage taken after resistance and armour, then the multipliers: the increased damage taken adds to the
             // shock's, and a blocked hit deals only its share (PlayerDamageTaken). Monster hits are attacks, and melee
             // unless ranged.
@@ -2624,6 +2626,9 @@ public static partial class Game
         if (GameServer.Core.World.RandomRolls.Chance(StatOf(Stat.ChanceToFreezeEnemiesFor1SecondWhenHitPct), 100, AreaRng(player)))
             InflictedLocked(player, m, m.Ailments.Freeze(1, now, StatOf, name => m.Effects[name], AilmentArea(StatOf, _ => 0, spell: false)));
         AilmentsWhenHitLocked(player, m, StatOf, blocked, now, AreaRng(player));
+        if (StatOf(Stat.BlindEnemiesWhenHitPctChance) is > 0 and var blindAttackerChance)
+            InflictMonsterBlind(player, id, m, now, (blindAttackerChance, StatOf(Stat.BlindEffectPlusPct), BlindSeconds(StatOf)),
+                AreaRng(player));
         ReservationWhenHitLocked(player, id, m, blocked, now);
         if (player.PlayerLife == 0) { DamageTriggers.Remove(player); player.InvalidateIncomingHits(); ClearAntiquarianOnDeath(player); }
         RecordHardcoreDeath(player);

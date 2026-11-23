@@ -463,6 +463,7 @@ public static partial class Game
         lock (sent)
         {
             if (sent.Bytes is { } last && last.AsSpan().SequenceEqual(bytes)) return [];
+            if (DeferMomentumChannelSkills(player) && player.ClientSkillIds.SetEquals(skills.Select(s => s.Id))) return [];
             (sent.Bytes, sent.Skills) = (bytes, skills);
         }
         // Any 0x02bc Actor skill-list update can reset client-side skill bar bindings; schedule a coalesced 0x0053 restore.

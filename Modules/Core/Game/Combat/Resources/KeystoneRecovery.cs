@@ -63,7 +63,8 @@ public static partial class Game
         double start = Math.Max(from, rechargeAt);
         if (now <= start) return 0;
         double rate = EnergyShield.BaseRechargePerMinute(player.PlayerMaxLife, get)
-            * Math.Max(0, 1 + get(Stat.LifeRecoveryRatePlusPct) / 100d);
+            * Math.Max(0, 1 + get(Stat.LifeRecoveryRatePlusPct) / 100d)
+            * PanelStats.MapRecoveryMultiplier(get);
         if (rate > 0 && !double.IsFinite(state.LifeRechargeBeganAt)) state.LifeRechargeBeganAt = start;
         return rate * (now - start) / 60;
     }

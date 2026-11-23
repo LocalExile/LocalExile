@@ -77,6 +77,15 @@ public static partial class Game
             var sources = CharacterStatSources(player, nodes).Stats;
             outputs.Sources = sources;
             foreach (var (k, v) in sources) stats[k] = v;
+            if (MapModsOf(player) is { } map)
+            {
+                AddTo(stats, Stat.MapPlayersNoRegenerationIncludingEs, map.Get(Stat.MapPlayersNoRegenerationIncludingEs));
+                AddTo(stats, Stat.MapPlayerLifeAndEsRecoverySpeedPlusPctFinal,
+                    map.Get(Stat.MapPlayerLifeAndEsRecoverySpeedPlusPctFinal));
+                AddTo(stats, Stat.MapPlayersSkillAreaOfEffectPlusPctFinal, map.Get(Stat.MapPlayersSkillAreaOfEffectPlusPctFinal));
+                AddTo(stats, Stat.MapPlayerMaximumLeechRatePlusPct, map.Get(Stat.MapPlayerMaximumLeechRatePlusPct));
+                AddTo(stats, Stat.BuffTimePassedPlusPctOnlyBuffCategory, map.Get(Stat.MapPlayerBuffTimePassedPlusPctOnlyBuffCategory));
+            }
             // Their "recently" conditions change by themselves when an event ages out of its window.
             double now = AreaTime(player);
             if (player.RecentEvents.NextExpiry(now) is double expiry) StatsChangeIn(expiry - now);
@@ -210,6 +219,7 @@ public static partial class Game
             // The low-life flag the damage pipeline reads (Pain Attunement's "30% more Spell Damage when on Low Life"), kept
             // here with the other live state flags so it cannot go stale with the cached stat head.
             stats[Stat.OnLowLife] = CriticalOnLowLife(player, stats) ? 1 : 0;
+            if (Get(Stat.KeystoneCorruptedDefences) != 0) AddTo(stats, IncomingResourceDefences.BypassStat, 50);
             // The unmodified recovery baseline, before the temporary contribution. The resource writer integrates
             // Fortification separately across exact expiry boundaries.
             outputs.BaselineLifePerSecond = PanelStats.LifePerMinute(recovery, player.Pools.Life) * LifeRegenerationKeystoneFactor(Get) / 60;
@@ -241,11 +251,13 @@ public static partial class Game
             var ailments = player.ElementalAilments.Snapshot(now);
             if (player.ElementalAilments.NextChangeAt(now) is double ailment) StatsChangeIn(ailment - now);
             if (now - player.LastEnemyHitAt <= RecentlySeconds) StatsChangeIn(player.LastEnemyHitAt + RecentlySeconds - now + 1e-6);
+            var spellDefences = SpellDefences(player);
+            stats[Stat.ChanceToDodgeSpellsPct] = spellDefences.Dodge;
             ComputeStatSnapshotTail(PlayerTailInputs(player, stats) with
             {
                 Ailments = [ailments.Ignite ? 1 : 0, ailments.Chill > 0 ? 1 : 0, ailments.Freeze ? 1 : 0, ailments.Shock > 0 ? 1 : 0],
                 ActionFactor = PlayerActionFactorFrom(player, Get),
-                SuppressionChance = Suppression(player).Chance,
+                SuppressionChance = spellDefences.Suppression,
             }, StatSnapshotStage.Critical);
         });
         Step(PlayerStatStep.LeechingDefences, (player, stats, _) => WithLeechingDefences(stats));
