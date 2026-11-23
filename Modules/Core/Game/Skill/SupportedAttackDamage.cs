@@ -69,11 +69,13 @@ public static class SupportedAttackDamage
 
     // Fan of Blades' damage is "with" the attacking weapon, unlike its either-hand "while wielding" count.
     // Keep this in the existing projectile-hit increase bucket, so it cannot increase melee hits or ailments.
+    // "Increased Projectile Attack Damage" is the same bucket for every attack.
     public static Func<uint, int> HitModifiers(SkillCatalog.Unarmed weapon, Func<uint, int> get)
     {
-        if (!WeaponIdentity.CountsAs(weapon.ItemClass, weapon.LocalSources, "Claw")
-            && !WeaponIdentity.CountsAs(weapon.ItemClass, weapon.LocalSources, "Dagger") && weapon.ItemClass != "Rune Dagger") return get;
-        int increased = get(Stat.ProjectileAttackDamagePlusPctWithClawOrDagger);
+        int increased = get(Stat.ProjectileAttackDamagePlusPct);
+        if (WeaponIdentity.CountsAs(weapon.ItemClass, weapon.LocalSources, "Claw")
+            || WeaponIdentity.CountsAs(weapon.ItemClass, weapon.LocalSources, "Dagger") || weapon.ItemClass == "Rune Dagger")
+            increased += get(Stat.ProjectileAttackDamagePlusPctWithClawOrDagger);
         return increased == 0 ? get : name => get(name) + (name == Stat.ProjectileDamagePlusPct ? increased : 0);
     }
 
