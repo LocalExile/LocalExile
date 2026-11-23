@@ -304,6 +304,7 @@ public static partial class Game
         if (Quests.IsInstanceFlag(flag))
             return flag == LabyrinthDay.PlazaDoorOpen ? player.LabyrinthEntry is not null : player.Instance.HasState(flag);
         if (player.Character.HasQuestFlag(flag)) return true;
+        if (GameEvents.RunAreaQuestFlags(player)?.Contains(flag) == true) return true;
         if (Quests.Rows([flag]) is not [int row]) return false;
         bool inHideout = HideoutCatalog.ByArea(player.Layout.Hash) is not null || player.Layout.Hash == StashCatalog.DelveHub;
         if (player.Character.UnearnedQuestFlags.Contains(flag) && Quests.EndgameOnly.Contains(flag)

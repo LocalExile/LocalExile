@@ -210,6 +210,26 @@ public static class GameEvents
     /// things and their quest view (the NPCs and quest blockers their quest state shows them).</summary>
     public static readonly GameEvent<Func<Player, Task>> PlayerEntered = new();
 
+    /// <summary>Quest flags the client holds in the player's current area besides the character's own (their ids): a grant
+    /// that belongs to the area, so it is neither saved nor cleared by another module's clean-up of the character's flags. The
+    /// client's flag set (the player's create and every quest flag update) and the server's checks
+    /// (<c>Game.ClientHasQuestFlag</c>) both read it, so the two agree; it is read at every check, so answer from state that is
+    /// already known. <see cref="RunAreaQuestFlags"/> sums the answers.</summary>
+    public static readonly GameEvent<Func<Player, IEnumerable<string>>> AreaQuestFlags = new();
+
+    /// <summary>The flags the subscribers grant the player in this area; null when none does.</summary>
+    public static IReadOnlySet<string>? RunAreaQuestFlags(Player player)
+    {
+        if (!AreaQuestFlags.Any) return null;
+        HashSet<string>? flags = null;
+        foreach (var (owner, run) in AreaQuestFlags.Subscribers(player))
+            GameEventOwners.Guard(owner, nameof(AreaQuestFlags), () =>
+            {
+                foreach (string flag in run(player)) (flags ??= []).Add(flag);
+            });
+        return flags;
+    }
+
     /// <summary>A new instance's monsters are placed (not a kept instance's, whose monsters come back as they were): place
     /// a league encounter's monsters and objects here (<see cref="LeagueChances"/> rolls how many).</summary>
     public static readonly GameEvent<Func<AreaPopulated, Task>> AreaPopulated = new();
