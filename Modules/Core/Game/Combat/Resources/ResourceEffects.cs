@@ -1,4 +1,5 @@
 using System.Collections.Concurrent;
+using GameServer.Core.World;
 using GameServer.Modding;
 
 /// <summary>Rule-owned resources, separate from the animated-actor runtime and its worker.</summary>
@@ -148,6 +149,19 @@ public static partial class Game
             && player.PlayerMana >= UnreservedMana(player))
         { state.Mana.Take(at); state.Mana.DiscardRecoveryFraction(); }
     }
+    static void RecordUsedSkillLocked(Player player, double now)
+    {
+        player.RecentEvents.Record(StatConditions.UsedSkill, now);
+        var raw = StatSourceValues(player);
+        ApplySiphoningSkillUseLocked(player, now, raw);
+        int chance = raw.GetValueOrDefault(Stat.Recover10PctOfMaximumManaOnSkillUsePct);
+        if (chance <= 0) return;
+
+        uint cap = (uint)UnreservedMana(player);
+        if (player.PlayerMana < cap && RandomRolls.Chance(chance, 100, AreaRng(player)))
+            player.PlayerMana = (uint)Math.Min(cap, (ulong)player.PlayerMana + (ulong)player.Pools.Mana / 10);
+    }
+
     public static void DiscardResourceLoadingRecovery(Player player, double now)
     {
         if (player.ResourceEffectsState is ResourceEffectsState state && ResourceEffectsCurrent(player, state))

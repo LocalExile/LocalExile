@@ -552,7 +552,7 @@ public static partial class Game
         var strike = new HitResistances.Strike(Critical: critical, Attack: !a.Attack.Spell);
         var mitigated = DamageModel.Mitigate(rolled,
             type => HitResistances.Effective(type, MonsterHitResistance(target, type, default, now), strike, resistanceMods));
-        int damage = MonsterTakesMitigated(target, mitigated, a.Attack.Spell, now);
+        int damage = MonsterTakesMitigated(target, mitigated, a.Attack.Spell, now, random: AreaRng(player));
         var from = g.Monster.Walk.Position(now);
         var to = target.Walk.Position(now);
         if (ApplyMonsterHitLocked(player, target, damage, allyAt: from) is not { } hit) return false;

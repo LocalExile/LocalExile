@@ -20,6 +20,7 @@ public static partial class Game
             using var defenceTime = FortificationOf(player).Capture(now);
             // Refresh lazy aura/Fortification pools before reading ANY final defence at the accepted contact.
             var stats = CharacterPlayerStats(player);
+            if (spell && DodgesSpellHit(player)) return false;
             GainLifeBeforeEnemyHitLocked(player, stats);
             int resistance = Resistance(player, type), maximum = MaxResistance(player, type);
             // Avoidance rolls before block, as for a monster hit; an avoided hit still lands. Elusive's is one
@@ -35,9 +36,9 @@ public static partial class Game
             if (!blocked && DamageTypes.IsElemental(type) && GamblerFor(stats).UsesNinetyResistance(player.IncomingHitRandom))
                 resistance = maximum = 90;
             bool immune = PlayerImmunities(player, stats).Contains(type);
-            bool armourRelevant = type == DamageType.Physical ? amount > 0
-                : PlayerHitMitigation.ArmourPercent(player.Pools, type, name => name is var key ? stats.GetValueOrDefault(key) : 0) > 0
-                    && DamageModel.Mitigate(amount, resistance, maximum) > 0;
+            bool armourRelevant = amount > 0
+                && PlayerHitMitigation.ArmourPercent(player.Pools, type, stats.GetValueOrDefault) > 0
+                && (type == DamageType.Physical || DamageModel.Mitigate(amount, resistance, maximum) > 0);
             var armour = IncomingArmourLocked(player, !blocked && !immune && !avoided && armourRelevant, priorContacts, stats);
             int dealt = immune || avoided ? 0 : MitigateTakenWithArmour(player, type, amount, resistance, maximum, armour.EffectiveArmour,
                 stats, attack: !spell, ranged: ranged && !spell, spell: spell);
@@ -77,9 +78,11 @@ public static partial class Game
         int effectiveArmour, IReadOnlyDictionary<uint, int> stats)
     {
         var (physical, elemental) = PlayerDamageReduction(player, stats);
+        int share = PlayerHitMitigation.ArmourPercent(player.Pools, type, stats.GetValueOrDefault);
+        if (stats.GetValueOrDefault(Stat.KeystoneSacredBastion) != 0) effectiveArmour = ActorScale.Saturate(2L * effectiveArmour);
         if (type == DamageType.Physical)
-            return $"{DamageModel.ArmourReduction(effectiveArmour, amount)}% armour" + (physical > 0 ? $" + {physical}% physical damage reduction" : "");
-        int share = PlayerHitMitigation.ArmourPercent(player.Pools, type, name => name is var key ? stats.GetValueOrDefault(key) : 0);
+            return $"{DamageModel.ArmourReduction(share > 0 ? effectiveArmour : 0, amount)}% armour"
+                + (physical > 0 ? $" + {physical}% physical damage reduction" : "");
         return $"{DamageModel.Capped(resistance, maxResistance)}% resistance" +
             (share > 0
                 ? $" + {DamageModel.ArmourReduction((int)((long)effectiveArmour * share / 100), DamageModel.Mitigate(amount, resistance, maxResistance))}% armour"
