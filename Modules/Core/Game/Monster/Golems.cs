@@ -306,7 +306,8 @@ public static partial class Game
             SavedLifeFraction(golem.Monster),
             golem.Monster.Dead ? SavedPositiveDelay(golem.ReviveAt - now) : 0,
             GolemSummonedSecondsRemaining(golem, now), CaptureResources(golem, now),
-            Host: place.ItemId == 0 ? null : place.ItemId, Socket: place.ItemId == 0 ? null : place.Socket);
+            Host: gem.WornGrant?.Host ?? (place.ItemId == 0 ? null : place.ItemId),
+            Socket: gem.WornGrant?.Socket ?? (place.ItemId == 0 ? null : place.Socket));
     }
 
     internal static ushort RestoredGolemSource(Player player, GolemState.Saved saved) =>

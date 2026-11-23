@@ -44,7 +44,10 @@ public static partial class Game
             && LeagueFor(player).Rules.AllowsGemEffect(g.EffectId)
             && (g.EffectId == UnhingeEffect || g.EffectId == MadnessEffect || IsDashEffect(g.EffectId)
                 || IsSummonBeastialCompanionEffect(g.EffectId) || g.EffectId == TwisterEffect || g.EffectId == CatStealthCryEffect
-                || g.EffectId is SnipeEffect or "DoryanisTouch" or ApproachingFlamesEffect || AuraCatalog.Supported(g.EffectId)
+                || g.EffectId is SnipeEffect or "DoryanisTouch" or ApproachingFlamesEffect
+                    or "BearTrap" or "WintertideBrand" or "DecoyTotem" or "Smite" or "Frostblink"
+                    or "SummonStoneGolem" or "Convocation" or "EnduringCry" or "IntimidatingCry"
+                || AuraCatalog.Supported(g.EffectId)
                 || GameEvents.GrantedSkillExecutable.For(player).Any(accept => accept(player, g.EffectId))))];
     }
 
