@@ -23,13 +23,15 @@ public static partial class Game
     static bool GuardSpellEffect(string? effect) => effect is "QuickGuard" or "ImmortalCall" or "MoltenShell" or VaalMoltenShellEffect;
     static bool MoltenShellGuard(string effect) => effect is "MoltenShell" or VaalMoltenShellEffect;
 
-    static TriggeredGuard? CurrentTriggeredGuard(Player player, double now)
+    static bool TriggeredGuardCurrent(Player player, TriggeredGuard guard) =>
+        guard.Epoch == player.ProjectileEpoch && ReferenceEquals(guard.Rules, CombatLifetime)
+        && !player.Closed && !player.LeavingArea && player.PendingTransfer is null && player.PlayerLife > 0;
+
+    static TriggeredGuard? CurrentTriggeredGuard(Player player, double now, bool advancePulse = false)
     {
         if (!TriggeredGuards.TryGetValue(player, out var guard)) return null;
-        if (guard.Epoch != player.ProjectileEpoch || !ReferenceEquals(guard.Rules, CombatLifetime)
-            || player.Closed || player.LeavingArea || player.PendingTransfer is not null || player.PlayerLife == 0)
-        { TriggeredGuards.Remove(player); return null; }
-        if (guard.NextPulseAt > 0 && guard.NextPulseAt < guard.Until && now >= guard.NextPulseAt)
+        if (!TriggeredGuardCurrent(player, guard)) { TriggeredGuards.Remove(player); return null; }
+        if (advancePulse && guard.NextPulseAt > 0 && guard.NextPulseAt < guard.Until && now >= guard.NextPulseAt)
         {
             int absorbed = guard.AbsorbedSincePulse;
             guard.AbsorbedSincePulse = 0;
@@ -114,7 +116,7 @@ public static partial class Game
         {
             if (guard.Buff != buff) return;
             double at = AreaTime(player);
-            if (ReferenceEquals(CurrentTriggeredGuard(player, at), guard))
+            if (ReferenceEquals(CurrentTriggeredGuard(player, at, advancePulse: true), guard))
                 ScheduleGuardPulse(player, guard, at);
         });
     }
@@ -257,7 +259,7 @@ public static partial class Game
     // The guard's buff: its countdown and what it has left to absorb (list[0]); a new guard or a hit sets it again.
     public static void PresentTriggeredGuard(Player player, double now)
     {
-        if (CurrentTriggeredGuard(player, now) is not { Until: > 0 } guard) return;
+        if (CurrentTriggeredGuard(player, now, advancePulse: true) is not { Until: > 0 } guard) return;
         // Non-recovery definitions have no inline stats. The guard's native backend reads additional-data[0]
         // through Buff+0x80 (0x141f84000); an empty list leaves a null pointer and crashes the HUD.
         player.Area.Buffs.Set(player.Id, new(GuardRow(guard.Effect), player.Id, guard.Skill, U68: Buff.Seconds(guard.Until - now),
@@ -267,7 +269,9 @@ public static partial class Game
 
     public static Dictionary<uint, int> WithTriggeredGuard(Player player, Dictionary<uint, int> stats)
     {
-        if (CurrentTriggeredGuard(player, AreaTime(player)) is not { Until: > 0 } guard) return stats;
+        // A stats refresh can run from the output queue. The area timer and admitted hits own the guard's lifetime.
+        if (!TriggeredGuards.TryGetValue(player, out var guard) || !TriggeredGuardCurrent(player, guard)
+            || guard.Until <= AreaTime(player)) return stats;
         void Add(uint name, int value)
         {
             if (name is var key) stats[key] = stats.GetValueOrDefault(key) + value;
@@ -294,7 +298,7 @@ public static partial class Game
     static (int Physical, int Other, int Chaos) AbsorbTriggeredGuardHit(Player player,
         int physical, int other, int chaos, double at)
     {
-        if (CurrentTriggeredGuard(player, at) is not { Until: > 0 } guard) return (physical, other, chaos);
+        if (CurrentTriggeredGuard(player, at, advancePulse: true) is not { Until: > 0 } guard) return (physical, other, chaos);
         int Absorb(int damage)
         {
             int absorbed = (int)Math.Min(guard.Remaining, (long)damage * guard.Percent / 100);
