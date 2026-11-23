@@ -44,6 +44,34 @@ public sealed class SimulacrumTests
     }
 
     [Fact]
+    public void Simulacrum_portals_do_not_apply_the_owners_atlas_passives()
+    {
+        const string owner = "SimulacrumAtlasRegression";
+        TestEnvironment.OpenOwnSaves("simulacrum-atlas");
+        try
+        {
+            uint harvest = Program.Stats.Key("map_chance_for_area_%_to_contain_harvest")!.Value;
+            var harvestNode = Game.AtlasPassiveNodes.Nodes.First(node => node.Stats.Any(stat => stat.Key == harvest && stat.Value > 0));
+            CharacterSaves.SetAtlasPassives(owner, [[harvestNode.GraphId]], 1);
+
+            var map = new MapDevice.MapArea(0x1234, "MapWorldsStrand", "Strand Map", 3);
+            var mapRun = MapDevice.Run.Of(owner, MapDevice.Activate(owner, map));
+            var mapStats = Game.MapAreaStats(new(owner, "Standard", map.Hash16, mapRun))!;
+            Assert.True(mapStats.GetValueOrDefault(harvest) > 0);
+
+            var arena = SimulacrumRules.Arenas().Single(area => area.Id == "AfflictionTown6");
+            var arenaRun = MapDevice.Run.Of(owner, MapDevice.Activate(owner, arena));
+            var arenaStats = Game.MapAreaStats(new(owner, "Standard", arena.Hash16, arenaRun))!;
+            Assert.Equal(0, arenaStats.GetValueOrDefault(harvest));
+        }
+        finally
+        {
+            MapDevice.Close(owner);
+            TestEnvironment.ReleaseOwnSaves();
+        }
+    }
+
+    [Fact]
     public void Wave_waits_for_the_last_spawn_and_enemy_and_cannot_pay_twice_after_reentry()
     {
         var run = new DeliriumModule.Run { Wave = 15, Active = true, Budget = 3, Spawned = 2, Monsters = [42] };
