@@ -35,7 +35,8 @@ public static partial class Game
         int quality = 0, bool? melee = null, bool primary = true, IReadOnlyDictionary<uint, int>? skillStats = null)
     {
         if (critical)
-            TryGainElusiveLocked(player, critical: true, kill: false, ProjectileWorldTime(player));
+            TryGainElusiveLocked(player, critical: true, kill: false, ProjectileWorldTime(player),
+                random: null, skillStats: spell ? null : skillStats);
         if (m.Rarity is MonsterRarity.Rare or MonsterRarity.Unique)
             QueueFlaskTrigger(player, FlaskEnchantments.Trigger.RareHit);
         Func<uint, int>? skill = null;
