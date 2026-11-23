@@ -1,6 +1,7 @@
 {
   "modules": [
     "Core/Content/Anarchy",
+    "Core/Content/Blight",
     "Core/Content/Deepwater",
     "Core/Content/Delve",
     "Core/Content/Delirium",
