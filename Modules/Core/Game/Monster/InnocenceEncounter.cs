@@ -9,12 +9,15 @@ using static Program;
 /// <list type="bullet">
 /// <item><b>Phase 1 (<c>AvariusCasticus</c>)</b>: Ensures <c>NoRewards</c> on Avarius (whose death spawns
 /// <c>AvariusCasticusDivine</c> via <c>Act5.cs</c>'s <c>On.SecondForm</c>), places the 4 dormant
-/// <c>AvariusCasticusStatue</c> Guardians of Eternity at their <c>boss_02.arm</c> coordinates, and spawns a 50% HP
+/// <c>AvariusCasticusStatue</c> props at their cached <c>boss_02.arm</c> coordinates, and spawns a 55% HP
 /// Templar reinforcement wave.</item>
 /// <item><b>Phase 2 (<c>AvariusCasticusDivine</c>, Innocence)</b>: Four statue invulnerability phases at 80% / 60% / 40% /
-/// 20% HP where Innocence hovers invulnerable at <c>ArenaMiddle</c> and animates the 4 <c>AvariusCasticusStatue</c>
-/// statues one by one; destroying the animated statue immediately drops Innocence's invulnerability. Also runs his
-/// channelled sweeping <c>AvariusDivineBeam</c> and "I am the Torch!" rotating golden orb bullet-hell nova.</item>
+/// 20% HP where Innocence hovers invulnerable at <c>ArenaMiddle</c>. Because <c>AvariusCasticusStatue.ot</c> sets
+/// <c>Targetable { targetable = false }</c> and buff 841 is the dormant petrification buff, animating statue <c>i</c>
+/// retires the dormant prop and spawns a targetable Unique animated Guardian (<c>HolyFireElementalAvarius1</c>,
+/// <c>NoRewards</c>) at that statue's exact coordinates; killing (or losing) the animated guardian immediately drops
+/// Innocence's invulnerability. Survives portal re-entry by re-syncing <c>LifePhases</c> and uncompleted statues.
+/// Also runs his channelled sweeping <c>AvariusDivineBeam</c> and "I am the Torch!" golden orb bullet-hell nova.</item>
 /// </list>
 /// </summary>
 public static class InnocenceEncounter
@@ -22,19 +25,21 @@ public static class InnocenceEncounter
     public const string Area = "1_5_5";
     public const string Avarius = "Metadata/Monsters/AvariusCasticus/AvariusCasticus";
     public const string Innocence = "Metadata/Monsters/AvariusCasticus/AvariusCasticusDivine";
-    public const string Statue = "Metadata/Monsters/AvariusCasticus/AvariusCasticusStatue";
-    public const string PrayerGuard = "Metadata/Monsters/HolyFireElemental/HolyFireElementalAvarius1";
+    public const string DormantStatue = "Metadata/Monsters/AvariusCasticus/AvariusCasticusStatue";
+    public const string AnimatedGuardian = "Metadata/Monsters/HolyFireElemental/HolyFireElementalAvarius1";
     public const string LightborneApostle = "Metadata/Monsters/AvariusMinion/EnlightenedDuelist_";
 
     const ushort CannotBeDamagedBuff = 350;  // cannot_be_damaged
     const ushort DivineBeamDebuff = 840;     // avarius_divine_beam_debuff
-    const ushort StatueBuff = 841;           // avarius_statue_buff
 
     const string ActivateStatuesArt = "Metadata/Effects/Spells/monsters_effects/act5/avarius_casticus/avariuscasticusdivine/activate_statues/activate_statues.ao";
     const string BeamChargeArt = "Metadata/Effects/Spells/monsters_effects/act5/avarius_casticus/avariuscasticusdivine/beam_charge/rig.ao";
     const string DashEndSlamArt = "Metadata/Effects/Spells/monsters_effects/act5/avarius_casticus/avariuscasticusdivine/dash_endslam/dash_endslam.ao";
 
     static readonly RuleTable<InstanceState, Fight> Fights = new();
+    static readonly RuleTable<Player, BeamDebuffMarker> BeamDebuffedPlayers = new();
+
+    sealed class BeamDebuffMarker { public bool Active; }
 
     public static async Task Tick(Player player)
     {
@@ -44,7 +49,7 @@ public static class InnocenceEncounter
         {
             bool present = player.Area.Monsters.Values.Any(m => m.Variety?.Id is Avarius or Innocence);
             if (!present) return;
-            fight = Fights.GetValue(player.Instance, _ => new Fight(player.Seed));
+            fight = Fights.GetValue(player.Instance, _ => new Fight(player.Area, player.Seed));
         }
         await fight.Gate.WaitAsync();
         try
@@ -57,9 +62,17 @@ public static class InnocenceEncounter
 
     public static Task Leaving(Player player)
     {
+        if (player.Layout.Id != Area) return Task.CompletedTask;
+        ClearBeamDebuff(player);
+        return Task.CompletedTask;
+    }
+
+    static void ClearBeamDebuff(Player player)
+    {
+        if (!BeamDebuffedPlayers.TryGetValue(player, out var marker) || !marker.Active) return;
+        marker.Active = false;
         if (!player.Closed)
             player.Area.Buffs.Clear(player.Id, DivineBeamDebuff, player.Id);
-        return Task.CompletedTask;
     }
 
     public static IDisposable CleanupOnUnload() => new Cleanup();
@@ -67,7 +80,8 @@ public static class InnocenceEncounter
     {
         public void Dispose()
         {
-            foreach (var pair in Fights) pair.Value.Stop();
+            foreach (var pair in Fights) pair.Value.StopAndClear();
+            foreach (var pair in BeamDebuffedPlayers) ClearBeamDebuff(pair.Key);
         }
     }
 
@@ -94,22 +108,46 @@ public static class InnocenceEncounter
         public double NextWaveAt = started;
     }
 
-    sealed class Fight(uint seed)
+    sealed class Fight
     {
         public readonly SemaphoreSlim Gate = new(1, 1);
+        readonly GameArea area;
         readonly List<TimedEffect> effects = [];
-        readonly uint[] statueIds = new uint[4];
+        readonly uint[] dormantStatueIds = new uint[4];
+        readonly (int X, int Y)?[] statuePlacements = new (int X, int Y)?[4];
+        readonly (int X, int Y)? cachedArenaMiddle;
         readonly HashSet<uint> adds = [];
 
         (int X, int Y) arenaMiddle;
         bool statuesPlaced, p1WaveSent, p2Initialized, cleaned, stopped;
         uint p2BossId;
+        uint activeGuardianId;
+        int p2StatuesCompleted;
         int activeStatueIndex = -1;
         double nextBeamAt, nextBulletHellAt;
         SweepingBeam? activeBeam;
         BulletHellNova? activeNova;
 
-        public void Stop() => stopped = true;
+        public Fight(GameArea area, uint seed)
+        {
+            this.area = area;
+            var placements = LoadAreaPlacements(Area, seed);
+            cachedArenaMiddle = placements.Of("Metadata/Monsters/AvariusCasticus/ArenaMiddle").FirstOrDefault() is { } m ? (m.X, m.Y) : null;
+            var spawners = placements.Of("Metadata/Monsters/AvariusCasticus/AvariusStatueSpawner");
+            if (spawners.Count < 4) spawners = placements.Of(DormantStatue);
+            for (int i = 0; i < 4 && i < spawners.Count; i++)
+                statuePlacements[i] = (spawners[i].X, spawners[i].Y);
+        }
+
+        public void StopAndClear()
+        {
+            stopped = true;
+            if (p2BossId != 0 && area.Monsters.TryGetValue(p2BossId, out var b))
+                ClearInvulnerableOnUnload(area, p2BossId, b, CannotBeDamagedBuff);
+            foreach (uint sid in dormantStatueIds)
+                if (sid != 0 && area.Monsters.TryGetValue(sid, out var sm))
+                    ClearInvulnerableOnUnload(area, sid, sm, CannotBeDamagedBuff);
+        }
 
         public async Task Step(Player runner, double now)
         {
@@ -138,7 +176,7 @@ public static class InnocenceEncounter
             if (target is null) return;
 
             if (!statuesPlaced)
-                await PlaceDormantStatues(runner, bossId, boss.Level, pos);
+                await EnsureDormantStatues(runner, bossId, boss.Level, pos);
 
             if (!p1WaveSent && (ulong)boss.Life * 100 <= (ulong)Math.Max(1u, boss.MaxLife) * 55)
             {
@@ -149,12 +187,28 @@ public static class InnocenceEncounter
 
         async Task StepInnocence(Player runner, uint bossId, SpawnedMonster boss, double now)
         {
+            bool bossRebound = p2BossId != bossId;
             p2BossId = bossId;
-            boss.LifePhases ??= new([80, 60, 40, 20]);
+            if (boss.LifePhases is null)
+            {
+                boss.LifePhases = new([80, 60, 40, 20]);
+                AdvancePhases(boss.LifePhases, p2StatuesCompleted);
+            }
             var pos = boss.Walk.Position(now);
 
-            if (!statuesPlaced)
-                await PlaceDormantStatues(runner, bossId, boss.Level, pos);
+            if (!statuesPlaced || bossRebound)
+            {
+                await EnsureDormantStatues(runner, bossId, boss.Level, pos);
+                if (activeStatueIndex is >= 0 and < 4)
+                {
+                    // Restored from SavedMonsters mid-statue phase: ensure targetable guardian exists.
+                    if (activeGuardianId == 0 || !runner.Area.Monsters.TryGetValue(activeGuardianId, out var g) || !Alive(g))
+                    {
+                        SetInvulnerable(runner, bossId, boss, true, CannotBeDamagedBuff);
+                        await AnimateStatue(runner, bossId, boss.Level, activeStatueIndex);
+                    }
+                }
+            }
 
             if (!p2Initialized)
             {
@@ -180,21 +234,27 @@ public static class InnocenceEncounter
                 await AnimateStatue(runner, bossId, boss.Level, activeStatueIndex);
             }
 
-            if (phases.Active && activeStatueIndex is >= 0 and < 4)
+            if (phases.Active)
             {
-                uint sid = statueIds[activeStatueIndex];
-                bool statueDead = sid == 0 || !runner.Area.Monsters.TryGetValue(sid, out var sm) || !Alive(sm);
-                if (statueDead)
+                bool guardianDead = activeGuardianId == 0
+                    || !runner.Area.Monsters.TryGetValue(activeGuardianId, out var gm)
+                    || !Alive(gm);
+                if (guardianDead)
                 {
+                    activeGuardianId = 0;
                     activeStatueIndex = -1;
                     SetInvulnerable(runner, bossId, boss, false, CannotBeDamagedBuff);
                     phases.Finish();
-                    Console.WriteLine($"[gateway] Innocence: statue {phases.Completed}/4 defeated; Innocence vulnerable");
+                    p2StatuesCompleted = phases.Completed;
+                    Console.WriteLine($"[gateway] Innocence: animated Guardian {p2StatuesCompleted}/4 defeated; Innocence vulnerable");
                 }
                 return;
             }
 
-            // Active combat: Sweeping Divine Beam + Bullet-Hell Golden Orb Nova ("I am the Torch!").
+            // Safety guarantee: never leave Innocence invulnerable outside an active statue phase.
+            if (boss.Effects[Stat.BaseCannotBeDamaged] != 0)
+                SetInvulnerable(runner, bossId, boss, false, CannotBeDamagedBuff);
+
             await StepBeam(runner, now);
             await StepBulletHell(runner, now);
 
@@ -217,24 +277,19 @@ public static class InnocenceEncounter
             }
         }
 
-        async Task PlaceDormantStatues(Player runner, uint ownerId, byte level, (int X, int Y) fallbackCenter)
+        async Task EnsureDormantStatues(Player runner, uint ownerId, byte level, (int X, int Y) fallbackCenter)
         {
             statuesPlaced = true;
-            var mid = PlacementsOf(Area, seed, "Metadata/Monsters/AvariusCasticus/ArenaMiddle").FirstOrDefault();
-            arenaMiddle = mid is not null ? (mid.X, mid.Y) : fallbackCenter;
-
-            var spawners = PlacementsOf(Area, seed, "Metadata/Monsters/AvariusCasticus/AvariusStatueSpawner");
-            if (spawners.Count < 4)
-                spawners = PlacementsOf(Area, seed, Statue);
-
-            for (int i = 0; i < 4; i++)
+            arenaMiddle = cachedArenaMiddle ?? fallbackCenter;
+            for (int i = p2StatuesCompleted; i < 4; i++)
             {
-                var spot = i < spawners.Count
-                    ? (spawners[i].X, spawners[i].Y)
-                    : RingSpot(runner, arenaMiddle, (Math.PI / 4.0) + i * (Math.PI / 2.0), 34);
-                uint sid = await SpawnAdd(runner, Statue, level, spot, ownerId,
-                    entranceGrace: true, rarity: MonsterRarity.Unique, ownedCurrent: () => !stopped && !cleaned);
-                statueIds[i] = sid;
+                if (i == activeStatueIndex) continue;
+                if (dormantStatueIds[i] != 0 && runner.Area.Monsters.TryGetValue(dormantStatueIds[i], out var existing) && Alive(existing))
+                    continue;
+                var spot = statuePlacements[i] ?? RingSpot(runner, arenaMiddle, (Math.PI / 4.0) + i * (Math.PI / 2.0), 34);
+                uint sid = await SpawnAdd(runner, DormantStatue, level, spot, ownerId,
+                    entranceGrace: true, rarity: MonsterRarity.Normal, ownedCurrent: () => !stopped && !cleaned);
+                dormantStatueIds[i] = sid;
                 if (sid != 0 && runner.Area.Monsters.TryGetValue(sid, out var sm))
                 {
                     SetInvulnerable(runner, sid, sm, true, CannotBeDamagedBuff);
@@ -245,16 +300,22 @@ public static class InnocenceEncounter
 
         async Task AnimateStatue(Player runner, uint bossId, byte level, int index)
         {
-            uint sid = statueIds[index];
-            if (sid != 0 && runner.Area.Monsters.TryGetValue(sid, out var sm) && Alive(sm))
+            var spot = statuePlacements[index] ?? RingSpot(runner, arenaMiddle, (Math.PI / 4.0) + index * (Math.PI / 2.0), 34);
+            uint dormantId = dormantStatueIds[index];
+            if (dormantId != 0)
             {
-                sm.EntranceGrace = false;
-                sm.Aggro = true;
-                SetInvulnerable(runner, sid, sm, false, CannotBeDamagedBuff);
-                runner.Area.Buffs.Set(sid, new(StatueBuff, sid));
-                await SetMonsterTransition(runner, sid, sm, 2, $"[Innocence] statue {index + 1}/4 animates");
-                Console.WriteLine($"[gateway] Innocence: animated Guardian of Eternity {index + 1}/4 (0x{sid:x})");
+                if (runner.Area.Monsters.TryGetValue(dormantId, out var dm))
+                    spot = dm.Walk.Position(AreaTime(runner));
+                await RetireMonsters(runner, [dormantId]);
+                dormantStatueIds[index] = 0;
             }
+            // Spawn a targetable Unique Guardian at the dormant statue's spot (never apply dormant buff 841!).
+            activeGuardianId = await SpawnAdd(runner, AnimatedGuardian, level, spot, bossId,
+                rarity: MonsterRarity.Unique, ownedCurrent: () => !stopped && !cleaned);
+            if (activeGuardianId == 0)
+                activeGuardianId = await SpawnAdd(runner, LightborneApostle, level, spot, bossId,
+                    rarity: MonsterRarity.Unique, ownedCurrent: () => !stopped && !cleaned);
+            Console.WriteLine($"[gateway] Innocence: animated Guardian {index + 1}/4 spawned as targetable 0x{activeGuardianId:x}");
             await SpawnTemplarWave(runner, bossId, level, arenaMiddle, count: 2);
         }
 
@@ -265,7 +326,7 @@ public static class InnocenceEncounter
             for (int i = 0; i < count && living + i < 6; i++)
             {
                 var spot = RingSpot(runner, center, rng.NextDouble() * Math.Tau, 24);
-                string kind = (i & 1) == 0 ? PrayerGuard : LightborneApostle;
+                string kind = (i & 1) == 0 ? AnimatedGuardian : LightborneApostle;
                 await SpawnAdd(runner, kind, level, spot, bossId, adds,
                     ownedCurrent: () => !stopped && !cleaned);
             }
@@ -299,7 +360,11 @@ public static class InnocenceEncounter
                     return perp <= 6.5;
                 }
                 if (HitLine(p.Walk.Position(now)))
-                    p.Area.Buffs.Set(p.Id, new(DivineBeamDebuff, beam.SourceId, U68: Buff.Seconds(2)));
+                {
+                    // Always key Source = p.Id so Leaving / Cleanup / CleanupOnUnload clear the exact AreaBuffs key.
+                    BeamDebuffedPlayers.GetValue(p, _ => new()).Active = true;
+                    p.Area.Buffs.Set(p.Id, new(DivineBeamDebuff, p.Id, U68: Buff.Seconds(2)));
+                }
                 await ArenaHazards.Hit(p, beam.SourceId, beam.Source, atk, HitLine, () => !stopped && Alive(beam.Source));
             }
         }
@@ -316,7 +381,6 @@ public static class InnocenceEncounter
             nova.NextWaveAt = now + 0.9;
             int wave = nova.WaveIndex++;
 
-            // 10 golden orbs per ring with staggered angular gaps so players can weave between orbs.
             double ringRadius = 14 + wave * 16;
             double angleOffset = wave * (Math.PI / 10.0);
             var orbPositions = new (int X, int Y)[10];
@@ -342,14 +406,19 @@ public static class InnocenceEncounter
             activeNova = null;
             if (p2BossId != 0 && runner.Area.Monsters.TryGetValue(p2BossId, out var b))
                 SetInvulnerable(runner, p2BossId, b, false, CannotBeDamagedBuff);
-            await RetireMonsters(runner, statueIds.Where(id => id != 0));
-            Array.Clear(statueIds);
+            if (activeGuardianId != 0)
+            {
+                await RetireMonsters(runner, [activeGuardianId]);
+                activeGuardianId = 0;
+            }
+            await RetireMonsters(runner, dormantStatueIds.Where(id => id != 0));
+            Array.Clear(dormantStatueIds);
             await RetireMonsters(runner, adds);
             adds.Clear();
             foreach (var p in ActivePlayers(runner))
-                p.Area.Buffs.Clear(p.Id, DivineBeamDebuff, p.Id);
+                ClearBeamDebuff(p);
             await ClearAllEffects(runner, effects);
-            Console.WriteLine("[gateway] Innocence defeated; statues, adds, and hazards cleared");
+            Console.WriteLine("[gateway] Innocence defeated; statues, guardians, adds, and hazards cleared");
         }
     }
 }

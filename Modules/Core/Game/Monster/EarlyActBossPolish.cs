@@ -7,17 +7,18 @@ using static Program;
 /// <summary>
 /// Acts 1–2 Boss &amp; Bandit Camp encounter polish:
 /// <list type="bullet">
-/// <item><b>Hillock (<c>1_1_1</c>)</b>: Phase 2 sword-pull zombie summons, plus Level 7+ Uber Hillock upgrade path
-/// (<c>ZombieBossHillockSpecialEvent_</c>, fast zombie summons, and guaranteed 6-linked <c>Oni-Goroshi</c> drop).</item>
-/// <item><b>Brutus (<c>1_1_7_2</c>)</b>: Chain hook pull, floor spike trap bursts (<c>spiketrap_prison.ao</c>), and arena
-/// gate lock/unlock with safe cleanup on kill/wipe/leave.</item>
+/// <item><b>Hillock (<c>1_1_1</c>)</b>: Phase 2 sword-pull zombie summons, plus Level 7+ retail-rare (~2%) Uber Hillock
+/// upgrade path (<c>ZombieBossHillockSpecialEvent_</c>, fast zombie summons, <c>a1q1</c> quest flag/exit parity, and
+/// guaranteed 6-linked White-socket <c>Oni-Goroshi</c> drop).</item>
+/// <item><b>Brutus (<c>1_1_7_2</c>)</b>: Chain hook pull and floor spike trap bursts (<c>spiketrap_prison.ao</c>).</item>
 /// <item><b>The Weaver (<c>1_2_10</c>)</b>: Ceiling retreat at 66% / 33% HP (untargetable/hidden) with spider add waves
-/// from <c>CeilingSpawners</c>, returning on wave clear or safety timer.</item>
-/// <item><b>Captain Fairgraves (<c>1_1_9</c>)</b>: Pirate crew add wave summons when engaged and at 66% / 33% HP.</item>
+/// from cached <c>CeilingSpawners</c>, returning on wave clear or safety timer.</item>
+/// <item><b>Captain Fairgraves (<c>1_1_9</c>)</b>: Pirate crew add wave summons when engaged and at 68% / 35% HP.</item>
 /// <item><b>Merveil (<c>1_1_11_2</c>)</b>: Augments existing P1/P2 Merveil with <c>SeaWitchSpawn</c> /
 /// <c>SeaWitchSpawnExploding</c> add waves without disturbing <c>Act1.cs</c> or <c>BossMoves</c>.</item>
-/// <item><b>Act 2 Bandit Camps (<c>1_2_4</c> Kraityn, <c>1_2_9</c> Alira, <c>1_2_12</c> Oak)</b>: Locks <c>BanditDoor</c>
-/// during combat and triggers camp tent/cauldron reinforcement spawners, unlocking cleanly on kill/wipe/leave.</item>
+/// <item><b>Act 2 Bandit Camps (<c>1_2_4</c> Kraityn, <c>1_2_9</c> Alira, <c>1_2_12</c> Oak)</b>: Locks verified
+/// <c>Metadata/QuestObjects/BanditDoor</c> (state 2 = closed, state 1 = open) during combat and triggers cached camp
+/// tent/cauldron reinforcement spawners, unlocking cleanly on kill/wipe/leave.</item>
 /// </list>
 /// </summary>
 public static class EarlyActBossPolish
@@ -54,15 +55,17 @@ public static class EarlyActBossPolish
 
     const string SpikeTrapArt = "Metadata/Terrain/Doodads/Traps/spiketrap_prison.ao";
     const string ArenaGateModel = "Metadata/Terrain/Doodads/Forest/BanditCamp/arenagate.ao";
-    const string BanditDoorType = "Metadata/Monsters/Bandits/BanditDoor";
+    // Verified in client.db object_types and game-files.zip (.arm + .ot: state 1 = open, state 2 = closed).
+    const string BanditDoorType = "Metadata/QuestObjects/BanditDoor";
+    const byte BanditDoorLockedState = 2, BanditDoorUnlockedState = 1;
     const ushort HerEmbraceBuffRow = 979; // her_embrace_unique
+    const int UberHillockOneInN = 50;     // ~2% per fresh Strand instance at character level >= 7
 
     static readonly IReadOnlyDictionary<uint, int> UberHillockStats = new Dictionary<uint, int>
     {
         [Stat.MonsterHasOniGoroshi] = 1,
         [Stat.AttackSpeedPlusPct] = 35,
         [Stat.BaseMovementVelocityPlusPct] = 30,
-        [Stat.MaximumLifePlusPct] = 150,
     };
 
     static readonly RuleTable<InstanceState, AreaEncounter> Encounters = new();
@@ -75,7 +78,7 @@ public static class EarlyActBossPolish
         if (area is not (Strand or UpperPrison or ShipGraveyard or CavernOfAnger
             or BrokenBridge or WesternForest or WeaversChambers or Wetlands))
             return;
-        var enc = Encounters.GetValue(player.Instance, _ => new AreaEncounter(area, player.Seed));
+        var enc = Encounters.GetValue(player.Instance, _ => new AreaEncounter(player.Area, area, player.Seed));
         await enc.Gate.WaitAsync();
         try
         {
@@ -95,30 +98,33 @@ public static class EarlyActBossPolish
             return;
         enc.OniDropped = true;
 
-        // Guarantee a 6-linked Oni-Goroshi drop when Uber Hillock falls.
+        // Guarantee a 6-linked White-socket Oni-Goroshi drop when Uber Hillock falls.
         if (Uniques.Create("Oni-Goroshi", AreaRng(player)) is { } oni)
         {
-            if (oni.Sockets.Count < 6 || oni.Links is not [6])
-            {
-                var sockets = new ItemSocket[6];
-                for (int i = 0; i < 6; i++)
-                    sockets[i] = new ItemSocket(i < 3 ? SocketColour.Red : SocketColour.Green);
-                oni = oni with { Sockets = sockets, Links = [6] };
-            }
+            var sockets = new ItemSocket[6];
+            for (int i = 0; i < 6; i++)
+                sockets[i] = new ItemSocket(SocketColour.White);
+            oni = oni with { Sockets = sockets, Links = [6] };
             var spot = WalkableNear(player, (kill.Monster.X, kill.Monster.Y));
             var ground = new WorldItemObject(spot.X, spot.Y, oni);
             uint gid = player.Instance.Ground.Add(ground, player, shared: true);
             await SendWorldCreate(player, gid, () => InstanceEntities.CreateObject(gid,
                 InstanceEntities.ObjectTypeHash(WorldItemObject.MetadataPath), ground.Blob(justDropped: true)),
-                $"0x02bb Uber Hillock drops 6L Oni-Goroshi 0x{gid:x} at ({spot.X}, {spot.Y})", wake: true, awaitBirth: false);
+                $"0x02bb Uber Hillock drops 6W-6L Oni-Goroshi 0x{gid:x} at ({spot.X}, {spot.Y})", wake: true, awaitBirth: false);
         }
 
-        // If Uber Hillock replaced ZombieBossHillockNormal, ensure Act1's Hillock kill quest flag still completes.
+        // If Uber Hillock replaced ZombieBossHillockNormal, preserve full a1q1 quest completion (Blocker3/Doorman/exit).
         if (kill.Monster.VarietyId == HillockUber)
         {
             foreach (var p in ActivePlayers(player))
+            {
                 if (!ClientHasQuestFlag(p, "a1q1-KilledHillock"))
+                {
                     await SetQuestFlags(p, ["a1q1-KilledHillock"]);
+                    await UpdateQuestObjectStates(p, ["a1q1-KilledHillock"]);
+                    await UpdateShownTransitions(p, "Uber Hillock defeated");
+                }
+            }
         }
     }
 
@@ -134,30 +140,36 @@ public static class EarlyActBossPolish
     {
         public void Dispose()
         {
-            foreach (var pair in Encounters) pair.Value.Stop();
+            foreach (var pair in Encounters) pair.Value.StopAndClear();
+            ReleaseAllGatesOnUnload();
         }
     }
 
     sealed record SpikeBurst(double At, (int X, int Y) Spot, uint SourceId, SpawnedMonster Source);
 
-    sealed class AreaEncounter(string area, uint seed)
+    sealed class AreaEncounter
     {
         public readonly SemaphoreSlim Gate = new(1, 1);
         public readonly List<ArenaGate> Gates = [];
         public bool IsUberHillock;
         public bool OniDropped;
 
+        readonly GameArea gameArea;
+        readonly string area;
         readonly List<TimedEffect> effects = [];
         readonly List<SpikeBurst> spikes = [];
         readonly HashSet<uint> adds = [];
+        readonly List<(int X, int Y)> weaverSpawners;
+        readonly List<GlyphQuest.Placement> banditDoorPlacements;
+        readonly List<(int X, int Y)> banditAddSpawners;
 
         bool initialized, cleaned, stopped;
-        bool hillockCheckedUber, hillockPhase2Adds;
+        bool hillockCheckedUber, hillockSeenUber, hillockPhase2Adds;
         double nextUberAddAt;
 
         double nextBrutusHookAt, nextBrutusSpikesAt;
-        bool brutusGateLocked;
 
+        uint weaverBossId;
         bool weaverHidden;
         double weaverReturnAt;
         readonly HashSet<uint> weaverWave = [];
@@ -170,7 +182,57 @@ public static class EarlyActBossPolish
         int banditWaves;
         double nextBanditWaveAt;
 
-        public void Stop() => stopped = true;
+        public AreaEncounter(GameArea gameArea, string area, uint seed)
+        {
+            this.gameArea = gameArea;
+            this.area = area;
+            if (area == WeaversChambers)
+            {
+                var placements = LoadAreaPlacements(area, seed);
+                weaverSpawners = [.. placements.Of("Metadata/Monsters/Spiders/CeilingSpawners/NormalSwarm").Select(p => (p.X, p.Y))];
+                banditDoorPlacements = [];
+                banditAddSpawners = [];
+            }
+            else if (area is BrokenBridge or WesternForest or Wetlands)
+            {
+                var placements = LoadAreaPlacements(area, seed);
+                weaverSpawners = [];
+                banditDoorPlacements = placements.Of(BanditDoorType);
+                string[] spawnerTypes = area switch
+                {
+                    BrokenBridge =>
+                    [
+                        "Metadata/Monsters/BanditLeaderDexInt/TentBanditSpawnerKraityn1",
+                        "Metadata/Monsters/BanditLeaderDexInt/TentBanditSpawnerKraityn2",
+                        "Metadata/Monsters/BanditLeaderDexInt/TentBanditSpawnerKraityn3",
+                    ],
+                    WesternForest => ["Metadata/Monsters/Zombies/CauldronSpawner"],
+                    _ =>
+                    [
+                        "Metadata/Monsters/BanditLeaderStrDex/TentBanditSpawnerOak1",
+                        "Metadata/Monsters/BanditLeaderStrDex/TentBanditSpawnerOak2",
+                        "Metadata/Monsters/BanditLeaderStrDex/TentBanditSpawnerOak3",
+                    ],
+                };
+                banditAddSpawners = [.. spawnerTypes.SelectMany(placements.Of).Select(p => (p.X, p.Y))];
+            }
+            else
+            {
+                weaverSpawners = [];
+                banditDoorPlacements = [];
+                banditAddSpawners = [];
+            }
+        }
+
+        public void StopAndClear()
+        {
+            stopped = true;
+            if (weaverBossId != 0 && gameArea.Monsters.TryGetValue(weaverBossId, out var weaver))
+            {
+                ClearInvulnerableOnUnload(gameArea, weaverBossId, weaver);
+                weaver.WorldHidden = false;
+            }
+        }
 
         public async Task Step(Player runner, double now)
         {
@@ -208,11 +270,13 @@ public static class EarlyActBossPolish
                 return;
             }
 
-            // Level 7+ Twilight Strand character upgrades Hillock to Uber Hillock before the fight starts.
+            // Level 7+ Twilight Strand character rolls retail-rare (~2%) Uber Hillock before the fight starts.
             if (!hillockCheckedUber)
             {
                 hillockCheckedUber = true;
-                bool qualifyUber = ActivePlayers(runner).Any(p => p.Pools.Level >= 7) && boss.Life == boss.MaxLife;
+                bool qualifyUber = ActivePlayers(runner).Any(p => p.Pools.Level >= 7)
+                    && boss.Life == boss.MaxLife
+                    && AreaRng(runner).Next(UberHillockOneInN) == 0;
                 if (qualifyUber)
                 {
                     IsUberHillock = true;
@@ -224,14 +288,15 @@ public static class EarlyActBossPolish
                             owned: (id, m) =>
                             {
                                 m.SetTemporaryStats("uber_hillock", UberHillockStats);
+                                m.RebuildStats();
                                 runner.Area.Buffs.Set(id, new(HerEmbraceBuffRow, id));
                             });
                         Console.WriteLine($"[gateway] Twilight Strand (lvl >= 7): upgraded Hillock to Uber Hillock 0x{uid:x}");
                         nextUberAddAt = now + 7;
                         return;
                     }
-                    // Fallback if SpecialEvent_ variety is unavailable: empower normal Hillock directly.
                     boss.SetTemporaryStats("uber_hillock", UberHillockStats);
+                    boss.RebuildStats();
                     runner.Area.Buffs.Set(bossId, new(HerEmbraceBuffRow, bossId));
                     nextUberAddAt = now + 7;
                     Console.WriteLine($"[gateway] Twilight Strand (lvl >= 7): empowered Uber Hillock 0x{bossId:x}");
@@ -242,7 +307,14 @@ public static class EarlyActBossPolish
             var target = NearestLivingTarget(runner, bossPos, now, maxRange: 95, awakeId: bossId);
             if (target is null) return;
 
-            // Phase 2 sword-pull zombie summons (<= 55% HP or after Stage pull).
+            if (IsUberHillock && boss.Variety?.Id == HillockUber && !hillockSeenUber)
+            {
+                hillockSeenUber = true;
+                foreach (var p in ActivePlayers(runner))
+                    if (!ClientHasQuestFlag(p, "a1q1-SeenHillock"))
+                        await SetQuestFlags(p, ["a1q1-SeenHillock"]);
+            }
+
             if (!hillockPhase2Adds && (boss.Stage is null && (ulong)boss.Life * 100 <= (ulong)Math.Max(1u, boss.MaxLife) * 60
                 || (ulong)boss.Life * 100 <= (ulong)Math.Max(1u, boss.MaxLife) * 52))
             {
@@ -283,8 +355,6 @@ public static class EarlyActBossPolish
                 {
                     cleaned = true;
                     spikes.Clear();
-                    foreach (var g in Gates) await SetGateLocked(runner, g, false);
-                    brutusGateLocked = false;
                     await ClearAllEffects(runner, effects);
                 }
                 return;
@@ -292,39 +362,15 @@ public static class EarlyActBossPolish
 
             var pos = boss.Walk.Position(now);
             var target = NearestLivingTarget(runner, pos, now, maxRange: 95, awakeId: bossId);
-            if (target is null)
-            {
-                if (brutusGateLocked)
-                {
-                    brutusGateLocked = false;
-                    foreach (var g in Gates) await SetGateLocked(runner, g, false);
-                }
-                return;
-            }
+            if (target is null) return;
 
             if (!initialized)
             {
                 initialized = true;
                 nextBrutusHookAt = now + 6;
                 nextBrutusSpikesAt = now + 4.5;
-                // Place a lockable gate behind the approaching player when Brutus engages, unlocked on kill/wipe/leave.
-                var tPos = target.Walk.Position(now);
-                double awayAngle = Math.Atan2(tPos.Y - pos.Y, tPos.X - pos.X);
-                var gateSpot = RingSpot(runner, pos, awayAngle, Math.Min(42, Distance(pos, tPos) + 12));
-                var placement = new GlyphQuest.Placement(BanditDoorType, ArenaGateModel, gateSpot.X, gateSpot.Y, (float)(awayAngle + Math.PI / 2.0), null, 0);
-                if (await CreateGate(runner, BanditDoorType, placement, startLocked: true, fallbackModel: ArenaGateModel) is { } gate)
-                {
-                    Gates.Add(gate);
-                    brutusGateLocked = true;
-                }
-            }
-            else if (!brutusGateLocked && Gates.Count > 0)
-            {
-                brutusGateLocked = true;
-                foreach (var g in Gates) await SetGateLocked(runner, g, true);
             }
 
-            // Chain hook pull when target is at mid-to-long range.
             var targetPos = target.Walk.Position(now);
             double dist = Distance(pos, targetPos);
             if (now >= nextBrutusHookAt && dist is >= 14 and <= 55)
@@ -338,7 +384,6 @@ public static class EarlyActBossPolish
                 await ArenaHazards.Hit(target, bossId, boss, hookAtk, _ => true, () => !stopped && Alive(boss));
             }
 
-            // Floor spike trap bursts around the player.
             if (now >= nextBrutusSpikesAt)
             {
                 nextBrutusSpikesAt = now + 7.5;
@@ -375,12 +420,14 @@ public static class EarlyActBossPolish
             var entry = runner.Area.Monsters.FirstOrDefault(p => p.Value.Hostile && p.Value.Variety?.Id == Weaver);
             if (entry.Value is not { } boss) return;
             uint bossId = entry.Key;
+            weaverBossId = bossId;
 
             if (!Alive(boss))
             {
                 if (!cleaned)
                 {
                     cleaned = true;
+                    SetInvulnerable(runner, bossId, boss, false);
                     await RetireMonsters(runner, weaverWave);
                     weaverWave.Clear();
                 }
@@ -398,12 +445,11 @@ public static class EarlyActBossPolish
                 SetInvulnerable(runner, bossId, boss, true);
                 await SetWorldHidden(runner, bossId, boss, true);
 
-                var spawners = PlacementsOf(WeaversChambers, seed, "Metadata/Monsters/Spiders/CeilingSpawners/NormalSwarm");
                 var rng = AreaRng(runner);
                 for (int i = 0; i < 5; i++)
                 {
-                    var spot = spawners.Count > 0
-                        ? (spawners[rng.Next(spawners.Count)].X, spawners[rng.Next(spawners.Count)].Y)
+                    var spot = weaverSpawners.Count > 0
+                        ? weaverSpawners[rng.Next(weaverSpawners.Count)]
                         : RingSpot(runner, pos, i * (Math.Tau / 5.0), 16);
                     string spiderType = (i & 1) == 0 ? WeaverSpiderExplode : WeaverSpiderSmall;
                     await SpawnAdd(runner, spiderType, boss.Level, spot, bossId, weaverWave,
@@ -539,8 +585,8 @@ public static class EarlyActBossPolish
             if (!banditGatesInit)
             {
                 banditGatesInit = true;
-                foreach (var p in PlacementsOf(area, seed, BanditDoorType))
-                    if (await CreateGate(runner, BanditDoorType, p, startLocked: false, fallbackModel: ArenaGateModel) is { } g)
+                foreach (var p in banditDoorPlacements)
+                    if (await CreateGate(runner, BanditDoorType, p, startLocked: false, BanditDoorLockedState, BanditDoorUnlockedState, fallbackModel: ArenaGateModel) is { } g)
                         Gates.Add(g);
             }
 
@@ -557,7 +603,6 @@ public static class EarlyActBossPolish
                 return;
             }
 
-            // Do not lock gates or spawn reinforcements while the player is still deciding via BanditChoices!
             if (BanditChoices.Held(runner, bandit) || boss.EntranceGrace || !boss.Hostile) return;
 
             var pos = boss.Walk.Position(now);
@@ -583,47 +628,32 @@ public static class EarlyActBossPolish
             {
                 banditWaves++;
                 nextBanditWaveAt = now + 12;
-                var (spawnerTypes, mobTypes) = area switch
+                string[] mobTypes = area switch
                 {
-                    BrokenBridge => (
-                        new[]
-                        {
-                            "Metadata/Monsters/BanditLeaderDexInt/TentBanditSpawnerKraityn1",
-                            "Metadata/Monsters/BanditLeaderDexInt/TentBanditSpawnerKraityn2",
-                            "Metadata/Monsters/BanditLeaderDexInt/TentBanditSpawnerKraityn3",
-                        },
-                        new[]
-                        {
-                            "Metadata/Monsters/Bandits/BanditBowKraitynSpecific",
-                            "Metadata/Monsters/Bandits/BanditMeleePunctureKraitynSpecific",
-                        }),
-                    WesternForest => (
-                        new[] { "Metadata/Monsters/Zombies/CauldronSpawner" },
-                        new[]
-                        {
-                            "Metadata/Monsters/Bandits/BanditMeleeAlira",
-                            "Metadata/Monsters/Bandits/BanditBowPoisonArrow",
-                        }),
-                    _ => (
-                        new[]
-                        {
-                            "Metadata/Monsters/BanditLeaderStrDex/TentBanditSpawnerOak1",
-                            "Metadata/Monsters/BanditLeaderStrDex/TentBanditSpawnerOak2",
-                            "Metadata/Monsters/BanditLeaderStrDex/TentBanditSpawnerOak3",
-                        },
-                        new[]
-                        {
-                            "Metadata/Monsters/Bandits/BanditBowBlastRain",
-                            "Metadata/Monsters/Bandits/BanditMeleePunctureKraitynSpecific",
-                        }),
+                    BrokenBridge =>
+                    [
+                        "Metadata/Monsters/Bandits/BanditBowKraitynSpecific",
+                        "Metadata/Monsters/Bandits/BanditMeleePunctureKraitynSpecific",
+                    ],
+                    WesternForest =>
+                    [
+                        "Metadata/Monsters/Bandits/BanditMeleeAlira",
+                        "Metadata/Monsters/Bandits/BanditBowPoisonArrow",
+                    ],
+                    _ =>
+                    [
+                        "Metadata/Monsters/Bandits/BanditBowBlastRain",
+                        "Metadata/Monsters/Bandits/BanditMeleePunctureKraitynSpecific",
+                    ],
                 };
 
-                var spots = spawnerTypes.SelectMany(t => PlacementsOf(area, seed, t)).Select(p => (p.X, p.Y)).ToList();
                 var rng = AreaRng(runner);
                 int living = adds.Count(id => runner.Area.Monsters.TryGetValue(id, out var m) && Alive(m));
                 for (int i = 0; i < 3 && living + i < 6; i++)
                 {
-                    var spot = spots.Count > 0 ? spots[rng.Next(spots.Count)] : RingSpot(runner, pos, rng.NextDouble() * Math.Tau, 18);
+                    var spot = banditAddSpawners.Count > 0
+                        ? banditAddSpawners[rng.Next(banditAddSpawners.Count)]
+                        : RingSpot(runner, pos, rng.NextDouble() * Math.Tau, 18);
                     await SpawnAdd(runner, mobTypes[i % mobTypes.Length], boss.Level, spot, bossId, adds,
                         ownedCurrent: () => !stopped && !cleaned);
                 }

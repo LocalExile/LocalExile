@@ -11,11 +11,12 @@ using static Program;
 /// <c>Dominusdemon</c> chain with safe Chilling Bond totems (ground cold beam degen without invoking the crashing native
 /// bond packet), Lightning Souls waves, and telegraphed Touch of God slams (<c>NoRewards</c> on P1).</item>
 /// <item><b>Phase 2 (<c>Dominusdemon</c>, Dominus, Ascendant)</b>: Periodic Blood Rain phase where Dominus raises his
-/// Proximity Shield safe bubble (<c>Stat.CannotBeDamagedByThingsOutsideRadius</c> + buff 227) while players outside the
-/// bubble take escalating Blood Rain Corrupted Blood physical DoT (buff 238, cleared on Blood Rain end, Dominus death,
-/// and <c>PlayerLeaving</c>).</item>
-/// <item><b>Upper Sceptre Scion Cage</b>: Places the interactive <c>Metadata/NPC/Act3/ScionCage</c>; opening it sets
-/// <c>ScionUnlocked</c> (QF 531, triggering the <c>UnlockScion</c> achievement) and plays Scion's unlock audio.</item>
+/// Proximity Shield safe bubble (<c>SetEncounterProximityShield</c> + buff 227, without Temporal Bubble slow) while
+/// players outside the bubble take escalating Blood Rain Corrupted Blood physical DoT (buff 238, cleared on Blood Rain
+/// end, Dominus death, <c>PlayerLeaving</c>, and module unload).</item>
+/// <item><b>Upper Sceptre Scion Cage</b>: Created ONCE per <see cref="InstanceState"/> so <c>AreaObjectRecords</c>
+/// replays it cleanly to late joiners and re-entrants; opening it sets <c>ScionUnlocked</c> (QF 531, triggering the
+/// <c>UnlockScion</c> achievement) and plays Scion's global unlock dialogue audio (NPC row 58, audio 484).</item>
 /// </list>
 /// </summary>
 public static class DominusEncounter
@@ -26,9 +27,11 @@ public static class DominusEncounter
     public const string ChillingBondTotem = "Metadata/Monsters/Totems/ChillingBondTotem";
     public const string MiscreationLoop = "Metadata/Monsters/DemonModular/DemonModularTowerLoop";
 
+    public const string ScionNpcType = "Metadata/NPC/Act3/Scion";
     public const string ScionCageType = "Metadata/NPC/Act3/ScionCage";
     public const string ScionUnlockedFlag = "ScionUnlocked";
     const ushort ScionUnlockedAudioRow = 484; // NPCTextAudio 484 ScionUnlocked
+    const ushort ScionFallbackNpcRow = 58;    // NPCs row 58 Metadata/NPC/Act3/Scion
 
     const ushort ProximityShieldBuffRow = 227; // proximity_shield_aura
     const ushort CorruptedBloodBuffRow = 238;  // corrupted_blood
@@ -51,15 +54,12 @@ public static class DominusEncounter
         public bool BuffShown;
     }
 
-    public static Task OnAreaGenerated(Player player) => EnsureScionCage(player);
-    public static Task OnPlayerEntered(Player player) => EnsureScionCage(player);
-
-    static async Task EnsureScionCage(Player player)
+    public static async Task OnAreaGenerated(Player player)
     {
         if (player.Layout.Id != Area || !CurrentGameWork || player.Closed || player.LeavingArea) return;
-        var fight = Fights.GetValue(player.Instance, _ => new Fight(player.Seed));
+        var fight = Fights.GetValue(player.Instance, _ => new Fight(player.Area, player.Seed));
         await fight.Gate.WaitAsync();
-        try { await fight.PresentScionCage(player); }
+        try { await fight.EnsureScionCageCreated(player); }
         finally { fight.Gate.Release(); }
     }
 
@@ -92,11 +92,11 @@ public static class DominusEncounter
         if (player.Layout.Id != Area || !CurrentGameWork || !player.Connection.PlayerSent || player.Closed || player.LeavingArea || player.Paused)
             return;
         if (player.PlayerLife == 0) ClearBloodRain(player);
-        var fight = Fights.GetValue(player.Instance, _ => new Fight(player.Seed));
+        var fight = Fights.GetValue(player.Instance, _ => new Fight(player.Area, player.Seed));
         await fight.Gate.WaitAsync();
         try
         {
-            await fight.PresentScionCage(player);
+            await fight.EnsureScionCageCreated(player);
             if (IsMonsterRunner(player))
                 await fight.Step(player, AreaTime(player));
         }
@@ -105,9 +105,8 @@ public static class DominusEncounter
 
     public static Task Leaving(Player player)
     {
+        if (player.Layout.Id != Area) return Task.CompletedTask;
         ClearBloodRain(player);
-        if (player.Instance is not null && Fights.TryGetValue(player.Instance, out var fight))
-            fight.ForgetCageViewer(player);
         return Task.CompletedTask;
     }
 
@@ -129,26 +128,28 @@ public static class DominusEncounter
     {
         public void Dispose()
         {
-            foreach (var pair in Fights) pair.Value.Stop();
+            foreach (var pair in Fights) pair.Value.StopAndClear();
             foreach (var pair in BloodExposures) ClearBloodRain(pair.Key);
         }
     }
 
     sealed record DelayedHit(double At, (int X, int Y) Spot, double Radius, string BurstAo, DamageType Element, double Scale, uint SourceId, SpawnedMonster Source);
 
-    sealed class Fight(uint seed)
+    sealed class Fight
     {
         public readonly SemaphoreSlim Gate = new(1, 1);
+        readonly GameArea area;
         readonly List<TimedEffect> effects = [];
         readonly List<DelayedHit> hits = [];
         readonly HashSet<uint> totems = [];
         readonly HashSet<uint> p2Adds = [];
-        readonly HashSet<Player> cageShown = [];
+        readonly (int X, int Y)? cagePlacement;
+        readonly List<(int X, int Y)> towerLoopSpawners;
 
         public uint CageId;
         public (int X, int Y) CageAt;
         int cageTransitionIdx = -1;
-        bool cageOpened;
+        bool cageCreated, cageOpened;
 
         bool p1Initialized, p1Cleaned;
         uint p1BossId;
@@ -159,33 +160,40 @@ public static class DominusEncounter
         double nextBloodRainAt, bloodRainEndsAt, nextSplashAt, nextAddAt;
         bool stopped;
 
-        public void Stop() => stopped = true;
-
-        public void ForgetCageViewer(Player player) { lock (cageShown) cageShown.Remove(player); }
-
-        public async Task PresentScionCage(Player player)
+        public Fight(GameArea area, uint seed)
         {
-            lock (cageShown) { if (cageShown.Contains(player)) return; }
-            var info = QuestObjectTypes.Find(ScionCageType);
-            IReadOnlyList<string> components = info?.Components ?? ["Positioned", "BaseEvents", "Animated", "InteractionAction", "Transitionable"];
-            if (!QuestObject.CanSerialize(components)) { lock (cageShown) cageShown.Add(player); return; }
-            if (CageId == 0)
+            this.area = area;
+            var placements = LoadAreaPlacements(Area, seed);
+            cagePlacement = placements.Of(ScionCageType).FirstOrDefault() is { } c ? (c.X, c.Y) : null;
+            towerLoopSpawners = [.. placements.Of("Metadata/Monsters/Demonmodular/TowerSpawners/TowerSpawnerLoop").Select(s => (s.X, s.Y))];
+        }
+
+        public void StopAndClear()
+        {
+            stopped = true;
+            if (bloodRainActive && p2BossId != 0 && area.Monsters.TryGetValue(p2BossId, out var b))
             {
-                cageTransitionIdx = QuestObject.TransitionableIndex(components);
-                var placed = PlacementsOf(Area, seed, ScionCageType).FirstOrDefault();
-                // Fallback: place near the tower entrance walkway so players always encounter the cage before Dominus.
-                CageAt = placed is not null
-                    ? (placed.X, placed.Y)
-                    : WalkableNear(player, (player.Layout.SpawnX + 12, player.Layout.SpawnY + 8));
-                CageId = player.TakeObjectId();
+                bloodRainActive = false;
+                SetEncounterProximityShield(area, b, 0);
+                area.Buffs.Clear(p2BossId, ProximityShieldBuffRow, p2BossId);
             }
+        }
+
+        public async Task EnsureScionCageCreated(Player player)
+        {
+            if (cageCreated) return;
+            cageCreated = true;
+            if (QuestObjectTypes.Find(ScionCageType) is not { } info || !QuestObject.CanSerialize(info.Components))
+                return;
+            cageTransitionIdx = QuestObject.TransitionableIndex(info.Components);
+            CageAt = cagePlacement ?? WalkableNear(player, (player.Layout.SpawnX + 12, player.Layout.SpawnY + 8));
+            CageId = player.TakeObjectId();
             bool opened = cageOpened || ClientHasQuestFlag(player, ScionUnlockedFlag);
             byte state = (byte)(opened ? 2 : 1);
-            var blob = new QuestObject(CageAt.X, CageAt.Y, components, 0f, null, info?.OwnModel == true ? null : BirdcageModel, state).Blob();
+            var blob = new QuestObject(CageAt.X, CageAt.Y, info.Components, 0f, null, info.OwnModel ? null : BirdcageModel, state).Blob();
             await SendWorldCreate(player, CageId,
                 () => InstanceEntities.CreateObject(CageId, InstanceEntities.ObjectTypeHash(ScionCageType), blob),
                 $"0x02bb ScionCage 0x{CageId:x} at ({CageAt.X}, {CageAt.Y}), opened={opened}", wake: true, awaitBirth: false);
-            lock (cageShown) cageShown.Add(player);
         }
 
         public async Task OpenScionCage(Player player)
@@ -197,7 +205,8 @@ public static class DominusEncounter
             if (!ClientHasQuestFlag(player, ScionUnlockedFlag))
             {
                 await SetQuestFlags(player, [ScionUnlockedFlag]);
-                await Send(player, InstanceNpcs.TextAudio(CageId, 0, ScionUnlockedAudioRow), "0x01c7 Scion unlocked dialogue");
+                ushort scionRow = Npcs.Find(ScionNpcType) is { } npc ? (ushort)npc.Row : ScionFallbackNpcRow;
+                await Send(player, InstanceNpcs.TextAudio(0, scionRow, ScionUnlockedAudioRow), "0x01c7 Scion unlocked dialogue");
                 await Send(player, InstanceChat.ChatLine("You have freed the Scion! The Scion class is now unlocked."), null);
             }
         }
@@ -241,7 +250,6 @@ public static class DominusEncounter
                 Console.WriteLine($"[gateway] Dominus P1 controller active for 0x{bossId:x}");
             }
 
-            // Chilling Bond totems: spawn safe immobile totems + cold beam degen between Dominus and living totems.
             if (now >= nextTotemAt)
             {
                 nextTotemAt = now + 11;
@@ -255,15 +263,15 @@ public static class DominusEncounter
                 }
             }
 
-            // Cold beam degeneration along the segment between Dominus and each living Chilling Bond totem.
             var totemPositions = totems
                 .Select(id => runner.Area.Monsters.TryGetValue(id, out var t) && Alive(t) ? ((int X, int Y)?)t.Walk.Position(now) : null)
                 .OfType<(int X, int Y)>().ToArray();
+            var players = ActivePlayers(runner);
             if (totemPositions.Length > 0)
             {
                 var (min, max) = Monsters.BaseDamage(boss.Variety!, boss.Level) ?? (20, 30);
                 double beamDps = (min + max) * 0.45;
-                foreach (var p in ActivePlayers(runner))
+                foreach (var p in players)
                 {
                     var exp = BloodExposures.GetValue(p, _ => new());
                     await ArenaHazards.Ground(p, exp.Ground, now, (at, _) =>
@@ -273,8 +281,13 @@ public static class DominusEncounter
                         () => !stopped && Alive(boss));
                 }
             }
+            else
+            {
+                foreach (var p in players)
+                    if (BloodExposures.TryGetValue(p, out var exp))
+                        exp.Ground.Last = double.NaN;
+            }
 
-            // Lightning Souls wave.
             if (now >= nextSoulsAt)
             {
                 nextSoulsAt = now + 9.5;
@@ -288,7 +301,6 @@ public static class DominusEncounter
                 }
             }
 
-            // Touch of God: heavy telegraphed slam.
             if (now >= nextTouchAt)
             {
                 nextTouchAt = now + 14;
@@ -301,6 +313,9 @@ public static class DominusEncounter
         async Task CleanupPhase1(Player runner)
         {
             p1Cleaned = true;
+            foreach (var p in ActivePlayers(runner))
+                if (BloodExposures.TryGetValue(p, out var exp))
+                    exp.Ground.Last = double.NaN;
             await RetireMonsters(runner, totems);
             totems.Clear();
             hits.RemoveAll(h => h.SourceId == p1BossId);
@@ -361,7 +376,6 @@ public static class DominusEncounter
             }
             else
             {
-                // Decay any leftover Blood Rain stacks once the storm ends.
                 foreach (var p in players)
                     ClearBloodRain(p);
             }
@@ -372,10 +386,9 @@ public static class DominusEncounter
                 int living = p2Adds.Count(id => runner.Area.Monsters.TryGetValue(id, out var m) && Alive(m));
                 if (living < 4)
                 {
-                    var spawners = PlacementsOf(Area, seed, "Metadata/Monsters/Demonmodular/TowerSpawners/TowerSpawnerLoop");
                     var rng = AreaRng(runner);
-                    var spot = spawners.Count > 0
-                        ? (spawners[rng.Next(spawners.Count)].X, spawners[rng.Next(spawners.Count)].Y)
+                    var spot = towerLoopSpawners.Count > 0
+                        ? towerLoopSpawners[rng.Next(towerLoopSpawners.Count)]
                         : RingSpot(runner, pos, rng.NextDouble() * Math.Tau, 24);
                     await SpawnAdd(runner, MiscreationLoop, boss.Level, spot, bossId, p2Adds,
                         ownedCurrent: () => !stopped && !p2Cleaned);

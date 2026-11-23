@@ -45,6 +45,12 @@ public static class DaressoKaomEncounters
     const string ColosseumDoorsType = "Metadata/Terrain/Mountain/Arena/Colosseum/Objects/ColosseumDoubleDoors";
     const string ColosseumDaressoDoorType = "Metadata/Terrain/Mountain/Arena/Colosseum/Objects/ColosseumDoubleDoorsDaresso";
 
+    // Verified from game-files.zip .ot definitions:
+    // PitGate.ot: state 1 = open, state 2 = closed (on_transition closes, on_untransition opens).
+    // ColosseumDoubleDoors*.ot: state 1 = closed, state 2 = open.
+    const byte PitGateLockedState = 2, PitGateUnlockedState = 1;
+    const byte ColosseumDoorLockedState = 1, ColosseumDoorUnlockedState = 2;
+
     static readonly IReadOnlyDictionary<uint, int> DaressoEnrageStats = new Dictionary<uint, int>
     {
         [Stat.AttackSpeedPlusPct] = 45,
@@ -85,8 +91,17 @@ public static class DaressoKaomEncounters
         {
             foreach (var p in KaomFights) p.Value.Stop();
             foreach (var p in Pits) p.Value.Stop();
-            foreach (var p in ArenaFights) p.Value.Stop();
+            foreach (var p in ArenaFights) p.Value.StopAndClear();
+            foreach (var p in GroundExposures) p.Value.Last = double.NaN;
+            ReleaseAllGatesOnUnload();
         }
+    }
+
+    static void ResetGroundExposures(Player runner)
+    {
+        foreach (var p in ActivePlayers(runner))
+            if (GroundExposures.TryGetValue(p, out var exp))
+                exp.Last = double.NaN;
     }
 
     // ---- King Kaom (1_4_4_3) ----
@@ -95,9 +110,9 @@ public static class DaressoKaomEncounters
     {
         if (!KaomFights.TryGetValue(player.Instance, out var fight))
         {
-            var found = player.Area.Monsters.FirstOrDefault(p => p.Value.Hostile && p.Value.Variety?.Id == KaomBoss);
-            if (found.Value is null) return;
-            fight = KaomFights.GetValue(player.Instance, _ => new KaomFight(found.Key, found.Value, player.Seed));
+            bool hasKaom = player.Area.Monsters.Values.Any(m => m.Hostile && m.Variety?.Id == KaomBoss);
+            if (!hasKaom) return;
+            fight = KaomFights.GetValue(player.Instance, _ => new KaomFight(player.Seed));
         }
         await fight.Gate.WaitAsync();
         try
@@ -111,7 +126,7 @@ public static class DaressoKaomEncounters
     sealed record LavaZone((int X, int Y) At, double Ends, double Radius);
     sealed record EruptionImpact(double At, (int X, int Y) Spot, double Radius);
 
-    sealed class KaomFight(uint bossId, SpawnedMonster boss, uint seed)
+    sealed class KaomFight
     {
         public readonly SemaphoreSlim Gate = new(1, 1);
         readonly List<TimedEffect> effects = [];
@@ -120,12 +135,21 @@ public static class DaressoKaomEncounters
         readonly HashSet<uint> adds = [];
         static readonly int[] WaveThresholds = [75, 50, 25];
 
+        readonly List<(int X, int Y)> volcanoes;
+        readonly List<(int X, int Y)> archerSpawners;
+        readonly List<(int X, int Y)> skullSpawners;
+
         bool initialized, cleaned, stopped;
         int wavesTriggered;
         double nextEruptionAt;
-        List<(int X, int Y)> volcanoes = [];
-        List<(int X, int Y)> archerSpawners = [];
-        List<(int X, int Y)> skullSpawners = [];
+
+        public KaomFight(uint seed)
+        {
+            var placements = LoadAreaPlacements(KaomsStronghold, seed);
+            volcanoes = [.. placements.Of("Metadata/Monsters/Kaom/Volcano/kaom_volcano").Select(p => (p.X, p.Y))];
+            archerSpawners = [.. placements.Of("Metadata/Terrain/Mountain/Plateau/Objects/KaomBossArcherSpawner").Select(p => (p.X, p.Y))];
+            skullSpawners = [.. placements.Of("Metadata/Terrain/Mountain/Plateau/Objects/KaomBossSkullSpawnerMedium").Select(p => (p.X, p.Y))];
+        }
 
         public void Stop() => stopped = true;
 
@@ -135,37 +159,38 @@ public static class DaressoKaomEncounters
             await ExpireEffects(runner, effects, now);
             lava.RemoveAll(z => now >= z.Ends);
 
-            if (!Alive(boss))
+            var entry = runner.Area.Monsters.FirstOrDefault(p => p.Value.Hostile && p.Value.Variety?.Id == KaomBoss);
+            if (entry.Value is not { } boss || !Alive(boss))
             {
-                if (!cleaned) await Cleanup(runner);
+                if (initialized && !cleaned) await Cleanup(runner);
                 return;
             }
+            uint bossId = entry.Key;
 
             var pos = boss.Walk.Position(now);
             var target = NearestLivingTarget(runner, pos, now, maxRange: 125, awakeId: bossId);
-            if (target is null) return;
+            if (target is null)
+            {
+                ResetGroundExposures(runner);
+                return;
+            }
 
             if (!initialized)
             {
                 initialized = true;
                 nextEruptionAt = now + 6;
-                volcanoes = [.. PlacementsOf(KaomsStronghold, seed, "Metadata/Monsters/Kaom/Volcano/kaom_volcano").Select(p => (p.X, p.Y))];
                 if (volcanoes.Count == 0)
                     for (int i = 0; i < 3; i++) volcanoes.Add(RingSpot(runner, pos, i * (Math.Tau / 3.0), 26));
-                archerSpawners = [.. PlacementsOf(KaomsStronghold, seed, "Metadata/Terrain/Mountain/Plateau/Objects/KaomBossArcherSpawner").Select(p => (p.X, p.Y))];
-                skullSpawners = [.. PlacementsOf(KaomsStronghold, seed, "Metadata/Terrain/Mountain/Plateau/Objects/KaomBossSkullSpawnerMedium").Select(p => (p.X, p.Y))];
                 Console.WriteLine($"[gateway] Kaom controller active for 0x{bossId:x} ({volcanoes.Count} volcanoes)");
             }
 
-            // Threshold waves at 75% / 50% / 25% HP: Raging Spirits + Karui Archers + Fire Adds.
             while (wavesTriggered < WaveThresholds.Length
                 && (ulong)boss.Life * 100 <= (ulong)Math.Max(1u, boss.MaxLife) * (ulong)WaveThresholds[wavesTriggered])
             {
                 wavesTriggered++;
-                await SpawnKaomWave(runner, pos);
+                await SpawnKaomWave(runner, bossId, boss, pos);
             }
 
-            // Periodic volcano eruptions with telegraphed volcanic chunks + lingering lava pools.
             if (now >= nextEruptionAt)
             {
                 nextEruptionAt = now + 10;
@@ -208,9 +233,13 @@ public static class DaressoKaomEncounters
                         () => !stopped && Alive(boss));
                 }
             }
+            else
+            {
+                ResetGroundExposures(runner);
+            }
         }
 
-        async Task SpawnKaomWave(Player runner, (int X, int Y) center)
+        async Task SpawnKaomWave(Player runner, uint bossId, SpawnedMonster boss, (int X, int Y) center)
         {
             int living = adds.Count(id => runner.Area.Monsters.TryGetValue(id, out var m) && Alive(m));
             var rng = AreaRng(runner);
@@ -242,6 +271,7 @@ public static class DaressoKaomEncounters
             cleaned = true;
             lava.Clear();
             impacts.Clear();
+            ResetGroundExposures(runner);
             await RetireMonsters(runner, adds);
             adds.Clear();
             await ClearAllEffects(runner, effects);
@@ -273,13 +303,41 @@ public static class DaressoKaomEncounters
         public int Wave; // 0 = idle, 1..2 = active waves, 3 = cleared
     }
 
-    sealed class DreamPits(uint seed)
+    sealed class DreamPits
     {
         public readonly SemaphoreSlim Gate = new(1, 1);
         readonly List<PitEnclosure> enclosures = [];
         bool initialized, stopped;
 
         public IEnumerable<ArenaGate> AllGates => enclosures.SelectMany(e => e.Gates);
+
+        public DreamPits(uint seed)
+        {
+            var placements = LoadAreaPlacements(DaressosDream, seed);
+            var spawners = placements.Of(PitSpawnerType);
+            var gates = placements.Of(PitGateType);
+            if (spawners.Count == 0) return;
+
+            var remaining = new List<GlyphQuest.Placement>(spawners);
+            while (remaining.Count > 0)
+            {
+                var anchor = remaining[0];
+                remaining.RemoveAt(0);
+                var cluster = new List<(int X, int Y)> { (anchor.X, anchor.Y) };
+                for (int i = remaining.Count - 1; i >= 0; i--)
+                {
+                    if (Distance((remaining[i].X, remaining[i].Y), (anchor.X, anchor.Y)) <= 55)
+                    {
+                        cluster.Add((remaining[i].X, remaining[i].Y));
+                        remaining.RemoveAt(i);
+                    }
+                }
+                var center = ((int)Math.Round(cluster.Average(p => p.X)), (int)Math.Round(cluster.Average(p => p.Y)));
+                var nearbyGates = gates.Where(g => Distance((g.X, g.Y), center) <= 55).ToList();
+                enclosures.Add(new(center, cluster, nearbyGates));
+            }
+        }
+
         public void Stop() => stopped = true;
 
         public async Task Step(Player runner, double now)
@@ -288,10 +346,9 @@ public static class DaressoKaomEncounters
             if (!initialized)
             {
                 initialized = true;
-                InitEnclosures();
                 foreach (var pit in enclosures)
                     foreach (var gp in pit.GatePlacements)
-                        if (await CreateGate(runner, PitGateType, gp, startLocked: false) is { } g)
+                        if (await CreateGate(runner, PitGateType, gp, startLocked: false, PitGateLockedState, PitGateUnlockedState) is { } g)
                             pit.Gates.Add(g);
             }
             if (enclosures.Count == 0) return;
@@ -314,7 +371,6 @@ public static class DaressoKaomEncounters
                     continue;
                 }
 
-                // Failsafe: if no living players remain near the pit (wipe/portaled out), unlock gates cleanly so no softlock occurs.
                 if (!livingPlayers.Any(p => Distance(p.Walk.Position(now), pit.Center) <= 65))
                 {
                     foreach (var g in pit.Gates) await SetGateLocked(runner, g, false);
@@ -339,33 +395,6 @@ public static class DaressoKaomEncounters
             }
         }
 
-        void InitEnclosures()
-        {
-            var spawners = PlacementsOf(DaressosDream, seed, PitSpawnerType);
-            var gates = PlacementsOf(DaressosDream, seed, PitGateType);
-            if (spawners.Count == 0) return;
-
-            // Cluster nearby PitSpawner placements (radius 55) into individual pit enclosures.
-            var remaining = new List<GlyphQuest.Placement>(spawners);
-            while (remaining.Count > 0)
-            {
-                var anchor = remaining[0];
-                remaining.RemoveAt(0);
-                var cluster = new List<(int X, int Y)> { (anchor.X, anchor.Y) };
-                for (int i = remaining.Count - 1; i >= 0; i--)
-                {
-                    if (Distance((remaining[i].X, remaining[i].Y), (anchor.X, anchor.Y)) <= 55)
-                    {
-                        cluster.Add((remaining[i].X, remaining[i].Y));
-                        remaining.RemoveAt(i);
-                    }
-                }
-                var center = ((int)Math.Round(cluster.Average(p => p.X)), (int)Math.Round(cluster.Average(p => p.Y)));
-                var nearbyGates = gates.Where(g => Distance((g.X, g.Y), center) <= 55).ToList();
-                enclosures.Add(new(center, cluster, nearbyGates));
-            }
-        }
-
         async Task SpawnPitWave(Player runner, PitEnclosure pit, byte level, int wave)
         {
             var rng = AreaRng(runner);
@@ -384,7 +413,7 @@ public static class DaressoKaomEncounters
 
     static async Task TickGrandArena(Player player)
     {
-        var fight = ArenaFights.GetValue(player.Instance, _ => new GrandArenaFight(player.Seed));
+        var fight = ArenaFights.GetValue(player.Instance, _ => new GrandArenaFight(player.Area, player.Seed));
         await fight.Gate.WaitAsync();
         try
         {
@@ -397,22 +426,44 @@ public static class DaressoKaomEncounters
 
     sealed record SwordVortex((int X, int Y) At, double Ends, double Radius);
 
-    sealed class GrandArenaFight(uint seed)
+    sealed class GrandArenaFight
     {
         public readonly SemaphoreSlim Gate = new(1, 1);
+        readonly GameArea area;
         readonly List<TimedEffect> effects = [];
         readonly List<SwordVortex> vortexes = [];
+        readonly List<GlyphQuest.Placement> trioDoorPlacements;
+        readonly List<GlyphQuest.Placement> daressoDoorPlacements;
         readonly List<ArenaGate> trioDoors = [];
         readonly List<ArenaGate> daressoDoors = [];
         readonly HashSet<uint> clones = [];
         static readonly int[] EnrageThresholds = [75, 50, 25];
 
+        uint daressoBossId;
         bool doorsInitialized, trioLocked, daressoInitialized, daressoCleaned, stopped;
         int enrageCount;
         double enrageEndsAt, nextVortexAt, nextReaveAt;
 
         public IEnumerable<ArenaGate> AllGates => trioDoors.Concat(daressoDoors);
-        public void Stop() => stopped = true;
+
+        public GrandArenaFight(GameArea area, uint seed)
+        {
+            this.area = area;
+            var placements = LoadAreaPlacements(GrandArena, seed);
+            trioDoorPlacements = placements.Of(ColosseumDoorsType);
+            daressoDoorPlacements = placements.Of(ColosseumDaressoDoorType);
+        }
+
+        public void StopAndClear()
+        {
+            stopped = true;
+            if (daressoBossId != 0 && area.Monsters.TryGetValue(daressoBossId, out var b))
+            {
+                b.RemoveTemporaryStats(EnrageStatsKey);
+                b.RebuildStats();
+                area.Buffs.Clear(daressoBossId, DaressoEnrageBuff, daressoBossId);
+            }
+        }
 
         public async Task Step(Player runner, double now)
         {
@@ -423,11 +474,11 @@ public static class DaressoKaomEncounters
             if (!doorsInitialized)
             {
                 doorsInitialized = true;
-                foreach (var p in PlacementsOf(GrandArena, seed, ColosseumDoorsType))
-                    if (await CreateGate(runner, ColosseumDoorsType, p, startLocked: false) is { } g)
+                foreach (var p in trioDoorPlacements)
+                    if (await CreateGate(runner, ColosseumDoorsType, p, startLocked: false, ColosseumDoorLockedState, ColosseumDoorUnlockedState) is { } g)
                         trioDoors.Add(g);
-                foreach (var p in PlacementsOf(GrandArena, seed, ColosseumDaressoDoorType))
-                    if (await CreateGate(runner, ColosseumDaressoDoorType, p, startLocked: false) is { } g)
+                foreach (var p in daressoDoorPlacements)
+                    if (await CreateGate(runner, ColosseumDaressoDoorType, p, startLocked: false, ColosseumDoorLockedState, ColosseumDoorUnlockedState) is { } g)
                         daressoDoors.Add(g);
             }
 
@@ -436,6 +487,7 @@ public static class DaressoKaomEncounters
             var dEntry = runner.Area.Monsters.FirstOrDefault(p => p.Value.Hostile && p.Value.Variety?.Id == DaressoBoss);
             if (dEntry.Value is { } daresso)
             {
+                daressoBossId = dEntry.Key;
                 if (Alive(daresso))
                     await StepDaresso(runner, dEntry.Key, daresso, now);
                 else if (!daressoCleaned)
@@ -455,8 +507,15 @@ public static class DaressoKaomEncounters
                 }
                 return;
             }
-            var firstPos = livingTrio[0].Value.Walk.Position(now);
-            bool engaged = NearestLivingTarget(runner, firstPos, now, maxRange: 65, awakeId: livingTrio[0].Key) is not null;
+            bool engaged = false;
+            foreach (var gladiator in livingTrio)
+            {
+                if (NearestLivingTarget(runner, gladiator.Value.Walk.Position(now), now, maxRange: 65, awakeId: gladiator.Key) is not null)
+                {
+                    engaged = true;
+                    break;
+                }
+            }
             if (engaged != trioLocked)
             {
                 trioLocked = engaged;
@@ -471,6 +530,7 @@ public static class DaressoKaomEncounters
             if (target is null)
             {
                 foreach (var d in daressoDoors) await SetGateLocked(runner, d, false);
+                ResetGroundExposures(runner);
                 return;
             }
 
@@ -483,21 +543,21 @@ public static class DaressoKaomEncounters
             }
             foreach (var d in daressoDoors) await SetGateLocked(runner, d, true);
 
-            // End enrage buff when its window expires.
             if (enrageEndsAt > 0 && now >= enrageEndsAt)
             {
                 enrageEndsAt = 0;
                 boss.RemoveTemporaryStats(EnrageStatsKey);
+                boss.RebuildStats();
                 runner.Area.Buffs.Clear(bossId, DaressoEnrageBuff, bossId);
             }
 
-            // Enrage + Sword Clone + Reave Flurry cycles at 75% / 50% / 25% HP.
             while (enrageCount < EnrageThresholds.Length
                 && (ulong)boss.Life * 100 <= (ulong)Math.Max(1u, boss.MaxLife) * (ulong)EnrageThresholds[enrageCount])
             {
                 enrageCount++;
                 enrageEndsAt = now + 8.0;
                 boss.SetTemporaryStats(EnrageStatsKey, DaressoEnrageStats);
+                boss.RebuildStats();
                 runner.Area.Buffs.Set(bossId, new(DaressoEnrageBuff, bossId, U68: Buff.Seconds(8)));
                 var rng = AreaRng(runner);
                 int livingClones = clones.Count(id => runner.Area.Monsters.TryGetValue(id, out var c) && Alive(c));
@@ -510,7 +570,6 @@ public static class DaressoKaomEncounters
                 Console.WriteLine($"[gateway] Daresso 0x{bossId:x}: enrage cycle {enrageCount}/3 + sword clones");
             }
 
-            // Spinning Blade Vortexes.
             if (now >= nextVortexAt)
             {
                 nextVortexAt = now + 7.5;
@@ -526,7 +585,6 @@ public static class DaressoKaomEncounters
 
             var players = ActivePlayers(runner).Where(p => p.PlayerLife > 0 && !p.Paused && !InGracePeriod(p)).ToArray();
 
-            // Periodic Reave Flurry cone toward target.
             if (now >= nextReaveAt)
             {
                 nextReaveAt = now + (enrageEndsAt > now ? 5.5 : 8.5);
@@ -537,7 +595,6 @@ public static class DaressoKaomEncounters
                     await ArenaHazards.Hit(p, bossId, boss, atk, at => Distance(at, aim) <= 14, () => !stopped && Alive(boss));
             }
 
-            // Spinning blade vortex physical ground degeneration.
             if (vortexes.Count > 0)
             {
                 var (min, max) = Monsters.BaseDamage(boss.Variety!, boss.Level) ?? (25, 35);
@@ -552,17 +609,23 @@ public static class DaressoKaomEncounters
                         () => !stopped && Alive(boss));
                 }
             }
+            else
+            {
+                ResetGroundExposures(runner);
+            }
         }
 
         async Task CleanupDaresso(Player runner, uint bossId, SpawnedMonster boss)
         {
             daressoCleaned = true;
             boss.RemoveTemporaryStats(EnrageStatsKey);
+            boss.RebuildStats();
             runner.Area.Buffs.Clear(bossId, DaressoEnrageBuff, bossId);
             foreach (var d in daressoDoors) await SetGateLocked(runner, d, false);
             await RetireMonsters(runner, clones);
             clones.Clear();
             vortexes.Clear();
+            ResetGroundExposures(runner);
             await ClearAllEffects(runner, effects);
         }
     }

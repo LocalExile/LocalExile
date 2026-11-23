@@ -8,12 +8,12 @@ using static Program;
 /// Act 3 — The Lunaris Temple Level 2 (<c>1_3_14_2</c>) Piety encounter controller:
 /// <list type="bullet">
 /// <item>Spawns and manages destructible Burning (<c>PietyFireFormPortal</c>, MV#2645) and Chilling
-/// (<c>PietyColdFormPortal</c>, MV#2646) portals around Piety's arena markers (<c>PietyTransformMarker</c>).</item>
+/// (<c>PietyColdFormPortal</c>, MV#2646) portals around cached <c>PietyTransformMarker</c> placements.</item>
 /// <item>Periodically moves Piety to a living portal and transforms her into Fire Form (<c>piety_fire_form</c> buff 193,
 /// melee frenzy + <c>BloodElementalEmerge</c> adds) or Ice Form (<c>piety_ice_form</c> buff 194, chilling ice volleys +
 /// <c>DemonModularPietyEmerge</c> adds), then reverts her to normal Lightning form.</item>
-/// <item>Players can damage and destroy active portals to cut short or deny transformations; portals respawn on a
-/// cooldown while Piety lives, and all portals/adds/buffs clean up on Piety's death.</item>
+/// <item>Players can damage and destroy active portals to cut short or deny transformations; re-binds cleanly to the
+/// live boss after portal re-entry and cleans up all portals/adds/buffs on Piety's death or unload.</item>
 /// </list>
 /// </summary>
 public static class PietyLunarisEncounter
@@ -53,9 +53,9 @@ public static class PietyLunarisEncounter
             return;
         if (!Fights.TryGetValue(player.Instance, out var fight))
         {
-            var found = player.Area.Monsters.FirstOrDefault(p => p.Value.Hostile && p.Value.Variety?.Id == Boss);
-            if (found.Value is null) return;
-            fight = Fights.GetValue(player.Instance, _ => new Fight(found.Key, found.Value, player.Seed));
+            bool hasBoss = player.Area.Monsters.Values.Any(m => m.Hostile && m.Variety?.Id == Boss);
+            if (!hasBoss) return;
+            fight = Fights.GetValue(player.Instance, _ => new Fight(player.Area, player.Seed));
         }
         await fight.Gate.WaitAsync();
         try
@@ -73,7 +73,7 @@ public static class PietyLunarisEncounter
     {
         public void Dispose()
         {
-            foreach (var pair in Fights) pair.Value.Stop();
+            foreach (var pair in Fights) pair.Value.StopAndClear();
         }
     }
 
@@ -87,27 +87,60 @@ public static class PietyLunarisEncounter
         public double RespawnAt;
     }
 
-    sealed class Fight(uint bossId, SpawnedMonster boss, uint seed)
+    sealed class Fight
     {
         public readonly SemaphoreSlim Gate = new(1, 1);
+        readonly GameArea area;
         readonly List<TimedEffect> effects = [];
         readonly List<PortalSlot> portals = [];
         readonly HashSet<uint> adds = [];
+        readonly List<(int X, int Y)> transformMarkers;
 
+        uint bossId;
         bool initialized, cleaned, stopped, preferFire = true;
         Form form = Form.Normal;
         double formEndsAt, nextTransformAt, nextFormActionAt;
 
-        public void Stop() => stopped = true;
+        public Fight(GameArea area, uint seed)
+        {
+            this.area = area;
+            var placements = LoadAreaPlacements(Area, seed);
+            transformMarkers = [.. placements.Of("Metadata/QuestObjects/Piety/PietyTransformMarker").Select(m => (m.X, m.Y))];
+        }
+
+        public void StopAndClear()
+        {
+            stopped = true;
+            if (bossId != 0 && area.Monsters.TryGetValue(bossId, out var b))
+            {
+                b.RemoveTemporaryStats(FormStatsKey);
+                b.RebuildStats();
+                area.Buffs.Clear(bossId, FireFormBuff, bossId);
+                area.Buffs.Clear(bossId, IceFormBuff, bossId);
+            }
+        }
 
         public async Task Step(Player runner, double now)
         {
             if (stopped || !CurrentGameWork || runner.Paused) return;
             await ExpireEffects(runner, effects, now);
 
+            var entry = runner.Area.Monsters.FirstOrDefault(p => p.Value.Hostile && p.Value.Variety?.Id == Boss);
+            if (entry.Value is not { } boss)
+            {
+                if (initialized && !cleaned) await Cleanup(runner, 0, null);
+                return;
+            }
+            if (bossId != entry.Key)
+            {
+                // Re-bound after portal re-entry / SavedMonster restore: reset transient form state cleanly.
+                bossId = entry.Key;
+                form = Form.Normal;
+            }
+
             if (!Alive(boss))
             {
-                if (!cleaned) await Cleanup(runner);
+                if (!cleaned) await Cleanup(runner, bossId, boss);
                 return;
             }
 
@@ -120,11 +153,10 @@ public static class PietyLunarisEncounter
                 initialized = true;
                 nextTransformAt = now + 10;
                 InitPortalSlots(runner, pos);
-                await EnsurePortalsSpawned(runner, now, initial: true);
+                await EnsurePortalsSpawned(runner, boss, now, initial: true);
                 Console.WriteLine($"[gateway] Piety (Lunaris) controller active for 0x{bossId:x} with {portals.Count} portal slots");
             }
 
-            // Track destroyed portals and schedule their respawn cooldown.
             foreach (var slot in portals)
             {
                 if (slot.MonsterId != 0 && (!runner.Area.Monsters.TryGetValue(slot.MonsterId, out var pm) || !Alive(pm)))
@@ -136,24 +168,18 @@ public static class PietyLunarisEncounter
 
             if (form == Form.Normal)
             {
-                await EnsurePortalsSpawned(runner, now, initial: false);
+                await EnsurePortalsSpawned(runner, boss, now, initial: false);
                 if (now >= nextTransformAt)
                 {
                     var chosen = PickLivingPortal(runner);
                     if (chosen is not null)
-                    {
-                        await EnterForm(runner, chosen, now);
-                    }
+                        await EnterForm(runner, boss, chosen, now);
                     else
-                    {
-                        // Players destroyed all portals: transformation denied!
                         nextTransformAt = now + 6;
-                    }
                 }
                 return;
             }
 
-            // Active Fire or Ice form: check if players destroyed all portals of Piety's active element.
             bool activeElementAlive = portals.Any(s => s.IsFire == (form == Form.Fire) && s.MonsterId != 0
                 && runner.Area.Monsters.TryGetValue(s.MonsterId, out var pm) && Alive(pm));
             if (!activeElementAlive && formEndsAt > now + 1.5)
@@ -161,7 +187,7 @@ public static class PietyLunarisEncounter
 
             if (now >= formEndsAt)
             {
-                RevertToNormal(runner, now);
+                RevertToNormal(runner, boss, now);
                 return;
             }
 
@@ -187,16 +213,14 @@ public static class PietyLunarisEncounter
 
         void InitPortalSlots(Player runner, (int X, int Y) center)
         {
-            var markers = PlacementsOf(Area, seed, "Metadata/QuestObjects/Piety/PietyTransformMarker");
-            if (markers.Count >= 4)
+            if (transformMarkers.Count >= 4)
             {
-                // Pick 4 well-spaced cardinal markers around the arena (2 fire, 2 ice alternating).
-                var ordered = markers.OrderBy(m => Math.Atan2(m.Y - center.Y, m.X - center.X)).ToList();
+                var ordered = transformMarkers.OrderBy(m => Math.Atan2(m.Y - center.Y, m.X - center.X)).ToList();
                 int step = Math.Max(1, ordered.Count / 4);
                 for (int i = 0; i < 4; i++)
                 {
                     var m = ordered[(i * step) % ordered.Count];
-                    portals.Add(new(WalkableNear(runner, (m.X, m.Y)), isFire: (i & 1) == 0));
+                    portals.Add(new(WalkableNear(runner, m), isFire: (i & 1) == 0));
                 }
             }
             else
@@ -206,7 +230,7 @@ public static class PietyLunarisEncounter
             }
         }
 
-        async Task EnsurePortalsSpawned(Player runner, double now, bool initial)
+        async Task EnsurePortalsSpawned(Player runner, SpawnedMonster boss, double now, bool initial)
         {
             foreach (var slot in portals)
             {
@@ -227,13 +251,12 @@ public static class PietyLunarisEncounter
             return chosen;
         }
 
-        async Task EnterForm(Player runner, PortalSlot portal, double now)
+        async Task EnterForm(Player runner, SpawnedMonster boss, PortalSlot portal, double now)
         {
             form = portal.IsFire ? Form.Fire : Form.Ice;
             formEndsAt = now + 11.5;
             nextFormActionAt = now + 1.8;
 
-            // Move Piety to the portal she channels.
             boss.Walk.Teleport(portal.At.X, portal.At.Y, now);
             await SendWorldRecord(runner, bossId, InstanceProtocol.Teleport(bossId, portal.At.X, portal.At.Y), null);
 
@@ -244,6 +267,7 @@ public static class PietyLunarisEncounter
             runner.Area.Buffs.Clear(bossId, IceFormBuff, bossId);
             runner.Area.Buffs.Set(bossId, new(portal.IsFire ? FireFormBuff : IceFormBuff, bossId, U68: Buff.Seconds(11.5)));
             boss.SetTemporaryStats(FormStatsKey, portal.IsFire ? FireFormStats : IceFormStats);
+            boss.RebuildStats();
 
             int livingAdds = adds.Count(id => runner.Area.Monsters.TryGetValue(id, out var m) && Alive(m));
             var rng = AreaRng(runner);
@@ -257,22 +281,27 @@ public static class PietyLunarisEncounter
             Console.WriteLine($"[gateway] Piety 0x{bossId:x}: entered {form} form at ({portal.At.X}, {portal.At.Y})");
         }
 
-        void RevertToNormal(Player runner, double now)
+        void RevertToNormal(Player runner, SpawnedMonster boss, double now)
         {
             form = Form.Normal;
             nextTransformAt = now + 14;
             boss.RemoveTemporaryStats(FormStatsKey);
+            boss.RebuildStats();
             runner.Area.Buffs.Clear(bossId, FireFormBuff, bossId);
             runner.Area.Buffs.Clear(bossId, IceFormBuff, bossId);
         }
 
-        async Task Cleanup(Player runner)
+        async Task Cleanup(Player runner, uint id, SpawnedMonster? boss)
         {
             cleaned = true;
-            boss.RemoveTemporaryStats(FormStatsKey);
-            runner.Area.Buffs.Clear(bossId, FireFormBuff, bossId);
-            runner.Area.Buffs.Clear(bossId, IceFormBuff, bossId);
-            await RetireMonsters(runner, portals.Select(p => p.MonsterId).Where(id => id != 0));
+            if (boss is not null && id != 0)
+            {
+                boss.RemoveTemporaryStats(FormStatsKey);
+                boss.RebuildStats();
+                runner.Area.Buffs.Clear(id, FireFormBuff, id);
+                runner.Area.Buffs.Clear(id, IceFormBuff, id);
+            }
+            await RetireMonsters(runner, portals.Select(p => p.MonsterId).Where(pid => pid != 0));
             foreach (var p in portals) p.MonsterId = 0;
             await RetireMonsters(runner, adds);
             adds.Clear();

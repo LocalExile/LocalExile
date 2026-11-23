@@ -8,14 +8,16 @@ using static Program;
 /// Act 4 — The Harvest (<c>1_4_6_3</c>) Malachai encounter controller:
 /// <list type="bullet">
 /// <item><b>Phase 1 (Core entrance, <c>boss_1.arm</c>)</b>: Malachai starts shielded (<c>BaseCannotBeDamaged</c> +
-/// <c>malachai_invulnerable</c> buff 435) while corrupted Piety (<c>PietyMalachaiConverted</c>) fights the player.
-/// Defeating corrupted Piety cleanses her into friendly <c>PietyMalachaiAlly</c>, stripping Malachai's shield with
-/// her beam (<c>piety_ally_beam</c> buff 436). At 70% HP, <c>Act4.cs</c>'s <c>On.Threshold</c> + <c>On.Forms</c>
-/// retreats Malachai into the Black Core and spawns <c>MalachaiBoss2</c>.</item>
+/// <c>malachai_invulnerable</c> buff 435) as soon as detected while corrupted Piety (<c>PietyMalachaiConverted</c>)
+/// fights the player. Defeating corrupted Piety cleanses her into friendly <c>PietyMalachaiAlly</c>
+/// (<c>instanceOwned: true</c>), stripping Malachai's shield with her beam (<c>piety_ally_beam</c> buff 436). At 70% HP,
+/// <c>Act4.cs</c>'s <c>On.Threshold</c> + <c>On.Forms</c> retreats Malachai into the Black Core and spawns
+/// <c>MalachaiBoss2</c>.</item>
 /// <item><b>Phase 2 (Black Core, <c>boss_2.arm</c>)</b>: Three-Heart invulnerability cycle at 75% / 50% / 25% HP
 /// activating <c>BeastHeart1</c>, <c>BeastHeart2</c>, and <c>BeastHeart3</c> in order; destroying the active Heart
 /// drops Malachai's invulnerability and advances the fight, alongside Malachai's rune circle traps, tri-bomb
-/// telegraphs, Flayed adds, and teleport slams.</item>
+/// telegraphs, Flayed adds, and teleport slams. Survives portal re-entry by re-syncing <c>LifePhases</c> and
+/// remaining uncompleted Hearts.</item>
 /// </list>
 /// </summary>
 public static class MalachaiEncounter
@@ -54,7 +56,7 @@ public static class MalachaiEncounter
         {
             bool hasMalachai = player.Area.Monsters.Values.Any(m => m.Variety?.Id is MalachaiP1 or MalachaiP2);
             if (!hasMalachai) return;
-            fight = Fights.GetValue(player.Instance, _ => new Fight(player.Seed));
+            fight = Fights.GetValue(player.Instance, _ => new Fight(player.Area, player.Seed));
         }
         await fight.Gate.WaitAsync();
         try
@@ -72,33 +74,65 @@ public static class MalachaiEncounter
     {
         public void Dispose()
         {
-            foreach (var pair in Fights) pair.Value.Stop();
+            foreach (var pair in Fights) pair.Value.StopAndClear();
         }
     }
 
-    sealed record RuneTrap(uint EffectId, (int X, int Y) At, double ArmedAt, double ExpiresAt, bool Triggered);
+    sealed record RuneTrap(uint EffectId, (int X, int Y) At, double ArmedAt, double ExpiresAt);
     sealed record DelayedBurst(double At, (int X, int Y) Spot, double Radius, string BurstAo, DamageType Element, double Scale, uint SourceId, SpawnedMonster Source);
 
-    sealed class Fight(uint seed)
+    sealed class Fight
     {
         public readonly SemaphoreSlim Gate = new(1, 1);
+        readonly GameArea area;
         readonly List<TimedEffect> effects = [];
         readonly List<RuneTrap> runes = [];
         readonly List<DelayedBurst> bursts = [];
         readonly HashSet<uint> p1Adds = [];
         readonly HashSet<uint> p2Adds = [];
         readonly uint[] heartIds = new uint[3];
+        readonly (int X, int Y)? pietyPlacement;
+        readonly (int X, int Y)?[] heartPlacements = new (int X, int Y)?[3];
+        readonly List<(int X, int Y)> bloodWormSpawners;
+        readonly List<(int X, int Y)> flayedSpawners;
 
-        bool p1Initialized, p1PietyCleansed, p1Cleaned;
+        bool p1ShieldApplied, p1Initialized, p1PietyCleansed, p1Cleaned;
         uint p1BossId, p1PietyCorruptedId, p1PietyAllyId;
         double nextRuneAt, nextTriBombAt, nextTeleportSlamAt, nextAddAt;
 
         bool p2Initialized, p2Cleaned;
         uint p2BossId;
+        int p2HeartsCompleted;
         int activeHeartIndex = -1;
         bool stopped;
 
-        public void Stop() => stopped = true;
+        public Fight(GameArea area, uint seed)
+        {
+            this.area = area;
+            var placements = LoadAreaPlacements(Area, seed);
+            pietyPlacement = placements.Of(PietyAlly).FirstOrDefault() is { } p ? (p.X, p.Y) : null;
+            for (int i = 0; i < 3; i++)
+                heartPlacements[i] = placements.Of(BeastHearts[i]).FirstOrDefault() is { } h ? (h.X, h.Y) : null;
+            bloodWormSpawners = [.. placements.Of("Metadata/Monsters/BloodWorm/BloodWormSpawnerMalachai").Select(s => (s.X, s.Y))];
+            flayedSpawners = [.. placements.Of("Metadata/Monsters/Flayed/FlayedSpawnerMalachai").Select(s => (s.X, s.Y))];
+        }
+
+        public void StopAndClear()
+        {
+            stopped = true;
+            if (p1BossId != 0 && area.Monsters.TryGetValue(p1BossId, out var b1))
+                ClearInvulnerableOnUnload(area, p1BossId, b1, MalachaiInvulnBuff);
+            if (p2BossId != 0 && area.Monsters.TryGetValue(p2BossId, out var b2))
+                ClearInvulnerableOnUnload(area, p2BossId, b2, MalachaiInvulnBuff);
+            foreach (uint hid in heartIds)
+                if (hid != 0 && area.Monsters.TryGetValue(hid, out var hm))
+                    ClearInvulnerableOnUnload(area, hid, hm, MalachaiInvulnBuff);
+            if (p1PietyAllyId != 0 && area.Monsters.TryGetValue(p1PietyAllyId, out var ally))
+            {
+                ClearInvulnerableOnUnload(area, p1PietyAllyId, ally);
+                area.Buffs.Clear(p1PietyAllyId, PietyAllyBeamBuff, p1PietyAllyId);
+            }
+        }
 
         public async Task Step(Player runner, double now)
         {
@@ -127,6 +161,14 @@ public static class MalachaiEncounter
             p1BossId = bossId;
             boss.NoRewards = true;
             var pos = boss.Walk.Position(now);
+
+            // Arm Malachai's P1 shield immediately upon detection (before target enters aggro) so offscreen hits cannot bypass it.
+            if (!p1PietyCleansed && (!p1ShieldApplied || boss.Effects[Stat.BaseCannotBeDamaged] == 0))
+            {
+                p1ShieldApplied = true;
+                SetInvulnerable(runner, bossId, boss, true, MalachaiInvulnBuff);
+            }
+
             var target = NearestLivingTarget(runner, pos, now, maxRange: 120, awakeId: bossId);
             if (target is null) return;
 
@@ -137,29 +179,38 @@ public static class MalachaiEncounter
                 nextTriBombAt = now + 9;
                 nextTeleportSlamAt = now + 13;
                 nextAddAt = now + 11;
-                SetInvulnerable(runner, bossId, boss, true, MalachaiInvulnBuff);
+                if (!p1PietyCleansed)
+                {
+                    var pietySpot = pietyPlacement ?? RingSpot(runner, pos, 0.5, 16);
+                    p1PietyCorruptedId = await SpawnAdd(runner, PietyCorrupted, boss.Level, pietySpot, bossId, p1Adds,
+                        rarity: MonsterRarity.Unique, ownedCurrent: () => !stopped && !p1Cleaned);
+                    Console.WriteLine($"[gateway] Malachai P1: corrupted Piety 0x{p1PietyCorruptedId:x} shields Malachai 0x{bossId:x}");
+                }
+            }
 
-                var pietySpot = PlacementsOf(Area, seed, PietyAlly).FirstOrDefault() is { } p
-                    ? (p.X, p.Y)
-                    : RingSpot(runner, pos, 0.5, 16);
-                p1PietyCorruptedId = await SpawnAdd(runner, PietyCorrupted, boss.Level, pietySpot, bossId, p1Adds,
-                    rarity: MonsterRarity.Unique, ownedCurrent: () => !stopped && !p1Cleaned);
-                Console.WriteLine($"[gateway] Malachai P1: corrupted Piety 0x{p1PietyCorruptedId:x} shields Malachai 0x{bossId:x}");
+            // Re-spawn corrupted Piety if instance was restored from SavedMonsters before cleansing.
+            if (!p1PietyCleansed && (p1PietyCorruptedId == 0 || !runner.Area.Monsters.ContainsKey(p1PietyCorruptedId)))
+            {
+                if (p1PietyCorruptedId == 0)
+                {
+                    var pietySpot = pietyPlacement ?? RingSpot(runner, pos, 0.5, 16);
+                    p1PietyCorruptedId = await SpawnAdd(runner, PietyCorrupted, boss.Level, pietySpot, bossId, p1Adds,
+                        rarity: MonsterRarity.Unique, ownedCurrent: () => !stopped && !p1Cleaned);
+                }
             }
 
             if (!p1PietyCleansed)
             {
-                bool pietyDefeated = p1PietyCorruptedId == 0
-                    || !runner.Area.Monsters.TryGetValue(p1PietyCorruptedId, out var cp)
-                    || !Alive(cp)
-                    || (ulong)cp.Life * 100 <= (ulong)Math.Max(1u, cp.MaxLife) * 20;
+                bool pietyDefeated = p1PietyCorruptedId != 0
+                    && (!runner.Area.Monsters.TryGetValue(p1PietyCorruptedId, out var cp)
+                        || !Alive(cp)
+                        || (ulong)cp.Life * 100 <= (ulong)Math.Max(1u, cp.MaxLife) * 20);
                 if (pietyDefeated)
                 {
                     p1PietyCleansed = true;
-                    var allySpot = p1PietyCorruptedId != 0 && runner.Area.Monsters.TryGetValue(p1PietyCorruptedId, out var oldP)
+                    var allySpot = runner.Area.Monsters.TryGetValue(p1PietyCorruptedId, out var oldP)
                         ? oldP.Walk.Position(now) : RingSpot(runner, pos, 1.0, 14);
-                    if (p1PietyCorruptedId != 0)
-                        await RetireMonsters(runner, [p1PietyCorruptedId]);
+                    await RetireMonsters(runner, [p1PietyCorruptedId]);
                     p1PietyCorruptedId = 0;
 
                     p1PietyAllyId = await SpawnAdd(runner, PietyAlly, boss.Level, allySpot, bossId, p1Adds,
@@ -177,7 +228,7 @@ public static class MalachaiEncounter
             if (now >= nextRuneAt)
             {
                 nextRuneAt = now + 9;
-                await CastRuneCluster(runner, bossId, boss, target.Walk.Position(now), count: 3, now);
+                await CastRuneCluster(runner, target.Walk.Position(now), count: 3, now);
             }
             if (now >= nextTriBombAt)
             {
@@ -196,10 +247,9 @@ public static class MalachaiEncounter
                     && runner.Area.Monsters.TryGetValue(id, out var m) && Alive(m));
                 if (livingWorms < 5)
                 {
-                    var spawners = PlacementsOf(Area, seed, "Metadata/Monsters/BloodWorm/BloodWormSpawnerMalachai");
                     var rng = AreaRng(runner);
-                    var spot = spawners.Count > 0
-                        ? (spawners[rng.Next(spawners.Count)].X, spawners[rng.Next(spawners.Count)].Y)
+                    var spot = bloodWormSpawners.Count > 0
+                        ? bloodWormSpawners[rng.Next(bloodWormSpawners.Count)]
                         : RingSpot(runner, pos, rng.NextDouble() * Math.Tau, 18);
                     await SpawnAdd(runner, BloodWorm, boss.Level, spot, bossId, p1Adds,
                         ownedCurrent: () => !stopped && !p1Cleaned);
@@ -225,22 +275,36 @@ public static class MalachaiEncounter
 
         async Task StepPhase2(Player runner, uint bossId, SpawnedMonster boss, double now)
         {
+            bool bossRebound = p2BossId != bossId;
             p2BossId = bossId;
-            boss.LifePhases ??= new([75, 50, 25]);
-            var pos = boss.Walk.Position(now);
-            var target = NearestLivingTarget(runner, pos, now, maxRange: 135, awakeId: bossId);
-
-            if (!p2Initialized)
+            if (boss.LifePhases is null)
             {
-                p2Initialized = true;
-                nextRuneAt = now + 4.5;
-                nextTriBombAt = now + 8;
-                nextTeleportSlamAt = now + 11;
-                nextAddAt = now + 10;
-                await SpawnThreeHearts(runner, bossId, boss, pos);
-                Console.WriteLine($"[gateway] Malachai P2: Black Core initialized with 3 Beast Hearts for 0x{bossId:x}");
+                boss.LifePhases = new([75, 50, 25]);
+                AdvancePhases(boss.LifePhases, p2HeartsCompleted);
+            }
+            var pos = boss.Walk.Position(now);
+
+            if (!p2Initialized || bossRebound)
+            {
+                if (!p2Initialized)
+                {
+                    p2Initialized = true;
+                    nextRuneAt = now + 4.5;
+                    nextTriBombAt = now + 8;
+                    nextTeleportSlamAt = now + 11;
+                    nextAddAt = now + 10;
+                }
+                // Spawn or re-spawn any uncompleted Beast Hearts lost across portal re-entry.
+                await EnsureRemainingHearts(runner, bossId, boss, pos);
+                if (activeHeartIndex is >= 0 and < 3)
+                {
+                    SetInvulnerable(runner, bossId, boss, true, MalachaiInvulnBuff);
+                    await ActivateHeart(runner, bossId, boss, activeHeartIndex, pos);
+                }
+                Console.WriteLine($"[gateway] Malachai P2: Black Core synced for 0x{bossId:x} ({p2HeartsCompleted}/3 hearts done)");
             }
 
+            var target = NearestLivingTarget(runner, pos, now, maxRange: 135, awakeId: bossId);
             if (target is null) return;
 
             var phases = boss.LifePhases;
@@ -248,7 +312,8 @@ public static class MalachaiEncounter
             {
                 activeHeartIndex = phases.Completed;
                 SetInvulnerable(runner, bossId, boss, true, MalachaiInvulnBuff);
-                await ActivateHeart(runner, bossId, boss, activeHeartIndex, pos, now);
+                await EnsureRemainingHearts(runner, bossId, boss, pos);
+                await ActivateHeart(runner, bossId, boss, activeHeartIndex, pos);
             }
 
             if (phases.Active && activeHeartIndex is >= 0 and < 3)
@@ -259,18 +324,19 @@ public static class MalachaiEncounter
                 {
                     if (hid != 0 && runner.Area.Monsters.TryGetValue(hid, out var deadHeart))
                         await SetMonsterTransition(runner, hid, deadHeart, 3, $"[Malachai] BeastHeart{activeHeartIndex + 1} destroyed");
+                    heartIds[activeHeartIndex] = 0;
                     activeHeartIndex = -1;
                     SetInvulnerable(runner, bossId, boss, false, MalachaiInvulnBuff);
                     phases.Finish();
-                    Console.WriteLine($"[gateway] Malachai P2: Heart {phases.Completed}/3 destroyed; Malachai vulnerable");
+                    p2HeartsCompleted = phases.Completed;
+                    Console.WriteLine($"[gateway] Malachai P2: Heart {p2HeartsCompleted}/3 destroyed; Malachai vulnerable");
                 }
             }
 
-            // Malachai continues casting traps/tri-bombs/slams throughout P2 (even while a Heart is active, matching retail pressure).
             if (now >= nextRuneAt)
             {
                 nextRuneAt = now + 7.5;
-                await CastRuneCluster(runner, bossId, boss, target.Walk.Position(now), count: 4, now);
+                await CastRuneCluster(runner, target.Walk.Position(now), count: 4, now);
             }
             if (now >= nextTriBombAt)
             {
@@ -284,14 +350,14 @@ public static class MalachaiEncounter
             }
         }
 
-        async Task SpawnThreeHearts(Player runner, uint bossId, SpawnedMonster boss, (int X, int Y) center)
+        async Task EnsureRemainingHearts(Player runner, uint bossId, SpawnedMonster boss, (int X, int Y) center)
         {
-            for (int i = 0; i < 3; i++)
+            for (int i = p2HeartsCompleted; i < 3; i++)
             {
-                string heartVariety = BeastHearts[i];
-                var placed = PlacementsOf(Area, seed, heartVariety).FirstOrDefault();
-                var spot = placed is not null ? (placed.X, placed.Y) : RingSpot(runner, center, i * (Math.Tau / 3.0), 32);
-                uint hid = await SpawnAdd(runner, heartVariety, boss.Level, spot, bossId,
+                if (heartIds[i] != 0 && runner.Area.Monsters.TryGetValue(heartIds[i], out var existing) && Alive(existing))
+                    continue;
+                var spot = heartPlacements[i] ?? RingSpot(runner, center, i * (Math.Tau / 3.0), 32);
+                uint hid = await SpawnAdd(runner, BeastHearts[i], boss.Level, spot, bossId,
                     entranceGrace: true, rarity: MonsterRarity.Unique, ownedCurrent: () => !stopped && !p2Cleaned);
                 heartIds[i] = hid;
                 if (hid != 0 && runner.Area.Monsters.TryGetValue(hid, out var hm))
@@ -302,7 +368,7 @@ public static class MalachaiEncounter
             }
         }
 
-        async Task ActivateHeart(Player runner, uint bossId, SpawnedMonster boss, int index, (int X, int Y) center, double now)
+        async Task ActivateHeart(Player runner, uint bossId, SpawnedMonster boss, int index, (int X, int Y) center)
         {
             uint hid = heartIds[index];
             if (hid != 0 && runner.Area.Monsters.TryGetValue(hid, out var hm) && Alive(hm))
@@ -312,14 +378,12 @@ public static class MalachaiEncounter
                 await SetMonsterTransition(runner, hid, hm, 2, $"[Malachai] BeastHeart{index + 1} exposed");
                 Console.WriteLine($"[gateway] Malachai P2: Heart {index + 1}/3 (0x{hid:x}) activated; Malachai shielded");
             }
-            // Spawn 2 Flayed adds from room spawners when a heart opens.
-            var spawners = PlacementsOf(Area, seed, "Metadata/Monsters/Flayed/FlayedSpawnerMalachai");
             var rng = AreaRng(runner);
             int living = p2Adds.Count(id => runner.Area.Monsters.TryGetValue(id, out var m) && Alive(m));
             for (int i = 0; i < 2 && living + i < 6; i++)
             {
-                var spot = spawners.Count > 0
-                    ? (spawners[rng.Next(spawners.Count)].X, spawners[rng.Next(spawners.Count)].Y)
+                var spot = flayedSpawners.Count > 0
+                    ? flayedSpawners[rng.Next(flayedSpawners.Count)]
                     : RingSpot(runner, center, rng.NextDouble() * Math.Tau, 24);
                 string addType = (i & 1) == 0 ? FlayedMale : FlayedFemale;
                 await SpawnAdd(runner, addType, boss.Level, spot, bossId, p2Adds,
@@ -327,7 +391,7 @@ public static class MalachaiEncounter
             }
         }
 
-        async Task CastRuneCluster(Player runner, uint bossId, SpawnedMonster boss, (int X, int Y) aim, int count, double now)
+        async Task CastRuneCluster(Player runner, (int X, int Y) aim, int count, double now)
         {
             if (runes.Count >= 12) return;
             var rng = AreaRng(runner);
@@ -338,7 +402,7 @@ public static class MalachaiEncounter
                 var spot = RingSpot(runner, aim, angle, dist);
                 if (runes.Any(r => Distance(r.At, spot) < 4)) continue;
                 uint fx = await SpawnTimedEffect(runner, effects, spot, RuneTrapArt, now + 9.0, scale: 1.0f);
-                runes.Add(new(fx, spot, now + 0.7, now + 8.5, false));
+                runes.Add(new(fx, spot, now + 0.7, now + 8.5));
             }
         }
 

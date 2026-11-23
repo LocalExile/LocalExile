@@ -16,6 +16,7 @@ using GameServer.Core.World;
 public static partial class Game
 {
     const string AlliedAuraStatsKey = "monster_allied_auras";
+    const string EncounterProximityShieldKey = "encounter_proximity_shield";
     const ushort TemporalBubbleBuffRow = 2008; // archnemesis_time_bubble
     const double TemporalBubbleRadius = 32.0;
     const double AlliedAuraRadius = 50.0;
@@ -47,6 +48,7 @@ public static partial class Game
         public MonsterAuraFlags CarrierFlags;
         public MonsterAuraFlags AppliedAlliedFlags;
         public bool HasTemporalShield;
+        public bool HasEncounterShield;
     }
 
     sealed class AreaTemporalCounter
@@ -96,7 +98,8 @@ public static partial class Game
     {
         var flags = MonsterAuraFlags.None;
         if (!m.Hostile) return flags;
-        if (m.Effects[Stat.CannotBeDamagedByThingsOutsideRadius] > 0)
+        if (m.Effects[Stat.CannotBeDamagedByThingsOutsideRadius] > 0
+            && !m.TemporaryStats.ContainsKey(EncounterProximityShieldKey))
             flags |= MonsterAuraFlags.Temporal;
 
         var list = m.Mods.Mods;
@@ -401,35 +404,51 @@ public static partial class Game
     /// without applying the Temporal Bubble action-speed slow to players inside the bubble.</summary>
     public static void SetEncounterProximityShield(GameArea area, SpawnedMonster m, int radius)
     {
-        const string key = "encounter_proximity_shield";
         var state = MonsterAuraStates.GetValue(m, _ => new MonsterAuraState());
-        if (radius > 0)
+        if (!state.Checked)
         {
-            m.SetTemporaryStats(key, new Dictionary<uint, int> { [Stat.CannotBeDamagedByThingsOutsideRadius] = radius });
-            if (!state.HasTemporalShield)
+            state.CarrierFlags = DetectCarrierFlags(m);
+            state.Checked = true;
+            if ((state.CarrierFlags & MonsterAuraFlags.Temporal) != 0 && !state.HasTemporalShield)
             {
                 state.HasTemporalShield = true;
                 AreaTemporalShieldCounts.GetValue(area, _ => new AreaTemporalCounter()).Count++;
             }
         }
+        if (radius > 0)
+        {
+            m.SetTemporaryStats(EncounterProximityShieldKey, new Dictionary<uint, int> { [Stat.CannotBeDamagedByThingsOutsideRadius] = radius });
+            m.RebuildStats();
+            if (!state.HasEncounterShield)
+            {
+                state.HasEncounterShield = true;
+                AreaTemporalShieldCounts.GetValue(area, _ => new AreaTemporalCounter()).Count++;
+            }
+        }
         else
         {
-            m.RemoveTemporaryStats(key);
-            if (state.HasTemporalShield && (state.CarrierFlags & MonsterAuraFlags.Temporal) == 0)
+            m.RemoveTemporaryStats(EncounterProximityShieldKey);
+            m.RebuildStats();
+            if (state.HasEncounterShield)
             {
-                state.HasTemporalShield = false;
+                state.HasEncounterShield = false;
                 if (AreaTemporalShieldCounts.TryGetValue(area, out var c) && c.Count > 0) c.Count--;
             }
         }
     }
 
-    /// <summary>Cleans up temporal proximity shield counter for <paramref name="area"/> when a monster dies.</summary>
+    /// <summary>Cleans up temporal and encounter proximity shield counters for <paramref name="area"/> when a monster dies.</summary>
     public static void ClearMonsterAuraCarrier(GameArea area, SpawnedMonster m)
     {
         if (!MonsterAuraStates.TryGetValue(m, out var state)) return;
         if (state.HasTemporalShield)
         {
             state.HasTemporalShield = false;
+            if (AreaTemporalShieldCounts.TryGetValue(area, out var c) && c.Count > 0) c.Count--;
+        }
+        if (state.HasEncounterShield)
+        {
+            state.HasEncounterShield = false;
             if (AreaTemporalShieldCounts.TryGetValue(area, out var c) && c.Count > 0) c.Count--;
         }
     }
