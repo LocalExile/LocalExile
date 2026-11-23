@@ -66,13 +66,17 @@ def writer(fa):
     """Bytes a writer writes: the sum of its fixed-size stream writes; exact when it has no variable write, no call
     that takes the stream and no branch or loop."""
     t = src("%09x" % fa)
+    # Comments and quoted text are not executable decompiler C; spaces keep adjacent tokens separate.
+    t = re.sub(r"""\/\*.*?\*/|//[^\r\n]*|"(?:\\.|[^"\\])*"|'(?:\\.|[^'\\])*'""",
+               " ", t or "", flags=re.S)
     if not t or "{" not in t: return None
     body = t.split("{", 1)[1]
-    fixed = sum(int(n, 0) for n in re.findall(r"FUN_140dfa000\([^,]+,[^,]+,(0x[0-9a-f]+|\d+)\)", body))
-    var = re.search(r"FUN_140dfa000\([^,]+,[^,]+,[^)0-9][^)]*\)", body)
+    sizes = re.findall(r"\bFUN_140dfa000\s*\([^,;]+,[^,;]+,\s*(0x[0-9a-f]+|\d+)\s*\)", body)
+    fixed = sum(int(n, 0) for n in sizes)
+    all_fixed = len(sizes) == len(re.findall(r"\bFUN_140dfa000\s*\(", body))
     calls = set(re.findall(r"(FUN_1[0-9a-f]{8})\([^;]*param_2", body)) - {"FUN_140dfa000"}
-    branch = re.search(r"\b(if|for|while|do)\b", body)
-    return fixed, not var and not calls and not branch
+    branch = re.search(r"\b(if|for|while|do|switch)\b|\?", body)
+    return fixed, all_fixed and not calls and not branch
 
 def gateway_framing():
     """Read the fixed table and the instance IDs with their own framing."""
@@ -255,7 +259,8 @@ def generate(sendsites):
           "S→C classes locally (S→C instance 0xc0 is fed to the client's own handler through `0x141d65c80`; that is not a",
           "send and is not listed here).", "",
           "**Length** is the whole message in bytes, id included, when the writer is exact (only fixed-size stream writes,",
-          "no branch, no call that takes the stream). `≥ N` = N fixed bytes plus variable or conditional parts.", "",
+          "no branch, no call that takes the stream). `unknown` means no exact length was established;",
+          "the sum of fixed writes is not a lower bound when writes may be conditional.", "",
           "## Validation against the Gateway", "",
           f"`ClientPackets` has {len(gw)} fixed lengths: {agree} agree with an exact extracted length, "
           f"{len(bad)} disagree" + (": " + ", ".join(f"{i:#x} (Gateway {n}, extracted {x})" for i, n, x in bad) if bad else "")
@@ -268,10 +273,7 @@ def generate(sendsites):
         L += [f"## {title}", "", f"{len(rs)} ids.", "", "| Id | Class / writer | Length | S→C class | Senders | Notes |", "|---|---|---|---|---|---|"]
         for r in rs:
             cls = "<br>".join(f"`{c['vtable']}` / `{c['write']}`" for c in r["classes"]) or "inline"
-            if r["length"] is not None: ln = str(r["length"])
-            else:
-                fx = [c["fixed"] for c in r["classes"] if "fixed" in c]
-                ln = f"≥ {min(fx)}" if fx else ""
+            ln = str(r["length"]) if r["length"] is not None else "unknown"
             # a generic class (one u16, one u32, ...) is shared by many S→C ids: give the count only
             sc = "<br>".join(", ".join(c["s2c"]) if len(c["s2c"]) <= 3 else f"generic ({len(c['s2c'])} S→C ids)"
                              for c in r["classes"] if c["s2c"])
