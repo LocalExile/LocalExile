@@ -17,9 +17,7 @@ public static class ManaRecoveryRules
         if (inspiration != 0)
             scaled = decimal.Round(scaled * Math.Max(0m, 1m + inspiration / 100m), 0, MidpointRounding.AwayFromZero);
         // Resource conversion precedes resource-specific efficiency. Mana efficiency cannot reduce a Life cost.
-        bool convertsToLife = player(Stat.KeystoneBloodMagic) != 0 || player(Lifetap.CostLifeStat) != 0
-            || player(Lifetap.AlternateCostLifeStat) != 0;
-        if (applyManaEfficiency && !convertsToLife && player(ItemChargeCosts.ManaEfficiency) is int efficiency and not 0)
+        if (applyManaEfficiency && !ConvertsManaToLife(player) && player(ItemChargeCosts.ManaEfficiency) is int efficiency and not 0)
         {
             decimal denominator = 100m + efficiency;
             scaled = denominator <= 0 ? scaled == 0 ? 0 : int.MaxValue
@@ -27,12 +25,24 @@ public static class ManaRecoveryRules
         }
         // Flat total-cost modifiers apply after support multipliers and percentage modifiers. The skill's type,
         // rather than whether the actor is presently channelling, selects the channel-specific term.
+        return (int)Math.Clamp(scaled + FlatManaCost(player, channelled), 0m, int.MaxValue);
+    }
+
+    public static long FlatManaCost(Func<uint, int> player, bool? channelled)
+    {
         long flat = player(Stat.SkillManaCostPlus);
         if (channelled is bool channel)
             flat += player(channel ? Stat.SkillManaCostPlusWithChannellingSkills
                 : Stat.SkillManaCostPlusWithNonChannellingSkills);
-        return (int)Math.Clamp(scaled + flat, 0m, int.MaxValue);
+        return flat;
     }
+
+    public static bool ConvertsManaToLife(Func<uint, int> stat) => stat(Stat.KeystoneBloodMagic) != 0
+        || stat(Lifetap.CostLifeStat) != 0 || stat(Lifetap.AlternateCostLifeStat) != 0;
+
+    public static int LifeCost(long nativeLife, Func<uint, int> stat) =>
+        (int)Math.Clamp(decimal.Floor(nativeLife * Math.Max(0m, 100m + stat(Stat.BaseCostPlusPct)
+            + stat(Stat.BaseLifeCostPlusPct) + stat(Stat.LifeCostPlusPct)) / 100m), 0, int.MaxValue);
 }
 
 /// <summary>Owned mana-spend progress and exact hit recoup. ReminderTextRecoup pins four game seconds.</summary>
