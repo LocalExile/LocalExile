@@ -154,42 +154,159 @@ public sealed class MonsterEmerge
         return g.Watching = true;
     }
 
+    /// <summary>Radius within which a pack-triggered emerge alerts unrisen packmates (cells).</summary>
+    public const int PackEmergeRadius = 80;
+
+    /// <summary>Schedules staggered emergence for all unrisen buried/lurking packmates of <paramref name="packId"/>
+    /// near <paramref name="origin"/> so a pack rises in a staggered wave instead of popping simultaneously or staying
+    /// dormant. Returns true if any packmate was scheduled. In the area's frame.</summary>
+    public static bool SchedulePackEmergeLocked(Player player, int packId, (int X, int Y) origin, double now, uint excludeId = 0)
+    {
+        if (packId <= 0) return false;
+        var g = player.Area.EmergeGround;
+        if (player.Area.DormantMonsters.Count == 0 && g.Lurking.Count == 0) return false;
+        double r2 = (double)PackEmergeRadius * PackEmergeRadius;
+        List<(SpawnedMonster Monster, double Dist2)>? pending = null;
+        foreach (var (id, m) in player.Area.DormantMonsters)
+        {
+            if (id == excludeId || m.PackId != packId || m.Asleep || m.Dead || !double.IsNaN(m.ScheduledEmergeAt)) continue;
+            var at = m.Walk.Position(now);
+            double dx = at.X - origin.X, dy = at.Y - origin.Y, d2 = dx * dx + dy * dy;
+            if (d2 <= r2) (pending ??= []).Add((m, d2));
+        }
+        foreach (uint id in g.Lurking)
+        {
+            if (id == excludeId || !player.Area.Monsters.TryGetValue(id, out var m) || m.PackId != packId
+                || m.Asleep || m.Dead || !double.IsNaN(m.ScheduledEmergeAt)) continue;
+            var at = m.Walk.Position(now);
+            double dx = at.X - origin.X, dy = at.Y - origin.Y, d2 = dx * dx + dy * dy;
+            if (d2 <= r2) (pending ??= []).Add((m, d2));
+        }
+        if (pending is null || pending.Count == 0) return false;
+        pending.Sort(static (a, b) => a.Dist2.CompareTo(b.Dist2));
+        var rng = Game.AreaRng(player);
+        for (int i = 0; i < pending.Count; i++)
+        {
+            double delay = Math.Min(1.8, (i + 1) * (0.15 + rng.NextDouble() * 0.15));
+            pending[i].Monster.ScheduledEmergeAt = now + delay;
+        }
+        return true;
+    }
+
+    /// <summary>Whether any unrisen monster currently has a staggered emerge countdown pending. In the area's frame.</summary>
+    public static bool HasScheduledEmerge(Player player)
+    {
+        foreach (var m in player.Area.DormantMonsters.Values)
+            if (!double.IsNaN(m.ScheduledEmergeAt)) return true;
+        foreach (uint id in player.Area.EmergeGround.Lurking)
+            if (player.Area.Monsters.TryGetValue(id, out var m) && !double.IsNaN(m.ScheduledEmergeAt)) return true;
+        return false;
+    }
+
     /// <summary>The monsters that rise now: within reach of the player (<see cref="Range"/>, or the aggro range if
-    /// shorter), or a lurking one that has been hit. A buried one leaves <see cref="Buried"/> for the connection's
-    /// monsters; each is aggroed and busy for its clip. Returns them with where they stand; the caller sends the rise.
-    /// When none is left waiting the watch ends (<paramref name="watching"/> false). In the area's frame.</summary>
+    /// shorter), a pack-scheduled emerge whose stagger time has elapsed, or a lurking one that has been hit. When a
+    /// pack member triggers, the nearest member rises immediately and remaining packmates emerge in a staggered wave.
+    /// A buried one leaves <see cref="Buried"/> for the connection's monsters; each is aggroed and busy for its clip.
+    /// Returns them with where they stand; the caller sends the rise. When none is left waiting the watch ends
+    /// (<paramref name="watching"/> false). In the area's frame.</summary>
     public List<(uint Id, SpawnedMonster Monster, (int X, int Y) At, double Seconds)> RiseLocked(Player player,
         (int X, int Y) playerAt, double now, out bool watching)
     {
         var g = player.Area.EmergeGround;
-        var risen = new List<(uint, SpawnedMonster, (int, int), double)>();
-        bool Near(SpawnedMonster m, out (int X, int Y) at)
+        var risen = new List<(uint Id, SpawnedMonster Monster, (int X, int Y) At, double Seconds)>();
+        bool Near(SpawnedMonster m, out (int X, int Y) at, out double d2)
         {
             at = m.Walk.Position(now);
-            double d = Math.Sqrt((double)(at.X - playerAt.X) * (at.X - playerAt.X) + (double)(at.Y - playerAt.Y) * (at.Y - playerAt.Y));
+            double dx = at.X - playerAt.X, dy = at.Y - playerAt.Y;
+            d2 = dx * dx + dy * dy;
             int range = WakeRange(player.Layout.Id, m.Variety);
-            return d <= (m.AggroRange > 0 ? Math.Min(range, m.AggroRange) : range);
+            double eff = m.AggroRange > 0 ? Math.Min(range, m.AggroRange) : range;
+            return d2 <= eff * eff;
         }
         double SecondsOf(SpawnedMonster m) => m.Variety is { } v ? Seconds(v) : DefaultSeconds;
+        // Track packs triggered this tick so at most one proximity-triggered member per pack rises immediately and the
+        // rest of its pack staggers smoothly instead of popping simultaneously on the same tick.
+        Dictionary<int, (uint Id, SpawnedMonster Monster, (int X, int Y) At, double Dist2, bool Buried)>? packLeads = null;
         foreach (var (id, m) in player.Area.DormantMonsters)
-            if (!m.Asleep && Near(m, out var at)) risen.Add((id, m, at, SecondsOf(m)));
-        foreach (var (id, m, _, _) in risen)
         {
-            player.Area.DormantMonsters.Remove(id);
-            player.Area.Monsters[id] = m;
+            if (m.Asleep) continue;
+            if (!double.IsNaN(m.ScheduledEmergeAt))
+            {
+                if (now >= m.ScheduledEmergeAt)
+                {
+                    m.ScheduledEmergeAt = double.NaN;
+                    risen.Add((id, m, m.Walk.Position(now), SecondsOf(m)));
+                }
+                continue;
+            }
+            if (!Near(m, out var at, out double d2)) continue;
+            if (m.PackId > 0)
+            {
+                packLeads ??= [];
+                if (!packLeads.TryGetValue(m.PackId, out var cur) || d2 < cur.Dist2)
+                    packLeads[m.PackId] = (id, m, at, d2, true);
+            }
+            else
+            {
+                risen.Add((id, m, at, SecondsOf(m)));
+            }
         }
+        List<uint>? risenLurking = null;
         foreach (uint id in g.Lurking.ToList())
         {
             if (!player.Area.Monsters.TryGetValue(id, out var m) || m.Dead) { g.Lurking.Remove(id); continue; }
-            if (Near(m, out var at) || m.Life < m.MaxLife)
+            if (m.Life < m.MaxLife)
+            {
+                m.ScheduledEmergeAt = double.NaN;
+                g.Lurking.Remove(id);
+                var at = m.Walk.Position(now);
+                risen.Add((id, m, at, SecondsOf(m)));
+                if (m.PackId > 0) SchedulePackEmergeLocked(player, m.PackId, at, now, excludeId: id);
+                continue;
+            }
+            if (!double.IsNaN(m.ScheduledEmergeAt))
+            {
+                if (now >= m.ScheduledEmergeAt)
+                {
+                    m.ScheduledEmergeAt = double.NaN;
+                    g.Lurking.Remove(id);
+                    risen.Add((id, m, m.Walk.Position(now), SecondsOf(m)));
+                }
+                continue;
+            }
+            if (!Near(m, out var nearAt, out double d2)) continue;
+            if (m.PackId > 0)
+            {
+                packLeads ??= [];
+                if (!packLeads.TryGetValue(m.PackId, out var cur) || d2 < cur.Dist2)
+                    packLeads[m.PackId] = (id, m, nearAt, d2, false);
+            }
+            else
             {
                 g.Lurking.Remove(id);
-                risen.Add((id, m, at, SecondsOf(m)));
+                risen.Add((id, m, nearAt, SecondsOf(m)));
             }
+        }
+        if (packLeads is not null)
+        {
+            foreach (var (packId, lead) in packLeads)
+            {
+                risen.Add((lead.Id, lead.Monster, lead.At, SecondsOf(lead.Monster)));
+                if (!lead.Buried) (risenLurking ??= []).Add(lead.Id);
+                Game.AlertPackLocked(player, lead.Monster, lead.At, now);
+            }
+        }
+        if (risenLurking is not null)
+            foreach (uint id in risenLurking) g.Lurking.Remove(id);
+        foreach (var (id, m, _, _) in risen)
+        {
+            if (player.Area.DormantMonsters.Remove(id))
+                player.Area.Monsters[id] = m;
         }
         foreach (var (_, m, _, seconds) in risen)
         {
             m.Aggro = true;
+            m.ReturningHome = false;
             m.LastTarget = null;
             // The clip-end callback completes Emerge in both modes (141e933b0 → 141e934b0 → 141e8f670).
             // No extra idle tail follows the clip; the next AI decision may run once it ends.

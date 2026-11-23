@@ -55,10 +55,20 @@ public static partial class MonsterSkills
         Stat.SkillTravelDistancePlusPct is var key
             ? GolemData.Skill(SkillsFor(player), effect, level).Stats.GetValueOrDefault(key) : 0;
 
+    /// <summary>Whether an effect is a charge-rally warcry/roar (MassFrenzy, GrapplerMassFrenzy, MassPower).</summary>
+    public static ChargeType? RallyChargeOf(SkillCatalog skills, int effect) =>
+        SkillCatalog.ActionTypeId(effect) switch
+        {
+            "MassFrenzy" => ChargeType.Frenzy,
+            "MassPower" => ChargeType.Power,
+            _ => null,
+        };
+
     /// <summary>What the skill does beyond a hit; null for a plain hit and for an aura (which is up from the spawn).</summary>
     public static MonsterSkillShape? ShapeOf(SkillCatalog skills, int effect)
     {
         if (skills.IsAura(effect)) return null;
+        if (RallyChargeOf(skills, effect) is not null) return MonsterSkillShape.Self;
         if (ActionClasses.OfEffect(effect)?.SelfBuff is not null) return MonsterSkillShape.Self;
         // A skill on a corpse: Bodyswap travels to one, Volatile Dead, Cremation and Detonate Dead hit from them. One that
         // raises a minion from it is no hit (the server raises none).
@@ -70,7 +80,9 @@ public static partial class MonsterSkills
         // A boss's own teleport and a monster-only movement skill carry it the same way (BossMoves).
         if (BossMoves.IsMove(skills, effect)) return MonsterSkillShape.Travel;
         if (skills.IsWarcry(effect)) return MonsterSkillShape.Self;
-        if (skills.HasType(effect, "Buff") && !skills.IsAttack(effect) && !skills.IsProjectile(effect)) return MonsterSkillShape.Self;
+        if (skills.HasType(effect, "Buff") && !skills.IsAttack(effect) && !skills.IsProjectile(effect)
+            && !(skills.HasType(effect, "DamageOverTime") && skills.HasType(effect, "AreaSpell")))
+            return MonsterSkillShape.Self;
         return null;
     }
 
@@ -79,6 +91,15 @@ public static partial class MonsterSkills
     {
         if (ShapeOf(skills, effect) is not { } shape) return null;
         var (stats, seconds) = StatsOf(skills, effect, level);
+        if (RallyChargeOf(skills, effect) is ChargeType rally)
+        {
+            var raw = GolemData.Skill(skills, effect, level).Stats;
+            int count = rally == ChargeType.Frenzy
+                ? Math.Max(1, raw.GetValueOrDefault(Stat.NumberOfFrenzyChargesToGain))
+                : 1;
+            return new(MonsterSkillShape.Self, 0, Math.Max(seconds ?? 8.0, 4.0), stats, Radius: 45,
+                RallyCharge: rally, RallyCount: count);
+        }
         if (IsCorpseSkill(effect)) return CorpseUseOf(skills, effect, level, shape, stats, seconds);
         ushort row = ActionClasses.OfEffect(effect)?.SelfBuff is { } buff && BuffRows.TryGetValue(buff(skills, effect), out ushort own)
             ? own : BuffRowOf(skills.EffectId(effect) ?? "", shape);
@@ -163,10 +184,17 @@ public static partial class MonsterSkills
     /// summon only while its summoner has fewer of its monsters than the skill's limit (a totem is placed when there is
     /// none, not again over the one that stands). In the area's frame.</summary>
     public static bool Usable(Player player, uint id, SpawnedMonster m, MonsterAttack a, double now) =>
-        (a.Use is not { OnCorpse: true } || CorpseFor(player, m, a, now) is not null)
+        (!a.IsDischarge || HasAnyMonsterCharge(m))
+        && (a.Use is not { OnCorpse: true } || CorpseFor(player, m, a, now) is not null)
         && (a.Summon is not { Limit: > 0 } summon || Game.LivingSummonsLocked(player, id, summon) < summon.Limit)
         // A summon on its cooldown or at the cap of living summons waits too: chosen, the boss stood until it could.
         && Game.SummonReadyLocked(player, id, m, a, now);
+
+    static bool HasAnyMonsterCharge(SpawnedMonster m)
+    {
+        var (e, f, p) = MonsterChargesOf(m);
+        return e + f + p > 0;
+    }
 
     /// <summary>Takes the corpse and, for a skill that takes several, others within its radius: they leave the client
     /// (0x2bd) and every corpse use. Returns where each was.</summary>
@@ -311,9 +339,12 @@ public static partial class MonsterSkills
             return;
         }
         int chargePct = use.Shape == MonsterSkillShape.Travel ? use.Stats.GetValueOrDefault(ChargeStat) : 0;
-        if (chargePct > 0)
+        bool isShieldCharge = use.Shape == MonsterSkillShape.Travel
+            && (chargePct > 0 || use.Stats.GetValueOrDefault(Stat.ShieldChargeExtraDistance) > 0
+                || (a.Effect is int ce && SkillCatalog.ActionTypeId(ce) == "ShieldCharge"));
+        if (isShieldCharge)
         {
-            await Charge(player, id, m, action, a, chargePct);
+            await Charge(player, id, m, action, a, chargePct > 0 ? chargePct : 75);
             return;
         }
         double startedAt = 0, seconds = a.Seconds;
@@ -351,14 +382,39 @@ public static partial class MonsterSkills
         {
             case MonsterSkillShape.Travel:
                 if (!a.Damage.IsZero)
-                    await MonsterContact(player, id, m, action, seq, a with { Range = LandingRadius, Use = null });
+                {
+                    if (a.AreaRadius > 0)
+                        await MonsterAreaHit(player, id, m, a with { Use = null }, action, target, a.AreaRadius * m.Effects.AreaScaleFactor, seq);
+                    else
+                        await MonsterContact(player, id, m, action, seq, a with { Range = LandingRadius, Use = null });
+                }
                 break;
             case MonsterSkillShape.Self:
-                await BuffSelf(player, id, m, use);
+                if (use.RallyCharge is ChargeType rallyType)
+                    RallyAllies(player, id, m, rallyType, Math.Max(1, use.RallyCount), use.Radius > 0 ? use.Radius : 45);
+                else
+                    await BuffSelf(player, id, m, use);
                 break;
             case MonsterSkillShape.Curse:
                 await Curse(player, id, use);
                 break;
+        }
+    }
+
+    static void RallyAllies(Player player, uint id, SpawnedMonster caster, ChargeType type, int count, double radius)
+    {
+        if (player.Closed || player.LeavingArea || caster.Dead || caster.Life == 0 || !caster.Hostile) return;
+        double now = AreaTime(player);
+        var origin = caster.Walk.Position(now);
+        double r2 = radius * radius;
+        GrantMonsterChargeLocked(player.Area, id, caster, type, now, count);
+        foreach (var (allyId, ally) in player.Area.MonstersNear(origin, (int)Math.Ceiling(radius) + 4))
+        {
+            if (allyId == id || !ally.Hostile || ally.Dead || ally.Life == 0) continue;
+            var at = ally.Walk.Position(now);
+            double dx = at.X - origin.X, dy = at.Y - origin.Y;
+            if (dx * dx + dy * dy <= r2)
+                GrantMonsterChargeLocked(player.Area, allyId, ally, type, now, count);
         }
     }
 

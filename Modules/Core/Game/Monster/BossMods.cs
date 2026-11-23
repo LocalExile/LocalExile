@@ -78,6 +78,24 @@ public static class BossMods
     /// <summary>Whether the monster's death gives no items (its experience may still be rolled).</summary>
     public static bool GivesNoItems(MonsterCatalog.Variety? variety) => Has(variety, NoDropsOrExperience) || Has(variety, NoDrops);
 
+    /// <summary>Whether the variety carries any <c>MonsterActBoss*</c> species mod (Acts 1–10 Act Bosses).</summary>
+    public static bool IsActBoss(MonsterCatalog.Variety? variety)
+    {
+        if (variety is null || !Rows.TryGetValue(variety.Id, out var row)) return false;
+        foreach (string mod in row.Mods)
+            if (mod.StartsWith("MonsterActBoss", StringComparison.Ordinal)) return true;
+        return false;
+    }
+
+    /// <summary>Whether the variety carries any <c>MonsterQuestBoss*</c> species mod (campaign quest bosses).</summary>
+    public static bool IsQuestBoss(MonsterCatalog.Variety? variety)
+    {
+        if (variety is null || !Rows.TryGetValue(variety.Id, out var row)) return false;
+        foreach (string mod in row.Mods)
+            if (mod.StartsWith("MonsterQuestBoss", StringComparison.Ordinal)) return true;
+        return false;
+    }
+
     static Dictionary<string, Row> Load()
     {
         if (!ClientTables.Has("MonsterVarieties") || !ClientTables.Has("Mods")) return [];

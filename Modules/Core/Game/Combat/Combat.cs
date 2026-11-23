@@ -604,6 +604,7 @@ public static partial class Game
                 if (ElementalOverloadCritLocked(player, SkillCatalog.FirstSkillId, null, playerStats, critical) is { } eoBuff)
                     ProjectilesFor(player).Packet(eoBuff, "elemental overload (default attack)");
                 if (life == 0) { m.Aggro = false; m.Dead = true; CleanupDeadMonsterLocked(player.Area, targetId, m); CollectVaalSoulAtDeathLocked(player, m); }
+                else { m.Aggro = true; m.ReturningHome = false; AlertPackLocked(player, m, m.Walk.Position(contactAt), contactAt); }
                 AilmentsOnHitLocked(player, targetId, m, mitigated, spell: false, critical, criticalMultiplier, playerStats,
                     ownPenetration, at, AreaRng(player), poison: prehit.Poison,
                     blind: BlindHitInput.Capture(playerStats), attackGains: AttackAilmentGains.Capture(playerStats, attack: true));
@@ -3170,7 +3171,14 @@ public static partial class Game
             CleanupDeadMonsterLocked(player.Area, m.ObjectId, m);
             CollectVaalSoulAtDeathLocked(player, m);
         }
-        else if (m.Hostile) { m.Aggro = true; m.LastTarget = null; }
+        else if (m.Hostile)
+        {
+            bool wasAggro = m.Aggro;
+            m.Aggro = true;
+            m.ReturningHome = false;
+            m.LastTarget = null;
+            if (!wasAggro) AlertPackLocked(player, m, m.Walk.Position(hitNow), hitNow);
+        }
         TriggerElementalRelicLocked(player, m, hit: damage > 0, killed: m.Life == 0, allyAt);
         if (allyAt is null && damage > 0 && !player.Reservations.Secondary) ReservationHitLocked(player, m);
         return new(m.Life, starts);
@@ -3613,6 +3621,10 @@ public static partial class Game
         }
         // Soul Eater eats the souls of anything killed nearby, the player's kill or not.
         SoulEaterSoul(player, id, at);
+        // Kin-death charge grants (Dread Primates / Undying Grapplers) & generic CastsOnDeath skills.
+        MonsterKits.GrantKinDeathChargesLocked(player.Area, id, m, now);
+        _ = AreaFrames.Start(() => MonsterKits.ExecuteDeathSkills(player, id, m, at));
+        bool firstBossKill = HasUnsetKillQuestFlag(player, variety.Id);
         await SetQuestFlags(player, QuestFlagsOnKill(player, variety.Id));
         // The party's kill: every living player within the experience range takes their share
         // (Progression.PartyMultiplier), the killer included. The presence of a private area is the party (an area is
@@ -3622,18 +3634,13 @@ public static partial class Game
         await GameEvents.RunKill(new(player, m, variety.Id, at) { PlayerKill = playerKill });
         // A summoned monster whose skill says so gives neither experience nor items, and so does a boss's first stage
         // (BossMods: Malachai, Shakari and Piety's escape give no experience; their own rows say so).
-        if (!m.NoRewards && !BossMods.NoRewards(variety) && alive && Dist(at, playerAt) <= ExperienceRange && Monsters.BaseExperience(variety, m.Level) is int baseXp)
+        if (!MonsterGivesNoRewards(m) && alive && Dist(at, playerAt) <= ExperienceRange)
         {
-            int speciesXpBonus = m.Effects.SpeciesExperienceBonusPct(m.Rarity);
-            int xpMultiplier = speciesXpBonus > 0
-                ? (int)Math.Round(variety.ExperienceMultiplier * (1 + speciesXpBonus / 100.0))
-                : variety.ExperienceMultiplier;
-            var (xp, gemXp) = KillExperience(killer, monster, baseXp, xpMultiplier, m.Rarity,
-                player.Pools.Level, m.Level, PartyExperienceShareOf(partyShares, player));
+            var (xp, gemXp) = ComputeKillExperience(player, m, variety, monster, PartyExperienceShareOf(partyShares, player));
             // The gems gain their share of the kill only (not a quest's level or /add_xp), at the character's cap too:
             // 10% of the kill's experience before the level penalty.
-            await GainGemExperience(player, gemXp);
-            await GainExperience(player, xp, $"{m.Rarity} {m.Label} 0x{id:x}");
+            if (gemXp > 0) await GainGemExperience(player, gemXp);
+            if (xp > 0) await GainExperience(player, xp, $"{m.Rarity} {m.Label} 0x{id:x}");
         }
         // A quest kill that levels the character up (a1q1: Hillock → at least level 2), wherever the player stands.
         if (QuestsOf(player).LevelAfterKill(player.Layout.Id, variety.Id) is int level and > 1 && level <= CharacterStats.LevelStarts.Count)
@@ -3642,55 +3649,22 @@ public static partial class Game
             have = player.Character.Experience;
             if (have < needed) await GainExperience(player, needed - have, $"quest: {m.Label} killed, level {level}");
         }
-        await GainKillCharges(player, m.Rarity, $"{m.Rarity} {m.Label} 0x{id:x} killed", tinctureKill?.FlaskChargesPct ?? 0);
-        if (!m.NoRewards) await DropLoot(player, m, at);
+        if (!MonsterGivesNoRewards(m))
+            await GainKillCharges(player, m.Rarity, $"{m.Rarity} {m.Label} 0x{id:x} killed", tinctureKill?.FlaskChargesPct ?? 0);
+        if (!m.NoRewards) await DropLoot(player, m, at, firstBossKill);
         await PublishUnhingedCorpseDestruction(player, id, m, destroyCorpse);
     }
 
     // The monster's items (ItemDrops.Roll) as WorldItem objects scattered around where it died, on walkable cells when the
     // area's walk map is known. Like dropped items they lie in the instance (InstanceStore).
-    public static async Task DropLoot(Player player, SpawnedMonster m, (int X, int Y) at)
+    public static async Task DropLoot(Player player, SpawnedMonster m, (int X, int Y) at, bool firstBossKill = false)
     {
-        if (Environment.GetEnvironmentVariable("Game_DROPS") == "0") return;
-        // A stage of a boss that gives no items (Malachai's first form, Abberath, Shavronne's tower, Maligaro's souls),
-        // and the opening tutorial zombie (it drops only the tutorial skill gem via QuestObjects).
-        if (BossMods.GivesNoItems(m.Variety) || m.Variety?.Id == TutorialObjects.Zombie) return;
-        // A survivors run keeps the ground clear: no loot, no gold, nothing reaches the client.
-        if (!GameEvents.AllowsLoot(player)) return;
-        var balance = LeagueFor(player).Rules;
-        // The mods' changes (Program.Mods.cs): their multipliers on top of the league's, their own items besides.
-        var modded = GameEvents.RunDrops(player, ModMonster(m, at));
-        List<ItemDrops.Drop> drops = [];
-        // The King in the Mists always drops one of four uniques, plus its support gems and card. Its humanoid form is
-        // removed without a death, so only the treant (Boss3) reaches here.
-        if (KingInMists.IsBoss3(m.Variety))
-            drops.AddRange(DropsFor(player).KingInMists(m.Level, AreaRng(player)));
-        if (modded is not { Cancel: true })
+        var rng = AreaRng(player);
+        var stacked = RollKillLoot(player, m, at, rng, firstBossKill);
+        if (stacked.Count == 0) return;
+        foreach (var drop in stacked)
         {
-            if (m.Rarity == MonsterRarity.Unique && m.Variety is { } boss)
-                drops.AddRange(DropsFor(player).EncounterJewels(boss.Id, m.Level, AreaRng(player), DropDataProvider.Default.Current));
-            // A generic map drop (approximate rates): use the open map's tier in a map, or tier 1 in the late campaign
-            // once the monster meets MapKeyTier1's DropLevel. The same tier gates base card/scarab and atlas-base drops.
-            int mapTier = MapRunOf(player)?.Area.Tier ?? 0;
-            var mapMods = MapModsOf(player);
-            drops.AddRange(DropsFor(player).Roll(m.Level, m.Rarity, AreaRng(player), IncreasedItemRarity(player, m),
-                balance.ItemDropMultiplier * (modded?.Quantity ?? 1) * ItemQuantityFactor(player, m), balance.EquipmentRarityMultiplier * (modded?.Rarity ?? 1), mapTier, mapMods, MapScarabQuantity(mapMods)));
-            drops.AddRange(PartyCurrency(player, drops, AreaRng(player)));
-            if (RollMapDropForKill(player, m.Level, m.Rarity, mapTier, AreaRng(player), modded?.MapRelated ?? 1) is { } mapDrop)
-                drops.Add(mapDrop);
-            // And a pile of gold (ItemDrops.Gold), picked up into the stash's gold.
-            if (DropsFor(player).Gold(m.Level, m.Rarity, AreaRng(player),
-                balance.GoldMultiplier * SystemSettings.Default.GoldDropMultiplier * (modded?.Gold ?? 1)) is { } gold) drops.Add(gold);
-            drops.AddRange(ExtraDropsFromMap(player, m.Level, m.Rarity, AreaRng(player)));
-        }
-        drops = ModdedDrops(player, modded, drops, m.Level, m.Rarity, IncreasedItemRarity(player, m), balance.EquipmentRarityMultiplier, AreaRng(player));
-        if (MapBeyond.CorruptsDrops(player, m.Variety?.Id)) CorruptDrops(drops);
-        foreach (var drop in ItemDrops.Stacked(drops))
-        {
-            // A ring around the corpse, 3 to 6 cells out.
-            double angle = AreaRng(player).NextDouble() * Math.Tau, r = 3 + AreaRng(player).NextDouble() * 3;
-            int x = at.X + (int)Math.Round(Math.Cos(angle) * r), y = at.Y + (int)Math.Round(Math.Sin(angle) * r);
-            if (player.Layout.Walkable is { } walks && !walks(x, y)) (x, y) = at;
+            var (x, y) = ScatterDropPosition(player, at, rng);
             var ground = new WorldItemObject(x, y, drop.Item);
             uint id = player.Instance.Ground.Add(ground, player);
             await SendGroundItem(player, id, ground,

@@ -30,7 +30,8 @@ public static partial class Game
         {
             while (!player.Closed && rules is not { IsActive: false })
             {
-                await (rules is null ? AreaDelay(player, 0.25) : AreaDelay(player, 0.25, rules.Stopping));
+                double step = MonsterEmerge.HasScheduledEmerge(player) ? 0.15 : 0.25;
+                await (rules is null ? AreaDelay(player, step) : AreaDelay(player, step, rules.Stopping));
                 if (player.Paused || player.PlayerLife == 0) continue;
                 double now = AreaTime(player);
                 List<(uint Id, SpawnedMonster Monster, (int X, int Y) At, double Seconds)> risen;
