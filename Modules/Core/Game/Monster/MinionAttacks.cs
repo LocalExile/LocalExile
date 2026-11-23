@@ -175,7 +175,11 @@ public static partial class Game
                         player.Minions.OutputQueue.Add(new(MinionActionHit(id, target.Id, accepted.HitCode,
                             HitAngle(to.X - at.X, to.Y - at.Y)),
                             $"0x01af minion 0x{id:x} hit on monster 0x{target.Id:x}", target.Id, target.Monster, WorldId: id));
-                        CommitMinionHitLocked(player, target.Id, target.Monster, accepted.Hit, accepted.Damage, now, $"minion 0x{id:x} ({m.Label})");
+                        bool owned = player.Minions.Owns(id, m);
+                        IReadOnlyDictionary<uint, int>? skill = owned ? OwnedFighter(player, id)?.Own : null;
+                        if (owned && skill is null && player.Beasts.Active is { } beast && beast.Id == id) skill = beast.SkillStats;
+                        CommitMinionHitLocked(player, target.Id, target.Monster, accepted.Hit, accepted.Damage, now,
+                            $"minion 0x{id:x} ({m.Label})", source: owned ? m : null, skill: skill);
                     }
                     break;
                 }

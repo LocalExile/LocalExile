@@ -189,7 +189,11 @@ public static partial class Game
             AddItemUtilityFlaskRawStats(stats, running, Stats);
             ApplyWiseOak(stats, running);
         });
-        Step(PlayerStatStep.SelfVulnerability, (player, stats, _) => AddSelfVulnerabilityStats(player, stats));
+        Step(PlayerStatStep.SelfVulnerability, (player, stats, _) =>
+        {
+            var selfVulnerability = AddSelfVulnerabilityStats(player, stats);
+            AddMapHexStats(player, MapModsOf(player), stats, existingVulnerability: selfVulnerability);
+        });
         Step(PlayerStatStep.Onslaught, (player, stats, _) =>
         {
             if (Stat.CurrentlyHasOnslaught is var onslaughtFlag) stats[onslaughtFlag] = HasOnslaught(player) ? 1 : 0;
