@@ -21,7 +21,9 @@ public static partial class Game
     {
         if (minion.Monster.Dead || minion.Monster.Life == 0 || !GolemCurrent(player, minion)
             || minion.GemSource is { } lifetime && !player.GemSourceLifetimes.IsCurrent(lifetime)
-            || player.Summons.Until.TryGetValue(minion.Id, out double expiry) && expiry <= AreaTime(player)) return false;
+            || player.Summons.Until.TryGetValue(minion.Id, out double expiry) && expiry <= AreaTime(player)
+            || player.Reservations.Until.TryGetValue(minion.Id, out double reservationExpiry) && reservationExpiry <= AreaTime(player))
+            return false;
         var skill = SupportedSkill(player, minion.Source);
         return skill.RequirementsMet && skill.Effect == minion.Definition.Effect
             && (minion.SourceIdentity is null || skill.SourceGem is { } gem
@@ -32,7 +34,8 @@ public static partial class Game
     static bool GuardianBlessingAvailableLocked(Player player, SupportedGem skill) =>
         GolemStat(skill.Stats, GuardianRequired) == 0
         || GuardianBlessingLink(skill, "SupportGuardiansBlessing") is { } link
-        && player.Golems.All.Values.Concat(player.Summons.Fighters.Values).Any(m => MatchesGuardianBlessing(player, m, link));
+        && player.Golems.All.Values.Concat(player.Summons.Fighters.Values).Concat(player.Reservations.Fighters.Values)
+            .Any(m => MatchesGuardianBlessing(player, m, link));
 
     static bool GuardianBlessingDisables(Player player, int effect, ushort skill) =>
         SkillsFor(player).IsAura(effect) && !GuardianBlessingAvailableLocked(player, SupportedSkill(player, skill));
@@ -62,7 +65,10 @@ public static partial class Game
         player.Auras.Remove(aura.SkillId);
         EndReservationRuntimeLocked(player, aura);
         CharacterSaves.SetAuraActive(CharacterName(player), aura.EffectId, false);
+        if (StanceCatalog.IsStance(aura.EffectId)) ReconcileStanceSelectionLocked(player, persist: true);
         player.AuraStatsDirty = true;
+        player.Pools = PoolsFor(player, player.Pools.Level);
+        player.ApplyMovementSpeed();
     }
 
     static int GuardianBlessingMinionDamage(Player player, GolemState.Golem minion, double from, double to)

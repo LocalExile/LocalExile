@@ -36,7 +36,8 @@ public static partial class Game
         var wantedStanceFamilies = savedList.Where(StanceCatalog.IsSource)
             .Select(StanceCatalog.SourceFamily).ToHashSet(StringComparer.Ordinal);
         var savedStance = CharacterSaves.Remembered(CharacterName(player)).Stance;
-        player.Stance = StanceCatalog.RestoredSelection(savedStance, savedList);
+        string restoredStance = player.Auras.Values.Any(a => StanceCatalog.IsStance(a.EffectId))
+            ? player.Stance : StanceCatalog.RestoredSelection(savedStance, savedList);
         wanted.ExceptWith(player.Auras.Values.Select(a => AuraCatalog.Family(a.EffectId)));
         if (wanted.Count == 0) return [];
         var candidates = new List<AuraCatalog.Aura>();
@@ -59,13 +60,13 @@ public static partial class Game
             if (stanceSource && !sourceFamilies.Add(family)) continue;
             {
                 string selected = StanceCatalog.IsSource(effect)
-                    ? player.Stance : effect;
+                    ? restoredStance : effect;
                 var supported = SupportedSkill(player, gem.Id);
                 var (supportEffect, affectsSelf) = AuraSupport(player, gem.Id);
                 var context = ReservationContext(player, gem.Id);
-                string? stance = StanceCatalog.IsSource(effect) || AuraCatalog.IsStance(effect) ? player.Stance : null;
+                string? stance = StanceCatalog.IsSource(effect) || AuraCatalog.IsStance(effect) ? restoredStance : null;
                 string effectId = StanceCatalog.IsSource(effect)
-                    ? StanceCatalog.RuntimeEffectId(effect, player.Stance) : selected;
+                    ? StanceCatalog.RuntimeEffectId(effect, restoredStance) : selected;
                 bool hasSource = OwnAuraRestriction.IsAura(supported.Stats);
                 var (artVariation, hideVisual, sourceVisual, buffVisual) =
                     ReservationCosmeticVisualsForGem(player, gem.Gem, effectId, hasSource);
@@ -84,7 +85,7 @@ public static partial class Game
             }
         }
         var savedAdmissions = savedList.Select(id => StanceCatalog.IsSource(id)
-            ? StanceCatalog.RuntimeEffectId(id, player.Stance) : id).ToArray();
+            ? StanceCatalog.RuntimeEffectId(id, restoredStance) : id).ToArray();
         var admitted = AuraCatalog.Restore(savedAdmissions, candidates, player.Pools, InTown(player));
         var restored = new List<AuraCatalog.Aura>();
         foreach (var aura in admitted.OrderByDescending(EternalBlessingAura))
@@ -106,6 +107,8 @@ public static partial class Game
         }
         if (restored.Count > 0)
         {
+            if (restored.Any(a => StanceCatalog.IsStance(a.EffectId)))
+                ReconcileStanceSelectionLocked(player, persist: false);
             player.AuraStatsDirty = true;
             player.Pools = PoolsFor(player, player.Pools.Level);
             player.ApplyMovementSpeed();

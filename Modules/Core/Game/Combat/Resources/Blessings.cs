@@ -19,7 +19,8 @@ public static partial class Game
 
     static void EndOtherBlessingsLocked(Player player)
     {
-        foreach (var aura in player.Auras.Values.Where(IsBlessingAura).ToArray())
+        var ended = player.Auras.Values.Where(IsBlessingAura).ToArray();
+        foreach (var aura in ended)
         {
             if (IsTemporaryAura(player, aura))
                 RemoveTemporaryAura(player, TemporaryAuraStates.GetOrCreateValue(player), aura.SkillId);
@@ -30,6 +31,8 @@ public static partial class Game
                 CharacterSaves.SetAuraActive(CharacterName(player), aura.EffectId, false);
             }
         }
+        if (ended.Any(a => StanceCatalog.IsStance(a.EffectId)))
+            ReconcileStanceSelectionLocked(player, persist: true);
     }
 
     static bool OrdinaryManaAura(AuraCatalog.Aura aura) => !aura.ReservesLife
@@ -38,11 +41,14 @@ public static partial class Game
     // Keep their saved selection so the normal restore path re-enables them when the Blessing ends.
     static void SuspendManaReservedAurasLocked(Player player)
     {
-        foreach (var aura in player.Auras.Values.Where(OrdinaryManaAura).ToArray())
+        var suspended = player.Auras.Values.Where(OrdinaryManaAura).ToArray();
+        foreach (var aura in suspended)
         {
             player.Auras.Remove(aura.SkillId);
             EndReservationRuntimeLocked(player, aura);
         }
+        if (suspended.Any(a => StanceCatalog.IsStance(a.EffectId)))
+            ReconcileStanceSelectionLocked(player, persist: false);
         SuspendPetrifiedBloodIfUnavailable(player);
     }
 }

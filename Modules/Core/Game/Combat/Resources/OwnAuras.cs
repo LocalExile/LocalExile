@@ -415,14 +415,14 @@ public static partial class Game
                          .GroupBy(a => AuraCatalog.Family(a.EffectId)))
                     CharacterSaves.SetAuraActive(CharacterName(player), aura.First().EffectId, false);
             foreach (var aura in gone) { player.Auras.Remove(aura.SkillId); EndReservationRuntimeLocked(player, aura); }
-            if (gone.Length > 0 || player.AuraStatsDirty)
-            {
-                player.AuraStatsDirty = true;
-                player.Pools = PoolsFor(player, player.Pools.Level);
-                player.ApplyMovementSpeed();
-                player.PlayerMana = Math.Min(player.PlayerMana, (uint)UnreservedMana(player));
-                player.PlayerLife = LifeReservation.Clamp(player.PlayerLife, LifeReservationOf(player));
-            }
+            if (gone.Length > 0) player.AuraStatsDirty = true;
+        }
+        if (player.AuraStatsDirty)
+        {
+            player.Pools = PoolsFor(player, player.Pools.Level);
+            player.ApplyMovementSpeed();
+            player.PlayerMana = Math.Min(player.PlayerMana, (uint)UnreservedMana(player));
+            player.PlayerLife = LifeReservation.Clamp(player.PlayerLife, LifeReservationOf(player));
         }
         if (!player.Closed && !player.LeavingArea && !player.RageRetired && player.PlayerLife > 0 && !InTown(player))
             RestoreRememberedAuras(player, CharacterSaves.Remembered(CharacterName(player)).Auras);

@@ -120,7 +120,7 @@ public static partial class Game
     static int NightbladeCriticalMultiplier(Player player, IReadOnlyDictionary<uint, int> skill) =>
         skill.GetValueOrDefault(Stat.SupportedByNightblade) != 0 && Elusives.TryGetValue(player, out var state)
             && state.NightbladeMultiplier is int modifier
-        ? (int)Math.Floor(modifier * ElusiveFactor(player)) : 0;
+        ? (int)Math.Floor(modifier * ElusiveFactor(player) + 1e-9) : 0;
 
     static (int Movement, int Avoid) ElusivePanelState(Player player)
     {

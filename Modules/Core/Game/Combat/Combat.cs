@@ -1615,7 +1615,9 @@ public static partial class Game
         else if (player.Auras.Remove(skillId, out var old))
         { ended = old; EndReservationRuntimeLocked(player, old); }
         else if (player.Auras.Values.FirstOrDefault(a => a.EffectId == effectId) is { } same
-            && !(IsBlessingSkill(supported) && IsBlessingAura(same)))
+            && !(IsBlessingSkill(supported) && IsBlessingAura(same))
+            && !(supported.Stats.GetValueOrDefault(Stat.SkillAuraAlsoDisablesNonBlessingManaReservationSkills) != 0
+                && AuraSupport(player, skillId).AffectsSelf && OrdinaryManaAura(same)))
         {
             // One aura of a kind at a time: a second gem of the same aura can't start it.
             Console.WriteLine($"[gateway] {player.Connection.Remote} skill 0x{skillId:x4} {name}: refused, {same.Name} already runs (skill 0x{same.SkillId:x4})");
