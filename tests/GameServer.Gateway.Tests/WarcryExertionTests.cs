@@ -60,7 +60,9 @@ public sealed class WarcryExertionTests
                     _ => ItemCatalog.Create(Program.Items.Find("Driftwood Club")!));
                 items.Add(PlayerInventories.Offhand1, 0, 0, ItemCatalog.Create(Program.Items.Find("Splintered Tower Shield")!));
             }
-            ushort skill = Assert.Single(f.Equip((attack, 1), ("Overexertion Support", 1)));
+            ushort skill = attack == "Molten Strike"
+                ? Assert.Single(f.Equip((attack, 1), ("Overexertion Support", 1), ("Momentum Support", 1)))
+                : Assert.Single(f.Equip((attack, 1), ("Overexertion Support", 1)));
             var native = Game.SupportedSkill(player, skill).Stats;
             Assert.Equal(7, native[Stat.SupportOverexertionDamagePlusPctFinalPerWarcryExertingAction]);
             Assert.Equal(10, native[Stat.SupportOverexertionDamagePlusPctFinalIfExerted]);
@@ -71,6 +73,9 @@ public sealed class WarcryExertionTests
             Assert.Equal(2, Game.IntimidatingCryExerts(player));
             Assert.Equal(blockTravelExertion ? normal : 1177u, await Hit(902));
             Assert.Equal(blockTravelExertion ? 2 : 1, Game.IntimidatingCryExerts(player));
+            if (attack == "Molten Strike")
+                Assert.Equal(native.GetValueOrDefault(Stat.AttackSpeedPlusPct) + 30,
+                    Game.SupportedSkill(player, skill).Stats.GetValueOrDefault(Stat.AttackSpeedPlusPct));
 
             async Task<uint> Hit(uint id)
             {
