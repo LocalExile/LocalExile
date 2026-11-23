@@ -6,7 +6,8 @@ using GameServer.Core.Projectiles;
 
 public static partial class Game
 {
-    internal static bool NativeProjectileTotem(Player player, int effect) => SkillsFor(player).EffectId(effect) == "HolyFlameTotem";
+    internal static bool NativeProjectileTotem(Player player, int effect) =>
+        GatewayProjectileSkillProfiles.IsHolyFlameTotem(SkillsFor(player).EffectId(effect));
     static readonly RuleTable<TotemState.Totem, SupportedGem> TotemSources = new();
     public static bool SpellTotemEffect(Player player, int effect) => SkillsFor(player).IsSpell(effect)
         && !SkillsFor(player).IsAttack(effect) && !SkillsFor(player).IsTravel(effect)

@@ -273,7 +273,7 @@ Part of [Status](../Status.md); what to build next in this area is in
 - Hexes and marks. Docs: [11](../docs/protocol/11-skills.md) Â§12.
 - Totems: Rejuvenation, Arc, projectile spells, supported summons, ballistas, Shockwave, Devouring and Decoy Totem
   (ordinary monster AI), with totem limit, range, duration and Lockstep placement timing.
-- Holy Flame Totem places without channelling on its owner, creates Consecrated Ground, and fires piercing bolts.
+- Holy Flame Totem places, creates Consecrated Ground and fires piercing bolts. Ire passes offline checks.
   Docs: [11](../docs/protocol/11-skills.md) Â§10g.
 - Passive self buffs. Docs: [11](../docs/protocol/11-skills.md) Â§12.
 - Onslaught on kill and from a Silver Flask. Docs: [13](../docs/protocol/13-items.md) Â§8a.
