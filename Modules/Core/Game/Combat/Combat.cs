@@ -524,7 +524,8 @@ public static partial class Game
                 IEnumerable<(uint, int)> conversionStats = ownPenetration is null ? [] :
                     ownPenetration.Select(pair => (pair.Key, pair.Value));
                 var conversion = SupportedAttackDamage.WithWeaponGains(
-                    DamageStats.Conversion(playerStats, conversionStats, Stats, attack: true), weapon);
+                    DamageStats.Conversion(playerStats, conversionStats, Stats, attack: true), weapon,
+                    key => playerStats.GetValueOrDefault(key));
                 var prehit = DefaultMeleePrehitProfileLocked(player, targetId, m, playerStats, weapon, conversion,
                     ownPenetration, ProjectileWorldTime(player), accuracy.Rating);
                 if (prehit is null)
@@ -1290,6 +1291,8 @@ public static partial class Game
                         && !SkillsFor(player).IsChannelled(gem.Effect))
                         ReserveMeleeRepeats(player, skillId, SupportedAttackSeconds(player, skillId, sequence));
                 }
+                if (paid && cost > 0 && placedAdmission is null)
+                    RecordPaidBowAttackLocked(player, skillId, paymentGem, cost, to);
                 if (paid && beastCompanion is { } beast)
                     QueueBeastCompanionLocked(player, beast, skillId, actionToken);
                 // The native Holy Flame skill is tagged Channel for the totem's payload. Its owner places it with a
@@ -1987,6 +1990,8 @@ public static partial class Game
                         try { await Task.Delay(TimeSpan.FromSeconds(wait), SnipeWaitToken(player, generation, action)); }
                         catch (OperationCanceledException) { }
                     }
+                    else if (!player.Frames.Running && AreaUpdateContext.Value is { Schedule: { } schedule })
+                        await schedule.Wait((int)Math.Ceiling(wait * 1000), CancellationToken.None);
                     else await AreaDelay(player, wait);
                 }
                 await WhilePaused(player);
@@ -2019,6 +2024,12 @@ public static partial class Game
                 {
                     player.PaidChannel = CombatLifetime is { IsActive: true } rules
                         ? new(skillId, gem.Effect, action, generation, rules) : null;
+                    if (cost > 0 && SkillsFor(player).IsAttack(gem.Effect) && WeaponProfileFor(player, activeSet: true).Bow)
+                    {
+                        var channelAim = snipe && SnipeRuntimes.TryGetValue(player, out var snipeState)
+                            ? snipeState.Aim : initialAim;
+                        RecordPaidBowAttackLocked(player, skillId, SupportedSkill(player, skillId), cost, channelAim);
+                    }
                     // Overheat: every paid channel tick is a use, so it consumes the Fortification gained since the
                     // last one; the first tick's use already consumed in LaunchProjectile.
                     if (overheatPerThree > 0)
@@ -2690,7 +2701,12 @@ public static partial class Game
                     int sourceMultiplier = CriticalMultiplierWithWeapon(sweepMultiplier, m, weaponLocal);
                     int multiplier = CriticalMultiplierOn(m, sourceMultiplier, playerStats, skillStats);
                     double at = ProjectileWorldTime(player);
-                    (damage, resistance, var mitigated) = MonsterHitDamage(m, rolled, critical, attack: !spell, at, mods, pen,
+                    // Deferred manual hits use the same lifetime guard as automatic payloads. The native link
+                    // resolver excludes triggered skills from these supports.
+                    var resonance = WithResonanceHitLocked(player, skillStats, rolled, mods, pen, at);
+                    rolled = resonance.Packet;
+                    (damage, resistance, var mitigated) = MonsterHitDamage(m, rolled, critical, attack: !spell, at,
+                        resonance.Mods, resonance.Penetration,
                         gambler.InvertsResistance(AreaRng(player)), AreaRng(player));
                     hitCode = HitCode(mitigated);
                     var taken = MonsterTakenComponents(m, mitigated, spell, at);
@@ -2714,6 +2730,8 @@ public static partial class Game
                         cull: Cull.Of(playerStats, skillStats, critical, spell).WithWeapon(weaponLocal), cullPlayer: playerStats);
                     if (applied is not null)
                     {
+                        if (applied.Value.Life < lifeBefore)
+                            RecordResonanceHitLocked(player, m, skillStats, rolled, at);
                         CrueltyOnHitLocked(player, skillId, damage, lifeBefore, m.MaxLife, skillStats, at);
                         if (!spell) ReleaseCriticalTrigger(player, ProjectilesFor(player),
                             criticalTrigger, critical, m.Hostile, m.Walk.Position(at), at);
@@ -3015,7 +3033,7 @@ public static partial class Game
     // resisted packet that AilmentsOnHitLocked needs: every player hit path calls both (surfcaster.md, Hit paths).
     public static (int Damage, string? Resistance, DamagePacket Mitigated) MonsterHitDamage(SpawnedMonster m, DamagePacket rolled,
         bool critical, bool attack, double now, HitResistances.Mods mods, Penetration.PerType pen = default,
-        bool invertElemental = false, Random? random = null, bool trapOrMine = false)
+        bool invertElemental = false, Random? random = null, bool trapOrMine = false, int additionalTakenPct = 0)
     {
         var described = new List<string>();
         var strike = new HitResistances.Strike(Critical: critical, Attack: attack);
@@ -3028,10 +3046,10 @@ public static partial class Game
         });
         int ignorePhysicalChance = ActorScale.Saturate((long)mods.IgnorePhysicalReductionChance
             + (attack ? mods.TincturedWeaponIgnorePhysicalReductionChance : 0));
-        bool ignorePhys = rolled[DamageType.Physical].Max > 0
-            && GameServer.Core.World.RandomRolls.Chance(ignorePhysicalChance, 100, random ?? Random.Shared);
-        int damage = trapOrMine ? MonsterTakesTrapOrMineHit(m, mitigated, spell: !attack, now, random, ignorePhys)
-            : MonsterTakesMitigated(m, mitigated, spell: !attack, now, ignorePhys, random);
+        bool ignorePhys = mods.IgnorePhysicalReduction || (rolled[DamageType.Physical].Max > 0
+            && GameServer.Core.World.RandomRolls.Chance(ignorePhysicalChance, 100, random ?? Random.Shared));
+        int takenPct = additionalTakenPct + (trapOrMine ? BearTrapDamageTaken(m, now) : 0);
+        int damage = MonsterTakesMitigatedCore(m, mitigated, spell: !attack, now, takenPct, ignorePhys, random);
         return (damage,
             described.Count > 0 ? string.Join(", ", described) : null, mitigated);
     }
@@ -3193,6 +3211,7 @@ public static partial class Game
         // A predictive client stops for the recovery and then goes on with its walk (live 2026-11-01: 30 cells apart when
         // this ended it). A lockstep one ends its walk in the frame the 0x1d1 reaches it (PlayerHitRecoveryRecordLocked).
         if (!player.Connection.LockstepClient) player.Walk.Pause(now, seconds);
+        RecordIncomingHitTriggers(player, 0, now, stunned: true);
         return new(player.ProjectileEpoch, action, player.HitRecovery.Until, seconds);
     }
 
@@ -3481,6 +3500,7 @@ public static partial class Game
         QueueEssenceDeathSpawnLocked(player, id, m);
         if (playerKill) QueueMadnessExplosionLocked(player, id, m);
         StopCorpseBlocking(player, id, m);
+        DetonateExplosiveFusesOnDeath(m);
         if (SpreadContagion(player, id, m) is { } contagion)
             await ShowContagionSpread(player, contagion.At, contagion.Radius, contagion.Ao);
         double now = AreaTime(player);
@@ -3578,7 +3598,8 @@ public static partial class Game
             drops.AddRange(DropsFor(player).Roll(m.Level, m.Rarity, AreaRng(player), IncreasedItemRarity(player, m),
                 balance.ItemDropMultiplier * (modded?.Quantity ?? 1) * ItemQuantityFactor(player, m), balance.EquipmentRarityMultiplier * (modded?.Rarity ?? 1), mapTier, mapMods, MapScarabQuantity(mapMods)));
             drops.AddRange(PartyCurrency(player, drops, AreaRng(player)));
-            if (DropsFor(player).Map(m.Level, m.Rarity, mapTier, AreaRng(player), chanceFactor: modded?.MapRelated ?? 1) is { } mapDrop) drops.Add(mapDrop);
+            if (RollMapDropForKill(player, m.Level, m.Rarity, mapTier, AreaRng(player), modded?.MapRelated ?? 1) is { } mapDrop)
+                drops.Add(mapDrop);
             // And a pile of gold (ItemDrops.Gold), picked up into the stash's gold.
             if (DropsFor(player).Gold(m.Level, m.Rarity, AreaRng(player),
                 balance.GoldMultiplier * SystemSettings.Default.GoldDropMultiplier * (modded?.Gold ?? 1)) is { } gold) drops.Add(gold);

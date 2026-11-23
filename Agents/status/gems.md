@@ -78,6 +78,8 @@ Nothing yet.
   Item-granted supports join the same compatibility, duplicate resolution, calculations and native badge records
   for gems in their source item, independently of links; automated tests cover their addition and removal.
   Every third Ruthless-supported use is a Ruthless Blow ([25](../docs/protocol/25-gem-supports.md)).
+  Trinity and Unholy Trinity keep separate timed counters for eligible owner hits, with damage and resistance
+  bonuses from the lowest counter ([25](../docs/protocol/25-gem-supports.md)).
   Local socketed level/quality bonuses apply to physical gems, including support gems, without raising requirements.
   Cast when Damage Taken checks its level cap against an equipment-granted skill's level; Varunastra fits one-hand
   melee skill and support restrictions.
@@ -100,6 +102,9 @@ Nothing yet.
   ([25](../docs/protocol/25-gem-supports.md)).
   Maim, Bloodlust for melee physical-origin damage, Pulverise, Rage, Power Charge on Critical, Volatility, Combustion, Item Quantity, Item Rarity,
   Iron Grip and Iron Will apply their stats as well ([25](../docs/protocol/25-gem-supports.md)).
+  Manaforged Arrows triggers off paid bow uses and channelled bow ticks and scales supported hit and ailment damage.
+  Cast when Stunned releases eligible linked spells from committed player stuns through the incoming-hit trigger queue
+  ([25](../docs/protocol/25-gem-supports.md)).
   Intensify and Pinpoint gain Intensity on supported casts, lose it while moving or teleporting, and project their area
   and projectile modifiers from the cast's starting stack count ([25](../docs/protocol/25-gem-supports.md)).
   Momentum uses paid attacks or channel time, loses stacks on movement, and spends the cap on timed Swiftness.

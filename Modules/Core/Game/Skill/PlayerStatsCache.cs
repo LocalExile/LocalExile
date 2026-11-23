@@ -167,6 +167,7 @@ public static partial class Game
         readers[(int)PlayerStatChange.IncomingAilments] = [PlayerStatStep.Sources];
         readers[(int)PlayerStatChange.God] = [PlayerStatStep.Sources, PlayerStatStep.God];
         readers[(int)PlayerStatChange.Panel] = [];
+        readers[(int)PlayerStatChange.Resonance] = [PlayerStatStep.Resonance];
         return readers;
     }
 
@@ -197,7 +198,7 @@ public static partial class Game
         PlayerStatStep.Sources, PlayerStatStep.CryMovement, PlayerStatStep.SpiritLeadership,
         PlayerStatStep.ClassAttributes, PlayerStatStep.Onslaught, PlayerStatStep.VaalPrevention, PlayerStatStep.TotemAura,
         PlayerStatStep.Rage, PlayerStatStep.Blind, PlayerStatStep.Recovery, PlayerStatStep.Rampage,
-        PlayerStatStep.TailPanels, PlayerStatStep.TailOffence, PlayerStatStep.TailCritical,
+        PlayerStatStep.TailPanels, PlayerStatStep.TailOffence, PlayerStatStep.TailCritical, PlayerStatStep.Resonance,
     ];
 
     /// <summary>The framework's hand-over (Player.StatsChanged): marks the steps that read the input.</summary>
@@ -263,7 +264,8 @@ public static partial class Game
         if (!player.PetrifiedBlood.Active || player.PlayerLife == 0) return false;
         var (lifeRegenPerMinute, _) = PanelStats.LifeRegeneration(
             name => name is var key ? stats.GetValueOrDefault(key) : 0, player.Pools.Life);
-        uint margin = PetrifiedBlood.RecoveryMargin(lifeRegenPerMinute / 60);
+        double factor = LifeRegenerationKeystoneFactor(name => stats.GetValueOrDefault(name));
+        uint margin = PetrifiedBlood.RecoveryMargin(lifeRegenPerMinute * factor / 60);
         return (long)player.PlayerLife + margin >= (uint)((long)player.PlayerMaxLife * LowLifeThresholdPct(stats) / 100);
     }
 
@@ -415,6 +417,9 @@ public static partial class Game
     {
         if (FrameStatsOf.TryGetValue(player, out var frame) && frame.Graph is { } graph) graph.MarkRule((int)step);
     }
+
+    internal static int PlayerStatStepRuns(Player player, PlayerStatStep step) =>
+        FrameStatsOf.TryGetValue(player, out var frame) ? frame.StepRuns[(int)step] : 0;
 
     // A mark or a timed end waits for the next Stats phase (the verifiers compare only once it ran).
     static bool StatsUnsettled(Player player)

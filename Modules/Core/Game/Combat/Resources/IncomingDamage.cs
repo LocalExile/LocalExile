@@ -66,8 +66,10 @@ public static partial class Game
             (int)Math.Min(int.MaxValue, (long)physical + other + chaos), Get(Stat.DamageTakenGoesToManaPct));
         // Petrified Blood sees the life loss after Ward, Energy Shield and Mana: it protects Life, not the other pools.
         // Vaal Immortal Call's "you cannot die" holds that Life at 1 (wiki); the hit and its effects still land.
-        return VaalImmortalCallHitLife(player,
+        int lifeDamage = VaalImmortalCallHitLife(player,
             PetrifiedBlood.PreventHitLifeLoss(player, (int)Math.Min(int.MaxValue, (long)nonChaosLife + chaosLife - fromMana), at), at);
+        RecordRechargeLifeDamage(player, lifeDamage, at, playerStats);
+        return lifeDamage;
     }
 
     // Mana-before-Life uses the remaining typed weights after Aegis, Ward and ES. In particular, physical damage
