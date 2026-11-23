@@ -59,10 +59,12 @@ $manifest = @(
     # monster-contacts: the clips a variety plays for its projectile attacks, with their contact keyframe's time and position:
     # when and from where a Sand Spitter mortar leaves (the skill's own animation key, the native clip selector). v5: every
     # contact of a clip with several (one release each), the effects' own animation keys, .act clips that name an effect.
-    # v6 adds separate ordinary-melee clocks from the variety AO, preserving all legacy contact pools.
-    @{ Name = 'monster-contacts'; Outputs = @('data\monster-contacts.json'); Runner = 'python'
-       Args = @('scripts/re/monster_contacts.py'); Version = 6; Needs = @('tables', 'object-types')
-       UsedBy = 'monster contact frames, variety AO clip clocks with slow spans and ACT budgets, projectile release points and Throw-stage contacts (11-skills.md, 12-quests.md)' }
+    # v6 adds monster-stances.json: a stanced .act's (the Rogue Exiles') skill animation pools per weapon stance.
+    # v7 gives each stance clip every contact frame (contacts): when a multi-strike skill's later strikes land.
+    # v8 adds separate ordinary-melee clocks from the variety AO, preserving all legacy contact pools.
+    @{ Name = 'monster-contacts'; Outputs = @('data\monster-contacts.json', 'data\monster-stances.json'); Runner = 'python'
+       Args = @('scripts/re/monster_contacts.py'); Version = 8; Needs = @('tables', 'object-types')
+       UsedBy = 'monster contact frames, variety AO clip clocks with slow spans and ACT budgets, projectile release points, Throw-stage contacts, and when a weapon-stanced monster''s skill lands (11-skills.md, 12-quests.md)' }
     # monster-takehit also gives each variety's Emerge clip and its length (how long an emerge monster takes to rise) and
     # its death clips with the time they clear the corpse's body from the client's paths.
     @{ Name = 'monster-takehit'; Outputs = @('data\monster-takehit.json'); Runner = 'python'

@@ -15,9 +15,9 @@ public static class MappingCommands
     /// <param name="owner">The id of the module that owns the command.</param>
     public static void Register(string owner)
     {
-        GameEvents.CommandsBuilding.Add(owner, (commands, remote, stream, ciphers, conn) =>
+        GameEvents.CommandsBuilding.Add(owner, (commands, connection) =>
         {
-            var player = Program.PlayerOf(conn);
+            var player = Program.PlayerOf(connection);
             return commands.Add("mapping", "/mapping [status | start | suspend | stop | queue | assign | unassign | hire | reroll | fire | rescue | ransom | abandon | ack | take | give] (the Kingsmarch mapping devices)", async args =>
             {
                 if (!string.Equals(player.AreaId, Area, StringComparison.Ordinal))

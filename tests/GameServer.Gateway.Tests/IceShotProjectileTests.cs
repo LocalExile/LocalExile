@@ -17,11 +17,11 @@ public sealed class IceShotProjectileTests
         Assert.True(hit.CanHit);
         Assert.Equal(SkillHitKind.Attack, hit.Kind);
         Assert.Contains(skills.EffectStats(effect, 1), s =>
-            s.Item1 == stats.Key("skill_physical_damage_%_to_convert_to_cold") && s.Item2 == 60);
+            s.Item1 == Stat.SkillPhysicalDamagePctToConvertToCold && s.Item2 == 60);
         var definition = Game.CatalogProjectileDefinition(effect);
         Assert.NotNull(definition);
         Assert.Equal(projectile.Value.Id, definition.Metadata);
-        var profile = definition.Parameters.Resolve(key => key == "number_of_additional_arrows" ? 3 : 0, 326, true);
+        var profile = definition.Parameters.Resolve(key => key == Stat.NumberOfAdditionalArrows ? 3 : 0, 326, true);
         Assert.Equal(4, profile.Count);
     }
 }

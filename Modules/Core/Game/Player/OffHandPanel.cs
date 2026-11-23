@@ -13,58 +13,65 @@ public static partial class Game
     /// <paramref name="player"/> is the character's final stats; <paramref name="own"/> a selected attack gem's own
     /// stats, whose flat/increased accuracy and critical increases join as they do for the main hand.
     /// </summary>
-    public static List<(string Stat, int Value)>? OffHandPanelStats(ClientState conn, IReadOnlyDictionary<uint, int> player,
-        IReadOnlyDictionary<string, int> mainLocal, IReadOnlyDictionary<string, int> offLocal,
+    public static List<(uint Stat, int Value)>? OffHandPanelStats(Player player, IReadOnlyDictionary<uint, int> playerStats,
+        IReadOnlyDictionary<uint, int> mainLocal, IReadOnlyDictionary<uint, int> offLocal,
         int mainHandAttackSpeedPct, IReadOnlyDictionary<uint, int>? own = null, int effect = -1) =>
-        OffHandPanelStats(() => OffhandWeaponFor(conn), () => ActiveOffHand(conn), () => conn.Pools,
-            () => WeaponProfileFor(conn, activeSet: true), ItemsFor(conn), () => AttackCriticalMultiplier(conn, player, effect, own),
-            player, mainLocal, offLocal, mainHandAttackSpeedPct, own, PlayerBlindValue(conn, player).Less);
+        OffHandPanelStats(() => OffhandWeaponFor(player), () => ActiveOffHand(player), () => player.Pools,
+            () => WeaponProfileFor(player, activeSet: true), ItemsFor(player), () => AttackCriticalMultiplier(player, playerStats, effect, own),
+            playerStats, mainLocal, offLocal, mainHandAttackSpeedPct, own, PlayerBlindValue(player, playerStats).Less,
+            elusiveActive: ElusiveFactor(player) > 0,
+            extraCriticalMultiplier: own is null ? 0 : NightbladeCriticalMultiplier(player, own));
 
     // The same rows from inputs read once (the stat snapshot's tail inputs), each asked where the line above asks conn.
-    public static List<(string Stat, int Value)>? OffHandPanelStats(Func<SkillCatalog.Unarmed?> offhandWeapon,
+    public static List<(uint Stat, int Value)>? OffHandPanelStats(Func<SkillCatalog.Unarmed?> offhandWeapon,
         Func<(Item Item, ItemCatalog.BaseType? Type)?> activeOffHand, Func<CharacterStats.Pools> currentPools,
         Func<WeaponProfile> weaponProfile, ItemCatalog catalog, Func<int> attackCriticalMultiplier,
-        IReadOnlyDictionary<uint, int> player, IReadOnlyDictionary<string, int> mainLocal, IReadOnlyDictionary<string, int> offLocal,
-        int mainHandAttackSpeedPct, IReadOnlyDictionary<uint, int>? own, int blindLess = 0)
+        IReadOnlyDictionary<uint, int> player, IReadOnlyDictionary<uint, int> mainLocal, IReadOnlyDictionary<uint, int> offLocal,
+        int mainHandAttackSpeedPct, IReadOnlyDictionary<uint, int>? own, int blindLess = 0,
+        bool elusiveActive = false, int extraCriticalMultiplier = 0)
     {
         if (offhandWeapon() is null || activeOffHand() is not { Type: { } offType }) return null;
         var pools = currentPools();
-        int Player(string name) => Stats.Key(name) is uint key ? player.GetValueOrDefault(key) : 0;
-        int Own(string name) => Stats.Key(name) is uint key ? own?.GetValueOrDefault(key) ?? 0 : 0;
+        int Player(uint key) => player.GetValueOrDefault(key);
+        int Own(uint key) => own?.GetValueOrDefault(key) ?? 0;
         var profile = weaponProfile();
         // Accuracy: the pools' unrounded basis carries the main weapon's local accuracy; swap in the off hand's. As
         // the selected main hand does, keep the pools' final rating when no input differs from the main hand.
-        long localDifference = (long)offLocal.GetValueOrDefault("local_accuracy_rating") - mainLocal.GetValueOrDefault("local_accuracy_rating");
+        long localDifference = (long)offLocal.GetValueOrDefault(Stat.LocalAccuracyRating) - mainLocal.GetValueOrDefault(Stat.LocalAccuracyRating);
         int rating = PlayerAccuracyModifiers.Selected(pools, profile, n => Own(n),
             Player(PlayerAccuracyModifiers.BootsMore), localDifference, blindLess);
         var accuracy = AttackAccuracyProfile.From(pools, player, Stats, own, offLocal) with { Rating = rating };
         // Critical chance: the off-hand weapon's base with its local mods, the same override and global increases.
         int weaponBase = AddedBaseCriticalStrike.LocalWeaponChance(catalog.WeaponCritical(offType),
-            offLocal.GetValueOrDefault("local_critical_strike_chance"), offLocal.GetValueOrDefault("local_critical_strike_chance_+%"));
-        int chance = AttackBaseCriticalStrike.Chance(true, weaponBase,
+            offLocal.GetValueOrDefault(Stat.LocalCriticalStrikeChance), offLocal.GetValueOrDefault(Stat.LocalCriticalStrikeChancePlusPct));
+        int basis = AttackBaseCriticalStrike.OfMainHand(true, weaponBase, Player);
+        if (own is not null && elusiveActive
+            && Own(Stat.AdditionalCriticalStrikeChancePermyriadWhileAffectedByElusive) is int elusiveBase and not 0)
+            basis = ActorScale.Saturate((long)basis + elusiveBase);
+        int chance = AttackBaseCriticalStrike.ChanceOfBase(basis,
             pools.CriticalStrikeChancePct + (own is null ? 0 : AttackBaseCriticalStrike.IncreasedSum(profile, n => Own(n))),
             Player, own is null ? null : Own);
         int multiplier = CriticalHitMultiplier((long)attackCriticalMultiplier()
-            + Own("base_critical_strike_multiplier_+"), player, own);
+            + Own(Stat.BaseCriticalStrikeMultiplierPlus) + extraCriticalMultiplier, player, own);
         return
         [
-            ("skill_uses_off_hand", 1),
-            ("off_hand_accuracy_rating", rating),
-            ("off_hand_chance_to_hit_%", accuracy.Chance(Monsters.BaseEvasion(pools.Level) ?? 0, false, false)),
-            ("off_hand_chance_to_hit_evasive_monsters_%", accuracy.Chance(Monsters.BaseEvasiveEvasion(pools.Level) ?? 0, false, false)),
+            (Stat.SkillUsesOffHand, 1),
+            (Stat.OffHandAccuracyRating, rating),
+            (Stat.OffHandChanceToHitPct, accuracy.Chance(Monsters.BaseEvasion(pools.Level) ?? 0, false, false)),
+            (Stat.OffHandChanceToHitEvasiveMonstersPct, accuracy.Chance(Monsters.BaseEvasiveEvasion(pools.Level) ?? 0, false, false)),
             // The attack's final main-hand speed (the default attack's shared bucket, or the gem's with its supports)
             // without the main weapon's own local speed, which belongs to that weapon alone.
-            ("off_hand_attack_speed_+%", SkillCatalog.Unarmed.OffHandAttackSpeedPct(mainHandAttackSpeedPct, mainLocal.GetValueOrDefault("local_attack_speed_+%"))),
-            ("off_hand_critical_strike_chance", chance),
-            ("off_hand_critical_strike_multiplier", multiplier),
+            (Stat.OffHandAttackSpeedPlusPct, SkillCatalog.Unarmed.OffHandAttackSpeedPct(mainHandAttackSpeedPct, mainLocal.GetValueOrDefault(Stat.LocalAttackSpeedPlusPct))),
+            (Stat.OffHandCriticalStrikeChance, chance),
+            (Stat.OffHandCriticalStrikeMultiplier, multiplier),
         ];
     }
 
     /// <summary>The off hand's twelve damage rows for a selected attack gem: the same supported hit swung with the
     /// off-hand weapon, every type written (zero clears a type the conversion no longer deals).</summary>
-    public static IEnumerable<(string Stat, int Value)> OffHandDamageRows(DamagePacket hit)
+    public static IEnumerable<(uint Stat, int Value)> OffHandDamageRows(DamagePacket hit)
     {
         var ranges = PanelStats.HandDamage(hit, "off_hand").ToDictionary(r => r.Stat, r => r.Value);
-        foreach (string stat in PanelStats.DamageRows("off_hand")) yield return (stat, ranges.GetValueOrDefault(stat));
+        foreach (uint stat in PanelStats.DamageRows("off_hand")) yield return (stat, ranges.GetValueOrDefault(stat));
     }
 }

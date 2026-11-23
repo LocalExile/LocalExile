@@ -194,9 +194,8 @@ public static class KingsmarchTown
     /// once, there (client 0x140521d00, the widget's constructor, scans village+0xcfd8 and skips it when the list is
     /// empty), so a record that arrives later is never read: the panel's gates stay shut and the town's button does
     /// nothing.</summary>
-    public static IEnumerable<(string Log, byte[] Message)> BeforeEnterMessages(ClientState conn)
+    public static IEnumerable<(string Log, byte[] Message)> BeforeEnterMessages(IPlayer player)
     {
-        var player = Program.PlayerOf(conn);
         if (!string.Equals(player.AreaId, Area, StringComparison.Ordinal)) return [];
         var messages = new List<(string, byte[])>();
         var events = EventNames();
@@ -233,21 +232,20 @@ public static class KingsmarchTown
         // first and row 1386 (a7q9-KilledBoss, its __col16) in the second. The server then repeats the check itself:
         // NpcCatalog.Available needs the character's own set to hold the row's QuestFlag1, and it fails silently.
         const int IsMapOwnerRow = 2020, ShippingGateRow = 1386;
-        var conn = Program.ConnOf(player);
-        if (conn is null) return;
+        var mod = Program.PlayerOf(player);
+        var character = mod.Character;
         // Once per connection, and again after an area load (Entered forgets the counter): the flag sets are projections, so
         // they replace the client's, and the dialogue list is rebuilt per area.
         if (_owner.GetValue(player, _ => new Counter()).Value++ != 0) return;
-        var (remote, stream, ciphers) = conn.Wire;
         // "IsMapOwner" is print-only in QuestFlags, so Quests.SetQuestFlags drops it in CommitQuestFlags and it never reaches
         // the connection's set; add it here, where both the server's dialogue gate and PlayerQuestFlags read it.
         bool added;
-        lock (conn.Monsters) added = conn.QuestFlags.Add("IsMapOwner");
-        if (added) Console.WriteLine($"[gateway] kingsmarch owner flag: IsMapOwner added to {player.Character}");
-        await Game.SetLeagueQuestFlags(remote, stream, ciphers, conn, [KingsmarchTownOwnerLeagueFlag, ShippingGateRow,
+        lock (character.QuestFlags) added = character.QuestFlags.Add("IsMapOwner");
+        if (added) Console.WriteLine($"[gateway] kingsmarch owner flag: IsMapOwner added to {character.Name}");
+        await Game.SetLeagueQuestFlags(mod, [KingsmarchTownOwnerLeagueFlag, ShippingGateRow,
             KingsmarchFundTreasuryLeagueFlag, KingsmarchInvestRecruitmentLeagueFlag, KingsmarchRecruitmentLeagueFlag]);
-        var flags = Game.PlayerQuestFlags(conn);
-        await player.Send(InstanceEntities.PlayerQuestFlagsUpdate(Program.PlayerId, flags),
+        var flags = Game.PlayerQuestFlags(mod);
+        await player.Send(InstanceEntities.PlayerQuestFlagsUpdate(mod.Id, flags),
             $"0x02bc village quest flags: {flags.Count} flag(s), IsMapOwner {(flags.Contains(IsMapOwnerRow) ? "in" : "MISSING")}");
     }
 
@@ -969,7 +967,7 @@ public static class KingsmarchTown
     public static async Task<string> FundTreasury(IPlayer player, int amount)
     {
         var progress = State(player);
-        var stash = Game.PersonalStashOf(Program.ConnOf(player));
+        var stash = Game.PersonalStashOf(Program.PlayerOf(player));
         int take = (int)Math.Min(Math.Max(amount, 0), stash.Gold);
         if (take <= 0) return "the account has no gold to put into the treasury";
         uint? left = stash.TrySpendGold(take);

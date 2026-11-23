@@ -6,22 +6,22 @@ public static class AbyssJewels
 
     public static bool Is(Item jewel, ItemCatalog catalog) => catalog.ByHash(jewel.TypeHash)?.Class == "AbyssJewel";
 
-    public static Item StygianSockets(Item item, IReadOnlyDictionary<string, int> local)
+    public static Item StygianSockets(Item item, IReadOnlyDictionary<uint, int> local)
     {
-        int count = Math.Clamp(local.GetValueOrDefault("local_has_X_abyss_sockets"), 0, SocketLayout.MaximumSockets);
+        int count = Math.Clamp(local.GetValueOrDefault(Stat.LocalHasXAbyssSockets), 0, SocketLayout.MaximumSockets);
         return item with { Sockets = [.. Enumerable.Repeat(new ItemSocket(SocketColour.Abyss), count)], Links = null };
     }
 
     public static Item EquipmentSockets(Item item, ItemCatalog.BaseType type, ItemCatalog catalog,
-        IReadOnlyDictionary<string, int> local, Random random)
+        IReadOnlyDictionary<uint, int> local, Random random)
     {
         int capacity = CurrencyEffects.SocketCapacity(item, type);
-        int eyes = Math.Clamp(local.GetValueOrDefault("local_has_X_abyss_sockets"), 0, capacity);
+        int eyes = Math.Clamp(local.GetValueOrDefault(Stat.LocalHasXAbyssSockets), 0, capacity);
         var sockets = new List<ItemSocket>();
-        if (!local.ContainsKey("local_cannot_have_non_abyssal_sockets"))
+        if (!local.ContainsKey(Stat.LocalCannotHaveNonAbyssalSockets))
         {
             var ordinary = catalog.DefaultSockets(type, item.ItemLevel, item.Quality, random,
-                local.ContainsKey("local_sockets_cannot_be_white")).Sockets;
+                local.ContainsKey(Stat.LocalSocketsCannotBeWhite)).Sockets;
             sockets.AddRange(ordinary.Take(Math.Max(0, Math.Min(capacity, ordinary.Count) - eyes)));
         }
         int normal = sockets.Count;
@@ -38,7 +38,7 @@ public static class AbyssJewels
             foreach (var socket in item.Sockets)
             {
                 if (socket is not { Colour: SocketColour.Abyss, Gem: { } jewel } || !Is(jewel, catalog)) continue;
-                int effect = ItemModStats.Local(item, catalog.Mods).GetValueOrDefault("local_socketed_abyss_jewel_effect_+%");
+                int effect = ItemModStats.Local(item, catalog.Mods).GetValueOrDefault(Stat.LocalSocketedAbyssJewelEffectPlusPct);
                 yield return effect == 0 ? jewel : jewel with
                 {
                     Mods = [.. jewel.Mods.Select(mod => catalog.Mods.ByHash(mod.Hash) is { } row ? mod with
@@ -54,16 +54,16 @@ public static class AbyssJewels
     public static void Count(IReadOnlyList<Item> active, ItemCatalog catalog, StatCatalog stats, Dictionary<uint, int> sources)
     {
         var kinds = new HashSet<string>();
-        void Add(string stat)
+        void Add(uint stat)
         {
-            if (stats.Key(stat) is uint key) sources[key] = sources.GetValueOrDefault(key) + 1;
+            if (stat is var key) sources[key] = sources.GetValueOrDefault(key) + 1;
         }
         foreach (var item in active)
         {
             if (catalog.ByHash(item.TypeHash) is not { Class: "AbyssJewel" } type) continue;
-            Add("number_of_abyss_jewels");
+            Add(Stat.NumberOfAbyssJewels);
             if (item.Rarity is ItemRarity.Magic or ItemRarity.Rare or ItemRarity.Unique)
-                Add($"number_of_{item.Rarity.ToString().ToLowerInvariant()}_abyss_jewels");
+                Add(Stat.Of($"number_of_{item.Rarity.ToString().ToLowerInvariant()}_abyss_jewels"));
             string? kind = type.Id switch
             {
                 "Metadata/Items/Jewels/JewelAbyssMelee" => "melee",
@@ -73,8 +73,8 @@ public static class AbyssJewels
                 _ => null,
             };
             if (kind is null) continue;
-            Add($"number_of_{kind}_abyss_jewels");
-            if (kinds.Add(kind)) Add("number_of_abyss_jewel_types");
+            Add(Stat.Of($"number_of_{kind}_abyss_jewels"));
+            if (kinds.Add(kind)) Add(Stat.NumberOfAbyssJewelTypes);
         }
     }
 }

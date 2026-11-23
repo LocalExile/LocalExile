@@ -17,7 +17,7 @@ public interface IAscendancyFamilyPolicy
 public static class AscendancyPolicies
 {
     static ImmutableDictionary<AscendancyFamily, Registration> _providers = ImmutableDictionary<AscendancyFamily, Registration>.Empty;
-    static readonly ConditionalWeakTable<ClientState, Registration> Attachments = new();
+    static readonly ConditionalWeakTable<Player, Registration> Attachments = new();
 
     public static IDisposable Register(IModuleLifetime owner, IAscendancyFamilyPolicy policy)
     {
@@ -30,24 +30,24 @@ public static class AscendancyPolicies
         return owner.Own(entry);
     }
 
-    public static bool Available(ClientState conn, AscendancyIdentity selection)
+    public static bool Available(Player player, AscendancyIdentity selection)
     {
         if (selection.Family == AscendancyFamily.Normal) return true;
-        return ReadPolicy(conn, selection) is not null;
+        return ReadPolicy(player, selection) is not null;
     }
 
     /// <summary>Pure source provenance for transient jobs. Never verifies a graph or acquires the provider gate.</summary>
-    public static IModuleLifetime? SourceOwner(ClientState conn)
+    public static IModuleLifetime? SourceOwner(Player player)
     {
-        var selection = conn.MainAscendancy.Selection;
+        var selection = player.Character.MainAscendancy.Selection;
         if (selection is null || selection.Family == AscendancyFamily.Normal
             || !_providers.TryGetValue(selection.Family, out var entry)) return null;
         var policy = Volatile.Read(ref entry.Policy);
-        return policy is not null && entry.Live(conn) && policy.Supports(selection) ? entry.Owner : null;
+        return policy is not null && entry.Live(player) && policy.Supports(selection) ? entry.Owner : null;
     }
 
     /// <summary>Holds a synchronous admission/commit boundary. Never keep it across an await or acquire the host lock.</summary>
-    public static IDisposable Enter(ClientState conn, AscendancyIdentity? selection, bool verifyGraph = false)
+    public static IDisposable Enter(Player player, AscendancyIdentity? selection, bool verifyGraph = false)
     {
         if (selection is null || selection.Family == AscendancyFamily.Normal)
             return Empty.Instance;
@@ -57,7 +57,7 @@ public static class AscendancyPolicies
         try
         {
             // A synchronous commit admitted before Stop finishes under the same gate; retirement waits for it.
-            if (entry.Policy is null || !admitted && !entry.Live(conn) || !entry.Policy.Supports(selection))
+            if (entry.Policy is null || !admitted && !entry.Live(player) || !entry.Policy.Supports(selection))
                 throw Unavailable(selection);
             if (verifyGraph) entry.Policy.RequirePlayable(selection);
             return new Exit(entry.Gate);
@@ -65,16 +65,16 @@ public static class AscendancyPolicies
         catch { Monitor.Exit(entry.Gate); throw; }
     }
 
-    public static void RequirePlayable(ClientState conn, AscendancyIdentity? selection)
+    public static void RequirePlayable(Player player, AscendancyIdentity? selection)
     {
         if (selection is not null && selection.Family != AscendancyFamily.Normal)
-            (ReadPolicy(conn, selection) ?? throw Unavailable(selection)).RequirePlayable(selection);
+            (ReadPolicy(player, selection) ?? throw Unavailable(selection)).RequirePlayable(selection);
     }
 
-    public static void RequireAvailable(ClientState conn, AscendancyIdentity? selection)
+    public static void RequireAvailable(Player player, AscendancyIdentity? selection)
     {
         if (selection is not null && selection.Family != AscendancyFamily.Normal
-            && ReadPolicy(conn, selection) is null) throw Unavailable(selection);
+            && ReadPolicy(player, selection) is null) throw Unavailable(selection);
     }
 
     /// <summary>Inside a transaction, reject another connection's family/class switch before writing or publishing.</summary>
@@ -85,43 +85,43 @@ public static class AscendancyPolicies
         throw new PassiveProgressConflictException();
     }
 
-    public static void SelectionChanged(ClientState conn)
+    public static void SelectionChanged(Player player)
     {
         // Bind only after a successful durable/runtime change, never while validating a prospective choice.
         // Failed optional choices leave ordinary characters outside optional-module retirement.
-        if (conn.MainAscendancy.Selection is null || conn.MainAscendancy.Selection.Family == AscendancyFamily.Normal)
+        if (player.Character.MainAscendancy.Selection is null || player.Character.MainAscendancy.Selection.Family == AscendancyFamily.Normal)
         {
-            Attachments.Remove(conn);
+            Attachments.Remove(player);
             return;
         }
-        using var admission = Enter(conn, conn.MainAscendancy.Selection);
-        var entry = _providers[conn.MainAscendancy.Selection.Family];
-        Attachments.AddOrUpdate(conn, entry);
-        entry.Connections.GetValue(conn, _ => new object());
+        using var admission = Enter(player, player.Character.MainAscendancy.Selection);
+        var entry = _providers[player.Character.MainAscendancy.Selection.Family];
+        Attachments.AddOrUpdate(player, entry);
+        entry.Connections.GetValue(player, _ => new object());
     }
 
-    public static IReadOnlyDictionary<uint, int>? AreaStats(ClientState conn, AscendancyIdentity? selection)
+    public static IReadOnlyDictionary<uint, int>? AreaStats(Player player, AscendancyIdentity? selection)
     {
         return selection is null || selection.Family == AscendancyFamily.Normal ? null
-            : (ReadPolicy(conn, selection) ?? throw Unavailable(selection)).AreaStats;
+            : (ReadPolicy(player, selection) ?? throw Unavailable(selection)).AreaStats;
     }
 
-    public static IReadOnlyList<(uint Key, int Value)> NodeStats(ClientState conn,
+    public static IReadOnlyList<(uint Key, int Value)> NodeStats(Player player,
         AscendancyCatalog.Definition definition, ushort node, IReadOnlyList<(uint Key, int Value)> modeStats)
     {
         return definition.Identity.Family == AscendancyFamily.Normal ? modeStats
-            : (ReadPolicy(conn, definition.Identity) ?? throw Unavailable(definition.Identity))
+            : (ReadPolicy(player, definition.Identity) ?? throw Unavailable(definition.Identity))
                 .NodeStats(definition, node, modeStats);
     }
 
     // Source/availability queries also run inside saved-progress transactions. They must never acquire the
     // provider commit gate there: mutating paths use connection -> provider -> database ordering.
     // Policies are pure readers; a local snapshot may finish reading while its owner is retiring.
-    static IAscendancyFamilyPolicy? ReadPolicy(ClientState conn, AscendancyIdentity selection)
+    static IAscendancyFamilyPolicy? ReadPolicy(Player player, AscendancyIdentity selection)
     {
         if (!_providers.TryGetValue(selection.Family, out var entry)) return null;
         var policy = Volatile.Read(ref entry.Policy);
-        return policy is not null && (Monitor.IsEntered(entry.Gate) || entry.Live(conn)) && policy.Supports(selection)
+        return policy is not null && (Monitor.IsEntered(entry.Gate) || entry.Live(player)) && policy.Supports(selection)
             ? policy : null;
     }
 
@@ -133,15 +133,15 @@ public static class AscendancyPolicies
     {
         public IModuleLifetime Owner => owner;
         public readonly object Gate = new();
-        public readonly ConditionalWeakTable<ClientState, object> Connections = new();
+        public readonly ConditionalWeakTable<Player, object> Connections = new();
         public IAscendancyFamilyPolicy? Policy = policy;
         readonly AscendancyFamily _family = policy.Family;
-        public bool Live(ClientState conn) => Policy is not null && owner.IsActive && !conn.Closed
-            && Program.ModulesFor(conn).Contains(owner.Id);
+        public bool Live(Player player) => Policy is not null && owner.IsActive && !player.Closed
+            && Program.ModulesFor(player).Contains(owner.Id);
 
         public void Dispose()
         {
-            ClientState[] affected;
+            Player[] affected;
             lock (Gate)
             {
                 if (Policy is null) return;
@@ -154,19 +154,16 @@ public static class AscendancyPolicies
             }
             // Do not acquire a connection lock while holding the provider lock: mutations take them in the reverse order.
             // A reload conservatively ends affected areas. Re-entry binds current code without a missing-drawback interval.
-            foreach (var conn in affected)
+            foreach (var player in affected)
             {
-                lock (conn.Monsters)
-                {
-                    if (!Attachments.TryGetValue(conn, out var current) || !ReferenceEquals(current, this)) continue;
-                    Attachments.Remove(conn);
-                    conn.Closed = true;
-                    conn.Rampage.Clear();
-                    conn.RetireOwnedCombat();
-                    conn.InvalidateIncomingHits();
-                }
-                Console.WriteLine($"[gateway] {Program.CharacterName(conn)}: {_family} module reloaded; reconnect to retain current rules");
-                conn.Wire.Stream?.Close();
+                if (!Attachments.TryGetValue(player, out var current) || !ReferenceEquals(current, this)) continue;
+                Attachments.Remove(player);
+                player.Closed = true;
+                player.Rampage.Clear();
+                player.RetireOwnedCombat();
+                player.InvalidateIncomingHits();
+                Console.WriteLine($"[gateway] {Program.CharacterName(player)}: {_family} module reloaded; reconnect to retain current rules");
+                player.Connection.Session.Stream?.Close();
             }
         }
     }

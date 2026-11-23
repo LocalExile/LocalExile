@@ -339,9 +339,9 @@ public sealed class VillageModule : IModule
     public void Load(IModuleContext module)
     {
         MappingCommands.Register(module.Manifest.Id);
-        GameEvents.CommandsBuilding.Add(module.Manifest.Id, (commands, remote, stream, ciphers, conn) =>
+        GameEvents.CommandsBuilding.Add(module.Manifest.Id, (commands, connection) =>
         {
-            var player = Program.PlayerOf(conn);
+            var player = Program.PlayerOf(connection);
             return commands.Add("villagepanel", "/villagepanel hire <jobRow> [rank] (the town panel's workers)", async args =>
             {
                 if (args.Length >= 2 && string.Equals(args[0], "hire", StringComparison.OrdinalIgnoreCase)
@@ -365,7 +365,7 @@ public sealed class VillageModule : IModule
                     && uint.TryParse(args[1], out uint purse))
                 {
                     // the tester's way of getting gold to try the panel's buttons with
-                    var stash = global::Game.PersonalStashOf(Program.ConnOf(player));
+                    var stash = global::Game.PersonalStashOf(Program.PlayerOf(player));
                     uint total = stash.AddGold(purse);
                     await player.Send(InstanceEntities.Gold(total), $"0x02aa gold: {total}");
                     await player.Tell($"Kingsmarch: the purse holds {total}");
@@ -374,16 +374,16 @@ public sealed class VillageModule : IModule
                 await player.Tell("usage: /villagepanel hire <VillageJobs row> [rank 1-5] | /villagepanel gold <amount> | /villagepanel purse <amount>");
             });
         });
-        GameEvents.Tick.Add(module.Manifest.Id, async (conn, now) =>
+        GameEvents.AreaTick.Add(module.Manifest.Id, GameEvents.Always(async (connection, now) =>
         {
-            var player = Program.PlayerOf(conn);
+            var player = Program.PlayerOf(connection);
             await OpenPort(player);
             await StatePoll(player, now);
             await PushWorkers(player);
             await PushRecruits(player);
             await PushState(player);
             MappingEngine.Advance(player.Character ?? "", now);
-        });
+        }));
         GameEvents.Packet(ActionId).Add(module.Manifest.Id, async (conn, bytes) =>
         {
             // The wire is u16 id | u8 ruleset row | compact-int length | blob (the client's writer 0x141fa7c10); the row
@@ -466,7 +466,7 @@ public sealed class VillageModule : IModule
     /// gold is announced with.</summary>
     static async Task<string> Give(Settlement settlement, uint amount, IPlayer player)
     {
-        var stash = global::Game.PersonalStashOf(Program.ConnOf(player));
+        var stash = global::Game.PersonalStashOf(Program.PlayerOf(player));
         uint take = (uint)Math.Min(amount, stash.Gold);
         if (take == 0) return $"the account has no gold to put into the treasury ({stash.Gold} held)";
         uint? left = stash.TrySpendGold(take);
@@ -484,7 +484,7 @@ public sealed class VillageModule : IModule
         if (taken == 0) return "the treasury is empty";
         settlement.Gold -= taken;
         settlement.Version++;
-        var stash = global::Game.PersonalStashOf(Program.ConnOf(player));
+        var stash = global::Game.PersonalStashOf(Program.PlayerOf(player));
         uint gold = stash.AddGold(taken);
         await player.Send(InstanceEntities.Gold(gold), $"0x02aa gold: {gold} (took {taken} out of the treasury)");
         return $"treasury -{taken} (gold now {settlement.Gold})";
@@ -498,7 +498,7 @@ public sealed class VillageModule : IModule
     async Task<string> RerollRecruits(IPlayer player, int tier = 0)
     {
         var settlement = Of(player);
-        var stash = global::Game.PersonalStashOf(Program.ConnOf(player));
+        var stash = global::Game.PersonalStashOf(Program.PlayerOf(player));
         // the panel has two buttons: the plain reroll and the "high quality" one, which costs more and brings better
         // recruits (the client's tier 1 sender is 0x140510400)
         bool high = tier != 0;

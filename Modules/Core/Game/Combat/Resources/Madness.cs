@@ -6,16 +6,16 @@ public static partial class Game
 {
     public const string MadnessEffect = "EmbraceMadness";
     const double MadnessTouchSeconds = 20;
-    const string MadnessAllPoison = "all_damage_can_poison_while_affected_by_glorious_madness";
+    const uint MadnessAllPoison = Stat.AllDamageCanPoisonWhileAffectedByGloriousMadness;
 
-    static MadnessState MadnessAt(ClientState conn)
+    static MadnessState MadnessAt(Player player)
     {
-        var state = conn.Madness;
-        if (conn.Closed || conn.LeavingArea || conn.PlayerLife == 0 || !ReferenceEquals(state.Owner, CombatLifetime))
+        var state = player.Madness;
+        if (player.Closed || player.LeavingArea || player.PlayerLife == 0 || !ReferenceEquals(state.Owner, CombatLifetime))
             state.Explosions.Clear();
-        var grant = !conn.Closed && !conn.LeavingArea && conn.PlayerLife > 0 && !InTown(conn) && CurrentGameRules
-            ? AllWornGrantedSkillsOf(conn).Where(g => g.EffectId == MadnessEffect && !g.Support
-                && !IsInactive(conn, g.Host) && LeagueFor(conn).Rules.AllowsGemEffect(g.EffectId))
+        var grant = !player.Closed && !player.LeavingArea && player.PlayerLife > 0 && !InTown(player) && CurrentGameRules
+            ? AllWornGrantedSkillsOf(player).Where(g => g.EffectId == MadnessEffect && !g.Support
+                && !IsInactive(player, g.Host) && LeagueFor(player).Rules.AllowsGemEffect(g.EffectId))
                 .Select(g => (WornGrantedSkills.Grant?)g).FirstOrDefault() : null;
         if (grant is null && state.Source is null && !state.Active) return state;
         if (state.Source != grant || !ReferenceEquals(state.Owner, CombatLifetime))
@@ -24,39 +24,38 @@ public static partial class Game
             state.Source = grant;
             state.Owner = CombatLifetime;
             state.Skill = 0;
-            conn.AuraStatsDirty = true;
+            player.AuraStatsDirty = true;
         }
         return state;
     }
 
-    public static bool MadnessActiveLocked(ClientState conn) => MadnessAt(conn).Active;
+    public static bool MadnessActiveLocked(Player player) => MadnessAt(player).Active;
 
-    public static void MadnessExpiryRateLocked(ClientState conn, double now, double rate)
+    public static void MadnessExpiryRateLocked(Player player, double now, double rate)
     {
-        var state = conn.Madness;
+        var state = player.Madness;
         rate = Math.Max(.25, rate);
         if (state.ExpiryRate == rate) return;
         for (int i = 0; i < 4; i++)
             if (state.Touches[i] > 0)
             {
                 state.Until[i] = RecipientEffectTime.RetimedDeadline(state.Until[i], now, state.ExpiryRate, rate);
-                state.TouchBuffs[i] = conn.NextBuff++;
             }
         state.ExpiryRate = rate;
-        state.Revision++;
-        conn.AuraStatsDirty = true;
+        PresentMadnessLocked(player, moved: 4);
+        state.Revision++; MarkPlayerStats(player, PlayerStatStep.Sources);
+        player.AuraStatsDirty = true;
     }
 
-    static int MadnessSkillValue(ClientState conn, string name) => Stats.Key(name) is uint key
-        ? SkillsFor(conn).EffectStats(SkillsFor(conn).EffectRow(MadnessEffect), 1)
-            .FirstOrDefault(p => p.Item1 == key).Item2 : 0;
+    static int MadnessSkillValue(Player player, uint name) => SkillsFor(player).EffectStats(SkillsFor(player).EffectRow(MadnessEffect), 1)
+        .FirstOrDefault(p => p.Item1 == name).Item2;
 
-    public static bool MadnessReconcileLocked(ClientState conn, double now)
+    public static bool MadnessReconcileLocked(Player player, double now)
     {
-        long before = conn.Madness.Revision;
-        var state = MadnessAt(conn);
+        long before = player.Madness.Revision;
+        var state = MadnessAt(player);
         if (!state.Active) return before != state.Revision;
-        double interval = Math.Max(.001, MadnessSkillValue(conn, "glorious_madness_timer_ms") / 1000d);
+        double interval = Math.Max(.001, MadnessSkillValue(player, Stat.GloriousMadnessTimerMs) / 1000d);
         double duration = MadnessTouchSeconds / state.ExpiryRate;
         // Only touches still alive at now can contribute after a long unobserved interval. Do not replay expired
         // debuffs or run an unbounded catch-up loop; ordinary pause stops this game clock altogether.
@@ -68,13 +67,13 @@ public static partial class Game
             int kind = state.Random.Next(4);
             state.Touches[kind] = Math.Min(10, state.Touches[kind] + 1);
             state.Until[kind] = at + duration;
-            state.TouchBuffs[kind] = conn.NextBuff++;
             state.NextTouch = at + interval;
-            state.Revision++;
+            state.Revision++; MarkPlayerStats(player, PlayerStatStep.Sources);
+            PresentMadnessLocked(player, moved: kind);
         }
         Expire(now);
         bool changed = before != state.Revision;
-        if (changed) conn.AuraStatsDirty = true;
+        if (changed) player.AuraStatsDirty = true;
         return changed;
 
         void Expire(double at)
@@ -83,124 +82,117 @@ public static partial class Game
                 if (state.Touches[i] > 0 && state.Until[i] <= at)
                 {
                     state.Touches[i] = 0;
-                    state.TouchBuffs[i] = 0;
-                    state.Revision++;
+                    state.Revision++; MarkPlayerStats(player, PlayerStatStep.Sources);
                 }
         }
     }
 
-    public static IReadOnlyList<(uint Key, int Value)> MadnessRawStatsLocked(ClientState conn,
+    public static IReadOnlyList<(uint Key, int Value)> MadnessRawStatsLocked(Player player,
         IReadOnlyDictionary<uint, int> raw)
     {
-        var state = MadnessAt(conn);
+        var state = MadnessAt(player);
         if (!state.Active) return [];
-        int Get(string name) => AspectInput(conn, raw, name);
-        if (Get("your_spells_are_disabled") != 0)
+        int Get(uint name) => AspectInput(player, raw, name);
+        if (Get(Stat.YourSpellsAreDisabled) != 0)
         {
             state.Clear();
-            conn.AuraStatsDirty = true;
+            player.AuraStatsDirty = true;
             return [];
         }
         var result = new List<(uint, int)>();
-        void Add(string name, int value)
+        void Add(uint name, int value)
         {
-            if (Stats.Key(name) is uint key && value != 0) result.Add((key, value));
+            if (name is var key && value != 0) result.Add((key, value));
         }
-        Add("affected_by_glorious_madness", 1);
-        Add("embrace_madness_reactivation_cooldown", 1);
+        Add(Stat.AffectedByGloriousMadness, 1);
+        Add(Stat.EmbraceMadnessReactivationCooldown, 1);
         if (Get(MadnessAllPoison) != 0)
         {
-            Add("all_damage_can_poison", 1);
+            Add(Stat.AllDamageCanPoison, 1);
             // The Beacon modifier says "inflicts Poison", rather than merely allowing elemental poison bases.
-            Add("base_chance_to_poison_on_hit_%", 100);
+            Add(Stat.BaseChanceToPoisonOnHitPct, 100);
         }
-        Add("chance_to_deal_double_damage_%", Get("chance_to_deal_double_damage_while_affected_by_glorious_madness_%"));
-        Add("base_max_fortification", Get("max_fortification_while_affected_by_glorious_madness_+1_per_4") / 4);
-        if (Get("gain_chilling_shocking_igniting_conflux_while_affected_by_glorious_madness") != 0)
+        Add(Stat.ChanceToDealDoubleDamagePct, Get(Stat.ChanceToDealDoubleDamageWhileAffectedByGloriousMadnessPct));
+        Add(Stat.BaseMaxFortification, Get(Stat.MaxFortificationWhileAffectedByGloriousMadnessPlus1Per4) / 4);
+        if (Get(Stat.GainChillingShockingIgnitingConfluxWhileAffectedByGloriousMadness) != 0)
         {
-            foreach (string ailment in new[] { "chill", "shock", "ignite" }) Add($"all_damage_can_{ailment}", 1);
-            Add("base_chance_to_ignite_%", 100);
-            Add("chance_to_shock_%", 100);
+            foreach (string ailment in new[] { "chill", "shock", "ignite" }) Add(Stat.Of($"all_damage_can_{ailment}"), 1);
+            Add(Stat.BaseChanceToIgnitePct, 100);
+            Add(Stat.ChanceToShockPct, 100);
         }
-        if (Get("immune_to_elemental_status_ailments_while_affected_by_glorious_madness") != 0)
+        if (Get(Stat.ImmuneToElementalStatusAilmentsWhileAffectedByGloriousMadness) != 0)
         {
-            Add("immune_to_elemental_ailments", 1);
+            Add(Stat.ImmuneToElementalAilments, 1);
             foreach (string ailment in new[] { "ignite", "freeze", "chill", "shock" })
-                Add($"base_immune_to_{ailment}", 1);
-            Add("immune_to_scorch", 1);
-            Add("immune_to_sap", 1);
-            Add("cannot_gain_brittle", 1);
+                Add(Stat.Of($"base_immune_to_{ailment}"), 1);
+            Add(Stat.ImmuneToScorch, 1);
+            Add(Stat.ImmuneToSap, 1);
+            Add(Stat.CannotGainBrittle, 1);
         }
-        Add("life_recovery_rate_+%", -9 * state.Touches[0]);
-        Add("energy_shield_recovery_rate_+%", -9 * state.Touches[0]);
-        Add("action_speed_-%", 6 * state.Touches[1]);
-        Add("base_damage_taken_+%", 6 * state.Touches[2]);
-        Add("flask_effect_+%", -9 * state.Touches[3]);
-        Add("charges_gained_+%", -9 * state.Touches[3]);
+        Add(Stat.LifeRecoveryRatePlusPct, -9 * state.Touches[0]);
+        Add(Stat.EnergyShieldRecoveryRatePlusPct, -9 * state.Touches[0]);
+        Add(Stat.ActionSpeedMinusPct, 6 * state.Touches[1]);
+        Add(Stat.BaseDamageTakenPlusPct, 6 * state.Touches[2]);
+        Add(Stat.FlaskEffectPlusPct, -9 * state.Touches[3]);
+        Add(Stat.ChargesGainedPlusPct, -9 * state.Touches[3]);
         return result;
     }
 
-    public static async Task<bool> ToggleMadness(string remote, NetworkStream stream, ConnectionCiphers ciphers,
-        ClientState conn, ushort skill, int effect, Func<bool> current, CooldownUseTicket? admission = null)
+    public static async Task<bool> ToggleMadness(Player player, ushort skill, int effect, Func<bool> current, CooldownUseTicket? admission = null)
     {
         bool accepted = false;
-        await SendWorldRecords(remote, stream, ciphers, conn, PlayerId, () =>
+        await SendWorldRecords(player, player.Id, () =>
         {
-            lock (conn.Monsters)
+            if (!current() || player.PlayerLife == 0 || player.Paused || InTown(player)
+                || GemSkillInstanceDisabled(player, effect, skill) is not null) return null;
+            var state = MadnessAt(player);
+            var source = SupportedSkill(player, skill);
+            double now = AreaTime(player);
+            if (source.Effect != effect || SkillsFor(player).EffectId(effect) != MadnessEffect
+                || source.WornGrant != state.Source || state.Source is null || !source.RequirementsMet
+                || (admission is null ? now < state.ReadyAt : !admission.Current(player))) return null;
+            var plan = CooldownFor(player, effect, source.Level, source.Quality);
+            double baseMilliseconds = SkillsFor(player).CooldownMs(effect, 1)
+                + (state.Active ? MadnessSkillValue(player, Stat.EmbraceMadnessAmountOfCooldownToGainMs) : 0);
+            double delay = plan is { } cooldown
+                ? cooldown.RecoveryRate > 0 ? cooldown.BaseMilliseconds / (1000 * cooldown.RecoveryRate) : double.PositiveInfinity
+                : baseMilliseconds / 1000d;
+            if (state.Active)
             {
-                if (!current() || conn.PlayerLife == 0 || conn.Paused || InTown(conn)
-                    || GemSkillInstanceDisabled(conn, effect, skill) is not null) return null;
-                var state = MadnessAt(conn);
-                var source = SupportedSkill(conn, skill);
-                double now = AreaTime(conn);
-                if (source.Effect != effect || SkillsFor(conn).EffectId(effect) != MadnessEffect
-                    || source.WornGrant != state.Source || state.Source is null || !source.RequirementsMet
-                    || (admission is null ? now < state.ReadyAt : !admission.Current(conn))) return null;
-                var plan = CooldownFor(conn, effect, source.Level, source.Quality);
-                double baseMilliseconds = SkillsFor(conn).CooldownMs(effect, 1)
-                    + (state.Active ? MadnessSkillValue(conn, "embrace_madness_amount_of_cooldown_to_gain_ms") : 0);
-                double delay = plan is { } cooldown
-                    ? cooldown.RecoveryRate > 0 ? cooldown.BaseMilliseconds / (1000 * cooldown.RecoveryRate) : double.PositiveInfinity
-                    : baseMilliseconds / 1000d;
-                if (state.Active)
-                {
-                    state.Clear();
-                }
-                else
-                {
-                    state.Active = true;
-                    state.Skill = skill;
-                    state.Buff = conn.NextBuff++;
-                    state.NextTouch = now + MadnessSkillValue(conn, "glorious_madness_timer_ms") / 1000d;
-                    state.Revision++;
-                }
-                state.ReadyAt = now + delay;
-                conn.AuraStatsDirty = true;
-                conn.Pools = PoolsFor(conn, conn.Pools.Level);
-                conn.ApplyMovementSpeed();
-                accepted = true;
-                return WithOwnAuraRecords(conn, () => []);
+                state.Clear();
             }
+            else
+            {
+                state.Active = true;
+                state.Skill = skill;
+                state.NextTouch = now + MadnessSkillValue(player, Stat.GloriousMadnessTimerMs) / 1000d;
+                state.Revision++; MarkPlayerStats(player, PlayerStatStep.Sources);
+            }
+            state.ReadyAt = now + delay;
+            player.AuraStatsDirty = true;
+            player.Pools = PoolsFor(player, player.Pools.Level);
+            player.ApplyMovementSpeed();
+            accepted = true;
+            return WithOwnAuraRecords(player, () => []);
         }, "Glorious Madness toggled");
         return accepted;
     }
 
-    static void PresentMadnessLocked(ClientState conn, List<byte[]> packets)
+    // Glorious Madness (row 1535) and its four touches (1496-1499, their stacks and countdowns) while it is active. A touch
+    // gained or retimed moves its countdown (moved).
+    static void PresentMadnessLocked(Player player, int moved = -1)
     {
-        var state = MadnessAt(conn);
-        Present(ref state.PresentedBuff, state.Active ? state.Buff : (ushort)0, 1535);
+        var state = MadnessAt(player);
+        var buffs = player.Area.Buffs;
+        if (state.Active) buffs.Keep(player.Id, new(1535, player.Id, state.Skill));
+        else buffs.Clear(player.Id, 1535, player.Id);
         for (int i = 0; i < 4; i++)
-            Present(ref state.PresentedTouches[i], state.Active ? state.TouchBuffs[i] : (ushort)0,
-                (ushort)(1496 + i), state.Touches[i], state.Until[i]);
-
-        void Present(ref ushort shown, ushort wanted, ushort row, int stacks = 1, double until = 0)
         {
-            if (shown != 0 && shown != wanted) packets.Add(InstanceEntities.RemoveBuff(PlayerId, shown));
-            if (wanted != 0 && shown != wanted)
-                packets.Add(InstanceEntities.AddBuff(PlayerId, wanted, row, PlayerId, state.Skill,
-                    stacks: (ushort)stacks,
-                    u68: until > 0 ? BitConverter.SingleToUInt32Bits((float)Math.Max(0, until - AreaTime(conn))) : 0));
-            shown = wanted;
+            ushort row = (ushort)(1496 + i);
+            if (!state.Active || state.Touches[i] == 0) { buffs.Clear(player.Id, row, player.Id); continue; }
+            var buff = new Buff(row, player.Id, state.Skill, Stacks: (ushort)state.Touches[i],
+                U68: Buff.Seconds(state.Until[i] - AreaTime(player)));
+            if (moved == i || moved == 4) buffs.Set(player.Id, buff); else buffs.Keep(player.Id, buff);
         }
     }
 }

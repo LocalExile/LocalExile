@@ -8,16 +8,16 @@ public class GlobalAddedDamageTests
     [Fact]
     public void Global_added_damage_reaches_attacks_and_spells()
     {
-        var stats = new Dictionary<string, int>
+        var stats = new Dictionary<uint, int>
         {
-            ["global_minimum_added_fire_damage"] = 10,
-            ["global_maximum_added_fire_damage"] = 20,
-            ["attack_minimum_added_fire_damage"] = 1,
-            ["attack_maximum_added_fire_damage"] = 2,
-            ["spell_minimum_added_fire_damage"] = 3,
-            ["spell_maximum_added_fire_damage"] = 4,
+            [Stat.GlobalMinimumAddedFireDamage] = 10,
+            [Stat.GlobalMaximumAddedFireDamage] = 20,
+            [Stat.AttackMinimumAddedFireDamage] = 1,
+            [Stat.AttackMaximumAddedFireDamage] = 2,
+            [Stat.SpellMinimumAddedFireDamage] = 3,
+            [Stat.SpellMaximumAddedFireDamage] = 4,
         };
-        int Get(string name) => stats.GetValueOrDefault(name);
+        int Get(uint name) => stats.GetValueOrDefault(name);
 
         var attack = DamageStats.RawAdded(DamagePacket.Empty, Get, spell: false);
         Assert.Equal(11, attack[DamageType.Fire].Min);

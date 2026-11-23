@@ -1,3 +1,5 @@
+using GameServer.Core;
+
 /// <summary>
 /// The standard charge maxima as the panel and the charges use them: <see cref="ChargePanelStats.Compute"/> (Character.ot's
 /// 3, the maximum-charge mods, Masterful Form), then the uniques that replace a maximum (stat descriptions):
@@ -11,13 +13,13 @@
 /// </summary>
 public static class ChargeMaxima
 {
-    const string FrenzyEqualsPower = "maximum_frenzy_charges_is_equal_to_maximum_power_charges";
-    const string AllZero = "maximum_endurance_frenzy_power_charges_is_0";
+    const uint FrenzyEqualsPower = Stat.MaximumFrenzyChargesIsEqualToMaximumPowerCharges;
+    const uint AllZero = Stat.MaximumEnduranceFrenzyPowerChargesIs0;
 
-    static readonly string[] Names = [.. Charges.Types.Select(t => $"virtual_maximum_{Charges.Name(t)}_charges")];
+    static readonly uint[] Names = [.. Charges.Types.Select(t => Stat.Of($"virtual_maximum_{Charges.Name(t)}_charges"))];
 
     /// <summary>The three <c>virtual_maximum_*_charges</c> rows.</summary>
-    public static List<(string Stat, int Value)> Compute(Func<string, int> get)
+    public static List<(uint Stat, int Value)> Compute(Func<uint, int> get)
     {
         var rows = ChargePanelStats.Compute(get);
         if (get(FrenzyEqualsPower) == 0 && get(AllZero) == 0) return rows;
@@ -34,17 +36,17 @@ public static class ChargeMaxima
     }
 
     /// <summary>One type's maximum.</summary>
-    public static int Of(ChargeType type, Func<string, int> get) => Find(Compute(get), type);
+    public static int Of(ChargeType type, Func<uint, int> get) => Find(Compute(get), type);
 
     // A loop, not First with a lambda: the condition flags ask on every stat lookup (performance.md, "Hot paths").
-    static int Find(List<(string Stat, int Value)> rows, ChargeType type)
+    static int Find(List<(uint Stat, int Value)> rows, ChargeType type)
     {
         foreach (var (stat, value) in rows)
             if (stat == Names[(int)type]) return value;
-        throw new InvalidOperationException(Names[(int)type]);
+        throw new InvalidOperationException(Names[(int)type].ToString());
     }
 
     /// <summary>The type's limits with these maxima (<see cref="Charges.LimitsOf"/>).</summary>
-    public static Charges.Limits LimitsOf(ChargeType type, Func<string, int> get, int held = 0) =>
+    public static Charges.Limits LimitsOf(ChargeType type, Func<uint, int> get, int held = 0) =>
         Charges.LimitsOf(type, get, held, Of(type, get));
 }

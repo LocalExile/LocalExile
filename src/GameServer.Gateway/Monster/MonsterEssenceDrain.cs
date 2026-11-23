@@ -10,7 +10,10 @@ public sealed class MonsterEssenceDrain
     /// the damage dealt that the caster leeches as life (siphon_life_leech_from_damage_permyriad), the caster's skill id and
     /// the caster: only that player leeches, also from a Contagion spread of it.</summary>
     public sealed record Cast(double DamagePerSecond, double Seconds, int LeechPermyriad = 0, ushort SkillId = 0,
-        ClientState? Caster = null);
+        Player? Caster = null)
+    {
+        public int LossPermyriad { get; init; }
+    }
 
     // Each hit's instance counts from Start (when it landed) to Until.
     readonly List<(Cast Cast, double Start, double Until)> instances = [];
@@ -21,14 +24,30 @@ public sealed class MonsterEssenceDrain
     /// <summary>The strongest instance affecting the monster at the last advance; null when none is.</summary>
     public Cast? Active => Strongest(last)?.Cast;
 
+    public Cast? ForHitSpread(double now) => Strongest(now) is { } active
+        ? active.Cast with { Seconds = active.Until - now } : null;
+
+    public void ApplySpread(double now, Cast cast)
+    {
+        double until = now + cast.Seconds;
+        if (!instances.Any(active => active.Start <= now && active.Until >= until
+            && active.Cast == (cast with { Seconds = active.Cast.Seconds })))
+            Apply(now, cast);
+    }
+
     public bool Idle => instances.Count == 0;
 
     /// <summary>When the last instance ends.</summary>
     public double Until => instances.Count == 0 ? 0 : instances.Max(i => i.Until);
 
+    static long applied;
+    /// <summary>True once any Essence Drain has been applied anywhere in the process.</summary>
+    public static bool AnyApplied => Volatile.Read(ref applied) > 0;
+
     public void Apply(double now, Cast cast)
     {
         if (!(cast.DamagePerSecond > 0) || !(cast.Seconds > 0)) return;
+        Interlocked.Increment(ref applied);
         if (instances.Count == 0)
         {
             last = now;

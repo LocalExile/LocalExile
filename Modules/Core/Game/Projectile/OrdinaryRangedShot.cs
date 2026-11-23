@@ -16,13 +16,14 @@ public sealed record OrdinaryRangedShot(DamagePacket Hit, int Accuracy, int Crit
         int criticalMultiplier, long additionalIncreased = 0)
     {
         var Get = WeaponAttributeDamage.Read(WeaponAttributeDamage.Armed(weapon),
-            name => catalog.Key(name) is uint key ? character.GetValueOrDefault(key) : 0);
+            name => name is var key ? character.GetValueOrDefault(key) : 0);
         var conversion = new Dictionary<uint, int>(character);
         var own = skillConversion.ToDictionary(kv => kv.Item1, kv => kv.Item2);
         foreach (var (key, value) in own) conversion.TryAdd(key, value);
+        var damageConversion = SupportedAttackDamage.WithWeaponGains(DamageStats.Conversion(conversion, catalog, attack: true), weapon);
         var hit = MaximumAttackDamage.Apply(RageStats.ApplyAttack(PlayerHitDamage.Resolve(SupportedAttackDamage.Raw(weapon, Get, new(accuracy)),
             SupportedAttackDamage.HitModifiers(weapon, Get),
-            DamageStats.Conversion(conversion, catalog, attack: true), spell: false, projectile: true, wieldingBow: weapon.Bow,
+            damageConversion, spell: false, projectile: true, wieldingBow: weapon.Bow,
             additionalIncreased: additionalIncreased + SupportedAttackDamage.WeaponIncrease(weapon, Get),
             additional: WeaponTypeDamage.Of(weapon, Get)), Get), Get);
         var impale = ImpaleStats.From(character, catalog, attack: true, own, weapon.LocalSources);
@@ -31,14 +32,14 @@ public sealed record OrdinaryRangedShot(DamagePacket Hit, int Accuracy, int Crit
             Leech = LeechSources.From(name => (int)Math.Clamp((long)Get(name) + Own(name), int.MinValue, int.MaxValue),
                 attack: true, name => weapon.LocalSources?.GetValueOrDefault(name) ?? 0),
             AccuracyProfile = new(accuracy,
-                Get("accuracy_rating_+%_final_vs_unique_enemies_from_mastery"),
-                Get("accuracy_rating_+%_final_vs_enemies_in_close_range_from_mastery"),
-                Get("global_always_hit") != 0 || Own("global_always_hit") != 0
-                    || (weapon.LocalSources?.GetValueOrDefault("local_always_hit") ?? 0) != 0),
+                Get(Stat.AccuracyRatingPlusPctFinalVsUniqueEnemiesFromMastery),
+                Get(Stat.AccuracyRatingPlusPctFinalVsEnemiesInCloseRangeFromMastery),
+                Get(Stat.GlobalAlwaysHit) != 0 || Own(Stat.GlobalAlwaysHit) != 0
+                    || (weapon.LocalSources?.GetValueOrDefault(Stat.LocalAlwaysHit) ?? 0) != 0),
             Penetration = global::Penetration.Of(character, catalog, attack: true, own, weapon.LocalSources),
             ResistanceMods = Game.HitResistMods(character, own) };
 
-        int Own(string name) => catalog.Key(name) is uint key ? own.GetValueOrDefault(key) : 0;
+        int Own(uint key) => own.GetValueOrDefault(key);
     }
 
     public (int Damage, bool Critical) Roll(ImpaleState impale, Random random,

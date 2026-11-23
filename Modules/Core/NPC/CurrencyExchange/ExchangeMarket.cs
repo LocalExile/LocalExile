@@ -8,14 +8,20 @@ namespace GameServer.Modules.CurrencyExchange;
 /// <summary>What the game's <c>CurrencyExchange</c> table lists, by the type hash the window sends.</summary>
 sealed class ExchangeItems
 {
+    /// <summary>Fills this type's game data at startup (the world loader, before the Gateway listens).</summary>
+    public static void LoadExchangeMarketData()
+    {
+        Table = Load();
+    }
+
     public sealed record Row(string Id, uint Hash, uint Fee, bool ItemsPerGold);
 
-    static readonly Lazy<IReadOnlyList<(string Id, uint Fee, bool ItemsPerGold)>> Table = new(Load);
+    static IReadOnlyList<(string Id, uint Fee, bool ItemsPerGold)> Table = default!;
     static readonly ConditionalWeakTable<IItemCrafting, ExchangeItems> PerDataSet = new();
 
     public IReadOnlyDictionary<uint, Row> ByHash { get; }
 
-    ExchangeItems(IItemCrafting items) => ByHash = Table.Value
+    ExchangeItems(IItemCrafting items) => ByHash = Table
         .Select(r => items.TypeHash(r.Id) is { } hash ? new Row(r.Id, hash, r.Fee, r.ItemsPerGold) : null).OfType<Row>()
         .GroupBy(r => r.Hash).ToDictionary(g => g.Key, g => g.First());
 

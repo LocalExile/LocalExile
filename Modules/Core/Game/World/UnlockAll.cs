@@ -82,13 +82,12 @@ static partial class Game
     /// <summary>Grants the unlocked flags to the character (saved, and sent to the client at once).</summary>
     internal static async Task<int> Unlock(IPlayer player, bool everything)
     {
-        var conn = Program.ConnOf(player);
-        var (remote, stream, ciphers) = conn.Wire;
+        var mod = Program.PlayerOf(player);
         List<string> flags = UnlockFlags(everything);
-        int before = conn.QuestFlagsSnapshot().Count;
-        await SetQuestFlags(remote, stream, ciphers, conn, flags);
-        int after = conn.QuestFlagsSnapshot().Count;
-        Console.WriteLine($"[gateway] {remote} {CharacterName(conn)}: unlock ({(everything ? "all" : "default")}) "
+        int before = mod.Character.QuestFlagsSnapshot().Count;
+        await SetQuestFlags(mod, flags);
+        int after = mod.Character.QuestFlagsSnapshot().Count;
+        Console.WriteLine($"[gateway] {mod.Connection.Remote} {CharacterName(mod)}: unlock ({(everything ? "all" : "default")}) "
             + $"{flags.Count} flag(s), {after - before} newly set, {after} total");
         return after - before;
     }
@@ -97,7 +96,7 @@ static partial class Game
     internal static async Task UnlockTick(IPlayer player)
     {
         if (!UnlockAutomatic(out bool everything)) return;
-        object conn = Program.ConnOf(player);
+        object conn = Program.PlayerOf(player);
         if (Unlocked.TryGetValue(conn, out _)) return;
         Unlocked.Add(conn, conn);
         int set = await Unlock(player, everything);

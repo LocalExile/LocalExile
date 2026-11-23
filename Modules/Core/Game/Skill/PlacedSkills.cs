@@ -6,10 +6,71 @@ using GameServer.Core;
 
 public static partial class Game
 {
-    static readonly Lazy<IReadOnlyDictionary<int, string>> TrapVisuals = new(() =>
+    /// <summary>Fills this type's game data at startup (the world loader, before the Gateway listens).</summary>
+    public static void LoadPlacedSkillsData()
+    {
+        TrapVisuals = LoadTrapVisuals();
+    }
+
+    static IReadOnlyDictionary<int, string> TrapVisuals = default!;
+
+    static IReadOnlyDictionary<int, string> LoadTrapVisuals()
     {
         return ClientTables.Table("SkillTrapVariations").ToDictionary(r => r.Int("Id"), r => r.Text("Metadata")!);
-    });
+    }
+    /// <summary>A trap's or mine's object type: Metadata/MiscellaneousObjects/RemoteMine, or the SkillTrapVariations row
+    /// its trap_variation names (the Rogue Exiles' 12: TrapVisible), LightningTrap without one.</summary>
+    public static string PlacedObjectPath(bool mine, Func<uint, int> get) => mine ? "Metadata/MiscellaneousObjects/RemoteMine"
+        : TrapVisuals.GetValueOrDefault(get(Stat.TrapVariation), "Metadata/MiscellaneousObjects/LightningTrap");
+
+    /// <summary>How long a thrown trap or a placed mine flies before it lands (trap_throw_arm_time_override, else .975 s
+    /// for a trap, .6 s for a mine), and the half second after landing it arms in.</summary>
+    public static double PlacedFlightSeconds(bool mine, Func<uint, int> get) =>
+        get(Stat.TrapThrowArmTimeOverride) is > 0 and var armMs ? armMs / 1000d : mine ? .6 : .975;
+    public const double PlacedArmSeconds = .5;
+
+    /// <summary>A trap's or mine's lifetime after landing: base_trap_duration (else 4 s) or base_mine_duration (else 5 s)
+    /// with trap_duration_+% or mine_duration_+%.</summary>
+    public static double PlacedDurationSeconds(bool mine, Func<uint, int> get) =>
+        Math.Max(0, get(mine ? Stat.BaseMineDuration : Stat.BaseTrapDuration) is > 0 and var ms ? ms / 1000d : mine ? 5 : 4)
+            * Math.Max(.01, 1 + get(mine ? Stat.MineDurationPlusPct : Stat.TrapDurationPlusPct) / 100d);
+
+    /// <summary>How near an enemy sets a trap off (cells), with trap_trigger_radius_+%. The player's traps have used
+    /// 10; Trap.ot and the stats name no base radius.</summary>
+    public static double TrapTriggerRadius(Func<uint, int> get) => 10 * Math.Max(0, 1 + get(Stat.TrapTriggerRadiusPlusPct) / 100d);
+
+    /// <summary>The object's stats: one life, no mana, and which kind it is (Trap.ot's is_trap_object), with the
+    /// flight it was thrown for.</summary>
+    public static List<(uint, int)> PlacedObjectStats(bool mine, double flight)
+    {
+        var stats = new List<(uint, int)>();
+        foreach (var (name, value) in new[] { (Stat.MaximumLife, 1), (Stat.UsesNoMana, 1),
+            (Stat.IsTrapObject, mine ? 0 : 1), (Stat.IsRemoteMine, mine ? 1 : 0) })
+            if (name is var key) stats.Add((key, value));
+        if (Stat.TrapThrowArmTimeOverride is var armTime) stats.Add((armTime, (int)Math.Round(flight * 1000)));
+        return stats;
+    }
+
+    /// <summary>The throw as the client draws it: the object's BeThrown action from the thrower to the aim, then its walk
+    /// there over the flight.</summary>
+    public static List<byte[]> PlacedThrowRecords(Player player, uint id, (int X, int Y) from, (int X, int Y) aim, double flight)
+    {
+        List<byte[]> records = [];
+        if (SkillsFor(player).ActionSkillId("BeThrown") is ushort thrown)
+            records.Add(InstanceProtocol.ActionStarted(id, from.X, from.Y, aim.X, aim.Y, thrown, 0xffff, 0x0408));
+        records.Add(InstanceProtocol.MoveTo(id, aim.X, aim.Y, (float)Math.Max(0, flight), InstanceProtocol.FollowTerrain));
+        return records;
+    }
+
+    /// <summary>The landing: the throw ends, the object stands at its cell and plays Arm.</summary>
+    static void PlacedLandRecords(Player player, uint id, (int X, int Y) at, WorldRecordBuilder bytes)
+    {
+        bytes.World(id, InstanceProtocol.ActionEnded(id));
+        bytes.World(id, InstanceProtocol.Teleport(id, at.X, at.Y));
+        if (SkillsFor(player).ActionSkillId("Arm") is ushort arm)
+            bytes.World(id, InstanceProtocol.ActionStarted(id, at.X, at.Y, at.X, at.Y, arm, 0xffff, 0x0408));
+    }
+
     public static (bool Trap, bool Mine) PlacedKind(SupportedGem gem)
     {
         var types = (Supports.Of(gem.Effect)?.Types ?? []).Concat(gem.Supports.SelectMany(s => s.Effect.Added)).ToHashSet();
@@ -21,41 +82,41 @@ public static partial class Game
 
     // The family decision belongs to the original cast, before its first output/grace/payment await. The captured
     // lifetime keeps the numeric skill id from adopting a physical source that was removed and reinserted.
-    private static bool TryCapturePlacedCastAdmissionLocked(ClientState conn, ushort skill,
+    private static bool TryCapturePlacedCastAdmissionLocked(Player player, ushort skill,
         out PlacedCastAdmission? admission)
     {
         admission = null;
         if (!CurrentGameWork || !CurrentGameRules
-            || CurrentPlayerSkillSourceLocked(conn, skill) is not { Active: true } source)
+            || CurrentPlayerSkillSourceLocked(player, skill) is not { Active: true } source)
             return false;
-        using var scope = new PlayerStatScope(conn, fresh: true);
-        var supported = SupportedSkill(conn, skill);
+        using var scope = new PlayerStatScope(player, fresh: true);
+        var supported = SupportedSkill(player, skill);
         var kind = PlacedKind(supported);
         if (supported.Effect < 0 || supported.Effect != source.Effect) return false;
         // A valid ordinary source has no placed family and keeps its existing path without a physical lease binding.
         if (!kind.Trap && !kind.Mine) return true;
         if (!supported.RequirementsMet) return false;
-        admission = new(skill, source.Effect, kind.Trap, kind.Mine, source.Identity, conn.Instance, CombatLifetime,
-            CaptureGemSourceLifetimeLocked(conn, source));
+        admission = new(skill, source.Effect, kind.Trap, kind.Mine, source.Identity, player.Instance, CombatLifetime,
+            CaptureGemSourceLifetimeLocked(player, source));
         return true;
     }
 
-    private static bool PlacedCastStructuralOwnerCurrentLocked(ClientState conn, PlacedCastAdmission admission,
+    private static bool PlacedCastStructuralOwnerCurrentLocked(Player player, PlacedCastAdmission admission,
         int? recovery = null)
     {
-        return CurrentGameWork && CurrentGameRules && !conn.Closed && !conn.LeavingArea && !conn.RageRetired
-            && conn.PlayerLife != 0 && ReferenceEquals(conn.Instance, admission.Area)
+        return CurrentGameWork && CurrentGameRules && !player.Closed && !player.LeavingArea && !player.RageRetired
+            && player.PlayerLife != 0 && ReferenceEquals(player.Instance, admission.Area)
             && ReferenceEquals(CombatLifetime, admission.Lifetime)
-            && (recovery is not int generation || generation == conn.ActionInterruptionGeneration)
-            && conn.GemSourceLifetimes.IsCurrent(admission.Source);
+            && (recovery is not int generation || generation == player.ActionInterruptionGeneration)
+            && player.GemSourceLifetimes.IsCurrent(admission.Source);
     }
 
-    private static bool PlacedCastAdmissionCurrentLocked(ClientState conn, PlacedCastAdmission admission,
+    private static bool PlacedCastAdmissionCurrentLocked(Player player, PlacedCastAdmission admission,
         SupportedGem supported, int? recovery = null)
     {
-        if (!PlacedCastStructuralOwnerCurrentLocked(conn, admission, recovery))
+        if (!PlacedCastStructuralOwnerCurrentLocked(player, admission, recovery))
             return false;
-        var source = CurrentPlayerSkillSourceLocked(conn, admission.Skill);
+        var source = CurrentPlayerSkillSourceLocked(player, admission.Skill);
         var kind = PlacedKind(supported);
         return supported.Effect >= 0 && supported.RequirementsMet && supported.Effect == admission.Effect
             && kind.Trap == admission.Trap && kind.Mine == admission.Mine
@@ -63,71 +124,75 @@ public static partial class Game
             && source.Identity == admission.Identity && source.Identity == admission.Source.Key;
     }
 
-    private static bool PlacedCastFamilyCurrent(ClientState conn, ushort skill, PlacedCastAdmission? admission)
+    private static bool PlacedCastFamilyCurrent(Player player, ushort skill, PlacedCastAdmission? admission)
     {
-        lock (conn.Monsters)
         {
-            if (admission is not null && !PlacedCastStructuralOwnerCurrentLocked(conn, admission))
+            if (admission is not null && !PlacedCastStructuralOwnerCurrentLocked(player, admission))
                 return false;
-            using var scope = new PlayerStatScope(conn, fresh: true);
-            var supported = SupportedSkill(conn, skill);
-            if (admission is not null) return PlacedCastAdmissionCurrentLocked(conn, admission, supported);
+            using var scope = new PlayerStatScope(player, fresh: true);
+            var supported = SupportedSkill(player, skill);
+            if (admission is not null) return PlacedCastAdmissionCurrentLocked(player, admission, supported);
             var kind = PlacedKind(supported);
             return supported.Effect >= 0 && !kind.Trap && !kind.Mine;
         }
     }
 
-    private static bool PlacedCastAdmissionCurrent(ClientState conn, PlacedCastAdmission admission, int? recovery = null)
+    private static bool PlacedCastAdmissionCurrent(Player player, PlacedCastAdmission admission, int? recovery = null)
     {
-        lock (conn.Monsters)
         {
-            if (!PlacedCastStructuralOwnerCurrentLocked(conn, admission, recovery))
+            if (!PlacedCastStructuralOwnerCurrentLocked(player, admission, recovery))
                 return false;
-            using var scope = new PlayerStatScope(conn, fresh: true);
-            return PlacedCastAdmissionCurrentLocked(conn, admission, SupportedSkill(conn, admission.Skill), recovery);
+            using var scope = new PlayerStatScope(player, fresh: true);
+            return PlacedCastAdmissionCurrentLocked(player, admission, SupportedSkill(player, admission.Skill), recovery);
         }
     }
 
-    public static int PlacedSkillLimit(ClientState conn, SupportedGem gem, bool mine)
+    public static int PlacedSkillLimit(Player player, SupportedGem gem, bool mine)
     {
-        var player = CharacterPlayerStats(conn);
-        int Get(string n) => GolemStat(gem.Stats, n) + GolemStat(player, n);
-        int basis = Get(mine ? "base_number_of_remote_mines_allowed" : "base_number_of_traps_allowed");
+        var playerStats = CharacterPlayerStats(player);
+        int Get(uint n) => GolemStat(gem.Stats, n) + GolemStat(playerStats, n);
+        int basis = Get(mine ? Stat.BaseNumberOfRemoteMinesAllowed : Stat.BaseNumberOfTrapsAllowed);
         return Math.Clamp((basis > 0 ? basis : 15)
-            + Get(mine ? "number_of_additional_remote_mines_allowed" : "number_of_additional_traps_allowed"), 0, 200);
+            + Get(mine ? Stat.NumberOfAdditionalRemoteMinesAllowed : Stat.NumberOfAdditionalTrapsAllowed), 0, 200);
     }
 
-    public static int PlacedSkillCount(ClientState conn, SupportedGem gem, bool mine)
+    public static int PlacedSkillCount(Player player, SupportedGem gem, bool mine)
     {
-        var player = CharacterPlayerStats(conn);
-        string additional = mine ? "number_of_additional_mines_to_place" : "number_of_additional_traps_to_throw";
-        return Math.Clamp(1 + GolemStat(gem.Stats, additional) + GolemStat(player, additional), 1, 200);
+        var playerStats = CharacterPlayerStats(player);
+        uint additional = mine ? Stat.NumberOfAdditionalMinesToPlace : Stat.NumberOfAdditionalTrapsToThrow;
+        return Math.Clamp(1 + GolemStat(gem.Stats, additional) + GolemStat(playerStats, additional), 1, 200);
     }
 
     // Throwing takes its own time, not the supported spell's cast time: 0.6 s for a trap and 0.3 s for a mine (PoB
     // CalcOffence TrapThrowingTime and MineLayingTime; PoE Wiki "Trap", "Mine"), over the summed throwing speed and
     // each support's "more" throwing speed. The caller applies action speed.
-    static readonly string[] TrapThrowFinal =
-        ["support_trap_and_mine_damage_trap_throwing_speed_+%_final", "active_skill_trap_throwing_speed_+%_final"];
-    static readonly string[] MineThrowFinal =
-        ["support_trap_and_mine_damage_mine_throwing_speed_+%_final", "support_minefield_mine_throwing_speed_+%_final"];
-    public static double PlacedThrowSeconds(Func<string, int> get, bool mine, int frenzyCharges = 0)
+    static readonly uint[] TrapThrowFinal =
+        [Stat.SupportTrapAndMineDamageTrapThrowingSpeedPlusPctFinal, Stat.ActiveSkillTrapThrowingSpeedPlusPctFinal];
+    static readonly uint[] MineThrowFinal =
+        [Stat.SupportTrapAndMineDamageMineThrowingSpeedPlusPctFinal, Stat.SupportMinefieldMineThrowingSpeedPlusPctFinal];
+    public static double PlacedThrowSeconds(Func<uint, int> get, bool mine, int frenzyCharges = 0)
     {
         // Charged Traps and Charged Mines: increased throwing speed per Frenzy Charge.
-        double speed = Math.Max(0, 1 + (get(mine ? "mine_laying_speed_+%" : "trap_throwing_speed_+%")
-            + get("trap_and_mine_throwing_speed_+%") + frenzyCharges
-                * get(mine ? "mine_throwing_speed_+%_per_frenzy_charge" : "trap_throwing_speed_+%_per_frenzy_charge")) / 100d);
-        foreach (string name in mine ? MineThrowFinal : TrapThrowFinal) speed *= Math.Max(0, 1 + get(name) / 100d);
+        double speed = Math.Max(0, 1 + (get(mine ? Stat.MineLayingSpeedPlusPct : Stat.TrapThrowingSpeedPlusPct)
+            + get(Stat.TrapAndMineThrowingSpeedPlusPct) + frenzyCharges
+                * get(mine ? Stat.MineThrowingSpeedPlusPctPerFrenzyCharge : Stat.TrapThrowingSpeedPlusPctPerFrenzyCharge)) / 100d);
+        foreach (uint stat in mine ? MineThrowFinal : TrapThrowFinal) speed *= Math.Max(0, 1 + get(stat) / 100d);
         return (mine ? .3 : .6) / Math.Max(.01, speed);
     }
 
     // Swift Assembly: three separate chances, of 1, 2 and 3 additional traps or mines. Each is rolled on its own and
     // the successes add up, so one use throws up to 6 more (3.8.0 patch notes).
-    public static int SwiftAssemblyExtra(Func<string, int> get, Random random)
+    static readonly uint[] SwiftAssemblyStats =
+    [
+        Stat.SupportAdditionalTrapMinePctChanceFor1AdditionalTrapMine,
+        Stat.SupportAdditionalTrapMinePctChanceFor2AdditionalTrapMine,
+        Stat.SupportAdditionalTrapMinePctChanceFor3AdditionalTrapMine,
+    ];
+    public static int SwiftAssemblyExtra(Func<uint, int> get, Random random)
     {
         int total = 0;
-        for (int extra = 1; extra <= 3; extra++)
-            if (random.Next(100) < get($"support_additional_trap_mine_%_chance_for_{extra}_additional_trap_mine")) total += extra;
+        for (int i = 0; i < SwiftAssemblyStats.Length; i++)
+            if (random.Next(100) < get(SwiftAssemblyStats[i])) total += i + 1;
         return total;
     }
 
@@ -147,71 +212,62 @@ public static partial class Game
         return (aim.X + (int)Math.Round(Math.Cos(angle) * distance), aim.Y + (int)Math.Round(Math.Sin(angle) * distance));
     }
 
-    // A trap goes off for a hostile monster within this many cells of it: the existing 10, scaled by the trap's and the
-    // player's trap_trigger_radius_+%.
-    public static double TrapTriggerRadius(Func<string, int> get) =>
-        10 * Math.Max(0, 1 + get("trap_trigger_radius_+%") / 100d);
-
     // Preserve the existing placement-time offensive snapshot. A recipient's Blind is selected only at contact.
-    static PlacedSkills.DamageSnapshot? CapturePlacedDamage(ClientState conn, ushort skill, SupportedGem gem)
+    static PlacedSkills.DamageSnapshot? CapturePlacedDamage(Player player, ushort skill, SupportedGem gem)
     {
-        if (SupportedHitInputsFor(conn, skill, capturedGem: gem) is not { } inputs) return null;
+        if (SupportedHitInputsFor(player, skill, capturedGem: gem) is not { } inputs) return null;
         inputs = inputs with { Caster = TotemCasterStats(inputs.Caster) };
         bool spell = !inputs.Attack;
         long additionalIncreased = inputs.Get(PlayerHitDamage.VsBlindedDamageStat);
         PlacedSkills.DamageProfile Profile(long increased) => new(
             SupportedHitFrom(inputs, suppress: true, additionalIncreased: increased),
-            SupportedIgnite(conn, skill, spell, inputs.Caster, additionalIncreased: increased, capturedInputs: inputs),
-            SupportedBleed(conn, skill, spell, inputs.Caster, melee: inputs.Melee,
+            SupportedIgnite(player, skill, spell, inputs.Caster, additionalIncreased: increased, capturedInputs: inputs),
+            SupportedBleed(player, skill, spell, inputs.Caster, melee: inputs.Melee,
                 additionalIncreased: increased, capturedInputs: inputs),
-            SupportedPoison(conn, skill, spell, inputs.Caster, additionalIncreased: increased, capturedInputs: inputs));
+            SupportedPoison(player, skill, spell, inputs.Caster, additionalIncreased: increased, capturedInputs: inputs));
         var normal = Profile(0);
         return new(normal, additionalIncreased == 0 ? normal : Profile(additionalIncreased), inputs.Caster, spell)
-            { Spider = CaptureSpiderDamage(conn, inputs, AddedEffectiveness(conn, gem.Effect, gem.Level), context: true,
-                local: inputs.Attack ? MainHandLocalSources(conn) : null) };
+            { Spider = CaptureSpiderDamage(player, inputs, AddedEffectiveness(player, gem.Effect, gem.Level), context: true,
+                local: inputs.Attack ? MainHandLocalSources(player) : null) };
     }
 
-    static async Task<bool> PlaceSkill(string remote, NetworkStream stream, ConnectionCiphers ciphers, ClientState conn,
+    static async Task<bool> PlaceSkill(Player player,
         (int X, int Y) from, (int X, int Y) aim, PlacedCastAdmission admission, int recovery, Func<bool> current)
     {
         double seconds;
         int swiftExtra;
-        lock (conn.Monsters)
         {
-            if (!PlacedCastStructuralOwnerCurrentLocked(conn, admission, recovery)) return false;
-            using var scope = new PlayerStatScope(conn, fresh: true);
-            var gem = SupportedSkill(conn, admission.Skill);
-            if (!PlacedCastAdmissionCurrentLocked(conn, admission, gem, recovery)) return false;
-            var player = CharacterPlayerStats(conn);
-            int Get(string n) => GolemStat(gem.Stats, n) + GolemStat(player, n);
+            if (!PlacedCastStructuralOwnerCurrentLocked(player, admission, recovery)) return false;
+            using var scope = new PlayerStatScope(player, fresh: true);
+            var gem = SupportedSkill(player, admission.Skill);
+            if (!PlacedCastAdmissionCurrentLocked(player, admission, gem, recovery)) return false;
+            var playerStats = CharacterPlayerStats(player);
+            int Get(uint n) => GolemStat(gem.Stats, n) + GolemStat(playerStats, n);
             // Decided once per use: Swift Assembly's chance of more traps or mines.
-            swiftExtra = SwiftAssemblyExtra(Get, Random.Shared);
+            swiftExtra = SwiftAssemblyExtra(Get, AreaRng(player));
             seconds = Math.Max(TickSeconds, PlacedThrowSeconds(Get, admission.Mine,
-                ChargesOf(conn).Effective(ChargeType.Frenzy)) / PlayerActionFactor(conn));
+                ChargesOf(player).Effective(ChargeType.Frenzy)) / PlayerActionFactor(player));
         }
         // The oldest traps or mines over the limit go when the throw starts, in a packet of their own. Removed in the
         // packet that created the new one, the client showed the old object moving to the new place (live 2026-11-17).
-        await SendWorldBatch(conn, [], worldAdmission =>
+        await SendWorldBatch(player, [], worldAdmission =>
         {
-            lock (conn.Monsters)
-            {
-                if (!PlacedCastStructuralOwnerCurrentLocked(conn, admission, recovery)) return null;
-                using var scope = new PlayerStatScope(conn, fresh: true);
-                var gem = SupportedSkill(conn, admission.Skill);
-                if (!PlacedCastAdmissionCurrentLocked(conn, admission, gem, recovery)) return null;
-                var bytes = new WorldRecordBuilder(conn, worldAdmission);
-                int count = PlacedSkillCount(conn, gem, admission.Mine) + swiftExtra;
-                int limit = PlacedSkillLimit(conn, gem, admission.Mine);
-                while (limit > 0 && conn.Placed.All.Values.Count(p => p.Mine == admission.Mine) + count > limit
-                    && conn.Placed.All.Values.Where(p => p.Mine == admission.Mine).MinBy(p => (p.Armed, p.Id)) is { } oldest)
-                    RemovePlacedLocked(conn, oldest, bytes);
-                if (bytes.Count == 0) return null;
-                ClampReservedResources(conn);
-                PlacedResourcesLocked(conn, bytes);
-                return bytes.Build();
-            }
-        }, transport: (remote, stream, ciphers));
-        double started = AreaTime(conn);
+            if (!PlacedCastStructuralOwnerCurrentLocked(player, admission, recovery)) return null;
+            using var scope = new PlayerStatScope(player, fresh: true);
+            var gem = SupportedSkill(player, admission.Skill);
+            if (!PlacedCastAdmissionCurrentLocked(player, admission, gem, recovery)) return null;
+            var bytes = new WorldRecordBuilder(player, worldAdmission);
+            int count = PlacedSkillCount(player, gem, admission.Mine) + swiftExtra;
+            int limit = PlacedSkillLimit(player, gem, admission.Mine);
+            while (limit > 0 && player.Placed.All.Values.Count(p => p.Mine == admission.Mine) + count > limit
+                && player.Placed.All.Values.Where(p => p.Mine == admission.Mine).MinBy(p => (p.Armed, p.Id)) is { } oldest)
+                RemovePlacedLocked(player, oldest, bytes);
+            if (bytes.Count == 0) return null;
+            ClampReservedResources(player);
+            PlacedResourcesLocked(player, bytes);
+            return bytes.Build();
+        });
+        double started = AreaTime(player);
         double release = started + seconds;
         Console.WriteLine($"[gateway] {(admission.Mine ? "mine" : "trap")} throw of skill 0x{admission.Skill:x4}: {seconds:0.000} s");
         // While the button is held the client starts its next throw when its own throw has finished, which can be before
@@ -220,206 +276,183 @@ public static partial class Game
         bool replaced = false;
         while (true)
         {
-            lock (conn.Monsters)
+            if (!PlacedCastStructuralOwnerCurrentLocked(player, admission)) return false;
+            if (!current() || recovery != player.ActionInterruptionGeneration)
             {
-                if (!PlacedCastStructuralOwnerCurrentLocked(conn, admission)) return false;
-                if (!current() || recovery != conn.ActionInterruptionGeneration)
-                {
-                    if (AreaTime(conn) - started < seconds / 2) return false;
-                    replaced = true;
-                    break;
-                }
-                if (!conn.Paused && AreaTime(conn) >= release) break;
+                if (AreaTime(player) - started < seconds / 2) return false;
+                replaced = true;
+                break;
             }
+            if (!player.Paused && AreaTime(player) >= release) break;
             await AreaWait(PlayerUpdateRole.Minions, 25);
         }
         // A replaced throw is no longer the current action, so it is held to its source and area, not to the action.
         int? action = replaced ? null : recovery;
         bool accepted = false;
         var born = new List<(uint Id, double Land, (int X, int Y) At)>();
-        await SendWorldBatch(conn, [], worldAdmission =>
+        await SendWorldBatch(player, [], worldAdmission =>
         {
-            lock (conn.Monsters)
             {
-                if (!PlacedCastStructuralOwnerCurrentLocked(conn, admission, action)
+                if (!PlacedCastStructuralOwnerCurrentLocked(player, admission, action)
                     || (!replaced && !current())) return null;
-                (int X, int Y) clamped = (Math.Clamp(aim.X, 0, Math.Max(0, conn.Layout.GridW - 1)),
-                    Math.Clamp(aim.Y, 0, Math.Max(0, conn.Layout.GridH - 1)));
-                if (!conn.Layout.WalkableFor(clamped.X, clamped.Y, 0))
+                (int X, int Y) clamped = (Math.Clamp(aim.X, 0, Math.Max(0, player.Layout.GridW - 1)),
+                    Math.Clamp(aim.Y, 0, Math.Max(0, player.Layout.GridH - 1)));
+                if (!player.Layout.WalkableFor(clamped.X, clamped.Y, 0))
                 {
-                    clamped = CollisionEscape.Find(clamped, conn.Layout.GridW, conn.Layout.GridH,
-                        (x, y) => conn.Layout.WalkableFor(x, y, 0), [], moverSize: 0) ?? from;
-                    if (!conn.Layout.WalkableFor(clamped.X, clamped.Y, 0)) return null;
+                    clamped = CollisionEscape.Find(clamped, player.Layout.GridW, player.Layout.GridH,
+                        (x, y) => player.Layout.WalkableFor(x, y, 0), [], moverSize: 0) ?? from;
+                    if (!player.Layout.WalkableFor(clamped.X, clamped.Y, 0)) return null;
                 }
                 aim = clamped;
-                using var scope = new PlayerStatScope(conn, fresh: true);
-                var gem = SupportedSkill(conn, admission.Skill);
-                if (!PlacedCastAdmissionCurrentLocked(conn, admission, gem, action)) return null;
-                var player = CharacterPlayerStats(conn);
-                int Get(string n) => GolemStat(gem.Stats, n) + GolemStat(player, n);
-                int count = PlacedSkillCount(conn, gem, admission.Mine) + swiftExtra;
-                int circle = Get("throw_traps_in_circle_radius");
-                int limit = PlacedSkillLimit(conn, gem, admission.Mine);
+                using var scope = new PlayerStatScope(player, fresh: true);
+                var gem = SupportedSkill(player, admission.Skill);
+                if (!PlacedCastAdmissionCurrentLocked(player, admission, gem, action)) return null;
+                var playerStats = CharacterPlayerStats(player);
+                int Get(uint n) => GolemStat(gem.Stats, n) + GolemStat(playerStats, n);
+                int count = PlacedSkillCount(player, gem, admission.Mine) + swiftExtra;
+                int circle = Get(Stat.ThrowTrapsInCircleRadius);
+                int limit = PlacedSkillLimit(player, gem, admission.Mine);
                 if (count <= 0 || limit <= 0) return null;
-                var context = ReservationContext(conn, admission.Skill);
-                var reserve = admission.Mine ? SupportedReservation(conn, admission.Skill) : null;
-                var offense = CapturePlacedDamage(conn, admission.Skill, gem);
-                var damage = offense?.Normal.Hit ?? SupportedHitFor(conn, admission.Skill, suppress: false);
+                var context = ReservationContext(player, admission.Skill);
+                var reserve = admission.Mine ? SupportedReservation(player, admission.Skill) : null;
+                var offense = CapturePlacedDamage(player, admission.Skill, gem);
+                var damage = offense?.Normal.Hit ?? SupportedHitFor(player, admission.Skill, suppress: false);
                 var payload = new Dictionary<uint, int>(gem.Stats);
-                void PutPayload(string name, int value) { if (Stats.Key(name) is uint key) payload[key] = value; }
-                foreach (string flag in new[] { "is_trap", "is_remote_mine", "base_skill_is_trapped",
-                    "base_skill_is_mined", "skill_is_trapped", "skill_is_mined" })
-                    PutPayload(flag, 0);
-                PutPayload("uses_no_mana", 1);
-                PutPayload("mana_cost", 0);
-                PutPayload("skill_is_non_pathing", 1);
-                int castMs = SkillsFor(conn).CastTimeMs(gem.Effect);
+                foreach (uint flag in new[] { Stat.IsTrap, Stat.IsRemoteMine, Stat.BaseSkillIsTrapped,
+                    Stat.BaseSkillIsMined, Stat.SkillIsTrapped, Stat.SkillIsMined })
+                    payload[flag] = 0;
+                payload[Stat.UsesNoMana] = 1;
+                payload[Stat.ManaCost] = 0;
+                payload[Stat.SkillIsNonPathing] = 1;
+                int castMs = SkillsFor(player).CastTimeMs(gem.Effect);
                 if (castMs > 0)
                 {
-                    PutPayload("base_spell_cast_time_ms", castMs);
-                    PutPayload("virtual_base_spell_cast_time_ms", castMs);
+                    payload[Stat.BaseSpellCastTimeMs] = castMs;
+                    payload[Stat.VirtualBaseSpellCastTimeMs] = castMs;
                 }
-                if (!SkillsFor(conn).IsAttack(gem.Effect))
-                    PutPayload("cast_speed_+%", FinalCastSpeedPct(conn, MergeSkillStats(player, gem.Stats),
-                        CastSpeedPct(player) + GolemStat(gem.Stats, "base_cast_speed_+%")));
-                if (GolemStat(gem.Stats, "base_skill_effect_duration") is int baseDuration and > 0)
-                    PutPayload("skill_effect_duration", (int)Math.Round(1000 * SkillDurationModifiers.Seconds(baseDuration,
-                        n => GolemStat(player, n), n => GolemStat(gem.Stats, n), DurationKinds(conn, gem.Effect))));
-                bool spellArea = !SkillsFor(conn).IsAttack(gem.Effect);
-                var areaStats = SkillAreaStats(conn, gem.Stats, gem.Effect, player);
-                int AreaGet(string n) => Stats.Key(n) is uint key ? areaStats.GetValueOrDefault(key) : 0;
-                int baseRadius = SkillArea.BaseRadius(SkillsFor(conn).EffectId(gem.Effect), Get);
-                PutPayload("active_skill_base_area_of_effect_radius", baseRadius);
-                PutPayload("active_skill_area_of_effect_radius", SkillArea.Radius(baseRadius, AreaGet, spellArea));
-                PutPayload("total_skill_area_of_effect_radius_+%_including_final", SkillArea.RadiusPercent(AreaGet, spellArea));
-                PutPayload("skill_area_of_effect_+%", SkillArea.Increased(AreaGet, spellArea));
-                var proxy = SkillsFor(conn).FindByRow(0x4000, gem.Effect, gem.Level, [.. payload.Select(p => (p.Key, p.Value))]);
+                if (!SkillsFor(player).IsAttack(gem.Effect))
+                    payload[Stat.CastSpeedPlusPct] = FinalCastSpeedPct(player, MergeSkillStats(playerStats, gem.Stats),
+                        CastSpeedPct(playerStats) + GolemStat(gem.Stats, Stat.BaseCastSpeedPlusPct));
+                if (GolemStat(gem.Stats, Stat.BaseSkillEffectDuration) is int baseDuration and > 0)
+                    payload[Stat.SkillEffectDuration] = (int)Math.Round(1000 * SkillDurationModifiers.Seconds(baseDuration,
+                        n => GolemStat(playerStats, n), n => GolemStat(gem.Stats, n), DurationKinds(player, gem.Effect)));
+                bool spellArea = !SkillsFor(player).IsAttack(gem.Effect);
+                var areaStats = SkillAreaStats(player, gem.Stats, gem.Effect, playerStats);
+                int AreaGet(uint key) => areaStats.GetValueOrDefault(key);
+                int baseRadius = SkillArea.BaseRadius(SkillsFor(player).EffectId(gem.Effect), Get);
+                payload[Stat.ActiveSkillBaseAreaOfEffectRadius] = baseRadius;
+                payload[Stat.ActiveSkillAreaOfEffectRadius] = SkillArea.Radius(baseRadius, AreaGet, spellArea);
+                payload[Stat.TotalSkillAreaOfEffectRadiusPlusPctIncludingFinal] = SkillArea.RadiusPercent(AreaGet, spellArea);
+                payload[Stat.SkillAreaOfEffectPlusPct] = SkillArea.Increased(AreaGet, spellArea);
+                var proxy = SkillsFor(player).FindByRow(0x4000, gem.Effect, gem.Level, [.. payload.Select(p => (p.Key, p.Value))]);
                 if (proxy is null) return null;
-                proxy = proxy with { Parent = (PlayerId, admission.Skill) };
-                string path = admission.Mine
-                    ? "Metadata/MiscellaneousObjects/RemoteMine"
-                    : TrapVisuals.Value.GetValueOrDefault(Get("trap_variation"), "Metadata/MiscellaneousObjects/LightningTrap");
-                var stats = new List<(uint, int)>();
-                foreach (var (name, value) in new[] { ("maximum_life", 1), ("uses_no_mana", 1),
-                    ("is_trap_object", admission.Trap ? 1 : 0), ("is_remote_mine", admission.Mine ? 1 : 0) })
-                    if (Stats.Key(name) is uint key) stats.Add((key, value));
-                double now = AreaTime(conn);
-                double flight = Get("trap_throw_arm_time_override") is > 0 and var armMs ? armMs / 1000d : admission.Mine ? .6 : .975;
-                if (Stats.Key("trap_throw_arm_time_override") is uint armTime) stats.Add((armTime, (int)Math.Round(flight * 1000)));
-                var bytes = new WorldRecordBuilder(conn, worldAdmission);
+                proxy = proxy with { Parent = (player.Id, admission.Skill) };
+                string path = PlacedObjectPath(admission.Mine, Get);
+                double now = AreaTime(player);
+                double flight = PlacedFlightSeconds(admission.Mine, Get);
+                var stats = PlacedObjectStats(admission.Mine, flight);
+                var bytes = new WorldRecordBuilder(player, worldAdmission);
                 bool committed = false;
                 for (int i = 0; i < count; i++)
                 {
                     // Several from one use scatter around the aim; one that would land off the walkable ground lands on it.
-                    var point = PlacedThrowPoint(aim, count, circle, Random.Shared);
-                    if (!conn.Layout.WalkableFor(point.X, point.Y, 0)) point = aim;
-                    uint id = conn.TakeObjectId();
+                    var point = PlacedThrowPoint(aim, count, circle, AreaRng(player));
+                    if (!player.Layout.WalkableFor(point.X, point.Y, 0)) point = aim;
+                    uint id = player.TakeObjectId();
                     double land = now + flight;
-                    var placement = new PlacedSkills.Placed(id, admission.Skill, gem.Effect, point, admission.Mine, land + .5,
-                        land + Math.Max(0, Get(admission.Mine ? "base_mine_duration" : "base_trap_duration") is > 0 and var ms ? ms / 1000d : admission.Mine ? 5 : 4)
-                            * Math.Max(.01, 1 + Get(admission.Mine ? "mine_duration_+%" : "trap_duration_+%") / 100d),
+                    var placement = new PlacedSkills.Placed(id, admission.Skill, gem.Effect, point, admission.Mine, land + PlacedArmSeconds,
+                        land + PlacedDurationSeconds(admission.Mine, Get),
                         damage, new Dictionary<uint, int>(gem.Stats), reserve?.Flat ?? 0, reserve?.Percent ?? 0,
                         context.Life, context.Efficiency)
-                        { LandAt = land, Landed = false, Offense = offense, TriggerRadius = TrapTriggerRadius(Get) };
-                    conn.Placed.All.Add(id, placement);
-                    if (!ReservationBudgetFits(conn))
                     {
-                        conn.Placed.All.Remove(id);
+                        LandAt = land, Landed = false, Offense = offense, TriggerRadius = TrapTriggerRadius(Get),
+                        EffectDurationSeconds = GolemStat(payload, Stat.SkillEffectDuration) / 1000d,
+                    };
+                    player.Placed.All.Add(id, placement);
+                    if (!ReservationBudgetFits(player))
+                    {
+                        player.Placed.All.Remove(id);
                         break;
                     }
-                    while (conn.Placed.All.Values.Count(p => p.Mine == admission.Mine) > limit)
+                    while (player.Placed.All.Values.Count(p => p.Mine == admission.Mine) > limit)
                     {
-                        var trim = conn.Placed.All.Values.Where(p => p.Mine == admission.Mine).MinBy(p => (p.Armed, p.Id))!;
+                        var trim = player.Placed.All.Values.Where(p => p.Mine == admission.Mine).MinBy(p => (p.Armed, p.Id))!;
                         if (trim.Id == id)
                         {
                             // This object has not published a create in this packet yet. Removing it is local state
                             // cleanup, not a native RemoveObject for an entity the client never saw.
-                            conn.Placed.All.Remove(id);
-                            conn.Placed.Dirty = true;
-                            conn.Minions.StatRevision++;
+                            player.Placed.All.Remove(id);
+                            player.Placed.Dirty = true;
+                            player.Minions.StatRevision++;
                         }
-                        else RemovePlacedLocked(conn, trim, bytes);
+                        else RemovePlacedLocked(player, trim, bytes);
                     }
-                    if (!conn.Placed.All.ContainsKey(id)) continue;
+                    if (!player.Placed.All.ContainsKey(id)) continue;
                     bytes.Create(id, InstanceEntities.CreateObject(id, InstanceEntities.ObjectTypeHash(path),
                         new TrapMineObject(from.X, from.Y, admission.Mine, [proxy], stats).Blob()));
                     bytes.Presentation(id, InstanceProtocol.EnterWakeZone(id));
-                    if (!conn.LockstepClient)
-                    {
-                        if (SkillsFor(conn).ActionSkillId("BeThrown") is ushort thrown)
-                            bytes.Presentation(id, InstanceProtocol.ActionStarted(id, from.X, from.Y, point.X, point.Y, thrown, 0xffff, 0x0408));
-                        bytes.Presentation(id, InstanceProtocol.MoveTo(id, point.X, point.Y, (float)flight, InstanceProtocol.FollowTerrain));
-                    }
+                    if (!player.Connection.LockstepClient)
+                        foreach (var record in PlacedThrowRecords(player, id, from, point, flight)) bytes.Presentation(id, record);
                     born.Add((id, land, point));
                     committed = true;
                 }
                 if (!committed) return null;
-                RecordAcceptedGemUse(conn, gem.Effect);
-                conn.Placed.Dirty = true;
-                conn.Minions.StatRevision++;
-                ClampReservedResources(conn);
-                PlacedResourcesLocked(conn, bytes);
+                RecordAcceptedGemUse(player, gem.Effect, clamped);
+                player.Placed.Dirty = true;
+                player.Minions.StatRevision++;
+                ClampReservedResources(player);
+                PlacedResourcesLocked(player, bytes);
                 accepted = true;
                 return bytes.Build();
             }
-        }, transport: (remote, stream, ciphers));
-        if (conn.LockstepClient)
+        });
+        if (player.Connection.LockstepClient)
             foreach (var (id, landsAt, point) in born)
-                await SendWorldRecords(remote, stream, ciphers, conn, id, () =>
+                await SendWorldRecords(player, id, () =>
                 {
-                    lock (conn.Monsters)
-                    {
-                        if (!PlacedCastStructuralOwnerCurrentLocked(conn, admission, action)
-                            || (!replaced && !current()) || !conn.Placed.All.ContainsKey(id)) return null;
-                        var records = new List<byte[]>();
-                        if (SkillsFor(conn).ActionSkillId("BeThrown") is ushort thrown)
-                            records.Add(InstanceProtocol.ActionStarted(id, from.X, from.Y, point.X, point.Y, thrown, 0xffff, 0x0408));
-                        records.Add(InstanceProtocol.MoveTo(id, point.X, point.Y,
-                            (float)Math.Max(0, landsAt - AreaTime(conn)), InstanceProtocol.FollowTerrain));
-                        return [.. records];
-                    }
+                    if (!PlacedCastStructuralOwnerCurrentLocked(player, admission, action)
+                        || (!replaced && !current()) || !player.Placed.All.ContainsKey(id)) return null;
+                    return [.. PlacedThrowRecords(player, id, from, point, Math.Max(0, landsAt - AreaTime(player)))];
                 }, "throw trap/mine after birth");
         return accepted;
     }
 
-    static void RemovePlacedLocked(ClientState conn, PlacedSkills.Placed placed, WorldRecordBuilder bytes)
+    static void RemovePlacedLocked(Player player, PlacedSkills.Placed placed, WorldRecordBuilder bytes)
     {
-        if (!conn.Placed.All.Remove(placed.Id)) return;
-        if (!conn.Placed.Grounds.Any(g => g.Object == placed.Id))
+        if (!player.Placed.All.Remove(placed.Id)) return;
+        if (!player.Placed.Grounds.Any(g => g.Object == placed.Id))
             bytes.Remove(placed.Id);
-        conn.Placed.Dirty = true;
-        conn.Minions.StatRevision++;
+        player.Placed.Dirty = true;
+        player.Minions.StatRevision++;
     }
 
     // A trap or mine that has gone off stays for its activation to play, then is removed (0.6 s, a local value):
     // removed in the packet that started the action, it vanished without showing it.
-    static void RetirePlacedLocked(ClientState conn, PlacedSkills.Placed placed, double now)
+    static void RetirePlacedLocked(Player player, PlacedSkills.Placed placed, double now)
     {
-        if (!conn.Placed.All.Remove(placed.Id)) return;
-        if (!conn.Placed.Grounds.Any(g => g.Object == placed.Id)) conn.Placed.Leaving.Add((placed.Id, now + .6));
-        conn.Placed.Dirty = true;
-        conn.Minions.StatRevision++;
+        if (!player.Placed.All.Remove(placed.Id)) return;
+        if (!player.Placed.Grounds.Any(g => g.Object == placed.Id)) player.Placed.Leaving.Add((placed.Id, now + .6));
+        player.Placed.Dirty = true;
+        player.Minions.StatRevision++;
     }
 
-    static void PlacedResourcesLocked(ClientState conn, WorldRecordBuilder bytes)
+    static void PlacedResourcesLocked(Player player, WorldRecordBuilder bytes)
     {
-        conn.Placed.Dirty = false;
-        bytes.World(PlayerId, InstanceProtocol.LifeUpdate(PlayerId, conn.PlayerLife, conn.PlayerReservedLife));
-        bytes.World(PlayerId, InstanceProtocol.LifeUpdate(PlayerId, conn.PlayerMana, (uint)ReservedMana(conn), pool: ManaPool));
+        player.Placed.Dirty = false;
+        player.Frames.Area?.Life.Changed(player);
     }
 
-    public static void LandPlacedLocked(ClientState conn, PlacedSkills.Placed placed, double now, List<byte> bytes)
+    public static void LandPlacedLocked(Player player, PlacedSkills.Placed placed, double now, List<byte> bytes)
     {
-        var records = new WorldRecordBuilder(conn, null);
-        LandPlacedRecordsLocked(conn, placed, now, records);
+        var records = new WorldRecordBuilder(player, null);
+        LandPlacedRecordsLocked(player, placed, now, records);
         bytes.AddRange(records.Bytes());
     }
 
-    public static void PlacedGroundsLocked(string remote, NetworkStream stream, ConnectionCiphers ciphers,
-        ClientState conn, double now, List<byte> bytes)
+    public static void PlacedGroundsLocked(Player player, double now, List<byte> bytes)
     {
-        var records = new WorldRecordBuilder(conn, null);
-        PlacedGroundRecordsLocked(remote, stream, ciphers, conn, now, records);
+        var records = new WorldRecordBuilder(player, null);
+        PlacedGroundRecordsLocked(player, now, records);
         bytes.AddRange(records.Bytes());
     }
 
@@ -432,36 +465,45 @@ public static partial class Game
     // One use detonates every mine in sequence, in the order they arm: the first at once, each later one after its gap.
     // A mine that is not armed yet goes off once it is. A use during a running sequence adds the new mines to its end
     // and keeps its speed; a use after the last queued mine has gone off starts a new sequence.
-    public static void DetonateMinesLocked(ClientState conn, double now)
+    public static void DetonateMinesLocked(Player player, double now)
     {
-        bool running = conn.Placed.All.Values.Any(p => p.Mine && !double.IsPositiveInfinity(p.DetonateAt));
-        double next = running ? conn.Placed.NextChain : now;
-        int prior = running ? conn.Placed.Chain : 0;
-        foreach (var mine in conn.Placed.All.Values.Where(p => p.Mine && double.IsPositiveInfinity(p.DetonateAt))
+        bool running = player.Placed.All.Values.Any(p => p.Mine && !double.IsPositiveInfinity(p.DetonateAt));
+        double next = running ? player.Placed.NextChain : now;
+        int prior = running ? player.Placed.Chain : 0;
+        var playerAt = player.Walk.Position(now);
+        foreach (var mine in player.Placed.All.Values.Where(p => p.Mine && double.IsPositiveInfinity(p.DetonateAt)
+            && MineCanDetonateFrom(p, playerAt))
             .OrderBy(p => p.Armed).ThenBy(p => p.Id))
         {
-            int time = GolemStat(mine.Own, "base_mine_detonation_time_ms");
-            if (time <= 0) time = GolemStat(mine.Own, "support_remote_mine_2_base_mine_detonation_time_ms");
+            int time = GolemStat(mine.Own, Stat.BaseMineDetonationTimeMs);
+            if (time <= 0) time = GolemStat(mine.Own, Stat.SupportRemoteMine2BaseMineDetonationTimeMs);
             if (prior > 0) next += MineSequenceGap(time, prior);
             next = Math.Max(Math.Max(next, now), mine.Armed);
             mine.DetonateAt = next;
             prior++;
         }
-        conn.Placed.NextChain = next;
-        conn.Placed.Chain = prior;
+        player.Placed.NextChain = next;
+        player.Placed.Chain = prior;
     }
 
-    public static bool CanDetonateMines(ClientState conn) =>
-        conn.Placed.All.Values.Any(p => p.Mine && p.Armed <= AreaTime(conn));
+    static bool MineCanDetonateFrom(PlacedSkills.Placed mine, (int X, int Y) playerAt)
+    {
+        int minimum = GolemStat(mine.Own, Stat.SupportLocusMineCannotDetonateMinesWithinXUnits);
+        return minimum <= 0 || Dist(mine.At, playerAt) >= minimum;
+    }
 
-    static void LandPlacedRecordsLocked(ClientState conn, PlacedSkills.Placed placed, double now, WorldRecordBuilder bytes)
+    public static bool CanDetonateMines(Player player)
+    {
+        double now = AreaTime(player);
+        var playerAt = player.Walk.Position(now);
+        return player.Placed.All.Values.Any(p => p.Mine && p.Armed <= now && now < p.Until && MineCanDetonateFrom(p, playerAt));
+    }
+
+    static void LandPlacedRecordsLocked(Player player, PlacedSkills.Placed placed, double now, WorldRecordBuilder bytes)
     {
         if (placed.Landed || now < placed.LandAt) return;
         placed.Landed = true;
-        bytes.World(placed.Id, InstanceProtocol.ActionEnded(placed.Id));
-        bytes.World(placed.Id, InstanceProtocol.Teleport(placed.Id, placed.At.X, placed.At.Y));
-        if (SkillsFor(conn).ActionSkillId("Arm") is ushort arm)
-            bytes.World(placed.Id, InstanceProtocol.ActionStarted(placed.Id, placed.At.X, placed.At.Y, placed.At.X, placed.At.Y, arm, 0xffff, 0x0408));
+        PlacedLandRecords(player, placed.Id, placed.At, bytes);
     }
 
     // Where a trap or mine at a cell fires its projectile skill: at the nearest enemy within 60 cells that does not
@@ -475,13 +517,15 @@ public static partial class Game
             : (at.X + (int)Math.Round((at.X - player.X) / away * 20), at.Y + (int)Math.Round((at.Y - player.Y) / away * 20));
     }
 
-    static void PlacedDamageLocked(string remote, NetworkStream stream, ConnectionCiphers ciphers, ClientState conn,
+    static void PlacedDamageLocked(Player player,
         PlacedSkills.Placed placed, double now, WorldRecordBuilder bytes)
     {
-        bool bear = SkillsFor(conn).EffectId(placed.Effect) is "BearTrap" or "BearTrapAltX";
-        double radius = SkillRadius(conn, placed.Own, spell: true, placed.Effect);
-        bool spellDamage = SkillHitPlan.ForSkill(SkillsFor(conn), placed.Effect, 1).Kind != SkillHitKind.Secondary;
-        var payload = GemSkillEffects(conn).FirstOrDefault(g => g.Id == placed.Skill);
+        int inventionRate = GolemStat(placed.Own, Stat.SupportInventionTrapAndMineDamagePlusPctFinalPerSecondPlacedUpTo100);
+        double inventionMore = 1 + Math.Clamp(inventionRate * Math.Max(0, now - placed.LandAt), 0, 100) / 100;
+        bool bear = SkillsFor(player).EffectId(placed.Effect) is "BearTrap" or "BearTrapAltX";
+        double radius = SkillRadius(player, placed.Own, spell: true, placed.Effect);
+        bool spellDamage = SkillHitPlan.ForSkill(SkillsFor(player), placed.Effect, 1).Kind != SkillHitKind.Secondary;
+        var payload = GemSkillEffects(player).FirstOrDefault(g => g.Id == placed.Skill);
         bool currentSkill = payload.Name is not null && payload.Effect == placed.Effect;
         bool projectile = !bear && currentSkill
             && UsesProjectileRuntime(placed.Effect) && ResolveProjectileDefinition(placed.Effect) is not null;
@@ -489,13 +533,13 @@ public static partial class Game
         (int X, int Y) aim = placed.At;
         if (projectile)
         {
-            aim = PlacedProjectileAim(placed.At, conn.Walk.Position(now), conn.Monsters.Values
-                .Where(m => m is { Hostile: true, Dead: false, Life: > 0 }).Select(m => m.Walk.Position(now)));
+            aim = PlacedProjectileAim(placed.At, player.Walk.Position(now), player.Area.MonstersNear(placed.At, 60)
+                .Where(m => m.Value is { Hostile: true, Dead: false, Life: > 0 }).Select(m => m.Value.Walk.Position(now)));
         }
         else if (bear)
         {
-            target = conn.Monsters.Where(p => p.Value is { Hostile: true, Dead: false, Life: > 0, Invulnerable: false, Asleep: false }
-                    && !conn.AsleepMonsters.Contains(p.Key) && Dist(p.Value.Walk.Position(now), placed.At) <= radius)
+            target = player.Area.MonstersNear(placed.At, radius).Where(p => p.Value is { Hostile: true, Dead: false, Life: > 0, Invulnerable: false, Asleep: false }
+                    && !MonsterAsleep(player, p.Key) && Dist(p.Value.Walk.Position(now), placed.At) <= radius)
                 .OrderBy(p => Dist(p.Value.Walk.Position(now), placed.At)).FirstOrDefault();
             aim = target.Value?.Walk.Position(now) ?? placed.At;
         }
@@ -505,209 +549,225 @@ public static partial class Game
         // does a triggered spell's: no local input action predicts it.
         if (projectile)
         {
-            var session = ProjectilesFor(remote, stream, ciphers, conn);
+            var session = ProjectilesFor(player);
             var lifetime = CombatLifetime;
-            var critical = CaptureSkillCriticalRoll(conn, placed.Skill);
+            var critical = CaptureSkillCriticalRoll(player, placed.Skill);
             var at = placed.At;
             var shot = aim;
             session.Schedule(session.Runtime.Now, () => session.Active && ReferenceEquals(lifetime, CombatLifetime), () =>
             {
-                var use = CaptureGemProjectile(conn, session, placed.Skill, payload, shot, critical, from: at);
-                use = ClientDrawnVolley(conn, session, placed.Skill, payload, use, 0, 0);
-                return use with { Payload = ((ProjectileOffense)use.Payload!) with { ClientPredicted = false, FromTrapOrMine = true } };
+                var use = CaptureGemProjectile(player, session, placed.Skill, payload, shot, critical, from: at);
+                use = ClientDrawnVolley(player, session, placed.Skill, payload, use, 0, 0);
+                var offense = ((ProjectileOffense)use.Payload!).ScaleDamage(inventionMore);
+                return use with { Payload = offense with { ClientPredicted = false, FromTrapOrMine = true } };
             });
             return;
         }
-        using var statScope = new PlayerStatScope(conn, fresh: true);
-        double more = ReservationAura(conn, "SummonSkitterbots") is { } skitter
-            ? Math.Max(0, 1 + ReservationStat(conn, skitter, "skitterbots_trap_mine_damage_+%_final") / 100d) : 1;
-        var owner = CharacterPlayerStats(conn);
-        var player = placed.Offense?.Caster ?? owner;
+        using var statScope = new PlayerStatScope(player, fresh: true);
+        double more = ReservationAura(player, "SummonSkitterbots") is { } skitter
+            ? Math.Max(0, 1 + ReservationStat(player, skitter, Stat.SkitterbotsTrapMineDamagePlusPctFinal) / 100d) : 1;
+        more *= inventionMore;
+        var owner = CharacterPlayerStats(player);
+        var playerStats = placed.Offense?.Caster ?? owner;
         bool spell = placed.Offense?.Spell ?? spellDamage;
-        bool attack = SkillsFor(conn).IsAttack(placed.Effect);
-        int chance = currentSkill ? SupportedReleaseCriticalChance(conn, placed.Skill) : 0;
-        int? vsBlinded = currentSkill ? SupportedCriticalChanceVsBlinded(conn, placed.Skill, release: true) : null;
-        GroundCritical? vsGround = currentSkill ? SupportedCriticalChanceVsGround(conn, placed.Skill, release: true) : null;
-        int multiplier = currentSkill ? SupportedCriticalMultiplier(conn, placed.Skill) : 100;
-        var criticalRoll = currentSkill ? new SkillCriticalRoll(CriticalExtraRollsFor(conn, owner, placed.Own)) : null;
-        foreach (var (id, m) in conn.Monsters.ToArray())
+        bool attack = SkillsFor(player).IsAttack(placed.Effect);
+        int chance = currentSkill ? SupportedReleaseCriticalChance(player, placed.Skill) : 0;
+        int? vsBlinded = currentSkill ? SupportedCriticalChanceVsBlinded(player, placed.Skill, release: true) : null;
+        GroundCritical? vsGround = currentSkill ? SupportedCriticalChanceVsGround(player, placed.Skill, release: true) : null;
+        int multiplier = currentSkill ? SupportedCriticalMultiplier(player, placed.Skill) : 100;
+        var criticalRoll = currentSkill ? new SkillCriticalRoll(CriticalExtraRollsFor(player, owner, placed.Own)) : null;
+        foreach (var (id, m) in player.Area.Monsters.ToArray())
         {
             if (m is not { Hostile: true, Dead: false, Life: > 0, Invulnerable: false, Asleep: false }
-                || bear && id != target.Key || conn.AsleepMonsters.Contains(id) || Dist(m.Walk.Position(now), placed.At) > radius
-                || !conn.Monsters.TryGetValue(id, out var current) || !ReferenceEquals(current, m)) continue;
+                || bear && id != target.Key || MonsterAsleep(player, id) || Dist(m.Walk.Position(now), placed.At) > radius
+                || !player.Area.Monsters.TryGetValue(id, out var current) || !ReferenceEquals(current, m)) continue;
             var profile = placed.Offense is { } captured
-                ? Blinded(conn, id) ? captured.Blinded : captured.Normal
+                ? Blinded(player, id) ? captured.Blinded : captured.Normal
                 : new PlacedSkills.DamageProfile(placed.Damage, MonsterIgnites.Settings.None,
                     MonsterIgnites.Settings.None, MonsterPoisons.Settings.None);
             if (placed.Offense?.Spider is { } spider)
-                profile = SpiderDamageProfile(spider, m.SpiderWebs.Count(now), Blinded(conn, id),
+                profile = SpiderDamageProfile(spider, m.SpiderWebs.Count(now), Blinded(player, id),
                     m.Ignites.Burning, m.Bleeds.Burning, EnemyOnLowLife(m));
-            var rolled = WithConditionalSupportDamageLocked(conn, placed.Own, !spell, m,
-                profile.Hit.Scale(more).Roll(Random.Shared), now);
+            var rolled = WithConditionalSupportDamageLocked(player, placed.Own, !spell, m,
+                profile.Hit.Scale(more).Roll(AreaRng(player)), now);
             var mitigated = DamageModel.Mitigate(rolled, type => MonsterHitResistance(m, type, default, now));
-            int damage = MonsterTakesTrapOrMineHit(m, mitigated, spell, now);
-            bool critical = currentSkill && RollCriticalStrike(conn, CriticalChanceOn(conn, id, chance, vsBlinded, vsGround),
+            int damage = MonsterTakesTrapOrMineHit(m, mitigated, spell, now, AreaRng(player));
+            bool critical = currentSkill && RollCriticalStrike(player, CriticalChanceOn(player, id, chance, vsBlinded, vsGround),
                 placed.Own, attack, criticalRoll, owner);
             int hitMultiplier = critical ? CriticalMultiplierOn(m, multiplier, owner, placed.Own) : 100;
             if (critical) damage = DamageModel.CriticalDamage(damage, hitMultiplier);
             if (placed.Mine)
             {
                 // This is an explicit owner-leech grant, not the player's ordinary attack/spell leech.
-                int coefficient = Math.Max(0, GolemStat(owner, "mine_damage_leeched_as_life_to_you_permyriad"));
+                int coefficient = Math.Max(0, GolemStat(owner, Stat.MineDamageLeechedAsLifeToYouPermyriad));
                 if (coefficient > 0)
                 {
                     var life = DamageTypes.ConversionOrder.Aggregate(DamagePacket.Empty,
                         (sum, type) => sum.Add(DamagePacket.Of(type, coefficient, coefficient)));
-                    LeechOnHitLocked(conn, m, MonsterTakenComponents(m, mitigated, spell, now), damage,
+                    LeechOnHitLocked(player, m, MonsterTakenComponents(m, mitigated, spell, now), damage,
                         new(life, DamagePacket.Empty, DamagePacket.Empty));
                 }
             }
-            if (ApplyMonsterHitLocked(conn, m, damage, allyAt: placed.At) is not { } hit) continue;
-            if (hit.StageStarts) { CommitBossStage(remote, stream, ciphers, conn, id, m, now); hit = hit with { StageStarts = false }; }
+            if (ApplyMonsterHitLocked(player, m, damage, allyAt: placed.At) is not { } hit) continue;
+            if (hit.StageStarts) { CommitBossStage(player, id, m, now); hit = hit with { StageStarts = false }; }
             OwnedKillLocked(m, hit.Life);
             var poison = profile.Poison with { Min = profile.Poison.Min * more, Max = profile.Poison.Max * more,
                 CriticalMin = profile.Poison.CriticalMin * more, CriticalMax = profile.Poison.CriticalMax * more };
-            AilmentsOnHitLocked(conn, id, m, mitigated, spell, critical, hitMultiplier, player, placed.Own, now,
-                Random.Shared, poison: poison, sourceSkill: placed.Skill, blind: BlindHitInput.Capture(player, placed.Own), playerHit: false);
+            AilmentsOnHitLocked(player, id, m, mitigated, spell, critical, hitMultiplier, playerStats, placed.Own, now,
+                AreaRng(player), poison: poison, sourceSkill: placed.Skill, blind: BlindHitInput.Capture(playerStats, placed.Own), playerHit: false);
             if (!m.Dead && profile.Ignite.Max > 0)
             {
                 var ignite = profile.Ignite with { Min = profile.Ignite.Min * more, Max = profile.Ignite.Max * more,
                     CriticalMin = profile.Ignite.CriticalMin * more, CriticalMax = profile.Ignite.CriticalMax * more };
-                foreach (var packet in IgniteOnHitLocked(conn, id, m, ignite, critical, now, playerIgnite: false) ?? [])
-                    conn.Minions.OutputQueue.Add(new(packet, "trap/mine ignite", id, m));
+                foreach (var packet in IgniteOnHitLocked(player, id, m, ignite, critical, now, playerIgnite: false) ?? [])
+                    player.Minions.OutputQueue.Add(new(packet, "trap/mine ignite", id, m));
             }
             if (!m.Dead && !spell && rolled[DamageType.Physical].Max > 0)
             {
                 var bleed = profile.Bleed with { Min = profile.Bleed.Min * more, Max = profile.Bleed.Max * more,
                     CriticalMin = profile.Bleed.CriticalMin * more, CriticalMax = profile.Bleed.CriticalMax * more };
-                foreach (var packet in BleedOnHitLocked(conn, id, m, bleed, critical, now) ?? [])
-                    conn.Minions.OutputQueue.Add(new(packet, "trap/mine bleed", id, m));
+                foreach (var packet in BleedOnHitLocked(player, id, m, bleed, critical, now) ?? [])
+                    player.Minions.OutputQueue.Add(new(packet, "trap/mine bleed", id, m));
             }
-            CommitAcceptedHitLocked(conn, id, m, hit, damage, now, "trap/mine", playerKill: false);
+            CommitAcceptedHitLocked(player, id, m, hit, damage, now, "trap/mine", playerKill: false);
             if (bear)
-                BearTrapOnHitLocked(m, damage, now, n => GolemStat(player, n), n => GolemStat(placed.Own, n));
+                BearTrapOnHitLocked(m, damage, now, n => GolemStat(playerStats, n), n => GolemStat(placed.Own, n));
         }
-        if (GolemStat(placed.Own, "base_fire_damage_to_deal_per_minute") > 0)
+        if (GolemStat(placed.Own, Stat.BaseFireDamageToDealPerMinute) > 0)
         {
-            int Get(string n) => GolemStat(placed.Own, n) + GolemStat(player, n);
-            double increased = new[] { "damage_+%", "fire_damage_+%", "elemental_damage_+%", "damage_over_time_+%",
-                "fire_damage_over_time_+%", "burn_damage_+%", "area_damage_+%" }.Sum(Get);
-            if (Get("spell_damage_modifiers_apply_to_skill_dot") != 0) increased += Get("spell_damage_+%");
+            int Get(uint n) => GolemStat(placed.Own, n) + GolemStat(playerStats, n);
+            double increased = new[] { Stat.DamagePlusPct, Stat.FireDamagePlusPct, Stat.ElementalDamagePlusPct, Stat.DamageOverTimePlusPct,
+                Stat.FireDamageOverTimePlusPct, Stat.BurnDamagePlusPct, Stat.AreaDamagePlusPct }.Sum(Get);
+            increased += (double)Get(placed.Mine ? Stat.MineDamagePlusPct : Stat.TrapDamagePlusPct) + Get(Stat.TrapOrMineDamagePlusPct);
+            if (Get(Stat.SpellDamageModifiersApplyToSkillDot) != 0) increased += Get(Stat.SpellDamagePlusPct);
             double groundMore = new[] { "damage_+%_final", "fire_damage_+%_final", "elemental_damage_+%_final",
                 "damage_over_time_+%_final", "trap_damage_+%_final", "area_damage_+%_final" }
-                .Aggregate(1d, (factor, n) => factor * Math.Max(0, 1 + Get(n) / 100d));
-            double dps = Get("base_fire_damage_to_deal_per_minute") / 60d * Math.Max(0, 1 + increased / 100d)
-                * Math.Max(0, 1 + (Get("dot_multiplier_+") + Get("fire_dot_multiplier_+")) / 100d) * groundMore;
-            var damage = new SkillDamageContext(SkillHitKind.Spell, placed.Offense?.Caster ?? TotemCasterStats(player))
+                .Aggregate(1d, (factor, n) => factor * Math.Max(0, 1 + Get(Stat.Of(n)) / 100d));
+            double dps = Get(Stat.BaseFireDamageToDealPerMinute) / 60d * Math.Max(0, 1 + increased / 100d)
+                * Math.Max(0, 1 + (Get(Stat.DotMultiplierPlus) + Get(Stat.FireDotMultiplierPlus)) / 100d) * groundMore * inventionMore;
+            var damage = new SkillDamageContext(SkillHitKind.Spell, placed.Offense?.Caster ?? TotemCasterStats(playerStats))
                 .OverTime(new(DamageType.Fire, dps, 1));
-            int baseDuration = Get("base_skill_effect_duration");
+            int baseDuration = Get(Stat.BaseSkillEffectDuration);
             double seconds = SkillDurationModifiers.Seconds(baseDuration > 0 ? baseDuration : 1750,
-                n => GolemStat(player, n), n => GolemStat(placed.Own, n), DurationKinds(conn, placed.Effect));
-            conn.Placed.Grounds.Add(new(placed.Id, placed.Skill, placed.At, radius, damage.DamagePerSecond, now + seconds, now));
+                n => GolemStat(playerStats, n), n => GolemStat(placed.Own, n), DurationKinds(player, placed.Effect));
+            player.Placed.Grounds.Add(new(placed.Id, placed.Skill, placed.At, radius, damage.DamagePerSecond, now + seconds, now));
         }
     }
 
     // Charged Traps: a trap an enemy set off may grant a Frenzy and a Power Charge. Charged Mines: so may a mine
     // detonated with an enemy in its target range (the 60 cells its skill aims within).
-    static void PlacedChargesLocked(ClientState conn, PlacedSkills.Placed placed, bool enemyTriggered, double now)
+    static void PlacedChargesLocked(Player player, PlacedSkills.Placed placed, bool enemyTriggered, double now)
     {
-        if (placed.Mine ? !conn.Monsters.Values.Any(m => m is { Hostile: true, Dead: false, Life: > 0 }
-                && Dist(m.Walk.Position(now), placed.At) <= 60) : !enemyTriggered) return;
+        if (placed.Mine ? !player.Area.MonstersNear(placed.At, 60).Any(m => m.Value is { Hostile: true, Dead: false, Life: > 0 }
+                && Dist(m.Value.Walk.Position(now), placed.At) <= 60) : !enemyTriggered) return;
         foreach (var (type, stat) in new[] {
-            (ChargeType.Frenzy, placed.Mine ? "%_chance_to_gain_frenzy_charge_on_mine_detonated_targeting_an_enemy"
-                : "%_chance_to_gain_frenzy_charge_on_trap_triggered_by_an_enemy"),
-            (ChargeType.Power, placed.Mine ? "%_chance_to_gain_power_charge_on_mine_detonated_targeting_an_enemy"
-                : "%_chance_to_gain_power_charge_on_trap_triggered_by_an_enemy") })
-            if (GolemStat(placed.Own, stat) is > 0 and var chance && Random.Shared.Next(100) < chance)
-                ChargesOf(conn).Enqueue(new ChargeEvent.Grant(type, 1, placed.Mine ? "Charged Mines" : "Charged Traps"));
+            (ChargeType.Frenzy, placed.Mine ? Stat.Of("%_chance_to_gain_frenzy_charge_on_mine_detonated_targeting_an_enemy")
+                : Stat.Of("%_chance_to_gain_frenzy_charge_on_trap_triggered_by_an_enemy")),
+            (ChargeType.Power, placed.Mine ? Stat.Of("%_chance_to_gain_power_charge_on_mine_detonated_targeting_an_enemy")
+                : Stat.Of("%_chance_to_gain_power_charge_on_trap_triggered_by_an_enemy")) })
+            if (GolemStat(placed.Own, stat) is > 0 and var chance && AreaRng(player).Next(100) < chance)
+                ChargesOf(player).Enqueue(new ChargeEvent.Grant(type, 1, placed.Mine ? "Charged Mines" : "Charged Traps"));
     }
 
-    static void PlacedGroundRecordsLocked(string remote, NetworkStream stream, ConnectionCiphers ciphers,
-        ClientState conn, double now, WorldRecordBuilder bytes)
+    static void PlacedGroundRecordsLocked(Player player, double now, WorldRecordBuilder bytes)
     {
-        if (conn.Placed.Grounds.Count == 0) return;
+        if (player.Placed.Grounds.Count == 0) return;
         // Burning grounds do not stack. Keep a separate fractional carry and stop exactly at expiry.
-        foreach (var (id, monster) in conn.Monsters.ToArray())
+        foreach (var (id, monster) in player.Area.Monsters.ToArray())
         {
             if (!monster.Hostile || monster.Dead || monster.Life == 0 || monster.Invulnerable) continue;
-            var ground = conn.Placed.Grounds.Where(g => g.LastAt < Math.Min(now, g.Until)
+            var ground = player.Placed.Grounds.Where(g => g.LastAt < Math.Min(now, g.Until)
                     && Dist(monster.Walk.Position(now), g.At) <= g.Radius)
                 .MaxBy(g => g.DamagePerSecond);
             if (ground is null) continue;
             double total = ground.DamagePerSecond * (Math.Min(now, ground.Until) - ground.LastAt)
                 * MonsterDotTaken(monster, DamageType.Fire, now) + ground.Carry.GetValueOrDefault(id);
             int damage = (int)Math.Min(int.MaxValue, Math.Floor(total)); ground.Carry[id] = total - damage;
-            if (damage <= 0 || ApplyMonsterHitLocked(conn, monster, damage, allyAt: ground.At) is not { } hit) continue;
-            if (hit.StageStarts) { CommitBossStage(remote, stream, ciphers, conn, id, monster, now); hit = hit with { StageStarts = false }; }
+            if (damage <= 0 || ApplyMonsterHitLocked(player, monster, damage, allyAt: ground.At) is not { } hit) continue;
+            if (hit.StageStarts) { CommitBossStage(player, id, monster, now); hit = hit with { StageStarts = false }; }
             OwnedKillLocked(monster, hit.Life);
-            CommitAcceptedHitLocked(conn, id, monster, hit, damage, now, "Fire Trap burning ground", playerKill: false);
+            CommitAcceptedHitLocked(player, id, monster, hit, damage, now, "Fire Trap burning ground", playerKill: false);
         }
-        foreach (var ground in conn.Placed.Grounds.ToArray())
+        foreach (var ground in player.Placed.Grounds.ToArray())
         {
             ground.LastAt = Math.Min(now, ground.Until);
-            if (now < ground.Until && conn.PlayerLife > 0) continue;
+            if (now < ground.Until && player.PlayerLife > 0) continue;
             bytes.Remove(ground.Object);
-            conn.Placed.Grounds.Remove(ground);
+            player.Placed.Grounds.Remove(ground);
         }
     }
 
-    static async Task PlacedSkillsTick(string remote, NetworkStream stream, ConnectionCiphers ciphers, ClientState conn, double now)
+    static async Task PlacedSkillsTick(Player player, double now)
     {
-        await SendWorldBatch(conn, [], admission =>
+        if (player.Placed.All.Count == 0 && player.Placed.Grounds.Count == 0) return;
+        await SendWorldBatch(player, [], admission =>
         {
-            using (ProjectileMutation(conn))
+            using (ProjectileMutation(player))
             {
-                if (!CurrentGameWork || conn.Closed || conn.LeavingArea || conn.Paused) return null;
-                var bytes = new WorldRecordBuilder(conn, admission);
-                foreach (var placed in conn.Placed.All.Values.ToArray())
+                if (!CurrentGameWork || player.Closed || player.LeavingArea || player.Paused) return null;
+                var bytes = new WorldRecordBuilder(player, admission);
+                var playerAt = player.Walk.Position(now);
+                foreach (var placed in player.Placed.All.Values.ToArray())
                 {
-                    if (conn.LockstepClient && !conn.WorldOutput.PublishedObject(placed.Id).IsReady) continue;
-                    if (conn.PlayerLife == 0 || now >= placed.Until) { RemovePlacedLocked(conn, placed, bytes); continue; }
-                    LandPlacedRecordsLocked(conn, placed, now, bytes);
+                    if (player.Connection.LockstepClient && !player.Connection.WorldOutput.PublishedObject(placed.Id).IsReady) continue;
+                    if (player.PlayerLife == 0 || now >= placed.Until) { RemovePlacedLocked(player, placed, bytes); continue; }
+                    LandPlacedRecordsLocked(player, placed, now, bytes);
                     if (now < placed.Armed) continue;
+                    if (placed.Mine && !MineCanDetonateFrom(placed, playerAt))
+                    {
+                        if (now >= placed.DetonateAt) placed.DetonateAt = double.PositiveInfinity;
+                        continue;
+                    }
+
                     bool skitter = false;
                     if (!placed.SkitterTriggered)
                     {
-                        var bot = conn.Reservations.Fighters.Values.Where(g => g.Definition.Kind.StartsWith("Skitter", StringComparison.Ordinal) && now >= g.NextOrb)
+                        var bot = player.Reservations.Fighters.Values.Where(g => g.Definition.Kind.StartsWith("Skitter", StringComparison.Ordinal) && now >= g.NextOrb)
                             .MinBy(g => Dist(g.Monster.Walk.Position(now), placed.At));
                         if (bot is not null)
                         {
-                            if (Dist(bot.Monster.Walk.Position(now), placed.At) > 8) GolemMoveLocked(conn, bot, placed.At, now);
+                            if (Dist(bot.Monster.Walk.Position(now), placed.At) > 8) GolemMoveLocked(player, bot, placed.At, now);
                             else { skitter = true; bot.NextOrb = now + 3; }
                         }
                     }
-                    bool nearby = !placed.Mine && conn.Monsters.Values.Any(m => m is { Hostile: true, Dead: false, Life: > 0 }
-                        && Dist(m.Walk.Position(now), placed.At) <= placed.TriggerRadius);
+                    string? effect = SkillsFor(player).EffectId(placed.Effect);
+                    bool conversion = !placed.Mine && effect == "ConversionTrap";
+                    var trigger = conversion ? ConversionTrapTarget(player, placed, now) : default;
+                    bool nearby = !placed.Mine && (conversion ? trigger.Value is not null
+                        : player.Area.MonstersNear(placed.At, placed.TriggerRadius).Any(m => m.Value is { Hostile: true, Dead: false, Life: > 0 }
+                            && Dist(m.Value.Walk.Position(now), placed.At) <= placed.TriggerRadius));
                     if (!skitter && !nearby && now < placed.DetonateAt) continue;
                     // Scheduling, an unarmed mine, a retired placement and a Skitterbot's detonation are not a
                     // player detonation. Record only this accepted player-chain trigger, even without a hit target.
                     if (placed.Mine && !skitter)
-                        conn.RecentEvents.Record(StatConditions.DetonatedMine, conn.Clock.Elapsed.TotalSeconds);
-                    PlacedDamageLocked(remote, stream, ciphers, conn, placed, now, bytes);
-                    PlacedChargesLocked(conn, placed, nearby, now);
-                    Console.WriteLine($"[gateway] placed skill 0x{placed.Id:x} {(skitter ? "Skitterbot" : nearby ? "proximity" : "chain")} trigger; rearm={skitter && placed.Mine && SkillsFor(conn).EffectId(placed.Effect) != "SmokeMine"}");
-                    if (skitter && placed.Mine && SkillsFor(conn).EffectId(placed.Effect) != "SmokeMine")
+                        player.RecentEvents.Record(StatConditions.DetonatedMine, AreaTime(player));
+                    if (conversion) TriggerConversionTrap(player, placed, trigger, now, bytes);
+                    else PlacedDamageLocked(player, placed, now, bytes);
+                    PlacedChargesLocked(player, placed, nearby, now);
+                    bool rearm = skitter && placed.Mine && effect != "SmokeMine";
+                    Console.WriteLine($"[gateway] placed skill 0x{placed.Id:x} {(skitter ? "Skitterbot" : nearby ? "proximity" : "chain")} trigger; rearm={rearm}");
+                    if (rearm)
                     {
                         placed.SkitterTriggered = true; placed.DetonateAt = double.PositiveInfinity;
-                        conn.Placed.All[placed.Id] = placed with { Armed = now + .5 };
+                        player.Placed.All[placed.Id] = placed with { Armed = now + .5 };
                     }
-                    else RetirePlacedLocked(conn, placed, now);
+                    else RetirePlacedLocked(player, placed, now);
                 }
-                foreach (var leaving in conn.Placed.Leaving.Where(l => now >= l.At || conn.PlayerLife == 0).ToArray())
+                foreach (var leaving in player.Placed.Leaving.Where(l => now >= l.At || player.PlayerLife == 0).ToArray())
                 {
                     bytes.Remove(leaving.Object);
-                    conn.Placed.Leaving.Remove(leaving);
+                    player.Placed.Leaving.Remove(leaving);
                 }
-                if (conn.Placed.Dirty) PlacedResourcesLocked(conn, bytes);
-                bool detonation = CanDetonateMines(conn);
-                if (detonation != conn.Placed.DetonationPublished)
+                if (player.Placed.Dirty) PlacedResourcesLocked(player, bytes);
+                bool detonation = CanDetonateMines(player);
+                if (detonation != player.Placed.DetonationPublished)
                 {
-                    bytes.World(PlayerId, InstanceEntities.PlayerSkillsChange(PlayerId, [], [], canDetonateMines: detonation));
-                    conn.Placed.DetonationPublished = detonation;
+                    bytes.World(player.Id, InstanceEntities.PlayerSkillsChange(player.Id, [], [], canDetonateMines: detonation));
+                    player.Placed.DetonationPublished = detonation;
                 }
-                PlacedGroundRecordsLocked(remote, stream, ciphers, conn, now, bytes);
+                PlacedGroundRecordsLocked(player, now, bytes);
                 return bytes.Count > 0 ? bytes.Build() : null;
             }
-        }, transport: (remote, stream, ciphers));
+        });
     }
 }

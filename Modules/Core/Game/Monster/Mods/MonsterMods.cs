@@ -9,43 +9,49 @@ using DamageTypes = GameServer.Core.World.DamageTypes;
 
 public static partial class Game
 {
+    /// <summary>Fills this type's game data at startup (the world loader, before the Gateway listens).</summary>
+    public static void LoadMonsterModsData()
+    {
+        MonsterModRolls = new MonsterModCatalog(Items.Mods);
+    }
+
     static bool MonsterOnLowLife(SpawnedMonster monster) => !monster.Dead && monster.Life > 0
         && (ulong)monster.Life * 2 <= monster.MaxLife;
     // Monster-domain Mods.dat rows, their names and effects; loaded with the first magic or rare monster.
-    public static readonly Lazy<MonsterModCatalog> MonsterModRolls = new(() => new MonsterModCatalog(Items.Mods));
+    public static MonsterModCatalog MonsterModRolls = default!;
 
     // Per instance, the mods its magic monsters share: "all monsters in an instance that are the same or very similar
     // will have the same magic monster modifier" (3.19.0 patch notes). Very similar: the same name (The Coast's
     // Drowned are several MonsterVarieties rows), as long as the affix can roll on it (MonsterModCatalog.SharedMagic).
-    public static readonly RuleTable<InstanceState, Dictionary<string, MonsterModSet>> MagicModsOf = new();
+    public static readonly Store<InstanceState, Dictionary<string, MonsterModSet>> MagicModsOf = new();
 
     /// <summary>The mods a new monster gets: <paramref name="kept"/> (a monster of a kept instance, a /mob_mods
     /// choice) when it has any, else freshly rolled for its rarity. Area packs pass <paramref name="alone"/> false;
     /// their magic monsters share one roll per monster name in the instance.</summary>
-    public static MonsterModSet MonsterModsFor(ClientState conn, MonsterCatalog.Variety variety, byte level, MonsterRarity rarity,
+    public static MonsterModSet MonsterModsFor(Player player, MonsterCatalog.Variety variety, byte level, MonsterRarity rarity,
         MonsterModSet? kept, bool alone) =>
-        MonsterModsFor(conn, variety, level, rarity, kept, alone, extraMagicMods: 0);
+        MonsterModsFor(player, variety, level, rarity, kept, alone, extraMagicMods: 0);
 
     /// <summary>Overload allowing an area/cell to grant additional modifiers to magic monsters
     /// (<c>map_magic_monster_num_additional_modifiers</c>).</summary>
-    public static MonsterModSet MonsterModsFor(ClientState conn, MonsterCatalog.Variety variety, byte level, MonsterRarity rarity,
+    public static MonsterModSet MonsterModsFor(Player player, MonsterCatalog.Variety variety, byte level, MonsterRarity rarity,
         MonsterModSet? kept, bool alone, int extraMagicMods)
     {
         if (kept is { Mods.Count: > 0 } || kept is not null && rarity == MonsterRarity.Normal) return kept;
-        var rolls = MonsterModRolls.Value;
+        var rolls = MonsterModRolls;
         int magicExtra = rarity == MonsterRarity.Magic
-            ? Math.Max(0, extraMagicMods + (MapModsOf(conn)?.Get("map_magic_monster_num_additional_modifiers") ?? 0))
+            ? Math.Max(0, extraMagicMods + (MapModsOf(player)?.Get(Stat.MapMagicMonsterNumAdditionalModifiers) ?? 0))
             : 0;
-        if (rarity != MonsterRarity.Magic) return rolls.Roll(variety, level, rarity, Random.Shared, alone);
+        if (rarity != MonsterRarity.Magic) return rolls.Roll(variety, level, rarity, AreaRng(player), alone);
         if (magicExtra == 0)
         {
-            if (alone) return rolls.Roll(variety, level, rarity, Random.Shared, alone);
-            var shared = MagicModsOf.GetValue(conn.Instance, _ => []);
-            lock (shared) return rolls.SharedMagic(shared, variety, level, Random.Shared);
+            if (alone) return rolls.Roll(variety, level, rarity, AreaRng(player), alone);
+            var shared = MagicModsOf.GetValue(player.Instance, _ => []);
+            lock (shared) return rolls.SharedMagic(shared, variety, level, AreaRng(player));
         }
         int want = 1 + magicExtra;
-        if (alone) return RollMagicWithExtra(rolls, variety, level, want, alone: true, Random.Shared);
-        var sharedExtra = MagicModsOf.GetValue(conn.Instance, _ => []);
+        if (alone) return RollMagicWithExtra(rolls, variety, level, want, alone: true, AreaRng(player));
+        var sharedExtra = MagicModsOf.GetValue(player.Instance, _ => []);
         string key = $"{variety.Name}|+{magicExtra}";
         lock (sharedExtra)
         {
@@ -54,7 +60,7 @@ public static partial class Game
             if (sharedExtra.TryGetValue(key, out var existing) && Fits(existing)) return existing;
             string scopedKey = key + "|" + string.Join(",", tags.Order(StringComparer.Ordinal));
             if (!sharedExtra.TryGetValue(scopedKey, out existing))
-                sharedExtra[scopedKey] = existing = RollMagicWithExtra(rolls, variety, level, want, alone: false, Random.Shared);
+                sharedExtra[scopedKey] = existing = RollMagicWithExtra(rolls, variety, level, want, alone: false, AreaRng(player));
             sharedExtra.TryAdd(key, existing);
             return existing;
         }
@@ -95,20 +101,20 @@ public static partial class Game
     /// walks it at the same speed), actor_scale_+% for its size and life_regeneration_rate_per_minute_%.</summary>
     public static IEnumerable<(uint Key, int Value)> MonsterModClientStats(MonsterModEffects e, uint maxLife, int baseLife)
     {
-        if (e["monster_life_+%_final_from_rarity"] is int rarity and not 0) yield return (StatKeys.MonsterLifeFromRarityPct, rarity);
-        if (e[MonsterModCatalog.RarityTableLifeStat] is int table and not 0 && Stats.Key(MonsterModCatalog.RarityTableLifeStat) is uint tk)
+        if (e[Stat.MonsterLifePlusPctFinalFromRarity] is int rarity and not 0) yield return (Stat.MonsterLifePlusPctFinalFromRarity, rarity);
+        if (e[MonsterModCatalog.RarityTableLifeStat] is int table and not 0 && MonsterModCatalog.RarityTableLifeStat is var tk)
             yield return (tk, table);
-        if (maxLife != baseLife) yield return (StatKeys.MaximumLife, (int)maxLife);
-        if (e.MovementPct != 0) yield return (StatKeys.MovementVelocityPct, e.MovementPct);
-        if (e.ActorScalePct != 0 && Stats.Key("actor_scale_+%") is uint scale) yield return (scale, e.ActorScalePct);
-        if (e["life_regeneration_rate_per_minute_%"] is int regen and not 0 && Stats.Key("life_regeneration_rate_per_minute_%") is uint rk)
+        if (maxLife != baseLife) yield return (Stat.MaximumLife, (int)maxLife);
+        if (e.MovementPct != 0) yield return (Stat.MovementVelocityPlusPct, e.MovementPct);
+        if (e.ActorScalePct != 0 && Stat.ActorScalePlusPct is var scale) yield return (scale, e.ActorScalePct);
+        if (e[Stat.LifeRegenerationRatePerMinutePct] is int regen and not 0 && Stat.LifeRegenerationRatePerMinutePct is var rk)
             yield return (rk, regen);
     }
 
     /// <summary>The monster's own part of its hit on the player, after the roll and before the player's defences: its
     /// critical strike (only with a chance from its mods: of Deadliness; × Monster.ot's 130% multiplier less the
     /// player's <paramref name="selfCriticalReduction"/>, base_self_critical_strike_multiplier_-%, read only on a crit)
-    /// and the increased damage per 10% of the player's missing life (Executioner's). Call under the Monsters lock.</summary>
+    /// and the increased damage per 10% of the player's missing life (Executioner's). Call in the area's frame.</summary>
     public static DamagePacket MonsterModHit(SpawnedMonster m, DamagePacket rolled, uint playerLife, uint playerMaxLife, Random random,
         out bool critical, Func<int>? selfCriticalReduction = null, double now = double.NaN, bool cannotCrit = false,
         int additionalCritical = 0, Func<int>? extraCriticalMultiplier = null)
@@ -116,23 +122,23 @@ public static partial class Game
         var e = m.Effects;
         // additionalCritical: the target's Brittle (PlayerBrittleCriticalChance), in hundredths as the mods' chance.
         int baseCrit = e.CriticalChance;
-        if (baseCrit == 0 && e["critical_strike_chance_+%"] is int incCrit and > 0)
+        if (baseCrit == 0 && e[Stat.CriticalStrikeChancePlusPct] is int incCrit and > 0)
             baseCrit = (int)Math.Clamp(500L * (100 + incCrit) / 100, 0, 10_000);
         int chance = baseCrit + additionalCritical;
         critical = !cannotCrit && chance > 0 && random.Next(10_000) < chance;
         int extraMult = critical
-            ? Math.Max(0, (MonsterModEffects.CriticalMultiplier - 100) + e["base_critical_strike_multiplier_+"] + (extraCriticalMultiplier?.Invoke() ?? 0))
+            ? Math.Max(0, (MonsterModEffects.CriticalMultiplier - 100) + e[Stat.BaseCriticalStrikeMultiplierPlus] + (extraCriticalMultiplier?.Invoke() ?? 0))
             : 0;
         int selfReduction = critical ? Math.Clamp(selfCriticalReduction?.Invoke() ?? 0, 0, 100) : 0;
         double factor = critical ? (100 + extraMult * (100 - selfReduction) / 100.0) / 100.0 : 1;
         factor *= Math.Max(0, 1 + e[m.Rarity is MonsterRarity.Rare or MonsterRarity.Unique
-            ? "enfeeble_damage_+%_vs_rare_or_unique_final" : "enfeeble_damage_+%_final"] / 100.0);
+            ? Stat.EnfeebleDamagePlusPctVsRareOrUniqueFinal : Stat.EnfeebleDamagePlusPctFinal] / 100.0);
         int executioner = e.ExecutionerPct(playerLife, playerMaxLife);
         int spiderDamage = m.SpiderWebs.Damage(now);
-        int lowLife = MonsterOnLowLife(m) ? e["damage_+%_when_on_low_life"] : 0;
+        int lowLife = MonsterOnLowLife(m) ? e[Stat.DamagePlusPctWhenOnLowLife] : 0;
         if (executioner > 0 || spiderDamage != 0 || lowLife != 0)
         {
-            int increased = e["damage_+%"] + e["physical_damage_+%"];
+            int increased = e[Stat.DamagePlusPct] + e[Stat.PhysicalDamagePlusPct];
             factor *= 100d + increased > 0 ? Math.Max(0, 100d + increased + executioner + spiderDamage + lowLife) / (100d + increased) : 0;
         }
         return factor == 1 ? rolled : rolled.Scale(factor);
@@ -145,7 +151,7 @@ public static partial class Game
     /// Base and mod resistance compose before the cap; penetration subtracts once after that cap.
     /// </summary>
     public static int MonsterTakes(SpawnedMonster m, DamagePacket hit, Random random, bool spell,
-        Penetration.PerType pen = default, double now = double.NaN) => MonsterTakesRolled(m, hit.Roll(random), spell, pen, now);
+        Penetration.PerType pen = default, double now = double.NaN) => MonsterTakesRolled(m, hit.Roll(random), spell, pen, now, random);
 
     /// <summary>A monster's resistance to one type of the player's hit: base and mod resistance compose before
     /// Monster.ot's 75% cap; penetration subtracts once after that cap, the cold one against a chilled monster at
@@ -163,8 +169,9 @@ public static partial class Game
 
     // Already rolled: no extra RNG or per-component rounding, including ordinary bow contact snapshots.
     public static int MonsterTakesRolled(SpawnedMonster m, DamagePacket rolled, bool spell, Penetration.PerType pen = default,
-        double now = double.NaN)
-        => MonsterTakesMitigated(m, DamageModel.Mitigate(rolled, type => MonsterHitResistance(m, type, pen, now)), spell, now);
+        double now = double.NaN, Random? random = null)
+        => MonsterTakesMitigated(m, DamageModel.Mitigate(rolled, type => MonsterHitResistance(m, type, pen, now)),
+            spell, now, random: random);
 
     /// <summary>
     /// The damage a resisted hit of the player deals to a monster: the physical part less its physical damage reduction,
@@ -173,18 +180,19 @@ public static partial class Game
     /// (<see cref="MonsterBlocks"/>).
     /// </summary>
     public static int MonsterTakesMitigated(SpawnedMonster m, DamagePacket mitigated, bool spell, double now = double.NaN,
-        bool ignorePhysicalReduction = false)
-        => MonsterTakesMitigatedCore(m, mitigated, spell, now, 0, ignorePhysicalReduction);
+        bool ignorePhysicalReduction = false, Random? random = null)
+        => MonsterTakesMitigatedCore(m, mitigated, spell, now, 0, ignorePhysicalReduction, random);
 
-    public static int MonsterTakesTrapOrMineHit(SpawnedMonster m, DamagePacket mitigated, bool spell, double now)
-        => MonsterTakesMitigatedCore(m, mitigated, spell, now, BearTrapDamageTaken(m, now), ignorePhysicalReduction: false);
+    public static int MonsterTakesTrapOrMineHit(SpawnedMonster m, DamagePacket mitigated, bool spell, double now,
+        Random? random = null, bool ignorePhysicalReduction = false)
+        => MonsterTakesMitigatedCore(m, mitigated, spell, now, BearTrapDamageTaken(m, now), ignorePhysicalReduction, random);
 
     static int MonsterTakesMitigatedCore(SpawnedMonster m, DamagePacket mitigated, bool spell, double now,
-        int additionalTakenPct, bool ignorePhysicalReduction = false)
+        int additionalTakenPct, bool ignorePhysicalReduction, Random? random)
     {
         // The shrine aura's base_cannot_be_damaged (MonsterAuraEffect, temporary stats by name): the Divine shrine's
         // monsters cannot be damaged while it is unclaimed, as the row's own buff promises.
-        if (m.Effects["base_cannot_be_damaged"] > 0) return 0;
+        if (m.Effects[Stat.BaseCannotBeDamaged] > 0) return 0;
         var e = m.Effects;
         double physical = mitigated[DamageType.Physical].Min;
         int physReduction = e.PhysicalReduction - CrushReduction(m, now);
@@ -205,21 +213,28 @@ public static partial class Game
         // Pride's more Physical Damage and Flesh and Stone's Blood Stance (TakenFromPlayer.Physical) apply to the
         // physical part only, never to the elemental share's fallback factor.
         double physicalFactor = (1 + Math.Max(0, m.PridePhysicalMore) / 100.0)
-            * (1 + Math.Max(0, m.TakenFromPlayer.Physical) / 100.0)
-            * (1 + e["physical_damage_taken_+%"] / 100.0);
+            * (1 + Math.Max(0, FleshTaken(m, now)) / 100.0)
+            * (1 + e[Stat.PhysicalDamageTakenPlusPct] / 100.0);
         // Its fire, cold and lightning damage taken (Izaro's statues' buffs, Covered in Ash) on those parts.
         double typed = mitigated[DamageType.Fire].Min * ElementalHitTakenPercent(e, m, DamageType.Fire, now)
             + mitigated[DamageType.Cold].Min * ElementalHitTakenPercent(e, m, DamageType.Cold, now)
             + mitigated[DamageType.Lightning].Min * ElementalHitTakenPercent(e, m, DamageType.Lightning, now);
-        return (int)Math.Round((total - elementalDamage) * factor + elementalDamage * elementalFactor + withered
-            + physicalTaken * factor * (physicalFactor - 1) + typed / 100.0 * elementalFactor);
+        double damage = (total - elementalDamage) * factor + elementalDamage * elementalFactor + withered
+            + physicalTaken * factor * (physicalFactor - 1) + typed / 100.0 * elementalFactor;
+        if (spell && e[Stat.BaseSpellSuppressionChancePct] is int chance and > 0
+            && GameServer.Core.World.RandomRolls.Chance(chance, 100, random ?? Random.Shared))
+        {
+            int prevented = Math.Clamp(DamageModel.SpellSuppressionEffect + e[Stat.BaseSpellDamagePctSuppressed], 0, 100);
+            damage *= (100 - prevented) / 100d;
+        }
+        return (int)Math.Round(damage);
     }
 
     static double ElementalHitTakenPercent(MonsterModEffects effects, SpawnedMonster m, DamageType type, double now) => type switch
     {
-        DamageType.Fire => (double)effects["fire_damage_taken_+%"] + CoveredInAshFireTaken(m, now),
-        DamageType.Cold => effects["cold_damage_taken_+%"],
-        DamageType.Lightning => effects["lightning_damage_taken_+%"],
+        DamageType.Fire => (double)effects[Stat.FireDamageTakenPlusPct] + CoveredInAshFireTaken(m, now),
+        DamageType.Cold => effects[Stat.ColdDamageTakenPlusPct],
+        DamageType.Lightning => effects[Stat.LightningDamageTakenPlusPct],
         _ => 0,
     };
 
@@ -231,15 +246,15 @@ public static partial class Game
             .Scale(m.Effects.DamageTaken(spell) * MonsterToughnessFactor(m.Effects));
 
     /// <summary>The player's base_self_critical_strike_multiplier_-% (critical strikes against them deal less extra damage).</summary>
-    public static int SelfCriticalReduction(ClientState conn)
+    public static int SelfCriticalReduction(Player player)
     {
-        var stats = CharacterPlayerStats(conn);
-        return SelfCriticalReduction(name => Stats.Key(name) is uint key ? stats.GetValueOrDefault(key) : 0);
+        var stats = CharacterPlayerStats(player);
+        return SelfCriticalReduction(name => name is var key ? stats.GetValueOrDefault(key) : 0);
     }
 
-    public static int SelfCriticalReduction(Func<string, int> get) =>
-        get("self_take_no_extra_damage_from_critical_strikes") != 0 ? 100
-            : get("base_self_critical_strike_multiplier_-%");
+    public static int SelfCriticalReduction(Func<uint, int> get) =>
+        get(Stat.SelfTakeNoExtraDamageFromCriticalStrikes) != 0 ? 100
+            : get(Stat.BaseSelfCriticalStrikeMultiplierMinusPct);
 
     /// <summary>Whether the monster blocks a hit of the player (Stalwart's monster_base_block_%: attacks only). Rolled
     /// before anything of the hit happens: a blocked hit has no damage, impale, flinch or hit message. The skill's
@@ -249,12 +264,12 @@ public static partial class Game
         IReadOnlyDictionary<uint, int>? skill = null)
     {
         if (spell) return false;
-        int Skill(string name) => skill is not null && Stats.Key(name) is uint k ? skill.GetValueOrDefault(k) : 0;
-        int chance = m.Effects.BlockChance - Math.Max(0, Skill("support_reduce_enemy_block_and_spell_block_%"));
+        int Skill(uint name) => skill is not null && name is var k ? skill.GetValueOrDefault(k) : 0;
+        int chance = m.Effects.BlockChance - Math.Max(0, Skill(Stat.SupportReduceEnemyBlockAndSpellBlockPct));
         if (m.OverpoweredUntil > now) chance -= m.OverpoweredPercent;
         if (chance <= 0 || random.Next(100) >= chance) return false;
-        if (Skill("apply_overpowered_on_enemy_block_reduced_block_and_spell_block_%") is var overpowered and > 0
-            && Skill("support_overpowered_base_duration_ms") is var duration and > 0)
+        if (Skill(Stat.ApplyOverpoweredOnEnemyBlockReducedBlockAndSpellBlockPct) is var overpowered and > 0
+            && Skill(Stat.SupportOverpoweredBaseDurationMs) is var duration and > 0)
         {
             m.OverpoweredPercent = overpowered;
             m.OverpoweredUntil = Math.Max(m.OverpoweredUntil, now + duration / 1000.0);
@@ -267,16 +282,30 @@ public static partial class Game
     public const int Evaded = -2;
 
     /// <summary>A contact's hit unless blocked or evaded; rejected contacts have no life or on-hit mutation.
-    /// The caller holds the Monsters lock.</summary>
-    public static MonsterHit? HitUnlessBlockedLocked(ClientState conn, SpawnedMonster m, int damage) =>
-        damage is Blocked or Evaded ? null : ApplyMonsterHitLocked(conn, m, damage);
+    /// The caller holds the area's frame.</summary>
+    public static MonsterHit? HitUnlessBlockedLocked(Player player, SpawnedMonster m, int damage) =>
+        damage is Blocked or Evaded ? null : ApplyMonsterHitLocked(player, m, damage);
 
-    /// <summary>The critical strike multiplier a critical hit of the player has on this monster: 100% when it takes no
-    /// extra damage from critical strikes (of Toughness).</summary>
+    /// <summary>The critical strike multiplier against this monster after reductions to the bonus above 100%.</summary>
     public static int CriticalMultiplierOn(SpawnedMonster m, int multiplier,
-        IReadOnlyDictionary<uint, int>? player = null, IReadOnlyDictionary<uint, int>? own = null, bool noExtra = false) =>
-        CriticalHitMultiplier((long)multiplier + m.Curses["enemy_additional_critical_strike_multiplier_against_self"],
-            noExtra || m.Effects.NoExtraCriticalDamage || player is not null && CriticalHitsDealNoExtraDamage(player, own));
+        IReadOnlyDictionary<uint, int>? player = null, IReadOnlyDictionary<uint, int>? own = null, bool noExtra = false)
+    {
+        if (noExtra || m.Effects.NoExtraCriticalDamage || player is not null && CriticalHitsDealNoExtraDamage(player, own))
+            return 100;
+        long ordinary = (long)multiplier + m.Curses[Stat.EnemyAdditionalCriticalStrikeMultiplierAgainstSelf];
+        if (ordinary > 100)
+        {
+            int reduction = Math.Clamp(m.Effects[Stat.BaseSelfCriticalStrikeMultiplierMinusPct], 0, 100);
+            ordinary = 100 + (ordinary - 100) * (100 - reduction) / 100;
+        }
+        return CriticalHitMultiplier(ordinary, noExtra: false);
+    }
+
+    static int CriticalMultiplierWithWeapon(int multiplier, SpawnedMonster target, IReadOnlyDictionary<uint, int>? local)
+    {
+        int perPower = local?.GetValueOrDefault(Stat.HitsHaveCriticalStrikeMultiplerPlusPerMonsterPower) ?? 0;
+        return perPower == 0 ? multiplier : ActorScale.Saturate((long)multiplier + (long)perPower * WarcryPower(target.Rarity));
+    }
 
     /// <summary>One burn tick on a monster (Righteous Fire, fire damage over time), less <see cref="MonsterDotTaken"/>.</summary>
     public static (int Damage, double Carry) MonsterBurn(SpawnedMonster m, DamageOverTime burn, double seconds,
@@ -290,14 +319,14 @@ public static partial class Game
     /// description saying it covers damage over time.</summary>
     public static double MonsterDotTaken(SpawnedMonster m, DamageType type, double now = double.NaN)
     {
-        if (m.Effects["base_cannot_be_damaged"] > 0) return 0;
+        if (m.Effects[Stat.BaseCannotBeDamaged] > 0) return 0;
         var resistance = MonsterHitResistance(m, type, default, now);
         double increasedTaken = type switch
         {
-            DamageType.Physical => (double)m.Effects["physical_damage_taken_+%"] + MaimedPhysicalTaken(m, now),
-            DamageType.Fire => (double)m.Effects["fire_damage_taken_+%"] + CoveredInAshFireTaken(m, now),
-            DamageType.Cold => m.Effects["cold_damage_taken_+%"],
-            DamageType.Lightning => m.Effects["lightning_damage_taken_+%"],
+            DamageType.Physical => (double)m.Effects[Stat.PhysicalDamageTakenPlusPct] + MaimedPhysicalTaken(m, now),
+            DamageType.Fire => (double)m.Effects[Stat.FireDamageTakenPlusPct] + CoveredInAshFireTaken(m, now),
+            DamageType.Cold => m.Effects[Stat.ColdDamageTakenPlusPct],
+            DamageType.Lightning => m.Effects[Stat.LightningDamageTakenPlusPct],
             _ => 0,
         };
         double factor = (100 - DamageModel.Capped(resistance.Value, resistance.Maximum)) / 100.0
@@ -309,81 +338,54 @@ public static partial class Game
         return factor;
     }
 
-    // Monsters with life regeneration (of the Hydra) regain life: every 0.5 s the server adds it and sends the new life
-    // (0x1b1) of each one that changed, as it does for hits.
-    public static async Task RunMonsterRegeneration(string remote, NetworkStream stream, ConnectionCiphers ciphers, ClientState conn, PlayerUpdatesState updates)
-    {
-        if (!PlayerUpdatesCurrent(conn, updates)) return;
-        const int StepMs = 500;
-        double last = updates.Schedule.Now(conn);
-        try
-        {
-            while (PlayerUpdatesCurrent(conn, updates))
-            {
-                await updates.Schedule.Wait(PlayerUpdateRole.MonsterRegeneration, StepMs, updates.Stop.Token);
-                double now = updates.Schedule.Now(conn), seconds = now - last;
-                last = now;
-                if (conn.Paused || seconds <= 0) continue;
-                List<(uint Id, uint Life)> changed;
-                using (ProjectileMutation(conn))
-                {
-                    if (!PlayerUpdatesCurrent(conn, updates)) return;
-                    changed = RegenerateConnectionMonsters(conn, now, seconds);
-                }
-                // Checked again in the send gate: a kill in between sends 0 first, and an older life after it would
-                // revive the monster on the client.
-                foreach (var (id, life) in changed)
-                    await SendWorldRecord(remote, stream, ciphers, conn, id, InstanceProtocol.LifeUpdate(id, life), null,
-                        still: () => { lock (conn.Monsters) return RegenStillCurrent(conn.Monsters, id, life); });
-            }
-        }
-        catch (Exception ex) when (ex is IOException or ObjectDisposedException or InvalidOperationException)
-        {
-            // The connection closed while sending.
-        }
-    }
+    // Monsters with life regeneration regain life in the area's frame (MonsterRegeneration).
 
     /// <summary>Whether a regenerated life is still the monster's when its 0x1b1 goes out: alive and unchanged.</summary>
     public static bool RegenStillCurrent(IReadOnlyDictionary<uint, SpawnedMonster> monsters, uint id, uint life) =>
         monsters.TryGetValue(id, out var m) && !m.Dead && m.Life == life;
 
-    public const string EnemyRegenerationOnHit = "enemy_life_regeneration_rate_+%_for_4_seconds_on_hit";
+    public const uint EnemyRegenerationOnHit = Stat.EnemyLifeRegenerationRatePlusPctFor4SecondsOnHit;
 
-    /// <summary>The connection's regeneration step ending at <paramref name="now"/>, with the player's
-    /// <see cref="EnemyRegenerationOnHit"/> (Devout of Ryslatha, Pools.EnemyRegenerationOnHitPct) on the enemies it hit in
-    /// the last 4 s. The client does not step a monster's life from its regeneration stat (no life_recovery_per_minute is
-    /// sent: re/recovery-timing.md), so the 0x1b1 updates alone show it.</summary>
-    public static List<(uint Id, uint Life)> RegenerateConnectionMonsters(ClientState conn, double now, double seconds)
-    {
-        int onHit = now - seconds - conn.LastEnemyHitAt <= RecentlySeconds ? conn.Pools.EnemyRegenerationOnHitPct : 0;
-        using (ProjectileMutation(conn)) return RegenerateMonstersLocked(conn.Monsters, seconds, now, onHit);
-    }
-
-    /// <summary>One regeneration step over the living, damaged monsters (under the Monsters lock): the ones whose life
+    /// <summary>One regeneration step over the living, damaged monsters (in the area's frame): the ones whose life
     /// changed, with their new life. The part of the step within 4 s of the player's last hit on a monster regenerates at
     /// (1 + <paramref name="onHitPct"/> / 100) of its rate, at least 0.</summary>
+    public static List<(uint Id, uint Life)> RegenerateMonstersLocked(IReadOnlyList<(uint Id, SpawnedMonster Monster)> monsters,
+        double seconds, double now = 0, int onHitPct = 0)
+    {
+        var changed = new List<(uint, uint)>();
+        for (int i = 0; i < monsters.Count; i++)
+        {
+            var (id, m) = monsters[i];
+            RegenerateOneMonsterLocked(id, m, seconds, now, onHitPct, changed);
+        }
+        return changed;
+    }
+
     public static List<(uint Id, uint Life)> RegenerateMonstersLocked(IReadOnlyDictionary<uint, SpawnedMonster> monsters, double seconds,
         double now = 0, int onHitPct = 0)
     {
         var changed = new List<(uint, uint)>();
         foreach (var (id, m) in monsters)
-        {
-            double spreadRecovery = SpreadPoisonRecovery(m, now);
-            if (m.Dead || m.Life == 0 || m.Life >= m.MaxLife) { m.Regen = 0; continue; }
-            double perSecond = m.Effects.LifeRegenPerSecond(m.MaxLife);
-            if (onHitPct != 0 && seconds > 0)
-            {
-                double recently = Math.Max(0, Math.Min(now, m.PlayerHitAt + RecentlySeconds) - Math.Max(now - seconds, m.PlayerHitAt));
-                perSecond *= 1 - recently / seconds * (1 - Math.Max(0, 1 + onHitPct / 100.0));
-            }
-            if (perSecond <= 0 && spreadRecovery <= 0) continue;
-            double total = m.Regen + Math.Max(0, perSecond) * seconds + spreadRecovery;
-            uint whole = (uint)Math.Truncate(total);
-            m.Regen = total - whole;
-            if (whole == 0) continue;
-            m.Life = (uint)Math.Min(m.MaxLife, (long)m.Life + whole);
-            changed.Add((id, m.Life));
-        }
+            RegenerateOneMonsterLocked(id, m, seconds, now, onHitPct, changed);
         return changed;
+    }
+
+    static void RegenerateOneMonsterLocked(uint id, SpawnedMonster m, double seconds, double now, int onHitPct, List<(uint Id, uint Life)> changed)
+    {
+        double spreadRecovery = SpreadPoisonRecovery(m, now);
+        if (m.Dead || m.Life == 0 || m.Life >= m.MaxLife) { m.Regen = 0; return; }
+        double perSecond = m.Effects.LifeRegenPerSecond(m.MaxLife);
+        if (onHitPct != 0 && seconds > 0)
+        {
+            double recently = Math.Max(0, Math.Min(now, m.PlayerHitAt + RecentlySeconds) - Math.Max(now - seconds, m.PlayerHitAt));
+            perSecond *= 1 - recently / seconds * (1 - Math.Max(0, 1 + onHitPct / 100.0));
+        }
+        if (perSecond <= 0 && spreadRecovery <= 0) return;
+        double total = m.Regen + Math.Max(0, perSecond) * seconds + spreadRecovery;
+        uint whole = (uint)Math.Truncate(total);
+        m.Regen = total - whole;
+        if (whole == 0) return;
+        m.Life = (uint)Math.Min(m.MaxLife, (long)m.Life + whole);
+        changed.Add((id, m.Life));
     }
 }

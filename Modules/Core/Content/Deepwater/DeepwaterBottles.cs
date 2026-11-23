@@ -71,32 +71,38 @@ public static class DeepwaterBottles
         ["BottledChainHookOfAngling"] = 5,     // G: ~0.05%
     };
 
-    static readonly Lazy<BottleOutcome[]> OutcomesCache = new(LoadOutcomes);
-    static readonly Lazy<BottleOutcome[]> NormalOutcomesCache = new(() => [.. OutcomesCache.Value.Where(o => !o.IsHardMode)]);
-    static readonly Lazy<BottleOutcome[]> HardModeOutcomesCache = new(() => [.. OutcomesCache.Value.Where(o => o.IsHardMode)]);
-    static readonly Lazy<UniqueMessage[]> UniqueMessagesCache = new(LoadUniqueMessages);
-    static readonly Lazy<Dictionary<string, UniqueMessage>> UniqueMessagesByKeyCache = new(() =>
-    {
-        var map = new Dictionary<string, UniqueMessage>(StringComparer.OrdinalIgnoreCase);
-        foreach (var entry in UniqueMessagesCache.Value)
-            map.TryAdd(UniqueCatalog.NameKey(entry.Name), entry);
-        return map;
-    });
+    static BottleOutcome[] OutcomesCache = [];
+    static BottleOutcome[] NormalOutcomesCache = [];
+    static BottleOutcome[] HardModeOutcomesCache = [];
+    static UniqueMessage[] UniqueMessagesCache = [];
+    static Dictionary<string, UniqueMessage> UniqueMessagesByKeyCache = new(StringComparer.OrdinalIgnoreCase);
 
-    /// <summary>All rows of <c>DeepwaterLootBottles</c> loaded lazily from <c>client.db</c> (26 rows: 14 Normal + 12 HardMode).</summary>
-    public static IReadOnlyList<BottleOutcome> Outcomes => OutcomesCache.Value;
+    public static void LoadGameData()
+    {
+        OutcomesCache = LoadOutcomes();
+        NormalOutcomesCache = [.. OutcomesCache.Where(o => !o.IsHardMode)];
+        HardModeOutcomesCache = [.. OutcomesCache.Where(o => o.IsHardMode)];
+        UniqueMessagesCache = LoadUniqueMessages();
+        var map = new Dictionary<string, UniqueMessage>(StringComparer.OrdinalIgnoreCase);
+        foreach (var entry in UniqueMessagesCache)
+            map.TryAdd(UniqueCatalog.NameKey(entry.Name), entry);
+        UniqueMessagesByKeyCache = map;
+    }
+
+    /// <summary>All rows of <c>DeepwaterLootBottles</c> loaded at startup from <c>client.db</c> (26 rows: 14 Normal + 12 HardMode).</summary>
+    public static IReadOnlyList<BottleOutcome> Outcomes => OutcomesCache;
 
     /// <summary>The <c>DeepwaterLootBottles</c> rows for Standard/Normal (<c>false</c>, 14 rows) or Ruthless/HardMode (<c>true</c>, 12 rows).</summary>
     public static IReadOnlyList<BottleOutcome> OutcomesFor(bool hardMode) =>
-        hardMode ? HardModeOutcomesCache.Value : NormalOutcomesCache.Value;
+        hardMode ? HardModeOutcomesCache : NormalOutcomesCache;
 
-    /// <summary>All 11 named-unique overrides from <c>DeepwaterLootBottleUniqueMessages</c>, loaded lazily from <c>client.db</c>.</summary>
-    public static IReadOnlyList<UniqueMessage> UniqueMessages => UniqueMessagesCache.Value;
+    /// <summary>All 11 named-unique overrides from <c>DeepwaterLootBottleUniqueMessages</c>, loaded at startup from <c>client.db</c>.</summary>
+    public static IReadOnlyList<UniqueMessage> UniqueMessages => UniqueMessagesCache;
 
     /// <summary>The custom 0-based <c>ClientStrings2</c> row (<c>270..280</c>) for a named unique in
     /// <c>DeepwaterLootBottleUniqueMessages</c>, or <c>null</c> for any other unique.</summary>
     public static int? UniqueMessageRow(string uniqueName) =>
-        UniqueMessagesByKeyCache.Value.TryGetValue(UniqueCatalog.NameKey(uniqueName), out var msg) ? msg.Message : null;
+        UniqueMessagesByKeyCache.TryGetValue(UniqueCatalog.NameKey(uniqueName), out var msg) ? msg.Message : null;
 
     /// <summary>Effective weight for an outcome row: reads <c>world.db</c> <c>system_settings</c> key
     /// <c>deepwater_bottle_weight_&lt;Id&gt;</c> (then <c>deepwater_bottle_weight_&lt;BaseId&gt;</c> for HardMode rows),
@@ -163,42 +169,42 @@ public static class DeepwaterBottles
 
     /// <summary><see cref="GameEvents.ItemUse"/> handler (<c>C→S 0x0058</c>) for <c>DeepwaterBottledItem</c>.
     /// Returns <c>false</c> for all other items so they continue to other handlers.</summary>
-    public static async Task<bool> Use(IModuleContext module, ClientState conn, byte row, InventoryItem item, ItemCatalog.BaseType type)
+    public static async Task<bool> Use(IModuleContext module, Player player, byte row, InventoryItem item, ItemCatalog.BaseType type)
     {
         if (!type.Id.Equals(BottleItemId, StringComparison.Ordinal)) return false;
 
-        var player = PlayerOf(conn);
-        if (conn.PlayerLife == 0 || conn.Closed || conn.LeavingArea)
+        var modPlayer = PlayerOf(player);
+        if (player.PlayerLife == 0 || player.Closed || player.LeavingArea)
         {
-            module.Log($"{player.Character} <= 0x0058 open Message in a Bottle ({item.Id}): refused (player unavailable)");
+            module.Log($"{modPlayer.Character} <= 0x0058 open Message in a Bottle ({item.Id}): refused (player unavailable)");
             return true;
         }
         if (row is not (PlayerInventories.MainInventory or PlayerInventories.ExpandedInventory))
         {
-            module.Log($"{player.Character} <= 0x0058 open Message in a Bottle ({item.Id}): refused (row {row} is not player inventory)");
+            module.Log($"{modPlayer.Character} <= 0x0058 open Message in a Bottle ({item.Id}): refused (row {row} is not player inventory)");
             return true;
         }
-        if (item.Item.HeaderFlags != 0 || DeepwaterDredge.Unmarked(conn, item.Item))
+        if (item.Item.HeaderFlags != 0 || DeepwaterDredge.Unmarked(player, item.Item))
         {
-            module.Log($"{player.Character} <= 0x0058 open Message in a Bottle ({item.Id}): refused (Dredge item cannot be opened during a run)");
+            module.Log($"{modPlayer.Character} <= 0x0058 open Message in a Bottle ({item.Id}): refused (Dredge item cannot be opened during a run)");
             return true;
         }
 
-        var items = ItemsOf(conn);
+        var items = ItemsOf(player);
         if (items.Items(PlayerInventories.Cursor).Count > 0)
         {
-            module.Log($"{player.Character} <= 0x0058 open Message in a Bottle ({item.Id}): refused (Cursor1 is not empty)");
+            module.Log($"{modPlayer.Character} <= 0x0058 open Message in a Bottle ({item.Id}): refused (Cursor1 is not empty)");
             return true;
         }
 
-        bool hardMode = LeagueFor(conn).HardMode;
-        var random = Random.Shared;
+        bool hardMode = LeagueFor(player).HardMode;
+        var random = AreaRng(player);
         var outcome = RollOutcome(hardMode, random);
         var reward = outcome is null ? null
-            : BuildReward(outcome, ItemsFor(conn), UniquesFor(conn), DropsFor(conn).UniqueWeight, item.Item.ItemLevel, random);
+            : BuildReward(outcome, ItemsFor(player), UniquesFor(player), DropsFor(player).UniqueWeight, item.Item.ItemLevel, random);
         if (reward is null)
         {
-            module.Log($"{player.Character} <= 0x0058 open Message in a Bottle ({item.Id}): refused (could not roll reward for {(outcome?.Id ?? "empty table")})");
+            module.Log($"{modPlayer.Character} <= 0x0058 open Message in a Bottle ({item.Id}): refused (could not roll reward for {(outcome?.Id ?? "empty table")})");
             return true;
         }
 
@@ -213,23 +219,23 @@ public static class DeepwaterBottles
         });
         if (consumed is null || held is null)
         {
-            module.Log($"{player.Character} <= 0x0058 open Message in a Bottle ({item.Id}): refused (bottle missing or Cursor1 occupied)");
+            module.Log($"{modPlayer.Character} <= 0x0058 open Message in a Bottle ({item.Id}): refused (bottle missing or Cursor1 occupied)");
             return true;
         }
 
         uint sourceInvId = PlayerInventories.InventoryId(row);
         uint cursorInvId = PlayerInventories.InventoryId(PlayerInventories.Cursor);
-        await player.Send(
+        await modPlayer.Send(
             InstanceItems.InventoryChange(sourceInvId, items.NextRevision(row), [item.Id],
                 consumed.Left is { } left ? [left] : []),
             $"0x00bf inventory {sourceInvId}: Message in a Bottle {item.Id} consumed");
-        await player.Send(
+        await modPlayer.Send(
             InstanceItems.InventoryChange(cursorInvId, items.NextRevision(PlayerInventories.Cursor), [], [held]),
             $"0x00bf cursor ({cursorInvId}): add bottle reward item {held.Id} ({reward.Label} x{reward.Item.StackSize})");
-        await player.Send(
+        await modPlayer.Send(
             InstanceWaypoints.OpenUi(RevealUi, 0, 0, (uint)reward.MessageRow, 0),
             $"0x007b open BottledItemRevealWindow (kind 0x{RevealUi:x2}, ClientStrings2#{reward.MessageRow})");
-        module.Log($"{player.Character} <= 0x0058 opened Message in a Bottle ({item.Id}) -> {reward.Outcome.Id}: {reward.Label} x{reward.Item.StackSize} (ClientStrings2#{reward.MessageRow})");
+        module.Log($"{modPlayer.Character} <= 0x0058 opened Message in a Bottle ({item.Id}) -> {reward.Outcome.Id}: {reward.Label} x{reward.Item.StackSize} (ClientStrings2#{reward.MessageRow})");
         return true;
     }
 

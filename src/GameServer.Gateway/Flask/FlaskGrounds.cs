@@ -14,29 +14,29 @@ public static class FlaskGrounds
     public enum Kind { SmokeCloud, ConsecratedGround, ProfaneGround, Taunt }
 
     /// <summary>The flask's implicit stats that make something on use, by kind.</summary>
-    static readonly (string Stat, Kind Kind)[] OnUseStats =
+    static readonly (uint Stat, Kind Kind)[] OnUseStats =
     [
-        ("local_smoke_ground_on_flask_use_radius", Kind.SmokeCloud),
-        ("local_consecrate_ground_on_flask_use_radius", Kind.ConsecratedGround),
-        ("local_flask_taunt_enemies_on_use_radius", Kind.Taunt),
+        (Stat.LocalSmokeGroundOnFlaskUseRadius, Kind.SmokeCloud),
+        (Stat.LocalConsecrateGroundOnFlaskUseRadius, Kind.ConsecratedGround),
+        (Stat.LocalFlaskTauntEnemiesOnUseRadius, Kind.Taunt),
     ];
 
     /// <summary>What a use of a flask with these local stats makes, and its radius.</summary>
-    public static IEnumerable<(Kind Kind, int Radius)> OnUse(IReadOnlyDictionary<string, int> local) =>
+    public static IEnumerable<(Kind Kind, int Radius)> OnUse(IReadOnlyDictionary<uint, int> local) =>
         OnUseStats.Where(s => local.GetValueOrDefault(s.Stat) > 0).Select(s => (s.Kind, s.Kind == Kind.ConsecratedGround
             ? (int)((long)local[s.Stat] * Math.Max(0, 100 + local.GetValueOrDefault(ConsecratedAreaStat)) / 100) : local[s.Stat]));
 
     /// <summary>Bottled Faith: "Consecrated Ground created by this Flask has Tripled Radius" (200: the radius times 1 +
     /// 200%).</summary>
-    public const string ConsecratedAreaStat = "local_flask_area_of_consecrated_ground_+%";
+    public const uint ConsecratedAreaStat = Stat.LocalFlaskAreaOfConsecratedGroundPlusPct;
 
     /// <summary>Increased critical strike chance against enemies on the player's consecrated ground (Bottled Faith during
     /// its effect: Game.CriticalChanceOn).</summary>
-    public const string VsConsecratedCriticalStat = "critical_strike_chance_+%_vs_enemies_on_consecrated_ground";
+    public const uint VsConsecratedCriticalStat = Stat.CriticalStrikeChancePlusPctVsEnemiesOnConsecratedGround;
 
     /// <summary>"Consecrated Ground you create applies X% increased Damage taken to Enemies" (Bottled Faith: ground created
     /// during its effect). The ground keeps the value it was created with (Ground.EnemyDamageTakenPct).</summary>
-    public const string EnemyDamageTakenStat = "consecrated_ground_enemy_damage_taken_+%";
+    public const uint EnemyDamageTakenStat = Stat.ConsecratedGroundEnemyDamageTakenPlusPct;
 
     /// <summary>Taunt lasts 3 s (the stat's reminder text: "Taunt lasts for 3 seconds"; wiki Taunt), before
     /// taunt_duration_+% (Program.TauntSeconds).</summary>
@@ -52,46 +52,46 @@ public static class FlaskGrounds
     /// <summary>What the player gets standing on consecrated ground: 5% of maximum life regenerated per second (Path of
     /// Building CalcPerform: LifeRegenPercent 5, as life_regeneration_rate_per_minute_% 300) and curses 50% less effective
     /// (the stat's reminder text and PoB).</summary>
-    public static readonly IReadOnlyList<(string Stat, int Value)> ConsecratedStats =
-        [("life_regeneration_rate_per_minute_%", 300), ("curse_effect_on_self_+%", -50)];
+    public static readonly IReadOnlyList<(uint Stat, int Value)> ConsecratedStats =
+        [(Stat.LifeRegenerationRatePerMinutePct, 300), (Stat.CurseEffectOnSelfPlusPct, -50)];
 
     /// <summary>Consecrated ground's stats raised by consecrated_ground_effect_+% (Anointed Champion's 50%: 450 and -75).
     /// Every ground the engine makes is the player's own, so "Consecrated Ground you create" is all of them (PoB CalcPerform
     /// multiplies the 5% regeneration and the -50% curse effect by 1 + the increase).</summary>
-    public static IReadOnlyList<(string Stat, int Value)> Consecrated(int effectPct) => effectPct == 0 ? ConsecratedStats
+    public static IReadOnlyList<(uint Stat, int Value)> Consecrated(int effectPct) => effectPct == 0 ? ConsecratedStats
         : [.. ConsecratedStats.Select(s => (s.Stat, (int)((long)s.Value * (100 + effectPct) / 100)))];
 
     /// <summary>The radius of the consecrated ground around a stationary player, as the client derives
     /// virtual_consecrated_ground_while_stationary_radius (0x1428db1d0): the plain stat, the Strength variant while Strength
     /// is the highest attribute (ties count), the Crusader variant with 2 or more Crusader items; the largest wins.</summary>
-    public static int StationaryRadius(Func<string, int> get)
+    public static int StationaryRadius(Func<uint, int> get)
     {
-        int strength = get("strength");
-        int radius = get("consecrated_ground_while_stationary_radius");
-        if (strength >= get("dexterity") && strength >= get("intelligence"))
-            radius = Math.Max(radius, get("consecrated_ground_while_stationary_radius_if_highest_attribute_is_strength"));
-        if (get("number_of_equipped_crusader_items") > 1)
-            radius = Math.Max(radius, get("consecrated_ground_while_stationary_radius_if_2_crusader_items"));
+        int strength = get(Stat.Strength);
+        int radius = get(Stat.ConsecratedGroundWhileStationaryRadius);
+        if (strength >= get(Stat.Dexterity) && strength >= get(Stat.Intelligence))
+            radius = Math.Max(radius, get(Stat.ConsecratedGroundWhileStationaryRadiusIfHighestAttributeIsStrength));
+        if (get(Stat.NumberOfEquippedCrusaderItems) > 1)
+            radius = Math.Max(radius, get(Stat.ConsecratedGroundWhileStationaryRadiusIf2CrusaderItems));
         return radius;
     }
 
     /// <summary>Rational Doctrine's profane-ground chance on a critical strike: the stat applies only while Intelligence
     /// is the highest attribute (ties count, as the client's Strength condition above).</summary>
-    public static int ProfaneChance(Func<string, int> get)
+    public static int ProfaneChance(Func<uint, int> get)
     {
-        int intelligence = get("intelligence");
-        return intelligence >= get("strength") && intelligence >= get("dexterity")
+        int intelligence = get(Stat.Intelligence);
+        return intelligence >= get(Stat.Strength) && intelligence >= get(Stat.Dexterity)
             ? Math.Max(0, get(ProfaneChanceStat)) : 0;
     }
 
     /// <summary>How long the effects of the player's consecrated ground stay after he stops being covered by any.</summary>
-    public const string LingerStat = "your_consecrated_ground_effect_lingers_for_ms_after_leaving_the_area";
+    public const uint LingerStat = Stat.YourConsecratedGroundEffectLingersForMsAfterLeavingTheArea;
 
     /// <summary>Rational Doctrine's chance to create profane ground on a critical strike, when Intelligence is highest.</summary>
-    public const string ProfaneChanceStat = "profane_ground_on_crit_chance_%_if_highest_attribute_is_intelligence";
+    public const uint ProfaneChanceStat = Stat.ProfaneGroundOnCritChancePctIfHighestAttributeIsIntelligence;
 
     /// <summary>How long profane ground's effects stay on a monster after it leaves the ground (Rational Doctrine).</summary>
-    public const string ProfaneLingerStat = "your_profane_ground_effect_lingers_for_ms_after_leaving_the_area";
+    public const uint ProfaneLingerStat = Stat.YourProfaneGroundEffectLingersForMsAfterLeavingTheArea;
 
     /// <summary>PoB's SelfCritChance INC from profane ground: hits against enemies on it have 100% increased crit chance.</summary>
     public const int ProfaneCritIncrease = 100;
@@ -132,6 +132,9 @@ public static class FlaskGrounds
     public sealed record Ground(Kind Kind, int X, int Y, int Radius, double Ends, uint? Object = null,
         int EnemyDamageTakenPct = 0)
     {
+        static uint lastId;
+        /// <summary>The ground's own id (its zone's key); a copy made with <c>with</c> is the same ground.</summary>
+        public uint Id { get; init; } = Interlocked.Increment(ref lastId);
         public Func<double, bool>? SourceAlive { get; init; }
         public bool GrantsCurseImmunity { get; init; }
         public bool Covers((int X, int Y) at) => (at.X - X) * (at.X - X) + (at.Y - Y) * (at.Y - Y) <= Radius * Radius;
@@ -186,7 +189,7 @@ public static class FlaskGrounds
             }
         }
 
-        /// <summary>True once when a stationary radius needs the ticker and none runs (Program.RunPlayerTick starts it).</summary>
+        /// <summary>True once when a stationary radius needs the ticker and none runs.</summary>
         public bool StartTickerIfConfigured()
         {
             lock (_lock)
@@ -221,6 +224,18 @@ public static class FlaskGrounds
         /// by leaving or by the ground ending). A death ends the linger.</summary>
         public bool OnConsecrated(bool alive, (int X, int Y) at, double now)
         {
+            bool covered, protectedHere;
+            lock (_lock)
+            {
+                covered = _grounds.Any(g => g.Kind == Kind.ConsecratedGround && g.Covers(at));
+                protectedHere = covered && _grounds.Any(g => g.GrantsCurseImmunity && g.Covers(at));
+            }
+            return OnConsecrated(alive, covered, now, protectedHere);
+        }
+
+        /// <summary>The same, when whether a consecrated ground covers the player is known (the grounds' zones).</summary>
+        public bool OnConsecrated(bool alive, bool covered, double now, bool curseImmune = false)
+        {
             lock (_lock)
             {
                 if (!alive)
@@ -229,11 +244,9 @@ public static class FlaskGrounds
                     _curseImmune = false;
                     return false;
                 }
-                bool covered = _grounds.Append(_stationary).Any(g => g?.Kind == Kind.ConsecratedGround && g.Covers(at));
                 if (covered) _lastCovered = now;
-                bool protectedHere = covered && _grounds.Any(g => g.GrantsCurseImmunity && g.Covers(at));
-                if (protectedHere) _lastCurseImmune = now;
-                _curseImmune = protectedHere || now < _lastCurseImmune + _lingerSeconds;
+                if (curseImmune) _lastCurseImmune = now;
+                _curseImmune = curseImmune || now < _lastCurseImmune + _lingerSeconds;
                 return covered || now < _lastCovered + _lingerSeconds;
             }
         }
@@ -267,6 +280,21 @@ public static class FlaskGrounds
             lock (_lock) _ticking = false;
         }
 
+        /// <summary>When a ground next ends, or a linger after leaving one (consecrated, a monster's profane) runs out;
+        /// null without any.</summary>
+        public double? NextChangeAt(double now)
+        {
+            lock (_lock)
+            {
+                double next = double.PositiveInfinity;
+                void Next(double at) { if (at > now && at < next) next = at; }
+                foreach (var g in _grounds) Next(g.Ends);
+                if (_consecrated is not null) Next(_lastCovered + _lingerSeconds);
+                foreach (var (_, profane) in _profane) Next(profane.LastCovered + _profaneLingerSeconds);
+                return double.IsFinite(next) ? next : null;
+            }
+        }
+
         /// <summary>The grounds whose time is up by <paramref name="now"/> (removed).</summary>
         public List<Ground> Expire(double now)
         {
@@ -276,6 +304,12 @@ public static class FlaskGrounds
                 foreach (var g in ended) _grounds.Remove(g);
                 return ended;
             }
+        }
+
+        /// <summary>The grounds now, the stationary one included.</summary>
+        public Ground[] Grounds
+        {
+            get { lock (_lock) return [.. _grounds.Append(_stationary).OfType<Ground>()]; }
         }
 
         /// <summary>Whether a ground of this kind covers the cell.</summary>
@@ -311,16 +345,22 @@ public static class FlaskGrounds
             lock (_lock) return _blinded.TryAdd(monster, buff) ? (buff, true) : null;
         }
 
+        /// <summary>True when at least one monster currently stands blinded in smoke.</summary>
+        public bool HasBlindedMonsters
+        {
+            get { lock (_lock) return _blinded.Count > 0; }
+        }
+
         /// <summary>The monsters blinded now.</summary>
         public IReadOnlyList<uint> BlindedMonsters()
         {
-            lock (_lock) return [.. _blinded.Keys];
+            lock (_lock) return _blinded.Count == 0 ? [] : [.. _blinded.Keys];
         }
 
         /// <summary>Whether the monster stands blinded in smoke (Game.Blinded: one source of the player's Blind).</summary>
         public bool Blinded(uint monster)
         {
-            lock (_lock) return _blinded.ContainsKey(monster);
+            lock (_lock) return _blinded.Count > 0 && _blinded.ContainsKey(monster);
         }
 
         /// <summary>Marks a monster on profane ground (or within the linger after leaving it): the buff id to add or
@@ -392,10 +432,10 @@ public static class FlaskGrounds
 
         /// <summary>What the grounds give the player now: consecrated ground's stats while on it, raised by the player's
         /// consecrated_ground_effect_+%.</summary>
-        public IReadOnlyList<(string Stat, int Value)> PlayerStats(int effectPct = 0)
+        public IReadOnlyList<(uint Stat, int Value)> PlayerStats(int effectPct = 0)
         {
             lock (_lock) return _consecrated is null ? [] : _curseImmune
-                ? [.. Consecrated(effectPct), ("immune_to_curses", 1)] : Consecrated(effectPct);
+                ? [.. Consecrated(effectPct), (Stat.ImmuneToCurses, 1)] : Consecrated(effectPct);
         }
 
         public bool CurseImmune { get { lock (_lock) return _curseImmune; } }

@@ -12,23 +12,23 @@ public static class SpellDamage
 {
     /// <summary>The summed minimum and maximum hit, unrounded (the tooltip averages these; a real hit rolls between them
     /// and drops the fraction, <see cref="Roll"/>); (0, 0) for a skill with no base spell damage.</summary>
-    public static (double Min, double Max) Hit(Func<string, int> get, double addedEffectiveness = 1)
+    public static (double Min, double Max) Hit(Func<uint, int> get, double addedEffectiveness = 1)
     {
         var raw = DamagePacket.Empty;
         foreach (var type in DamageTypes.ConversionOrder)
         {
             string slug = type.ToString().ToLowerInvariant();
-            raw = raw.Add(type, new(get($"spell_minimum_base_{slug}_damage"), get($"spell_maximum_base_{slug}_damage")));
+            raw = raw.Add(type, new(get(Stat.Of($"spell_minimum_base_{slug}_damage")), get(Stat.Of($"spell_maximum_base_{slug}_damage"))));
         }
         var packet = Packet(raw, get, addedEffectiveness);
         return (packet.MinTotal, packet.MaxTotal);
     }
 
     /// <summary>Resolve raw spell base/added damage with visited-type modifiers, retaining fractions for mitigation.</summary>
-    public static GameServer.Core.World.DamagePacket Packet(GameServer.Core.World.DamagePacket hit, Func<string, int> get,
+    public static GameServer.Core.World.DamagePacket Packet(GameServer.Core.World.DamagePacket hit, Func<uint, int> get,
         double addedEffectiveness = 1, GameServer.Core.World.DamageConversion? conversion = null) =>
         PlayerHitDamage.Resolve(DamageStats.RawAdded(hit, get, spell: true, addedEffectiveness), get,
-            conversion ?? new(), spell: true, area: get("is_area_damage") != 0, projectile: get("base_is_projectile") != 0);
+            conversion ?? new(), spell: true, area: get(Stat.IsAreaDamage) != 0, projectile: get(Stat.BaseIsProjectile) != 0);
 
     /// <summary>
     /// An attack's hit scaled by the skill's resolved damage effectiveness in permyriad:

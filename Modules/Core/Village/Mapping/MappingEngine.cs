@@ -887,7 +887,7 @@ public static class MappingEngine
             var unique = new HashSet<uint>();
             try
             {
-                foreach (var entry in NessaMapStock.Build(Program.Items, "data"))
+                foreach (var entry in Program.Items.MapStock)
                 {
                     if (entry.Item.Rarity != ItemRarity.Unique) continue;
                     unique.Add(entry.Type.Hash);

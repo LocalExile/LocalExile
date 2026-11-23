@@ -20,34 +20,34 @@ using GameServer.Core.World;
 public static class AttackBaseCriticalStrike
 {
     /// <summary>Stats.dat row 9892: the armed main hand's base critical strike chance, permyriad (800 = 8.00%).</summary>
-    public const string WeaponOverrideStat = "override_weapon_base_critical_strike_chance";
+    public const uint WeaponOverrideStat = Stat.OverrideWeaponBaseCriticalStrikeChance;
 
     /// <summary>Stats.dat row 3906: the unarmed melee attack's base critical strike chance, permyriad (1000 = 10.00%).</summary>
-    public const string UnarmedBaseStat = "base_melee_critical_strike_chance_while_unarmed_%";
+    public const uint UnarmedBaseStat = Stat.BaseMeleeCriticalStrikeChanceWhileUnarmedPct;
 
     // The same dependencies drive the increase calculation and /set_stat's pool refresh.
-    static readonly (string Stat, Func<WeaponProfile, bool>? Applies)[] Increases =
+    static readonly (uint Stat, Func<WeaponProfile, bool>? Applies)[] Increases =
     [
-        ("critical_strike_chance_+%", null),
-        ("attack_critical_strike_chance_+%", null),
-        ("melee_critical_strike_chance_+%", w => w.Melee),
-        ("one_handed_melee_critical_strike_chance_+%", w => w.OneHandMelee),
-        ("two_handed_melee_critical_strike_chance_+%", w => w.TwoHandMelee),
-        ("critical_strike_chance_while_dual_wielding_+%", w => w.DualWield),
-        ("critical_strike_chance_while_wielding_shield_+%", w => w.Shield),
-        ("axe_critical_strike_chance_+%", w => w.Axe),
-        ("sword_critical_strike_chance_+%", w => w.Sword),
-        ("mace_critical_strike_chance_+%", w => w.Mace),
-        ("claw_critical_strike_chance_+%", w => w.Claw),
-        ("dagger_critical_strike_chance_+%", w => w.Dagger),
-        ("wand_critical_strike_chance_+%", w => w.Wand),
-        ("bow_critical_strike_chance_+%", w => w.Bow),
-        ("global_critical_strike_chance_+%_while_holding_bow", w => w.Bow),
-        ("staff_critical_strike_chance_+%", w => w.Staff),
-        ("global_critical_strike_chance_+%_while_holding_staff", w => w.Staff),
+        (Stat.CriticalStrikeChancePlusPct, null),
+        (Stat.AttackCriticalStrikeChancePlusPct, null),
+        (Stat.MeleeCriticalStrikeChancePlusPct, w => w.Melee),
+        (Stat.OneHandedMeleeCriticalStrikeChancePlusPct, w => w.OneHandMelee),
+        (Stat.TwoHandedMeleeCriticalStrikeChancePlusPct, w => w.TwoHandMelee),
+        (Stat.CriticalStrikeChanceWhileDualWieldingPlusPct, w => w.DualWield),
+        (Stat.CriticalStrikeChanceWhileWieldingShieldPlusPct, w => w.Shield),
+        (Stat.AxeCriticalStrikeChancePlusPct, w => w.Axe),
+        (Stat.SwordCriticalStrikeChancePlusPct, w => w.Sword),
+        (Stat.MaceCriticalStrikeChancePlusPct, w => w.Mace),
+        (Stat.ClawCriticalStrikeChancePlusPct, w => w.Claw),
+        (Stat.DaggerCriticalStrikeChancePlusPct, w => w.Dagger),
+        (Stat.WandCriticalStrikeChancePlusPct, w => w.Wand),
+        (Stat.BowCriticalStrikeChancePlusPct, w => w.Bow),
+        (Stat.GlobalCriticalStrikeChancePlusPctWhileHoldingBow, w => w.Bow),
+        (Stat.StaffCriticalStrikeChancePlusPct, w => w.Staff),
+        (Stat.GlobalCriticalStrikeChancePlusPctWhileHoldingStaff, w => w.Staff),
     ];
 
-    public static long IncreasedSum(WeaponProfile weapons, Func<string, long> raw)
+    public static long IncreasedSum(WeaponProfile weapons, Func<uint, long> raw)
     {
         long increased = 0;
         foreach (var (stat, applies) in Increases)
@@ -55,7 +55,7 @@ public static class AttackBaseCriticalStrike
         return increased;
     }
 
-    public static int IncreasedPct(WeaponProfile weapons, Func<string, int> raw) =>
+    public static int IncreasedPct(WeaponProfile weapons, Func<uint, int> raw) =>
         (int)Math.Clamp(IncreasedSum(weapons, name => raw(name)), int.MinValue, int.MaxValue);
 
     /// <summary>
@@ -65,7 +65,7 @@ public static class AttackBaseCriticalStrike
     /// sum of 0 or less means the stat is not present. With a weapon the override replaces that base (also when it is
     /// lower); without one the weapon base is empty, and the unarmed melee base takes its place.
     /// </summary>
-    public static int OfMainHand(bool weaponInMainHand, int weaponBase, Func<string, int> raw)
+    public static int OfMainHand(bool weaponInMainHand, int weaponBase, Func<uint, int> raw)
     {
         if (weaponInMainHand)
         {
@@ -75,24 +75,25 @@ public static class AttackBaseCriticalStrike
         return Math.Max(0, raw(UnarmedBaseStat));
     }
 
-    public static int Chance(bool weaponInMainHand, int weaponBase, long increasedPct, Func<string, int> raw,
-        Func<string, int>? skill = null) =>
+    public static int Chance(bool weaponInMainHand, int weaponBase, long increasedPct, Func<uint, int> raw,
+        Func<uint, int>? skill = null) =>
         ChanceOfBase(OfMainHand(weaponInMainHand, weaponBase, raw), increasedPct, raw, skill);
 
     /// <summary>The selected attack's resolved intrinsic base, with actor and own BASE before global/own INC.</summary>
-    public static int ChanceOfBase(int intrinsic, long increasedPct, Func<string, int> raw,
-        Func<string, int>? skill = null)
+    public static int ChanceOfBase(int intrinsic, long increasedPct, Func<uint, int> raw,
+        Func<uint, int>? skill = null)
     {
-        int Own(string name) => skill?.Invoke(name) ?? 0;
-        if (raw("global_cannot_crit") != 0 || raw("virtual_global_cannot_crit") != 0
-            || raw("cannot_critical_strike_with_attacks") != 0 || Own("global_cannot_crit") != 0
-            || Own("virtual_global_cannot_crit") != 0 || Own("cannot_critical_strike_with_attacks") != 0) return 0;
+        int Own(uint name) => skill?.Invoke(name) ?? 0;
+        if (raw(Stat.GlobalCannotCrit) != 0 || raw(Stat.VirtualGlobalCannotCrit) != 0
+            || raw(Stat.CannotCriticalStrikeWithAttacks) != 0 || Own(Stat.GlobalCannotCrit) != 0
+            || Own(Stat.VirtualGlobalCannotCrit) != 0 || Own(Stat.CannotCriticalStrikeWithAttacks) != 0) return 0;
         return AddedBaseCriticalStrike.Chance(intrinsic, increasedPct, spell: false, raw, skill);
     }
 
-    public static bool IsInput(string name) => name is WeaponOverrideStat or UnarmedBaseStat
+    public static bool IsInput(uint name) => name is WeaponOverrideStat or UnarmedBaseStat
+        or Stat.AttackCriticalStrikeChancePlusPctPer200AccuracyRating
         or AddedBaseCriticalStrike.Generic or AddedBaseCriticalStrike.Attack or AddedBaseCriticalStrike.Spell
-        or "global_cannot_crit" or "virtual_global_cannot_crit" or "cannot_critical_strike_with_attacks"
-        or "spell_critical_strike_chance_+%" // Also refresh the pooled spell reference used by /crit.
+        or Stat.GlobalCannotCrit or Stat.VirtualGlobalCannotCrit or Stat.CannotCriticalStrikeWithAttacks
+        or Stat.SpellCriticalStrikeChancePlusPct // Also refresh the pooled spell reference used by /crit.
         || CriticalChanceFinal.IsInput(name) || Increases.Any(input => input.Stat == name);
 }

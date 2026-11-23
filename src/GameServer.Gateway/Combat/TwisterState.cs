@@ -16,7 +16,7 @@ public sealed class TwisterState
     public readonly Queue<Gain> Pending = new();
 }
 
-public sealed partial class ClientState
+public sealed partial class Player
 {
     public readonly TwisterState Twister = new();
 }
