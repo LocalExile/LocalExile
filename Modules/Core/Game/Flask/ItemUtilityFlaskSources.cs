@@ -2,6 +2,10 @@ using GameServer.Core.Protocol.Instance;
 
 public static partial class Game
 {
+    const uint WiseOakPenetration = Stat.LocalUniqueFlaskElementalPenetrationPctOfHighestUncappedResistanceType;
+    const uint WiseOakDamageTaken = Stat.LocalUniqueFlaskElementalDamageTakenPlusPctOfLowestUncappedResistanceType;
+    const uint TasteOfHateShift = Stat.LocalFireAndLightningHitAndDotDamagePctTakenAsColdDuringEffect;
+
     static readonly (uint Local, uint Target, bool Flag)[] ItemUtilityFlaskSources =
     [
         (Stat.LocalUniqueFlaskPhysicalDamagePctToAddAsChaosWhileHealing, Stat.PhysicalDamagePctToAddAsChaos, false),
@@ -11,6 +15,20 @@ public static partial class Game
         (Stat.LocalUniqueFlaskAvoidChillPctWhileHealing, Stat.BaseAvoidChillPct, false),
         (Stat.LocalUniqueFlaskAvoidFreezePctWhileHealing, Stat.BaseAvoidFreezePct, false),
         (Stat.LocalNoCriticalStrikeMultiplierDuringFlaskEffect, Stat.NoCriticalStrikeMultiplier, true),
+        (Stat.LocalUniqueFlaskVaalSkillDamagePlusPctDuringFlaskEffect, Stat.VaalSkillDamagePlusPct, false),
+        (Stat.LocalUniqueFlaskVaalSkillCriticalStrikeChancePlusPctDuringFlaskEffect, Stat.VaalSkillCriticalStrikeChancePlusPct, false),
+        (WiseOakPenetration, WiseOakPenetration, false),
+        (WiseOakDamageTaken, WiseOakDamageTaken, false),
+        (TasteOfHateShift, Stat.FireDamageTakenPctAsCold, false),
+        (TasteOfHateShift, Stat.LightningDamageTakenPctAsCold, false),
+        (Stat.LocalUniqueFlaskPhysicalDamageTakenPctAsColdWhileHealing, Stat.PhysicalDamageTakenPctAsCold, false),
+    ];
+
+    static readonly (uint Uncapped, uint Penetration, uint Taken)[] WiseOakElements =
+    [
+        (Stat.UncappedFireDamageResistancePct, Stat.BaseReduceEnemyFireResistancePct, Stat.FireDamageTakenPlusPct),
+        (Stat.UncappedColdDamageResistancePct, Stat.BaseReduceEnemyColdResistancePct, Stat.ColdDamageTakenPlusPct),
+        (Stat.UncappedLightningDamageResistancePct, Stat.BaseReduceEnemyLightningResistancePct, Stat.LightningDamageTakenPlusPct),
     ];
 
     public static (IReadOnlyList<UtilityFlasks.Source> Stats, double Seconds) ItemUtilityFlaskFor(
@@ -52,5 +70,21 @@ public static partial class Game
             BlockChance = ActorScale.Saturate((long)result.BlockChance
                 + snapshot.Where(row => row.Stat == Stat.AdditionalBlockPct).Sum(row => (long)row.Value)),
         };
+    }
+
+    static void ApplyWiseOak(StatMap stats)
+    {
+        int penetration = stats.GetValueOrDefault(WiseOakPenetration), taken = stats.GetValueOrDefault(WiseOakDamageTaken);
+        if (penetration == 0 && taken == 0) return;
+        int fire = stats.GetValueOrDefault(Stat.UncappedFireDamageResistancePct);
+        int cold = stats.GetValueOrDefault(Stat.UncappedColdDamageResistancePct);
+        int lightning = stats.GetValueOrDefault(Stat.UncappedLightningDamageResistancePct);
+        int highest = Math.Max(fire, Math.Max(cold, lightning)), lowest = Math.Min(fire, Math.Min(cold, lightning));
+        foreach (var (resistance, pen, reduction) in WiseOakElements)
+        {
+            int value = stats.GetValueOrDefault(resistance);
+            if (penetration != 0 && value == highest) stats[pen] = ActorScale.Add(pen, stats.GetValueOrDefault(pen), penetration);
+            if (taken != 0 && value == lowest) stats[reduction] = ActorScale.Add(reduction, stats.GetValueOrDefault(reduction), taken);
+        }
     }
 }

@@ -176,6 +176,7 @@ public static partial class Game
             int FlaskGet(uint name) => GetIn(stats, name);
             AddItemUtilityFlaskRawStats(stats, UtilityStats(player, FlaskGet)
                 .Concat(player.FlaskGrounds.PlayerStats(FlaskGet(Stat.ConsecratedGroundEffectPlusPct))).ToList(), Stats);
+            ApplyWiseOak(stats);
         });
         Step(PlayerStatStep.SelfVulnerability, (player, stats, _) => AddSelfVulnerabilityStats(player, stats));
         Step(PlayerStatStep.Onslaught, (player, stats, _) =>
