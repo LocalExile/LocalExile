@@ -671,7 +671,7 @@ public static partial class MapTorment
                 // poewiki: a slain spirit always drops a rare; the Peculiarity's spirits also their own kind of item.
                 items.AddRange(Rares(killer, level, 1 + Math.Max(0, AreaStat(killer, Stat.MapTormentedSpiritsDropXAdditionalRareItems)), random));
                 if (TormentCatalog.ByRow(payout.SpiritRow) is { Unusual: true } unusual
-                    && (unusual.Variety.EndsWith("Betrayer", StringComparison.Ordinal) ? drops.Scarab(random, level)
+                    && (unusual.Variety.EndsWith("Betrayer", StringComparison.Ordinal) ? Game.MapScarab(drops, random, level, Game.MapModsOf(player))
                         : unusual.Variety.EndsWith("Felon", StringComparison.Ordinal) ? Unique(killer, level, random)
                         : drops.Map(level, MonsterRarity.Unique, Math.Max(1, tier), random)) is { } own) items.Add(own);
             }
@@ -688,7 +688,7 @@ public static partial class MapTorment
                 for (int i = Chance(Stat.MonsterDropAdditionalMapItems) + Count(Stat.PossessedMonsterDropTemplateAnyMap); i > 0; i--)
                     if (drops.Map(level, MonsterRarity.Unique, Math.Max(1, tier), random) is { } map) items.Add(map);
                 for (int i = Count(Stat.PossessedMonsterDropTemplateAnyScarab); i > 0; i--)
-                    if (drops.Scarab(random, level) is { } scarab) items.Add(scarab);
+                    if (Game.MapScarab(drops, random, level, Game.MapModsOf(player)) is { } scarab) items.Add(scarab);
                 foreach (var (stat, name) in new[] { (Stat.MonsterDropAdditionalWisdomScrolls, "Scroll of Wisdom"), (Stat.MonsterDropAdditionalPortalScrolls, "Portal Scroll") })
                     for (int i = Chance(stat); i > 0; i--)
                         if (ModDrop(killer, name, level) is { } scroll) items.Add(scroll);
@@ -703,7 +703,7 @@ public static partial class MapTorment
                     foreach (var (stat, kind) in PossessedDropChances)
                         if (AreaStat(killer, stat) is int chance and > 0 && random.Next(100) < chance)
                             if ((kind == "unique" ? Unique(killer, level, random) : kind == "map" ? drops.Map(level, MonsterRarity.Unique, Math.Max(1, tier), random)
-                                : drops.Scarab(random, level)) is { } extra) items.Add(extra);
+                                : Game.MapScarab(drops, random, level, Game.MapModsOf(player))) is { } extra) items.Add(extra);
                     await Release(killer, area, mark, payout.At);
                 }
             }

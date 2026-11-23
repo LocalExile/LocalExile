@@ -9,7 +9,7 @@ public static partial class Game
     // Phase Run and Blood Rage their own buffs below. Their stats join the character's sources while they last
     // (WithSelfBuffs), as the guard's do. Phase Run is a Movement skill that stays in place, so its instant use is
     // accepted as a self buff's.
-    static bool InPlaceSelfBuff(Player player, int effect) => SkillsFor(player).EffectId(effect) is "PhaseRun";
+    static bool InPlaceSelfBuff(Player player, int effect) => SkillsFor(player).EffectId(effect) is "PhaseRun" or ApproachingFlamesEffect;
 
     // Refused before the cost: a guard is running, or the guards' shared recovery after the last one has not passed
     // (display_this_skill_cooldown_does_not_recover_during_buff).

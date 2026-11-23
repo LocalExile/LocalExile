@@ -8,7 +8,10 @@ using GameServer.Core.World;
 /// Minions, explosions and /kill pass their plain damage and no owner.</summary>
 public readonly record struct StunHit(double Damage, int ThresholdReductionPct = 0, int DurationPct = 0, bool Melee = false,
     Player? Owner = null, decimal FortificationDamage = 0m, bool Fortified = false, bool Guaranteed = false,
-    double BaseSeconds = 0, IReadOnlyDictionary<uint, int>? Skill = null);
+    double BaseSeconds = 0, IReadOnlyDictionary<uint, int>? Skill = null)
+{
+    public int DoubleDurationChance { get; init; }
+}
 
 /// <summary>
 /// A monster's stun, presented as its hit reaction (native Actor TakeHit recovery, sent by <c>SendMonsterFlinch</c>).
@@ -61,7 +64,9 @@ public static class HitReaction
         // recovery counts too, before the recovery shortcut below.
         if (hit.Melee && !hit.Fortified && hit.FortificationDamage > 0 && hit.Owner is { } fortifier)
             Game.FortificationFromMeleeStun(fortifier, hit.FortificationDamage, m.MaxLife, m.Rarity, random);
-        double nextUntil = now + Seconds(hit, m);
+        double seconds = Seconds(hit, m);
+        if (RandomRolls.Chance(hit.DoubleDurationChance, 100, random)) seconds *= 2;
+        double nextUntil = now + seconds;
         // A new qualifying stun whose recovery extends beyond an active recovery refreshes/extends the flinch,
         // rather than silently dropping consecutive hit reactions while the monster is still recovering.
         if (nextUntil <= m.FlinchUntil) return false;
@@ -89,7 +94,7 @@ public static partial class Game
     /// Monsters lock.</summary>
     public static StunHit OwnerStun(Player player, SpawnedMonster m, int damage, DamagePacket mitigated, bool melee, bool spell,
         bool critical, IReadOnlyDictionary<uint, int> playerStats, IReadOnlyDictionary<uint, int>? own, uint? lifeBefore = null,
-        int? localStunReduction = null)
+        int? localStunReduction = null, string? weaponClass = null)
     {
         int Get(uint key) => playerStats.GetValueOrDefault(key) + (own?.GetValueOrDefault(key) ?? 0);
         var taken = MonsterTakenComponents(m, mitigated, spell);
@@ -106,9 +111,17 @@ public static partial class Game
             + (fullLife ? Get(Stat.StunDurationPlusPctVsEnemiesThatAreOnFullLife) : 0);
         int thresholdReduction = Get(Stat.BaseStunThresholdReductionPlusPct) + local
             + (tinctureWeapon ? Get(Stat.StunThresholdReductionPlusPctWithTincturedWeapons) : 0);
+        if (!spell)
+        {
+            weaponClass ??= WeaponFor(player).ItemClass;
+            if (melee && IsTwoHandMeleeClass(weaponClass))
+                duration = ActorScale.Saturate((long)duration + Get(Stat.TwoHandedMeleeStunDurationPlusPct));
+            if (WeaponTypeDamage.FamilyOf(weaponClass) == "mace")
+                thresholdReduction = ActorScale.Saturate((long)thresholdReduction + Get(Stat.WhileUsingMaceStunThresholdReductionPlusPct));
+        }
         bool guaranteed = stunning > 0 && fullLife && (Get(Stat.AlwaysStunEnemiesThatAreOnFullLife) > 0
             || tinctureWeapon && Get(Stat.AlwaysStunEnemiesThatAreOnFullLifeWithTincturedWeapons) > 0);
         return new(stunning, thresholdReduction, duration, melee, player, Guaranteed: guaranteed,
-            Skill: own);
+            Skill: own) { DoubleDurationChance = Get(Stat.ChanceToDoubleStunDurationPct) };
     }
 }

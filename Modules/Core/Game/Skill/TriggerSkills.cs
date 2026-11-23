@@ -1,5 +1,6 @@
 using System.Runtime.CompilerServices;
 using GameServer.Core.Protocol.Instance;
+using GameServer.Core.World;
 
 public static partial class Game
 {
@@ -18,6 +19,21 @@ public static partial class Game
         public bool Pending;
     }
     static readonly Store<Player, DamageTakenTriggers> DamageTriggers = new();
+    static readonly Store<Player, DamageTakenTriggers> StunTriggers = new();
+
+    static bool IncomingHitTriggersPending(Player player) =>
+        (DamageTriggers.TryGetValue(player, out var damage) && damage.Pending.Count != 0)
+        || (StunTriggers.TryGetValue(player, out var stun) && stun.Pending.Count != 0);
+
+    static void ClearIncomingHitTriggers(Player player)
+    {
+        DamageTriggers.Remove(player);
+        StunTriggers.Remove(player);
+    }
+
+    static GemSupports.Applied? IncomingTriggerSupport(SupportedGem gem, bool stunned) =>
+        gem.Supports.FirstOrDefault(s => stunned ? SupportHas(s, Stat.CastOnStunnedPct)
+            : s.Effect.Id == "SupportCastWhenDamageTaken");
 
     public static string? TriggerOnlyReason(SupportedGem gem)
     {
@@ -28,6 +44,10 @@ public static partial class Game
             return "this skill is triggered by the item that grants it";
         if (gem.Supports.Any(s => s.Effect.Id == "SupportCastWhenDamageTaken"))
             return "this skill can only trigger when damage is taken";
+        if (gem.Supports.Any(s => SupportHas(s, Stat.CastOnStunnedPct)))
+            return "this skill can only trigger when stunned";
+        if (gem.Stats.GetValueOrDefault(Stat.SupportManaforgedArrowsManaCostPctThreshold) > 0)
+            return "this skill can only trigger after spending Mana on another bow attack";
         if (GolemStat(gem.Stats, Stat.CastSpellOnLinkedAttackCrit) != 0)
             return "this skill can only trigger on a linked attack critical strike";
         if (GolemStat(gem.Stats, Stat.CastSpellOnLinkedMeleeKill) != 0)
@@ -36,6 +56,8 @@ public static partial class Game
             return "this skill can only trigger while a linked skill is channelled";
         if (GolemStat(gem.Stats, Stat.SkillTriggeredBySnipe) != 0)
             return "this skill can only be triggered by Snipe";
+        if (GolemStat(gem.Stats, Stat.TriggerOnSkillUsePctIfYouHaveASpiritCharge) > 0)
+            return "Spirit Burst triggers on skill use while a Spirit Charge is held";
         if (GolemStat(gem.Stats, Stat.SpellUncastableIfTriggerable) != 0
             || gem.Supports.Any(s => s.Effect.Added.Contains(36)))
             return "this trigger has no server executor; manual use is unavailable";
@@ -55,23 +77,26 @@ public static partial class Game
         && TriggerPayloadAvailable(player, gem);
 
     // Called only by accepted hit damage, before Ward/ES/Mana absorb it. DoT and costs never enter this hook.
-    public static void RecordDamageTakenTriggers(Player player, int damage, double at)
+    public static void RecordDamageTakenTriggers(Player player, int damage, double at) =>
+        RecordIncomingHitTriggers(player, damage, at, stunned: false);
+
+    static void RecordIncomingHitTriggers(Player player, int damage, double at, bool stunned)
     {
+        var triggers = stunned ? StunTriggers : DamageTriggers;
         if (!CurrentGameRules || player.Closed || player.LeavingArea || player.PendingTransfer is not null
-            || player.PlayerLife == 0) { DamageTriggers.Remove(player); return; }
-        if (player.Paused) return;
-        if (damage <= 0 || InTown(player)) return;
-        if (!DamageTriggers.TryGetValue(player, out var state) || state.Epoch != player.ProjectileEpoch
+            || player.PlayerLife == 0) { triggers.Remove(player); return; }
+        if (player.Paused || (!stunned && damage <= 0) || InTown(player)) return;
+        if (!triggers.TryGetValue(player, out var state) || state.Epoch != player.ProjectileEpoch
             || !ReferenceEquals(state.Rules, CombatLifetime))
         {
-            DamageTriggers.Remove(player);
-            DamageTriggers.Add(player, state = new(player.ProjectileEpoch, CombatLifetime));
+            triggers.Remove(player);
+            triggers.Add(player, state = new(player.ProjectileEpoch, CombatLifetime));
         }
         var live = new HashSet<ushort>();
         foreach (var skill in GemSkillEffects(player)) // native equipment/socket order
         {
             var gem = SupportedSkill(player, skill.Id);
-            var support = gem.Supports.FirstOrDefault(s => s.Effect.Id == "SupportCastWhenDamageTaken");
+            var support = IncomingTriggerSupport(gem, stunned);
             if (support is null || !TriggeredSpellExecutable(player, skill.Id, gem)
                 || GemSkillInstanceDisabled(player, gem.Effect, skill.Id, triggered: true) is not null) continue;
             live.Add(skill.Id);
@@ -79,12 +104,19 @@ public static partial class Game
                 state.Counters[skill.Id] = counter = new(gem);
             if (TriggerGuardSpell(player, gem) && !TriggerGuardReady(player, at)) continue;
             if (counter.Pending || at < counter.ReadyAt || at < LinkedTriggersOf(player).ReadyAt.GetValueOrDefault(gem.Effect)) continue;
-            int threshold = GolemStat(gem.Stats, Stat.CastOnDamageTakenThreshold);
-            if (threshold <= 0) continue;
-            threshold = (int)Math.Clamp((long)threshold * Math.Max(0L, 100L
-                + GolemStat(gem.Stats, Stat.CastWhenDamageTakenTriggerThresholdPlusPct)) / 100, 1, int.MaxValue);
-            counter.Damage += damage;
-            if (counter.Damage < threshold) continue;
+            if (stunned)
+            {
+                if (!RandomRolls.Chance(gem.Stats.GetValueOrDefault(Stat.CastOnStunnedPct), 100, player.IncomingHitRandom)) continue;
+            }
+            else
+            {
+                int threshold = gem.Stats.GetValueOrDefault(Stat.CastOnDamageTakenThreshold);
+                if (threshold <= 0) continue;
+                threshold = (int)Math.Clamp((long)threshold * Math.Max(0L, 100L
+                    + gem.Stats.GetValueOrDefault(Stat.CastWhenDamageTakenTriggerThresholdPlusPct)) / 100, 1, int.MaxValue);
+                counter.Damage += damage;
+                if (counter.Damage < threshold) continue;
+            }
             if (state.Pending.Count >= 128) continue;
             counter.Damage = 0; counter.Pending = true;
             var origin = player.Walk.Position(at);
@@ -98,10 +130,17 @@ public static partial class Game
 
     public static void ReleaseDamageTakenTriggers(Player player, ProjectileSession session)
     {
-        if (!DamageTriggers.TryGetValue(player, out var state)) return;
+        ReleaseIncomingHitTriggers(player, session, stunned: false);
+        ReleaseIncomingHitTriggers(player, session, stunned: true);
+    }
+
+    static void ReleaseIncomingHitTriggers(Player player, ProjectileSession session, bool stunned)
+    {
+        var triggers = stunned ? StunTriggers : DamageTriggers;
+        if (!triggers.TryGetValue(player, out var state)) return;
         if (!CurrentGameRules || !ReferenceEquals(state.Rules, CombatLifetime) || state.Epoch != player.ProjectileEpoch
             || player.Closed || player.LeavingArea || player.PendingTransfer is not null || player.PlayerLife == 0)
-        { DamageTriggers.Remove(player); return; }
+        { triggers.Remove(player); return; }
         if (player.Paused) return;
         while (state.Pending.TryDequeue(out var request))
         {
@@ -116,24 +155,35 @@ public static partial class Game
                 || !TriggerPayloadAvailable(player, gem)) continue;
             var skill = GemSkillEffects(player).FirstOrDefault(g => g.Id == request.Skill);
             if (skill.Name is null) continue;
-            var support = gem.Supports.Single(s => s.Effect.Id == "SupportCastWhenDamageTaken");
-            var playerStats = CharacterPlayerStats(player);
-            int milliseconds = Math.Max(SkillsFor(player).CooldownMs(gem.Effect, gem.Level),
-                SkillsFor(player).CooldownMs(support.Gem.Effect, support.Gem.Level));
-            double rate = Math.Max(0, 1 + ((Stat.VirtualCooldownSpeedPlusPct is var recoveryKey
-                ? playerStats.GetValueOrDefault(recoveryKey) : 0)
-                + (Stat.BaseCooldownSpeedPlusPct is var baseRecovery ? gem.Stats.GetValueOrDefault(baseRecovery) : 0)
-                + (Stat.VirtualCooldownSpeedPlusPct is var ownRecovery ? gem.Stats.GetValueOrDefault(ownRecovery) : 0)) / 100d);
+            var support = IncomingTriggerSupport(gem, stunned);
+            if (support is null) continue;
             bool Current() => state.Epoch == player.ProjectileEpoch && CurrentGameRules
                 && ReferenceEquals(state.Rules, CombatLifetime) && session.Active && !player.Paused
                 && player.PlayerLife > 0 && !player.LeavingArea && player.PendingTransfer is null
                 && SameTriggerSource(gem, SupportedSkill(player, skillId));
-            var release = PrepareTriggeredPayload(player, session, skillId, request.Aim, Current);
-            if (release is null || !PayMana(player, request.Skill, out uint cost, out uint lifeCost)) continue;
-            counter.ReadyAt = rate > 0 ? now + milliseconds / 1000d / rate : double.PositiveInfinity;
-            LinkedTriggersOf(player).ReadyAt[gem.Effect] = counter.ReadyAt;
-            release();
-            if (cost > 0 || lifeCost > 0) session.Enqueue(() => SendSkillCost(player, lifeCost, "CWDT cost"));
+            if (TryReleaseAutomaticPayload(player, session, skillId, gem, support, request.Aim, Current, now,
+                stunned ? "Cast when Stunned" : "CWDT", out double readyAt))
+                counter.ReadyAt = readyAt;
         }
+    }
+
+    static bool TryReleaseAutomaticPayload(Player player, ProjectileSession session, ushort skillId, SupportedGem gem,
+        GemSupports.Applied support, (int X, int Y) aim, Func<bool> current, double now, string label, out double readyAt)
+    {
+        readyAt = 0;
+        if (!current()) return false;
+        var release = PrepareTriggeredPayload(player, session, skillId, aim, current);
+        if (release is null || !PayMana(player, skillId, out uint mana, out uint life)) return false;
+        var playerStats = CharacterPlayerStats(player);
+        int milliseconds = Math.Max(SkillsFor(player).CooldownMs(gem.Effect, gem.Level),
+            SkillsFor(player).CooldownMs(support.Gem.Effect, support.Gem.Level));
+        double rate = Math.Max(0, 1 + ((long)playerStats.GetValueOrDefault(Stat.VirtualCooldownSpeedPlusPct)
+            + gem.Stats.GetValueOrDefault(Stat.BaseCooldownSpeedPlusPct)
+            + gem.Stats.GetValueOrDefault(Stat.VirtualCooldownSpeedPlusPct)) / 100d);
+        readyAt = milliseconds == 0 ? now : rate > 0 ? now + milliseconds / 1000d / rate : double.PositiveInfinity;
+        LinkedTriggersOf(player).ReadyAt[gem.Effect] = readyAt;
+        release();
+        if (mana > 0 || life > 0) session.Enqueue(() => SendSkillCost(player, life, label + " cost"));
+        return true;
     }
 }

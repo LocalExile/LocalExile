@@ -44,7 +44,14 @@ public static partial class Game
         int adjacentEffect = AdjacentTinctureFlaskEffect(player, (byte)slot, Get, AreaTime(player));
         Func<uint, int> flaskCharacter = adjacentEffect == 0 ? Get
             : stat => stat == Stat.FlaskEffectPlusPct ? Get(stat) + adjacentEffect : Get(stat);
-        var (stats, seconds) = ItemUtilityFlaskFor(utility, flask.Item, local, flaskCharacter, playerLevel);
+        double finalMultiplier = MapFlaskEffectMultiplier(player);
+        var (stats, seconds) = ItemUtilityFlaskFor(utility, flask.Item, local, flaskCharacter, playerLevel, finalMultiplier);
+        int heal = local.GetValueOrDefault(Stat.LocalUniqueFlaskInstantlyRecoversPctMaximumLife);
+        int selfChaos = local.GetValueOrDefault(Stat.LocalUniqueFlaskChaosDamagePctOfMaximumLifeToDealPerMinuteWhileHealing);
+        double effectPower = heal > 0 || selfChaos > 0 ? FlaskEffectScaling.Multiplier(flaskCharacter, playerLevel,
+            local.GetValueOrDefault(Stat.LocalFlaskEffectPlusPct), finalMultiplier: finalMultiplier) : 1;
+        int selfChaosRate = selfChaos > 0 ? UtilityFlasks.Scale(selfChaos, effectPower) : 0;
+        bool gainedSouls = false;
         if (FlaskGrounds.OnUse(local).Any(g => g.Kind != FlaskGrounds.Kind.Taunt)) _ = FlaskGroundArt;
         // Payment and installation are one admitted transaction. A reload after the inventory send cannot
         // strand paid charges without their accepted snapshot, deadline, Adjacent edge and presentation.
@@ -55,10 +62,13 @@ public static partial class Game
             double now = AreaTime(player);
             if (NamedFlaskRecent(type.Id) is { } recent) player.RecentEvents.Record(recent, now);
             var effect = new UtilityFlasks.Active(flask.Id, (byte)slot, type.Name, utility, player.NextBuff++,
-                utility.Extra is null ? null : player.NextBuff++, stats, now, now + seconds);
+                utility.Extra is null ? null : player.NextBuff++, stats, now, now + seconds)
+                { SelfChaosDamageLifePctPerMinute = selfChaosRate };
+            AccrueUtilityFlaskDamage(player, now);
             if (player.UtilityFlaskEffects.Of(flask.Id) is { } previous)
                 QueueUtilityFlaskEnd(player, state, previous, "refreshed");
             UtilityFlasks.Start(player, effect, () => RecomputePoolsAndSpeed(player));
+            gainedSouls = ApplyUtilityResourceEffectsLocked(player, local, charges.ChargesPerUse, now, effectPower);
             ApplyConditionalFlaskAilmentProtectionLocked(player, local, now);
             if (UtilityFlasks.RestoreWardAfterPaidUse(player.Ward, name => local.GetValueOrDefault(name), now))
                 Console.WriteLine($"[gateway] Ward restored on paid {type.Name}: {player.Ward.Current}/{player.Ward.Maximum}");
@@ -76,7 +86,11 @@ public static partial class Game
             state.Enqueue(new(FlaskEnchantments.Trigger.Adjacent, flask.Id, (byte)slot), signal?.Chain);
         }) is null) return false;
         await PublishFlaskChanges(player);
-        if (CurrentGameWork && !player.Closed && !player.LeavingArea) await EnemyDebuffsTick(player, AreaTime(player));
+        if (CurrentGameWork && !player.Closed && !player.LeavingArea)
+        {
+            if (gainedSouls) await SendVaalSouls(player);
+            await EnemyDebuffsTick(player, AreaTime(player));
+        }
         return true;
     }
 
@@ -132,13 +146,13 @@ public static partial class Game
         using (new PlayerStatScope(player, fresh: true))
         {
             player.Pools = PoolsFor(player, player.Pools.Level);
-            player.ApplyMovementSpeed();
+            player.ApplyMovementSpeedAt(AreaTime(player));
             player.PlayerLife = LifeReservation.Clamp(player.PlayerLife, LifeReservationOf(player));
             var stats = CharacterPlayerStats(player);
             int Get(uint key) => stats.GetValueOrDefault(key);
             player.Phasing = UtilityFlasks.Phasing(UtilityStats(player, Get));
             player.ElementalAilments.Reconcile(Get);
-            player.ApplyMovementSpeed();
+            player.ApplyMovementSpeedAt(AreaTime(player));
         }
     }
 
@@ -148,9 +162,12 @@ public static partial class Game
     {
         if (!PlayerUpdatesCurrent(player, updates) || player.LeavingArea || !player.UtilityFlaskEffects.Any) return;
         bool dead = player.PlayerLife == 0;
+        double now = updates.Schedule.Now(player);
+        if (dead) ClearUtilityFlaskDamage(player, now);
+        else AccrueUtilityFlaskDamage(player, now);
         var bar = ItemsOf(player).Items(PlayerInventories.Flask);
         bool Gone(UtilityFlasks.Active effect) => UtilityFlasks.LeftItsCell(effect, bar);
-        var ended = UtilityFlasks.EndDue(player, updates.Schedule.Now(player), dead, Gone,
+        var ended = UtilityFlasks.EndDue(player, now, dead, Gone,
             () => RecomputePoolsAndSpeed(player), out _);
         if (ended.Count == 0) return;
         var state = Automation(player);
