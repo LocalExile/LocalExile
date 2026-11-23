@@ -782,8 +782,10 @@ public static partial class Game
                 {
                     if (player.Connection.LockstepClient && !player.Connection.WorldOutput.PublishedObject(placed.Id).IsReady) continue;
                     // A trap goes off when its duration ends (seen on the official client 2026-11-19); a mine is removed.
+                    // A Conversion Trap that was never set off converts nobody at its end: it only leaves.
                     bool expired = now >= placed.Until;
-                    if (player.PlayerLife == 0 || expired && placed.Mine) { RemovePlacedLocked(player, placed, bytes); continue; }
+                    if (player.PlayerLife == 0 || expired && (placed.Mine || SkillsFor(player).EffectId(placed.Effect) == "ConversionTrap"))
+                    { RemovePlacedLocked(player, placed, bytes); continue; }
                     LandPlacedRecordsLocked(player, placed, now, bytes);
                     if (now < placed.Armed) continue;
                     if (placed.Mine && !MineCanDetonateFrom(placed, playerAt))
