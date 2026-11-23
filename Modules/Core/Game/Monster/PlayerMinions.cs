@@ -297,11 +297,14 @@ public static partial class Game
     }
 
     // A cell 3 cells from the server's estimate of the player, walkable if the walk map says so.
-    public static (int X, int Y) NextToPlayer(Player player)
+    public static (int X, int Y) NextToPlayer(Player player) => NextToPlayer(player, accepts: null);
+
+    static (int X, int Y) NextToPlayer(Player player, Func<int, int, bool>? accepts)
     {
         var (px, py) = player.Walk.Position(AreaTime(player));
+        accepts ??= player.Layout.Walkable;
         foreach (var (dx, dy) in new[] { (3, 0), (-3, 0), (0, 3), (0, -3), (2, 2), (-2, -2) })
-            if (player.Layout.Walkable is not { } w || w(px + dx, py + dy)) return (px + dx, py + dy);
+            if (accepts is null || accepts(px + dx, py + dy)) return (px + dx, py + dy);
         return (px, py);
     }
 }

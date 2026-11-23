@@ -90,7 +90,7 @@ static partial class Sirus
                     g.Monster.Life = (uint)Math.Max(0, (long)g.Monster.Life - damage);
                     if (incoming > 0) p.Minions.OutputQueue.Add(new([], "Sirus ground damages minion", g.Id, g.Monster, PlayerMinions.OutputKind.Life,
                         DeathKind: DotDeathKind(g.Monster, g.Monster.Life)));
-                    if (g.Monster.Life == 0) GolemDieLocked(p, g, now, killedByEnemy: true);
+                    if (g.Monster.Life == 0) GolemDieLocked(p, g, now);
                 }
                 return lifeBefore == p.PlayerLife ? null : InstanceProtocol.LifeUpdate(p.Id, p.PlayerLife, p.PlayerReservedLife,
                     u2c: p.PlayerLife == 0 ? InstanceProtocol.DeathKindDegen : InstanceProtocol.DeathKindNormal);

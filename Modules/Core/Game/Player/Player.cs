@@ -1478,13 +1478,14 @@ public static partial class Game
         => (SpellDefences(player).Suppression, Math.Max(0, player.Pools.SpellSuppressionEffect),
             player.Pools.SpellSuppressionLucky, player.Pools.SpellSuppressionUnlucky);
 
-    public static (int Suppression, int Dodge) SpellDefences(Player player)
+    public static (int Suppression, int Dodge) SpellDefences(Player player) =>
+        SpellDefences(player, SelfCurseConditionInputs(player), AreaTime(player));
+
+    static (int Suppression, int Dodge) SpellDefences(Player player, IReadOnlyDictionary<uint, int> stats, double now)
     {
-        double now = AreaTime(player);
-        bool fullLife, fullEnergyShield, hitRecently;
-        fullLife = CountsAsFullLife(player.PlayerLife, player.PlayerMaxLife, SelfCurseConditionInputs(player));
-        fullEnergyShield = player.PlayerLife > 0 && player.EnergyShield.Full;
-        hitRecently = now - player.LastEnemyHitAt <= RecentlySeconds;
+        bool fullLife = CountsAsFullLife(player.PlayerLife, player.PlayerMaxLife, stats);
+        bool fullEnergyShield = player.PlayerLife > 0 && player.EnergyShield.Full;
+        bool hitRecently = now - player.LastEnemyHitAt <= RecentlySeconds;
         bool moving = player.Walk.Moving(now);
         return (CharacterStats.SuppressionChance(player.Pools, fullLife, moving, hitRecently, fullEnergyShield),
             CharacterStats.SpellDodgeChance(player.Pools, fullLife, moving, hitRecently, fullEnergyShield));

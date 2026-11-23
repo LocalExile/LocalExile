@@ -512,7 +512,7 @@ static class KitavaActFive
                     PublishEnergyShieldLocked(p, g);
                     m.Life = (uint)Math.Max(0, (long)m.Life - amount);
                     p.Minions.OutputQueue.Add(new([], "Kitava devouring darkness damages minion", g.Id, m, PlayerMinions.OutputKind.Life));
-                    if (m.Life == 0) GolemDieLocked(p, g, now, killedByEnemy: true);
+                    if (m.Life == 0) GolemDieLocked(p, g, now);
                 }
             }
             await Task.CompletedTask;

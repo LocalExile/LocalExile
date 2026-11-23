@@ -127,7 +127,7 @@ public static partial class Game
         {
             long chance = effects[Stat.BaseSpellSuppressionChancePct];
             if (Player(Stat.MinionsGainYourSpellSuppressionChance) != 0)
-                chance += SpellDefences(player).Suppression;
+                chance += SpellDefences(player, currentPlayer, now).Suppression;
             if (chance > 0 && RandomRolls.Chance((int)Math.Min(chance, 100), 100, random))
                 prevented = Math.Clamp(DamageModel.SpellSuppressionEffect + effects[Stat.BaseSpellDamagePctSuppressed], 0, 100);
         }
@@ -178,7 +178,7 @@ public static partial class Game
             flags: MonsterHitFlags(blocked: false, critical), kind: 0x03, code: HitCode(mitigated),
             angle: HitAngle(to.X - from.X, to.Y - from.Y)), null, g.Id, m, WorldId: attacker));
         player.Minions.OutputQueue.Add(new([], "golem takes damage", g.Id, m, PlayerMinions.OutputKind.Life));
-        if (m.Life == 0) GolemDieLocked(player, g, now, killedByEnemy: source.Hostile);
+        if (m.Life == 0) GolemDieLocked(player, g, now);
         else if (MinionInstabilityLocked(player, g, now)) return true;
         else if (g.Definition.Kind == "Ice" && g.Definition.Special && !g.DeathBurstDone && m.Life * 2L <= m.MaxLife)
         {
@@ -194,7 +194,7 @@ public static partial class Game
         return true;
     }
 
-    internal static void GolemDieLocked(Player player, GolemState.Golem g, double now, bool emitLife = true, bool killedByEnemy = false)
+    internal static void GolemDieLocked(Player player, GolemState.Golem g, double now, bool emitLife = true, bool canReform = true)
     {
         if (g.Monster.Dead && double.IsFinite(g.ReviveAt)) return;
         g.Monster.Dead = true; g.Monster.Life = 0; g.Monster.ActionGeneration++; g.Pending = null;
@@ -214,7 +214,8 @@ public static partial class Game
         g.Hazards.Clear(); g.Pulses.Clear();
         // Local gameplay rule: a successfully activated golem returns after two game seconds while its source remains valid.
         g.ReviveAt = g.Definition.IsGolem ? now + 2 : double.PositiveInfinity;
-        if (killedByEnemy && g.Definition.Kind == "Spectre"
+        // Marionette reformation also follows a lethal Infernal Legion tick or a Minion Instability explosion.
+        if (canReform && g.Definition.Kind == "Spectre"
             && g.Monster.Mods.Effects[Stat.ReviveSpectreIfKilledByEnemiesMs] is int delay and > 0)
         {
             g.ReviveAt = now + delay / 1000d;

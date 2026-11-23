@@ -482,7 +482,7 @@ public static partial class Game
             golem.Hazards.Clear(); golem.Pulses.Clear();
             PublishEnergyShieldLocked(player, golem);
             SetStats(player, golem.Id, [(Stat.MaximumLife, 1)]);
-            GolemDieLocked(player, golem, now);
+            GolemDieLocked(player, golem, now, canReform: false);
             if (player.MinionOrigins.TryGetValue(golem.Id, out var fatalOrigin))
                 player.MinionOrigins[golem.Id] = fatalOrigin with
                 {

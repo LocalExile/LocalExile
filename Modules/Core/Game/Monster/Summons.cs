@@ -318,8 +318,7 @@ public static partial class Game
                 && (animated?.GuardianGear is not { } guardian || AnimatedGuardianGearCurrentLocked(player, guardian))
                 && ConsumeAnimatedSourceLocked(player, animated),
             ownedCurrent: () => player.PlayerLife > 0 && (current?.Invoke() ?? true) && (consumed is null || !consumed.CorpseConsumed)
-                && (reformingSpectre is null || CanReformSpectreLocked(player, reformingSpectre, AreaTime(player))
-                    && player.Summons.Fighters.Values.Count(SameLimit) <= limit)
+                && (reformingSpectre is null || CanReformSpectreLocked(player, reformingSpectre, AreaTime(player)))
                 && (replacement is { } admission
                     ? SummonReplacementCurrentLocked(player, admission)
                     : fresh is { } captured && FreshSummonCurrentLocked(player, captured)
@@ -375,7 +374,7 @@ public static partial class Game
                     GolemReserveLocked(player, fighter, fall, 0, null, aim, AreaTime(player));
                 player.Minions.StatRevision++;
                 if (!pools.Fatal) PresentTransferredGolemDotBuffsLocked(player, fighter, committed);
-                if (pools.Fatal) GolemDieLocked(player, fighter, AreaTime(player), emitLife: false);
+                if (pools.Fatal) GolemDieLocked(player, fighter, AreaTime(player), emitLife: false, canReform: false);
                 else ReconcileGuardianBlessingLocked(player);
             });
         return id;
@@ -397,10 +396,15 @@ public static partial class Game
         player.Minions.StatRevision++;
     }
 
-    static bool CanReformSpectreLocked(Player player, GolemState.Golem spectre, double now) =>
-        GolemCurrent(player, spectre) && spectre.Monster.Dead && now >= spectre.ReviveAt
-        && now < player.Summons.Until[spectre.Id]
-        && GemSourceLifetimeCurrentLocked(player, spectre.Source, spectre.Definition.Effect, spectre.GemSource);
+    static bool CanReformSpectreLocked(Player player, GolemState.Golem spectre, double now)
+    {
+        if (!GolemCurrent(player, spectre) || !spectre.Monster.Dead || now < spectre.ReviveAt
+            || now >= player.Summons.Until[spectre.Id]
+            || !GemSourceLifetimeCurrentLocked(player, spectre.Source, spectre.Definition.Effect, spectre.GemSource)) return false;
+        var gem = SupportedSkill(player, spectre.Source);
+        return gem.RequirementsMet && SummonLimit(player, player.Summons.Definitions[spectre.Id], gem) > 0
+            && GemSkillInstanceDisabled(player, gem.Effect, spectre.Source, triggered: true) is null;
+    }
 
     static bool RefreshSpectreLimitLocked(Player player, IReadOnlyDictionary<uint, int> playerStats, double now)
     {

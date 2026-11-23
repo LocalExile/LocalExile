@@ -454,7 +454,7 @@ public static partial class Game
             m.Life = (uint)Math.Max(0, (long)m.Life - amount);
             m.Ailments.WithoutDamage(MonsterElementalAilments.Kind.Chill, .5, now, _ => 0, n => m.Effects[n], stated: 30);
             player.Minions.OutputQueue.Add(new([], "Vaal chilled ground damages minion", g.Id, m, PlayerMinions.OutputKind.Life));
-            if (m.Life == 0) GolemDieLocked(player, g, now, killedByEnemy: true);
+            if (m.Life == 0) GolemDieLocked(player, g, now);
         }
     }
 }

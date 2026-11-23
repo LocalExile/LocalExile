@@ -27,10 +27,11 @@ public static partial class Game
 
         var instance = player.Instance;
         int epoch = player.ProjectileEpoch;
-        var at = NextToPlayer(player);
+        bool Floor(int x, int y) => player.Layout.WalkableFor(x, y, 0) && !player.Barrier.Contains((x, y));
+        var at = NextToPlayer(player, Floor);
         bool Current() => player.PlayerLife > 0 && !player.Paused && !InTown(player)
             && ReferenceEquals(instance, player.Instance) && player.ProjectileEpoch == epoch
-            && player.Layout.WalkableFor(at.X, at.Y, 0) && !player.Barrier.Contains(at);
+            && Floor(at.X, at.Y);
 
         PlayerInventories.Consumption? consumed = null;
         bool TakeItem()

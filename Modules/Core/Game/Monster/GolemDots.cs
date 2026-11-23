@@ -66,17 +66,15 @@ public static partial class Game
         if (legion > 0 || blessing > 0) lastDamageAt = to;
         if (lastDamageAt is double endpoint) golem.ShieldPool.Interrupt(endpoint);
 
-        long fireLifeDamage = fire > 0 ? golem.ShieldPool.Damage(fire, bypass: false, lastDamageAt!.Value) : 0;
-        long lifeDamage = fireLifeDamage;
+        long lifeDamage = 0;
+        if (fire > 0) lifeDamage += golem.ShieldPool.Damage(fire, bypass: false, lastDamageAt!.Value);
         if (legion > 0) lifeDamage += golem.ShieldPool.Damage(legion, bypass: false, to);
         if (blessing > 0) lifeDamage += golem.ShieldPool.Damage(blessing, bypass: false, to);
-        long lifeDamageThroughSelfDamage = lifeDamage;
         if (bleed > 0) lifeDamage += golem.ShieldPool.Damage(bleed, bypass: false, lastDamageAt!.Value);
         if (poison > 0)
             lifeDamage += golem.ShieldPool.Damage(poison,
                 m.Mods.Effects[Stat.ChaosDamageDoesNotBypassEnergyShield] == 0, lastDamageAt!.Value);
 
-        uint lifeBefore = m.Life;
         if (lifeDamage > 0)
         {
             m.Life = (uint)Math.Max(0, (long)m.Life - lifeDamage);
@@ -85,8 +83,7 @@ public static partial class Game
         }
         if (m.Life == 0 || !GolemCurrent(player, golem))
         {
-            if (m.Life == 0 && GolemCurrent(player, golem))
-                GolemDieLocked(player, golem, to, killedByEnemy: fireLifeDamage >= lifeBefore || lifeDamageThroughSelfDamage < lifeBefore);
+            if (m.Life == 0 && GolemCurrent(player, golem)) GolemDieLocked(player, golem, to);
             return;
         }
         if (MinionInstabilityLocked(player, golem, to)) return;
