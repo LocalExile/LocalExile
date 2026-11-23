@@ -19,6 +19,9 @@ public sealed record PendingTransfer(ushort Area, ulong Instance, bool New, bool
 
     /// <summary>Through a map portal: the map the instance is opened with, also when it was the last portal.</summary>
     public MapDevice.Run? Map { get; init; }
+
+    /// <summary>When visiting another player's personal area (such as a hideout): the owner character name.</summary>
+    public string? InstanceOwner { get; init; }
 }
 
 // A monster this connection spawned: label for /mobs, the server's estimate of its walk, and its AI state.
@@ -851,6 +854,8 @@ public sealed partial class Player(AreaLayout layout, uint ticket, uint seed) : 
     /// <summary>The area the player left through an exit to come here, or null (login, Resurrect in Town).</summary>
     public ushort? CameFrom { get; init; }
     public int? ArrivalEntrance { get; init; }
+    /// <summary>Optional return area WorldAreas HASH16 emitted in S→C 0x1d (flags byte 0 bit 0x08), set by a module during AreaHeader.</summary>
+    public ushort? ReturnAreaHash;
     /// <summary>The instance's game time (InstanceWorld.Clock), shared with everyone in it.</summary>
     public System.Diagnostics.Stopwatch Clock => Instance?.World.Clock ?? ownClock;
     readonly System.Diagnostics.Stopwatch ownClock = System.Diagnostics.Stopwatch.StartNew();

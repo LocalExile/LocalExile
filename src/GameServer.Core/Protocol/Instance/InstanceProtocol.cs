@@ -669,13 +669,13 @@ public static class InstanceProtocol
             case InstanceSocial.FriendAddId: return InstanceSocial.MeasureFriendAddLength(data, out length);
             // 2 + WStr (writer 0x141f98140).
             case InstanceSocial.PartyInviteId or InstanceSocial.PartyKickId or InstanceSocial.PartyTravelId
-                or 0x0097 or 0x00ca or 0x0140 or 0x0141 or 0x0145 or 0x014d or 0x014e or 0x014f or 0x0155:
+                or 0x0097 or InstanceSocial.SocialStatusId or 0x0140 or 0x0141 or 0x0145 or 0x014d or 0x014e or 0x014f or InstanceSocial.DuelChallengeId:
                 return MeasureWStrMessage(data, prefixBytes: 2, suffixBytes: 0, out length);
             // 2 + WStr + u8 (writer 0x141f9baf0).
-            case 0x0098 or 0x0144 or 0x0179:
+            case InstanceSocial.PublicPartyId or 0x0144 or InstanceSocial.HideoutInviteId:
                 return MeasureWStrMessage(data, prefixBytes: 2, suffixBytes: 1, out length);
             // 2 + u8 + WStr (Atlas tree rename, writer 0x141fa5e60).
-            case 0x02a7:
+            case InstanceEntities.AtlasTreeRenameId:
                 return MeasureWStrMessage(data, prefixBytes: 3, suffixBytes: 0, out length);
             // 2 + WStr + WStr (writer 0x141f9b950; 0x0280 sent on area entry by 0x140d59480).
             case 0x0081 or 0x0280:
@@ -921,22 +921,32 @@ public static class InstanceProtocol
 /// "Client-Safe Instance ID = {InstanceId}" and "Generating level {Level} area "{id}" with seed {Seed}", then queues area
 /// generation. AreaHash is WorldAreas.HASH16 (unknown: "Instance sent world area that does not exist"). Level 0 means
 /// the area's own level. LeagueStats enables flag 0x21.6 and the first compact pair list (+0x100), copied to world
-/// stats at +0x120 by 0x142189aa0. Other optional parts remain off. Defaults follow the constructor (0x1421a42b0).
+/// stats at +0x120 by 0x142189aa0. ReturnAreaHash enables flag 0x21.3 (+0x08) and writes u16 BE WorldAreas.HASH16
+/// immediately after B28 (AreaState +0xc0 via 0x142149620). HideoutPermissions sets flag 0x22.7 (bit 15, 0x80; no extra
+/// wire bytes, AreaState +0xda via 0x142149670 in hideouts). Defaults follow the constructor (0x1421a42b0).
 /// B28 is the league category (world +0xd0, <see cref="GameServer.Core.World.LeagueCategory"/>), 60 for none.
 /// </summary>
 public sealed record AreaInstance(uint InstanceId, ushort AreaHash, uint Seed, byte Level, string Text = "",
     byte B1e = 3, byte B20 = 0, byte B1f = 2, byte B24 = 0x23, byte B1d = 0, byte B28 = 0x3c,
     IReadOnlyDictionary<uint, int>? LeagueStats = null, byte[]? TerrainData = null,
-    IReadOnlyList<byte>? AchievementSets = null)
+    IReadOnlyList<byte>? AchievementSets = null, bool HideoutPermissions = false, ushort? ReturnAreaHash = null)
 {
     public byte[] Encode()
     {
         bool hasStats = LeagueStats is { Count: > 0 };
+        bool hasReturnArea = ReturnAreaHash is > 0;
         var writer = new LoginWriter()
             .U16(InstanceProtocol.AreaInstanceId).U32(InstanceId).U16(AreaHash).WStr(Text).U32(Seed)
-            .U8(B1e).U8(B20).U8(B1f).U8(B24).Bytes([(byte)(hasStats ? 0x40 : 0), (byte)(TerrainData is null ? 0 : 4), 0]).U8(Level).U8(B1d).U8(B28)
-            .U16(0)  // vec16<u32> +0x68
-            .U16(0); // vec16<u8> +0x80
+            .U8(B1e).U8(B20).U8(B1f).U8(B24)
+            .Bytes([
+                (byte)((hasStats ? 0x40 : 0) | (hasReturnArea ? 0x08 : 0)),
+                (byte)((TerrainData is null ? 0 : 4) | (HideoutPermissions ? 0x80 : 0)),
+                0,
+            ])
+            .U8(Level).U8(B1d).U8(B28);
+        if (hasReturnArea) writer.U16(ReturnAreaHash!.Value);
+        writer.U16(0)  // vec16<u32> +0x68
+              .U16(0); // vec16<u8> +0x80
         // +0x50 becomes instance +0xc418. The shared achievements/league-upgrades TabControl
         // stays hidden when this list is empty, even when the Delve child tab exists.
         if (AchievementSets is { Count: > byte.MaxValue }) throw new ArgumentOutOfRangeException(nameof(AchievementSets));

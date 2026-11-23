@@ -611,8 +611,7 @@ public static partial class Game
             {
                 var visit = InstanceWaypoints.ReadVisitHideout(bytes);
                 Console.WriteLine($"[gateway] {player.Connection.Remote} <= 0x017a visit the hideout of {visit.Character} (from object 0x{visit.Waypoint:x}, u8 {visit.Flag})");
-                // Only the player's own hideout exists (no parties or other players' hideouts yet).
-                await WarpToHideout(player, "World panel Hideout button");
+                await WarpToPlayerHideout(player, visit.Character, "Visit Hideout");
             }
             else if (id == InstanceWaypoints.VisitMenagerieId)
             {

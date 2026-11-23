@@ -414,6 +414,11 @@ public sealed class GameModule : IModule, IDisposable
         GameEvents.AreaTick.Add(id, GameEvents.Always((player, _) => global::Hierophant.Tick(player)));
         GameEvents.PlayerStatSources.Add(module.Manifest.Id, global::Hierophant.PlayerStats);
         GameEvents.PlayerLeaving.Add(id, (player, _) => global::Hierophant.Leaving(player));
+        GameEvents.Packet(InstanceEntities.ResetAllPassivesId).Add(module.Manifest.Id, async (player, _) =>
+        {
+            await Rules.ResetPassivesFree(player);
+            return true;
+        });
         GameEvents.PlayerLeaving.Add(id, (player, _) => global::BrineKing.Leaving(player));
 
         // The post-campaign unlock (World/UnlockAll.cs): the NPCTalk rows that only appear once their quest flags are set.

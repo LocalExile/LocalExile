@@ -13,7 +13,7 @@ public sealed partial class PlayerInventories
     public const byte MainInventory = 0, BodyArmour = 1, Weapon1 = 2, Offhand1 = 3, Helmet = 4, Amulet = 5,
         Ring1 = 6, Ring2 = 7, Gloves = 8, Boots = 9, Belt = 10, Flask = 11, MapDevice = 13, Weapon2 = 14,
         Offhand2 = 15, CraftingBench = 16, PassiveJewels = 23, AtlasUpgrades = 39, HarvestCrafting = 43,
-        ExpandedInventory = 84, Ring3 = 102, Cursor = InstanceInventories.CursorRow;
+        ExpandedInventory = 84, MavenInvitations = 86, MemoryLineMaps = 94, Ring3 = 102, Cursor = InstanceInventories.CursorRow;
 
     private static readonly ConcurrentDictionary<string, PlayerInventories> ByCharacter = new(StringComparer.OrdinalIgnoreCase);
 
@@ -234,6 +234,8 @@ public sealed partial class PlayerInventories
                 if (x < 0 || y < 0 || x + shape.Width > slot.Width || y + shape.Height > slot.Height) { why = "outside the grid"; return null; }
                 if (row == Flask && !Accepts(row, shape.Class)) { why = $"{shape.Class} does not go in the flask slots"; return null; }
                 if (row == MapDevice && !global::MapDevice.AcceptsItem(held.Item.TypeHash, shape.Class)) { why = $"{shape.Class} does not go in the map device"; return null; }
+                if (row == MavenInvitations && !AcceptsItem(row, held.Item.TypeHash, shape.Class)) { why = "only Maven invitations go in the Maven invitation slots"; return null; }
+                if (row == MemoryLineMaps && !AcceptsItem(row, held.Item.TypeHash, shape.Class)) { why = $"{shape.Class} does not go in the memory line map device"; return null; }
                 inTheWay = [.. ItemsIn(row).Where(i => shapeOf(i.Item) is { } s && i.X < x + shape.Width && x < i.X + s.Width && i.Y < y + shape.Height && y < i.Y + s.Height)];
             }
             if (inTheWay.Count > 1) { why = $"{inTheWay.Count} items in the way"; return null; }
@@ -551,8 +553,19 @@ public sealed partial class PlayerInventories
         9 => itemClass == "Boots",
         10 => itemClass == "Belt",
         MapDevice => global::MapDevice.AcceptsClass(itemClass),
+        MavenInvitations => itemClass is global::MapDevice.MiscClass or "QuestItem",
+        MemoryLineMaps => global::MapDevice.AcceptsMemoryLineClass(itemClass),
         Flask => itemClass is "LifeFlask" or "ManaFlask" or "HybridFlask" or "UtilityFlask" or "UtilityFlaskCritical" or "Tincture",
         _ => true,
+    };
+
+    /// <summary>Item-specific placement check for grid receptacles that restrict beyond ItemClass (Map1, MavenInvitations, MemoryLineMaps).</summary>
+    public static bool AcceptsItem(byte row, uint typeHash, string itemClass) => row switch
+    {
+        MapDevice => global::MapDevice.AcceptsItem(typeHash, itemClass),
+        MavenInvitations => global::MapDevice.IsMavenInvitation(typeHash),
+        MemoryLineMaps => global::MapDevice.AcceptsMemoryLineClass(itemClass),
+        _ => Accepts(row, itemClass),
     };
 
     /// <summary>

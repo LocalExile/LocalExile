@@ -272,7 +272,18 @@ static async Task HandleConnection(TcpClient tcp, LoginServerKeys keys, AccountS
             // Anything the client sent after its 0x0002 is already ciphertext.
             var incoming = new LoginMessageStream(LoginDirection.ClientToServer);
             InstanceDirectory.LoginLink? link = null;
-            var session = new LoginServerSession(accounts) { CharacterListClass = characterListClass.For, InstanceHost = GatewayEndpoint.Host, InstancePort = GatewayEndpoint.Port, Keyring = keyring, Leagues = LeagueCatalog.Startup, CharacterDeleted = SetSaveAside, Assign = s => directory.AssignStart(s, link!) };
+            var session = new LoginServerSession(accounts)
+            {
+                CharacterListClass = characterListClass.For,
+                InstanceHost = GatewayEndpoint.Host,
+                InstancePort = GatewayEndpoint.Port,
+                Keyring = keyring,
+                Leagues = LeagueCatalog.Startup,
+                CharacterDeleted = SetSaveAside,
+                IsCharacterActive = directory.IsCharacterActive,
+                CharacterRenamed = RenameLegacySave,
+                Assign = s => directory.AssignStart(s, link!),
+            };
             link = new InstanceDirectory.LoginLink(stream, ciphers, session, peer, () => tcp.Close());
             byte[] rest = buf[used..have];
             try
@@ -346,6 +357,30 @@ static void SetSaveAside(string character)
     string to = Path.Combine(deleted, $"{safe}-{DateTime.UtcNow:yyyyMMddHHmmss}.json");
     File.Move(path, to);
     Console.WriteLine($"[auth] {character} deleted; save moved to {to}");
+}
+
+static void RenameLegacySave(string oldName, string newName)
+{
+    string folder = Path.Combine("data", "saves");
+    static string Safe(string s) => string.Concat(s.Select(c => char.IsLetterOrDigit(c) || c is '_' or '-' ? c : '_'));
+    string from = Path.Combine(folder, Safe(oldName) + ".json");
+    if (!File.Exists(from)) return;
+    string to = Path.Combine(folder, Safe(newName) + ".json");
+    if (string.Equals(from, to, StringComparison.OrdinalIgnoreCase)) return;
+    if (File.Exists(to))
+    {
+        Console.WriteLine($"[auth] {oldName} -> {newName}: legacy save {to} already exists; leaving {from} untouched");
+        return;
+    }
+    try
+    {
+        File.Move(from, to);
+        Console.WriteLine($"[auth] {oldName} renamed to {newName}; legacy save moved to {to}");
+    }
+    catch (Exception ex) when (ex is IOException or UnauthorizedAccessException)
+    {
+        Console.WriteLine($"[auth] {oldName} -> {newName}: could not move legacy save: {ex.Message}");
+    }
 }
 
 static async Task Reply(InstanceDirectory.LoginLink link, List<ILoginMessage> received)

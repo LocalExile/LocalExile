@@ -7,7 +7,8 @@ Part of [Status](../Status.md); what to build next in this area is in
 
 - Experience and levels from kills, with the level penalty and party share.
   Docs: [15](../docs/protocol/15-progression.md) §1.
-- Passive Skill Tree: allocation, refunds, Orbs of Regret, Books of Skill and Regrets.
+- Passive Skill Tree: allocation, refunds, Orbs of Regret, Books of Skill, Regrets and one-off free resets (0x33 bit 0
+  and C→S 0x38).
   Docs: [15](../docs/protocol/15-progression.md) §2.
 - Passive masteries, with Block, Fire and Wand Mastery effects. Docs: [15](../docs/protocol/15-progression.md) §2.
 - A passive node's conditional stats (`..._while_dual_wielding`, `..._if_..._recently`) count only while their

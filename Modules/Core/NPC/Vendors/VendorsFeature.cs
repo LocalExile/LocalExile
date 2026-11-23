@@ -126,7 +126,7 @@ static class VendorsFeature
     // the saved item and its inventory cell remain reserved until the sale ends (PlayerInventories.Offer).
     // The client sees the item only in its offer grid.
     internal static async Task OfferForSale(Player player, NpcSale sale,
-        uint fromInventory, uint itemId, byte x, byte y)
+        uint fromInventory, uint itemId, byte x, byte y, bool sendReward = true)
     {
         var items = ItemsOf(player);
         if (PlayerInventories.Row(fromInventory) is not byte row || items.Offer(row, itemId, x, y, ShapeOf) is not var (waits, offered))
@@ -141,11 +141,11 @@ static class VendorsFeature
         var inOffer = offered with { X = x, Y = y };
         await Send(player, InstanceItems.InventoryChange(sale.Mine, ++sale.MineRevision, [], [inOffer], NpcShops.Manager),
             $"0x00bf sell offer: item {inOffer.Id} at ({x}, {y})");
-        await SendSaleReward(player, sale);
+        if (sendReward) await SendSaleReward(player, sale);
     }
 
     // Taking an offered item back restores its original inventory view and removes its offer entry.
-    internal static async Task TakeFromSale(Player player, NpcSale sale, uint itemId)
+    internal static async Task TakeFromSale(Player player, NpcSale sale, uint itemId, bool sendReward = true)
     {
         var items = ItemsOf(player);
         if (items.TakeBack(itemId) is not var (row, back))
@@ -157,7 +157,7 @@ static class VendorsFeature
             $"0x00bf sell offer: remove item {itemId} (back in inventory {PlayerInventories.InventoryId(row)} at ({back.X}, {back.Y}))");
         await Send(player, InstanceItems.InventoryChange(PlayerInventories.InventoryId(row), items.NextRevision(row), [], [back]),
             $"0x00bf return item {back.Id} to inventory {PlayerInventories.InventoryId(row)}");
-        await SendSaleReward(player, sale);
+        if (sendReward) await SendSaleReward(player, sale);
     }
 
     // Quote once on each offer change. The same immutable outputs are displayed and paid at acceptance.
@@ -212,7 +212,7 @@ static class VendorsFeature
     }
 
     // An item Shift-clicked in an inventory while the sell window is open goes into a free cell of the offer.
-    internal static async Task OfferFromInventory(Player player, NpcSale sale, uint inventory, uint itemId)
+    internal static async Task OfferFromInventory(Player player, NpcSale sale, uint inventory, uint itemId, bool sendReward = true)
     {
         var items = ItemsOf(player);
         byte? row = PlayerInventories.Row(inventory);
@@ -225,7 +225,7 @@ static class VendorsFeature
                 if (!offered.Any(o => o.Shape is { } s && o.Item.X < x + shape.Width && x < o.Item.X + s.Width && o.Item.Y < y + shape.Height && y < o.Item.Y + s.Height))
                     cell = ((byte)x, (byte)y);
         if (cell is not { } c) { Console.WriteLine($"[gateway] {player.Connection.Remote} sell offer: no room for item {itemId}"); return; }
-        await OfferForSale(player, sale, inventory, itemId, c.X, c.Y);
+        await OfferForSale(player, sale, inventory, itemId, c.X, c.Y, sendReward);
     }
 
     // Ends the sale. Accepted: the offered items are gone and the NPC's offer goes into the inventory, in one save; when the

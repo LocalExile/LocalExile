@@ -263,8 +263,11 @@ public static partial class Game
     {
         var list = await InstanceControl.CallAsync(new ControlRequest { Op = "list", Ticket = player.Ticket, Area = dest });
         var instances = list.Instances ?? [];
+        // Realm byte is 1-based into Data/Realms.dat (0x140bbfa6c: index = realm - 1 < Realms.Count = 34; both 0 and
+        // the client's unset sentinel 0x23 = 35 fall through to "-"). 1 selects row 0 ("Texas (US)").
+        const byte DefaultRealm = 1;
         var entries = instances
-            .Select(i => new InstanceTransfer.InstanceListEntry((ulong)i.CreatedUnix, (uint)i.SecondsLeft, 0, i.Players)).ToList();
+            .Select(i => new InstanceTransfer.InstanceListEntry((ulong)i.CreatedUnix, (uint)i.SecondsLeft, DefaultRealm, i.Players)).ToList();
         player.Chooser = new ChooserList(dest, [.. instances.Select(i => i.Id)], atWaypoint, arrivalEntrance);
         await Send(player, InstanceTransfer.InstanceList(dest, entries),
             $"0x00ae instance list for 0x{dest:x4}: {entries.Count} instance(s) [{string.Join(", ", instances.Select(i => $"{i.Id} ({i.SecondsLeft} s left): {string.Join("/", i.Players)}"))}]");
@@ -392,6 +395,104 @@ public static partial class Game
         }
         if (player.Layout.Hash == hideout.AreaHash16 && OwnHideout(player)) { Console.WriteLine($"[gateway] {player.Connection.Remote} {why}: already in the {hideout.Name}"); return; }
         await ChangeArea(player, new PendingTransfer(hideout.AreaHash16, 0, false, AtWaypoint: true), $"{why}: {hideout.Name}");
+    }
+
+    // C→S 0x17a: visit a named character's hideout (self, same party, friend, or invited via 0x179).
+    public static async Task WarpToPlayerHideout(Player player, string rawTarget, string why)
+    {
+        if (player.PlayerLife == 0 || player.Character.HardcoreDeathRecorded) return;
+        string targetName = rawTarget.Trim();
+        if (targetName.Length == 0
+            || string.Equals(targetName, CharacterName(player), StringComparison.OrdinalIgnoreCase)
+            || player.Character.Account is not null && string.Equals(targetName, player.Character.Account, StringComparison.OrdinalIgnoreCase))
+        {
+            await WarpToHideout(player, why);
+            return;
+        }
+        var target = InGame.Keys.FirstOrDefault(c => !c.Controlled && !c.Closed && !c.LeavingArea
+            && (string.Equals(CharacterName(c), targetName, StringComparison.OrdinalIgnoreCase)
+                || string.Equals(c.Character.Account, targetName, StringComparison.OrdinalIgnoreCase)));
+        if (target is null)
+        {
+            await (player.Commands?.Reply("Player not found.") ?? Task.CompletedTask);
+            return;
+        }
+        if (ReferenceEquals(target, player)
+            || string.Equals(CharacterName(target), CharacterName(player), StringComparison.OrdinalIgnoreCase))
+        {
+            await WarpToHideout(player, why);
+            return;
+        }
+        bool sameLeague = !player.Character.Ssf && !target.Character.Ssf
+            && player.Character.Hardcore == target.Character.Hardcore && player.Character.LeagueForm == target.Character.LeagueForm
+            && string.Equals(player.Character.League, target.Character.League, StringComparison.OrdinalIgnoreCase);
+        if (!sameLeague)
+        {
+            await (player.Commands?.Reply("You cannot visit that player's hideout.") ?? Task.CompletedTask);
+            return;
+        }
+        if (!CanVisitHideout(player, target))
+        {
+            await (player.Commands?.Reply("You do not have permission to visit that player's hideout.") ?? Task.CompletedTask);
+            return;
+        }
+        if (HomeHideout(target) is not { } hideout)
+        {
+            await (player.Commands?.Reply("That player does not have a hideout.") ?? Task.CompletedTask);
+            return;
+        }
+        string ownerName = CharacterName(target);
+        if (HideoutCatalog.ByArea(target.Layout.Hash) is not null && OwnHideout(target) && target.InstanceNumber != 0)
+        {
+            if (player.Layout.Hash == target.Layout.Hash && player.InstanceNumber == target.InstanceNumber) return;
+            await ChangeArea(player,
+                new PendingTransfer(target.Layout.Hash, target.InstanceNumber, false, AtWaypoint: true),
+                $"{why}: {ownerName}'s {hideout.Name}");
+            return;
+        }
+        if (player.Layout.Hash == hideout.AreaHash16 && string.Equals(player.InstanceOwner, ownerName, StringComparison.OrdinalIgnoreCase))
+            return;
+        await ChangeArea(player,
+            new PendingTransfer(hideout.AreaHash16, 0, false, AtWaypoint: true) { InstanceOwner = ownerName },
+            $"{why}: {ownerName}'s {hideout.Name}");
+    }
+
+    static bool CanVisitHideout(Player visitor, Player owner)
+    {
+        if (visitor.Character.Account is not null && string.Equals(visitor.Character.Account, owner.Character.Account, StringComparison.OrdinalIgnoreCase))
+            return true;
+        return GameEvents.CanVisitHideout(visitor, owner);
+    }
+
+    /// <summary>Whether <paramref name="areaHash"/> is a safe returnable world area (a town, waypoint campaign area, or
+    /// the player's own hideout) — excluding maps, pinnacle boss recipes, Labyrinth areas, Delve areas, and other players' hideouts.</summary>
+    public static bool IsReturnableWorldArea(Player player, ushort areaHash)
+    {
+        if (areaHash == 0 || MapDevices.IsMapArea(areaHash)) return false;
+        string? areaId = AreaTransitionCatalog.IdOf(areaHash);
+        if (areaId is not null && (areaId.StartsWith("Delve", StringComparison.OrdinalIgnoreCase)
+            || areaId == WaypointCatalog.LabyrinthPlaza
+            || areaId.StartsWith("Labyrinth_", StringComparison.OrdinalIgnoreCase)
+            || LabyrinthDay.DifficultyOf(areaId) is not null))
+            return false;
+        if (HideoutCatalog.ByArea(areaHash) is not null)
+            return player.Layout.Hash == areaHash
+                ? OwnHideout(player)
+                : HomeHideout(player)?.AreaHash16 == areaHash;
+        return WaypointCatalog.Areas.Find(areaHash) is not null;
+    }
+
+    /// <summary>Resolves a safe returnable world area and optional live instance from a recent or saved candidate,
+    /// falling back to the player's home hideout, last town, or Lioneye's Watch (never returning an unreturnable area).</summary>
+    public static (ushort Area, ulong Instance) ResolveReturnWorldArea(Player player,
+        (ushort Area, ulong Instance)? recent, ushort? saved)
+    {
+        if (recent is { } r && IsReturnableWorldArea(player, r.Area)) return r;
+        if (saved is ushort s && IsReturnableWorldArea(player, s)) return (s, 0);
+        if (HomeHideout(player) is { AreaHash16: not 0 } home) return (home.AreaHash16, 0);
+        ushort town = player.Character.LastTown;
+        if (town != 0 && IsReturnableWorldArea(player, town)) return (town, 0);
+        return (AreaLayouts.LioneyesWatch, 0);
     }
 
     public static HideoutCatalog.Hideout? HomeHideout(Player player) =>
@@ -549,7 +650,8 @@ public static partial class Game
             await FailOnFrame(fail, restoreSession: true, resumeVitals: false).ConfigureAwait(false);
             return;
         }
-        ulong join = t.Instance != 0 || t.New ? 0 : InstanceEvents.TransferInstance.For(player).Select(run => run(player, t)).FirstOrDefault(i => i != 0);
+        ulong join = t.Instance != 0 || t.New || !string.IsNullOrWhiteSpace(t.InstanceOwner) ? 0
+            : InstanceEvents.TransferInstance.For(player).Select(run => run(player, t)).FirstOrDefault(i => i != 0);
         uint sourceTicket = player.Ticket;
         string? soloOwner = player.Character.Ssf ? player.Character.Id?.ToString("N") : null;
         string characterName = CharacterName(player);
@@ -564,10 +666,11 @@ public static partial class Game
             r = await call(new ControlRequest
             {
                 Op = "transfer", Ticket = sourceTicket, Area = t.Area, Instance = join != 0 ? join : t.Instance, New = t.New, Seed = t.Seed,
+                Owner = t.InstanceOwner,
             }).ConfigureAwait(false);
             // The party member's instance may be gone or closed to this player: the default choice then.
             if (join != 0 && !r.Ok)
-                r = await call(new ControlRequest { Op = "transfer", Ticket = sourceTicket, Area = t.Area, Instance = t.Instance, New = t.New, Seed = t.Seed }).ConfigureAwait(false);
+                r = await call(new ControlRequest { Op = "transfer", Ticket = sourceTicket, Area = t.Area, Instance = t.Instance, New = t.New, Seed = t.Seed, Owner = t.InstanceOwner }).ConfigureAwait(false);
             else if (join != 0) Console.WriteLine($"[gateway] {remote} transfer: joins party instance {join}");
         }
         catch (Exception ex)
@@ -577,7 +680,6 @@ public static partial class Game
             await FailOnFrame(fail, restoreSession: true, resumeVitals: true).ConfigureAwait(false);
             throw;
         }
-
         if (!r.Ok)
         {
             Console.WriteLine($"[gateway] {remote} transfer failed: {r.Error}");

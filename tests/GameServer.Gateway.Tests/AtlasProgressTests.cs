@@ -69,20 +69,23 @@ public sealed class AtlasProgressTests
     [Fact]
     public void MessagesCarryTheNodesRowMasksAndHash()
     {
-        byte[] full = AtlasProgress.FullMessage(new HashSet<string> { "MapWorldsChateau" });
-        Assert.Equal(7 + 2 * 22, full.Length);
-        Assert.Equal(new byte[] { 0x01, 0xa3, 0, 0, 0, 0x03, 0 }, full[..7]);
-        // The completed map's row is set in both masks. Its byte also carries the neighbouring on-Atlas rows, so the
-        // bit itself is what is checked, not the whole byte.
-        Assert.NotEqual(0, full[7 + 97 / 8] & (1 << (97 & 7)));
-        Assert.NotEqual(0, full[7 + 22 + 97 / 8] & (1 << (97 & 7)));
-        // Every on-Atlas row goes into both masks (the hidden rows and the voidstone slots included), so the
-        // completed mask is as full as the revealed one and the bottom citadels stay connected.
-        Assert.Equal(full[7..29], full[29..]);
+        var alleyways = AtlasProgress.Find("Alleyways")!;
+        byte[] split = AtlasProgress.FullMessage(
+            new HashSet<string> { Chateau.Id, alleyways.Id },
+            new HashSet<string> { Chateau.Id });
+        Assert.Equal(7 + 2 * 22, split.Length);
+        Assert.Equal(new byte[] { 0x01, 0xa3, 0, 0, 0, 0x03, 0 }, split[..7]);
+        // First mask (+0xd030) has both completed maps; second mask (+0xd070) has only bonus-completed Chateau.
+        Assert.NotEqual(0, split[7 + Chateau.Row / 8] & (1 << (Chateau.Row & 7)));
+        Assert.NotEqual(0, split[7 + alleyways.Row / 8] & (1 << (alleyways.Row & 7)));
+        Assert.NotEqual(0, split[7 + 22 + Chateau.Row / 8] & (1 << (Chateau.Row & 7)));
+        Assert.Equal(0, split[7 + 22 + alleyways.Row / 8] & (1 << (alleyways.Row & 7)));
+        Assert.All(AtlasProgress.FullMessage(new HashSet<string>(), new HashSet<string>())[7..], b => Assert.Equal(0, b));
         Assert.Equal(new byte[] { 0x01, 0xa4, 0x9a, 0x23, 0, 0, 0x02 }, AtlasProgress.NodeMessage(Chateau));
+        Assert.Equal(new byte[] { 0x01, 0xa4, 0x9a, 0x23, 0, 0, 0x00 }, AtlasProgress.NodeMessage(Chateau, bonus: false));
         byte[] empty = AtlasProgress.EmptyMessage();
-        Assert.Equal(full.Length, empty.Length);
-        Assert.Equal(full[..7], empty[..7]);
+        Assert.Equal(split.Length, empty.Length);
+        Assert.Equal(split[..7], empty[..7]);
         Assert.All(empty[7..], b => Assert.Equal(0, b));
     }
 }
