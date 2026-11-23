@@ -605,8 +605,8 @@ public static partial class Game
                     var (damage, _, mitigated) = MonsterHitDamage(m, rolled, critical, attack: true, now, resMods, pen,
                         gambler.InvertsResistance(AreaRng(player)), AreaRng(player));
                     if (critical) damage = DamageModel.CriticalDamage(damage, multiplier);
-                    damage = WithImpaleHitLocked(player, m, damage, rolled, critical, sourceMultiplier,
-                        critical ? critImpale : impale, 1).Damage;
+                    damage = WithImpaleHitLocked(player, m, damage, rolled, critical,
+                        sourceMultiplier + FullLifeCriticalMultiplier(m, playerStats, skillStats), critical ? critImpale : impale, 1).Damage;
                     var stun = OwnerStun(player, m, damage, mitigated, melee: true, spell: false, critical, playerStats, skillStats);
                     if (ApplyMonsterHitLocked(player, m, damage, rampageSource: null, playerStats: null, allyAt: warriorPos,
                         cull: Cull.Of(playerStats, skillStats, critical, spell: false).WithWeapon(local), cullPlayer: playerStats) is not { } applied) continue;

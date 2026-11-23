@@ -369,7 +369,8 @@ public static partial class Game
                     SupportedCriticalChanceVsGround(player, skillId, release: false, SwingWeaponCritical(player, hand)));
                 bool critical = RollCriticalStrike(player, criticalChance, skillStats, attack: true, skillRoll: criticalRoll, playerStats: playerStats)
                     && EvasionEntropy.ConfirmsCritical(hitChance, player.AttackAccuracyRandom);
-                int sourceMultiplier = CriticalMultiplierWithWeapon(criticalMultiplierBase, m, local);
+                int sourceMultiplier = CriticalMultiplierWithWeapon(criticalMultiplierBase, m, local)
+                    + FullLifeCriticalMultiplier(m, playerStats, skillStats);
                 int multiplier = CriticalMultiplierOn(m, sourceMultiplier);
                 var resonance = WithResonanceHitLocked(player, skillStats, rolled, mods, pen, now);
                 rolled = resonance.Packet;

@@ -286,13 +286,15 @@ public static partial class Game
     public static MonsterHit? HitUnlessBlockedLocked(Player player, SpawnedMonster m, int damage) =>
         damage is Blocked or Evaded ? null : ApplyMonsterHitLocked(player, m, damage);
 
-    /// <summary>The critical strike multiplier against this monster after reductions to the bonus above 100%.</summary>
+    /// <summary>The critical strike multiplier against this monster after reductions to the bonus above 100%. With the
+    /// player's stats, "+#% to Critical Strike Multiplier against Enemies that are on Full Life" counts while it is.</summary>
     public static int CriticalMultiplierOn(SpawnedMonster m, int multiplier,
         IReadOnlyDictionary<uint, int>? player = null, IReadOnlyDictionary<uint, int>? own = null, bool noExtra = false)
     {
         if (noExtra || m.Effects.NoExtraCriticalDamage || player is not null && CriticalHitsDealNoExtraDamage(player, own))
             return 100;
-        long ordinary = (long)multiplier + m.Curses[Stat.EnemyAdditionalCriticalStrikeMultiplierAgainstSelf];
+        long ordinary = (long)multiplier + m.Curses[Stat.EnemyAdditionalCriticalStrikeMultiplierAgainstSelf]
+            + (player is not null ? FullLifeCriticalMultiplier(m, player, own) : 0);
         if (ordinary > 100)
         {
             int reduction = Math.Clamp(m.Effects[Stat.BaseSelfCriticalStrikeMultiplierMinusPct], 0, 100);
@@ -300,6 +302,13 @@ public static partial class Game
         }
         return CriticalHitMultiplier(ordinary, noExtra: false);
     }
+
+    // For an impale's source multiplier, and the callers that pass CriticalMultiplierOn no player stats.
+    static int FullLifeCriticalMultiplier(SpawnedMonster m, IReadOnlyDictionary<uint, int> player,
+        IReadOnlyDictionary<uint, int>? own) => m.MaxLife > 0 && m.Life >= m.MaxLife
+        ? ActorScale.Saturate((long)player.GetValueOrDefault(Stat.CriticalStrikeMultiplierVsEnemiesOnFullLifePlus)
+            + (own?.GetValueOrDefault(Stat.CriticalStrikeMultiplierVsEnemiesOnFullLifePlus) ?? 0))
+        : 0;
 
     static int CriticalMultiplierWithWeapon(int multiplier, SpawnedMonster target, IReadOnlyDictionary<uint, int>? local)
     {
