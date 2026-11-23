@@ -30,7 +30,7 @@ public static partial class Game
             if (SkillsFor(player).ActionName(click.SkillId) == "Move")
             {
                 player.LockstepSkill.Clear(finishChannel: true);
-                player.LockstepHold.Press(aim, click.SkillId, click.Flags);
+                player.LockstepHold.Press(aim, click.SkillId, click.Flags, (click.Dx, click.Dy));
             }
             else
             {
@@ -47,7 +47,7 @@ public static partial class Game
         else if (id == InstanceProtocol.LockstepMoveUpdateId)
         {
             var (dx, dy) = InstanceProtocol.ReadLockstepMoveUpdate(bytes);
-            player.LockstepHold.Update((here.X + dx, here.Y + dy));
+            player.LockstepHold.Update((here.X + dx, here.Y + dy), (dx, dy));
             player.LockstepSkill.Update((here.X + dx, here.Y + dy));
             if (HeldLockstepMovingChannel(player)) player.LockstepChannelAimPending = true;
             else if (player.ChannelSkill != 0 && player.LockstepSkill.Channel == player.ChannelSkillSequence)
@@ -222,8 +222,7 @@ public static partial class Game
                     player.LockstepCastWindow = null;
                     HoldLockstepSkill(player, sequence, frameStart, at);
                 }
-                else if (!pinned && player.LockstepHold.Due(player.Walk.Moving(frameStart), player.Walk.Position(frameStart)) is { } due
-                    && LockstepTakesMove(player.Walk.Position(frameStart), due))
+                else if (!pinned && LockstepMoveDue(player, frameStart) is { } due)
                 {
                     target = due;
                     CancelMeleeRepeats(player, at);
@@ -295,6 +294,31 @@ public static partial class Game
     {
         var here = player.Walk.Position(at);
         return LockstepTakesMove(here, target) ? player.Walk.Order(target.X, target.Y, at) : null;
+    }
+
+    /// <summary>
+    /// Chooses the lockstep Move target due at <paramref name="frameStart"/>. When the move button is held close to
+    /// the character, <see cref="LockstepClientCell"/> lags behind <see cref="Player.Walk"/> by RTT + 2 frames, which
+    /// could put <c>clientCell + offset</c> within 2 cells of (or behind) the character or let the short walk finish
+    /// and stop dead before the next 0x192 arrives. Projecting the held cursor offset from <c>here</c> whenever the
+    /// lagged cell falls short or the walk would finish within two frames keeps close-range held movement continuous.
+    /// </summary>
+    public static (int X, int Y)? LockstepMoveDue(Player player, double frameStart)
+    {
+        var here = player.Walk.Position(frameStart);
+        bool walking = player.Walk.Moving(frameStart);
+        if (player.LockstepHold.Due(walking, here) is { } due)
+        {
+            if (LockstepTakesMove(here, due)) return due;
+            if (player.LockstepHold.Held && player.LockstepHold.Offset is { } off && LockstepTakesMove((0, 0), off))
+                return (here.X + off.Dx, here.Y + off.Dy);
+            return null;
+        }
+        if (player.LockstepHold.Held && player.LockstepHold.Offset is { } heldOffset
+            && LockstepTakesMove((0, 0), heldOffset)
+            && !player.Walk.Moving(frameStart + 2d * FrameMs / 1000d))
+            return (here.X + heldOffset.Dx, here.Y + heldOffset.Dy);
+        return null;
     }
 
     // A skill asked on a monster: GGG answers the request with the action's start in the next frame, from the player's
