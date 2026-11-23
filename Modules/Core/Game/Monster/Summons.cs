@@ -369,6 +369,7 @@ public static partial class Game
                 player.Summons.Until[id] = remaining is double duration ? committed + duration
                     : replacement?.Until ?? reformUntil ?? committed + SummonDuration(player, definition, gem);
                 player.Minions.Add(new(id, monster, definition.Id, definition.Family) { Until = player.Summons.Until[id] });
+                PresentPhantasmalMightLocked(player, fighter, playerStats, committed);
                 monster.NoRewards = true; monster.Aggro = true;
                 if (definition.Id == "RaiseZombieAltY" && fighter.Abilities.FirstOrDefault(a => a.Effect == 7133) is { } fall)
                     GolemReserveLocked(player, fighter, fall, 0, null, aim, AreaTime(player));
@@ -390,6 +391,8 @@ public static partial class Game
 
     static void RemoveSummonLocked(Player player, GolemState.Golem fighter, double now, bool reconcileBlessing = true)
     {
+        if (fighter.Definition.Kind == "Phantasm")
+            player.Area.Buffs.Clear(player.Id, PhantasmalMightBuff, fighter.Id);
         player.Summons.Fighters.Remove(fighter.Id); player.Summons.Until.Remove(fighter.Id);
         player.Summons.Definitions.Remove(fighter.Id); player.Summons.Weapons.Remove(fighter.Id);
         RemoveGolemLocked(player, fighter, now, reconcileBlessing);
@@ -508,6 +511,7 @@ public static partial class Game
                 }
                 fighter.Own = new(gem.Stats); fighter.GemLevel = gem.Level; fighter.Quality = gem.Quality;
                 RefreshGolemLocked(player, fighter, playerStats, now);
+                PresentPhantasmalMightLocked(player, fighter, playerStats, now);
                 GolemStepLocked(player, fighter, now);
             }
         }

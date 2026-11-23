@@ -152,7 +152,7 @@ public static class StatConditions
         // Resource and ailment rules consume these flags at the point where they apply.
         statId is "energy_shield_leech_does_not_stop_on_full_energy_shield"
             or "energy_shield_leech_from_attacks_does_not_stop_on_full_energy_shield"
-            or "no_extra_bleed_damage_while_moving" or "minion_no_extra_bleed_damage_while_moving";
+            or "minion_no_extra_bleed_damage_while_moving";
 
     static string? StateSuffix(string statId) =>
         IsRecipientRule(statId) ? null : StateSuffixes.FirstOrDefault(s => EndsWithCondition(statId, s));

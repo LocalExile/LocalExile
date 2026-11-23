@@ -27,6 +27,7 @@ public static partial class Game
         double oldLastStep = g.LastStep;
         double elapsed = Math.Max(0, now - oldLastStep);
         g.Regeneration += Math.Max(0, Math.Min(now, g.RecallUntil) - oldLastStep) * m.MaxLife * g.RecallRate / 6000d;
+        g.Regeneration += HolyRelicRecoveryBetween(g, oldLastStep, now);
         g.LastStep = Math.Max(oldLastStep, now);
         int Own(uint n) => GolemStat(g.Own, n);
         int Player(uint n) => GolemStat(g.Player, n);
@@ -35,7 +36,6 @@ public static partial class Game
                 + (g.Definition.IsGolem ? Player(Stat.GolemLifeRegenerationPerMinutePct) : 0)) / 6000.0;
         g.Regeneration += elapsed * (m.MaxLife * regen + Player(Stat.Of("minion_base_life_regeneration_rate_per_minute")) / 60.0
             + Player(Stat.MinionLifeRegenerationRatePerSecond) + m.Mods.Effects[Stat.BaseLifeRegenerationRatePerMinute] / 60.0
-            + (now < g.HolyRegenerationUntil ? g.HolyRegenerationPerSecond : 0)
             + (now - g.BlockedAt <= 4 ? m.MaxLife * m.Mods.Effects[Stat.LifeRegenerationRatePerMinutePctIfBlockedRecently] / 6000d : 0));
         int heal = (int)Math.Min(int.MaxValue, g.Regeneration); g.Regeneration -= heal;
         heal = ActorScale.Saturate((long)heal + TakeMinionLifeLeech(g, now));

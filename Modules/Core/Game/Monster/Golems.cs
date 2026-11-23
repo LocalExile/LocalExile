@@ -197,6 +197,7 @@ public static partial class Game
         if (double.IsFinite(old.BusyUntil) && old.BusyUntil > now) target.BusyUntil = old.BusyUntil;
         if (oldGolem.HolyRegenerationUntil > now)
         {
+            replacement.HolyRegenerationSince = oldGolem.HolyRegenerationSince;
             replacement.HolyRegenerationUntil = oldGolem.HolyRegenerationUntil;
             replacement.HolyRegenerationPerSecond = oldGolem.HolyRegenerationPerSecond;
         }
