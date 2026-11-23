@@ -65,6 +65,10 @@ public sealed class VillageModule : IModule
         /// 0xff for a bare plot. The client's label resolver reads these bytes directly and faults on row 0, so a bare
         /// plot must name a row that does not exist rather than row zero.</summary>
         public readonly byte[] Slots = [0xff, 0xff, 0xff, 0xff, 0xff, 0xff];
+        /// <summary>The fifteen production counters the state frame carries: <c>VillageProduction</c> rows Mining1..5,
+        /// Smelting1..5, Farming1..5 in that order. The panel's site numbers come from here, so a worker is counted into
+        /// the counter of the job it holds (the farm's sixth plot folds into Farming5).</summary>
+        public readonly byte[] Counters = new byte[15];
     }
 
     readonly ConditionalWeakTable<IPlayer, Settlement> _settlements = new();
@@ -166,6 +170,13 @@ public sealed class VillageModule : IModule
                 }
             }
             settlement.Workers = (byte)settlement.Assignments.Count;
+            // The site numbers on the map icons: a worker counts into the counter of the job it holds.
+            Array.Clear(settlement.Counters);
+            foreach (var job in settlement.Assignments.Values)
+            {
+                if (job is >= 1 and <= 10) settlement.Counters[job - 1]++;
+                else if (job is >= 11) settlement.Counters[10 + Math.Min(4, job - 11)]++;
+            }
             // The panel's crop counters are VillageResources rows 10..14, in the order the farm grows them.
             string[] crops = ["Wheat", "Corn", "Pumpkin", "Globulora", "Orbisfera"];
             if (root.TryGetProperty("crops", out var store))
@@ -323,7 +334,7 @@ public sealed class VillageModule : IModule
         var payload = new List<byte>(166);
         for (int i = 0; i < 21; i++)
             payload.AddRange(BitConverter.GetBytes(settlement.Resources.GetValueOrDefault(i)));
-        for (int j = 0; j < 15; j++) payload.AddRange(BitConverter.GetBytes(0u));
+        for (int j = 0; j < 15; j++) payload.AddRange(BitConverter.GetBytes((uint)settlement.Counters[j]));
         payload.AddRange(BitConverter.GetBytes(settlement.Gold));
         payload.AddRange(BitConverter.GetBytes(0u));
         // The six plot slots the map icons name: a plot growing crop n is VillageResources row 9 + n, a bare plot is
@@ -485,7 +496,7 @@ public sealed class VillageModule : IModule
             {
                 0x18 => await Give(settlement, Amount(args), player),
                 0x19 => await Take(settlement, Amount(args), player),
-                0x03 => Assign(settlement, args),
+                0x03 => Assign(settlement, args, player),
                 0x02 => Release(settlement, args),
                 0x06 => Sail(player, args),
                 0x07 => args.Length == 0 ? "abandon (no slot)" : KingsmarchPort.DropShip(who, args[0]) ? $"ship {args[0]} abandoned" : $"no ship in slot {args[0]}",
@@ -689,7 +700,7 @@ public sealed class VillageModule : IModule
     /// job row it names, and the worker it means. Row 0 is "Idling", so it is a worker leaving its job; any other row is
     /// a worker taking it. The worker is one of the town's own, so the town does not grow: the worker changes the job
     /// and the panel's worker list is pushed again.</summary>
-    static string Assign(Settlement settlement, ReadOnlySpan<byte> args)
+    static string Assign(Settlement settlement, ReadOnlySpan<byte> args, IPlayer player)
     {
         if (args.Length < 2) return "assign worker (no arguments)";
         byte worker = args[0], row = args[1];
@@ -701,6 +712,7 @@ public sealed class VillageModule : IModule
             // The panel's REMOVE button: the worker leaves its job and goes back to the available ones.
             if (order.Count <= worker) return $"remove worker {worker}: no worker to remove";
             settlement.Assignments[order[worker].Key] = 0;
+            _ = KingsmarchTown.MoveTo(player, order[worker].Key, 0);
             settlement.Workers = (byte)settlement.Assignments.Count;
             settlement.Version++;
             return $"worker {order[worker].Key} back to idle ({settlement.Workers}/{settlement.Capacity})";

@@ -1438,8 +1438,27 @@ public static class KingsmarchTown
         return $"Worker {worker} now tends plot {plotOrder}.";
     }
 
-    static async Task SetWorkers(IPlayer player, Plot plot, int count)
+    /// <summary>Moves one worker the way the town panel's own buttons do: a <c>VillageJobs</c> row names the job, 11..16
+    /// being the six farm plots and 0 idling. The panel's worker list is rewritten from this state every tick, so a button
+    /// the panel sends has to land here as well, or the next tick puts the worker straight back where it was.</summary>
+    /// <param name="player">The player whose farm it is.</param>
+    /// <param name="worker">The worker's number in the town, counting from one.</param>
+    /// <param name="jobRow">The <c>VillageJobs</c> row the panel's button named.</param>
+    public static async Task MoveTo(IPlayer player, int worker, int jobRow)
     {
+        Progress progress = State(player);
+        int plot = jobRow is >= 11 and <= 16 ? jobRow - 11 : -1;
+        lock (_lock)
+        {
+            if (worker < 1 || worker > progress.Workers.Count) return;
+            progress.Workers[worker - 1].Plot = plot;
+            Persist(progress);
+        }
+        foreach (var row in progress.Plots.Values.Where(p => p.Order == plot || progress.Workers.Any(w => w.Plot == p.Order)))
+            await SetWorkers(player, row, progress.Workers.Count(w => w.Plot == row.Order));
+    }
+
+    static async Task SetWorkers(IPlayer player, Plot plot, int count)    {
         var states = new StateMachineData(new int[plot.States.Length], 0, plot.States).Set("num_workers", count);
         await player.Send(InstanceEntities.StateMachineUpdate(plot.ObjectId, plot.StateIndex, states),
             $"0x02bc Kingsmarch plot {plot.Order + 1} num_workers {count}");
