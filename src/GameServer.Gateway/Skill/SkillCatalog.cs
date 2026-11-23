@@ -637,6 +637,8 @@ public sealed class SkillCatalog
 
     public bool IsExceptional(int gemRow) => _families.IsExceptional(gemRow);
 
+    public bool GemHasTag(int gemRow, string tag) => _families.HasTag(gemRow, tag);
+
     readonly SkillGemFamilies _families;
 
     /// <summary>The ItemClasses rows a GrantedEffects row's skill can be used with (its ActiveSkill's
