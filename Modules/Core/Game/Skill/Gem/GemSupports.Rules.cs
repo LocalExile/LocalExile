@@ -50,7 +50,7 @@ public static partial class Game
 
     public static bool IsDashEffect(string? effectId) => effectId is "Dash" or "DashHardMode" or "DashArborix";
     public static SupportedGem SupportedSkill(Player player, ushort skillId) =>
-        ApplyCurrentIntensity(player, skillId, BaseSupportedSkill(player, skillId));
+        ApplyCurrentMomentum(player, skillId, ApplyCurrentIntensity(player, skillId, BaseSupportedSkill(player, skillId)));
 
     static SupportedGem BaseSupportedSkill(Player player, ushort skillId)
     {

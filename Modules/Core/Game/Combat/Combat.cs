@@ -1060,7 +1060,7 @@ public static partial class Game
         VaalUseReservation? vaalUse = null;
         SupportedGem? beastCompanion = null;
         PlacedCastAdmission? placedAdmission = null;
-        SupportedGem? paidIntensity = null;
+        SupportedGem? paidIntensity = null, paidMomentum = null;
         if (SkillsFor(player).EffectId(BaseSupportedSkill(player, skillId).Effect) is TwisterEffect or CatStealthCryEffect) return false;
         if (actionToken is not null && (player.ActionCount != action || player.ElementalAilments.ActionFactor(AreaTime(player)) == 0 || player.HitRecovery.Active(AreaTime(player)))) return false;
         if (!TryCapturePlacedCastAdmissionLocked(player, skillId, out placedAdmission)) return false;
@@ -1260,8 +1260,12 @@ public static partial class Game
                 if (paid && dash) player.Walk.Teleport(dashTo.X, dashTo.Y, ProjectileWorldTime(player));
                 if (paid)
                 {
-                    if (!locationInstant && placedAdmission is null && paymentGem.Stats.GetValueOrDefault(Stat.VirtualSkillGainsIntensity) != 0)
-                        paidIntensity = paymentGem;
+                    if (!locationInstant && placedAdmission is null)
+                    {
+                        if (paymentGem.Stats.GetValueOrDefault(Stat.VirtualSkillGainsIntensity) != 0) paidIntensity = paymentGem;
+                        if (paymentGem.Stats.GetValueOrDefault(Stat.SupportMomentumMaxStacks) > 0
+                            && !IsTotemSkill(player, skillId)) paidMomentum = paymentGem;
+                    }
                     criticalRoll = CaptureSkillCriticalRoll(player, skillId);
                     // Reserve the whole paid use before cost publication can yield to another held input.
                     if (!IsTotemSkill(player, skillId) && SkillsFor(player).IsAttack(gem.Effect)
@@ -1314,10 +1318,13 @@ public static partial class Game
         if (gem.Name is not null) PhaseRunOnSkillUse(player, skillId);
         var intensity = CaptureIntensityCast(player, skillId, paidIntensity);
         using var intensityScope = intensity is null ? null : new IntensityScope(intensity);
-        bool CompleteIntensity(bool accepted)
+        bool CompleteSupportedUse(bool accepted)
         {
-            if (accepted) intensity?.Complete();
-            return accepted;
+            if (!accepted) return false;
+            intensity?.Complete();
+            if (paidMomentum is { } momentum)
+                GainMomentumOnUse(player, skillId, momentum, action, channelGeneration, AreaTime(player));
+            return true;
         }
         if (beastCompanion is not null) return true;
         if (channelGeneration is not null)
@@ -1344,11 +1351,11 @@ public static partial class Game
         if (gem.Name is not null)
             foreach (var handler in GameEvents.SkillCastAt.For(player))
                 if (handler(player, SkillsFor(player).EffectId(gem.Effect), skillId, to,
-                    () => !player.Closed && PlayerActionCurrent(player, action) && Current()) is { } accepted) return CompleteIntensity(accepted);
+                    () => !player.Closed && PlayerActionCurrent(player, action) && Current()) is { } accepted) return CompleteSupportedUse(accepted);
         if (gem.Name is not null && GameEvents.RunSkillCast(player, SkillsFor(player).EffectId(gem.Effect), skillId, from,
-                () => !player.Closed && PlayerActionCurrent(player, action) && Current()) is { } taken) return CompleteIntensity(taken);
+                () => !player.Closed && PlayerActionCurrent(player, action) && Current()) is { } taken) return CompleteSupportedUse(taken);
         if (gem.Name is not null && CurseCatalog.All.ContainsKey(SkillsFor(player).EffectId(gem.Effect) ?? ""))
-            return CompleteIntensity(await CastCurse(player, skillId, to, targetId, recoveryGeneration, Current));
+            return CompleteSupportedUse(await CastCurse(player, skillId, to, targetId, recoveryGeneration, Current));
         if (gem.Name is not null && IsVaalMinion(SkillsFor(player).EffectId(gem.Effect)))
             return await RepeatSummonCast(player, skillId, recoveryGeneration, Current, false,
                 () => ReleaseVaalMinions(player, skillId, to, Current, targetId));
@@ -1357,11 +1364,11 @@ public static partial class Game
         if (gem.Name is not null && !IsTotemSkill(player, skillId) && GolemData.Find(SkillsFor(player).EffectId(gem.Effect)) is { } golem)
             return await CastGolem(player, skillId, golem, to, recoveryGeneration, Current);
         if (gem.Name is not null && !IsTotemSkill(player, skillId) && SkillsFor(player).EffectId(gem.Effect) == "LightningWarp")
-            return CompleteIntensity(ScheduleLightningWarp(player, gem, to, Current, criticalRoll));
+            return CompleteSupportedUse(ScheduleLightningWarp(player, gem, to, Current, criticalRoll));
         if (gem.Name is not null && !IsTotemSkill(player, skillId) && SummonData.Find(SkillsFor(player).EffectId(gem.Effect)) is { } summon)
             return await CastSummon(player, skillId, summon, to, targetId, recoveryGeneration, Current);
         if (gem.Name is not null && SkillsFor(player).EffectId(gem.Effect) == "Desecrate")
-            return CompleteIntensity(await Desecrate(player, skillId, to, Current));
+            return CompleteSupportedUse(await Desecrate(player, skillId, to, Current));
         if (gem.Name is not null && IsTotemSkill(player, skillId) && TotemVariety(player, gem.Effect) is { } totem)
         {
             _ = PlaceTotem(player, skillId, gem.Effect, gem.Level, totem, to, TotemPlacementCurrent);
@@ -1369,13 +1376,13 @@ public static partial class Game
         }
         if (gem.Name is not null && UseWarcryInstance(player, skillId, gem.Effect)) return true;
         if (gem.Name is not null && IsBrandSkill(player, gem.Effect))
-            return CompleteIntensity(await CastBrand(player, skillId, gem, from, to, recoveryGeneration, Current, criticalRoll));
+            return CompleteSupportedUse(await CastBrand(player, skillId, gem, from, to, recoveryGeneration, Current, criticalRoll));
         if (gem.Name is not null && IsBrandRecall(player, gem.Effect))
-            return CompleteIntensity(await CastBrandRecall(player, skillId, gem, Current));
+            return CompleteSupportedUse(await CastBrandRecall(player, skillId, gem, Current));
         if (gem.Name is not null && IsBrandsurge(player, gem.Effect))
-            return CompleteIntensity(await CastBrandsurge(player, skillId, gem, from, to, recoveryGeneration, Current, criticalRoll));
+            return CompleteSupportedUse(await CastBrandsurge(player, skillId, gem, from, to, recoveryGeneration, Current, criticalRoll));
         if (gem.Name is not null && IsBladefallTrarthus(gem.Effect))
-            return CompleteIntensity(await ActivateBladefallTrarthus(player, skillId));
+            return CompleteSupportedUse(await ActivateBladefallTrarthus(player, skillId));
         if (gem.Name is not null && vaalUse is not null && VaalImmortalCallSpell(player, gem.Effect))
         {
             var session = ProjectilesFor(player);
@@ -1401,7 +1408,7 @@ public static partial class Game
             await LaunchProjectile(player, skillId, from, to, recoveryGeneration, targetId, sequence: sequence,
                 actionToken: actionToken, cooldownUse: cooldownUse, criticalRoll: criticalRoll, channelGeneration: channelGeneration,
                 swingAt: cooldownUse?.Attack?.At ?? swingAt, leap: leap);
-        return true;
+        return CompleteSupportedUse(true);
     }
 
     // Record only after payment/cooldown/effect admission. The instant-location path calls this after its own
