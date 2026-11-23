@@ -375,7 +375,14 @@ public static partial class Game
             bleed = bleed with { Min = bleed.Min * bleedMore, Max = bleed.Max * bleedMore, CriticalMin = bleed.CriticalMin * bleedMore, CriticalMax = bleed.CriticalMax * bleedMore };
             var poison = MonsterPoisons.Settings.From(rows, hand, AilmentStat, golem.Weapon?.LocalSources);
             int chance = AilmentStat(Stat.BaseChanceToPoisonOnHitPct) + AilmentStat(spell ? Stat.SpellsChanceToPoisonOnHitPct : Stat.ChanceToPoisonOnHitWithAttacksPct) + poison.WeaponChance;
-            MinionAilmentProfiles.Add(ability, new(ignite, bleed, poison, chance));
+            var weaponLocal = spell ? null : golem.Weapon?.LocalSources;
+            var penetration = damage.MaxTotal > 0 ? Penetration.Of(mods.Stats, Stats, !spell, raw, weaponLocal) : default;
+            int LeechStat(uint name) => mods[name] + Raw(name);
+            var lifeLeech = damage.MaxTotal > 0 && mods[Stat.CannotLeech] == 0 && mods[Stat.BaseCannotLeech] == 0
+                && mods[Stat.CannotLeechLife] == 0 && mods[Stat.BaseCannotLeechLife] == 0
+                ? LeechSources.Coefficients("life", LeechStat, !spell, weaponLocal is null ? null : weaponLocal.GetValueOrDefault)
+                : DamagePacket.Empty;
+            MinionHitProfiles.Add(ability, new(ignite, bleed, poison, chance, penetration, lifeLeech));
         }
         return result;
     }

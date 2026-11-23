@@ -4,9 +4,9 @@ using GameServer.Core.World;
 
 public static partial class Game
 {
-    sealed record MinionAilmentProfile(MonsterIgnites.Settings Ignite, MonsterIgnites.Settings Bleed,
-        MonsterPoisons.Settings Poison, int PoisonChance);
-    static readonly RuleTable<GolemState.Ability, MinionAilmentProfile> MinionAilmentProfiles = new();
+    sealed record MinionHitProfile(MonsterIgnites.Settings Ignite, MonsterIgnites.Settings Bleed,
+        MonsterPoisons.Settings Poison, int PoisonChance, Penetration.PerType Penetration, DamagePacket LifeLeech);
+    static readonly RuleTable<GolemState.Ability, MinionHitProfile> MinionHitProfiles = new();
 
     static void MinionExposureOnHitLocked(IReadOnlyDictionary<uint, int> skillStats, SpawnedMonster target,
         DamagePacket mitigated, double now, Random random)
@@ -29,10 +29,9 @@ public static partial class Game
             Expose(target, element, DefaultExposure, now);
     }
 
-    static void MinionAilmentsLocked(Player player, GolemState.Golem fighter, GolemState.Ability ability,
-        uint id, SpawnedMonster target, bool critical, double now)
+    static void MinionAilmentsLocked(Player player, GolemState.Golem fighter,
+        uint id, SpawnedMonster target, bool critical, double now, MinionHitProfile profile)
     {
-        if (!MinionAilmentProfiles.TryGetValue(ability, out var profile)) return;
         double factor = DoedreSewers.MinionDamageFactor(player) * MinionTacticsDamage(player, fighter, id, target, now);
         if (factor != 1)
         {

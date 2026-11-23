@@ -185,6 +185,8 @@ public static partial class Game
         old.Bleeds.MoveTo(target.Bleeds);
         old.Poisons.MoveTo(target.Poisons);
         old.Ailments.MoveTo(target.Ailments);
+        if (MinionLifeLeeches.TryGetValue(oldGolem, out var leech))
+            MinionLifeLeeches.Add(replacement, leech);
 
         target.ReceivedActionFactor = old.ReceivedActionFactor;
         target.ReceivedActionUntil = old.ReceivedActionUntil;
@@ -452,6 +454,7 @@ public static partial class Game
     static void RemoveGolemLocked(Player player, GolemState.Golem golem, double now, bool reconcileBlessing = true)
     {
         player.Golems.All.Remove(golem.Id); player.Minions.Remove(golem.Id);
+        MinionLifeLeeches.Remove(golem);
         player.Golems.IncomingHits.RemoveAll(hit => ReferenceEquals(hit.Target, golem));
         golem.Pending = null;
         foreach (var hazard in golem.Hazards) if (hazard.Object is uint art)

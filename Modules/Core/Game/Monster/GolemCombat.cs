@@ -38,9 +38,11 @@ public static partial class Game
             + (now < g.HolyRegenerationUntil ? g.HolyRegenerationPerSecond : 0)
             + (now - g.BlockedAt <= 4 ? m.MaxLife * m.Mods.Effects[Stat.LifeRegenerationRatePerMinutePctIfBlockedRecently] / 6000d : 0));
         int heal = (int)Math.Min(int.MaxValue, g.Regeneration); g.Regeneration -= heal;
+        heal = ActorScale.Saturate((long)heal + TakeMinionLifeLeech(g, now));
         if (heal > 0 && m.Life < m.MaxLife)
         {
             m.Life = (uint)Math.Min(m.MaxLife, (long)m.Life + heal);
+            if (m.Life == m.MaxLife) MinionLifeLeeches.Remove(g);
             player.Minions.OutputQueue.Add(new([], null, g.Id, m, PlayerMinions.OutputKind.Life));
         }
         GolemDotsLocked(player, g, oldLastStep, now);
@@ -541,6 +543,7 @@ public static partial class Game
                 + target.Curses[Stat.EnemyAdditionalCriticalStrikeMultiplierAgainstSelf]
                 + (prey ? GolemStat(g.Own, Stat.SupportMinionFocusFireCriticalStrikeMultiplierPlusVsFocusedTarget) : 0)) / 100.0;
         var rolled = GolemRollHit(a.Attack.Damage.Scale(factor), effects, a.Attack.Spell, AreaRng(player));
+        MinionHitProfiles.TryGetValue(a, out var profile);
         bool ignoreElemental = g.Shield > 0
             && g.Monster.Mods.Effects[Stat.HitsIgnoreEnemyElementalResistancesWhileHasEnergyShield] != 0;
         var resistanceMods = new HitResistances.Mods(
@@ -548,14 +551,17 @@ public static partial class Game
             AttackCriticalIgnoreElemental: 0,
             NonCriticalPenetration: 0,
             UnconditionalIgnoreElemental: ignoreElemental,
-            CannotPenetrateOrIgnore: g.Monster.Mods.Effects[Stat.CannotPenetrateOrIgnoreElementalResistances] != 0 ? 1 : 0);
+            CannotPenetrateOrIgnore: effects[Stat.CannotPenetrateOrIgnoreElementalResistances] != 0
+                || GolemStat(a.Stats, Stat.CannotPenetrateOrIgnoreElementalResistances) != 0 ? 1 : 0);
         var strike = new HitResistances.Strike(Critical: critical, Attack: !a.Attack.Spell);
         var mitigated = DamageModel.Mitigate(rolled,
-            type => HitResistances.Effective(type, MonsterHitResistance(target, type, default, now), strike, resistanceMods));
+            type => HitResistances.Effective(type, MonsterHitResistance(target, type, profile?.Penetration ?? default, now), strike, resistanceMods));
         int damage = MonsterTakesMitigated(target, mitigated, a.Attack.Spell, now, random: AreaRng(player));
         var from = g.Monster.Walk.Position(now);
         var to = target.Walk.Position(now);
         if (ApplyMonsterHitLocked(player, target, damage, allyAt: from) is not { } hit) return false;
+        if (damage > 0 && profile is not null)
+            GrantMinionLifeLeech(g, target, profile.LifeLeech, mitigated, damage, now);
         if (!target.Dead && damage > 0) MinionExposureOnHitLocked(g.Own, target, mitigated, now, AreaRng(player));
         if (hit.StageStarts)
         { CommitBossStage(player, id, target, now); hit = hit with { StageStarts = false }; }
@@ -578,7 +584,7 @@ public static partial class Game
             HitDebuffsOnHitLocked(target, Golem, a.Attack.Spell, critical, now, AreaRng(player));
             InflictMonsterBlind(player, id, target, now, BlindHitInput.Capture(Golem), a.Attack.Spell, critical,
                 AreaRng(player));
-            MinionAilmentsLocked(player, g, a, id, target, critical, now);
+            if (profile is not null) MinionAilmentsLocked(player, g, id, target, critical, now, profile);
             MinionTauntOnHitLocked(player, g, a, supported.Stats, id, target, now);
         }
         if (damage > 0) FeedingFrenzyOnHitLocked(player, g, now);
