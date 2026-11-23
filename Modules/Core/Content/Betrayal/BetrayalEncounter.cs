@@ -96,13 +96,16 @@ public sealed class BetrayalEncounter
                 await SpawnMonster(player, guard, area.Level, MonsterRarity.Normal, cell.X, cell.Y, bulk: true);
         run.Jun = instance.World.TakeObjectId();
         byte[] jun = BetrayalWire.Create(run.Jun, BetrayalWire.JunType, BetrayalWire.JunBody(plan.Jun, plan.JunRotation, flag: 0));
-        await SendWorldCreate(player, run.Jun, () => jun, $"0x02bb Jun 0x{run.Jun:x} at ({plan.Jun.X}, {plan.Jun.Y})", wake: true, awaitBirth: false);
+        // Asleep, as captured, and unwoken: the spot can be over 171 cells (the wake zone) from the arrival, and
+        // waking it there crashed the client before (review #1379 point 5). The carts are woken at Start, when a
+        // character is within StartDistance; Jun is removed there, so he needs no wake.
+        await SendWorldCreate(player, run.Jun, () => jun, $"0x02bb Jun 0x{run.Jun:x} at ({plan.Jun.X}, {plan.Jun.Y})", wake: false, awaitBirth: false);
         foreach (var cell in plan.Carts)
         {
             uint id = instance.World.TakeObjectId();
             run.Carts.Add(id);
             byte[] cart = BetrayalWire.Create(id, BetrayalWire.CartType, BetrayalWire.CartBody(cell, BetrayalPlan.CartRotation(plan.Angle)));
-            await SendWorldCreate(player, id, () => cart, $"0x02bb Betrayal cart 0x{id:x}", wake: true, awaitBirth: false);
+            await SendWorldCreate(player, id, () => cart, $"0x02bb Betrayal cart 0x{id:x}", wake: false, awaitBirth: false);
         }
         // No ruleset broadcast here: at population time only the entering player is in the instance, and that player
         // already gets the ruleset row from EnterMessages (0x001f) and its data from Entered (0x02c9) on this same
@@ -168,6 +171,11 @@ public sealed class BetrayalEncounter
         var instance = player.Instance;
         await SendWorldRemoval(player, run.Jun, $"0x02bd Jun 0x{run.Jun:x} leaves");
         run.Jun = 0;
+        // The carts were created asleep at Place; a character is within StartDistance now, inside the wake zone, so
+        // wake them before anything updates them (Defeat's cart_finished 0x02bc would otherwise reach a client whose
+        // copy never woke). Jun is gone, so he gets no wake.
+        foreach (uint cart in run.Carts)
+            await SendWorldRecord(player, cart, InstanceProtocol.EnterWakeZone(cart), $"0x01a9 cart 0x{cart:x} enters wake zone");
         if (run.RulesetPayload is { } payload && AssassinationRules is { } row)
             await Broadcast(player, InstanceRulesets.Data(row, [payload]), $"0x02c9 JobAssassinationRules {payload}");
         var cell = plan.MemberCell;
@@ -255,6 +263,9 @@ public sealed class BetrayalEncounter
             body.TemporaryAllyUntil = double.PositiveInfinity;
         }
         run.Choice = instance.World.TakeObjectId();
+        // The cell the MakeChoice actually stands on: Use walks to this, not to where the member's walk has drifted
+        // to by the time the choice is used (review #1379 point 5).
+        run.ChoiceCell = cell;
         byte[] choice = BetrayalWire.Create(run.Choice, BetrayalWire.ChoiceType, BetrayalWire.ChoiceBody(cell, plan.MemberRotation, run.Member, plan.Member.Row));
         await SendWorldCreate(player, run.Choice, () => choice, $"0x02bb MakeChoice 0x{run.Choice:x} at ({cell.X}, {cell.Y})", awaitBirth: false);
         var finished = BetrayalWire.CartStates.Set("cart_finished", 1);
@@ -315,7 +326,9 @@ public sealed class BetrayalEncounter
         if (LiveOf(player) is not { } live || live.Run.Choice == 0 || use.TargetId != live.Run.Choice) return false;
         if (player.PlayerLife == 0 || player.Closed || player.LeavingArea || InGracePeriod(player)) return true;
         var run = live.Run;
-        var at = run.MemberBody is SpawnedMonster fallen ? fallen.Walk.Position(AreaTime(player)) : run.Plan.MemberCell;
+        // The MakeChoice's own cell, stored when it was created: the member's walk was stopped at the kneel, but
+        // its last position still drifts between ticks, and the choice is where it was put, not where the member is.
+        var at = run.ChoiceCell ?? run.Plan.MemberCell;
         if (run.Current != BetrayalRun.Stage.Defeated || !TryBeginObjectWalk(player, requestedAt, at.X, at.Y, ChoiceReach, out var walk))
             return true;
         var (action, now, here, _, arrive) = walk;
@@ -327,6 +340,8 @@ public sealed class BetrayalEncounter
         await live.Gate.WaitAsync();
         try
         {
+            // Re-read under the gate: the choice may have been used or removed since the check above.
+            if (run.Choice == 0 || use.TargetId != run.Choice) return true;
             if (!PlayerActionCurrent(player, action) || player.PlayerLife == 0
                 || !PlayerWalk.InWalkUpRange(player.Walk.Position(AreaTime(player)), at, ChoiceReach)
                 || !run.Advance(BetrayalRun.Stage.Defeated)) return true;

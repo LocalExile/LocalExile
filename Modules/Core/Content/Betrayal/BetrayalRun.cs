@@ -41,6 +41,9 @@ public sealed class BetrayalRun(BetrayalPlan.Plan plan, byte level)
     public object? MemberBody { get; set; }
     public uint Choice { get; set; }
 
+    /// <summary>The cell the MakeChoice was created on (set at the kneel): the cell a character walks to to use it.</summary>
+    public (int X, int Y)? ChoiceCell { get; set; }
+
     public Stage Current { get { lock (gate) return stage; } }
 
     /// <summary>The Intervention's ruleset data (0x2c9 of JobAssassinationRules): 1 while the member fights, else 0 [capture:
