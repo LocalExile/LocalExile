@@ -1,4 +1,4 @@
-# usage: python -I scripts/re/anim_contacts.py [--json data/animation-contacts.json]
+# usage: python -I scripts/re/anim_contacts.py [--json data/animation-contacts.json] [--cached-only]
 #
 # The "contact" keyframe of every character class's animations: for each Characters.dat AOFile, follows the .ao's
 # "extends" chain to its AnimationController metadata (.amd, e.g. Art/Models/CHARACTERS/Witch/rig.amd) and reads, per
@@ -18,7 +18,9 @@
 # The "contacts" key lists every contact event of a clip in time order, not only the earliest: skills that strike more
 # than once land on each of them (Double Strike's doublestrike_sword: 300 and 666 of 1000 ms), and the moment differs
 # per class rig, so the Gateway reads the frame it needs instead of a constant. "animations" keeps its [length, earliest
-# contact] pairs, which projectiles and default attacks rely on.
+# contact] pairs, which projectiles and default attacks rely on. "clips" retains every clip's natural length, including
+# clips without a contact, and all named events as ordered millisecond lists; no skill-specific event names are selected.
+# --cached-only never fetches missing assets from the client.
 #
 # .amd text (UTF-16 without a BOM): a version line, a count line, then per animation:
 #   "<name>" / once|loop / <length ms> / <event count> / per event: "<event>" / <time ms> / <x y z>, then two lines.
@@ -50,6 +52,17 @@ def every_contact(animations):
     return out
 
 
+def named_clips(animations):
+    """Every clip's natural length and all named events as ordered ms lists, including clips with no contact."""
+    out = {}
+    for a in animations:
+        events = {}
+        for name, ms, _ in sorted(a["events"], key=lambda e: e[1]):
+            events.setdefault(name, []).append(ms)
+        out[a["name"]] = {"length": a["length"], "events": events}
+    return out
+
+
 def positions(animations):
     """{animation: [x, y, z]} for the animations whose earliest contact event carries a position (model units: +x
     the model's left, -y forward, -z up)."""
@@ -64,7 +77,7 @@ def positions(animations):
 VIEW = re.compile(r'view_of\s*=\s*"([^"]+)"\s*\n\s*view_name\s*=\s*"([^"]+)"((?:\s*\n\s*view_(?:begin|end)\s*=\s*\d+)*)')
 
 
-def ao_views(ao):
+def ao_views(ao, fetch_missing=True):
     """{view name: (source animation, begin ms, end ms or None)}: the views the .ao chain defines on its rig's clips
     (DexNoWind.ao: attack_sword_01a = doublestrike_sword up to 365 ms, attack_sword_01b from 365 ms). The first
     definition along the chain wins."""
@@ -74,7 +87,8 @@ def ao_views(ao):
         if not path or path in seen:
             continue
         seen.add(path)
-        fetch([path])
+        if fetch_missing:
+            fetch([path])
         text = read_text(path)
         if text is None:
             continue
@@ -129,16 +143,16 @@ def direct_melee(tokens):
     return None
 
 
-def stances(tokens, inherited, out):
-    """Every stance of the body, nested, as {name: (names, flags)}: a stance without its own Melee keeps its parent's."""
+def stances(tokens, inherited, out, resolve=lambda body, parent: direct_melee(body) or parent):
+    """Visit nested stances with the resolved value inherited from their parent."""
     i = 0
     while i < len(tokens):
         if tokens[i:i + 1] == ["stance"] and tokens[i + 2:i + 3] == ["{"]:
             name, end = tokens[i + 1], closing_brace(tokens, i + 2)
             body = tokens[i + 3:end]
-            melee = direct_melee(body) or inherited
-            out.setdefault(name, melee)
-            stances(body, melee, out)
+            current = resolve(body, inherited)
+            out.setdefault(name, current)
+            stances(body, current, out, resolve)
             i = end + 1
         elif tokens[i] == "{":
             i = closing_brace(tokens, i) + 1
@@ -212,20 +226,53 @@ def default_attack_pools(text, animations, views):
     return result
 
 
+def single_skill_clips(text, animations):
+    """Only unambiguous, single-clip ACT actions with a contact. Chained actions need their own selector."""
+    tracked = {"HeavyStrike"}
+
+    def resolve(body, inherited):
+        current = dict(inherited)
+        i = 0
+        while i < len(body):
+            if body[i] == "{":
+                i = closing_brace(body, i) + 1
+                continue
+            if body[i] in tracked and body[i + 1:i + 2] == ["="]:
+                end = body.index(";", i + 2)
+                value = body[i + 2:end]
+                # A chain may follow a semicolon. An override with no exact clip masks an inherited mapping.
+                current[body[i]] = value[0][1:-1] if len(value) == 1 and value[0].startswith('"') \
+                    and body[end + 1:end + 2] != ["then"] else None
+                i = end
+            i += 1
+        return current
+
+    tokens = act_tokens(text)
+    start = tokens.index("{")
+    root = tokens[start + 1:closing_brace(tokens, start)]
+    base = resolve(root, {})
+    valid = contacts(animations)
+    return [{"stance": stance, "skill": skill, "animation": clip}
+            for stance, actions in stances(root, base, {"Unarmed": base}, resolve).items()
+            for skill, clip in actions.items() if clip in valid]
+
+
 def main():
     dest = sys.argv[sys.argv.index("--json") + 1] if "--json" in sys.argv else os.path.join(REPO, "data", "animation-contacts.json")
+    fetch_missing = "--cached-only" not in sys.argv
     chars = clientdb.table("Characters")
     result = {}
     for c in chars:
         ao = c.get("AOFile")
         if not ao or ao in result:
             continue
-        amd = amd_of(ao)
-        animations = (rig_clips(amd, ao) if amd else None) or []
+        amd = amd_of(ao, fetch_missing=fetch_missing)
+        animations = (rig_clips(amd, ao, fetch_missing=fetch_missing) if amd else None) or []
         act = c.get("ACTFile")
         if not act or not animations:
             raise ValueError(f"Missing character ACT/rig for {c['Name']}")
-        fetch([act])
+        if fetch_missing:
+            fetch([act])
         text = read_text(act)
         if text is None:
             raise ValueError(f"Missing character ACT asset: {act}")
@@ -234,7 +281,8 @@ def main():
                                   for a in animations if first_contact(a["events"]) is not None},
                       "contacts": every_contact(animations),
                       "indices": {a["name"]: i for i, a in enumerate(animations)},
-                      "defaultAttack": default_attack_pools(text, animations, ao_views(ao))}
+                      "clips": named_clips(animations), "singleSkillClips": single_skill_clips(text, animations),
+                      "defaultAttack": default_attack_pools(text, animations, ao_views(ao, fetch_missing=fetch_missing))}
         print(f"{c['Name']}: {ao} -> {amd}, {len(result[ao]['animations'])} animations with a contact, "
               f"{len(result[ao]['defaultAttack'])} default attack stances", file=sys.stderr)
     with open(dest + ".tmp", "w", encoding="utf-8") as f:

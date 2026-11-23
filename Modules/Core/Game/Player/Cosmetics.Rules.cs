@@ -7,24 +7,24 @@ public static partial class Game
     // The Cosmetics tab (K) wears what S→C 0x1f3 lists, all slots at once (23-microtransactions.md). Saved picks first; a
     // portal effect set with /cosmetic and no Portal slot saved shows in that slot too.
     // Read from the save once per connection (the stats ask for it on every hit); a pick clears it.
-    public static List<InstanceMicrotransactions.Equipped> WornCosmetics(ClientState conn)
+    public static List<InstanceMicrotransactions.Equipped> WornCosmetics(Player player)
     {
-        if (conn.WornCosmetics is { } cached) return cached;
-        var worn = new Dictionary<byte, CharacterSaves.SavedCosmetic>(CharacterSaves.Cosmetics(CharacterName(conn)));
-        if (!worn.ContainsKey(InstanceMicrotransactions.PortalSlot) && conn.CosmeticPortalVariation != 0
-            && Cosmetics.Portals.FirstOrDefault(p => p.Index == conn.CosmeticPortalVariation) is { Hash: not 0 } portal
+        if (player.Character.WornCosmetics is { } cached) return cached;
+        var worn = new Dictionary<byte, CharacterSaves.SavedCosmetic>(CharacterSaves.Cosmetics(CharacterName(player)));
+        if (!worn.ContainsKey(InstanceMicrotransactions.PortalSlot) && player.Character.CosmeticPortalVariation != 0
+            && Cosmetics.Portals.FirstOrDefault(p => p.Index == player.Character.CosmeticPortalVariation) is { Hash: not 0 } portal
             && Mtx.ByHash(portal.Hash) is { } record)
             worn[InstanceMicrotransactions.PortalSlot] = new CharacterSaves.SavedCosmetic(record.Id, Hash: record.MtxTypeHash);
-        return conn.WornCosmetics = Mtx.Equipped(worn);
+        return player.Character.WornCosmetics = Mtx.Equipped(worn);
     }
 
-    public static async Task SendWornCosmetics(string remote, NetworkStream stream, ConnectionCiphers ciphers, ClientState conn, string why)
+    public static async Task SendWornCosmetics(Player player, string why)
     {
-        await Send(remote, stream, ciphers, [], null, atGate: () =>
+        await Send(player, [], null, atGate: () =>
         {
-            var worn = WornCosmetics(conn);
-            var skills = SkillSlots(conn);
-            Console.WriteLine($"[gateway] {remote} => 0x01f3 worn cosmetics ({why}): " +
+            var worn = WornCosmetics(player);
+            var skills = SkillSlots(player);
+            Console.WriteLine($"[gateway] {player.Connection.Remote} => 0x01f3 worn cosmetics ({why}): " +
                 $"{string.Join(", ", worn.Select(w => $"slot {w.Slot} = record {w.Id}"))}; " +
                 $"skills: {string.Join(", ", skills.Select(s => $"key {s.Key} gem 0x{s.GemHash:x8} inventory {s.Inventory} socket {s.Socket} type {s.SlotType} record {s.RecordId}"))}");
             return InstanceMicrotransactions.Purchased([], worn, skills);
@@ -35,39 +35,57 @@ public static partial class Game
     // effect slot type it takes (SkillGems MtxSlotTypes: the skill's effect, a totem skin), naming the first socket that
     // holds it (the panel finds the gem item there). Keys start at 50, past the fixed slots, and identify target lifetimes,
     // not positions in this list. Refresh only at the send gate: queued work must not publish an obsolete binding.
-    public static List<(byte Row, byte Socket, uint Gem, byte SlotType)> SkillCosmeticPlaces(ClientState conn) =>
-        PlayerInventories.For(CharacterName(conn), ItemsFor(conn)).SocketedGemPlaces()
-            .Where(g => ItemsFor(conn).GemEffects(g.Gem).Any()).DistinctBy(g => g.Gem.TypeHash)
-            .SelectMany(g => (ItemsFor(conn).ByHash(g.Gem.TypeHash) is { } t && ItemsFor(conn).Gem(t) is { MtxSlotTypes.Count: > 0 } gem ? gem.MtxSlotTypes : [0])
+    public static List<(byte Row, byte Socket, uint Gem, byte SlotType)> SkillCosmeticPlaces(Player player) =>
+        PlayerInventories.For(CharacterName(player), ItemsFor(player)).SocketedGemPlaces()
+            .Where(g => ItemsFor(player).GemEffects(g.Gem).Any()).DistinctBy(g => g.Gem.TypeHash)
+            .SelectMany(g => (ItemsFor(player).ByHash(g.Gem.TypeHash) is { } t && ItemsFor(player).Gem(t) is { MtxSlotTypes.Count: > 0 } gem ? gem.MtxSlotTypes : [0])
                 .Select(slotType => (g.Row, (byte)g.Socket, Gem: g.Gem.TypeHash, SlotType: (byte)slotType)))
             .Take(byte.MaxValue).ToList();
 
-    public static List<InstanceMicrotransactions.SkillSlot> SkillSlots(ClientState conn)
+    public static List<InstanceMicrotransactions.SkillSlot> SkillSlots(Player player)
     {
-        string character = CharacterName(conn);
-        var places = SkillCosmeticPlaces(conn);
+        string character = CharacterName(player);
+        var places = SkillCosmeticPlaces(player);
         var worn = CharacterSaves.SkillCosmetics(character);
         var slots = new List<InstanceMicrotransactions.SkillSlot>();
-        var previous = conn.SkillSlots.Values.ToDictionary(s => (s.Inventory, s.Socket, s.GemHash, s.SlotType), s => s.Key);
+        var previous = player.Character.SkillSlots.Values.ToDictionary(s => (s.Inventory, s.Socket, s.GemHash, s.SlotType), s => s.Key);
         foreach (var place in places)
         {
-            uint key = previous.TryGetValue(place, out uint existing) ? existing : checked(conn.NextSkillCosmeticKey++);
+            uint key = previous.TryGetValue(place, out uint existing) ? existing : checked(player.Character.NextSkillCosmeticKey++);
             var slot = new InstanceMicrotransactions.SkillSlot(key, place.Gem, place.Row, place.Socket, place.SlotType);
             slots.Add(worn.TryGetValue(CharacterSaves.SkillCosmeticKey(place.Gem, place.SlotType), out var w) && Mtx.Resolve(w) is { } record
                 ? slot with { RecordId = record.Id, MtxTypeHash = record.MtxTypeHash } : slot);
         }
-        conn.SkillSlots = slots.ToDictionary(s => s.Key);
+        player.Character.SkillSlots = slots.ToDictionary(s => s.Key);
         return slots;
     }
 
     // Ends a burning Righteous Fire and lights it again from its gem (only from the gem of type `gem`, when given), so a
-    // change of art or ring size shows at once. False when none burns.
-    public static async Task<bool> RelightRighteousFire(string remote, NetworkStream stream, ConnectionCiphers ciphers, ClientState conn, string why, uint? gem = null)
+    // change of art or ring size shows at once. `expectedRelight` is the exact owner seen by the producer before its own
+    // awaits; null means no RF was present and never late-binds to one that appeared later.
+    public static async Task<bool> RelightRighteousFire(Player player, string why, RighteousFireState? expectedRelight, uint? gem = null)
     {
-        if (conn.RighteousFire is not { } rf || GemSkillEffects(conn).FirstOrDefault(g => g.Id == rf.Skill) is not { Name: not null } skill
-            || (gem is uint type && skill.Gem != type)) return false;
-        await EndRighteousFire(remote, stream, ciphers, conn, why);
-        await ActivateRighteousFire(remote, stream, ciphers, conn, skill.Id, skill.Effect, skill.Level, skill.Quality, skill.Gem);
+        PlayerSkillSource source;
+        {
+            if (!CurrentGameWork || expectedRelight is null || player.Closed || player.LeavingArea
+                || !ReferenceEquals(player.RighteousFire, expectedRelight)
+                || !RighteousFireOwnerCurrentLocked(player, expectedRelight)
+                || expectedRelight.SourceLifetime is not { } lifetime)
+                return false;
+            using var scope = new PlayerStatScope(player, fresh: true);
+            var supported = SupportedSkill(player, expectedRelight.Skill);
+            source = CurrentPlayerSkillSourceLocked(player, expectedRelight.Skill)!;
+            if (!supported.RequirementsMet || supported.Effect < 0
+                || SkillsFor(player).EffectId(supported.Effect) != "RighteousFire"
+                || source is not { Active: true } || source.Effect != supported.Effect
+                || source.Identity != lifetime.Key || (gem is uint type && source.Gem != type))
+                return false;
+        }
+        if (!await EndRighteousFire(player, why, expectedRelight, source,
+                expectedRelight.Instance))
+            return false;
+        await ActivateRighteousFire(player, source.Id, source.Effect, source.Level,
+            source.Quality, source.Gem, expectedRelight, source);
         return true;
     }
 
@@ -104,24 +122,24 @@ public static partial class Game
     /// it for a player the server describes, so the server does and sends the result as that stat. A number whose files
     /// are not known (Morphs) morphs nothing.
     /// </summary>
-    public static Morph? WornMorph(ClientState conn)
+    public static Morph? WornMorph(Player player)
     {
         // is_in_town_or_hideout_or_heist_hub: the Rogue Harbour (HeistHub, HeistHubEndless) is neither a town nor a
         // hideout in WorldAreas. Nowhere else: the transformation sets have an idle, a run and Emerge, and map a hit,
         // death and casts to the idle clip; they have no attack.
-        if (!InTown(conn) && HideoutCatalog.ByArea(conn.Layout.Hash) is null
-            && !conn.Layout.Id.StartsWith("HeistHub", StringComparison.Ordinal)) return null;
+        if (!InTown(player) && HideoutCatalog.ByArea(player.Layout.Hash) is null
+            && !player.Layout.Id.StartsWith("HeistHub", StringComparison.Ordinal)) return null;
         var worn = new Dictionary<uint, int>();
-        foreach (var w in WornCosmetics(conn).Where(w => w.Slot != 49))
+        foreach (var w in WornCosmetics(player).Where(w => w.Slot != 49))
             foreach (var (stat, value) in MtxEffects.Of(w.MtxTypeHash)?.Stats ?? [])
                 worn[stat] = worn.GetValueOrDefault(stat) + value;
-        int Of(string name) => Stats.Key(name) is uint key ? worn.GetValueOrDefault(key) : 0;
-        int index = Of("mtx_tencent_lunar_set_polymorph") == 4
-                ? Of("mtx_tencent_lunar_back_attachment") switch { 1 => 19, 2 => 20, _ => 18 }
-            : Of("tencent_wuzhiqi_set_polymorph") == 10 ? 27
-            : Of("mtx_goblin_morph") is 1 or 2 ? 27 + Of("mtx_goblin_morph")
-            : Of("mtx_skeleton_body_paint") == 1 ? 30
-            : Of("mtx_marionettes_revenge_skin_variation") is >= 1 and <= 4 ? 30 + Of("mtx_marionettes_revenge_skin_variation")
+        int Of(uint key) => worn.GetValueOrDefault(key);
+        int index = Of(Stat.MtxTencentLunarSetPolymorph) == 4
+                ? Of(Stat.MtxTencentLunarBackAttachment) switch { 1 => 19, 2 => 20, _ => 18 }
+            : Of(Stat.TencentWuzhiqiSetPolymorph) == 10 ? 27
+            : Of(Stat.MtxGoblinMorph) is 1 or 2 ? 27 + Of(Stat.MtxGoblinMorph)
+            : Of(Stat.MtxSkeletonBodyPaint) == 1 ? 30
+            : Of(Stat.MtxMarionettesRevengeSkinVariation) is >= 1 and <= 4 ? 30 + Of(Stat.MtxMarionettesRevengeSkinVariation)
             : 0;
         return Morphs.GetValueOrDefault(index);
     }
@@ -130,80 +148,80 @@ public static partial class Game
     // BuffVisualsArtVariations' variants of endurance_charge, frenzy_charge and power_charge), and its inputs in the
     // order the client's calculators test them (3.29.3c 0x1428ed890, 0x1428edd70, 0x1428ee4e0). The first is the
     // Alternate Charge Skin's own stat, whose value is the variant; each of the others gives a fixed one.
-    static readonly (string Output, string Skin, (string Input, int Variant)[] Sources)[] ChargeArt =
+    static readonly (uint Output, uint Skin, (uint Input, int Variant)[] Sources)[] ChargeArt =
     [
-        ("virtual_endurance_charge_art_variation", "mtx_endurance_charge_art_variation",
-            [("charge_elder_art_variation", 1000), ("charge_predator_farruls_art_variation", 1001),
-             ("endurance_charge_flame_charged_helmet", 1002), ("mtx_druidic_gloves_alt_endurance_charge", 1003)]),
-        ("virtual_frenzy_charge_art_variation", "mtx_frenzy_charge_art_variation",
-            [("frenzy_charge_frenzy_scaling_helmet_art_variation", 1000), ("charge_elder_art_variation", 1001),
-             ("frenzy_charge_blood_dance_art_variation", 1002), ("charge_predator_farruls_art_variation", 1003),
-             ("frenzy_charge_flame_charged_helmet", 1004), ("mtx_druidic_gloves_alt_frenzy_charge", 1006),
-             ("mtx_darkray_vectors_alt_frenzy_charge", 1007)]),
-        ("virtual_power_charge_art_variation", "mtx_power_charge_art_variation",
-            [("power_charge_eldritch_void_battery_art_variation", 1000), ("charge_elder_art_variation", 1001),
-             ("power_charge_art_variation_aylardex", 1002), ("charge_predator_farruls_art_variation", 1003),
-             ("power_charge_flame_charged_helmet", 1004), ("mtx_druidic_gloves_alt_power_charge", 1005)]),
+        (Stat.VirtualEnduranceChargeArtVariation, Stat.MtxEnduranceChargeArtVariation,
+            [(Stat.ChargeElderArtVariation, 1000), (Stat.ChargePredatorFarrulsArtVariation, 1001),
+             (Stat.EnduranceChargeFlameChargedHelmet, 1002), (Stat.MtxDruidicGlovesAltEnduranceCharge, 1003)]),
+        (Stat.VirtualFrenzyChargeArtVariation, Stat.MtxFrenzyChargeArtVariation,
+            [(Stat.FrenzyChargeFrenzyScalingHelmetArtVariation, 1000), (Stat.ChargeElderArtVariation, 1001),
+             (Stat.FrenzyChargeBloodDanceArtVariation, 1002), (Stat.ChargePredatorFarrulsArtVariation, 1003),
+             (Stat.FrenzyChargeFlameChargedHelmet, 1004), (Stat.MtxDruidicGlovesAltFrenzyCharge, 1006),
+             (Stat.MtxDarkrayVectorsAltFrenzyCharge, 1007)]),
+        (Stat.VirtualPowerChargeArtVariation, Stat.MtxPowerChargeArtVariation,
+            [(Stat.PowerChargeEldritchVoidBatteryArtVariation, 1000), (Stat.ChargeElderArtVariation, 1001),
+             (Stat.PowerChargeArtVariationAylardex, 1002), (Stat.ChargePredatorFarrulsArtVariation, 1003),
+             (Stat.PowerChargeFlameChargedHelmet, 1004), (Stat.MtxDruidicGlovesAltPowerCharge, 1005)]),
     ];
 
     // Derived stats that are a choice of art: the first input that is not 0 gives its number, else the fallback stat's
     // own value is the result. The rules are the client's calculators'; inputs that are not a cosmetic's are left out
     // (a unique item's alternate art).
-    static readonly (string Output, (string Input, int Value)[] Sources, string? Fallback)[] DerivedArt =
+    static readonly (uint Output, (uint Input, int Value)[] Sources, uint? Fallback)[] DerivedArt =
     [
-        ("mtx_has_chest_effect", [("mtx_angry_chest_bees", 1), ("mtx_chest_fish", 1), ("mtx_verdant_chest_wisps", 1)], null),
-        ("level_up_sound_disabled", [("mtx_ring_black_star_level_up_effect", 1), ("mtx_skeleton_level_up_effect", 1)], null),
-        ("virtual_has_item_drop_visual_replacement_stat", [("mtx_hellfire_replace_currency_with_fire_spirits", 1),
-            ("mtx_chaos_orb_armour_entity", 1), ("mtx_card_oracle_armour_replace_divination_card_drop_visuals", 1)], null),
-        ("is_floating", [], "mtx_cosmic_armour_flying_player"),
-        ("virtual_onslaught_art_variation", [("mtx_thrillsteel_alt_onslaught", 2), ("mtx_void_emperor_onslaught_ring", 1)], null),
-        ("virtual_arcane_surge_art_variation", [("mtx_madcap_arcane_surge_ring", 1)], null),
-        ("virtual_fortify_art_variation", [("mtx_myrmidon_fortify_ring", 1)], null),
-        ("virtual_mtx_breach_art_variation", [("mtx_ritual_breach_art_variation", 1)], null),
-        ("virtual_covered_in_ash_art_variation", [("mtx_polaric_devastation_alternate_covered_in_ash_and_frost", 1)], null),
-        ("virtual_ignite_visual_override", [("mtx_alternate_ailments_gloves_demonic_ignite_scorch", 28)], "ignite_art_variation"),
-        ("virtual_shock_art_variation", [("mtx_alternate_ailments_gloves_void_shock_sap", 11), ("mtx_voidforge_alternate_shock_ailment", 14),
-            ("mtx_starforge_alternate_shock_ailment", 15)], "shock_art_variation"),
-        ("virtual_chill_art_variation", [("mtx_hyrris_ire_alternate_arrow_visuals", 2),
-            ("mtx_alternate_ailments_gloves_crystalline_chill_freeze_brittle", 4), ("mtx_spirit_chains_gloves_freeze", 6),
-            ("mtx_spirit_chains_gloves_freeze_vines", 7), ("mtx_spirit_chains_gloves_freeze_tentacles", 8)], "chill_art_variation"),
-        ("virtual_freeze_art_variation", [("mtx_alternate_ailments_gloves_crystalline_chill_freeze_brittle", 3),
-            ("mtx_spirit_chains_gloves_freeze", 5), ("mtx_spirit_chains_gloves_freeze_vines", 6),
-            ("mtx_spirit_chains_gloves_freeze_tentacles", 7)], "freeze_art_variation"),
-        ("virtual_poison_art_variation", [("mtx_alternate_ailments_gloves_black_tar_poison", 2), ("mtx_illusionist_cobra_lash_poison", 3)],
-            "poison_art_variation"),
-        ("virtual_bleed_art_variation", [("mtx_alternate_ailments_gloves_voodoo_bleed", 3)], "bleed_art_variation"),
-        ("virtual_mine_art_variation", [("corrupted_emperor_mine_art_variation", 1)], "mine_art_variation"),
-        ("virtual_ancestral_call_art_variation", [], "ancestral_call_art_variation"),
-        ("virtual_triggered_summon_spider_variation", [("alternate_arakaali_spiders_demonic", 1)], null),
-        ("virtual_skill_surge_type_override", [], "skill_surge_type_override"),
-        ("virtual_damage_hit_effect_index", [], "damage_hit_effect_index"),
-        ("virtual_main_hand_damage_hit_effect_index", [("main_hand_mtx_cold_iron_point_hit_effect_variation", 66),
-            ("mtx_cordycep_bow_hit_effect_variation", 82)], "damage_hit_effect_index"),
-        ("virtual_off_hand_damage_hit_effect_index", [("off_hand_mtx_cold_iron_point_hit_effect_variation", 66)], "damage_hit_effect_index"),
+        (Stat.MtxHasChestEffect, [(Stat.MtxAngryChestBees, 1), (Stat.MtxChestFish, 1), (Stat.MtxVerdantChestWisps, 1)], null),
+        (Stat.LevelUpSoundDisabled, [(Stat.MtxRingBlackStarLevelUpEffect, 1), (Stat.MtxSkeletonLevelUpEffect, 1)], null),
+        (Stat.VirtualHasItemDropVisualReplacementStat, [(Stat.MtxHellfireReplaceCurrencyWithFireSpirits, 1),
+            (Stat.MtxChaosOrbArmourEntity, 1), (Stat.MtxCardOracleArmourReplaceDivinationCardDropVisuals, 1)], null),
+        (Stat.IsFloating, [], Stat.MtxCosmicArmourFlyingPlayer),
+        (Stat.VirtualOnslaughtArtVariation, [(Stat.MtxThrillsteelAltOnslaught, 2), (Stat.MtxVoidEmperorOnslaughtRing, 1)], null),
+        (Stat.VirtualArcaneSurgeArtVariation, [(Stat.MtxMadcapArcaneSurgeRing, 1)], null),
+        (Stat.VirtualFortifyArtVariation, [(Stat.MtxMyrmidonFortifyRing, 1)], null),
+        (Stat.VirtualMtxBreachArtVariation, [(Stat.MtxRitualBreachArtVariation, 1)], null),
+        (Stat.VirtualCoveredInAshArtVariation, [(Stat.MtxPolaricDevastationAlternateCoveredInAshAndFrost, 1)], null),
+        (Stat.VirtualIgniteVisualOverride, [(Stat.MtxAlternateAilmentsGlovesDemonicIgniteScorch, 28)], Stat.IgniteArtVariation),
+        (Stat.VirtualShockArtVariation, [(Stat.MtxAlternateAilmentsGlovesVoidShockSap, 11), (Stat.MtxVoidforgeAlternateShockAilment, 14),
+            (Stat.MtxStarforgeAlternateShockAilment, 15)], Stat.ShockArtVariation),
+        (Stat.VirtualChillArtVariation, [(Stat.MtxHyrrisIreAlternateArrowVisuals, 2),
+            (Stat.MtxAlternateAilmentsGlovesCrystallineChillFreezeBrittle, 4), (Stat.MtxSpiritChainsGlovesFreeze, 6),
+            (Stat.MtxSpiritChainsGlovesFreezeVines, 7), (Stat.MtxSpiritChainsGlovesFreezeTentacles, 8)], Stat.ChillArtVariation),
+        (Stat.VirtualFreezeArtVariation, [(Stat.MtxAlternateAilmentsGlovesCrystallineChillFreezeBrittle, 3),
+            (Stat.MtxSpiritChainsGlovesFreeze, 5), (Stat.MtxSpiritChainsGlovesFreezeVines, 6),
+            (Stat.MtxSpiritChainsGlovesFreezeTentacles, 7)], Stat.FreezeArtVariation),
+        (Stat.VirtualPoisonArtVariation, [(Stat.MtxAlternateAilmentsGlovesBlackTarPoison, 2), (Stat.MtxIllusionistCobraLashPoison, 3)],
+            Stat.PoisonArtVariation),
+        (Stat.VirtualBleedArtVariation, [(Stat.MtxAlternateAilmentsGlovesVoodooBleed, 3)], Stat.BleedArtVariation),
+        (Stat.VirtualMineArtVariation, [(Stat.CorruptedEmperorMineArtVariation, 1)], Stat.MineArtVariation),
+        (Stat.VirtualAncestralCallArtVariation, [], Stat.AncestralCallArtVariation),
+        (Stat.VirtualTriggeredSummonSpiderVariation, [(Stat.AlternateArakaaliSpidersDemonic, 1)], null),
+        (Stat.VirtualSkillSurgeTypeOverride, [], Stat.SkillSurgeTypeOverride),
+        (Stat.VirtualDamageHitEffectIndex, [], Stat.DamageHitEffectIndex),
+        (Stat.VirtualMainHandDamageHitEffectIndex, [(Stat.MainHandMtxColdIronPointHitEffectVariation, 66),
+            (Stat.MtxCordycepBowHitEffectVariation, 82)], Stat.DamageHitEffectIndex),
+        (Stat.VirtualOffHandDamageHitEffectIndex, [(Stat.OffHandMtxColdIronPointHitEffectVariation, 66)], Stat.DamageHitEffectIndex),
     ];
 
-    static readonly (string Input, int Value)[] MinionSurges = [("mtx_dark_assembly_summon_minion_effect", 39),
-        ("mtx_summoning_ring_ritual", 108), ("mtx_summoning_ring_stygian", 109), ("mtx_summoning_ring_necrotic", 110),
-        ("mtx_summoning_ring_divine", 111)];
+    static readonly (uint Input, int Value)[] MinionSurges = [(Stat.MtxDarkAssemblySummonMinionEffect, 39),
+        (Stat.MtxSummoningRingRitual, 108), (Stat.MtxSummoningRingStygian, 109), (Stat.MtxSummoningRingNecrotic, 110),
+        (Stat.MtxSummoningRingDivine, 111)];
 
     // The outputs of DerivedArt that belong to the character alone: a skill does not carry them.
-    static readonly HashSet<string> CharacterArt = ["mtx_has_chest_effect", "level_up_sound_disabled",
-        "virtual_has_item_drop_visual_replacement_stat", "is_floating", "virtual_onslaught_art_variation",
-        "virtual_arcane_surge_art_variation", "virtual_fortify_art_variation", "virtual_mtx_breach_art_variation",
-        "virtual_covered_in_ash_art_variation"];
+    static readonly HashSet<uint> CharacterArt = [Stat.MtxHasChestEffect, Stat.LevelUpSoundDisabled,
+        Stat.VirtualHasItemDropVisualReplacementStat, Stat.IsFloating, Stat.VirtualOnslaughtArtVariation,
+        Stat.VirtualArcaneSurgeArtVariation, Stat.VirtualFortifyArtVariation, Stat.VirtualMtxBreachArtVariation,
+        Stat.VirtualCoveredInAshArtVariation];
 
-    static IEnumerable<(uint Stat, int Value)> DerivedArtStats(Func<string, int> of, bool skill = false)
+    static IEnumerable<(uint Stat, int Value)> DerivedArtStats(Func<uint, int> of, bool skill = false)
     {
         foreach (var (output, sources, fallback) in DerivedArt)
         {
             if (skill && CharacterArt.Contains(output)) continue;
             int value = sources.FirstOrDefault(s => of(s.Input) != 0).Value;
             // A skill that creates minions takes Dark Assembly's and the summoning rings' surge before its own.
-            if (output == "virtual_skill_surge_type_override" && of("skill_creates_minions") != 0)
+            if (output == Stat.VirtualSkillSurgeTypeOverride && of(Stat.SkillCreatesMinions) != 0)
                 value = MinionSurges.FirstOrDefault(s => of(s.Input) != 0).Value;
-            if (value == 0 && fallback is not null) value = of(fallback);
-            if (value != 0 && Stats.Key(output) is uint key) yield return (key, value);
+            if (value == 0 && fallback is uint f) value = of(f);
+            if (value != 0 && output is var key) yield return (key, value);
         }
     }
 
@@ -212,13 +230,13 @@ public static partial class Game
     /// Effect's (a hit effect, a surge, an ailment's or a mine's art), and the character's worn cosmetics: the
     /// client's calculators run in the skill's context, which sees both.
     /// </summary>
-    public static IEnumerable<(uint Stat, int Value)> SkillCosmeticDerivedStats(ClientState conn, IReadOnlyDictionary<uint, int> skill)
+    public static IEnumerable<(uint Stat, int Value)> SkillCosmeticDerivedStats(Player player, IReadOnlyDictionary<uint, int> skill)
     {
         var worn = new Dictionary<uint, int>();
-        foreach (var w in WornCosmetics(conn).Where(w => w.Slot != 49))
+        foreach (var w in WornCosmetics(player).Where(w => w.Slot != 49))
             foreach (var (stat, value) in MtxEffects.Of(w.MtxTypeHash)?.Stats ?? [])
                 worn[stat] = worn.GetValueOrDefault(stat) + value;
-        return DerivedArtStats(name => Stats.Key(name) is not uint key ? 0 : skill.TryGetValue(key, out int own) ? own : worn.GetValueOrDefault(key),
+        return DerivedArtStats(name => !(name is var key) ? 0 : skill.TryGetValue(key, out int own) ? own : worn.GetValueOrDefault(key),
             skill: true);
     }
 
@@ -228,15 +246,15 @@ public static partial class Game
     /// stat only such a calculator reads does nothing until the server sends the result: the morph (WornMorph) and the
     /// charges' art (ChargeArt) and the choices of art (DerivedArt). 23-microtransactions.md §4 lists what is left.
     /// </summary>
-    public static IEnumerable<(uint Stat, int Value)> CosmeticDerivedStats(ClientState conn, IReadOnlyDictionary<uint, int> worn)
+    public static IEnumerable<(uint Stat, int Value)> CosmeticDerivedStats(Player player, IReadOnlyDictionary<uint, int> worn)
     {
-        int Of(string name) => Stats.Key(name) is uint key ? worn.GetValueOrDefault(key) : 0;
-        if (WornMorph(conn) is { } morph && Stats.Key("mtx_virtual_morph_art_variation_index") is uint morphKey)
+        int Of(uint key) => worn.GetValueOrDefault(key);
+        if (WornMorph(player) is { } morph && Stat.MtxVirtualMorphArtVariationIndex is var morphKey)
             yield return (morphKey, morph.Index);
         foreach (var (output, skin, sources) in ChargeArt)
         {
             int variant = Of(skin) != 0 ? Of(skin) : sources.FirstOrDefault(s => Of(s.Input) != 0).Variant;
-            if (variant != 0 && Stats.Key(output) is uint key) yield return (key, variant);
+            if (variant != 0 && output is var key) yield return (key, variant);
         }
         foreach (var derived in DerivedArtStats(Of)) yield return derived;
     }
@@ -244,11 +262,11 @@ public static partial class Game
     // The BuffVisuals row a charge's buff shows: BuffVisualsArtVariations' row of the charge's art variation (ChargeArt:
     // a worn Alternate Charge Skin), null for the buff's own. The server names it, as for every buff whose art follows a
     // variation (0x1c1's BuffVisuals override, 11-skills.md §12); the derived stat alone changes nothing.
-    public static ushort? ChargeArtVisual(ClientState conn, ChargeType type)
+    public static ushort? ChargeArtVisual(Player player, ChargeType type)
     {
         string id = type switch { ChargeType.Endurance => "endurance_charge", ChargeType.Frenzy => "frenzy_charge", _ => "power_charge" };
         if (Stats.Key($"virtual_{id}_art_variation") is not uint key) return null;
-        int variation = CosmeticStats(conn).FirstOrDefault(s => s.Stat == key).Value;
+        int variation = CosmeticStats(player).FirstOrDefault(s => s.Stat == key).Value;
         return variation == 0 ? null : Art.BuffVisual(id, variation);
     }
 
@@ -258,40 +276,40 @@ public static partial class Game
 
     // The BuffVisuals row one of the player's own buffs shows when a worn cosmetic restyles it: BuffVisualsArtVariations'
     // row ("onslaught_buff", "fortify_buff", "arcane_surge") at the derived stat's value (the rings), null for its own.
-    public static ushort? BuffArtVisual(ClientState conn, string buff, string stat) =>
-        Stats.Key(stat) is uint key && CosmeticStats(conn).FirstOrDefault(s => s.Stat == key).Value is int variation and not 0
+    public static ushort? BuffArtVisual(Player player, string buff, uint stat) =>
+        stat is var key && CosmeticStats(player).FirstOrDefault(s => s.Stat == key).Value is int variation and not 0
             ? Art.BuffVisual(buff, variation) : null;
 
     // The morph to the client again after a pick changed it: the stat goes with the player's stats (CosmeticStats); the
     // model is the Animated component's (0x2bc) and the animation set the Actor's (0x1b6), back to the class's own when
     // the morph ended.
-    public static async Task SendMorph(string remote, NetworkStream stream, ConnectionCiphers ciphers, ClientState conn, Morph? before)
+    public static async Task SendMorph(Player player, Morph? before)
     {
-        var now = WornMorph(conn);
+        var now = WornMorph(player);
         if (now == before) return;
-        var cls = SkillsFor(conn).ClassFor(conn.ClassRow);
+        var cls = SkillsFor(player).ClassFor(player.Character.ClassRow);
         string model = now?.Model ?? Environment.GetEnvironmentVariable("Game_PLAYER_AO") ?? cls.AnimatedObject;
         string actor = now?.Actor ?? System.IO.Path.ChangeExtension(model, ".act").Replace('\\', '/');
-        await SendWorldRecord(remote, stream, ciphers, conn, PlayerId, InstanceEntities.AnimatedModel(PlayerId, PlayerObject.AnimatedIndex, model),
+        await SendWorldRecord(player, player.Id, InstanceEntities.AnimatedModel(player.Id, PlayerObject.AnimatedIndex, model),
             $"0x02bc player model {model} (morph {now?.Index ?? 0})");
-        await SendWorldRecord(remote, stream, ciphers, conn, PlayerId, InstanceEntities.ActorFile(PlayerId, actor),
+        await SendWorldRecord(player, player.Id, InstanceEntities.ActorFile(player.Id, actor),
             $"0x01b6 player animation set {actor}");
         // The client loads the new set but leaves the animation that was playing (0x1b6 only stores it), so the new
         // model stands frozen in its bind pose until its next action (seen live 2026-11-12). The transformation sets
         // define Emerge for this: their idle with the pets' summon effect, after which the Actor idles on the new set.
         if (now is not null)
-            await SendWorldRecord(remote, stream, ciphers, conn, PlayerId, InstanceProtocol.ActorAnimation(PlayerId, MorphEmergeSeconds, EmergeAnimation),
+            await SendWorldRecord(player, player.Id, InstanceProtocol.ActorAnimation(player.Id, MorphEmergeSeconds, EmergeAnimation),
                 $"0x01d1 player animation Emerge (morph {now.Index})");
         // The model was built anew: what it wears again.
-        await SendModel(remote, stream, ciphers, conn, Looks(conn, ItemsOf(conn)), "morph");
+        await SendModel(player, Looks(player, ItemsOf(player)), "morph");
     }
 
     // The worn portrait's variation (the Player component's +0x1aa), 0 for the class's own.
-    public static ushort WornPortrait(ClientState conn) =>
-        WornCosmetics(conn).FirstOrDefault(w => w.Slot == PortraitSlot) is { } worn ? MtxEffects.Of(worn.MtxTypeHash)?.Portrait ?? 0 : (ushort)0;
+    public static ushort WornPortrait(Player player) =>
+        WornCosmetics(player).FirstOrDefault(w => w.Slot == PortraitSlot) is { } worn ? MtxEffects.Of(worn.MtxTypeHash)?.Portrait ?? 0 : (ushort)0;
 
     // The portrait frame in the Social Frame slot, 0 for the default. What the client draws is the one it logged in with
-    // (ClientState.PortraitFrame).
-    public static ushort WornFrame(ClientState conn) =>
-        WornCosmetics(conn).FirstOrDefault(w => w.Slot == SocialFrameSlot) is { } worn ? MtxEffects.Of(worn.MtxTypeHash)?.Frame ?? 0 : (ushort)0;
+    // (Player.PortraitFrame).
+    public static ushort WornFrame(Player player) =>
+        WornCosmetics(player).FirstOrDefault(w => w.Slot == SocialFrameSlot) is { } worn ? MtxEffects.Of(worn.MtxTypeHash)?.Frame ?? 0 : (ushort)0;
 }

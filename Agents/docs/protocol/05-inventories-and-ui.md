@@ -134,6 +134,39 @@ height, …. Rows 0–15 are the character's own inventories (main, equipment, f
 | 57 | RitualSavedRewards1 | 0x25 | 100x4 | 116 | DeepwaterCursedDucatsStorage1 | 0x46 | 6x1 |
 | 58 | DONOTUSE1 | 0x0c | 3x2 | | | | |
 
+The Allflame windows are S→C 0x7b ([16](16-waypoints.md)) kinds **0x68** ExtractionInventory (an Allflame Capsule,
+`DeepwaterExtractionInventoryWindow`, refresh `0x140427920`) over row **113** and **0x6f** CollectionInventory (the
+deck's CollectionChest) over row **114**; the Gateway puts the object's id in the first u32 (what enables the capsule's
+buttons was not found). "Send to Surface" (ruleset op 2, [03](03-area-and-world.md) §8) is enabled only with QuestFlags
+2020 `IsMapOwner` and a non-empty 113 (else ClientStrings 8441 "final Capsule" or 8439); "Call Bathysphere" (op 3)
+only with 113 empty (8442), and with IsMapOwner it first asks 8440 "There are unused Capsules".
+
+The deck's chart windows (0x7b kinds; all need ruleset 172 before 0x21, [03](03-area-and-world.md) §8):
+
+| Kind | Window | Inventories | Notes |
+|---|---|---|---|
+| 0x67 | DeepwaterChartWindow ("Chart Area") | 103 (1 × 1) | the chart to run; "Descend" is op 1; Ctrl+click is C→S 0x010e |
+| 0x69 | DeepwaterCraftingWindow ("Allflame Crafting") | 105 (2 × 4), 106 (8 × 4) | target item in 105 (Ctrl+click C→S 0x010f), selected currency stays in 0/84; closes on open when 106 is non-empty (`0x1404111e0`); craft is op 2 |
+| 0x6a | DeepwaterVoyageWindow ("Plan Voyage") | 104 (120 × 1, two pages of 60), 115 (3 × 1), 116 (6 × 1) | charted charts, client-side board of 4 or 9 slots, and Cursed Ducats (`116` requires fixed `x = DeepwaterCursedDucats.Id`, `0x141d65f80`; Ctrl+click is C→S 0x0115) |
+| 0x6d | BottledItemRevealWindow (Message in a Bottle) | 12 (`Cursor1`) | 3rd u32 BE is 0-based `ClientStrings2` row (`256..280`, `0x140b79340`); displays the reward placed in `Cursor1` after C→S 0x0058 |
+| 0x6e | DeepwaterLockerWindow (Chart Locker) | 112 | the first u32 goes to its listeners (`0x140401df0`); the Gateway sends the ChartLocker's object id (M) |
+| 0x72 | DeepwaterActiveVoyageWindow | 109 (not read) | the running chart; the Gateway does not open it |
+
+0x67/0x69/0x6a/0x72 ignore the u32s. Valerie's tutorial chart (reward offer 130) can be picked from the reward window only
+while 0x67 is open: without it the client sends no 0x88 or 0x8a (live 2026-11-19).
+The client sums Dead Man's Sulphur across all player inventories (0, 84, 112 and loaded stash tabs, excluding types 19,
+37, 61; `0x141d6b020`), computes crafting cost with two truncated integer divisions
+`(((baseCost * classMul) / 100) * levelMul) / 100` (`0x141d63ef0`, `0x141d64e00`), and aggregates active Cursed Ducat
+mods from 115 with `DeepwaterStatsPerCursedDucat` into area stats (`0x141fbf340`).
+A finished Chart moves 103 → 109 → 104 (M: the Descend gate needs room in 104);
+"charted" is not an item field. The locker window (`0x140427f30`, layout reader `0x14042b930`) cuts 112 into tabs by
+`DeepwaterLockerLayout`: `__col7`/`__col8` the tab's first column and row, `__col5` × `__col6` a page, `__col12` the
+pages (0 = one), `__col4` the cell size in pixels. Rows 0-2 are the Sandy, Coral Forest and Coral Reef charts (12 × 25
+each, 5 pages), row 3 Dead Man's Sulphur (9 × 4 at row 75); 12 × (3 · 25 + 4) = 12 × 79. The client shows each base by
+its region, so the server refuses an item outside its tab. Ctrl + click with the locker open is C→S 0x0111 (as 0x0112:
+u32 item id, u8, u8), handled by the Allflame module: into the item's tab (Sulphur onto its stacks first) or out to
+the main inventory.
+
 ## 4. S→C 0x3d: passive slots
 
 Dispatcher case 0x11. Class `0x1435e6708` (0x38 bytes, ctor `0x1421a5480`), write `0x1421a54b0`.
@@ -150,11 +183,8 @@ Handler: bit2/3/4 → `0x14215c540(…, 0/1/2)`, which **creates slot 0/1/2** at
 the computed active index differs from `+0xc2f0`, it switches and notifies (`0x14019a550(+0xb1f0, old, new)`). UI code
 `0x14078a490` reads `slots[+0xc2f0]` without a null check (crash at `0x14078adff` when they are missing). The three
 slots are the **Atlas** passive tree's three presets (their check `0x141ef3860` logs "atlas passive skills allocated
-but only allowed"; the character's tree is S→C 0x33, [15](15-progression.md) §2). The server sends one message per
-preset (`flags` 0x04/0x08/0x10), with `u28` = that preset's allocated count and `u2a` = the point budget; the list is
-the preset's PassiveSkillGraphIds. Allocation is **C→S 0x3e** (7 bytes: u8 preset, u32 BE node) and refund **0x3f**
-(8 bytes: u8 preset, u32 BE node, u8 flag). The server saves the three lists and the point budget per character; map
-completion does not award points yet (dev: `/atlas_points <n>`).
+but only allowed"; the character's tree is S→C 0x33, [15](15-progression.md) §2). What the fields mean, the active
+preset and the Atlas tree's C→S messages are in [15](15-progression.md) §2.
 
 ## 5. What the UI did not need (so far)
 
@@ -167,6 +197,5 @@ thrown and caught during the UI build; its backtrace went through `0x1421d2ebe` 
 ## Open
 
 - Items are in [13](13-items.md): the start kit goes into these 0xc0 messages, and S→C 0xbf changes an inventory later.
-- What the 0x3d u16 fields and node list mean.
 - Manager 1 (`+0xca10`) holds NPC shop and trade inventories ([17](17-npcs.md) §5), manager 2 (`+0xcb90`) the guild
   stash's; the personal stash's tabs are inventories of manager 0 on row 26 ([18](18-stash.md) §4).

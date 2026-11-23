@@ -153,13 +153,8 @@ public static class GlyphQuest
         return w.U8(placed ? Transitioned : Untransitioned).U8(0).ToArray();
     }
 
-    // x, y, rotation, u16, flags0 (0x04: fixed height, i32 steps of 7.8125 + f32 z), flags1 0x02 (u8 hidden 0, u8 shown 1).
-    static void Positioned(BlobWriter w, int x, int y, float rotation, float? z)
-    {
-        w.I32(x).I32(y).F32(rotation).U16(0).U8((byte)(z is null ? 0 : 0x04)).U8(2);
-        if (z is float h) w.I32((int)MathF.Round(h / 7.8125f)).F32(h);
-        w.U8(0).U8(1);
-    }
+    static void Positioned(BlobWriter w, int x, int y, float rotation, float? z) =>
+        w.Positioned(x, y, rotation, fixedHeight: z is float h ? BlobWriter.FixedHeight(h) : null);
 
     /// <summary>The Glyph Wall used in the oracle (QuestSimulator): seen, and with the three glyphs carried they are taken
     /// and PlacedGlyphs set, as <see cref="Place"/> does.</summary>

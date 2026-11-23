@@ -1,4 +1,4 @@
-# usage: ot_components.py [--check] [--all] [--md <out.md>] [--json <out.json>] [Metadata/Type ...]
+# usage: ot_components.py [--check] [--all] [--cached-only] [--md <out.md>] [--json <out.json>] [Metadata/Type ...]
 #        ot_components.py --items --json data/item-types.json   (every BaseItemTypes row from the .it files)
 #
 # Merged component list per object type, as the client builds it from the .ot/.otc files:
@@ -314,7 +314,7 @@ def parse(text):
     r = {"extends": [], "abstract": False, "sections": [], "client": [], "server": [], "version": None,
          "shared_states": [], "shared_timers": [], "transitionable": {}, "tags": [], "basic_actions": [],
          "client_transitionable": {}, "client_targetable": None, "life": {}, "positioned": {}, "animated": {}, "quest": {},
-         "stats": {}, "pathfinding": {}}
+         "stats": {}, "pathfinding": {}, "actor": {}}
     i = 0
 
     def block(i):  # i at '{' -> index after matching '}', plus the names of sections directly inside
@@ -366,6 +366,9 @@ def parse(text):
                     top_level_keys(toks[i + 2:j - 1], r["animated"], ("animated_object",))
                 elif t == "Actor":  # basic actions (ActionTypes Ids): basic_action = "Emerge"
                     body = toks[i + 2:j - 1]
+                    keys = {}
+                    top_level_keys(body, keys, ("slow_animations_go_to_idle",))
+                    r["actor"].update({k: {"true": True, "false": False}.get(v.lower()) for k, v in keys.items()})
                     r["basic_actions"] += [body[k + 2].strip("\"'") for k in range(len(body) - 2)
                                            if body[k] == "basic_action" and body[k + 1] == "="]
                 elif t == "Quest":  # a quest item's flags (12-quests.md §5): "minus" in a name stands for "-"
@@ -520,6 +523,16 @@ def merge(type_path, files, otc, first=("Positioned",)):
                      if f and "immobile" in f.get("pathfinding", {})), None)
     if immobile is not None and immobile.lower() == "true":
         result["immobile"] = True
+    if "Actor" in comps[:read]:
+        # Actor resource constructor 0x141e927c0 sets +0x58 false; parser 0x141e91ea0 replaces it from this key.
+        # A missing parent leaves the inherited value unknown until a later explicit key resolves it.
+        actor = {"slow_animations_go_to_idle": False}
+        for _, f in ch:
+            if f is None:
+                actor = dict.fromkeys(actor)
+            else:
+                actor.update(f.get("actor", {}))
+        result["actor"] = actor
     if "Life" in comps[:read]:
         # Life type constructor 0x141e28b50, store 0x141e28ca5: e4..e7 = 00 00 00 01.
         # A missing parent can override these defaults; only subsequent explicit keys resolve that uncertainty.
@@ -535,11 +548,12 @@ def merge(type_path, files, otc, first=("Positioned",)):
     return result
 
 
-def load(types, ext=".ot", companion=".otc"):
+def load(types, ext=".ot", companion=".otc", fetch_missing=True):
     """Parse every type and its extends chain (fetching as needed)."""
     files, otc, frontier = {}, {}, list(types)
     while frontier:
-        fetch([p + ext for p in frontier] + ([p + companion for p in frontier] if companion else []))
+        if fetch_missing:
+            fetch([p + ext for p in frontier] + ([p + companion for p in frontier] if companion else []))
         nxt = []
         for p in frontier:
             t = read_text(p + ext)
@@ -678,7 +692,7 @@ QUEST_ROOM_TYPES = [
 ]
 
 
-def all_types():
+def all_types(fetch_missing=True):
     paths = set()
 
     def walk(x):
@@ -716,7 +730,8 @@ def all_types():
         walk([clientdb.table("room_points"), clientdb.table("room_doodads")])
     paths.update(QUEST_TILE_TYPES)
     paths.update(QUEST_ROOM_TYPES)
-    fetch(RAW_DATS)
+    if fetch_missing:
+        fetch(RAW_DATS)
     for d in RAW_DATS:
         b = open(cache_name(d), "rb").read()
         for m in re.finditer(rb"M\0e\0t\0a\0d\0a\0t\0a\0/\0(?:[\x20-\x7e]\0)+?\0\0", b):
@@ -734,12 +749,13 @@ def item_types():
     return {r["Id"]: r.get("InheritsFrom") or "nothing" for r in clientdb.table("BaseItemTypes")}
 
 
-def merge_items():
+def merge_items(fetch_missing=True):
     """Component lists of every BaseItemTypes row from the .it files. Unlike object types nothing comes first (the item
     reader FUN_1421f2d00 calls slot 5 (+0x28) on the type's first type+0x80 components; no Positioned for items), and
     the "client" blocks (RenderItem) are never read. Verified live for Wand1, the flasks and the glyphs (05 §6)."""
     rows = item_types()
-    files, _ = load(sorted(set(rows) | {v for v in rows.values() if v != "nothing"}), ext=".it", companion=None)
+    files, _ = load(sorted(set(rows) | {v for v in rows.values() if v != "nothing"}), ext=".it", companion=None,
+                    fetch_missing=fetch_missing)
     out = {}
     for tid, parent in rows.items():
         if tid in files:
@@ -759,7 +775,7 @@ def merge_items():
         if quest:
             r["quest"] = quest
         for k in ("shared_states", "shared_timers", "transitionable", "positioned", "animated_object", "basic_actions",
-                  "client_transitionable", "client_targetable"):
+                  "client_transitionable", "client_targetable", "actor"):
             r.pop(k, None)
         out[tid] = r
     return out
@@ -874,9 +890,10 @@ def main():
         return None
 
     do_check, do_all, do_items = flag("--check"), flag("--all"), flag("--items")
+    fetch_missing = not flag("--cached-only")
     md_out, json_out = popopt("--md"), popopt("--json")
     if do_items:
-        results = merge_items()
+        results = merge_items(fetch_missing)
         for t in a:
             r = results.get(t)
             print(f"{t}: no .it chain" if not r else f"{t}  chain={' > '.join(r['chain'])}\n  " + ", ".join(r["components"][:r["read"]]))
@@ -889,9 +906,9 @@ def main():
     if do_check or md_out:
         types += list(GROUND_TRUTH) + DOC_TYPES
     if do_all:
-        types += all_types()
+        types += all_types(fetch_missing)
     types = sorted(set(types))
-    files, otc = load(types)
+    files, otc = load(types, fetch_missing=fetch_missing)
     results = {t: merge(t, files, otc) for t in types if t in files}
     for t in a:
         r = results.get(t)

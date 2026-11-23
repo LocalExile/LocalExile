@@ -299,7 +299,7 @@ static class Gate
     {
         var queue = new ConcurrentQueue<string>(tasks);
         var results = new ConcurrentDictionary<string, Result>();
-        string dll = Path.Combine(AppContext.BaseDirectory, "levelgen.dll");
+        string dll = typeof(Gate).Assembly.Location;
         int done = 0;
         var threads = Enumerable.Range(0, Math.Min(jobs, Math.Max(1, tasks.Count))).Select(_ => new Thread(() =>
         {
@@ -419,11 +419,14 @@ static class Gate
         uint clientHash = loggedHash ?? t.GetProperty("tileHash").GetUInt32();
         var area = AreaInfo.Load(Shared.Read, areaId, level);
         var rng = new LevelRandom(seed, area.RandomnessDisabled) { Log = [] };
+        // The terrain plugin states the Gateway sent with the load (the Deepwater grid), none for the client's default.
+        var pluginStates = t.TryGetProperty("pluginStates", out var ps) && ps.ValueKind == JsonValueKind.Object
+            ? ps.EnumerateObject().ToDictionary(p => ushort.Parse(p.Name), p => Convert.FromHexString(p.Value.GetString() ?? "")) : null;
         GenerationResult? result = null;
         string hash;
         try
         {
-            result = LevelGenerator.Generate(files, area, seed, rng: rng);
+            result = LevelGenerator.Generate(files, area, seed, rng: rng, pluginStates: pluginStates);
             hash = result.Grid.Hash() == clientHash ? "match" : "mismatch";
         }
         catch (Exception e) { hash = "stop: " + Reason(e); }

@@ -41,7 +41,8 @@ A still-open, non-retired old connection and out-of-order calculations on one cu
 Shield publication on every 16 ms recovery step, the recovery loop's rates, Rage, charges and the player tick. It is two
 parts (`StatSnapshotCache.cs`), with the tail split into three pure stages. The head gathers the stat sources and runs every side effect that goes with them (pool
 rebuilds, the charge, Fortification and Antiquarian observations, the leech and Fortification configuration, the
-time-dependent counts, the qualification snapshot); it runs on every call, as before. The tail (the panel's derived
+time-dependent counts, the qualification snapshot); it runs on every call, as before, so whatever joins it is paid on
+every call ([hot paths](performance.md#hot-paths)). The tail (the panel's derived
 rows, the default attack's hit and ailment rows, accuracy, critical and off-hand rows) is a pure function of
 `StatSnapshotTailInputs`: the head's stats in their order, the raw `/set_stat` values, the pools, the active set's
 hands (rows 2 and 3, immutable item records, and which are inactive), the hands' local stats, life and maximum life,
@@ -54,7 +55,9 @@ A connection keeps its last result for each stage and reuses it while that stage
 head changes (equipment, gems, passives, level, buffs, auras, flasks, charges, leech, Fortification, mods and modules)
 changes the head's stats or an input. A new area is a new connection with no tail.
 
-The head runs `CharacterStatSources` twice (the sources and the own-aura restriction), each expanding the charges.
+The head ran `CharacterStatSources` twice when this was written (the sources and the own-aura restriction), each
+expanding the charges; on 2026-11-17 one snapshot reaches it about eight times (the conditional pools and the own-aura
+pools ask too).
 `WithCharges` reuses its last `ChargeEffects.Expand` while what that pure function reads is the same (the stats in
 order, the `/set_stat` values, the effective counts and the conversions); `ChargeSession.Observe` still runs every time.
 

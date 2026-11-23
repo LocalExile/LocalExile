@@ -48,21 +48,24 @@ The issue #75 native matrices were run on the source LocalExile revisions, not r
   model; the arrow arrives about 25 ms after the muzzle flash, with a fixed 60 ms lead tuned on localhost rather than
   one that follows the connection's latency ([11](../docs/protocol/11-skills.md) §4).
 - **Spell and attack panels:** integer-roll expectation, cooldowns, DoT/beam displays, in-place link mutation,
-  off-hand alternation, conditional damage and support/modifier scope; check equipment UI refresh live.
-  Attack base/added coefficients are separate; remaining skill-specific added inputs and native checks stay in #368.
+  conditional damage and support/modifier scope; check equipment UI refresh live.
+  Attack base/added coefficients are separate; negative weapon conditions, remaining weapon families,
+  skill-specific added inputs and native checks stay in #368.
 - **Warcries:** executors for the other warcries; explosions need global added damage, flat crit chance, on-hit
   effects, their native art and the wave delay ([11](../docs/protocol/11-skills.md) §10i).
 - **Character panel (#75)** ([11](../docs/protocol/11-skills.md) §14):
   - Regeneration: other conversions than Zealot's Oath, named conditional/more modifiers and other recovery systems.
   - Charges: Brand attachment/cap enforcement, the Affliction non-damaging effect and Absorption recoup consumers.
     Reap's damage over time debuff, Vaal Reap's temporary Blood Charge maximum, and executing the secondary hits
-    (Bear Trap, Herald of Ice) whose rows are display-only.
+    beyond Bear Trap's hit (Herald of Ice, Bear Trap's immobilise and decaying debuff).
+    The charge gains, triggers, per-charge targets and charge types [11](../docs/protocol/11-skills.md) §15 lists as
+    not modelled (Divine, Brine, Crab, Fanatic and Celestial Charges, and stealing).
   - Deferred (owner's decision, 2026-10-29): Spirit and Siphoning Charges. Their only 3.29 player sources are unique
     mods (`maximum_spirit_charges_per_abyss_jewel_equipped`,
     `maximum_siphoning_charges_per_elder_or_shaper_item_equipped`), so they need unique definitions beyond
     Mageblood (#60), abyss sockets on the other uniques that have them and a consumer for `Item.Influences`
     ([13](../docs/protocol/13-items.md) §2f). Blitz and Challenger have no 3.29 source.
-  - Penetration: off-hand attack selection and the conditional forms not read yet (Zealotry's critical-only, Enmity's
+  - Penetration: the conditional forms not read yet (Zealotry's critical-only, Enmity's
     Embrace's overcapped fire, recent kill or block, flask, tincture, while chilled, single-skill).
   - Ailments: validate the twelve duration/effect aliases, then ailment chance/eligibility, damaging ranges,
     duration/application and stacking. Left/right ring operators are slot-local: do not sum them globally.
@@ -75,7 +78,13 @@ The issue #75 native matrices were run on the source LocalExile revisions, not r
     skill-specific recovery speeds and the speed/defence/ailment/DoT leech-state consumers; other Life-retention
     sources. Do not add overlapping displayed scopes, substitute regeneration for leech, broaden the attack-only item
     scope, infer Vaal Pact from legacy raw flag names, or multiply one boolean doubling per item copy.
-  - Damage: alternative quality, off-hand alternation, endpoint-only modifiers and official rounding.
+  - Damage: alternative quality, endpoint-only modifiers and official rounding.
+    Hits still multiply a target's physical damage taken and Maim separately; DoT adds them ([20](../docs/protocol/20-damage.md)).
+  - Dual wielding ([11](../docs/protocol/11-skills.md) §4): when the client calls the hand selector and its stage for
+    Multistrike repeats and Barrage's projectiles (they keep the use's hand) and channels (Cyclone keeps the main hand);
+    the off hand's own stun threshold reduction and weapon-family modifiers; a wand beside a melee weapon (the default
+    attack keeps the main hand); both-hand skills' on-hit locals and ailments from the off hand; Varunastra's hand
+    eligibility; a live check that the server's hand matches the client's swing.
   - Continue auditing the remaining rows against the current implementation before adding formulas.
 - **Done when:** life, mana, attributes, resistances and their derived values come from the server's own calculation
   (Characters.dat base values, level, items, passives) and are sent in the Stats component.
@@ -88,7 +97,8 @@ The issue #75 native matrices were run on the source LocalExile revisions, not r
 - **Known:** [11](../docs/protocol/11-skills.md) §13 has reservation, the implemented auras and the own-aura lifecycle.
   Passive enemy auras other than the implemented ones (the Occultist's) need consumers for their stats first (§10e).
 - **Start:** the auras' 3D effects (BuffVisuals EPKs of the `IsSkillBuff` rows do not render, unlike Righteous Fire's);
-  banners, enemy/Vaal aura executors and unsupported conditional effects.
+  banners, enemy aura executors, the other Vaal auras and unsupported conditional effects.
+  Vaal auras: allies do not receive them, and no skill bar soul gain prevention countdown is shown.
   Verify the herald combat matrix, retail Virulence decay, the skill-specific trap/mine payloads beyond Skitterbots'
   trigger/rearm, and the skill-bar indicator's buff association (0x1c1 bit3) live.
 - **Done when:** the standard auras reserve correctly, their effects match PoB, and the character panel and HUD show
@@ -108,8 +118,14 @@ The issue #75 native matrices were run on the source LocalExile revisions, not r
 - **Known:** [20](../docs/protocol/20-damage.md) has the damage model; both sides still have flat damage ranges
   ([11](../docs/protocol/11-skills.md) §5, §6). Monster armour is not modelled.
 - **Start:**
-  - Special ES mechanics, skill Exposure, the remaining conditional penetration, damaging and alternative ailments on
-    monsters beyond ignites and bleeds, and further added-damage/support effects.
+  - Special ES mechanics, skill Exposure, the remaining conditional penetration, damaging ailments on monsters beyond
+    ignites and bleeds, and further added-damage/support effects.
+  - Scorch, Brittle and Sap sources not read yet: Oath of Summer (Warden: ignite becomes scorch, a second scorch),
+    the confluxes (Leadership's Price), Scorched/Brittle/Sapped Ground, "while affected by" auras, skill-named
+    and Prismatic sources, chilling areas, proliferation and "recently" conditions. Sap on the player needs its less
+    damage on the player's hits first (then Simulacrum's "Monsters inflict Sapped" can roll). Scorch and Brittle do not
+    reach the hits that read a monster's resistances or roll crits without a time: Rampage weapons, boss hazards
+    (Doedre, Sirus, Kitava, arenas, Vaal Oversoul) and shrine novas.
   - Remaining weapon-scoped fire per Strength, lightning per Dexterity/Intelligence and spell per-Intelligence added damage.
   - Monster skills beyond the first granted effect (ranged, spells).
   - Player stun: ES avoidance, substituted thresholds, conditional defences and monster-specific modifiers.
@@ -152,6 +168,8 @@ The issue #75 native matrices were run on the source LocalExile revisions, not r
   costs, death/resurrection and slow destination loading ([27](../docs/protocol/27-vaal-souls.md)).
   Validate the [modular Behemoth candidate](../docs/game/behemoth.md) natively; other Vaal executors and official
   distribution/capacity parity remain open.
+  Vaal minion totem, trap and mine execution remains open; these casts are refused before souls or actions are spent.
+  Vaal Animate Weapon, full ascended special attacks and minion stance targeting remain open.
 
 ### Death screen variants
 
@@ -168,7 +186,7 @@ The issue #75 native matrices were run on the source LocalExile revisions, not r
 - **Known:** the [framework](../docs/game/projectile-framework.md) owns production routing and the only simulator;
   [registered skills](../docs/game/projectile-skills.md) add special behaviour.
 - **Open:**
-  - Off-hand timing/damage and nonzero intrinsic attack repeats; per-skill duration before the 150-cell cap and a
+  - Nonzero intrinsic attack repeats; per-skill duration before the 150-cell cap and a
     native check of the continuation boundary; the action-speed/Tailwind contract (#246).
   - Combat body geometry: actor positions use integer walk estimates and Gateway actor radii are zero, so area
     coverage is centre-based; calibrate against `ObjectSize`.

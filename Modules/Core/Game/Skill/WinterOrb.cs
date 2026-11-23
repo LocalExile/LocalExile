@@ -1,4 +1,4 @@
-﻿using System.IO;
+using System.IO;
 using System.Net.Sockets;
 using GameServer.Core.Protocol.Instance;
 using GameServer.Core.Protocol.Login;
@@ -71,8 +71,8 @@ static partial class Game
     internal static bool IsWinterOrb(int effect) =>
         Skills.EffectId(effect) is "WinterOrb" or "WinterOrbAltX" or "WinterOrbAltY";
 
-    static int WinterOrbStat(ClientState conn, ushort skillId, string name) =>
-        Stats.Key(name) is uint key ? SupportedSkill(conn, skillId).Stats.GetValueOrDefault(key) : 0;
+    static int WinterOrbStat(Player player, ushort skillId, uint name) =>
+        SupportedSkill(player, skillId).Stats.GetValueOrDefault(name);
 
     /// <summary>
     /// Seconds between the orb's volleys: the base fire interval divided by the frequency increases. Cast speed is
@@ -80,25 +80,25 @@ static partial class Game
     /// (PoE Wiki: 1/1.2 × (1 + 0.2 × stages past the first + cast speed) × 1.8). That multiplier belongs to the channel,
     /// so the caller passes the stages alone and the interval is slower once the button is up.
     /// </summary>
-    internal static double WinterOrbFireSeconds(ClientState conn, ushort skillId, int effect, int stages,
+    internal static double WinterOrbFireSeconds(Player player, ushort skillId, int effect, int stages,
         bool channelling = true)
     {
-        int Stat(string name) => WinterOrbStat(conn, skillId, name);
+        int Stat(uint name) => WinterOrbStat(player, skillId, name);
         double baseSeconds = Math.Max(.05,
-            (Stat("frost_fury_base_fire_interval_ms") is > 0 and var milliseconds ? milliseconds : 1200) / 1000.0);
-        double castMs = CastMs(conn, effect, skillId) is int supported and > 0 ? supported : 250;
+            (Stat(global::Stat.FrostFuryBaseFireIntervalMs) is > 0 and var milliseconds ? milliseconds : 1200) / 1000.0);
+        double castMs = CastMs(player, effect, skillId) is int supported and > 0 ? supported : 250;
         double increased = 250.0 / castMs - 1
-            + Stat("frost_fury_fire_speed_+%_per_stage") * Math.Max(0, stages - 1) / 100.0;
+            + Stat(global::Stat.FrostFuryFireSpeedPlusPctPerStage) * Math.Max(0, stages - 1) / 100.0;
         double more = channelling
-            ? Math.Max(.01, 1 + Stat("frost_fury_fire_speed_+%_final_while_channelling") / 100.0) : 1;
+            ? Math.Max(.01, 1 + Stat(global::Stat.FrostFuryFireSpeedPlusPctFinalWhileChannelling) / 100.0) : 1;
         return baseSeconds / (Math.Max(.01, 1 + increased) * more);
     }
 
     /// <summary>The gem's 8 stages plus what quality adds, both from the data rather than from a constant.</summary>
-    static int WinterOrbMaxStages(ClientState conn, ushort skillId)
+    static int WinterOrbMaxStages(Player player, ushort skillId)
     {
-        int max = WinterOrbStat(conn, skillId, "frost_fury_max_number_of_stages");
-        int extra = WinterOrbStat(conn, skillId, "frost_fury_additional_max_number_of_stages");
+        int max = WinterOrbStat(player, skillId, Stat.FrostFuryMaxNumberOfStages);
+        int extra = WinterOrbStat(player, skillId, Stat.FrostFuryAdditionalMaxNumberOfStages);
         return Math.Clamp((max > 0 ? max : 8) + Math.Max(0, extra), 1, 32);
     }
 
@@ -117,27 +117,18 @@ static partial class Game
     /// (0x1415d17d0 → 0x1417b6030), which reads entries 1 and 2 of the buff's list without checking its length (a
     /// non-totem, first-form visual is all zeroes). Nothing else consumes them.
     /// </summary>
-    internal static async Task WinterOrbPresentStages(string remote, NetworkStream stream, ConnectionCiphers ciphers,
-        ClientState conn)
+    internal static async Task WinterOrbPresentStages(Player player)
     {
-        byte[] packet;
-        int stages;
-        lock (conn.Monsters)
-        {
-            var runtime = conn.OrbRuntime;
-            if (runtime is null || runtime.Stages <= 0 || runtime.PresentedStages == runtime.Stages) return;
-            stages = runtime.Stages;
-            double left = runtime.Channelling ? 0 : runtime.ExpiresAt - conn.Clock.Elapsed.TotalSeconds;
-            // The same instance is updated in place: replacing it (0x1c2 + a new 0x1c1) restarted the client's timer with
-            // every stage, so a duration it draws could never be seen running.
-            ushort instance = runtime.PresentedBuff;
-            if (instance == 0) instance = runtime.PresentedBuff = conn.NextBuff++;
-            packet = InstanceEntities.AddBuff(PlayerId, instance, WinterOrbStagesBuffRow, PlayerId, runtime.SkillId,
-                u68: left > 0 ? (uint?)BitConverter.SingleToUInt32Bits((float)left) : null,
-                stacks: (ushort)runtime.Stages, list: WinterOrbStagesList);
-            runtime.PresentedStages = runtime.Stages;
-        }
-        await Send(remote, stream, ciphers, packet, $"winter orb {stages} stages");
+        var runtime = player.OrbRuntime;
+        if (runtime is null || runtime.Stages <= 0 || runtime.PresentedStages == runtime.Stages) return;
+        double left = runtime.Channelling ? 0 : runtime.ExpiresAt - AreaTime(player);
+        // The same instance is updated in place: replacing it (0x1c2 + a new 0x1c1) restarted the client's timer with
+        // every stage, so a duration it draws could never be seen running.
+        runtime.PresentedBuff = 1;
+        player.Area.Buffs.Set(player.Id, new(WinterOrbStagesBuffRow, player.Id, runtime.SkillId,
+            U68: left > 0 ? Buff.Seconds(left) : null, Stacks: (ushort)runtime.Stages, List: WinterOrbStagesList, KeepInstance: true));
+        runtime.PresentedStages = runtime.Stages;
+        await Task.CompletedTask;
     }
 
     /// <summary>
@@ -145,45 +136,41 @@ static partial class Game
     /// second channel keeps the runtime it finds and only refreshes it — no second sphere, and the stages it already
     /// built are kept instead of being dropped.
     /// </summary>
-    internal static async Task<uint> WinterOrbStart(string remote, NetworkStream stream, ConnectionCiphers ciphers,
-        ClientState conn, ushort skillId,
+    internal static async Task<uint> WinterOrbStart(Player player, ushort skillId,
         (ushort Id, int Effect, string Name, int Level, int Quality, uint Gem) gem, int action)
     {
         WinterOrbRuntime runtime;
         bool created = false;
-        lock (conn.Monsters)
+        runtime = player.OrbRuntime ?? new WinterOrbRuntime();
+        if (runtime.ObjectId == 0)
         {
-            runtime = conn.OrbRuntime ?? new WinterOrbRuntime();
-            if (runtime.ObjectId == 0)
-            {
-                runtime.ObjectId = conn.TakeObjectId();
-                runtime.Generation = ++WinterOrbOrbs;
-                conn.OrbRuntime = runtime;
-                created = true;
-            }
-            double now = conn.Clock.Elapsed.TotalSeconds;
-            runtime.SkillId = skillId;
-            runtime.Gem = gem;
-            runtime.Action = action;
-            runtime.ChannelGeneration = conn.ChannelGeneration;
-            runtime.Channelling = true;
-            runtime.ExpiresAt = 0;
-            runtime.NextDecayAt = 0;
-            // The first moment of channelling is the first stage; a fresh orb therefore never fires at zero. A count
-            // carried from an earlier orb never exceeds this gem's maximum, which another gem or quality can lower.
-            runtime.Stages = Math.Clamp(runtime.Stages, 1, WinterOrbMaxStages(conn, skillId));
-            runtime.NextFireAt = now + WinterOrbFireSeconds(conn, skillId, gem.Effect, runtime.Stages);
-            // A held stage has no countdown: the release resends the icon with the duration its stages leave.
-            runtime.PresentedStages = -1;
-            if (!created)
-                Console.WriteLine($"[gateway] {remote} winter orb 0x{runtime.ObjectId:x} re-channelled at {runtime.Stages} stages");
+            runtime.ObjectId = player.TakeObjectId();
+            runtime.Generation = ++WinterOrbOrbs;
+            player.OrbRuntime = runtime;
+            created = true;
         }
-        await WinterOrbPresentStages(remote, stream, ciphers, conn);
+        double now = AreaTime(player);
+        runtime.SkillId = skillId;
+        runtime.Gem = gem;
+        runtime.Action = action;
+        runtime.ChannelGeneration = player.ChannelGeneration;
+        runtime.Channelling = true;
+        runtime.ExpiresAt = 0;
+        runtime.NextDecayAt = 0;
+        // The first moment of channelling is the first stage; a fresh orb therefore never fires at zero. A count
+        // carried from an earlier orb never exceeds this gem's maximum, which another gem or quality can lower.
+        runtime.Stages = Math.Clamp(runtime.Stages, 1, WinterOrbMaxStages(player, skillId));
+        runtime.NextFireAt = now + WinterOrbFireSeconds(player, skillId, gem.Effect, runtime.Stages);
+        // A held stage has no countdown: the release resends the icon with the duration its stages leave.
+        runtime.PresentedStages = -1;
+        if (!created)
+            Console.WriteLine($"[gateway] {player.Connection.Remote} winter orb 0x{runtime.ObjectId:x} re-channelled at {runtime.Stages} stages");
+        await WinterOrbPresentStages(player);
         if (created)
         {
             // The loop outlives this channel and this call: it must not inherit the channel's output delegates.
             using (ExecutionContext.SuppressFlow())
-                _ = Task.Run(() => RunWinterOrb(conn, runtime, runtime.Generation));
+                _ = AreaFrames.Start(() => RunWinterOrb(player, runtime, runtime.Generation));
         }
         return runtime.ObjectId;
     }
@@ -192,16 +179,13 @@ static partial class Game
     /// One more stage for this channel's cast tick, up to the maximum; the cast tick paces it, so a faster caster charges
     /// the orb sooner. The channel does not stop at the maximum.
     /// </summary>
-    internal static int WinterOrbStageStep(ClientState conn)
+    internal static int WinterOrbStageStep(Player player)
     {
-        lock (conn.Monsters)
-        {
-            var runtime = conn.OrbRuntime;
-            if (runtime is null) return 0;
-            int max = WinterOrbMaxStages(conn, runtime.SkillId);
-            if (runtime.Stages < max) runtime.Stages++;
-            return runtime.Stages;
-        }
+        var runtime = player.OrbRuntime;
+        if (runtime is null) return 0;
+        int max = WinterOrbMaxStages(player, runtime.SkillId);
+        if (runtime.Stages < max) runtime.Stages++;
+        return runtime.Stages;
     }
 
     /// <summary>
@@ -212,28 +196,25 @@ static partial class Game
     /// repeats share the connection's channel generation (only a release or another action bumps it), so an older repeat
     /// ending must not release the orb the newest one has just taken.
     /// </summary>
-    internal static void WinterOrbRelease(ClientState conn, int generation, int action)
+    internal static void WinterOrbRelease(Player player, int generation, int action)
     {
-        lock (conn.Monsters)
-        {
-            var runtime = conn.OrbRuntime;
-            if (runtime is null || !runtime.Channelling || runtime.ChannelGeneration != generation
-                || runtime.Action != action) return;
-            double now = conn.Clock.Elapsed.TotalSeconds;
-            double duration = WinterOrbDuration(conn, runtime);
-            runtime.Channelling = false;
-            runtime.ExpiresAt = now + duration;
-            runtime.DecaySeconds = duration / Math.Max(1, runtime.Stages);
-            runtime.NextDecayAt = now + runtime.DecaySeconds;
-            // The next volley comes at the released frequency, not the channelled one.
-            double interval = WinterOrbFireSeconds(conn, runtime.SkillId, runtime.Gem.Effect, runtime.Stages,
-                channelling: false);
-            runtime.NextFireAt = Math.Min(runtime.NextFireAt, now + interval);
-            // The icon now counts down, so the same count is presented again with the time left.
-            runtime.PresentedStages = -1;
-            Console.WriteLine($"[gateway] winter orb released at {runtime.Stages} stages: "
-                + $"{duration:0.00}s over {runtime.DecaySeconds:0.00}s a stage");
-        }
+        var runtime = player.OrbRuntime;
+        if (runtime is null || !runtime.Channelling || runtime.ChannelGeneration != generation
+            || runtime.Action != action) return;
+        double now = AreaTime(player);
+        double duration = WinterOrbDuration(player, runtime);
+        runtime.Channelling = false;
+        runtime.ExpiresAt = now + duration;
+        runtime.DecaySeconds = duration / Math.Max(1, runtime.Stages);
+        runtime.NextDecayAt = now + runtime.DecaySeconds;
+        // The next volley comes at the released frequency, not the channelled one.
+        double interval = WinterOrbFireSeconds(player, runtime.SkillId, runtime.Gem.Effect, runtime.Stages,
+            channelling: false);
+        runtime.NextFireAt = Math.Min(runtime.NextFireAt, now + interval);
+        // The icon now counts down, so the same count is presented again with the time left.
+        runtime.PresentedStages = -1;
+        Console.WriteLine($"[gateway] winter orb released at {runtime.Stages} stages: "
+            + $"{duration:0.00}s over {runtime.DecaySeconds:0.00}s a stage");
     }
 
     /// <summary>
@@ -243,19 +224,16 @@ static partial class Game
     /// the buff draws, but no orb and no loop behind it (live 2026-11-09). Queue the instance for removal before the
     /// runtime goes: the combat worker flushes it after the respawn, when the client will accept it.
     /// </summary>
-    internal static void WinterOrbRetire(ClientState conn)
+    internal static void WinterOrbRetire(Player player)
     {
-        lock (conn.Monsters)
-        {
-            var runtime = conn.OrbRuntime;
-            if (runtime is null) return;
-            if (runtime.PresentedBuff != 0) conn.RetiredCombatBuffs.Add((PlayerId, runtime.PresentedBuff));
-            runtime.PresentedBuff = 0;
-            runtime.PresentedStages = -1;
-            runtime.Channelling = false;
-            conn.OrbRuntime = null;
-            Console.WriteLine($"[gateway] winter orb 0x{runtime.ObjectId:x} retired at {runtime.Stages} stages");
-        }
+        var runtime = player.OrbRuntime;
+        if (runtime is null) return;
+        if (runtime.PresentedBuff != 0) player.Area.Buffs.Clear(player.Id, WinterOrbStagesBuffRow, player.Id);
+        runtime.PresentedBuff = 0;
+        runtime.PresentedStages = -1;
+        runtime.Channelling = false;
+        player.OrbRuntime = null;
+        Console.WriteLine($"[gateway] winter orb 0x{runtime.ObjectId:x} retired at {runtime.Stages} stages");
     }
 
     /// <summary>
@@ -263,14 +241,12 @@ static partial class Game
     /// duration goes. It holds no channel reference, so moving, releasing or aiming elsewhere cannot end it early; death,
     /// an area change, a pause-menu reload or a connection close can.
     /// </summary>
-    static async Task RunWinterOrb(ClientState conn, WinterOrbRuntime runtime, long generation)
+    static async Task RunWinterOrb(Player player, WinterOrbRuntime runtime, long generation)
     {
-        var (remote, stream, ciphers) = conn.Wire;
         bool Current()
         {
-            lock (conn.Monsters)
-                return CurrentGameRules && !conn.Closed && !conn.LeavingArea && !conn.RageRetired && conn.PlayerLife > 0
-                    && ReferenceEquals(conn.OrbRuntime, runtime) && runtime.Generation == generation;
+            return CurrentGameRules && !player.Closed && !player.LeavingArea && !player.RageRetired && player.PlayerLife > 0
+                && ReferenceEquals(player.OrbRuntime, runtime) && runtime.Generation == generation;
         }
         try
         {
@@ -278,56 +254,50 @@ static partial class Game
             {
                 double wait;
                 bool fire = false, expire = false;
-                lock (conn.Monsters)
+                if (!Current()) return;
+                double now = AreaTime(player);
+                if (player.Paused) wait = .1;
+                else
                 {
-                    if (!Current()) return;
-                    double now = conn.Clock.Elapsed.TotalSeconds;
-                    if (conn.Paused) wait = .1;
+                    if (!runtime.Channelling)
+                    {
+                        while (runtime.Stages > 0 && now >= runtime.NextDecayAt)
+                        {
+                            runtime.Stages--;
+                            runtime.NextDecayAt += runtime.DecaySeconds;
+                        }
+                        expire = runtime.Stages <= 0 || now >= runtime.ExpiresAt;
+                    }
+                    if (expire) wait = 0;
                     else
                     {
-                        if (!runtime.Channelling)
-                        {
-                            while (runtime.Stages > 0 && now >= runtime.NextDecayAt)
-                            {
-                                runtime.Stages--;
-                                runtime.NextDecayAt += runtime.DecaySeconds;
-                            }
-                            expire = runtime.Stages <= 0 || now >= runtime.ExpiresAt;
-                        }
-                        if (expire) wait = 0;
-                        else
-                        {
-                            fire = now >= runtime.NextFireAt;
-                            wait = runtime.NextFireAt - now;
-                            if (!runtime.Channelling) wait = Math.Min(wait, runtime.NextDecayAt - now);
-                        }
+                        fire = now >= runtime.NextFireAt;
+                        wait = runtime.NextFireAt - now;
+                        if (!runtime.Channelling) wait = Math.Min(wait, runtime.NextDecayAt - now);
                     }
                 }
                 if (expire) break;
                 // The count follows the orb: each stage that decays re-sends the icon, as does the release's timer.
-                await WinterOrbPresentStages(remote, stream, ciphers, conn);
+                await WinterOrbPresentStages(player);
                 if (wait > 0)
                 {
                     // A quarter of a second at most: a release, a retirement or an expiry is heard without waiting for a
                     // long interval to pass.
-                    await Task.Delay(TimeSpan.FromSeconds(Math.Min(wait, .25)));
+                    await AreaDelay(player, Math.Min(wait, .25));
                     continue;
                 }
                 if (!fire) continue;
                 bool channelling;
-                lock (conn.Monsters)
-                {
-                    if (!Current()) return;
-                    double now = conn.Clock.Elapsed.TotalSeconds;
-                    // Fixed cadence: a late volley must not stretch every later one.
-                    double interval = WinterOrbFireSeconds(conn, runtime.SkillId, runtime.Gem.Effect, runtime.Stages,
-                        runtime.Channelling);
-                    do runtime.NextFireAt += interval; while (runtime.NextFireAt <= now);
-                    channelling = runtime.Channelling;
-                    if (!channelling)
-                        Console.WriteLine($"[gateway] {remote} winter orb fires after the release at {runtime.Stages} stages");
-                }
-                await WinterOrbVolley(remote, stream, ciphers, conn, runtime);
+                if (!Current()) return;
+                now = AreaTime(player);
+                // Fixed cadence: a late volley must not stretch every later one.
+                double interval = WinterOrbFireSeconds(player, runtime.SkillId, runtime.Gem.Effect, runtime.Stages,
+                    runtime.Channelling);
+                do runtime.NextFireAt += interval; while (runtime.NextFireAt <= now);
+                channelling = runtime.Channelling;
+                if (!channelling)
+                    Console.WriteLine($"[gateway] {player.Connection.Remote} winter orb fires after the release at {runtime.Stages} stages");
+                await WinterOrbVolley(player, runtime);
             }
         }
         catch (Exception ex) when (ex is IOException or ObjectDisposedException) { }
@@ -336,43 +306,40 @@ static partial class Game
             uint id = 0;
             ushort buff = 0;
             bool remove = false, resume = false;
-            lock (conn.Monsters)
+            bool current = ReferenceEquals(player.OrbRuntime, runtime) && runtime.Generation == generation;
+            // A re-channel that lands between the loop's last expiry check and this cleanup sets the orb live again,
+            // and a re-channel never starts a second loop: the orb must keep this one rather than be torn down.
+            resume = current && runtime.Channelling && CurrentGameRules && !player.Closed && !player.LeavingArea
+                && !player.RageRetired && player.PlayerLife > 0;
+            bool retire = !resume;
+            if (current && retire)
             {
-                bool current = ReferenceEquals(conn.OrbRuntime, runtime) && runtime.Generation == generation;
-                // A re-channel that lands between the loop's last expiry check and this cleanup sets the orb live again,
-                // and a re-channel never starts a second loop: the orb must keep this one rather than be torn down.
-                resume = current && runtime.Channelling && CurrentGameRules && !conn.Closed && !conn.LeavingArea
-                    && !conn.RageRetired && conn.PlayerLife > 0;
-                bool retire = !resume;
-                if (current && retire)
-                {
-                    conn.OrbRuntime = null;
-                    runtime.Channelling = false;
-                }
-                if (retire)
-                {
-                    // The icon belongs to this loop even when something else already detached the runtime (death retires
-                    // the orb from the hit handler before PlayerDiedAtEpoch): remove it here rather than leave the stages
-                    // the player died with on the client until the next orb replaces them.
-                    id = runtime.ObjectId;
-                    buff = runtime.PresentedBuff;
-                    runtime.PresentedBuff = 0;
-                    runtime.PresentedStages = -1;
-                    remove = id != 0 && !conn.Closed && !conn.LeavingArea;
-                }
+                player.OrbRuntime = null;
+                runtime.Channelling = false;
+            }
+            if (retire)
+            {
+                // The icon belongs to this loop even when something else already detached the runtime (death retires
+                // the orb from the hit handler before PlayerDiedAtEpoch): remove it here rather than leave the stages
+                // the player died with on the client until the next orb replaces them.
+                id = runtime.ObjectId;
+                buff = runtime.PresentedBuff;
+                runtime.PresentedBuff = 0;
+                runtime.PresentedStages = -1;
+                remove = id != 0 && !player.Closed && !player.LeavingArea;
             }
             if (resume)
             {
                 using (ExecutionContext.SuppressFlow())
-                    _ = Task.Run(() => RunWinterOrb(conn, runtime, generation));
+                    _ = AreaFrames.Start(() => RunWinterOrb(player, runtime, generation));
             }
             else
             {
                 if (remove)
-                    Console.WriteLine($"[gateway] {remote} winter orb 0x{id:x} expired");
+                    Console.WriteLine($"[gateway] {player.Connection.Remote} winter orb 0x{id:x} expired");
                 // The icon leaves with the orb: the last stage going, death, an area change or a closed connection.
-                if (buff != 0 && !conn.Closed && !conn.LeavingArea)
-                    await Send(remote, stream, ciphers, InstanceEntities.RemoveBuff(PlayerId, buff), null);
+                if (buff != 0 && !player.Closed && !player.LeavingArea)
+                    player.Area.Buffs.Clear(player.Id, WinterOrbStagesBuffRow, player.Id);
             }
         }
     }
@@ -382,38 +349,37 @@ static partial class Game
     /// <c>frost_fury_duration_+%_per_stage</c> (30) as an increase, which is additive with the player's duration stats the
     /// way the game's duration system is, not a multiplication of the whole.
     /// </summary>
-    static double WinterOrbDuration(ClientState conn, WinterOrbRuntime runtime)
+    static double WinterOrbDuration(Player player, WinterOrbRuntime runtime)
     {
-        var supported = SupportedSkill(conn, runtime.SkillId);
-        int Own(string name) => Stats.Key(name) is uint key ? supported.Stats.GetValueOrDefault(key) : 0;
-        var player = CharacterPlayerStats(conn);
-        int Player(string name) => Stats.Key(name) is uint key ? player.GetValueOrDefault(key) : 0;
-        int perStage = Math.Max(0, Own("frost_fury_duration_+%_per_stage"));
+        var supported = SupportedSkill(player, runtime.SkillId);
+        int Own(uint key) => supported.Stats.GetValueOrDefault(key);
+        var playerStats = CharacterPlayerStats(player);
+        int Player(uint key) => playerStats.GetValueOrDefault(key);
+        int perStage = Math.Max(0, Own(Stat.FrostFuryDurationPlusPctPerStage));
         int stages = Math.Max(0, runtime.Stages);
-        return Math.Max(.1, SkillDurationModifiers.Seconds(Own("base_skill_effect_duration"), Player,
+        return Math.Max(.1, SkillDurationModifiers.Seconds(Own(Stat.BaseSkillEffectDuration), Player,
             name => Own(name) + (name == SkillDurationModifiers.IncreasedDuration ? perStage * stages : 0)));
     }
 
     /// <summary>An impact's art at its landing cell, removed once FrostFuryExplode has played.</summary>
-    internal static async Task WinterOrbImpact(string remote, NetworkStream stream, ConnectionCiphers ciphers,
-        ClientState conn, (int X, int Y) at)
+    internal static async Task WinterOrbImpact(Player player, (int X, int Y) at)
     {
         uint id;
-        lock (conn.Monsters) id = conn.TakeObjectId();
+        id = player.TakeObjectId();
         try
         {
-            await Send(remote, stream, ciphers,
+            await Send(player,
                 InstanceEntities.CreateObject(id, InstanceEntities.ObjectTypeHash(EffectObject.TypePath),
                     new EffectObject(at.X, at.Y, WinterOrbImpactArt).Blob()), null);
-            await Send(remote, stream, ciphers, InstanceProtocol.EnterWakeZone(id), null);
+            await Send(player, InstanceProtocol.EnterWakeZone(id), null);
         }
         catch (Exception ex) when (ex is IOException or ObjectDisposedException) { return; }
-        _ = Task.Run(async () =>
+        _ = AreaFrames.Start(async () =>
         {
             try
             {
-                await Task.Delay(WinterOrbImpactMilliseconds);
-                await Send(remote, stream, ciphers, InstanceProtocol.RemoveObject(id), null);
+                await AreaDelay(player, WinterOrbImpactMilliseconds / 1000.0);
+                await Send(player, InstanceProtocol.RemoveObject(id), null);
             }
             catch (Exception ex) when (ex is IOException or ObjectDisposedException or OperationCanceledException) { }
         });
@@ -429,47 +395,43 @@ static partial class Game
     /// The hit lands when the projectile does, not when the button does, so it carries neither the channel's action nor
     /// its generation: the orb keeps firing after the release, when the player has no such action any more.
     /// </summary>
-    internal static async Task WinterOrbVolley(string remote, NetworkStream stream, ConnectionCiphers ciphers,
-        ClientState conn, WinterOrbRuntime runtime)
+    internal static async Task WinterOrbVolley(Player player, WinterOrbRuntime runtime)
     {
         ushort skillId = runtime.SkillId;
-        var gem = GemSkillEffects(conn).FirstOrDefault(g => g.Id == skillId);
+        var gem = GemSkillEffects(player).FirstOrDefault(g => g.Id == skillId);
         if (gem.Name is null || gem.Effect != runtime.Gem.Effect) return;
-        int Stat(string name) => WinterOrbStat(conn, skillId, name);
+        int Stat(uint name) => WinterOrbStat(player, skillId, name);
         (int X, int Y) from;
         List<(uint Id, (int X, int Y) At)> targets;
-        lock (conn.Monsters)
-        {
-            double now = ProjectileWorldTime(conn);
-            from = conn.Walk.Position(now);
-            targets = [.. conn.Monsters
-                .Where(e => e.Value.Hostile && !e.Value.Dead && e.Value.Life > 0 && e.Value.OwnerId is null)
-                .Select(e => (e.Key, At: e.Value.Walk.Position(now)))
-                .Select(e => (e.Key, e.At, Distance: Dist(e.At, from)))
-                .Where(e => e.Distance <= SystemSettings.Default.ProjectileMaximumRangeCells)
-                .OrderBy(e => e.Distance)
-                .Select(e => (e.Key, e.At))];
-            if (targets.Count == 0) return;
-            if (runtime.Stages <= 0) return;
-        }
+        double now = ProjectileWorldTime(player);
+        from = player.Walk.Position(now);
+        targets = [.. player.Area.Monsters
+            .Where(e => e.Value.Hostile && !e.Value.Dead && e.Value.Life > 0 && e.Value.OwnerId is null)
+            .Select(e => (e.Key, At: e.Value.Walk.Position(now)))
+            .Select(e => (e.Key, e.At, Distance: Dist(e.At, from)))
+            .Where(e => e.Distance <= SystemSettings.Default.ProjectileMaximumRangeCells)
+            .OrderBy(e => e.Distance)
+            .Select(e => (e.Key, e.At))];
+        if (targets.Count == 0) return;
+        if (runtime.Stages <= 0) return;
         var anchor = targets[0].At;
-        int count = Math.Clamp(Stat("base_number_of_projectiles") is > 0 and var baseCount ? baseCount : 1, 1, 16);
+        int count = Math.Clamp(Stat(global::Stat.BaseNumberOfProjectiles) is > 0 and var baseCount ? baseCount : 1, 1, 16);
         // The offset stat is in 1/100 m; cells are 1/10 m (GroundSlamWave.CellsPerSecond).
-        int spacing = Math.Max(0, Stat("additional_projectiles_fired_with_distance_offset") / 10);
+        int spacing = Math.Max(0, Stat(global::Stat.AdditionalProjectilesFiredWithDistanceOffset) / 10);
         double dx = anchor.X - from.X, dy = anchor.Y - from.Y;
         double length = Math.Sqrt(dx * dx + dy * dy);
         // A line across the aim; a target on the caster's own cell has no direction, so the line runs east-west.
         double acrossX = length < 1e-6 ? 0 : -dy / length, acrossY = length < 1e-6 ? 1 : dx / length;
         // One stat sheet for the whole volley: its shots leave together, so its speed cannot change between them.
-        float cellsPerSecond = WinterOrbProjectileSpeed(conn, runtime);
+        float cellsPerSecond = WinterOrbProjectileSpeed(player, runtime);
         for (int i = 0; i < count; i++)
         {
             double offset = spacing * (i - (count - 1) / 2.0);
             var landing = ((int)Math.Round(anchor.X + acrossX * offset), (int)Math.Round(anchor.Y + acrossY * offset));
             double seconds = WinterOrbFlightSeconds(cellsPerSecond, from, landing);
-            uint projectile = await WinterOrbProjectile(remote, stream, ciphers, conn, from, landing, seconds);
+            uint projectile = await WinterOrbProjectile(player, from, landing, seconds);
             if (projectile == 0) continue;
-            _ = LandWinterOrbProjectile(remote, stream, ciphers, conn, runtime, projectile, from, landing, seconds);
+            _ = LandWinterOrbProjectile(player, runtime, projectile, from, landing, seconds);
         }
     }
 
@@ -481,12 +443,12 @@ static partial class Game
     /// The row's own speed through <see cref="ProjectileSpeed"/>, so projectile speed modifiers move the landing.
     /// Resolved once per volley: the player's stat sheet and the skill's row are the same for every mortar in it.
     /// </summary>
-    static float WinterOrbProjectileSpeed(ClientState conn, WinterOrbRuntime runtime)
+    static float WinterOrbProjectileSpeed(Player player, WinterOrbRuntime runtime)
     {
-        var own = SupportedSkill(conn, runtime.SkillId).Stats;
-        var player = CharacterPlayerStats(conn);
-        int Own(string name) => Stats.Key(name) is uint key ? own.GetValueOrDefault(key) : 0;
-        int Player(string name) => Stats.Key(name) is uint key ? player.GetValueOrDefault(key) : 0;
+        var own = SupportedSkill(player, runtime.SkillId).Stats;
+        var playerStats = CharacterPlayerStats(player);
+        int Own(uint key) => own.GetValueOrDefault(key);
+        int Player(uint key) => playerStats.GetValueOrDefault(key);
         int units = Skills.ProjectileFor(runtime.Gem.Effect)?.Speed ?? 1500;
         return ProjectileSpeed.CellsPerSecond(units, Player, Own,
             Environment.GetEnvironmentVariable("Game_PROJECTILE_SPEED"));
@@ -508,17 +470,16 @@ static partial class Game
     /// <paramref name="seconds"/> (0x1ba carries a duration, not a speed). The projectile blob wakes the object, so it
     /// needs no 0x1a9 of its own.
     /// </summary>
-    static async Task<uint> WinterOrbProjectile(string remote, NetworkStream stream, ConnectionCiphers ciphers,
-        ClientState conn, (int X, int Y) from, (int X, int Y) to, double seconds)
+    static async Task<uint> WinterOrbProjectile(Player player, (int X, int Y) from, (int X, int Y) to, double seconds)
     {
         uint id;
-        lock (conn.Monsters) id = conn.TakeObjectId();
+        id = player.TakeObjectId();
         try
         {
-            await Send(remote, stream, ciphers,
+            await Send(player,
                 CreateProjectileObject(id, new ProjectileObject(WinterOrbProjectileArt, from.X, from.Y)),
                 $"0x02bb winter orb projectile 0x{id:x} ({from.X},{from.Y})->({to.X},{to.Y}) {seconds:0.000}s");
-            await Send(remote, stream, ciphers,
+            await Send(player,
                 ProjectileHeight.Terrain.MoveTo(id, to.X, to.Y, (float)seconds), null);
         }
         catch (Exception ex) when (ex is IOException or ObjectDisposedException) { return 0; }
@@ -529,21 +490,19 @@ static partial class Game
     /// The mortar lands: its object goes, FrostFuryExplode plays and the skill's area hit lands at that cell. Death, an
     /// area change and a closed connection drop a shot that is still in the air.
     /// </summary>
-    static async Task LandWinterOrbProjectile(string remote, NetworkStream stream, ConnectionCiphers ciphers,
-        ClientState conn, WinterOrbRuntime runtime, uint projectile, (int X, int Y) from, (int X, int Y) at,
+    static async Task LandWinterOrbProjectile(Player player, WinterOrbRuntime runtime, uint projectile, (int X, int Y) from, (int X, int Y) at,
         double seconds)
     {
         try
         {
-            await Task.Delay(TimeSpan.FromSeconds(seconds));
-            lock (conn.Monsters)
-                if (!CurrentGameRules || conn.Closed || conn.LeavingArea || conn.PlayerLife == 0) return;
-            await Send(remote, stream, ciphers, InstanceProtocol.RemoveObject(projectile), null);
-            await WinterOrbImpact(remote, stream, ciphers, conn, at);
-            var gem = GemSkillEffects(conn).FirstOrDefault(g => g.Id == runtime.SkillId);
+            await AreaDelay(player, seconds);
+            if (!CurrentGameRules || player.Closed || player.LeavingArea || player.PlayerLife == 0) return;
+            await Send(player, InstanceProtocol.RemoveObject(projectile), null);
+            await WinterOrbImpact(player, at);
+            var gem = GemSkillEffects(player).FirstOrDefault(g => g.Id == runtime.SkillId);
             if (gem.Name is null || gem.Effect != runtime.Gem.Effect) return;
-            await AreaSkillHit(remote, stream, ciphers, conn, runtime.SkillId, gem, from, at,
-                immediate: true, sequence: conn.ChannelSkillSequence);
+            await AreaSkillHit(player, runtime.SkillId, gem, from, at,
+                immediate: true, sequence: player.ChannelSkillSequence);
         }
         catch (Exception ex) when (ex is IOException or ObjectDisposedException or OperationCanceledException) { }
     }

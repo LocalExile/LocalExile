@@ -4,7 +4,7 @@ using GameServer.Modules.M_questobjects;
 namespace GameServer.Gateway.Tests;
 public sealed class PietySinsTests
 {
-    [Fact]
+    [GameFilesFact]
     public void Sins_room_creates_Piety_and_transitions_her_when_seen()
     {
         const string type = "Metadata/NPC/Act2/PietySins";

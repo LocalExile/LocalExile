@@ -7,6 +7,13 @@ Ordinary bows and catalog gems retain the same counts, scoped extras, aim-sensit
 prohibitions and phase-specific direct admission. Catalog metadata supplies straight flight for other projectile gems;
 it does not establish those skills' special mechanics. Missing metadata or damage plans are refused before costs.
 
+Bow and wand attack gems (`skill_can_fire_arrows`, `skill_can_fire_wand_projectiles`) have no row named after their
+effect. They fire the held weapon's projectile: Projectiles.dat has skill art by weapon (`FrenzyArrow`/`FrenzyWand`,
+`PunctureArrow`, `PowerSiphonProjectile`), matched by name like the other rows (the client's link is not known), else
+`DefaultArrow`/`WandProjectile`. Area, channelled, rain, melee, Vaal and Barrage (`projectiles_barrage`) gems are not
+straight shots and stay refused: Explosive, Galvanic, Ensnaring and Scourge Arrow, Snipe, Kinetic Rain/Fusillade,
+Somatic Shell, Barrage, Vaal Power Siphon.
+
 ## Implemented behavior
 
 | Skill | Enemy contact | Terrain | Maximum range / return endpoint | Quantity and area damage |
@@ -68,30 +75,30 @@ The generic damage adapter captures separate direct/area packets, including area
 KB applies `active_skill_area_damage_+%_final` only at the explosion stage. Skill-owned Arcane Might and Clustering's
 maximum-mana physical addition enter the common attack damage construction, before stage multipliers.
 
-Each group chooses a random initial rotation and divides the circle into N equal sectors for its resolved explosion
-count. One angle is sampled independently inside each sector, visited counter-clockwise. Centers lie on the fixed
-placement circle: 20 cells for normal KB and 28 for Clustering before area scaling. Blast and placement radii scale
-separately. Terrain-blocked center paths are omitted without replacement or redistribution and consume no time slots.
+Placement follows the client ([RE](../re/projectiles/fireball-and-kinetic-blast.md) §4, checked on 3.29.3c):
+an always-sampled roll for `kinetic_blast_%_chance_for_additional_blast` may add one area, then a random phase and N
+equal sectors, visited in index order. Each sector tries up to three angles on the fixed placement circle (20 cells for
+normal KB, 28 for Clustering, before area scaling; no radial draw) and is omitted when all three are blocked. Normal KB
+and Clustering share the client's `ClusterBurst` factory, so both use this order. The client's second, endpoint
+layer-0 test is not modelled: the layer's meaning is unproved, and the server has only the line trace.
+Blast and placement radii scale separately.
 Centers and terrain admission are captured at impact/stop; actors and defenses resolve at each later blast.
-The fixed-circle geometry is a development approximation, not a measured official distribution. Unusual target sizes
-can overlap geometrically; Core supports actor radii while the Gateway currently uses monster centers of radius zero.
+Unusual target sizes can overlap geometrically; Core supports actor radii while the Gateway currently uses monster centers of radius zero.
 Shared area scaling preserves the blast/placement ratio, not the hit count on a stationary nearby target.
 For example, normal KB's inner uncovered distance grows from 6 to 12 cells when both radii double.
 More area therefore increases overall coverage without guaranteeing single-target or nearby-target overlap.
 
-`ClusterDelaySeconds = 0` and `ClusterIntervalSeconds = 1d / 30` are separate recipe parameters.
-Slot i generates its native effect and commits its damage at trigger + delay + i * interval (zero-based i), so four
-slots run at 0, 1/30, 2/30 and 3/30 seconds. The first blast is immediate and each later interval is exactly 4000
-simulation quanta, without rounding to integer milliseconds. These are user-tuned feel values for development,
-not frame measurements or established official timings. After terrain rejection, i indexes only surviving centers:
-the first surviving blast is immediate and later blasts follow at consecutive intervals without timing gaps.
+Timing follows the client's cluster timer (§5, checked on 3.29.3c): the first area on the group's first update,
+then each runtime update (1/30 s) subtracts its elapsed time and, when due, emits exactly one area and adds 0.1 s,
+keeping overdue time without catching up. Omitted sectors leave no time slot; the update after the last area retires
+the group. `ProjectileAreaTimer` holds this rule.
 Pending blasts survive parent continuation/removal, retain the trigger phase and share the simulation pause/teardown.
 The native secondary burst uses `kinetic_blast_small` (`Metadata/Effects/Spells/cluster_burst/mini.ao` by default)
 at each actual center for 0.35 seconds, resolved through the equipped skill-art variation.
 The separate `kinetic_blast_large` main-impact art is not a substitute for these secondary bursts.
 Area art scales by actual blast radius in world units divided by the selected art's exported native radius.
 For example, normal and Celestial small bursts export 125 world units; art with no known radius stays unscaled.
-Exact official random distribution, radial spiral and sequential timing remain uncalibrated. Fireball art uses
+Draws use the server's own random source, not the client's eight-word RNG, so exact angles differ. Fireball art uses
 the selected native variation for 1.5 seconds on actual area events, including the final return event. These lifetimes
 are separate from the KB damage delays. Native height, art alignment and full visual equivalence remain pending
 user-operated client validation.

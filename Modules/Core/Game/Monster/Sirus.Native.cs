@@ -21,22 +21,22 @@ static partial class Sirus
         10973, 9690, 10141, 10945, 8099, 10991];
     static readonly int[] ApparitionEffects = [10967, 10968, 10969, 10954, 9849, 7032, 7033, 9685, 9687, 10956, 10946, 6832, 3629];
     static readonly RuleTable<SkillCatalog, ConcurrentDictionary<(int, byte), (int Level, Dictionary<uint, int> Stats, double Multiplier, int Crit)>> Native = new();
-    static (int Level, Dictionary<uint, int> Stats, double Multiplier, int Crit) Data(ClientState c, int effect, byte level) =>
+    static (int Level, Dictionary<uint, int> Stats, double Multiplier, int Crit) Data(Player c, int effect, byte level) =>
         Native.GetValue(Game.SkillsFor(c), _ => new()).GetOrAdd((effect, level), p => GolemData.Skill(Game.SkillsFor(c), p.Item1, p.Item2));
-    static int Stat(ClientState c, int effect, byte level, string name) => Stats.Key(name) is uint key ? Data(c, effect, level).Stats.GetValueOrDefault(key) : 0;
+    static int Stat(Player c, int effect, byte level, uint name) => name is var key ? Data(c, effect, level).Stats.GetValueOrDefault(key) : 0;
     static int[] Effects(MonsterCatalog.Variety v) => v.Id == Body ? BodyEffects : v.Id == Apparition ? ApparitionEffects : [];
     static ushort Skill(MonsterCatalog.Variety v, int effect) => (ushort)(0x4000 + Array.IndexOf(Effects(v), effect));
-    internal static IReadOnlyList<GrantedSkill>? SkillsFor(ClientState c, MonsterCatalog.Variety v, byte level) =>
+    internal static IReadOnlyList<GrantedSkill>? SkillsFor(Player c, MonsterCatalog.Variety v, byte level) =>
         !IsActor(v) || Effects(v).Length == 0 ? null : [.. Effects(v).Select(e => Game.SkillsFor(c).FindByRow(Skill(v, e), e,
             Data(c, e, level).Level, WithBehaviourVariation(c, e, Attack(c, v, level, e).InPlaceSkillStats()))).OfType<GrantedSkill>()];
-    internal static MonsterAttack Attack(ClientState c, MonsterCatalog.Variety v, byte level, int effect)
+    internal static MonsterAttack Attack(Player c, MonsterCatalog.Variety v, byte level, int effect)
     {
         var damage = DamagePacket.Empty;
         foreach (var type in DamageTypes.ConversionOrder)
         {
             string slug = type.ToString().ToLowerInvariant();
-            int min = Stat(c, effect, level, $"spell_minimum_base_{slug}_damage"), max = Stat(c, effect, level, $"spell_maximum_base_{slug}_damage");
-            if (max == 0) { min = Stat(c, effect, level, $"minimum_base_{slug}_damage"); max = Stat(c, effect, level, $"maximum_base_{slug}_damage"); }
+            int min = Stat(c, effect, level, global::Stat.Of($"spell_minimum_base_{slug}_damage")), max = Stat(c, effect, level, global::Stat.Of($"spell_maximum_base_{slug}_damage"));
+            if (max == 0) { min = Stat(c, effect, level, global::Stat.Of($"minimum_base_{slug}_damage")); max = Stat(c, effect, level, global::Stat.Of($"maximum_base_{slug}_damage")); }
             if (max > 0) damage = damage.Add(type, new(min, max));
         }
         var physical = damage[DamageType.Physical];
@@ -45,26 +45,31 @@ static partial class Sirus
         foreach (var type in DamageTypes.ConversionOrder.Where(t => t != DamageType.Physical))
         {
             string slug = type.ToString().ToLowerInvariant();
-            double fraction = Math.Min(remaining, Math.Max(0, Stat(c, effect, level, "skill_physical_damage_%_to_convert_to_" + slug) / 100d));
+            double fraction = Math.Min(remaining, Math.Max(0, Stat(c, effect, level, global::Stat.Of("skill_physical_damage_%_to_convert_to_" + slug)) / 100d));
             converted = converted.Add(type, damage[type]).Add(type, physical.Scale(fraction)); remaining -= fraction;
         }
         damage = converted.Add(DamageType.Physical, physical.Scale(remaining));
-        return new(Skill(v, effect), Math.Max(.1, Game.SkillsFor(c).CastTimeMs(effect) / 1000d), 200, damage) { Spell = true, Scripted = true };
+        return new(Skill(v, effect), Math.Max(.1, Game.SkillsFor(c).CastTimeMs(effect) / 1000d), 200, damage)
+        {
+            Spell = true, Scripted = true,
+            CorruptedBlood = CorruptedBloodOnHit.From(name => Stat(c, effect, level, name)),
+            Ailments = IncomingAilmentSettings(name => Stat(c, effect, level, name)),
+        };
     }
 
     // The monster set, not the throne or the invulnerable projection, owns the encounter reward.
-    internal static IEnumerable<ItemDrops.Drop> Rewards(ClientState c, SpawnedMonster m)
+    internal static IEnumerable<ItemDrops.Drop> Rewards(Player c, SpawnedMonster m)
     {
         if (c.Layout.Id != Area || m.Variety?.Id != Body || !m.Dead || m.LifePhases?.Completed != 3
             || !c.Instance.SetState(Flag("Rewards"))) yield break;
         // Server weights are deliberately explicit: GGG does not publish the unique drop weights.
-        int roll = Random.Shared.Next(100);
+        int roll = AreaRng(c).Next(100);
         string name = roll < 40 ? "Hands of the High Templar" : roll < 75 ? "Crown of the Inward Eye"
             : roll < 95 ? "The Burden of Truth" : "Thread of Hope";
         var unique = UniquesFor(c).Find(name);
-        if (unique is not null && UniquesFor(c).Create(unique, Random.Shared) is { } item && ItemsFor(c).ByHash(item.TypeHash) is { } type)
+        if (unique is not null && UniquesFor(c).Create(unique, AreaRng(c)) is { } item && ItemsFor(c).ByHash(item.TypeHash) is { } type)
             yield return new(item with { ItemLevel = m.Level }, type);
         foreach (var (query, chance) in new[] { ("Awakener's Orb", 15), ("Orb of Dominance", 10), ("A Fate Worse Than Death", 4) })
-            if (Random.Shared.Next(100) < chance && ModDrop(c, query, m.Level) is { } drop) yield return drop;
+            if (AreaRng(c).Next(100) < chance && ModDrop(c, query, m.Level) is { } drop) yield return drop;
     }
 }

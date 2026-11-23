@@ -64,80 +64,80 @@ sealed class SmokeCloudEffect : IShrineEffect
         return Task.CompletedTask;
     }
 
+    const ZoneKind CloudZones = ZoneKind.ShrineCloud;
+
     public async Task Tick(ShrineContext ctx, ShrineInstance shrine)
     {
-        var conn = ctx.Conn;
-        if (conn.Closed) return;
+        var player = ctx.Player;
+        if (player.Closed) return;
         double now = ctx.Now;
         var inFog = new List<(uint Id, SpawnedMonster Monster)>();
-        bool playerInFog = false;
+        Player[] fogged = [];
         double reach = CloudRadiusCells;
-        lock (conn.Monsters)
+        // A connection that has left the area keeps none of it: the cloud went with the area.
+        if (player.LeavingArea)
         {
-            // A connection that has left the area keeps none of it: the cloud went with the area.
-            if (conn.LeavingArea)
-            {
-                _cloud = 0;
-                _nextBlind = 0;
-                return;
-            }
-            // The standing shrine shrouds its statue; the claimed buff's cloud follows the player.
-            var at = shrine.State == ShrineState.Inactive ? shrine.At : conn.Walk.Position(now);
-            if (_cloud == 0 || Dist(_at, at) > FollowCells)
-            {
-                if (_cloud != 0) conn.Minions.OutputQueue.Add(new(InstanceProtocol.RemoveObject(_cloud), null));
-                _cloud = conn.TakeObjectId();
-                _at = at;
-                var cloud = new EffectObject(at.X, at.Y, CloudArt) { Flags0 = EffectObject.FixedRotation };
-                conn.Minions.OutputQueue.Add(new(InstanceEntities.CreateObject(_cloud,
-                    InstanceEntities.ObjectTypeHash(EffectObject.TypePath), cloud.Blob()), null));
-                conn.Minions.OutputQueue.Add(new(InstanceProtocol.EnterWakeZone(_cloud), null));
-                Console.WriteLine($"[gateway] {conn.Wire.Remote} shrine {shrine.Definition.Id} smoke cloud " +
-                    $"0x{_cloud:x} at ({at.X}, {at.Y}) {shrine.State}");
-            }
-            if (now < _nextBlind) return;
-            _nextBlind = now + BlindRefresh;
-            // The unclaimed shrine's fog blinds whoever walks into it; the claimed shrine's blinds the monsters in it.
-            if (shrine.State == ShrineState.Inactive)
-                playerInFog = Dist(conn.Walk.Position(now), _at) <= reach;
-            else
-                foreach (var (id, m) in conn.Monsters)
-                    if (m is { Hostile: true, Dead: false, Life: > 0 }
-                        && Dist(m.Walk.Position(now), _at) <= reach)
-                        inFog.Add((id, m));
+            DropZones(player, player.Id, CloudZones);
+            _cloud = 0;
+            _nextBlind = 0;
+            return;
         }
-        if (shrine.State == ShrineState.Inactive)
-            foreach (var player in ShrineManager.NearbyPlayers(conn, _at, reach)) InflictPlayerBlind(player, BlindSeconds);
+        // The standing shrine shrouds its statue; the claimed buff's cloud follows the player.
+        var at = shrine.State == ShrineState.Inactive ? shrine.At : player.Walk.Position(now);
+        if (_cloud == 0 || Dist(_at, at) > FollowCells)
+        {
+            if (_cloud != 0) player.Minions.OutputQueue.Add(new(InstanceProtocol.RemoveObject(_cloud), null));
+            _cloud = player.TakeObjectId();
+            _at = at;
+            var cloud = new EffectObject(at.X, at.Y, CloudArt) { Flags0 = EffectObject.FixedRotation };
+            player.Minions.OutputQueue.Add(new(InstanceEntities.CreateObject(_cloud,
+                InstanceEntities.ObjectTypeHash(EffectObject.TypePath), cloud.Blob()), null));
+            player.Minions.OutputQueue.Add(new(InstanceProtocol.EnterWakeZone(_cloud), null));
+            Console.WriteLine($"[gateway] {player.Connection.Remote} shrine {shrine.Definition.Id} smoke cloud " +
+                $"0x{_cloud:x} at ({at.X}, {at.Y}) {shrine.State}");
+        }
+        // The cloud is a zone at it (OwnedZones): the unclaimed shrine's reaches the players, the claimed one's the
+        // hostile monsters.
+        var hostile = ReachesHostileMonsters(player, body: false);
+        SyncZones(player, player.Id, CloudZones, [(shrine.ObjectId, (int)Math.Round(reach), _at)],
+            new(id => shrine.State == ShrineState.Inactive ? IsPlayerId(id.Value) ? 0 : null : hostile(id)));
+        if (now < _nextBlind) return;
+        _nextBlind = now + BlindRefresh;
+        var members = ZoneMembers(player, player.Id, CloudZones, shrine.ObjectId).Select(e => e.Value).ToArray();
+        // The unclaimed shrine's fog blinds whoever walks into it; the claimed shrine's blinds the monsters in it.
+        if (shrine.State == ShrineState.Inactive) fogged = [.. members.Select(id => AreaPlayer(player, id)).OfType<Player>().Where(p => p.PlayerLife > 0)];
+        else
+            foreach (uint id in members)
+                if (player.Area.Monsters.GetValueOrDefault(id) is { Hostile: true, Dead: false, Life: > 0 } m) inFog.Add((id, m));
+        foreach (var peer in fogged) InflictPlayerBlind(peer, BlindSeconds);
         int blinded = 0;
         foreach (var (id, m) in inFog)
-            if (InflictMonsterBlind(conn, id, m, now, (100, 0, BlindSeconds))) blinded++;
+            if (InflictMonsterBlind(player, id, m, now, (100, 0, BlindSeconds))) blinded++;
         // Logged when the count changes rather than on every refresh, which would be a line a second.
         if (blinded == _blindedCount) return;
         _blindedCount = blinded;
-        Console.WriteLine($"[gateway] {conn.Wire.Remote} shrine {shrine.Definition.Id}: the smoke blinds " +
-            $"{blinded} monster(s){(playerInFog ? " and the player" : "")}");
+        Console.WriteLine($"[gateway] {player.Connection.Remote} shrine {shrine.Definition.Id}: the smoke blinds " +
+            $"{blinded} monster(s){(fogged.Length > 0 ? " and the player" : "")}");
         await Task.CompletedTask;
     }
 
     /// <summary>Claiming and expiring both end the cloud this effect laid.</summary>
-    public Task OnActivation(ShrineContext ctx, ShrineInstance shrine) => Clear(ctx.Conn);
+    public Task OnActivation(ShrineContext ctx, ShrineInstance shrine) => Clear(ctx.Player);
 
-    public Task OnExpired(ShrineContext ctx, ShrineInstance shrine) => Clear(ctx.Conn);
+    public Task OnExpired(ShrineContext ctx, ShrineInstance shrine) => Clear(ctx.Player);
 
-    public Task OnMapUnload(ShrineContext ctx, ShrineInstance shrine) => Clear(ctx.Conn);
+    public Task OnMapUnload(ShrineContext ctx, ShrineInstance shrine) => Clear(ctx.Player);
 
-    Task Clear(ClientState conn)
+    Task Clear(Player player)
     {
-        lock (conn.Monsters)
+        if (_cloud != 0)
         {
-            if (_cloud != 0)
-            {
-                conn.Minions.OutputQueue.Add(new(InstanceProtocol.RemoveObject(_cloud), null));
-                _cloud = 0;
-            }
-            _nextBlind = 0;
-            _blindedCount = -1;
+            player.Minions.OutputQueue.Add(new(InstanceProtocol.RemoveObject(_cloud), null));
+            _cloud = 0;
         }
+        _nextBlind = 0;
+        _blindedCount = -1;
+        DropZones(player, player.Id, CloudZones);
         return Task.CompletedTask;
     }
 }

@@ -10,9 +10,20 @@ using GameServer.Core;
 /// </summary>
 public static class HideoutCatalog
 {
+    /// <summary>Fills this type's game data at startup (the world loader, before the Gateway listens).</summary>
+    public static void LoadGameData()
+    {
+        DoodadTypeIndex = DoodadTypes();
+        CollisionRadii = LoadCollisionRadii();
+        HideoutMusicRows = LoadHideoutMusicRows();
+        All = LoadAll();
+        ObjectTypes = LoadObjectTypes();
+    }
+
     /// <summary>The first campaign hideout (Hideouts row 0, found in The Dread Thicket): every character's.</summary>
     public const string DefaultArea = "HideoutForest";
     public const string CraftingBenchType = "Metadata/Terrain/Missions/Hideouts/Objects/HideoutCraftingBench";
+    public const string ItemDisplayCaseType = "Metadata/MiscellaneousObjects/Hideout/ItemDisplayCase";
 
     /// <summary>The standard bench, to the screen-left of the guild stash in the isometric grid.</summary>
     public static Doodad? BenchBesideGuild(Hideout hideout, int guildX, int guildY, Func<int, int, bool>? walkable)
@@ -41,16 +52,18 @@ public static class HideoutCatalog
         public Doodad? First(string type) => Doodads.FirstOrDefault(d => d.Type == type);
     }
 
-    static readonly Lazy<IReadOnlyList<Hideout>> All = new(() =>
+    static IReadOnlyList<Hideout> All = default!;
+
+    static IReadOnlyList<Hideout> LoadAll()
     {
         var list = Load();
         Console.WriteLine(list.Count == 0
             ? "[gateway] hideouts: no hideout_layouts table in client.db, hideouts are off"
             : $"[gateway] hideouts: {list.Count}, default {DefaultOf(list)?.Name ?? "none"}");
         return list;
-    });
+    }
 
-    public static IReadOnlyList<Hideout> Hideouts => All.Value;
+    public static IReadOnlyList<Hideout> Hideouts => All;
 
     // Local server: every exported personal template is available, including UnlockMtx templates.
     public static byte[] OwnedRows => SelectableRows(Hideouts);
@@ -83,30 +96,67 @@ public static class HideoutCatalog
         [(DefaultArea, "Map Device")] = (257, 283),
     };
 
+    /// <summary>Looks up a decoration by MtxTypeGameSpecific HASH32 (from HideoutDoodads).</summary>
+    public static (string? Type, string[]? Models)? DoodadByHash(uint hash) =>
+        DoodadTypeIndex.TryGetValue(hash, out var entry) ? entry : null;
+
+    /// <summary>Collision hull radius for a hideout decoration model, or 0 when none is extracted.</summary>
+    public static double CollisionRadius(string? model) =>
+        model is not null && CollisionRadii.TryGetValue(model, out double r) ? r : 0;
+
+    /// <summary>Returns the track name for a Music.dat row valid in hideouts (or 0xffff default), else null.</summary>
+    public static string? HideoutMusicName(ushort row) =>
+        row == InstanceHideoutEditing.DefaultMusicRow
+            ? HideoutMusicRows.GetValueOrDefault((ushort)0) ?? "Default Hideout Music"
+            : HideoutMusicRows.TryGetValue(row, out var name) ? name : null;
+
+    static Dictionary<uint, (string? Type, string[]? Models)> DoodadTypeIndex = default!;
+    static Dictionary<string, double> CollisionRadii = default!;
+    static Dictionary<ushort, string> HideoutMusicRows = default!;
+
+    static Dictionary<string, double> LoadCollisionRadii()
+    {
+        var radii = new Dictionary<string, double>(StringComparer.Ordinal);
+        foreach (var r in ClientTables.TableOrEmpty("hideout_collision_radii")) radii.TryAdd(r.Text("model")!, r.Real("radius"));
+        return radii;
+    }
+
+    static Dictionary<ushort, string> LoadHideoutMusicRows()
+    {
+        var rows = new Dictionary<ushort, string>();
+        if (!ClientTables.Has("Music")) return rows;
+        foreach (var r in ClientTables.Table("Music"))
+            if (r.Index is >= 0 and <= ushort.MaxValue && r.Bool("IsAvailableInHideout"))
+                rows[(ushort)r.Index] = r.Text("Name") is { Length: > 0 } name ? name : (r.Text("Id") ?? $"Track {r.Index}");
+        return rows;
+    }
+
     /// <summary>An object type's deserialized components and shared-state count (the object_types table), or null.</summary>
     public static (IReadOnlyList<string> Components, IReadOnlyList<string> SharedStates)? TypeOf(string type) =>
-        ObjectTypes.Value.TryGetValue(type, out var t) ? t : null;
+        ObjectTypes.TryGetValue(type, out var t) ? t : null;
 
-    static readonly Lazy<Dictionary<string, (IReadOnlyList<string>, IReadOnlyList<string>)>> ObjectTypes = new(() =>
+    static Dictionary<string, (IReadOnlyList<string>, IReadOnlyList<string>)> ObjectTypes = default!;
+
+    static Dictionary<string, (IReadOnlyList<string>, IReadOnlyList<string>)> LoadObjectTypes()
     {
         var result = new Dictionary<string, (IReadOnlyList<string>, IReadOnlyList<string>)>(StringComparer.Ordinal);
+        var doodadTypes = DoodadTypeIndex.Values.Select(v => v.Type).OfType<string>().ToHashSet(StringComparer.Ordinal);
         var sharedStates = ClientTables.TableOrEmpty("object_type_shared_states").By("type");
         foreach (var (type, t) in global::ObjectTypes.All())
         {
-            if (!type.Contains("Hideout", StringComparison.OrdinalIgnoreCase)) continue;
+            if (!type.Contains("Hideout", StringComparison.OrdinalIgnoreCase) && !doodadTypes.Contains(type)) continue;
             result[type] = (global::ObjectTypes.Components(t), [.. sharedStates[t.Index].Select(s => s.Text("name")!)]);
         }
         return result;
-    });
+    }
 
     // client.db's hideout_layouts, hideout_doodads and hideout_collision_radii (data/hideouts.json from scripts/re/atlas).
     public static List<Hideout> Load()
     {
         if (ClientTables.TableOrNull("hideout_layouts") is not { } layouts) return [];
-        var doodadTypes = DoodadTypes();
+        var doodadTypes = DoodadTypeIndex ?? DoodadTypes();
         var doodadsOf = ClientTables.TableOrEmpty("hideout_doodads").By("hideout");
-        var radii = new Dictionary<string, double>(StringComparer.Ordinal);
-        foreach (var r in ClientTables.TableOrEmpty("hideout_collision_radii")) radii.TryAdd(r.Text("model")!, r.Real("radius"));
+        var radii = CollisionRadii ?? LoadCollisionRadii();
         var result = new List<Hideout>();
         foreach (var h in layouts)
         {

@@ -11,26 +11,29 @@ public static partial class Game
     // A Strike use's extra targets, decided as its swing starts, as the client decides them when its melee action starts
     // (StrikeTargets): the spirit strikes (Ancestral Reach) and the previous location to strike again (Ancestral Echo),
     // whose use also records this one. The returned message, when not null, adds the skill's skill_location_memory buff.
-    // A non-Strike gets nothing. Call under the Monsters lock.
-    static (List<uint> Spirit, (int X, int Y)? Echo, byte[]? MemoryBuff) StrikeExtrasLocked(ClientState conn, ushort skillId,
-        int effect, IReadOnlyDictionary<uint, int> ownStats, (int X, int Y) player, (int X, int Y) centre, ushort sequence,
+    // A non-Strike gets nothing. Call in the area's frame.
+    static (List<uint> Spirit, (int X, int Y)? Echo, byte[]? MemoryBuff) StrikeExtrasLocked(Player player, ushort skillId,
+        int effect, IReadOnlyDictionary<uint, int> ownStats, (int X, int Y) playerAt, (int X, int Y) centre, ushort sequence,
         uint mainTarget, double now)
     {
-        var skills = SkillsFor(conn);
+        var skills = SkillsFor(player);
         if (effect < 0 || !skills.IsStrike(effect)) return ([], null, null);
-        var stats = MergeSkillStats(CharacterPlayerStats(conn), ownStats);
-        int Get(string name) => Stats.Key(name) is uint key ? stats.GetValueOrDefault(key) : 0;
-        int count = StrikeTargets.SpiritStrikes(Get, strike: true, skills.IsVaal(effect), MeleeAttack(conn, effect));
-        var spirit = StrikeTargets.Pick(conn.Monsters.Where(e => e.Value.Hostile && !e.Value.Dead && e.Value.Life > 0)
+        var stats = MergeSkillStats(CharacterPlayerStats(player), ownStats);
+        int Get(uint key) => stats.GetValueOrDefault(key);
+        int count = StrikeTargets.SpiritStrikes(Get, strike: true, skills.IsVaal(effect), MeleeAttack(player, effect));
+        var spirit = StrikeTargets.Pick(player.Area.Monsters.Where(e => e.Value.Hostile && !e.Value.Dead && e.Value.Life > 0)
                 .Select(e => new StrikeTargets.Candidate(e.Key, e.Value.Walk.Position(now), LivingCollision.Size(e.Value))),
-            player, StrikeTargets.Range(Get("extra_target_targeting_distance_+%")), count, sequence, PlayerId,
+            playerAt, StrikeTargets.Range(Get(Stat.ExtraTargetTargetingDistancePlusPct)), count, sequence, player.Id,
             mainTarget == 0 ? new HashSet<uint>() : [mainTarget]);
-        if (!StrikeTargets.StrikesPreviousLocation(Get, strike: true, WeaponProfileFor(conn, activeSet: true).Melee))
+        if (!StrikeTargets.StrikesPreviousLocation(Get, strike: true, WeaponProfileFor(player, activeSet: true).Melee))
             return (spirit, null, null);
-        var echo = conn.StrikeLocations.Use(skillId, player, centre);
-        var (buff, added) = conn.StrikeLocations.Buff(skillId, () => conn.NextBuff++);
-        return (spirit, echo, !added ? null : InstanceEntities.AddBuff(PlayerId, buff, SkillLocationMemoryBuffRow, PlayerId, skillId,
-            activeSkill: skills.ActionHash(effect) is ushort hash ? (skillId, hash) : null,
-            list: [sequence, (uint)player.X, (uint)player.Y, (uint)centre.X, (uint)centre.Y]));
+        var echo = player.StrikeLocations.Use(skillId, playerAt, centre);
+        var (_, added) = player.StrikeLocations.Buff(skillId, () => 1);
+        // One memory buff per skill (its tag): where it was used.
+        if (added)
+            player.Area.Buffs.Set(player.Id, new(SkillLocationMemoryBuffRow, player.Id, skillId,
+                ActiveSkill: skills.ActionHash(effect) is ushort hash ? (skillId, hash) : null,
+                List: [sequence, (uint)playerAt.X, (uint)playerAt.Y, (uint)centre.X, (uint)centre.Y], Tag: skillId));
+        return (spirit, echo, null);
     }
 }

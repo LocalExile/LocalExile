@@ -3,39 +3,51 @@ using GameServer.Core.Protocol.Instance;
 /// <summary>Host-owned, callback-free golem state survives Game replacement; guarded by the area's Monsters lock.</summary>
 public sealed class GolemState
 {
-    public sealed record Saved(string Effect, ushort Skill, double Life = 1, double ReviveSeconds = 0, uint? Host = null, int? Socket = null);
-    public sealed record Awaiting(Saved Saved, double At);
-    public sealed class Golem(uint id, SpawnedMonster monster, GolemCatalog.Definition definition, ushort source)
+    public sealed record MinionResourceSnapshot(uint Life, double LifeRegeneration, EnergyShield.Snapshot EnergyShield);
+    public sealed record Saved(string Effect, ushort Skill, double Life = 1, double ReviveSeconds = 0,
+        double SummonedSecondsRemaining = 0, MinionResourceSnapshot? Resources = null, uint? Host = null, int? Socket = null);
+    public sealed record Awaiting(Saved Saved, double At, GemSourceLifetimes.SourceLifetime? GemSource = null);
+    public sealed class Golem(uint id, SpawnedMonster monster, GolemCatalog.Definition definition, ushort source,
+        GemSourceLifetimes.SourceLifetime? gemSource = null)
     {
         public uint Id = id;
         public SpawnedMonster Monster = monster;
         public GolemCatalog.Definition Definition = definition;
         public ushort Source = source;
+        public readonly GemSourceLifetimes.SourceLifetime? GemSource = gemSource;
         public int GemLevel, Quality, Limit;
+        public MonsterModSet InheritedMods = MonsterModSet.None;
+        public object? SourceIdentity;
+        public Dictionary<uint, int> RetainedSkillStats = [];
         public double SummonedAt, NextMove, LastStep, ReviveAt = double.PositiveInfinity;
-        public double Regeneration, Shield, MaximumShield;
+        public double FreshMeatUntil;
+        public double Regeneration;
+        public readonly EnergyShield ShieldPool = new();
+        public uint Shield => ShieldPool.Current;
+        public uint MaximumShield => ShieldPool.Maximum;
         public int Combo;
         public uint Target;
         public readonly Dictionary<uint, double> Taunts = [];
         public bool CorpseEmpowered;
         public bool DeathBurstDone;
-        public double WrathUntil, ShieldHitAt, NextOrb;
+        public double WrathUntil, NextOrb;
         public int InputHash;
         public Dictionary<uint, int> Own = [], OwnerBuff = [], Player = [];
-        public Dictionary<string, int> Auras = [], Utility = [];
+        public Dictionary<uint, int> Auras = [], Utility = [];
         public readonly Dictionary<ushort, ushort> UtilityBuffs = [];
         public double RecallUntil, RecallRate, BlockedAt = double.NegativeInfinity;
         public Dictionary<byte, Item> Equipment = [];
-        public Dictionary<string, int> Gear = [];
+        public Dictionary<uint, int> Gear = [];
         public SkillCatalog.Unarmed? Weapon;
         public double HolyRegenerationUntil, HolyRegenerationPerSecond;
         public readonly Dictionary<int, Queue<double>> Charges = [];
+        public Charges.State? CombatCharges;
         public IReadOnlyList<GrantedSkill> Skills = [];
         public IReadOnlyList<Ability> Abilities = [];
         public Action? Pending;
+        public Action? Repeat;
         public readonly List<Hazard> Hazards = [];
         public readonly List<Pulse> Pulses = [];
-        public readonly MonsterIgnites Burns = new();
     }
     public sealed record Ability(int Effect, ushort Skill, string Id, MonsterAttack Attack,
         IReadOnlyDictionary<uint, int> Stats, double Radius, double Cooldown, int Uses, double Contact,
@@ -44,9 +56,13 @@ public sealed class GolemState
     {
         public bool Started;
         public double At = ContactAt;
+        public Ability? Original;
+        public int RepeatIndex, RepeatsRemaining;
+        public double UseDamageMore = 1, UseAilmentMore = 1;
     }
     public sealed record Hazard(int Effect, (int X, int Y) At, double Until, double Radius, double DamagePerSecond,
-        GameServer.Core.World.DamageType Type, bool Follows = false, bool Wither = false)
+        GameServer.Core.World.DamageType Type, bool Follows = false, bool Wither = false,
+        double UnitDamagePerSecond = 0, int NormalDamageIncrease = 0)
     {
         public double LastAt;
         public uint? Object;
@@ -79,7 +95,7 @@ public sealed class GolemState
         : All.Values.Where(g => !g.Monster.Dead).OrderBy(g => g.Definition.Kind == kind ? 0 : 1).ThenBy(g => g.SummonedAt).FirstOrDefault();
 }
 
-public sealed partial class ClientState
+public sealed partial class Player
 {
     GolemState? golems;
     public GolemState Golems => System.Threading.LazyInitializer.EnsureInitialized(ref golems);

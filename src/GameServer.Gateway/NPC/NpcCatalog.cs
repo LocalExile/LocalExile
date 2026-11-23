@@ -46,6 +46,9 @@ public sealed class NpcCatalog
         public Shortcut Shortcut { get; init; }
         public bool Automatic { get; init; }
         public bool AutomaticContextSupported { get; init; }
+        /// <summary>Like <see cref="AutomaticContextSupported"/>, but permits league quest flag columns (<c>__col15</c>,
+        /// <c>__col16</c>, <c>__col17</c> != 1, <c>__col18</c>, <c>__col19</c>) for NPCs that opt into league-flag filtering.</summary>
+        public bool AutomaticLeagueContextSupported { get; init; }
         public int Priority { get; init; }
         public IReadOnlyList<string> RequiredFlags { get; init; } = [];
         public IReadOnlyList<string> ExcludedFlags { get; init; } = [];
@@ -53,12 +56,30 @@ public sealed class NpcCatalog
         /// quest's next step: Tarkleigh's first "Dweller of the Deep" has a1q7-ReceivedQuest, the second a1q7-Congratulated).
         /// Of two rows with the same text, the one not heard yet is the quest's next.</summary>
         public IReadOnlyList<string> HeardFlags { get; init; } = [];
+        /// <summary>NPCTalk column 15: league quest flags the row marks as heard. Later rows need them in column 16
+        /// (Kirac's "The Elderslayers" needs 998 from "Brother"; "Elder Reward" needs 994 from "The Elder").</summary>
+        public IReadOnlyList<int> HeardLeagueFlags { get; init; } = [];
         public string? StartFlag { get; init; }
         public string? FinishFlag { get; init; }
         public int? RewardOffer { get; init; }
         /// <summary>The row's second script (NPCTalk Script2).</summary>
         public string Script2 { get; init; } = "";
+        /// <summary>NPCTalk <c>__col17</c>: league quest flag set when chosen (1 is the manual-only sentinel, 1911 is none).</summary>
+        public int? StartLeagueFlag { get; init; }
+        /// <summary>NPCTalk <c>__col19</c>: league quest flag set when finished (1 is the sentinel, 1911 is none).</summary>
+        public int? FinishLeagueFlag { get; init; }
+        /// <summary>NPCTalk <c>__col15</c>: the LeagueQuestFlags rows the row sets when chosen. Data only: 1168 rows of
+        /// many leagues use these three columns (1911 is the "none" sentinel of <c>__col17/__col19</c>), and the server
+        /// applies them only for NPCs that opt in via <see cref="GameEvents.NpcUsesLeagueFlags"/>. The client already
+        /// filters what it shows by them.</summary>
+        public IReadOnlyList<int> LeagueFlagsSet { get; init; } = [];
+        /// <summary>NPCTalk <c>__col16</c>: the LeagueQuestFlags rows the row requires (see <see cref="LeagueFlagsSet"/>).</summary>
+        public IReadOnlyList<int> LeagueFlagsRequired { get; init; } = [];
+        /// <summary>NPCTalk <c>__col18</c>: the LeagueQuestFlags rows that hide the row (see <see cref="LeagueFlagsSet"/>).</summary>
+        public IReadOnlyList<int> LeagueFlagsRefused { get; init; } = [];
         public bool Available(IReadOnlySet<string> flags) => RequiredFlags.All(flags.Contains) && !ExcludedFlags.Any(flags.Contains);
+        public bool Available(IReadOnlySet<string> flags, IReadOnlySet<int> leagueFlags) =>
+            Available(flags) && LeagueFlagsRequired.All(leagueFlags.Contains) && !LeagueFlagsRefused.Any(leagueFlags.Contains);
 
         // A call names one flag or several: Eramir's "Bandit Amulets" (NPCTalk 95) has
         // SetQuestFlag("a2q7-QuestRewardTaken", "a2b-DeliveredAmulets").
@@ -131,47 +152,30 @@ public sealed class NpcCatalog
     static readonly Dictionary<ushort, Placement[]> Towns = new()
     {
         // The Azurite Mine Encampment (Delve_Hub, HASH16 0x8b9b): Niko by the waypoint (333, 402) and the arrival
-        // (330, 420); our own cell (2026-10-21). The hideout Niko's row: the hub's own (DelveMinerHub) lists no Sell Items.
-        [StashCatalog.DelveHub] = [new("Metadata/NPC/League/Delve/DelveMinerHideout", 342, 410, 4.0f)],
-        // The Menagerie (Menagerie_Hub): Einhar placed live with /npc_place Einhar 495 485 290 (2026-10-30). The hideout
-        // Einhar's row: EinharMenagerie has no .ot in the GGPK, and the client drew it without a model.
-        [StashCatalog.MenagerieHub] = [new("Metadata/NPC/League/Bestiary/EinharHideout", 495, 485, 290 * MathF.PI / 180)],
+        // (330, 420); our own cell (2026-10-21). DelveMinerHub lists View Subterranean Chart, Flares and Dynamite
+        // (row 1754, completing delve2), Fractured Walls, Sell Items (row 1788) and Identify Items (row 1800).
+        [StashCatalog.DelveHub] = [new("Metadata/NPC/League/Delve/DelveMinerHub", 342, 410, 4.0f)],
+        // The Menagerie (Menagerie_Hub): Einhar placed live with /npc_place Einhar 495 485 290 (2026-10-30).
+        // EinharMenagerie has no .ot of its own (Metadata/NPC/NPC), so pass the room line's model (entrance.arm) so he
+        // renders with Einhar's model while keeping the Menagerie's own NPCTalk rows ("The Blood Altar", row 1600).
+        [StashCatalog.MenagerieHub] = [new("Metadata/NPC/League/Bestiary/EinharMenagerie", 495, 485, 290 * MathF.PI / 180,
+            Model: "Metadata/NPC/League/Bestiary/Einhar.ao")],
         // The Forbidden Sanctum (SanctumFoyer_Fellshrine): Divinia by the waypoint (126, 149), to be placed live with /npc_place.
         // Kingsmarch (KalguuranSettlersLeague): its NPCs around the arrival (offsets, StashCatalog.FromArrival), to be placed
-        // live with /npc_place.
+        // live with /npc_place. Dannig, Faustus and Isla (Functions or ControlZone, which NpcObject now writes) come back
+        // with their live placement: their offsets are unchecked, and VillageFaustus has no currency exchange.
         [StashCatalog.Kingsmarch] =
         [
             new("Metadata/NPC/League/Kalguur/VillageMayor", 0, -14, 4.0f),
             new("Metadata/NPC/League/Kalguur/VillageTujen", 10, -12, 4.0f),
             new("Metadata/NPC/League/Kalguur/VillageGwennen", -10, -12, 4.0f),
             new("Metadata/NPC/League/Kalguur/VillageRog", 14, -4, 4.0f),
-            new("Metadata/NPC/League/Kalguur/VillageDannig", -14, -4, 4.0f),
-            new("Metadata/NPC/League/Kalguur/VillageFaustus", 14, 6, 4.0f),
-            new("Metadata/NPC/League/Kalguur/VillageIsla", -14, 6, 4.0f),
             new("Metadata/NPC/League/Kalguur/VillageFarmer", 8, 14, 4.0f),
             new("Metadata/NPC/League/Kalguur/VillageRecruiter", -8, 14, 4.0f),
         ],
-        // The Rogue Harbour (HeistHub): Kurai, Faustus, Adiyah, Whakano and the nine rogues in a ring around the arrival
-        // (offsets, StashCatalog.FromArrival), to be placed live with /npc_place.
-        [StashCatalog.HeistHub] =
-        [
-            new("Metadata/NPC/League/Heist/TheBoss", 18, 0, 4.0f),
-            new("Metadata/NPC/League/Heist/Fence", 16, 8, 4.0f),
-            new("Metadata/NPC/League/Heist/Driver", 10, 15, 4.0f),
-            new("Metadata/NPC/League/Heist/Barber", 2, 18, 4.0f),
-            new("Metadata/NPC/League/Heist/Lockpick1", -6, 17, 4.0f),
-            new("Metadata/NPC/League/Heist/Interrogator1", -13, 12, 4.0f),
-            new("Metadata/NPC/League/Heist/Soldier1", -17, 4, 4.0f),
-            new("Metadata/NPC/League/Heist/HeavyLifter1", -17, -4, 4.0f),
-            new("Metadata/NPC/League/Heist/Detector1", -13, -12, 4.0f),
-            new("Metadata/NPC/League/Heist/Demolitionist1", -6, -17, 4.0f),
-            new("Metadata/NPC/League/Heist/CatBurglar1", 2, -18, 4.0f),
-            new("Metadata/NPC/League/Heist/Illusionist1", 10, -15, 4.0f),
-            new("Metadata/NPC/League/Heist/Engineer1", 16, -8, 4.0f),
-        ],
-        // The Monastery of the Keepers (ChayulaLeague): Ailith by the arrival (an offset, StashCatalog.FromArrival), to be
-        // placed live with /npc_place.
-        [StashCatalog.ChayulaHub] = [new("Metadata/NPC/League/Chayula/ChayulaFarmerHub", 0, -16, 4.0f)],
+        // The Rogue Harbour (HeistHub) is a TownNpcs room: its hub room names its NPCs.
+        // The Monastery of the Keepers (ChayulaLeague): Ailith (ChayulaFarmerHub, ControlZone) comes with her live placement
+        // (/npc_place); an offset from the arrival is a guess.
         [StashCatalog.SanctumHub] = [new("Metadata/NPC/League/Sanctum/SanctumNPCTown", 136, 158, 4.0f)],
     };
 
@@ -213,6 +217,14 @@ public sealed class NpcCatalog
             && t.StartFlag is { } start && !flags.Contains(start) && t.Available(flags))
         .OrderByDescending(t => t.Priority).FirstOrDefault();
 
+    public Talk? NextConversationOf(Npc npc, IReadOnlySet<string> flags, IReadOnlySet<int> visited, IReadOnlySet<int> leagueFlags) => TalksOf(npc)
+        .Where(t => t.Automatic && (t.AutomaticContextSupported || t.AutomaticLeagueContextSupported) && !visited.Contains(t.Row)
+            && (t.Introduction || t.Category is "Quests" or "QuestReward")
+            && (t.StartFlag is { } start && !flags.Contains(start)
+                || t.StartLeagueFlag is int startLeague && !leagueFlags.Contains(startLeague))
+            && t.Available(flags, leagueFlags))
+        .OrderByDescending(t => t.Priority).FirstOrDefault();
+
     /// <summary>The option a click with <paramref name="keys"/> held picks: the NPC's first row with that shortcut whose
     /// quest flags the character meets (rows that share one differ in them: Alva's "View Temple" in the player's own
     /// hideout, else "Sell Items"). The rows' other conditions (17-npcs.md §3) are not read, as for a picked option.</summary>
@@ -223,6 +235,12 @@ public sealed class NpcCatalog
     {
         int source = TalkSource(npc).Row;
         return _talk.Values.Any(t => t.Npc == source && t.RewardOffer == offer && t.Available(flags));
+    }
+
+    public bool HasAvailableReward(Npc npc, int offer, IReadOnlySet<string> flags, IReadOnlySet<int> leagueFlags)
+    {
+        int source = TalkSource(npc).Row;
+        return _talk.Values.Any(t => t.Npc == source && t.RewardOffer == offer && t.Available(flags, leagueFlags));
     }
 
     /// <summary>The quest reward offers any NPC currently shows (the quests complete), for the vendors' gem stock.</summary>
@@ -333,6 +351,13 @@ public sealed class NpcCatalog
             int category = Int("Category");
             int OptionalInt(string name) => (r.IntOrNull(name) ?? -1);
             string[] FlagList(string name) => [.. r.Ints(name).Where(i => i >= 0 && i < flags.Count).Select(i => flags[i])];
+            int col17 = OptionalInt("__col17"), col19 = OptionalInt("__col19");
+            bool nonLeagueAutoContext = !r.IsNull("__col28") && r.Ints("__col28").Length == 0
+                && OptionalInt("__col27") == 60 && OptionalInt("__col29") == 60
+                && OptionalInt("__col31") == 0 && OptionalInt("__col32") < 0
+                && r.Has("BaseItemTypes") && r.IsNull("BaseItemTypes")
+                && r.BoolOrNull("__col14") == false
+                && r.BoolOrNull("__col20") == false;
             talk.Add(new Talk(talk.Count, Int("NPCKey"), Int("__col1"), r.Text("DialogueOption") ?? "",
                 category >= 0 && category < names.Count ? names[category] : "", r.Text("Script") ?? "",
                 [.. r.Ints("NPCTextAudioKeys")])
@@ -341,18 +366,22 @@ public sealed class NpcCatalog
                 Shortcut = OptionalInt("__col22") is >= 1 and <= 3 and var keys ? (Shortcut)keys : Shortcut.None,
                 Automatic = r.BoolOrNull("__col33") == true,
                 Priority = OptionalInt("__col34"),
-                AutomaticContextSupported = new[] { "__col15", "__col16", "__col18", "__col28" }
-                    .All(k => !r.IsNull(k) && r.Ints(k).Length == 0)
-                    && OptionalInt("__col17") == 0x777 && OptionalInt("__col19") == 0x777
-                    && OptionalInt("__col27") == 60 && OptionalInt("__col29") == 60
-                    && OptionalInt("__col31") == 0 && OptionalInt("__col32") < 0
-                    && r.Has("BaseItemTypes") && r.IsNull("BaseItemTypes")
-                    && r.BoolOrNull("__col14") == false
-                    && r.BoolOrNull("__col20") == false,
+                AutomaticContextSupported = nonLeagueAutoContext
+                    && new[] { "__col15", "__col16", "__col18" }.All(k => !r.IsNull(k) && r.Ints(k).Length == 0)
+                    && col17 == 0x777 && col19 == 0x777,
+                AutomaticLeagueContextSupported = nonLeagueAutoContext
+                    && (col17 == 0x777 || col17 is > 1 and <= Quests.League.Count)
+                    && (col19 == 0x777 || col19 is > 1 and <= Quests.League.Count),
                 RequiredFlags = FlagList("QuestFlag1"), ExcludedFlags = FlagList("QuestFlag2"), HeardFlags = FlagList("QuestFlag3"),
+                HeardLeagueFlags = [.. r.Ints("__col15").Where(i => i is > 0 and < 0x777)],
                 StartFlag = Flag(OptionalInt("QuestFlag4")), FinishFlag = Flag(OptionalInt("QuestFlag5")),
+                StartLeagueFlag = col17 is > 1 and <= Quests.League.Count ? col17 : null,
+                FinishLeagueFlag = col19 is > 1 and <= Quests.League.Count ? col19 : null,
                 RewardOffer = OptionalInt("QuestRewardOffersKey") is int offer and >= 0 ? offer : null,
                 Script2 = r.TextOrNull("Script2") ?? "",
+                LeagueFlagsSet = r.IsNull("__col15") ? [] : [.. r.Ints("__col15")],
+                LeagueFlagsRequired = r.IsNull("__col16") ? [] : [.. r.Ints("__col16")],
+                LeagueFlagsRefused = r.IsNull("__col18") ? [] : [.. r.Ints("__col18")],
             });
         }
         return talk;

@@ -50,8 +50,9 @@ three amulets (its script names two flags); The Apex is built as a reward; `Fini
 `a2q8-KilledShadowMonster`. Found live: The Vaal Ruins had no exits and The Wetlands no tree exit (fixed: exits
 resolved by their room, numbered exit models), the Ancient Seal's static model hung the client (its record's
 `bossrelease.ao` now), and of two dialogue rows with one text the runner must take the unheard one (Yeena 133/134).
-Not done: the bandit vote (help a lord); the automation kills all three. Greust's start row needs
-`a2b-StartNewQuests`, which nothing sets this early.
+The automation kills all three bandits. Solo players can choose to help a leader through the
+[native dialogue](../../protocol/17-npcs.md). Greust's start row needs `a2b-StartNewQuests`,
+which nothing sets this early.
 
 ## Areas
 

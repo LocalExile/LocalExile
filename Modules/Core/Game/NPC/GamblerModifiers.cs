@@ -7,21 +7,27 @@ public readonly record struct GamblerModifiers(int DamageExtraRolls = 0, int Ene
     int TripleDamageChance = 0, int DamageMorePct = 0, int InvertElementalResistanceChance = 0, int EnemyHitsNinetyResistanceChance = 0,
     int DoubleDamageChance = 0, int SpellDoubleDamageChance = 0)
 {
-    public static GamblerModifiers From(Func<string, int> get) => new(
-        get("base_extra_damage_rolls"), get("base_enemy_extra_damage_rolls"),
-        get("base_chance_to_deal_triple_damage_%"), get("marauder_hidden_ascendancy_damage_+%_final"),
-        get("treat_enemy_resistances_as_negated_on_elemental_damage_hit_%_chance"),
-        get("enemy_hits_%_chance_to_treat_elemental_resistances_as_90%"),
-        get("chance_to_deal_double_damage_%"), get("spell_chance_to_deal_double_damage_%"));
+    public static GamblerModifiers From(Func<uint, int> get) => new(
+        get(Stat.BaseExtraDamageRolls), get(Stat.BaseEnemyExtraDamageRolls),
+        get(Stat.BaseChanceToDealTripleDamagePct), get(Stat.MarauderHiddenAscendancyDamagePlusPctFinal),
+        get(Stat.TreatEnemyResistancesAsNegatedOnElementalDamageHitPctChance),
+        get(Stat.EnemyHitsPctChanceToTreatElementalResistancesAs90Pct),
+        get(Stat.ChanceToDealDoubleDamagePct), get(Stat.SpellChanceToDealDoubleDamagePct));
 
     /// <summary>One skill's hit: the skill's own chance to deal double damage (Heavy Strike's gem) adds to the player's,
     /// a spell adds spell_chance_to_deal_double_damage_%, and the final repeat of a spell adds Awakened Spell Echo's
     /// spell_echo_plus_chance_double_damage_%_final.</summary>
-    public GamblerModifiers ForSkill(Func<string, int> skill, bool spell, bool finalRepeat = false) => this with
+    public GamblerModifiers ForSkill(Func<uint, int> skill, bool spell, bool finalRepeat = false) => this with
     {
-        DoubleDamageChance = DoubleDamageChance + skill("chance_to_deal_double_damage_%") + (spell ? SpellDoubleDamageChance : 0)
-            + (spell && finalRepeat ? skill("spell_echo_plus_chance_double_damage_%_final") : 0),
+        DoubleDamageChance = DoubleDamageChance + skill(Stat.ChanceToDealDoubleDamagePct) + (spell ? SpellDoubleDamageChance : 0)
+            + (spell && finalRepeat ? skill(Stat.SpellEchoPlusChanceDoubleDamagePctFinal) : 0),
     };
+
+    /// <summary>"Attacks with this Weapon deal Double Damage" (Paradoxica's weapon-local local_double_damage_with_attacks):
+    /// every hit of an attack made with that weapon doubles. <paramref name="weaponLocal"/> holds the local stats of the
+    /// hand that made the hit (null for a spell or a shield's swing), so the other hand's weapon never doubles it.</summary>
+    public GamblerModifiers ForWeapon(IReadOnlyDictionary<uint, int>? weaponLocal) =>
+        weaponLocal?.GetValueOrDefault(Stat.LocalDoubleDamageWithAttacks) is > 0 ? this with { DoubleDamageChance = 100 } : this;
 
     /// <summary>Growing Accumulator's less damage applies to hits and damage over time; triple damage only to hits.</summary>
     public bool InvertsResistance(Random random) => RandomRolls.Chance(InvertElementalResistanceChance, 100, random);

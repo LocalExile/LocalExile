@@ -174,6 +174,21 @@ the client runs. The bundle index also stores every path (about 1.2 million): `l
 ones (e.g. `dotnet run --project scripts/re/ggdump -- Client/Content.ggpk out list "beachtown_v2/"`). `.ot` files are UTF-16
 with a BOM; `.datc64` files are rows followed by `0xbb×8` and the variable data section.
 
+In a contributor's test on 2026-11-20, a copy of the 3.29.3c release client loaded a custom index and bundle and
+displayed the supplied tables and art.
+- A chunk may be one uncompressed Kraken block: `CC 06` and up to 262,144 bytes as they are (the chunk's size is 2 more).
+  The client's `OodleLZ_Decompress` (`0x142c9d520`) unpacked the stored bytes. The same raw payload failed with
+  `8C 06` in place of `CC 06` and when supplied without a block header.
+- The bundle header's u32 at offset 16 is 1 in the client's own index. The test index with 0 there closed the client
+  during startup, before `[ENGINE] Ready` in the log. With 1 the client loaded the index.
+- The index's file records are not sorted by hash. A new file's record added at the end, with its path added to its
+  directory's block, is found.
+- A directory record's hash is MurmurHash64A (seed `0x1337b33f`) of the lower-case directory path without a trailing
+  slash: true of all 74,033 directories that have files of their own in 3.29.3c. Each block lists one directory's files. The other 12,176
+  records yield no file paths when decoded.
+- `art/uiimages1.txt` is UTF-16LE without a BOM, a line per sprite: `"<name>" "<texture>.dds" x1 y1 x2 y2`. For
+  `InGame/BreachItemSymbol` both coordinate differences are 43. For its `InGame/4K/` variant both are 58.
+
 ## 4. Frida through REA (live client)
 
 REA's MCP tools: `start_frida_session` (mode `attach`, `pid`), `load_frida_script` (inline source), `frida_session_status`
@@ -307,8 +322,8 @@ These passes also need Python with `capstone` and `pefile`, and Unicorn in `Tool
 | `content/files/`, `content/textures/`, `content/extensions.tsv` | every GGPK file, NTFS-compressed only when free space is short (`.dds` 94 GB, 1.5:1 with LZX); the index's size per extension |
 
 Measured on Game.exe: `.pdata` adds only 71 functions to the analysis (it had the rest), and after the fragment and switch
-passes 28 KB of `.text` stays undefined, mostly multi-byte nops. `Client/PathOfExile.exe` here is only the first 1.7 MB of `Game.exe`, so its headers
-describe code the file lacks; do not analyze it. A decompile's quality is capped by the binary: locals and most functions have no names.
+passes 28 KB of `.text` stays undefined, mostly multi-byte nops. `Client/PathOfExile.exe` can be only the first bytes of `Game.exe`,
+or a copy of it; the script skips both. A decompile's quality is capped by the binary: locals and most functions have no names.
 
 `NightRetry.java` gives failed functions a long timeout and falls back to p-code, which the earlier decompiler passes can
 still return (they print no C); such a file says so on its second line. Measured on this laptop:
@@ -360,7 +375,12 @@ Other formats:
   ooz-wasm rejects nine small blocks at their real size. Eight unpack with a larger output buffer, and their tracks parse from
   the first `size` bytes; `art/models/cinematic/facecrack/effects/rig.ast` (Leviathan) does not.
 - `<file>.header` repeats what the client needs before streaming the file (`0x1411ce9f0`, `0x1411ceef0`, `0x141149220`, u64
-  counts, padded with zeros): `.dds.header` holds the DDS header and smallest mips.
+  counts, padded with zeros): `.dds.header` holds the DDS header and smallest mips. For the Chaos Orb icon
+  (`Art/2DItems/Currency/CurrencyRerollRare.dds`, 80×80) the `.dds` is a DX10 DDS, DXGI format 28 (R8G8B8A8,
+  uncompressed), every mip down to 1×1; its `.dds.header` is u32 3, width, height, mip count, 21 (meaning unknown), the
+  size of the DDS that follows, the `.dds` file's size, then a legacy DDS (masks `ff`, `ff00`, `ff0000`, `ff000000`) of
+  its five smallest mips (20, 10, 5, 2, 1 pixels wide). A pair written to that layout shows as the item's art
+  in the client (live 2026-11-20).
 - `.tdt` (`0x1429fc500`): a file with a parent has a mask byte saying which groups it overrides. Grids are LZ4 blocks that
   unpack to 1, 2, 4 or 8 bits per cell plus a palette (`0x1429ff000`). Names of its later fields are not known.
 - `.mtp` (`0x141178730`) is a texture atlas keyed by `.tdt` path, `.pjd` (`0x141f03cf0`) three record lists with ranges into
@@ -399,6 +419,12 @@ Other formats:
 
 How 3.29.3b → 3.29.3c was ported; every step maps from evidence, nothing by offset guessing.
 
+A build whose functions did not move (`compare_builds.py` passes its first two checks) needs none of this for the
+decompile: `port_build.py <old exe> <new exe> <old full/game> <new game dir> [--index-only]` rewrites the data
+addresses of section 9's output in minutes and lists what it cannot prove. Two surprises: strings change text in place
+(the build number, and the per-compile hash in anonymous-namespace names `?A0x…`), and constants one build folded into
+one address can be separate in the other, so an address can have several new ones.
+
 1. **Address map.** Import and analyze the new executable into a separate Ghidra project, add the old one, and run
    `AutoVersionTrackingScript.java` with `PortVtOptions.java` as the first post-script (the stock options without the
    duplicate-function correlator, which ran for hours without finishing). Run `NightRecover.java` and
@@ -426,19 +452,23 @@ How 3.29.3b → 3.29.3c was ported; every step maps from evidence, nothing by of
    message ids; its report needs reading line by line, since stat keys, offsets after another id (`0x22 + 0x2b9`) and
    ClientStrings rows share the range. Re-check every script's code signature against the new executable.
 
-**The 3.29.3.5 hotfix needs no port.** Its `PathOfExile.exe` (build 328126, still "3.29.3c") has the 3.29.3c release's
-sections and all 148,967 `.pdata` functions at the same addresses; every `.text` difference is a RIP-relative
-displacement, because `.rdata` and `.data` moved by a few bytes (mostly -0x30, +0x10, -0x80). Code addresses and
-message ids are unchanged; addresses of globals, vtables and strings are not, so a script that uses one needs the
+**The already-supported 3.29.3.5 hotfix.** Its `PathOfExile.exe` (build 328126, still "3.29.3c") has the 3.29.3c release's
+sections and all 148,967 `.pdata` functions at the same addresses. Most `.text` differences reference moved data,
+but a fresh comparison also reports four changed immediates (`0x140e61a01`, `0x14182f300`, `0x142e15d25`,
+`0x142e15d49`) and two changed fields outside `.pdata` spans (`0x1420f4065`, `0x1420f4071`). Their semantics remain
+unresolved; the comparator reports **not proven equal**, not unconditional whole-program equivalence.
+Selected network contracts are checked separately below. Globals, vtables and strings move, so a script needs the
 hotfix value. The login-key offset (`0x2fc91f0`) and the HNC mask are equal. The patch changed only
 `Bundles2/Tiny_02.bundle.bin` and the index: no table, and one server-read file
 (`metadata/pet/edictspearutilitypet/edictspearutilitypet.ot`).
 
-**3.29.3d needs no port either** (build 328228, 2026-11-10, the end of the Allflame league). It has 3.29.3.5's
+**The already-supported 3.29.3d** (build 328228, 2026-11-10, the end of the Allflame league). It has 3.29.3.5's
 sections and `.pdata` functions. Of 234,255 changed instructions all but two refer to data that moved; the two
 (`0x140ead440`, `0x140ead44c`, and the same pair again at `0x140ead804` and `0x140ead80d`) swap the thread-local
 offsets `0x6f0` and `0x6f8` of two variables. The HNC mask is at `0x142feaeb0`, 0x20 lower. All 942 tables and
 the 132,753 files `game-pack pack` takes are identical.
+The changed offsets are observed; equivalence of the affected TLS state is unresolved. Equal selected network
+contracts below do not resolve these whole-program comparator exceptions or change the admission rule.
 
 **A build that needs no port gets a row in `ClientBuilds`** (`src/GameServer.Core/Protocol/ClientBuilds.cs`).
 LocalExile runs only the builds listed there, each recognized by the SHA-256 of its unpatched executable; the launcher,
@@ -474,3 +504,38 @@ changes which of several identical functions a class table's entry names, so a c
 byte-equal between two builds with the same code.
 
 A moved function or a changed table is a port: the first list of this section.
+
+### Network contract evidence
+
+`scripts/re/port/network_contracts.json` pins the originals by full SHA-256: historical 3.29.3b, 3.29.3c release,
+3.29.3.5 hotfix and 3.29.3d. It retains function spans, field-reading instructions, the correction/teleport/removal
+switch routes and build-specific data targets for the Predictive investigation. Labels are analyst names.
+Structural matches normalize calls and RIP-relative operands; they do not prove every callee or referenced datum
+equivalent. The manifest distinguishes selected callee checks and unresolved comparator exceptions.
+
+From the checkout root, with Python and Capstone installed (`python -m pip install capstone`), run:
+
+```powershell
+python -I scripts/re/port/verify_network_contracts.py --client "C:\clients\3.29.3b\PathOfExile.exe" --client "C:\clients\3.29.3c\PathOfExile.exe" --client "C:\clients\3.29.3.5\PathOfExile.exe" --client "C:\clients\3.29.3d\PathOfExile.exe" --require-all
+```
+
+Replace the four paths with retained **unpatched originals**. The command reads them without writing; each result
+must have an empty `errors` list, `missing_builds` must be empty, and exit status must be 0. A single `--client`
+checks that build only; omit `--require-all` for that case. Unknown hashes are refused. Byte/span checks reproduce
+the retained observations; they are not whole-program or live gameplay parity tests.
+
+The 0x128 route maps from 3.29.3b `0x14214ef81` to `0x1421558d1` in all three later executables. The client skips
+it in Lockstep; Predictive applies its distance tests to the player-first snapshot, as described in
+[07 §5](../protocol/07-latency-visibility-movement.md). Actor 0x1ac decrements `+0x22c` before the mode branch;
+the Predictive branch releases an eligible server-created action. It is not a generic action stop.
+
+The native manifest records the position-tracking field evidence for the three supported originals:
+message kind `+8`, object id `+0x10`, Actor local flag `+0x1c8`, Actor `+8` → entity `+0x98` → Positioned,
+grid coordinates `+0x294/+0x298`, and movement-step duration `+0x240`. Position tracking reads no absolute globals.
+The world handler takes its message in the second argument; the third register is not a second candidate message.
+The sampled movement indicator means nonzero step duration, not independently measured velocity.
+
+Review of GGG/retail Predictive behavior supports player-first correction ordering. This finding does not establish
+a universal correction radius or send timer. The executable checks above independently verify the selected
+client-side contracts; they do not reproduce GGG's server implementation or prove gameplay parity.
+These findings concern 3.29; message-id mappings must follow the relevant build rather than importing 3.30 mappings.

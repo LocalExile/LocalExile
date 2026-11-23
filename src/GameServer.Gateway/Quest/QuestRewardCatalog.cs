@@ -10,11 +10,23 @@ public sealed class QuestRewardCatalog
     public sealed record Choice(uint Id, int ItemRow, int Level, int Stack, IReadOnlyList<int> Classes)
     {
         public int? Rarity { get; init; }
+        /// <summary>A league quest flag required for this choice to be offered (<c>__col13</c>, a <see cref="Quests.League"/>
+        /// id; the table's out-of-range 1911 is none).</summary>
+        public int? RequiredLeagueFlag { get; init; }
     }
     /// <summary>A QuestRewardOffers row. <paramref name="TakenFlag"/> is the row's QuestFlag, null when it has none: the
     /// quest books, keys and other quest items, whose own Quest flags (grant_flag held, remove_flag once used) tell that
     /// the reward was taken (<see cref="Claim"/>).</summary>
-    public sealed record Offer(int Row, string? TakenFlag, IReadOnlyList<Choice> Choices);
+    public sealed record Offer(int Row, string? TakenFlag, IReadOnlyList<Choice> Choices)
+    {
+        /// <summary>The row's league quest flag taken flag (<c>__col3</c>, a <see cref="Quests.League"/> id; the table's
+        /// out-of-range 1911 is none): an offer every character of the league takes once, such as a league's tutorial
+        /// reward. With it the offer is taken when the account's league holds the flag.</summary>
+        public int? TakenLeagueFlag { get; init; }
+        /// <summary>Whether each choice is offered whenever not already carried (rather than a single once-only claim):
+        /// offers without a <see cref="TakenFlag"/> whose <c>__col5</c> and <c>__col6</c> are both set.</summary>
+        public bool Reclaimable { get; init; }
+    }
     readonly Dictionary<int, Offer> offers = [];
     public Offer? Find(int row) => offers.GetValueOrDefault(row);
     public IReadOnlyCollection<Offer> Offers => offers.Values;
@@ -40,18 +52,26 @@ public sealed class QuestRewardCatalog
                 r.Int("Reward"), r.Int("RewardLevel"), r.Int("RewardStack"), r.Ints("Characters"))
             {
                 Rarity = r.IntOrNull("__col5"),
+                RequiredLeagueFlag = r.Has("__col13") && r.IntOrNull("__col13") is int lf and > 0 and <= Quests.League.Count ? lf : null,
             }).ToArray());
         foreach (var r in ClientTables.Table("QuestRewardOffers"))
         {
             int index = r.Index;
+            int? league = r.Has("__col3") && r.IntOrNull("__col3") is int l and > 0 and <= Quests.League.Count ? l : null;
             // Without a QuestFlag the offer is taken when its quest item's flags say so (the Act 1 books: offers 5, 6, 9, 11).
             if (r.IntOrNull("QuestFlag") is not int f)
             {
-                result.offers[index] = new(index, null, byOffer.GetValueOrDefault(index) ?? []);
+                bool reclaimable = r.Has("__col5") && r.IntOrNull("__col5") is > 0
+                    && r.Has("__col6") && r.IntOrNull("__col6") is > 0;
+                result.offers[index] = new(index, null, byOffer.GetValueOrDefault(index) ?? [])
+                {
+                    TakenLeagueFlag = league,
+                    Reclaimable = reclaimable,
+                };
                 continue;
             }
             if (f < 0 || f >= names.Length || names[f] == "NEVER_SET") continue;
-            result.offers[index] = new(index, names[f], byOffer.GetValueOrDefault(index) ?? []);
+            result.offers[index] = new(index, names[f], byOffer.GetValueOrDefault(index) ?? []) { TakenLeagueFlag = league };
         }
         return result;
     }
@@ -101,21 +121,111 @@ public sealed class QuestRewardCatalog
         takenFlag is not null ? has(takenFlag)
         : quest?.Grant is not { } grant || has(grant) || quest.Remove is { } remove && has(remove);
 
-    /// <summary>Puts the reward into the main inventory and records the offer as taken (its taken flag, or the quest item's
+    /// <summary>Puts the reward into an admitted carried grid and records the offer as taken (its taken flag, or the quest item's
     /// pickup flags: an Act 1 book's a1q7-HaveRewardBook), in one save transaction. Null (nothing changes) when it is taken
-    /// already or does not fit.</summary>
+    /// already or does not fit. With <paramref name="leagueFlag"/> (an <see cref="Offer.TakenLeagueFlag"/>) and the account's
+    /// <paramref name="leagueFlags"/> stash, the offer is also taken when that stash holds the flag, and the claim sets it in
+    /// the same transaction.</summary>
     public static PlayerInventories.Stacking? Claim(string character, string? takenFlag, QuestItemFlags? quest, PlayerInventories inventory,
-        Item reward, Func<Item, PlayerInventories.Shape?> shapeOf) => Saves.Atomically(() =>
+        Item reward, Func<Item, PlayerInventories.Shape?> shapeOf, byte row = PlayerInventories.MainInventory,
+        bool expandedAllowed = false, int? leagueFlag = null, AccountStash? leagueFlags = null, bool reclaimable = false) => Saves.Atomically(() =>
     {
+        if (row != PlayerInventories.MainInventory && (row != PlayerInventories.ExpandedInventory || !expandedAllowed)) return null;
         // Read the durable flags again inside the transaction: a retry or another connection cannot duplicate a reward.
         var saved = (CharacterSaves.Load(character)?.QuestFlags ?? []).ToHashSet();
-        if (Taken(takenFlag, quest, saved.Contains) || !inventory.Fits(PlayerInventories.MainInventory, reward, shapeOf)) return null;
-        var added = inventory.AddStacked(PlayerInventories.MainInventory, reward, shapeOf);
+        bool league = leagueFlag is int lf && leagueFlags is not null;
+        // A reclaimable offer prevents claiming duplicates while allowing any missing unlocked item;
+        // otherwise an offer with only a league flag is taken by it alone (Taken(null, null) would call it taken already).
+        bool taken = league && leagueFlags!.LeagueQuestFlags.Contains(leagueFlag!.Value)
+            || (reclaimable
+                ? QuestItems.Carried(inventory).Any(c => c.Item.Item.TypeHash == reward.TypeHash)
+                : (!league || takenFlag is not null || quest is not null) && Taken(takenFlag, quest, saved.Contains));
+        if (taken || !inventory.Fits(row, reward, shapeOf)) return null;
+        var added = inventory.AddStacked(row, reward, shapeOf);
         if (added.Left != 0) throw new InvalidOperationException("A quest reward did not fit after its capacity check");
+        if (league) leagueFlags!.ChangeLeagueQuestFlags([leagueFlag!.Value], true);
         var flags = new List<string>();
         if (takenFlag is not null) flags.Add(takenFlag);
         if (quest is not null) flags.AddRange(new[] { quest.Grant, quest.Extra }.OfType<string>().Where(f => !saved.Contains(f)));
         if (flags.Count > 0) CharacterSaves.ChangeQuestFlags(character, flags, true);
         return added;
+    });
+
+    /// <summary>Result of claiming all available rewards from a multi-item quest reward offer (<c>C→S 0x008b</c>).</summary>
+    public sealed record ClaimAllResult(
+        IReadOnlyList<uint> RemovedMainIds,
+        IReadOnlyList<InventoryItem> AddedMain,
+        IReadOnlyList<uint> RemovedExpandedIds,
+        IReadOnlyList<InventoryItem> AddedExpanded,
+        IReadOnlyList<uint> ClaimedOfferIds,
+        IReadOnlyList<string> GrantedFlags,
+        bool LeagueFlagSet);
+
+    /// <summary>Claims every eligible reward from a multi-item offer ("TAKE ALL", <c>C→S 0x008b</c>) into the player's
+    /// carried inventories in one save transaction. For reclaimable offers, skips any item already carried.</summary>
+    public static ClaimAllResult? ClaimAll(string character, string? takenFlag, PlayerInventories inventory,
+        IReadOnlyList<(uint OfferItemId, Item Reward, QuestItemFlags? Quest)> rewards,
+        Func<Item, PlayerInventories.Shape?> shapeOf, bool expandedAllowed = false,
+        int? leagueFlag = null, AccountStash? leagueFlags = null, bool reclaimable = false) => Saves.Atomically(() =>
+    {
+        if (rewards.Count == 0) return null;
+        var saved = (CharacterSaves.Load(character)?.QuestFlags ?? []).ToHashSet();
+        bool league = leagueFlag is int lf && leagueFlags is not null;
+        if (league && leagueFlags!.LeagueQuestFlags.Contains(leagueFlag!.Value)) return null;
+        if (!reclaimable && takenFlag is not null && saved.Contains(takenFlag)) return null;
+
+        var removedMain = new List<uint>();
+        var addedMain = new List<InventoryItem>();
+        var removedExpanded = new List<uint>();
+        var addedExpanded = new List<InventoryItem>();
+        var claimedIds = new List<uint>();
+        var granted = new List<string>();
+        var carriedTypes = reclaimable
+            ? QuestItems.Carried(inventory).Select(c => c.Item.Item.TypeHash).ToHashSet()
+            : null;
+        int eligible = 0;
+
+        foreach (var (offerItemId, reward, quest) in rewards)
+        {
+            if (reclaimable)
+            {
+                if (carriedTypes!.Contains(reward.TypeHash)) continue;
+            }
+            else if (takenFlag is null && (!league || quest is not null) && Taken(null, quest, saved.Contains)) continue;
+            eligible++;
+
+            byte dest;
+            if (inventory.Fits(PlayerInventories.MainInventory, reward, shapeOf))
+                dest = PlayerInventories.MainInventory;
+            else if (expandedAllowed && inventory.Fits(PlayerInventories.ExpandedInventory, reward, shapeOf))
+                dest = PlayerInventories.ExpandedInventory;
+            else
+                continue;
+
+            var placed = inventory.AddStacked(dest, reward, shapeOf);
+            if (placed.Left != 0) throw new InvalidOperationException("A quest reward did not fit after its capacity check");
+            if (dest == PlayerInventories.MainInventory)
+            {
+                removedMain.AddRange(placed.RemovedIds);
+                addedMain.AddRange(placed.AddedItems);
+            }
+            else
+            {
+                removedExpanded.AddRange(placed.RemovedIds);
+                addedExpanded.AddRange(placed.AddedItems);
+            }
+            claimedIds.Add(offerItemId);
+            carriedTypes?.Add(reward.TypeHash);
+            if (quest is not null)
+                foreach (var f in new[] { quest.Grant, quest.Extra }.OfType<string>())
+                    if (saved.Add(f)) granted.Add(f);
+        }
+
+        if (claimedIds.Count == 0) return null;
+        bool allClaimed = claimedIds.Count == eligible;
+        if (league && (reclaimable || allClaimed)) leagueFlags!.ChangeLeagueQuestFlags([leagueFlag!.Value], true);
+        if (takenFlag is not null && (reclaimable || allClaimed) && saved.Add(takenFlag)) granted.Add(takenFlag);
+        if (granted.Count > 0) CharacterSaves.ChangeQuestFlags(character, granted, true);
+        return new ClaimAllResult(removedMain, addedMain, removedExpanded, addedExpanded, claimedIds, granted, league && (reclaimable || allClaimed));
     });
 }

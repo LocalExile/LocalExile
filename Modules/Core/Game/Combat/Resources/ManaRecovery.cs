@@ -1,11 +1,97 @@
 /// <summary>Stat-driven Mana costs.</summary>
 public static class ManaRecoveryRules
 {
-    public const string PerDexterity = "X_mana_per_dexterity";
-    public const string RagePer200 = "gain_x_rage_per_200_mana_spent";
-    public static int Cost(int supportedBase, Func<string, int> player) => (int)Math.Clamp(decimal.Floor(
-        Math.Max(0, supportedBase) * Math.Max(0m, 100m - player("base_mana_cost_-%"))
-        * Math.Max(0m, 100m + player("mana_cost_+%") + player("base_cost_+%")) / 10000m), 0, int.MaxValue);
+    public const uint PerDexterity = Stat.XManaPerDexterity;
+    public const uint RagePer200 = Stat.GainXRagePer200ManaSpent;
+    public static int Cost(int supportedBase, Func<uint, int> player, bool? channelled = null, double more = 1) =>
+        Cost(supportedBase, player, channelled, more, applyManaEfficiency: true);
+
+    public static int Cost(int supportedBase, Func<uint, int> player, bool? channelled, double more, bool applyManaEfficiency)
+    {
+        decimal scaled = ScaledCost(supportedBase, player, more);
+        // Resource conversion precedes resource-specific efficiency. Mana efficiency cannot reduce a Life cost.
+        if (applyManaEfficiency && !ConvertsManaToLife(player) && player(ItemChargeCosts.ManaEfficiency) is int efficiency and not 0)
+            scaled = ApplyManaEfficiency(scaled, efficiency);
+        // Flat total-cost modifiers apply after support multipliers and percentage modifiers. The skill's type,
+        // rather than whether the actor is presently channelling, selects the channel-specific term.
+        return (int)Math.Clamp(scaled + FlatManaCost(player, channelled), 0m, int.MaxValue);
+    }
+
+    static decimal ScaledCost(int supportedBase, Func<uint, int> player, double more)
+    {
+        decimal scaled = decimal.Floor(Math.Max(0, supportedBase) * Math.Max(0m, 100m - player(Stat.BaseManaCostMinusPct))
+            * Math.Max(0m, 100m + player(Stat.ManaCostPlusPct) + player(Stat.BaseCostPlusPct)) / 10000m);
+        scaled = Math.Clamp(scaled, 0m, int.MaxValue);
+        if (more != 1)
+            scaled = (decimal)Math.Clamp(Math.Round((double)scaled * more), 0, int.MaxValue);
+        int inspiration = player(Stat.SupportInspirationManaCostPlusPctFinal);
+        if (inspiration != 0)
+            scaled = decimal.Round(scaled * Math.Max(0m, 1m + inspiration / 100m), 0, MidpointRounding.AwayFromZero);
+        return scaled;
+    }
+
+    static decimal ApplyManaEfficiency(decimal scaled, int efficiency)
+    {
+        decimal denominator = 100m + efficiency;
+        return denominator <= 0 ? scaled == 0 ? 0 : int.MaxValue
+            : decimal.Round(scaled * 100 / denominator, 0, MidpointRounding.AwayFromZero);
+    }
+
+    /// <summary>Splits an attack skill's effective post-modifier Mana cost into a Life share and remaining Mana share
+    /// (Cannibalistic Rite's <c>base_attack_skill_cost_life_instead_of_mana_%</c>). Negative flat cost modifiers can
+    /// reduce the effective cost to zero (charging 0 Life and 0 Mana); otherwise the pre-efficiency effective cost is
+    /// partitioned conservatively (life + pre-efficiency mana == total), with Life-specific cost multipliers applied
+    /// only to the Life share and Mana-specific efficiency applied only to the Mana share.</summary>
+    public static (int ManaCost, int PreEfficiencyManaCost, int LifeCost) SplitCostToLife(
+        int supportedBase, Func<uint, int> player, bool? channelled, double more, int splitPercent)
+    {
+        int split = Math.Clamp(splitPercent, 0, 100);
+        decimal scaled = ScaledCost(supportedBase, player, more);
+        long flat = FlatManaCost(player, channelled);
+        int preEfficiencyTotal = (int)Math.Clamp(scaled + flat, 0m, int.MaxValue);
+        if (preEfficiencyTotal <= 0) return (0, 0, 0);
+
+        int rawLife = (int)decimal.Round(preEfficiencyTotal * (decimal)split / 100m, 0, MidpointRounding.AwayFromZero);
+        int preEfficiencyMana = preEfficiencyTotal - rawLife;
+
+        // BaseCostPlusPct was already applied in ScaledCost; only Life-specific percentage modifiers rescale rawLife.
+        int lifeSpecificPct = player(Stat.BaseLifeCostPlusPct) + player(Stat.LifeCostPlusPct);
+        int lifeCost = lifeSpecificPct != 0
+            ? (int)Math.Clamp(decimal.Floor(rawLife * Math.Max(0m, 100m + lifeSpecificPct) / 100m), 0m, int.MaxValue)
+            : rawLife;
+
+        int manaCost = preEfficiencyMana;
+        if (preEfficiencyMana > 0 && player(ItemChargeCosts.ManaEfficiency) is int efficiency and not 0)
+        {
+            if (flat == 0)
+                manaCost = (int)Math.Clamp(ApplyManaEfficiency(preEfficiencyMana, efficiency), 0m, int.MaxValue);
+            else
+            {
+                decimal scaledLife = decimal.Round(scaled * split / 100m, 0, MidpointRounding.AwayFromZero);
+                decimal scaledMana = scaled - scaledLife;
+                long flatLife = (long)decimal.Round(flat * (decimal)split / 100m, 0, MidpointRounding.AwayFromZero);
+                long flatMana = flat - flatLife;
+                manaCost = (int)Math.Clamp(ApplyManaEfficiency(scaledMana, efficiency) + flatMana, 0m, int.MaxValue);
+            }
+        }
+        return (manaCost, preEfficiencyMana, lifeCost);
+    }
+
+    public static long FlatManaCost(Func<uint, int> player, bool? channelled)
+    {
+        long flat = player(Stat.SkillManaCostPlus);
+        if (channelled is bool channel)
+            flat += player(channel ? Stat.SkillManaCostPlusWithChannellingSkills
+                : Stat.SkillManaCostPlusWithNonChannellingSkills);
+        return flat;
+    }
+
+    public static bool ConvertsManaToLife(Func<uint, int> stat) => stat(Stat.KeystoneBloodMagic) != 0
+        || stat(Lifetap.CostLifeStat) != 0 || stat(Lifetap.AlternateCostLifeStat) != 0;
+
+    public static int LifeCost(long nativeLife, Func<uint, int> stat) =>
+        (int)Math.Clamp(decimal.Floor(nativeLife * Math.Max(0m, 100m + stat(Stat.BaseCostPlusPct)
+            + stat(Stat.BaseLifeCostPlusPct) + stat(Stat.LifeCostPlusPct)) / 100m), 0, int.MaxValue);
 }
 
 /// <summary>Owned mana-spend progress and exact hit recoup. ReminderTextRecoup pins four game seconds.</summary>

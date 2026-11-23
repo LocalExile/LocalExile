@@ -92,7 +92,7 @@ glyph, "Take the Glyphs to the Glyph Wall" with all three and the wall seen, "Ta
 | Piece | How |
 |---|---|
 | The Rhoa Nests | created at the captured records (`<area>_seed<seed>.objects.json`, the same capture as the tutorial chest's); the nests in cell order are shuffled by the seed, and then the first becomes `RhoaChest` (glyph 1), the next `RhoaChest2`, then `RhoaChest3`. They block the server's walk estimate like the client's (Chest.ot `blocking`, size 1). a1q4's objects have ids of their own (0x2e80: nests, 0x2e90 wall, 0x2e91 waterfall, 0x2ea0: opened nests), clear of the ids other code takes |
-| Open a nest (0x24), drop its glyph, pick it up | the player walks up (size 1); the nest is opened once per instance (`InstanceState.OpenChest`) and replaced by an opened one under an id of its own (the same id made the client log "Replacing awake object"). Its glyph drops on the nest unless the character no longer needs it (the engine's quest item rules, §5: `PlacedGlyphs` set, or a copy carried or on this instance's ground; the stash no longer counts since the engine, as for a1q5's chest). A glyph lost another way (dropped in another instance, destroyed, sold) drops again. The pickup puts the glyph and sets the flags the save lacks (`KnowsAboutGlyphs`, `HaveGlyphN`) in one save transaction (`QuestItems.Claim`); once the glyphs are placed a glyph is not picked up but removed (a copy left in another instance), and carried ones are removed on entering an area (the `.it` `remove_flag`; on the message path, so the 0xbf keeps its order with the other inventory changes). About once a second the player tick sets and clears the HaveGlyph flags to follow the glyphs carried (`QuestItems.Sync`), so a dropped, sold or stashed glyph clears its flag; it changes no inventory. Quest flags are changed under the Monsters lock and read from other threads as a copy (`ClientState.QuestFlagsSnapshot`, `HasQuestFlag`); a change and its 0x2bc send run one at a time per connection (`ClientState.QuestGate`, held by `SetQuestFlags` and the sync, which calls `SetQuestFlagsHeld`), so an older flag set is never sent last. Live 2026-10-25: the client drops a glyph from the cursor like any item (0x29), the flag cleared within a second, and in a new instance its nest dropped it again; a glyph given after the placement was removed (since then: on the next area entry) |
+| Open a nest (0x24), drop its glyph, pick it up | the player walks up (size 1); the nest is opened once per instance (`InstanceState.OpenChest`) and replaced by an opened one under an id of its own (the same id made the client log "Replacing awake object"). Its glyph drops on the nest unless the character no longer needs it (the engine's quest item rules, §5: `PlacedGlyphs` set, or a copy carried or on this instance's ground; the stash no longer counts since the engine, as for a1q5's chest). A glyph lost another way (dropped in another instance, destroyed, sold) drops again. The pickup puts the glyph and sets the flags the save lacks (`KnowsAboutGlyphs`, `HaveGlyphN`) in one save transaction (`QuestItems.Claim`); once the glyphs are placed a glyph is not picked up but removed (a copy left in another instance), and carried ones are removed on entering an area (the `.it` `remove_flag`; on the message path, so the 0xbf keeps its order with the other inventory changes). About once a second the player tick sets and clears the HaveGlyph flags to follow the glyphs carried (`QuestItems.Sync`), so a dropped, sold or stashed glyph clears its flag; it changes no inventory. Quest flags are changed under the Monsters lock and read from other threads as a copy (`Player.QuestFlagsSnapshot`, `HasQuestFlag`); a change and its 0x2bc send run one at a time per connection (`Player.QuestGate`, held by `SetQuestFlags` and the sync, which calls `SetQuestFlagsHeld`), so an older flag set is never sent last. Live 2026-10-25: the client drops a glyph from the cursor like any item (0x29), the flag cleared within a second, and in a new instance its nest dropped it again; a glyph given after the placement was removed (since then: on the next area entry) |
 | Quest flags S→C | 0x2bc to the Player component with update flag 0x02 replaces the set ([16](16-waypoints.md) §3, `InstanceEntities.PlayerQuestFlagsUpdate`); the client unblocks the blockers and updates the tracker by itself (§2, §3). Decompile pointers: Positioned's `.ot` keys `unblock_quest_flag` / `block_quest_flag` (`0x141e30ef0`), flag name lookup (`0x141deb180`, `Data/QuestFlags.dat`), interaction `required_quest_flag` / `disable_quest_flag` (`0x141e20110`, `0x141e60ce0`) |
 | Glyph Wall | coming within 60 cells, or using it, sets `SeenGlyphWall`. Used (0x24, walk-up size 7) while the client lacks `PlacedGlyphs`, with the three glyphs in the main inventory or on the cursor: one transaction looks them up, removes them and sets `PlacedGlyphs` (clearing `HaveGlyph1–3`); transactions run one at a time, so a second quick use finds nothing. 0xbf removes them in the client |
 | The transition | **0x2bc to Transitionable** (component index 3 for both; data u8 target state, §6): the wall 1 → 2 runs `on_transition` (`DisableTargetable` and the animation: the label went away live), the waterfall 1 → 2 likewise. Created later with state 2 they run `create_transitioned`. Whether the waterfall's animation shows was not confirmed in screenshots |
@@ -113,6 +113,20 @@ itself: an area is reachable only when its WorldAreas `EndQuestFlags` are set (`
 `unblock_quest_flag` read them (§2), and the quest log and tracker follow `QuestStates` (§1). `/quest_flag [<id> [off]]`
 lists, sets or clears them (dev). Session flags (`SessionQuestFlags.dat`, e.g. `a1q6-FairgravesAggro`) are kept in
 memory only: never saved, gone on the next area.
+
+**Player character voice lines (`CharacterAudioEvents`).** There is no dedicated S→C voice-line message in 3.29.3c
+(S→C `0x1c7` is `NPCTextAudio`, S→C `0x1c8` is `NPCConversations`). Server-driven voice lines (261 of 291 rows in
+`Data/CharacterAudioEvents.dat`, 0x52-byte rows) bind their `Event` column (+0x08) to a `QuestFlags` row and fire
+automatically in `CharacterAudioController` (`0x14010bd30`, vtable `0x143027020` +0x10) whenever S→C `0x2bc`
+`PlayerQuestFlagsUpdate` transitions that flag `0 → 1` relative to the baseline snapshotted on player creation
+(`0x140108c80`). Per `0x2bc` update, `0x14010bd30` scans `CharacterAudioEvents` in row order and plays only the
+**first** matching newly-set row via `0x14010cad0` (respecting row `+0x18` delay ms and `+0x1c` cooldown ms, skipped
+when `IsPVPOnlyCharacter` HASH32 `0x24270667` is set). Because `0x140108c80` snapshots the `0x2bb` creation flags and
+checks `WorldAreas.StartQuestFlags` against them, a new area's visit flags (`Visited-*`) must be sent in `0x2bc`
+*after* `0x2bb` `PlayerObject` (`RecordVisit` after `SendPlayer`) so `Enter*` voice lines play once on first entry.
+Level-up milestones (`LevelUp2/3/5/10/15/20/30/50/70/90`) fire locally from `PlayerExperienceUpdate` (`0x140d5b2f0`);
+`NoMana`, `NoLife`, `Cooldown`, `InvFull`, `SkillTown`, `QuestItem`, `KillRare`, `KillRogueExile`, `LowSTR/INT/DEX`,
+`Flask*` and `EventJack*` fire locally in the client via `0x14010c960`.
 
 **One table per quest**, one file per act (`Modules/Core/World/QuestObjects/Acts/Act<n>.cs`, a class deriving
 `Quests.Act`): a `Quests.Quest` with its rules. The QuestObjects module registers every act of its assembly while it is
@@ -182,6 +196,26 @@ each object once, where the client has it.
   MinimapIcon flags `0x06` explicitly hide its marker (`0x02` override present, `0x04` hidden). Its component update
   does not refresh the marker in the client: recreate the source object with those flags after its item is collected,
   retaining its opened state. A marker is personal to the character, including on area re-entry and after hand-in.
+  Buffs writes `u16 0`; Functions and ControlZone have no data.
+- **Object tasks** (GameObjectTasks): the blob ends with the tasks (`0x141ee6950`): `u8 n`, per task the `u16` HASH16
+  little-endian, then the task's own data, which its reader consumes. Later the world group (reader `0x141fe6e90`,
+  handler `0x14218ddf0`) changes them: S→C 0x2c2 adds and 0x2c3 replaces one, both `u16 id, u32 entity BE (0 = the
+  world), u32 0, u16 0, u16 task BE, blob16 data`; 0x2c5 removes one (the same header, `u16 task`). An id without a
+  factory in 0x2c2 is fatal ("Unrecognised task serialised by server"), an unknown one in 0x2c3 logs "Client task not
+  found for server task update" (Core `InstanceEntities.AddTask`/`UpdateTask`/`RemoveTask`).
+  - `DeepwaterLantern` (row 149, 0xc4df) is an Allflame lantern's light: `f32 a, rate_a, b, rate_b`. Each frame a and b
+    fall by their rates per second (b stops at 0) and the task ends at a ≤ 0. The radius (`0x141ebe600`) is
+    `10 + (BaseLanternRadius − 10) · clamp01(a) · (0.6 + 0.4 · clamp01(b))` grid cells (110 at a = b = 1, 70 at b = 0),
+    tested `dx² + dy² ≤ r²` against the entity's grid position (`0x141684a00`). The server keeps the same floats, so its
+    light test follows the client's circle without per-frame messages.
+  - `DeepwaterBathysphereDrop` (row 155, 0x2387, ctor `0x141640fd0`): `u32 stages, u32 stage` on a descending
+    `ExtractionObject` (`landed` 0); the height is (1 − stage/(stages − 1)) · 1500, and stage ≥ stages plays `land_01`
+    and ends the task (`0x141641310`).
+- **League quest flags and areas in QuestStates** (H): `__col13` lists league quest flags a state needs, `__col14` those
+  it needs missing, and `Area` restricts a state to listed `WorldAreas` rows (empty matches anywhere). Allflame's quests
+  (209–211) use these columns (1821 first Chart, 1822 four charted, 1823 first Voyage, 1859 Vesper awakened, 1888 Vesper
+  revived, 1881–1883 failed-first-chart path); `QuestStates.State.Matches` evaluates them when league flags or an area row
+  are supplied.
 - **Rewards nothing can build**: an offer none of whose items the server can build (magic or rare jewellery) sets its
   taken flag without an item, so its quest completes (a3q4, a3q13).
 - **Dialogue** ([17](17-npcs.md)): `QuestFlag4` set on choosing, `QuestFlag5` when the talk ends, and the scripts'
@@ -204,7 +238,7 @@ up, talk, reward, use an item) played through the same tables, NPCTalk rows, ite
 exits and the client's WorldAreas gates; a step the game would refuse throws. The presets an act should reach are `Act1Complete`, `Act2CompleteEramir`
 (all three bandits killed), `Act3Complete`, `Act4Complete`, every Act 5 and 6 quest's "complete" row, `E3EndOfAct8`'s
 act 7–8 flags and `EpilogueAtlasDemo`'s act 7–10 flags. Kitava's Act 10 penalty counts only once his end earns
-`EndGameAvailable` (`QuestSimulator.Unearned`, as `ClientState.UnearnedQuestFlags`). No test plays the sequences since
+`EndGameAvailable` (`QuestSimulator.Unearned`, as `Player.UnearnedQuestFlags`). No test plays the sequences since
 the Gateway tests were wiped.
 Played live on 2026-10-30 with the real client (OfflineWitch in a copied save, seed 1 instances, the bridge, `/tp`, and a
 temporary kill command): a1q8, a1q7, a1q2, a1q9's part, a1q6 and a1q3 into Act 2, and
@@ -229,12 +263,9 @@ first enter a town ([09](09-area-change.md) §4). Hillock stands before Lioneye'
 |---|---|---|
 | the start point | the `washedup` room (`washed_up3.arm`, graph node `washedup` in `macro_beach4.tgr`), point `default` | the area's spawn (`AreaLayouts.For`: a room's `default` point, else the deepest cell) |
 | Hillock | WorldAreas `Bosses`: `Metadata/Monsters/ZombieBoss/ZombieBossHillockNormal` (MonsterVarieties 1166) | placed at `mapboss` of `town_entrance_exclude.arm` like any unique boss; within 60 cells (`Quests.SightRange`) he sets `a1q1-SeenHillock`; his death sets `a1q1-KilledHillock` and levels the character to 2 (below) |
-| the force wall | `Metadata/Terrain/Act1/Area1/Objects/Tutorial_Blocker_3` in `town_entrance_exclude.arm` at room (92, 127), angle −0.988, **scale 2.7** (model `…/twilight_strand/force_wall/force_wall.ao`) | created blocked while the character lacks `a1q1-KilledHillock`, removed (0x2bd) when it is set (below) |
-| the Doorman | `Metadata/NPC/Act1/Doorman` in the same room at (130, 156): Transitionable `num_states 3`, state 3 plays `door_open` | not created yet (below) |
+| the force walls | `Metadata/Terrain/Act1/Area1/Objects/Tutorial_Blocker_1` (`washed_up3.arm`, scale 2.7), `Tutorial_Blocker_2` (`tutorial_01.arm`, scale 3.1), and `Tutorial_Blocker_3` (`town_entrance_exclude.arm` at room (92, 127), angle −0.988, **scale 2.7**) | `Tutorial_Blocker_1`/`2` block the beach and support-chest tutorial segments until `CompletedSkillGemTutorial`/`CompletedSupportGemTutorial` (skipped when `CompletedAllTutorials` is set); `Tutorial_Blocker_3` blocks the gate until `a1q1-KilledHillock`; server barriers use `force_wall.ao`'s scaled hull (`QuestBarriers.ForceWallCells`) |
+| the Doorman | `Metadata/NPC/Act1/Doorman` in `town_entrance_exclude.arm` at (130, 156): `Positioned, Animated, BaseEvents, Transitionable` (`num_states 3`), state 3 plays `door_open` → `door_open_idle` | spawned via `On.Object` (`QuestObject`, 23-byte blob with `Positioned` `flags1 = 0x02, hidden = 0, shown = 1`) in state 1 and transitioned to state 3 on `a1q1-KilledHillock` (the 2026-10-19 21-byte prototype omitted `flags1 = 0x02` so `Positioned` left `shown = 0`) |
 | the gate into Lioneye's Watch | a tile record of `beachtown_south_entrance_test.tdt`: `Metadata/QuestObjects/SouthBeachTownEntrance` (extends AreaTransition, Transitionable `num_states 3`: states 1–2 not targetable, 3 opens and becomes targetable after 0.8 s) | captured by the walk-map recorder; created as a plain AreaTransition (see below). The client lets the player click it once its own quest flags hold `a1q1-KilledHillock` (Lioneye's Watch's `EndQuestFlags`); the Gateway also refuses it without the flag |
-
-The `washedup` room also has a force wall of its own (`Tutorial_Blocker_1`), the `WoundedExile` NPC and a
-`BiteZombieSpawner`: the opening tutorial, not done yet (no quest manages them, so none of them is created).
 
 **Hillock's fight** (live 2026-10-21; `BossFights.cs`):
 
@@ -294,10 +325,7 @@ sends does not); the Gateway creates it only when Hillock dies. The client's min
 Exile\Minimap`) keeps icons from earlier visits of the same area and seed, so an icon seen before the kill can be an
 old one.
 
-**Quest log after the kill.** a1q1's state Order 2 ("… and levelled up. Open the Passive Skill Screen …") needs
-`CompletedPassivePointTutorial` (280) and `CompletedAllTutorials` (367) missing. Every character has
-`CompletedAllTutorials` (`Quests.EveryCharacter`, as on an account that has done the tutorials), so the log goes to
-Order 3, "Enter through the gate for a reward" ("Enter town for your reward").
+**Tutorial flags and `C→S 0x020a`.** `C→S 0x020a` (3 bytes: `u16 0x020a`, `u8 Tutorial.dat row`, vtable `0x14346cd00`, writer `0x140e27920`) reports tutorial completions and skips: rows 0–18 are the individual tutorials (`0` `SkillGemTutorial` → flag 11, `3` `SupportGemTutorial` → flag 218, `17` `AllTutorials` → flag 367 `CompletedAllTutorials`), rows 23–76 are Help Panel articles (`ArticleRead*`; null emits sentinel `0x4e`), and row `77` (`0x4d` `HidePopups`) sets flag 713 `TutorialPanelHideArticlePopups`. `disable_tutorials_button` ("Skip All Tutorials", `0x140277295`) only appears in `1_1_1` (`0xf00a`) while both `CompletedPassivePointTutorial` (280) and `CompletedAllTutorials` (367) are unset, and Options → "Disable Tutorials" (`0x140d5d7ce`) sends `0x020a 0x11` when `CompletedAllTutorials` is unset; `TutorialManager` (`0x140d46d50`) checks `CompletedSkillGemTutorial` (11) on entering `1_1_1` (wiping `[TUTORIAL_FLAGS]` if unset), and Help Panel popups (`0x140a901ec`, `0x140a910e3`, `0x140a92dca`) check `TutorialPanelHideArticlePopups` (713). New tutorial characters therefore start without `CompletedAllTutorials`, and receiving `0x020a 0x11` sets all `Tutorial.dat` non-article completion flags (rows 0–18 + row 77) together; legacy saves without a `Tutorial` record receive those flags in memory on load. a1q1's state Order 2 ("… and levelled up. Open the Passive Skill Screen …") gives way to Order 3 ("Enter through the gate for a reward") once `CompletedPassivePointTutorial` or `CompletedAllTutorials` is set.
 
 **What was tried for the wall and the Doorman** (live 2026-10-19; the code was not kept, the layouts below are enough to
 write it again): both were created
@@ -500,7 +528,8 @@ the data does not say:
   IncaTreeTransitionBlockers lift and the exit into The Vaal Ruins (IncaTreeTransition) appears.
 - **a2q7**: each bandit lord's death sets his kill flag and drops his amulet; Eramir's "Bandit Amulets" (NPCTalk 95,
   `SetQuestFlag("a2q7-QuestRewardTaken", "a2b-DeliveredAmulets")`) takes the three: one passive point; "Take the Apex"
-  (offer 17) gives The Apex. The bandit vote (help a lord) is not implemented ([status](../../status/quests.md)).
+  (offer 17) gives The Apex. A solo player can also help a lord and hand in the two rivals' amulets
+  for the corresponding permanent reward; the leader's "Get the Apex" (offer 17) gives The Apex ([status](../../status/quests.md)).
 - **a2q8**: the Ancient Seal (IncaDarknessRelease, tile record; its model is the record's `bossrelease.ao`) →
   `a2q8-UnleashedDarkness`; the Apex door in The Caverns transitions with `a2b-SeenApexReward`; the Dark Altar
   (IncaBossSpawner) takes The Apex (`a2q8-PlacedApex`) and brings the Vaal Oversoul (MV 158, no WorldAreas boss), whose
@@ -641,7 +670,7 @@ Details in [act 10](../game/campaign/act10.md):
   Kitava never dies (`On.Threshold` at 1%): his end earns `EndGameAvailable`, QuestStaticRewards 39 (−30% elemental and
   chaos resistances, Game `ResistancePenalty`), the Epilogue's gate (Karui Shores' and Oriath's EndQuestFlags) and the
   condition of Lilly's "Set Sail from Oriath" (1433) and Lani's "Kitava" / "Kitava Reward" (1415/1416). Every character
-  is given that flag for the Atlas, but until an event sets it (`ClientState.UnearnedQuestFlags`) it is not the
+  is given that flag for the Atlas, but until an event sets it (`Player.UnearnedQuestFlags`) it is not the
   character's and the client gets it only in a hideout and the maps (`Quests.EndgameOnly`): the Epilogue's gates, rows
   and the second −30% come with Kitava, not before. Sin's EpiloguePortal home is a quest portal gated by the same flag.
   Burnt Oriath has Act 5's tiles: an exit Act 5's rules send to an Act 5 area (`On.Exists(…, to:)`) keeps the layout's
@@ -716,8 +745,8 @@ after reconnect. Ground rollback preserves the item id used by the pending rewar
 
 Live verified on a separate level-one Witch: ground weapon pickup/equip, exile conversation and bite transition,
 Hungry Corpse spawn/death, Fireball drop/pickup, Large Chest at the captured location, Arcane Surge Support drop/pickup,
-and saved claim flags. Dev `/god` was enabled for combat/navigation verification. The full tutorial popup/acknowledgement
-workflow and force walls 1/2 are not implemented; `CompletedAllTutorials` remains the existing account-style projection.
+and saved claim flags. Dev `/god` was enabled for combat/navigation verification. `C→S 0x020a` tutorial completion/skip
+handling, `auto_equip` (`0x0008`) ground pickup, `Tutorial_Blocker_1`/`2`, and `Doorman` are now implemented on top of this flow.
 The dialogue timing correction was checked with an isolated Duelist equipped before his first conversation and
 a Witch who heard the weapon prompt before equipping.
 The Witch's measured bite/handoff times were 8.218/11.328 seconds, including a duplicate interaction during the wait.

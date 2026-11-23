@@ -47,7 +47,7 @@ public interface IPlayerWorld
     string? OpenWindowOwner { get; }
 
     /// <summary>Rebuilds the character's stats and sends them.</summary>
-    Task RefreshStats(string reason);
+    Task RefreshStats();
 
     /// <summary>Moves the player to an area by its <c>WorldAreas</c> id; false when it has no known way in.</summary>
     Task<bool> TravelTo(string areaId, string reason);
@@ -124,6 +124,9 @@ public interface IItemCrafting
 
     /// <summary>Every <c>ModType</c> name of the mods.</summary>
     IReadOnlySet<string> ModTypes { get; }
+
+    /// <summary>Whether the item accepts affix changes (not corrupted, mirrored, vestigial or of an unmodifiable base).</summary>
+    bool Modifiable(Item item);
 
     /// <summary>Whether an explicit mod of the item has one of these stats.</summary>
     bool HasExplicitStat(Item item, IReadOnlyCollection<string> stats);

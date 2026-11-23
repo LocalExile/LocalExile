@@ -10,9 +10,12 @@ public class ProjectileAreaSequenceTests
         public List<ProjectileEvent> Events = [];
         public List<ProjectileDamage> Hits = [];
         public Func<ProjectileVector, ProjectileVector, TerrainContact?> Terrain = (_, _) => null;
-        public IReadOnlyList<ProjectileActor> Actors(long from, long until) => Targets.ToArray();
+        /// <summary>Hands out the host's own list, as a host may: a hit that changes it changes what was handed out.</summary>
+        public bool Live;
+        public Action<ProjectileDamage>? OnHit;
+        public IReadOnlyList<ProjectileActor> Actors(long from, long until) => Live ? Targets : Targets.ToArray();
         public TerrainContact? TraceTerrain(ProjectileVector from, ProjectileVector to) => Terrain(from, to);
-        public ProjectileHitResult Hit(ProjectileDamage hit) { Hits.Add(hit); return ProjectileHitResult.Hit; }
+        public ProjectileHitResult Hit(ProjectileDamage hit) { Hits.Add(hit); OnHit?.Invoke(hit); return ProjectileHitResult.Hit; }
         public void Publish(ProjectileEvent value) => Events.Add(value);
         public void Target(uint id, double x) => Targets.Add(new(new(id), 2, _ => new(x, 0), 0));
     }
@@ -47,4 +50,42 @@ public class ProjectileAreaSequenceTests
         Assert.All(w.Hits, h => Assert.True(h.IsArea));
     }
 
+    // An area decides its hits by actor id, then generation; a pulse by id, keeping the listed order of equal ids. Both
+    // take the actors as they are before the first hit: a hit that kills changes the host's list. A host that lists
+    // them in that order already is not sorted again (ProjectileRuntime.ActorsInOrder), and that changes none of it.
+    [Fact]
+    public void Areas_and_pulses_hit_in_key_order_from_the_actors_listed_before_their_first_hit()
+    {
+        static ProjectileActor At(uint id, int generation, double x) => new(new(id, generation), 2, _ => new(x, 0), 0);
+        ProjectileActor[] ordered = [At(1, 0, 1), At(2, 0, 2), At(3, 1, 3), At(3, 2, 4), At(5, 0, 5), At(7, 0, 6)];
+        ProjectileActor[] shuffled = [ordered[4], ordered[3], ordered[0], ordered[5], ordered[2], ordered[1]];
+        // In id order, but the two generations of id 3 the other way round: in order for a pulse, not for an area.
+        ProjectileActor[] byIdOnly = [ordered[0], ordered[1], ordered[3], ordered[2], ordered[4], ordered[5]];
+        var pulse = new ProjectileProfile("pulse") { Speed = 20, Range = 40, Radius = 0, DirectDamage = false,
+            Pulse = new("pulse", 100, T(1)) };
+        foreach (var listing in new[] { ordered, shuffled, byIdOnly })
+            foreach (bool live in new[] { false, true })
+                foreach (bool kills in new[] { false, true })
+                {
+                    Arena World()
+                    {
+                        var w = new Arena { Live = live };
+                        w.Targets.AddRange(listing);
+                        // The hit actor leaves the host's list, and so does the first one still listed.
+                        if (kills) w.OnHit = hit =>
+                        {
+                            w.Targets.RemoveAll(a => a.Key == hit.Target);
+                            if (w.Targets.Count > 0) w.Targets.RemoveAt(0);
+                        };
+                        return w;
+                    }
+                    var area = World();
+                    new ProjectileRuntime(area).Impact(Use(Profile), new(0, 0), new("blast", 100));
+                    Assert.Equal(ordered.Select(a => a.Key), area.Hits.Select(h => h.Target));
+
+                    var pulsed = World();
+                    new ProjectileRuntime(pulsed).Release(Use(pulse));
+                    Assert.Equal(listing.OrderBy(a => a.Key.Id).Select(a => a.Key), pulsed.Hits.Select(h => h.Target));
+                }
+    }
 }

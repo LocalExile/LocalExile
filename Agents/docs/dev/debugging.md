@@ -26,9 +26,8 @@ The setup and the log files themselves are in [GettingStarted](../../GettingStar
 - **Earlier runs.** `live.ps1` moves the previous run's logs to `logs\archive\<yyyyMMdd-HHmmss>\` instead of deleting
   them, so a crash noticed only after a restart still has its log. A `-Only` restart's folder ends in the servers it
   restarted (`…-gateway`); the newest 10 full runs and the newest 20 restarts are kept.
-- **Hot reload.** Under `dotnet watch` (the default) `live-gateway.log` records each save and applied reload
-  (`[gateway] hot reload …`), and `live-gateway.err` also holds `dotnet watch`'s own lines, its compile errors among
-  them. A line from before a reload ran the old code. Tips: [live testing](live-testing.md) ("hot reload").
+- **Hot reload.** `live-gateway.log` records each module or mod reload (`[modules] loaded <id> …`, or why a new build
+  did not load). A line from before a reload ran the old code. Tips: [live testing](live-testing.md) ("hot reload").
 
 ## Packet history
 
@@ -55,10 +54,30 @@ faulted one attack later), and the server only sees the disconnect, so these are
 |---|---|
 | `sync` | `[sync] qpc=…`: the server's cell for the player and every monster, every 50 ms, compared with the client's by `scripts/re/sync_report.py` ([07](../protocol/07-latency-visibility-movement.md) §5) |
 | `move` | `[move-trace] qpc=…` for C→S 0x24/0x25/0x190/0x191 as read and S→C 0x1ab/0x1b7/0x1ba as written, on the QPC clock of `scripts/re/frida/trace-movement.js` ([07](../protocol/07-latency-visibility-movement.md)); `Game_MOVE_TRACE=1` still works |
+| `lag` | the lag probe, one set of lines per connection every ten seconds (below) |
 | `latency` | a `[latency]` summary every interval instead of only slow ones ([07](../protocol/07-latency-visibility-movement.md)); `Game_LATENCY_METRICS=1` still works |
 | `ticks` | every 50th 0x1b tick with its bytes |
 | `ai` | every monster chase order (0x1ab); a monster giving up is always logged |
+| `combat` | each kill explosion and each monster it hits |
+| `skills` | each gem skill a stat rebuild resolves (`gem skill 0x…`) |
 | `packets` | every message in both directions but the clock messages, in full hex (`[packets] …`, besides the usual 96-byte line): large logs, for short sessions |
+
+**The lag probe** (`Game_TRACE=lag`, usually with `latency`). Every line is a total for the interval, never one per
+call; with the probe off each measuring point is one check. Times are milliseconds unless they say otherwise.
+
+| Line | Reads as |
+|---|---|
+| `[latency-totals]` | each phase as `total ms x count`; `gc-pause`, `gc-alloc` MB/s, `proc-cpu`, the thread pool (`tp-pending` above 0 for long means continuations wait), `save-reads`, `lock-contentions` (entries to any lock that had to wait), `stat-builds=N/s=P%cpu`, `bytes-out` KB/s; `first-interval` marks a connection's first, which carries one-time work |
+| `[latency-lookup]` | the item-stat lookup (`CharacterStatSources`): how many a second, hits and misses with the cost of each in microseconds, and the input that had changed on a miss. A dear hit is the cost to look for ([performance](performance.md), "Hot paths") |
+| `[latency-locks]` | time the combat lock was held, by phase. Only the phases that take it through `ConnectionPerformance.Lock`: a plain `lock (conn.Monsters)` is not in it |
+| `[latency-handlers]` | client messages by total handling time, `id=ms x count`: a cheap message that arrives constantly shows here, not as a slow handler |
+| `[latency-typical]` | the median and 95th percentile of the input queue wait and of one message's handling, beside the maxima of `[latency]` |
+| `[latency-sends]` | packets by time at the send gate, `id=ms x count/KB` |
+| `[latency-empty]` | sends that took the gate and wrote nothing, by caller |
+| `[latency-counts]` | things counted: `stats sent (cause)` for each full player stat packet, `lockstep use walks up / swings at once / no path`, `use cancelled before the swing`, `projectile move dropped`, `held-back reveal passes` and `monsters created` |
+| `[load]` | one per area entry: the seconds from connect to the client's "area generated" (its own loading) and the server's entry work after it; `latency` alone prints it too, with the entry's phases |
+| `[slow-lock]`, `[slow-send]` | one hold or wait of 50 ms or more, as it happens |
+| `[cold]` | the first item-stat build of the process: one-time loads, not a steady cost |
 
 Set it in the PowerShell session before `live.ps1`, for example `$env:Game_TRACE = 'move,packets'`.
 

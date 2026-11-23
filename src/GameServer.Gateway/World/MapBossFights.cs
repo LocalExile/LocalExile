@@ -10,6 +10,12 @@ using GameServer.Core;
 /// </summary>
 public sealed class MapBossFights
 {
+    /// <summary>Fills this type's game data at startup (the world loader, before the Gateway listens).</summary>
+    public static void LoadGameData()
+    {
+        Loaded = Load("data");
+    }
+
     public const string StormVariety = "Metadata/Monsters/InvisibleFire/InvisibleFireOrionDeathZoneSupporter";
     public const int StormCount = 4;
     public const string WalkingSirus = "Metadata/Monsters/AtlasExiles/AtlasExile5";
@@ -29,7 +35,7 @@ public sealed class MapBossFights
         "MavenBoss", "AtlasExilesBoss5", "MapAtziri1", "MapAtziri2",
     };
 
-    static readonly Lazy<MapBossFights> Loaded = new(() => Load("data"));
+    static MapBossFights Loaded = default!;
 
     readonly Dictionary<int, Invitation> _invites;
     readonly Dictionary<string, Phase> _phases;
@@ -45,7 +51,9 @@ public sealed class MapBossFights
         _atlasBosses = atlasBosses;
     }
 
-    public static MapBossFights Current => Loaded.Value;
+    public static MapBossFights Current => Loaded;
+
+    public IReadOnlyList<string> AtlasBosses => _atlasBosses;
 
     public Invitation? InvitationOf(int itemRow) => _invites.GetValueOrDefault(itemRow);
 

@@ -9,81 +9,86 @@ public static class PlayerDamageTaken
     const DamageType P = DamageType.Physical, F = DamageType.Fire, C = DamageType.Cold, L = DamageType.Lightning,
         X = DamageType.Chaos;
 
-    static readonly (string Stat, DamageType[] From, DamageType To)[] Shifts =
+    static readonly (uint Stat, DamageType[] From, DamageType To)[] Shifts =
     [
-        ("physical_damage_taken_%_as_fire", [P], F),
-        ("physical_damage_taken_%_as_cold", [P], C),
-        ("physical_damage_taken_%_as_lightning", [P], L),
-        ("physical_damage_taken_%_as_chaos", [P], X),
-        ("physical_hit_and_dot_damage_%_taken_as_fire", [P], F),
-        ("fire_damage_taken_%_as_cold", [F], C),
-        ("fire_damage_taken_%_as_lightning", [F], L),
-        ("fire_damage_taken_%_as_chaos", [F], X),
-        ("fire_hit_and_dot_damage_%_taken_as_lightning", [F], L),
-        ("base_fire_hit_damage_taken_%_as_physical", [F], P),
-        ("base_fire_hit_damage_taken_%_as_physical_value_negated", [F], P),
-        ("cold_damage_taken_%_as_fire", [C], F),
-        ("cold_damage_taken_%_as_lightning", [C], L),
-        ("cold_damage_taken_%_as_chaos", [C], X),
-        ("cold_hit_and_dot_damage_%_taken_as_fire", [C], F),
-        ("cold_hit_and_dot_damage_%_taken_as_lightning", [C], L),
-        ("base_cold_hit_damage_taken_%_as_physical", [C], P),
-        ("lightning_damage_taken_%_as_fire", [L], F),
-        ("lightning_damage_taken_%_as_cold", [L], C),
-        ("lightning_damage_taken_%_as_chaos", [L], X),
-        ("lightning_hit_and_dot_damage_%_taken_as_fire", [L], F),
-        ("base_lightning_hit_damage_taken_%_as_physical", [L], P),
-        ("cold_and_lightning_damage_taken_%_as_fire", [C, L], F),
-        ("elemental_damage_taken_%_as_chaos", [F, C, L], X),
-        ("elemental_hit_damage_taken_%_as_physical", [F, C, L], P),
-        ("chaos_hit_and_dot_damage_%_taken_as_fire", [X], F),
-        ("chaos_hit_and_dot_damage_%_taken_as_lightning", [X], L),
+        (Stat.PhysicalDamageTakenPctAsFire, [P], F),
+        (Stat.PhysicalDamageTakenPctAsCold, [P], C),
+        (Stat.PhysicalDamageTakenPctAsLightning, [P], L),
+        (Stat.PhysicalDamageTakenPctAsChaos, [P], X),
+        (Stat.PhysicalHitAndDotDamagePctTakenAsFire, [P], F),
+        (Stat.FireDamageTakenPctAsCold, [F], C),
+        (Stat.FireDamageTakenPctAsLightning, [F], L),
+        (Stat.FireDamageTakenPctAsChaos, [F], X),
+        (Stat.FireHitAndDotDamagePctTakenAsLightning, [F], L),
+        (Stat.BaseFireHitDamageTakenPctAsPhysical, [F], P),
+        (Stat.BaseFireHitDamageTakenPctAsPhysicalValueNegated, [F], P),
+        (Stat.ColdDamageTakenPctAsFire, [C], F),
+        (Stat.ColdDamageTakenPctAsLightning, [C], L),
+        (Stat.ColdDamageTakenPctAsChaos, [C], X),
+        (Stat.ColdHitAndDotDamagePctTakenAsFire, [C], F),
+        (Stat.ColdHitAndDotDamagePctTakenAsLightning, [C], L),
+        (Stat.BaseColdHitDamageTakenPctAsPhysical, [C], P),
+        (Stat.LightningDamageTakenPctAsFire, [L], F),
+        (Stat.LightningDamageTakenPctAsCold, [L], C),
+        (Stat.LightningDamageTakenPctAsChaos, [L], X),
+        (Stat.LightningHitAndDotDamagePctTakenAsFire, [L], F),
+        (Stat.BaseLightningHitDamageTakenPctAsPhysical, [L], P),
+        (Stat.ColdAndLightningDamageTakenPctAsFire, [C, L], F),
+        (Stat.ElementalDamageTakenPctAsChaos, [F, C, L], X),
+        (Stat.ElementalHitDamageTakenPctAsPhysical, [F, C, L], P),
+        (Stat.ChaosHitAndDotDamagePctTakenAsFire, [X], F),
+        (Stat.ChaosHitAndDotDamagePctTakenAsLightning, [X], L),
     ];
 
-    const string Increased = "base_damage_taken_+%", ElementalIncreased = "elemental_damage_taken_+%",
-        MeleeIncreased = "melee_damage_taken_+%", FlatPhysicalFromAttacks = "physical_attack_damage_taken_+",
-        Blocked = "base_block_%_damage_taken", ElementalBlocked = "block_%_damage_taken_from_elemental";
+    const uint Increased = Stat.BaseDamageTakenPlusPct, ElementalIncreased = Stat.ElementalDamageTakenPlusPct,
+        MeleeIncreased = Stat.MeleeDamageTakenPlusPct, SpellIncreased = Stat.BaseSpellDamageTakenPlusPct,
+        FlatPhysicalFromAttacks = Stat.PhysicalAttackDamageTakenPlus,
+        Blocked = Stat.BaseBlockPctDamageTaken, ElementalBlocked = Stat.BlockPctDamageTakenFromElemental;
 
     // Mind Over Matter's and Glancing Blows' flags have no value: their 40% and 65% are the keystones' own text (3.29 tree,
     // wiki Mind Over Matter and Glancing Blows).
-    const string ManaShield = "keystone_mana_shield", ManaBeforeLife = "base_damage_removed_from_mana_before_life_%",
-        GlancingBlows = "keystone_glancing_blows";
+    const uint ManaShield = Stat.KeystoneManaShield, ManaBeforeLife = Stat.BaseDamageRemovedFromManaBeforeLifePct,
+        GlancingBlows = Stat.KeystoneGlancingBlows;
     const int ManaShieldPct = 40, GlancingBlowsBlockedPct = 65;
 
     // "X% chance to Avoid Damage of each Type from Hits" adds to each type's own chance; avoidance caps at 75% (wiki
     // Avoidance).
-    const string AvoidEach = "avoid_damage_%";
+    const uint AvoidEach = Stat.AvoidDamagePct;
     const int AvoidCap = 75;
 
-    static string TypedIncreased(DamageType type) => $"{type.ToString().ToLowerInvariant()}_damage_taken_+%";
+    static readonly uint[] TypedIncreasedStats = [.. Enum.GetValues<DamageType>().Select(t => Stat.Of($"{t.ToString().ToLowerInvariant()}_damage_taken_+%"))];
+    static readonly uint[] TypedFlatStats = [.. Enum.GetValues<DamageType>().Select(t => Stat.Of($"{t.ToString().ToLowerInvariant()}_damage_taken_+"))];
+    static readonly uint[] TypedAvoidStats = [.. Enum.GetValues<DamageType>().Select(t => Stat.Of($"avoid_{t.ToString().ToLowerInvariant()}_damage_%"))];
 
-    static string TypedFlat(DamageType type) => $"{type.ToString().ToLowerInvariant()}_damage_taken_+";
+    static uint TypedIncreased(DamageType type) => TypedIncreasedStats[(int)type];
 
-    static string TypedAvoid(DamageType type) => $"avoid_{type.ToString().ToLowerInvariant()}_damage_%";
+    static uint TypedFlat(DamageType type) => TypedFlatStats[(int)type];
 
-    static string? TypedManaBeforeLife(DamageType type) => type switch
+    static uint TypedAvoid(DamageType type) => TypedAvoidStats[(int)type];
+
+    static uint? TypedManaBeforeLife(DamageType type) => type switch
     {
-        DamageType.Physical => "physical_damage_%_taken_from_mana_before_life",
-        DamageType.Lightning => "lightning_damage_%_taken_from_mana_before_life",
-        DamageType.Chaos => "chaos_damage_%_taken_from_mana_before_life",
+        DamageType.Physical => Stat.PhysicalDamagePctTakenFromManaBeforeLife,
+        DamageType.Lightning => Stat.LightningDamagePctTakenFromManaBeforeLife,
+        DamageType.Chaos => Stat.ChaosDamagePctTakenFromManaBeforeLife,
         _ => null,
     };
 
-    public static IEnumerable<string> StatNames => Shifts.Select(s => s.Stat)
+    public static IEnumerable<uint> StatNames => Shifts.Select(s => s.Stat)
         .Concat(DamageTypes.ConversionOrder.Select(TypedIncreased))
-        .Concat(DamageTypes.ConversionOrder.Select(TypedManaBeforeLife).OfType<string>())
+        .Concat(DamageTypes.ConversionOrder.Select(TypedManaBeforeLife).OfType<uint>())
         .Concat(DamageTypes.ConversionOrder.Select(TypedAvoid))
         .Concat(DamageTypes.ConversionOrder.Select(TypedFlat))
-        .Concat([Increased, ElementalIncreased, MeleeIncreased, FlatPhysicalFromAttacks, Blocked, ElementalBlocked,
-            ManaShield, ManaBeforeLife, GlancingBlows, AvoidEach]);
+        .Concat([Increased, ElementalIncreased, MeleeIncreased, SpellIncreased, FlatPhysicalFromAttacks, Blocked, ElementalBlocked,
+            ManaShield, ManaBeforeLife, GlancingBlows, AvoidEach, ItemChargeDefences.ElementalHitTaken]);
 
     /// <summary>"X% chance to Avoid Fire Damage from Hits" and the other types', plus "... Damage of each Type": this
     /// type's chance that a hit deals none of it, at most 75% (wiki Avoidance).</summary>
-    public static int AvoidPct(DamageType type, Func<string, int> get) =>
+    public static int AvoidPct(DamageType type, Func<uint, int> get) =>
         Math.Clamp(get(TypedAvoid(type)) + get(AvoidEach), 0, AvoidCap);
 
     /// <summary>One roll of this type's avoidance; a type without a chance draws nothing.</summary>
-    public static bool Avoids(DamageType type, Func<string, int> get, Random random) =>
+    public static bool Avoids(DamageType type, Func<uint, int> get, Random random) =>
         RandomRolls.Chance(AvoidPct(type, get), 100, random);
 
     /// <summary>"X% chance to Avoid All Damage from Hits" (Elusive): one roll for the whole hit, all its types.</summary>
@@ -93,10 +98,12 @@ public static class PlayerDamageTaken
     /// fire, chaos), after the shift (the types taken). Avoiding damage does not stop the hit: when-hit effects still
     /// happen (wiki Avoidance). <paramref name="avoidAllPct"/> is a separate "Avoid All Damage" roll (Elusive). The
     /// same packet when nothing is avoided.</summary>
-    public static DamagePacket Avoid(DamagePacket hit, Func<string, int> get, Random random, out DamageType[] avoided,
-        int avoidAllPct = 0)
+    public static DamagePacket Avoid(DamagePacket hit, Func<uint, int> get, Random random, out DamageType[] avoided,
+        int avoidAllPct = 0, bool projectile = false)
     {
-        if (avoidAllPct > 0 && AvoidsAll(avoidAllPct, random))
+        if (avoidAllPct > 0 && AvoidsAll(avoidAllPct, random)
+            || projectile && RandomRolls.Chance((int)Math.Clamp((long)get(Stat.BaseAvoidProjectilesPctChance)
+                + get(Stat.AvoidProjectilesPctChance), 0, AvoidCap), 100, random))
         {
             var all = new List<DamageType>();
             foreach (var (type, _) in hit.Components) all.Add(type);
@@ -115,7 +122,7 @@ public static class PlayerDamageTaken
     /// <summary>The damage dealt that lands: each type keeps the share of it that the shift sends to types not avoided.
     /// Ignite reads the damage dealt, but an avoided part deals nothing, and an ailment needs damage of a type that can
     /// inflict it, so avoided fire cannot ignite. The same packet when nothing is avoided.</summary>
-    public static DamagePacket Landed(DamagePacket dealt, Func<string, int> get, IReadOnlyCollection<DamageType> avoided)
+    public static DamagePacket Landed(DamagePacket dealt, Func<uint, int> get, IReadOnlyCollection<DamageType> avoided)
     {
         if (avoided.Count == 0) return dealt;
         return dealt.Select((type, range) =>
@@ -130,37 +137,42 @@ public static class PlayerDamageTaken
     /// and, for a melee hit, "X% increased Damage taken from Melee Attacks": one increased value for this type, which adds
     /// to the shock's (PlayerElementalAilments.DamageTakenFactor), as PoB adds them to its takenInc. "X% reduced Damage
     /// taken while Leeching" (Brutal Fervour) joins it while is_leeching, as the client's damage taken sum does
-    /// (0x1427d25c0).</summary>
-    public static int IncreasedPct(DamageType type, bool melee, Func<string, int> get) =>
-        get(Increased) + get(TypedIncreased(type)) + (DamageTypes.IsElemental(type) ? get(ElementalIncreased) : 0)
-        + (melee ? get(MeleeIncreased) : 0) + (get(Leeching) != 0 ? get(WhileLeeching) : 0);
+    /// (0x1427d25c0). Spell-only increases need an explicit Spell hit context; secondary hits and damage over time omit it.</summary>
+    public static int IncreasedPct(DamageType type, bool melee, Func<uint, int> get) =>
+        IncreasedPct(type, melee, get, spell: false);
 
-    const string Leeching = "is_leeching", WhileLeeching = "damage_taken_+%_while_leeching";
+    public static int IncreasedPct(DamageType type, bool melee, Func<uint, int> get, bool spell) =>
+        ActorScale.Saturate((long)get(Increased) + get(TypedIncreased(type))
+            + (DamageTypes.IsElemental(type) ? (long)get(ElementalIncreased) + get(ItemChargeDefences.ElementalHitTaken) : 0)
+            + (melee ? get(MeleeIncreased) : 0) + (spell ? get(SpellIncreased) : 0)
+            + (get(Leeching) != 0 ? get(WhileLeeching) : 0));
+
+    const uint Leeching = Stat.IsLeeching, WhileLeeching = Stat.DamageTakenPlusPctWhileLeeching;
 
     /// <summary>"+X Physical Damage taken from Hits" and the other types' (PoB's takenFlat), plus "... Physical Damage taken
     /// from Attack Hits" for an attack, added to the type's damage after resistance and armour.</summary>
-    public static int Flat(DamageType type, bool attack, Func<string, int> get) =>
+    public static int Flat(DamageType type, bool attack, Func<uint, int> get) =>
         get(TypedFlat(type)) + (type == DamageType.Physical && attack ? get(FlatPhysicalFromAttacks) : 0);
 
     /// <summary>"You take X% of Damage from Blocked Hits" (Glancing Blows' 65% too, added as PoB adds its BlockEffect) and
     /// "... of Elemental Damage from Blocked Hits": the share of the type's damage a blocked hit still deals, 0 by default
     /// and over 100% allowed (wiki Blocking). A blocked hit still applies no ailments or other on-hit effects.</summary>
-    public static int BlockedPct(DamageType type, Func<string, int> get) =>
+    public static int BlockedPct(DamageType type, Func<uint, int> get) =>
         Math.Max(0, get(Blocked) + (get(GlancingBlows) != 0 ? GlancingBlowsBlockedPct : 0)
             + (DamageTypes.IsElemental(type) ? get(ElementalBlocked) : 0));
 
-    static int SharedManaBeforeLife(Func<string, int> get) => (get(ManaShield) != 0 ? ManaShieldPct : 0) + get(ManaBeforeLife);
+    static int SharedManaBeforeLife(Func<uint, int> get) => (get(ManaShield) != 0 ? ManaShieldPct : 0) + get(ManaBeforeLife);
 
     /// <summary>"X% of Damage is taken from Mana before Life", Mind Over Matter's 40% and the typed forms ("30% of
     /// Lightning Damage is taken from Mana before Life"): the share of this type's Life damage that mana takes first, at
     /// most 100% (wiki Mana before Life; PoB CalcDefence adds the typed share to the shared one).</summary>
-    public static int ManaBeforeLifePct(DamageType type, Func<string, int> get) =>
-        Math.Clamp(SharedManaBeforeLife(get) + (TypedManaBeforeLife(type) is string typed ? get(typed) : 0), 0, 100);
+    public static int ManaBeforeLifePct(DamageType type, Func<uint, int> get) =>
+        Math.Clamp(SharedManaBeforeLife(get) + (TypedManaBeforeLife(type) is uint typed ? get(typed) : 0), 0, 100);
 
     /// <summary>The mana a hit takes from what reaches Life (after ward and energy shield), rounded up as PoB does; what
     /// mana cannot pay stays on Life. <paramref name="types"/>: the hit's damage by type, whose proportions weigh the typed
     /// shares of the non-chaos part.</summary>
-    public static int FromMana(int nonChaosLife, int chaosLife, DamagePacket types, int mana, Func<string, int> get)
+    public static int FromMana(int nonChaosLife, int chaosLife, DamagePacket types, int mana, Func<uint, int> get)
     {
         var nonChaos = types.Components.Where(c => c.Type != DamageType.Chaos && c.Range.Min > 0).ToList();
         double total = nonChaos.Sum(c => c.Range.Min);
@@ -175,14 +187,14 @@ public static class PlayerDamageTaken
     /// shifts only once, in any direction. The source keeps max(100 - total, 0)%, so a total over 100% raises the damage
     /// taken (PoB CalcDefence damageShiftTable). The hit_and_dot stats shift hits here; their damage over time share is
     /// not read. The same packet when no shift applies.</summary>
-    public static DamagePacket Shift(DamagePacket hit, Func<string, int> get)
+    public static DamagePacket Shift(DamagePacket hit, Func<uint, int> get)
     {
         var percent = new int[5, 5];   // [from, to], by DamageType
         bool any = false;
         foreach (var (stat, from, to) in Shifts)
         {
             // The negated stat is stored as -10 and shown as "10% of Fire Damage from Hits taken as Physical Damage".
-            int value = stat.EndsWith("_value_negated") ? -get(stat) : get(stat);
+            int value = Stats.Name(stat).EndsWith("_value_negated") ? -get(stat) : get(stat);
             if (value <= 0) continue;
             foreach (var source in from) percent[(int)source, (int)to] += value;
             any = true;

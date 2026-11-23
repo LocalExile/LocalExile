@@ -20,55 +20,64 @@ public static partial class Game
     public static bool IsBlasphemySupport(string effect) => effect is "SupportBlasphemy"
         or "SupportAwakenedBlasphemy" or "SupportEldritchBlasphemy" or "SupportBlasphemyPlus";
 
-    public static (bool Life, int Efficiency) ReservationContext(ClientState conn, ushort skill)
+    public static (bool Life, int Efficiency) ReservationContext(Player player, ushort skill)
     {
-        var gem = SupportedSkill(conn, skill);
-        var player = CharacterStatSources(conn).Stats;
-        int Own(string n) => GolemStat(gem.Stats, n);
-        int Get(string n) => Own(n) + (Stats.Key(n) is uint key
-            ? conn.PlayerStats.GetValueOrDefault(key, player.GetValueOrDefault(key)) : 0);
+        var gem = SupportedSkill(player, skill);
+        var playerStats = StatSourceValues(player);
+        int Own(uint n) => GolemStat(gem.Stats, n);
+        int Get(uint n) => Own(n) + (n is var key
+            ? playerStats.GetValueOrDefault(key) : 0);
         bool curse = gem.Supports.Any(s => IsBlasphemySupport(s.Effect.Id));
-        bool life = SkillsFor(conn).LifeReservation(gem.Effect, gem.Level)
-            || Get("base_skill_reserve_life_instead_of_mana") != 0 || Get("skill_reserve_life_instead_of_mana") != 0
-            || curse && Get("curse_aura_skills_reserve_life") != 0
-            || Supports.Of(gem.Effect)?.Types.Contains(35) == true && Get("skills_that_throw_mines_reserve_life") != 0;
+        bool life = SkillsFor(player).LifeReservation(gem.Effect, gem.Level)
+            || Get(Stat.BaseSkillReserveLifeInsteadOfMana) != 0 || Get(Stat.SkillReserveLifeInsteadOfMana) != 0
+            || curse && Get(Stat.CurseAuraSkillsReserveLife) != 0
+            || Supports.Of(gem.Effect)?.Types.Contains(35) == true && Get(Stat.SkillsThatThrowMinesReserveLife) != 0;
         string resource = life ? "life" : "mana";
         // Global efficiency is already in Pools. Add skill-local/support and family modifiers only.
-        int efficiency = Own("base_reservation_efficiency_+%") + Own("reservation_efficiency_+%")
-            + Own($"base_{resource}_reservation_efficiency_+%") + Own($"{resource}_reservation_efficiency_+%");
-        string effect = AuraCatalog.Family(SkillsFor(conn).EffectId(gem.Effect) ?? "");
+        int efficiency = Own(Stat.BaseReservationEfficiencyPlusPct) + Own(Stat.ReservationEfficiencyPlusPct)
+            + Own(Stat.Of($"base_{resource}_reservation_efficiency_+%")) + Own(Stat.Of($"{resource}_reservation_efficiency_+%"));
+        string effect = AuraCatalog.Family(SkillsFor(player).EffectId(gem.Effect) ?? "");
         string name = ReservationStatName(effect);
         if (!life)
         {
-            efficiency += Get(name + "_mana_reservation_efficiency_+%")
-                - 2 * Get(name + "_mana_reservation_efficiency_-2%_per_1");
+            efficiency += Get(Stat.Of(name + "_mana_reservation_efficiency_+%"))
+                - 2 * Get(Stat.Of(name + "_mana_reservation_efficiency_-2%_per_1"));
             if (effect.StartsWith("HeraldOf", StringComparison.Ordinal))
-                efficiency += Get("herald_skills_mana_reservation_efficiency_+%")
-                    - 2 * Get("herald_skills_mana_reservation_efficiency_-2%_per_1");
-            if (curse) efficiency += Get("curse_aura_skills_mana_reservation_efficiency_+%")
-                - 2 * Get("curse_aura_skills_mana_reservation_efficiency_-2%_per_1");
+                efficiency += Get(Stat.HeraldSkillsManaReservationEfficiencyPlusPct)
+                    - 2 * Get(Stat.HeraldSkillsManaReservationEfficiencyMinus2PctPer1);
+            if (curse) efficiency += Get(Stat.CurseAuraSkillsManaReservationEfficiencyPlusPct)
+                - 2 * Get(Stat.CurseAuraSkillsManaReservationEfficiencyMinus2PctPer1);
         }
-        if (!life && AuraCatalog.IsStance(effect)) efficiency += Get("stance_skills_mana_reservation_efficiency_+%");
-        if (curse) efficiency += Get("curse_aura_skills_reservation_efficiency_+%");
+        if (!life && AuraCatalog.IsStance(effect)) efficiency += Get(Stat.StanceSkillsManaReservationEfficiencyPlusPct);
+        if (curse) efficiency += Get(Stat.CurseAuraSkillsReservationEfficiencyPlusPct);
         return (life, efficiency);
     }
 
-    public static bool ReservationBudgetFits(ClientState conn) => ReservationBudgetFits(conn,
-        conn.PetrifiedBlood.Active ? conn.PetrifiedBlood.ManaPercent : 0,
-        conn.PetrifiedBlood.ReservesLife, conn.PetrifiedBlood.ReservationEfficiencyPct);
+    public static bool ReservationBudgetFits(Player player) => ReservationBudgetFits(player,
+        player.PetrifiedBlood.Active ? player.PetrifiedBlood.ManaPercent : 0,
+        player.PetrifiedBlood.ReservesLife, player.PetrifiedBlood.ReservationEfficiencyPct);
 
-    public static bool ReservationBudgetFits(ClientState conn, int percent, bool reservesLife, int efficiency)
+    public static bool ReservationBudgetFits(Player player, int percent, bool reservesLife, int efficiency)
     {
-        int mana = reservesLife ? 0 : PetrifiedBlood.Required(conn.Pools.Mana, conn.Pools.ManaReservationEfficiencyPct, percent, efficiency);
-        int life = reservesLife ? PetrifiedBlood.Required(conn.Pools.Life, conn.Pools.LifeReservationEfficiencyPct, percent, efficiency) : 0;
-        return (long)AuraCatalog.RequiredMana(conn.Pools, conn.Auras.Values) + mana + PlacedSkills.Reserved(conn.Pools, conn.Placed.All.Values, false) <= conn.Pools.Mana
-            && (long)AuraCatalog.RequiredLife(conn.Pools, conn.Auras.Values) + life + PlacedSkills.Reserved(conn.Pools, conn.Placed.All.Values, true) < conn.Pools.Life;
+        int mana = reservesLife ? 0 : PetrifiedBlood.Required(player.Pools.Mana, player.Pools.ManaReservationEfficiencyPct, percent, efficiency);
+        int proposedLife = reservesLife
+            ? PetrifiedBlood.Required(player.Pools.Life, player.Pools.LifeReservationEfficiencyPct, percent, efficiency)
+            : 0;
+        var lifeReservation = LifeReservation.Of(player.Pools, player.QualifiedItemLifeReservationPercent,
+            player.Auras.Values, proposedLife);
+        return (long)AuraCatalog.RequiredMana(player.Pools, player.Auras.Values) + mana + PlacedSkills.Reserved(player.Pools, player.Placed.All.Values, false) <= player.Pools.Mana
+            && (long)lifeReservation.Required + PlacedSkills.Reserved(player.Pools, player.Placed.All.Values, true) < player.Pools.Life;
     }
 
-    public static void ClampReservedResources(ClientState conn)
+    public static int AdditionalLifeReservation(Player player) => (int)Math.Clamp(
+        (long)PetrifiedBlood.RequiredLife(player.Pools, player.PetrifiedBlood)
+        + PlacedSkills.Reserved(player.Pools, player.Placed.All.Values, true),
+        0, int.MaxValue);
+
+    public static void ClampReservedResources(Player player)
     {
-        conn.PlayerMana = Math.Min(conn.PlayerMana, (uint)UnreservedMana(conn));
-        conn.PlayerLife = Math.Min(conn.PlayerLife, conn.PlayerUnreservedLife);
-        TrimLeechLocked(conn);
+        player.PlayerMana = Math.Min(player.PlayerMana, (uint)UnreservedMana(player));
+        player.PlayerLife = LifeReservation.Clamp(player.PlayerLife, LifeReservationOf(player));
+        TrimLeechLocked(player);
     }
 }

@@ -29,6 +29,9 @@ public sealed class LockstepSkillHold
     /// <summary>Whether anything is asked for or running.</summary>
     public bool Active => _pending || _held || Channel is not null;
 
+    /// <summary>Whether the button is still held down.</summary>
+    public bool Held => _held;
+
     /// <summary>A new click waiting to start, rather than the automatic repeat of a held skill.</summary>
     public bool Pending => _pending;
 
@@ -47,8 +50,19 @@ public sealed class LockstepSkillHold
         if (_held) Aim = aim;
     }
 
+    /// <summary>C→S 0x193: retarget the held skill onto an object (or clear a stale target) at its live cell.</summary>
+    public void Retarget(uint? target, (int X, int Y) aim)
+    {
+        if (!_held) return;
+        Aim = aim;
+        Target = target;
+    }
+
     /// <summary>C→S 0x195, or 0x196 for this skill. A request not yet started still starts.</summary>
     public void Release() => _held = false;
+
+    /// <summary>Consume a pending click that could not start (e.g. insufficient mana) without locking the player.</summary>
+    public void ClearPending() => _pending = false;
 
     /// <summary>Clear input; when another action takes over, retain the old channel's release for the next frame.</summary>
     public void Clear(bool finishChannel = false)

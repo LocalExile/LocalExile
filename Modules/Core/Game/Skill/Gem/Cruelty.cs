@@ -12,8 +12,8 @@
 // stronger running value; it takes over when the stronger one ends.
 public static partial class Game
 {
-    public const string CrueltyDotStat = "cruelty_damage_over_time_+%_final";
-    public const string CrueltySupportedStat = "supported_by_cruelty";
+    public const uint CrueltyDotStat = Stat.CrueltyDamageOverTimePlusPctFinal;
+    public const uint CrueltySupportedStat = Stat.SupportedByCruelty;
     public const int CrueltyMaxPct = 40, CrueltyDurationMs = 4000;
 
     /// <summary>The more Damage over Time a hit grants Cruelty for: the wiki's formula, rounded and capped at 40%
@@ -26,20 +26,20 @@ public static partial class Game
         return Math.Clamp((int)Math.Floor(pct + .5), 0, CrueltyMaxPct);
     }
 
-    /// <summary>A Cruelty-supported skill's hit on a living monster (under the Monsters lock): an instance of this
+    /// <summary>A Cruelty-supported skill's hit on a living monster (in the area's frame): an instance of this
     /// hit's strength for the full duration (a hit of a running strength refreshes it). Minions cannot gain Cruelty, so
     /// a totem's or a monster's hit never calls this. <paramref name="skill"/> is the supported skill's stats.</summary>
-    public static void CrueltyOnHitLocked(ClientState conn, ushort skillId, double damage, uint lifeBefore,
+    public static void CrueltyOnHitLocked(Player player, ushort skillId, double damage, uint lifeBefore,
         uint maximumLife, IReadOnlyDictionary<uint, int> skill, double now)
     {
-        int Get(string name) => Stats.Key(name) is uint key ? skill.GetValueOrDefault(key) : 0;
+        int Get(uint key) => skill.GetValueOrDefault(key);
         if (Get(CrueltySupportedStat) == 0) return;
-        int pct = CrueltyPctFor(Math.Min(damage, lifeBefore), maximumLife, Get("cruelty_effect_+%"));
+        int pct = CrueltyPctFor(Math.Min(damage, lifeBefore), maximumLife, Get(Stat.CrueltyEffectPlusPct));
         if (pct <= 0) return;
-        var state = conn.SupportGems;
-        double durationMs = Get("support_base_cruelty_duration_ms");
+        var state = player.SupportGems;
+        double durationMs = Get(Stat.SupportBaseCrueltyDurationMs);
         if (durationMs <= 0) durationMs = CrueltyDurationMs;
-        double until = now + durationMs / 1000.0 * Math.Max(0, 1 + Get("cruelty_duration_+%") / 100.0);
+        double until = now + durationMs / 1000.0 * Math.Max(0, 1 + Get(Stat.CrueltyDurationPlusPct) / 100.0);
         var (before, _) = state.CrueltyActiveAt(now);
         state.CrueltyInstances[pct] = Math.Max(until, state.CrueltyInstances.GetValueOrDefault(pct));
         // An ended instance, or a weaker one that ends no later than a stronger one, can never apply again.
@@ -47,11 +47,12 @@ public static partial class Game
             if (ends <= now || state.CrueltyInstances.Any(i => i.Key > strength && i.Value >= ends))
                 state.CrueltyInstances.Remove(strength);
         if (state.CrueltyActiveAt(now).Pct != before) state.PendingStats = true;
+        PresentStats(player);
     }
 
     /// <summary>The running Cruelty value every Cruelty-supported skill gets: the strongest running instance any of
     /// them granted, as the one buff on the character shows it (BuffDefinitions 1815: "Skills supported by Cruelty
     /// Support deal more damage over time"); 0 when none is running. The caller checks the skill's own support.</summary>
-    public static int CrueltyActivePct(ClientState conn, ushort skillId) =>
-        conn.SupportGems.CrueltyActiveAt(conn.Clock.Elapsed.TotalSeconds).Pct;
+    public static int CrueltyActivePct(Player player, ushort skillId) =>
+        player.SupportGems.CrueltyActiveAt(AreaTime(player)).Pct;
 }

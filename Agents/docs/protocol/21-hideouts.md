@@ -194,9 +194,11 @@ through one handler (`ItemMoves.MoveToMapDevice`), which takes the direction fro
   run in the gateway log and the map had to be dragged in. Live 2026-11-15: the click now arrives as `00E4 00000295 …` and
   the map moves.
 
-**Activate** is **C→S 0x00d8** (5 bytes): u16 BE, u8. The window's button handler `0x140c284f0` (window mode 0xd)
-calls `0x14216ce30`, which writes a u16 from the target its slots name (+0x7b; 0 seen with a map in the slots) and a
-u8 (0 seen); the writer class is `0x1435ca958`, as C→S 0xc7. Mode 0x5e (another device) sends C→S 0x297 instead.
+**Activate** is **C→S 0x00d8** (5 bytes): u16 BE target, u8 primordial boss option (`AtlasPrimordialBossOptions`: 0 none,
+1 Maven, 2 Eater of Worlds, 3 Searing Exarch).
+The window's button handler `0x140c284f0` sends 0x00d8 in mode 0xd (`Map1`, row 13), **C→S 0x0297** (3 bytes: u8 boss
+option) in mode 0x5e (`MemoryLineMaps1`, row 94), and **C→S 0x0298** (3 bytes: u8 invitation slot 0..10) in mode 0x56
+(`MavenInvitations`, row 86).
 The server checks the slots itself (`MapDevice.Check`): only maps and map fragments, and exactly one map. Otherwise
 nothing is consumed and a chat line (S→C 0x17) gives the reason. Then the slots are emptied (0xbf), the map's area
 opens (Maps.dat `BaseItemTypesKey` → `Regular_WorldAreasKey`), and six portals appear on a ring of 16 cells around
@@ -285,16 +287,47 @@ ship as whole portal objects (`Metadata/Effects/Microtransactions/Town_Portals/�
 Positioned, BaseEvents, StateMachine, Animated, Portal, Transitionable, MinimapIcon, InteractionAction, ControlZone);
 the variation route above covers the ones that are effect rigs only.
 
+**The device's instance.** A hideout's instance is gone six minutes after its last player leaves
+(`InstanceRegistry.Lifetime`), and the device and the portals standing at it go with it. Coming back into a new
+instance of the same area, the character's open run moves to it (the old instance is no longer in Auth's list): the
+portals left come up at the new device, and the map's portal back leads there rather than to an instance that is gone
+(live 2026-11-18: a disconnect inside the Simulacrum after the hideout had stood empty for six minutes came back to a
+device with no portals, while the map's own instance was still alive).
+A click on a portal back (the map's own, or a Portal Scroll's) asks Auth's instance list first: while the instance the
+portal was opened from is live the player enters it at the device, and a town's or a hideout's instance that is gone is
+made again and entered at the same cell by its device (seed 1), while a map's own instance is never made again.
+Before this the transfer to the gone instance was refused and the click did nothing (live 2026-11-18, the same
+Simulacrum run).
+The death screen's "Resurrect at Checkpoint" in a map asks that list too, for the area the map device stood in: an
+instance that is gone is made again and entered by its device, instead of a refused transfer that left the dead
+character in the map (live 2026-11-18, the same run).
+
 **Taking a portal** (C→S 0x24): the player walks there, the portal is sent with area 0 in 0x008f and removed (0x2bd),
 and the player changes area into the map: the first portal makes a new instance (Auth "transfer" New), the others enter
 that one (`MapDevice.Entered`). The open map is kept per character in the Gateway (`MapDevice.OpenOf`; lost on a Gateway
 restart), so the portals left stand at the device again when the player comes back. A new Activate replaces them.
+A map's instance expires six minutes after its last player leaves (`InstanceRegistry.Lifetime`), which the run does not
+see: so before a portal is spent the Gateway asks Auth's instance list, and a click on a run whose instance is gone
+closes the map and its remaining portals with a chat line, instead of spending one on a transfer that cannot arrive
+(live 2026-11-18: the transfer failed, the run closed, and the client kept three portals that did nothing when clicked).
 `/map_portal [type] [created] [open ms] [model]` (dev) places one test portal.
 
 **Timing and order.** The portals left come up one after another, `Game_MAP_PORTAL_GAP_MS` (150) apart; each is listed
 in 0x008f `Game_MAP_PORTAL_LIST_MS` (100) after its create; on entering the hideout the first waits
 `Game_MAP_PORTAL_ENTRY_MS` (1500). With a list delay of 0 each portal is drawn only by the next one's list, so the last
 never is (live). The open map keeps the places left (0–5 on the ring), so the portal taken is the one missing later.
+
+**Opening or idle.** The 0x008f handler keeps every listed entry in a world table keyed by the portal object, and stores
+it even when that object does not exist yet. It calls Portal slot +0xb8 with a 4th argument "opened" (`0x14218c9e0`,
+the call at `0x14218cc4c`) when the message's bit 0 is set, or the entry is new in that table, or its area, variation,
+model or owner changed. With "opened" the Portal component plays its `townportalopen` clip (the Portal block key read
+by `0x14161bd10` into +0x18), otherwise `townportal`, the idle loop (+0x38), unless that clip already plays. The
+Transitionable state 1 we send (MultiplexPortal's `create_untransitioned`: `townportalclose` at its end) draws
+nothing before the list. So a portal's first list always plays its opening, and a portal that already stands when the
+player arrives is listed once **before** its create: the later lists find the same entry and leave it idle. On entry the
+hideout's portals come up together this way (no gap); the portal back in a map, the portal back in a town and a
+reopened town portal are listed the same way (`Game.ListStandingPortal`). An Activate and a Portal Scroll still open
+theirs.
 
 **In the map.** Every area a map opens (`MapDevice.IsMapArea`) gets a portal back next to the arrival point, listed in
 0x008f with device 0 (the handler then skips the device's events but still sets the portal's area): it leads to the
@@ -308,7 +341,7 @@ Maps. Beach's walk map is a `-Walkmaps` capture (2484 × 1656; spawn the deepest
 **Portal Scroll** (C→S 0x58, `UsePortalScroll`). Outside towns and hideouts one scroll is spent and the same portal object
 opens 3 cells beside the player, listed in 0x8f with device 0. There is one per player: a new scroll closes the old portal
 (0x8f with area 0, then 0x2bd) and moves it, the map's own portal back included. From a map area it leads to the hideout,
-anywhere else to the character's last town (`ClientState.ReturnPortalTo`), at its spawn. In a town or a hideout
+anywhere else to the character's last town (`Player.ReturnPortalTo`), at its spawn. In a town or a hideout
 nothing happens and nothing is spent. Live 2026-10-21: in a map and in the acts. Not yet: the portal's other end in the
 town (the way back), and the portal staying after the player leaves the area.
 
@@ -839,3 +872,26 @@ the exported SulphiteEnrage rows do not disclose the official daemon's radius or
 - **League hub stashes.** The Menagerie (stash 455 480 0°, guild stash 440 480 0°, placed live 2026-10-30), the
   Forbidden Sanctum (116 160, 106 166), Kingsmarch, the Rogue Harbour and the Monastery of the Keepers (offsets from the
   arrival) get a stash and a guild stash, as the Mine Encampment does.
+- **Hideout decorations, `/save_hideout`, music box and Item Display Case (3.29.3c).**
+  - `C→S 0x16` command 50 (`Commands.dat` row 49 `SaveHideout` + 1) and `/save_hideout` report and confirm the saved
+    hideout layout.
+  - `C→S 0x59` (personal; `0x5a` guild placement is refused), 16 bytes (writer `0x141f99e90`): u32 BE
+    MtxTypeGameSpecific HASH32, u16 BE x, u16 BE y, f32 BE rotation, u8 variation, u8 flags (bit 0 mirrored). Capped at
+    750 custom decorations per hideout.
+  - `C→S 0x5d` (6 bytes): u32 BE object id reclaims a custom decoration (core stations, NPCs, and occupied Item Display
+    Cases are protected).
+  - `C→S 0x5e` (3 bytes, writer `0x140e27920`, sender `0x140213f10`): u8 mode (0 reclaims all custom decorations, 1 also
+    resets saved station placements; refused while any Item Display Case holds a stored item).
+  - `C→S 0x255` (4 bytes, writer `0x141f99160`, sender `0x140bb8010`): u16 BE `Music.dat` row (`0xffff` = default);
+    persisted in the hideout save and reported by `/save_hideout`. 3.29.3c has no `S→C 0x255` handler because the
+    client starts local track playback in `0x140bb7f57` before sending (re-entry replay is not wired).
+  - Item Display Case (`Metadata/MiscellaneousObjects/Hideout/ItemDisplayCase`): its `ItemDisplayCase` component reads
+    0 bytes (`0x1400ecff0`). Clicking opens `S→C 0x7b` kind `0x49` (`0x140dcb9c0`); `C→S 0x67` (14 bytes, writer
+    `0x141f973b0`, sender `0x140705a40`: u32 object, u32 cursor inventory, u32 item) places/swaps a cursor item, and
+    `C→S 0x68` (7 bytes, writer `0x141f96e50`: u32 object, u8 flag) toggles or reclaims it. Stored items are strictly
+    league-scoped in the account's league stash, reject quest items, and block reclaiming/resetting while occupied.
+- **Horticrafting Ctrl + click and recipe unlock notifications.**
+  - `C→S 0xf9` (10 bytes, writer `0x141fa0040`, sender `0x140312da0`): u32 BE item id, u8 flags, u16 BE stash tab, u8
+    intoStation moves an item into or out of `HarvestCraftingItem` (row 43) from inventory or personal stash.
+  - Flipping a `RecipeUnlockDisplay.RecipeId` league quest flag bit `0 → 1` via `PlayerLeagueQuestFlagsUpdate` triggers
+    the client's native recipe unlock toast (`0x140d6d030` → `0x1402a7210`).

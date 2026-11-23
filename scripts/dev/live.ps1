@@ -15,11 +15,9 @@
 #               -NoClient). Restarting the Gateway drops the client to the login screen, but Auth keeps the login session.
 #               With -Walkmaps the restarted Gateway announces loads again, and this checkout's recorder already running
 #               is kept.
-#   The Gateway runs under `dotnet watch` (.NET hot reload): a saved edit to its code applies to the running server
-#               within seconds and the client stays in game. An edit hot reload cannot apply (a changed signature, a new
-#               static initializer) rebuilds and restarts the Gateway, which drops the client to the login screen.
-#   -NoHotReload  start the built Gateway without `dotnet watch`. Agents/GettingStarted.md step 10.
-#   -Release    build and run Release servers and modules without hot reload (Agents/docs/dev/performance.md).
+#   The servers have no hot reload: an edit to one is a restart (-Only). A module's or mod's new build reloads into the
+#               running Gateway (Agents/docs/dev/live-testing.md, "Hot reload").
+#   -Release    build and run Release servers and modules (Agents/docs/dev/performance.md).
 #   -Debug      build and run Debug (default). The last configuration is remembered for -Only and -ClientOnly.
 #   -ClientOnly open the client (of -Session) when it is closed; the servers must be running (refused without them; a
 #               running client stays). With -Walkmaps (default ports and client) also this checkout's walk-map recorder,
@@ -52,7 +50,7 @@
 #               only those servers, with -NoClient everything but the clients, with -ClientOnly only the -Session client.
 #   Several stacks and clients on one PC: Agents/docs/dev/live-testing.md ("Several stacks and clients"). Whatever this
 #   script stops is this checkout's own (its paths, or the client PIDs it recorded in data\clients\), never another's.
-param([switch]$NoClient, [switch]$NoBuild, [switch]$NoExtract, [switch]$Walkmaps, [switch]$ClientOnly, [switch]$NoHotReload,
+param([switch]$NoClient, [switch]$NoBuild, [switch]$NoExtract, [switch]$Walkmaps, [switch]$ClientOnly,
     [ValidateSet('Auth', 'Patch', 'Gateway')][string[]]$Only = @(), [int]$PortBase = -1, [string]$Session = $env:Game_CLIENT_SESSION,
     [string]$SeedConfig = $env:Game_CLIENT_SEED_CONFIG, [switch]$Stop, [switch]$Nullifier, [switch]$Agent, [switch]$Release, [switch]$Debug, [switch]$Sound)
 
@@ -65,7 +63,6 @@ if ($Release -and $Debug) { throw '-Release and -Debug cannot be combined' }
 $configurationFile = Join-Path $repo 'data\live-configuration.txt'
 $remembered = if (Test-Path $configurationFile) { Get-Content $configurationFile -TotalCount 1 } else { $null }
 $configuration = if ($Release) { 'Release' } elseif ($Debug) { 'Debug' } elseif ($remembered -in 'Debug', 'Release') { $remembered } else { 'Debug' }
-if ($configuration -eq 'Release') { $NoHotReload = $true }
 $out = Join-Path $repo 'logs'
 $clients = Join-Path $repo 'data\clients'
 New-Item -ItemType Directory -Force $out | Out-Null
@@ -164,7 +161,7 @@ function Get-OwnClients([string]$session) {
         -not @($pending | Where-Object { $p.CreationDate.ToFileTimeUtc() -ge $_ }).Count })
 }
 
-# This checkout's processes of the given servers: `dotnet <server>.dll`, a watched Gateway's `dotnet watch`, and their cmd
+# This checkout's processes of the given servers: `dotnet <server>.dll`, an older run's `dotnet watch`, and their cmd
 # wrappers, found by their command line (one still loading its game data holds no port yet, and its cmd wrapper keeps the
 # log open), with everything they started (`dotnet watch` runs `dotnet run`, which runs GameServer.Gateway.exe). They
 # name a path inside this checkout themselves or through their parent (an older live.ps1 started them with relative
@@ -386,12 +383,14 @@ function Select-LocalGateway([int]$loginPort, [switch]$Strict) {
 # waits for them. The default client starts plainly, as before.
 function Start-Client([string]$session, $stack, [string]$seedConfig, [bool]$nullifier = $false) {
     $client = Join-Path $repo 'Client'
+    $authTool = Join-Path $repo "src\GameServer.Auth\bin\$configuration\net10.0\GameServer.Auth.dll"
+    & dotnet $authTool verify-patch (Join-Path $client 'Game.patched.exe') (Join-Path $repo 'data\login-keys.json')
+    if ($LASTEXITCODE -ne 0) { throw 'Client login key preflight failed. Rebuild Auth if needed, then explicitly regenerate Client\Game.patched.exe with GameServer.Auth patch; see Agents/GettingStarted.md.' }
     # The Patch server answers with the hash saved in data\: another checkout's run may have changed the GGPK since.
     # --repair gives a zero root hash a value (the client never skips patching with one).
     & dotnet (Join-Path $repo "src\GameServer.Patch\bin\$configuration\net10.0\GameServer.Patch.dll") root-hash $client --repair --save 2>$null | Out-Null
     if ($LASTEXITCODE -ne 0) { Write-Warning 'could not refresh the GGPK root hash in data\client-constants.json; the saved one is used' }
     # Which allowed client build this is, and the versions LocalExile supports (ClientBuilds).
-    $authTool = Join-Path $repo "src\GameServer.Auth\bin\$configuration\net10.0\GameServer.Auth.dll"
     if (Test-Path $authTool) {
         & dotnet $authTool build (Join-Path $client 'Game.exe') 2>$null | Where-Object { $_ -like 'This client is *' } |
             ForEach-Object { Write-Host $_ }
@@ -626,8 +625,6 @@ if (-not $env:Game_GATEWAY_ENTER) { $env:Game_GATEWAY_ENTER = '1' }
 
 $servers = if ($Only) { $Only } else { @('Auth', 'Patch', 'Gateway') }
 if ($Only) { $NoClient = $true }
-# Hot reload (the Gateway under `dotnet watch`) unless -NoHotReload.
-$Watch = -not $NoHotReload -and $servers -contains 'Gateway'
 
 # This checkout's clients (every session: they lose their servers) and recorder.
 Step "stopping this checkout's previous run: $($servers -join ', ')$(if (-not $NoClient) { ', clients' }) ..."
@@ -677,8 +674,7 @@ $runs = @(Get-ChildItem (Join-Path $out 'archive') -Directory -ErrorAction Silen
     Remove-Item -Recurse -Force -ErrorAction SilentlyContinue
 
 if (-not $NoBuild) {
-    # A watched Gateway builds itself.
-    foreach ($s in ($servers | Where-Object { -not ($Watch -and $_ -eq 'Gateway') })) {
+    foreach ($s in $servers) {
         Step "building GameServer.$s ..."
         dotnet build (Join-Path $repo "src\GameServer.$s") -c $configuration -v q -nologo | Out-Null
         if ($LASTEXITCODE -ne 0) { throw "build failed: GameServer.$s (run: dotnet build src\GameServer.$s)" }
@@ -695,12 +691,7 @@ if (-not $NoBuild) {
         $projects = $mods | ForEach-Object { "  <Project Path=`"$($_.FullName.Substring($repo.Length + 1).Insert(0, '..\').Replace('\', '/'))`" />" }
         Set-Content $solution (@('<Solution>') + $projects + '</Solution>') -Encoding utf8
         $output = @(dotnet build $solution -c $configuration -v q -nologo)
-        if ($LASTEXITCODE -eq 0) {
-            # StaleModules: the modules were just checked against this Gateway, and one that did not change keeps its old date.
-            $gatewayBin = Join-Path $repo "src\GameServer.Gateway\bin\$configuration\net10.0"
-            Set-Content (Join-Path $gatewayBin 'modules-checked') (Get-Date -Format o)
-        }
-        else {
+        if ($LASTEXITCODE -ne 0) {
             $failed = @($output | ForEach-Object { if ($_ -match ':\s+error\s.*\[([^\]]+\.csproj)') { [IO.Path]::GetFileNameWithoutExtension($Matches[1]) } } | Select-Object -Unique)
             Write-Warning "did not build (run: dotnet build $solution): $(if ($failed) { $failed -join ', ' } else { 'see the command' }); the Gateway starts without them"
         }
@@ -722,15 +713,13 @@ if (-not $NoClient -and -not $stack.Base) {
 
 # Only for the servers (the shell keeps its own values): this stack's ports; each connection's last packets go to a file
 # when it closes (PacketHistory, the lead for a client crash; relative to the servers' working directory, this checkout;
-# 0 turns it off); a watched Gateway reads `dotnet watch`'s own output (its stderr, below) to tell players about compile
-# errors (HotReload.cs).
+# 0 turns it off).
 $serverEnv = @{
     Game_PATCH_TCP_PORT = "$($stack.Ports.patch)"; Game_LOGIN_PORT = "$($stack.Ports.login)"
     Game_AUTH_CONTROL_PORT = "$($stack.Ports.control)"; Game_GATEWAY_PORT = "$($stack.Ports.gateway)"
     Game_PATCH_URL = if ($env:Game_PATCH_URL -and -not $stack.Base) { $env:Game_PATCH_URL } else { "http://127.0.0.1:$($stack.Ports.patchWeb)" }
     Game_PATCH_WEB_ROOT = if ($stack.Base) { $null } else { $env:Game_PATCH_WEB_ROOT }
     Game_PACKET_DUMPS = if ($env:Game_PACKET_DUMPS) { $env:Game_PACKET_DUMPS } else { Join-Path 'logs' 'packets' }
-    Game_HOT_RELOAD_LOG = if ($Watch) { Join-Path $out 'live-gateway.err' } else { $null }
 }
 $envBefore = @{}
 foreach ($name in $serverEnv.Keys) {
@@ -743,12 +732,9 @@ Step "starting servers: $($servers -join ', ') ..."
 try {
     foreach ($s in 'Patch', 'Gateway', 'Auth') {
         if ($servers -notcontains $s) { continue }
-        # `dotnet watch` runs the Gateway with this checkout as its working directory, like the plain start, so data\
-        # and logs\ resolve the same. --non-interactive restarts it on an edit hot reload cannot apply instead of asking.
         # Absolute paths: the command line tells this checkout's servers from another checkout's (Get-OwnServers).
         # @(...): a single value would come out as a string, and `+` would glue 'serve' onto the dll's name.
-        $command = @(if ($Watch -and $s -eq 'Gateway') { @('watch', 'run', '--project', (Join-Path $repo "src\GameServer.$s"), '--non-interactive', '--') }
-            else { Join-Path $repo "src\GameServer.$s\$bin\GameServer.$s.dll" })
+        $command = @(Join-Path $repo "src\GameServer.$s\$bin\GameServer.$s.dll")
         Start-Detached 'dotnet' ($command + $serverArgs[$s]) `
             (Join-Path $out "live-$($s.ToLower()).log") (Join-Path $out "live-$($s.ToLower()).err")
     }
@@ -760,20 +746,17 @@ finally {
     }
 }
 
-# A watched Gateway first builds: wait until it listens, so the client does not reach a closed port.
-if ($Watch) {
-    Step 'waiting for the Gateway to build and load the game data (this is the long part, up to 3 minutes) ...'
+# Wait until the Gateway listens, so the client does not reach a closed port.
+if ($servers -contains 'Gateway') {
+    Step 'waiting for the Gateway to load the game data and modules ...'
     $waitStart = Get-Date
     $script:nextReport = 10
     $deadline = (Get-Date).AddMinutes(3)
     $gatewayLog = Join-Path $out 'live-gateway.log'
-    $gatewayLogs = @($gatewayLog, (Join-Path $out 'live-gateway.err'))
     while (-not ((Test-Path $gatewayLog) -and (Select-String -Path $gatewayLog -Pattern '\[gateway\] listening on' -Quiet))) {
-        if ((Get-Date) -gt $deadline) { throw 'the watched Gateway did not start (logs\live-gateway.log, logs\live-gateway.err)' }
-        $built = @($gatewayLogs | Where-Object { Test-Path $_ })
-        if ($built -and (Select-String -Path $built -Pattern 'Build failed|error CS' -Quiet)) {
-            throw 'the watched Gateway did not build (logs\live-gateway.log, logs\live-gateway.err)'
-        }
+        if ((Get-Date) -gt $deadline) { throw 'the Gateway did not start (logs\live-gateway.log, logs\live-gateway.err)' }
+        $err = Join-Path $out 'live-gateway.err'
+        if ((Test-Path $err) -and (Get-Item $err).Length -gt 0) { throw "the Gateway failed to start (logs\live-gateway.err):`n$(Get-Content $err -Raw)" }
         Report-Wait 'the Gateway' $waitStart $gatewayLog
         Start-Sleep -Milliseconds 500
     }
@@ -800,9 +783,7 @@ if ($servers -contains 'Patch') {
 }
 Start-Sleep -Seconds 1
 foreach ($name in ($servers | Where-Object { $_ -ne 'Patch' } | ForEach-Object { $_.ToLower() })) {
-    # `dotnet watch` writes its own status lines (hot reload applied, file updated) to stderr.
-    $err = (Get-Content (Join-Path $out "live-$name.err") -ErrorAction SilentlyContinue |
-        Where-Object { -not ($Watch -and $name -eq 'gateway' -and $_ -match '^dotnet watch ') }) -join "`n"
+    $err = (Get-Content (Join-Path $out "live-$name.err") -ErrorAction SilentlyContinue) -join "`n"
     if ($err) { throw "$name failed to start (logs\live-$name.err):`n$err" }
 }
 

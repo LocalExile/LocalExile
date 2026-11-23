@@ -22,7 +22,7 @@ $repo = (Resolve-Path (Join-Path $PSScriptRoot '..\..')).Path
 # Name, outputs (the first is checked for presence and freshness), runner (dotnet | python), arguments, version, needs,
 # and what reads it. Keep in step with the Gateway's GameDataFiles.cs.
 $manifest = @(
-    @{ Name = 'tables'; Outputs = @('data\tables\WorldAreas.json', 'data\tables\UniqueMaps.json', 'data\tables\Words.json', 'data\tables\VillageUniqueDisenchantValues.json', 'data\tables\ItemVisualIdentity.json', 'data\tables\BaseItemTypes.json', 'data\tables\ItemClasses.json', 'data\tables\Stats.json', 'data\tables\Mods.json', 'data\tables\Tags.json', 'data\tables\InfluenceTags.json', 'data\tables\UniqueStashLayout.json', 'data\tables\UniqueStashTypes.json', 'data\extract-report.json', 'data\tables\Essences.json', 'data\tables\CraftingBenchOptions.json', 'data\tables\CraftingItemClassCategories.json', 'data\tables\ModType.json', 'data\tables\PassiveJewelSlots.json', 'data\tables\DelveUpgrades.json', 'data\tables\DelveFlares.json', 'data\tables\DelveDynamite.json', 'data\tables\DelveLevelScaling.json', 'data\tables\DelveResourcePerLevel.json', 'data\tables\LabyrinthTrials.json', 'data\tables\GrantedEffectStatSets.json', 'data\tables\BuffDefinitions.json', 'data\tables\KiracLevels.json', 'data\tables\GameConstants.json', 'data\tables\SkillTrapVariations.json'); Runner = 'dotnet'
+    @{ Name = 'tables'; Outputs = @('data\tables\WorldAreas.json', 'data\tables\UniqueMaps.json', 'data\tables\Words.json', 'data\tables\VillageUniqueDisenchantValues.json', 'data\tables\ItemVisualIdentity.json', 'data\tables\BaseItemTypes.json', 'data\tables\ItemClasses.json', 'data\tables\Stats.json', 'data\tables\Mods.json', 'data\tables\Tags.json', 'data\tables\InfluenceTags.json', 'data\tables\UniqueStashLayout.json', 'data\tables\UniqueStashTypes.json', 'data\extract-report.json', 'data\tables\Essences.json', 'data\tables\CraftingBenchOptions.json', 'data\tables\CraftingItemClassCategories.json', 'data\tables\ModType.json', 'data\tables\PassiveJewelSlots.json', 'data\tables\DelveUpgrades.json', 'data\tables\DelveFlares.json', 'data\tables\DelveDynamite.json', 'data\tables\DelveLevelScaling.json', 'data\tables\DelveResourcePerLevel.json', 'data\tables\LabyrinthTrials.json', 'data\tables\GrantedEffectStatSets.json', 'data\tables\BuffDefinitions.json', 'data\tables\KiracLevels.json', 'data\tables\GameConstants.json', 'data\tables\SkillTrapVariations.json', 'data\tables\CharacterAudioEvents.json', 'data\tables\CharacterEventTextAudio.json'); Runner = 'dotnet'
        Args = @('run', '--project', 'Tools/PoEDataExtractor', '--', 'decode', 'Client'); Version = 6; Needs = @()
        UsedBy = 'every game table: stats, levels, areas, waypoints, items, mods, monsters, NPCs; all other entries' }
     @{ Name = 'vendor-stock'; Outputs = @('data\vendor-stock.json'); Runner = 'python'
@@ -41,41 +41,50 @@ $manifest = @(
        Args = @('run', '--project', 'scripts/re/atlas', '--', 'Client', 'room-points'); Version = 10; Needs = @('tables')
        UsedBy = 'unique bosses and named packs (14-monster-packs.md), quest room objects (12-quests.md)' }
     # After area-transitions and room-points: --all also takes the object types those files name. The Labyrinth's
-    # elevator and objective marker are named by the arena's tiles, not by a room, so they are asked for by name.
+    # elevator and objective marker are named by the arena's tiles, not by a room, so they are asked for by name; so is
+    # Oshabi's soul tree, which the Harvest module places itself (no table, room or tile line names it), and the Allflame
+    # encounter rooms' lamp and barrels (only those TerrainFeatures rooms name them).
     @{ Name = 'object-types'; Outputs = @('data\object-types.json'); Runner = 'python'
        Args = @('scripts/re/ot_components.py', '--all', '--json', 'data/object-types.json',
-                'Metadata/Terrain/Labyrinth/Objects/Elevator_Izaro', 'Metadata/Terrain/Labyrinth/Objects/BossObjectiveMarker'); Version = 10; Needs = @('tables', 'area-transitions', 'room-points')
-       UsedBy = 'monsters (emergence and inherited Life corpse flags), NPCs, area transitions, quest objects and chests, hideout decorations and stationary collision footprints' }
+                'Metadata/Terrain/Labyrinth/Objects/Elevator_Izaro', 'Metadata/Terrain/Labyrinth/Objects/BossObjectiveMarker',
+                'Metadata/Terrain/Leagues/Harvest/Objects/SoulTree', 'Metadata/Terrain/Leagues/Deepwater/Objects/CursedTreasureChestEncounterLamp',
+                'Metadata/Terrain/Leagues/Deepwater/BrinerotEncounter/BrinerotEmergeBarrel'); Version = 13; Needs = @('tables', 'area-transitions', 'room-points')
+       UsedBy = 'monsters (emergence, inherited Life corpse flags and Actor slow-animation policy), NPCs, area transitions, quest objects and chests, hideout decorations and stationary collision footprints' }
     @{ Name = 'hideouts'; Outputs = @('data\hideouts.json'); Runner = 'dotnet'
        Args = @('run', '--project', 'scripts/re/atlas', '--', 'Client', 'hideouts'); Version = 3; Needs = @('tables', 'object-types')
        UsedBy = 'hideouts and their decorations (21-hideouts.md)' }
     @{ Name = 'animation-contacts'; Outputs = @('data\animation-contacts.json'); Runner = 'python'
-       Args = @('scripts/re/anim_contacts.py'); Version = 8; Needs = @('tables')
-       UsedBy = 'class spell contacts, rig animation indices, the default attack''s stance clips (their contact and lock_cancelling keyframes as the client plays them, the ACT-selected wand variant), ACT-selected ordinary wand release timing, the contact keyframes'' positions: where an arrow or wand bolt leaves (11-skills.md), and every contact frame of a clip: when each of a multi-strike skill''s strikes lands' }
+       Args = @('scripts/re/anim_contacts.py'); Version = 10; Needs = @('tables')
+       UsedBy = 'class spell contacts, rig animation indices, the default attack''s stance clips (their contact and lock_cancelling keyframes as the client plays them, the ACT-selected wand variant), ACT-selected ordinary wand release timing, the contact keyframes'' positions: where an arrow or wand bolt leaves (11-skills.md), every contact frame of a clip, and all named events and clip lengths including clips without contact' }
     # monster-contacts: the clips a variety plays for its projectile attacks, with their contact keyframe's time and position:
-    # when and from where a Sand Spitter mortar leaves (the skill's own animation key, the native clip selector).
-    @{ Name = 'monster-contacts'; Outputs = @('data\monster-contacts.json'); Runner = 'python'
-       Args = @('scripts/re/monster_contacts.py'); Version = 4; Needs = @('tables')
-       UsedBy = 'monster projectile release timing/points and Throw-stage contacts (11-skills.md, 12-quests.md)' }
+    # when and from where a Sand Spitter mortar leaves (the skill's own animation key, the native clip selector). v5: every
+    # contact of a clip with several (one release each), the effects' own animation keys, .act clips that name an effect.
+    # v6 adds monster-stances.json: a stanced .act's (the Rogue Exiles') skill animation pools per weapon stance.
+    # v7 gives each stance clip every contact frame (contacts): when a multi-strike skill's later strikes land.
+    # v8 adds separate ordinary-melee clocks from the variety AO, preserving all legacy contact pools.
+    @{ Name = 'monster-contacts'; Outputs = @('data\monster-contacts.json', 'data\monster-stances.json'); Runner = 'python'
+       Args = @('scripts/re/monster_contacts.py'); Version = 8; Needs = @('tables', 'object-types')
+       UsedBy = 'monster contact frames, variety AO clip clocks with slow spans and ACT budgets, projectile release points, Throw-stage contacts, and when a weapon-stanced monster''s skill lands (11-skills.md, 12-quests.md)' }
     # monster-takehit also gives each variety's Emerge clip and its length (how long an emerge monster takes to rise) and
     # its death clips with the time they clear the corpse's body from the client's paths.
     @{ Name = 'monster-takehit'; Outputs = @('data\monster-takehit.json'); Runner = 'python'
        Args = @('scripts/re/monster_takehit.py'); Version = 5; Needs = @('tables')
        UsedBy = 'monster hit reaction: each variety''s TakeHit clip indexes in its rig and their lengths (11-skills.md, 0x1b2)' }
     # projectile-clips: a server-created projectile object plays nothing by itself; the Gateway starts its rig's flight
-    # clip at spawn and its impact clip where it stops (the Sand Spitter mortar is invisible otherwise).
+    # clip at spawn and its impact clip where it stops (the Sand Spitter mortar is invisible otherwise). v3: the flight
+    # clip's contact, which times a spell mortar's landing; v4: flights named by an .ao view, group or default animation.
     @{ Name = 'projectile-clips'; Outputs = @('data\projectile-clips.json'); Runner = 'python'
-       Args = @('scripts/re/projectile_clips.py'); Version = 2; Needs = @('tables')
-       UsedBy = 'server-created projectile objects (monster mortars): each Projectiles row''s flight and impact clip indexes and lengths in its rig, and its .ao default animation (11-skills.md)' }
+       Args = @('scripts/re/projectile_clips.py'); Version = 4; Needs = @('tables')
+       UsedBy = 'server-created projectile objects (monster mortars): each Projectiles row''s flight and impact clip indexes and lengths in its rig, the flight clip''s contact (a spell mortar''s landing time), and its .ao default animation (11-skills.md)' }
     @{ Name = 'passive-graphs'; Outputs = @('data\passive-skill-graphs.json', 'data\phrecia-passive-skillgraph.psg'); Runner = 'dotnet'
-       Args = @('run', '--project', 'scripts/re/passive-graphs', '--', 'Client', 'data/passive-skill-graphs.json'); Version = 6; Needs = @('tables')
-       UsedBy = 'ordinary/ascendancy server membership and connectivity; derived Phrecia client artifact remains uninstalled' }
+       Args = @('run', '--project', 'scripts/re/passive-graphs', '--', 'Client', 'data/passive-skill-graphs.json'); Version = 7; Needs = @('tables')
+       UsedBy = 'ordinary/ascendancy server membership and connectivity, and the Atlas tree''s pathing; derived Phrecia client artifact remains uninstalled' }
     # The servers never open Client/ as they run: what they would read from it comes from these two.
     @{ Name = 'client-constants'; Outputs = @('data\client-constants.json'); Runner = 'dotnet'; Servers = $true
        Args = @('run', '--project', 'scripts/re/game-pack', '--', 'constants'); Version = 2; Needs = @()
        UsedBy = 'the Patch server''s root hash of the local GGPK (live.ps1 refreshes it before each client start; the HNC mask is in client.db)' }
     @{ Name = 'game-pack'; Outputs = @('data\game-files.zip'); Runner = 'dotnet'; Servers = $true
-       Args = @('run', '--project', 'scripts/re/game-pack', '--', 'pack'); Version = 4; Needs = @()
+       Args = @('run', '--project', 'scripts/re/game-pack', '--', 'pack'); Version = 5; Needs = @()
        UsedBy = 'the files of server-side level generation (ServerLevels) and the Phrecia classes'' graph check (GamePack)' }
     @{ Name = 'stat-descriptions'; Outputs = @('data\stat-descriptions.txt'); Runner = 'dotnet'
        Args = @('run', '--project', 'scripts/re/game-pack', '--', 'stat-descriptions'); Version = 2; Needs = @()

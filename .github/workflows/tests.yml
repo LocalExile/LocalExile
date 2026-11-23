@@ -1,0 +1,47 @@
+# Builds the solution and runs the Data, Core and Gateway test suites on every pull request (AGENTS.md, "Tests").
+# The machine has only what is in git: the tests build the client tables from sql/, and a test that needs an extracted
+# game file (data/game-files.zip, Client/) shows as skipped (tests/GameServer.Gateway.Tests/Needs.cs).
+# pull_request runs the branch's own code with a read-only token and no secrets. Agents/docs/dev/pr-checks.md
+name: Tests
+
+on:
+  pull_request:
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+# A new push to the same pull request replaces the run that is still going.
+concurrency:
+  group: tests-${{ github.event.pull_request.number || github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  tests:
+    # Windows, where the suites were checked against a clean checkout (2026-11-17). Linux is not checked yet.
+    runs-on: windows-latest
+    timeout-minutes: 30
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          persist-credentials: false
+
+      - uses: actions/setup-dotnet@v4
+        with:
+          dotnet-version: 10.0.x
+
+      - name: Build
+        id: build
+        run: dotnet build GameServer.slnx -c Release
+
+      - name: Data tests
+        run: dotnet test tests/GameServer.Data.Tests -c Release --no-build
+
+      # Each suite runs when the build worked, whatever the suite before it did: one failure does not hide the others.
+      - name: Core tests
+        if: ${{ !cancelled() && steps.build.outcome == 'success' }}
+        run: dotnet test tests/GameServer.Core.Tests -c Release --no-build
+
+      - name: Gateway tests
+        if: ${{ !cancelled() && steps.build.outcome == 'success' }}
+        run: dotnet test tests/GameServer.Gateway.Tests -c Release --no-build

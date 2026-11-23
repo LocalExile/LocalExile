@@ -12,7 +12,8 @@ is not in the client tables needs a source and a confidence note.
 
 - [x] Currency item rows: `BaseItemTypes` (`DropLevel`), `CurrencyItems`
   (`StackSize`, `Action`, `CurrencyUseType`); 1,962 rows, no drop weight.
-- [x] Core currency table: `ItemDrops.Currency`, 24 entries, sum 4049.51.
+- [x] Core currency table: `drop_currency_weights`, 36 rows (the 24 of `ItemDrops.Currency`, sum 4049.51, plus 12
+  estimated ones; Engineer's and Harbinger's Orbs are disabled, the client marks them no longer usable).
 - [x] Divination card rows: `BaseItemTypes` class `DivinationCard`, `DropLevel`;
   no area list in the client.
 - [x] Boss identity: `WorldAreas.Bosses_MonsterVarietiesKeys`,
@@ -36,15 +37,17 @@ is not in the client tables needs a source and a confidence note.
 - [x] Identify missing core types: Orb of Binding (25), Sacred Orb (35), Ancient
   Orb (35), Cartographer's Chisel (52), Fracturing Orb (68), Orb of Unmaking
   (70); Orb of Horizons removed in 3.28.
+- [x] Add them, with Hinekora's Lock, Engineer's, Instilling, Enkindling and
+  Harbinger's Orbs and Stacked Deck, as `core` rows with estimated weights
+  ([currency-drops.md](currency-drops.md) §2). The weights are placed by rarity,
+  not measured; recalibrating them stays open below.
 - [ ] Decide the baseline for a best-effort recalibration: 2014 shape corrected
   by the 3.26/3.28/3.29 notes, or a collected sample.
 - [~] Add a `CurrencySource(Id, SourceKind, SourceId, DropLevel, Weight)` model:
   `core`, `boss`, `league`, `atlas`, `vendor`; the `drop_currency_sources` table
   and record exist, the core table is seeded and wired, the source rows are not.
 - [ ] Add boss/league-only currency: Awakener's Orb (Sirus), Maven's Orb and Orb
-  of Dominance (Maven, verify), Veiled (Betrayal), Eldritch (Exarch/Eater),
-  Fracturing/Ancient (core), Cartographer's Chisel (maps), Orb of Unmaking
-  (Atlas).
+  of Dominance (Maven, verify), Veiled (Betrayal), Eldritch (Exarch/Eater).
 - [ ] Split the category weights: currency 35%, gems 4%, flasks 8%, equipment
   53% are also our numbers; 3.28 made currency a larger portion.
 - [ ] Implement the drop penalty (Phase 4) against the currency/card categories.
@@ -95,7 +98,7 @@ is not in the client tables needs a source and a confidence note.
   source; keep the generic pool as a fallback only where the game has one.
 - [ ] Handle disabled cards (`The Cartographer`, `The Obscured`, `The Puzzle`)
   and the campaign-area card pools (the PoEDB table is map/unique-map based).
-- [ ] Wire the card drop chance: map mods (`CardDropChance`, `PacksDropCards`),
+- [ ] Wire the card drop chance: map mods (`Game.ExtraDropsFromMap`, `PacksDropCards`),
   Divination Scarabs, Atlas passives; chance and pool are separate.
 - [ ] Verify a few cards live: The Doctor in Burial Chambers (tier 7+), The
   Apothecary in Cage (tier 7+), a boss/league card.
@@ -156,8 +159,8 @@ is not in the client tables needs a source and a confidence note.
    two tests).
 4. **Next:** boss drop tables and boss-only currency (one code PR, one or two
    tests).
-5. **Next:** currency baseline recalibration + missing core types (one code PR,
-   two tests at most).
+5. **Next:** currency baseline recalibration (one code PR, two tests at most);
+   the missing core types are in as estimates.
 6. **Next:** drop penalty (one code PR, one test).
 7. **Next:** source rows (`drop_currency_sources`) as world updates.
 8. **Later:** collector and MLE recalibration from live samples.

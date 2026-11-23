@@ -10,6 +10,7 @@ using GameServer.Core;
 // GameServer.Auth — the login server the official client talks to (custom TCP, see Agents/docs/re/007 and 008).
 //   keygen <Game.exe> [keys.json]          new signing + static keys over the client's own DSA domain
 //   build  <Game.exe>                      say which allowed client build the executable is (ClientBuilds)
+//   verify-patch <out.exe> [keys.json]     read-only check that the patched copy trusts this server's keys
 //   patch  <Game.exe> <out.exe> [keys.json] write a copy of the client that trusts those keys; in a Steam install's
 //                                          folder the copy also reads the loose game files (LooseFilesPatch)
 //   passwd <account> <password>            set a dev account's password (any length; restart Auth afterwards)
@@ -73,6 +74,21 @@ switch (cmd)
         Console.WriteLine(ClientBuilds.SupportNote(ClientBuilds.Require(File.ReadAllBytes(args[1]))));
         return 0;
     }
+    case "verify-patch" when args.Length >= 2:
+    {
+        var keys = LoginServerKeys.FromJson(File.ReadAllText(args.Length > 2 ? args[2] : DefaultKeys));
+        var image = new ClientImage(File.ReadAllBytes(args[1]));
+        var verify = image.ReadVerifyKey();
+        var signing = keys.Signing;
+        bool matches = verify.P == signing.P && verify.Q == signing.Q && verify.G == signing.G && verify.Y == signing.Y
+            && image.ReadServerStaticPublic() == keys.ServerStaticPublic
+            && LoginGroups.Static.PublicFor(image.ReadClientStaticPrivate()) == keys.ClientStaticPublic;
+        if (!matches)
+            Console.Error.WriteLine("[auth] patched client login keys do not match this server; regenerate the patched copy with GameServer.Auth patch before starting the client.");
+        else
+            Console.WriteLine("[auth] patched client login keys match this server");
+        return matches ? 0 : 1;
+    }
     case "patch" when args.Length >= 3:
     {
         if (Path.GetFullPath(args[1]).Equals(Path.GetFullPath(args[2]), StringComparison.OrdinalIgnoreCase))
@@ -97,7 +113,7 @@ switch (cmd)
         await Serve(LoginServerKeys.FromJson(File.ReadAllText(args.Length > 1 ? args[1] : DefaultKeys)));
         return 0;
     default:
-        Console.Error.WriteLine("usage: GameServer.Auth keygen <Game.exe> [keys.json] | patch <Game.exe> <out.exe> [keys.json] | serve [keys.json]");
+        Console.Error.WriteLine("usage: GameServer.Auth keygen <Game.exe> [keys.json] | patch <Game.exe> <out.exe> [keys.json] | verify-patch <out.exe> [keys.json] | serve [keys.json]");
         return 2;
 }
 }
@@ -141,7 +157,8 @@ static async Task Serve(LoginServerKeys keys)
     // A new instance of an area the Gateway generates itself (world.db's server_level_areas, generated = 1) gets a random
     // seed; every other area keeps seed 1, the seed its captures were dumped at, or the seed the client can build when it
     // cannot build seed 1 (server_level_areas.seed_in_place_of_one). Game_RANDOM_SEEDS=0 (or Game_SERVER_LEVELS=0, which turns the Gateway's
-    // generation off) pins them all that way. Hideouts have a fixed layout: always 1 (GameServer.Core.World.AreaSeeds).
+    // generation off) pins supported/captured areas that way; uncaptured maps still need random seeds.
+    // Hideouts have a fixed layout: always 1 (GameServer.Core.World.AreaSeeds).
     var worldAreas = ClientTables.TableOrNull("WorldAreas");
     // world.db is the Gateway's too: the updater applies each file once, whichever server opens it first.
     IReadOnlyList<GameDataStore.ServerLevelAreaRow> levelAreas;
@@ -150,7 +167,7 @@ static async Task Serve(LoginServerKeys keys)
     uint? fixedSeed = uint.TryParse(Environment.GetEnvironmentVariable("Game_SEED"), out var s) ? s : null;
     // The WorldAreas loads run on a thread of their own: the buffers ArrayPool keeps for a thread go with it, then one
     // collection gives their memory back (performance.md).
-    var (towns, hideouts, hideoutAreas, randomAreas, inPlaceOfOne) = Isolated(() =>
+    var (towns, hideouts, hideoutAreas, randomAreas, inPlaceOfOne, mapAreas) = Isolated(() =>
     {
         var towns = GameServer.Core.World.WorldAreaTowns.Load(worldAreas);
         var hideouts = GameServer.Core.World.WorldAreaHideouts.Load(worldAreas);
@@ -161,16 +178,19 @@ static async Task Serve(LoginServerKeys keys)
                 levelAreas.Where(r => r.Generated).Select(r => r.AreaId).ToHashSet(StringComparer.Ordinal));
         var inPlaceOfOne = GameServer.Core.World.ServerLevelAreas.ByHash(worldAreas,
             levelAreas.Where(r => r.SeedInPlaceOfOne is not null).ToDictionary(r => r.AreaId, r => r.SeedInPlaceOfOne!.Value, StringComparer.Ordinal));
-        return (towns, hideouts, hideoutAreas, randomAreas, inPlaceOfOne);
+        // The areas a map item opens: a map nobody captured is played at a random seed (WorldAreaMaps, AreaSeeds).
+        var mapAreas = GameServer.Core.World.WorldAreaMaps.Load(worldAreas, ClientTables.TableOrNull("Maps"));
+        return (towns, hideouts, hideoutAreas, randomAreas, inPlaceOfOne, mapAreas);
     });
     GC.Collect(GC.MaxGeneration, GCCollectionMode.Aggressive, blocking: true, compacting: true);
-    Console.WriteLine($"[auth] random seeds for {randomAreas.Count} server-generated area(s); " +
-        $"{inPlaceOfOne.Count} area(s) the client cannot build at seed 1 get another seed in its place");
+    Console.WriteLine($"[auth] random seeds for {randomAreas.Count} server-generated area(s) and {mapAreas.Count} map area(s) " +
+        $"with no capture; {inPlaceOfOne.Count} area(s) the client cannot build at seed 1 get another seed in its place");
     var seeds = new GameServer.Core.World.AreaSeeds
     {
         Hideouts = hideouts,
         Random = randomAreas,
         InPlaceOfOne = inPlaceOfOne,
+        Maps = mapAreas,
         Fixed = fixedSeed,
     };
     using var progress = new SaveDatabase(SaveDatabase.DefaultPath);
@@ -247,8 +267,19 @@ static async Task HandleConnection(TcpClient tcp, LoginServerKeys keys, AccountS
             // Anything the client sent after its 0x0002 is already ciphertext.
             var incoming = new LoginMessageStream(LoginDirection.ClientToServer);
             InstanceDirectory.LoginLink? link = null;
-            var session = new LoginServerSession(accounts) { CharacterListClass = characterListClass.For, InstanceHost = GatewayEndpoint.Host, InstancePort = GatewayEndpoint.Port, Keyring = keyring, Leagues = LeagueCatalog.Startup, CharacterDeleted = SetSaveAside, Assign = s => directory.AssignStart(s, link!) };
-            link = new InstanceDirectory.LoginLink(stream, ciphers, session, peer);
+            var session = new LoginServerSession(accounts)
+            {
+                CharacterListClass = characterListClass.For,
+                InstanceHost = GatewayEndpoint.Host,
+                InstancePort = GatewayEndpoint.Port,
+                Keyring = keyring,
+                Leagues = LeagueCatalog.Startup,
+                CharacterDeleted = SetSaveAside,
+                IsCharacterActive = directory.IsCharacterActive,
+                CharacterRenamed = RenameLegacySave,
+                Assign = s => directory.AssignStart(s, link!),
+            };
+            link = new InstanceDirectory.LoginLink(stream, ciphers, session, peer, () => tcp.Close());
             byte[] rest = buf[used..have];
             try
             {
@@ -266,7 +297,7 @@ static async Task HandleConnection(TcpClient tcp, LoginServerKeys keys, AccountS
                 Console.WriteLine($"[auth] {peer} closed with {incoming.Undecoded.Count} bytes of an incomplete message");
         }
     }
-    catch (Exception ex) when (ex is IOException or SocketException or InvalidDataException or System.Security.Cryptography.CryptographicException)
+    catch (Exception ex) when (ex is IOException or SocketException or ObjectDisposedException or InvalidDataException or System.Security.Cryptography.CryptographicException)
     {
         Console.WriteLine($"[auth] {peer} error: {GameServer.Core.Diagnostics.ServerLog.Describe(ex)}");
     }
@@ -321,6 +352,30 @@ static void SetSaveAside(string character)
     string to = Path.Combine(deleted, $"{safe}-{DateTime.UtcNow:yyyyMMddHHmmss}.json");
     File.Move(path, to);
     Console.WriteLine($"[auth] {character} deleted; save moved to {to}");
+}
+
+static void RenameLegacySave(string oldName, string newName)
+{
+    string folder = Path.Combine("data", "saves");
+    static string Safe(string s) => string.Concat(s.Select(c => char.IsLetterOrDigit(c) || c is '_' or '-' ? c : '_'));
+    string from = Path.Combine(folder, Safe(oldName) + ".json");
+    if (!File.Exists(from)) return;
+    string to = Path.Combine(folder, Safe(newName) + ".json");
+    if (string.Equals(from, to, StringComparison.OrdinalIgnoreCase)) return;
+    if (File.Exists(to))
+    {
+        Console.WriteLine($"[auth] {oldName} -> {newName}: legacy save {to} already exists; leaving {from} untouched");
+        return;
+    }
+    try
+    {
+        File.Move(from, to);
+        Console.WriteLine($"[auth] {oldName} renamed to {newName}; legacy save moved to {to}");
+    }
+    catch (Exception ex) when (ex is IOException or UnauthorizedAccessException)
+    {
+        Console.WriteLine($"[auth] {oldName} -> {newName}: could not move legacy save: {ex.Message}");
+    }
 }
 
 static async Task Reply(InstanceDirectory.LoginLink link, List<ILoginMessage> received)

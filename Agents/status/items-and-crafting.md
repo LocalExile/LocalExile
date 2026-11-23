@@ -29,32 +29,47 @@ Part of [Status](../Status.md); what to build next in this area is in
   [20](../docs/protocol/20-damage.md), "Player energy shield".
 - Gold: per account and league, dropped by monsters and picked up by itself. Gold and ground stacks share the saved pickup transaction.
   Docs: [04](../docs/protocol/04-player-entity.md) §6.
-- Loot: currency, gems, flasks, equipment and uniques by weight, equipment drops at area level (+1 magic monster, +2 rare or unique), one-socket base implicits on ordinary jewellery and quivers, ordinary equipment socket counts bounded by class and item level, cards and scarabs in maps, stacked drops.
+- Loot: currency (34 enabled core orbs from world.db of 36 rows, the 12 beyond the original 24 with estimated weights; Engineer's and Harbinger's Orbs disabled as no longer usable in the client), gems, flasks, equipment and uniques by weight, equipment drops at area level (+1 magic monster, +2 rare or unique), one-socket base implicits on ordinary jewellery and quivers, ordinary equipment socket counts bounded by class and item level, cards and scarabs in maps, stacked drops.
   Docs: [15](../docs/protocol/15-progression.md) §3, [drop data](../docs/dev/drop-data-schema.md).
 
 ## Partly working
+
+- Soul Ripper spends charges for Vaal souls when allowed, and Forbidden Taste applies its recovery and chaos damage.
+- The Wise Oak, Taste of Hate and Soul Catcher apply their qualified damage modifiers during the flask effect.
+- Map flask penalties apply to utility and recovery flask effects and to awarded charges.
+
+- Native skin-transfer bind/reclaim preserves complete donors across character and stash saves. Optional item-stat
+  sources exclude socket/skill hosts; 3.29.3c picker binding and protocol reclaim pass, with the shift-click gesture
+  and 3.29.3d picker untested. Docs: [23](../docs/protocol/23-microtransactions.md).
+
+- Unique-flask mechanics; Oriath explosion parity and Replica Rumi's Petrified remain open.
+  Docs: [13](../docs/protocol/13-items.md) §8a.
 
 - NPC divination card exchange supports all 456 active 3.29.3d card definitions and keeps the 14 client-disabled
   cards, including all Grand Spectrum bases and corruption implicits; local weights are not official probabilities.
   Docs: [17](../docs/protocol/17-npcs.md).
 - Heist enchantment magnitudes apply through Core Game. Current native tooltip comparison is pending ([13 §2c](../docs/protocol/13-items.md)).
-- Optional backpack mods can enable the native 20 slots; stored items remain removable after disabling the mod.
+- Optional backpack mods can enable the native 20 slots; pickup stacks span both carried grids and quest rewards can enter the enabled backpack. Stored items remain removable after disabling the mod.
 
 - Character-build imports validate native items, trees, tattoo targets and limits, preserving secondary ascendancy and module-owned progress. Runtime golem sessions are cleared.
   Docs: [modding](../docs/dev/modding.md).
 - On-kill explosions and Eater of Worlds attribute damage reduction.
   Docs: [13](../docs/protocol/13-items.md), "Kill explosions and attribute damage reduction".
-- Conditional item gates feed live pools and stat publication; untracked, counted-recent and compound operators are
-  partial. Docs: [13](../docs/protocol/13-items.md).
+- Conditional item operators and qualified source lifetimes (#504). Docs: [13](../docs/protocol/13-items.md).
 - Item modifier effect and affix-cap implicits. Docs: [13](../docs/protocol/13-items.md), "Item modifier effect".
-- Utility-flask orbs: Enkindling and Instilling enchantments; incoming Bleed and Poison sources are absent.
+- Utility-flask orbs: Enkindling/Instilling enchantments and incoming Bleed/Poison triggers.
   Docs: [13](../docs/protocol/13-items.md), "Enkindling Orb and Instilling Orb".
+- Tinctures (#564): flask-belt placement, drops, toggle activation/deactivation, Mana Burn / Weeping Wounds drain, live effect scaling, shared cooldown, weapon-scoped stats, unique tincture effects (except Grasping Vines), Nature's Concoction / Colloidal Mixture, and unequip/death/session cleanup; awaiting real-client verification.
 - Sacred Orb rerolls: fresh checks of the merged branch, and Ward's character calculations.
   Docs: [13](../docs/protocol/13-items.md), "Sacred Orb".
 - Special defence rules and local requirement percentages. Docs: [13](../docs/protocol/13-items.md) §2-§2d.
-- Unique items, Mageblood, Headhunter and abyss jewels; most uniques' own mechanics are missing. Every client unique
-  has a definition (from Path of Building, or the PoE wiki for those it lacks) but the maps, Impossible Escape,
-  watchstones and the six unique Heist contracts. Docs: [13](../docs/protocol/13-items.md) §2e, §8a.
+- Yriel and Beacon creation variants use world-data modifier bundles; their gameplay remains partial.
+- Unique items, Mageblood, Headhunter and Replica Headhunter, Bino's Kitchen Knife, The Squire, abyss jewels,
+  Paradoxica's double damage (main hand only), Yoke of Suffering's damage taken per ailment type its wearer inflicted
+  (no scorch, brittle or sap) and Forbidden Shako's random supports; most uniques' own mechanics are missing.
+  Bino's spreads the strongest poison and regenerates nearby players and allied monsters; fresh client checks are pending.
+  Every client unique has a definition (from Path of Building, or the PoE wiki for those it lacks) but the maps,
+  Impossible Escape, watchstones and the six unique Heist contracts. Docs: [13](../docs/protocol/13-items.md) §2e, §8a.
 - Ruthless items, flasks, drops and vendors. Docs: [league modes](../docs/game/league-modes.md).
 - Essence crafting. Docs: [13](../docs/protocol/13-items.md), "Essence crafting".
 - Quiver eligibility: every hand sends its weapon type. Docs: [13](../docs/protocol/13-items.md),
@@ -85,13 +100,15 @@ Part of [Status](../Status.md); what to build next in this area is in
   rerolls".
 - **Orb of Chance** (local rule). Docs: [13](../docs/protocol/13-items.md), "Orb of Chance",
   [admission](../docs/re/chance-coe.md).
-- **Vaal Orb and corruption** (local rule). Docs: [13](../docs/protocol/13-items.md), "Vaal Orb and corruption",
+- **Vaal Orb and corruption.** Skill and support gems can change level or quality. The matching Vaal variant can
+  replace an active gem, including its transfigured base skill. Equipment and maps retain the local corruption rules.
+  Docs: [13](../docs/protocol/13-items.md), "Vaal Orb and corruption",
   [admission](../docs/re/vaal-coe.md).
 - **Eldritch Ichors.** Docs: [13](../docs/protocol/13-items.md), "Eldritch Ichors and Embers",
   [evidence](../docs/re/eldritch-ichor-coe.md).
 - **Eldritch Embers.** Docs: [13](../docs/protocol/13-items.md), "Eldritch Ichors and Embers",
   [evidence](../docs/re/eldritch-ember-coe.md).
-- **Cartographer's Chisel, Eldritch Chaos/Exalted Orb and Orb of Unmaking** (local rules, not checked live).
+- **Cartographer's Chisel, Eldritch Chaos/Exalted Orb and Orb of Unmaking** (local rules, not checked live; the Orb grants one Atlas respec point).
   Docs: [13](../docs/protocol/13-items.md), "Ancient Orb, chisels and the Eldritch rerolls".
 - **Orb of Binding, the Eldritch Orb of Annulment and the Tainted family** (local rules; the Tainted orbs live 2026-11-14).
   Docs: [13](../docs/protocol/13-items.md), "Ancient Orb, chisels and the Eldritch rerolls".
@@ -103,6 +120,9 @@ Part of [Status](../Status.md); what to build next in this area is in
   the local rule.
 - **Glassblower's Bauble** (level-scaled quality not checked live).
   Docs: [13](../docs/protocol/13-items.md), "Glassblower's Bauble".
+- **Catalysts and Tainted Catalyst** (not checked live): apply jewellery quality (+5/+2/+1 up to 20%, switching replaces
+  type; Tainted rolls random type and 1–20% on corrupted jewellery), with Sinistral/Dextral prefix/suffix scaling.
+  Docs: [13](../docs/protocol/13-items.md).
 - **Fracturing Orb** (verified live). Docs: [13](../docs/protocol/13-items.md), "Fracturing Orb",
   [the game rules](../docs/re/fracturing-mirror-mechanics.md).
 - Mirror of Kalandra copies non-unique equipment, flasks and T1–16 maps. Docs: [13](../docs/protocol/13-items.md).
@@ -111,6 +131,8 @@ Part of [Status](../Status.md); what to build next in this area is in
 - **Orb of Fusing** (verified live). Docs: [13](../docs/protocol/13-items.md), "Orb of Fusing".
 - Currency metamods: prefix/suffix locks and attack/caster restrictions.
   Docs: [13](../docs/protocol/13-items.md), "Currency metamod protection".
+- Repeat currency use by type on passives (`C→S 0x78`) and world objects (`C→S 0x79`) routes to Tattoo/Scouring,
+  Strongbox and Essence handlers (offline verified; live client check pending).
 
 ## Not working yet
 

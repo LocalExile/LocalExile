@@ -31,12 +31,14 @@
 
   <!-- A module's internals are open to the other modules. -->
   <ItemGroup>
+    <InternalsVisibleTo Include="anarchy" />
     <InternalsVisibleTo Include="atlas" />
     <InternalsVisibleTo Include="bench" />
     <InternalsVisibleTo Include="chat" />
     <InternalsVisibleTo Include="commands" />
     <InternalsVisibleTo Include="cosmetics" />
     <InternalsVisibleTo Include="currencyexchange" />
+    <InternalsVisibleTo Include="deepwater" />
     <InternalsVisibleTo Include="delve" />
     <InternalsVisibleTo Include="delirium" />
     <InternalsVisibleTo Include="harvest" />

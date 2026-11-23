@@ -3,7 +3,7 @@
 Fortification is temporary protection built by qualifying melee hits.
 Each effective stack gives 1% less damage from hits, after armour, resistances and additional damage reduction.
 It does not reduce damage over time.
-The base maximum is 20 and each grant lasts six seconds on the player's game clock.
+The base maximum is 20 and each ordinary grant lasts six seconds on the player's game clock; Vigilant Strike supplies its own eight-second melee-hit grant.
 The hit-gain interval is shared across targets and skills: one grant per 0.1 seconds.
 
 ## Evidence and server model
@@ -66,7 +66,7 @@ Other conditional Fortification modifiers, permanent Champion grants and special
 ## Native presentation and verification
 
 BuffDefinitions row 1943 is `fortification`.
-The normal S→C `0x1c1` buff carries stack count and time to the next independent expiry; `0x1c2` removes it.
+The normal S→C `0x1c1` buff carries stack count and a display timer to the latest active grant's expiry; each stored grant still expires independently, and `0x1c2` removes the buff.
 The character receives stat keys 15038 (uncapped count), 15044 (effective count) and 15040 (maximum).
 Buffs, current stats and Actor skill records are constructed together inside the send gate.
 Fortification's own buff, stats and skill refresh uses one game-clock snapshot.
