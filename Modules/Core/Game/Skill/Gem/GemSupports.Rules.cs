@@ -908,9 +908,15 @@ public static partial class Game
             : playerStats.GetValueOrDefault(name);
         if (SkillsFor(player).IsVaal(gem.Effect))
             extraIncrease += (long)Own(Stat.VaalSkillCriticalStrikeChancePlusPct) + Player(Stat.VaalSkillCriticalStrikeChancePlusPct);
-        if (Own(Stat.MineCriticalStrikeChancePlusPctPerPowerCharge) is int minePerPower and not 0
-            && PlacedKind(gem).Mine)
-            extraIncrease += (long)minePerPower * Player(Stat.CurrentPowerCharges);
+        long mineChance = (long)Own(Stat.MineCriticalStrikeChancePlusPct) + Player(Stat.MineCriticalStrikeChancePlusPct);
+        long trapChance = (long)Own(Stat.TrapCriticalStrikeChancePlusPct) + Player(Stat.TrapCriticalStrikeChancePlusPct);
+        int minePerPower = Own(Stat.MineCriticalStrikeChancePlusPctPerPowerCharge);
+        if (mineChance != 0 || trapChance != 0 || minePerPower != 0)
+        {
+            var (trap, mine) = PlacedKind(gem);
+            if (mine) extraIncrease += mineChance + (long)minePerPower * Player(Stat.CurrentPowerCharges);
+            else if (trap) extraIncrease += trapChance;
+        }
         if (SkillsFor(player).IsAttack(gem.Effect))
         {
             if (new[] { Stat.GlobalCannotCrit, Stat.VirtualGlobalCannotCrit, Stat.CannotCriticalStrikeWithAttacks }

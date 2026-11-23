@@ -471,13 +471,20 @@ public static partial class Game
         double next = running ? player.Placed.NextChain : now;
         int prior = running ? player.Placed.Chain : 0;
         var playerAt = player.Walk.Position(now);
+        IReadOnlyDictionary<uint, int>? stats = null;
         foreach (var mine in player.Placed.All.Values.Where(p => p.Mine && double.IsPositiveInfinity(p.DetonateAt)
             && MineCanDetonateFrom(p, playerAt))
             .OrderBy(p => p.Armed).ThenBy(p => p.Id))
         {
             int time = GolemStat(mine.Own, Stat.BaseMineDetonationTimeMs);
             if (time <= 0) time = GolemStat(mine.Own, Stat.SupportRemoteMine2BaseMineDetonationTimeMs);
-            if (prior > 0) next += MineSequenceGap(time, prior);
+            if (prior > 0)
+            {
+                stats ??= CharacterPlayerStats(player);
+                long increased = (long)GolemStat(stats, Stat.MineDetonationSpeedPlusPct)
+                    + GolemStat(mine.Own, Stat.MineDetonationSpeedPlusPct);
+                next += MineSequenceGap(time, prior) / Math.Max(.01, 1 + increased / 100d);
+            }
             next = Math.Max(Math.Max(next, now), mine.Armed);
             mine.DetonateAt = next;
             prior++;
