@@ -16,6 +16,7 @@ public sealed record ProjectileOffense(DamagePacket Hit, bool Spell, int Accurac
     public bool? ProjectileAttack { get; init; }
     public Game.TinctureKillBonus? TinctureKill { get; init; }
     public bool NoExtraCriticalDamage { get; init; }
+    internal Game.TargetCriticalBonuses TargetCritical { get; init; }
     /// <summary>An optional encounter owner; expired owners cannot commit further contacts.</summary>
     public IReadOnlyDictionary<uint, int>? ActualCaster { get; init; }
     public SpawnedMonster? BrandedTarget { get; init; }

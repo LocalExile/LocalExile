@@ -601,7 +601,7 @@ public static partial class Game
                     bool critical = RollCriticalStrike(player, critChance, skillStats, attack: true, skillRoll: criticalRoll, playerStats: playerStats)
                         && EvasionEntropy.ConfirmsCritical(hitChance, player.AttackAccuracyRandom);
                     int sourceMultiplier = CriticalMultiplierWithWeapon(critMult, m, local);
-                    int multiplier = CriticalMultiplierOn(m, sourceMultiplier, playerStats, skillStats);
+                    int multiplier = CriticalMultiplierOn(m, sourceMultiplier, now, playerStats, skillStats);
                     var (damage, _, mitigated) = MonsterHitDamage(m, rolled, critical, attack: true, now, resMods, pen,
                         gambler.InvertsResistance(AreaRng(player)), AreaRng(player));
                     if (critical) damage = DamageModel.CriticalDamage(damage, multiplier);

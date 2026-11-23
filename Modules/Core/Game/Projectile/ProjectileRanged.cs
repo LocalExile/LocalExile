@@ -86,6 +86,7 @@ public static partial class Game
             WeaponAttack = true,
             TinctureKill = TinctureKillBonusFor(player, character, hand),
             NoExtraCriticalDamage = CriticalHitsDealNoExtraDamage(character),
+            TargetCritical = TargetCriticalBonuses.From(character, null),
             Spider = !HasSpiderDamage(Get) && !HasLowLifeDamage(Get)
                 && Get(Stat.AttackDamagePlusPctVsMaimedEnemies) == 0 ? null
                 : new(raw, conversion, new Dictionary<uint, int>(character),

@@ -286,13 +286,33 @@ public static partial class Game
     public static MonsterHit? HitUnlessBlockedLocked(Player player, SpawnedMonster m, int damage) =>
         damage is Blocked or Evaded ? null : ApplyMonsterHitLocked(player, m, damage);
 
+    internal readonly record struct TargetCriticalBonuses(long FullLife, long Unique, long Taunted)
+    {
+        public static TargetCriticalBonuses From(IReadOnlyDictionary<uint, int>? player, IReadOnlyDictionary<uint, int>? own)
+        {
+            long Sum(uint key) => (long)(player?.GetValueOrDefault(key) ?? 0) + (own?.GetValueOrDefault(key) ?? 0);
+            return new(Sum(Stat.CriticalStrikeMultiplierVsEnemiesOnFullLifePlus),
+                Sum(Stat.CriticalStrikeMultiplierPlusVsUniqueEnemies), Sum(Stat.CriticalStrikeMultiplierPlusVsTauntedEnemies));
+        }
+    }
+
     /// <summary>The critical strike multiplier against this monster after reductions to the bonus above 100%.</summary>
     public static int CriticalMultiplierOn(SpawnedMonster m, int multiplier,
-        IReadOnlyDictionary<uint, int>? player = null, IReadOnlyDictionary<uint, int>? own = null, bool noExtra = false)
+        IReadOnlyDictionary<uint, int>? player = null, IReadOnlyDictionary<uint, int>? own = null, bool noExtra = false) =>
+        CriticalMultiplierOn(m, multiplier, TargetCriticalBonuses.From(player, own), double.PositiveInfinity,
+            noExtra || player is not null && CriticalHitsDealNoExtraDamage(player, own));
+
+    static int CriticalMultiplierOn(SpawnedMonster m, int multiplier, double at,
+        IReadOnlyDictionary<uint, int> player, IReadOnlyDictionary<uint, int>? own = null) =>
+        CriticalMultiplierOn(m, multiplier, TargetCriticalBonuses.From(player, own), at, CriticalHitsDealNoExtraDamage(player, own));
+
+    static int CriticalMultiplierOn(SpawnedMonster m, int multiplier, TargetCriticalBonuses bonuses, double at, bool noExtra)
     {
-        if (noExtra || m.Effects.NoExtraCriticalDamage || player is not null && CriticalHitsDealNoExtraDamage(player, own))
-            return 100;
+        if (noExtra || m.Effects.NoExtraCriticalDamage) return 100;
         long ordinary = (long)multiplier + m.Curses[Stat.EnemyAdditionalCriticalStrikeMultiplierAgainstSelf];
+        if (m.Life == m.MaxLife) ordinary += bonuses.FullLife;
+        if (m.Rarity == MonsterRarity.Unique) ordinary += bonuses.Unique;
+        if (m.TauntedUntil > at) ordinary += bonuses.Taunted;
         if (ordinary > 100)
         {
             int reduction = Math.Clamp(m.Effects[Stat.BaseSelfCriticalStrikeMultiplierMinusPct], 0, 100);

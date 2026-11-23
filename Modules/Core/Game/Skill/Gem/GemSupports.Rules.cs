@@ -1011,7 +1011,10 @@ public static partial class Game
             : (cost.ManaFlat, cost.ManaPercent);
     }
 
-    public static int SupportedCriticalMultiplier(Player player, ushort skillId)
+    public static int SupportedCriticalMultiplier(Player player, ushort skillId) =>
+        SupportedCriticalMultiplier(player, skillId, hitWeapon: null);
+
+    static int SupportedCriticalMultiplier(Player player, ushort skillId, SkillCatalog.Unarmed? hitWeapon)
     {
         var gem = SupportedSkill(player, skillId);
         long extra = (long)gem.Stats.GetValueOrDefault(Stat.BaseCriticalStrikeMultiplierPlus) + NightbladeCriticalMultiplier(player, gem.Stats);
@@ -1030,8 +1033,10 @@ public static partial class Game
             extra += trapPerPower * GolemStat(playerStats, Stat.CurrentPowerCharges);
         if (SkillsFor(player).IsBrand(gem.Effect) || GolemStat(gem.Stats, Stat.SkillGetsBrandDamageCritModifiers) != 0)
             extra += GolemStat(playerStats, Stat.SigilCriticalStrikeMultiplierPlus) + GolemStat(gem.Stats, Stat.SigilCriticalStrikeMultiplierPlus);
-        return CriticalHitMultiplier((long)(SkillsFor(player).IsAttack(gem.Effect)
-            ? AttackCriticalMultiplier(player, playerStats, gem.Effect, gem.Stats)
+        bool attack = SkillsFor(player).IsAttack(gem.Effect);
+        if (attack && Sum(Stat.CriticalStrikeMultiplierPlusPctWithClawsDaggers) != 0)
+            extra += ClawDaggerCriticalBonus(hitWeapon ?? WeaponFor(player), playerStats, gem.Stats);
+        return CriticalHitMultiplier((long)(attack ? AttackCriticalMultiplier(player, playerStats, gem.Effect, gem.Stats)
             : player.Pools.SpellCriticalStrikeMultiplier) + extra, playerStats, gem.Stats);
     }
 }
