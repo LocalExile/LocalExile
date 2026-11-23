@@ -2,7 +2,7 @@ using GameServer.Core.World;
 
 public static partial class Game
 {
-    const ushort SwiftnessBuffRow = 2221; // BuffDefinitions: momentum_swiftness.
+    const ushort SwiftnessBuffRow = 2221; // support_momentum_buff is a non-recovery row. Its movement stat goes in the player stats.
     static readonly Store<Player, MomentumState> Momenta = new();
 
     readonly record struct MomentumGain(int Maximum, int MovementPerStack, double Duration, double Interval);
@@ -136,7 +136,7 @@ public static partial class Game
         {
             if (until > 0)
                 player.Area.Buffs.Set(player.Id, new(SwiftnessBuffRow, player.Id,
-                    Values: [(uint)state.Movement], U68: Buff.Seconds(until - now)));
+                    U68: Buff.Seconds(until - now)));
             else
                 player.Area.Buffs.Clear(player.Id, SwiftnessBuffRow, player.Id);
             state.ShownUntil = until;
