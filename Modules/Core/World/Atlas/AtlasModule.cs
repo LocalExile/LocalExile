@@ -63,7 +63,7 @@ public sealed class AtlasModule : IModule
             var player = kill.Player;
             var data = WorldOf(kill.ModPlayer).CharacterData;
             bool completed = AtlasProgress.Complete(data, [node]);
-            bool bonus = global::Game.MapRunOf(player) is { } run && AtlasProgress.MeetsBonusObjective(run)
+            bool bonus = global::Game.MapRunOf(player) is { Atlas: true } run && AtlasProgress.MeetsBonusObjective(run)
                 && AtlasProgress.CompleteBonus(data, [node]);
             int earned = bonus ? ApplyBonusPoints(player, data) : 0;
             if (completed)
