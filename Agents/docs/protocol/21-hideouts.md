@@ -201,8 +201,8 @@ option) in mode 0x5e (`MemoryLineMaps1`, row 94), and **C→S 0x0298** (3 bytes:
 (`MavenInvitations`, row 86).
 The server checks the slots itself (`MapDevice.Check`): only maps and map fragments, and exactly one map. Otherwise
 nothing is consumed and a chat line (S→C 0x17) gives the reason. Then the slots are emptied (0xbf), the map's area
-opens (Maps.dat `BaseItemTypesKey` → `Regular_WorldAreasKey`), and six portals appear on a ring of 16 cells around
-the device. Fragments are consumed with the map; `An Audience With The King` (`Metadata/Items/MapFragments/RitualBossFragment`)
+opens (Maps.dat `BaseItemTypesKey` → `Regular_WorldAreasKey`), and six portals appear around the device (where they
+stand: "Map device variants" below). Fragments are consumed with the map; `An Audience With The King` (`Metadata/Items/MapFragments/RitualBossFragment`)
 may also be used alone, opening the Crux of Nothingness.
 
 Generic 3.29 maps use the **MapKey** component (read `0x1424b5290`: u8 flags, then optional u32/u16/u8; zero is enough
@@ -496,10 +496,42 @@ Entry uses the selected template's waypoint and fixed seed 1.
 `HideoutScene` recreates personal/guild stashes, crafting bench, map device, Nessa, Niko,
 Helena and Kirac on the destination floor. It retains decoration appearance, translates NPC
 positions relative to the new waypoint, and searches for nonoverlapping walkable footprints.
-The default template supplies missing functional furniture. Arbitrary decorative object placement/removal remains outside this implementation.
+The default template supplies missing functional furniture.
 Moving the installed furniture and NPCs is described below. Automated coverage checks
 selection bytes, persisted choice and placement; final client verification requires selecting
 a different template and reconnecting after restarting both Auth and Gateway.
+
+### Map device variants
+
+A map device variant (`…/MapDeviceVariants/…`, `Metadata/MapDevices/…`) placed from the panel replaces the hideout's
+device and is saved per account; Delete on it goes back to the template's. Most variants are clicked through a separate
+button object the server creates. `MapDevices.dat` pairs them: `MiscObject` is the button's MiscObjects row (its
+`EffectVirtualPath` the type, e.g. `Metadata/MiscellaneousObjects/ScaryMapDeviceSteel`, a `MapDeviceButton` with the
+bowl model), `__col4` the model socket it sits on, `__col5` its [x, y] offset from the device in cells, and
+`HideoutDoodan` the device's HideoutDoodads row. A doodad's rows are its variations in `Variation_AOFiles` order
+(`Hideout_Small`, CartographyDevice2.ao, has no button; `Hideout_Large` has one at [-24, 0]), unless the model names its
+row: `on_attachment_chain_complete` sets `game_object.map_device_type_variation` (the Hallowed Library's four
+variations are two large then two small models, rows Small then Large; generated to `hideout_device_variations`). A
+doodad with one row (Sun: 4 models, Bloodlord: 6) uses it for every variation. The button moves and turns
+with its device. Without the button the device has nothing to click, since its own model covers the spot (live
+2026-11-22, Eldritch Reaper steel). The server's collision for a device is one circle around its model's whole hull
+(`hideout_collision_radii`, also the variants'), stopped 4 cells short of the button or the nearest portal place
+(the Precursors' and the small Expedition device's stand at the centre) so both stay reachable. The
+Puzzle Cube (`…/MapDeviceVariants/PuzzleCubeMapDevice`, all three variants) is refused: its client script calls the
+native `InteractPuzzleCube` on hover and drag, which needs grabber objects
+(`Metadata/MapDevices/PuzzleCubeMapDevice/PuzzleCubeMapDeviceGrabber{,F,L,U}`) and the sub-cube state, and the client
+crashes without them (live 2026-11-22).
+
+Where a hideout device's portals stand is the device's own, turned with it. 27 device models set them in
+`BaseAnimationEvents { on_game_object_set }`: `game_object.portal_spawn_locations += MakeLocation(x, y)` six times, in
+grid cells from the device (Prison Hallway: two rows of three along the corridor), and optionally
+`portal_spawn_orientations` in degrees in the same order ("defaults to facing away from the map device", the file's own
+comment). Where the model sets none, the doodad's type .ot may, as `this.portal_spawn_locations` in
+`BaseEvents { on_construction_complete }`: Zodiac Dragon (all six at (0, -25), between the model and its button), Throne
+of the Ruler (Lumerius), Tor Gul, Aukuna's Agony (Djinn), World Eater and the Tree (24 places). A device that sets none
+stands its portals on a ring whose radius is `MapDevices.dat` `__col2` of the variation's row: 18 for the template's
+small model, 36 for its large one, up to 46 (16 without a row). Each is outside its model's hull. The generator writes
+the places to `hideout_portal_spawns`. A place on unwalkable ground moves to the nearest walkable cell.
 
 ### Moving installed furniture and NPCs
 
@@ -875,11 +907,17 @@ the exported SulphiteEnrage rows do not disclose the official daemon's radius or
 - **Hideout decorations, `/save_hideout`, music box and Item Display Case (3.29.3c).**
   - `C→S 0x16` command 50 (`Commands.dat` row 49 `SaveHideout` + 1) and `/save_hideout` report and confirm the saved
     hideout layout.
-  - `C→S 0x59` (personal; `0x5a` guild placement is refused), 16 bytes (writer `0x141f99e90`): u32 BE
-    MtxTypeGameSpecific HASH32, u16 BE x, u16 BE y, f32 BE rotation, u8 variation, u8 flags (bit 0 mirrored). Capped at
-    750 custom decorations per hideout.
-  - `C→S 0x5d` (6 bytes): u32 BE object id reclaims a custom decoration (core stations, NPCs, and occupied Item Display
-    Cases are protected).
+  - `C→S 0x59` / `0x5a`, 16 bytes (writer `0x141f99e90`, both sent by the editor's placement `0x140204570`): u32 BE
+    id, u16 BE x, u16 BE y, f32 BE rotation, u8 variation, u8 flags (bit 0 mirrored). **0x59** (sender `0x1421669d0`)
+    names an owned record (0x1f4 flags 1: MtxTypes row + 1, [23](23-microtransactions.md) §1), **0x5a** (sender
+    `0x142166a40`) the decoration's MtxTypes HASH32 itself: the panel's decorations that need no record (Bestiary's
+    crates and troughs, live 2026-11-22). The MtxTypes hash is also the MtxTypeGameSpecific one, so it finds the
+    HideoutDoodads row. Capped at 750 custom decorations per hideout. A pet (no HideoutDoodads row) is its Pet.dat object
+    with PetAi owner 0, at its saved facing. A type the server cannot write gets a chat line instead.
+  - `C→S 0x5c` (6 bytes, the generic u32 class `0x1431767e8`): the editor's Delete key (`0x140204210`, VK_DELETE) on
+    the selected object, u32 BE its object id. It and `C→S 0x5d` (6 bytes, u32 BE object id) reclaim a custom
+    decoration (core stations, NPCs, and occupied Item Display Cases are protected); on a map device variant or its
+    button they bring back the template's device.
   - `C→S 0x5e` (3 bytes, writer `0x140e27920`, sender `0x140213f10`): u8 mode (0 reclaims all custom decorations, 1 also
     resets saved station placements; refused while any Item Display Case holds a stored item).
   - `C→S 0x255` (4 bytes, writer `0x141f99160`, sender `0x140bb8010`): u16 BE `Music.dat` row (`0xffff` = default);

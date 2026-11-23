@@ -121,6 +121,13 @@ flags(+0x3d) & 0x20 raw u64 +0x00, & 0x10 u8 +0x3c, & 0x40 4 raw bytes +0x3f.
 
 We send the minimal form: `0021 0000 0000 0000 0000 000000 00 00` (`InstanceProtocol.EnterArea`).
 
+Flag bits are `byte[n >> 3] & (1 << (n & 7))` (`0x14012c1b0`). Bit 0 → session `+0xcd31` (the weapon set), bit 1 →
+`+0xcd32`, **bit 2 → `+0xcd36`, "this is my own hideout"**, bit 3 → `+0xcd37`, bit 4 → `+0xcd38`. Hideout UI accepts a
+personal hideout only with bit 2 (guild hideouts use world `+0xda` instead): the Decorations panel's list-loaded
+handler `0x1408df510` and the HUD's `0x1401ffcc0` check it, and without it the panel stays on "Loading…" after the
+store's owned list (0x1f4 flags 1, [23](23-microtransactions.md) §1) arrives (live 2026-11-22). The Gateway sets it in
+the character's own hideout.
+
 ### The 0x21 handler
 
 Sets many instance flags from the 24 bits, copies the vectors, then calls **`0x14215d6d0`**:
