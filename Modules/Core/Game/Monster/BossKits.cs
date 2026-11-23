@@ -188,7 +188,10 @@ public static class BossKits
                 else if (attack.Summon is null)
                 {
                     if (Shaped(player, variety, level, effect, attack) is { } shaped) attack = shaped;
-                    else if (kit.Count > 0) continue;
+                    // A boss's own skill the shaping has no form for stays the action it was: the client plays its
+                    // clip and what that draws (Merveil, the Twisted's geysers, screech and cascade), and it hits as a
+                    // plain hit. A Rogue Exile's is a player skill that needs its form.
+                    else if (kit.Count > 0 && !(IsKitBoss(catalog, variety) && Acts(attack))) continue;
                 }
             }
             if (!Acts(attack) && kit.Count > 0) continue;
@@ -574,9 +577,11 @@ public static class BossKits
     // cannot reach), and its turn comes round again later.
     static readonly System.Runtime.CompilerServices.ConditionalWeakTable<SpawnedMonster, System.Runtime.CompilerServices.StrongBox<double>> WalkingSince = new();
 
+    static readonly System.Runtime.CompilerServices.ConditionalWeakTable<SpawnedMonster, System.Runtime.CompilerServices.StrongBox<double>> FightSince = new();
+
     /// <summary>How long a melee swing waits before the boss walks up for it, how long it tries, and the farthest player
     /// it walks to (seconds, seconds, cells; ours).</summary>
-    public static double MeleeTurnSeconds = 7, WalkUpSeconds = 5, WalkUpFarthest = 60;
+    public static double MeleeTurnSeconds = 10, WalkUpSeconds = 5, WalkUpFarthest = 60;
 
     static MonsterAttack? WalkUpFor(SpawnedMonster monster, double now, double distance)
     {
@@ -588,7 +593,10 @@ public static class BossKits
         if (!monster.Kit.Any(k => k != melee && k.Attack.Range >= distance && k.Attack.Use is null)) return null;
         var since = WalkingSince.GetOrCreateValue(monster);
         if (distance <= melee.Attack.Range) { since.Value = 0; return null; }
-        double used = monster.KitReadyAt.GetValueOrDefault(melee.Effect);
+        // A swing not used yet has waited since the fight began, not for ever: the boss opens with its spells.
+        var began = FightSince.GetOrCreateValue(monster);
+        if (began.Value == 0) began.Value = now;
+        double used = Math.Max(began.Value, monster.KitReadyAt.GetValueOrDefault(melee.Effect));
         if (now - used < MeleeTurnSeconds || distance > WalkUpFarthest) { since.Value = 0; return null; }
         if (since.Value == 0) since.Value = now;
         if (now - since.Value > WalkUpSeconds)

@@ -213,8 +213,10 @@ public sealed class BossKitsTests
             // Ice Spear reaches her whole aggro range: once her swing has waited its turn she walks up for it.
             var boss = new SpawnedMonster("Merveil", new(0, 0, 1), 60, 2, maxLife: 100) { Kit = kit, Attack = kit[0].Attack, Variety = siren };
             var melee = Assert.Single(kit, k => catalog.EffectId(k.Effect) == "Melee");
+            // She opens with her spells: the swing's wait starts with the fight.
+            Assert.NotEqual(melee.Attack.SkillId, BossKits.Choose(boss, 1, 30)!.SkillId);
             foreach (var entry in kit) boss.KitReadyAt[entry.Effect] = 1;
-            Assert.Equal(melee.Attack.SkillId, BossKits.Choose(boss, 9, 30)!.SkillId);
+            Assert.Equal(melee.Attack.SkillId, BossKits.Choose(boss, 12, 30)!.SkillId);
         });
     }
 
