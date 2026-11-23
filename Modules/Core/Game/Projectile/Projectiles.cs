@@ -152,6 +152,75 @@ public static partial class Game
             });
         }
 
+        // Coalesce multi-kill flask charge updates during a projectile step and flush them synchronously at the end of
+        // Advance/AdvanceTo under Player.FlaskBarGate so 0x00bf revisions stay strictly ordered with ChangeFlaskBar.
+        readonly Lock flaskBarGate = new();
+        HashSet<uint>? flasksPending;
+        bool flaskFlushQueued;
+        bool stepping;
+        public void FlaskBarChanged(IReadOnlyList<InventoryItem> changed)
+        {
+            if (changed.Count == 0) return;
+            lock (flaskBarGate)
+            {
+                flasksPending ??= [];
+                foreach (var item in changed) flasksPending.Add(item.Id);
+            }
+            if (!stepping) FlushPendingFlaskBar();
+        }
+
+        byte[]? TakePendingFlaskPacketUnderGate(bool clearQueued)
+        {
+            HashSet<uint>? pending;
+            lock (flaskBarGate)
+            {
+                if (clearQueued) flaskFlushQueued = false;
+                pending = flasksPending;
+                flasksPending = null;
+            }
+            if (pending is not { Count: > 0 }) return null;
+            var items = ItemsOf(Player);
+            var current = new List<InventoryItem>(pending.Count);
+            foreach (var it in items.Items(PlayerInventories.Flask))
+                if (pending.Contains(it.Id)) current.Add(it);
+            return current.Count == 0 ? null : InstanceItems.InventoryChange(
+                PlayerInventories.InventoryId(PlayerInventories.Flask),
+                items.NextRevision(PlayerInventories.Flask), [.. current.Select(c => c.Id)], current);
+        }
+
+        void FlushPendingFlaskBar()
+        {
+            lock (flaskBarGate)
+                if (flasksPending is not { Count: > 0 } || flaskFlushQueued) return;
+            if (!Active) return;
+            if (Player.FlaskBarGate.Wait(0))
+            {
+                try
+                {
+                    if (TakePendingFlaskPacketUnderGate(clearQueued: false) is { } packet) Packet(packet);
+                }
+                finally { Player.FlaskBarGate.Release(); }
+                return;
+            }
+            bool queue;
+            lock (flaskBarGate)
+            {
+                queue = !flaskFlushQueued && flasksPending is { Count: > 0 };
+                if (queue) flaskFlushQueued = true;
+            }
+            if (queue)
+                Enqueue(async () =>
+                {
+                    await Player.FlaskBarGate.WaitAsync();
+                    try
+                    {
+                        var packet = TakePendingFlaskPacketUnderGate(clearQueued: true);
+                        if (Active && packet is not null) await Send(Player, packet, null);
+                    }
+                    finally { Player.FlaskBarGate.Release(); }
+                });
+        }
+
         public void Advance()
         {
             // Match the existing XP -> connection lock order. Kill reactions may gain XP synchronously.
@@ -160,9 +229,19 @@ public static partial class Game
                 if (!Active) { Invalidate(); return; }
                 if (!Player.Paused)
                 {
-                    TickChannelTriggers(Player, this, AreaTime(Player));
-                    Runtime.AdvanceTo(Math.Max(Runtime.Now, ProjectileRuntime.Time(AreaTime(Player))));
-                    FlushPendingGemExperience();
+                    stepping = true;
+                    try
+                    {
+                        DrainPendingExplosiveDetonations();
+                        TickChannelTriggers(Player, this, AreaTime(Player));
+                        Runtime.AdvanceTo(Math.Max(Runtime.Now, ProjectileRuntime.Time(AreaTime(Player))));
+                    }
+                    finally
+                    {
+                        stepping = false;
+                        FlushPendingGemExperience();
+                        FlushPendingFlaskBar();
+                    }
                 }
             }
         }
@@ -172,8 +251,18 @@ public static partial class Game
             lock (LevelUpdatesFor(Player).Gate)
             {
                 if (!Active) { Invalidate(); return; }
-                Runtime.AdvanceTo(at);
-                FlushPendingGemExperience();
+                stepping = true;
+                try
+                {
+                    DrainPendingExplosiveDetonations();
+                    Runtime.AdvanceTo(at);
+                }
+                finally
+                {
+                    stepping = false;
+                    FlushPendingGemExperience();
+                    FlushPendingFlaskBar();
+                }
             }
         }
 
@@ -217,7 +306,14 @@ public static partial class Game
             lifetime?.Dispose();
             ClearPods();
             ClearCausticClouds();
+            ClearEnsnares();
+            ClearExplosiveFuses();
             if (archer is { } currentArcher) EndMirage(currentArcher, retire: true);
+            lock (flaskBarGate)
+            {
+                flasksPending = null;
+                flaskFlushQueued = false;
+            }
             Runtime.Clear();
             foreach (var visual in visuals.Values) Player.ProjectileObjects.Remove(visual.Id);
             visuals.Clear(); later.Clear(); output.Writer.TryComplete();
@@ -653,6 +749,14 @@ public static partial class Game
             double at = contact.At / (double)ProjectileRuntime.QuantaPerSecond;
             shot = shot.Against(Blinded(Player, contact.Target.Id), target.SpiderWebs.Count(at),
                 target.Ignites.Burning, target.Bleeds.Burning, EnemyOnLowLife(target));
+            double overexertionMore = OverexertionMore(shot.SkillStats, shot.IntimidatingCryExerted);
+            if (overexertionMore != 1)
+                shot = shot with
+                {
+                    Ignite = RepeatAilment(shot.Ignite, overexertionMore),
+                    Bleed = RepeatAilment(shot.Bleed, overexertionMore),
+                    Poison = RepeatAilment(shot.Poison, overexertionMore),
+                };
             int hitChance = 100;
             if (!shot.Spell)
             {
@@ -687,8 +791,18 @@ public static partial class Game
             var weaponLocal = shot.WeaponAttack ? shot.WeaponLocal : null;
             int sourceMultiplier = CriticalMultiplierWithWeapon(shot.CriticalMultiplier, target, weaponLocal);
             int multiplier = CriticalMultiplierOn(target, sourceMultiplier, noExtra: shot.NoExtraCriticalDamage);
-            var (damage, _, mitigated) = MonsterHitDamage(target, rolled, critical, !shot.Spell, at, shot.ResistanceMods,
-                shot.Penetration, gambler.InvertsResistance(random), random, trapOrMine: shot.FromTrapOrMine);
+            bool canBenefitResonance = !shot.FromTrapOrMine && (shot.ActualCaster is null || shot.Mirage);
+            bool canGainResonance = canBenefitResonance && !shot.Mirage;
+            var resonance = canBenefitResonance
+                ? WithResonanceHitLocked(Player, shot.SkillStats, rolled, shot.ResistanceMods, shot.Penetration, at)
+                : (Packet: rolled, Mods: shot.ResistanceMods, Penetration: shot.Penetration);
+            rolled = resonance.Packet;
+            bool projectileAttack = !shot.Spell
+                && (shot.ProjectileAttack ?? (shot.Effect < 0 || SkillsFor(Player).IsProjectile(shot.Effect)));
+            int additionalTaken = projectileAttack ? EnsnaredProjectileAttackTaken(target, at) : 0;
+            var (damage, _, mitigated) = MonsterHitDamage(target, rolled, critical, !shot.Spell, at, resonance.Mods,
+                resonance.Penetration, gambler.InvertsResistance(random), random, trapOrMine: shot.FromTrapOrMine,
+                additionalTakenPct: additionalTaken);
             if (critical) damage = DamageModel.CriticalDamage(damage, multiplier);
             bool immune = target.Invulnerable;
             LeechOnHitTargetLocked(Player, target, MonsterTakenComponents(target, mitigated, shot.Spell, at), damage,
@@ -705,6 +819,8 @@ public static partial class Game
                 cull: Cull.Of(player, shot.SkillStats, critical, shot.Spell).WithWeapon(weaponLocal),
                 allyAt: shot.ActualCaster is null ? null : ((int)contact.Projectile.Use.Origin.X, (int)contact.Projectile.Use.Origin.Y));
             if (hit is null) return ProjectileHitResult.Miss;
+            if (canGainResonance && !immune && hit.Value.Life < lifeBefore)
+                RecordResonanceHitLocked(Player, target, shot.SkillStats, rolled, at);
             Player.RecentEvents.RecordCriticalOutcome(at, critical);
             if (ElementalOverloadCritLocked(Player, shot.SourceSkill, null, player, critical) is { } eoBuff)
                 Packet(eoBuff, $"elemental overload on skill 0x{shot.SourceSkill:x4}");
@@ -735,10 +851,18 @@ public static partial class Game
             if (!immune && shot.SourceSkill == 0 && shot.WeaponAttack && shot.ActualCaster is null && !shot.FromTrapOrMine)
                 CaptureEquippedHitExplosionLocked(target, player);
             if (!immune)
+            {
+                var emitterTotem = shot.FromTotem
+                    ? Player.Totems.All.FirstOrDefault(t => t.Id == contact.Projectile.Use.Emitter.Id)
+                    : null;
                 AilmentsOnHitLocked(Player, contact.Target.Id, target, mitigated, shot.Spell, critical, multiplier, player,
                     shot.SkillStats, at, contact.Projectile.ReactionRandomSource, poison: shot.Poison,
                     sourceSkill: shot.SourceSkill, blind: shot.Blind,
-                    attackGains: AttackAilmentGains.Capture(player, shot.ActualCaster is null && !shot.Spell));
+                    attackGains: AttackAilmentGains.Capture(player, shot.ActualCaster is null && !shot.Spell),
+                    hitOrigin: emitterTotem?.At,
+                    attackerSize: emitterTotem?.BodySize ?? LivingCollision.PlayerSize,
+                    attackerHasReversedStat: emitterTotem is null);
+            }
             if (!immune && hit.Value.Life > 0 && shot.EssenceDrain is { } drain)
                 EssenceDrainOnHitLocked(contact.Target.Id, target, drain, at);
             if (!immune && hit.Value.Life > 0 && !shot.Spell && shot.MaimChance > 0)
@@ -780,7 +904,12 @@ public static partial class Game
                     ImpactClip = rigImpact.Index,
                     ImpactLifetime = ProjectileRuntime.Time(Math.Max(0.1, rigImpact.Ms / 1000.0)),
                 };
-            if (valid) CausticGroundAtEnd(value);
+            if (valid && value.Kind == ProjectileEventKind.End)
+            {
+                CausticGroundAtEnd(value);
+                ExplosiveArrowAtEnd(value);
+                EnsnaringArrowAtEnd(value);
+            }
             if (value.Kind == ProjectileEventKind.End && p.ParentId == 0 && ServerTrace.Projectiles && !Quiet(p.Use.Payload))
                 Console.WriteLine($"[gateway] {Player.Connection.Remote} projectile end use={p.UseId} entity={p.Id}"
                     + $" reason={value.Reason} position={value.Position} metadata={p.Profile.Id}"
@@ -1117,7 +1246,7 @@ public static partial class Game
         return session;
     }
 
-    static readonly PlayerStatStep[] ProjectileClockSteps = [PlayerStatStep.VaalPrevention, PlayerStatStep.Rage, PlayerStatStep.Rampage];
+    static readonly PlayerStatStep[] ProjectileClockSteps = [PlayerStatStep.VaalPrevention, PlayerStatStep.Rage, PlayerStatStep.Rampage, PlayerStatStep.Resonance];
 
     public static void AdvanceProjectiles(Player player) => player.ProjectileRuntime?.Advance();
 

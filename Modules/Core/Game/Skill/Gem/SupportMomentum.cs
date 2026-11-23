@@ -18,6 +18,7 @@ public static partial class Game
         public int Movement;
         public double Until;
         public int ShownStacks;
+        public int ShownMovement;
         public double ShownUntil;
         public MomentumChannel? Channel;
         public bool SkillRefreshDeferred;
@@ -76,23 +77,28 @@ public static partial class Game
         }
     }
 
-    static void GainMomentumOnUse(Player player, ushort skill, SupportedGem gem, int action, int? generation, double now)
+    static void GainMomentumOnUse(Player player, ushort skill, SupportedGem gem, int action, int? generation, double now,
+        bool movedDuringUse = false)
     {
         if (!CurrentGameWork || player.PlayerLife == 0 || player.LeavingArea) return;
         int Get(uint key) => gem.Stats.GetValueOrDefault(key);
         int maximum = Math.Clamp(Get(Stat.SupportMomentumMaxStacks), 1, 100);
+        var playerStats = CharacterPlayerStats(player);
+        double duration = SkillDurationModifiers.Seconds(Get(Stat.SupportMomentumBaseBuffDurationMs),
+            key => playerStats.GetValueOrDefault(key), Get,
+            DurationKinds(player, gem.Effect) | SkillDurationModifiers.Kinds.Buff);
         var gain = new MomentumGain(maximum, Math.Clamp(Get(Stat.SupportMomentumMovementSpeedPlusPctPerStackRemoved), 0, 10000),
-            Math.Max(0, Get(Stat.SupportMomentumBaseBuffDurationMs)) / 1000d,
-            Get(Stat.SupportMomentumStackWhileChannellingBaseMs) / 1000d);
+            duration, Get(Stat.SupportMomentumStackWhileChannellingBaseMs) / 1000d);
         if (!Momenta.TryGetValue(player, out var state) || !state.Current(player))
         {
             state = new(player, now);
             Momenta.AddOrUpdate(player, state);
         }
         state.Refresh(player, now);
+        if (movedDuringUse) state.Stacks = 0;
         if (generation is int epoch && gain.Interval > 0)
             state.Channel = new(skill, action, epoch, gain, now + gain.Interval);
-        else if (generation is null && !player.Walk.Moving(now))
+        else if (generation is null && !movedDuringUse && !player.Walk.Moving(now))
             state.Gain(Math.Clamp(Get(Stat.CountAsMomentumPlusIfNotChannelled), 0, maximum), gain, now);
         PresentMomentum(player, state, now);
     }
@@ -132,7 +138,7 @@ public static partial class Game
         return true;
     }
 
-    static void CheckMomentumPresentation(Player player, double now)
+    public static void CheckMomentumPresentation(Player player, double now)
     {
         if (!Momenta.TryGetValue(player, out var state)) return;
         if (!state.Current(player)) { ClearMomentum(player); return; }
@@ -148,7 +154,8 @@ public static partial class Game
     static void PresentMomentum(Player player, MomentumState state, double now)
     {
         double until = state.Until > now ? state.Until : 0;
-        bool movementChanged = state.ShownUntil != until;
+        int movement = until > 0 ? state.Movement : 0;
+        bool movementChanged = state.ShownUntil != until || state.ShownMovement != movement;
         if (movementChanged)
         {
             if (until > 0)
@@ -157,19 +164,22 @@ public static partial class Game
             else
                 player.Area.Buffs.Clear(player.Id, SwiftnessBuffRow, player.Id);
             state.ShownUntil = until;
+            state.ShownMovement = movement;
         }
         if (state.ShownStacks != state.Stacks || movementChanged)
         {
             state.ShownStacks = state.Stacks;
+            if (movementChanged) RebuildPools(player);
             if (!PublishByFrame(player, PlayerStatChange.Sources)) PresentStats(player);
-            if (movementChanged) player.ApplyMovementSpeed();
         }
     }
 
-    static void ClearMomentum(Player player)
+    public static void ClearMomentum(Player player)
     {
-        if (!Momenta.Remove(player)) return;
+        if (!Momenta.TryGetValue(player, out var state)) return;
+        Momenta.Remove(player);
         player.Area.Buffs.Clear(player.Id, SwiftnessBuffRow, player.Id);
-        PublishByFrame(player, PlayerStatChange.Sources);
+        if (state.ShownUntil > 0 || state.Until > 0 || state.Movement != 0) RebuildPools(player);
+        if (!PublishByFrame(player, PlayerStatChange.Sources)) PresentStats(player);
     }
 }

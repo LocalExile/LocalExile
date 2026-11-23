@@ -50,25 +50,32 @@ public static class PlayerHitDamage
             + (fullShield ? get(Stat.DamagePlusPctOnFullEnergyShield) : 0);
         bool bowAttack = wieldingBow && !spell && !secondary;
         if (bowAttack) common += (double)get(Stat.BowDamagePlusPct) + get(Stat.BowHitAndAilmentDamagePlusPct);
+        bool attack = !spell && !secondary;
         // Precise Technique: "40% more Attack Damage if Accuracy Rating is higher than Maximum Life".
-        bool preciseTechnique = !spell && !secondary && get(Stat.KeystonePreciseTechnique) != 0
+        bool preciseTechnique = attack && get(Stat.KeystonePreciseTechnique) != 0
             && get(Stat.AccuracyRating) > get(Stat.MaximumLife);
         var typed = DamageTypes.ConversionOrder.Select(type =>
             (History: DamageTypes.HistoryOf(type), Increased: get(TypedIncreased[(int)type]))).ToArray();
         int elemental = get(Stat.ElementalDamagePlusPct)
-            + (!spell && !secondary ? get(Stat.ElementalDamageWithAttackSkillsPlusPct) : 0), meleePhysical = melee ? get(Stat.MeleePhysicalDamagePlusPct) : 0;
+            + (attack ? get(Stat.ElementalDamageWithAttackSkillsPlusPct) : 0), meleePhysical = melee ? get(Stat.MeleePhysicalDamagePlusPct) : 0;
+        int attackFire = attack ? get(Stat.FireDamageWithAttackSkillsPlusPct) : 0,
+            attackCold = attack ? get(Stat.ColdDamageWithAttackSkillsPlusPct) : 0,
+            attackLightning = attack ? get(Stat.LightningDamageWithAttackSkillsPlusPct) : 0;
         double charges = ChargeEffects.DamageMore(get, spell);
         var result = DamagePacket.Empty;
         foreach (var path in conversion.Trace(raw))
         {
             // Prohibitions constrain the final damage dealt, not a type the portion used to have.
-            if (DamageStats.Prohibited(path.Type, get, attack: !spell && !secondary)
+            if (DamageStats.Prohibited(path.Type, get, attack: attack)
                 || GemSupportDamage.Prohibited(path.Type, modifiers)) continue;
             double increased = common;
             if (bowAttack && (path.History & DamageTypeHistory.Physical) != 0) increased += get(Stat.PhysicalBowDamagePlusPct);
             if (bowAttack && (path.History & DamageTypeHistory.Elemental) != 0) increased += get(Stat.BowElementalDamagePlusPct);
             foreach (var source in typed)
                 if ((path.History & source.History) != 0) increased += source.Increased;
+            if (attackFire != 0 && (path.History & DamageTypeHistory.Fire) != 0) increased += attackFire;
+            if (attackCold != 0 && (path.History & DamageTypeHistory.Cold) != 0) increased += attackCold;
+            if (attackLightning != 0 && (path.History & DamageTypeHistory.Lightning) != 0) increased += attackLightning;
             if ((path.History & DamageTypeHistory.Elemental) != 0) increased += elemental + additional.Elemental;
             if ((path.History & DamageTypeHistory.Physical) != 0)
                 increased += meleePhysical + additional.Physical

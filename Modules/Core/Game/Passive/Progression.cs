@@ -173,6 +173,7 @@ public static partial class Game
         sources = WithSummonBuffs(player, sources);
         sources = WithRighteousFireSpellBonus(player, sources);
         sources = WithSpreadPoisonRegeneration(player, sources);
+        ApplyRecoveryKeystoneStats(sources);
         double now = AreaTime(player);
         int mapBuffTime = MapModsOf(player)?.Get(Stat.MapPlayerBuffTimePassedPlusPctOnlyBuffCategory) ?? 0;
         int Get(uint k) => k == Stat.BuffTimePassedPlusPctOnlyBuffCategory
@@ -1681,6 +1682,7 @@ public static partial class Game
             player.Character.SavedPassiveProgress = new(next, player.Character.Passives, player.Character.MasteryEffects, player.Character.RefundPoints);
         }
         await SendPassives(player);
+        await CheckAscendancyAwardAchievements(player, awards);
         return next.EarnedPoints;
     }
 
@@ -1789,6 +1791,7 @@ public static partial class Game
             Console.WriteLine($"[gateway] {player.Connection.Remote} {chosen.Name} refused: {ex.Message}");
             return;
         }
+        await AwardAchievementItem(player, "ChooseAscendancyClass");
         await ChangeArea(player, AscendancyReload(player), $"ascendancy {chosen.Name} chosen at the font");
     }
 
@@ -2116,6 +2119,7 @@ public static partial class Game
         }
         // Sent either way: on a refusal it puts the client's tree back to the server's.
         await SendPassives(player);
+        if (error is null && allocate) await CheckPassiveAchievements(player, now);
         return error;
     }
 
@@ -2152,37 +2156,47 @@ public static partial class Game
             ref player.Character.GemExperienceCarry) : (int)Math.Min(gain / 10, int.MaxValue);
         if (share == 0) return ([], false);
         var items = ItemsOf(player);
-        Item? AddExperience(uint itemId, Item gem)
+        var catalog = ItemsFor(player);
+        var skills = SkillsFor(player);
+        int playerLevel = player.Pools.Level;
+        int? NextExperience(uint itemId, Item gem, out bool levels)
         {
-            if (IsInactive(player, itemId) || ItemsFor(player).ByHash(gem.TypeHash) is not { } baseType || ItemsFor(player).Gem(baseType) is not { } type) return null;
+            levels = false;
+            if (IsInactive(player, itemId) || catalog.ByHash(gem.TypeHash) is not { } baseType || catalog.Gem(baseType) is not { } type) return null;
             // The experience stops one point below the next level's threshold, where the client draws the "+", so a
             // kill never levels a gem: only the player's click (0x31, or Level Up All's 0x32) writes the threshold.
             // A gem already above the highest level the character meets keeps its experience and gains nothing.
-            int level = ItemsFor(player).GemLevel(gem);
+            int level = type.Level(gem.GemExperience);
             if (level < 0) return null; // -1 is a corrupted gem over its cap (GemType.Level)
-            int allowed = Math.Min(SkillsFor(player).MaxLevelAt(type.Variant(gem.GemVariant).Effect, player.Pools.Level), type.MaxLevel);
+            int allowed = Math.Min(skills.MaxLevelAt(type.Variant(gem.GemVariant).Effect, playerLevel), type.MaxLevel);
             int cap = type.ExperienceFor(Math.Min(level + 1, allowed + 1)) - 1;
             if (gem.GemExperience < 0 || gem.GemExperience >= cap) return null;
-            return gem with { GemExperience = (int)Math.Min((long)gem.GemExperience + share, cap) };
+            int nextXp = (int)Math.Min((long)gem.GemExperience + share, cap);
+            levels = type.Level(nextXp) > level;
+            return nextXp;
         }
-        bool canLevel = items.SocketedGemPlaces().Any(place =>
-            AddExperience(place.ItemId, place.Gem) is { } after
-            && ItemsFor(player).GemLevel(after) > ItemsFor(player).GemLevel(place.Gem));
-        IReadOnlyList<PlayerSkillSource> sourcesBefore = canLevel ? CaptureGemSourceRowsLocked(player) : [];
-        var changed = items.ChangeSocketedGems(AddExperience);
+        // AddExperience caps at one point below the next level's threshold, so kills almost never level a gem;
+        // scan without allocating first and capture source rows outside PlayerInventories._lock only when needed.
+        bool mayLevel = items.AnySocketedGem((itemId, gem) => NextExperience(itemId, gem, out bool levels) is not null && levels);
+        IReadOnlyList<PlayerSkillSource> sourcesBefore = mayLevel ? CaptureGemSourceRowsLocked(player) : [];
         bool leveled = false;
+        var changed = items.ChangeSocketedGems((itemId, gem) =>
+        {
+            if (NextExperience(itemId, gem, out bool levels) is not int nextXp) return null;
+            if (levels) leveled = true;
+            return gem with { GemExperience = nextXp };
+        });
+        if (changed.Count == 0) return ([], false);
         foreach (var (before, after) in changed.SelectMany(c => c.Gems))
         {
-            if (ItemsFor(player).GemLevel(after) > ItemsFor(player).GemLevel(before))
-            {
-                leveled = true;
-                Console.WriteLine($"[gateway] {CharacterName(player)}'s {ItemsFor(player).GemName(after)} levels to {ItemsFor(player).GemLevel(after)}");
-            }
+            int afterLevel = catalog.GemLevel(after);
+            if (afterLevel > catalog.GemLevel(before))
+                Console.WriteLine($"[gateway] {CharacterName(player)}'s {catalog.GemName(after)} levels to {afterLevel}");
             // A plain gain is logged only with the projectile trace: three lines a kill per gem were written under the
             // Monsters lock for every monster an explosion killed.
             else if (GameServer.Core.Diagnostics.ServerTrace.Projectiles)
-                Console.WriteLine($"[gateway] {CharacterName(player)}'s {ItemsFor(player).GemName(after)} gains experience " +
-                    $"+{after.GemExperience - before.GemExperience} ({after.GemExperience}, level {ItemsFor(player).GemLevel(after)})");
+                Console.WriteLine($"[gateway] {CharacterName(player)}'s {catalog.GemName(after)} gains experience " +
+                    $"+{after.GemExperience - before.GemExperience} ({after.GemExperience}, level {afterLevel})");
         }
         if (leveled)
         {

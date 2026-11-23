@@ -71,8 +71,8 @@ public sealed record ControlResponse
     public ushort Area { get; init; }
     public uint Seed { get; init; }
     public ulong Instance { get; init; }
-    /// <summary>"resolve": when Auth created the instance (Unix ms). With <see cref="Instance"/> it names the instance
-    /// across Auth restarts, which start the ids at 1 again.</summary>
+    /// <summary>"resolve" and "transfer": when Auth created the instance (Unix ms). With <see cref="Instance"/> it
+    /// names the instance across Auth restarts, which start the ids at 1 again.</summary>
     public long Created { get; init; }
     public string? InstanceOwner { get; init; }
     public uint Ticket { get; init; }

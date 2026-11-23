@@ -48,12 +48,20 @@ public static class SupportedAttackDamage
     public static int WeaponIncrease(SkillCatalog.Unarmed weapon, Func<uint, int> get) =>
         WeaponTypeDamage.Any(weapon, get);
 
+    public static void AddWandGains(DamageConversion conversion, Func<uint, int> get)
+    {
+        conversion.AddGain(DamageType.Physical, DamageType.Fire, Math.Max(0, get(Stat.WandPhysicalDamagePctToAddAsFire)));
+        conversion.AddGain(DamageType.Physical, DamageType.Cold, Math.Max(0, get(Stat.WandPhysicalDamagePctToAddAsCold)));
+        conversion.AddGain(DamageType.Physical, DamageType.Lightning, Math.Max(0, get(Stat.WandPhysicalDamagePctToAddAsLightning)));
+        conversion.AddGain(DamageType.Physical, DamageType.Chaos, Math.Max(0, get(Stat.WandPhysicalDamagePctToAddAsChaos)));
+    }
+
     public static DamagePacket Hit(SkillCatalog.Unarmed weapon, Func<uint, int> get, IReadOnlySet<int> types,
         AttackAccuracyProfile accuracy)
     {
         get = WeaponAttributeDamage.Read(WeaponAttributeDamage.Armed(weapon), get);
         return PlayerHitDamage.Resolve(Raw(weapon, get, accuracy, melee: types.Contains(19)), HitModifiers(weapon, get),
-            WithWeaponGains(new(), weapon), spell: false,
+            WithWeaponGains(new(), weapon, get), spell: false,
             melee: types.Contains(19), area: types.Contains(7), projectile: types.Contains(2), skillTypes: types,
             wieldingBow: weapon.Bow, wieldingWand: weapon.WieldingWand, retaliation: types.Contains(120),
             additionalIncreased: WeaponIncrease(weapon, get), additional: WeaponTypeDamage.Of(weapon, get));
@@ -117,14 +125,17 @@ public static class SupportedAttackDamage
     static DamagePacket WeaponBase(SkillCatalog.Unarmed weapon) => weapon.LocalDamage
         ?? DamagePacket.Of(DamageType.Physical, new(weapon.MinDamage, weapon.MaxDamage)).Add(weapon.LocalAdded);
 
-    internal static DamageConversion WithWeaponGains(DamageConversion conversion, SkillCatalog.Unarmed weapon)
+    internal static DamageConversion WithWeaponGains(DamageConversion conversion, SkillCatalog.Unarmed weapon,
+        Func<uint, int>? get = null)
     {
         if (!WeaponAttributeDamage.Armed(weapon)) return conversion;
         int gain = weapon.LocalSources?.GetValueOrDefault(Stat.WeaponPhysicalDamagePctToAddAsEachElement) ?? 0;
-        if (gain <= 0) return conversion;
-        return conversion.AddGain(DamageType.Physical, DamageType.Lightning, gain)
-            .AddGain(DamageType.Physical, DamageType.Cold, gain)
-            .AddGain(DamageType.Physical, DamageType.Fire, gain);
+        if (gain > 0)
+            conversion.AddGain(DamageType.Physical, DamageType.Lightning, gain)
+                .AddGain(DamageType.Physical, DamageType.Cold, gain)
+                .AddGain(DamageType.Physical, DamageType.Fire, gain);
+        if (weapon.WieldingWand && get is not null) AddWandGains(conversion, get);
+        return conversion;
     }
 
     public static DamagePacket WithCoefficients(DamagePacket local, DamagePacket added,

@@ -269,19 +269,23 @@ public static partial class Game
     public static void AilmentsOnHitLocked(Player player, uint targetId, SpawnedMonster m, DamagePacket mitigated, bool spell,
         bool critical, int criticalMultiplier, IReadOnlyDictionary<uint, int> playerStats, IReadOnlyDictionary<uint, int>? skill,
         double now, Random random, List<MonsterElementalAilments.Effect>? reflected = null,
-        MonsterPoisons.Settings poison = default, ushort sourceSkill = 0, BlindHitInput blind = default, (int X, int Y)? hitOrigin = null, bool playerHit = true) =>
+        MonsterPoisons.Settings poison = default, ushort sourceSkill = 0, BlindHitInput blind = default, (int X, int Y)? hitOrigin = null,
+        bool playerHit = true, int attackerSize = LivingCollision.PlayerSize, bool attackerHasReversedStat = true) =>
         AilmentsOnHitLocked(player, targetId, m, mitigated, spell, critical, criticalMultiplier, playerStats, skill,
-            now, random, default(AttackAilmentGains), reflected, poison, sourceSkill, blind, hitOrigin, playerHit);
+            now, random, default(AttackAilmentGains), reflected, poison, sourceSkill, blind, hitOrigin, playerHit,
+            attackerSize, attackerHasReversedStat);
 
     public static void AilmentsOnHitLocked(Player player, uint targetId, SpawnedMonster m, DamagePacket mitigated, bool spell,
         bool critical, int criticalMultiplier, IReadOnlyDictionary<uint, int> playerStats, IReadOnlyDictionary<uint, int>? skill,
         double now, Random random, AttackAilmentGains attackGains, List<MonsterElementalAilments.Effect>? reflected = null,
-        MonsterPoisons.Settings poison = default, ushort sourceSkill = 0, BlindHitInput blind = default, (int X, int Y)? hitOrigin = null, bool playerHit = true)
+        MonsterPoisons.Settings poison = default, ushort sourceSkill = 0, BlindHitInput blind = default, (int X, int Y)? hitOrigin = null,
+        bool playerHit = true, int attackerSize = LivingCollision.PlayerSize, bool attackerHasReversedStat = true)
     {
         HitSummonsOnHitLocked(player, m, skill, sourceSkill, now, random);
         PhantasmsOnHitLocked(player, m, sourceSkill, now, random, skill: skill);
         CursesOnHitLocked(player, m, sourceSkill, spell, now, skill, playerStats, playerHit, random);
-        KnockbackOnHitLocked(player, m, playerStats, skill, now, random, hitOrigin);
+        KnockbackOnHitLocked(player, m, playerStats, skill, now, random, hitOrigin,
+            attackerSize: attackerSize, attackerHasReversedStat: attackerHasReversedStat);
         // "You gain Onslaught for 4 seconds on Hit" and "Gain Arcane Surge on Hit with Spells" (Honoured Berserker
         // and Flood tattoos): every player hit, the spells-only one gated by the hit's own spell flag.
         if (playerHit) OnslaughtOnHitLocked(player, now);
@@ -461,10 +465,11 @@ public static partial class Game
         var a = m.Ailments;
         double vines = ToxicWalkFactor(m);
         double trap = BearTrapWalkFactor(m, now);
+        double snare = EnsnaredWalkFactor(m, now);
         if (!m.RuleAilments.Idle) packets.AddRange(AlternateAilmentBuffs(id, $"monster 0x{id:x} ({m.Label})", m.RuleAilments, now));
         bool elementalIdle = a.Idle && now >= m.ReceivedActionUntil;
         bool lowLifeMove = MonsterOnLowLife(m) && m.Effects[Stat.MovementVelocityPlusPctWhenOnLowLife] != 0;
-        if (elementalIdle && !TimedWalkDebuff(now, m) && SpiderHinder(m, now) == 0 && vines == 1 && trap == 1
+        if (elementalIdle && !TimedWalkDebuff(now, m) && SpiderHinder(m, now) == 0 && vines == 1 && trap == 1 && snare == 1
             && m.Effects[Stat.ActionSpeedMinusPct] == 0 && a.WalkFactor == 1 && a.SentActionSpeed == 0 && !m.MaimedMovementShown && !lowLifeMove) return;
         if (!elementalIdle)
         {
@@ -480,7 +485,7 @@ public static partial class Game
         // Bear Trap's more-multiplier: the client's walk reads movement_velocity_+%, not bear_trap_movement_speed_+%_final.
         bool speedFloored = m.Effects[Stat.MovementSpeedCannotBeReducedBelowBase] > 0;
         var movement = MaimedMovementFactor(m, now);
-        double lessMove = trap * (now < m.CoveredInAshUntil ? 0.8 : 1.0);
+        double lessMove = trap * snare * (now < m.CoveredInAshUntil ? 0.8 : 1.0);
         if (lessMove != 1 && !(speedFloored && lessMove < 1))
             movement = (movement.Factor * lessMove, (int)Math.Round((100 + movement.Pct) * lessMove - 100));
         double walk = (speedFloored ? Math.Max(1, action) : action)
@@ -511,7 +516,7 @@ public static partial class Game
             SetStats(player, id, [(key, speed)]);
         }
         bool maimed = m.MaimedUntil > now || m.HinderedUntil > now || SpiderHinder(m, now) != 0
-            || lowLifeMove || trap != 1;
+            || lowLifeMove || trap != 1 || snare != 1;
         bool maimShown = m.MaimedMovementShown;
         bool movementChanged = maimed
             ? !maimShown || movement.Pct != m.MaimedMovementShownPct

@@ -224,7 +224,6 @@ public static partial class Game
         var presenting = PresentingOf.GetOrCreateValue(player);
         double now = AreaTime(player);
         CheckIntensityPresentation(player, now);
-        CheckMomentumPresentation(player, now);
         lock (presenting)
             if (now >= presenting.NextAt)
             {

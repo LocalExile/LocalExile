@@ -115,7 +115,7 @@ public static partial class Game
     // base_killed_monster_dropped_item_rarity_+% (Item Rarity Support).
     public static int IncreasedItemRarity(Player player, SpawnedMonster? monster = null)
     {
-        var stats = CharacterPlayerStats(player);
+        var stats = PlayerStatValues(player);
         int Get(uint key) => stats.GetValueOrDefault(key);
         int playerValue = Get(Stat.BaseItemFoundRarityPlusPct) + Get(Stat.ItemFoundRarityPlusPct);
         return playerValue + (MapModsOf(player)?.Rarity ?? 0)
@@ -129,7 +129,7 @@ public static partial class Game
     // base_killed_monster_dropped_item_quantity_+% (Item Quantity Support).
     public static double ItemQuantityFactor(Player player, SpawnedMonster? monster = null)
     {
-        var stats = CharacterPlayerStats(player);
+        var stats = PlayerStatValues(player);
         int Get(uint key) => stats.GetValueOrDefault(key);
         double playerValue = Math.Max(0, 100 + Get(Stat.BaseItemFoundQuantityPlusPct) + Get(Stat.ItemFoundQuantityPlusPct)) / 100.0;
         return playerValue * (1 + Math.Max(0, monster?.KilledWithItemQuantityPct ?? 0) / 100.0)
@@ -146,13 +146,13 @@ public static partial class Game
         using (new PlayerStatScope(player, fresh: true))
         {
             player.Pools = PoolsFor(player, player.Pools.Level);
-            player.ApplyMovementSpeed();
+            player.ApplyMovementSpeedAt(AreaTime(player));
             player.PlayerLife = LifeReservation.Clamp(player.PlayerLife, LifeReservationOf(player));
             var stats = CharacterPlayerStats(player);
             int Get(uint key) => stats.GetValueOrDefault(key);
             player.Phasing = UtilityFlasks.Phasing(UtilityStats(player, Get));
             player.ElementalAilments.Reconcile(Get);
-            player.ApplyMovementSpeed();
+            player.ApplyMovementSpeedAt(AreaTime(player));
         }
     }
 

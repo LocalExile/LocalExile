@@ -175,7 +175,28 @@ public sealed class MapDevice
             if (area is null && _atlas?.TierOf(maps[0].TypeHash) is int tier)
             {
                 if (_atlas.Selected(character) is { } layout)
-                    area = new(layout.Hash16, layout.Id, layout.Name, tier) { Level = MapLevel(tier) };
+                {
+                    int level;
+                    if (layout.RequiresSpecificItem)
+                    {
+                        if (layout.RequiredKeyHash is not uint required || maps[0].TypeHash != required)
+                        {
+                            why = $"{layout.Name} requires its own map item.";
+                            return null;
+                        }
+                        level = Math.Max(MapLevel(tier), layout.AreaLevel);
+                    }
+                    else
+                    {
+                        if (_atlas.IsSpecialKey(maps[0].TypeHash))
+                        {
+                            why = $"{maps[0].Name} cannot be used on {layout.Name}.";
+                            return null;
+                        }
+                        level = MapLevel(tier);
+                    }
+                    area = new(layout.Hash16, layout.Id, layout.Name, tier) { Level = level };
+                }
                 else
                 {
                     why = "No Atlas layout is available: extract AtlasNode.dat and WorldAreas.dat.";

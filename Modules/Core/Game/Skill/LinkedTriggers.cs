@@ -10,6 +10,7 @@ public static partial class Game
         public readonly int Epoch = epoch;
         public readonly object? Rules = rules;
         public readonly Dictionary<int, double> ReadyAt = [];
+        public Dictionary<ushort, ManaforgedProgress>? Manaforged;
         public readonly Dictionary<(uint Host, int Group, string Family), (LinkedTriggerSource Source, int Next)> Rotation = [];
     }
     static readonly Store<Player, LinkedTriggerState> LinkedTriggers = new();
