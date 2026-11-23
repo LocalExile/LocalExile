@@ -47,7 +47,7 @@ public readonly record struct SingleUseCooldown(int BaseMilliseconds, int Recove
         if (skills.EffectId(effect) is "GeneralsCry" or "GeneralsCryAltX" or "GeneralsCryAltY")
             recovery += (long)Get(player, Stat.GeneralsCryCooldownSpeedPlusPct) + Get(own, Stat.GeneralsCryCooldownSpeedPlusPct);
         if (skills.EffectId(effect) is { } id && id.StartsWith("Summon", StringComparison.Ordinal) && id.Contains("Golem", StringComparison.Ordinal))
-            recovery += (long)Get(player, Stat.GolemCooldownRecoveryPlusPct) + Get(own, Stat.GolemCooldownRecoveryPlusPct);
+            recovery += (long)Get(player, Stat.GolemSkillCooldownRecoveryPlusPct) + Get(own, Stat.GolemSkillCooldownRecoveryPlusPct);
         // Native construction adds 100 in a signed i32. Zero recovery stalls rather than reversing the clock.
         return new(ms, (int)Math.Clamp(recovery, -100, int.MaxValue - 100), uses);
     }
