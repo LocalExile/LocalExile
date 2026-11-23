@@ -671,7 +671,7 @@ public static partial class MapTorment
                 // poewiki: a slain spirit always drops a rare; the Peculiarity's spirits also their own kind of item.
                 items.AddRange(Rares(killer, level, 1 + Math.Max(0, AreaStat(killer, Stat.MapTormentedSpiritsDropXAdditionalRareItems)), random));
                 if (TormentCatalog.ByRow(payout.SpiritRow) is { Unusual: true } unusual
-                    && (unusual.Variety.EndsWith("Betrayer", StringComparison.Ordinal) ? drops.Scarab(random, level)
+                    && (unusual.Variety.EndsWith("Betrayer", StringComparison.Ordinal) ? drops.Scarab(random, level, Game.MapModsOf(player))
                         : unusual.Variety.EndsWith("Felon", StringComparison.Ordinal) ? Unique(killer, level, random)
                         : drops.Map(level, MonsterRarity.Unique, Math.Max(1, tier), random)) is { } own) items.Add(own);
             }
