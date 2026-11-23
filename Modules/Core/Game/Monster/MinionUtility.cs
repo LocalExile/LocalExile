@@ -62,7 +62,8 @@ static partial class Game
         (int X, int Y) aim, uint target, double now)
     {
         bool Usable(SpawnedMonster m) => m.Hostile && m.Dead && !m.CorpseConsumed && !m.Ailments.Shattered
-            && m.Variety?.LifeData.IsUsableAsCorpse(m.Life) == true;
+            && CorpseTypeAllowsUse(m, minionSkill: SkillsFor(player).HasType(gem.Effect, "Minion"),
+                cannotUseSpectreCorpses: GolemStat(gem.Stats, Stat.CannotUseSpectreCorpses) != 0);
         var first = player.Area.Monsters.GetValueOrDefault(target);
         if (first is null || !Usable(first)) first = player.Area.Monsters.Values.Where(Usable)
             .Where(m => Dist(m.Walk.Position(now), aim) <= 15).MinBy(m => Dist(m.Walk.Position(now), aim));

@@ -60,7 +60,7 @@ public static partial class Game
 
     // A corpse the engine has: a monster killed in this area visit whose Life type allows corpse use, not yet consumed.
     static bool IsCorpse(SpawnedMonster m) =>
-        m.Dead && m.Life == 0 && !m.CorpseConsumed && m.Variety?.LifeData.IsUsableAsCorpse(m.Life) == true;
+        m.Dead && m.Life == 0 && !m.CorpseConsumed && CorpseTypeAllowsUse(m);
 
     // The explosion's hit before the target's mitigation: the corpse's maximum Life x percent as physical damage, with the
     // owner's global increases and more multipliers, then his global conversion and gain as extra (poewiki Explode: global,

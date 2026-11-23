@@ -132,7 +132,7 @@ public static partial class MonsterSkills
     }
 
     static bool IsCorpse(SpawnedMonster m) =>
-        m.Dead && m.Life == 0 && !m.CorpseConsumed && m.Variety?.LifeData.IsUsableAsCorpse(m.Life) == true;
+        m.Dead && m.Life == 0 && !m.CorpseConsumed && CorpseTypeAllowsUse(m);
 
     /// <summary>The corpse a monster uses the skill on, in the area's frame: for a travel, the one nearest the player
     /// that is within its reach and brings it nearer; for a spell, the one nearest the player whose hits reach the player.

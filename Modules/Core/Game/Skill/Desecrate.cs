@@ -17,6 +17,7 @@ public static partial class Game
         }
         MonsterCatalog.Variety[] pool;
         pool = player.Area.Monsters.Values.Where(m => m.Variety is { Supported: true } && m.Variety.LifeData.IsUsableAsCorpse(0)
+            && !ItemisedCorpses.Value.Bodies.Contains(m.Variety.Row)
             && m.Rarity != MonsterRarity.Unique && (m.Hostile || player.Summons.Fighters.Values.Any(g => g.Monster == m && g.Definition.Kind == "Spectre")))
             .Select(m => m.Variety!).DistinctBy(v => v.Row).ToArray();
         if (pool.Length == 0 && Monsters.Find("Metadata/Monsters/Zombies/Zombie") is { Supported: true } fallback) pool = [fallback];

@@ -93,19 +93,22 @@ public static partial class Game
             DurationKinds(player, gem.Effect) | (secondary ? SkillDurationModifiers.Kinds.Secondary : 0));
     }
 
-    static SpawnedMonster? SummonCorpse(Player player, (int X, int Y) aim, uint target, double radius = 15)
+    static SpawnedMonster? SummonCorpse(Player player, (int X, int Y) aim, uint target, double radius = 15,
+        bool cannotUseSpectreCorpses = false)
     {
         bool Allowed(SpawnedMonster m) => m.Hostile && m.Dead && !m.CorpseConsumed && !m.Ailments.Shattered
-            && m.Variety?.LifeData.IsUsableAsCorpse(m.Life) == true && m.Rarity != MonsterRarity.Unique;
+            && CorpseTypeAllowsUse(m, minionSkill: true, cannotUseSpectreCorpses) && m.Rarity != MonsterRarity.Unique;
         if (target != 0 && player.Area.Monsters.GetValueOrDefault(target) is { } selected && Allowed(selected)) return selected;
         return player.Area.Monsters.Values.Where(Allowed).Where(m => Dist(m.Walk.Position(AreaTime(player)), aim) <= radius)
             .MinBy(m => Dist(m.Walk.Position(AreaTime(player)), aim));
     }
 
     // The living actor uses the raised body's row, including the old saves that recorded the ordinary monster's row.
-    static MonsterCatalog.Variety RaisedSpectreVariety(MonsterCatalog.Variety corpse) =>
-        SpectreOverrides.Value.TryGetValue(corpse.Row, out int row) && (uint)row < (uint)Monsters.All.Count
-            ? Monsters.All[row] : corpse;
+    static MonsterCatalog.Variety RaisedSpectreVariety(MonsterCatalog.Variety corpse)
+    {
+        int row = SpectreOverrides.Value.GetValueOrDefault(corpse.Row, corpse.Row);
+        return (uint)row < (uint)Monsters.All.Count ? Monsters.All[row] : corpse;
+    }
 
     internal static int SummonCount(SummonCatalog.Definition definition, SupportedGem gem, Random random)
     {
@@ -205,7 +208,7 @@ public static partial class Game
         string path = restoredVariety ?? definition.Variety;
         if (restoredVariety is null && definition.Corpse)
         {
-            corpse = SummonCorpse(player, aim, target);
+            corpse = SummonCorpse(player, aim, target, cannotUseSpectreCorpses: GolemStat(gem.Stats, Stat.CannotUseSpectreCorpses) != 0);
             if (corpse is null) return 0;
             if (definition.Family == "Spectre") corpseVariety = corpse.Variety;
             aim = corpse.Walk.Position(AreaTime(player));
