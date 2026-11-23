@@ -129,6 +129,8 @@ public static partial class Game
         {
             if (golem.Definition.Kind == "RagingSpirit" && Get(Stat.RagingSpiritDamagePlusPct) is int spiritDamage and not 0)
                 values[Stat.DamagePlusPct] = ActorScale.Saturate((long)values.GetValueOrDefault(Stat.DamagePlusPct) + spiritDamage);
+            if (golem.Definition.Kind == "Spectre" && Get(Stat.SpectresCriticalStrikeChancePlusPct) is int spectreCrit and not 0)
+                values[Stat.CriticalStrikeChancePlusPct] = ActorScale.Saturate((long)values.GetValueOrDefault(Stat.CriticalStrikeChancePlusPct) + spectreCrit);
             values[Stat.GlobalMinimumAddedPhysicalDamage] = values.GetValueOrDefault(Stat.GlobalMinimumAddedPhysicalDamage)
                 + Get(Stat.NonGolemMinionGlobalMinimumAddedPhysicalDamage);
             values[Stat.GlobalMaximumAddedPhysicalDamage] = values.GetValueOrDefault(Stat.GlobalMaximumAddedPhysicalDamage)

@@ -28,6 +28,7 @@ public static partial class Game
         int familyLife = golem.Definition.IsGolem ? Player(Stat.GolemMaximumLifePlusPct) : golem.Definition.Kind switch
         {
             "Zombie" => Player(Stat.BaseZombieMaximumLifePlusPct),
+            "Spectre" => Player(Stat.BaseSpectreMaximumLifePlusPct),
             "RagingSpirit" => Player(Stat.MinionRagingSpiritMaximumLifePlusPct),
             _ => 0,
         };

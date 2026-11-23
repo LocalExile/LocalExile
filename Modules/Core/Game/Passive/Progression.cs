@@ -175,6 +175,7 @@ public static partial class Game
         sources = WithSpreadPoisonRegeneration(player, sources);
         ApplyRecoveryKeystoneStats(sources);
         double now = AreaTime(player);
+        ApplyZombieDamageBonus(player, sources, now);
         int mapBuffTime = MapModsOf(player)?.Get(Stat.MapPlayerBuffTimePassedPlusPctOnlyBuffCategory) ?? 0;
         int Get(uint k) => k == Stat.BuffTimePassedPlusPctOnlyBuffCategory
             ? ActorScale.Saturate((long)sources.GetValueOrDefault(k) + mapBuffTime)

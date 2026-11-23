@@ -17,7 +17,8 @@ public static partial class Game
             if (!player.Summons.Restored) return;
             double now = AreaTime(player);
             text = JsonSerializer.Serialize(player.Summons.Fighters.Values.Where(g => !g.Monster.Dead && g.Monster.Life > 0
-                    && player.Summons.Definitions[g.Id].Persistent)
+                    && player.Summons.Definitions.GetValueOrDefault(g.Id)?.Persistent == true
+                    && player.Summons.Until.TryGetValue(g.Id, out double until) && double.IsPositiveInfinity(until))
                 .Select(g => SavedSummon(player, g, now)).ToArray());
             guardian = JsonSerializer.Serialize(player.Summons.GuardianEquipment);
             character = CharacterName(player);
@@ -91,11 +92,19 @@ public static partial class Game
 
     static double SummonDuration(Player player, SummonCatalog.Definition definition, SupportedGem gem)
     {
-        if (definition.Persistent) return double.PositiveInfinity;
+        IReadOnlyDictionary<uint, int>? playerStats = null;
+        int spectreDuration = 0;
+        if (definition.Family == "Spectre")
+        {
+            playerStats = CharacterPlayerStats(player);
+            spectreDuration = Math.Max(GolemStat(playerStats, Stat.SpectresHaveBaseDurationMs),
+                GolemStat(gem.Stats, Stat.SpectresHaveBaseDurationMs));
+        }
+        if (definition.Persistent && spectreDuration <= 0) return double.PositiveInfinity;
         bool secondary = definition.Family == "Absolution" || definition.Family.StartsWith("Dominating", StringComparison.Ordinal);
-        int ms = GolemStat(gem.Stats, definition.Family == "Spectre" ? Stat.SpectresHaveBaseDurationMs
-            : secondary ? Stat.BaseSecondarySkillEffectDuration : Stat.BaseSkillEffectDuration);
-        var playerStats = CharacterPlayerStats(player);
+        int ms = definition.Family == "Spectre" ? spectreDuration
+            : GolemStat(gem.Stats, secondary ? Stat.BaseSecondarySkillEffectDuration : Stat.BaseSkillEffectDuration);
+        playerStats ??= CharacterPlayerStats(player);
         uint familyDuration = definition.Family switch
         {
             "Skeleton" or "VaalSkeleton" => Stat.SkeletonDurationPlusPct,
@@ -448,6 +457,18 @@ public static partial class Game
                 restoredVariety: variety, restoredEquipment: equipment, replacingOld: old) != 0)
                 changed = true;
         if (changed) SaveSummons(player);
+    }
+
+    static int LivingSummons(Player player, string family, double now) => player.Summons.Fighters.Values.Count(minion =>
+        minion.Definition.Kind == family && !minion.Monster.Dead && minion.Monster.Life > 0
+        && player.Summons.Until.TryGetValue(minion.Id, out double until) && now < until);
+
+    static void ApplyZombieDamageBonus(Player player, Dictionary<uint, int> stats, double now)
+    {
+        if (GolemStat(stats, Stat.DamagePlusPctPerRaisedZombie) is not (int amount and not 0)) return;
+        int live = LivingSummons(player, "Zombie", now);
+        if (live > 0)
+            stats[Stat.DamagePlusPct] = ActorScale.Saturate((long)GolemStat(stats, Stat.DamagePlusPct) + (long)amount * live);
     }
 
     static void AddSummonCounts(Player player, StatMap stats)
