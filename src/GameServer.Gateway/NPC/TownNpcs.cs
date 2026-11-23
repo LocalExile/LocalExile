@@ -213,6 +213,25 @@ public static class TownNpcs
             // Her .ot's create_untransitioned is DisableRendering(): Transitionable state 1 left her invisible live, 2 shows her.
             new(Npc + "Epilogue/Helena", 771, 696, 0.564095f, Model: "Metadata/NPC/Missions/Helena.ao", State: 2),
         ]),
+        // The Kingsmarch (HubTown): the .dgr's only node, kingsmarch, is rotated by I, so the room's cells are the area's
+        // cells plus the room's origin, which is (138, 138): the room's own default point (452, 517) is where the player
+        // arrives and the area's arrival is (590, 655) (the gateway log), so the origin is the difference. Its eight NPC
+        // lines (the .arm's rows 88-95) place the village's NPCs: the King's Hand, Tujen,
+        // Rog, Dannig, Faustus, Isla, Sonja the Farmer and Raulf the Recruiter. VillageGwennen has no line in the room
+        // (the client's own model table gives him the farmer's model), so he is not placed. VillageFarmer's own model
+        // is Isla's, so the room's model is the one sent.
+        new(0x8f53, "KalguuranSettlersLeague", new("Metadata/Terrain/Leagues/Settlers/HubTown/Rooms/kingsmarch.arm", 621, 1035, 0, 138, 138),
+        [
+            new(Npc + "League/Kalguur/VillageFaustus", 389, 625, 1.17173f),
+            new(Npc + "League/Kalguur/VillageIsla", 213, 547, -2.46387f),
+            new(Npc + "League/Kalguur/VillageTujen", 283, 429, -0.7837f),
+            new(Npc + "League/Kalguur/VillageRog", 316, 523, -1.34867f),
+            new(Npc + "League/Kalguur/VillageDannig", 493, 478, -0.415451f),
+            new(Npc + "League/Kalguur/VillageFarmer", 367, 794, -1.6406f,
+                Model: "Metadata/NPC/League/Kalguur/KalguuranFarmer/KalguuranFarmer.ao"),
+            new(Npc + "League/Kalguur/VillageRecruiter", 422, 664, -0.687523f),
+            new(Npc + "League/Kalguur/VillageMayor", 429, 624, -1.5708f),
+        ]),
     ];
 
     public static Town? Of(ushort area) => All.FirstOrDefault(t => t.Area == area);

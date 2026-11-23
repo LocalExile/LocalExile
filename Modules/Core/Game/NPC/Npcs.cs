@@ -37,8 +37,10 @@ public static partial class Game
         foreach (var note in notes) Console.WriteLine($"[gateway] {remote} npcs: {note}");
         if (placements.Count == 0 || Environment.GetEnvironmentVariable("Game_NPCS") == "0") return;
         if (Npcs.Value.Error is { } error) { Console.WriteLine($"[gateway] {remote} npcs: {error}"); return; }
+        // A room's placements are the area's own cells (the Kingsmarch's room sits at (138, 138) in the area); only the
+        // arrival-relative ones move with the arrival.
         if (StashCatalog.FromArrival(conn.Layout.Hash))
-            placements = [.. placements.Select(p => p with { X = conn.Layout.SpawnX + p.X, Y = conn.Layout.SpawnY + p.Y })];
+            placements = [.. placements.Select(p => p.FromRoom ? p : p with { X = conn.Layout.SpawnX + p.X, Y = conn.Layout.SpawnY + p.Y })];
         var quests = QuestsOf(conn);
         foreach (var p in placements)
         {

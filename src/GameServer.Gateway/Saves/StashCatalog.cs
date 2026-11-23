@@ -26,9 +26,10 @@ public static class StashCatalog
         [OriathDocks] = new(532, 296, -0.800368f),
         // The Forbidden Sanctum (SanctumFoyer_Fellshrine): by the waypoint (126, 149), to be placed live with /stash_place.
         [SanctumHub] = new(116, 160, 0),
-        // Kingsmarch: the room's own object line puts the stash at (420, 611) and the guild stash at (420, 641): offsets from
-        // the arrival (590, 655), the cells the client's kingsmarch.arm places (FromArrival).
-        [Kingsmarch] = new(-170, -44, -MathF.PI / 2),
+        // Kingsmarch: the room's own object line puts the stash at (420, 611) and the guild stash at (420, 641); the room
+        // sits at (138, 138) in the area, so the cells are (558, 749) and (558, 779), offsets from the arrival (590, 655)
+        // (the cells the client's kingsmarch.arm places, FromArrival).
+        [Kingsmarch] = new(-32, 94, -MathF.PI / 2),
         // The Rogue Harbour: next to the arrival (an offset, FromArrival), to be placed live with /stash_place.
         [HeistHub] = new(6, 8, 0),
         // The Monastery of the Keepers: next to the arrival (an offset, FromArrival), to be placed live with /stash_place.
@@ -46,7 +47,7 @@ public static class StashCatalog
         DelveHub => new(344, 295, MathF.PI),
         MenagerieHub => new(440, 480, 0),
         SanctumHub => new(106, 166, 0),
-        Kingsmarch => new(-170, -14, -MathF.PI / 2),
+        Kingsmarch => new(-32, 124, -MathF.PI / 2),
         HeistHub => new(-6, 8, 0),
         ChayulaHub => new(-6, 8, 0),
         AreaLayouts.LioneyesWatch => new(317, 270, 0),
