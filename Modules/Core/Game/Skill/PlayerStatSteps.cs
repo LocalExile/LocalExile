@@ -129,6 +129,14 @@ public static partial class Game
             foreach (var (k, v) in AuraCatalog.RawStats(auras.Where(a => a.AffectsSelf), player.Pools.AuraEffectPct, SkillsFor(player), Stats,
                          heraldEffectPct).Concat(MinionAuraStats(player, auras)).ToList())
                 AddTo(stats, k, v);
+            // "Auras from your Skills grant #% increased Damage to you and Allies": once for each of the player's own Aura
+            // skills affecting them, scaled by that aura's effect as its other stats are.
+            // shortcut: allies and minions do not get it yet.
+            if (GetIn(stats, Stat.AurasGrantDamagePlusPctToYouAndYourAllies) is int perAura and not 0)
+                AddTo(stats, Stat.DamagePlusPct, auras
+                    .Where(a => a.ExternalEffectPct is null && SkillsFor(player).IsAura(a.Effect))
+                    .Sum(a => (long)Math.Round(perAura * Math.Max(0, 100 + player.Pools.AuraEffectPct + a.SupportEffectPct) / 100.0,
+                        MidpointRounding.AwayFromZero)));
         });
         Step(PlayerStatStep.AuraPenetration, (player, stats, _) =>
         {
