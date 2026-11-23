@@ -30,7 +30,7 @@ public class TukohamaBridgeTests
             var layout = new AreaLayout(1, "2_6_5", 2000, 2000, 0, 0, (_, _) => true,
                 [(11, Door(242, 316, 1, null)), (12, Door(240, 189, 2, keepLabel)),
                  (13, Door(265, 615, 1, null)), (14, Door(263, 488, 2, keepLabel)), (15, other)]) { Level = level };
-            var client = new ClientState(layout, 1, 1);
+            var client = new Player(layout, 1, 1);
             Game.PrepareKaruiBridgeGates(client);
             var gates = client.Layout.AreaTransitions.ToDictionary(g => g.Id, g => g.Transition);
             Assert.Equal(Place(245, 145), gates[11].TeleportTo);

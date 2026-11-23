@@ -85,10 +85,10 @@ sealed partial class VendorRecipes
         public int Left = placement.Item.StackSize;
     }
 
-    public Quote Evaluate(IEnumerable<InventoryItem> offered, Random? random = null, double? basicSaleMultiplier = null)
+    public Quote Evaluate(IEnumerable<InventoryItem> offered, Random random, double? basicSaleMultiplier = null)
     {
         if (basicSaleMultiplier is { } multiplier) return BasicSale(offered, multiplier);
-        var rng = random ?? Random.Shared;
+        var rng = random;
         var pool = offered.OrderBy(x => x.Id).Select(i => new Ingredient(i, Type(i.Item))).ToList();
         if (pool.Select(i => i.Id).Distinct().Count() != pool.Count) throw new ArgumentException("Duplicate vendor ingredient id");
         if (pool.Any(i => i.Item.Mods.Any(m => (_sellTypes.GetValueOrDefault(m.Hash) ?? []).Any(t => t >= 9 && t != 34))))
@@ -505,7 +505,7 @@ sealed partial class VendorRecipes
                 }
         }
         bool doubled = item.Mods.Any(m => _catalog.Mods.ByHash(m.Hash)?.Stats.Select((s, n) =>
-            s.Id == "local_item_sell_price_doubled" && n < m.Values.Count && m.Values[n] != 0).Any(x => x) == true);
+            s.Id == Stat.LocalItemSellPriceDoubled && n < m.Values.Count && m.Values[n] != 0).Any(x => x) == true);
         return doubled ? (alteration * 2, alchemy * 2) : (alteration, alchemy);
     }
 }

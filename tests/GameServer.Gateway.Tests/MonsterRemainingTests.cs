@@ -29,31 +29,31 @@ public class MonsterRemainingTests
         using var runtime = new PartyFollowerTests.Runtime();
         using var wire = new PartyFollowerTests.Wire();
         var instance = new InstanceState();
-        var conn = runtime.Connection(instance, wire);
+        var player = runtime.PlayerOf(instance, wire);
         static SpawnedMonster Monster(int x) => new("area monster", new PlayerWalk(x, 100, 30), 60, 8, 100);
         // The roster keeps the corpses (a dead monster stays in it until it is consumed), so only the living count.
-        instance.World.Monsters[0x08000000] = Monster(110);
-        instance.World.Monsters[0x08000001] = Monster(120);
-        instance.World.Monsters[0x08000002] = new SpawnedMonster("area corpse", new PlayerWalk(130, 100, 30), 60, 8, 100) { Dead = true, Life = 0 };
-        instance.World.Monsters[0x08000004] = new("friendly summon", new(100, 100, 0), 0, 0, 100) { Hostile = false };
+        instance.World.Area.Monsters[0x08000000] = Monster(110);
+        instance.World.Area.Monsters[0x08000001] = Monster(120);
+        instance.World.Area.Monsters[0x08000002] = new SpawnedMonster("area corpse", new PlayerWalk(130, 100, 30), 60, 8, 100) { Dead = true, Life = 0 };
+        instance.World.Area.Monsters[0x08000004] = new("friendly summon", new(100, 100, 0), 0, 0, 100) { Hostile = false };
         // One of the two enemies is still underground; emerging must not increase the remaining count.
-        instance.World.DormantMonsters[0x08000000] = instance.World.Monsters[0x08000000];
-        instance.World.Monsters.Remove(0x08000000);
+        instance.World.Area.DormantMonsters[0x08000000] = instance.World.Area.Monsters[0x08000000];
+        instance.World.Area.Monsters.Remove(0x08000000);
         using var peerWire = new PartyFollowerTests.Wire();
-        var peer = runtime.Connection(instance, peerWire);
+        var peer = runtime.PlayerOf(instance, peerWire);
         var peerPackets = new List<string>();
-        peer.Outbox = (bytes, _) => { peerPackets.Add(Convert.ToHexString(bytes)); bytes.AsSpan().Fill(0xcc); return Task.CompletedTask; };
-        instance.PublishPlayer(new(peer.PeerId, 0, new("counter-peer", 0, 100, 100, 100, 100), 100, 100, 100, peer));
-        using (Game.HoldMonstersRemaining(conn))
+        peer.Connection.Outbox = (bytes, _) => { peerPackets.Add(Convert.ToHexString(bytes)); bytes.AsSpan().Fill(0xcc); return Task.CompletedTask; };
+        instance.AddPlayer(peer);
+        using (Game.HoldMonstersRemaining(player))
         {
-            await Game.SendRemainingMonsters("remaining", peerWire.Stream, peerWire.Ciphers, peer, force: true);
+            await Game.SendRemainingMonsters(peer, force: true);
             Assert.Equal(-1, peer.SentMonstersRemaining);
         }
         // The packet history keeps the messages, not the log text: "12:34:56.789 => 0x01a0     3 B 01A002".
         List<string> SentSince(int index) => [.. Program.HistoryFor(wire.Ciphers).Lines()
             .Where(line => line.Contains("=> 0x01a0 ", StringComparison.Ordinal))
             .Select(line => line[(line.LastIndexOf(' ') + 1)..]).Skip(index)];
-        Task Send() => Game.SendRemainingMonsters("remaining", wire.Stream, wire.Ciphers, conn);
+        Task Send() => Game.SendRemainingMonsters(player);
 
         await Send();
         Assert.Equal(["01A002"], SentSince(0));
@@ -62,22 +62,22 @@ public class MonsterRemainingTests
         Assert.Equal(["01A002"], SentSince(0));
 
         Assert.Equal(["01A002"], peerPackets);
-        instance.World.Monsters[0x08000000] = instance.World.DormantMonsters[0x08000000];
-        instance.World.DormantMonsters.Remove(0x08000000);
+        instance.World.Area.Monsters[0x08000000] = instance.World.Area.DormantMonsters[0x08000000];
+        instance.World.Area.DormantMonsters.Remove(0x08000000);
         await Send();
         Assert.Equal(["01A002"], SentSince(0));
 
         // A kill: the corpse stays in the roster and the overlay counts one fewer.
-        var victim = instance.World.Monsters[0x08000001];
+        var victim = instance.World.Area.Monsters[0x08000001];
         (victim.Dead, victim.Life) = (true, 0);
-        await Game.MonsterKilled("remaining", wire.Stream, wire.Ciphers, conn, 0x08000001, victim);
+        await Game.MonsterKilled(player, 0x08000001, victim);
         Assert.Equal(["01A002", "01A001"], SentSince(0));
 
         // The area's last one, then a monster that joins it (a summon): the count follows both ways.
-        var last = instance.World.Monsters[0x08000000];
+        var last = instance.World.Area.Monsters[0x08000000];
         (last.Dead, last.Life) = (true, 0);
         await Send();
-        instance.World.Monsters[0x08000003] = Monster(140);
+        instance.World.Area.Monsters[0x08000003] = Monster(140);
         await Send();
         Assert.Equal(["01A002", "01A001", "01A000", "01A001"], SentSince(0));
         Assert.Equal(["01A002", "01A001", "01A000", "01A001"], peerPackets);

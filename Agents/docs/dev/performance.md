@@ -42,10 +42,10 @@ ports and never starts a client.
 
 **A whole idle stack**: `scripts/perf/stack.ps1 [-Configuration Release]` starts the built Auth, Patch and Gateway on
 PortBase+1 â€¦ +6, and after they are ready records each one's private bytes (its commit), working set and CPU time over
-an idle minute (`-IdleSeconds`). `scripts/perf/watch.ps1` does the same for a Gateway under `dotnet watch` (as
-`live.ps1` runs it by default) and lists every process of that tree. Neither binds the default ports or starts a client.
-Each perf script takes `-PortBase`, a block of 10 ports of the worktree's own (defaults: stack.ps1 23000, watch.ps1
-23010, startup.ps1 23020, which do not overlap), and leaves the shell's location and environment as they were.
+an idle minute (`-IdleSeconds`).
+It does not bind the default ports or start a client.
+Each perf script takes `-PortBase`, a block of 10 ports of the worktree's own (defaults: stack.ps1 23000,
+startup.ps1 23020, which do not overlap), and leaves the shell's location and environment as they were.
 
 **In-process scenarios**: `scripts/perf/PerfBench`, a console tool (not a test: it waits on real time) that reaches the
 Gateway's and the game module's internals:
@@ -62,7 +62,7 @@ One scenario per process (catalogues load once per process). Results go to stdou
 |---|---|
 | `catalogue` | the first-player loads in a fixed order (Program's statics, stats, items, skills, the skill-type sets, monsters, packs, area transitions, waypoints, the passive tree): time, allocation and what each retains |
 | `area` | six supported areas at seeds nobody asked for before: the layout (server level generation, `AreaLayouts.For`) and the monster population over a loopback connection; the GGPK caches and the heap afterwards. `Game_PERF_MORE_AREAS=N` adds N more layouts, as a long session visits them |
-| `busy` | The Coast with 60 monsters of its pack kinds (and a Sand Spitter, for projectiles) around a walking player and 140 idle ones farther away; the real `RunMonsterAi` loop with swings, contacts and projectiles, every packet encrypted and sent. Process CPU per game second, measured after a 5 s warm-up (a fresh process first spends seconds in tier-1 JIT) |
+| `busy` | The Coast with 60 monsters of its pack kinds (and a Sand Spitter, for projectiles) around a walking player and 140 idle ones farther away; the real `StartMonsterAi` loop with swings, contacts and projectiles, every packet encrypted and sent. Process CPU per game second, measured after a 5 s warm-up (a fresh process first spends seconds in tier-1 JIT) |
 | `planner` | `PlanMonsterAi` alone over the same crowd, 2000 steps: time, process CPU and allocation per step |
 | `single` | one player's Gateway: the startup loads (`GameData.Open`), then the town, a combat area (The Coast, its packs) and a boss area (The Twilight Strand, Hillock), each entered and held as a connection does; after each, the heap, its large-object part and private bytes. The runtime files come from the extracted game pack |
 | `idle` | one player standing in town with the per-connection loops a connection starts (recovery, player tick, charges, rage, server frames, monster AI â€¦): process CPU, allocation and bytes sent per second |
@@ -168,7 +168,7 @@ single-player cost counts eight times. Measured against `contrib/server-perf` (c
 | Idle stack, private (stack.ps1: Auth / Patch / Gateway) | 483 MB (33 / 19 / 431) | 113-115 MB (11 / 18 / 84-86) |
 | Idle stack, working set | 507 MB | 203-205 MB |
 | Idle stack, CPU | 47-78 ms per minute | 47-78 ms per minute (timer noise) |
-| `dotnet watch` beside the Gateway (watch.ps1, before any edit) | +223 MB private, +444 MB working set, +235 ms CPU per minute | none with `live.ps1 -Release` or `-NoHotReload` |
+| `dotnet watch` beside the Gateway (watch.ps1, before any edit) | +223 MB private, +444 MB working set, +235 ms CPU per minute | none: `live.ps1` no longer runs it (the servers restart, modules hot reload) |
 | Oodle worker (Node, ooz-wasm) after a generation | 78 MB private, for the Gateway's life | stops a minute after the last generation (+55 ms on the next one) |
 | One player (test host): startup / town / combat area / boss area, GC heap | 527 / 718 / 809 / 830 MB | 187 / 273 / 361 / 379 MB |
 | â€¦ the same, private bytes | 568 / 761 / 855 / 877 MB | 223 / 311 / 401 / 412 MB |
@@ -197,7 +197,7 @@ What changed:
 - **Level generation's files** come from `data/game-files.zip` (`GamePack`), extracted once, not from the GGPK: no
   bundle decoder or decompressed chunks stay in memory. Nothing is shared between stacks, whose code and tables may
   differ.
-- **`live.ps1 -Release`** runs the Release builds without `dotnet watch`; the monster AI is 1.6-2.3x faster there, the
+- **`live.ps1 -Release`** runs the Release builds; the monster AI is 1.6-2.3x faster there, the
   memory the same (the `single` scenario within 1 MB).
 
 Tried and dropped: `DOTNET_gcConcurrent=0`, `DOTNET_TieredPGO=0`, `DOTNET_GCConserveMemory=9`, `DOTNET_GCHighMemPercent`,
@@ -208,41 +208,65 @@ allocation, not JIT code quality).
 
 ## Recommendations (tooling decisions, not made here)
 
-- **Agent stacks without hot reload.** `live.ps1` runs Debug builds under `dotnet watch` by default (+223 MB and
-  ~0.25 s CPU per minute per stack before the first edit, more after one). An agent's stack that does not need hot
-  reload can start with `-Release` (or `-NoHotReload`); making that the default for agent sessions is the launcher's
-  decision.
 - **One Oodle decoder per machine** was not done: worktrees may run different code and tables, so a shared decoder would
   have to be stateless and version-agnostic. The per-stack worker now runs only around generations instead.
 
-## Kill path, predictive movement, and save latency (2026-11-21)
+## Game data in memory (2026-11-16)
 
-Measured in Release against `origin/main` (`bc02dcf30`) on the same machine (`PerfBench` and targeted in-process probes):
+Measured before the change, with a fresh Gateway and the profiler on: entering The Coast took about 15 s, and 86 % of
+that was summon lookups that opened client.db for each call (`ClientTables.Has`: open, PRAGMA, query, close, 11 ms a
+call). Putting the first item in the sell window took 3.6 s, because the vendor recipes were built lazily. Nessa's first
+purchase tab took 0.9 s. The first cast, hit and loot paid the same kind of cost. Each first time was a catalog built
+lazily, under a lock, on the connection's thread.
 
-| Measure | Before | After |
-|---|---|---|
-| Unchanged `CharacterStatSources` lookup (`StatSnapshotTailTests`) | 66 752 B | 36 056 B |
-| `sweep`: `CharacterPlayerStats` / call | 1 443 µs, 372 KB | 675 µs, 130 KB |
-| `sweep`: 100 / 300 / 500 monsters (median, alloc) | 6.20 / 5.44 / 6.06 ms, 1.55 MB | 4.01 / 3.60 / 3.90 ms, 0.70 MB |
-| `planner`: `PlanMonsterAi` / step (blocker frame) | 1 097 µs, 404 KB (71.5 µs) | 691 µs, 350 KB (50.7 µs) |
-| `busy`: process CPU / alloc per game second | 329 ms/s, 20.5 MB/s | 260 ms/s, 15.0 MB/s |
-| Warm `MonsterKilled` (20-kill average) | 4.87 ms, 1 261 KB/kill | 1.20 ms, 196 KB/kill |
-| Cold `BossMods` + `TickPassiveAuras` (60 monsters) | 1 740 ms cold / 2 443 µs warm | 15.7 ms cold / 237 µs warm |
-| `SendSoulEater` / `SendRecentEnemyHits` warm tick | 2 044 / 3 327 µs (386 KB each) | 4.1 / 2.3 µs (1.1 / 0.5 KB) |
-| Predictive `0x0025` Move (short / held-walk 60 ticks) | 539 µs, 128 KB / 305 µs, 55 KB/tick | 177 µs, 6.7 KB / 225 µs, 0.6 KB/tick |
-| Stash Ctrl-click `InventoryToStash` (233 tabs, median) | 5.56 ms, 1 283 KB/click | 1.04 ms, 255 KB/click |
-| `CharacterSaves.SaveExperience` SQLite write | 1.24 ms | 0.07 ms |
+Now the Gateway keeps its data the way a game server does (TrinityCore loads its stores, then calls
+`World::SetInitialWorldSettings`):
 
-What changed:
-- **Stat building & kill path**: `CharacterPlayerStatsSnapshot` reuses its prepared `EquipmentStatSources` once instead of running five lookups; `ItemConditionFlags` reuses the caller's equipment, recent events and auras without copying stat dictionaries; kill and player-tick checks (`GainPhasingOnKill`, `ExplodeOnKill`, `SendSoulEater`, `SendRecentEnemyHits`, `SendKillOnslaught`, `SendAntiquarian`, `PassiveBuffAuras`) fast-reject from cached static sources; `BossMods.Parse` reads only the monster-referenced mod rows; `CursesTickLocked` skips uncursed/unmodified monsters; `MonsterKilledBy`, `SendPlayerTickBatch`, and `ProjectileSession` wrap bursts in a keyed `PlayerStatsScope`; multi-kill projectile batches coalesce gem XP, flask bar, and remaining-monster packets and flush level-up XP outside `conn.Monsters`; `ItemRolls` indexes mods by domain once.
-- **Predictive `0x0025` & pathing**: `ClientState.Blockers` caches an immutable `BlockerSet` until stationary, monster, or peer bodies move (ignoring local player motion); `BlockerSet` stores intrusive bucket chains with bounding-box pruning; `ClientPathfinder` skips redundant `walkable`/`BlockerSet`/heuristic work on already-opened nodes and removes per-search heap allocations; `0x0025` skips `SkillAcknowledgementAllowed` (`CharacterStatSources`) and ranged-weapon lookup on `Move`.
-- **Saves, stash, and vendor init**: `SaveRows` caches `stash_tab_headers` and `stash_module_data` fingerprints per `SaveDatabase` (synced to SQLite `data_version` and cleared on rollback), partitions character items by inventory row, updates inventories without reloading the whole character save (`WriteCharacterInventories`), and flushes experience with a single-row `UPDATE` (`WriteCharacterExperience`); `VendorRecipes` precomputes `ModType` tables and indexes essences and base types once.
+- **Client tables.** `ClientTables.LoadAll` reads all 992 tables (1.02 M rows) into a columnar store, then closes the
+  database. Each table is read through raw SQLite statements on 8 threads, largest first, and each list column is
+  parsed once. It takes 1.5 s and uses 177 MB of heap; the old row reader took 4.2 s and 444 MB. A cell costs 72 ns
+  against 5.1 µs over an open connection, `Has` costs 20 ns, and `By(column)` is an index kept with the table.
+  Processes that do not load everything (Auth, tools, tests) read each table on its first use, over one connection
+  they keep open.
+- **Catalogs.** `WorldLoader.Load` builds every Gateway catalog in a fixed order, one log line per step, before the
+  modules load. Each module's `LoadData` builds its own catalogs in its module load, so the whole world is built before
+  `listening`. The fields are plain fields, with no `Lazy`, no `??=` and no static constructors. If a catalog reads
+  another one before that one is built, it throws a null reference at startup. `GameDataLoadingTests` fails when a
+  `Lazy` comes back outside its allow-list.
+- **Cost.** A Debug Gateway listens about 10 s after it starts: tables 1.5 s, world 1.8 s, the Game module's data
+  2.1 s. Its private memory after startup is about 550 MB.
+- **The HardMode data set** (Ruthless leagues) is built by `Game.LoadHardModeData` when the first character of such a
+  league logs in, in the Game module's admission and before that character loads. The same step builds that league's
+  drops. That login waits a few seconds once; a server whose players never play Ruthless never builds it.
+
+## Kill path, movement, and save latency (2026-11-21)
+
+- **Kill path & catalogs**: `IncreasedItemRarity`, `ItemQuantityFactor`, `ExplodeOnKill`, `SoulEaterRecords`,
+  `GainFlaskCharges`, `CommitProjectileFlaskGain`, and `CommitProjectileCritFlasks` read `PlayerStatValues` without
+  copying the stat graph; `CommitProjectileKill` skips queuing `MonsterKilled` and `ExplodeOnKill` when inactive and
+  coalesces flask bar updates in `ProjectileSession`; `CommitGemExperience` scans socketed gems in a single pass;
+  `StepCursesLocked` skips uncursed/unmodified monsters without allocating `MonsterCurses` or `StatGraph`;
+  `SetQuestFlags`/`CommitQuestFlags` fast-return on empty flag sets; `LesserShrines` caches the equipped Gull grant per
+  active equipment snapshot; `AntiquarianPresentation` skips the first-tick empty baseline; `PassiveBuffAuras.For` uses
+  a zero-allocation loop; `BossMods.Parse` reads only the `Mods` rows referenced by `MonsterVarieties`; `ItemRolls`
+  indexes affixes by `ModDomain` at construction; `VendorRecipes` precomputes `ModType` tables and indexes essences and
+  base types once.
+- **Movement & pathing**: `Player.Blockers` caches an immutable `BlockerSet` until stationary, monster, or peer bodies
+  move (avoiding a 512 KB flat-grid allocation and rebuild on every Move tick); `BlockerSet` allocates its 2D grid on
+  first in-range blocker and prunes queries against its bounding box; `ClientPathfinder` skips invariant `ellipse`,
+  `walkable`, `InObjectAt`, and unguided `Heuristic` work on already-opened nodes and adds `LineRest` for `PlayerWalk`;
+  `InstancePresence.PlayersExcept` fast-returns `[]` in solo instances; `0x0025` skips `SkillAcknowledgementAllowed`,
+  ranged-weapon lookup, and `SingleUseCooldowns` LINQ scans on `Move`.
+- **Saves & stash**: `SaveRows` caches `stash_tab_headers` and `stash_module_data` fingerprints per `SaveDatabase`
+  (synced to SQLite `data_version` via `SaveDatabase.ExternalVersion` and cleared on rollback), partitions character
+  items by inventory row, updates inventories without reloading the whole character save (`WriteCharacterInventories`),
+  and flushes experience with a single-row `UPDATE` (`WriteCharacterExperience`), integrating with `Saves` pinned-session
+  caching.
 
 ## Where the remaining cost is
 
-- **Generated tables.** The client tables and the generated ones (object types, room points, ...) are read as columnar
-  rows (`ClientTable`, straight from client.db, cached per version of the database); no generated file is parsed as JSON
-  at run time any more.
+- **Memoized lookups.** A few per-key memos stay: cast-on-death, blood charges and the item roll pools. Each one is a
+  hash of a small computation, not a load.
 - **Monster AI.** `PlanMonsterAi` is still ~1 ms per step for a crowd of 60: half in `MonsterSurround.Assign` (the
   free cells' reservation queries), the rest mostly `PlayerWalk.Order`'s client-pathfinder searches.
 - **An idle player's loops** (58 ms CPU and 13 MB allocated per second in town): the player stat snapshot
@@ -250,5 +274,4 @@ What changed:
   every 16 ms recovery step (~25 % of the CPU and half the allocation, measured by leaving it out); the recovery loop
   builds it three times every 250 ms (life rate, mana rate, recovery stats). The snapshot configures leech and
   fortification as it goes, so reusing one needs an invalidation scheme for every stat source, not a cache.
-- **The Gateway's idle heap** (~71 MB) is mostly the mod and item catalogues `GameData.Open` loads at startup (a player
-  needs them anyway); Patch is a bare ASP.NET host (18 MB).
+- **The Gateway's memory** is now mostly game data ("Game data in memory" above); Patch is a bare ASP.NET host (18 MB).

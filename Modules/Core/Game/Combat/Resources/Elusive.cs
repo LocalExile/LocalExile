@@ -10,7 +10,6 @@ public sealed class ElusiveState
     public string Source = "";
     public double Started, CarriedAge, Initial, Rate = 20, Minimum, RisingSeconds;
     public ushort Buff;
-    public int PresentedPercent = -1;
     public ElusiveGrant Grant;
     public readonly HashSet<ushort> Retired = [];
     public double Age(double now) => CarriedAge + Math.Max(0, now - Started);
@@ -25,7 +24,7 @@ public sealed class ElusiveState
     public void Clear()
     {
         if (Buff != 0) Retired.Add(Buff);
-        Buff = 0; PresentedPercent = -1; Source = ""; Started = CarriedAge = Initial = Minimum = RisingSeconds = 0; Rate = 20;
+        Buff = 0; Source = ""; Started = CarriedAge = Initial = Minimum = RisingSeconds = 0; Rate = 20;
     }
 }
 
@@ -33,77 +32,60 @@ public readonly record struct ElusiveGrant(int Critical, int Kill, int Effect, i
 
 public static partial class Game
 {
-    public const string ElusiveOnCritical = "gain_elusive_on_crit_%_chance", ElusiveOnKill = "gain_elusive_on_kill_chance_%";
+    public const uint ElusiveOnCritical = Stat.GainElusiveOnCritPctChance, ElusiveOnKill = Stat.GainElusiveOnKillChancePct;
     public const ushort ElusiveBuffRow = 1374;
-    static readonly RuleTable<ClientState, ElusiveState> Elusives = new();
-    public static ElusiveState ElusiveOf(ClientState conn) => Elusives.GetOrCreateValue(conn);
+    static readonly Store<Player, ElusiveState> Elusives = new();
+    public static ElusiveState ElusiveOf(Player player) => Elusives.GetOrCreateValue(player);
     public sealed record CarriedElusive(string Source, double Age, double Initial, double Rate, double Minimum, double RisingSeconds);
 
-    static Dictionary<string, bool> RequalifyElusive(ClientState conn, IReadOnlyDictionary<string, bool> flags,
+    static IReadOnlyDictionary<string, bool> RequalifyElusive(Player player, IReadOnlyDictionary<string, bool> flags,
         IReadOnlyDictionary<uint, int> raw, IEnumerable<Item>? activeItems = null)
     {
-        var copy = new Dictionary<string, bool>(flags);
-        ApplyElusive(conn, copy, raw, activeItems, equipment: null);
-        return copy;
-    }
-
-    internal static void ApplyElusive(ClientState conn, Dictionary<string, bool> flags,
-        IReadOnlyDictionary<uint, int> raw, IEnumerable<Item>? activeItems,
-        IReadOnlyList<(byte Row, InventoryItem Item)>? equipment)
-    {
-        if (conn.LeavingArea)
-        {
-            flags["_while_affected_by_elusive"] = false;
-            flags["_while_elusive"] = false;
-            flags["_while_you_have_elusive"] = false;
-            return;
-        }
-        var state = ElusiveOf(conn);
-        bool alive = CurrentGameWork && !conn.Closed && !conn.RageRetired && conn.PlayerLife > 0;
-        int Get(string n) => GolemStat(raw, n);
+        if (player.LeavingArea) return WithFlags(flags, ("_while_affected_by_elusive", false), ("_while_elusive", false), ("_while_you_have_elusive", false));
+        var state = ElusiveOf(player);
+        bool alive = CurrentGameWork && !player.Closed && !player.RageRetired && player.PlayerLife > 0;
+        int Get(uint n) => GolemStat(raw, n);
         string identity = "";
         if (alive && (Get(ElusiveOnCritical) > 0 || Get(ElusiveOnKill) > 0))
         {
-            var active = activeItems is Item[] arr ? arr : activeItems?.ToArray();
-            var sources = (equipment ?? ItemsOf(conn).EquipmentSnapshot())
-                .Where(e => active is null ? !IsInactive(conn, e.Item.Id) : active.Any(i => ReferenceEquals(i, e.Item.Item)))
-                .Where(e => PlainItemSum(e.Item.Item, ItemsFor(conn).Mods) is var item
+            var active = activeItems?.ToArray();
+            var sources = ItemsOf(player).EquipmentSnapshot()
+                .Where(e => active is null ? !IsInactive(player, e.Item.Id) : active.Any(i => ReferenceEquals(i, e.Item.Item)))
+                .Where(e => PlainItemSum(e.Item.Item, ItemsFor(player).Mods) is var item
                     && (item.GetValueOrDefault(ElusiveOnCritical) > 0 || item.GetValueOrDefault(ElusiveOnKill) > 0))
                 .Select(e => e.Item.Id).Order().ToArray();
             identity = string.Join(',', sources) + ":" + Get(ElusiveOnCritical) + ":" + Get(ElusiveOnKill)
-                + ":" + string.Join(',', conn.Passives.Where(n => PassivesFor(conn).Find(n)?.Stats.Any(s =>
-                    Stats.Name(s.Key) is ElusiveOnCritical or ElusiveOnKill) == true).Order());
-            ResourceEffectsOf(conn);
+                + ":" + string.Join(',', player.Character.Passives.Where(n => PassivesFor(player).Find(n)?.Stats.Any(s =>
+                    s.Key is ElusiveOnCritical or ElusiveOnKill) == true).Order());
+            ResourceEffectsOf(player);
         }
-        if (!ReferenceEquals(state.Rules, CombatLifetime) || state.Epoch != conn.ProjectileEpoch || state.Source != identity)
+        if (!ReferenceEquals(state.Rules, CombatLifetime) || state.Epoch != player.ProjectileEpoch || state.Source != identity)
         {
-            state.Clear(); state.Rules = CombatLifetime; state.Epoch = conn.ProjectileEpoch; state.Source = identity;
+            state.Clear(); state.Rules = CombatLifetime; state.Epoch = player.ProjectileEpoch; state.Source = identity;
         }
-        int Input(string n) => Stats.Key(n) is uint key ? conn.PlayerStats.GetValueOrDefault(key, Get(n)) : 0;
+        int Input(uint key) => Get(key);
         state.Grant = new(Input(ElusiveOnCritical), Input(ElusiveOnKill),
-            Input("elusive_effect_+%") + Input("elusive_effect_on_self_+%") + Input("buff_effect_on_self_+%"),
-            Input("elusive_effect_on_self_+%_per_power_charge"), Input("lose_a_power_charge_when_you_gain_elusive_%_chance"),
-            Input("elusive_loss_rate_+%"), Input("elusive_minimum_effect_%"), Input("elusive_ticks_up_instead_for_x_ms"));
-        double now = ResourceEffectsTime(conn);
+            Input(Stat.ElusiveEffectPlusPct) + Input(Stat.ElusiveEffectOnSelfPlusPct) + Input(Stat.BuffEffectOnSelfPlusPct),
+            Input(Stat.ElusiveEffectOnSelfPlusPctPerPowerCharge), Input(Stat.LoseAPowerChargeWhenYouGainElusivePctChance),
+            Input(Stat.ElusiveLossRatePlusPct), Input(Stat.ElusiveMinimumEffectPct), Input(Stat.ElusiveTicksUpInsteadForXMs));
+        double now = ResourceEffectsTime(player);
         bool running = alive && state.Effect(now) > 0;
-        conn.ElusiveUntil = running ? now + state.Remaining(now) : 0;
-        flags["_while_affected_by_elusive"] = running;
-        flags["_while_elusive"] = running;
-        flags["_while_you_have_elusive"] = running;
+        player.ElusiveUntil = running ? now + state.Remaining(now) : 0;
+        return WithFlags(flags, ("_while_affected_by_elusive", running), ("_while_elusive", running), ("_while_you_have_elusive", running));
     }
 
-    public static bool TryGainElusiveLocked(ClientState conn, bool critical, bool kill, double now, Random? random = null)
+    public static bool TryGainElusiveLocked(Player player, bool critical, bool kill, double now, Random? random = null)
     {
-        if (!CurrentGameWork || conn.Closed || conn.LeavingArea || conn.Paused || conn.PlayerLife == 0) return false;
-        var state = ElusiveOf(conn);
-        if (!ReferenceEquals(state.Rules, CombatLifetime) || state.Epoch != conn.ProjectileEpoch) return false;
+        if (!CurrentGameWork || player.Closed || player.LeavingArea || player.Paused || player.PlayerLife == 0) return false;
+        var state = ElusiveOf(player);
+        if (!ReferenceEquals(state.Rules, CombatLifetime) || state.Epoch != player.ProjectileEpoch) return false;
         var input = state.Grant;
         if (state.Source.Length == 0 || state.Effect(now) > 0) return false; // An existing Elusive cannot be refreshed.
-        var rng = random ?? Random.Shared;
+        var rng = random ?? AreaRng(player);
         bool gained = critical && GameServer.Core.World.RandomRolls.Chance(input.Critical, 100, rng);
         if (!gained && kill) gained = GameServer.Core.World.RandomRolls.Chance(input.Kill, 100, rng);
         if (!gained) return false;
-        var charges = ChargesOf(conn);
+        var charges = ChargesOf(player);
         if (!charges.Converted(ChargeType.Power) && GameServer.Core.World.RandomRolls.Chance(
             input.LosePower, 100, rng)) charges.Spend(ChargeType.Power);
         int power = charges.Converted(ChargeType.Power) ? 0 : charges.Effective(ChargeType.Power);
@@ -112,63 +94,63 @@ public static partial class Game
         state.Rate = 20 / Math.Max(.01, 1 + input.LossRate / 100d);
         state.Minimum = Math.Max(0, input.Minimum);
         state.RisingSeconds = Math.Max(0, input.RisingMs) / 1000d;
-        conn.ElusiveUntil = now + state.Remaining(now);
+        player.ElusiveUntil = now + state.Remaining(now);
         return state.Effect(now) > 0;
     }
 
-    static (int Movement, int Avoid) ElusivePanelState(ClientState conn)
+    static (int Movement, int Avoid) ElusivePanelState(Player player)
     {
-        if (!Elusives.TryGetValue(conn, out var state)) return default;
-        double effect = state.Effect(ResourceEffectsTime(conn));
+        if (!Elusives.TryGetValue(player, out var state)) return default;
+        double now = ResourceEffectsTime(player), effect = state.Effect(now);
+        if (effect > 0 && state.Rate > 0)
+        {
+            // The effect rises, then falls, linearly: the next whole point of movement speed (30% at full effect), or
+            // the end, whichever is first.
+            int movement = (int)Math.Floor(30 * effect / 100 + 1e-9);
+            double age = state.Age(now), seconds = age < state.RisingSeconds
+                ? Math.Min(state.RisingSeconds - age, ((movement + 1) * 100 / 30.0 - effect) / state.Rate)
+                : Math.Min((effect - movement * 100 / 30.0) / state.Rate, (effect - state.Minimum) / state.Rate);
+            StatsChangeAt(now + Math.Max(seconds, 0) + 1e-6, () => ResourceEffectsTime(player));
+        }
         return ((int)Math.Clamp(Math.Floor(30 * effect / 100 + 1e-9), 0, int.MaxValue),
             (int)Math.Clamp(Math.Floor(15 * effect / 100 + 1e-9), 0, int.MaxValue));
     }
-    static Dictionary<uint, int> WithElusive(ClientState conn, Dictionary<uint, int> sources)
+    static Dictionary<uint, int> WithElusive(Player player, Dictionary<uint, int> sources)
     {
-        var (movement, avoid) = ElusivePanelState(conn);
-        void Add(string n, int value)
-        { if (Stats.Key(n) is uint key) sources[key] = ActorScale.Saturate((long)sources.GetValueOrDefault(key) + value); }
-        if (conn.StatSourcesCache?.Key.Flags?.GetValueOrDefault("_while_affected_by_elusive") == true)
+        var (movement, avoid) = ElusivePanelState(player);
+        void Add(uint n, int value)
+        { if (n is var key) sources[key] = ActorScale.Saturate((long)sources.GetValueOrDefault(key) + value); }
+        if (player.StatSourcesCache?.Key.Flags?.GetValueOrDefault("_while_affected_by_elusive") == true)
         {
-            Add("affected_by_elusive", 1); Add("base_movement_velocity_+%", movement);
+            Add(Stat.AffectedByElusive, 1); Add(Stat.BaseMovementVelocityPlusPct, movement);
         }
         return sources;
     }
-    public static CarriedElusive? CaptureElusive(ClientState conn, double at) =>
-        Elusives.TryGetValue(conn, out var state) && state.Effect(at) > 0
+    public static CarriedElusive? CaptureElusive(Player player, double at) =>
+        Elusives.TryGetValue(player, out var state) && state.Effect(at) > 0
             ? new(state.Source, state.Age(at), state.Initial, state.Rate, state.Minimum, state.RisingSeconds) : null;
-    public static void RestoreElusive(ClientState conn, CarriedElusive value, double at)
+    public static void RestoreElusive(Player player, CarriedElusive value, double at)
     {
-        var state = ElusiveOf(conn); state.Clear(); state.Rules = CombatLifetime; state.Epoch = conn.ProjectileEpoch;
+        var state = ElusiveOf(player); state.Clear(); state.Rules = CombatLifetime; state.Epoch = player.ProjectileEpoch;
         state.Source = value.Source; state.Started = at; state.CarriedAge = value.Age;
         state.Initial = value.Initial; state.Rate = value.Rate; state.Minimum = value.Minimum; state.RisingSeconds = value.RisingSeconds;
     }
-    public static void RetireElusive(ClientState conn)
+    public static void RetireElusive(Player player)
     {
-        conn.ElusiveUntil = 0;
-        if (!Elusives.TryGetValue(conn, out var state)) return;
-        state.Clear(); foreach (ushort b in state.Retired) conn.RetiredResourceBuffs.Add((PlayerId, b)); state.Retired.Clear();
+        player.ElusiveUntil = 0;
+        if (!Elusives.TryGetValue(player, out var state)) return;
+        state.Clear(); foreach (ushort b in state.Retired) player.RetiredResourceBuffs.Add((player.Id, b)); state.Retired.Clear();
     }
-    public static Task SendElusive(string remote, NetworkStream stream, ConnectionCiphers ciphers, ClientState conn) =>
-        SendWorldRecords(remote, stream, ciphers, conn, PlayerId, () => ElusivePresentation(conn));
-    public static byte[][]? ElusivePresentation(ClientState conn)
+    public static Task SendElusive(Player player) =>
+        SendWorldRecords(player, player.Id, () => ElusivePresentation(player));
+    public static byte[][]? ElusivePresentation(Player player)
     {
-        lock (conn.Monsters)
-        {
-            var state = ElusiveOf(conn);
-            var packets = state.Retired.Select(b => InstanceEntities.RemoveBuff(PlayerId, b)).ToList(); state.Retired.Clear();
-            double now = ResourceEffectsTime(conn); bool active = ElusiveFactor(conn) > 0;
-            if (!active && state.Buff != 0) { packets.Add(InstanceEntities.RemoveBuff(PlayerId, state.Buff)); state.Buff = 0; }
-            int percent = ElusiveDisplayPercent(conn);
-            if (active && (state.Buff == 0 || state.PresentedPercent != percent))
-            {
-                if (state.Buff == 0) state.Buff = conn.NextBuff++;
-                state.PresentedPercent = percent;
-                packets.Add(InstanceEntities.AddBuff(PlayerId, state.Buff, ElusiveBuffRow, PlayerId,
-                    u68: BitConverter.SingleToUInt32Bits((float)state.Remaining(now)),
-                    u82: unchecked((ushort)(percent - 100))));
-            }
-            return packets.Count == 0 ? null : [.. packets];
-        }
+        var state = ElusiveOf(player);
+        state.Retired.Clear();
+        double now = ResourceEffectsTime(player);
+        if (ElusiveFactor(player) <= 0) player.Area.Buffs.Clear(player.Id, ElusiveBuffRow, player.Id);
+        else player.Area.Buffs.Keep(player.Id, new(ElusiveBuffRow, player.Id, U68: Buff.Seconds(state.Remaining(now)),
+            U82: unchecked((ushort)(ElusiveDisplayPercent(player) - 100))));
+        return null;
     }
 }

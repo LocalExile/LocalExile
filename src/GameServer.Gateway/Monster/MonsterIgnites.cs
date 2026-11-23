@@ -38,41 +38,45 @@ public sealed class MonsterIgnites
         /// caster and skill stats. Base duration 4 s (<see cref="Ailments.IgniteDurationSeconds"/>); the ignite
         /// prohibitions (<see cref="MonsterElementalAilments.CannotInflict"/>) and never_damaging_ailments stop it. faster_burn_% and damaging_ailments_deal_damage_+%_faster multiply the damage
         /// per second and divide the duration (wiki Ignite; PoB IgniteBurnFaster).</summary>
-        public static Settings From(IEnumerable<(string Stat, int Value)> rows, string hand, Func<string, int> get)
+        public static Settings From(IEnumerable<(uint Stat, int Value)> rows, string hand, Func<uint, int> get)
         {
-            if (MonsterElementalAilments.CannotInflict("ignite", get) || get("never_damaging_ailments") != 0) return None;
+            if (MonsterElementalAilments.CannotInflict("ignite", get) || get(Stat.NeverDamagingAilments) != 0) return None;
             var r = rows.ToDictionary(x => x.Stat, x => x.Value);
             double faster = Faster(get);
             if (faster <= 0) return None;
             double Row(string bound, string kind) =>
-                r.GetValueOrDefault($"{bound}_ignite_damage_to_deal_per_minute_from_{kind}_{hand}_damage") / 60.0 * faster;
-            // Shaper of Flames: "Hits always Ignite" (always_ignite).
-            long chance = (long)get("base_chance_to_ignite_%") + get("chance_to_freeze_shock_ignite_%")
-                + (get("always_ignite") != 0 ? 100 : 0);
+                r.GetValueOrDefault(Stat.Of($"{bound}_ignite_damage_to_deal_per_minute_from_{kind}_{hand}_damage")) / 60.0 * faster;
+            // Shaper of Flames: "Hits always Ignite" (always_ignite). Weapon tincture ignite stats apply to weapon hands only.
+            bool tinctureWeapon = hand is "main_hand" or "off_hand" && get(Stat.TinctureApplied) != 0;
+            long chance = (long)get(Stat.BaseChanceToIgnitePct) + get(Stat.ChanceToFreezeShockIgnitePct)
+                + (tinctureWeapon ? get(Stat.ChanceToIgnitePctWithTincturedWeapons) : 0)
+                + (get(Stat.AlwaysIgnite) != 0 ? 100 : 0);
             double seconds = Ailments.IgniteDurationSeconds
-                * Math.Max(0, 1 + ((double)get("ignite_duration_+%") + get("base_all_ailment_duration_+%")) / 100) / faster
+                * Math.Max(0, 1 + ((double)get(Stat.IgniteDurationPlusPct) + get(Stat.BaseAllAilmentDurationPlusPct)
+                    + (tinctureWeapon ? get(Stat.ElementalAilmentDurationPlusPctWithTincturedWeapons) : 0)) / 100) / faster
                 * DurationMultiplier(get);
             return new((int)Math.Clamp(chance, 0, 100), Row("minimum", "non_critical"), Row("maximum", "non_critical"),
                 Row("minimum", "critical"), Row("maximum", "critical"), seconds,
-                FireExposure: get("ignites_apply_fire_resistance_+"), AllDamage: get("all_damage_can_ignite") != 0,
-                NeverFromCrit: get("keystone_elemental_overload") != 0,
-                OnlyFromCrit: get("keystone_ailment_crit") != 0);
+                FireExposure: get(Stat.IgnitesApplyFireResistancePlus),
+                AllDamage: get(Stat.AllDamageCanIgnite) != 0 || tinctureWeapon && get(Stat.AllDamageWithTincturedWeaponsCanIgnite) != 0,
+                NeverFromCrit: get(Stat.KeystoneElementalOverload) != 0,
+                OnlyFromCrit: get(Stat.KeystoneAilmentCrit) != 0);
         }
     }
 
     /// <summary>The "deal damage faster" factor of the attacker's ignites (1 without one).</summary>
-    public static double Faster(Func<string, int> get) =>
-        Math.Max(0, 1 + ((double)get("faster_burn_%") + get("damaging_ailments_deal_damage_+%_faster")) / 100.0);
+    public static double Faster(Func<uint, int> get) =>
+        Math.Max(0, 1 + ((double)get(Stat.FasterBurnPct) + get(Stat.DamagingAilmentsDealDamagePlusPctFaster)) / 100.0);
 
     /// <summary>The target's base_self_ignite_duration_-% (Fire and Ignite Resistant) on an ignite's duration.</summary>
-    public static double SelfDuration(Func<string, int> target) =>
-        Math.Max(0, 1 - target("base_self_ignite_duration_-%") / 100.0);
+    public static double SelfDuration(Func<uint, int> target) =>
+        Math.Max(0, 1 - target(Stat.BaseSelfIgniteDurationMinusPct) / 100.0);
 
     /// <summary>Sadism's "Supported Skills have 70% less Duration" on their damaging ailments
     /// (support_faster_ailments_ailment_duration_+%_final). Its "deal damage faster" stat alone shortens the duration
     /// proportionally and raises the damage per second, so without this the ailment's total damage would not fall.</summary>
-    public static double DurationMultiplier(Func<string, int> get) =>
-        Math.Max(0, 1 + get("support_faster_ailments_ailment_duration_+%_final") / 100.0);
+    public static double DurationMultiplier(Func<uint, int> get) =>
+        Math.Max(0, 1 + get(Stat.SupportFasterAilmentsAilmentDurationPlusPctFinal) / 100.0);
 
     // Spread: its proliferation radius in cells (0: it does not spread). Proliferated: the copy another monster's
     // spreading ignite puts on this one, set again every AI tick (<see cref="Proliferated"/>).
@@ -94,6 +98,23 @@ public sealed class MonsterIgnites
     public void Aggravate()
     {
         for (int i = 0; i < active.Count; i++) active[i] = active[i] with { Aggravated = true };
+    }
+
+    /// <summary>Refreshes every live ignite's remaining duration to its full duration from <paramref name="now"/>
+    /// (Wildfire Phloem). Returns true when at least one ignite was refreshed.</summary>
+    public bool Refresh(double now)
+    {
+        bool refreshed = false;
+        for (int i = 0; i < active.Count; i++)
+        {
+            var ig = active[i];
+            if (ig.Until <= now) continue;
+            double duration = Math.Max(0, ig.Until - ig.From);
+            if (duration <= 0) continue;
+            active[i] = ig with { From = now, Until = now + duration };
+            refreshed = true;
+        }
+        return refreshed;
     }
 
     // The damage per second of the live instances: the Stacks strongest, plus aggravatedExtra × the strongest aggravated
@@ -122,6 +143,7 @@ public sealed class MonsterIgnites
     public void DiscardDamageCarry() { carry = 0; accrued = 0; }
 
     /// <summary>The native <c>ignited</c> buff instance on the monster while it burns (BuffDefinitions row 0).</summary>
+    /// <summary>The row of the buff that shows the set (its source: BuffSource), null while none (Game.ShowDot).</summary>
     public ushort? Buff;
 
     /// <summary>The attacking object shown as the buff source (0 for generic self-created ailments).</summary>
@@ -206,11 +228,20 @@ public sealed class MonsterIgnites
     public bool Add(double now, double perSecond, double seconds, bool aggravated = false, int spread = 0) =>
         Add(now, perSecond, seconds, aggravated, spread, 0);
 
+    static long spreadsAdded;
+    /// <summary>True once any ignite with a proliferation radius has been added anywhere in the process.</summary>
+    public static bool AnySpreadAdded => Volatile.Read(ref spreadsAdded) > 0;
+
+    /// <summary>True when this monster has any active or corpse-retained ignite that might spread.</summary>
+    public bool MaySpread => active.Count > 0 || corpse.Count > 0;
+
     public bool Add(double now, double perSecond, double seconds, bool aggravated, int spread, int damageTakenPct)
     {
         if (!(perSecond > 0) || !(seconds > 0)) return false;
         if (active.Count == 0) { last = now; carry = 0; }
-        active.Add(new(now, now + seconds / expiryRate, perSecond, aggravated, Math.Max(0, spread),
+        int radius = Math.Max(0, spread);
+        if (radius > 0) Interlocked.Increment(ref spreadsAdded);
+        active.Add(new(now, now + seconds / expiryRate, perSecond, aggravated, radius,
             DamageTakenPct: Math.Max(0, damageTakenPct)));
         LastApplied = now;
         return true;

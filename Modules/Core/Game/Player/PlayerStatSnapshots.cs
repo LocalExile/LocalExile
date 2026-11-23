@@ -4,54 +4,52 @@ using GameServer.Core.Protocol.Login;
 
 public static partial class Game
 {
-    // Only call while constructing an accepted player-stat packet inside the send gate. Pure stat
-    // construction must not acknowledge anything: remember exactly the pair this packet encodes.
-    public static byte[] PlayerStatsUpdateAtGate(ClientState conn, IReadOnlyList<(uint Key, int Value)> stats)
+    // The player's stats as its client gets them. Under a trap's degeneration the pools only fall: the client steps them
+    // up by these rates between updates, so they go as 0.
+    public static List<(uint, int)> ClientStats(Player player, List<(uint Key, int Value)> stats)
     {
-        // Under a trap's degeneration the pools only fall: the client steps them up by these rates between updates.
-        if ((conn.TrapDegenPerSecond > 0 || SiphoningDegenerationActive(conn) || ChargeDegenerationActive(conn)
-            || HerEmbraceOf(conn).Until > ResourceEffectsTime(conn)) && Stats.Key("life_recovery_per_minute") is uint lifeKey
-            && Stats.Key("energy_shield_recovery_per_minute") is uint shieldKey)
-            stats = [.. stats.Select(s => s.Key == lifeKey || s.Key == shieldKey ? (s.Key, 0) : s)];
-        var packet = InstanceEntities.StatsUpdate(PlayerId, stats);
-        uint? counterKey = Stats.Key(RecentEnemyHits.Counter), chanceKey = Stats.Key(RecentEnemyHits.VirtualChance);
+        if (player.TrapDegenPerSecond > 0 || SiphoningDegenerationActive(player) || ChargeDegenerationActive(player)
+            || HerEmbraceOf(player).Until > ResourceEffectsTime(player))
+            for (int i = 0; i < stats.Count; i++)
+                if (stats[i].Key == Stat.LifeRecoveryPerMinute || stats[i].Key == Stat.EnergyShieldRecoveryPerMinute)
+                    stats[i] = (stats[i].Key, 0);
         int? count = null, chance = null;
         foreach (var (key, value) in stats)
         {
-            if (key == counterKey) count = value;
-            if (key == chanceKey) chance = value;
+            if (key == RecentEnemyHits.Counter) count = value;
+            if (key == RecentEnemyHits.VirtualChance) chance = value;
         }
-        if (count is int sentCount && chance is int sentChance) conn.PresentedRecentEnemyHits = (sentCount, sentChance);
-        return packet;
+        if (count is int c && chance is int h) player.PresentedRecentEnemyHits = (c, h);
+        return [.. stats.Select(s => (s.Key, s.Value))];
+    }
+
+    /// <summary>Some of the player's stats now (the Stats component writes the changed ones at the frame's start).</summary>
+    public static byte[] PlayerStatsUpdateAtGate(Player player, IReadOnlyList<(uint Key, int Value)> stats)
+    {
+        foreach (var (key, value) in ClientStats(player, [.. stats])) player.Area.Stats.Set(player.Id, key, value);
+        return [];
     }
 
     // The stats whose arrival makes the client lay a walking actor's piece again (0x141ea3840): movement_velocity_+%
     // and the two the client's speed and stop tests read beside it.
-    static readonly uint[] WalkRelayStats = [StatKeys.MovementVelocityPct, 0xce6, 0x7b5];
+    static readonly uint[] WalkRelayStats = [Stat.MovementVelocityPlusPct, 0xce6, 0x7b5];
 
-    // A player stats message (S→C 0x1b3) at its send gate on a lockstep client, under conn.Monsters. The client sets
+    // A player stats message (S→C 0x1b3) written for a lockstep client's player (AreaStats.Written). The client sets
     // each stat it lists and tells the stat's listeners whether the value changed or not; for a movement stat the Actor
     // runs its active MoveTo's piece again from the cell the player stands on. The estimate lays its walk again the same
     // way, at the start of the frame being sent, after the steps of the frames before it (tick trace 2026-11-10: four
     // setups of one segment in the frame a full snapshot arrived, three of them at an unchanged step time, and the walk
     // a cell to the side of the estimate's for the next eight frames).
-    public static void RelayWalkForStats(ClientState conn, byte[] bytes)
+    static void RelayWalkForStats(GameArea area, uint id, IReadOnlyList<(uint Key, int Value)> stats)
     {
-        if (!conn.LockstepClient || conn.LockstepFrame is not { } frame || bytes.Length < 13
-            || (bytes[0] << 8 | bytes[1]) != InstanceEntities.StatsUpdateId
-            || System.Buffers.Binary.BinaryPrimitives.ReadUInt32BigEndian(bytes.AsSpan(2)) != PlayerId) return;
-        int at = 12;
-        uint count = ReadCompactUInt(bytes, ref at);
-        for (uint i = 0; i < count && at < bytes.Length; i++)
+        if (!stats.Any(s => Array.IndexOf(WalkRelayStats, s.Key) >= 0)) return;
+        foreach (var player in InGame.Keys)
         {
-            uint stat = ReadCompactUInt(bytes, ref at);
-            if (at >= bytes.Length) return;
-            ReadCompactInt(bytes, ref at);
-            if (Array.IndexOf(WalkRelayStats, stat) < 0) continue;
-            StepWalkers(conn, frame.Start);
-            if (ChargeSessions.TryGetValue(conn, out var charges)) charges.SettleDegeneration(frame.Start);
-            conn.Walk.Relay(frame.Start);
-            return;
+            if (player.Id != id || !ReferenceEquals(player.Frames.Area, area) || !player.Connection.LockstepClient
+                || player.Connection.LockstepFrame is not { } frame) continue;
+            StepWalkers(player, frame.Start);
+            if (ChargeSessions.TryGetValue(player, out var charges)) charges.SettleDegeneration(frame.Start);
+            player.Walk.Relay(frame.Start);
         }
     }
 
@@ -74,18 +72,33 @@ public static partial class Game
 
     // Every full player stat/Actor refresh shares this gate, including refreshes caused by other mechanics.
     // Otherwise a packet prepared before expiry could overwrite a newer Fortification expiry update.
-    public static Task SendPlayerStatSnapshot(string remote, NetworkStream stream, ConnectionCiphers ciphers, ClientState conn,
-        Func<byte[]> packet, string? label) => SendWorldRecords(remote, stream, ciphers, conn, PlayerId, () =>
+    public static Task SendPlayerStatSnapshot(Player player,
+        Func<byte[]> packet, string? label) => SendWorldRecords(player, player.Id, () =>
         {
-            using (conn.Performance.Lock(conn.Monsters, "stats"))
+            if (!CurrentGameRules || player.Closed || player.LeavingArea || player.RageRetired) return null;
+            return WithOwnAuraRecords(player, () =>
             {
-                if (!CurrentGameRules || conn.Closed || conn.LeavingArea || conn.RageRetired) return null;
-                return WithOwnAuraRecords(conn, () =>
-                {
-                    byte[] bytes = packet();
-                    RelayWalkForStats(conn, bytes);
-                    return [bytes];
-                });
-            }
+                byte[] bytes = packet();
+                return bytes.Length == 0 ? [] : [bytes];
+            });
         }, label);
+
+    // InstanceProtocol.CompactInt, read back: 7, 14, 21 or 28 bits with their sign, or 0xf0 and a u32.
+    static int ReadCompactInt(byte[] bytes, ref int at)
+    {
+        byte first = bytes[at];
+        int length = first switch { < 0x80 => 1, < 0xc0 => 2, < 0xe0 => 3, < 0xf0 => 4, _ => 5 };
+        if (at + length > bytes.Length) { at = bytes.Length; return 0; }
+        int value;
+        if (length == 5) value = bytes[at + 1] << 24 | bytes[at + 2] << 16 | bytes[at + 3] << 8 | bytes[at + 4];
+        else
+        {
+            int bits = 7 * length;
+            value = first & (0x7f >> (length - 1));
+            for (int i = 1; i < length; i++) value = value << 8 | bytes[at + i];
+            if ((value & 1 << (bits - 1)) != 0) value -= 1 << bits;
+        }
+        at += length;
+        return value;
+    }
 }

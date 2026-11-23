@@ -2,96 +2,134 @@ using GameServer.Core.Protocol.Instance;
 
 public static partial class Game
 {
-    internal static bool SignalPreyLocked(ClientState conn, ushort source, SupportedGem gem,
+    const int AggressiveMinionMinimumRange = 80;
+    const int DefensiveMinionMaximumRange = 30;
+    const int MeatShieldNearbyRange = 30;
+
+    static (bool Aggressive, bool Defensive) MinionStance(IReadOnlyDictionary<uint, int> own,
+        IReadOnlyDictionary<uint, int> player, bool isGolem, bool recentlyBlocked)
+    {
+        bool aggressive = GolemStat(own, Stat.MinionLargerAggroRadius) != 0
+            || GolemStat(player, Stat.MinionLargerAggroRadius) != 0
+            || isGolem && GolemStat(player, Stat.GolemsLargerAggroRadius) != 0
+            || GolemStat(player, Stat.MinionAreAggressiveIfHaveBlockedRecently) != 0
+                && recentlyBlocked;
+        bool defensive = GolemStat(own, Stat.MinionsAreDefensive) != 0
+            || GolemStat(player, Stat.MinionsAreDefensive) != 0;
+        return (aggressive && !defensive, defensive && !aggressive);
+    }
+
+    internal static bool SignalPreyLocked(Player player, ushort source, SupportedGem gem,
         (int X, int Y) aim, uint target, double now)
     {
         bool Valid(SpawnedMonster m) => m.Hostile && !m.Dead && m.Life > 0 && !m.Invulnerable;
-        if (!conn.Monsters.TryGetValue(target, out var monster) || !Valid(monster))
+        if (!player.Area.Monsters.TryGetValue(target, out var monster) || !Valid(monster))
         {
-            var closest = conn.Monsters.Where(p => Valid(p.Value) && Dist(p.Value.Walk.Position(now), aim) <= 15)
+            var closest = player.Area.MonstersNear(aim, 15).Where(p => Valid(p.Value) && Dist(p.Value.Walk.Position(now), aim) <= 15)
                 .OrderBy(p => Dist(p.Value.Walk.Position(now), aim)).FirstOrDefault();
             if (closest.Value is null) return false;
             target = closest.Key; monster = closest.Value;
         }
-        ClearPreyLocked(conn);
-        double duration = SkillDurationModifiers.Seconds(GolemStat(gem.Stats, "base_skill_effect_duration"),
-            n => GolemStat(CharacterPlayerStats(conn), n), n => GolemStat(gem.Stats, n));
-        ushort instance = conn.NextBuff++;
-        conn.Summons.SignalledPrey = new(target, monster, source, now + duration, instance);
-        conn.Minions.OutputQueue.Add(new(InstanceEntities.AddBuff(target, instance, 1376, PlayerId, source,
-            u68: BitConverter.SingleToUInt32Bits((float)duration)), "Signal Prey", target, monster));
+        ClearPreyLocked(player);
+        double duration = SkillDurationModifiers.Seconds(GolemStat(gem.Stats, Stat.BaseSkillEffectDuration),
+            n => GolemStat(CharacterPlayerStats(player), n), n => GolemStat(gem.Stats, n));
+        if (player.Summons.SignalledPrey is { } old && old.Id != target) player.Area.Buffs.Clear(old.Id, 1376, player.Id);
+        player.Summons.SignalledPrey = new(target, monster, source, now + duration, 1);
+        player.Area.Buffs.Set(target, new(1376, player.Id, source, U68: Buff.Seconds(duration)));
         return true;
     }
 
-    static void ClearPreyLocked(ClientState conn)
+    static void ClearPreyLocked(Player player)
     {
-        if (conn.Summons.SignalledPrey is not { } prey) return;
-        if (conn.Monsters.GetValueOrDefault(prey.Id) == prey.Monster)
-            conn.Minions.OutputQueue.Add(new(InstanceEntities.RemoveBuff(prey.Id, prey.Buff), "Signal Prey ended", prey.Id, prey.Monster));
-        conn.Summons.SignalledPrey = null;
+        if (player.Summons.SignalledPrey is not { } prey) return;
+        if (player.Area.Monsters.GetValueOrDefault(prey.Id) == prey.Monster)
+            player.Area.Buffs.Clear(prey.Id, 1376, player.Id);
+        player.Summons.SignalledPrey = null;
     }
 
-    static bool IsPrey(ClientState conn, GolemState.Golem fighter, uint id, SpawnedMonster monster, double now) =>
-        GolemStat(fighter.Own, "support_minion_use_focussed_target") != 0
-        && conn.Summons.SignalledPrey is { } prey && now < prey.Until && prey.Id == id
-        && ReferenceEquals(prey.Monster, monster) && conn.Monsters.GetValueOrDefault(id) == monster;
+    static bool IsPrey(Player player, IReadOnlyDictionary<uint, int> own, uint id, SpawnedMonster monster, double now) =>
+        GolemStat(own, Stat.SupportMinionUseFocussedTarget) != 0
+        && player.Summons.SignalledPrey is { } prey && now < prey.Until && prey.Id == id
+        && ReferenceEquals(prey.Monster, monster) && player.Area.Monsters.GetValueOrDefault(id) == monster;
 
-    static double MinionTacticsBaseDamage(ClientState conn, GolemState.Golem fighter, double now)
+    // Puppet Master's Feeding Frenzy buff on the player (BuffDefinitions row).
+    const ushort FeedingFrenzyBuffRow = 1372;
+
+    static double MinionTacticsBaseDamage(Player player, GolemState.Golem fighter, double now)
     {
-        double more = Math.Max(0, 1 + GolemStat(fighter.Own, "deathmark_minion_damage_+%_final") / 100d);
-        if (conn.PlayerLife > 0 && (now < conn.Summons.FeedingFrenzyUntil
-            || GolemStat(fighter.Player, "has_puppet_master") != 0 && conn.Summons.FeedingFrenzyBuff == 0
-            || GolemStat(fighter.Player, "virtual_you_have_feeding_frenzy") != 0))
+        double more = Math.Max(0, 1 + GolemStat(fighter.Own, Stat.DeathmarkMinionDamagePlusPctFinal) / 100d);
+        if (player.PlayerLife > 0 && (now < player.Summons.FeedingFrenzyUntil
+            || GolemStat(fighter.Player, Stat.HasPuppetMaster) != 0 && !player.Area.Buffs.HasRow(player.Id, FeedingFrenzyBuffRow)
+            || GolemStat(fighter.Player, Stat.VirtualYouHaveFeedingFrenzy) != 0))
             more *= 1.1 * Math.Max(0, 1 + GolemStat(fighter.Own,
-                "support_minion_offensive_stance_minion_damage_+%_final_while_you_have_puppet_master") / 100d);
+                Stat.SupportMinionOffensiveStanceMinionDamagePlusPctFinalWhileYouHavePuppetMaster) / 100d);
         return more;
     }
 
-    static double MinionTacticsDamage(ClientState conn, GolemState.Golem fighter, uint id, SpawnedMonster target, double now)
+    static double MinionTacticsDamage(Player player, GolemState.Golem fighter, uint id, SpawnedMonster target, double now)
     {
-        double more = MinionTacticsBaseDamage(conn, fighter, now);
-        if (IsPrey(conn, fighter, id, target, now))
-            more *= Math.Max(0, 1 + GolemStat(fighter.Own, "support_minion_focus_fire_damage_+%_final_vs_focussed_target") / 100d);
-        return more;
+        double more = MinionTacticsBaseDamage(player, fighter, now);
+        if (IsPrey(player, fighter.Own, id, target, now))
+            more *= Math.Max(0, 1 + GolemStat(fighter.Own, Stat.SupportMinionFocusFireDamagePlusPctFinalVsFocussedTarget) / 100d);
+        return more * MeatShieldDamage(player, fighter.Own, target, now);
     }
 
-    internal static void FeedingFrenzyOnHitLocked(ClientState conn, GolemState.Golem fighter, double now)
+    static double MeatShieldDamage(Player player, IReadOnlyDictionary<uint, int> own, SpawnedMonster target, double now)
     {
-        int chance = GolemStat(fighter.Own, "minion_grant_puppet_master_buff_to_parent_on_hit_%");
-        if (conn.PlayerLife == 0 || chance <= 0 || conn.Minions.Random.Next(100) >= chance) return;
-        double duration = GolemStat(fighter.Own, "puppet_master_base_duration_ms") / 1000d;
+        int nearby = GolemStat(own, Stat.SupportMinionDefensiveStanceMinionDamagePlusPctFinalAgainstEnemiesNearYou);
+        if (nearby != 0 && Dist(player.Walk.Position(now), target.Walk.Position(now)) <= MeatShieldNearbyRange)
+            return Math.Max(0, 1 + nearby / 100d);
+        return 1;
+    }
+
+    static void MinionTauntOnHitLocked(Player player, GolemState.Golem fighter, GolemState.Ability ability,
+        IReadOnlyDictionary<uint, int> own, uint id, SpawnedMonster target, double now)
+    {
+        int chance = GolemStat(own, Stat.MinionChanceToTauntOnHitPct);
+        if (ability.Effect == 136) chance += GolemStat(ability.Stats, Stat.ChanceToTauntOnHitPct);
+        if (chance <= 0 || target.Effects[Stat.CannotBeTaunted] != 0
+            || player.Summons.Definitions.GetValueOrDefault(fighter.Id) is { Targetable: false }
+            || player.Minions.Random.Next(100) >= chance) return;
+
+        // A permanent minion can taunt many different monsters over its lifetime.
+        if (fighter.Taunts.Count >= 32)
+            foreach (var expired in fighter.Taunts.Where(t => t.Value <= now || !player.Area.Monsters.ContainsKey(t.Key)).ToArray())
+                fighter.Taunts.Remove(expired.Key);
+        fighter.Taunts[id] = now + FlaskGrounds.TauntSeconds / target.RecipientDebuffRate;
+    }
+
+    internal static void FeedingFrenzyOnHitLocked(Player player, GolemState.Golem fighter, double now)
+    {
+        int chance = GolemStat(fighter.Own, Stat.MinionGrantPuppetMasterBuffToParentOnHitPct);
+        if (player.PlayerLife == 0 || chance <= 0 || player.Minions.Random.Next(100) >= chance) return;
+        double duration = GolemStat(fighter.Own, Stat.PuppetMasterBaseDurationMs) / 1000d;
         if (duration <= 0) return;
-        bool starting = now >= conn.Summons.FeedingFrenzyUntil;
-        if (conn.Summons.FeedingFrenzyBuff != 0)
-            conn.Minions.OutputQueue.Add(new(InstanceEntities.RemoveBuff(PlayerId, conn.Summons.FeedingFrenzyBuff), "Feeding Frenzy refreshed"));
-        conn.Summons.FeedingFrenzyUntil = now + duration;
-        ushort instance = conn.NextBuff++;
-        conn.Summons.FeedingFrenzyBuff = instance;
-        conn.Minions.OutputQueue.Add(new(InstanceEntities.AddBuff(PlayerId, instance, 1372, PlayerId, fighter.Source,
-            u68: BitConverter.SingleToUInt32Bits((float)duration)), "Feeding Frenzy"));
-        if (starting) RefreshMinionTacticsLocked(conn);
+        bool starting = now >= player.Summons.FeedingFrenzyUntil;
+        player.Summons.FeedingFrenzyUntil = now + duration;
+        player.Area.Buffs.Set(player.Id, new(FeedingFrenzyBuffRow, player.Id, fighter.Source, U68: Buff.Seconds(duration)));
+        if (starting) RefreshMinionTacticsLocked(player);
     }
 
-    static void RefreshMinionTacticsLocked(ClientState conn)
+    static void RefreshMinionTacticsLocked(Player player)
     {
-        conn.Minions.StatRevision++;
-        conn.Golems.RefreshAt = conn.Summons.RefreshAt = 0;
-        using var scope = new PlayerStatScope(conn, fresh: true);
-        var player = CharacterPlayerStats(conn);
-        foreach (var fighter in UtilityFighters(conn)) RefreshGolemLocked(conn, fighter, player);
+        player.Minions.StatRevision++;
+        player.Golems.RefreshAt = player.Summons.RefreshAt = 0;
+        using var scope = new PlayerStatScope(player, fresh: true);
+        var playerStats = CharacterPlayerStats(player);
+        foreach (var fighter in UtilityFighters(player)) RefreshGolemLocked(player, fighter, playerStats);
     }
 
-    static void MinionTacticsTick(ClientState conn, double now)
+    static void MinionTacticsTick(Player player, double now)
     {
-        if (conn.Summons.FeedingFrenzyBuff != 0 && (conn.PlayerLife == 0 || now >= conn.Summons.FeedingFrenzyUntil))
+        if (player.Area.Buffs.HasRow(player.Id, FeedingFrenzyBuffRow) && (player.PlayerLife == 0 || now >= player.Summons.FeedingFrenzyUntil))
         {
-            conn.Minions.OutputQueue.Add(new(InstanceEntities.RemoveBuff(PlayerId, conn.Summons.FeedingFrenzyBuff), "Feeding Frenzy ended"));
-            conn.Summons.FeedingFrenzyBuff = 0; conn.Summons.FeedingFrenzyUntil = 0;
-            RefreshMinionTacticsLocked(conn);
+            player.Area.Buffs.Clear(player.Id, FeedingFrenzyBuffRow, player.Id);
+            player.Summons.FeedingFrenzyUntil = 0;
+            RefreshMinionTacticsLocked(player);
         }
-        if (conn.Summons.SignalledPrey is { } prey && (conn.PlayerLife == 0 || now >= prey.Until
-            || prey.Monster.Dead || prey.Monster.Life == 0 || conn.Monsters.GetValueOrDefault(prey.Id) != prey.Monster
-            || !GemSkillEffects(conn).Any(g => g.Id == prey.Source && SkillsFor(conn).EffectId(g.Effect) == "SignalPrey")))
-            ClearPreyLocked(conn);
+        if (player.Summons.SignalledPrey is { } prey && (player.PlayerLife == 0 || now >= prey.Until
+            || prey.Monster.Dead || prey.Monster.Life == 0 || player.Area.Monsters.GetValueOrDefault(prey.Id) != prey.Monster
+            || !GemSkillEffects(player).Any(g => g.Id == prey.Source && SkillsFor(player).EffectId(g.Effect) == "SignalPrey")))
+            ClearPreyLocked(player);
     }
 }

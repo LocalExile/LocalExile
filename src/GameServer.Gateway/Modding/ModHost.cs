@@ -1,17 +1,16 @@
 using System.Collections.Immutable;
 using System.Reflection;
-using System.Runtime.CompilerServices;
 using System.Text.Json;
 using GameServer.Modding;
 
 /// <summary>
-/// The mods in <c>Mods/Binaries/&lt;id&gt;/</c> (Agents/docs/dev/modding.md): each one's <c>mod.json</c> and assembly, in a collectible
-/// load context of its own (<see cref="ModLoadContext"/>), loaded after the mods it depends on. A change in a mod's folder
+/// The mods in <c>Mods/Binaries/&lt;id&gt;/</c> (Agents/docs/dev/modding.md): each one's <c>mod.json</c> and assembly, in a load
+/// context of its own per version (<see cref="ModLoadContext"/>), loaded after the mods it depends on. A change in a mod's folder
 /// (a build, a new or deleted folder) reloads that mod and the mods that depend on it; a reload starts their state over.
 /// </summary>
 /// <remarks>
 /// Every hook a mod registers is held here, in the host's lists, and nowhere else in the server: unloading a mod removes
-/// them all, so no static of the server keeps one of its types alive and the context can be collected.
+/// them all, so nothing of the server calls an unloaded version again.
 /// </remarks>
 public sealed class ModHost(string folder, Action<string> log, bool modules = false, bool leagues = false) : IDisposable
 {
@@ -32,7 +31,6 @@ public sealed class ModHost(string folder, Action<string> log, bool modules = fa
     readonly Dictionary<string, LoadedMod> _loaded = new(StringComparer.Ordinal);
     // Why a folder's mod is not loaded, as last logged (logged again only when it changes).
     readonly Dictionary<string, string> _failed = new(StringComparer.Ordinal);
-    readonly Dictionary<string, Task<bool>> _unloads = new(StringComparer.Ordinal);
     readonly Dictionary<string, (Timer Timer, int Busy)> _pending = new(StringComparer.Ordinal);
     // /mod_enable and /mod_disable's choices (StateFile), over each manifest's "enabled"; the folders turned off by either.
     readonly Dictionary<string, bool> _choices = new(StringComparer.Ordinal);
@@ -239,13 +237,6 @@ public sealed class ModHost(string folder, Action<string> log, bool modules = fa
         if (!File.Exists(path)) return;
         foreach (string line in File.ReadAllLines(path))
             if (line.Split(' ', StringSplitOptions.RemoveEmptyEntries) is [var id, var state and ("on" or "off")]) _choices[id] = state == "on";
-    }
-
-    /// <summary>Completes when the mod's last unload was collected (true) or still was not after a few seconds
-    /// (false: something outside the mod still holds one of its objects).</summary>
-    public Task<bool> Unloaded(string id)
-    {
-        lock (_gate) return _unloads.GetValueOrDefault(id) ?? Task.FromResult(true);
     }
 
     async Task<bool> Guard(LoadedMod mod, string hook, Func<Task> run)
@@ -479,6 +470,8 @@ public sealed class ModHost(string folder, Action<string> log, bool modules = fa
             mod.Images = images ?? ReadImages(manifest, mod.Folder);
             mod.ScriptImage = mod.Images.Scripts;
             List<Assembly> assemblies = [.. mod.Images.Assemblies.Select(a => context.LoadImage(a.Dll, a.Pdb))];
+            var (methods, took) = ModLoadContext.Precompile(assemblies);
+            log($"{Tag} {id}: {methods} methods compiled in {took.TotalMilliseconds:0} ms");
             var entries = assemblies.SelectMany(a => a.GetExportedTypes())
                 .Where(t => (leagues ? typeof(League) : modules ? typeof(IModule) : typeof(IMod)).IsAssignableFrom(t) && t is { IsClass: true, IsAbstract: false }).ToList();
             if (entries.Count == 0) throw new InvalidOperationException($"{(mod.Images.Scripts is not null ? "the scripts have" : manifest.Assembly + " has")} no public class that implements {(modules ? nameof(IModule) : nameof(IMod))}");
@@ -498,7 +491,7 @@ public sealed class ModHost(string folder, Action<string> log, bool modules = fa
             mod.Lifetime.Stop(error => Failed(mod, "Stop", error));
             Remove(mod);
             foreach (var disposable in mod.Entries.OfType<IDisposable>()) Guard(mod, "Dispose", disposable.Dispose, allowUnloaded: true);
-            _unloads[id] = Collect(id, Unload(mod));
+            mod.Entries.Clear();
             if (ex is TypeInitializationException or System.Reflection.TargetInvocationException && ex.InnerException is { } inner) ex = inner;
             Fail(id, ex is IOException and not FileNotFoundException ? $"busy: {ex.Message}"
                 : ex is ModScripts.CompileException ? ex.Message : $"{ex.GetType().Name}: {ex.Message}");
@@ -506,7 +499,6 @@ public sealed class ModHost(string folder, Action<string> log, bool modules = fa
         }
         _loaded[id] = mod;
         _failed.Remove(id);
-        UnloadCollector.Postpone();
         Tell($"{Tag} loaded {id} {manifest.Version} ({manifest.Kind.ToString().ToLowerInvariant()}, {GameEventOwners.Count(id)} hook(s))");
         return true;
     }
@@ -556,23 +548,9 @@ public sealed class ModHost(string folder, Action<string> log, bool modules = fa
         Remove(mod);
         foreach (var disposable in mod.Entries.OfType<IDisposable>())
             Guard(mod, "Dispose", disposable.Dispose, allowUnloaded: true);
-        _unloads[id] = Collect(id, Unload(mod));
+        mod.Entries.Clear();
         Tell($"{Tag} unloaded {id}");
     }
-
-    // Kept out of Unload(string) so no local of that frame holds the context while it is collected.
-    [MethodImpl(MethodImplOptions.NoInlining)]
-    static (WeakReference Context, string CopyDirectory) Unload(LoadedMod mod)
-    {
-        mod.Entries.Clear();
-        var weak = new WeakReference(mod.Context);
-        mod.Context?.Unload();
-        return (weak, mod.Context?.CopyDirectory ?? "");
-    }
-
-    Task<bool> Collect(string id, (WeakReference Context, string CopyDirectory) unloaded) => UnloadCollector.Add(unloaded.Context, unloaded.CopyDirectory,
-        rounds => log($"{Tag} an unloaded {Noun} ({id}) is still in memory after {rounds} collections: a thread, timer or task of it still runs, or something outside it holds one of its objects"),
-        () => log($"{Tag} could not remove an unloaded {Noun}'s private copy ({id})"));
 
     void Remove(LoadedMod mod)
     {

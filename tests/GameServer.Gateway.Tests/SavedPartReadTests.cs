@@ -233,6 +233,29 @@ public class SavedPartReadTests : IDisposable
             Assert.Equal("One", SaveRows.LoadStash(Saves.Db, account)!.Tabs[0].Name);
             SaveRows.WriteStash(Saves.Db, account, renamed);
             Assert.Equal("Renamed", SaveRows.LoadStash(Saves.Db, account)!.Tabs[0].Name);
+
+            // Pinned-session selective inventory and experience updates stay consistent in memory and flush cleanly.
+            Saves.PinSession(name, account, null);
+            try
+            {
+                CharacterSaves.SetInventories(name, new()
+                {
+                    [0] = [new(11, 0, 0, scroll1)],
+                    [1] = [new(3, 0, 0, armour)],
+                    [2] = [new(4, 0, 0, weapon)],
+                }, startWeapon: null);
+                CharacterSaves.AddExperience(name, 150, xp => xp + 75);
+                CharacterSaves.SaveExperience(name);
+                var pinned = CharacterSaves.Load(name)!;
+                Assert.Equal(225u, pinned.Experience);
+                Assert.Single(pinned.Inventories[0]);
+                Assert.Equal(11u, pinned.Inventories[0][0].Id);
+            }
+            finally { Saves.UnpinAndFlushSession(name, account, null); }
+            var flushed = CharacterSaves.Load(name)!;
+            Assert.Equal(225u, flushed.Experience);
+            Assert.Single(flushed.Inventories[0]);
+            Assert.Equal(11u, flushed.Inventories[0][0].Id);
         }
         finally { CharacterSaves.ForgetExperience(name); }
     }

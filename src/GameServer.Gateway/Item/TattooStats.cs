@@ -5,7 +5,7 @@
 /// </summary>
 public static class TattooStats
 {
-    public static IReadOnlyDictionary<string, (string Stat, int Value)[]> Entries => GameDataCatalog.TattooEffects;
+    public static IReadOnlyDictionary<string, (uint Stat, int Value)[]> Entries => GameDataCatalog.TattooEffects;
 
     public static IReadOnlyCollection<string> Names => [.. Entries.Keys];
 
@@ -16,7 +16,7 @@ public static class TattooStats
         if (!Entries.TryGetValue(name, out var definitions)) return null;
         var stats = new List<(uint Key, int Value)>(definitions.Length);
         foreach (var (stat, value) in definitions)
-            if (Program.Stats.Key(stat) is uint key) stats.Add((key, value));
+            if (stat is var key) stats.Add((key, value));
         return stats.Count == 0 ? null : stats;
     }
 }

@@ -7,7 +7,7 @@ namespace GameServer.Gateway.Tests;
 public sealed class MonsterModEffectsTests
 {
     static MonsterModEffects Effects(params (string Name, int Value)[] stats) =>
-        new(stats.ToDictionary(s => s.Name, s => s.Value));
+        new(stats.ToDictionary(s => Stat.Of(s.Name), s => s.Value));
 
     public void Extra_effects_add_to_a_rolled_monster_s_own_mods()
     {
@@ -16,12 +16,12 @@ public sealed class MonsterModEffectsTests
 
         var merged = rolled.Plus(clock);
 
-        Assert.Equal(75, merged["maximum_life_+%"]);
-        Assert.Equal(110, merged["damage_+%"]);
-        Assert.Equal(100, merged["monster_life_+%_final_from_rarity"]);
+        Assert.Equal(75, merged[Stat.MaximumLifePlusPct]);
+        Assert.Equal(110, merged[Stat.DamagePlusPct]);
+        Assert.Equal(100, merged[Stat.MonsterLifePlusPctFinalFromRarity]);
         // The roll is not mutated: the same shared magic-monster set stays valid for the next spawn.
-        Assert.Equal(0, rolled["maximum_life_+%"]);
-        Assert.Equal(20, rolled["damage_+%"]);
+        Assert.Equal(0, rolled[Stat.MaximumLifePlusPct]);
+        Assert.Equal(20, rolled[Stat.DamagePlusPct]);
     }
 
     public void Adding_no_effects_keeps_the_same_set()
@@ -33,8 +33,8 @@ public sealed class MonsterModEffectsTests
     public void A_single_stat_can_be_replaced_by_its_solved_value()
     {
         var rolled = Effects(("maximum_life_+%", 10), ("damage_+%", 20));
-        var solved = rolled.Plus("maximum_life_+%", 40);
-        Assert.Equal(50, solved["maximum_life_+%"]);
-        Assert.Equal(20, solved["damage_+%"]);
+        var solved = rolled.Plus(Stat.MaximumLifePlusPct, 40);
+        Assert.Equal(50, solved[Stat.MaximumLifePlusPct]);
+        Assert.Equal(20, solved[Stat.DamagePlusPct]);
     }
 }

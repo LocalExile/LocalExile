@@ -13,18 +13,18 @@ public sealed class DischargeTests
         int discharge = skills.EffectRow("Discharge"), misery = skills.EffectRow("DischargeAltX");
         var plan = SkillHitPlan.ForSkill(skills, discharge, 20);
         Assert.True(plan.CanHit && plan.SpendsCharges);
-        var held = new Dictionary<string, int> { ["current_removable_power_charges"] = 2, ["current_removable_endurance_charges"] = 1 };
+        var held = new Dictionary<uint, int> { [Stat.CurrentRemovablePowerCharges] = 2, [Stat.CurrentRemovableEnduranceCharges] = 1 };
         var hit = plan.SpellBaseWith(name => held.GetValueOrDefault(name));
         Assert.Equal(new DamageRange(1470, 4412), hit[DamageType.Lightning]);
         Assert.Equal(new DamageRange(1176, 1765), hit[DamageType.Fire]);
         Assert.True(hit[DamageType.Cold].IsZero);
         Assert.True(plan.SpellBaseWith(_ => 0).IsZero);
         Assert.Equal(new DamageRange(269, 806),
-            SkillHitPlan.ForSkill(skills, misery, 20).SpellBaseWith(n => n == "current_removable_power_charges" ? 1 : 0)[DamageType.Lightning]);
+            SkillHitPlan.ForSkill(skills, misery, 20).SpellBaseWith(n => n == Stat.CurrentRemovablePowerCharges ? 1 : 0)[DamageType.Lightning]);
         // 15% more area per removable charge: 3 charges, 45% more area, radius 30 → floor(30 × 1.20) = 36.
-        held["area_of_effect_+%_final_per_removable_power_frenzy_or_endurance_charge"] = 15;
+        held[Stat.AreaOfEffectPlusPctFinalPerRemovablePowerFrenzyOrEnduranceCharge] = 15;
         Assert.Equal(36, SkillArea.Radius(30, name => held.GetValueOrDefault(name), spell: true));
-        Assert.Equal(30, SkillArea.Radius(30, n => n.StartsWith("area_of_effect") ? 15 : 0, spell: true));
+        Assert.Equal(30, SkillArea.Radius(30, n => Program.Stats.Name(n).StartsWith("area_of_effect") ? 15 : 0, spell: true));
     }
 
     [Fact]
@@ -32,7 +32,7 @@ public sealed class DischargeTests
     {
         // The session the ticker runs: 4 Power Charges with a minimum of 1, so 3 are removable.
         var session = new ChargeSession();
-        int Get(string name) => name switch { "base_minimum_power_charges" => 1, "max_power_charges" => 1, _ => 0 };
+        int Get(uint name) => name switch { Stat.BaseMinimumPowerCharges => 1, Stat.MaxPowerCharges => 1, _ => 0 };
         session.Observe(Get);
         session.Admit(0, [new ChargeEvent.Grant(ChargeType.Power, 3, "test")], Get, () => default, alive: true, new Random(1));
         Assert.Equal(4, session.Effective(ChargeType.Power));

@@ -9,6 +9,12 @@ using GameServer.Core;
 /// </summary>
 public static class BossMods
 {
+    /// <summary>Fills this type's game data at startup (the world loader, before the Gateway listens).</summary>
+    public static void LoadBossModsData()
+    {
+        Rows = Load();
+    }
+
     /// <summary>BossHealOnPlayerDeath is not here: its stat (<c>heal_aura_owner_%_max_life_on_death</c>) is 0 in the
     /// extracted table for both it and its Minor form, so how much life comes back is not something the data says.</summary>
     public const string ImmuneToKnockback = "ImmuneToKnockback";
@@ -24,20 +30,20 @@ public static class BossMods
     public const string SlowFloor = "CannotBeSlowedBelowValueBosses";
 
     /// <summary>An act boss cannot be stunned again for this long after a stun ends (2000 ms in its row).</summary>
-    const string StunImmunityStat = "cannot_be_stunned_for_ms_after_stun_finished";
+    const uint StunImmunityStat = Stat.CannotBeStunnedForMsAfterStunFinished;
 
     /// <summary>The action-speed floor a row states, as a signed percentage (the bosses' -50%) — how far slows may take it.</summary>
-    const string SlowFloorStat = "hellscape_boots_action_speed_+%_minimum_value";
+    const uint SlowFloorStat = Stat.HellscapeBootsActionSpeedPlusPctMinimumValue;
 
     /// <summary>What a monster's own rows say about it: the mod ids, the repeat-stun immunity the mods' stats give, and the
     /// floor they put under its action speed (0 when the rows state none).</summary>
     public sealed record Row(HashSet<string> Mods, int StunImmunityMs, int SlowFloorPct = 0);
 
-    static readonly Lazy<Dictionary<string, Row>> Rows = new(Load);
+    static Dictionary<string, Row> Rows = default!;
 
     /// <summary>Whether the variety's row names this mod in either of its mod lists.</summary>
     public static bool Has(MonsterCatalog.Variety? variety, string mod) =>
-        variety is not null && Rows.Value.GetValueOrDefault(variety.Id)?.Mods.Contains(mod) == true;
+        variety is not null && Rows.GetValueOrDefault(variety.Id)?.Mods.Contains(mod) == true;
 
     /// <summary>Whether nothing may shove the monster: the client's ImmuneToKnockback component or its mod.</summary>
     public static bool KnockbackImmune(MonsterCatalog.Variety? variety) =>
@@ -46,7 +52,7 @@ public static class BossMods
     /// <summary>How long after a stun ends the monster cannot be stunned again, when its row says (an act boss's 2000 ms);
     /// null when the row does not, and the caller falls back to the wiki's rule for uniques.</summary>
     public static int? StunImmunityMilliseconds(MonsterCatalog.Variety? variety) =>
-        variety is not null && Rows.Value.GetValueOrDefault(variety.Id) is { StunImmunityMs: > 0 } row ? row.StunImmunityMs : null;
+        variety is not null && Rows.GetValueOrDefault(variety.Id) is { StunImmunityMs: > 0 } row ? row.StunImmunityMs : null;
 
     /// <summary>Whether the monster's death gives no items and no experience.</summary>
     public static bool NoRewards(MonsterCatalog.Variety? variety) => Has(variety, NoDropsOrExperience);
@@ -54,7 +60,7 @@ public static class BossMods
     /// <summary>How far slows may take the monster's action speed, as a factor of its own: the floor its row states
     /// (<c>CannotBeSlowedBelowValueBosses</c>, -50% → half speed), else the .25 every monster has had.</summary>
     public static double SlowestActionFactor(MonsterCatalog.Variety? variety) =>
-        variety is not null && Rows.Value.GetValueOrDefault(variety.Id) is { SlowFloorPct: < 0 } row
+        variety is not null && Rows.GetValueOrDefault(variety.Id) is { SlowFloorPct: < 0 } row
             ? Math.Max(.01, 1 + row.SlowFloorPct / 100d)
             : .25;
 
@@ -85,15 +91,7 @@ public static class BossMods
     /// long it cannot be stunned after a stun, and the floor under its action speed, both its own keys into Mods.</summary>
     public static Dictionary<string, Row> Parse(ClientTable varieties, ClientTable mods, ClientTable? stats)
     {
-        int stunStatKey = -1, slowStatKey = -1;
-        if (stats is not null)
-            for (int i = 0; i < stats.Count; i++)
-            {
-                string? name = stats[i].TextOrNull("Id");
-                if (name == StunImmunityStat) stunStatKey = i;
-                else if (name == SlowFloorStat) slowStatKey = i;
-                if (stunStatKey >= 0 && slowStatKey >= 0) break;
-            }
+        int statCount = stats?.Count ?? 0;
         // Only inspect the ~hundreds of Mods rows actually referenced by MonsterVarieties instead of all 35k+ rows.
         var modInfo = new Dictionary<int, (string Id, int StunMs, int SlowFloor)>();
         (string Id, int StunMs, int SlowFloor) ReadMod(int row)
@@ -102,17 +100,18 @@ public static class BossMods
             var mod = mods[row];
             string id = mod.TextOrNull("Id") ?? "";
             int stunMs = 0, slowFloor = 0;
-            if (id.Length > 0 && (stunStatKey >= 0 || slowStatKey >= 0))
+            if (id.Length > 0 && statCount > 0)
             {
                 for (int slot = 0; slot < StatsKeyColumns.Length; slot++)
                 {
-                    if (mod.IntOrNull(StatsKeyColumns[slot]) is not int key) continue;
-                    if (key == stunStatKey)
+                    if (mod.IntOrNull(StatsKeyColumns[slot]) is not int key || (uint)key >= (uint)statCount) continue;
+                    uint statId = (uint)key + 1;
+                    if (statId == StunImmunityStat)
                     {
                         int ms = Math.Max(0, mod.IntOrNull(StatMinColumns[slot]) ?? 0);
                         if (ms > stunMs) stunMs = ms;
                     }
-                    else if (key == slowStatKey)
+                    else if (statId == SlowFloorStat)
                     {
                         int pct = Math.Min(0, mod.IntOrNull(StatMinColumns[slot]) ?? 0);
                         if (pct < slowFloor) slowFloor = pct;
