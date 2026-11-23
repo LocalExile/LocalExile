@@ -45,6 +45,7 @@ public static partial class Game
         {
             QueueMadnessExplosionLocked(player, victimId, monster);
             player.RecentEvents.RecordAmount(StatConditions.KilledEnemy, now);
+            SpiritChargeOnKill(player, now);
             state.OutputQueue.Add(new([], null, Kind: PlayerMinions.OutputKind.PlayerKill, Kill: modMonster));
             var charge = new PlayerMinions.AcceptedCharges(true, false, monster.Rarity, null, null, false, now,
                 Frozen: monster.Ailments.FrozenAtDeath(now));

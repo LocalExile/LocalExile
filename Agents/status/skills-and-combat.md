@@ -163,7 +163,7 @@ Part of [Status](../Status.md); what to build next in this area is in
   Docs: [11](../docs/protocol/11-skills.md) §13, [Paladin](../docs/game/paladin.md).
 - Equipment-granted Bear Trap, Wintertide Brand, Decoy Totem, Smite, Frostblink, Summon Stone Golem, Convocation,
   Enduring Cry and Intimidating Cry use their existing skill actions. A restored golem retains its equipment source.
-- Doryani's Touch from Doryani's Fist uses the gloves' unarmed lightning damage and requires both hands to have no weapon.
+- Doryani's Touch uses the gloves' unarmed lightning damage and requires both hands to have no weapon.
 - Lightpoacher can earn Spirit Charges on kills with an equipped Abyss Jewel. An accepted skill use can spend a
   live charge to launch Spirit Burst.
 - Approaching Flames from Annihilation's Approach toggles Flame-Touched, its Adrenaline and its fire damage.
