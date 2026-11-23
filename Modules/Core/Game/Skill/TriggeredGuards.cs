@@ -180,7 +180,9 @@ public static partial class Game
         guard.Until = now + duration;
         // It ends at Until (Molten Shell reflects then), whoever reads it first.
         AfterSeconds(player, duration, () => { _ = CurrentTriggeredGuard(player, AreaTime(player)); });
-        double recovery = Math.Max(0, 1 + Get(Stat.VirtualCooldownSpeedPlusPct) / 100d + Own(Stat.BaseCooldownSpeedPlusPct) / 100d);
+        double recovery = CooldownForSkill(player, skill)?.RecoveryRate
+            ?? Math.Max(0, 1 + ((double)Get(Stat.VirtualCooldownSpeedPlusPct) + Own(Stat.BaseCooldownSpeedPlusPct)
+                + Get(Stat.GuardSkillCooldownRecoveryPlusPct)) / 100d);
         guard.RecoverySeconds = recovery > 0 ? SkillsFor(player).CooldownMs(gem.Effect, gem.Level) / 1000d / recovery : double.PositiveInfinity;
         player.Pools = PoolsFor(player, player.Pools.Level);
         if (guard.Effect == "MoltenShell")

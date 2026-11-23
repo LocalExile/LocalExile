@@ -560,7 +560,10 @@ public static partial class Game
         {
             var profile = WeaponProfileFor(player);
             double factor = profile.DualWield || profile.Unarmed ? 1.1 : 1;
-            stats[final] = stats.GetValueOrDefault(final) + (int)Math.Round(gem.Stats.GetValueOrDefault(raw) * factor);
+            int skillSpeed = gem.Stats.GetValueOrDefault(raw);
+            if (Supports.Of(gem.Effect)?.Types.Contains(120) == true)
+                skillSpeed += Get(Stat.RetaliationSkillSpeedPlusPct);
+            stats[final] = stats.GetValueOrDefault(final) + (int)Math.Round(skillSpeed * factor);
             // "Chain Hook and Shield Charge have X% increased Attack Speed per 10 Rampage Kills".
             if (SkillsFor(player).EffectId(gem.Effect) is { } effectId
                 && (effectId.StartsWith("ChainHook", StringComparison.Ordinal)
@@ -998,6 +1001,11 @@ public static partial class Game
         var gem = SupportedSkill(player, skillId);
         long extra = (long)gem.Stats.GetValueOrDefault(Stat.BaseCriticalStrikeMultiplierPlus) + NightbladeCriticalMultiplier(player, gem.Stats);
         var playerStats = CharacterPlayerStats(player);
+        long Sum(uint key) => (long)playerStats.GetValueOrDefault(key) + gem.Stats.GetValueOrDefault(key);
+        var placed = PlacedKind(gem);
+        if (placed.Trap) extra += Sum(Stat.TrapCriticalStrikeMultiplierPlus);
+        if (placed.Mine) extra += Sum(Stat.MineCriticalStrikeMultiplierPlus);
+        if (SkillsFor(player).HasType(gem.Effect, "Lightning")) extra += Sum(Stat.LightningCriticalStrikeMultiplierPlus);
         // The skill's own "+X% to Critical Strike Multiplier per Power Charge" (Power Siphon): the character's own
         // per-charge stats are already in its stats (ChargeEffects), this one only on the skill.
         if (GolemStat(gem.Stats, Stat.CriticalStrikeMultiplierPlusPerPowerCharge) is int perPower and not 0)
