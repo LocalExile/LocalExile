@@ -1142,11 +1142,23 @@ public static partial class Game
         var map = MapModsOf(player);
         if (HasMapHexes(map))
         {
-            int before = resistanceSources.GetValueOrDefault(Stat.TemporalChainsActionSpeedPlusPctFinal);
+            int Get(uint key) => resistanceSources.GetValueOrDefault(key);
+            int allBefore = Get(Stat.BaseResistAllElementsPct);
+            int fireBefore = Get(Stat.BaseFireDamageResistancePct);
+            int coldBefore = Get(Stat.BaseColdDamageResistancePct);
+            int lightningBefore = Get(Stat.BaseLightningDamageResistancePct);
+            int actionBefore = Get(Stat.TemporalChainsActionSpeedPlusPctFinal);
             int curseEffect = utilityStats.Concat(player.FlaskGrounds.PlayerStats())
                 .Where(row => row.Stat == Stat.CurseEffectOnSelfPlusPct).Sum(row => row.Value);
             AddMapHexStats(player, map, new PlainStatMap(resistanceSources), auras, curseEffect);
-            mapTemporalChains = resistanceSources.GetValueOrDefault(Stat.TemporalChainsActionSpeedPlusPctFinal) - before;
+            int all = Get(Stat.BaseResistAllElementsPct) - allBefore;
+            bonus = bonus with
+            {
+                FireResistance = ActorScale.Saturate((long)bonus.FireResistance + all + Get(Stat.BaseFireDamageResistancePct) - fireBefore),
+                ColdResistance = ActorScale.Saturate((long)bonus.ColdResistance + all + Get(Stat.BaseColdDamageResistancePct) - coldBefore),
+                LightningResistance = ActorScale.Saturate((long)bonus.LightningResistance + all + Get(Stat.BaseLightningDamageResistancePct) - lightningBefore),
+            };
+            mapTemporalChains = Get(Stat.TemporalChainsActionSpeedPlusPctFinal) - actionBefore;
         }
         bonus = ResistanceOvercap.Applied(bonus, resistanceSources, ResistancePenalty(player), Stats);
         var classInfo = SkillsFor(player).ClassFor(player.Character.ClassRow);
