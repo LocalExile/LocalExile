@@ -645,6 +645,71 @@ public sealed class ItemCatalog
     static readonly (int Level, int Weight, int FourSocketWeight)[] DropSocketCounts =
         [(1, 50, 100), (1, 120, 90), (2, 100, 80), (25, 30, 30), (35, 5, 0), (50, 1, 0)];
 
+    // Retail-shaped maximum link group weights across 1..6 sockets (at drop_socket_link_scale = 1.0):
+    // 2S: ~47% 2L; 3S: ~21% 3L; 4S: ~8.2% 4L; 5S: ~0.81% 5L; 6S: ~0.09% 6L.
+    static readonly double[] LinkGroupWeights = [0, 38.0, 34.0, 19.0, 8.1, 0.81, 0.09];
+
+    // Precomputed link partitions indexed by [socketCount][maxLinkGroup] -> array of layouts (each layout sums to socketCount).
+    static readonly byte[][][][] LinkPartitions = BuildLinkPartitions();
+
+    static byte[][][][] BuildLinkPartitions()
+    {
+        var table = new byte[SocketLayout.MaximumSockets + 1][][][];
+        for (int count = 1; count <= SocketLayout.MaximumSockets; count++)
+        {
+            var byMax = new List<byte[]>[count + 1];
+            for (int m = 1; m <= count; m++) byMax[m] = [];
+            int masks = 1 << (count - 1);
+            for (int mask = 0; mask < masks; mask++)
+            {
+                var groups = new List<byte>(count) { 1 };
+                for (int edge = 0; edge < count - 1; edge++)
+                    if ((mask & (1 << edge)) != 0) groups[^1]++;
+                    else groups.Add(1);
+                byte maxGroup = 1;
+                foreach (byte g in groups) if (g > maxGroup) maxGroup = g;
+                byMax[maxGroup].Add(groups.ToArray());
+            }
+            table[count] = new byte[count + 1][][];
+            for (int m = 1; m <= count; m++) table[count][m] = byMax[m].ToArray();
+        }
+        return table;
+    }
+
+    /// <summary>Roll retail-shaped link groups for <paramref name="socketCount"/> sockets, scaled smoothly by
+    /// <c>drop_socket_link_scale</c> (1.0 = retail parity; 0 = unlinked; &gt;1 = more linked).</summary>
+    public static IReadOnlyList<byte> RollSocketLinks(int socketCount, Random random, double? linkScale = null)
+    {
+        if (socketCount <= 0) return [];
+        if (socketCount == 1) return [1];
+        int capped = Math.Min(socketCount, SocketLayout.MaximumSockets);
+        double scale = linkScale is double s && double.IsFinite(s)
+            ? Math.Max(0, s)
+            : SystemSettings.Default.DropSocketLinkScale;
+        double total = 0;
+        Span<double> weights = stackalloc double[capped + 1];
+        for (int m = 1; m <= capped; m++)
+        {
+            double w = m == 1 ? LinkGroupWeights[1]
+                : LinkGroupWeights[m] * Math.Min(1e9, Math.Pow(scale, m - 1));
+            weights[m] = w;
+            total += w;
+        }
+        int chosenMax = 1;
+        if (total > 0)
+        {
+            double roll = random.NextDouble() * total;
+            for (int m = 1; m <= capped; m++)
+            {
+                roll -= weights[m];
+                if (roll < 0) { chosenMax = m; break; }
+                chosenMax = m;
+            }
+        }
+        var layouts = LinkPartitions[capped][chosenMax];
+        return layouts[random.Next(layouts.Length)];
+    }
+
     public (IReadOnlyList<ItemSocket> Sockets, IReadOnlyList<byte>? Links) DropSockets(BaseType type, int level, Random random)
     {
         if (!type.Components.Contains("Sockets") || ResonatorSockets(type) > 0 || type.Id == AbyssJewels.StygianVise || type.HasOneSocket)
@@ -664,15 +729,10 @@ public sealed class ItemCatalog
             roll -= capacity == 4 ? entry.FourSocketWeight : entry.Weight;
         } while (roll >= 0);
         var sockets = new List<ItemSocket>(count);
-        var links = new List<byte>();
         var requirements = Requirements(type);
         for (int i = 0; i < count; i++)
-        {
             sockets.Add(new(SocketColours.Roll(requirements, level, 0, random)));
-            if (i == 0 || random.Next(2) != 0) links.Add(1);
-            else links[^1]++;
-        }
-        return (sockets, links);
+        return (sockets, RollSocketLinks(count, random));
     }
 
     private readonly Dictionary<string, (int Str, int Dex, int Int)> _requirements;
