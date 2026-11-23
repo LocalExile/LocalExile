@@ -796,7 +796,7 @@ internal static class DeepwaterLoot
     {
         if (player.PlayerLife == 0) return;
         player.PlayerLife = Math.Max(player.PlayerLife, LifeCap(player));
-        player.EnergyShield.SetMaximum(player.Pools.EnergyShield, refill: true);
+        global::Game.RefillPlayerEnergyShield(player);
         player.PlayerMana = Math.Max(player.PlayerMana, (uint)UnreservedMana(player));
         await global::Game.SendWorldRecord(player, player.Id, PlayerLifeUpdate(player), $"0x01b1 Soothing Coral: life {player.PlayerLife}");
         await SendPlayerMana(player, $"0x01b1 Soothing Coral: mana {player.PlayerMana}");

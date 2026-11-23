@@ -93,7 +93,7 @@ public static partial class Game
             {
                 CommitExperienceLevel(player, level);
                 player.PlayerLife = LifeCap(player); player.PlayerMana = (uint)UnreservedMana(player);
-                player.EnergyShield.SetMaximum(player.Pools.EnergyShield, true); TrimLeechLocked(player);
+                RefillPlayerEnergyShield(player); TrimLeechLocked(player);
                 state.StatRevision++; state.AccountRevision++;
                 state.OutputQueue.Add(new([], "0x0033 current passive skill tree (accepted level)", Kind: PlayerMinions.OutputKind.Passives));
             }
@@ -113,7 +113,7 @@ public static partial class Game
                 balance.ItemDropMultiplier * (modded?.Quantity ?? 1) * ItemQuantityFactor(player, monster),
                 balance.EquipmentRarityMultiplier * (modded?.Rarity ?? 1), mapTier, mapMods, MapScarabQuantity(mapMods)));
             drops.AddRange(PartyCurrency(player, drops, AreaRng(player)));
-            if (DropsFor(player).Map(monster.Level, monster.Rarity, mapTier, AreaRng(player), chanceFactor: modded?.MapRelated ?? 1) is { } map) drops.Add(map);
+            if (RollMapDropForKill(player, monster.Level, monster.Rarity, mapTier, AreaRng(player), modded?.MapRelated ?? 1) is { } map) drops.Add(map);
             if (DropsFor(player).Gold(monster.Level, monster.Rarity, AreaRng(player),
                 balance.GoldMultiplier * SystemSettings.Default.GoldDropMultiplier * (modded?.Gold ?? 1)) is { } gold) drops.Add(gold);
         }

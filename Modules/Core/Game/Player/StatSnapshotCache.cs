@@ -81,7 +81,8 @@ public static partial class Game
         var (bloodHeld, bloodShown) = BloodChargePanelInputs(player);
         var (lifeRegenPerMinute, _) = PanelStats.LifeRegeneration(
             name => name is var key ? stats.GetValueOrDefault(key) : 0, player.Pools.Life);
-        uint recoveryMargin = PetrifiedBlood.RecoveryMargin(lifeRegenPerMinute / 60);
+        double factor = LifeRegenerationKeystoneFactor(name => stats.GetValueOrDefault(name));
+        uint recoveryMargin = PetrifiedBlood.RecoveryMargin(lifeRegenPerMinute * factor / 60);
         return new()
         {
             Stats = stats, Pools = player.Pools with { Evasion = PlayerEvasion(player, stats) },
@@ -132,7 +133,8 @@ public static partial class Game
                 offProjectileAttack: projectileAttack && ActiveOffHand() is { Type.Class: "Wand" })
                 .Concat(PanelStats.FromPools(Get, pools))
                 .Concat(PanelStats.Defence(Get, pools, Monsters.BaseDamage(pools.Level), Monsters.BaseAccuracy(pools.Level)))
-                .Concat(PanelStats.Recovery(PanelStats.WhileMoving(Get, inputs.Moving), pools.Life, pools.Mana))
+                .Concat(PanelStats.Recovery(PanelStats.WhileMoving(Get, inputs.Moving), pools.Life, pools.Mana,
+                    LifeRegenerationKeystoneFactor(Get)))
                 // Leech limits and the client display use the full maximum pool. Petrified Blood caps only the
                 // recovery actually applied, not the instance's contribution or its displayed cap.
                 .Concat(LeechLimits.Compute(Get, pools.Life, pools.Mana, pools.EnergyShield, OnLowLife(stats)))
@@ -200,7 +202,7 @@ public static partial class Game
             if (Stat.SkillUsesMainHand is var usesMainHand) stats[usesMainHand] = 1;
             var mainWeapon = WeaponFor();
             var attackConversion = SupportedAttackDamage.WithWeaponGains(
-                DamageStats.Conversion(stats, Stats, attack: true), mainWeapon);
+                DamageStats.Conversion(stats, Stats, attack: true), mainWeapon, Get);
             var attack = AttackHitConverted(mainWeapon, stats, MeleeAttack(), attackConversion, new(mainAccuracy));
             foreach (var (stat, value) in PanelStats.HandDamage(attack, "main_hand"))
                 if (stat is var key) stats[key] = value;
@@ -215,7 +217,7 @@ public static partial class Game
                 int offAccuracy = PlayerAccuracyModifiers.Selected(pools, Profile(), _ => 0,
                     Get(PlayerAccuracyModifiers.BootsMore), localDifference, inputs.BlindLess);
                 var offConversion = SupportedAttackDamage.WithWeaponGains(
-                    DamageStats.Conversion(stats, Stats, attack: true), offWeapon);
+                    DamageStats.Conversion(stats, Stats, attack: true), offWeapon, Get);
                 ailmentRows.AddRange(AilmentPanelStats.Compute(ailmentContext with { Hand = "off_hand" },
                     SupportedAttackDamage.Raw(offWeapon, Get, new(offAccuracy)), offConversion, Get));
             }

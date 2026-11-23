@@ -172,6 +172,9 @@ public sealed record MonsterAttack(ushort SkillId, double Seconds, double Range,
     /// virtual cast-time stat; an attack's from the weapon duration. Sending only attack stats for a spell left the client's
     /// cast-duration function without its value and crashed it (0xc0000005, live 2026-10-31).</summary>
     public bool Spell { get; init; }
+    /// <summary>The action's clip only: it lands no contact. A scripted skill whose hit or area the controller applies on
+    /// its own clock sets this, so the client does not also get a zero-damage hit at the clip's contact.</summary>
+    public bool NoContact { get; init; }
     /// <summary>The action casts, but its contact is secondary damage rather than attack or spell damage.</summary>
     public bool Secondary { get; init; }
     /// <summary>The skill's native cooldown in seconds (GrantedEffectsPerLevel Cooldown) for non-kit monsters; 0 when none.</summary>
@@ -322,6 +325,9 @@ public sealed class SpawnedMonster(string label, PlayerWalk walk, int aggroRange
     /// <summary>The rest of a boss's skills (BossKits): the effect each one comes from, its action and its cooldown.
     /// Empty for every monster that swings one attack.</summary>
     public IReadOnlyList<MonsterKitSkill> Kit { get; init; } = [];
+    /// <summary>The effect behind each id on the actor's skill list, so a mod's command can play any of the monster's own
+    /// skills by the GrantedEffects Id the client shows. Empty when the spawn named none.</summary>
+    public IReadOnlyList<(int Effect, ushort Id)> SkillIds { get; init; } = [];
     /// <summary>When each kit skill is ready again, by granted effect (Clock seconds), in the area's frame.</summary>
     public readonly Dictionary<int, double> KitReadyAt = [];
     /// <summary>The damage taken toward each kit trigger on damage taken since it was last cast, by granted effect.</summary>

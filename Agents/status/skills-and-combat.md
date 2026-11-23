@@ -125,9 +125,15 @@ Part of [Status](../Status.md); what to build next in this area is in
   Mark waivers, Cannibalistic Rite, the Covenant and Rathpith Globe use the server's resource admission.
 - Energy Shield skill costs (Energy Blade, Wild Strike of Extremes, Replica Covenant) and Eldritch Battery: costs paid
   from Energy Shield first, hits past it to Life, its Mana share taken from it, 50% less recharge (not checked live).
+  Eternal Youth redirects recharge to Life and reduces regeneration and total Life leech. Immortal Ambition
+  prevents shield recharge and regeneration and redirects retained Life leech at full Life ([15](../docs/protocol/15-progression.md)).
   Docs: [20](../docs/protocol/20-damage.md).
 - Bow arrow counts from bow and quiver modifiers. Docs: [11](../docs/protocol/11-skills.md) Â§10,
   [RE count inputs](../docs/re/projectiles/count-stat-inputs.md) Â§3.
+- Explosive Arrow adds fuses on terminal contacts. The first fuse times the combined blast, and hitting the fuse cap
+  detonates it early.
+- Ensnaring Arrow tethers a surviving final target until it leaves the anchor's radius. Its projectile attack
+  damage taken modifier does not multiply with each additional tether.
 - Tornado Shot's terminal secondary arrows. Docs: [11](../docs/protocol/11-skills.md) Â§10,
   [RE terminal geometry](../docs/re/projectiles/tornado-geometry.md).
 - Kinetic Bolt's zig-zags (including multi-projectile volley parity). Docs: [11](../docs/protocol/11-skills.md) Â§10.
@@ -143,7 +149,9 @@ Part of [Status](../Status.md); what to build next in this area is in
   [20](../docs/protocol/20-damage.md#player-energy-shield-2026-10-25).
 - Weapon-local damage and timing; wand/claw/dagger added ranges, Varunastra, Fan of Blades, Eclipse Solaris and the
   Ritual boots' accuracy lightning. Docs: [20](../docs/protocol/20-damage.md) Â§2a-2b.
-  Attack coefficients and weapon-scoped cold per Dexterity have shared consumers; new skill-specific inputs and native checks remain open (#368).
+  Attack coefficients, the typed weapon passives and weapon-scoped cold per Dexterity have shared consumers.
+  Attack-only ignite chances and the bow skill's ailment multiplier act at contact;
+  further skill-specific inputs and native checks remain open (#368).
 - Projectile framework: one 30 Hz runtime for gem and bow projectiles.
   Docs: [framework](../docs/game/projectile-framework.md), [client research](../docs/re/012-projectile-execution.md).
 - Arcane Might (#364). Docs: [Arcane Might](../docs/game/arcane-might.md), [20](../docs/protocol/20-damage.md) Â§2c.

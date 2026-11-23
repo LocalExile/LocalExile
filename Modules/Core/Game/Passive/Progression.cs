@@ -173,6 +173,7 @@ public static partial class Game
         sources = WithSummonBuffs(player, sources);
         sources = WithRighteousFireSpellBonus(player, sources);
         sources = WithSpreadPoisonRegeneration(player, sources);
+        ApplyRecoveryKeystoneStats(sources);
         double now = AreaTime(player);
         int mapBuffTime = MapModsOf(player)?.Get(Stat.MapPlayerBuffTimePassedPlusPctOnlyBuffCategory) ?? 0;
         int Get(uint k) => k == Stat.BuffTimePassedPlusPctOnlyBuffCategory
