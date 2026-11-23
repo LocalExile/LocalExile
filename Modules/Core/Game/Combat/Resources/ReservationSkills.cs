@@ -53,13 +53,18 @@ public static partial class Game
 
     static void ReservationHitLocked(Player player, SpawnedMonster target)
     {
-        if (target.Rarity is MonsterRarity.Rare or MonsterRarity.Unique && AffectingAuras(player).Any(a => a.EffectId == "Zealotry")
-            && RandomRolls.Chance(GolemStat(CharacterPlayerStats(player), Stat.CreateConsecratedGroundOnHitPctVsRareOrUniqueEnemy), 100, AreaRng(player)))
+        if (target.Rarity is MonsterRarity.Rare or MonsterRarity.Unique && AffectingAuras(player).Any(a => a.EffectId == "Zealotry"))
         {
-            var at = target.Walk.Position(AreaTime(player));
-            player.FlaskGrounds.Add(new(FlaskGrounds.Kind.ConsecratedGround, at.X, at.Y, 14,
-                AreaTime(player) + 8, QueueGroundArtLocked(player, FlaskGrounds.Kind.ConsecratedGround, at, 14)));
-            PresentNearby(player);
+            var playerStats = CharacterPlayerStats(player);
+            if (RandomRolls.Chance(GolemStat(playerStats, Stat.CreateConsecratedGroundOnHitPctVsRareOrUniqueEnemy), 100, AreaRng(player)))
+            {
+                double now = AreaTime(player);
+                var at = target.Walk.Position(now);
+                player.FlaskGrounds.Add(new(FlaskGrounds.Kind.ConsecratedGround, at.X, at.Y, 14,
+                    now + 8, QueueGroundArtLocked(player, FlaskGrounds.Kind.ConsecratedGround, at, 14),
+                    OwnConsecratedGroundCreatedLocked(player, playerStats)));
+                PresentNearby(player);
+            }
         }
         if (ReservationAura(player, "HeraldOfPurity") is { } purity && !target.Dead
             && target.Rarity is MonsterRarity.Rare or MonsterRarity.Unique

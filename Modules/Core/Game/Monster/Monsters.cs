@@ -2626,6 +2626,9 @@ public static partial class Game
         if (GameServer.Core.World.RandomRolls.Chance(StatOf(Stat.ChanceToFreezeEnemiesFor1SecondWhenHitPct), 100, AreaRng(player)))
             InflictedLocked(player, m, m.Ailments.Freeze(1, now, StatOf, name => m.Effects[name], AilmentArea(StatOf, _ => 0, spell: false)));
         AilmentsWhenHitLocked(player, m, StatOf, blocked, now, AreaRng(player));
+        if (StatOf(Stat.BlindEnemiesWhenHitPctChance) is > 0 and var blindAttackerChance)
+            InflictMonsterBlind(player, id, m, now, (blindAttackerChance, StatOf(Stat.BlindEffectPlusPct), BlindSeconds(StatOf)),
+                AreaRng(player));
         ReservationWhenHitLocked(player, id, m, blocked, now);
         if (player.PlayerLife == 0) { DamageTriggers.Remove(player); player.InvalidateIncomingHits(); ClearAntiquarianOnDeath(player); }
         RecordHardcoreDeath(player);

@@ -26,7 +26,7 @@ public static partial class Game
                 TauntLocked(player, at, radius, now, duration);
                 continue;
             }
-            int taken = kind == FlaskGrounds.Kind.ConsecratedGround ? ConsecratedEnemyDamageTakenNow(player) : 0;
+            int taken = kind == FlaskGrounds.Kind.ConsecratedGround ? OwnConsecratedGroundCreatedLocked(player, playerStats) : 0;
             player.FlaskGrounds.Add(new(kind, at.X, at.Y, radius, now + seconds,
                 QueueGroundArtLocked(player, kind, at, radius), taken));
             PresentNearby(player);
@@ -39,6 +39,15 @@ public static partial class Game
     /// (the running flask effects' strongest).</summary>
     static int ConsecratedEnemyDamageTakenNow(Player player) =>
         UtilityFlaskStat(player, FlaskGrounds.EnemyDamageTakenStat);
+
+    // The modifier belongs to this ground's creator and is captured once at creation.
+    static int OwnConsecratedGroundCreatedLocked(Player player, IReadOnlyDictionary<uint, int> playerStats)
+    {
+        if (playerStats.GetValueOrDefault(Stat.GainArcaneSurgeFor4SecondsWhenYouCreateConsecratedGroundWhileAffectedByZealotry) != 0)
+            GainArcaneSurgeLocked(player, AreaTime(player));
+        return ActorScale.Saturate((long)ConsecratedEnemyDamageTakenNow(player)
+            + playerStats.GetValueOrDefault(Stat.ConsecratedGroundEnemyDamageTakenPlusPctWhileAffectedByZealotry));
+    }
 
     /// <summary>The strongest value of a stat the running utility flasks grant (their "during effect" mods).</summary>
     public static int UtilityFlaskStat(Player player, uint stat) =>
@@ -136,7 +145,7 @@ public static partial class Game
         {
             state.PlaceStationary(new(FlaskGrounds.Kind.ConsecratedGround, here.X, here.Y, make,
                 double.PositiveInfinity, QueueGroundArtLocked(player, FlaskGrounds.Kind.ConsecratedGround, here, make),
-                ConsecratedEnemyDamageTakenNow(player)));
+                OwnConsecratedGroundCreatedLocked(player, StatSourceValues(player))));
             SyncFlaskGroundZones(player);
         }
         // A ground placed this step has its members from the next movement update; until then its cells decide.

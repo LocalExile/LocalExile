@@ -437,8 +437,7 @@ public static partial class Game
             return;
         }
         bool cryExerted;
-        player.RecentEvents.Record(StatConditions.UsedSkill, begun);
-        SiphoningSkillUsedLocked(player, begun);
+        RecordUsedSkillLocked(player, begun);
         cryExerted = ConsumeIntimidatingCryExertLocked(player, weapon.Melee && !ranged);
         PhaseRunOnSkillUse(player, use.SkillId, duration);
         // As GGG does for every action but Move: the client counts unanswered actions and would ask for a resync.
@@ -1402,8 +1401,7 @@ public static partial class Game
 
     static void RecordAcceptedGemUseAt(Player player, int effect, double acceptedAt)
     {
-        player.RecentEvents.Record(StatConditions.UsedSkill, acceptedAt);
-        SiphoningSkillUsedLocked(player, acceptedAt);
+        RecordUsedSkillLocked(player, acceptedAt);
         bool movement = SkillsFor(player).IsMovement(effect);
         if (movement) player.RecentEvents.Record(StatConditions.UsedMovementSkill, acceptedAt);
         if (movement && IsDashEffect(SkillsFor(player).EffectId(effect)))
@@ -2969,6 +2967,7 @@ public static partial class Game
         {
             TincturedWeaponIgnorePhysicalReductionChance = Has(Stat.TinctureApplied)
                 ? Value(Stat.HitsIgnoreEnemyMonsterPhysicalDamageReductionPctChanceWithTincturedWeapons) : 0,
+            CriticalPenetration = Value(Stat.CriticalStrikesPenetratesPctElementalResistancesWhileAffectedByZealotry),
         };
 
         bool Has(uint name) => name is var key
