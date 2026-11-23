@@ -5,7 +5,7 @@ namespace GameServer.Modules.Delve;
 /// <summary>Native terrain windows: the camp entrance is only the first trip, later trips join two mine checkpoints.</summary>
 static class DelveTerrain
 {
-    public static DelveMine.Plan Procedural(DelveMine mine, DelveMine.Plan plan)
+    public static DelveMine.Plan Procedural(DelveMine mine, DelveMine.Plan plan, Random random)
     {
         int minX = plan.Route.Min(p => p.X), minY = plan.Route.Min(p => p.Y);
         int w = checked(plan.Route.Max(p => p.X) - minX + 1), h = checked(plan.Route.Max(p => p.Y) - minY + 1);
@@ -19,17 +19,17 @@ static class DelveTerrain
         System.Buffers.Binary.BinaryPrimitives.WriteInt16LittleEndian(terrain.AsSpan(2), (short)minX);
         System.Buffers.Binary.BinaryPrimitives.WriteUInt16LittleEndian(terrain.AsSpan(4), (ushort)minY);
         byte previousFeature = mine.LastScene?.DestinationFeature ?? 7;
-        byte destination = (byte)Random.Shared.Next(10, 21);
-        while (destination == previousFeature) destination = (byte)Random.Shared.Next(10, 21);
+        byte destination = (byte)random.Next(10, 21);
+        while (destination == previousFeature) destination = (byte)random.Next(10, 21);
         for (int i = 0; i < path.Count; i++)
         {
             int at = 10 + (path[i].Y * w + path[i].X) * 5;
-            terrain[at] = i == 0 ? previousFeature : i == path.Count - 1 ? destination : (byte)Random.Shared.Next(10, 21);
+            terrain[at] = i == 0 ? previousFeature : i == path.Count - 1 ? destination : (byte)random.Next(10, 21);
             if (i == 0) terrain[at + 4] = 1;
             if (i == 0) continue;
             var a = path[i - 1]; var b = path[i];
             int side = b.X > a.X ? 1 : b.X < a.X ? 3 : b.Y > a.Y ? 0 : 2;
-            int opposite = (side + 2) % 4, slot = Random.Shared.Next(1, 3);
+            int opposite = (side + 2) % 4, slot = random.Next(1, 3);
             int before = 10 + (a.Y * w + a.X) * 5;
             terrain[before + 1] |= (byte)(1 << (side + 4));
             terrain[at + 1] |= (byte)(1 << (opposite + 4));
@@ -37,7 +37,7 @@ static class DelveTerrain
             terrain[at + 2] |= (byte)((3 - slot) << (opposite * 2));
         }
         uint seed;
-        do seed = (uint)System.Security.Cryptography.RandomNumberGenerator.GetInt32(2, int.MaxValue);
+        do seed = (uint)random.Next(2, int.MaxValue);
         while (seed is 12 or 13 or 14 or 15 || (mine.SceneSeeds ?? []).Contains(seed));
         return plan with { SceneSeed = seed, Terrain = terrain, DestinationFeature = destination };
     }

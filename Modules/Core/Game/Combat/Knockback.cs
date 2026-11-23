@@ -6,9 +6,9 @@ using GameServer.Core.World;
 /// state the resync and boss teleports use).</summary>
 static partial class Game
 {
-    internal const string KnockbackChanceStat = "base_global_chance_to_knockback_%";
-    internal const string KnockbackDistanceStat = "knockback_distance_+%";
-    internal const string KnockbackReversedStat = "enemy_knockback_direction_is_reversed";
+    internal const uint KnockbackChanceStat = Stat.BaseGlobalChanceToKnockbackPct;
+    internal const uint KnockbackDistanceStat = Stat.KnockbackDistancePlusPct;
+    internal const uint KnockbackReversedStat = Stat.EnemyKnockbackDirectionIsReversed;
     // Native 0x1af knockback presentation (Client/Game.exe 0x141e9828b -> 0x141e9d030):
     // flags bit 11 (0x0800) invokes Actor::ApplyKnockback with kind bits 0x04 (u3c speed %) and 0x08 (u3e distance %).
     internal const ushort ActionHitKnockbackFlag = 0x0800;
@@ -52,13 +52,13 @@ static partial class Game
     /// its existing Teleport presentation, without reproducing native knockback speed or animation. Call under the
     /// Monsters lock before damage, with the final skill radius. Only a coincident target uses <paramref name="from"/>
     /// toward <paramref name="landing"/> as its direction; without a nonzero direction it stays in place.</summary>
-    public static void LeapSlamDisplaceOccupants(ClientState conn, (int X, int Y) landing, double radius, double now,
+    public static void LeapSlamDisplaceOccupants(Player player, (int X, int Y) landing, double radius, double now,
         IReadOnlyDictionary<uint, int>? skill = null, (int X, int Y)? from = null)
     {
         if (!(radius > 0) || !double.IsFinite(radius)) return;
-        foreach (var m in conn.Monsters.Values)
+        foreach (var m in player.Area.Monsters.Values)
         {
-            if (!KnockbackAllowed(m) || m.Effects["cannot_be_knocked_back"] > 0) continue;
+            if (!KnockbackAllowed(m) || m.Effects[Stat.CannotBeKnockedBack] > 0) continue;
             var at = m.Walk.Position(now);
             double dx = (double)at.X - landing.X, dy = (double)at.Y - landing.Y;
             double distance = Math.Sqrt(dx * dx + dy * dy);
@@ -76,7 +76,7 @@ static partial class Game
             }
             var to = (X: (int)Math.Round(landing.X + dx / directionLength * separation),
                 Y: (int)Math.Round(landing.Y + dy / directionLength * separation));
-            if (to == at || !conn.Layout.WalkableFor(to.X, to.Y, size) || conn.Barrier.Contains(to)) continue;
+            if (to == at || !player.Layout.WalkableFor(to.X, to.Y, size) || player.Barrier.Contains(to)) continue;
             KnockbackCommitLocked(m, to, now);
         }
     }
@@ -142,23 +142,23 @@ static partial class Game
     /// <see cref="SpawnedMonster.NativeKnockbackPending"/> carries the native 0x1af presentation for hits that send
     /// ActionHit and <see cref="SpawnedMonster.KnockbackPending"/> falls back to the AI tick's Teleport for hits that
     /// do not. Under the Monsters lock, after the hit's damage.</summary>
-    internal static bool KnockbackOnHitLocked(ClientState conn, SpawnedMonster m, IReadOnlyDictionary<uint, int> player,
+    internal static bool KnockbackOnHitLocked(Player player, SpawnedMonster m, IReadOnlyDictionary<uint, int> playerStats,
         IReadOnlyDictionary<uint, int>? skill, double now, Random random, (int X, int Y)? origin = null)
     {
         if (!KnockbackAllowed(m)) return false;
-        int Stat(string name)
+        int Stat(uint name)
         {
-            if (Stats.Key(name) is not uint key) return 0;
-            return (int)Math.Clamp((long)player.GetValueOrDefault(key) + (skill?.GetValueOrDefault(key) ?? 0),
+            if (!(name is var key)) return 0;
+            return (int)Math.Clamp((long)playerStats.GetValueOrDefault(key) + (skill?.GetValueOrDefault(key) ?? 0),
                 int.MinValue, int.MaxValue);
         }
         if (!RandomRolls.Chance(Stat(KnockbackChanceStat), 100, random)) return false;
         var at = m.Walk.Position(now);
-        var from = origin ?? conn.Walk.Position(now);
+        var from = origin ?? player.Walk.Position(now);
         double cells = KnockbackMinimumMetres * CellsPerMetre * Math.Max(0, 1 + Stat(KnockbackDistanceStat) / 100d);
         int size = Math.Max(0, LivingCollision.Size(m));
         if (KnockbackDestination(from, at, cells,
-                (x, y) => conn.Layout.WalkableFor(x, y, size) && !conn.Barrier.Contains((x, y))) is not { } to) return false;
+                (x, y) => player.Layout.WalkableFor(x, y, size) && !player.Barrier.Contains((x, y))) is not { } to) return false;
         KnockbackCommitLocked(m, to, now);
         m.NativeKnockbackPending = NativeKnockbackFor(at, to, size, reversed: Stat(KnockbackReversedStat) != 0);
         return true;

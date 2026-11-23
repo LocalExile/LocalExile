@@ -4,8 +4,20 @@ using GameServer.Core;
 
 
 /// <summary>Essences.dat's exact class-specific affix keys, resolved against this client's Mods.dat.</summary>
-public sealed class EssenceCrafting(ItemCatalog catalog, ItemRolls rolls, string folder = "data")
+public sealed class EssenceCrafting
 {
+    readonly ItemCatalog catalog;
+    readonly ItemRolls rolls;
+    readonly string folder;
+
+    public EssenceCrafting(ItemCatalog catalog, ItemRolls rolls, string folder = "data")
+    {
+        this.catalog = catalog;
+        this.rolls = rolls;
+        this.folder = folder;
+        _all = Load(catalog, folder);
+    }
+
     public sealed record Essence(uint Hash, string Id, int Tier, int ModLevelCap, IReadOnlyDictionary<string, int> ModRows)
     {
         // Tier zero with item modifiers is the Essence of Desolation, not the Remnant of Corruption.
@@ -28,8 +40,8 @@ public sealed class EssenceCrafting(ItemCatalog catalog, ItemRolls rolls, string
         ["Quiver"] = "Display_Quiver_ModsKey",
     };
 
-    readonly Lazy<IReadOnlyList<Essence>> _all = new(() => Load(catalog, folder));
-    public IReadOnlyList<Essence> All => _all.Value;
+    readonly IReadOnlyList<Essence> _all;
+    public IReadOnlyList<Essence> All => _all;
     public bool Contains(uint hash) => All.Any(e => e.Hash == hash);
     public ModCatalog.Mod? Guaranteed(Essence essence, ItemCatalog.BaseType type) =>
         essence.ModRows.TryGetValue(type.Class, out int row) ? catalog.Mods.Row(row) : null;
@@ -49,8 +61,8 @@ public sealed class EssenceCrafting(ItemCatalog catalog, ItemRolls rolls, string
             fixedMods.Count(m => m.GenerationType == forced.GenerationType) >= 3) return null;
         // Modern essences refuse meta-crafted items, rather than pretending to honour the protected affixes.
         if (item.Mods.Where(m => m.Section == ModSection.Explicit).Any(m => catalog.Mods.ByHash(m.Hash)?.Stats.Any(s =>
-            s.Id is "item_generation_cannot_change_prefixes" or "item_generation_cannot_change_suffixes" or
-                "item_generation_cannot_roll_attack_affixes" or "item_generation_cannot_roll_caster_affixes") == true)) return null;
+            s.Id is Stat.ItemGenerationCannotChangePrefixes or Stat.ItemGenerationCannotChangeSuffixes or
+                Stat.ItemGenerationCannotRollAttackAffixes or Stat.ItemGenerationCannotRollCasterAffixes) == true)) return null;
 
         return ItemRolls.ClearForesee(rolls.Roll(item, ItemRarity.Rare, random, guaranteed: forced,
             maxModLevel: essence.ModLevelCap > 0 ? essence.ModLevelCap : null) with { Identified = true });

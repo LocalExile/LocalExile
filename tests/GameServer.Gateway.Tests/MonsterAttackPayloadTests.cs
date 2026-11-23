@@ -36,20 +36,20 @@ public class MonsterAttackPayloadTests
             Assert.Equal((ushort)(skeleton ? 3763 : 28915), quiver.VisualIdentity);
             Assert.Equal(BowSetup.NoWeaponType, quiver.Type);
             Assert.Equal(BowSetup.NoStance, quiver.Stance);
-            uint id = await Game.SpawnMonster("test", f.Stream, f.Ciphers, f.Conn, variety, 20,
+            uint id = await Game.SpawnMonster(f.Player, variety, 20,
                 GameServer.Core.Protocol.Instance.MonsterRarity.Normal, 100, 100, unrisen: false);
-            var origin = f.Conn.Instance.World.MonsterOrigins[id];
+            var origin = f.Player.Instance.World.MonsterOrigins[id];
             Assert.Contains("Inventories", variety.ComponentsOrBase);
             Assert.Equal(variety.Weapons, origin.Object.Equipped);
             Assert.NotEmpty(origin.Object.Blob());
 
-            uint empty = await Game.SpawnMonster("test", f.Stream, f.Ciphers, f.Conn, variety, 20,
+            uint empty = await Game.SpawnMonster(f.Player, variety, 20,
                 GameServer.Core.Protocol.Instance.MonsterRarity.Normal, 100, 100, unrisen: false, ownedLooks: []);
-            Assert.Empty(f.Conn.Instance.World.MonsterOrigins[empty].Object.Equipped!);
+            Assert.Empty(f.Player.Instance.World.MonsterOrigins[empty].Object.Equipped!);
             var custom = new[] { bow with { SkinVisual = (ushort)(bow.VisualIdentity == 26894 ? 42952 : 26894) } };
-            uint overridden = await Game.SpawnMonster("test", f.Stream, f.Ciphers, f.Conn, variety, 20,
+            uint overridden = await Game.SpawnMonster(f.Player, variety, 20,
                 GameServer.Core.Protocol.Instance.MonsterRarity.Normal, 100, 100, unrisen: false, ownedLooks: custom);
-            Assert.Equal(custom, f.Conn.Instance.World.MonsterOrigins[overridden].Object.Equipped);
+            Assert.Equal(custom, f.Player.Instance.World.MonsterOrigins[overridden].Object.Equipped);
         }
 
         // Bow monsters with an integral bow mesh only carry Weapon1 (arrow); slot 0 must still carry the Bow stance.

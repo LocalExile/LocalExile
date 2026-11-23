@@ -12,14 +12,14 @@ public static partial class Game
     // "Effects cannot be removed": nothing in the server removes a running flask effect besides expiry, death and the
     // flask leaving the bar, which the game does too, so there is nothing to guard yet.
     public const uint MagebloodWord = 3562871479;
-    public const string MagebloodLeftmostStat = "num_magic_utility_flasks_always_apply";
-    public const string MagebloodRightmostStat = "num_magic_utility_flasks_always_apply_rightmost";
+    public const uint MagebloodLeftmostStat = Stat.NumMagicUtilityFlasksAlwaysApply;
+    public const uint MagebloodRightmostStat = Stat.NumMagicUtilityFlasksAlwaysApplyRightmost;
 
     /// <summary>The Mageblood the character wears (belt row 10), or null when it is not worn or its requirements are unmet.</summary>
-    public static Item? MagebloodBelt(ClientState conn)
+    public static Item? MagebloodBelt(Player player)
     {
-        var belt = ItemsOf(conn).Items(PlayerInventories.Belt).FirstOrDefault();
-        return belt is { } worn && !IsInactive(conn, worn.Id) && IsMageblood(worn.Item) ? worn.Item : null;
+        var belt = ItemsOf(player).Items(PlayerInventories.Belt).FirstOrDefault();
+        return belt is { } worn && !IsInactive(player, worn.Id) && IsMageblood(worn.Item) ? worn.Item : null;
     }
 
     public static bool IsMageblood(Item item) =>
@@ -62,64 +62,69 @@ public static partial class Game
 
     /// <summary>The sources of the magic utility flasks Mageblood keeps applied, or none when it is not worn. The flasks'
     /// own effect mods count; <paramref name="character"/> is the character's stats for increased flask effect/duration.</summary>
-    public static IReadOnlyList<UtilityFlasks.Source> MagebloodSources(ClientState conn, Func<string, int> character,
+    public static IReadOnlyList<UtilityFlasks.Source> MagebloodSources(Player player, Func<uint, int> character,
         int? playerLevel = null)
     {
-        if (MagebloodBelt(conn) is not { } belt) return [];
-        var items = ItemsFor(conn);
+        if (MagebloodBelt(player) is not { } belt) return [];
+        var items = ItemsFor(player);
         var count = MagebloodFlaskCount(belt, items);
         if (count.Count == 0) return [];
         List<UtilityFlasks.Source> sources = [];
-        foreach (var flask in MagebloodFlasks(ItemsOf(conn).Items(PlayerInventories.Flask), count, items))
+        double now = AreaTime(player);
+        foreach (var flask in MagebloodFlasks(ItemsOf(player).Items(PlayerInventories.Flask), count, items))
             if (items.ByHash(flask.Item.TypeHash) is { } type && items.UtilityFlaskOf(type) is { } utility)
-                sources.AddRange(ItemUtilityFlaskFor(utility, flask.Item, ItemModStats.Local(flask.Item, items.Mods), character, playerLevel ?? conn.Pools.Level).Stats);
+            {
+                int adjacentEffect = flask.X <= byte.MaxValue ? AdjacentTinctureFlaskEffect(player, (byte)flask.X, character, now) : 0;
+                Func<uint, int> flaskCharacter = adjacentEffect == 0 ? character
+                    : stat => stat == Stat.FlaskEffectPlusPct ? character(stat) + adjacentEffect : character(stat);
+                sources.AddRange(ItemUtilityFlaskFor(utility, flask.Item, ItemModStats.Local(flask.Item, items.Mods), flaskCharacter, playerLevel ?? player.Pools.Level).Stats);
+            }
         return sources;
     }
 
     /// <summary>A running flask and Mageblood's permanent one can be the same effect: combine both source sets before
     /// one strongest-per-(effect, stat) pass, so the effect counts once (a Granite Flask gives 1500 armour, not 3000)
     /// while different effects still stack.</summary>
-    public static IReadOnlyList<(string Stat, int Value)> CombineUtilitySources(
+    public static IReadOnlyList<(uint Stat, int Value)> CombineUtilitySources(
         IEnumerable<UtilityFlasks.Source> running, IEnumerable<UtilityFlasks.Source> permanent) =>
         UtilityFlasks.Strongest(running.Concat(permanent));
 
     /// <summary>The utility flask stats that count now: the running effects deduplicated against Mageblood's permanent
     /// ones. Callers apply this once, not the two sets separately.</summary>
-    public static IReadOnlyList<(string Stat, int Value)> UtilityStats(ClientState conn, Func<string, int> character,
+    public static IReadOnlyList<(uint Stat, int Value)> UtilityStats(Player player, Func<uint, int> character,
         int? playerLevel = null) =>
-        CombineUtilitySources(conn.UtilityFlaskEffects.Sources()
-            .Concat(KillOnslaughtSources(conn, character))
-            .Concat(CatOnslaughtSources(conn, character))
-            .Concat(ChargeOnslaughtSources(conn, character))
-            .Concat(conn.RecoveryFlaskStats.Sources(conn.FlaskEffects)),
-            MagebloodSources(conn, character, playerLevel));
+        CombineUtilitySources(player.UtilityFlaskEffects.Sources()
+            .Concat(KillOnslaughtSources(player, character))
+            .Concat(CatOnslaughtSources(player, character))
+            .Concat(ChargeOnslaughtSources(player, character))
+            .Concat(player.RecoveryFlaskStats.Sources(player.FlaskEffects)),
+            MagebloodSources(player, character, playerLevel));
 
     /// <summary>Whether any modelled source currently grants Onslaught. Cat's owned effect is independent of the
     /// kill/flask state and therefore remains true when either of those ends.</summary>
-    public static bool HasOnslaught(ClientState conn) => HasIndependentOnslaught(conn) || ChargeOnslaughtActive(conn);
+    public static bool HasOnslaught(Player player) => HasIndependentOnslaught(player) || ChargeOnslaughtActive(player);
 
-    public static bool HasIndependentOnslaught(ClientState conn)
+    public static bool HasIndependentOnslaught(Player player)
     {
-        lock (conn.Monsters)
-            return conn.UtilityFlaskEffects.ShowsOnslaught
-                || conn.MagebloodBuffs.Values.Any(b => b.Extra is not null)
-                || KillOnslaughtOf(conn).Applied
-                || CatOnslaughtActiveLocked(conn);
+        return player.UtilityFlaskEffects.ShowsOnslaught
+            || player.MagebloodBuffs.Values.Any(b => b.Extra is not null)
+            || KillOnslaughtActiveLocked(player)
+            || CatOnslaughtActiveLocked(player);
     }
 
     /// <summary>Whether Mageblood forbids using this flask: magic utility flasks cannot be used while it is worn (normal and
     /// unique ones still can).</summary>
-    public static bool MagebloodBlocksFlaskUse(ClientState conn, Item flask) =>
-        MagebloodBelt(conn) is not null && IsMagicUtilityFlask(flask, ItemsFor(conn));
+    public static bool MagebloodBlocksFlaskUse(Player player, Item flask) =>
+        MagebloodBelt(player) is not null && IsMagicUtilityFlask(flask, ItemsFor(player));
 
     /// <summary>After the flask bar changed while Mageblood is worn: apply the new permanent flask stats now (the pools, the
     /// walk speed and the client's stats), instead of waiting for an equipment change or a relogin.</summary>
-    public static async Task RefreshMagebloodFlasks(string remote, NetworkStream stream, ConnectionCiphers ciphers, ClientState conn)
+    public static async Task RefreshMagebloodFlasks(Player player)
     {
-        if (MagebloodBelt(conn) is null) return;
-        lock (conn.Monsters) RecomputePoolsAndSpeed(conn);
-        await SendPlayerStatSnapshot(remote, stream, ciphers, conn,
-            () => PlayerStatsUpdateAtGate(conn, PlayerStatsWithCleared(conn)),
+        if (MagebloodBelt(player) is null) return;
+        RecomputePoolsAndSpeed(player);
+        await SendPlayerStatSnapshot(player,
+            () => PlayerStatsOffFrames(player),
             "0x01b3 player stats (Mageblood flasks)");
     }
 }

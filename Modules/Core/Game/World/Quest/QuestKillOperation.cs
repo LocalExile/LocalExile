@@ -7,9 +7,9 @@ public static partial class Game
     // Captured factories run now; only owned bytes and host incarnation tickets leave this bounded scope.
     [ThreadStatic] static QuestOutputCapture? QuestKillCommitOutput;
 
-    sealed class QuestOutputCapture(ClientState connection, WorldAdmission admission)
+    sealed class QuestOutputCapture(Player player, WorldAdmission admission)
     {
-        public ClientState Connection => connection;
+        public Player Player => player;
         public WorldAdmission Admission => admission;
         readonly List<(PlayerMinions.Output? Legacy, OutputBatch? Typed)> entries = [];
         public void Add(PlayerMinions.Output output) => entries.Add((output, null));
@@ -23,28 +23,28 @@ public static partial class Game
                 var output = legacy!;
                 if (output.Kind == PlayerMinions.OutputKind.QuestTransition)
                 {
-                    if (QuestTransitionRecords(connection, admission, output.TargetId!.Value, output.Transition!) is { } transition)
+                    if (QuestTransitionRecords(player, admission, output.TargetId!.Value, output.Transition!) is { } transition)
                         records.AddRange(transition.Records);
                     continue;
                 }
                 if (output.Kind == PlayerMinions.OutputKind.QuestFlags)
                 {
-                    if (QuestFlagPresentation(connection) is { } flags)
-                        records.Add(connection.LockstepClient
-                            ? PresentedRecord(connection.WorldOutput.PublishedObject(PlayerId), flags, output.Log)
+                    if (QuestFlagPresentation(player) is { } flags)
+                        records.Add(player.Connection.LockstepClient
+                            ? PresentedRecord(player.Connection.WorldOutput.PublishedObject(player.Id), flags, output.Log)
                             : OutputRecord.Immediate(flags, output.Log));
                     continue;
                 }
                 byte[] bytes = output.Kind switch
                 {
-                    PlayerMinions.OutputKind.MonsterType => connection.MonsterTypes.Add(output.MonsterType!.Value)
+                    PlayerMinions.OutputKind.MonsterType => player.MonsterTypes.Add(output.MonsterType!.Value)
                         ? GameServer.Core.Protocol.Instance.InstanceEntities.MonsterTypes([output.MonsterType.Value]) : [],
-                    PlayerMinions.OutputKind.Passives => PassivesMessage(connection).Bytes,
+                    PlayerMinions.OutputKind.Passives => PassivesMessage(player).Bytes,
                     _ => output.Packet,
                 };
                 if (output.WorldId is { } target)
                 {
-                    var builder = new WorldRecordBuilder(connection, admission);
+                    var builder = new WorldRecordBuilder(player, admission);
                     if (output.CreatesObject) builder.Create(target, bytes, output.Log);
                     else if (output.RemovesObject) builder.Remove(target, output.Log);
                     else builder.Presentation(target, bytes, output.Log);
@@ -58,10 +58,10 @@ public static partial class Game
         }
     }
 
-    public static OutputBatch CaptureQuestWorldOutput(ClientState conn, WorldAdmission admission, Func<Task> commit)
+    public static OutputBatch CaptureQuestWorldOutput(Player player, WorldAdmission admission, Func<Task> commit)
     {
         if (QuestKillCommitOutput is not null) throw new InvalidOperationException("Nested quest kill transaction");
-        var capture = new QuestOutputCapture(conn, admission);
+        var capture = new QuestOutputCapture(player, admission);
         QuestKillCommitOutput = capture;
         try
         {
@@ -73,46 +73,44 @@ public static partial class Game
         finally { QuestKillCommitOutput = null; }
     }
 
-    static OutputBatch CommitQuestKillOperation(string remote, NetworkStream stream, ConnectionCiphers ciphers,
-        ClientState conn, PlayerMinions.Output receipt, WorldAdmission admission)
+    static OutputBatch CommitQuestKillOperation(Player player, PlayerMinions.Output receipt, WorldAdmission admission)
     {
         if (receipt.Target?.Variety is not { } variety) return OutputBatch.Empty;
-        return CaptureQuestWorldOutput(conn, admission, () => QuestKillEffects(remote, stream, ciphers, conn,
+        return CaptureQuestWorldOutput(player, admission, () => QuestKillEffects(player,
             receipt.Target, variety, receipt.At!.Value, dropsCommitted: true));
     }
 
     // The outer admission owns the gate and all accepted birth reservations. Nested typed sends cannot await it
     // again or wait for a future frame. Pure post-birth presentation is represented explicitly in the returned batch.
-    public static Task<bool> SendWorldBatch(ClientState conn, IReadOnlyList<WorldObject> requires,
-        Func<WorldAdmission, OutputBatch?> atGate, Func<bool>? still = null, bool quest = false,
-        (string Remote, NetworkStream Stream, ConnectionCiphers Ciphers)? transport = null,
+    public static Task<bool> SendWorldBatch(Player player, IReadOnlyList<WorldObject> requires,
+        Func<WorldAdmission, OutputBatch?> atGate, Func<bool>? still = null, bool quest = false, 
         IReadOnlyList<WorldObject>? creates = null)
     {
-        if (Mirroring.Value)
+        if (PresentVerifyTag.Value is { } presentTag)
         {
-            var project = atGate;
-            atGate = admission => project(admission) is { } batch
-                ? new([.. batch.Records.Select(record => record.AsSharedView())]) : null;
+            var tagged = atGate;
+            atGate = admission => tagged(admission) is not { } records ? null : records.Records.Count == 0 ? records
+                : Logged(records, () => Console.WriteLine($"[present-verify] {player.Connection.Remote} {presentTag} sent unmarked: (records)"));
         }
         // A lockstep client's monster dies in the frame its death is written in, whichever producer writes it.
-        if (conn.LockstepClient)
+        if (player.Connection.LockstepClient)
         {
             var project = atGate;
             atGate = admission =>
             {
                 var batch = project(admission);
-                if (batch is not null) CorpseDeathsWritten(conn, batch);
+                if (batch is not null) CorpseDeathsWritten(player, batch);
                 return batch;
             };
         }
         if (QuestKillCommitOutput is not { } capture)
         {
-            if (!conn.LockstepClient) return PredictiveBatch();
-            return Program.SendRecords(conn, requires, atGate, still,
-                creates: creates, rules: Program.GameLogicOrNull as IWorldAdmissionRules, quest: quest, transport: transport);
+            if (!player.Connection.LockstepClient) return PredictiveBatch();
+            return Program.SendRecords(player, requires, atGate, still,
+                creates: creates, rules: Program.GameLogicOrNull as IWorldAdmissionRules, quest: quest);
         }
-        if (!ReferenceEquals(capture.Connection, conn)) throw new ArgumentException("A quest capture belongs to one connection.");
-        foreach (var target in requires) conn.WorldOutput.CheckOwner(target);
+        if (!ReferenceEquals(capture.Player, player)) throw new ArgumentException("A quest capture belongs to one connection.");
+        foreach (var target in requires) player.Connection.WorldOutput.CheckOwner(target);
         if (requires.Any(target => !target.IsReady))
             throw new InvalidOperationException("A synchronous quest producer cannot await an object birth; prepare presentation or admit later.");
         if (still is not null && !still()) return Task.FromResult(false);
@@ -122,12 +120,11 @@ public static partial class Game
 
         async Task<bool> PredictiveBatch()
         {
-            var wire = transport ?? conn.Wire;
             bool projected = false;
-            await Program.Send(wire.Remote, wire.Stream, wire.Ciphers, [], null, still, atGate: () =>
+            await Program.Send(player, [], null, still, atGate: () =>
             {
                 // Preserve predictive's existing batching, guards, projection time and combined wire write.
-                var admission = new WorldAdmission(conn.WorldOutput, []);
+                var admission = new WorldAdmission(player.Connection.WorldOutput, []);
                 try
                 {
                     if (atGate(admission) is not { } batch) return null;
@@ -142,12 +139,19 @@ public static partial class Game
 
     // Outside this bounded transaction, use the ordinary guarded cipher gate. Inside, evaluate projections
     // under the mutation lock and retain bytes. None of these awaits can yield to a retired Game callback.
-    static Task Send(string remote, NetworkStream stream, ConnectionCiphers ciphers, byte[] bytes,
+    static T Logged<T>(T value, Action log) { log(); return value; }
+
+    static Task Send(Player player, byte[] bytes,
         string? log, Func<bool>? still = null, Func<byte[]?>? atGate = null, string? sync = null)
     {
+        if (PresentVerifyTag.Value is not null)
+        {
+            if (atGate is null && bytes.Length > 0) Console.WriteLine($"[present-verify] {player.Connection.Remote} {PresentVerifyTag.Value} sent unmarked: {log}");
+            atGate = Tagged(atGate, player.Connection.Remote, log);
+        }
         if (QuestKillCommitOutput is not { } output)
-            return Program.Send(remote, stream, ciphers, bytes, log, still, atGate, sync);
-        if (!ReferenceEquals(output.Connection.Wire.Ciphers, ciphers))
+            return Program.Send(player, bytes, log, still, atGate, sync);
+        if (!ReferenceEquals(output.Player, player))
             throw new ArgumentException("A quest capture belongs to one cipher stream.");
         if (still is not null && !still()) return Task.CompletedTask;
         if (atGate is not null)

@@ -1,6 +1,6 @@
 using GameServer.Core.Protocol.Instance;
 
-/// <summary>Connection-owned, nonpersistent souls. Caller serializes all access, including consumption, under Monsters.</summary>
+/// <summary>Connection-owned, nonpersistent souls. Caller serializes all access, including consumption, in the area's frame.</summary>
 public sealed class VaalSoulState
 {
     readonly SortedDictionary<uint, VaalSoulBudget> budgets = [];

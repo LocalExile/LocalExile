@@ -1,4 +1,5 @@
 using System.Buffers.Binary;
+using GameServer.Core.Accounts;
 using GameServer.Core.Protocol.Instance;
 using GameServer.Core.World;
 
@@ -12,97 +13,142 @@ public sealed class BatchHudStatsCombatTests
         using var fixture = new MinionUtilityTests.Fixture();
         // 1 & 2. Requirement stats (main_hand_weapon_type, virtual_*_for_requirements, is_dual_wielding)
         //        and light radius virtual stats (virtual_light_radius_+%, virtual_blind_does_not_affect_light_radius).
-        var conn = new ClientState(new(1, "1_1_1", 300, 300, 100, 100, null, []), 1, 1)
+        var player = new Player(new(1, "1_1_1", 300, 300, 100, 100, null, []), 1, 1)
         {
-            Character = "BatchHudStats_" + Guid.NewGuid().ToString("N"),
-            ClassRow = 1,
-            PlayerSent = true,
+            Character = { Name = "BatchHudStats_" + Guid.NewGuid().ToString("N"), ClassRow = 1 },
+            Connection = { PlayerSent = true },
             Instance = new(),
+            PlayerLife = 100,
+            LeagueModule = new(new League("batch-hud-test", "Standard", false, false), new HashSet<string>(["Game"])),
         };
-        conn.Clock.Stop();
-        uint Key(string name) => Program.Stats.Key(name)!.Value;
-        conn.PlayerStats[Key("additional_strength")] = 100;
-        conn.PlayerStats[Key("additional_dexterity")] = 200;
-        conn.PlayerStats[Key("additional_intelligence")] = 80;
-        conn.PlayerStats[Key("light_radius_+%")] = 15;
-        conn.PlayerStats[Key("light_radius_+%_while_phased")] = 25;
-        conn.PlayerStats[Key("keystone_blind_monk")] = 1;
+        player.Clock.Stop();
+        try
+        {
+            using var statHook = GameEvents.PlayerStatSources.Add("Game", (p, s) =>
+            {
+                if (!ReferenceEquals(p, player)) return s;
+                s[Stat.AdditionalStrength] = s.GetValueOrDefault(Stat.AdditionalStrength) + 100;
+                s[Stat.AdditionalDexterity] = s.GetValueOrDefault(Stat.AdditionalDexterity) + 200;
+                s[Stat.AdditionalIntelligence] = s.GetValueOrDefault(Stat.AdditionalIntelligence) + 80;
+                s[Stat.LightRadiusPlusPct] = s.GetValueOrDefault(Stat.LightRadiusPlusPct) + 15;
+                s[Stat.LightRadiusPlusPctWhilePhased] = s.GetValueOrDefault(Stat.LightRadiusPlusPctWhilePhased) + 25;
+                s[Stat.KeystoneBlindMonk] = 1;
+                return s;
+            });
 
-        var items = Game.ItemsFor(conn);
-        var inv = Game.ItemsOf(conn);
-        var bow = ItemCatalog.Create(items.Find("Crude Bow")!, random: new Random(1));
-        inv.Add(PlayerInventories.Weapon1, 0, 0, bow);
+            var items = Game.ItemsFor(player);
+            var inv = Game.ItemsOf(player);
+            var bow = ItemCatalog.Create(items.Find("Crude Bow")!, random: new Random(1));
+            inv.Add(PlayerInventories.Weapon1, 0, 0, bow);
+            player.Pools = Game.PoolsFor(player, 1);
 
-        Dictionary<uint, int> stats;
-        using (new Game.PlayerStatScope(conn, fresh: true))
-            stats = Game.CharacterPlayerStats(conn);
+            IReadOnlyDictionary<uint, int> stats;
+            using (new Game.PlayerStatScope(player, fresh: true))
+                stats = Game.CharacterPlayerStats(player);
 
-        Assert.Equal(9, stats[Key("main_hand_weapon_type")]);
-        Assert.Equal(stats[Key("strength")], stats[Key("virtual_strength_for_requirements")]);
-        Assert.Equal(stats[Key("dexterity")], stats[Key("virtual_dexterity_for_requirements")]);
-        Assert.Equal(stats[Key("intelligence")], stats[Key("virtual_intelligence_for_requirements")]);
-        Assert.Equal(15, stats[Key("virtual_light_radius_+%")]);
-        Assert.Equal(1, stats[Key("virtual_blind_does_not_affect_light_radius")]);
+            Assert.Equal(9, stats[Stat.MainHandWeaponType]);
+            Assert.Equal(stats[Stat.Strength], stats[Stat.VirtualStrengthForRequirements]);
+            Assert.Equal(stats[Stat.Dexterity], stats[Stat.VirtualDexterityForRequirements]);
+            Assert.Equal(stats[Stat.Intelligence], stats[Stat.VirtualIntelligenceForRequirements]);
+            Assert.Equal(15, stats[Stat.VirtualLightRadiusPlusPct]);
+            Assert.Equal(1, stats[Stat.VirtualBlindDoesNotAffectLightRadius]);
 
-        // Phasing updates virtual_light_radius_+% with light_radius_+%_while_phased.
-        conn.Phasing = true;
-        using (new Game.PlayerStatScope(conn, fresh: true))
-            stats = Game.CharacterPlayerStats(conn);
-        Assert.Equal(40, stats[Key("virtual_light_radius_+%")]);
+            // Phasing updates virtual_light_radius_+% with light_radius_+%_while_phased.
+            player.Phasing = true;
+            using (new Game.PlayerStatScope(player, fresh: true))
+                stats = Game.CharacterPlayerStats(player);
+            Assert.Equal(40, stats[Stat.VirtualLightRadiusPlusPct]);
+            player.Phasing = false;
 
-        // Dual wielding emits main_hand_weapon_type, off_hand_weapon_type and is_dual_wielding on snapshots.
-        var bowEntry = inv.Items(PlayerInventories.Weapon1).Single();
-        inv.Remove(PlayerInventories.Weapon1, bowEntry.Id);
-        var sword1 = ItemCatalog.Create(items.Find("Rusted Sword")!, random: new Random(2));
-        var sword2 = ItemCatalog.Create(items.Find("Rusted Sword")!, random: new Random(3));
-        inv.Add(PlayerInventories.Weapon1, 0, 0, sword1);
-        inv.Add(PlayerInventories.Offhand1, 0, 0, sword2);
-        using (new Game.PlayerStatScope(conn, fresh: true))
-            stats = Game.CharacterPlayerStats(conn);
-        Assert.Equal(1, stats[Key("is_dual_wielding")]);
-        Assert.True(stats.ContainsKey(Key("off_hand_weapon_type")));
+            // Dual wielding emits main_hand_weapon_type, off_hand_weapon_type and is_dual_wielding on snapshots.
+            var bowEntry = inv.Items(PlayerInventories.Weapon1).Single();
+            inv.Remove(PlayerInventories.Weapon1, bowEntry.Id);
+            var sword1 = ItemCatalog.Create(items.Find("Rusted Sword")!, random: new Random(2));
+            var sword2 = ItemCatalog.Create(items.Find("Rusted Sword")!, random: new Random(3));
+            inv.Add(PlayerInventories.Weapon1, 0, 0, sword1);
+            inv.Add(PlayerInventories.Offhand1, 0, 0, sword2);
+            using (new Game.PlayerStatScope(player, fresh: true))
+                stats = Game.CharacterPlayerStats(player);
+            Assert.Equal(1, stats[Stat.IsDualWielding]);
+            Assert.True(stats.ContainsKey(Stat.OffHandWeaponType));
 
-        // 3. HUD minion counter icons (PlayerMinionsChange) for all active player minion types, including Spectre row 0.
-        SpawnedMonster LivingMinion(string label) => new(label, new PlayerWalk(100, 100, 30), 10, 1, 100) { Hostile = false };
-        GolemCatalog.Definition Def(string id, string kind, bool isGolem = false) =>
-            new(0, id, kind, "", 0, [], false, false, IsGolem: isGolem);
+            // 3. HUD minion counter icons (PlayerMinionsChange) for all active player minion types, including Spectre row 0.
+            SpawnedMonster LivingMinion(string label) => new(label, new PlayerWalk(100, 100, 30), 10, 1, 100) { Hostile = false };
+            GolemCatalog.Definition Def(string id, string kind, bool isGolem = false) =>
+                new(0, id, kind, "", 0, [], false, false, IsGolem: isGolem);
 
-        conn.Summons.Fighters[201] = new(201, LivingMinion("spectre"), Def("RaiseSpectre", "Spectre"), 0x1001);
-        conn.Summons.Fighters[202] = new(202, LivingMinion("zombie"), Def("RaiseZombie", "Zombie"), 0x1002);
-        conn.Summons.Fighters[203] = new(203, LivingMinion("skeleton"), Def("SummonSkeletons", "Skeleton"), 0x1003);
-        conn.Summons.Fighters[204] = new(204, LivingMinion("srs"), Def("SummonRagingSpirit", "RagingSpirit"), 0x1004);
-        conn.Golems.All[205] = new(205, LivingMinion("golem"), Def("SummonFlameGolem", "Fire", isGolem: true), 0x1005);
-        conn.Reservations.Fighters[206] = new(206, LivingMinion("agony"), Def("HeraldOfAgony", "Agony"), 0x1006);
+            player.Summons.Fighters[201] = new(201, LivingMinion("spectre"), Def("RaiseSpectre", "Spectre"), 0x1001);
+            player.Summons.Fighters[202] = new(202, LivingMinion("zombie"), Def("RaiseZombie", "Zombie"), 0x1002);
+            player.Summons.Fighters[203] = new(203, LivingMinion("skeleton"), Def("SummonSkeletons", "Skeleton"), 0x1003);
+            player.Summons.Fighters[204] = new(204, LivingMinion("srs"), Def("SummonRagingSpirit", "RagingSpirit"), 0x1004);
+            player.Golems.All[205] = new(205, LivingMinion("golem"), Def("SummonFlameGolem", "Fire", isGolem: true), 0x1005);
+            player.Reservations.Fighters[206] = new(206, LivingMinion("agony"), Def("HeraldOfAgony", "Agony"), 0x1006);
 
-        var rosterPacket = Game.SentinelOwnershipPresentation(conn);
-        Assert.NotNull(rosterPacket);
-        Assert.Equal(0x02bc, BinaryPrimitives.ReadUInt16BigEndian(rosterPacket.AsSpan(0, 2)));
-        Assert.Equal((ushort)0, conn.Summons.PresentedOwnership[201].Type);
-        Assert.Equal((ushort)7, conn.Summons.PresentedOwnership[202].Type);
-        Assert.Equal((ushort)9, conn.Summons.PresentedOwnership[203].Type);
-        Assert.Equal((ushort)20, conn.Summons.PresentedOwnership[204].Type);
-        Assert.Equal((ushort)24, conn.Summons.PresentedOwnership[205].Type);
-        Assert.Equal((ushort)39, conn.Summons.PresentedOwnership[206].Type);
-        Assert.Null(Game.SentinelOwnershipPresentation(conn)); // No changes -> no duplicate packet.
+            var rosterPacket = Game.SentinelOwnershipPresentation(player);
+            Assert.NotNull(rosterPacket);
+            Assert.Equal(0x02bc, BinaryPrimitives.ReadUInt16BigEndian(rosterPacket.AsSpan(0, 2)));
+            Assert.Equal((ushort)0, player.Summons.PresentedOwnership[201].Type);
+            Assert.Equal((ushort)7, player.Summons.PresentedOwnership[202].Type);
+            Assert.Equal((ushort)9, player.Summons.PresentedOwnership[203].Type);
+            Assert.Equal((ushort)20, player.Summons.PresentedOwnership[204].Type);
+            Assert.Equal((ushort)24, player.Summons.PresentedOwnership[205].Type);
+            Assert.Equal((ushort)39, player.Summons.PresentedOwnership[206].Type);
+            Assert.Null(Game.SentinelOwnershipPresentation(player)); // No changes -> no duplicate packet.
 
-        conn.Summons.Fighters.Clear();
-        conn.Golems.All.Clear();
-        conn.Reservations.Fighters.Clear();
-        Assert.NotNull(Game.SentinelOwnershipPresentation(conn));
-        Assert.Empty(conn.Summons.PresentedOwnership);
+            player.Summons.Fighters.Clear();
+            player.Golems.All.Clear();
+            player.Reservations.Fighters.Clear();
+            Assert.NotNull(Game.SentinelOwnershipPresentation(player));
+            Assert.Empty(player.Summons.PresentedOwnership);
 
-        // 4. Generic removable buff cancel (C->S 0x4b): accepts Removable=1 buffs, rejects unremovable debuffs.
-        Assert.True(Game.IsRemovableBuff(GracePeriod.BuffRow));
-        Assert.False(Game.IsRemovableBuff(1)); // chilled is non-removable
-        Assert.True(conn.EntryProtection.Start(0, (100, 100), 11, town: false, hideout: false));
-        Assert.True(await Game.CancelRemovableBuff(conn, 11));
-        Assert.Null(conn.EntryProtection.CurrentBuff);
+            // 4. Generic removable buff cancel (C->S 0x4b) via AreaBuffs: accepts Removable=1 buffs, rejects unremovable debuffs.
+            Assert.True(Game.IsRemovableBuff(GracePeriod.BuffRow));
+            Assert.False(Game.IsRemovableBuff(1)); // chilled is non-removable
 
-        conn.SupportGems.PresentedArcaneSurge = 12;
-        conn.SupportGems.ArcaneSurgeUntil = 99;
-        Assert.True(await Game.CancelRemovableBuff(conn, 12));
-        Assert.Equal(0, conn.SupportGems.PresentedArcaneSurge);
-        Assert.False(await Game.CancelRemovableBuff(conn, 999));
+            ushort PublishAndTakeInstance(Buff buff)
+            {
+                ushort expected = player.Area.Buffs.Next;
+                player.Area.Buffs.Set(player.Id, buff);
+                player.Area.Buffs.Publish();
+                Assert.NotNull(player.Area.Buffs.Find(player.Id, expected));
+                return expected;
+            }
+
+            // Grace Period cancel clears EntryProtection and queues AreaBuffs removal.
+            await Game.StartGracePeriod(player);
+            ushort graceWire = player.Area.Buffs.Next;
+            player.Area.Buffs.Publish();
+            Assert.Equal(GracePeriod.BuffRow, player.Area.Buffs.Find(player.Id, graceWire)?.Row);
+            Assert.True(await Game.CancelRemovableBuff(player, graceWire));
+            Assert.Null(player.EntryProtection.CurrentBuff);
+            Assert.False(player.Area.Buffs.Has(player.Id, GracePeriod.BuffRow, player.Id));
+
+            // Arcane Surge cancel clears SupportGems state and AreaBuffs entry.
+            Game.GainArcaneSurgeLocked(player, 0);
+            ushort surgeWire = PublishAndTakeInstance(new(895, player.Id, U68: Buff.Seconds(4)));
+            Assert.True(await Game.CancelRemovableBuff(player, surgeWire));
+            Assert.False(Game.ArcaneSurgeActive(player, 0));
+            Assert.False(player.Area.Buffs.Has(player.Id, 895, player.Id));
+
+            // Timed Phasing cancel clears PhasingUntil, AreaBuffs entry, and updates light radius / phasing stats.
+            Game.GainPhasing(player, 4);
+            ushort phasingWire = player.Area.Buffs.Next;
+            player.Area.Buffs.Publish();
+            Assert.True(player.IsPhasing);
+            Assert.True(await Game.CancelRemovableBuff(player, phasingWire));
+            Assert.False(player.IsPhasing);
+            Assert.False(player.Area.Buffs.HasRow(player.Id, 336));
+
+            // Non-removable debuff (chilled, row 1) is rejected even when live in AreaBuffs.
+            ushort chillWire = PublishAndTakeInstance(new(1, player.Id, U68: Buff.Seconds(4)));
+            Assert.False(await Game.CancelRemovableBuff(player, chillWire));
+            Assert.True(player.Area.Buffs.Has(player.Id, 1, player.Id));
+            Assert.False(await Game.CancelRemovableBuff(player, 999));
+        }
+        finally
+        {
+            PlayerInventories.Forget(player.Character.Name!);
+        }
     }
 
     [Fact]
@@ -132,10 +178,10 @@ public sealed class BatchHudStatsCombatTests
         Assert.Equal((byte)1, flagPacket[20]);
 
         // 7. Native 0x1af knockback sets flags bit 11 (0x0800), kind bits 0x0c (u3c/u3e), and clears Teleport fallback.
-        var kbConn = new ClientState(new(1, "1_1_1", 1000, 1000, 100, 100, null, []), 1, 1);
-        var kbTarget = kbConn.Monsters[1] = new SpawnedMonster("kb", kbConn.NewMonsterWalk(1, 105, 100, 30, 1, false), 0, 0, 100);
-        var kbStats = new Dictionary<uint, int> { [Program.Stats.Key("base_global_chance_to_knockback_%")!.Value] = 100 };
-        Assert.True(Game.KnockbackOnHitLocked(kbConn, kbTarget, kbStats, null, 0, new Random(1)));
+        var kbPlayer = new Player(new(1, "1_1_1", 1000, 1000, 100, 100, null, []), 1, 1);
+        var kbTarget = kbPlayer.Area.Monsters[1] = new SpawnedMonster("kb", kbPlayer.NewMonsterWalk(1, 105, 100, 30, 1, false), 0, 0, 100);
+        var kbStats = new Dictionary<uint, int> { [Stat.BaseGlobalChanceToKnockbackPct] = 100 };
+        Assert.True(Game.KnockbackOnHitLocked(kbPlayer, kbTarget, kbStats, null, 0, new Random(1)));
         Assert.NotNull(kbTarget.NativeKnockbackPending);
         var kb = kbTarget.NativeKnockbackPending!.Value;
         double expectedDist = (kb.DistanceMod * 0.01 + 1.0) * 4.0 * (LivingCollision.PlayerSize + 5.0)
@@ -166,67 +212,77 @@ public sealed class BatchHudStatsCombatTests
 
         // 9. Standard death XP penalty: 0% pre-Act 5 / HC / PvP, 5% Act 5 Kitava, 10% Act 10 Kitava, clamped to floor.
         uint floor = CharacterStats.LevelStarts[49], next = CharacterStats.LevelStarts[50], span = next - floor;
-        var xpConn = new ClientState(new(1, "1_1_1", 300, 300, 100, 100, null, []), 1, 1)
+        var xpPlayer = new Player(new(1, "1_1_1", 300, 300, 100, 100, null, []), 1, 1)
         {
-            Character = "DeathXp_" + Guid.NewGuid().ToString("N"),
-            Experience = floor + span / 2,
+            Character =
+            {
+                Name = "DeathXp_" + Guid.NewGuid().ToString("N"),
+                Experience = floor + span / 2,
+            },
         };
-        Assert.Equal(0, Game.DeathExperiencePenaltyPercent(xpConn));
-        Assert.Equal((0, xpConn.Experience, xpConn.Experience), Game.ApplyDeathExperiencePenalty(xpConn));
+        Assert.Equal(0, Game.DeathExperiencePenaltyPercent(xpPlayer));
+        Assert.Equal((0, xpPlayer.Character.Experience, xpPlayer.Character.Experience), Game.ApplyDeathExperiencePenalty(xpPlayer));
 
-        xpConn.QuestFlags.Add("a5q6-CompletedBoss");
-        Assert.Equal(5, Game.DeathExperiencePenaltyPercent(xpConn));
-        uint expected5 = xpConn.Experience - (uint)((ulong)span * 5UL / 100UL);
-        var (pct5, _, after5) = Game.ApplyDeathExperiencePenalty(xpConn);
+        xpPlayer.Character.QuestFlags.Add("a5q6-CompletedBoss");
+        Assert.Equal(5, Game.DeathExperiencePenaltyPercent(xpPlayer));
+        uint expected5 = xpPlayer.Character.Experience - (uint)((ulong)span * 5UL / 100UL);
+        var (pct5, _, after5) = Game.ApplyDeathExperiencePenalty(xpPlayer);
         Assert.Equal(5, pct5);
         Assert.Equal(expected5, after5);
-        Assert.Equal(expected5, xpConn.Experience);
+        Assert.Equal(expected5, xpPlayer.Character.Experience);
 
         // Unearned EndGameAvailable stays 5%; earned EndGameAvailable becomes 10% and clamps to current level floor.
-        xpConn.QuestFlags.Add(Quests.EndGameAvailable);
-        xpConn.UnearnedQuestFlags.Add(Quests.EndGameAvailable);
-        Assert.Equal(5, Game.DeathExperiencePenaltyPercent(xpConn));
-        xpConn.UnearnedQuestFlags.Remove(Quests.EndGameAvailable);
-        Assert.Equal(10, Game.DeathExperiencePenaltyPercent(xpConn));
-        xpConn.Experience = floor + 1;
-        var (pct10, _, afterFloor) = Game.ApplyDeathExperiencePenalty(xpConn);
+        xpPlayer.Character.QuestFlags.Add(Quests.EndGameAvailable);
+        xpPlayer.Character.UnearnedQuestFlags.Add(Quests.EndGameAvailable);
+        Assert.Equal(5, Game.DeathExperiencePenaltyPercent(xpPlayer));
+        xpPlayer.Character.UnearnedQuestFlags.Remove(Quests.EndGameAvailable);
+        Assert.Equal(10, Game.DeathExperiencePenaltyPercent(xpPlayer));
+        xpPlayer.Character.Experience = floor + 1;
+        var (pct10, _, afterFloor) = Game.ApplyDeathExperiencePenalty(xpPlayer);
         Assert.Equal(10, pct10);
         Assert.Equal(floor, afterFloor);
 
-        var hcConn = new ClientState(new(1, "1_1_1", 300, 300, 100, 100, null, []), 1, 1) { Hardcore = true };
-        hcConn.QuestFlags.Add(Quests.EndGameAvailable);
-        Assert.Equal(0, Game.DeathExperiencePenaltyPercent(hcConn));
-        var pvpConn = new ClientState(new(1, "pvp1", 300, 300, 100, 100, null, []), 1, 1);
-        pvpConn.QuestFlags.Add(Quests.EndGameAvailable);
-        Assert.Equal(0, Game.DeathExperiencePenaltyPercent(pvpConn));
+        var hcPlayer = new Player(new(1, "1_1_1", 300, 300, 100, 100, null, []), 1, 1) { Character = { Hardcore = true } };
+        hcPlayer.Character.QuestFlags.Add(Quests.EndGameAvailable);
+        Assert.Equal(0, Game.DeathExperiencePenaltyPercent(hcPlayer));
+        var pvpPlayer = new Player(new(1, "pvp1", 300, 300, 100, 100, null, []), 1, 1);
+        pvpPlayer.Character.QuestFlags.Add(Quests.EndGameAvailable);
+        Assert.Equal(0, Game.DeathExperiencePenaltyPercent(pvpPlayer));
 
         // 10. Chance-based instant cooldown reset sync (0x50cd / 0x52e2) keeps uses unspent and emits 0x02bc refresh.
         using var f = new MinionUtilityTests.Fixture();
         ushort skillId = f.Equip(("Flame Dash", 20)).Single();
-        var gem = Game.GemSkillEffects(f.Conn).Single(g => g.Id == skillId);
-        f.Conn.ClientSkillIds.Add(skillId);
-        f.Conn.PlayerStats[Program.Stats.Key(Game.BaseCooldownRefreshChanceStat)!.Value] = 100;
+        var gem = Game.GemSkillEffects(f.Player).Single(g => g.Id == skillId);
+        f.Player.ClientSkillIds.Add(skillId);
+        int refreshChance = 100, retaliationChance = 0;
+        using var cdStatHook = GameEvents.PlayerStatSources.Add("Game", (p, s) =>
+        {
+            if (!ReferenceEquals(p, f.Player)) return s;
+            if (refreshChance != 0) s[Game.BaseCooldownRefreshChanceStat] = s.GetValueOrDefault(Game.BaseCooldownRefreshChanceStat) + refreshChance;
+            if (retaliationChance != 0) s[Game.RetaliationPreventCooldownStat] = s.GetValueOrDefault(Game.RetaliationPreventCooldownStat) + retaliationChance;
+            return s;
+        });
 
-        Assert.True(Game.TryBeginSkillCooldownUse(f.Conn, skillId, gem.Effect, Game.CooldownForSkill(f.Conn, skillId),
+        Assert.True(Game.TryBeginSkillCooldownUse(f.Player, skillId, gem.Effect, Game.CooldownForSkill(f.Player, skillId),
             false, () => { }, out var ticket));
         Assert.NotNull(ticket);
         Assert.True(ticket.CooldownReset);
-        var cdState = Game.SingleUseState(f.Conn, gem.Effect, skillId);
+        var cdState = Game.SingleUseState(f.Player, gem.Effect, skillId);
         Assert.NotNull(cdState);
         Assert.Equal(0, cdState.SpentUses);
-        Assert.True(ticket.CommitNativeUse(f.Conn, skillId));
+        Assert.True(ticket.CommitNativeUse(f.Player, skillId));
         Assert.True(cdState.NeedsNativeRefresh);
-        var refreshPacket = Game.NativeCooldownRefresh(f.Conn, f.Conn.ProjectileEpoch, () => [(skillId, gem.Effect)]);
+        var refreshPacket = Game.NativeCooldownRefresh(f.Player, f.Player.ProjectileEpoch, () => [(skillId, gem.Effect)]);
         Assert.NotNull(refreshPacket);
         Assert.Equal(0x02bc, BinaryPrimitives.ReadUInt16BigEndian(refreshPacket.AsSpan(0, 2)));
         Assert.False(cdState.NeedsNativeRefresh);
 
         // 0x50cd applies only to Retaliation skills.
-        f.Conn.PlayerStats[Program.Stats.Key(Game.BaseCooldownRefreshChanceStat)!.Value] = 0;
-        f.Conn.PlayerStats[Program.Stats.Key(Game.RetaliationPreventCooldownStat)!.Value] = 100;
-        Assert.False(Game.CooldownResetTriggered(f.Conn, gem.Effect, skillId, new Random(1)));
+        refreshChance = 0;
+        retaliationChance = 100;
+        Assert.False(Game.CooldownResetTriggered(f.Player, gem.Effect, skillId, new Random(1)));
         const int crushingFistEffect = 12477;
         Assert.True(Program.Skills.IsRetaliation(crushingFistEffect));
-        Assert.True(Game.CooldownResetTriggered(f.Conn, crushingFistEffect, null, new Random(1)));
+        Assert.True(Game.CooldownResetTriggered(f.Player, crushingFistEffect, null, new Random(1)));
     }
 }

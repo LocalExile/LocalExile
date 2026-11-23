@@ -3,7 +3,7 @@ using GameServer.Core.World;
 /// <summary>
 /// The damaging ailments other objects have put on the player. Every accepted bleed is retained so a weaker
 /// bleed can continue after a stronger one expires; only the strongest active bleed deals damage. Poison stacks
-/// expire independently. Resource damage is advanced only by the player recovery owner under the Monsters lock.
+/// expire independently. Resource damage is advanced only by the player recovery owner in the area's frame.
 /// </summary>
 public sealed class IncomingDamagingAilments
 {
@@ -37,6 +37,20 @@ public sealed class IncomingDamagingAilments
             .DefaultIfEmpty(double.NegativeInfinity).Max();
     public bool Idle => bleeds.Count == 0 && poisons.Count == 0;
 
+    /// <summary>A bleed or poison was added or removed (the stats and presentation that show them follow).</summary>
+    public Action? Changed;
+
+    /// <summary>When a bleed or poison next starts or ends after <paramref name="now"/>; null without one.</summary>
+    public double? NextChangeAt(double now)
+    {
+        double next = double.PositiveInfinity;
+        foreach (var b in bleeds) next = Math.Min(next, Next(b.From, b.Until));
+        foreach (var p in poisons) next = Math.Min(next, Next(p.From, p.Until));
+        return double.IsFinite(next) ? next : null;
+        double Next(double from, double until) =>
+            from > now + TimeEpsilon ? from : until > now + TimeEpsilon ? until : double.PositiveInfinity;
+    }
+
     public State Snapshot(double now) =>
         new(Bleeding(now), BleedingUntil(now), PoisonStacks(now), PoisonUntil(now), bleedRevision, poisonRevision);
 
@@ -46,7 +60,7 @@ public sealed class IncomingDamagingAilments
     /// provenance only: removing the source that admitted it does not remove an instance already on the victim.
     /// </summary>
     public bool ApplyBleed(double now, double perSecond, double seconds, uint? source = null, bool reflected = false,
-        Func<string, int>? victim = null, double durationFactor = 1)
+        Func<uint, int>? victim = null, double durationFactor = 1)
     {
         if (now < bleedProtectedUntil) return false;
         if (!(perSecond > 0) || !(seconds > 0)) return false;
@@ -56,12 +70,13 @@ public sealed class IncomingDamagingAilments
         bleeds.Add(new(now, now + seconds, perSecond, source, reflected));
         latestStart = now;
         bleedRevision++;
+        Changed?.Invoke();
         return true;
     }
 
     /// <summary>Adds one independently expiring poison stack.</summary>
     public bool ApplyPoison(double now, double perSecond, double seconds, uint? source = null, bool reflected = false,
-        Func<string, int>? victim = null, double durationFactor = 1)
+        Func<uint, int>? victim = null, double durationFactor = 1)
     {
         if (now < poisonProtectedUntil) return false;
         if (!(perSecond > 0) || !(seconds > 0)) return false;
@@ -71,6 +86,7 @@ public sealed class IncomingDamagingAilments
         poisons.Add(new(now, now + seconds, perSecond, source, reflected));
         latestStart = now;
         poisonRevision++;
+        Changed?.Invoke();
         return true;
     }
 
@@ -79,7 +95,7 @@ public sealed class IncomingDamagingAilments
     /// grants do not own admitted ailments: losing the jewel stops future reflection, not an existing bleed or poison.
     /// Returns whether any instance was removed.
     /// </summary>
-    public bool Reconcile(Func<string, int> get)
+    public bool Reconcile(Func<uint, int> get)
     {
         int before = bleeds.Count + poisons.Count;
         if (PreventsBleeding(get))
@@ -125,7 +141,7 @@ public sealed class IncomingDamagingAilments
     /// is involved: bleeding uses physical ES routing and poison is Chaos damage.
     /// </summary>
     public int Advance(double from, double until, CharacterStats.Pools pools, EnergyShield shield,
-        Func<string, int> get, int bleedResistance, int bleedMaxResistance, int poisonResistance,
+        Func<uint, int> get, int bleedResistance, int bleedMaxResistance, int poisonResistance,
         int poisonMaxResistance, bool immune, bool physicalImmune, bool chaosImmune,
         Func<double, double, double> movingSeconds,
         ref double nonChaosBypassCarry, ref double chaosBypassCarry, double dotTakenFactor = 1)
@@ -163,7 +179,7 @@ public sealed class IncomingDamagingAilments
                     .Select(x => x.DamagePerSecond).DefaultIfEmpty(0).Max();
                 if (strongest > 0)
                 {
-                    double moved = get("no_extra_bleed_damage_while_moving") == 0
+                    double moved = get(Stat.NoExtraBleedDamageWhileMoving) == 0
                         ? Math.Clamp(movingSeconds(start, end), 0, seconds) : 0;
                     bleedFraction += strongest * (seconds + 2 * moved);
                 }
@@ -177,10 +193,10 @@ public sealed class IncomingDamagingAilments
             bleedFraction = poisonFraction = bleedTakenFraction = poisonTakenFraction = 0;
         }
 
-        bool unaffectedBleed = get("virtual_unaffected_by_bleeding") != 0
-            || get("base_unaffected_by_bleeding") != 0;
-        bool unaffectedPoison = get("virtual_unaffected_by_poison") != 0
-            || get("base_unaffected_by_poison") != 0;
+        bool unaffectedBleed = get(Stat.VirtualUnaffectedByBleeding) != 0
+            || get(Stat.BaseUnaffectedByBleeding) != 0;
+        bool unaffectedPoison = get(Stat.VirtualUnaffectedByPoison) != 0
+            || get(Stat.BaseUnaffectedByPoison) != 0;
         // Resistance and typed damage taken keep their fractions across update partitions. Round only after the
         // whole interval has reached this owner; the resource writer receives whole points as it always has.
         double bleedMitigated = unaffectedBleed || physicalImmune ? 0
@@ -201,11 +217,11 @@ public sealed class IncomingDamagingAilments
 
         int less = IncomingResourceDefences.LessTakenPct(pools, get);
         int bleedRaw = IncomingResourceDefences.TakenOverTime(bleedMitigated, get, ref bleedTakenFraction, less,
-            typedIncreasedPct: get("physical_damage_taken_+%"),
+            typedIncreasedPct: get(Stat.PhysicalDamageTakenPlusPct),
             reductionPct: ChargeEffects.Reduction(get).Physical,
             finalTakenPct: get(IncomingResourceDefences.UnhingedSaneDamageFinal));
         int poisonRaw = IncomingResourceDefences.TakenOverTime(poisonMitigated, get, ref poisonTakenFraction, less,
-            typedIncreasedPct: get("chaos_damage_taken_+%"),
+            typedIncreasedPct: get(Stat.ChaosDamageTakenPlusPct),
             finalTakenPct: get(IncomingResourceDefences.UnhingedSaneDamageFinal));
 
         Prune(until);
@@ -219,7 +235,7 @@ public sealed class IncomingDamagingAilments
                 get(IncomingResourceDefences.BypassStat), until, ref nonChaosBypassCarry);
         if (poisonRaw > 0)
             life += IncomingResourceDefences.DamageOverTime(shield, poisonRaw,
-                get("chaos_damage_does_not_bypass_energy_shield") != 0 ? 0 : 100,
+                get(Stat.ChaosDamageDoesNotBypassEnergyShield) != 0 ? 0 : 100,
                 until, ref chaosBypassCarry);
         return (int)Math.Min(int.MaxValue, life);
     }
@@ -237,6 +253,7 @@ public sealed class IncomingDamagingAilments
         // equal to a fresh empty state.
         bleedRevision++;
         poisonRevision++;
+        Changed?.Invoke();
     }
 
     const double TimeEpsilon = 1e-9;
@@ -254,38 +271,38 @@ public sealed class IncomingDamagingAilments
     void RemoveBleeds(Predicate<Bleed> match)
     {
         int removed = bleeds.RemoveAll(match);
-        if (removed > 0) bleedRevision++;
+        if (removed > 0) { bleedRevision++; Changed?.Invoke(); }
         if (bleeds.Count == 0) bleedFraction = bleedTakenFraction = 0;
     }
 
     void RemovePoisons(Predicate<Poison> match)
     {
         int removed = poisons.RemoveAll(match);
-        if (removed > 0) poisonRevision++;
+        if (removed > 0) { poisonRevision++; Changed?.Invoke(); }
         if (poisons.Count == 0) poisonFraction = poisonTakenFraction = 0;
     }
 
-    static bool PreventsBleeding(Func<string, int> get) =>
-        get("cannot_gain_bleeding") != 0 || get("base_cannot_gain_bleeding") != 0
-        || get("virtual_immune_to_bleeding") != 0 || get("immune_to_bleeding") != 0;
+    static bool PreventsBleeding(Func<uint, int> get) =>
+        get(Stat.CannotGainBleeding) != 0 || get(Stat.BaseCannotGainBleeding) != 0
+        || get(Stat.VirtualImmuneToBleeding) != 0 || get(Stat.ImmuneToBleeding) != 0;
 
-    static bool PreventsPoison(Func<string, int> get) =>
-        get("cannot_be_poisoned") != 0 || get("immune_to_poison") != 0;
+    static bool PreventsPoison(Func<uint, int> get) =>
+        get(Stat.CannotBePoisoned) != 0 || get(Stat.ImmuneToPoison) != 0;
 
-    public static double SelfDuration(Func<string, int>? get, bool bleed)
+    public static double SelfDuration(Func<uint, int>? get, bool bleed)
     {
         if (get is null) return 1;
-        string combined = bleed ? "combined_bleeding_duration_on_self_+%" : "combined_poison_duration_on_self_+%";
-        string plain = bleed ? "self_bleed_duration_+%" : "self_poison_duration_+%";
-        string final = bleed ? "self_bleed_duration_+%_final" : "self_poison_duration_+%_final";
-        string combinedFinal = bleed ? "combined_self_bleed_duration_+%_final" : "combined_self_poison_duration_+%_final";
+        uint combined = bleed ? Stat.CombinedBleedingDurationOnSelfPlusPct : Stat.CombinedPoisonDurationOnSelfPlusPct;
+        uint plain = bleed ? Stat.SelfBleedDurationPlusPct : Stat.SelfPoisonDurationPlusPct;
+        uint final = bleed ? Stat.SelfBleedDurationPlusPctFinal : Stat.SelfPoisonDurationPlusPctFinal;
+        uint combinedFinal = bleed ? Stat.CombinedSelfBleedDurationPlusPctFinal : Stat.Of("combined_self_poison_duration_+%_final");
         double increased = get(combined);
         if (increased == 0) increased = get(plain);
         return Math.Max(0, 1 + increased / 100.0)
             * Math.Max(0, 1 + get(final) / 100.0)
             * Math.Max(0, 1 + get(combinedFinal) / 100.0)
-            * Math.Max(0, 1 + get(bleed ? "pantheon_shakari_self_bleed_duration_+%_final"
-                : "pantheon_shakari_self_poison_duration_+%_final") / 100.0);
+            * Math.Max(0, 1 + get(bleed ? Stat.Of("pantheon_shakari_self_bleed_duration_+%_final")
+                : Stat.PantheonShakariSelfPoisonDurationPlusPctFinal) / 100.0);
     }
 
 }

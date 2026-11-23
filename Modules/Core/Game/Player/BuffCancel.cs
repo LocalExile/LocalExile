@@ -3,262 +3,189 @@ using GameServer.Core.Protocol.Instance;
 
 public static partial class Game
 {
-    static readonly Lazy<HashSet<ushort>> RemovableBuffRows = new(() =>
+    static HashSet<ushort> RemovableBuffRows = [];
+
+    /// <summary>Loads removable <c>BuffDefinitions</c> rows at startup (<c>GameModule.LoadData</c>).</summary>
+    public static void LoadBuffCancelData()
     {
         var set = new HashSet<ushort>();
         foreach (var row in ClientTables.TableOrEmpty("BuffDefinitions"))
             if (row.BoolOrNull("Removable") == true) set.Add((ushort)row.Index);
-        return set;
-    });
+        RemovableBuffRows = set;
+    }
 
     /// <summary>Whether <c>BuffDefinitions</c> row <paramref name="row"/> is player-removable (right-click C→S 0x4b).</summary>
-    public static bool IsRemovableBuff(ushort row) => RemovableBuffRows.Value.Contains(row);
+    public static bool IsRemovableBuff(ushort row) => RemovableBuffRows.Contains(row);
 
-    /// <summary>Generic removable player buff cancellation (C→S 0x4b, <c>GameEvents.BuffCancel</c>): matches active
-    /// player buffs whose <c>BuffDefinitions.Removable</c> flag is true, clears their state, recalculates pools/stats
-    /// when needed, and emits S→C 0x1c2. Unremovable debuffs/buffs are rejected.</summary>
-    public static async Task<bool> CancelRemovableBuff(ClientState conn, ushort buffInstance)
+    /// <summary>Generic removable player buff cancellation (C→S 0x4b, <c>GameEvents.BuffCancel</c>): resolves the wire
+    /// instance in <c>player.Area.Buffs</c>, verifies <c>BuffDefinitions.Removable</c>, clears the owning rule's state
+    /// and its <c>AreaBuffs</c> entry, and refreshes pools/stats. Non-removable debuffs/buffs are rejected.</summary>
+    public static async Task<bool> CancelRemovableBuff(Player player, ushort buffInstance)
     {
-        if (buffInstance == 0 || !CurrentGameWork || conn.Closed || conn.LeavingArea) return false;
-        var (remote, stream, ciphers) = conn.Wire;
+        if (buffInstance == 0 || !CurrentGameWork || player.Closed || player.LeavingArea) return false;
+        double now = AreaTime(player);
+        bool publish = player.Connection.Connected || player.Area.Owned;
+        var activeBuff = player.Area.Buffs.Find(player.Id, buffInstance);
+        // Any live AreaBuffs entry whose BuffDefinitions row is not Removable is rejected immediately.
+        if (activeBuff is not null && !IsRemovableBuff(activeBuff.Row)) return false;
 
         // 1. Grace Period (row 6, Removable = 1).
-        if (conn.EntryProtection.CurrentBuff == buffInstance && IsRemovableBuff(GracePeriod.BuffRow))
+        if (activeBuff is { Row: GracePeriod.BuffRow } && activeBuff.Source == player.Id
+            && player.EntryProtection.CurrentBuff is not null)
         {
-            if (stream is not null) await EndGracePeriod(remote, stream, ciphers, conn, action: true);
-            else conn.EntryProtection.End(conn.Clock.Elapsed.TotalSeconds, conn.Walk.Position(conn.Clock.Elapsed.TotalSeconds), action: true);
+            await EndGracePeriod(player, action: true);
             return true;
         }
 
         // 2. Triggered/cast guard buff (Steelskin 1302, Immortal Call 110, Molten Shell 114; all Removable = 1).
-        bool guardCancelled = false, guardHasSession = false;
-        lock (conn.Monsters)
+        if (activeBuff is not null && activeBuff.Source == player.Id
+            && CurrentTriggeredGuard(player, now) is { Until: > 0 } guard
+            && activeBuff.Row == GuardRow(guard.Effect))
         {
-            double now = conn.Clock.Elapsed.TotalSeconds;
-            if (CurrentTriggeredGuard(conn, now) is { Until: > 0 } guard && guard.Buff == buffInstance)
+            bool guardHasSession = guard.Session is not null;
+            EndTriggeredGuard(player, guard, now);
+            if (!guardHasSession)
             {
-                ushort guardRow = guard.Effect switch { "ImmortalCall" => 110, "MoltenShell" => 114, _ => 1302 };
-                if (IsRemovableBuff(guardRow))
+                guard.Buff = 0;
+                player.Area.Buffs.Clear(player.Id, activeBuff.Row, player.Id);
+                if (publish) await SendCharacterStats(player, PlayerStatChange.Sources);
+            }
+            return true;
+        }
+
+        // 3. Vaal Immortal Call (row 109, Removable = 1; published directly via InstanceEntities.AddBuff).
+        if (VaalImmortalCalls.TryGetValue(player, out var vic)
+            && (vic.Buff == buffInstance || activeBuff is { Row: VaalImmortalCallBuffRow })
+            && IsRemovableBuff(VaalImmortalCallBuffRow))
+        {
+            VaalImmortalCalls.Remove(player);
+            if (activeBuff is not null)
+                player.Area.Buffs.Clear(player.Id, VaalImmortalCallBuffRow, player.Id);
+            else if (publish)
+                await SendWorldRecord(player, player.Id,
+                    InstanceEntities.RemoveBuff(player.Id, buffInstance), "0x01c2 Vaal Immortal Call cancelled");
+            return true;
+        }
+
+        if (activeBuff is null) return false;
+
+        // 4. Vaal auras (Vaal Discipline row 160, etc.; Removable = 1).
+        if (activeBuff.Tag == (ushort)BuffTag.VaalAura && activeBuff.Source == player.Id
+            && VaalAuraStates.TryGetValue(player, out var vaalAura) && vaalAura.Buff != 0
+            && vaalAura.Row == activeBuff.Row)
+        {
+            ClearVaalAuraBuffs(player, vaalAura);
+            vaalAura.Buff = vaalAura.Source = 0;
+            vaalAura.Until = 0;
+            vaalAura.Stat = null;
+            ++vaalAura.Token;
+            if (publish) await SendCharacterStats(player, PlayerStatChange.Auras);
+            return true;
+        }
+
+        // 5. Temporary auras (Divine Blessing / Vaal Haste / Smite; all Removable = 1).
+        if (activeBuff.Tag == 0 && activeBuff.Source == player.Id
+            && TemporaryAuraStates.TryGetValue(player, out var tempState))
+        {
+            foreach (var (skillId, entry) in tempState.Active.ToArray())
+            {
+                if (entry.Aura.BuffRow != activeBuff.Row
+                    || activeBuff.SourceSkill != 0 && entry.Aura.SkillId != activeBuff.SourceSkill)
+                    continue;
+                RemoveTemporaryAura(player, tempState, skillId);
+                tempState.StatsPending = false;
+                player.Pools = BuildPoolsFor(player, player.Pools.Level);
+                player.ApplyMovementSpeed();
+                player.Area.Buffs.Clear(player.Id, entry.Aura.BuffRow, player.Id);
+                player.Area.Buffs.Clear(player.Id, entry.Aura.BuffRow, player.Id, auraSource: true);
+                if (publish)
                 {
-                    guardHasSession = guard.Session is not null;
-                    EndTriggeredGuard(conn, guard, now);
-                    if (!guardHasSession) guard.Buff = 0;
-                    guardCancelled = true;
+                    await SendOwnAuraChanges(player);
+                    await SendCharacterStats(player, PlayerStatChange.Auras);
                 }
+                return true;
             }
-        }
-        if (guardCancelled)
-        {
-            if (!guardHasSession && stream is not null)
-            {
-                await SendWorldRecord(remote, stream, ciphers, conn, PlayerId,
-                    InstanceEntities.RemoveBuff(PlayerId, buffInstance), "0x01c2 guard buff cancelled");
-                await SendCharacterStats(remote, stream, ciphers, conn, "guard buff cancelled");
-            }
-            return true;
-        }
-
-        // 3. Vaal Immortal Call (row 109, Removable = 1).
-        bool vicCancelled = false;
-        lock (conn.Monsters)
-        {
-            if (VaalImmortalCalls.TryGetValue(conn, out var vic) && vic.Buff == buffInstance
-                && IsRemovableBuff(VaalImmortalCallBuffRow))
-            {
-                VaalImmortalCalls.Remove(conn);
-                vicCancelled = true;
-            }
-        }
-        if (vicCancelled)
-        {
-            if (stream is not null)
-                await SendWorldRecord(remote, stream, ciphers, conn, PlayerId,
-                    InstanceEntities.RemoveBuff(PlayerId, buffInstance), "0x01c2 Vaal Immortal Call cancelled");
-            return true;
-        }
-
-        // 4. Vaal Discipline (row 160, Removable = 1).
-        byte[]? vaalAuraRemove = null;
-        lock (conn.Monsters)
-        {
-            if (VaalAuraStates.TryGetValue(conn, out var aura) && aura.Buff != 0
-                && (aura.Buff == buffInstance || aura.Source == buffInstance) && IsRemovableBuff(160))
-            {
-                var bytes = new List<byte>(InstanceEntities.RemoveBuff(PlayerId, aura.Buff));
-                if (aura.Source != 0) bytes.AddRange(InstanceEntities.RemoveBuff(PlayerId, aura.Source));
-                aura.Buff = aura.Source = 0;
-                aura.Until = 0;
-                aura.Stat = null;
-                ++aura.Token;
-                vaalAuraRemove = [.. bytes];
-            }
-        }
-        if (vaalAuraRemove is not null)
-        {
-            if (stream is not null)
-            {
-                using var fresh = new PlayerStatScope(conn, fresh: true);
-                await Send(remote, stream, ciphers, [], "0x01c2 Vaal aura cancelled", atGate: () =>
-                {
-                    lock (conn.Monsters)
-                    {
-                        if (!CurrentGameWork || conn.Closed || conn.LeavingArea || conn.RageRetired) return null;
-                        return [.. vaalAuraRemove, .. PlayerStatsUpdateAtGate(conn, PlayerStatsWithCleared(conn))];
-                    }
-                });
-            }
-            return true;
-        }
-
-        // 5. Temporary auras (Divine Blessing / Vaal Haste; all Removable = 1).
-        bool tempAuraCancelled = false;
-        lock (conn.Monsters)
-        {
-            if (TemporaryAuraStates.TryGetValue(conn, out var tempState))
-                foreach (var (skillId, entry) in tempState.Active.ToArray())
-                    if ((entry.Aura.Buff == buffInstance || entry.Aura.SourceBuff == buffInstance)
-                        && IsRemovableBuff(entry.Aura.BuffRow))
-                    {
-                        RemoveTemporaryAura(conn, tempState, skillId);
-                        tempState.StatsPending = false;
-                        conn.Pools = BuildPoolsFor(conn, conn.Pools.Level);
-                        conn.ApplyMovementSpeed();
-                        tempAuraCancelled = true;
-                        break;
-                    }
-        }
-        if (tempAuraCancelled)
-        {
-            if (stream is not null)
-            {
-                await SendOwnAuraChanges(remote, stream, ciphers, conn);
-                await SendCharacterStats(remote, stream, ciphers, conn, "temporary aura cancelled");
-            }
-            return true;
         }
 
         // 6. Player toggled own auras (Determination, Grace, Discipline, etc.; Removable = 1).
-        AuraCatalog.Aura? ownAuraEnded = null;
-        lock (conn.Monsters)
+        if (activeBuff.Tag == 0 && activeBuff.Source == player.Id
+            && player.Auras.Values.FirstOrDefault(a => a.BuffRow == activeBuff.Row
+                && (activeBuff.SourceSkill == 0 || a.SkillId == activeBuff.SourceSkill)) is { } ownAura
+            && player.Auras.Remove(ownAura.SkillId))
         {
-            if (conn.Auras.Values.FirstOrDefault(a => (a.Buff == buffInstance || a.SourceBuff == buffInstance)
-                && IsRemovableBuff(a.BuffRow)) is { } active && conn.Auras.Remove(active.SkillId))
+            EndReservationRuntimeLocked(player, ownAura);
+            player.Pools = PoolsFor(player, player.Pools.Level);
+            player.ApplyMovementSpeed();
+            player.AuraStatsDirty = true;
+            CharacterSaves.SetAuraActive(CharacterName(player), ownAura.EffectId, false);
+            player.Area.Buffs.Clear(player.Id, ownAura.BuffRow, player.Id);
+            player.Area.Buffs.Clear(player.Id, ownAura.BuffRow, player.Id, auraSource: true);
+            if (publish)
             {
-                ownAuraEnded = active;
-                EndReservationRuntimeLocked(conn, active);
-                conn.Pools = PoolsFor(conn, conn.Pools.Level);
-                conn.ApplyMovementSpeed();
-                conn.AuraStatsDirty = true;
-                CharacterSaves.SetAuraActive(CharacterName(conn), active.EffectId, false);
-            }
-        }
-        if (ownAuraEnded is not null)
-        {
-            if (stream is not null)
-            {
-                await SendOwnAuraChanges(remote, stream, ciphers, conn);
-                await SendCharacterStats(remote, stream, ciphers, conn, $"aura {ownAuraEnded.Name} cancelled");
-                await SendPlayerMana(remote, stream, ciphers, conn,
-                    $"0x01b1 player mana {conn.PlayerMana}/{conn.Pools.Mana}, {ReservedMana(conn)} reserved");
+                await SendOwnAuraChanges(player);
+                await SendCharacterStats(player, PlayerStatChange.Auras);
+                await SendPlayerMana(player,
+                    $"0x01b1 player mana {player.PlayerMana}/{player.Pools.Mana}, {ReservedMana(player)} reserved");
             }
             return true;
         }
 
         // 7. Petrified Blood (row 1819, Removable = 1).
-        bool petrifiedCancelled = false;
-        lock (conn.Monsters)
+        if (activeBuff.Row == PetrifiedBlood.BuffRow && activeBuff.Source == player.Id
+            && player.PetrifiedBlood.Active)
         {
-            if (conn.PetrifiedBlood.Active && conn.PetrifiedBlood.Buff == buffInstance
-                && IsRemovableBuff(PetrifiedBlood.BuffRow))
+            player.PetrifiedBlood.Suspend();
+            player.AuraStatsDirty = true;
+            CharacterSaves.SetPetrifiedBlood(CharacterName(player), false);
+            player.Area.Buffs.Clear(player.Id, PetrifiedBlood.BuffRow, player.Id);
+            if (publish)
             {
-                conn.PetrifiedBlood.Suspend();
-                conn.AuraStatsDirty = true;
-                CharacterSaves.SetPetrifiedBlood(CharacterName(conn), false);
-                petrifiedCancelled = true;
-            }
-        }
-        if (petrifiedCancelled)
-        {
-            if (stream is not null)
-            {
-                await SendOwnAuraChanges(remote, stream, ciphers, conn);
-                await SendPlayerMana(remote, stream, ciphers, conn,
-                    $"0x01b1 player mana {conn.PlayerMana}/{conn.Pools.Mana}, {ReservedMana(conn)} reserved (Petrified Blood cancelled)");
+                await SendOwnAuraChanges(player);
+                await SendCharacterStats(player, PlayerStatChange.Auras);
+                await SendPlayerMana(player,
+                    $"0x01b1 player mana {player.PlayerMana}/{player.Pools.Mana}, {ReservedMana(player)} reserved (Petrified Blood cancelled)");
             }
             return true;
         }
 
         // 8. Arcane Surge (row 895, Removable = 1).
-        bool arcaneCancelled = false;
-        lock (conn.Monsters)
+        if (activeBuff.Row == ArcaneSurgeBuffRow && activeBuff.Source == player.Id
+            && (player.SupportGems.ArcaneSurgeActiveAt(now) || player.SupportGems.PresentedArcaneSurge != 0))
         {
-            var sg = conn.SupportGems;
-            if (sg.PresentedArcaneSurge == buffInstance && IsRemovableBuff(ArcaneSurgeBuffRow))
-            {
-                sg.ArcaneSurgeUntil = 0;
-                sg.ArcaneSurgeShownUntil = 0;
-                sg.ArcaneSurgeCastSpeedPct = 0;
-                sg.ArcaneSurgeManaRegenPct = 0;
-                sg.ArcaneSurgeBuff = 0;
-                sg.PresentedArcaneSurge = 0;
-                sg.ArcaneSurgeRefresh = false;
-                sg.PendingStats = false;
-                RecomputePoolsAndSpeed(conn);
-                arcaneCancelled = true;
-            }
-        }
-        if (arcaneCancelled)
-        {
-            if (stream is not null)
-            {
-                using var fresh = new PlayerStatScope(conn, fresh: true);
-                await SendWorldRecord(remote, stream, ciphers, conn, PlayerId,
-                    InstanceEntities.RemoveBuff(PlayerId, buffInstance), "0x01c2 Arcane Surge cancelled");
-                await SendCharacterStats(remote, stream, ciphers, conn, "Arcane Surge cancelled");
-            }
+            var sg = player.SupportGems;
+            sg.ArcaneSurgeUntil = 0;
+            sg.ArcaneSurgeShownUntil = 0;
+            sg.ArcaneSurgeCastSpeedPct = 0;
+            sg.ArcaneSurgeManaRegenPct = 0;
+            sg.ArcaneSurgeBuff = 0;
+            sg.PresentedArcaneSurge = 0;
+            sg.ArcaneSurgeRefresh = false;
+            sg.PendingStats = false;
+            player.Area.Buffs.Clear(player.Id, ArcaneSurgeBuffRow, player.Id);
+            RecomputePoolsAndSpeed(player);
+            if (publish) await SendCharacterStats(player, PlayerStatChange.Sources);
             return true;
         }
 
         // 9. Timed Phasing buff (row 336, Removable = 1) when not held by a permanent flask/source.
-        bool phasingCancelled = false;
-        lock (conn.Monsters)
+        if (activeBuff.Row == PhasingBuffRow && activeBuff.Source == player.Id
+            && !player.SourcePhasing && !player.Phasing && !player.Reservations.CatPhasing
+            && player.PhasingUntil > now)
         {
-            double now = conn.Clock.Elapsed.TotalSeconds;
-            if (conn.PhasingBuff == buffInstance && IsRemovableBuff(PhasingBuffRow.Value)
-                && !conn.SourcePhasing && !conn.Phasing && !conn.Reservations.CatPhasing && conn.PhasingUntil > now)
-            {
-                conn.PhasingUntil = 0;
-                phasingCancelled = true;
-            }
-        }
-        if (phasingCancelled)
-        {
-            if (stream is not null) await SyncPhasing(remote, stream, ciphers, conn);
-            else lock (conn.Monsters) { conn.PhasingBuff = 0; conn.PhasingSentUntil = 0; }
+            player.PhasingUntil = 0;
+            await SyncPhasing(player);
             return true;
         }
 
         // 10. Lightning Golem Wrath buff (row 676, Removable = 1).
-        bool wrathCancelled = false;
-        lock (conn.Monsters)
+        if (activeBuff.Row == 676
+            && player.Golems.Buffs.TryGetValue(676, out var wrath) && wrath.Source == activeBuff.Source)
         {
-            if (conn.Golems.Buffs.TryGetValue(676, out var wrath) && wrath.Instance == buffInstance && IsRemovableBuff(676))
-            {
-                conn.Golems.Buffs.Remove(676);
-                if (conn.Golems.All.TryGetValue(wrath.Source, out var golem)) golem.WrathUntil = 0;
-                RecomputePoolsAndSpeed(conn);
-                wrathCancelled = true;
-            }
-        }
-        if (wrathCancelled)
-        {
-            if (stream is not null)
-            {
-                using var fresh = new PlayerStatScope(conn, fresh: true);
-                await SendWorldRecord(remote, stream, ciphers, conn, PlayerId,
-                    InstanceEntities.RemoveBuff(PlayerId, buffInstance), "0x01c2 Lightning Golem Wrath cancelled");
-                await SendCharacterStats(remote, stream, ciphers, conn, "Lightning Golem Wrath cancelled");
-            }
+            player.Golems.Buffs.Remove(676);
+            if (player.Golems.All.TryGetValue(wrath.Source, out var golem)) golem.WrathUntil = 0;
+            player.Area.Buffs.Clear(player.Id, 676, wrath.Source);
+            RecomputePoolsAndSpeed(player);
+            if (publish) await SendCharacterStats(player, PlayerStatChange.Minions);
             return true;
         }
 

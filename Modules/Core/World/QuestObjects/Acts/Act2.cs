@@ -35,7 +35,7 @@ static class Act2Objects
     public const string ThaumeticSeal = "Metadata/QuestObjects/Spikes/SpikeBlockageButton";         // tile forest_mountainpass_v01_01.tdt
     public const string SpikeWall = "Metadata/QuestObjects/Spikes/SpikeBlockageForest", SpikeWall2 = "Metadata/QuestObjects/Spikes/SpikeBlockageForest2";
     public const string SpikeBlocker = "Metadata/QuestObjects/Spikes/SpikeBlockageBlocker";
-    public const string HelenaSins = "Metadata/NPC/Act2/HelenaSins", PietySins = "Metadata/NPC/Act2/PietySins";
+    public const string HelenaSins = "Metadata/NPC/Act2/HelenaSins", HelenaTown = "Metadata/NPC/Act2/HelenaTown", PietySins = "Metadata/NPC/Act2/PietySins";
     public const string StrangeDevice = "Metadata/Chests/QuestChests/Helena/PoisonCart";            // Chests 188
     public const string GoldenHandAltar = "Metadata/Chests/QuestChests/ChurchAltar";                // Chests 189, tile church_relic_altar_v01_01.tdt
     public const string PoisonTree = "Metadata/QuestObjects/Inca/PoisonTree";                       // tile forest_caveentrance_inca_v01_02.tdt
@@ -109,6 +109,8 @@ sealed class Act2 : Act
                 On.Near(ChamberOfSins2, Act2Objects.PietySins, "a2q6-SeenPiety"),
                 On.Killed(ChamberOfSins2, Act2Monsters.Fidelitas, "a2q6-KilledDemon"),
                 On.Npc(ChamberOfSins2, Act2Objects.HelenaSins, goneWith: "a2q6-HelenaInTown", transitionedBy: "a2q6-KilledDemon", transitionedTo: 2),
+                On.Npc(ForestEncampment, Act2Objects.HelenaTown, null, shownBy: "a2q6-HelenaInTown"),
+                On.TalkRow(462, "a2q6-HelenaInTown"),
                 On.Chest(ChamberOfSins2, Act2Objects.StrangeDevice, Act2Items.BalefulGem, opensWith: "a2q6-KilledDemon"),
             },
             // a2q4 "Sharp and Cruel": the Weaver (mapboss of SpiderGrove/Rooms/Unique/treasure.arm) drops Maligaro's Spike

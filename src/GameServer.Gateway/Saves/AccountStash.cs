@@ -487,18 +487,33 @@ public sealed partial class AccountStash
     /// <summary>The tab list for S→C 0x21 / 0x136. The last tab carries affinity bit <paramref name="selectBit"/> (if
     /// any): S→C 0x7b kind 1 with that affinity makes the panel select it. Loaded tabs are the ones this connection
     /// already has the inventory of.</summary>
-    public List<InstanceStash.Tab> Records(int? selectBit, ISet<int>? loaded = null)
+    public List<InstanceStash.Tab> Records(int? selectBit, ISet<int>? loaded = null) => Records(selectBit, loaded, null);
+
+    public List<InstanceStash.Tab> Records(int? selectBit, ISet<int>? loaded, ItemCatalog? openingWith)
     {
         lock (_lock)
-            return [.. _tabs.Select((t, i) => new InstanceStash.Tab((ushort)i, t.Saved.Name,
-                t.Saved.UniqueCategory != 0 && !(loaded?.Contains(i) ?? false) || t.Saved.Type == StashRules.Folder ? 0 : InventoryOf(i),
-                t.Saved.Type, t.Saved.R, t.Saved.G, t.Saved.B,
-                // Retail sends folders with the premium flag and no inventory (3.30 capture), though they have no colour.
-                Flags: IsPremium(t.Saved.Type) || t.Saved.Type == StashRules.Folder ? InstanceStash.TabFlags.Premium : InstanceStash.TabFlags.None,
-                Position: t.Saved.UniqueCategory == 0 ? t.Saved.Position ?? (ushort)i : (ushort)t.Items.Count,
-                Parent: t.Saved.Parent, Affinities: t.Saved.Affinities | (selectBit is int b && i == _lastTab ? 1u << b : 0),
-                Loaded: loaded?.Contains(i) ?? false, Id: $"{i + 1:x8}", U2c: t.Saved.Colour, HiddenKey: t.Saved.UniqueCategory,
-                Hidden: t.Saved.Hidden))];
+        {
+            List<InstanceStash.Tab> records = new(_tabs.Count);
+            for (int i = 0; i < _tabs.Count; i++)
+            {
+                var t = _tabs[i];
+                bool registered = loaded?.Contains(i) == true;
+                // Keep the inventory registered for deltas and manual drops. Detach ordinary panel pages on reopen
+                // so the native client builds only the visible page; collection children and vendor prices retain bindings.
+                bool detached = openingWith is not null && registered && !t.Saved.Hidden && t.Saved.UniqueCategory == 0
+                    && t.Saved.Type is not (StashRules.Unique or StashRules.Map) && !StashRules.PreloadsForPrices(t.Saved.Type, t.Items, openingWith);
+                records.Add(new InstanceStash.Tab((ushort)i, t.Saved.Name,
+                    detached || t.Saved.UniqueCategory != 0 && !registered || t.Saved.Type == StashRules.Folder ? 0 : InventoryOf(i),
+                    t.Saved.Type, t.Saved.R, t.Saved.G, t.Saved.B,
+                    // Retail sends folders with the premium flag and no inventory (3.30 capture), though they have no colour.
+                    Flags: IsPremium(t.Saved.Type) || t.Saved.Type == StashRules.Folder ? InstanceStash.TabFlags.Premium : InstanceStash.TabFlags.None,
+                    Position: t.Saved.UniqueCategory == 0 ? t.Saved.Position ?? (ushort)i : (ushort)t.Items.Count,
+                    Parent: t.Saved.Parent, Affinities: t.Saved.Affinities | (selectBit is int b && i == _lastTab ? 1u << b : 0),
+                    Loaded: registered && !detached, Id: $"{i + 1:x8}", U2c: t.Saved.Colour, HiddenKey: t.Saved.UniqueCategory,
+                    Hidden: t.Saved.Hidden));
+            }
+            return records;
+        }
     }
 
     public string NameOf(int tab) { lock (_lock) return tab >= 0 && tab < _tabs.Count ? _tabs[tab].Saved.Name : "?"; }
@@ -551,6 +566,8 @@ public sealed partial class AccountStash
     (int X, int Y)? CellIn(TabState t, Item item, int x, int y, out string why)
     {
         why = "";
+        if (item.Components.Contains("Quest") || _rules.IsQuestItem(item.TypeHash))
+        { why = "quest items cannot be stored in the stash"; return null; }
         if (t.Saved.UniqueCategory != 0)
         {
             // A map tab's page (AccountStash.Map) takes a map at the first free cell; every other hidden child is a

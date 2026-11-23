@@ -19,13 +19,14 @@ public sealed class TattooForbiddenTests
     [Fact]
     public void Every_forbidden_tattoo_has_a_pool_of_its_class_ascendancy_notables()
     {
-        var conn = new ClientState(new(1, "tattoo-forbidden", 1000, 1000, 100, 100, null, []), 1, 1)
+        var player = new Player(new(1, "tattoo-forbidden", 1000, 1000, 100, 100, null, []), 1, 1)
         {
-            Character = "TattooForbiddenChar", PlayerLife = 1000,
+            Character = { Name = "TattooForbiddenChar" },
+            PlayerLife = 1000,
             Pools = new(100, 1000, 1000, int.MaxValue, 0),
-            LeagueModule = new(new League("test", "Standard", false, false), new HashSet<string>(["Game"])),
+            LeagueModule = new(new League("test", "Standard", false, false), new HashSet<string>(["Game"]))
         };
-        var tree = Game.PassivesFor(conn);
+        var tree = Game.PassivesFor(player);
         foreach (string name in Names)
         {
             var entry = TattooCatalogue.Find(name);
@@ -50,27 +51,28 @@ public sealed class TattooForbiddenTests
         Assert.False(ForbiddenTattoo.IsForbidden("Tattoo of the Kitava Heart Eater"));
         Assert.Null(ForbiddenTattoo.Pool("Tattoo of the Kitava Heart Eater"));
 
-        var conn = new ClientState(new(1, "tattoo-forbidden", 1000, 1000, 100, 100, null, []), 1, 1)
+        var player = new Player(new(1, "tattoo-forbidden", 1000, 1000, 100, 100, null, []), 1, 1)
         {
-            Character = "TattooForbiddenChar", PlayerLife = 1000,
+            Character = { Name = "TattooForbiddenChar" },
+            PlayerLife = 1000,
             Pools = new(100, 1000, 1000, int.MaxValue, 0),
-            LeagueModule = new(new League("test", "Standard", false, false), new HashSet<string>(["Game"])),
+            LeagueModule = new(new League("test", "Standard", false, false), new HashSet<string>(["Game"]))
         };
-        var tree = Game.PassivesFor(conn);
+        var tree = Game.PassivesFor(player);
         ushort[] witchPool = [.. ForbiddenTattoo.Pool("Forbidden Tattoo of the Witch")!];
         // Not the replaced node and none of the character's other allocated notables: a rolled duplicate would count
         // its stats twice.
         ushort[] allocated = [27096, 37127, 31344];
         for (int i = 0; i < 20; i++)
         {
-            ushort picked = ForbiddenTattoo.Pick("Forbidden Tattoo of the Witch", 27096, allocated)!.Value;
+            ushort picked = ForbiddenTattoo.Pick("Forbidden Tattoo of the Witch", 27096, allocated, new Random(i))!.Value;
             Assert.Contains(picked, witchPool);
             Assert.DoesNotContain(picked, allocated);
             var stats = ForbiddenTattoo.Stats(tree, picked);
             Assert.NotNull(stats);
             Assert.NotEmpty(stats!);
         }
-        Assert.Null(ForbiddenTattoo.Pick("Forbidden Tattoo of the Witch", 0, witchPool));
+        Assert.Null(ForbiddenTattoo.Pick("Forbidden Tattoo of the Witch", 0, witchPool, new Random(1)));
         Assert.Null(ForbiddenTattoo.Stats(tree, null));
         // TattooBlockingPassive: the Duelist's Overwhelm row (hash 17315) blocks Sightless (passive row 5471, graph
         // id 24698) from being replaced, and the pick never offers it for that node.
@@ -83,25 +85,26 @@ public sealed class TattooForbiddenTests
     {
         string path = Path.Combine(Path.GetTempPath(), $"localexile-forbidden-dedupe-{Guid.NewGuid():N}.db");
         Saves.Open(path);
-        var conn = new ClientState(new(1, "tattoo-forbidden", 1000, 1000, 100, 100, null, []), 1, 1)
+        var player = new Player(new(1, "tattoo-forbidden", 1000, 1000, 100, 100, null, []), 1, 1)
         {
-            Character = "TattooForbiddenDedupe", PlayerLife = 1000,
+            Character = { Name = "TattooForbiddenDedupe" },
+            PlayerLife = 1000,
             Pools = new(100, 1000, 1000, int.MaxValue, 0),
-            LeagueModule = new(new League("test", "Standard", false, false), new HashSet<string>(["Game"])),
+            LeagueModule = new(new League("test", "Standard", false, false), new HashSet<string>(["Game"]))
         };
         try
         {
-            var tree = Game.PassivesFor(conn);
+            var tree = Game.PassivesFor(player);
             const ushort replaced = 27096; // Void Beacon: no stats of its own.
             const ushort granted = 37127; // Profane Bloom: another Witch ascendancy notable.
             var grantedStats = tree.Find(granted)!.Stats;
             var stat = grantedStats[0].Key;
-            int Stat(params ushort[] nodes) => Game.EquipmentStatSources(conn, [], nodes, 100).Sources.GetValueOrDefault(stat);
+            int Stat(params ushort[] nodes) => Game.EquipmentStatSources(player, [], nodes, 100).Sources.GetValueOrDefault(stat);
             int own = Stat(granted);
             Assert.True(own > 0);
-            conn.Tattoos[replaced] = "Forbidden Tattoo of the Witch";
-            conn.TattooKeystones[replaced] = granted;
-            conn.TattooRevision++;
+            player.Character.Tattoos[replaced] = "Forbidden Tattoo of the Witch";
+            player.Character.TattooKeystones[replaced] = granted;
+            player.Character.TattooRevision++;
             // The tattoo replaces Void Beacon's stats with Profane Bloom's.
             Assert.Equal(own, Stat(replaced));
             // Allocating Profane Bloom as well must not add a second copy; an inactive tattoo (60606 is not allocated)
@@ -111,7 +114,7 @@ public sealed class TattooForbiddenTests
         }
         finally
         {
-            PlayerInventories.Forget(conn.Character!);
+            PlayerInventories.Forget(player.Character.Name!);
             TestEnvironment.ReleaseSaves(path);
         }
     }

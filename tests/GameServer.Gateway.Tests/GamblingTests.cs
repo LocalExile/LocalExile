@@ -46,11 +46,11 @@ public class GamblingTests
         Assert.True(Gambling.Gambles("Metadata/NPC/League/Kalguur/VillageFaustusHideout"));
         Assert.False(Gambling.Gambles("Metadata/NPC/Act6/Bestel"));
         Assert.False(Gambling.Gambles("Metadata/NPC/Act1/Nessa"));
-        var conn = new ClientState(new(1, "gamble", 100, 100, 100, 100, null, []), 1, 1);
-        var offers = Gambling.CoreOffers(conn, 70);
+        var player = new Player(new(1, "gamble", 100, 100, 100, 100, null, []), 1, 1);
+        var offers = Gambling.CoreOffers(player, 70);
         Assert.Equal(Gambling.Kinds.Length, offers.Count);
         Assert.All(offers, o => Assert.Equal("HiddenItem", o.Shown.Class));
-        var items = Game.ItemsFor(conn);
+        var items = Game.ItemsFor(player);
         var random = new Random(3);
         foreach (var (kind, offer) in Gambling.Kinds.Zip(offers))
             for (int i = 0; i < 5; i++)
@@ -76,7 +76,8 @@ public class GamblingTests
             store.AddCharacter(new(Guid.NewGuid(), account.Id, "GambleAltStd", GameServer.Core.Accounts.CharacterClass.Witch, 20, "Standard", "1_1_town", DateTimeOffset.UtcNow, DateTimeOffset.UtcNow));
             store.AddCharacter(new(Guid.NewGuid(), account.Id, "GambleAltHc", GameServer.Core.Accounts.CharacterClass.Witch, 20, "Hardcore", "1_1_town", DateTimeOffset.UtcNow, DateTimeOffset.UtcNow));
             uint nextId = 1;
-            var stdAlt = new ClientState(new(1, "gamble", 100, 100, 100, 100, null, []), 1, 1) { Account = account.Name, Character = "GambleAltStd", League = "Standard" };
+            var stdAlt = new Player(new(1, "gamble", 100, 100, 100, 100, null, []), 1, 1)
+                { Character = { Account = account.Name, Name = "GambleAltStd", League = "Standard" } };
             stdAlt.Pools = stdAlt.Pools with { Level = 20 };
             var (_, stdOffers) = Gambling.Window(stdAlt, "Metadata/NPC/Act1/Bestel", () => nextId++, []);
             var stdRing = stdOffers.Values.Single(o => o.Shown.Id == "Metadata/Items/Rings/RingGamble");
@@ -84,7 +85,8 @@ public class GamblingTests
             var rolledStd = stdRing.Roll(new Random(5));
             Assert.NotNull(rolledStd);
             Assert.InRange(rolledStd.ItemLevel, 20, 22);
-            var hcAlt = new ClientState(new(1, "gamble", 100, 100, 100, 100, null, []), 1, 1) { Account = account.Name, Character = "GambleAltHc", League = "Hardcore" };
+            var hcAlt = new Player(new(1, "gamble", 100, 100, 100, 100, null, []), 1, 1)
+                { Character = { Account = account.Name, Name = "GambleAltHc", League = "Hardcore" } };
             hcAlt.Pools = hcAlt.Pools with { Level = 20 };
             var (_, hcOffers) = Gambling.Window(hcAlt, "Metadata/NPC/Act1/Bestel", () => nextId++, []);
             var hcRing = hcOffers.Values.Single(o => o.Shown.Id == "Metadata/Items/Rings/RingGamble");

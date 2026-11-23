@@ -36,9 +36,9 @@ public static class ShrineRegistry
             Duration = 45,
             PlayerStats =
             [
-                ("action_speed_-%", -50),        // 50% increased action speed
-                ("base_projectile_speed_+%", 80), // 80% increased projectile speed
-                ("has_shrine_effect", 1),
+                (Stat.ActionSpeedMinusPct, -50),        // 50% increased action speed
+                (Stat.BaseProjectileSpeedPlusPct, 80), // 80% increased projectile speed
+                (Stat.HasShrineEffect, 1),
             ],
             // Before activation: the shrine accelerates the monsters around it with its own monster buff, and takes that
             // buff off them when the player claims it (data: -60 action speed, 100 projectile speed).

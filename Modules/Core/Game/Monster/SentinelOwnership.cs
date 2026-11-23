@@ -46,83 +46,80 @@ public static partial class Game
     static ushort SentinelSourceGroup(ushort source) =>
         (ushort)(((source & 0xc000) == 0xc000 ? 0x8000 : 0xc000) | (source & 0x3fff));
 
-    static IEnumerable<GrantedSkill> SentinelSourceSkills(ClientState conn, IReadOnlyList<GrantedSkill> skills)
+    static IEnumerable<GrantedSkill> SentinelSourceSkills(Player player, IReadOnlyList<GrantedSkill> skills)
     {
-        var gems = GemSkillEffects(conn).ToArray();
-        foreach (var vaal in gems.Where(g => SkillsFor(conn).EffectId(g.Effect) is "VaalAbsolution" or "VaalDomination"))
+        var gems = GemSkillEffects(player).ToArray();
+        foreach (var vaal in gems.Where(g => SkillsFor(player).EffectId(g.Effect) is "VaalAbsolution" or "VaalDomination"))
         {
-            var parent = SupportedSkill(conn, vaal.Id);
-            string normal = SkillsFor(conn).EffectId(vaal.Effect) == "VaalAbsolution" ? "Absolution" : "DominatingBlow";
-            foreach (var regular in gems.Where(g => SkillsFor(conn).EffectId(g.Effect) == normal))
+            var parent = SupportedSkill(player, vaal.Id);
+            string normal = SkillsFor(player).EffectId(vaal.Effect) == "VaalAbsolution" ? "Absolution" : "DominatingBlow";
+            foreach (var regular in gems.Where(g => SkillsFor(player).EffectId(g.Effect) == normal))
             {
-                var source = SupportedSkill(conn, regular.Id);
+                var source = SupportedSkill(player, regular.Id);
                 if (parent.SourceGem is null || source.SourceGem is null || parent.Host != source.Host
                     || !ReferenceEquals(PlayerInventories.GemIdentity(parent.SourceGem), PlayerInventories.GemIdentity(source.SourceGem))) continue;
                 if (skills.FirstOrDefault(s => s.Id == regular.Id) is { } skill)
-                    yield return skill with { Id = SentinelSourceGroup(vaal.Id), Parent = (PlayerId, regular.Id) };
+                    yield return skill with { Id = SentinelSourceGroup(vaal.Id), Parent = (player.Id, regular.Id) };
                 break;
             }
         }
     }
 
-    internal static byte[]? SentinelOwnershipPresentation(ClientState conn)
+    internal static byte[]? SentinelOwnershipPresentation(Player player)
     {
-        lock (conn.Monsters)
+        if (!CurrentGameWork || player.Closed || player.LeavingArea) return null;
+        var current = new Dictionary<uint, MinionOwnershipChange>();
+        var gems = GemSkillEffects(player);
+        foreach (var minion in player.Summons.Fighters.Values)
         {
-            if (!CurrentGameWork || conn.Closed || conn.LeavingArea) return null;
-            var current = new Dictionary<uint, MinionOwnershipChange>();
-            var gems = GemSkillEffects(conn);
-            foreach (var minion in conn.Summons.Fighters.Values)
+            if (minion.Monster.Dead || minion.Monster.Life == 0) continue;
+            ushort sentinelType = SentinelNativeType(minion.Definition.Kind);
+            if (sentinelType != 0)
             {
-                if (minion.Monster.Dead || minion.Monster.Life == 0) continue;
-                ushort sentinelType = SentinelNativeType(minion.Definition.Kind);
-                if (sentinelType != 0)
+                var regular = SupportedSkill(player, minion.Source);
+                if (!regular.RequirementsMet || regular.SourceGem is null || minion.SourceIdentity is not null
+                    && !ReferenceEquals(minion.SourceIdentity, PlayerInventories.GemIdentity(regular.SourceGem))) continue;
+                string vaal = sentinelType is 50 or 51 ? "VaalAbsolution" : "VaalDomination";
+                ushort source = minion.Source;
+                foreach (var gem in gems.Where(g => SkillsFor(player).EffectId(g.Effect) == vaal))
                 {
-                    var regular = SupportedSkill(conn, minion.Source);
-                    if (!regular.RequirementsMet || regular.SourceGem is null || minion.SourceIdentity is not null
-                        && !ReferenceEquals(minion.SourceIdentity, PlayerInventories.GemIdentity(regular.SourceGem))) continue;
-                    string vaal = sentinelType is 50 or 51 ? "VaalAbsolution" : "VaalDomination";
-                    ushort source = minion.Source;
-                    foreach (var gem in gems.Where(g => SkillsFor(conn).EffectId(g.Effect) == vaal))
-                    {
-                        var companion = SupportedSkill(conn, gem.Id);
-                        if (companion.SourceGem is not null && companion.Host == regular.Host
-                            && ReferenceEquals(PlayerInventories.GemIdentity(companion.SourceGem), PlayerInventories.GemIdentity(regular.SourceGem)))
-                        { source = gem.Id; break; }
-                    }
-                    ushort group = SentinelSourceGroup(source);
-                    current.Add(minion.Id, new(minion.Id, group, sentinelType));
-                    continue;
+                    var companion = SupportedSkill(player, gem.Id);
+                    if (companion.SourceGem is not null && companion.Host == regular.Host
+                        && ReferenceEquals(PlayerInventories.GemIdentity(companion.SourceGem), PlayerInventories.GemIdentity(regular.SourceGem)))
+                    { source = gem.Id; break; }
                 }
-                if (minion.Source != 0 && MinionNativeType(minion) is ushort summonType)
-                    current[minion.Id] = new(minion.Id, minion.Source, summonType);
+                ushort group = SentinelSourceGroup(source);
+                current.Add(minion.Id, new(minion.Id, group, sentinelType));
+                continue;
             }
-            foreach (var golem in conn.Golems.All.Values)
-                if (!golem.Monster.Dead && golem.Monster.Life > 0 && golem.Source != 0
-                    && MinionNativeType(golem) is ushort golemType)
-                    current[golem.Id] = new(golem.Id, golem.Source, golemType);
-            foreach (var fighter in conn.Reservations.Fighters.Values)
-                if (!fighter.Monster.Dead && fighter.Monster.Life > 0 && fighter.Source != 0
-                    && MinionNativeType(fighter) is ushort reservationType)
-                    current[fighter.Id] = new(fighter.Id, fighter.Source, reservationType);
-            foreach (var minion in conn.Minions.All)
-            {
-                if (current.ContainsKey(minion.Id) || minion.Monster.Dead || minion.Monster.Life == 0) continue;
-                if (ElementalRelicNativeType(minion.Kind) is not ushort relicType) continue;
-                ushort skillId = gems.FirstOrDefault(g => SkillsFor(conn).EffectId(g.Effect) == minion.Skill).Id;
-                if (skillId != 0) current[minion.Id] = new(minion.Id, skillId, relicType);
-            }
-            var sent = conn.Summons.PresentedOwnership;
-            var changes = sent.Values.Where(old => !current.TryGetValue(old.Id, out var now) || old != now)
-                .OrderBy(old => old.Id).Select(old => new MinionOwnershipChange(old.Id, 0, 0)).ToList();
-            changes.AddRange(current.Values.Where(now => !sent.TryGetValue(now.Id, out var old) || old != now).OrderBy(now => now.Id));
-            if (changes.Count == 0) return null;
-            sent.Clear(); foreach (var pair in current) sent.Add(pair.Key, pair.Value);
-            return InstanceEntities.PlayerMinionsChange(PlayerId, changes, CanDetonateMines(conn));
+            if (minion.Source != 0 && MinionNativeType(minion) is ushort summonType)
+                current[minion.Id] = new(minion.Id, minion.Source, summonType);
         }
+        foreach (var golem in player.Golems.All.Values)
+            if (!golem.Monster.Dead && golem.Monster.Life > 0 && golem.Source != 0
+                && MinionNativeType(golem) is ushort golemType)
+                current[golem.Id] = new(golem.Id, golem.Source, golemType);
+        foreach (var fighter in player.Reservations.Fighters.Values)
+            if (!fighter.Monster.Dead && fighter.Monster.Life > 0 && fighter.Source != 0
+                && MinionNativeType(fighter) is ushort reservationType)
+                current[fighter.Id] = new(fighter.Id, fighter.Source, reservationType);
+        foreach (var minion in player.Minions.All)
+        {
+            if (current.ContainsKey(minion.Id) || minion.Monster.Dead || minion.Monster.Life == 0) continue;
+            if (ElementalRelicNativeType(minion.Kind) is not ushort relicType) continue;
+            ushort skillId = gems.FirstOrDefault(g => SkillsFor(player).EffectId(g.Effect) == minion.Skill).Id;
+            if (skillId != 0) current[minion.Id] = new(minion.Id, skillId, relicType);
+        }
+        var sent = player.Summons.PresentedOwnership;
+        var changes = sent.Values.Where(old => !current.TryGetValue(old.Id, out var now) || old != now)
+            .OrderBy(old => old.Id).Select(old => new MinionOwnershipChange(old.Id, 0, 0)).ToList();
+        changes.AddRange(current.Values.Where(now => !sent.TryGetValue(now.Id, out var old) || old != now).OrderBy(now => now.Id));
+        if (changes.Count == 0) return null;
+        sent.Clear(); foreach (var pair in current) sent.Add(pair.Key, pair.Value);
+        return InstanceEntities.PlayerMinionsChange(player.Id, changes, CanDetonateMines(player));
     }
 
-    static Task SendSentinelOwnership(string remote, NetworkStream stream, ConnectionCiphers ciphers, ClientState conn,
-        Func<bool> current) => SendWorldRecord(remote, stream, ciphers, conn, PlayerId, [], "owned minion roster",
-            atGate: () => current() ? SentinelOwnershipPresentation(conn) : null);
+    static Task SendSentinelOwnership(Player player,
+        Func<bool> current) => SendWorldRecord(player, player.Id, [], "owned minion roster",
+            atGate: () => current() ? SentinelOwnershipPresentation(player) : null);
 }

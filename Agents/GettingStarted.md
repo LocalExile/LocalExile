@@ -269,39 +269,21 @@ a restart. See [editable game data](docs/dev/editable-game-data.md) for what can
 
 ## 8. Create an account and a character
 
-Start the dev account service in one terminal:
+Register the account with the login server's tool; it reads the password from the first line of standard input:
 
 ```powershell
-dotnet run --project src/GameServer.Host
+"choose-a-password" | dotnet run --project src/GameServer.Auth -- register myaccount
 ```
 
-Success: `[host] listening on 127.0.0.1:7000, db=data\characters.db`.
-
-In a second terminal:
-
-```powershell
-dotnet run --project src/GameServer.DevClient
-```
-
-Then type, one line at a time:
-
-```
-register name=myaccount password=choose-a-password
-login name=myaccount password=choose-a-password
-create_character name=MyWitch class=witch
-characters
-```
-
-Every reply should contain `"ok":true`; the last one lists your character.
+Success: `[auth] account myaccount created`. Then log in with it in the game and create the character on the
+character screen.
 
 - Account and character names: 3–32 letters, digits, `_` or `-`. Passwords: at least 4 characters.
-- Piping the commands instead of typing them works too:
-  `"register name=a password=b`n...`n" | dotnet run --project src/GameServer.DevClient`. The client ignores the
-  byte-order mark PowerShell adds.
+- The accounts are in `data/auth.db`, which the running login server reads directly, so this works while it runs. If
+  Auth's build folder is locked by a running Auth, use its built copy instead:
+  `"choose-a-password" | dotnet src/GameServer.Auth/bin/Debug/net10.0/GameServer.Auth.dll register myaccount`.
 - The game's login screen may show a previously used account name in the Email field (the client remembers it per
   Windows user). Replace it with yours.
-- Then close both: an empty line quits the dev client, and Ctrl+C stops the host. You can keep `GameServer.Host`
-  running while you play: it and the login server share the accounts in `data/auth.db`, and neither caches them.
 
 ## 9. (Optional) Walk maps
 
@@ -352,10 +334,10 @@ Success, in order:
 4. Click **Log In**, select your character, and click **Play**.
 5. You arrive in Lioneye's Watch. Click the ground to walk.
 
-**Network Mode** (Esc → Options → Game → Network Mode) is the client's choice, and the server follows it. Predictive is
-the preferred mode; lockstep is served but partly working ([07](docs/protocol/07-latency-visibility-movement.md) §6).
-With the default "auto", the client picks lockstep on localhost, and the Gateway log says once that Predictive is
-preferred. To switch, change the option, log out to the character screen and click Play again. The setting is saved in
+**Network Mode** (Esc → Options → Game → Network Mode) is the client's choice, and the server follows it. Lockstep is
+the default way of playing: it has no desync and suits a local server's latency; Predictive is served too
+([07](docs/protocol/07-latency-visibility-movement.md) §6). With the default "auto", the client picks lockstep on
+localhost; a predictive client is told once in the Gateway log that Lockstep is preferred. To switch, change the option, log out to the character screen and click Play again. The setting is saved in
 `Documents\My Games\Path of Exile\production_Config.ini` (`networking_type=`), which your normal client shares.
 
 **League modes:** the existing creation screen's Hardcore, SSF and Ruthless choices select server rules.
@@ -404,24 +386,11 @@ all for an issue ([debugging](docs/dev/debugging.md)).
   unless it runs (the recorder ends with its client, so each new client needs one); the Gateway announces area loads
   to it only if it was started with `-Walkmaps` too.
 - `-Only Gateway` (or `Auth`, `Patch`, comma-separated) rebuilds and restarts only those servers; the client and the
-  other servers keep running. After a Gateway change hot reload cannot apply this is all you need: the client drops to
-  the login screen, log in and Play again.
-- Hot reload is on by default: the Gateway runs under `dotnet watch`, and a saved edit to its code (or to Core, Data
-  and Storage) applies to the running Gateway with the client still in game (`[gateway] hot reload #n applied` in the
-  log).
-  Players in game read "Starting Hot-Reload" in chat when a file under `src\` is saved, and "Hot-reload is applied in
-  x.yz seconds." when it is (about 15 s for a Gateway file). A save that does not compile changes nothing; they read
-  "Hot-reload failed" with the compile errors instead.
-  A method's new body runs from its next call; per-connection setup (the chat command table) runs again at the next
-  area change; a loop already running keeps the old body until it returns; and static fields (the catalogs) keep the
-  values they were built with.
-  An edit hot reload cannot apply (a changed signature, a removed member) rebuilds and restarts the Gateway on its own,
-  which drops the client to the login screen as `-Only Gateway` does.
-  Auth and Patch are not watched.
-- `-NoHotReload` starts the built Gateway without `dotnet watch`; `-Only Gateway -NoHotReload` switches a running
-  setup over, and a later `-Only Gateway` switches back.
-- `-Release` builds and runs the servers' Release builds, without `dotnet watch`: the monster AI runs 1.6-2.3x faster
-  and no watcher (~220 MB) runs beside the Gateway, for a stack that needs no hot reload
+  other servers keep running. An edit to a server's code needs this: the client drops to the login screen, log in and
+  Play again. The servers have no hot reload; modules and mods do: a module's own build
+  (`dotnet build <Module>.csproj -p:BuildProjectReferences=false`) reloads it into the running Gateway with the client
+  still in game ([live testing](docs/dev/live-testing.md), "hot reload").
+- `-Release` builds and runs the servers' Release builds: the monster AI runs 1.6-2.3x faster
   ([performance](docs/dev/performance.md)). `-Debug` goes back to the default. A run without either uses the
   configuration of the last full run (`data\live-configuration.txt`), so `-Only`, `-ClientOnly` and `-NoBuild` keep to
   the builds that are running.
@@ -495,7 +464,6 @@ Environment variables, read when each server starts:
 | `Game_INSTANCE_SECRET` | `data/instance-secret.bin` | instance key secret (created on first start) |
 | `Game_PATCH_URL` | `http://127.0.0.1:8080/` | patch web server address |
 | `Game_TLS_PFX`, `Game_TLS_PFX_PASSWORD` | unset | a PKCS#12 certificate file (and its password): the patch web server then defaults to `https://0.0.0.0:443` |
-| `Game_HOT_RELOAD_LOG` | set by `live.ps1` with hot reload | the `dotnet watch` output file the Gateway reads to report hot reload results (compile errors, nothing to apply) in game |
 | `Game_TRACE` | unset | dev traces, a comma list: `move`, `latency`, `ticks`, `ai`, `packets`, or `all` ([debugging](docs/dev/debugging.md)) |
 | `Game_PACKET_DUMPS` | `logs\packets` (given by `live.ps1` to the servers it starts) | folder for each connection's last packets, written when it closes; `0` = none |
 | `Game_LOG_TIMESTAMPS` | unset | `0` = no time at the start of each log line |
