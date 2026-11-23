@@ -1,3 +1,4 @@
+using GameServer.Core.Protocol.Instance;
 using GameServer.Core.World;
 
 namespace GameServer.Gateway.Tests;
