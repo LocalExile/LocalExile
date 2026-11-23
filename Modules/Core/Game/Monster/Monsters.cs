@@ -109,7 +109,8 @@ public static partial class Game
         var raw = catalog.EffectStats(effect, level);
         int Get(uint key) => raw.FirstOrDefault(s => s.Item1 == key).Item2;
         int count = Get(Stat.NumberOfProjectilesOverride) is > 0 and var fixedCount ? fixedCount
-            : Math.Max(1, Get(Stat.BaseNumberOfProjectiles)) + Get(Stat.NumberOfAdditionalProjectiles);
+            : Math.Max(1, Get(Stat.BaseNumberOfProjectiles)) + Get(Stat.NumberOfAdditionalProjectiles)
+                + (effects?.AdditionalProjectiles ?? 0);
         count = Math.Max(1, count);
         own = [.. own, (Stat.TotalNumberOfProjectilesToFire, count), (Stat.VirtualTotalNumberOfProjectiles, count),
             (Stat.TotalNumberOfArrowsToFire, count), (Stat.VirtualTotalNumberOfArrows, count)];
@@ -332,6 +333,22 @@ public static partial class Game
         bool freshMods = mods is null;
         if (!friendly || ownedSkills is null || mods is null)
             mods = MonsterModsFor(player, variety, level, rarity, mods, alone);
+        // Passive species mods (ModsKeys + Special_ModsKeys + area-tier Part1/Part2/Endgame_ModsKeys) compose into
+        // Effects once per monster (tracked by SpeciesApplied so SavedMonster re-entry never stacks them again).
+        if (!friendly && MonsterSpeciesModsEnabled && !mods.SpeciesApplied)
+        {
+            bool isMap = MapDevices.IsMapArea(player.Layout.Hash);
+            int tier = Monsters.AreaTier(player.Layout.Id, player.Layout.Hash, isMap);
+            var speciesRows = MonsterCatalog.SpeciesModsForArea(variety, tier);
+            var nextEffects = mods.Effects;
+            if (speciesRows.Count > 0)
+            {
+                var speciesEffects = MonsterModRolls.SpeciesEffects(speciesRows, AreaRng(player));
+                if (speciesEffects.Ids.Count > 0)
+                    nextEffects = nextEffects.Plus(speciesEffects);
+            }
+            mods = mods with { Effects = nextEffects, SpeciesApplied = true };
+        }
         // A hostile unique keeps its auras up (a Rogue Exile's Hatred, Haste): their stats are its own from the spawn, and
         // a kept one keeps them in its mods.
         var auras = !friendly && rarity == MonsterRarity.Unique ? MonsterSkills.Auras(SkillsFor(player), variety, level) : default;
@@ -353,7 +370,7 @@ public static partial class Game
         var mapBossScaling = mapBoss ? Monsters.MapBossScaling(level) : (Life: 1.0, Damage: 1.0);
         int baseLife = Monsters.BaseLife(variety, level) ?? 100;
         if (mapBoss) baseLife = (int)Math.Round(baseLife * mapBossScaling.Life);
-        uint life = (uint)mods.Effects.MaxLife(baseLife);
+        uint life = (uint)mods.Effects.MaxLife(baseLife, level);
         if (ownedMaximumLife is uint ownLife) life = ownLife;
         // A part of its full life (Izaro's later Aspirant's Trials start with what the earlier ones left).
         if (lifePercent is int percent and < 100) damagedLife = Math.Max(1u, (uint)((ulong)life * (uint)Math.Max(0, percent) / 100));
@@ -392,6 +409,22 @@ public static partial class Game
         // monster_projectile_spell rows (not mortars): MavenNucleus.Shot names their Projectiles.dat art.
         var projectile = rangedAttack ? MavenNucleus.Shot(catalog, effect) : null;
         if (friendly && owned is not null && rangedAttack) projectile ??= catalog.MonsterProjectile(effect, includeWeaponAttacks: true);
+        if (projectile is not null)
+        {
+            int extraProj = mods.Effects.AdditionalProjectiles;
+            double aoeScale = mods.Effects.AreaScaleFactor;
+            if (extraProj > 0 || aoeScale != 1.0)
+            {
+                int nextCount = Math.Max(1, projectile.Count) + extraProj;
+                double nextSpread = nextCount > 1 && projectile.SpreadRadians == 0 ? 0.45 : projectile.SpreadRadians;
+                projectile = projectile with
+                {
+                    Count = nextCount,
+                    SpreadRadians = nextSpread,
+                    AreaRadius = projectile.AreaRadius > 0 ? projectile.AreaRadius * aoeScale : projectile.AreaRadius,
+                };
+            }
+        }
         // A summoning skill (the Immolator's) brings its monsters whenever the player is within its aggro range, at its
         // own cast time; it deals no hit.
         var summon = variety.GrantedEffects is [int summonEffect, ..] ? MonsterSummonOf(catalog, summonEffect, level) : null;
@@ -445,9 +478,10 @@ public static partial class Game
             : KingInMists.IsBoss3(variety) ? KingInMists.Boss3AttackSkill
             : summon is null && !kingActor && effect >= 0 && catalog.ActionHash(effect) is ushort hash ? (ushort)(hash & 0x3fff)
             : SkillCatalog.FirstSkillId;
-        var attack = new MonsterAttack(skillId, attackSeconds, reach, mods.Effects.Hit(baseDamage))
+        var attack = new MonsterAttack(skillId, attackSeconds, reach, mods.Effects.Hit(baseDamage, level))
         {
             Spell = spell,
+            Effect = effect >= 0 ? effect : null,
             CooldownSeconds = cooldownSeconds,
             Scripted = kingActor || brine || atlas,
             // A weapon/item in the off hand, not a shield (ItemStances 10), quiver (9), or bow's left-hand model (Type 0x68).
@@ -514,8 +548,10 @@ public static partial class Game
         // the life bars kept the base maximum and a unique showed full until its life fell below it (live 2026-10-21).
         foreach (var stat in MonsterModClientStats(mods.Effects, life, baseLife).Concat(extraStats ?? [])) (stats ??= []).Add(stat);
         if (DoedreSewers.IsBoss(variety) || Sirus.IsActor(variety)) (stats ??= []).Add((Stat.HideMiniLifeBar, 1));
-        uint maximumEnergyShieldValue = owned is null ? 0 : NativeEnergyShield(ownedMaximumEnergyShield);
+        uint hostileMaxEs = owned is null && !friendly ? ComputeMonsterMaxEnergyShield(variety, level, baseLife, life, mods.Effects) : 0;
+        uint maximumEnergyShieldValue = owned is null ? hostileMaxEs : NativeEnergyShield(ownedMaximumEnergyShield);
         uint energyShieldValue = maximumEnergyShieldValue == 0 ? 0
+            : owned is null ? maximumEnergyShieldValue
             : Math.Min(maximumEnergyShieldValue, NativeEnergyShield(ownedEnergyShield));
         if (maximumEnergyShieldValue > 0 && Stat.MaximumEnergyShield is var maximumEnergyShield)
             (stats ??= []).Add((maximumEnergyShield, (int)maximumEnergyShieldValue));
@@ -647,7 +683,15 @@ public static partial class Game
                 EntranceGrace = waitingForBanditChoice || !friendly && (brine && player.Layout.Id == "2_6_15" || Sirus.IsActor(variety) || KitavaActFive.IsActor(variety) || KitavaActTen.IsActor(variety) || DepravedTrinity.IsBoss(variety) || VaalOversoul.IsBoss(variety) || DoedreSewers.IsBoss(variety)
                     || player.Layout.Id == SolarisLunaris.Area && (SolarisLunaris.IsBody(variety) || SolarisLunaris.IsCelestial(variety))),
             }, emerge, waits);
-            if (owned is not null && player.Area.Monsters.TryGetValue(id, out var added)) owned(id, added);
+            if (player.Area.Monsters.TryGetValue(id, out var added))
+            {
+                if (owned is null && !friendly)
+                {
+                    if (maximumEnergyShieldValue > 0) InitMonsterEnergyShield(player.Area, added, maximumEnergyShieldValue);
+                    RegisterMonsterAuraCarrier(player.Area, added);
+                }
+                if (owned is not null) owned(id, added);
+            }
             if (friendly && !instanceOwned) player.MinionOrigins[id] = new(type, monster, (ushort)variety.Row, level, rarity);
             else
             {
@@ -2208,7 +2252,7 @@ public static partial class Game
         }
         if (a.AreaRadius > 0 && !area)
         {
-            await MonsterAreaHit(player, id, m, a, action, areaAim, a.AreaRadius, seq);
+            await MonsterAreaHit(player, id, m, a, action, areaAim, a.AreaRadius * m.Effects.AreaScaleFactor, seq);
             return false;
         }
         if (area) { await MonsterAreaContact(player, id, m, a, action, areaRadius, seq); return false; }
@@ -2549,7 +2593,7 @@ public static partial class Game
         // The monster's accuracy comes from DefaultMonsterStats at its level. Evasion uses PoE's shared entropy
         // counter: every attack adds its hit chance, and reaching 100 consumes 100 and hits (evasion cannot streak
         // indefinitely). A new counter starts after 3.33 s without an attack.
-        int baseAccuracy = m.Effects.Accuracy(Monsters.BaseAccuracy(m.Level) ?? 0);
+        int baseAccuracy = m.Effects.Accuracy(Monsters.BaseAccuracy(m.Variety, m.Level) ?? 0);
         int monsterAccuracy = MonsterBlindRating(player, id, m, baseAccuracy, now, stats);
         int evasion = TimedBlind.Apply(PlayerEvasionBase(player, now), PlayerBlindValue(player, stats).Less);
         evasion = EvasionKeystones.Rating(evasion, a.Projectile is not null, !a.Ranged && !a.Spell, StatOf);
@@ -2572,11 +2616,15 @@ public static partial class Game
         if (KingInMists.IsBoss(m.Variety) && player.KingPortentStacks > 0 && now < player.KingPortentUntil)
             hitDamage = hitDamage.Scale(1 + 0.1 * player.KingPortentStacks);
         var rolled = gambler.RollIncomingHit(hitDamage, player.IncomingHitRandom);
+        int baseCritPermyriad = a.Secondary ? 0
+            : spellHit ? (a.Effect is int eff ? SkillsFor(player).SpellCritChance(eff, m.Level) ?? 0 : 0)
+            : MonsterBaseCritChancePermyriad;
         rolled = MonsterModHit(m, rolled, player.PlayerLife, player.PlayerMaxLife, player.IncomingHitRandom, out bool monsterCritical,
             () => SelfCriticalReduction(player),
             now: now, cannotCrit: VaalOversoul.CannotCrit(m, a), additionalCritical: PlayerBrittleCriticalChance(player, now),
             // Overwhelm's aura lowers the multiplier of a monster in it: -30 base_critical_strike_multiplier_+.
-            extraCriticalMultiplier: () => EnemyAuraStatLocked(player, m, here, now, Stat.BaseCriticalStrikeMultiplierPlus));   // its crit, Executioner's
+            extraCriticalMultiplier: () => EnemyAuraStatLocked(player, m, here, now, Stat.BaseCriticalStrikeMultiplierPlus),
+            baseCritPermyriad: baseCritPermyriad);   // its crit, Frenzy charges, Executioner's
         // The player's passive enemy auras (Born under Fire): the hit and its ailment base convert alike, so ignite
         // sees the converted damage. Converting does not remove stun, so the hit recovery below reads a.Damage.
         var baseHit = a.Damage.Scale(SpiderOutgoingFactor(m, now));
@@ -2671,15 +2719,25 @@ public static partial class Game
             ailmentTaken);
         player.PlayerLife = (uint)Math.Max(0, lifeBefore - lifeDamage);
         TrimLeechLocked(player);
+        var incomingAilments = MergeMonsterModAilments(a.Ailments, m.Effects);
         ApplyPlayerAilmentsLocked(player, baseHit, ailmentTaken.Select((_, r) =>
             new(FortificationDamageTaken(player, (int)r.Min), FortificationDamageTaken(player, (int)r.Max))),
-            monsterCritical, blocked, now, stats, a.Ailments, source: id);
+            monsterCritical, blocked, now, stats, incomingAilments, source: id);
         AlternateAilmentsOnPlayerLocked(player, m, ailmentTaken.Select((_, r) =>
-            new(FortificationDamageTaken(player, (int)r.Min), FortificationDamageTaken(player, (int)r.Max))), blocked, now, stats, a.Ailments);
+            new(FortificationDamageTaken(player, (int)r.Min), FortificationDamageTaken(player, (int)r.Max))), blocked, now, stats, incomingAilments);
         ApplyMonsterDamagingAilmentsLocked(player, id, m, baseHit, blocked, now, attack: attackHit, prepared: stats,
             skillPoisonChance: a.PoisonChance, skillPoisonSeconds: a.PoisonSeconds);
         ApplyMonsterDecayLocked(player, id, m, blocked, now, stats);
         ApplyCorruptedBloodOnHit(player, a, baseHit, blocked, now, stats);
+        // Monster on-hit charge gains (of Frenzy, of Power, species charge-on-hit, of Enervation).
+        MonsterChargesOnHitDealtLocked(player, id, m, spellHit, blocked, now, player.IncomingHitRandom);
+        // Monster life leech on hit (Remora's: life_leech_from_any_damage_permyriad, capped at 10% max life per hit).
+        if (!blocked && damage > 0 && !m.Dead && m.Life > 0 && m.Life < m.MaxLife
+            && m.Effects[Stat.LifeLeechFromAnyDamagePermyriad] is int leechPermyriad and > 0)
+        {
+            long leeched = Math.Min((long)damage * leechPermyriad / 10_000, Math.Max(1L, m.MaxLife / 10));
+            if (leeched > 0) m.Life = (uint)Math.Min(m.MaxLife, (long)m.Life + leeched);
+        }
         RecordIncomingHitLocked(player, now, spellHit, blocked, suppressed, lifeDamage, monsterCritical);
         RecentHitLifeLossOnHitLocked(player, now);
         UnhingedHitRecoveryLocked(player, now, stats);
@@ -2697,8 +2755,9 @@ public static partial class Game
         bool spirit = m.Rarity == MonsterRarity.Unique
             && SpiritChieftainsWhenHitLocked(player, stats, blocked, monsterCritical, Math.Max(0, lifeBefore - player.PlayerLife));
         PlayerRecoveryIntent? recovery = null;
-        if (!blocked && !a.Ranged && player.PlayerLife > 0 && a.Damage.Components.All(c => c.Type == DamageType.Physical))
-            recovery = CommitPlayerHitRecoveryLocked(player, damage, now);
+        bool alwaysStun = m.Effects[Stat.AlwaysStun] > 0;
+        if (!blocked && player.PlayerLife > 0 && (alwaysStun || (!a.Ranged && a.Damage.Components.All(c => c.Type == DamageType.Physical))))
+            recovery = CommitPlayerHitRecoveryLocked(player, alwaysStun ? Math.Max(damage, (int)player.PlayerMaxLife) : damage, now);
         else if (AntiquarianEffects.StunRecoverySource is var turtle && stats.GetValueOrDefault(turtle) > 0)
             Console.WriteLine($"[gateway] Turtle Shell hit ineligible: block={blocked}, ranged={a.Ranged}, "
                 + $"alive={player.PlayerLife > 0}, types={string.Join(',', a.Damage.Components.Select(c => c.Type))}");
@@ -2722,8 +2781,44 @@ public static partial class Game
         // its own stun roll; the player's recovery is the authoritative 0x1d1 (SendPlayerHitRecovery).
         var packet = InstanceProtocol.ActionHit(id, sequence, player.Id, flags: MonsterHitFlags(blocked, monsterCritical), kind: 0x03,
             code: HitCode(mitigated), angle: HitAngle(here.X - from.X, here.Y - from.Y));
+        var hitDebuffs = !blocked && life > 0 ? CollectMonsterHitDebuffs(a.Debuffs, m.Effects, player.IncomingHitRandom) : null;
         return new(packet, life, player.PlayerMana, manaBefore, damage, rawDamage, blocked, monsterCritical, recovery, armour, spirit)
-        { Debuffs = !blocked && life > 0 && a.Debuffs.Count > 0 ? (id, a.Debuffs) : null };
+        { Debuffs = hitDebuffs is { Count: > 0 } ? (id, hitDebuffs) : null };
+    }
+
+    static PlayerElementalAilments.HitSettings MergeMonsterModAilments(PlayerElementalAilments.HitSettings skill, MonsterModEffects e)
+    {
+        int ignite = e[Stat.AlwaysIgnite] > 0 ? 100 : 0;
+        int freeze = Math.Max(0, e[Stat.BaseChanceToFreezePct]);
+        int shock = e[Stat.AlwaysShock] > 0 ? 100 : 0;
+        if (ignite == 0 && freeze == 0 && shock == 0) return skill;
+        return skill with
+        {
+            IgniteChance = Math.Min(100, skill.IgniteChance + ignite),
+            FreezeChance = Math.Min(100, skill.FreezeChance + freeze),
+            ShockChance = Math.Min(100, skill.ShockChance + shock),
+        };
+    }
+
+    static readonly IReadOnlyDictionary<uint, int> PlayerCrushedDebuffStats =
+        new Dictionary<uint, int> { [Stat.BaseAdditionalPhysicalDamageReductionPct] = -CrushReductionPct };
+
+    static IReadOnlyList<MonsterDebuffSpec>? CollectMonsterHitDebuffs(IReadOnlyList<MonsterDebuffSpec> baseDebuffs,
+        MonsterModEffects e, Random random)
+    {
+        bool crush = e[Stat.ChanceToCrushOnHitPct] is int cc and > 0
+            && GameServer.Core.World.RandomRolls.Chance(cc, 100, random);
+        int fireExp = e[Stat.FireExposureOnHitMagnitude];
+        int coldExp = e[Stat.ColdExposureOnHitMagnitude];
+        int lightExp = e[Stat.LightningExposureOnHitMagnitude];
+        if (!crush && fireExp >= 0 && coldExp >= 0 && lightExp >= 0)
+            return baseDebuffs.Count > 0 ? baseDebuffs : null;
+        var list = baseDebuffs.Count > 0 ? new List<MonsterDebuffSpec>(baseDebuffs) : new List<MonsterDebuffSpec>(2);
+        if (crush) list.Add(new(CrushedBuffRow, PlayerCrushedDebuffStats, CrushSeconds));
+        if (fireExp < 0) list.Add(new(ExposureBuffRows[0], new Dictionary<uint, int> { [Stat.BaseFireDamageResistancePct] = fireExp }, ExposureSeconds));
+        if (coldExp < 0) list.Add(new(ExposureBuffRows[1], new Dictionary<uint, int> { [Stat.BaseColdDamageResistancePct] = coldExp }, ExposureSeconds));
+        if (lightExp < 0) list.Add(new(ExposureBuffRows[2], new Dictionary<uint, int> { [Stat.BaseLightningDamageResistancePct] = lightExp }, ExposureSeconds));
+        return list;
     }
 
     // The packets after a committed hit: energy shield, native recovery, the life bar and life, mana, death or flask charges.

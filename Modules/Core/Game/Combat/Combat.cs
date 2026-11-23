@@ -39,7 +39,7 @@ public static partial class Game
     public static int AttackHitChanceAt(Player player, uint id, SpawnedMonster target, double at,
         AttackAccuracyProfile profile, IReadOnlyDictionary<uint, int>? playerStats = null)
     {
-        int evasion = target.Effects.Evasion(Monsters.BaseEvasion(target.Level) ?? 0);
+        int evasion = target.Effects.Evasion(Monsters.BaseEvasion(target.Variety, target.Level) ?? 0);
         evasion = MonsterBlindRating(player, id, target, evasion, at, playerStats);
         bool close = TargetAccuracy.InCloseRange(Dist(player.Walk.Position(at), target.Walk.Position(at)));
         return profile.Chance(evasion, target.Rarity == MonsterRarity.Unique, close);
@@ -536,6 +536,10 @@ public static partial class Game
                     return true;
                 }
                 double contactAt = AreaTime(player);
+                if (m.Effects[Stat.BaseCannotBeDamaged] > 0
+                    || MapEssences.ProximityShieldBlocksLocked(player, m, null)
+                    || MonsterProximityShieldBlocksLocked(player, m, null))
+                    return true;
                 int hitChance = AttackHitChanceAt(player, targetId, m, contactAt, accuracy, playerStats);
                 if (!accuracy.CannotBeEvaded && !m.AttackEvasion.Hits(hitChance, contactAt, player.AttackAccuracyRandom))
                 {
@@ -568,6 +572,7 @@ public static partial class Game
                     gambler.InvertsResistance(AreaRng(player)), AreaRng(player));
                 hitCode = HitCode(mitigated);
                 if (critical) damage = DamageModel.CriticalDamage(damage, criticalMultiplier);
+                int chaosDamage = MonsterHitChaosDamage(m, mitigated, spell: false, at, damage);
                 LeechOnHitTargetLocked(player, m, MonsterTakenComponents(m, mitigated, spell: false, at), damage,
                     HitLeechSources(playerStats, true, ownPenetration, weapon.LocalSources, weapon.Melee), targetId);
                 (damage, stored, impaled) = WithImpaleHitLocked(player, m, damage, ownRolled, critical, sourceCriticalMultiplier,
@@ -582,7 +587,8 @@ public static partial class Game
                     with { FortificationDamage = fortificationDamage, Fortified = fortifiedThisHit };
                 uint lifeBefore = m.Life;
                 var rampageSource = RampageOnMeleeHitLocked(player, m, weapon.Melee, playerStats);
-                (m.Life, stageStarts) = TakeOwnerHitLocked(player, m, damage,
+                int lifeDamage = AbsorbMonsterEnergyShieldLocked(player.Area, m, damage, chaosDamage, contactAt);
+                (m.Life, stageStarts) = TakeOwnerHitLocked(player, m, lifeDamage,
                     Cull.Of(playerStats, ownPenetration, critical, spell: false).WithWeapon(weapon.LocalSources), rampageSource, playerStats);
                 CaptureUnhingedHitKillLocked(player, m, playerHit: true);
                 CaptureEquippedHitExplosionLocked(m, playerStats);
@@ -597,7 +603,7 @@ public static partial class Game
                 player.RecentEvents.RecordHit(AreaTime(player), critical);
                 if (ElementalOverloadCritLocked(player, SkillCatalog.FirstSkillId, null, playerStats, critical) is { } eoBuff)
                     ProjectilesFor(player).Packet(eoBuff, "elemental overload (default attack)");
-                if (life == 0) { m.Aggro = false; m.Dead = true; CollectVaalSoulAtDeathLocked(player, m); }
+                if (life == 0) { m.Aggro = false; m.Dead = true; CleanupDeadMonsterLocked(player.Area, targetId, m); CollectVaalSoulAtDeathLocked(player, m); }
                 AilmentsOnHitLocked(player, targetId, m, mitigated, spell: false, critical, criticalMultiplier, playerStats,
                     ownPenetration, at, AreaRng(player), poison: prehit.Poison,
                     blind: BlindHitInput.Capture(playerStats), attackGains: AttackAilmentGains.Capture(playerStats, attack: true));
@@ -2752,6 +2758,7 @@ public static partial class Game
                         more *= Math.Max(0, 1 + GolemStat(skillStats, global::Stat.TriggerBrandSupportHitDamagePlusPctFinalVsBrandedEnemy) / 100.0);
                     if (splashMore.TryGetValue(id, out double splashScale)) more *= splashScale;
                     if (more != 1) damage = (int)Math.Floor(damage * Math.Max(0, more));
+                    int chaosDamage = MonsterHitChaosDamage(m, mitigated, spell, at, damage);
                     LeechOnHitTargetLocked(player, m, taken, damage, leech!, id);
                     damage = WithImpaleHitLocked(player, m, damage, rolled, critical, sourceMultiplier,
                         critical ? criticalImpale : impale, more).Damage;
@@ -2763,7 +2770,8 @@ public static partial class Game
                     var rampageSource = RampageOnMeleeHitLocked(player, m, !spell && SkillsFor(player).IsMelee(gem.Effect), rampagePlayer);
                     uint lifeBefore = m.Life;
                     applied = ApplyMonsterHitLocked(player, m, damage, rampageSource, rampagePlayer, allyAt: null,
-                        cull: Cull.Of(playerStats, skillStats, critical, spell).WithWeapon(weaponLocal), cullPlayer: playerStats);
+                        cull: Cull.Of(playerStats, skillStats, critical, spell).WithWeapon(weaponLocal), cullPlayer: playerStats,
+                        chaosDamage: chaosDamage);
                     if (applied is not null)
                     {
                         if (applied.Value.Life < lifeBefore)
@@ -3127,28 +3135,41 @@ public static partial class Game
     // extra optional parameter so the seven-argument entry point keeps its reflection-visible signature.
     public static MonsterHit? ApplyMonsterHitLocked(Player player, SpawnedMonster m, int damage,
         bool? rampageSource, IReadOnlyDictionary<uint, int>? playerStats, (int X, int Y)? allyAt,
-        Cull cull, IReadOnlyDictionary<uint, int>? cullPlayer)
+        Cull cull, IReadOnlyDictionary<uint, int>? cullPlayer) =>
+        ApplyMonsterHitLocked(player, m, damage, rampageSource, playerStats, allyAt, cull, cullPlayer, chaosDamage: 0);
+
+    public static MonsterHit? ApplyMonsterHitLocked(Player player, SpawnedMonster m, int damage,
+        bool? rampageSource, IReadOnlyDictionary<uint, int>? playerStats, (int X, int Y)? allyAt,
+        Cull cull, IReadOnlyDictionary<uint, int>? cullPlayer, int chaosDamage)
     {
         if (m.Dead || m.Life == 0) return null;
         // The Divine shrine's aura: a monster wearing base_cannot_be_damaged (MonsterAuraEffect puts it in the monster's
         // EncounterStats, whether it was there when the shrine spawned or walked in later) takes no hit at all, so every
         // path through this funnel leaves its life alone.
         if (m.Effects[Stat.BaseCannotBeDamaged] > 0) return null;
-        // A Misery essence's proximity shield blocks a hit from outside its ring; Scorn's avoid_damage_% can avoid the hit.
-        if (MapEssences.ProximityShieldBlocksLocked(player, m, allyAt)) return null;
+        // A Misery essence's or Temporal rare's proximity shield blocks a hit from outside its ring; Scorn's avoid_damage_% can avoid the hit.
+        if (MapEssences.ProximityShieldBlocksLocked(player, m, allyAt) || MonsterProximityShieldBlocksLocked(player, m, allyAt)) return null;
         if (damage > 0 && m.Effects[Stat.AvoidDamagePct] is > 0 and var avoid && Random.Shared.Next(100) < avoid) return null;
+        double hitNow = ProjectileWorldTime(player);
+        int lifeDamage = AbsorbMonsterEnergyShieldLocked(player.Area, m, damage, chaosDamage, AreaTime(player));
         uint before = m.Life;
-        if (allyAt is null) SpiderHitRewardsLocked(player, m, ProjectileWorldTime(player), playerStats);
-        (m.Life, bool starts) = TakeOwnerHitLocked(player, m, damage, cull, rampageSource, playerStats, cullPlayer);
-        if (m.Life == 0) m.Overkill = (int)Math.Clamp((long)damage - before, 0, int.MaxValue);
+        if (allyAt is null) SpiderHitRewardsLocked(player, m, hitNow, playerStats);
+        (m.Life, bool starts) = TakeOwnerHitLocked(player, m, lifeDamage, cull, rampageSource, playerStats, cullPlayer);
+        if (m.Life == 0) m.Overkill = (int)Math.Clamp((long)lifeDamage - before, 0, int.MaxValue);
         if (m.Kit.Count > 0) BossKits.TakeDamage(m, (long)before - m.Life);
         CaptureUnhingedHitKillLocked(player, m, playerHit: allyAt is null);
         if (allyAt is null)
         {
-            player.LastEnemyHitAt = m.PlayerHitAt = ProjectileWorldTime(player);
+            player.LastEnemyHitAt = m.PlayerHitAt = hitNow;
             player.RecentEvents.Record(StatConditions.HitEnemy, m.PlayerHitAt);
         }
-        if (m.Life == 0) { m.Aggro = false; m.Dead = true; CollectVaalSoulAtDeathLocked(player, m); }
+        if (m.Life == 0)
+        {
+            m.Aggro = false;
+            m.Dead = true;
+            CleanupDeadMonsterLocked(player.Area, m.ObjectId, m);
+            CollectVaalSoulAtDeathLocked(player, m);
+        }
         else if (m.Hostile) { m.Aggro = true; m.LastTarget = null; }
         TriggerElementalRelicLocked(player, m, hit: damage > 0, killed: m.Life == 0, allyAt);
         if (allyAt is null && damage > 0 && !player.Reservations.Secondary) ReservationHitLocked(player, m);
@@ -3603,7 +3624,11 @@ public static partial class Game
         // (BossMods: Malachai, Shakari and Piety's escape give no experience; their own rows say so).
         if (!m.NoRewards && !BossMods.NoRewards(variety) && alive && Dist(at, playerAt) <= ExperienceRange && Monsters.BaseExperience(variety, m.Level) is int baseXp)
         {
-            var (xp, gemXp) = KillExperience(killer, monster, baseXp, variety.ExperienceMultiplier, m.Rarity,
+            int speciesXpBonus = m.Effects.SpeciesExperienceBonusPct(m.Rarity);
+            int xpMultiplier = speciesXpBonus > 0
+                ? (int)Math.Round(variety.ExperienceMultiplier * (1 + speciesXpBonus / 100.0))
+                : variety.ExperienceMultiplier;
+            var (xp, gemXp) = KillExperience(killer, monster, baseXp, xpMultiplier, m.Rarity,
                 player.Pools.Level, m.Level, PartyExperienceShareOf(partyShares, player));
             // The gems gain their share of the kill only (not a quest's level or /add_xp), at the character's cap too:
             // 10% of the kill's experience before the level penalty.

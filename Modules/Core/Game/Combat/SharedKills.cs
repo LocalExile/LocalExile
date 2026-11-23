@@ -56,7 +56,10 @@ public static partial class Game
                 await DropQuestItemsForKill(other, variety.Id, at, $"{m.Label} (party kill)");
                 if (!m.NoRewards && Monsters.BaseExperience(variety, m.Level) is int baseXp)
                 {
-                    var (xp, gemXp) = KillExperience(PlayerOf(other), monster, baseXp, variety.ExperienceMultiplier, m.Rarity,
+                    int xpMult = variety.ExperienceMultiplier;
+                    int speciesXpBonus = m.Effects.SpeciesExperienceBonusPct(m.Rarity);
+                    if (speciesXpBonus > 0) xpMult = (int)Math.Round(xpMult * (100 + speciesXpBonus) / 100.0);
+                    var (xp, gemXp) = KillExperience(PlayerOf(other), monster, baseXp, xpMult, m.Rarity,
                         other.Pools.Level, m.Level, share.Multiplier);
                     await GainGemExperience(other, gemXp);
                     await GainExperience(other, xp, $"party kill: {m.Rarity} {m.Label} (by {CharacterName(host)})");
