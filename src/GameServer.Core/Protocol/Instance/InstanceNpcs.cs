@@ -7,11 +7,42 @@ public static class InstanceNpcs
 {
     public const ushort TalkId = 0x84;
 
+    /// <summary>S→C 0xbe (3.29.3c Cls 0x1435e6d40, write 0x1421a9f80, read 0x1421aa0d0 → 0x141fe35f0, HUD VoteDisplay
+    /// 0x14026e170): bandit vote window. Wire: u8 voteTypeId (1-based VoteType.dat row + 1; 0 closes), u8 answered,
+    /// u8 localVoter, u8 voterCount (0..255), then voterCount × (compact WStr characterName via 0x140e0b250,
+    /// u8 voteStateId 1-based VoteState.dat row + 1).</summary>
+    public const ushort VoteDisplayId = 0xbe;
+
+    /// <summary>1-based VoteState.dat row IDs (VoteDisplay 0x14026ec73 decrements before indexing stride-0x10 table).</summary>
+    public const byte VoteStateKillBandit = 1,
+        VoteStateHelpBandit = 2,
+        VoteStateWaitingForVote = 3,
+        VoteStateWaitingToEnterArea = 4;
+
+    /// <summary>One voter row in S→C 0xbe (0x28-byte entry in client memory: character name + 1-based VoteState.dat ID).</summary>
+    public sealed record VoteEntry(string CharacterName, byte VoteStateId);
+
     // S→C 0xbe (3.29.3c writer 0x1421a9f80): VoteType row plus one (zero closes),
     // answered flag, local voter flag, and the u8 count of (name, VoteState) entries.
     // A solo vote has no other voters to list.
-    public static byte[] OpenVote(byte row) => new LoginWriter().U16(0xbe).U8((byte)(row + 1)).U8(0).U8(1).U8(0).ToArray();
-    public static byte[] CloseVote() => new LoginWriter().U16(0xbe).U8(0).U8(0).U8(0).U8(0).ToArray();
+    public static byte[] OpenVote(byte row) => new LoginWriter().U16(VoteDisplayId).U8((byte)(row + 1)).U8(0).U8(1).U8(0).ToArray();
+
+    /// <summary>Encodes S→C 0xbe with explicit answered/localVoter flags and party voter list (0..255 entries).</summary>
+    public static byte[] OpenVote(byte row, bool answered, bool localVoter, IReadOnlyList<VoteEntry> voters)
+    {
+        if (voters.Count > byte.MaxValue) throw new ArgumentOutOfRangeException(nameof(voters), "S→C 0xbe allows at most 255 voters.");
+        var w = new LoginWriter()
+            .U16(VoteDisplayId)
+            .U8((byte)(row + 1))
+            .Bool(answered)
+            .Bool(localVoter)
+            .U8((byte)voters.Count);
+        foreach (var entry in voters)
+            w.WStr(entry.CharacterName).U8(entry.VoteStateId);
+        return w.ToArray();
+    }
+
+    public static byte[] CloseVote() => new LoginWriter().U16(VoteDisplayId).U8(0).U8(0).U8(0).U8(0).ToArray();
 
     // C→S 0xbd (sender 0x14026ff10): one byte, 1 accepts and 0 rejects.
     public const ushort VoteAnswerId = 0xbd;

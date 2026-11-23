@@ -8,5 +8,6 @@
   "entryOf": "Allflame",
   "entryKind": "form",
   "description": "Plunder sunken treasures and harness the power of the Allflame. Ruthless: extreme item scarcity.",
-  "dataSet": "HardMode"
+  "dataSet": "HardMode",
+  "launchCategory": 59
 }

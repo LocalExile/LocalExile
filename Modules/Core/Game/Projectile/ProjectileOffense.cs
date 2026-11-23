@@ -12,6 +12,8 @@ public sealed record ProjectileOffense(DamagePacket Hit, bool Spell, int Accurac
     int CriticalMultiplier, string Label)
 {
     public bool WeaponAttack { get; init; }
+    /// <summary>Whether an attack hit counts as a projectile attack (false for non-projectile rains and secondary explosions).</summary>
+    public bool? ProjectileAttack { get; init; }
     public Game.TinctureKillBonus? TinctureKill { get; init; }
     public bool NoExtraCriticalDamage { get; init; }
     /// <summary>An optional encounter owner; expired owners cannot commit further contacts.</summary>
@@ -40,6 +42,8 @@ public sealed record ProjectileOffense(DamagePacket Hit, bool Spell, int Accurac
     /// <summary>Caustic Arrow's non-stacking caustic ground cloud, spawned at every arrow impact and end (CausticClouds.cs).</summary>
     public sealed record CausticCloudSpec(int Radius, double Duration, double Dps, int ArtVariation);
     public CausticCloudSpec? CausticCloud { get; init; }
+    public Game.ExplosiveFuseSpec? ExplosiveFuse { get; init; }
+    public Game.EnsnareSpec? Ensnare { get; init; }
     public ImpaleStats.Settings? ImpaleSettings { get; init; }
     public ImpaleStats.Settings? CriticalImpaleSettings { get; init; }
     public AttackAccuracyProfile? AccuracyProfile { get; init; }
@@ -122,6 +126,13 @@ public sealed record ProjectileOffense(DamagePacket Hit, bool Spell, int Accurac
         }
         : this;
     }
+
+    public ProjectileOffense ScaleDamage(double more) => more == 1 ? this : this with
+    {
+        Hit = Hit.Scale(more), AreaHit = AreaHit?.Scale(more),
+        HitProfileMore = HitProfileMore * more, AilmentProfileMore = AilmentProfileMore * more,
+        Ignite = Scale(Ignite, more), Bleed = Scale(Bleed, more), Poison = Scale(Poison, more),
+    };
 
     static MonsterIgnites.Settings Scale(MonsterIgnites.Settings value, double more) => value with
     {

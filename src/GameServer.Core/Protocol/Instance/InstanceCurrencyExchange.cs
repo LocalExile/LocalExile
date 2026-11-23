@@ -14,7 +14,15 @@ public static class InstanceCurrencyExchange
     public const int RequestOrdersLength = 2, PlaceOrderLength = 18, CloseOrderLength = 6, ClaimLength = 11, RequestMarketLength = 10,
         RequestPartnersLength = 6, RequestFeeLength = 6;
 
-    public const ushort OrdersId = 0x2e9, PartnersId = 0x2f2, OrderChangedId = 0x2f3, MarketId = 0x2f4, FeeId = 0x2f7, OrderCompletedId = 0x2f8;
+    public const ushort OrdersId = 0x2e9, PartnersId = 0x2f2, OrderChangedId = 0x2f3, MarketId = 0x2f4, FeeId = 0x2f7,
+        OrderCompletedId = 0x2f8, ErrorId = 0x2f9;
+
+    /// <summary>BackendErrors.dat rows used by S→C 0x2f9 (handler 0x140b90be0).</summary>
+    public const ushort ErrorInvalidRequest = 604, ErrorMarketDisabled = 608, ErrorTooManyOrders = 612,
+        ErrorGenericOrderFailure = 615, ErrorCouldNotFindSellItems = 616;
+
+    /// <summary>S→C 0x2f9 (class 0x1435ca200, read 0x141f991c0): u16 BE BackendErrors row shown in the Currency Exchange error popup.</summary>
+    public static byte[] Error(ushort backendError) => new LoginWriter().U16(ErrorId).U16(backendError).ToArray();
 
     /// <summary>S→C 0x2f8, empty: "Faustus has completed one of your Currency Exchange orders", as a notification with its sound (0x140d96cf0).</summary>
     public static byte[] OrderCompleted() => new LoginWriter().U16(OrderCompletedId).ToArray();
@@ -35,7 +43,10 @@ public static class InstanceCurrencyExchange
     public sealed record MarketLevel(ushort Give, ushort Get, ulong Stock);
 
     public readonly record struct PlaceOrder(uint Want, uint Have, uint WantCount, uint HaveCount);
-    public readonly record struct Claim(uint Order, byte Side);
+    /// <summary>C→S 0x2ed (11 bytes, writer 0x141f9f660, caller 0x140beccd0): Order u32 BE, Side u8 (1 bought / 0 sold),
+    /// PressKind u8 (1 left click / 0 Ctrl+right click), ToCursor u8 (1 plain click onto cursor / 0 Ctrl+click to inventory),
+    /// CellX and CellY u8 (clicked slot coordinates).</summary>
+    public readonly record struct Claim(uint Order, byte Side, byte PressKind = 1, bool ToCursor = false, byte CellX = 0, byte CellY = 0);
 
     static uint U32(ReadOnlySpan<byte> message, int at) => BinaryPrimitives.ReadUInt32BigEndian(message[at..]);
 
@@ -47,8 +58,8 @@ public static class InstanceCurrencyExchange
     /// <summary>C→S 0x2f0: the two items of a market, the lower hash first.</summary>
     public static (uint Low, uint High) ReadRequestMarket(ReadOnlySpan<byte> m) => (U32(m, 2), U32(m, 6));
 
-    /// <summary>C→S 0x2ed: the order and its side, 1 for what was bought, 0 for what is left of what was sold.</summary>
-    public static Claim ReadClaim(ReadOnlySpan<byte> m) => new(U32(m, 2), m[6]);
+    /// <summary>C→S 0x2ed: the order, side (1 bought, 0 sold), press kind (1 left, 0 Ctrl+right), to-cursor flag, and clicked cell.</summary>
+    public static Claim ReadClaim(ReadOnlySpan<byte> m) => new(U32(m, 2), m[6], m[7], m[8] != 0, m[9], m[10]);
 
     /// <summary>S→C 0x2e9: every order of the league and how many the window allows.</summary>
     public static byte[] Orders(IReadOnlyCollection<Order> orders, byte slots)

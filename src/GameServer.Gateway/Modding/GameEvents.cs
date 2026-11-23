@@ -38,8 +38,8 @@ public sealed class GameEvent<T> : GameEventOwners.IOwned where T : Delegate
         Interlocked.Increment(ref _revision);
         return new Subscription(() =>
         {
-            ImmutableInterlocked.Update(ref _subscribers, s => s.RemoveAll(e => ReferenceEquals(e.Run, run)));
-            Interlocked.Increment(ref _revision);
+            if (ImmutableInterlocked.Update(ref _subscribers, s => s.RemoveAll(e => e.Id == subscriber.Id)))
+                Interlocked.Increment(ref _revision);
         });
     }
 
@@ -330,6 +330,9 @@ public static class GameEvents
         long _revision = -1;
         Dictionary<long, Func<Player, double, Task>?> _bindings = [];
         List<(string Owner, Func<Player, double, Task> Run)> _work = [];
+
+        /// <summary>Whether an area frame has callbacks to run or changed subscriptions to bind.</summary>
+        public bool NeedsTick => _work.Count != 0 || AreaTick.Revision != _revision;
 
         public Task Run(double seconds)
         {

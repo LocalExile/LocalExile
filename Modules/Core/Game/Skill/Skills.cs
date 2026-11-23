@@ -173,7 +173,8 @@ public static partial class Game
     // Each hand's local speed is already in its own duration; both receive only the character's shared speed bucket.
     public static List<(uint, int)> WeaponStats(Player player, SkillCatalog.Unarmed weapon, IReadOnlyDictionary<uint, int> stats)
     {
-        var conversion = SupportedAttackDamage.WithWeaponGains(DamageStats.Conversion(stats, Stats, attack: true), weapon);
+        int Get(uint key) => stats.GetValueOrDefault(key);
+        var conversion = SupportedAttackDamage.WithWeaponGains(DamageStats.Conversion(stats, Stats, attack: true), weapon, Get);
         var accuracy = OrdinaryAccuracy(player, stats, weapon.LocalSources);
         var mainHit = AttackHitConverted(weapon, stats, MeleeAttack(player), conversion, accuracy);
         double damageFactor = CriticalStrikePolicy.DamageFactor(CriticalProhibitedBy(stats, attack: true, own: null)
@@ -183,7 +184,7 @@ public static partial class Game
         AddHand(mainHit, "main_hand");
         if (OffhandWeaponFor(player) is { } off)
         {
-            var offConversion = SupportedAttackDamage.WithWeaponGains(DamageStats.Conversion(stats, Stats, attack: true), off);
+            var offConversion = SupportedAttackDamage.WithWeaponGains(DamageStats.Conversion(stats, Stats, attack: true), off, Get);
             var offHit = AttackHitConverted(off, stats, MeleeAttack(player), offConversion, new(WeaponAccuracyFor(player, off, stats)));
             list.AddRange(off.OffStats(stats, offHit));
             AddHand(offHit, "off_hand");
@@ -417,9 +418,7 @@ public static partial class Game
         var c = Skills.ClassFor(classRow);
         var (str, dex, intel) = pools.AttributesResolved || pools.Strength != 0 || pools.Dexterity != 0 || pools.Intelligence != 0
             ? (pools.Strength, pools.Dexterity, pools.Intelligence) : (c.Strength, c.Dexterity, c.Intelligence);
-        foreach (var (stat, value) in new[] { (Stat.Strength, str), (Stat.Dexterity, dex), (Stat.Intelligence, intel),
-            (Stat.VirtualStrengthForRequirements, str), (Stat.VirtualDexterityForRequirements, dex),
-            (Stat.VirtualIntelligenceForRequirements, intel) })
+        foreach (var (stat, value) in new[] { (Stat.Strength, str), (Stat.Dexterity, dex), (Stat.Intelligence, intel) })
             if (stat is var key) yield return (key, value);
     }
 
@@ -522,7 +521,8 @@ public static partial class Game
             // The native spell action divides virtual BASE time by cast speed itself. Keep the catalog base
             // intact; only the panel's final casts-per-second stat is adjusted here.
             int supportCastSpeed = own.GetValueOrDefault(Stat.BaseCastSpeedPlusPct)
-                + BrandCastSpeedBonusPct(player, effect, playerStats, own);
+                + BrandCastSpeedBonusPct(player, effect, playerStats, own)
+                + TaggedCastSpeedBonusPct(player, effect, playerStats.GetValueOrDefault, own.GetValueOrDefault);
             int castSpeedTotal = FinalCastSpeedPct(player, stats, CastSpeedPct(stats) + supportCastSpeed);
             var supportedTiming = GolemStat(own, Stat.BaseSpellCastTimeMsOverride) is int castBasis and > 0
                 ? SpellCastTiming.Calculate(castBasis, castSpeedTotal) : SpellCastTiming.ForSkill(SkillsFor(player), effect, castSpeedTotal);
@@ -1062,6 +1062,7 @@ public static partial class Game
 
     public static bool OwnAuraSkillRestricted(Player player, int effect, ushort? skillId)
     {
+        if (effect == 0 && (skillId is not ushort sid || !SkillsFor(player).IsGemSkill(sid))) return false;
         var sources = StatSourceValues(player);
         if (OwnAuraRestrictionValue(player, new(sources)) == 0 && !SublimeDisables(player, effect, sources)) return false;
         if (SkillsFor(player).IsAura(effect)) return true;
@@ -1137,7 +1138,8 @@ public static partial class Game
         if (TravelSkillsExceptDashDisabled(player, effect, skillId) is { } travel) return travel;
         if (gem.Supports.Any(s => s.Effect.Added.Contains(36))
             && !TriggeredSpellExecutable(player, skillId, gem)
-            && !SnipeTriggeredAttackExecutable(player, skillId, gem)) return "this trigger payload has no server executor";
+            && !SnipeTriggeredAttackExecutable(player, skillId, gem)
+            && !ManaforgedAttackExecutable(player, skillId, gem)) return "this trigger payload has no server executor";
         if (!triggered && TriggerOnlyReason(gem) is { } trigger) return trigger;
         if ((ActorSkillInstanceDisabled(player, effect, skillId) ?? WeaponRestricted(player, effect)
                 ?? GemRequirementsUnmet(player, gem.SourceGem)) is { } disabled)
@@ -1314,10 +1316,11 @@ public static partial class Game
         // A lethal hit while SendCharacterStats awaited must not turn a Hardcore death into a level-up heal.
         if (player.Character.Hardcore && (player.PlayerLife == 0 || player.Character.HardcoreDeathRecorded)) return;
         (player.PlayerLife, player.PlayerMana) = (LifeCap(player), (uint)mana);
-        player.EnergyShield.SetMaximum(player.Pools.EnergyShield, true);
+        RefillPlayerEnergyShield(player);
         Note($"0x01b1 player life {player.PlayerLife}");
         await SendPlayerMana(player, $"0x01b1 player mana {player.PlayerMana}");
         await SendPassives(player);
+        await CheckLevelAchievements(player, level);
     }
 
     // The player's stats (0x1b3) and the skills computed with them (0x2bc Actor), after the level or the passives changed.

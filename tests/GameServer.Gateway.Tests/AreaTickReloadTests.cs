@@ -18,19 +18,29 @@ public sealed class AreaTickReloadTests
         List<string> ticks = [];
         await runner.Run(.05);
         Assert.Empty(ticks);
+        Assert.False(runner.NeedsTick);
 
-        using var original = GameEvents.AreaTick.Add(owner, GameEvents.Always((p, _) =>
+        var start = GameEvents.Always((p, _) =>
         {
             Assert.Same(player, p);
             ticks.Add("old");
             return Task.CompletedTask;
-        }));
+        });
+        using var original = GameEvents.AreaTick.Add(owner, start);
+        using var second = GameEvents.AreaTick.Add(owner, start);
+        Assert.True(runner.NeedsTick);
         await runner.Run(.05);
-        Assert.Equal(["old"], ticks);
+        Assert.Equal(["old", "old"], ticks);
+
+        original.Dispose();
+        await runner.Run(.05);
+        Assert.Equal(["old", "old", "old"], ticks);
 
         GameEventOwners.Release(owner, GameEventOwners.ModuleRank);
+        Assert.True(runner.NeedsTick);
         await runner.Run(.05);
-        Assert.Equal(["old"], ticks);
+        Assert.Equal(["old", "old", "old"], ticks);
+        Assert.False(runner.NeedsTick);
 
         using var replacement = GameEvents.AreaTick.Add(owner, GameEvents.Always((_, _) =>
         {
@@ -38,7 +48,7 @@ public sealed class AreaTickReloadTests
             return Task.CompletedTask;
         }));
         await runner.Run(.05);
-        Assert.Equal(["old", "new"], ticks);
+        Assert.Equal(["old", "old", "old", "new"], ticks);
     }
 
     [Fact]

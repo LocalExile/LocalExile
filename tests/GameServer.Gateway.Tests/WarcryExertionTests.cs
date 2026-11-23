@@ -92,8 +92,88 @@ public sealed class WarcryExertionTests
                 }
                 Assert.True(target.Life < target.MaxLife);
                 player.Area.Monsters.Remove(id);
+                clock.At += 2;
+                f.Session.AdvanceTo(ProjectileRuntime.Time(clock.At));
                 return target.MaxLife - target.Life;
             }
+        }
+        finally { Game.AreaUpdateContext.Value = previous; }
+    }
+
+    [Fact]
+    public async Task Overexertion_scales_damaging_ailments_on_exerted_attacks()
+    {
+        using var f = new TriggeredSummonTests.Fixture();
+        var player = f.Player;
+        var previous = Game.AreaUpdateContext.Value;
+        var clock = new AttackClock();
+        player.ProjectileRuntimeState = f.Session;
+        player.Walk.Teleport(100, 100, clock.At);
+        Game.AreaUpdateContext.Value = new(f.Lifetime, clock);
+        using var stats = GameEvents.PlayerStatSources.Add("Game", (owner, values) =>
+        {
+            if (ReferenceEquals(owner, player))
+            {
+                values[Stat.GlobalAlwaysHit] = 1;
+                values[Stat.GlobalCannotCrit] = 1;
+                values[Stat.BleedOnHitWithAttacksPct] = 100;
+                values[Stat.AlwaysIgnite] = 1;
+                values[Stat.BaseChanceToPoisonOnHitPct] = 100;
+                values[Stat.AttackMinimumAddedPhysicalDamage] = 10000;
+                values[Stat.AttackMaximumAddedPhysicalDamage] = 10000;
+                values[Stat.AttackMinimumAddedFireDamage] = 10000;
+                values[Stat.AttackMaximumAddedFireDamage] = 10000;
+                values[Stat.NumberOfAdditionalProjectiles] = 1;
+            }
+            return values;
+        });
+        try
+        {
+            async Task<(double Bleed, double Ignite, double Poison)> Measure(ushort skill, (int X, int Y) targetAt, uint id)
+            {
+                var target = new SpawnedMonster("exerted ailment target", new(targetAt.X, targetAt.Y, 0), 0, 0, 10_000_000);
+                player.Area.Monsters.Add(id, target);
+                player.NextAttackAt = 0;
+                Assert.True(await Game.CastGemSkill(player, skill, (100, 100), targetAt, id));
+                while (target.Life == target.MaxLife && clock.At < 40)
+                {
+                    clock.At += .05;
+                    f.Session.AdvanceTo(ProjectileRuntime.Time(clock.At));
+                }
+                Assert.True(target.Life < target.MaxLife);
+                double bleed = target.Bleeds.PerSecond(clock.At);
+                double ignite = target.Ignites.PerSecond(clock.At);
+                double poison = target.Poisons.TotalDps(clock.At);
+                player.Area.Monsters.Remove(id);
+                clock.At += 2;
+                f.Session.AdvanceTo(ProjectileRuntime.Time(clock.At));
+                Assert.True(bleed > 0 && ignite > 0 && poison > 0);
+                return (bleed, ignite, poison);
+            }
+
+            static void AssertScaled((double Bleed, double Ignite, double Poison) normal, (double Bleed, double Ignite, double Poison) exerted)
+            {
+                Assert.InRange(exerted.Bleed / normal.Bleed, 1.17, 1.184);
+                Assert.InRange(exerted.Ignite / normal.Ignite, 1.17, 1.184);
+                Assert.InRange(exerted.Poison / normal.Poison, 1.17, 1.184);
+            }
+
+            // Molten Strike melee (MoltenStrike.cs) + Lightning Strike melee (Combat.cs) and projectile (Projectiles.cs).
+            ushort molten = Assert.Single(f.Equip(("Molten Strike", 1), ("Overexertion Support", 1)));
+            var moltenNormal = await Measure(molten, (104, 100), 951);
+            Game.ApplyIntimidatingCryLocked(player, IntimidatingCryStats(), new Dictionary<uint, int>(), clock.At);
+            var moltenExerted = await Measure(molten, (104, 100), 952);
+            AssertScaled(moltenNormal, moltenExerted);
+
+            ushort lightning = Assert.Single(f.Equip(("Lightning Strike", 1), ("Overexertion Support", 1)));
+            Game.ConsumeIntimidatingCryExertLocked(player, eligible: true); // spend remaining exert
+            var areaNormal = await Measure(lightning, (104, 100), 953);
+            var projNormal = await Measure(lightning, (118, 100), 954);
+            Game.ApplyIntimidatingCryLocked(player, IntimidatingCryStats(), new Dictionary<uint, int>(), clock.At);
+            var areaExerted = await Measure(lightning, (104, 100), 955);
+            var projExerted = await Measure(lightning, (118, 100), 956);
+            AssertScaled(areaNormal, areaExerted);
+            AssertScaled(projNormal, projExerted);
         }
         finally { Game.AreaUpdateContext.Value = previous; }
     }

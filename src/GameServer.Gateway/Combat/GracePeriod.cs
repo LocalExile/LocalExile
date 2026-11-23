@@ -13,6 +13,8 @@ public sealed class GracePeriod
     double _until;
     (int X, int Y) _origin;
 
+    public ushort? CurrentBuff { get { lock (_lock) return _buff; } }
+
     public bool Start(double now, (int X, int Y) origin, ushort buff, bool town, bool hideout)
     {
         lock (_lock)

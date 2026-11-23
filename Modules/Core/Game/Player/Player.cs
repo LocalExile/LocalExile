@@ -1,4 +1,5 @@
 using System.Net.Sockets;
+using GameServer.Core;
 using GameServer.Core.Protocol.Instance;
 using GameServer.Core.Protocol.Login;
 using DamageModel = GameServer.Core.World.DamageModel;
@@ -235,6 +236,7 @@ public static partial class Game
         player.ChannelMovement = default;
         ChargesOnDeath(player);
         ClearBloodChargesOnDeath(player);
+        ClearResonance(player);
         player.WitchbaneImmunityUntil = 0;
         ClearMomentum(player);
         VaalAuraStates.Remove(player); // CancelOnDeath: it cannot return after resurrection.
@@ -251,6 +253,13 @@ public static partial class Game
         await SendVaalSouls(player);
         await SendRage(player);
         await EndAurasOnDeath(player);
+        var (xpPenaltyPct, xpBefore, xpAfter) = ApplyDeathExperiencePenalty(player);
+        if (xpAfter != xpBefore)
+            await Send(player, InstanceEntities.PlayerExperienceUpdate(player.Id, xpAfter),
+                $"0x02bc death XP penalty -{xpPenaltyPct}% ({xpBefore} -> {xpAfter})");
+        if (xpPenaltyPct > 0)
+            await Send(player, InstanceChat.ChatLine($"You have lost {xpPenaltyPct}% experience."),
+                $"0x0017 death XP penalty chat ({xpPenaltyPct}%)");
         await SendPlayerDeathPresentation(player, label, deathEpoch, deathKind);
     }
 
@@ -521,10 +530,21 @@ public static partial class Game
     static SpellCastTiming? SpellTiming(Player player, int effect, Func<uint, int> playerStat, Func<uint, int> own, Func<uint, int> merged)
     {
         int speed = playerStat(Stat.CastSpeedPlusPct) + own(Stat.BaseCastSpeedPlusPct);
-        speed += BrandCastSpeedBonusPct(player, effect, playerStat, own);
+        speed += BrandCastSpeedBonusPct(player, effect, playerStat, own)
+            + TaggedCastSpeedBonusPct(player, effect, playerStat, own);
         speed = FinalCastSpeedPct(merged, () => HoldingFishingRod(player), speed);
         return own(Stat.BaseSpellCastTimeMsOverride) is int basis and > 0
             ? SpellCastTiming.Calculate(basis, speed) : SpellCastTiming.ForSkill(SkillsFor(player), effect, speed);
+    }
+
+    static int TaggedCastSpeedBonusPct(Player player, int effect, Func<uint, int> playerStat, Func<uint, int> own)
+    {
+        int Total(uint stat) => ActorScale.Saturate((long)playerStat(stat) + own(stat));
+        var skills = SkillsFor(player);
+        return (skills.HasType(effect, "AppliesCurse") ? Total(Stat.CurseCastSpeedPlusPct) : 0)
+            + (skills.HasType(effect, "Mark") ? Total(Stat.MarkSkillCastSpeedPlusPct) : 0)
+            + (skills.HasType(effect, "Link") ? Total(Stat.LinkSkillCastSpeedPlusPct) : 0)
+            + (Supports.Of(effect)?.Types.Contains(120) == true ? Total(Stat.RetaliationSkillSpeedPlusPct) : 0);
     }
 
     // A genuine spell's final server wait; native actions instead receive the unadjusted base milliseconds.
@@ -928,7 +948,8 @@ public static partial class Game
     static void StartContentTick(Player player, PlayerUpdatesState state)
     {
         var content = new GameEvents.AreaTickRunner(player);
-        EveryFrameAsPlayer(player, () => PlayerUpdatesCurrent(player, state), _ => content.Run(FrameSeconds));
+        EveryFrameAsPlayer(player, () => PlayerUpdatesCurrent(player, state), _ => content.Run(FrameSeconds),
+            needsWork: () => content.NeedsTick);
         EveryAsPlayer(player, PlayerTickMs, () => PlayerUpdatesCurrent(player, state), async player =>
         {
             // Elemental Overload's diamond: the client does not expire the invisible indicator buff itself, so remove it
@@ -981,7 +1002,7 @@ public static partial class Game
     static void StartResourceRecovery(Player player, PlayerUpdatesState updates)
     {
         double lifeCarry = 0, manaCarry = 0, burnCarry = 0, trapCarry = 0, flaskCarry = 0, last = updates.Schedule.Now(player);
-        double lifeRate = 0, manaRate = 0, burnPerSecond = 0, preventedPerSecond = 0;
+        double lifeRate = 0, manaRate = 0, burnPerSecond = 0, preventedPerSecond = 0, lifeRegenFactor = 1;
         bool zealotsOath = false, convertLifeRegen = false, vaalPact = false;
         double? periodicRegenStart = null;
         double periodicRegenPerSecond = 0;
@@ -1039,9 +1060,11 @@ public static partial class Game
                     player.PetrifiedBlood.RefreshThreshold(LowLifeThresholdPct(recoveryStats));
                     preventedPerSecond = PreventedDamageRecovery.PerSecond(
                         PanelStats.WhileMoving(RecoveryStat, player.Walk.Moving(AreaTime(player))));
+                    lifeRegenFactor = LifeRegenerationKeystoneFactor(RecoveryStat);
                     int periodic = RecoveryStat(Stat.VirtualGainLifeRegenerationPerMinutePctFor1SecondEvery4Seconds);
                     periodicRegenStart = periodic > 0 && player.PlayerLife > 0 ? periodicRegenStart ?? now : null;
-                    periodicRegenPerSecond = player.PlayerMaxLife * (double)periodic / 6000 * PanelStats.LifeRegenerationMultiplier(RecoveryStat);
+                    periodicRegenPerSecond = player.PlayerMaxLife * (double)periodic / 6000
+                        * PanelStats.LifeRegenerationMultiplier(RecoveryStat) * lifeRegenFactor;
                     zealotsOath = PanelStats.ZealotsOath(RecoveryStat);
                     convertLifeRegen = zealotsOath && EnergyShield.ConversionAllowed(RecoveryStat);
                     vaalPact = RecoveryStat(Stat.KeystoneVaalPact) != 0;
@@ -1075,6 +1098,7 @@ public static partial class Game
                     player.LifeRecoup.Clear();
                     PreventedDamageOf(player).Clear();
                     player.EnergyShield.Empty();
+                    KeystoneRecovery.Remove(player);
                     ClearAntiquarianOnDeath(player);
                     periodicRegenStart = null;
                     lifeAfter = lifeBefore;
@@ -1104,6 +1128,8 @@ public static partial class Game
                     int trapWhole = (int)Math.Truncate(trapCarry); trapCarry -= trapWhole;
                     int lifeTrap = IncomingResourceDefences.DamageOverTime(player.EnergyShield, trapWhole,
                         IncomingStat(IncomingResourceDefences.BypassStat), now, ref player.NonChaosDotBypassCarry);
+                    RecordRechargeLifeDamage(player, Math.Max(lifeBurn, lifeTrap), now, recoveryStats);
+                    double lifeRecharge = AdvanceKeystoneRecovery(player, recoveryFrom, now, lifeBefore < lifeCap, RecoveryStat);
                     player.EnergyShield.Advance(recoveryFrom, now, RecoveryStat, true);
                     double periodicLife = periodicRegenStart is double start ? periodicRegenPerSecond
                         * (PeriodicRegenSeconds(now - start) - PeriodicRegenSeconds(recoveryFrom - start)) : 0;
@@ -1122,9 +1148,9 @@ public static partial class Game
                     double recoupLife = player.LifeRecoup.Take(now) * mapRecovery;
                     // Flask recovery alone may pass Low Life under Petrified Blood. Every other source, leech included,
                     // stops at the boundary; leech instances stay alive, but their recovery above Low Life is ignored.
-                    double nonFlaskLife = (zealotsOath ? 0 : lifeRate * seconds + periodicLife) + (zealotsOath ? 0 : fortificationLife)
-                        + leeched.Life + (zealotsOath ? 0 : antiquarianLife) + (zealotsOath ? 0 : enduringCryLife + preventedLife) + recoupLife;
-                    if (!zealotsOath) nonFlaskLife += unhingedHitLife;
+                    double nonFlaskLife = (zealotsOath ? 0 : lifeRate * seconds + periodicLife
+                        + (fortificationLife + antiquarianLife + enduringCryLife + preventedLife + unhingedHitLife) * lifeRegenFactor)
+                        + leeched.Life + recoupLife + lifeRecharge;
                     // Vaal Pact: "Cannot Recover Life other than from Leech" — only leech recovers life here; the
                     // regeneration, flask, recoup and other non-leech shares are blocked. Their Energy Shield
                     // conversions under Zealot's Oath above still apply (the stats are not removed).
@@ -1178,7 +1204,7 @@ public static partial class Game
                         // rate only while Life is more than a short prediction margin below it; inside the margin, the
                         // server's own updates finish the recovery, so the client cannot predict across the boundary.
                         uint lowLife = (uint)((long)player.PlayerMaxLife * LowLifeThresholdPct(recoveryStats) / 100);
-                        uint margin = PetrifiedBlood.RecoveryMargin(lifeRate);
+                        uint margin = PetrifiedBlood.RecoveryMargin(zealotsOath ? 0 : lifeRate);
                         bool recoveryBlocked = player.PetrifiedBlood.Active && lifeAfter > 0
                             && (long)lifeAfter + margin >= lowLife;
                         if (recoveryBlocked != player.PetrifiedBlood.SentRecoveryBlocked)
@@ -1348,6 +1374,65 @@ public static partial class Game
     public static bool ChangesResistancePenalty(IEnumerable<string> changed) =>
         changed.Any(ResistancePenaltyAct5.Concat(ResistancePenaltyAct10).Contains);
 
+    static HashSet<string> PvpAreaIds = new(StringComparer.OrdinalIgnoreCase);
+
+    /// <summary>Loads PvP <c>WorldAreas</c> ids at startup (<c>GameModule.LoadData</c>).</summary>
+    public static void LoadDeathPenaltyData()
+    {
+        var ids = new HashSet<string>(StringComparer.OrdinalIgnoreCase);
+        if (ClientTables.Has("WorldAreas"))
+            foreach (var row in ClientTables.Table("WorldAreas"))
+                if (!row.IsNull("PVPType") && row.Text("Id") is { Length: > 0 } id) ids.Add(id);
+        PvpAreaIds = ids;
+    }
+
+    /// <summary>Retail Standard death experience penalty percentage: 0% in Hardcore, town, hideouts, PvP areas, or
+    /// before Act 5 Kitava; 5% after Act 5 Kitava; 10% after Act 10 Kitava (same quest flags as <see cref="ResistancePenalty"/>).</summary>
+    public static int DeathExperiencePenaltyPercent(Player player)
+    {
+        if (ForceHardcore || player.Character.Hardcore || InTown(player)
+            || HideoutCatalog.ByArea(player.Layout.Hash) is not null
+            || PvpAreaIds.Contains(player.Layout.Id)) return 0;
+        bool act5 = ResistancePenaltyAct5.Any(player.Character.QuestFlags.Contains);
+        bool act10 = ResistancePenaltyAct10.Any(f => player.Character.QuestFlags.Contains(f) && !player.Character.UnearnedQuestFlags.Contains(f));
+        if (act10) return 10;
+        if (act5) return 5;
+        return 0;
+    }
+
+    /// <summary>Applies the Standard death XP penalty, clamped to the current level's starting XP so a character never
+    /// de-levels, and persists the updated experience. Lock order matches <see cref="RecordExperienceGain"/>.</summary>
+    public static (int Percent, uint Before, uint After) ApplyDeathExperiencePenalty(Player player)
+    {
+        int percent = DeathExperiencePenaltyPercent(player);
+        if (percent <= 0) return (0, player.Character.Experience, player.Character.Experience);
+        var updates = LevelUpdatesFor(player);
+        uint before, after;
+        bool atCap;
+        lock (updates.Gate)
+        {
+            uint start = player.Character.Experience;
+            atCap = GameServer.Core.World.Progression.LevelFor(start, CharacterStats.LevelStarts)
+                >= CharacterStats.LevelStarts.Count;
+            (before, after) = CharacterSaves.AddExperience(CharacterName(player), start, xp =>
+            {
+                int level = GameServer.Core.World.Progression.LevelFor(xp, CharacterStats.LevelStarts);
+                if (level < 1 || level >= CharacterStats.LevelStarts.Count) return xp;
+                uint floor = CharacterStats.LevelStarts[level - 1];
+                uint next = CharacterStats.LevelStarts[level];
+                ulong loss = (ulong)(next - floor) * (ulong)percent / 100UL;
+                return xp > floor + loss ? (uint)(xp - loss) : floor;
+            });
+            if (after != before)
+            {
+                CharacterSaves.SaveExperience(CharacterName(player));
+                player.Character.Experience = after;
+                updates.Revision++;
+            }
+        }
+        return atCap ? (0, before, after) : (percent, before, after);
+    }
+
     // The player's final resistance for one damage type: the passive/gear modifier plus the Kitava quest penalty.
     public static int Resistance(Player player, DamageType type)
     {
@@ -1444,7 +1529,7 @@ public static partial class Game
         player.InvalidateIncomingHits();
         LeechOf(player).Clear(AreaTime(player));
         player.PlayerLife = LifeCap(player);
-        player.EnergyShield.SetMaximum(player.Pools.EnergyShield, refill: true);
+        InitializePlayerEnergyShield(player);
         player.HitRecovery.Clear();
         player.Ward.SetMaximum(player.Pools.Ward); player.Ward.Restore();
         player.AuraDeathHandled = false;

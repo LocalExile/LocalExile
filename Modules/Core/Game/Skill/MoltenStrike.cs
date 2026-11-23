@@ -326,9 +326,10 @@ public static partial class Game
             var ignite = SupportedIgnite(player, skillId, spell: false, playerStats, swingWeapon);
             var bleed = SupportedBleed(player, skillId, spell: false, playerStats, swingWeapon, melee: true);
             var poison = SupportedPoison(player, skillId, spell: false, playerStats, swingWeapon);
-            ignite = RepeatAilment(ignite, repeatMore);
-            bleed = RepeatAilment(bleed, repeatMore);
-            poison = RepeatAilment(poison, repeatMore);
+            double ailmentMore = repeatMore * OverexertionMore(skillStats, cryExerted);
+            ignite = RepeatAilment(ignite, ailmentMore);
+            bleed = RepeatAilment(bleed, ailmentMore);
+            poison = RepeatAilment(poison, ailmentMore);
             var criticalTrigger = CaptureCriticalTriggerSource(player, skillId);
             var meleeKillTrigger = CaptureMeleeKillTriggerSource(player, skillId);
             bool fortificationGranted = false;
@@ -370,7 +371,10 @@ public static partial class Game
                     && EvasionEntropy.ConfirmsCritical(hitChance, player.AttackAccuracyRandom);
                 int sourceMultiplier = CriticalMultiplierWithWeapon(criticalMultiplierBase, m, local);
                 int multiplier = CriticalMultiplierOn(m, sourceMultiplier);
-                var (damage, resistance, mitigated) = MonsterHitDamage(m, rolled, critical, attack: true, now, mods, pen,
+                var resonance = WithResonanceHitLocked(player, skillStats, rolled, mods, pen, now);
+                rolled = resonance.Packet;
+                var (damage, resistance, mitigated) = MonsterHitDamage(m, rolled, critical, attack: true, now,
+                    resonance.Mods, resonance.Penetration,
                     gambler.InvertsResistance(AreaRng(player)), AreaRng(player));
                 var taken = MonsterTakenComponents(m, mitigated, spell: false, now);
                 if (critical) damage = DamageModel.CriticalDamage(damage, multiplier);
@@ -387,6 +391,7 @@ public static partial class Game
                 var applied = ApplyMonsterHitLocked(player, m, damage, rampageSource, playerStats,
                     cull: Cull.Of(playerStats, skillStats, critical, spell: false).WithWeapon(local));
                 if (applied is not { } hit) continue;
+                if (hit.Life < lifeBefore) RecordResonanceHitLocked(player, m, skillStats, rolled, now);
                 if (weapon.ItemClass is not null) player.RecentEvents.Record(StatConditions.HitEnemyWithWeapon, now);
                 if (hit.Life == 0) RecordTinctureKill(m, TinctureKillBonusFor(player, playerStats, hand));
                 // Cruelty, as AreaSkillHit's hit grants it: this pipeline is a copy of that one.

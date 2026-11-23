@@ -125,9 +125,15 @@ Part of [Status](../Status.md); what to build next in this area is in
   Mark waivers, Cannibalistic Rite, the Covenant and Rathpith Globe use the server's resource admission.
 - Energy Shield skill costs (Energy Blade, Wild Strike of Extremes, Replica Covenant) and Eldritch Battery: costs paid
   from Energy Shield first, hits past it to Life, its Mana share taken from it, 50% less recharge (not checked live).
+  Eternal Youth redirects recharge to Life and reduces regeneration and total Life leech. Immortal Ambition
+  prevents shield recharge and regeneration and redirects retained Life leech at full Life ([15](../docs/protocol/15-progression.md)).
   Docs: [20](../docs/protocol/20-damage.md).
 - Bow arrow counts from bow and quiver modifiers. Docs: [11](../docs/protocol/11-skills.md) Â§10,
   [RE count inputs](../docs/re/projectiles/count-stat-inputs.md) Â§3.
+- Explosive Arrow adds fuses on terminal contacts. The first fuse times the combined blast, and hitting the fuse cap
+  detonates it early.
+- Ensnaring Arrow tethers a surviving final target until it leaves the anchor's radius. Its projectile attack
+  damage taken modifier does not multiply with each additional tether.
 - Tornado Shot's terminal secondary arrows. Docs: [11](../docs/protocol/11-skills.md) Â§10,
   [RE terminal geometry](../docs/re/projectiles/tornado-geometry.md).
 - Kinetic Bolt's zig-zags (including multi-projectile volley parity). Docs: [11](../docs/protocol/11-skills.md) Â§10.
@@ -143,7 +149,9 @@ Part of [Status](../Status.md); what to build next in this area is in
   [20](../docs/protocol/20-damage.md#player-energy-shield-2026-10-25).
 - Weapon-local damage and timing; wand/claw/dagger added ranges, Varunastra, Fan of Blades, Eclipse Solaris and the
   Ritual boots' accuracy lightning. Docs: [20](../docs/protocol/20-damage.md) Â§2a-2b.
-  Attack coefficients and weapon-scoped cold per Dexterity have shared consumers; new skill-specific inputs and native checks remain open (#368).
+  Attack coefficients, the typed weapon passives and weapon-scoped cold per Dexterity have shared consumers.
+  Attack-only ignite chances and the bow skill's ailment multiplier act at contact;
+  further skill-specific inputs and native checks remain open (#368).
 - Projectile framework: one 30 Hz runtime for gem and bow projectiles.
   Docs: [framework](../docs/game/projectile-framework.md), [client research](../docs/re/012-projectile-execution.md).
 - Arcane Might (#364). Docs: [Arcane Might](../docs/game/arcane-might.md), [20](../docs/protocol/20-damage.md) Â§2c.
@@ -244,12 +252,20 @@ Part of [Status](../Status.md); what to build next in this area is in
 - Summons: quality, source recovery, spell repeats, and enemy-seeking undamageable Skitterbots; mines and traps
   Revenants consume nearby allies, Smiting Guardians use Smite, and Slamming Zombies attack between slams.
   (including Fire Trap proxy stats, detonation aim, burning-enemy bonus, throw clamping, and lockstep timing).
+  Locus Mine keeps close mines armed. Invention scales trap and mine damage by their age at the trigger.
   Docs: [11](../docs/protocol/11-skills.md) Â§10h.
 - Summon Reaper of Eviscerating follows its owner, consumes allies and attacks on recast.
 - Predator targeting, Feeding Frenzy buffs, aggressive Skeleton Warrior dashes, defensive targeting and Meat Shield proximity damage.
   Docs: [11](../docs/protocol/11-skills.md) Â§10h.
-- Absolution and Dominating sentinels, Phantasms, direct Vaal Skeletons and Vaal Absolution/Domination ascensions. Docs: [11](../docs/protocol/11-skills.md) Â§10h.
+- Absolution and Dominating sentinels, Phantasms, direct Vaal Skeletons and Vaal Absolution/Domination ascensions.
+  HUD minion counter icons (`PlayerMinionsChange`) now publish for all active player minion types (not checked live).
+  Docs: [11](../docs/protocol/11-skills.md) Â§10h.
   Vaal minion totem, trap and mine casts are refused before spending souls or starting an action.
+- Removable player buffs can be right-click cancelled via C→S `0x4b` (Grace Period, Shrines, guards, auras, Arcane
+  Surge, phasing; non-removable debuffs rejected; not checked live). Docs: [11](../docs/protocol/11-skills.md) §12.
+- Native knockback hit presentation (`0x1af` bit 11 + `u3c`/`u3e`), totem directional `HitAngle`/`HitCode`, `0x1b0`
+  `ActionResultFlag` encoder, and chance-based instant cooldown reset sync (`0x50cd`/`0x52e2`; not checked live).
+  Docs: [11](../docs/protocol/11-skills.md) §5, §9, §10g.
 - Vaal Animate Weapon transforms eligible melee drops and landed Bladefall of Trarthus blades into temporary unique weapons.
 - Conversion Trap temporarily changes the triggering enemy's allegiance. Converted enemies can attack hostiles,
   and unique enemies are immune.
@@ -263,7 +279,10 @@ Part of [Status](../Status.md); what to build next in this area is in
 - Onslaught on kill and from a Silver Flask. Docs: [13](../docs/protocol/13-items.md) Â§8a.
 - Rampage and Soul Eater from item stats, with Soul Ascension's souls from hits on rare and unique enemies.
   Docs: [11](../docs/protocol/11-skills.md) Â§12.
-- Stats: the client's stat keys and the player's base pools. Docs: [11](../docs/protocol/11-skills.md) Â§4, Â§8, Â§14.
+- Stats: the client's stat keys and the player's base pools, plus item-requirement stats (`main_hand_weapon_type`,
+  `virtual_*_for_requirements`), dual-wield snapshot sync, and light radius virtual stats (`virtual_light_radius_+%`,
+  `virtual_blind_does_not_affect_light_radius`; new virtuals not checked live).
+  Docs: [11](../docs/protocol/11-skills.md) Â§4, Â§8, Â§14.
 - Attack speed passives and attack timing. Docs: [11](../docs/protocol/11-skills.md) Â§4.
 - Spell cast timing (#192). Docs: [11](../docs/protocol/11-skills.md) Â§9.
 - Selected spell hit damage panel (#188). Docs: [11](../docs/protocol/11-skills.md) Â§9 and Â§14.

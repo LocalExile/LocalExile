@@ -124,8 +124,28 @@ public sealed class SaveDatabase : IDisposable
             lock (_gate)
             {
                 if (_inAtomic) return null;
-                _dataVersion ??= Command("PRAGMA main.data_version");
-                return (_ended, Convert.ToInt64(_dataVersion.ExecuteScalar()));
+                return (_ended, ExternalVersion);
+            }
+        }
+    }
+
+    /// <summary>SQLite's <c>data_version</c> for main: advances whenever another connection commits. Safe inside or
+    /// outside a transaction; inside <see cref="Atomically{T}"/> it begins the transaction first so the version matches
+    /// the transaction's WAL snapshot.</summary>
+    public long ExternalVersion
+    {
+        get
+        {
+            lock (_gate)
+            {
+                if (_inAtomic && _tx is null) _tx = _db.BeginTransaction();
+                if (_dataVersion is null)
+                {
+                    _dataVersion = _db.CreateCommand();
+                    _dataVersion.CommandText = "PRAGMA main.data_version";
+                }
+                _dataVersion.Transaction = _tx;
+                return Convert.ToInt64(_dataVersion.ExecuteScalar());
             }
         }
     }

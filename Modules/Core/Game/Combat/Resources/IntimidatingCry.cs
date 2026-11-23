@@ -205,12 +205,17 @@ public static partial class Game
     public static GamblerModifiers WithIntimidatingCryExert(GamblerModifiers modifiers, bool exerted) =>
         exerted ? modifiers with { DoubleDamageChance = Math.Max(100, modifiers.DoubleDamageChance) } : modifiers;
 
-    static DamagePacket WithOverexertion(DamagePacket hit, IReadOnlyDictionary<uint, int> skill, bool exerted)
+    static double OverexertionMore(IReadOnlyDictionary<uint, int> skill, bool exerted)
     {
-        if (!exerted) return hit;
+        if (!exerted) return 1;
         double warcryMore = Math.Max(0, 1 + skill.GetValueOrDefault(Stat.SupportOverexertionDamagePlusPctFinalPerWarcryExertingAction) / 100d);
         double exertedMore = Math.Max(0, 1 + skill.GetValueOrDefault(Stat.SupportOverexertionDamagePlusPctFinalIfExerted) / 100d);
-        double more = warcryMore * exertedMore; // Intimidating Cry contributes one warcry to this attack.
+        return warcryMore * exertedMore; // Intimidating Cry contributes one warcry to this attack.
+    }
+
+    static DamagePacket WithOverexertion(DamagePacket hit, IReadOnlyDictionary<uint, int> skill, bool exerted)
+    {
+        double more = OverexertionMore(skill, exerted);
         return more == 1 ? hit : hit.Scale(more);
     }
 
