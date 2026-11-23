@@ -15,6 +15,7 @@ public static partial class Game
     static readonly Dictionary<string, ushort> TimedVaalAuraBuffRows = new(StringComparer.Ordinal)
     {
         ["VaalClarity"] = 158,
+        ["VaalGrace"] = 159,
         ["VaalHaste"] = 161,
         ["VaalImpurityOfFire"] = 971,
         ["VaalImpurityOfIce"] = 972,
@@ -221,12 +222,14 @@ public static partial class Game
         if (extra != 0)
             stats[Stat.BaseSmiteNumberOfTargets] = (stats.TryGetValue(Stat.BaseSmiteNumberOfTargets, out int curExtra) ? curExtra : 0) + extra;
         Add(Stat.CastSpeedPlusPct, auras.Where(a => a.AffectsSelf && a.EffectId == "VaalHaste"), Stat.CastSpeedPlusPctGrantedFromSkill);
+        Add(Stat.ChanceToEvadeAttacksPct, auras.Where(a => a.AffectsSelf && a.EffectId == "VaalGrace"), Stat.ChanceToEvadeAttacksPct);
         foreach (var aura in auras)
         {
             if (!aura.AffectsSelf) continue;
             switch (aura.EffectId)
             {
                 case "VaalClarity": stats[Stat.NoManaCost] = 1; break;
+                case "VaalGrace": stats[Stat.DamageTakenFromSuppressedHitsIsUnlucky] = 1; break;
                 case "VaalImpurityOfFire": stats[Stat.BaseImmuneToIgnite] = stats[Stat.ImmuneToIgnite] = 1; break;
                 case "VaalImpurityOfIce":
                     stats[Stat.BaseImmuneToFreeze] = stats[Stat.ImmuneToFreeze] = 1;
