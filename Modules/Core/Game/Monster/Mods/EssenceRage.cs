@@ -36,7 +36,7 @@ public static partial class MapEssences
         double duration = Math.Max(1, Get(Stat.BaseTrapDuration) / 1000.0);
         int burst = Math.Max(4, SkillArea.Radius(SkillArea.BaseRadius(catalog.EffectId(spell.Effect), Get), Get, true));
         double trigger = TrapTriggerRadius(Get);
-        double now = Now;
+        double now = AreaTime(conn);
         var at = target.Walk.Position(AreaTime(target));
         var placed = new List<(int X, int Y)>();
         lock (area.Runes) placed.AddRange(area.Runes.Select(r => r.At));
@@ -79,9 +79,9 @@ public static partial class MapEssences
         uint id = conn.TakeObjectId();
         var skills = catalog.FindByRow(0x4000, spell.Effect, effectLevel, [.. payload.Select(p => (p.Key, p.Value))]) is { } proxy
             ? new[] { proxy } : [];
-        conn.Minions.OutputQueue.Add(new(InstanceEntities.CreateObject(id, InstanceEntities.ObjectTypeHash(path),
-            new TrapMineObject(at.X, at.Y, false, skills, own).Blob()), null, WorldId: id, CreatesObject: true));
-        conn.Minions.OutputQueue.Add(new(InstanceProtocol.EnterWakeZone(id), null, WorldId: id));
+        _ = SendWorldCreate(conn, id, () => InstanceEntities.CreateObject(id, InstanceEntities.ObjectTypeHash(path),
+                new TrapMineObject(at.X, at.Y, false, skills, own).Blob()), null,
+            afterCreation: () => [InstanceProtocol.EnterWakeZone(id)]);
         return id;
     }
 
@@ -89,7 +89,7 @@ public static partial class MapEssences
     static void TickRunes(Player conn)
     {
         if (!Areas.TryGetValue(conn.Instance, out var area)) return;
-        double now = Now;
+        double now = AreaTime(conn);
         Rune[] runes;
         lock (area.Runes)
         {
@@ -117,6 +117,7 @@ public static partial class MapEssences
 
     static async Task ExplodeRune(Player conn, Rune rune)
     {
+        if (conn.Closed || conn.LeavingArea || conn.Paused) return;
         uint boom = SpawnEffect(conn, rune.At, RuneExplosionArt, 1.5f);
         _ = RemovePulseLater(conn, boom, 1.0);
         foreach (var player in PlayersNear(conn, rune.At, rune.Burst).ToArray())

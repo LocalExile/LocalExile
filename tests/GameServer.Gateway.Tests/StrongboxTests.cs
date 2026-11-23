@@ -98,6 +98,8 @@ public sealed class StrongboxTests
             var box = ReadBoxes(owner.Player)[0]!;
             uint id = box["Id"]!.GetValue<uint>();
             Assert.NotEqual(3, box["Rarity"]!.GetValue<byte>()); // a unique box takes no currency; this seed rolls none
+            // The use is checked against the box's interaction reach: the player stands beside it, as in the game.
+            owner.Player.Walk.Teleport(100, 101, 0);
 
             var catalog = Program.Items;
             var vaal = catalog.Find(CurrencyEffects.VaalOrb)!;

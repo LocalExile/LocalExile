@@ -21,7 +21,6 @@ using static Program;
 /// </summary>
 public static partial class MapEssences
 {
-    static double Now => DateTime.UtcNow.Ticks / (double)TimeSpan.TicksPerSecond;
 
     /// <summary>One special spell a released rare casts: its nova visual effect and its RepeatedPulse trigger effect (the
     /// pulsation wind-up that debuffs / deals chaos degen), what it does (cold/fire/lightning resistance pulse, chaos degen
@@ -131,7 +130,7 @@ public static partial class MapEssences
     static Task CastSpecialSpells(Player conn)
     {
         if (conn.Closed || conn.LeavingArea || !Areas.TryGetValue(conn.Instance, out var area) || area.Monoliths is null) return Task.CompletedTask;
-        double now = Now;
+        double now = AreaTime(conn);
         var casts = Casts.GetOrCreateValue(conn.Instance);
         foreach (var mono in area.Monoliths.Where(m => m.Stage >= 4 && m.Monster != 0).ToArray())
         {
@@ -142,6 +141,12 @@ public static partial class MapEssences
                 if (!casts.TryGetValue(mono.Monster, out state!))
                     casts[mono.Monster] = state = new CastState { Spells = SpecialSpellsOf(conn, mono.Essences, monster.Level) };
             if (state.Spells.Count == 0) continue;
+            // The tick runs every frame for every player: a rare with nothing off cooldown costs one pass over its few
+            // spells, and the target search and position work happen only for a rare about to cast.
+            bool ready = false;
+            lock (state)
+                foreach (var spell in state.Spells) if (now >= state.Ready.GetValueOrDefault(spell.Pulse)) { ready = true; break; }
+            if (!ready) continue;
             var at = monster.Walk.Position(AreaTime(conn));
             double range = Math.Max(60, monster.Variety?.AggroRange ?? 60);
             var target = Members(conn).Where(c => c.Connection.PlayerSent && c.PlayerLife > 0 && !c.Immune
@@ -161,6 +166,9 @@ public static partial class MapEssences
 
     static async Task CastSpell(Player conn, SpawnedMonster monster, Player target, (int X, int Y) at, SpecialSpell spell)
     {
+        // A pause, a departure or the caster's death stops the spell between its steps: a slain rare must not keep
+        // pulsing from its corpse, and a paused area must not land damage.
+        bool Stopped() => conn.Closed || conn.LeavingArea || conn.Paused || monster.Dead || monster.Life <= 0;
         try
         {
             if (spell.Kind == "grab")
@@ -168,12 +176,12 @@ public static partial class MapEssences
                 var trapAt = target.Walk.Position(AreaTime(target));
                 uint circle = SpawnEffect(conn, trapAt, GrabCircleArt);
                 uint hand = SpawnEffect(conn, trapAt, GrabHandArt);
-                await Task.Delay(TimeSpan.FromSeconds(1.0));
-                if (!conn.Closed && !conn.LeavingArea)
+                await AreaDelay(conn, 1.0);
+                if (!Stopped())
                 {
                     uint end = SpawnEffect(conn, trapAt, GrabEndArt);
                     await Grab(conn, monster, target, trapAt, 10);
-                    await Task.Delay(TimeSpan.FromSeconds(0.6));
+                    await AreaDelay(conn, 0.6);
                     RemoveEffect(conn, end);
                 }
                 RemoveEffect(conn, circle); RemoveEffect(conn, hand);
@@ -254,13 +262,13 @@ public static partial class MapEssences
                 // overlap; one pulse per 8 s cooldown read as a far slower aura than the client's.
                 double gap = Math.Max(0.5, spell.Duration / 2);
                 int pulses = Math.Max(1, (int)Math.Round(spell.Cast / gap));
-                for (int i = 0; i < pulses && !conn.Closed && !conn.LeavingArea; i++)
+                for (int i = 0; i < pulses && !Stopped(); i++)
                 {
                     // The aura follows the rare: with its AI no longer held it may walk through the pulse window.
                     ChaosDegen(conn, monster.Walk.Position(AreaTime(conn)), PulseRadius, spell);
                     if (i + 1 < pulses)
                     {
-                        await Task.Delay(TimeSpan.FromSeconds(gap));
+                        await AreaDelay(conn, gap);
                         PlayPulse(conn, monster.Walk.Position(AreaTime(conn)), spell);
                     }
                 }
@@ -271,18 +279,21 @@ public static partial class MapEssences
             {
                 // The pulsation wind-up: accelerating pulses (1.25 / 0.5 / 0.25 s), then the nova bursts its projectiles.
                 // Each pulse is a one-shot effect at the rare's live cell: the AI is not held, so it may be walking.
-                await Task.Delay(TimeSpan.FromSeconds(1.25));
+                await AreaDelay(conn, 1.25);
+                if (Stopped()) return;
                 PlayPulse(conn, monster.Walk.Position(AreaTime(conn)), spell);
-                await Task.Delay(TimeSpan.FromSeconds(0.5));
+                await AreaDelay(conn, 0.5);
+                if (Stopped()) return;
                 PlayPulse(conn, monster.Walk.Position(AreaTime(conn)), spell);
-                await Task.Delay(TimeSpan.FromSeconds(0.25));
+                await AreaDelay(conn, 0.25);
+                if (Stopped()) return;
                 FireNova(conn, monster, spell);
             }
-            await Task.Delay(TimeSpan.FromSeconds(0.5));
+            await AreaDelay(conn, 0.5);
             // The resistance debuff is the rare's own aura: applied where it stands when the release lands, not where the
             // cast began (the AI is not held, so it may have walked).
-            if (!conn.Closed && !conn.LeavingArea) await ResDebuff(conn, monster.Walk.Position(AreaTime(conn)), PulseRadius, spell);
-            await Task.Delay(TimeSpan.FromSeconds(0.4));
+            if (!Stopped()) await ResDebuff(conn, monster.Walk.Position(AreaTime(conn)), PulseRadius, spell);
+            await AreaDelay(conn, 0.4);
             Console.WriteLine($"[map-content] essence {spell.Kind} pulse by 0x{monster.ObjectId:x} at ({at.X}, {at.Y})");
         }
         catch (Exception ex)
@@ -296,17 +307,18 @@ public static partial class MapEssences
     static uint SpawnEffect(Player conn, (int X, int Y) at, string art, float scale = 1)
     {
         uint id = conn.TakeObjectId();
-        conn.Minions.OutputQueue.Add(new(InstanceEntities.CreateObject(id, InstanceEntities.ObjectTypeHash(EffectObject.TypePath),
-            new EffectObject(at.X, at.Y, art) { Scale = scale }.Blob()), null, WorldId: id, CreatesObject: true));
-        conn.Minions.OutputQueue.Add(new(InstanceProtocol.EnterWakeZone(id), null, WorldId: id));
-        conn.Minions.OutputQueue.Add(new(InstanceProtocol.AnimationUpdate(id, 0, 0, 1), null, WorldId: id));
+        // One world create with its wake and clip: the supported send path, callable from the spell tasks (the minion
+        // output queue is drained on the area's frame and must not be appended to from a continuation).
+        _ = SendWorldCreate(conn, id, () => InstanceEntities.CreateObject(id, InstanceEntities.ObjectTypeHash(EffectObject.TypePath),
+                new EffectObject(at.X, at.Y, art) { Scale = scale }.Blob()), null,
+            afterCreation: () => [InstanceProtocol.EnterWakeZone(id), InstanceProtocol.AnimationUpdate(id, 0, 0, 1)]);
         return id;
     }
 
     static void RemoveEffect(Player conn, uint id)
     {
         if (id == 0) return;
-        conn.Minions.OutputQueue.Add(new(InstanceProtocol.RemoveObject(id), null, WorldId: id, RemovesObject: true));
+        _ = SendWorldRemoval(conn, id, null);
     }
 
     /// <summary>The pulse is the essence's own instant aura: a one-shot effect object (the MiscAnimated element pulse art) at
@@ -337,7 +349,7 @@ public static partial class MapEssences
 
     static async Task RemovePulseLater(Player conn, uint id, double seconds)
     {
-        await Task.Delay(TimeSpan.FromSeconds(seconds));
+        await AreaDelay(conn, seconds);
         RemoveEffect(conn, id);
     }
 
@@ -368,7 +380,7 @@ public static partial class MapEssences
     public static Dictionary<uint, int> EssenceDebuffStats(Player conn, Dictionary<uint, int> stats)
     {
         if (!Effects.TryGetValue(conn, out var effects) || effects.Debuffs.Count == 0) return stats;
-        double now = Now;
+        double now = AreaTime(conn);
         lock (effects)
             foreach (var (debuff, until, _, _) in effects.Debuffs)
                 if (until > now)
@@ -382,7 +394,7 @@ public static partial class MapEssences
     static void TickEffects(Player conn)
     {
         if (!Effects.TryGetValue(conn, out var effects)) return;
-        double now = Now;
+        double now = AreaTime(conn);
         var goneBuffs = new List<ushort>();
         bool debuffChanged = false;
         lock (effects)
@@ -398,7 +410,7 @@ public static partial class MapEssences
     }
 
     /// <summary>A leaving player's pulses and their degeneration share go with them.</summary>
-    static void LeaveEffects(Player conn)
+    public static void ClearEffects(Player conn)
     {
         if (Effects.TryGetValue(conn, out var effects))
         {
@@ -412,6 +424,8 @@ public static partial class MapEssences
         Effects.Remove(conn);
         GroundExposures.Remove(conn);
     }
+
+    static void LeaveEffects(Player conn) => ClearEffects(conn);
 
     static async Task RefreshStats(Player c)
     {

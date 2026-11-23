@@ -179,6 +179,12 @@ public static partial class MapStrongboxes
         .Prepend(player)
         .Where(p => !p.Closed && !p.LeavingArea && p.Instance == player.Instance).Distinct();
 
+    /// <summary>A player still in the instance who can carry a deferred presentation send: the opener, else any member.
+    /// A callback keyed to the opener must not be lost when the opener leaves within the clip, and the effect objects
+    /// and the opened box belong to the area, not to one client.</summary>
+    static Player? Survivor(Player player) =>
+        player.Instance is null ? null : Members(player).FirstOrDefault(p => p.Connection.PlayerSent);
+
     public readonly record struct SpawnRequest(int X, int Y, StrongboxCatalog.Contents? Kind, int Level, MapMods Mods, string? PackArea = null);
 
     static StrongboxCatalog.Definition? PickKind(StrongboxCatalog.Contents kind, int level, bool hardMode, MapMods mods, Random random)
@@ -416,8 +422,8 @@ public static partial class MapStrongboxes
             "summoned monster effect: the spawn sounds");
         SendAfter(player, SummonEffectSeconds, async () =>
         {
-            if (player.Closed || player.LeavingArea) return;
-            await SendWorldRemoval(player, id, null);
+            if (Survivor(player) is not { } viewer) return;
+            await SendWorldRemoval(viewer, id, null);
         });
     }
 
@@ -452,14 +458,20 @@ public static partial class MapStrongboxes
             $"strongbox 0x{box.Id:x} plays its open clip (lid sound)");
         await Wear(player, box);
         // The opened flag only arrives in a created object: once the clip has played, present the box opened, which
-        // drops its nameplate (and the marker, should the state script not).
+        // drops its nameplate (and the marker, should the state script not). Any live member carries the send: the opener
+        // may have left within the clip, and the box is the area's.
         SendAfter(player, OpenClipSeconds, async () =>
         {
-            if (player.Closed || player.LeavingArea) return;
+            if (player.Instance is null) return;
             // The area's shown/worn state is the gate's: the clip's callback runs outside the opening's own gate.
             var area = Areas.GetOrCreateValue(player.Instance);
             await area.Gate.WaitAsync();
-            try { if (!player.Closed && !player.LeavingArea) await Present(player, box, true); }
+            try
+            {
+                if (Survivor(player) is not { } viewer) return;
+                if (area.Boxes is { } boxes && box.Index < boxes.Count && boxes[box.Index] is { } current && current.Id == box.Id)
+                    await Present(viewer, current, true);
+            }
             finally { area.Gate.Release(); }
         });
         if (StrongboxCatalog.OpenEffect(type, box.Rarity) is not { } art) return;
@@ -474,8 +486,8 @@ public static partial class MapStrongboxes
             $"strongbox 0x{box.Id:x} open effect sound");
         SendAfter(player, OpenEffectSeconds, async () =>
         {
-            if (player.Closed || player.LeavingArea) return;
-            await SendWorldRemoval(player, id, null);
+            if (Survivor(player) is not { } viewer) return;
+            await SendWorldRemoval(viewer, id, null);
         });
     }
 
@@ -564,11 +576,12 @@ public static partial class MapStrongboxes
                 (RogueExiles.Any ? "" : " (no module spawns rogue exiles)"));
         }
         if (StrongboxCatalog.Find(box.Type) is { } opened)
-            // After the lid's creak, as the guards: a daemon's spell at 0 s buried it under the skill's own sound.
+            // After the lid's creak, as the guards: a daemon's spell at 0 s buried it under the skill's own sound. A
+            // live member of the instance runs them: the trap daemons must not be skipped when the opener left by then.
             SendAfter(player, OpenClipSeconds, () =>
             {
-                if (!player.Closed && !player.LeavingArea)
-                    CastDaemons(player, area, opened, box, new Random(unchecked((int)player.Seed ^ box.Index * 9973 ^ box.Cycle * 31)));
+                if (Survivor(player) is { } viewer)
+                    CastDaemons(viewer, area, opened, box, new Random(unchecked((int)viewer.Seed ^ box.Index * 9973 ^ box.Cycle * 31)));
                 return Task.CompletedTask;
             });
     }

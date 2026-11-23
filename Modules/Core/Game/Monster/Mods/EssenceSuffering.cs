@@ -24,9 +24,10 @@ public static partial class MapEssences
         var damage = catalog.HitDamage(spell.Effect, monster.Level);
         var at = target.Walk.Position(AreaTime(target));
         uint crystal = SpawnEffect(conn, at, FrostBombCrystalArt, 2f);
-        await Task.Delay(TimeSpan.FromSeconds(windup));
+        await AreaDelay(conn, windup);
         RemoveEffect(conn, crystal);
-        if (conn.Closed || conn.LeavingArea) return;
+        // A pause, a departure or the caster's death stops the bomb between its steps.
+        if (conn.Closed || conn.LeavingArea || conn.Paused || monster.Dead || monster.Life <= 0) return;
         // The discharge reads at the skill's own area (24 base, +50% final = 36 cells); the art is scaled to match it, so
         // the burst covers what it hits instead of looking smaller than its reach.
         uint boom = SpawnEffect(conn, at, FrostBombExplosionArt, 1.5f);
@@ -49,8 +50,8 @@ public static partial class MapEssences
                 ushort buff = player.NextBuff++;
                 lock (effects)
                 {
-                    effects.Debuffs.RemoveAll(d => d.Until <= Now || d.Key == key);
-                    effects.Debuffs.Add((new Dictionary<uint, int> { [key] = exposure }, Now + exposureSeconds, buff, key));
+                    effects.Debuffs.RemoveAll(d => d.Until <= AreaTime(player) || d.Key == key);
+                    effects.Debuffs.Add((new Dictionary<uint, int> { [key] = exposure }, AreaTime(player) + exposureSeconds, buff, key));
                 }
                 await SendWorldRecord(player, player.Id, InstanceEntities.AddBuff(player.Id, buff, 746,
                     u68: BitConverter.SingleToUInt32Bits((float)exposureSeconds)), $"essence frost bomb cold exposure {exposure}%");

@@ -19,9 +19,10 @@ public static partial class MapEssences
         if (damage.IsZero) return;
         var spot = target.Walk.Position(AreaTime(target));
         uint meteor = SpawnEffect(conn, spot, DesolationBoulderArt);
-        await Task.Delay(TimeSpan.FromSeconds(1.0));
+        await AreaDelay(conn, 1.0);
         RemoveEffect(conn, meteor);
-        if (conn.Closed || conn.LeavingArea) return;
+        // A pause, a departure or the caster's death stops the boulder between its steps.
+        if (conn.Closed || conn.LeavingArea || conn.Paused || monster.Dead || monster.Life <= 0) return;
         uint boom = SpawnEffect(conn, spot, DesolationBoulderExplodeArt);
         _ = RemovePulseLater(conn, boom, 1.0);
         await EssenceSpellHit(conn, monster, impactEffect, damage, radius: 14, spot, poisonChance: 100);

@@ -90,6 +90,9 @@ public static partial class Game
             ClearCorruptedBlood(player);
             ClearEssenceAuraExposure(player);
             ClearRemnantAuraExposure(player);
+            // The essence pulses' debuffs and Misery stacks end with the player too, or they would outlive a death in
+            // the same area.
+            MapEssences.ClearEffects(player);
             return 0;
         }
         double previousAction = player.ElementalAilments.ActionFactor(from);
@@ -142,6 +145,7 @@ public static partial class Game
             ClearCorruptedBlood(player);
             ClearEssenceAuraExposure(player);
             ClearRemnantAuraExposure(player);
+            MapEssences.ClearEffects(player);
             // Commit the mode outcome inside lethal damage, before disconnects or network writes can intervene.
             RecordHardcoreDeath(player);
         }

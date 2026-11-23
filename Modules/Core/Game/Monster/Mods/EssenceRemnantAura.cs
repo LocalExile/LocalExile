@@ -41,9 +41,16 @@ public static partial class Game
         state.Sources.Clear();
         if (RemnantAuraDefinition is not { } aura) return;
         foreach (var (id, monster) in conn.Area.Monsters)
-            if (monster.Hostile && !monster.Dead && monster.Life > 0
-                && monster.Mods.Mods.Any(m => m.Hash == aura.Mod))
+            if (monster.Hostile && !monster.Dead && monster.Life > 0 && HasMod(monster.Mods, aura.Mod))
                 state.Sources.Add(new(id, monster, aura));
+    }
+
+    // No LINQ on the per-frame path: this runs over every monster of the area each tick.
+    static bool HasMod(MonsterModSet set, ushort hash)
+    {
+        var mods = set.Mods;
+        for (int i = 0; i < mods.Count; i++) if (mods[i].Hash == hash) return true;
+        return false;
     }
 
     static RemnantAuraSource? RemnantAuraAt(Player conn, RemnantAuraExposure state, (int X, int Y) at, double now)

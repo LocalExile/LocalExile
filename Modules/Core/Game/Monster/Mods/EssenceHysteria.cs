@@ -30,7 +30,7 @@ public static partial class MapEssences
         var damage = raw.Scale(1 + perStack * 2 / 100d);
         var spot = target.Walk.Position(AreaTime(target));
         uint circle = SpawnEffect(conn, spot, HysteriaFlameblastTargetArt, 1.4f);
-        await Task.Delay(TimeSpan.FromSeconds(1.6));
+        await AreaDelay(conn, 1.6);
         RemoveEffect(conn, circle);
         if (conn.Closed || conn.LeavingArea) return;
         uint boom = SpawnEffect(conn, spot, HysteriaFlameblastExplodeArt, 1.4f);
@@ -82,7 +82,7 @@ public static partial class MapEssences
                 if (MapEssenceCatalog.Find(row)?.Type == HysteriaEssenceType) { rares.Add(mono.Monster); break; }
         }
         if (rares.Count == 0) return;
-        double now = Now;
+        double now = AreaTime(conn);
         double areaTime = AreaTime(conn);
         List<SpawnedMonster> sources = [];
         foreach (uint id in rares)

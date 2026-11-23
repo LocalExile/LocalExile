@@ -90,8 +90,8 @@ public static partial class MapEssences
             ushort buff = conn.NextBuff++;
             lock (effects)
             {
-                effects.Debuffs.RemoveAll(d => d.Until <= Now || d.Key == key);
-                effects.Debuffs.Add((new Dictionary<uint, int> { [key] = spell.Value }, Now + seconds, buff, key));
+                effects.Debuffs.RemoveAll(d => d.Until <= AreaTime(source) || d.Key == key);
+                effects.Debuffs.Add((new Dictionary<uint, int> { [key] = spell.Value }, AreaTime(source) + seconds, buff, key));
             }
             await SendWorldRecord(conn, conn.Id, InstanceEntities.AddBuff(conn.Id, buff, 746,
                 u68: BitConverter.SingleToUInt32Bits((float)seconds)), $"essence {spell.Kind} resistance pulse {spell.Value}%");

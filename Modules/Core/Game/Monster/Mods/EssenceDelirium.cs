@@ -62,7 +62,7 @@ public static partial class MapEssences
         for (double d = 10; d <= 58; d += 12)
         {
             double delay = d / Math.Max(10, cellsPerSecond);
-            await Task.Delay(TimeSpan.FromSeconds(Math.Max(0.05, delay - prevDelay)));
+            await AreaDelay(conn, Math.Max(0.05, delay - prevDelay));
             prevDelay = delay;
             if (conn.Closed || conn.LeavingArea) return;
             (int X, int Y) spot = (from.X + (int)Math.Round(ux * d), from.Y + (int)Math.Round(uy * d));

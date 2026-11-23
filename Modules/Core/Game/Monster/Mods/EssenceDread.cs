@@ -59,7 +59,7 @@ public static partial class MapEssences
             _ = RemovePulseLater(conn, hit, 0.8);
             await EssenceSpellHit(conn, monster, spell.Pulse, damage, impact, spot);
             balls++;
-            await Task.Delay(TimeSpan.FromSeconds(delay));
+            await AreaDelay(conn, delay);
         }
         Console.WriteLine($"[map-content] essence {label} by 0x{monster.ObjectId:x} at ({at.X}, {at.Y}): {balls} balls every {delay:0.##}s, area {area:0}, impact {impact}");
     }

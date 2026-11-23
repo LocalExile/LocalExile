@@ -29,14 +29,17 @@ public static partial class MapEssences
         /// <summary>The imprisoned pack: small crystals around this one, each holding a magic monster of the same pack.
         /// They share this monolith's essences and break when it releases.</summary>
         public IReadOnlyList<Mini> Minis { get; init; } = [];
-        /// <summary>The encased rare's preview monster object (the model/bar/panel in the crystal), 0 until spawned.</summary>
+        /// <summary>The encased rare's preview monster object (the model/bar/panel in the crystal), 0 until spawned, and the
+        /// buff id of its frozen state (re-sent to a player who joins later).</summary>
         public uint Preview { get; init; }
+        public ushort PreviewBuff { get; init; }
     }
     /// <summary>A MiniMonolith crystal of a monolith's pack: intact (Stage 1) until the monolith releases, then broken
     /// (Stage 2) with its magic monster spawned (Monster).</summary>
     public sealed record Mini(uint Id, int X, int Y, string Variety, byte Stage = 1, uint Monster = 0)
     {
         public uint Preview { get; init; }
+        public ushort PreviewBuff { get; init; }
     }
     sealed class Area
     {
@@ -48,15 +51,8 @@ public static partial class MapEssences
         // recreates the main monolith only, so its crystals must not be created a second time.
         public readonly HashSet<uint> ShownMinis = [];
         public readonly HashSet<int> Dirty = [];
-        /// <summary>Per released rare, its special essence spells (the pulses/grab the hit kit drops) and each spell's
-        /// next-ready time. Runtime only; rebuilt from the monolith's essences after a restore.</summary>
-        public readonly Dictionary<uint, CastState> Casting = [];
-        /// <summary>Hatred's Creeping Frost chilling trail (EssenceSpells.cs): the ice crystals left on the ground.</summary>
-        public readonly List<TrailZone> Trail = [];
         /// <summary>Rage's fire runes (EssenceRage.cs): armed traps on the ground that burst when stepped on.</summary>
         public readonly List<Rune> Runes = [];
-        /// <summary>Shared essence ground-effect zones (EssenceGroundZones.cs): Vortex, shocked, burning, chilled and caustic ground.</summary>
-        public readonly List<GroundZone> GroundZones = [];
     }
     static readonly RuleTable<InstanceState, Area> Areas = new();
     static readonly RuleTable<Player, HashSet<uint>> Presented = new();
@@ -207,7 +203,8 @@ public static partial class MapEssences
                 if (Monsters.Find(req.VarietyId) is not { Supported: true } variety) continue;
                 var essences = MapEssenceCatalog.Roll(Math.Clamp(req.Level, 1, 100), req.Mods, random);
                 if (essences.Count == 0) continue;
-                var monolith = new Monolith(player.Instance.World.NewMonsterId(), area.Monoliths.Count, req.X, req.Y, variety.Id, essences);
+                var monolith = await SpawnEncasedPreviews(player,
+                    new Monolith(player.Instance.World.NewMonsterId(), area.Monoliths.Count, req.X, req.Y, variety.Id, essences));
                 area.Monoliths.Add(monolith);
                 created.Add(monolith);
             }
@@ -248,8 +245,8 @@ public static partial class MapEssences
             (int X, int Y)? at = CollisionEscape.Clear((x, y), player.Layout.GridW, player.Layout.GridH, Floor, blockers, 4)
                 ? (x, y) : CollisionEscape.Find((x, y), player.Layout.GridW, player.Layout.GridH, Floor, blockers, moverSize: 4);
             if (at is null) return false;
-            var monolith = new Monolith(player.Instance.World.NewMonsterId(), area.Monoliths.Count, at.Value.X, at.Value.Y,
-                variety.Id, essences) { Source = source };
+            var monolith = await SpawnEncasedPreviews(player, new Monolith(player.Instance.World.NewMonsterId(), area.Monoliths.Count,
+                at.Value.X, at.Value.Y, variety.Id, essences) { Source = source });
             area.Monoliths.Add(monolith);
             Keep(player, area);
             foreach (var member in Members(player)) await Present(member, monolith);
@@ -294,7 +291,18 @@ public static partial class MapEssences
                     if (count > 0) Console.WriteLine($"[map-content] essences area={player.Layout.Id}: placed {area.Monoliths.Count}/{count}");
                 }
             }
-            foreach (var monolith in area.Monoliths!) await Present(player, monolith);
+            bool respawned = false;
+            for (int i = 0; i < area.Monoliths!.Count; i++)
+            {
+                var monolith = area.Monoliths[i];
+                // A save's monoliths keep object ids a rebuilt instance does not: the encased previews are made again.
+                var current = await EnsureEncasedPreviews(player, monolith);
+                if (!ReferenceEquals(current, monolith)) { area.Monoliths[i] = current; respawned = true; monolith = current; }
+                await Present(player, monolith);
+                // The entering player's client needs the previews' frozen buff and paused animation again.
+                if (monolith.Stage < 4) await PresentEncasedState(player, monolith);
+            }
+            if (respawned) Keep(player, area);
         }
         finally { area.Gate.Release(); }
     }
@@ -491,5 +499,11 @@ public static partial class MapEssences
         if (Areas.TryGetValue(player.Instance, out var area) && area.Monoliths is not null)
             state["essences"] = JsonSerializer.SerializeToNode(area.Monoliths);
     }
-    public static void Leave(Player player) { Presented.Remove(player); LeaveEffects(player); }
+    public static void Leave(Player player)
+    {
+        Presented.Remove(player);
+        LeaveEffects(player);
+        // The last player out tears the instance down: its Misery shields must not leave the hot-path counter raised.
+        if (!player.Instance.PlayersExcept(player.Id).Any(p => !p.Closed && !p.LeavingArea)) ClearProximityShields(player);
+    }
 }

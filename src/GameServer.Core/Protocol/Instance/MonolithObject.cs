@@ -22,9 +22,9 @@ public sealed record MonolithObject(int X, int Y, ushort Monster, IReadOnlyList<
         // The reader's schema lists no separate corrupted field — this bit is it.
         w.U8((byte)(Corrupted ? 2 : 0)).U16(Monster).U8((byte)Essences.Count);
         foreach (uint essence in Essences) w.U32(essence);
-        // Monolith +0x104. The reader stores a free u32 here; the panel needs the imprisoned monster's name and mods,
-        // so the working hypothesis (live test pending) is that the official server writes that monster's entity id.
-        // Zero is a valid value: the crystal still renders without it.
+        // Monolith +0x104. The reader stores a free u32 here; with the imprisoned monster's entity id the client builds the
+        // panel (the rare's name and mod lines, then the essences and the helper text) from that object's
+        // ObjectMagicProperties — confirmed live 2026-11-20. Zero is a valid value: the crystal still renders without it.
         w.U32(LinkedMonster);
         States(Stage).Write(w);
         return w.U8(0).ToArray();

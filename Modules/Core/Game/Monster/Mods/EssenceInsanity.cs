@@ -41,7 +41,7 @@ public static partial class MapEssences
             }
             markers.Add((spot, SpawnEffect(conn, spot, StormCallIdleArt)));
         }
-        await Task.Delay(TimeSpan.FromSeconds(duration * 0.5));
+        await AreaDelay(conn, duration * 0.5);
         if (!conn.Closed && !conn.LeavingArea)
         {
             foreach (var (spot, _) in markers)
@@ -49,7 +49,7 @@ public static partial class MapEssences
                 uint pulse = SpawnEffect(conn, spot, StormCallPulseArt);
                 _ = RemovePulseLater(conn, pulse, duration * 0.5);
             }
-            await Task.Delay(TimeSpan.FromSeconds(duration * 0.5));
+            await AreaDelay(conn, duration * 0.5);
         }
         foreach (var (_, idle) in markers) RemoveEffect(conn, idle);
         if (conn.Closed || conn.LeavingArea) return;

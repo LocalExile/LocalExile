@@ -704,22 +704,20 @@ still between casts), stalls the rare and desyncs its position on the client, an
 `RepeatedPulse`/`DominusGrab` clip so the cast
 draws no animation. Instead a periodic caster in the essence tick casts them on their own cooldown while the released rare
 lives, independent of its AI (which fights normally with its default attack and the hit/summon spells); cooldowns live on the
-instance area (`Area.Casting`) so several players' ticks cast a spell once. The **grab** visual is the client's own spell art
-spawned as an **effect object** (the strongbox ground-effect pattern, broadcast via the output queue + `AnimationUpdate`):
-the essence `demon_grasp` circle + hand (`Metadata/Effects/Spells/monsters_effects/essence/demon_grasp/demon_grasp_circle.ao`
-/ `demon_grasp.ao`, MiscAnimated 1025/1024) appear where the target stood; after a 1 s windup the grasp end
-(`demon_grasp_end.ao`, 1026) plays and a target still inside the circle is pulled to the rare — stepping out evades it. The
-**pulse** nova is animated by the native client from a real daemon's skill action (the shrine nova pattern), not a bare
-effect object (a standalone `pulses/*.ao` effect object draws nothing): `ShowPulseDaemon` spawns the essence's daemon at the
-rare (friendly, invulnerable, out of AI, `SummonerId` = the rare so it does not block its walk) and plays its
-`RepeatedPulse` action with `active_skill_area_of_effect_radius` / `total_skill_area_of_effect_radius_+%_including_final`
-set (`SkillArea`, base 12 — see below); the daemon is removed when the pulse ends. The pulses are
-self-centred (ActiveSkill 898 `repeated_pulse`, ActionType 526 `RepeatedPulse` 0xe7db, TargetType 4); the grab is ActiveSkill
-373 `dominus_grab` (ActionType 203 `DominusGrab` 0xb975).
+instance (`MapEssences`' per-instance cast state) so several players' ticks cast a spell once. Each cast is instant and
+self-centred. The **grab** visual is the client's own spell art spawned as a one-shot **effect object** (`demon_grasp` circle
++ hand, `Metadata/Effects/Spells/monsters_effects/essence/demon_grasp/demon_grasp_circle.ao` / `demon_grasp.ao`, MiscAnimated
+1025/1024) where the target stood; after a 1 s windup the grasp end (`demon_grasp_end.ao`, 1026) plays and a target still
+inside the circle is pulled to the rare — stepping out evades it. The **pulse** is the element's own
+`Metadata/Effects/Spells/pulses/<element>pulse.ao`, spawned at the rare's live cell and re-spawned for each pulsation of the
+wind-up: the client draws it as a one-shot effect, so the cast never stops or holds the rare's AI (an earlier daemon actor
+playing the `RepeatedPulse` action could not follow a walking rare and left the pulsation behind). That action is ActiveSkill
+898 `repeated_pulse` (ActionType 526 `RepeatedPulse` 0xe7db, TargetType 4); the grab is ActiveSkill 373 `dominus_grab`
+(ActionType 203 `DominusGrab` 0xb975).
 **No essence pulse skill holds a radius stat and ActionType 526 has no radius column**, so the client's own action code owns
 the reach; 12 is calibrated from retail (the replica's aggro-range reach, 60+, was about five times too wide) and awaits RE
 of the action. `MiscAnimated` carries all four pulse arts — `pulses/icepulse.ao`, `firepulse.ao`, `lightningpulse.ao`,
-`chaospulse.ao` — so each element spawns its own over the daemon's frost pulse at scale **1**; the 5x it was spawned at drew
+`chaospulse.ao` — so each element spawns its own at scale **1**; the 5x it was spawned at drew
 a pulsation five times too wide, and lightning no longer borrows `ShrineShockNova`. The cast windows and cooldowns
 (`GrantedEffects.CastTime` / `GrantedEffectsPerLevel.Cooldown`, ms): Misery 5000/8000, Anger 4000/4000, Wrath 4000/8000.
 `RepeatedPulse` pulses **across** its cast, not once per cooldown: Misery's 2.5 s debuff over a 5 s cast is two pulses.

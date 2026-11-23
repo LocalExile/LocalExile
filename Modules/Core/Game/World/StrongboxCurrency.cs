@@ -1,4 +1,5 @@
 using GameServer.Core.Protocol.Instance;
+using GameServer.Core.World;
 using static Game;
 using static Program;
 
@@ -52,9 +53,12 @@ public static partial class MapStrongboxes
         byte row = 0; bool fromChar = false; InventoryItem? used = null;
         if (items.RowOf(use.ItemId) is byte r && PlayerInventories.InventoryId(r) == use.InventoryId
             && items.Items(r).FirstOrDefault(i => i.Id == use.ItemId) is { } ci) { row = r; fromChar = true; used = ci; }
-        AccountStash? stash = null;
+        else if (PlayerInventories.InventoryId(PlayerInventories.Cursor) == use.InventoryId
+            && items.Items(PlayerInventories.Cursor).FirstOrDefault(i => i.Id == use.ItemId) is { } hi)
+        { row = PlayerInventories.Cursor; fromChar = true; used = hi; }
+        AccountStash? stash = null; int stashTab = -1;
         if (used is null && StashOf(player) is { } s && s.TabOf(use.InventoryId) is int t
-            && s.Inventory(t).Items.FirstOrDefault(i => i.Id == use.ItemId) is { } si) { stash = s; used = si; }
+            && s.Inventory(t).Items.FirstOrDefault(i => i.Id == use.ItemId) is { } si) { stash = s; stashTab = t; used = si; }
         if (used is null)
         {
             Console.WriteLine(Log("no such item in the character's inventories or the open stash"));
@@ -65,6 +69,10 @@ public static partial class MapStrongboxes
         try
         {
             var box = area.Boxes![target.Index];
+            // A box is used from nearby: an open, living player within the object's interaction reach of it (the client
+            // enforces its own; this refuses a use that cannot be a click on the box).
+            if (player.Closed || player.LeavingArea || player.PlayerLife == 0
+                || !PlayerWalk.InWalkUpRange(player.Walk.Position(AreaTime(player)), (box.X, box.Y), 10)) return true;
             if (StrongboxCatalog.Find(box.Type) is not { } type) return true;
             var (changed, refusal) = Change(ItemsFor(player).Mods, type, box, currency?.Id, AreaLevel(player), AreaMods(player), AreaRng(player));
             if (changed is null)
@@ -83,27 +91,52 @@ public static partial class MapStrongboxes
             }
             else
             {
-                // One orb of the clicked type from the stash (its stacks, smallest first); the currency tab holds one stack
-                // per orb, so this is the clicked one. SendStashPayment notifies every tab it touched.
-                if (stash!.Pay(used.Item.TypeHash, 1) is not { } paid) { Console.WriteLine(Log("the item is gone")); return true; }
-                notify = () => SendStashPayment(player, stash, paid);
+                // One orb from the clicked stack, not the smallest stack of its type anywhere in the stash: the client
+                // named (tab, item). SendStashPayment notifies the tab it changed.
+                if (PayOne(stash!, stashTab, used) is not { } paid) { Console.WriteLine(Log("the item is gone")); return true; }
+                notify = () => SendStashPayment(player, stash!, paid);
             }
             area.Boxes[box.Index] = changed;
             Keep(player, area);
             await notify();
             Console.WriteLine(Log($"{currency!.Name}: {Label(player, box)} → {Label(player, changed)}"));
             // ObjectMagicProperties has a 0x2bc reader: update the box's rarity and mods in place, where the client's
-            // nameplate and selection stay put (a new object dropped the label). Only a change to the Chest flag byte — the
-            // trap mods' warning bit, which has no 0x2bc reader — needs a new object.
-            foreach (var member in Members(player))
-                if (ChestFlags(player, type, box) != ChestFlags(player, type, changed)) await Present(member, changed, true);
-                else await UpdateBoxMods(member, type, changed);
-            // The closed glow is the rarity's: an in-place update keeps the box object, so its effect is worn again for
-            // the new rarity (one glow for the area, not one per member).
-            if (ChestFlags(player, type, box) == ChestFlags(player, type, changed)) await Wear(player, changed);
+            // nameplate and selection stay put (a new object dropped the label). A unique roll and a change of the Chest
+            // flag byte (the trap mods' warning bit, which has no 0x2bc reader) are create-only: words and model come
+            // with the object. Both go out once for the area, not once per member.
+            bool recreate = changed.Unique != box.Unique || ChestFlags(player, type, box) != ChestFlags(player, type, changed);
+            if (recreate)
+                foreach (var member in Members(player)) await Present(member, changed, true);
+            else
+            {
+                await UpdateBoxMods(player, type, changed);
+                area.Shown[changed.Id] = changed;
+                // The closed glow is the rarity's: an in-place update keeps the box object, so its effect is worn again
+                // for the new rarity (one glow for the area, not one per member).
+                await Wear(player, changed);
+            }
         }
         finally { area.Gate.Release(); }
         return true;
+    }
+
+    /// <summary>One unit of the stack the client named by (tab, item): <see cref="AccountStash.Shrink"/> for a stack that
+    /// keeps some, <see cref="AccountStash.Take"/> for the last one. Null when the stack is gone. Shared with the essence
+    /// monolith's Vaal Orb.</summary>
+    internal static AccountStash.Payment? PayOne(AccountStash stash, int tab, InventoryItem item)
+    {
+        var tabs = new Dictionary<int, (List<uint> Removed, List<InventoryItem> Changed)>();
+        if (item.Item.StackSize > 1)
+        {
+            if (stash.Shrink(tab, item.Id, 1) is not { } left) return null;
+            tabs[tab] = ([], [left]);
+        }
+        else
+        {
+            if (stash.Take(tab, item.Id) is not { } taken) return null;
+            tabs[tab] = ([taken.Id], []);
+        }
+        return new(tabs);
     }
 
     /// <summary>The box's ObjectMagicProperties by S→C 0x2bc: the same bytes a created box's component carries

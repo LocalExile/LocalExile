@@ -78,9 +78,9 @@ public static partial class MapEssences
             else if (PlayerInventories.InventoryId(PlayerInventories.Cursor) == use.InventoryId
                 && items.Items(PlayerInventories.Cursor).FirstOrDefault(i => i.Id == use.ItemId) is { } hi)
             { row = PlayerInventories.Cursor; fromChar = true; used = hi; }
-            AccountStash? stash = null;
+            AccountStash? stash = null; int stashTab = -1;
             if (used is null && StashOf(player) is { } s && s.TabOf(use.InventoryId) is int t
-                && s.Inventory(t).Items.FirstOrDefault(i => i.Id == use.ItemId) is { } si) { stash = s; used = si; }
+                && s.Inventory(t).Items.FirstOrDefault(i => i.Id == use.ItemId) is { } si) { stash = s; stashTab = t; used = si; }
             if (used is null || ItemsFor(player).ByHash(used.Item.TypeHash)?.Id != CurrencyEffects.VaalOrb)
             {
                 Console.WriteLine(Log("requires a Vaal Orb in the inventory, the cursor or the open stash; nothing consumed"));
@@ -105,8 +105,9 @@ public static partial class MapEssences
             }
             else
             {
-                if (!CurrentGameWork || stash!.Pay(used.Item.TypeHash, 1) is not { } paid) return true;
-                notify = () => SendStashPayment(player, stash, paid);
+                // The clicked stack, not the smallest stack of its type anywhere in the stash.
+                if (!CurrentGameWork || MapStrongboxes.PayOne(stash!, stashTab, used) is not { } paid) return true;
+                notify = () => SendStashPayment(player, stash!, paid);
             }
             monolith = result.Monolith;
             area.Monoliths[monolith.Index] = monolith;

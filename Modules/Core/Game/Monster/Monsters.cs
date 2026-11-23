@@ -2252,6 +2252,8 @@ public static partial class Game
                     if (acts is not null) summoned.Attack = acts;
                 }) != 0) created++;
         Console.WriteLine($"[gateway] {player.Connection.Remote} monster 0x{id:x} ({m.Label}) summons {created}/{summon.Count} {variety.Name} at ({at.X}, {at.Y})");
+        // Doubt's spiders land with their mortar burst; the essence's own landing art for the variety.
+        if (created > 0) MapEssences.OnSummonSpawned(player, variety.Id, at);
     }
 
     /// <summary>Piety, the Abomination's rotating 360-degree beam (<c>PietyCorruptedLightningBeam</c>): aims at the
@@ -2476,6 +2478,9 @@ public static partial class Game
             return outcome?.HitPacket;
         }, ServerTrace.Combat ? $"0x01af monster 0x{id:x} hit on the player (kind 3, sequence 0x{sequence:x4})" : null)) return;
         if (outcome is not null) await PresentMonsterHit(player, id, outcome);
+        // An essence's Misery rare adds a stack to the player its attack hits (the wiki); a monster without it is a
+        // cheap no-op.
+        if (outcome is not null) MapEssences.MiseryOnAttack(player, m, player);
     }
 
     /// <summary>The monster hit packet's flags: generic particles (0x4000), main hand (0x0200) and blood (0x0001) always,
@@ -2643,7 +2648,8 @@ public static partial class Game
             monsterCritical, blocked, now, stats, a.Ailments, source: id);
         AlternateAilmentsOnPlayerLocked(player, m, ailmentTaken.Select((_, r) =>
             new(FortificationDamageTaken(player, (int)r.Min), FortificationDamageTaken(player, (int)r.Max))), blocked, now, stats, a.Ailments);
-        ApplyMonsterDamagingAilmentsLocked(player, id, m, baseHit, blocked, now, attack: attackHit, prepared: stats);
+        ApplyMonsterDamagingAilmentsLocked(player, id, m, baseHit, blocked, now, attack: attackHit, prepared: stats,
+            skillPoisonChance: a.PoisonChance, skillPoisonSeconds: a.PoisonSeconds);
         ApplyMonsterDecayLocked(player, id, m, blocked, now, stats);
         ApplyCorruptedBloodOnHit(player, a, baseHit, blocked, now, stats);
         RecordIncomingHitLocked(player, now, spellHit, blocked, suppressed, lifeDamage, monsterCritical);

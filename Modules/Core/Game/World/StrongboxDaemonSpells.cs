@@ -441,12 +441,15 @@ public static partial class MapStrongboxes
     static async Task ShowArt(Player player, (int X, int Y) at, string art, double seconds, bool playClip = false)
     {
         uint id = player.TakeObjectId();
-        player.Minions.OutputQueue.Add(new(InstanceEntities.CreateObject(id, InstanceEntities.ObjectTypeHash(EffectObject.TypePath),
-            new EffectObject(at.X, at.Y, art).Blob()), null, WorldId: id, CreatesObject: true));
-        player.Minions.OutputQueue.Add(new(InstanceProtocol.EnterWakeZone(id), null, WorldId: id));
-        if (playClip) player.Minions.OutputQueue.Add(new(InstanceProtocol.AnimationUpdate(id, 0, 0, 1), null, WorldId: id));
-        await Task.Delay(TimeSpan.FromSeconds(seconds));
-        player.Minions.OutputQueue.Add(new(InstanceProtocol.RemoveObject(id), null, WorldId: id, RemovesObject: true));
+        // The supported world send, callable from a daemon's continuation (the minion output queue is drained on the
+        // area's frame).
+        _ = SendWorldCreate(player, id, () => InstanceEntities.CreateObject(id, InstanceEntities.ObjectTypeHash(EffectObject.TypePath),
+                new EffectObject(at.X, at.Y, art).Blob()), null,
+            afterCreation: () => playClip
+                ? [InstanceProtocol.EnterWakeZone(id), InstanceProtocol.AnimationUpdate(id, 0, 0, 1)]
+                : [InstanceProtocol.EnterWakeZone(id)]);
+        await AreaDelay(player, seconds);
+        if (Survivor(player) is { } viewer) await SendWorldRemoval(viewer, id, null);
     }
 
     /// <summary>An effect object that starts its first clip — what fires its SoundEvents — and is removed after
@@ -462,18 +465,17 @@ public static partial class MapStrongboxes
         await SendWorldRecord(player, id, InstanceProtocol.AnimationUpdate(id, 0, 0, speed), null);
         SendAfter(player, life, async () =>
         {
-            if (player.Closed || player.LeavingArea) return;
-            await SendWorldRemoval(player, id, null);
+            if (Survivor(player) is not { } viewer) return;
+            await SendWorldRemoval(viewer, id, null);
         });
     }
 
     static void AddZone(Player player, Area area, Zone zone, string art)
     {
         uint id = player.TakeObjectId();
-        player.Minions.OutputQueue.Add(new(InstanceEntities.CreateObject(id, InstanceEntities.ObjectTypeHash(EffectObject.TypePath),
-            new EffectObject(zone.At.X, zone.At.Y, art) { Flags0 = EffectObject.FixedRotation, Scale = Math.Max(1f, zone.Radius / 5f) }.Blob()),
-            null, WorldId: id, CreatesObject: true));
-        player.Minions.OutputQueue.Add(new(InstanceProtocol.EnterWakeZone(id), null, WorldId: id));
+        _ = SendWorldCreate(player, id, () => InstanceEntities.CreateObject(id, InstanceEntities.ObjectTypeHash(EffectObject.TypePath),
+                new EffectObject(zone.At.X, zone.At.Y, art) { Flags0 = EffectObject.FixedRotation, Scale = Math.Max(1f, zone.Radius / 5f) }.Blob()), null,
+            afterCreation: () => [InstanceProtocol.EnterWakeZone(id)]);
         lock (area.Zones) area.Zones.Add(zone with { Art = id });
     }
 
@@ -488,7 +490,7 @@ public static partial class MapStrongboxes
             foreach (var gone in area.Zones.Where(z => z.Until <= now).ToArray())
             {
                 area.Zones.Remove(gone);
-                player.Minions.OutputQueue.Add(new(InstanceProtocol.RemoveObject(gone.Art), null, WorldId: gone.Art, RemovesObject: true));
+                _ = SendWorldRemoval(player, gone.Art, null);
             }
             zones = [.. area.Zones];
         }

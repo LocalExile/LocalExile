@@ -63,7 +63,7 @@ public static partial class MapEssences
     static void TickBuffs(Player conn)
     {
         if (conn.Closed || conn.LeavingArea || !Areas.TryGetValue(conn.Instance, out var area) || area.Monoliths is null) return;
-        double now = Now;
+        double now = AreaTime(conn);
         foreach (var mono in area.Monoliths.Where(m => m.Stage >= 4 && m.Monster != 0).ToArray())
         {
             if (!conn.Area.Monsters.TryGetValue(mono.Monster, out var monster)) continue;
@@ -99,9 +99,9 @@ public static partial class MapEssences
                         state.SentRow = half.Row;
                     }
                 }
-                if (remove != 0) conn.Minions.OutputQueue.Add(new(InstanceEntities.RemoveBuff(mono.Monster, remove), null));
+                if (remove != 0) conn.Minions.OutputQueue.Add(new(InstanceEntities.RemoveBuff(mono.Monster, remove), null, WorldId: mono.Monster));
                 if (send != 0)
-                    conn.Minions.OutputQueue.Add(new(InstanceEntities.AddBuff(mono.Monster, instance, send, visual: half.Visual), null));
+                    conn.Minions.OutputQueue.Add(new(InstanceEntities.AddBuff(mono.Monster, instance, send, visual: half.Visual), null, WorldId: mono.Monster));
             }
         }
     }

@@ -46,8 +46,8 @@ public static partial class MapEssences
     /// <summary>The released rare monster's essence spells as kit specials (effect, attack, cooldown): the daemon
     /// effects of its essences, each built as the monster's own action at its level, with the skill's cooldown. Effects
     /// that hit for nothing, summon nothing and fire nothing are dropped, as a boss kit's are; the essence pulses/grab
-    /// are cast separately by <see cref="EssenceSpellContact"/> on their own timer, not through the kit (a non-hit kit
-    /// special fights the auto-attack and stalls the rare).</summary>
+    /// are cast separately by the periodic caster (<see cref="MapEssences"/>' essence tick) on their own timer, not through
+    /// the kit (a non-hit kit special fights the auto-attack and stalls the rare).</summary>
     public static IReadOnlyList<MonsterKitSkill> EssenceKit(Player conn, MonsterCatalog.Variety variety, byte level,
         IReadOnlyList<int> essences, MonsterModSet mods)
     {

@@ -36,7 +36,7 @@ public static partial class MapEssences
         bool send = false;
         lock (shield)
         {
-            shield.Until = Math.Max(shield.Until, Now + duration);
+            shield.Until = Math.Max(shield.Until, AreaTime(conn) + duration);
             if (!shield.Active)
             {
                 shield.Active = true;
@@ -60,7 +60,7 @@ public static partial class MapEssences
         lock (shield)
         {
             if (!shield.Active) return false;
-            if (Now >= shield.Until)
+            if (AreaTime(conn) >= shield.Until)
             {
                 shield.Active = false;
                 Interlocked.Decrement(ref ActiveProximityShields);
@@ -86,11 +86,24 @@ public static partial class MapEssences
         }
     }
 
+    /// <summary>A killed monster's shield comes off (the kill event carries the object's id).</summary>
+    public static void ClearProximityShield(Player player, uint monsterId)
+    {
+        if (player.Area.Monsters.TryGetValue(monsterId, out var monster)) ClearProximityShield(monster);
+    }
+
+    /// <summary>The instance is being torn down (its last player left): its shields' monsters go with it, so the
+    /// hot-path counter must not stay above zero for the rest of the process.</summary>
+    public static void ClearProximityShields(Player player)
+    {
+        foreach (var (_, monster) in player.Area.Monsters.ToArray()) ClearProximityShield(monster);
+    }
+
     static void TickProximityShields(Player conn)
     {
         if (Volatile.Read(ref ActiveProximityShields) == 0 || conn.Closed || !Areas.TryGetValue(conn.Instance, out var area) || area.Monoliths is null)
             return;
-        double now = Now;
+        double now = AreaTime(conn);
         foreach (var mono in area.Monoliths)
         {
             if (mono.Stage < 4 || mono.Monster == 0) continue;
@@ -141,7 +154,7 @@ public static partial class MapEssences
         double dps = spell.Dps * Math.Max(0, 1 - Math.Min(MaxResistance(conn, DamageType.Chaos), Resistance(conn, DamageType.Chaos)) / 100.0);
         var effects = Effects.GetOrCreateValue(conn);
         lock (effects)
-            for (int i = 0; i < stacks; i++) effects.MiseryStacks.Add((dps, Now + seconds));
+            for (int i = 0; i < stacks; i++) effects.MiseryStacks.Add((dps, AreaTime(conn) + seconds));
         RefreshMisery(conn, effects);
     }
 
@@ -156,7 +169,7 @@ public static partial class MapEssences
     /// «Essence of Misery» buff with the live count only when the count changes.</summary>
     static void RefreshMisery(Player conn, EssenceEffects effects)
     {
-        double now = Now; double dps; int count; ushort buff; double remaining; bool changed;
+        double now = AreaTime(conn); double dps; int count; ushort buff; double remaining; bool changed;
         lock (effects)
         {
             effects.MiseryStacks.RemoveAll(s => s.Until <= now);

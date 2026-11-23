@@ -53,9 +53,9 @@ public static partial class MapEssences
             double d = 7 * (i + 1);
             var spot = conn.Layout.Near((from.X + (int)Math.Round(ux * d), from.Y + (int)Math.Round(uy * d)));
             circles.Add((spot, SpawnEffect(conn, spot, StormCascadeIdleArt)));
-            if (i + 1 < count) await Task.Delay(TimeSpan.FromMilliseconds(120));
+            if (i + 1 < count) await AreaDelay(conn, 0.12);
         }
-        await Task.Delay(TimeSpan.FromMilliseconds(350));
+        await AreaDelay(conn, 0.35);
         for (int i = 0; i < circles.Count; i++)
         {
             var (spot, idle) = circles[i];
@@ -64,7 +64,7 @@ public static partial class MapEssences
             uint impact = SpawnEffect(conn, spot, StormCascadeImpactArt);
             _ = RemovePulseLater(conn, impact, 0.9);
             await EssenceSpellHit(conn, monster, cascadeEffect, damage, radius: 9, spot);
-            if (i + 1 < circles.Count) await Task.Delay(TimeSpan.FromMilliseconds(120));
+            if (i + 1 < circles.Count) await AreaDelay(conn, 0.12);
         }
         Console.WriteLine($"[map-content] essence horror storm cascade: {circles.Count} circles from 0x{monster.ObjectId:x}");
     }
@@ -127,7 +127,7 @@ public static partial class MapEssences
                 if (MapEssenceCatalog.Find(row)?.Type == HorrorEssenceType) { rares.Add(mono.Monster); break; }
         }
         if (rares.Count == 0) return;
-        double now = Now;
+        double now = AreaTime(conn);
         double areaTime = AreaTime(conn);
         List<SpawnedMonster> livingRares = [];
         List<SpawnedMonster> maelstroms = [];

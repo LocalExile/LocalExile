@@ -36,7 +36,7 @@ public static partial class MapEssences
             && m.SummonerId is uint s && rares.Contains(s)
             && m.Variety?.Id is SorrowVortexTotem or SpiteShockedTotem)];
         if (totems.Length == 0) return;
-        double now = Now;
+        double now = AreaTime(conn);
         double areaTime = AreaTime(conn);
         var catalog = SkillsFor(conn);
         foreach (var totem in totems)

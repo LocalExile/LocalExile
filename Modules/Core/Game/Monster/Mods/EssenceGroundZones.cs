@@ -63,13 +63,13 @@ public static partial class MapEssences
         if (rawDamage.IsZero || conn.Closed || conn.LeavingArea) return;
         var nativeStats = effect >= 0 ? GolemData.Skill(SkillsFor(conn), effect, monster.Level).Stats : null;
         int Get(uint key) => nativeStats is not null ? nativeStats.GetValueOrDefault(key) : 0;
-        // The new incoming-hit pipeline takes a monster hit's poison from the monster's own mods
-        // (ApplyMonsterDamagingAilmentsLocked), so the skill-level poisonChance/poisonSeconds have no field on MonsterAttack.
-        _ = poisonChance; _ = poisonSeconds;
+        // A skill's own poison (Desolation's boulder: 100%) goes on the hit beside the monster's mods.
         var attack = new MonsterAttack(0x4000, 1, radius, monster.Mods.Effects.Hit(rawDamage))
         {
             Spell = true,
             Ailments = IncomingAilmentSettings(Get),
+            PoisonChance = poisonChance,
+            PoisonSeconds = poisonSeconds,
         };
         var instance = conn.Instance;
         foreach (var member in Members(conn).ToArray())
@@ -84,10 +84,9 @@ public static partial class MapEssences
         if (conn.Closed || conn.LeavingArea || duration <= 0) return;
         var spot = conn.Layout.Near(at);
         uint id = conn.TakeObjectId();
-        conn.Minions.OutputQueue.Add(new(InstanceEntities.CreateObject(id, InstanceEntities.ObjectTypeHash(EffectObject.TypePath),
-            new EffectObject(spot.X, spot.Y, art) { Flags0 = EffectObject.FixedRotation, Scale = scale }.Blob()),
-            null, WorldId: id, CreatesObject: true));
-        conn.Minions.OutputQueue.Add(new(InstanceProtocol.EnterWakeZone(id), null, WorldId: id));
+        _ = SendWorldCreate(conn, id, () => InstanceEntities.CreateObject(id, InstanceEntities.ObjectTypeHash(EffectObject.TypePath),
+                new EffectObject(spot.X, spot.Y, art) { Flags0 = EffectObject.FixedRotation, Scale = scale }.Blob()), null,
+            afterCreation: () => [InstanceProtocol.EnterWakeZone(id)]);
         var zones = GroundZones.GetOrCreateValue(conn.Instance);
         uint evicted = 0;
         lock (zones)
@@ -97,7 +96,7 @@ public static partial class MapEssences
                 evicted = zones[0].Art;
                 zones.RemoveAt(0);
             }
-            zones.Add(new(spot, radius, Now + duration, id, dot, ailment, ailmentMagnitude));
+            zones.Add(new(spot, radius, AreaTime(conn) + duration, id, dot, ailment, ailmentMagnitude));
         }
         if (evicted != 0) RemoveEffect(conn, evicted);
     }
@@ -126,7 +125,7 @@ public static partial class MapEssences
     static async Task TickGroundZones(Player conn)
     {
         if (conn.Closed || conn.LeavingArea) return;
-        double now = Now;
+        double now = AreaTime(conn);
         var ground = GroundZones.GetOrCreateValue(conn.Instance);
         GroundZone[] zones;
         List<uint>? goneArts = null;
