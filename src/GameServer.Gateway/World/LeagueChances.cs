@@ -76,7 +76,8 @@ public sealed class LeagueChances
         return count;
     }
 
-    static int? Forced(string league)
+    /// <summary>The chance Game_LEAGUE_CHANCES gives the CoreLeagues row by its Id (a test's override), or null.</summary>
+    public static int? Forced(string league)
     {
         foreach (var entry in (Environment.GetEnvironmentVariable("Game_LEAGUE_CHANCES") ?? "").Split(',', StringSplitOptions.TrimEntries))
             if (entry.Split('=') is [var id, var value] && id.Equals(league, StringComparison.OrdinalIgnoreCase) && int.TryParse(value, out int c))
