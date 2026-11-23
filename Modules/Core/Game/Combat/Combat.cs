@@ -1489,7 +1489,7 @@ public static partial class Game
             return CompleteSupportedUse(await ActivateBladefallTrarthus(player, skillId));
         if (vaalUse is not null && SkillsFor(player).EffectId(gem.Effect) == VaalArcticArmourEffect)
         {
-            StartVaalArcticArmour(player, skillId, spellCastMs ?? SkillsFor(player).CastTimeMs(gem.Effect), AreaTime(player));
+            StartVaalArcticArmour(player, skillId, CastMs(player, gem.Effect, skillId) ?? SkillsFor(player).CastTimeMs(gem.Effect), AreaTime(player));
             return true;
         }
         if (gem.Name is not null && vaalUse is not null && VaalImmortalCallSpell(player, gem.Effect))
