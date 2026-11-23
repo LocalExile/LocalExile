@@ -1064,6 +1064,12 @@ public static partial class Game
         if (actionToken is not null && (player.ActionCount != action || player.ElementalAilments.ActionFactor(AreaTime(player)) == 0 || player.HitRecovery.Active(AreaTime(player)))) return false;
         if (!TryCapturePlacedCastAdmissionLocked(player, skillId, out placedAdmission)) return false;
         if (InTown(player) || player.PlayerLife == 0) return false;
+        // Direct callers do not go through the action handler that already reserves placed-skill cooldowns.
+        if (actionToken is null && cooldownUse is null && !locationInstant && placedAdmission is { } placement
+            && CooldownForSkill(player, skillId) is { } placedCooldown
+            && !TryBeginSkillCooldownUse(player, skillId, placement.Effect, placedCooldown, false, () => { },
+                out cooldownUse, requestedAt: AreaTime(player), admit: () => PlacedCastAdmissionCurrent(player, placement)))
+            return false;
         await EndGracePeriod(player, action: true);
         var gem = GemSkillEffects(player).FirstOrDefault(g => g.Id == skillId);
         if (gem.Name is null) return false;

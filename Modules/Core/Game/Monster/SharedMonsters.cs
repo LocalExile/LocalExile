@@ -65,7 +65,7 @@ public static partial class Game
             var at = m.Walk.Position(now);
             m.Walk = player.NewMonsterWalk(id, at.X, at.Y, m.Walk.Speed, Math.Clamp((m.Variety?.ObjectSize ?? 1) - 1, -1, 127),
                 m.Rarity == MonsterRarity.Unique);
-            (m.Aggro, m.Leg, m.LastTarget) = (false, null, null);
+            (m.Aggro, m.Leg, m.LastTarget) = (m.TemporarilyAllied, null, null);
             count++;
         }
         Console.WriteLine($"[gateway] {remote} monsters: the area steps its {count} through {CharacterName(player)} now ({CharacterName(old)} left)");

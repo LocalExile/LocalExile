@@ -884,7 +884,7 @@ public static partial class Game
                     || !MonsterAiCadence.Due(double.IsNaN(plan.FrameStart) ? now : plan.FrameStart, m.FlinchUntil)) continue;
                 // Asleep for this client (its own wake zone, KeepWakeZone): no order and no boss bar about an object the
                 // client has put to sleep; the boss life bar for one crashed the client (live 2026-11-05).
-                if (MonsterAsleep(player, id)) continue;
+                if (MonsterAsleep(player, id) || m.TemporarilyAllied && !runner) continue;
                 // The King in the Mists has its own phase controller (KingInMists.cs): one action at a time, all its
                 // damage through MonsterSwing/MonsterAreaContact. Its Mystic Fetishes are stationary shrines the
                 // controller activates; the ordinary chase would slowly drag them toward the player.
@@ -913,7 +913,9 @@ public static partial class Game
                     m.BossBarShown = true;
                     plan.BossBars.Add((id, m));
                 }
-                else if (decoy is null && m.Aggro && !m.Fleeing && d > 2 * m.AggroRange && !player.Minions.Owns(id))   // a flee walk is not cut short; a minion keeps following
+                // A flee walk is not cut short. A minion or temporary ally keeps its own target policy.
+                else if (decoy is null && m.Aggro && !m.Fleeing && d > 2 * m.AggroRange
+                    && !player.Minions.Owns(id) && !m.TemporarilyAllied)
                 {
                     m.Aggro = false;
                     m.SwingGeneration = null;
@@ -1007,13 +1009,13 @@ public static partial class Game
                 }
                 if (player.Minions.Attacks.TryGetValue(id, out var pendingMinion))
                 {
-                    if (ReferenceEquals(pendingMinion.Monster, m) && (player.Minions.Fights(id) || m.AlliedFighter))
+                    if (ReferenceEquals(pendingMinion.Monster, m) && (player.Minions.Fights(id) || m.FightsForPlayers))
                     { plan.MinionSwings.Add(pendingMinion); continue; }
                     player.Minions.Attacks.Remove(id);
                 }
                 if (!m.Aggro || !MonsterAiCadence.Due(now, m.BusyUntil) || cadence.SwingPending(m)) continue;
                 // The player's fighting minions attack his enemies near them; with none they follow him.
-                if ((player.Minions.Fights(id) || m.AlliedFighter) && m.Attack is { } ma
+                if ((player.Minions.Fights(id) || m.FightsForPlayers) && m.Attack is { } ma
                     && MinionTargetLocked(player, id, m, (mx, my), (px, py), now) is { } target)
                 {
                     // A lockstep client takes no Move within 2 cells (07 §6), so a minion that near its approach cell gets
@@ -1052,6 +1054,7 @@ public static partial class Game
                     }
                     continue;
                 }
+                if (m.TemporarilyAllied) continue;
                 if (m.Hostile && decoy is { } targetDecoy)
                 {
                     PlanDecoyTarget(player, cadence, plan, id, m, targetDecoy.Source, now, (mx, my), decoyChasers);

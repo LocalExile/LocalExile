@@ -35,7 +35,7 @@ public static partial class Game
             var to = t.Walk.Position(now);
             double d = Dist(to, at);
             bool prey = stats is not null && IsPrey(player, stats, targetId, t, now);
-            if (!prey && (d >= nearest || d > range || Dist(to, playerAt) > ownerRange)) continue;
+            if (!prey && (d >= nearest || d > range || !m.TemporarilyAllied && Dist(to, playerAt) > ownerRange)) continue;
             nearest = d;
             double reach = MinionReach(a, t), f = d > 0 ? Math.Max(0, reach - 1) / d : 0;
             best = new(targetId, t, to, d <= reach,
@@ -65,7 +65,7 @@ public static partial class Game
         MonsterAttack? attack = null, int? accuracy = null)
     {
         var t = targetMonster;
-        if (!CurrentGameWork || (attack ?? m.Attack) is not { } a || m.Dead || !player.Minions.Fights(id) && !m.AlliedFighter || !player.Area.Monsters.TryGetValue(id, out var self)
+        if (!CurrentGameWork || (attack ?? m.Attack) is not { } a || m.Dead || !player.Minions.Fights(id) && !m.FightsForPlayers || !player.Area.Monsters.TryGetValue(id, out var self)
             || !ReferenceEquals(self, m) || t.Dead || t.Life == 0 || !t.Hostile
             || !player.Area.Monsters.TryGetValue(targetId, out var current) || !ReferenceEquals(current, t)) return null;
         var at = m.Walk.Position(now);
@@ -121,7 +121,8 @@ public static partial class Game
         var (_, m, from, targetId, targetMonster, toAt, contactAt) = attack;
         var target = new MinionTarget(targetId, targetMonster, toAt, true, toAt);
         bool Current() => CurrentGameWork && ReferenceEquals(CombatLifetime, rules) && !player.Closed && !player.LeavingArea
-            && (player.Minions.Fights(id) || m.AlliedFighter)
+            && (player.Minions.Fights(id) || m.FightsForPlayers)
+            && (!m.TemporarilyAllied || IsMonsterRunner(player))
             && player.Area.Monsters.TryGetValue(id, out var held) && ReferenceEquals(held, m) && !m.Dead
             && player.Minions.Attacks.TryGetValue(id, out var pending) && ReferenceEquals(pending, attack);
         if (!Current()) return;

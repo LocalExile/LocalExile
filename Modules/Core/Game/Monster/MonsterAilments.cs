@@ -440,6 +440,8 @@ public static partial class Game
 
     static void ProcessMonsterAilmentLocked(Player player, uint id, SpawnedMonster m, double now, List<(byte[] Packet, string Log)> packets)
     {
+        if (m.TemporaryAllyUntil > 0 && now >= m.TemporaryAllyUntil)
+            EndConversionTrap(player, id, m, now, packets);
         BearTrapChangesLocked(player, id, m, now, packets);
         // A knockback is presented before the ailment-idle skip: an idle monster still moves.
         if (m.KnockbackPending is (int kx, int ky))
