@@ -1168,6 +1168,10 @@ public static partial class Game
         if (true)
             pools = pools with { SpellCriticalStrikeChancePct = pools.SpellCriticalStrikeChancePct
                 + MaximumPoolItemSources.Amount(EquipmentInput(MaximumPoolItemSources.SpellCriticalPerLife), pools.Life) };
+        int criticalPerAccuracy = EquipmentInput(Stat.AttackCriticalStrikeChancePlusPctPer200AccuracyRating);
+        if (criticalPerAccuracy != 0)
+            pools = pools with { CriticalStrikeChancePct = pools.CriticalStrikeChancePct
+                + (long)criticalPerAccuracy * (Math.Max(0, pools.Accuracy) / 200) };
         player.PlayerLifeCap = reservedLife.Unreserved;
         // The pure base critical stats (/set_stat too) sit outside the passive increases: the weapon override replaces
         // the armed main hand's base and the unarmed base replaces the empty one, before the global increases.

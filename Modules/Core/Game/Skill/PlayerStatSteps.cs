@@ -195,7 +195,7 @@ public static partial class Game
         Step(PlayerStatStep.UsingFlask, (player, stats, _) => WithUsingFlask(player, stats));
         Step(PlayerStatStep.SoulEater, (player, stats, _) => WithSoulEater(player, stats));
         Step(PlayerStatStep.MaximumPoolItems, (player, stats, _) =>
-            MaximumPoolItemSources.Apply(stats, Stats, player.Pools.Life, player.Pools.Mana));
+            MaximumPoolItemSources.Apply(stats, Stats, player.Pools.Life, player.Pools.Mana, player.Pools.EnergyShield));
         Step(PlayerStatStep.ActorScale, (player, stats, _) => ActorScale.Project(stats, CosmeticScaleSources(player)));
         // Devout of Garukhan: the while-moving evasion rating, and the while-moving regeneration in the recovery below; the
         // unmodified recovery baseline.

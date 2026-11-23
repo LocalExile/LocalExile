@@ -91,6 +91,7 @@ public static class AttackBaseCriticalStrike
     }
 
     public static bool IsInput(uint name) => name is WeaponOverrideStat or UnarmedBaseStat
+        or Stat.AttackCriticalStrikeChancePlusPctPer200AccuracyRating
         or AddedBaseCriticalStrike.Generic or AddedBaseCriticalStrike.Attack or AddedBaseCriticalStrike.Spell
         or Stat.GlobalCannotCrit or Stat.VirtualGlobalCannotCrit or Stat.CannotCriticalStrikeWithAttacks
         or Stat.SpellCriticalStrikeChancePlusPct // Also refresh the pooled spell reference used by /crit.
