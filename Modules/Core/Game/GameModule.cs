@@ -119,6 +119,7 @@ public sealed class GameModule : IModule, IDisposable
         global::HarbingerCatalog.LoadGameData();
         Rules.LoadEssenceAurasData();
         Rules.LoadEssenceSummonsData();
+        Rules.LoadEssenceProjectiles();
         Rules.LoadSelfBuffSkillsData();
         Rules.LoadMapAreaStats();
         Rules.LoadAchievementsData();

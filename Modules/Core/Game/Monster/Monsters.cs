@@ -301,7 +301,7 @@ public static partial class Game
         IReadOnlyList<GrantedSkill>? ownedSkills = null,
         uint? ownedMaximumLife = null, uint ownedMaximumEnergyShield = 0,
         uint ownedEnergyShield = 0,
-        MonsterModSet? extraMods = null, bool scripted = false, IReadOnlyList<VisibleItem>? ownedLooks = null,
+        MonsterModSet? extraMods = null, bool scripted = false, IReadOnlyList<VisibleItem>? ownedLooks = null, IReadOnlyList<MonsterKitSkill>? extraKit = null,
         Func<bool>? ownedAdmission = null, bool ownedInitialDeath = false,
         MonsterPlacement placement = MonsterPlacement.Proposed, int? lifePercent = null,
         MonsterMovement? movement = null, (uint Parent, string Bone, byte Kind, byte Flags)? attachTo = null, bool instanceOwned = false,
@@ -460,7 +460,7 @@ public static partial class Game
             ReleaseEffect = projectile is null || effect < 0 ? null : effect,
             Release = projectile is null || effect < 0 ? null : MonsterReleaseFor(player, variety, effect, level, projectile),
         };
-        if (variety.Id == EssenceExplosiveInsect) attack = EssenceInsectAttack(player, level, skillId, mods.Effects);
+        if (IsEssenceExplosiveInsect(variety.Id)) attack = EssenceInsectAttack(player, level, skillId, mods.Effects, EssenceInsectEffectFor(variety.Id));
         var skill = effect >= 0
             ? catalog.FindByRow(attack.SkillId, effect, level,
                 MonsterActionSkillStats(player, effect, level, attack, mods.Effects)) : null;
@@ -487,6 +487,8 @@ public static partial class Game
         // its own actions.
         var kit = scripted || kingSkills is not null ? (IReadOnlyList<MonsterKitSkill>)[]
             : BossKits.Kit(player, variety, level, effect, attack, unique: !friendly && rarity == MonsterRarity.Unique);
+        // A caller's extra specials (a summon's own usable kit, BossKits.SummonKit) append to the built kit.
+        kit = BossKits.WithExtra(kit, extraKit);
         // The kit's first entry is the effect the default attack uses, given its own id in the kit: the actor needs that
         // list, not a second copy of the default attack under the hash-derived id. The stage skill stays: it is 0x0103.
         var skills = kingSkills is { Count: > 0 } ? kingSkills
@@ -2097,10 +2099,10 @@ public static partial class Game
             ? (a.Summon is not null ? $"0x01d1 monster 0x{id:x} ({m.Label}) summons, cast time {seconds:0.00} s"
                 : $"0x01ab monster 0x{id:x} ({m.Label}) attacks the player, attack time {seconds:0.00} s")
             : null)) return false;
-        // A clip-only action (a dev command's NoContact) lands nothing: its hit or area belongs to the caller, which
+// A clip-only action (a dev command's NoContact) lands nothing: its hit or area belongs to the caller, which
         // sends it on its own clock. A zero-damage contact here would only play the clip's hit effect.
         if (a.NoContact) return true;
-        if (m.Variety?.Id == EssenceExplosiveInsect)
+        if (IsEssenceExplosiveInsect(m.Variety?.Id))
         {
             if (await WaitMonsterActionTime(player, id, m, action, startedAt + seconds))
                 await ExplodeEssenceInsect(player, id, m, a, action);
@@ -2236,6 +2238,7 @@ public static partial class Game
             if (await SpawnMonster(player, variety, m.Level, MonsterRarity.Normal, at.X, at.Y, alone: true,
                 extraMods: EssenceSummonModifiers(variety),
                 ownedSkills: skills,
+                extraKit: summon.Effect >= 0 ? null : BossKits.SummonKit(player, variety, m.Level),
                 ownedAdmission: () => MonsterSummonerCurrentLocked(player, id, m) && EssenceSummonCanSpawnLocked(player, id, variety),
                 owned: (_, summoned) =>
                 {

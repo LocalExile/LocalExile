@@ -56,19 +56,22 @@ public static class BossKits
     /// second object the server does not create (Dominus' ChillingBond crashed the client at 0x1401297ca, live
     /// 2026-11-05); a movement skill is the walk, not a swing (MavenNucleus.CombatEffect).
     /// </summary>
-    public static IReadOnlyList<int> Effects(SkillCatalog catalog, MonsterCatalog.Variety variety)
+    public static IReadOnlyList<int> Effects(SkillCatalog catalog, MonsterCatalog.Variety variety, bool forSummon = false)
     {
         if (variety.GrantedEffects is not { Count: > 0 } effects) return [];
         List<int> usable = [];
         foreach (int effect in effects)
         {
             if (SolarisLunaris.IsBody(variety) && effect is 6739 or 6740) continue;
-            if (effect < 0 || catalog.IsMovement(effect) || catalog.CastsOnDeath(effect) || IsDamageTakenTrigger(catalog, effect)
+            if (effect < 0 || catalog.CastsOnDeath(effect) || IsDamageTakenTrigger(catalog, effect)
+                // A summon's movement attack is how it reaches the player (Doubt's spider MonsterFlickerStrike); a boss
+                // keeps only its non-movement skills.
+                || (catalog.IsMovement(effect) && !(forSummon && catalog.IsAttack(effect)))
                 // An aura is no move: it stands on the monster from its spawn (MonsterSkills.Auras).
                 || catalog.IsAura(effect)) continue;
             string? id = catalog.EffectId(effect);
             if (id is not null && (id.Contains("Teleport", StringComparison.Ordinal)
-                || id.Contains("Daemon", StringComparison.Ordinal)
+                || (!forSummon && id.Contains("Daemon", StringComparison.Ordinal))
                 || id.Contains("MemoryGame", StringComparison.Ordinal)
                 || id.Contains("Bond", StringComparison.Ordinal)
                 || id.Contains("Mark", StringComparison.Ordinal)
@@ -85,6 +88,40 @@ public static class BossKits
             if (!usable.Contains(effect)) usable.Add(effect);
         }
         return usable;
+    }
+
+    /// <summary>A summoned monster's kit: its whole usable effect list, not only its cooldown spells. A totem casts its
+    /// Arc (no cooldown) as well as its shocked ground, a spider its Viper Strike, a summoned daemon its nova / ball
+    /// lightning / storm cascade. <see cref="Effects"/> with <c>forSummon</c> keeps a summon's movement attacks; an effect
+    /// that hits for nothing, summons nothing and fires nothing is no action. A cooldown spell stays a special (the summon
+    /// idles between casts); a zero-cooldown one rotates at its cast time.</summary>
+    public static IReadOnlyList<MonsterKitSkill> SummonKit(Player conn, MonsterCatalog.Variety variety, byte level)
+    {
+        var catalog = SkillsFor(conn);
+        List<MonsterKitSkill> kit = [];
+        foreach (int effect in Effects(catalog, variety, forSummon: true))
+        {
+            int effectLevel = catalog.MaxLevelAt(effect, level);
+            var attack = AttackFor(conn, variety, level, effect, (ushort)(0x4000 + kit.Count));
+            if (attack.Damage.IsZero && attack.Summon is null && attack.Projectile is null) continue;
+            kit.Add(new(effect, attack, catalog.CooldownMs(effect, effectLevel) / 1000d));
+        }
+        return kit;
+    }
+
+    /// <summary>A monster's own kit with a caller's extra specials appended (SpawnMonster's <c>extraKit</c>). An effect the
+    /// kit already plays is not a second copy; every appended entry takes the next free kit id (0x4000 + its index), the id
+    /// <see cref="SkillsOf"/> sends the actor and <see cref="Consume"/> matches its cooldown by.</summary>
+    public static IReadOnlyList<MonsterKitSkill> WithExtra(IReadOnlyList<MonsterKitSkill> kit, IReadOnlyList<MonsterKitSkill>? extra)
+    {
+        if (extra is not { Count: > 0 }) return kit;
+        List<MonsterKitSkill> appended = [];
+        foreach (var entry in extra)
+        {
+            if (kit.Any(e => e.Effect == entry.Effect) || appended.Any(e => e.Effect == entry.Effect)) continue;
+            appended.Add(entry with { Attack = entry.Attack with { SkillId = (ushort)(0x4000 + kit.Count + appended.Count) } });
+        }
+        return appended.Count > 0 ? [.. kit, .. appended] : kit;
     }
 
     /// <summary>A unique's effects: those <see cref="Effects"/> plays as hits, then those it plays as a travel, a buff on
@@ -500,7 +537,7 @@ public static class BossKits
         {
             Spell = spell,
             DualWielding = HasOffHandWeapon(variety),
-            CorruptedBlood = CorruptedBloodOnHit.From(Raw),
+            CorruptedBlood = CorruptedBloodFor(Raw),
             Ranged = ranged,
             Projectile = projectile,
             Summon = summon,
