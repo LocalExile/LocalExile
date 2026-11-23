@@ -9,11 +9,17 @@ using GameServer.Core;
 /// </summary>
 public static class JourneyMakanuiCatalogue
 {
+    /// <summary>Fills this type's game data at startup (the world loader, before the Gateway listens).</summary>
+    public static void LoadJourneyMakanuiCatalogueData()
+    {
+        Entries = Load();
+    }
+
     public sealed record Entry(ushort GraphId, string Name, int Row, ushort OverrideHash);
 
-    static readonly Lazy<List<Entry>> Entries = new(Load);
+    static List<Entry> Entries = default!;
 
-    public static IReadOnlyList<Entry> All => Entries.Value;
+    public static IReadOnlyList<Entry> All => Entries;
 
     public static string[] Names => [.. All.Select(entry => entry.Name)];
 
@@ -28,10 +34,10 @@ public static class JourneyMakanuiCatalogue
     }
 
     /// <summary>A random base keystone, excluding the target keystone (the tattoo always changes the node).</summary>
-    public static Entry? Pick(ushort? exclude = null, Random? rng = null)
+    public static Entry? Pick(ushort? exclude, Random random)
     {
         var candidates = exclude is ushort id ? All.Where(entry => entry.GraphId != id).ToList() : All.ToList();
-        return candidates.Count == 0 ? null : candidates[(rng ?? Random.Shared).Next(candidates.Count)];
+        return candidates.Count == 0 ? null : candidates[random.Next(candidates.Count)];
     }
 
     static List<Entry> Load()

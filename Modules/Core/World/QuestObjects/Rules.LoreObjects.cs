@@ -11,7 +11,7 @@ static partial class QuestobjectsRules
 
     internal sealed record LorePlacement(string Type, string? Model, int X, int Y, float Rotation, float? Height);
 
-    static readonly RuleTable<ClientState, Dictionary<string, int>> LoreReadCycles = new();
+    static readonly RuleTable<Player, Dictionary<string, int>> LoreReadCycles = new();
 
     /// <summary>Whether an object type is a <c>Metadata/NPC/Info/</c> lore interactable (excluding the Tencent tutorial NPC
     /// and crafting-bench placeholder).</summary>
@@ -100,63 +100,62 @@ static partial class QuestobjectsRules
 
     // Spawns every lore interactable placed by the area's rooms and tiles (Act 1 Weathered Carvings, Sailor's Skin, Damp
     // Diary, Shavronne's Journal, Letters of Exile, Lioneye's Standard, Arteri's Letter, and all campaign lore objects).
-    internal static async Task SpawnLoreObjects(string remote, NetworkStream stream, ConnectionCiphers ciphers, ClientState conn)
+    internal static async Task SpawnLoreObjects(Player player)
     {
-        if (Environment.GetEnvironmentVariable("Game_NPCS") == "0" || Npcs.Value.Error is not null) return;
-        var level = conn.Layout.Level ?? ServerLevels.For(conn.Layout.Id, conn.Seed);
-        var placements = CollectLorePlacements(conn.Layout.Id, conn.Seed, level);
+        if (Environment.GetEnvironmentVariable("Game_NPCS") == "0" || Npcs.Error is not null) return;
+        var level = player.Layout.Level ?? ServerLevels.For(player.Layout.Id, player.Seed);
+        var placements = CollectLorePlacements(player.Layout.Id, player.Seed, level);
         if (placements.Count == 0) return;
-        var quests = QuestsOf(conn);
+        var quests = QuestsOf(player);
         int spawned = 0;
         foreach (var p in placements)
         {
-            if (quests.ManagesNpc(conn.Layout.Id, p.Type)) continue;
-            if (Npcs.Value.Find(p.Type) is not { Supported: true } baseNpc
+            if (quests.ManagesNpc(player.Layout.Id, p.Type)) continue;
+            if (Npcs.Find(p.Type) is not { Supported: true } baseNpc
                 || !baseNpc.Id.Equals(p.Type, StringComparison.OrdinalIgnoreCase)) continue;
-            if (!Npcs.Value.TalksOf(baseNpc).Any()) continue;
+            if (!Npcs.TalksOf(baseNpc).Any()) continue;
             bool duplicate;
-            lock (conn.Npcs)
-                duplicate = conn.Npcs.Values.Any(n => n.Npc.Id.Equals(baseNpc.Id, StringComparison.OrdinalIgnoreCase)
+            lock (player.Npcs)
+                duplicate = player.Npcs.Values.Any(n => n.Npc.Id.Equals(baseNpc.Id, StringComparison.OrdinalIgnoreCase)
                     && n.X == p.X && n.Y == p.Y);
             if (duplicate) continue;
             var npc = PrepareLoreNpc(baseNpc, p.Model, p.Height);
-            await SpawnNpc(remote, stream, ciphers, conn, npc, p.X, p.Y, p.Rotation);
+            await SpawnNpc(player, npc, p.X, p.Y, p.Rotation);
             spawned++;
         }
         if (spawned > 0)
-            Console.WriteLine($"[gateway] {remote} lore objects: spawned {spawned} in {conn.Layout.Id}");
+            Console.WriteLine($"[gateway] {player.Connection.Remote} lore objects: spawned {spawned} in {player.Layout.Id}");
     }
 
     // Clicking a lore interactable (or Labyrinth trial monograph) opens its reading window directly with S→C 0x84 <index>,
-    // leaving conn.InNpcTalk = false so C→S 0x85 closes cleanly via S→C 0x84 object 0 without bouncing back to an option list.
+    // leaving player.InNpcTalk = false so C→S 0x85 closes cleanly via S→C 0x84 object 0 without bouncing back to an option list.
     // Returns false only for multi-page named lore books so TalkToNpc opens their option list (0x84 0xff).
-    internal static async Task<bool> ReadLoreObject(string remote, NetworkStream stream, ConnectionCiphers ciphers, ClientState conn,
-        uint id, SpawnedNpc npc)
+    internal static async Task<bool> ReadLoreObject(Player player, uint id, SpawnedNpc npc)
     {
         if (LabyrinthTrials.IsGlyph(npc.Npc.Id))
         {
-            await ReadTrialMonograph(remote, stream, ciphers, conn, id, npc);
+            await ReadTrialMonograph(player, id, npc);
             return true;
         }
-        var flags = Quests.Names(PlayerQuestFlags(conn));
-        var available = Npcs.Value.TalksOf(npc.Npc).Where(t => t.Available(flags)).ToList();
+        var flags = Quests.Names(PlayerQuestFlags(player));
+        var available = Npcs.TalksOf(npc.Npc).Where(t => t.Available(flags)).ToList();
         if (available.Count == 0)
         {
-            conn.TalkingTo = 0;
-            conn.InNpcTalk = false;
-            await Send(remote, stream, ciphers, InstanceNpcs.Talk(0), $"0x0084 lore {npc.Npc.Id}: no available text");
+            player.TalkingTo = 0;
+            player.InNpcTalk = false;
+            await Send(player, InstanceNpcs.Talk(0), $"0x0084 lore {npc.Npc.Id}: no available text");
             return true;
         }
-        var cycles = LoreReadCycles.GetOrCreateValue(conn);
+        var cycles = LoreReadCycles.GetOrCreateValue(player);
         int cycle = cycles.GetValueOrDefault(npc.Npc.Id, 0);
         var talk = SelectLoreTalk(available, flags, cycle);
         if (talk is null) return false;
         if (available.Count > 1) cycles[npc.Npc.Id] = (available.IndexOf(talk) + 1) % available.Count;
-        var toSet = LoreFlagsToSet(talk).Where(f => !ClientHasQuestFlag(conn, f)).ToList();
-        if (toSet.Count > 0) await SetQuestFlags(remote, stream, ciphers, conn, toSet);
-        // Leave conn.InNpcTalk = false: on C→S 0x85 (Continue / Esc / walk away), CloseNpcDialogue ends dialogue with 0x84 0.
-        conn.InNpcTalk = false;
-        await Send(remote, stream, ciphers, InstanceNpcs.Talk(id, (byte)talk.Index),
+        var toSet = LoreFlagsToSet(talk).Where(f => !ClientHasQuestFlag(player, f)).ToList();
+        if (toSet.Count > 0) await SetQuestFlags(player, toSet);
+        // Leave player.InNpcTalk = false: on C→S 0x85 (Continue / Esc / walk away), CloseNpcDialogue ends dialogue with 0x84 0.
+        player.InNpcTalk = false;
+        await Send(player, InstanceNpcs.Talk(id, (byte)talk.Index),
             $"0x0084 read lore 0x{id:x} {npc.Npc.Id} ({npc.Npc.Name}): NPCTalk row {talk.Row} (index {talk.Index})");
         return true;
     }

@@ -41,29 +41,31 @@ public sealed class TattooPlainStatsTests
         var previousLogic = Program.GameLogicOrNull;
         Saves.Open(path);
         Program.SetGameLogic(new GameServer.Modules.Game.GameLogic());
-        var conn = new ClientState(new(1, "tattoo-plain", 1000, 1000, 100, 100, null, []), 1, 1)
+        var player = new Player(new(1, "tattoo-plain", 1000, 1000, 100, 100, null, []), 1, 1)
         {
-            Character = "TattooPlainChar", PlayerLife = 1000, PlayerMana = 1000, Instance = new(),
-            Experience = CharacterStats.ExperienceFor(100),
+            Character = { Name = "TattooPlainChar", Experience = CharacterStats.ExperienceFor(100) },
+            PlayerLife = 1000,
+            PlayerMana = 1000,
+            Instance = new(),
             Pools = new(100, 1000, 1000, int.MaxValue, 0, Strength: 100, Dexterity: 100, Intelligence: 100),
-            LeagueModule = new(new League("test", "Standard", false, false), new HashSet<string>(["Game"])),
+            LeagueModule = new(new League("test", "Standard", false, false), new HashSet<string>(["Game"]))
         };
         try
         {
             foreach (var (name, node, stat, value) in Rows)
             {
-                conn.Passives.Clear();
-                conn.Passives.Add(node);
-                conn.Tattoos.Clear();
-                conn.Tattoos[node] = name;
-                conn.TattooRevision++;
-                var stats = Game.CharacterPlayerStats(conn);
+                player.Character.Passives.Clear();
+                player.Character.Passives.Add(node);
+                player.Character.Tattoos.Clear();
+                player.Character.Tattoos[node] = name;
+                player.Character.TattooRevision++;
+                var stats = Game.CharacterPlayerStats(player);
                 Assert.Equal(value, stats.GetValueOrDefault(Program.Stats.Key(stat)!.Value));
             }
         }
         finally
         {
-            PlayerInventories.Forget(conn.Character!);
+            PlayerInventories.Forget(player.Character.Name!);
             Program.SetGameLogic(previousLogic!);
             TestEnvironment.ReleaseSaves(path);
         }

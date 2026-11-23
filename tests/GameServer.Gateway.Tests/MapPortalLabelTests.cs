@@ -38,9 +38,9 @@ public sealed class MapPortalLabelTests
     {
         const string owner = "portal-label-owner", guest = "portal-label-guest";
         var area = new MapDevice.MapArea(0x2a5a, "MapWorldsStrand", "Strand", 1);
-        ClientState Player(InstanceState instance, ulong number, MapDevice.MapArea map) =>
+        Player Player(InstanceState instance, ulong number, MapDevice.MapArea map) =>
             new(new(map.Hash16, map.Id, 32, 32, 10, 10, null, []), 0, 1)
-            { Character = guest, Account = guest, Instance = instance, InstanceNumber = number, PlayerSent = true, PlayerLife = 100 };
+            { Character = { Name = guest, Account = guest }, Instance = instance, InstanceNumber = number, Connection = { PlayerSent = true }, PlayerLife = 100 };
         SpawnedMonster Boss(int row, bool dead = false) => new("boss", new(15, 15, 30), 60, 8, 100)
             { Variety = Game.Monsters.Find(row.ToString()), Rarity = MonsterRarity.Unique, Dead = dead, Life = dead ? 0u : 100u };
         try
@@ -48,27 +48,27 @@ public sealed class MapPortalLabelTests
             var run = MapDevice.Activate(owner, area);
             MapDevice.Entered(run, 987654);
             var instance = new InstanceState();
-            var conn = Player(instance, 987654, area); // The guest can finish it with the owner absent.
+            var player = Player(instance, 987654, area); // The guest can finish it with the owner absent.
             var rows = Game.Packs.For(area.Id)!.Bosses;
             Assert.Equal(2, rows.Count);
-            conn.Monsters[1] = Boss(rows[0], dead: true);
-            conn.Monsters[99] = new("unrelated unique", new(12, 12, 0), 60, 8, 100) { Rarity = MonsterRarity.Unique };
-            await Game.TickMapRunBoss(conn, force: true);
+            player.Area.Monsters[1] = Boss(rows[0], dead: true);
+            player.Area.Monsters[99] = new("unrelated unique", new(12, 12, 0), 60, 8, 100) { Rarity = MonsterRarity.Unique };
+            await Game.TickMapRunBoss(player, force: true);
             Assert.False(Game.RunBossKilled(run)); // The second actual boss has not appeared yet.
-            conn.Monsters.Remove(1); // Consuming the first corpse must not lose its kill.
+            player.Area.Monsters.Remove(1); // Consuming the first corpse must not lose its kill.
             var last = Boss(rows[1]);
-            conn.DormantMonsters[2] = last;
-            await Game.TickMapRunBoss(conn, force: true);
+            player.Area.DormantMonsters[2] = last;
+            await Game.TickMapRunBoss(player, force: true);
             Assert.False(Game.RunBossKilled(run));
             (last.Dead, last.Life) = (true, 0);
-            await Game.TickMapRunBoss(conn, force: true);
+            await Game.TickMapRunBoss(player, force: true);
             Assert.True(Game.RunBossKilled(run)); // The unrelated unique is still alive.
             var returned = Player(new InstanceState(), 1234, area);
             returned.MapPortalRun = MapDevice.OpenOf(owner);
             Assert.True(Game.RunBossKilled(returned.MapPortalRun));
             Assert.False(Game.RunBossKilled(MapDevice.Activate(guest, area)));
             var replacement = MapDevice.Activate(owner, area);
-            await Game.TickMapRunBoss(conn, force: true);
+            await Game.TickMapRunBoss(player, force: true);
             Assert.False(Game.RunBossKilled(replacement));
             Assert.True(Game.RunBossKilled(run));
 
@@ -78,15 +78,15 @@ public sealed class MapPortalLabelTests
             var phases = Player(new InstanceState(), 987655, core);
             var forms = Game.Packs.For(core.Id)!.Bosses;
             Assert.Equal(2, forms.Count);
-            phases.Monsters[1] = Boss(forms[0]); // First form flees; it need not leave a dead corpse.
+            phases.Area.Monsters[1] = Boss(forms[0]); // First form flees; it need not leave a dead corpse.
             await Game.TickMapRunBoss(phases, force: true);
             Assert.False(Game.RunBossKilled(phased));
-            phases.Monsters.Clear();
-            phases.Monsters[2] = Boss(forms[1]);
-            phases.Monsters[3] = Boss(forms[1], dead: true); // A dead twin cannot complete a living one's fight.
+            phases.Area.Monsters.Clear();
+            phases.Area.Monsters[2] = Boss(forms[1]);
+            phases.Area.Monsters[3] = Boss(forms[1], dead: true); // A dead twin cannot complete a living one's fight.
             await Game.TickMapRunBoss(phases, force: true);
             Assert.False(Game.RunBossKilled(phased));
-            (phases.Monsters[2].Dead, phases.Monsters[2].Life) = (true, 0);
+            (phases.Area.Monsters[2].Dead, phases.Area.Monsters[2].Life) = (true, 0);
             await Game.TickMapRunBoss(phases, force: true);
             Assert.True(Game.RunBossKilled(phased));
         }

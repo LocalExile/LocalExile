@@ -14,6 +14,12 @@ namespace GameServer.Modules.Atlas;
 /// </summary>
 public static class AtlasProgress
 {
+    /// <summary>Fills this type's game data at startup (the world loader, before the Gateway listens).</summary>
+    public static void LoadAtlasProgressData()
+    {
+        Loaded = Load("data");
+    }
+
     public sealed record Node(int Row, string Id, ushort Hash16, string Name, IReadOnlySet<string> Areas, IReadOnlySet<string> Bosses,
         IReadOnlySet<string> FinalBosses, int BonusTier = 0);
 
@@ -24,13 +30,13 @@ public static class AtlasProgress
     /// RandomContent nodes).</summary>
     const int MaskRows = 170, MaskBytes = 22;
 
-    static readonly Lazy<(IReadOnlyList<Node> Maps, IReadOnlySet<int> OnAtlas)> Loaded = new(() => Load("data"));
+    static (IReadOnlyList<Node> Maps, IReadOnlySet<int> OnAtlas) Loaded = default!;
 
-    public static IReadOnlyList<Node> Maps => Loaded.Value.Maps;
+    public static IReadOnlyList<Node> Maps => Loaded.Maps;
 
     /// <summary>Every AtlasNode row the client draws (NotOnAtlas false, row &lt; 170), including voidstone
     /// sockets and pinnacle bosses. The first 0x1a3 mask uses this so the bottom citadels stay on screen.</summary>
-    public static IReadOnlySet<int> OnAtlasRows => Loaded.Value.OnAtlas;
+    public static IReadOnlySet<int> OnAtlasRows => Loaded.OnAtlas;
 
     public static Node? Find(string idOrName) => Maps.FirstOrDefault(n =>
         n.Id.Equals(idOrName, StringComparison.OrdinalIgnoreCase) || n.Name.Equals(idOrName, StringComparison.OrdinalIgnoreCase));

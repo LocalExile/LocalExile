@@ -25,22 +25,22 @@ public static class ThresholdJewels
 
     /// <summary>A stat whose local name does not match its client stat key, or whose local value is a flag/ms
     /// value that has to be converted.</summary>
-    sealed record Alias(string Target, int? FixedValue = null);
+    sealed record Alias(uint Target, int? FixedValue = null);
 
     static readonly IReadOnlyDictionary<string, Alias> Aliases = new Dictionary<string, Alias>
     {
-        ["disable_combust"] = new("combust_is_disabled", 1),
-        ["frostbolt_additional_projectiles"] = new("frostbolt_number_of_additional_projectiles"),
-        ["ice_shot_explosion_skill_area_of_effect_+%"] = new("ice_shot_radius_+%"),
+        ["disable_combust"] = new(Stat.CombustIsDisabled, 1),
+        ["frostbolt_additional_projectiles"] = new(Stat.FrostboltNumberOfAdditionalProjectiles),
+        ["ice_shot_explosion_skill_area_of_effect_+%"] = new(Stat.IceShotRadiusPlusPct),
         ["spectres_gain_soul_eater_on_kill_%_chance"] =
-            new("spectres_gain_soul_eater_for_20_seconds_on_kill_%_chance"),
-        ["molten_strike_projectiles_chain_count_+"] = new("molten_strike_chain_count_+"),
+            new(Stat.SpectresGainSoulEaterFor20SecondsOnKillPctChance),
+        ["molten_strike_projectiles_chain_count_+"] = new(Stat.MoltenStrikeChainCountPlus),
         ["molten_strike_projectiles_count_+%_final"] =
-            new("threshold_jewel_molten_strike_damage_projectile_count_+%_final"),
+            new(Stat.ThresholdJewelMoltenStrikeDamageProjectileCountPlusPctFinal),
         ["cold_snap_uses_gains_power_charges_instead_of_frenzy"] =
-            new("cold_snap_uses_and_gains_power_charges_instead_of_frenzy", 1),
+            new(Stat.ColdSnapUsesAndGainsPowerChargesInsteadOfFrenzy, 1),
         ["vigilant_strike_fortifies_nearby_allies_for_x_seconds"] =
-            new("vigilant_strike_applies_to_nearby_allies_for_X_seconds"),
+            new(Stat.VigilantStrikeAppliesToNearbyAlliesForXSeconds),
     };
 
     /// <summary>The threshold effects on one item and the radius those effects use.</summary>
@@ -53,21 +53,22 @@ public static class ThresholdJewels
             if (mods.ByHash(mod.Hash) is not { } row) continue;
             for (int i = 0; i < row.Stats.Count && i < mod.Values.Count; i++)
             {
-                string id = row.Stats[i].Id;
-                if (id == "local_jewel_effect_base_radius")
+                uint id = row.Stats[i].Id;
+                if (id == Stat.LocalJewelEffectBaseRadius)
                 {
                     radius = mod.Values[i];
                     continue;
                 }
-                if (!TryParse(id, out string target, out Attributes attributes, out int required)) continue;
+                if (!TryParse(Program.Stats.Name(id), out string target, out Attributes attributes, out int required)) continue;
                 int value = mod.Values[i];
+                uint? key = Program.Stats.Key(target);
                 if (Aliases.TryGetValue(target, out var alias))
                 {
-                    target = alias.Target;
+                    key = alias.Target;
                     value = alias.FixedValue ?? value;
                 }
-                if (value == 0 || Program.Stats.Key(target) is not uint key) continue;
-                effects.Add(new(attributes, required, key, value));
+                if (value == 0 || key is null) continue;
+                effects.Add(new(attributes, required, key.Value, value));
             }
         }
         return (radius > 0 ? radius : 1200, effects);
@@ -78,16 +79,16 @@ public static class ThresholdJewels
     {
         int total = 0;
         if ((effect.Attributes & Attributes.Strength) != 0)
-            total += Attribute(attributes, "base_strength");
+            total += Attribute(attributes, Stat.BaseStrength);
         if ((effect.Attributes & Attributes.Dexterity) != 0)
-            total += Attribute(attributes, "base_dexterity");
+            total += Attribute(attributes, Stat.BaseDexterity);
         if ((effect.Attributes & Attributes.Intelligence) != 0)
-            total += Attribute(attributes, "base_intelligence");
+            total += Attribute(attributes, Stat.BaseIntelligence);
         return total >= effect.Required;
     }
 
-    static int Attribute(IReadOnlyDictionary<uint, int> attributes, string name) =>
-        Program.Stats.Key(name) is uint key ? attributes.GetValueOrDefault(key) : 0;
+    static int Attribute(IReadOnlyDictionary<uint, int> attributes, uint name) =>
+        attributes.GetValueOrDefault(name);
 
     /// <summary>Split a local threshold stat into its target and condition. The condition is the last
     /// <c>_with_..._in_radius</c> segment, so targets such as <c>..._with_cold_damage</c> stay intact.</summary>

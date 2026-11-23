@@ -32,7 +32,9 @@ internal sealed class DeepwaterBoard
         Deck is { } d && at.X >= d.X0 && at.X < d.X1 && at.Y >= d.Y0 && at.Y < d.Y1;
 
     // DeepwaterRooms: the .arm path → row, and the row's biome's world area Id.
-    static readonly Lazy<(Dictionary<string, int> ByArm, Dictionary<int, string?> Biome)> Rooms = new(() =>
+    static (Dictionary<string, int> ByArm, Dictionary<int, string?> Biome) Rooms = ([], []);
+
+    public static void LoadGameData()
     {
         var areas = ClientTables.TableOrEmpty("WorldAreas");
         var biomes = ClientTables.TableOrEmpty("DeepwaterBiomes");
@@ -45,15 +47,15 @@ internal sealed class DeepwaterBoard
             if (r.Text("ArmFiles") is { } arm) byArm.TryAdd(arm, r.Index);
             biome[r.Index] = AreaOf(r.LongOrNull("Biome"));
         }
-        return (byArm, biome);
-    });
+        Rooms = (byArm, biome);
+    }
 
     /// <summary>The board of a generated encounter level, or null when the level has no Deepwater cells (a capture, or
     /// generation off). <paramref name="log"/> gets the cell-to-record mapping.</summary>
     public static DeepwaterBoard? Of(ServerLevels.Level? level, Action<string>? log = null)
     {
         if (level is null || level.Records.Count < 3) return null;
-        var rooms = Rooms.Value;
+        var rooms = Rooms;
         var cells = new List<(DoodadRecord Record, PlacedRoom Room, int Row)>();
         foreach (var record in level.Records.Skip(2))
             if (record.Rooms.Count == 1 && rooms.ByArm.TryGetValue(record.Rooms[0].Room.Path, out int row))

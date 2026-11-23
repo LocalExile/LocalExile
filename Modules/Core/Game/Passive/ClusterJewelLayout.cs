@@ -24,6 +24,12 @@ using GameServer.Core;
 /// </summary>
 public static class ClusterJewelLayout
 {
+    /// <summary>Fills this type's game data at startup (the world loader, before the Gateway listens).</summary>
+    public static void LoadClusterJewelLayoutData()
+    {
+        Templates = LoadTemplates();
+    }
+
     public enum Kind { None, Small, Notable, Socket, Keystone }
 
     public sealed record Layout(int Base, int Total, Dictionary<int, Kind> ByOffset, Dictionary<int, int> NotableOrders)
@@ -34,7 +40,9 @@ public static class ClusterJewelLayout
 
     sealed record Template(int[] Small, int[] Notable, int[] Socket, int Total);
 
-    static readonly Lazy<Dictionary<int, Template>> Templates = new(() =>
+    static Dictionary<int, Template> Templates = default!;
+
+    static Dictionary<int, Template> LoadTemplates()
     {
         var templates = new Dictionary<int, Template>();
         if (!ClientTables.Has("PassiveTreeExpansionJewels")) return templates;
@@ -48,7 +56,7 @@ public static class ClusterJewelLayout
                 row.Int("TotalIndices"));
         }
         return templates;
-    });
+    }
 
     /// <summary>The cell's id block base: the six tree sockets take <c>39 * ClusterIndex</c> (cell 20, index 5, uses
     /// 195), a child of a tree socket adds <c>9 * its ClusterIndex + 12</c> (cell 51 -> 207, cell 53 -> 225) and a
@@ -66,7 +74,7 @@ public static class ClusterJewelLayout
     /// jewel's shape is not measured yet (the caller falls back to the count-based estimate).</summary>
     public static Layout? For(int cell, Item jewel)
     {
-        if (Game.ClusterSize(jewel) is not int size || !Templates.Value.TryGetValue(size, out var template)) return null;
+        if (Game.ClusterSize(jewel) is not int size || !Templates.TryGetValue(size, out var template)) return null;
         // The jewel keeps its own template; the cell only supplies the block base and whether the ring is compressed.
         // A smaller jewel in a larger cell is padded by the client with empty nodes, but its own positions are the
         // item's (measured: a small in the large tree socket 17 uses the 6-ring indices 0/2/4 with the cell's start 5,
@@ -81,8 +89,8 @@ public static class ClusterJewelLayout
 
         var entries = ClusterJewelStats.Entries(jewel);
         int sockets = Math.Min(Game.ClusterSocketCount(jewel), template.Socket.Length);
-        int notables = entries.Count(e => e.Stat.StartsWith("local_affliction_notable_", StringComparison.Ordinal));
-        int keystones = entries.Count(e => e.Stat.StartsWith("local_jewel_expansion_keystone_", StringComparison.Ordinal));
+        int notables = entries.Count(e => Program.Stats.Name(e.Stat).StartsWith("local_affliction_notable_", StringComparison.Ordinal));
+        int keystones = entries.Count(e => Program.Stats.Name(e.Stat).StartsWith("local_jewel_expansion_keystone_", StringComparison.Ordinal));
         int nodes = Game.ClusterNodeBudget(jewel);
         // Only a large cell (a tree socket) keeps the full 12-slot ring; the expansion cells are compressed onto half
         // of it, whatever the jewel's own size.

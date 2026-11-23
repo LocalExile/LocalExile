@@ -172,6 +172,14 @@ public sealed class WorldOutput
             var established = new WorldObject(this, id, true); objects.Add(id, established); return established;
         }
     }
+    /// <summary>Whether the id has an incarnation in this output: a create reserved, admitted or published. One without
+    /// is not known to have been created yet: <see cref="PublishedObject"/> would take it as established, and a create
+    /// still to come (a kill's queued drop) would then fail.</summary>
+    public bool Has(uint id)
+    {
+        lock (sync) return objects.ContainsKey(id);
+    }
+
     // The caller identifies an already published object. A pending birth is returned as pending, never bypassed.
     public WorldObject PublishedObject(uint id)
     {
@@ -262,6 +270,28 @@ public sealed class WorldOutput
             if (started) throw new InvalidOperationException("World frames already started.");
             number = frameNumber; started = true;
         }
+    }
+
+    /// <summary>A batch that goes to the area's frame (AreaDelta) instead of this output: its births and removals are
+    /// done here at once (the area writes them to every connection in order), so nothing waits on them.</summary>
+    public void Shared(OutputBatch batch, WorldAdmission admission)
+    {
+        var born = new List<WorldObject>();
+        var removed = new List<WorldObject>();
+        lock (sync)
+        {
+            ObjectDisposedException.ThrowIf(closed, this);
+            foreach (var birth in admission.Births) { birth.State = WorldObject.BirthState.Ready; born.Add(birth); }
+            foreach (var record in batch.Records)
+                if (record.Kind == OutputRecord.RecordKind.Remove && record.Object is { } target && ReferenceEquals(target.Owner, this))
+                {
+                    target.State = WorldObject.BirthState.Retired;
+                    if (objects.GetValueOrDefault(target.Id) == target) objects.Remove(target.Id);
+                    removed.Add(target);
+                }
+        }
+        foreach (var birth in born) birth.Birth.TrySetResult(true);
+        foreach (var target in removed) { target.Invalidated.TrySetResult(false); target.Removal.TrySetResult(true); }
     }
 
     // Called under SendGate. Validate the complete batch before admitting any of it.

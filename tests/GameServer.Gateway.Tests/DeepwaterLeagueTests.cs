@@ -26,7 +26,7 @@ public sealed class DeepwaterLeagueTests
         try
         {
             new DeepwaterModule().Load(Context(lifetime));
-            uint flag = Program.Stats.Key("map_deepwater_league")!.Value;
+            const uint flag = Stat.MapDeepwaterLeague;
             var request = new AreaStatsRequest("Exile", null, 0x7ad2 /* 1_1_2 The Coast */, null);
             foreach (var league in allflame)
             {
@@ -52,11 +52,12 @@ public sealed class DeepwaterLeagueTests
     [Fact]
     public void Allflame_objects_and_ruleset_actions_are_written()
     {
+        DeepwaterModule.LoadData();
         var valerie = NpcCatalog.Load().Find("Metadata/NPC/League/Deepwater/ValerieTutorial");
         Assert.NotNull(valerie);
         Assert.True(valerie.Supported);
         byte[] blob = new NpcObject(236, 190, valerie.Components!, 0, valerie.StateMachine, valerie.TransitionState).Blob();
-        Assert.Equal("0000" + "EC000000" + "BE000000" + "00000000" + "0000" + "00020001" + "00" + "00" + "01FF" + "00"
+        Assert.Equal("0000" + "EC000000" + "BE000000" + "00000000" + "0000" + "0000" + "00" + "00" + "01FF" + "00"
             + "00" + "00000000" + "00000000" + "00"
             + "0202" + "0000" + "0000" + "0000000000" + "0000000000" + "00", Convert.ToHexString(blob));
 
@@ -329,12 +330,12 @@ public sealed class DeepwaterLeagueTests
         Assert.Equal("Metadata/Items/Currency/CurrencyModValues", catalog.ByHash(divineReward.Item.TypeHash)!.Id);
 
         // Phase 7: QuestStates league-flag completion (Q209–211) & Quests.League.EveryCharacter drops LQF 1834.
-        Assert.False(QuestStates.Default.Value.Complete("DeepwaterTutorial", _ => false));
-        Assert.True(QuestStates.Default.Value.Complete("DeepwaterTutorial", _ => false, f => f == 1823));
-        Assert.False(QuestStates.Default.Value.Complete("DeepwaterFairgravesAllflameQuest", _ => false));
-        Assert.True(QuestStates.Default.Value.Complete("DeepwaterFairgravesAllflameQuest", _ => false, f => f == 1859));
-        Assert.False(QuestStates.Default.Value.Complete("DeepwaterVelkaQuest", _ => false));
-        Assert.True(QuestStates.Default.Value.Complete("DeepwaterVelkaQuest", _ => false, f => f == 1888));
+        Assert.False(QuestStates.Default.Complete("DeepwaterTutorial", _ => false));
+        Assert.True(QuestStates.Default.Complete("DeepwaterTutorial", _ => false, f => f == 1823));
+        Assert.False(QuestStates.Default.Complete("DeepwaterFairgravesAllflameQuest", _ => false));
+        Assert.True(QuestStates.Default.Complete("DeepwaterFairgravesAllflameQuest", _ => false, f => f == 1859));
+        Assert.False(QuestStates.Default.Complete("DeepwaterVelkaQuest", _ => false));
+        Assert.True(QuestStates.Default.Complete("DeepwaterVelkaQuest", _ => false, f => f == 1888));
         Assert.DoesNotContain(1834, Quests.League.EveryCharacter);
 
         // Phase 7: AreaTransitionObject optional trailing StateMachine (Boat_AreaTransition_Animate).
@@ -427,20 +428,20 @@ public sealed class DeepwaterLeagueTests
         }
 
         // Polish Part 2: Chart & Border stat parsing (Domain 39 & 40), free lanterns, combat affixes, and DropRoll transforms.
-        var borderCellStats = new Dictionary<string, int>(StringComparer.Ordinal)
+        var borderCellStats = new Dictionary<uint, int>
         {
-            ["map_experience_gain_+%"] = 150,
-            ["map_deepwater_league_resource_found_+%"] = 40,
-            ["chart_do_not_consume_lanterns_on_placement"] = 1,
-            ["map_magic_monster_num_additional_modifiers"] = 2,
-            ["map_rare_monsters_trapped_in_essences"] = 1,
-            ["chart_rare_monsters_drop_dead_mans_sulphur"] = 1,
-            ["map_scarab_drop_chance_+%_final_from_uber_mod"] = 75,
-            ["map_currency_drop_chance_+%_final_from_uber_mod"] = 100,
-            ["chart_rare_monster_drop_x_additional_chaos"] = 1,
-            ["chart_rare_monster_drop_x_additional_divine"] = 1,
-            ["chart_rare_monster_drop_x_additional_scarab"] = 1,
-            ["chart_rare_monster_drop_support_gem_chance_%"] = 20,
+            [Stat.MapExperienceGainPlusPct] = 150,
+            [Stat.MapDeepwaterLeagueResourceFoundPlusPct] = 40,
+            [Stat.ChartDoNotConsumeLanternsOnPlacement] = 1,
+            [Stat.MapMagicMonsterNumAdditionalModifiers] = 2,
+            [Stat.MapRareMonstersTrappedInEssences] = 1,
+            [Stat.ChartRareMonstersDropDeadMansSulphur] = 1,
+            [Stat.MapScarabDropChancePlusPctFinalFromUberMod] = 75,
+            [Stat.MapCurrencyDropChancePlusPctFinalFromUberMod] = 100,
+            [Stat.ChartRareMonsterDropXAdditionalChaos] = 1,
+            [Stat.ChartRareMonsterDropXAdditionalDivine] = 1,
+            [Stat.ChartRareMonsterDropXAdditionalScarab] = 1,
+            [Stat.ChartRareMonsterDropSupportGemChancePct] = 20,
         };
         var voyageCell = DeepwaterChartStats.ParseCell(borderCellStats, borderCellStats, voyage: true);
         Assert.Equal(2.5, voyageCell.ExpFactor, 6);
@@ -467,23 +468,23 @@ public sealed class DeepwaterLeagueTests
         Assert.True(DeepwaterChartStats.ConsumesLantern(null, 0));
 
         // MapMonsterEffects wires Chart gt1/gt2 combat affixes (crit, penetration, speed, resists, hexproof, blind).
-        var combatAffixes = global::Game.MapMonsterEffects(new MapMods(new Dictionary<string, int>(StringComparer.Ordinal)
+        var combatAffixes = global::Game.MapMonsterEffects(new MapMods(new Dictionary<uint, int>
         {
-            ["map_monsters_critical_strike_chance_+%"] = 300,
-            ["map_monsters_critical_strike_multiplier_+"] = 45,
-            ["map_monsters_penetrate_elemental_resistances_%"] = 12,
-            ["map_monsters_are_hexproof"] = 1,
-            ["map_monsters_curse_effect_on_self_+%_final"] = -50,
-            ["map_monsters_chance_to_blind_on_hit_%"] = 100,
-            ["map_monsters_additional_elemental_resistance"] = 30,
+            [Stat.MapMonstersCriticalStrikeChancePlusPct] = 300,
+            [Stat.MapMonstersCriticalStrikeMultiplierPlus] = 45,
+            [Stat.MapMonstersPenetrateElementalResistancesPct] = 12,
+            [Stat.MapMonstersAreHexproof] = 1,
+            [Stat.MapMonstersCurseEffectOnSelfPlusPctFinal] = -50,
+            [Stat.MapMonstersChanceToBlindOnHitPct] = 100,
+            [Stat.MapMonstersAdditionalElementalResistance] = 30,
         }));
-        Assert.Equal(300, combatAffixes["critical_strike_chance_+%"]);
-        Assert.Equal(45, combatAffixes["base_critical_strike_multiplier_+"]);
-        Assert.Equal(12, combatAffixes["reduce_enemy_elemental_resistance_%"]);
-        Assert.Equal(1, combatAffixes["hexproof"]);
-        Assert.Equal(-50, combatAffixes["map_monsters_curse_effect_on_self_+%_final"]);
-        Assert.Equal(100, combatAffixes["global_chance_to_blind_on_hit_%"]);
-        Assert.Equal(30, combatAffixes["base_resist_all_elements_%"]);
+        Assert.Equal(300, combatAffixes[Stat.CriticalStrikeChancePlusPct]);
+        Assert.Equal(45, combatAffixes[Stat.BaseCriticalStrikeMultiplierPlus]);
+        Assert.Equal(12, combatAffixes[Stat.ReduceEnemyElementalResistancePct]);
+        Assert.Equal(1, combatAffixes[Stat.Hexproof]);
+        Assert.Equal(-50, combatAffixes[Stat.MapMonstersCurseEffectOnSelfPlusPctFinal]);
+        Assert.Equal(100, combatAffixes[Stat.GlobalChanceToBlindOnHitPct]);
+        Assert.Equal(30, combatAffixes[Stat.BaseResistAllElementsPct]);
 
         // Regression checks: truncated 0x2ca compact-uint, orientation >= 4, Diamond Flask class, Synthesised Ukatoa guard,
         // spellcaster cast speed, and self critical strike reduction against extra monster crit multiplier.
@@ -491,16 +492,16 @@ public sealed class DeepwaterLeagueTests
         Assert.Equal(15, GameServer.Data.Terrain.Generation.DeepwaterGeneration.Connections(15, 5));
         Assert.True(DeepwaterChartStats.IsFlaskClass("UtilityFlaskCritical"));
         Assert.Null(DeepwaterDucats.Apply(catalog, rolls, DeepwaterDucats.UkatoaHash, amuletItem with { Synthesised = true }, amuletType, rng));
-        var castEffects = new MonsterModEffects(new Dictionary<string, int> { ["base_cast_speed_+%"] = 100 });
+        var castEffects = new MonsterModEffects(new Dictionary<uint, int> { [Stat.BaseCastSpeedPlusPct] = 100 });
         Assert.Equal(0.5, castEffects.AttackSeconds(1.0, spell: true), 6);
         Assert.Equal(1.0, castEffects.AttackSeconds(1.0, spell: false), 6);
-        Assert.Equal(100, global::Game.SelfCriticalReduction(s => s == "self_take_no_extra_damage_from_critical_strikes" ? 1 : 0));
+        Assert.Equal(100, global::Game.SelfCriticalReduction(s => s == Stat.SelfTakeNoExtraDamageFromCriticalStrikes ? 1 : 0));
         var critMonster = new SpawnedMonster("crit", new(0, 0, 1), 60, 8, 100)
         {
-            Mods = new MonsterModSet([], [], new MonsterModEffects(new Dictionary<string, int>
+            Mods = new MonsterModSet([], [], new MonsterModEffects(new Dictionary<uint, int>
             {
-                ["always_crit"] = 1,
-                ["base_critical_strike_multiplier_+"] = 110,
+                [Stat.AlwaysCrit] = 1,
+                [Stat.BaseCriticalStrikeMultiplierPlus] = 110,
             })),
         };
         var baseHit = DamagePacket.Of(DamageType.Physical, 100, 100);
@@ -519,10 +520,10 @@ public sealed class DeepwaterLeagueTests
         var goldType = catalog.Find(ItemDrops.GoldId)!;
 
         // 1) Equipment -> Gold + Currency -> Stacked Decks (splits stacks > MaxStack; leaves Gold and Ducats intact).
-        var convertRules = DeepwaterChartStats.ParseCell(new Dictionary<string, int>(StringComparer.Ordinal)
+        var convertRules = DeepwaterChartStats.ParseCell(new Dictionary<uint, int>
         {
-            ["chart_monster_equipment_drops_converted_to_gold_%"] = 100,
-            ["chart_dropped_currency_converted_to_stacked_decks"] = 1,
+            [Stat.ChartMonsterEquipmentDropsConvertedToGoldPct] = 100,
+            [Stat.ChartDroppedCurrencyConvertedToStackedDecks] = 1,
         }, null, voyage: false);
         Assert.True(convertRules.HasTransforms);
         var convertDrops = new List<ItemDrops.Drop>
@@ -543,10 +544,10 @@ public sealed class DeepwaterLeagueTests
         Assert.Equal(45, convertDrops.Where(d => d.Type.Id == DeepwaterChartStats.StackedDeckId).Sum(d => (int)d.Item.StackSize));
 
         // 2) No-equipment + no-flask strips equipment & flasks while keeping currency.
-        var stripRules = DeepwaterChartStats.ParseCell(new Dictionary<string, int>(StringComparer.Ordinal)
+        var stripRules = DeepwaterChartStats.ParseCell(new Dictionary<uint, int>
         {
-            ["chart_monsters_drop_no_equipment"] = 1,
-            ["chart_monsters_drop_no_flask"] = 1,
+            [Stat.ChartMonstersDropNoEquipment] = 1,
+            [Stat.ChartMonstersDropNoFlask] = 1,
         }, null, voyage: false);
         var stripDrops = new List<ItemDrops.Drop>
         {
@@ -559,12 +560,12 @@ public sealed class DeepwaterLeagueTests
         Assert.Equal(chaosType.Id, stripDrops[0].Type.Id);
 
         // 3) Ring -> Unique + Max-quality flask + Fractured + Corrupted (preserves Quest Cursed Ducats & Mirrored/Influenced exclusivity).
-        var mutateRules = DeepwaterChartStats.ParseCell(new Dictionary<string, int>(StringComparer.Ordinal)
+        var mutateRules = DeepwaterChartStats.ParseCell(new Dictionary<uint, int>
         {
-            ["chart_ring_to_unique_ring_%_chance"] = 100,
-            ["map_flasks_drop_with_max_quality_chance_%"] = 100,
-            ["map_dropped_items_are_fractured_chance_%"] = 100,
-            ["map_items_drop_corrupted"] = 1,
+            [Stat.ChartRingToUniqueRingPctChance] = 100,
+            [Stat.MapFlasksDropWithMaxQualityChancePct] = 100,
+            [Stat.MapDroppedItemsAreFracturedChancePct] = 100,
+            [Stat.MapItemsDropCorrupted] = 1,
         }, null, voyage: false);
         var cursedDucatType = catalog.Row(DeepwaterCursedDucats.All[0].BaseRow)!;
         var mutateDrops = new List<ItemDrops.Drop>

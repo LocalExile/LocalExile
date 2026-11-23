@@ -11,7 +11,8 @@ import json
 
 # The generated files and the tables made from each. client-constants.json keeps only the HNC mask: the GGPK root hash
 # describes the local Content.ggpk (the Patch server writes it to the local data/client-constants.json).
-FILES = ["area-transitions.json", "room-points.json", "object-types.json", "monster-contacts.json", "monster-takehit.json",
+FILES = ["area-transitions.json", "room-points.json", "object-types.json", "monster-contacts.json", "monster-stances.json",
+         "monster-takehit.json",
          "item-types.json", "vendor-stock.json", "hideouts.json", "animation-contacts.json", "projectile-clips.json",
          "passive-skill-graphs.json", "delve-paths.json", "client-constants.json", "stat-descriptions.txt"]
 
@@ -96,6 +97,15 @@ def monster_contacts(doc):
                 frames += [{"clip": clip, "ord": k, "ms": f[0], "position": f[1]} for k, f in enumerate(c.get("contacts") or [])]
     return {"monster_contacts": monsters, "monster_contact_clips": clips, "monster_contact_clip_frames": frames,
             "monster_melee_clocks": clocks}
+
+
+def monster_stances(doc):
+    acts, clips = [], []
+    for a, (act, value) in enumerate(doc.items()):
+        acts.append({"act": act, **flat(value, skip=("pools",))})
+        for pool, entries in value["pools"].items():
+            clips += [{"stance_act": a, "pool": pool, **child("stance_act", a, i, c)} for i, c in enumerate(entries)]
+    return {"monster_stances": acts, "monster_stance_clips": clips}
 
 
 def monster_takehit(doc):
@@ -209,7 +219,8 @@ def stat_descriptions(text):
 
 TABLES = {
     "area-transitions.json": area_transitions, "room-points.json": room_points, "object-types.json": object_types,
-    "monster-contacts.json": monster_contacts, "monster-takehit.json": monster_takehit, "item-types.json": item_types,
+    "monster-contacts.json": monster_contacts, "monster-stances.json": monster_stances,
+    "monster-takehit.json": monster_takehit, "item-types.json": item_types,
     "vendor-stock.json": vendor_stock, "hideouts.json": hideouts, "animation-contacts.json": animation_contacts,
     "projectile-clips.json": projectile_clips, "passive-skill-graphs.json": passive_skill_graphs,
     "delve-paths.json": delve_paths, "client-constants.json": client_constants, "stat-descriptions.txt": stat_descriptions,

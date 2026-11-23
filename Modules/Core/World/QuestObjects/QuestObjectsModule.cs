@@ -35,154 +35,152 @@ public sealed class QuestObjectsModule : IModule
             return true;
         });
         Console.WriteLine($"[gateway] quest engine: {string.Join(", ", acts)}");
-        GameEvents.AreaGenerated.Add(module.Manifest.Id, async conn =>
+        // The player's quest view: what their quest state shows them (the walls and blockers they have not opened, quest
+        // objects and chests as they left them, NPCs, the opening tutorial) is theirs alone to see and to bump into.
+        GameEvents.PlayerEntered.Add(module.Manifest.Id, async player =>
         {
-            var (remote, stream, ciphers) = conn.Wire;
-            await SpawnQuestRoomObjects(remote, stream, ciphers, conn);
-            await SpawnOpeningTutorial(remote, stream, ciphers, conn);
-            await SpawnGlyphQuest(remote, stream, ciphers, conn);
-            await SpawnTrialObjects(remote, stream, ciphers, conn);
-            // Existing saves that spoke to HelenaTown before she was gated have HelenaIntroduced without a2q6-HelenaInTown,
-            // leaving Greust's reward unavailable after a2q9-PoisonedTree blocked Baleful Gem drops.
-            if (conn.Layout.Id == Act2Areas.ForestEncampment && ClientHasQuestFlag(conn, "HelenaIntroduced")
-                && !ClientHasQuestFlag(conn, "a2q6-HelenaInTown"))
-                await SetQuestFlags(remote, stream, ciphers, conn, ["a2q6-HelenaInTown"]);
-            // The quest engine: quest items synced, entered flags, quest chests and objects, room NPCs, blockers.
-            await StartQuestArea(remote, stream, ciphers, conn);
-            await SpawnLoreObjects(remote, stream, ciphers, conn);
-            await SpawnTrickChests(remote, stream, ciphers, conn);
-            await TickBeacon(conn);
+            Program.ViewOf.Value = player;
+            try
+            {
+                await SpawnQuestRoomObjects(player);
+                await SpawnOpeningTutorial(player);
+                await SpawnGlyphQuest(player);
+                await SpawnTrialObjects(player);
+                // Existing saves that spoke to HelenaTown before she was gated have HelenaIntroduced without a2q6-HelenaInTown,
+                // leaving Greust's reward unavailable after a2q9-PoisonedTree blocked Baleful Gem drops.
+                if (player.Layout.Id == Act2Areas.ForestEncampment && ClientHasQuestFlag(player, "HelenaIntroduced")
+                    && !ClientHasQuestFlag(player, "a2q6-HelenaInTown"))
+                    await SetQuestFlags(player, ["a2q6-HelenaInTown"]);
+                // The quest engine: quest items synced, entered flags, quest chests and objects, room NPCs, blockers.
+                await StartQuestArea(player);
+                await SpawnLoreObjects(player);
+                await SpawnTrickChests(player);
+                await TickBeacon(player);
+            }
+            finally { Program.ViewOf.Value = null; }
         });
-        GameEvents.Tick.Add(module.Manifest.Id, async (conn, _) =>
-        {
-            await TickBeacon(conn);
-            await SyncTutorialWalls(conn);
-        });
+        GameEvents.AreaTick.Add(module.Manifest.Id, GameEvents.InArea(Act6Areas.Beacon, TickBeacon));
+        GameEvents.AreaTick.Add(module.Manifest.Id, GameEvents.InArea(TutorialObjects.Strand, SyncTutorialWalls));
         // The quests after a kill's flags: quest drops (Hailrake's Medicine Chest), second forms (Merveil), NPCs that appear
         // or are freed, a fight of several bosses, a cleared area (a1q8).
         GameEvents.Kill.Add(module.Manifest.Id, kill =>
         {
             if (kill.Monster.Variety is not { } variety) return;
-            var (remote, stream, ciphers) = kill.Conn.Wire;
-            if (kill.Conn.Layout.Id == Act5Areas.ChamberOfInnocence && variety.Id == Act5Monsters.Innocence
-                && kill.Conn.Instance.SetState(Act5Objects.ShortcutOpen))
+            var player = kill.Player;
+            if (kill.Player.Layout.Id == Act5Areas.ChamberOfInnocence && variety.Id == Act5Monsters.Innocence
+                && kill.Player.Instance.SetState(Act5Objects.ShortcutOpen))
             {
-                var instance = kill.Conn.Instance;
-                foreach (var player in instance.PlayersExcept(kill.Conn.PeerId).Select(p => p.Owner).OfType<ClientState>().Prepend(kill.Conn))
-                    player.KillShares.Enqueue(async (r, s, c) =>
+                var instance = kill.Player.Instance;
+                foreach (var peer in instance.PlayersExcept(kill.Player.Id).Prepend(kill.Player))
+                    peer.KillShares.Enqueue(async _ =>
                     {
-                        if (player.Closed || player.LeavingArea || player.Instance != instance) return;
-                        lock (player.Monsters) UpdateQuestBlockers(player);
-                        await UpdateQuestObjectStates(r, s, c, player, [Act5Objects.ShortcutOpen]);
-                        await UpdateShownTransitions(r, s, c, player, "Innocence defeated");
+                        if (peer.Closed || peer.LeavingArea || peer.Instance != instance) return;
+                        UpdateQuestBlockers(peer);
+                        await UpdateQuestObjectStates(peer, [Act5Objects.ShortcutOpen]);
+                        await UpdateShownTransitions(peer, "Innocence defeated");
                     });
             }
             if (kill.CommittedOutput is not null) { CommitAcceptedQuestKill(kill); return; }
-            kill.Later(() => QuestKillEffects(remote, stream, ciphers, kill.Conn, kill.Monster, variety, kill.At));
+            kill.Later(() => QuestKillEffects(kill.Player, kill.Monster, variety, kill.At));
         });
         // After a read that moved items, the quest items' flags (and the removal of those done with: the Medicine Chest once
         // Nessa has one), on the message path so the inventory revisions stay in order.
-        GameEvents.MessagesHandled.Add(module.Manifest.Id, async (conn, ids) =>
+        GameEvents.MessagesHandled.Add(module.Manifest.Id, async (player, ids) =>
         {
-            var (remote, stream, ciphers) = conn.Wire;
-            if (conn.PlayerSent && ids.Any(QuestItems.MovesItems)) await SyncQuestItems(remote, stream, ciphers, conn, removeItems: true);
-            await SyncTutorialWalls(conn);
+            if (player.Connection.PlayerSent && ids.Any(QuestItems.MovesItems)) await SyncQuestItems(player, removeItems: true);
+            await SyncTutorialWalls(player);
         });
         GameEvents.Kill.Add(module.Manifest.Id, kill =>
         {
-            if (kill.Conn.Layout.Id != TutorialObjects.Strand || kill.VarietyId != TutorialObjects.Zombie
-                || CharacterSaves.Load(CharacterName(kill.Conn))?.Tutorial is not { ZombieKilled: false }) return;
-            CharacterSaves.ChangeTutorial(CharacterName(kill.Conn), t => t with { ZombieKilled = true });
-            var (remote, stream, ciphers) = kill.Conn.Wire;
-            if (kill.CommittedOutput is not null) kill.Conn.Minions.OutputQueue.AddRange(CommitTutorialGem(kill.Conn, false, kill.At.X, kill.At.Y));
-            else kill.Later(() => DropTutorialGem(remote, stream, ciphers, kill.Conn, false, kill.At.X, kill.At.Y));
+            if (kill.Player.Layout.Id != TutorialObjects.Strand || kill.VarietyId != TutorialObjects.Zombie
+                || CharacterSaves.Load(CharacterName(kill.Player))?.Tutorial is not { ZombieKilled: false }) return;
+            CharacterSaves.ChangeTutorial(CharacterName(kill.Player), t => t with { ZombieKilled = true });
+            var player = kill.Player;
+            if (kill.CommittedOutput is not null) kill.Player.Minions.OutputQueue.AddRange(CommitTutorialGem(kill.Player, false, kill.At.X, kill.At.Y));
+            else kill.Later(() => DropTutorialGem(kill.Player, false, kill.At.X, kill.At.Y));
         });
         // A trial dart's slow on the player's movement speed.
         GameEvents.PlayerStatSources.Add(module.Manifest.Id, WithDartSlow);
-        GameEvents.NpcTalk.Add(module.Manifest.Id, async (conn, id, npc) =>
+        GameEvents.NpcTalk.Add(module.Manifest.Id, async (player, id, npc) =>
         {
             if (IsLoreType(npc.Npc.Id))
             {
-                var (loreRemote, loreStream, loreCiphers) = conn.Wire;
-                return await ReadLoreObject(loreRemote, loreStream, loreCiphers, conn, id, npc);
+                return await ReadLoreObject(player, id, npc);
             }
             if (npc.Npc.Id != TutorialObjects.Exile) return false;
-            var (remote, stream, ciphers) = conn.Wire;
-            await TalkToWoundedExile(remote, stream, ciphers, conn, id, npc);
+            await TalkToWoundedExile(player, id, npc);
             return true;
         });
-        GameEvents.NpcDialogueClosing.Add(module.Manifest.Id, conn =>
+        GameEvents.NpcDialogueClosing.Add(module.Manifest.Id, player =>
         {
-            TutorialObjects.SkipDialogue(conn);
+            TutorialObjects.SkipDialogue(player);
             return Task.CompletedTask;
         });
         // Deathrattle: a warcry opens the quest chests within its radius.
-        GameEvents.ChestsOpened.Add(module.Manifest.Id, async (conn, at, radius) =>
+        GameEvents.ChestsOpened.Add(module.Manifest.Id, async (player, at, radius) =>
         {
-            var (remote, stream, ciphers) = conn.Wire;
-            if (conn.TutorialChestId != 0 && conn.TutorialChest is { } chest && Dist((chest.X, chest.Y), at) <= radius)
-                await OpenTutorialChestCore(remote, stream, ciphers, conn, conn.TutorialChestId, chest);
+            if (player.TutorialChestId != 0 && player.TutorialChest is { } chest && Dist((chest.X, chest.Y), at) <= radius)
+                await OpenTutorialChestCore(player, player.TutorialChestId, chest);
             List<(uint Id, GlyphQuest.Nest Nest)> nests;
-            lock (conn.GlyphNests)
-                nests = [.. conn.GlyphNests.Where(e => Dist((e.Value.At.X, e.Value.At.Y), at) <= radius).Select(e => (e.Key, e.Value))];
-            foreach (var (id, nest) in nests) await OpenRhoaNestCore(remote, stream, ciphers, conn, id, nest);
-            await OpenTrickChestsNear(remote, stream, ciphers, conn, at, radius);
+            lock (player.GlyphNests)
+                nests = [.. player.GlyphNests.Where(e => Dist((e.Value.At.X, e.Value.At.Y), at) <= radius).Select(e => (e.Key, e.Value))];
+            foreach (var (id, nest) in nests) await OpenRhoaNestCore(player, id, nest);
+            await OpenTrickChestsNear(player, at, radius);
         });
         // A cast near a Labyrinth smashable wall breaks it (not this module's cast: it goes on).
-        GameEvents.SkillCast.Add(module.Manifest.Id, (conn, effect, skillId, from, current) =>
+        GameEvents.SkillCast.Add(module.Manifest.Id, (player, effect, skillId, from, current) =>
         {
-            _ = BreakSmashableWalls(conn, from);
+            _ = BreakSmashableWalls(player, from);
             return null;
         });
-        GameEvents.ObjectUse.Add(module.Manifest.Id, async (conn, use, requestedAt) =>
+        GameEvents.ObjectUse.Add(module.Manifest.Id, async (player, use, requestedAt) =>
         {
-            var (remote, stream, ciphers) = conn.Wire;
-            if (conn.TutorialChestId == use.TargetId && conn.TutorialChest is { } tutorialChest)
+            if (player.TutorialChestId == use.TargetId && player.TutorialChest is { } tutorialChest)
             {
-                await OpenTutorialChest(remote, stream, ciphers, conn, use, tutorialChest, requestedAt);
+                await OpenTutorialChest(player, use, tutorialChest, requestedAt);
                 return true;
             }
             (Quests.ChestRule Rule, GlyphQuest.Placement At)? questChest;
-            lock (conn.QuestChests) questChest = conn.QuestChests.TryGetValue(use.TargetId, out var qc) ? qc : null;
+            lock (player.QuestChests) questChest = player.QuestChests.TryGetValue(use.TargetId, out var qc) ? qc : null;
             if (questChest is var (chestRule, chestAt))
             {
-                await OpenQuestChest(remote, stream, ciphers, conn, use, chestRule, chestAt, requestedAt);
+                await OpenQuestChest(player, use, chestRule, chestAt, requestedAt);
                 return true;
             }
             (Quests.ObjectRule Rule, GlyphQuest.Placement At, QuestObjectTypes.Info Info)? questObject;
-            lock (conn.QuestObjects) questObject = conn.QuestObjects.TryGetValue(use.TargetId, out var qo) ? qo : null;
+            lock (player.QuestObjects) questObject = player.QuestObjects.TryGetValue(use.TargetId, out var qo) ? qo : null;
             if (questObject is var (objectRule, objectAt, objectInfo))
             {
-                if (!CanUseBeacon(conn, objectRule.ObjectType)) return true;
-                await UseQuestObject(remote, stream, ciphers, conn, use, objectRule, objectAt, objectInfo, requestedAt,
+                if (!CanUseBeacon(player, objectRule.ObjectType)) return true;
+                await UseQuestObject(player, use, objectRule, objectAt, objectInfo, requestedAt,
                     objectRule.ObjectType switch
                     {
-                        Act3Objects.LabyrinthPlaque => () => QuestobjectsRules.UseSarnPlaque(remote, stream, ciphers, conn),
-                        Act3Objects.LabyrinthSelect => () => QuestobjectsRules.UseLabyrinthSelect(remote, stream, ciphers, conn),
-                        Act3Objects.ReturnPortal or Act3Objects.ChamberPortal => () => QuestobjectsRules.UsePlazaReturnPortal(remote, stream, ciphers, conn),
-                        Act3Objects.AscendancyFont => () => QuestobjectsRules.UseAscendancyFont(remote, stream, ciphers, conn),
-                        Act7Objects.Orrery => () => Send(remote, stream, ciphers,
+                        Act3Objects.LabyrinthPlaque => () => QuestobjectsRules.UseSarnPlaque(player),
+                        Act3Objects.LabyrinthSelect => () => QuestobjectsRules.UseLabyrinthSelect(player),
+                        Act3Objects.ReturnPortal or Act3Objects.ChamberPortal => () => QuestobjectsRules.UsePlazaReturnPortal(player),
+                        Act3Objects.AscendancyFont => () => QuestobjectsRules.UseAscendancyFont(player),
+                        Act7Objects.Orrery => () => Send(player,
                             InstanceWaypoints.OpenUi(InstanceWaypoints.MapDeviceUi, use.TargetId), "0x007b open the Reverie Device"),
                         _ => null,
                     });
                 return true;
             }
             GlyphQuest.Nest? nest;
-            lock (conn.GlyphNests) nest = conn.GlyphNests.GetValueOrDefault(use.TargetId);
+            lock (player.GlyphNests) nest = player.GlyphNests.GetValueOrDefault(use.TargetId);
             if (nest is not null)
             {
-                await OpenRhoaNest(remote, stream, ciphers, conn, use, nest);
+                await OpenRhoaNest(player, use, nest);
                 return true;
             }
-            if (conn.GlyphWallId != 0 && use.TargetId == conn.GlyphWallId)
+            if (player.GlyphWallId != 0 && use.TargetId == player.GlyphWallId)
             {
-                await UseGlyphWall(remote, stream, ciphers, conn, use);
+                await UseGlyphWall(player, use);
                 return true;
             }
             // A Labyrinth room's stash: the one clicked is the stash the game opens (it knows one per area).
-            if (QuestobjectsRules.PickLabyrinthStash(conn, use.TargetId)) return false;
-            if (await UseTrickChest(remote, stream, ciphers, conn, use, requestedAt)) return true;
-            return await UseTrialObject(remote, stream, ciphers, conn, use);
+            if (QuestobjectsRules.PickLabyrinthStash(player, use.TargetId)) return false;
+            if (await UseTrickChest(player, use, requestedAt)) return true;
+            return await UseTrialObject(player, use);
         });
     }
 }

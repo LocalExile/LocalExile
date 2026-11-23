@@ -31,41 +31,40 @@ public static partial class Game
     /// <summary>Whether a hit intimidates and unnerves: chance_to_intimidate_on_hit_% (and attacks_intimidate_on_hit_%
     /// for an attack), chance_to_unnerve_on_hit_% (and chance_to_unnerve_on_hit_with_spells_% for a spell), and Grattus
     /// Signet's crits: spells_inflict_intimidate_on_crit, attacks_inflict_unnerve_on_crit.</summary>
-    public static (bool Intimidate, bool Unnerve) HitDebuffRolls(Func<string, int> get, bool spell, bool critical, Random random)
+    public static (bool Intimidate, bool Unnerve) HitDebuffRolls(Func<uint, int> get, bool spell, bool critical, Random random)
     {
-        bool intimidate = spell && critical && get("spells_inflict_intimidate_on_crit") != 0
-            || RandomRolls.Chance(get("chance_to_intimidate_on_hit_%") + (spell ? 0 : get("attacks_intimidate_on_hit_%")), 100, random);
-        bool unnerve = !spell && critical && get("attacks_inflict_unnerve_on_crit") != 0
-            || RandomRolls.Chance(get("chance_to_unnerve_on_hit_%") + (spell ? get("chance_to_unnerve_on_hit_with_spells_%") : 0), 100, random);
+        bool intimidate = spell && critical && get(Stat.SpellsInflictIntimidateOnCrit) != 0
+            || RandomRolls.Chance(get(Stat.ChanceToIntimidateOnHitPct) + (spell ? 0 : get(Stat.AttacksIntimidateOnHitPct)), 100, random);
+        bool unnerve = !spell && critical && get(Stat.AttacksInflictUnnerveOnCrit) != 0
+            || RandomRolls.Chance(get(Stat.ChanceToUnnerveOnHitPct) + (spell ? get(Stat.ChanceToUnnerveOnHitWithSpellsPct) : 0), 100, random);
         return (intimidate, unnerve);
     }
 
     /// <summary>Whether a hit blinds: global_chance_to_blind_on_hit_% (the Blind support's 10%), attacks_chance_to_blind_on_hit_%
     /// for an attack and %_chance_to_blind_on_critical_strike on a critical strike, one roll for their sum.</summary>
-    public static bool BlindRoll(Func<string, int> get, bool spell, bool critical, Random random) =>
-        RandomRolls.Chance(get("global_chance_to_blind_on_hit_%") + (spell ? 0 : get("attacks_chance_to_blind_on_hit_%"))
-            + (critical ? get("%_chance_to_blind_on_critical_strike") : 0), 100, random);
+    public static bool BlindRoll(Func<uint, int> get, bool spell, bool critical, Random random) =>
+        RandomRolls.Chance(get(Stat.GlobalChanceToBlindOnHitPct) + (spell ? 0 : get(Stat.AttacksChanceToBlindOnHitPct))
+            + (critical ? get(Stat.PctChanceToBlindOnCriticalStrike) : 0), 100, random);
 
     /// <summary>A Blind's duration: 4 s base (poedb Blind), with blind_duration_+%.</summary>
-    public static double BlindSeconds(Func<string, int> get) =>
-        HitDebuffSeconds * Math.Max(0, 1 + get("blind_duration_+%") / 100.0);
+    public static double BlindSeconds(Func<uint, int> get) =>
+        HitDebuffSeconds * Math.Max(0, 1 + get(Stat.BlindDurationPlusPct) / 100.0);
 
-    // A hit that landed on a living hostile monster, under the Monsters lock. <paramref name="random"/> belongs to the
-    // hit so projectile draws stay in order; callers without one use Random.Shared.
-    public static void HitDebuffsOnHitLocked(SpawnedMonster m, Func<string, int> get, bool spell, bool critical, double now,
-        Random? random = null)
+    // A hit that landed on a living hostile monster, in the area's frame. <paramref name="random"/> belongs to the
+    // hit so projectile draws stay in order; others pass AreaRng(player).
+    public static void HitDebuffsOnHitLocked(SpawnedMonster m, Func<uint, int> get, bool spell, bool critical, double now,
+        Random random)
     {
         if (!m.Hostile || m.Dead || m.Life == 0) return;
-        random ??= Random.Shared;
         var (intimidate, unnerve) = HitDebuffRolls(get, spell, critical, random);
-        if (intimidate) m.IntimidatedUntil = Math.Max(m.IntimidatedUntil, now + HitDebuffSeconds);
-        if (unnerve) m.UnnervedUntil = Math.Max(m.UnnervedUntil, now + HitDebuffSeconds);
-        if (RandomRolls.Chance(get("chance_to_crush_on_hit_%"), 100, random))
-            m.CrushedUntil = Math.Max(m.CrushedUntil, now + CrushSeconds);
-        TryMaimOnHitLocked(m, get("maim_on_hit_%"),
-            Math.Max(0, get("support_maimed_enemies_physical_damage_taken_+%")), now, random);
-        if (spell && RandomRolls.Chance(get("spells_chance_to_hinder_on_hit_%"), 100, random))
-            m.HinderedUntil = Math.Max(m.HinderedUntil, now + HinderSeconds);
+        if (intimidate) { m.IntimidatedUntil = Math.Max(m.IntimidatedUntil, now + HitDebuffSeconds); m.PresentationChanged?.Invoke(); }
+        if (unnerve) { m.UnnervedUntil = Math.Max(m.UnnervedUntil, now + HitDebuffSeconds); m.PresentationChanged?.Invoke(); }
+        if (RandomRolls.Chance(get(Stat.ChanceToCrushOnHitPct), 100, random))
+            { m.CrushedUntil = Math.Max(m.CrushedUntil, now + CrushSeconds); m.PresentationChanged?.Invoke(); }
+        TryMaimOnHitLocked(m, get(Stat.MaimOnHitPct),
+            Math.Max(0, get(Stat.SupportMaimedEnemiesPhysicalDamageTakenPlusPct)), now, random);
+        if (spell && RandomRolls.Chance(get(Stat.SpellsChanceToHinderOnHitPct), 100, random))
+            { m.HinderedUntil = Math.Max(m.HinderedUntil, now + HinderSeconds); m.PresentationChanged?.Invoke(); }
     }
 
     /// <summary>The shared Maim application for a surviving hostile hit. RandomRolls.Chance returns false without drawing
@@ -73,12 +72,13 @@ public static partial class Game
     public static bool TryMaimOnHitLocked(SpawnedMonster m, int chance, int physicalTaken, double now, Random random)
     {
         if (!m.Hostile || m.Dead || m.Life == 0) return false;
-        if (m.Effects["immune_to_maim"] != 0 || RandomRolls.Chance(m.Effects["avoid_maim_%_chance"], 100, random))
+        if (m.Effects[Stat.ImmuneToMaim] != 0 || RandomRolls.Chance(m.Effects[Stat.AvoidMaimPctChance], 100, random))
             return false;
         if (!RandomRolls.Chance(chance, 100, random)) return false;
         // Settle elapsed bleed damage at its Rupture deadlines using the target's previous Maim.
         if (physicalTaken > 0 && m.Bleeds.Burning) SettleBleeding(m, now);
         m.MaimedUntil = Math.Max(m.MaimedUntil, now + MaimSeconds);
+        m.PresentationChanged?.Invoke();
         physicalTaken = Math.Max(0, physicalTaken);
         if (physicalTaken > 0 && (physicalTaken >= m.MaimedPhysicalTakenPct || m.MaimedPhysicalTakenUntil <= now))
         {
@@ -118,39 +118,39 @@ public static partial class Game
     /// inflicts its own; inflict_all_exposure_on_hit, base_inflict_{element}_exposure_on_hit_%_chance and, for a hit with
     /// that damage, chance_to_inflict_{element}_exposure_on_hit_with_{element}_damage_% inflict the default -10%. The
     /// stronger one counts (<see cref="InflictedExposure"/>).</summary>
-    public static int ExposureRoll(Func<string, int> get, DamageType type, bool withType, Random random)
+    public static int ExposureRoll(Func<uint, int> get, DamageType type, bool withType, Random random)
     {
         string e = type.ToString().ToLowerInvariant();
-        bool rolled = get("inflict_all_exposure_on_hit") != 0 || RandomRolls.Chance(get($"base_inflict_{e}_exposure_on_hit_%_chance")
-            + (withType ? get($"chance_to_inflict_{e}_exposure_on_hit_with_{e}_damage_%") : 0), 100, random);
-        int magnitude = Math.Min(rolled ? DefaultExposure : 0, get($"{e}_exposure_on_hit_magnitude"));
+        bool rolled = get(Stat.InflictAllExposureOnHit) != 0 || RandomRolls.Chance(get(Stat.Of($"base_inflict_{e}_exposure_on_hit_%_chance"))
+            + (withType ? get(Stat.Of($"chance_to_inflict_{e}_exposure_on_hit_with_{e}_damage_%")) : 0), 100, random);
+        int magnitude = Math.Min(rolled ? DefaultExposure : 0, get(Stat.Of($"{e}_exposure_on_hit_magnitude")));
         return magnitude >= 0 ? 0 : InflictedExposure(get, type, magnitude);
     }
 
     /// <summary>The player's Exposure of this base magnitude as he inflicts it: plus the extra stats, at least
     /// exposure_you_inflict_has_minimum_resistance_%, none with cannot_inflict_exposure.</summary>
-    public static int InflictedExposure(Func<string, int> get, DamageType type, int magnitude)
+    public static int InflictedExposure(Func<uint, int> get, DamageType type, int magnitude)
     {
-        if (get("cannot_inflict_exposure") != 0) return 0;
+        if (get(Stat.CannotInflictExposure) != 0) return 0;
         string e = type.ToString().ToLowerInvariant();
-        magnitude += get($"{e}_exposure_you_inflict_applies_extra_{e}_resistance_+%")
-            + get("exposure_you_inflict_applies_extra_%_to_affected_resistance");
-        int minimum = get("exposure_you_inflict_has_minimum_resistance_%");
+        magnitude += get(Stat.Of($"{e}_exposure_you_inflict_applies_extra_{e}_resistance_+%"))
+            + get(Stat.ExposureYouInflictAppliesExtraPctToAffectedResistance);
+        int minimum = get(Stat.ExposureYouInflictHasMinimumResistancePct);
         return Math.Min(0, minimum < 0 ? Math.Min(magnitude, minimum) : magnitude);
     }
 
-    // A hit that landed on a living monster, under the Monsters lock: each element's Exposure for 4 s, a later one of the
+    // A hit that landed on a living monster, in the area's frame: each element's Exposure for 4 s, a later one of the
     // same magnitude restarting it. Then Elemental Equilibrium (poedb: "Hits that deal Elemental Damage remove Exposure to
     // those Elements and inflict Exposure to other Elements"), after the hit's own Exposure as in PoB, for 4 s too:
     // Exposure's default duration, as the keystone names none.
-    public static void ExposureOnHitLocked(SpawnedMonster m, Func<string, int> get, DamagePacket mitigated, double now, Random random)
+    public static void ExposureOnHitLocked(SpawnedMonster m, Func<uint, int> get, DamagePacket mitigated, double now, Random random)
     {
-        if (m.Mods.Effects["immune_to_exposure"] > 0) return;
+        if (m.Mods.Effects[Stat.ImmuneToExposure] > 0) return;
         for (int i = 0; i < ExposureTypes.Length; i++)
             if (ExposureRoll(get, ExposureTypes[i], mitigated[ExposureTypes[i]].Max > 0, random) is < 0 and var magnitude)
                 Expose(m, i, magnitude, now);
-        if (get("keystone_elemental_equilibrium") == 0 || !ExposureTypes.Any(t => mitigated[t].Max > 0)) return;
-        double effect = Math.Max(0, 1 + get("elemental_equilibrium_effect_+%") / 100.0);
+        if (get(Stat.KeystoneElementalEquilibrium) == 0 || !ExposureTypes.Any(t => mitigated[t].Max > 0)) return;
+        double effect = Math.Max(0, 1 + get(Stat.ElementalEquilibriumEffectPlusPct) / 100.0);
         for (int i = 0; i < ExposureTypes.Length; i++)
         {
             var type = ExposureTypes[i];
@@ -169,7 +169,7 @@ public static partial class Game
         var key = (ExposureTypes[i], magnitude);
         double until = now + ExposureSeconds;
         m.Exposures[key] = Math.Max(m.Exposures.GetValueOrDefault(key, double.NegativeInfinity), until);
-        m.ExposureUntil[i] = Math.Max(m.ExposureUntil[i], until);
+        { m.ExposureUntil[i] = Math.Max(m.ExposureUntil[i], until); m.PresentationChanged?.Invoke(); }
     }
 
     /// <summary>The resistance its Exposure of this type applies at <paramref name="now"/>: the highest running one, 0
@@ -196,38 +196,39 @@ public static partial class Game
     public const int WitheredMaxStacks = 15;
     public const ushort WitheredBuffRow = 506;
 
-    public static double WitherDurationSeconds(double baseSeconds, Func<string, int> get) =>
-        baseSeconds / Math.Max(0.01, 1 + get("wither_expire_speed_+%") / 100.0);
+    public static double WitherDurationSeconds(double baseSeconds, Func<uint, int> get) =>
+        baseSeconds / Math.Max(0.01, 1 + get(Stat.WitherExpireSpeedPlusPct) / 100.0);
 
     /// <summary>How long a hit withers for, 0 for not: one roll for withered_on_hit_for_2_seconds_%_chance and Withering
     /// Touch's withered_on_hit_chance_%, for its support_withered_base_duration_ms or else 2 s, expiring slower by
     /// wither_expire_speed_+% (the Eldritch gloves' "Withered you Inflict expires X% slower").</summary>
-    public static double WitherRoll(Func<string, int> get, Random random)
+    public static double WitherRoll(Func<uint, int> get, Random random)
     {
-        if (!RandomRolls.Chance(get("withered_on_hit_for_2_seconds_%_chance") + get("withered_on_hit_chance_%"), 100, random)) return 0;
-        double seconds = get("support_withered_base_duration_ms") is > 0 and var ms ? ms / 1000.0 : 2;
+        if (!RandomRolls.Chance(get(Stat.WitheredOnHitFor2SecondsPctChance) + get(Stat.WitheredOnHitChancePct), 100, random)) return 0;
+        double seconds = get(Stat.SupportWitheredBaseDurationMs) is > 0 and var ms ? ms / 1000.0 : 2;
         return WitherDurationSeconds(seconds, get);
     }
 
-    // A hit that landed on a living monster, under the Monsters lock: one more Withered stack, with withered_effect_+%.
-    public static void WitherOnHitLocked(SpawnedMonster m, Func<string, int> get, double now, Random random)
+    // A hit that landed on a living monster, in the area's frame: one more Withered stack, with withered_effect_+%.
+    public static void WitherOnHitLocked(SpawnedMonster m, Func<uint, int> get, double now, Random random)
     {
-        if (m.Mods.Effects["immune_to_wither"] > 0 || WitherRoll(get, random) is not (> 0 and var seconds)) return;
+        if (m.Mods.Effects[Stat.ImmuneToWither] > 0 || WitherRoll(get, random) is not (> 0 and var seconds)) return;
         ApplyWitherStacksLocked(m, 1, seconds, get, now);
     }
 
     // Adds <paramref name="stacks"/> Withered stacks with already-scaled duration <paramref name="seconds"/>
     // (capped at WitheredMaxStacks = 15, replacing the earliest-ending stack).
-    public static void ApplyWitherStacksLocked(SpawnedMonster m, int stacks, double seconds, Func<string, int> get, double now)
+    public static void ApplyWitherStacksLocked(SpawnedMonster m, int stacks, double seconds, Func<uint, int> get, double now)
     {
-        if (stacks <= 0 || seconds <= 0 || m.Mods.Effects["immune_to_wither"] > 0) return;
-        double pct = WitheredPct * Math.Max(0, 1 + get("withered_effect_+%") / 100.0);
+        if (stacks <= 0 || seconds <= 0 || m.Mods.Effects[Stat.ImmuneToWither] > 0) return;
+        double pct = WitheredPct * Math.Max(0, 1 + get(Stat.WitheredEffectPlusPct) / 100.0);
         m.Withered.RemoveAll(s => s.Until <= now);
         for (int i = 0; i < stacks; i++)
         {
             if (m.Withered.Count >= WitheredMaxStacks) m.Withered.Remove(m.Withered.MinBy(s => s.Until));
             m.Withered.Add((now + seconds, pct));
         }
+        m.PresentationChanged?.Invoke();
     }
 
     /// <summary>The increased chaos damage its running Withered stacks give at <paramref name="now"/>, 0 without a time.</summary>

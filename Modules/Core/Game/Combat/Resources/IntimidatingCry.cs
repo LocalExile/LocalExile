@@ -29,234 +29,240 @@ public static partial class Game
         internal readonly List<CryGift> Gifts = [];
         internal int Exerts, PresentedMovement;
         internal ushort Buff;
-        internal double PresentedUntil;
     }
-    static readonly RuleTable<ClientState, CryRuntime> CryRuntimes = new();
+    static readonly Store<Player, CryRuntime> CryRuntimes = new();
     static readonly RuleTable<SpawnedMonster, List<CryGift>> MinionCryGifts = new();
 
-    static CryRuntime CryOf(ClientState conn)
+    static CryRuntime CryOf(Player player)
     {
-        var state = CryRuntimes.GetOrCreateValue(conn);
-        if (!ReferenceEquals(state.Rules, CombatLifetime) || state.Epoch != conn.ProjectileEpoch)
+        var state = CryRuntimes.GetOrCreateValue(player);
+        if (!ReferenceEquals(state.Rules, CombatLifetime) || state.Epoch != player.ProjectileEpoch)
         {
             bool initialized = state.Rules is not null;
             state.Rules = CombatLifetime;
-            state.Epoch = conn.ProjectileEpoch;
+            state.Epoch = player.ProjectileEpoch;
             state.Sources.Clear(); state.Pending.Clear(); state.Gifts.Clear(); state.Exerts = 0;
             if (initialized) while (state.Inbox.TryDequeue(out _)) { }
         }
         return state;
     }
 
-    static void ReconcileCatCrySourcesLocked(ClientState conn, double now)
+    static void ReconcileCatCrySourcesLocked(Player player, double now)
     {
-        var state = CryOf(conn);
-        var live = !CurrentGameWork || conn.Closed || conn.LeavingArea || conn.RageRetired || conn.PlayerLife == 0
-            ? [] : AllWornGrantedSkillsOf(conn).Where(g => g.EffectId == CatStealthCryEffect && !g.Support
-                && !IsInactive(conn, g.Host) && LeagueFor(conn).Rules.AllowsGemEffect(g.EffectId)).ToArray();
+        var state = CryOf(player);
+        var live = !CurrentGameWork || player.Closed || player.LeavingArea || player.RageRetired || player.PlayerLife == 0
+            ? [] : AllWornGrantedSkillsOf(player).Where(g => g.EffectId == CatStealthCryEffect && !g.Support
+                && !IsInactive(player, g.Host) && LeagueFor(player).Rules.AllowsGemEffect(g.EffectId)).ToArray();
         var wanted = live.ToHashSet();
         foreach (var old in state.Sources.Keys.Where(g => !wanted.Contains(g)).ToArray()) state.Sources.Remove(old);
         foreach (var grant in live) state.Sources.TryAdd(grant, new(grant, now));
     }
 
-    static void QueueCatStealthLossLocked(ClientState conn, double at, double now)
+    static void QueueCatStealthLossLocked(Player player, double at, double now)
     {
-        ReconcileCatCrySourcesLocked(conn, now);
-        var state = CryOf(conn);
-        if (state.Rules is null || conn.Paused || InTown(conn)) return;
+        ReconcileCatCrySourcesLocked(player, now);
+        var state = CryOf(player);
+        if (state.Rules is null || player.Paused || InTown(player)) return;
         foreach (var source in state.Sources.Values)
             if (source.Since <= at + 1e-9 && state.Pending.Count < 64)
-                state.Pending.Enqueue(new(state.Rules, conn.ProjectileEpoch, source));
+                state.Pending.Enqueue(new(state.Rules, player.ProjectileEpoch, source));
     }
 
-    public static CatCryLoss[] PendingCatCryLosses(ClientState conn) => [.. CryOf(conn).Pending];
+    public static CatCryLoss[] PendingCatCryLosses(Player player) => [.. CryOf(player).Pending];
 
-    public static bool CatCryLossCurrentLocked(ClientState conn, CatCryLoss loss)
+    public static bool CatCryLossCurrentLocked(Player player, CatCryLoss loss)
     {
-        ReconcileCatCrySourcesLocked(conn, AreaTime(conn));
+        ReconcileCatCrySourcesLocked(player, AreaTime(player));
         return !loss.Consumed && CurrentGameWork && ReferenceEquals(loss.Rules, CombatLifetime)
-            && conn.ProjectileActive(loss.Epoch) && !conn.RageRetired && conn.PlayerLife > 0 && !conn.Paused
-            && !InTown(conn) && CryOf(conn).Sources.TryGetValue(loss.Source.Grant, out var current)
+            && player.ProjectileActive(loss.Epoch) && !player.RageRetired && player.PlayerLife > 0 && !player.Paused
+            && !InTown(player) && CryOf(player).Sources.TryGetValue(loss.Source.Grant, out var current)
             && ReferenceEquals(current, loss.Source);
     }
 
     // Source, payment, cooldown and payload commit at the same native-send gate. A revoked receipt spends nothing.
-    public static byte[]? AdmitCatCryLossLocked(ClientState conn, CatCryLoss loss)
+    public static byte[]? AdmitCatCryLossLocked(Player player, CatCryLoss loss)
     {
-        if (!CatCryLossCurrentLocked(conn, loss)) return null;
+        if (!CatCryLossCurrentLocked(player, loss)) return null;
         var grant = loss.Source.Grant;
-        var source = GemSkillEffects(conn).FirstOrDefault(g => g.Effect == grant.Effect
-            && SupportedSkill(conn, g.Id).WornGrant == grant);
-        if (source.Name is null || GemSkillInstanceDisabled(conn, source.Effect, source.Id, triggered: true) is not null)
+        var source = GemSkillEffects(player).FirstOrDefault(g => g.Effect == grant.Effect
+            && SupportedSkill(player, g.Id).WornGrant == grant);
+        if (source.Name is null || GemSkillInstanceDisabled(player, source.Effect, source.Id, triggered: true) is not null)
             return null;
-        var gem = SupportedSkill(conn, source.Id);
-        if (CooldownFor(conn, source.Effect, source.Level, source.Quality) is not { } plan) return null;
-        double now = AreaTime(conn);
-        int key = CooldownKey(conn, source.Effect, source.Level);
-        var cooldown = CooldownStateLocked(conn, key, plan, now);
-        if (!cooldown.Ready || !PayMana(conn, source.Id, out _, out uint lifeCost)) return null;
+        var gem = SupportedSkill(player, source.Id);
+        if (CooldownFor(player, source.Effect, source.Level, source.Quality) is not { } plan) return null;
+        double now = AreaTime(player);
+        int key = CooldownKey(player, source.Effect, source.Level);
+        var cooldown = CooldownStateLocked(player, key, plan, now);
+        if (!cooldown.Ready || !PayMana(player, source.Id, out _, out uint lifeCost)) return null;
         if (!cooldown.TryUse(now, plan)) return null;
         loss.Consumed = true;
         loss.LifeCost = lifeCost;
-        conn.SkillReadyAt[key] = now + cooldown.RemainingSeconds;
+        player.SkillReadyAt[key] = now + cooldown.RemainingSeconds;
         cooldown.ConfirmNativeUse(cooldown.UseVersion, source.Id, synchronizeProgress: true);
-        ApplyIntimidatingCryLocked(conn, gem.Stats, CharacterPlayerStats(conn), now);
+        ApplyIntimidatingCryLocked(player, gem.Stats, CharacterPlayerStats(player), now);
         Console.WriteLine($"[gateway] Cat Stealth loss triggers Intimidating Cry skill=0x{source.Id:x4} source={grant.Host} t={now:0.000000}");
-        var at = conn.Walk.Position(now);
-        return InstanceProtocol.InstantAction(PlayerId, source.Id, at.X, at.Y,
-            sequence: conn.LockstepClient ? NextLockstepSequence(conn) : (ushort)0xffff,
-            flags: conn.LockstepClient ? (ushort)0x101 : (ushort)0, triggered: true);
+        var at = player.Walk.Position(now);
+        return InstanceProtocol.InstantAction(player.Id, source.Id, at.X, at.Y,
+            sequence: player.Connection.LockstepClient ? NextLockstepSequence(player) : (ushort)0xffff,
+            flags: player.Connection.LockstepClient ? (ushort)0x101 : (ushort)0, triggered: true);
     }
 
-    public static void ApplyIntimidatingCryLocked(ClientState conn, IReadOnlyDictionary<uint, int> own,
-        IReadOnlyDictionary<uint, int> player, double now)
+    public static void ApplyIntimidatingCryLocked(Player player, IReadOnlyDictionary<uint, int> own,
+        IReadOnlyDictionary<uint, int> playerStats, double now)
     {
-        int Own(string n) => GolemStat(own, n);
-        int Player(string n) => GolemStat(player, n);
-        var at = conn.Walk.Position(now);
+        int Own(uint n) => GolemStat(own, n);
+        int Player(uint n) => GolemStat(playerStats, n);
+        var at = player.Walk.Position(now);
         int radius = SkillArea.Radius(WarcryRadius, n => ActorScale.Saturate((long)Player(n) + Own(n)), spell: false);
-        var enemies = conn.Monsters.Values.Where(m => m.Hostile && !m.Dead && m.Life > 0
+        var enemies = player.Area.Monsters.Values.Where(m => m.Hostile && !m.Dead && m.Life > 0
             && Dist(m.Walk.Position(now), at) <= radius).ToArray();
-        int power = Player("warcries_have_infinite_power") != 0 ? InfiniteWarcryPower
+        int power = Player(Stat.WarcriesHaveInfinitePower) != 0 ? InfiniteWarcryPower
             : enemies.Sum(m => WarcryPower(m.Rarity));
         double taunt = TauntSeconds(Player);
-        TauntLocked(conn, at, radius, now, taunt);
-        if (Own("enemies_taunted_by_your_warcies_are_intimidated") != 0 && taunt > 0)
+        TauntLocked(player, at, radius, now, taunt);
+        if (Own(Stat.EnemiesTauntedByYourWarciesAreIntimidated) != 0 && taunt > 0)
             foreach (var m in enemies)
-                m.IntimidatedUntil = Math.Max(m.IntimidatedUntil, now + taunt / m.RecipientDebuffRate);
-        double duration = SkillDurationModifiers.Seconds(Own("base_skill_effect_duration"), Player, Own);
-        double effect = Math.Max(0, 1 + ((long)Player("warcry_buff_effect_+%") + Own("skill_buff_effect_+%")) / 100d);
+                { m.IntimidatedUntil = Math.Max(m.IntimidatedUntil, now + taunt / m.RecipientDebuffRate); m.PresentationChanged?.Invoke(); }
+        double duration = SkillDurationModifiers.Seconds(Own(Stat.BaseSkillEffectDuration), Player, Own);
+        double effect = Math.Max(0, 1 + ((long)Player(Stat.WarcryBuffEffectPlusPct) + Own(Stat.SkillBuffEffectPlusPct)) / 100d);
         int movement = (int)Math.Clamp(Math.Floor(Math.Min(30, power) / 5d)
-            * Own("intimidating_cry_movement_speed_+%_per_5_power_up_to_cap") * effect, 0, int.MaxValue);
-        var gift = new CryGift(conn.Instance.Presence, now + duration, movement);
+            * Own(Stat.IntimidatingCryMovementSpeedPlusPctPer5PowerUpToCap) * effect, 0, int.MaxValue);
+        var gift = new CryGift(player.Instance.Presence, now + duration, movement);
         if (duration > 0)
         {
-            CryOf(conn).Gifts.Add(gift);
+            CryOf(player).Gifts.Add(gift);
+            CryGiftGained(player);
+            MarkPlayerStats(player, PlayerStatStep.CryMovement);
             // Deliver immutable release-time gifts. Recipients consume their own inbox, without cross-simulation reads.
-            foreach (var peer in conn.Instance.PlayersExcept(conn.PeerId)
-                         .Where(p => p.Current && p.Life > 0 && Dist((p.X, p.Y), at) <= radius))
-                if (peer.Owner is { } recipient)
+            foreach (var peer in player.Instance.PlayersExcept(player.Id)
+                         .Where(p => p.PlayerLife > 0 && Dist(p.Walk.Position(AreaTime(p)), at) <= radius))
+                if (peer is { } recipient)
                 {
                     var inbox = CryRuntimes.GetOrCreateValue(recipient).Inbox;
-                    if (inbox.Count < 64) inbox.Enqueue(gift);
+                    if (inbox.Count < 64) { inbox.Enqueue(gift); MarkPlayerStats(recipient, PlayerStatStep.CryMovement); }
                 }
-            foreach (var m in conn.Monsters.Values.Where(m => m.OwnerId is not null && !m.Hostile && !m.Dead && m.Life > 0
+            foreach (var m in player.Area.Monsters.Values.Where(m => m.OwnerId is not null && !m.Hostile && !m.Dead && m.Life > 0
                          && Dist(m.Walk.Position(now), at) <= radius))
                 MinionCryGifts.GetOrCreateValue(m).Add(gift);
         }
-        CryOf(conn).Exerts = Math.Max(0, Own("skill_empowers_next_x_melee_attacks"));
-        conn.RecentEvents.Record(StatConditions.UsedWarcry, now);
-        conn.AuraStatsDirty = true;
+        CryOf(player).Exerts = Math.Max(0, Own(Stat.SkillEmpowersNextXMeleeAttacks));
+        player.RecentEvents.Record(StatConditions.UsedWarcry, now);
+        player.AuraStatsDirty = true;
         Console.WriteLine($"[gateway] Intimidating Cry: power={power} taunted={enemies.Length} movement={movement} "
-            + $"duration={duration:0.###} exerts={CryOf(conn).Exerts}");
+            + $"duration={duration:0.###} exerts={CryOf(player).Exerts}");
     }
 
-    public static int IntimidatingCryMovement(ClientState conn)
+    public static int IntimidatingCryMovement(Player player)
     {
-        lock (conn.Monsters) return IntimidatingCryMovementLocked(conn);
+        return IntimidatingCryMovementLocked(player);
     }
 
-    static int IntimidatingCryMovementLocked(ClientState conn)
+    static int IntimidatingCryMovementLocked(Player player)
     {
-        var state = CryOf(conn);
-        double now = AreaTime(conn);
+        var state = CryOf(player);
+        double now = AreaTime(player);
         while (state.Inbox.TryDequeue(out var gift))
-            if (ReferenceEquals(gift.Instance, conn.Instance.Presence) && gift.Until > now) state.Gifts.Add(gift);
-        if (conn.Closed || conn.LeavingArea || conn.RageRetired || conn.PlayerLife == 0)
+            if (ReferenceEquals(gift.Instance, player.Instance.Presence) && gift.Until > now) { state.Gifts.Add(gift); CryGiftGained(player); }
+        if (player.Closed || player.LeavingArea || player.RageRetired || player.PlayerLife == 0)
         { state.Gifts.Clear(); state.Exerts = 0; }
-        state.Gifts.RemoveAll(g => !ReferenceEquals(g.Instance, conn.Instance.Presence) || g.Until <= now);
+        state.Gifts.RemoveAll(g => !ReferenceEquals(g.Instance, player.Instance.Presence) || g.Until <= now);
+        // The movement step runs again when the first gift ends (on the area's clock).
+        if (state.Gifts.Count > 0) StatsChangeAt(state.Gifts.Min(g => g.Until), () => AreaTime(player));
         return state.Gifts.Select(g => g.Movement).DefaultIfEmpty().Max();
     }
 
-    static int MinionIntimidatingCryMovement(ClientState conn, SpawnedMonster? minion)
+    static int MinionIntimidatingCryMovement(Player player, SpawnedMonster? minion)
     {
         if (minion is null || !MinionCryGifts.TryGetValue(minion, out var gifts)) return 0;
-        double now = AreaTime(conn);
-        gifts.RemoveAll(g => !ReferenceEquals(g.Instance, conn.Instance.Presence) || g.Until <= now || minion.Dead);
+        double now = AreaTime(player);
+        gifts.RemoveAll(g => !ReferenceEquals(g.Instance, player.Instance.Presence) || g.Until <= now || minion.Dead);
         return gifts.Select(g => g.Movement).DefaultIfEmpty().Max();
     }
 
-    public static int IntimidatingCryExerts(ClientState conn)
+    public static int IntimidatingCryExerts(Player player)
     {
-        IntimidatingCryMovement(conn);
-        return CryOf(conn).Exerts;
+        IntimidatingCryMovement(player);
+        return CryOf(player).Exerts;
     }
 
-    public static bool ConsumeIntimidatingCryExertLocked(ClientState conn, bool eligible)
+    public static bool ConsumeIntimidatingCryExertLocked(Player player, bool eligible)
     {
-        if (!eligible || IntimidatingCryExerts(conn) <= 0) return false;
-        CryOf(conn).Exerts--;
+        if (!eligible || IntimidatingCryExerts(player) <= 0) return false;
+        CryOf(player).Exerts--;
         return true;
     }
 
-    static bool IntimidatingCryCanExert(ClientState conn, ushort skill, int effect) =>
-        SkillsFor(conn).IsAttack(effect) && SkillsFor(conn).IsMelee(effect) && !SkillsFor(conn).IsVaal(effect)
-        && !SkillsFor(conn).IsChannelled(effect) && MeleeAttackRepeats(conn, skill) == 0
-        && !IsTotemSkill(conn, skill) && PlacedKind(SupportedSkill(conn, skill)) is { Trap: false, Mine: false };
+    static bool IntimidatingCryCanExert(Player player, ushort skill, int effect) =>
+        SkillsFor(player).IsAttack(effect) && SkillsFor(player).IsMelee(effect) && !SkillsFor(player).IsVaal(effect)
+        && !SkillsFor(player).IsChannelled(effect) && MeleeAttackRepeats(player, skill) == 0
+        && !IsTotemSkill(player, skill) && PlacedKind(SupportedSkill(player, skill)) is { Trap: false, Mine: false };
 
     public static GamblerModifiers WithIntimidatingCryExert(GamblerModifiers modifiers, bool exerted) =>
         exerted ? modifiers with { DoubleDamageChance = Math.Max(100, modifiers.DoubleDamageChance) } : modifiers;
 
-    static bool IntimidatingCryPoolsChangedLocked(ClientState conn)
+    static bool IntimidatingCryPoolsChangedLocked(Player player)
     {
-        int movement = IntimidatingCryMovement(conn);
-        var state = CryOf(conn);
+        int movement = IntimidatingCryMovement(player);
+        var state = CryOf(player);
         if (movement == state.PresentedMovement) return false;
         state.PresentedMovement = movement;
         return true;
     }
 
-    static byte[] IntimidatingCryBuffRecordsLocked(ClientState conn)
+    static byte[] IntimidatingCryBuffRecordsLocked(Player player)
     {
-        IntimidatingCryMovement(conn);
-        var state = CryOf(conn);
+        IntimidatingCryMovement(player);
+        var state = CryOf(player);
         double until = state.Gifts.Select(g => g.Until).DefaultIfEmpty().Max();
-        if (until == state.PresentedUntil) return [];
-        var packets = new List<byte[]>();
-        if (state.Buff != 0) packets.Add(InstanceEntities.RemoveBuff(PlayerId, state.Buff));
-        state.Buff = until > AreaTime(conn) ? conn.NextBuff++ : (ushort)0;
-        state.PresentedUntil = until;
-        if (state.Buff != 0) packets.Add(InstanceEntities.AddBuff(PlayerId, state.Buff, IntimidatingCryBuffRow, PlayerId,
-            u68: BitConverter.SingleToUInt32Bits((float)(until - AreaTime(conn)))));
-        return [.. packets.SelectMany(p => p)];
+        if (until > AreaTime(player)) player.Area.Buffs.Keep(player.Id, CryBuff(player, until));
+        else player.Area.Buffs.Clear(player.Id, IntimidatingCryBuffRow, player.Id);
+        state.Buff = (ushort)(until > AreaTime(player) ? 1 : 0);
+        return [];
     }
 
-    static async Task DrainCatCryLosses(string remote, NetworkStream stream, ConnectionCiphers ciphers, ClientState conn)
+    // The latest gift's countdown: a new gift moves it.
+    static Buff CryBuff(Player player, double until) =>
+        new(IntimidatingCryBuffRow, player.Id, U68: Buff.Seconds(until - AreaTime(player)));
+
+    static void CryGiftGained(Player player)
+    {
+        var state = CryOf(player);
+        double until = state.Gifts.Select(g => g.Until).DefaultIfEmpty().Max();
+        if (until > AreaTime(player)) player.Area.Buffs.Set(player.Id, CryBuff(player, until));
+    }
+
+    static async Task DrainCatCryLosses(Player player)
     {
         CatCryLoss[] losses;
-        lock (conn.Monsters) { var state = CryOf(conn); losses = [.. state.Pending]; state.Pending.Clear(); }
+        var state = CryOf(player); losses = [.. state.Pending]; state.Pending.Clear();
         foreach (var loss in losses)
         {
             bool accepted = false;
-            await SendWorldRecord(remote, stream, ciphers, conn, PlayerId, [], "0x01ce Cat Stealth loss triggers Intimidating Cry",
+            await SendWorldRecord(player, player.Id, [], "0x01ce Cat Stealth loss triggers Intimidating Cry",
                 atGate: () =>
                 {
-                    using (ProjectileMutation(conn))
+                    using (ProjectileMutation(player))
                     {
-                        var packet = AdmitCatCryLossLocked(conn, loss);
+                        var packet = AdmitCatCryLossLocked(player, loss);
                         accepted = packet is not null;
                         return packet;
                     }
                 });
             if (accepted)
             {
-                await SendSkillCost(remote, stream, ciphers, conn, loss.LifeCost, "triggered Intimidating Cry cost");
-                await SendChargeStats(remote, stream, ciphers, conn, "Intimidating Cry");
-                var at = conn.Walk.Position(AreaTime(conn));
-                await WarcryReleased(remote, stream, ciphers, conn, at, WarcryRadius, loss.Epoch);
+                await SendSkillCost(player, loss.LifeCost, "triggered Intimidating Cry cost");
+                await SendChargeStats(player, "Intimidating Cry");
+                var at = player.Walk.Position(AreaTime(player));
+                await WarcryReleased(player, at, WarcryRadius, loss.Epoch);
             }
         }
-        lock (conn.Monsters)
-        {
-            var state = CryOf(conn);
-            if (losses.Length == 0 && state.Buff == 0 && state.Gifts.Count == 0 && state.Inbox.IsEmpty) return;
-        }
-        await SendWorldRecord(remote, stream, ciphers, conn, PlayerId, [], "Intimidating Cry buff",
+        state = CryOf(player);
+        if (losses.Length == 0 && state.Buff == 0 && state.Gifts.Count == 0 && state.Inbox.IsEmpty) return;
+        await SendWorldRecord(player, player.Id, [], "Intimidating Cry buff",
             atGate: () =>
             {
-                lock (conn.Monsters)
-                    return !CurrentGameWork || conn.Closed || conn.LeavingArea ? null : IntimidatingCryBuffRecordsLocked(conn);
+                return !CurrentGameWork || player.Closed || player.LeavingArea ? null : IntimidatingCryBuffRecordsLocked(player);
             });
-        if (losses.Length > 0) await SendNativeCooldownRefresh(remote, stream, ciphers, conn);
+        if (losses.Length > 0) await SendNativeCooldownRefresh(player);
     }
 }
