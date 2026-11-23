@@ -146,7 +146,28 @@ public static partial class MapStrongboxes
         return StrongboxCatalog.Roll(level, hardMode, mods, random);
     }
 
-    public static IReadOnlyList<(int X, int Y)> Positions(AreaLayout layout, uint seed, int count)
+    /// <summary>How far from the arrival a box stands, at the least (cells): over the official recordings the nearest of 15
+    /// instances' boxes was 232 cells from the arrival (median 663). An area too small for it fills up from nearer cells.</summary>
+    public const int EntryDistance = 230;
+
+    /// <summary>The box cells: those at least <see cref="EntryDistance"/> from the arrival first, then, when the area has
+    /// too few, the nearer ones <see cref="Positions(AreaLayout, uint, int)"/> gives.</summary>
+    static IReadOnlyList<(int X, int Y)> BoxPositions(AreaLayout layout, uint seed, int count)
+    {
+        var far = Positions(layout, seed, count, EntryDistance);
+        if (far.Count >= count) return far;
+        var result = far.ToList();
+        foreach (var p in Positions(layout, seed, count))
+        {
+            if (result.Count >= count) break;
+            if (result.All(other => MapSulphite.Distance(p, other) >= 30)) result.Add(p);
+        }
+        return result;
+    }
+
+    public static IReadOnlyList<(int X, int Y)> Positions(AreaLayout layout, uint seed, int count) => Positions(layout, seed, count, 60);
+
+    static IReadOnlyList<(int X, int Y)> Positions(AreaLayout layout, uint seed, int count, int fromArrival)
     {
         if (count <= 0 || layout.Walkable is not { } walk) return [];
         var reach = AreaPopulation.Reachable(layout.GridW, layout.GridH, walk, (layout.SpawnX, layout.SpawnY));
@@ -156,7 +177,7 @@ public static partial class MapStrongboxes
         for (int y = 3; y < layout.GridH - 3; y += 7)
             for (int x = 3; x < layout.GridW - 3; x += 7)
                 if (reach[y * layout.GridW + x] && layout.WalkableFor(x, y, 3)
-                    && MapSulphite.Distance((x, y), (layout.SpawnX, layout.SpawnY)) >= 60
+                    && MapSulphite.Distance((x, y), (layout.SpawnX, layout.SpawnY)) >= fromArrival
                     && !layout.AreaTransitions.Any(t => MapSulphite.Distance((x, y), (t.Transition.GridX, t.Transition.GridY)) < 40))
                     candidates.Add((x, y));
         for (int i = candidates.Count - 1; i > 0; i--)
@@ -303,7 +324,7 @@ public static partial class MapStrongboxes
         bool corrupted = mods.Get(Stat.MapStrongboxesAreCorrupted) != 0;
         var catalog = ItemsFor(player).Mods;
         double unique = UniqueChance * Math.Max(0, 100 + mods.Get(Stat.MapStrongboxesChanceToBeUniquePlusPct)) / 100.0;
-        foreach (var (x, y) in Positions(player.Layout, player.Seed, count))
+        foreach (var (x, y) in BoxPositions(player.Layout, player.Seed, count))
         {
             // map_area_contains_unique_strongbox: the area's first box is unique.
             bool forced = boxes.Count == 0 && mods.Get(Stat.MapAreaContainsUniqueStrongbox) != 0;
