@@ -86,7 +86,11 @@ public static partial class Game
         int ms = GolemStat(gem.Stats, definition.Family == "Spectre" ? Stat.SpectresHaveBaseDurationMs
             : secondary ? Stat.BaseSecondarySkillEffectDuration : Stat.BaseSkillEffectDuration);
         var playerStats = CharacterPlayerStats(player);
-        return SkillDurationModifiers.Seconds(ms, n => GolemStat(playerStats, n), n => GolemStat(gem.Stats, n),
+        bool skeleton = definition.Family is "Skeleton" or "VaalSkeleton";
+        int Read(uint key) => key == SkillDurationModifiers.IncreasedDuration && skeleton
+            ? ActorScale.Saturate((long)GolemStat(playerStats, key) + GolemStat(playerStats, Stat.SkeletonDurationPlusPct))
+            : GolemStat(playerStats, key);
+        return SkillDurationModifiers.Seconds(ms, Read, n => GolemStat(gem.Stats, n),
             DurationKinds(player, gem.Effect) | (secondary ? SkillDurationModifiers.Kinds.Secondary : 0));
     }
 

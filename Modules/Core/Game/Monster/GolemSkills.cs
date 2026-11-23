@@ -133,6 +133,15 @@ public static partial class Game
                 + Get(Stat.NonGolemMinionGlobalMaximumAddedPhysicalDamage);
             values[Stat.AttackSpeedPlusPct] = values.GetValueOrDefault(Stat.AttackSpeedPlusPct) + values.GetValueOrDefault(Stat.AttackAndCastSpeedPlusPct);
             values[Stat.BaseMovementVelocityPlusPct] = values.GetValueOrDefault(Stat.Of("movement_speed_+%")) + values.GetValueOrDefault(Stat.BaseMovementVelocityPlusPct);
+            if (golem.Definition.Kind is "Skeleton" or "VaalSkeleton")
+            {
+                values[Stat.AttackSpeedPlusPct] = ActorScale.Saturate((long)values.GetValueOrDefault(Stat.AttackSpeedPlusPct)
+                    + Get(Stat.SkeletonAttackSpeedPlusPct));
+                values[Stat.CastSpeedPlusPct] = ActorScale.Saturate((long)values.GetValueOrDefault(Stat.CastSpeedPlusPct)
+                    + Get(Stat.SkeletonCastSpeedPlusPct));
+                values[Stat.BaseMovementVelocityPlusPct] = ActorScale.Saturate((long)values.GetValueOrDefault(Stat.BaseMovementVelocityPlusPct)
+                    + Get(Stat.SkeletonMovementSpeedPlusPct));
+            }
             values.Remove(Stat.LifeRegenerationRatePerMinutePct);
             return golem.InheritedMods with { Effects = new(values) };
         }
