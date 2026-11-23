@@ -1,6 +1,7 @@
 {
   "modules": [
     "Core/Content/Anarchy",
+    "Core/Content/Betrayal",
     "Core/Content/Deepwater",
     "Core/Content/Delve",
     "Core/Content/Delirium",
