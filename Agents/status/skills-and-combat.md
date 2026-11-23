@@ -67,6 +67,8 @@ Part of [Status](../Status.md); what to build next in this area is in
 
 - Cursed and ignited kill effects use the accepted hit and corpse state. Retained hexes support Asenath's corpse effects.
   Witchbane grants its timed immunity on player kills, and minion curse explosions use the killing minion's damage.
+- Hex Master and Defiled Forces govern curse duration and ailment refresh. Contagion of Transference spreads on hit.
+  Essence Drain of Desperation costs Life and Energy Shield as its debuff deals damage. Firestorm schedules timed hits.
 
 - Summoned followers stop pathless walk orders and retry when a route becomes available.
 - Spell-totem summons keep their minion identity instead of inheriting their summoning skill's totem flags.

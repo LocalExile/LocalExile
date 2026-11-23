@@ -21,6 +21,7 @@ public sealed class MonsterElementalAilments
         // The player who caused it, by their PeerId (Program.ActingPlayer when it landed); 0 when no player did. A spread
         // copy keeps its source's.
         public uint Source { get; init; }
+        public double Duration { get; init; }
     }
     readonly List<Effect> effects = [];
     double expiryRate = 1;
@@ -86,13 +87,24 @@ public sealed class MonsterElementalAilments
     {
         if (!Immune(shock.Kind, target))
         {
-            effects.Add(shock with { Until = RecipientEffectTime.RetimedDeadline(shock.Until, now, source.expiryRate, expiryRate), Spread = 0, OnKill = false });
+            double duration = Math.Max(0, shock.Until - now) * source.expiryRate;
+            effects.Add(shock with { From = now, Until = now + duration / expiryRate, Duration = duration, Spread = 0, OnKill = false });
             Interlocked.Increment(ref anyAdded);
         }
     }
 
     /// <summary>Seconds until the last active effect of <paramref name="kind"/> ends (0 when none).</summary>
     public double Remaining(Kind kind, double now) => Active(kind, now).Select(e => (e.Until - now) * expiryRate).DefaultIfEmpty().Max();
+
+    public void RefreshChillAndShock(double now)
+    {
+        for (int i = 0; i < effects.Count; i++)
+        {
+            var effect = effects[i];
+            if (effect.Kind is Kind.Chill or Kind.Shock && effect.From <= now && now < effect.Until && effect.Duration > 0)
+                effects[i] = effect with { From = now, Until = now + effect.Duration / expiryRate };
+        }
+    }
 
     /// <summary>Action speed: 0 while frozen, else less by the chill's effect.</summary>
     public double ActionFactor(double now) => Magnitude(Kind.Freeze, now) > 0 ? 0 : 1 - Magnitude(Kind.Chill, now) / 100;
@@ -396,7 +408,7 @@ public sealed class MonsterElementalAilments
         // Brine Bound (freeze_minimum_duration_X_ms): a freeze that passes the threshold lasts at least this long, which no
         // duration modifier changes (wiki Brine Bound).
         if (kind == Kind.Freeze) seconds = Math.Max(seconds, attacker(Stat.FreezeMinimumDurationXMs) / 1000.0);
-        effect = effect with { Until = now + seconds / expiryRate,
+        effect = effect with { Until = now + seconds / expiryRate, Duration = seconds,
             Source = effect.Source != 0 ? effect.Source : Program.ActingPlayer.Value?.Id ?? 0 };
         // A weaker one of the same sort that also ends sooner can never be the strongest again.
         effects.RemoveAll(e => e.Until <= now || e.Kind == kind && e.Magnitude <= effect.Magnitude && e.Until <= effect.Until

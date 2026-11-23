@@ -20,7 +20,7 @@ static partial class Game
     /// spell_damage_modifiers_apply_to_skill_dot admits spell damage; it is not area damage, and projectile damage does not
     /// apply to its damage over time), essence_drain_damage_+%, the supports' more multipliers and the damage over time
     /// multipliers. Duration: base_skill_effect_duration with skill effect duration and siphon_duration_+%. Leech:
-    /// siphon_life_leech_from_damage_permyriad. Of Desperation's life loss is not modelled.</summary>
+    /// siphon_life_leech_from_damage_permyriad. Of Desperation also loses Life and Energy Shield as its debuff deals damage.</summary>
     internal static MonsterEssenceDrain.Cast? EssenceDrainCast(Player player, ushort skillId, int effect)
     {
         string? id = SkillsFor(player).EffectId(effect);
@@ -43,7 +43,10 @@ static partial class Game
         double dps = perSecond * Math.Max(0, 1 + increased / 100.0) * more * Math.Max(0, multiplier);
         double seconds = SkillDurationModifiers.Seconds(Own(Stat.BaseSkillEffectDuration), Player, Own)
             * Math.Max(0, 1 + Get(Stat.SiphonDurationPlusPct) / 100.0);
-        return new(dps, seconds, Math.Max(0, Get(Stat.SiphonLifeLeechFromDamagePermyriad)), skillId, player);
+        return new(dps, seconds, Math.Max(0, Get(Stat.SiphonLifeLeechFromDamagePermyriad)), skillId, player)
+        {
+            LossPermyriad = id == "EssenceDrainAltX" ? Math.Max(0, Own(Stat.EssenceDrainLoseLifeFromDamagePermyriad)) : 0,
+        };
     }
 
     /// <summary>A projectile hit that the monster survived: puts the shot's Essence Drain debuff on it.</summary>
@@ -84,6 +87,47 @@ static partial class Game
         TrimLeechLocked(player);
     }
 
+    sealed class EssenceDrainLoss { public double Fraction; }
+    static readonly RuleTable<Player, EssenceDrainLoss> EssenceDrainLosses = new();
+
+    static void CreditEssenceDrainLossLocked(Player runner, Player? caster, double amount)
+    {
+        if (!(amount > 0) || DotOwner(runner, caster) is not { } owner) return;
+        if (ReferenceEquals(runner, owner))
+        {
+            ApplyEssenceDrainLossLocked(owner, amount);
+            return;
+        }
+        var instance = owner.Instance;
+        int epoch = owner.ProjectileEpoch;
+        owner.KillShares.Enqueue(_ =>
+        {
+            using (ProjectileMutation(owner))
+                if (owner.ProjectileActive(epoch) && ReferenceEquals(owner.Instance, instance))
+                    ApplyEssenceDrainLossLocked(owner, amount);
+            return Task.CompletedTask;
+        });
+    }
+
+    static void ApplyEssenceDrainLossLocked(Player player, double amount)
+    {
+        if (player.Closed || player.LeavingArea || player.PlayerLife == 0) return;
+        var loss = EssenceDrainLosses.GetOrCreateValue(player);
+        double total = loss.Fraction + amount;
+        double whole = Math.Floor(total);
+        loss.Fraction = total - whole;
+        if (whole <= 0) return;
+        uint spend = (uint)Math.Min(uint.MaxValue, whole);
+        player.PlayerLife = VaalImmortalCallLife(player, player.PlayerLife - Math.Min(spend, player.PlayerLife), AreaTime(player));
+        player.EnergyShield.Spend(Math.Min(spend, player.EnergyShield.Current));
+        TrimLeechLocked(player);
+        if (player.PlayerLife != 0) return;
+        player.InvalidateIncomingHits();
+        ClearAntiquarianOnDeath(player);
+        RecordHardcoreDeath(player);
+        loss.Fraction = 0;
+    }
+
     internal static async Task TickEssenceDrains(Player player)
     {
         if (!MonsterEssenceDrain.AnyApplied) return;
@@ -104,18 +148,28 @@ static partial class Game
                 // The kill belongs to the instance whose damage crossed the monster's remaining life.
                 double before = m.Life, sum = 0;
                 MonsterEssenceDrain.Cast? winner = null;
+                List<(MonsterEssenceDrain.Cast Cast, double Damage)>? losses = null;
                 var (damage, leech) = m.EssenceDrain.Advance(now, MonsterDotTaken(m, DamageType.Chaos, now),
                     (cast, dealt, life) =>
                     {
-                        if (winner is null && (sum += dealt) >= before) winner = cast;
+                        double actual = Math.Min(dealt, Math.Max(0, before - sum));
+                        sum += dealt;
+                        if (winner is null && sum >= before) winner = cast;
+                        if (cast.LossPermyriad > 0 && actual > 0 && !m.Invulnerable)
+                            (losses ??= []).Add((cast, actual));
                         CreditSiphonLeechLocked(player, cast.Caster, m, life);
                     });
-                if (damage <= 0) continue;
+                if (damage <= 0)
+                {
+                    ApplyLosses(1);
+                    continue;
+                }
                 leeched += leech;
                 // Its damage, Rampage, Vaal soul and kill go to that instance's owner, never to this connection for running
                 // the world; with the owner gone, the death without any player's on-kill effects.
                 var owner = DotOwner(player, winner?.Caster);
                 (m.Life, bool stageStarts) = owner is null ? TakeDamageLocked(m, damage) : TakeOwnerDamageLocked(owner, m, damage);
+                ApplyLosses(Math.Clamp((before - m.Life) / Math.Min(damage, before), 0, 1));
                 m.Aggro = m.Life > 0;
                 if (m.Life == 0)
                 {
@@ -126,6 +180,13 @@ static partial class Game
                 }
                 hits.Add((id, m, m.Life, damage, owner));
                 if (stageStarts) CommitBossStage(player, id, m, now);
+
+                void ApplyLosses(double applied)
+                {
+                    if (losses is null || applied <= 0) return;
+                    foreach (var (cast, actual) in losses)
+                        CreditEssenceDrainLossLocked(player, cast.Caster, actual * applied * cast.LossPermyriad / 10_000d);
+                }
             }
         }
         foreach (var (id, m, life, damage, owner) in hits)

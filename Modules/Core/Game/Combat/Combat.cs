@@ -1842,6 +1842,9 @@ public static partial class Game
         bool darkBargain = IsDarkBargain(player, gem.Effect);
         // Storm Call sets a marker at every landing (each repeat and cascade area) that strikes later (StormCall.cs).
         bool stormCall = IsStormCall(SkillsFor(player).EffectId(gem.Effect));
+        var firestorm = IsFirestorm(player, gem.Effect) && CastMs(player, gem.Effect, skillId) is int stormCast
+            ? (Session: ProjectilesFor(player), Cast: stormCast) : ((ProjectileSession Session, int Cast)?)null;
+        bool CanReleaseStorm() => cooldownUse?.Current(player) ?? (actionToken is null || player.ActionCount == actionToken);
         double sealGap = seals == 0 ? 0 : (CastMs(player, gem.Effect, skillId) ?? 0) / 10000d;
         for (int release = 0; release <= Math.Max(spellRepeats, meleeRepeats) + seals; release++)
         {
@@ -1849,6 +1852,14 @@ public static partial class Game
             bool reoccurrence = release > 0 && release <= seals;
             double sealDelay = Math.Min(release, seals) * sealGap;
             double more = reoccurrence ? reoccurrenceMore : 1;
+            if (firestorm is { } storm)
+            {
+                double windup = sealDelay + storm.Cast / 1000d
+                    * (repeat + Animations.SpellAreaRelease(SkillsFor(player).ClassFor(player.Character.ClassRow).AnimatedObject));
+                foreach (var area in cascadeAreas.Prepend(to))
+                    storm.Session.ScheduleFirestorm(gem, area, windup, CanReleaseStorm, sacrifice, criticalRoll, repeat, more);
+                continue;
+            }
             if (stormCall)
             {
                 foreach (var area in cascadeAreas.Prepend(to))

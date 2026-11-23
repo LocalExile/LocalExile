@@ -76,6 +76,7 @@ public static partial class Game
         var playerStats = sources ?? CharacterPlayerStats(player);
         int Own(uint n) => GolemStat(curseStats, n);
         int Get(uint n) => GolemStat(playerStats, n) + Own(n);
+        bool hexMaster = Get(Stat.KeystoneHexMaster) != 0;
         if (monster.Mods.Effects[Stat.ImmuneToCurses] != 0 || !definition.Mark && monster.Mods.Effects[Stat.Hexproof] != 0
             && Get(Stat.IgnoreHexproof) == 0 && Get(Stat.Of("hexes_ignore_hexproof")) == 0
             && !RandomRolls.Chance(Get(Stat.ChanceToIgnoreHexproofPct), 100, AreaRng(player))) return false;
@@ -87,7 +88,7 @@ public static partial class Game
             * Math.Max(0, 1 + Own(Stat.SupportHextouchCurseEffectPlusPctFinal) / 100.0)
             * Math.Max(0, 1 + monster.Mods.Effects[Stat.CurseEffectOnSelfPlusPctFinal] / 100.0)
             * Math.Max(0, 1 + monster.Mods.Effects[Stat.MapMonstersCurseEffectOnSelfPlusPctFinal] / 100.0)
-            * effectMultiplier;
+            * effectMultiplier * (hexMaster ? .8 : 1);
         var stats = curseStats.Where(p => CurseRecipientStats.Contains(p.Key))
             .ToDictionary(p => p.Key, p => (int)Math.Truncate(p.Value * factor));
         double seconds = definition.Mark ? double.PositiveInfinity : SkillDurationModifiers.Seconds(Own(Stat.BaseSkillEffectDuration),
@@ -101,9 +102,16 @@ public static partial class Game
             foreach (var m in player.Area.Monsters.Values.Where(m => !ReferenceEquals(m, monster)))
                 foreach (var mark in m.Curses.All.Values.Where(c => c.Caster == player.Id && c.Mark).ToArray())
                 { m.Curses.Remove(mark.Caster, mark.Effect); m.PresentationChanged?.Invoke(); }
-        monster.Curses.Put(new(player.Id, effect, skill, definition.Buff, player.NextBuff++, now,
-            aura ? double.PositiveInfinity : now + seconds / rate, aura, definition.Mark, stats)
-            { RemainsOnDeath = !aura && Get(Stat.CursesYouInflictRemainAfterDeath) != 0 }, CurseLimit(player, playerStats));
+        var curse = new MonsterCurses.Curse(player.Id, effect, skill, definition.Buff, player.NextBuff++, now,
+            aura || hexMaster && !definition.Mark ? double.PositiveInfinity : now + seconds / rate, aura, definition.Mark, stats)
+            { RemainsOnDeath = !aura && Get(Stat.CursesYouInflictRemainAfterDeath) != 0 };
+        monster.Curses.Put(curse, CurseLimit(player, playerStats));
+        if (!aura && Get(Stat.RefreshDurationOfShockChillIgniteOnEnemyWhenCursingEnemy) != 0
+            && ReferenceEquals(monster.Curses.All.GetValueOrDefault((curse.Caster, curse.Effect)), curse))
+        {
+            monster.Ailments.RefreshChillAndShock(now);
+            monster.Ignites.Refresh(now);
+        }
         if (!aura) monster.PresentationChanged?.Invoke();
         return true;
     }

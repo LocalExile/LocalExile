@@ -33,6 +33,9 @@ public static partial class Game
         bool? rampageSource = null, IReadOnlyDictionary<uint, int>? playerStats = null,
         IReadOnlyDictionary<uint, int>? cullPlayer = null)
     {
+        if (!m.Contagion.Idle && m is { Hostile: true, Dead: false, Life: > 0, Invulnerable: false }
+            && m.Effects[Stat.BaseCannotBeDamaged] == 0)
+            ContagionSpreadOnHitLocked(player, m, ProjectileWorldTime(player));
         m.LastHitBy = player;
         // The culling context is the attack's cached offensive snapshot and is passed for every victim of an area
         // skill. `player` is Rampage's freshness-scoped source: only the first target gets a rebuilt snapshot, so it
