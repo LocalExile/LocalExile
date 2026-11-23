@@ -141,8 +141,8 @@ keeps the ids of the last list it sent (`ChooserList`).
   - Ctrl+click → `list` → 0xae.
   - 0xaf or a plain click → 0x2b4 (client shows `"Entering <area>"`).
   - 0x2cd → `transfer` (returns `Ticket`, `Instance`, `Created`, `Seed`) → Gateway pre-generates the destination playable
-    seed and layout (`PrepareTransferArea`, cached on `InstanceState`) off the inbox loop while `"Entering <area>"` is
-    displayed → 0x27 with the key for the new ticket (or 0x2b5 on refusal).
+    seed and layout (`PrepareTransferArea`, cached on `InstanceState`) off the message handler and area frame while
+    `"Entering <area>"` is displayed → 0x27 with the key for the new ticket (or 0x2b5 on refusal).
   - On the new connection, `resolve` gives the area and seed, and `HandleAsync` reuses the prepared instance layout so
     0x11 and 0x1d go out without regenerating during the loading screen. Layout fallback: `data/walkability/<id>_seed<seed>.bin` + `.json`.
     The player arrives next to the exit leading back to the area they left (`AreaLayout.Arrival`, `SpawnNear`'s

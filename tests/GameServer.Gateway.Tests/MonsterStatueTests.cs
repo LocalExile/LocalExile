@@ -9,15 +9,15 @@ public sealed class MonsterStatueTests
     {
         byte[] blob = InstanceMonsterStatue.Blob(10, 20, 0x1234);
 
-        Assert.Equal(41, blob.Length);
+        Assert.Equal(39, blob.Length);
         Assert.Equal(10, BitConverter.ToInt32(blob, 2));                       // Positioned x
         Assert.Equal(20, BitConverter.ToInt32(blob, 6));                       // Positioned y
-        Assert.Equal(InstanceMonsterStatue.MtxHash, BitConverter.ToUInt32(blob, 21)); // HideoutDoodad hash
-        Assert.Equal(InstanceMonsterStatue.StoneVariation, blob[25]);          // HideoutDoodad variation
-        Assert.Equal(1, blob[29]);                                             // tasks: one
-        Assert.Equal(InstanceMonsterStatue.TaskHash, BitConverter.ToUInt16(blob, 30));
-        Assert.Equal(0x1234, BitConverter.ToUInt16(blob, 32));                 // MonsterVarieties HASH16
-        Assert.Equal(100, BitConverter.ToUInt16(blob, 34));                    // scale
+        Assert.Equal(InstanceMonsterStatue.MtxHash, BitConverter.ToUInt32(blob, 19)); // HideoutDoodad hash
+        Assert.Equal(InstanceMonsterStatue.StoneVariation, blob[23]);          // HideoutDoodad variation
+        Assert.Equal(1, blob[27]);                                             // tasks: one
+        Assert.Equal(InstanceMonsterStatue.TaskHash, BitConverter.ToUInt16(blob, 28));
+        Assert.Equal(0x1234, BitConverter.ToUInt16(blob, 30));                 // MonsterVarieties HASH16
+        Assert.Equal(100, BitConverter.ToUInt16(blob, 32));                    // scale
     }
 
     [Fact]

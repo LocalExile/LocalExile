@@ -67,69 +67,84 @@ public sealed class AreaTransferPreparationTests
 
         try
         {
-            // Success: Transfer pre-generates the destination area while the client shows "Entering <area>", before 0x27.
+            // Success: Transfer pre-generates the destination area off the area frame while the client shows
+            // "Entering <area>", then returns to AreaFrames to retire the source connection and send 0x27.
             using (var wire = new Wire())
+            using (var reading = new CancellationTokenSource())
             {
-                var conn = new ClientState(townLayout, 1, 1)
+                var sourceInstance = new InstanceState();
+                var player = new Player(townLayout, 1, 1)
                 {
-                    Character = "TransferPrepTester",
-                    League = "Standard",
-                    Keyring = keyring,
-                    Wire = ("test", wire.Stream, wire.Ciphers),
+                    Instance = sourceInstance,
+                    Character = { Name = "TransferPrepTester", League = "Standard" },
+                    Connection = { Session = new("test", wire.Stream, wire.Ciphers) { Keyring = keyring } },
                 };
-                var transfer = new PendingTransfer(AreaLayouts.TheCoast, 0, New: true);
-                Assert.True(conn.TryBeginAreaChange(transfer, out _));
+                var inbox = new ClientInbox();
+                player.Frames.Attach(player, inbox, reading);
+                try
+                {
+                    var transfer = new PendingTransfer(AreaLayouts.TheCoast, 0, New: true);
+                    Assert.True(await player.Frames.Run(() => Task.FromResult(player.TryBeginAreaChange(transfer, out _))));
 
-                await global::Game.Transfer("test", wire.Stream, wire.Ciphers, conn, transfer, _ => Task.FromResult(
-                    new ControlResponse
-                    {
-                        Ok = true,
-                        Area = AreaLayouts.TheCoast,
-                        Instance = instanceId,
-                        Created = created,
-                        Seed = authSeed,
-                        Ticket = newTicket,
-                    }));
+                    await player.Frames.Run(() => global::Game.Transfer(player, transfer, _ => Task.FromResult(
+                        new ControlResponse
+                        {
+                            Ok = true,
+                            Area = AreaLayouts.TheCoast,
+                            Instance = instanceId,
+                            Created = created,
+                            Seed = authSeed,
+                            Ticket = newTicket,
+                        })));
 
-                byte[] expected = InstanceTransfer.ConnectInstance(
-                    GatewayEndpoint.Host, GatewayEndpoint.Port, newTicket, AreaLayouts.TheCoast, keyring.Key(newTicket));
-                Assert.Equal(expected, wire.Read(expected.Length));
+                    Assert.True(player.TransferAccepted);
+                    Assert.Equal((AreaLayouts.TheCoast, instanceId), player.TransferredTo);
 
-                // Before the new TCP connection arrives, the destination instance already holds the generated layout.
-                var preparedInstance = Program.Instances.Find(instanceId, created);
-                Assert.NotNull(preparedInstance);
-                Assert.Equal(0, preparedInstance.Connections);
+                    byte[] expected = InstanceTransfer.ConnectInstance(
+                        GatewayEndpoint.Host, GatewayEndpoint.Port, newTicket, AreaLayouts.TheCoast, keyring.Key(newTicket));
+                    Assert.Equal(expected, wire.Read(expected.Length));
 
-                int rebuilds = 0;
-                var cached = preparedInstance.PreparedLayout(authSeed, 0, () => { rebuilds++; throw new InvalidOperationException("must reuse"); });
-                Assert.Equal(0, rebuilds);
-                Assert.True(cached.Layout.ServerGenerated);
-                Assert.NotNull(cached.Layout.Walkable);
-                Assert.NotNull(cached.Layout.Level);
+                    // Before the new TCP connection arrives, the destination instance already holds the generated layout.
+                    var preparedInstance = Program.Instances.Find(instanceId, created);
+                    Assert.NotNull(preparedInstance);
+                    Assert.Equal(0, preparedInstance.Connections);
 
-                var onConnect = Program.PrepareInstanceArea(preparedInstance, newTicket, AreaLayouts.TheCoast, instanceId,
-                    authSeed, "TransferPrepTester", "Standard", null);
-                Assert.Same(cached.Layout, onConnect.Layout);
-                Assert.Equal(cached.Seed, onConnect.Seed);
+                    int rebuilds = 0;
+                    var cached = preparedInstance.PreparedLayout(authSeed, 0, () => { rebuilds++; throw new InvalidOperationException("must reuse"); });
+                    Assert.Equal(0, rebuilds);
+                    Assert.True(cached.Layout.ServerGenerated);
+                    Assert.NotNull(cached.Layout.Walkable);
+                    Assert.NotNull(cached.Layout.Level);
+
+                    var onConnect = Program.PrepareInstanceArea(preparedInstance, newTicket, AreaLayouts.TheCoast, instanceId,
+                        authSeed, "TransferPrepTester", "Standard", null);
+                    Assert.Same(cached.Layout, onConnect.Layout);
+                    Assert.Equal(cached.Seed, onConnect.Seed);
+                }
+                finally
+                {
+                    player.Closed = true;
+                    inbox.Complete();
+                    player.Frames.Detach(player);
+                }
             }
 
             // Refusal: Transfer restores LeavingArea and sends 0x2b5 so the client hides "Entering <area>".
             using (var wire = new Wire())
             {
-                var conn = new ClientState(townLayout, 2, 1)
+                var player = new Player(townLayout, 2, 1)
                 {
-                    Character = "TransferPrepTester",
-                    League = "Standard",
-                    Keyring = keyring,
-                    Wire = ("test", wire.Stream, wire.Ciphers),
+                    Instance = new InstanceState(),
+                    Character = { Name = "TransferPrepTester", League = "Standard" },
+                    Connection = { Session = new("test", wire.Stream, wire.Ciphers) { Keyring = keyring } },
                 };
                 var transfer = new PendingTransfer(AreaLayouts.TheCoast, 999, New: false);
-                Assert.True(conn.TryBeginAreaChange(transfer, out _));
+                Assert.True(player.TryBeginAreaChange(transfer, out _));
 
-                await global::Game.Transfer("test", wire.Stream, wire.Ciphers, conn, transfer, _ => Task.FromResult(
+                await global::Game.Transfer(player, transfer, _ => Task.FromResult(
                     new ControlResponse { Ok = false, Error = "instance unavailable" }));
 
-                Assert.False(conn.LeavingArea);
+                Assert.False(player.LeavingArea);
                 Assert.Equal(InstanceTransfer.CancelChangeArea(), wire.Read(2));
             }
         }

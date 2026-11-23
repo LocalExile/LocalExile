@@ -103,6 +103,11 @@ Part of [Status](../Status.md); what to build next in this area is in
   two steps past the cadence ([07](../docs/protocol/07-latency-visibility-movement.md) §6).
   A ranged chaser stands off one cell inside its reach (MonsterVarieties `MaximumAttackDistance`: the Sand Spitter's
   30), moving inward only when that ring is full, instead of taking a melee contact cell (`MonsterSurround.Asker.Ranged`;
+  live 2026-10-29: Spitters came in close). A straight projectile shooter inside range approaches instead when the
+  projectile grid blocks its shot. `MinimumAttackDistance` is not read yet.
+  Stand, then act: an in-place action or a summon (a shot, a cast) is ordered only once the actor's walk has ended,
+  for every hostile monster, minion and Rampage weapon chase; in reach it gets no new walk (`StandsToAct`). Before, a
+  Brittle Poacher shot while it walked and teleported back at each order. Checked live 2026-11-16.
   live 2026-10-29: Spitters came in close).
   A straight projectile shooter or non-lobbed ranged spellcaster inside range approaches instead when the sight grid
   blocks its shot.
@@ -170,6 +175,19 @@ Part of [Status](../Status.md); what to build next in this area is in
 
 ## Partly working
 
+- League encounters: each area rolls every CoreLeagues mechanic at its WorldAreaLeagueChances chance as the client does,
+  and modules place theirs after the packs. Anarchy: wild Rogue Exiles (5% in campaign and map areas), unique, with their
+  level's more life, weapons and archetype kits (hits, travel skills, war cries and buffs, Molten Shell's shield, auras
+  standing from the spawn, curses on the player, triggers on damage taken at their level's threshold, and for any monster: the player's minions, totems, traps, Storm Call markers, shared projectiles, multi-strikes, skills
+  shaped by type and client action class (rains, class radii and projectiles, grounds that burn and debuffs on the
+  player: Fire Trap, Bear Trap, Desecrate, Caustic Arrow, Wither, Ensnaring Arrow, the totems' arrows and flames)); the
+  map's, the Anarchy scarabs' and the Atlas wheel's stats add, pair, gigantify and make exceptional exiles, guard map
+  bosses and change their drops (extra jewels; fully linked, fractured, corrupted, duplicated items). All 71 exile
+  varieties played headless against the real client; map stats and guards not yet seen live. Left out: Flameblast and Toxic Rain (no radius found), Desecrate's corpses, the tether's break by distance, the
+  alternate-minion skills (Raise Zombie, Summon Raging Spirit, Ice Golem), Cremation's and Volatile Dead's flights;
+  possessed exiles (Torment) and the special and exceptional rewards' contents are guesses or missing; the active Atlas
+  preset is the last one changed.
+  Docs: [league encounters](../docs/game/league-encounters.md).
 - Population follows local gates and waits for walkability; isolated pockets stay empty and cleared saves stay cleared.
 
 - Native variety weapons reach ordinary monster inventories; explicit equipment overrides remain authoritative.

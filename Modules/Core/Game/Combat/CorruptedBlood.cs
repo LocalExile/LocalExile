@@ -19,22 +19,22 @@ public static partial class Game
         }
     }
 
-    static readonly RuleTable<ClientState, BloodState> Blood = new();
+    static readonly RuleTable<Player, BloodState> Blood = new();
 
-    public static void ApplyCorruptedBloodOnHit(ClientState conn, MonsterAttack attack, DamagePacket hit,
+    public static void ApplyCorruptedBloodOnHit(Player player, MonsterAttack attack, DamagePacket hit,
         bool blocked, double now, IReadOnlyDictionary<uint, int> stats)
     {
-        if (attack.CorruptedBlood is not { Seconds: > 0 } skill || blocked || conn.Immune || conn.PlayerLife == 0
-            || conn.Closed || conn.LeavingArea || InGracePeriod(conn)) return;
-        int Get(string name) => Stats.Key(name) is uint key ? stats.GetValueOrDefault(key) : 0;
-        if (Get("cannot_be_inflicted_by_corrupted_blood") != 0 || Get("immune_to_corrupted_blood") != 0
-            || Get("base_cannot_be_damaged") != 0) return;
+        if (attack.CorruptedBlood is not { Seconds: > 0 } skill || blocked || player.Immune || player.PlayerLife == 0
+            || player.Closed || player.LeavingArea || InGracePeriod(player)) return;
+        int Get(uint key) => stats.GetValueOrDefault(key);
+        if (Get(Stat.CannotBeInflictedByCorruptedBlood) != 0 || Get(Stat.ImmuneToCorruptedBlood) != 0
+            || Get(Stat.BaseCannotBeDamaged) != 0) return;
         double dps = skill.PhysicalPerMinute / 60d
             + (hit.MinTotal + hit.MaxTotal) * .5 * skill.AverageHitPercentPerMinute / 6000d;
-        if (dps <= 0 || RandomRolls.Chance(Get("avoid_corrupted_blood_%_chance"), 100, conn.IncomingHitRandom)) return;
-        var state = Blood.GetValue(conn, _ => new());
+        if (dps <= 0 || RandomRolls.Chance(Get(Stat.AvoidCorruptedBloodPctChance), 100, player.IncomingHitRandom)) return;
+        var state = Blood.GetValue(player, _ => new());
         state.Settle(now);
-        if (now < state.ProtectedUntil || state.Stacks.Count >= 5 && Get("cannot_gain_corrupted_blood_while_you_have_at_least_5_stacks") != 0) return;
+        if (now < state.ProtectedUntil || state.Stacks.Count >= 5 && Get(Stat.CannotGainCorruptedBloodWhileYouHaveAtLeast5Stacks) != 0) return;
         if (state.Stacks.Count == 0) state.Started = now;
         for (int i = 0; i < Math.Min(10, skill.Stacks); i++)
         {
@@ -48,53 +48,53 @@ public static partial class Game
         }
         state.ExpiryRate = RecipientEffectTime.Rate(2, Get);
         state.Until = now + skill.Seconds / state.ExpiryRate;
-        BloodIcon(conn, state, now);
+        BloodIcon(player, state, now);
     }
 
-    static void BloodIcon(ClientState conn, BloodState state, double now)
+    static void BloodIcon(Player player, BloodState state, double now)
     {
         if (state.Buff is ushort previous)
-            conn.Minions.OutputQueue.Add(new(InstanceEntities.RemoveBuff(PlayerId, previous), "player corrupted blood ends", WorldId: PlayerId));
+            player.Minions.OutputQueue.Add(new(InstanceEntities.RemoveBuff(player.Id, previous), "player corrupted blood ends", WorldId: player.Id));
         state.Buff = null;
         if (state.Stacks.Count == 0) return;
-        ushort buff = conn.NextBuff++;
+        ushort buff = player.NextBuff++;
         state.Buff = buff;
-        conn.Minions.OutputQueue.Add(new(InstanceEntities.AddBuff(PlayerId, buff, 238,
+        player.Minions.OutputQueue.Add(new(InstanceEntities.AddBuff(player.Id, buff, 238,
             u68: BitConverter.SingleToUInt32Bits((float)(state.Until - now)), stacks: (ushort)state.Stacks.Count),
-            $"player corrupted blood ({state.Stacks.Count})", WorldId: PlayerId));
+            $"player corrupted blood ({state.Stacks.Count})", WorldId: player.Id));
     }
 
-    internal static int CorruptedBloodStacks(ClientState conn, double now) =>
-        Blood.TryGetValue(conn, out var state) && now < state.Until ? state.Stacks.Count : 0;
+    internal static int CorruptedBloodStacks(Player player, double now) =>
+        Blood.TryGetValue(player, out var state) && now < state.Until ? state.Stacks.Count : 0;
 
-    internal static void RemoveCorruptedBlood(ClientState conn, double now, double protection)
+    internal static void RemoveCorruptedBlood(Player player, double now, double protection)
     {
-        if (CorruptedBloodStacks(conn, now) == 0 || !Blood.TryGetValue(conn, out var state)) return;
+        if (CorruptedBloodStacks(player, now) == 0 || !Blood.TryGetValue(player, out var state)) return;
         state.Settle(now);
         state.Stacks.Clear();
         state.Until = now;
         state.ProtectedUntil = now + protection;
-        BloodIcon(conn, state, now);
+        BloodIcon(player, state, now);
     }
 
-    public static void ClearCorruptedBlood(ClientState conn)
+    public static void ClearCorruptedBlood(Player player)
     {
-        if (!Blood.TryGetValue(conn, out var state)) return;
+        if (!Blood.TryGetValue(player, out var state)) return;
         state.Stacks.Clear();
-        BloodIcon(conn, state, 0);
-        Blood.Remove(conn);
+        BloodIcon(player, state, 0);
+        Blood.Remove(player);
     }
 
-    static int AdvanceCorruptedBlood(ClientState conn, BloodState state, double now, IReadOnlyDictionary<uint, int> stats,
+    static int AdvanceCorruptedBlood(Player player, BloodState state, double now, IReadOnlyDictionary<uint, int> stats,
         bool physicalImmune, double letheFactor)
     {
-        int Get(string name) => Stats.Key(name) is uint key ? stats.GetValueOrDefault(key) : 0;
+        int Get(uint key) => stats.GetValueOrDefault(key);
         state.Settle(now);
-        bool immune = Get("immune_to_corrupted_blood") != 0;
+        bool immune = Get(Stat.ImmuneToCorruptedBlood) != 0;
         if (immune) state.Stacks.Clear();
         if (state.Stacks.Count == 0)
         {
-            if (state.Buff.HasValue) BloodIcon(conn, state, now);
+            if (state.Buff.HasValue) BloodIcon(player, state, now);
         }
         else
         {
@@ -103,21 +103,21 @@ public static partial class Game
             {
                 state.Until = RecipientEffectTime.RetimedDeadline(state.Until, now, state.ExpiryRate, rate);
                 state.ExpiryRate = rate;
-                BloodIcon(conn, state, now);
+                BloodIcon(player, state, now);
             }
         }
         double damage = state.Accrued;
         state.Accrued = 0;
-        bool unaffected = Get("unaffected_by_corrupted_blood") != 0
-            || Get("unaffected_by_corrupted_blood_while_leeching") != 0 && Get("is_leeching") != 0;
-        if (immune || unaffected || physicalImmune || conn.Immune || InGracePeriod(conn) || Get("base_cannot_be_damaged") != 0)
+        bool unaffected = Get(Stat.UnaffectedByCorruptedBlood) != 0
+            || Get(Stat.UnaffectedByCorruptedBloodWhileLeeching) != 0 && Get(Stat.IsLeeching) != 0;
+        if (immune || unaffected || physicalImmune || player.Immune || InGracePeriod(player) || Get(Stat.BaseCannotBeDamaged) != 0)
             damage = state.Carry = 0;
         else if (damage > 0)
-            damage *= conn.ElementalAilments.DamageTakenFactor(now, 0) * letheFactor;
+            damage *= player.ElementalAilments.DamageTakenFactor(now, 0) * letheFactor;
         int whole = IncomingResourceDefences.TakenOverTime(damage, Get, ref state.Carry,
-            IncomingResourceDefences.LessTakenPct(conn.Pools, Get), typedIncreasedPct: Get("physical_damage_taken_+%"),
+            IncomingResourceDefences.LessTakenPct(player.Pools, Get), typedIncreasedPct: Get(Stat.PhysicalDamageTakenPlusPct),
             reductionPct: ChargeEffects.Reduction(Get).Physical, finalTakenPct: Get(IncomingResourceDefences.UnhingedSaneDamageFinal));
-        if (state.Stacks.Count == 0 && now >= state.ProtectedUntil) Blood.Remove(conn);
-        return IncomingResourceDefences.DamageOverTime(conn.EnergyShield, whole, Get(IncomingResourceDefences.BypassStat), now, ref conn.NonChaosDotBypassCarry);
+        if (state.Stacks.Count == 0 && now >= state.ProtectedUntil) Blood.Remove(player);
+        return IncomingResourceDefences.DamageOverTime(player.EnergyShield, whole, Get(IncomingResourceDefences.BypassStat), now, ref player.NonChaosDotBypassCarry);
     }
 }

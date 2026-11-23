@@ -322,8 +322,8 @@ These passes also need Python with `capstone` and `pefile`, and Unicorn in `Tool
 | `content/files/`, `content/textures/`, `content/extensions.tsv` | every GGPK file, NTFS-compressed only when free space is short (`.dds` 94 GB, 1.5:1 with LZX); the index's size per extension |
 
 Measured on Game.exe: `.pdata` adds only 71 functions to the analysis (it had the rest), and after the fragment and switch
-passes 28 KB of `.text` stays undefined, mostly multi-byte nops. `Client/PathOfExile.exe` here is only the first 1.7 MB of `Game.exe`, so its headers
-describe code the file lacks; do not analyze it. A decompile's quality is capped by the binary: locals and most functions have no names.
+passes 28 KB of `.text` stays undefined, mostly multi-byte nops. `Client/PathOfExile.exe` can be only the first bytes of `Game.exe`,
+or a copy of it; the script skips both. A decompile's quality is capped by the binary: locals and most functions have no names.
 
 `NightRetry.java` gives failed functions a long timeout and falls back to p-code, which the earlier decompiler passes can
 still return (they print no C); such a file says so on its second line. Measured on this laptop:
@@ -418,6 +418,12 @@ Other formats:
 ## 11. Porting to a new client build (`scripts/re/port`)
 
 How 3.29.3b → 3.29.3c was ported; every step maps from evidence, nothing by offset guessing.
+
+A build whose functions did not move (`compare_builds.py` passes its first two checks) needs none of this for the
+decompile: `port_build.py <old exe> <new exe> <old full/game> <new game dir> [--index-only]` rewrites the data
+addresses of section 9's output in minutes and lists what it cannot prove. Two surprises: strings change text in place
+(the build number, and the per-compile hash in anonymous-namespace names `?A0x…`), and constants one build folded into
+one address can be separate in the other, so an address can have several new ones.
 
 1. **Address map.** Import and analyze the new executable into a separate Ghidra project, add the old one, and run
    `AutoVersionTrackingScript.java` with `PortVtOptions.java` as the first post-script (the stock options without the

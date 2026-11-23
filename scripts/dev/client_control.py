@@ -590,8 +590,10 @@ class ClientControl:
 
     def create(self, request):
         name, league, state = create_fields(request)
-        if self.status().get("screen") != "characters":
-            raise RuntimeError("character:create requires the character selection screen")
+        status = self.status()
+        creating = status.get("states", [])[-1:] == [8] and 9 in status.get("states", [])
+        if status.get("screen") != "characters" and not creating:
+            raise RuntimeError("character:create requires the character selection or creation screen")
         if any(c["name"].lower() == name.lower() for c in self.characters()):
             raise RuntimeError(f"Character {name} is already in the client list")
         self.rpc("create", name=name, league=league, startState=state)

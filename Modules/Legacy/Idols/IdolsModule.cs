@@ -12,9 +12,12 @@ public sealed class IdolsModule : IModule
 {
     sealed record Choices(bool EnableAtlasTree, double DropRate);
 
+    public static void LoadData() => IdolRules.LoadGameData();
+
     /// <inheritdoc/>
     public void Load(IModuleContext module)
     {
+        LoadData();
         var choices = module.Settings<Choices>();
         string id = module.Manifest.Id;
         module.Log($"Atlas passive tree {(choices.EnableAtlasTree ? "kept beside Idols" : "replaced by Idols")}, drop rate ×{choices.DropRate:0.##}");
@@ -26,34 +29,34 @@ public sealed class IdolsModule : IModule
             slot.Row == IdolRules.Row ? slot with { Kind = IdolRules.PanelKind } : null);
         GameEvents.InventoryPlacementRefusal.Add(id, p =>
             p.Row != IdolRules.Row ? null
-            : !IdolRules.IsIdol(ItemsFor(p.Conn).ByHash(p.Item.TypeHash)) ? "only Idols go in the Idol inventory"
-            : IdolRules.LimitRefusal(ItemsOf(p.Conn), p.Item, p.Replaced));
+            : !IdolRules.IsIdol(ItemsFor(p.Player).ByHash(p.Item.TypeHash)) ? "only Idols go in the Idol inventory"
+            : IdolRules.LimitRefusal(ItemsOf(p.Player), p.Item, p.Replaced));
         GameEvents.MapOpening.Add(id, request =>
         {
             if (request.Campaign || request.Opening is not { } opening) return;
-            var conn = request.Conn;
-            var idols = IdolRules.Placed(ItemsOf(conn), ItemsFor(conn));
+            var player = request.Player;
+            var idols = IdolRules.Placed(ItemsOf(player), ItemsFor(player));
             if (idols.Count == 0) return;
-            var stats = ItemModStats.Sum(idols, ItemsFor(conn).Mods);
+            var stats = ItemModStats.Sum(idols, ItemsFor(player).Mods);
             request.Opening = opening with { Mods = IdolRules.With(opening.Mods, stats) };
-            Console.WriteLine($"[gateway] {conn.Wire.Remote} {CharacterName(conn)}: {idols.Count} Idol(s) add {stats.Count} stat(s) to {opening.Area.Name}");
+            Console.WriteLine($"[gateway] {player.Connection.Remote} {CharacterName(player)}: {idols.Count} Idol(s) add {stats.Count} stat(s) to {opening.Area.Name}");
         });
         // Faustus's gamble window has an Idols tab.
         GameEvents.Gambles.Add(id, window =>
         {
             if (!IdolRules.GamblesIdols(window.Npc)) return;
-            var conn = window.Conn;
-            foreach (var (shown, idol, gold) in IdolRules.GambleOffers(ItemsFor(conn), window.CharacterLevel, window.PriceLevel))
+            var player = window.Player;
+            foreach (var (shown, idol, gold) in IdolRules.GambleOffers(ItemsFor(player), window.CharacterLevel, window.PriceLevel))
                 window.Offers.Add(new(shown, gold,
-                    random => IdolRules.Gamble(ItemsFor(conn), RollsFor(conn), UniquesFor(conn), idol, window.CharacterLevel, random), "Idols"));
+                    random => IdolRules.Gamble(ItemsFor(player), RollsFor(player), UniquesFor(player), idol, window.CharacterLevel, random), "Idols"));
         });
         if (choices.DropRate > 0)
             GameEvents.Drops.Add(id, roll =>
             {
-                var conn = roll.Conn;
-                if (roll.Cancel || MapRunOf(conn) is not { Atlas: true } || MapModsOf(conn) is not { } mapMods) return;
+                var player = roll.Player;
+                if (roll.Cancel || MapRunOf(player) is not { Atlas: true } || MapModsOf(player) is not { } mapMods) return;
                 double rate = choices.DropRate * mapMods.QuantityFactor * Math.Max(0, roll.Quantity);
-                if (rate > 0 && IdolRules.Drop(ItemsFor(conn), RollsFor(conn), UniquesFor(conn), roll.Monster.Level, roll.Monster.Rarity, rate, Random.Shared) is { } idol)
+                if (rate > 0 && IdolRules.Drop(ItemsFor(player), RollsFor(player), UniquesFor(player), roll.Monster.Level, roll.Monster.Rarity, rate, AreaRng(player)) is { } idol)
                     roll.Made.Add(idol);
             });
     }

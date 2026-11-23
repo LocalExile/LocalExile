@@ -372,7 +372,8 @@ public sealed partial class ProjectileRuntime(IProjectileWorld world)
                 Area(p, area, area.ExcludeContactTarget ? target.Key : null);
             if (result == ProjectileHitResult.Hit && p.Profile.ContactTargets is { } strikes)
                 TargetedHits(p, target, strikes);
-            if (Continue(p, target, world.Actors(Now, Now))) return;
+            bool needsNearby = (!p.Profile.CannotSplit && p.Split > 0) || (!p.Profile.CannotChain && p.Chain > 0);
+            if (Continue(p, target, needsNearby ? world.Actors(Now, Now) : [])) return;
             End(p, ProjectileEndReason.Enemy, victim: target.Key);
         }
         else if (c.End == ProjectileEndReason.Terrain && p.Legs is { } blockedLegs && p.Phase == 0

@@ -16,25 +16,29 @@ internal static class DeepwaterGrid
     static readonly string[] Biomes = ["Sandy", "CoralForest", "CoralReef"];
 
     /// <summary>The plugin's id in 0x1d's extra data (TerrainPlugins <c>__col1</c>).</summary>
-    public static readonly Lazy<ushort?> PluginId = new(() => AreaTerrainPlugins.IdOf(Plugin));
+    public static ushort? PluginId { get; private set; }
 
     // The areas whose own terrain plugin is DeepwaterPlugin (the encounter areas, area type 52): Id → HASH16.
-    static readonly Lazy<Dictionary<string, ushort>> Areas = new(() => ClientTables.TableOrEmpty("WorldAreas")
-        .Select(a => (Id: a.Text("Id") ?? "", Hash: (ushort)a.Int("HASH16")))
-        .Where(a => AreaTerrainPlugins.Of(a.Hash)?.Name == Plugin)
-        .ToDictionary(a => a.Id, a => a.Hash));
+    static Dictionary<string, ushort> Areas = [];
 
     /// <summary>The area holds a DeepwaterPlugin (the client creates one there at every generation).</summary>
-    public static bool IsEncounter(string areaId) => Areas.Value.ContainsKey(areaId);
+    public static bool IsEncounter(string areaId) => Areas.ContainsKey(areaId);
 
     // The rooms a random grid takes: (DeepwaterRooms row, connection mask __col2, bits 1/2/4/8 = Left/Up/Right/Down).
-    static readonly Lazy<(int Row, int Mask)[]> Rooms = new(() =>
+    static (int Row, int Mask)[] Rooms = [];
+
+    public static void LoadGameData()
     {
+        PluginId = AreaTerrainPlugins.IdOf(Plugin);
+        Areas = ClientTables.TableOrEmpty("WorldAreas")
+            .Select(a => (Id: a.Text("Id") ?? "", Hash: (ushort)a.Int("HASH16")))
+            .Where(a => AreaTerrainPlugins.Of(a.Hash)?.Name == Plugin)
+            .ToDictionary(a => a.Id, a => a.Hash);
         var biomes = ClientTables.TableOrEmpty("DeepwaterBiomes").Where(b => Biomes.Contains(b.Text("Id"))).Select(b => (long)b.Index).ToHashSet();
-        return [.. ClientTables.TableOrEmpty("DeepwaterRooms")
+        Rooms = [.. ClientTables.TableOrEmpty("DeepwaterRooms")
             .Where(r => r.LongOrNull("Biome") is { } b && biomes.Contains(b) && r.LongOrNull("Special") is null or 0 && r.Index <= byte.MaxValue)
             .Select(r => (r.Index, r.Int("__col2")))];
-    });
+    }
 
     /// <summary>The state for a new instance of the area (null outside the encounter areas): u8 N, per cell (row-major,
     /// N·y + x) u8 DeepwaterRooms row, u8 orientation, u8 stat count (0), then u8 mod count (0). Cell N·y + x is at
@@ -43,7 +47,7 @@ internal static class DeepwaterGrid
     /// (Right → Up).</summary>
     public static IReadOnlyList<(ushort Plugin, byte[] State)>? For(ushort areaHash)
     {
-        if (PluginId.Value is not { } plugin || Areas.Value.FirstOrDefault(a => a.Value == areaHash).Key is not { } id || Rooms.Value.Length == 0)
+        if (PluginId is not { } plugin || Areas.FirstOrDefault(a => a.Value == areaHash).Key is not { } id || Rooms.Length == 0)
             return null;
         int n = id == VoyageArea ? 3 : 1;
         var cells = Board(n, Random.Shared);
@@ -59,7 +63,7 @@ internal static class DeepwaterGrid
     /// rotations (DeepwaterGeneration.Parse).</summary>
     public static IReadOnlyList<(ushort Plugin, byte[] State)>? For(DeepwaterPlan plan)
     {
-        if (PluginId.Value is not { } plugin) return null;
+        if (PluginId is not { } plugin) return null;
         var w = new BlobWriter().U8((byte)plan.Size);
         for (int i = 0; i < plan.Cells.Count; i++)
         {
@@ -80,7 +84,7 @@ internal static class DeepwaterGrid
 
     /// <summary>An encounter area as a map run opens it (WorldAreas HASH16, Id and name), or null.</summary>
     public static MapDevice.MapArea? AreaOf(string id) =>
-        Areas.Value.TryGetValue(id, out ushort hash)
+        Areas.TryGetValue(id, out ushort hash)
             ? new MapDevice.MapArea(hash, id, ClientTables.TableOrEmpty("WorldAreas").FirstOrDefault(a => a.Text("Id") == id) is { Table: not null } row ? row.Text("Name") ?? id : id, 0)
             : null;
 
@@ -94,7 +98,7 @@ internal static class DeepwaterGrid
     /// rooms.</summary>
     static (int Row, int Turn)[] Board(int n, Random rng)
     {
-        var rooms = Rooms.Value;
+        var rooms = Rooms;
         for (int attempt = 0; attempt < 500; attempt++)
         {
             var cells = new (int Row, int Turn, int Open)[n * n];

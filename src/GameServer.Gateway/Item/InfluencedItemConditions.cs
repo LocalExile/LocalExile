@@ -25,15 +25,15 @@ public static class InfluencedItemConditions
         return true;
     }
 
-    public static IEnumerable<string> Targets(string target) => target switch
+    public static IEnumerable<uint> Targets(string target) => target switch
     {
-        "additional_projectile" => ["number_of_additional_projectiles"],
+        "additional_projectile" => [Stat.NumberOfAdditionalProjectiles],
         "physical_damage_%_to_add_as_each_element" =>
-            ["physical_damage_%_to_add_as_fire", "physical_damage_%_to_add_as_cold", "physical_damage_%_to_add_as_lightning"],
+            [Stat.PhysicalDamagePctToAddAsFire, Stat.PhysicalDamagePctToAddAsCold, Stat.PhysicalDamagePctToAddAsLightning],
         "elemental_damage_%_taken_as_chaos" =>
-            ["elemental_damage_taken_%_as_chaos"],
+            [Stat.ElementalDamageTakenPctAsChaos],
         "nearby_enemies_are_blinded" or "nearby_enemies_are_intimidated"
-            or "gain_life_regeneration_per_minute_%_for_1_second_every_4_seconds" => ["virtual_" + target],
-        _ => [target],
+            or "gain_life_regeneration_per_minute_%_for_1_second_every_4_seconds" => [Stat.Of("virtual_" + target)],
+        _ => [Stat.Of(target)],
     };
 }

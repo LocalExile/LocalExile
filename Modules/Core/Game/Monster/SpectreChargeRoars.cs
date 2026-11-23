@@ -10,11 +10,11 @@ public static partial class Game
             _ => null
         };
 
-    static void ReleaseSpectreChargeRoarLocked(ClientState conn, (int X, int Y) at, ChargeType type,
+    static void ReleaseSpectreChargeRoarLocked(Player player, (int X, int Y) at, ChargeType type,
         double radius, double now, string effect)
     {
         var grant = new ChargeEvent.Grant(type, 1, effect);
-        void Grant(ClientState recipient, (int X, int Y) playerAt, double recipientTime)
+        void Grant(Player recipient, (int X, int Y) playerAt, double recipientTime)
         {
             if (recipient.PlayerLife > 0 && Dist(at, playerAt) <= radius)
                 ChargesOf(recipient).Enqueue(grant);
@@ -23,14 +23,14 @@ public static partial class Game
                     GrantMinionChargeLocked(recipient, fighter, type, recipientTime);
         }
 
-        Grant(conn, conn.Walk.Position(now), now);
-        foreach (var peer in conn.Instance.PlayersExcept(conn.PeerId))
-            if (peer.Current && peer.Owner is { Closed: false, LeavingArea: false } recipient
-                && !ReferenceEquals(conn, recipient) && ReferenceEquals(conn.Instance, recipient.Instance))
-                Grant(recipient, (peer.X, peer.Y), AreaTime(recipient));
+        Grant(player, player.Walk.Position(now), now);
+        foreach (var recipient in player.Instance.PlayersExcept(player.Id))
+            if (!recipient.Closed && !recipient.LeavingArea
+                && !ReferenceEquals(player, recipient) && ReferenceEquals(player.Instance, recipient.Instance))
+                Grant(recipient, recipient.Walk.Position(AreaTime(recipient)), AreaTime(recipient));
     }
 
-    static void GrantMinionChargeLocked(ClientState owner, GolemState.Golem fighter, ChargeType type, double now)
+    static void GrantMinionChargeLocked(Player owner, GolemState.Golem fighter, ChargeType type, double now)
     {
         ExpireMinionChargesLocked(owner, fighter, now);
         var charges = fighter.CombatCharges ??= new();
@@ -40,7 +40,7 @@ public static partial class Game
         PublishMinionChargeLocked(owner, fighter, type, count, charges.ExpiresAt(type), now);
     }
 
-    static void ExpireMinionChargesLocked(ClientState owner, GolemState.Golem fighter, double now)
+    static void ExpireMinionChargesLocked(Player owner, GolemState.Golem fighter, double now)
     {
         if (fighter.CombatCharges is not { } charges) return;
         bool Due(ChargeType type) => charges.Held(type) > 0 && now >= charges.ExpiresAt(type);
@@ -51,19 +51,20 @@ public static partial class Game
             fighter.CombatCharges = null;
     }
 
-    static void PublishMinionChargeLocked(ClientState conn, GolemState.Golem fighter, ChargeType type,
+    static void PublishMinionChargeLocked(Player player, GolemState.Golem fighter, ChargeType type,
         int count, double until, double now)
     {
         var shown = fighter.CombatCharges!.Presented;
         if (shown[(int)type].Buff is ushort old and not 0)
-            QueueGolemDotPacket(conn, fighter, InstanceEntities.RemoveBuff(fighter.Id, old));
+            QueueGolemDotPacket(player, fighter, InstanceEntities.RemoveBuff(fighter.Id, old));
         if (count == 0)
         {
             shown[(int)type] = default;
             return;
         }
-        ushort buff = conn.NextBuff++;
+        ushort buff = player.NextBuff++;
         shown[(int)type] = new(count, until, buff);
-        QueueGolemDotPacket(conn, fighter, ChargeBuffs.Add(type, buff, count, until - now, fighter.Id));
+        QueueGolemDotPacket(player, fighter, InstanceEntities.AddBuff(fighter.Id, buff, ChargeBuffs.Row(type), fighter.Id,
+            u68: Buff.Seconds(Math.Max(0, until - now)), stacks: (ushort)Math.Clamp(count, 0, ushort.MaxValue)));
     }
 }

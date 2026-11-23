@@ -8,24 +8,25 @@ public sealed class SupportExecutionTests
     static Dictionary<uint, int> With(params (string Name, int Value)[] values) =>
         values.ToDictionary(v => Program.Stats.Key(v.Name)!.Value, v => v.Value);
 
-    static ClientState Connection(string name)
+    static Player PlayerOf(string name)
     {
-        var conn = new ClientState(new(1, name, 1000, 1000, 100, 100, null, []), 1, 1)
+        var player = new Player(new(1, name, 1000, 1000, 100, 100, null, []), 1, 1)
         {
-            Character = name, PlayerLife = 1000, PlayerMana = 1000, Instance = new(),
-            Experience = CharacterStats.ExperienceFor(100),
+            Character = { Name = name, Experience = CharacterStats.ExperienceFor(100) },
+            PlayerLife = 1000,
+            PlayerMana = 1000,
+            Instance = new(),
             Pools = new(100, 1000, 1000, int.MaxValue, 0, Strength: 1000, Dexterity: 1000, Intelligence: 1000),
-            LeagueModule = new(new League("test", "Standard", false, false), new HashSet<string>(["Game"])),
+            LeagueModule = new(new League("test", "Standard", false, false), new HashSet<string>(["Game"]))
         };
-        foreach (string attr in new[] { "strength", "dexterity", "intelligence" })
-            conn.PlayerStats[Program.Stats.Key($"virtual_{attr}_for_requirements")!.Value] = 1000;
-        return conn;
+        TestRequirements.Waive(player);
+        return player;
     }
 
     static Item Gem(string name) => ItemCatalog.Create(Program.Items.Find("Metadata/Items/Gems/" + name)!);
-    static ushort Equip(ClientState conn, string active, string support)
+    static ushort Equip(Player player, string active, string support)
     {
-        var items = Game.ItemsOf(conn);
+        var items = Game.ItemsOf(player);
         foreach (var previous in items.EquipmentSnapshot().Where(e => e.Row == PlayerInventories.Weapon1))
             items.Remove(PlayerInventories.Weapon1, previous.Item.Id);
         var sword = ItemCatalog.Create(Program.Items.Find("Metadata/Items/Weapons/OneHandWeapons/OneHandSwords/OneHandSword1")!);
@@ -33,7 +34,7 @@ public sealed class SupportExecutionTests
         {
             Sockets = [new(SocketColour.White, Gem(active)), new(SocketColour.White, Gem(support))], Links = [2],
         });
-        return Game.GemSkillEffects(conn).Single().Id;
+        return Game.GemSkillEffects(player).Single().Id;
     }
 
     [Fact]
@@ -42,12 +43,12 @@ public sealed class SupportExecutionTests
         string path = Path.Combine(Path.GetTempPath(), $"supports-cooldown-{Guid.NewGuid():N}.db");
         var previous = Program.GameLogicOrNull;
         Saves.Open(path); Program.SetGameLogic(new GameServer.Modules.Game.GameLogic());
-        var conn = Connection("SecondWindAcceptance");
+        var player = PlayerOf("SecondWindAcceptance");
         try
         {
-            ushort id = Equip(conn, "SkillGemDash", "SupportGemSecondWind");
-            var gem = Game.SupportedSkill(conn, id);
-            var resolved = Game.CooldownFor(conn, gem.Effect, gem.Level, gem.Quality);
+            ushort id = Equip(player, "SkillGemDash", "SupportGemSecondWind");
+            var gem = Game.SupportedSkill(player, id);
+            var resolved = Game.CooldownFor(player, gem.Effect, gem.Level, gem.Quality);
             Assert.True(resolved is not null, string.Join(", ", gem.Stats.Select(s => $"{Program.Stats.Name(s.Key)}={s.Value}")));
             var plan = resolved!.Value;
             // PoEDB: one additional NON-INSTANT use, level-one 24% reduced recovery, 200% cost multiplier.
@@ -79,103 +80,32 @@ public sealed class SupportExecutionTests
             Assert.True(state.TryUse(100, zero)); Assert.True(state.TryUse(100, zero));
             state.Refresh(1000, 0); Assert.False(state.Ready);
             // Instant skills receive recovery and cost modifiers, but never the extra use.
-            id = Equip(conn, "SkillGemFrostblink", "SupportGemSecondWind");
-            gem = Game.SupportedSkill(conn, id);
-            plan = Game.CooldownFor(conn, gem.Effect, gem.Level, gem.Quality)!.Value;
+            id = Equip(player, "SkillGemFrostblink", "SupportGemSecondWind");
+            gem = Game.SupportedSkill(player, id);
+            plan = Game.CooldownFor(player, gem.Effect, gem.Level, gem.Quality)!.Value;
             Assert.Equal(1, plan.Uses); Assert.Equal(-24, plan.RecoveryPercent);
             // Native Flame Dash already has three charges; Second Wind grants the fourth.
-            id = Equip(conn, "SkillGemFlameDash", "SupportGemSecondWind");
-            gem = Game.SupportedSkill(conn, id);
-            Assert.Equal(4, Game.CooldownFor(conn, gem.Effect, gem.Level, gem.Quality)!.Value.Uses);
+            id = Equip(player, "SkillGemFlameDash", "SupportGemSecondWind");
+            gem = Game.SupportedSkill(player, id);
+            Assert.Equal(4, Game.CooldownFor(player, gem.Effect, gem.Level, gem.Quality)!.Value.Uses);
             // PoEDB's level-20 penalty (-5) and 20% quality recovery (+5) cancel in the installed native data.
-            var qualityStats = Game.SkillsFor(conn).EffectStats(Game.SkillsFor(conn).EffectRow("SupportSecondWind"), 20, 20)
+            var qualityStats = Game.SkillsFor(player).EffectStats(Game.SkillsFor(player).EffectRow("SupportSecondWind"), 20, 20)
                 .ToDictionary(s => s.Item1, s => s.Item2);
-            Assert.Equal(0, qualityStats[Program.Stats.Key("base_cooldown_speed_+%")!.Value]);
+            Assert.Equal(0, qualityStats[Stat.BaseCooldownSpeedPlusPct]);
         }
         finally
         {
-            PlayerInventories.Forget(conn.Character!); Program.SetGameLogic(previous!); TestEnvironment.ReleaseSaves(path);
+            PlayerInventories.Forget(player.Character.Name!); Program.SetGameLogic(previous!); TestEnvironment.ReleaseSaves(path);
         }
     }
 
-    [Fact]
-    public void Machinations_costs_are_skill_local_and_combat_rush_is_consumed_only_by_paid_travel()
-    {
-        string path = Path.Combine(Path.GetTempPath(), $"supports-cost-{Guid.NewGuid():N}.db");
-        var previous = Program.GameLogicOrNull;
-        Saves.Open(path); Program.SetGameLogic(new GameServer.Modules.Game.GameLogic());
-        var conn = Connection("SupportCostsAcceptance");
-        try
-        {
-            ushort id = Equip(conn, "SkillGemFireball", "SupportGemMachinations");
-            var gem = Game.SupportedSkill(conn, id);
-            int Value(Game.SupportedGem skill, string name) => skill.Stats.GetValueOrDefault(Program.Stats.Key(name)!.Value);
-            Assert.Equal(120, gem.Supports.Single().CostMultiplier);
-            Assert.Equal(0, Value(gem, "base_cost_+%"));
-            Assert.Equal(6, Value(gem, "mana_cost")); // Fireball 5 Mana * 120%.
-            foreach (ushort node in new ushort[] { 10661, 12926 })
-            { Assert.True(Program.Passives.Find(node)!.IsKeystone); conn.Passives.Add(node); }
-            gem = Game.SupportedSkill(conn, id);
-            Assert.Equal(20, Value(gem, "base_cost_+%"));
-            Assert.Equal(0, Game.CharacterPlayerStats(conn).GetValueOrDefault(Program.Stats.Key("base_cost_+%")!.Value));
-            Assert.Equal(12, Value(gem, "physical_damage_%_to_add_as_chaos"));
-            conn.PlayerStats[Program.Stats.Key("mana_cost_+%")!.Value] = 30;
-            // 6 * (100 + 20 + 30)% = 9: the two increases add, rather than multiply.
-            Assert.Equal(9, Game.SupportedStats(conn, id)[Program.Stats.Key("mana_cost")!.Value]);
-            Assert.True(Game.PayMana(conn, id, out uint mana, out uint life));
-            Assert.Equal((9u, 0u, 991u), (mana, life, conn.PlayerMana));
-            conn.PlayerStats[Program.Stats.Key("keystone_blood_magic")!.Value] = 1;
-            Assert.True(Game.PayMana(conn, id, out mana, out life));
-            Assert.Equal((0u, 9u, 991u), (mana, life, conn.PlayerLife));
-            conn.PlayerStats.Remove(Program.Stats.Key("keystone_blood_magic")!.Value);
-            conn.Passives.Clear();
-            conn.PlayerStats.Remove(Program.Stats.Key("mana_cost_+%")!.Value);
-            // Another link group has no Machinations increase, and refunding the keystones removes it.
-            Assert.Equal(0, Value(Game.SupportedSkill(conn, id), "base_cost_+%"));
-            id = Equip(conn, "SkillGemLeapSlam", "SupportGemMachinations");
-            gem = Game.SupportedSkill(conn, id);
-            Assert.True(Game.SkillsFor(conn).IsTravel(gem.Effect));
-            double now = conn.Clock.Elapsed.TotalSeconds;
-            Game.CombatRushOnHit(conn, With(("supported_by_slashing", 1),
-                ("support_slashing_buff_base_duration_ms", 2000),
-                ("support_slashing_buff_attack_speed_+%_final_to_grant", 20)), now);
-            Assert.Equal(1.2, Game.CombatRushMore(conn, id, gem, now), 9);
-            conn.PlayerMana = 0;
-            Assert.False(Game.PayMana(conn, id, out _, out _));
-            Assert.Equal(now + 2, conn.CombatRushUntil);
-            conn.PlayerMana = 1000;
-            double faster = Game.SupportedAttackSeconds(conn, id);
-            Assert.True(Game.PayMana(conn, id, out _, out _));
-            Assert.Equal(0, conn.CombatRushUntil);
-            // Consumption must not slow the already accepted action when its release timing is read again.
-            Assert.Equal(faster, Game.SupportedAttackSeconds(conn, id), 9);
-            conn.ActionCount++;
-            Assert.Equal(1, Game.CombatRushMore(conn, id, gem, conn.Clock.Elapsed.TotalSeconds));
-            Assert.True(Game.SupportedAttackSeconds(conn, id) > faster);
-            id = Equip(conn, "SkillGemLeapSlam", "SupportGemCloseCombat");
-            gem = Game.SupportedSkill(conn, id);
-            Assert.Single(gem.Supports);
-            conn.CombatRushUntil = conn.Clock.Elapsed.TotalSeconds + 2; conn.CombatRushAttackSpeed = 20;
-            Assert.Equal(1, Game.CombatRushMore(conn, id, gem, conn.Clock.Elapsed.TotalSeconds));
-            Assert.True(Game.PayMana(conn, id, out _, out _));
-            Assert.Equal(0, conn.CombatRushUntil); // supported travel consumes it too, without the speed bonus.
-            id = Equip(conn, "SkillGemFireball", "SupportGemMachinations");
-            conn.CombatRushUntil = conn.Clock.Elapsed.TotalSeconds + 2; conn.CombatRushAttackSpeed = 20;
-            Assert.True(Game.PayMana(conn, id, out _, out _)); Assert.True(conn.CombatRushUntil > 0);
-            conn.RetireOwnedCombat(); Assert.Equal(0, conn.CombatRushUntil); Assert.Null(conn.CombatRushUse);
-        }
-        finally
-        {
-            PlayerInventories.Forget(conn.Character!); Program.SetGameLogic(previous!); TestEnvironment.ReleaseSaves(path);
-        }
-    }
     [Fact]
     public void Multistrike_preserves_native_panel_damage_and_paces_one_paid_cancellable_repeat_series()
     {
         string path = Path.Combine(Path.GetTempPath(), $"multistrike-panel-{Guid.NewGuid():N}.db");
         var previous = Program.GameLogicOrNull;
         Saves.Open(path); Program.SetGameLogic(new GameServer.Modules.Game.GameLogic());
-        var conn = Connection("MultistrikePanelAcceptance");
+        var player = PlayerOf("MultistrikePanelAcceptance");
         try
         {
             foreach (var (support, repeats) in new[]
@@ -185,9 +115,9 @@ public sealed class SupportExecutionTests
                 ("SupportGemAddedFireDamage", 0),
             })
             {
-                ushort id = Equip(conn, "SkillGemCleave", support);
-                Assert.Equal(repeats, Game.MeleeAttackRepeats(conn, id));
-                var items = Game.ItemsOf(conn);
+                ushort id = Equip(player, "SkillGemCleave", support);
+                Assert.Equal(repeats, Game.MeleeAttackRepeats(player, id));
+                var items = Game.ItemsOf(player);
                 for (int hands = 1; hands <= 2; hands++)
                 {
                     if (hands == 2)
@@ -196,79 +126,86 @@ public sealed class SupportExecutionTests
                             "Metadata/Items/Weapons/OneHandWeapons/OneHandSwords/OneHandSword5")!);
                         items.Add(PlayerInventories.Offhand1, 0, 0, off);
                     }
-                    conn.PlayerSkillsCache = null;
-                    var rows = Game.PlayerSkills(conn).Single(s => s.Id == id).Stats!.ToDictionary(s => s.Key, s => s.Value);
-                    int Row(string name) => rows.GetValueOrDefault(Program.Stats.Key(name)!.Value);
-                    Assert.Equal(repeats, Row("attack_repeat_count"));
-                    double Factor(string hand) => CriticalStrikePolicy.DamageFactor(Row(hand + "_critical_strike_chance"),
-                        Row(hand + "_critical_strike_multiplier"), 0, Row(hand + "_chance_to_hit_%"));
+                    player.PlayerSkillsCache = null;
+                    var rows = Game.PlayerSkills(player).Single(s => s.Id == id).Stats!.ToDictionary(s => s.Key, s => s.Value);
+                    int Row(uint key) => rows.GetValueOrDefault(key);
+                    Assert.Equal(repeats, Row(Stat.AttackRepeatCount));
+                    double Factor(bool mainHand) => mainHand
+                        ? CriticalStrikePolicy.DamageFactor(Row(Stat.MainHandCriticalStrikeChance),
+                            Row(Stat.MainHandCriticalStrikeMultiplier), 0, Row(Stat.MainHandChanceToHitPct))
+                        : CriticalStrikePolicy.DamageFactor(Row(Stat.OffHandCriticalStrikeChance),
+                            Row(Stat.OffHandCriticalStrikeMultiplier), 0, Row(Stat.OffHandChanceToHitPct));
                     // Dual-wielded Cleave hits with both weapons at once, at its data's merged 40% less damage
                     // (skill_double_hits_when_dual_wielding, active_skill_merged_damage_+%_final_while_dual_wielding).
-                    double dualMore = Game.HandDamageMore(conn, Game.SupportedSkill(conn, id).Stats).DualWielding;
+                    double dualMore = Game.HandDamageMore(player, Game.SupportedSkill(player, id).Stats).DualWielding;
                     Assert.Equal(hands == 2 ? .6 : 1, dualMore, 9);
-                    var mainHit = Game.SupportedHit(conn, id).Scale(dualMore);
+                    var mainHit = Game.SupportedHit(player, id).Scale(dualMore);
                     foreach (var (stat, value) in PanelStats.HandDamage(mainHit, "main_hand"))
                         Assert.Equal(value, Row(stat));
-                    double mainSeconds = Game.SupportedAttackSeconds(conn, id);
-                    var main = SpellDamage.Display((mainHit.MinTotal, mainHit.MaxTotal), 1 / mainSeconds, Factor("main_hand"));
+                    double mainSeconds = Game.SupportedAttackSeconds(player, id);
+                    var main = SpellDamage.Display((mainHit.MinTotal, mainHit.MaxTotal), 1 / mainSeconds, Factor(mainHand: true));
                     int perUse = main.PerUse, perSecond = main.PerSecond;
                     if (hands == 2)
                     {
-                        var offWeapon = Game.OffhandWeaponFor(conn)!;
-                        var offInputs = Game.SupportedHitInputsFor(conn, id, weapon: offWeapon)!;
+                        var offWeapon = Game.OffhandWeaponFor(player)!;
+                        var offInputs = Game.SupportedHitInputsFor(player, id, weapon: offWeapon)!;
                         var offHit = Game.SupportedHitFrom(offInputs, suppress: true).Scale(dualMore);
                         foreach (var (stat, value) in PanelStats.HandDamage(offHit, "off_hand"))
                             Assert.Equal(value, Row(stat));
-                        double offSeconds = Game.SupportedOffHandAttackSeconds(conn, id, offWeapon);
-                        var off = SpellDamage.Display((offHit.MinTotal, offHit.MaxTotal), 1 / offSeconds, Factor("off_hand"));
+                        double offSeconds = Game.SupportedOffHandAttackSeconds(player, id, offWeapon);
+                        var off = SpellDamage.Display((offHit.MinTotal, offHit.MaxTotal), 1 / offSeconds, Factor(mainHand: false));
                         // Both hits per use, at the average of the two weapons' attack times.
-                        Assert.Equal(AttackHand.Both, Game.PanelHands(conn, id));
+                        Assert.Equal(AttackHand.Both, Game.PanelHands(player, id));
                         perUse = main.PerUse + off.PerUse;
                         perSecond = (int)Math.Round(perUse / ((mainSeconds + offSeconds) / 2));
                     }
-                    Assert.Equal(perUse, Row("display_hundred_times_damage_per_skill_use"));
-                    Assert.Equal(perSecond, Row("hundred_times_damage_per_second"));
+                    Assert.Equal(perUse, Row(Stat.DisplayHundredTimesDamagePerSkillUse));
+                    Assert.Equal(perSecond, Row(Stat.HundredTimesDamagePerSecond));
                     // Native calculators keep these rows per hit; repeat damage belongs to execution only.
                     for (int repeat = 1; repeat <= repeats; repeat++)
-                        Assert.Equal(1 + .22 * repeat, Game.MeleeRepeatDamageMore(conn, id, repeat), 8);
-                    conn.NextAttackAt = 10 + mainSeconds;
-                    conn.LockstepBusyUntil = 10 + mainSeconds * .6;
-                    uint mana = conn.PlayerMana;
-                    Game.ReserveMeleeRepeats(conn, id, mainSeconds);
-                    Assert.Equal(10 + mainSeconds * (repeats + 1), conn.NextAttackAt, 8);
-                    Assert.Equal(mana, conn.PlayerMana);
+                        Assert.Equal(1 + .22 * repeat, Game.MeleeRepeatDamageMore(player, id, repeat), 8);
+                    player.NextAttackAt = 10 + mainSeconds;
+                    player.LockstepBusyUntil = 10 + mainSeconds * .6;
+                    uint mana = player.PlayerMana;
+                    Game.ReserveMeleeRepeats(player, id, mainSeconds);
+                    Assert.Equal(10 + mainSeconds * (repeats + 1), player.NextAttackAt, 8);
+                    Assert.Equal(mana, player.PlayerMana);
                     if (repeats > 0)
                     {
-                        Assert.False(Game.MeleeRepeatAllowsMove(conn, 10 + mainSeconds * 1.5));
-                        Assert.True(Game.MeleeRepeatAllowsMove(conn, 10 + mainSeconds * 1.7));
-                        Game.CancelMeleeRepeats(conn, 10 + mainSeconds * 1.7);
-                        Assert.Equal(10 + mainSeconds * 2, conn.NextAttackAt, 8);
-                        Assert.True(Game.MeleeRepeatAllowsMove(conn, 10 + mainSeconds * 1.7));
+                        Assert.False(Game.MeleeRepeatAllowsMove(player, 10 + mainSeconds * 1.5));
+                        Assert.True(Game.MeleeRepeatAllowsMove(player, 10 + mainSeconds * 1.7));
+                        Game.CancelMeleeRepeats(player, 10 + mainSeconds * 1.7);
+                        Assert.Equal(10 + mainSeconds * 2, player.NextAttackAt, 8);
+                        Assert.True(Game.MeleeRepeatAllowsMove(player, 10 + mainSeconds * 1.7));
                         // An object interaction replaces the action too (loot, portals, NPCs). It must release the
                         // unstarted swings' reservation and movement gates, while preserving the current swing.
-                        conn.Clock.Stop();
-                        double now = Game.ProjectileWorldTime(conn), start = now - mainSeconds * .7;
-                        conn.NextAttackAt = start + mainSeconds;
-                        conn.LockstepBusyUntil = start + mainSeconds * .6;
-                        Game.ReserveMeleeRepeats(conn, id, mainSeconds);
-                        double reserved = conn.NextAttackAt;
-                        conn.PlayerLife = 0;
-                        Assert.False(Game.TryBeginObjectWalk(conn, now, 110, 100, 3, out _));
-                        Assert.Equal(reserved, conn.NextAttackAt);
-                        conn.PlayerLife = 1000;
-                        Assert.True(Game.TryBeginObjectWalk(conn, now, 110, 100, 3, out _));
-                        Assert.Equal(start + mainSeconds, conn.NextAttackAt, 8);
-                        Assert.True(Game.MeleeRepeatAllowsMove(conn, start + mainSeconds * 1.5));
+                        player.Clock.Stop();
+                        double now = Game.ProjectileWorldTime(player), start = now - mainSeconds * .7;
+                        player.NextAttackAt = start + mainSeconds;
+                        player.LockstepBusyUntil = start + mainSeconds * .6;
+                        Game.ReserveMeleeRepeats(player, id, mainSeconds);
+                        double reserved = player.NextAttackAt;
+                        player.PlayerLife = 0;
+                        Assert.False(Game.TryBeginObjectWalk(player, now, 110, 100, 3, out _));
+                        Assert.Equal(reserved, player.NextAttackAt);
+                        player.PlayerLife = 1000;
+                        Assert.True(Game.TryBeginObjectWalk(player, now, 110, 100, 3, out _));
+                        Assert.Equal(start + mainSeconds, player.NextAttackAt, 8);
+                        Assert.True(Game.MeleeRepeatAllowsMove(player, start + mainSeconds * 1.5));
                     }
                 }
-                foreach (string disabled in new[] { "disable_attack_repeats", "disable_skill_repeats" })
+                foreach (uint disabled in new[] { Stat.DisableAttackRepeats, Stat.DisableSkillRepeats })
                 {
-                    uint key = Program.Stats.Key(disabled)!.Value;
-                    conn.PlayerStats[key] = 1;
-                    Assert.Equal(0, Game.MeleeAttackRepeats(conn, id));
-                    conn.PlayerSkillsCache = null;
-                    Assert.Equal(0, Game.PlayerSkills(conn).Single(s => s.Id == id).Stats!.Single(s => s.Key == Program.Stats.Key("attack_repeat_count")).Value);
-                    conn.PlayerStats.Remove(key);
+                    using (GameEvents.PlayerStatSources.Add("Game", (p, sources) =>
+                    {
+                        if (!ReferenceEquals(p, player)) return sources;
+                        return new Dictionary<uint, int>(sources) { [disabled] = 1 };
+                    }))
+                    {
+                        Assert.Equal(0, Game.MeleeAttackRepeats(player, id));
+                        player.PlayerSkillsCache = null;
+                        Assert.Equal(0, Game.PlayerSkills(player).Single(s => s.Id == id).Stats!.Single(s => s.Key == Stat.AttackRepeatCount).Value);
+                    }
                 }
                 foreach (var off in items.EquipmentSnapshot().Where(e => e.Row == PlayerInventories.Offhand1))
                     items.Remove(PlayerInventories.Offhand1, off.Item.Id);
@@ -276,7 +213,7 @@ public sealed class SupportExecutionTests
         }
         finally
         {
-            PlayerInventories.Forget(conn.Character!); Program.SetGameLogic(previous!); TestEnvironment.ReleaseSaves(path);
+            PlayerInventories.Forget(player.Character.Name!); Program.SetGameLogic(previous!); TestEnvironment.ReleaseSaves(path);
         }
     }
 

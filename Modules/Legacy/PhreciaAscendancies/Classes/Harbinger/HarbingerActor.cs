@@ -18,17 +18,17 @@ internal static class HarbingerActor
     internal static IReadOnlyList<GrantedSkill> Skills(HarbingerCompanionCatalog.Companion source, SkillCatalog skills) =>
         new[] { source.WarpEffect }.Concat(source.Buffs.Select(b => b.Effect))
             .Select(effect => skills.FindByRow(SkillId(source, skills, effect), effect, 1,
-                [.. skills.EffectStats(effect, 1), (StatKeys.SkillIsNonPathing, 1)]))
+                [.. skills.EffectStats(effect, 1), (Stat.SkillIsNonPathing, 1)]))
             .OfType<GrantedSkill>().ToArray();
 
     internal static IReadOnlyList<(uint Key, int Value)> Stats(HarbingerCompanionCatalog.Companion source,
         Func<string, uint?> key)
     {
         var stats = source.MinionStats.ToDictionary();
-        stats[StatKeys.MaximumLife] = 1;
-        foreach (string flag in new[] { "base_cannot_be_damaged", "base_cannot_be_stunned",
-            "untargetable_by_monster_ai", "is_player_minion", "is_semantic_minion" })
-            if (key(flag) is uint k) stats[k] = 1;
+        stats[Stat.MaximumLife] = 1;
+        foreach (uint flag in new[] { Stat.BaseCannotBeDamaged, Stat.BaseCannotBeStunned,
+            Stat.UntargetableByMonsterAi, Stat.IsPlayerMinion, Stat.IsSemanticMinion })
+            stats[flag] = 1;
         return [.. stats.Select(s => (s.Key, s.Value))];
     }
 

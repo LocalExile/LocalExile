@@ -270,7 +270,7 @@ public sealed partial class InstanceState
         lock (_transitioned) return transitioned ? _transitioned.Add((type, x, y)) : _transitioned.Remove((type, x, y));
     }
 
-    public uint? PlaceTutorialItem(string key, WorldItemObject item, ClientState recipient)
+    public uint? PlaceTutorialItem(string key, WorldItemObject item, Player recipient)
     {
         lock (_startWeapons)
         {
@@ -290,6 +290,8 @@ public sealed class InstanceGround
 {
     public const uint FirstItemId = 0x100000;
     readonly Dictionary<uint, WorldItemObject> _items = [];
+    // Where they lie, by grid cell: a pickup looks at the cells its radius covers, not at every item.
+    readonly AreaGrid _cells = new();
     uint _nextId = FirstItemId;
     long birthVersion;
     readonly Dictionary<uint, long> births = [];
@@ -314,6 +316,7 @@ public sealed class InstanceGround
         lock (_items)
         {
             _items[id] = item;
+            _cells.Set(new(id), (item.GridX, item.GridY));
             if (by is not null) _by[id] = by;
             if (!shared) _private.Add(id);
             births.Remove(id);
@@ -333,6 +336,7 @@ public sealed class InstanceGround
         {
             uint id = _nextId++;
             _items[id] = item;
+            _cells.Set(new(id), (item.GridX, item.GridY));
             if (justDropped) births[id] = ++birthVersion;
             if (by is not null) _by[id] = by;
             if (!shared) _private.Add(id);
@@ -373,6 +377,7 @@ public sealed class InstanceGround
         {
             if (expected is not null && !ReferenceEquals(_items.GetValueOrDefault(id), expected)) return null;
             if (!_items.Remove(id, out var item)) return null;
+            _cells.Remove(new(id));
             _by.Remove(id);
             _private.Remove(id);
             births.Remove(id);
@@ -385,12 +390,30 @@ public sealed class InstanceGround
         lock (_items) return [.. _items.Select(e => (e.Key, e.Value))];
     }
 
+    readonly List<EntityId> _nearScratch = [];
+
     /// <summary>The items of <paramref name="which"/> within <paramref name="range"/> cells (centre to centre) of a cell.</summary>
     public IReadOnlyList<(uint Id, WorldItemObject Item)> Within(int x, int y, double range, Func<WorldItemObject, bool> which)
     {
         lock (_items)
-            return [.. _items.Where(e => which(e.Value) && Math.Sqrt((double)(e.Value.GridX - x) * (e.Value.GridX - x)
-                + (double)(e.Value.GridY - y) * (e.Value.GridY - y)) <= range).Select(e => (e.Key, e.Value))];
+        {
+            if (_items.Count == 0) return [];
+            _nearScratch.Clear();
+            _cells.Near((x, y), (int)Math.Ceiling(range), _nearScratch);
+            if (_nearScratch.Count == 0) return [];
+            List<(uint Id, WorldItemObject Item)>? found = null;
+            double r2 = range * range;
+            for (int i = 0; i < _nearScratch.Count; i++)
+            {
+                uint id = _nearScratch[i].Value;
+                if (!_items.TryGetValue(id, out var item) || !which(item)) continue;
+                double dx = item.GridX - x, dy = item.GridY - y;
+                if (dx * dx + dy * dy <= r2) (found ??= []).Add((id, item));
+            }
+            if (found is null) return [];
+            if (found.Count > 1) found.Sort(static (a, b) => a.Id.CompareTo(b.Id));
+            return found;
+        }
     }
 }
 

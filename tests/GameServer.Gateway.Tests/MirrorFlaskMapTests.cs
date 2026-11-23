@@ -50,7 +50,7 @@ public class MirrorFlaskMapTests
         using var runtime = new PartyFollowerTests.Runtime();
         using var wire = new PartyFollowerTests.Wire();
         string name = "MirrorFlaskMap" + Guid.NewGuid().ToString("N");
-        var c = runtime.Connection(new(), wire, name);
+        var c = runtime.PlayerOf(new(), wire, name);
         var items = Game.ItemsOf(c);
         const byte main = PlayerInventories.MainInventory;
         uint inventory = PlayerInventories.InventoryId(main);
@@ -81,13 +81,13 @@ public class MirrorFlaskMapTests
                     BinaryPrimitives.WriteUInt32BigEndian(packet.AsSpan(6), inventory);
                     BinaryPrimitives.WriteUInt32BigEndian(packet.AsSpan(10), target.Id);
                 }
-                await Game.OnClientMessages("mirror-currency", wire.Stream, wire.Ciphers, [(id, packet)], [], c);
+                await Game.OnClientMessages([(id, packet)], [], c);
                 var held = Assert.Single(items.Items(PlayerInventories.Cursor));
                 Assert.NotEqual(target.Id, held.Id);
                 Assert.Equal(source with { Mirrored = true }, held.Item);
                 Assert.Equal(source, items.Items(main).Single(i => i.Id == target.Id).Item);
                 Assert.Equal(4 - index, items.Items(main).Single(i => i.Id == currency.Id).Item.StackSize);
-                await Game.OnClientMessages("mirror-occupied-cursor", wire.Stream, wire.Ciphers, [(id, packet)], [], c);
+                await Game.OnClientMessages([(id, packet)], [], c);
                 Assert.Equal(4 - index, items.Items(main).Single(i => i.Id == currency.Id).Item.StackSize);
                 Assert.Single(items.Items(PlayerInventories.Cursor));
                 items.Remove(PlayerInventories.Cursor, held.Id);

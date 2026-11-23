@@ -11,7 +11,7 @@ public class Act6SinTests
         using var registration = Quests.Register("sin-dialogue-test", QuestObjectsModule.Acts());
         var rules = Quests.For(new HashSet<string> { "sin-dialogue-test" });
         var appearance = Assert.Single(rules.AppearOnKill(area, Act6Monsters.Ryslatha));
-        var npc = Game.Npcs.Value.Find(appearance.NpcType)!;
+        var npc = Game.Npcs.Find(appearance.NpcType)!;
         var speaker = Game.AppearingNpc(area, appearance, npc, 10, 20);
         Assert.True(speaker.Present(rules, _ => false));
         speaker.Id = 42;

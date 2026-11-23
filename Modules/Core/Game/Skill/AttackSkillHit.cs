@@ -11,7 +11,7 @@ public static class AttackSkillHit
         // Damage modifiers and added attack damage keep the existing character-only inputs. Skill-owned damage
         // modifiers are not implemented in combat and must not become panel-only effects here.
         var Get = WeaponAttributeDamage.Read(WeaponAttributeDamage.Armed(weapon),
-            name => catalog.Key(name) is uint key ? character.GetValueOrDefault(key) : 0);
+            name => name is var key ? character.GetValueOrDefault(key) : 0);
         var raw = SpellDamage.WithEffectiveness(SupportedAttackDamage.Raw(weapon, Get, accuracy), effectiveness);
         // Match ConversionFor exactly: player keys win; level-only skill keys fill gaps, without quality conversion.
         var conversionInputs = new Dictionary<uint, int>(character);

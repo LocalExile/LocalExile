@@ -150,62 +150,61 @@ public static class CharacterVoiceLines
         NpcMeetFlags.TryGetValue(npcId, out var flag) ? flag : null;
 
     /// <summary>GameEvents.AreaGenerated: grants special area-entry voice-line flags (Act 4 mines, first Atlas map).</summary>
-    public static async Task OnAreaGenerated(ClientState conn)
+    public static async Task OnAreaGenerated(Player player)
     {
-        if (conn.Closed || conn.LeavingArea || !conn.PlayerSent) return;
-        string areaId = conn.Layout.Id;
-        bool isMap = Game.MapDevices.Value.IsMapArea(conn.Layout.Hash);
+        if (player.Closed || player.LeavingArea || !player.Connection.PlayerSent) return;
+        string areaId = player.Layout.Id;
+        bool isMap = Game.MapDevices.IsMapArea(player.Layout.Hash);
         if (FlagForAreaEntry(areaId, isMap) is { } flag)
-            await GrantAudioFlag(conn, flag);
+            await GrantAudioFlag(player, flag);
     }
 
     /// <summary>GameEvents.Kill: schedules boss-kill voice-line quest flags after the kill commits.</summary>
     public static void OnKill(KillContext kill)
     {
-        var conn = kill.Conn;
-        if (conn.Closed || conn.LeavingArea || !conn.PlayerSent) return;
-        string areaId = conn.Layout.Id;
+        var player = kill.Player;
+        if (player.Closed || player.LeavingArea || !player.Connection.PlayerSent) return;
+        string areaId = player.Layout.Id;
         var flags = FlagsForKill(areaId, kill.VarietyId);
         if (flags.Count == 0) return;
-        kill.Later(() => GrantKillFlags(conn, areaId, kill.VarietyId));
+        kill.Later(() => GrantKillFlags(player, areaId, kill.VarietyId));
     }
 
     /// <summary>Grants boss-kill voice-line quest flags (used by solo kills and party shared kills).</summary>
-    public static async Task GrantKillFlags(ClientState conn, string areaId, string varietyId)
+    public static async Task GrantKillFlags(Player player, string areaId, string varietyId)
     {
-        if (conn.Closed || conn.LeavingArea || !conn.PlayerSent) return;
+        if (player.Closed || player.LeavingArea || !player.Connection.PlayerSent) return;
         foreach (string flag in FlagsForKill(areaId, varietyId))
-            await GrantAudioFlag(conn, flag);
+            await GrantAudioFlag(player, flag);
     }
 
     /// <summary>Grants first-meeting NPC voice-line quest flags when the player opens dialogue with an NPC.</summary>
-    public static async Task OnNpcTalked(ClientState conn, string npcId)
+    public static async Task OnNpcTalked(Player player, string npcId)
     {
-        if (conn.Closed || conn.LeavingArea || !conn.PlayerSent) return;
+        if (player.Closed || player.LeavingArea || !player.Connection.PlayerSent) return;
         if (FlagForNpcMeet(npcId) is { } flag)
-            await GrantAudioFlag(conn, flag);
+            await GrantAudioFlag(player, flag);
     }
 
     /// <summary>Grants companion voice-line quest flags when a trigger quest flag is published (caller holds <c>QuestGate</c>).</summary>
-    public static async Task OnQuestFlagsPublishedHeld(ClientState conn, IReadOnlyList<string> effectiveFlags)
+    public static async Task OnQuestFlagsPublishedHeld(Player player, IReadOnlyList<string> effectiveFlags)
     {
-        if (conn.Closed || conn.LeavingArea || !conn.PlayerSent || effectiveFlags.Count == 0) return;
+        if (player.Closed || player.LeavingArea || !player.Connection.PlayerSent || effectiveFlags.Count == 0) return;
         foreach (string flag in effectiveFlags)
             if (CompanionQuestFlags.TryGetValue(flag, out var companion))
-                await GrantAudioFlag(conn, companion, gateHeld: true);
+                await GrantAudioFlag(player, companion, gateHeld: true);
     }
 
-    static async Task GrantAudioFlag(ClientState conn, string flag, bool gateHeld = false)
+    static async Task GrantAudioFlag(Player player, string flag, bool gateHeld = false)
     {
-        if (conn.Closed || conn.LeavingArea || !conn.PlayerSent) return;
-        if (conn.HasQuestFlag(flag)) return;
+        if (player.Closed || player.LeavingArea || !player.Connection.PlayerSent) return;
+        if (player.Character.HasQuestFlag(flag)) return;
         // Guard against missing/unknown tables in minimal test environments while still allowing valid flags.
-        var catalog = CharacterAudioCatalog.Default.Value;
+        var catalog = CharacterAudioCatalog.Default;
         if (catalog.All.Count > 0 && catalog.ByQuestFlag(flag) is null) return;
-        var (remote, stream, ciphers) = conn.Wire;
         if (gateHeld)
-            await Game.SetQuestFlagsHeld(remote, stream, ciphers, conn, [flag]);
+            await Game.SetQuestFlagsHeld(player, [flag]);
         else
-            await Game.SetQuestFlags(remote, stream, ciphers, conn, [flag]);
+            await Game.SetQuestFlags(player, [flag]);
     }
 }
