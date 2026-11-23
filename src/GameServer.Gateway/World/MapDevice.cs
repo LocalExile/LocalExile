@@ -146,9 +146,10 @@ public sealed class MapDevice
             MapRunCatalog.Load(folder), worldAreas, LoadUniqueMaps());
     }
 
-    /// <summary>UniqueMaps: each legendary map's name word (Words HASH32) to its WorldAreasKey. The level is the tier of
-    /// the Maps row whose Unique_WorldAreasKey is that area (Rewritten Distant Memory: tier 15, level 82, where its
-    /// WorldAreas level is 68), else the WorldAreas level. Names on more than one row (The Beachhead) keep the first.</summary>
+    /// <summary>UniqueMaps: each legendary map's name word (Words HASH32) to its WorldAreasKey. The level is the higher
+    /// of the Maps row's tier level (Rewritten Distant Memory: tier 15, level 82, where its WorldAreas level is 68) and
+    /// its WorldAreas level (Cortex: WorldAreas level 79, while its legacy Maps row is tier 4). Names on more than one
+    /// row (The Beachhead) keep the first as the fallback when the base itself does not name a tier.</summary>
     static Dictionary<uint, MapArea> LoadUniqueMaps()
     {
         var byWord = new Dictionary<uint, MapArea>();
@@ -164,11 +165,13 @@ public sealed class MapDevice
             if (unique.IntOrNull("WordsKey") is not int w || w < 0 || w >= words.Count
                 || unique.IntOrNull("WorldAreasKey") is not int area || area < 0 || area >= areas.Count) continue;
             var wa = areas[area];
+            int areaLevel = wa.Int("AreaLevel");
             int tier = tierOf.GetValueOrDefault(area);
+            int level = tier > 0 ? Math.Max(MapLevel(tier), areaLevel) : areaLevel;
             byWord.TryAdd(words[w].UInt("HASH32"), new MapArea((ushort)wa.Int("HASH16"), wa.Text("Id") ?? "",
                 unique.Text("Name") ?? wa.Text("Name") ?? "", tier)
             {
-                Level = tier > 0 ? MapLevel(tier) : wa.Int("AreaLevel"),
+                Level = level,
             });
         }
         return byWord;
@@ -287,9 +290,14 @@ public sealed class MapDevice
         if (maps.Count == 1)
         {
             // A legendary map opens its own area, whatever base it is built on (the tier-1 key, or a MapWorlds base
-            // whose regular area is the ordinary map's).
-            MapArea? area = maps[0].Rarity == ItemRarity.Unique ? UniqueAreaOf(maps[0].NameWords) : null;
-            area ??= AreaOf(maps[0].TypeHash);
+            // whose regular area is the ordinary map's). Keep a dedicated unique base (The Beachhead's mid/high bases)
+            // when it already points directly at a unique area.
+            MapArea? baseArea = AreaOf(maps[0].TypeHash);
+            MapArea? uniqueArea = maps[0].Rarity == ItemRarity.Unique ? UniqueAreaOf(maps[0].NameWords) : null;
+            MapArea? area = baseArea is not null && uniqueArea is not null
+                && string.Equals(baseArea.Name, uniqueArea.Name, StringComparison.Ordinal)
+                ? baseArea
+                : uniqueArea ?? baseArea;
             if (area is null && _atlas?.TierOf(maps[0].TypeHash) is int tier)
             {
                 if (_atlas.Selected(character) is { } layout)
