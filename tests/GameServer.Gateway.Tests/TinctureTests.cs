@@ -450,8 +450,8 @@ public class TinctureTests
             double fireDotBefore = Game.MonsterDotTaken(armored, DamageType.Fire, hitAt);
             Game.TinctureOnWeaponHitLocked(conn4, stats4, armored, targetLifeBefore: armored.MaxLife, now: hitAt, new Random(1));
             Assert.Equal(2, armored.Withered.Count);
-            Assert.Equal(hitAt + 4.0, armored.Ignites.Until, 6);
-            Assert.True(armored.CoveredInAshUntil >= hitAt + 4.0);
+            Assert.InRange(Math.Abs(armored.Ignites.Until - (hitAt + 4.0)), 0, 1e-6);
+            Assert.InRange(Math.Abs(armored.CoveredInAshUntil - (hitAt + 4.0)), 0, 1e-6);
             Assert.True(Game.MonsterDotTaken(armored, DamageType.Fire, hitAt) > fireDotBefore);
 
             // Nature's Concoction queued adjacent charges for slot 1 (adjacent to slot 0) and adjacent flask effect applies.
