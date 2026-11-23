@@ -104,6 +104,54 @@ public sealed class BloodMagicTests
         Assert.True(f.Player.PetrifiedBlood.ReservesLife);
         Assert.Equal(cost.LifePercent, f.Player.PetrifiedBlood.ManaPercent);
         Assert.True(Game.ReservedLife(f.Player) > 0);
+
+        // Refunded and allocated in the passive tree, which pauses the game: the paused frame carries the new maximum
+        // Life and Mana (0x1b3) and the Mana pool (0x1b1) at once, not at the resume.
+        var player = f.Player;
+        var area = player.Area;
+        var updates = new PlayerUpdatesState(f.Lifetime, new FixedSchedule());
+        player.PlayerUpdatesState = updates;
+        Assert.True(player.PlayerUpdatesWorker.TryStart(player, updates.Rules, null, updates, out updates.Generation));
+        await Program.BeginWorldFrames(player, Program.FrameMs / 1000d);
+        var stats = new List<(uint Key, int Value)>();
+        var sent = new List<byte[]>();
+        var written = AreaStats.Written;
+        var outgoing = Program.Outgoing;
+        AreaStats.Written = (a, entity, list) => { written?.Invoke(a, entity, list); if (entity == player.Id) stats.AddRange(list); };
+        Program.Outgoing = (p, bytes) => { outgoing?.Invoke(p, bytes); if (ReferenceEquals(p, player)) lock (sent) sent.Add(bytes.ToArray()); };
+        try
+        {
+            Game.StepPlayerStats(player);
+            area.Buffs.Publish(); area.Stats.Publish(); area.Life.Publish(); area.Delta.Take();
+            player.Clock.Stop();
+            foreach (bool allocated in new[] { false, true })
+            {
+                bloodMagic = allocated;
+                stats.Clear();
+                lock (sent) sent.Clear();
+                Game.RecomputePoolsAndSpeed(player);
+                await Game.SendCharacterStats(player, PlayerStatChange.Build);
+                await Game.SendPlayerMana(player);
+                Game.StepPlayerStats(player);
+                await player.Frames.EndPausedFrame(player);
+                Assert.Equal(allocated ? 0 : (int)player.Pools.Mana, stats.Last(s => s.Key == Stat.MaximumMana).Value);
+                Assert.Equal((int)player.Pools.Life, stats.Last(s => s.Key == Stat.MaximumLife).Value);
+                lock (sent)
+                {
+                    Assert.Contains(sent, p => p.AsSpan().SequenceEqual(InstanceEntities.StatsUpdate(player.Id, stats)));
+                    Assert.Contains(sent, p => p.AsSpan().SequenceEqual(InstanceProtocol.LifeUpdate(player.Id, player.PlayerMana,
+                        AreaLife.ReservedMana?.Invoke(player) ?? 0, AreaLife.ManaPool, orderKey: uint.MaxValue)));
+                }
+            }
+            Assert.Equal(0u, player.Pools.Mana);
+        }
+        finally { AreaStats.Written = written; Program.Outgoing = outgoing; }
+    }
+
+    sealed class FixedSchedule : IPlayerUpdateSchedule
+    {
+        public double Now(Player player) => 1;
+        public Task Wait(int milliseconds, CancellationToken stopping) => Task.CompletedTask;
     }
 
     // The Blood Magic keystone turns a skill's whole Mana cost into a Life cost: Tornado Shot's 9 Mana is paid as
