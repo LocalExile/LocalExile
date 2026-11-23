@@ -307,7 +307,10 @@ public static partial class Game
         foreach (var aura in player.Auras.Values.ToArray())
         {
             if (IsTemporaryAura(player, aura)) continue;
-            if (IsBlessing(SupportedSkill(player, aura.SkillId)))
+            var gem = SupportedSkill(player, aura.SkillId);
+            if (IsBlessing(gem) || IsBlessingSkill(gem) != IsBlessingAura(aura)
+                || AuraHasStat(aura, Stat.SkillAuraAlsoDisablesNonBlessingManaReservationSkills)
+                    != (gem.Stats.GetValueOrDefault(Stat.SkillAuraAlsoDisablesNonBlessingManaReservationSkills) != 0))
             {
                 CharacterSaves.SetAuraActive(CharacterName(player), aura.EffectId, false);
                 player.Auras.Remove(aura.SkillId); EndReservationRuntimeLocked(player, aura);
@@ -323,7 +326,6 @@ public static partial class Game
                 changed = true;
                 continue;
             }
-            var gem = SupportedSkill(player, aura.SkillId);
             var support = AuraSupport(player, aura.SkillId);
             var context = ReservationContext(player, aura.SkillId);
             string? stance = StanceCatalog.IsStance(aura.EffectId)

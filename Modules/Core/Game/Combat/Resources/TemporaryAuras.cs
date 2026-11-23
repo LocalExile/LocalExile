@@ -13,7 +13,7 @@ public static partial class Game
     }
     internal static readonly RuleTable<Player, TemporaryAuraState> TemporaryAuraStates = new();
 
-    internal static bool IsBlessing(SupportedGem skill) => GolemStat(skill.Stats, Stat.SkillIsBlessingSkill) != 0
+    internal static bool IsBlessing(SupportedGem skill) => IsBlessingSkill(skill)
         && GolemStat(skill.Stats, Stat.SupportAuraDurationBaseBuffDuration) > 0;
 
     internal static uint BlessingBaseCost(uint maximumMana, int flat, int percent, int added, decimal multiplier) =>
@@ -69,6 +69,7 @@ public static partial class Game
     {
         var source = SupportedSkill(player, id);
         var state = TemporaryAuraStates.GetOrCreateValue(player);
+        if (blessing) EndOtherBlessingsLocked(player);
         foreach (var (other, entry) in state.Active.ToArray())
             if (other == id || blessing && entry.Blessing || entry.Aura.EffectId == family)
                 RemoveTemporaryAura(player, state, other);

@@ -87,15 +87,21 @@ public static partial class Game
             ? StanceCatalog.RuntimeEffectId(id, player.Stance) : id).ToArray();
         var admitted = AuraCatalog.Restore(savedAdmissions, candidates, player.Pools, InTown(player));
         var restored = new List<AuraCatalog.Aura>();
-        foreach (var aura in admitted)
+        foreach (var aura in admitted.OrderByDescending(EternalBlessingAura))
         {
+            if (EternalBlessingDisables(player, aura.SkillId)
+                || IsBlessingAura(aura) && player.Auras.Values.Any(IsBlessingAura)) continue;
             player.Auras[aura.SkillId] = aura;
             if (!ReservationBudgetFits(player))
             {
                 player.Auras.Remove(aura.SkillId);
                 EndReservationRuntimeLocked(player, aura);
             }
-            else restored.Add(aura);
+            else
+            {
+                if (EternalBlessingAura(aura)) SuspendManaReservedAurasLocked(player);
+                restored.Add(aura);
+            }
         }
         if (restored.Count > 0)
         {

@@ -863,6 +863,9 @@ public static partial class Game
                 && curseSources.GetValueOrDefault(free) != 0) return new(0, 0, 0, 0);
         }
         if (sourceReservation is not { } reservation) return null;
+        if (gem.Stats.GetValueOrDefault(Stat.BaseSkillNoReservation) != 0
+            || gem.Stats.GetValueOrDefault(Stat.AuraSkillNoReservation) != 0)
+            return new(0, 0, 0, 0);
         var sources = StatSourceValues(player);
         int Own(uint name) => GolemStat(gem.Stats, name);
         int Get(uint name) => Own(name) + (name is var key

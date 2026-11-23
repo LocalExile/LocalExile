@@ -1057,6 +1057,7 @@ public static partial class Game
     {
         if (SkillsFor(player).EffectId(effect) is "AnimateGuardian" or "AnimateGuardianAltX"
             && AnimatedGuardianUnavailable(player)) return "the Animated Guardian died in this area";
+        if (EternalBlessingDisables(player, skillId)) return "Eternal Blessing disables mana reservations";
         // What it reads (the skill's gem, the stat sources, the stats) changes only with the skills (ActiveSkills).
         if (BuildScopeOf(player) is not { Building: true } && CurrentActiveSkills(player) is { } current)
         {
