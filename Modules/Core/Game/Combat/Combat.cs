@@ -3152,6 +3152,13 @@ public static partial class Game
         return new(m.Life, starts);
     }
 
+    // Keep the signature used by mods built against 0.6.0-beta.
+    public static Task NotifyMonsterHit(Player player, uint id, SpawnedMonster m,
+        MonsterHit hit, int damage, string by, bool log, bool melee, ushort sequence,
+        List<(uint Id, SpawnedMonster M)>? deaths, byte hitCode, StunHit? stun, bool critical, string? impactArt) =>
+        NotifyMonsterHit(player, id, m, hit, damage, by, log, melee, sequence, deaths, hitCode, stun, critical, impactArt,
+            knockback: null);
+
     public static Task NotifyMonsterHit(Player player, uint id, SpawnedMonster m,
         MonsterHit hit, int damage, string by, bool log = true, bool melee = false, ushort sequence = 0,
         List<(uint Id, SpawnedMonster M)>? deaths = null, byte hitCode = 0, StunHit? stun = null, bool critical = false, string? impactArt = null,
