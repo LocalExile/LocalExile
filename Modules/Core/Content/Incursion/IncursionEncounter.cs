@@ -1,3 +1,4 @@
+using System.Collections.Concurrent;
 using System.Runtime.CompilerServices;
 using GameServer.Core.Protocol.Instance;
 using PlayerWalk = GameServer.Core.World.PlayerWalk;
@@ -62,8 +63,11 @@ public sealed class IncursionEncounter
         public IncursionRoom? Room;
         public string RoomId = "";
         public readonly List<uint> RoomObjects = [];
-        public readonly Dictionary<uint, Treasure> Treasures = [];
-        public double Clock, EnteredAt;
+        /// <summary>The monsters a room being built has created so far, so a build that stops half way can take them back.</summary>
+        public readonly List<uint> Spawned = [];
+        /// <summary>Read by a click before it takes <see cref="Gate"/>, written under it.</summary>
+        public readonly ConcurrentDictionary<uint, Treasure> Treasures = [];
+        public double Clock, EnteredAt, EffectAt;
         /// <summary>The start delay is over and the timer is running.</summary>
         public bool Started;
         /// <summary>The room is being created: the start delay runs from the last create.</summary>
@@ -196,17 +200,23 @@ public sealed class IncursionEncounter
     /// left a run by dying is not in it any more.</summary>
     public async Task Entered(Player player)
     {
-        if (LiveOf(player) is not { } live) return;
+        // The flag is saved with the character (Quests.cs), so one left by a crash, a reload or a disconnect is cleared on the
+        // next entry, wherever it is, not only in an instance that has incursions.
+        if (LiveOf(player) is not { } live)
+        {
+            await SyncFlagOff(player);
+            return;
+        }
         lock (live.Inside) live.Inside.Remove(player);
         await SyncPlayer(player, live);
     }
 
-    /// <summary>A player leaves: their session flag goes with them, the incursions stay with the instance.</summary>
+    /// <summary>A player leaves: their flag goes with them, whether the instance still has incursions or not; the
+    /// incursions stay with the instance.</summary>
     public async Task Leaving(Player player)
     {
-        if (LiveOf(player) is not { } live) return;
-        lock (live.Inside) live.Inside.Remove(player);
-        if (ClientHasQuestFlag(player, OwnerFlag)) await SetQuestFlags(player, [OwnerFlag], false);
+        if (LiveOf(player) is { } live) lock (live.Inside) live.Inside.Remove(player);
+        await SyncFlagOff(player);
     }
 
     /// <summary>Alva, as an NPC of this player and the flag her option needs, while she stands out.</summary>
@@ -231,6 +241,7 @@ public sealed class IncursionEncounter
             live.Clock += seconds;
             var run = live.Run;
             double now = AreaTime(player);
+            if (live.Effect != 0 && live.Clock - live.EffectAt >= IncursionTables.EffectFrames * IncursionTables.FrameSeconds) await RemoveEffect(player, live);
             switch (run.Current)
             {
                 case IncursionRun.Stage.Hidden when run.Spot is { } spot:
@@ -256,19 +267,18 @@ public sealed class IncursionEncounter
             await Abandon(player, live);
             return;
         }
-        var inside = InsideClients(player, live);
         if (!live.Started)
         {
             if (live.Clock - live.EnteredAt < IncursionTables.StartDelayFrames * IncursionTables.FrameSeconds) return;
             live.Started = true;
-            run.ResendAll();
+            run.Begin();
         }
         else if (run.Tick(seconds))
         {
             await Finish(player, live);
             return;
         }
-        await SendProgress(inside, run);
+        await SendProgress(() => InsideClients(player, live), run);
     }
 
     List<Player> InsideClients(Player player, Live live)
@@ -306,10 +316,32 @@ public sealed class IncursionEncounter
         await SendWorldCreate(player, alva, () => InstanceEntities.CreateObject(alva, InstanceEntities.ObjectTypeHash(IncursionWire.AlvaType),
                 IncursionWire.AlvaBody(live.AlvaCell, [1, 0, 0])), $"Alva 0x{alva:x} at ({live.AlvaCell.X}, {live.AlvaCell.Y})", awaitBirth: false);
         live.Effect = player.TakeObjectId();
+        live.EffectAt = live.Clock;
         uint effect = live.Effect;
         await SendWorldCreate(player, effect, () => InstanceEntities.CreateObject(effect, InstanceEntities.ObjectTypeHash(IncursionWire.EffectType),
                 IncursionWire.EffectBody(live.AlvaCell, IncursionWire.TeleportAo)), $"Alva's arrival effect 0x{effect:x}", awaitBirth: false);
         foreach (var client in Clients(player)) await SyncPlayer(client, live);
+    }
+
+    /// <summary>The arrival effect is removed a moment after it appears, as the official server does [capture: 46 frames], so
+    /// that the area's object records do not replay it to a player who comes later.</summary>
+    static async Task RemoveEffect(Player player, Live live)
+    {
+        uint id = live.Effect;
+        live.Effect = 0;
+        if (id != 0) await SendWorldRemoval(player, id, $"Alva's arrival effect 0x{id:x} ends");
+    }
+
+    /// <summary>"View Temple" (NPCTalkCategory <c>ViewIncursionTemple</c>): the character's own temple plan opens in its panel
+    /// (0x223 state, then 0x7b kind 0x18) and Alva's options are listed again, as the capture's dialogue goes on after the
+    /// panel opens. Only Alva of this instance.</summary>
+    public async Task<bool> ViewTemple(Player player)
+    {
+        if (LiveOf(player) is not { } live || live.Alva == 0 || live.Alva != player.TalkingTo) return false;
+        if (await TempleFor(player, live.Run.Level) is not { } temple) return false;
+        await SendTempleUi(player, temple, open: true);
+        await Send(player, InstanceNpcs.Talk(player.TalkingTo), $"0x0084 npc 0x{player.TalkingTo:x}: options again (the temple panel is open)");
+        return true;
     }
 
     /// <summary>Alva's "Enter Incursion" (NPCTalkCategory <c>OpenIncursionPortal</c>, script
@@ -381,9 +413,12 @@ public sealed class IncursionEncounter
         if (run.Current == IncursionRun.Stage.Inside)
         {
             if (live.Building || !live.Started) return;
-            lock (live.Inside) live.Inside.Add(player);
+            // Someone already inside who clicks the portal by Alva is not teleported again.
+            lock (live.Inside) if (!live.Inside.Add(player)) return;
             await Place(player, live.Landing);
             run.ResendAll();
+            // The panel the run's start opened for the others.
+            if (live.Temple is { } running) await SendTempleUi(player, running, open: true, live.Pick);
             return;
         }
         if (run.Current != IncursionRun.Stage.Open) return;
@@ -391,11 +426,33 @@ public sealed class IncursionEncounter
         live.Started = false;
         live.Building = true;
         try { await Build(player, live); }
+        catch
+        {
+            // A build that stops before the run starts leaves nothing of itself behind: the portal stays open for the next click.
+            if (run.Current == IncursionRun.Stage.Open) await Rollback(player, live);
+            throw;
+        }
         finally
         {
             live.Building = false;
             live.EnteredAt = live.Clock;
         }
+    }
+
+    /// <summary>Takes back what a build created before its run started: its monsters, treasures and doors.</summary>
+    static async Task Rollback(Player player, Live live)
+    {
+        try
+        {
+            uint[] monsters;
+            lock (live.Spawned) { monsters = [.. live.Spawned]; live.Spawned.Clear(); }
+            await RemoveRoom(player, live, monsters);
+            await SendRemainingMonsters(player);
+        }
+        catch (Exception e) { Console.WriteLine($"[incursion] the build's rollback failed: {e.Message}"); }
+        live.Owner = null;
+        live.Pick = null;
+        lock (live.Inside) live.Inside.Clear();
     }
 
     /// <summary>The character's temple plan: the saved one, else one drawn from the character's name and saved at once.</summary>
@@ -495,14 +552,15 @@ public sealed class IncursionEncounter
         }
 
         // The captured order, in the frame of the teleport: the character to the telepad, the cursed treasures, the
-        // doors, the architects, the monsters. Treasures and doors are created awake (flag 2), so no 0x1a9 follows.
+        // doors, the architects, the monsters. Treasures and doors are created awake (flag 2), so no 0x1a9 follows; nothing
+        // follows them in this frame, so their creates do not wait for a birth.
         await Place(player, live.Landing);
         foreach (var offset in live.Room?.Chests ?? [])
         {
             if (Fit(offset) is not { } cell) continue;
             uint id = player.TakeObjectId();
             await SendWorldCreate(player, id, () => InstanceEntities.CreateObject(id, InstanceEntities.ObjectTypeHash(IncursionWire.TreasureType),
-                IncursionWire.TreasureBody(cell, 0f)), $"AlvaCursedTreasure 0x{id:x} at ({cell.X}, {cell.Y})");
+                IncursionWire.TreasureBody(cell, 0f)), $"AlvaCursedTreasure 0x{id:x} at ({cell.X}, {cell.Y})", awaitBirth: false);
             live.RoomObjects.Add(id);
             live.Treasures[id] = new Treasure { Cell = cell };
         }
@@ -518,17 +576,46 @@ public sealed class IncursionEncounter
                     IncursionWire.DoorBody(cell, rotation)), $"ClosedDoorPast 0x{id:x} at ({cell.X}, {cell.Y})", awaitBirth: false);
                 live.RoomObjects.Add(id);
             }
+        // The monsters go in as an area's population does (Monsters.PopulateArea): created in bulk, a lockstep client's together
+        // so they share frames, and the overlay's count waits for the last of them.
+        uint[] made;
+        lock (live.Spawned) live.Spawned.Clear();
+        using (HoldMonstersRemaining(player))
+        {
+            async Task<uint> Spawn((MonsterCatalog.Variety Variety, MonsterRarity Rarity, (int X, int Y) Cell, bool Architect, int Row) m)
+            {
+                uint id = await SpawnMonster(player, m.Variety, (byte)level, m.Rarity, m.Cell.X, m.Cell.Y, log: false, alone: false, bulk: true);
+                if (id != 0) lock (live.Spawned) live.Spawned.Add(id);
+                return id;
+            }
+            if (player.Connection.LockstepClient) made = await Task.WhenAll(chosen.Select(Spawn).ToList());
+            else
+            {
+                made = new uint[chosen.Count];
+                for (int i = 0; i < chosen.Count; i++) made[i] = await Spawn(chosen[i]);
+            }
+        }
+        await SendRemainingMonsters(player);
+        // A monster that could not be created means the connection is going: the room is taken back, the portal stays open.
+        if (made.Any(id => id == 0))
+        {
+            await Rollback(player, live);
+            return;
+        }
         var ids = new List<uint>();
         var architectRows = new Dictionary<uint, int>();
-        foreach (var (variety, rarity, cell, architect, row) in chosen)
+        for (int i = 0; i < chosen.Count; i++)
         {
-            uint id = await SpawnMonster(player, variety, (byte)level, rarity, cell.X, cell.Y, log: false, alone: false);
-            if (id == 0) break;
-            ids.Add(id);
-            if (architect) architectRows[id] = row;
+            ids.Add(made[i]);
+            if (chosen[i].Architect) architectRows[made[i]] = chosen[i].Row;
         }
         lock (live.Inside) { live.Inside.Clear(); live.Inside.Add(player); }
-        run.Start(ids, architectRows, IncursionTables.StartSeconds(level));
+        if (!run.Start(ids, architectRows, IncursionTables.StartSeconds(level)))
+        {
+            await Rollback(player, live);
+            return;
+        }
+        lock (live.Spawned) live.Spawned.Clear();
         Console.WriteLine($"[incursion] {CharacterName(player)} in {layout.Id}: {live.RoomId} {live.Room?.ToString() ?? "(no room file)"}, "
             + $"{run.Total} monster(s), {architectRows.Count} architect(s), {live.Treasures.Count} cursed treasure(s), level {level}");
         // The temple panel opens at the run's start: the state, then the panel [capture 4/4].
@@ -552,7 +639,10 @@ public sealed class IncursionEncounter
     /// <summary>A click on a cursed treasure: 8 seconds off the clock and the chest's three component updates [capture].</summary>
     async Task OpenTreasure(Player player, Live live, uint target)
     {
-        if (!live.Treasures.TryGetValue(target, out var treasure) || treasure.Opened || !live.Run.Cost(IncursionTables.TreasureCostSeconds)) return;
+        // Not while the start delay runs, and not once the clock is at 0 (IncursionRun.Cost); under the gate, so a build or the
+        // end cannot change the room between the check and the cost.
+        if (!live.Started || !live.Treasures.TryGetValue(target, out var treasure) || treasure.Opened
+            || !live.Run.Cost(IncursionTables.TreasureCostSeconds)) return;
         treasure.Opened = true;
         await Component(player, target, InstanceEntities.TransitionableUpdate(target, IncursionWire.TreasureTransitionable, 2), "cursed treasure transitionable 2");
         await Component(player, target, InstanceEntities.ComponentUpdate(target, IncursionWire.TreasureInteraction, [0]), "cursed treasure interaction 0");
@@ -569,21 +659,23 @@ public sealed class IncursionEncounter
     {
         var run = live.Run;
         var inside = InsideClients(player, live);
-        await SendProgress(inside, run);
+        await SendProgress(() => inside, run);
         await Return(player, live, inside);
         var temple = live.Temple;
         var killed = run.KilledArchitects;
         var leftovers = run.Finish();
         await RemoveRoom(player, live, leftovers);
-        if (temple is not null && live.Owner is { } owner && Clients(player).Contains(owner))
+        if (temple is not null)
         {
-            if (live.Pick is { } pick)
+            if (live.Pick is { } pick && live.Owner is { } owner && Clients(player).Contains(owner))
             {
                 temple.Apply(pick, killed, run.Level);
                 await Save(owner, temple);
             }
+            // The panel closes for everyone inside, whether or not the owner is still here to be given the outcome.
             await SendTempleUi(inside, temple, open: false);
         }
+        if (live.Effect != 0) await RemoveEffect(player, live);
         await Component(player, live.Alva, InstanceEntities.StateMachineUpdate(live.Alva, IncursionWire.AlvaStateMachine, new StateMachineData([2, 1, 0], 0)), "Alva lookat 2");
         await Component(player, live.Portal, InstanceEntities.TransitionableUpdate(live.Portal, IncursionWire.PortalTransitionable, 3), "IncursionPortal1 transitionable 3");
         foreach (var client in Clients(player)) { lock (client.Npcs) client.Npcs.Remove(live.Alva); await SyncFlagOff(client); }
@@ -669,12 +761,16 @@ public sealed class IncursionEncounter
 
     /// <summary>0x163 for the second that changed and 0x164 when a kill moved the bar: the room's kills over its monsters,
     /// the architects excluded.</summary>
-    static async Task SendProgress(IEnumerable<Player> players, IncursionRun run)
+    static async Task SendProgress(Func<List<Player>> players, IncursionRun run)
     {
-        var list = players.ToList();
-        await SendTimer(list, run.SecondsToSend());
-        if (run.ProgressToSend() is not { } fraction) return;
-        foreach (var player in list) await Send(player, IncursionWire.Progress(fraction), $"0x0164 Incursion progress {run.Killed}/{run.Total}");
+        // Most ticks change neither: then nobody is looked up.
+        int? seconds = run.SecondsToSend();
+        float? fraction = run.ProgressToSend();
+        if (seconds is null && fraction is null) return;
+        var list = players();
+        await SendTimer(list, seconds);
+        if (fraction is not { } bar) return;
+        foreach (var player in list) await Send(player, IncursionWire.Progress(bar), $"0x0164 Incursion progress {run.Killed}/{run.Total}");
     }
 
     static Task Component(Player player, uint id, byte[] bytes, string what) =>

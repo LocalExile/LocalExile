@@ -31,6 +31,8 @@ public sealed class IncursionModule : IModule
         // whose script ends the chat (FinishNPCChat) before the portal opens. Only the instance's own Alva.
         GameEvents.NpcOption.Add(id, async talk =>
         {
+            // "View Temple" (ViewIncursionTemple) opens the character's temple plan; its script is a ruleset event, not a chat end.
+            if (talk.Category == "ViewIncursionTemple") return await encounter.ViewTemple(talk.Player);
             if (talk.Category != "OpenIncursionPortal") return false;
             var player = talk.Player;
             uint alva = encounter.AlvaOf(player);
