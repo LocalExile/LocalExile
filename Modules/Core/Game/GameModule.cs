@@ -260,6 +260,11 @@ public sealed class GameModule : IModule, IDisposable
         GameEvents.AreaTick.Add(id, GameEvents.Always((player, _) => global::Hierophant.Tick(player)));
         GameEvents.PlayerStatSources.Add(module.Manifest.Id, global::Hierophant.PlayerStats);
         GameEvents.PlayerLeaving.Add(id, (player, _) => global::Hierophant.Leaving(player));
+        GameEvents.Packet(InstanceEntities.ResetAllPassivesId).Add(module.Manifest.Id, async (player, _) =>
+        {
+            await Rules.ResetPassivesFree(player);
+            return true;
+        });
         GameEvents.PlayerLeaving.Add(id, (player, _) => global::BrineKing.Leaving(player));
         GameEvents.CompanionTick.Add(id, Rules.TickBrands);
         GameEvents.PlayerStatSources.Add(id, Rules.BrandPlayerStats);

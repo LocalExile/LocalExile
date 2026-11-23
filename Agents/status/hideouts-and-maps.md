@@ -60,13 +60,19 @@ Part of [Status](../Status.md); what to build next in this area is in
   `/atlas <layout>`), and a restarted Gateway reads it back instead of resetting to the starting node (#382). Generic
   maps use their tier as the area level (tier + 67). Layouts marked for a specific item require their designated map key or named map, and special map keys are refused on ordinary layouts.
   Atlas progress (2026-11-01): killing the map's final WorldAreas boss completes its AtlasNode, saved per
-  character; S→C 0x1a4 and one chat line mark it the first time only. Area entry sends one 0x1a3 (both masks still include all on-Atlas rows) with the 0x3d
-  presets, before 0x21, so login does not announce every saved map. A completion re-sends that 0x1a3 right after the
-  0x1a4, so both panels draw the new mark. Map-device rarity and corruption qualify a separate, one-time passive point
-  and objective count ([21](../docs/protocol/21-hideouts.md)).
+  character; S→C 0x1a4 and one chat line mark it the first time only. Area entry sends one 0x1a3 carrying saved completed
+  maps in the revealed mask and bonus-completed maps in the bonus mask so uncompleted maps stay fogged and uncounted,
+  along with the 0x3d presets and 0x3c tree names before 0x21, so login does not announce every saved map. First map
+  completion also grants league quest flag 295 (`CompletedMap`) so the Atlas opens zoomed out to scale 0.5. A completion
+  re-sends 0x1a3 right after 0x1a4 so the Atlas and portal labels update without an area change. Map-device rarity and
+  corruption qualify a separate, one-time passive point and objective count ([21](../docs/protocol/21-hideouts.md)).
+  Atlas passive gold respec (C→S 0x3f gold flag and 0x40 Refund All via Kirac's Atlas Respecialisation), preset
+  renaming (C→S 0x2a7 / S→C 0x3c), one-off free resets (0x3d bit 0 / C→S 0x41) and 0x129 → 0x91 replies are wired.
+  Map device activations forward eligible primordial boss options (C→S 0xd8 index) to `map_atlas_primordial_boss_influence`
+  and handle Memory Line (C→S 0x297) and Maven Invitation (C→S 0x298) receptacles.
   `/atlas_complete <map | all>` and `/atlas_reset` (dev).
   Live: 0x1a4 for Chateau showed it completed and opened Springs and Arachnid Nest; a native Beach boss kill also sent
-  the completion and refreshed the Atlas state. The bonus-objective UI mask, Voidstones, map stash placement and official drop pools remain open.
+  the completion and refreshed the Atlas state. Voidstones, map stash placement and official drop pools remain open.
   Code: `AtlasCatalog.cs`, `AtlasPassives.cs`, `AtlasProgress.cs`, `MapDevice.cs`, `ItemDrops.cs`, `InstanceItems.cs`.
   Docs: [21](../docs/protocol/21-hideouts.md), [re/013](../docs/re/013-atlas-progress.md), [maps](../docs/game/maps.md), [05](../docs/protocol/05-inventories-and-ui.md).
 - Portal Scroll and the Portal skill (its 2.5 s cast): outside towns and hideouts a portal opens beside the player,
@@ -240,6 +246,8 @@ Part of [Status](../Status.md); what to build next in this area is in
   their NPCs (Einhar, Divinia, the Kingsmarch villagers, the Heist crew, Ailith; Einhar also in every hideout).
   The hub waypoints stay unlit (client area-type rule).
   The upper hub entrance now reaches an initial Delve_Main mine section and its return gate leads back to the hub.
+  Delve_Main emits the 0x1d return-area hash (flag byte 0 bit 0x08) and handles C→S 0x186 (Return to World).
+  Owned hideouts emit 0x1d flag byte 1 bit 0x80 for hideout permissions.
   Native entry, ordinary walking and return were verified; see the initial terrain block below.
   Account checkpoint progression is implemented; physical terrain and encounter limitations are described below.
   See [16](../docs/protocol/16-waypoints.md) §4.

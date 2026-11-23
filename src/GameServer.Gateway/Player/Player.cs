@@ -851,6 +851,8 @@ public sealed partial class Player(AreaLayout layout, uint ticket, uint seed) : 
     /// <summary>The area the player left through an exit to come here, or null (login, Resurrect in Town).</summary>
     public ushort? CameFrom { get; init; }
     public int? ArrivalEntrance { get; init; }
+    /// <summary>Optional return area WorldAreas HASH16 emitted in S→C 0x1d (flags byte 0 bit 0x08), set by a module during AreaHeader.</summary>
+    public ushort? ReturnAreaHash;
     /// <summary>The instance's game time (InstanceWorld.Clock), shared with everyone in it.</summary>
     public System.Diagnostics.Stopwatch Clock => Instance?.World.Clock ?? ownClock;
     readonly System.Diagnostics.Stopwatch ownClock = System.Diagnostics.Stopwatch.StartNew();
