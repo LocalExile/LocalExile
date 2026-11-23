@@ -90,42 +90,48 @@ static partial class Game
     sealed class EssenceDrainLoss { public double Fraction; }
     static readonly RuleTable<Player, EssenceDrainLoss> EssenceDrainLosses = new();
 
-    static void CreditEssenceDrainLossLocked(Player runner, Player? caster, double amount)
+    static (int? DeathEpoch, bool EsSpent) CreditEssenceDrainLossLocked(Player runner, Player? caster, double amount)
     {
-        if (!(amount > 0) || DotOwner(runner, caster) is not { } owner) return;
+        if (!(amount > 0) || DotOwner(runner, caster) is not { } owner) return (null, false);
         if (ReferenceEquals(runner, owner))
-        {
-            ApplyEssenceDrainLossLocked(owner, amount);
-            return;
-        }
+            return ApplyEssenceDrainLossLocked(owner, amount);
         var instance = owner.Instance;
         int epoch = owner.ProjectileEpoch;
-        owner.KillShares.Enqueue(_ =>
+        owner.KillShares.Enqueue(async _ =>
         {
+            int? deathEpoch = null;
+            bool esSpent = false;
             using (ProjectileMutation(owner))
                 if (owner.ProjectileActive(epoch) && ReferenceEquals(owner.Instance, instance))
-                    ApplyEssenceDrainLossLocked(owner, amount);
-            return Task.CompletedTask;
+                    (deathEpoch, esSpent) = ApplyEssenceDrainLossLocked(owner, amount);
+            if (deathEpoch is int lethalEpoch)
+                await PlayerDiedAtEpoch(owner, "0x0055 Essence Drain life loss", lethalEpoch,
+                    deathKind: InstanceProtocol.DeathKindDegen);
+            if (esSpent || deathEpoch is not null)
+                await SendPlayerEnergyShield(owner);
         });
+        return (null, false);
     }
 
-    static void ApplyEssenceDrainLossLocked(Player player, double amount)
+    static (int? DeathEpoch, bool EsSpent) ApplyEssenceDrainLossLocked(Player player, double amount)
     {
-        if (player.Closed || player.LeavingArea || player.PlayerLife == 0) return;
+        if (player.Closed || player.LeavingArea || player.PlayerLife == 0 || HardcoreProgressBlocked(player)) return (null, false);
         var loss = EssenceDrainLosses.GetOrCreateValue(player);
         double total = loss.Fraction + amount;
         double whole = Math.Floor(total);
         loss.Fraction = total - whole;
-        if (whole <= 0) return;
+        if (whole <= 0) return (null, false);
         uint spend = (uint)Math.Min(uint.MaxValue, whole);
         player.PlayerLife = VaalImmortalCallLife(player, player.PlayerLife - Math.Min(spend, player.PlayerLife), AreaTime(player));
-        player.EnergyShield.Spend(Math.Min(spend, player.EnergyShield.Current));
+        uint esSpend = Math.Min(spend, player.EnergyShield.Current);
+        if (esSpend > 0) player.EnergyShield.Spend(esSpend);
         TrimLeechLocked(player);
-        if (player.PlayerLife != 0) return;
+        if (player.PlayerLife != 0) return (null, esSpend > 0);
         player.InvalidateIncomingHits();
         ClearAntiquarianOnDeath(player);
         RecordHardcoreDeath(player);
         loss.Fraction = 0;
+        return (player.IncomingHitEpoch, esSpend > 0);
     }
 
     internal static async Task TickEssenceDrains(Player player)
@@ -133,6 +139,8 @@ static partial class Game
         if (!MonsterEssenceDrain.AnyApplied) return;
         var hits = new List<(uint Id, SpawnedMonster M, uint Life, int Damage, Player? Owner)>();
         double leeched = 0;
+        int? runnerDeathEpoch = null;
+        bool runnerEsSpent = false;
         using (ProjectileMutation(player))
         {
             if (player.Closed || player.LeavingArea) return;
@@ -185,10 +193,19 @@ static partial class Game
                 {
                     if (losses is null || applied <= 0) return;
                     foreach (var (cast, actual) in losses)
-                        CreditEssenceDrainLossLocked(player, cast.Caster, actual * applied * cast.LossPermyriad / 10_000d);
+                    {
+                        var (deathEpoch, esSpent) = CreditEssenceDrainLossLocked(player, cast.Caster, actual * applied * cast.LossPermyriad / 10_000d);
+                        if (deathEpoch is int lethal) runnerDeathEpoch = lethal;
+                        runnerEsSpent |= esSpent;
+                    }
                 }
             }
         }
+        if (runnerDeathEpoch is int runnerLethalEpoch)
+            await PlayerDiedAtEpoch(player, "0x0055 Essence Drain life loss", runnerLethalEpoch,
+                deathKind: InstanceProtocol.DeathKindDegen);
+        if (runnerEsSpent || runnerDeathEpoch is not null)
+            await SendPlayerEnergyShield(player);
         foreach (var (id, m, life, damage, owner) in hits)
         {
             if (life == 0)

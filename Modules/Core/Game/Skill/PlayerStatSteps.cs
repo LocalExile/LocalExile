@@ -187,8 +187,8 @@ public static partial class Game
         });
         Step(PlayerStatStep.SelfVulnerability, (player, stats, _) =>
         {
-            AddSelfVulnerabilityStats(player, stats);
-            AddMapHexStats(player, MapModsOf(player), stats);
+            var selfVulnerability = AddSelfVulnerabilityStats(player, stats);
+            AddMapHexStats(player, MapModsOf(player), stats, existingVulnerability: selfVulnerability);
         });
         Step(PlayerStatStep.Onslaught, (player, stats, _) =>
         {

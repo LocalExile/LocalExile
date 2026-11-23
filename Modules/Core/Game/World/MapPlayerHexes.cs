@@ -14,8 +14,13 @@ public static partial class Game
 
     static bool HasMapHexes(MapMods? map) => map is not null && MapHexes.Any(hex => map.Get(hex.Level) > 0);
 
+    static bool IsResistanceRecipientStat(uint key) => key is Stat.BaseResistAllElementsPct
+        or Stat.BaseFireDamageResistancePct or Stat.BaseColdDamageResistancePct
+        or Stat.BaseLightningDamageResistancePct or Stat.BaseChaosDamageResistancePct;
+
     static void AddMapHexStats(Player player, MapMods? map, StatMap stats,
-        IReadOnlyList<AuraCatalog.Aura>? auras = null, int extraCurseEffect = 0)
+        IReadOnlyList<AuraCatalog.Aura>? auras = null, int extraCurseEffect = 0,
+        bool includeResistances = false, IReadOnlyDictionary<uint, int>? existingVulnerability = null)
     {
         if (map is null || !HasMapHexes(map)) return;
         int Get(uint key) => stats.GetValueOrDefault(key);
@@ -37,6 +42,7 @@ public static partial class Game
             int level = map.Get(source);
             if (level <= 0) continue;
             stats[flag] = 1;
+            if (name == "Vulnerability") stats[Stat.CursedByVulnerability] = 1;
             if (effect == 0 || name == "Vulnerability" && (Get(Stat.VirtualUnaffectedByVulnerability) != 0
                 || Get(Stat.UnaffectedByVulnerabilityWhileAffectedByDetermination) != 0
                     && HasAura("Determination"))) continue;
@@ -46,8 +52,15 @@ public static partial class Game
             int againstPlayers = native.FirstOrDefault(row => row.Item1 == Stat.CurseEffectPlusPctFinalVsPlayers).Item2;
             double factor = effect * Math.Max(0, 1 + againstPlayers / 100.0);
             foreach (var (key, value) in native)
-                if (CurseRecipientStats.Contains(key))
-                    stats[key] = ActorScale.Saturate((long)Get(key) + (long)(value * factor));
+            {
+                if (!CurseRecipientStats.Contains(key) || !includeResistances && IsResistanceRecipientStat(key)) continue;
+                long contribution = (long)(value * factor);
+                if (name == "Vulnerability" && existingVulnerability is not null
+                    && existingVulnerability.TryGetValue(key, out int existing))
+                    contribution = contribution >= 0 ? Math.Max(0, contribution - existing) : Math.Min(0, contribution - existing);
+                if (contribution != 0)
+                    stats[key] = ActorScale.Saturate((long)Get(key) + contribution);
+            }
         }
     }
 }

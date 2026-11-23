@@ -27,28 +27,36 @@ public static partial class Game
     static void RememberCursedCorpse(Player player, uint id, SpawnedMonster corpse)
     {
         if (!corpse.CorpseConsumed && corpse.Curses.All.Values.Any(c => c.RemainsOnDeath))
-            CursedCorpsesOf(player.Area)[id] = corpse;
+        {
+            var corpses = CursedCorpsesOf(player.Area);
+            lock (corpses) corpses[id] = corpse;
+        }
     }
 
-    static IEnumerable<(uint Id, (int X, int Y) At)> OwnCursedCorpses(Player player, double now, SpawnedMonster? except = null)
+    static List<(uint Id, (int X, int Y) At)> OwnCursedCorpses(Player player, double now, SpawnedMonster? except = null)
     {
         var area = player.Area;
         var corpses = CursedCorpsesOf(area);
-        List<uint>? expired = null;
-        foreach (var (id, corpse) in corpses)
+        var result = new List<(uint Id, (int X, int Y) At)>();
+        lock (corpses)
         {
-            if (corpse.CorpseConsumed || !ReferenceEquals(area.Monsters.GetValueOrDefault(id), corpse)
-                || !corpse.Curses.All.Values.Any(c => c.RemainsOnDeath && c.Until > now))
+            List<uint>? expired = null;
+            foreach (var (id, corpse) in corpses)
             {
-                (expired ??= []).Add(id);
-                continue;
+                if (corpse.CorpseConsumed || !ReferenceEquals(area.Monsters.GetValueOrDefault(id), corpse)
+                    || !corpse.Curses.All.Values.Any(c => c.RemainsOnDeath && c.Until > now))
+                {
+                    (expired ??= []).Add(id);
+                    continue;
+                }
+                if (!ReferenceEquals(corpse, except) && corpse.Curses.All.Values.Any(c => c.Caster == player.Id
+                        && c.RemainsOnDeath && c.Until > now))
+                    result.Add((id, corpse.Walk.Position(now)));
             }
-            if (!ReferenceEquals(corpse, except) && corpse.Curses.All.Values.Any(c => c.Caster == player.Id
-                    && c.RemainsOnDeath && c.Until > now))
-                yield return (id, corpse.Walk.Position(now));
+            if (expired is not null)
+                foreach (uint id in expired) corpses.Remove(id);
         }
-        if (expired is not null)
-            foreach (uint id in expired) corpses.Remove(id);
+        return result;
     }
 
     public readonly record struct KillEquipmentSnapshot(int CursedCorpsePhysicalPct, int PrideChance, int CursedVictimChaosChance);

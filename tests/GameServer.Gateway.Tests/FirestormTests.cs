@@ -1,4 +1,5 @@
 using GameServer.Core.Projectiles;
+using GameServer.Core.Protocol.Instance;
 
 namespace GameServer.Gateway.Tests;
 
@@ -71,6 +72,78 @@ public sealed class FirestormTests
             Assert.True(await Game.CastGemSkill(conn, manual, (100, 100), (100, 100)));
             await Advance(3.5);
             Assert.True(TotalLife() < afterStorm);
+        }
+        finally { Game.AreaUpdateContext.Value = previous; }
+    }
+
+    [Fact]
+    public async Task Map_hexes_do_not_double_apply_resistances_or_vulnerability_and_essence_drain_loss_kills_cleanly()
+    {
+        using var fixture = new TriggeredSummonTests.Fixture();
+        var conn = fixture.Player;
+        conn.Clock.Restart();
+        var clock = new HitClock();
+        var previous = Game.AreaUpdateContext.Value;
+        Game.AreaUpdateContext.Value = new(fixture.Lifetime, clock);
+        try
+        {
+            var basePools = Game.PoolsFor(conn, conn.Pools.Level);
+            var beltType = Program.Items.Find("Chain Belt")!;
+            var selfCurseMod = Program.Items.Mods.ById("UniqueSelfCurseVulnerabilityLevel20")!;
+            var belt = ItemCatalog.Create(beltType) with
+            {
+                Rarity = ItemRarity.Unique,
+                Mods = [new ItemMod(ModSection.Explicit, selfCurseMod.Hash, [20])],
+            };
+            Game.ItemsOf(conn).Put(PlayerInventories.Belt, new(2, 0, 0, belt));
+            var selfOnly = Game.FinalPlayerStats(conn).ToDictionary(kv => kv.Item1, kv => kv.Item2);
+            int selfPhysTaken = selfOnly[Stat.PhysicalDamageTakenPlusPct];
+            int selfBleedChance = selfOnly[Stat.ReceiveBleedingChancePctWhenHitByAttack];
+            Assert.True(selfPhysTaken > 0 && selfBleedChance > 0);
+            Game.ItemsOf(conn).Remove(PlayerInventories.Belt, 2);
+
+            var hexMods = new MapMods(new Dictionary<uint, int>
+            {
+                [Stat.MapPlayerHasLevelXElementalWeakness] = 15,
+                [Stat.MapPlayerHasLevelXVulnerability] = 15,
+            });
+            conn.Instance.OpenedWith(new("HexOwner", new(conn.Layout.Hash, "HexTest", "HexTest", 1) { Level = 70 }, hexMods));
+            conn.Pools = Game.PoolsFor(conn, conn.Pools.Level);
+
+            Assert.True(conn.Pools.FireResistance < basePools.FireResistance);
+            Assert.True(conn.Pools.ColdResistance < basePools.ColdResistance);
+            Assert.True(conn.Pools.LightningResistance < basePools.LightningResistance);
+            var wire = Game.ClientStats(conn, Game.FinalPlayerStats(conn).ToList()).ToDictionary(kv => kv.Item1, kv => kv.Item2);
+            Assert.Equal(0, wire.GetValueOrDefault(Stat.BaseResistAllElementsPct));
+            Assert.Equal(conn.Pools.FireResistance, wire[Stat.BaseFireDamageResistancePct]);
+            Assert.Equal(1, wire.GetValueOrDefault(Stat.YouAreCursedWithVulnerability));
+            Assert.Equal(1, wire.GetValueOrDefault(Stat.CursedByVulnerability));
+            int mapPhysTaken = wire[Stat.PhysicalDamageTakenPlusPct];
+            int mapBleedChance = wire[Stat.ReceiveBleedingChancePctWhenHitByAttack];
+            Assert.True(mapPhysTaken > 0 && mapBleedChance > 0);
+
+            Game.ItemsOf(conn).Put(PlayerInventories.Belt, new(2, 0, 0, belt));
+            var combined = Game.FinalPlayerStats(conn).ToDictionary(kv => kv.Item1, kv => kv.Item2);
+            Assert.Equal(1, combined.GetValueOrDefault(Stat.CursedByVulnerability));
+            Assert.Equal(1, combined.GetValueOrDefault(Stat.YouAreCursedWithVulnerability));
+            Assert.Equal(Math.Max(mapPhysTaken, selfPhysTaken), combined[Stat.PhysicalDamageTakenPlusPct]);
+            Assert.Equal(Math.Max(mapBleedChance, selfBleedChance), combined[Stat.ReceiveBleedingChancePctWhenHitByAttack]);
+
+            conn.PlayerLife = 10;
+            conn.EnergyShield.SetMaximum(50, refill: true);
+            conn.ChannelSkill = 42;
+            conn.ProjectileRuntimeState = fixture.Session;
+            var victim = new SpawnedMonster("desperation target", new(110, 100, 0), 0, 0, 10000);
+            conn.Area.Monsters[300] = victim;
+            double started = Game.ProjectileWorldTime(conn);
+            victim.EssenceDrain.Apply(started, new(500, 5, 0, 0, conn) { LossPermyriad = 10_000 });
+            clock.At = 0.2;
+            fixture.Session.AdvanceTo(ProjectileRuntime.Time(0.2));
+            await Game.TickEssenceDrains(conn);
+            Assert.Equal(0u, conn.PlayerLife);
+            Assert.Equal(0u, conn.EnergyShield.Current);
+            Assert.Equal(0, conn.ChannelSkill);
+            Assert.True(conn.DeathNotificationEpoch > 0 && conn.DeathNotificationEpoch == conn.IncomingHitEpoch);
         }
         finally { Game.AreaUpdateContext.Value = previous; }
     }

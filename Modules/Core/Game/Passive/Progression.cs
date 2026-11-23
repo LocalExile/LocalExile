@@ -1173,7 +1173,7 @@ public static partial class Game
             int actionBefore = Get(Stat.TemporalChainsActionSpeedPlusPctFinal);
             int curseEffect = utilityStats.Concat(player.FlaskGrounds.PlayerStats())
                 .Where(row => row.Stat == Stat.CurseEffectOnSelfPlusPct).Sum(row => row.Value);
-            AddMapHexStats(player, hexMap, new PlainStatMap(resistanceSources), auras, curseEffect);
+            AddMapHexStats(player, hexMap, new PlainStatMap(resistanceSources), auras, curseEffect, includeResistances: true);
             int all = Get(Stat.BaseResistAllElementsPct) - allBefore;
             bonus = bonus with
             {
