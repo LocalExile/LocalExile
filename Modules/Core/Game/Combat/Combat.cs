@@ -3649,14 +3649,14 @@ public static partial class Game
             int mapTier = MapRunOf(player)?.Area.Tier ?? 0;
             var mapMods = MapModsOf(player);
             drops.AddRange(DropsFor(player).Roll(m.Level, m.Rarity, AreaRng(player), IncreasedItemRarity(player, m),
-                balance.ItemDropMultiplier * (modded?.Quantity ?? 1) * ItemQuantityFactor(player, m), balance.EquipmentRarityMultiplier * (modded?.Rarity ?? 1), mapTier, mapMods, MapScarabQuantity(mapMods)));
+                balance.ItemDropMultiplier * (modded?.Quantity ?? 1) * ItemQuantityFactor(player, m), balance.EquipmentRarityMultiplier * (modded?.Rarity ?? 1), mapTier, mapMods, MapScarabQuantity(mapMods), modded?.Weights));
             drops.AddRange(PartyCurrency(player, drops, AreaRng(player)));
             if (RollMapDropForKill(player, m.Level, m.Rarity, mapTier, AreaRng(player), modded?.MapRelated ?? 1) is { } mapDrop)
                 drops.Add(mapDrop);
             // And a pile of gold (ItemDrops.Gold), picked up into the stash's gold.
             if (DropsFor(player).Gold(m.Level, m.Rarity, AreaRng(player),
                 balance.GoldMultiplier * SystemSettings.Default.GoldDropMultiplier * (modded?.Gold ?? 1)) is { } gold) drops.Add(gold);
-            drops.AddRange(ExtraDropsFromMap(player, m.Level, m.Rarity, AreaRng(player)));
+            drops.AddRange(ExtraDropsFromMap(player, m.Level, m.Rarity, AreaRng(player), modded?.Weights));
         }
         drops = ModdedDrops(player, modded, drops, m.Level, m.Rarity, IncreasedItemRarity(player, m), balance.EquipmentRarityMultiplier, AreaRng(player));
         if (MapBeyond.CorruptsDrops(player, m.Variety?.Id)) CorruptDrops(drops);
