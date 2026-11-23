@@ -72,6 +72,7 @@ public static class CharacterStats
         public int BaseSpellDodgeChance { get; init; }
         // Real pool builds retain the signed base before the one final floor; legacy partial pools use their rating.
         public long AccuracyBase { get; init; } = Accuracy;
+        public int AccuracyAreaMorePct { get; init; }
     }
 
     /// <summary>What allocated passives and equipped base items add to the pools: attributes, flat and increased life,

@@ -185,7 +185,11 @@ public static partial class Game
             AddItemUtilityFlaskRawStats(stats, UtilityStats(player, FlaskGet)
                 .Concat(player.FlaskGrounds.PlayerStats(FlaskGet(Stat.ConsecratedGroundEffectPlusPct))).ToList(), Stats);
         });
-        Step(PlayerStatStep.SelfVulnerability, (player, stats, _) => AddSelfVulnerabilityStats(player, stats));
+        Step(PlayerStatStep.SelfVulnerability, (player, stats, _) =>
+        {
+            AddSelfVulnerabilityStats(player, stats);
+            AddMapHexStats(player, MapModsOf(player), stats);
+        });
         Step(PlayerStatStep.Onslaught, (player, stats, _) =>
         {
             if (Stat.CurrentlyHasOnslaught is var onslaughtFlag) stats[onslaughtFlag] = HasOnslaught(player) ? 1 : 0;

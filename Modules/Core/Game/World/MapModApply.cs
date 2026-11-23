@@ -23,6 +23,45 @@ public static partial class Game
 
     static readonly System.Runtime.CompilerServices.ConditionalWeakTable<IReadOnlyDictionary<uint, int>, MapMods> MapModsByStats = new();
 
+    static readonly (uint Level, string Effect, uint Flag)[] MapHexes =
+    [
+        (Stat.MapPlayerHasLevelXVulnerability, "Vulnerability", Stat.YouAreCursedWithVulnerability),
+        (Stat.MapPlayerHasLevelXTemporalChains, "TemporalChains", Stat.YouAreCursedWithTemporalChains),
+        (Stat.MapPlayerHasLevelXElementalWeakness, "ElementalWeakness", Stat.YouAreCursedWithElementalWeakness),
+    ];
+
+    static void AddMapHexStats(Player player, MapMods? map, StatMap stats, int extraCurseEffect = 0)
+    {
+        if (map is null || !MapHexes.Any(hex => map.Get(hex.Level) > 0)) return;
+        int Get(uint key) => stats.GetValueOrDefault(key);
+        if (CurseImmunity(Get) || player.FlaskGrounds.CurseImmune) return;
+
+        bool unaffected = Get(Stat.UnaffectedByCurses) != 0 || Get(Stat.VirtualUnaffectedByCurses) != 0
+            || Get(Stat.Hexproof) != 0 || Get(Stat.VirtualHexproof) != 0;
+        if (Get(Stat.UnaffectedByCursesWhileAffectedByZealotry) != 0)
+            unaffected |= AffectingAuras(player).Any(a => AuraCatalog.Family(a.EffectId) == "Zealotry");
+
+        double effect = unaffected ? 0 : Math.Max(0, 1 + (Get(Stat.CurseEffectOnSelfPlusPct) + (long)extraCurseEffect) / 100.0)
+            * Math.Max(0, 1 + Get(Stat.CurseEffectOnSelfPlusPctFinal) / 100.0);
+        var catalog = SkillsFor(player);
+        foreach (var (source, name, flag) in MapHexes)
+        {
+            int level = map.Get(source);
+            if (level <= 0) continue;
+            stats[flag] = 1;
+            if (effect == 0 || name == "Vulnerability" && (Get(Stat.VirtualUnaffectedByVulnerability) != 0
+                || Get(Stat.UnaffectedByVulnerabilityWhileAffectedByDetermination) != 0
+                    && AffectingAuras(player).Any(a => AuraCatalog.Family(a.EffectId) == "Determination"))) continue;
+
+            var native = catalog.EffectStats(catalog.EffectRow(name), level);
+            int againstPlayers = native.FirstOrDefault(row => row.Item1 == Stat.CurseEffectPlusPctFinalVsPlayers).Item2;
+            double factor = effect * Math.Max(0, 1 + againstPlayers / 100.0);
+            foreach (var (key, value) in native)
+                if (CurseRecipientStats.Contains(key))
+                    stats[key] = ActorScale.Saturate((long)Get(key) + (long)(value * factor));
+        }
+    }
+
     static readonly uint[] RandomPhysicalGain =
         [Stat.PhysicalDamagePctToAddAsFire, Stat.PhysicalDamagePctToAddAsCold, Stat.PhysicalDamagePctToAddAsLightning];
     sealed record MapElement(uint Stat);

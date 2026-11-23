@@ -1014,6 +1014,8 @@ public static partial class Game
         var activeWeapon = WeaponProfileFor(player, activeSet: true);
         var bonus = PassiveBonus(sources, weapons, snapshot.Attributes);
         var map = MapModsOf(player);
+        if (map?.Get(Stat.MapPlayerNonCurseAuraEffectPlusPct) is int auraEffect and not 0)
+            bonus = bonus with { AuraEffectPct = ActorScale.Saturate((long)bonus.AuraEffectPct + auraEffect) };
         if (map?.Get(Stat.MapPlayersSpellDamagePctSuppressed) is int prevention and not 0)
             bonus = bonus with { SpellSuppressionEffect = ActorScale.Saturate((long)bonus.SpellSuppressionEffect + prevention) };
         if (map?.Get(Stat.MapAdditionalPlayerMaximumResistancesPct) is int maximumResistance and not 0)
@@ -1156,6 +1158,12 @@ public static partial class Game
         var resistanceSources = new Dictionary<uint, int>(sources);
         foreach (var (key, value) in AuraCatalog.ResistanceStats(auras.Where(a => a.AffectsSelf), bonus.AuraEffectPct, SkillsFor(player), Stats))
             resistanceSources[key] = resistanceSources.GetValueOrDefault(key) + value;
+        if (map is not null && MapHexes.Any(hex => map.Get(hex.Level) > 0))
+        {
+            int curseEffect = utilityStats.Concat(player.FlaskGrounds.PlayerStats())
+                .Where(row => row.Stat == Stat.CurseEffectOnSelfPlusPct).Sum(row => row.Value);
+            AddMapHexStats(player, map, new PlainStatMap(resistanceSources), curseEffect);
+        }
         bonus = ResistanceOvercap.Applied(bonus, resistanceSources, ResistancePenalty(player), Stats);
         var classInfo = SkillsFor(player).ClassFor(player.Character.ClassRow);
         int perDexterity = EquipmentStat(ManaRecoveryRules.PerDexterity);
@@ -1167,8 +1175,9 @@ public static partial class Game
         }).Apply((long)classInfo.Strength + bonus.Strength, (long)classInfo.Dexterity + bonus.Dexterity,
             (long)classInfo.Intelligence + bonus.Intelligence);
         bonus = bonus with { AdditionalMana = (long)finalAttributes.Dexterity * perDexterity };
+        int areaAccuracy = map?.Get(Stat.MapPlayerAccuracyRatingPlusPctFinal) ?? 0;
         int ResolveAccuracy(long basis, long increased) => PlayerAccuracyModifiers.Calculate(basis, increased,
-            (int)RawAccuracy(PlayerAccuracyModifiers.BootsMore));
+            (int)RawAccuracy(PlayerAccuracyModifiers.BootsMore), areaMorePct: areaAccuracy);
         var pools = CharacterStats.For(classInfo, level, bonus, ResolveAccuracy);
         // Reservation-derived defences are a second, explicit projection from the completed full maximum Life. The
         // added Energy Shield is a global flat source and cannot feed back into Life conversion or reservation.
@@ -1212,7 +1221,8 @@ public static partial class Game
             ? EquipmentInput(Stat.BlockChanceFromEquippedShieldIsPct) is > 0 and var replacement
                 ? replacement : ItemModStats.ShieldBlock(ItemsFor(player), shield.Item, shield.Type) : 0;
         int rawAttack = pools.BlockChanceUncapped + shieldBlock;
-        double blockFactor = (1 + bonus.BlockChanceInc / 100.0) * (1 + bonus.BlockChanceMore / 100.0);
+        double blockIncrease = bonus.BlockChanceInc + (double)(map?.Get(Stat.MapPlayersBlockChancePlusPct) ?? 0);
+        double blockFactor = Math.Max(0, 1 + blockIncrease / 100) * (1 + bonus.BlockChanceMore / 100.0);
         int totalAttack = (int)Math.Round(Math.Max(0, rawAttack) * blockFactor);
         int totalSpell = (int)Math.Round(Math.Max(0, pools.SpellBlockChance) * blockFactor);
         pools = pools with
@@ -1247,6 +1257,8 @@ public static partial class Game
         // The source's condition has already been evaluated from the captured blocked history. The Replica's
         // retained value 75 is an unscalable flag, not a chance to add or a replacement for the current maximum.
         if (pools.SpellBlockAtMaximum) pools = pools with { SpellBlockChance = pools.SpellBlockChanceMax };
+        if (map?.Get(Stat.MapPlayersArmourPlusPctFinal) is int armourMore and not 0)
+            pools = pools with { Armour = ActorScale.Saturate((pools.Armour * Math.Max(0, 100L + armourMore) + 50) / 100) };
         player.AppliedAdrenaline = player.Antiquarian.Adrenaline(AreaTime(player));
         ConfigureFortificationRecovery(player, pools.Life, sources);
         int lifeAsEnergyShield = ActorScale.Saturate((long)EquipmentInput(Stat.MaximumLifePctToAddAsMaximumEnergyShield)
@@ -1271,6 +1283,7 @@ public static partial class Game
         player.Ward.SetMaximum(player.PlayerLife > 0 ? pools.Ward : 0);
         return pools with
         {
+            AccuracyAreaMorePct = areaAccuracy,
             FortificationRevision = FortificationOf(player).Revision,
             AttackerSlowPct = EquipmentInput(AttackerSlow), EnemyRegenerationOnHitPct = EquipmentInput(EnemyRegenerationOnHit),
             VsBlindedCriticalPct = EquipmentInput(VsBlindedCriticalStat), WhileMovingStats = WhileMovingInputs.Any(n => EquipmentInput(n) != 0),
