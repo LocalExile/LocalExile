@@ -106,7 +106,7 @@ static async Task Serve(LoginServerKeys keys)
     uint? fixedSeed = uint.TryParse(Environment.GetEnvironmentVariable("Game_SEED"), out var s) ? s : null;
     // The WorldAreas loads run on a thread of their own: the parse buffers ArrayPool keeps for a thread go with it (they
     // were ~20 MB of the idle Auth's 33), then one collection gives their memory back (performance.md).
-    var (towns, hideouts, hideoutAreas, randomAreas, inPlaceOfOne) = Isolated(() =>
+    var (towns, hideouts, hideoutAreas, randomAreas, inPlaceOfOne, mapAreas, pinnedSeeds) = Isolated(() =>
     {
         var towns = GameServer.Core.World.WorldAreaTowns.Load(worldAreas);
         var hideouts = GameServer.Core.World.WorldAreaHideouts.Load(worldAreas);
@@ -117,16 +117,24 @@ static async Task Serve(LoginServerKeys keys)
                 GameServer.Core.World.ServerLevelAreas.Load(baseline, m => Console.WriteLine($"[auth] {m}")));
         var inPlaceOfOne = GameServer.Core.World.ServerLevelAreas.ByHash(worldAreas,
             GameServer.Core.World.ServerLevelAreas.SeedsInPlaceOfOne(baseline, m => Console.WriteLine($"[auth] {m}")));
-        return (towns, hideouts, hideoutAreas, randomAreas, inPlaceOfOne);
+        // The areas a map item opens: a map nobody captured is played at a random seed (WorldAreaMaps, AreaSeeds).
+        var mapAreas = GameServer.Core.World.WorldAreaMaps.Load(worldAreas, Path.Combine("data", "tables", "Maps.json"));
+        // Areas pinned to the seed they were captured at (data/area-seeds.json), where the port cannot reproduce them.
+        var pinnedSeeds = GameServer.Core.World.AreaSeedPins.Load(worldAreas);
+        return (towns, hideouts, hideoutAreas, randomAreas, inPlaceOfOne, mapAreas, pinnedSeeds);
     });
     GC.Collect(GC.MaxGeneration, GCCollectionMode.Aggressive, blocking: true, compacting: true);
     Console.WriteLine($"[auth] random seeds for {randomAreas.Count} server-generated area(s); " +
-        $"{inPlaceOfOne.Count} area(s) the client cannot build at seed 1 get another seed in its place");
+        $"{inPlaceOfOne.Count} area(s) the client cannot build at seed 1 get another seed in its place; " +
+        $"{mapAreas.Count} map area(s) get a random seed where nothing is verified; " +
+        $"{pinnedSeeds.Count} area(s) pinned to a captured seed");
     var seeds = new GameServer.Core.World.AreaSeeds
     {
         Hideouts = hideouts,
         Random = randomAreas,
         InPlaceOfOne = inPlaceOfOne,
+        Maps = mapAreas,
+        Pinned = pinnedSeeds,
         Fixed = fixedSeed,
     };
     using var progress = new SaveDatabase(SaveDatabase.DefaultPath);

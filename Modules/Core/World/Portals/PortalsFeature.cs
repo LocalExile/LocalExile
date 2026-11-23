@@ -50,10 +50,10 @@ static class PortalsFeature
             await Send(remote, stream, ciphers, InstanceProtocol.RemoveObject(use.TargetId), $"0x{InstanceProtocol.RemoveObjectId:x4} remove map portal 0x{use.TargetId:x}");
             return;
         }
-        if (deviceId != 0) await SendMapPortals(remote, stream, ciphers, conn, deviceId, map.Area.Hash16, closed: use.TargetId);
+        if (deviceId != 0) await SendMapPortals(remote, stream, ciphers, conn, deviceId, map.Area.Hash16, closed: use.TargetId, areaId: map.Area.Id);
         await Send(remote, stream, ciphers, InstanceProtocol.RemoveObject(use.TargetId), $"0x{InstanceProtocol.RemoveObjectId:x4} remove map portal 0x{use.TargetId:x} (used)");
         Console.WriteLine($"[gateway] {remote} map portal at place {at.Index} taken: {left} left, into {(map.Instance == 0 ? "a new instance" : $"instance {map.Instance}")} of {map.Area.Name}");
-        await ChangeArea(remote, stream, ciphers, conn, new PendingTransfer(map.Area.Hash16, map.Instance, map.Instance == 0)
+        await ChangeArea(remote, stream, ciphers, conn, new PendingTransfer(map.Area.Hash16, map.Instance, map.Instance == 0, AtSpawn: true)
         {
             Done = r =>
             {
@@ -109,6 +109,7 @@ static class PortalsFeature
             $"0x00bf inventory {PlayerInventories.InventoryId(PlayerInventories.MapDevice)}: the map device consumed {consumed.gone.Count} slot(s)"
             + (consumed.left.Count == 0 ? "" : $", {consumed.left.Count} stack(s) left"));
         await RemoveMapPortals(remote, stream, ciphers, conn);
+        ResetRunCompleted(conn); // a new map, whose boss has not died yet
         var open = MapDevice.Activate(CharacterName(conn), area, opening.Mods, opening.ItemRow);
         string extra = opening.Mods.ExtraMagicPacks > 0 || opening.Mods.PacksDropCards > 0
             ? $", +{opening.Mods.ExtraMagicPacks} magic packs, {opening.Mods.PacksDropCards} pack(s) drop cards"

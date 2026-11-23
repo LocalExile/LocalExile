@@ -126,19 +126,20 @@ sealed class NpcCatalog
         // Einhar's row: EinharMenagerie has no .ot in the GGPK, and the client drew it without a model.
         [StashCatalog.MenagerieHub] = [new("Metadata/NPC/League/Bestiary/EinharHideout", 495, 485, 290 * MathF.PI / 180)],
         // The Forbidden Sanctum (SanctumFoyer_Fellshrine): Divinia by the waypoint (126, 149), to be placed live with /npc_place.
-        // Kingsmarch (KalguuranSettlersLeague): its NPCs around the arrival (offsets, StashCatalog.FromArrival), to be placed
-        // live with /npc_place.
+        // Kingsmarch (KalguuranSettlersLeague): each NPC on the cell and facing its own room line gives it (offsets from the
+        // arrival at (590, 655): the room's cell in the comment, FromArrival), to be placed live with /npc_place.
+        // Gwennen has no line of her own in the town room; she stands by the tavern entrance for now (dev: /npc_place).
         [StashCatalog.Kingsmarch] =
         [
-            new("Metadata/NPC/League/Kalguur/VillageMayor", 0, -14, 4.0f),
-            new("Metadata/NPC/League/Kalguur/VillageTujen", 10, -12, 4.0f),
-            new("Metadata/NPC/League/Kalguur/VillageGwennen", -10, -12, 4.0f),
-            new("Metadata/NPC/League/Kalguur/VillageRog", 14, -4, 4.0f),
-            new("Metadata/NPC/League/Kalguur/VillageDannig", -14, -4, 4.0f),
-            new("Metadata/NPC/League/Kalguur/VillageFaustus", 14, 6, 4.0f),
-            new("Metadata/NPC/League/Kalguur/VillageIsla", -14, 6, 4.0f),
-            new("Metadata/NPC/League/Kalguur/VillageFarmer", 8, 14, 4.0f),
-            new("Metadata/NPC/League/Kalguur/VillageRecruiter", -8, 14, 4.0f),
+            new("Metadata/NPC/League/Kalguur/VillageMayor", -161, -31, -1.5708f),      // (429, 624)
+            new("Metadata/NPC/League/Kalguur/VillageTujen", -307, -226, -0.7837f),      // (283, 429)
+            new("Metadata/NPC/League/Kalguur/VillageGwennen", -195, 0, 4.0f),           // no room line: by the tavern
+            new("Metadata/NPC/League/Kalguur/VillageRog", -274, -132, -1.34867f),       // (316, 523)
+            new("Metadata/NPC/League/Kalguur/VillageDannig", -97, -177, -0.41545f),     // (493, 478)
+            new("Metadata/NPC/League/Kalguur/VillageFaustus", -201, -30, 1.17173f),     // (389, 625), in the tavern
+            new("Metadata/NPC/League/Kalguur/VillageIsla", -377, -108, -2.46387f),      // (213, 547)
+            new("Metadata/NPC/League/Kalguur/VillageFarmer", -223, 139, -1.6406f),      // (367, 794), the farming plot
+            new("Metadata/NPC/League/Kalguur/VillageRecruiter", -168, 9, -0.68752f),    // (422, 664)
         ],
         // The Rogue Harbour (HeistHub): Kurai, Faustus, Adiyah, Whakano and the nine rogues in a ring around the arrival
         // (offsets, StashCatalog.FromArrival), to be placed live with /npc_place.
@@ -239,9 +240,27 @@ sealed class NpcCatalog
         TownNpcs.Of(areaHash) is { } town ? town.Placements(seed, notes)
         : Towns.GetValueOrDefault(areaHash) ?? (HideoutCatalog.ByArea(areaHash) is not null ? Hideout : []);
 
+    /// <summary>Types whose StateMachine declares a <c>visible</c> state that is sent as 1: Kingsmarch's village NPCs draw
+    /// it from VillageVisibilityController, whose <c>on_or_create_state_visible_0</c> runs DisableTargetable,
+    /// DisableHighlighting and HideMinimapIcon, and a flag-0 value lets the client's VillageTalkInvest league flag
+    /// override it (scratch/npc-extra-components.md).</summary>
+    static readonly HashSet<string> VisibleOnCreate = new(StringComparer.Ordinal)
+    {
+        "Metadata/NPC/League/Kalguur/VillageFarmer",
+        "Metadata/NPC/League/Kalguur/VillageIsla",
+        "Metadata/NPC/League/Kalguur/VillageDannig",
+        "Metadata/NPC/League/Kalguur/VillageTujen",
+        "Metadata/NPC/League/Kalguur/VillageRog",
+        "Metadata/NPC/League/Kalguur/VillageRecruiter",
+    };
+
     /// <summary>The NPC a placement stands for, with the placement's model, height and state.</summary>
     public Npc? Place(Placement p) => Find(p.Id) is { } npc
-        ? npc with { Model = p.Model ?? npc.Model, Height = p.Height, TransitionState = p.TransitionState ?? npc.TransitionState }
+        ? npc with
+        {
+            Model = p.Model ?? npc.Model, Height = p.Height, TransitionState = p.TransitionState ?? npc.TransitionState,
+            StateMachine = VisibleOnCreate.Contains(npc.Id) ? npc.StateMachine?.Set("visible", 1) : npc.StateMachine,
+        }
         : null;
 
     /// <summary>An NPC by row, Id or name (exact name first, then the first Id or name containing the text).</summary>

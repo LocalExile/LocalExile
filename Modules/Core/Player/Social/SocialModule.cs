@@ -99,6 +99,11 @@ public sealed class SocialModule : IModule
             var (conn, remote) = Of(p);
             return await SocialFeature.LeaveParty(remote, conn, InstanceSocial.ReadPartyAccept(p.Bytes.ToArray()));
         });
+        module.OnPacket(SocialFeature.PartyTravelId, async p =>
+        {
+            var (conn, remote) = Of(p);
+            return await SocialFeature.TravelToMember(remote, conn, SocialFeature.ReadTravel(p.Bytes.Span));
+        });
     }
 }
 
@@ -124,8 +129,12 @@ static class SocialFeature
         && a.PlayerLife > 0 && b.PlayerLife > 0 && !a.HardcoreDeathRecorded && !b.HardcoreDeathRecorded;
 
     // Each side must know the other (0xa7) before 0xb8: the request is looked up by character name in that table.
+    // The third field is the player's own area carried as a WorldAreas HASH16 in 0xa7 +0xa8, not the character's level:
+    // the party panel's row reads it (0x140207a95 -> 0x140208210) and resolves it through Data/WorldAreas.dat for the
+    // member's area name; a level 1..100 resolves to nothing and the row shows "Travelling..." with the visit button
+    // disabled (#715).
     internal static async Task Introduce(ClientState to, ClientState about) =>
-        await SendTo(to, InstanceSocial.KnownPlayer(about.Account ?? CharacterName(about), CharacterName(about), about.Pools.Level,
+        await SendTo(to, InstanceSocial.KnownPlayer(about.Account ?? CharacterName(about), CharacterName(about), about.Layout.Hash,
             PackedClass(about), about.PortraitFrame, WornPortrait(about)), $"0x00a7 known player {CharacterName(about)}");
 
     // 0xb8 builds the trade window's two offer grids at once, even for the request and the waiting notice: their
@@ -243,6 +252,31 @@ static class SocialFeature
             }
         }
         return 0;
+    }
+
+    /// <summary>C→S 0x92 "Travel": the button on a member's row of the party panel, with that member's character name (the
+    /// same string reader as the party invite, 0x141f98140). The server does the moving, as the game's own does: there is
+    /// no id for it in InstanceSocial yet, and no answer to send back (#715).</summary>
+    internal const ushort PartyTravelId = 0x92;
+
+    internal static string ReadTravel(ReadOnlySpan<byte> m) => new LoginReader(m[2..]).WStr();
+
+    // C→S 0x92: the player goes to that member, in the member's own instance of the area when it is in one (a party plays
+    // its maps together), at the area's spawn. False for a name no player in game has: the party bots answer for their own.
+    internal static async Task<bool> TravelToMember(string remote, ClientState conn, string name)
+    {
+        var member = InGame.Keys.FirstOrDefault(o => o is { Outbox: not null, Closed: false, LeavingArea: false, PlayerSent: true }
+            && !ReferenceEquals(o, conn) && string.Equals(CharacterName(o), name, StringComparison.OrdinalIgnoreCase));
+        if (member is null) return false;
+        if (member.Layout.Hash == conn.Layout.Hash)
+        {
+            Console.WriteLine($"[gateway] {remote} <= 0x0092 travel to {name}: already in {conn.Layout.Id}");
+            return true;
+        }
+        Console.WriteLine($"[gateway] {remote} <= 0x0092 travel to {name}: {member.Layout.Id} (0x{member.Layout.Hash:x4}), instance {member.InstanceNumber}");
+        await ChangeArea(conn.Wire.Remote, conn.Wire.Stream, conn.Wire.Ciphers, conn,
+            new PendingTransfer(member.Layout.Hash, member.InstanceNumber, false, AtSpawn: true), $"party panel: travel to {name}");
+        return true;
     }
 
     // C→S 0x96: "Leave Party". The player gets the party removed (0xaa); with fewer than two left the party is disbanded

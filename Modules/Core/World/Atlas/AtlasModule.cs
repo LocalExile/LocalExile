@@ -50,8 +50,12 @@ public sealed class AtlasModule : IModule, IDisposable
         });
         module.OnMonsterKilled(async kill =>
         {
-            if (AtlasProgress.OfArea(kill.Player.AreaId) is not { } node || !AtlasProgress.CompletesMap(node, kill.Monster)
-                || !AtlasProgress.Complete(module.World(kill.Player).CharacterData, [node])) return;
+            if (AtlasProgress.OfArea(kill.Player.AreaId) is not { } node || !AtlasProgress.CompletesMap(node, kill.Monster)) return;
+            // This run's map boss is dead: the map device's portal labels read " (Completed)" from now on, whether or not
+            // the Atlas already had this map (the Game module keeps that per-run mark; see Portals.MapRunBossKey).
+            if (AppContext.GetData("LocalExile.Portals.MapRunBoss") is Action<ClientState, string> markRun)
+                markRun(ConnOf(kill.Player), kill.Player.AreaId);
+            if (!AtlasProgress.Complete(module.World(kill.Player).CharacterData, [node])) return;
             var conn = ConnOf(kill.Player);
             await Send(conn.Wire.Remote, conn.Wire.Stream, conn.Wire.Ciphers, AtlasProgress.NodeMessage(node),
                 $"0x01a4 Atlas map completed: {node.Name} ({node.Id}) by {kill.Monster.Name}");

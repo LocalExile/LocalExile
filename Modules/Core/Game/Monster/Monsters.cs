@@ -378,6 +378,38 @@ static partial class Game
         var (points, objects, _) = AreaPopulation.FitRooms(layout.Id, conn.Seed, notes, "data", placedRooms: placedRooms);
         // A boss whose room has a spawner object for it (The Quay's Tolman) stands at the spawner.
         points.AddRange(AreaPopulation.SpawnerPoints(area, objects, row => Monsters.Find(row.ToString())?.Id));
+        // A captured map whose fit found no boss point: the rooms the client itself calls boss rooms stand them (Strand's
+        // boss.arm and boss_fort.arm). Without them both bosses followed unassignedAtArrival and stood on the map device's
+        // portal, next to the player's arrival.
+        if (!points.Any(p => p.Name.StartsWith("mapboss", StringComparison.Ordinal)))
+            points.AddRange(CapturedBossRooms(layout.Id, conn.Seed));
+
+        // The boss rooms of the client's capture of this (area, seed), named mapboss1, mapboss2 … in room order.
+        static List<AreaPopulation.RoomPoint> CapturedBossRooms(string areaId, uint seed)
+        {
+            var result = new List<AreaPopulation.RoomPoint>();
+            string path = $"data/walkability/{areaId}_seed{seed}.rooms.json";
+            if (!System.IO.File.Exists(path)) return result;
+            try
+            {
+                using var doc = System.Text.Json.JsonDocument.Parse(System.IO.File.ReadAllBytes(path));
+                if (!doc.RootElement.TryGetProperty("rooms", out var rooms)) return result;
+                foreach (var room in rooms.EnumerateArray())
+                {
+                    string file = System.IO.Path.GetFileNameWithoutExtension(room.TryGetProperty("path", out var p) ? p.GetString() ?? "" : "");
+                    if (!file.Contains("boss", StringComparison.OrdinalIgnoreCase)) continue;
+                    int x = room.GetProperty("x").GetInt32(), y = room.GetProperty("y").GetInt32();
+                    int w = room.TryGetProperty("width", out var rw) ? rw.GetInt32() : 0;
+                    int h = room.TryGetProperty("height", out var rh) ? rh.GetInt32() : 0;
+                    result.Add(new AreaPopulation.RoomPoint($"mapboss{result.Count + 1}", x + w / 2, y + h / 2));
+                }
+            }
+            catch (Exception ex) when (ex is System.IO.IOException or System.Text.Json.JsonException or InvalidOperationException or KeyNotFoundException)
+            {
+                Console.WriteLine($"[gateway] {path}: {ex.Message}");
+            }
+            return result;
+        }
         // A Trial of Ascendancy's rooms (live 2026-10-31, the original): no monsters among the traps, so the area's
         // scattered packs keep away from them (LabyrinthTrials.TrapClearance); what the room file places stands there:
         // its normal / magic / rare pack points (the Lower Prison trial's plaque platform), its monsters (the Imperial

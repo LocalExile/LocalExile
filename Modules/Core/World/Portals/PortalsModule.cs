@@ -104,5 +104,20 @@ public sealed class PortalsModule : IModule, IDisposable
             await MoveToMapDevice(remote, stream, ciphers, conn, InstanceMapDevice.ReadMove(bytes));
             return true;
         });
+        // C→S 0xe4 / 0xe5: Ctrl + click a map with the map device open (a map does not send 0xe8 — that is the Atlas Idol,
+        // row 94). The client's writers are 0x14216e300 (0xe4) and 0x14216e5d0 (0xe5); the wire is u16 id, u32 BE item id,
+        // then five bytes (the direction is bit 7 of the byte at +6 of the payload). The framing table does not know these
+        // ids yet, so each arrives as the read's "unframed" run with the message from its id on: the first 6 bytes are all
+        // the move needs, and the rest of that read is lost either way.
+        foreach (ushort ctrlMove in new ushort[] { 0x00e4, 0x00e5 })
+            module.OnPacket(ctrlMove, async p =>
+            {
+                var conn = ConnOf(p.Player); var (remote, stream, ciphers) = conn.Wire; byte[] bytes = p.Bytes.ToArray();
+                if (bytes.Length < 6) return true;
+                uint itemId = System.Buffers.Binary.BinaryPrimitives.ReadUInt32BigEndian(bytes.AsSpan(2));
+                Console.WriteLine($"[gateway] {remote} <= 0x{ctrlMove:x4} Ctrl + click item {itemId} on the map device ({bytes.Length} B)");
+                await MoveToMapDevice(remote, stream, ciphers, conn, new InstanceMapDevice.Move(itemId, 0, ctrlMove == 0x00e4, 0, 0));
+                return true;
+            });
     }
 }

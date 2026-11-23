@@ -248,7 +248,7 @@ public sealed record NpcObject(int GridX, int GridY, IReadOnlyList<string> Compo
     /// <summary>Deserialized components of <c>Metadata/NPC/NPC</c> in read order (scripts/re/ot_components.py).</summary>
     public static readonly string[] BaseComponents = ["Positioned", "Animated", "BaseEvents", "InteractionAction", "NPC", "MinimapIcon"];
 
-    static readonly HashSet<string> Supported = [.. BaseComponents, "Transitionable", "StateMachine"];
+    static readonly HashSet<string> Supported = [.. BaseComponents, "Transitionable", "StateMachine", "ControlZone", "Brackets", "Functions"];
 
     /// <summary>Whether <see cref="Blob"/> can serialize a type with these deserialized components.</summary>
     public static bool CanSerialize(IReadOnlyList<string> components, bool haveStateMachine = false) =>
@@ -280,18 +280,17 @@ public sealed record NpcObject(int GridX, int GridY, IReadOnlyList<string> Compo
                 case "NPC": w.U8(1).U8(0xff); break;
                 case "MinimapIcon": w.U8(0); break;
                 case "Transitionable": w.U8((byte)(TransitionState & 0x7f)); break;
-                case "StateMachine":
-                    var sm = StateMachine!;
-                    w.U8((byte)sm.SharedStates.Count).U8((byte)sm.SharedTimers);
-                    foreach (int v in sm.SharedStates)
-                    {
-                        var lw = new LoginWriter();
-                        InstanceProtocol.CompactInt(lw, v);
-                        foreach (byte b in lw.ToArray()) w.U8(b);
-                        w.U8(0);
-                    }
-                    for (int i = 0; i < sm.SharedTimers; i++) w.U32(0).U8(0);
+                // Declared in a type's shared blocks, so the read loop reaches them, but each one's client reader is the
+                // same no-op (0x1400f1180 = `ret 0`, as BaseEvents): no bytes. The name keeps its place in the sequence.
+                case "ControlZone":
+                case "Brackets":
+                case "Functions":
                     break;
+                // Client-only in every .ot (inside `client { ProximityTrigger { … } }`): no type lists it for the read loop.
+                case "ProximityTrigger":
+                    throw new InvalidOperationException("ProximityTrigger is a client-only component and is never serialized");
+                // The shared states and timers; StateMachineData.Write also sends flags 0x02 for a state the server set.
+                case "StateMachine": StateMachine!.Write(w); break;
                 // BaseEvents: no data.
             }
         }

@@ -1,4 +1,5 @@
 using GameServer.Core.Protocol.Instance;
+using GameServer.Modding;
 
 namespace GameServer.Modules.PlayerBots;
 
@@ -72,6 +73,44 @@ sealed partial class BotDirector
         return true;
     }
 
+    // /bot_stay and /bot_follow: the party bots keep their place in the party but stop following, and their rows keep
+    // the area they were in when they were parked — the party panel then has a member to travel to from another area.
+    public async Task<int> Park(ClientState conn, bool parked)
+    {
+        Bot[] bots;
+        lock (_bots) bots = [.. _bots.Where(b => ReferenceEquals(b.Leader, conn) && b.Phase == BotPhase.Following)];
+        foreach (var bot in bots)
+        {
+            if (parked && !bot.Parked)
+            {
+                // It stays where it stands, and its row says where that is (the id, for the travel button below).
+                (bot.ParkedArea, bot.ParkedAreaId) = (conn.Layout.Hash, conn.Layout.Id);
+                (bot.TargetX, bot.TargetY) = (bot.X, bot.Y);
+            }
+            bot.Parked = parked;
+            if (!parked) bot.FollowIn = null;
+            _log.Write(bot.Account, bot.Name, parked ? "остаётся здесь (в группе)" : "снова идёт следом");
+        }
+        if (bots.Length > 0) await SendParty(conn, bots[0].Party);
+        return bots.Length;
+    }
+
+    // C→S 0x92 on a party bot's row: the travel button, with the bot's character name. The player goes to the area the
+    // bot is in — where /bot_stay left it, as a following bot is in the player's own area anyway. False for a name no bot
+    // in this party has (the Social module's own players come first, and this is reached only for the names it passed on).
+    public async Task<bool> TravelTo(ClientState conn, IPlayerWorld world, string name)
+    {
+        Bot? bot;
+        lock (_bots) bot = _bots.FirstOrDefault(b => ReferenceEquals(b.Leader, conn) && b.Phase == BotPhase.Following
+            && (string.Equals(b.Name, name, StringComparison.OrdinalIgnoreCase)
+                || string.Equals(b.Account, name, StringComparison.OrdinalIgnoreCase)));
+        if (bot is null) return false;
+        if (!bot.Parked || bot.ParkedAreaId is not { } area || area == conn.Layout.Id) return true;
+        _log.Write(bot.Account, bot.Name, $"к нему идут: {Program.CharacterName(conn)} в {area}");
+        await world.TravelTo(area, $"party panel: travel to {bot.Name} in {area}");
+        return true;
+    }
+
     // Out of the party: to the nearest way out of the area it is in, then on with its quests (StepWithLeader).
     void Depart(Bot bot, string why)
     {
@@ -104,11 +143,14 @@ sealed partial class BotDirector
         }
         string lead = Program.CharacterName(leader), account = leader.Account ?? lead;
         var cls = Program.Skills.ClassFor(leader.ClassRow);
-        await Send(leader, InstanceSocial.KnownPlayer(account, lead, leader.Pools.Level, CharacterClassByte.Encode((byte)cls.IntegerId, 0)), null);
+        await Send(leader, InstanceSocial.KnownPlayer(account, lead, leader.Layout.Hash, CharacterClassByte.Encode((byte)cls.IntegerId, 0)), null);
         foreach (var bot in members)
         {
             var botClass = Program.Skills.ClassFor(Program.Skills.RowOfClass((int)bot.Class));
-            await Send(leader, InstanceSocial.KnownPlayer(bot.Account, bot.Name, bot.Level, CharacterClassByte.Encode((byte)botClass.IntegerId, 0)),
+            // A following bot is in the leader's area: that is the area its row shows (0xa7 +0xa8, #715). A parked one
+            // is still where it was parked, and its row says so.
+            await Send(leader, InstanceSocial.KnownPlayer(bot.Account, bot.Name, bot.Parked ? bot.ParkedArea : leader.Layout.Hash,
+                CharacterClassByte.Encode((byte)botClass.IntegerId, 0)),
                 $"0x00a7 known player {bot.Name} (bot)");
         }
         (string, byte)[] entries = [(account, PartyLeaderByte), .. members.Select(b => (b.Account, PartyMemberByte))];
@@ -160,6 +202,14 @@ sealed partial class BotDirector
             return;
         }
         var layout = leader.Layout;
+        // Parked (/bot_stay): it keeps its party place and stands where it was left, seen by whoever is in that area —
+        // a party member comes there with the party panel's travel button.
+        if (bot.Parked)
+        {
+            if (layout.Hash == bot.ParkedArea) Show(bot, [leader]);
+            else Hide(bot);
+            return;
+        }
         if (bot.Phase == BotPhase.Following) return;
         if (bot.Phase == BotPhase.Departing)
         {

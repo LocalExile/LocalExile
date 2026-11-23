@@ -50,6 +50,7 @@
 #   Several stacks and clients on one PC: Agents/docs/dev/live-testing.md ("Several stacks and clients"). Whatever this
 #   script stops is this checkout's own (its paths, or the client PIDs it recorded in data\clients\), never another's.
 param([switch]$NoClient, [switch]$NoBuild, [switch]$NoExtract, [switch]$Walkmaps, [switch]$ClientOnly, [switch]$NoHotReload,
+    [switch]$KingsmarchDoodads,
     [ValidateSet('Auth', 'Patch', 'Gateway')][string[]]$Only = @(), [int]$PortBase = -1, [string]$Session = $env:Game_CLIENT_SESSION,
     [string]$SeedConfig = $env:Game_CLIENT_SEED_CONFIG, [switch]$Stop, [switch]$Nullifier, [switch]$Agent, [switch]$Release, [switch]$Debug, [switch]$Sound)
 
@@ -211,7 +212,7 @@ function Start-SessionLauncher([string]$session, [string]$folder, [string]$recor
         '--patch-port', "$($stack.Ports.patch)", '--login-port', "$($stack.Ports.login)")
     if ($sound) { $arguments += '--sound' }
     # -Nullifier: the Null renderer, trimming, the allocator returning freed memory at once and the Null buffers' unused
-    # CPU copies left uncommitted (Agents/docs/dev/headless-client.md §6).
+    # CPU copies left uncommitted (Agents/docs/dev/headless-client.md 搂6).
     $arguments += if ($nullifier) { @('--renderer', 'null', '--trim-seconds', '10', '--mimalloc', 'purge_delay=0',
         '--mimalloc', 'arena_purge_mult=1', '--lazy-null-buffers', '8') } else { @('--renderer', 'configured') }
     # Game_NULLIFIER_ARGS: extra launcher options (space-separated, no spaces inside one), e.g. a diagnostic --probe.
@@ -287,16 +288,39 @@ function Stop-Processes($processes) {
     foreach ($p in $processes) { Stop-Process -Id $p.ProcessId -Force -ErrorAction SilentlyContinue }
 }
 
-# A virtual environment in the repository (.venv) wins over the python on PATH; it needs Frida (walkmaps.py,
-# nullifier.py).
+# A virtual environment in the repository (.venv) wins, then $env:LOCALEXILE_PYTHON, then the python on PATH; the chosen
+# interpreter must be able to import Frida (walkmaps.py, nullifier.py, kingsmarch-doodads.py).
 function Get-Python([string]$purpose) {
+    $candidates = New-Object System.Collections.Generic.List[string]
     $venv = Join-Path $repo '.venv\Scripts\python.exe'
-    $python = if (Test-Path $venv) { $venv } else { (Get-Command python -ErrorAction SilentlyContinue).Source }
-    if (-not $python) { $python = (Get-Command py -ErrorAction SilentlyContinue).Source }
-    Need $python "Python not found (needed for $purpose)"
-    & $python -c 'import frida' 2>$null
-    Need ($LASTEXITCODE -eq 0) 'the frida Python package is missing: python -m pip install frida'
-    $python
+    if (Test-Path $venv) { $candidates.Add($venv) }
+    if ($env:LOCALEXILE_PYTHON) { $candidates.Add($env:LOCALEXILE_PYTHON) }
+    foreach ($name in @('python3', 'python', 'py')) {
+        $found = Get-Command $name -ErrorAction SilentlyContinue | Select-Object -First 1
+        if ($found -and $found.Source) { $candidates.Add($found.Source) }
+    }
+    # The Windows Store ships a `python` alias that exits non-zero and prints nothing useful, so every candidate is tried
+    # for Frida instead of trusting whichever interpreter PATH resolves first.
+    foreach ($candidate in $candidates) {
+        & $candidate -c 'import frida' 2>$null | Out-Null
+        if ($LASTEXITCODE -eq 0) { return $candidate }
+    }
+    Need $false "no Python with the Frida package was found (needed for $purpose): set LOCALEXILE_PYTHON, or python -m pip install frida"
+}
+
+# The Kingsmarch town's buildings, wharf and platforms are room doodads whose type inherits BaseEvents { server_only = true },
+# so the client drops them and keeps only the loose props (the town then looks like floating furniture). The patch in
+# scripts/dev/kingsmarch-doodads.py makes the client build them again, for the town's own rooms only, and has to run next to
+# every client that enters the town: started here so the town is always complete without a second command.
+function Start-KingsmarchDoodads([int]$ClientPid) {
+    if ($IsLinux -or -not $KingsmarchDoodads) { return }
+    try {
+        $python = Get-Python 'the Kingsmarch town doodads (scripts/dev/kingsmarch-doodads.py)'
+        Start-Detached $python @((Join-Path $repo 'scripts\dev\kingsmarch-doodads.py'), '--pid', "$ClientPid",
+            '--room-regex', 'Metadata/Terrain/Leagues/Settlers/HubTown/',
+            '--log', (Join-Path $out 'kingsmarch-doodads.jsonl')) (Join-Path $out 'kingsmarch-doodads.log') (Join-Path $out 'kingsmarch-doodads.err') | Out-Null
+    }
+    catch { Write-Warning "Kingsmarch town doodads: $($_.Exception.Message)" }
 }
 
 # Long-running processes start through `cmd /c ... > log` rather than Start-Process -RedirectStandardOutput: the
@@ -306,8 +330,13 @@ function Get-Python([string]$purpose) {
 function Start-Detached([string]$exe, [string[]]$arguments, [string]$log, [string]$err, [switch]$PassThru) {
     if ($IsLinux) { $p = Start-LinuxDetached $exe $arguments $log $err; if ($PassThru) { $p }; return }
     $line = (@($exe) + $arguments | ForEach-Object { if ($_ -match '\s') { "`"$_`"" } else { $_ } }) -join ' '
-    # The outer quotes: cmd /c strips the first and the last quote of a line that starts with one (a quoted executable).
-    $p = Start-Process cmd.exe -ArgumentList "/c `"$line 1>`"$log`" 2>`"$err`"`"" -WorkingDirectory $repo -WindowStyle Hidden -PassThru
+    # The redirect targets are quoted only when they need it: wrapping the whole /c line in quotes (as this used to) makes
+    # cmd hand a mangled command to the first token, which then exits before writing anything - the caller sees an empty
+    # log and no process.
+    foreach ($path in @($log, $err)) {
+        if ($path -match '\s') { $line = $line -replace [regex]::Escape($path), "`"$path`"" }
+    }
+    $p = Start-Process cmd.exe -ArgumentList "/c", "$line 1>$log 2>$err" -WorkingDirectory $repo -WindowStyle Hidden -PassThru
     if ($PassThru) { $p }
 }
 
@@ -335,9 +364,11 @@ function Select-LocalGateway([int]$loginPort, [switch]$Strict) {
         & dotnet $patch gateway $ggpk --login "127.0.0.1:$loginPort" 2>$null | Out-Null
         if ($LASTEXITCODE -eq 0) { return }
     }
-    $message = 'could not select local login server (a client holds the GGPK); close all clients and retry'
+    $message = "could not select local login server 127.0.0.1:$loginPort (a client holds the GGPK)"
     if ($Strict) { throw $message }
-    Write-Warning "$message. The client's own Log In may go to another login server; client_control.py logs in by port."
+    # The client's own Log In reads this list, so a stale port there is what "unable to connect to server" looks like.
+    Write-Warning ("$message. The client's own Log In will go to another login server - close every client and run: " +
+        "dotnet `"$patch`" gateway `"$ggpk`" --login 127.0.0.1:$loginPort  (client_control.py logs in by port and is unaffected)")
 }
 
 # Starts the session's client through this stack's patching server and records its PID. A named session runs in its own
@@ -426,6 +457,7 @@ function Start-Client([string]$session, $stack, [string]$seedConfig, [bool]$null
         [ordered]@{ pid = $p.Id; started = $started; session = $session; folder = $folder; ports = $stack.Ports } |
             ConvertTo-Json | Set-Content $record -Encoding ascii
         Write-Output "client pid $($p.Id)"
+        Start-KingsmarchDoodads $p.Id
     }
     catch {
         $current = try { Get-Content $record -Raw | ConvertFrom-Json } catch { $null }
@@ -767,3 +799,4 @@ if (-not $NoClient) {
 }
 $portsText = if ($stack.Base) { " on ports $(($stack.Ports.GetEnumerator() | ForEach-Object { "$($_.Key) $($_.Value)" }) -join ', ')" } else { '' }
 Write-Output $(if ($Only) { "restarted: $($Only -join ', ')$portsText" } else { "servers up$portsText" })
+

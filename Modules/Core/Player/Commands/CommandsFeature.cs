@@ -1553,6 +1553,18 @@ static class CommandsFeature
             await SetLeagueQuestFlags(remote, stream, ciphers, conn, [flag], on: !off);
             await Send(remote, stream, ciphers, InstanceChat.ChatLine($"League quest flag {flag} {(off ? "cleared" : "set")}."), $"0x0017 chat line: league quest flag {flag}");
         })
+        .Add("league_flag_test", "/league_flag_test <start> <end> [off] (dev: set or clear a range of league quest flags, saved for the league — Kingsmarch floor-flip hunt)", async args =>
+        {
+            if (args.Length < 2 || !int.TryParse(args[0], out int start) || !int.TryParse(args[1], out int end) || end < start || end - start > 500)
+            {
+                await Send(remote, stream, ciphers, InstanceChat.ChatLine("usage: /league_flag_test <start> <end> [off] (max 500 per batch)"), "0x0017 chat line: league flag test usage");
+                return;
+            }
+            bool off = args.Length > 2 && args[2].Equals("off", StringComparison.OrdinalIgnoreCase);
+            var ids = Enumerable.Range(start, end - start + 1).ToList();
+            await SetLeagueQuestFlags(remote, stream, ciphers, conn, ids, on: !off);
+            await Send(remote, stream, ciphers, InstanceChat.ChatLine($"League quest flags {start}-{end} {(off ? "cleared" : "set")} ({ids.Count}). Watch the floor; clear with /league_flag_test {start} {end} off"), $"0x0017 chat line: league flag batch {start}-{end}");
+        })
         .Add("hideout_keys", "/hideout_keys <a> <b> (dev: the Player component's two Hideouts.dat keys, HASH16 hex or a hideout area id)", async args =>
         {
             ushort Key(string s) => HideoutCatalog.Hideouts.FirstOrDefault(h => h.AreaId.Equals(s, StringComparison.OrdinalIgnoreCase)) is { } h ? h.Hash16

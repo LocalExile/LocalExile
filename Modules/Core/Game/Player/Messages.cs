@@ -112,6 +112,32 @@ static partial class Game
                     await WakeUpOnBeach(remote, stream, ciphers, conn, (use.X, use.Y), use.Slot, use.Flags, at);
                     continue;
                 }
+                // Walls in the Settlers town: the client's own walker ignores the server's walk grid (live 2026-11-20 a
+                // click walked straight through a stamped wall), so a ground move into a blocked cell is refused here
+                // and the player is snapped back to where it stands. A player already standing on a blocked cell may
+                // still move, or it could never walk out of one it was put into.
+                if (KingsmarchTown.BounceOn() && KingsmarchTown.IsTown(conn.Layout.Id) && conn.Layout.Walkable is { } cells)
+                {
+                    var stand = conn.Walk.Position(at);
+                    if (cells(stand.X, stand.Y))
+                    {
+                        // Slide picks a reachable cell near the clicked one, bending around walls and barrels so the player
+                        // keeps moving instead of being pinned against them (live 2026-11-21: standing beside an object, a
+                        // click towards open ground was refused click after click and the character only twitched).
+                        var (stopX, stopY) = KingsmarchTown.Slide(cells, stand.X, stand.Y, use.X, use.Y);
+                        if (stopX == stand.X && stopY == stand.Y)
+                        {
+                            // Nothing at all moves from here: let the click through the way it was before the grid
+                            // existed, so a tight corner can never lock the player in place.
+                            Console.WriteLine($"[gateway] {remote} 0x25 boxed in at ({stand.X}, {stand.Y}): letting the click through");
+                        }
+                        else if (stopX != use.X || stopY != use.Y)
+                        {
+                            Console.WriteLine($"[gateway] {remote} 0x25 wall slide: ({use.X}, {use.Y}) -> ({stopX}, {stopY})");
+                            use = use with { X = stopX, Y = stopY };
+                        }
+                    }
+                }
                 // A gem skill cast at the ground (Fireball) stops the player where it stands; anything else (Move) walks there.
                 if (InTown(conn) && SkillsFor(conn).ActionName(use.SkillId) != "Move") continue;
                 if (SkillsFor(conn).ActionName(use.SkillId) != "Move")

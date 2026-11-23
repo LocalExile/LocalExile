@@ -36,7 +36,7 @@ static partial class PortalsRules
                 lock (conn.MapPortals) conn.MapPortals[id] = (x, y, index);
                 await Task.Delay(MapPortalListMs);
                 if (!Current()) return;
-                await SendMapPortals(remote, stream, ciphers, conn, deviceId, open.Area.Hash16);
+                await SendMapPortals(remote, stream, ciphers, conn, deviceId, open.Area.Hash16, areaId: open.Area.Id);
             }
         });
         return Task.CompletedTask;

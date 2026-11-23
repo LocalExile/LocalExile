@@ -133,17 +133,98 @@ static class AreaLayouts
 
     static AreaLayout WithoutWaypoint(ushort hash, string id, uint seed)
     {
+        // A capture of the client's own layout wins: the port's generation of an area can differ from what the client builds
+        // for the same seed (Strand: its rooms land elsewhere and the client draws water where the port has floor), and the
+        // player, the portals and the monsters must stand where the client's own floor is.
+        byte[]? captured = LoadCells(id, seed, out int cw, out int ch);
+        if (captured is not null)
+        {
+            // The walls, wharves and huts of an area built from client doodads are not in the client's walk grid (it never
+            // built them): their hulls are baked into this data and stamped here, so the grid refuses them like its own.
+            DoodadCollision.Stamp(id, captured, cw, ch);
+            var layout = WithCells(hash, id, seed, captured, cw, ch, LoadSight(id, seed));
+            // The room the client calls the area's start (strand_start.arm: Strand's shipwreck) — where the real game puts a
+            // player entering the map, and the deepest cell is the middle of the map instead.
+            if (CapturedStartRoom(id, seed) is { } start)
+            {
+                var (sx, sy) = OpenNear(captured, cw, ch, start, 60);
+                layout = layout with { SpawnX = sx, SpawnY = sy };
+            }
+            return layout;
+        }
         // An area the port reproduces is generated here from the seed; any other needs the client's capture.
         if (ServerLevels.For(id, seed) is { } generated)
-            return WithCells(hash, id, seed, generated.Walk, generated.Width, generated.Height,
+        {
+            var layout = WithCells(hash, id, seed, generated.Walk, generated.Width, generated.Height,
                 SightOf(generated.Projectile, generated.Width, generated.Height)) with
             {
                 CellHeights = generated.Heights,
                 EntranceFrom = from => AreaTransitionCatalog.EntrancePoint(hash, generated.Entrances, from),
                 Level = generated,
             };
-        byte[]? cells = LoadCells(id, seed, out int w, out int h);
-        return WithCells(hash, id, seed, cells, w, h, LoadSight(id, seed));
+            // A map's layout start room — the one the game marks "default", where it puts a player entering the map (Strand's
+            // shipwreck) — not DeepestCell: a map nobody captured has no "default" point to fit (MonsterPacks' room points),
+            // and the deepest cell sits in the middle, which left the map device's portals far from the entrance.
+            //
+            // Maps only. A town keeps the spawn its own layout case gives it (Lioneye's Watch's farthest-from-edge cell);
+            // applying this there put the player outside the town's grid, in the sea.
+            bool isMap = id.StartsWith("MapWorlds", StringComparison.Ordinal) || id.StartsWith("MapAtlas", StringComparison.Ordinal)
+                || id.StartsWith("MapKey", StringComparison.Ordinal);
+            if (isMap)
+            {
+                var start = generated.Records.SelectMany(r => r.Rooms)
+                    .FirstOrDefault(p => p.Descriptions.Any(d => string.Equals(d, "default", StringComparison.OrdinalIgnoreCase)));
+                (int X, int Y)? at = start is { } room ? (room.X + room.Width / 2, room.Y + room.Height / 2)
+                    : generated.Entrances.FirstOrDefault(e => e.Enabled) is { } entrance ? (entrance.X, entrance.Y)
+                    : null;
+                if (at is { } point)
+                {
+                    // The room's centre can be the shoreline itself (Strand's start room sits at a corner of its beach): the
+                    // openest cell near it, and when nothing near it — the centre included — is open floor (the port's Strand
+                    // puts its start room on the water), the layout's openest cell, so the player never stands in the sea.
+                    int gw = generated.Width, gh = generated.Height;
+                    var dist = DistanceToWall(generated.Walk, gw, gh);
+                    var (sx, sy) = OpenNear(generated.Walk, gw, gh, point, 60);
+                    int centreOpen = (uint)point.X < (uint)gw && (uint)point.Y < (uint)gh ? dist[point.Y * gw + point.X] : 0;
+                    if ((sx, sy) == point && centreOpen < 4)
+                        (sx, sy) = DeepestCell(generated.Walk, gw, gh);
+                    layout = layout with { SpawnX = sx, SpawnY = sy };
+                }
+            }
+            return layout;
+        }
+        // No capture and no generated level: a position inside any grid; the client may place the player on unwalkable ground.
+        return WithCells(hash, id, seed, null, 0, 0, LoadSight(id, seed));
+    }
+
+    /// <summary>
+    /// The centre of the room the client's capture of this (area, seed) calls the area's start — its
+    /// <c>&lt;area&gt;_seed&lt;seed&gt;.rooms.json</c> entry whose file name holds "start" (Strand's <c>strand_start.arm</c>,
+    /// the shipwreck the real game puts a player entering the map at). Null without that file or that room.
+    /// </summary>
+    static (int X, int Y)? CapturedStartRoom(string id, uint seed)
+    {
+        string path = $"{Folder}/{id}_seed{seed}.rooms.json";
+        if (!File.Exists(path)) return null;
+        try
+        {
+            using var doc = JsonDocument.Parse(File.ReadAllBytes(path));
+            if (!doc.RootElement.TryGetProperty("rooms", out var rooms)) return null;
+            foreach (var room in rooms.EnumerateArray())
+            {
+                string file = Path.GetFileNameWithoutExtension(room.TryGetProperty("path", out var p) ? p.GetString() ?? "" : "");
+                if (!file.Contains("start", StringComparison.OrdinalIgnoreCase)) continue;
+                int x = room.GetProperty("x").GetInt32(), y = room.GetProperty("y").GetInt32();
+                int w = room.TryGetProperty("width", out var rw) ? rw.GetInt32() : 0;
+                int h = room.TryGetProperty("height", out var rh) ? rh.GetInt32() : 0;
+                return (x + w / 2, y + h / 2);
+            }
+        }
+        catch (Exception ex) when (ex is IOException or JsonException or InvalidOperationException or KeyNotFoundException)
+        {
+            Console.WriteLine($"[gateway] {path}: {ex.Message}");
+        }
+        return null;
     }
 
     static AreaLayout WithCells(ushort hash, string id, uint seed, byte[]? cells, int w, int h, Func<int, int, int>? sight)
@@ -306,7 +387,8 @@ static class AreaLayouts
     static readonly (int Dx, int Dy)[] Neighbours = [(1, 0), (-1, 0), (0, 1), (0, -1)];
 
     /// <summary>The walkable cell farthest from any blocked cell (multi-source BFS from blocked cells).</summary>
-    static (int X, int Y) DeepestCell(byte[] cells, int w, int h)
+    /// <summary>Per cell, its distance to the nearest cell that is not open floor (0 there).</summary>
+    static int[] DistanceToWall(byte[] cells, int w, int h)
     {
         var dist = new int[w * h];
         var q = new Queue<int>();
@@ -323,8 +405,41 @@ static class AreaLayouts
                 if (dist[j] > dist[i] + 1) { dist[j] = dist[i] + 1; q.Enqueue(j); }
             }
         }
+        return dist;
+    }
+
+    static (int X, int Y) DeepestCell(byte[] cells, int w, int h)
+    {
+        var dist = DistanceToWall(cells, w, h);
         int best = Array.IndexOf(dist, dist.Where(d => d != int.MaxValue).Max());
         return (best % w, best / w);
+    }
+
+    /// <summary>
+    /// The openest cell within <paramref name="radius"/> cells of <paramref name="at"/>: distance to a wall of at least
+    /// <paramref name="open"/> first, then the most open, then the nearest. A room's centre can sit on a shoreline or in a
+    /// crack — a map's start room is a shipwreck on the beach — and a player put on such a cell sees the void of the grid's
+    /// edge, not the map. <paramref name="at"/> itself when nothing around it is open.
+    /// </summary>
+    static (int X, int Y) OpenNear(byte[] cells, int w, int h, (int X, int Y) at, int radius, int open = 4)
+    {
+        if (w <= 0 || h <= 0 || cells.Length < w * h) return at;
+        var dist = DistanceToWall(cells, w, h);
+        (int X, int Y)? best = null;
+        int bestOpen = -1, bestGap = int.MaxValue;
+        for (int dy = -radius; dy <= radius; dy++)
+        {
+            for (int dx = -radius; dx <= radius; dx++)
+            {
+                int x = at.X + dx, y = at.Y + dy;
+                if ((uint)x >= (uint)w || (uint)y >= (uint)h) continue;
+                int d = dist[y * w + x];
+                if (d < open || d == int.MaxValue) continue;
+                int gap = dx * dx + dy * dy;
+                if (d > bestOpen || (d == bestOpen && gap < bestGap)) { best = (x, y); bestOpen = d; bestGap = gap; }
+            }
+        }
+        return best ?? at;
     }
 
 }

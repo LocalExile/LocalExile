@@ -22,8 +22,9 @@ static class StashCatalog
         [MenagerieHub] = new(455, 480, 0),
         // The Forbidden Sanctum (SanctumFoyer_Fellshrine): by the waypoint (126, 149), to be placed live with /stash_place.
         [SanctumHub] = new(116, 160, 0),
-        // Kingsmarch: next to the arrival (an offset, FromArrival), to be placed live with /stash_place.
-        [Kingsmarch] = new(6, 6, 0),
+        // Kingsmarch: the town's own Stash doodad (an offset from the arrival at (590, 655), FromArrival; the room places
+        // it at (420, 611) facing the counter). Live: /stash_place 420 611 270.
+        [Kingsmarch] = new(-170, -44, -MathF.PI / 2),
         // The Rogue Harbour: next to the arrival (an offset, FromArrival), to be placed live with /stash_place.
         [HeistHub] = new(6, 8, 0),
         // The Monastery of the Keepers: next to the arrival (an offset, FromArrival), to be placed live with /stash_place.
@@ -38,7 +39,9 @@ static class StashCatalog
         DelveHub => new(344, 295, MathF.PI),
         MenagerieHub => new(440, 480, 0),
         SanctumHub => new(106, 166, 0),
-        Kingsmarch => new(-6, 6, 0),
+        // Kingsmarch: the town's GuildStash doodad at (420, 641), the offset from the arrival at (590, 655).
+        // Live: /guild_stash_place 420 641 270.
+        Kingsmarch => new(-170, -14, -MathF.PI / 2),
         HeistHub => new(-6, 8, 0),
         ChayulaHub => new(-6, 8, 0),
         AreaLayouts.LioneyesWatch => new(317, 270, 0),

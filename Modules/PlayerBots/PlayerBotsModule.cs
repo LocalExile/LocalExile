@@ -11,6 +11,9 @@ public sealed class PlayerBotsModule : IModule
     // One director for the process: a hot reload loads this assembly again, and the old one's bots must go first.
     const string Running = "LocalExile.PlayerBots.Stop";
 
+    // C→S 0x92: a party row's travel button, with that member's character name (the same reader as the party invite).
+    const ushort PartyTravelId = 0x92;
+
     /// <inheritdoc/>
     public void Load(IModuleContext module)
     {
@@ -27,6 +30,24 @@ public sealed class PlayerBotsModule : IModule
         module.OnPacket(InstanceSocial.PartyInviteId, p => director.Invite(Program.ConnOf(p.Player), InstanceSocial.ReadPartyInvite(p.Bytes.ToArray())));
         module.OnPacket(InstanceSocial.PartyLeaveId, p => director.Leave(Program.ConnOf(p.Player), InstanceSocial.ReadPartyAccept(p.Bytes.ToArray())));
         module.OnPacket(InstanceSocial.PartyKickId, p => director.Kick(Program.ConnOf(p.Player), InstanceSocial.ReadPartyKick(p.Bytes.Span)));
+        // C→S 0x92 "Travel" on a party member's row: the Social module moves a player to another player, and passes on a
+        // name no player in game has — a party bot's, which is where /bot_stay left it (#715).
+        module.OnPacket(PartyTravelId, p =>
+            director.TravelTo(Program.ConnOf(p.Player), module.World(p.Player), InstanceSocial.ReadPartyInvite(p.Bytes.Span)));
+        // A party bot follows its leader everywhere; these park it in the area it is in (kept in the party, its row
+        // shows that area) so a member in another area can be tried out, e.g. the party panel's travel button (#715).
+        module.OnChatCommand("bot_stay", "/bot_stay (dev: the party bots stop following and keep the area they are in)",
+            async command =>
+            {
+                int n = await director.Park(Program.ConnOf(command.Player), parked: true);
+                await command.Player.Tell(n == 0 ? "No bot is following you." : $"{n} bot(s) stay here and keep their place in the party.");
+            });
+        module.OnChatCommand("bot_follow", "/bot_follow (dev: the party bots follow you again)",
+            async command =>
+            {
+                int n = await director.Park(Program.ConnOf(command.Player), parked: false);
+                await command.Player.Tell(n == 0 ? "No bot is in your party." : $"{n} bot(s) follow you again.");
+            });
     }
 
     sealed class StopOnDispose(Action stop) : IDisposable

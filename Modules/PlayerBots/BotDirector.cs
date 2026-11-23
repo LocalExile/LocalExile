@@ -66,6 +66,12 @@ sealed class Bot
     public uint Party;
     public InstanceState? FollowIn;
     public ClientState? Combat;
+    /// <summary>Parked by /bot_stay: it keeps its place in the party but stops following the leader, and its row in the
+    /// party panel shows the area it was parked in rather than the leader's (<see cref="ParkedArea"/> as the client's
+    /// HASH16, <see cref="ParkedAreaId"/> as the WorldAreas id the travel button sends the player to).</summary>
+    public bool Parked;
+    public ushort ParkedArea;
+    public string? ParkedAreaId;
     public Guid ControlEpoch = Guid.NewGuid();
     public BotControlLease? Control;
 }
@@ -648,7 +654,10 @@ sealed partial class BotDirector
     {
         lock (_bots) ExpireControl(bot);
         var leader = bot.Leader;
-        if (_stop.IsCancellationRequested || bot.Phase != BotPhase.Following || leader is not { Closed: false, PlayerSent: true }
+        // A parked bot (/bot_stay) is no controlled player of the leader's: that body is what travelled with the leader
+        // through every area, so it is closed here and the bot stays behind with its place in the party.
+        if (_stop.IsCancellationRequested || bot.Parked || bot.Phase != BotPhase.Following
+            || leader is not { Closed: false, PlayerSent: true }
             || leader.LeavingArea || Program.GameLogicOrNull is not IControlledPlayerRules rules)
         { StopCombat(bot); return; }
         if (bot.Combat is null || bot.Combat.Closed || !ReferenceEquals(bot.Combat.Instance, leader.Instance))
