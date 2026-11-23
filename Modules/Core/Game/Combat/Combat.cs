@@ -583,6 +583,7 @@ public static partial class Game
                 (m.Life, stageStarts) = TakeOwnerHitLocked(player, m, damage,
                     Cull.Of(playerStats, ownPenetration, critical, spell: false).WithWeapon(weapon.LocalSources), rampageSource, playerStats);
                 CaptureUnhingedHitKillLocked(player, m, playerHit: true);
+                CaptureEquippedHitExplosionLocked(m, playerStats);
                 if (stageStarts)
                 {
                     CommitBossStage(player, targetId, m, ProjectileWorldTime(player));
@@ -1897,6 +1898,9 @@ public static partial class Game
         bool darkBargain = IsDarkBargain(player, gem.Effect);
         // Storm Call sets a marker at every landing (each repeat and cascade area) that strikes later (StormCall.cs).
         bool stormCall = IsStormCall(SkillsFor(player).EffectId(gem.Effect));
+        var firestorm = IsFirestorm(player, gem.Effect) && CastMs(player, gem.Effect, skillId) is int stormCast
+            ? (Session: ProjectilesFor(player), Cast: stormCast) : ((ProjectileSession Session, int Cast)?)null;
+        bool CanReleaseStorm() => cooldownUse?.Current(player) ?? (actionToken is null || player.ActionCount == actionToken);
         double sealGap = seals == 0 ? 0 : (CastMs(player, gem.Effect, skillId) ?? 0) / 10000d;
         for (int release = 0; release <= Math.Max(spellRepeats, meleeRepeats) + seals; release++)
         {
@@ -1904,6 +1908,14 @@ public static partial class Game
             bool reoccurrence = release > 0 && release <= seals;
             double sealDelay = Math.Min(release, seals) * sealGap;
             double more = reoccurrence ? reoccurrenceMore : 1;
+            if (firestorm is { } storm)
+            {
+                double windup = sealDelay + storm.Cast / 1000d
+                    * (repeat + Animations.SpellAreaRelease(SkillsFor(player).ClassFor(player.Character.ClassRow).AnimatedObject));
+                foreach (var area in cascadeAreas.Prepend(to))
+                    storm.Session.ScheduleFirestorm(gem, area, windup, CanReleaseStorm, sacrifice, criticalRoll, repeat, more);
+                continue;
+            }
             if (stormCall)
             {
                 foreach (var area in cascadeAreas.Prepend(to))
@@ -3359,6 +3371,7 @@ public static partial class Game
     // after that (5, 0 and 56 frames).
     public static void StopCorpseBlocking(Player player, uint id, SpawnedMonster m)
     {
+        RememberCursedCorpse(player, id, m);
         bool kept;
         kept = KeepCorpseLocked(player, id, m);
         if (!kept) SendAfter(player, CorpseBlockDelaySeconds, () => CorpseCleared(player, id, m));
@@ -3467,6 +3480,7 @@ public static partial class Game
         (int X, int Y) at, playerAt;
         bool alive, blocked;
         at = m.Walk.Position(now); playerAt = player.Walk.Position(now); alive = player.PlayerLife > 0;
+        var explosionEquipment = playerKill ? CaptureKillEquipment(player, m, at, now) : default;
         blocked = HardcoreProgressBlocked(player);
         await SendVaalSouls(player);
         // Every kill in a survivors run feeds the run's own experience, whoever landed it (survivors-mode.md).
@@ -3479,6 +3493,7 @@ public static partial class Game
         var monster = ModMonster(m, at);
         if (playerKill)
         {
+            WitchbaneOnKill(player, m, AreaTime(player));
             await GameEvents.RunMonsterKilled(new(player, monster));
             if (OnslaughtOnKill(player)) await SendKillOnslaught(player);
             ChargesOnKill(player, m);
@@ -3490,7 +3505,7 @@ public static partial class Game
             // Devour's corpse is taken before the tattoo's roll: one killing blow consumes a corpse once.
             devoured = ConsumeDevouredCorpseLocked(player, id, m, now);
             corpseConsumed = devoured || ConsumeCorpseOnKillLocked(player, id, m, now);
-            bool explodedCorpse = await ExplodeOnKill(player, id, m, at);
+            bool explodedCorpse = await ExplodeOnKill(player, id, m, at, explosionEquipment);
             if (corpseConsumed && !explodedCorpse)
                 await Game.SendWorldRemoval(player, id,
                     $"0x02bd corpse 0x{id:x} ({m.Label}) {(devoured ? "devoured by the supported skill" : "consumed by the killing blow")}");

@@ -31,11 +31,11 @@ static partial class Game
     /// puts on each monster in its area; null for any other skill. Its damage is base_chaos_damage_to_deal_per_minute (the
     /// gem level's resolved value) with the increases a spell's chaos damage over time takes (its implicit
     /// spell_damage_modifiers_apply_to_skill_dot and is_area_damage admit spell and area damage), the supports' more
-    /// multipliers and the damage over time multipliers. Contagion of Transference (spread on hit) is not supported yet.</summary>
+    /// multipliers and the damage over time multipliers. Transference spreads on hit.</summary>
     internal static MonsterContagion.Cast? ContagionCast(Player player, ushort skillId, int effect)
     {
         string? id = SkillsFor(player).EffectId(effect);
-        if (id is not ("Contagion" or "ContagionAltX")) return null;
+        if (id is not ("Contagion" or "ContagionAltX" or "ContagionAltY")) return null;
         var own = SupportedSkill(player, skillId).Stats;
         var playerStats = CharacterPlayerStats(player);
         var merged = MergeSkillStats(playerStats, own);
@@ -52,7 +52,10 @@ static partial class Game
         double dps = perSecond * Math.Max(0, 1 + increased / 100.0) * more * Math.Max(0, multiplier);
         double seconds = SkillDurationModifiers.Seconds(Own(Stat.BaseSkillEffectDuration), Player, Own);
         int radius = SkillRadius(player, own, spell: true, effect);
-        return new(dps, seconds, radius, id == "ContagionAltX" ? 0.75 : 1, skillId, Caster: player);
+        return new(dps, seconds, radius, id == "ContagionAltX" ? 0.75 : 1, skillId, Caster: player)
+        {
+            SpreadOnHitChance = id == "ContagionAltY" ? Own(Stat.ContagionSpreadOnHitAffectedEnemyPct) : 0,
+        };
     }
 
     /// <summary>A Contagion cast: once the area cast clip reaches its contact (as AreaSkillHit times a spell), every live
@@ -156,19 +159,36 @@ static partial class Game
             cast = m.Contagion.TakeSpread(now);
             if (cast is null) return null;
             at = m.Walk.Position(now);
-            var next = cast with { DamagePerSecond = cast.DamagePerSecond * cast.SpreadMore };
-            foreach (var (otherId, other) in player.Area.Monsters)
-                if (otherId != id && other.Hostile && !other.Dead && other.Life > 0 && other.OwnerId is null
-                    && Dist(other.Walk.Position(now), at) <= cast.Radius)
-                {
-                    other.Contagion.Apply(now, next);
-                    if (drain is not null) other.EssenceDrain.Apply(now, drain);
-                    spread++;
-                }
+            spread = ApplyContagionSpreadLocked(player, m, at, cast, drain, now);
         }
         Console.WriteLine($"[gateway] contagion spread from 0x{id:x} to {spread} monster(s)" + (drain is null ? ""
             : $", with essence drain {drain.DamagePerSecond:0.#}/s for {drain.Seconds:0.##} s"));
         return (at, cast.Radius, cast.SpreadAo ?? ContagionSpreadAo);
+    }
+
+    static void ContagionSpreadOnHitLocked(Player player, SpawnedMonster source, double now)
+    {
+        if (source.Contagion.ForHitSpread(now) is not { } cast || !RandomRolls.Chance(cast.SpreadOnHitChance, 100, AreaRng(player))) return;
+        var at = source.Walk.Position(now);
+        if (ApplyContagionSpreadLocked(player, source, at, cast, source.EssenceDrain.ForHitSpread(now), now) > 0
+            && player.Connection.PlayerSent)
+            player.KillShares.Enqueue(_ => ShowContagionSpread(player, at, cast.Radius, cast.SpreadAo ?? ContagionSpreadAo));
+    }
+
+    static int ApplyContagionSpreadLocked(Player player, SpawnedMonster source, (int X, int Y) at,
+        MonsterContagion.Cast cast, MonsterEssenceDrain.Cast? drain, double now)
+    {
+        int spread = 0;
+        var next = cast with { DamagePerSecond = cast.DamagePerSecond * cast.SpreadMore };
+        foreach (var (_, other) in player.Area.MonstersNear(at, cast.Radius))
+            if (!ReferenceEquals(other, source) && other is { Hostile: true, Dead: false, Life: > 0, OwnerId: null }
+                && Dist(other.Walk.Position(now), at) <= cast.Radius)
+            {
+                other.Contagion.Apply(now, next);
+                if (drain is not null) other.EssenceDrain.ApplySpread(now, drain);
+                spread++;
+            }
+        return spread;
     }
 
     /// <summary>The player who owns a damage over time's kill: its caster while present in the runner's instance (connected,
