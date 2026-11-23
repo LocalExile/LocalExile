@@ -21,6 +21,7 @@ public static partial class Game
         ConfigureFortificationRecovery(player, player.Pools.Life, Get);
         ConfigureLeech(player, Get, CriticalOnLowLife(player, stats));
         ConfigureKillOnslaught(player, Get);
+        EffectRules.Configure(player, Get, TriggeredSkillSources(player));
         ConfigureSoulEater(player, stats);
         ObserveAntiquarian(player, stats);
         ReconcileRampageSource(player, stats);

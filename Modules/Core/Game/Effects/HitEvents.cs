@@ -28,49 +28,49 @@ public static partial class Game
         return new TriggerDepthScope(before);
     }
 
-    public static bool MonsterFrozenNow(ClientState conn, SpawnedMonster m) =>
-        m.Ailments.Magnitude(MonsterElementalAilments.Kind.Freeze, ProjectileWorldTime(conn)) > 0;
+    public static bool MonsterFrozenNow(Player player, SpawnedMonster m) =>
+        m.Ailments.Magnitude(MonsterElementalAilments.Kind.Freeze, ProjectileWorldTime(player)) > 0;
 
     /// <summary>"Your Marked enemy": a Mark this player cast is on the monster, not another player's.</summary>
-    public static bool MarkedBy(ClientState conn, SpawnedMonster m)
+    public static bool MarkedBy(Player player, SpawnedMonster m)
     {
         foreach (var curse in m.Curses.All.Values)
-            if (curse.Mark && curse.Caster == conn.PeerId) return true;
+            if (curse.Mark && curse.Caster == player.Id) return true;
         return false;
     }
 
     /// <summary>Whether a rule or a subscriber listens for this player's hits: what a hit site asks before it works
     /// out something only the hit event needs.</summary>
-    public static bool HitListened(ClientState conn) => GameEvents.Combat.Any || EffectRules.Listens(conn, EffectRules.What.Hit);
+    public static bool HitListened(Player player) => GameEvents.Combat.Any || EffectRules.Listens(player, EffectRules.What.Hit);
 
     /// <summary>"You have a Mark": a Mark this player cast is on some monster of the area.</summary>
-    public static bool HasMarkedEnemy(ClientState conn)
+    public static bool HasMarkedEnemy(Player player)
     {
-        foreach (var monster in conn.Monsters.Values)
-            if (!monster.Dead && MarkedBy(conn, monster)) return true;
+        foreach (var monster in player.Area.Monsters.Values)
+            if (!monster.Dead && MarkedBy(player, monster)) return true;
         return false;
     }
 
     /// <summary>Whether a hit was a melee one: its skill's own type, or the weapon's for the default attack.</summary>
-    public static bool MeleeHit(ClientState conn, HitLanded hit)
+    public static bool MeleeHit(Player player, HitLanded hit)
     {
         if (hit.Spell) return false;
-        if (hit.Skill != 0 && SupportedSkill(conn, hit.Skill) is { Effect: >= 0 } gem) return SkillsFor(conn).IsMelee(gem.Effect);
-        return ActiveMainHand(conn) is not { Type.Class: "Bow" or "Wand" };
+        if (hit.Skill != 0 && SupportedSkill(player, hit.Skill) is { Effect: >= 0 } gem) return SkillsFor(player).IsMelee(gem.Effect);
+        return ActiveMainHand(player) is not { Type.Class: "Bow" or "Wand" };
     }
 
     /// <summary>Whether the character's weapon is a bow.</summary>
-    public static bool BowWorn(ClientState conn) => ActiveMainHand(conn) is { Type.Class: "Bow" };
+    public static bool BowWorn(Player player) => ActiveMainHand(player) is { Type.Class: "Bow" };
 
     // Per hit, inside the Monsters lock: nothing is built unless a rule or a subscriber listens.
-    public static void HitLandedLocked(ClientState conn, SpawnedMonster m, bool critical, bool spell,
+    public static void HitLandedLocked(Player player, SpawnedMonster m, bool critical, bool spell,
         IReadOnlyDictionary<uint, int>? skill, string who, ushort sourceSkill = 0)
     {
-        bool rules = EffectRules.Listens(conn, EffectRules.What.Hit);
+        bool rules = EffectRules.Listens(player, EffectRules.What.Hit);
         if (!rules && !GameEvents.Combat.Any) return;
         var hit = new HitLanded(critical, spell, m.Dead || m.Life == 0, skill)
         { Monster = m, Who = who, Depth = TriggerDepth, Skill = sourceSkill };
-        if (rules) EffectRules.Run(conn, hit);
-        GameEvents.RaiseCombat(conn, hit);
+        if (rules) EffectRules.Run(player, hit);
+        GameEvents.RaiseCombat(player, hit);
     }
 }

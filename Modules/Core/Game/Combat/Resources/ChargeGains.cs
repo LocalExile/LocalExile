@@ -20,7 +20,7 @@ public abstract record ChargeEvent : CombatEvent
     /// <paramref name="Skill"/>: the stats of the skill whose hit killed it (its supports' included), when the kill came
     /// from a hit that had them: a support's "on Kill" chance (Ice Bite's Frenzy Charge on Killing a Frozen Enemy) is
     /// its skill's stat, not the character's.</summary>
-    public sealed record Kill(MonsterRarity Rarity, bool Frozen = false, int Poisons = 0, Func<string, int>? Skill = null) : ChargeEvent;
+    public sealed record Kill(MonsterRarity Rarity, bool Frozen = false, int Poisons = 0, Func<uint, int>? Skill = null) : ChargeEvent;
 
     /// <summary>A monster's hit reached the player: it landed or was blocked, not evaded (blocking keeps the defender's
     /// when-hit effects, wiki Blocking). <paramref name="Critical"/>: the monster's hit was a critical strike.</summary>

@@ -21,7 +21,7 @@ public static partial class Game
 
     /// <summary>Releases one kind of item-triggered skill. Accepts: whether it can release this granted effect.
     /// Run: release it for the event that fired the rule (often inside the Monsters lock: quick, no sends or waits).</summary>
-    public sealed record TriggeredSkillExecutor(string Name, Func<ClientState, WornGrantedSkills.Grant, bool> Accepts,
+    public sealed record TriggeredSkillExecutor(string Name, Func<Player, WornGrantedSkills.Grant, bool> Accepts,
         Action<EffectRules.Fire, WornGrantedSkills.Grant> Run);
 
     static TriggeredSkillExecutor[] _triggeredSkillExecutors = [];
@@ -33,18 +33,18 @@ public static partial class Game
             _triggeredSkillExecutors = [.. _triggeredSkillExecutors.Where(e => e.Name != executor.Name), executor];
     }
 
-    static TriggeredSkillExecutor? TriggeredSkillExecutorFor(ClientState conn, WornGrantedSkills.Grant grant)
+    static TriggeredSkillExecutor? TriggeredSkillExecutorFor(Player player, WornGrantedSkills.Grant grant)
     {
         foreach (var executor in Volatile.Read(ref _triggeredSkillExecutors))
-            if (executor.Accepts(conn, grant)) return executor;
+            if (executor.Accepts(player, grant)) return executor;
         return null;
     }
 
     // A granted skill's own stats by name: read on every stat build for every triggered grant worn, so kept for each
     // (skill catalog, effect, level).
     static readonly ConcurrentDictionary<(SkillCatalog Skills, int Effect, int Level), Dictionary<uint, int>> GrantedSkillStats = new();
-    static Dictionary<uint, int> GrantedSkillStatsOf(ClientState conn, WornGrantedSkills.Grant grant) =>
-        GrantedSkillStats.GetOrAdd((SkillsFor(conn), grant.Effect, grant.Level), static key =>
+    static Dictionary<uint, int> GrantedSkillStatsOf(Player player, WornGrantedSkills.Grant grant) =>
+        GrantedSkillStats.GetOrAdd((SkillsFor(player), grant.Effect, grant.Level), static key =>
         {
             var stats = new Dictionary<uint, int>();
             foreach (var (stat, value) in key.Skills.EffectStats(key.Effect, key.Level)) stats[stat] = value;
@@ -54,15 +54,15 @@ public static partial class Game
     /// <summary>Whether this item-granted skill is triggered by an effect rule: an executor can release it and a
     /// loaded rule is turned on by one of its stats. (The client's "manually cast" flag does not tell: it is set on the
     /// triggered marks too.)</summary>
-    public static bool RuleTriggeredGrant(ClientState conn, WornGrantedSkills.Grant grant)
+    public static bool RuleTriggeredGrant(Player player, WornGrantedSkills.Grant grant)
     {
         if (grant.Support || !EffectRules.HasCarrierRules(SkillCarrier)
-            || TriggeredSkillExecutorFor(conn, grant) is null) return false;
+            || TriggeredSkillExecutorFor(player, grant) is null) return false;
         // Asked for every worn grant whenever the skill list is read: the rule lookup is remembered for the loaded rules.
-        var key = (SkillsFor(conn), grant.Effect, grant.Level, EffectRules.Revision);
+        var key = (SkillsFor(player), grant.Effect, grant.Level, EffectRules.Revision);
         if (RuleTriggered.TryGetValue(key, out bool known)) return known;
-        var stats = GrantedSkillStatsOf(conn, grant);
-        bool triggered = EffectRules.CarrierRuleFor(SkillCarrier, name => Stats.Key(name) is uint stat ? stats.GetValueOrDefault(stat) : 0, grant.EffectId);
+        var stats = GrantedSkillStatsOf(player, grant);
+        bool triggered = EffectRules.CarrierRuleFor(SkillCarrier, stat => stats.GetValueOrDefault(stat), grant.EffectId);
         if (RuleTriggered.Count > 4096) RuleTriggered.Clear();
         RuleTriggered[key] = triggered;
         return triggered;
@@ -71,23 +71,23 @@ public static partial class Game
 
     /// <summary>The worn, active, rule-triggered granted skills as carriers of the effect rules. Empty, and nothing
     /// read, while no loaded rule names the carrier.</summary>
-    public static IReadOnlyList<EffectRules.Source> TriggeredSkillSources(ClientState conn)
+    public static IReadOnlyList<EffectRules.Source> TriggeredSkillSources(Player player)
     {
         if (!EffectRules.HasCarrierRules(SkillCarrier)) return [];
-        var grants = AllWornGrantedSkillsOf(conn);
+        var grants = AllWornGrantedSkillsOf(player);
         if (grants.Count == 0) return [];
         List<EffectRules.Source>? sources = null;
         foreach (var grant in grants)
         {
-            if (grant.Support || IsInactive(conn, grant.Host)
-                || !LeagueFor(conn).Rules.AllowsGemEffect(grant.EffectId) || TriggeredSkillExecutorFor(conn, grant) is null) continue;
-            var stats = GrantedSkillStatsOf(conn, grant);
+            if (grant.Support || IsInactive(player, grant.Host)
+                || !LeagueFor(player).Rules.AllowsGemEffect(grant.EffectId) || TriggeredSkillExecutorFor(player, grant) is null) continue;
+            var stats = GrantedSkillStatsOf(player, grant);
             (sources ??= []).Add(new(SkillCarrier, (grant.Identity, grant.EffectsPerLevelRow),
-                name => Stats.Key(name) is uint key ? stats.GetValueOrDefault(key) : 0,
+                key => stats.GetValueOrDefault(key),
                 new Dictionary<string, double>
                 {
-                    ["cooldown"] = SkillsFor(conn).CooldownMs(grant.Effect, grant.Level) / 1000.0,
-                    ["uses"] = Math.Max(1, SkillsFor(conn).CooldownUses(grant.Effect, grant.Level)),
+                    ["cooldown"] = SkillsFor(player).CooldownMs(grant.Effect, grant.Level) / 1000.0,
+                    ["uses"] = Math.Max(1, SkillsFor(player).CooldownUses(grant.Effect, grant.Level)),
                     ["level"] = grant.Level,
                 }, grant, $"{grant.EffectId} (level {grant.Level})") { Name = grant.EffectId });
         }
@@ -95,10 +95,10 @@ public static partial class Game
     }
 
     // The Actor skill of a granted skill: its id is what the cost, the supports and the client know it by.
-    static (ushort Id, SupportedGem Gem)? ActorSkillOf(ClientState conn, WornGrantedSkills.Grant grant)
+    static (ushort Id, SupportedGem Gem)? ActorSkillOf(Player player, WornGrantedSkills.Grant grant)
     {
-        foreach (var skill in GemSkillEffects(conn))
-            if (skill.Effect == grant.Effect && SupportedSkill(conn, skill.Id) is { } gem && gem.WornGrant == grant) return (skill.Id, gem);
+        foreach (var skill in GemSkillEffects(player))
+            if (skill.Effect == grant.Effect && SupportedSkill(player, skill.Id) is { } gem && gem.WornGrant == grant) return (skill.Id, gem);
         return null;
     }
 
@@ -129,14 +129,14 @@ public static partial class Game
         RegisterTriggeredSkillExecutor(new("curse", (_, grant) => CurseCatalog.All.ContainsKey(CurseFamily(grant.EffectId)),
             (fire, grant) =>
             {
-                var conn = fire.Conn;
+                var player = fire.Conn;
                 if (fire.Event.Monster is not { } monster) return;
-                lock (conn.Monsters)
+                
                 {
-                    if (monster.Dead || monster.Life == 0 || !monster.Hostile || conn.PlayerLife == 0
-                        || ActorSkillOf(conn, grant) is not var (id, gem) || !gem.RequirementsMet
-                        || !PayMana(conn, id, out _, out _)) return;
-                    ApplyCurseLocked(conn, monster, id, AreaTime(conn), false, gem, CharacterPlayerStats(conn));
+                    if (monster.Dead || monster.Life == 0 || !monster.Hostile || player.PlayerLife == 0
+                        || ActorSkillOf(player, grant) is not var (id, gem) || !gem.RequirementsMet
+                        || !PayMana(player, id, out _, out _)) return;
+                    ApplyCurseLocked(player, monster, id, AreaTime(player), false, gem, CharacterPlayerStats(player));
                 }
             }));
 
@@ -145,33 +145,32 @@ public static partial class Game
         RegisterTriggeredSkillExecutor(new("summon", (_, grant) => SummonData.Find(grant.EffectId) is not null,
             (fire, grant) =>
             {
-                var conn = fire.Conn;
-                if (conn.Wire is not (var remote, { } stream, var ciphers)) return;
+                var player = fire.Conn;
                 ushort id; (int X, int Y) aim; uint mana, life;
-                lock (conn.Monsters)
+                
                 {
-                    if (conn.PlayerLife == 0 || conn.Paused || conn.Closed || conn.LeavingArea || InTown(conn)
-                        || ActorSkillOf(conn, grant) is not var (actor, gem) || !gem.RequirementsMet
-                        || GemSkillInstanceDisabled(conn, gem.Effect, actor, triggered: true) is not null) return;
-                    double now = AreaTime(conn);
-                    aim = fire.Word("at") == "self" ? conn.Walk.Position(now)
+                    if (player.PlayerLife == 0 || player.Paused || player.Closed || player.LeavingArea || InTown(player)
+                        || ActorSkillOf(player, grant) is not var (actor, gem) || !gem.RequirementsMet
+                        || GemSkillInstanceDisabled(player, gem.Effect, actor, triggered: true) is not null) return;
+                    double now = AreaTime(player);
+                    aim = fire.Word("at") == "self" ? player.Walk.Position(now)
                         : fire.Event.Monster is { } monster ? monster.Walk.Position(now)
-                        : fire.Event is ChargeEvent.SkillUse { At: { } spot } ? spot : conn.Walk.Position(now);
-                    if (!PayMana(conn, actor, out mana, out life)) return;
+                        : fire.Event is ChargeEvent.SkillUse { At: { } spot } ? spot : player.Walk.Position(now);
+                    if (!PayMana(player, actor, out mana, out life)) return;
                     id = actor;
                 }
                 int depth = fire.Event.Depth + 1;
                 var lifetime = CombatLifetime;
-                var session = ProjectilesFor(remote, stream, ciphers, conn);
+                var session = ProjectilesFor(player);
                 bool Current() => session.Active && CurrentGameWork && ReferenceEquals(lifetime, CombatLifetime)
-                    && !conn.Closed && !conn.LeavingArea && conn.PendingTransfer is null && !conn.Paused && conn.PlayerLife > 0
-                    && WornGrantedSkillOwner(conn).StillWorn(grant, ItemsOf(conn).EquipmentSnapshot());
+                    && !player.Closed && !player.LeavingArea && player.PendingTransfer is null && !player.Paused && player.PlayerLife > 0
+                    && WornGrantedSkillOwner(player).StillWorn(grant, ItemsOf(player).EquipmentSnapshot());
                 session.Enqueue(async () =>
                 {
                     if (!Current()) return;
                     using var triggered = EnterTriggered(depth);
-                    await ReleaseTriggeredSummon(conn, session, id, aim, Current);
-                    if (mana > 0 || life > 0) await SendSkillCost(remote, stream, ciphers, conn, life, $"{grant.EffectId} cost");
+                    await ReleaseTriggeredSummon(player, session, id, aim, Current);
+                    if (mana > 0 || life > 0) await SendSkillCost(player, life, $"{grant.EffectId} cost");
                 });
             }));
 
@@ -183,43 +182,43 @@ public static partial class Game
         RegisterTriggeredSkillExecutor(new("area", (_, grant) => TriggeredAreaOf(grant.EffectId) is not null,
             (fire, grant) =>
             {
-                var conn = fire.Conn;
-                if (conn.Wire is not (var remote, { } stream, var ciphers) || TriggeredAreaOf(grant.EffectId) is not { } area) return;
+                var player = fire.Conn;
+                if (TriggeredAreaOf(grant.EffectId) is not { } area) return;
                 ushort id; (int X, int Y) from, aim; uint mana, life; uint? targetId = null; int? radius = null; DamagePacket? baseExtra;
-                lock (conn.Monsters)
+                
                 {
-                    if (conn.PlayerLife == 0 || conn.Paused || conn.Closed || conn.LeavingArea || InTown(conn)
-                        || ActorSkillOf(conn, grant) is not var (actor, gem) || !gem.RequirementsMet
-                        || GemSkillInstanceDisabled(conn, gem.Effect, actor, triggered: true) is not null) return;
-                    double now = AreaTime(conn);
-                    from = conn.Walk.Position(now);
+                    if (player.PlayerLife == 0 || player.Paused || player.Closed || player.LeavingArea || InTown(player)
+                        || ActorSkillOf(player, grant) is not var (actor, gem) || !gem.RequirementsMet
+                        || GemSkillInstanceDisabled(player, gem.Effect, actor, triggered: true) is not null) return;
+                    double now = AreaTime(player);
+                    from = player.Walk.Position(now);
                     aim = from;
                     if (fire.Word("at") != "self" && fire.Event.Monster is { } monster)
                     {
                         aim = monster.Walk.Position(now);
-                        foreach (var (objectId, known) in conn.Monsters)
+                        foreach (var (objectId, known) in player.Area.Monsters)
                             if (ReferenceEquals(known, monster)) { targetId = objectId; break; }
                     }
                     // A skill use has no monster: the skill goes off where that use was aimed.
                     else if (fire.Word("at") != "self" && fire.Event is ChargeEvent.SkillUse { At: { } spot }) aim = spot;
-                    baseExtra = TriggeredBaseExtra(conn, gem);
+                    baseExtra = TriggeredBaseExtra(player, gem);
                     // Where the skill itself goes off: a self-targeted one around the character wherever it was aimed
                     // (SpellCentre), so its art and each of a storm's hits are placed from there.
-                    aim = SpellCentre(conn, gem.Effect, from, aim);
+                    aim = SpellCentre(player, gem.Effect, from, aim);
                     // A row's radius is a base radius: the character's area stats grow it as they do the skill's own.
                     if (area.Radius is int baseRadius)
-                        radius = SkillRadius(conn, baseRadius, gem.Stats, SkillsFor(conn).IsSpell(gem.Effect), gem.Effect);
-                    if (!PayMana(conn, actor, out mana, out life)) return;
+                        radius = SkillRadius(player, baseRadius, gem.Stats, SkillsFor(player).IsSpell(gem.Effect), gem.Effect);
+                    if (!PayMana(player, actor, out mana, out life)) return;
                     id = actor;
                 }
-                var skill = GemSkillEffects(conn).FirstOrDefault(s => s.Id == id);
+                var skill = GemSkillEffects(player).FirstOrDefault(s => s.Id == id);
                 if (skill.Name is null) return;
                 int depth = fire.Event.Depth + 1;
                 var lifetime = CombatLifetime;
-                var session = ProjectilesFor(remote, stream, ciphers, conn);
+                var session = ProjectilesFor(player);
                 bool Current() => session.Active && CurrentGameWork && ReferenceEquals(lifetime, CombatLifetime)
-                    && !conn.Closed && !conn.LeavingArea && conn.PendingTransfer is null && !conn.Paused && conn.PlayerLife > 0
-                    && WornGrantedSkillOwner(conn).StillWorn(grant, ItemsOf(conn).EquipmentSnapshot());
+                    && !player.Closed && !player.LeavingArea && player.PendingTransfer is null && !player.Paused && player.PlayerLife > 0
+                    && WornGrantedSkillOwner(player).StillWorn(grant, ItemsOf(player).EquipmentSnapshot());
                 session.Enqueue(async () =>
                 {
                     if (!Current()) return;
@@ -232,21 +231,21 @@ public static partial class Game
                         bool asTriggered = draw is "triggered" or "target";
                         uint? target = draw is "target" or "instant-target" ? targetId : null;
                         ushort sequence;
-                        lock (conn.Monsters) sequence = conn.LockstepClient ? NextLockstepSequence(conn)
-                            : asTriggered ? ++conn.Twister.Sequence : (ushort)0xffff;
-                        await SendWorldRecord(remote, stream, ciphers, conn, PlayerId, InstanceProtocol.InstantAction(PlayerId, id, aim.X, aim.Y,
-                            target, sequence, conn.LockstepClient ? (ushort)0x101 : (ushort)0, asTriggered),
+                        sequence = player.Connection.LockstepClient ? NextLockstepSequence(player)
+                            : asTriggered ? ++player.Twister.Sequence : (ushort)0xffff;
+                        await SendWorldRecord(player, player.Id, InstanceProtocol.InstantAction(player.Id, id, aim.X, aim.Y,
+                            target, sequence, player.Connection.LockstepClient ? (ushort)0x101 : (ushort)0, asTriggered),
                             $"0x01ce {skill.Name} triggered by its item at ({aim.X}, {aim.Y}), drawn as {draw}{(target is { } t ? $" on 0x{t:x}" : "")}");
                     }
                     await Strike();
-                    if (mana > 0 || life > 0) await SendSkillCost(remote, stream, ciphers, conn, life, $"{skill.Name} cost");
+                    if (mana > 0 || life > 0) await SendSkillCost(player, life, $"{skill.Name} cost");
                 });
                 // The later hits of a row with several, each on the session's own clock and queue.
                 if (area.Hits > 1)
-                    lock (conn.Monsters)
+                    
                     {
                         if (!session.Active) return;
-                        long start = Math.Max(session.Runtime.Now, ProjectileRuntime.Time(conn.Clock.Elapsed.TotalSeconds));
+                        long start = Math.Max(session.Runtime.Now, ProjectileRuntime.Time(AreaTime(player)));
                         for (int i = 1; i < area.Hits; i++)
                             session.Runtime.Schedule(start + ProjectileRuntime.Time(i * area.Every), () => session.Enqueue(async () =>
                             {
@@ -264,13 +263,14 @@ public static partial class Game
                     var at = aim;
                     if (area.Spread > 0)
                     {
-                        double angle = Random.Shared.NextDouble() * Math.Tau, far = Math.Sqrt(Random.Shared.NextDouble()) * area.Spread;
+                        var rng = AreaRng(player);
+                        double angle = rng.NextDouble() * Math.Tau, far = Math.Sqrt(rng.NextDouble()) * area.Spread;
                         at = (aim.X + (int)Math.Round(Math.Cos(angle) * far), aim.Y + (int)Math.Round(Math.Sin(angle) * far));
                     }
                     if (TriggeredAreaArt && area.Art is { } art)
-                        await PresentEffectArt(remote, stream, ciphers, conn, art, at, area.Scale, area.Seconds);
+                        await PresentEffectArt(player, art, at, area.Scale, area.Seconds);
                     // from and to are the same spot, so the hit lands there whatever the skill's own targeting is.
-                    await AreaSkillHit(remote, stream, ciphers, conn, id, skill, at, at, immediate: true,
+                    await AreaSkillHit(player, id, skill, at, at, immediate: true,
                         radiusOverride: radius, triggeredCurrent: Current, baseExtra: baseExtra);
                 }
             }));
@@ -279,18 +279,21 @@ public static partial class Game
     /// <summary>Base damage a granted skill states in a form the hit plan does not read: added damage per character
     /// level (<c>minimum_added_fire_damage_per_level</c>: Blazing Glare, Caustic Retribution) and spell damage per
     /// point of the worn shield's quality (Shield Shatter). Null when the skill has neither.</summary>
-    public static DamagePacket? TriggeredBaseExtra(ClientState conn, SupportedGem gem)
+    static readonly (uint LevelMin, uint LevelMax, uint QualityMin, uint QualityMax)[] BaseExtraStats =
+        [.. Enum.GetValues<DamageType>().OrderBy(t => (int)t).Select(t => t.ToString().ToLowerInvariant()).Select(name =>
+            (Stats.Key($"minimum_added_{name}_damage_per_level") ?? 0, Stats.Key($"maximum_added_{name}_damage_per_level") ?? 0,
+             Stats.Key($"spell_minimum_base_{name}_damage_per_shield_quality") ?? 0, Stats.Key($"spell_maximum_base_{name}_damage_per_shield_quality") ?? 0))];
+
+    public static DamagePacket? TriggeredBaseExtra(Player player, SupportedGem gem)
     {
         DamagePacket? extra = null;
-        int level = Math.Max(1, (int)conn.Pools.Level);
-        int quality = ActiveOffHand(conn) is { Type.Class: "Shield" } shield ? shield.Item.Quality : 0;
+        int level = Math.Max(1, (int)player.Pools.Level);
+        int quality = ActiveOffHand(player) is { Type.Class: "Shield" } shield ? shield.Item.Quality : 0;
         foreach (var type in Enum.GetValues<DamageType>())
         {
-            string name = type.ToString().ToLowerInvariant();
-            double min = (double)GolemStat(gem.Stats, $"minimum_added_{name}_damage_per_level") * level
-                + (double)GolemStat(gem.Stats, $"spell_minimum_base_{name}_damage_per_shield_quality") * quality;
-            double max = (double)GolemStat(gem.Stats, $"maximum_added_{name}_damage_per_level") * level
-                + (double)GolemStat(gem.Stats, $"spell_maximum_base_{name}_damage_per_shield_quality") * quality;
+            var keys = BaseExtraStats[(int)type];
+            double min = (double)GolemStat(gem.Stats, keys.LevelMin) * level + (double)GolemStat(gem.Stats, keys.QualityMin) * quality;
+            double max = (double)GolemStat(gem.Stats, keys.LevelMax) * level + (double)GolemStat(gem.Stats, keys.QualityMax) * quality;
             if (max > 0) extra = (extra ?? DamagePacket.Empty).Add(type, new(min, max));
         }
         return extra;
@@ -371,31 +374,30 @@ public static partial class Game
 
     /// <summary>Shows one of the client's effects at a spot for a while, as an effect object: a MiscAnimated Id or an
     /// .ao path. Removed by the projectile session's own scheduler, so nothing is left running for it.</summary>
-    public static async Task<bool> PresentEffectArt(string remote, NetworkStream stream, ConnectionCiphers ciphers,
-        ClientState conn, string art, (int X, int Y) at, float scale = 1, double seconds = 2)
+    public static async Task<bool> PresentEffectArt(Player player, string art, (int X, int Y) at, float scale = 1, double seconds = 2)
     {
         if (EffectArtAo(art) is not { } ao) return false;
-        var session = ProjectilesFor(remote, stream, ciphers, conn);
+        var session = ProjectilesFor(player);
         uint id;
-        lock (conn.Monsters)
+        
         {
-            if (!session.Active || conn.LeavingArea) return false;
-            id = conn.TakeObjectId();
-            conn.ProjectileObjects.Add(id);
+            if (!session.Active || player.LeavingArea) return false;
+            id = player.TakeObjectId();
+            player.ProjectileObjects.Add(id);
         }
         var effect = new EffectObject(at.X, at.Y, ao) { Scale = scale };
-        bool created = await SendWorldCreate(conn, id,
+        bool created = await SendWorldCreate(player, id,
             () => session.Active ? InstanceEntities.CreateObject(id, InstanceEntities.ObjectTypeHash(EffectObject.TypePath), effect.Blob()) : null,
-            $"0x02bb effect {art} at ({at.X}, {at.Y})", wake: true, transport: (remote, stream, ciphers));
-        lock (conn.Monsters)
+            $"0x02bb effect {art} at ({at.X}, {at.Y})", wake: true);
+        
         {
-            if (!created) { conn.ProjectileObjects.Remove(id); return false; }
+            if (!created) { player.ProjectileObjects.Remove(id); return false; }
             if (!session.Active) return true;
-            long until = Math.Max(session.Runtime.Now, ProjectileRuntime.Time(conn.Clock.Elapsed.TotalSeconds))
+            long until = Math.Max(session.Runtime.Now, ProjectileRuntime.Time(AreaTime(player)))
                 + ProjectileRuntime.Time(seconds);
             session.Runtime.Schedule(until, () => session.WorldRecords(id, () =>
             {
-                conn.ProjectileObjects.Remove(id);
+                player.ProjectileObjects.Remove(id);
                 return [InstanceProtocol.RemoveObject(id)];
             }, remove: true));
         }

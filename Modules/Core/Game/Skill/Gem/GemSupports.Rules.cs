@@ -40,12 +40,14 @@ public static partial class Game
         IReadOnlyList<(byte Row, InventoryItem Item)>? equipment = null)
     {
         equipment ??= ItemsOf(player).EquipmentSnapshot();
-        return [.. AllWornGrantedSkillsOf(player, equipment).Where(g => !g.Support && g.ManuallyCast
+        // A skill an effect rule triggers (RuleTriggeredGrant) is one of the Actor's skills too, as the game lists it:
+        // its id is what its cost, its supports and the client know it by. It cannot be used by hand (TriggerOnlyReason).
+        return [.. AllWornGrantedSkillsOf(player, equipment).Where(g => !g.Support
             && LeagueFor(player).Rules.AllowsGemEffect(g.EffectId)
-            && (g.EffectId == UnhingeEffect || g.EffectId == MadnessEffect || IsDashEffect(g.EffectId)
+            && (RuleTriggeredGrant(player, g) || g.ManuallyCast && (g.EffectId == UnhingeEffect || g.EffectId == MadnessEffect || IsDashEffect(g.EffectId)
                 || IsSummonBeastialCompanionEffect(g.EffectId) || g.EffectId == TwisterEffect || g.EffectId == CatStealthCryEffect
                 || g.EffectId == SnipeEffect || AuraCatalog.Supported(g.EffectId)
-                || GameEvents.GrantedSkillExecutable.For(player).Any(accept => accept(player, g.EffectId))))];
+                || GameEvents.GrantedSkillExecutable.For(player).Any(accept => accept(player, g.EffectId)))))];
     }
 
     public static bool IsDashEffect(string? effectId) => effectId is "Dash" or "DashHardMode" or "DashArborix";
@@ -693,7 +695,10 @@ public static partial class Game
             else { types.Remove(2); types.Remove(7); }
         }
         var plan = SkillHitPlan.ForSkill(SkillsFor(player), gem.Effect, gem.Level, gem.Quality);
-        if (!plan.CanHit) return null;
+        // baseExtra: a spell's base damage its caller worked out (per character level, per shield quality): part of
+        // the spell's base, and enough for a spell whose stat set has no other to hit.
+        bool extraBase = baseExtra is not null && plan.Kind == SkillHitKind.Spell;
+        if (!plan.CanHit && !extraBase) return null;
         bool secondary = plan.Kind == SkillHitKind.Secondary;
         var attackWeapon = attack ? weapon ?? WeaponFor(player) : null;
         var coefficients = SkillsFor(player).DamageCoefficients(gem.Effect, gem.Level);
@@ -701,7 +706,8 @@ public static partial class Game
             : attackWeapon is not null
             ? SupportedAttackDamage.Raw(attackWeapon, Get, new(WeaponAccuracyFor(player, weapon, caster, gem.Stats)),
                 coefficients.Base, coefficients.Added)
-            : DamageStats.RawAdded(plan.SpellBaseWith(Get), Get, spell: true, AddedEffectiveness(player, gem.Effect, gem.Level));
+            : DamageStats.RawAdded(extraBase ? plan.SpellBaseWith(Get).Add(baseExtra!) : plan.SpellBaseWith(Get), Get, spell: true,
+                AddedEffectiveness(player, gem.Effect, gem.Level));
         if (!attack && !secondary && addedChaos > 0)
             raw = raw.Add(GameServer.Core.World.DamageType.Chaos,
                 new GameServer.Core.World.DamageRange(addedChaos, addedChaos).Scale(AddedEffectiveness(player, gem.Effect, gem.Level)));

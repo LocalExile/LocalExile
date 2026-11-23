@@ -561,7 +561,8 @@ public static partial class Game
             session.World(totem.Id, InstanceProtocol.ActionHit(totem.Id, sequence, id, flags: (ushort)(crit ? 0x4221 : 0x4201),
                 kind: 3, code: HitCode(hit)));
             if (!m.Dead && damage > 0)
-                AilmentsOnHitLocked(player, id, m, mitigated, true, crit, 100, caster, skill.Stats, now, AreaRng(player), blind: blind);
+                AilmentsOnHitLocked(player, id, m, mitigated, true, crit, 100, caster, skill.Stats, now, AreaRng(player), blind: blind,
+                    who: CombatActors.Totem);
             CommitAcceptedHitLocked(player, id, m, accepted, damage, now, "totem", playerKill: false);
         }
     }

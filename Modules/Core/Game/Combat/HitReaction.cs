@@ -54,7 +54,7 @@ public static class HitReaction
         if (hit.Owner is { } owner)
         {
             Func<uint, int>? own = hit.Skill is { } skill ? key => skill.GetValueOrDefault(key) : null;
-            Game.ChargesOf(owner).Enqueue(new ChargeEvent.Stun(hit.Melee, own));
+            Game.RaiseCombatEvent(owner, new ChargeEvent.Stun(hit.Melee, own) { Monster = m });
         }
         // "Melee Hits which Stun have X% chance to Fortify" (wiki Fortification): a stun from a melee hit that did not
         // already Fortify it rolls the chance once and grants the hit's damage-based stacks. A stun during a running

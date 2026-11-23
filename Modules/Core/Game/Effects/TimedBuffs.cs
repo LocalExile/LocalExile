@@ -7,7 +7,7 @@ using GameServer.Core.Protocol.Login;
 /// <summary>
 /// The shared timed buff: any buff of the client's BuffDefinitions on the player for a time, with the stats it gives.
 /// A gain starts the buff or lengthens it and never shortens the one running; death ends it; its stats count while the
-/// client has been told (as the kill Onslaught's do), so the icon and the numbers switch together. One buff per
+/// buff runs. One buff per
 /// BuffDefinitions Id: a later gain with other numbers replaces them when it lengthens the buff.
 /// Effect rules use it through the "buff" kind; a mod can call <see cref="Game.GainTimedBuff"/>.
 /// </summary>
@@ -24,12 +24,10 @@ public static partial class Game
         public BuffSpec Spec = null!;
         public double Effect = 1;
         public double Until = double.NegativeInfinity, SentUntil = double.NegativeInfinity;
-        public ushort Instance;
-        public bool StatsChanged;
         public bool Applied => double.IsFinite(SentUntil);
     }
     sealed class TimedBuffSet { public readonly Dictionary<string, TimedBuff> ById = new(StringComparer.Ordinal); }
-    static readonly RuleTable<ClientState, TimedBuffSet> TimedBuffs = new();
+    static readonly RuleTable<Player, TimedBuffSet> TimedBuffs = new();
     // A running buff is sent again only when its end moves by at least this, as the kill Onslaught's is.
     const double TimedBuffRepresentSeconds = 1;
 
@@ -76,95 +74,72 @@ public static partial class Game
     }
 
     /// <summary>The player gains the buff for <paramref name="seconds"/>, its stats times <paramref name="effect"/>
-    /// (1 = as given). Safe from anywhere: the buff goes out from the thread pool when the client would see a change,
-    /// and on the player tick otherwise.</summary>
-    public static void GainTimedBuff(ClientState conn, BuffSpec spec, double seconds, double effect = 1)
-    {
-        bool gained;
-        lock (conn.Monsters)
-            gained = GainTimedBuffLocked(conn, spec, seconds, effect, conn.Clock.Elapsed.TotalSeconds);
-        if (gained && conn.Wire is (var remote, { } stream, var ciphers))
-            _ = Task.Run(() => SendTimedBuffs(remote, stream, ciphers, conn));
-    }
+    /// (1 = as given). Call it in the area's frame; the buff and the stats are presented after the next Stats phase.</summary>
+    public static void GainTimedBuff(Player player, BuffSpec spec, double seconds, double effect = 1) =>
+        GainTimedBuffLocked(player, spec, seconds, effect, AreaTime(player));
 
-    static bool GainTimedBuffLocked(ClientState conn, BuffSpec spec, double seconds, double effect, double now)
+    static bool GainTimedBuffLocked(Player player, BuffSpec spec, double seconds, double effect, double now)
     {
-        if (seconds <= 0 || conn.PlayerLife == 0) return false;
-        var set = TimedBuffs.GetOrCreateValue(conn);
+        if (seconds <= 0 || player.PlayerLife == 0) return false;
+        var set = TimedBuffs.GetOrCreateValue(player);
         if (!set.ById.TryGetValue(spec.Id, out var buff)) set.ById[spec.Id] = buff = new();
         if (now + seconds <= buff.Until) return false;
-        if (buff.Applied && (!ReferenceEquals(buff.Spec, spec) || buff.Effect != effect)) buff.StatsChanged = true;
+        bool running = now < buff.Until;
+        // Its stats start to count, or change, with this gain: the sources step reads them again.
+        if (!running || !ReferenceEquals(buff.Spec, spec) || buff.Effect != effect) MarkPlayerStats(player, PlayerStatStep.Sources);
         buff.Spec = spec;
         buff.Effect = effect;
         buff.Until = now + seconds;
-        // Whether the client would be told something new now; a gain on every hit otherwise waits for the player tick.
-        return !buff.Applied || buff.StatsChanged || buff.Until - buff.SentUntil >= TimedBuffRepresentSeconds;
+        // The client is told when the buff starts or its end moved enough; a gain on every hit otherwise costs nothing.
+        if (running && buff.Until - buff.SentUntil < TimedBuffRepresentSeconds) return false;
+        PresentStats(player);
+        return true;
     }
 
-    /// <summary>What the client is told now about the timed buffs: buffs to remove and add, and, when one starts, ends
-    /// or changes its numbers, the pools, walk speed, stats and skills. Null when nothing changed.</summary>
-    public static byte[]? TimedBuffPresentation(ClientState conn)
+    /// <summary>States the timed buffs the player has to the area's Buffs component (which writes what changed), and
+    /// drops the ones that ran out or that death ended.</summary>
+    public static Task SendTimedBuffs(Player player)
     {
-        if (!TimedBuffs.TryGetValue(conn, out var set)) return null;
-        lock (conn.Monsters)
+        if (!TimedBuffs.TryGetValue(player, out var set) || set.ById.Count == 0) return Task.CompletedTask;
+        if (player.Closed || player.LeavingArea) return Task.CompletedTask;
+        double now = AreaTime(player);
+        bool alive = player.PlayerLife > 0;
+        List<string>? ended = null;
+        foreach (var (id, buff) in set.ById)
         {
-            if (conn.Closed || conn.LeavingArea || conn.RageRetired || set.ById.Count == 0) return null;
-            double now = conn.Clock.Elapsed.TotalSeconds;
-            bool alive = conn.PlayerLife > 0, stats = false;
-            List<byte>? bytes = null;
-            List<string>? ended = null;
-            foreach (var (id, buff) in set.ById)
+            if (!alive || now >= buff.Until)
             {
-                if (!alive) buff.Until = double.NegativeInfinity;
-                double until = now < buff.Until ? buff.Until : double.NegativeInfinity;
-                bool show = double.IsFinite(until);
-                bool remove = buff.Instance != 0 && !show;
-                bool add = show && (buff.Instance == 0 || until - buff.SentUntil >= TimedBuffRepresentSeconds);
-                bool flipped = show != buff.Applied;
-                if (!show) (ended ??= []).Add(id);
-                if (!remove && !add && !flipped && !buff.StatsChanged) continue;
-                bytes ??= [];
-                if (buff.Instance != 0 && (remove || add))
-                {
-                    bytes.AddRange(InstanceEntities.RemoveBuff(PlayerId, buff.Instance));
-                    buff.Instance = 0;
-                }
-                if (add)
-                    bytes.AddRange(InstanceEntities.AddBuff(PlayerId, buff.Instance = conn.NextBuff++, buff.Spec.Row, PlayerId,
-                        u68: BitConverter.SingleToUInt32Bits((float)(until - now))));
-                if (flipped || buff.StatsChanged) stats = true;
-                buff.StatsChanged = false;
-                buff.SentUntil = show ? until : double.NegativeInfinity;
-                if (flipped) Console.WriteLine($"[gateway] buff {id} {(show ? "started" : "ended")} (timed buff)");
+                player.Area.Buffs.Clear(player.Id, buff.Spec.Row, player.Id);
+                (ended ??= []).Add(id);
+                Console.WriteLine($"[gateway] buff {id} ended (timed buff)");
+                continue;
             }
-            if (ended is not null) foreach (string id in ended) set.ById.Remove(id);
-            if (bytes is null) return null;
-            if (stats)
-            {
-                RecomputePoolsAndSpeed(conn);
-                bytes.AddRange(PlayerStatsUpdateAtGate(conn, PlayerStatsWithCleared(conn)));
-                bytes.AddRange(PlayerSkillsIfChanged(conn, PlayerSkills(conn)));
-            }
-            return [.. bytes];
+            if (buff.Applied && buff.Until - buff.SentUntil < TimedBuffRepresentSeconds) continue;
+            if (!buff.Applied) Console.WriteLine($"[gateway] buff {id} started (timed buff)");
+            player.Area.Buffs.Set(player.Id, new(buff.Spec.Row, player.Id, U68: Buff.Seconds(buff.Until - now)));
+            buff.SentUntil = buff.Until;
+            // Its end is a change of state nothing else announces: the presentations run again then.
+            PresentIn(player, buff.Until - now);
         }
+        if (ended is not null)
+        {
+            foreach (string id in ended) set.ById.Remove(id);
+            MarkPlayerStats(player, PlayerStatStep.Sources);
+        }
+        return Task.CompletedTask;
     }
 
-    public static Task SendTimedBuffs(string remote, NetworkStream stream, ConnectionCiphers ciphers, ClientState conn) =>
-        TimedBuffs.TryGetValue(conn, out var set) && set.ById.Count > 0
-            ? Send(remote, stream, ciphers, [], null, atGate: () => TimedBuffPresentation(conn) ?? [])
-            : Task.CompletedTask;
-
-    // The stats of the timed buffs the client has been told about (CharacterStatSources).
-    static Dictionary<uint, int> WithTimedBuffs(ClientState conn, Dictionary<uint, int> sources)
+    // The stats of the running timed buffs (CharacterStatSources). The step runs again when the first of them ends.
+    static Dictionary<uint, int> WithTimedBuffs(Player player, Dictionary<uint, int> sources)
     {
-        if (!TimedBuffs.TryGetValue(conn, out var set)) return sources;
-        lock (conn.Monsters)
+        if (!TimedBuffs.TryGetValue(player, out var set) || player.PlayerLife == 0) return sources;
+        double now = AreaTime(player);
+        foreach (var buff in set.ById.Values)
         {
-            if (conn.PlayerLife == 0) return sources;
-            foreach (var buff in set.ById.Values)
-                if (buff.Applied)
-                    foreach (var (key, value) in buff.Spec.Stats)
-                        sources[key] = ActorScale.Saturate((long)sources.GetValueOrDefault(key) + (long)Math.Round(value * buff.Effect));
+            if (now >= buff.Until) continue;
+            StatsChangeIn(buff.Until - now);
+            foreach (var (key, value) in buff.Spec.Stats)
+                sources[key] = ActorScale.Saturate((long)sources.GetValueOrDefault(key) + (long)Math.Round(value * buff.Effect));
         }
         return sources;
     }

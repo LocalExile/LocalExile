@@ -13,26 +13,33 @@ public static partial class Game
     // The flask buffs are kept in step by StepUniqueBeltEffects (Modules/Core/Item/UniqueBelts/UniqueBeltsFeature.cs).
     // "Effects cannot be removed": nothing in the server removes a running flask effect besides expiry, death and the
     // flask leaving the bar, which the game does too, so there is nothing to guard yet.
-    public const uint MagebloodWord = 3562871479;
     public const uint MagebloodLeftmostStat = Stat.NumMagicUtilityFlasksAlwaysApply;
     public const uint MagebloodRightmostStat = Stat.NumMagicUtilityFlasksAlwaysApplyRightmost;
+    public static readonly uint MagebloodNoUseStat = Stat.Of("magic_utility_flasks_cannot_be_used");
 
-    /// <summary>The Mageblood the character wears (belt row 10), or null when it is not worn or its requirements are unmet.</summary>
-    public static Item? MagebloodBelt(Player player)
+    // One stat summed over the worn items whose requirements are met, whatever slot they are in. Each item's sum is
+    // remembered (PlainItemSum), so this is a lookup an item.
+    static int WornActiveStat(Player player, uint stat, IEnumerable<Item>? activeItems = null)
     {
-        var belt = ItemsOf(player).Items(PlayerInventories.Belt).FirstOrDefault();
-        return belt is { } worn && !IsInactive(player, worn.Id) && IsMageblood(worn.Item) ? worn.Item : null;
+        var mods = ItemsFor(player).Mods;
+        long sum = 0;
+        if (activeItems is not null)
+            foreach (var item in activeItems) sum += PlainItemSum(item, mods).GetValueOrDefault(stat);
+        else
+            foreach (var (_, worn) in EquipmentForStats(player))
+                if (!IsInactive(player, worn.Id)) sum += PlainItemSum(worn.Item, mods).GetValueOrDefault(stat);
+        return (int)Math.Clamp(sum, int.MinValue, int.MaxValue);
     }
 
     /// <summary>How many magic utility flasks the worn items keep applied (2-4 on Mageblood in 3.29, at most the five
     /// flask slots), and whether they are counted from the right (Foulborn Mageblood) instead of the left. Any worn
     /// item with the stat counts, in any slot; <paramref name="activeItems"/> when the caller has them already.</summary>
-    public static (int Count, bool Rightmost) MagebloodCount(ClientState conn, IEnumerable<Item>? activeItems = null)
+    public static (int Count, bool Rightmost) MagebloodCount(Player player, IEnumerable<Item>? activeItems = null)
     {
         var active = activeItems as Item[] ?? activeItems?.ToArray();
-        int right = WornActiveStat(conn, MagebloodRightmostStat, active);
+        int right = WornActiveStat(player, MagebloodRightmostStat, active);
         return right > 0 ? (Math.Clamp(right, 0, 5), true)
-            : (Math.Clamp(WornActiveStat(conn, MagebloodLeftmostStat, active), 0, 5), false);
+            : (Math.Clamp(WornActiveStat(player, MagebloodLeftmostStat, active), 0, 5), false);
     }
 
     /// <summary>Whether the item is a magic utility flask: the flasks Mageblood's mod applies to (not normal or unique
@@ -60,9 +67,8 @@ public static partial class Game
     public static IReadOnlyList<UtilityFlasks.Source> MagebloodSources(Player player, Func<uint, int> character,
         int? playerLevel = null)
     {
-        if (MagebloodBelt(player) is not { } belt) return [];
         var items = ItemsFor(player);
-        var count = MagebloodFlaskCount(belt, items);
+        var count = MagebloodCount(player);
         if (count.Count == 0) return [];
         List<UtilityFlasks.Source> sources = [];
         double now = AreaTime(player);
@@ -107,16 +113,16 @@ public static partial class Game
             || CatOnslaughtActiveLocked(player);
     }
 
-    /// <summary>Whether Mageblood forbids using this flask: magic utility flasks cannot be used while it is worn (normal and
-    /// unique ones still can).</summary>
+    /// <summary>Whether a worn item forbids using this flask: magic utility flasks cannot be used while Mageblood's
+    /// "cannot be Used" line is worn (normal and unique ones still can).</summary>
     public static bool MagebloodBlocksFlaskUse(Player player, Item flask) =>
-        MagebloodBelt(player) is not null && IsMagicUtilityFlask(flask, ItemsFor(player));
+        IsMagicUtilityFlask(flask, ItemsFor(player)) && WornActiveStat(player, MagebloodNoUseStat) > 0;
 
     /// <summary>After the flask bar changed while Mageblood is worn: apply the new permanent flask stats now (the pools, the
     /// walk speed and the client's stats), instead of waiting for an equipment change or a relogin.</summary>
     public static async Task RefreshMagebloodFlasks(Player player)
     {
-        if (MagebloodBelt(player) is null) return;
+        if (MagebloodCount(player).Count == 0) return;
         RecomputePoolsAndSpeed(player);
         await SendPlayerStatSnapshot(player,
             () => PlayerStatsOffFrames(player),

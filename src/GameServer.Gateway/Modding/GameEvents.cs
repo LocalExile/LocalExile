@@ -624,6 +624,20 @@ public static class GameEvents
         return rolled;
     }
 
+    /// <summary>A combat event of this player's character, as it is recorded. A handler runs where the event
+    /// happened, on the area's frame and several times per hit: it must be quick, and must not send or wait. Work that
+    /// needs either is queued and done on <see cref="Tick"/>.</summary>
+    public static readonly GameEvent<Action<Player, CombatEvent>> Combat = new();
+
+    /// <summary>Hands a combat event to its subscribers. With none (the usual case) this is one check.</summary>
+    public static void RaiseCombat(Player player, CombatEvent e)
+    {
+        if (!Combat.Any) return;
+        foreach (var (owner, run) in Combat.Subscribers(player))
+            try { run(player, e); }
+            catch (Exception ex) { Console.WriteLine($"[events] {owner}: Combat failed: {ex.Message}"); }
+    }
+
     public static async Task<bool> AnyObjectUse(Player player, InstanceTransfer.UseSkillOnObject use, double requestedAt)
     {
         foreach (var run in ObjectUse.For(player)) if (await run(player, use, requestedAt)) return true;

@@ -31,7 +31,7 @@ public static class EffectRules
     public static volatile bool LoopGuard = true;
 
     /// <summary>A rule fired (its roll passed): for tools that show it. Text is built only while someone listens.</summary>
-    public static readonly GameEvent<Action<ClientState, string>> Fired = new();
+    public static readonly GameEvent<Action<Player, string>> Fired = new();
 
     /// <summary>A number a rule uses and where it comes from.</summary>
     public sealed record Value(double Fixed, string? Stat, bool OwnStat, double Scale, double Fallback, double? Min, double? Max)
@@ -40,8 +40,10 @@ public static class EffectRules
 
         /// <summary>A number of the rule's carrier by name (a granted skill's "cooldown" or "level"), in place of a stat.</summary>
         public string? Data { get; init; }
+        /// <summary>The id of <see cref="Stat"/>: what the lookups take.</summary>
+        public uint StatKey { get; init; }
 
-        public double Resolve(int own, Func<string, int> get, IReadOnlyDictionary<string, double>? data = null)
+        public double Resolve(int own, Func<uint, int> get, IReadOnlyDictionary<string, double>? data = null)
         {
             double value = Fixed;
             if (Data is not null)
@@ -51,7 +53,7 @@ public static class EffectRules
             }
             else if (OwnStat || Stat is not null)
             {
-                int raw = OwnStat ? own : get(Stat!);
+                int raw = OwnStat ? own : get(StatKey);
                 value = raw == 0 ? Fallback : raw * Scale;
             }
             if (Min is double min) value = Math.Max(min, value);
@@ -97,6 +99,8 @@ public static class EffectRules
         public bool Chains { get; init; }
         /// <summary>What the actor's own stats must be for the rule to be live ("need").</summary>
         public Need[] Needs { get; init; } = [];
+        /// <summary>The id of <see cref="Stat"/>: what the lookups take.</summary>
+        public uint Key { get; init; }
         /// <summary>The one carrier (Source.Name) the rule is for, when many carriers share its stat and each has its
         /// own trigger ("only").</summary>
         public string? Only { get; init; }
@@ -107,7 +111,7 @@ public static class EffectRules
     /// (later a buff, a minion, a ground patch). Key tells two of them apart and keeps a cooldown across stat builds;
     /// Get reads its stats; Data are its own named numbers a row's values may use; Thing is what an effect kind acts on.
     /// </summary>
-    public sealed record Source(string Carrier, object Key, Func<string, int> Get, IReadOnlyDictionary<string, double> Data,
+    public sealed record Source(string Carrier, object Key, Func<uint, int> Get, IReadOnlyDictionary<string, double> Data,
         object Thing, string Label)
     {
         /// <summary>What the carrier is called in the game's data (a granted skill's GrantedEffects Id), for a rule
@@ -116,7 +120,7 @@ public static class EffectRules
     }
 
     /// <summary>One effect of a rule that fired, with its numbers resolved for this actor.</summary>
-    public readonly record struct Fire(ClientState Conn, CombatEvent Event, double Now, Kind Kind, double[] Values, string?[] Names, object? Data)
+    public readonly record struct Fire(Player Conn, CombatEvent Event, double Now, Kind Kind, double[] Values, string?[] Names, object? Data)
     {
         /// <summary>The carrier whose stat turned the rule on, for a rule that has one.</summary>
         public Source? Source { get; init; }
@@ -125,7 +129,7 @@ public static class EffectRules
     }
 
     sealed record LiveEffect(Kind Kind, double[] Values, string?[] Names, object? Data);
-    public sealed record Need(string Stat, double? Min, double? Max);
+    public sealed record Need(string Stat, uint Key, double? Min, double? Max);
     sealed record LiveRule(Rule Rule, double Chance, double Cooldown, LiveEffect[] Do, Source? Source = null, int Uses = 1);
     sealed class Live
     {
@@ -147,10 +151,10 @@ public static class EffectRules
             return true;
         }
     }
-    sealed record Table(int Revision, Rule[] Rules, HashSet<string> Stats, Dictionary<string, Rule[]> ByCarrier);
+    sealed record Table(int Revision, Rule[] Rules, HashSet<uint> Stats, Dictionary<string, Rule[]> ByCarrier);
 
     static readonly LiveRule[][] NoRules = [.. WhatNames.Select(_ => Array.Empty<LiveRule>())];
-    static readonly RuleTable<ClientState, Live> Lives = new();
+    static readonly RuleTable<Player, Live> Lives = new();
     static readonly Dictionary<string, Kind> Kinds = new(StringComparer.Ordinal);
     static readonly object Gate = new();
     static Table _table = new(-1, [], [], new());
@@ -184,11 +188,11 @@ public static class EffectRules
     public static bool HasCarrierRules(string carrier) => Enabled && Current().ByCarrier.ContainsKey(carrier);
 
     /// <summary>Whether a loaded rule of this carrier is turned on by one of these stats.</summary>
-    public static bool CarrierRuleFor(string carrier, Func<string, int> get, string? name = null)
+    public static bool CarrierRuleFor(string carrier, Func<uint, int> get, string? name = null)
     {
         if (!Enabled || !Current().ByCarrier.TryGetValue(carrier, out var rules)) return false;
         foreach (var rule in rules)
-            if ((rule.Only is null || rule.Only == name) && get(rule.Stat) != 0) return true;
+            if ((rule.Only is null || rule.Only == name) && get(rule.Key) != 0) return true;
         return false;
     }
 
@@ -197,14 +201,14 @@ public static class EffectRules
     public static int Revision => Enabled ? Current().Revision : -1;
 
     /// <summary>Whether an effect rule drives this stat now, so the code that read it before leaves it alone.</summary>
-    public static bool Handles(string stat) => Enabled && Current().Stats.Contains(stat);
+    public static bool Handles(uint stat) => Enabled && Current().Stats.Contains(stat);
 
     /// <summary>A stat lookup that reads 0 for every stat a rule drives: what the replaced code is given.</summary>
-    public static Func<string, int> Unhandled(Func<string, int> get)
+    public static Func<uint, int> Unhandled(Func<uint, int> get)
     {
         if (!Enabled) return get;
         var stats = Current().Stats;
-        return stats.Count == 0 ? get : name => stats.Contains(name) ? 0 : get(name);
+        return stats.Count == 0 ? get : key => stats.Contains(key) ? 0 : get(key);
     }
 
     static Table Current()
@@ -224,7 +228,7 @@ public static class EffectRules
                 { Console.WriteLine($"[rules] refused the rule of {row.Stat} #{row.Ord}: {e.Message}"); }
             }
             Console.WriteLine($"[rules] {rules.Count} effect rule(s) loaded, {Kinds.Count} effect kind(s) (game data revision {revision})");
-            Volatile.Write(ref _table, new(revision, [.. rules], [.. rules.Where(r => r.Carrier is null).Select(r => r.Stat)],
+            Volatile.Write(ref _table, new(revision, [.. rules], [.. rules.Where(r => r.Carrier is null).Select(r => r.Key)],
                 rules.Where(r => r.Carrier is not null).GroupBy(r => r.Carrier!).ToDictionary(g => g.Key, g => g.ToArray())));
             return _table;
         }
@@ -232,7 +236,7 @@ public static class EffectRules
 
     static Rule Parse(string stat, int ord, string json)
     {
-        if (Program.Stats.Key(stat) is null) throw new FormatException("unknown stat");
+        if (Program.Stats.Key(stat) is not uint statKey) throw new FormatException("unknown stat");
         using var document = JsonDocument.Parse(json);
         var root = document.RootElement;
         foreach (var property in root.EnumerateObject())
@@ -298,14 +302,14 @@ public static class EffectRules
                 foreach (var property in item.EnumerateObject())
                     if (property.Name is not ("stat" or "min" or "max")) throw new FormatException($"unknown need key \"{property.Name}\"");
                 string needStat = item.GetProperty("stat").GetString() ?? "";
-                if (Program.Stats.Key(needStat) is null) throw new FormatException($"unknown stat \"{needStat}\"");
-                needs.Add(new(needStat, item.TryGetProperty("min", out var low) ? low.GetDouble() : null,
+                if (Program.Stats.Key(needStat) is not uint needKey) throw new FormatException($"unknown stat \"{needStat}\"");
+                needs.Add(new(needStat, needKey, item.TryGetProperty("min", out var low) ? low.GetDouble() : null,
                     item.TryGetProperty("max", out var high) ? high.GetDouble() : null));
             }
         int depth = root.TryGetProperty("depth", out var deep) ? deep.GetInt32() : 0;
         if (depth < 0) throw new FormatException("\"depth\" is negative");
         return new(stat, ord, (What)when, who, [.. checks], any, chance, cooldown, [.. effects])
-        { Carrier = carrier, Uses = uses, MaxDepth = depth, Chains = effects.Exists(e => e.Kind.Chains), Needs = [.. needs],
+        { Key = statKey, Carrier = carrier, Uses = uses, MaxDepth = depth, Chains = effects.Exists(e => e.Kind.Chains), Needs = [.. needs],
           Only = root.TryGetProperty("only", out var only) ? carrier is not null ? only.GetString() : throw new FormatException("\"only\" names a carrier, and the rule has no \"carrier\"") : null };
     }
 
@@ -323,24 +327,26 @@ public static class EffectRules
         string? data = e.TryGetProperty("data", out var d) ? d.GetString() : null;
         if ((own ? 1 : 0) + (stat is not null ? 1 : 0) + (value is not null ? 1 : 0) + (data is not null ? 1 : 0) != 1)
             throw new FormatException("a value needs exactly one of \"fixed\", \"from\", \"stat\" and \"data\"");
-        if (stat is not null && Program.Stats.Key(stat) is null) throw new FormatException($"unknown stat \"{stat}\"");
-        return new(value ?? 0, stat, own, Number("scale") ?? 1, Number("fallback") ?? 0, Number("min"), Number("max")) { Data = data };
+        uint key = 0;
+        if (stat is not null && Program.Stats.Key(stat) is not uint known) throw new FormatException($"unknown stat \"{stat}\"");
+        else if (stat is not null) key = Program.Stats.Key(stat)!.Value;
+        return new(value ?? 0, stat, own, Number("scale") ?? 1, Number("fallback") ?? 0, Number("min"), Number("max")) { Data = data, StatKey = key };
     }
 
     /// <summary>Works out the actor's live rules from its stats, and from the stats of its carriers
     /// (<paramref name="sources"/>) for the rules that name one. Called where the player stats are built.</summary>
-    public static void Configure(ClientState conn, Func<string, int> get, IReadOnlyList<Source>? sources = null)
+    public static void Configure(Player player, Func<uint, int> get, IReadOnlyList<Source>? sources = null)
     {
         var table = Enabled ? Current() : null;
         List<LiveRule>?[]? lists = null;
         void Add(Rule rule, int own, Source? source)
         {
             // A carrier's own stats come first for a value that names a stat; the actor's are behind them.
-            Func<string, int> read = source is null ? get : name => source.Get(name) is var held and not 0 ? held : get(name);
+            Func<uint, int> read = source is null ? get : key => source.Get(key) is var held and not 0 ? held : get(key);
             double chance = rule.Chance.Resolve(own, read, source?.Data);
             if (chance <= 0) return;
             foreach (var need in rule.Needs)
-                if (get(need.Stat) is var has && (has < need.Min || has > need.Max)) return;
+                if (get(need.Key) is var has && (has < need.Min || has > need.Max)) return;
             var effects = new LiveEffect[rule.Do.Length];
             for (int i = 0; i < effects.Length; i++)
             {
@@ -358,28 +364,28 @@ public static class EffectRules
             {
                 if (rule.Carrier is null)
                 {
-                    if (get(rule.Stat) is var own and not 0) Add(rule, own, null);
+                    if (get(rule.Key) is var own and not 0) Add(rule, own, null);
                 }
                 else if (sources is not null)
                     foreach (var source in sources)
                         if (source.Carrier == rule.Carrier && (rule.Only is null || rule.Only == source.Name)
-                            && source.Get(rule.Stat) is var held and not 0) Add(rule, held, source);
+                            && source.Get(rule.Key) is var held and not 0) Add(rule, held, source);
             }
         // No live rule and nothing kept from before: the usual case, and it makes nothing.
-        if (lists is null && !Lives.TryGetValue(conn, out _)) return;
-        var live = Lives.GetOrCreateValue(conn);
+        if (lists is null && !Lives.TryGetValue(player, out _)) return;
+        var live = Lives.GetOrCreateValue(player);
         Volatile.Write(ref live.ByWhat, lists is null ? NoRules : [.. lists.Select(l => l?.ToArray() ?? [])]);
     }
 
     /// <summary>Whether the actor has a live rule for this event: what a per-hit caller asks before it builds one.</summary>
-    public static bool Listens(ClientState conn, What what) =>
-        Enabled && Lives.TryGetValue(conn, out var live) && Volatile.Read(ref live.ByWhat)[(int)what].Length > 0;
+    public static bool Listens(Player player, What what) =>
+        Enabled && Lives.TryGetValue(player, out var live) && Volatile.Read(ref live.ByWhat)[(int)what].Length > 0;
 
     /// <summary>Runs the actor's live rules for a combat event of its side. A hit is <see cref="HitLanded"/>, raised
     /// where every hit passes; the charge system's own hit record (ChargeEvent.Hit) is not an event here.</summary>
-    public static void Run(ClientState conn, CombatEvent e)
+    public static void Run(Player player, CombatEvent e)
     {
-        if (!Enabled || !Lives.TryGetValue(conn, out var live)) return;
+        if (!Enabled || !Lives.TryGetValue(player, out var live)) return;
         int what = e switch
         {
             HitLanded => 0, ChargeEvent.Kill => 1, ChargeEvent.WhenHit => 2, ChargeEvent.Block => 3,
@@ -388,35 +394,35 @@ public static class EffectRules
         if (what < 0) return;
         var rules = Volatile.Read(ref live.ByWhat)[what];
         if (rules.Length == 0) return;
-        double now = conn.Clock.Elapsed.TotalSeconds;
+        double now = Game.AreaTime(player);
         foreach (var rule in rules)
         {
             if (rule.Rule.Who is { } who && who != e.Who) continue;
             if (rule.Rule.Chains && e.Depth > rule.Rule.MaxDepth && LoopGuard) continue;
-            if (!Passes(rule.Rule, e, conn)) continue;
-            if (rule.Chance < 100 && Random.Shared.NextDouble() * 100 >= rule.Chance) continue;
+            if (!Passes(rule.Rule, e, player)) continue;
+            if (rule.Chance < 100 && Game.AreaRng(player).NextDouble() * 100 >= rule.Chance) continue;
             if (rule.Cooldown > 0)
                 lock (live)
                     if (!live.TakeUse(rule, now)) continue;
             foreach (var effect in rule.Do)
-                try { effect.Kind.Run(new(conn, e, now, effect.Kind, effect.Values, effect.Names, effect.Data) { Source = rule.Source }); }
+                try { effect.Kind.Run(new(player, e, now, effect.Kind, effect.Values, effect.Names, effect.Data) { Source = rule.Source }); }
                 catch (Exception ex) { Console.WriteLine($"[rules] {rule.Rule.Stat}: the effect {effect.Kind.Name} failed: {ex.Message}"); }
             if (Fired.Any)
             {
                 string text = $"{(rule.Source is { } from ? from.Label + ": " : "")}{rule.Rule.Stat} on {WhatNames[what]}: {Describe(rule)}";
-                foreach (var (owner, run) in Fired.Subscribers(conn))
-                    try { run(conn, text); }
+                foreach (var (owner, run) in Fired.Subscribers(player))
+                    try { run(player, text); }
                     catch (Exception ex) { Console.WriteLine($"[events] {owner}: EffectRules.Fired failed: {ex.Message}"); }
             }
         }
     }
 
-    static bool Passes(Rule rule, CombatEvent e, ClientState conn)
+    static bool Passes(Rule rule, CombatEvent e, Player player)
     {
         if (rule.Checks.Length == 0) return true;
         foreach (var check in rule.Checks)
         {
-            bool holds = Fact(check.Fact, e, conn) != check.Not;
+            bool holds = Fact(check.Fact, e, player) != check.Not;
             if (holds && rule.Any) return true;
             if (!holds && !rule.Any) return false;
         }
@@ -425,7 +431,7 @@ public static class EffectRules
 
     // A hit's facts about the monster are read from the monster when a rule asks (the hit is raised inside the
     // Monsters lock): nothing is worked out for a hit no rule checks.
-    static bool Fact(string fact, CombatEvent e, ClientState conn) => (fact, e) switch
+    static bool Fact(string fact, CombatEvent e, Player player) => (fact, e) switch
     {
         ("critical", HitLanded h) => h.Critical,
         ("critical", ChargeEvent.WhenHit w) => w.Critical,
@@ -434,21 +440,21 @@ public static class EffectRules
         ("attack", HitLanded h) => !h.Spell,
         ("attack", ChargeEvent.Block b) => !b.Spell,
         ("killed", HitLanded h) => h.Killed,
-        ("frozen", HitLanded { Monster: { } m }) => Game.MonsterFrozenNow(conn, m),
+        ("frozen", HitLanded { Monster: { } m }) => Game.MonsterFrozenNow(player, m),
         ("frozen", ChargeEvent.Kill k) => k.Frozen,
         ("bleeding", HitLanded { Monster: { } m }) => m.Bleeds.Burning,
         ("ignited", HitLanded { Monster: { } m }) => m.Ignites.Burning,
         // A kill is read after the death, which ends the monster's ignites and bleeds: they keep that it died with one.
-        ("ignited", ChargeEvent.Kill { Monster: { } m }) => DiedWith(conn, m.Ignites),
-        ("bleeding", ChargeEvent.Kill { Monster: { } m }) => DiedWith(conn, m.Bleeds),
-        ("marked", HitLanded { Monster: { } m }) => Game.MarkedBy(conn, m),
-        ("has_mark", HitLanded) => Game.HasMarkedEnemy(conn),
+        ("ignited", ChargeEvent.Kill { Monster: { } m }) => DiedWith(player, m.Ignites),
+        ("bleeding", ChargeEvent.Kill { Monster: { } m }) => DiedWith(player, m.Bleeds),
+        ("marked", HitLanded { Monster: { } m }) => Game.MarkedBy(player, m),
+        ("has_mark", HitLanded) => Game.HasMarkedEnemy(player),
         ("poisoned", ChargeEvent.Kill k) => k.Poisons > 0,
         ("melee", ChargeEvent.Stun s) => s.Melee,
-        ("melee", HitLanded h) => Game.MeleeHit(conn, h),
-        ("bow", HitLanded h) => !h.Spell && Game.BowWorn(conn),
+        ("melee", HitLanded h) => Game.MeleeHit(player, h),
+        ("bow", HitLanded h) => !h.Spell && Game.BowWorn(player),
         ("vaal", ChargeEvent.SkillUse u) => u.Vaal,
-        (_, ChargeEvent.SkillUse { Effect: >= 0 } u) when fact is not ("curse" or "trap") => UseFact(fact, u.Effect, conn),
+        (_, ChargeEvent.SkillUse { Effect: >= 0 } u) when fact is not ("curse" or "trap") => UseFact(fact, u.Effect, player),
         ("curse", ChargeEvent.SkillUse u) => u.Curse,
         ("trap", ChargeEvent.SkillUse u) => u.Trap,
         (_, HitLanded { Monster: { } m }) => Rarity(fact, m.Rarity),
@@ -457,15 +463,15 @@ public static class EffectRules
     };
 
     // What kind of skill was used: the catalog's own skill types.
-    static bool UseFact(string fact, int effect, ClientState conn)
+    static bool UseFact(string fact, int effect, Player player)
     {
-        var skills = Game.SkillsFor(conn);
+        var skills = Game.SkillsFor(player);
         return fact switch
         {
             "attack" => skills.IsAttack(effect),
             "spell" => skills.IsSpell(effect),
             "melee" => skills.IsMelee(effect),
-            "bow" => skills.IsAttack(effect) && Game.BowWorn(conn),
+            "bow" => skills.IsAttack(effect) && Game.BowWorn(player),
             "travel" => skills.IsTravel(effect),
             "movement" => skills.IsMovement(effect),
             "warcry" => skills.IsWarcry(effect),
@@ -479,9 +485,9 @@ public static class EffectRules
         };
     }
 
-    static bool DiedWith(ClientState conn, MonsterIgnites burns)
+    static bool DiedWith(Player player, MonsterIgnites burns)
     {
-        lock (conn.Monsters) return burns.Burning || burns.DiedBurning;
+        return burns.Burning || burns.DiedBurning;
     }
 
     static bool Rarity(string fact, GameServer.Core.Protocol.Instance.MonsterRarity rarity) => fact switch
@@ -504,9 +510,9 @@ public static class EffectRules
             + string.Concat(d.Kind.Values.Select((n, i) => $" {n}={d.Values[i]:0.###}"))));
 
     /// <summary>The actor's live rules as text, one line each: for tools that show them.</summary>
-    public static IReadOnlyList<string> Describe(ClientState conn)
+    public static IReadOnlyList<string> Describe(Player player)
     {
-        if (!Lives.TryGetValue(conn, out var live)) return [];
+        if (!Lives.TryGetValue(player, out var live)) return [];
         var lines = new List<string>();
         var byWhat = Volatile.Read(ref live.ByWhat);
         for (int what = 0; what < byWhat.Length; what++)

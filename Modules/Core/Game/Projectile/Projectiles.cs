@@ -738,13 +738,13 @@ public static partial class Game
             // Who made the hit (HitLanded): a totem's or a placed skill's projectile is not the character's own hit.
             // Trap or mine is read from the skill, and only while someone listens for hits.
             string who = shot.FromTotem ? CombatActors.Totem : !shot.FromTrapOrMine ? CombatActors.Self
-                : HitListened(Conn) && PlacedKind(SupportedSkill(Conn, shot.SourceSkill)).Mine ? CombatActors.Mine : CombatActors.Trap;
+                : HitListened(Player) && PlacedKind(SupportedSkill(Player, shot.SourceSkill)).Mine ? CombatActors.Mine : CombatActors.Trap;
             if (!immune)
                 AilmentsOnHitLocked(Player, contact.Target.Id, target, mitigated, shot.Spell, critical, multiplier, player,
                     shot.SkillStats, at, contact.Projectile.ReactionRandomSource, poison: shot.Poison,
                     sourceSkill: shot.SourceSkill, blind: shot.Blind,
                     attackGains: AttackAilmentGains.Capture(player, shot.ActualCaster is null && !shot.Spell), who: who);
-            else HitLandedLocked(Conn, target, critical, shot.Spell, shot.SkillStats, who, shot.SourceSkill);
+            else HitLandedLocked(Player, target, critical, shot.Spell, shot.SkillStats, who, shot.SourceSkill);
             if (!immune && hit.Value.Life > 0 && shot.EssenceDrain is { } drain)
                 EssenceDrainOnHitLocked(contact.Target.Id, target, drain, at);
             if (!immune && hit.Value.Life > 0 && !shot.Spell && shot.MaimChance > 0)

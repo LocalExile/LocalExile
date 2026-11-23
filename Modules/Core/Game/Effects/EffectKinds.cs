@@ -10,33 +10,21 @@ public static partial class Game
         if (_effectKinds) return;
         _effectKinds = true;
 
-        // Onslaught for "seconds": starts it or lengthens it, never shortens the one running (KillOnslaught), and the
-        // buff goes out from the thread pool because an event can be recorded inside the Monsters lock. A rule on every
-        // hit sends only when the client would see a change; the player tick presents the rest.
+        // Onslaught for "seconds": starts it or lengthens it, never shortens the one running (KillOnslaught). A rule on
+        // every hit presents only when the client would see a change.
         EffectRules.Register(new("onslaught", ["seconds"], [], fire =>
         {
-            var conn = fire.Conn;
-            bool gained;
-            lock (conn.Monsters)
-            {
-                var onslaught = KillOnslaughtOf(conn);
-                gained = conn.PlayerLife > 0 && onslaught.Extend(fire.Now, fire.Number("seconds")) && onslaught.PresentationDue;
-            }
-            if (gained && conn.Wire is (var remote, { } stream, var ciphers))
-                _ = Task.Run(() => SendKillOnslaught(remote, stream, ciphers, conn));
+            var player = fire.Conn;
+            var onslaught = KillOnslaughtOf(player);
+            if (player.PlayerLife == 0 || !onslaught.Extend(fire.Now, fire.Number("seconds"))) return;
+            MarkPlayerStats(player, PlayerStatStep.Onslaught);
+            if (onslaught.PresentationDue) PresentStats(player);
         }));
 
         // A buff for "seconds", by one of the client's BuffTemplates rows ("template") or by its BuffDefinitions Id
         // with a value per stat ("buff", "values"); "effect" scales its stats (percent, 100 = as given).
         EffectRules.Register(new("buff", ["seconds", "effect"], [], fire =>
-        {
-            var conn = fire.Conn;
-            bool gained;
-            lock (conn.Monsters)
-                gained = GainTimedBuffLocked(conn, (BuffSpec)fire.Data!, fire.Number("seconds"), fire.Number("effect") / 100, fire.Now);
-            if (gained && conn.Wire is (var remote, { } stream, var ciphers))
-                _ = Task.Run(() => SendTimedBuffs(remote, stream, ciphers, conn));
-        })
+            GainTimedBuffLocked(fire.Conn, (BuffSpec)fire.Data!, fire.Number("seconds"), fire.Number("effect") / 100, fire.Now))
         {
             Defaults = new Dictionary<string, double> { ["effect"] = 100 },
             Extra = ["template", "buff", "values"],

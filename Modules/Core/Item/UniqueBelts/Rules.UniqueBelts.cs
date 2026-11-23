@@ -11,8 +11,8 @@ static partial class UniquebeltsRules
     {
         var items = ItemsFor(player);
         var wanted = new Dictionary<uint, (byte Slot, UtilityFlasks.Utility Utility)>();
-        if (player.PlayerLife > 0 && MagebloodBelt(player) is { } belt)
-            foreach (var flask in MagebloodFlasks(ItemsOf(player).Items(PlayerInventories.Flask), MagebloodFlaskCount(belt, items), items))
+        if (player.PlayerLife > 0 && MagebloodCount(player) is { Count: > 0 } always)
+            foreach (var flask in MagebloodFlasks(ItemsOf(player).Items(PlayerInventories.Flask), always, items))
                 if (items.ByHash(flask.Item.TypeHash) is { } type && items.UtilityFlaskOf(type) is { } utility)
                     wanted[flask.Id] = ((byte)flask.X, utility);
         List<byte[]> packets = [];

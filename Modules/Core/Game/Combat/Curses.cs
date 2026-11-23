@@ -60,7 +60,8 @@ public static partial class Game
     static bool ApplyCurseLocked(Player player, SpawnedMonster monster, ushort skill, double now, bool aura,
         SupportedGem? captured, IReadOnlyDictionary<uint, int>? sources, int addedEffect, double effectMultiplier)
     {
-        var gem = captured ?? SupportedSkill(player, skill); string effect = SkillsFor(player).EffectId(gem.Effect) ?? "";
+        // An item's triggered variant is the curse it names (CurseFamily).
+        var gem = captured ?? SupportedSkill(player, skill); string effect = CurseFamily(SkillsFor(player).EffectId(gem.Effect));
         if (!CurseCatalog.All.TryGetValue(effect, out var definition) || ExternalTemporalChains(player, effect)
             || monster.Dead || monster.Life == 0 || !monster.Hostile || !gem.RequirementsMet) return false;
         var playerStats = sources ?? CharacterPlayerStats(player);

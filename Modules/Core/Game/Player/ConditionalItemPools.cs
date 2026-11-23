@@ -87,8 +87,8 @@ public static partial class Game
         flags["_while_wielding_staff"] = weapons.Staff;
         flags["_while_wielding_sword"] = weapons.Sword;
         bool flask = player.FlaskEffects.Any || player.UtilityFlaskEffects.ActiveAt(now)
-            || MagebloodBelt(player) is { } belt
-                && MagebloodFlasks(ItemsOf(player).Items(PlayerInventories.Flask), MagebloodFlaskCount(belt)).Count > 0;
+            || MagebloodCount(player, activeItems) is { Count: > 0 } always
+                && MagebloodFlasks(ItemsOf(player).Items(PlayerInventories.Flask), always).Count > 0;
         flags["_while_using_flask"] = flags["_during_flask_effect"] = flask;
         flags["_if_affected_by_no_flasks"] = !flask;
         flags["_while_bleeding"] = player.IncomingAilments.Bleeding(now);
