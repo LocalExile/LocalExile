@@ -5,6 +5,9 @@ using GameServer.Core.Protocol.Login;
 
 public static partial class Game
 {
+    static bool IsTwoHandMeleeClass(string? itemClass) => itemClass is "Two Hand Sword" or "Two Hand Axe"
+        or "Two Hand Mace" or "Staff" or "Warstaff";
+
     // Pools and published stats already include effective item ES. Raw bases would count suppressed/converted ES.
     public static bool PlayerHasEnergyShieldForRecovery(Player player, Func<uint, int> get) =>
         player.Pools.EnergyShield > 0 || PlayerHitRecovery.EnergyShieldPresent(get);
@@ -177,8 +180,7 @@ public static partial class Game
         ItemCatalog.BaseType? At(byte row) => rowItems(row).Where(i => !inactive(i.Id))
             .Select(i => catalog.ByHash(i.Item.TypeHash)).FirstOrDefault(t => t is not null);
         static bool OneHand(ItemCatalog.BaseType t) => OneHandMelee(t) || t.Class == "Wand";
-        static bool TwoHandMelee(ItemCatalog.BaseType t) => t.Class is "Two Hand Sword" or "Two Hand Axe"
-            or "Two Hand Mace" or "Staff" or "Warstaff";
+        static bool TwoHandMelee(ItemCatalog.BaseType t) => IsTwoHandMeleeClass(t.Class);
         static bool Pair(ItemCatalog.BaseType? main, ItemCatalog.BaseType? off) =>
             main is { } m && off is { } o && OneHand(m) && OneHand(o);
         var main1 = At(2);
@@ -247,7 +249,8 @@ public static partial class Game
 
     public static PlayerInventories.Shape? ShapeOf(Item i) => Items.ByHash(i.TypeHash) is { } t
         ? new PlayerInventories.Shape(t.Width, t.Height, t.Class, t.MaxStack,
-            t.BecomesWhenFull && Items.Row(t.FullStackRow) is { Supported: true } full ? () => ItemCatalog.Create(full) : null)
+            t.BecomesWhenFull && Items.Row(t.FullStackRow) is { Supported: true } full ? () => ItemCatalog.Create(full) : null,
+            t.IsFossil)
         : null;
 
     // The weapon type of an equipment row's item (its BaseItemTypes row), or null: the active (not inactive) item.
@@ -352,6 +355,7 @@ public static partial class Game
             () => PlayerStatsOffFrames(player),
             "0x01b3 player stats (equipment)");
         await SendPlayerMana(player, $"0x01b1 player mana {player.PlayerMana} (equipment)");
+        await CheckEquipmentAchievements(player, items);
     }
 
     public static async Task SendModel(Player player,

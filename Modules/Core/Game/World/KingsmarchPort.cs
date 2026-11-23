@@ -9,7 +9,7 @@ using GameServer.Modding;
 /// Shipments are the town's own state: a ship leaves with the cargo the farm's store gave up, takes time proportional to
 /// the port's distance, may be lost to the risks the port is known for, and pays barter when it comes home. A lost trip is
 /// not a coin flip with no story: the client's own failure table says what went wrong and what it cost.</summary>
-internal static class KingsmarchPort
+public static class KingsmarchPort
 {
     const string Area = "KalguuranSettlersLeague";
     const string PortsFile = "data/tables/VillageShippingPorts.json";
@@ -35,6 +35,8 @@ internal static class KingsmarchPort
     static readonly Dictionary<string, int> _values = new(StringComparer.OrdinalIgnoreCase);
     // The row a resource has in VillageResources.json: the failure table names resources by that row, not by id.
     static readonly Dictionary<string, int> _rows = new(StringComparer.OrdinalIgnoreCase);
+    // The row a resource has in VillageExports.json: the wire's cargo array has one u32 per row of that table.
+    static readonly Dictionary<string, int> _export = new(StringComparer.OrdinalIgnoreCase);
     static readonly Dictionary<string, SavedPort> _saved = [];
     static bool _loaded;
 
@@ -56,6 +58,8 @@ internal static class KingsmarchPort
         public double Returns { get; set; }
         // How often this trip was pushed back by weather (a delay is a once-per-trip event, not a loop).
         public int Delays { get; set; }
+        /// <summary>The VillageShippingFailures row that hit this trip, empty while it is still at sea.</summary>
+        public string Loss { get; set; } = "";
         public Dictionary<string, int> Cargo { get; set; } = [];
     }
 
@@ -66,7 +70,22 @@ internal static class KingsmarchPort
         public int Barter { get; set; }
         /// <summary>The town's treasury: gold the player funded into Kingsmarch (Johan's Fund the Treasury).</summary>
         public long Gold { get; set; }
+        /// <summary>Wages the treasury could not pay yet; they are paid from the next funding.</summary>
+        public int Wages { get; set; }
         public List<Ship> Ships { get; set; } = [];
+        /// <summary>What came home and has not been collected yet: the port panel's "collect" button takes one, or all.</summary>
+        public List<Reward> Rewards { get; set; } = [];
+        /// <summary>Each port's shipment quota, by <c>VillageShippingPorts</c> Id: six numbers the panel shows per port and
+        /// the reroll button replaces. Absent until the port is first looked at.</summary>
+        public Dictionary<string, int[]> Quotas { get; set; } = [];
+    }
+
+    /// <summary>One shipment that came home, waiting to be collected.</summary>
+    sealed class Reward
+    {
+        public string Port { get; set; } = "";
+        public int Barter { get; set; }
+        public double At { get; set; }
     }
 
     /// <summary>Loads the ports, what each resource is worth, and the ways a trip can go wrong, once per module load.</summary>
@@ -96,14 +115,22 @@ internal static class KingsmarchPort
             try
             {
                 using var exports = JsonDocument.Parse(File.ReadAllBytes(ExportsFile));
+                int exportRow = 0;
                 foreach (var row in exports.RootElement.EnumerateArray())
                 {
                     int value = row.GetProperty("ShippingValue").GetInt32();
+                    // Every row keeps its index, even the ones worth nothing: the cargo array is indexed by it.
+                    string exportId = row.GetProperty("Id").GetString() ?? "";
+                    if (exportId.Length > 0) _export[exportId] = exportRow++;
+                    else exportRow++;
                     if (value <= 0) continue;
                     _values[row.GetProperty("Id").GetString() ?? ""] = value;
                     // The farm's store is keyed by the crop's name ("Wheat"), the exports table by its id; keep both.
                     if (row.TryGetProperty("Name", out var name) && name.GetString() is { Length: > 0 } display)
+                    {
                         _values[display] = value;
+                        _export[display] = _export.GetValueOrDefault(exportId, 0);
+                    }
                 }
             }
             catch (Exception ex) when (ex is IOException or JsonException or KeyNotFoundException)
@@ -211,21 +238,49 @@ internal static class KingsmarchPort
         }
     }
 
-    /// <summary>The gold in the character's town treasury.</summary>
+    /// <summary>The gold in the character's town treasury, and the wages still owed to its workers.</summary>
     public static long Gold(string who)
     {
         lock (_saved) return Harbour(who).Gold;
     }
 
-    /// <summary>Puts gold into the treasury; the treasury after.</summary>
+    public static int Wages(string who)
+    {
+        lock (_saved) return Harbour(who).Wages;
+    }
+
+    /// <summary>Puts gold into the treasury and settles any wages owed first; the treasury after.</summary>
     public static long Fund(string who, long amount)
     {
         lock (_saved)
         {
             var port = Harbour(who);
             port.Gold += Math.Max(0, amount);
+            int owed = Math.Min(port.Wages, (int)Math.Min(port.Gold, int.MaxValue));
+            port.Wages -= owed;
+            port.Gold -= owed;
             Save();
             return port.Gold;
+        }
+    }
+
+    /// <summary>Pays a worker's wage: false when the treasury is short, in which case the wage is owed and settled by the
+    /// next funding, so the town keeps working instead of stalling on an empty treasury.</summary>
+    public static bool PayWages(string who, int amount)
+    {
+        lock (_saved)
+        {
+            var port = Harbour(who);
+            if (amount <= 0) return true;
+            if (port.Gold < amount)
+            {
+                port.Wages += amount;
+                Save();
+                return false;
+            }
+            port.Gold -= amount;
+            Save();
+            return true;
         }
     }
 
@@ -320,6 +375,7 @@ internal static class KingsmarchPort
                     lines.Add($"{Clean(loss.Text)} The shipment to {to} is {loss.Delay}% late.");
                     continue;
                 }
+                ship.Loss = loss.Id;
                 int home = Math.Max(0, ship.Crew - loss.Crew);
                 harbour.Crew += home;
                 double kept = (1 - loss.Lost / 100.0) * (1 - loss.Bonus / 100.0);
@@ -331,8 +387,10 @@ internal static class KingsmarchPort
             // The crew is tied up while the ship is away and comes home with it.
             harbour.Crew += ship.Crew;
             int barter = (int)Math.Round(ship.Value * BarterMultiplier);
-            harbour.Barter += barter;
-            lines.Add($"A ship came back from {to}: {barter} barter ({ship.Value} value sent, {ship.Crew} crew home).");
+            // The barter is not banked here: it waits at the dock, and the port panel's collect button is what moves it,
+            // so a player who never collects never gets paid (the client draws the row as a reward).
+            harbour.Rewards.Add(new Reward { Port = ship.Port, Barter = barter, At = clock });
+            lines.Add($"A ship came back from {to}: {barter} barter waiting to be collected ({ship.Value} value sent, {ship.Crew} crew home).");
         }
         Save();
         return lines.Count == 0 ? Task.CompletedTask : player.Tell(string.Join(" | ", lines));
@@ -400,5 +458,183 @@ internal static class KingsmarchPort
         }
         Save();
         return $"Sent {taken} {crop} (value {ship.Value}, {crew} crew) to {port.Name}; back in {Travel(port):0} s.";
+    }
+
+    // ---- What the town window draws, as the client wants it on the wire (S→C 0x2c9) --------------
+
+    /// <summary>One destination as the port panel lists it: <c>Row</c> is its row in
+    /// <c>VillageShippingPorts.json</c>, which is what the panel refers to a port by.</summary>
+    public sealed record PortView(int Row, string Id, string Name, int Distance, double Risk);
+
+    /// <summary>A ship in a dock slot: the 16 <c>Cargo</c> entries are indexed by <c>VillageExports.json</c> row, the same
+    /// sixteen u32 the panel's own send action carries (<c>0x06</c>: slot, port, failure, 16 × u32).</summary>
+    public sealed record ShipView(int Slot, int PortRow, int FailureRow, int Value, int Crew, double Sent, double Returns,
+        int[] Cargo);
+
+    /// <summary>Every port the town can ship to, in table order.</summary>
+    public static IReadOnlyList<PortView> PortList()
+    {
+        Load();
+        var list = new List<PortView>(_ports.Count);
+        for (int i = 0; i < _ports.Count; i++)
+            list.Add(new PortView(i, _ports[i].Id, _ports[i].Name, _ports[i].Distance, _ports[i].Risk));
+        return list;
+    }
+
+    /// <summary>The ships in the three dock slots (index 0 first), each with its cargo as a 16-entry array.</summary>
+    public static IReadOnlyList<ShipView> ShipList(string who)
+    {
+        Load();
+        var harbour = Harbour(who);
+        var list = new List<ShipView>();
+        lock (_lock)
+        {
+            for (int slot = 0; slot < harbour.Ships.Count && slot < 3; slot++)
+            {
+                var ship = harbour.Ships[slot];
+                var cargo = new int[16];
+                foreach (var (key, count) in ship.Cargo)
+                    if (_export.TryGetValue(key, out int row) && row >= 0 && row < 16) cargo[row] += count;
+                int portRow = _ports.FindIndex(p => p.Id == ship.Port);
+                int failureRow = ship.Loss.Length == 0 ? -1 : _losses.FindIndex(l => l.Id == ship.Loss);
+                list.Add(new ShipView(slot, portRow, failureRow, ship.Value, ship.Crew, ship.Sent, ship.Returns, cargo));
+            }
+        }
+        return list;
+    }
+
+    /// <summary>Takes a ship out of its dock slot without paying for it (the panel's abandon button).</summary>
+    /// <summary>One shipment waiting to be collected, as the port panel lists it.</summary>
+    public sealed record RewardView(int Index, string Port, int Barter);
+
+    /// <summary>What came home and waits to be collected.</summary>
+    public static IReadOnlyList<RewardView> Rewards(string who)
+    {
+        Load();
+        var harbour = Harbour(who);
+        lock (_lock)
+            return [.. harbour.Rewards.Select((r, i) => new RewardView(i, r.Port, r.Barter))];
+    }
+
+    /// <summary>The panel's collect button: <paramref name="index"/> &lt; 0 takes every reward, otherwise just that one.
+    /// Returns the barter collected.</summary>
+    public static int TakeRewards(string who, int index)
+    {
+        Load();
+        var harbour = Harbour(who);
+        int taken = 0;
+        lock (_lock)
+        {
+            if (index < 0)
+            {
+                foreach (var reward in harbour.Rewards) taken += reward.Barter;
+                harbour.Rewards.Clear();
+            }
+            else if (index < harbour.Rewards.Count)
+            {
+                taken = harbour.Rewards[index].Barter;
+                harbour.Rewards.RemoveAt(index);
+            }
+            if (taken == 0) return 0;
+            harbour.Barter += taken;
+        }
+        if (taken != 0) Save();
+        return taken;
+    }
+
+    /// <summary>A port's six-number shipment quota, as the panel's per-port row shows it.</summary>
+    public static int[] Quota(string who, int portRow)
+    {
+        Load();
+        if (portRow < 0 || portRow >= _ports.Count) return new int[6];
+        var harbour = Harbour(who);
+        lock (_lock)
+        {
+            if (!harbour.Quotas.TryGetValue(_ports[portRow].Id, out int[]? quota))
+            {
+                // The table carries no quota numbers: every port starts at the same six zeros the client draws.
+                quota = new int[6];
+                harbour.Quotas[_ports[portRow].Id] = quota;
+            }
+            return quota;
+        }
+    }
+
+    /// <summary>The panel's quota reroll: <c>VillageSharedConstants.QuotaRerollCost</c> gold buys a new set of six numbers
+    /// for that port. Returns what happened, and the new quota.</summary>
+    public static string RerollQuota(string who, int portRow, int cost, out int[] quota)
+    {
+        Load();
+        quota = Quota(who, portRow);
+        if (portRow < 0 || portRow >= _ports.Count) return $"no port row {portRow}";
+        var harbour = Harbour(who);
+        if (!Spend(who, cost)) return $"a reroll costs {cost} gold and the treasury has {harbour.Gold}";
+        lock (_lock)
+        {
+            var next = new int[6];
+            for (int i = 0; i < next.Length; i++) next[i] = Random.Shared.Next(1, 7) * 10;
+            harbour.Quotas[_ports[portRow].Id] = next;
+            quota = next;
+        }
+        Save();
+        return $"{_ports[portRow].Name} quota rerolled for {cost} gold";
+    }
+
+    public static bool DropShip(string who, int slot)
+    {
+        var harbour = Harbour(who);
+        lock (_lock)
+        {
+            if (slot < 0 || slot >= harbour.Ships.Count) return false;
+            harbour.Ships.RemoveAt(slot);
+        }
+        Save();
+        return true;
+    }
+
+    /// <summary>The town's purse, as the town window shows it.</summary>
+    public static (int Crew, int Barter, long Gold) Vault(string who)
+    {
+        var harbour = Harbour(who);
+        lock (_lock) return (harbour.Crew, harbour.Barter, harbour.Gold);
+    }
+
+    /// <summary>Sends a shipment the port panel described: 16 cargo counts indexed by VillageExports row. Returns the
+    /// message to tell the player, so the panel's click has the same story as <c>/port send</c>.</summary>
+    public static string SendCargo(IPlayer player, int portRow, int[] cargo, out int value, out int crew)
+    {
+        Load();
+        value = 0;
+        crew = 0;
+        if (portRow < 0 || portRow >= _ports.Count) return $"no port row {portRow}";
+        var port = _ports[portRow];
+        var taken = new Dictionary<string, int>(StringComparer.OrdinalIgnoreCase);
+        for (int row = 0; row < cargo.Length && row < 16; row++)
+        {
+            if (cargo[row] <= 0) continue;
+            string id = _export.FirstOrDefault(kv => kv.Value == row).Key;
+            if (id.Length == 0) continue;
+            int have = KingsmarchTown.Stored(player, id);
+            int take = Math.Min(have, cargo[row]);
+            if (take <= 0) continue;
+            int got = KingsmarchTown.TakeFromStore(player, id, take);
+            if (got <= 0) continue;
+            taken[id] = got;
+            value += got * _values.GetValueOrDefault(id, 0);
+        }
+        if (value <= 0) return "the town has none of that cargo";
+        if (value < MinCargoValue) return $"that cargo is worth {value}; a port wants at least {MinCargoValue}";
+        crew = CrewRequired(value);
+        var harbour = Harbour(player.Character ?? "");
+        lock (_lock) if (harbour.Crew < crew) return $"that cargo needs {crew} crew, the harbour has {harbour.Crew}";
+        double clock = Environment.TickCount64 / 1000.0;
+        var ship = new Ship { Port = port.Id, Value = value, Crew = crew, Sent = clock, Returns = clock + Travel(port), Cargo = taken };
+        lock (_lock)
+        {
+            harbour.Crew -= crew;
+            harbour.Ships.Add(ship);
+        }
+        Save();
+        return $"Sent {value} worth of cargo to {port.Name} ({crew} crew, back in {Travel(port):0} s).";
     }
 }

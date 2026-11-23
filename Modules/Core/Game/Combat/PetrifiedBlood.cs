@@ -11,7 +11,7 @@ public static partial class Game
         bool started;
         // Locked commit backstop: a source may have changed after dispatch/cooldown preflight.
         if (player.Closed || player.LeavingArea || player.PlayerLife == 0 || InTown(player)
-            || CastingSpell(player, effect) && SpellsDisabled(player)) return false;
+            || EternalBlessingDisables(player, skillId) || CastingSpell(player, effect) && SpellsDisabled(player)) return false;
         if (player.PetrifiedBlood.Active)
         {
             player.PetrifiedBlood.Suspend();

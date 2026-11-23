@@ -9,7 +9,13 @@ public static partial class Game
         int x, int y, float rotation)
     {
         uint id = player.TakeObjectId();
-        var obj = new NpcObject(x, y, npc.Components!, rotation, npc.StateMachine, npc.TransitionState, npc.Model, npc.Height);
+        // Kingsmarch's NPCs carry a StateMachine whose visible state starts at 0, and the client's visible_0 event hides
+        // its own icon, highlight and targetability. The league's town shows them, so the server sends visible = 1 with
+        // the "keep the sent value" flag (StateMachineData.Set marks the state overridden).
+        StateMachineData? machine = npc.StateMachine;
+        if (machine is not null && npc.Id.StartsWith("Metadata/NPC/League/Kalguur/", StringComparison.Ordinal))
+            machine = machine.Set("visible", 1);
+        var obj = new NpcObject(x, y, npc.Components!, rotation, machine, npc.TransitionState, npc.Model, npc.Height);
         uint type = InstanceEntities.ObjectTypeHash(npc.Id);
         string log = $"0x02bb create npc 0x{id:x} {npc} type=0x{type:x8} at ({x}, {y}) rotation {rotation:0.##}, components {string.Join(", ", npc.Components!)}";
         // An NPC is the player's quest view: their quest state chose it, so it is theirs alone to see (AreaDelta's private entities).
@@ -46,8 +52,10 @@ public static partial class Game
         foreach (var note in notes) Console.WriteLine($"[gateway] {player.Connection.Remote} npcs: {note}");
         if (placements.Count == 0 || Environment.GetEnvironmentVariable("Game_NPCS") == "0") return;
         if (Npcs.Error is { } error) { Console.WriteLine($"[gateway] {player.Connection.Remote} npcs: {error}"); return; }
+        // A room's placements are the area's own cells (the Kingsmarch's room sits at (138, 138) in the area); only the
+        // arrival-relative ones move with the arrival.
         if (StashCatalog.FromArrival(player.Layout.Hash))
-            placements = [.. placements.Select(p => p with { X = player.Layout.SpawnX + p.X, Y = player.Layout.SpawnY + p.Y })];
+            placements = [.. placements.Select(p => p.FromRoom ? p : p with { X = player.Layout.SpawnX + p.X, Y = player.Layout.SpawnY + p.Y })];
         var quests = QuestsOf(player);
         foreach (var p in placements)
         {
@@ -89,6 +97,12 @@ public static partial class Game
         }
         uint id;
         lock (player.Npcs) id = player.Npcs.FirstOrDefault(n => ReferenceEquals(n.Value, npc)).Key;
+        player.StashOpen = false;
+        player.GuildStashOpen = false;
+        player.BenchOpen = false;
+        player.ModuleWindow = null;
+        player.ModuleWindowAnchor = null;
+        await RefreshBenchBalance(player, clear: true);
         player.AutomaticNpcTalkRows.Clear();
         player.TalkingTo = id;
         player.InNpcTalk = false;
@@ -203,12 +217,17 @@ public static partial class Game
         bool usesLeagueFlags = GameEvents.UsesNpcLeagueFlags(player, npc.Npc);
         if (usesLeagueFlags)
         {
-            if (!talk.Available(flags, new HashSet<int>(player.Character.LeagueQuestFlags))) return false;
+            if (!talk.Available(flags, new HashSet<int>(player.Character.LeagueQuestFlags)))
+            {
+                Console.WriteLine($"[gateway] {player.Connection.Remote} npc option {talk.Category} \"{talk.Option}\" is not available: needs {string.Join(", ", talk.RequiredFlags)}, league {string.Join(", ", talk.LeagueFlagsRequired)}, refused league {string.Join(", ", talk.LeagueFlagsRefused)}");
+                return false;
+            }
         }
         else if (!talk.Available(flags)) return false;
-        if (!await GameEvents.AllowNpcOption(player, talk)) return false;
+        Console.WriteLine($"[gateway] {player.Connection.Remote} npc option {talk.Category} \"{talk.Option}\" passed the gate (league {usesLeagueFlags})");
+        if (!await GameEvents.AllowNpcOption(player, talk)) { Console.WriteLine($"[gateway] {player.Connection.Remote} npc option \"{talk.Option}\" refused by a hook"); return false; }
         // A row that sets a quest item's remove_flag takes the item (Nessa's Medicine Chest, Fairgraves' Allflame).
-        if (!await HandInQuestItems(player, talk, npc.Npc.Id)) return false;
+        if (!await HandInQuestItems(player, talk, npc.Npc.Id)) { Console.WriteLine($"[gateway] {player.Connection.Remote} npc option \"{talk.Option}\" refused by quest items"); return false; }
         if (usesLeagueFlags)
         {
             var toSet = talk.LeagueFlagsSet.Where(f => f is > 1 and <= Quests.League.Count).ToList();

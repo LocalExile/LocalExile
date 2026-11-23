@@ -257,6 +257,7 @@ public static partial class Game
             $"0x00bf inventory {s.InventoryId}: item {after.Id} socket {s.Socket} gem to level {level + 1}");
         await SendSkills(player);
         Console.WriteLine($"[gateway] {player.Connection.Remote} {CharacterName(player)}'s {ItemsFor(player).GemName(next)} levels to {level + 1}");
+        await CheckGemLevelAchievements(player, next, level + 1);
     }
 
     static void ReconcileLeveledGemSourcesLocked(Player player, IReadOnlyList<PlayerSkillSource> sourcesBefore)
@@ -294,6 +295,8 @@ public static partial class Game
             Console.WriteLine($"[gateway] {player.Connection.Remote} {CharacterName(player)}'s {ItemsFor(player).GemName(after)} levels to " +
                 $"{ItemsFor(player).GemLevel(after)} (from {ItemsFor(player).GemLevel(before)})");
         await SendSkills(player);
+        foreach (var (_, after) in changed.SelectMany(c => c.Gems))
+            await CheckGemLevelAchievements(player, after, ItemsFor(player).GemLevel(after));
     }
 
     // C→S 0xd7: a right-click on a socketed gem toggles its level lock (SkillGem +0x10 bit 2); the item is replaced with the
@@ -835,9 +838,11 @@ public static partial class Game
         int adjacentEffect = AdjacentTinctureFlaskEffect(player, (byte)slot, Get, AreaTime(player));
         Func<uint, int> flaskCharacter = adjacentEffect == 0 ? Get
             : stat => stat == Stat.FlaskEffectPlusPct ? Get(stat) + adjacentEffect : Get(stat);
+        double finalMultiplier = MapFlaskEffectMultiplier(player);
         recoveryOwner = ResourceEffectsOf(player);
         r = FlaskRecovery.For(use, flask.Item, local,
-            stat => flaskCharacter(stat) + (stat == Stat.FlaskLifeToRecoverPlusPct ? Lifetap.FlaskRecovery(player) : 0), player.PlayerLife, player.PlayerMaxLife, playerLevel);
+            stat => flaskCharacter(stat) + (stat == Stat.FlaskLifeToRecoverPlusPct ? Lifetap.FlaskRecovery(player) : 0),
+            player.PlayerLife, player.PlayerMaxLife, playerLevel, finalMultiplier);
         copyLife = ManaFlaskCopiesLife(r, character);
         canRecover = Flasks.CanRecover(use, player.PlayerLife, LifeCap(player), player.PlayerMana, (uint)UnreservedMana(player))
             || copyLife && player.PlayerLife < LifeCap(player)
@@ -868,7 +873,8 @@ public static partial class Game
         if (!CurrentRecovery()) return;
         // The flask's "during effect" mods (Divination Distillate), scaled by its increased effect.
         var during = UtilityFlasks.DuringEffectSources(local,
-            FlaskEffectScaling.Multiplier(flaskCharacter, playerLevel, local.GetValueOrDefault(Stat.LocalFlaskEffectPlusPct)));
+            FlaskEffectScaling.Multiplier(flaskCharacter, playerLevel, local.GetValueOrDefault(Stat.LocalFlaskEffectPlusPct),
+                finalMultiplier: finalMultiplier));
         await SpendFlask(player, flask, charges, slot, CurrentRecovery,
             spent => AcceptRecoveryFlaskLocked(player, slot, spent, type, use, r, copyLife, local, during));
     }
@@ -881,10 +887,12 @@ public static partial class Game
 
     // FillFlasks, and the changed flasks to the client (one S→C 0xbf).
     public static Task GainFlaskCharges(Player player, int charges, string why) =>
-        ChangeFlaskBar(player, items => Flasks.Fill(items, ItemsFor(player), charges, saveNow: false,
-                canGain: flask => CanGainFlaskCharges(player, flask)) is { Count: > 0 } changed
-                ? ([.. changed.Select(c => c.Id)], changed) : null,
-            changed => $"0x00bf flasks: {string.Join(", ", changed.Select(c => $"{c.X}: {c.Item.Charges}"))} charges ({why})");
+        charges != int.MaxValue
+            ? GainFlaskCharges(player, (_, _) => charges, why)
+            : ChangeFlaskBar(player, items => Flasks.Fill(items, ItemsFor(player), charges, saveNow: false,
+                    canGain: flask => CanGainFlaskCharges(player, flask)) is { Count: > 0 } changed
+                    ? ([.. changed.Select(c => c.Id)], changed) : null,
+                changed => $"0x00bf flasks: {string.Join(", ", changed.Select(c => $"{c.X}: {c.Item.Charges}"))} charges ({why})");
 
     // A new character's class weapon lies on the ground a few cells from where it appears, as on the real game's Twilight
     // Strand, until it is picked up (PlayerInventories.StartWeapon): put once into each instance it enters outside towns.
@@ -1667,6 +1675,10 @@ public static partial class Game
             ? RollsFor(player).ApplyLock(target.Item, random)
             : target.Item.Mirrored || target.Item.Vestigial ? null
             : target.Item.Corrupted && type?.Id != Wisdom && !CurrencyEffects.TaintedIds.Contains(type?.Id ?? "") ? null
+            : type?.Id == CurrencyEffects.FacetorsLens
+                ? (ItemsFor(player).ByHash(target.Item.TypeHash) is { } lensGemType
+                    ? CurrencyEffects.ApplyFacetorsLens(target.Item, ItemsFor(player).Gem(lensGemType), used.Item.GemExperience)
+                    : null)
             : CurrencyResult(player, target.Item, used.Item.TypeHash, random);
         // Hinekora's Lock: the next currency commits exactly the previewed result (from 0x29d/0x2a0) and clears the
         // state; without a stored preview the seeded result is the same item. A refused currency keeps the state.
@@ -1735,6 +1747,9 @@ public static partial class Game
         }
         if (targetTab is null && targetRow == PlayerInventories.Flask)
             await ReconcileTincturesAfterFlaskBarChange(player);
+        await CheckCraftingAchievements(player, type!.Id, target.Item, identified.Item);
+        if (type.Id == CurrencyEffects.FacetorsLens)
+            await CheckGemLevelAchievements(player, identified.Item, ItemsFor(player).GemLevel(identified.Item));
         Console.WriteLine($"[gateway] {player.Connection.Remote} <= 0x0071 {type!.Name} ({used.Id}) on item {target.Id}: " + (type.Id == CurrencyEffects.SacredOrb ? $"defence base roll {target.Item.DefenceBaseRoll} -> {identified.Item.DefenceBaseRoll}"
             : isEssence || type.Id is Wisdom or FlaskEnchantments.Enkindling or FlaskEnchantments.Instilling or CurrencyEffects.OrbOfAlchemy or CurrencyEffects.ChaosOrb or CurrencyEffects.DivineOrb or CurrencyEffects.BlessedOrb or CurrencyEffects.OrbOfScouring or CurrencyEffects.OrbOfTransmutation or CurrencyEffects.OrbOfAlteration or CurrencyEffects.OrbOfAugmentation or CurrencyEffects.RegalOrb or CurrencyEffects.ExaltedOrb or CurrencyEffects.OrbOfAnnulment or CurrencyEffects.AncientOrb or CurrencyEffects.ArmourersScrap or CurrencyEffects.BlacksmithsWhetstone or CurrencyEffects.OrbOfChance or CurrencyEffects.VaalOrb or CurrencyEffects.GlassblowersBauble or CurrencyEffects.GemcuttersPrism or CurrencyEffects.FracturingOrb or CurrencyEffects.LesserEldritchIchor or CurrencyEffects.GreaterEldritchIchor or CurrencyEffects.GrandEldritchIchor or CurrencyEffects.ExceptionalEldritchIchor or CurrencyEffects.LesserEldritchEmber or CurrencyEffects.GreaterEldritchEmber or CurrencyEffects.GrandEldritchEmber or CurrencyEffects.ExceptionalEldritchEmber
             ? string.Join("; ", identified.Item.Mods.Select(ItemsFor(player).Mods.Describe))

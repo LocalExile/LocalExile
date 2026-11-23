@@ -9,9 +9,10 @@ namespace GameServer.Modules.Game;
 /// <summary>The game's rules: gives the framework its <see cref="IGameLogic"/>.</summary>
 public sealed class GameModule : IModule, IDisposable
 {
-    /// <summary>What Johan's "Fund the Treasury" NPCTalk row puts into the town per click.</summary>
+    /// <summary>What one pick of Johan's "Fund the Treasury" moves out of the account's stash: the client asks for the amount
+    /// with a slider in the town map window, which this build cannot show, so a pick is a fixed 1000 gold and
+    /// <c>/treasury &lt;gold&gt;</c> takes any other amount.</summary>
     private const int TreasuryPerPick = 1000;
-
     /// <summary>
     /// Builds, when the module loads, the catalogues every first login and first arrival reads (the stash rules, gems,
     /// monster contacts, life tables, golem scaling, the room index, the hideouts). Each is built on first use otherwise,
@@ -41,6 +42,7 @@ public sealed class GameModule : IModule, IDisposable
     public void Dispose()
     {
         Rules.ForgetClaimedCharacters();
+        Rules.ResetAchievementCache();
         RuleTables.Empty();
     }
 
@@ -75,6 +77,8 @@ public sealed class GameModule : IModule, IDisposable
         Rules.LoadMinionSupportsData();
         Rules.LoadWornGrantedSkillsData();
         Rules.LoadPhasingData();
+        Rules.LoadBuffCancelData();
+        Rules.LoadDeathPenaltyData();
         Rules.LoadModuleWorldData();
         Rules.LoadMonsterModsData();
         Rules.LoadPassiveGrantedSkillsRulesData();
@@ -121,6 +125,7 @@ public sealed class GameModule : IModule, IDisposable
         Rules.LoadEssenceSummonsData();
         Rules.LoadSelfBuffSkillsData();
         Rules.LoadMapAreaStats();
+        Rules.LoadAchievementsData();
     }
 
     /// <inheritdoc/>
@@ -135,6 +140,7 @@ public sealed class GameModule : IModule, IDisposable
         module.Lifetime.Own(Rules.CleanupEssenceAuras());
         module.Lifetime.Own(Rules.CleanupMonsterSummons());
         GameEvents.AreaTick.Add(module.Manifest.Id, GameEvents.InArea(global::Sirus.Area, global::Sirus.Tick));
+        GameEvents.AreaTick.Add(module.Manifest.Id, GameEvents.Always((player, _) => Rules.CloseInteractionsIfMovingAway(player, null, Rules.AreaTime(player))));
         // A map device's portal labels read "<area> (Completed)" once that run's boss is dead (World/Portals.cs).
         GameEvents.AreaTick.Add(module.Manifest.Id, GameEvents.Always((player, _) => Rules.TickMapRunBoss(player)));
         GameEvents.MonsterKilled.Add(module.Manifest.Id, kill => Rules.TickMapRunBoss(kill.Player, force: true));
@@ -142,14 +148,17 @@ public sealed class GameModule : IModule, IDisposable
         // (World/KingsmarchTown.cs, World/KingsmarchPort.cs, World/UnlockAll.cs). The client never draws the town's
         // buildings, and has no working village panel in this build, so the rules are server-side and reach the player
         // through these hooks and the chat commands below.
-        GameEvents.CompanionTick.Add(module.Manifest.Id, (player, now) => KingsmarchTown.Tick(Program.PlayerOf(player), now));
-        GameEvents.CompanionTick.Add(module.Manifest.Id, (player, now) => KingsmarchPort.Tick(Program.PlayerOf(player), now));
+        GameEvents.AreaTick.Add(module.Manifest.Id, GameEvents.Always((player, now) => KingsmarchTown.Tick(Program.PlayerOf(player), now)));
+        GameEvents.AreaTick.Add(module.Manifest.Id, GameEvents.Always((player, now) => KingsmarchPort.Tick(Program.PlayerOf(player), now)));
         GameEvents.AreaGenerated.Add(module.Manifest.Id, player =>
         {
             KingsmarchTown.Entered(Program.PlayerOf(player));
             return Task.CompletedTask;
         });
         GameEvents.ObjectUse.Add(module.Manifest.Id, (player, use, now) => KingsmarchTown.Use(Program.PlayerOf(player), use.TargetId));
+        // The settlement records (0x1f) and their village events (0x1e) go out with the area's own messages: the client
+        // reads them once, while it builds the area, so a record that arrives later is never read.
+        GameEvents.BeforeEnterMessages.Add(module.Manifest.Id, player => KingsmarchTown.BeforeEnterMessages(Program.PlayerOf(player)));
         GameEvents.PlayerEntered.Add(module.Manifest.Id, player => Rules.UnlockTick(Program.PlayerOf(player)));
         // A dead monster's debuffs come off: each player's step for it.
         GameEvents.MonsterKilled.Add(module.Manifest.Id, kill =>
@@ -170,6 +179,7 @@ public sealed class GameModule : IModule, IDisposable
         GameEvents.ChestsOpened.Add(module.Manifest.Id, MapStrongboxes.OpenNear);
         GameEvents.PlayerStatSources.Add(module.Manifest.Id, MapStrongboxes.CurseStats);
         GameEvents.Packet(GameServer.Core.Protocol.Instance.InstanceItems.UseItemOnObjectId).Add(module.Manifest.Id, MapStrongboxes.UseItemOn);
+        GameEvents.Packet(GameServer.Core.Protocol.Instance.InstanceItems.UseItemTypeOnObjectId).Add(module.Manifest.Id, MapStrongboxes.UseItemTypeOn);
         GameEvents.PlayerLeaving.Add(module.Manifest.Id, (player, _) => { MapStrongboxes.Leave(player); return Task.CompletedTask; });
         GameEvents.StateBuilding.Add(module.Manifest.Id, MapStrongboxes.Describe);
         GameEvents.MapOpening.Add(module.Manifest.Id, MapEssences.Opening);
@@ -177,6 +187,7 @@ public sealed class GameModule : IModule, IDisposable
         GameEvents.PlayerEntered.Add(module.Manifest.Id, MapEssences.Enter);
         GameEvents.ObjectUse.Add(module.Manifest.Id, MapEssences.Use);
         GameEvents.Packet(GameServer.Core.Protocol.Instance.InstanceItems.UseItemOnObjectId).Add(module.Manifest.Id, MapEssences.UseItemOn);
+        GameEvents.Packet(GameServer.Core.Protocol.Instance.InstanceItems.UseItemTypeOnObjectId).Add(module.Manifest.Id, MapEssences.UseItemTypeOn);
         GameEvents.AreaTick.Add(module.Manifest.Id, GameEvents.Always(MapEssences.Tick));
         GameEvents.Drops.Add(module.Manifest.Id, MapEssences.Drops);
         GameEvents.PlayerLeaving.Add(module.Manifest.Id, (player, _) => { MapEssences.Leave(player); return Task.CompletedTask; });
@@ -189,6 +200,7 @@ public sealed class GameModule : IModule, IDisposable
         GameEvents.PlayerLeaving.Add(module.Manifest.Id, (conn, _) => { MapTorment.Leave(conn); return Task.CompletedTask; });
         GameEvents.PlayerStatSources.Add(module.Manifest.Id, MapTorment.PlayerStats);
         GameEvents.BuffCancel.Add(module.Manifest.Id, MapTorment.CancelBuff);
+        GameEvents.BuffCancel.Add(module.Manifest.Id, Rules.CancelRemovableBuff);
         GameEvents.StateBuilding.Add(module.Manifest.Id, MapTorment.Describe);
         GameEvents.MapOpening.Add(module.Manifest.Id, MapHarbinger.Opening);
         GameEvents.AreaGenerated.Add(module.Manifest.Id, MapHarbinger.Enter);
@@ -347,7 +359,9 @@ public sealed class GameModule : IModule, IDisposable
         // The town's treasury: the "Fund the Treasury" NPCTalk row (the client never builds its button).
         GameEvents.NpcOptionPicked.Add(id, async (player, talk) =>
         {
-            if (talk.Option != "Fund the Treasury") return false;
+            // A hook that declines must answer true: false means "this option is refused" and drops it before any module
+            // sees it (GameEvents.AllowNpcOption), which is how Johan's "Manage Town" stopped opening the town panel.
+            if (talk.Option != "Fund the Treasury") return true;
             IPlayer me = Program.PlayerOf(player);
             await Program.WorldOf(me).NpcClose("0x0084 close the dialogue for Fund the Treasury");
             await me.Tell("Kingsmarch: " + await KingsmarchTown.FundTreasury(me, TreasuryPerPick));
@@ -401,6 +415,19 @@ public sealed class GameModule : IModule, IDisposable
         GameEvents.PlayerStatSources.Add(module.Manifest.Id, global::Hierophant.PlayerStats);
         GameEvents.PlayerLeaving.Add(id, (player, _) => global::Hierophant.Leaving(player));
         GameEvents.PlayerLeaving.Add(id, (player, _) => global::BrineKing.Leaving(player));
+
+        // The post-campaign unlock (World/UnlockAll.cs): the NPCTalk rows that only appear once their quest flags are set.
+        // "data/unlock-all.txt" makes it automatic, "/unlock [all]" applies it on demand.
+        GameEvents.AreaTick.Add(id, GameEvents.Always((player, _) => Rules.UnlockTick(Program.PlayerOf(player))));
+        GameEvents.Command(id, "unlock", "/unlock [all] (grant the quest flags that gate post-campaign dialogue)", async (player, args) =>
+        {
+            var mod = Program.PlayerOf(player);
+            bool all = args.Length > 0 && string.Equals(args[0], "all", StringComparison.OrdinalIgnoreCase);
+            int set = await Rules.Unlock(mod, all);
+            await mod.Tell(set == 0
+                ? "Nothing to unlock: every post-campaign flag is already set."
+                : $"Unlocked {set} post-campaign quest flag(s){(all ? " (all, with the epilogue flag)" : "")}.");
+        });
         GameEvents.CompanionTick.Add(id, Rules.TickBrands);
         GameEvents.PlayerStatSources.Add(id, Rules.BrandPlayerStats);
         GameEvents.PlayerLeaving.Add(id, (player, _) => { Rules.ClearBrands(player); return Task.CompletedTask; });
@@ -410,6 +437,10 @@ public sealed class GameModule : IModule, IDisposable
         module.Lifetime.Own(Rules.CleanupBrandsOnUnload());
         GameEvents.AreaGenerated.Add(id, CharacterVoiceLines.OnAreaGenerated);
         GameEvents.Kill.Add(id, CharacterVoiceLines.OnKill);
+        GameEvents.AreaHeader.Add(id, _ => new AreaHeader(null, [InstanceAchievements.PermanentAchievementSetId]));
+        GameEvents.EnterMessages.Add(id, Rules.AchievementEnterMessages);
+        GameEvents.PlayerEntered.Add(id, Rules.CheckAreaEntryAchievements);
+        GameEvents.Kill.Add(id, Rules.OnMonsterKillAchievements);
     }
 }
 
@@ -543,3 +574,4 @@ public sealed class GameLogic(IModuleLifetime? lifetime = null) : IGameLogic, IC
     public Task StepControlled(Player player, Player leader) => Rules.StepControlledPlayer(player, leader);
     public Task ControlledCompletion(Player player) => player.PlayerUpdatesState is PlayerUpdatesState updates ? updates.Completion : Task.CompletedTask;
 }
+

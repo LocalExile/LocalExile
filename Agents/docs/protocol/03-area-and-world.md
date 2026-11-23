@@ -67,9 +67,12 @@ An old real-server session in `Client/logs/Client.txt` (2026-02-13, Highgate) ha
 
 ## 2. C→S 0x7d: area generated
 
-When generation finishes, the tick (`0x14214f1d0`, flag `+0xe1f9`) sends **0x7d** with two u32 from world `+0x114`:
-the **tile hash** and the **doodad hash** that were just logged. Live: `007D 43E6886D 8EA8DD43` (0x43E6886D =
-1139181677, 0x8EA8DD43 = 2393431363). The Gateway sends the player and enters the area on this message.
+When generation finishes, the tick (`0x14214f1d0`, flag `+0xe1f9`) sends **0x7d** with two u32 BE hashes from world `+0x114`:
+the **tile hash** (`0x142054070`) and the **doodad hash** (`0x142048e20`) that were just logged. Live: `007D 43E6886D 8EA8DD43`
+(0x43E6886D = 1139181677, 0x8EA8DD43 = 2393431363). `InstanceProtocol.ReadAreaGenerated` parses both hashes; the Gateway logs
+them, stores them on `Player`, and when `ServerLevels` generated the area compares `TileHash` against
+`ServerLevels.Level.TileHash` (flagging `Player.LevelDesynced`, logging a warning, and notifying the player in chat on a
+non-zero mismatch) before entering the area.
 
 ## 3. S→C 0x22: local player id
 

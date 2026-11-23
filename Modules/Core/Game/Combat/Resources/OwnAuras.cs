@@ -307,7 +307,10 @@ public static partial class Game
         foreach (var aura in player.Auras.Values.ToArray())
         {
             if (IsTemporaryAura(player, aura)) continue;
-            if (IsBlessing(SupportedSkill(player, aura.SkillId)))
+            var gem = SupportedSkill(player, aura.SkillId);
+            if (IsBlessing(gem) || IsBlessingSkill(gem) != IsBlessingAura(aura)
+                || AuraHasStat(aura, Stat.SkillAuraAlsoDisablesNonBlessingManaReservationSkills)
+                    != (gem.Stats.GetValueOrDefault(Stat.SkillAuraAlsoDisablesNonBlessingManaReservationSkills) != 0))
             {
                 CharacterSaves.SetAuraActive(CharacterName(player), aura.EffectId, false);
                 player.Auras.Remove(aura.SkillId); EndReservationRuntimeLocked(player, aura);
@@ -323,7 +326,6 @@ public static partial class Game
                 changed = true;
                 continue;
             }
-            var gem = SupportedSkill(player, aura.SkillId);
             var support = AuraSupport(player, aura.SkillId);
             var context = ReservationContext(player, aura.SkillId);
             string? stance = StanceCatalog.IsStance(aura.EffectId)
@@ -385,6 +387,7 @@ public static partial class Game
     public static void ReconcileOwnAuras(Player player, bool validateSkills = false)
     {
         ExpireTemporaryAuras(player);
+        ReconcileGuardianBlessingLocked(player);
         // Raw sources remain live (charges, flasks, temporary buffs and their expiry included).
         // Cache only the lifecycle decision after comparing its complete effective inputs. A full
         // replay bypasses it; module reload discards these connection-weak entries automatically.
@@ -415,17 +418,14 @@ public static partial class Game
                          .GroupBy(a => AuraCatalog.Family(a.EffectId)))
                     CharacterSaves.SetAuraActive(CharacterName(player), aura.First().EffectId, false);
             foreach (var aura in gone) { player.Auras.Remove(aura.SkillId); EndReservationRuntimeLocked(player, aura); }
-            // Same pool guard as the socketed path: an out-of-budget dev aura ends like a real one.
-            foreach (var aura in dev.Values.Where(a => !ReservationBudgetFits(player)).ToArray())
-            { player.Auras.Remove(aura.SkillId); EndReservationRuntimeLocked(player, aura); player.AuraStatsDirty = true; }
-            if (gone.Length > 0 || player.AuraStatsDirty)
-            {
-                player.AuraStatsDirty = true;
-                player.Pools = PoolsFor(player, player.Pools.Level);
-                player.ApplyMovementSpeed();
-                player.PlayerMana = Math.Min(player.PlayerMana, (uint)UnreservedMana(player));
-                player.PlayerLife = LifeReservation.Clamp(player.PlayerLife, LifeReservationOf(player));
-            }
+            if (gone.Length > 0) player.AuraStatsDirty = true;
+        }
+        if (player.AuraStatsDirty)
+        {
+            player.Pools = PoolsFor(player, player.Pools.Level);
+            player.ApplyMovementSpeed();
+            player.PlayerMana = Math.Min(player.PlayerMana, (uint)UnreservedMana(player));
+            player.PlayerLife = LifeReservation.Clamp(player.PlayerLife, LifeReservationOf(player));
         }
         if (!player.Closed && !player.LeavingArea && !player.RageRetired && player.PlayerLife > 0 && !InTown(player))
             RestoreRememberedAuras(player, CharacterSaves.Remembered(CharacterName(player)).Auras);
@@ -493,3 +493,4 @@ public static partial class Game
                 ? null : WithOwnAuraRecords(player, () => [], replay);
         }, "own aura reconciliation");
 }
+

@@ -24,10 +24,7 @@ public static partial class Game
             var startItems = ItemsOf(player);
             level = LoadProgress(player, level);
             NormalizePassiveJewels(player);
-            // Towns and hideouts refill the flasks, before the inventories go to the client.
-            if (LeagueFor(player).Rules.TownRefillsFlasks && (WaypointCatalog.Areas.Find(player.Layout.Hash) is { IsTown: true } || HideoutCatalog.Hideouts.Any(h => h.AreaHash16 == player.Layout.Hash))
-                && FillFlasks(startItems, int.MaxValue, catalog: ItemsFor(player)).Count > 0)
-                Console.WriteLine($"[gateway] {player.Connection.Remote} flasks refilled in town");
+            SettleAreaEntryFlasks(player, startItems);
             // A sale still open when the last connection ended (a disconnect, a crash) ended as a cancel: every offered
             // item is in its cell (it never left it).
             if (startItems.CancelOffers().Count is > 0 and var cancelled)

@@ -25,6 +25,10 @@ public sealed class ItemRolls
         _words = LoadWords(folder);
         _influenceTags = LoadInfluenceTags(folder);
         _mirrorMapTypes = LoadMirrorMapTypes();
+        _affixesByDomain = catalog.Mods.All
+            .Where(m => m.GenerationType is Prefix or Suffix && !m.EssenceOnly)
+            .GroupBy(m => m.Domain)
+            .ToDictionary(g => g.Key, g => g.ToArray());
     }
 
     readonly SystemSettings _settings;
@@ -43,6 +47,7 @@ public sealed class ItemRolls
     public IReadOnlyList<Word> Words => _words;
     private readonly System.Collections.Concurrent.ConcurrentDictionary<(int Row, int Level, ItemInfluence Influences, string? Tag), IReadOnlyList<(ModCatalog.Mod, int)>> _pools = new();
     private readonly Dictionary<(int Class, int Influence), string> _influenceTags;
+    private readonly Dictionary<int, ModCatalog.Mod[]> _affixesByDomain;
 
     /// <summary>The affixes that can roll on this base at this item level. Influence mods are ordinary affixes behind a
     /// tag per item class (InfluenceTags.dat: boots_shaper, ring_eyrie …), so an influence opens them.</summary>
@@ -55,11 +60,18 @@ public sealed class ItemRolls
         ItemInfluence influences, string? tag) =>
         _pools.GetOrAdd((t.Row, itemLevel, influences, tag), _ =>
         {
+            if (!_affixesByDomain.TryGetValue(t.ModDomain, out var domainMods)) return [];
             var tags = TagsWith(t, influences);
             if (tag is { Length: > 0 }) tags = new HashSet<string>(tags) { tag };
-            return [.. catalog.Mods.All
-                .Where(m => m.Domain == t.ModDomain && m.GenerationType is Prefix or Suffix && m.Level <= itemLevel && !m.EssenceOnly)
-                .Select(m => (m, m.WeightFor(tags))).Where(p => p.Item2 > 0)];
+            var result = new List<(ModCatalog.Mod, int)>();
+            for (int i = 0; i < domainMods.Length; i++)
+            {
+                var m = domainMods[i];
+                if (m.Level > itemLevel) continue;
+                int weight = m.WeightFor(tags);
+                if (weight > 0) result.Add((m, weight));
+            }
+            return result;
         });
 
     /// <summary>The affixes that can roll on this item.</summary>

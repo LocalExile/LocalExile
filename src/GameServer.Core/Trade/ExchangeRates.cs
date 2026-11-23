@@ -25,6 +25,9 @@ public sealed record ExchangeRates(long SourceHour, string Current, Dictionary<s
 
     public static ExchangeRates? Parse(string json) => JsonSerializer.Deserialize<ExchangeRates>(json, Options);
 
+    /// <summary>Quantizes unix seconds to the start of its UTC hour so hourly volume caps persist for the full hour.</summary>
+    public static long QuantizeHour(long unixSeconds) => (unixSeconds / 3600) * 3600;
+
     /// <summary>The prices every league of this server trades at: official Standard's, or the current challenge league's.</summary>
     public Dictionary<string, ExchangePrice>? Prices(bool standard) => Leagues.GetValueOrDefault(standard ? Standard : Current);
 }

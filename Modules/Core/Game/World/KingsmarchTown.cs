@@ -1,3 +1,4 @@
+using System.Globalization;
 using System.Text.Json;
 using GameServer.Core.Protocol.Instance;
 using GameServer.Modding;
@@ -15,7 +16,7 @@ using GameServer.Modding;
 /// so at least one component's layout here is still wrong. The safest types (Positioned, BaseEvents, Animated,
 /// StateMachine, InteractionAction, MinimapIcon) come first, so the lowest limits exercise the least uncertain blobs.
 /// </summary>
-internal static class KingsmarchTown
+public static class KingsmarchTown
 {
     const string Area = "KalguuranSettlersLeague";
     const string DataFile = "data/kingsmarch-town.json";
@@ -46,11 +47,202 @@ internal static class KingsmarchTown
     // The town's own panels are gated on the IsMapOwner quest flag (NPCTalk 667 "Manage Town", 670 "Town Recruitment",
     // 672 "Disenchanting", 674 "Shipping"): without it their options are in the list but the server refuses them. The town
     // instance belongs to the player, so they own it.
+    //
+    // The client hides a row for a second reason: NPCTalk column 16 is a list of league quest flag ids the row requires,
+    // and the client's own availability test (0x141E7BB90) reads that list at row+0xbe/+0xc6 and tests the second flag set
+    // at player+0x1d0 before the row is listed at all. Row 3610 "Manage Town" (column 16 [334]) was therefore never
+    // offered. The id is fluid: row 3611, the later variant of the same option, requires 1436 instead.
+    internal const int KingsmarchTownOwnerLeagueFlag = 334;
+
+    // The King's Hand's other two village options are gated the same way: row 3612 "Fund the Treasury" needs flag 1,
+    // row 3613 "Invest in Recruitment" needs flag 1434, and Raulf's row 3556 "Town Recruitment" needs flag 95.
+    internal const int KingsmarchFundTreasuryLeagueFlag = 1;
+    internal const int KingsmarchInvestRecruitmentLeagueFlag = 1434;
+    internal const int KingsmarchRecruitmentLeagueFlag = 95;
+
+    // The town panel is drawn from the records the client keeps on its ClientVillage (the ruleset list at +0xcfd8): wire
+    // 0x1f with a record's kind builds one from the client's own factory table (kind 0x9b is the town record, 0x5a8 bytes,
+    // 0x74 the farm record, 0x2e0 bytes) and the client skips a kind it already has. The value beside the kind is ignored
+    // by the factories (client dispatcher 0x142150ae0 case 0x1f -> slot 8 0x1415a6800 -> allocator 0x141763b20).
+    //
+    // The kinds live in data/kingsmarch-records.txt (one hex kind per line, # comments). No file means no record: the
+    // record is created empty, and the client crashed on entering the town with it (2026-11-21 22:37, fault
+    // Game.patched.exe+0xdefc9a, seven seconds after the two 0x1f messages), so which kinds go out is a file, not code.
+    const string RecordsFile = "data/kingsmarch-records.txt";
+
+    // The village event names sent after each settlement record live in data/kingsmarch-events.txt (one name per line,
+    // # comments). The record's event handler (client 0x14176a8e0) answers three names: "village_imgui",
+    // "reroll_recruits" and "super_reroll_recruits" (0x14348e980, 0x14348e990, 0x14348e928). No file means no event.
+    const string EventsFile = "data/kingsmarch-events.txt";
+
+    // The probe ladder file: one "kind [event]" line per step, 15 seconds apart.
+    const string ProbeFile = "data/kingsmarch-probe.txt";
+
+    // The village UI events (wire 0x7b) the client's town panel listens for, in data/kingsmarch-ui.txt: one
+    // "kind a b c d" line each, the four u32 fields of the message (the client's screen table 0x142fd89f0 names 0x54
+    // Recombinator, 0x55 Recruitment, 0x56 TownMap, 0x57 Mine, 0x58 Port, 0x59 Farm, 0x5a BlackSmith, 0x5b
+    // Disenchanting, 0x5c MapRunners, 0x5d Fishing, 0x5e CurrencyExchange; 0x35 carries a VillageJobs row). No file means
+    // no UI event. The 0x7b is sent from the tick, not with the area: the client's town panel only exists once the area
+    // has started and its window has been built.
+    const string UiFile = "data/kingsmarch-ui.txt";
+
+    static byte[] RecordKinds()
+    {
+        if (!File.Exists(RecordsFile)) return [];
+        var kinds = new List<byte>();
+        foreach (var line in File.ReadAllLines(RecordsFile))
+        {
+            var t = line.Trim();
+            if (t.Length == 0 || t.StartsWith('#')) continue;
+            if (byte.TryParse(t, NumberStyles.HexNumber, CultureInfo.InvariantCulture, out var kind)) kinds.Add(kind);
+            else Console.WriteLine($"[gateway] kingsmarch record kind '{t}' is not a byte, skipped");
+        }
+        return kinds.ToArray();
+    }
+
+    /// <summary>Probes the client's village path one step at a time. Each line of <see cref="ProbeFile"/> is a record
+    /// kind and an optional event name; every step sends the record (the client keeps one of each kind) and the event,
+    /// and the steps are 15 seconds apart. The step before the client's disconnect is the one that killed it, so the
+    /// file is the bisect: a file with no lines sends nothing.</summary>
+    static async Task ProbeLadder(IPlayer player, Progress progress, double clock)
+    {
+        if (!File.Exists(ProbeFile)) return;
+        if (progress.ProbeStep > 0 && clock < progress.ProbeAt) return;
+        var lines = File.ReadAllLines(ProbeFile);
+        var step = -1;
+        for (var i = 0; i < lines.Length; i++)
+        {
+            var t = lines[i].Trim();
+            if (t.Length == 0 || t.StartsWith('#')) continue;
+            step++;
+            if (step != progress.ProbeStep) continue;
+            var parts = t.Split(' ', StringSplitOptions.RemoveEmptyEntries);
+            // A lone "-" is a control step: it sends nothing and only waits, so a crash without any message tells the
+            // town apart from the client's own behaviour.
+            if (parts[0] != "-")
+            {
+                if (!byte.TryParse(parts[0], NumberStyles.HexNumber, CultureInfo.InvariantCulture, out var kind)) continue;
+                var name = parts.Length > 1 ? parts[1] : null;
+                await player.Send(InstanceProtocol.AddRuleset(kind), $"probe step {step}: 0x001f kind 0x{kind:x}");
+                if (name is not null)
+                    await player.Send(InstanceProtocol.VillageEvent(kind, name), $"probe step {step}: 0x001e {name} for kind 0x{kind:x}");
+                Console.WriteLine($"[gateway] kingsmarch probe step {step} sent: kind 0x{kind:x} event {name ?? "(none)"}");
+            }
+            else Console.WriteLine($"[gateway] kingsmarch probe step {step} sent: nothing (control step)");
+            progress.ProbeStep++;
+            progress.ProbeAt = clock + 15;
+            return;
+        }
+    }
+
+    /// <summary>The village UI events (wire 0x7b) sent after the area has started. Each line of <see cref="UiFile"/> is
+    /// the kind and the message's four u32 fields.</summary>
+    static (byte Kind, uint[] Args)[] UiMessages()
+    {
+        if (!File.Exists(UiFile)) return [];
+        var messages = new List<(byte, uint[])>();
+        foreach (var line in File.ReadAllLines(UiFile))
+        {
+            var t = line.Trim();
+            if (t.Length == 0 || t.StartsWith('#')) continue;
+            var parts = t.Split(' ', StringSplitOptions.RemoveEmptyEntries);
+            if (!byte.TryParse(parts[0], NumberStyles.HexNumber, CultureInfo.InvariantCulture, out var kind)) continue;
+            var args = new uint[4];
+            for (var i = 0; i < 4 && i + 1 < parts.Length; i++)
+                if (!uint.TryParse(parts[i + 1], NumberStyles.HexNumber, CultureInfo.InvariantCulture, out args[i])) args[i] = 0;
+            messages.Add((kind, args));
+        }
+        return messages.ToArray();
+    }
+
+    /// <summary>Sends the village UI events once per area load. The client's town panel is built with the area, so these
+    /// go out from the tick, after the area has started.</summary>
+    static async Task EnsureVillageUi(IPlayer player, Progress progress)
+    {
+        if (progress.Ui) return;
+        progress.Ui = true;
+        foreach (var (kind, args) in UiMessages())
+            await player.Send(InstanceWaypoints.OpenUi(kind, args[0], args[1], args[2], args[3]),
+                $"0x007b village ui kind 0x{kind:x} ({string.Join(' ', args.Select(a => a.ToString("x")))})");
+    }
+
+    /// <summary>Reads the settlement records the client's town panel reads. The client keeps one of each kind, so this is
+    /// sent once per area load and repeats are ignored by the client itself.</summary>
+    static async Task EnsureSettlementRecords(IPlayer player, Progress progress)
+    {
+        if (progress.Records) return;
+        progress.Records = true;
+        var events = EventNames();
+        foreach (var kind in RecordKinds())
+        {
+            await player.Send(InstanceProtocol.AddRuleset(kind), $"0x001f settlement record kind 0x{kind:x}");
+            // The record on its own is empty: the client crashed seven seconds after it with fault
+            // Game.patched.exe+0xdefc9a (2026-11-21 22:37). The record's event handler (client 0x14176a8e0) answers
+            // three event names, so the names are read from a file: the wrong one leads the client into a UI path that
+            // is not set up yet and it crashes on the way in (0x54ee9d8c, 2026-11-21 23:31).
+            foreach (var name in events)
+                await player.Send(InstanceProtocol.VillageEvent(kind, name), $"0x001e village event {name} for kind 0x{kind:x}");
+        }
+    }
+
+    /// <summary>The settlement records the client's town panel reads, sent before the area starts (with the player's own
+    /// messages, ahead of 0x21). The client builds the town's window when the area starts and reads the village's records
+    /// once, there (client 0x140521d00, the widget's constructor, scans village+0xcfd8 and skips it when the list is
+    /// empty), so a record that arrives later is never read: the panel's gates stay shut and the town's button does
+    /// nothing.</summary>
+    public static IEnumerable<(string Log, byte[] Message)> BeforeEnterMessages(IPlayer player)
+    {
+        if (!string.Equals(player.AreaId, Area, StringComparison.Ordinal)) return [];
+        var messages = new List<(string, byte[])>();
+        var events = EventNames();
+        foreach (var kind in RecordKinds())
+        {
+            messages.Add(($"0x001f settlement record kind 0x{kind:x}", InstanceProtocol.AddRuleset(kind)));
+            foreach (var name in events)
+                messages.Add(($"0x001e village event {name} for kind 0x{kind:x}", InstanceProtocol.VillageEvent(kind, name)));
+        }
+        // They are on the wire with the area. The tick repeats them a few seconds later on purpose: the client's village
+        // is built by the area-load function, so a record sent before it has no village to go into, and the client skips
+        // a kind it already has, which makes the repeat harmless when the first one did land.
+        return messages;
+    }
+
+    /// <summary>The village event names sent after a settlement record, one per line. No file means no event.</summary>
+    static string[] EventNames()
+    {
+        if (!File.Exists(EventsFile)) return [];
+        var names = new List<string>();
+        foreach (var line in File.ReadAllLines(EventsFile))
+        {
+            var t = line.Trim();
+            if (t.Length == 0 || t.StartsWith('#')) continue;
+            names.Add(t);
+        }
+        return names.ToArray();
+    }
+
     static async Task EnsureOwnerFlag(IPlayer player)
     {
-        var game = Program.PlayerOf(player);
-        if (game.Character.HasQuestFlag("IsMapOwner")) return;
-        await Game.SetQuestFlags(game, ["IsMapOwner"]);
+        // NPCTalk 3581 ("Shipping") is gated twice. The client's row test (0x141e7bb90) reads two flag sets: QuestFlag1..3
+        // are looked up in the player's set, while the unnamed raw-id columns are looked up in the second set (the league
+        // set) as id-1. The server then repeats the check itself: NpcCatalog.Available needs the character's own set to
+        // hold the row's QuestFlag1, and it fails silently.
+        const int IsMapOwnerRow = 2020, ShippingGateRow = 1386;
+        var mod = Program.PlayerOf(player);
+        var character = mod.Character;
+        // Once per connection, and again after an area load (Entered forgets the counter): the flag sets are projections, so
+        // they replace the client's, and the dialogue list is rebuilt per area.
+        if (_owner.GetValue(player, _ => new Counter()).Value++ != 0) return;
+        // "IsMapOwner" is print-only in QuestFlags, so Quests.SetQuestFlags drops it in CommitQuestFlags and it never
+        // reaches the connection's set; add it here, where both the server's dialogue gate and PlayerQuestFlags read it.
+        bool added;
+        lock (character.QuestFlags) added = character.QuestFlags.Add("IsMapOwner");
+        if (added) Console.WriteLine($"[gateway] kingsmarch owner flag: IsMapOwner added to {character.Name}");
+        await Game.SetLeagueQuestFlags(mod, [KingsmarchTownOwnerLeagueFlag, ShippingGateRow,
+            KingsmarchFundTreasuryLeagueFlag, KingsmarchInvestRecruitmentLeagueFlag, KingsmarchRecruitmentLeagueFlag]);
+        var flags = Game.PlayerQuestFlags(mod);
+        await player.Send(InstanceEntities.PlayerQuestFlagsUpdate(mod.Id, flags),
+            $"0x02bc village quest flags: {flags.Count} flag(s), IsMapOwner {(flags.Contains(IsMapOwnerRow) ? "in" : "MISSING")}");
     }
 
     // Brackets, Functions, Render, Preload and Targetable write nothing: their client readers are the ret-family (0x1400f1180)
@@ -86,6 +278,9 @@ internal static class KingsmarchTown
             var progress = _progress.GetOrCreateValue(player);
             progress.Next = 0;
             progress.Plots.Clear();
+            // The client reads the settlement records once per area load, so a new load has to send them again.
+            progress.Records = false;
+            progress.Ui = false;
             Console.WriteLine($"[gateway] kingsmarch area load: {player.AreaId} character {player.Character}");
             // The client is still loading the area; objects sent into a loading area are dropped.
             progress.Ready = Environment.TickCount64 / 1000.0 + 3.0;
@@ -155,6 +350,12 @@ internal static class KingsmarchTown
         // True once this session placed the town's plots. A save made before that (a module reload while the character
         // stands in the town) has no plots in memory, and writing it would wipe the crops a character left growing.
         public bool Placed;
+        // The settlement records (0x1f) and the village UI events (0x7b) were sent for this area load.
+        public bool Records;
+        public bool Ui;
+        // The probe ladder's step and when the next one may go out (seconds, Environment.TickCount64 based).
+        public int ProbeStep;
+        public double ProbeAt;
     }
 
     /// <summary>What a click on one of the town's boards does.</summary>
@@ -299,6 +500,8 @@ internal static class KingsmarchTown
 
     sealed class Counter { public int Value; }
     static readonly System.Runtime.CompilerServices.ConditionalWeakTable<object, Counter> _diag = [];
+    // How often the owner flag was granted for this connection: once per connection, and again after an area load.
+    static readonly System.Runtime.CompilerServices.ConditionalWeakTable<object, Counter> _owner = [];
 
     /// <summary>Creates the town's objects up to <c>data/kingsmarch-limit.txt</c>, a few per tick, on the live connection.</summary>
     public static async Task Tick(IPlayer player, double now)
@@ -333,6 +536,11 @@ internal static class KingsmarchTown
             }
         }
         _types ??= Types();
+        // The town panel is drawn from three file-driven things: the settlement records (0x1f), the village events (0x1e)
+        // and the UI events (0x7b). A wrong kind crashes the client, so all three are data, not code.
+        await EnsureSettlementRecords(player, progress);
+        await EnsureVillageUi(player, progress);
+        await ProbeLadder(player, progress, clock);
         if (!_armed) return;
         if (clock < progress.Ready) return;
         // The boards are the town's buttons and stand on their own: they are created whatever the object limit says, so a

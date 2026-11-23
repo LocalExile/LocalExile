@@ -11,6 +11,11 @@
 #               area the client generates into data/walkability/, and lets the Gateway announce each load to it and run
 #               capture tours (Game_WALKMAPS=1). Without it nothing is recorded. Default ports and client session only
 #               (otherwise the run goes on without the recorder).
+#   -Doodads    also run scripts/dev/kingsmarch-doodads.py (needs Python + `pip install frida`): attaches to the client
+#               and lets it build the Settlers town's server-only room lines (the floor, the decks, the wharf, the
+#               buildings), which this client build drops on its own. On by default where data\kingsmarch-doodads.txt
+#               exists; -NoDoodads turns it off. The patch lives as long as the client (logs\kingsmarch-doodads.log);
+#               the town has to load after it attaches, so walk in (or back in) once the client is at the login screen.
 #   -Only Gateway[,Auth,Patch]   rebuild and restart only these servers; the others and the client keep running (implies
 #               -NoClient). Restarting the Gateway drops the client to the login screen, but Auth keeps the login session.
 #               With -Walkmaps the restarted Gateway announces loads again, and this checkout's recorder already running
@@ -53,7 +58,8 @@
 param([switch]$NoClient, [switch]$NoBuild, [switch]$NoExtract, [switch]$Walkmaps, [switch]$ClientOnly,
     [switch]$KingsmarchDoodads,
     [ValidateSet('Auth', 'Patch', 'Gateway')][string[]]$Only = @(), [int]$PortBase = -1, [string]$Session = $env:Game_CLIENT_SESSION,
-    [string]$SeedConfig = $env:Game_CLIENT_SEED_CONFIG, [switch]$Stop, [switch]$Nullifier, [switch]$Agent, [switch]$Release, [switch]$Debug, [switch]$Sound)
+    [string]$SeedConfig = $env:Game_CLIENT_SEED_CONFIG, [switch]$Stop, [switch]$Nullifier, [switch]$Agent, [switch]$Release, [switch]$Debug, [switch]$Sound,
+    [switch]$Doodads, [switch]$NoDoodads)
 
 $ErrorActionPreference = 'Stop'
 $repo = (Resolve-Path (Join-Path $PSScriptRoot '..\..')).Path
@@ -67,6 +73,13 @@ $configuration = if ($Release) { 'Release' } elseif ($Debug) { 'Debug' } elseif 
 $out = Join-Path $repo 'logs'
 $clients = Join-Path $repo 'data\clients'
 New-Item -ItemType Directory -Force $out | Out-Null
+
+# The Kingsmarch doodad patch is a client-side one, so it belongs to whatever client this run opens: a checkout that
+# plays the Settlers league keeps data\kingsmarch-doodads.txt (untracked, like data\unlock-all.txt) and gets it without
+# naming the switch every time. -NoDoodads turns it off; it needs Python and the frida package, and is skipped with a
+# warning when they are missing.
+$Doodads = if ($NoDoodads) { $false } else { [bool]$Doodads -or (Test-Path (Join-Path $repo 'data\kingsmarch-doodads.txt')) }
+if ($Doodads -and $IsLinux) { Write-Warning 'the Kingsmarch doodad patch hooks the Windows client; not started under Proton'; $Doodads = $false }
 
 function Need($ok, $message) { if (-not $ok) { throw "setup incomplete: $message (see Agents/GettingStarted.md)" } }
 # What the run is doing, as it starts doing it: the builds and the waits below are silent otherwise, and take minutes.
@@ -286,6 +299,30 @@ function Get-RenamedClientIds {
 function Get-OwnWalkmaps {
     @(Get-CimInstance Win32_Process -Filter "Name like 'python%'" -ErrorAction SilentlyContinue |
         Where-Object { $_.CommandLine -like '*walkmaps.py*' -and (Test-Here $_) })
+}
+
+function Get-OwnDoodads {
+    @(Get-CimInstance Win32_Process -Filter "Name like 'python%'" -ErrorAction SilentlyContinue |
+        Where-Object { $_.CommandLine -like '*kingsmarch-doodads.py*' -and (Test-Here $_) })
+}
+
+# The Kingsmarch doodad patch attaches to a client by the PID live.ps1 records in data\clients\<session>.json (it waits
+# for it) and ends with that client, so each new client needs one; a running one is kept (only one ever attaches). The
+# client has to build the Settlers room after it attaches, which is why it starts before the player logs in.
+function Start-Doodads([string]$session) {
+    if (-not $Doodads) { return }
+    if (@(Get-OwnDoodads).Count) { Write-Output 'Kingsmarch doodad patch already attached'; return }
+    try { $python = Get-Python '-Doodads' }
+    catch { Write-Warning "Kingsmarch doodad patch skipped: $($_.Exception.Message). The town keeps its furniture in the air without it"; return }
+    $log = Join-Path $out 'kingsmarch-doodads.log'
+    if ((Test-Path $log) -and (Get-Item $log).Length -gt 0) {
+        $archive = Join-Path (Join-Path $out 'archive') ((Get-Date -Format 'yyyyMMdd-HHmmss') + '-doodads')
+        New-Item -ItemType Directory -Force $archive | Out-Null
+        Move-Item $log $archive -Force -ErrorAction SilentlyContinue
+    }
+    Start-Detached $python @((Join-Path $repo 'scripts\dev\kingsmarch-doodads.py'), '--supervise', '--record', (Join-Path $clients "$session.json"),
+        '--log', $log) (Join-Path $out 'kingsmarch-doodads.stdout') (Join-Path $out 'kingsmarch-doodads.err')
+    Write-Output 'Kingsmarch doodad patch on (logs\kingsmarch-doodads.log; walk into the town once the client is in)'
 }
 
 # The walk-map recorder attaches to the default client (by the PID and start time recorded in data\clients\default.json)
@@ -634,6 +671,7 @@ if ($ClientOnly) {
             }
         }
         if ($Walkmaps) { Start-Recorder $python }
+        Start-Doodads $session
         Write-Output "client already running: $($existing[0].ProcessId)"
         return
     }
@@ -644,6 +682,7 @@ if ($ClientOnly) {
     if (-not $stack.Base) { Select-LocalGateway $stack.Ports.login -Strict }
     if ($Walkmaps) { Start-Recorder $python }
     Start-Client $session $stack $SeedConfig $nullifierMode
+    Start-Doodads $session
     return
 }
 
@@ -674,13 +713,15 @@ if (-not $env:Game_GATEWAY_ENTER) { $env:Game_GATEWAY_ENTER = '1' }
 $servers = if ($Only) { $Only } else { @('Auth', 'Patch', 'Gateway') }
 if ($Only) { $NoClient = $true }
 
-# This checkout's clients (every session: they lose their servers) and recorder.
+# This checkout's clients (every session: they lose their servers), recorder and doodad patch.
 Step "stopping this checkout's previous run: $($servers -join ', ')$(if (-not $NoClient) { ', clients' }) ..."
 if (-not $NoClient) {
     Stop-Processes (@(Get-OwnLaunchers) + @(Get-OwnClients))
     Remove-Item (Join-Path $clients '*.json') -ErrorAction SilentlyContinue
 }
 if (-not $Only) { Stop-Processes (Get-OwnWalkmaps) }
+# -Only keeps the client, so its doodad patch stays too (it ends with that client).
+if (-not $Only) { Stop-Processes (Get-OwnDoodads) }
 # This checkout's servers go first, then whatever of this checkout still listens on the stack's ports. Anything else
 # there (another checkout's stack on the same ports, another program) is reported, not stopped.
 Stop-Processes (Get-OwnServers $servers)
@@ -844,6 +885,7 @@ if ($Walkmaps) {
 if (-not $NoClient) {
     Step 'starting the client ...'
     Start-Client $session $stack $SeedConfig $nullifierMode
+    Start-Doodads $session
 }
 $portsText = if ($stack.Base) { " on ports $(($stack.Ports.GetEnumerator() | ForEach-Object { "$($_.Key) $($_.Value)" }) -join ', ')" } else { '' }
 Write-Output $(if ($Only) { "restarted: $($Only -join ', ')$portsText" } else { "servers up$portsText" })

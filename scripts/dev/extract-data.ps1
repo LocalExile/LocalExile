@@ -89,6 +89,11 @@ $manifest = @(
     @{ Name = 'stat-descriptions'; Outputs = @('data\stat-descriptions.txt'); Runner = 'dotnet'
        Args = @('run', '--project', 'scripts/re/game-pack', '--', 'stat-descriptions'); Version = 2; Needs = @()
        UsedBy = 'the mod wording of the Gateway''s crafter mode, for tools such as the launcher''s item crafter (item-crafter.md)' }
+    # The Settlers hub's room doodads: the objects the server has to create because the client drops them (server_only).
+    # Reads client.db's room_point_rooms/room_doodads, so it wants client-sql.ps1 to have run.
+    @{ Name = 'kingsmarch-town'; Outputs = @('data\kingsmarch-town.json'); Runner = 'python'; Servers = $true
+       Args = @('scripts/dev/kingsmarch_town.py'); Version = 1; Needs = @()
+       UsedBy = 'Kingsmarch''s town objects: the floor, decks and buildings the client does not draw (settlers.md)' }
 )
 
 function Need($ok, $message) { if (-not $ok) { throw "setup incomplete: $message (see Agents/GettingStarted.md)" } }

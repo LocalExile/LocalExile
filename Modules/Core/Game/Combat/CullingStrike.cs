@@ -10,6 +10,11 @@ public static partial class Game
     // which only normal and magic enemies are culled at. CannotKill: Pacifism, whose hits leave the enemy at 1 Life.
     public readonly record struct Cull(int Threshold, int RecoverLifePct, int NormalMagicThreshold = 0, bool CannotKill = false)
     {
+        public bool AgainstBleedingWithWeapon { get; init; }
+
+        public Cull WithWeapon(IReadOnlyDictionary<uint, int>? local) => local is null ? this
+            : this with { AgainstBleedingWithWeapon = local.GetValueOrDefault(Stat.LocalCullingStrikeVsBleedingEnemies) != 0 };
+
         // The character's stats and the skill's own (support gems included); pass them apart, not merged.
         public static Cull Of(IReadOnlyDictionary<uint, int>? player, IReadOnlyDictionary<uint, int>? skill, bool critical,
             bool spell)
@@ -33,6 +38,9 @@ public static partial class Game
         bool? rampageSource = null, IReadOnlyDictionary<uint, int>? playerStats = null,
         IReadOnlyDictionary<uint, int>? cullPlayer = null)
     {
+        if (!m.Contagion.Idle && m is { Hostile: true, Dead: false, Life: > 0, Invulnerable: false }
+            && m.Effects[Stat.BaseCannotBeDamaged] == 0)
+            ContagionSpreadOnHitLocked(player, m, ProjectileWorldTime(player));
         m.LastHitBy = player;
         // The culling context is the attack's cached offensive snapshot and is passed for every victim of an area
         // skill. `player` is Rampage's freshness-scoped source: only the first target gets a rebuilt snapshot, so it
@@ -40,9 +48,10 @@ public static partial class Game
         var cullStats = cullPlayer ?? playerStats;
         int threshold = m.Rarity is MonsterRarity.Normal or MonsterRarity.Magic
             ? Math.Max(cull.Threshold, cull.NormalMagicThreshold) : cull.Threshold;
-        // Conditional culling sources that depend on the target's state (poedb Culling Strike / passives): each grants
-        // the standard 10% cull when its condition holds. The weapon-local (local/main_hand/off_hand), flask, stun and
-        // "crit recently" sources need extra context and stay outside this. Pacifism (CannotKill) is never overridden.
+        if (cull.AgainstBleedingWithWeapon && m.Bleeds.IgnitedAt(ProjectileWorldTime(player)))
+            threshold = Math.Max(10, threshold);
+        // Conditional culling sources that depend on the target's state grant the standard 10% cull.
+        // Pacifism (CannotKill) still governs the hit.
         if (threshold == 0 && !cull.CannotKill && cullStats is not null)
         {
             int Get(uint k) => cullStats.GetValueOrDefault(k);

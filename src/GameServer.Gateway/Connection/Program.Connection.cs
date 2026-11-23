@@ -44,6 +44,48 @@ public partial class Program
         return null;
     }
 
+    /// <summary>The destination instance's resolved area rules, playable seed and layout: prepared during a transfer
+    /// while the client displays "Entering &lt;area&gt;", then reused when the client connects during its loading screen.</summary>
+    public sealed record PreparedArea(InstanceState Instance, MapDevice.Run? Map, byte AreaLevel,
+        IReadOnlyDictionary<uint, int> AreaStats, int LeagueCategory,
+        IReadOnlyList<(ushort Plugin, byte[] State)> PluginStates, uint Seed, AreaLayout Layout);
+
+    /// <summary>Prepares the destination instance's map, area stats, league category, terrain plugin states, playable
+    /// seed and generated layout before S→C 0x27 opens the client's loading screen.</summary>
+    public static PreparedArea PrepareTransferArea(ulong instanceId, long created, string? soloOwner, uint ticket,
+        ushort areaHash, uint authSeed, string characterName, string? league, string? leagueForm) =>
+        PrepareInstanceArea(Instances.Prepare(instanceId, created, soloOwner), ticket, areaHash, instanceId, authSeed,
+            characterName, league, leagueForm);
+
+    /// <summary>Resolves or reuses the area rules, playable seed and layout for <paramref name="instance"/>.</summary>
+    public static PreparedArea PrepareInstanceArea(InstanceState instance, uint ticket, ushort areaHash, ulong instanceId,
+        uint authSeed, string characterName, string? league, string? leagueForm)
+    {
+        var map = MapDevice.Admit(instance, ticket, areaHash, instanceId);
+        // An opened map's level goes in 0x1d (0: the client takes the area's WorldAreas level).
+        byte areaLevel = map is { Area.Level: > 0 } ? (byte)Math.Clamp(map.Area.Level, 1, 100) : (byte)0;
+        // The area stats the instance is played with (0x1d's first list, InstanceEvents.AreaStats): the client
+        // generates its level with them, so the Gateway does too. Composed by the instance's first preparation.
+        var areaLeague = ServerLeagues.Resolve(leagueForm, league, LeagueCatalog.Startup);
+        var areaRequest = new AreaStatsRequest(characterName, league, areaHash, map);
+        var areaStats = instance.AreaStats(() => InstanceEvents.ComposeAreaStats(areaLeague, areaRequest));
+        // The league content category (0x1d +0x28, InstanceEvents.LeagueCategory): the client picks the topology by it.
+        int leagueCategory = instance.LeagueCategory(() => InstanceEvents.ComposeLeagueCategory(areaLeague, areaRequest));
+        // The terrain plugin states (0x1d extra data, InstanceEvents.TerrainPluginStates), which a plugin builds its part
+        // of the level from. A Labyrinth room's extra data is its node, so it gets none.
+        var pluginStates = LabyrinthDay.DifficultyOf(AreaLayouts.IdOf(areaHash)) is not null ? []
+            : instance.TerrainPluginStates(() => InstanceEvents.ComposeTerrainPluginStates(areaLeague, areaRequest));
+        // The client generates the area at the seed, level, stats, category and plugin states of 0x1d: a seed the
+        // Gateway can generate too. Cached on the instance so a transfer that pre-generated it while the client showed
+        // "Entering <area>" hands the finished layout straight to HandleAsync without regenerating on the loading screen.
+        var (seed, layout) = instance.PreparedLayout(authSeed, areaLevel, () =>
+        {
+            uint playable = AreaLayouts.PlayableSeed(areaHash, authSeed, areaLevel, areaStats, leagueCategory, pluginStates);
+            return (playable, AreaLayouts.For(areaHash, playable));
+        }, knownSeed => AreaLayouts.For(areaHash, knownSeed), Instances.Now);
+        return new(instance, map, areaLevel, areaStats, leagueCategory, pluginStates, seed, layout);
+    }
+
     public static async Task HandleAsync(TcpClient client, InstanceKeyring keyring)
     {
         string remote = client.Client.RemoteEndPoint?.ToString() ?? "?";
@@ -76,7 +118,6 @@ public partial class Program
                     pending.AddRange(buffer.AsSpan(0, n));
                     opening = InstanceProtocol.TryReadOpening([.. pending]);
                 }
-                ticket = opening.Ticket;
                 if (GameLogicOrNull is null)
                 {
                     Console.WriteLine($"[gateway] {remote} the game module is not loaded; connection refused");
@@ -84,6 +125,12 @@ public partial class Program
                 }
                 Console.WriteLine($"[gateway] {remote} opening: ticket=0x{opening.Ticket:x8} digest={Convert.ToHexString(opening.Digest)} " +
                                   $"address=0x{opening.Address:x8} u32={opening.U32_128} realm=0x{opening.Realm:x2} flag={opening.Flag}");
+                if (!InstanceProtocol.VerifyOpeningDigest(opening, keyring.Data8(opening.Ticket), DateTimeOffset.UtcNow.ToUnixTimeSeconds()))
+                {
+                    Console.WriteLine($"[gateway] {remote} opening digest mismatch for ticket 0x{opening.Ticket:x8}; connection refused");
+                    return;
+                }
+                ticket = opening.Ticket;
 
                 // Which area and instance this ticket was issued for (Auth's instance registry).
                 var resolved = await InstanceControl.CallAsync(new ControlRequest { Op = "resolve", Ticket = ticket });
@@ -108,26 +155,15 @@ public partial class Program
                 ulong instanceId = resolved.Instance;
                 var instance = Instances.Enter(instanceId, resolved.Created, resolved.Ssf ? resolved.CharacterId?.ToString("N") : null);
                 entered = instance;
-                var map = MapDevice.Admit(instance, ticket, areaHash, instanceId);
-                // An opened map's level goes in 0x1d (0: the client takes the area's WorldAreas level).
-                byte areaLevel = map is { Area.Level: > 0 } ? (byte)Math.Clamp(map.Area.Level, 1, 100) : (byte)0;
-                // The area stats the instance is played with (0x1d's first list, InstanceEvents.AreaStats): the client
-                // generates its level with them, so the Gateway does too. Composed by the instance's first connection.
                 string characterName = string.IsNullOrEmpty(resolved.Character) ? "Exile" : resolved.Character;
-                var areaLeague = ServerLeagues.Resolve(resolved.LeagueForm, resolved.League, LeagueCatalog.Startup);
-                var areaRequest = new AreaStatsRequest(characterName, resolved.League, areaHash, map);
-                var areaStats = instance.AreaStats(() => InstanceEvents.ComposeAreaStats(areaLeague, areaRequest));
-                // The league content category (0x1d +0x28, InstanceEvents.LeagueCategory): the client picks the topology by it.
-                // Composed by the instance's first connection, as the area stats.
-                int leagueCategory = instance.LeagueCategory(() => InstanceEvents.ComposeLeagueCategory(areaLeague, areaRequest));
-                // The terrain plugin states (0x1d extra data, InstanceEvents.TerrainPluginStates), which a plugin builds its part
-                // of the level from. A Labyrinth room's extra data is its node, so it gets none.
-                var pluginStates = LabyrinthDay.DifficultyOf(AreaLayouts.IdOf(areaHash)) is not null ? []
-                    : instance.TerrainPluginStates(() => InstanceEvents.ComposeTerrainPluginStates(areaLeague, areaRequest));
-                // The client generates the area at the seed, level, stats, category and plugin states of 0x1d: a seed the
-                // Gateway can generate too.
-                uint seed = AreaLayouts.PlayableSeed(areaHash, resolved.Seed, areaLevel, areaStats, leagueCategory, pluginStates);
-                var layout = AreaLayouts.For(areaHash, seed);
+                var preparedArea = PrepareInstanceArea(instance, ticket, areaHash, instanceId, resolved.Seed,
+                    characterName, resolved.League, resolved.LeagueForm);
+                byte areaLevel = preparedArea.AreaLevel;
+                var areaStats = preparedArea.AreaStats;
+                int leagueCategory = preparedArea.LeagueCategory;
+                var pluginStates = preparedArea.PluginStates;
+                uint seed = preparedArea.Seed;
+                var layout = preparedArea.Layout;
                 AreaLayouts.Announce(layout, seed);
                 Console.WriteLine($"[gateway] {remote} ticket 0x{ticket:x8}: {resolved.Character ?? "?"} → instance {instanceId}, {layout.Describe()}");
 
@@ -170,7 +206,11 @@ public partial class Program
                 pinnedSession = (pinnedName, player.Character.Account, player.Character.League);
                 int level = Logic.PrepareCharacter(player, resolved.Level);
                 prepared = true;
-                var moduleHeader = GameEvents.RunAreaHeader(player);
+                byte requestAreaLevel = areaLevel;
+                var layoutBeforeHeader = player.Layout;
+                var moduleHeader = MergeAreaHeaders(player);
+                bool headerReplacedLayout = !ReferenceEquals(player.Layout, layoutBeforeHeader);
+                if (headerReplacedLayout) layout = player.Layout;
                 byte headerLevel = moduleHeader?.Level ?? areaLevel;
                 bool levelChanged = headerLevel > 0 && headerLevel != areaLevel;
                 areaLevel = headerLevel;
@@ -190,13 +230,19 @@ public partial class Program
                     pluginStates = [];
                     droppedPluginStates = true;
                 }
-                // Refresh player.Layout when AreaHeader dropped plugin states or changed the area level sent in 0x1d,
-                // so the server's layout matches what the client builds.
+                // Refresh player.Layout when AreaHeader dropped plugin states, changed the area level sent in 0x1d,
+                // or replaced player.Layout directly (e.g. DelveRoutes.MineHeader), keeping the original requestAreaLevel key
+                // so party joins and re-entries into Simulacrum/Delve still hit the cache instead of advancing the seed.
                 if (droppedPluginStates || levelChanged)
                 {
                     if (levelChanged) ServerLevels.PlayAtLevel(layout.Id, seed, areaLevel);
                     layout = AreaLayouts.For(areaHash, seed);
+                    instance.UpdatePreparedLayout(resolved.Seed, requestAreaLevel, seed, layout, Instances.Now);
                     player.Use(layout);
+                }
+                else if (headerReplacedLayout)
+                {
+                    instance.UpdatePreparedLayout(resolved.Seed, requestAreaLevel, seed, layout, Instances.Now);
                 }
                 byte[]? terrainData = moduleHeader?.Terrain ?? (labyrinthNode is not null ? LabyrinthDay.ExtraData(labyrinthNode)
                     : pluginStates.Count > 0 ? InstanceProtocol.TerrainPluginStates(pluginStates) : null);
@@ -392,8 +438,14 @@ public partial class Program
         ClientInbox inbox, long readAt)
     {
         ciphers.Receive.Process(data);
-        byte[] all = [.. player.Connection.Session.Carry, .. data];
-        var messages = InstanceProtocol.SplitClientMessages(all, out player.Connection.Session.Carry, out byte[] unknown);
+        var session = player.Connection.Session;
+        byte[] all = session.Carry.Length == 0 ? data : [.. session.Carry, .. data];
+        var messages = InstanceProtocol.SplitClientMessages(all, out session.Carry, out byte[] unknown);
+        if (session.Carry.Length > InstanceProtocol.MaxClientCarryBytes)
+        {
+            unknown = unknown.Length == 0 ? session.Carry : [.. unknown, .. session.Carry];
+            session.Carry = [];
+        }
         (ushort[] Predictive, ushort[] Lockstep)? mixed = null;
         foreach (var (id, bytes) in messages)
         {
@@ -765,8 +817,9 @@ public partial class Program
         string line = $"Network mode error: this area received both Predictive-only ({Ids(predictive)}) and Lockstep-only " +
             $"({Ids(lockstep)}) client messages. Please report this to the developers with these packet ids.";
         Console.WriteLine($"[gateway] {remote} {line}");
-        var chat = InstanceChat.ChatLine(line);
-        for (int i = 0; i < 6; i++) await Send(remote, stream, ciphers, chat, $"0x0017 chat line (network mode error {i + 1}/6)");
+        // The wire encrypts the message buffer in place. Each diagnostic needs its own plaintext.
+        for (int i = 0; i < 6; i++)
+            await Send(remote, stream, ciphers, InstanceChat.ChatLine(line), $"0x0017 chat line (network mode error {i + 1}/6)");
     }
 
     // A tick's answer (0x1c) only reports that the server is there: it needs no game state, so it takes the wire alone
@@ -774,6 +827,32 @@ public partial class Program
     public static Task SendPong(NetworkStream stream, ConnectionCiphers ciphers, byte[] bytes) => Write(stream, ciphers, bytes);
     /// <summary>A reply written at once, outside the send gate's order (the lockstep probe's AFK request).</summary>
     public static Task SendPong(Player player, byte[] bytes) => Write(player.Connection.Session.Stream, player.Connection.Session.Ciphers, bytes);
+
+    // Composes every AreaHeader subscriber so an AchievementSets-only contributor cannot shadow a later module's
+    // Terrain or Level override (e.g. Delve mine terrain or Simulacrum wave level).
+    static AreaHeader? MergeAreaHeaders(Player player)
+    {
+        byte[]? terrain = null;
+        byte? level = null;
+        List<byte>? sets = null;
+        bool any = false;
+        foreach (var (owner, run) in GameEvents.AreaHeader.Subscribers(player))
+        {
+            AreaHeader? next = null;
+            GameEventOwners.Guard(owner, nameof(GameEvents.AreaHeader), () => next = run(player));
+            if (next is null) continue;
+            any = true;
+            terrain ??= next.Terrain;
+            if (level is null && next.Level is > 0) level = next.Level;
+            if (next.AchievementSets is { Count: > 0 } nextSets)
+            {
+                sets ??= [];
+                foreach (byte set in nextSets)
+                    if (!sets.Contains(set)) sets.Add(set);
+            }
+        }
+        return any ? new AreaHeader(terrain, sets) { Level = level } : null;
+    }
 
     public static readonly System.Runtime.CompilerServices.ConditionalWeakTable<ConnectionCiphers, SemaphoreSlim> WireGates = new();
     public static readonly System.Runtime.CompilerServices.ConditionalWeakTable<ConnectionCiphers, ConnectionPerformance> ConnectionMetrics = new();

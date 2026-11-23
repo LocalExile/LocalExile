@@ -25,6 +25,9 @@ static partial class Game
     // One application per connection: the flags are saved, so a second pass would only re-send the same set.
     static readonly System.Runtime.CompilerServices.ConditionalWeakTable<object, object> Unlocked = new();
 
+    /// <summary>A table's text, without the byte-order mark some of the extracted files carry.</summary>
+    static string ReadTable(string path) => File.ReadAllText(path).TrimStart('\uFEFF');
+
     /// <summary>The flags the character is missing to see a locked row: every NPCTalk requirement, but none that some
     /// other row hides (<c>QuestFlag2</c>).</summary>
     static List<string> UnlockFlags(bool everything)
@@ -34,11 +37,11 @@ static partial class Game
             if (everything ? UnlockEvery is { } every : UnlockSafe is { } safe) return everything ? UnlockEvery! : UnlockSafe!;
             string folder = Path.Combine("data", "tables");
             List<string> names;
-            using (var doc = JsonDocument.Parse(File.ReadAllBytes(Path.Combine(folder, "QuestFlags.json"))))
+            using (var doc = JsonDocument.Parse(ReadTable(Path.Combine(folder, "QuestFlags.json"))))
                 names = [.. doc.RootElement.EnumerateArray().Select(f => f.GetProperty("Id").GetString() ?? "")];
             var required = new HashSet<string>(StringComparer.Ordinal);
             var hidden = new HashSet<string>(StringComparer.Ordinal);
-            using (var doc = JsonDocument.Parse(File.ReadAllBytes(Path.Combine(folder, "NPCTalk.json"))))
+            using (var doc = JsonDocument.Parse(ReadTable(Path.Combine(folder, "NPCTalk.json"))))
                 foreach (var row in doc.RootElement.EnumerateArray())
                 {
                     foreach (string column in new[] { "QuestFlag1", "QuestFlag2" })
@@ -79,12 +82,12 @@ static partial class Game
     /// <summary>Grants the unlocked flags to the character (saved, and sent to the client at once).</summary>
     internal static async Task<int> Unlock(IPlayer player, bool everything)
     {
-        var game = Program.PlayerOf(player);
+        var mod = Program.PlayerOf(player);
         List<string> flags = UnlockFlags(everything);
-        int before = game.Character.QuestFlagsSnapshot().Count;
-        await SetQuestFlags(game, flags);
-        int after = game.Character.QuestFlagsSnapshot().Count;
-        Console.WriteLine($"[gateway] {game.Connection.Remote} {Program.CharacterName(game)}: unlock ({(everything ? "all" : "default")}) "
+        int before = mod.Character.QuestFlagsSnapshot().Count;
+        await SetQuestFlags(mod, flags);
+        int after = mod.Character.QuestFlagsSnapshot().Count;
+        Console.WriteLine($"[gateway] {mod.Connection.Remote} {CharacterName(mod)}: unlock ({(everything ? "all" : "default")}) "
             + $"{flags.Count} flag(s), {after - before} newly set, {after} total");
         return after - before;
     }
@@ -93,10 +96,11 @@ static partial class Game
     internal static async Task UnlockTick(IPlayer player)
     {
         if (!UnlockAutomatic(out bool everything)) return;
-        var game = Program.PlayerOf(player);
-        if (Unlocked.TryGetValue(game, out _)) return;
-        Unlocked.Add(game, game);
+        object conn = Program.PlayerOf(player);
+        if (Unlocked.TryGetValue(conn, out _)) return;
+        Unlocked.Add(conn, conn);
         int set = await Unlock(player, everything);
         if (set > 0) await player.Tell($"Unlocked {set} post-campaign quest flag(s) ({(everything ? "all" : "default")}).");
     }
 }
+

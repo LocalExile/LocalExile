@@ -17,9 +17,10 @@ loop itself: for every dropped line in a Settlers room we patch its type and the
 line through.  Every other area keeps vanilla behaviour because the gate never matches there.
 
 Usage:
-    python km-fix.py --name Game.pathed.exe --seconds 0        (attach, run until Ctrl+C)
-    python km-fix.py --pid 1234 --seconds 120
-    python km-fix.py --name Game.patched.exe --dry-run         (report, change nothing)
+    python kingsmarch-doodads.py --name Game.patched.exe --seconds 0        (attach, run until Ctrl+C)
+    python kingsmarch-doodads.py --pid 1234 --seconds 120
+    python kingsmarch-doodads.py --record data/clients/default.json          (live.ps1 -Doodads runs this)
+    python kingsmarch-doodads.py --name Game.patched.exe --dry-run         (report, change nothing)
 
 Output: one JSON line per event (room change, summary every 5 s, final summary).
 """
@@ -53,10 +54,8 @@ const A = (rva) => BASE.add(rva);
 
 let roomPath = null, roomSeq = 0;
 let decisions = 0, kept = 0, dropped = 0, forced = 0, skipped = 0, creates = 0, loops = 0;
-let patched = new Set(), bodied = new Set(), dryRun = false, dirty = false, roomRegex = null;
-// Experimental: give a forced type a walker body. The entity ctor copies the size byte from type+0x10 and the walk
-// layer from type+0x24 (0x141e31ec3..0x141e32005); a doodad type with size 0 has no body, so nothing blocks.
-let bodySize = 0;// How many serialised components each dropped type has ([type+0x80], the .ot read count): this histogram is what
+let patched = new Set(), dryRun = false, dirty = false, roomRegex = null;
+// How many serialised components each dropped type has ([type+0x80], the .ot read count): this histogram is what
 // proves the 6/8 split, so it is reported next to the counters and settles it in one run.
 let readCounts = {};
 // The .ao path of each line that was let through, once per path (what actually came back).
@@ -125,15 +124,6 @@ Interceptor.attach(A(0x152f9a0), {
       if (!dryRun) this.type.add(0x2a8).writeU32(1);
       if (!patched.has(key)) { patched.add(key); dirty = true; }
     }
-    if (bodySize > 0 && !bodied.has(key)) {
-      bodied.add(key);
-      dirty = true;
-      try {
-        this.type.add(0x10).writeS8(Math.min(127, bodySize));   // walker size: a cell blocks while nibble < size + 1
-        this.type.add(0x24).writeU8(0);                         // walk layer 0, the player's own layer
-        send({ event: "body", size: bodySize, type: key, now: this.type.add(0x10).readS8() });
-      } catch (e) { send({ event: "body-error", type: key, error: String(e) }); }
-    }
     if (!dryRun) { retval.replace(ptr(1)); forced++; }   // let this line through as well
   }
 });
@@ -153,12 +143,11 @@ rpc.exports = {
   configure(o) {
     if (o.roomRegex !== undefined) roomRegex = new RegExp(o.roomRegex, "i");
     if (o.dryRun !== undefined) dryRun = !!o.dryRun;
-    if (o.bodySize !== undefined) bodySize = Number(o.bodySize) | 0;
-    return { roomRegex: String(roomRegex), dryRun: dryRun, bodySize: bodySize };
+    return { roomRegex: String(roomRegex), dryRun: dryRun };
   },
   reset() {
     decisions = kept = dropped = forced = creates = loops = 0;
-    patched = new Set(); bodied = new Set(); dirty = true; return true;
+    patched = new Set(); dirty = true; return true;
   },
   state() { return summary(false); },
   patchedTypes() { return Array.from(patched); }
@@ -168,28 +157,72 @@ rpc.exports = {
 DEFAULT_REGEX = r"Metadata/Terrain/Leagues/Settlers/"
 
 
+def recorded_pid(record):
+    """The client PID live.ps1 records in data/clients/<session>.json, or None while the record has none yet (pid 0
+    between the start and the client's first frame) or is unreadable."""
+    try:
+        with open(record, encoding="utf-8-sig") as f:
+            saved = json.load(f)
+    except (OSError, ValueError):
+        return None
+    pid = int(saved.get("pid") or 0)
+    return pid or None
+
+
+def attach(args, wait=None):
+    """Attach to the client: the recorded one (--record, which waits for live.ps1 to write its PID), a PID, or the
+    first process with the client's name. The patch has to be in place before the Settlers room loads, so a script
+    started beside the client catches the room's first build after the player walks in. Returns None when no client
+    showed up within the wait, so the caller can wait for the next one."""
+    if args.pid:
+        return frida.attach(args.pid)
+    if not args.record:
+        return frida.attach(args.name)
+    deadline = time.time() + (args.wait if wait is None else wait)
+    while True:
+        pid = recorded_pid(args.record)
+        if pid:
+            try:
+                return frida.attach(pid)
+            except frida.ProcessNotFoundError:
+                pass
+        if time.time() > deadline:
+            return None
+        time.sleep(0.25)
+
+
 def main():
     ap = argparse.ArgumentParser()
     ap.add_argument("--pid", type=int)
     ap.add_argument("--name", default="Game.patched.exe")
+    ap.add_argument("--record", default=None,
+                    help="attach to the client live.ps1 records in data/clients/<session>.json (several clients)")
+    ap.add_argument("--wait", type=float, default=120, help="how long --record waits for that client to appear")
     ap.add_argument("--seconds", type=float, default=0, help="0 = run until Ctrl+C")
     ap.add_argument("--room-regex", default=DEFAULT_REGEX)
     ap.add_argument("--dry-run", action="store_true", help="report only, change nothing")
-    ap.add_argument("--body-size", type=int, default=0,
-                    help="experimental: give the forced doodad types this walker size so they block walkers (0 = off)")
     ap.add_argument("--log", default=None)
+    ap.add_argument("--supervise", action="store_true",
+                    help="restart this script when it dies (a frida attach on a starting client can abort it)")
     args = ap.parse_args()
 
-    session = frida.attach(args.pid if args.pid else args.name)
-    script = session.create_script(SCRIPT)
-    done = threading.Event()
+    if args.supervise:
+        # frida's windows helper can abort the whole interpreter ("Unable to allocate target memory") when it
+        # attaches while the client is still coming up, so run the work in a child and start it again.
+        import subprocess
+        child = [a for a in sys.argv[1:] if a != "--supervise"]
+        while True:
+            code = subprocess.call([sys.executable, "-X", "utf8", __file__] + child)
+            if args.seconds and args.seconds > 0:
+                return code
+            time.sleep(2.0)
 
     out = open(args.log, "w", encoding="utf-8") if args.log else None
 
     def emit(obj):
         line = json.dumps(obj, ensure_ascii=False)
         if out:
-            out.write(line + "\n")
+            out.write(line + chr(10))
             out.flush()
         try:
             print(line, flush=True)
@@ -198,39 +231,66 @@ def main():
             # --log file is the record then.
             pass
 
-    def on_message(message, data):
-        if message.get("type") == "send":
-            emit(message["payload"])
-        elif message.get("type") == "error":
-            emit({"event": "error", "description": message.get("description")})
+    def serve(session):
+        """Patch one client until its process ends."""
+        script = session.create_script(SCRIPT)
+        done = threading.Event()
 
-    script.on("message", on_message)
-    script.load()
-    emit({"event": "ready", "config": script.exports_sync.configure(
-        {"roomRegex": args.room_regex, "dryRun": args.dry_run, "bodySize": args.body_size})})
+        def on_message(message, data):
+            if message.get("type") == "send":
+                emit(message["payload"])
+            elif message.get("type") == "error":
+                emit({"event": "error", "description": message.get("description")})
 
-    def on_detached(reason, crash):
-        emit({"event": "detached", "reason": str(reason),
-              "crash": None if crash is None else {"type": crash.type, "address": hex(crash.address),
-                                                   "description": crash.description}})
-        done.set()
+        script.on("message", on_message)
+        script.load()
+        emit({"event": "ready", "config": script.exports_sync.configure(
+            {"roomRegex": args.room_regex, "dryRun": args.dry_run})})
 
-    session.on("detached", on_detached)
-    try:
+        def on_detached(reason, crash):
+            emit({"event": "detached", "reason": str(reason),
+                  "crash": None if crash is None else {"type": crash.type, "address": hex(crash.address),
+                                                       "description": crash.description}})
+            done.set()
+
+        session.on("detached", on_detached)
         if args.seconds and args.seconds > 0:
             time.sleep(args.seconds)
         else:
             while not done.is_set():
                 time.sleep(0.5)
+        try:
+            emit(script.exports_sync.state())
+        except Exception:
+            pass
+        try:
+            session.detach()
+        except Exception:
+            pass
+
+    # A client restart (or a crash the patch cannot see) ends the session, so this re-attaches to whichever client
+    # comes next instead of stopping with the first one: live.ps1 starts it once and leaves it running.
+    first = True
+    try:
+        while True:
+            session = None
+            try:
+                session = attach(args, wait=args.wait if first else min(args.wait, 30.0))
+            except frida.ProcessNotFoundError:
+                pass
+            except Exception as exc:  # noqa: BLE001 - a failed attach on a starting client is retried
+                emit({"event": "attach-failed", "error": str(exc)})
+            first = False
+            if session is None:
+                if args.seconds and args.seconds > 0:
+                    break
+                time.sleep(1.0)
+                continue
+            serve(session)
+            if args.seconds and args.seconds > 0:
+                break
+            time.sleep(0.5)
     except KeyboardInterrupt:
-        pass
-    try:
-        emit(script.exports_sync.state())
-    except Exception:
-        pass
-    try:
-        session.detach()
-    except Exception:
         pass
     if out:
         out.close()

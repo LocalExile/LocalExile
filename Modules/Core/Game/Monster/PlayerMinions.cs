@@ -84,7 +84,8 @@ public static partial class Game
         await MirageWarriorsTick(player, now);
         if (!Current()) return;
         if (player.Minions.All.Count == 0 && player.Minions.Bodies.Count == 0
-            && player.Minions.PendingRelics == 0 && player.Minions.OutputQueue.Count == 0)
+            && player.Minions.PendingRelics == 0 && player.Minions.OutputQueue.Count == 0
+            && player.Summons.PresentedOwnership.Count == 0)
             return;
         var ended = new List<PlayerMinions.Minion>();
         var bytes = new List<byte>();
@@ -288,7 +289,7 @@ public static partial class Game
                     hit = hit with { StageStarts = false };
                 }
                 hits.Add((id, m, hit, damage));
-                CommitMinionHitLocked(player, id, m, hit, damage, now, $"{minion.Kind} Relic explosion");
+                CommitMinionHitLocked(player, id, m, hit, damage, now, $"{minion.Kind} Relic explosion", source: minion.Monster);
             }
         }
         Console.WriteLine($"[gateway] {player.Connection.Remote} {minion.Kind} Relic 0x{minion.Id:x} explodes for {amount} {blast.Type} within {blast.Radius} cells: {hits.Count} hit, {hits.Count(h => h.Hit.Life == 0)} killed");
