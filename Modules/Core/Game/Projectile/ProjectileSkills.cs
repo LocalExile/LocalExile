@@ -41,15 +41,16 @@ public static partial class Game
     // row fires the held weapon's: the skill's own art where Projectiles.dat has it by weapon (FrenzyArrow / FrenzyWand,
     // PunctureArrow, PowerSiphonProjectile), else the default attack's DefaultArrow / WandProjectile. The weapon is the
     // one in hand at release (ArrowsFor); the gem's weapon restriction already refused any other.
-    // Kept refused: a gem (or the base gem of its variant) that is an area, channelled, rain, melee or Vaal skill, or a
-    // Barrage volley (projectiles_barrage). A plain shot would be the wrong shape for them; they need their own recipes.
+    // Area, channelled, rain, melee and Vaal skills need their own shapes. Barrage shares the weapon projectile art
+    // with ordinary shots and schedules its separate releases through the Barrage path.
     static ProjectileSkillDefinition? WeaponProjectileDefinition(int effect)
     {
         if (!Skills.IsAttack(effect) || !Skills.IsProjectile(effect) || Skills.EffectId(effect) is not { } id) return null;
         var stats = Skills.EffectStats(effect, 1);
         bool Has(string name) => Stats.Key(name) is uint key && stats.Any(s => s.Item1 == key && s.Item2 != 0);
         bool arrows = Has("skill_can_fire_arrows"), wand = Has("skill_can_fire_wand_projectiles");
-        if (!arrows && !wand || Has("projectiles_barrage")) return null;
+        bool barrage = IsBarrageGem(id);
+        if (!arrows && !wand || Has("projectiles_barrage") && !barrage) return null;
         string root = WeaponProjectileBase(id);
         foreach (int row in new[] { effect, Skills.EffectRow(root) })
             if (row >= 0 && new[] { "Area", "Channel", "Rain", "Melee", "Vaal" }.Any(type => Skills.HasType(row, type))) return null;
@@ -60,7 +61,11 @@ public static partial class Game
             arrows && (fromBow || !wand) ? bow : wandRow, get, speed, attack: true, fromBow));
         var definition = SkillProjectileDefinition(id, arrows ? bow : wandRow, parameters);
         var specialize = definition.SpecializeRelease!;
-        return definition with { SpecializeRelease = (context, use) => AtNearbyTargets(context, specialize(context, use)) };
+        return definition with
+        {
+            CancelWindupOnNewAction = barrage || definition.CancelWindupOnNewAction,
+            SpecializeRelease = (context, use) => AtNearbyTargets(context, specialize(context, use))
+        };
     }
 
     // Power Siphon (power_siphon_base_fire_at_x_targets, projectiles_are_not_fired, number_of_projectiles_override 1):

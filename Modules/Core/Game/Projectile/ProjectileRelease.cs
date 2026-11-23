@@ -142,6 +142,13 @@ public static partial class Game
             ? PlayerActionCurrent(player, action)
             : player.PlayerLife > 0 && player.ElementalAilments.ActionFactor(AreaTime(player)) > 0 && !player.HitRecovery.Active(AreaTime(player))))
             && GemSkillInstanceDisabled(player, gem.Effect, skillId) is null;
+        if (IsBarrageGem(SkillsFor(player).EffectId(gem.Effect)))
+        {
+            ScheduleBarrage(player, session, skillId, gem.Effect, acceptedAt, SupportedAttackSeconds(player, skillId, sequence),
+                sequence, Valid, firstRelease => CaptureGemProjectile(player, session, skillId, gem, aim, criticalRoll,
+                    sequence, releaseDelay: firstRelease, cryExerted: cryExerted, sacrifice: sacrifice));
+            return Task.CompletedTask;
+        }
         // A spell's repeats (SpellRepeats) release again a cast time apart, with the use's critical roll; a new action
         // cancels the rest, as it ends the client's.
         // shortcut: a repeat keeps the cast's aim point; check live whether the client re-aims at a moving target.

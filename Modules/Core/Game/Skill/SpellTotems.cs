@@ -272,21 +272,29 @@ public static partial class Game
             uint targetId = target.Id;
             SpawnedMonster? targetMonster = target.Monster;
             var initialAim = aim;
+            (int X, int Y) ReleaseAim()
+            {
+                if (targetMonster is null
+                    || !player.Area.Monsters.TryGetValue(targetId, out var live) || !ReferenceEquals(live, targetMonster)
+                    || !SpellTotemTargetable(player, targetId, live)) return initialAim;
+                double releaseNow = session.Runtime.Now / (double)ProjectileRuntime.QuantaPerSecond;
+                var livePos = live.Walk.Position(releaseNow);
+                return Dist(livePos, totem.At) <= range ? NonZeroTotemAim(totem.At, livePos) : initialAim;
+            }
+
+            if (totem.Ballista && IsBarrageGem(SkillsFor(player).EffectId(gem.Effect)))
+            {
+                ScheduleBarrage(player, session, totem.SkillId, gem.Effect, now, seconds, sequence,
+                    () => ReferenceEquals(lifetime, CombatLifetime) && SpellTotemCurrent(player, totem),
+                    _ => CaptureGemProjectile(player, session, totem.SkillId, gem, ReleaseAim(),
+                        CaptureSkillCriticalRoll(player, totem.SkillId), sequence, totem: totem));
+                continue;
+            }
             session.Schedule(ProjectileRuntime.Time(totem.NextCast),
                 () => ReferenceEquals(lifetime, CombatLifetime) && SpellTotemCurrent(player, totem),
                 () =>
                 {
-                    var releaseAim = initialAim;
-                    if (targetMonster is not null
-                        && player.Area.Monsters.TryGetValue(targetId, out var live) && ReferenceEquals(live, targetMonster)
-                        && SpellTotemTargetable(player, targetId, live))
-                    {
-                        double releaseNow = session.Runtime.Now / (double)ProjectileRuntime.QuantaPerSecond;
-                        var livePos = live.Walk.Position(releaseNow);
-                        if (Dist(livePos, totem.At) <= range)
-                            releaseAim = NonZeroTotemAim(totem.At, livePos);
-                    }
-                    var use = CaptureGemProjectile(player, session, totem.SkillId, gem, releaseAim,
+                    var use = CaptureGemProjectile(player, session, totem.SkillId, gem, ReleaseAim(),
                         CaptureSkillCriticalRoll(player, totem.SkillId), sequence, totem: totem);
                     return ClientDrawnVolley(player, session, totem.SkillId, gem, use, sequence, 0);
                 });
