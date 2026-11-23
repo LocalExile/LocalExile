@@ -1,5 +1,6 @@
 {
   "modules": [
+    "Core/Content/Abyss",
     "Core/Content/Anarchy",
     "Core/Content/Delve",
     "Core/Content/Delirium",
