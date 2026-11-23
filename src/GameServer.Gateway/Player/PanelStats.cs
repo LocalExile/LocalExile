@@ -508,10 +508,12 @@ public static class PanelStats
     /// for its own pool stepping: the Life constructor (0x141e6de70) binds these keys to the pools, and 0x141e718c0
     /// applies the rate / 60 times the client tick duration. The display totals alone do not drive that stepping.
     /// </summary>
-    public static List<(uint Stat, int Value)> Recovery(Func<uint, int> get, uint maxLife, uint maxMana)
+    public static List<(uint Stat, int Value)> Recovery(Func<uint, int> get, uint maxLife, uint maxMana,
+        double lifeRegenerationFactor = 1)
     {
         var result = new List<(uint, int)>();
-        var (life, _) = LifeRegeneration(get, maxLife);
+        var (regeneration, _) = LifeRegeneration(get, maxLife);
+        double life = regeneration * lifeRegenerationFactor;
         if (life != 0)
         {
             result.Add((Stat.TotalLifeRecoveryPerMinuteFromRegeneration, RecoveryValue(life)));

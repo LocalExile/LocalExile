@@ -93,7 +93,7 @@ public static partial class Game
             {
                 CommitExperienceLevel(player, level);
                 player.PlayerLife = LifeCap(player); player.PlayerMana = (uint)UnreservedMana(player);
-                player.EnergyShield.SetMaximum(player.Pools.EnergyShield, true); TrimLeechLocked(player);
+                RefillPlayerEnergyShield(player); TrimLeechLocked(player);
                 state.StatRevision++; state.AccountRevision++;
                 state.OutputQueue.Add(new([], "0x0033 current passive skill tree (accepted level)", Kind: PlayerMinions.OutputKind.Passives));
             }

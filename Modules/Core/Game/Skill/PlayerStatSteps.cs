@@ -232,7 +232,7 @@ public static partial class Game
             if (Get(Stat.KeystoneCorruptedDefences) != 0) AddTo(stats, IncomingResourceDefences.BypassStat, 50);
             // The unmodified recovery baseline, before the temporary contribution. The resource writer integrates
             // Fortification separately across exact expiry boundaries.
-            outputs.BaselineLifePerSecond = PanelStats.LifePerMinute(recovery, player.Pools.Life) / 60;
+            outputs.BaselineLifePerSecond = PanelStats.LifePerMinute(recovery, player.Pools.Life) * LifeRegenerationKeystoneFactor(Get) / 60;
         });
         Step(PlayerStatStep.TimedRecovery, (player, stats, _) =>
         {
@@ -303,7 +303,8 @@ public static partial class Game
         var (_, lifeRegenerationToEnergyShield) = PanelStats.LifeRegeneration(
             name => name is var key ? stats.GetValueOrDefault(key) : 0, player.Pools.Life);
         return ReadStatSnapshotTailInputs(player, stats, mainLocal, offLocal,
-            lifeRegenerationToEnergyShield, player.Walk.Moving(AreaTime(player)));
+            lifeRegenerationToEnergyShield,
+            player.Walk.Moving(AreaTime(player)));
     }
 
     /// <summary>Runs one step (a player stat graph rule).</summary>

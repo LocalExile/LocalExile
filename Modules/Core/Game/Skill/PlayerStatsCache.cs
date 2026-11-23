@@ -264,7 +264,8 @@ public static partial class Game
         if (!player.PetrifiedBlood.Active || player.PlayerLife == 0) return false;
         var (lifeRegenPerMinute, _) = PanelStats.LifeRegeneration(
             name => name is var key ? stats.GetValueOrDefault(key) : 0, player.Pools.Life);
-        uint margin = PetrifiedBlood.RecoveryMargin(lifeRegenPerMinute / 60);
+        double factor = LifeRegenerationKeystoneFactor(name => stats.GetValueOrDefault(name));
+        uint margin = PetrifiedBlood.RecoveryMargin(lifeRegenPerMinute * factor / 60);
         return (long)player.PlayerLife + margin >= (uint)((long)player.PlayerMaxLife * LowLifeThresholdPct(stats) / 100);
     }
 

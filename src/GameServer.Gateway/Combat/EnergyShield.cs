@@ -68,6 +68,13 @@ public sealed class EnergyShield
         Current = RecoveryPool.Advance(Current, Maximum, amount, ref fraction);
         if (Current == Maximum) StopRecharge();
     }
+    /// <summary>Loss of a pool, independent of incoming damage and its recharge interruption.</summary>
+    public void Lose(double amount, ref double carry)
+    {
+        Current = RecoveryPool.Advance(Current, Maximum, -amount, ref carry);
+        if (Current == 0) fraction = 0;
+    }
+
     public Snapshot Capture(double now)
     {
         double? interruptedSecondsAgo = !double.IsFinite(interruptedAt) ? null
@@ -105,9 +112,11 @@ public sealed class EnergyShield
     public static double RechargePerMinute(uint max, Func<uint, int> get) =>
         get(Stat.CannotRechargeEnergyShield) != 0 || get(Stat.NoEnergyShieldRechargeOrRegeneration) != 0
             || get(Stat.KeystoneGhostReaver) != 0 ? 0 :
+        BaseRechargePerMinute(max, get) * Math.Max(0, 1 + get(Stat.EnergyShieldRecoveryRatePlusPct) / 100.0)
+        * PanelStats.MapRecoveryMultiplier(get);
+
+    public static double BaseRechargePerMinute(uint max, Func<uint, int> get) =>
         max * 20.0 * Math.Max(0, 1 + get(Stat.EnergyShieldRechargeRatePlusPct) / 100.0)
-        * Math.Max(0, 1 + get(Stat.EnergyShieldRecoveryRatePlusPct) / 100.0)
-        * PanelStats.MapRecoveryMultiplier(get)
         // Wicked Ward: "40% less Energy Shield Recharge Rate".
         * (get(Stat.KeystoneWickedWard) != 0 ? 0.6 : 1)
         // Eldritch Battery: "50% less Energy Shield Recharge Rate".
