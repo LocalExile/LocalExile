@@ -2,9 +2,9 @@
 /// contact and one per owner kill, including both on a melee killing blow. A counter alone is not full Rampage.</summary>
 public sealed class RampageSession
 {
-    public const string Source = "melee_hits_grant_rampage_stacks";
+    public const uint Source = Stat.MeleeHitsGrantRampageStacks;
     /// <summary>The other way to start a streak: kills grant the stacks instead of melee hits.</summary>
-    public const string KillSource = "player_gain_rampage_stacks";
+    public const uint KillSource = Stat.PlayerGainRampageStacks;
     public static readonly int[] Thresholds = [15, 30, 45, 70, 100, 135, 175, 220, 270, 325, 385, 450, 520];
     readonly RampageState state = new(Thresholds);
     readonly HashSet<object> creditedKills = new(ReferenceEqualityComparer.Instance);
@@ -12,10 +12,13 @@ public sealed class RampageSession
     // The same crossings feed the "on Rampage threshold" item mods; the tier executor keeps its own queue.
     readonly Queue<int> pendingThresholds = new();
     public IReadOnlyList<int> PendingTiers => pendingTiers.ToArray();
+    /// <summary>The streak grew, was cleared or was carried in (the stat steps that read it run again).</summary>
+    public Action? Changed;
+
     public RampageState.Value Current => state.Current;
     public RampageState.Carried Carry(double now) { pendingTiers.Clear(); pendingThresholds.Clear(); return state.Carry(now); }
     public void Restore(RampageState.Carried carried, double now)
-    { pendingTiers.Clear(); pendingThresholds.Clear(); state.Restore(carried, now); }
+    { pendingTiers.Clear(); pendingThresholds.Clear(); state.Restore(carried, now); Changed?.Invoke(); }
     public int[] TakeTiers()
     {
         int[] result = pendingTiers.ToArray(); pendingTiers.Clear(); return result;
@@ -53,13 +56,15 @@ public sealed class RampageSession
     {
         var change = state.GainQualified(now);
         if (!change.Accepted) return false;
+        Changed?.Invoke();
         foreach (int tier in change.CrossedThresholds) { pendingTiers.Enqueue(tier); pendingThresholds.Enqueue(tier); }
         return true;
     }
 
     public void Clear()
     {
-        state.Clear(); pendingTiers.Clear(); pendingThresholds.Clear();
+        if (state.Clear()) Changed?.Invoke();
+        pendingTiers.Clear(); pendingThresholds.Clear();
         // Keep credited kills across source changes/expiry: delayed notices cannot grant them again.
     }
 }

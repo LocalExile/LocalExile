@@ -9,27 +9,26 @@ public static partial class Game
     // Phase Run and Blood Rage their own buffs below. Their stats join the character's sources while they last
     // (WithSelfBuffs), as the guard's do. Phase Run is a Movement skill that stays in place, so its instant use is
     // accepted as a self buff's.
-    static bool InPlaceSelfBuff(ClientState conn, int effect) => SkillsFor(conn).EffectId(effect) is "PhaseRun";
+    static bool InPlaceSelfBuff(Player player, int effect) => SkillsFor(player).EffectId(effect) is "PhaseRun";
 
     // Refused before the cost: a guard is running, or the guards' shared recovery after the last one has not passed
     // (display_this_skill_cooldown_does_not_recover_during_buff).
-    public static string? SelfBuffRefused(ClientState conn, int effect) =>
-        GuardSpellEffect(SkillsFor(conn).EffectId(effect)) && !TriggerGuardReady(conn, conn.Clock.Elapsed.TotalSeconds)
+    public static string? SelfBuffRefused(Player player, int effect) =>
+        GuardSpellEffect(SkillsFor(player).EffectId(effect)) && !TriggerGuardReady(player, AreaTime(player))
             ? "a guard skill is active or recovering" : null;
 
     // After the paid use: true when this was one of the self buffs (its effect has started).
-    public static async Task<bool> CastSelfBuff(string remote, NetworkStream stream, ConnectionCiphers ciphers,
-        ClientState conn, ushort skillId, int effect)
+    public static async Task<bool> CastSelfBuff(Player player, ushort skillId, int effect)
     {
-        string? id = SkillsFor(conn).EffectId(effect);
+        string? id = SkillsFor(player).EffectId(effect);
         if (GuardSpellEffect(id))
         {
-            var session = ProjectilesFor(remote, stream, ciphers, conn);
-            lock (conn.Monsters) StartTriggeredGuard(conn, session, skillId, conn.Clock.Elapsed.TotalSeconds);
+            var session = ProjectilesFor(player);
+            StartTriggeredGuard(player, session, skillId, AreaTime(player));
             return true;
         }
-        if (id == "PhaseRun") { await StartPhaseRun(remote, stream, ciphers, conn, skillId); return true; }
-        if (id == "BloodRage") { await StartBloodRage(remote, stream, ciphers, conn, skillId); return true; }
+        if (id == "PhaseRun") { await StartPhaseRun(player, skillId); return true; }
+        if (id == "BloodRage") { await StartBloodRage(player, skillId); return true; }
         return false;
     }
 
@@ -38,13 +37,13 @@ public static partial class Game
         public ushort Buff, Skill;
         public int Token;
         public double Until, Seconds, Degen;
-        public readonly Dictionary<string, int> Stats = [];
+        public readonly Dictionary<uint, int> Stats = [];
     }
     sealed class SelfBuffSet
     {
         public SelfBuff? PhaseRun, PhaseRunDamage, BloodRage;
     }
-    static readonly RuleTable<ClientState, SelfBuffSet> SelfBuffs = new();
+    static readonly RuleTable<Player, SelfBuffSet> SelfBuffs = new();
 
     static ushort BuffRow(string id, ushort fallback)
     {
@@ -53,17 +52,24 @@ public static partial class Game
             if (row.Text("Id") == id) return (ushort)row.Index;
         return fallback;
     }
-    static readonly Lazy<ushort> PhaseRunBuffRow = new(() => BuffRow("new_phase_run", 467));
-    static readonly Lazy<ushort> PhaseRunDamageBuffRow = new(() => BuffRow("new_phase_run_damage", 468));
-    static readonly Lazy<ushort> BloodRageBuffRow = new(() => BuffRow("blood_rage", 11));
+    static ushort PhaseRunBuffRow = 467;
+    static ushort PhaseRunDamageBuffRow = 468;
+    static ushort BloodRageBuffRow = 11;
+
+    internal static void LoadSelfBuffSkillsData()
+    {
+        PhaseRunBuffRow = BuffRow("new_phase_run", 467);
+        PhaseRunDamageBuffRow = BuffRow("new_phase_run_damage", 468);
+        BloodRageBuffRow = BuffRow("blood_rage", 11);
+    }
 
     // Under the Monsters lock (WithSupportGemBuffs): the running self buffs' stats, from the accepted cast on.
-    static Dictionary<uint, int> WithSelfBuffs(ClientState conn, Dictionary<uint, int> stats)
+    static Dictionary<uint, int> WithSelfBuffs(Player player, Dictionary<uint, int> stats)
     {
-        if (!SelfBuffs.TryGetValue(conn, out var set)) return stats;
+        if (!SelfBuffs.TryGetValue(player, out var set)) return stats;
         // On the item-stat lookup's path (performance.md, "Hot paths"): no allocation, nothing read when none runs.
-        if (conn.PlayerLife <= 0) return stats;
-        double now = conn.Clock.Elapsed.TotalSeconds;
+        if (player.PlayerLife <= 0) return stats;
+        double now = AreaTime(player);
         AddRunning(set.PhaseRun);
         AddRunning(set.PhaseRunDamage);
         AddRunning(set.BloodRage);
@@ -72,59 +78,52 @@ public static partial class Game
         void AddRunning(SelfBuff? buff)
         {
             if (buff is null || now >= buff.Until) return;
-            foreach (var (name, value) in buff.Stats)
-                if (Stats.Key(name) is uint key) stats[key] = stats.GetValueOrDefault(key) + value;
+            foreach (var (key, value) in buff.Stats)
+                stats[key] = stats.GetValueOrDefault(key) + value;
         }
     }
 
     // Shows a self buff (a new instance, so the client's timer restarts) with the pools its stats change, and removes
     // it when its time runs out unless a later start or refresh took it over (the token).
-    static async Task ShowSelfBuff(string remote, NetworkStream stream, ConnectionCiphers ciphers, ClientState conn,
+    static async Task ShowSelfBuff(Player player,
         SelfBuff buff, ushort row, string label, Action? ended = null, bool restat = true)
     {
-        int token;
-        lock (conn.Monsters) token = ++buff.Token;
-        using var fresh = new PlayerStatScope(conn, fresh: true);
-        await Send(remote, stream, ciphers, [], $"0x01c1 {label} for {buff.Seconds:0.###} s", atGate: () =>
+        int token = ++buff.Token;
+        using var fresh = new PlayerStatScope(player, fresh: true);
+        await Send(player, [], $"0x01c1 {label} for {buff.Seconds:0.###} s", atGate: () =>
         {
-            lock (conn.Monsters)
+            if (player.Closed || player.LeavingArea || player.RageRetired || buff.Token != token) return null;
+            var bytes = new List<byte>();
+            if (buff.Buff != 0) bytes.AddRange(InstanceEntities.RemoveBuff(player.Id, buff.Buff));
+            buff.Buff = player.NextBuff++;
+            bytes.AddRange(InstanceEntities.AddBuff(player.Id, buff.Buff, row, player.Id, sourceSkill: buff.Skill,
+                u68: BitConverter.SingleToUInt32Bits((float)Math.Max(0, buff.Until - AreaTime(player)))));
+            if (restat)
             {
-                if (conn.Closed || conn.LeavingArea || conn.RageRetired || buff.Token != token) return null;
-                var bytes = new List<byte>();
-                if (buff.Buff != 0) bytes.AddRange(InstanceEntities.RemoveBuff(PlayerId, buff.Buff));
-                buff.Buff = conn.NextBuff++;
-                bytes.AddRange(InstanceEntities.AddBuff(PlayerId, buff.Buff, row, PlayerId, sourceSkill: buff.Skill,
-                    u68: BitConverter.SingleToUInt32Bits((float)Math.Max(0, buff.Until - conn.Clock.Elapsed.TotalSeconds))));
-                if (restat)
-                {
-                    RecomputePoolsAndSpeed(conn);
-                    bytes.AddRange(PlayerStatsUpdateAtGate(conn, PlayerStatsWithCleared(conn)));
-                }
-                return [.. bytes];
+                RecomputePoolsAndSpeed(player);
+                bytes.AddRange(PlayerStatsOffFrames(player));
             }
+            return [.. bytes];
         });
-        SendAfter(Math.Max(0, buff.Until - conn.Clock.Elapsed.TotalSeconds), () => EndSelfBuff(remote, stream, ciphers, conn,
+        SendAfter(player, Math.Max(0, buff.Until - AreaTime(player)), () => EndSelfBuff(player,
             buff, token, $"0x01c2 {label} ends", ended));
     }
 
-    static async Task EndSelfBuff(string remote, NetworkStream stream, ConnectionCiphers ciphers, ClientState conn,
+    static async Task EndSelfBuff(Player player,
         SelfBuff buff, int token, string label, Action? ended = null)
     {
-        using var fresh = new PlayerStatScope(conn, fresh: true);
-        await Send(remote, stream, ciphers, [], label, atGate: () =>
+        using var fresh = new PlayerStatScope(player, fresh: true);
+        await Send(player, [], label, atGate: () =>
         {
-            lock (conn.Monsters)
-            {
-                if (buff.Token != token || buff.Buff == 0) return null;
-                var bytes = new List<byte>(InstanceEntities.RemoveBuff(PlayerId, buff.Buff));
-                buff.Buff = 0;
-                buff.Until = 0;
-                ended?.Invoke();
-                if (conn.Closed || conn.LeavingArea || conn.RageRetired) return null;
-                RecomputePoolsAndSpeed(conn);
-                bytes.AddRange(PlayerStatsUpdateAtGate(conn, PlayerStatsWithCleared(conn)));
-                return [.. bytes];
-            }
+            if (buff.Token != token || buff.Buff == 0) return null;
+            var bytes = new List<byte>(InstanceEntities.RemoveBuff(player.Id, buff.Buff));
+            buff.Buff = 0;
+            buff.Until = 0;
+            ended?.Invoke();
+            if (player.Closed || player.LeavingArea || player.RageRetired) return null;
+            RecomputePoolsAndSpeed(player);
+            bytes.AddRange(PlayerStatsOffFrames(player));
+            return [.. bytes];
         });
     }
 
@@ -132,74 +131,62 @@ public static partial class Game
     // 100% increased per removable Frenzy Charge (skill_effect_duration_+%_per_removable_frenzy_charge), which it
     // consumes. Using any skill replaces it with new_phase_run_damage for base_secondary_skill_effect_duration:
     // phase_run_melee_physical_damage_+%_final on melee physical damage (PhaseRunOnSkillUse).
-    static async Task StartPhaseRun(string remote, NetworkStream stream, ConnectionCiphers ciphers, ClientState conn,
-        ushort skillId)
+    static async Task StartPhaseRun(Player player, ushort skillId)
     {
-        var own = SupportedSkill(conn, skillId).Stats;
-        var player = CharacterPlayerStats(conn);
-        int Player(string name) => GolemStat(player, name);
-        int Own(string name) => GolemStat(own, name);
-        var set = SelfBuffs.GetValue(conn, _ => new());
-        int removable;
-        lock (conn.Monsters)
-        {
-            var charges = ChargesOf(conn);
-            removable = charges.Converted(ChargeType.Frenzy) ? 0 : Math.Max(0,
-                charges.Effective(ChargeType.Frenzy) - charges.Limits(ChargeType.Frenzy).Minimum);
-            if (removable > 0) charges.State.Lose(ChargeType.Frenzy, removable, charges.Limits(ChargeType.Frenzy));
-        }
-        int perCharge = Own("skill_effect_duration_+%_per_removable_frenzy_charge");
-        double seconds = SkillDurationModifiers.Seconds(Own("base_skill_effect_duration"), Player,
-            name => Own(name) + (name == SkillDurationModifiers.IncreasedDuration ? perCharge * removable : 0));
+        var own = SupportedSkill(player, skillId).Stats;
+        var playerStats = CharacterPlayerStats(player);
+        int PlayerStat(uint key) => GolemStat(playerStats, key);
+        int Own(uint key) => GolemStat(own, key);
+        var set = SelfBuffs.GetValue(player, _ => new());
+        var charges = ChargesOf(player);
+        int removable = charges.Converted(ChargeType.Frenzy) ? 0 : Math.Max(0,
+            charges.Effective(ChargeType.Frenzy) - charges.Limits(ChargeType.Frenzy).Minimum);
+        if (removable > 0) charges.State.Lose(ChargeType.Frenzy, removable, charges.Limits(ChargeType.Frenzy));
+        int perCharge = Own(Stat.SkillEffectDurationPlusPctPerRemovableFrenzyCharge);
+        double seconds = SkillDurationModifiers.Seconds(Own(Stat.BaseSkillEffectDuration), PlayerStat,
+            key => Own(key) + (key == SkillDurationModifiers.IncreasedDuration ? perCharge * removable : 0));
         var buff = set.PhaseRun ??= new();
-        double now = conn.Clock.Elapsed.TotalSeconds;
-        lock (conn.Monsters)
-        {
-            buff.Skill = skillId;
-            buff.Seconds = seconds;
-            buff.Until = now + seconds;
-            buff.Stats.Clear();
-            buff.Stats["base_movement_velocity_+%"] = Own("base_movement_velocity_+%");
-            buff.Stats["stealth_+%"] = Own("stealth_+%");
-            if (Own("phase_through_objects") != 0) conn.PhasingUntil = Math.Max(conn.PhasingUntil, buff.Until);
-        }
-        if (removable > 0) ProjectilesFor(remote, stream, ciphers, conn).PresentCharges();
-        Console.WriteLine($"[gateway] {remote} Phase Run: {seconds:0.###} s ({removable} Frenzy Charges consumed), "
-            + $"+{buff.Stats["base_movement_velocity_+%"]}% movement speed, phasing");
-        await ShowSelfBuff(remote, stream, ciphers, conn, buff, PhaseRunBuffRow.Value, "Phase Run");
+        double now = AreaTime(player);
+        buff.Skill = skillId;
+        buff.Seconds = seconds;
+        buff.Until = now + seconds;
+        buff.Stats.Clear();
+        buff.Stats[Stat.BaseMovementVelocityPlusPct] = Own(Stat.BaseMovementVelocityPlusPct);
+        buff.Stats[Stat.StealthPlusPct] = Own(Stat.StealthPlusPct);
+        if (Own(Stat.PhaseThroughObjects) != 0) player.PhasingUntil = Math.Max(player.PhasingUntil, buff.Until);
+        if (removable > 0) ProjectilesFor(player).PresentCharges();
+        Console.WriteLine($"[gateway] {player.Connection.Remote} Phase Run: {seconds:0.###} s ({removable} Frenzy Charges consumed), "
+            + $"+{buff.Stats[Stat.BaseMovementVelocityPlusPct]}% movement speed, phasing");
+        await ShowSelfBuff(player, buff, PhaseRunBuffRow, "Phase Run");
     }
 
     // Any other skill the player uses while Phase Run lasts (CastGemSkill after its cost, the default attack's swing)
     // ends it and starts its damage buff. attackSeconds: the using attack's swing time (a gem attack's when null).
     // shortcut: hits resolve at contact, usually after the 0.2 s buff, so its more damage stays for the using attack's
     // swing too, longer than the buff icon shows.
-    public static void PhaseRunOnSkillUse(ClientState conn, ushort skillId, double? attackSeconds = null)
+    public static void PhaseRunOnSkillUse(Player player, ushort skillId, double? attackSeconds = null)
     {
-        if (!SelfBuffs.TryGetValue(conn, out var set) || set.PhaseRun is not { } run || run.Skill == skillId) return;
-        double now = conn.Clock.Elapsed.TotalSeconds;
+        if (!SelfBuffs.TryGetValue(player, out var set) || set.PhaseRun is not { } run || run.Skill == skillId) return;
+        double now = AreaTime(player);
         if (now >= run.Until) return;
-        var own = SupportedSkill(conn, run.Skill).Stats;
-        var player = CharacterPlayerStats(conn);
-        double damageSeconds = SkillDurationModifiers.Seconds(GolemStat(own, "base_secondary_skill_effect_duration"),
-            name => GolemStat(player, name), name => GolemStat(own, name));
-        var used = SupportedSkill(conn, skillId);
-        double swing = attackSeconds ?? (used.Effect >= 0 && SkillsFor(conn).IsAttack(used.Effect)
-            ? SupportedAttackSeconds(conn, skillId) : 0);
+        var own = SupportedSkill(player, run.Skill).Stats;
+        var playerStats = CharacterPlayerStats(player);
+        double damageSeconds = SkillDurationModifiers.Seconds(GolemStat(own, Stat.BaseSecondarySkillEffectDuration),
+            key => GolemStat(playerStats, key), key => GolemStat(own, key));
+        var used = SupportedSkill(player, skillId);
+        double swing = attackSeconds ?? (used.Effect >= 0 && SkillsFor(player).IsAttack(used.Effect)
+            ? SupportedAttackSeconds(player, skillId) : 0);
         var damage = set.PhaseRunDamage ??= new();
-        lock (conn.Monsters)
-        {
-            if (Math.Abs(conn.PhasingUntil - run.Until) < 1e-9) conn.PhasingUntil = now;
-            run.Until = now;
-            damage.Skill = run.Skill;
-            damage.Seconds = damageSeconds;
-            damage.Until = now + damageSeconds + Math.Max(0, swing);
-            damage.Stats.Clear();
-            damage.Stats["phase_run_melee_physical_damage_+%_final"] = GolemStat(own, "phase_run_melee_physical_damage_+%_final");
-        }
-        var (remote, stream, ciphers) = conn.Wire;
-        if (stream is null) return;
-        _ = EndSelfBuff(remote, stream, ciphers, conn, run, run.Token, "0x01c2 Phase Run replaced by a skill use");
-        _ = ShowSelfBuff(remote, stream, ciphers, conn, damage, PhaseRunDamageBuffRow.Value, "Phase Run damage");
+        if (Math.Abs(player.PhasingUntil - run.Until) < 1e-9) player.PhasingUntil = now;
+        run.Until = now;
+        damage.Skill = run.Skill;
+        damage.Seconds = damageSeconds;
+        damage.Until = now + damageSeconds + Math.Max(0, swing);
+        damage.Stats.Clear();
+        damage.Stats[Stat.PhaseRunMeleePhysicalDamagePlusPctFinal] = GolemStat(own, Stat.PhaseRunMeleePhysicalDamagePlusPctFinal);
+        if (!player.Connection.Connected) return;
+        _ = EndSelfBuff(player, run, run.Token, "0x01c2 Phase Run replaced by a skill use");
+        _ = ShowSelfBuff(player, damage, PhaseRunDamageBuffRow, "Phase Run damage");
     }
 
     // Blood Rage (BuffDefinitions blood_rage): for base_skill_effect_duration, attack_speed_+%_granted_from_skill as
@@ -207,54 +194,46 @@ public static partial class Game
     // base_physical_damage_%_of_maximum_life/energy_shield_to_deal_per_minute (lethal, as the trial traps' is; energy
     // shield first). A kill while it lasts refreshes its duration (ActiveSkills blood_rage); a new cast restarts it.
     // shortcut: increased buff effect and the degeneration's damage-over-time modifiers are not applied.
-    static async Task StartBloodRage(string remote, NetworkStream stream, ConnectionCiphers ciphers, ClientState conn,
-        ushort skillId)
+    static async Task StartBloodRage(Player player, ushort skillId)
     {
-        var own = SupportedSkill(conn, skillId).Stats;
-        var player = CharacterPlayerStats(conn);
-        int Own(string name) => GolemStat(own, name);
-        double seconds = SkillDurationModifiers.Seconds(Own("base_skill_effect_duration"), name => GolemStat(player, name), Own);
-        var buff = SelfBuffs.GetValue(conn, _ => new()).BloodRage ??= new();
-        lock (conn.Monsters)
-        {
-            buff.Skill = skillId;
-            buff.Seconds = seconds;
-            buff.Until = conn.Clock.Elapsed.TotalSeconds + seconds;
-            buff.Stats.Clear();
-            buff.Stats["attack_speed_+%"] = Own("attack_speed_+%_granted_from_skill");
-            buff.Stats["life_leech_from_physical_attack_damage_permyriad"] = Own("life_leech_from_physical_attack_damage_permyriad");
-            buff.Stats["add_frenzy_charge_on_kill_%_chance"] = Own("add_frenzy_charge_on_kill_%_chance");
-            double degen = (conn.PlayerMaxLife * (double)Own("base_physical_damage_%_of_maximum_life_to_deal_per_minute")
-                + conn.Pools.EnergyShield * (double)Own("base_physical_damage_%_of_maximum_energy_shield_to_deal_per_minute")) / 6000;
-            conn.TrapDegenPerSecond = Math.Max(0, conn.TrapDegenPerSecond - buff.Degen + degen);
-            buff.Degen = degen;
-        }
-        Console.WriteLine($"[gateway] {remote} Blood Rage: {seconds:0.###} s, +{buff.Stats["attack_speed_+%"]}% attack speed, "
+        var own = SupportedSkill(player, skillId).Stats;
+        var playerStats = CharacterPlayerStats(player);
+        int Own(uint key) => GolemStat(own, key);
+        double seconds = SkillDurationModifiers.Seconds(Own(Stat.BaseSkillEffectDuration), key => GolemStat(playerStats, key), Own);
+        var buff = SelfBuffs.GetValue(player, _ => new()).BloodRage ??= new();
+        buff.Skill = skillId;
+        buff.Seconds = seconds;
+        buff.Until = AreaTime(player) + seconds;
+        buff.Stats.Clear();
+        buff.Stats[Stat.AttackSpeedPlusPct] = Own(Stat.AttackSpeedPlusPctGrantedFromSkill);
+        buff.Stats[Stat.LifeLeechFromPhysicalAttackDamagePermyriad] = Own(Stat.LifeLeechFromPhysicalAttackDamagePermyriad);
+        buff.Stats[Stat.AddFrenzyChargeOnKillPctChance] = Own(Stat.AddFrenzyChargeOnKillPctChance);
+        double degen = (player.PlayerMaxLife * (double)Own(Stat.BasePhysicalDamagePctOfMaximumLifeToDealPerMinute)
+            + player.Pools.EnergyShield * (double)Own(Stat.BasePhysicalDamagePctOfMaximumEnergyShieldToDealPerMinute)) / 6000;
+        player.Degens[buff] = degen;
+        buff.Degen = degen;
+        Console.WriteLine($"[gateway] {player.Connection.Remote} Blood Rage: {seconds:0.###} s, +{buff.Stats[Stat.AttackSpeedPlusPct]}% attack speed, "
             + $"{buff.Degen:0.#} physical damage per second");
-        await ShowSelfBuff(remote, stream, ciphers, conn, buff, BloodRageBuffRow.Value, "Blood Rage", () => EndBloodRageDegen(conn, buff));
+        await ShowSelfBuff(player, buff, BloodRageBuffRow, "Blood Rage", () => EndBloodRageDegen(player, buff));
     }
 
-    // Under the Monsters lock, when the buff ends.
-    static void EndBloodRageDegen(ClientState conn, SelfBuff buff)
+    // When the buff ends.
+    static void EndBloodRageDegen(Player player, SelfBuff buff)
     {
-        conn.TrapDegenPerSecond = Math.Max(0, conn.TrapDegenPerSecond - buff.Degen);
+        player.Degens[buff] = 0;
         buff.Degen = 0;
     }
 
     // A hostile monster the player killed (ChargesOnKill): a running Blood Rage starts its duration again.
-    public static void SelfBuffsOnKill(ClientState conn)
+    public static void SelfBuffsOnKill(Player player)
     {
-        if (!SelfBuffs.TryGetValue(conn, out var set) || set.BloodRage is not { } rage) return;
-        lock (conn.Monsters)
-        {
-            double now = conn.Clock.Elapsed.TotalSeconds;
-            if (now >= rage.Until) return;
-            rage.Until = now + rage.Seconds;
-        }
-        var (remote, stream, ciphers) = conn.Wire;
-        if (stream is null) return;
+        if (!SelfBuffs.TryGetValue(player, out var set) || set.BloodRage is not { } rage) return;
+        double now = AreaTime(player);
+        if (now >= rage.Until) return;
+        rage.Until = now + rage.Seconds;
+        if (!player.Connection.Connected) return;
         // Per kill: the stats are the same while it runs, so only the buff's timer is shown again (no stat build).
-        _ = ShowSelfBuff(remote, stream, ciphers, conn, rage, BloodRageBuffRow.Value, "Blood Rage refreshed by a kill",
-            () => EndBloodRageDegen(conn, rage), restat: false);
+        _ = ShowSelfBuff(player, rage, BloodRageBuffRow, "Blood Rage refreshed by a kill",
+            () => EndBloodRageDegen(player, rage), restat: false);
     }
 }

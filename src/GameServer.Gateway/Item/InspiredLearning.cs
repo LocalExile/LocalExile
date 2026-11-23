@@ -2,9 +2,9 @@ using GameServer.Core.Protocol.Instance;
 
 public static class InspiredLearning
 {
-    const string FourNotables = "local_unique_jewel_with_4_notables_gain_X_random_rare_monster_mods_on_kill";
-    const string NoNotables = "local_unique_jewel_with_no_notables_gain_X_random_rare_monster_mods_on_kill";
-    const string SmallPassives = "local_unique_jewel_with_x_small_nodes_gain_1_random_rare_monster_mods_on_kill";
+    const uint FourNotables = Stat.LocalUniqueJewelWith4NotablesGainXRandomRareMonsterModsOnKill;
+    const uint NoNotables = Stat.LocalUniqueJewelWithNoNotablesGainXRandomRareMonsterModsOnKill;
+    const uint SmallPassives = Stat.LocalUniqueJewelWithXSmallNodesGain1RandomRareMonsterModsOnKill;
 
     public static int Granted(Item item, ModCatalog mods, PassiveTree tree, ushort socket, IReadOnlySet<ushort> allocated)
     {
@@ -13,7 +13,7 @@ public static class InspiredLearning
         int smallNeeded = local.GetValueOrDefault(SmallPassives);
         if ((four | none | smallNeeded) == 0 || !allocated.Contains(socket)) return 0;
         int notables = 0, small = 0;
-        foreach (ushort node in tree.NodesInRadius(socket, local.GetValueOrDefault("local_jewel_effect_base_radius")))
+        foreach (ushort node in tree.NodesInRadius(socket, local.GetValueOrDefault(Stat.LocalJewelEffectBaseRadius)))
             if (allocated.Contains(node) && tree.Find(node) is { IsAscendancy: false, IsStart: false, IsProxy: false,
                 IsExpansion: false, IsMastery: false, IsJewelSocket: false, IsKeystone: false } passive)
             {

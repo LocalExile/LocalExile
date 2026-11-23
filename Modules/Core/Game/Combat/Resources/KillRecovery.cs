@@ -11,20 +11,20 @@ public readonly record struct KillRecovery(int Life, int LifePct, int Mana, int 
     public readonly record struct Ailing(int IgnitedLife, int ChilledLifePct, int ShockedEnergyShield, int FrozenMana);
     public Ailing When { get; init; }
 
-    public static KillRecovery From(Func<string, int> get, int level)
+    public static KillRecovery From(Func<uint, int> get, int level)
     {
-        bool life = !LifeRecovery.NonLeechBlocked(get), shield = get("cannot_recover_energy_shield") == 0;
+        bool life = !LifeRecovery.NonLeechBlocked(get), shield = get(Stat.CannotRecoverEnergyShield) == 0;
         return new(
-            life ? get("base_life_gained_on_enemy_death") + get("life_gained_on_enemy_death_per_level") * level : 0,
-            life ? get("recover_%_maximum_life_on_kill") : 0,
-            get("base_mana_gained_on_enemy_death") + get("mana_gained_on_enemy_death_per_level") * level,
-            get("recover_%_maximum_mana_on_kill") + get("maximum_mana_%_gained_on_kill"),
-            shield ? get("base_energy_shield_gained_on_enemy_death") + get("energy_shield_gained_on_enemy_death_per_level") * level : 0,
-            shield ? get("recover_energy_shield_%_on_kill") : 0)
+            life ? get(Stat.BaseLifeGainedOnEnemyDeath) + get(Stat.LifeGainedOnEnemyDeathPerLevel) * level : 0,
+            life ? get(Stat.RecoverPctMaximumLifeOnKill) : 0,
+            get(Stat.BaseManaGainedOnEnemyDeath) + get(Stat.ManaGainedOnEnemyDeathPerLevel) * level,
+            get(Stat.RecoverPctMaximumManaOnKill) + get(Stat.MaximumManaPctGainedOnKill),
+            shield ? get(Stat.BaseEnergyShieldGainedOnEnemyDeath) + get(Stat.EnergyShieldGainedOnEnemyDeathPerLevel) * level : 0,
+            shield ? get(Stat.RecoverEnergyShieldPctOnKill) : 0)
         {
-            When = new(life ? get("life_gained_on_killing_ignited_enemies") : 0,
-                life ? get("recover_%_maximum_life_on_killing_chilled_enemy") : 0,
-                shield ? get("gain_X_energy_shield_on_killing_shocked_enemy") : 0, get("recover_X_mana_on_killing_frozen_enemy")),
+            When = new(life ? get(Stat.LifeGainedOnKillingIgnitedEnemies) : 0,
+                life ? get(Stat.RecoverPctMaximumLifeOnKillingChilledEnemy) : 0,
+                shield ? get(Stat.GainXEnergyShieldOnKillingShockedEnemy) : 0, get(Stat.RecoverXManaOnKillingFrozenEnemy)),
         };
     }
 
@@ -41,31 +41,28 @@ public static partial class Game
 {
     // A hostile monster the player killed (MonsterKilled, CommitProjectileKill): its "on kill" recovery, at once. The
     // amounts follow the last player stat snapshot (ConfigureLeech), so a pack's deaths do not each rebuild the stats.
-    public static void RecoverOnKill(ClientState conn, SpawnedMonster m) => RecoverOnKill(conn, m, null);
+    public static void RecoverOnKill(Player player, SpawnedMonster m) => RecoverOnKill(player, m, null);
 
-    static void RecoverOnKill(ClientState conn, SpawnedMonster m, TinctureKillBonus? tincture)
+    static void RecoverOnKill(Player player, SpawnedMonster m, TinctureKillBonus? tincture)
     {
-        lock (conn.Monsters)
-        {
-            var session = LeechOf(conn);
-            if (conn.PlayerLife == 0) return;
-            // The corpse keeps its killing hit's ailments (wiki Ailment: they count as killing an affected enemy); a
-            // shattered one kept only that it was frozen.
-            double now = ProjectileWorldTime(conn);
-            var k = session.OnKill.For(m.Ignites.Burning || m.Ignites.DiedBurning, m.Ailments.Magnitude(MonsterElementalAilments.Kind.Chill, now) > 0,
-                m.Ailments.ShockedAtDeath(now), m.Ailments.FrozenAtDeath(now));
-            k = k with { Life = k.Life + (session.RecoversLife ? m.Curses["life_granted_when_killed"] + (tincture?.Life ?? 0) : 0),
-                Mana = k.Mana + m.Curses["mana_granted_when_killed"] + (tincture?.Mana ?? 0) };
-            static double Amount(int flat, int pct, uint maximum) => Math.Max(0, Math.Floor(flat + maximum * (double)pct / 100));
-            uint life = conn.PlayerLife, mana = conn.PlayerMana;
-            conn.PlayerLife = PetrifiedBlood.RecoverLife(conn, life,
-                Amount(k.Life, k.LifePct, conn.PlayerMaxLife), ref session.LifeInstantCarry, minimum: 1);
-            conn.PlayerMana = RecoveryPool.Advance(mana, (uint)UnreservedMana(conn), Amount(k.Mana, k.ManaPct, conn.Pools.Mana),
-                ref session.ManaInstantCarry);
-            conn.EnergyShield.Gain(Amount(k.EnergyShield, k.EnergyShieldPct, conn.EnergyShield.Maximum));
-            // Sent with the next vitals update, as instant leech is.
-            session.InstantLifeChanged |= life != conn.PlayerLife;
-            session.InstantManaChanged |= mana != conn.PlayerMana;
-        }
+        var session = LeechOf(player);
+        if (player.PlayerLife == 0) return;
+        // The corpse keeps its killing hit's ailments (wiki Ailment: they count as killing an affected enemy); a
+        // shattered one kept only that it was frozen.
+        double now = ProjectileWorldTime(player);
+        var k = session.OnKill.For(m.Ignites.Burning || m.Ignites.DiedBurning, m.Ailments.Magnitude(MonsterElementalAilments.Kind.Chill, now) > 0,
+            m.Ailments.ShockedAtDeath(now), m.Ailments.FrozenAtDeath(now));
+        k = k with { Life = k.Life + (session.RecoversLife ? m.Curses[Stat.LifeGrantedWhenKilled] + (tincture?.Life ?? 0) : 0),
+            Mana = k.Mana + m.Curses[Stat.ManaGrantedWhenKilled] + (tincture?.Mana ?? 0) };
+        static double Amount(int flat, int pct, uint maximum) => Math.Max(0, Math.Floor(flat + maximum * (double)pct / 100));
+        uint life = player.PlayerLife, mana = player.PlayerMana;
+        player.PlayerLife = PetrifiedBlood.RecoverLife(player, life,
+            Amount(k.Life, k.LifePct, player.PlayerMaxLife), ref session.LifeInstantCarry, minimum: 1);
+        player.PlayerMana = RecoveryPool.Advance(mana, (uint)UnreservedMana(player), Amount(k.Mana, k.ManaPct, player.Pools.Mana),
+            ref session.ManaInstantCarry);
+        player.EnergyShield.Gain(Amount(k.EnergyShield, k.EnergyShieldPct, player.EnergyShield.Maximum));
+        // Sent with the next vitals update, as instant leech is.
+        session.InstantLifeChanged |= life != player.PlayerLife;
+        session.InstantManaChanged |= mana != player.PlayerMana;
     }
 }

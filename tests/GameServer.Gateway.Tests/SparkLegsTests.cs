@@ -10,7 +10,7 @@ public sealed class SparkLegsTests
     [InlineData(4434, 0, 635, 751, 626, 776, new[] { 629, 768, 626, 785, 625, 804, 623, 824, 613, 837, 614, 854 })]
     public void Legs_follow_the_clients_own_sparks(int sequence, int index, int x, int y, int aimX, int aimY, int[] targets)
     {
-        var legs = new SparkLegs((ushort)sequence, index, Program.PlayerId, 3.8, 0, 38.64);
+        var legs = new SparkLegs((ushort)sequence, index, 0x1000u, 3.8, 0, 38.64);
         Assert.Equal(3.8, legs.Lifetime, 5);
         var leg = legs.First(new(x, y), new(aimX, aimY));
         var cells = new List<int>();

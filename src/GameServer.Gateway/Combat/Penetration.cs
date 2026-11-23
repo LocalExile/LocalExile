@@ -25,14 +25,22 @@ using DamageType = GameServer.Core.World.DamageType;
 /// </summary>
 public static class Penetration
 {
-    public const string ElementalProhibition = "cannot_penetrate_or_ignore_elemental_resistances";
+    public const uint ElementalProhibition = Stat.CannotPenetrateOrIgnoreElementalResistances;
 
-    public static bool IsElementalDisplay(string stat) => stat is "reduce_enemy_fire_resistance_%"
-        or "reduce_enemy_cold_resistance_%" or "reduce_enemy_lightning_resistance_%"
-        || (stat.StartsWith("main_hand_", StringComparison.Ordinal) || stat.StartsWith("off_hand_", StringComparison.Ordinal))
-            && (stat.EndsWith("_attack_damage_penetrates_fire_resist_%", StringComparison.Ordinal)
-                || stat.EndsWith("_attack_damage_penetrates_cold_resist_%", StringComparison.Ordinal)
-                || stat.EndsWith("_attack_damage_penetrates_lightning_resist_%", StringComparison.Ordinal));
+    static readonly string[] Elements = ["fire", "cold", "lightning"];
+
+    // Each hand's elemental penetration display (main_hand_attack_damage_penetrates_fire_resist_%, …).
+    static readonly HashSet<uint> HandDisplays = [.. new[] { "main_hand", "off_hand" }.SelectMany(hand =>
+        Elements.Select(element => Stat.Of($"{hand}_attack_damage_penetrates_{element}_resist_%")))];
+
+    // Per element (Elements order): the general, attack-only, with-weapons and weapon-local penetration stats.
+    static readonly (uint General, uint Attack, uint Weapons, uint Local)[] ElementStats = [.. Elements.Select(e =>
+        (Stat.Of($"base_reduce_enemy_{e}_resistance_%"), Stat.Of($"base_attack_damage_penetrates_{e}_resist_%"),
+            Stat.Of($"reduce_enemy_{e}_resistance_with_weapons_%"), Stat.Of($"local_{e}_penetration_%")))];
+
+    public static bool IsElementalDisplay(uint stat) => stat is Stat.ReduceEnemyFireResistancePct
+        or Stat.ReduceEnemyColdResistancePct or Stat.ReduceEnemyLightningResistancePct
+        || HandDisplays.Contains(stat);
 
     /// <summary>The hit's penetration per damage type, in whole percents; <paramref name="ColdVsChilled"/> adds to cold
     /// against a chilled target.</summary>
@@ -52,31 +60,29 @@ public static class Penetration
     /// <summary>The penetration of one hit: the general stats on every hit, the attack-only ones added for an attack.
     /// The player's and skill's contributions to the same raw penetration stat add, without overwriting either source.</summary>
     public static PerType Of(IReadOnlyDictionary<uint, int> stats, StatCatalog catalog, bool attack,
-        IReadOnlyDictionary<uint, int>? skill = null, IReadOnlyDictionary<string, int>? weaponLocal = null)
+        IReadOnlyDictionary<uint, int>? skill = null, IReadOnlyDictionary<uint, int>? weaponLocal = null)
     {
-        long Get(string name) => catalog.Key(name) is uint key
-            ? (long)stats.GetValueOrDefault(key) + (skill?.GetValueOrDefault(key) ?? 0) : 0;
-        long Local(string name) => attack ? weaponLocal?.GetValueOrDefault(name) ?? 0 : 0;
+        long Get(uint key) => (long)stats.GetValueOrDefault(key) + (skill?.GetValueOrDefault(key) ?? 0);
+        long Local(uint name) => attack ? weaponLocal?.GetValueOrDefault(name) ?? 0 : 0;
         // Every equipped weapon has its local sources (Equipment.WeaponIn); an unarmed attack has none.
         bool withWeapon = attack && weaponLocal is not null;
         static int Project(long value) => (int)Math.Clamp(value, int.MinValue, int.MaxValue);
         // "your hits cannot penetrate or ignore elemental resistances" (a flag stat): the whole elemental branch is
         // off, general and attack-only (PoB CalcOffence's CannotElePenIgnore); chaos is not elemental.
-        bool elementalBlocked = catalog.Key(ElementalProhibition) is uint block
-            && (stats.GetValueOrDefault(block) != 0 || (skill?.GetValueOrDefault(block) ?? 0) != 0);
-        long General(string element) => Get($"base_reduce_enemy_{element}_resistance_%")
-            + Get("base_penetrate_elemental_resistances_%") + Get("reduce_enemy_elemental_resistance_%");
-        long AttackOnly(string element) => !attack ? 0
-            : Get($"base_attack_damage_penetrates_{element}_resist_%")
-                + Get("base_attack_damage_penetrates_elemental_resist_%");
-        long WithWeapon(string element) => !withWeapon ? 0
-            : Get($"reduce_enemy_{element}_resistance_with_weapons_%") + Get("reduce_enemy_elemental_resistance_with_weapons_%");
-        int Element(string element) => elementalBlocked ? 0 : Project(General(element) + AttackOnly(element)
-            + WithWeapon(element) + Local($"local_{element}_penetration_%") + Local("local_elemental_penetration_%"));
+        bool elementalBlocked = stats.GetValueOrDefault(ElementalProhibition) != 0
+            || (skill?.GetValueOrDefault(ElementalProhibition) ?? 0) != 0;
+        long General(int element) => Get(ElementStats[element].General)
+            + Get(Stat.BasePenetrateElementalResistancesPct) + Get(Stat.ReduceEnemyElementalResistancePct);
+        long AttackOnly(int element) => !attack ? 0
+            : Get(ElementStats[element].Attack) + Get(Stat.BaseAttackDamagePenetratesElementalResistPct);
+        long WithWeapon(int element) => !withWeapon ? 0
+            : Get(ElementStats[element].Weapons) + Get(Stat.ReduceEnemyElementalResistanceWithWeaponsPct);
+        int Element(int element) => elementalBlocked ? 0 : Project(General(element) + AttackOnly(element)
+            + WithWeapon(element) + Local(ElementStats[element].Local) + Local(Stat.LocalElementalPenetrationPct));
         return new(
-            Element("fire"), Element("cold"), Element("lightning"),
-            Project(Get("reduce_enemy_chaos_resistance_%") + Local("local_chaos_penetration_%")
-                + (attack ? Get("base_attack_damage_penetrates_chaos_resist_%") : 0)),
-            elementalBlocked ? 0 : Project(Get("cold_penetration_%_vs_chilled_enemies")));
+            Element(0), Element(1), Element(2),
+            Project(Get(Stat.ReduceEnemyChaosResistancePct) + Local(Stat.LocalChaosPenetrationPct)
+                + (attack ? Get(Stat.BaseAttackDamagePenetratesChaosResistPct) : 0)),
+            elementalBlocked ? 0 : Project(Get(Stat.ColdPenetrationPctVsChilledEnemies)));
     }
 }

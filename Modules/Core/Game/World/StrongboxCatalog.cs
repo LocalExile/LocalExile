@@ -4,8 +4,14 @@ using GameServer.Core.Protocol.Instance;
 /// <summary>Strongbox types, selection weights, level limits and native object data from the client tables.</summary>
 public static class StrongboxCatalog
 {
+    /// <summary>Fills this type's game data at startup (the world loader, before the Gateway listens).</summary>
+    public static void LoadGameData()
+    {
+        Data = LoadData();
+    }
+
     public sealed record Definition(int Row, string Id, string Name, int Weight, int HardModeWeight, int MinLevel, int MaxLevel,
-        bool RareType, string? WeightStat, string Model, IReadOnlyList<string> Components, StateMachineData? States,
+        bool RareType, uint? WeightStat, string Model, IReadOnlyList<string> Components, StateMachineData? States,
         IReadOnlyList<ItemMod> Mods)
     {
         /// <summary>Strongboxes <c>__col4</c>: false on the fixed boxes (the Grandmaster's caches, the unique chests' bases,
@@ -25,8 +31,15 @@ public static class StrongboxCatalog
     /// from its id (Arcanist: currency, Artisan: quality currency), else the general container table.</summary>
     public enum Contents { General, Currency, QualityCurrency, Armour, Weapon, Jewellery, Gem, Map, Card, Scarab, Jewel, Flask }
 
-    static readonly Lazy<IReadOnlyList<Definition>> Data = new(Load);
-    public static IReadOnlyList<Definition> All => Data.Value;
+    static IReadOnlyList<Definition> Data = default!;
+    static IReadOnlyList<Definition> LoadData()
+    {
+        var loaded = Load();
+        Data = loaded;
+        UniqueData = LoadUniques();
+        return loaded;
+    }
+    public static IReadOnlyList<Definition> All => Data;
     public static Definition? Find(string id) => All.FirstOrDefault(r => r.Id == id);
 
     static IReadOnlyList<Definition> Load()
@@ -57,7 +70,7 @@ public static class StrongboxCatalog
             var chestTags = chest.Ints("TagsKeys").Select(t => tags.Row(t)?.Text("Id") ?? "").Append("default").ToHashSet(StringComparer.Ordinal);
             result.Add(new(index, id, chest.Text("Name") ?? id, row.Int("SpawnWeight"), row.Int("SpawnWeightHardmode"),
                 chest.Int("MinLevel"), chest.Int("MaxLevel"), row.BoolOrNull("__col7") == true,
-                stat is int key && key >= 0 && key < stats.Count ? stats[key] : null, model, components, states, mods)
+                stat is int key && key >= 0 && key < stats.Count ? (uint)key + 1 : null, model, components, states, mods)
             {
                 Rollable = row.BoolOrNull("__col4") ?? true,
                 Items = Math.Max(1, row.IntOrNull("__col2") ?? 5),
@@ -87,7 +100,7 @@ public static class StrongboxCatalog
         if (level < type.MinLevel || level > type.MaxLevel) return 0;
         long weight = hardMode ? type.HardModeWeight : type.Weight;
         weight = weight * Math.Max(0, 100L + (type.WeightStat is { } stat ? mods.Get(stat) : 0)) / 100;
-        if (type.RareType && mods.Get("map_strongbox_rare_boxes_weighting_multiplier") is int multiplier and > 0) weight *= multiplier;
+        if (type.RareType && mods.Get(Stat.MapStrongboxRareBoxesWeightingMultiplier) is int multiplier and > 0) weight *= multiplier;
         return (int)Math.Clamp(weight, 0, int.MaxValue);
     }
 
@@ -120,9 +133,9 @@ public static class StrongboxCatalog
     public sealed record UniqueBox(int Row, string Id, string Name, uint NameWord, string Model, int MinLevel, int Weight,
         int ChestRow, IReadOnlyList<int> ModRows);
 
-    static readonly Lazy<IReadOnlyList<UniqueBox>> UniqueData = new(LoadUniques);
+    static IReadOnlyList<UniqueBox> UniqueData = [];
     /// <summary>The unique strongboxes that spawn (SpawnWeight above 0) on a strongbox type the server creates.</summary>
-    public static IReadOnlyList<UniqueBox> Uniques => UniqueData.Value;
+    public static IReadOnlyList<UniqueBox> Uniques => UniqueData;
     public static UniqueBox? FindUnique(string id) => Uniques.FirstOrDefault(u => u.Id == id);
 
     static IReadOnlyList<UniqueBox> LoadUniques()
