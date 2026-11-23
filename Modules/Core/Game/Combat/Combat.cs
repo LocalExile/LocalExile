@@ -2109,6 +2109,9 @@ public static partial class Game
             // client sends no 0x198, so the aim silence must not release an orb the player is still charging. Before
             // this a still hold released at five stages while the bar kept counting (live 2026-11-10).
             && (player.OrbRuntime is { Channelling: true } orb && orb.SkillId == skill
+                // Lockstep records the held button and its release. A stationary aim can be silent for the whole hold.
+                || player.Connection.LockstepClient && player.LockstepSkill.Held && player.LockstepSkill.Skill == skill
+                    && player.LockstepSkill.Channel == player.ChannelSkillSequence
                 || IsSnipeChannelling(player, skill)
                 || player.PaidChannel is { } paid && paid.Skill == skill
                     && SkillsFor(player).EffectId(paid.Effect) is "LightningTendrils" or "LightningTendrilsAltX" or "LightningTendrilsAltY" or "LightningTendrilsRoyale"
