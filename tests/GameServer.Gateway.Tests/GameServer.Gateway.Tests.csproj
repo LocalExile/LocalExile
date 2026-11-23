@@ -42,6 +42,8 @@
     <ProjectReference Include="..\..\Modules\Core\Content\Abyss\Abyss.csproj" />
     <!-- The Smuggler's Cache encounter (HeistCacheTests). -->
     <ProjectReference Include="..\..\Modules\Core\Content\HeistCache\HeistCache.csproj" />
+    <!-- Legion's plan and messages (LegionTests). -->
+    <ProjectReference Include="..\..\Modules\Core\Content\Legion\Legion.csproj" />
     <!-- The Atlas's completed maps (AtlasProgressTests). -->
     <ProjectReference Include="..\..\Modules\Core\World\Atlas\Atlas.csproj" />
     <ProjectReference Include="..\..\Modules\Core\World\Shrines\Shrines.csproj" />
