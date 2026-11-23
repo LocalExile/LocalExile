@@ -5,8 +5,8 @@ namespace GameServer.Modules.Expedition;
 
 /// <summary>
 /// The numbers of the Expedition encounter. Every value says where it comes from: [data] a client table, [capture]
-/// measured on the two official Expedition map captures (<c>expedition_Summit_01</c>, level 73, and
-/// <c>expedition_breachhive_01</c>, level 69, both Faction2), [estimate] a value neither gives.
+/// measured on two official Expedition map captures (levels 73 and 69, both Faction2), [estimate] a value neither
+/// gives.
 /// </summary>
 public static class ExpeditionTables
 {
@@ -220,8 +220,8 @@ public static class ExpeditionTables
     /// <summary>One cell in world units (250 / 23, the client's own).</summary>
     public const double Cell = 250.0 / 23.0;
 
-    /// <summary>The world point a fuse's Beam end carries: the cell's centre [capture: all 38 fuse creates; the fuse of
-    /// <c>expedition_Summit_01</c> eid 0x8e6 names (11353.3, 13212.0), which is (1044.5, 1215.5) × 250 / 23, the pole at
+    /// <summary>The world point a fuse's Beam end carries: the cell's centre [capture: all 38 fuse creates; a fuse
+    /// of the level-73 capture names (11353.3, 13212.0), which is (1044.5, 1215.5) × 250 / 23, the pole at
     /// (1044, 1215)].</summary>
     public static (float X, float Y) BeamPos((int X, int Y) cell) =>
         ((float)((cell.X + 0.5) * Cell), (float)((cell.Y + 0.5) * Cell));

@@ -184,7 +184,7 @@ public sealed class ExpeditionTests
         }
     }
 
-    // The bodies and messages are the official captures': the detonator (expedition_Summit_01, cell (1023, 1229)), a
+    // The bodies and messages are the official captures': the detonator (cell (1023, 1229) in the level-73 capture), a
     // marker and an elite marker (their model in Animated, the elite's 1.5 scale), the dug chest LeagueFaction2Low
     // (eid 0x910, 43 bytes at level 73), the fuse eid 0x8e6 (pole 0x8e4 to explosive 0x8e0) and the summary after one
     // covered remnant (600 → 15 and 14364 → 80, 1 of 7). The rotation f32 is left out where the official's is the room's
