@@ -8,6 +8,7 @@ public sealed class ElusiveState
     public object? Rules;
     public int Epoch;
     public string Source = "";
+    public int? NightbladeMultiplier;
     public double Started, CarriedAge, Initial, Rate = 20, Minimum, RisingSeconds;
     public ushort Buff;
     public ElusiveGrant Grant;
@@ -15,7 +16,7 @@ public sealed class ElusiveState
     public double Age(double now) => CarriedAge + Math.Max(0, now - Started);
     public double Effect(double now)
     {
-        if (Source.Length == 0 || Initial <= 0) return 0;
+        if ((Source.Length == 0 && NightbladeMultiplier is null) || Initial <= 0) return 0;
         double age = Age(now), rise = Math.Min(age, RisingSeconds);
         double effect = Initial + Rate * rise - Rate * Math.Max(0, age - RisingSeconds);
         return effect > Minimum ? effect : 0;
@@ -24,7 +25,8 @@ public sealed class ElusiveState
     public void Clear()
     {
         if (Buff != 0) Retired.Add(Buff);
-        Buff = 0; Source = ""; Started = CarriedAge = Initial = Minimum = RisingSeconds = 0; Rate = 20;
+        Buff = 0; Source = ""; NightbladeMultiplier = null;
+        Started = CarriedAge = Initial = Minimum = RisingSeconds = 0; Rate = 20;
     }
 }
 
@@ -36,7 +38,10 @@ public static partial class Game
     public const ushort ElusiveBuffRow = 1374;
     static readonly Store<Player, ElusiveState> Elusives = new();
     public static ElusiveState ElusiveOf(Player player) => Elusives.GetOrCreateValue(player);
-    public sealed record CarriedElusive(string Source, double Age, double Initial, double Rate, double Minimum, double RisingSeconds);
+    public sealed record CarriedElusive(string Source, double Age, double Initial, double Rate, double Minimum, double RisingSeconds)
+    {
+        public int? NightbladeMultiplier { get; init; }
+    }
 
     static IReadOnlyDictionary<string, bool> RequalifyElusive(Player player, IReadOnlyDictionary<string, bool> flags,
         IReadOnlyDictionary<uint, int> raw, IEnumerable<Item>? activeItems = null)
@@ -59,10 +64,12 @@ public static partial class Game
                     s.Key is ElusiveOnCritical or ElusiveOnKill) == true).Order());
             ResourceEffectsOf(player);
         }
-        if (!ReferenceEquals(state.Rules, CombatLifetime) || state.Epoch != player.ProjectileEpoch || state.Source != identity)
+        if (!ReferenceEquals(state.Rules, CombatLifetime) || state.Epoch != player.ProjectileEpoch || !alive
+            || (state.NightbladeMultiplier is null && state.Source != identity))
         {
-            state.Clear(); state.Rules = CombatLifetime; state.Epoch = player.ProjectileEpoch; state.Source = identity;
+            state.Clear(); state.Rules = CombatLifetime; state.Epoch = player.ProjectileEpoch;
         }
+        state.Source = identity;
         int Input(uint key) => Get(key);
         state.Grant = new(Input(ElusiveOnCritical), Input(ElusiveOnKill),
             Input(Stat.ElusiveEffectPlusPct) + Input(Stat.ElusiveEffectOnSelfPlusPct) + Input(Stat.BuffEffectOnSelfPlusPct),
@@ -74,29 +81,46 @@ public static partial class Game
         return WithFlags(flags, ("_while_affected_by_elusive", running), ("_while_elusive", running), ("_while_you_have_elusive", running));
     }
 
-    public static bool TryGainElusiveLocked(Player player, bool critical, bool kill, double now, Random? random = null)
+    public static bool TryGainElusiveLocked(Player player, bool critical, bool kill, double now, Random? random = null) =>
+        TryGainElusiveLocked(player, critical, kill, now, random, null);
+
+    static bool TryGainElusiveLocked(Player player, bool critical, bool kill, double now, Random? random,
+        IReadOnlyDictionary<uint, int>? skillStats)
     {
         if (!CurrentGameWork || player.Closed || player.LeavingArea || player.Paused || player.PlayerLife == 0) return false;
         var state = ElusiveOf(player);
         if (!ReferenceEquals(state.Rules, CombatLifetime) || state.Epoch != player.ProjectileEpoch) return false;
         var input = state.Grant;
-        if (state.Source.Length == 0 || state.Effect(now) > 0) return false; // An existing Elusive cannot be refreshed.
+        if (state.Effect(now) > 0) return false; // An existing Elusive cannot be refreshed.
         var rng = random ?? AreaRng(player);
-        bool gained = critical && GameServer.Core.World.RandomRolls.Chance(input.Critical, 100, rng);
-        if (!gained && kill) gained = GameServer.Core.World.RandomRolls.Chance(input.Kill, 100, rng);
-        if (!gained) return false;
+        int Skill(uint key) => skillStats?.GetValueOrDefault(key) ?? 0;
+        bool nightblade = critical && Skill(Stat.SupportedByNightblade) != 0
+            && GameServer.Core.World.RandomRolls.Chance(Skill(ElusiveOnCritical), 100, rng);
+        bool fromCharacter = !nightblade && state.Source.Length != 0
+            && ((critical && GameServer.Core.World.RandomRolls.Chance(input.Critical, 100, rng))
+                || (kill && GameServer.Core.World.RandomRolls.Chance(input.Kill, 100, rng)));
+        if (!nightblade && !fromCharacter) return false;
+        if (nightblade) ResourceEffectsOf(player);
         var charges = ChargesOf(player);
         if (!charges.Converted(ChargeType.Power) && GameServer.Core.World.RandomRolls.Chance(
             input.LosePower, 100, rng)) charges.Spend(ChargeType.Power);
         int power = charges.Converted(ChargeType.Power) ? 0 : charges.Effective(ChargeType.Power);
         state.Started = now; state.CarriedAge = 0;
-        state.Initial = Math.Max(0, 100d + input.Effect + (double)power * input.PowerEffect);
+        state.NightbladeMultiplier = nightblade ? Skill(Stat.NightbladeElusiveGrantsCriticalStrikeMultiplierPlusToSupportedSkills) : null;
+        state.Initial = Math.Max(0, 100d + input.Effect + (double)power * input.PowerEffect
+            + (nightblade ? Skill(Stat.ElusiveEffectPlusPct) : 0));
         state.Rate = 20 / Math.Max(.01, 1 + input.LossRate / 100d);
         state.Minimum = Math.Max(0, input.Minimum);
         state.RisingSeconds = Math.Max(0, input.RisingMs) / 1000d;
         player.ElusiveUntil = now + state.Remaining(now);
+        MarkPlayerStats(player, PlayerStatStep.Sources);
         return state.Effect(now) > 0;
     }
+
+    static int NightbladeCriticalMultiplier(Player player, IReadOnlyDictionary<uint, int> skill) =>
+        skill.GetValueOrDefault(Stat.SupportedByNightblade) != 0 && Elusives.TryGetValue(player, out var state)
+            && state.NightbladeMultiplier is int modifier
+        ? (int)Math.Floor(modifier * ElusiveFactor(player) + 1e-9) : 0;
 
     static (int Movement, int Avoid) ElusivePanelState(Player player)
     {
@@ -128,11 +152,13 @@ public static partial class Game
     }
     public static CarriedElusive? CaptureElusive(Player player, double at) =>
         Elusives.TryGetValue(player, out var state) && state.Effect(at) > 0
-            ? new(state.Source, state.Age(at), state.Initial, state.Rate, state.Minimum, state.RisingSeconds) : null;
+            ? new(state.Source, state.Age(at), state.Initial, state.Rate, state.Minimum, state.RisingSeconds)
+            { NightbladeMultiplier = state.NightbladeMultiplier } : null;
     public static void RestoreElusive(Player player, CarriedElusive value, double at)
     {
         var state = ElusiveOf(player); state.Clear(); state.Rules = CombatLifetime; state.Epoch = player.ProjectileEpoch;
         state.Source = value.Source; state.Started = at; state.CarriedAge = value.Age;
+        state.NightbladeMultiplier = value.NightbladeMultiplier;
         state.Initial = value.Initial; state.Rate = value.Rate; state.Minimum = value.Minimum; state.RisingSeconds = value.RisingSeconds;
     }
     public static void RetireElusive(Player player)

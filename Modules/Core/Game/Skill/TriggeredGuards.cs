@@ -176,6 +176,7 @@ public static partial class Game
             guard.Percent = Math.Clamp(Own(Stat.MoltenShellDamageAbsorbedPct), 0, 100);
             guard.Reflection = Own(Stat.MoltenShellPctOfAbsorbedDamageDealtAsReflectedFire);
         }
+        duration /= RecipientEffectTime.Rate(1, key => GolemStat(playerStats, key));
         guard.Until = now + duration;
         // It ends at Until (Molten Shell reflects then), whoever reads it first.
         AfterSeconds(player, duration, () => { _ = CurrentTriggeredGuard(player, AreaTime(player)); });

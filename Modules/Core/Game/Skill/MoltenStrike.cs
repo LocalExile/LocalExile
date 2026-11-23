@@ -132,7 +132,7 @@ public static partial class Game
         ushort skillId, (ushort Id, int Effect, string Name, int Level, int Quality, uint Gem) gem,
         (int X, int Y) from, (int X, int Y) to, int recoveryGeneration, uint targetId = 0, ushort sequence = 0,
         int? actionToken = null, CooldownUseTicket? cooldownUse = null, SkillCriticalRoll? criticalRoll = null,
-        double? swingAt = null)
+        double? swingAt = null, bool cryExerted = false)
     {
         var hitPlan = SkillHitPlan.ForSkill(SkillsFor(player), gem.Effect, gem.Level, gem.Quality);
         if (!hitPlan.CanHit) return Task.CompletedTask;
@@ -173,7 +173,7 @@ public static partial class Game
             jobs.Add(ExecuteMoltenStrikeSwing(player, skillId, gem, from, to,
                 recoveryGeneration, targetId, sequence, actionToken, cooldownUse, roll, acceptedAt,
                 repeat, meleeRepeats, attackSeconds, repeat * repeatInterval, ruthless,
-                fifthAttack, repeat == 0 ? armFifthBuff : (ushort)0));
+                fifthAttack, repeat == 0 ? armFifthBuff : (ushort)0, cryExerted));
         return Task.WhenAll(jobs);
     }
 
@@ -181,7 +181,7 @@ public static partial class Game
         (int X, int Y) from, (int X, int Y) to, int recoveryGeneration, uint targetId, ushort sequence,
         int? actionToken, CooldownUseTicket? cooldownUse, SkillCriticalRoll criticalRoll, double? swingAt,
         int repeat, int totalRepeats, double attackSeconds, double repeatDelay, double ruthless,
-        bool fifthAttack = false, ushort armFifthBuff = 0)
+        bool fifthAttack = false, ushort armFifthBuff = 0, bool cryExerted = false)
     {
         var paidVaal = SkillsFor(player).VaalBudget(gem.Effect, gem.Level) is null ? null : player.VaalUse;
         bool Current() => PlayerStateAllowsAction(player)
@@ -353,8 +353,8 @@ public static partial class Game
                 }
                 var gambler = GamblerFor(playerStats);
                 var rolled = WithConditionalSupportDamageLocked(player, skillStats, attack: true, m,
-                    GameEvents.WithOutgoingDamage(player, playerStats, m, (gambler with { DamageMorePct = 0 })
-                        .ForSkill(Stat, spell: false, finalRepeat: repeat == totalRepeats)
+                    GameEvents.WithOutgoingDamage(player, playerStats, m, WithIntimidatingCryExert(
+                        (gambler with { DamageMorePct = 0 }).ForSkill(Stat, spell: false, finalRepeat: repeat == totalRepeats), cryExerted)
                         .ForWeapon(local).RollOutgoingHit(contactHit, AreaRng(player))), now);
                 if (m.HallowingFlameUntil > now && rolled[DamageType.Physical].Min is > 0 and var flamePhys)
                 {
@@ -362,6 +362,7 @@ public static partial class Game
                     rolled = rolled.Add(DamageType.Fire, new(flameFire, flameFire));
                     m.HallowingFlameUntil = 0;
                 }
+                rolled = WithOverexertion(rolled, skillStats, cryExerted);
                 int criticalChance = CriticalChanceOn(player, id, SupportedCriticalChance(player, skillId, hand),
                     SupportedCriticalChanceVsBlinded(player, skillId, release: false, SwingWeaponCritical(player, hand)),
                     SupportedCriticalChanceVsGround(player, skillId, release: false, SwingWeaponCritical(player, hand)));
@@ -372,7 +373,7 @@ public static partial class Game
                 rolled = resonance.Packet;
                 var (damage, resistance, mitigated) = MonsterHitDamage(m, rolled, critical, attack: true, now,
                     resonance.Mods, resonance.Penetration,
-                    gambler.InvertsResistance(AreaRng(player)));
+                    gambler.InvertsResistance(AreaRng(player)), AreaRng(player));
                 var taken = MonsterTakenComponents(m, mitigated, spell: false, now);
                 if (critical) damage = DamageModel.CriticalDamage(damage, multiplier);
                 double more = repeatMore * splashMore.GetValueOrDefault(id, 1);
@@ -380,7 +381,8 @@ public static partial class Game
                 LeechOnHitLocked(player, m, taken, damage, leech);
                 damage = WithImpaleHitLocked(player, m, damage, rolled, critical, criticalMultiplierBase,
                     critical ? criticalImpale : impale, more).Damage;
-                var stun = OwnerStun(player, m, damage, mitigated, melee: true, spell: false, critical, playerStats, skillStats);
+                var stun = OwnerStun(player, m, damage, mitigated, melee: true, spell: false, critical, playerStats, skillStats,
+                    weaponClass: (swingWeapon ?? WeaponFor(player)).ItemClass ?? "");
                 var mAt = m.Walk.Position(now);
                 var rampageSource = RampageOnMeleeHitLocked(player, m, melee: true, playerStats);
                 uint lifeBefore = m.Life;
@@ -442,7 +444,7 @@ public static partial class Game
             {
                 var session = ProjectilesFor(player);
                 emitted = EmitMoltenStrikeBallsLocked(player, session, skillId, gem, playerAt, to, criticalRoll,
-                    sequence, (uint)(totalRepeats - repeat), delay, repeatMore, hitOrigins, AreaRng(player), fifthAttack);
+                    sequence, (uint)(totalRepeats - repeat), delay, repeatMore, hitOrigins, AreaRng(player), fifthAttack, cryExerted: cryExerted);
             }
         }
 
@@ -472,13 +474,14 @@ public static partial class Game
         (ushort Id, int Effect, string Name, int Level, int Quality, uint Gem) gem,
         (int X, int Y) playerAt, (int X, int Y) aim, SkillCriticalRoll criticalRoll, ushort sequence,
         uint repeatsLeft, double releaseDelay, double repeatMore, IReadOnlyList<ProjectileVector> hitOrigins,
-        Random random, bool fifthAttack = false)
+        Random random, bool fifthAttack = false, bool cryExerted = false)
     {
         if (hitOrigins.Count == 0) return 0;
         ProjectileUse baseUse;
         try
         {
-            baseUse = CaptureGemProjectile(player, session, skillId, gem, aim, criticalRoll, sequence, repeatsLeft, releaseDelay);
+            baseUse = CaptureGemProjectile(player, session, skillId, gem, aim, criticalRoll, sequence, repeatsLeft,
+                releaseDelay, cryExerted: cryExerted);
         }
         catch (InvalidOperationException ex)
         {

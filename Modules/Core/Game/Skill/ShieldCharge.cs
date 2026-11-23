@@ -31,7 +31,7 @@ public static partial class Game
         (100 + (Stat.ShieldChargeRangePlusPct is var k ? SupportedStats(player, skillId).GetValueOrDefault(k) : 0))
             * ShieldChargeBaseDistance / 100;
 
-    // In the use's StartAction: the bonus on, the pools and walk speed with it, and the walk to the aimed cell, no further
+    // At paid release: the bonus on, the pools and walk speed with it, and the walk to the aimed cell, no further
     // than the charge's maximum distance. Returns the run's token, which only the latest charge's end may clear.
     public static int BeginShieldCharge(Player player, ushort skillId, int percent, int x, int y, double at)
     {
@@ -76,7 +76,7 @@ public static partial class Game
     // After the use's echo: the faster movement speed to the client, the path hits while the server's walk runs, the final
     // hit and the speed back where it arrives (a later charge takes over the run, its hits and its end).
     public static async Task RunShieldCharge(Player player,
-        int token, double arrivesAt, ushort skillId, ushort sequence, int actionToken, CooldownUseTicket? cooldownUse)
+        int token, double arrivesAt, ushort skillId, ushort sequence, int actionToken, CooldownUseTicket? cooldownUse, bool cryExerted)
     {
         await SendPlayerStatSnapshot(player, () => PlayerStatsOffFrames(player),
             $"0x01b3 player stats (Shield Charge starts: movement_velocity_+% {player.Pools.MovementVelocityPct}, " +
@@ -95,7 +95,7 @@ public static partial class Game
                 $"up to {maximumMore}% more at {maxDistance:0} cells");
         Task Hit((int X, int Y) at, int radius, ISet<uint>? once) => gem.Name is null ? Task.CompletedTask
             : AreaSkillHit(player, skillId, gem, at, at, immediate: true, sequence: sequence,
-                actionToken: actionToken, cooldownUse: cooldownUse, damageMore: More(at), radiusOverride: radius, once: once);
+                actionToken: actionToken, cooldownUse: cooldownUse, damageMore: More(at), radiusOverride: radius, once: once, cryExerted: cryExerted);
         // The step pass may end the run early, on a body or a wall.
         double Arrival() => Math.Min(arrivesAt, player.Walk.ArrivesAt);
         for (double tick = AreaTime(player); tick < Arrival(); tick += ShieldChargePathSeconds)

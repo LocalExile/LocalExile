@@ -35,7 +35,8 @@ public static partial class Game
         int quality = 0, bool? melee = null, bool primary = true, IReadOnlyDictionary<uint, int>? skillStats = null)
     {
         if (critical)
-            TryGainElusiveLocked(player, critical: true, kill: false, ProjectileWorldTime(player));
+            TryGainElusiveLocked(player, critical: true, kill: false, ProjectileWorldTime(player),
+                random: null, skillStats: spell ? null : skillStats);
         if (m.Rarity is MonsterRarity.Rare or MonsterRarity.Unique)
             QueueFlaskTrigger(player, FlaskEnchantments.Trigger.RareHit);
         Func<uint, int>? skill = null;
@@ -245,9 +246,9 @@ public static partial class Game
     {
         int priorContacts = player.RecentEnemyHits.Count(AreaTime(player));
         var stats = CharacterPlayerStats(player);
-        bool relevant = amount > 0 && (type == DamageType.Physical
-            || PlayerHitMitigation.ArmourPercent(player.Pools, type, name => name is var key ? stats.GetValueOrDefault(key) : 0) > 0
-                && DamageModel.Mitigate(amount, resistance, maxResistance) > 0);
+        bool relevant = amount > 0
+            && PlayerHitMitigation.ArmourPercent(player.Pools, type, stats.GetValueOrDefault) > 0
+            && (type == DamageType.Physical || DamageModel.Mitigate(amount, resistance, maxResistance) > 0);
         var armour = IncomingArmourLocked(player, relevant, priorContacts, stats);
         return MitigateTakenWithArmour(player, type, amount, resistance, maxResistance, armour.EffectiveArmour, stats);
     }
@@ -266,7 +267,8 @@ public static partial class Game
         var reduction = PlayerDamageReduction(player, stats);
         int resisted = type == DamageType.Physical ? amount : DamageModel.Mitigate(amount, resistance, maxResistance);
         int value = Math.Max(0, PlayerHitMitigation.AfterResistance(player.Pools, type, resisted,
-            reduction.Physical, reduction.Elemental, effectiveArmour, PlayerHitMitigation.ArmourPercent(player.Pools, type, Get))
+            reduction.Physical, reduction.Elemental, effectiveArmour, PlayerHitMitigation.ArmourPercent(player.Pools, type, Get),
+            imbalancedGuard: Get(Stat.KeystoneSacredBastion) != 0)
             + PlayerDamageTaken.Flat(type, attack, Get));
         if (type == DamageType.Physical) value = AntiquarianEffects.RangedPhysical(value, ranged, Get);
         return FortificationDamageTaken(player, (int)Math.Round(value

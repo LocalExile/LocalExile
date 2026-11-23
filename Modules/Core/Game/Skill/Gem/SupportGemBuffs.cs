@@ -143,6 +143,7 @@ public static partial class Game
     {
         stats = WithSelfBuffs(player, WithTriggeredGuard(player, stats));
         AddResonanceStats(player, stats);
+        AddMomentumStats(player, stats);
         if (!player.SupportGems.ArcaneSurgeActiveAt(AreaTime(player))) return stats;
         StatsChangeIn(player.SupportGems.ArcaneSurgeUntil - AreaTime(player));
         int Get(uint k) => stats.GetValueOrDefault(k);

@@ -32,6 +32,11 @@ public static class HitResistances
         bool IgnoreFire = false, bool IgnoreChaos = false, int IgnorePhysicalReductionChance = 0,
         bool IgnoreLightning = false, bool IgnorePhysicalReduction = false)
     {
+        public int TincturedWeaponIgnorePhysicalReductionChance { get; init; }
+
+        /// <summary>Additional elemental resistance penetration applied only to a critical strike.</summary>
+        public int CriticalPenetration { get; init; }
+
         /// <summary>The four source stats by name, through the caller's name → key lookup (the client's stat key is the
         /// Stats.dat row + 1). A stat the source does not carry reads 0.</summary>
         public static Mods From(IReadOnlyDictionary<uint, int> stats, Func<string, uint?> key) => new(
@@ -64,9 +69,8 @@ public static class HitResistances
     /// is capped and the penetration subtracted once, no second clamp). The ignore returns a zero resistance with
     /// no penetration — the effective resistance is zero, negative included, and nothing is left to penetrate.
     /// The suppressor zeroes the penetration (the target's and the conditional one) and keeps the plain capped
-    /// value. Otherwise the non-critical hit's conditional penetration stacks with the target's own general one;
-    /// a critical hit without the ignore takes no conditional penetration, because the stat's condition is a
-    /// negated CriticalStrike. Physical, unignored chaos and damage-over-time parts pass the target through untouched.
+    /// value. Otherwise the critical or non-critical hit's conditional penetration stacks with its general penetration.
+    /// Physical, unignored chaos and damage-over-time parts pass the target through untouched.
     /// </summary>
     public static double FinalValue(DamageType type, DamageModel.ResistanceValue target,
         in Strike strike, in Mods mods, bool invertElemental = false)
@@ -86,7 +90,7 @@ public static class HitResistances
         if (elemental && mods.CannotPenetrateOrIgnore != 0) return target with { Penetration = 0 };
         if (Ignored(type, strike, mods)) return new(0);
         if (!elemental) return target;
-        return target with { Penetration = target.Penetration + (strike.Critical ? 0 : mods.NonCriticalPenetration) };
+        return target with { Penetration = target.Penetration + StrikePenetration(strike, mods) };
     }
 
     /// <summary>What the rules did to one type, for the hit's log line: "fire 40 ignored", "cold 30→20 (pen 10)",
@@ -99,12 +103,15 @@ public static class HitResistances
         int capped = DamageModel.Capped(target.Value, target.Maximum);
         if (DamageTypes.IsElemental(type) && mods.CannotPenetrateOrIgnore != 0)
         {
-            bool ignored = Ignored(type, strike, mods), held = !strike.Critical && mods.NonCriticalPenetration != 0;
+            bool ignored = Ignored(type, strike, mods), held = StrikePenetration(strike, mods) != 0;
             return ignored || held ? $"{name} {capped} (cannot penetrate or ignore)" : null;
         }
         if (Ignored(type, strike, mods)) return $"{name} {capped} ignored";
         if (!DamageTypes.IsElemental(type)) return null;
-        int pen = target.Penetration + (strike.Critical ? 0 : mods.NonCriticalPenetration);
+        int pen = target.Penetration + StrikePenetration(strike, mods);
         return pen != 0 ? $"{name} {capped}→{capped - pen} (pen {pen})" : null;
     }
+
+    static int StrikePenetration(in Strike strike, in Mods mods) =>
+        strike.Critical ? mods.CriticalPenetration : mods.NonCriticalPenetration;
 }
