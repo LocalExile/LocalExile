@@ -1,800 +1,361 @@
-using System.Net.Sockets;
 using GameServer.Core.Protocol.Instance;
-using GameServer.Core.Protocol.Login;
 
-// The instance's monsters are its own (InstanceWorld): every connection in it reads and hits the same objects, under the
-// instance's lock, on the instance's clock. One connection's loops step them (the runner: AI, collisions, wake zone)
-// until the instance runs them itself; every client is shown them (SyncInstanceMonsters) under the same ids: a client
-// that comes later gets them where they are, with the life they have, and whoever leaves takes nothing with them.
+// The area's monsters are its own (InstanceWorld): every connection in it reads and hits the same objects on the area's
+// clock, and every client is written the same records about them (AreaDelta). The area steps them once a frame (AI,
+// collisions) through its view: the first connection of its frames still in it (AreaFrames.View). A client that comes
+// later is given them where they are, with the life they have (JoinArea); whoever leaves takes nothing with them.
 public static partial class Game
 {
-    // Per recipient, not per killer: a virtual bot transport is not the player's view.
-    static readonly RuleTable<ClientState, DeadMonsterBars> DeadBars = new();
-    sealed class DeadMonsterBars
-    {
-        public InstanceWorld? World;
-        public readonly HashSet<uint> Hidden = [];
-    }
     // The instance's monster ids start here (InstanceWorld.NewMonsterId); below it are each client's own objects and the
     // players' minions.
     const uint SharedMonsterIds = 0x08000000;
 
-    // A connection outside any instance (a test's) runs its own monsters; in an instance, the world's runner does.
-    public static bool IsMonsterRunner(ClientState conn) =>
-        conn.Instance is not { } instance || instance.World.Runner is null || ReferenceEquals(instance.World.Runner, conn);
+    // Whether this connection's loops step the area's monsters now: outside any instance (a test's) its own; in an instance,
+    // the area's view (the first connection of its frames still here). The walks are built for the view that steps them
+    // (InstanceWorld.Runner): a new view rebuilds them with its collision. Without frames (before they start, in tests) the
+    // view the walks were last built for steps them.
+    public static bool IsMonsterRunner(Player player)
+    {
+        if (player.Instance is not { } instance) return true;
+        var world = instance.World;
+        if (player.Frames.View is { } view)
+        {
+            if (!ReferenceEquals(world.Runner, view))
+                if (!ReferenceEquals(world.Runner, view)) StepForViewLocked(view, world);
+            return ReferenceEquals(view, player);
+        }
+        return world.Runner is null || ReferenceEquals(world.Runner, player);
+    }
 
-    static bool RunnerLive(InstanceWorld world) =>
-        world.Runner is { } r && !r.Closed && !r.LeavingArea && InGame.ContainsKey(r);
+    // Until the area's frames name a view, a connection that comes while no live one has the walks takes them.
+    static void FirstViewLocked(Player player, InstanceWorld world)
+    {
+        if (player.Frames.View is null && !(world.Runner is { } r && !r.Closed && !r.LeavingArea && InGame.ContainsKey(r)))
+            StepForViewLocked(player, world);
+    }
 
     // At PopulateArea: this connection runs the monsters when nobody live does; true when the area's packs are still to
     // be placed (the first connection in, or one after a restart, from the instance's save).
-    public static bool ClaimMonsterHost(string remote, ClientState conn)
+    public static bool ClaimMonsterHost(Player player)
     {
-        var world = conn.Instance.World;
-        lock (world.Monsters)
+        var world = player.Instance.World;
+        FirstViewLocked(player, world);
+        if (!world.Populated)
         {
-            if (!RunnerLive(world)) BecomeRunnerLocked(remote, conn, world);
-            if (!world.Populated)
-            {
-                world.Populated = true;
-                return true;
-            }
+            world.Populated = true;
+            return true;
         }
-        Console.WriteLine($"[gateway] {remote} monsters: the instance's own ({world.MonsterOrigins.Count}), run by {CharacterName(world.Runner!)}");
+        Console.WriteLine($"[gateway] {player.Connection.Remote} monsters: the instance's own ({world.MonsterOrigins.Count}), run by {CharacterName(world.Runner!)}");
         return false;
     }
 
-    // Under the instance's lock: this connection's loops step the monsters from now on (their ailments and collisions).
-    // Their walks get its collision: the last runner's view of the bodies went with it.
-    static void BecomeRunnerLocked(string remote, ClientState conn, InstanceWorld world)
+    // Under the instance's lock: the area's view changed, and this connection's loops step the monsters from now on (their
+    // ailments and collisions). Their walks get its collision: the last view of the bodies went with it.
+    static void StepForViewLocked(Player player, InstanceWorld world)
     {
+        string remote = player.Connection.Remote;
         var old = world.Runner;
-        world.Runner = conn;
-        if (old is null || ReferenceEquals(old, conn)) return;
-        double now = conn.Clock.Elapsed.TotalSeconds;
+        world.Runner = player;
+        if (old is null || ReferenceEquals(old, player)) return;
+        double now = AreaTime(player);
         int count = 0;
-        foreach (var (id, m) in world.Monsters.Concat(world.DormantMonsters).OrderBy(e => e.Key))
+        foreach (var (id, m) in world.Area.Monsters.Concat(world.Area.DormantMonsters).OrderBy(e => e.Key))
         {
             if (!world.MonsterOrigins.ContainsKey(id)) continue;
             var at = m.Walk.Position(now);
-            m.Walk = conn.NewMonsterWalk(id, at.X, at.Y, m.Walk.Speed, Math.Clamp((m.Variety?.ObjectSize ?? 1) - 1, -1, 127),
+            m.Walk = player.NewMonsterWalk(id, at.X, at.Y, m.Walk.Speed, Math.Clamp((m.Variety?.ObjectSize ?? 1) - 1, -1, 127),
                 m.Rarity == MonsterRarity.Unique);
             (m.Aggro, m.Leg, m.LastTarget) = (false, null, null);
             count++;
         }
-        Console.WriteLine($"[gateway] {remote} monsters: {CharacterName(conn)} runs the instance's {count} now ({CharacterName(old)} left)");
+        Console.WriteLine($"[gateway] {remote} monsters: the area steps its {count} through {CharacterName(player)} now ({CharacterName(old)} left)");
     }
 
     // Under the instance's lock, in this connection's AI pass: whether it acts for the monster now. A monster with no
     // live target takes this player when in its reach; another player's takes this one only when nearer by
     // TargetMargin and in its reach, so it does not flip between two standing side by side. A dead, gone or other-area
     // target leaves it to whoever is near.
-    public static bool MonsterTargetsLocked(ClientState conn, uint id, SpawnedMonster m, (int X, int Y) at, double d, double now)
+    public static bool MonsterTargetsLocked(Player player, uint id, SpawnedMonster m, (int X, int Y) at, double d, double now)
     {
-        // Only a client that was shown the monster can be sent its actions and component updates (SharedKills.ToOthers).
-        if (conn.Instance is not null && m.Target is null && !conn.MonsterViews.ContainsKey(id)) return false;
-        double TargetDistance(ClientState owner, double distance)
+        (double Distance, bool Taunted) TargetPriority(Player owner, double distance)
         {
-            if (m.Attack is null || InTown(owner) || InGracePeriod(owner)) return distance;
+            if (m.Attack is null || InTown(owner) || InGracePeriod(owner)) return (distance, false);
             var minion = GolemTargetLocked(owner, id, m, at, now, distance);
-            return minion.G is null ? distance : Math.Min(distance, minion.Distance);
+            return minion.G is null ? (distance, false)
+                : (Math.Min(distance, minion.Distance), minion.G.Taunts.GetValueOrDefault(id) > now);
         }
         if (DecoyTarget(m, now) is { } decoy)
         {
-            if (!ReferenceEquals(conn, decoy.Owner)) return false;
-            if (!ReferenceEquals(m.Target, conn))
+            if (!ReferenceEquals(player, decoy.Owner)) return false;
+            if (!ReferenceEquals(m.Target, player))
             {
                 (m.LastTarget, m.SwingGeneration) = (null, null);
                 m.ActionGeneration++;
                 if (double.IsPositiveInfinity(m.BusyUntil)) m.BusyUntil = now;
-                m.Target = conn;
+                m.Target = player;
             }
             return true;
         }
-        d = TargetDistance(conn, d);
+        var candidate = TargetPriority(player, d);
         var t = m.Target;
-        bool live = t is not null && !t.Closed && !t.LeavingArea && t.PlayerLife > 0 && ReferenceEquals(t.Instance, conn.Instance);
-        if (live && ReferenceEquals(t, conn))
+        bool live = TargetLive(t, player);
+        if (live && ReferenceEquals(t, player))
         {
-            if (!m.Aggro && d > m.AggroRange) m.Target = null; // gave up: free for whoever comes
+            if (!m.Aggro && candidate.Distance > m.AggroRange) m.Target = null; // gave up: free for whoever comes
             return true;
         }
         // In its reach, or still chasing (the AI gives up beyond twice its aggro range, as before).
         double reach = Math.Max(1, m.AggroRange) * (m.Aggro && !live ? 2 : 1);
-        if (conn.PlayerLife == 0 || d > reach || conn.Instance is not null && !conn.MonsterViews.ContainsKey(id)) return false;
+        if (player.PlayerLife == 0 || candidate.Distance > reach) return false;
         if (live)
         {
             var there = t!.Walk.Position(now);
             double dt = Math.Sqrt((double)(at.X - there.X) * (at.X - there.X) + (double)(at.Y - there.Y) * (at.Y - there.Y));
-            if (d + TargetMargin >= TargetDistance(t, dt)) return false;
+            var incumbent = TargetPriority(t, dt);
+            if (incumbent.Taunted || (!candidate.Taunted && candidate.Distance + TargetMargin >= incumbent.Distance)) return false;
         }
         // From another player: what it did for that one ends (its next pass orders after this one).
         if (t is not null)
         {
             (m.LastTarget, m.SwingGeneration) = (null, null);
             m.ActionGeneration++;
+            if (double.IsPositiveInfinity(m.BusyUntil)) m.BusyUntil = now;
         }
-        m.Target = conn;
+        m.Target = player;
         return true;
     }
 
     const double TargetMargin = 15;
 
-    // Dormant bodies were created and woken too. Keep their views eligible for the rise's component update,
-    // without adding them to RunMonsters or giving them an AI action. Under the instance's monster lock.
-    static uint[] AwakeMonsterIds(ClientState conn) =>
-        [.. conn.Monsters.Concat(conn.DormantMonsters).OrderBy(e => e.Key).Where(e => !e.Value.Dead && conn.MonsterViews.ContainsKey(e.Key)
-            && !conn.AsleepMonsters.Contains(e.Key)).Select(e => e.Key)];
-
-    // Every frame: the living monsters in this client's wake zone (sorted) and those its loops act for, for the mirror of
-    // their messages to the other clients; and this player's minions, for theirs.
-    public static void PublishAwakeMonsters(ClientState conn)
-    {
-        var world = conn.Instance.World;
-        bool runner = IsMonsterRunner(conn);
-        uint[] awake, run;
-        lock (world.Monsters)
-        {
-            // Only the runner's client puts monsters to sleep (KeepWakeZone); the others have every one they were shown.
-            awake = AwakeMonsterIds(conn);
-            // Its targets' actions; a monster with none (a scripted boss, an idle one) acts on the runner's loops.
-            run = [.. world.Monsters.Where(e => world.MonsterOrigins.ContainsKey(e.Key)
-                && (ReferenceEquals(e.Value.Target, conn) || runner && e.Value.Target is null)).Select(e => e.Key)];
-        }
-        conn.AwakeMonsters = awake; // SortedDictionary: already in order
-        conn.RunMonsters = run;
-        if (conn.Instance.Presence.PlayersExcept(conn.PeerId).Length > 0)
-        {
-            var minions = new List<SharedMonster>();
-            lock (world.Monsters)
-            {
-                double now = conn.Clock.Elapsed.TotalSeconds;
-                foreach (var (id, m) in world.Monsters)
-                    if (conn.MinionOrigins.TryGetValue(id, out var origin) && !m.Dead && m.Life > 0)
-                    {
-                        var at = m.Walk.Position(now);
-                        minions.Add(new(id, origin, m, at.X, at.Y, m.Walk.Destination, m.Life, origin.Object.EnergyShield,
-                            SnapshotMaximumEnergyShield(origin.Object)));
-                    }
-            }
-            conn.PublishedMinions = [.. minions];
-        }
-        Interlocked.CompareExchange(ref Program.Outgoing, Mirror, null);
-    }
-
-    // The Gateway's Outgoing hook is the loaded rules' mirror: set when they load and taken back when they unload, so a
-    // reload's new rules mirror from then on and the Gateway keeps no delegate into an unloaded game module (it held the
-    // old module in memory, and ran its mirror, until the Gateway restarted).
-    static readonly Action<ConnectionCiphers, byte[]> Mirror = MirrorSharedMonsters;
-    public static IDisposable InstallMirror()
-    {
-        Volatile.Write(ref Program.Outgoing, Mirror);
-        return new MirrorRelease();
-    }
-    sealed class MirrorRelease : IDisposable
-    {
-        public void Dispose() => Interlocked.CompareExchange(ref Program.Outgoing, null, Mirror);
-    }
+    // Whether a monster's target still counts: a live player of this connection's instance, in the area.
+    static bool TargetLive(Player? t, Player player) =>
+        t is not null && !t.Closed && !t.LeavingArea && t.PlayerLife > 0 && ReferenceEquals(t.Instance, player.Instance);
 
     // At disconnect: this player's minions leave the instance with them.
-    public static void RemoveLeavingMinionsLocked(ClientState left)
+    public static void RemoveLeavingMinionsLocked(Player left)
     {
-        foreach (uint id in left.MinionOrigins.Keys) left.Instance.World.Monsters.Remove(id);
+        foreach (uint id in left.MinionOrigins.Keys) left.Instance.World.Area.Monsters.Remove(id);
     }
 
-    // Everything a client is told about a shared monster that only that client would otherwise see goes to every other
-    // client in the instance as well (Program.Outgoing, at the send gate): the actions of the monsters this connection
-    // runs (0x1ab and 0x1ac: swings, area skills, walks; 0x1d1 clips) and, from any client, what its own hits do to one
-    // (0x1b2 and 0x1d1 hit reactions, 0x1c1 / 0x1c2 buffs: ailments, curses, rarity glow; 0x1b3 stats). Buff instances are
-    // the object's own (the elemental ailments use the same ones on every monster), so they go as they are. An action's
-    // target, the local player there (PlayerId), becomes this player as the others know them (PeerId). A client with the
-    // monster out of its wake zone gets nothing: a message wakes a sleeping object (see SyncSharedMonsters).
-    static readonly AsyncLocal<bool> Mirroring = new();
 
-    // Explicit records retain their declaration across recipient remapping. Legacy outbox payloads keep their
-    // existing path; this adapter never searches an opaque byte array for record boundaries.
-    static Task MirrorWorldRecord(ClientState other, uint id, byte[] bytes)
-    {
-        if (Program.WritingWorldRecord is not { IsWorld: true } record)
-            return other.Outbox!(bytes, null);
-        uint sourceId = System.Buffers.Binary.BinaryPrimitives.ReadUInt32BigEndian(record.Bytes.AsSpan(2));
-        if (record.Order.Key == sourceId)
-            System.Buffers.Binary.BinaryPrimitives.WriteUInt32BigEndian(bytes.AsSpan(6), id);
-        if (record.Creates is not null) return SendWorldCreate(other, id, () => bytes);
-        var wire = other.Wire;
-        if (record.Removes is not null) return SendWorldRemoval(wire.Remote, wire.Stream, wire.Ciphers, other, id);
-        return SendWorldRecord(wire.Remote, wire.Stream, wire.Ciphers, other, id, bytes, null);
-    }
+    // The area's wake zone: a monster is awake while any player in the area is near it (WakeZoneRadius, back within
+    // WakeZoneReturn), and every client is told when that changes (S->C 0x1a9 / 0x1aa). Asleep, its walk stands and the
+    // AI gives it no order. Players far apart each keep their own surroundings awake.
+    const int WakeZoneRadius = 171, WakeZoneReturn = 163;
 
-    public static void MirrorSharedMonsters(ConnectionCiphers ciphers, byte[] bytes)
+    internal static void StepAreaWake(Player view)
     {
-        if (Mirroring.Value || Program.WritingWorldRecord is { SharedView: true } || bytes.Length < 12) return;
-        if (LeapSlamPeerActions.TryGetValue(bytes, out var leap) && ReferenceEquals(leap.Owner, ciphers))
-            bytes = leap.Records;
-        ushort message = (ushort)(bytes[0] << 8 | bytes[1]);
-        if (message is InstanceProtocol.ActionStartedId or 0x1ac
-            && System.Buffers.Binary.BinaryPrimitives.ReadUInt32BigEndian(bytes.AsSpan(2)) == PlayerId)
+        var area = view.Area;
+        double now = AreaTime(view);
+        var players = view.Frames.Players().Where(p => !p.Closed && !p.LeavingArea && p.Connection.PlayerSent)
+            .Select(p => p.Walk.Position(now)).ToArray();
+        if (players.Length == 0) return;
+        foreach (var (id, m) in area.Monsters.Concat(area.DormantMonsters))
         {
-            MirrorPlayerAction(ciphers, bytes);
-            return;
-        }
-        if (message == InstanceProtocol.ActionHitId
-            && System.Buffers.Binary.BinaryPrimitives.ReadUInt32BigEndian(bytes.AsSpan(2)) == PlayerId)
-        {
-            MirrorPlayerHit(ciphers, bytes);
-            return;
-        }
-        if (message is InstanceEntities.CreateObjectId or InstanceProtocol.EnterWakeZoneId or InstanceProtocol.TeleportId
-            or InstanceProtocol.MoveToId or InstanceProtocol.AnimationUpdateId or InstanceProtocol.RemoveObjectId
-            && MirrorProjectiles(ciphers, bytes)) return;
-        if (message is not (InstanceProtocol.ActionStartedId or 0x1ac or InstanceProtocol.ActorAnimationId
-            or InstanceProtocol.AnimationUpdateId or InstanceEntities.AddBuffId or InstanceEntities.RemoveBuffId)) return;
-        uint id = System.Buffers.Binary.BinaryPrimitives.ReadUInt32BigEndian(bytes.AsSpan(2));
-        ClientState? conn = null;
-        foreach (var c in InGame.Keys) if (ReferenceEquals(c.Wire.Ciphers, ciphers)) { conn = c; break; }
-        // The instance's monsters' own messages go where they are made (BroadcastMonsterMessage); here only the players'
-        // minions', whose ids each other client shows under its own.
-        if (id >= SharedMonsterIds || conn is null || conn.Closed || conn.LeavingArea || !Mirrorable(conn, bytes, id)) return;
-        MirrorMinion(conn, bytes, id);
-    }
-
-    // An instance monster's action (a swing, an area skill, a summon's clip, not a walk: SyncInstanceMonsters sends
-    // those) or hit reaction, made for this connection's client: to every other client in the instance that has it awake.
-    // Its target, the local player there (PlayerId), is this player as the others know them (PeerId).
-    public static void BroadcastMonsterMessage(ClientState conn, uint id, byte[] bytes)
-    {
-        if (conn.Instance is null || !conn.Instance.World.MonsterOrigins.ContainsKey(id) || !Mirrorable(conn, bytes, id)) return;
-        var others = conn.Instance.Presence.PlayersExcept(conn.PeerId);
-        if (others.Length == 0) return;
-        ushort message = (ushort)(bytes[0] << 8 | bytes[1]);
-        byte[] copy = (byte[])bytes.Clone();
-        // 0x1ab: u16 id, u32 object, u32 0, u16 header, u16 flags (0x80: a u32 target object follows).
-        if (message == InstanceProtocol.ActionStartedId && copy.Length >= 18 && (copy[13] & 0x80) != 0
-            && System.Buffers.Binary.BinaryPrimitives.ReadUInt32BigEndian(copy.AsSpan(14)) == PlayerId)
-            System.Buffers.Binary.BinaryPrimitives.WriteUInt32BigEndian(copy.AsSpan(14), conn.PeerId);
-        Mirroring.Value = true;
-        try
-        {
-            foreach (var peer in others)
+            if (m.Dead || m.Life <= 0 || m.OwnerId is not null || m.WorldHidden) continue;
+            var at = m.Walk.Position(now);
+            double nearest = double.MaxValue;
+            foreach (var p in players) nearest = Math.Min(nearest, Dist(at, p));
+            if (!m.Asleep && nearest > WakeZoneRadius)
             {
-                if (peer.Owner is not { Outbox: { } outbox } other || other.Closed || other.LeavingArea) continue;
-                if (Array.BinarySearch(other.AwakeMonsters, id) < 0) continue;
-                _ = outbox((byte[])copy.Clone(), null);
+                m.Asleep = true;
+                m.Walk.StopAt(now);
+                m.Leg = null;
+                m.ClientChase = null;
+                m.LastTarget = null;
+                m.SwingGeneration = null;
+                m.ActionGeneration++;
+                area.Delta.Add(id, InstanceProtocol.LeaveWakeZone(id), $"0x01aa monster 0x{id:x} leaves the area's wake zone");
+            }
+            else if (m.Asleep && nearest <= WakeZoneReturn)
+            {
+                m.Asleep = false;
+                area.Delta.Add(id, InstanceProtocol.EnterWakeZone(id), $"0x01a9 monster 0x{id:x} enters the area's wake zone");
+                // Back where the server has it (its walk stood while it slept).
+                area.Delta.Add(id, InstanceProtocol.Teleport(id, at.X, at.Y));
+                if (Arakaali.StanceUpdateLocked(view, id, now) is { } stance) area.Delta.Add(id, stance);
             }
         }
-        finally { Mirroring.Value = false; }
     }
 
-    // A player's own actions as their client is sent them (the 0x1ab that starts a walk or a skill use, Lockstep.cs and
-    // Messages.cs; its 0x1ac end): on the other clients the player's object, as they know it (PeerId), is the same actor
-    // and gets the same orders with the same sequences. GGG's recordings show it so: 851 orders to other players, their
-    // sequences the owners' own, never 0xffff, 844 of them from the cell the receiving client had the player on. A walk
-    // is one of them. It used to come from the player's published pose instead (SyncInstancePlayers): a later order from
-    // a sampled cell, which restarted the walk a few cells off (a third of those orders matched the receiver's cell).
-    static void MirrorPlayerAction(ConnectionCiphers ciphers, byte[] bytes)
+    /// <summary>Whether a spot is out of every player's wake zone (a monster created there is created asleep).</summary>
+    static bool FarFromPlayers(Player player, (int X, int Y) at)
     {
-        ClientState? conn = null;
-        foreach (var c in InGame.Keys) if (ReferenceEquals(c.Wire.Ciphers, ciphers)) { conn = c; break; }
-        if (conn is null || conn.Closed || conn.LeavingArea) return;
-        var others = conn.Instance.Presence.PlayersExcept(conn.PeerId);
-        if (others.Length == 0) return;
-        // One 0x1ab, with the 0x1ac of the same tick after it, or one 0x1ac: each goes on as a message of its own.
-        var records = new List<byte[]>();
-        if ((bytes[0] << 8 | bytes[1]) == InstanceProtocol.ActionStartedId)
+        double now = AreaTime(player);
+        foreach (var p in player.Frames.Players())
+            if (!p.Closed && !p.LeavingArea && Dist(at, p.Walk.Position(now)) <= WakeZoneRadius) return false;
+        return Dist(at, player.Walk.Position(now)) > WakeZoneRadius;
+    }
+
+    /// <summary>Whether the monster is in the area: then every client has it (its create went to all of them).</summary>
+    public static bool MonsterShown(Player player, uint id) => player.Area.Monsters.ContainsKey(id) || player.Area.DormantMonsters.ContainsKey(id);
+
+    /// <summary>Whether the monster is out of every player's wake zone (StepAreaWake).</summary>
+    public static bool MonsterAsleep(Player player, uint id) => player.Area.Monsters.GetValueOrDefault(id)?.Asleep == true;
+
+    // What the area has shown every client once: bosses' life bars and scene objects (by object id).
+    sealed class AreaShown
+    {
+        public readonly HashSet<uint> BossBars = [], Scenes = [], Stances = [];
+    }
+    static readonly System.Runtime.CompilerServices.ConditionalWeakTable<GameArea, AreaShown> Shown = new();
+    /// <summary>The bosses whose life bar the area's clients were shown.</summary>
+    public static HashSet<uint> BossBars(Player player) => Shown.GetOrCreateValue(player.Area).BossBars;
+    /// <summary>The bosses whose second stance the area's clients were shown (Arakaali).</summary>
+    public static HashSet<uint> StancesShown(Player player) => Shown.GetOrCreateValue(player.Area).Stances;
+    /// <summary>The scene objects the area's clients were given.</summary>
+    public static HashSet<uint> Scenes(Player player) => Shown.GetOrCreateValue(player.Area).Scenes;
+
+    // The Gateway's join hand-over is the loaded rules': set when they load and taken back when they unload.
+    static readonly Action<Player> Join = JoinArea;
+    public static IDisposable InstallJoining()
+    {
+        Volatile.Write(ref Program.Joining, Join);
+        Volatile.Write(ref AreaLife.ReservedMana, ReservedManaOf);
+        Volatile.Write(ref AreaStats.Written, RelayWalk);
+        return new JoiningRelease();
+    }
+    static readonly Func<Player, uint> ReservedManaOf = p => (uint)ReservedMana(p);
+    static readonly Action<GameArea, uint, IReadOnlyList<(uint Key, int Value)>> RelayWalk = RelayWalkForStats;
+    sealed class JoiningRelease : IDisposable
+    {
+        public void Dispose()
         {
-            if (bytes.Length < 18) return;
-            bool targeted = (bytes[13] & 0x80) != 0;
-            int at = 14 + (targeted ? 4 : 0);
-            for (int i = 0; i < 4 && at < bytes.Length; i++)
-                at += bytes[at] switch { < 0x80 => 1, < 0xc0 => 2, < 0xe0 => 3, < 0xf0 => 4, _ => 5 };
-            if (at + 4 > bytes.Length) return;
-            byte[] start = bytes[..(at + 4)];
-            // An action on the player themself names them as the others know them.
-            if (targeted && System.Buffers.Binary.BinaryPrimitives.ReadUInt32BigEndian(start.AsSpan(14)) == PlayerId)
-                System.Buffers.Binary.BinaryPrimitives.WriteUInt32BigEndian(start.AsSpan(14), conn.PeerId);
-            records.Add(start);
-            // Anything after it (an 0x1ac in the same tick) is the player's own too.
-            int next = at + 4;
-            for (; next + 12 <= bytes.Length; next += 12)
-                if ((bytes[next] << 8 | bytes[next + 1]) == 0x1ac
-                    && System.Buffers.Binary.BinaryPrimitives.ReadUInt32BigEndian(bytes.AsSpan(next + 2)) == PlayerId)
-                    records.Add(bytes[next..(next + 12)]);
-                else return;
-            if (next != bytes.Length) return;
-            conn.PeerActing = true;
+            Interlocked.CompareExchange(ref Program.Joining, null, Join);
+            Interlocked.CompareExchange(ref AreaLife.ReservedMana, null, ReservedManaOf);
+            Interlocked.CompareExchange(ref AreaStats.Written, null, RelayWalk);
         }
-        else
+    }
+
+    // A connection's first frame in the area (Program.Joining): what its client is missing of the area goes in the
+    // area's frame for it alone (the area's monster types, its monsters and minions where they are, the other players),
+    // and its player for everyone else.
+    static void JoinArea(Player player)
+    {
+        if (!CurrentGameWork || player.Instance is null || player.Closed || player.LeavingArea) return;
+        var area = player.Area;
+        var world = player.Instance.World;
+        double now = AreaTime(player);
+        if (area.MonsterTypes.Count > 0)
+            area.Delta.Add(0, InstanceEntities.MonsterTypes([.. area.MonsterTypes.Select(t => ((ushort)t.Row, t.Level))]),
+                $"0x0020 the area's {area.MonsterTypes.Count} monster type(s)", AreaDelta.Kind.Message, only: player);
+        foreach (var (id, m) in area.Monsters.Concat(area.DormantMonsters).OrderBy(e => e.Key))
         {
-            if (bytes.Length != 12 || !conn.PeerActing) return;
-            conn.PeerActing = false;
-            records.Add((byte[])bytes.Clone());
+            if (player.Connection.WorldOutput.Has(id)) continue;
+            bool corpse = (m.Dead || m.Life == 0) && m.CreatedAsCorpse && !m.CorpseConsumed;
+            if (!m.WorldHidden && ((!m.Dead && m.Life > 0) || corpse) && m.OwnerId != player.Id)
+                AddMonsterCreate(player, id, m, now, only: player);
         }
-        foreach (var record in records)
-            System.Buffers.Binary.BinaryPrimitives.WriteUInt32BigEndian(record.AsSpan(2), conn.PeerId);
-        var source = Program.WritingWorldRecord;
-        double? after = FrameAfterWrite(conn, source);
-        Mirroring.Value = true;
-        try
-        {
-            foreach (var peer in others)
+        foreach (var peer in player.Instance.PlayersExcept(player.Id))
+            if (peer is { } other && other.Connection.PlayerSent && !other.Closed && !other.LeavingArea && other.PeerTemplate is not null)
             {
-                if (peer.Owner is not { Outbox: not null } other || other.Closed || other.LeavingArea) continue;
-                bool knows;
-                try { knows = other.SeenPlayers.ContainsKey(conn.PeerId); } catch (InvalidOperationException) { knows = false; }
-                if (knows) _ = MirrorPlayerRecords(other, conn.PeerId, records, after, source, conn.Walk.Speed);
+                var otherAt = other.Walk.Position(now);
+                foreach (var (bytes, kind) in PlayerCreate(other, player, now))
+                    area.Delta.Add(other.Id, bytes,
+                        kind == AreaDelta.Kind.Create ? $"0x02bb create peer player 0x{other.Id:x} ({CharacterName(other)}) at ({otherAt.X}, {otherAt.Y})" : null,
+                        kind, only: player);
             }
+        if (player.PeerTemplate is not null)
+        {
+            var selfAt = player.Walk.Position(now);
+            foreach (var (bytes, kind) in PlayerCreate(player, player, now))
+                area.Delta.Add(player.Id, bytes,
+                    kind == AreaDelta.Kind.Create ? $"0x02bb create peer player 0x{player.Id:x} ({CharacterName(player)}) at ({selfAt.X}, {selfAt.Y})" : null,
+                    kind, except: player);
         }
-        finally { Mirroring.Value = false; }
+        // The area's objects as the others have them, then what the area's entities have now: their buffs and the stats
+        // written since their creates.
+        area.Objects.Join(player);
+        area.Buffs.Join(player);
+        area.Stats.Join(player);
     }
 
-    // The frame after the one a lockstep owner's record is being written with (Program.EndWorldFrame has moved the
-    // connection on to it by then); null for what goes out at once.
-    static double? FrameAfterWrite(ClientState conn, WorldOutput.Packet? source)
+    // A monster's create and what goes with it (awake, its stance, its walk; its buffs: AreaBuffs.Join), as the area
+    // has it now: for a joining client (only), or for every client when a hidden monster shows itself again.
+    static void AddMonsterCreate(Player player, uint id, SpawnedMonster m, double now, Player? only = null)
     {
-        if (!conn.LockstepClient || source is not { IsWorld: true }) return null;
-        lock (conn.Monsters) return conn.LockstepFrame?.Start;
+        var area = player.Area;
+        var o = player.Instance.World.MonsterOrigins.GetValueOrDefault(id)
+            ?? (m.OwnerId is uint owner && player.Frames.Players().FirstOrDefault(p => p.Id == owner) is { } master
+                ? master.MinionOrigins.GetValueOrDefault(id) : null);
+        if (o is null) return;
+        bool dormant = area.DormantMonsters.ContainsKey(id);
+        bool corpse = (m.Dead || m.Life == 0) && m.CreatedAsCorpse && !m.CorpseConsumed;
+        var at = m.Walk.Position(now);
+        var shown = o.Object with { GridX = at.X, GridY = at.Y, Life = corpse ? 1u : m.Life };
+        // One that has risen meanwhile is created risen (targetable), not in the wait it was placed in.
+        if (!corpse && !dormant && m.Variety is { } v && Emerges.Kind(v, m.Rarity) != EmergeKind.None
+            && !MonsterEmerge.Waiting(player, id) && shown.TransitionState != MonsterEmerge.RisenState(v)
+            && v.ComponentsOrBase.Contains("Transitionable"))
+            shown = shown with { TransitionState = MonsterEmerge.RisenState(v) };
+        var create = InstanceEntities.CreateObject(id, o.Type, shown.Blob());
+        System.Buffers.Binary.BinaryPrimitives.WriteUInt32BigEndian(create.AsSpan(6), uint.MaxValue);
+        area.Delta.Add(id, create, $"0x02bb monster 0x{id:x} where the area has it", AreaDelta.Kind.Create, only: only);
+        if (!m.Asleep) area.Delta.Add(id, InstanceProtocol.EnterWakeZone(id), null, only: only);
+        if (corpse) area.Delta.Add(id, InstanceProtocol.LifeUpdate(id, 0), null, only: only);
+        if (InstanceEntities.MonsterEquipmentUpdate(id, shown) is { } stance) area.Delta.Add(id, stance, null, only: only);
+        if (m.OwnerId is uint ownerId && player.Frames.Players().FirstOrDefault(p => p.Id == ownerId) is { } ownerPlayer
+            && MirageWarriorPeerDisplay(ownerPlayer, id, id) is { } warriorDisplay)
+            area.Delta.Add(id, warriorDisplay, null, only: only);
+        SettleBleeding(m, now);
+        var to = m.Walk.Destination;
+        if (!dormant && to != at)
+            area.Delta.Add(id, InstanceProtocol.ActionStarted(id, at.X, at.Y, to.X, to.Y, 0x2909, 0xffff, 0x0408), null, only: only);
     }
 
-    // One player's records to another client, in the order they were made (ClientState.Mirror). A lockstep client gets
-    // what the owner was sent in frame n as records of its own frame n + 1, on the grid both connections' frames end on
-    // (Program.BeginWorldFrames): its copy of the player then runs the owner's orders one frame later, step for step, and
-    // each order's from cell is the cell that copy stands on. Sent into whichever frame was open, an order landed in the
-    // same frame or the next by turns and the copy lost or gained a step. A predictive client gets them at once.
-    // Differs from GGG: there every client's frame is the same tick of one world, so its copy is not a frame behind.
-    static Task MirrorPlayerRecords(ClientState other, uint id, IReadOnlyList<byte[]> records, double? after, WorldOutput.Packet? source,
-        double speed)
+    /// <summary>A monster hidden from the world (SpawnedMonster.WorldHidden) leaves every client, and comes back to all of
+    /// them where it is when it shows itself again.</summary>
+    public static async Task SetWorldHidden(Player player, uint id, SpawnedMonster m, bool hidden)
     {
-        // A record keyed by its own object keeps that key under the object's id here.
-        bool keyed = source is { IsWorld: true }
-            && source.Order.Key == System.Buffers.Binary.BinaryPrimitives.ReadUInt32BigEndian(source.Bytes.AsSpan(2));
-        byte[][] copies = [.. records.Select(r => (byte[])r.Clone())];
-        return other.Mirror(async () =>
-        {
-            if (other.Closed || other.LeavingArea) return;
-            if (!other.LockstepClient)
-            {
-                if (other.Outbox is { } outbox)
-                    foreach (var bytes in copies)
-                    {
-                        // A predictive client applies a message on arrival: the turn a lockstep sender keyed it into
-                        // is not its to keep.
-                        if (keyed) bytes.AsSpan(6, 6).Clear();
-                        await outbox(bytes, null);
-                    }
-                return;
-            }
-            if (after is { } start) await other.FrameFrom(start);
-            var wire = other.Wire;
-            foreach (var bytes in copies)
-            {
-                if (keyed) System.Buffers.Binary.BinaryPrimitives.WriteUInt32BigEndian(bytes.AsSpan(6), id);
-                var record = bytes;
-                await SendWorldRecord(wire.Remote, wire.Stream, wire.Ciphers, other, id, [], null, atGate: () =>
-                {
-                    lock (other.Monsters) return PeerRecordAtGate(other, id, record, speed);
-                });
-            }
-        });
+        if (m.WorldHidden == hidden) return;
+        m.WorldHidden = hidden;
+        if (hidden) await SendWorldRemoval(player, id, $"monster 0x{id:x} hidden from the world");
+        else if (player.Area.Owned) AddMonsterCreate(player, id, m, AreaTime(player));
     }
 
-    // Another player's record at its send gate on a lockstep client (under that client's Monsters lock). The client runs
-    // its own copy of that player: an order starts an action on it at the start of the frame being sent, and puts it on
-    // the order's from cell (07 §6). The estimate runs the same copy (ClientState.PeerWalks), stepped in this client's
-    // frames against this client's bodies, so the order goes out from the cell the copy stands on, with the owner's
-    // target: the copy is never put back, and ends where the owner's walk ends. A Move walks it; any other action, and
-    // a hit's recovery (0x1d1), ends its walk with the stop that waits for the tick, as on the owner's client.
-    // Not modelled: the walk-up of another player's attack on a monster (the copy stands until its next order).
-    // A client that showed itself a lockstep one only after it was sent the player has no copy yet: the first order
-    // makes it on the order's own cell, where that order puts the client's.
-    public static byte[] PeerRecordAtGate(ClientState other, uint id, byte[] record, double speed)
+    // Stats.dat use_town_stance (row 21140; a stat key is its row + 1).
+    const uint TownStanceStat = 21141;
+
+    // A player's object as another client gets it: created where it stands, awake, in its equipment's stance (the client
+    // picks it only when the equipment changes, 0x141e9da30). The beach wake-up is the owner's alone.
+    static IEnumerable<(byte[] Bytes, AreaDelta.Kind Kind)> PlayerCreate(Player shown, Player viewer, double now)
     {
-        ushort message = (ushort)(record[0] << 8 | record[1]);
-        if (message != InstanceProtocol.ActionStartedId && message != InstanceProtocol.ActorAnimationId) return record;
-        // The start of the frame being sent, after the steps of the frames before it, as a monster's order is placed.
-        if (!other.LockstepClient || other.LockstepFrame is not { } frame) return record;
-        other.PeerWalks.TryGetValue(id, out var copy);
-        StepWalkers(other, frame.Start);
-        double at = frame.Start;
-        if (message == InstanceProtocol.ActorAnimationId)
-        {
-            copy?.Cancel(at);
-            return record;
-        }
-        if (record.Length < 18) return record;
-        int head = 14 + ((record[13] & 0x80) != 0 ? 4 : 0), next = head;
-        Span<int> cells = stackalloc int[4];
-        for (int i = 0; i < 4; i++)
-        {
-            if (next >= record.Length) return record;
-            cells[i] = ReadCompactInt(record, ref next);
-        }
-        if (next + 4 > record.Length) return record;
-        const ushort Move = 0x2909;
-        ushort skill = (ushort)(record[next] << 8 | record[next + 1]);
-        copy ??= other.PeerWalks[id] = other.NewPeerWalk(id, cells[0], cells[1], speed);
-        if (copy.Speed != speed) copy.SetSpeed(speed, at);
-        var here = copy.Position(at);
-        if (skill == Move) copy.Order(cells[2], cells[3], at);
-        else copy.Cancel(at);
-        var w = new LoginWriter();
-        foreach (byte b in record.AsSpan(0, head)) w.U8(b);
-        InstanceProtocol.CompactInt(w, here.X); InstanceProtocol.CompactInt(w, here.Y);
-        InstanceProtocol.CompactInt(w, cells[2]); InstanceProtocol.CompactInt(w, cells[3]);
-        foreach (byte b in record.AsSpan(next)) w.U8(b);
-        return w.ToArray();
+        var at = shown.Walk.Position(now);
+        var playerObject = shown.PeerTemplate! with { GridX = at.X, GridY = at.Y, Life = shown.PlayerLife,
+            Skills = shown.PeerTemplate!.Skills?.Where(s => s.Id != TutorialObjects.WashedUpSkillId).ToList(),
+            QuestFlags = [], LeagueQuestFlags = [], WashedUp = false, Rotation = 0 };
+        // In a town another player stands and walks in the town stance (Stats.dat use_town_stance).
+        if (InTown(viewer))
+            playerObject = playerObject with { Stats = [.. (playerObject.Stats ?? []).Where(s => s.Key != TownStanceStat), (TownStanceStat, 1)] };
+        var create = InstanceEntities.CreateObject(shown.Id, shown.PeerType, playerObject.Blob());
+        System.Buffers.Binary.BinaryPrimitives.WriteUInt32BigEndian(create.AsSpan(6), uint.MaxValue);
+        yield return (create, AreaDelta.Kind.Create);
+        yield return (InstanceProtocol.EnterWakeZone(shown.Id), AreaDelta.Kind.World);
+        yield return (InstanceEntities.PlayerEquipmentUpdate(shown.Id, playerObject.Equipped ?? []), AreaDelta.Kind.World);
     }
 
-    // InstanceProtocol.CompactInt, read back: 7, 14, 21 or 28 bits with their sign, or 0xf0 and a u32.
-    static int ReadCompactInt(byte[] bytes, ref int at)
+    // A player leaves the area: the others' clients take its object and its minions away.
+    internal static void LeaveArea(Player player)
     {
-        byte first = bytes[at];
-        int length = first switch { < 0x80 => 1, < 0xc0 => 2, < 0xe0 => 3, < 0xf0 => 4, _ => 5 };
-        if (at + length > bytes.Length) { at = bytes.Length; return 0; }
-        int value;
-        if (length == 5) value = bytes[at + 1] << 24 | bytes[at + 2] << 16 | bytes[at + 3] << 8 | bytes[at + 4];
-        else
+        if (player.Instance is null || !player.Area.Owned) return;
+        var remove = InstanceProtocol.RemoveObject(player.Id);
+        System.Buffers.Binary.BinaryPrimitives.WriteUInt32BigEndian(remove.AsSpan(6), uint.MaxValue);
+        player.Area.Delta.Add(player.Id, remove, $"0x02bd player 0x{player.Id:x} {CharacterName(player)} leaves the area", AreaDelta.Kind.Remove, except: player);
+        foreach (uint id in player.MinionOrigins.Keys)
         {
-            int bits = 7 * length;
-            value = first & (0x7f >> (length - 1));
-            for (int i = 1; i < length; i++) value = value << 8 | bytes[at + i];
-            if ((value & 1 << (bits - 1)) != 0) value -= 1 << bits;
+            var gone = InstanceProtocol.RemoveObject(id);
+            System.Buffers.Binary.BinaryPrimitives.WriteUInt32BigEndian(gone.AsSpan(6), uint.MaxValue);
+            player.Area.Delta.Add(id, gone, null, AreaDelta.Kind.Remove, except: player);
         }
-        at += length;
-        return value;
     }
 
-    // A player's hit on an instance monster (0x1af: u16 id, object, u32 0, u16 0, u16 sequence, u8, u8, u32 target, u16
-    // flags, u8 kind, then by kind: bit1 (u16 when flags 0x400) u8 u8, bit2 u16, bit3 u16). One message exactly, or none.
-    static void MirrorPlayerHit(ConnectionCiphers ciphers, byte[] bytes)
+    /// <summary>A new monster type in the area (S->C 0x20 registers "Id@level"; a create of that type needs it first):
+    /// every client of the area is told once, and a client not in the area's frames yet is told now.</summary>
+    static async Task RegisterMonsterType(Player player, ushort row, byte level, string? log)
     {
-        if (bytes.Length < 23) return;
-        byte kind = bytes[22];
-        int length = 23;
-        if ((kind & 0x02) != 0) length += 2 + (((bytes[20] << 8 | bytes[21]) & 0x400) != 0 ? 2 : 0);
-        if ((kind & 0x04) != 0) length += 2;
-        if ((kind & 0x08) != 0) length += 2;
-        if (length != bytes.Length) return;
-        uint target = System.Buffers.Binary.BinaryPrimitives.ReadUInt32BigEndian(bytes.AsSpan(16));
-        ClientState? conn = null;
-        foreach (var c in InGame.Keys) if (ReferenceEquals(c.Wire.Ciphers, ciphers)) { conn = c; break; }
-        if (conn is null || conn.Closed || conn.LeavingArea || !conn.Instance.World.MonsterOrigins.ContainsKey(target)) return;
-        // The hit keeps the sequence of the action it belongs to, as that action does on the other clients
-        // (MirrorPlayerAction; GGG's hits carry their attack's sequence, never 0xffff), and follows it in the same order.
-        byte[] copy = (byte[])bytes.Clone();
-        System.Buffers.Binary.BinaryPrimitives.WriteUInt32BigEndian(copy.AsSpan(2), conn.PeerId);
-        var source = Program.WritingWorldRecord;
-        double? after = FrameAfterWrite(conn, source);
-        Mirroring.Value = true;
-        try
-        {
-            foreach (var peer in conn.Instance.Presence.PlayersExcept(conn.PeerId))
-                if (peer.Owner is { Outbox: not null } other && !other.Closed && !other.LeavingArea
-                    && Array.BinarySearch(other.AwakeMonsters, target) >= 0)
-                    _ = MirrorPlayerRecords(other, conn.PeerId, [copy], after, source, conn.Walk.Speed);
-        }
-        finally { Mirroring.Value = false; }
-    }
-
-    // Whether a blob can go to another client as it is: only messages of a layout read exactly here, all for the one
-    // object. Another client reads every message by its own layout, so one it reads otherwise shifts the whole stream:
-    // a Pride aura on a monster (0x1c1 row 1331, from the local player) carries no values for the player who has the aura
-    // and three for any other, and the other client read the next message from the middle ("Unable to deserialise packet
-    // with pid 221. Last PID was 449", live 2026-11-04). A buff from the local player (an aura, an ailment, a curse) or with
-    // anything optional stays its own; a removal goes only after an addition that went.
-    static bool Mirrorable(ClientState conn, byte[] bytes, uint id)
-    {
-        var buffs = new List<(ushort Instance, bool Add)>();
-        for (int at = 0; at < bytes.Length;)
-        {
-            if (bytes.Length - at < 12 || System.Buffers.Binary.BinaryPrimitives.ReadUInt32BigEndian(bytes.AsSpan(at + 2)) != id) return false;
-            ushort message = (ushort)(bytes[at] << 8 | bytes[at + 1]);
-            int length;
-            switch (message)
-            {
-                case 0x1ac: length = 12; break;
-                case InstanceProtocol.ActorAnimationId: length = 18; break;
-                case InstanceProtocol.AnimationUpdateId:
-                    if (bytes.Length - at < 13) return false;
-                    length = InstanceProtocol.AnimationUpdateLength(bytes[at + 12]);
-                    if (length < 0) return false;
-                    break;
-                case InstanceEntities.RemoveBuffId:
-                    length = 14;
-                    if (at + 14 > bytes.Length) return false;
-                    buffs.Add(((ushort)(bytes[at + 12] << 8 | bytes[at + 13]), false));
-                    break;
-                case InstanceEntities.AddBuffId:
-                    length = 27;
-                    if (at + 27 > bytes.Length || bytes[at + 22] != 0
-                        || System.Buffers.Binary.BinaryPrimitives.ReadUInt32BigEndian(bytes.AsSpan(at + 16)) == PlayerId
-                        || System.Buffers.Binary.BinaryPrimitives.ReadUInt32BigEndian(bytes.AsSpan(at + 23)) != 0) return false;
-                    buffs.Add(((ushort)(bytes[at + 12] << 8 | bytes[at + 13]), true));
-                    break;
-                case InstanceProtocol.ActionStartedId:
-                {
-                    if (bytes.Length - at < 18) return false;
-                    int end = at + 14 + ((bytes[at + 13] & 0x80) != 0 ? 4 : 0);
-                    for (int i = 0; i < 4; i++)
-                    {
-                        if (end >= bytes.Length) return false;
-                        end += bytes[end] switch { < 0x80 => 1, < 0xc0 => 2, < 0xe0 => 3, < 0xf0 => 4, _ => 5 };
-                    }
-                    length = end + 4 - at;
-                    if (at + length <= bytes.Length && (bytes[end] << 8 | bytes[end + 1]) == 0x2909) return false;
-                    break;
-                }
-                default: return false;
-            }
-            if (at + length > bytes.Length) return false;
-            at += length;
-        }
-        foreach (var (instance, add) in buffs)
-            if (!add && !conn.MirroredBuffs.ContainsKey((id, instance))) return false;
-        foreach (var (instance, add) in buffs)
-            if (add) conn.MirroredBuffs[(id, instance)] = 0; else conn.MirroredBuffs.TryRemove((id, instance), out _);
-        return true;
-    }
-
-    // A player's minion's action, hit reaction or buff: to each client that shows it, under its id there.
-    static void MirrorMinion(ClientState conn, byte[] bytes, uint id)
-    {
-        if (!conn.MinionOrigins.ContainsKey(id) || bytes.Length != MessageLength(bytes)) return;
-        Mirroring.Value = true;
-        try
-        {
-            foreach (var peer in conn.Instance.Presence.PlayersExcept(conn.PeerId))
-            {
-                if (peer.Owner is not { Outbox: { } outbox } other || other.Closed || other.LeavingArea
-                    || !other.MirroredObjects.TryGetValue((conn.PeerId, id), out uint theirs)) continue;
-                byte[] copy = (byte[])bytes.Clone();
-                System.Buffers.Binary.BinaryPrimitives.WriteUInt32BigEndian(copy.AsSpan(2), theirs);
-                // An action aimed at the local player there means this player.
-                if (copy.Length >= 18 && copy[0] == 0x01 && copy[1] == 0xab && (copy[13] & 0x80) != 0
-                    && System.Buffers.Binary.BinaryPrimitives.ReadUInt32BigEndian(copy.AsSpan(14)) == PlayerId)
-                    System.Buffers.Binary.BinaryPrimitives.WriteUInt32BigEndian(copy.AsSpan(14), conn.PeerId);
-                _ = MirrorWorldRecord(other, theirs, copy);
-            }
-        }
-        finally { Mirroring.Value = false; }
-    }
-
-    // Another client's frame: the other players' minions created, moved, hurt and removed here, under ids of this client.
-    public static async Task SyncPeerMinions(string remote, NetworkStream stream, ConnectionCiphers ciphers, ClientState conn)
-    {
-        var shown = new Dictionary<(uint, uint), (ClientState Owner, SharedMonster M)>();
-        foreach (var peer in conn.Instance.Presence.PlayersExcept(conn.PeerId))
-            if (peer.Owner is { } owner && !owner.Closed && !owner.LeavingArea)
-                foreach (var m in owner.PublishedMinions) shown[(owner.PeerId, m.Id)] = (owner, m);
-        if (shown.Count == 0 && conn.SeenMinions.Count == 0) return;
-        Mirroring.Value = true;
-        List<WorldObject> births = [];
-        await SendWorldBatch(conn, [], admission =>
-        {
-            if (!CurrentGameWork || conn.Closed || conn.LeavingArea || !conn.PlayerSent) return null;
-            var packets = new WorldRecordBuilder(conn, admission);
-            foreach (var gone in conn.SeenMinions.Keys.Where(k => !shown.ContainsKey(k)).ToList())
-            {
-                conn.SeenMinions.Remove(gone);
-                if (conn.MirroredObjects.TryRemove(gone, out uint was)) packets.Remove(was);
-            }
-            foreach (var (key, (owner, m)) in shown)
-            {
-                if (!conn.SeenMinions.TryGetValue(key, out var before))
-                {
-                    uint id = (uint)Interlocked.Increment(ref conn.NextMirroredObject);
-                    conn.MirroredObjects[key] = id;
-                    var o = m.Origin;
-                    if (o.Object.Parent == PlayerId)
-                        o = o with { Object = o.Object with { Parent = owner.PeerId } };
-                    lock (conn.Monsters)
-                        if (conn.MonsterTypes.Add((o.Row, o.Level))) packets.Immediate(InstanceEntities.MonsterTypes([(o.Row, o.Level)]));
-                    packets.Create(id, InstanceEntities.CreateObject(id, o.Type, (o.Object with { GridX = m.X, GridY = m.Y, Life = m.Life, EnergyShield = m.EnergyShield }).Blob()));
-                    packets.Presentation(id, InstanceProtocol.EnterWakeZone(id));
-                    if (owner.ProjectileRuntimeState is ProjectileSession mirages && mirages.MiragePeerDisplay(m.Id, id) is { } display)
-                        packets.World(id, display);
-                    if (!conn.LockstepClient && m.Destination != (m.X, m.Y))
-                        packets.World(id, InstanceProtocol.ActionStarted(id, m.X, m.Y, m.Destination.X, m.Destination.Y, 0x2909, 0xffff, 0x0408));
-                }
-                else if (conn.MirroredObjects.TryGetValue(key, out uint id))
-                {
-                    if (conn.LockstepClient && !conn.WorldOutput.PublishedObject(id).IsReady) continue;
-                    if (m.Destination != before.Destination && m.Destination != (m.X, m.Y))
-                        packets.World(id, InstanceProtocol.ActionStarted(id, m.X, m.Y, m.Destination.X, m.Destination.Y, 0x2909, 0xffff, 0x0408));
-                    else if (m.Destination == (m.X, m.Y) && Math.Max(Math.Abs(before.X - m.X), Math.Abs(before.Y - m.Y)) > 20)
-                        packets.World(id, InstanceProtocol.Teleport(id, m.X, m.Y, 0x7fffffff));
-                    if (before.Life != m.Life) packets.World(id, InstanceProtocol.LifeUpdate(id, m.Life));
-                    if (before.MaximumEnergyShield != m.MaximumEnergyShield
-                        && Stats.Key("maximum_energy_shield") is uint maximumEnergyShield)
-                        packets.World(id, InstanceEntities.StatsUpdate(id, [(maximumEnergyShield,
-                            (int)Math.Min(m.MaximumEnergyShield, int.MaxValue))]));
-                    if (before.EnergyShield != m.EnergyShield)
-                        packets.World(id, InstanceProtocol.LifeUpdate(id, m.EnergyShield, pool: 2));
-                }
-                if (conn.LockstepClient && before is null)
-                {
-                    births.Add(conn.WorldOutput.PublishedObject(conn.MirroredObjects[key]));
-                    conn.SeenMinions[key] = m with { Destination = (m.X, m.Y) };
-                }
-                else conn.SeenMinions[key] = m;
-            }
-            return packets.Build();
-        }, transport: (remote, stream, ciphers));
-        if (births.Count > 0 && await conn.WorldOutput.AwaitBirths(births))
-            await SyncPeerMinions(remote, stream, ciphers, conn);
-    }
-
-    // The first message's length when the blob is one of Mirrorable's (any other: -1).
-    static int MessageLength(byte[] bytes)
-    {
-        ushort message = (ushort)(bytes[0] << 8 | bytes[1]);
-        if (message != InstanceProtocol.ActionStartedId)
-            return message switch { 0x1ac => 12, InstanceProtocol.ActorAnimationId => 18,
-                InstanceProtocol.AnimationUpdateId => bytes.Length >= 13 ? InstanceProtocol.AnimationUpdateLength(bytes[12]) : -1,
-                InstanceEntities.RemoveBuffId => 14, InstanceEntities.AddBuffId => 27, _ => -1 };
-        int end = 14 + ((bytes[13] & 0x80) != 0 ? 4 : 0);
-        for (int i = 0; i < 4 && end < bytes.Length; i++) end += bytes[end] switch { < 0x80 => 1, < 0xc0 => 2, < 0xe0 => 3, < 0xf0 => 4, _ => 5 };
-        return end + 4;
-    }
-
-    // A projectile object a connection's runtime shows (a monster's shot, a continuation, a lobbed mortar: Projectiles.cs)
-    // on every other client in the instance, under an id of that client's own: created, woken, gliding, stopped, playing
-    // its clips and removed with it. The messages are split by their fixed layouts; a blob with anything else is left.
-    // True when the bytes were a projectile's.
-    public static bool MirrorProjectiles(ConnectionCiphers ciphers, byte[] bytes)
-    {
-        var parts = new List<(int At, int Length, uint Id, ushort Message)>();
-        for (int at = 0; at < bytes.Length;)
-        {
-            if (bytes.Length - at < 12) return false;
-            ushort message = (ushort)(bytes[at] << 8 | bytes[at + 1]);
-            int length = message switch
-            {
-                InstanceProtocol.EnterWakeZoneId or InstanceProtocol.RemoveObjectId => 12,
-                InstanceProtocol.TeleportId => 28,
-                InstanceProtocol.MoveToId => 29,
-                InstanceProtocol.AnimationUpdateId when bytes.Length - at >= 13 => InstanceProtocol.AnimationUpdateLength(bytes[at + 12]),
-                InstanceEntities.CreateObjectId when bytes.Length - at >= 18 => 18 + (bytes[at + 16] << 8 | bytes[at + 17]),
-                _ => -1,
-            };
-            if (length < 0 || at + length > bytes.Length) return false;
-            parts.Add((at, length, System.Buffers.Binary.BinaryPrimitives.ReadUInt32BigEndian(bytes.AsSpan(at + 2)), message));
-            at += length;
-        }
-        ClientState? conn = null;
-        foreach (var c in InGame.Keys) if (ReferenceEquals(c.Wire.Ciphers, ciphers)) { conn = c; break; }
-        if (conn is null) return false;
-        try
-        {
-            foreach (var p in parts)
-                if (p.Message == InstanceEntities.CreateObjectId ? !conn.ProjectileObjects.Contains(p.Id) : !conn.MirroredProjectiles.ContainsKey(p.Id))
-                    return false;
-        }
-        catch (InvalidOperationException) { return false; } // the runtime changed its set meanwhile: this blob stays its own
-        foreach (var p in parts) if (p.Message == InstanceEntities.CreateObjectId) conn.MirroredProjectiles[p.Id] = 0;
-        Mirroring.Value = true;
-        try
-        {
-            foreach (var peer in conn.Instance.Presence.PlayersExcept(conn.PeerId))
-            {
-                if (peer.Owner is not { Outbox: { } outbox } other || other.Closed || other.LeavingArea) continue;
-                var copy = new List<byte>(bytes.Length);
-                uint recipientId = 0;
-                foreach (var p in parts)
-                {
-                    var key = (conn.PeerId, p.Id);
-                    uint id;
-                    if (p.Message == InstanceEntities.CreateObjectId)
-                        other.MirroredObjects[key] = id = (uint)Interlocked.Increment(ref other.NextMirroredObject);
-                    else if (!other.MirroredObjects.TryGetValue(key, out id)) continue; // created before this client came
-                    if (p.Message == InstanceProtocol.RemoveObjectId) other.MirroredObjects.TryRemove(key, out _);
-                    var part = bytes.AsSpan(p.At, p.Length).ToArray();
-                    System.Buffers.Binary.BinaryPrimitives.WriteUInt32BigEndian(part.AsSpan(2), id);
-                    copy.AddRange(part); recipientId = id;
-                }
-                if (copy.Count > 0) _ = MirrorWorldRecord(other, recipientId, [.. copy]);
-            }
-        }
-        finally { Mirroring.Value = false; }
-        foreach (var p in parts) if (p.Message == InstanceProtocol.RemoveObjectId) conn.MirroredProjectiles.TryRemove(p.Id, out _);
-        return true;
-    }
-
-    // Every client's frame: the instance's monsters as this client should have them. The ones it was not shown are created
-    // (where they are, with the life they have; the runner's own spawns were created where they were spawned); the
-    // others' walks reach it (the runner's AI sends its own orders), every client gets the life the others' hits left,
-    // and the ones gone from the instance go. A monster out of the runner's wake zone gets no order (an order wakes a
-    // sleeping object and the next 0x1a9 crashed the client); the others never put one to sleep.
-    public static async Task SyncInstanceMonsters(string remote, NetworkStream stream, ConnectionCiphers ciphers, ClientState conn,
-        // False in the pass that only follows this pass's births, so one call reveals one round of held-back monsters.
-        bool reveal = true)
-    {
-        var world = conn.Instance.World;
-        bool watch;
-        lock (world.Monsters)
-        {
-            if (!RunnerLive(world)) BecomeRunnerLocked(remote, conn, world);
-            watch = IsMonsterRunner(conn) && MonsterEmerge.Unwatched(conn);
-        }
-        // Monsters still in wait whose watcher left: the runner watches them now.
-        if (watch) WatchBuried(remote, stream, ciphers, conn);
-        bool runner = IsMonsterRunner(conn);
-        if (reveal && runner) await RevealHeldBack(remote, stream, ciphers, conn);
-        // What goes to this client here is its own view: nothing of it goes on to the others (MirrorSharedMonsters).
-        Mirroring.Value = true;
-        var bossBars = new List<(uint Id, SpawnedMonster M)>();
-        List<WorldObject> births = [];
-        await SendWorldBatch(conn, [], admission =>
-        {
-            if (!CurrentGameWork || conn.Closed || conn.LeavingArea || !conn.PlayerSent) return null;
-            var packets = new WorldRecordBuilder(conn, admission);
-            using (conn.Performance.Lock(world.Monsters, "shared-monsters"))
-            {
-                var bars = DeadBars.GetOrCreateValue(conn);
-                if (!ReferenceEquals(bars.World, world)) { bars.World = world; bars.Hidden.Clear(); }
-                double now = conn.Clock.Elapsed.TotalSeconds;
-                foreach (uint gone in conn.MonsterViews.Keys.Where(id => world.Monsters.TryGetValue(id, out var m) && m.WorldHidden
-                    || !world.Monsters.ContainsKey(id) && !world.DormantMonsters.ContainsKey(id)).ToList())
-                {
-                    conn.MonsterViews.Remove(gone);
-                    conn.AsleepMonsters.Remove(gone);
-                    bars.Hidden.Remove(gone);
-                    if (!runner || world.Monsters.GetValueOrDefault(gone)?.WorldHidden == true) packets.Remove(gone);
-                }
-                foreach (var (id, m) in world.Monsters.Concat(world.DormantMonsters).OrderBy(e => e.Key))
-                {
-                    if (m.WorldHidden) continue;
-                    if (!world.MonsterOrigins.TryGetValue(id, out var o)) continue; // a player's minion: SyncPeerMinions
-                    bool dormant = world.DormantMonsters.ContainsKey(id);
-                    uint life = m.Dead ? 0 : m.Life;
-                    var at = m.Walk.Position(now);
-                    var to = dormant ? at : m.Walk.Destination;
-                    if (!conn.MonsterViews.TryGetValue(id, out var seen))
-                    {
-                        if (life == 0) continue; // died before this client came: nothing to show
-                        if (conn.MonsterTypes.Add((o.Row, o.Level))) packets.Immediate(InstanceEntities.MonsterTypes([(o.Row, o.Level)]));
-                        // One that has risen meanwhile is created risen (targetable), not in the wait it was placed in.
-                        var shown = o.Object with { GridX = at.X, GridY = at.Y, Life = life };
-                        if (!dormant && m.Variety is { } v && Emerges.Kind(v, m.Rarity) != EmergeKind.None
-                            && !MonsterEmerge.Waiting(conn, id) && shown.TransitionState != MonsterEmerge.RisenState(v)
-                            && v.ComponentsOrBase.Contains("Transitionable"))
-                            shown = shown with { TransitionState = MonsterEmerge.RisenState(v) };
-                        packets.Create(id, InstanceEntities.CreateObject(id, o.Type, shown.Blob()));
-                        packets.Presentation(id, InstanceProtocol.EnterWakeZone(id));
-                        if (MonsterRarityBuffs.Row(o.Rarity) is ushort glow) packets.Presentation(id, InstanceEntities.AddBuff(id, conn.NextBuff++, glow));
-                        SettleBleeding(m, now);
-                        foreach (var buff in PresentRupturesLocked(conn, id, m, now)) packets.Presentation(id, buff);
-                        if (!conn.LockstepClient && to != at) packets.World(id, InstanceProtocol.ActionStarted(id, at.X, at.Y, to.X, to.Y, 0x2909, 0xffff, 0x0408));
-                        conn.MonsterViews[id] = new(at, conn.LockstepClient ? at : to, life) { ActorStance = shown.ActorStance };
-                        if (conn.LockstepClient) births.Add(conn.WorldOutput.PublishedObject(id));
-                        continue;
-                    }
-                    if (dormant || conn.AsleepMonsters.Contains(id)
-                        || conn.LockstepClient && !conn.WorldOutput.PublishedObject(id).IsReady) continue;
-                    // Its walks: from the AI of its target's connection, which sends that client its own orders.
-                    if (life > 0 && !ReferenceEquals(m.Target, conn) && !(runner && m.Target is null))
-                    {
-                        if (to != seen.To && to != at)
-                            packets.World(id, InstanceProtocol.ActionStarted(id, at.X, at.Y, to.X, to.Y, 0x2909, 0xffff, 0x0408));
-                        else if (to == at && Math.Max(Math.Abs(seen.At.X - at.X), Math.Abs(seen.At.Y - at.Y)) > 20)
-                            packets.World(id, InstanceProtocol.Teleport(id, at.X, at.Y, 0x7fffffff));
-                    }
-                    bool terminal = life == 0 && bars.Hidden.Add(id);
-                    if (terminal) packets.World(id, InstanceEntities.StatsUpdate(id, [(StatKeys.HideMiniLifeBar, 1)]));
-                    if (life > 0 && bars.Hidden.Remove(id))
-                        packets.World(id, InstanceEntities.StatsUpdate(id, [(StatKeys.HideMiniLifeBar, 0)]));
-                    if (terminal || seen.Life != life) packets.World(id, InstanceProtocol.LifeUpdate(id, life));
-                    conn.MonsterViews[id] = seen with { At = at, To = to, Life = life };
-                    // A boss the others fight: its life bar here too.
-                    if (m.BossBarShown && life > 0 && conn.BossBarsSeen.Add(id)) bossBars.Add((id, m));
-                }
-                // A rise can follow this create before the next periodic publication. Its queued update must see
-                // the just-admitted view; the recipient's send gate orders that update after these create bytes.
-                conn.AwakeMonsters = AwakeMonsterIds(conn);
-            }
-            return packets.Build();
-        }, transport: (remote, stream, ciphers));
-        if (births.Count > 0 && await conn.WorldOutput.AwaitBirths(births))
-            await SyncInstanceMonsters(remote, stream, ciphers, conn, reveal: false);
-        foreach (var (id, m) in bossBars) await ShowBossLifeBar(remote, stream, ciphers, id, m, conn);
+        if (!player.Area.MonsterTypes.Add((row, level))) return;
+        var bytes = InstanceEntities.MonsterTypes([(row, level)]);
+        if (player.Area.Owned) player.Area.Delta.Add(0, bytes, log, AreaDelta.Kind.Message);
+        if (!player.Connection.WorldOutput.Started) await Send(player, bytes, log);
     }
 }

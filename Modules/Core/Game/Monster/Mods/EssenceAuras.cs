@@ -16,36 +16,37 @@ public static partial class Game
         public bool Taking;
         public readonly Dictionary<uint, double> MinionCarry = [];
     }
-    static readonly RuleTable<ClientState, EssenceAuraExposure> EssenceAuraExposures = new();
-    static readonly Lazy<EssenceAura?> EssenceDegenDefinition = new(() =>
+    static readonly RuleTable<Player, EssenceAuraExposure> EssenceAuraExposures = new();
+    static EssenceAura? EssenceDegenDefinition;
+    internal static void LoadEssenceAurasData()
     {
         var mod = Items.Mods.ById(EssenceLifeDegen);
         if (mod?.BuffTemplate is not int row || ClientTables.Table("BuffTemplates").Row(row) is not { } template
-            || template.IntOrNull("BuffDefinitionsKey") is not int buff) return null;
-        return new(template.Int("AuraRadius"), checked((ushort)buff), mod.Hash,
-            mod.Stats.First(s => s.Id == "base_chaos_damage_%_of_maximum_life_taken_per_minute").Min);
-    });
+            || template.IntOrNull("BuffDefinitionsKey") is not int buff) { EssenceDegenDefinition = null; return; }
+        EssenceDegenDefinition = new(template.Int("AuraRadius"), checked((ushort)buff), mod.Hash,
+            mod.Stats.First(s => s.Id == Stat.BaseChaosDamagePctOfMaximumLifeTakenPerMinute).Min);
+    }
 
     // Companion cadence gathers sources once; resource recovery examines only aura carriers, with its prepared stats.
     // Rebuilding also admits retained monsters after module replacement and notices changed mod sets.
-    public static void RefreshEssenceAuraSourcesLocked(ClientState conn)
+    public static void RefreshEssenceAuraSourcesLocked(Player player)
     {
-        var state = EssenceAuraExposures.GetOrCreateValue(conn);
+        var state = EssenceAuraExposures.GetOrCreateValue(player);
         state.Sources.Clear();
-        if (EssenceDegenDefinition.Value is not { } aura) return;
-        foreach (var (id, monster) in conn.Monsters)
+        if (EssenceDegenDefinition is not { } aura) return;
+        foreach (var (id, monster) in player.Area.Monsters)
             if (monster.Hostile && !monster.Dead && monster.Life > 0
-                && monster.Mods.Effects["base_chaos_damage_%_of_maximum_life_taken_per_minute"] > 0
+                && monster.Mods.Effects[Stat.BaseChaosDamagePctOfMaximumLifeTakenPerMinute] > 0
                 && monster.Mods.Mods.Any(m => m.Hash == aura.Mod)) state.Sources.Add(new(id, monster, aura));
     }
 
-    static EssenceAuraSource? EssenceAuraAt(ClientState conn, EssenceAuraExposure state, (int X, int Y) at, double now)
+    static EssenceAuraSource? EssenceAuraAt(Player player, EssenceAuraExposure state, (int X, int Y) at, double now)
     {
         foreach (var source in state.Sources)
         {
             var m = source.Monster;
             if (m.Dead || m.Life == 0 || m.WorldHidden || !m.Hostile
-                || !conn.Monsters.TryGetValue(source.Id, out var held) || !ReferenceEquals(m, held)) continue;
+                || !player.Area.Monsters.TryGetValue(source.Id, out var held) || !ReferenceEquals(m, held)) continue;
             var from = m.Walk.Position(now);
             double dx = (double)from.X - at.X, dy = (double)from.Y - at.Y;
             if (dx * dx + dy * dy <= source.Aura.Radius * source.Aura.Radius) return source;
@@ -53,28 +54,28 @@ public static partial class Game
         return null;
     }
 
-    static void EssenceAuraIcon(ClientState conn, EssenceAuraExposure state, EssenceAuraSource? source)
+    static void EssenceAuraIcon(Player player, EssenceAuraExposure state, EssenceAuraSource? source)
     {
         if (state.Source == (source?.Id ?? 0)) return;
         if (state.Buff is ushort old)
-            conn.Minions.OutputQueue.Add(new(InstanceEntities.RemoveBuff(PlayerId, old), "Essence degeneration aura ends", WorldId: PlayerId));
+            player.Minions.OutputQueue.Add(new(InstanceEntities.RemoveBuff(player.Id, old), "Essence degeneration aura ends", WorldId: player.Id));
         state.Buff = null;
         state.Source = source?.Id ?? 0;
         if (source is null) return;
-        ushort buff = conn.NextBuff++;
+        ushort buff = player.NextBuff++;
         state.Buff = buff;
-        conn.Minions.OutputQueue.Add(new(InstanceEntities.AddBuff(PlayerId, buff, source.Aura.Buff, source.Id),
-            "Essence degeneration aura", WorldId: PlayerId));
+        player.Minions.OutputQueue.Add(new(InstanceEntities.AddBuff(player.Id, buff, source.Aura.Buff, source.Id),
+            "Essence degeneration aura", WorldId: player.Id));
     }
 
-    public static double PlayerEssenceAuraStarted(ClientState conn) =>
-        EssenceAuraExposures.TryGetValue(conn, out var state) ? state.Started : double.NegativeInfinity;
+    public static double PlayerEssenceAuraStarted(Player player) =>
+        EssenceAuraExposures.TryGetValue(player, out var state) ? state.Started : double.NegativeInfinity;
 
-    public static void ClearEssenceAuraExposure(ClientState conn)
+    public static void ClearEssenceAuraExposure(Player player)
     {
-        if (!EssenceAuraExposures.TryGetValue(conn, out var state)) return;
-        EssenceAuraIcon(conn, state, null);
-        EssenceAuraExposures.Remove(conn);
+        if (!EssenceAuraExposures.TryGetValue(player, out var state)) return;
+        EssenceAuraIcon(player, state, null);
+        EssenceAuraExposures.Remove(player);
     }
 
     public static IDisposable CleanupEssenceAuras() => new EssenceAuraCleanup();
@@ -82,68 +83,68 @@ public static partial class Game
     {
         public void Dispose()
         {
-            foreach (var (conn, _) in EssenceAuraExposures)
-                lock (conn.Monsters) ClearEssenceAuraExposure(conn);
+            foreach (var (player, _) in EssenceAuraExposures)
+                ClearEssenceAuraExposure(player);
         }
     }
 
-    public static int AdvanceEssenceAuraLocked(ClientState conn, double from, double until,
-        IReadOnlyDictionary<uint, int> player, bool chaosImmune, double otherDotStart)
+    public static int AdvanceEssenceAuraLocked(Player player, double from, double until,
+        IReadOnlyDictionary<uint, int> playerStats, bool chaosImmune, double otherDotStart)
     {
-        if (!EssenceAuraExposures.TryGetValue(conn, out var state)) return 0;
-        if (conn.Paused) { state.Last = until; return 0; }
+        if (!EssenceAuraExposures.TryGetValue(player, out var state)) return 0;
+        if (player.Paused) { state.Last = until; return 0; }
         from = Math.Max(from, double.IsNaN(state.Last) ? from : state.Last);
         state.Last = Math.Max(from, until);
-        var source = conn.Closed || conn.LeavingArea || conn.PlayerLife == 0 || InGracePeriod(conn)
-            ? null : EssenceAuraAt(conn, state, conn.Walk.Position(until), until);
-        EssenceAuraIcon(conn, state, source);
+        var source = player.Closed || player.LeavingArea || player.PlayerLife == 0 || InGracePeriod(player)
+            ? null : EssenceAuraAt(player, state, player.Walk.Position(until), until);
+        EssenceAuraIcon(player, state, source);
         if (source is null) { state.Taking = false; state.Carry = state.TakenCarry = 0; return 0; }
-        int Get(string name) => Stats.Key(name) is uint key ? player.GetValueOrDefault(key) : 0;
-        if (conn.Immune || chaosImmune || Get("base_cannot_be_damaged") != 0)
+        int Get(uint key) => playerStats.GetValueOrDefault(key);
+        if (player.Immune || chaosImmune || Get(Stat.BaseCannotBeDamaged) != 0)
         { state.Taking = false; state.Carry = state.TakenCarry = 0; return 0; }
         if (until <= from) return 0;
         if (!state.Taking) { state.Started = from; state.Taking = true; }
-        double lethe = Get("keystone_lethe_shade") != 0 && until - Math.Max(otherDotStart, state.Started) < 1 ? .5 : 1;
-        double raw = conn.PlayerMaxLife * source.Aura.ChaosLifePerMinute / 6000d;
+        double lethe = Get(Stat.KeystoneLetheShade) != 0 && until - Math.Max(otherDotStart, state.Started) < 1 ? .5 : 1;
+        double raw = player.PlayerMaxLife * source.Aura.ChaosLifePerMinute / 6000d;
         double amount = raw * Math.Max(0, until - from)
-            * DamageModel.Mitigate(1d, Resistance(conn, DamageType.Chaos), MaxResistance(conn, DamageType.Chaos))
-            * conn.ElementalAilments.DamageTakenFactor(until, 0) * lethe + state.Carry;
+            * DamageModel.Mitigate(1d, Resistance(player, DamageType.Chaos), MaxResistance(player, DamageType.Chaos))
+            * player.ElementalAilments.DamageTakenFactor(until, 0) * lethe + state.Carry;
         int damage = (int)Math.Min(int.MaxValue, Math.Floor(amount));
         state.Carry = amount - damage;
         damage = IncomingResourceDefences.TakenOverTime(damage, Get, ref state.TakenCarry,
-            IncomingResourceDefences.LessTakenPct(conn.Pools, Get), typedIncreasedPct: Get("chaos_damage_taken_+%"),
+            IncomingResourceDefences.LessTakenPct(player.Pools, Get), typedIncreasedPct: Get(Stat.ChaosDamageTakenPlusPct),
             finalTakenPct: Get(IncomingResourceDefences.UnhingedSaneDamageFinal));
-        return IncomingResourceDefences.DamageOverTime(conn.EnergyShield, damage,
-            ChaosDamageBypassesEnergyShield(conn, player) ? 100 : 0, until, ref conn.ChaosDotBypassCarry);
+        return IncomingResourceDefences.DamageOverTime(player.EnergyShield, damage,
+            ChaosDamageBypassesEnergyShield(player, playerStats) ? 100 : 0, until, ref player.ChaosDotBypassCarry);
     }
 
-    public static void TickEssenceAurasLocked(ClientState conn, double now)
+    public static void TickEssenceAurasLocked(Player player, double now)
     {
-        if (conn.Closed) return;
-        RefreshEssenceAuraSourcesLocked(conn);
-        var state = EssenceAuraExposures.GetOrCreateValue(conn);
+        if (player.Closed) return;
+        RefreshEssenceAuraSourcesLocked(player);
+        var state = EssenceAuraExposures.GetOrCreateValue(player);
         double seconds = double.IsNaN(state.MinionLast) ? 0 : Math.Max(0, now - state.MinionLast);
         state.MinionLast = now;
-        if (seconds <= 0 || conn.Paused || conn.Closed || conn.LeavingArea || InGracePeriod(conn)) return;
+        if (seconds <= 0 || player.Paused || player.Closed || player.LeavingArea || InGracePeriod(player)) return;
         if (state.Sources.Count == 0) { state.MinionCarry.Clear(); return; }
-        foreach (var g in conn.Golems.All.Values.Concat(conn.Reservations.Fighters.Values).Concat(conn.Summons.Fighters.Values).ToArray())
+        foreach (var g in player.Golems.All.Values.Concat(player.Reservations.Fighters.Values).Concat(player.Summons.Fighters.Values).ToArray())
         {
             var m = g.Monster;
-            if (m.Dead || m.Life == 0 || m.Invulnerable || m.Effects["base_cannot_be_damaged"] != 0
+            if (m.Dead || m.Life == 0 || m.Invulnerable || m.Effects[Stat.BaseCannotBeDamaged] != 0
                 || g.Definition.Kind is "Agony" or "SkitterCold" or "SkitterLightning") continue;
-            if (EssenceAuraAt(conn, state, m.Walk.Position(now), now) is not { } source)
+            if (EssenceAuraAt(player, state, m.Walk.Position(now), now) is not { } source)
             { state.MinionCarry.Remove(g.Id); continue; }
             double raw = m.MaxLife * source.Aura.ChaosLifePerMinute / 6000d;
             double amount = raw * MonsterDotTaken(m, DamageType.Chaos, now)
                 * seconds + state.MinionCarry.GetValueOrDefault(g.Id);
             int damage = (int)Math.Min(int.MaxValue, Math.Floor(amount));
             state.MinionCarry[g.Id] = amount - damage;
-            bool bypass = m.Effects["chaos_damage_does_not_bypass_energy_shield"] == 0
-                && m.Effects["virtual_chaos_damage_does_not_bypass_energy_shield"] == 0;
+            bool bypass = m.Effects[Stat.ChaosDamageDoesNotBypassEnergyShield] == 0
+                && m.Effects[Stat.VirtualChaosDamageDoesNotBypassEnergyShield] == 0;
             int life = g.ShieldPool.Damage(damage, bypass, now);
             m.Life = (uint)Math.Max(0, (long)m.Life - life);
-            if (damage > 0) conn.Minions.OutputQueue.Add(new([], "Essence aura damages minion", g.Id, m, PlayerMinions.OutputKind.Life));
-            if (m.Life == 0) GolemDieLocked(conn, g, now);
+            if (damage > 0) player.Minions.OutputQueue.Add(new([], "Essence aura damages minion", g.Id, m, PlayerMinions.OutputKind.Life));
+            if (m.Life == 0) GolemDieLocked(player, g, now);
         }
     }
 }

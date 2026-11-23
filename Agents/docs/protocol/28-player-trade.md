@@ -1,11 +1,11 @@
-# 28 â€” Player trade, known players and the social requests
+# 28 — Player trade, known players and the social requests
 
 Traced live 2026-10-28 with two clients in one town (3.29.3b). The player trade reuses the NPC sale's trade window and
 offer messages ([17](17-npcs.md) "Sell"); this file covers what is specific to two players.
 
 ## 1. Client requests
 
-| Câ†’S | Bytes | Layout | Sent by |
+| C→S | Bytes | Layout | Sent by |
 |---|---|---|---|
 | **0xba** | 6 | u32 BE the other player's object id (as the sender sees it: its `PeerId`) | "Trade" on a player |
 | **0xb0** | 6 | u32 BE the requester's object id | Accept on the trade request notification |
@@ -17,43 +17,43 @@ offer messages ([17](17-npcs.md) "Sell"); this file covers what is specific to t
 | **0x80** | var | wstr name, u8 list, u8 action | list 0 = Friends (add 0, remove/decline 1, accept 2); list 1 = Ignore (add 0, remove 1) |
 | **0xb4** | 12 | u32 BE item id, u32 BE inventory id, u16 LE token | Ctrl+right-click bulk move of all items matching that base type (`0x1403119d0`) |
 | **0xca** | var | wstr status | Set account social status message (persisted and broadcast in `0xa7` `+0x50`) |
-| **0x155** | var | wstr character name | Challenge an online player to a duel (forwarded as `S->C 0x157`) |
+| **0x155** | var | wstr character name | Challenge an online player to a duel (forwarded as `S→C 0x157`) |
 | **0x179** | var | wstr character name, u8 flag | Invite an online player to the sender's hideout (grants `0x17a` visit access) |
 
-The offer, accept and cancel messages of the open window are the sale's: Câ†’S 0xb2 (drop / Ctrl + click, x = y = 0xff),
+The offer, accept and cancel messages of the open window are the sale's: C→S 0xb2 (drop / Ctrl + click, x = y = 0xff),
 0xb3 and 0xb5 (Shift / Ctrl + Shift + click), 0xb4 (Ctrl + right-click bulk move of matching `Item.TypeHash`),
 0xb6 (Accept: u32 the revision of the other side's offer inventory), 0xb7 (Cancel Accept), 0xb1 (Cancel).
 
-## 2. Known players: Sâ†’C 0xa7
+## 2. Known players: S→C 0xa7
 
 The client keeps a table of the players it knows (instance `+0xc738`, an FNV-hashed map keyed by the first wstr;
-inserted by `0x14217a4d0` â†’ `0x14217f2b0`, dispatcher case 0x28). The trade request is looked up in it by character
+inserted by `0x14217a4d0` → `0x14217f2b0`, dispatcher case 0x28). The trade request is looked up in it by character
 name (`0x14216d4f0`, entry `+0x70`), the party list (0xa9, case 0x2a) looks its members up the same way, and an account
 name lookup (`0x14216d400`, entry `+0x30`) exists. Both tables were empty with the server sending nothing, so the request
-was dropped silently: Sâ†’C **0xa7** adds an entry, Sâ†’C 0xa8 (case 0x29) removes one by key.
+was dropped silently: S→C **0xa7** adds an entry, S→C 0xa8 (case 0x29) removes one by key.
 
-0xa7 (class `0x1435e6cc8`, 0xd0 bytes, write `0x1421a7b10` â†’ `0x141f95e70`):
+0xa7 (class `0x1435e6cc8`, 0xd0 bytes, write `0x1421a7b10` → `0x141f95e70`):
 
-- wstr account (the key; entry `+0x30`), wstr status (`+0x50`, updated by `C->S 0xca`), u8 flags: bit 0 a u16 pair (`+0xaa`, `+0xae`) follows, bit 1 a
-  u16 pair (`+0xb0`, `+0xb2`), bit 2 (`+0xba`) the character section, bits 3â€“6 `+0xbb` / `+0xbc` / `+0xbd` / `+0xbe`;
+- wstr account (the key; entry `+0x30`), wstr status (`+0x50`, updated by `C→S 0xca`), u8 flags: bit 0 a u16 pair (`+0xaa`, `+0xae`) follows, bit 1 a
+  u16 pair (`+0xb0`, `+0xb2`), bit 2 (`+0xba`) the character section, bits 3–6 `+0xbb` / `+0xbc` / `+0xbd` / `+0xbe`;
 - with bit 2 (or bit 5): wstr character (`+0x70`), u8 (`+0xb9`), u8 (`+0xb8`, the packed class); with bit 2 also u16 BE
   (`+0xa8`, the area the player is in), u16 BE (`+0xac`), wstr (`+0x90`), u8 (`+0xb4`), then the pairs;
 - without bit 2: u64 (`+0xa0`).
 
 The bit 1 pair is the portrait frame (`+0xb0`) and the portrait (`+0xb2`); the client's writer leaves it out when both are
-0 ([23](23-microtransactions.md) Â§3).
+0 ([23](23-microtransactions.md) §3).
 
 The Gateway sends `InstanceSocial.KnownPlayer` (flags 0x04, with the pair 0x06) for each side before the request.
 
-## 3. The request and the window: Sâ†’C 0xb8 flags
+## 3. The request and the window: S→C 0xb8 flags
 
 The in-game UI's 0xb8 listener (`0x140dca680`) reads struct `+0x50`:
 
 | bit 0 | bit 1 | Shows |
 |---|---|---|
-| 0 | 1 | the notification "{name} sent you a trade request" (ClientStrings 0x441, `0x140afc570`), when the name is known and the option at `0x141918e00(â€¦, 0x19)` allows it |
+| 0 | 1 | the notification "{name} sent you a trade request" (ClientStrings 0x441, `0x140afc570`), when the name is known and the option at `0x141918e00(…, 0x19)` allows it |
 | 1 | 0 | the requester's "Waiting for player to accept trade request..." box with Cancel (ClientStrings 0x2bd) |
-| 1 | 1 | the trade window (`0x140c38ef0` â†’ `0x140c33ff0`) |
+| 1 | 1 | the trade window (`0x140c38ef0` → `0x140c33ff0`) |
 | 0 | 0 | nothing |
 
 Bit 0 is also the active trade for Ctrl + click (`0x140d60630`), 0x10 lets Accept send 0xb6 without hovering each item,
@@ -93,25 +93,25 @@ containing both inventory saves. Failed settlement leaves both durable inventori
 
 Invite, accept and leave work. The Social module keeps human and module-owned participants in `Modules/Core/Player/Social/PartyRoster.cs`.
 
-- **Sâ†’C 0xa9** (class `0x1435e7740`, read `0x1421a8220`, dispatcher case 0x2a at `0x142152e8c`) has this layout:
+- **S→C 0xa9** (class `0x1435e7740`, read `0x1421a8220`, dispatcher case 0x2a at `0x142152e8c`) has this layout:
   1. u32 party id (`+0x68`);
   2. wstr leader character (`+0x28`);
   3. wstr leader account (`+0x48`);
   4. u32 party id again;
   5. u8 `+0x6e`, the receiving player's own index in the member list (0xff none);
   6. u8 `+0x6c`, u8 `+0x6d`, u8 `+0x6f`;
-  7. u8 count, then count Ã— (wstr account name, u8 status).
+  7. u8 count, then count × (wstr account name, u8 status).
 
-  `0x1421506d0` maps a status byte 0 â†’ 1, 1 â†’ 2, 2 â†’ 0, any other â†’ 3 (none).
+  `0x1421506d0` maps a status byte 0 → 1, 1 → 2, 2 → 0, any other → 3 (none).
 - **The invite notice.** "{account} sent you a party invite" (ClientStrings `0x43f`) is built by `0x140aeeee0` through
   `0x140dce360` on the event at `+0x7f78` (case 0x2a's slot). It shows only when all of these hold:
   - the party id is one the client doesn't know (`+0xc668`; a reused id only updates the entry);
-  - the second wstr is an account name in the known players (`0x14216d350` â†’ `0x14216d400`), so both sides get 0xa7 first;
+  - the second wstr is an account name in the known players (`0x14216d350` → `0x14216d400`), so both sides get 0xa7 first;
   - `+0x6c` is 0 and `+0x6d` is non-zero.
 
   To reuse an existing party id, discard only the invitee's old known-party entry with 0xaa before the invite.
   Invitations set `+0x6d` = 1; accepted membership uses the same id with `+0x6d` = 0.
-- **Accept** is Câ†’S 0x95. Accept and Decline call `0x142169480` and `0x1421693e0` (Câ†’S 0x80 with u16 0x200 / 0x100) only
+- **Accept** is C→S 0x95. Accept and Decline call `0x142169480` and `0x1421693e0` (C→S 0x80 with u16 0x200 / 0x100) only
   for a non-empty name; live, Accept sent 0x95. Decline is not answered yet.
 - **The party.** Every member gets 0xa9 with its own `+0x6e`, the leader with status 2 and the others with 1, members by
   account name.
@@ -121,7 +121,7 @@ Invite, accept and leave work. The Social module keeps human and module-owned pa
 - **A member's area, and the travel button.** The panel's row draws its member's area from that member's known-player
   `+0xa8`, a `WorldAreas` HASH16: `0x140207a95` reads it and `0x140208210` resolves it through the area data, and a
   value that is no area (a level, say) is drawn as "Travelling..." with the row's button disabled.
-  - The button sends **Câ†’S 0x92** with that member's character name in a wstr (live 2026-11-14:
+  - The button sends **C→S 0x92** with that member's character name in a wstr (live 2026-11-14:
     `0092000F` + `CorvinRavencall`); the client only asks, and the server moves the player, as the real one does.
     The answer is the area change (0x2b4, then 0x27), or a refusal. The selected human must still own its party connection.
     Campaign travel uses that member's checkpoint or open portal in their exact instance and checks area access flags.
@@ -129,13 +129,12 @@ Invite, accept and leave work. The Social module keeps human and module-owned pa
     These routes follow [GGG’s party travel rules](https://www.pathofexile.com/forum/view-thread/2163379).
     Labyrinth and areas that disable portals cannot be entered this way. Campaign travel and quest-gate refusal were
     checked through the native client, including guest entry through the source device and return after the sixth portal.
-- **Leaving.** Câ†’S 0x96 is answered with **Sâ†’C 0xaa** (class `0x1435c9f88`, read `0x141fa2ae0`, case 0x2b at
+- **Leaving.** C→S 0x96 is answered with **S→C 0xaa** (class `0x1435c9f88`, read `0x141fa2ae0`, case 0x2b at
   `0x142153495`): u32 party id, u8 reason.
   - For the client's current party (`+0xc680`) it resets the party; for another id it drops it from `+0xc668`.
-  - Sâ†’C 0xab (case 0x2c) only clears a pending invite (`+0xc730`) and did nothing for a party.
+  - S→C 0xab (case 0x2c) only clears a pending invite (`+0xc730`) and did nothing for a party.
   - With fewer than two members left, every member gets 0xaa (disbanded); otherwise the others get the smaller party.
-
-- **Public parties & disconnects.** `C->S 0x98` updates the party's public description (published as `0xa9`'s title;
+- **Public parties & disconnects.** `C→S 0x98` updates the party's public description (published as `0xa9`'s title;
   empty description clears public state and disbands a solo party). Accepting an invite (`0x95`) whose inviter has
   already disconnected cleans up the stale invite and sends `0xaa` instead of throwing on a disposed socket; true
   disconnects (`DisconnectHuman`) remove the member from parties and cancel pending invites while preserving area-change
@@ -143,14 +142,14 @@ Invite, accept and leave work. The Social module keeps human and module-owned pa
 
 ## 6. Friends, ignore list, status, hideout invites and duels
 
-The Social module handles the ordinary context-menu and Friends-panel actions through Câ†’S `0x80`.
+The Social module handles the ordinary context-menu and Friends-panel actions through C→S `0x80`.
 The final bytes are independent list/action bytes (`0x141f9b7e0`), not a network-order ushort.
 List 0 selects friends; action 0 adds, 1 removes or declines, and 2 accepts an incoming invitation.
 Other lists/actions do not mutate friendships.
 Names resolve to durable account identities through the account/character store; self and unknown targets are refused.
 Accept requires an existing incoming invitation.
 
-Sâ†’C `0xa7` supplies account and character metadata, followed by **`0xc9`**: u8 flags, wstr account, wstr note.
+S→C `0xa7` supplies account and character metadata, followed by **`0xc9`**: u8 flags, wstr account, wstr note.
 Dispatcher case `0x3c` (`0x142154d2a`) puts flag bits 0/1 into the account map, or removes its entry for bit 2.
 The Friends panel (`0x140a3a8d0`, `0x140a3c300`) uses bit 0 to distinguish accepted friends from incoming invitations,
 and `0xa7`'s character-present bit to split online and offline rows.
@@ -171,11 +170,11 @@ Accept, confirmed Unfriend removing the row on both clients, offline display, ac
 and reconstruction after a new login (including presence updates while the players occupy different areas).
 Automated checks cover persistence/reopen, rollback, duplicates, self/missing identities, pair deletion,
 Unicode names, action-byte framing and relation/offline packet layouts.
-Ignore lists (`C->S 0x80`, list 1, action 0 add / 1 remove) and account status messages (`C->S 0xca`, max 200 chars,
+Ignore lists (`C→S 0x80`, list 1, action 0 add / 1 remove) and account status messages (`C→S 0xca`, max 200 chars,
 broadcast in `0xa7` `+0x50`) persist in account stash module data (`social.ignore`, `social.status`).
 Ignored accounts are blocked from local/party/whisper chat, party invites, trade requests, hideout invites and duel
-challenges. `C->S 0x179` notifies an online player and records visit permission for `C->S 0x17a`; `C->S 0x155` forwards
-`S->C 0x157` to the target. Friend notes remain separate follow-up work.
+challenges. `C→S 0x179` notifies an online player and records visit permission for `C→S 0x17a`; `C→S 0x155` forwards
+`S→C 0x157` to the target. Friend notes remain separate follow-up work.
 
 ## Open
 

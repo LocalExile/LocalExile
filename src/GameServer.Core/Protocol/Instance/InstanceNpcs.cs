@@ -295,13 +295,10 @@ public sealed record NpcObject(int GridX, int GridY, IReadOnlyList<string> Compo
         {
             switch (c)
             {
-                // As a monster's: x, y, rotation (+0x29c), u16 team (0: friendly), flags0, flags1 0x02 + shown.
-                // flags0 bit2: a fixed height before flags1 0x02's two bytes: i32 −z / 7.8125 and f32 z (world z points
-                // down), the live server's convention (ProjectileObject; 11-skills.md "Sign").
+                // x, y, rotation (+0x29c), u16 team (0: friendly). flags0 0x04: a fixed height, i32 −z / 7.8125 and f32
+                // z (world z points down), the live server's convention (ProjectileObject; 11-skills.md "Sign").
                 case "Positioned":
-                    w.I32(GridX).I32(GridY).F32(Rotation).U16(0).U8((byte)(Height is null ? 0 : 0x04)).U8(0x02);
-                    if (Height is float z) w.I32((int)MathF.Round(-z / 7.8125f)).F32(z);
-                    w.U8(0).U8(1);
+                    w.Positioned(GridX, GridY, Rotation, fixedHeight: Height is float z ? ((int)MathF.Round(-z / 7.8125f), z) : null);
                     break;
                 // 0: the type supplies the model; bit0: a u32-counted UTF-16 .ao path.
                 case "Animated": if (Model is null) w.U8(0); else w.U8(1).WStr32(Model); break;

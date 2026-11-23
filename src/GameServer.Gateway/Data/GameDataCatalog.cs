@@ -16,7 +16,7 @@ public static class GameDataCatalog
     static UniqueJewelCatalogue.Entry[] _globals = [];
     static UniqueJewelCatalogue.Entry[] _specials = [];
     static TimelessJewelCatalog.Entry[] _timeless = [];
-    static IReadOnlyDictionary<string, (string Stat, int Value)[]> _tattoos = Empty<(string, int)[]>();
+    static IReadOnlyDictionary<string, (uint Stat, int Value)[]> _tattoos = Empty<(uint, int)[]>();
     static IReadOnlyDictionary<string, ushort> _visuals = Empty<ushort>();
 
     public static UniqueCatalog.Definition[] Uniques => Volatile.Read(ref _uniques);
@@ -25,7 +25,7 @@ public static class GameDataCatalog
     public static UniqueJewelCatalogue.Entry[] UniqueJewelGlobals => Volatile.Read(ref _globals);
     public static UniqueJewelCatalogue.Entry[] UniqueJewelSpecials => Volatile.Read(ref _specials);
     public static TimelessJewelCatalog.Entry[] TimelessJewels => Volatile.Read(ref _timeless);
-    public static IReadOnlyDictionary<string, (string Stat, int Value)[]> TattooEffects => Volatile.Read(ref _tattoos);
+    public static IReadOnlyDictionary<string, (uint Stat, int Value)[]> TattooEffects => Volatile.Read(ref _tattoos);
     public static IReadOnlyDictionary<string, ushort> JewelVisuals => Volatile.Read(ref _visuals);
 
     public static string Summary =>
@@ -42,7 +42,7 @@ public static class GameDataCatalog
         Volatile.Write(ref _globals, []);
         Volatile.Write(ref _specials, []);
         Volatile.Write(ref _timeless, []);
-        Volatile.Write(ref _tattoos, Empty<(string, int)[]>());
+        Volatile.Write(ref _tattoos, Empty<(uint, int)[]>());
         Volatile.Write(ref _visuals, Empty<ushort>());
     }
 
@@ -144,11 +144,11 @@ public static class GameDataCatalog
                 (int)Int(c, "conqueror_index"), (int)Int(c, "version")))]))];
     }
 
-    static IReadOnlyDictionary<string, (string Stat, int Value)[]> LoadTattoos(GameDataStore store)
+    static IReadOnlyDictionary<string, (uint Stat, int Value)[]> LoadTattoos(GameDataStore store)
     {
         var stats = Children(store, "tattoo_effect_stats", "tattoo, ord", "tattoo");
         return Enabled(store.LoadRows("tattoo_effects", "name")).ToDictionary(row => Text(row, "name"),
-            row => stats[Text(row, "name")].Select(s => (Text(s, "stat"), (int)Int(s, "value"))).ToArray(), StringComparer.Ordinal);
+            row => stats[Text(row, "name")].Select(s => (Stat.Of(Text(s, "stat")), (int)Int(s, "value"))).ToArray(), StringComparer.Ordinal);
     }
 
     /// <summary>A child table's rows by their parent's key (its key columns joined with '|'), in the given order.</summary>

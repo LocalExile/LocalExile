@@ -24,12 +24,12 @@ public static class HarvestLifeforce
     // The lifeforce BaseItemTypes Ids by colour (HarvestSeedItems.BaseItem), resolved on the first grove kill.
     static string?[]? _items;
 
-    static string?[] Items(ClientState conn)
+    static string?[] Items(Player player)
     {
         if (_items is { } items) return items;
         items = new string?[4];
         foreach (var (colour, (baseItem, _)) in HarvestTables.Current.SeedItems)
-            if ((uint)colour < 4) items[colour] = ItemsFor(conn).Row(baseItem)?.Id;
+            if ((uint)colour < 4) items[colour] = ItemsFor(player).Row(baseItem)?.Id;
         return _items = items;
     }
 
@@ -54,7 +54,7 @@ public static class HarvestLifeforce
     /// <summary>GameEvents.Drops: a grove monster's lifeforce.</summary>
     public static void Drops(DropRoll drop)
     {
-        if (!SacredGrove.TryMonster(drop.Conn, drop.Monster.ObjectId, out var tag, out var stats)) return;
+        if (!SacredGrove.TryMonster(drop.Player, drop.Monster.ObjectId, out var tag, out var stats)) return;
         // Refiner's Bargain grants a random crop instead; the server has no crop grant yet, so nothing drops.
         if (stats.RandomCropsInstead) return;
         // A Corpse-Grown monster (a Faridun seed, which replaces a Tier 3 seed) drops Crystallised Rancour (the wiki's
@@ -65,8 +65,8 @@ public static class HarvestLifeforce
             return;
         }
         if (tag.Tier >= 4) Blossom(drop, stats);
-        if ((uint)tag.Colour >= 4 || Items(drop.Conn)[tag.Colour] is not { } item) return;
-        int count = Roll(Random.Shared, stats, tag.Tier, out int second);
+        if ((uint)tag.Colour >= 4 || Items(drop.Player)[tag.Colour] is not { } item) return;
+        int count = Roll(AreaRng(drop.Player), stats, tag.Tier, out int second);
         if (count > 0) drop.Stacks.Add((item, count));
         if (second > 0) drop.Stacks.Add((item, second));
     }
@@ -77,7 +77,7 @@ public static class HarvestLifeforce
     {
         if (!DropDataProvider.Default.Current.BossItems.TryGetValue((drop.Monster.VarietyId, BlossomId), out var row)
             || row.Chance is not { } chance
-            || Random.Shared.NextDouble() >= chance * Math.Max(0, 1 + stats.Quantity / 100.0)) return;
+            || AreaRng(drop.Player).NextDouble() >= chance * Math.Max(0, 1 + stats.Quantity / 100.0)) return;
         drop.Items.Add(BlossomId);
         Console.WriteLine($"[harvest] {drop.Monster.VarietyId} dropped a Sacred Blossom");
     }
@@ -85,7 +85,7 @@ public static class HarvestLifeforce
     /// <summary>GameEvents.Experience: map_harvest_monster_granted_experience_+% on a grove monster's kill.</summary>
     public static void Experience(ExperienceGain gain)
     {
-        if (!SacredGrove.TryMonster(gain.Conn, gain.Monster.ObjectId, out _, out var stats) || stats.ExperienceIncrease == 0) return;
+        if (!SacredGrove.TryMonster(gain.Player, gain.Monster.ObjectId, out _, out var stats) || stats.ExperienceIncrease == 0) return;
         gain.Experience = (uint)Math.Clamp(gain.Experience * (1 + stats.ExperienceIncrease / 100.0), 0, uint.MaxValue);
     }
 }

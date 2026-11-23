@@ -24,7 +24,7 @@ dotnet run --project src/GameServer.Auth -- keygen Client/Game.exe
 dotnet run --project src/GameServer.Auth -- patch Client/Game.exe Client/Game.patched.exe
 dotnet run --project src/GameServer.Patch -- gateway --login 127.0.0.1:20493
 # needs Node.js (+ npm install in Tools/ooz): live.ps1 extracts the game data it needs first (scripts/dev/extract-data.ps1 -Servers)
-# create an account + character: GameServer.Host and GameServer.DevClient (Agents/GettingStarted.md, step 8)
+# create an account: GameServer.Auth register, then the character in the game (Agents/GettingStarted.md, step 8)
 .\scripts\dev\live.ps1 -Walkmaps   # -Walkmaps is optional: needs `pip install frida`, captures walk maps
 ```
 
@@ -38,7 +38,8 @@ and may update itself.
 | `GameServer.Auth` | login server; also generates keys and patches the client to trust them | 20493 (login), 127.0.0.1:20495 (control) |
 | `GameServer.Gateway` | instance (game) server | 6112 |
 | `GameServer.Patch` | local patching server, so the client never contacts the real patch servers; also edits the GGPK gateway list | 12995, http 8080 |
-| `GameServer.Host` + `GameServer.DevClient` | dev account service (register accounts, create characters) | 7000 |
+| `GameServer.Host` | dev account service over JSON lines (register accounts, create characters); Waypoint's Accounts tab uses it | 7000 |
+| `GameServer.Chat` | optional public chat server that relays global, trade and whisper lines between Gateways | 6113 |
 | `GameServer.Core` | protocol, crypto, accounts, instance registry | |
 | `GameServer.Data` | GGPK / bundle / `.dat` readers | |
 | `GameServer.Storage` | account and save storage | |

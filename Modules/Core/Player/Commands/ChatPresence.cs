@@ -19,9 +19,9 @@ static class ChatPresence
         return created;
     }
 
-    public static string ToggleAfk(ClientState conn, string? arg)
+    public static string ToggleAfk(Player player, string? arg)
     {
-        string name = CharacterName(conn);
+        string name = CharacterName(player);
         var table = Table();
         var (afk, afkMsg, dnd, dndMsg) = table.GetValueOrDefault(name, (false, DefaultAfkMessage, false, DefaultDndMessage));
         string trimmed = arg?.Trim() ?? "";
@@ -35,9 +35,9 @@ static class ChatPresence
         return "AFK mode is now OFF.";
     }
 
-    public static string ToggleDnd(ClientState conn, string? arg)
+    public static string ToggleDnd(Player player, string? arg)
     {
-        string name = CharacterName(conn);
+        string name = CharacterName(player);
         var table = Table();
         var (afk, afkMsg, dnd, dndMsg) = table.GetValueOrDefault(name, (false, DefaultAfkMessage, false, DefaultDndMessage));
         string trimmed = arg?.Trim() ?? "";
@@ -51,9 +51,9 @@ static class ChatPresence
         return "Do Not Disturb mode is now OFF.";
     }
 
-    public static string SetAutoReply(ClientState conn, string? arg)
+    public static string SetAutoReply(Player player, string? arg)
     {
-        string name = CharacterName(conn);
+        string name = CharacterName(player);
         var table = Table();
         var (_, _, dnd, dndMsg) = table.GetValueOrDefault(name, (false, DefaultAfkMessage, false, DefaultDndMessage));
         string trimmed = arg?.Trim() ?? "";
@@ -66,9 +66,9 @@ static class ChatPresence
         return $"Autoreply set to \"{trimmed}\"";
     }
 
-    public static void Clear(ClientState conn, string why)
+    public static void Clear(Player player, string why)
     {
-        if (why == "disconnected" && !conn.LeavingArea && conn.PendingTransfer is null)
-            Table().TryRemove(CharacterName(conn), out _);
+        if (why == "disconnected" && !player.LeavingArea && player.PendingTransfer is null)
+            Table().TryRemove(CharacterName(player), out _);
     }
 }

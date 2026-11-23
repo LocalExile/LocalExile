@@ -29,14 +29,17 @@ public sealed partial class ProjectileRuntime
             void Pulse()
             {
                 if (!projectiles.ContainsKey(p.Id)) return;
-                var targets = ActorsInOrder(generations: false, out int listed);
+                var targets = ActorsInOrder(world.ActorsNear(p.Position, pulse.Radius + 2, Now), generations: false, out int listed);
                 try
                 {
                     for (int i = 0; i < listed; i++)
                     {
                         var target = targets[i];
-                        if (target.Team != p.Use.Team && target.Key != p.Use.Owner
-                            && (target.Position(Now) - p.Position).Length <= pulse.Radius + target.Radius)
+                        if (target.Team == p.Use.Team || target.Key == p.Use.Owner) continue;
+                        var delta = target.Position(Now) - p.Position;
+                        double limit = pulse.Radius + target.Radius;
+                        if (Math.Abs(delta.X) <= limit && Math.Abs(delta.Y) <= limit
+                            && delta.X * delta.X + delta.Y * delta.Y <= limit * limit)
                             Damage(p, target, pulse.Stage, isArea: true);
                     }
                 }
@@ -81,9 +84,10 @@ public sealed partial class ProjectileRuntime
     void TargetedHits(ProjectileEntity p, ProjectileActor primary, ProjectileTargetedRecipe recipe)
     {
         long hitEvent = ++sequence;
-        foreach (var target in world.Actors(Now, Now).Where(a => a.Team != p.Use.Team && a.Key != primary.Key
-            && a.Key != p.Use.Owner && (a.Position(Now) - primary.Position(Now)).Length <= recipe.Radius)
-            .OrderBy(a => (a.Position(Now) - primary.Position(Now)).Length).ThenBy(a => a.Key.Id).Take(recipe.Count))
+        var origin = primary.Position(Now);
+        foreach (var target in world.ActorsNear(origin, recipe.Radius + 2, Now).Where(a => a.Team != p.Use.Team && a.Key != primary.Key
+            && a.Key != p.Use.Owner && (a.Position(Now) - origin).Length <= recipe.Radius)
+            .OrderBy(a => (a.Position(Now) - origin).Length).ThenBy(a => a.Key.Id).Take(recipe.Count))
             Damage(p, target, recipe.Stage, hitEvent, new());
     }
 
@@ -187,21 +191,26 @@ public sealed partial class ProjectileRuntime
         ProjectileActorKey? victim, long areaId)
     {
         world.Publish(new(ProjectileEventKind.Area, p, Now, centre, Radius: recipe.Radius, Stage: recipe.Stage));
-        var targets = ActorsInOrder(generations: true, out int listed);
+        var targets = ActorsInOrder(world.ActorsNear(centre, recipe.Radius + 2, Now), generations: true, out int listed);
         try
         {
             for (int i = 0; i < listed; i++)
             {
                 var target = targets[i];
-                if (target.Team != p.Use.Team && target.Key != p.Use.Owner
-                    && (!recipe.ExcludeContactTarget || target.Key != victim)
-                    && (target.Position(Now) - centre).Length <= recipe.Radius + target.Radius)
+                if (target.Team == p.Use.Team || target.Key == p.Use.Owner
+                    || (recipe.ExcludeContactTarget && target.Key == victim)) continue;
+                var delta = target.Position(Now) - centre;
+                double limit = recipe.Radius + target.Radius;
+                if (Math.Abs(delta.X) <= limit && Math.Abs(delta.Y) <= limit
+                    && delta.X * delta.X + delta.Y * delta.Y <= limit * limit)
+                {
                     if (target.Key == victim)
                         Damage(p, target, recipe.Stage, multiplier: recipe.Multiplier, admissionStage: "direct", isArea: true);
                     else Damage(p, target, recipe.Stage,
                         recipe.Scope == ProjectileHitScope.Emission ? p.EmissionId : areaId, new(), recipe.Multiplier,
                         admissionStage: recipe.Scope == ProjectileHitScope.Emission
                             ? recipe.Stage + ":" + p.GroundBounces : recipe.Stage, isArea: true);
+                }
             }
         }
         finally { Return(targets, listed); }
@@ -214,9 +223,8 @@ public sealed partial class ProjectileRuntime
     /// other list is sorted as before, keeping the listed order of equal keys. The array is rented: hand it back with
     /// <see cref="Return"/>. (An area sorted every actor of the instance for each of its explosions.)
     /// </summary>
-    ProjectileActor[] ActorsInOrder(bool generations, out int count)
+    ProjectileActor[] ActorsInOrder(IReadOnlyList<ProjectileActor> actors, bool generations, out int count)
     {
-        var actors = world.Actors(Now, Now);
         count = actors.Count;
         var copy = System.Buffers.ArrayPool<ProjectileActor>.Shared.Rent(count);
         bool ordered = true;

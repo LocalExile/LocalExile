@@ -24,39 +24,38 @@ static class FriendsFeature
         return value;
     }
 
-    static readonly ConcurrentDictionary<string, ClientState> Online = new(StringComparer.OrdinalIgnoreCase);
+    static readonly ConcurrentDictionary<string, Player> Online = new(StringComparer.OrdinalIgnoreCase);
     static readonly ConcurrentDictionary<string, string> StatusCache =
         Keep("StatusCache", () => new ConcurrentDictionary<string, string>(StringComparer.OrdinalIgnoreCase));
     static readonly ConcurrentDictionary<string, HashSet<string>> IgnoreCache =
         Keep("IgnoreCache", () => new ConcurrentDictionary<string, HashSet<string>>(StringComparer.OrdinalIgnoreCase));
     static readonly ConcurrentDictionary<string, byte> HideoutInvites =
         Keep("HideoutInvites", () => new ConcurrentDictionary<string, byte>(StringComparer.OrdinalIgnoreCase));
-
     static SqliteAccountStore Accounts => new(Saves.Db);
     static SqliteFriendStore Store => new(Saves.Db);
 
-    static void Register(ClientState c)
+    static void Register(Player c)
     {
-        if (c.Account is { } account && !c.Closed && !c.LeavingArea) Online[account] = c;
+        if (c.Character.Account is { } account && !c.Closed && !c.LeavingArea) Online[account] = c;
     }
 
     // Existing players can use a newly reloaded Social module without re-entering their area.
-    static void Discover(ClientState c)
+    static void Discover(Player c)
     {
         Register(c);
         foreach (var peer in c.Instance.Presence.PlayersExcept(0))
-            if (peer.Owner is { } owner) Register(owner);
+            if (peer is { } owner) Register(owner);
     }
 
-    static ClientState? Changing(string name) =>
+    static Player? Changing(string name) =>
         Moving.TryGetValue(name, out var m) && DateTime.UtcNow - m.Since < MovingGrace ? m.From : null;
 
-    static ClientState? Connected(string name) => Online.TryGetValue(name, out var c) && !c.Closed && !c.LeavingArea ? c : null;
+    static Player? Connected(string name) => Online.TryGetValue(name, out var c) && !c.Closed && !c.LeavingArea ? c : null;
 
-    static ClientState? FindOnline(string name) =>
+    static Player? FindOnline(string name) =>
         InGame.Keys.FirstOrDefault(c => !c.Controlled && !c.Closed && !c.LeavingArea
             && (string.Equals(CharacterName(c), name, StringComparison.OrdinalIgnoreCase)
-                || string.Equals(c.Account, name, StringComparison.OrdinalIgnoreCase)));
+                || string.Equals(c.Character.Account, name, StringComparison.OrdinalIgnoreCase)));
 
     public static string StatusOf(string? account)
     {
@@ -96,7 +95,7 @@ static class FriendsFeature
             if (ignored.Contains(senderAccountOrCharacter)) return true;
         }
         var online = FindOnline(senderAccountOrCharacter);
-        if (online?.Account is { } onlineAcc)
+        if (online?.Character.Account is { } onlineAcc)
             lock (ignored) return ignored.Contains(onlineAcc);
         var accounts = Accounts;
         if (accounts.FindCharacter(senderAccountOrCharacter) is { } ch
@@ -112,14 +111,14 @@ static class FriendsFeature
     {
         string status = StatusOf(a.Name);
         return (Connected(a.Name) ?? Changing(a.Name)) is { } c
-            ? InstanceSocial.KnownPlayer(a.Name, CharacterName(c), c.Layout.Hash, PackedClass(c), c.PortraitFrame, WornPortrait(c), status)
+            ? InstanceSocial.KnownPlayer(a.Name, CharacterName(c), c.Layout.Hash, PackedClass(c), c.Character.PortraitFrame, WornPortrait(c), status)
             : InstanceSocial.OfflinePlayer(a.Name, status);
     }
 
-    public static IEnumerable<(string Log, byte[] Message)> Enter(ClientState c)
+    public static IEnumerable<(string Log, byte[] Message)> Enter(Player c)
     {
         Discover(c);
-        if (c.Account is not { } name || Accounts.FindAccount(name) is not { } me) yield break;
+        if (c.Character.Account is not { } name || Accounts.FindAccount(name) is not { } me) yield break;
         var store = Store;
         var friends = store.Friends(me.Id).ToHashSet();
         foreach (var id in friends.Union(store.Incoming(me.Id)))
@@ -141,9 +140,9 @@ static class FriendsFeature
     // friend who came online in between was listed offline after their own online notice had arrived, and stayed so
     // (live 2026-11-05: admin@admin.ru online at 00:40:44.180, then offline from test1's entry list at .186). On the
     // player's first tick after the entry (SocialModule), the friends' presence as it is then.
-    public static async Task AfterEntry(ClientState c)
+    public static async Task AfterEntry(Player c)
     {
-        if (c.Closed || c.LeavingArea || c.Account is not { } name || Accounts.FindAccount(name) is not { } me) return;
+        if (c.Closed || c.LeavingArea || c.Character.Account is not { } name || Accounts.FindAccount(name) is not { } me) return;
         Register(c);
         foreach (var id in Store.Friends(me.Id))
             if (Accounts.GetAccount(id) is { } friend) await RefreshSafely(c, friend);
@@ -153,16 +152,16 @@ static class FriendsFeature
             await RefreshSafely(other, me);
     }
 
-    static async Task RefreshSafely(ClientState viewer, Account about, bool removal = false)
+    static async Task RefreshSafely(Player viewer, Account about, bool removal = false)
     {
         try { await Refresh(viewer, about, removal); }
         catch (Exception e) when (e is IOException or ObjectDisposedException)
-        { Console.WriteLine($"[gateway] friend presence delivery to {viewer.Account}: {e.Message}"); }
+        { Console.WriteLine($"[gateway] friend presence delivery to {viewer.Character.Account}: {e.Message}"); }
     }
 
-    static async Task Refresh(ClientState viewer, Account about, bool removal = false)
+    static async Task Refresh(Player viewer, Account about, bool removal = false)
     {
-        if (viewer.Closed || viewer.LeavingArea || viewer.Account is not { } name || Accounts.FindAccount(name) is not { } me) return;
+        if (viewer.Closed || viewer.LeavingArea || viewer.Character.Account is not { } name || Accounts.FindAccount(name) is not { } me) return;
         var store = Store;
         bool accepted = store.Friends(me.Id).Contains(about.Id);
         bool incoming = store.Friends(about.Id).Contains(me.Id);
@@ -174,10 +173,10 @@ static class FriendsFeature
 
     /// <summary>C→S 0x00ca: update the account's social status message and broadcast updated 0xa7 metadata to self,
     /// online friends and party members.</summary>
-    public static async Task SetStatus(ClientState c, string rawStatus)
+    public static async Task SetStatus(Player c, string rawStatus)
     {
         Discover(c);
-        if (c.Account is not { } name || Accounts.FindAccount(name) is not { } me) return;
+        if (c.Character.Account is not { } name || Accounts.FindAccount(name) is not { } me) return;
         string status = (rawStatus ?? "").Trim();
         if (status.Length > MaxStatusLength) status = status[..MaxStatusLength];
         Saves.Atomically(() => AccountStash.For(me.Name, Items).ChangeModuleData(StatusDataKey, _ => status));
@@ -193,10 +192,10 @@ static class FriendsFeature
                 catch (Exception e) when (e is IOException or ObjectDisposedException) { }
     }
 
-    public static async Task Change(ClientState c, (string Name, ushort U16) request)
+    public static async Task Change(Player c, (string Name, ushort U16) request)
     {
         Discover(c);
-        if (c.Account is not { } name || Accounts.FindAccount(name) is not { } me) return;
+        if (c.Character.Account is not { } name || Accounts.FindAccount(name) is not { } me) return;
         Console.WriteLine($"[gateway] <= 0x0080 social list action 0x{request.U16:x4} from {me.Name}");
         // Wire byte 0 selects the list (0 friends, 1 ignore); byte 1 is add 0, remove/decline 1, accept 2.
         byte list = (byte)(request.U16 & 0xff);
@@ -228,7 +227,7 @@ static class FriendsFeature
         if (Connected(friend.Name) is { } other) await RefreshSafely(other, me, removal: !add);
     }
 
-    static async Task ChangeIgnore(ClientState c, Account me, string rawTarget, byte action)
+    static async Task ChangeIgnore(Player c, Account me, string rawTarget, byte action)
     {
         if (action is not (0 or 1)) return;
         string target = rawTarget.Trim();
@@ -262,53 +261,53 @@ static class FriendsFeature
 
     /// <summary>C→S 0x0179: invite an online player to visit this player's hideout and record access permission for
     /// C→S 0x017a.</summary>
-    public static async Task InviteToHideout(ClientState conn, string rawTarget)
+    public static async Task InviteToHideout(Player player, string rawTarget)
     {
-        Discover(conn);
+        Discover(player);
         string targetName = rawTarget.Trim();
         var target = FindOnline(targetName);
         if (target is null)
         {
-            if (conn.Commands is { } reply) await reply.Reply("Player not found.");
+            if (player.Commands is { } reply) await reply.Reply("Player not found.");
             return;
         }
-        if (ReferenceEquals(target, conn)
-            || string.Equals(CharacterName(target), CharacterName(conn), StringComparison.OrdinalIgnoreCase))
+        if (ReferenceEquals(target, player)
+            || string.Equals(CharacterName(target), CharacterName(player), StringComparison.OrdinalIgnoreCase))
         {
-            if (conn.Commands is { } reply) await reply.Reply("You cannot invite yourself to your hideout.");
+            if (player.Commands is { } reply) await reply.Reply("You cannot invite yourself to your hideout.");
             return;
         }
-        bool compatible = !conn.Ssf && !target.Ssf
-            && conn.Hardcore == target.Hardcore && conn.LeagueForm == target.LeagueForm
-            && string.Equals(conn.League, target.League, StringComparison.OrdinalIgnoreCase);
+        bool compatible = !player.Character.Ssf && !target.Character.Ssf
+            && player.Character.Hardcore == target.Character.Hardcore && player.Character.LeagueForm == target.Character.LeagueForm
+            && string.Equals(player.Character.League, target.Character.League, StringComparison.OrdinalIgnoreCase);
         if (!compatible)
         {
-            if (conn.Commands is { } reply) await reply.Reply("You cannot invite that player to your hideout.");
+            if (player.Commands is { } reply) await reply.Reply("You cannot invite that player to your hideout.");
             return;
         }
-        if (IsIgnoring(target.Account, conn.Account ?? CharacterName(conn))) return;
-        string ownerKey = conn.Account ?? CharacterName(conn);
-        string guestKey = target.Account ?? CharacterName(target);
+        if (IsIgnoring(target.Character.Account, player.Character.Account ?? CharacterName(player))) return;
+        string ownerKey = player.Character.Account ?? CharacterName(player);
+        string guestKey = target.Character.Account ?? CharacterName(target);
         HideoutInvites[$"{ownerKey}\0{guestKey}"] = 1;
-        Console.WriteLine($"[gateway] <= 0x0179 hideout invite: {CharacterName(conn)} -> {CharacterName(target)}");
+        Console.WriteLine($"[gateway] <= 0x0179 hideout invite: {CharacterName(player)} -> {CharacterName(target)}");
         try
         {
-            await SocialFeature.Introduce(target, conn);
-            await SocialFeature.SendTo(target, InstanceChat.ChatLine($"{CharacterName(conn)} has invited you to visit their hideout."),
-                $"0x0017 hideout invite from {CharacterName(conn)}");
+            await SocialFeature.Introduce(target, player);
+            await SocialFeature.SendTo(target, InstanceChat.ChatLine($"{CharacterName(player)} has invited you to visit their hideout."),
+                $"0x0017 hideout invite from {CharacterName(player)}");
         }
         catch (Exception e) when (e is IOException or ObjectDisposedException) { }
-        if (conn.Commands is { } confirm) await confirm.Reply($"Invited {CharacterName(target)} to your hideout.");
+        if (player.Commands is { } confirm) await confirm.Reply($"Invited {CharacterName(target)} to your hideout.");
     }
 
     /// <summary>Hideout visit permission check for C→S 0x017a: same party, accepted friend, or invited via 0x0179.</summary>
-    public static bool CanVisitHideout(ClientState visitor, ClientState owner)
+    public static bool CanVisitHideout(Player visitor, Player owner)
     {
         if (PartyRoster.SameParty(visitor, owner)) return true;
-        string ownerKey = owner.Account ?? CharacterName(owner);
-        string guestKey = visitor.Account ?? CharacterName(visitor);
+        string ownerKey = owner.Character.Account ?? CharacterName(owner);
+        string guestKey = visitor.Character.Account ?? CharacterName(visitor);
         if (HideoutInvites.ContainsKey($"{ownerKey}\0{guestKey}")) return true;
-        if (visitor.Account is { } vAcc && owner.Account is { } oAcc)
+        if (visitor.Character.Account is { } vAcc && owner.Character.Account is { } oAcc)
         {
             var accounts = Accounts;
             if (accounts.FindAccount(vAcc) is { } v && accounts.FindAccount(oAcc) is { } o)
@@ -318,36 +317,36 @@ static class FriendsFeature
     }
 
     /// <summary>C→S 0x0155: challenge another online player to a duel, forwarding S→C 0x0157.</summary>
-    public static async Task ChallengeDuel(ClientState conn, string rawTarget)
+    public static async Task ChallengeDuel(Player player, string rawTarget)
     {
-        Discover(conn);
+        Discover(player);
         string targetName = rawTarget.Trim();
         var target = FindOnline(targetName);
         if (target is null)
         {
-            if (conn.Commands is { } reply) await reply.Reply("Player not found.");
+            if (player.Commands is { } reply) await reply.Reply("Player not found.");
             return;
         }
-        if (ReferenceEquals(target, conn)
-            || string.Equals(CharacterName(target), CharacterName(conn), StringComparison.OrdinalIgnoreCase))
+        if (ReferenceEquals(target, player)
+            || string.Equals(CharacterName(target), CharacterName(player), StringComparison.OrdinalIgnoreCase))
         {
-            if (conn.Commands is { } reply) await reply.Reply("You cannot challenge yourself to a duel.");
+            if (player.Commands is { } reply) await reply.Reply("You cannot challenge yourself to a duel.");
             return;
         }
-        if (IsIgnoring(target.Account, conn.Account ?? CharacterName(conn))) return;
-        Console.WriteLine($"[gateway] <= 0x0155 duel challenge: {CharacterName(conn)} -> {CharacterName(target)}");
+        if (IsIgnoring(target.Character.Account, player.Character.Account ?? CharacterName(player))) return;
+        Console.WriteLine($"[gateway] <= 0x0155 duel challenge: {CharacterName(player)} -> {CharacterName(target)}");
         try
         {
-            await SocialFeature.SendTo(target, InstanceSocial.DuelChallengeNotify(CharacterName(conn)),
-                $"0x0157 duel challenge from {CharacterName(conn)}");
+            await SocialFeature.SendTo(target, InstanceSocial.DuelChallengeNotify(CharacterName(player)),
+                $"0x0157 duel challenge from {CharacterName(player)}");
         }
         catch (Exception e) when (e is IOException or ObjectDisposedException) { }
-        if (conn.Commands is { } confirm) await confirm.Reply($"Challenged {CharacterName(target)} to a duel.");
+        if (player.Commands is { } confirm) await confirm.Reply($"Challenged {CharacterName(target)} to a duel.");
     }
 
-    public static async Task Leaving(ClientState c)
+    public static async Task Leaving(Player c)
     {
-        if (c.Account is not { } name || !Online.TryRemove(new KeyValuePair<string, ClientState>(name, c))) return;
+        if (c.Character.Account is not { } name || !Online.TryRemove(new KeyValuePair<string, Player>(name, c))) return;
         if (Accounts.FindAccount(name) is not { } me) return;
         // An area change: the player is still online, on the next connection. The friends hear nothing of it (an offline
         // and an online notice on every area change, live 2026-11-05); a player who does not come back is told offline.
@@ -361,7 +360,7 @@ static class FriendsFeature
     }
 
     // Accounts between two connections of an area change, since when.
-    static readonly ConcurrentDictionary<string, (DateTime Since, ClientState From)> Moving = new(StringComparer.OrdinalIgnoreCase);
+    static readonly ConcurrentDictionary<string, (DateTime Since, Player From)> Moving = new(StringComparer.OrdinalIgnoreCase);
     static readonly TimeSpan MovingGrace = TimeSpan.FromSeconds(60);
 
     static async Task OfflineIfNotBack(string name, Account me)

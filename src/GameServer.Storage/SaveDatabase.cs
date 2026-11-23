@@ -23,6 +23,7 @@ public sealed class SaveDatabase : IDisposable
     // Every use of the connection is under this lock, and a transaction holds it from begin to commit: nothing else
     // writes in between. Reentrant, so a transaction can run inside another (it joins it).
     readonly Lock _gate = new();
+    bool _inAtomic;
     SqliteTransaction? _tx;
     List<Action>? _undo;
     long _ended;
@@ -78,17 +79,19 @@ public sealed class SaveDatabase : IDisposable
     /// throws (the exception goes on, after the <see cref="OnRollback"/> actions ran). Inside another transaction it joins
     /// that one, and is saved or undone with it. Keep the work synchronous and short: other writers wait for it.
     /// </summary>
+    public bool InAtomic { get { lock (_gate) return _inAtomic; } }
+
     public T Atomically<T>(Func<T> work)
     {
         lock (_gate)
         {
-            if (_tx is not null) return work();
-            _tx = _db.BeginTransaction();
+            if (_inAtomic) return work();
+            _inAtomic = true;
             _undo = [];
             try
             {
                 T result = work();
-                _tx.Commit();
+                if (_tx is not null) _tx.Commit();
                 return result;
             }
             catch
@@ -98,10 +101,12 @@ public sealed class SaveDatabase : IDisposable
             }
             finally
             {
-                _tx.Dispose();
+                bool hadTx = _tx is not null;
+                _tx?.Dispose();
                 _tx = null;
                 _undo = null;
-                _ended++;
+                _inAtomic = false;
+                if (hadTx) _ended++;
             }
         }
     }
@@ -118,7 +123,7 @@ public sealed class SaveDatabase : IDisposable
         {
             lock (_gate)
             {
-                if (_tx is not null) return null;
+                if (_inAtomic) return null;
                 _dataVersion ??= Command("PRAGMA main.data_version");
                 return (_ended, Convert.ToInt64(_dataVersion.ExecuteScalar()));
             }
@@ -137,7 +142,8 @@ public sealed class SaveDatabase : IDisposable
     void Undo()
     {
         // A commit that failed may already have rolled back on its own.
-        try { _tx!.Rollback(); } catch (Exception e) when (e is SqliteException or InvalidOperationException) { }
+        if (_tx is not null)
+            try { _tx.Rollback(); } catch (Exception e) when (e is SqliteException or InvalidOperationException) { }
         foreach (var undo in Enumerable.Reverse(_undo!))
             try { undo(); }
             catch (Exception e) { Console.WriteLine($"[saves] undoing a failed save: {ServerLog.Describe(e)}"); }
@@ -275,6 +281,7 @@ public sealed class SaveDatabase : IDisposable
     /// <see cref="Atomically{T}"/>, which hold the connection's lock.</summary>
     public SqliteCommand Command(string sql, params (string Name, object Value)[] parameters)
     {
+        if (_inAtomic && _tx is null) _tx = _db.BeginTransaction();
         var c = _db.CreateCommand();
         c.CommandText = sql;
         c.Transaction = _tx;

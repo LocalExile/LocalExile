@@ -8,26 +8,30 @@ using DamageType = GameServer.Core.World.DamageType;
 
 public partial class Program
 {
-    public static IEnumerable<(string Name, string Usage, string[] Arguments)> CommandUsages() => Commands("", null!, null!, null!).Usages;
+    public static IEnumerable<(string Name, string Usage, string[] Arguments)> CommandUsages() => Commands(null!).Usages;
 
     // Every in-game connection's last command table, emptied: one built while a module or mod was loaded holds its handlers,
     // which would keep the unloaded code in memory until the player's next command.
     public static void ForgetCommands()
     {
-        foreach (var conn in InGame.Keys)
-            if (conn.Commands is { } commands) conn.Commands = commands.Emptied();
+        foreach (var player in InGame.Keys)
+            if (player.Commands is { } commands) player.Commands = commands.Emptied();
     }
 
     // The same for one connection that ended: it is out of InGame, so no later unload reaches its table, and its state can
     // stay in memory long after its socket closed.
-    public static void ForgetCommands(ClientState left)
+    public static void ForgetCommands(Player left)
     {
         if (left.Commands is { } commands) left.Commands = commands.Emptied();
     }
 
+    static Session WireOrNone(Player? player) => player is null ? Session.None : player.Connection.Session;
+
     // The chat commands of one connection (ChatCommands.cs).
-    public static ChatCommands Commands(string remote, NetworkStream stream, ConnectionCiphers ciphers, ClientState conn)
+    public static ChatCommands Commands(Player player)
     {
+        // With no connection (the list of usages): no wire, nothing is sent.
+        var (remote, stream, ciphers) = WireOrNone(player);
         var commands = new ChatCommands
         {
             Send = (bytes, log) => Send(remote, stream, ciphers, bytes, log),
@@ -41,20 +45,20 @@ public partial class Program
         .Add("module", "/module (the modules loaded when the Gateway started, from the folders in Modules/: version, kind and hooks, and why others did not load)", async _ =>
         {
             var modules = ServerModules.Mods();
-            await conn.Commands!.Reply(string.Join('\n', modules.Select(m => m.Error is { } error ? $"{m.Id} - not loaded, {error}"
+            await player.Commands!.Reply(string.Join('\n', modules.Select(m => m.Error is { } error ? $"{m.Id} - not loaded, {error}"
                 : $"{m.Id} {m.Version} - {m.Kind?.ToString().ToLowerInvariant()}, {m.Hooks} hook(s)").Prepend($"--- Modules in {ServerModules.Folder}/ ---")));
         })
         .Add("module_reload", "/module_reload [id] (hot-reload one module and those that depend on it, or every module; their state starts over, and what is wrong with the new files leaves them running)", async args =>
         {
             string? id = args.Length > 0 ? args[0] : null;
             ServerModules.Reload(id);
-            await conn.Commands!.Reply(id is null ? "Modules reloaded (/module for the list)." : $"Module {id} reloaded (/module for the list).");
+            await player.Commands!.Reply(id is null ? "Modules reloaded (/module for the list)." : $"Module {id} reloaded (/module for the list).");
         })
         .Add("mod", "/mod (the mods in Mods/Binaries/: loaded ones first, with their version, kind and hooks, then why the others are not)", async _ =>
         {
             // Loaded first, then the rest; each group keeps the host's order.
             var mods = ServerMods.Mods().OrderBy(m => m.Error is not null).ToList();
-            await conn.Commands!.Reply(mods.Count == 0 ? $"No mods in {ServerMods.Folder}/ (Agents/docs/dev/modding.md)."
+            await player.Commands!.Reply(mods.Count == 0 ? $"No mods in {ServerMods.Folder}/ (Agents/docs/dev/modding.md)."
                 : string.Join('\n', mods.Select(m => m.Error is { } error ? $"{m.Id} - not loaded, {error}"
                     : $"{m.Id} {m.Version} - {m.Kind?.ToString().ToLowerInvariant()}, {m.Hooks} hook(s)").Prepend($"--- Mods in {ServerMods.Folder}/ ---")));
         })
@@ -62,36 +66,36 @@ public partial class Program
         {
             string? id = args.Length > 0 ? args[0] : null;
             ServerMods.Reload(id);
-            await conn.Commands!.Reply(id is null ? "Mods reloaded (/mod for the list)." : $"Mod {id} reloaded (/mod for the list).");
+            await player.Commands!.Reply(id is null ? "Mods reloaded (/mod for the list)." : $"Mod {id} reloaded (/mod for the list).");
         })
-        .Add("mod_enable", "/mod_enable <id> (load a mod, now and at every start)", args => SetModEnabled(conn, args, true))
-        .Add("mod_disable", "/mod_disable <id> (unload a mod and the mods that depend on it, now and at every start)", args => SetModEnabled(conn, args, false))
+        .Add("mod_enable", "/mod_enable <id> (load a mod, now and at every start)", args => SetModEnabled(player, args, true))
+        .Add("mod_disable", "/mod_disable <id> (unload a mod and the mods that depend on it, now and at every start)", args => SetModEnabled(player, args, false))
         .Add("reload", "/reload (read world.db again: settings, catalogues, drop tables, unique weights, overrides; no restart)", async _ =>
         {
             if (GameData.Store is null)
             {
-                await conn.Commands!.Reply("world.db is not open");
+                await player.Commands!.Reply("world.db is not open");
                 return;
             }
             try
             {
                 GameData.Reload("command");
-                await conn.Commands!.Reply($"Game data reloaded: revision {GameData.Current.Revision}; {SystemSettings.Default.Values.Count} " +
+                await player.Commands!.Reply($"Game data reloaded: revision {GameData.Current.Revision}; {SystemSettings.Default.Values.Count} " +
                     $"setting(s), {GameData.Current.ModRanges.Count} mod range override(s), {GameData.Current.Limits.Count} limit " +
                     $"override(s); {GameDataCatalog.Summary}");
             }
             catch (Exception e) when (e is IOException or Microsoft.Data.Sqlite.SqliteException or InvalidOperationException
                 or System.Text.Json.JsonException)
             {
-                await conn.Commands!.Reply($"Reload failed, the previous data stays: {e.Message}");
+                await player.Commands!.Reply($"Reload failed, the previous data stays: {e.Message}");
             }
         })
         .Add("lastpackets", "/lastpackets [n] (the connection's last n messages, both directions, to the Gateway log; default 64)", async args =>
         {
             int n = args.Length > 0 && int.TryParse(args[0], out int count) ? Math.Clamp(count, 1, PacketHistory.Capacity) : 64;
-            conn.Packets.Print(remote, "/lastpackets", n);
-            await conn.Commands!.Reply($"The last {Math.Min(n, conn.Packets.Count)} of {conn.Packets.Count} packet(s) are in logs\\live-gateway.log.");
+            player.Connection.Session.Packets.Print(remote, "/lastpackets", n);
+            await player.Commands!.Reply($"The last {Math.Min(n, player.Connection.Session.Packets.Count)} of {player.Connection.Session.Packets.Count} packet(s) are in logs\\live-gateway.log.");
         });
-        return GameEvents.RunCommandsBuilding(conn, commands, remote, stream, ciphers);
+        return GameEvents.RunCommandsBuilding(player, commands);
     }
 }

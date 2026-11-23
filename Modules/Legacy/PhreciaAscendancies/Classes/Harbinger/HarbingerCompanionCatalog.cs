@@ -7,8 +7,21 @@ namespace GameServer.Modules.PhreciaAscendancies.Classes.Harbinger;
 /// <summary>The three Phrecia Harbingers' source, current variety and buff data. This resolves metadata, not an AI
 /// schedule: the server-only AIS files are absent from the client. Focus's channel condition is stated by its skill
 /// description; cooldown suspension and the minion's own recovery modifier are preserved separately.</summary>
-sealed class HarbingerCompanionCatalog(string folder = "data", SkillCatalog? skills = null)
+sealed class HarbingerCompanionCatalog
 {
+    readonly string folder;
+    readonly SkillCatalog? skills;
+
+    public HarbingerCompanionCatalog(string folder = "data", SkillCatalog? skills = null)
+    {
+        this.folder = folder;
+        this.skills = skills;
+        _skills = skills ?? new(folder);
+        _monsters = new(folder);
+        _metadata = Load(folder);
+        resolved = Sources.Select(s => s.Node).Distinct().ToDictionary(node => node, ResolveNode);
+    }
+
     public enum Kind { Arcane, Time, Focus }
 
     public sealed record BuffSkill(int Effect, string EffectId, int Level, int CastMs, int DurationMs, int CooldownMs,
@@ -42,26 +55,26 @@ sealed class HarbingerCompanionCatalog(string folder = "data", SkillCatalog? ski
         ["HarbingerChannelBuffUber"] = "harbinger_channel_buff_uber",
     };
 
-    readonly SkillCatalog _skills = skills ?? new(folder);
-    readonly MonsterCatalog _monsters = new(folder);
+    readonly SkillCatalog _skills;
+    readonly MonsterCatalog _monsters;
     readonly StatCatalog _stats = new();
-    readonly Lazy<(Metadata? Data, string? Error)> _metadata = new(() => Load(folder));
-    readonly ConcurrentDictionary<ushort, Lazy<Companion?>> resolved = new();
+    readonly (Metadata? Data, string? Error) _metadata;
+    readonly Dictionary<ushort, Companion?> resolved;
 
-    public string? Error => _metadata.Value.Error;
+    public string? Error => _metadata.Error;
 
     public IEnumerable<Companion> ForNodes(IEnumerable<ushort> nodes) => nodes.Distinct().Select(ForNode).OfType<Companion>();
 
     public IEnumerable<Companion> All => ForNodes(Sources.Select(s => s.Node));
-    public Companion? ForNode(ushort node) => resolved.GetOrAdd(node, id => new(() => ResolveNode(id))).Value;
+    public Companion? ForNode(ushort node) => resolved.GetValueOrDefault(node);
 
     Companion? ResolveNode(ushort node)
     {
-        if (Sources.FirstOrDefault(s => s.Node == node) is not { } source || _metadata.Value.Data is not { } data
+        if (Sources.FirstOrDefault(s => s.Node == node) is not { } source || _metadata.Data is not { } data
             || !data.Grants.TryGetValue(node, out var grant) || _skills.EffectId(grant.Effect) != source.Effect)
             return null;
         var summon = _skills.EffectStats(grant.Effect, grant.Level).ToDictionary(kv => kv.Item1, kv => kv.Item2);
-        if (_stats.Key("alternate_minion") is not uint alternate || summon.GetValueOrDefault(alternate) != source.AlternateMinion
+        if (summon.GetValueOrDefault(Stat.AlternateMinion) != source.AlternateMinion
             || !data.LimitStats.TryGetValue(source.MinionType, out uint limitStat) || summon.GetValueOrDefault(limitStat) <= 0)
             return null;
         var monster = _monsters.Find(source.Variety);
@@ -79,7 +92,7 @@ sealed class HarbingerCompanionCatalog(string folder = "data", SkillCatalog? ski
             if (effect < 0 || !granted.Contains(effect) || !data.Effects.TryGetValue(effect, out var info)
                 || !data.Bindings.TryGetValue(info.SkillId, out var binding) || binding.Definition.Id != BuffIds[effectId]) return null;
             var own = _skills.EffectStats(effect, level).ToDictionary(kv => kv.Item1, kv => kv.Item2);
-            int duration = _stats.Key("base_skill_effect_duration") is uint durationKey ? own.GetValueOrDefault(durationKey) : 0;
+            int duration = Stat.BaseSkillEffectDuration is var durationKey ? own.GetValueOrDefault(durationKey) : 0;
             int cooldown = _skills.CooldownMs(effect, level);
             if (duration <= 0 || cooldown <= 0 || _skills.FindByRow(SkillCatalog.FirstSkillId, effect, level) is null)
                 return null;

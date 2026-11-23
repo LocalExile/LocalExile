@@ -15,6 +15,12 @@ using GameServer.Core;
 /// </summary>
 public static class IzaroFights
 {
+    /// <summary>Fills this type's game data at startup (the world loader, before the Gateway listens).</summary>
+    public static void LoadGameData()
+    {
+        Tables = LoadTables();
+    }
+
     /// <summary>The arena's server objects: his elevator and the doors of the arena's ways in and out; the corridor's gate
     /// in front of the way into the arena (LabyrinthIzaroArenaTransition, at the same place).</summary>
     public const string Elevator = "Metadata/Terrain/Labyrinth/Objects/Elevator_Izaro",
@@ -134,12 +140,12 @@ public static class IzaroFights
     public static int WeaponOf(uint seed, int difficulty) => GameServer.Data.Terrain.Generation.LabyrinthLayout.BossWeapon(seed, difficulty);
 
     /// <summary>The NPCs row that speaks his lines (Metadata/NPC/Izaro, 147).</summary>
-    public static ushort Npc => Tables.Value.Npc;
+    public static ushort Npc => Tables.Npc;
 
     /// <summary>What Izaro says (S→C 0x1c7, from <paramref name="objectId"/>, 0: globally): the NPCTextAudio row of the
     /// id, or null when the table does not have it.</summary>
     public static byte[]? Speech(uint objectId, string line) =>
-        Tables.Value.Lines.TryGetValue(line, out ushort row) ? InstanceNpcs.TextAudio(objectId, Npc, row) : null;
+        Tables.Lines.TryGetValue(line, out ushort row) ? InstanceNpcs.TextAudio(objectId, Npc, row) : null;
 
     /// <summary>His line as he rises: the arena's mechanic's (IzaroStart&lt;mechanic&gt;, by its LabyrinthSecrets Id); none
     /// for a mechanic without one (Power Symbols, Pedestals) or a mechanic's second part (the "…2" rows, no room).</summary>
@@ -165,10 +171,12 @@ public static class IzaroFights
     /// <summary>The instance's state once the corridor's gate is open: it stays open, the way into the arena shows.</summary>
     public static readonly string GateOpen = Quests.InstanceFlag("IzaroGate");
 
-    static string? SecretId(int row) => row < 0 ? null : Tables.Value.Secrets.ElementAtOrDefault(row);
+    static string? SecretId(int row) => row < 0 ? null : Tables.Secrets.ElementAtOrDefault(row);
 
     // NPCs (his row), NPCTextAudio (his lines by Id) and LabyrinthSecrets (Ids), from the client tables.
-    static readonly Lazy<(ushort Npc, Dictionary<string, ushort> Lines, string[] Secrets)> Tables = new(() =>
+    static (ushort Npc, Dictionary<string, ushort> Lines, string[] Secrets) Tables = default!;
+
+    static (ushort Npc, Dictionary<string, ushort> Lines, string[] Secrets) LoadTables()
     {
         ushort npc = 147;
         var lines = new Dictionary<string, ushort>(StringComparer.Ordinal);
@@ -190,7 +198,7 @@ public static class IzaroFights
             Console.WriteLine($"[gateway] Izaro's lines: {ex.Message}");
         }
         return (npc, lines, secrets);
-    });
+    }
 
     /// <summary>The 0x2bb blob of the elevator or a door (<see cref="LabyrinthTrials.Blob(IReadOnlyList{string}, string, int,
     /// int, float, float, byte, float?, bool, bool)"/>): a shut door blocks; the elevator never does.</summary>

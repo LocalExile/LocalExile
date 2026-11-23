@@ -13,8 +13,8 @@ public sealed class GreenSupportMechanicsTests
     static Dictionary<uint, int> With(params (string Name, int Value)[] stats) =>
         stats.ToDictionary(s => Program.Stats.Key(s.Name) ?? throw new InvalidOperationException(s.Name), s => s.Value);
 
-    static Func<string, int> Stats(params (string Name, int Value)[] stats) =>
-        name => stats.Where(s => s.Name == name).Sum(s => s.Value);
+    static Func<uint, int> Stats(params (string Name, int Value)[] stats) =>
+        name => stats.Where(s => Stat.Of(s.Name) == name).Sum(s => s.Value);
 
     // Every Next(maxValue) call returns 0, so a chance roll above 0 succeeds deterministically.
     sealed class ZeroRandom : Random
@@ -31,7 +31,7 @@ public sealed class GreenSupportMechanicsTests
             critical: false, spell: false);
         Assert.Equal(new Game.Cull(0, 0, 47), weak);
 
-        var conn = new ClientState(new(1, "cull", 300, 300, 100, 100, null, []), 1, 1)
+        var player = new Player(new(1, "cull", 300, 300, 100, 100, null, []), 1, 1)
         {
             Pools = new(1, 1000, 100, 2, 0), PlayerLife = 500,
         };
@@ -39,10 +39,10 @@ public sealed class GreenSupportMechanicsTests
             new("cull target", new(100, 100, 0), 0, 0, 1000) { Rarity = rarity };
 
         // 500 Life is above 47% of 1000, so the hit does not cull; 470 is at the share.
-        Assert.Equal(500u, Game.TakeOwnerHitLocked(conn, Monster(MonsterRarity.Normal), 500, weak).Life);
-        Assert.Equal(0u, Game.TakeOwnerHitLocked(conn, Monster(MonsterRarity.Magic), 530, weak).Life);
-        Assert.Equal(470u, Game.TakeOwnerHitLocked(conn, Monster(MonsterRarity.Rare), 530, weak).Life);
-        Assert.Equal(470u, Game.TakeOwnerHitLocked(conn, Monster(MonsterRarity.Unique), 530, weak).Life);
+        Assert.Equal(500u, Game.TakeOwnerHitLocked(player, Monster(MonsterRarity.Normal), 500, weak).Life);
+        Assert.Equal(0u, Game.TakeOwnerHitLocked(player, Monster(MonsterRarity.Magic), 530, weak).Life);
+        Assert.Equal(470u, Game.TakeOwnerHitLocked(player, Monster(MonsterRarity.Rare), 530, weak).Life);
+        Assert.Equal(470u, Game.TakeOwnerHitLocked(player, Monster(MonsterRarity.Unique), 530, weak).Life);
 
         // With Culling Strike linked the larger share still applies to the rarities it belongs to.
         var both = Game.Cull.Of(null, With(("kill_enemy_on_hit_if_under_10%_life", 1),
@@ -51,13 +51,13 @@ public sealed class GreenSupportMechanicsTests
 
         var pacifism = Game.Cull.Of(null, With(("hits_cannot_kill_enemies", 1)), critical: false, spell: false);
         Assert.Equal(new Game.Cull(0, 0, 0, true), pacifism);
-        Assert.Equal(1u, Game.TakeOwnerHitLocked(conn, Monster(MonsterRarity.Normal), 5000, pacifism).Life);
+        Assert.Equal(1u, Game.TakeOwnerHitLocked(player, Monster(MonsterRarity.Normal), 5000, pacifism).Life);
 
         // Block Chance Reduction's share lowers the block roll, and a blocked supported hit applies Overpowered.
         SpawnedMonster Blocker(int block, int overpowered = 0, double until = 0) =>
             new("blocker", new(100, 100, 0), 0, 0, 1000)
             {
-                Mods = new([], [], new(new Dictionary<string, int> { ["monster_base_block_%"] = block })),
+                Mods = new([], [], new(new Dictionary<uint, int> { [Stat.MonsterBaseBlockPct] = block })),
                 OverpoweredPercent = overpowered, OverpoweredUntil = until,
             };
         var always = new ZeroRandom();
@@ -75,11 +75,11 @@ public sealed class GreenSupportMechanicsTests
             "5% block, 5% Overpowered: none left");
 
         // Close Combat's Combat Rush: a supported melee hit grants it for its listed duration.
-        Game.CombatRushOnHit(conn, With(("supported_by_slashing", 1), ("support_slashing_buff_base_duration_ms", 2000),
+        Game.CombatRushOnHit(player, With(("supported_by_slashing", 1), ("support_slashing_buff_base_duration_ms", 2000),
             ("support_slashing_buff_attack_speed_+%_final_to_grant", 20)), now: 10);
-        Assert.Equal((12.0, 20), (conn.CombatRushUntil, conn.CombatRushAttackSpeed));
-        Game.CombatRushOnHit(conn, With(), now: 20);
-        Assert.Equal(12.0, conn.CombatRushUntil);
+        Assert.Equal((12.0, 20), (player.CombatRushUntil, player.CombatRushAttackSpeed));
+        Game.CombatRushOnHit(player, With(), now: 20);
+        Assert.Equal(12.0, player.CombatRushUntil);
     }
 
     // Lethal Dose's extra poisons, Vile Toxins' per-poison damage, Hypothermia's freeze chance, Sadism's duration and
@@ -87,7 +87,7 @@ public sealed class GreenSupportMechanicsTests
     [Fact]
     public void Poison_freeze_duration_and_chain_support_stats_apply()
     {
-        var conn = new ClientState(new(1, "supports", 300, 300, 100, 100, null, []), 1, 1);
+        var player = new Player(new(1, "supports", 300, 300, 100, 100, null, []), 1, 1);
         var physical = DamagePacket.Of(DamageType.Physical, 100, 100);
         var poison = new MonsterPoisons.Settings(100, Min: 10, Max: 10, CriticalMin: 20, CriticalMax: 20, Seconds: 2);
         var poisoner = With(("base_chance_to_poison_on_hit_%", 100),
@@ -95,9 +95,9 @@ public sealed class GreenSupportMechanicsTests
         var target = new SpawnedMonster("poisoned", new(105, 100, 0), 0, 0, 1000);
 
         // An unpoisoned enemy takes the hit's own poison and the two additional ones; a poisoned one only the own.
-        Game.PoisonOnHitLocked(conn, target, physical, spell: false, critical: false, poisoner, null, poison, now: 10, new Random(1));
+        Game.PoisonOnHitLocked(player, target, physical, spell: false, critical: false, poisoner, null, poison, now: 10, new Random(1));
         Assert.Equal(3, target.Poisons.Stacks(10.5));
-        Game.PoisonOnHitLocked(conn, target, physical, spell: false, critical: false, poisoner, null, poison, now: 10, new Random(1));
+        Game.PoisonOnHitLocked(player, target, physical, spell: false, critical: false, poisoner, null, poison, now: 10, new Random(1));
         Assert.Equal(4, target.Poisons.Stacks(10.5));
 
         // Vile Toxins: 5% more damage per poison, capped at the support's maximum of 8.
@@ -127,7 +127,7 @@ public sealed class GreenSupportMechanicsTests
         Assert.Equal(4, MonsterIgnites.Settings.From([], "main_hand", Stats()).Seconds, 6);
 
         // Greater Chain: "50% more times" on the chain count; PoB keeps the fraction, so one chain no longer gains one.
-        static ProjectileProfile Resolve(Func<string, int> get) =>
+        static ProjectileProfile Resolve(Func<uint, int> get) =>
             GatewayProjectileModifiers.Resolve(new ProjectileProfile("test"), get, attack: true);
         Assert.Equal(1, Resolve(Stats(("number_of_chains", 1), ("support_chain_count_+%_final", 50))).Chain);
         Assert.Equal(3, Resolve(Stats(("number_of_chains", 2), ("support_chain_count_+%_final", 50))).Chain);

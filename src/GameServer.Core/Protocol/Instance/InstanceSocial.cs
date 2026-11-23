@@ -118,6 +118,23 @@ public static class InstanceSocial
         return WireMeasure.Ok;
     }
 
+    /// <summary>Bytes of a <c>u16 id + wstr + u8</c> social message (0x98 public party, 0x179 hideout invite) at the start
+    /// of <paramref name="m"/>, or null if it is not complete yet (or invalid).</summary>
+    public static int? WStrU8Length(ReadOnlySpan<byte> m) =>
+        MeasureWStrU8Length(m, out int length) == WireMeasure.Ok ? length : null;
+
+    internal static WireMeasure MeasureWStrU8Length(ReadOnlySpan<byte> m, out int length)
+    {
+        length = 0;
+        if (m.Length < 2) return WireMeasure.Incomplete;
+        var status = LoginReader.TryMeasureWStr(m[2..], out int textLength);
+        if (status != WireMeasure.Ok) return status;
+        int total = 2 + textLength + 1;
+        if (m.Length < total) return WireMeasure.Incomplete;
+        length = total;
+        return WireMeasure.Ok;
+    }
+
     /// <summary>Bytes of a 0x80 at the start of <paramref name="m"/>, or null if it is not complete yet (or invalid).</summary>
     public static int? FriendAddLength(ReadOnlySpan<byte> m) =>
         MeasureFriendAddLength(m, out int length) == WireMeasure.Ok ? length : null;

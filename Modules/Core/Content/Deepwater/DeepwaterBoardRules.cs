@@ -21,15 +21,17 @@ internal static class DeepwaterBoardRules
 
     sealed record RoomInfo(int Mask, bool Boss, bool BossEntry, (uint Key, int Value)[] Stats);
 
-    static readonly Lazy<RoomInfo[]> Rooms = new(() => [.. ClientTables.TableOrEmpty("DeepwaterRooms").Select(r =>
+    static RoomInfo[] Rooms = [];
+
+    public static void LoadGameData() => Rooms = [.. ClientTables.TableOrEmpty("DeepwaterRooms").Select(r =>
     {
         int[] stats = r.IsNull("Stats") ? [] : r.Ints("Stats");
         int[] values = r.IsNull("StatValues") ? [] : r.Ints("StatValues");
         return new RoomInfo(r.IntOrNull("__col2") ?? 0, r.BoolOrNull("__col17") == true, !r.IsNull("__col14"),
             [.. stats.Select((s, i) => ((uint)s + 1, i < values.Length ? values[i] : 0))]);
-    })]);
+    })];
 
-    static RoomInfo? Room(byte row) => row < Rooms.Value.Length ? Rooms.Value[row] : null;
+    static RoomInfo? Room(byte row) => row < Rooms.Length ? Rooms[row] : null;
 
     /// <summary>The client's turn of a mask by a rotation (as <c>DeepwaterGrid.Open</c>).</summary>
     public static int Open(int mask, int rotation) => ((mask << (4 - (rotation & 3))) | (mask >> (rotation & 3))) & 15;
@@ -94,8 +96,8 @@ internal static class DeepwaterBoardRules
             foreach (var (key, value) in room.Stats) stats[key] = stats.GetValueOrDefault(key) + value;
         int connections = Connected(cells, n, i);
         foreach (var (from, to) in PerConnection)
-            if (Program.Stats.Key(from) is uint f && stats.Remove(f, out int per) && Program.Stats.Key(to) is uint t)
-                stats[t] = stats.GetValueOrDefault(t) + per * connections;
+            if (stats.Remove(from, out int per))
+                stats[to] = stats.GetValueOrDefault(to) + per * connections;
         return stats;
     }
 
@@ -114,17 +116,17 @@ internal static class DeepwaterBoardRules
     public static int KeepChance(ModCatalog mods, int i, int n, IReadOnlyList<ItemMod> border) =>
         Math.Clamp(BorderOf(i, n, border).Sum(m => Value(mods, m, KeepChart)), 0, 100);
 
-    const string KeepChart = "deepwater_border_mod_chance_%_to_not_consume_affected_chart";
-    const string ChartEffect = "deepwater_border_mod_affected_chart_modifier_effect_+%";
-    const string Adjacent = "local_deepwater_mod_applies_to_adjacent_charts", Global = "local_deepwater_mod_applies_globally";
+    const uint KeepChart = Stat.DeepwaterBorderModChancePctToNotConsumeAffectedChart;
+    const uint ChartEffect = Stat.DeepwaterBorderModAffectedChartModifierEffectPlusPct;
+    const uint Adjacent = Stat.LocalDeepwaterModAppliesToAdjacentCharts, Global = Stat.LocalDeepwaterModAppliesGlobally;
     static readonly (int Dx, int Dy)[] Sides = [(1, 0), (-1, 0), (0, 1), (0, -1)];
-    static readonly (string From, string To)[] PerConnection =
+    static readonly (uint From, uint To)[] PerConnection =
     [
-        ("chart_number_of_rare_packs_+%_per_connection", "map_number_of_rare_packs_+%"),
-        ("chart_item_drop_quantity_+%_per_connection", "map_item_drop_quantity_+%"),
+        (Stat.ChartNumberOfRarePacksPlusPctPerConnection, Stat.MapNumberOfRarePacksPlusPct),
+        (Stat.ChartItemDropQuantityPlusPctPerConnection, Stat.MapItemDropQuantityPlusPct),
     ];
     // Scope stats: they say where a mod applies, not what it does.
-    static readonly HashSet<string> Scope = [Adjacent, Global];
+    static readonly HashSet<uint> Scope = [Adjacent, Global];
 
     /// <summary>How many of the cell's open sides meet a neighbour's open side.</summary>
     static int Connected(IReadOnlyList<Cell?> cells, int n, int i)
@@ -139,9 +141,9 @@ internal static class DeepwaterBoardRules
         return count;
     }
 
-    static bool Has(ModCatalog mods, ItemMod m, string stat) => mods.ByHash(m.Hash)?.Stats.Any(s => s.Id == stat) == true;
+    static bool Has(ModCatalog mods, ItemMod m, uint stat) => mods.ByHash(m.Hash)?.Stats.Any(s => s.Id == stat) == true;
 
-    static int Value(ModCatalog mods, ItemMod m, string stat)
+    static int Value(ModCatalog mods, ItemMod m, uint stat)
     {
         if (mods.ByHash(m.Hash) is not { } mod) return 0;
         int total = 0;
@@ -155,7 +157,8 @@ internal static class DeepwaterBoardRules
         if (mods.ByHash(m.Hash) is not { } mod) return;
         for (int s = 0; s < mod.Stats.Count && s < m.Values.Count; s++)
         {
-            if (Scope.Contains(mod.Stats[s].Id) || Program.Stats.Key(mod.Stats[s].Id) is not uint key) continue;
+            uint key = mod.Stats[s].Id;
+            if (Scope.Contains(key)) continue;
             int value = effect == 0 ? m.Values[s] : (int)((long)m.Values[s] * (100 + effect) / 100);
             stats[key] = stats.GetValueOrDefault(key) + value;
         }

@@ -1,6 +1,7 @@
 using System.Collections.Concurrent;
 using System.Text.Json;
 using System.Text.Json.Nodes;
+using GameServer.Core;
 using GameServer.Core.Protocol.Instance;
 using GameServer.Core.World;
 using GameServer.Data.Ggpk;
@@ -24,10 +25,10 @@ public static partial class MapTorment
     const uint Salt = 0x544f524d; // "TORM": this roll's own stream of the instance seed.
     /// <summary>The spirits' more life (TormentedSpiritLifeScalingPerLevel), handed over to MonsterModEffects in
     /// GameModule.Load. The client has no stat for it: its .ot names the table by index.</summary>
-    public const string LifeStat = "torment_spirit_life_+%_final";
+    public static readonly uint LifeStat = Stat.Of("torment_spirit_life_+%_final");
     const string TaperKey = "Torment/taper";
     /// <summary>A waiting or new spirit's less damage taken, handed over to MonsterModEffects.DamageTaken in GameModule.Load.</summary>
-    public const string TaperStat = "torment_spirit_damage_taken_+%_final";
+    public static readonly uint TaperStat = Stat.Of("torment_spirit_damage_taken_+%_final");
 
     // poewiki "Tormented spirit": 90% less damage taken, tapering to none over 15 seconds once active; 5% more damage taken
     // per monster touched; at most 50 touches. The pause comes from its TormentSpiritPause skill (GrantedEffectsPerLevel
@@ -69,7 +70,7 @@ public static partial class MapTorment
         public byte[] Magic { get; set; } = [];
         public byte[] Stats { get; set; } = [];
         public List<int> Spirits { get; set; } = [];
-        public Dictionary<string, int> DropStats { get; set; } = new(StringComparer.Ordinal);
+        public Dictionary<uint, int> DropStats { get; set; } = [];
     }
 
     sealed class Area
@@ -91,51 +92,51 @@ public static partial class MapTorment
         public readonly Dictionary<uint, int> Versions = [];
     }
 
-    static readonly RuleTable<InstanceState, Area> Areas = new();
-    static readonly RuleTable<ClientState, Shown> Presented = new();
+    static readonly Store<InstanceState, Area> Areas = new();
+    static readonly Store<Player, Shown> Presented = new();
     static readonly ConcurrentDictionary<(string Area, int Level), AreaInfo?> AreaInfos = new();
 
     // The drop stats of the Touch and Grip mods that MonsterKilled pays out (MonsterVarieties-independent).
-    static readonly string[] DropStatIds =
+    static readonly uint[] DropStatIds =
     [
-        "torment_spirit_haunted_additional_item_drop_chance_%", "monster_drop_additional_unique_items",
-        "possessed_monster_drop_item_template_for_unique_item", "monster_drop_additional_map_items",
-        "possessed_monster_drop_template_any_map", "possessed_monster_drop_template_any_scarab",
-        "monster_drop_additional_wisdom_scrolls", "monster_drop_additional_portal_scrolls", "monster_drop_additional_rings_amulets",
-        "monster_drop_additional_currency_items", "monster_drop_additional_vaal_items",
+        Stat.TormentSpiritHauntedAdditionalItemDropChancePct, Stat.MonsterDropAdditionalUniqueItems,
+        Stat.PossessedMonsterDropItemTemplateForUniqueItem, Stat.MonsterDropAdditionalMapItems,
+        Stat.PossessedMonsterDropTemplateAnyMap, Stat.PossessedMonsterDropTemplateAnyScarab,
+        Stat.MonsterDropAdditionalWisdomScrolls, Stat.MonsterDropAdditionalPortalScrolls, Stat.MonsterDropAdditionalRingsAmulets,
+        Stat.MonsterDropAdditionalCurrencyItems, Stat.MonsterDropAdditionalVaalItems,
     ];
 
     // Map, Atlas and Idol stats this provider does not act on yet; an opening that has them says so. Wild Rogue Exiles
     // (Exiled Will, an Idol) come with the Anarchy league's content, the scarab weights with the drops' scarab types,
     // Refiner's Bargain's dust with Kingsmarch.
-    static readonly string[] Unsupported =
+    static readonly uint[] Unsupported =
     [
-        "map_rogue_exiles_possessed_%_chance", "map_torment_scarab_more_likely_%",
-        "map_possessed_monster_equipment_drops_converted_to_dust_%_chance",
+        Stat.MapRogueExilesPossessedPctChance, Stat.MapTormentScarabMoreLikelyPct,
+        Stat.MapPossessedMonsterEquipmentDropsConvertedToDustPctChance,
     ];
 
     // A possessed monster's own chance to drop an item of a kind (the Atlas's sextant-era map stats).
-    static readonly (string Stat, string Kind)[] PossessedDropChances =
+    static readonly (uint Stat, string Kind)[] PossessedDropChances =
     [
-        ("map_possessed_monsters_drop_unique_chance_%", "unique"), ("map_possessed_monsters_drop_map_chance_%", "map"),
-        ("map_possessed_monsters_drop_rusted_scarab_chance_%", "scarab"), ("map_possessed_monsters_drop_polished_scarab_chance_%", "scarab"),
-        ("map_possessed_monsters_drop_gilded_scarab_chance_%", "scarab"), ("map_possessed_monsters_drop_winged_scarab_chance_%", "scarab"),
+        (Stat.MapPossessedMonstersDropUniqueChancePct, "unique"), (Stat.MapPossessedMonstersDropMapChancePct, "map"),
+        (Stat.MapPossessedMonstersDropRustedScarabChancePct, "scarab"), (Stat.MapPossessedMonstersDropPolishedScarabChancePct, "scarab"),
+        (Stat.MapPossessedMonstersDropGildedScarabChancePct, "scarab"), (Stat.MapPossessedMonstersDropWingedScarabChancePct, "scarab"),
     ];
 
-    static IEnumerable<ClientState> Members(ClientState conn) => conn.Instance.PlayersExcept(conn.PeerId)
-        .Select(p => p.Owner).OfType<ClientState>().Prepend(conn)
-        .Where(c => !c.Closed && !c.LeavingArea && c.Instance == conn.Instance).Distinct();
+    static IEnumerable<Player> Members(Player player) => player.Instance.PlayersExcept(player.Id)
+        .Prepend(player)
+        .Where(c => !c.Closed && !c.LeavingArea && c.Instance == player.Instance).Distinct();
 
-    static byte AreaLevel(ClientState conn) =>
-        (byte)Math.Clamp(MapRunOf(conn) is { Area.Level: > 0 } map ? map.Area.Level : ServerLevels.AreaLevel(conn.Layout.Id), 1, 100);
+    static byte AreaLevel(Player player) =>
+        (byte)Math.Clamp(MapRunOf(player) is { Area.Level: > 0 } map ? map.Area.Level : ServerLevels.AreaLevel(player.Layout.Id), 1, 100);
 
-    static int Stat(ClientState conn, string id) => MapModsOf(conn)?.Get(id) ?? 0;
+    static int AreaStat(Player player, uint id) => MapModsOf(player)?.Get(id) ?? 0;
 
     public static void Opening(MapOpening request)
     {
         if (request.Opening is not { } opening || TormentCatalog.All.Count == 0) return;
         request.HandledContent.Add(Content);
-        var present = Unsupported.Where(s => opening.Mods.Get(s) != 0).ToArray();
+        var present = Unsupported.Where(s => opening.Mods.Get(s) != 0).Select(Program.Stats.Name).ToArray();
         if (present.Length > 0)
             request.ContentWarnings.Add(("Torment.Parity",
                 $"area={opening.Area.Id} content=Torment: spirits enabled; not acted on: {string.Join(", ", present)}"));
@@ -143,25 +144,25 @@ public static partial class MapTorment
 
     /// <summary>How many spirits the area gets: the client's own league roll over the area's stats (the map's, the
     /// scarabs' <c>map_spawn_extra_torment_spirits</c> and the Atlas tree's chance), 0 where its row allows none.</summary>
-    static int Count(ClientState conn, byte level)
+    static int Count(Player player, byte level)
     {
-        var info = AreaInfos.GetOrAdd((conn.Layout.Id, level), k =>
+        var info = AreaInfos.GetOrAdd((player.Layout.Id, level), k =>
         {
             try { return AreaInfo.Load(GamePack.Default.TryRead, k.Area, k.Level); }
             catch (Exception e) when (e is ArgumentException or FileNotFoundException) { return null; }
         });
         if (info is null) return 0;
-        var stats = conn.Instance.KeptAreaStats?.ToDictionary(s => (int)s.Key, s => s.Value) ?? [];
-        return ExtraTerrainFeatures.LeagueCount(info with { Stats = stats }, new LevelRandom(conn.Seed ^ Salt, false), LeagueRow);
+        var stats = player.Instance.KeptAreaStats?.ToDictionary(s => (int)s.Key, s => s.Value) ?? [];
+        return ExtraTerrainFeatures.LeagueCount(info with { Stats = stats }, new LevelRandom(player.Seed ^ Salt, false), LeagueRow);
     }
 
-    static Area? Of(ClientState conn)
+    static Area? Of(Player player)
     {
-        if (Areas.TryGetValue(conn.Instance, out var area)) return area;
+        if (Areas.TryGetValue(player.Instance, out var area)) return area;
         // A module reload keeps the instance's own record (ContentState), not this table.
-        if (!conn.Instance.ContentState.TryGetValue(SaveKey, out string? saved)) return null;
-        area = Areas.GetValue(conn.Instance, _ => new());
-        Load(area, saved, conn.Instance);
+        if (!player.Instance.ContentState.TryGetValue(SaveKey, out string? saved)) return null;
+        area = Areas.GetValue(player.Instance, _ => new());
+        Load(area, saved, player.Instance);
         return area;
     }
 
@@ -183,39 +184,39 @@ public static partial class MapTorment
     }
 
     // Under the Marks lock: the marks are written with the instance on the next tick.
-    static void KeepMarks(ClientState conn, Area area) => area.MarksChanged = true;
+    static void KeepMarks(Player player, Area area) => area.MarksChanged = true;
 
-    static void FlushMarks(ClientState conn, Area area)
+    static void FlushMarks(Player player, Area area)
     {
         lock (area.Marks)
         {
             if (!area.MarksChanged) return;
             area.MarksChanged = false;
-            conn.Instance.ContentState[MarksKey] = JsonSerializer.Serialize(area.Marks);
+            player.Instance.ContentState[MarksKey] = JsonSerializer.Serialize(area.Marks);
         }
     }
 
-    static void Keep(ClientState conn, Area area) => conn.Instance.ContentState[SaveKey] = JsonSerializer.Serialize(area.Spirits);
+    static void Keep(Player player, Area area) => player.Instance.ContentState[SaveKey] = JsonSerializer.Serialize(area.Spirits);
 
     /// <summary>Spawns Tormented Spirits at explicit coordinates (e.g., released from a cage or encounter),
     /// initializing the instance's Torment state even when <c>Packs.For(Layout.Id)</c> has no scattered packs.</summary>
-    public static async Task<int> SpawnSpiritsAt(ClientState conn, IReadOnlyList<(int X, int Y)> cells, byte level)
+    public static async Task<int> SpawnSpiritsAt(Player player, IReadOnlyList<(int X, int Y)> cells, byte level)
     {
-        if (conn.Instance is null || TormentCatalog.All.Count == 0 || cells.Count == 0) return 0;
-        var area = Areas.GetValue(conn.Instance, _ => new());
+        if (player.Instance is null || TormentCatalog.All.Count == 0 || cells.Count == 0) return 0;
+        var area = Areas.GetValue(player.Instance, _ => new());
         var spawned = new List<Spirit>(cells.Count);
         await area.Gate.WaitAsync();
         try
         {
             if (area.Spirits is null)
             {
-                if (conn.Instance.ContentState.TryGetValue(SaveKey, out string? saved)) Load(area, saved, conn.Instance);
+                if (player.Instance.ContentState.TryGetValue(SaveKey, out string? saved)) Load(area, saved, player.Instance);
                 area.Spirits ??= [];
             }
-            var pool = TormentCatalog.Pool(level, Stat(conn, "map_tormented_spirits_rare_varieties") > 0);
+            var pool = TormentCatalog.Pool(level, AreaStat(player, Stat.MapTormentedSpiritsRareVarieties) > 0);
             if (pool.Count == 0) pool = [.. TormentCatalog.All.Where(s => s.Weight > 0)];
             if (pool.Count == 0) return 0;
-            bool flatten = Stat(conn, "map_rare_spirits_more_common") > 0;
+            bool flatten = AreaStat(player, Stat.MapRareSpiritsMoreCommon) > 0;
             foreach (var (x, y) in cells)
             {
                 if (TormentCatalog.Pick(pool, Random.Shared, flatten) is not { } pick) continue;
@@ -223,87 +224,82 @@ public static partial class MapTorment
                 area.Spirits.Add(s);
                 spawned.Add(s);
             }
-            foreach (var s in spawned) await Spawn(conn, area, s, level);
-            if (spawned.Count > 0) Keep(conn, area);
+            foreach (var s in spawned) await Spawn(player, area, s, level);
+            if (spawned.Count > 0) Keep(player, area);
         }
         finally { area.Gate.Release(); }
         return spawned.Count;
     }
 
-    public static async Task Enter(ClientState conn)
+    public static async Task Enter(Player player)
     {
-        if (TormentCatalog.All.Count == 0 || conn.Layout.Walkable is null) return;
-        bool hasPacks = Packs.For(conn.Layout.Id)?.Scattered.Count > 0;
-        if (!hasPacks && Stat(conn, "map_rare_monsters_possessed_chance_%") <= 0 && !conn.Instance.ContentState.ContainsKey(SaveKey))
+        if (TormentCatalog.All.Count == 0 || player.Layout.Walkable is null) return;
+        bool hasPacks = Packs.For(player.Layout.Id)?.Scattered.Count > 0;
+        if (!hasPacks && AreaStat(player, Stat.MapRareMonstersPossessedChancePct) <= 0 && !player.Instance.ContentState.ContainsKey(SaveKey))
             return;
-        var area = Areas.GetValue(conn.Instance, _ => new());
+        var area = Areas.GetValue(player.Instance, _ => new());
         await area.Gate.WaitAsync();
         try
         {
             if (area.Spirits is null)
             {
-                if (conn.Instance.ContentState.TryGetValue(SaveKey, out string? saved)) Load(area, saved, conn.Instance);
+                if (player.Instance.ContentState.TryGetValue(SaveKey, out string? saved)) Load(area, saved, player.Instance);
                 else
                 {
                     area.Spirits = [];
-                    byte level = AreaLevel(conn);
-                    int count = Count(conn, level);
-                    var pool = TormentCatalog.Pool(level, Stat(conn, "map_tormented_spirits_rare_varieties") > 0);
-                    var random = new Random(unchecked((int)(conn.Seed ^ Salt)));
-                    bool lessCommon = Stat(conn, "map_rare_spirits_more_common") > 0;
+                    byte level = AreaLevel(player);
+                    int count = Count(player, level);
+                    var pool = TormentCatalog.Pool(level, AreaStat(player, Stat.MapTormentedSpiritsRareVarieties) > 0);
+                    var random = new Random(unchecked((int)(player.Seed ^ Salt)));
+                    bool lessCommon = AreaStat(player, Stat.MapRareSpiritsMoreCommon) > 0;
                     if (pool.Count > 0)
-                        foreach (var (x, y) in MapStrongboxes.Positions(conn.Layout, conn.Seed ^ Salt, count))
+                        foreach (var (x, y) in MapStrongboxes.Positions(player.Layout, player.Seed ^ Salt, count))
                             if (TormentCatalog.Pick(pool, random, lessCommon) is { } pick)
                                 area.Spirits.Add(new() { Index = area.Spirits.Count, Row = pick.Row, X = x, Y = y });
-                    RollExtras(conn, area, random);
+                    RollExtras(player, area, random);
                     count = area.Spirits.Count;
-                    Keep(conn, area);
-                    if (count > 0) Console.WriteLine($"[map-content] torment area={conn.Layout.Id} level={level}: placed {area.Spirits.Count}/{count}");
+                    Keep(player, area);
+                    if (count > 0) Console.WriteLine($"[map-content] torment area={player.Layout.Id} level={level}: placed {area.Spirits.Count}/{count}");
                 }
             }
-            await Restore(conn, area);
+            await Restore(player, area);
         }
         finally { area.Gate.Release(); }
     }
 
     // Spawns the spirits that are waiting or active and have no monster in the instance: new ones, and the ones of a kept
     // instance, whose monsters came back as ordinary monsters under new ids (SavedMonster keeps no script): those go.
-    static async Task Restore(ClientState conn, Area area)
+    static async Task Restore(Player player, Area area)
     {
         var tracked = new HashSet<uint>();
         var missing = new List<Spirit>();
-        lock (conn.Monsters)
-            foreach (var s in area.Spirits!.Where(s => s.State is SpiritState.Waiting or SpiritState.Active))
-                if (s.Monster != 0 && conn.Monsters.ContainsKey(s.Monster)) tracked.Add(s.Monster);
-                else missing.Add(s);
+        foreach (var s in area.Spirits!.Where(s => s.State is SpiritState.Waiting or SpiritState.Active))
+            if (s.Monster != 0 && player.Area.Monsters.ContainsKey(s.Monster)) tracked.Add(s.Monster);
+            else missing.Add(s);
         if (missing.Count == 0) return;
-        uint[] strays;
-        lock (conn.Monsters)
-            strays = [.. conn.Monsters.Where(p => !tracked.Contains(p.Key) && TormentCatalog.ByVariety(p.Value.Variety?.Id) is not null)
-                .Select(p => p.Key)];
-        foreach (uint stray in strays) await Remove(conn, stray, "kept spirit replaced");
-        foreach (var s in missing) await Spawn(conn, area, s);
-        Keep(conn, area);
+        uint[] strays = [.. player.Area.Monsters.Where(p => !tracked.Contains(p.Key) && TormentCatalog.ByVariety(p.Value.Variety?.Id) is not null)
+            .Select(p => p.Key)];
+        foreach (uint stray in strays) await Remove(player, stray, "kept spirit replaced");
+        foreach (var s in missing) await Spawn(player, area, s);
+        Keep(player, area);
     }
 
-    static async Task Spawn(ClientState conn, Area area, Spirit s, byte? levelOverride = null)
+    static async Task Spawn(Player player, Area area, Spirit s, byte? levelOverride = null)
     {
         if (TormentCatalog.ByRow(s.Row) is not { } spirit || Monsters.Find(spirit.Variety) is not { Supported: true } variety) return;
-        byte level = levelOverride ?? AreaLevel(conn);
-        var basis = MonsterModsFor(conn, variety, level, MonsterRarity.Unique, null, true);
+        byte level = levelOverride ?? AreaLevel(player);
+        var basis = MonsterModsFor(player, variety, level, MonsterRarity.Unique, null, true);
         var own = TormentCatalog.Roll(spirit.Own, Random.Shared);
-        var mods = MonsterModRolls.Value.Create([.. basis.Mods, .. own.Mods], basis.NameWords, MonsterRarity.Unique, level);
+        var mods = MonsterModRolls.Create([.. basis.Mods, .. own.Mods], basis.NameWords, MonsterRarity.Unique, level);
         mods = mods with { Effects = mods.Effects.Plus(LifeStat, TormentCatalog.LifePct(level))
-            .Plus("base_movement_velocity_+%", Stat(conn, "map_tormented_spirits_movement_speed_+%")) };
-        var w = conn.Wire;
-        uint id = await SpawnMonster(w.Remote, w.Stream, w.Ciphers, conn, variety, level, MonsterRarity.Unique, s.X, s.Y,
+            .Plus(Stat.BaseMovementVelocityPlusPct, AreaStat(player, Stat.MapTormentedSpiritsMovementSpeedPlusPct)) };
+        uint id = await SpawnMonster(player, variety, level, MonsterRarity.Unique, s.X, s.Y,
             mods: mods, alone: true, scripted: true, movement: new MonsterMovement { ThroughBodies = true });
         if (id == 0) return;
         s.Monster = id;
         s.Taper = int.MinValue;
         lock (area.Marks) area.SpiritMonsters.Add(id);
-        lock (conn.Monsters)
-            if (conn.Monsters.TryGetValue(id, out var m)) SetTaper(m, s);
+        if (player.Area.Monsters.TryGetValue(id, out var m)) SetTaper(m, s);
     }
 
     // The spirit's damage taken: 90% less while waiting, tapering to none over 15 seconds once active (a final factor),
@@ -314,46 +310,43 @@ public static partial class MapTorment
         int less = -(int)Math.Round(TaperPct * left);
         if (less * 1000 + s.Touches == s.Taper) return;
         s.Taper = less * 1000 + s.Touches;
-        m.TemporaryStats[TaperKey] = new Dictionary<string, int> { [TaperStat] = less, ["base_damage_taken_+%"] = PerTouchPct * s.Touches };
+        m.SetTemporaryStats(TaperKey, new Dictionary<uint, int> { [TaperStat] = less, [Stat.BaseDamageTakenPlusPct] = PerTouchPct * s.Touches });
     }
 
-    public static async Task Tick(ClientState conn, double seconds)
+    public static async Task Tick(Player player, double seconds)
     {
-        if (!conn.Closed && !conn.LeavingArea) await TickPossession(conn, seconds);
-        if (conn.Closed || conn.LeavingArea || !conn.PlayerSent || conn.Instance is null || Of(conn) is not { } area) return;
+        if (!player.Closed && !player.LeavingArea) await TickPossession(player, seconds);
+        if (player.Closed || player.LeavingArea || !player.Connection.PlayerSent || player.Instance is null || Of(player) is not { } area) return;
         await area.Gate.WaitAsync();
         try
         {
-            if (area.Spirits is null || conn.Closed || conn.LeavingArea) return;
-            await PayOut(conn, area);
-            await Present(conn, area);
-            if (IsMonsterRunner(conn)) await Drive(conn, area, Math.Clamp(seconds, 0, 1));
-            FlushMarks(conn, area);
+            if (area.Spirits is null || player.Closed || player.LeavingArea) return;
+            await PayOut(player, area);
+            await Present(player, area);
+            if (IsMonsterRunner(player)) await Drive(player, area, Math.Clamp(seconds, 0, 1));
+            FlushMarks(player, area);
         }
         finally { area.Gate.Release(); }
     }
 
     // What this client has not been shown of the touched and possessed monsters it has: their mods, stats and buff.
-    static async Task Present(ClientState conn, Area area)
+    static async Task Present(Player player, Area area)
     {
         if (area.Marks.Count == 0) return;
-        var shown = Presented.GetValue(conn, _ => new());
+        var shown = Presented.GetValue(player, _ => new());
         var due = new List<(uint Id, Mark Mark, bool Buff)>();
-        lock (conn.Monsters)
-            lock (area.Marks)
-                foreach (var (id, mark) in area.Marks)
-                    if (conn.MonsterViews.ContainsKey(id) && shown.Versions.GetValueOrDefault(id, -1) != mark.Version)
-                        due.Add((id, mark, !shown.Versions.ContainsKey(id) || mark.Grip));
-        var w = conn.Wire;
+        lock (area.Marks)
+            foreach (var (id, mark) in area.Marks)
+                if (MonsterShown(player, id) && shown.Versions.GetValueOrDefault(id, -1) != mark.Version)
+                    due.Add((id, mark, !shown.Versions.ContainsKey(id) || mark.Grip));
         foreach (var (id, mark, buff) in due)
         {
-            await SendWorldRecord(w.Remote, w.Stream, w.Ciphers, conn, id, mark.Magic, null);
-            await SendWorldRecord(w.Remote, w.Stream, w.Ciphers, conn, id, mark.Stats, null);
+            await SendWorldRecord(player, id, mark.Magic, null);
+            await SendWorldRecord(player, id, mark.Stats, null);
             if (buff)
             {
-                ushort buffId;
-                lock (conn.Monsters) buffId = NextBuffId(conn);
-                await SendWorldRecord(w.Remote, w.Stream, w.Ciphers, conn, id, InstanceEntities.AddBuff(id, buffId,
+                ushort buffId = NextBuffId(player);
+                await SendWorldRecord(player, id, InstanceEntities.AddBuff(id, buffId,
                     mark.Grip ? TormentCatalog.PossessedBuff : TormentCatalog.TouchedBuff),
                     $"torment: monster 0x{id:x} {(mark.Grip ? "possessed" : "touched")}");
             }
@@ -361,73 +354,69 @@ public static partial class MapTorment
         }
     }
 
-    static async Task Drive(ClientState conn, Area area, double seconds)
+    static async Task Drive(Player player, Area area, double seconds)
     {
-        double now = conn.Clock.Elapsed.TotalSeconds;
-        var players = Members(conn).Where(c => c.PlayerSent && c.PlayerLife > 0)
-            .Select(c => c.Walk.Position(c.Clock.Elapsed.TotalSeconds)).ToArray();
+        double now = AreaTime(player);
+        var players = Members(player).Where(c => c.Connection.PlayerSent && c.PlayerLife > 0)
+            .Select(c => c.Walk.Position(AreaTime(c))).ToArray();
         bool changed = false;
-        List<(int X, int Y)> surround;
-        lock (conn.Monsters) surround = FirstSight(conn, area, now, ref changed);
-        bool speaker = SpeakerOfTheDead(conn);
-        if (speaker) lock (conn.Monsters) PlayerTouches(conn, area, now, ref changed);
-        double duration = ActiveSeconds * Math.Max(0, 1 + Stat(conn, "map_tormented_spirits_duration_+%") / 100.0);
+        List<(int X, int Y)> surround = FirstSight(player, area, now, ref changed);
+        bool speaker = SpeakerOfTheDead(player);
+        if (speaker) PlayerTouches(player, area, now, ref changed);
+        double duration = ActiveSeconds * Math.Max(0, 1 + AreaStat(player, Stat.MapTormentedSpiritsDurationPlusPct) / 100.0);
         foreach (var s in area.Spirits!)
         {
             if (s.State is not (SpiritState.Waiting or SpiritState.Active) || TormentCatalog.ByRow(s.Row) is not { } spirit) continue;
             SpawnedMonster? m;
             (int X, int Y) at;
             uint? possess = null;
-            ClientState? player = null;
-            lock (conn.Monsters)
+            Player? targetPlayer = null;
+            if (!player.Area.Monsters.TryGetValue(s.Monster, out m) || m.Dead)
             {
-                if (!conn.Monsters.TryGetValue(s.Monster, out m) || m.Dead)
-                {
-                    if (m is null) { s.State = SpiritState.Gone; changed = true; }
-                    continue;
-                }
-                at = m.Walk.Position(now);
-                var from = s.PreviousAt ?? at;
-                s.PreviousAt = at;
-                (s.X, s.Y) = at;
-                if (s.State == SpiritState.Waiting)
-                {
-                    int range = m.Variety?.AggroRange ?? 60;
-                    if (!players.Any(p => Distance(p, at) <= range)) continue;
-                    s.State = SpiritState.Active;
-                    s.PausedAt = 0;
-                    changed = true;
-                    Console.WriteLine($"[torment] spirit {s.Index} {spirit.Variety} 0x{s.Monster:x} active at ({at.X}, {at.Y})");
-                }
-                s.Active += seconds;
-                if (s.Active < duration)
-                {
-                    // What it passes through: a rare or unique it goes into, else the normal and magic monsters it touches.
-                    // Speaker of the Dead: it goes into a player it reaches, and into no monster.
-                    if (speaker) player = PlayerContact(conn, spirit, at);
-                    foreach (var (id, other) in conn.Monsters)
-                    {
-                        if (player is not null) break;
-                        if (!Touchable(other) || Passed(from, at, other.Walk.Position(now)) > Contact(other)) continue;
-                        if (other.Rarity is MonsterRarity.Rare or MonsterRarity.Unique)
-                        {
-                            if (speaker) continue;
-                            Apply(conn, area, id, other, spirit, grip: true, now);
-                            possess = id;
-                            break;
-                        }
-                        if (s.Touches >= TouchLimit || TormentCatalog.Has(other.Mods, grip: false)) continue;
-                        Apply(conn, area, id, other, spirit, grip: false, now);
-                        s.Touches++;
-                        changed = true;
-                    }
-                    SetTaper(m, s);
-                }
+                if (m is null) { s.State = SpiritState.Gone; changed = true; }
+                continue;
             }
-            if (player is not null)
+            at = m.Walk.Position(now);
+            var from = s.PreviousAt ?? at;
+            s.PreviousAt = at;
+            (s.X, s.Y) = at;
+            if (s.State == SpiritState.Waiting)
+            {
+                int range = m.Variety?.AggroRange ?? 60;
+                if (!players.Any(p => Distance(p, at) <= range)) continue;
+                s.State = SpiritState.Active;
+                s.PausedAt = 0;
+                changed = true;
+                Console.WriteLine($"[torment] spirit {s.Index} {spirit.Variety} 0x{s.Monster:x} active at ({at.X}, {at.Y})");
+            }
+            s.Active += seconds;
+            if (s.Active < duration)
+            {
+                // What it passes through: a rare or unique it goes into, else the normal and magic monsters it touches.
+                // Speaker of the Dead: it goes into a player it reaches, and into no monster.
+                if (speaker) targetPlayer = PlayerContact(player, spirit, at);
+                foreach (var (id, other) in player.Area.Monsters)
+                {
+                    if (targetPlayer is not null) break;
+                    if (!Touchable(other) || Passed(from, at, other.Walk.Position(now)) > Contact(other)) continue;
+                    if (other.Rarity is MonsterRarity.Rare or MonsterRarity.Unique)
+                    {
+                        if (speaker) continue;
+                        Apply(player, area, id, other, spirit, grip: true, now);
+                        possess = id;
+                        break;
+                    }
+                    if (s.Touches >= TouchLimit || TormentCatalog.Has(other.Mods, grip: false)) continue;
+                    Apply(player, area, id, other, spirit, grip: false, now);
+                    s.Touches++;
+                    changed = true;
+                }
+                SetTaper(m, s);
+            }
+            if (targetPlayer is not null)
             {
                 s.State = SpiritState.Possessed;
-                await Remove(conn, s.Monster, $"spirit possesses {CharacterName(player)}");
+                await Remove(player, s.Monster, $"spirit possesses {CharacterName(targetPlayer)}");
                 changed = true;
                 continue;
             }
@@ -435,7 +424,7 @@ public static partial class MapTorment
             {
                 s.State = SpiritState.Possessed;
                 Console.WriteLine($"[torment] spirit {s.Index} possesses 0x{into:x} after {s.Touches} touches");
-                await Remove(conn, s.Monster, "spirit possesses a monster");
+                await Remove(player, s.Monster, "spirit possesses a monster");
                 changed = true;
                 continue;
             }
@@ -443,14 +432,14 @@ public static partial class MapTorment
             {
                 s.State = SpiritState.Gone;
                 Console.WriteLine($"[torment] spirit {s.Index} leaves after {s.Active:0.#} s, {s.Touches} touches");
-                await Remove(conn, s.Monster, "spirit's time is up");
+                await Remove(player, s.Monster, "spirit's time is up");
                 changed = true;
                 continue;
             }
-            if (now >= s.NextOrderAt) await Steer(conn, s, m!, at, players, now, speaker);
+            if (now >= s.NextOrderAt) await Steer(player, s, m!, at, players, now, speaker);
         }
-        if (surround.Count > 0) { await AddSpirits(conn, area, surround); changed = true; }
-        if (changed) Keep(conn, area);
+        if (surround.Count > 0) { await AddSpirits(player, area, surround); changed = true; }
+        if (changed) Keep(player, area);
     }
 
     // It touches what it reaches: the two bodies' edges within the contact range.
@@ -472,7 +461,7 @@ public static partial class MapTorment
 
     // Where it goes next: a pause every few seconds; else to a rare or unique to possess, else to a monster it has not
     // touched, else away from the nearest player.
-    static async Task Steer(ClientState conn, Spirit s, SpawnedMonster m, (int X, int Y) at, (int X, int Y)[] players, double now, bool speaker)
+    static async Task Steer(Player player, Spirit s, SpawnedMonster m, (int X, int Y) at, (int X, int Y)[] players, double now, bool speaker)
     {
         (int X, int Y)? to = null;
         if (s.Active - s.PausedAt >= PauseEvery)
@@ -487,49 +476,44 @@ public static partial class MapTorment
             // No step since the last order: the walk stops short of that target, so it goes away from the players instead.
             bool stuck = s.SteeredFrom == at;
             s.SteeredFrom = at;
-            lock (conn.Monsters)
+            var near = player.Area.Monsters.Values.Where(o => Touchable(o) && Distance(o.Walk.Position(now), at) <= SeekRange)
+                .Select(o => (Monster: o, At: o.Walk.Position(now))).ToArray();
+            var target = stuck ? null : near.Where(o => !speaker && o.Monster.Rarity is MonsterRarity.Rare or MonsterRarity.Unique).OrderBy(o => Distance(o.At, at))
+                .Select(o => ((int, int)?)o.At).FirstOrDefault()
+                ?? (s.Touches < TouchLimit ? near.Where(o => !TormentCatalog.Has(o.Monster.Mods, grip: false)).OrderBy(o => Distance(o.At, at))
+                    .Select(o => ((int, int)?)o.At).FirstOrDefault() : null);
+            // A monster moves: while it chases one it is ordered again every tick.
+            if (target is not null) s.NextOrderAt = now;
+            if (target is null && players.Length > 0)
             {
-                var near = conn.Monsters.Values.Where(o => Touchable(o) && Distance(o.Walk.Position(now), at) <= SeekRange)
-                    .Select(o => (Monster: o, At: o.Walk.Position(now))).ToArray();
-                var target = stuck ? null : near.Where(o => !speaker && o.Monster.Rarity is MonsterRarity.Rare or MonsterRarity.Unique).OrderBy(o => Distance(o.At, at))
-                    .Select(o => ((int, int)?)o.At).FirstOrDefault()
-                    ?? (s.Touches < TouchLimit ? near.Where(o => !TormentCatalog.Has(o.Monster.Mods, grip: false)).OrderBy(o => Distance(o.At, at))
-                        .Select(o => ((int, int)?)o.At).FirstOrDefault() : null);
-                // A monster moves: while it chases one it is ordered again every tick.
-                if (target is not null) s.NextOrderAt = now;
-                if (target is null && players.Length > 0)
-                {
-                    var player = players.MinBy(p => Distance(p, at));
-                    target = MonsterFlee.Point(at, player, m.Walk.Floor, Random.Shared);
-                }
-                // Nothing to chase and no way away: it drifts somewhere near.
-                target ??= MonsterFlee.Point(at, at, m.Walk.Floor, Random.Shared);
-                to = target;
+                var nearestPlayer = players.MinBy(p => Distance(p, at));
+                target = MonsterFlee.Point(at, nearestPlayer, m.Walk.Floor, Random.Shared);
             }
+            // Nothing to chase and no way away: it drifts somewhere near.
+            target ??= MonsterFlee.Point(at, at, m.Walk.Floor, Random.Shared);
+            to = target;
         }
         if (to is not { } dest || dest == m.Walk.Destination && dest != at) return;
-        int generation;
-        lock (conn.Monsters) generation = ++m.ActionGeneration;
-        var w = conn.Wire;
-        await SendMonsterAction(w.Remote, w.Stream, w.Ciphers, conn, s.Monster, m, generation, () =>
+        int generation = ++m.ActionGeneration;
+        await SendMonsterAction(player, s.Monster, m, generation, () =>
         {
-            double t = conn.Clock.Elapsed.TotalSeconds;
+            double t = AreaTime(player);
             var here = m.Walk.Position(t);
             if (dest == at) m.Walk.Teleport(here.X, here.Y, t);
             else m.Walk.Order(dest.X, dest.Y, t);
             var goal = dest == at ? here : dest;
-            return InstanceProtocol.ActionStarted(s.Monster, here.X, here.Y, goal.X, goal.Y, 0x2909, conn.NextActionSequence(), conn.MonsterOrderFlags);
+            return InstanceProtocol.ActionStarted(s.Monster, here.X, here.Y, goal.X, goal.Y, 0x2909, player.NextActionSequence(), player.MonsterOrderFlags);
         });
     }
 
-    /// <summary>Gives a monster a spirit's Touch or Grip, under the Monsters lock: its mods (kept with the instance and
+    /// <summary>Gives a monster a spirit's Touch or Grip: its mods (kept with the instance and
     /// shown on its name plate), what they change (life, hit, attack time, walk, drops) and the record later clients get.</summary>
-    static void Apply(ClientState conn, Area area, uint id, SpawnedMonster m, TormentCatalog.Spirit spirit, bool grip, double now)
+    static void Apply(Player player, Area area, uint id, SpawnedMonster m, TormentCatalog.Spirit spirit, bool grip, double now)
     {
         var (mods, stats) = TormentCatalog.Roll(grip ? spirit.Grip : spirit.Touch, Random.Shared);
         // A Blessed map's "Possessed Monsters take increased Damage".
-        if (grip && Stat(conn, "map_monster_damage_taken_+%_while_possessed") is int taken and not 0)
-            stats["base_damage_taken_+%"] = stats.GetValueOrDefault("base_damage_taken_+%") + taken;
+        if (grip && AreaStat(player, Stat.MapMonsterDamageTakenPlusPctWhilePossessed) is int taken and not 0)
+            stats[Stat.BaseDamageTakenPlusPct] = stats.GetValueOrDefault(Stat.BaseDamageTakenPlusPct) + taken;
         var before = m.Effects;
         uint oldLife = m.MaxLife;
         m.Mods = m.Mods with { Mods = [.. m.Mods.Mods, .. mods], Effects = m.Mods.Effects.Combine(stats) };
@@ -544,35 +528,38 @@ public static partial class MapTorment
             m.Attack = attack with
             {
                 Damage = MonsterModEffects.AddedTo(attack.Damage, stats),
-                Seconds = before.AttackSeconds(attack.Seconds, stats.GetValueOrDefault("attack_speed_+%")),
+                Seconds = before.AttackSeconds(attack.Seconds, stats.GetValueOrDefault(Stat.AttackSpeedPlusPct)),
             };
         if (after.MovementPct != before.MovementPct)
             m.Walk.SetSpeed(m.Walk.Speed * (100.0 + after.MovementPct) / Math.Max(1, 100.0 + before.MovementPct), now);
-        Show(conn, area, id, m, mark =>
+        Show(player, area, id, m, mark =>
         {
             mark.Grip |= grip;
             if (grip) mark.Spirits.Add(spirit.Row);
-            foreach (string stat in DropStatIds)
+            foreach (uint stat in DropStatIds)
                 if (stats.GetValueOrDefault(stat) is int value and not 0) mark.DropStats[stat] = mark.DropStats.GetValueOrDefault(stat) + value;
         });
         Console.WriteLine($"[torment] {(grip ? "possessed" : "touched")} 0x{id:x} {m.Variety?.Id} ({m.Rarity}) by {spirit.Variety}");
     }
 
-    /// <summary>Under the Monsters lock: a touched or possessed monster's record for the clients (its mods, the stats they
+    /// <summary>A touched or possessed monster's record for the clients (its mods, the stats they
     /// change, the record later clients are created from) and its mark, changed by <paramref name="change"/>.</summary>
-    static void Show(ClientState conn, Area area, uint id, SpawnedMonster m, Action<Mark> change)
+    static void Show(Player player, Area area, uint id, SpawnedMonster m, Action<Mark> change)
     {
         var effects = m.Effects;
-        var client = new List<(uint Key, int Value)> { (StatKeys.MaximumLife, (int)Math.Min(int.MaxValue, m.MaxLife)),
-            (StatKeys.MovementVelocityPct, effects.MovementPct) };
-        if (Program.Stats.Key("actor_scale_+%") is uint actorScale) client.Add((actorScale, effects.ActorScalePct));
+        var client = new List<(uint Key, int Value)>
+        {
+            (Stat.MaximumLife, (int)Math.Min(int.MaxValue, m.MaxLife)),
+            (Stat.MovementVelocityPlusPct, effects.MovementPct),
+            (Stat.ActorScalePlusPct, effects.ActorScalePct),
+        };
         if (m.Attack is { } a) client.AddRange(a.Stats());
         // The record a client that comes later is created from (SyncInstanceMonsters).
         string? name = null;
-        if (conn.Instance.World.MonsterOrigins.TryGetValue(id, out var origin))
+        if (player.Instance.World.MonsterOrigins.TryGetValue(id, out var origin))
         {
             var keys = client.Select(c => c.Key).ToHashSet();
-            conn.Instance.World.MonsterOrigins[id] = origin with
+            player.Instance.World.MonsterOrigins[id] = origin with
             {
                 Object = origin.Object with
                 {
@@ -592,18 +579,18 @@ public static partial class MapTorment
             mark.Version = ++area.Version;
             mark.Magic = InstanceEntities.ComponentUpdate(id, 2, magic.ToArray());
             mark.Stats = InstanceEntities.StatsUpdate(id, client);
-            KeepMarks(conn, area);
+            KeepMarks(player, area);
         }
     }
 
-    /// <summary>Under the Monsters lock: a monster that came back with a Touch or Grip in its kept mods (a kept instance
+    /// <summary>A monster that came back with a Touch or Grip in its kept mods (a kept instance
     /// gives it a new id) gets its mark again, from those mods; it is not touched or possessed again.</summary>
-    static bool Remark(ClientState conn, Area area, uint id, SpawnedMonster m)
+    static bool Remark(Player player, Area area, uint id, SpawnedMonster m)
     {
         bool grip = TormentCatalog.Has(m.Mods, grip: true), touch = TormentCatalog.Has(m.Mods, grip: false);
         if (!grip && !touch) return false;
         lock (area.Marks) if (area.Marks.ContainsKey(id)) return true;
-        Show(conn, area, id, m, mark =>
+        Show(player, area, id, m, mark =>
         {
             mark.Grip = grip;
             foreach (var mod in m.Mods.Mods)
@@ -618,42 +605,35 @@ public static partial class MapTorment
         return true;
     }
 
-    static async Task Remove(ClientState conn, uint id, string why)
+    static async Task Remove(Player player, uint id, string why)
     {
-        if (Areas.TryGetValue(conn.Instance, out var area)) lock (area.Marks) area.SpiritMonsters.Remove(id);
-        lock (conn.Monsters)
-        {
-            if (conn.Monsters.Remove(id, out var m)) { m.Dead = true; m.Life = 0; ++m.ActionGeneration; }
-            conn.Instance.World.MonsterOrigins.TryRemove(id, out _);
-        }
-        foreach (var p in Members(conn))
-        {
-            bool shown;
-            lock (p.Monsters) { shown = p.MonsterViews.Remove(id); p.AsleepMonsters.Remove(id); }
-            if (shown) { var w = p.Wire; await SendWorldRemoval(w.Remote, w.Stream, w.Ciphers, p, id, $"[torment] 0x{id:x} removed: {why}"); }
-        }
+        if (Areas.TryGetValue(player.Instance, out var area)) lock (area.Marks) area.SpiritMonsters.Remove(id);
+        bool shown = player.Area.Monsters.Remove(id, out var m);
+        if (m is not null) { m.Dead = true; m.Life = 0; ++m.ActionGeneration; }
+        player.Instance.World.MonsterOrigins.TryRemove(id, out _);
+        if (shown) await SendWorldRemoval(player, id, $"[torment] 0x{id:x} removed: {why}");
     }
 
     /// <summary>Per kill: a touched or possessed monster's more items from the map
     /// (<c>map_possessed_and_touched_monsters_item_quantity_+%</c>).</summary>
     public static void Drops(DropRoll roll)
     {
-        if (roll.Monster.ObjectId == 0 || !Areas.TryGetValue(roll.Conn.Instance, out var area) || area.Spirits is null) return;
+        if (roll.Monster.ObjectId == 0 || !Areas.TryGetValue(roll.Player.Instance, out var area) || area.Spirits is null) return;
         lock (area.Marks)
             if (area.Marks.ContainsKey(roll.Monster.ObjectId)
-                && Stat(roll.Conn, "map_possessed_and_touched_monsters_item_quantity_+%") is int quantity and not 0)
+                && AreaStat(roll.Player, Stat.MapPossessedAndTouchedMonstersItemQuantityPlusPct) is int quantity and not 0)
                 roll.Quantity *= Math.Max(0, 1 + quantity / 100.0);
     }
 
     /// <summary>A kill's payout, claimed in the kill (every kill: the player's, a minion's, a totem's, a trap's) and paid
     /// on the next tick, so the kill's own drop roll still finds its mark (<see cref="Drops"/>).</summary>
-    sealed record Payout(ClientState Killer, uint Id, int SpiritRow, Mark? Mark, MonsterRarity Rarity, int Level, (int X, int Y) At, string Name);
+    sealed record Payout(Player Killer, uint Id, int SpiritRow, Mark? Mark, MonsterRarity Rarity, int Level, (int X, int Y) At, string Name);
 
     /// <summary>GameEvents.Kill: claims a slain spirit's or a touched or possessed monster's payout once.</summary>
     public static void Kill(KillContext kill)
     {
         uint id = kill.Monster.ObjectId;
-        if (id == 0 || kill.Conn.Instance is null || !Areas.TryGetValue(kill.Conn.Instance, out var area)) return;
+        if (id == 0 || kill.Player.Instance is null || !Areas.TryGetValue(kill.Player.Instance, out var area)) return;
         Mark? mark;
         bool spirit;
         lock (area.Marks)
@@ -663,18 +643,18 @@ public static partial class MapTorment
             else mark = null;
             if (!spirit && mark is null) return;
             int row = spirit ? TormentCatalog.ByVariety(kill.VarietyId)?.Row ?? -1 : -1;
-            area.Payouts.Enqueue(new(kill.Conn, id, row, mark, kill.Monster.Rarity, kill.Monster.Level, kill.At,
+            area.Payouts.Enqueue(new(kill.Player, id, row, mark, kill.Monster.Rarity, kill.Monster.Level, kill.At,
                 kill.Monster.Variety?.Name ?? kill.VarietyId));
-            KeepMarks(kill.Conn, area);
+            KeepMarks(kill.Player, area);
         }
     }
 
     // Under the gate, on a tick: the kills claimed since the last one.
-    static async Task PayOut(ClientState conn, Area area)
+    static async Task PayOut(Player player, Area area)
     {
         while (area.Payouts.TryDequeue(out var payout))
         {
-            var killer = payout.Killer is { Closed: false, LeavingArea: false } k && k.Instance == conn.Instance ? k : conn;
+            var killer = payout.Killer is { Closed: false, LeavingArea: false } k && k.Instance == player.Instance ? k : player;
             var items = new List<ItemDrops.Drop>();
             var random = Random.Shared;
             int level = Math.Clamp(payout.Level, 1, 100);
@@ -685,11 +665,11 @@ public static partial class MapTorment
                 if (area.Spirits!.FirstOrDefault(s => s.Monster == payout.Id && s.State is not (SpiritState.Possessed or SpiritState.Slain)) is { } slain)
                 {
                     slain.State = SpiritState.Slain;
-                    Keep(conn, area);
+                    Keep(player, area);
                     Console.WriteLine($"[torment] spirit {slain.Index} slain after {slain.Touches} touches");
                 }
                 // poewiki: a slain spirit always drops a rare; the Peculiarity's spirits also their own kind of item.
-                items.AddRange(Rares(killer, level, 1 + Math.Max(0, Stat(killer, "map_tormented_spirits_drop_x_additional_rare_items")), random));
+                items.AddRange(Rares(killer, level, 1 + Math.Max(0, AreaStat(killer, Stat.MapTormentedSpiritsDropXAdditionalRareItems)), random));
                 if (TormentCatalog.ByRow(payout.SpiritRow) is { Unusual: true } unusual
                     && (unusual.Variety.EndsWith("Betrayer", StringComparison.Ordinal) ? drops.Scarab(random, level)
                         : unusual.Variety.EndsWith("Felon", StringComparison.Ordinal) ? Unique(killer, level, random)
@@ -697,31 +677,31 @@ public static partial class MapTorment
             }
             if (payout.Mark is { } mark)
             {
-                int Chance(string stat) => mark.DropStats.GetValueOrDefault(stat);
-                int Count(string stat) => Chance(stat) / 100 + (random.Next(100) < Chance(stat) % 100 ? 1 : 0);
+                int Chance(uint stat) => mark.DropStats.GetValueOrDefault(stat);
+                int Count(uint stat) => Chance(stat) / 100 + (random.Next(100) < Chance(stat) % 100 ? 1 : 0);
                 // Each Grip's 100% additional item, rare; poewiki: a possessed rare drops at least two rares, a unique three.
-                int rares = Count("torment_spirit_haunted_additional_item_drop_chance_%");
+                int rares = Count(Stat.TormentSpiritHauntedAdditionalItemDropChancePct);
                 if (mark.Grip) rares = Math.Max(rares, payout.Rarity == MonsterRarity.Unique ? 3 : 2);
                 items.AddRange(Rares(killer, level, rares, random));
-                for (int i = Chance("monster_drop_additional_unique_items") + Count("possessed_monster_drop_item_template_for_unique_item"); i > 0; i--)
+                for (int i = Chance(Stat.MonsterDropAdditionalUniqueItems) + Count(Stat.PossessedMonsterDropItemTemplateForUniqueItem); i > 0; i--)
                     if (Unique(killer, level, random) is { } unique) items.Add(unique);
-                for (int i = Chance("monster_drop_additional_map_items") + Count("possessed_monster_drop_template_any_map"); i > 0; i--)
+                for (int i = Chance(Stat.MonsterDropAdditionalMapItems) + Count(Stat.PossessedMonsterDropTemplateAnyMap); i > 0; i--)
                     if (drops.Map(level, MonsterRarity.Unique, Math.Max(1, tier), random) is { } map) items.Add(map);
-                for (int i = Count("possessed_monster_drop_template_any_scarab"); i > 0; i--)
+                for (int i = Count(Stat.PossessedMonsterDropTemplateAnyScarab); i > 0; i--)
                     if (drops.Scarab(random, level) is { } scarab) items.Add(scarab);
-                foreach (var (stat, name) in new[] { ("monster_drop_additional_wisdom_scrolls", "Scroll of Wisdom"), ("monster_drop_additional_portal_scrolls", "Portal Scroll") })
+                foreach (var (stat, name) in new[] { (Stat.MonsterDropAdditionalWisdomScrolls, "Scroll of Wisdom"), (Stat.MonsterDropAdditionalPortalScrolls, "Portal Scroll") })
                     for (int i = Chance(stat); i > 0; i--)
                         if (ModDrop(killer, name, level) is { } scroll) items.Add(scroll);
-                if (Chance("monster_drop_additional_rings_amulets") is int jewellery and > 0)
+                if (Chance(Stat.MonsterDropAdditionalRingsAmulets) is int jewellery and > 0)
                     items.AddRange(drops.Container(level, jewellery, 0, random, t => t.Class is "Ring" or "Amulet"));
-                for (int i = Chance("monster_drop_additional_currency_items"); i > 0; i--)
+                for (int i = Chance(Stat.MonsterDropAdditionalCurrencyItems); i > 0; i--)
                     if (Currency(killer, level, random) is { } currency) items.Add(currency);
-                for (int i = Chance("monster_drop_additional_vaal_items"); i > 0; i--)
+                for (int i = Chance(Stat.MonsterDropAdditionalVaalItems); i > 0; i--)
                     if (VaalItem(killer, level, random) is { } vaal) items.Add(vaal);
                 if (mark.Grip)
                 {
                     foreach (var (stat, kind) in PossessedDropChances)
-                        if (Stat(killer, stat) is int chance and > 0 && random.Next(100) < chance)
+                        if (AreaStat(killer, stat) is int chance and > 0 && random.Next(100) < chance)
                             if ((kind == "unique" ? Unique(killer, level, random) : kind == "map" ? drops.Map(level, MonsterRarity.Unique, Math.Max(1, tier), random)
                                 : drops.Scarab(random, level)) is { } extra) items.Add(extra);
                     await Release(killer, area, mark, payout.At);
@@ -733,9 +713,9 @@ public static partial class MapTorment
 
     // The Torment Scarab of Release (and an Idol's): each spirit in the slain monster has the chance to be set free,
     // active at once. The Torment Scarab's own chance also digs up a possessed monster. Under the gate.
-    static async Task Release(ClientState conn, Area area, Mark mark, (int X, int Y) at)
+    static async Task Release(Player player, Area area, Mark mark, (int X, int Y) at)
     {
-        int chance = Stat(conn, "map_tormented_spirit_release_chance"), dig = Stat(conn, "map_tormented_spirit_release_and_dig_%_chance");
+        int chance = AreaStat(player, Stat.MapTormentedSpiritReleaseChance), dig = AreaStat(player, Stat.MapTormentedSpiritReleaseAndDigPctChance);
         if (chance <= 0 && dig <= 0) return;
         foreach (int row in mark.Spirits)
         {
@@ -743,65 +723,64 @@ public static partial class MapTorment
             if (!digs && Random.Shared.Next(100) >= chance) continue;
             var s = new Spirit { Index = area.Spirits!.Count, Row = row, X = at.X, Y = at.Y, State = SpiritState.Active };
             area.Spirits.Add(s);
-            await Spawn(conn, area, s);
+            await Spawn(player, area, s);
             Console.WriteLine($"[torment] spirit {s.Index} set free at ({at.X}, {at.Y})");
-            if (digs) await Dig(conn, area, row, at);
+            if (digs) await Dig(player, area, row, at);
         }
-        Keep(conn, area);
+        Keep(player, area);
     }
 
-    static ItemDrops.Drop? Currency(ClientState conn, int level, Random random)
+    static ItemDrops.Drop? Currency(Player player, int level, Random random)
     {
         double roll = random.NextDouble() * ItemDrops.Currency.Sum(c => c.Weight);
         foreach (var (id, weight) in ItemDrops.Currency)
-            if ((roll -= weight) < 0) return ModDrop(conn, id, level);
+            if ((roll -= weight) < 0) return ModDrop(player, id, level);
         return null;
     }
 
     // A Vaal Cultist's "Vaal items": a Vaal skill gem of the area's level.
-    static ItemDrops.Drop? VaalItem(ClientState conn, int level, Random random)
+    static ItemDrops.Drop? VaalItem(Player player, int level, Random random)
     {
-        var gems = ItemsFor(conn).All.Where(t => t.Supported && t.Id.Contains("/SkillGemVaal", StringComparison.Ordinal) && t.DropLevel <= level).ToArray();
-        return gems.Length == 0 ? null : ModDrop(conn, gems[random.Next(gems.Length)].Id, level);
+        var gems = ItemsFor(player).All.Where(t => t.Supported && t.Id.Contains("/SkillGemVaal", StringComparison.Ordinal) && t.DropLevel <= level).ToArray();
+        return gems.Length == 0 ? null : ModDrop(player, gems[random.Next(gems.Length)].Id, level);
     }
 
     // Rare equipment: the container roll's equipment with its rarity raised to rare (a unique stays unique).
-    static IEnumerable<ItemDrops.Drop> Rares(ClientState conn, int level, int count, Random random)
+    static IEnumerable<ItemDrops.Drop> Rares(Player player, int level, int count, Random random)
     {
         if (count <= 0) return [];
-        var rolls = RollsFor(conn);
-        return DropsFor(conn).Container(level, count, 0, random, t => ItemDrops.EquipmentClasses.Contains(t.Class))
+        var rolls = RollsFor(player);
+        return DropsFor(player).Container(level, count, 0, random, t => ItemDrops.EquipmentClasses.Contains(t.Class))
             .Select(d => d.Item.Rarity is ItemRarity.Rare or ItemRarity.Unique ? d
                 : d with { Item = rolls.Roll(d.Item with { Rarity = ItemRarity.Normal, Mods = [.. d.Item.Mods.Where(m => m.Section != ModSection.Explicit)] },
                     ItemRarity.Rare, random) with { Identified = false } });
     }
 
-    static ItemDrops.Drop? Unique(ClientState conn, int level, Random random)
+    static ItemDrops.Drop? Unique(Player player, int level, Random random)
     {
-        var catalog = ItemsFor(conn);
-        var uniques = UniquesFor(conn);
+        var catalog = ItemsFor(player);
+        var uniques = UniquesFor(player);
         var pool = uniques.All.Where(u => !u.EncounterOnly && catalog.Find(u.BaseTypeId) is { } t && t.DropLevel <= level && ItemDrops.Droppable(t)).ToArray();
-        if (DropsFor(conn).PickUnique(pool, random) is not { } definition || uniques.Create(definition, random) is not { } item
+        if (DropsFor(player).PickUnique(pool, random) is not { } definition || uniques.Create(definition, random) is not { } item
             || catalog.ByHash(item.TypeHash) is not { } type) return null;
         return new(item with { Identified = false }, type);
     }
 
-    static async Task DropAll(ClientState conn, List<ItemDrops.Drop> items, (int X, int Y) at, string label)
+    static async Task DropAll(Player player, List<ItemDrops.Drop> items, (int X, int Y) at, string label)
     {
-        if (items.Count == 0 || Environment.GetEnvironmentVariable("Game_DROPS") == "0" || !GameEvents.AllowsLoot(conn)) return;
-        var (remote, stream, ciphers) = conn.Wire;
+        if (items.Count == 0 || Environment.GetEnvironmentVariable("Game_DROPS") == "0" || !GameEvents.AllowsLoot(player)) return;
         foreach (var drop in ItemDrops.Stacked(items))
         {
-            var cell = conn.Layout.Near((at.X + Random.Shared.Next(-4, 5), at.Y + Random.Shared.Next(-4, 5)));
+            var cell = player.Layout.Near((at.X + Random.Shared.Next(-4, 5), at.Y + Random.Shared.Next(-4, 5)));
             var ground = new WorldItemObject(cell.X, cell.Y, drop.Item);
-            uint id = conn.Instance.Ground.Add(ground, conn);
-            await SendGroundItem(remote, stream, ciphers, conn, id, ground, $"torment: {label} drops {drop.Type.Name}", justDropped: true);
+            uint id = player.Instance.Ground.Add(ground, player);
+            await SendGroundItem(player, id, ground, $"torment: {label} drops {drop.Type.Name}", justDropped: true);
         }
     }
 
-    public static void Describe(ClientState conn, JsonObject state)
+    public static void Describe(Player player, JsonObject state)
     {
-        if (conn.Instance is null || !Areas.TryGetValue(conn.Instance, out var area) || area.Spirits is null) return;
+        if (player.Instance is null || !Areas.TryGetValue(player.Instance, out var area) || area.Spirits is null) return;
         state["torment"] = new JsonObject
         {
             ["spirits"] = JsonSerializer.SerializeToNode(area.Spirits),
@@ -810,5 +789,5 @@ public static partial class MapTorment
     }
 
     // A possession ends with the area (its buff goes with the area too).
-    public static void Leave(ClientState conn) { Presented.Remove(conn); Possessed.Remove(conn); }
+    public static void Leave(Player player) { Presented.Remove(player); Possessed.Remove(player); }
 }

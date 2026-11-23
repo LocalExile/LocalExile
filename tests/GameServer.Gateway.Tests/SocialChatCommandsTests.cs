@@ -44,30 +44,30 @@ public class SocialChatCommandsTests
             AccountService.StartingArea, DateTimeOffset.UtcNow, DateTimeOffset.UtcNow));
 
         var layout = new AreaLayout(0x235c, "1_1_town", 300, 300, 100, 100, null, []);
-        var alpha = new ClientState(layout, 1, 1) { Instance = instance, Account = accA.Name, Character = "SocialAlpha" };
-        var beta = new ClientState(layout, 1, 1) { Instance = instance, Account = accB.Name, Character = "SocialBeta" };
+        var alpha = new Player(layout, 1, 1) { Instance = instance, Character = { Account = accA.Name, Name = "SocialAlpha" } };
+        var beta = new Player(layout, 1, 1) { Instance = instance, Character = { Account = accB.Name, Name = "SocialBeta" } };
         alpha.PlayerLife = beta.PlayerLife = 1000;
-        alpha.PlayerSent = beta.PlayerSent = true;
-        alpha.Wire = ("alpha-test", wire.Stream, wire.Ciphers);
-        beta.Wire = ("beta-test", wire.Stream, wire.Ciphers);
+        alpha.Connection.PlayerSent = beta.Connection.PlayerSent = true;
+        alpha.Connection.Session = new("alpha-test", wire.Stream, wire.Ciphers);
+        beta.Connection.Session = new("beta-test", wire.Stream, wire.Ciphers);
         Program.InGame.TryAdd(alpha, 0);
         Program.InGame.TryAdd(beta, 0);
         var (alphaMsgs, alphaOutbox) = Capture();
         var (betaMsgs, betaOutbox) = Capture();
         var alphaReplies = new List<string>();
         var betaReplies = new List<string>();
-        alpha.Outbox = alphaOutbox;
-        beta.Outbox = betaOutbox;
+        alpha.Connection.Outbox = alphaOutbox;
+        beta.Connection.Outbox = betaOutbox;
         alpha.Commands = new() { Send = (_, _) => Task.CompletedTask, Reply = s => { alphaReplies.Add(s); return Task.CompletedTask; } };
         beta.Commands = new() { Send = (_, _) => Task.CompletedTask, Reply = s => { betaReplies.Add(s); return Task.CompletedTask; } };
 
         try
         {
             // 1. Party invite accept after inviter disconnected must not throw ObjectDisposedException.
-            await PartyRoster.InviteHuman(alpha, beta.Character!);
+            await PartyRoster.InviteHuman(alpha, beta.Character.Name!);
             uint inviteParty = PartyRoster.PartyOf(alpha);
             Assert.NotEqual(0u, inviteParty);
-            alpha.Outbox = (_, _) => throw new ObjectDisposedException("NetworkStream");
+            alpha.Connection.Outbox = (_, _) => throw new ObjectDisposedException("NetworkStream");
             alpha.Closed = true;
             betaMsgs.Clear();
             await PartyRoster.AcceptHuman(beta, inviteParty);
@@ -77,7 +77,7 @@ public class SocialChatCommandsTests
 
             // Restore alpha for public party, status, ignore, hideout invite and duel checks.
             alpha.Closed = false;
-            alpha.Outbox = alphaOutbox;
+            alpha.Connection.Outbox = alphaOutbox;
             alphaMsgs.Clear();
             betaMsgs.Clear();
 
@@ -147,6 +147,17 @@ public class SocialChatCommandsTests
             byte[] ctrlMove = new LoginWriter().U16(InstanceNpcs.TradeCtrlMoveId).U32(55).U32(0x00000001).U8(0x34).U8(0x12).ToArray();
             Assert.Equal(12, InstanceProtocol.KnownClientLength(InstanceNpcs.TradeCtrlMoveId));
             Assert.Equal((55u, 1u, (ushort)0x1234), InstanceNpcs.ReadTradeCtrlMove(ctrlMove));
+            foreach (ushort variableId in new[]
+            {
+                InstanceSocial.PublicPartyId, InstanceSocial.SocialStatusId,
+                InstanceSocial.DuelChallengeId, InstanceSocial.HideoutInviteId,
+            })
+                Assert.NotNull(ClientPackets.Find(variableId));
+
+            // 7. Retail slash command helpers (/remaining and /whois) work against post-1040 Player/GameArea state.
+            Assert.Equal("0 monsters remain.", CommandsFeature.DescribeRemaining(alpha));
+            Assert.Contains("SocialAlpha", CommandsFeature.DescribeWhois("SocialAlpha"));
+            Assert.Contains("Lioneye's Watch", CommandsFeature.DescribeWhois("SocialAlpha"));
 
             var registry = new InstanceRegistry { PersonalAreas = new HashSet<ushort> { 0xabcd } };
             var guestInst = registry.EnterPersonal(0xabcd, "SocialBeta", "SocialAlpha", "Standard", solo: false);
@@ -184,14 +195,14 @@ public class SocialChatCommandsTests
 
             // Death counter persists distinct epochs in CharacterSaves.ModuleData without double-counting.
             var deaths = new CharacterDeaths();
-            var conn = new ClientState(new(0x235c, "1_1_town", 60, 60, 10, 10, null, []), 1, 1)
-                { Account = acc.Name, Character = "OldExile" };
-            Assert.Equal("You have died 0 times.", CharacterDeaths.Describe(deaths.Count(conn)));
-            conn.DeathNotificationEpoch = 1;
-            Assert.Equal("You have died 1 time.", CharacterDeaths.Describe(deaths.Count(conn)));
-            Assert.Equal(1, deaths.Count(conn)); // Same epoch is not double-counted.
-            conn.DeathNotificationEpoch = 2;
-            Assert.Equal("You have died 2 times.", CharacterDeaths.Describe(deaths.Count(conn)));
+            var player = new Player(new(0x235c, "1_1_town", 60, 60, 10, 10, null, []), 1, 1)
+                { Character = { Account = acc.Name, Name = "OldExile" } };
+            Assert.Equal("You have died 0 times.", CharacterDeaths.Describe(deaths.Count(player)));
+            player.DeathNotificationEpoch = 1;
+            Assert.Equal("You have died 1 time.", CharacterDeaths.Describe(deaths.Count(player)));
+            Assert.Equal(1, deaths.Count(player)); // Same epoch is not double-counted.
+            player.DeathNotificationEpoch = 2;
+            Assert.Equal("You have died 2 times.", CharacterDeaths.Describe(deaths.Count(player)));
 
             // Login with Remember Password (Flag94) to verify credential invalidation on 0x0a password change.
             byte[] machineA = Enumerable.Repeat((byte)3, 32).ToArray();

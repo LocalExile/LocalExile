@@ -22,31 +22,31 @@ public static class PartyRoster
     }
     static readonly object Gate = Keep("Gate", () => new object());
     static readonly SemaphoreSlim Output = Keep("Output", () => new SemaphoreSlim(1));
-    static readonly Dictionary<uint, List<ClientState>> Humans = Keep("Humans", () => new Dictionary<uint, List<ClientState>>());
+    static readonly Dictionary<uint, List<Player>> Humans = Keep("Humans", () => new Dictionary<uint, List<Player>>());
     static readonly Dictionary<uint, List<(string Account, string Character, byte[] Known)>> Companions =
         Keep("Companions", () => new Dictionary<uint, List<(string, string, byte[])>>());
-    static readonly Dictionary<(uint Party, string Character), (ClientState From, ClientState To)> Invites =
-        Keep("Invites", () => new Dictionary<(uint, string), (ClientState, ClientState)>());
-    static readonly Dictionary<uint, HashSet<ClientState>> Removed = Keep("Removed", () => new Dictionary<uint, HashSet<ClientState>>());
+    static readonly Dictionary<(uint Party, string Character), (Player From, Player To)> Invites =
+        Keep("Invites", () => new Dictionary<(uint, string), (Player, Player)>());
+    static readonly Dictionary<uint, HashSet<Player>> Removed = Keep("Removed", () => new Dictionary<uint, HashSet<Player>>());
     static readonly Dictionary<uint, string> PublicDescriptions = Keep("PublicDescriptions", () => new Dictionary<uint, string>());
     static uint nextId = 0x100;
 
-    static bool Same(ClientState a, ClientState b) => ReferenceEquals(a, b)
-        || a.Account is not null && string.Equals(a.Account, b.Account, StringComparison.OrdinalIgnoreCase)
+    static bool Same(Player a, Player b) => ReferenceEquals(a, b)
+        || a.Character.Account is not null && string.Equals(a.Character.Account, b.Character.Account, StringComparison.OrdinalIgnoreCase)
             && string.Equals(CharacterName(a), CharacterName(b), StringComparison.Ordinal);
-    static bool Available(ClientState c) => !c.Controlled && !c.Closed && !c.LeavingArea && !c.Ssf;
-    static bool SameLeague(ClientState a, ClientState b) => a.Hardcore == b.Hardcore && a.LeagueForm == b.LeagueForm
-        && string.Equals(a.League, b.League, StringComparison.OrdinalIgnoreCase);
-    static bool Compatible(ClientState a, ClientState b) => Available(a) && Available(b) && SameLeague(a, b)
+    static bool Available(Player c) => !c.Controlled && !c.Closed && !c.LeavingArea && !c.Character.Ssf;
+    static bool SameLeague(Player a, Player b) => a.Character.Hardcore == b.Character.Hardcore && a.Character.LeagueForm == b.Character.LeagueForm
+        && string.Equals(a.Character.League, b.Character.League, StringComparison.OrdinalIgnoreCase);
+    static bool Compatible(Player a, Player b) => Available(a) && Available(b) && SameLeague(a, b)
         && ReferenceEquals(a.Instance.Presence, b.Instance.Presence);
-    static uint Find(ClientState c) => Humans.FirstOrDefault(p => p.Value.Any(m => Same(m, c))).Key;
+    static uint Find(Player c) => Humans.FirstOrDefault(p => p.Value.Any(m => Same(m, c))).Key;
     static int Count(uint id) => (Humans.GetValueOrDefault(id)?.Count ?? 0) + (Companions.GetValueOrDefault(id)?.Count ?? 0);
     static uint Allocate()
     {
         do { nextId++; } while (nextId == 0 || Humans.ContainsKey(nextId) || Invites.Keys.Any(k => k.Party == nextId) || Removed.ContainsKey(nextId));
         return nextId;
     }
-    static void Forget(uint id, ClientState c)
+    static void Forget(uint id, Player c)
     {
         if (!Removed.TryGetValue(id, out var pending)) Removed[id] = pending = [];
         pending.Add(c);
@@ -66,8 +66,8 @@ public static class PartyRoster
         }
     }
 
-    public static uint PartyOf(ClientState c) { lock (Gate) return Find(c); }
-    public static bool SameParty(ClientState a, ClientState b)
+    public static uint PartyOf(Player c) { lock (Gate) return Find(c); }
+    public static bool SameParty(Player a, Player b)
     {
         lock (Gate)
         {
@@ -75,18 +75,18 @@ public static class PartyRoster
             return party != 0 && party == Find(b);
         }
     }
-    public static ClientState? Leader(uint id) { lock (Gate) return Humans.GetValueOrDefault(id)?.FirstOrDefault(); }
-    public static ClientState[] Players(uint id) { lock (Gate) return Humans.TryGetValue(id, out var members) ? [.. members] : []; }
+    public static Player? Leader(uint id) { lock (Gate) return Humans.GetValueOrDefault(id)?.FirstOrDefault(); }
+    public static Player[] Players(uint id) { lock (Gate) return Humans.TryGetValue(id, out var members) ? [.. members] : []; }
     public static string? PublicDescription(uint id) { lock (Gate) return PublicDescriptions.GetValueOrDefault(id); }
-    internal static ClientState? TravelMember(ClientState actor, string name)
+    internal static Player? TravelMember(Player actor, string name)
     {
         lock (Gate)
         {
-            if (!Available(actor) || !actor.PlayerSent || actor.PlayerLife == 0 || actor.HardcoreDeathRecorded
+            if (!Available(actor) || !actor.Connection.PlayerSent || actor.PlayerLife == 0 || actor.Character.HardcoreDeathRecorded
                 || !InGame.ContainsKey(actor) || !Humans.TryGetValue(Find(actor), out var members)
                 || !members.Any(c => ReferenceEquals(c, actor))) return null;
             return members.FirstOrDefault(c => !ReferenceEquals(c, actor) && Available(c) && SameLeague(actor, c)
-                && c.PlayerSent && c.PlayerLife > 0 && !c.HardcoreDeathRecorded && InGame.ContainsKey(c)
+                && c.Connection.PlayerSent && c.PlayerLife > 0 && !c.Character.HardcoreDeathRecorded && InGame.ContainsKey(c)
                 && string.Equals(CharacterName(c), name, StringComparison.OrdinalIgnoreCase));
         }
     }
@@ -96,13 +96,13 @@ public static class PartyRoster
     {
         lock (Gate) return Companions.GetValueOrDefault(id)?.Any(m => m.Account == account) == true;
     }
-    public static bool IsLeader(ClientState c, uint id)
+    public static bool IsLeader(Player c, uint id)
     {
         lock (Gate) return Humans.GetValueOrDefault(id)?.FirstOrDefault() is { } first && Same(first, c);
     }
 
     /// <summary>Admission is atomic with human acceptance, including the shared six-player capacity.</summary>
-    public static bool TryAddCompanion(ClientState inviter, PartyCompanion member, out uint party, uint restore = 0)
+    public static bool TryAddCompanion(Player inviter, PartyCompanion member, out uint party, uint restore = 0)
     {
         lock (Gate)
         {
@@ -147,13 +147,13 @@ public static class PartyRoster
 
     // The wire encrypts a packet in place (Program.Write), so a kept one (a companion's Known) is sent as a copy:
     // sent again as it was, it reached the client as noise and ended its stream ("Unable to deserialise packet").
-    static Task Send(ClientState c, byte[] packet) => !c.Closed && c.Outbox is { } send
+    static Task Send(Player c, byte[] packet) => !c.Closed && c.Connection.Outbox is { } send
         ? send(packet, null) : Task.CompletedTask;
     // The third field is the player's own area as a WorldAreas HASH16 (0xa7 +0xa8), not their level: the party panel's row
     // resolves it for the member's area name and offers the travel button only for an area, so a level shows
     // "Travelling..." with the button disabled (#715).
-    static byte[] Known(ClientState c) => InstanceSocial.KnownPlayer(c.Account ?? CharacterName(c), CharacterName(c),
-        c.Layout.Hash, PackedClass(c), c.PortraitFrame, WornPortrait(c), FriendsFeature.StatusOf(c.Account));
+    static byte[] Known(Player c) => InstanceSocial.KnownPlayer(c.Character.Account ?? CharacterName(c), CharacterName(c),
+        c.Layout.Hash, PackedClass(c), c.Character.PortraitFrame, WornPortrait(c), FriendsFeature.StatusOf(c.Character.Account));
 
     /// <summary>Serialize roster output: a leave/kick cannot be followed by an older in-flight roster.</summary>
     public static async Task Publish(uint party)
@@ -161,7 +161,7 @@ public static class PartyRoster
         await Output.WaitAsync();
         try
         {
-            ClientState[] removed, humans;
+            Player[] removed, humans;
             (string Account, string Character, byte[] Known)[] guests;
             string? description;
             lock (Gate)
@@ -176,7 +176,7 @@ public static class PartyRoster
             if (humans.Length == 0) return;
             var leader = humans[0];
             string title = description ?? CharacterName(leader);
-            (string, byte)[] entries = [.. humans.Select((c, i) => (c.Account ?? CharacterName(c), i == 0 ? (byte)2 : (byte)1)),
+            (string, byte)[] entries = [.. humans.Select((c, i) => (c.Character.Account ?? CharacterName(c), i == 0 ? (byte)2 : (byte)1)),
                 .. guests.Select(m => (m.Account, (byte)1))];
             for (int i = 0; i < humans.Length; i++)
             {
@@ -187,29 +187,29 @@ public static class PartyRoster
                     foreach (var human in humans) await Send(to, Known(human));
                     foreach (var guest in guests) await Send(to, [.. guest.Known]);
                     await SetPartySize(to, entries.Length);
-                    await Send(to, InstanceSocial.PartyInfo(party, title, leader.Account ?? CharacterName(leader),
+                    await Send(to, InstanceSocial.PartyInfo(party, title, leader.Character.Account ?? CharacterName(leader),
                         ownIndex, 0, 0, 0, entries));
                 });
             }
         }
         finally { Output.Release(); }
     }
-    static async Task Deliver(ClientState c, Func<Task> action)
+    static async Task Deliver(Player c, Func<Task> action)
     {
         if (c.Closed) return;
         try { await action(); }
         catch (Exception e) when (e is IOException or ObjectDisposedException) { /* Other members still receive their roster. */ }
     }
 
-    public static async Task<bool> InviteHuman(ClientState from, string name)
+    public static async Task<bool> InviteHuman(Player from, string name)
     {
         var to = InGame.Keys.FirstOrDefault(c => !c.Controlled && !ReferenceEquals(c, from) && !c.Closed && !c.LeavingArea
             && (string.Equals(CharacterName(c), name, StringComparison.OrdinalIgnoreCase)
-                || string.Equals(c.Account, name, StringComparison.OrdinalIgnoreCase)));
+                || string.Equals(c.Character.Account, name, StringComparison.OrdinalIgnoreCase)));
         if (to is null) return false; // Another module may own this character's name.
-        if (FriendsFeature.IsIgnoring(to.Account, from.Account ?? CharacterName(from))) return true;
+        if (FriendsFeature.IsIgnoring(to.Character.Account, from.Character.Account ?? CharacterName(from))) return true;
         uint party;
-        ClientState[] humans;
+        Player[] humans;
         (string Account, string Character, byte[] Known)[] guests;
         string title;
         lock (Gate)
@@ -230,15 +230,15 @@ public static class PartyRoster
             foreach (var human in humans) await Send(to, Known(human));
             foreach (var guest in guests) await Send(to, [.. guest.Known]);
             await Send(to, Known(to));
-            (string, byte)[] entries = [.. humans.Select((c, i) => (c.Account ?? CharacterName(c), i == 0 ? (byte)2 : (byte)1)),
-                .. guests.Select(m => (m.Account, (byte)1)), (to.Account ?? CharacterName(to), (byte)0)];
-            await Send(to, InstanceSocial.PartyInfo(party, title, from.Account ?? CharacterName(from),
+            (string, byte)[] entries = [.. humans.Select((c, i) => (c.Character.Account ?? CharacterName(c), i == 0 ? (byte)2 : (byte)1)),
+                .. guests.Select(m => (m.Account, (byte)1)), (to.Character.Account ?? CharacterName(to), (byte)0)];
+            await Send(to, InstanceSocial.PartyInfo(party, title, from.Character.Account ?? CharacterName(from),
                 (byte)(entries.Length - 1), 0, 1, 0, entries));
         });
         return true;
     }
 
-    public static async Task AcceptHuman(ClientState to, uint party)
+    public static async Task AcceptHuman(Player to, uint party)
     {
         bool accepted = false;
         lock (Gate)
@@ -266,7 +266,7 @@ public static class PartyRoster
     }
 
     /// <summary>C→S 0x0098: create or rename a public party (empty description makes the party private).</summary>
-    public static async Task SetPublicParty(ClientState actor, string rawDescription, byte flag)
+    public static async Task SetPublicParty(Player actor, string rawDescription, byte flag)
     {
         if (!Available(actor)) return;
         string desc = (rawDescription ?? "").Trim();
@@ -294,7 +294,7 @@ public static class PartyRoster
 
     /// <summary>Cleans up party membership and pending invitations when a human player actually disconnects (never on
     /// area transfers, which rebind via <see cref="Rebind"/>).</summary>
-    public static async Task DisconnectHuman(ClientState c, string why)
+    public static async Task DisconnectHuman(Player c, string why)
     {
         if (why != "disconnected" || c.LeavingArea || c.PendingTransfer is not null) return;
         HashSet<uint> affected = [];
@@ -314,7 +314,7 @@ public static class PartyRoster
         foreach (uint id in affected) await Publish(id);
     }
 
-    public static bool RemoveHuman(ClientState c, uint party)
+    public static bool RemoveHuman(Player c, uint party)
     {
         lock (Gate)
         {
@@ -330,14 +330,14 @@ public static class PartyRoster
         }
     }
 
-    public static async Task<bool> LeaveHuman(ClientState c, uint party)
+    public static async Task<bool> LeaveHuman(Player c, uint party)
     {
         if (!RemoveHuman(c, party)) return false;
         await Publish(party);
         return true;
     }
 
-    public static async Task<bool> Kick(ClientState actor, string name)
+    public static async Task<bool> Kick(Player actor, string name)
     {
         uint party;
         lock (Gate)
@@ -345,7 +345,7 @@ public static class PartyRoster
             // 0x94 also cancels an invitation this participant sent; the target has not joined yet.
             var pending = Invites.FirstOrDefault(p => Same(p.Value.From, actor)
                 && (string.Equals(CharacterName(p.Value.To), name, StringComparison.OrdinalIgnoreCase)
-                    || string.Equals(p.Value.To.Account, name, StringComparison.OrdinalIgnoreCase)));
+                    || string.Equals(p.Value.To.Character.Account, name, StringComparison.OrdinalIgnoreCase)));
             if (pending.Key.Party != 0)
             {
                 party = pending.Key.Party;
@@ -358,7 +358,7 @@ public static class PartyRoster
                 party = Find(actor);
                 if (party == 0) return false;
                 if (!Same(Humans[party][0], actor)) return true;
-                var human = Humans[party].Skip(1).FirstOrDefault(c => string.Equals(c.Account, name, StringComparison.OrdinalIgnoreCase)
+                var human = Humans[party].Skip(1).FirstOrDefault(c => string.Equals(c.Character.Account, name, StringComparison.OrdinalIgnoreCase)
                     || string.Equals(CharacterName(c), name, StringComparison.OrdinalIgnoreCase));
                 if (human is not null) RemoveHuman(human, party);
                 else if (Companions.GetValueOrDefault(party)?.RemoveAll(m =>
@@ -371,7 +371,7 @@ public static class PartyRoster
         return true;
     }
 
-    public static async Task Rebind(ClientState c)
+    public static async Task Rebind(Player c)
     {
         uint party;
         lock (Gate)
@@ -385,12 +385,12 @@ public static class PartyRoster
         await Publish(party);
     }
 
-    public static ulong SharedInstance(ClientState c, PendingTransfer transfer)
+    public static ulong SharedInstance(Player c, PendingTransfer transfer)
     {
         // Personal homes use their owner, and a map can only be entered through its finite portal pool.
         // Explicit party travel already pins its destination; ordinary travel must not redirect to these members.
-        if (HideoutCatalog.ByArea(transfer.Area) is not null || MapDevices.Value.IsMapArea(transfer.Area)) return 0;
-        ClientState[] members;
+        if (HideoutCatalog.ByArea(transfer.Area) is not null || MapDevices.IsMapArea(transfer.Area)) return 0;
+        Player[] members;
         lock (Gate) members = Humans.TryGetValue(Find(c), out var list) ? [.. list] : [];
         foreach (var member in members)
         {

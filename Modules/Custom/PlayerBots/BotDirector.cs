@@ -59,21 +59,20 @@ sealed class Bot
     /// <summary>The instances this bot's body is published in (removed from them when it leaves).</summary>
     public readonly HashSet<InstanceState> Shown = [];
     /// <summary>The player whose party it is in (BotParty), and that party's id; the instance it was placed in there.</summary>
-    public ClientState? Leader;
+    public Player? Leader;
     /// <summary>The leader's character: an area change is a new connection, which the bot follows by this name.</summary>
     public string? LeaderName;
     /// <summary>When the leader's connection went without a new one yet (an area change in progress).</summary>
     public DateTime? LeaderGoneSince;
     public uint Party;
     public InstanceState? FollowIn;
-    public ClientState? Combat;
+    public Player? Combat;
     public Guid ControlEpoch = Guid.NewGuid();
     public BotControlLease? Control;
 }
 
 /// <summary>Creates bots up to the limit, one per interval, walks them through the route and shows them in the towns
-/// where real players are: a bot is a published player (InstancePlayer without a connection) of each live instance of
-/// its town, which every client there replicates like another player (LivingCollision.SyncInstancePlayers). Quests are
+/// where real players are (the instances it is shown in; not yet an entity of their areas, so clients do not draw it). Quests are
 /// simulated out of sight; a bot that has done every quest of both guides is deleted and a new one takes its place.</summary>
 sealed partial class BotDirector
 {
@@ -285,7 +284,7 @@ sealed partial class BotDirector
         town ??= "1_1_town";
         var range = LevelsForTown(town);
         int level = _random.Next(range.Min, range.Max + 1);
-        var character = new Character(Guid.NewGuid(), account.Id, name, cls, level, _settings.League, town, now, now, town);
+        var character = new GameServer.Core.Accounts.Character(Guid.NewGuid(), account.Id, name, cls, level, _settings.League, town, now, now, town);
         _accounts.AddCharacter(character);
         var bot = new Bot
         {
@@ -428,7 +427,7 @@ sealed partial class BotDirector
 
     // ---- the town ----
 
-    void Step(Bot bot, DateTime now, double seconds, Dictionary<string, List<ClientState>> towns)
+    void Step(Bot bot, DateTime now, double seconds, Dictionary<string, List<Player>> towns)
     {
         if (bot.Phase is BotPhase.Following or BotPhase.Departing) { StepWithLeader(bot, now, seconds); return; }
         if (bot.Phase == BotPhase.Questing)
@@ -477,7 +476,7 @@ sealed partial class BotDirector
         Show(bot, observers);
     }
 
-    void NextActivity(Bot bot, DateTime now, List<ClientState>? observers)
+    void NextActivity(Bot bot, DateTime now, List<Player>? observers)
     {
         var any = observers?.FirstOrDefault();
         if (bot.ActivitiesLeft-- <= 0)
@@ -500,12 +499,12 @@ sealed partial class BotDirector
     // A walkable place in the town, at least StandApart cells from where every other bot of the town stands or is going:
     // mostly in a ring around the stash and the guild stash (as players stand by theirs), else by an NPC, else anywhere
     // walkable within reach of the waypoint. A quick visit goes to an NPC.
-    (double X, double Y) PickSpot(Bot bot, ClientState town, out string kind)
+    (double X, double Y) PickSpot(Bot bot, Player town, out string kind)
     {
         var layout = town.Layout;
         var spots = town.StationaryBlockers;
-        var stashes = spots.Where(b => b.Size == ClientState.StashBlockerSize).ToList();
-        var npcs = spots.Where(b => b.Size == ClientState.NpcBlockerSize).ToList();
+        var stashes = spots.Where(b => b.Size == Player.StashBlockerSize).ToList();
+        var npcs = spots.Where(b => b.Size == Player.NpcBlockerSize).ToList();
         var taken = _bots.Where(b => b != bot && b.Town == bot.Town && b.Phase != BotPhase.Questing && b.PlacedIn == bot.Town)
             .SelectMany(b => new[] { (b.X, b.Y), (b.TargetX, b.TargetY) }).ToList();
         (int X, int Y) centre = layout.Waypoint is { } wp ? (wp.GridX, wp.GridY) : (layout.SpawnX, layout.SpawnY);
@@ -572,39 +571,27 @@ sealed partial class BotDirector
     // ---- being seen ----
 
     // The towns players are in now: every live in-game connection by its area.
-    static Dictionary<string, List<ClientState>> LiveTowns()
+    static Dictionary<string, List<Player>> LiveTowns()
     {
-        var towns = new Dictionary<string, List<ClientState>>();
-        foreach (var conn in Program.InGame.Keys)
+        var towns = new Dictionary<string, List<Player>>();
+        foreach (var player in Program.InGame.Keys)
         {
-            if (conn.Closed || conn.LeavingArea || !conn.PlayerSent || conn.Instance is null) continue;
-            if (!conn.Layout.Id.Contains("_town", StringComparison.Ordinal)) continue;
-            (towns.TryGetValue(conn.Layout.Id, out var list) ? list : towns[conn.Layout.Id] = []).Add(conn);
+            if (player.Closed || player.LeavingArea || !player.Connection.PlayerSent || player.Instance is null) continue;
+            if (!player.Layout.Id.Contains("_town", StringComparison.Ordinal)) continue;
+            (towns.TryGetValue(player.Layout.Id, out var list) ? list : towns[player.Layout.Id] = []).Add(player);
         }
         return towns;
     }
 
-    internal void Show(Bot bot, List<ClientState>? observers)
+    internal void Show(Bot bot, List<Player>? observers)
     {
         var instances = (observers ?? []).Select(c => c.Instance).Distinct().ToHashSet();
-        foreach (var gone in bot.Shown.Where(i => !instances.Contains(i)).ToList()) { gone.RemovePlayer(bot.PeerId); bot.Shown.Remove(gone); }
-        if (instances.Count == 0) return;
-        var template = Template(bot);
-        foreach (var instance in instances)
-        {
-            instance.PublishPlayer(new InstancePlayer(bot.PeerId, template.Type, template.Player, (int)bot.X, (int)bot.Y, template.Player.Life)
-            {
-                // Walking: observers start one Move action to the target, which their client animates and paths.
-                Destination = bot.Phase is BotPhase.Walking or BotPhase.Leaving or BotPhase.Following or BotPhase.Departing
-                    ? ((int)bot.TargetX, (int)bot.TargetY) : ((int)bot.X, (int)bot.Y),
-            });
-            bot.Shown.Add(instance);
-        }
+        bot.Shown.RemoveWhere(i => !instances.Contains(i));
+        bot.Shown.UnionWith(instances);
     }
 
     internal static void Hide(Bot bot)
     {
-        foreach (var instance in bot.Shown) instance.RemovePlayer(bot.PeerId);
         bot.Shown.Clear();
     }
 
@@ -668,7 +655,7 @@ sealed partial class BotDirector
     {
         lock (_bots) ExpireControl(bot);
         var leader = bot.Leader;
-        if (_stop.IsCancellationRequested || bot.Phase != BotPhase.Following || leader is not { Closed: false, PlayerSent: true }
+        if (_stop.IsCancellationRequested || bot.Phase != BotPhase.Following || leader is not { Closed: false, Connection.PlayerSent: true }
             || leader.LeavingArea || Program.GameLogicOrNull is not IControlledPlayerRules rules)
         { StopCombat(bot); return; }
         if (bot.Combat is null || bot.Combat.Closed || !ReferenceEquals(bot.Combat.Instance, leader.Instance))
@@ -684,14 +671,14 @@ sealed partial class BotDirector
             await rules.InitializeControlled(player, leader);
             if (_stop.IsCancellationRequested || bot.Phase != BotPhase.Following || !ReferenceEquals(bot.Leader, leader))
             { StopCombat(bot); return; }
-            bot.PeerId = player.PeerId;
+            bot.PeerId = player.Id;
         }
         var current = bot.Combat;
         if (current is null) return;
         await Program.SetPartySize(current, PartyRoster.Size(bot.Party));
         await rules.StepControlled(current, leader);
         if (bot.Phase != BotPhase.Following || !ReferenceEquals(bot.Combat, current)) return;
-        var position = current.Walk.Position(current.Clock.Elapsed.TotalSeconds);
+        var position = current.Walk.Position(current.Frames.Now(current));
         bool levelChanged = bot.Level != current.Pools.Level;
         (bot.X, bot.Y, bot.Level) = (position.X, position.Y, current.Pools.Level);
         if (levelChanged) await SendParty(leader, bot.Party);
