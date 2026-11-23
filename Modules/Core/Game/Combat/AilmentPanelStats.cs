@@ -133,8 +133,10 @@ public static class AilmentPanelStats
                 _ => get(Stat.BasePoisonDamagePlusPct)
                     + (tinctureWeapon ? get(Stat.PoisonDamagePlusPctWithTincturedWeapons) : 0),
             };
-        bool bowAttack = context.Attack && !context.Spell
+        bool attack = context.Attack && !context.Spell;
+        bool bowAttack = attack
             && get(context.Hand == "off_hand" ? Stat.OffHandWeaponType : Stat.MainHandWeaponType) == WeaponTypeStats.Bow;
+        if (attack) common += get(Stat.AttackAilmentDamagePlusPct);
         if (bowAttack) common += (double)get(Stat.BowDamagePlusPct) + get(Stat.BowAilmentDamagePlusPct)
             + get(Stat.BowHitAndAilmentDamagePlusPct) + get(Stat.DamageOverTimePlusPctWithBowSkills);
         // The tree's "with <weapon type>" rows reach an ailment as they reach the hit (issue #1102): the plain and
@@ -165,6 +167,7 @@ public static class AilmentPanelStats
                 + get(Stat.AilmentDotMultiplierPlus) + get(Stat.Of(ailment + "_dot_multiplier_+"))
                 + (ailmentType == DamageType.Fire && context.Attack ? get(Stat.FireDamageOverTimeMultiplierPlusWithAttacks) : 0)
                 + (context.Spell && ailment == "poison" ? get(Stat.PoisonDotMultiplierPlusWithSpells) : 0)
+                + (bowAttack ? get(Stat.DotMultiplierPlusWithBowSkills) : 0)
                 + (tinctureWeapon ? get(Stat.DamageOverTimeMultiplierPlusWithTincturedWeapons) : 0)
                 + (critical && !neverFromCrit ? get(Stat.CriticalAilmentDotMultiplierPlus) + get(Stat.Of("critical_" + ailment + "_dot_multiplier_+")) : 0)) / 100);
         double multiplier = dotMultiplier

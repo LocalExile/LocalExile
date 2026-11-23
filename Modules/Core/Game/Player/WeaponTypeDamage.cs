@@ -56,8 +56,25 @@ public static class WeaponTypeDamage
 
     /// <summary>The physical, elemental and per-element rows of this hand's weapon type, in the shape
     /// <see cref="PlayerHitDamage.Resolve"/> applies after conversion.</summary>
-    public static HitIncreases Of(SkillCatalog.Unarmed weapon, Func<uint, int> get) =>
-        Extra(FamiliesOf(weapon), TwoHanded(weapon.ItemClass), get, ailment: false);
+    public static HitIncreases Of(SkillCatalog.Unarmed weapon, Func<uint, int> get)
+    {
+        var extra = Extra(FamiliesOf(weapon), TwoHanded(weapon.ItemClass), get, ailment: false);
+        List<(DamageTypeHistory History, int Increased)>? typed = null;
+        foreach (var (history, stat) in AttackElementIncreases)
+            if (get(stat) is var increase and not 0)
+            {
+                typed ??= extra.Typed is { } weaponTyped ? [.. weaponTyped] : [];
+                typed.Add((history, increase));
+            }
+        return extra with { Typed = typed ?? extra.Typed };
+    }
+
+    static readonly (DamageTypeHistory History, uint Stat)[] AttackElementIncreases =
+    [
+        (DamageTypeHistory.Fire, Stat.FireDamageWithAttackSkillsPlusPct),
+        (DamageTypeHistory.Cold, Stat.ColdDamageWithAttackSkillsPlusPct),
+        (DamageTypeHistory.Lightning, Stat.LightningDamageWithAttackSkillsPlusPct),
+    ];
 
     /// <summary>The same rows for a damaging ailment of that hand: the ailment-only ids join the common bucket and the
     /// two-handed melee ailment row joins the physical one.</summary>
@@ -133,7 +150,8 @@ public static class WeaponTypeDamage
         {
             value += get(Stat.DamagePlusPctWithOneHandedWeapons) + get(Stat.OneHandedWeaponHitAndAilmentDamagePlusPct);
             if (ailment) value += get(Stat.OneHandedWeaponAilmentDamagePlusPct)
-                + get(Stat.AttackAilmentDamagePlusPctWhileWieldingOneHandedWeapon);
+                + get(Stat.AttackAilmentDamagePlusPctWhileWieldingOneHandedWeapon)
+                + (melee ? get(Stat.OneHandedMeleeWeaponAilmentDamagePlusPct) : 0);
         }
         // A row two families read together counts once, however many of them this hand counts as.
         if (Has(families, "mace") || Has(families, "staff"))

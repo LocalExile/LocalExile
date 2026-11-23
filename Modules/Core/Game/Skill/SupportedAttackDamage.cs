@@ -48,6 +48,14 @@ public static class SupportedAttackDamage
     public static int WeaponIncrease(SkillCatalog.Unarmed weapon, Func<uint, int> get) =>
         WeaponTypeDamage.Any(weapon, get);
 
+    public static void AddWandGains(DamageConversion conversion, Func<uint, int> get)
+    {
+        conversion.AddGain(DamageType.Physical, DamageType.Fire, Math.Max(0, get(Stat.WandPhysicalDamagePctToAddAsFire)));
+        conversion.AddGain(DamageType.Physical, DamageType.Cold, Math.Max(0, get(Stat.WandPhysicalDamagePctToAddAsCold)));
+        conversion.AddGain(DamageType.Physical, DamageType.Lightning, Math.Max(0, get(Stat.WandPhysicalDamagePctToAddAsLightning)));
+        conversion.AddGain(DamageType.Physical, DamageType.Chaos, Math.Max(0, get(Stat.WandPhysicalDamagePctToAddAsChaos)));
+    }
+
     public static DamagePacket Hit(SkillCatalog.Unarmed weapon, Func<uint, int> get, IReadOnlySet<int> types,
         AttackAccuracyProfile accuracy)
     {

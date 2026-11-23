@@ -47,7 +47,11 @@ public sealed class MonsterIgnites
         /// caster and skill stats. Base duration 4 s (<see cref="Ailments.IgniteDurationSeconds"/>); the ignite
         /// prohibitions (<see cref="MonsterElementalAilments.CannotInflict"/>) and never_damaging_ailments stop it. faster_burn_% and damaging_ailments_deal_damage_+%_faster multiply the damage
         /// per second and divide the duration (wiki Ignite; PoB IgniteBurnFaster).</summary>
-        public static Settings From(IEnumerable<(uint Stat, int Value)> rows, string hand, Func<uint, int> get)
+        public static Settings From(IEnumerable<(uint Stat, int Value)> rows, string hand, Func<uint, int> get) =>
+            From(rows, hand, get, additionalChance: 0);
+
+        /// <summary>Reads the merged ailment rows and a chance already qualified by the caller.</summary>
+        public static Settings From(IEnumerable<(uint Stat, int Value)> rows, string hand, Func<uint, int> get, int additionalChance)
         {
             if (MonsterElementalAilments.CannotInflict("ignite", get) || get(Stat.NeverDamagingAilments) != 0) return None;
             var r = rows.ToDictionary(x => x.Stat, x => x.Value);
@@ -57,7 +61,7 @@ public sealed class MonsterIgnites
                 r.GetValueOrDefault(Stat.Of($"{bound}_ignite_damage_to_deal_per_minute_from_{kind}_{hand}_damage")) / 60.0 * faster;
             // Shaper of Flames: "Hits always Ignite" (always_ignite). Weapon tincture ignite stats apply to weapon hands only.
             bool tinctureWeapon = hand is "main_hand" or "off_hand" && get(Stat.TinctureApplied) != 0;
-            long chance = (long)get(Stat.BaseChanceToIgnitePct) + get(Stat.ChanceToFreezeShockIgnitePct)
+            long chance = (long)get(Stat.BaseChanceToIgnitePct) + get(Stat.ChanceToFreezeShockIgnitePct) + additionalChance
                 + (tinctureWeapon ? get(Stat.ChanceToIgnitePctWithTincturedWeapons) : 0)
                 + (get(Stat.AlwaysIgnite) != 0 ? 100 : 0);
             double seconds = Ailments.IgniteDurationSeconds

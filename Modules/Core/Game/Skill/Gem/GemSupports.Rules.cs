@@ -699,6 +699,7 @@ public static partial class Game
     {
         public IReadOnlyDictionary<uint, int> FrozenStats { get; init; } = new Dictionary<uint, int>();
         public int WeaponIncreased { get; init; }
+        public HitIncreases WeaponTypedIncreases { get; init; }
         public bool Armed { get; init; }
     }
 
@@ -802,14 +803,20 @@ public static partial class Game
         Func<uint, int> hitStats = attackWeapon is null || secondary ? Get : SupportedAttackDamage.HitModifiers(attackWeapon, Get);
         var conversion = DamageStats.Conversion(stats, Stats, secondary ? null : attack);
         if (attackWeapon is not null && !secondary)
+        {
             SupportedAttackDamage.WithWeaponGains(conversion, attackWeapon);
+            if (attackWeapon.WieldingWand) SupportedAttackDamage.AddWandGains(conversion, Get);
+        }
         return new(raw, hitStats, conversion, attack,
             Melee: attack && types.Contains(19), Area: attack ? types.Contains(7) : Get(Stat.IsAreaDamage) != 0,
             Projectile: attack ? types.Contains(2) : Get(Stat.BaseIsProjectile) != 0, modifiers, types, plan, caster,
             WieldingWand: attackWeapon?.WieldingWand == true, WieldingBow: attackWeapon?.Bow == true, Secondary: secondary)
         {
             FrozenStats = new Dictionary<uint, int>(stats),
-            WeaponIncreased = attackWeapon is null ? 0 : SupportedAttackDamage.WeaponIncrease(attackWeapon, Get),
+            WeaponIncreased = attackWeapon is not null ? SupportedAttackDamage.WeaponIncrease(attackWeapon, Get)
+                : !attack && !secondary && Get(Stat.SpellStaffDamagePlusPct) is int staff and not 0
+                    && WeaponTypeDamage.FamilyOf(WeaponFor(player).ItemClass) == "staff" ? staff : 0,
+            WeaponTypedIncreases = attackWeapon is null ? default : WeaponTypeDamage.Of(attackWeapon, Get),
             Armed = attackWeapon is not null && WeaponAttributeDamage.Armed(attackWeapon),
         };
     }
@@ -827,8 +834,8 @@ public static partial class Game
             melee: inputs.Melee, area: inputs.Area, projectile: inputs.Projectile,
             supportModifiers: inputs.Modifiers, skillTypes: inputs.Types,
             wieldingBow: inputs.WieldingBow, wieldingWand: inputs.WieldingWand, retaliation: inputs.Attack && inputs.Types.Contains(120),
-            secondary: inputs.Secondary, additionalIncreased: additionalIncreased + (inputs.Attack ? inputs.WeaponIncreased : 0),
-            trackPhysicalOrigin: inputs.Melee && !inputs.Secondary
+            secondary: inputs.Secondary, additionalIncreased: additionalIncreased + inputs.WeaponIncreased,
+            additional: inputs.WeaponTypedIncreases, trackPhysicalOrigin: inputs.Melee && !inputs.Secondary
                 && inputs.Get(Stat.SupportBloodlustMeleePhysicalDamagePlusPctFinalVsBleedingEnemies) != 0);
         if (inputs.Attack) hit = MaximumAttackDamage.Apply(Volatility.Apply(RageStats.ApplyAttack(hit, inputs.Get), inputs.Get), inputs.Get);
         double intensityMore = 1;
