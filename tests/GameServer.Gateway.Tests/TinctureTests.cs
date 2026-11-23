@@ -446,12 +446,13 @@ public class TinctureTests
 
             // On-weapon-hit hooks: Wither stacks, Ignite refresh, Covered in Ash (+20% fire taken), and Nature's Concoction.
             armored.Ignites.Add(t4, perSecond: 100, seconds: 4);
-            double fireDotBefore = Game.MonsterDotTaken(armored, DamageType.Fire, t4 + 1.0);
-            Game.TinctureOnWeaponHitLocked(conn4, stats4, armored, targetLifeBefore: armored.MaxLife, now: t4 + 1.0, new Random(1));
+            double hitAt = t4 + 1.0;
+            double fireDotBefore = Game.MonsterDotTaken(armored, DamageType.Fire, hitAt);
+            Game.TinctureOnWeaponHitLocked(conn4, stats4, armored, targetLifeBefore: armored.MaxLife, now: hitAt, new Random(1));
             Assert.Equal(2, armored.Withered.Count);
-            Assert.Equal(t4 + 5.0, armored.Ignites.Until, 6);
-            Assert.True(armored.CoveredInAshUntil >= t4 + 5.0);
-            Assert.True(Game.MonsterDotTaken(armored, DamageType.Fire, t4 + 1.0) > fireDotBefore);
+            Assert.Equal(hitAt + 4.0, armored.Ignites.Until, 6);
+            Assert.True(armored.CoveredInAshUntil >= hitAt + 4.0);
+            Assert.True(Game.MonsterDotTaken(armored, DamageType.Fire, hitAt) > fireDotBefore);
 
             // Nature's Concoction queued adjacent charges for slot 1 (adjacent to slot 0) and adjacent flask effect applies.
             var queuedCharges = conn4.TinctureEffects.DrainPendingAdjacentCharges();
