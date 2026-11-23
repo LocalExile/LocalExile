@@ -32,12 +32,15 @@ public sealed class CommandsModule : IModule
             return Task.CompletedTask;
         }));
         GameEvents.Resurrected.Add(module.Manifest.Id, player => { deaths.Observe(player); return Task.CompletedTask; });
-        GameEvents.MonsterKilled.Add(module.Manifest.Id, kill =>
+        GameEvents.Kill.Add(module.Manifest.Id, kill =>
         {
-            if (Monsters.Find(kill.Monster.VarietyId) is { ExperienceMultiplier: > 0 } variety
-                && Monsters.BaseExperience(variety, (byte)Math.Clamp(kill.Monster.Level, 1, 100)) > 0)
+            if (!kill.Monster.NoRewards
+                && kill.Monster.Variety is { ExperienceMultiplier: > 0 } variety
+                && !BossMods.NoRewards(variety)
+                && kill.Player.PlayerLife > 0
+                && Dist(kill.At, kill.Player.Walk.Position(AreaTime(kill.Player))) <= ExperienceRange
+                && Monsters.BaseExperience(variety, kill.Monster.Level) > 0)
                 kills.Record(kill.Player);
-            return Task.CompletedTask;
         });
         GameEvents.ChatAvailabilityQuery.Add(module.Manifest.Id, ChatPresence.Get);
         GameEvents.ChatActivity.Add(module.Manifest.Id, ChatPresence.ClearAfkOnActivity);

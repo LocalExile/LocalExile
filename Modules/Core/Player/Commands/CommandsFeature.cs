@@ -106,7 +106,10 @@ public static class CommandsFeature
     internal static string DescribeItemLevel(Player player)
     {
         var cursor = ItemsOf(player).Items(PlayerInventories.Cursor).FirstOrDefault();
-        return cursor is null ? "No item is currently held on the cursor." : $"Item Level: {cursor.Item.ItemLevel}";
+        if (cursor is null) return "There is no item on the cursor.";
+        if (!cursor.Item.Components.Contains("Mods"))
+            return "Item on cursor doesn't have a level (it needs to be one that can get mods).";
+        return $"Item on cursor is level {cursor.Item.ItemLevel}.";
     }
 
     public static string DescribeWhois(string rawTarget)
@@ -127,13 +130,14 @@ public static class CommandsFeature
         if (saved is not null)
         {
             // BackendErrors WhoIsOffline (199): "{0} is a level {2} {3} in the {1} league who is not currently online."
-            return $"{saved.Name} is a level {saved.Level} {ClassDisplayName(saved.Class, saved.Ascendancy)} in the {saved.League} league who is not currently online.";
+            return $"{saved.Name} is a level {saved.Level} {ClassDisplayName(saved.Class, saved.Ascendancy, saved.AscendancyFamily)} in the {saved.League} league who is not currently online.";
         }
         return "The specified character does not exist.";
     }
 
     internal static string DescribeLadder(Player player)
     {
+        const int limit = 10;
         string league = string.IsNullOrWhiteSpace(player.Character.League) ? "Standard" : player.Character.League;
         var onlineByName = InGame.Keys
             .Where(c => !c.Controlled && !c.Closed && !c.LeavingArea
@@ -141,19 +145,28 @@ public static class CommandsFeature
             .GroupBy(CharacterName, StringComparer.OrdinalIgnoreCase)
             .ToDictionary(g => g.Key, g => g.First(), StringComparer.OrdinalIgnoreCase);
 
-        var rows = CharacterSaves.TopLeagueCharacters(league, 10)
-            .Select(s =>
-            {
-                if (onlineByName.TryGetValue(s.Name, out var live))
-                    return (Name: CharacterName(live), Level: live.Pools.Level, Class: ClassDisplayName(live),
-                        Exp: live.Character.Experience, Dead: s.HardcoreDead || live.Character.HardcoreDeathRecorded);
-                return (Name: s.Name, Level: s.Level, Class: ClassDisplayName(s.Class, s.Ascendancy),
-                    Exp: s.Experience, Dead: s.HardcoreDead);
-            })
+        var seen = new HashSet<string>(StringComparer.OrdinalIgnoreCase);
+        var entries = new List<(string Name, int Level, string Class, uint Exp, bool Dead)>();
+        foreach (var s in CharacterSaves.TopLeagueCharacters(league, limit))
+        {
+            seen.Add(s.Name);
+            if (onlineByName.TryGetValue(s.Name, out var live))
+                entries.Add((CharacterName(live), live.Pools.Level, ClassDisplayName(live),
+                    live.Character.Experience, s.HardcoreDead || (live.Character.Hardcore && live.Character.HardcoreDeathRecorded)));
+            else
+                entries.Add((s.Name, s.Level, ClassDisplayName(s.Class, s.Ascendancy, s.AscendancyFamily),
+                    s.Experience, s.HardcoreDead));
+        }
+        foreach (var (name, live) in onlineByName)
+            if (seen.Add(name))
+                entries.Add((CharacterName(live), live.Pools.Level, ClassDisplayName(live),
+                    live.Character.Experience, live.Character.Hardcore && live.Character.HardcoreDeathRecorded));
+
+        var rows = entries
             .OrderByDescending(r => r.Level)
             .ThenByDescending(r => r.Exp)
             .ThenBy(r => r.Name, StringComparer.OrdinalIgnoreCase)
-            .Take(10)
+            .Take(limit)
             .ToList();
 
         if (rows.Count == 0) return $"No characters found on the {league} ladder.";
@@ -164,16 +177,35 @@ public static class CommandsFeature
 
     internal static string DescribeAtlasPassives(Player player)
     {
+        var presets = player.Character.AtlasPassives;
         int preset = AtlasActivePreset(player);
-        var allocated = player.Character.AtlasPassives[preset];
+        bool validPreset = preset >= 0 && preset < presets.Length;
+        IReadOnlyCollection<ushort> allocated = validPreset ? presets[preset] : [];
         ushort total = player.Character.AtlasPassivePoints;
         int unspent = Math.Max(0, total - allocated.Count);
         ushort respec = AtlasRespecPoints(player);
         var catalog = LeagueFor(player).HardMode && HardModeAtlasPassives is not null ? HardModeAtlasPassives : AtlasPassiveNodes;
-        string names = allocated.Count == 0
-            ? "No Atlas passives allocated."
-            : string.Join(", ", allocated.Select(id => catalog?.Find(id)?.Name ?? id.ToString()));
-        return $"Atlas Tree {preset + 1}: {allocated.Count}/{total} Atlas passive skill point(s) allocated, {unspent} unspent, {respec} respec point(s).\n{names}";
+        string header = $"Atlas Tree {(validPreset ? preset + 1 : 1)}: {allocated.Count}/{total} Atlas passive skill point(s) allocated, {unspent} unspent, {respec} respec point(s).";
+        if (allocated.Count == 0) return $"{header}\nNo Atlas passives allocated.";
+        return $"{header}\n{WrapCommaList(allocated.Select(id => catalog?.Find(id)?.Name ?? id.ToString()), 200)}";
+    }
+
+    static string WrapCommaList(IEnumerable<string> items, int maxLineLength)
+    {
+        var lines = new List<string>();
+        var current = new System.Text.StringBuilder();
+        foreach (string item in items)
+        {
+            if (current.Length > 0 && current.Length + 2 + item.Length > maxLineLength)
+            {
+                lines.Add(current.ToString());
+                current.Clear();
+            }
+            if (current.Length > 0) current.Append(", ");
+            current.Append(item);
+        }
+        if (current.Length > 0) lines.Add(current.ToString());
+        return string.Join('\n', lines);
     }
 
     internal static async Task InviteAsync(Player player, string rawTarget)

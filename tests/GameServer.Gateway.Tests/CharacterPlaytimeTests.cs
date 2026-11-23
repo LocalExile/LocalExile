@@ -82,8 +82,13 @@ public sealed class CharacterPlaytimeTests : IDisposable
         var created = DateTimeOffset.UtcNow.AddDays(-2).AddHours(-3);
         store.AddCharacter(new GameServer.Core.Accounts.Character(Guid.NewGuid(), account.Id, "Hero", CharacterClass.Ranger, 85, "Standard", "1_1_1", created, DateTimeOffset.UtcNow));
         store.AddCharacter(new GameServer.Core.Accounts.Character(Guid.NewGuid(), account.Id, "TopExile", CharacterClass.Witch, 100, "Standard", "1_1_1", created, DateTimeOffset.UtcNow));
+        store.AddCharacter(new GameServer.Core.Accounts.Character(Guid.NewGuid(), account.Id, "FallenHC", CharacterClass.Marauder, 92, "Standard", "1_1_1", created, DateTimeOffset.UtcNow,
+            HardcoreDeath: new HardcoreDeathRecord("Hardcore", created.AddHours(1), false)));
+        store.AddCharacter(new GameServer.Core.Accounts.Character(Guid.NewGuid(), account.Id, "AliveHC", CharacterClass.Duelist, 90, "Hardcore", "1_1_1", created, DateTimeOffset.UtcNow));
         CharacterSaves.Write("Hero", new([], Experience: 1234567));
         CharacterSaves.Write("TopExile", new([], Experience: 4250334444u));
+        CharacterSaves.Write("FallenHC", new([], Experience: 2200000000u));
+        CharacterSaves.Write("AliveHC", new([], Experience: 1900000000u));
 
         var player = PlayerOf("Hero");
         player.Character.ClassRow = 2;
@@ -103,7 +108,17 @@ public sealed class CharacterPlaytimeTests : IDisposable
             Assert.Equal("You have killed 0 monsters.", replies[^1]);
 
             Assert.True(await GameEvents.AnyPacket(player, InstanceItems.CommandId, [0, 0x16, InstanceItems.ItemLevelCommand, 0, 0]));
-            Assert.Equal("No item is currently held on the cursor.", replies[^1]);
+            Assert.Equal("There is no item on the cursor.", replies[^1]);
+
+            var inv = Game.ItemsOf(player);
+            var noMods = inv.Add(PlayerInventories.Cursor, 0, 0, new Item(1, ["Base", "Stack"], 0) { ItemLevel = 50 });
+            Assert.True(await GameEvents.AnyPacket(player, InstanceItems.CommandId, [0, 0x16, InstanceItems.ItemLevelCommand, 0, 0]));
+            Assert.Equal("Item on cursor doesn't have a level (it needs to be one that can get mods).", replies[^1]);
+            inv.Remove(PlayerInventories.Cursor, noMods.Id);
+            var withMods = inv.Add(PlayerInventories.Cursor, 0, 0, new Item(2, ["Base", "Mods"], 0) { ItemLevel = 73 });
+            Assert.True(await GameEvents.AnyPacket(player, InstanceItems.CommandId, [0, 0x16, InstanceItems.ItemLevelCommand, 0, 0]));
+            Assert.Equal("Item on cursor is level 73.", replies[^1]);
+            inv.Remove(PlayerInventories.Cursor, withMods.Id);
 
             byte[] whoisTop = new GameServer.Core.Protocol.Login.LoginWriter().U16(InstanceItems.CommandId).U8(InstanceItems.WhoisCommand).WStr("TopExile").ToArray();
             Assert.True(await GameEvents.AnyPacket(player, InstanceItems.CommandId, whoisTop));
@@ -111,7 +126,15 @@ public sealed class CharacterPlaytimeTests : IDisposable
 
             Assert.True(await GameEvents.AnyPacket(player, InstanceItems.CommandId, [0, 0x16, InstanceItems.LadderCommand, 0, 0]));
             Assert.Contains("1. TopExile Level 100 Witch", replies[^1]);
-            Assert.Contains("2. Hero Level 85 Ranger", replies[^1]);
+            Assert.Contains("2. FallenHC Level 92 Marauder", replies[^1]);
+            Assert.DoesNotContain("(Dead)", replies[^1]);
+            Assert.Contains("3. Hero Level 85 Ranger", replies[^1]);
+
+            player.Character.League = "Hardcore";
+            Assert.True(await GameEvents.AnyPacket(player, InstanceItems.CommandId, [0, 0x16, InstanceItems.LadderCommand, 0, 0]));
+            Assert.Contains("1. FallenHC (Dead) Level 92 Marauder", replies[^1]);
+            Assert.Contains("2. AliveHC Level 90 Duelist", replies[^1]);
+            player.Character.League = "Standard";
 
             var commands = player.Commands;
             foreach (var build in GameEvents.CommandsBuilding.For(player)) commands = build(commands, player);
@@ -131,12 +154,16 @@ public sealed class CharacterPlaytimeTests : IDisposable
             Assert.Equal("Autoreply set \"In map\"", replies[^1]);
             Assert.True(await GameEvents.AnyPacket(player, InstanceItems.CommandId, probeAfk));
             Assert.Equal("AFK mode is now ON. Autoreply \"This player is AFK.\"", replies[^1]);
-            await GameEvents.RunMessagesHandled(player, [InstanceProtocol.LockstepMoveStartId]);
+            await GameEvents.RunMessagesHandled(player, [InstanceTransfer.UseSkillOnObjectId]);
             var avail = GameEvents.GetChatAvailability(player);
             Assert.True(avail.Afk);
             Assert.Equal("In map", avail.AfkMessage);
         }
-        finally { GameEventOwners.Release("Commands", GameEventOwners.ModuleRank); }
+        finally
+        {
+            await GameEvents.RunPlayerLeaving(player, "disconnected");
+            GameEventOwners.Release("Commands", GameEventOwners.ModuleRank);
+        }
     }
 
     [Fact]

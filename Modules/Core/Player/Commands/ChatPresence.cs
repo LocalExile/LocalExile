@@ -17,6 +17,7 @@ static class ChatPresence
     static readonly HashSet<ushort> ActionPackets =
     [
         InstanceProtocol.UseSkillAtLocationId,
+        InstanceTransfer.UseSkillOnObjectId,
         InstanceProtocol.UseInstantSkillAtLocationId,
         InstanceProtocol.UseInstantSkillId,
         InstanceProtocol.LockstepMoveStartId,
@@ -25,10 +26,18 @@ static class ChatPresence
         InstanceProtocol.ChannelUpdateId,
         InstanceProtocol.ChannelUpdateAltId,
         InstanceProtocol.SwapWeaponsId,
+        InstanceProtocol.ResurrectId,
         InstanceItems.PickUpItemId,
         InstanceItems.PlaceItemId,
         InstanceItems.DropItemId,
         InstanceItems.ItemActionId,
+        InstanceItems.UseFlaskId,
+        InstanceItems.UseItemId,
+        InstanceItems.UseItemOnId,
+        InstanceItems.UseItemTypeOnId,
+        InstanceWaypoints.TravelId,
+        InstanceEntities.AllocatePassiveId,
+        InstanceEntities.RefundPassiveId,
     ];
 
     readonly record struct State(bool Afk, string AfkMessage, bool Dnd, string DndMessage, string? AutoReply);
