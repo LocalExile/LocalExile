@@ -80,6 +80,8 @@ public static class InstanceEntities
     /// <summary>C→S 0x2a7 (2 + u8 + WStr, writer 0x141fa5e60): rename one Atlas passive tree preset (0..2).</summary>
     public static (byte Preset, string Name) ReadAtlasTreeRename(ReadOnlySpan<byte> m)
     {
+        if (m.Length < 3 || LoginReader.TryMeasureWStr(m[3..], out _) != WireMeasure.Ok)
+            return (byte.MaxValue, "");
         var r = new LoginReader(m[3..]);
         return (m[2], r.WStr());
     }

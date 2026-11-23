@@ -32,9 +32,32 @@ public static partial class Game
     // Harvest Scarab's map_chance_for_area_%_to_contain_harvest, turn on no block). Idols carry the Atlas passives' stats,
     // so a map whose mods hold one of them gets the same block a node of that family gives.
     static Dictionary<uint, string> LeagueBlockStats = [];
+    static Dictionary<byte, int> BossOptionMinTiers = new() { [1] = 1, [2] = 9, [3] = 9 };
+    static Dictionary<byte, int> BossOptionUnlockFlags = new() { [1] = 225, [2] = 351, [3] = 352 };
 
     internal static void LoadMapAreaStats()
     {
+        var minTiers = new Dictionary<byte, int> { [1] = 1 };
+        foreach (var row in ClientTables.TableOrEmpty("AtlasPrimordialBossInfluence"))
+        {
+            if (row.IntOrNull("Boss") is not int boss || row.IntOrNull("MinMapTier") is not int minTier || minTier <= 0) continue;
+            byte option = boss switch { 0 => 2, 1 => 3, _ => 0 };
+            if (option == 0) continue;
+            minTiers[option] = minTiers.TryGetValue(option, out int prev) ? Math.Min(prev, minTier) : minTier;
+        }
+        minTiers.TryAdd(2, 9);
+        minTiers.TryAdd(3, 9);
+        BossOptionMinTiers = minTiers;
+
+        var unlockFlags = new Dictionary<byte, int>();
+        foreach (var row in ClientTables.TableOrEmpty("AtlasPrimordialBossOptions"))
+            if (row.IntOrNull("__col0") is >= 1 and <= 3 and int opt && row.IntOrNull("__col1") is > 0 and int flag)
+                unlockFlags[(byte)opt] = flag;
+        unlockFlags.TryAdd(1, 225);
+        unlockFlags.TryAdd(2, 351);
+        unlockFlags.TryAdd(3, 352);
+        BossOptionUnlockFlags = unlockFlags;
+
         var fragmentStats = new HashSet<uint>();
         var fragmentMods = new HashSet<int>();
         foreach (var row in ClientTables.TableOrEmpty("MapFragmentMods"))
@@ -57,6 +80,26 @@ public static partial class Game
         }
         foreach (uint key in shared) families.Remove(key);
         LeagueBlockStats = families;
+    }
+
+    /// <summary>Minimum map tier for an AtlasPrimordialBossOptions selection (1 Maven = T1, 2 Eater / 3 Exarch from AtlasPrimordialBossInfluence.MinMapTier).</summary>
+    public static int BossOptionMinTier(byte bossOption) =>
+        BossOptionMinTiers.TryGetValue(bossOption, out int min) ? min : int.MaxValue;
+
+    /// <summary>Whether <paramref name="bossOption"/> (1 Maven, 2 Eater, 3 Exarch) is allowed on a map of this tier and rarity.</summary>
+    public static bool IsBossOptionEligible(byte bossOption, int tier, ItemRarity rarity) =>
+        bossOption is >= 1 and <= 3 && rarity != ItemRarity.Unique && tier >= BossOptionMinTier(bossOption) && tier <= 16;
+
+    /// <summary>Validates a map device boss option against Atlas eligibility, map rarity/tier, special layouts, and the player's unlock flag.</summary>
+    public static byte EligibleBossOption(Player player, MapDevice.Opening opening, byte bossOption)
+    {
+        if (!opening.Area.UsesAtlas || !IsBossOptionEligible(bossOption, opening.Area.Tier, opening.Mods.MapRarity))
+            return 0;
+        if (MapDevices.Atlas?.ByHash16(opening.Area.Hash16) is { RequiresSpecificItem: true })
+            return 0;
+        if (BossOptionUnlockFlags.TryGetValue(bossOption, out int flag) && !player.Character.LeagueQuestFlags.Contains(flag))
+            return 0;
+        return bossOption;
     }
 
     /// <summary>InstanceEvents.AreaStats: the stats of the instance <paramref name="request"/> opens.</summary>
@@ -145,7 +188,7 @@ public static partial class Game
         }
         Set(Stat.MapDeviceType, 1);
         // AtlasPrimordialBossOptions: 1 Maven, 2 Eater of Worlds, 3 Searing Exarch (C→S 0xd8 / 0x297).
-        if (bossOption is >= 1 and <= 3) Set(Stat.MapAtlasPrimordialBossInfluence, bossOption);
+        if (IsBossOptionEligible(bossOption, tier, mods.MapRarity)) Set(Stat.MapAtlasPrimordialBossInfluence, bossOption);
         // The league blocks of the tree's families and of the families whose stats the map's own sources (Idols,
         // fragments, mods) carry; a flag set by several sources is set once.
         HashSet<string>? withMods = null;

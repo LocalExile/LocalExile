@@ -280,7 +280,7 @@ public static partial class Game
     {
         HitSummonsOnHitLocked(player, m, skill, sourceSkill, now, random);
         PhantasmsOnHitLocked(player, m, sourceSkill, now, random, skill: skill);
-        CursesOnHitLocked(player, m, sourceSkill, spell, now, skill);
+        CursesOnHitLocked(player, m, sourceSkill, spell, now, skill, playerStats, playerHit, random);
         KnockbackOnHitLocked(player, m, playerStats, skill, now, random, hitOrigin);
         // "You gain Onslaught for 4 seconds on Hit" and "Gain Arcane Surge on Hit with Spells" (Honoured Berserker
         // and Flood tattoos): every player hit, the spells-only one gated by the hit's own spell flag.
@@ -299,9 +299,13 @@ public static partial class Game
                 ? Math.Max(0, 1 - (m.Effects.PhysicalReduction - CrushReduction(m, now)) / 100.0)
                     * (1 + MaimedPhysicalTaken(m, now) / 100.0) : 1)));
         bool tinctureWeapon = !spell && Player(Stat.TinctureApplied) != 0;
+        int frozenShock = spell && m.Ailments.Magnitude(Kind.Freeze, now) > 0
+            ? ActorScale.Saturate((long)Player(Stat.SpellChanceToShockFrozenEnemiesPct) +
+                Skill(Stat.SpellChanceToShockFrozenEnemiesPct)) : 0;
         int Attacker(uint name)
         {
             int value = Player(name) + PanelStats.Of(name, Skill);
+            if (name == Stat.ChanceToShockPct) value = ActorScale.Saturate((long)value + frozenShock);
             if (!tinctureWeapon) return value;
             return name switch
             {
@@ -333,6 +337,9 @@ public static partial class Game
         }
         if (m.Dead || m.Life == 0)
         {
+            if (playerHit && Player(Stat.ExplodeOnKillPctFireDamageToDeal) > 0
+                && (spell || sourceSkill != 0 && SkillsFor(player).IsAttack(SupportedSkill(player, sourceSkill).Effect)))
+                CaptureEquippedHitExplosionLocked(m, playerStats);
             // Shatter (wiki Shatter, Freeze): a non-unique monster a hit kills while frozen, the killing hit's own freeze
             // included, leaves no corpse, so nothing spreads from it and the kill's shock has nothing to land on.
             if (m.Rarity != MonsterRarity.Unique && m.Ailments.Magnitude(Kind.Freeze, now) > 0)
@@ -422,6 +429,7 @@ public static partial class Game
     {
         ProliferateLocked(player, now);
         var packets = new List<(byte[], string)>();
+        ExpireConversionTrapsLocked(player, now, packets);
         ProliferateIgnitesLocked(player, now, packets);
         if (!MonsterElementalAilments.AnyApplied && !player.Area.HasProliferatedAilments && !player.Area.HasSpiderWebs)
         {
@@ -440,6 +448,8 @@ public static partial class Game
 
     static void ProcessMonsterAilmentLocked(Player player, uint id, SpawnedMonster m, double now, List<(byte[] Packet, string Log)> packets)
     {
+        if (m.TemporaryAllyUntil > 0 && (now >= m.TemporaryAllyUntil || m.Dead || m.Life == 0))
+            EndConversionTrap(player, id, m, now, packets);
         BearTrapChangesLocked(player, id, m, now, packets);
         // A knockback is presented before the ailment-idle skip: an idle monster still moves.
         if (m.KnockbackPending is (int kx, int ky))
@@ -451,10 +461,11 @@ public static partial class Game
         var a = m.Ailments;
         double vines = ToxicWalkFactor(m);
         double trap = BearTrapWalkFactor(m, now);
+        double snare = EnsnaredWalkFactor(m, now);
         if (!m.RuleAilments.Idle) packets.AddRange(AlternateAilmentBuffs(id, $"monster 0x{id:x} ({m.Label})", m.RuleAilments, now));
         bool elementalIdle = a.Idle && now >= m.ReceivedActionUntil;
         bool lowLifeMove = MonsterOnLowLife(m) && m.Effects[Stat.MovementVelocityPlusPctWhenOnLowLife] != 0;
-        if (elementalIdle && !TimedWalkDebuff(now, m) && SpiderHinder(m, now) == 0 && vines == 1 && trap == 1
+        if (elementalIdle && !TimedWalkDebuff(now, m) && SpiderHinder(m, now) == 0 && vines == 1 && trap == 1 && snare == 1
             && m.Effects[Stat.ActionSpeedMinusPct] == 0 && a.WalkFactor == 1 && a.SentActionSpeed == 0 && !m.MaimedMovementShown && !lowLifeMove) return;
         if (!elementalIdle)
         {
@@ -470,7 +481,7 @@ public static partial class Game
         // Bear Trap's more-multiplier: the client's walk reads movement_velocity_+%, not bear_trap_movement_speed_+%_final.
         bool speedFloored = m.Effects[Stat.MovementSpeedCannotBeReducedBelowBase] > 0;
         var movement = MaimedMovementFactor(m, now);
-        double lessMove = trap * (now < m.CoveredInAshUntil ? 0.8 : 1.0);
+        double lessMove = trap * snare * (now < m.CoveredInAshUntil ? 0.8 : 1.0);
         if (lessMove != 1 && !(speedFloored && lessMove < 1))
             movement = (movement.Factor * lessMove, (int)Math.Round((100 + movement.Pct) * lessMove - 100));
         double walk = (speedFloored ? Math.Max(1, action) : action)
@@ -501,7 +512,7 @@ public static partial class Game
             SetStats(player, id, [(key, speed)]);
         }
         bool maimed = m.MaimedUntil > now || m.HinderedUntil > now || SpiderHinder(m, now) != 0
-            || lowLifeMove || trap != 1;
+            || lowLifeMove || trap != 1 || snare != 1;
         bool maimShown = m.MaimedMovementShown;
         bool movementChanged = maimed
             ? !maimShown || movement.Pct != m.MaimedMovementShownPct

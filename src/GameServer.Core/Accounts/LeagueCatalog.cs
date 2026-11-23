@@ -34,9 +34,8 @@ public sealed record League(string Name, string Base, bool Hardcore, bool Ssf, s
     /// position" on an empty one and the client crashes (live 2026-10-18). A leading '#' makes it a lookup key.</summary>
     public string Description => CardText is { Length: > 0 } text ? text : $"The {Name} league.";
 
-    /// <summary>LeagueCategory id sent in S→C 0x1b LeagueEntry.C1 (+0xc1): 59 matches ActiveSettings.Current for the
-    /// Allflame/Deepwater launch plaque rule (0x140d17e80); 0 for other leagues.</summary>
-    public byte LaunchCategory => Base.Equals("Allflame", StringComparison.OrdinalIgnoreCase) ? (byte)59 : (byte)0;
+    /// <summary>Optional LeagueCategory id sent in S→C 0x1b LeagueEntry.C1 (+0xc1), configured per league in league.json.</summary>
+    public byte LaunchCategory { get; init; }
 
     /// <summary>The S→C 0x1b entry. Main leagues get a card on the create screen; variants are reached through its check
     /// boxes. The client has one check box for a league form, and its wire names call it Ruthless.</summary>
@@ -156,6 +155,7 @@ public sealed class LeagueCatalog
         var r = doc.RootElement;
         string? Text(string n) => r.TryGetProperty(n, out var v) && v.ValueKind == JsonValueKind.String ? v.GetString() : null;
         bool Flag(string n, bool or = false) => r.TryGetProperty(n, out var v) && v.ValueKind is JsonValueKind.True or JsonValueKind.False ? v.GetBoolean() : or;
+        byte Byte(string n, byte or = 0) => r.TryGetProperty(n, out var v) && v.ValueKind == JsonValueKind.Number && v.TryGetByte(out byte b) ? b : or;
         string name = Text("name") ?? folderName;
         string? entryOf = Text("entryOf"), kind = Text("entryKind");
         // Beside league.json: the modules the league loads.
@@ -167,6 +167,7 @@ public sealed class LeagueCatalog
         {
             Parent = Text("parent"), EntryOf = entryOf, CardText = Text("description"), DeathLeague = Text("deathLeague"),
             Creatable = Flag("creatable", true), Ended = Flag("ended"), DataSet = Text("dataSet"), Modules = listed,
+            LaunchCategory = Byte("launchCategory"),
         };
     }
 

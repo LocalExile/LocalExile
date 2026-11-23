@@ -47,27 +47,29 @@ Part of [Status](../Status.md); what to build next in this area is in
   so the client ends on it; the lists are sorted; the budget adds node-granted points (Unwavering Vision). A refund
   spends one respec point (`atlas.respec`, starting at 0) and an Orb of Unmaking (Kirac's shop) grants one
   ([15](../docs/protocol/15-progression.md) §2; not yet tried live). Trees II and III unlock at 50 and 100 completed
-  maps (the stand-in for bonus objectives) through league flags 329-332, per character; a locked tab is refused. A map's area stats take the active preset's
+  bonus objectives through league flags 329-332, per character; a locked tab is refused. A map's area stats take the active preset's
   nodes (HardMode vectors in a HardMode league) composed by the tree's own rules (`AtlasStats`: Wandering Path, Grand
   Design, Unfettered Concentration, mod effect per mod and per fragment), with rarity-gated packs and Meticulous
   Appraiser resolved in the list; the vital/deadly keystones' monster life and damage, the map's card and scarab
   drop factors and the scarab-type weights (ScarabTypes: the Carapaces' `MoreLikely`, `DisableDrops`) act ([maps](../docs/game/maps.md); offline only).
+  Monster kills (ordinary, projectile and minion) use the map's Atlas drop-chance, no-map-drop and tier-upgrade rolls when selecting map-key loot.
   The selected layout is kept in the character save (an AtlasNode Id, `CharacterSaves.SelectedAtlasLayout`, chosen with
   `/atlas <layout>`), and a restarted Gateway reads it back instead of resetting to the starting node (#382). Generic
-  maps use their tier as the area level (tier + 67).
-  Atlas progress (2026-11-01): killing a map's WorldAreas boss completes its AtlasNode, saved per character.
-  S→C 0x1a4 and one chat line mark a map the first time only.
-  Area entry sends one 0x1a3 containing only saved completed maps in both masks so uncompleted maps stay fogged and
-  uncounted, along with the 0x3d presets and 0x3c tree names before 0x21.
-  First map completion also grants league quest flag 295 (`CompletedMap`) so the Atlas opens zoomed out to scale 0.5.
-  A completion re-sends 0x1a3 right after 0x1a4 so the Atlas and portal labels update without an area change.
+  maps use their tier as the area level (tier + 67). Layouts marked for a specific item require their designated map key or named map, and special map keys are refused on ordinary layouts.
+  Atlas progress (2026-11-01): killing the map's final WorldAreas boss completes its AtlasNode, saved per
+  character; S→C 0x1a4 and one chat line mark it the first time only. Area entry sends one 0x1a3 carrying saved completed
+  maps in the revealed mask and bonus-completed maps in the bonus mask so uncompleted maps stay fogged and uncounted,
+  along with the 0x3d presets and 0x3c tree names before 0x21, so login does not announce every saved map. First map
+  completion also grants league quest flag 295 (`CompletedMap`) so the Atlas opens zoomed out to scale 0.5. A completion
+  re-sends 0x1a3 right after 0x1a4 so the Atlas and portal labels update without an area change. Map-device rarity and
+  corruption qualify a separate, one-time passive point and objective count ([21](../docs/protocol/21-hideouts.md)).
   Atlas passive gold respec (C→S 0x3f gold flag and 0x40 Refund All via Kirac's Atlas Respecialisation), preset
   renaming (C→S 0x2a7 / S→C 0x3c), one-off free resets (0x3d bit 0 / C→S 0x41) and 0x129 → 0x91 replies are wired.
-  Map device activations forward the primordial boss option (C→S 0xd8 index) to `map_atlas_primordial_boss_influence`
+  Map device activations forward eligible primordial boss options (C→S 0xd8 index) to `map_atlas_primordial_boss_influence`
   and handle Memory Line (C→S 0x297) and Maven Invitation (C→S 0x298) receptacles.
   `/atlas_complete <map | all>` and `/atlas_reset` (dev).
   Live: 0x1a4 for Chateau showed it completed and opened Springs and Arachnid Nest; a native Beach boss kill also sent
-  the completion and refreshed the Atlas state. Bonus objectives, Voidstones, map stash placement and official drop pools remain open.
+  the completion and refreshed the Atlas state. Voidstones, map stash placement and official drop pools remain open.
   Code: `AtlasCatalog.cs`, `AtlasPassives.cs`, `AtlasProgress.cs`, `MapDevice.cs`, `ItemDrops.cs`, `InstanceItems.cs`.
   Docs: [21](../docs/protocol/21-hideouts.md), [re/013](../docs/re/013-atlas-progress.md), [maps](../docs/game/maps.md), [05](../docs/protocol/05-inventories-and-ui.md).
 - Portal Scroll and the Portal skill (its 2.5 s cast): outside towns and hideouts a portal opens beside the player,
@@ -119,6 +121,9 @@ Part of [Status](../Status.md); what to build next in this area is in
 
 ## Partly working
 
+- Nightmare maps apply their levelled hexes while the player is in the map.
+- Map and Atlas modifiers govern scarab drops, monster combat and player recovery, skill area, defences, accuracy and aura effect.
+
 - Named scarabs: Domination/Cloister, Ambush boxes, Essence release/Ascent/Calcification/Stability and Terrors bosses;
   Essence: corruption/transfers, Toughness, enrage, Decay, Envy, Karui and death insects; other skills/scaling partial (#505).
 - Tormented Spirits in maps and the campaign: touch, possession, right-click Possession cancellation (`C→S 0x004b`),
@@ -166,6 +171,8 @@ Part of [Status](../Status.md); what to build next in this area is in
 
 - Simulacrum: five arenas and a 15-wave controller; opening and the wave-start prompt checked in the client, wave
   combat and the reward display not yet. Starting a wave destroys every item on the ground, as the client warns.
+  Its arenas use their encounter rules independently of the owner's Atlas preset.
+  Scheduled bosses spawn before a scaled wave can award its rewards.
 
 - **Waypoint arrival.** Hideout entry uses the exact saved waypoint cell for spawn and movement origin,
   including login and returns from other areas.
@@ -235,7 +242,7 @@ Part of [Status](../Status.md); what to build next in this area is in
   The hub waypoints stay unlit (client area-type rule).
   The upper hub entrance now reaches an initial Delve_Main mine section and its return gate leads back to the hub.
   Delve_Main emits the 0x1d return-area hash (flag byte 0 bit 0x08) and handles C→S 0x186 (Return to World).
-  Hideouts emit 0x1d flag byte 1 bit 0x80 for hideout permissions.
+  Owned hideouts emit 0x1d flag byte 1 bit 0x80 for hideout permissions.
   Native entry, ordinary walking and return were verified; see the initial terrain block below.
   Account checkpoint progression is implemented; physical terrain and encounter limitations are described below.
   See [16](../docs/protocol/16-waypoints.md) §4.
@@ -325,7 +332,8 @@ Part of [Status](../Status.md); what to build next in this area is in
 - **Delve sulphite and the Crawler (verified live, 2026-10-29).**
   - The character's Voltaxic Sulphite is saved, sent on entering the Mine Encampment or a Delve area (S→C 0x228), and
     shown by the Subterranean Chart's gauge. `/sulphite <n>` sets it.
-    Sulphite scarabs guarantee three shared, single-use map deposits with Niko; native area-level rewards scale with
+    Sulphite scarabs guarantee three shared, single-use map deposits with Niko. Natural encounters roll the area's
+    composed Delve chance using the map's seed. Native area-level rewards scale with
     map quantity and the owner's legacy scarab bonus, cap at equipment capacity, and survive reentry/module reload.
     Fumes adds mine guards and a native enrage visual with +50% item quantity on affected monsters; its radius,
     guard placement and exact official combat tuning remain server approximations.

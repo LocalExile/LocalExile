@@ -56,6 +56,7 @@ Part of [Status](../Status.md); what to build next in this area is in
 ## Partly working
 
 - Dual Wielding Mastery's different-weapon-types damage. Docs: [20](../docs/protocol/20-damage.md) §2b.
+- Armour Mastery grants +1 to all maximum elemental resistances when all four armour pieces provide Armour.
 - Hierophant, except the Brand nodes. Docs: [Hierophant](../docs/game/hierophant.md).
 - Behemoth through the optional Phrecia module. Docs: [Behemoth](../docs/game/behemoth.md).
 - Whisperer through the optional module. Docs: [Whisperer](../docs/game/whisperer.md).

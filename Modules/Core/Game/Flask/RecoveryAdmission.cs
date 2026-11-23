@@ -64,6 +64,11 @@ public static partial class Game
         Math.Max(local.GetValueOrDefault(Stat.LocalFlaskBleedingImmunityIfBleedingAndRemoveCorruptedBloodS),
             local.GetValueOrDefault(Stat.LocalFlaskBleedingImmunityIfBleedingAndRemoveCorruptedBlood) != 0 ? 4 : 0);
 
+    static bool DispelsBurning(IReadOnlyDictionary<uint, int> local) =>
+        local.GetValueOrDefault(Stat.LocalFlaskDispelsBurningAndIgniteImmunityDuringEffect) != 0
+        || local.GetValueOrDefault(Stat.LocalFlaskIgniteImmunityIfIgnitedAndRemoveBurning) != 0
+        || local.GetValueOrDefault(Stat.LocalFlaskIgniteImmunityIfIgnitedAndRemoveBurningS) > 0;
+
     internal static void ApplyConditionalFlaskAilmentProtectionLocked(Player player,
         IReadOnlyDictionary<uint, int> local, double now)
     {
@@ -78,6 +83,8 @@ public static partial class Game
         if (local.GetValueOrDefault(Stat.LocalFlaskPoisonImmunityIfPoisonedS) is int poison
             && poison > 0 && player.IncomingAilments.RemoveOrProtectPoison(now, poison))
             Console.WriteLine($"[gateway] flask removed poison and protects for {poison} s");
+        if (DispelsBurning(local))
+            EndFlameTouched(player, now);
     }
 
     static bool ConditionalFlaskAilmentProtectionTriggered(Player player,
@@ -85,5 +92,6 @@ public static partial class Game
         BleedFlaskProtection(local) > 0
             && (player.IncomingAilments.Bleeding(now) || CorruptedBloodStacks(player, now) > 0)
         || local.GetValueOrDefault(Stat.LocalFlaskPoisonImmunityIfPoisonedS) > 0
-            && player.IncomingAilments.PoisonStacks(now) > 0;
+            && player.IncomingAilments.PoisonStacks(now) > 0
+        || DispelsBurning(local) && FlameTouchedActive(player);
 }

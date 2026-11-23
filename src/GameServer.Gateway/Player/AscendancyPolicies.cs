@@ -106,17 +106,6 @@ public static class AscendancyPolicies
             : (ReadPolicy(player, selection) ?? throw Unavailable(selection)).AreaStats;
     }
 
-    /// <summary>Read-only preview of an optional ascendancy family's world stats before a connection exists, so
-    /// level generation receives the same merged LeagueStats that 0x1d carries.</summary>
-    public static IReadOnlyDictionary<uint, int>? AreaStats(IReadOnlySet<string> modules, AscendancyIdentity? selection)
-    {
-        if (selection is null || selection.Family == AscendancyFamily.Normal) return null;
-        if (!_providers.TryGetValue(selection.Family, out var entry)) return null;
-        var policy = Volatile.Read(ref entry.Policy);
-        return policy is not null && entry.Owner.IsActive && modules.Contains(entry.Owner.Id) && policy.Supports(selection)
-            ? policy.AreaStats : null;
-    }
-
     public static IReadOnlyList<(uint Key, int Value)> NodeStats(Player player,
         AscendancyCatalog.Definition definition, ushort node, IReadOnlyList<(uint Key, int Value)> modeStats)
     {

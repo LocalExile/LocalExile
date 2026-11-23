@@ -239,7 +239,13 @@ public static class AreaExits
                     if (k < generic.Count) _slots[d] = generic[k++];
             }
             Place(Descriptions.Where(d => d.Kind == ExitKind.Entrance).OrderBy(d => d.Enabled ? 0 : 1), EntrancePoints, EntrancePointName);
-            Place(Descriptions.Where(d => d.IsTelepad), TeleportPoints, TeleportPointName);
+            var telepads = Descriptions.Where(d => d.IsTelepad);
+            // The Cauldron's two generic points are authored as telepad2 (tunnel grate), then telepad3
+            // (the face door that opens on Doedre's death). Its boss node lists them in the opposite order.
+            if (Room.Room.Path.StartsWith("Metadata/Terrain/Act8/Area2Level2/", StringComparison.OrdinalIgnoreCase)
+                && Name.Equals("doedre_boss_room_1.arm", StringComparison.OrdinalIgnoreCase))
+                telepads = telepads.OrderBy(d => d.Number);
+            Place(telepads, TeleportPoints, TeleportPointName);
         }
 
         // Phase 2, with every room's telepads: a gate stands beside the arrival from the place it leads to: "teleportM"

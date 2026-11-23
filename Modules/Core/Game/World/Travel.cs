@@ -396,6 +396,37 @@ public static partial class Game
         await ChangeArea(player, new PendingTransfer(hideout.AreaHash16, 0, false, AtWaypoint: true), $"{why}: {hideout.Name}");
     }
 
+    /// <summary>Whether <paramref name="areaHash"/> is a safe returnable world area (a town, waypoint campaign area, or
+    /// the player's own hideout) — excluding maps, pinnacle boss recipes, Labyrinth areas, Delve areas, and other players' hideouts.</summary>
+    public static bool IsReturnableWorldArea(Player player, ushort areaHash)
+    {
+        if (areaHash == 0 || MapDevices.IsMapArea(areaHash)) return false;
+        string? areaId = AreaTransitionCatalog.IdOf(areaHash);
+        if (areaId is not null && (areaId.StartsWith("Delve", StringComparison.OrdinalIgnoreCase)
+            || areaId == WaypointCatalog.LabyrinthPlaza
+            || areaId.StartsWith("Labyrinth_", StringComparison.OrdinalIgnoreCase)
+            || LabyrinthDay.DifficultyOf(areaId) is not null))
+            return false;
+        if (HideoutCatalog.ByArea(areaHash) is not null)
+            return player.Layout.Hash == areaHash
+                ? OwnHideout(player)
+                : HomeHideout(player)?.AreaHash16 == areaHash;
+        return WaypointCatalog.Areas.Find(areaHash) is not null;
+    }
+
+    /// <summary>Resolves a safe returnable world area and optional live instance from a recent or saved candidate,
+    /// falling back to the player's home hideout, last town, or Lioneye's Watch (never returning an unreturnable area).</summary>
+    public static (ushort Area, ulong Instance) ResolveReturnWorldArea(Player player,
+        (ushort Area, ulong Instance)? recent, ushort? saved)
+    {
+        if (recent is { } r && IsReturnableWorldArea(player, r.Area)) return r;
+        if (saved is ushort s && IsReturnableWorldArea(player, s)) return (s, 0);
+        if (HomeHideout(player) is { AreaHash16: not 0 } home) return (home.AreaHash16, 0);
+        ushort town = player.Character.LastTown;
+        if (town != 0 && IsReturnableWorldArea(player, town)) return (town, 0);
+        return (AreaLayouts.LioneyesWatch, 0);
+    }
+
     public static HideoutCatalog.Hideout? HomeHideout(Player player) =>
         HideoutCatalog.Selected(SharedHideout(player)?.Area ?? CharacterSaves.Load(CharacterName(player))?.SelectedHideout);
 

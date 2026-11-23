@@ -45,7 +45,8 @@ public partial class Program
                     if (ProjectileOutputGuard.Value is { } guard && !guard()) return false;
                     if (still is not null && !still()) return false;
                     if (atGate(admission) is not { } batch) return false;
-                    var immediate = output.Admit(batch, admission, output.Started && player.Connection.LockstepClient);
+                    if (output.TryAdmit(batch, admission, output.Started && player.Connection.LockstepClient) is not { } immediate)
+                        return false;
                     admitted = true;
                     admission.Finish(true);
                     if (!quest && view is null)
@@ -113,7 +114,7 @@ public partial class Program
         try
         {
             if (atGate(admission) is not { } batch) return false;
-            output.Shared(batch, admission);
+            if (!output.TryShared(batch, admission)) return false;
             var delta = player.Area.Delta;
             // A message that is not about an object (a death screen, a window) is the sender's own; what a player's view
             // makes (ViewOf) is that player's alone.

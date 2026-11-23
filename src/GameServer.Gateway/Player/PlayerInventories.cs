@@ -233,6 +233,8 @@ public sealed partial class PlayerInventories
                 if (x < 0 || y < 0 || x + shape.Width > slot.Width || y + shape.Height > slot.Height) { why = "outside the grid"; return null; }
                 if (row == Flask && !Accepts(row, shape.Class)) { why = $"{shape.Class} does not go in the flask slots"; return null; }
                 if (row == MapDevice && !global::MapDevice.AcceptsItem(held.Item.TypeHash, shape.Class)) { why = $"{shape.Class} does not go in the map device"; return null; }
+                if (row == MavenInvitations && !AcceptsItem(row, held.Item.TypeHash, shape.Class)) { why = "only Maven invitations go in the Maven invitation slots"; return null; }
+                if (row == MemoryLineMaps && !AcceptsItem(row, held.Item.TypeHash, shape.Class)) { why = $"{shape.Class} does not go in the memory line map device"; return null; }
                 inTheWay = [.. ItemsIn(row).Where(i => shapeOf(i.Item) is { } s && i.X < x + shape.Width && x < i.X + s.Width && i.Y < y + shape.Height && y < i.Y + s.Height)];
             }
             if (inTheWay.Count > 1) { why = $"{inTheWay.Count} items in the way"; return null; }
@@ -507,8 +509,19 @@ public sealed partial class PlayerInventories
         9 => itemClass == "Boots",
         10 => itemClass == "Belt",
         MapDevice => global::MapDevice.AcceptsClass(itemClass),
+        MavenInvitations => itemClass is global::MapDevice.MiscClass or "QuestItem",
+        MemoryLineMaps => global::MapDevice.AcceptsMemoryLineClass(itemClass),
         Flask => itemClass is "LifeFlask" or "ManaFlask" or "HybridFlask" or "UtilityFlask" or "UtilityFlaskCritical" or "Tincture",
         _ => true,
+    };
+
+    /// <summary>Item-specific placement check for grid receptacles that restrict beyond ItemClass (Map1, MavenInvitations, MemoryLineMaps).</summary>
+    public static bool AcceptsItem(byte row, uint typeHash, string itemClass) => row switch
+    {
+        MapDevice => global::MapDevice.AcceptsItem(typeHash, itemClass),
+        MavenInvitations => global::MapDevice.IsMavenInvitation(typeHash),
+        MemoryLineMaps => global::MapDevice.AcceptsMemoryLineClass(itemClass),
+        _ => Accepts(row, itemClass),
     };
 
     /// <summary>

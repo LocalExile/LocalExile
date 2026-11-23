@@ -12,6 +12,18 @@ public partial class Program
     static readonly Lazy<PacketLogQueue> PacketSummaries = new(() => new(Console.WriteLine));
     public static string CharacterName(Player player) => string.IsNullOrEmpty(player.Character.Name) ? "Exile" : player.Character.Name;
 
+    /// <summary>Whether <paramref name="player"/> owns the hideout instance they are in (same character or same account).</summary>
+    public static bool OwnsHideoutInstance(Player player)
+    {
+        if (HideoutCatalog.ByArea(player.Layout.Hash) is null) return false;
+        if (player.InstanceOwner is null || string.Equals(player.InstanceOwner, CharacterName(player), StringComparison.OrdinalIgnoreCase))
+            return true;
+        if (player.Character.Account is null || !Saves.IsOpen) return false;
+        var store = new SqliteAccountStore(Saves.Db);
+        return store.FindCharacter(player.InstanceOwner) is { } owner
+            && string.Equals(store.GetAccount(owner.AccountId)?.Name, player.Character.Account, StringComparison.OrdinalIgnoreCase);
+    }
+
     // Set while a projectile's output is sent: false drops it (Send).
     public static readonly AsyncLocal<Func<bool>?> ProjectileOutputGuard = new();
 
@@ -124,11 +136,7 @@ public partial class Program
                 // of the level from. A Labyrinth room's extra data is its node, so it gets none.
                 var pluginStates = LabyrinthDay.DifficultyOf(AreaLayouts.IdOf(areaHash)) is not null ? []
                     : instance.TerrainPluginStates(() => InstanceEvents.ComposeTerrainPluginStates(areaLeague, areaRequest));
-                // The client generates the area at the seed, level, stats, category and plugin states of 0x1d: merge any
-                // character-scoped ascendancy world stats before calling PlayableSeed so both sides see identical stats.
-                var seedStats = InstanceEvents.Merge(areaStats,
-                    AscendancyPolicies.AreaStats(areaLeague.Modules, CharacterSaves.Load(characterName)?.MainAscendancy?.Selection));
-                uint seed = AreaLayouts.PlayableSeed(areaHash, resolved.Seed, areaLevel, seedStats, leagueCategory, pluginStates);
+                uint seed = AreaLayouts.PlayableSeed(areaHash, resolved.Seed, areaLevel, areaStats, leagueCategory, pluginStates);
                 var layout = AreaLayouts.For(areaHash, seed);
                 AreaLayouts.Announce(layout, seed);
                 Console.WriteLine($"[gateway] {remote} ticket 0x{ticket:x8}: {resolved.Character ?? "?"} → instance {instanceId}, {layout.Describe()}");
@@ -206,7 +214,7 @@ public partial class Program
                     Text: resolved.League ?? "", LeagueStats: InstanceEvents.Merge(areaStats, Logic.AreaLeagueStats(player)),
                     TerrainData: terrainData,
                     AchievementSets: moduleHeader?.AchievementSets, B28: (byte)leagueCategory,
-                    HideoutPermissions: HideoutCatalog.ByArea(areaHash) is not null,
+                    HideoutPermissions: OwnsHideoutInstance(player),
                     ReturnAreaHash: player.ReturnAreaHash);
                 await Send(remote, stream, ciphers, area.Encode(), $"0x001d {area}; {areaStats.Count} area stat(s); ascendancy family {player.Character.MainAscendancy.Selection?.Family}" +
                     (labyrinthNode is null ? "" : $"; labyrinth day {labyrinthNode.Seed} node {labyrinthNode.Row} difficulty {labyrinthNode.Difficulty}") +
@@ -769,8 +777,9 @@ public partial class Program
         string line = $"Network mode error: this area received both Predictive-only ({Ids(predictive)}) and Lockstep-only " +
             $"({Ids(lockstep)}) client messages. Please report this to the developers with these packet ids.";
         Console.WriteLine($"[gateway] {remote} {line}");
-        var chat = InstanceChat.ChatLine(line);
-        for (int i = 0; i < 6; i++) await Send(remote, stream, ciphers, chat, $"0x0017 chat line (network mode error {i + 1}/6)");
+        // The wire encrypts the message buffer in place. Each diagnostic needs its own plaintext.
+        for (int i = 0; i < 6; i++)
+            await Send(remote, stream, ciphers, InstanceChat.ChatLine(line), $"0x0017 chat line (network mode error {i + 1}/6)");
     }
 
     // A tick's answer (0x1c) only reports that the server is there: it needs no game state, so it takes the wire alone

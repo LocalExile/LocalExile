@@ -113,9 +113,18 @@ static class PortalsFeature
         ActivateDeviceSlots(player, PlayerInventories.MemoryLineMaps, ItemsOf(player).Items(PlayerInventories.MemoryLineMaps),
             target: 0, bossOption, $"0x0297 activate memory line (index {bossOption})", allowCampaign: false);
 
+    sealed class ActivationConsumeAbortedException : Exception;
+
     // C→S 0x0298, the map receptacle's Maven Invitation Activate (mode 0x56, inventory row 86 MavenInvitations, slot 0..10).
     internal static async Task ActivateMavenInvitation(Player player, byte invitationIndex)
     {
+        if (invitationIndex > 10)
+        {
+            Console.WriteLine($"[gateway] {player.Connection.Remote} <= 0x0298 activate Maven invitation slot {invitationIndex}: out of range");
+            await Send(player, InstanceChat.ChatLine("Invalid Maven invitation slot."),
+                "0x0017 chat line \"Invalid Maven invitation slot.\"");
+            return;
+        }
         var all = ItemsOf(player).Items(PlayerInventories.MavenInvitations);
         var chosen = all.Where(i => i.X == invitationIndex).ToList();
         if (chosen.Count == 0)
@@ -123,6 +132,13 @@ static class PortalsFeature
             Console.WriteLine($"[gateway] {player.Connection.Remote} <= 0x0298 activate Maven invitation slot {invitationIndex}: empty");
             await Send(player, InstanceChat.ChatLine("No Maven invitation is placed in that slot."),
                 "0x0017 chat line \"No Maven invitation is placed in that slot.\"");
+            return;
+        }
+        if (chosen.Count != 1 || !MapDevice.IsMavenInvitation(chosen[0].Item.TypeHash))
+        {
+            Console.WriteLine($"[gateway] {player.Connection.Remote} <= 0x0298 activate Maven invitation slot {invitationIndex}: not a Maven invitation");
+            await Send(player, InstanceChat.ChatLine("Only a Maven invitation can be activated in that slot."),
+                "0x0017 chat line \"Only a Maven invitation can be activated in that slot.\"");
             return;
         }
         await ActivateDeviceSlots(player, PlayerInventories.MavenInvitations, chosen,
@@ -154,7 +170,8 @@ static class PortalsFeature
             : new MapDevice.Slot(i.Item.TypeHash, "", $"Item 0x{i.Item.TypeHash:x8}", -1, [], 0))];
         byte bossOption = !campaign && bossOptionInput is >= 1 and <= 3 ? bossOptionInput : (byte)0;
         var opening = MapDevices.Check(checkedSlots, CharacterName(player), Items.Mods, out string why, campaign: campaign);
-        if (opening is not null && bossOption != 0) opening = opening with { BossOption = bossOption };
+        if (opening is not null && bossOption != 0)
+            opening = opening with { BossOption = global::Game.EligibleBossOption(player, opening, bossOption) };
         var request = new MapOpening(player, checkedSlots, campaign, opening, why) { Target = target };
         GameEvents.ResolveMapOpening(request);
         opening = request.Opening;
@@ -171,21 +188,38 @@ static class PortalsFeature
             return;
         }
         var area = opening.Area;
-        byte resolvedBossOption = !campaign ? (opening.BossOption != 0 ? opening.BossOption : bossOption) : (byte)0;
+        byte resolvedBossOption = !campaign
+            ? global::Game.EligibleBossOption(player, opening, opening.BossOption != 0 ? opening.BossOption : bossOption)
+            : (byte)0;
         // One from each slot's stack, in one transaction: leftover stacks stay in the device (a shop scarab stack is 20).
-        var consumed = Saves.Atomically(() =>
+        (List<uint> gone, List<InventoryItem> left) consumed;
+        try
         {
-            var gone = new List<uint>();
-            var left = new List<InventoryItem>();
-            foreach (int index in consumedIndices)
+            consumed = Saves.Atomically(() =>
             {
-                var slot = slots[index];
-                if (items.ConsumeOne(inventoryRow, slot.Id) is not { } take) continue;
-                gone.Add(slot.Id);
-                if (take.Left is { } remain) left.Add(remain);
-            }
-            return (gone, left);
-        });
+                var current = items.Items(inventoryRow);
+                foreach (int index in consumedIndices)
+                    if (!current.Any(i => i.Id == slots[index].Id))
+                        throw new ActivationConsumeAbortedException();
+                var gone = new List<uint>();
+                var left = new List<InventoryItem>();
+                foreach (int index in consumedIndices)
+                {
+                    var slot = slots[index];
+                    if (items.ConsumeOne(inventoryRow, slot.Id) is not { } take)
+                        throw new ActivationConsumeAbortedException();
+                    gone.Add(slot.Id);
+                    if (take.Left is { } remain) left.Add(remain);
+                }
+                return (gone, left);
+            });
+        }
+        catch (ActivationConsumeAbortedException)
+        {
+            Console.WriteLine($"[gateway] {player.Connection.Remote} map device activation aborted: input slot(s) changed before consumption");
+            await Tell("The items in the Map Device changed; activation cancelled.");
+            return;
+        }
         await Send(player, InstanceItems.InventoryChange(PlayerInventories.InventoryId(inventoryRow),
             items.NextRevision(inventoryRow), consumed.gone, consumed.left),
             $"0x00bf inventory {PlayerInventories.InventoryId(inventoryRow)}: the map device consumed {consumed.gone.Count} slot(s)"
