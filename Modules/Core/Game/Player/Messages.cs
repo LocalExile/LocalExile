@@ -438,7 +438,8 @@ public static partial class Game
             {
                 // The client chose lockstep (07 §6): it is served as it asks.
                 OnLockstepRequest(player, id, bytes);
-                if (id == InstanceProtocol.LockstepMoveUpdateId) await AimLockstepChannel(player);
+                if (id == InstanceProtocol.LockstepMoveUpdateId && !HeldLockstepMovingChannel(player))
+                    await AimLockstepChannel(player);
             }
             else if (id == InstancePause.RequestId)
                 await SetPaused(player, InstancePause.ReadRequest(bytes));

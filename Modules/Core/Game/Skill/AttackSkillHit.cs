@@ -12,12 +12,12 @@ public static class AttackSkillHit
         // modifiers are not implemented in combat and must not become panel-only effects here.
         var Get = WeaponAttributeDamage.Read(WeaponAttributeDamage.Armed(weapon),
             name => name is var key ? character.GetValueOrDefault(key) : 0);
-        var raw = SpellDamage.WithEffectiveness(SupportedAttackDamage.Raw(weapon, Get, accuracy), effectiveness);
+        var raw = SpellDamage.WithEffectiveness(SupportedAttackDamage.Raw(weapon, Get, accuracy, melee: melee), effectiveness);
         // Match ConversionFor exactly: player keys win; level-only skill keys fill gaps, without quality conversion.
         var conversionInputs = new Dictionary<uint, int>(character);
         foreach (var (key, value) in levelConversionInputs) conversionInputs.TryAdd(key, value);
         return MaximumAttackDamage.Apply(RageStats.ApplyAttack(PlayerHitDamage.Resolve(raw, SupportedAttackDamage.HitModifiers(weapon, Get),
-            DamageStats.Conversion(conversionInputs, catalog, attack: true), spell: false,
+            SupportedAttackDamage.WithWeaponGains(DamageStats.Conversion(conversionInputs, catalog, attack: true), weapon), spell: false,
             melee: melee, projectile: projectile, wieldingBow: weapon.Bow, wieldingWand: weapon.WieldingWand,
             additionalIncreased: SupportedAttackDamage.WeaponIncrease(weapon, Get),
             additional: WeaponTypeDamage.Of(weapon, Get)), Get), Get);

@@ -183,6 +183,7 @@ public static partial class Game
     {
         if (g.Monster.Dead && double.IsFinite(g.ReviveAt)) return;
         g.Monster.Dead = true; g.Monster.Life = 0; g.Monster.ActionGeneration++; g.Pending = null;
+        ReconcileGuardianBlessingLocked(player);
         if (g.Definition.Kind == "AnimatedGuardian") RecordAnimatedGuardianDeath(player);
         g.ShieldPool.Empty();
         ExpireMinionChargesLocked(player, g, double.PositiveInfinity);
