@@ -23,7 +23,7 @@ public static partial class Game
 
     static readonly System.Runtime.CompilerServices.ConditionalWeakTable<IReadOnlyDictionary<uint, int>, MapMods> MapModsByStats = new();
 
-    static bool ScarabsDisabled(MapMods? mods) => (mods?.Get(Stat.MapDisableScarabDrops) ?? 0) > 0;
+    internal static bool ScarabsDisabled(MapMods? mods) => (mods?.Get(Stat.MapDisableScarabDrops) ?? 0) > 0;
 
     public static double MapScarabQuantity(MapMods? mods) =>
         ScarabsDisabled(mods) ? 0 : Math.Max(0, 1 + (mods?.Get(Stat.MapPlusPctIncreasedScarabDrops) ?? 0) / 100d);

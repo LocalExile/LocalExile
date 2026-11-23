@@ -688,7 +688,7 @@ internal static class DeepwaterLoot
             var roller = DropsFor(player);
             var mods = MapModsOf(player);
             for (int i = rng.Next(1, 3); i > 0; i--)
-                if (Game.MapScarab(roller, rng, level, mods) is { } scarab) drops.Add(scarab);
+                if (global::Game.MapScarab(roller, rng, level, mods) is { } scarab) drops.Add(scarab);
             return drops;
         }
         if (chestType.Contains("AnchorUnique", StringComparison.Ordinal))
@@ -868,7 +868,7 @@ internal static class DeepwaterLoot
             {
                 double scarabChance = Math.Clamp(SystemSettings.Default.Get("drop_scarab_chance_pct"), 0, 100) / 100.0 * (cr.ExtraScarabFactor - 1.0);
                 if (rng.NextDouble() < scarabChance
-                    && Game.MapScarab(DropsFor(roll.Player), rng, roll.Monster.Level, MapModsOf(roll.Player)) is { } extraScarab)
+                    && global::Game.MapScarab(DropsFor(roll.Player), rng, roll.Monster.Level, MapModsOf(roll.Player)) is { } extraScarab)
                     roll.Made.Add(extraScarab.Item);
             }
             if (cr.ExtraCurrencyFactor > 1.0)
@@ -892,7 +892,7 @@ internal static class DeepwaterLoot
                     var roller = DropsFor(roll.Player);
                     var mods = MapModsOf(roll.Player);
                     for (int i = 0; i < cr.RareExtraScarab; i++)
-                        if (Game.MapScarab(roller, rng, roll.Monster.Level, mods) is { } rareScarab)
+                        if (global::Game.MapScarab(roller, rng, roll.Monster.Level, mods) is { } rareScarab)
                             roll.Made.Add(rareScarab.Item);
                 }
                 if (cr.RareSupportGemChance > 0 && rng.Next(100) < cr.RareSupportGemChance
