@@ -173,24 +173,7 @@ public sealed class NpcCatalog
             new("Metadata/NPC/League/Kalguur/VillageFarmer", 8, 14, 4.0f),
             new("Metadata/NPC/League/Kalguur/VillageRecruiter", -8, 14, 4.0f),
         ],
-        // The Rogue Harbour (HeistHub): Kurai, Faustus, Adiyah, Whakano and the nine rogues in a ring around the arrival
-        // (offsets, StashCatalog.FromArrival), to be placed live with /npc_place.
-        [StashCatalog.HeistHub] =
-        [
-            new("Metadata/NPC/League/Heist/TheBoss", 18, 0, 4.0f),
-            new("Metadata/NPC/League/Heist/Fence", 16, 8, 4.0f),
-            new("Metadata/NPC/League/Heist/Driver", 10, 15, 4.0f),
-            new("Metadata/NPC/League/Heist/Barber", 2, 18, 4.0f),
-            new("Metadata/NPC/League/Heist/Lockpick1", -6, 17, 4.0f),
-            new("Metadata/NPC/League/Heist/Interrogator1", -13, 12, 4.0f),
-            new("Metadata/NPC/League/Heist/Soldier1", -17, 4, 4.0f),
-            new("Metadata/NPC/League/Heist/HeavyLifter1", -17, -4, 4.0f),
-            new("Metadata/NPC/League/Heist/Detector1", -13, -12, 4.0f),
-            new("Metadata/NPC/League/Heist/Demolitionist1", -6, -17, 4.0f),
-            new("Metadata/NPC/League/Heist/CatBurglar1", 2, -18, 4.0f),
-            new("Metadata/NPC/League/Heist/Illusionist1", 10, -15, 4.0f),
-            new("Metadata/NPC/League/Heist/Engineer1", 16, -8, 4.0f),
-        ],
+        // The Rogue Harbour (HeistHub) is a TownNpcs room: its hub room names its NPCs.
         // The Monastery of the Keepers (ChayulaLeague): Ailith (ChayulaFarmerHub, ControlZone) comes with her live placement
         // (/npc_place); an offset from the arrival is a guess.
         [StashCatalog.SanctumHub] = [new("Metadata/NPC/League/Sanctum/SanctumNPCTown", 136, 158, 4.0f)],
