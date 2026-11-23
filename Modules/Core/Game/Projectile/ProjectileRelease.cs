@@ -433,6 +433,7 @@ public static partial class Game
             MaimChance = spell ? 0 : Get(Stat.ProjectileAttacksChanceToMaimOnHitPctIfYouHaveBeastMinion),
             AccuracyMoreUnique = player.Pools.AccuracyMoreVsUniquePct,
             LocalStunThresholdReduction = spell ? 0 : local?.GetValueOrDefault(Stat.LocalStunThresholdReductionPlusPct) ?? 0,
+            WeaponClass = spell ? null : (handWeapon ?? WeaponFor(player)).ItemClass ?? "",
             AccuracyMoreClose = player.Pools.AccuracyMoreInCloseRangePct,
             AlwaysHits = Get(Stat.GlobalAlwaysHit) != 0, FarShot = Get(Stat.PlayerFarShot) != 0,
             PointBlank = Get(Stat.KeystonePointBlank) != 0,

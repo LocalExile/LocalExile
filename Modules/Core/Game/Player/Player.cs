@@ -225,6 +225,7 @@ public static partial class Game
         player.ChannelMovement = default;
         ChargesOnDeath(player);
         ClearBloodChargesOnDeath(player);
+        ClearMomentum(player);
         VaalAuraStates.Remove(player); // CancelOnDeath: it cannot return after resurrection.
         ClearAntiquarianOnDeath(player);
         player.StrikeLocations.Clear();   // skill_location_memory is CancelOnDeath
@@ -1078,6 +1079,9 @@ public static partial class Game
                         player.EnergyShield.Current >= player.EnergyShield.Maximum);
                     var leeched = leech.TakeRecovery(now);
                     int IncomingStat(uint name) => RecoveryStat(name);
+                    double mapRecovery = PanelStats.MapRecoveryMultiplier(RecoveryStat);
+                    bool noRegeneration = RecoveryStat(Stat.MapPlayersNoRegenerationIncludingEs) != 0;
+                    life *= mapRecovery;
                     double takenFactor = IncomingStat(Stat.BaseCannotBeDamaged) > 0 ? 0
                         : IncomingResourceDefences.FinalTakenFactor(player.Pools, IncomingStat);
                     double trapTakenFactor = takenFactor
@@ -1098,15 +1102,16 @@ public static partial class Game
                     player.EnergyShield.Gain(leeched.EnergyShield + (convertLifeRegen ? lifeRate * seconds + periodicLife : 0));
                     double fortificationLife = FortificationOf(player).TakeRecovery(AreaTime(player));
                     if (convertLifeRegen) player.EnergyShield.Gain(fortificationLife);
-                    double antiquarianLife = player.Antiquarian.TakeRecovery(now);
+                    double antiquarianLife = player.Antiquarian.TakeRecovery(now) * (noRegeneration ? 0 : mapRecovery);
                     if (convertLifeRegen) player.EnergyShield.Gain(antiquarianLife);
-                    double enduringCryLife = player.EnduringCryRecovery.Take(now);
+                    double enduringCryLife = player.EnduringCryRecovery.Take(now) * (noRegeneration ? 0 : mapRecovery);
                     double unhingedHitLife = player.Unhinged.HitRecovery.Take(now);
+                    if (noRegeneration) unhingedHitLife = 0;
                     if (convertLifeRegen) player.EnergyShield.Gain(enduringCryLife);
                     double preventedLife = PreventedDamageOf(player).Take(recoveryFrom, now, preventedPerSecond);
                     if (convertLifeRegen) player.EnergyShield.Gain(preventedLife);
                     if (convertLifeRegen) player.EnergyShield.Gain(unhingedHitLife);
-                    double recoupLife = player.LifeRecoup.Take(now);
+                    double recoupLife = player.LifeRecoup.Take(now) * mapRecovery;
                     // Flask recovery alone may pass Low Life under Petrified Blood. Every other source, leech included,
                     // stops at the boundary; leech instances stay alive, but their recovery above Low Life is ignored.
                     double nonFlaskLife = (zealotsOath ? 0 : lifeRate * seconds + periodicLife) + (zealotsOath ? 0 : fortificationLife)
@@ -1375,17 +1380,24 @@ public static partial class Game
     // moving, an enemy hit in the last 4 s: PoB's "recently"), the reduction on a successful suppress (40% by default)
     // and its lucky or unlucky roll (PoB's suppressRolls).
     public static (int Chance, int Effect, bool Lucky, bool Unlucky) Suppression(Player player)
+        => (SpellDefences(player).Suppression, Math.Max(0, player.Pools.SpellSuppressionEffect),
+            player.Pools.SpellSuppressionLucky, player.Pools.SpellSuppressionUnlucky);
+
+    public static (int Suppression, int Dodge) SpellDefences(Player player)
     {
         double now = AreaTime(player);
         bool fullLife, fullEnergyShield, hitRecently;
         fullLife = CountsAsFullLife(player.PlayerLife, player.PlayerMaxLife, SelfCurseConditionInputs(player));
         fullEnergyShield = player.PlayerLife > 0 && player.EnergyShield.Full;
         hitRecently = now - player.LastEnemyHitAt <= RecentlySeconds;
-        return (CharacterStats.SuppressionChance(player.Pools, fullLife, moving: player.Walk.Moving(now), hitRecently,
-                fullEnergyShield),
-            Math.Max(0, player.Pools.SpellSuppressionEffect),
-            player.Pools.SpellSuppressionLucky, player.Pools.SpellSuppressionUnlucky);
+        bool moving = player.Walk.Moving(now);
+        return (CharacterStats.SuppressionChance(player.Pools, fullLife, moving, hitRecently, fullEnergyShield),
+            CharacterStats.SpellDodgeChance(player.Pools, fullLife, moving, hitRecently, fullEnergyShield));
     }
+
+    static bool DodgesSpellHit(Player player) =>
+        (player.Pools.ConvertSuppressionToSpellDodge || player.Pools.BaseSpellDodgeChance > 0)
+        && GameServer.Core.World.RandomRolls.Chance(SpellDefences(player).Dodge, 100, player.IncomingHitRandom);
 
     // Devout of Garukhan's while-moving evasion and regeneration as finals, again when a walk starts or ends, for a
     // character with a while-moving stat. The client steps its pools from life/mana_recovery_per_minute and does not

@@ -1583,7 +1583,7 @@ public static partial class Game
         var resistMods = HitResistMods(playerStats, gem.Stats);
 
         var (damage, _, mitigated) = MonsterHitDamage(m, rolled, critical, attack: false, now, resistMods, pen,
-            gambler.InvertsResistance(AreaRng(player)));
+            gambler.InvertsResistance(AreaRng(player)), AreaRng(player));
         if (critical) damage = DamageModel.CriticalDamage(damage, critMult);
         if (damage <= 0) return;
 
