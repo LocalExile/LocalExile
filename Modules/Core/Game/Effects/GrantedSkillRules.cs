@@ -160,8 +160,9 @@ public static partial class Game
                     (DamageType.Chaos, Stat.BaseChaosDamageToDealPerMinute),
                 }.Select(t => (Type: t.Item1, PerSecond: own.GetValueOrDefault(t.Item2) / 60d)).FirstOrDefault(t => t.PerSecond > 0);
                 if (perMinute.PerSecond <= 0) return;
-                // The row's art: the buff the monsters inside wear, then after a comma the buff its wearer shows (the
-                // aura around the character is that buff's own visual).
+                // The row's art: the buff the monsters inside wear, then after a comma the buff its wearer states as the
+                // aura's source (usually the same row: the client draws the row's aura effect around a source and its
+                // other effect on those inside; stated as an ordinary buff the wearer got the victims' effect).
                 string[] buffs = (row.Art ?? "").Split(',', StringSplitOptions.TrimEntries);
                 ushort buffRow = 0, ownRow = 0;
                 foreach (var definition in ClientTables.Table("BuffDefinitions"))
@@ -179,13 +180,13 @@ public static partial class Game
                     Running = () =>
                     {
                         if (standing.On()) return true;
-                        if (shown) { player.Area.Buffs.Clear(player.Id, ownRow, player.Id); shown = false; }
+                        if (shown) { player.Area.Buffs.Clear(player.Id, ownRow, player.Id, auraSource: true); shown = false; }
                         return false;
                     },
                     // In the area's frame: the wearer's own buff is stated once the aura runs.
                     Valid = () =>
                     {
-                        if (!shown && ownRow != 0) { player.Area.Buffs.Set(player.Id, new(ownRow, player.Id)); shown = true; }
+                        if (!shown && ownRow != 0) { player.Area.Buffs.Set(player.Id, new(ownRow, player.Id, skill, AuraSource: true, DisplayState: 0)); shown = true; }
                         return true;
                     },
                     Active = () => player.PlayerLife > 0 && !InGracePeriod(player) && !InTown(player),
