@@ -14,7 +14,7 @@ public enum PlayerStatStep : byte
     Sources, Siphoning, CryMovement, Golems, Offerings, PanelDefaults, God, Auras, AuraPenetration, CatAspect,
     AvianCrab, Subscribers, ClassAttributes, OvercapCrit, AttackSpeed, UtilityFlasks, SelfVulnerability,
     Onslaught, VaalPrevention, VaalAura, SpiritLeadership, TotemAura, Rage, Blind, UsingFlask, SoulEater, MaximumPoolItems,
-    ActorScale, Recovery, TimedRecovery, TailPanels, Rampage, TailOffence, TailCritical, LeechingDefences, AuraRestriction, AlwaysHit, RecentHits, Ward,
+    ActorScale, Recovery, TimedRecovery, TailPanels, Rampage, TailOffence, TailCritical, LeechingDefences, AuraRestriction, AlwaysHit, RecentHits, Ward, Resonance,
 }
 
 /// <summary>
@@ -48,6 +48,8 @@ public enum PlayerStatChange : byte
     /// <summary>Only the panel: what changed is read when it is published (conditions the graph already tracks, a
     /// trap's degeneration, a revive).</summary>
     Panel,
+    /// <summary>Trinity or Unholy Trinity resonance counters changed.</summary>
+    Resonance,
 }
 
 public static partial class Game
@@ -278,6 +280,7 @@ public static partial class Game
             if (Stat.Ward is var ward) stats[ward] = (int)player.Ward.Maximum;
             if (Stat.WardBroken is var broken) stats[broken] = brokenNow ? 1 : 0;
         });
+        Step(PlayerStatStep.Resonance, (player, stats, _) => AddResonanceStats(player, stats));
         for (int i = 0; i < steps.Length; i++)
             if (steps[i] is null) throw new InvalidOperationException($"player stat step {(PlayerStatStep)i} has no code");
         return steps;

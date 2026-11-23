@@ -29,10 +29,11 @@ public static partial class Game
         public double ReadAgainAt(double now)
         {
             double amount = AmountAt(now);
+            int whole = WholeAt(now);
             if (now < GainUntil)
-                return amount >= MaximumResonance ? GainUntil :
-                    Math.Min(GainUntil, now + (WholeAt(now) + 1 - amount) / ResonanceGainPerSecond);
-            return amount >= 1 ? now + (amount - WholeAt(now)) / ResonanceLossPerSecond + 1e-6 : double.PositiveInfinity;
+                return whole >= MaximumResonance ? GainUntil :
+                    Math.Min(GainUntil, now + Math.Max(0, whole + 1 - amount) / ResonanceGainPerSecond);
+            return whole > 0 ? now + Math.Max(0, amount - whole) / ResonanceLossPerSecond + 1e-6 : double.PositiveInfinity;
         }
     }
 
@@ -40,6 +41,7 @@ public static partial class Game
     {
         public readonly int Epoch = owner.ProjectileEpoch;
         public readonly ResonanceCounter[] Counters = new ResonanceCounter[3];
+        public readonly bool[] BuffActive = new bool[3];
     }
 
     sealed class ResonanceRule(uint gain, uint lowest, ResonanceType[] types)
@@ -66,49 +68,56 @@ public static partial class Game
                 if (hit[types[i].Damage].Max >= highest) continue;
                 if (state is null) states.AddOrUpdate(player, state = new(player));
                 var previous = state.Counters[i];
-                if (now < previous.At || (changed && now + ResonanceGainSeconds == previous.GainUntil)) continue;
+                if (now < previous.At || now + ResonanceGainSeconds <= previous.GainUntil) continue;
 
-                var counter = state.Counters[i] = new(previous.AmountAt(now), now, now + ResonanceGainSeconds);
+                state.Counters[i] = new(previous.AmountAt(now), now, now + ResonanceGainSeconds);
                 changed = true;
-                double untilEmpty = ResonanceGainSeconds + counter.AmountAt(counter.GainUntil) / ResonanceLossPerSecond;
-                player.Area.Buffs.Set(player.Id, new(types[i].Buff, player.Id, U68: Buff.Seconds(untilEmpty), KeepInstance: true));
+                state.BuffActive[i] = true;
+                player.Area.Buffs.Set(player.Id, new(types[i].Buff, player.Id));
             }
             return changed;
         }
 
-        public void AddStats(Player player, Dictionary<uint, int> stats, double now)
+        public void AddStats(Player player, StatMap stats, double now)
         {
             if (Current(player) is not { } state) return;
             double next = double.PositiveInfinity;
             for (int i = 0; i < types.Length; i++)
             {
                 var counter = state.Counters[i];
-                if (counter.WholeAt(now) is > 0 and var value) stats[types[i].Stat] = value;
+                int value = counter.WholeAt(now);
+                if (value > 0) stats[types[i].Stat] = value;
+                else if (now >= counter.GainUntil && state.BuffActive[i])
+                {
+                    state.BuffActive[i] = false;
+                    player.Area.Buffs.Clear(player.Id, types[i].Buff, player.Id);
+                }
                 next = Math.Min(next, counter.ReadAgainAt(now));
             }
             if (Lowest(state, now) is > 0 and var minimum) stats[lowest] = minimum;
             if (double.IsFinite(next)) StatsChangeAt(next + 1e-7, () => ProjectileWorldTime(player));
         }
 
-        public void Clear(Player player)
+        public bool Clear(Player player)
         {
-            if (!states.Remove(player)) return;
+            if (!states.Remove(player)) return false;
             foreach (var type in types) player.Area.Buffs.Clear(player.Id, type.Buff, player.Id);
+            return true;
         }
     }
 
-    static void AddResonanceStats(Player player, Dictionary<uint, int> stats)
+    static void AddResonanceStats(Player player, StatMap stats)
     {
         double now = ProjectileWorldTime(player);
         ElementalResonance.AddStats(player, stats, now);
         UnholyResonance.AddStats(player, stats, now);
     }
 
-    static void ClearResonance(Player player)
+    internal static void ClearResonance(Player player)
     {
-        ElementalResonance.Clear(player);
-        UnholyResonance.Clear(player);
-        PublishByFrame(player, PlayerStatChange.Sources);
+        bool cleared = ElementalResonance.Clear(player);
+        cleared = UnholyResonance.Clear(player) || cleared;
+        if (cleared) PublishByFrame(player, PlayerStatChange.Resonance);
     }
 
     // Only the owner's committed damaging contact can refresh a supported skill's channels.
@@ -118,7 +127,7 @@ public static partial class Game
         if (!target.Hostile || player.PlayerLife == 0 || player.LeavingArea) return;
         bool changed = ElementalResonance.Supports(skill) && ElementalResonance.Record(player, hit, now);
         changed = (UnholyResonance.Supports(skill) && UnholyResonance.Record(player, hit, now)) || changed;
-        if (changed) PublishByFrame(player, PlayerStatChange.Sources);
+        if (changed) PublishByFrame(player, PlayerStatChange.Resonance);
     }
 
     // Read the counters at contact: a projectile carries its support stats from release, but the counters keep moving.

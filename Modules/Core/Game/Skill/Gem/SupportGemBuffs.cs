@@ -142,7 +142,6 @@ public static partial class Game
     public static Dictionary<uint, int> WithSupportGemBuffs(Player player, Dictionary<uint, int> stats)
     {
         stats = WithSelfBuffs(player, WithTriggeredGuard(player, stats));
-        AddResonanceStats(player, stats);
         AddMomentumStats(player, stats);
         if (!player.SupportGems.ArcaneSurgeActiveAt(AreaTime(player))) return stats;
         StatsChangeIn(player.SupportGems.ArcaneSurgeUntil - AreaTime(player));
