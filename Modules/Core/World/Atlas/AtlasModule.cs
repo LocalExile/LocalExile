@@ -37,8 +37,8 @@ public sealed class AtlasModule : IModule
     /// Gateway's own (WorldLoader). Tests that use the module call it once.</summary>
     public static void LoadData()
     {
-        AtlasProgress.LoadAtlasProgressData();
         MavenProgress.LoadData();
+        AtlasProgress.LoadAtlasProgressData();
     }
 
     /// <inheritdoc/>
