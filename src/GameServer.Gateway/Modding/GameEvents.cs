@@ -60,10 +60,18 @@ public sealed class GameEvent<T> : GameEventOwners.IOwned where T : Delegate
         var subscribers = _subscribers;
         if (subscribers.IsEmpty) yield break;
         foreach (var (owner, rank, run) in subscribers)
-            if (rank == GameEventOwners.ModRank || league.Modules.Contains(owner)
-                || (rank == GameEventOwners.LeagueRank && league.Id.Equals(owner, StringComparison.OrdinalIgnoreCase)))
+            if (Reaches(league, owner, rank))
                 yield return (owner, run);
     }
+
+    /// <summary>The subscribers as they are now, with their ranks, for a hot path that walks them by index and allocates
+    /// nothing (<see cref="Reaches"/> tells which of them run for a league).</summary>
+    public ImmutableArray<(string Owner, int Rank, T Run)> Providers => _subscribers;
+
+    /// <summary>Whether a subscriber of this owner and rank runs for the league.</summary>
+    public static bool Reaches(LeagueRuntime league, string owner, int rank) =>
+        rank == GameEventOwners.ModRank || league.Modules.Contains(owner)
+        || (rank == GameEventOwners.LeagueRank && league.Id.Equals(owner, StringComparison.OrdinalIgnoreCase));
 
     void GameEventOwners.IOwned.Release(string owner, int rank)
     {
@@ -145,7 +153,7 @@ public static class GameEventOwners
 
     const double SlowMilliseconds = 30;
 
-    static void Failed(string owner, string name, Exception ex) =>
+    internal static void Failed(string owner, string name, Exception ex) =>
         Console.WriteLine($"[events] {owner} {name} failed (skipped): {ex}");
 }
 
@@ -213,9 +221,10 @@ public static class GameEvents
     /// <summary>Quest flags the client holds in the player's current area besides the character's own (their ids): a grant
     /// that belongs to the area, so it is neither saved nor cleared by another module's clean-up of the character's flags. The
     /// client's flag set (the player's create and every quest flag update) and the server's checks
-    /// (<c>Game.ClientHasQuestFlag</c>) both read it, so the two agree; it is read at every check, so answer from state that is
-    /// already known. <see cref="RunAreaQuestFlags"/> sums the answers.</summary>
-    public static readonly GameEvent<Func<Player, IEnumerable<string>>> AreaQuestFlags = new();
+    /// (<c>Game.ClientHasQuestFlag</c>, a combat hot path) both read it, so the two agree; it is read at every check, so answer
+    /// from state that is already known, and return an array that is kept (nothing is allocated per call).
+    /// <see cref="RunAreaQuestFlags"/> sums the answers.</summary>
+    public static readonly GameEvent<Func<Player, IReadOnlyList<string>>> AreaQuestFlags = new();
 
     /// <summary>The flags the subscribers grant the player in this area; null when none does.</summary>
     public static IReadOnlySet<string>? RunAreaQuestFlags(Player player)
@@ -228,6 +237,28 @@ public static class GameEvents
                 foreach (string flag in run(player)) (flags ??= []).Add(flag);
             });
         return flags;
+    }
+
+    /// <summary>Whether a subscriber grants the player this flag in this area. It allocates nothing (no iterator, closure or
+    /// set), because the combat code asks it for every flag it reads.</summary>
+    public static bool HasAreaQuestFlag(Player player, string flag)
+    {
+        var providers = AreaQuestFlags.Providers;
+        if (providers.IsEmpty) return false;
+        var league = Program.LeagueFor(player);
+        for (int i = 0; i < providers.Length; i++)
+        {
+            var (owner, rank, run) = providers[i];
+            if (!GameEvent<Func<Player, IReadOnlyList<string>>>.Reaches(league, owner, rank)) continue;
+            try
+            {
+                var granted = run(player);
+                for (int k = 0; k < granted.Count; k++)
+                    if (granted[k] == flag) return true;
+            }
+            catch (Exception ex) { GameEventOwners.Failed(owner, nameof(AreaQuestFlags), ex); }
+        }
+        return false;
     }
 
     /// <summary>A new instance's monsters are placed (not a kept instance's, whose monsters come back as they were): place

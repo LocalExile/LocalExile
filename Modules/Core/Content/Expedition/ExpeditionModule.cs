@@ -1,3 +1,4 @@
+using GameServer.Core.Accounts;
 using GameServer.Core.Protocol.Instance;
 using GameServer.Modding;
 
@@ -24,7 +25,8 @@ public sealed class ExpeditionModule : IModule
         string id = module.Manifest.Id;
         // The roll, once per instance and before its seed: the plugin state is a generation input of both sides.
         InstanceEvents.TerrainPluginStates.Add(id, request => ExpeditionTables.AreaId(request.Area) is { } area
-            ? ExpeditionEncounter.PluginStates(area, Random.Shared, request.Map?.Mods) : null);
+            ? ExpeditionEncounter.PluginStates(area, Random.Shared, request.Map?.Mods,
+                ServerLeagues.Resolve(null, request.League, LeagueCatalog.Startup).HardMode) : null);
         // ExpeditionRules, after 0x21 and before the area's objects: the 0x2c9 messages and the client's placements need it.
         GameEvents.EnterMessages.Add(id, encounter.RulesetMessages);
         // The client places explosives only with IsMapOwner: the owner of the instance has it in this area.

@@ -105,11 +105,22 @@ public sealed class ExpeditionEncounter : IDisposable
     const int Salt = 0x45585044;
 
     readonly ConditionalWeakTable<InstanceState, State> _states = new();
+    readonly Func<Player, double, Task> _advance;
+
+    public ExpeditionEncounter() => _advance = Advance;
 
     /// <summary>The module's unload: the encounters go with it.</summary>
     public void Dispose() => _states.Clear();
 
-    State For(Player player) => _states.GetValue(player.Instance, _ => new State());
+    /// <summary>The instance's encounter state, made at the first ask of an area that declares ExpeditionPlugin; null for an
+    /// area that does not (a town, a hideout, any other area), which never gets one, so the checks that run for every area
+    /// allocate nothing there.</summary>
+    State? StateOf(Player player)
+    {
+        if (player.Instance is not { } instance) return null;
+        if (_states.TryGetValue(instance, out var state)) return state;
+        return DeclaredFaction(player) < 0 ? null : _states.GetValue(instance, _ => new State());
+    }
 
     /// <summary>
     /// The terrain plugin state a new instance of <paramref name="areaId"/> is played with: ExpeditionPlugin's, for one of
@@ -120,14 +131,21 @@ public sealed class ExpeditionEncounter : IDisposable
     /// switches off (MapDisableLeagues, AtlasKeystoneNoExtraContent, MapExtraContentHasNoBaseChanceToSpawn): the request names the
     /// area's stats.
     /// </summary>
-    public static IReadOnlyList<(ushort Plugin, byte[] State)>? PluginStates(string areaId, Random rng, MapMods? map = null)
+    public static IReadOnlyList<(ushort Plugin, byte[] State)>? PluginStates(string areaId, Random rng, MapMods? map = null, bool hardMode = false)
     {
         if (ExpeditionTables.PluginId is not { } plugin || ExpeditionTables.RulesetRow is null) return null;
         int S(uint stat) => map?.Get(stat) ?? 0;
-        // What a map switches off, and what it adds to or takes from the base chance (the others' rolls read the same stats).
-        if (S(Stat.MapDisableLeagues) > 0 || S(Stat.AtlasKeystoneNoExtraContent) > 0) return null;
-        int baseChance = S(Stat.MapExtraContentHasNoBaseChanceToSpawn) > 0 ? 0
-            : ForcedChance() ?? LeagueChances.Current.ChanceOf(areaId, LeagueChances.Expedition).Chance;
+        // What a map switches off, as the client's own roll reads it (0x141ea8b40): the league's bit of the disabled-leagues
+        // mask, nothing-more maps, the keystone, a Blighted map (seven Blight encounters and nothing else), and the league's
+        // own disable stat, which only a stat that forces or adds to the league's chance outweighs.
+        if ((S(Stat.MapDisableLeagues) & (1 << LeagueChances.Expedition)) != 0 || S(Stat.MapNukeEverything) != 0
+            || S(Stat.AtlasKeystoneNoExtraContent) != 0 || S(Stat.IsBlightedMap) != 0) return null;
+        if (S(Stat.MapDisableExpeditionFromChance) != 0
+            && Math.Max(0, S(Stat.MapExpeditionLeague)) + Math.Max(0, S(Stat.MapExpeditionEncounterChancePlusPct)) == 0) return null;
+        // The area's own chance (WorldAreaLeagueChances, the Ruthless column in a hard-mode league). A test's forced chance
+        // replaces it only where the area has one: a town, a hideout and a boss arena have a row of zeros and never roll.
+        int natural = LeagueChances.Current.ChanceOf(areaId, LeagueChances.Expedition, hardMode).Chance;
+        int baseChance = S(Stat.MapExtraContentHasNoBaseChanceToSpawn) > 0 || natural <= 0 ? 0 : ForcedChance() ?? natural;
         long chanceNow = Math.Max(0L, baseChance * Math.Max(0L, 100L + S(Stat.MapLeagueBaseChancePlusPctFinal)) / 100 + S(Stat.MapLeagueContentAdditionalChancePct));
         int chance = (int)Math.Min(100L, chanceNow);
         if (chance <= 0 || (chance < 100 && rng.Next(100) >= chance)) return null;
@@ -178,12 +196,11 @@ public sealed class ExpeditionEncounter : IDisposable
     /// no placement without it. It is the area's grant (GameEvents.AreaQuestFlags), not the character's saved flag, so the
     /// Deepwater clean-up of that flag at every other entry does not touch it. The two official map and campaign captures
     /// show the flag in the owner's flag set in every area.</summary>
-    public IEnumerable<string> QuestFlags(Player player)
-    {
-        if (player.Instance is null) return [];
-        var state = For(player);
-        return Placed(player, state) && IsOwner(player, state) ? [MapOwnerFlag] : [];
-    }
+    public IReadOnlyList<string> QuestFlags(Player player) =>
+        StateOf(player) is { } state && Placed(player, state) && IsOwner(player, state) ? OwnerFlags : NoFlags;
+
+    // Kept arrays: the answer is read for every quest flag the combat code asks for (GameEvents.HasAreaQuestFlag).
+    static readonly string[] OwnerFlags = [MapOwnerFlag], NoFlags = [];
 
     static bool IsOwner(Player player, State state) =>
         string.Equals(state.Owner, CharacterName(player), StringComparison.OrdinalIgnoreCase);
@@ -191,7 +208,7 @@ public sealed class ExpeditionEncounter : IDisposable
     /// <summary>S→C 0x1f ExpeditionRules where the encounter is placed, before the area's objects. The ruleset needs the
     /// plugin: without ExpeditionPlugin the client stops with "ExpeditionPlugin not found!".</summary>
     public IEnumerable<(string Log, byte[] Message)> RulesetMessages(Player player) =>
-        player.Instance is not null && Placed(player, For(player)) && ExpeditionTables.RulesetRow is { } row
+        StateOf(player) is { } state && Placed(player, state) && ExpeditionTables.RulesetRow is { } row
             ? [($"0x001f ruleset ExpeditionRules (row {row})", InstanceProtocol.AddRuleset(row))] : [];
 
     static byte AreaLevel(Player player) =>
@@ -222,9 +239,7 @@ public sealed class ExpeditionEncounter : IDisposable
     /// this area when it is a new one.</summary>
     public async Task OnAreaGenerated(Action<string> log, Player player)
     {
-        if (player.Instance is null) return;
-        var state = For(player);
-        if (!Placed(player, state)) return;
+        if (StateOf(player) is not { } state || !Placed(player, state)) return;
         await state.Gate.WaitAsync();
         try { await Ensure(log, player, state); }
         finally { state.Gate.Release(); }
@@ -234,9 +249,7 @@ public sealed class ExpeditionEncounter : IDisposable
     /// The objects reach the player through the area's object records.</summary>
     public async Task OnPlayerEntered(Action<string> log, Player player)
     {
-        if (player.Instance is null) return;
-        var state = For(player);
-        if (!Placed(player, state)) return;
+        if (StateOf(player) is not { } state || !Placed(player, state)) return;
         await state.Gate.WaitAsync();
         try
         {
@@ -275,7 +288,11 @@ public sealed class ExpeditionEncounter : IDisposable
             bool again = state.Area is not null;
             state.Area = player.Area;
             if (again)
+            {
+                // The monsters of the old area are gone with it: the dug ones no longer count.
+                state.Monsters.Clear();
                 foreach (var piece in state.Pieces.Values.ToList()) await Show(player, piece);
+            }
         }
     }
 
@@ -334,13 +351,25 @@ public sealed class ExpeditionEncounter : IDisposable
         return piece;
     }
 
-    /// <summary>A transient effect: the client removes it itself (its LimitedLifespan), so it is neither kept nor replayed by
-    /// the encounter.</summary>
-    static Task Effect(Player player, string ao, (int X, int Y) cell, string note, bool baseData)
+    /// <summary>A transient effect. It is the area's object while it lasts, so the encounter removes it as the official server
+    /// does (<see cref="PlaceFrames"/> and the others, from the Advance clock); one that is not removed would be replayed to
+    /// everyone who enters later. It is neither kept nor created again for a new area.</summary>
+    static async Task Effect(Player player, State state, string ao, (int X, int Y) cell, string note, bool baseData, int frames)
     {
         uint id = player.TakeObjectId();
-        return Show(player, new Piece(id, EffectType, note, () => ExpeditionWire.Object(EffectType, cell, 0, ao: ao,
-            baseData: baseData ? ExpeditionTables.EffectBaseData : null)));
+        if (await Show(player, new Piece(id, EffectType, note, () => ExpeditionWire.Object(EffectType, cell, 0, ao: ao,
+                baseData: baseData ? ExpeditionTables.EffectBaseData : null))))
+            Schedule(state, state.Clock + frames / ExpeditionTables.FramesPerSecond, "gone", (int)id);
+    }
+
+    /// <summary>The frames the official server keeps each effect before it removes it [capture: 5 placed explosives 30, 8
+    /// blasts 46, 3 shockwaves 61].</summary>
+    const int PlaceFrames = 30, BlastFrames = 46, ShockwaveFrames = 61;
+
+    static void Schedule(State state, double at, string action, int index)
+    {
+        state.Queue.Add((at, action, index));
+        state.Queue.Sort((a, b) => a.At.CompareTo(b.At));
     }
 
     static async Task Drop(Player player, State state, uint id)
@@ -371,11 +400,16 @@ public sealed class ExpeditionEncounter : IDisposable
         {
             var remnant = plan.Remnants[i] with { Id = player.TakeObjectId() };
             plan.Remnants[i] = remnant;
-            // Its modifiers as explicit mods with one value per stat [capture: all 13 remnant creates].
+            int index = i;
+            // Its modifiers as explicit mods with one value per stat [capture: all 13 remnant creates]; a destroyed one is
+            // created as it stands (its StateMachine at 0, 1, 1), for an area made again.
             await Keep(player, state, remnant.Id, RelicType, "remnant", () => ExpeditionWire.Object(RelicType, remnant.Cell, remnant.Rotation,
-                ao: ExpeditionTables.RelicAo, mods: [.. remnant.Mods.Select(m => new ItemMod(ModSection.Explicit, m.Hash, m.Values))]));
+                ao: ExpeditionTables.RelicAo, mods: [.. remnant.Mods.Select(m => new ItemMod(ModSection.Explicit, m.Hash, m.Values))],
+                stateValues: state.Broken.Contains(index) ? BrokenRemnant : null));
         }
     }
+
+    static readonly int[] BrokenRemnant = [0, 1, 1];
 
     /// <summary>The detonator's StateMachine values for the stage [capture: 0, 1, 0 while explosives are placed, 0, 2, 1 once
     /// it is set off and 1, 2, 1 when the chain is done]; null for the type's own.</summary>
@@ -401,7 +435,7 @@ public sealed class ExpeditionEncounter : IDisposable
 
     /// <summary>The AreaTick work of an area that holds the encounter; null elsewhere.</summary>
     public Func<Player, double, Task>? TickFor(Player player) =>
-        player.Instance is not null && Placed(player, For(player)) ? Advance : null;
+        StateOf(player) is { } state && Placed(player, state) ? _advance : null;
 
     async Task Advance(Player player, double seconds)
     {
@@ -426,11 +460,13 @@ public sealed class ExpeditionEncounter : IDisposable
                 state.Queue.RemoveAt(0);
                 if (action == "blast") await Blast(player, state, index);
                 else if (action == "chest") await ReadyChest(player, state, (uint)index);
+                else if (action == "gone") await SendWorldRemoval(player, (uint)index, $"Expedition effect 0x{index:x} removed");
             }
             foreach (var (id, body) in state.Monsters.ToArray())
                 if (body.Dead || body.Life == 0) state.Monsters.TryRemove(id, out _);
-            // Every blast went off and none of the dug monsters lives.
-            if (state.Stage == Stage.Fight && state.Blasts >= state.Explosives.Count && state.Monsters.IsEmpty)
+            // Every blast went off, none of the dug monsters lives and nothing is still queued (a chest that is not ready yet,
+            // an effect not removed yet): Over stops the clock.
+            if (state.Stage == Stage.Fight && state.Blasts >= state.Explosives.Count && state.Monsters.IsEmpty && state.Queue.Count == 0)
             {
                 state.Stage = Stage.Over;
                 await UpdateDetonator(player, state);
@@ -497,7 +533,7 @@ public sealed class ExpeditionEncounter : IDisposable
         var covered = Covered(plan, state.Explosives);
         await Broadcast(player, ExpeditionWire.Summary(ExpeditionTables.SumStats(covered.SelectMany(r => r.Mods)), covered.Count, plan.Remnants.Count),
             "0x2c9 Expedition 03");
-        await Effect(player, ExpeditionTables.PlaceAo, cell, "place effect", baseData: false);
+        await Effect(player, state, ExpeditionTables.PlaceAo, cell, "place effect", baseData: false, PlaceFrames);
         uint eid = player.TakeObjectId();
         state.ExplosiveIds.Add(eid);
         await Keep(player, state, eid, ExplosiveType, "explosive", () => ExpeditionWire.Object(ExplosiveType, cell, 0));
@@ -568,7 +604,7 @@ public sealed class ExpeditionEncounter : IDisposable
         var cell = state.Explosives[index];
         state.Blasts++;
         await Broadcast(player, ExpeditionWire.Blast(cell, (byte)ExpeditionTables.BlastRadius), "0x2c9 Expedition 07 blast");
-        await Effect(player, ExpeditionTables.BlastAo, cell, "blast", baseData: true);
+        await Effect(player, state, ExpeditionTables.BlastAo, cell, "blast", baseData: true, BlastFrames);
         var rng = Rng(player, 0x100 + index);
         // The remnants this blast destroys join the ones whose modifiers apply from here on, to what this blast digs up
         // too ("the explosive that destroys the Remnant and all subsequent Explosives").
@@ -576,19 +612,22 @@ public sealed class ExpeditionEncounter : IDisposable
             if (Distance(plan.Remnants[i].Cell, cell) < ExpeditionTables.BlastRadius && state.Broken.Add(i))
             {
                 var remnant = plan.Remnants[i];
-                await Effect(player, ExpeditionTables.ShockwaveAo, remnant.Cell, "shockwave", baseData: true);
+                await Effect(player, state, ExpeditionTables.ShockwaveAo, remnant.Cell, "shockwave", baseData: true, ShockwaveFrames);
                 // [capture] a destroyed remnant's StateMachine goes to 0, 1, 1.
-                await Update(player, remnant.Id, ExpeditionWire.StateUpdate(remnant.Id, RelicType, [0, 1, 1], false), "Expedition remnant destroyed");
+                await Update(player, remnant.Id, ExpeditionWire.StateUpdate(remnant.Id, RelicType, BrokenRemnant, false), "Expedition remnant destroyed");
             }
         var broken = state.Broken.Select(i => plan.Remnants[i].Mods).SelectMany(m => m).ToList();
         var active = ExpeditionTables.SumStats(broken);
         byte level = AreaLevel(player);
+        // The removals go out together: each one waits for its frame, and one after the other held the encounter's gate (and
+        // its clock) for a frame per object.
+        var gone = new List<Task>();
         for (int i = 0; i < plan.Markers.Count; i++)
         {
             var marker = plan.Markers[i];
             if (state.Dug.Contains(i) || Distance(marker.Cell, cell) >= ExpeditionTables.BlastRadius) continue;
             state.Dug.Add(i);
-            if (marker.Id != 0) await Drop(player, state, marker.Id);
+            if (marker.Id != 0) gone.Add(Drop(player, state, marker.Id));
             if (marker.Kind == ExpeditionTables.MarkerKind.Chest)
             {
                 if (marker.ChestType.Length == 0) continue;
@@ -599,8 +638,7 @@ public sealed class ExpeditionEncounter : IDisposable
                 if (await Keep(player, state, chestId, marker.ChestType, "chest", () => ExpeditionWire.Object(chest.Type, chest.Cell, 0, level,
                     interaction: (byte)(chest.Ready && !chest.Opened ? 0x01 : 0x00), stateValues: [chest.Opened ? 3 : chest.Ready ? 2 : 1])) is null) continue;
                 state.Chests[chestId] = chest;
-                state.Queue.Add((state.Clock + ExpeditionTables.ChestReadyFrames / ExpeditionTables.FramesPerSecond, "chest", (int)chestId));
-                state.Queue.Sort((a, b) => a.At.CompareTo(b.At));
+                Schedule(state, state.Clock + ExpeditionTables.ChestReadyFrames / ExpeditionTables.FramesPerSecond, "chest", (int)chestId);
                 continue;
             }
             await Raise(player, state, marker, broken, rng, level);
@@ -608,7 +646,8 @@ public sealed class ExpeditionEncounter : IDisposable
         // The explosive, its poles and its fuses are spent [capture: the fuse burns (state 1) and goes with the explosive].
         await Update(player, state.ExplosiveIds[index], ExpeditionWire.StateUpdate(state.ExplosiveIds[index], ExplosiveType, [1, 2], false),
             "Expedition explosive state");
-        foreach (uint id in state.Chains[index].Append(state.ExplosiveIds[index])) await Drop(player, state, id);
+        foreach (uint id in state.Chains[index].Append(state.ExplosiveIds[index])) gone.Add(Drop(player, state, id));
+        await Task.WhenAll(gone);
         if (state.Blasts >= state.Explosives.Count) await UpdateDetonator(player, state);
     }
 
@@ -661,6 +700,7 @@ public sealed class ExpeditionEncounter : IDisposable
     {
         if (!state.Chests.TryGetValue(chestId, out var chest) || !chest.Ready || chest.Opened) return;
         chest.Opened = true;
+        await Update(player, chestId, ExpeditionWire.ComponentUpdate(chestId, chest.Type, "InteractionAction", 0x00), "Expedition chest interaction off");
         await Update(player, chestId, ExpeditionWire.ComponentUpdate(chestId, chest.Type, "ObjectMagicProperties", 0x08, 0x00, 0x00, 0x00),
             "Expedition chest opened");
         await Update(player, chestId, ExpeditionWire.StateUpdate(chestId, chest.Type, [3], true), "Expedition chest state 3");
