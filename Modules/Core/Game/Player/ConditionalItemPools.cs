@@ -80,7 +80,7 @@ public static partial class Game
             .Where(e => !IsInactive(player, e.Item.Id)).Select(e => e.Item.Item).ToArray();
         foreach (var (key, value) in ConditionalRings(EquipmentForStats(player), activeRings).Flags) flags[key] = value;
         flags["_while_you_have_fortify"] = flags["_while_fortified"];
-        flags[StatConditions.UsingPride] = player.Auras.Values.Any(static aura => aura.EffectId == "Pride");
+        flags[StatConditions.UsingPride] = reservationSnapshot.Auras.Any(static aura => aura.EffectId == "Pride");
         // The uniques spell the life/mana states with "when"; the same state answers both keys.
         foreach (var (when, whileKey) in WhenFlags) flags[when] = flags[whileKey];
         var weapons = WeaponProfileFor(player);
