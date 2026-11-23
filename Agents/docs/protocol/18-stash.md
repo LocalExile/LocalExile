@@ -92,27 +92,29 @@ connection. Later opens send b = 0x16: the panel keeps its own tab while the con
   it), then **S→C 0xc8** (class `0x1435e7540`, read `0x1421aaf20`, case 0x3b): u16 BE tab index, u32 BE inventory id
   (→ +0x28), u8 kind. The handler sets the loaded bit and tells the panel (`+0x8378` → `0x140a87da0`), which builds the
   page. The Gateway sends 0xc0 when the client doesn't have the tab, and 0xc8 every time.
-- **Ordinary unshown tabs can be unloaded.** The client keeps every tab it was sent, and each stash open walks all of them as
-  the panel becomes visible (`0x1418b0a30`, the element show/hide). Opening therefore got slower with every loaded item.
-  Live 2026-10-29: about 1.5 s once the currency, essence, fragment, gem and divination tabs were all loaded.
-  - A 0xc7 outside the first-open window lets the Gateway unload other eligible tabs with **S→C 0xc1**
-    (u8 manager, u32 inventory id).
-  - It then sends the tab list (0x136) again with those tabs' loaded bit clear. The panel asks (0xc7) only for a tab it
-    has no page for: a page it built stays through the list (panel tab `+0x58`), and the tab-selected handler
-    (`0x140a86290`) shows it without a request. Live 2026-11-12: tab 0, tab 2, tab 0 again sent one 0xc7, for tab 2.
-  - The tabs with shop currency stay (below). A Unique Collection and its loaded categories also stay for the
-    connection. On 3.29.3c, the client requested the old normal tab again after the first-open window while the
-    collection still showed. Unloading its categories at that point crashed the client on a category click.
-  - During the first open, the panel's old tab is asked for after the forced one; unloading the shown tab then crashed
-    the client on the next open, so nothing is unloaded in that window.
-  - So the player can act on a tab the client no longer has the inventory of, by going back to it: a click (0x28/0x2a,
-    the 0xe0/0xe3 path), a split (0x7c), currency used from or on an item there (0x71/0x72). A 0xbf for an inventory
-    the client no longer has is fatal ("Got an inventory set change for an inventory that isn't in the set",
-    [#605](https://github.com/LocalExile/LocalExile/issues/605), [#710](https://github.com/LocalExile/LocalExile/issues/710)),
-    and the panel has the tab marked not loaded, so it drops that tab's 0xbfs until a 0xc8 tells it the tab is loaded
-    again. Every 0xbf to a tab therefore goes through `Game.SendTabChange`, which re-sends 0xc0 and 0xc8 for an
-    unloaded tab first and names its own inventory id rather than the one the client sent.
-  - Live 2026-10-29: the stash opened much faster after the heavy tabs were visited, with no crash.
+- **Visited inventories stay registered for the connection.** The panel asks (`0xc7`) only for a tab it has no built page for: a
+  page it built stays at panel tab `+0x58` across `0x136` tab lists (`0x140a87e90` clears pages via `0x140b08980` only
+  for kind 2 trade tabs), and the tab-selected handler (`0x140a86290`) shows that page without another request.
+  - Earlier builds unloaded non-shown tabs on tab switch with **S→C 0xc1** (`0x141d65a40`, u8 manager, u32 inventory id)
+    to reduce open cost (`0x1418b0a30`), then reloaded on `0xbf` via `Game.SendTabChange` so the client would not abort
+    with `"Got an inventory set change for an inventory that isn't in the set"`
+    ([#605](https://github.com/LocalExile/LocalExile/issues/605), [#710](https://github.com/LocalExile/LocalExile/issues/710)).
+  - Before an ordinary chest reopens, the Gateway sends a tab list with the ordinary visited pages detached
+    (inventory id 0 and loaded bit clear). Their inventory manager entries keep accepting item changes. Currency
+    sources used by vendors and the Map and Unique collection bindings retain their inventory ids. The guild chest
+    applies the same rule to its own catalog. No tab positions or saved items change.
+  - Regular uncapped 3.29.3d, 1,503 entries across Currency, Essence, Fragment, Gem and Divination. On three
+    physical chest reopens showing a small grid tab, the largest main-loop gap per open was 180–181 ms with the
+    original Lockstep handler, 14–19 ms with the fix in Lockstep and 14–19 ms in Predictive. A reopen showing
+    the full 470-card page measured 194 ms with the original Lockstep handler and 86 ms with the fix in either mode.
+    Moving an Essence out of its cached tab and back by hand kept its item id in both modes.
+  - Static 3.29.3c/d verification of `0x141d65f80` (inventory placement check): the very first lookup
+    (`0x141d65830` at `0x141d65fd1`) returns null when `0xc1` removed the tab's inventory while `+0x58` kept its page
+    shown, so hovering a held item over a revisited tab turns red and blocks manual left-click placement (`0x2a`),
+    whereas Ctrl + click (`0xe0`/`0xe1`) still sends the tab index (`+0x4a4`) and triggers `SendTabChange`.
+  - `SendStashTab` therefore keeps every visited tab registered in the client's inventory manager for the connection
+    (resetting on area change), while `Game.SendTabChange` still calls `EnsureTabLoaded` (`0xc0` + `0xc8`) before any
+    `0xbf` to an unopened tab (e.g. an affinity deposit or hidden Map/Unique child).
 - **Area entry preloads only shop currency.** Vendors price items against the currency the client knows of, so the
   tabs that can hold it (a currency tab or a grid tab) go out on area entry when they hold class `StackableCurrency`
   (`Game.PreloadsForPrices`). Before, every tab with a stackable item went out: a full divination tab alone is

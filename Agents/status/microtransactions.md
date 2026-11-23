@@ -28,7 +28,8 @@ Part of [Status](../Status.md); what to build next in this area is in
   idle-relaxed animations, e.g. the Goblin Troupe's song) and a portrait in the character panel.
   Built, awaiting live verification: the portrait on the selection screen, skill effects (the Cosmetics tab's skill
   slots, picked with C→S 0x1fa, the effect's stats on that skill,
-  Righteous Fire's ring and buff visuals, restyled at once while it burns, and the projectile and explosion of
+  Righteous Fire's ring and buff visuals, reservation-buff skill cosmetics such as Tempest Shield, auras, heralds and
+  Arctic Armour, shock/chill/freeze ailment visuals, restyled at once when picked, and the projectile and explosion of
   projectile skills such as Fireball).
   Portrait frames (the Social Frame slot): a pick is saved and applies at the next login, as the client's own chat line
   says; the character list shows it at once. Verified live 2026-10-31: the client loaded the `SupporterIconFrame` art at

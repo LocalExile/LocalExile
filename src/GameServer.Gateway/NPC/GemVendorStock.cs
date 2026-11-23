@@ -5,8 +5,27 @@ using GameServer.Core;
 /// Vendor-specific quest/class gem membership from the reviewed snapshot, joined to native quest offers.
 /// Siosa and campaign Lilly use their own all-class unlocks; hard mode keeps its native gem index.
 /// </summary>
-public sealed class GemVendorStock(ItemCatalog items, QuestRewardCatalog rewards, NpcCatalog npcs, SkillCatalog skills, string folder = "data")
+public sealed class GemVendorStock
 {
+    readonly ItemCatalog items;
+    readonly QuestRewardCatalog rewards;
+    readonly NpcCatalog npcs;
+    readonly SkillCatalog skills;
+    readonly string folder;
+
+    public GemVendorStock(ItemCatalog items, QuestRewardCatalog rewards, NpcCatalog npcs, SkillCatalog skills, string folder = "data")
+    {
+        this.items = items;
+        this.rewards = rewards;
+        this.npcs = npcs;
+        this.skills = skills;
+        this.folder = folder;
+        hardModeRows = HardModeGemRows(folder);
+        sellable = new[] { false, true }
+            .SelectMany(support => new[] { 1, 2, 3, 4 }.SelectMany(colour => items.ShopGems(colour, support)))
+            .ToDictionary(t => t.Id,t => t.Row,StringComparer.Ordinal);
+    }
+
     // Cache immutable catalogues, never character stock: quest/class/rule filters are evaluated on every open.
     static readonly System.Runtime.CompilerServices.ConditionalWeakTable<ItemCatalog,
         System.Collections.Concurrent.ConcurrentDictionary<(NpcCatalog Npcs, SkillCatalog Skills, bool Hard, bool Supports),
@@ -41,10 +60,8 @@ public sealed class GemVendorStock(ItemCatalog items, QuestRewardCatalog rewards
 
     public static bool Sells(string npcId) => Vendors.Contains(npcId);
 
-    readonly Dictionary<string,int> sellable = new[] { false, true }
-        .SelectMany(support => new[] { 1, 2, 3, 4 }.SelectMany(colour => items.ShopGems(colour, support)))
-        .ToDictionary(t => t.Id,t => t.Row,StringComparer.Ordinal);
-    readonly Lazy<IReadOnlySet<int>> hardModeRows = new(() => HardModeGemRows(folder));
+    readonly Dictionary<string,int> sellable;
+    readonly IReadOnlySet<int> hardModeRows;
 
     /// <summary>The NPC's gem stock at character level/quest state: BaseItemTypes rows, in row order. Empty before the
     /// character has completed a quest that offers gems (or when campaign Lilly/Siosa's unlock is missing).
@@ -61,7 +78,7 @@ public sealed class GemVendorStock(ItemCatalog items, QuestRewardCatalog rewards
         if (!rules.SellsGemsAt(npcId)) return [];
         // The HardMode index lists what its vendor exchanges.
         if (hardMode)
-            return [.. sellable.Values.Intersect(hardModeRows.Value).Where(row => items.Row(row) is { } type
+            return [.. sellable.Values.Intersect(hardModeRows).Where(row => items.Row(row) is { } type
                 && rules.AllowsGemBase(type.Id)
                 && items.Gem(type) is { Variants.Count: > 0 } gem && (rules.SellsSupportGems || !gem.IsSupport)
                 && skills.PlayerLevelReq(gem.Variant(0).Effect, 1) <= level).Order()];

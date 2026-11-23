@@ -16,51 +16,50 @@ public static partial class MapStrongboxes
 
     /// <summary>GameEvents.Packet(0x74): true when the target is one of this instance's boxes (handled, or refused with
     /// the reason logged); false for any other object.</summary>
-    public static Task<bool> UseItemOn(ClientState conn, byte[] message) =>
+    public static Task<bool> UseItemOn(Player player, byte[] message) =>
         message.Length < InstanceItems.UseItemOnObjectLength
             ? Task.FromResult(false)
-            : UseItemOnCore(conn, InstanceItems.ReadUseItemOnObject(message), "0x0074");
+            : UseItemOnCore(player, InstanceItems.ReadUseItemOnObject(message), "0x0074");
 
     /// <summary>GameEvents.Packet(0x79): Shift-click / repeat currency use by type hash on a strongbox.</summary>
-    public static Task<bool> UseItemTypeOn(ClientState conn, byte[] message)
+    public static Task<bool> UseItemTypeOn(Player player, byte[] message)
     {
         if (message.Length < InstanceItems.UseItemTypeOnObjectLength) return Task.FromResult(false);
         var req = InstanceItems.ReadUseItemTypeOnObject(message);
-        if (conn.Instance is null || !Areas.TryGetValue(conn.Instance, out var area)
+        if (player.Instance is null || !Areas.TryGetValue(player.Instance, out var area)
             || area.Boxes?.FirstOrDefault(b => b.Id == req.TargetObjectId) is null)
             return Task.FromResult(false);
-        var items = ItemsOf(conn);
+        var items = ItemsOf(player);
         byte[] rows = [PlayerInventories.MainInventory,
             .. Enumerable.Range(0, InstanceInventories.PlayerDefaults.Length)
                 .Select(r => (byte)r)
                 .Where(r => r != PlayerInventories.MainInventory && r != PlayerInventories.Cursor)];
         foreach (byte row in rows)
             if (items.Items(row).FirstOrDefault(i => i.Item.TypeHash == req.TypeHash) is { } stack)
-                return UseItemOnCore(conn, new(PlayerInventories.InventoryId(row), stack.Id, req.TargetObjectId), "0x0079");
-        Console.WriteLine($"[map-content] {conn.Wire.Remote} <= 0x0079 type 0x{req.TypeHash:x8} on strongbox 0x{req.TargetObjectId:x}: none left in inventory");
+                return UseItemOnCore(player, new(PlayerInventories.InventoryId(row), stack.Id, req.TargetObjectId), "0x0079");
+        Console.WriteLine($"[map-content] {player.Connection.Remote} <= 0x0079 type 0x{req.TypeHash:x8} on strongbox 0x{req.TargetObjectId:x}: none left in inventory");
         return Task.FromResult(true);
     }
 
-    static async Task<bool> UseItemOnCore(ClientState conn, InstanceItems.UseItemOnObject use, string opcode)
+    static async Task<bool> UseItemOnCore(Player player, InstanceItems.UseItemOnObject use, string opcode)
     {
-        if (conn.Instance is null || !Areas.TryGetValue(conn.Instance, out var area)
+        if (player.Instance is null || !Areas.TryGetValue(player.Instance, out var area)
             || area.Boxes?.FirstOrDefault(b => b.Id == use.TargetObjectId) is not { } target) return false;
-        var (remote, stream, ciphers) = conn.Wire;
-        string Log(string text) => $"[map-content] {remote} <= {opcode} item {use.ItemId} (inventory {use.InventoryId}) on strongbox 0x{use.TargetObjectId:x}: {text}";
-        var items = ItemsOf(conn);
+        string Log(string text) => $"[map-content] {player.Connection.Remote} <= {opcode} item {use.ItemId} (inventory {use.InventoryId}) on strongbox 0x{use.TargetObjectId:x}: {text}";
+        var items = ItemsOf(player);
         if (items.RowOf(use.ItemId) is not byte row || PlayerInventories.InventoryId(row) != use.InventoryId
             || items.Items(row).FirstOrDefault(i => i.Id == use.ItemId) is not { } used)
         {
             Console.WriteLine(Log("no such item in the character's inventories (currency from the stash is not handled)"));
             return true;
         }
-        var currency = ItemsFor(conn).ByHash(used.Item.TypeHash);
+        var currency = ItemsFor(player).ByHash(used.Item.TypeHash);
         await area.Gate.WaitAsync();
         try
         {
             var box = area.Boxes![target.Index];
             if (StrongboxCatalog.Find(box.Type) is not { } type) return true;
-            var (changed, refusal) = Change(ItemsFor(conn).Mods, type, box, currency?.Id, AreaLevel(conn), AreaMods(conn), Random.Shared);
+            var (changed, refusal) = Change(ItemsFor(player).Mods, type, box, currency?.Id, AreaLevel(player), AreaMods(player), AreaRng(player));
             if (changed is null)
             {
                 Console.WriteLine(Log($"{currency?.Name ?? $"0x{used.Item.TypeHash:x8}"} refused: {refusal}"));
@@ -72,12 +71,12 @@ public static partial class MapStrongboxes
                 return true;
             }
             area.Boxes[box.Index] = changed;
-            Keep(conn, area);
+            Keep(player, area);
             uint inventory = PlayerInventories.InventoryId(row);
-            await Send(remote, stream, ciphers, InstanceItems.InventoryChange(inventory, items.NextRevision(row), [used.Id], taken.Left is { } left ? [left] : []),
+            await Send(player, InstanceItems.InventoryChange(inventory, items.NextRevision(row), [used.Id], taken.Left is { } left ? [left] : []),
                 $"0x00bf inventory {inventory}: {currency!.Name} used" + (taken.Left is { } l ? $", {l.Item.StackSize} left" : ", stack gone"));
-            Console.WriteLine(Log($"{currency.Name}: {Label(conn, box)} → {Label(conn, changed)}"));
-            foreach (var member in Members(conn)) await Present(member, changed, true);
+            Console.WriteLine(Log($"{currency.Name}: {Label(player, box)} → {Label(player, changed)}"));
+            foreach (var member in Members(player)) await Present(member, changed, true);
         }
         finally { area.Gate.Release(); }
         return true;

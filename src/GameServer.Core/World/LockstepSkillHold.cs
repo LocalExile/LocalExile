@@ -61,6 +61,9 @@ public sealed class LockstepSkillHold
     /// <summary>C→S 0x195, or 0x196 for this skill. A request not yet started still starts.</summary>
     public void Release() => _held = false;
 
+    /// <summary>Consume a pending click that could not start (e.g. insufficient mana) without locking the player.</summary>
+    public void ClearPending() => _pending = false;
+
     /// <summary>Clear input; when another action takes over, retain the old channel's release for the next frame.</summary>
     public void Clear(bool finishChannel = false)
     {

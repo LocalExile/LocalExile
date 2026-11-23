@@ -12,6 +12,12 @@ namespace GameServer.Modules.CurrencyExchange;
 /// reads the prices from <c>data/</c>, and never connects to anything itself.</summary>
 public sealed class CurrencyExchangeModule : IModule
 {
+    /// <summary>Fills this type's game data at startup (the world loader, before the Gateway listens).</summary>
+    public static void LoadCurrencyExchangeModuleData()
+    {
+        FaustusLine = LoadFaustusLine();
+    }
+
     const string SaveKey = "currency-exchange", Window = "currency-exchange", RatesFile = ExchangeRateStore.File;
     const double SettleEverySeconds = 30;
 
@@ -28,18 +34,27 @@ public sealed class CurrencyExchangeModule : IModule
     DateTime _ratesWritten;
     IModuleContext _module = null!;
 
+    /// <summary>This module's game data, built in a fixed order when it loads: before the Gateway listens, as the
+    /// Gateway's own (WorldLoader). Tests that use the module call it once.</summary>
+    public static void LoadData()
+    {
+        LoadCurrencyExchangeModuleData();
+        ExchangeItems.LoadExchangeMarketData();
+    }
+
     /// <inheritdoc/>
     public void Load(IModuleContext module)
     {
+        LoadData();
         _module = module;
         GameEvents.NpcOption.Add(module.Manifest.Id, async talk =>
         {
             if (!talk.Script.Contains("CurrencyExchangeWindow", StringComparison.Ordinal)) return false;
             await WorldOf(talk.Player).NpcClose("0x0084 close NPC dialogue for the Currency Exchange");
-            await Open(talk.Player);
+            await Open(talk.ModPlayer);
             return true;
         });
-        GameEvents.Command(module.Manifest.Id, "exchange", "/exchange (opens the Currency Exchange)", (conn, args) => Open(PlayerOf(conn)));
+        GameEvents.Command(module.Manifest.Id, "exchange", "/exchange (opens the Currency Exchange)", (player, args) => Open(PlayerOf(player)));
         Handle(Wire.RequestOrdersId, (player, _) => SendOrders(player));
         Handle(Wire.RequestFeeId, (player, m) => SendFee(player, Wire.ReadU32(m.Span)));
         Handle(Wire.RequestPartnersId, (player, m) => SendPartners(player, Wire.ReadU32(m.Span)));
@@ -47,25 +62,25 @@ public sealed class CurrencyExchangeModule : IModule
         Handle(Wire.PlaceOrderId, (player, m) => Place(player, Wire.ReadPlaceOrder(m.Span)));
         Handle(Wire.CloseOrderId, (player, m) => Close(player, Wire.ReadU32(m.Span)));
         Handle(Wire.ClaimId, (player, m) => Claim(player, Wire.ReadClaim(m.Span)));
-        GameEvents.Tick.Add(module.Manifest.Id, async (conn, seconds) =>
+        GameEvents.AreaTick.Add(module.Manifest.Id, GameEvents.Always(async (player, seconds) =>
         {
-            var player = PlayerOf(conn);
-            var timer = _timers.GetOrCreateValue(player);
+            var modPlayer = PlayerOf(player);
+            var timer = _timers.GetOrCreateValue(modPlayer);
             if ((timer.Seconds += seconds) < SettleEverySeconds) return;
             timer.Seconds = 0;
-            await Settle(player);
+            await Settle(modPlayer);
             // Faustus's bag does not outlast an area: it is lit again on arriving, if anything waits.
-            if (timer.Arrived || !WorldOf(player).PlayerReady) return;
+            if (timer.Arrived || !WorldOf(modPlayer).PlayerReady) return;
             timer.Arrived = true;
-            if (!BookOf(player).HasClaims) return;
-            await SendOrders(player);
-            await Light(player);
-        });
+            if (!BookOf(modPlayer).HasClaims) return;
+            await SendOrders(modPlayer);
+            await Light(modPlayer);
+        }));
     }
 
-    void Handle(ushort opcode, Func<IPlayer, ReadOnlyMemory<byte>, Task> run) => GameEvents.Packet(opcode).Add(_module.Manifest.Id, async (conn, bytes) =>
+    void Handle(ushort opcode, Func<IPlayer, ReadOnlyMemory<byte>, Task> run) => GameEvents.Packet(opcode).Add(_module.Manifest.Id, async (player, bytes) =>
     {
-        await run(PlayerOf(conn), bytes);
+        await run(PlayerOf(player), bytes);
         return true;
     });
 
@@ -285,9 +300,9 @@ public sealed class CurrencyExchangeModule : IModule
         }), $"Currency Exchange order, {gold} gold");
         if (!paid)
         {
-            var conn = ConnOf(player);
-            var stash = PersonalStashOf(conn);
-            var inv = global::Game.ItemsOf(conn);
+            var owner = PlayerOf(player);
+            var stash = PersonalStashOf(owner);
+            var inv = global::Game.ItemsOf(owner);
             bool enoughGold = stash.Gold >= gold;
             long ownedHave = (long)inv.Count(PlayerInventories.MainInventory, request.Have) + stash.CountOf(request.Have);
             bool enoughCurrency = ownedHave >= request.HaveCount;
@@ -325,18 +340,20 @@ public sealed class CurrencyExchangeModule : IModule
         }
         if (!completed) return;
         await player.Send(Wire.OrderCompleted(), "0x02f8 an order completed");
-        if (speak && Options.FaustusSpeaks && FaustusLine.Value is var (npc, line))
+        if (speak && Options.FaustusSpeaks && FaustusLine is var (npc, line))
             await player.Send(InstanceNpcs.TextAudio(0, npc, line), "0x01c7 Faustus: an order is filled");
     }
 
     /// <summary>What he says of a filled order, from anywhere (S→C 0x1c7, object 0): the client picks among the row's group. Nothing in the client asks for it.</summary>
-    static readonly Lazy<(ushort Npc, ushort Line)?> FaustusLine = new(() =>
+    static (ushort Npc, ushort Line)? FaustusLine = default!;
+
+    static (ushort Npc, ushort Line)? LoadFaustusLine()
     {
-        if (Npcs.Value.Find("Metadata/NPC/League/Kalguur/VillageFaustusHideout") is not { } npc) return null;
+        if (Npcs.Find("Metadata/NPC/League/Kalguur/VillageFaustusHideout") is not { } npc) return null;
         foreach (var line in ClientTables.Table("NPCTextAudio"))
             if (line.TextOrNull("Id") == "FaustusSettlersOrderFilled_Random") return ((ushort)npc.Row, (ushort)line.Index);
         return null;
-    });
+    }
 
     /// <summary>The player's X on an order: what is left of it can be claimed. The gold stays paid, as the window warns.</summary>
     async Task Close(IPlayer player, uint id)
@@ -375,14 +392,14 @@ public sealed class CurrencyExchangeModule : IModule
         uint item = bought ? order.Want : order.Have, amount = bought ? order.ClaimWant : order.ClaimHave;
         if (amount == 0) return;
 
-        var conn = ConnOf(player);
-        var catalogType = ItemsFor(conn).ByHash(item);
+        var owner = PlayerOf(player);
+        var catalogType = ItemsFor(owner).ByHash(item);
         int maxStack = Math.Max(1, (int)(catalogType?.MaxStack ?? 1));
 
         if (claim.ToCursor)
         {
             if (catalogType is null) return;
-            var inv = global::Game.ItemsOf(conn);
+            var inv = global::Game.ItemsOf(owner);
             InventoryItem? removedCursor = null, addedCursor = null;
             ExchangeOrder? cursorOrder = null;
             bool committed = Saves.Atomically(() =>

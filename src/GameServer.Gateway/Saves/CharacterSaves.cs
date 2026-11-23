@@ -98,6 +98,9 @@ public static class CharacterSaves
     public sealed record OpeningTutorial(SavedItem SkillGem, SavedItem SupportGem,
         bool Talked = false, bool ZombieKilled = false, bool ChestOpened = false, bool SkillClaimed = false, bool SupportClaimed = false,
         string? Id = null, bool WeaponPromptHeard = false, bool WakeUpShown = false);
+    public static (bool ZombieKilled, bool ChestOpened)? TutorialWallProgress(string character) =>
+        Look(character)?.Tutorial is { } tutorial ? (tutorial.ZombieKilled, tutorial.ChestOpened) : null;
+
     public static void ChangeTutorial(string character, Func<OpeningTutorial, OpeningTutorial> change) =>
         Update(character, s => s.Tutorial is { } tutorial ? s with { Tutorial = change(tutorial) } : s);
     public static void SetTutorial(string character, OpeningTutorial tutorial) => Update(character, s => s with { Tutorial = tutorial });
@@ -128,6 +131,7 @@ public static class CharacterSaves
 
     static Save? Look(string character)
     {
+        if (Saves.TryGetCachedCharacter(character, out var cached)) return cached;
         var db = Saves.Db;
         return db.Read(() =>
         {
@@ -428,7 +432,7 @@ public static class CharacterSaves
     /// flags as the passive points are.</summary>
     public static void ChangeQuestFlags(string character, IEnumerable<string> flags, bool on) => Update(character, s =>
     {
-        var states = QuestStates.Default.Value;
+        var states = QuestStates.Default;
         var changed = flags.Where(f => !states.IsSession(f)).ToList();
         var saved = new HashSet<string>(s.QuestFlags ?? []);
         if (on) saved.UnionWith(changed); else saved.ExceptWith(changed);
@@ -439,7 +443,7 @@ public static class CharacterSaves
     /// <summary>The save with the refund points of its quest flags that it has not been credited yet (QuestStaticRewards).</summary>
     public static Save CreditQuestRefunds(Save s)
     {
-        var (points, flags) = QuestStaticRewards.Default.Value.NewRefunds(s.QuestFlags ?? [], s.QuestRefundsCredited ?? []);
+        var (points, flags) = QuestStaticRewards.Default.NewRefunds(s.QuestFlags ?? [], s.QuestRefundsCredited ?? []);
         if (flags.Count == 0) return s;
         return s with
         {
@@ -647,7 +651,7 @@ public static class CharacterSaves
         if (t.HasOneSocket && item.Rarity != ItemRarity.Unique && item.Sockets.Count == 0)
         {
             var local = ItemModStats.Local(item, catalog.Mods);
-            if (local.GetValueOrDefault("local_has_X_sockets") == 1 && !local.ContainsKey("local_has_no_sockets"))
+            if (local.GetValueOrDefault(Stat.LocalHasXSockets) == 1 && !local.ContainsKey(Stat.LocalHasNoSockets))
                 item = item with { Sockets = [new(SocketColour.White)], Links = [1] };
         }
         item = item with { RequiredLevel = s.RequiredLevel };
@@ -656,13 +660,13 @@ public static class CharacterSaves
             && !item.Sockets.Any(socket => socket.Colour == SocketColour.Abyss))
         {
             var local = ItemModStats.Local(item, catalog.Mods);
-            if (local.GetValueOrDefault("local_has_X_abyss_sockets") > 0 && !local.ContainsKey("local_has_no_sockets"))
+            if (local.GetValueOrDefault(Stat.LocalHasXAbyssSockets) > 0 && !local.ContainsKey(Stat.LocalHasNoSockets))
                 item = AbyssJewels.StygianSockets(item, local);
         }
         else if (item.Rarity == ItemRarity.Unique && item.Sockets.Count == 0 && t.Components.Contains("Sockets"))
         {
             var local = ItemModStats.Local(item, catalog.Mods);
-            if (local.GetValueOrDefault("local_has_X_abyss_sockets") > 0 && !local.ContainsKey("local_has_no_sockets"))
+            if (local.GetValueOrDefault(Stat.LocalHasXAbyssSockets) > 0 && !local.ContainsKey(Stat.LocalHasNoSockets))
                 item = AbyssJewels.EquipmentSockets(item, t, catalog, local, new Random(item.TypeHash.GetHashCode()));
         }
         return ImpossibleEscapeCatalogue.Migrate(item, catalog.Mods);

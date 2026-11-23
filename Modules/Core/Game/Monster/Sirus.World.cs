@@ -10,11 +10,11 @@ static partial class Sirus
     const string PortalModel = "Metadata/Effects/Spells/portal/unstable_RED/AtlasExile5Portal.ao";
     const string IntroPortal = "Sirus.IntroPortal";
     static string Flag(string name) => Quests.InstanceFlag("Sirus-" + name);
-    static readonly RuleTable<InstanceState, Scene> Scenes = new();
-    sealed class Scene(ClientState c)
+    static readonly Store<InstanceState, Scene> Scenes = new();
+    sealed class Scene(Player c)
     {
         public readonly (int X, int Y)? Entry = EntryPoint(c);
-        static (int X, int Y)? EntryPoint(ClientState c)
+        static (int X, int Y)? EntryPoint(Player c)
         {
             var trigger = c.Layout.Level?.RoomObjects.FirstOrDefault(o => o.Type == "Metadata/NPC/Epilogue/AtlasExile5NPCTrigger");
             if (trigger is null) return null;
@@ -30,19 +30,19 @@ static partial class Sirus
         public readonly (int X, int Y) Centre = ArenaCentre(c);
         public readonly (int X, int Y)? Trigger = c.Layout.Level?.RoomObjects.FirstOrDefault(o =>
             o.Type == "Metadata/NPC/Epilogue/AtlasExile5NPCTrigger") is { } o ? (o.X, o.Y) : null;
-        static (int X, int Y) ArenaCentre(ClientState c)
+        static (int X, int Y) ArenaCentre(Player c)
         {
             if (c.LaterFormPoints.TryGetValue(Body, out var supplied)) return supplied;
             var point = AreaPopulation.LoadPoints(Area, c.Seed, []).FirstOrDefault(p => p.Name == "mapboss1");
             return point is null ? (c.Layout.SpawnX + 155, c.Layout.SpawnY + 6) : (point.X, point.Y);
         }
     }
-    static Scene SceneOf(ClientState c) => Scenes.GetValue(c.Instance, _ => new(c));
+    static Scene SceneOf(Player c) => Scenes.GetValue(c.Instance, _ => new(c));
 
-    internal static bool? GateShown(ClientState c, AreaTransitionObject t) =>
+    internal static bool? GateShown(Player c, AreaTransitionObject t) =>
         c.Layout.Id == Area && t.SourceType == IntroPortal ? c.Instance.HasState(Flag("IntroDone")) : null;
 
-    internal static void ConfigureArrival(ClientState c)
+    internal static void ConfigureArrival(Player c)
     {
         if (c.Layout.Id != Area) return;
         var scene = SceneOf(c);
@@ -73,11 +73,11 @@ static partial class Sirus
         Console.WriteLine($"[Sirus] laboratory arrival {scene.Entry}; {transitions.Count - c.Layout.AreaTransitions.Count(t => t.Id < 0x2f00 || t.Id > 0x2f06)} internal portals");
     }
 
-    internal static async Task Populate(ClientState c)
+    internal static async Task Populate(Player c)
     {
         var at = SceneOf(c).Centre;
         if (Monsters.Find(Throne) is not { Supported: true } v) return;
-        await SpawnMonster(c.Wire.Remote, c.Wire.Stream, c.Wire.Ciphers, c, v, 84, MonsterRarity.Unique, at.X, at.Y,
+        await SpawnMonster(c, v, 84, MonsterRarity.Unique, at.X, at.Y,
             rotation: 3 * MathF.PI / 2, scripted: true, owned: (_, m) => { m.NoRewards = true; m.EntranceGrace = true; });
     }
 }

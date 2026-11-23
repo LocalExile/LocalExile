@@ -97,7 +97,7 @@ your selected Pantheon Powers at this location …"; looked up with the 1-based 
    table changes), in the save.
 4. Send the Player update below, and apply the god's stats (effect 1, plus effects 2–4 whose PantheonSouls upgrade
    flag the character has, only once `EndGameAvailable` is earned: every character is given it at login for the Atlas,
-   so having it is not enough (`ClientState.EarnedQuestFlag`, `PantheonCatalog.ChosenStats`)).
+   so having it is not enough (`Player.EarnedQuestFlag`, `PantheonCatalog.ChosenStats`)).
 
 ## 5. Showing the choice: Player component bytes +0x1ae / +0x1ad
 
@@ -144,13 +144,13 @@ and Tukohama through 0x1ee and `/state` showed them; the panel's highlight of th
 - **Framework** (Gateway, Core): C→S 0x1ee framed (`InstancePantheon`, 3 bytes; unframed, the Gateway logged it as raw
   bytes and nothing was chosen), the Player update 0x0080 (`InstanceEntities.PlayerPantheonUpdate`) and the creation
   blob's two bytes (`PlayerObject.PantheonMajor/Minor`, written from the save), the choice per character
-  (`CharacterSaves.SetPantheon`, `PantheonMajor` / `PantheonMinor` by row Id, `ClientState`), the tables
+  (`CharacterSaves.SetPantheon`, `PantheonMajor` / `PantheonMinor` by row Id, `Player`), the tables
   (`Player/PantheonCatalog.cs`: rows, unlock flags, powers, the souls' upgrade flags).
 - **The Pantheon module** (`Modules/Core/Player/Pantheon`, listed by every league that lists the quest tables): 0x1ee
   as §4 (refused for a disabled or locked row, or outside a town, hideout or the Rogue Harbour without
   `CanChangePantheon`; the client hears the gods back either way); the god's Effect1 stats, plus Effect2–4 whose
   PantheonSouls upgrade flag the character has once `EndGameAvailable` is earned (not merely given at login:
-  `ClientState.UnearnedQuestFlags`, as Kitava's Act 10 penalty), join the character's stat sources
+  `Player.UnearnedQuestFlags`, as Kitava's Act 10 penalty), join the character's stat sources
   (`GameEvents.PlayerStatSources`; most are conditional stats the damage model does not read yet); `/pantheon [<god> …]`
   (dev) and /state's `pantheon` field (`GameEvents.StateBuilding`) for the driver's `pantheon` verb and the bridge's
   `pantheon:select <row>`.

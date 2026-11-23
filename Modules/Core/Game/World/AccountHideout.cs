@@ -48,10 +48,10 @@ public static partial class Game
         Console.WriteLine($"[hideout] initialized shared account home from {owner.Name}: {save.SelectedHideout}");
     });
 
-    static string? HideoutAccount(ClientState conn, bool instanceOwner)
+    static string? HideoutAccount(Player player, bool instanceOwner)
     {
-        string character = instanceOwner ? conn.InstanceOwner ?? CharacterName(conn) : CharacterName(conn);
-        if (string.Equals(character, CharacterName(conn), StringComparison.OrdinalIgnoreCase)) return conn.Account;
+        string character = instanceOwner ? player.InstanceOwner ?? CharacterName(player) : CharacterName(player);
+        if (string.Equals(character, CharacterName(player), StringComparison.OrdinalIgnoreCase)) return player.Character.Account;
         var store = new SqliteAccountStore(Saves.Db);
         return store.FindCharacter(character) is { } owner ? store.GetAccount(owner.AccountId)?.Name : null;
     }
@@ -61,10 +61,10 @@ public static partial class Game
             save.HideoutPlacements is null ? [] : new(save.HideoutPlacements),
             save.MonsterStatues is null ? [] : new(save.MonsterStatues));
 
-    static AccountHideoutProfile? SharedHideout(ClientState conn, bool instanceOwner = false, bool create = false) => Saves.Atomically<AccountHideoutProfile?>(() =>
+    static AccountHideoutProfile? SharedHideout(Player player, bool instanceOwner = false, bool create = false) => Saves.Atomically<AccountHideoutProfile?>(() =>
     {
-        if (HideoutAccount(conn, instanceOwner) is not { } account) return null;
-        var stash = AccountStash.For(account, ItemsFor(conn));
+        if (HideoutAccount(player, instanceOwner) is not { } account) return null;
+        var stash = AccountStash.For(account, ItemsFor(player));
         string? text = stash.ModuleData(AccountHideoutKey);
         if (text is null)
         {
@@ -75,7 +75,7 @@ public static partial class Game
                 .FirstOrDefault(c => c.Save?.SelectedHideout is not null);
             AccountHideoutProfile? initial = first is { Save: { } legacy }
                 ? FromLegacyHideout(first.Value.Name, legacy)
-                : create ? FromLegacyHideout(CharacterName(conn), CharacterSaves.Load(CharacterName(conn)) ?? new([])) : null;
+                : create ? FromLegacyHideout(CharacterName(player), CharacterSaves.Load(CharacterName(player)) ?? new([])) : null;
             if (initial is null) return null;
             stash.ChangeModuleData(AccountHideoutKey, prior => prior ?? JsonSerializer.Serialize(initial));
             text = stash.ModuleData(AccountHideoutKey);
@@ -83,8 +83,8 @@ public static partial class Game
         }
         var profile = JsonSerializer.Deserialize<AccountHideoutProfile>(text!)
             ?? throw new InvalidDataException("The account hideout profile is empty.");
-        if (!instanceOwner && CharacterSaves.Load(CharacterName(conn))?.SelectedHideout != profile.Area)
-            CharacterSaves.SetSelectedHideout(CharacterName(conn), profile.Area);
+        if (!instanceOwner && CharacterSaves.Load(CharacterName(player))?.SelectedHideout != profile.Area)
+            CharacterSaves.SetSelectedHideout(CharacterName(player), profile.Area);
         return profile;
     });
 
@@ -96,31 +96,31 @@ public static partial class Game
         foreach (var character in store.CharactersOf(identity.Id))
             if (CharacterSaves.Load(character.Name)?.SelectedHideout != area)
                 CharacterSaves.SetSelectedHideout(character.Name, area);
-        foreach (var player in InGame.Keys.Where(c => string.Equals(c.Account, account, StringComparison.OrdinalIgnoreCase)))
+        foreach (var player in InGame.Keys.Where(c => string.Equals(c.Character.Account, account, StringComparison.OrdinalIgnoreCase)))
             player.Furniture = null;
     }
 
-    static void ChangeSharedHideout(ClientState conn, Func<AccountHideoutProfile, AccountHideoutProfile> change) => Saves.Atomically(() =>
+    static void ChangeSharedHideout(Player player, Func<AccountHideoutProfile, AccountHideoutProfile> change) => Saves.Atomically(() =>
     {
-        var profile = SharedHideout(conn, create: true);
-        if (profile is null || conn.Account is not { } account) return;
-        AccountStash.For(account, ItemsFor(conn)).ChangeModuleData(AccountHideoutKey, text =>
+        var profile = SharedHideout(player, create: true);
+        if (profile is null || player.Character.Account is not { } account) return;
+        AccountStash.For(account, ItemsFor(player)).ChangeModuleData(AccountHideoutKey, text =>
             JsonSerializer.Serialize(change(text is null ? profile : JsonSerializer.Deserialize<AccountHideoutProfile>(text)!)));
-        foreach (var player in InGame.Keys.Where(c => string.Equals(c.Account, account, StringComparison.OrdinalIgnoreCase)))
-            player.Furniture = null;
+        foreach (var peer in InGame.Keys.Where(c => string.Equals(c.Character.Account, account, StringComparison.OrdinalIgnoreCase)))
+            peer.Furniture = null;
     });
 
-    public static void SelectAccountHideout(ClientState conn, string area) => Saves.Atomically(() =>
+    public static void SelectAccountHideout(Player player, string area) => Saves.Atomically(() =>
     {
-        if (conn.Account is null) { CharacterSaves.SetSelectedHideout(CharacterName(conn), area); return; }
-        ChangeSharedHideout(conn, p => p with { Area = area });
-        SynchronizeHomeSelection(conn.Account, area);
+        if (player.Character.Account is null) { CharacterSaves.SetSelectedHideout(CharacterName(player), area); return; }
+        ChangeSharedHideout(player, p => p with { Area = area });
+        SynchronizeHomeSelection(player.Character.Account, area);
     });
 
-    public static void SetAccountHideoutPlacement(ClientState conn, string area, string key, HideoutPlacement position)
+    public static void SetAccountHideoutPlacement(Player player, string area, string key, HideoutPlacement position)
     {
-        if (conn.Account is null) { CharacterSaves.SetHideoutPlacement(CharacterName(conn), area, key, position); return; }
-        ChangeSharedHideout(conn, p =>
+        if (player.Character.Account is null) { CharacterSaves.SetHideoutPlacement(CharacterName(player), area, key, position); return; }
+        ChangeSharedHideout(player, p =>
         {
             var areas = new Dictionary<string, Dictionary<string, HideoutPlacement>>(p.Placements);
             var positions = areas.TryGetValue(area, out var old) ? new Dictionary<string, HideoutPlacement>(old) : [];
@@ -129,30 +129,30 @@ public static partial class Game
         });
     }
 
-    public static IReadOnlyList<CharacterSaves.SavedMonsterStatue> AccountMonsterStatues(ClientState conn) =>
-        SharedHideout(conn, instanceOwner: true) is { } shared
-            ? shared.Statues.GetValueOrDefault(conn.Layout.Id) ?? []
-            : CharacterSaves.MonsterStatues(conn.InstanceOwner ?? CharacterName(conn), conn.Layout.Id);
+    public static IReadOnlyList<CharacterSaves.SavedMonsterStatue> AccountMonsterStatues(Player player) =>
+        SharedHideout(player, instanceOwner: true) is { } shared
+            ? shared.Statues.GetValueOrDefault(player.Layout.Id) ?? []
+            : CharacterSaves.MonsterStatues(player.InstanceOwner ?? CharacterName(player), player.Layout.Id);
 
-    public static void AddAccountMonsterStatue(ClientState conn, CharacterSaves.SavedMonsterStatue statue)
+    public static void AddAccountMonsterStatue(Player player, CharacterSaves.SavedMonsterStatue statue)
     {
-        if (conn.Account is null) { CharacterSaves.AddMonsterStatue(CharacterName(conn), conn.Layout.Id, statue); return; }
-        ChangeSharedHideout(conn, p =>
+        if (player.Character.Account is null) { CharacterSaves.AddMonsterStatue(CharacterName(player), player.Layout.Id, statue); return; }
+        ChangeSharedHideout(player, p =>
         {
             var areas = new Dictionary<string, List<CharacterSaves.SavedMonsterStatue>>(p.Statues);
-            var list = areas.TryGetValue(conn.Layout.Id, out var old) ? new List<CharacterSaves.SavedMonsterStatue>(old) : [];
-            list.Add(statue); areas[conn.Layout.Id] = list;
+            var list = areas.TryGetValue(player.Layout.Id, out var old) ? new List<CharacterSaves.SavedMonsterStatue>(old) : [];
+            list.Add(statue); areas[player.Layout.Id] = list;
             return p with { Statues = areas };
         });
     }
 
-    public static IReadOnlyList<SavedHideoutDecoration> AccountHideoutDecorations(ClientState conn) =>
-        SharedHideout(conn, instanceOwner: true)?.Decorations?.GetValueOrDefault(conn.Layout.Id) ?? [];
+    public static IReadOnlyList<SavedHideoutDecoration> AccountHideoutDecorations(Player player) =>
+        SharedHideout(player, instanceOwner: true)?.Decorations?.GetValueOrDefault(player.Layout.Id) ?? [];
 
-    public static void AddAccountHideoutDecoration(ClientState conn, string area, SavedHideoutDecoration decoration)
+    public static void AddAccountHideoutDecoration(Player player, string area, SavedHideoutDecoration decoration)
     {
-        if (conn.Account is null) return;
-        ChangeSharedHideout(conn, p =>
+        if (player.Character.Account is null) return;
+        ChangeSharedHideout(player, p =>
         {
             var areas = p.Decorations is null ? new Dictionary<string, List<SavedHideoutDecoration>>() : new(p.Decorations);
             var list = areas.TryGetValue(area, out var old) ? new List<SavedHideoutDecoration>(old) : [];
@@ -162,11 +162,11 @@ public static partial class Game
         });
     }
 
-    public static void UpdateAccountHideoutDecoration(ClientState conn, string area, string key, HideoutPlacement position,
+    public static void UpdateAccountHideoutDecoration(Player player, string area, string key, HideoutPlacement position,
         byte variation, bool mirrored)
     {
-        if (conn.Account is null) return;
-        ChangeSharedHideout(conn, p =>
+        if (player.Character.Account is null) return;
+        ChangeSharedHideout(player, p =>
         {
             if (p.Decorations is null || !p.Decorations.TryGetValue(area, out var old)) return p;
             int idx = old.FindIndex(d => d.Key == key);
@@ -179,11 +179,11 @@ public static partial class Game
         });
     }
 
-    public static bool RemoveAccountHideoutDecoration(ClientState conn, string area, string key)
+    public static bool RemoveAccountHideoutDecoration(Player player, string area, string key)
     {
-        if (conn.Account is null) return false;
+        if (player.Character.Account is null) return false;
         bool removed = false;
-        ChangeSharedHideout(conn, p =>
+        ChangeSharedHideout(player, p =>
         {
             if (p.Decorations is null || !p.Decorations.TryGetValue(area, out var old)) return p;
             var list = old.Where(d => d.Key != key).ToList();
@@ -203,10 +203,10 @@ public static partial class Game
         return removed;
     }
 
-    public static void ClearAccountHideoutDecorations(ClientState conn, string area, bool resetPlacements)
+    public static void ClearAccountHideoutDecorations(Player player, string area, bool resetPlacements)
     {
-        if (conn.Account is null) return;
-        ChangeSharedHideout(conn, p =>
+        if (player.Character.Account is null) return;
+        ChangeSharedHideout(player, p =>
         {
             var decorations = p.Decorations is null ? new Dictionary<string, List<SavedHideoutDecoration>>() : new(p.Decorations);
             decorations.Remove(area);
@@ -222,17 +222,17 @@ public static partial class Game
         });
     }
 
-    public static ushort? AccountHideoutMusic(ClientState conn, string? area = null)
+    public static ushort? AccountHideoutMusic(Player player, string? area = null)
     {
-        string key = area ?? conn.Layout.Id;
-        var map = SharedHideout(conn, instanceOwner: true)?.Music;
+        string key = area ?? player.Layout.Id;
+        var map = SharedHideout(player, instanceOwner: true)?.Music;
         return map is not null && map.TryGetValue(key, out ushort row) ? row : null;
     }
 
-    public static void SetAccountHideoutMusic(ClientState conn, string area, ushort musicRow)
+    public static void SetAccountHideoutMusic(Player player, string area, ushort musicRow)
     {
-        if (conn.Account is null) return;
-        ChangeSharedHideout(conn, p =>
+        if (player.Character.Account is null) return;
+        ChangeSharedHideout(player, p =>
         {
             var music = p.Music is null ? new Dictionary<string, ushort>() : new(p.Music);
             if (musicRow == InstanceHideoutEditing.DefaultMusicRow) music.Remove(area);
@@ -241,13 +241,13 @@ public static partial class Game
         });
     }
 
-    public static CharacterSaves.SavedItem? AccountDisplayCaseItem(ClientState conn, string area, string key) =>
-        SharedHideout(conn, instanceOwner: true)?.DisplayCases?.GetValueOrDefault(area)?.GetValueOrDefault(key);
+    public static CharacterSaves.SavedItem? AccountDisplayCaseItem(Player player, string area, string key) =>
+        SharedHideout(player, instanceOwner: true)?.DisplayCases?.GetValueOrDefault(area)?.GetValueOrDefault(key);
 
-    public static void SetAccountDisplayCaseItem(ClientState conn, string area, string key, CharacterSaves.SavedItem? item)
+    public static void SetAccountDisplayCaseItem(Player player, string area, string key, CharacterSaves.SavedItem? item)
     {
-        if (conn.Account is null) return;
-        ChangeSharedHideout(conn, p =>
+        if (player.Character.Account is null) return;
+        ChangeSharedHideout(player, p =>
         {
             var cases = p.DisplayCases is null ? new Dictionary<string, Dictionary<string, CharacterSaves.SavedItem>>() : new(p.DisplayCases);
             var areaCases = cases.TryGetValue(area, out var old) ? new Dictionary<string, CharacterSaves.SavedItem>(old) : [];
@@ -257,15 +257,15 @@ public static partial class Game
         });
     }
 
-    public static (string AreaName, int Placements, int Decorations, int Statues, ushort? Music) HideoutLayoutSummary(ClientState conn)
+    public static (string AreaName, int Placements, int Decorations, int Statues, ushort? Music) HideoutLayoutSummary(Player player)
     {
-        var hideout = HideoutCatalog.ByArea(conn.Layout.Hash);
-        string name = hideout?.Name ?? conn.Layout.Id;
-        var profile = SharedHideout(conn, instanceOwner: true, create: OwnHideout(conn));
-        int placements = profile?.Placements.GetValueOrDefault(conn.Layout.Id)?.Count ?? 0;
-        int decorations = profile?.Decorations?.GetValueOrDefault(conn.Layout.Id)?.Count ?? 0;
-        int statues = profile?.Statues.GetValueOrDefault(conn.Layout.Id)?.Count ?? 0;
-        ushort? music = profile?.Music is { } m && m.TryGetValue(conn.Layout.Id, out ushort row) ? row : null;
+        var hideout = HideoutCatalog.ByArea(player.Layout.Hash);
+        string name = hideout?.Name ?? player.Layout.Id;
+        var profile = SharedHideout(player, instanceOwner: true, create: OwnHideout(player));
+        int placements = profile?.Placements.GetValueOrDefault(player.Layout.Id)?.Count ?? 0;
+        int decorations = profile?.Decorations?.GetValueOrDefault(player.Layout.Id)?.Count ?? 0;
+        int statues = profile?.Statues.GetValueOrDefault(player.Layout.Id)?.Count ?? 0;
+        ushort? music = profile?.Music is { } m && m.TryGetValue(player.Layout.Id, out ushort row) ? row : null;
         return (name, placements, decorations, statues, music);
     }
 }

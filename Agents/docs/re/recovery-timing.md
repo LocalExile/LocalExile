@@ -71,7 +71,7 @@ ES at 85 with no client ES tick changes before the delay; the first positive poo
 Selecting and replaying OfflineWitch removed the override and restored ordinary stats/full pools.
 
 The old 250 ms authoritative loop produced recharge increments up to 22 ES in the recorded experiment, with corrections
-against the client's prediction. The rebased change integrates ES into upstream `RunResourceRecovery`, which already targets **16 ms**, using actual elapsed instance
+against the client's prediction. The rebased change integrates ES into upstream `StartResourceRecovery`, which already targets **16 ms**, using actual elapsed instance
 time and fractional carries. It does not introduce a second player recovery loop.
 Proximity/quest/gold checks and pet following retain a 250 ms budget. Recovery-rate stat packets are emitted on rate
 changes; pool packets still carry authoritative whole points.

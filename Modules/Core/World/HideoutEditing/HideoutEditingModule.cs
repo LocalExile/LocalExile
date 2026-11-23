@@ -1,9 +1,5 @@
-using System.Net.Sockets;
 using GameServer.Core.Protocol.Instance;
-using GameServer.Core.Protocol.Login;
-using GameServer.Core.World;
 using GameServer.Modding;
-using static Program;
 using static HideoutEditingFeature;
 
 namespace GameServer.Modules.M_hideoutediting;
@@ -14,66 +10,59 @@ public sealed class HideoutEditingModule : IModule
     /// <inheritdoc/>
     public void Load(IModuleContext module)
     {
-        GameEvents.AreaGenerated.Add(module.Manifest.Id, async conn =>
+        GameEvents.AreaGenerated.Add(module.Manifest.Id, async player =>
         {
-            var (remote, stream, ciphers) = conn.Wire;
-            await SpawnDecorations(remote, stream, ciphers, conn);
-            await SpawnMonsterStatues(remote, stream, ciphers, conn);
+            await SpawnDecorations(player);
+            await SpawnMonsterStatues(player);
         });
-        GameEvents.ObjectUse.Add(module.Manifest.Id, (conn, use, at) =>
+        GameEvents.PlayerEntered.Add(module.Manifest.Id, player =>
         {
-            var (remote, stream, ciphers) = conn.Wire;
-            return UseDisplayCase(remote, stream, ciphers, conn, use, at);
+            SyncAreaDecorations(player);
+            return Task.CompletedTask;
         });
+        GameEvents.ObjectUse.Add(module.Manifest.Id, (player, use, at) =>
+            UseDisplayCase(player, use, at));
         GameEvents.Command(module.Manifest.Id, "save_hideout", "/save_hideout (save and report the current hideout layout)",
-            (conn, _) => global::Game.SaveHideoutLayout(conn));
+            (player, _) => global::Game.SaveHideoutLayout(player));
         foreach (ushort placeId in new[] { InstanceHideoutEditing.PlaceId, InstanceHideoutEditing.PlaceGuildId })
-            GameEvents.Packet(placeId).Add(module.Manifest.Id, async (conn, bytes) =>
+            GameEvents.Packet(placeId).Add(module.Manifest.Id, async (player, bytes) =>
             {
-                var (remote, stream, ciphers) = conn.Wire;
-                await PlaceDecoration(remote, stream, ciphers, conn, InstanceHideoutEditing.ReadPlace(bytes));
+                await PlaceDecoration(player, InstanceHideoutEditing.ReadPlace(bytes));
                 return true;
             });
-        GameEvents.Packet(InstanceHideoutEditing.MoveId).Add(module.Manifest.Id, async (conn, bytes) =>
+        GameEvents.Packet(InstanceHideoutEditing.MoveId).Add(module.Manifest.Id, async (player, bytes) =>
         {
-            var (remote, stream, ciphers) = conn.Wire;
-            await MoveHideoutObject(remote, stream, ciphers, conn, InstanceHideoutEditing.ReadMove(bytes));
+            await MoveHideoutObject(player, InstanceHideoutEditing.ReadMove(bytes));
             return true;
         });
-        GameEvents.Packet(InstanceHideoutEditing.ReclaimId).Add(module.Manifest.Id, async (conn, bytes) =>
+        GameEvents.Packet(InstanceHideoutEditing.ReclaimId).Add(module.Manifest.Id, async (player, bytes) =>
         {
-            var (remote, stream, ciphers) = conn.Wire;
-            await ReclaimDecoration(remote, stream, ciphers, conn, InstanceHideoutEditing.ReadReclaim(bytes));
+            await ReclaimDecoration(player, InstanceHideoutEditing.ReadReclaim(bytes));
             return true;
         });
-        GameEvents.Packet(InstanceHideoutEditing.ResetId).Add(module.Manifest.Id, async (conn, bytes) =>
+        GameEvents.Packet(InstanceHideoutEditing.ResetId).Add(module.Manifest.Id, async (player, bytes) =>
         {
-            var (remote, stream, ciphers) = conn.Wire;
-            await ResetHideout(remote, stream, ciphers, conn, InstanceHideoutEditing.ReadReset(bytes));
+            await ResetHideout(player, InstanceHideoutEditing.ReadReset(bytes));
             return true;
         });
-        GameEvents.Packet(InstanceHideoutEditing.MusicId).Add(module.Manifest.Id, async (conn, bytes) =>
+        GameEvents.Packet(InstanceHideoutEditing.MusicId).Add(module.Manifest.Id, async (player, bytes) =>
         {
-            var (remote, _, _) = conn.Wire;
-            await SetMusic(remote, conn, InstanceHideoutEditing.ReadMusic(bytes));
+            await SetMusic(player, InstanceHideoutEditing.ReadMusic(bytes));
             return true;
         });
-        GameEvents.Packet(InstanceHideoutEditing.DisplayCasePlaceId).Add(module.Manifest.Id, async (conn, bytes) =>
+        GameEvents.Packet(InstanceHideoutEditing.DisplayCasePlaceId).Add(module.Manifest.Id, async (player, bytes) =>
         {
-            var (remote, stream, ciphers) = conn.Wire;
-            await PlaceDisplayCaseItem(remote, stream, ciphers, conn, InstanceHideoutEditing.ReadDisplayCasePlace(bytes));
+            await PlaceDisplayCaseItem(player, InstanceHideoutEditing.ReadDisplayCasePlace(bytes));
             return true;
         });
-        GameEvents.Packet(InstanceHideoutEditing.DisplayCaseToggleId).Add(module.Manifest.Id, async (conn, bytes) =>
+        GameEvents.Packet(InstanceHideoutEditing.DisplayCaseToggleId).Add(module.Manifest.Id, async (player, bytes) =>
         {
-            var (remote, stream, ciphers) = conn.Wire;
-            await ToggleDisplayCase(remote, stream, ciphers, conn, InstanceHideoutEditing.ReadDisplayCaseToggle(bytes));
+            await ToggleDisplayCase(player, InstanceHideoutEditing.ReadDisplayCaseToggle(bytes));
             return true;
         });
-        GameEvents.Packet(InstanceMonsterStatue.CreateId).Add(module.Manifest.Id, async (conn, bytes) =>
+        GameEvents.Packet(InstanceMonsterStatue.CreateId).Add(module.Manifest.Id, async (player, bytes) =>
         {
-            var (remote, stream, ciphers) = conn.Wire;
-            await CreateMonsterStatue(remote, stream, ciphers, conn, InstanceMonsterStatue.ReadCreate(bytes.AsSpan()));
+            await CreateMonsterStatue(player, InstanceMonsterStatue.ReadCreate(bytes.AsSpan()));
             return true;
         });
     }

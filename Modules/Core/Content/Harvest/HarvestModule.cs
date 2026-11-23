@@ -17,27 +17,34 @@ public sealed class HarvestModule : IModule
     readonly ConditionalWeakTable<IPlayer, State> _states = new();
     readonly ConditionalWeakTable<IItemCrafting, HarvestCrafting> _recipes = new();
 
+    public static void LoadData()
+    {
+        HarvestTables.LoadGameData();
+        SacredGrove.LoadGameData();
+    }
+
     /// <inheritdoc/>
     public void Load(IModuleContext module)
     {
-        GameEvents.HideoutReady.Add(module.Manifest.Id, async conn =>
+        LoadData();
+        GameEvents.HideoutReady.Add(module.Manifest.Id, async player =>
         {
-            var player = PlayerOf(conn);
-            if (await WorldOf(player).SpawnHideoutStation(HideoutSlot.Large, StationType, "harvest", "Horticrafting Station") is { } id)
-                _states.GetOrCreateValue(player).Station = id;
+            var modPlayer = PlayerOf(player);
+            if (await WorldOf(modPlayer).SpawnHideoutStation(HideoutSlot.Large, StationType, "harvest", "Horticrafting Station") is { } id)
+                _states.GetOrCreateValue(modPlayer).Station = id;
         });
         GameEvents.FeatureFilled.Add(module.Manifest.Id, (_, row) => SacredGrove.FeatureRows.Contains(row));
         GameEvents.MapOpening.Add(module.Manifest.Id, SacredGrove.Opening);
-        GameEvents.AreaGenerated.Add(module.Manifest.Id, async conn =>
+        GameEvents.AreaGenerated.Add(module.Manifest.Id, async player =>
         {
-            await SacredGrove.Enter(conn);
-            await OshabiEncounter.Enter(conn);
+            await SacredGrove.Enter(player);
+            await OshabiEncounter.Enter(player);
         });
-        GameEvents.Tick.Add(module.Manifest.Id, async (conn, _) =>
+        GameEvents.AreaTick.Add(module.Manifest.Id, GameEvents.Always(async (player, _) =>
         {
-            await SacredGrove.Tick(conn);
-            await OshabiEncounter.Tick(conn);
-        });
+            await SacredGrove.Tick(player);
+            await OshabiEncounter.Tick(player);
+        }));
         GameEvents.Drops.Add(module.Manifest.Id, drop =>
         {
             HarvestLifeforce.Drops(drop);
@@ -47,65 +54,64 @@ public sealed class HarvestModule : IModule
         GameEvents.Experience.Add(module.Manifest.Id, HarvestLifeforce.Experience);
         // The grove monsters' more life: HarvestLifeScalingPerLevel and the Doubling scarab's.
         module.Lifetime.Own(MonsterModEffects.HandOverMore([SacredGrove.LevelMoreLife, SacredGrove.SextantMoreLife], []));
-        GameEvents.ObjectUse.Add(module.Manifest.Id, async (conn, use, at) =>
+        GameEvents.ObjectUse.Add(module.Manifest.Id, async (player, use, at) =>
         {
-            if (!_states.TryGetValue(PlayerOf(conn), out var state) || state.Station == 0 || use.TargetId != state.Station)
-                return await SacredGrove.Use(conn, use, at) || await OshabiEncounter.Use(conn, use, at);
-            var world = WorldOf(conn);
+            if (!_states.TryGetValue(PlayerOf(player), out var state) || state.Station == 0 || use.TargetId != state.Station)
+                return await SacredGrove.Use(player, use, at) || await OshabiEncounter.Use(player, use, at);
+            var world = WorldOf(player);
             if (await world.WalkUpToStation(state.Station, at))
                 await world.OpenWindow(Window, InstanceWaypoints.HorticraftingUi, "0x007b open Horticrafting Station recipe browser");
             return true;
         });
-        GameEvents.Packet(InstanceHarvest.CraftId).Add(module.Manifest.Id, async (conn, bytes) =>
+        GameEvents.Packet(InstanceHarvest.CraftId).Add(module.Manifest.Id, async (player, bytes) =>
         {
-            await Craft(module, PlayerOf(conn), InstanceHarvest.ReadCraft(bytes), LeagueFor(conn).HardMode);
+            await Craft(module, PlayerOf(player), InstanceHarvest.ReadCraft(bytes), LeagueFor(player).HardMode);
             return true;
         });
-        GameEvents.Packet(InstanceHarvest.MoveItemId).Add(module.Manifest.Id, async (conn, bytes) =>
+        GameEvents.Packet(InstanceHarvest.MoveItemId).Add(module.Manifest.Id, async (player, bytes) =>
         {
-            return await MoveItem(conn, InstanceHarvest.ReadMoveItem(bytes));
+            return await MoveItem(player, InstanceHarvest.ReadMoveItem(bytes));
         });
     }
 
     /// <summary>C→S 0xf9: Ctrl + click an item between inventory/stash and HarvestCraftingItem (row 43).</summary>
-    async Task<bool> MoveItem(ClientState conn, InstanceHarvest.MoveItem request)
+    async Task<bool> MoveItem(Player player, InstanceHarvest.MoveItem request)
     {
-        var items = ItemsOf(conn);
-        bool stationOpen = WorldOf(conn).OpenWindowOwner == Window;
+        var items = ItemsOf(player);
+        bool stationOpen = WorldOf(player).OpenWindowOwner == Window;
         bool inSlot = items.Items(Slot).Any(i => i.Id == request.ItemId);
         if (!stationOpen && !inSlot) return false;
-        var (remote, stream, ciphers) = conn.Wire;
         if (request.IntoStation)
         {
             if (ItemMoves.MoveToSlot(items, Slot, request.ItemId, intoSlot: true, ShapeOf) is { } moved)
             {
-                await Send(remote, stream, ciphers, InstanceItems.InventoryChange(PlayerInventories.InventoryId(moved.From),
+                await Send(player, InstanceItems.InventoryChange(PlayerInventories.InventoryId(moved.From),
                     items.NextRevision(moved.From), [request.ItemId], []), $"0x00f9 Ctrl + click: item {request.ItemId} leaves row {moved.From}");
-                await Send(remote, stream, ciphers, InstanceItems.InventoryChange(PlayerInventories.InventoryId(moved.To),
+                await Send(player, InstanceItems.InventoryChange(PlayerInventories.InventoryId(moved.To),
                     items.NextRevision(moved.To), [], [moved.Placed]), $"0x00f9 Ctrl + click: item {request.ItemId} into Horticrafting slot");
                 return true;
             }
-            var stash = PersonalStashOf(conn);
+            var stash = PersonalStashOf(player);
             if (request.Tab < stash.Count && ItemMoves.StashToSlot(stash, items, request.Tab, Slot, request.ItemId) is { } fromStash)
             {
-                await SendTabChange(remote, stream, ciphers, conn, stash, request.Tab, [fromStash.Id], [],
+                await SendTabChange(player, stash, request.Tab, [fromStash.Id], [],
                     $"0x00f9 stash tab {request.Tab}: remove item {fromStash.Id} into Horticrafting slot");
-                await Send(remote, stream, ciphers, InstanceItems.InventoryChange(PlayerInventories.InventoryId(Slot),
+                await Send(player, InstanceItems.InventoryChange(PlayerInventories.InventoryId(Slot),
                     items.NextRevision(Slot), [], [fromStash]), $"0x00f9 Ctrl + click: item {fromStash.Id} into Horticrafting slot");
                 return true;
             }
-            Console.WriteLine($"[gateway] {remote} <= 0x00f9 item {request.ItemId} into Horticrafting slot refused (missing or slot taken)");
+            Console.WriteLine($"[gateway] {player.Connection.Remote} <= 0x00f9 item {request.ItemId} into Horticrafting slot refused (missing or slot taken)");
             return true;
         }
         if (ItemMoves.MoveToSlot(items, Slot, request.ItemId, intoSlot: false, ShapeOf) is { } takenOut)
         {
-            await Send(remote, stream, ciphers, InstanceItems.InventoryChange(PlayerInventories.InventoryId(takenOut.From),
+            await Send(player, InstanceItems.InventoryChange(PlayerInventories.InventoryId(takenOut.From),
                 items.NextRevision(takenOut.From), [request.ItemId], []), $"0x00f9 Ctrl + click: item {request.ItemId} leaves Horticrafting slot");
-            await Send(remote, stream, ciphers, InstanceItems.InventoryChange(PlayerInventories.InventoryId(takenOut.To),
+            await Send(player, InstanceItems.InventoryChange(PlayerInventories.InventoryId(takenOut.To),
                 items.NextRevision(takenOut.To), [], [takenOut.Placed]), $"0x00f9 Ctrl + click: item {request.ItemId} into row {takenOut.To}");
             return true;
         }
-        Console.WriteLine($"[gateway] {remote} <= 0x00f9 item {request.ItemId} out of Horticrafting slot refused (missing or no room)");
+        Console.WriteLine($"[gateway] {player.Connection.Remote} <= 0x00f9 item {request.ItemId} out of Horticrafting slot refused (missing or no room)");
         return true;
     }
 
@@ -118,7 +124,7 @@ public sealed class HarvestModule : IModule
         // world.Crafting is one instance per game mode, so the cached recipes keep the mode they were made for.
         var harvest = _recipes.GetValue(world.Crafting, items => new HarvestCrafting(items, hardMode: hardMode));
         string name = harvest.ByHash(recipe)?.Id ?? $"0x{recipe:x4}";
-        var crafted = await world.CraftInSlot(Slot, item => harvest.Apply(recipe, item, Random.Shared), $"Harvest recipe {name}");
+        var crafted = await world.CraftInSlot(Slot, item => harvest.Apply(recipe, item, global::Game.AreaRng(PlayerOf(player))), $"Harvest recipe {name}");
         if (crafted is null)
         {
             module.Log($"{player.Character} recipe {name} refused (item, recipe or lifeforce)");

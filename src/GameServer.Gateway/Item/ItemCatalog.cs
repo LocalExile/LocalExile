@@ -5,68 +5,70 @@ using GameServer.Core;
 /// <summary>
 /// Item types: BaseItemTypes rows from the extracted tables (Id, Name, HASH32, size, visual identity → ItemVisualIdentity
 /// HASH16), each type's components from data/item-types.json (`python -I scripts/re/ot_components.py --items --json
-/// data/item-types.json`), flask charges from ComponentCharges and stack sizes from CurrencyItems. All game data: it stays in data/ and loads on first use.
+/// data/item-types.json`), flask charges from ComponentCharges and stack sizes from CurrencyItems. All game data: it stays in data/ and is read when the catalog is made.
 /// </summary>
 public sealed class ItemCatalog
 {
-    /// <summary>What the stash tabs hold (<see cref="StashRules"/>), loaded on first use; tests set their own.</summary>
+    /// <summary>What the stash tabs hold (<see cref="StashRules"/>), read when the catalog is made; tests set their own.</summary>
     public StashRules Stash
     {
-        get => _stash ??= StashRules.Load(_folder, _rows.Value.Rows);
+        get => _stash;
         set => _stash = value;
     }
 
-    private StashRules? _stash;
+    private StashRules _stash;
 
-    /// <summary>Builds, at startup, what every login reads of the items: the stash rules and their tab layouts, the gems,
-    /// the flasks, the weapons' criticals and the attribute requirements. They are built on first use otherwise, which
-    /// was inside the first player's login (2026-11-17: about 0.9 s of it).</summary>
-    public void Warm()
-    {
-        _ = Stash;
-        _ = _gems.Value; _ = _flasks.Value; _ = _weaponCrits.Value; _ = _requirements.Value;
-    }
+    /// <summary>Nothing left to build: the constructor reads the stash rules, gems, flasks, tinctures, criticals and requirements.
+    /// Kept for the game module's startup warm-up.</summary>
+    public void Warm() { }
     private readonly string _folder;
-    private readonly Lazy<HashSet<int>> _activeGemEffects;
+    private readonly HashSet<int> _activeGemEffects;
 
     public ItemCatalog(string folder, bool hardMode = false, LimitSettings? limits = null)
     {
         _folder = folder;
         Limits = limits ?? LimitSettings.Default;
         Mods = new ModCatalog(folder, hardMode);
-        _rows = new(() => Load(folder, Mods));
-        _byHash = new(() => _rows.Value.Rows.GroupBy(t => t.Hash).ToDictionary(g => g.Key, g => g.First()));
-        _byId = new(() => _rows.Value.Rows.GroupBy(t => t.Id, StringComparer.OrdinalIgnoreCase)
-            .ToDictionary(g => g.Key, g => g.FirstOrDefault(t => t.Supported) ?? g.First(), StringComparer.OrdinalIgnoreCase));
-        _gems = new(() => LoadGems(folder, hardMode));
-        _activeGemEffects = new(() => LoadActiveGemEffects(folder));
-        _requirements = new(() => LoadRequirements(folder));
-        _shieldBlocks = new(() => LoadShieldBlocks(folder));
-        _weaponCrits = new(() => LoadWeaponCrits(folder));
-        _defences = new(() => LoadDefences(folder));
-        _flasks = new(() => LoadFlasks(folder, _rows.Value.Rows, hardMode));
-        _utilityFlasks = new(() => UtilityFlasks.Load(folder, _rows.Value.Rows, hardMode));
-        _onslaught = new(() => _utilityFlasks.Value.Values.Select(u => u.Extra).FirstOrDefault(x => x is not null));
-        _visualsById = new(() => LoadVisualsById(folder));
-        _words = new(() => LoadWords(folder));
-        _currencyUses = new(() => LoadCurrencyUses(folder));
+        _rows = Load(folder, Mods);
+        _questTypes = [.. _rows.Rows.Where(t => t.Quest is not null)];
+        _byHash = _rows.Rows.GroupBy(t => t.Hash).ToDictionary(g => g.Key, g => g.First());
+        _byId = _rows.Rows.GroupBy(t => t.Id, StringComparer.OrdinalIgnoreCase)
+            .ToDictionary(g => g.Key, g => g.FirstOrDefault(t => t.Supported) ?? g.First(), StringComparer.OrdinalIgnoreCase);
+        _gems = LoadGems(folder, hardMode);
+        _activeGemEffects = LoadActiveGemEffects(folder);
+        _requirements = LoadRequirements(folder);
+        _shieldBlocks = LoadShieldBlocks(folder);
+        _weaponCrits = LoadWeaponCrits(folder);
+        _defences = LoadDefences(folder);
+        _flasks = LoadFlasks(folder, _rows.Rows, hardMode);
+        _utilityFlasks = UtilityFlasks.Load(folder, _rows.Rows, hardMode);
+        _tinctures = Tinctures.Load(folder, _rows.Rows);
+        _onslaught = _utilityFlasks.Values.Select(u => u.Extra).FirstOrDefault(x => x is not null);
+        _visualsById = LoadVisualsById(folder);
+        _words = LoadWords(folder);
+        _currencyUses = LoadCurrencyUses(folder);
+        _stash = StashRules.Load(folder, _rows.Rows);
+        MapStock = NessaMapStock.Build(this);
     }
 
-    private readonly Lazy<Dictionary<string, ushort>> _visualsById;
-    readonly Lazy<HashSet<uint>> _words;
+    /// <summary>The map catalogue Nessa's development shop sells and the named maps (<see cref="NessaMapStock"/>).</summary>
+    public IReadOnlyList<NessaMapStock.Entry> MapStock { get; }
+
+    private readonly Dictionary<string, ushort> _visualsById;
+    readonly HashSet<uint> _words;
 
     /// <summary>An ItemVisualIdentity row's HASH16 by its Id (DefaultArrow, DefaultQuiver …): the hashes the client
     /// looks an art up by. Null when the table is missing or has no such row.</summary>
-    public ushort? Visual(string id) => _visualsById.Value.TryGetValue(id, out ushort hash) && hash != 0 ? hash : null;
+    public ushort? Visual(string id) => _visualsById.TryGetValue(id, out ushort hash) && hash != 0 ? hash : null;
 
     /// <summary>Whether a HASH16 is an ItemVisualIdentity row: the client stops at an item with any other.</summary>
-    public bool IsVisual(ushort hash) => hash != 0 && _visualsById.Value.ContainsValue(hash);
+    public bool IsVisual(ushort hash) => hash != 0 && _visualsById.ContainsValue(hash);
 
     /// <summary>Whether a HASH32 is a Words row, what an item's name is made of.</summary>
-    public bool IsWord(uint hash) => _words.Value.Contains(hash);
+    public bool IsWord(uint hash) => _words.Contains(hash);
 
     /// <summary>Whether a byte is an AlternateQualityTypes row.</summary>
-    public bool IsAlternateQuality(byte row) => row < _currencyUses.Value.QualityRows;
+    public bool IsAlternateQuality(byte row) => row < _currencyUses.QualityRows;
 
     static HashSet<uint> LoadWords(string folder)
     {
@@ -93,7 +95,7 @@ public sealed class ItemCatalog
     {
         // Fixed one-socket base implicits also occur on amulets, belts and quivers.
         public bool HasOneSocket { get; } = Implicits?.Any(mod => mod.Stats.Any(stat =>
-            stat.Id == "local_has_X_sockets" && stat.Min == 1 && stat.Max == 1)) == true;
+            stat.Id == Stat.LocalHasXSockets && stat.Min == 1 && stat.Max == 1)) == true;
         /// <summary>Tags.dat Ids for mod spawn weights: the .it chain's Base tags (item-types.json) and the row's TagsKeys.</summary>
         public IReadOnlySet<string> Tags { get; init; } = new HashSet<string>();
         /// <summary>BaseItemTypes SizeOnGround (1 to 3): the size of the item's object on the ground, which the client's
@@ -141,7 +143,7 @@ public sealed class ItemCatalog
         public override string ToString() => $"{Name} ({Id}, row {Row})";
     }
 
-    private readonly Lazy<(List<BaseType> Rows, string? Error)> _rows;
+    private readonly (List<BaseType> Rows, string? Error) _rows;
 
     /// <summary>Mods.dat, for the implicits of new items and the mods of saved ones.</summary>
     public ModCatalog Mods { get; }
@@ -149,29 +151,32 @@ public sealed class ItemCatalog
     /// <summary>Effective server-side item limits (the database override, else the catalogue default).</summary>
     public LimitSettings Limits { get; }
 
-    public string? Error => _rows.Value.Error;
+    public string? Error => _rows.Error;
 
     /// <summary>The type of an item (its BaseItemTypes HASH32).</summary>
-    public BaseType? ByHash(uint hash) => _byHash.Value.GetValueOrDefault(hash);
+    public BaseType? ByHash(uint hash) => _byHash.GetValueOrDefault(hash);
 
-    private readonly Lazy<Dictionary<uint, BaseType>> _byHash;
+    private readonly Dictionary<uint, BaseType> _byHash;
     // Find's first match (the exact Id) without a scan: drops name their items by Id on every kill.
-    private readonly Lazy<Dictionary<string, BaseType>> _byId;
+    private readonly Dictionary<string, BaseType> _byId;
 
     public ItemCatalog() : this("data") { }
 
-    readonly Lazy<(Dictionary<int, string> Actions, Dictionary<int, byte> QualityByItem, int QualityRows)> _currencyUses;
+    readonly (Dictionary<int, string> Actions, Dictionary<int, byte> QualityByItem, int QualityRows, byte[] CatalystTypes) _currencyUses;
 
     /// <summary>CurrencyItems.Action for this base, or null when the row is not a currency / has no action. New chisels
     /// and Vaal variants are picked up from the table instead of an Id list.</summary>
     public string? CurrencyAction(BaseType t) =>
-        _currencyUses.Value.Actions.TryGetValue(t.Row, out string? action) && action.Length > 0 ? action : null;
+        _currencyUses.Actions.TryGetValue(t.Row, out string? action) && action.Length > 0 ? action : null;
 
-    /// <summary>AlternateQualityTypes row whose Item column is this currency (Cartographer / Maven map chisels).</summary>
+    /// <summary>AlternateQualityTypes row whose Item column is this currency (Cartographer / Maven map chisels and jewellery catalysts).</summary>
     public byte? AlternateQualityOf(BaseType currency) =>
-        _currencyUses.Value.QualityByItem.TryGetValue(currency.Row, out byte row) ? row : null;
+        _currencyUses.QualityByItem.TryGetValue(currency.Row, out byte row) ? row : null;
 
-    static (Dictionary<int, string> Actions, Dictionary<int, byte> QualityByItem, int QualityRows) LoadCurrencyUses(string folder)
+    /// <summary>AlternateQualityTypes rows for jewellery catalysts (every row with a ModEffectStat: Turbulent..Unstable, Sinistral, Dextral).</summary>
+    public IReadOnlyList<byte> JewelleryCatalystTypes => _currencyUses.CatalystTypes;
+
+    static (Dictionary<int, string> Actions, Dictionary<int, byte> QualityByItem, int QualityRows, byte[] CatalystTypes) LoadCurrencyUses(string folder)
     {
         var actions = new Dictionary<int, string>();
         if (ClientTables.Has("CurrencyItems"))
@@ -183,6 +188,7 @@ public sealed class ItemCatalog
                     actions.TryAdd(b, action);
         }
         var quality = new Dictionary<int, byte>();
+        var catalysts = new List<byte>();
         int rows = 0;
         if (ClientTables.Has("AlternateQualityTypes"))
         {
@@ -192,20 +198,22 @@ public sealed class ItemCatalog
             {
                 if (r.IntOrNull("Item") is int item)
                     quality.TryAdd(item, row);
+                if (r.IntOrNull("ModEffectStat") is not null)
+                    catalysts.Add(row);
                 row++;
                 rows++;
             }
         }
-        return (actions, quality, rows);
+        return (actions, quality, rows, [.. catalysts]);
     }
 
-    public BaseType? Row(int row) => row >= 0 && row < _rows.Value.Rows.Count ? _rows.Value.Rows[row] : null;
+    public BaseType? Row(int row) => row >= 0 && row < _rows.Rows.Count ? _rows.Rows[row] : null;
 
     /// <summary>A BaseItemTypes row by number, or by Id: exact, then the last path segment, then the display name, then
     /// an exact trailing parenthetical display alias, then any part of the Id.
     /// Several matches: the first one the serializer supports.</summary>
     /// <summary>Every BaseItemTypes row (the launcher's suggestions).</summary>
-    public IReadOnlyList<BaseType> All => _rows.Value.Rows;
+    public IReadOnlyList<BaseType> All => _rows.Rows;
 
     /// <summary>The names <see cref="FindGem"/> takes: every creatable variant of every gem.</summary>
     public IEnumerable<string> GemNames() =>
@@ -213,9 +221,9 @@ public sealed class ItemCatalog
 
     public BaseType? Find(string query)
     {
-        var rows = _rows.Value.Rows;
+        var rows = _rows.Rows;
         if (int.TryParse(query, out int row)) return Row(row) is { } numbered ? EmptyResonatorType(numbered) : null;
-        if (_byId.Value.TryGetValue(query, out var byId)) return EmptyResonatorType(byId);
+        if (_byId.TryGetValue(query, out var byId)) return EmptyResonatorType(byId);
         foreach (Func<BaseType, bool> match in new Func<BaseType, bool>[]
         {
             t => t.Id.Equals(query, StringComparison.OrdinalIgnoreCase),
@@ -226,7 +234,9 @@ public sealed class ItemCatalog
         })
         {
             var hits = rows.Where(match).ToList();
-            if (hits.Count > 0) return EmptyResonatorType(hits.FirstOrDefault(t => t.Supported) ?? hits[0]);
+            if (hits.Count > 0) return EmptyResonatorType(
+                hits.FirstOrDefault(t => t.Supported && (t.Class != "Tincture" || _tinctures.NativeRows.Contains(t.Row)))
+                ?? hits.FirstOrDefault(t => t.Supported) ?? hits[0]);
         }
         return null;
     }
@@ -234,7 +244,7 @@ public sealed class ItemCatalog
     // Empty legacy resonators have no Stack component. Filled ones retain their original type.
     public BaseType EmptyResonatorType(BaseType type) =>
         ResonatorSockets(type) > 0 && !type.Components.Contains("Stack")
-            ? _rows.Value.Rows.FirstOrDefault(t => t.Id == type.Id.Replace("/DelveSocketable", "/DelveStackableSocketable")) ?? type
+            ? _rows.Rows.FirstOrDefault(t => t.Id == type.Id.Replace("/DelveSocketable", "/DelveStackableSocketable")) ?? type
             : type;
 
     public static int ResonatorSockets(BaseType type) =>
@@ -299,13 +309,13 @@ public sealed class ItemCatalog
     }
 
     /// <summary>The quest items: every type with a Quest component (QuestItems, Agents/docs/protocol/12-quests.md §5).</summary>
-    public IReadOnlyList<BaseType> QuestItemTypes => _questTypes ??= [.. _rows.Value.Rows.Where(t => t.Quest is not null)];
-    IReadOnlyList<BaseType>? _questTypes;
+    public IReadOnlyList<BaseType> QuestItemTypes => _questTypes;
+    readonly IReadOnlyList<BaseType> _questTypes;
 
     /// <summary>The gems a shop sells of one colour, active or support: creatable, writable, dropping (DropLevel above 0),
     /// not Vaal or awakened, one per name, by drop level then name.</summary>
     public IReadOnlyList<BaseType> ShopGems(int colour, bool support) =>
-        [.. _rows.Value.Rows.Where(t => t.Supported && t.DropLevel > 0 && !t.Name.Contains("Playtest")
+        [.. _rows.Rows.Where(t => t.Supported && t.DropLevel > 0 && !t.Name.Contains("Playtest")
                 // Same-name legacy rows differ in progression/pricing; these are absent from the official vendor capture.
                 && t.Id is not ("Metadata/Items/Gems/SkillGemNewPhaseRun" or "Metadata/Items/Gems/SkillGemNewArcticArmour"
                     or "Metadata/Items/Gems/SkillGemConvocation")
@@ -316,7 +326,7 @@ public sealed class ItemCatalog
     /// Keep the catalog's creatability checks: placeholder and unsupported awakened rows are not safe to create.
     /// <paramref name="ordinaryOnly"/> leaves the Awakened and Exceptional tabs' gems out of the colour tabs.</summary>
     public IReadOnlyList<(BaseType Type, GemVariant Variant)> FullShopGems(int colour, bool support, bool ordinaryOnly = false) =>
-        [.. _rows.Value.Rows.Where(t => t.Supported && t.DropLevel > 0 && !t.Name.Contains("Playtest")
+        [.. _rows.Rows.Where(t => t.Supported && t.DropLevel > 0 && !t.Name.Contains("Playtest")
                 && Gem(t) is { } g && g.Colour == colour && g.IsSupport == support
                 && (!ordinaryOnly || !g.IsAwakened && !g.IsExceptional))
             .SelectMany(t => Gem(t)!.Variants.Where(v => v.Creatable).Select(v => (Type: t, Variant: v)))
@@ -325,20 +335,20 @@ public sealed class ItemCatalog
     /// <summary>The Awakened tab: every writable Awakened gem. Its rows are creatable only for the exceptional
     /// supports in ordinary play, but the local development shop restores the whole 3.29 table.</summary>
     public IReadOnlyList<(BaseType Type, GemVariant Variant)> AwakenedShopGems() =>
-        [.. _rows.Value.Rows.Where(t => t.Supported && t.DropLevel > 0 && !t.Name.Contains("Playtest")
+        [.. _rows.Rows.Where(t => t.Supported && t.DropLevel > 0 && !t.Name.Contains("Playtest")
                 && Gem(t) is { IsAwakened: true })
             .SelectMany(t => Gem(t)!.Variants.Where(v => v.Effect >= 0).Select(v => (Type: t, Variant: v)))
             .OrderBy(x => x.Type.DropLevel).ThenBy(x => x.Variant.Name)];
 
     /// <summary>The Exceptional tab: the exceptional gems that are not Awakened (the Greater supports and Pacts).</summary>
     public IReadOnlyList<(BaseType Type, GemVariant Variant)> ExceptionalShopGems() =>
-        [.. _rows.Value.Rows.Where(t => t.Supported && t.DropLevel > 0 && !t.Name.Contains("Playtest")
+        [.. _rows.Rows.Where(t => t.Supported && t.DropLevel > 0 && !t.Name.Contains("Playtest")
                 && Gem(t) is { IsExceptional: true, IsAwakened: false })
             .SelectMany(t => Gem(t)!.Variants.Where(v => v.Effect >= 0).Select(v => (Type: t, Variant: v)))
             .OrderBy(x => x.Type.DropLevel).ThenBy(x => x.Variant.Name)];
 
     /// <summary>A base type's gem (its SkillGems row), or null for items that are not gems.</summary>
-    public GemType? Gem(BaseType t) => _gems.Value.GetValueOrDefault(t.Row);
+    public GemType? Gem(BaseType t) => _gems.GetValueOrDefault(t.Row);
 
     /// <summary>The GrantedEffects rows a gem item grants as skills: its variant's effect and, for a Vaal gem, the base
     /// skill. Only active effects enter the Actor: a support can grant an active companion, but its support effect
@@ -347,8 +357,8 @@ public sealed class ItemCatalog
     {
         if (ByHash(gem.TypeHash) is not { } t || Gem(t) is not { } g || g.Variants.Count == 0) yield break;
         var v = g.Variant(gem.GemVariant);
-        if (_activeGemEffects.Value.Contains(v.Effect)) yield return v.Effect;
-        if (_activeGemEffects.Value.Contains(v.Effect2)) yield return v.Effect2;
+        if (_activeGemEffects.Contains(v.Effect)) yield return v.Effect;
+        if (_activeGemEffects.Contains(v.Effect2)) yield return v.Effect2;
     }
 
     // Hybrid gems such as Automation carry an active effect and a support effect.
@@ -373,7 +383,7 @@ public sealed class ItemCatalog
     /// Frostbolts"), case-insensitive: an exact name first, then the first that contains it.</summary>
     public (BaseType Type, GemVariant Variant)? FindGem(string name)
     {
-        var all = _rows.Value.Rows.Select(t => (Type: t, Gem: Gem(t))).Where(x => x.Gem is not null)
+        var all = _rows.Rows.Select(t => (Type: t, Gem: Gem(t))).Where(x => x.Gem is not null)
             .SelectMany(x => x.Gem!.Variants.Where(v => v.Creatable).Select(v => (x.Type, Variant: v))).ToList();
         foreach (var match in (Func<string, bool>[])[n => n.Equals(name, StringComparison.OrdinalIgnoreCase),
             n => n.Contains(name, StringComparison.OrdinalIgnoreCase)])
@@ -382,10 +392,10 @@ public sealed class ItemCatalog
         return null;
     }
 
-    private Lazy<Dictionary<int, int>> _shieldBlocks = null!;
+    private readonly Dictionary<int, int> _shieldBlocks;
 
     /// <summary>The shield's base block percentage from ShieldTypes.dat (0 for non-shields).</summary>
-    public int ShieldBlock(BaseType t) => _shieldBlocks.Value.GetValueOrDefault(t.Row);
+    public int ShieldBlock(BaseType t) => _shieldBlocks.GetValueOrDefault(t.Row);
 
     private static Dictionary<int, int> LoadShieldBlocks(string folder)
     {
@@ -423,10 +433,10 @@ public sealed class ItemCatalog
         }
     }
 
-    private Lazy<Dictionary<int, BaseDefences>> _defences = null!;
+    private readonly Dictionary<int, BaseDefences> _defences;
 
     /// <summary>The base defence range of an item type, or null when it has no armour row.</summary>
-    public BaseDefences? Defences(BaseType t) => _defences.Value.TryGetValue(t.Row, out var d) ? d : null;
+    public BaseDefences? Defences(BaseType t) => _defences.TryGetValue(t.Row, out var d) ? d : null;
 
     private static Dictionary<int, BaseDefences> LoadDefences(string folder)
     {
@@ -449,10 +459,10 @@ public sealed class ItemCatalog
         return result;
     }
 
-    private Lazy<Dictionary<int, int>> _weaponCrits = null!;
+    private readonly Dictionary<int, int> _weaponCrits;
 
     /// <summary>The weapon's base critical strike chance (permyriad: 500 = 5%) from WeaponTypes.dat.</summary>
-    public int WeaponCritical(BaseType t) => _weaponCrits.Value.GetValueOrDefault(t.Row);
+    public int WeaponCritical(BaseType t) => _weaponCrits.GetValueOrDefault(t.Row);
 
     private static Dictionary<int, int> LoadWeaponCrits(string folder)
     {
@@ -466,22 +476,33 @@ public sealed class ItemCatalog
         return result;
     }
 
-    private Lazy<Dictionary<int, Flasks.Flask>> _flasks = null!;
+    private readonly Dictionary<int, Flasks.Flask> _flasks;
 
     /// <summary>A life or mana flask's use (Flasks.dat and ComponentCharges), or null for other types, utility flasks
     /// included.</summary>
-    public Flasks.Flask? FlaskOf(BaseType t) => _flasks.Value.GetValueOrDefault(t.Row);
+    public Flasks.Flask? FlaskOf(BaseType t) => _flasks.GetValueOrDefault(t.Row);
 
-    private readonly Lazy<Dictionary<int, UtilityFlasks.Utility>> _utilityFlasks;
+    private readonly Dictionary<int, UtilityFlasks.Utility> _utilityFlasks;
 
     /// <summary>A utility flask's use (<see cref="UtilityFlasks"/>), or null for other types.</summary>
-    public UtilityFlasks.Utility? UtilityFlaskOf(BaseType t) => _utilityFlasks.Value.GetValueOrDefault(t.Row);
+    public UtilityFlasks.Utility? UtilityFlaskOf(BaseType t) => _utilityFlasks.GetValueOrDefault(t.Row);
 
-    private readonly Lazy<UtilityFlasks.ExtraBuff?> _onslaught;
+    private readonly Tinctures.Catalog _tinctures;
+
+    /// <summary>A tincture's native timing and buff definition (<see cref="Tinctures"/>), or null for other types.</summary>
+    public Tinctures.Definition? TinctureOf(BaseType t) => _tinctures.ByRow.GetValueOrDefault(t.Row);
+
+    /// <summary>True for the native 3.25+ tincture bases in Tinctures.dat (excluding legacy 3.23 empty-implicit rows).</summary>
+    public bool IsNativeTincture(BaseType t) => _tinctures.NativeRows.Contains(t.Row);
+
+    /// <summary>Shared tincture BuffDefinitions rows (Mana Burn, Weeping Wounds, parent and unique tincture buffs).</summary>
+    public Tinctures.BuffRows TinctureBuffs => _tinctures.Buffs;
+
+    private readonly UtilityFlasks.ExtraBuff? _onslaught;
 
     /// <summary>The Onslaught buff with the player's values, as the Silver Flask grants it (the only flask extra buff);
     /// null without the tables.</summary>
-    public UtilityFlasks.ExtraBuff? Onslaught => _onslaught.Value;
+    public UtilityFlasks.ExtraBuff? Onslaught => _onslaught;
 
     /// <summary>Any flask's charges (life, mana or utility, usable or not), for refills; null for other types.</summary>
     public Flasks.Flask? FlaskChargesOf(BaseType t) => FlaskOf(t) ?? UtilityFlaskOf(t)?.Charges;
@@ -506,7 +527,7 @@ public sealed class ItemCatalog
         return result;
     }
 
-    private Lazy<Dictionary<int, GemType>> _gems = null!;
+    private readonly Dictionary<int, GemType> _gems;
 
     // Not creatable: the "[DNT]" placeholder variants, the "[UNUSED] …", "[DNT] …" and "WIP …" gem rows, the awakened
     // supports other than Empower, Enhance and Enlighten (disabled since 3.28; theirs is GemProgressionExceptionalPlus),
@@ -654,10 +675,10 @@ public sealed class ItemCatalog
         return (sockets, links);
     }
 
-    private Lazy<Dictionary<string, (int Str, int Dex, int Int)>> _requirements = null!;
+    private readonly Dictionary<string, (int Str, int Dex, int Int)> _requirements;
 
     /// <summary>The base's attribute requirements (ComponentAttributeRequirements), zero when it has none.</summary>
-    public (int Str, int Dex, int Int) Requirements(BaseType t) => _requirements.Value.GetValueOrDefault(t.Id);
+    public (int Str, int Dex, int Int) Requirements(BaseType t) => _requirements.GetValueOrDefault(t.Id);
 
     private static Dictionary<string, (int, int, int)> LoadRequirements(string folder)
     {

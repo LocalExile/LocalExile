@@ -1,6 +1,4 @@
-using System.Net.Sockets;
 using GameServer.Core.Protocol.Instance;
-using GameServer.Core.Protocol.Login;
 
 public static partial class Game
 {
@@ -27,66 +25,66 @@ public static partial class Game
     /// items; NPC dialogue and shops close with S→C 0x0084 object 0. Personal/guild stash and crafting bench
     /// have no close-only S→C 0x7b packet (0x140dcae70 toggles kind 1; 0x140dcb010 and 0x140dd8e80 only open),
     /// so their server state and bench balance inventory are cleared cleanly while the client closes locally.</summary>
-    public static async Task CloseInteractionsIfMovingAway(string remote, NetworkStream stream, ConnectionCiphers ciphers,
-        ClientState conn, (int X, int Y)? movingTo, double at)
+    public static async Task CloseInteractionsIfMovingAway(Player player, (int X, int Y)? movingTo, double at)
     {
-        if (conn.Closed || conn.LeavingArea || !conn.PlayerSent) return;
-        if (conn.TalkingTo == 0 && conn.Sale is null && conn.Shop is null
-            && !conn.StashOpen && !conn.GuildStashOpen && !conn.BenchOpen) return;
-        if (Interlocked.CompareExchange(ref conn.InteractionClosing, 1, 0) != 0) return;
+        if (player.Closed || player.LeavingArea || !player.Connection.PlayerSent) return;
+        if (player.TalkingTo == 0 && player.Sale is null && player.Shop is null
+            && !player.StashOpen && !player.GuildStashOpen && !player.BenchOpen) return;
+        if (Interlocked.CompareExchange(ref player.InteractionClosing, 1, 0) != 0) return;
         try
         {
-            var here = conn.Walk.Position(at);
+            var here = player.Walk.Position(at);
             bool closeNpc = false, hadSale = false;
-            lock (conn.Npcs)
+            lock (player.Npcs)
             {
-                bool hasNpcUi = conn.Sale is not null || conn.Shop is not null || conn.TalkingTo != 0;
+                bool hasNpcUi = player.Sale is not null || player.Shop is not null || player.TalkingTo != 0;
                 if (hasNpcUi)
                 {
-                    var npc = conn.Sale?.Npc ?? conn.Shop?.Npc
-                        ?? (conn.TalkingTo != 0 ? conn.Npcs.GetValueOrDefault(conn.TalkingTo) : null);
+                    var npc = player.Sale?.Npc ?? player.Shop?.Npc
+                        ?? (player.TalkingTo != 0 ? player.Npcs.GetValueOrDefault(player.TalkingTo) : null);
                     int size = npc is null ? 0 : Math.Max(0, StationaryCollision.Resolve(npc.Npc.Id, npc.Npc.Model).Size);
                     if (npc is null || BeyondCloseRange(here, movingTo, (npc.X, npc.Y), size))
                     {
                         closeNpc = true;
-                        hadSale = conn.Sale is not null;
-                        conn.TalkingTo = 0;
-                        conn.InNpcTalk = false;
-                        conn.NpcFinishFlag = null;
-                        conn.NpcTalkScript = null;
-                        conn.NpcRewardOffer = null;
-                        conn.Shop = null;
+                        hadSale = player.Sale is not null;
+                        player.TalkingTo = 0;
+                        player.InNpcTalk = false;
+                        player.NpcFinishFlag = null;
+                        player.NpcFinishLeagueFlag = null;
+                        player.NpcTalkScript = null;
+                        player.NpcRewardOffer = null;
+                        player.Shop = null;
                     }
                 }
             }
             if (closeNpc)
             {
-                await GameEvents.RunNpcDialogueClosing(conn);
+                await GameEvents.RunNpcDialogueClosing(player);
                 if (!hadSale)
-                    await Send(remote, stream, ciphers, InstanceNpcs.Talk(0),
+                    await Send(player, InstanceNpcs.Talk(0),
                         "0x0084 object 0: npc interaction closed (moved out of range)");
             }
-            if (conn.StashOpen && BeyondCloseRange(here, movingTo, conn.StashAt, ClientState.StashBlockerSize))
+            if (player.StashOpen && BeyondCloseRange(here, movingTo, player.StashAt, Player.StashBlockerSize))
             {
-                conn.StashOpen = false;
-                Console.WriteLine($"[gateway] {remote} personal stash closed (moved out of range)");
+                player.StashOpen = false;
+                Console.WriteLine($"[gateway] {player.Connection.Remote} personal stash closed (moved out of range)");
             }
-            if (conn.GuildStashOpen && BeyondCloseRange(here, movingTo, conn.GuildStashAt, ClientState.StashBlockerSize))
+            if (player.GuildStashOpen && BeyondCloseRange(here, movingTo, player.GuildStashAt, Player.StashBlockerSize))
             {
-                conn.GuildStashOpen = false;
-                Console.WriteLine($"[gateway] {remote} guild stash closed (moved out of range)");
+                player.GuildStashOpen = false;
+                Console.WriteLine($"[gateway] {player.Connection.Remote} guild stash closed (moved out of range)");
             }
-            if (conn.BenchOpen
-                && BeyondCloseRange(here, movingTo, conn.CraftingBenchAt, conn.StationaryInteractionSize(conn.CraftingBenchObject)))
+            if (player.BenchOpen
+                && BeyondCloseRange(here, movingTo, player.CraftingBenchAt, player.StationaryInteractionSize(player.CraftingBenchObject)))
             {
-                conn.BenchOpen = false;
-                await RefreshBenchBalance(remote, stream, ciphers, conn, clear: true);
-                Console.WriteLine($"[gateway] {remote} crafting bench closed (moved out of range)");
+                player.BenchOpen = false;
+                await RefreshBenchBalance(player, clear: true);
+                Console.WriteLine($"[gateway] {player.Connection.Remote} crafting bench closed (moved out of range)");
             }
         }
         finally
         {
-            Volatile.Write(ref conn.InteractionClosing, 0);
+            Volatile.Write(ref player.InteractionClosing, 0);
         }
     }
 }
