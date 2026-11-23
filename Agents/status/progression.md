@@ -55,6 +55,8 @@ Part of [Status](../Status.md); what to build next in this area is in
 
 ## Partly working
 
+- Permanent Achievements (S→C 0x124–0x127, C→S 0x123): tracks permanent achievement items (`SetId == 2`), persists
+  progress account-wide, syncs packed bitsets on entry and panel open, and emits completion toasts (not yet checked live).
 - Dual Wielding Mastery's different-weapon-types damage. Docs: [20](../docs/protocol/20-damage.md) §2b.
 - Armour Mastery grants +1 to all maximum elemental resistances when all four armour pieces provide Armour.
 - Hierophant, except the Brand nodes. Docs: [Hierophant](../docs/game/hierophant.md).
@@ -69,6 +71,8 @@ Part of [Status](../Status.md); what to build next in this area is in
   Docs: [Phrecia modules](../docs/game/phrecia-modules.md), [Harbinger](../docs/game/harbinger.md),
   [ascendancies](../docs/game/ascendancies.md).
 - Ruthless experience and passive alternatives. Docs: [league modes](../docs/game/league-modes.md).
+- Standard death experience penalty: 5% after Act 5 Kitava and 10% after Act 10 Kitava, clamped to the current level's
+  floor (0% in Hardcore, towns, hideouts, and PvP areas; not checked live). Docs: [15](../docs/protocol/15-progression.md) §1.
 
 ## Not working yet
 

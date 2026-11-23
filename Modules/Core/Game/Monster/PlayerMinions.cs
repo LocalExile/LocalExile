@@ -84,7 +84,8 @@ public static partial class Game
         await MirageWarriorsTick(player, now);
         if (!Current()) return;
         if (player.Minions.All.Count == 0 && player.Minions.Bodies.Count == 0
-            && player.Minions.PendingRelics == 0 && player.Minions.OutputQueue.Count == 0)
+            && player.Minions.PendingRelics == 0 && player.Minions.OutputQueue.Count == 0
+            && player.Summons.PresentedOwnership.Count == 0)
             return;
         var ended = new List<PlayerMinions.Minion>();
         var bytes = new List<byte>();

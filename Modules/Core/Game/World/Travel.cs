@@ -85,6 +85,7 @@ public static partial class Game
                 still: () => acknowledged = SkillAcknowledgementAllowed(player, gem.Effect, use.SkillId,
                     () => cooldownUse?.CommitNativeUse(player, use.SkillId) ?? true));
             if (!acknowledged) return;
+            await SendNativeCooldownRefresh(player);
             await CastGemSkill(player, use.SkillId, self, self, player.Id, sequence: use.Sequence,
                 actionToken: cooldownUse?.ActionToken, cooldownUse: cooldownUse);
             return;
@@ -693,7 +694,7 @@ public static partial class Game
             }
             string host = GatewayEndpoint.Host;
             ushort port = GatewayEndpoint.Port;
-            await Send(player, InstanceTransfer.ConnectInstance(host, port, r.Ticket, r.Area, player.Connection.TicketKey(r.Ticket)),
+            await Send(player, InstanceTransfer.ConnectInstance(host, port, r.Ticket, r.Area, player.Connection.TicketKey(r.Ticket), data8: player.Connection.TicketData8(r.Ticket)),
                 $"0x0027 connect to instance {r.Instance} of area 0x{r.Area:x4} (seed {prepared.Seed}) at {host}:{port}, ticket 0x{r.Ticket:x8}");
         }).ConfigureAwait(false);
         if (abandoned)

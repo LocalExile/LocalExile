@@ -11,7 +11,10 @@ public sealed class InstancePresence
     public void AddPlayer(Player player) => _players[player.Id] = player;
     public void RemovePlayer(uint id) => _players.TryRemove(id, out _);
     /// <summary>The players in game here now, but <paramref name="id"/>.</summary>
-    public Player[] PlayersExcept(uint id) => [.. _players.Values.Where(p => p.Id != id && InGame(p))];
+    public Player[] PlayersExcept(uint id) =>
+        _players.IsEmpty || (_players.Count == 1 && _players.ContainsKey(id))
+            ? []
+            : [.. _players.Values.Where(p => p.Id != id && InGame(p))];
     public Player? Player(uint id) => _players.TryGetValue(id, out var p) && InGame(p) ? p : null;
     static bool InGame(Player p) => !p.Closed && !p.LeavingArea && p.Connection.PlayerSent;
 }

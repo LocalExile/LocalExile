@@ -292,7 +292,7 @@ public static class InstanceEntities
     /// an unsigned compact key (Stats.dat row) and a signed compact value. The world handler (0x14218ddf0) sets each on the
     /// object's Stats component (0x1424d65c0).
     /// </summary>
-    public const ushort ComponentUpdateId = 0x2bc;
+    public const ushort ComponentUpdateId = 0x2bc, BaseDataUpdateId = 0x2c1;
 
     /// <summary>
     /// S→C 0x2bc (world group, read 0x141fe6dd0): world header, then blob16 = u8 component index (in the object's
@@ -300,6 +300,17 @@ public static class InstanceEntities
     /// </summary>
     public static byte[] ComponentUpdate(uint entityId, byte componentIndex, byte[] data) =>
         new LoginWriter().U16(ComponentUpdateId).U32(entityId).U32(0).U16(0).Blob([componentIndex, .. data]).ToArray();
+
+    /// <summary>
+    /// S→C 0x2c1 (world group, factory 0x1421cda1c, class 0x1435e81c8, read 0x141fe6dd0; world handler
+    /// 0x14218f011 → 0x141dedf80): live base-data KV update. 10-byte object header (u32 entity id, u32 order key,
+    /// u16 checkpoint) followed by blob16 of the entity base-data variables (<see cref="EntityVariable.EncodeBlob"/>).
+    /// </summary>
+    public static byte[] BaseDataUpdate(uint entityId, byte[] baseDataBlob, uint orderKey = 0, ushort checkpoint = 0) =>
+        new LoginWriter().U16(BaseDataUpdateId).U32(entityId).U32(orderKey).U16(checkpoint).Blob(baseDataBlob).ToArray();
+
+    public static byte[] BaseDataUpdate(uint entityId, IReadOnlyList<EntityVariable> variables, uint orderKey = 0, ushort checkpoint = 0) =>
+        BaseDataUpdate(entityId, EntityVariable.EncodeBlob(variables), orderKey, checkpoint);
 
     public const ushort AddTaskId = 0x2c2, UpdateTaskId = 0x2c3, RemoveTaskId = 0x2c5;
 
@@ -769,6 +780,9 @@ public sealed record MonsterObject(int GridX, int GridY, uint Life, IReadOnlyLis
     public bool HasDialogue { get; init; }
     /// <summary>The Actor's native stance byte, retained in an instance's creation snapshot.</summary>
     public byte ActorStance { get; init; }
+    /// <summary>The Actor animation seed (0x142199562 -> +0x21c); varies unseeded clip selection across identical pack
+    /// monsters (0x141e9f579). Defaults to 0 so unconfigured fixtures keep the legacy blob.</summary>
+    public ushort AnimationSeed { get; init; }
 
     /// <summary>Facing in radians (Positioned +0x29c); the create blobs of the Mystic Fetishes carry 5.236, 1.047 and 3.142.</summary>
     public float Rotation { get; init; }
@@ -850,9 +864,10 @@ public sealed record MonsterObject(int GridX, int GridY, uint Life, IReadOnlyLis
                             .U8(AttachKind).U8(AttachFlags).F32(0).F32(0).F32(0);
                     break;
                 case "Inventories": PlayerObject.WriteInventories(w, Equipped); break;
-                // path, u16, u8, (life >= 1: no conditional bytes), u32, u32, then slot 20's two flag bytes.
+                // path, u16 animation seed (+0x21c), u8 stance (+0x21e), (life >= 1: no conditional bytes), u32, u32,
+                // then slot 20's two flag bytes.
                 case "Actor":
-                    w.WStr32("").U16(0).U8(ActorStance).U32(0).U32(0);
+                    w.WStr32("").U16(AnimationSeed).U8(ActorStance).U32(0).U32(0);
                     if (Skills is { Count: > 0 }) { w.U8(0x40).U8(0); PlayerObject.WriteSkillList(w, Skills); }   // its skills (11-skills.md §3)
                     else w.U8(0).U8(0);
                     break;

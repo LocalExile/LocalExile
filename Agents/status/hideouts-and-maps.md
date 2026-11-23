@@ -16,11 +16,14 @@ Part of [Status](../Status.md); what to build next in this area is in
   the native recipe browser (0x7b kind 0x39).
   C→S 0x274 carries the selected HarvestCraftOptions HASH16 (captured live: ReforgeFire 0xa3e5); S→C 0x276 carries the
   crafted item id and clears the panel's pending state, so Craft can be clicked repeatedly without reopening.
-  Targeted/affinity reforges, augments and modifier conversions execute on the item in HarvestCraftingItem; the exact
-  Wild/Vivid/Primal/Sacred lifeforce cost is split across the main inventory and personal stash and commits with the
-  item atomically.
-  Refusals spend nothing; unsupported influence, exchange, divination-card, gem, corrupted-map and quality-enchant
-  recipes are reported in chat and wait for their prerequisite systems.
+  All 74 `HarvestCraftOptions` recipes execute on the item in HarvestCraftingItem, including targeted/affinity reforges,
+  augments, modifier conversions, body-armour/weapon quality enchants, essence/set exchanges (with stack and basetype
+  cost scaling), divination-card rerolls and gambles, influence rerolls/reforges, corrupted-map rerolls, Ruthless
+  support-gem swaps and Facetor's Lens (`StoredExperience`, applicable to skill gems).
+  Essence, set (oils, fossils, catalysts, fragments) and divination-card exchanges currently roll uniformly over the
+  eligible target pool rather than using retail drop weights.
+  Refusals spend nothing; the exact Wild/Vivid/Primal/Sacred/Rancour cost is split across the main inventory and
+  personal stash and commits with the item atomically (new non-item recipe families not yet tried in the client).
   Reforges need an identified rare, augments a non-influenced item.
   Uniques, unmodifiable items and a recipe of the other game mode (GameMode 1 not in Ruthless, 2 Ruthless only) are
   refused, and RancourCost charges Crystallised Rancour (these rules not yet tried in the client).
@@ -192,11 +195,13 @@ Part of [Status](../Status.md); what to build next in this area is in
   The map-device underfoot escape and walking through its released old position were verified in the client.
   Extracted AO hull radii cover small and large map devices; persistence and clearance have automated coverage.
   Map-device, Nessa and stash movement/rotation and reconnect persistence were verified in the real client.
-  Adding/removing arbitrary decorations and changing their appearance remain unimplemented; the dev `/statue`
-  command places a saved stone Monster Statue of a chosen MonsterVarieties row (2026-11-01, live client verified:
-  no life bar or name, idle animation, survives leaving and re-entering). See
-  [21](../docs/protocol/21-hideouts.md), Monster Statue.
-  See [21](../docs/protocol/21-hideouts.md), Moving installed furniture and NPCs.
+  Placing/reclaiming/resetting custom decorations (`C→S 0x59`/`0x5d`/`0x5e`, capped at 750; `0x5a` guild placement refused),
+  `/save_hideout` (command 50), music box persistence (`0x255`, saved and reported in `/save_hideout`; no re-entry replay packet),
+  league-scoped Item Display Case (`0x7b` `0x49`, `0x67`, `0x68`), Horticrafting Ctrl + click (`0xf9`),
+  and `RecipeUnlockDisplay` area unlock flags are implemented (offline verified; live client checks pending).
+  The dev `/statue` command places a saved stone Monster Statue of a chosen MonsterVarieties row (live client verified:
+  no life bar or name, idle animation, survives leaving and re-entering).
+  See [21](../docs/protocol/21-hideouts.md), Monster Statue and Moving installed furniture and NPCs.
 - Ordinary crafting bench (2026-10-25, automated coverage; live client verification pending): all 765 active recipes
   and their 130 recipe flags are available.
   Exact modifiers, class masks, socket/link recipes, flask enchantments, replacement/removal and rare-affix rerolls

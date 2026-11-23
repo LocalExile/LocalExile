@@ -59,12 +59,15 @@ public static partial class Game
         return result;
     }
 
-    public readonly record struct KillEquipmentSnapshot(int CursedCorpsePhysicalPct, int PrideChance, int CursedVictimChaosChance);
+    public readonly record struct KillEquipmentSnapshot(int CursedCorpsePhysicalPct, int PrideChance, int CursedVictimChaosChance)
+    {
+        public bool Any => CursedCorpsePhysicalPct > 0 || PrideChance > 0 || CursedVictimChaosChance > 0;
+    }
 
     static KillEquipmentSnapshot CaptureKillEquipment(Player player, SpawnedMonster victim, (int X, int Y) at, double now,
         IReadOnlyDictionary<uint, int>? stats = null)
     {
-        stats ??= CharacterPlayerStats(player);
+        stats ??= PlayerStatValues(player);
         int corpsePercent = stats.GetValueOrDefault(CursedCorpseBlast);
         if (corpsePercent > 0 && !OwnCursedCorpses(player, now, victim).Any(other => Dist(other.At, at) <= KillExplosionRadius))
             corpsePercent = 0;
@@ -129,10 +132,28 @@ public static partial class Game
     /// already are, so the player's damage increases do not scale it. The corpse is consumed at once (the official
     /// client removes it 0-6 ms after the death), and a kill by the explosion is the player's and can trigger another
     /// explosion.</summary>
+    internal static bool MayExplodeOnKill(Player player, SpawnedMonster? corpse = null,
+        KillEquipmentSnapshot? equipment = null, IReadOnlyDictionary<uint, int>? stats = null)
+    {
+        if (corpse is { HitFireExplosionPercent: > 0 } || equipment is { Any: true }) return true;
+        stats ??= PlayerStatValues(player);
+        if (stats.GetValueOrDefault(Stat.EnemiesExplodeForPctLifeAsPhysicalDamage) > 0
+            || stats.GetValueOrDefault(Stat.BleedingEnemiesExplodeForPctLifeAsPhysicalDamage) > 0
+            || stats.GetValueOrDefault(Stat.ExplodeEnemiesFor10PctLifeAsPhysicalOnKillChancePct) > 0
+            || stats.GetValueOrDefault(Stat.ExplodeEnemiesFor25PctLifeAsChaosOnKillChancePct) > 0
+            || stats.GetValueOrDefault(Stat.ExplodeEnemiesFor10PctLifeAsRandomElementOnKillChancePct) > 0
+            || stats.GetValueOrDefault(Stat.ExplodeEnemiesFor10PctLifeAsFireOnKillChancePct) > 0)
+            return true;
+        if (equipment is not null) return false;
+        return stats.GetValueOrDefault(CursedCorpseBlast) > 0
+            || stats.GetValueOrDefault(Stat.ExplodeEnemiesFor10PctLifeAsPhysicalOnKillChancePctWhileUsingPride) > 0
+            || stats.GetValueOrDefault(Stat.ExplodeCursedEnemiesFor25PctLifeAsChaosOnKillChancePct) > 0;
+    }
+
     public static async Task<bool> ExplodeOnKill(Player player, uint corpseId, SpawnedMonster corpse, (int X, int Y) at,
         KillEquipmentSnapshot? equipment = null)
     {
-        var playerStats = CharacterPlayerStats(player);
+        var playerStats = PlayerStatValues(player);
         int Get(uint key) => playerStats.GetValueOrDefault(key);
         int generic = Get(Stat.EnemiesExplodeForPctLifeAsPhysicalDamage);
         int bleedingPercent = Get(Stat.BleedingEnemiesExplodeForPctLifeAsPhysicalDamage);

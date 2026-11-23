@@ -1,4 +1,5 @@
 using System.Net.Sockets;
+using GameServer.Core;
 using GameServer.Core.Protocol.Instance;
 using GameServer.Core.Protocol.Login;
 using DamageModel = GameServer.Core.World.DamageModel;
@@ -252,6 +253,13 @@ public static partial class Game
         await SendVaalSouls(player);
         await SendRage(player);
         await EndAurasOnDeath(player);
+        var (xpPenaltyPct, xpBefore, xpAfter) = ApplyDeathExperiencePenalty(player);
+        if (xpAfter != xpBefore)
+            await Send(player, InstanceEntities.PlayerExperienceUpdate(player.Id, xpAfter),
+                $"0x02bc death XP penalty -{xpPenaltyPct}% ({xpBefore} -> {xpAfter})");
+        if (xpPenaltyPct > 0)
+            await Send(player, InstanceChat.ChatLine($"You have lost {xpPenaltyPct}% experience."),
+                $"0x0017 death XP penalty chat ({xpPenaltyPct}%)");
         await SendPlayerDeathPresentation(player, label, deathEpoch, deathKind);
     }
 
@@ -1367,6 +1375,65 @@ public static partial class Game
     // Whether a quest-flag change moves the Kitava resistance penalty.
     public static bool ChangesResistancePenalty(IEnumerable<string> changed) =>
         changed.Any(ResistancePenaltyAct5.Concat(ResistancePenaltyAct10).Contains);
+
+    static HashSet<string> PvpAreaIds = new(StringComparer.OrdinalIgnoreCase);
+
+    /// <summary>Loads PvP <c>WorldAreas</c> ids at startup (<c>GameModule.LoadData</c>).</summary>
+    public static void LoadDeathPenaltyData()
+    {
+        var ids = new HashSet<string>(StringComparer.OrdinalIgnoreCase);
+        if (ClientTables.Has("WorldAreas"))
+            foreach (var row in ClientTables.Table("WorldAreas"))
+                if (!row.IsNull("PVPType") && row.Text("Id") is { Length: > 0 } id) ids.Add(id);
+        PvpAreaIds = ids;
+    }
+
+    /// <summary>Retail Standard death experience penalty percentage: 0% in Hardcore, town, hideouts, PvP areas, or
+    /// before Act 5 Kitava; 5% after Act 5 Kitava; 10% after Act 10 Kitava (same quest flags as <see cref="ResistancePenalty"/>).</summary>
+    public static int DeathExperiencePenaltyPercent(Player player)
+    {
+        if (ForceHardcore || player.Character.Hardcore || InTown(player)
+            || HideoutCatalog.ByArea(player.Layout.Hash) is not null
+            || PvpAreaIds.Contains(player.Layout.Id)) return 0;
+        bool act5 = ResistancePenaltyAct5.Any(player.Character.QuestFlags.Contains);
+        bool act10 = ResistancePenaltyAct10.Any(f => player.Character.QuestFlags.Contains(f) && !player.Character.UnearnedQuestFlags.Contains(f));
+        if (act10) return 10;
+        if (act5) return 5;
+        return 0;
+    }
+
+    /// <summary>Applies the Standard death XP penalty, clamped to the current level's starting XP so a character never
+    /// de-levels, and persists the updated experience. Lock order matches <see cref="RecordExperienceGain"/>.</summary>
+    public static (int Percent, uint Before, uint After) ApplyDeathExperiencePenalty(Player player)
+    {
+        int percent = DeathExperiencePenaltyPercent(player);
+        if (percent <= 0) return (0, player.Character.Experience, player.Character.Experience);
+        var updates = LevelUpdatesFor(player);
+        uint before, after;
+        bool atCap;
+        lock (updates.Gate)
+        {
+            uint start = player.Character.Experience;
+            atCap = GameServer.Core.World.Progression.LevelFor(start, CharacterStats.LevelStarts)
+                >= CharacterStats.LevelStarts.Count;
+            (before, after) = CharacterSaves.AddExperience(CharacterName(player), start, xp =>
+            {
+                int level = GameServer.Core.World.Progression.LevelFor(xp, CharacterStats.LevelStarts);
+                if (level < 1 || level >= CharacterStats.LevelStarts.Count) return xp;
+                uint floor = CharacterStats.LevelStarts[level - 1];
+                uint next = CharacterStats.LevelStarts[level];
+                ulong loss = (ulong)(next - floor) * (ulong)percent / 100UL;
+                return xp > floor + loss ? (uint)(xp - loss) : floor;
+            });
+            if (after != before)
+            {
+                CharacterSaves.SaveExperience(CharacterName(player));
+                player.Character.Experience = after;
+                updates.Revision++;
+            }
+        }
+        return atCap ? (0, before, after) : (percent, before, after);
+    }
 
     // The player's final resistance for one damage type: the passive/gear modifier plus the Kitava quest penalty.
     public static int Resistance(Player player, DamageType type)

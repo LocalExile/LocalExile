@@ -32,11 +32,32 @@ public static partial class MapEssences
     }
 
     /// <summary>The verified, shared item-on-world-object packet; a box handler declines these targets.</summary>
-    public static async Task<bool> UseItemOn(Player player, byte[] message)
+    public static Task<bool> UseItemOn(Player player, byte[] message) =>
+        message.Length != InstanceItems.UseItemOnObjectLength
+            ? Task.FromResult(false)
+            : UseItemOnCore(player, InstanceItems.ReadUseItemOnObject(message));
+
+    static readonly byte[] CurrencyRows = [PlayerInventories.MainInventory, PlayerInventories.ExpandedInventory];
+
+    /// <summary>GameEvents.Packet(0x79): Shift-click / repeat Vaal Orb use by type hash on an essence monolith.</summary>
+    public static Task<bool> UseItemTypeOn(Player player, byte[] message)
     {
-        if (message.Length != InstanceItems.UseItemOnObjectLength) return false;
-        var use = InstanceItems.ReadUseItemOnObject(message);
-        if (!Areas.TryGetValue(player.Instance, out var area)
+        if (message.Length < InstanceItems.UseItemTypeOnObjectLength) return Task.FromResult(false);
+        var req = InstanceItems.ReadUseItemTypeOnObject(message);
+        if (player.Instance is null || !Areas.TryGetValue(player.Instance, out var area)
+            || area.Monoliths?.FirstOrDefault(m => m.Id == req.TargetObjectId) is null)
+            return Task.FromResult(false);
+        var items = ItemsOf(player);
+        foreach (byte row in CurrencyRows)
+            if (items.Items(row).FirstOrDefault(i => i.Item.TypeHash == req.TypeHash && items.RowOf(i.Id) == row) is { } stack)
+                return UseItemOnCore(player, new(PlayerInventories.InventoryId(row), stack.Id, req.TargetObjectId));
+        Console.WriteLine($"[map-content] essence 0x{req.TargetObjectId:x}: 0x0079 type 0x{req.TypeHash:x8} not found in inventory");
+        return Task.FromResult(true);
+    }
+
+    static async Task<bool> UseItemOnCore(Player player, InstanceItems.UseItemOnObject use)
+    {
+        if (player.Instance is null || !Areas.TryGetValue(player.Instance, out var area)
             || area.Monoliths?.FirstOrDefault(m => m.Id == use.TargetObjectId) is not { } target) return false;
         string Log(string text) => $"[map-content] essence 0x{use.TargetObjectId:x}: {text}";
         var items = ItemsOf(player);

@@ -143,15 +143,26 @@ connection. Later opens send b = 0x16: the panel keeps its own tab while the con
   send back (the record's second u32). Both are kept with the stash, account-wide (`AccountStash.Rename`, `SetColour`;
   every tab but normal ones is premium, as bought tabs are: the tab settings show the name and colour only
   with the record's premium flag; kind 1 the guild stash). Folders have the flag too but no colour: retail (3.30 capture) sends a new folder as "New Folder", inventory 0, colour 0, and its settings show only the name and Delete Folder. Verified live 2026-10-22: the settings window closes on the tab list (S→C 0x136) sent after each change, and the name and colour survive a relog.
+- **0xcf** (14 bytes, writer `0x141f9d290`, sender `0x14216e070`): toggles a premium tab's Public flag.
+  u8 kind, u16 BE tab, u64 (0), u8 isPublic; persists `TabFlags.Public` (0x08) and resends S→C 0x136.
+- **0x1a1** (variable length, writer `0x141fa2270`, senders `0x14021de00`/`0x1402fbbf0`/`0x140b10ca0`): sets or clears
+  an item's price note (u32 BE inventory id, u32 BE item id with bit 31 flag, WStr note) on items in an open, visible,
+  public, premium stash tab.
+  The note travels in the item's `Base` component bit 4 (0x10) as `WStr32` before `SkinTransferSource` (0x40) and
+  `Price` (0x80).
+- **0xf5** (12 bytes, writer `0x141f9a550`, sender `0x1403136e1`): Blight tab oil take-out (u32 BE item id, u8 kind,
+  u32 BE tab, u8 uiPanelState — UI panel state at `0x1403136d5`/`0x140313879`, not a bulk flag).
 - **0xd2** (5 bytes: u16 BE folder, u8 kind; `0x14025c5c0`, registered at `0x140258e87`): the folder settings' "Delete
   Folder", sent only for type 16 after the client cleared +0x3a of the tabs in it. The server moves them out and keeps
   the folder as a record with the hidden flag (0x20, so the panel leaves it out), which the next new folder reuses:
   removing it would move the later tabs' indices and inventory ids (`AccountStash.DeleteFolder`).
-- **0xd3** (class `0x1435cad70`, write `0x141f9d7d0`, built by `0x14216de70`): the tab settings' affinities, sent by the
+- **0xd3** (class `0x1435cad70`, read `0x141f9d9a0`, write `0x141f9d7d0`, built by `0x14216de70`): the tab settings' affinities, sent by the
   window's check mark. u16 BE tab, u8 kind, u8 n, n × (u8 affinity, u8 on). Live 2026-10-20: `00D3 0005 00 01 03 01`
   (Currency on, tab 5). The window stays open until the server answers; the Gateway saves the bits with the tab
   (`SavedTab.Affinities`) and sends the tab list again (S→C 0x136), with flag 0x40 and the bitset in each record. Whether
-  0x136 is what closes the window is not checked live yet.
+  0x136 is what closes the window is not checked live yet. S→C **0xd3** uses the same class and wire layout for guild stash
+  affinity broadcasts (dispatcher case `0x3f` at `0x142155f46` → `0x142174850`, accepting `kind == 1` only), encoded by
+  `InstanceStash.EncodeSetAffinities`.
 - **0xe0** (20 bytes, vtable `0x1435cb2b0`, write `0x141f9df90`, built by `0x14216f460`): Ctrl + click on an inventory
   item while a tab is shown. u16 BE tab (the stash page's +0x4a4), u32 BE item id, u8 flags (bit 1: Ctrl + right click, the
   bulk boolean of `0x1403119d0`, as 0xe1 below), u8 kind (page +0x491), u16 token (raw, changes per request), u64 raw (0). The
@@ -358,6 +369,8 @@ removed or migrated. Empty old socket layouts are repaired to exactly 1/2/3/4 in
 Socket colour **6** is Delve (yellow/orange); 5 is Abyss. Verified against the client's socket name table at
 0x142fcb2d0, indexed by Sockets reader 0x1421e9790 / debug writer 0x1421ea2f0. Create and DefaultSockets
 both use this resonator-specific layout, including the stackable item creation path.
+Delve sockets accept only Fossils (`DelveCraftingModifiers`), reject skill gems and duplicate fossils in one resonator,
+and exclude socketed fossils from skill-gem scans.
 Regression coverage uses every stored item in DelveStashTabLayout, 5000-item stacks, merge and save/reload,
 and all eight resonator families/tiers. The user confirmed the correction in the real client.
 
