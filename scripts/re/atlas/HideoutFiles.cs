@@ -51,7 +51,9 @@ static class HideoutFiles
         foreach (var row in ClientTable.Load(Path.Combine(root, "data", "client.db"), "HideoutDoodads"))
         {
             string type = row.Text("InheritsFrom") ?? "";
-            if (!type.EndsWith("MappingDevice", StringComparison.Ordinal)
+            // Map devices: the templates' (…MappingDevice) and the Decorations panel's variants, which replace them.
+            if (!type.EndsWith("MappingDevice", StringComparison.Ordinal) && !type.Contains("/MapDeviceVariants/", StringComparison.Ordinal)
+                && !type.StartsWith("Metadata/MapDevices/", StringComparison.Ordinal)
                 && !type.EndsWith("HideoutCraftingBench", StringComparison.Ordinal)) continue;
             foreach (var model in row.Texts("Variation_AOFiles")) models.Add(model);
         }

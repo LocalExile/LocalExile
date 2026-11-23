@@ -23,8 +23,19 @@ public static partial class Game
         await SendWorldRecord(player, id, InstanceProtocol.EnterWakeZone(id), $"0x01a9 hideout doodad 0x{id:x} enters wake zone");
         lock (player.HideoutDoodads) player.HideoutDoodads[id] = d;
         await RegisterStationaryCollision(player, id, d.Type!, d.X, d.Y, d.Rotation, MapDeviceKey, d.Model);
+        // The server's blocker is one circle around the model's whole hull; a button inside it (Sun: 20 cells, hull 26)
+        // could not be reached, so the circle stops short of the button.
+        if (HideoutCatalog.MapDeviceButton(d.Hash, d.Variation) is var (_, bx, by) && StationaryCollision.Resolve(d.Type!, d.Model) is (int size, double hull)
+            && Math.Sqrt(bx * bx + by * by) - ButtonClearance is var reach && reach < hull)
+        {
+            double capped = Math.Max(1, reach);
+            player.SetBlocker(id, d.X, d.Y, size, capped);
+            player.HideoutEditor.Register(id, MapDeviceKey, d.X, d.Y, d.Rotation, size, capped);
+        }
         await SpawnMapDeviceButton(player, id, d);
     }
+
+    const double ButtonClearance = 4;
 
     /// <summary>Whether this server can stand the map device type up in a hideout. The Puzzle Cube's client script runs
     /// a native puzzle (InteractPuzzleCube, with its grabber objects and sub-cube state) on hover and drag; without
