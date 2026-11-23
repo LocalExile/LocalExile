@@ -657,6 +657,14 @@ public static partial class Game
             double at = contact.At / (double)ProjectileRuntime.QuantaPerSecond;
             shot = shot.Against(Blinded(Player, contact.Target.Id), target.SpiderWebs.Count(at),
                 target.Ignites.Burning, target.Bleeds.Burning, EnemyOnLowLife(target));
+            double overexertionMore = OverexertionMore(shot.SkillStats, shot.IntimidatingCryExerted);
+            if (overexertionMore != 1)
+                shot = shot with
+                {
+                    Ignite = RepeatAilment(shot.Ignite, overexertionMore),
+                    Bleed = RepeatAilment(shot.Bleed, overexertionMore),
+                    Poison = RepeatAilment(shot.Poison, overexertionMore),
+                };
             int hitChance = 100;
             if (!shot.Spell)
             {

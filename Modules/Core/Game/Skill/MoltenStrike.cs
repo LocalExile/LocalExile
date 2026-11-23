@@ -326,9 +326,10 @@ public static partial class Game
             var ignite = SupportedIgnite(player, skillId, spell: false, playerStats, swingWeapon);
             var bleed = SupportedBleed(player, skillId, spell: false, playerStats, swingWeapon, melee: true);
             var poison = SupportedPoison(player, skillId, spell: false, playerStats, swingWeapon);
-            ignite = RepeatAilment(ignite, repeatMore);
-            bleed = RepeatAilment(bleed, repeatMore);
-            poison = RepeatAilment(poison, repeatMore);
+            double ailmentMore = repeatMore * OverexertionMore(skillStats, cryExerted);
+            ignite = RepeatAilment(ignite, ailmentMore);
+            bleed = RepeatAilment(bleed, ailmentMore);
+            poison = RepeatAilment(poison, ailmentMore);
             var criticalTrigger = CaptureCriticalTriggerSource(player, skillId);
             var meleeKillTrigger = CaptureMeleeKillTriggerSource(player, skillId);
             bool fortificationGranted = false;

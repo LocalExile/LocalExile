@@ -877,9 +877,10 @@ public static partial class Game
         bool spellAcknowledged = false;
         bool spellProjectileRuntime = UsesProjectileRuntime(gem.Effect) || leapSkill;
         double? immediateSwingAt = leap?.At ?? (immediateAttack ? castAt : null);
+        bool movedByCast = flickers && landing != stand || moves && chargeBonus == 0 && landing != stand;
         Task<bool>? spellTask = spellProjectileRuntime ? CastGemSkill(player, use.SkillId, stand, aim,
             use.TargetId, sequence: use.Sequence, actionToken: spellUse?.ActionToken ?? castAction, cooldownUse: spellUse,
-            swingAt: immediateSwingAt, leap: leap) : null;
+            swingAt: immediateSwingAt, leap: leap, movedByCast: movedByCast) : null;
         if (spellTask is { IsCompletedSuccessfully: true, Result: false }) return;
         byte[][] ActionRecords() => [InstanceProtocol.ActionStarted(player.Id, stand.X, stand.Y, aim.X, aim.Y,
             use.SkillId, use.Sequence, use.Flags, targetObjectId: use.TargetId), InstanceProtocol.ActionEnded(player.Id)];
@@ -907,7 +908,8 @@ public static partial class Game
             MovementSeconds(player, gem.Effect, gem.Level, use.SkillId), gem.Name!);
         if (!spellProjectileRuntime && !spellAcknowledged) return;
         if (!spellProjectileRuntime) _ = CastGemSkill(player, use.SkillId, flicker ? landing : stand, aim, struckId,
-            sequence: use.Sequence, actionToken: spellUse?.ActionToken ?? castAction, cooldownUse: spellUse, swingAt: immediateSwingAt);
+            sequence: use.Sequence, actionToken: spellUse?.ActionToken ?? castAction, cooldownUse: spellUse, swingAt: immediateSwingAt,
+            movedByCast: movedByCast);
     }
 
     /// <summary>One Dash whose source, resources, cooldown, displacement and recent events committed together. The past
@@ -1054,7 +1056,8 @@ public static partial class Game
     public static async Task<bool> CastGemSkill(Player player,
         ushort skillId, (int X, int Y) from, (int X, int Y) to, uint targetId = 0, ushort sequence = 0,
         int? actionToken = null, CooldownUseTicket? cooldownUse = null, bool locationInstant = false,
-        DashUseReceipt? dashReceipt = null, double? swingAt = null, LeapSlam.Use? leap = null, Action? guardStart = null)
+        DashUseReceipt? dashReceipt = null, double? swingAt = null, LeapSlam.Use? leap = null, Action? guardStart = null,
+        bool movedByCast = false)
     {
         int action = actionToken ?? player.ActionCount;
         int recoveryGeneration = 0;
@@ -1063,6 +1066,7 @@ public static partial class Game
         SupportedGem? beastCompanion = null;
         PlacedCastAdmission? placedAdmission = null;
         SupportedGem? paidIntensity = null, paidMomentum = null;
+        var momentumTravel = player.Walk.ObserveTravel(AreaTime(player));
         if (SkillsFor(player).EffectId(BaseSupportedSkill(player, skillId).Effect) is TwisterEffect or CatStealthCryEffect) return false;
         if (actionToken is not null && (player.ActionCount != action || player.ElementalAilments.ActionFactor(AreaTime(player)) == 0 || player.HitRecovery.Active(AreaTime(player)))) return false;
         if (!TryCapturePlacedCastAdmissionLocked(player, skillId, out placedAdmission)) return false;
@@ -1351,7 +1355,12 @@ public static partial class Game
             if (!accepted) return false;
             intensity?.Complete();
             if (paidMomentum is { } momentum)
-                GainMomentumOnUse(player, skillId, momentum, action, channelGeneration, AreaTime(player));
+            {
+                double now = AreaTime(player);
+                bool movedDuringUse = movedByCast || (leap is not null && leap.Landing != leap.From)
+                    || player.Walk.ObserveTravel(now) != momentumTravel;
+                GainMomentumOnUse(player, skillId, momentum, action, channelGeneration, now, movedDuringUse);
+            }
             return true;
         }
         if (beastCompanion is not null) return true;
@@ -2655,6 +2664,14 @@ public static partial class Game
                             Poison = RepeatAilment(profile.Poison, repeatMore),
                         };
                     }
+                    double overexertionMore = OverexertionMore(skillStats, cryExerted == true);
+                    if (overexertionMore != 1)
+                        profile = profile with
+                        {
+                            Ignite = RepeatAilment(profile.Ignite, overexertionMore),
+                            Bleed = RepeatAilment(profile.Bleed, overexertionMore),
+                            Poison = RepeatAilment(profile.Poison, overexertionMore),
+                        };
                     var contactHit = profile.Hit;
                     if (frostboltMore != 1) contactHit = contactHit.Scale(frostboltMore);
                     if (spell && repeat > 0) contactHit = contactHit.Scale(GreaterEchoHitMore(repeat, Stat));

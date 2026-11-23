@@ -146,13 +146,13 @@ public static partial class Game
         using (new PlayerStatScope(player, fresh: true))
         {
             player.Pools = PoolsFor(player, player.Pools.Level);
-            player.ApplyMovementSpeed();
+            player.ApplyMovementSpeedAt(AreaTime(player));
             player.PlayerLife = LifeReservation.Clamp(player.PlayerLife, LifeReservationOf(player));
             var stats = CharacterPlayerStats(player);
             int Get(uint key) => stats.GetValueOrDefault(key);
             player.Phasing = UtilityFlasks.Phasing(UtilityStats(player, Get));
             player.ElementalAilments.Reconcile(Get);
-            player.ApplyMovementSpeed();
+            player.ApplyMovementSpeedAt(AreaTime(player));
         }
     }
 
