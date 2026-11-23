@@ -88,9 +88,13 @@ public static partial class Game
             ? Math.Max(0, Get(Stat.AdditionalPoisonsPlusToApplyVsNonPoisonedEnemies)) : 0);
         perSecond = min + (Math.Max(min, max) - min) * random.NextDouble();
         seconds = settings.Seconds * MonsterPoisons.SelfDuration(name => target.Mods.Effects[name]);
+        // Master Toxicist: "Poisons you inflict during any Flask Effect have N% chance to deal 100% more Damage", rolled for
+        // each poison applied.
+        int doubled = Get(Stat.PathfinderPoisonDamagePlus100PctFinalChanceDuringFlaskEffect) is var finalChance and > 0 && AnyFlaskEffect(player)
+            ? Math.Min(finalChance, 100) : 0;
         int accepted = 0;
         for (int i = 0; i < stacks; i++)
-            if (target.Poisons.Add(now, perSecond, seconds)) accepted++;
+            if (target.Poisons.Add(now, doubled > 0 && RandomRolls.Chance(doubled, 100, random) ? perSecond * 2 : perSecond, seconds)) accepted++;
         if (accepted == 0) return false;
         InflictedLocked(player, target, AilmentType.Poison, now + seconds);
         ReservationPoisonLocked(player, now);
