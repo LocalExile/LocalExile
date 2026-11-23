@@ -267,15 +267,19 @@ public static partial class Game
             }
         }
 
-        public void Schedule(long at, Func<bool> valid, Func<ProjectileUse> release) => Schedule(at, valid, release, null);
+        public void Schedule(long at, Func<bool> valid, Func<ProjectileUse?> release) => Schedule(at, valid, release, null);
 
-        internal void Schedule(long at, Func<bool> valid, Func<ProjectileUse> release, Action? released)
+        internal void Schedule(long at, Func<bool> valid, Func<ProjectileUse?> release, Action? released)
         {
             if (Active)
                 Runtime.Schedule(Math.Max(Runtime.Now, at), () =>
                 {
                     if (!Active || !valid()) return;
-                    try { ReleaseNow(release()); }
+                    try
+                    {
+                        if (release() is not { } use) return;
+                        ReleaseNow(use);
+                    }
                     catch (InvalidOperationException ex)
                     {
                         Console.WriteLine($"[gateway] {Player.Connection.Remote} projectile path unavailable: {ex.Message}");

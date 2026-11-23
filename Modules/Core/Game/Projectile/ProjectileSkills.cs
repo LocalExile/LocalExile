@@ -19,6 +19,9 @@ public static partial class Game
         foreach (string effect in new[] { "HolyFlameTotem", "HolyFlameTotemAltX" })
             definitions[effect] = SkillProjectileDefinition(effect, holyFlameProjectile,
                 SkillProjectileParameters(effect, holyFlameProjectile));
+        const string frostBlade = "Metadata/Projectiles/IceStrikeProjectileNew";
+        definitions["FrostBlades"] = SkillProjectileDefinition("FrostBlades", frostBlade,
+            SkillProjectileParameters("FrostBlades", frostBlade));
         const string fissureProjectile = "Metadata/Projectiles/VolcanicSlamMortar";
         definitions["VolcanicFissure"] = SkillProjectileDefinition("VolcanicFissure", fissureProjectile,
             SkillProjectileParameters("VolcanicFissure", fissureProjectile));

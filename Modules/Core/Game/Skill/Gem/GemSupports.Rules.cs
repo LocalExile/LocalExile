@@ -762,10 +762,9 @@ public static partial class Game
         // Support-converted traps and mines receive the same hit modifiers as native placed skills.
         if (placed.Trap) types.Add(32);
         if (placed.Mine) types.Add(35);
-        // Lightning Strike's two components share a gem, not a damage context. Its bolts do not gain melee
-        // modifiers, and its strike does not gain projectile modifiers or the projectile-only less multiplier.
-        bool lightningStrike = IsLightningStrike(gem.Effect);
-        if (lightningStrike) types.Remove(projectile ? 19 : 2);
+        // A strike and the projectiles it releases each use their own damage modifiers.
+        bool projectileStrike = IsLightningStrike(gem.Effect) || IsFrostBlades(gem.Effect);
+        if (projectileStrike) types.Remove(projectile ? 19 : 2);
         bool volcanicFissure = IsVolcanicFissure(gem.Effect);
         if (volcanicFissure) types.Remove(projectile ? 19 : 2);
         if (area is true) types.Add(7);
@@ -793,7 +792,7 @@ public static partial class Game
         if (!attack && !secondary && addedChaos > 0)
             raw = raw.Add(GameServer.Core.World.DamageType.Chaos,
                 new GameServer.Core.World.DamageRange(addedChaos, addedChaos).Scale(AddedEffectiveness(player, gem.Effect, gem.Level)));
-        if ((lightningStrike || volcanicFissure) && projectile)
+        if ((projectileStrike || volcanicFissure) && projectile)
             raw = raw.Scale(Math.Max(0, 1 + Get(Stat.ActiveSkillHitAilmentDamageWithProjectilePlusPctFinal) / 100.0));
         // Spellblade: a supported spell gains a share of the one-hand melee weapon's damage as added spell damage,
         // scaled by the spell's damage effectiveness like any other added damage.
