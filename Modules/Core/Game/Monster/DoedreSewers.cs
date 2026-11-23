@@ -536,7 +536,7 @@ public static partial class Game
         foreach (var g in c.Golems.All.Values.Concat(c.Reservations.Fighters.Values).ToArray())
         {
             var m = g.Monster;
-            if (!GolemCurrent(c, g) || m.Dead || m.Life == 0 || g.Definition.Kind is "Agony" or "SkitterCold" or "SkitterLightning"
+            if (!GolemCurrent(c, g) || m.Dead || m.Life == 0 || GolemIgnoresDots(g)
                 || !inside(m.Walk.Position(now))) continue;
             var res = MonsterHitResistance(m, DamageType.Chaos, default);
             double damage = rawDps * .25 * Math.Max(0, 1 - Math.Min(res.Value, res.Maximum) / 100d) + carry.GetValueOrDefault(g.Id);

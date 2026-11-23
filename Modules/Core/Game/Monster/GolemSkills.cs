@@ -302,6 +302,8 @@ public static partial class Game
                 conversion.AddGain(DamageType.Physical, type, mods[Stat.Of($"physical_damage_%_to_add_as_{slug}")]);
             }
             if (effect == 306) conversion.AddSkill(DamageType.Physical, prismatic, 100);
+            if (golem.Definition.Kind == "HolyArmament")
+                conversion.AddSkill(DamageType.Physical, DamageType.Lightning, Own(Stat.SkillPhysicalDamagePctToConvertToLightning));
             var rawDamage = damage;
             double more = Math.Max(0, 1 + mods[Stat.MonsterRarityDamagePlusPctFinal] / 100d)
                 * Math.Max(0, 1 - mods[Stat.MonsterRarityAttackCastSpeedPlusPctAndDamageMinusPctFinal] / 100d)
@@ -346,6 +348,7 @@ public static partial class Game
             string id = catalog.EffectId(effect) ?? "";
             double range = spell ? Math.Max(20, 70 * (1 + Raw(Stat.SpellMaximumActionDistancePlusPct) / 100.0)) : variety.AttackRange;
             if (!spell && golem.Weapon is { } weapon) range = weapon.Melee ? weapon.Range : 70;
+            if (golem.Definition.Kind == "HolyArmament") range += Own(Stat.MinionMeleeRangePlus);
             if (effect == 9638) range = Math.Max(range, Raw(Stat.SmiteLightningTargetRange));
             if (id.Contains("Whirling", StringComparison.Ordinal) || id.Contains("Cyclone", StringComparison.Ordinal) || id.Contains("Leap", StringComparison.Ordinal)) range = 45;
             double radius = Raw(Stat.ActiveSkillBaseAreaOfEffectRadius);

@@ -231,7 +231,7 @@ public static partial class Game
             if (definition.Family == "Spectre") corpseVariety = corpse.Variety;
             aim = corpse.Walk.Position(AreaTime(player));
         }
-        if (definition.Family is "AnimatedWeapon" or "VaalAnimatedWeapon" or "AnimatedGuardian" or "Clone")
+        if (definition.Family is "AnimatedWeapon" or "VaalAnimatedWeapon" or "AnimatedGuardian" or "Clone" or "HolyArmament")
         {
             animated = preparedEquipment ?? AnimatedItems(player, definition, gem, aim, target, restoredEquipment);
             if (animated is null) return 0;
@@ -254,7 +254,8 @@ public static partial class Game
         }
         if (variety is not { Supported: true }) return 0;
         int actorLevel = GolemStat(gem.Stats, definition.Family == "Spectre" ? Stat.RaisedSpectreLevel : Stat.BaseDisplayMinionActorLevel);
-        if (actorLevel <= 0 && (definition.Family.StartsWith("Dominating", StringComparison.Ordinal) || definition.Family == "VaalDomination"))
+        if (actorLevel <= 0 && (definition.Family.StartsWith("Dominating", StringComparison.Ordinal)
+            || definition.Family is "VaalDomination" or "HolyArmament"))
             actorLevel = SkillsFor(player).PlayerLevelReq(gem.Effect, gem.Level);
         byte level = (byte)Math.Clamp(actorLevel, 1, 100);
         if (inheritedMods is null && (definition.Family == "RagingSpirit"
@@ -304,8 +305,10 @@ public static partial class Game
         bool SameLimit(GolemState.Golem g) => g.Definition.Kind == definition.Family
             && (!g.Monster.Dead || double.IsFinite(g.ReviveAt))
             && (definition.Family != "Clone" || player.Summons.Definitions[g.Id].LimitStat == definition.LimitStat);
+        bool holyArmament = definition.Family == "HolyArmament";
         uint id = await SpawnMonster(player, variety, level, rarity, aim.X, aim.Y,
-            friendly: true, mods: mods, unrisen: false, extraStats: MinionStats,
+            friendly: true, mods: mods, unrisen: false,
+            extraStats: holyArmament ? [.. MinionStats, (Stat.BaseCannotBeDamaged, 1)] : MinionStats,
             ownedSkills: fighter.Skills, ownedMaximumLife: transportMaximum, ownedMaximumEnergyShield: maximumEnergyShield,
             ownedEnergyShield: energyShield,
             damagedLife: wireLife,
@@ -342,6 +345,7 @@ public static partial class Game
                 SummonReplacementResources? committedResources = replacement is null
                     ? null : CaptureReplacementResources(replacement.Old, committed);
                 fighter.Id = id; fighter.Monster = monster;
+                monster.DamageImmune = holyArmament;
                 if (replacement is not null)
                     TransferIncomingReplacementStateLocked(replacement.Old, fighter, committed);
                 if (replacement is not null) RetireReplacementLocked(player, replacement, committed);
@@ -533,5 +537,6 @@ public static partial class Game
         ["Skeleton"] = Stat.NumberOfActiveSkeletons, ["RagingSpirit"] = Stat.NumberOfActiveRagingSpirits, ["HolyRelic"] = Stat.NumberOfActiveRelics,
         ["Reaper"] = Stat.NumberOfActiveReapers, ["VaalAnimatedWeapon"] = Stat.NumberOfActiveVaalAnimatedWeapons,
         ["AnimatedWeapon"] = Stat.NumberOfActiveAnimatedWeapons, ["AnimatedGuardian"] = Stat.NumberOfActiveAnimatedArmour,
+        ["HolyArmament"] = Stat.NumberOfActiveHolyStrikeAnimatedWeapons,
     };
 }

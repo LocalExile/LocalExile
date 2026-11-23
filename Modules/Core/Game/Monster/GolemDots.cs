@@ -20,9 +20,9 @@ public static partial class Game
                 && Player(Stat.ElementalGolemImmunityToElementalDamage) > 0);
     }
 
-    /// <summary>The invulnerable reservation families reject every contact and every owned damaging ailment.</summary>
+    /// <summary>Undamageable owned actors reject enemy hits and damaging ailments.</summary>
     public static bool GolemIgnoresDots(GolemState.Golem golem) =>
-        !golem.Definition.IsGolem && golem.Definition.Kind is "Agony" or "SkitterCold" or "SkitterLightning";
+        golem.Monster.Invulnerable || !golem.Definition.IsGolem && golem.Definition.Kind is "Agony" or "SkitterCold" or "SkitterLightning";
 
     static bool GolemHasDots(GolemState.Golem golem) =>
         !golem.Monster.Ignites.Idle || !golem.Monster.Bleeds.Idle || !golem.Monster.Poisons.Idle;
