@@ -42,6 +42,7 @@ public static partial class Game
         physical = ApplyUnhingedTaken(physical, DamageType.Physical, Get);
         chaos = ApplyUnhingedTaken(chaos, DamageType.Chaos, Get);
         (physical, other, chaos) = MitigateTriggeredGuardHit(player, physical, other, chaos, at);
+        (physical, other, chaos) = VaalArcticArmourHit(player, physical, other, chaos, at);
         // Recoup counts the mitigated hit damage before Aegis, guard absorption, Ward and Energy Shield absorb any of it.
         int recoupable = (int)Math.Min(int.MaxValue, (long)physical + other + chaos);
         // Physical Aegis follows mitigation and totem redirection. Path of Exile's damage order puts an Aegis before

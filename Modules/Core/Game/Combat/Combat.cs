@@ -1143,6 +1143,8 @@ public static partial class Game
         await EndGracePeriod(player, action: true);
         var gem = GemSkillEffects(player).FirstOrDefault(g => g.Id == skillId);
         if (gem.Name is null) return false;
+        if (VaalArcticArmourActive(player, AreaTime(player)) && cooldownUse?.Instant != true && !locationInstant
+            && !SkillsFor(player).IsInstant(gem.Effect)) return false;
         if (!PlacedCastFamilyCurrent(player, skillId, placedAdmission)) return false;
         if (IsDashEffect(SkillsFor(player).EffectId(gem.Effect)))
         {
@@ -1485,6 +1487,11 @@ public static partial class Game
             return CompleteSupportedUse(await CastBrandsurge(player, skillId, gem, from, to, recoveryGeneration, Current, criticalRoll));
         if (gem.Name is not null && IsBladefallTrarthus(gem.Effect))
             return CompleteSupportedUse(await ActivateBladefallTrarthus(player, skillId));
+        if (vaalUse is not null && SkillsFor(player).EffectId(gem.Effect) == VaalArcticArmourEffect)
+        {
+            StartVaalArcticArmour(player, skillId, spellCastMs ?? SkillsFor(player).CastTimeMs(gem.Effect), AreaTime(player));
+            return true;
+        }
         if (gem.Name is not null && vaalUse is not null && VaalImmortalCallSpell(player, gem.Effect))
         {
             var session = ProjectilesFor(player);
