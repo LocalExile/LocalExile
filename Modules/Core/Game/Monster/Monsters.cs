@@ -2090,9 +2090,11 @@ public static partial class Game
             if (a.Summon is not null) return InstanceProtocol.ActorAnimation(id, (float)seconds, SummonAnimation);
             return walkUp ? InstanceProtocol.ActionStartedNow(id, from.X, from.Y, playerAt.X, playerAt.Y, a.SkillId, seq, 0, player.Id)
                 : InstanceProtocol.ActionStarted(id, from.X, from.Y, playerAt.X, playerAt.Y, a.SkillId, seq, player.MonsterOrderFlags, targetObjectId: player.Id);
-        }, ServerTrace.Combat || ServerTrace.Ai
+        // A kit monster's (a boss's) actions are always logged with their skill: which of its list it used is what a
+        // report of a fight is checked against.
+        }, ServerTrace.Combat || ServerTrace.Ai || m.Kit.Count > 0
             ? (a.Summon is not null ? $"0x01d1 monster 0x{id:x} ({m.Label}) summons, cast time {seconds:0.00} s"
-                : $"0x01ab monster 0x{id:x} ({m.Label}) attacks the player, attack time {seconds:0.00} s")
+                : $"0x01ab monster 0x{id:x} ({m.Label}) attacks the player with {(a.Effect is int used ? SkillsFor(player).EffectId(used) : null) ?? "its attack"} 0x{a.SkillId:x4}, attack time {seconds:0.00} s")
             : null)) return false;
         // A clip-only action (a dev command's NoContact) lands nothing: its hit or area belongs to the caller, which
         // sends it on its own clock. A zero-damage contact here would only play the clip's hit effect.
@@ -2160,12 +2162,22 @@ public static partial class Game
         if (a.Strike is { } strike)
         {
             await PlaceMonsterMarker(player, id, m, a, strike, areaAim);
+            // A skill that raises several (BossMoves.Strikes: Merveil's ten geysers): the rest come up around the first.
+            if (a.Effect is int strikeEffect && BossMoves.StrikeOf(SkillsFor(player), strikeEffect, m.Level) is { Count: > 1 } many)
+                foreach (var spot in BossMoves.StrikeSpots(areaAim, many.Count - 1, many.Spread, AreaRng(player), player.Layout))
+                    await PlaceMonsterMarker(player, id, m, a, strike, spot);
             return false;
         }
         if (a.Projectile is { } projectile)
         {
             // The shot leaves at the contact and flies; its hit lands when it reaches the player (Program.ProjectileHostile.cs).
             LaunchMonsterProjectile(player, id, m, a, projectile, action, projectileAim, sequence: seq);
+            // A barrage (BossMoves.Barrages: Merveil's Ice Spears): the rest follow from the same cast, each at where
+            // the player then stands, while the action is still the monster's.
+            if (a.Effect is int shotEffect && BossMoves.BarrageOf(SkillsFor(player), shotEffect) is { } barrage)
+                for (int i = 1; i < barrage.Count; i++)
+                    LaunchMonsterProjectile(player, id, m, a, projectile, action, null, AreaTime(player) + i * barrage.Seconds,
+                        (ushort)(seq + i));
             return false;
         }
         if (a.AreaRadius > 0 && !area)

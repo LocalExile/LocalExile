@@ -144,6 +144,7 @@ public static class BossKits
         {
             int effectLevel = catalog.MaxLevelAt(effect, level);
             double cooldown = catalog.CooldownMs(effect, effectLevel) / 1000d;
+            if (BossMoves.BarrageOf(catalog, effect) is not null) Barraged[effect] = true;
             int trigger = DamageTakenThreshold(catalog, effect, effectLevel);
             ushort id = (ushort)(0x4000 + kit.Count);
             var built = AttackFor(player, variety, level, effect, id);
@@ -187,7 +188,10 @@ public static class BossKits
                 }
                 else if (attack.Summon is null)
                 {
-                    if (Shaped(player, variety, level, effect, attack) is { } shaped) attack = shaped;
+                    // A hazard raised under the player that strikes a moment later (Merveil's geysers).
+                    if (BossMoves.StrikeOf(catalog, effect, level) is { } hazard)
+                        attack = attack with { Strike = hazard.Strike, AreaRadius = hazard.Radius, Projectile = null, Release = null, ReleaseEffect = null };
+                    else if (Shaped(player, variety, level, effect, attack) is { } shaped) attack = shaped;
                     // A monster's own skill the shaping has no form for stays the action it was: the client plays its
                     // clip and what that draws (Merveil, the Twisted's geysers, screech and cascade), and it hits as a
                     // plain hit.
@@ -555,6 +559,7 @@ public static class BossKits
         // is used again until the burst is full, then the list takes its turns.
         if (monster.Kit[0] is { CooldownSeconds: 0, Attack: { Ranged: true, Use: null, Summon: null } first } opening
             && Streaks.TryGetValue(monster, out var streak) && streak.Count is > 0 && streak.Count < DefaultBurst
+            && !Barraged.ContainsKey(opening.Effect)
             && first.Range >= distance && Arakaali.Allowed(monster, opening.Effect) && (usable is null || usable(first)))
             return first;
         // A boss whose other skills all reach across the room (Merveil's Ice Spear: her whole aggro range) would never
@@ -608,6 +613,9 @@ public static class BossKits
     static readonly System.Runtime.CompilerServices.ConditionalWeakTable<SpawnedMonster, System.Runtime.CompilerServices.StrongBox<double>> WalkingSince = new();
 
     static readonly System.Runtime.CompilerServices.ConditionalWeakTable<SpawnedMonster, System.Runtime.CompilerServices.StrongBox<double>> FightSince = new();
+
+    // Kit skills that fire a barrage from one cast (BossMoves.Barrages): they are not also repeated as a burst.
+    static readonly System.Collections.Concurrent.ConcurrentDictionary<int, bool> Barraged = new();
 
     sealed class Streak { public int Count; public double At = double.NegativeInfinity; }
     static readonly System.Runtime.CompilerServices.ConditionalWeakTable<SpawnedMonster, Streak> Streaks = new();

@@ -32,6 +32,54 @@ public static partial class BossMoves
         return (catalog.IsMovement(e), false);
     });
 
+    /// <summary>Skills that fire several projectiles one after another from one cast, and how far apart (seconds). The
+    /// tables give one projectile a cast; the barrage is the official server's script (wiki: Merveil's "barrage of ice
+    /// bolts"), so the numbers are ours.</summary>
+    public static readonly Dictionary<string, (int Count, double Seconds)> Barrages = new(StringComparer.Ordinal)
+    {
+        ["MerveilIceSpear"] = (4, .18),
+    };
+
+    /// <summary>The barrage a skill fires, or null for a single shot.</summary>
+    public static (int Count, double Seconds)? BarrageOf(SkillCatalog catalog, int effect) =>
+        catalog.EffectId(effect) is { } id && Barrages.TryGetValue(id, out var barrage) && barrage.Count > 1 ? barrage : null;
+
+    /// <summary>A boss skill that raises a hazard under the player which strikes a moment later: the art, the wait, the
+    /// radius it hits within, the stat that says how many come up (0: one) and how far around the first the others
+    /// scatter (cells). The object and its timing are the official server's; the client has only the art
+    /// (MiscObjects MerveilGeyser), so every number is ours.</summary>
+    public sealed record StrikeRow(string Art, double Seconds, double Radius, uint CountStat, double Spread, double StaySeconds);
+
+    public static readonly Dictionary<string, StrikeRow> Strikes = new(StringComparer.Ordinal)
+    {
+        ["MerveilGeyser"] = new(GeyserArt, 1.0, 6, 0, 0, 3),
+        ["MerveilMultiGeyser"] = new(GeyserArt, 1.2, 6, Stat.MerveilNumberOfGeysers, 28, 3),
+    };
+
+    const string GeyserArt = "Metadata/Effects/Spells/monsters_effects/act1/merveil/water_geyser/watertest.ao";
+
+    /// <summary>The delayed strike a kit skill places instead of a plain hit, or null.</summary>
+    public static (MonsterDelayedStrike Strike, double Radius, int Count, double Spread)? StrikeOf(SkillCatalog catalog, int effect, byte level)
+    {
+        if (catalog.EffectId(effect) is not { } id || !Strikes.TryGetValue(id, out var row)) return null;
+        int count = row.CountStat == 0 ? 1 : Math.Clamp(Game.GolemData.Skill(catalog, effect, level).Stats.GetValueOrDefault(row.CountStat), 1, 20);
+        return (new(row.Seconds, row.Art, row.Art, row.StaySeconds, false), row.Radius, count, row.Spread);
+    }
+
+    /// <summary>Where the other hazards of one use come up: scattered within <paramref name="spread"/> cells of the
+    /// first, on walkable ground.</summary>
+    public static List<(int X, int Y)> StrikeSpots((int X, int Y) at, int count, double spread, Random random, AreaLayout layout)
+    {
+        List<(int X, int Y)> spots = [];
+        for (int tries = 0; spots.Count < count && tries < count * 6; tries++)
+        {
+            double turn = random.NextDouble() * Math.Tau, far = 6 + random.NextDouble() * Math.Max(0, spread - 6);
+            var spot = (at.X + (int)Math.Round(Math.Cos(turn) * far), at.Y + (int)Math.Round(Math.Sin(turn) * far));
+            if (layout.WalkableFor(spot.Item1, spot.Item2, 0)) spots.Add(spot);
+        }
+        return spots;
+    }
+
     /// <summary>A teleport or a monster-only movement skill a kit plays as a travel.</summary>
     public static bool IsMove(SkillCatalog catalog, int effect) => KindOf(catalog, effect).Move;
 
