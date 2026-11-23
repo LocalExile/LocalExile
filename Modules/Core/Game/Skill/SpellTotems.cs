@@ -282,6 +282,17 @@ public static partial class Game
                 return Dist(livePos, totem.At) <= range ? NonZeroTotemAim(totem.At, livePos) : initialAim;
             }
 
+            if (totem.Ballista && BallistaRain(player, gem.Effect))
+            {
+                session.Runtime.Schedule(Math.Max(session.Runtime.Now, ProjectileRuntime.Time(totem.NextCast)), () =>
+                {
+                    if (session.Active && ReferenceEquals(lifetime, CombatLifetime) && SpellTotemCurrent(player, totem))
+                        ReleaseArrowRain(session, totem.SkillId, gem, ReleaseAim(),
+                            CaptureSkillCriticalRoll(player, totem.SkillId), sequence,
+                            mirage: false, transform: null, podDamageFactor: 1, totem: totem);
+                });
+                continue;
+            }
             if (totem.Ballista && IsBarrageGem(SkillsFor(player).EffectId(gem.Effect)))
             {
                 ScheduleBarrage(player, session, totem.SkillId, gem.Effect, now, seconds, sequence,

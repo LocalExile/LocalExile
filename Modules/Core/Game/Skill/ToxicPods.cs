@@ -6,9 +6,11 @@ using GameServer.Core.World;
 public static partial class Game
 {
     // Monsters are shared by the instance. Count the vines of every caster when updating movement.
-    sealed class ToxicPod(int slow, int cap)
+    sealed class ToxicPod(int slow, int cap, double until, double? withered)
     {
         public readonly int Slow = slow, Cap = cap;
+        public readonly double Until = until;
+        public readonly double? Withered = withered;
     }
     static readonly RuleTable<SpawnedMonster, HashSet<ToxicPod>> ToxicVines = new();
 
@@ -43,7 +45,9 @@ public static partial class Game
 
         void LeavePod(ToxicPod pod, SpawnedMonster m)
         {
-            if (ToxicVines.TryGetValue(m, out var pods)) lock (pods) pods.Remove(pod);
+            if (!ToxicVines.TryGetValue(m, out var pods)) return;
+            lock (pods) pods.Remove(pod);
+            if (pod.Withered is not null) m.PresentationChanged?.Invoke();
         }
 
         void ClearPods()
@@ -54,11 +58,11 @@ public static partial class Game
         }
 
         internal void PlaceToxicPod(ProjectileUse use, ProjectileVector centre, int radius, double duration,
-            double dps, int slow, int cap, string? burst)
+            double dps, int slow, int cap, string? burst, double? withered)
         {
-            var pod = new ToxicPod(slow, cap);
-            var victims = podVictims[pod] = [];
             long previous = Runtime.Now, end = previous + Math.Max(1, ProjectileRuntime.Time(duration));
+            var pod = new ToxicPod(slow, cap, end / (double)ProjectileRuntime.QuantaPerSecond, withered);
+            var victims = podVictims[pod] = [];
             void Tick()
             {
                 long now = Runtime.Now;
@@ -78,6 +82,7 @@ public static partial class Game
                     {
                         var vines = ToxicVines.GetValue(monster, _ => new(ReferenceEqualityComparer.Instance));
                         lock (vines) vines.Add(pod);
+                        if (pod.Withered is not null) monster.PresentationChanged?.Invoke();
                     }
                     var carry = dotRemainders.GetValue(monster, _ => new PodDamage());
                     double total = carry.Fraction + seconds * dps * MonsterDotTaken(monster, DamageType.Chaos, at);
