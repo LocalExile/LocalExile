@@ -506,6 +506,7 @@ public static partial class Game
             List<byte[]>? ignited = null, bled = null;
             string igniteLog = "", bleedLog = "";
             StunHit stun;
+            SpawnedMonster.NativeKnockback? nativeKnockback = null;
             using (ProjectileMutation(player))
             {
                 if (m.Life == 0) return true;
@@ -600,6 +601,7 @@ public static partial class Game
                 AilmentsOnHitLocked(player, targetId, m, mitigated, spell: false, critical, criticalMultiplier, playerStats,
                     ownPenetration, at, AreaRng(player), poison: prehit.Poison,
                     blind: BlindHitInput.Capture(playerStats), attackGains: AttackAilmentGains.Capture(playerStats, attack: true));
+                nativeKnockback = TakeNativeKnockbackLocked(m);
                 if (life > 0 && prehit.Ignite.CanIgnite(ownRolled)
                     && IgniteOnHitLocked(player, targetId, m, prehit.Ignite,
                         critical, at, attackGains: AttackAilmentGains.Capture(playerStats, attack: true)) is { } packets)
@@ -628,9 +630,12 @@ public static partial class Game
             // player-melee hit (bit 0 hit, 0x200 damage, 0x4000 attack), kind 0x03 = action hit with hit data, the angle drives
             // the directional blood.
             var order = HitOrder(player, player.Id);
+            ushort hitFlags = (ushort)(0x4201 | (critical ? 0x0020 : 0));
+            byte hitKind = 0x03, hitAngle = HitAngle(target.X - stop.X, target.Y - stop.Y);
+            ApplyNativeKnockback(nativeKnockback, ref hitFlags, ref hitKind, ref hitAngle, out ushort hitU3c, out ushort hitU3e);
             await SendWorldRecord(player, player.Id, InstanceProtocol.ActionHit(player.Id, use.Sequence, targetId,
-                    flags: (ushort)(0x4201 | (critical ? 0x0020 : 0)), kind: 0x03, code: hitCode,
-                    angle: HitAngle(target.X - stop.X, target.Y - stop.Y), orderKey: order.Key, checkpoint: order.Hit),
+                    flags: hitFlags, kind: hitKind, code: hitCode,
+                    angle: hitAngle, u3c: hitU3c, u3e: hitU3e, orderKey: order.Key, checkpoint: order.Hit),
                 $"0x01af player hit on monster 0x{targetId:x} (sequence 0x{use.Sequence:x4})");
             Note($"0x01b1 monster 0x{targetId:x} hit for {damage}{(critical ? " (critical)" : "")}{handNote}" +
                 (resistance is { } note ? $", {note}" : "") +
@@ -924,6 +929,8 @@ public static partial class Game
     {
         bool paymentPublished, completed, nativeCommitted;
         public IReadOnlyList<(SingleUseCooldownState State, int Version, ushort Skill)> SharedUses { get; init; } = [];
+        public bool CooldownReset { get; init; }
+        public int ResetBaseMilliseconds { get; init; }
 
         public bool Matches(ushort skillId, int effect) => SkillId == skillId && Effect == effect;
 
@@ -945,7 +952,10 @@ public static partial class Game
         {
             if (!ReferenceEquals(Player, player)) return false;
             if (nativeCommitted || !CurrentLocked(player)) return false;
-            Cooldown.ConfirmNativeUse(UseVersion, SkillId, synchronizeProgress: false);
+            if (CooldownReset)
+                Cooldown.SynchronizeNativeReset(SkillId, ResetBaseMilliseconds);
+            else
+                Cooldown.ConfirmNativeUse(UseVersion, SkillId, synchronizeProgress: false);
             foreach (var (state, version, skill) in SharedUses)
                 state.ConfirmNativeUse(version, skill, synchronizeProgress: true);
             nativeCommitted = true;
@@ -1016,15 +1026,23 @@ public static partial class Game
             if (!PayMana(player, skillId, out uint manaCost, out uint lifeCost)) return false;
 
             // Nothing below can refuse: payment, cooldown use, action, displacement and recents are one commit.
-            _ = state.TryUse(acceptedAt, plan);
+            state.Refresh(acceptedAt, plan.RecoveryRate);
+            state.Capacity(plan.Uses);
+            bool cooldownReset = CooldownResetTriggered(player, effect, skillId, AreaRng(player));
+            if (!cooldownReset) _ = state.TryUse(acceptedAt, plan);
             player.SkillReadyAt[key] = acceptedAt + state.RemainingSeconds;
-            var sharedUses = SpendSharedCooldownPeers(player, key, effect, skillId, plan, acceptedAt, peers);
+            var sharedUses = cooldownReset ? [] : SpendSharedCooldownPeers(player, key, effect, skillId, plan, acceptedAt, peers);
             int action = beginAction ? Interlocked.Increment(ref player.ActionCount) : player.ActionCount;
             if (beginAction) player.Walk.Order(from.X, from.Y, acceptedAt);
             player.Walk.Teleport(to.X, to.Y, acceptedAt);
             RecordAcceptedGemUseAt(player, effect, to, acceptedAt);
             receipt = new(player, CombatLifetime!, skillId, effect, source.Identity, action, player.ProjectileEpoch,
-                acceptedAt, from, to, state, state.UseVersion, manaCost, lifeCost) { SharedUses = sharedUses };
+                acceptedAt, from, to, state, state.UseVersion, manaCost, lifeCost)
+            {
+                SharedUses = sharedUses,
+                CooldownReset = cooldownReset,
+                ResetBaseMilliseconds = cooldownReset ? plan.BaseMilliseconds : 0,
+            };
             return true;
         }
     }
@@ -2576,6 +2594,7 @@ public static partial class Game
                 List<byte[]>? ignited = null, bled = null;
                 string igniteLog = "", bleedLog = "";
                 StunHit stun;
+                SpawnedMonster.NativeKnockback? nativeKnockback = null;
                 using (ProjectileMutation(player, advance: scheduledSession is null))
                 {
                     // Catch up earlier projectile contacts before reading any live offensive input. The first accepted
@@ -2781,6 +2800,8 @@ public static partial class Game
                             blind: BlindHitInput.Capture(playerStats, skillStats),
                             hitOrigin: IsLeapSlam(player, gem.Effect) ? centre : null,
                             attackGains: AttackAilmentGains.Capture(playerStats, SkillsFor(player).IsAttack(gem.Effect)));
+                        if (scheduledSession is not null || (melee ?? !spell) || damage > 0)
+                            nativeKnockback = TakeNativeKnockbackLocked(m);
                         // As a projectile's hit: a hit with fire that leaves the monster alive may ignite it, an attack with
                         // physical damage bleed it.
                         if (m.Life > 0 && (critical ? profile.Ignite.CriticalMax : profile.Ignite.Max) > 0
@@ -2823,7 +2844,7 @@ public static partial class Game
                         if (reflected.Count > 0 && playerStats is not null)
                             ReflectPendingAilmentsLocked(player, reflected, ProjectileWorldTime(player), playerStats, AreaRng(player));
                         CommitScheduledMeleeHit(scheduled, id, m, hit, damage, critical, stun, sequence, gem.Name,
-                            settleKill: singleStrikeTarget is not null, hitCode: hitCode);
+                            settleKill: singleStrikeTarget is not null, hitCode: hitCode, knockback: nativeKnockback);
                         if (singleStrikeTarget is null && hit.Life == 0) deaths.Add((id, m));
                     }
                     scheduled.Enqueue(() => SendDotBuff(player, ignited, igniteLog));
@@ -2835,7 +2856,8 @@ public static partial class Game
                 await NotifyMonsterHit(player, id, m, hit, damage,
                     $"{gem.Name}{(hammer is null ? "" : " (holy hammer)")}{(critical ? " (critical)" : "")}{handNote}{(resistance is null ? "" : $", {resistance}")}",
                     melee: melee ?? !spell, sequence: sequence, deaths: deaths, hitCode: hitCode, stun: stun, critical: critical,
-                    impactArt: !spell && hammer is null ? MeleeImpactArt(SkillsFor(player).EffectId(gem.Effect)) : null);
+                    impactArt: !spell && hammer is null ? MeleeImpactArt(SkillsFor(player).EffectId(gem.Effect)) : null,
+                    knockback: nativeKnockback);
                 await SendDotBuff(player, ignited, igniteLog);
                 await SendDotBuff(player, bled, bleedLog);
                 ChargesOnHit(player, m, critical, spell, gem.Effect, gem.Level, gem.Quality, primary: id == targets[0].Id, skillStats: skillStats);
@@ -3136,13 +3158,15 @@ public static partial class Game
 
     public static Task NotifyMonsterHit(Player player, uint id, SpawnedMonster m,
         MonsterHit hit, int damage, string by, bool log = true, bool melee = false, ushort sequence = 0,
-        List<(uint Id, SpawnedMonster M)>? deaths = null, byte hitCode = 0, StunHit? stun = null, bool critical = false, string? impactArt = null) =>
+        List<(uint Id, SpawnedMonster M)>? deaths = null, byte hitCode = 0, StunHit? stun = null, bool critical = false, string? impactArt = null,
+        SpawnedMonster.NativeKnockback? knockback = null) =>
         NotifyMonsterHitCore(player, id, m, hit, damage, by, log, melee, sequence, deaths, hitCode, stun,
-            critical: critical, impactArt: impactArt);
+            critical: critical, impactArt: impactArt, knockback: knockback);
 
     static async Task NotifyMonsterHitCore(Player player, uint id, SpawnedMonster m,
         MonsterHit hit, int damage, string by, bool log, bool melee, ushort sequence,
-        List<(uint Id, SpawnedMonster M)>? deaths, byte hitCode, StunHit? stun, bool critical, string? impactArt)
+        List<(uint Id, SpawnedMonster M)>? deaths, byte hitCode, StunHit? stun, bool critical, string? impactArt,
+        SpawnedMonster.NativeKnockback? knockback = null)
     {
         var (life, stageStarts) = hit;
         if (life == 0)
@@ -3160,7 +3184,7 @@ public static partial class Game
             var (px, py) = player.Walk.Position(now);
             var (mx, my) = m.Walk.Position(now);
             await SendWorldRecord(player, player.Id, MeleeHitFeedback(player.Id, sequence, id, hitCode,
-                    HitAngle(mx - px, my - py), critical, impactArt, order.Key, order.Hit),
+                    HitAngle(mx - px, my - py), critical, impactArt, order.Key, order.Hit, knockback),
                 !log ? null : $"0x01af player hit on monster 0x{id:x} (skill, sequence 0x{sequence:x4})");
             if (impactArt is not null) await PresentMeleeImpact(player, impactArt, (px, py), (mx, my));
         }
@@ -3171,9 +3195,11 @@ public static partial class Game
             var (mx, my) = m.Walk.Position(now);
             var hitOrder = HitOrder(player, player.Id);
             byte code = HitCodeWithVariation(hitCode, damage, m.MaxLife, critical || life == 0);
+            ushort flags = (ushort)(0x4000 | HitTypeFlag(code) | (critical ? 0x0020 : 0));
+            byte kind = 0x03, angle = HitAngle(mx - px, my - py);
+            ApplyNativeKnockback(knockback, ref flags, ref kind, ref angle, out ushort u3c, out ushort u3e);
             await SendWorldRecord(player, player.Id, InstanceProtocol.ActionHit(player.Id, sequence == 0 ? (ushort)0xffff : sequence, id,
-                    flags: (ushort)(0x4000 | HitTypeFlag(code) | (critical ? 0x0020 : 0)), kind: 0x03, code: code,
-                    angle: HitAngle(mx - px, my - py), orderKey: hitOrder.Key, checkpoint: hitOrder.Hit),
+                    flags: flags, kind: kind, code: code, angle: angle, u3c: u3c, u3e: u3e, orderKey: hitOrder.Key, checkpoint: hitOrder.Hit),
                 !log ? null : $"0x01af spell/area hit on monster 0x{id:x} (sequence 0x{sequence:x4})");
         }
         // The hit reaction: one of the rig's TakeHit clips and its SoundEvent (0x1b2), as in Attack.
@@ -3560,7 +3586,7 @@ public static partial class Game
         }
         // Soul Eater eats the souls of anything killed nearby, the player's kill or not.
         SoulEaterSoul(player, id, at);
-        await SetQuestFlags(player, QuestsOf(player).OnMonsterKilled(player.Layout.Id, variety.Id));
+        await SetQuestFlags(player, QuestFlagsOnKill(player, variety.Id));
         // The party's kill: every living player within the experience range takes their share
         // (Progression.PartyMultiplier), the killer included. The presence of a private area is the party (an area is
         // entered as the party's instance).

@@ -75,7 +75,7 @@ public static partial class Game
         ushort[] nodes;
         nodes = [.. player.Character.Passives, .. player.Character.MainAscendancy.Allocated];
         return [.. (LeagueFor(player).HardMode ? RuthlessGrantedSkills : GrantedSkills).For(nodes)
-            .Where(g => AuraCatalog.Supported(g.EffectId)
+            .Where(g => AuraCatalog.Supported(g.EffectId) || IsRelicSkill(g.EffectId)
                 || GameEvents.GrantedSkillExecutable.For(player).Any(accept => accept(player, g.EffectId)))];
     }
 

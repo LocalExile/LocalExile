@@ -205,8 +205,9 @@ Part of [Status](../Status.md); what to build next in this area is in
   See [opening encounter](../docs/protocol/12-quests.md#opening-encounter-2026-10-25).
 - Quest exits with a Transitionable (Merveil's exit, the arena doors) open without their animation (plain
   AreaTransition), and the arena doors are not created at all.
-- In Act 2, solo players talk to a bandit leader to open the native Help or Kill choice. An allied leader accepts both
-  rivals' amulets for the reward, then offers the Apex. Killing all three leads to Eramir's hand-in.
+- In Act 2, solo and party players talk to a bandit leader to open the native Help or Kill vote (S→C 0xbe / C→S 0xbd),
+  tracking in-area voters and out-of-area party members (`WaitingToEnterArea`) until all eligible voters answer.
+  An allied leader accepts both rivals' amulets for the reward, then offers the Apex; killing all three leads to Eramir.
 - Characters whose activated waypoints carry a quest flag as an access flag (a1q1's Hillock for the Coast) skip that
   flag's world changes: with OfflineWitch, The Twilight Strand's wall was not created and its gate stood open.
 - Merveil's Caverns Trick Chests (`AmarissaTrickChest` in `1_1_11_1`, `AmbrosiaTrickChest` in `1_1_11_2`) spawn in

@@ -257,8 +257,15 @@ Part of [Status](../Status.md); what to build next in this area is in
 - Summon Reaper of Eviscerating follows its owner, consumes allies and attacks on recast.
 - Predator targeting, Feeding Frenzy buffs, aggressive Skeleton Warrior dashes, defensive targeting and Meat Shield proximity damage.
   Docs: [11](../docs/protocol/11-skills.md) Â§10h.
-- Absolution and Dominating sentinels, Phantasms, direct Vaal Skeletons and Vaal Absolution/Domination ascensions. Docs: [11](../docs/protocol/11-skills.md) Â§10h.
+- Absolution and Dominating sentinels, Phantasms, direct Vaal Skeletons and Vaal Absolution/Domination ascensions.
+  HUD minion counter icons (`PlayerMinionsChange`) now publish for all active player minion types (not checked live).
+  Docs: [11](../docs/protocol/11-skills.md) Â§10h.
   Vaal minion totem, trap and mine casts are refused before spending souls or starting an action.
+- Removable player buffs can be right-click cancelled via C→S `0x4b` (Grace Period, Shrines, guards, auras, Arcane
+  Surge, phasing; non-removable debuffs rejected; not checked live). Docs: [11](../docs/protocol/11-skills.md) §12.
+- Native knockback hit presentation (`0x1af` bit 11 + `u3c`/`u3e`), totem directional `HitAngle`/`HitCode`, `0x1b0`
+  `ActionResultFlag` encoder, and chance-based instant cooldown reset sync (`0x50cd`/`0x52e2`; not checked live).
+  Docs: [11](../docs/protocol/11-skills.md) §5, §9, §10g.
 - Vaal Animate Weapon transforms eligible melee drops and landed Bladefall of Trarthus blades into temporary unique weapons.
 - Conversion Trap temporarily changes the triggering enemy's allegiance. Converted enemies can attack hostiles,
   and unique enemies are immune.
@@ -281,7 +288,10 @@ Part of [Status](../Status.md); what to build next in this area is in
 - Onslaught on kill and from a Silver Flask. Docs: [13](../docs/protocol/13-items.md) Â§8a.
 - Rampage and Soul Eater from item stats, with Soul Ascension's souls from hits on rare and unique enemies.
   Docs: [11](../docs/protocol/11-skills.md) Â§12.
-- Stats: the client's stat keys and the player's base pools. Docs: [11](../docs/protocol/11-skills.md) Â§4, Â§8, Â§14.
+- Stats: the client's stat keys and the player's base pools, plus item-requirement stats (`main_hand_weapon_type`,
+  `virtual_*_for_requirements`), dual-wield snapshot sync, and light radius virtual stats (`virtual_light_radius_+%`,
+  `virtual_blind_does_not_affect_light_radius`; new virtuals not checked live).
+  Docs: [11](../docs/protocol/11-skills.md) Â§4, Â§8, Â§14.
 - Attack speed passives and attack timing. Docs: [11](../docs/protocol/11-skills.md) Â§4.
 - Spell cast timing (#192). Docs: [11](../docs/protocol/11-skills.md) Â§9.
 - Selected spell hit damage panel (#188). Docs: [11](../docs/protocol/11-skills.md) Â§9 and Â§14.

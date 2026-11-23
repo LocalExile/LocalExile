@@ -39,10 +39,19 @@ public sealed class AreaDelta(GameArea area)
 
     public int Count => records.Count;
 
+    /// <summary>Remove a shared object even when its replay was sent only to individual joining players.</summary>
+    public void RemoveSharedObject(uint entity, byte[] bytes, string? log = null)
+    {
+        area.AssertOwner();
+        lock (viewers) viewers.Remove(entity);
+        Add(entity, bytes, log, Kind.Remove);
+    }
+
     public void Add(Record record)
     {
         area.AssertOwner();
-        if (record.Kind == Kind.Create && record.Only is { } owner && record.Except is null && !area.Monsters.ContainsKey(record.Entity))
+        if (record.Kind == Kind.Create && record.Only is { } owner && record.Except is null
+            && !area.Monsters.ContainsKey(record.Entity) && !area.Objects.Has(record.Entity))
         {
             lock (viewers)
             {

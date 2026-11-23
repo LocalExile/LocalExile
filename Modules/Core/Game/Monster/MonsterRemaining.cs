@@ -41,6 +41,7 @@ public static partial class Game
     {
         var delivery = RemainingOf(player);
         // Concurrent deaths and arrivals share this gate, so an older snapshot cannot overwrite a newer count.
+        List<Player>? cleared = null;
         await delivery.Gate.WaitAsync();
         try
         {
@@ -56,6 +57,7 @@ public static partial class Game
                 if (!CurrentGameWork || recipient.Closed || recipient.LeavingArea || !recipient.Connection.PlayerSent
                     || !ReferenceEquals(recipient.Instance, player.Instance)
                     || (!(force && own) && recipient.SentMonstersRemaining == living)) continue;
+                int previousLiving = recipient.SentMonstersRemaining;
                 // Encryption mutates the bytes. Construct plaintext independently for every recipient.
                 byte[] bytes = InstanceProtocol.MonstersRemaining(living);
                 if (own)
@@ -67,8 +69,12 @@ public static partial class Game
                 }
                 else continue;
                 recipient.SentMonstersRemaining = living;
+                if (previousLiving > 0 && living == 0) (cleared ??= []).Add(recipient);
             }
         }
         finally { delivery.Gate.Release(); }
+        if (cleared is not null)
+            foreach (var recipient in cleared)
+                await CheckFullClearAchievements(recipient);
     }
 }

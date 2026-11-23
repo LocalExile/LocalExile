@@ -50,7 +50,7 @@ public static partial class Game
             other.KillShares.Enqueue(async _ =>
             {
                 if (HardcoreProgressBlocked(other)) return;
-                await SetQuestFlags(other, QuestsOf(other).OnMonsterKilled(other.Layout.Id, variety.Id));
+                await SetQuestFlags(other, QuestFlagsOnKill(other, variety.Id));
                 await CharacterVoiceLines.GrantKillFlags(other, other.Layout.Id, variety.Id);
                 // The kill's quest items: each player gets their own (none for one who has it or is past that quest).
                 await DropQuestItemsForKill(other, variety.Id, at, $"{m.Label} (party kill)");

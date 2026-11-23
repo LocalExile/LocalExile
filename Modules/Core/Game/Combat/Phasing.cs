@@ -68,7 +68,24 @@ public static partial class Game
         if (player.PhasingUntil > now) PresentIn(player, player.PhasingUntil - now);
         if (!active) player.Area.Buffs.Clear(player.Id, PhasingBuffRow, player.Id);
         else if (player.PhasingUntil <= now) player.Area.Buffs.Set(player.Id, PhasingBuff(player, null));
-        SetStats(player, player.Id, [(Stat.VirtualPhaseThroughObjects, active ? 1 : 0), (Stat.PhaseThroughObjects, active ? 1 : 0)]);
+        var stats = new List<(uint Key, int Value)>(3)
+        {
+            (Stat.VirtualPhaseThroughObjects, active ? 1 : 0),
+            (Stat.PhaseThroughObjects, active ? 1 : 0),
+        };
+        var current = PlayerStatValues(player);
+        int phasedBonus = current.GetValueOrDefault(Stat.LightRadiusPlusPctWhilePhased);
+        if (phasedBonus != 0)
+        {
+            int baseLight = current.GetValueOrDefault(Stat.LightRadiusPlusPct);
+            int mapLight = MapModsOf(player)?.Get(Stat.MapPlayerLightRadiusPlusPct) ?? 0;
+            int desiredLight = ActorScale.Saturate((long)baseLight + (active ? phasedBonus : 0) + mapLight);
+            if (current.GetValueOrDefault(Stat.VirtualLightRadiusPlusPct) != desiredLight)
+                MarkPlayerStats(player, PlayerStatStep.TailPanels);
+            if (!player.Frames.Running)
+                stats.Add((Stat.VirtualLightRadiusPlusPct, desiredLight));
+        }
+        SetStats(player, player.Id, stats);
         return Task.CompletedTask;
     }
 }

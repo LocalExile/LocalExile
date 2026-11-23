@@ -82,6 +82,7 @@ public static partial class Game
         await RefreshBenchBalance(player, clear: true);
         player.BenchOpen = false;
         player.ModuleWindow = null;
+        player.ModuleWindowAnchor = null;
         if (player.StashObject == 0) return;
         var at = player.StashAt;
         if (!TryBeginObjectWalk(player, requestedAt, at.X, at.Y, Player.StashBlockerSize, out var objectWalk)) return;
@@ -89,6 +90,7 @@ public static partial class Game
         Console.WriteLine($"[gateway] {player.Connection.Remote} <= 0x0024 stash ({use}) from ({here.X}, {here.Y}): reached at ({stop.X}, {stop.Y}) in {arrive - now:0.00} s");
         if (arrive > now) await AreaDelay(player, arrive - now);
         if (!PlayerActionCurrent(player, action)) return;
+        player.StashOpen = true;
         player.GuildStashOpen = false;
         var stash = StashOf(player);
         // The panel keeps its tab while this connection lasts; only its first open here is moved to the account's last tab.
@@ -303,11 +305,18 @@ public static partial class Game
         if (moved is not null) await SendTransfer(player, items, stash, moved, tabFirst: false);
     }
 
-    // An item out of a stash tab into the main inventory (C→S 0xe3), a stack onto the inventory's stacks first
+    // An item out of a stash tab into the main inventory (C→S 0xe3 / 0xf5 / 0xf9), a stack onto the inventory's stacks first
     // (ItemMoves.StashToInventory), one transaction.
-    public static async Task TakeFromStash(Player player, int tab, uint itemId, bool all)
+    public static async Task TakeFromStash(Player player, int tab, uint itemId, bool all, byte? kind = null)
     {
-        var stash = StashOf(player);
+        var stash = kind switch
+        {
+            InstanceStash.Guild when !player.Character.Ssf => GuildStashOf(player),
+            InstanceStash.Guild => null,
+            InstanceStash.Personal => PersonalStashOf(player),
+            _ => StashOf(player),
+        };
+        if (stash is null) return;
         var items = ItemsOf(player);
         if (ItemMoves.StashToInventory(stash, items, tab, itemId, ShapeOf, all) is not { } moved)
         {
