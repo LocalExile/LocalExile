@@ -9,6 +9,7 @@ public static partial class Game
         int Get(uint key) => stats.GetValueOrDefault(key);
         PresentStats(player);
         RecoveryRatesChanged(player);
+        player.EnergyShield.SetRechargeProtection(Get(Stat.KeystoneWickedWard) != 0 ? RecentlySeconds : 0);
         // A periodic charge gain's stat may have come (ChargeSession.Observe): the charges ticker runs while it has work.
         WakeCharges(player);
         WakeFootsteps(player);

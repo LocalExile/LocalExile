@@ -1360,17 +1360,24 @@ public static partial class Game
     // moving, an enemy hit in the last 4 s: PoB's "recently"), the reduction on a successful suppress (40% by default)
     // and its lucky or unlucky roll (PoB's suppressRolls).
     public static (int Chance, int Effect, bool Lucky, bool Unlucky) Suppression(Player player)
+        => (SpellDefences(player).Suppression, Math.Max(0, player.Pools.SpellSuppressionEffect),
+            player.Pools.SpellSuppressionLucky, player.Pools.SpellSuppressionUnlucky);
+
+    public static (int Suppression, int Dodge) SpellDefences(Player player)
     {
         double now = AreaTime(player);
         bool fullLife, fullEnergyShield, hitRecently;
         fullLife = CountsAsFullLife(player.PlayerLife, player.PlayerMaxLife, SelfCurseConditionInputs(player));
         fullEnergyShield = player.PlayerLife > 0 && player.EnergyShield.Full;
         hitRecently = now - player.LastEnemyHitAt <= RecentlySeconds;
-        return (CharacterStats.SuppressionChance(player.Pools, fullLife, moving: player.Walk.Moving(now), hitRecently,
-                fullEnergyShield),
-            Math.Max(0, player.Pools.SpellSuppressionEffect),
-            player.Pools.SpellSuppressionLucky, player.Pools.SpellSuppressionUnlucky);
+        bool moving = player.Walk.Moving(now);
+        return (CharacterStats.SuppressionChance(player.Pools, fullLife, moving, hitRecently, fullEnergyShield),
+            CharacterStats.SpellDodgeChance(player.Pools, fullLife, moving, hitRecently, fullEnergyShield));
     }
+
+    static bool DodgesSpellHit(Player player) =>
+        (player.Pools.ConvertSuppressionToSpellDodge || player.Pools.BaseSpellDodgeChance > 0)
+        && GameServer.Core.World.RandomRolls.Chance(SpellDefences(player).Dodge, 100, player.IncomingHitRandom);
 
     // Devout of Garukhan's while-moving evasion and regeneration as finals, again when a walk starts or ends, for a
     // character with a while-moving stat. The client steps its pools from life/mana_recovery_per_minute and does not

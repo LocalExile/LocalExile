@@ -1016,6 +1016,13 @@ public static partial class Game
         var map = MapModsOf(player);
         if (map?.Get(Stat.MapPlayersSpellDamagePctSuppressed) is int prevention and not 0)
             bonus = bonus with { SpellSuppressionEffect = ActorScale.Saturate((long)bonus.SpellSuppressionEffect + prevention) };
+        if (EquipmentInput(Stat.KeystonePrismaticBulwark) != 0)
+            bonus = bonus with
+            {
+                FireMaxResistance = bonus.FireMaxResistance - 15,
+                ColdMaxResistance = bonus.ColdMaxResistance - 15,
+                LightningMaxResistance = bonus.LightningMaxResistance - 15,
+            };
         int EquipmentInput(uint key) => sources.GetValueOrDefault(key);
         var gear = EquippedBaseDefences(player, EquipmentInput);
         var slots = EquippedArmourDefences(player, EquipmentInput).ToArray();
@@ -1234,9 +1241,11 @@ public static partial class Game
         if (pools.SpellBlockAtMaximum) pools = pools with { SpellBlockChance = pools.SpellBlockChanceMax };
         player.AppliedAdrenaline = player.Antiquarian.Adrenaline(AreaTime(player));
         ConfigureFortificationRecovery(player, pools.Life, sources);
-        pools = pools with { EnergyShield = IncomingResourceDefences.Maximum(pools.EnergyShield,
+        int lifeAsEnergyShield = ActorScale.Saturate((long)EquipmentInput(Stat.MaximumLifePctToAddAsMaximumEnergyShield)
+            + (EquipmentInput(Stat.KeystoneCorruptedDefences) != 0 ? 15 : 0));
+        pools = pools with { EnergyShield = bonus.NoEnergyShield ? 0u : IncomingResourceDefences.Maximum(pools.EnergyShield,
             pools.Life, pools.Mana, pools.EnergyShieldPct,
-            EquipmentInput(Stat.MaximumLifePctToAddAsMaximumEnergyShield),
+            lifeAsEnergyShield,
             EquipmentInput(Stat.ManaPctToAddAsEnergyShield)) };
         if (map?.Get(Stat.MapPlayerGlobalDefencesPlusPct) is int defences and not 0)
         {
@@ -1460,7 +1469,12 @@ public static partial class Game
             DexterityAccuracyTriple: Get(Stat.DexterityAccuracyBonusGrantsAccuracyRatingPlus3PerDexterityInstead) != 0,
             AccuracyEqualsIntelligence: Get(Stat.GainAccuracyRatingEqualToIntelligence) != 0,
             ManaReservationEfficiencyPct: manaReservation, LifeReservationEfficiencyPct: lifeReservation,
-            AuraEffectPct: auraEffect, AuraAreaPct: auraArea);
+            AuraEffectPct: auraEffect, AuraAreaPct: auraArea)
+        {
+            ConvertSuppressionToSpellDodge = Get(Stat.KeystoneAcrobatics) != 0,
+            BaseSpellDodgeChance = Get(Stat.ChanceToDodgeSpellsPct),
+            NoEnergyShield = Get(Stat.KeystoneMiracleOfThaumaturgy) != 0,
+        };
     }
 
     // The character's passive skill points (one per level after the first, plus the extra points from

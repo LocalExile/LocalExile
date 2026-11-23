@@ -15,17 +15,28 @@ public sealed class EnergyShield
     /// <summary>Current changed (the Life component writes it: AreaLife).</summary>
     public Action? Changed;
     double interruptedAt = double.NegativeInfinity, fraction;
+    double rechargeStartedAt = double.NegativeInfinity, rechargeProtection;
+    public static readonly uint RechargeRateModifier = Stat.Of("server_energy_shield_recharge_rate_permyriad_final");
+
+    public void SetRechargeProtection(double seconds) => rechargeProtection = Math.Max(0, seconds);
+
+    void StopRecharge()
+    {
+        rechargeStartedAt = double.NegativeInfinity;
+        Recharging = false;
+    }
+
     public void SetMaximum(uint maximum, bool refill = false)
     {
         Maximum = maximum;
         Current = refill ? maximum : Math.Min(Current, maximum);
-        if (Current == Maximum) { fraction = 0; Recharging = false; }
+        if (Current == Maximum) { fraction = 0; StopRecharge(); }
     }
     public void Interrupt(double now)
     {
-        if (!double.IsFinite(now)) return;
+        if (!double.IsFinite(now) || Recharging && now >= rechargeStartedAt && now - rechargeStartedAt < rechargeProtection) return;
         interruptedAt = Math.Max(interruptedAt, now);
-        Recharging = false;
+        StopRecharge();
     }
     public int Damage(int amount, bool bypass, double now)
     {
@@ -36,7 +47,7 @@ public sealed class EnergyShield
         Current -= absorbed;
         return amount - (int)absorbed;
     }
-    public void Empty() { Current = 0; fraction = 0; Recharging = false; }
+    public void Empty() { Current = 0; fraction = 0; StopRecharge(); }
     /// <summary>A cost paid from Energy Shield (a skill's cost): unlike damage, it does not restart the recharge delay.
     /// False, and nothing spent, when there is not that much.</summary>
     public bool Spend(uint amount)
@@ -49,14 +60,14 @@ public sealed class EnergyShield
     public void Recover(uint amount)
     {
         Current = (uint)Math.Min(Maximum, (long)Current + amount);
-        if (Current == Maximum) { fraction = 0; Recharging = false; }
+        if (Current == Maximum) { fraction = 0; StopRecharge(); }
     }
     // Leech/gain does not start recharge or reset its interruption timer.
     public void Gain(double amount)
     {
         if (!double.IsFinite(amount) || amount <= 0) return;
         Current = RecoveryPool.Advance(Current, Maximum, amount, ref fraction);
-        if (Current == Maximum) Recharging = false;
+        if (Current == Maximum) StopRecharge();
     }
     public Snapshot Capture(double now)
     {
@@ -70,7 +81,7 @@ public sealed class EnergyShield
         Current = Math.Min(snapshot.Current, Maximum);
         fraction = Current < Maximum && double.IsFinite(snapshot.Fraction) && snapshot.Fraction is >= 0 and < 1
             ? snapshot.Fraction : 0;
-        Recharging = false;
+        StopRecharge();
         if (snapshot.InterruptedSecondsAgo is not double secondsAgo)
         {
             interruptedAt = double.NegativeInfinity;
@@ -98,6 +109,7 @@ public sealed class EnergyShield
         max * 20.0 * Math.Max(0, 1 + get(Stat.EnergyShieldRechargeRatePlusPct) / 100.0)
         * Math.Max(0, 1 + get(Stat.EnergyShieldRecoveryRatePlusPct) / 100.0)
         * PanelStats.MapRecoveryMultiplier(get)
+        * Math.Max(0, 1 + get(RechargeRateModifier) / 10_000.0)
         // Eldritch Battery: "50% less Energy Shield Recharge Rate".
         * (get(Stat.KeystoneEldritchBattery) != 0 ? 0.5 : 1);
     public static double RegenPerMinute(uint max, Func<uint, int> get) =>
@@ -120,15 +132,21 @@ public sealed class EnergyShield
     {
         if (!alive) { Empty(); return; }
         if (NotDelayed(get)) interruptedAt = double.NegativeInfinity;
-        if (to <= from || Current >= Maximum) { Recharging = false; return; }
+        if (to <= from) return;
+        if (Current >= Maximum) { StopRecharge(); return; }
         double start = interruptedAt + Delay(get);
         double recharge = RechargePerMinute(Maximum, get);
-        Recharging = to >= start && recharge > 0;
+        if (to >= start && recharge > 0)
+        {
+            if (!Recharging) rechargeStartedAt = Math.Max(from, start);
+            Recharging = true;
+        }
+        else StopRecharge();
         double rechargeSeconds = Math.Max(0, to - Math.Max(from, start));
         double change = fraction + RegenPerMinute(Maximum, get) * (to - from) / 60 + recharge * rechargeSeconds / 60;
         uint whole = (uint)Math.Min(uint.MaxValue, Math.Floor(change));
         Current = (uint)Math.Min(Maximum, (long)Current + whole);
         fraction = Current == Maximum ? 0 : change - whole;
-        if (Current == Maximum) Recharging = false;
+        if (Current == Maximum) StopRecharge();
     }
 }
