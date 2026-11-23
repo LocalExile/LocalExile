@@ -186,6 +186,7 @@ Part of [Status](../Status.md); what to build next in this area is in
   live charge to launch Spirit Burst.
 - Approaching Flames from Annihilation's Approach toggles Flame-Touched, its Adrenaline and its fire damage.
 - Owned minions: relics, chieftains and the 17 golems. Docs: [11](../docs/protocol/11-skills.md) §10h.
+  Mindless Aggression and minion area mastery scale minions. Fresh Meat grants timed Adrenaline and Wakened Fury.
 - Raised Host and Carnage Chieftains grant Power and Frenzy Charges with their native roars. Spectre charge visuals still need live verification.
 - Link skills. Docs: [11](../docs/protocol/11-skills.md) §13, [Paladin](../docs/game/paladin.md#link-skills).
   Docs: [11](../docs/protocol/11-skills.md) Â§13, [Paladin](../docs/game/paladin.md).
@@ -243,6 +244,7 @@ Part of [Status](../Status.md); what to build next in this area is in
 - Summons: quality, source recovery, spell repeats, and enemy-seeking undamageable Skitterbots; mines and traps
   Revenants consume nearby allies, Smiting Guardians use Smite, and Slamming Zombies attack between slams.
   (including Fire Trap proxy stats, detonation aim, burning-enemy bonus, throw clamping, and lockstep timing).
+  Locus Mine keeps close mines armed. Invention scales trap and mine damage by their age at the trigger.
   Docs: [11](../docs/protocol/11-skills.md) Â§10h.
 - Summon Reaper of Eviscerating follows its owner, consumes allies and attacks on recast.
 - Predator targeting, Feeding Frenzy buffs, aggressive Skeleton Warrior dashes, defensive targeting and Meat Shield proximity damage.

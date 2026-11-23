@@ -123,6 +123,13 @@ public sealed record ProjectileOffense(DamagePacket Hit, bool Spell, int Accurac
         : this;
     }
 
+    public ProjectileOffense ScaleDamage(double more) => more == 1 ? this : this with
+    {
+        Hit = Hit.Scale(more), AreaHit = AreaHit?.Scale(more),
+        HitProfileMore = HitProfileMore * more, AilmentProfileMore = AilmentProfileMore * more,
+        Ignite = Scale(Ignite, more), Bleed = Scale(Bleed, more), Poison = Scale(Poison, more),
+    };
+
     static MonsterIgnites.Settings Scale(MonsterIgnites.Settings value, double more) => value with
     {
         Min = value.Min * more, Max = value.Max * more,
