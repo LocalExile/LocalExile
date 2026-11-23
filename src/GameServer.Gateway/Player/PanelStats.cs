@@ -96,7 +96,7 @@ public static class PanelStats
         .. Hands(h => new(Stat.Of($"virtual_total_{h}_chance_to_bleed_on_hit_%"), [Stat.BleedOnHitWithAttacksPct],
             Local: [Stat.LocalChanceToBleedOnHitPct, new(Stat.LocalChanceToBleedOnHit25Pct, Mul: 25),
                 new(Stat.LocalChanceToBleedOnHit50Pct, Mul: 50)])),
-        .. Hands(h => new(Stat.Of($"virtual_total_{h}_chance_to_ignite_on_hit_%"), [IgniteChance, FreezeShockIgniteChance])),
+        .. Hands(h => new(Stat.Of($"virtual_total_{h}_chance_to_ignite_on_hit_%"), [IgniteChance, FreezeShockIgniteChance, Stat.AttackIgniteChancePct])),
         .. Hands(h => new(Stat.Of($"virtual_total_{h}_chance_to_poison_on_hit_%"),
             [Stat.BaseChanceToPoisonOnHitPct, Stat.ChanceToPoisonOnHitWithAttacksPct], Local: [Stat.LocalPoisonOnHitPct])),
         .. Hands(h => new(Stat.Of($"{h}_maim_on_hit_%"), [Stat.MaimOnHitPct])),
