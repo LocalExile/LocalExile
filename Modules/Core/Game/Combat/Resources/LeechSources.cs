@@ -8,6 +8,9 @@ public sealed record LeechSources(DamagePacket Life, DamagePacket Mana, DamagePa
     // Whether the hit is melee damage: Vaal Pact's "Life Leech from Melee Damage is Instant" reads it (a bow attack is
     // Attack but not Melee). Molten Strike's melee hit sets it; its projectiles and other ranged attacks do not.
     public bool Melee { get; init; }
+    public bool WeaponLifeLeechInstant { get; init; }
+    public int InstantLeechPerEnemyPower { get; init; }
+    public int LifeOnBlindedHit { get; init; }
     // Life, Mana and Energy Shield gained per enemy hit, instantly: "Gain X Life per Enemy Hit with Attacks" and a
     // weapon's local "Grants X Life per Enemy Hit". Every 3.29 source is an attack's (PoB SkillStatMap maps
     // base_life_gain_per_target to LifeOnHit for attacks; the mana and energy shield mods say "with Attacks").
@@ -55,6 +58,9 @@ public sealed record LeechSources(DamagePacket Life, DamagePacket Mana, DamagePa
         return new(Pool("life"), Pool("mana"), Pool("energy_shield"))
         {
             Attack = attack, GainOnHit = gain, OverkillLifePct = Math.Max(0, get(Stat.LifeLeechOnOverkillDamagePct)),
+            WeaponLifeLeechInstant = attack && Local(Stat.LocalLifeLeechIsInstant) != 0,
+            InstantLeechPerEnemyPower = attack ? Local(Stat.HitsHaveLeechPctIsInstantPerMonsterPower) : 0,
+            LifeOnBlindedHit = attack ? Math.Max(0, Local(Stat.LocalLifeGainPerTargetVsBlindedEnemies)) : 0,
         };
     }
 

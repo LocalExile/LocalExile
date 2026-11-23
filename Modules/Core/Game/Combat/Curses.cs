@@ -148,7 +148,13 @@ public static partial class Game
                 && GolemStat(gem.Stats, Stat.TriggerOnAttackHitAgainstRareOrUnique) != 0
                 && now >= player.SkillReadyAt.GetValueOrDefault(gem.Effect))
             {
-                if (!PayMana(player, skill.Id, out _, out _)) continue;
+                if (!PayMana(player, skill.Id, out uint manaCost, out uint lifeCost)) continue;
+                if (lifeCost > 0 || manaCost > 0)
+                {
+                    player.Frames.Area?.Life.Resend(player);
+                    if (player.ProjectileRuntime is { Active: true } session)
+                        session.Enqueue(() => SendSkillCost(player, lifeCost, "Mark on Hit cost"));
+                }
                 player.SkillReadyAt[gem.Effect] = now + 4;
                 ApplyCurseLocked(player, target, skill.Id, now, false, gem, playerStats);
             }
