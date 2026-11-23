@@ -243,7 +243,13 @@ public static partial class Game
         finally { conn.Reservations.Secondary = false; }
     }
 
-    static void ReservationAshLocked(ClientState conn, AuraCatalog.Aura aura, (int X, int Y) at, uint overkill, double now)
+    // Herald of Ash's explosion where the overkilled enemy died (MiscAnimated HeraldOfAshExplosion, art radius 300),
+    // scaled to the burn radius; the server draws it (the kill has no client-side herald action).
+    const string HeraldOfAshExplosionAo = "Metadata/Effects/Spells/herald/fire/flameherald_explode.ao";
+    const double HeraldOfAshExplosionSeconds = 1.5;
+
+    static void ReservationAshLocked(ClientState conn, AuraCatalog.Aura aura, (int X, int Y) at, uint overkill, double now,
+        List<((int X, int Y) At, int Radius, int Burned, uint Overkill, double Dps)> blasts)
     {
         var skill = SupportedSkill(conn, aura.SkillId);
         var player = CharacterPlayerStats(conn);
@@ -257,21 +263,52 @@ public static partial class Game
             * Math.Max(0, 1 + Get("delirium_aura_damage_over_time_+%_final") / 100.0);
         double radius = ReservationRadius(conn, aura, 10, skill, player);
         double burnSeconds = ReservationDuration(conn, aura, "base_skill_effect_duration", 4000);
+        int burned = 0;
         foreach (var (id, m) in conn.Monsters)
             if (m is { Hostile: true, Dead: false, Life: > 0, Invulnerable: false } && Dist(m.Walk.Position(now), at) <= radius
                 && m.HeraldBurns.Add(now, dps, burnSeconds))
             {
+                burned++;
                 m.LastHitBy = conn;
                 if (m.HeraldBurns.Buff is not null) continue;
                 m.HeraldBurns.Buff = conn.NextBuff++;
                 ushort? burnVisual = aura.ArtVariation != 0 ? Art.BuffVisual("herald_of_ash_burning_buff", aura.ArtVariation) : null;
                 conn.Minions.OutputQueue.Add(new(InstanceEntities.AddBuff(id, m.HeraldBurns.Buff.Value, 877, PlayerId, visual: burnVisual), "Herald of Ash burn", id, m, WorldId: id));
             }
+        blasts.Add((at, (int)Math.Round(radius), burned, overkill, dps));
+    }
+
+    static async Task ShowHeraldOfAshBlasts(string remote, NetworkStream stream, ConnectionCiphers ciphers, ClientState conn,
+        List<((int X, int Y) At, int Radius, int Burned, uint Overkill, double Dps)> blasts)
+    {
+        foreach (var (at, radius, burned, overkill, dps) in blasts)
+        {
+            uint effect;
+            int epoch;
+            lock (conn.Monsters)
+            {
+                if (conn.Closed || conn.LeavingArea) return;
+                effect = conn.TakeObjectId();
+                epoch = conn.ProjectileEpoch;
+            }
+            float scale = (float)(Math.Max(1, radius) * (250.0 / 23) / (Art.ArtRadius(HeraldOfAshExplosionAo) ?? 300));
+            await SendWorldCreate(remote, stream, ciphers, conn, effect, InstanceEntities.CreateObject(effect,
+                    InstanceEntities.ObjectTypeHash(EffectObject.TypePath),
+                    new EffectObject(at.X, at.Y, HeraldOfAshExplosionAo) { Flags0 = EffectObject.FixedRotation, Scale = scale }.Blob()),
+                $"0x02bb create effect 0x{effect:x} Herald of Ash explosion at ({at.X}, {at.Y}), scale {scale:0.###}: overkill {overkill}, radius {radius}, {dps:0.#}/s on {burned} enemies");
+            await SendWorldRecord(remote, stream, ciphers, conn, effect, InstanceProtocol.EnterWakeZone(effect), null);
+            SendAfter(HeraldOfAshExplosionSeconds, async () =>
+            {
+                if (conn.Closed || conn.LeavingArea || conn.ProjectileEpoch != epoch) return;
+                await SendWorldRemoval(remote, stream, ciphers, conn, effect);
+            });
+        }
     }
 
     public static async Task ReservationSkillsTick(string remote, NetworkStream stream, ConnectionCiphers ciphers, ClientState conn, double now)
     {
         var summons = new List<AuraCatalog.Aura>();
+        var ashBlasts = new List<((int X, int Y) At, int Radius, int Burned, uint Overkill, double Dps)>();
         bool catChanged = false;
         using (ProjectileMutation(conn))
         {
@@ -291,7 +328,7 @@ public static partial class Game
                 var proc = state.Procs.Dequeue();
                 if (!conn.Auras.TryGetValue(proc.Skill, out var aura) || conn.PlayerLife == 0) continue;
                 if (aura.EffectId == "HeraldOfPurity") summons.Add(aura);
-                else if (aura.EffectId == "HeraldOfAsh") ReservationAshLocked(conn, aura, proc.At, proc.Target, now);
+                else if (aura.EffectId == "HeraldOfAsh") ReservationAshLocked(conn, aura, proc.At, proc.Target, now, ashBlasts);
                 else ReservationDamageLocked(remote, stream, ciphers, conn, aura, proc.At, now, proc.Target);
             }
             if (ReservationAura(conn, "HeraldOfThunder") is { } thunder && now < state.ThunderUntil && now >= state.NextThunder)
@@ -312,6 +349,7 @@ public static partial class Game
             MadnessExplosionsLocked(conn, now);
         }
         if (catChanged) await SendOwnAuraChanges(remote, stream, ciphers, conn);
+        if (ashBlasts.Count > 0) await ShowHeraldOfAshBlasts(remote, stream, ciphers, conn, ashBlasts);
         await DrainTwisterGains(remote, stream, ciphers, conn);
         await DrainCatCryLosses(remote, stream, ciphers, conn);
         await PresentSiphoningCharges(remote, stream, ciphers, conn);

@@ -145,6 +145,10 @@ public sealed class MonsterIgnites
     /// <summary>The native <c>ignited</c> buff instance on the monster while it burns (BuffDefinitions row 0).</summary>
     public ushort? Buff;
 
+    /// <summary>When the shown buff's timer runs out (world seconds): a new ignite that ends later does not re-send it at
+    /// once (that restarts the flames), the tick re-sends it just before this.</summary>
+    public double ShownUntil;
+
     /// <summary>The attacking object shown as the buff source (0 for generic self-created ailments).</summary>
     public uint BuffSource;
 

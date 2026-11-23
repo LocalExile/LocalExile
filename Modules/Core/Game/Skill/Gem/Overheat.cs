@@ -25,7 +25,7 @@ public static partial class Game
 
     /// <summary>This skill's last use's Overheat more ailment damage (1 when it consumed fewer than three stacks).</summary>
     public static double OverheatAilmentMore(ClientState conn, ushort skillId) =>
-        conn.SupportGems.OverheatMore.GetValueOrDefault(skillId, 1);
+        conn.SupportGems.OverheatMore.GetValueOrDefault(skillId, 1) * FlameblastAilmentMore(conn, skillId);
 
     public static MonsterIgnites.Settings WithOverheat(ClientState conn, ushort skillId, MonsterIgnites.Settings settings)
     {

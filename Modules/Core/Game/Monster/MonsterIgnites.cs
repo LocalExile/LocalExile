@@ -53,14 +53,22 @@ public static partial class Game
         return ShowDotBuffLocked(conn, id, m.Ignites, IgnitedBuffRow, now);
     }
 
-    // The ignited (or bleeding) buff's timer runs to the monster's last ignite's (bleed's) end: every new one sends it
-    // again (the old instance off first). Under the Monsters lock.
-    static List<byte[]> ShowDotBuffLocked(ClientState conn, uint id, MonsterIgnites set, ushort row, double now)
+    // The ignited (or bleeding) buff's timer runs to the monster's last ignite's (bleed's) end. Re-sending it (the old
+    // instance off first) restarts its flames, so rapid re-ignites (Arc's chains, 722 within 0.3 s in one live session)
+    // hid them: a showing buff is kept while it has more than DotBuffRefreshLead left, and the tick (TickStrongestDots)
+    // re-sends it just before it runs out when a later ignite outlasts it. Under the Monsters lock.
+    const double DotBuffRefreshLead = 0.3;
+
+    static List<byte[]> ShowDotBuffLocked(ClientState conn, uint id, MonsterIgnites set, ushort row, double now,
+        bool refresh = false)
     {
         var packets = new List<byte[]>();
+        if (!refresh && set.Buff is not null
+            && (set.ShownUntil >= set.Until - 0.05 || set.ShownUntil > now + DotBuffRefreshLead)) return packets;
         if (set.Buff is ushort old) packets.Add(InstanceEntities.RemoveBuff(id, old));
         ushort buff = conn.NextBuff++;
         set.Buff = buff;
+        set.ShownUntil = set.Until;
         packets.Add(InstanceEntities.AddBuff(id, buff, row, PlayerId,
             u68: BitConverter.SingleToUInt32Bits((float)set.RemainingBase(now)),
             visual: row == IgnitedBuffRow ? AilmentArtVisual(conn, "ignite")
@@ -278,6 +286,7 @@ public static partial class Game
     {
         var hits = new List<(uint Id, SpawnedMonster M, uint Life, int Damage)>();
         var ended = new List<(uint Id, ushort Buff)>();
+        var refreshed = new List<(uint Id, string Label, double Seconds, List<byte[]> Packets)>();
         using (ProjectileMutation(conn))
         {
             if (conn.Closed || conn.LeavingArea) return;
@@ -294,7 +303,17 @@ public static partial class Game
                     settle?.Invoke(m, now);
                     damage = set.Advance(now, factor(m, now), aggravated?.Invoke(m, now) ?? 0);
                 }
-                if (!set.Burning && set.Buff is ushort gone) { ended.Add((id, gone)); set.Buff = null; }
+                // An ignited corpse keeps burning until its ignites would have ended (the client keeps the ignited buff
+                // through death, CancelOnDeath false; wiki Elemental proliferation: ailments are not removed on a kill),
+                // and its proliferation goes on from it meanwhile; a shattered or consumed one stops at once.
+                bool ignites = ReferenceEquals(set, m.Ignites);
+                bool burningCorpse = ignites && (m.Dead || m.Life == 0) && !m.Ailments.Shattered && !m.CorpseConsumed
+                    && set.IgnitedAt(now);
+                if (!set.Burning && !burningCorpse && set.Buff is ushort gone) { ended.Add((id, gone)); set.Buff = null; }
+                else if (set.Burning && set.Buff is not null && set.Until > set.ShownUntil + 0.05
+                    && now >= set.ShownUntil - DotBuffRefreshLead
+                    && (ignites ? IgnitedBuffRow : LabyrinthTrials.BleedingBuffRow) is ushort row)
+                    refreshed.Add((id, m.Label, set.Until - now, ShowDotBuffLocked(conn, id, set, row, now, refresh: true)));
                 if (damage == 0) continue;
                 (m.Life, bool stageStarts) = TakeOwnerDamageLocked(conn, m, damage);
                 m.Aggro = m.Life > 0;
@@ -303,7 +322,8 @@ public static partial class Game
                     m.Dead = true;
                     CollectVaalSoulAtDeathLocked(conn, m);
                     set.Clear(burnt: true);
-                    if (set.Buff is ushort buff) { ended.Add((id, buff)); set.Buff = null; }
+                    // A burnt corpse keeps its ignited buff to its ignites' end (above, on the next ticks).
+                    if (!ReferenceEquals(set, m.Ignites) && set.Buff is ushort buff) { ended.Add((id, buff)); set.Buff = null; }
                 }
                 hits.Add((id, m, m.Life, damage));
                 if (stageStarts) CommitBossStage(remote, stream, ciphers, conn, id, m, now);
@@ -315,6 +335,10 @@ public static partial class Game
             // The buff may be another player's (who applied the ailment): theirs goes too (instances are the instance's).
             ToOthers(conn, id, InstanceEntities.RemoveBuff(id, buff));
         }
+        foreach (var (id, label, seconds, packets) in refreshed)
+            for (int i = 0; i < packets.Count; i++)
+                await SendWorldRecord(remote, stream, ciphers, conn, id, packets[i],
+                    i == packets.Count - 1 ? $"0x01c1 monster 0x{id:x} ({label}) burning buff renewed for {seconds:0.##} s" : null);
         foreach (var (id, m, life, damage) in hits)
         {
             if (life == 0)

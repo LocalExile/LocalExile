@@ -56,6 +56,7 @@ public sealed class BowProjectileCountTests
         // A native mouse-triggered Burning Arrow creates a client primary even though its existing simulation
         // does not take the spell/Spectral Throw geometry path. Do not generalize this to unverified attacks.
         Assert.True(Game.ClientDrawsPrimaryProjectile(false, skills.EffectId(skills.EffectRow("BurningArrow"))));
+        Assert.True(Game.ClientDrawsPrimaryProjectile(false, skills.EffectId(skills.EffectRow("BurningArrowAltX"))));
         Assert.False(Game.ClientDrawsPrimaryProjectile(false, skills.EffectId(skills.EffectRow("VaalBurningArrow"))));
         Assert.False(Game.ClientDrawsPrimaryProjectile(false, "Melee"));
         Assert.True(Game.ClientDrawsPrimaryProjectile(true, "Fireball"));

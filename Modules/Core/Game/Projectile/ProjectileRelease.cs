@@ -45,10 +45,11 @@ public static partial class Game
     public static bool UsesProjectileRuntime(int effect) => Skills.IsProjectile(effect)
         || ProjectileDefinition(Skills.EffectId(effect) ?? "") is not null;
 
-    // Presentation only: Burning Arrow's real local input emits its own primary. Keep its existing simulation
-    // geometry separate from ClientPredicted, which also selects native range/contact/volley specialization.
+    // Presentation only: Burning Arrow's real local input emits its own primary, and so do its transfigured gems
+    // (Vigour drew a second volley live). Keep its existing simulation geometry separate from ClientPredicted, which
+    // also selects native range/contact/volley specialization.
     public static bool ClientDrawsPrimaryProjectile(bool predicted, string? effect) =>
-        predicted || effect == "BurningArrow";
+        predicted || effect is "BurningArrow" or "BurningArrowAltX" or "BurningArrowAltY";
 
     // Validate adopted paths before accepting an action, spending mana or reserving a cooldown.
     // Release still resolves again: equipment/stats may change during the ordinary cancellable windup.

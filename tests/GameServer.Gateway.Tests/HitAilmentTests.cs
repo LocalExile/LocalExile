@@ -30,8 +30,10 @@ public sealed class HitAilmentTests
             Assert.Single(packets!);
             Assert.InRange(target.Ignites.PerSecond(0), settings.CriticalMin, settings.CriticalMax);
             Assert.Equal(4, target.Ignites.Until, 6);
-            // The next ignite sends the buff again, the old instance off first.
-            Assert.Equal(2, Game.IgniteOnHitLocked(conn, 1, target, settings, critical: true, now: 1)!.Count);
+            // A later ignite keeps the showing buff (re-sending restarts its flames); one near the buff's end sends it
+            // again, the old instance off first.
+            Assert.Empty(Game.IgniteOnHitLocked(conn, 1, target, settings, critical: true, now: 1)!);
+            Assert.Equal(2, Game.IgniteOnHitLocked(conn, 1, target, settings, critical: true, now: 3.8)!.Count);
             // A monster that cannot be ignited is not.
             var immune = Monster(("cannot_be_ignited", 1));
             conn.Monsters[2] = immune;

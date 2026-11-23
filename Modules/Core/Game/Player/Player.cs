@@ -216,6 +216,7 @@ public static partial class Game
             // returns on the zero life, so nothing else clears ChannelSkill).
             WinterOrbRetire(conn);
             SnipeRetire(conn);
+            FlameblastRetire(conn);
             MirageWarriorsRetire(conn);
             conn.RetireOwnedCombat();
             conn.ChannelSkill = 0;

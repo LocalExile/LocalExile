@@ -258,6 +258,10 @@ public static class PanelStats
             long raw = RawSum(sum, get, local, playerLevel) + (armed ? Total(sum.Armed, get, playerLevel) : 0)
                 + QualifiedProjectileChance(sum, get, mainProjectileAttack, offProjectileAttack);
             int value = blocked ? 0 : Project(sum, BleedFlags(sum, raw, name => get(name), local));
+            // Shaper of Flames' "Hits always Ignite" (always_ignite): the hit ignites whatever the summed chance
+            // (MonsterIgnites.Settings.From adds 100), so the panel shows 100 too.
+            if (!blocked && get("always_ignite") != 0 && sum.Display.Contains("_chance_to_ignite_on_hit_%", StringComparison.Ordinal))
+                value = Math.Max(value, 100);
             if (value != 0 || blocked) result.Add((sum.Display, value));
         }
         return result;
