@@ -102,7 +102,8 @@ public static partial class Game
                 foreach (var mark in m.Curses.All.Values.Where(c => c.Caster == player.Id && c.Mark).ToArray())
                 { m.Curses.Remove(mark.Caster, mark.Effect); m.PresentationChanged?.Invoke(); }
         monster.Curses.Put(new(player.Id, effect, skill, definition.Buff, player.NextBuff++, now,
-            aura ? double.PositiveInfinity : now + seconds / rate, aura, definition.Mark, stats), CurseLimit(player, playerStats));
+            aura ? double.PositiveInfinity : now + seconds / rate, aura, definition.Mark, stats)
+            { RemainsOnDeath = !aura && Get(Stat.CursesYouInflictRemainAfterDeath) != 0 }, CurseLimit(player, playerStats));
         if (!aura) monster.PresentationChanged?.Invoke();
         return true;
     }
@@ -214,20 +215,24 @@ public static partial class Game
     static void StepCursesLocked(Player player, CurseAura[] auras, IReadOnlyDictionary<uint, int>? playerStats, uint id, SpawnedMonster m,
         double now, Func<ushort, bool> inAura)
     {
-        foreach (var curse in m.Curses.All.Values.Where(c => c.Mark && (m.Dead || m.Life == 0 || c.Caster == player.Id && player.PlayerLife == 0)).ToArray())
+        bool dead = m.Dead || m.Life == 0;
+        foreach (var curse in m.Curses.All.Values.Where(c => c.Mark
+            && (dead && !c.RemainsOnDeath || c.Caster == player.Id && player.PlayerLife == 0)).ToArray())
             m.Curses.Remove(curse.Caster, curse.Effect);
         foreach (var curse in m.Curses.All.Values.Where(c => c.Caster == player.Id && c.Aura).ToArray())
-            if (player.PlayerLife == 0 || m.Dead || !auras.Any(a => a.Aura.SkillId == curse.Skill && inAura(a.Aura.SkillId)))
+            if (player.PlayerLife == 0 || dead || !auras.Any(a => a.Aura.SkillId == curse.Skill && inAura(a.Aura.SkillId)))
                 m.Curses.Remove(curse.Caster, curse.Effect);
         if (player.PlayerLife > 0 && !InTown(player))
             foreach (var aura in auras)
                 if (inAura(aura.Aura.SkillId)) ApplyCurseLocked(player, m, aura.Aura.SkillId, now, true, aura.Gem, playerStats);
         m.Curses.Expire(now);
-        var changed = m.Curses.Presented.Values.Where(c => !m.Curses.All.TryGetValue((c.Caster, c.Effect), out var next) || next.Buff != c.Buff).ToArray();
+        bool Visible(MonsterCurses.Curse curse) => !dead || !m.CorpseConsumed && curse.RemainsOnDeath;
+        var changed = m.Curses.Presented.Values.Where(c => !m.Curses.All.TryGetValue((c.Caster, c.Effect), out var next)
+            || next.Buff != c.Buff || !Visible(next)).ToArray();
         foreach (var old in changed)
         { player.Area.Buffs.Clear(id, old.Row, old.Caster, tag: old.Buff); m.Curses.Presented.Remove((old.Caster, old.Effect)); }
         // A curse is its caster's; each application its own buff (its tag), so a renewed curse restarts its countdown.
-        foreach (var curse in m.Curses.All.Values.Where(c => !m.Curses.Presented.ContainsKey((c.Caster, c.Effect))))
+        foreach (var curse in m.Curses.All.Values.Where(c => Visible(c) && !m.Curses.Presented.ContainsKey((c.Caster, c.Effect))))
         {
             player.Area.Buffs.Set(id, new(curse.Row, curse.Caster, curse.Skill, Tag: curse.Buff,
                 U68: double.IsFinite(curse.Until) ? Buff.Seconds(curse.Until - now) : null));

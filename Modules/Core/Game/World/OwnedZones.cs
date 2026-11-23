@@ -7,7 +7,7 @@ using System.Runtime.CompilerServices;
 /// lock, as the movement phase that updates them.
 /// </summary>
 /// <summary>What a kept zone is for; the key tells the zones of one kind apart (a skill, an aura row, an object id).</summary>
-public enum ZoneKind { EnemyAuras, SharedAuras, FlaskGrounds, MinionAura, Sight, MonsterSight, TotemAuras, ShrineCloud }
+public enum ZoneKind { EnemyAuras, SharedAuras, FlaskGrounds, MinionAura, Sight, MonsterSight, TotemAuras, ShrineCloud, CursedCorpses }
 
 public static partial class Game
 {

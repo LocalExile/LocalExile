@@ -8,6 +8,16 @@ using DamageType = GameServer.Core.World.DamageType;
 
 public static partial class Game
 {
+    const uint CursedCorpseBlast = Stat.EnemiesNearCursedCorpsesAreBlindedAndExplodeOnDeathForPctLifeAsPhysicalDamage;
+
+    static IEnumerable<(uint Id, (int X, int Y) At)> OwnCursedCorpses(Player player, double now, SpawnedMonster? except = null)
+    {
+        foreach (var (id, corpse) in player.Area.Monsters)
+            if (!ReferenceEquals(corpse, except) && !corpse.CorpseConsumed && (corpse.Dead || corpse.Life == 0)
+                && corpse.Curses.All.Values.Any(c => c.Caster == player.Id && c.RemainsOnDeath && c.Until > now))
+                yield return (id, corpse.Walk.Position(now));
+    }
+
     static void CaptureEquippedHitExplosionLocked(SpawnedMonster target, IReadOnlyDictionary<uint, int> playerStats)
     {
         if (target.Life == 0 && target.Hostile && playerStats.GetValueOrDefault(Stat.ExplodeOnKillPctFireDamageToDeal) is > 0 and var percent)
@@ -75,6 +85,10 @@ public static partial class Game
         // A bleeding kill has both explosion modifiers; their percentages add (the generic one and the bleeding one
         // are separate sources on the same kill).
         long percent = (long)generic + (bleeding ? bleedingPercent : 0);
+        int cursedCorpsePercent = Get(CursedCorpseBlast);
+        if (cursedCorpsePercent > 0
+            && OwnCursedCorpses(player, AreaTime(player), corpse).Any(other => Dist(other.At, at) <= KillExplosionRadius))
+            percent += cursedCorpsePercent;
         int prideChance = Get(Stat.ExplodeEnemiesFor10PctLifeAsPhysicalOnKillChancePctWhileUsingPride);
         long physicalChance = Get(Stat.ExplodeEnemiesFor10PctLifeAsPhysicalOnKillChancePct);
         if (prideChance > 0 && ReservationAura(player, "Pride") is not null) physicalChance += prideChance;
