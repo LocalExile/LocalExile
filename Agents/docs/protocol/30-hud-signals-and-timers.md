@@ -179,7 +179,7 @@ u8      answered            +0x30  bool (non-zero dims/disables buttons)
 u8      localVoter          +0x31  bool (controls visibility with answered state)
 u8      voterCount                 0..255 (writer throws above 255)
 repeat voterCount times (0x28-byte entry in memory):
-  wstr  characterName       +0x00  UTF-16LE with u16 BE char count (0x140e0b250 / 0x140e0b480)
+  wstr  characterName       +0x00  compact wide string with u16 BE code-point count (0x140e0b250 / 0x140e0b480)
   u8    voteStateId         +0x20  1-based VoteState.dat row + 1:
                                      1 = KillBandit   ("Kill the bandit")
                                      2 = HelpBandit   ("Help the bandit")
