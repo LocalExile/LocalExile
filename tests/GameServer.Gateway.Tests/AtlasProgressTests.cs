@@ -8,6 +8,40 @@ public sealed class AtlasProgressTests
     static AtlasProgress.Node Chateau => AtlasProgress.Find("Chateau")!;
 
     [Fact]
+    public void A_regular_completion_leaves_the_bonus_available_and_a_second_bonus_cannot_award_twice()
+    {
+        using var fixture = new TriggeredSummonTests.Fixture();
+        var player = fixture.Player;
+        var data = Program.WorldOf(player).CharacterData;
+
+        Assert.True(AtlasProgress.Complete(data, [Chateau]));
+        Assert.Contains(Chateau.Id, AtlasProgress.Completed(data));
+        Assert.Empty(AtlasProgress.BonusCompleted(data));
+
+        Assert.True(AtlasProgress.CompleteBonus(data, [Chateau]));
+        Assert.False(AtlasProgress.CompleteBonus(data, [Chateau]));
+        Assert.Single(AtlasProgress.BonusCompleted(data));
+    }
+
+    [Fact]
+    public void Old_completion_credit_is_preserved_and_a_new_qualified_map_earns_the_next_point()
+    {
+        using var fixture = new TriggeredSummonTests.Fixture();
+        var player = fixture.Player;
+        var data = Program.WorldOf(player).CharacterData;
+        var next = AtlasProgress.Find("Alleyways")!;
+        data.Change("completed", _ => Chateau.Id);
+        player.Character.AtlasPassivePoints = 1;
+
+        Assert.Contains(Chateau.Id, AtlasProgress.BonusCompleted(data));
+        Assert.True(AtlasProgress.Complete(data, [next]));
+        Assert.Single(AtlasProgress.BonusCompleted(data));
+        Assert.False(AtlasProgress.CompleteBonus(data, [Chateau]));
+        Assert.True(AtlasProgress.CompleteBonus(data, [next]));
+        Assert.Equal(2, AtlasProgress.BonusCompleted(data).Count);
+    }
+
+    [Fact]
     public void MessagesCarryTheNodesRowMasksAndHash()
     {
         byte[] full = AtlasProgress.FullMessage(new HashSet<string> { "MapWorldsChateau" });
