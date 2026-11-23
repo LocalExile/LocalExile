@@ -8,8 +8,9 @@ namespace GameServer.Gateway.Tests;
 public sealed class CharacterPlaytimeTests : IDisposable
 {
     public void Dispose() => TestEnvironment.ReleaseOwnSaves();
-    static Player PlayerOf(string name) => new(new(1, "played", 1000, 1000, 100, 100, null, []), 1, 1)
+    static Player PlayerOf(string name, InstanceState? instance = null) => new(new(1, "played", 1000, 1000, 100, 100, null, []), 1, 1)
     {
+        Instance = instance ?? new InstanceState(),
         Character = { Name = name },
         Connection = { PlayerSent = true },
         LeagueModule = new(new GameServer.Core.Accounts.League("played-test", "Standard", false, false), new HashSet<string>(["Game", "Commands"]))
@@ -69,6 +70,130 @@ public sealed class CharacterPlaytimeTests : IDisposable
             Assert.Equal(2, replies.Count);
         }
         finally { GameEventOwners.Release("Commands", GameEventOwners.ModuleRank); }
+    }
+
+    [Fact]
+    public async Task Additional_native_commands_and_chat_presence_work_with_lockstep_probe_guard()
+    {
+        TestEnvironment.OpenOwnSaves("native-commands-extra");
+        var store = new GameServer.Storage.SqliteAccountStore(Saves.Db);
+        var account = new Account(Guid.NewGuid(), "cmd-acct", "h", "s", DateTimeOffset.UtcNow);
+        store.AddAccount(account);
+        var created = DateTimeOffset.UtcNow.AddDays(-2).AddHours(-3);
+        store.AddCharacter(new GameServer.Core.Accounts.Character(Guid.NewGuid(), account.Id, "Hero", CharacterClass.Ranger, 85, "Standard", "1_1_1", created, DateTimeOffset.UtcNow));
+        store.AddCharacter(new GameServer.Core.Accounts.Character(Guid.NewGuid(), account.Id, "TopExile", CharacterClass.Witch, 100, "Standard", "1_1_1", created, DateTimeOffset.UtcNow));
+        CharacterSaves.Write("Hero", new([], Experience: 1234567));
+        CharacterSaves.Write("TopExile", new([], Experience: 4250334444u));
+
+        var player = PlayerOf("Hero");
+        player.Character.ClassRow = 2;
+        player.Character.League = "Standard";
+        player.Character.AtlasPassivePoints = 10;
+        player.Pools = player.Pools with { Level = 85 };
+        var replies = new List<string>();
+        player.Commands = new() { Send = (_, _) => Task.CompletedTask, Reply = text => { replies.Add(text); return Task.CompletedTask; } };
+        using var context = new Context();
+        try
+        {
+            new CommandsModule().Load(context);
+            Assert.True(await GameEvents.AnyPacket(player, InstanceItems.CommandId, [0, 0x16, InstanceItems.AgeCommand, 0, 0]));
+            Assert.Contains("Your character was created 2 days, 3 hours,", replies[^1]);
+
+            Assert.True(await GameEvents.AnyPacket(player, InstanceItems.CommandId, [0, 0x16, InstanceItems.KillsCommand, 0, 0]));
+            Assert.Equal("You have killed 0 monsters.", replies[^1]);
+
+            Assert.True(await GameEvents.AnyPacket(player, InstanceItems.CommandId, [0, 0x16, InstanceItems.ItemLevelCommand, 0, 0]));
+            Assert.Equal("No item is currently held on the cursor.", replies[^1]);
+
+            byte[] whoisTop = new GameServer.Core.Protocol.Login.LoginWriter().U16(InstanceItems.CommandId).U8(InstanceItems.WhoisCommand).WStr("TopExile").ToArray();
+            Assert.True(await GameEvents.AnyPacket(player, InstanceItems.CommandId, whoisTop));
+            Assert.Equal("TopExile is a level 100 Witch in the Standard league who is not currently online.", replies[^1]);
+
+            Assert.True(await GameEvents.AnyPacket(player, InstanceItems.CommandId, [0, 0x16, InstanceItems.LadderCommand, 0, 0]));
+            Assert.Contains("1. TopExile Level 100 Witch", replies[^1]);
+            Assert.Contains("2. Hero Level 85 Ranger", replies[^1]);
+
+            var commands = player.Commands;
+            foreach (var build in GameEvents.CommandsBuilding.For(player)) commands = build(commands, player);
+            Assert.True(await commands.RunAsync("/atlaspassives"));
+            Assert.Contains("0/10 Atlas passive skill point(s) allocated", replies[^1]);
+
+            // Non-empty lockstep AFK probe replies must pass through to Messages.cs when a probe is in flight.
+            player.Connection.LockstepClient = true;
+            player.Connection.LockstepProbeSentAt = 12345;
+            byte[] probeAfk = new GameServer.Core.Protocol.Login.LoginWriter().U16(InstanceItems.CommandId).U8(InstanceItems.AfkCommand).WStr("This player is AFK.").ToArray();
+            Assert.False(await GameEvents.AnyPacket(player, InstanceItems.CommandId, probeAfk));
+
+            // Independent /autoreply survives AFK auto-cancel on gameplay action packets.
+            player.Connection.LockstepProbeSentAt = 0;
+            byte[] setAuto = new GameServer.Core.Protocol.Login.LoginWriter().U16(InstanceItems.CommandId).U8(InstanceItems.AutoReplyCommand).WStr("In map").ToArray();
+            Assert.True(await GameEvents.AnyPacket(player, InstanceItems.CommandId, setAuto));
+            Assert.Equal("Autoreply set \"In map\"", replies[^1]);
+            Assert.True(await GameEvents.AnyPacket(player, InstanceItems.CommandId, probeAfk));
+            Assert.Equal("AFK mode is now ON. Autoreply \"This player is AFK.\"", replies[^1]);
+            await GameEvents.RunMessagesHandled(player, [InstanceProtocol.LockstepMoveStartId]);
+            var avail = GameEvents.GetChatAvailability(player);
+            Assert.True(avail.Afk);
+            Assert.Equal("In map", avail.AfkMessage);
+        }
+        finally { GameEventOwners.Release("Commands", GameEventOwners.ModuleRank); }
+    }
+
+    [Fact]
+    public async Task Level_up_broadcasts_character_name_class_and_level_to_all_players_in_area()
+    {
+        using var runtime = new PartyFollowerTests.Runtime();
+        using var wire = new PartyFollowerTests.Wire();
+        var sameArea = new InstanceState();
+        var otherArea = new InstanceState();
+
+        var leveler = runtime.PlayerOf(sameArea, wire, "Aria");
+        leveler.Controlled = false;
+        leveler.Character.ClassRow = SkillCatalog.WitchRow;
+        leveler.Pools = leveler.Pools with { Level = 2, Life = 50, Mana = 50 };
+
+        var teammate = runtime.PlayerOf(sameArea, wire, "Bram");
+        teammate.Controlled = false;
+        var outsider = runtime.PlayerOf(otherArea, wire, "Cora");
+        outsider.Controlled = false;
+
+        var levelerLines = new List<string>();
+        var teammateLines = new List<string>();
+        var outsiderLines = new List<string>();
+        static string ReadLine(byte[] packet)
+        {
+            var r = new GameServer.Core.Protocol.Login.LoginReader(packet.AsSpan(2));
+            _ = r.WStr(); // sender
+            return r.WStr();
+        }
+        leveler.Connection.Outbox = (b, _) => { if (b.Length >= 2 && b[0] == 0 && b[1] == InstanceChat.ChatLineId) levelerLines.Add(ReadLine(b)); return Task.CompletedTask; };
+        teammate.Connection.Outbox = (b, _) => { if (b.Length >= 2 && b[0] == 0 && b[1] == InstanceChat.ChatLineId) teammateLines.Add(ReadLine(b)); return Task.CompletedTask; };
+        outsider.Connection.Outbox = (b, _) => { if (b.Length >= 2 && b[0] == 0 && b[1] == InstanceChat.ChatLineId) outsiderLines.Add(ReadLine(b)); return Task.CompletedTask; };
+
+        Program.InGame[leveler] = 0;
+        Program.InGame[teammate] = 0;
+        Program.InGame[outsider] = 0;
+        try
+        {
+            await Game.PublishLevelChange(leveler, before: 1, level: 2);
+            Assert.Contains("Aria (Witch) is now level 2", levelerLines);
+            Assert.Contains("Aria (Witch) is now level 2", teammateLines);
+            Assert.Empty(outsiderLines);
+
+            // Any published level change announces the new level to the area.
+            levelerLines.Clear();
+            teammateLines.Clear();
+            await Game.PublishLevelChange(leveler, before: 2, level: 1);
+            Assert.Contains("Aria (Witch) is now level 1", levelerLines);
+            Assert.Contains("Aria (Witch) is now level 1", teammateLines);
+            Assert.Empty(outsiderLines);
+        }
+        finally
+        {
+            Program.InGame.TryRemove(leveler, out _);
+            Program.InGame.TryRemove(teammate, out _);
+            Program.InGame.TryRemove(outsider, out _);
+        }
     }
 
     sealed class Context : IModuleContext, IDisposable
