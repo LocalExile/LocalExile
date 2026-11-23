@@ -1569,6 +1569,7 @@ public static partial class Game
             var (x, y) = player.Layout.Checkpoint(activated);
             // Darken to full black and pause briefly (while the player is still dead on the ground), then revive and
             // teleport behind the black screen before the client's fade-out animation begins.
+            double fadeStart = AreaTime(player);
             await SendResurrectFade(player, (x, y));
             if (player.Closed || player.LeavingArea) return;
             RestorePlayerOnResurrect(player);
@@ -1583,8 +1584,15 @@ public static partial class Game
             await SendCharacterStats(player, PlayerStatChange.Panel);
             await SendWorldRecord(player, player.Id, InstanceProtocol.Teleport(player.Id, x, y),
                 $"0x01b7 player to the checkpoint ({x}, {y}): {(activated && player.Layout.Waypoint is not null ? "the activated waypoint" : "the arrival point")}");
-            SetStats(player, player.Id, [(Stat.HideMiniLifeBar, 0)]); Note("0x01b3 player hide_mini_life_bar = 0");
             await GameEvents.RunResurrected(player);
+            // The overhead mini life bar renders in the 2D HUD above the 3D blackout quad: keep it hidden until the
+            // client's full fade cycle finishes (2 * s black + 1.6 * s clear = 3.6 * s) so it never appears over the
+            // fade or before the restored 0x01b1 life has settled.
+            double fadeEndsAt = fadeStart + 3.6 * ResurrectFadeSeconds;
+            while (!player.Closed && !player.LeavingArea && player.PlayerLife > 0 && AreaTime(player) < fadeEndsAt)
+                await AreaDelay(player, 0.016);
+            if (player.Closed || player.LeavingArea || player.PlayerLife == 0) return;
+            SetStats(player, player.Id, [(Stat.HideMiniLifeBar, 0)]); Note("0x01b3 player hide_mini_life_bar = 0");
         }
         finally { Volatile.Write(ref player.Resurrecting, 0); }
     }
