@@ -916,14 +916,17 @@ public static class InstanceProtocol
 /// generation. AreaHash is WorldAreas.HASH16 (unknown: "Instance sent world area that does not exist"). Level 0 means
 /// the area's own level. LeagueStats enables flag 0x21.6 and the first compact pair list (+0x100), copied to world
 /// stats at +0x120 by 0x142189aa0. ReturnAreaHash enables flag 0x21.3 (+0x08) and writes u16 BE WorldAreas.HASH16
-/// immediately after B28 (AreaState +0xc0 via 0x142149620). HideoutPermissions sets flag 0x22.7 (bit 15, 0x80; no extra
-/// wire bytes, AreaState +0xda via 0x142149670 in hideouts). Defaults follow the constructor (0x1421a42b0).
+/// immediately after B28 (AreaState +0xc0 via 0x142149620). GuildHideout sets flag 0x22.7 (bit 15, 0x80; no extra wire
+/// bytes, AreaState +0xda via 0x142149670): the hideout is the guild's (0x1421719c0). There the Decorations panel and the
+/// editor read the guild's owned list (0x1f4 flags 3, session +0xd630; 0x1408dc0c0, 0x140204fc6) instead of the
+/// account's (flags 1, +0xd618), so a personal hideout leaves it clear; 0x21's own-hideout bit marks that one.
+/// Defaults follow the constructor (0x1421a42b0).
 /// B28 is the league category (world +0xd0, <see cref="GameServer.Core.World.LeagueCategory"/>), 60 for none.
 /// </summary>
 public sealed record AreaInstance(uint InstanceId, ushort AreaHash, uint Seed, byte Level, string Text = "",
     byte B1e = 3, byte B20 = 0, byte B1f = 2, byte B24 = 0x23, byte B1d = 0, byte B28 = 0x3c,
     IReadOnlyDictionary<uint, int>? LeagueStats = null, byte[]? TerrainData = null,
-    IReadOnlyList<byte>? AchievementSets = null, bool HideoutPermissions = false, ushort? ReturnAreaHash = null)
+    IReadOnlyList<byte>? AchievementSets = null, bool GuildHideout = false, ushort? ReturnAreaHash = null)
 {
     public byte[] Encode()
     {
@@ -934,7 +937,7 @@ public sealed record AreaInstance(uint InstanceId, ushort AreaHash, uint Seed, b
             .U8(B1e).U8(B20).U8(B1f).U8(B24)
             .Bytes([
                 (byte)((hasStats ? 0x40 : 0) | (hasReturnArea ? 0x08 : 0)),
-                (byte)((TerrainData is null ? 0 : 4) | (HideoutPermissions ? 0x80 : 0)),
+                (byte)((TerrainData is null ? 0 : 4) | (GuildHideout ? 0x80 : 0)),
                 0,
             ])
             .U8(Level).U8(B1d).U8(B28);

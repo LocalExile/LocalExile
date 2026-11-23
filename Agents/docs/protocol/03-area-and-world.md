@@ -37,9 +37,12 @@ Dispatcher case 6. Class `0x1435e4c20` (0x168 bytes, ctor `0x1421a42b0`), write 
 
 Flag bits read by the handler (from the 3 bytes at +0x21): 0, 1, 2, 4, 5 (inverted) → `+0xc3e5..` bytes; 0xc, 0xd, 0xe →
 world setters; 3 = second area hash (`AreaState +0xc0` via `0x142149620`, Delve return area); 2 → `0x142149680`;
-0xa → `0x1421495e0(+0x150)`; 0xf (byte 1 bit `0x80`) → `AreaState +0xda` via `0x142149670` in hideouts.
+0xa → `0x1421495e0(+0x150)`; 0xf (byte 1 bit `0x80`) → `AreaState +0xda` via `0x142149670`: the hideout is the guild's
+(`0x1421719c0`). The Decorations panel (`0x1408dc5e2`) and the editor (`0x140204fc6`) then read the guild's owned list
+(0x1f4 flags 3) instead of the account's (flags 1), so a personal hideout leaves it clear. With it set in the owner's
+hideout the panel showed only the decorations that need no record (live 2026-11-23).
 
-`AreaInstance.Encode()` defaults to the minimal form, with optional league stat lists, hideout permissions, return area
+`AreaInstance.Encode()` defaults to the minimal form, with optional league stat lists, guild hideout flag, return area
 hash and extra terrain data.
 `TerrainData` sets flag 0x22 bit 2 and appends a big-endian u16 byte count followed by the extra-data bytes.
 The extra-data decoder (`0x141ecdad0`) has its own two-byte flags and little-endian nested records.
@@ -123,7 +126,7 @@ We send the minimal form: `0021 0000 0000 0000 0000 000000 00 00` (`InstanceProt
 
 Flag bits are `byte[n >> 3] & (1 << (n & 7))` (`0x14012c1b0`). Bit 0 → session `+0xcd31` (the weapon set), bit 1 →
 `+0xcd32`, **bit 2 → `+0xcd36`, "this is my own hideout"**, bit 3 → `+0xcd37`, bit 4 → `+0xcd38`. Hideout UI accepts a
-personal hideout only with bit 2 (guild hideouts use world `+0xda` instead): the Decorations panel's list-loaded
+personal hideout only with bit 2 (guild hideouts use world `+0xda` instead, §1): the Decorations panel's list-loaded
 handler `0x1408df510` and the HUD's `0x1401ffcc0` check it, and without it the panel stays on "Loading…" after the
 store's owned list (0x1f4 flags 1, [23](23-microtransactions.md) §1) arrives (live 2026-11-22). The Gateway sets it in
 the character's own hideout.
