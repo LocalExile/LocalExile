@@ -561,6 +561,11 @@ public static partial class MapStrongboxes
         finally { area.Gate.Release(); }
     }
 
+    /// <summary>The frames after the click at which a box's guards arrive, one third of them each time.</summary>
+    static readonly int[] GuardWaveFrames = [7, 14, 22];
+
+    const double FramesPerSecond = 30;
+
     /// <summary>Opens a closed box (under the area's gate): its guards spawn, and its loot waits for them.</summary>
     static async Task Open(Player player, Area area, Box box)
     {
@@ -575,10 +580,16 @@ public static partial class MapStrongboxes
             Console.WriteLine($"[map-content] strongbox {box.Type}: no supported guards or free cells; remains closed");
             return;
         }
-        // The guards erupt when the box's open clip is over: the lid's creak finishes (its stop is at 0.52 s) before
-        // their dust columns and spawn sounds, as in the game; Tick releases the wave and spawns it with them.
-        var opening = new Wave(now.AddSeconds(OpenClipSeconds).Ticks, guards);
-        box = ReleaseWaves(box with { Phase = 1, Pending = [], Waves = [.. new[] { opening }.Concat(waves).OrderBy(w => w.AtTicks)] }, now);
+        // The guards come in three waves, 7, 14 and 22 frames after the click (as in every opened box of the official
+        // recordings); Tick releases each and spawns it with its dust columns and spawn sounds.
+        var arrivals = new List<Wave>();
+        for (int i = 0; i < GuardWaveFrames.Length; i++)
+        {
+            int size = (guards.Count + GuardWaveFrames.Length - 1 - i) / GuardWaveFrames.Length;
+            int from = Enumerable.Range(0, i).Sum(j => (guards.Count + GuardWaveFrames.Length - 1 - j) / GuardWaveFrames.Length);
+            if (size > 0) arrivals.Add(new(now.AddSeconds(GuardWaveFrames[i] / FramesPerSecond).Ticks, guards.GetRange(from, size)));
+        }
+        box = ReleaseWaves(box with { Phase = 1, Pending = [], Waves = [.. arrivals.Concat(waves).OrderBy(w => w.AtTicks)] }, now);
         area.Boxes![box.Index] = box;
         Keep(player, area);
         // The object the client has stays while its clip plays; OpenPresentation presents it opened once the clip is over.
