@@ -10,27 +10,27 @@ namespace GameServer.Modules.Atlas;
 /// <summary>The Atlas passive tree's choices and the Atlas's completed maps.</summary>
 public sealed class AtlasModule : IModule
 {
-    /// <summary>The points the Atlas's completed maps are worth: one per map, up to the 100 the tree's map half has.
-    /// Bonus objectives and the Maven's invitations are not counted yet (#382 item 3).</summary>
+    /// <summary>Maximum passive points from map bonus objectives in the current Atlas tree.</summary>
     internal const int MapCompletionPoints = 100;
 
-    /// <summary>Gives the character <paramref name="maps"/> Atlas passive points for maps first completed, saves them and
-    /// sends the three presets again so the tree's counter follows (S→C 0x3d, the message a click in the tree gets).</summary>
-    static async Task AwardMapPoints(Player player, IPlayer modPlayer, int maps, string label)
+    internal static int ApplyBonusPoints(Player player, ISavedData data)
     {
-        if (maps <= 0) return;
-        if (player.Character.AtlasPassivePoints < MapCompletionPoints)
-        {
-            int before = player.Character.AtlasPassivePoints;
-            player.Character.AtlasPassivePoints = (ushort)Math.Min(MapCompletionPoints, before + maps);
-            if (CharacterName(player) is { } character)
-                CharacterSaves.SetAtlasPassives(character, player.Character.AtlasPassives, player.Character.AtlasPassivePoints);
-            await global::Game.SendAtlasSlots(player, label);
-            await modPlayer.Tell($"Atlas: {player.Character.AtlasPassivePoints - before} passive point(s) for the maps completed " +
-                $"({player.Character.AtlasPassivePoints}/{MapCompletionPoints}).");
-        }
-        // Trees II and III unlock at 50 and 100 completed maps.
+        int before = player.Character.AtlasPassivePoints;
+        int total = Math.Min(MapCompletionPoints, AtlasProgress.BonusCompleted(data).Count);
+        if (total <= before) return 0;
+        player.Character.AtlasPassivePoints = (ushort)total;
+        if (CharacterName(player) is { } character)
+            CharacterSaves.SetAtlasPassives(character, player.Character.AtlasPassives, player.Character.AtlasPassivePoints);
+        return total - before;
+    }
+
+    static async Task PublishBonusPoints(Player player, IPlayer modPlayer, int earned, string label)
+    {
         await AtlasFeature.SyncTreeFlags(player);
+        if (earned == 0) return;
+        await global::Game.SendAtlasSlots(player, label);
+        await modPlayer.Tell($"Atlas: {earned} passive point(s) for completed bonus objectives " +
+            $"({player.Character.AtlasPassivePoints}/{MapCompletionPoints}).");
     }
 
     /// <summary>This module's game data, built in a fixed order when it loads: before the Gateway listens, as the
@@ -59,17 +59,21 @@ public sealed class AtlasModule : IModule
         });
         GameEvents.MonsterKilled.Add(module.Manifest.Id, async kill =>
         {
-            if (AtlasProgress.OfArea(kill.ModPlayer.AreaId) is not { } node || !AtlasProgress.CompletesMap(node, kill.Monster)
-                || !AtlasProgress.Complete(WorldOf(kill.ModPlayer).CharacterData, [node])) return;
+            if (AtlasProgress.OfArea(kill.ModPlayer.AreaId) is not { } node || !AtlasProgress.CompletesMap(node, kill.Monster)) return;
             var player = kill.Player;
-            await Send(player, AtlasProgress.NodeMessage(node),
-                $"0x01a4 Atlas map completed: {node.Name} ({node.Id}) by {kill.Monster.Name}");
-            // The Atlas panel and the map device's portal panel draw their "completed" marks from the completed set of
-            // the last 0x1a3; without this they keep what the area entry sent and the map that just completed still
-            // reads as unfinished there.
-            await AtlasFeature.Refresh(player);
-            await kill.ModPlayer.Tell($"Atlas: {node.Name} completed.");
-            await AwardMapPoints(player, kill.ModPlayer, 1, "Atlas map completed");
+            var data = WorldOf(kill.ModPlayer).CharacterData;
+            bool completed = AtlasProgress.Complete(data, [node]);
+            bool bonus = global::Game.MapRunOf(player) is { } run && AtlasProgress.MeetsBonusObjective(run)
+                && AtlasProgress.CompleteBonus(data, [node]);
+            int earned = bonus ? ApplyBonusPoints(player, data) : 0;
+            if (completed)
+            {
+                await Send(player, AtlasProgress.NodeMessage(node),
+                    $"0x01a4 Atlas map completed: {node.Name} ({node.Id}) by {kill.Monster.Name}");
+                await AtlasFeature.Refresh(player);
+                await kill.ModPlayer.Tell($"Atlas: {node.Name} completed.");
+            }
+            if (bonus) await PublishBonusPoints(player, kill.ModPlayer, earned, "Atlas bonus objective completed");
         });
         GameEvents.Command(module.Manifest.Id, "atlas_complete", "/atlas_complete <map name or AtlasNode id | all> (dev: mark Atlas maps completed, saved)",
             async (player, args) =>
@@ -83,14 +87,14 @@ public sealed class AtlasModule : IModule
                     return;
                 }
                 var data = WorldOf(player).CharacterData;
-                var before = AtlasProgress.Completed(data);
                 AtlasProgress.Complete(data, nodes);
-                int earned = nodes.Count(n => !before.Contains(n.Id));
+                AtlasProgress.CompleteBonus(data, nodes);
+                int earned = ApplyBonusPoints(player, data);
                 if (nodes.Count == 1)
                     await PlayerOf(player).Send(AtlasProgress.NodeMessage(nodes[0]),
                         $"0x01a4 /atlas_complete {nodes[0].Name} ({nodes[0].Id})");
                 await PlayerOf(player).Tell(nodes.Count == 1 ? $"Atlas: {nodes[0].Name} completed." : $"Atlas: {nodes.Count} maps completed.");
-                await AwardMapPoints(player, PlayerOf(player), earned, "/atlas_complete");
+                await PublishBonusPoints(player, PlayerOf(player), earned, "/atlas_complete");
             });
         GameEvents.Command(module.Manifest.Id, "atlas_reset", "/atlas_reset (dev: clear the Atlas's completed maps)", async (player, args) =>
         {
@@ -239,16 +243,7 @@ static class AtlasFeature
         var modPlayer = PlayerOf(player);
         var data = WorldOf(modPlayer).CharacterData;
         var completed = AtlasProgress.Completed(data);
-        // One Atlas passive point per map completed, up to the 100 the tree's map half has (#382 item 3). The completed set
-        // is read from the save. Entering an area does not complete any new maps.
-        bool pointsChanged = false;
-        if (Math.Min(AtlasModule.MapCompletionPoints, completed.Count) is int earned and > 0 && earned > player.Character.AtlasPassivePoints)
-        {
-            player.Character.AtlasPassivePoints = (ushort)earned;
-            if (CharacterName(player) is { } character)
-                CharacterSaves.SetAtlasPassives(character, player.Character.AtlasPassives, player.Character.AtlasPassivePoints);
-            pointsChanged = true;
-        }
+        bool pointsChanged = AtlasModule.ApplyBonusPoints(player, data) > 0;
         var slots = SlotsOf(modPlayer);
         byte stones = AtlasProgress.VoidstoneMask(slots);
         yield return ($"0x01a3 Atlas progress, {completed.Count} map(s) saved, {AtlasProgress.OnAtlasRows.Count} on-atlas row(s), voidstones 0x{stones:X2} ({slots.Count})",
@@ -260,19 +255,17 @@ static class AtlasFeature
                 yield return message;
     }
 
-    /// <summary>Completed maps needed for Atlas trees I, II and III. The client's text says "bonus Atlas objectives"; the
-    /// server has no bonus-objective count (S→C 0x1a3 carries only the completed-map masks), so completed maps stand in.</summary>
+    /// <summary>Completed bonus objectives needed for Atlas trees I, II and III.</summary>
     internal static readonly int[] TreeUnlockMaps = [0, 50, 100];
 
     /// <summary>AtlasTrees' flag columns for trees II and III: Unlocked (329, 331) and Active (330, 332).</summary>
     static readonly (int Unlocked, int Active)[] TreeFlags = [(0, 0), (329, 330), (331, 332)];
 
-    /// <summary>A tree is unlocked by the character's completed maps, or by holding nodes (an old save's nodes in a tree that
-    /// is now locked stay reachable).</summary>
+    /// <summary>The bonus count unlocks a tree. Existing allocations keep their tree available.</summary>
     internal static bool TreeUnlocked(Player player, int tree) =>
         tree == 0 || (tree < TreeUnlockMaps.Length && tree < player.Character.AtlasPassives.Length
             && (player.Character.AtlasPassives[tree].Count > 0
-                || AtlasProgress.Completed(WorldOf(PlayerOf(player)).CharacterData).Count >= TreeUnlockMaps[tree]));
+                || AtlasProgress.BonusCompleted(WorldOf(PlayerOf(player)).CharacterData).Count >= TreeUnlockMaps[tree]));
 
     /// <summary>Sets trees II and III's league flags on the connection (never saved to the account: they follow each
     /// character's own maps and active preset, so a shared save would leak one character's trees to another). The client
