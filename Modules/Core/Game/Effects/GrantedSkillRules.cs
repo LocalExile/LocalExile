@@ -170,6 +170,11 @@ public static partial class Game
                     if (definition.Text("Id") == buffs[0]) buffRow = (ushort)definition.Index;
                     if (buffs.Length > 1 && definition.Text("Id") == buffs[1]) ownRow = (ushort)definition.Index;
                 }
+                // A third part: the art of a circle drawn on the ground around the wearer at the aura's radius (a
+                // MiscAnimated Id or an .ao path), so the player sees where it ends. The buff's own aura effect is only a
+                // small swirl on the character (seen 2026-11-23).
+                string? ringAo = buffs.Length > 2 && buffs[2].Length > 0 ? EffectArtAo(buffs[2]) : null;
+                uint ring = 0;
                 bool shown = false;
                 int radius = row.Radius ?? 30;
                 ushort skill = ActorSkillOf(player, grant)?.Id ?? 0;
@@ -181,12 +186,30 @@ public static partial class Game
                     {
                         if (standing.On()) return true;
                         if (shown) { player.Area.Buffs.Clear(player.Id, ownRow, player.Id, auraSource: true); shown = false; }
+                        if (ring != 0)
+                        {
+                            uint gone = ring;
+                            ring = 0;
+                            if (!player.Closed && !player.LeavingArea)
+                                _ = SendWorldRemoval(player, gone, $"0x02bd {grant.EffectId}'s circle 0x{gone:x} leaves: the skill is no longer worn");
+                        }
                         return false;
                     },
                     // In the area's frame: the wearer's own buff is stated once the aura runs.
                     Valid = () =>
                     {
                         if (!shown && ownRow != 0) { player.Area.Buffs.Set(player.Id, new(ownRow, player.Id, skill, AuraSource: true, DisplayState: 0)); shown = true; }
+                        if (ring == 0 && ringAo is not null)
+                        {
+                            uint id = ring = player.TakeObjectId();
+                            var at = player.Walk.Position(AreaTime(player));
+                            float scale = AreaArtScale(radius, ringAo);
+                            // Its parent is the wearer: the circle goes where the character goes.
+                            var circle = new EffectObject(at.X, at.Y, ringAo) { Awake = true, Parent = player.Id, Scale = scale };
+                            _ = SendWorldCreate(player, id,
+                                () => InstanceEntities.CreateObject(id, InstanceEntities.ObjectTypeHash(EffectObject.TypePath), circle.Blob()),
+                                $"0x02bb {grant.EffectId}'s circle 0x{id:x} {buffs[2]} at ({at.X}, {at.Y}), scale {scale:0.###} for radius {radius}", wake: true);
+                        }
                         return true;
                     },
                     Active = () => player.PlayerLife > 0 && !InGracePeriod(player) && !InTown(player),
