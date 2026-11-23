@@ -125,6 +125,8 @@ public static partial class Game
             Inherit("fire", owner.Fire); Inherit("cold", owner.Cold);
             Inherit("lightning", owner.Lightning); Inherit("chaos", owner.Chaos);
         }
+        if (values.GetValueOrDefault(Stat.MinionsHaveNoArmourOrEnergyShield) != 0)
+            values.Remove(Stat.BasePhysicalDamageReductionRating);
         if (!golem.Definition.IsGolem)
         {
             values[Stat.GlobalMinimumAddedPhysicalDamage] = values.GetValueOrDefault(Stat.GlobalMinimumAddedPhysicalDamage)

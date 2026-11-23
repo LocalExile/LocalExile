@@ -48,7 +48,7 @@ public static partial class Game
         if (coefficient <= 0 || elapsed <= 0 || taken <= 0) return 0;
         var state = InfernalLegionSelfBurns.GetOrCreateValue(minion);
         double total = state.Carry + minion.Monster.MaxLife * (coefficient / 6000d) * elapsed * taken
-            * Math.Max(0, 1 + GolemStat(minion.Own, Stat.SupportMinionDefensiveStanceMinionDamageTakenPlusPctFinal) / 100d);
+            * GolemMeatShieldDamageFactor(minion);
         int damage = (int)Math.Min(int.MaxValue, Math.Floor(total));
         state.Carry = total - Math.Floor(total);
         return damage;

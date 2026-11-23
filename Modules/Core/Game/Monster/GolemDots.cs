@@ -27,6 +27,9 @@ public static partial class Game
     static bool GolemHasDots(GolemState.Golem golem) =>
         !golem.Monster.Ignites.Idle || !golem.Monster.Bleeds.Idle || !golem.Monster.Poisons.Idle;
 
+    static double GolemMeatShieldDamageFactor(GolemState.Golem golem) =>
+        Math.Max(0, 1 + GolemStat(golem.Own, Stat.SupportMinionDefensiveStanceMinionDamageTakenPlusPctFinal) / 100d);
+
     static void QueueGolemDotPacket(Player player, GolemState.Golem golem, byte[] packet, string? log = null) =>
         player.Minions.OutputQueue.Add(new(packet, log, golem.Id, golem.Monster, WorldId: golem.Id));
 
@@ -38,13 +41,14 @@ public static partial class Game
         if (!(to > from) || !GolemCurrent(player, golem) || m.Dead || m.Life == 0) return;
         bool elementalImmune = GolemElementalImmune(golem);
         bool ignoresDots = GolemIgnoresDots(golem);
+        double meatShield = GolemMeatShieldDamageFactor(golem);
         double fireFactor = elementalImmune || ignoresDots ? 0 : MonsterDotTaken(m, DamageType.Fire, to);
-        int fire = m.Ignites.Advance(to, fireFactor, 0, out double? fireAt);
+        int fire = m.Ignites.Advance(to, fireFactor * meatShield, 0, out double? fireAt);
         int legion = InfernalLegionSelfDamage(golem, to - from, fireFactor);
         int blessing = ignoresDots ? 0 : GuardianBlessingMinionDamage(player, golem, from, to);
-        int bleed = m.Bleeds.Advance(to, ignoresDots ? 0 : BleedTaken(m, to),
+        int bleed = m.Bleeds.Advance(to, ignoresDots ? 0 : BleedTaken(m, to) * meatShield,
             ignoresDots ? 0 : AggravatedExtra(m, to), out double? bleedAt);
-        int poison = m.Poisons.Advance(to, ignoresDots ? 0 : MonsterDotTaken(m, DamageType.Chaos, to),
+        int poison = m.Poisons.Advance(to, ignoresDots ? 0 : MonsterDotTaken(m, DamageType.Chaos, to) * meatShield,
             out double? poisonAt);
         if (ignoresDots) fire = bleed = poison = 0;
 
@@ -121,7 +125,7 @@ public static partial class Game
     /// <summary>Admits hostile bleed and poison from an accepted contact's real source effects onto the golem's own
     /// monster ailment sets, using the player pipeline's frozen chance, damage and duration contract.</summary>
     public static void GolemHostileAilmentsLocked(Player player, GolemState.Golem golem, uint attacker,
-        SpawnedMonster source, DamagePacket rolled, bool critical, bool attack, double now)
+        SpawnedMonster source, DamagePacket rolled, bool critical, bool attack, double now, double damagingAilmentFactor = 1)
     {
         var target = golem.Monster;
         var effects = source.Mods.Effects;
@@ -130,6 +134,7 @@ public static partial class Game
         // The hit roll carries the monster's 1.3 critical multiplier; ailments use their own ordinary 50%-more critical
         // DoT row, so remove only that hit multiplier before deriving their bases.
         var baseHit = critical ? rolled.Scale(1 / 1.3) : rolled;
+        if (damagingAilmentFactor != 1) baseHit = baseHit.Scale(damagingAilmentFactor);
         double physical = baseHit[DamageType.Physical].Min;
         double chaos = baseHit[DamageType.Chaos].Min;
         bool elementalImmune = GolemElementalImmune(golem);

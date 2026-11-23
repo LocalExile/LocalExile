@@ -121,6 +121,16 @@ public static partial class Game
             .Scale(SappedDamageFactor(source, now));
         bool elementalImmune = GolemElementalImmune(g);
         bool chaosNoBypass = effects[Stat.ChaosDamageDoesNotBypassEnergyShield] != 0;
+        bool spellHit = attack.Spell && !attack.Secondary;
+        int prevented = 0;
+        if (spellHit)
+        {
+            long chance = effects[Stat.BaseSpellSuppressionChancePct];
+            if (Player(Stat.MinionsGainYourSpellSuppressionChance) != 0)
+                chance += SpellDefences(player).Suppression;
+            if (chance > 0 && RandomRolls.Chance((int)Math.Min(chance, 100), 100, random))
+                prevented = Math.Clamp(DamageModel.SpellSuppressionEffect + effects[Stat.BaseSpellDamagePctSuppressed], 0, 100);
+        }
         long damage = 0;
         var mitigated = DamagePacket.Empty;
         foreach (var (type, range) in rolled.Components)
@@ -133,18 +143,19 @@ public static partial class Game
             int value = (int)Math.Round(DamageModel.Mitigate(DamagePacket.Of(type, range.Min, range.Min), _ => resistance)[type].Min);
             if (type == DamageType.Physical)
             {
-                double armour = Math.Max(0, Player(Stat.MinionPhysicalDamageReductionRating)
+                double armour = effects[Stat.MinionsHaveNoArmourOrEnergyShield] != 0 ? 0
+                    : Math.Max(0, Player(Stat.MinionPhysicalDamageReductionRating)
                     + (g.Definition.IsGolem ? Player(Stat.GolemPhysicalDamageReductionRating) : 0)
                     + effects[Stat.BasePhysicalDamageReductionRating])
                     * Math.Max(0, 1 + effects[Stat.DeterminationAuraArmourPlusPctFinal] / 100.0);
                 double reduction = Math.Min(.9, armour / Math.Max(1, armour + 5 * value) + effects.PhysicalReduction / 100.0);
                 value = (int)Math.Round(value * (1 - reduction));
             }
-            value = (int)Math.Round(value * effects.DamageTaken(attack.Spell && !attack.Secondary)
-                // Meat Shield's defensive half: "Minions take 15% less Damage" (the stat is the negative more).
-                * Math.Max(0, 1 + GolemStat(g.Own, Stat.SupportMinionDefensiveStanceMinionDamageTakenPlusPctFinal) / 100.0)
+            value = (int)Math.Round(value * effects.DamageTaken(spellHit)
+                * GolemMeatShieldDamageFactor(g)
                 * Math.Max(0, 1 + GolemStat(g.Own, Stat.VaalUpgradeMinionDamageTakenPlusPctFinal) / 100d)
                 * (area ? Math.Max(0, 1 + effects[Stat.Of("damage_taken_+%_from_area_hits")] / 100.0) : 1));
+            if (prevented != 0) value = DamageModel.Suppress(value, prevented);
             if (value > 0)
             {
                 mitigated = mitigated.Add(type, new(value, value));
@@ -155,7 +166,9 @@ public static partial class Game
         m.Life = (uint)Math.Max(0, (long)m.Life - damage);
         if (!elementalImmune)
             m.Ailments.Inflict(rolled, critical, m.MaxLife, now, n => n == Stat.NeverFreeze && attack.Ailments.NeverFreeze ? 1 : source.Effects[n], n => effects[n], random);
-        if (m.Life > 0) GolemHostileAilmentsLocked(player, g, attacker, source, rolled, critical, !attack.Spell && !attack.Secondary, now);
+        if (m.Life > 0)
+            GolemHostileAilmentsLocked(player, g, attacker, source, rolled, critical, !attack.Spell && !attack.Secondary, now,
+                (100 - prevented) / 100d);
         var from = source.Walk.Position(now);
         var to = m.Walk.Position(now);
         // Immediate kind 3 reaches the attacker's native result consumer; 0xffff never supplies a consuming action.
