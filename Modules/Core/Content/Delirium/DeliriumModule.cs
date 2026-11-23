@@ -31,6 +31,8 @@ public sealed partial class DeliriumModule : IModule
         public int KosisCount { get; set; }
         public bool OmniThisWave { get; set; }
         public bool KosisThisWave { get; set; }
+        public bool OmniSpawnedThisWave { get; set; }
+        public bool KosisSpawnedThisWave { get; set; }
         public double Started { get; set; }
         public double NextSpawnAt { get; set; }
         public int VisualVersion { get; set; }
@@ -45,7 +47,16 @@ public sealed partial class DeliriumModule : IModule
         /// killing blow consumed (an explosion, Devour) has already left conn.Monsters when the kill handlers run, so
         /// it is matched here, and Step counts one that died out of the list.</summary>
         [System.Text.Json.Serialization.JsonIgnore] public Dictionary<uint, SpawnedMonster> Bodies { get; } = [];
-        [System.Text.Json.Serialization.JsonIgnore] public bool SpawningDone => ProgressGoal > 0 ? SpawnPoints >= ProgressGoal : Spawned >= Budget;
+        const int OmniSpawnAt = 20, KosisSpawnAt = 40;
+        // In existing saved waves a passed spawn ordinal already accounts for the corresponding boss.
+        bool OmniPending => OmniThisWave && !OmniSpawnedThisWave && Spawned <= OmniSpawnAt;
+        bool KosisPending => KosisThisWave && !KosisSpawnedThisWave && Spawned <= KosisSpawnAt;
+        bool SpawnBudgetSpent => ProgressGoal > 0 ? SpawnPoints >= ProgressGoal : Spawned >= Budget;
+        [System.Text.Json.Serialization.JsonIgnore] public bool SpawningDone => SpawnBudgetSpent && !OmniPending && !KosisPending;
+        public string? DueBoss() => OmniPending && (Spawned == OmniSpawnAt || SpawnBudgetSpent) ? SimulacrumRules.Omniphobia
+            : KosisPending && (Spawned == KosisSpawnAt || SpawnBudgetSpent) ? SimulacrumRules.Kosis : null;
+        public bool CanSpawnDueBoss(double now, int activeLimit) =>
+            Active && now >= NextSpawnAt && Monsters.Count < activeLimit && DueBoss() is not null;
         public int SpawnAllowance(double now, int packSize, int activeLimit) => !Active || now < NextSpawnAt ? 0
             : Math.Max(0, Math.Min(Math.Min(packSize, ProgressGoal > 0 ? ProgressGoal - SpawnPoints : Budget - Spawned), activeLimit - Monsters.Count));
         public bool RecordKill(uint id)
@@ -195,6 +206,7 @@ public sealed partial class DeliriumModule : IModule
             run.ProgressGoal = prepared.ProgressGoal; run.SpawnPoints = run.KillPoints = 0; run.MonsterPoints.Clear();
             run.Affixes = prepared.Affixes; run.Next = null;
             run.ModifierNames = prepared.ModifierNames; run.OmniThisWave = prepared.OmniThisWave; run.KosisThisWave = prepared.KosisThisWave;
+            run.OmniSpawnedThisWave = run.KosisSpawnedThisWave = false;
             run.Monsters.Clear(); run.Bodies.Clear(); run.Started = AreaTime(player); run.NextSpawnAt = run.Started;
             cleared = ClearGround(player.Instance.Ground);
             // Every client hears of it: the removals are the area's records.

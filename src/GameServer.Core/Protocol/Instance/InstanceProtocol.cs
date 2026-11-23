@@ -468,6 +468,12 @@ public static class InstanceProtocol
         new LoginWriter().U16(0x1b9).U32(objectId).U32(0).U16(0)
             .U32(BitConverter.SingleToUInt32Bits(radians)).U8(locked ? (byte)1 : (byte)0).ToArray();
 
+    public const ushort SetTeamId = 0x1be;
+
+    /// <summary>S→C 0x1be (Positioned, read 0x141fe65f0): object header, u16 team (0 = player, 1 = hostile).</summary>
+    public static byte[] SetTeam(uint objectId, ushort team) =>
+        new LoginWriter().U16(SetTeamId).U32(objectId).U32(0).U16(0).U16(team).ToArray();
+
     public const ushort DeathScreenId = 0x55, ResurrectId = 0x54;
 
     /// <summary>

@@ -173,7 +173,8 @@ public static partial class Game
     // Each hand's local speed is already in its own duration; both receive only the character's shared speed bucket.
     public static List<(uint, int)> WeaponStats(Player player, SkillCatalog.Unarmed weapon, IReadOnlyDictionary<uint, int> stats)
     {
-        var conversion = DamageStats.Conversion(stats, Stats, attack: true);
+        int Get(uint key) => stats.GetValueOrDefault(key);
+        var conversion = SupportedAttackDamage.WithWeaponGains(DamageStats.Conversion(stats, Stats, attack: true), weapon, Get);
         var accuracy = OrdinaryAccuracy(player, stats, weapon.LocalSources);
         var mainHit = AttackHitConverted(weapon, stats, MeleeAttack(player), conversion, accuracy);
         double damageFactor = CriticalStrikePolicy.DamageFactor(CriticalProhibitedBy(stats, attack: true, own: null)
@@ -183,7 +184,8 @@ public static partial class Game
         AddHand(mainHit, "main_hand");
         if (OffhandWeaponFor(player) is { } off)
         {
-            var offHit = AttackHitConverted(off, stats, MeleeAttack(player), conversion, new(WeaponAccuracyFor(player, off, stats)));
+            var offConversion = SupportedAttackDamage.WithWeaponGains(DamageStats.Conversion(stats, Stats, attack: true), off, Get);
+            var offHit = AttackHitConverted(off, stats, MeleeAttack(player), offConversion, new(WeaponAccuracyFor(player, off, stats)));
             list.AddRange(off.OffStats(stats, offHit));
             AddHand(offHit, "off_hand");
             // The hands alternate: the panel's per-use, per-second and attacks-per-second rows average both, each hand
@@ -331,7 +333,7 @@ public static partial class Game
         bool melee, GameServer.Core.World.DamageConversion? conversion, AttackAccuracyProfile accuracy, long additionalIncreased = 0)
     {
         var Get = WeaponAttributeDamage.Read(WeaponAttributeDamage.Armed(weapon), name => RageStat(stats, name));
-        var hit = PlayerHitDamage.Resolve(SupportedAttackDamage.Raw(weapon, Get, accuracy), SupportedAttackDamage.HitModifiers(weapon, Get),
+        var hit = PlayerHitDamage.Resolve(SupportedAttackDamage.Raw(weapon, Get, accuracy, melee: melee), SupportedAttackDamage.HitModifiers(weapon, Get),
             conversion ?? new(), spell: false, melee: melee, projectile: !melee, wieldingBow: weapon.Bow, wieldingWand: weapon.WieldingWand,
             additionalIncreased: additionalIncreased + SupportedAttackDamage.WeaponIncrease(weapon, Get),
             additional: WeaponTypeDamage.Of(weapon, Get));
@@ -441,7 +443,9 @@ public static partial class Game
             int level = supported.Level;
             var own = WithBlessingCost(player, supported);
             UnleashSeals(player, id, supported, ProjectileWorldTime(player));
-            var stats = MergeSkillStats(playerStats, own, SkillsFor(player).IsChannelled(effect), SkillCostMore(player, own));
+            var skills = SkillsFor(player);
+            var stats = MergeSkillStats(playerStats, own, skills.IsChannelled(effect), SkillCostMore(player, own),
+                CostEfficiencyFor(skills, effect));
             // A shield attack swings the shield in the off hand, which OffStats leaves out (not a weapon): the client then
             // read off_hand_total_base_weapon_attack_duration_ms 0, and Shield Charge's end-of-charge attack never finished
             // (Frida 2026-11-01, 11-skills.md "Shield Charge"). Its base time is the gem's own AttackTime.
@@ -519,7 +523,8 @@ public static partial class Game
             // The native spell action divides virtual BASE time by cast speed itself. Keep the catalog base
             // intact; only the panel's final casts-per-second stat is adjusted here.
             int supportCastSpeed = own.GetValueOrDefault(Stat.BaseCastSpeedPlusPct)
-                + BrandCastSpeedBonusPct(player, effect, playerStats, own);
+                + BrandCastSpeedBonusPct(player, effect, playerStats, own)
+                + TaggedCastSpeedBonusPct(player, effect, playerStats.GetValueOrDefault, own.GetValueOrDefault);
             int castSpeedTotal = FinalCastSpeedPct(player, stats, CastSpeedPct(stats) + supportCastSpeed);
             var supportedTiming = GolemStat(own, Stat.BaseSpellCastTimeMsOverride) is int castBasis and > 0
                 ? SpellCastTiming.Calculate(castBasis, castSpeedTotal) : SpellCastTiming.ForSkill(SkillsFor(player), effect, castSpeedTotal);
@@ -745,8 +750,9 @@ public static partial class Game
             if (Get(Stat.BaseManaCostPctPerMinute) is int costPct and > 0)
                 Publish(Stat.ManaCostPerMinute, BladefallVolleys.ManaPerMinute(costPct, paysLife ? player.Pools.Life : player.Pools.Mana));
             // Network skill stats skip the client's cost-conversion calculators (0x141eedb80 reads mana_cost and
-            // life_cost directly). Publish the converted Life cost on the wire so the client spends Life instead of
-            // Mana, while leaving SupportedSkill/SupportedStats unchanged for server cost accounting.
+            // life_cost directly). Publish the final admitted Mana and Life costs on the wire so the client matches
+            // server admission (Lifetap/Blood Magic, Deathmarked, Cannibalistic Rite), while leaving
+            // SupportedSkill/SupportedStats unchanged for server cost accounting.
             if (paysLife)
             {
                 Publish(Stat.SkillCostLifeInsteadOfMana, 1);
@@ -762,6 +768,19 @@ public static partial class Game
                     Publish(Stat.LifeCostPerMinute, (int)Math.Min(int.MaxValue, (long)Math.Max(0, Get(Stat.LifeCostPerMinute)) + manaPerMinute));
                     Publish(Stat.ManaCostPerMinute, 0);
                 }
+            }
+            else if (Get(Stat.MarkSkillsCostNoMana) != 0 && skills.HasType(effect, "Mark"))
+            {
+                Publish(Stat.ManaCost, 0);
+            }
+            else if (Math.Clamp(Get(Stat.BaseAttackSkillCostLifeInsteadOfManaPct), 0, 100) is int split and > 0
+                && skills.IsAttack(effect) && own.TryGetValue(Stat.ManaCost, out int baseMana))
+            {
+                var (remainingMana, _, convertedLife) = ManaRecoveryRules.SplitCostToLife(
+                    baseMana, Get, skills.IsChannelled(effect), SkillCostMore(player, own), split);
+                Publish(Stat.ManaCost, remainingMana);
+                if (convertedLife > 0)
+                    Publish(Stat.LifeCost, (int)Math.Min(int.MaxValue, (long)Math.Max(0, Get(Stat.LifeCost)) + convertedLife));
             }
             // Bladefall of Trarthus' volley interval: 0 hung the client on its first use (#584).
             if (Get(Stat.BladefallBaseVolleyFrequencyMs) is int volleyMs and > 0)
@@ -1057,6 +1076,9 @@ public static partial class Game
     {
         if (SkillsFor(player).EffectId(effect) is "AnimateGuardian" or "AnimateGuardianAltX"
             && AnimatedGuardianUnavailable(player)) return "the Animated Guardian died in this area";
+        if (EternalBlessingDisables(player, skillId)) return "Eternal Blessing disables mana reservations";
+        if (skillId is ushort blessingSkill && GuardianBlessingDisables(player, effect, blessingSkill))
+            return "Guardian's Blessing requires a living minion linked to its support";
         // What it reads (the skill's gem, the stat sources, the stats) changes only with the skills (ActiveSkills).
         if (BuildScopeOf(player) is not { Building: true } && CurrentActiveSkills(player) is { } current)
         {
@@ -1117,7 +1139,8 @@ public static partial class Game
         if (TravelSkillsExceptDashDisabled(player, effect, skillId) is { } travel) return travel;
         if (gem.Supports.Any(s => s.Effect.Added.Contains(36))
             && !TriggeredSpellExecutable(player, skillId, gem)
-            && !SnipeTriggeredAttackExecutable(player, skillId, gem)) return "this trigger payload has no server executor";
+            && !SnipeTriggeredAttackExecutable(player, skillId, gem)
+            && !ManaforgedAttackExecutable(player, skillId, gem)) return "this trigger payload has no server executor";
         if (!triggered && TriggerOnlyReason(gem) is { } trigger) return trigger;
         if ((ActorSkillInstanceDisabled(player, effect, skillId) ?? WeaponRestricted(player, effect)
                 ?? GemRequirementsUnmet(player, gem.SourceGem)) is { } disabled)
@@ -1144,13 +1167,20 @@ public static partial class Game
     // weapon is not in the hands (HandType), as the model the client checks does not show it (Looks).
     public static string? WeaponRestricted(Player player, int effect)
     {
-        var allowed = SkillsFor(player).WeaponRestrictions(effect);
+        var skills = SkillsFor(player);
+        var allowed = skills.WeaponRestrictions(effect);
         if (allowed.Count == 0) return null;
         bool Fits((Item Item, ItemCatalog.BaseType? Type)? hand, int? emptyClass) =>
             WeaponIdentity.Allows(allowed, hand?.Type?.ClassRow ?? emptyClass,
                 hand is { } held && WeaponIdentity.AllOneHandMelee(held.Item, ItemsFor(player).Mods));
-        return Fits(ActiveMainHand(player), UnarmedClassRow) || Fits(ActiveOffHand(player), null)
-            ? null : "the equipped weapon cannot use this skill";
+        if (Fits(ActiveMainHand(player), UnarmedClassRow))
+        {
+            // An empty main hand fits Doryani's Touch only if the off hand also holds no weapon.
+            if (!allowed.Contains(UnarmedClassRow) || skills.EffectId(effect) != "DoryanisTouch"
+                || ActiveOffHand(player)?.Type is not { } offType || skills.WeaponBase(offType.Row) is null) return null;
+        }
+        else if (Fits(ActiveOffHand(player), null)) return null;
+        return "the equipped weapon cannot use this skill";
     }
 
     // A worn item whose requirements are not met (CharacterStatSources): its mods and gems do nothing.
@@ -1287,7 +1317,7 @@ public static partial class Game
         // A lethal hit while SendCharacterStats awaited must not turn a Hardcore death into a level-up heal.
         if (player.Character.Hardcore && (player.PlayerLife == 0 || player.Character.HardcoreDeathRecorded)) return;
         (player.PlayerLife, player.PlayerMana) = (LifeCap(player), (uint)mana);
-        player.EnergyShield.SetMaximum(player.Pools.EnergyShield, true);
+        RefillPlayerEnergyShield(player);
         Note($"0x01b1 player life {player.PlayerLife}");
         await SendPlayerMana(player, $"0x01b1 player mana {player.PlayerMana}");
         await SendPassives(player);

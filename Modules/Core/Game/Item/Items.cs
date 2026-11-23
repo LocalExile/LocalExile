@@ -838,9 +838,11 @@ public static partial class Game
         int adjacentEffect = AdjacentTinctureFlaskEffect(player, (byte)slot, Get, AreaTime(player));
         Func<uint, int> flaskCharacter = adjacentEffect == 0 ? Get
             : stat => stat == Stat.FlaskEffectPlusPct ? Get(stat) + adjacentEffect : Get(stat);
+        double finalMultiplier = MapFlaskEffectMultiplier(player);
         recoveryOwner = ResourceEffectsOf(player);
         r = FlaskRecovery.For(use, flask.Item, local,
-            stat => flaskCharacter(stat) + (stat == Stat.FlaskLifeToRecoverPlusPct ? Lifetap.FlaskRecovery(player) : 0), player.PlayerLife, player.PlayerMaxLife, playerLevel);
+            stat => flaskCharacter(stat) + (stat == Stat.FlaskLifeToRecoverPlusPct ? Lifetap.FlaskRecovery(player) : 0),
+            player.PlayerLife, player.PlayerMaxLife, playerLevel, finalMultiplier);
         copyLife = ManaFlaskCopiesLife(r, character);
         canRecover = Flasks.CanRecover(use, player.PlayerLife, LifeCap(player), player.PlayerMana, (uint)UnreservedMana(player))
             || copyLife && player.PlayerLife < LifeCap(player)
@@ -871,7 +873,8 @@ public static partial class Game
         if (!CurrentRecovery()) return;
         // The flask's "during effect" mods (Divination Distillate), scaled by its increased effect.
         var during = UtilityFlasks.DuringEffectSources(local,
-            FlaskEffectScaling.Multiplier(flaskCharacter, playerLevel, local.GetValueOrDefault(Stat.LocalFlaskEffectPlusPct)));
+            FlaskEffectScaling.Multiplier(flaskCharacter, playerLevel, local.GetValueOrDefault(Stat.LocalFlaskEffectPlusPct),
+                finalMultiplier: finalMultiplier));
         await SpendFlask(player, flask, charges, slot, CurrentRecovery,
             spent => AcceptRecoveryFlaskLocked(player, slot, spent, type, use, r, copyLife, local, during));
     }
@@ -884,10 +887,12 @@ public static partial class Game
 
     // FillFlasks, and the changed flasks to the client (one S→C 0xbf).
     public static Task GainFlaskCharges(Player player, int charges, string why) =>
-        ChangeFlaskBar(player, items => Flasks.Fill(items, ItemsFor(player), charges, saveNow: false,
-                canGain: flask => CanGainFlaskCharges(player, flask)) is { Count: > 0 } changed
-                ? ([.. changed.Select(c => c.Id)], changed) : null,
-            changed => $"0x00bf flasks: {string.Join(", ", changed.Select(c => $"{c.X}: {c.Item.Charges}"))} charges ({why})");
+        charges != int.MaxValue
+            ? GainFlaskCharges(player, (_, _) => charges, why)
+            : ChangeFlaskBar(player, items => Flasks.Fill(items, ItemsFor(player), charges, saveNow: false,
+                    canGain: flask => CanGainFlaskCharges(player, flask)) is { Count: > 0 } changed
+                    ? ([.. changed.Select(c => c.Id)], changed) : null,
+                changed => $"0x00bf flasks: {string.Join(", ", changed.Select(c => $"{c.X}: {c.Item.Charges}"))} charges ({why})");
 
     // A new character's class weapon lies on the ground a few cells from where it appears, as on the real game's Twilight
     // Strand, until it is picked up (PlayerInventories.StartWeapon): put once into each instance it enters outside towns.

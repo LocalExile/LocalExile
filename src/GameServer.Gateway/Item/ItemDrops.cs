@@ -306,7 +306,7 @@ public sealed class ItemDrops
 
     /// <param name="mods">The map's stats, for its scarab-type weights (<see cref="Scarab(Random, int, MapMods?)"/>).</param>
     public IReadOnlyList<Drop> Roll(int monsterLevel, MonsterRarity rarity, Random rng, int increasedRarity,
-        double quantityMultiplier, double rarityMultiplier, int mapTier, MapMods? mods)
+        double quantityMultiplier, double rarityMultiplier, int mapTier, MapMods? mods, double scarabQuantity = 1)
     {
         double quantity = double.IsFinite(quantityMultiplier) ? Math.Max(0, quantityMultiplier) : 1;
         int whole = (int)Math.Min(Math.Floor(quantity), int.MaxValue);
@@ -330,7 +330,8 @@ public sealed class ItemDrops
         }
         if (mapTier > 0)
         {
-            if (MapExtra("drop_scarab_chance_pct", quantity, rng) && Scarab(rng, monsterLevel, mods) is { } scarab)
+            if (scarabQuantity > 0 && MapExtra("drop_scarab_chance_pct", quantity * scarabQuantity, rng)
+                && Scarab(rng, monsterLevel, mods) is { } scarab)
                 drops.Add(scarab with { Item = scarab.Item with { ItemLevel = (byte)Math.Clamp(monsterLevel, 1, 100) } });
             if (MapExtra("drop_card_chance_pct", quantity, rng) && Card(rng, monsterLevel) is { } card)
                 drops.Add(card);
@@ -538,8 +539,10 @@ public sealed class ItemDrops
 
     /// <summary>An approximate generic-map drop: a map of the current map tier (or tier 1 in the late campaign once
     /// monsters meet the tier-1 map's DropLevel). Our own rates until the game pools are known. <paramref name="chanceFactor"/>
-    /// scales the chance (a monster's or league's map-related drop chance).</summary>
-    public Drop? Map(int monsterLevel, MonsterRarity monster, int mapTier, Random rng, int voidstones = 0, double chanceFactor = 1)
+    /// scales the chance (a monster's or league's map-related drop chance), and <paramref name="tierUpgradePermillage"/>
+    /// rolls a +1 tier upgrade (clamped to 16) only after the map drop roll succeeds.</summary>
+    public Drop? Map(int monsterLevel, MonsterRarity monster, int mapTier, Random rng, int voidstones = 0,
+        double chanceFactor = 1, int tierUpgradePermillage = 0)
     {
         if (maps is null || (mapTier <= 0 && monsterLevel < MinCampaignMapDropLevel())) return null;
         double chance = monster switch { MonsterRarity.Normal => 0.004, MonsterRarity.Magic => 0.012, MonsterRarity.Rare => 0.05, _ => 0.20 };
@@ -547,6 +550,9 @@ public sealed class ItemDrops
         if (chance <= 0 || rng.NextDouble() >= chance) return null;
         int stones = Math.Max(0, voidstones);
         int tier = Math.Clamp((mapTier > 0 ? mapTier : 1) + (stones > 0 ? 1 : 0), 1, 16);
+        if (tierUpgradePermillage > 0 && mapTier > 0 && tier < 16
+            && rng.NextDouble() < Math.Min(1000, tierUpgradePermillage) / 1000d)
+            tier = Math.Min(16, tier + 1);
         // Socketed Voidstones convert found maps below tier 16 to gold (maps.md).
         if (stones > 0 && tier < 16) return Gold(monsterLevel, monster, rng);
         if (maps.KeyOfTier(tier) is not uint hash || catalog.ByHash(hash) is not { Supported: true } type

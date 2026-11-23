@@ -23,7 +23,7 @@ public static partial class Game
             new Dictionary<uint, int>(inputs.Caster), inputs.Attack, inputs.Melee, inputs.Area, inputs.Projectile,
             inputs.Modifiers.ToArray(), new HashSet<int>(inputs.Types), effectiveness, inputs.WieldingWand,
             Context: context, Local: local is null ? null : new Dictionary<uint, int>(local), Bow: bow || inputs.WieldingBow,
-            IgniteFactor: igniteFactor, WeaponIncreased: inputs.WeaponIncreased);
+            IgniteFactor: igniteFactor, WeaponIncreased: inputs.WeaponIncreased, WeaponTypedIncreases: inputs.WeaponTypedIncreases);
     }
 
     public static PlacedSkills.DamageProfile SpiderDamageProfile(SpiderDamageSource source, int webs, bool blinded,
@@ -39,8 +39,9 @@ public static partial class Game
             melee: source.Melee, area: source.Area, projectile: source.Projectile, supportModifiers: source.Modifiers,
             skillTypes: source.Types, secondary: source.Secondary, wieldingWand: source.WieldingWand,
             retaliation: source.Attack && source.Types.Contains(120),
-            additionalIncreased: increased + (source.Attack ? source.WeaponIncreased : 0),
-            wieldingBow: source.Attack && source.Bow);
+            additionalIncreased: increased + source.WeaponIncreased,
+            wieldingBow: source.Attack && source.Bow,
+            additional: source.WeaponTypedIncreases);
         if (source.Attack)
         {
             hit = RageStats.ApplyAttack(hit, Get);

@@ -688,7 +688,7 @@ internal static class DeepwaterLoot
             var roller = DropsFor(player);
             var mods = MapModsOf(player);
             for (int i = rng.Next(1, 3); i > 0; i--)
-                if (roller.Scarab(rng, level, mods) is { } scarab) drops.Add(scarab);
+                if (global::Game.MapScarab(roller, rng, level, mods) is { } scarab) drops.Add(scarab);
             return drops;
         }
         if (chestType.Contains("AnchorUnique", StringComparison.Ordinal))
@@ -796,7 +796,7 @@ internal static class DeepwaterLoot
     {
         if (player.PlayerLife == 0) return;
         player.PlayerLife = Math.Max(player.PlayerLife, LifeCap(player));
-        player.EnergyShield.SetMaximum(player.Pools.EnergyShield, refill: true);
+        global::Game.RefillPlayerEnergyShield(player);
         player.PlayerMana = Math.Max(player.PlayerMana, (uint)UnreservedMana(player));
         await global::Game.SendWorldRecord(player, player.Id, PlayerLifeUpdate(player), $"0x01b1 Soothing Coral: life {player.PlayerLife}");
         await SendPlayerMana(player, $"0x01b1 Soothing Coral: mana {player.PlayerMana}");
@@ -868,7 +868,7 @@ internal static class DeepwaterLoot
             {
                 double scarabChance = Math.Clamp(SystemSettings.Default.Get("drop_scarab_chance_pct"), 0, 100) / 100.0 * (cr.ExtraScarabFactor - 1.0);
                 if (rng.NextDouble() < scarabChance
-                    && DropsFor(roll.Player).Scarab(rng, roll.Monster.Level, MapModsOf(roll.Player)) is { } extraScarab)
+                    && global::Game.MapScarab(DropsFor(roll.Player), rng, roll.Monster.Level, MapModsOf(roll.Player)) is { } extraScarab)
                     roll.Made.Add(extraScarab.Item);
             }
             if (cr.ExtraCurrencyFactor > 1.0)
@@ -892,7 +892,7 @@ internal static class DeepwaterLoot
                     var roller = DropsFor(roll.Player);
                     var mods = MapModsOf(roll.Player);
                     for (int i = 0; i < cr.RareExtraScarab; i++)
-                        if (roller.Scarab(rng, roll.Monster.Level, mods) is { } rareScarab)
+                        if (global::Game.MapScarab(roller, rng, roll.Monster.Level, mods) is { } rareScarab)
                             roll.Made.Add(rareScarab.Item);
                 }
                 if (cr.RareSupportGemChance > 0 && rng.Next(100) < cr.RareSupportGemChance
