@@ -654,7 +654,7 @@ public sealed class VillageModule : IModule
     {
         if (args.Length < 2) return "assign farm (no arguments)";
         int worker = args[0] + 1, plot = args[1] + 1;
-        string said = KingsmarchTown.Assign(player, worker, plot).GetAwaiter().GetResult();
+        string said = KingsmarchTown.AssignIdle(player, args[0], plot).GetAwaiter().GetResult();
         return $"assign farm (worker {worker} → plot {plot}): {said}";
     }
 

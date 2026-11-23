@@ -1458,6 +1458,20 @@ public static class KingsmarchTown
             await SetWorkers(player, row, progress.Workers.Count(w => w.Plot == row.Order));
     }
 
+    /// <summary>Puts an idle worker on a plot the way the farm panel's assign button does: the button names the worker's
+    /// place among the idle ones, not its place in the town, so the index is resolved here first. Removing workers renumbers
+    /// that list, which is why one worker could never be placed again after the others were removed.</summary>
+    /// <param name="player">The player whose farm it is.</param>
+    /// <param name="index">The idle worker's place in the available list, counting from zero.</param>
+    /// <param name="plotOrder">The plot's number, counting from one.</param>
+    public static Task<string> AssignIdle(IPlayer player, int index, int plotOrder)
+    {
+        Progress progress = State(player);
+        int[] idle = [.. progress.Workers.Select((w, i) => (Worker: w, Place: i + 1)).Where(pair => pair.Worker.Plot < 0).Select(pair => pair.Place)];
+        if (idle.Length == 0) return Task.FromResult("every worker already has a job");
+        int worker = index >= 0 && index < idle.Length ? idle[index] : idle[^1];
+        return Assign(player, worker, plotOrder);
+    }
     static async Task SetWorkers(IPlayer player, Plot plot, int count)    {
         var states = new StateMachineData(new int[plot.States.Length], 0, plot.States).Set("num_workers", count);
         await player.Send(InstanceEntities.StateMachineUpdate(plot.ObjectId, plot.StateIndex, states),
