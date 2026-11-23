@@ -92,7 +92,7 @@ public static partial class Game
         player.Pools = PoolsFor(player, player.Pools.Level);
         player.PlayerLife = Math.Min(player.PlayerLife, player.PlayerUnreservedLife);
         player.PlayerMana = Math.Min(player.PlayerMana, (uint)UnreservedMana(player));
-        player.ApplyMovementSpeed();
+        player.ApplyMovementSpeedAt(AreaTime(player));
     }
 
     /// <summary>The area's stat buffs on a player's entity changed (AreaStatBuffs): its pools and sources are built again.</summary>
@@ -282,6 +282,7 @@ public static partial class Game
         double clock = AreaTime(player);
         frame.Clock = clock;
         var graph = frame.Graph ??= PlayerStatGraph(player, frame);
+        CheckMomentumPresentation(player, clock);
         if (!ReferenceEquals(frame.Area, player.Frames.Area))
         {
             if (frame.Area is not null) PlayerStatBuffsChanged(player);
