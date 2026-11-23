@@ -31,11 +31,13 @@ public static partial class Game
         bool Active(Item item) => active is null || active.Any(worn => ReferenceEquals(worn, item));
         bool lifeModifier = equipment.Any(e => e.Row != PlayerInventories.BodyArmour && Active(e.Item.Item)
             && e.Item.Item.Mods.Any(m => catalog.Mods.ByHash(m.Hash)?.Tags.Contains("life") == true));
-        int armouredPieces = 0;
+        const int armourSlots = (1 << PlayerInventories.Helmet) | (1 << PlayerInventories.BodyArmour)
+            | (1 << PlayerInventories.Gloves) | (1 << PlayerInventories.Boots);
+        int armouredSlots = 0;
         foreach (var (row, worn) in equipment)
             if (row is PlayerInventories.Helmet or PlayerInventories.BodyArmour or PlayerInventories.Gloves or PlayerInventories.Boots
                 && Active(worn.Item) && GrantsArmour(worn.Item, catalog))
-                armouredPieces++;
-        return WithFlags(captured, (NoOtherLifeModifiersCondition, !lifeModifier), (AllPiecesHaveArmour, armouredPieces == 4));
+                armouredSlots |= 1 << row;
+        return WithFlags(captured, (NoOtherLifeModifiersCondition, !lifeModifier), (AllPiecesHaveArmour, armouredSlots == armourSlots));
     }
 }
