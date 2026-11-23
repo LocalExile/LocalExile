@@ -202,6 +202,40 @@ public static partial class Game
             still);
     }
 
+    // A terminal projection can carry the projectile's final position immediately before its removal.
+    // Keep those records separate when the area will publish them to its viewers at the frame boundary.
+    static Task SendWorldRecordsEndingInRemoval(Player player, uint id, Func<byte[][]?> records, string? log)
+    {
+        if (!player.Connection.LockstepClient && !InAreaFrame(player))
+        {
+            var viewer = Program.ViewOf.Value;
+            return Send(player, [], log, atGate: () =>
+            {
+                if (records() is not { Length: > 0 } batch) return null;
+                if (viewer is null && player.Area.Delta.ViewerOf(id, player) is null)
+                {
+                    foreach (var update in batch[..^1])
+                        if (update.Length > 0) player.Area.Objects.RecordDirect(id, update, AreaDelta.Kind.World, player, log);
+                    player.Area.Objects.RecordDirect(id, batch[^1], AreaDelta.Kind.Remove, player, log);
+                }
+                return [.. batch.SelectMany(record => record)];
+            });
+        }
+
+        var target = player.Connection.WorldOutput.PublishedObject(id);
+        return Program.SendRecords(player, [target], _ =>
+        {
+            if (records() is not { Length: > 0 } batch) return null;
+            List<OutputRecord> output = [];
+            foreach (var update in batch[..^1])
+                if (update.Length > 0) output.Add(PresentedRecord(target, update, log));
+            var removal = batch[^1].ToArray();
+            BinaryPrimitives.WriteUInt32BigEndian(removal.AsSpan(6), uint.MaxValue);
+            output.Add(OutputRecord.Remove(target, WorldOrder.Last, removal, log));
+            return new([.. output]);
+        }, rules: Program.GameLogicOrNull as IWorldAdmissionRules);
+    }
+
     public static async Task SendWorldRemoval(Player player, uint id, string? log = null, Func<bool>? still = null, Func<byte[]?>? atGate = null)
     {
         if (!player.Connection.LockstepClient && !InAreaFrame(player))
