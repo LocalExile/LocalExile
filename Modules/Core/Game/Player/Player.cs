@@ -1063,7 +1063,9 @@ public static partial class Game
                     preventedPerSecond = PreventedDamageRecovery.PerSecond(
                         PanelStats.WhileMoving(RecoveryStat, player.Walk.Moving(AreaTime(player))));
                     lifeRegenFactor = LifeRegenerationKeystoneFactor(RecoveryStat);
-                    int periodic = RecoveryStat(Stat.VirtualGainLifeRegenerationPerMinutePctFor1SecondEvery4Seconds);
+                    // The influenced body armour suffix: its id says ten seconds, its text "Every 4 seconds".
+                    int periodic = RecoveryStat(Stat.VirtualGainLifeRegenerationPerMinutePctFor1SecondEvery4Seconds)
+                        + RecoveryStat(Stat.GuardianGainLifeRegenerationPerMinutePctFor1SecondEvery10Seconds);
                     periodicRegenStart = periodic > 0 && player.PlayerLife > 0 ? periodicRegenStart ?? now : null;
                     periodicRegenPerSecond = player.PlayerMaxLife * (double)periodic / 6000
                         * PanelStats.LifeRegenerationMultiplier(RecoveryStat) * lifeRegenFactor;
