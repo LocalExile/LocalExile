@@ -59,6 +59,14 @@ public static partial class Game
         }
         SpawnedMonster? target;
         target = player.Area.Monsters.GetValueOrDefault(use.TargetId);
+        // Predictive C→S 0x0024 can arrive for a totem, trap, or mine when the cursor hovers over a non-hostile or dead
+        // actor, an existing totem/trap/mine, a ground item, or another world object: cast it on that target's cell
+        // instead of dropping it or triggering item pickup / object interaction.
+        if (target is not { Hostile: true, Dead: false, OwnerId: null } && GroundPlaceableGemSkill(player, use.SkillId))
+        {
+            await CastGroundPlaceableOnObject(player, use, target, requestedAt);
+            return;
+        }
         if (target is not null)
         {
             if (use.SkillId != SkillCatalog.FirstSkillId) await CastOn(player, use, target, requestedAt);
@@ -183,6 +191,76 @@ public static partial class Game
         transfer ??= new PendingTransfer(dest, 0, false)
         { ArrivalEntrance = AreaTransitionCatalog.PairedEntrance(player.Layout.Hash, dest, transition.Entrance) };
         await ChangeArea(player, transfer, use.ToString());
+    }
+
+    static bool GroundPlaceableGemSkill(Player player, ushort skillId)
+    {
+        if (skillId == 0x266 || !SkillsFor(player).IsGemSkill(skillId)) return false;
+        var supported = SupportedSkill(player, skillId);
+        return supported.Effect >= 0 && (IsTotemSkill(player, skillId) || PlacedKind(supported) is (true, _) or (_, true));
+    }
+
+    static (int X, int Y) ResolveObjectAimCell(Player player, uint targetId, SpawnedMonster? monster, double now)
+    {
+        if (monster is not null) return monster.Walk.Position(now);
+        if (player.Totems.All.FirstOrDefault(t => t.Id == targetId) is { } totem) return totem.At;
+        if (player.Placed.All.TryGetValue(targetId, out var placed)) return placed.At;
+        if (player.Instance.Ground.Get(targetId) is { } ground) return (ground.GridX, ground.GridY);
+        if (targetId == WaypointCatalog.ObjectId && player.Layout.Waypoint is { } waypoint) return (waypoint.GridX, waypoint.GridY);
+        SpawnedNpc? npc;
+        lock (player.Npcs) npc = player.Npcs.GetValueOrDefault(targetId);
+        if (npc is not null) return (npc.X, npc.Y);
+        if (player.Layout.AreaTransitions.FirstOrDefault(e => e.Id == targetId).Transition is { } transition)
+            return (transition.GridX, transition.GridY);
+        return player.Walk.Position(now);
+    }
+
+    static async Task CastGroundPlaceableOnObject(Player player,
+        InstanceTransfer.UseSkillOnObject use, SpawnedMonster? target, double requestedAt)
+    {
+        var gem = GemSkillEffects(player).FirstOrDefault(g => g.Id == use.SkillId);
+        if (gem.Name is null)
+        {
+            Console.WriteLine($"[gateway] {player.Connection.Remote} skill 0x{use.SkillId:x4}: unknown dynamic skill id (action not started)");
+            return;
+        }
+        if (!ProjectilePathAvailable(player, use.SkillId, gem.Effect)) return;
+        int action = 0;
+        (int px, int py) = (0, 0);
+        (int X, int Y) aim = default;
+        CooldownUseTicket? cooldownUse = null;
+        void StartAction()
+        {
+            bool lockstep = player.Connection.LockstepClient;
+            double at = Math.Max(requestedAt, ProjectileWorldTime(player));
+            double actionAt = lockstep && player.Connection.LockstepFrame is { } frame ? frame.Start : at;
+            if (lockstep) StepWalkers(player, actionAt);
+            CancelMeleeRepeats(player, at);
+            action = Interlocked.Increment(ref player.ActionCount);
+            (px, py) = player.Walk.Position(actionAt);
+            aim = ResolveObjectAimCell(player, use.TargetId, target, actionAt);
+            if (lockstep) player.Walk.Cancel(actionAt);
+            else player.Walk.Order(px, py, at);
+            player.ChannelSkill = use.SkillId;
+            player.ChannelSkillSequence = use.Sequence;
+        }
+        if (!TryBeginSkillCooldownUse(player, use.SkillId, gem.Effect,
+            CooldownForSkill(player, use.SkillId), false, StartAction, out cooldownUse, requestedAt: requestedAt)) return;
+        bool projectileRuntime = UsesProjectileRuntime(gem.Effect);
+        Task<bool>? castTask = projectileRuntime ? CastGemSkill(player, use.SkillId,
+            (px, py), aim, sequence: use.Sequence, actionToken: cooldownUse?.ActionToken ?? action, cooldownUse: cooldownUse) : null;
+        if (castTask is { IsCompletedSuccessfully: true, Result: false }) return;
+        bool acknowledged = false;
+        await SendWorldRecords(player, player.Id, () => [InstanceProtocol.ActionStarted(player.Id, px, py, aim.X, aim.Y,
+                use.SkillId, use.Sequence, use.Flags), InstanceProtocol.ActionEnded(player.Id)],
+            $"0x01ab player skill 0x{use.SkillId:x4} {gem.Name} on object 0x{use.TargetId:x} as ground cast at ({aim.X}, {aim.Y}) from ({px}, {py}) (t={AreaTime(player):0.000})",
+            still: () => acknowledged = SkillAcknowledgementAllowed(player, gem.Effect, use.SkillId,
+                () => cooldownUse?.CommitNativeUse(player, use.SkillId) ?? PlayerActionCurrent(player, action)));
+        if (acknowledged) await SendNativeCooldownRefresh(player);
+        if (!projectileRuntime && !acknowledged) return;
+        if (cooldownUse?.Current(player) == false) return;
+        if (!projectileRuntime) _ = CastGemSkill(player, use.SkillId, (px, py), aim, sequence: use.Sequence,
+            actionToken: cooldownUse?.ActionToken ?? action, cooldownUse: cooldownUse);
     }
 
     // karui_fortress_01/02: miniboss.arm has two bridges in one graph node. Its four telepad
