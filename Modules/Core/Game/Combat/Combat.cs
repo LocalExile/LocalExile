@@ -580,6 +580,7 @@ public static partial class Game
                 (m.Life, stageStarts) = TakeOwnerHitLocked(player, m, damage, Cull.Of(playerStats, ownPenetration, critical, spell: false),
                     rampageSource, playerStats);
                 CaptureUnhingedHitKillLocked(player, m, playerHit: true);
+                CaptureEquippedHitExplosionLocked(m, playerStats);
                 if (stageStarts)
                 {
                     CommitBossStage(player, targetId, m, ProjectileWorldTime(player));

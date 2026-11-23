@@ -333,6 +333,9 @@ public static partial class Game
         }
         if (m.Dead || m.Life == 0)
         {
+            if (playerHit && Player(Stat.ExplodeOnKillPctFireDamageToDeal) > 0
+                && (spell || sourceSkill != 0 && SkillsFor(player).IsAttack(SupportedSkill(player, sourceSkill).Effect)))
+                CaptureEquippedHitExplosionLocked(m, playerStats);
             // Shatter (wiki Shatter, Freeze): a non-unique monster a hit kills while frozen, the killing hit's own freeze
             // included, leaves no corpse, so nothing spreads from it and the kill's shock has nothing to land on.
             if (m.Rarity != MonsterRarity.Unique && m.Ailments.Magnitude(Kind.Freeze, now) > 0)

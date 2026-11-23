@@ -8,13 +8,22 @@ using DamageType = GameServer.Core.World.DamageType;
 
 public static partial class Game
 {
+    static void CaptureEquippedHitExplosionLocked(SpawnedMonster target, IReadOnlyDictionary<uint, int> playerStats)
+    {
+        if (target.Life == 0 && target.Hostile && playerStats.GetValueOrDefault(Stat.ExplodeOnKillPctFireDamageToDeal) is > 0 and var percent)
+            target.HitFireExplosionPercent = percent;
+    }
+
     // Oriath's End is secondary damage: global/elemental/area modifiers and conversion apply, but attack/spell
     // modifiers and their added damage do not. Keep the older physical/chaos explosion policy separate.
     internal static DamagePacket OriathExplosionPacket(uint maximumLife, DamageType element,
+        IReadOnlyDictionary<uint, int> player) => ElementalKillExplosionPacket(maximumLife, element, 10, player);
+
+    static DamagePacket ElementalKillExplosionPacket(uint maximumLife, DamageType element, int percent,
         IReadOnlyDictionary<uint, int> player)
     {
         int Get(uint key) => player.GetValueOrDefault(key);
-        double raw = maximumLife / 10d;
+        double raw = (double)maximumLife * percent / 100;
         return PlayerHitDamage.Resolve(DamagePacket.Of(element, raw, raw), Get,
             DamageStats.Conversion(player, Stats, attack: null), spell: false, area: true, secondary: true);
     }
@@ -70,8 +79,10 @@ public static partial class Game
         long physicalChance = Get(Stat.ExplodeEnemiesFor10PctLifeAsPhysicalOnKillChancePct);
         if (prideChance > 0 && ReservationAura(player, "Pride") is not null) physicalChance += prideChance;
         if (physicalChance > 0 && AreaRng(player).Next(100) < physicalChance) percent += 10;
-        int chance = Get(Stat.ExplodeEnemiesFor25PctLifeAsChaosOnKillChancePct);
-        int chaosPercent = chance > 0 && AreaRng(player).Next(100) < chance ? 25 : 0;
+        // The same quarter-life chaos explosion can come from a general or a cursed-enemy source.
+        long chaosChance = Get(Stat.ExplodeEnemiesFor25PctLifeAsChaosOnKillChancePct);
+        if (corpse.CursedAtDeath) chaosChance += Get(Stat.ExplodeCursedEnemiesFor25PctLifeAsChaosOnKillChancePct);
+        int chaosPercent = chaosChance > 0 && AreaRng(player).Next(100) < chaosChance ? 25 : 0;
         // Oriath's End: "(20-30)% chance for Enemies you Kill during Effect to Explode, dealing 10% of their maximum
         // Life as Damage of a Random Element" (the flask's local stat becomes this one while it runs, UtilityFlasks).
         // K'Tash's Magnificence (Demonic Power): 40% chance for killed enemies to explode for 10% of life as fire.
@@ -83,15 +94,21 @@ public static partial class Game
         int physical = (int)Math.Clamp(corpse.MaxLife * (long)percent / 100, 0, int.MaxValue);
         int chaos = (int)Math.Clamp(corpse.MaxLife * (long)chaosPercent / 100, 0, int.MaxValue);
         int elemental = element is null ? 0 : (int)Math.Clamp((long)corpse.MaxLife / 10, 0, int.MaxValue);
-        if (physical == 0 && chaos == 0 && elemental == 0) return false;
+        int fireOnHit = corpse.HitFireExplosionPercent;
+        corpse.HitFireExplosionPercent = 0;
+        int hitFire = (int)Math.Clamp((long)corpse.MaxLife * fireOnHit / 100, 0, int.MaxValue);
+        if (physical == 0 && chaos == 0 && elemental == 0 && hitFire == 0) return false;
         // The modifiers can trigger on the same kill; preserve each damage type through mitigation.
         var packet = DamagePacket.Of(DamageType.Physical, physical, physical)
             .Add(DamagePacket.Of(DamageType.Chaos, chaos, chaos));
         var elementalPacket = element is { } e ? OriathExplosionPacket(corpse.MaxLife, e, playerStats) : DamagePacket.Empty;
+        if (hitFire > 0)
+            elementalPacket = elementalPacket.Add(ElementalKillExplosionPacket(corpse.MaxLife, DamageType.Fire, fireOnHit, playerStats));
         var elementalPenetration = Penetration.Of(playerStats, Stats, attack: false);
-        long amount = (long)physical + chaos + elemental;
+        long amount = (long)physical + chaos + elemental + hitFire;
         string type = string.Join(" and ", new[] { physical > 0 ? "physical" : null, chaos > 0 ? "chaos" : null,
-            element is { } t ? t.ToString().ToLowerInvariant() : null }.Where(x => x is not null));
+            element is { } t ? t.ToString().ToLowerInvariant() : null, hitFire > 0 && element != DamageType.Fire ? "fire" : null }
+            .Where(x => x is not null));
         int radius = KillExplosionRadius;
         var hits = new List<(uint Id, SpawnedMonster M, MonsterHit Hit)>();
         uint effect;
@@ -104,7 +121,7 @@ public static partial class Game
             if (!m.Hostile || m.Dead || m.Life == 0 || ReferenceEquals(m, corpse)) continue;
             if (Dist(m.Walk.Position(now), at) > radius) continue;
             int damage = MonsterTakesRolled(m, packet, spell: false, now: now);
-            if (element is not null)
+            if (!elementalPacket.IsZero)
             {
                 var mitigated = GameServer.Core.World.DamageModel.Mitigate(elementalPacket,
                     type => MonsterHitResistance(m, type, elementalPenetration, now));
