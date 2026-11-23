@@ -1575,11 +1575,15 @@ public static partial class Game
         lock (player.Character.Waypoints)
             activated = WaypointCatalog.Areas.Find(player.Layout.Hash) is { } entry && player.Character.Waypoints.Contains(entry.Id);
         var (x, y) = player.Layout.Checkpoint(activated);
+        // Anchor walk and grace protection at the checkpoint before awaiting the darken fade so the player cannot be
+        // hit during the 0.20 s fade-to-black before 0x01b7 lands.
         player.Walk.Teleport(x, y, AreaTime(player));
+        await StartGracePeriod(player);
+        await SendTransitionFade(player, (x, y), "resurrect at checkpoint");
+        if (player.Closed || player.LeavingArea) return;
         await SendWorldRecord(player, player.Id, InstanceProtocol.Teleport(player.Id, x, y),
             $"0x01b7 player to the checkpoint ({x}, {y}): {(activated && player.Layout.Waypoint is not null ? "the activated waypoint" : "the arrival point")}");
         SetStats(player, player.Id, [(Stat.HideMiniLifeBar, 0)]); Note("0x01b3 player hide_mini_life_bar = 0");
-        await StartGracePeriod(player);
         await GameEvents.RunResurrected(player);
     }
 
