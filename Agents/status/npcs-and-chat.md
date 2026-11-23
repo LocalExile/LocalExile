@@ -109,7 +109,7 @@ Part of [Status](../Status.md); what to build next in this area is in
   Other vendor, quest-reward and pricing cases are covered by automated checks.
   See [league modes](../docs/game/league-modes.md).
 - Quest rewards open the native reward inventory for every `QuestRewardOffers` row whose items the server can build,
-  including Eramir's repeatable `BanditRespec` offer 33, and grant the class-filtered choices.
+  and grant the class-filtered choices (level-one gems, normal flasks; unbuildable magic armour rows are skipped).
   Eligible ordinary quest talks/rewards follow introductions automatically; Nessa, Bestel and Tarkleigh checked live.
   The item and claimed flag are saved together, with duplicate, prerequisite, full-inventory and save-failure guards.
   Tarkleigh's Freezing Pulse and Nessa's Combustion Support claims were checked live on a disposable character, and
@@ -127,7 +127,8 @@ Part of [Status](../Status.md); what to build next in this area is in
 - Captured gem grouping is restored; uncaptured classes/vendors use documented ordering, and Kirac refresh UI remains open.
 - Campaign lore interactables (`Metadata/NPC/Info/*` from rooms and tiles, including Letters of Exile, Weathered
   Carvings, Sailor's Skin, Damp Diary, Shavronne's Journal and Arteri's Letter) spawn with `.ot`-matched components,
-  read/close via `0x84`/`0x85` and trigger `CharacterAudioEvents` lore reactions (not checked live). Docs: [17](../docs/protocol/17-npcs.md).
+  read/close via `0x84`/`0x85` and fire `CharacterAudioEvents` lore reactions (not checked live).
+  Docs: [17](../docs/protocol/17-npcs.md).
 - Nessa's development catalogue (awakened/exceptional gems, generic/originator/unique maps) is the optional
   `NessaDevelopmentTabs` module: after her progression tabs or replacing them, live-checked; no league lists it.
   Standard uses progression stock; full unique modifiers, unique-area routing and the updated development display remain partial.

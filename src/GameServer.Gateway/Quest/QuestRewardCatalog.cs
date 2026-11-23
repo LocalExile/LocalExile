@@ -26,8 +26,6 @@ public sealed class QuestRewardCatalog
         /// <summary>Whether each choice is offered whenever not already carried (rather than a single once-only claim):
         /// offers without a <see cref="TakenFlag"/> whose <c>__col5</c> and <c>__col6</c> are both set.</summary>
         public bool Reclaimable { get; init; }
-        /// <summary>Whether the offer may be claimed repeatedly without tracking a taken flag (Eramir's Bandit Respec, offer 33).</summary>
-        public bool Repeatable { get; init; }
     }
     readonly Dictionary<int, Offer> offers = [];
     public Offer? Find(int row) => offers.GetValueOrDefault(row);
@@ -65,12 +63,10 @@ public sealed class QuestRewardCatalog
             {
                 bool reclaimable = r.Has("__col5") && r.IntOrNull("__col5") is > 0
                     && r.Has("__col6") && r.IntOrNull("__col6") is > 0;
-                bool repeatable = r.TextOrNull("Id") == "bandit_respec";
                 result.offers[index] = new(index, null, byOffer.GetValueOrDefault(index) ?? [])
                 {
                     TakenLeagueFlag = league,
                     Reclaimable = reclaimable,
-                    Repeatable = repeatable,
                 };
                 continue;
             }
@@ -156,20 +152,18 @@ public sealed class QuestRewardCatalog
     /// the same transaction.</summary>
     public static PlayerInventories.Stacking? Claim(string character, string? takenFlag, QuestItemFlags? quest, PlayerInventories inventory,
         Item reward, Func<Item, PlayerInventories.Shape?> shapeOf, byte row = PlayerInventories.MainInventory,
-        bool expandedAllowed = false, int? leagueFlag = null, AccountStash? leagueFlags = null, bool reclaimable = false,
-        bool repeatable = false) => Saves.Atomically(() =>
+        bool expandedAllowed = false, int? leagueFlag = null, AccountStash? leagueFlags = null, bool reclaimable = false) => Saves.Atomically(() =>
     {
         if (row != PlayerInventories.MainInventory && (row != PlayerInventories.ExpandedInventory || !expandedAllowed)) return null;
         // Read the durable flags again inside the transaction: a retry or another connection cannot duplicate a reward.
         var saved = (CharacterSaves.Load(character)?.QuestFlags ?? []).ToHashSet();
         bool league = leagueFlag is int lf && leagueFlags is not null;
         // A reclaimable offer prevents claiming duplicates while allowing any missing unlocked item;
-        // a repeatable offer (bandit_respec) can always be claimed;
         // otherwise an offer with only a league flag is taken by it alone (Taken(null, null) would call it taken already).
-        bool taken = !repeatable && (league && leagueFlags!.LeagueQuestFlags.Contains(leagueFlag!.Value)
+        bool taken = league && leagueFlags!.LeagueQuestFlags.Contains(leagueFlag!.Value)
             || (reclaimable
                 ? QuestItems.Carried(inventory).Any(c => c.Item.Item.TypeHash == reward.TypeHash)
-                : (!league || takenFlag is not null || quest is not null) && Taken(takenFlag, quest, saved.Contains)));
+                : (!league || takenFlag is not null || quest is not null) && Taken(takenFlag, quest, saved.Contains));
         if (taken || !inventory.Fits(row, reward, shapeOf)) return null;
         var added = inventory.AddStacked(row, reward, shapeOf);
         if (added.Left != 0) throw new InvalidOperationException("A quest reward did not fit after its capacity check");

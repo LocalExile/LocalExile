@@ -273,14 +273,6 @@ public static partial class Game
     {
         var rewardCatalog = QuestRewardCatalog.Load(hardMode: LeagueFor(player).HardMode, supportGems: LeagueFor(player).Rules.SupportGemRewards);
         if (rewardCatalog.Find(offer) is not { } rewardOffer) return false;
-        if (rewardOffer.Repeatable && !BanditChoices.HasCompleted(player))
-        {
-            await Send(player, InstanceChat.ChatLine("You have not completed Deal with the Bandits."),
-                "0x0017 bandit respec refused: Deal with the Bandits incomplete");
-            await Send(player, InstanceNpcs.Talk(player.TalkingTo),
-                $"0x0084 npc 0x{player.TalkingTo:x}: options again (bandit quest incomplete)");
-            return true;
-        }
         HashSet<int> leagueFlags = [.. player.Character.LeagueQuestFlags];
         var allChoices = rewardCatalog.Choices(offer, player.Character.ClassRow);
         var unlockedChoices = allChoices
@@ -311,9 +303,9 @@ public static partial class Game
         }
         var rewardQuest = ItemsFor(player).ByHash(rewardItems[0].Item!.TypeHash)?.Quest;
         // An offer with a league flag is taken by it or by its own flags (an offer with only a league flag has none).
-        // Reclaimable and repeatable offers skip the single-item taken check.
+        // Reclaimable offers skip the single-item taken check (already filtered against carried items above).
         if (LeagueRewardTaken(player, rewardOffer) == true
-            || !rewardOffer.Reclaimable && !rewardOffer.Repeatable
+            || !rewardOffer.Reclaimable
             && (rewardOffer.TakenLeagueFlag is null || rewardOffer.TakenFlag is not null || rewardQuest is not null)
             && QuestRewardCatalog.Taken(rewardOffer.TakenFlag, rewardQuest, f => ClientHasQuestFlag(player, f))) return false;
         player.InNpcTalk = false;

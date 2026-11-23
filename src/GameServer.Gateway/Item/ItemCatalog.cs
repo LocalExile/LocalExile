@@ -785,8 +785,7 @@ public sealed class ItemCatalog
             if (!t.IsNull("tags")) itemTags[type] = t.Texts("tags");
             // The Quest component's flags (quest_*: a type without Quest has none).
             string? Flag(string name) => t.Has("quest_" + name) && t.TextOrNull("quest_" + name) is { Length: > 0 } f ? f : null;
-            string? extra2 = Flag("extra_flag2")
-                ?? (type == "Metadata/Items/QuestItems/PoisonSpear" ? "a2b-StartNewQuests" : null);
+            string? extra2 = Flag("extra_flag2");
             if (Flag("grant_flag") is not null || Flag("extra_flag") is not null || extra2 is not null || Flag("remove_flag") is not null || Flag("use_flag") is not null)
                 questFlags[type] = new(Flag("grant_flag"), Flag("extra_flag"), Flag("remove_flag"), Flag("use_flag"), extra2);
         }

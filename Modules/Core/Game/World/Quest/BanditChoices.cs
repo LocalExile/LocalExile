@@ -101,7 +101,8 @@ public static class BanditChoices
         await player.Character.QuestGate.WaitAsync();
         try
         {
-            if (HardcoreProgressBlocked(player)) return;
+            if (player.Closed || player.LeavingArea || player.PendingTransfer is not null
+                || player.PlayerLife == 0 || HardcoreProgressBlocked(player)) return;
             string character = CharacterName(player);
             var (taken, cleared, error) = Saves.Atomically<(PlayerInventories.Consumption? Taken, string[] Cleared, string? Error)>(() =>
             {
@@ -138,10 +139,18 @@ public static class BanditChoices
             uint inventoryId = PlayerInventories.InventoryId(row);
             await Send(player, InstanceItems.InventoryChange(inventoryId, items.NextRevision(row), [item.Id], taken.Left is { } left ? [left] : []),
                 $"0x00bf inventory {inventoryId}: {type.Name} used ({target.Name})");
-            var clearedCommit = cleared.Length > 0 ? CommitQuestFlags(player, cleared, on: false) : null;
-            var setCommit = CommitQuestFlags(player, [target.Flag], on: true);
-            if (clearedCommit is not null) await PublishQuestFlags(player, clearedCommit, on: false);
-            if (setCommit is not null) await PublishQuestFlags(player, setCommit, on: true);
+            // Flags are already persisted atomically above; apply in-memory state and publish once (0x02bc, stats, passives).
+            foreach (string flag in cleared) player.Character.QuestFlags.Remove(flag);
+            player.Character.QuestFlags.Add(target.Flag);
+            player.Character.UnearnedQuestFlags.Remove(target.Flag);
+            List<string> changed = [.. cleared, target.Flag];
+            if (ChangesQuestStats(changed))
+            {
+                player.Pools = PoolsFor(player, player.Pools.Level);
+                player.ApplyMovementSpeed();
+            }
+            var commit = new QuestFlagCommit(changed, PlayerQuestFlags(player), changed, []);
+            await PublishQuestFlags(player, commit, on: true);
             await Send(player, InstanceChat.ChatLine($"You have changed your bandit favour to {target.Name}."),
                 $"0x0017 Book of Reform applied: {target.Name}");
         }

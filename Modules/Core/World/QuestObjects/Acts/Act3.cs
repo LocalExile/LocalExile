@@ -215,6 +215,7 @@ sealed class Act3 : Act
             new Quest("a3q13")
             {
                 On.Npc(Docks, Act3Objects.Fairgraves, goneWith: null, shownBy: "a1q6-KilledFairgraves", transitionedBy: "AudioEventFairgraves2Dead"),
+                On.Exists(Act3Objects.FairgravesFigurehead, from: "a1q6-KilledFairgraves"),
                 On.Object(Docks, Act3Objects.FairgravesFigurehead, "AudioEventFairgraves2Dead"),
                 On.TalkRow(502, "a3q13-FairgravesFarewell"),
                 // Row 496 (both items carried) takes both in that click, as online; the data's rows 497 and 498 would take

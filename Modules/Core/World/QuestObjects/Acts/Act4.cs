@@ -100,8 +100,6 @@ sealed class Act4 : Act
                 On.Object(CrystalVeins, Act4Objects.BeastSkinDoor, "a4q1-RaptureActivated"),
                 On.Object(CrystalVeins, Act4Objects.BeastSkinDoorFX, "a4q1-RaptureActivated"),
                 On.Object(CrystalVeins, Act4Objects.BeastSkinDoorExplosion, "a4q1-RaptureActivated"),
-                On.Exit(CrystalVeins, KaomsDream, "a4q1-GemQuestsReceived"),
-                On.Exit(CrystalVeins, DaressosDream, "a4q1-GemQuestsReceived"),
                 On.Exit(CrystalVeins, Belly1, "a4q1-DiallaOnTransformed"),
                 On.Seen(Belly2, Act4Monsters.PietyBeast, "a4q1-SeenPiety"),
                 On.Killed(Belly2, Act4Monsters.PietyBeast, "a4q1-KilledPiety"),

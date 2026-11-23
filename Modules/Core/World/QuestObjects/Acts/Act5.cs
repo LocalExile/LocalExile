@@ -169,7 +169,6 @@ sealed class Act5 : Act
                 On.Object(CathedralRooftop, Act5Objects.ArenaSocket, "a5q6-DeliveredItem"),
                 On.UsedWith(CathedralRooftop, Act5Objects.ArenaSocket, ["a5q6-HaveItem"], "a5q6-DeliveredItem"),
                 On.Object(CathedralRooftop, Act5Objects.KitavaDoor, "a5q6-DeliveredItem"),
-                On.Blocker(CathedralRooftop, Act5Objects.KitavaDoor, 4, "a5q6-DeliveredItem"),
                 On.Spawns(CathedralRooftop, Act5Objects.ArenaSocket, Act5Monsters.Kitava),
                 On.Seen(CathedralRooftop, Act5Monsters.Kitava, "a5q6-SeenBoss"),
                 On.Threshold(CathedralRooftop, Act5Monsters.Kitava, 50, "a5q6-CompletedBoss"),

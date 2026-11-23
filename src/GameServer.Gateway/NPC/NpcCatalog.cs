@@ -257,18 +257,21 @@ public sealed class NpcCatalog
     public bool HasAvailableReward(Npc npc, int offer, IReadOnlySet<string> flags)
     {
         int source = TalkSource(npc).Row;
-        return _talk.Values.Any(t => t.Npc == source && t.RewardOffer == offer && t.Available(flags));
+        return _talk.Values.Any(t => t.Npc == source && t.RewardOffer == offer
+            && t.Category != "BanditRespec" && t.Available(flags));
     }
 
     public bool HasAvailableReward(Npc npc, int offer, IReadOnlySet<string> flags, IReadOnlySet<int> leagueFlags)
     {
         int source = TalkSource(npc).Row;
-        return _talk.Values.Any(t => t.Npc == source && t.RewardOffer == offer && t.Available(flags, leagueFlags));
+        return _talk.Values.Any(t => t.Npc == source && t.RewardOffer == offer
+            && t.Category != "BanditRespec" && t.Available(flags, leagueFlags));
     }
 
     /// <summary>The quest reward offers any NPC currently shows (the quests complete), for the vendors' gem stock.</summary>
     public IReadOnlySet<int> AvailableRewards(IReadOnlySet<string> flags) =>
-        _talk.Values.Where(t => t.RewardOffer is { } offer && t.Available(flags)).Select(t => t.RewardOffer!.Value).ToHashSet();
+        _talk.Values.Where(t => t.RewardOffer is { } offer && t.Category != "BanditRespec" && t.Available(flags))
+            .Select(t => t.RewardOffer!.Value).ToHashSet();
 
     /// <summary>The NPC whose NPCTalk rows (and shop) this one uses: itself, or for a copy without rows of its own (the
     /// hideout Kirac, NPCs.dat row 412) the first row of the same name that has them (Kirac, 410).</summary>

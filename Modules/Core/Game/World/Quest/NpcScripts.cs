@@ -24,17 +24,17 @@ public static partial class Game
     {
         if (talk.TransitionsSelf || talk.IncrementsCounter)
             await StepNpcTransition(player, npcId, npc, $"{talk.Option} (NPCTalk {talk.Row})");
-        if (talk.IncrementsCounter && npc.Npc.Id == "Metadata/NPC/Act3/Fairgraves")
-            await TransitionObjectsOfType(player, "Metadata/NPC/Act3/FairgravesFigurehead", $"{npc.Npc.Name}: {talk.Option} (NPCTalk {talk.Row})");
         if (talk.StartsTimer && npc.Npc.Id == "Metadata/NPC/Act3/Fairgraves" && !ClientHasQuestFlag(player, "AudioEventFairgraves2Dead"))
         {
-            // Fairgraves.ot Timer fires IncrementCounter(2) after 23.3 s if the player does not click Farewell first.
+            // Fairgraves.ot Timer fires IncrementCounter(2) after 23.3 s if the player stays in The Docks without clicking Farewell.
+            var instance = player.Instance;
             _ = Task.Run(async () =>
             {
                 try
                 {
                     await AreaDelay(player, 23.3);
-                    if (player.Closed || player.LeavingArea || ClientHasQuestFlag(player, "AudioEventFairgraves2Dead")) return;
+                    if (player.Closed || player.LeavingArea || !ReferenceEquals(player.Instance, instance)
+                        || ClientHasQuestFlag(player, "AudioEventFairgraves2Dead")) return;
                     await SetQuestFlags(player, ["AudioEventFairgraves2Dead"]);
                 }
                 catch (Exception ex) when (ex is IOException or ObjectDisposedException or InvalidOperationException) { }
