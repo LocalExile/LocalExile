@@ -236,7 +236,7 @@ public static partial class Game
             // after the buff and its 3 s cooldown (real game and Path of Building). Refuse here, before a cooldown use,
             // a bypass charge or a cost is spent.
             if (skillId is not null && SkillsFor(player).IsGuard(effect)
-                && !TriggerGuardReady(player, AreaTime(player))) return false;
+                && !GuardReadyFor(player, SkillsFor(player).EffectId(effect), AreaTime(player))) return false;
             VaalUseReservation? vaal = null;
             double? vaalAttackDeadline = null;
             if (skillId is ushort requested && GemSkillEffects(player)

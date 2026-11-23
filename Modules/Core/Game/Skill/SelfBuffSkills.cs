@@ -13,9 +13,12 @@ public static partial class Game
 
     // Refused before the cost: a guard is running, or the guards' shared recovery after the last one has not passed
     // (display_this_skill_cooldown_does_not_recover_during_buff).
-    public static string? SelfBuffRefused(Player player, int effect) =>
-        GuardSpellEffect(SkillsFor(player).EffectId(effect)) && !TriggerGuardReady(player, AreaTime(player))
+    public static string? SelfBuffRefused(Player player, int effect)
+    {
+        string? id = SkillsFor(player).EffectId(effect);
+        return GuardSpellEffect(id) && !GuardReadyFor(player, id, AreaTime(player))
             ? "a guard skill is active or recovering" : null;
+    }
 
     // After the paid use: true when this was one of the self buffs (its effect has started).
     public static async Task<bool> CastSelfBuff(Player player, ushort skillId, int effect)
