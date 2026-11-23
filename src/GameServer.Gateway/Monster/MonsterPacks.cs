@@ -60,12 +60,19 @@ public sealed class PackCatalog
 
         /// <summary>How much denser than the ordinary its scattered packs stand (the Labyrinth's: LabyrinthTrials.PackDensity).</summary>
         public double Density { get; init; } = 1;
+
+        /// <summary>WorldAreas.Act for this area (1..10 for campaign areas, 0 otherwise).</summary>
+        public int Act { get; init; }
+
+        /// <summary>All MonsterVarieties rows listed as WorldAreas.Bosses across any WorldArea (so a cross-area __col8
+        /// pack whose Id prefix is a sibling area never spawns that sibling's boss as a roaming mini-boss).</summary>
+        public IReadOnlySet<int> AllWorldBosses { get; init; } = new HashSet<int>();
     }
 
     /// <summary>The weight of a map's own packs (Maps.dat MonsterPacksKeys), which have none for the area.</summary>
     public const int MapPackWeight = 100;
 
-    private readonly (List<Pack> Packs, List<(string Id, int Level, int[] Bosses)> Areas, Dictionary<int, List<int>> MapPacks)? _data;
+    private readonly (List<Pack> Packs, List<(string Id, int Level, int Act, int[] Bosses)> Areas, Dictionary<int, List<int>> MapPacks, HashSet<int> AllWorldBosses)? _data;
 
     public AreaPacks? For(string areaId)
     {
@@ -79,8 +86,6 @@ public sealed class PackCatalog
             if (p.Entries.Count == 0) continue;
             if (p.Id.StartsWith(areaId + "-", StringComparison.Ordinal)) named[p.Id[(areaId.Length + 1)..]] = p;
             else if (p.AreaWeights.GetValueOrDefault(row) is int w and > 0) scattered.Add((p, w));
-            else if (p.UniqueBossPack && p.AreaWeights.ContainsKey(row) && p.Id.IndexOf('-') is int dash and >= 0)
-                named.TryAdd(p.Id[(dash + 1)..], p);
         }
         foreach (int pack in d.MapPacks.GetValueOrDefault(row) ?? [])
             if (pack < d.Packs.Count && d.Packs[pack].Entries.Count > 0 && !scattered.Any(s => s.Item1.Row == pack))
@@ -101,7 +106,12 @@ public sealed class PackCatalog
                         new Dictionary<int, int>()), MapPackWeight));
             }
         }
-        return new AreaPacks(areaId, d.Areas[row].Level, scattered, named, d.Areas[row].Bosses) { Density = density };
+        return new AreaPacks(areaId, d.Areas[row].Level, scattered, named, d.Areas[row].Bosses)
+        {
+            Density = density,
+            Act = d.Areas[row].Act,
+            AllWorldBosses = d.AllWorldBosses,
+        };
     }
 
     public Pack? Find(string id) => _data?.Packs.FirstOrDefault(p => p.Id == id);
@@ -119,7 +129,7 @@ public sealed class PackCatalog
         return rows;
     }
 
-    private static (List<Pack>, List<(string, int, int[])>, Dictionary<int, List<int>>)? Load(string folder)
+    private static (List<Pack>, List<(string, int, int, int[])>, Dictionary<int, List<int>>, HashSet<int>)? Load(string folder)
     {
         if (!ClientTables.Has("MonsterPacks") || !ClientTables.Has("MonsterPackEntries") || !ClientTables.Has("WorldAreas")) return null;
         var byPack = new Dictionary<int, List<(int, int)>>();
@@ -169,10 +179,14 @@ public sealed class PackCatalog
                 ExcludedGrounds = CleanGrounds(p.Texts("__col19")),
             });
         }
-        var areaRows = new List<(string, int, int[])>();
+        var areaRows = new List<(string, int, int, int[])>();
+        var allWorldBosses = new HashSet<int>();
         foreach (var a in ClientTables.Table("WorldAreas"))
-            areaRows.Add((a.Text("Id") ?? "", a.Int("AreaLevel"),
-                [.. a.Ints("Bosses_MonsterVarietiesKeys")]));
+        {
+            int[] bosses = [.. a.Ints("Bosses_MonsterVarietiesKeys")];
+            foreach (int b in bosses) allWorldBosses.Add(b);
+            areaRows.Add((a.Text("Id") ?? "", a.Int("AreaLevel"), a.IntOrNull("Act") ?? 0, bosses));
+        }
         // Maps.dat: a map's area → its packs (optional table: without it maps have no packs of their own).
         var mapPacks = new Dictionary<int, List<int>>();
         if (ClientTables.Has("Maps"))
@@ -182,7 +196,7 @@ public sealed class PackCatalog
                     if (!mapPacks.TryGetValue(area, out var list)) mapPacks[area] = list = [];
                     list.AddRange([.. m.Ints("MonsterPacksKeys").Where(k => !list.Contains(k)).Distinct()]);
                 }
-        return (result, areaRows, mapPacks);
+        return (result, areaRows, mapPacks, allWorldBosses);
     }
 }
 
@@ -649,9 +663,11 @@ public static class AreaPopulation
             {
                 if (!miniPack.UniqueBossPack || miniPack.BossChance <= 0 || miniPack.BossVarieties.Count == 0
                     || placedNamedPacks.Contains(name)) continue;
-                bool bossAlreadyPlaced = miniPack.BossVarieties.Any(bv =>
-                    Enumerable.Range(0, area.Bosses.Count).Any(i => area.Bosses[i] == bv && placedRows.Contains(i)));
-                if (bossAlreadyPlaced || !miniPack.BossVarieties.Any(spawnable)) continue;
+                // Skip if its boss variety is a WorldAreas.Bosses entry of this or a sibling area (e.g. Act 4 Mines
+                // 1_4_3_1-minerhammerbosspack belongs to 1_4_3_2's Bosses, 1_4_3_2-minehandfingerbosspack to 1_4_3_3's):
+                // WorldAreas bosses are placed by their own area's boss pass, not duplicated as roaming mini-bosses.
+                bool isWorldAreaBoss = miniPack.BossVarieties.Any(bv => area.Bosses.Contains(bv) || area.AllWorldBosses.Contains(bv));
+                if (isWorldAreaBoss || !miniPack.BossVarieties.Any(spawnable)) continue;
                 (int X, int Y)? spot = null;
                 foreach (var c in candidates)
                 {
@@ -774,15 +790,28 @@ public static class AreaPopulation
         var members = new List<(int Variety, bool Unique)>();
         // MonsterPackEntries with Flag = 0 spawn exact Weight counts (boss/encounter packs such as 1_3_3_1-bosspack,
         // 1_3_18_2-dominusportal, 1_1_11_1-bosspack, 1_5_3-TemplarElite).
+        int fixedAdded = 0;
         foreach (var (variety, fixedCount) in pack.FixedEntries)
             if (fixedCount > 0 && spawnable(variety))
                 for (int i = 0; i < fixedCount; i++)
+                {
                     members.Add((variety, false));
+                    fixedAdded++;
+                }
         bool rollRandom = pack.FixedEntries.Count == 0 || (pack.RandomEntries.Count > 0 && pack.MaxCount > 0);
         if (rollRandom)
         {
-            int rolled = rng.Next(pack.MinCount, Math.Max(pack.MinCount, pack.MaxCount) + 1);
-            int minMembers = pack.FixedEntries.Count > 0 ? 0 : 1;
+            int minRoll = pack.MinCount;
+            int maxRoll = Math.Max(minRoll, pack.MaxCount);
+            // In mixed fixed + random packs where MinCount already includes the fixed slots (MinCount >= FixedCount),
+            // subtract the fixed count so random rolls don't double-count the fixed members.
+            if (fixedAdded > 0 && pack.FixedCount > 0 && minRoll >= pack.FixedCount)
+            {
+                minRoll = Math.Max(0, minRoll - fixedAdded);
+                maxRoll = Math.Max(minRoll, maxRoll - fixedAdded);
+            }
+            int rolled = rng.Next(minRoll, maxRoll + 1);
+            int minMembers = fixedAdded > 0 ? 0 : 1;
             int count = Math.Max(minMembers, (int)Math.Round(rolled * SystemSettings.Default.MonsterPackSizeMultiplier * (packSize > 0 ? packSize : 1)));
             for (int i = 0; i < count; i++)
             {

@@ -180,20 +180,22 @@ public static partial class Game
                     if (Monsters.Find(point.Name) is { } guard && guard.Id == point.Name && Spawnable(guard.Row)
                         && directPlaced.Add((guard.Row, point.X, point.Y)))
                         spawns.Add(new AreaPopulation.Spawn(guard.Row, point.X, point.Y, MonsterRarity.Normal, "quest chest guard"));
-        // Pre-placed .arm campaign monsters (bandit camp guards, Gravicius guards, Flooded Depths crabs, Ledge totems, etc.):
-        // skip trial rooms (handled below), sub-areas, quest-chest guards already placed, daemons/masters/gauntlets and
-        // scripted boss-arena entities owned by encounter controllers.
-        if (!MapDevices.IsMapArea(layout.Hash) && !LabyrinthTrials.InLabyrinth(layout.Id)
+        // Pre-placed .arm campaign monsters (Act 1..10 campaign areas only, strict allowlist of ordinary room guards):
+        // skips towns/hideouts/maps/Labyrinth/league areas, trial rooms, sub-areas, already-captured rooms (prevents
+        // 1-cell offset duplication), quest chest guards, and Act 2 bandit guards while BanditChoices holds the camp.
+        if (area.Act is >= 1 and <= 10 && !InTown(player) && HideoutCatalog.ByArea(layout.Hash) is null
+            && !MapDevices.IsMapArea(layout.Hash) && !LabyrinthTrials.InLabyrinth(layout.Id)
             && (mapMods?.Get(Stat.MapMonstrousTreasureNoMonsters) is not > 0))
         {
+            bool banditCampHeld = BanditChoices.In(player) is { } bandit && BanditChoices.Held(player, bandit);
             var preplacedCandidates = placedRooms.Where(r => !trialRooms.Contains(r))
                 .SelectMany(r => r.Points.Where(p => p.Name.StartsWith("Metadata/Monsters/", StringComparison.Ordinal)).Select(p => (Room: r.Path, Point: p)))
-                .Concat(layoutDirectMonsters.Where(d => !trialSet.Contains(d.Room)));
+                .Concat(layoutDirectMonsters.Where(d => !trialSet.Contains(d.Room) && !capturedSet.Contains(d.Room)));
             int directPackId = spawns.Count == 0 ? 1 : spawns.Max(s => s.PackId) + 1;
             var roomDirectPackIds = new Dictionary<string, int>(StringComparer.OrdinalIgnoreCase);
             foreach (var (roomPath, p) in preplacedCandidates)
             {
-                if (InFeatureArea(p.X, p.Y) || !IsCampaignPreplacedMonster(p.Name)) continue;
+                if (InFeatureArea(p.X, p.Y) || !IsAllowedCampaignPreplacedMonster(p.Name, banditCampHeld)) continue;
                 if (Monsters.Find(p.Name) is not { } v || !v.Id.Equals(p.Name, StringComparison.OrdinalIgnoreCase) || !Spawnable(v.Row)) continue;
                 var cell = walkable(p.X, p.Y) ? (X: p.X, Y: p.Y) : layout.Near((p.X, p.Y));
                 if (!walkable(cell.X, cell.Y) || !directPlaced.Add((v.Row, cell.X, cell.Y))) continue;
@@ -214,15 +216,30 @@ public static partial class Game
         return new(layout, questFlags, area, spawns, notes, laterForms, watch.Elapsed.TotalMilliseconds);
     }
 
-    static bool IsCampaignPreplacedMonster(string id) =>
-        id.StartsWith("Metadata/Monsters/", StringComparison.Ordinal)
-        && !id.StartsWith("Metadata/Monsters/Daemon/", StringComparison.OrdinalIgnoreCase)
-        && !id.StartsWith("Metadata/Monsters/Masters/", StringComparison.OrdinalIgnoreCase)
-        && !id.Contains("Gauntlet", StringComparison.OrdinalIgnoreCase)
-        && !id.Contains("MapBoss", StringComparison.OrdinalIgnoreCase)
-        && !id.StartsWith("Metadata/Monsters/AvariusCasticus/AvariusCasticusStatue", StringComparison.OrdinalIgnoreCase)
-        && !id.StartsWith("Metadata/Monsters/Malachai/BeastHeart", StringComparison.OrdinalIgnoreCase)
-        && !id.Equals("Metadata/Monsters/Axis/PietyMalachaiAlly", StringComparison.OrdinalIgnoreCase)
-        && !id.Equals("Metadata/Monsters/EyeSpawner/EyeSpawnerEmergePiety", StringComparison.OrdinalIgnoreCase)
-        && !id.Equals("Metadata/Monsters/ParasiteNest/ParasiteNestGardensMap", StringComparison.OrdinalIgnoreCase);
+    static readonly HashSet<string> AllowedCampaignRoomGuards = new(StringComparer.OrdinalIgnoreCase)
+    {
+        "Metadata/Monsters/Axis/AxisCasterGuardGravicius",
+        "Metadata/Monsters/Axis/AxisEliteSoldierGuardShieldGravicius",
+        "Metadata/Monsters/CrabMonsters/CrabCoconutEmerge",
+        "Metadata/Monsters/RootSpiders/RootSpiderHidden",
+        "Metadata/Monsters/Totems/TotemMonsterHealthRegen",
+        "Metadata/Monsters/Totems/TotemMonsterSpeed",
+        "Metadata/Monsters/Totems/TotemSlowPlayer",
+        "Metadata/Monsters/CorpseWheel/CorpseWheelAggroCharge",
+    };
+
+    static readonly HashSet<string> AllowedBanditCampGuards = new(StringComparer.OrdinalIgnoreCase)
+    {
+        "Metadata/Monsters/Bandits/BanditGuardBow",
+        "Metadata/Monsters/Bandits/BanditGuardBowBurningArrow",
+        "Metadata/Monsters/Bandits/BanditGuardBowExplosiveArrow",
+        "Metadata/Monsters/Bandits/BanditGuardBowPoison",
+        "Metadata/Monsters/Bandits/BanditGuardMeleeChaos",
+        "Metadata/Monsters/Bandits/BanditGuardMeleePuncture",
+        "Metadata/Monsters/Bandits/BanditGuardMeleeWarlordsMark",
+    };
+
+    static bool IsAllowedCampaignPreplacedMonster(string id, bool banditCampHeld) =>
+        AllowedCampaignRoomGuards.Contains(id)
+        || (!banditCampHeld && AllowedBanditCampGuards.Contains(id));
 }

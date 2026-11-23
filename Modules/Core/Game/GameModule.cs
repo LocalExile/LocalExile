@@ -174,6 +174,7 @@ public sealed class GameModule : IModule, IDisposable
         GameEvents.AreaGenerated.Add(module.Manifest.Id, CampaignDoors.OnAreaGenerated);
         GameEvents.PlayerEntered.Add(module.Manifest.Id, CampaignDoors.OnPlayerEntered);
         GameEvents.ObjectUse.Add(module.Manifest.Id, CampaignDoors.Use);
+        GameEvents.SkillCast.Add(module.Manifest.Id, (player, _, _, from, _) => { _ = CampaignDoors.BreakSmashablesNear(player, from); return null; });
         GameEvents.PlayerLeaving.Add(module.Manifest.Id, (player, _) => { CampaignDoors.Leave(player); return Task.CompletedTask; });
         GameEvents.AreaGenerated.Add(module.Manifest.Id, CampaignChests.OnAreaGenerated);
         GameEvents.PlayerEntered.Add(module.Manifest.Id, CampaignChests.OnPlayerEntered);

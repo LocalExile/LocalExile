@@ -21,7 +21,7 @@ public sealed class AnarchyModule : IModule
     sealed record Exile(uint Id, string VarietyId, bool Exceptional, bool Special);
 
     sealed class Placed { public readonly List<Exile> Exiles = []; public object? Area; }
-    static readonly ConditionalWeakTable<Player, Placed> PlacedExiles = new();
+    static readonly RuleTable<InstanceState, Placed> PlacedExiles = new();
 
     /// <inheritdoc/>
     public void Load(IModuleContext module)
@@ -34,10 +34,10 @@ public sealed class AnarchyModule : IModule
     static async Task<IReadOnlyList<uint>> SpawnStrongboxExiles(IModuleContext module, Player player, (int X, int Y) at, int count)
     {
         var ids = new List<uint>();
-        if (count <= 0 || player.Closed || player.LeavingArea || player.Layout.Walkable is null) return ids;
+        if (count <= 0 || player.Instance is null || player.Closed || player.LeavingArea || player.Layout.Walkable is null) return ids;
         byte level = (byte)Math.Clamp(MapRunOf(player) is { Area.Level: > 0 } map ? map.Area.Level : ServerLevels.AreaLevel(player.Layout.Id), 1, 100);
         var stats = AreaLeagueStats(player);
-        var placed = PlacedExiles.GetValue(player, _ => new());
+        var placed = PlacedExiles.GetValue(player.Instance, _ => new());
         lock (placed)
         {
             if (!ReferenceEquals(placed.Area, player.Layout)) { placed.Exiles.Clear(); placed.Area = player.Layout; }
@@ -60,10 +60,10 @@ public sealed class AnarchyModule : IModule
     {
         var player = area.Player;
         var layout = player.Layout;
-        if (layout.Walkable is not { } walkable) return;
+        if (player.Instance is null || layout.Walkable is not { } walkable) return;
         var stats = AreaLeagueStats(player);
         int S(uint name) => stats.GetValueOrDefault(name);
-        var placed = PlacedExiles.GetValue(player, _ => new());
+        var placed = PlacedExiles.GetValue(player.Instance, _ => new());
         lock (placed) { placed.Exiles.Clear(); placed.Area = layout; }
         if (S(Stat.MapNoExiles) > 0) return;
         // The encounter's own draws, apart from the packs' (the same instance gets the same exiles).
@@ -215,7 +215,7 @@ public sealed class AnarchyModule : IModule
                 && !RogueExiles.Current.IsExile(boss.Id))
                 for (int i = S(Stat.MapBossDropsXAdditionalScarabsAnarchy); i > 0; i--) roll.Items.Add(AnarchyScarab(rng));
         }
-        if (!PlacedExiles.TryGetValue(player, out var placed)) return;
+        if (player.Instance is null || !PlacedExiles.TryGetValue(player.Instance, out var placed)) return;
         Exile? exile;
         lock (placed)
         {

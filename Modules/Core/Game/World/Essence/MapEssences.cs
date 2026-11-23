@@ -108,7 +108,9 @@ public static partial class MapEssences
 
     public static int Count(Player player)
     {
-        if (player.Instance is null || InTown(player) || HideoutCatalog.ByArea(player.Layout.Hash) is not null || player.Layout.Walkable is null) return 0;
+        if (player.Instance is null || InTown(player) || HideoutCatalog.ByArea(player.Layout.Hash) is not null
+            || player.Layout.Walkable is null || player.Layout.Id == TutorialObjects.Strand
+            || LabyrinthTrials.InLabyrinth(player.Layout.Id)) return 0;
         var map = MapRunOf(player);
         string areaId = map?.Area.Id ?? player.Layout.Id;
         int level = AreaLevel(player);
@@ -284,7 +286,9 @@ public static partial class MapEssences
 
     public static async Task Enter(Player player)
     {
-        if (player.Instance is null || InTown(player) || HideoutCatalog.ByArea(player.Layout.Hash) is not null || player.Layout.Walkable is null) return;
+        if (player.Instance is null || InTown(player) || HideoutCatalog.ByArea(player.Layout.Hash) is not null
+            || player.Layout.Walkable is null || player.Layout.Id == TutorialObjects.Strand
+            || LabyrinthTrials.InLabyrinth(player.Layout.Id)) return;
         int level = AreaLevel(player);
         var mods = MapModsOf(player) ?? MapMods.None;
         var area = Areas.GetValue(player.Instance, _ => new());

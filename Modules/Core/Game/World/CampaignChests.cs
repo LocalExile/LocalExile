@@ -12,10 +12,11 @@ using static Game;
 /// </summary>
 public static class CampaignChests
 {
+    const string BaseChestType = "Metadata/Chests/Chest";
     enum ChestTier { Breakable, Standard, Rich }
 
     sealed record ChestDef(string Id, string Name, string Model, IReadOnlyList<string> Components, int States,
-        int TransitionableIndex, int MinLevel, int MaxLevel, ChestTier Tier);
+        int MinLevel, int MaxLevel, ChestTier Tier);
 
     sealed record ClusterDef(string Id, IReadOnlyList<(ChestDef Chest, int Weight)> Entries, int MinCount, int MaxCount, int Radius);
 
@@ -86,20 +87,20 @@ public static class CampaignChests
             foreach (var row in ClientTables.Table("Chests"))
             {
                 string id = row.Text("Id") ?? "";
-                if (!IsOrdinaryChestId(id)) continue;
+                string? inheritsFrom = row.TextOrNull("InheritsFrom");
+                if (!IsOrdinaryChestRow(id, inheritsFrom)) continue;
                 if (!types.TryGetValue(id, out var ot)
-                    && !(row.Text("InheritsFrom") is { Length: > 0 } parent && types.TryGetValue(parent, out ot)))
+                    && !(inheritsFrom is { Length: > 0 } parent && types.TryGetValue(parent, out ot)))
                     continue;
                 var components = ObjectTypes.Components(ot);
                 if (!QuestObject.CanSerialize(components, haveStateMachine: false)) continue;
-                if (!components.Contains("Chest") || !components.Contains("InteractionAction")) continue;
+                if (!components.Contains("Chest") || !components.Contains("InteractionAction") || components.Contains("MinimapIcon")) continue;
                 if (row.Texts("AOFiles").FirstOrDefault() is not { Length: > 0 } model) continue;
                 int states = Math.Max(2, ot.IntOrNull("transitionable_num_states") ?? 2);
-                int transIdx = QuestObject.TransitionableIndex(components);
                 int minLevel = row.IntOrNull("MinLevel") ?? 0;
                 int maxLevel = row.IntOrNull("MaxLevel") ?? 100;
                 string name = row.Text("Name") ?? id.Split('/')[^1];
-                var def = new ChestDef(id, name, model, components, states, transIdx, minLevel, maxLevel, ClassifyTier(id, name));
+                var def = new ChestDef(id, name, model, components, states, minLevel, maxLevel, ClassifyTier(id, name));
                 catalog[id] = def;
                 byRow[row.Index] = def;
             }
@@ -154,43 +155,30 @@ public static class CampaignChests
         AreaThemes = themes;
     }
 
-    static bool IsOrdinaryChestId(string id) =>
-        id.StartsWith("Metadata/Chests/", StringComparison.OrdinalIgnoreCase)
-        && !id.Equals("Metadata/Chests/Chest", StringComparison.OrdinalIgnoreCase)
-        && !id.Contains("StrongBox", StringComparison.OrdinalIgnoreCase)
-        && !id.Contains("QuestChest", StringComparison.OrdinalIgnoreCase)
-        && !id.Contains("League", StringComparison.OrdinalIgnoreCase)
-        && !id.Contains("Labyrinth", StringComparison.OrdinalIgnoreCase)
-        && !id.Contains("Heist", StringComparison.OrdinalIgnoreCase)
-        && !id.Contains("Delve", StringComparison.OrdinalIgnoreCase)
-        && !id.Contains("Incursion", StringComparison.OrdinalIgnoreCase)
-        && !id.Contains("Expedition", StringComparison.OrdinalIgnoreCase)
-        && !id.Contains("Sanctum", StringComparison.OrdinalIgnoreCase)
-        && !id.Contains("Blight", StringComparison.OrdinalIgnoreCase)
-        && !id.Contains("Legion", StringComparison.OrdinalIgnoreCase)
-        && !id.Contains("Breach", StringComparison.OrdinalIgnoreCase)
-        && !id.Contains("Abyss", StringComparison.OrdinalIgnoreCase)
-        && !id.Contains("Harvest", StringComparison.OrdinalIgnoreCase)
-        && !id.Contains("Betrayal", StringComparison.OrdinalIgnoreCase)
-        && !id.Contains("Ritual", StringComparison.OrdinalIgnoreCase)
-        && !id.Contains("Ultimatum", StringComparison.OrdinalIgnoreCase)
-        && !id.Contains("Settlers", StringComparison.OrdinalIgnoreCase)
-        && !id.Contains("Synthesis", StringComparison.OrdinalIgnoreCase)
-        && !id.Contains("AtlasBarrel", StringComparison.OrdinalIgnoreCase)
-        && !id.Contains("NoDrops", StringComparison.OrdinalIgnoreCase)
-        && !id.Contains("Explode", StringComparison.OrdinalIgnoreCase)
-        && !id.Contains("BarrelTar", StringComparison.OrdinalIgnoreCase)
-        && !id.Contains("Trick", StringComparison.OrdinalIgnoreCase)
-        && !id.Contains("Tutorial", StringComparison.OrdinalIgnoreCase)
-        && !id.Contains("Reliquary", StringComparison.OrdinalIgnoreCase)
-        && !id.Contains("Valdo", StringComparison.OrdinalIgnoreCase)
-        && !id.Contains("Mission", StringComparison.OrdinalIgnoreCase)
-        && !id.Contains("Prophecy", StringComparison.OrdinalIgnoreCase)
-        && !id.Contains("Descent", StringComparison.OrdinalIgnoreCase)
-        && !id.Contains("Royale", StringComparison.OrdinalIgnoreCase)
-        && !id.Contains("TreasureHunter", StringComparison.OrdinalIgnoreCase)
-        && !id.Contains("CorruptedArmoury", StringComparison.OrdinalIgnoreCase)
-        && !id.Contains("SideArea", StringComparison.OrdinalIgnoreCase);
+    static bool IsOrdinaryChestRow(string id, string? inheritsFrom)
+    {
+        if (!id.StartsWith("Metadata/Chests/", StringComparison.OrdinalIgnoreCase)) return false;
+        if (id.Equals(BaseChestType, StringComparison.OrdinalIgnoreCase)) return false;
+        string rest = id["Metadata/Chests/".Length..];
+        bool nestedOk = rest.StartsWith("FungalBloom/", StringComparison.OrdinalIgnoreCase);
+        if (rest.Contains('/') && !nestedOk) return false;
+        if (!string.IsNullOrEmpty(inheritsFrom) && !inheritsFrom.Equals(BaseChestType, StringComparison.OrdinalIgnoreCase))
+            return false;
+        foreach (string banned in BannedChestTokens)
+            if (id.Contains(banned, StringComparison.OrdinalIgnoreCase)) return false;
+        return true;
+    }
+
+    static readonly string[] BannedChestTokens =
+    [
+        "StrongBox", "Quest", "League", "Labyrinth", "Heist", "Delve", "Incursion", "Expedition", "Sanctum",
+        "Blight", "Legion", "Breach", "Abyss", "Harvest", "Betrayal", "Ritual", "Ultimatum", "Settlers",
+        "Synthesis", "AtlasBarrel", "AtlasPass", "RandomAtlasContent", "LakeChests", "MemoriesOfZana",
+        "LostShipment", "Faridun", "Corrupted", "AlreadyOpened", "Laboratory", "VaultTreasurePile",
+        "NoDrops", "Explode", "BarrelTar", "Trick", "Tutorial", "Reliquary", "Valdo", "Mission",
+        "Prophecy", "Descent", "Royale", "TreasureHunter", "SideArea", "BootyChest", "SilverChestBathhouse",
+        "StatueMakersTools", "ChestGroundDrop", "TidalIsland", "SouthernForest", "VastiriDesert",
+    ];
 
     static ChestTier ClassifyTier(string id, string name)
     {
@@ -255,6 +243,32 @@ public static class CampaignChests
         finally { area.Gate.Release(); }
     }
 
+    static List<(int X, int Y)> QuestChestPositions(Player player, AreaLayout layout)
+    {
+        var cells = new List<(int X, int Y)>();
+        var questRules = QuestsOf(player).Chests(layout.Id);
+        if (questRules.Count > 0)
+        {
+            var placed = new QuestObjectTypes.AreaPlacements(layout.Id, player.Seed, []);
+            foreach (var rule in questRules)
+                foreach (var p in placed.Of(rule.ChestType))
+                    cells.Add((p.X, p.Y));
+        }
+        if (layout.Level is { } lvl)
+        {
+            foreach (var o in lvl.TileQuestObjects)
+                if (o.Type.StartsWith("Metadata/Chests/", StringComparison.OrdinalIgnoreCase))
+                    cells.Add((o.X, o.Y));
+            foreach (var o in lvl.RoomObjects)
+                if (o.Type.StartsWith("Metadata/Chests/QuestChests/", StringComparison.OrdinalIgnoreCase))
+                    cells.Add((o.X, o.Y));
+        }
+        lock (player.QuestChests)
+            foreach (var q in player.QuestChests.Values)
+                cells.Add((q.At.X, q.At.Y));
+        return cells;
+    }
+
     static List<PlacedChest> Plan(Player player)
     {
         var result = new List<PlacedChest>();
@@ -278,10 +292,7 @@ public static class CampaignChests
         static bool Near((int X, int Y) a, (int X, int Y) b, int d) =>
             (long)(a.X - b.X) * (a.X - b.X) + (long)(a.Y - b.Y) * (a.Y - b.Y) < (long)d * d;
 
-        var questChestCells = new List<(int X, int Y)>();
-        lock (player.QuestChests)
-            foreach (var q in player.QuestChests.Values)
-                questChestCells.Add((q.At.X, q.At.Y));
+        var questChestCells = QuestChestPositions(player, layout);
 
         // 1. Static ordinary chests authored in .tmd tiles and .arm rooms (e.g. CopperChestEpic3 in golden_chest.arm).
         if (layout.Level is { } lvl)
@@ -291,9 +302,9 @@ public static class CampaignChests
             {
                 if (!Catalog.TryGetValue(o.Type, out var def)) continue;
                 if (InFeatureArea(o.X, o.Y) || Near((o.X, o.Y), arrival, 20) || transitions.Any(t => Near((o.X, o.Y), t, 14))) continue;
-                if (questChestCells.Any(q => Near(q, (o.X, o.Y), 6))) continue;
+                if (questChestCells.Any(q => Near(q, (o.X, o.Y), 8))) continue;
                 if (result.Any(c => Near((c.X, c.Y), (o.X, o.Y), 3))) continue;
-                result.Add(new PlacedChest(player.Instance.World.NewMonsterId(), result.Count, def.Id, o.X, o.Y, o.Rotation,
+                result.Add(new PlacedChest(player.Instance.World.TakeObjectId(), result.Count, def.Id, o.X, o.Y, o.Rotation,
                     float.IsNaN(o.Z) ? null : o.Z));
             }
         }
@@ -343,13 +354,13 @@ public static class CampaignChests
         foreach (var c in candidates)
         {
             if (placedGroups >= targetGroups || result.Count - scatteredStart >= maxScattered) break;
-            if (centres.Any(other => Near(other, c, 24)) || questChestCells.Any(q => Near(q, c, 10))) continue;
+            if (centres.Any(other => Near(other, c, 24)) || questChestCells.Any(q => Near(q, c, 12))) continue;
 
             bool standalone = themeStandalones.Count > 0 && (themeClusters.Count == 0 || rng.Next(4) == 0);
             if (standalone)
             {
                 var def = themeStandalones[rng.Next(themeStandalones.Count)];
-                result.Add(new PlacedChest(player.Instance.World.NewMonsterId(), result.Count, def.Id, c.X, c.Y,
+                result.Add(new PlacedChest(player.Instance.World.TakeObjectId(), result.Count, def.Id, c.X, c.Y,
                     (float)(rng.NextDouble() * Math.Tau), null));
                 centres.Add(c);
                 placedGroups++;
@@ -369,12 +380,13 @@ public static class CampaignChests
                     int x = c.X + dx, y = c.Y + dy;
                     if ((uint)x >= (uint)layout.GridW || (uint)y >= (uint)layout.GridH || !reach[y * layout.GridW + x]) continue;
                     if (!layout.WalkableFor(x, y, 1) || InFeatureArea(x, y)) continue;
+                    if (questChestCells.Any(q => Near(q, (x, y), 8))) continue;
                     if (result.Any(existing => Near((existing.X, existing.Y), (x, y), 3))) continue;
                     int roll = rng.Next(Math.Max(1, totalWeight));
                     var picked = cluster.Entries[^1].Chest;
                     foreach (var (chest, weight) in cluster.Entries)
                         if ((roll -= weight) < 0) { picked = chest; break; }
-                    result.Add(new PlacedChest(player.Instance.World.NewMonsterId(), result.Count, picked.Id, x, y,
+                    result.Add(new PlacedChest(player.Instance.World.TakeObjectId(), result.Count, picked.Id, x, y,
                         (float)(rng.NextDouble() * Math.Tau), null));
                     added++;
                     break;
@@ -401,9 +413,8 @@ public static class CampaignChests
             var blob = new QuestObject(chest.X, chest.Y, def.Components, chest.Rotation, chest.Z, def.Model,
                 TransitionState: (byte)(opened ? def.States : 1), Opened: opened).Blob();
             await SendWorldCreate(player, chest.Id,
-                InstanceEntities.CreateObject(chest.Id, InstanceEntities.ObjectTypeHash(chest.Type), blob),
-                null);
-            await SendWorldRecord(player, chest.Id, InstanceProtocol.EnterWakeZone(chest.Id), null);
+                () => InstanceEntities.CreateObject(chest.Id, InstanceEntities.ObjectTypeHash(chest.Type), blob),
+                null, wake: true, awaitBirth: false);
             area.Shown[chest.Id] = opened;
         }
         if (opened && def.Tier == ChestTier.Breakable) player.RemoveBlocker(chest.Id);
@@ -469,39 +480,28 @@ public static class CampaignChests
         if (!Catalog.TryGetValue(chest.Type, out var def)) return;
         if (!player.Instance.OpenChest(chest.X, chest.Y)) return;
 
-        if (def.TransitionableIndex >= 0)
+        // Chest has no 0x2bc update reader: always recreate under a new 0x04xxxxxx object id with Opened = true
+        // (matching QuestEngine.OpenQuestChest so Chest.Opened and nameplate removal sync reliably).
+        uint oldId = chest.Id;
+        uint openedId = player.Instance.World.TakeObjectId();
+        var opened = chest with { Id = openedId };
+        if (chest.Index < area.Chests!.Count) area.Chests[chest.Index] = opened;
+        area.Shown.Remove(oldId);
+        area.Shown[openedId] = true;
+        await SendWorldRemoval(player, oldId, null);
+        var blob = new QuestObject(opened.X, opened.Y, def.Components, opened.Rotation, opened.Z, def.Model,
+            TransitionState: (byte)def.States, Opened: true).Blob();
+        await SendWorldCreate(player, openedId,
+            () => InstanceEntities.CreateObject(openedId, InstanceEntities.ObjectTypeHash(opened.Type), blob),
+            $"campaign chest 0x{openedId:x} {def.Name} opened at ({opened.X}, {opened.Y})",
+            wake: true, awaitBirth: false);
+        foreach (var member in Members(player))
         {
-            await SendWorldRecord(player, chest.Id,
-                InstanceEntities.TransitionableUpdate(chest.Id, (byte)def.TransitionableIndex, (byte)def.States),
-                $"campaign chest 0x{chest.Id:x} {def.Name} opened at ({chest.X}, {chest.Y})");
-            area.Shown[chest.Id] = true;
-            if (def.Tier == ChestTier.Breakable)
-                foreach (var member in Members(player)) member.RemoveBlocker(chest.Id);
-        }
-        else
-        {
-            // Standard Metadata/Chests/Chest has no 0x2bc Chest update reader: replace with the opened object under a new id.
-            uint oldId = chest.Id;
-            uint openedId = player.Instance.World.NewMonsterId();
-            var opened = chest with { Id = openedId };
-            if (chest.Index < area.Chests!.Count) area.Chests[chest.Index] = opened;
-            area.Shown.Remove(oldId);
-            area.Shown[openedId] = true;
-            await SendWorldRemoval(player, oldId, null);
-            var blob = new QuestObject(opened.X, opened.Y, def.Components, opened.Rotation, opened.Z, def.Model,
-                TransitionState: (byte)def.States, Opened: true).Blob();
-            await SendWorldCreate(player, openedId,
-                InstanceEntities.CreateObject(openedId, InstanceEntities.ObjectTypeHash(opened.Type), blob),
-                $"campaign chest 0x{openedId:x} {def.Name} opened at ({opened.X}, {opened.Y})");
-            await SendWorldRecord(player, openedId, InstanceProtocol.EnterWakeZone(openedId), null);
-            foreach (var member in Members(player))
-            {
-                member.RemoveBlocker(oldId);
-                if (def.Tier != ChestTier.Breakable) member.SetBlocker(openedId, opened.X, opened.Y, 1);
-                var presented = Presented.GetOrCreateValue(member);
-                presented.Remove(oldId);
-                presented.Add(openedId);
-            }
+            member.RemoveBlocker(oldId);
+            if (def.Tier != ChestTier.Breakable) member.SetBlocker(openedId, opened.X, opened.Y, 1);
+            var presented = Presented.GetOrCreateValue(member);
+            presented.Remove(oldId);
+            presented.Add(openedId);
         }
 
         await DropLoot(player, chest, def);
@@ -512,27 +512,29 @@ public static class CampaignChests
         if (Environment.GetEnvironmentVariable("Game_DROPS") == "0" || !GameEvents.AllowsLoot(player)) return;
         int level = Math.Clamp(ServerLevels.AreaLevel(player.Layout.Id), 1, 100);
         var rng = AreaRng(player);
-        int rolls;
-        int rarity;
+        var drops = DropsFor(player);
+        var rolled = new List<ItemDrops.Drop>();
         switch (def.Tier)
         {
             case ChestTier.Rich:
-                rolls = rng.Next(3, 6);
-                rarity = 100;
+                // 2–4 Rare-rarity rolls + gold (matching Large/Silver/Golden Chests).
+                rolled.AddRange(drops.Roll(level, MonsterRarity.Rare, rng));
+                if (drops.Gold(level, MonsterRarity.Rare, rng, multiplier: 0.8) is { } richGold) rolled.Add(richGold);
                 break;
             case ChestTier.Standard:
-                rolls = rng.Next(1, 3);
-                rarity = 25;
+                // 1–2 Magic-rarity rolls + moderate gold (Copper/Tribal/Sarcophagus/Boulder).
+                rolled.AddRange(drops.Roll(level, MonsterRarity.Magic, rng));
+                if (rng.Next(100) < 60 && drops.Gold(level, MonsterRarity.Magic, rng, multiplier: 0.6) is { } stdGold) rolled.Add(stdGold);
                 break;
             default:
-                int r = rng.Next(100);
-                rolls = r < 40 ? 0 : r < 85 ? 1 : 2;
-                rarity = 0;
+                // Breakables (Barrels/Pots/Urns/Baskets/Crates/Cairns/Vases): Normal-rarity roll (~35% for 1 item) + small gold.
+                rolled.AddRange(drops.Roll(level, MonsterRarity.Normal, rng));
+                if (rng.Next(100) < 25 && drops.Gold(level, MonsterRarity.Normal, rng, multiplier: 0.4) is { } smallGold) rolled.Add(smallGold);
                 break;
         }
-        if (rolls <= 0) return;
-        var drops = ItemDrops.Stacked(DropsFor(player).Container(level, rolls, rarity, rng));
-        foreach (var drop in drops)
+        if (rolled.Count == 0) return;
+        var stacked = ItemDrops.Stacked(rolled);
+        foreach (var drop in stacked)
         {
             var at = player.Layout.Near((chest.X + rng.Next(-3, 4), chest.Y + rng.Next(-3, 4)));
             var ground = new WorldItemObject(at.X, at.Y, drop.Item);
