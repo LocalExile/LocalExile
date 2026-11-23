@@ -418,9 +418,7 @@ public static partial class Game
         var c = Skills.ClassFor(classRow);
         var (str, dex, intel) = pools.AttributesResolved || pools.Strength != 0 || pools.Dexterity != 0 || pools.Intelligence != 0
             ? (pools.Strength, pools.Dexterity, pools.Intelligence) : (c.Strength, c.Dexterity, c.Intelligence);
-        foreach (var (stat, value) in new[] { (Stat.Strength, str), (Stat.Dexterity, dex), (Stat.Intelligence, intel),
-            (Stat.VirtualStrengthForRequirements, str), (Stat.VirtualDexterityForRequirements, dex),
-            (Stat.VirtualIntelligenceForRequirements, intel) })
+        foreach (var (stat, value) in new[] { (Stat.Strength, str), (Stat.Dexterity, dex), (Stat.Intelligence, intel) })
             if (stat is var key) yield return (key, value);
     }
 
@@ -1064,6 +1062,7 @@ public static partial class Game
 
     public static bool OwnAuraSkillRestricted(Player player, int effect, ushort? skillId)
     {
+        if (effect == 0 && (skillId is not ushort sid || !SkillsFor(player).IsGemSkill(sid))) return false;
         var sources = StatSourceValues(player);
         if (OwnAuraRestrictionValue(player, new(sources)) == 0 && !SublimeDisables(player, effect, sources)) return false;
         if (SkillsFor(player).IsAura(effect)) return true;
@@ -1321,6 +1320,7 @@ public static partial class Game
         Note($"0x01b1 player life {player.PlayerLife}");
         await SendPlayerMana(player, $"0x01b1 player mana {player.PlayerMana}");
         await SendPassives(player);
+        await CheckLevelAchievements(player, level);
     }
 
     // The player's stats (0x1b3) and the skills computed with them (0x2bc Actor), after the level or the passives changed.

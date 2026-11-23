@@ -9,6 +9,8 @@ Part of [Status](../Status.md); what to build next in this area is in
   unlock after her introduction: [17](../docs/protocol/17-npcs.md).
 - Gold gambling at the gamble NPCs (black-market window, 3.29 prices and rolls): [17](../docs/protocol/17-npcs.md) §5.
 - `/played` saves online character time across area changes, relog and module reload: [10](../docs/protocol/10-chat-and-commands.md).
+  Retail commands `/remaining`, `/deaths`, `/age`, `/whois`, `/invite`, `/afk` and `/dnd` are implemented.
+  Their live client check is pending.
 
 - Chat commands `/commands` (`/com`; paged, `/com <name>` for one; replies as chat lines). The development commands
   `/raw <hex>`, `/set_stat`, `/set_speed`, `/set_level <1 to 100>` (saved to the account, sent in place),
@@ -21,6 +23,8 @@ Part of [Status](../Status.md); what to build next in this area is in
   disabling the mod moves them back. When that server fails a player is told in chat and stays local, trying again at an area change a minute later.
   `src/GameServer.Chat` is the server to host; it stores nothing.
   An item linked with Ctrl+Alt+click from an inventory or the stash shows as a link in the line (C→S 0x12, S→C 0x17).
+  Item links also cover shop/trade (`0x12` manager 1), ground items (`0x14`) and named MTX links (`0x13`).
+  `0x17` flags cover auto-reply (`0x4000`), forced local (`0x8000`) and red text (`0x0004`); live check pending.
   Chat-server frame cleanup preserves original item marks in automated checks; native presentation remains unverified.
   The global and trade channel joins (C→S 0x134, after entering an area and for `/global N` and `/trade N`) are
   answered with S→C 0x135 and "You have joined global chat channel N.", so they do not time out and the Global and
@@ -60,6 +64,7 @@ Part of [Status](../Status.md); what to build next in this area is in
   and the other player's notification, Accept opens the window on both, offered items appear on both sides, Accept
   greys the accepting side's offer for both players, and both accepting swaps the items in one transaction for both saves.
   Cancel, decline, a disconnect or leaving the area return every offered item. See [28](../docs/protocol/28-player-trade.md).
+  Ctrl+right-click moves (`C→S 0xb4`) transfer matching base types in trades and vendor sales (live check pending).
 - **Party** between players (two clients, 2026-11-05): "Invite to Party", also from the Friends panel, reaches the
   player in any area; Accept puts both into the party, shown on both clients, and it survives area changes.
   A member who follows another into an area joins their instance.
@@ -69,8 +74,8 @@ Part of [Status](../Status.md); what to build next in this area is in
   0xaa), the rest get the smaller party list (S→C 0xa9), and a party left with one member is disbanded as on Leave.
   Party rows carry each member's area; campaign travel and quest-gate refusal were checked through the native client.
   Native map travel arrives outside the owner's device, spends its shared portals on entry and returns to that source ([28](../docs/protocol/28-player-trade.md)).
-  Decline and disconnects are open.
-  Decline and human-only disconnect cleanup remain open.
+  Public party descriptions (`C→S 0x98`) and disconnect cleanup on drop or stale accept are implemented.
+  Decline remains open; live verification of disconnect and public party handling is pending.
   See [28](../docs/protocol/28-player-trade.md) §5.
   Mode integration refuses SSF, different leagues and terminal/departing owners at admission and settlement.
   Composed automated checks cover eligibility, item ownership and rollback when the second inventory save fails.
@@ -80,16 +85,20 @@ Part of [Status](../Status.md); what to build next in this area is in
   Native two-client checks confirmed add, invitation display, Accept, Unfriend, offline display and restoration on login.
   Presence updates both ways when an entry finishes (a hideout's too) and at logout; an area change sends none.
   Persistence/reopen, rollback and native packet framing have automated coverage.
-  Notes, ignore lists and status editing remain open.
+  Ignore lists (`0x80` list 1), status (`0xca`), hideout invites (`0x179`) and duels (`0x155`) are implemented.
+  S→C ignore list tab UI synchronization, friend notes and live verification of those actions remain open.
   See [28](../docs/protocol/28-player-trade.md) §6.
 
 ## Partly working
 
+- PvP queue bar (S→C 0x118/0x119, C→S 0x11a/0x18d): protocol encoders and queue/challenge leave and withdraw handlers
+  in `Modules/Core/Player/Social` (not yet checked live).
 - Direct vendor equipment purchases validate placement, preserve payment on failure and refresh equipped items; 3.29.3c belt purchase/swap protocol controls pass; rendered UI checks remain open.
 
-- Faustus's Currency Exchange at official prices works through `/exchange` (orders, claims, cancelling; live 2026-11-08).
-  Spreads by volume, a market of 6 steps, fills limited per hour, orders filling while away and with time are written and not yet played.
-  Faustus stands in every hideout; his dialogue option there is not yet played.
+- Faustus's Currency Exchange works with built-in baseline chaos ratios when `liveeconomy` rates are absent,
+  distinct `0x2f9` refusal codes for gold/currency/slots/market, and cursor vs Ctrl-click `0x2ed` claim modes.
+  Spreads by volume, a market of 6 steps, fills limited per hour, orders filling while away and with time are written.
+  Moving out of reach closes open NPC dialogue, shops, vendor sales (`0x00b9`/`0x0084` object 0), stashes and benches.
   See [29](../docs/protocol/29-currency-exchange.md).
 - Ruthless selects its native gem/reward restrictions and purchase costs; equipment uses local generation policy.
   Ordinary vendors offer no gems or jewellery; unlocked Siosa exchanges Uncarved Gemstones for eligible active gems.

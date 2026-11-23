@@ -231,35 +231,59 @@ public static partial class Game
     static void StepCursesLocked(Player player, CurseAura[] auras, IReadOnlyDictionary<uint, int>? playerStats, uint id, SpawnedMonster m,
         double now, Func<ushort, bool> inAura)
     {
-        bool dead = m.Dead || m.Life == 0;
-        foreach (var curse in m.Curses.All.Values.Where(c => c.Mark
-            && (dead && !c.RemainsOnDeath || c.Caster == player.Id && player.PlayerLife == 0)).ToArray())
-            m.Curses.Remove(curse.Caster, curse.Effect);
-        foreach (var curse in m.Curses.All.Values.Where(c => c.Caster == player.Id && c.Aura).ToArray())
-            if (player.PlayerLife == 0 || dead || !auras.Any(a => a.Aura.SkillId == curse.Skill && inAura(a.Aura.SkillId)))
-                m.Curses.Remove(curse.Caster, curse.Effect);
-        if (player.PlayerLife > 0 && !InTown(player))
-            foreach (var aura in auras)
-                if (inAura(aura.Aura.SkillId)) ApplyCurseLocked(player, m, aura.Aura.SkillId, now, true, aura.Gem, playerStats);
-        m.Curses.Expire(now);
-        bool Visible(MonsterCurses.Curse curse) => !dead || !m.CorpseConsumed && curse.RemainsOnDeath;
-        var changed = m.Curses.Presented.Values.Where(c => !m.Curses.All.TryGetValue((c.Caster, c.Effect), out var next)
-            || next.Buff != c.Buff || !Visible(next)).ToArray();
-        foreach (var old in changed)
-        { player.Area.Buffs.Clear(id, old.Row, old.Caster, tag: old.Buff); m.Curses.Presented.Remove((old.Caster, old.Effect)); }
-        // A curse is its caster's; each application its own buff (its tag), so a renewed curse restarts its countdown.
-        foreach (var curse in m.Curses.All.Values.Where(c => Visible(c) && !m.Curses.Presented.ContainsKey((c.Caster, c.Effect))))
+        bool hasCurses = m.HasCurses;
+        if (hasCurses || auras.Length > 0)
         {
-            player.Area.Buffs.Set(id, new(curse.Row, curse.Caster, curse.Skill, Tag: curse.Buff,
-                U68: double.IsFinite(curse.Until) ? Buff.Seconds(curse.Until - now) : null));
-            m.Curses.Presented[(curse.Caster, curse.Effect)] = curse;
+            bool dead = m.Dead || m.Life == 0;
+            if (hasCurses && m.Curses.All.Count > 0)
+            {
+                foreach (var curse in m.Curses.All.Values.Where(c => c.Mark
+                    && (dead && !c.RemainsOnDeath || c.Caster == player.Id && player.PlayerLife == 0)).ToArray())
+                    m.Curses.Remove(curse.Caster, curse.Effect);
+                foreach (var curse in m.Curses.All.Values.Where(c => c.Caster == player.Id && c.Aura).ToArray())
+                    if (player.PlayerLife == 0 || dead || !auras.Any(a => a.Aura.SkillId == curse.Skill && inAura(a.Aura.SkillId)))
+                        m.Curses.Remove(curse.Caster, curse.Effect);
+            }
+            if (auras.Length > 0 && player.PlayerLife > 0 && !InTown(player))
+                foreach (var aura in auras)
+                    if (inAura(aura.Aura.SkillId)) ApplyCurseLocked(player, m, aura.Aura.SkillId, now, true, aura.Gem, playerStats);
+            if (m.HasCurses)
+            {
+                if (m.Curses.All.Count > 0) m.Curses.Expire(now);
+                bool Visible(MonsterCurses.Curse curse) => !dead || !m.CorpseConsumed && curse.RemainsOnDeath;
+                if (m.Curses.Presented.Count > 0)
+                {
+                    var changed = m.Curses.Presented.Values.Where(c => !m.Curses.All.TryGetValue((c.Caster, c.Effect), out var next)
+                        || next.Buff != c.Buff || !Visible(next)).ToArray();
+                    foreach (var old in changed)
+                    { player.Area.Buffs.Clear(id, old.Row, old.Caster, tag: old.Buff); m.Curses.Presented.Remove((old.Caster, old.Effect)); }
+                }
+                // A curse is its caster's; each application its own buff (its tag), so a renewed curse restarts its countdown.
+                if (m.Curses.All.Count > 0)
+                    foreach (var curse in m.Curses.All.Values)
+                    {
+                        if (!Visible(curse) || m.Curses.Presented.ContainsKey((curse.Caster, curse.Effect))) continue;
+                        player.Area.Buffs.Set(id, new(curse.Row, curse.Caster, curse.Skill, Tag: curse.Buff,
+                            U68: double.IsFinite(curse.Until) ? Buff.Seconds(curse.Until - now) : null));
+                        m.Curses.Presented[(curse.Caster, curse.Effect)] = curse;
+                    }
+            }
         }
-        double slow = m.Rarity is MonsterRarity.Rare or MonsterRarity.Unique
-            ? m.Curses[Stat.TemporalChainsActionSpeedPlusPctVsRareOrUniqueFinal] : m.Curses[Stat.TemporalChainsActionSpeedPlusPctFinal];
+        bool anyActiveCurse = m.HasCurses && m.Curses.All.Count > 0;
+        double slow = !anyActiveCurse ? 0
+            : m.Rarity is MonsterRarity.Rare or MonsterRarity.Unique
+                ? m.Curses[Stat.TemporalChainsActionSpeedPlusPctVsRareOrUniqueFinal] : m.Curses[Stat.TemporalChainsActionSpeedPlusPctFinal];
         if (!ExternalTemporalChains(player, "TemporalChains"))
         {
             double oldRate = m.RecipientDebuffRate;
-            double rate = RecipientEffectTime.Rate(2, n => m.Effects[n]);
+            double rate;
+            if (!anyActiveCurse && m.EncounterStats is null && m.BuffStats is null && m.TemporaryStats.Count == 0 && ReferenceEquals(m.Mods, MonsterModSet.None))
+                rate = 1;
+            else
+            {
+                var effects = m.Effects;
+                rate = RecipientEffectTime.Rate(2, n => effects[n]);
+            }
             if (rate != oldRate)
             {
                 SettleBleeding(m, now);
@@ -270,13 +294,16 @@ public static partial class Game
                 m.Ruptures.SetExpiryRate(now, rate);
                 m.Bleeds.SetExpiryRate(now, BleedingExpiryRate(m, now));
             }
-            m.ReceivedActionFactor = Math.Max(BossMods.SlowestActionFactor(m.Variety), 1 + slow / 100); m.ReceivedActionUntil = slow != 0 ? double.PositiveInfinity : now;
+            // SlowestActionFactor is <= 1, so when slow == 0 (no Temporal Chains), Max(floor, 1) is always 1.
+            m.ReceivedActionFactor = slow == 0 ? 1 : Math.Max(BossMods.SlowestActionFactor(m.Variety), 1 + slow / 100);
+            m.ReceivedActionUntil = slow != 0 ? double.PositiveInfinity : now;
         }
-        if (m.Curses.PresentedVersion != m.Curses.Version)
+        if (m.HasCurses && m.Curses.PresentedVersion != m.Curses.Version)
         {
             var keys = m.Curses.PresentedStats.Concat(m.Curses.Stats.Keys).Distinct().ToArray();
+            var effects = m.Effects;
             SetStats(player, id, keys.Where(StatCatalog.IsClientId)
-                .Select(n => (n, m.Effects[n] + SpiderRecipientStat(m, n, now))));
+                .Select(n => (n, effects[n] + SpiderRecipientStat(m, n, now))));
             m.Curses.PresentedStats.Clear(); m.Curses.PresentedStats.UnionWith(m.Curses.Stats.Keys);
             m.Curses.PresentedVersion = m.Curses.Version;
         }

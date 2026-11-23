@@ -1683,6 +1683,7 @@ public static partial class Game
             player.Character.SavedPassiveProgress = new(next, player.Character.Passives, player.Character.MasteryEffects, player.Character.RefundPoints);
         }
         await SendPassives(player);
+        await CheckAscendancyAwardAchievements(player, awards);
         return next.EarnedPoints;
     }
 
@@ -1791,6 +1792,7 @@ public static partial class Game
             Console.WriteLine($"[gateway] {player.Connection.Remote} {chosen.Name} refused: {ex.Message}");
             return;
         }
+        await AwardAchievementItem(player, "ChooseAscendancyClass");
         await ChangeArea(player, AscendancyReload(player), $"ascendancy {chosen.Name} chosen at the font");
     }
 
@@ -1844,8 +1846,15 @@ public static partial class Game
                 IReadOnlyList<PlayerSkillSource> sourcesBefore = willChange
                     ? CaptureGemSourceRowsLocked(player) : [];
                 changed = allocate ? player.Character.ClusterPassives.Add(node) : player.Character.ClusterPassives.Remove(node);
-                if (changed) CharacterSaves.SetClusterPassives(CharacterName(player), player.Character.ClusterPassives);
-                if (changed) CompletePassiveJewelMutationLocked(player, sourcesBefore);
+                if (changed)
+                {
+                    Saves.Atomically(() =>
+                    {
+                        CharacterSaves.SetClusterPassives(CharacterName(player), player.Character.ClusterPassives);
+                        if (allocate && HasPassiveFreeReset(player)) SetPassiveFreeReset(player, false);
+                    });
+                    CompletePassiveJewelMutationLocked(player, sourcesBefore);
+                }
             }
         }
         if (refusal is not null)
@@ -1880,6 +1889,36 @@ public static partial class Game
     /// below the PassiveSkillGraphId range of the tree's nodes.</summary>
     public const ushort MaxClusterNodeId = 0xFFF;
 
+    /// <summary>Module data key for an unused one-off free full passive skill tree reset (S→C 0x33 flags bit 0, C→S 0x38).</summary>
+    public const string PassiveFreeResetKey = "passives.free_reset";
+
+    public static bool HasPassiveFreeReset(Player player) =>
+        CharacterSaves.ModuleData(CharacterName(player), PassiveFreeResetKey) == "1";
+
+    public static void SetPassiveFreeReset(Player player, bool available) =>
+        CharacterSaves.ChangeModuleData(CharacterName(player), PassiveFreeResetKey, _ => available ? "1" : "");
+
+    /// <summary>C→S 0x38: consumes an unused one-off free passive tree reset to refund all ordinary passives free.</summary>
+    public static async Task ResetPassivesFree(Player player)
+    {
+        if (!HasPassiveFreeReset(player))
+        {
+            Console.WriteLine($"[gateway] {player.Connection.Remote} <= 0x0038 free passive reset refused: none available");
+            await SendPassives(player);
+            return;
+        }
+        var nodes = PassiveState(player).Nodes.Where(n => PassivesFor(player).Find(n) is not { IsAscendancy: true }).ToList();
+        Console.WriteLine($"[gateway] {player.Connection.Remote} <= 0x0038 free passive reset ({nodes.Count})");
+        if (nodes.Count == 0)
+        {
+            await SendPassives(player);
+            return;
+        }
+        string? error = await ChangePassives(player, nodes, allocate: false, "Free passive reset",
+            consumeFreeReset: true);
+        if (error is not null && player.Commands is { } commands) await commands.Reply(error);
+    }
+
     public static (byte[] Bytes, string Label) PassivesMessage(Player player)
     {
         var (points, refundPoints, nodes, masteries) = PassiveState(player);
@@ -1910,7 +1949,8 @@ public static partial class Game
         return (InstanceEntities.CharacterPassives((byte)player.Pools.Level, PackedClass(player), [.. nodes, .. player.Character.MainAscendancy.Allocated, .. player.Character.DescendancyNodes],
                 questPoints: clientExtra, refundPoints: refundPoints,
                 ascendancyPoints: (ushort)(player.Character.MainAscendancy.EarnedPoints + descendancyPoints), masteryEffects: masteries,
-                clusterNodes: [.. player.Character.ClusterPassives], tattoos: tattoos, descendancy: player.Character.DescendancyRow),
+                clusterNodes: [.. player.Character.ClusterPassives], tattoos: tattoos, descendancy: player.Character.DescendancyRow,
+                freeReset: HasPassiveFreeReset(player)),
             $"0x0033 passive skill tree: level {player.Pools.Level}, {points} skill point(s) ({clientExtra} extra), " +
             $"{refundPoints} refund point(s), {nodes.Count} allocated, {cluster} cluster, {unspent} unspent; " +
             $"ascendancy {player.Character.MainAscendancy.Selection?.Family}/{player.Character.MainAscendancy.Selection?.Id}, {player.Character.MainAscendancy.EarnedPoints} earned, {player.Character.MainAscendancy.Allocated.Count} nodes" +
@@ -1937,7 +1977,7 @@ public static partial class Game
     // refund-point refund (refundPoints) spends one saved point per node. /reset_passives sets neither.
     public static async Task<string?> ChangePassives(Player player,
         IReadOnlyList<ushort> nodes, bool allocate, string why, ushort? masteryEffect = null, bool goldRespec = false,
-        bool refundPoints = false)
+        bool refundPoints = false, bool consumeFreeReset = false)
     {
         string? error = null;
         List<ushort> now;
@@ -2068,6 +2108,8 @@ public static partial class Game
                     if (player.Character.DescendancyRow != 0 || descendancyNext.Count > 0)
                         CharacterSaves.SetDescendancy(CharacterName(player), player.Character.DescendancyRow, descendancyNext,
                             expectedRow: player.Character.DescendancyRow, expectedNodes: player.Character.DescendancyNodes);
+                    if ((consumeFreeReset || allocate) && HasPassiveFreeReset(player))
+                        SetPassiveFreeReset(player, false);
                     return null;
                 });
             if (error is null)
@@ -2118,6 +2160,7 @@ public static partial class Game
         }
         // Sent either way: on a refusal it puts the client's tree back to the server's.
         await SendPassives(player);
+        if (error is null && allocate) await CheckPassiveAchievements(player, now);
         return error;
     }
 
@@ -2154,37 +2197,47 @@ public static partial class Game
             ref player.Character.GemExperienceCarry) : (int)Math.Min(gain / 10, int.MaxValue);
         if (share == 0) return ([], false);
         var items = ItemsOf(player);
-        Item? AddExperience(uint itemId, Item gem)
+        var catalog = ItemsFor(player);
+        var skills = SkillsFor(player);
+        int playerLevel = player.Pools.Level;
+        int? NextExperience(uint itemId, Item gem, out bool levels)
         {
-            if (IsInactive(player, itemId) || ItemsFor(player).ByHash(gem.TypeHash) is not { } baseType || ItemsFor(player).Gem(baseType) is not { } type) return null;
+            levels = false;
+            if (IsInactive(player, itemId) || catalog.ByHash(gem.TypeHash) is not { } baseType || catalog.Gem(baseType) is not { } type) return null;
             // The experience stops one point below the next level's threshold, where the client draws the "+", so a
             // kill never levels a gem: only the player's click (0x31, or Level Up All's 0x32) writes the threshold.
             // A gem already above the highest level the character meets keeps its experience and gains nothing.
-            int level = ItemsFor(player).GemLevel(gem);
+            int level = type.Level(gem.GemExperience);
             if (level < 0) return null; // -1 is a corrupted gem over its cap (GemType.Level)
-            int allowed = Math.Min(SkillsFor(player).MaxLevelAt(type.Variant(gem.GemVariant).Effect, player.Pools.Level), type.MaxLevel);
+            int allowed = Math.Min(skills.MaxLevelAt(type.Variant(gem.GemVariant).Effect, playerLevel), type.MaxLevel);
             int cap = type.ExperienceFor(Math.Min(level + 1, allowed + 1)) - 1;
             if (gem.GemExperience < 0 || gem.GemExperience >= cap) return null;
-            return gem with { GemExperience = (int)Math.Min((long)gem.GemExperience + share, cap) };
+            int nextXp = (int)Math.Min((long)gem.GemExperience + share, cap);
+            levels = type.Level(nextXp) > level;
+            return nextXp;
         }
-        bool canLevel = items.SocketedGemPlaces().Any(place =>
-            AddExperience(place.ItemId, place.Gem) is { } after
-            && ItemsFor(player).GemLevel(after) > ItemsFor(player).GemLevel(place.Gem));
-        IReadOnlyList<PlayerSkillSource> sourcesBefore = canLevel ? CaptureGemSourceRowsLocked(player) : [];
-        var changed = items.ChangeSocketedGems(AddExperience);
+        // AddExperience caps at one point below the next level's threshold, so kills almost never level a gem;
+        // scan without allocating first and capture source rows outside PlayerInventories._lock only when needed.
+        bool mayLevel = items.AnySocketedGem((itemId, gem) => NextExperience(itemId, gem, out bool levels) is not null && levels);
+        IReadOnlyList<PlayerSkillSource> sourcesBefore = mayLevel ? CaptureGemSourceRowsLocked(player) : [];
         bool leveled = false;
+        var changed = items.ChangeSocketedGems((itemId, gem) =>
+        {
+            if (NextExperience(itemId, gem, out bool levels) is not int nextXp) return null;
+            if (levels) leveled = true;
+            return gem with { GemExperience = nextXp };
+        });
+        if (changed.Count == 0) return ([], false);
         foreach (var (before, after) in changed.SelectMany(c => c.Gems))
         {
-            if (ItemsFor(player).GemLevel(after) > ItemsFor(player).GemLevel(before))
-            {
-                leveled = true;
-                Console.WriteLine($"[gateway] {CharacterName(player)}'s {ItemsFor(player).GemName(after)} levels to {ItemsFor(player).GemLevel(after)}");
-            }
+            int afterLevel = catalog.GemLevel(after);
+            if (afterLevel > catalog.GemLevel(before))
+                Console.WriteLine($"[gateway] {CharacterName(player)}'s {catalog.GemName(after)} levels to {afterLevel}");
             // A plain gain is logged only with the projectile trace: three lines a kill per gem were written under the
             // Monsters lock for every monster an explosion killed.
             else if (GameServer.Core.Diagnostics.ServerTrace.Projectiles)
-                Console.WriteLine($"[gateway] {CharacterName(player)}'s {ItemsFor(player).GemName(after)} gains experience " +
-                    $"+{after.GemExperience - before.GemExperience} ({after.GemExperience}, level {ItemsFor(player).GemLevel(after)})");
+                Console.WriteLine($"[gateway] {CharacterName(player)}'s {catalog.GemName(after)} gains experience " +
+                    $"+{after.GemExperience - before.GemExperience} ({after.GemExperience}, level {afterLevel})");
         }
         if (leveled)
         {

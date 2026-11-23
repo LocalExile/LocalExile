@@ -38,6 +38,7 @@ public sealed class GameModule : IModule, IDisposable
     public void Dispose()
     {
         Rules.ForgetClaimedCharacters();
+        Rules.ResetAchievementCache();
         RuleTables.Empty();
     }
 
@@ -72,6 +73,8 @@ public sealed class GameModule : IModule, IDisposable
         Rules.LoadMinionSupportsData();
         Rules.LoadWornGrantedSkillsData();
         Rules.LoadPhasingData();
+        Rules.LoadBuffCancelData();
+        Rules.LoadDeathPenaltyData();
         Rules.LoadModuleWorldData();
         Rules.LoadMonsterModsData();
         Rules.LoadPassiveGrantedSkillsRulesData();
@@ -118,6 +121,7 @@ public sealed class GameModule : IModule, IDisposable
         Rules.LoadEssenceSummonsData();
         Rules.LoadSelfBuffSkillsData();
         Rules.LoadMapAreaStats();
+        Rules.LoadAchievementsData();
     }
 
     /// <inheritdoc/>
@@ -132,6 +136,7 @@ public sealed class GameModule : IModule, IDisposable
         module.Lifetime.Own(Rules.CleanupEssenceAuras());
         module.Lifetime.Own(Rules.CleanupMonsterSummons());
         GameEvents.AreaTick.Add(module.Manifest.Id, GameEvents.InArea(global::Sirus.Area, global::Sirus.Tick));
+        GameEvents.AreaTick.Add(module.Manifest.Id, GameEvents.Always((player, _) => Rules.CloseInteractionsIfMovingAway(player, null, Rules.AreaTime(player))));
         // A map device's portal labels read "<area> (Completed)" once that run's boss is dead (World/Portals.cs).
         GameEvents.AreaTick.Add(module.Manifest.Id, GameEvents.Always((player, _) => Rules.TickMapRunBoss(player)));
         GameEvents.MonsterKilled.Add(module.Manifest.Id, kill => Rules.TickMapRunBoss(kill.Player, force: true));
@@ -154,6 +159,7 @@ public sealed class GameModule : IModule, IDisposable
         GameEvents.ChestsOpened.Add(module.Manifest.Id, MapStrongboxes.OpenNear);
         GameEvents.PlayerStatSources.Add(module.Manifest.Id, MapStrongboxes.CurseStats);
         GameEvents.Packet(GameServer.Core.Protocol.Instance.InstanceItems.UseItemOnObjectId).Add(module.Manifest.Id, MapStrongboxes.UseItemOn);
+        GameEvents.Packet(GameServer.Core.Protocol.Instance.InstanceItems.UseItemTypeOnObjectId).Add(module.Manifest.Id, MapStrongboxes.UseItemTypeOn);
         GameEvents.PlayerLeaving.Add(module.Manifest.Id, (player, _) => { MapStrongboxes.Leave(player); return Task.CompletedTask; });
         GameEvents.StateBuilding.Add(module.Manifest.Id, MapStrongboxes.Describe);
         GameEvents.MapOpening.Add(module.Manifest.Id, MapEssences.Opening);
@@ -161,6 +167,7 @@ public sealed class GameModule : IModule, IDisposable
         GameEvents.PlayerEntered.Add(module.Manifest.Id, MapEssences.Enter);
         GameEvents.ObjectUse.Add(module.Manifest.Id, MapEssences.Use);
         GameEvents.Packet(GameServer.Core.Protocol.Instance.InstanceItems.UseItemOnObjectId).Add(module.Manifest.Id, MapEssences.UseItemOn);
+        GameEvents.Packet(GameServer.Core.Protocol.Instance.InstanceItems.UseItemTypeOnObjectId).Add(module.Manifest.Id, MapEssences.UseItemTypeOn);
         GameEvents.AreaTick.Add(module.Manifest.Id, GameEvents.Always(MapEssences.Tick));
         GameEvents.Drops.Add(module.Manifest.Id, MapEssences.Drops);
         GameEvents.PlayerLeaving.Add(module.Manifest.Id, (player, _) => { MapEssences.Leave(player); return Task.CompletedTask; });
@@ -173,6 +180,7 @@ public sealed class GameModule : IModule, IDisposable
         GameEvents.PlayerLeaving.Add(module.Manifest.Id, (conn, _) => { MapTorment.Leave(conn); return Task.CompletedTask; });
         GameEvents.PlayerStatSources.Add(module.Manifest.Id, MapTorment.PlayerStats);
         GameEvents.BuffCancel.Add(module.Manifest.Id, MapTorment.CancelBuff);
+        GameEvents.BuffCancel.Add(module.Manifest.Id, Rules.CancelRemovableBuff);
         GameEvents.StateBuilding.Add(module.Manifest.Id, MapTorment.Describe);
         GameEvents.MapOpening.Add(module.Manifest.Id, MapHarbinger.Opening);
         GameEvents.AreaGenerated.Add(module.Manifest.Id, MapHarbinger.Enter);
@@ -252,6 +260,11 @@ public sealed class GameModule : IModule, IDisposable
         GameEvents.AreaTick.Add(id, GameEvents.Always((player, _) => global::Hierophant.Tick(player)));
         GameEvents.PlayerStatSources.Add(module.Manifest.Id, global::Hierophant.PlayerStats);
         GameEvents.PlayerLeaving.Add(id, (player, _) => global::Hierophant.Leaving(player));
+        GameEvents.Packet(InstanceEntities.ResetAllPassivesId).Add(module.Manifest.Id, async (player, _) =>
+        {
+            await Rules.ResetPassivesFree(player);
+            return true;
+        });
         GameEvents.PlayerLeaving.Add(id, (player, _) => global::BrineKing.Leaving(player));
         GameEvents.CompanionTick.Add(id, Rules.TickBrands);
         GameEvents.PlayerStatSources.Add(id, Rules.BrandPlayerStats);
@@ -262,6 +275,10 @@ public sealed class GameModule : IModule, IDisposable
         module.Lifetime.Own(Rules.CleanupBrandsOnUnload());
         GameEvents.AreaGenerated.Add(id, CharacterVoiceLines.OnAreaGenerated);
         GameEvents.Kill.Add(id, CharacterVoiceLines.OnKill);
+        GameEvents.AreaHeader.Add(id, _ => new AreaHeader(null, [InstanceAchievements.PermanentAchievementSetId]));
+        GameEvents.EnterMessages.Add(id, Rules.AchievementEnterMessages);
+        GameEvents.PlayerEntered.Add(id, Rules.CheckAreaEntryAchievements);
+        GameEvents.Kill.Add(id, Rules.OnMonsterKillAchievements);
     }
 }
 

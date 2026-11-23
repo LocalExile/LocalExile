@@ -1,6 +1,8 @@
 using System.Text.Json;
 using GameServer.Core.Accounts;
+using GameServer.Core.Diagnostics;
 using GameServer.Core.Saves;
+using Microsoft.Data.Sqlite;
 
 namespace GameServer.Storage;
 
@@ -92,6 +94,30 @@ public sealed class SqliteAccountStore(SaveDatabase db) : IAccountStore
     public void UpdateAccount(Account a) => Upsert(a, onlyIfThere: true);
     public void AddCharacter(Character c) => Upsert(c);
     public void UpdateCharacter(Character c) => Upsert(c, onlyIfThere: true);
+
+    /// <summary>Renames the character and its live save row together in one transaction. Returns false and rolls back
+    /// on missing character, live save name collision or database constraint failure.</summary>
+    public bool RenameCharacter(Guid id, string newName)
+    {
+        try
+        {
+            return db.Atomically(() =>
+            {
+                if (GetCharacter(id) is not { } character) return false;
+                using var c = db.Command("UPDATE account_characters SET name = $new WHERE id = $id",
+                    ("$new", newName), ("$id", id.ToString()));
+                if (c.ExecuteNonQuery() == 0) return false;
+                if (!db.RenameCharacterSave(character.Name, newName))
+                    throw new InvalidOperationException($"live character save conflict for '{newName}'");
+                return true;
+            });
+        }
+        catch (Exception ex) when (ex is SqliteException or InvalidOperationException)
+        {
+            Console.WriteLine($"[saves] rename character {id} -> {newName} refused: {ServerLog.Describe(ex)}");
+            return false;
+        }
+    }
 
     /// <summary>Removes the character and sets its save aside (<see cref="SaveDatabase.SetAside"/>), together: a crash can't
     /// leave a deleted character's save for a new one of its name, nor a character without its save.</summary>

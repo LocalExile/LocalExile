@@ -152,6 +152,75 @@ public static partial class Game
             });
         }
 
+        // Coalesce multi-kill flask charge updates during a projectile step and flush them synchronously at the end of
+        // Advance/AdvanceTo under Player.FlaskBarGate so 0x00bf revisions stay strictly ordered with ChangeFlaskBar.
+        readonly Lock flaskBarGate = new();
+        HashSet<uint>? flasksPending;
+        bool flaskFlushQueued;
+        bool stepping;
+        public void FlaskBarChanged(IReadOnlyList<InventoryItem> changed)
+        {
+            if (changed.Count == 0) return;
+            lock (flaskBarGate)
+            {
+                flasksPending ??= [];
+                foreach (var item in changed) flasksPending.Add(item.Id);
+            }
+            if (!stepping) FlushPendingFlaskBar();
+        }
+
+        byte[]? TakePendingFlaskPacketUnderGate(bool clearQueued)
+        {
+            HashSet<uint>? pending;
+            lock (flaskBarGate)
+            {
+                if (clearQueued) flaskFlushQueued = false;
+                pending = flasksPending;
+                flasksPending = null;
+            }
+            if (pending is not { Count: > 0 }) return null;
+            var items = ItemsOf(Player);
+            var current = new List<InventoryItem>(pending.Count);
+            foreach (var it in items.Items(PlayerInventories.Flask))
+                if (pending.Contains(it.Id)) current.Add(it);
+            return current.Count == 0 ? null : InstanceItems.InventoryChange(
+                PlayerInventories.InventoryId(PlayerInventories.Flask),
+                items.NextRevision(PlayerInventories.Flask), [.. current.Select(c => c.Id)], current);
+        }
+
+        void FlushPendingFlaskBar()
+        {
+            lock (flaskBarGate)
+                if (flasksPending is not { Count: > 0 } || flaskFlushQueued) return;
+            if (!Active) return;
+            if (Player.FlaskBarGate.Wait(0))
+            {
+                try
+                {
+                    if (TakePendingFlaskPacketUnderGate(clearQueued: false) is { } packet) Packet(packet);
+                }
+                finally { Player.FlaskBarGate.Release(); }
+                return;
+            }
+            bool queue;
+            lock (flaskBarGate)
+            {
+                queue = !flaskFlushQueued && flasksPending is { Count: > 0 };
+                if (queue) flaskFlushQueued = true;
+            }
+            if (queue)
+                Enqueue(async () =>
+                {
+                    await Player.FlaskBarGate.WaitAsync();
+                    try
+                    {
+                        var packet = TakePendingFlaskPacketUnderGate(clearQueued: true);
+                        if (Active && packet is not null) await Send(Player, packet, null);
+                    }
+                    finally { Player.FlaskBarGate.Release(); }
+                });
+        }
+
         public void Advance()
         {
             // Match the existing XP -> connection lock order. Kill reactions may gain XP synchronously.
@@ -160,10 +229,19 @@ public static partial class Game
                 if (!Active) { Invalidate(); return; }
                 if (!Player.Paused)
                 {
-                    DrainPendingExplosiveDetonations();
-                    TickChannelTriggers(Player, this, AreaTime(Player));
-                    Runtime.AdvanceTo(Math.Max(Runtime.Now, ProjectileRuntime.Time(AreaTime(Player))));
-                    FlushPendingGemExperience();
+                    stepping = true;
+                    try
+                    {
+                        DrainPendingExplosiveDetonations();
+                        TickChannelTriggers(Player, this, AreaTime(Player));
+                        Runtime.AdvanceTo(Math.Max(Runtime.Now, ProjectileRuntime.Time(AreaTime(Player))));
+                    }
+                    finally
+                    {
+                        stepping = false;
+                        FlushPendingGemExperience();
+                        FlushPendingFlaskBar();
+                    }
                 }
             }
         }
@@ -173,9 +251,18 @@ public static partial class Game
             lock (LevelUpdatesFor(Player).Gate)
             {
                 if (!Active) { Invalidate(); return; }
-                DrainPendingExplosiveDetonations();
-                Runtime.AdvanceTo(at);
-                FlushPendingGemExperience();
+                stepping = true;
+                try
+                {
+                    DrainPendingExplosiveDetonations();
+                    Runtime.AdvanceTo(at);
+                }
+                finally
+                {
+                    stepping = false;
+                    FlushPendingGemExperience();
+                    FlushPendingFlaskBar();
+                }
             }
         }
 
@@ -222,6 +309,11 @@ public static partial class Game
             ClearEnsnares();
             ClearExplosiveFuses();
             if (archer is { } currentArcher) EndMirage(currentArcher, retire: true);
+            lock (flaskBarGate)
+            {
+                flasksPending = null;
+                flaskFlushQueued = false;
+            }
             Runtime.Clear();
             foreach (var visual in visuals.Values) Player.ProjectileObjects.Remove(visual.Id);
             visuals.Clear(); later.Clear(); output.Writer.TryComplete();
@@ -763,10 +855,18 @@ public static partial class Game
             if (!immune && shot.SourceSkill == 0 && shot.WeaponAttack && shot.ActualCaster is null && !shot.FromTrapOrMine)
                 CaptureEquippedHitExplosionLocked(target, player);
             if (!immune)
+            {
+                var emitterTotem = shot.FromTotem
+                    ? Player.Totems.All.FirstOrDefault(t => t.Id == contact.Projectile.Use.Emitter.Id)
+                    : null;
                 AilmentsOnHitLocked(Player, contact.Target.Id, target, mitigated, shot.Spell, critical, multiplier, player,
                     shot.SkillStats, at, contact.Projectile.ReactionRandomSource, poison: shot.Poison,
                     sourceSkill: shot.SourceSkill, blind: shot.Blind,
-                    attackGains: AttackAilmentGains.Capture(player, shot.ActualCaster is null && !shot.Spell), who: who);
+                    attackGains: AttackAilmentGains.Capture(player, shot.ActualCaster is null && !shot.Spell),
+                    hitOrigin: emitterTotem?.At,
+                    attackerSize: emitterTotem?.BodySize ?? LivingCollision.PlayerSize,
+                    attackerHasReversedStat: emitterTotem is null, who: who);
+            }
             else HitLandedLocked(Player, target, critical, shot.Spell, shot.SkillStats, who, shot.SourceSkill);
             if (!immune && hit.Value.Life > 0 && shot.EssenceDrain is { } drain)
                 EssenceDrainOnHitLocked(contact.Target.Id, target, drain, at);

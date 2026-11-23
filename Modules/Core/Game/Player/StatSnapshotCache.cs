@@ -28,6 +28,8 @@ public static partial class Game
         public required double LifeRegenerationToEnergyShield;
         /// <summary>Walking when the head was read: the while-moving regeneration in the Recovery rows (PanelStats.WhileMoving).</summary>
         public required bool Moving;
+        public bool IsPhasing;
+        public int MapLightRadiusPct;
         public int BlindLess;
         public required int BloodChargesHeld;
         public required bool BloodChargesShown;
@@ -95,7 +97,9 @@ public static partial class Game
             PetrifiedBloodRecoveryCapped = player.PetrifiedBlood.Active && player.PlayerLife > 0
                 && (long)player.PlayerLife + recoveryMargin
                     >= (uint)((long)player.PlayerMaxLife * LowLifeThresholdPct(stats) / 100),
-            LifeRegenerationToEnergyShield = lifeRegenerationToEnergyShield, Moving = moving, BlindLess = PlayerBlindValue(player, stats).Less,
+            LifeRegenerationToEnergyShield = lifeRegenerationToEnergyShield, Moving = moving,
+            IsPhasing = player.IsPhasing, MapLightRadiusPct = MapModsOf(player)?.Get(Stat.MapPlayerLightRadiusPlusPct) ?? 0,
+            BlindLess = PlayerBlindValue(player, stats).Less,
             BloodChargesHeld = bloodHeld, BloodChargesShown = bloodShown,
             Ailments = [], SuppressionChance = 0,
             AttackEffectId = SkillEffectId(player, SkillCatalog.FirstSkillId),
@@ -155,6 +159,23 @@ public static partial class Game
             // only clamps to the maximum pool. Publish 0 while the buff stops non-flask recovery at Low Life.
             if (inputs.PetrifiedBloodRecoveryCapped && Stat.LifeRecoveryPerMinute is var lifeRecovery)
                 stats[lifeRecovery] = 0;
+            // Requirement checks read virtual_*_for_requirements (0x3d1b-0x3d1d, 0x1421f3a40); default them to the
+            // resolved attributes without clobbering pre-existing overrides.
+            stats.TryAdd(Stat.VirtualStrengthForRequirements, Get(Stat.Strength));
+            stats.TryAdd(Stat.VirtualDexterityForRequirements, Get(Stat.Dexterity));
+            stats.TryAdd(Stat.VirtualIntelligenceForRequirements, Get(Stat.Intelligence));
+            // Client player light (0x141659b80 / 0x141656e50) reads virtual_light_radius_+% (0x1e59, calculator
+            // 0x142745510: light_radius_+% + light_radius_+%_while_phased while phased) and
+            // virtual_blind_does_not_affect_light_radius (0x2fa8, calculator 0x1428b52f0: keystone_blind_monk ||
+            // blind_does_not_affect_light_radius). Direct light stats (blinded, unique_loris_lantern_golden_light,
+            // disable_player_light, light_radius_scales_with_energy_shield) pass through from character stat sources.
+            bool phased = inputs.IsPhasing || Get(Stat.PhaseThroughObjects) != 0;
+            int virtualLight = ActorScale.Saturate((long)Get(Stat.LightRadiusPlusPct)
+                + (phased ? Get(Stat.LightRadiusPlusPctWhilePhased) : 0) + inputs.MapLightRadiusPct);
+            if (virtualLight != 0)
+                stats[Stat.VirtualLightRadiusPlusPct] = virtualLight;
+            if (Get(Stat.KeystoneBlindMonk) != 0 || Get(Stat.BlindDoesNotAffectLightRadius) != 0)
+                stats[Stat.VirtualBlindDoesNotAffectLightRadius] = 1;
             // Derive once from the resolved final rating, after pools and explicit stat replacements. Only this
             // temporary dictionary changes; repeated builds and removal cannot feed the bonus back into raw sources.
             if ((Get(ArmourAttackDamage.Per450Armour) != 0 || Get(ArmourAttackDamage.Per450Evasion) != 0)
@@ -170,11 +191,15 @@ public static partial class Game
         }
         if (stage == StatSnapshotStage.Offence)
         {
-            // Release calculations and the panel use the same active-hand types, including after weapon swaps.
-            if (Stat.MainHandWeaponType is var mainType)
-                stats.TryAdd(mainType, WeaponTypeStats.Of(ActiveMainHand()?.Type?.Class));
-            if (Stat.OffHandWeaponType is var offType)
-                stats.TryAdd(offType, WeaponTypeStats.Of(ActiveOffHand()?.Type?.Class));
+            // Release calculations, item-requirement checks (quivers require main_hand_weapon_type == 9 / Bow,
+            // 0x1421f3925) and initial player creation all share the active hands' native weapon types and dual-wield
+            // flag, including after weapon swaps.
+            int mainType = WeaponTypeStats.Of(ActiveMainHand()?.Type?.Class);
+            int offType = WeaponTypeStats.Of(ActiveOffHand()?.Type?.Class);
+            stats.TryAdd(Stat.MainHandWeaponType, mainType);
+            stats.TryAdd(Stat.OffHandWeaponType, offType);
+            stats.TryAdd(Stat.IsDualWielding, WeaponTypeStats.IsDualWielding(mainType, offType,
+                Get(Stat.UnarmedCountsAsDualWielding) != 0) ? 1 : 0);
             foreach (var (identity, local) in new[] { (WeaponIdentity.MainAllOneHandMelee, mainLocal),
                 (WeaponIdentity.OffAllOneHandMelee, offLocal) })
                 stats[identity] = WeaponIdentity.AllOneHandMelee(local) ? 1 : 0;

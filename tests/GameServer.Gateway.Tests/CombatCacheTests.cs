@@ -117,4 +117,102 @@ public sealed class CombatCacheTests
         runtime.AdvanceTo(ProjectileRuntime.Time(.2));
         Assert.Contains(world.Hits, h => h.Target.Id == 40);
     }
+
+    [Fact]
+    public void Player_blockers_reuse_cached_index_until_bodies_move_and_match_unindexed_path_parity()
+    {
+        // 100x100 grid with an interior wall (x=40, y=10..70) and a sealed box (x=80..90, y=80..90) for detour/unreachable checks.
+        static bool GridWalkable(int x, int y)
+        {
+            if (x < 0 || y < 0 || x >= 100 || y >= 100) return false;
+            if (x == 40 && y >= 10 && y <= 70) return false;
+            if ((x == 80 || x == 90) && y >= 80 && y <= 90) return false;
+            if ((y == 80 || y == 90) && x >= 80 && x <= 90) return false;
+            return true;
+        }
+        var layout = new AreaLayout(1, "blocker-cache", 100, 100, 10, 40, GridWalkable, []);
+        var player = new Player(layout, 1, 1) { PlayerLife = 100 };
+        player.Connection.PlayerSent = true;
+        player.Clock.Stop();
+        player.SetBlocker(0x2000, 20, 40, 2);
+        for (uint i = 0; i < 40; i++)
+        {
+            int mx = 24 + (int)(i % 5) * 3;
+            int my = 20 + (int)(i / 5) * 6;
+            player.Area.Monsters[0x3000 + i] = new($"m{i}", new(mx, my, 20), 1, 1, 100) { Hostile = true };
+        }
+        player.Area.DormantMonsters[0x3100] = new("dormant", new(55, 55, 20), 1, 1, 100) { Hostile = true };
+
+        var first = player.Blockers;
+        var second = player.Blockers;
+        Assert.Same(first, second);
+
+        // Moving only the player must reuse the cached BlockerSet (the player is never in player.Blockers).
+        player.Walk.Order(18, 40, 0);
+        Assert.Same(first, player.Blockers);
+
+        // Indexed BlockerSet + ClientPathfinder open-node fast-path must match a plain unindexed list bit-for-bit.
+        var unindexed = new List<GameServer.Core.World.ClientPathfinder.Blocker>(first);
+        foreach (var target in new (int X, int Y)[] { (15, 40), (38, 40), (55, 40), (85, 85) })
+        {
+            var indexedPath = GameServer.Core.World.ClientPathfinder.FindPath(
+                (10, 40), target, GridWalkable, 100, 100, first, moverSize: 1, 0, 0, -1,
+                GameServer.Core.World.ClientPathfinder.SearchLimit.Player, out bool indexedReached);
+            var linearPath = GameServer.Core.World.ClientPathfinder.FindPath(
+                (10, 40), target, GridWalkable, 100, 100, unindexed, moverSize: 1, 0, 0, -1,
+                GameServer.Core.World.ClientPathfinder.SearchLimit.Player, out bool linearReached);
+            Assert.Equal(linearReached, indexedReached);
+            Assert.Equal(linearPath, indexedPath);
+        }
+
+        // Moving a monster invalidates the cached BlockerSet and reflects its new cell.
+        player.Area.Monsters[0x3000].Walk.Teleport(12, 12, 0);
+        var afterMonsterMove = player.Blockers;
+        Assert.NotSame(first, afterMonsterMove);
+        Assert.Contains(afterMonsterMove, b => (b.X, b.Y) == (12, 12));
+
+        // Phasing exposes only stationary blockers; Barrier cells immediately affect walkability.
+        player.Phasing = true;
+        Assert.Equal([new GameServer.Core.World.ClientPathfinder.Blocker(20, 40, 2)], player.Blockers);
+        player.Phasing = false;
+        Assert.Same(afterMonsterMove, player.Blockers);
+        Assert.True(player.Walk.Floor(15, 40));
+        player.Barrier = new HashSet<(int X, int Y)> { (15, 40) };
+        Assert.False(player.Walk.Floor(15, 40));
+        player.Barrier = new HashSet<(int X, int Y)>();
+        Assert.True(player.Walk.Floor(15, 40));
+
+        // Removing and later replacing a blocker slot must restore activeCount and spatial queries.
+        var set = new GameServer.Core.World.BlockerSet([new GameServer.Core.World.ClientPathfinder.Blocker(10, 10, 2)]);
+        Assert.True(set.OverlapsFootprint(10, 10, 1));
+        set.Remove(0);
+        Assert.False(set.OverlapsFootprint(10, 10, 1));
+        set.Replace(0, new GameServer.Core.World.ClientPathfinder.Blocker(12, 12, 2));
+        Assert.True(set.OverlapsFootprint(12, 12, 1));
+
+        // First-tick AntiquarianPresentation must not swallow active sustained Adrenaline (PositiveInfinity).
+        var antiq = new Player(layout, 2, 2) { PlayerLife = 100 };
+        antiq.Clock.Stop();
+        antiq.Antiquarian.SustainAdrenaline(0);
+        Assert.Equal(double.PositiveInfinity, antiq.Antiquarian.AdrenalineUntil);
+        Assert.NotNull(Game.AntiquarianPresentation(antiq));
+        Assert.Equal(double.PositiveInfinity, antiq.SentAdrenalineUntil);
+        Assert.Null(Game.AntiquarianPresentation(antiq));
+
+        // MayExplodeOnKill must recognize every explosion source: HitFireExplosionPercent, captured equipment
+        // (cursed corpse, Pride, cursed chaos), and all explosion stats, while returning false when none apply.
+        var emptyStats = new Dictionary<uint, int>();
+        var corpse = new SpawnedMonster("corpse", new(10, 10, 0), 1, 1, 100) { Hostile = true };
+        Assert.False(Game.MayExplodeOnKill(antiq, corpse, default, emptyStats));
+        corpse.HitFireExplosionPercent = 10;
+        Assert.True(Game.MayExplodeOnKill(antiq, corpse, default, emptyStats));
+        corpse.HitFireExplosionPercent = 0;
+        Assert.True(Game.MayExplodeOnKill(antiq, corpse, new Game.KillEquipmentSnapshot(10, 0, 0), emptyStats));
+        Assert.True(Game.MayExplodeOnKill(antiq, corpse, new Game.KillEquipmentSnapshot(0, 10, 0), emptyStats));
+        Assert.True(Game.MayExplodeOnKill(antiq, corpse, new Game.KillEquipmentSnapshot(0, 0, 25), emptyStats));
+        Assert.True(Game.MayExplodeOnKill(antiq, corpse, default, new Dictionary<uint, int> { [Stat.ExplodeEnemiesFor10PctLifeAsPhysicalOnKillChancePct] = 10 }));
+        Assert.True(Game.MayExplodeOnKill(antiq, corpse, null, new Dictionary<uint, int> { [Stat.ExplodeEnemiesFor10PctLifeAsPhysicalOnKillChancePctWhileUsingPride] = 10 }));
+        Assert.True(Game.MayExplodeOnKill(antiq, corpse, null, new Dictionary<uint, int> { [Stat.ExplodeCursedEnemiesFor25PctLifeAsChaosOnKillChancePct] = 25 }));
+        Assert.True(Game.MayExplodeOnKill(antiq, corpse, null, new Dictionary<uint, int> { [Stat.EnemiesNearCursedCorpsesAreBlindedAndExplodeOnDeathForPctLifeAsPhysicalDamage] = 10 }));
+    }
 }
