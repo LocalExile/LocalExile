@@ -226,11 +226,13 @@ public static partial class Game
     // An area's monsters are all placed at its first entry (14-monster-packs.md §2). One placed far from the player is
     // held back (InstanceWorld.HeldBackMonsters): it is the instance's, counted and saved with it, but it is not
     // created yet, so it is on no client and nothing acts on it or sends about it. RevealHeldBack creates it when a
-    // player comes near: at once within PopulationRevealCells (a screen is about 50 cells across), and the nearest few
-    // per pass out to PopulationShowCells, the wake zone's return distance (Resync.cs), so a teleport into a full region
-    // is not one burst and none is created only to be put to sleep.
+    // player comes near: up to PopulationRevealPerPass nearest per pass within PopulationRevealCells (a screen is about
+    // 50 cells across), and up to PopulationShownPerPass from the outer ring out to PopulationShowCells, the wake
+    // zone's return distance (Resync.cs), so walking into dense packs or teleporting into a full region never stalls a
+    // frame and none is created only to be put to sleep.
     public const int PopulationRevealCells = 120;
     public const int PopulationShowCells = WakeZoneReturn;
+    public const int PopulationRevealPerPass = 12;
     public const int PopulationShownPerPass = 6;
 
     // A unique or a monster with a boss bar is never held back: fights and quest scripts address it wherever the player
@@ -254,15 +256,20 @@ public static partial class Game
         (int X, int Y)[] players = [.. InGame.Keys.Where(c => ReferenceEquals(c.Instance, player.Instance)
             && !c.Closed && !c.LeavingArea && c.Connection.PlayerSent).Select(c => c.Walk.Position(now))];
         if (players.Length == 0) return;
+        List<(SavedMonster Held, double Distance)> near = [];
         List<(SavedMonster Held, double Distance)> ring = [];
         foreach (var h in held)
         {
             double d = double.MaxValue;
             foreach (var playerAt in players) d = Math.Min(d, Dist((h.X, h.Y), playerAt));
-            if (d <= PopulationRevealCells) due.Add(h);
+            if (d <= PopulationRevealCells) near.Add((h, d));
             else if (d <= PopulationShowCells) ring.Add((h, d));
         }
-        due.AddRange(ring.OrderBy(r => r.Distance).Take(PopulationShownPerPass).Select(r => r.Held));
+        if (near.Count > 0)
+            due.AddRange(near.OrderBy(r => r.Distance).Take(PopulationRevealPerPass).Select(r => r.Held));
+        int ringBudget = Math.Min(PopulationShownPerPass, PopulationRevealPerPass - due.Count);
+        if (ringBudget > 0 && ring.Count > 0)
+            due.AddRange(ring.OrderBy(r => r.Distance).Take(ringBudget).Select(r => r.Held));
         if (due.Count == 0) return;
         // By identity: two planned monsters of one kind on one cell are equal records.
         var leaving = new HashSet<SavedMonster>(due, ReferenceEqualityComparer.Instance);
