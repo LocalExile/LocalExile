@@ -1137,8 +1137,9 @@ public static partial class Game
         if (!Current()) return false;
         if (gem.Name is not null && !ProjectilePathAvailable(player, skillId, gem.Effect)) return false;
         if (locationInstant && (gem.Name is null || !InstantLocationSkill.Supported(SkillsFor(player), gem.Effect))) return false;
-        if (gem.Name is not null && SkillsFor(player).IsSpell(gem.Effect) && !SkillsFor(player).IsAttack(gem.Effect)
-            && CastMs(player, gem.Effect, skillId) is null)
+        bool spell = CastingSpell(player, gem.Effect);
+        int? spellCastMs = spell ? CastMs(player, gem.Effect, skillId) : null;
+        if (spell && spellCastMs is null)
         {
             Console.WriteLine($"[gateway] {player.Connection.Remote} skill 0x{skillId:x4} {gem.Name}: invalid cast duration (no effect or mana cost)");
             await SendPlayerMana(player, $"0x01b1 player mana {player.PlayerMana} (invalid cast duration, cost back)");
@@ -1248,8 +1249,22 @@ public static partial class Game
             }
         }
         // A link gem (Soul Link …) links its target at the end of its cast; it has no upfront cost, only its cost over time.
+        void RecordSpellWindup()
+        {
+            if (actionToken is null || locationInstant || placedAdmission is not null || spellCastMs is not > 0
+                || SkillsFor(player).IsInstant(gem.Effect) || SkillsFor(player).IsChannelled(gem.Effect)
+                || IsTotemSkill(player, skillId)) return;
+            if (CharacterPlayerStats(player).GetValueOrDefault(Stat.AvoidInterruptionWhileCastingPct) <= 0) return;
+
+            double duration = spellCastMs.Value / 1000d * (1d + SpellRepeats(player, skillId, gem.Effect));
+            SpellWindups.AddOrUpdate(player, new(action, player.ActionInterruptionGeneration, player.ProjectileEpoch,
+                AreaTime(player) + duration));
+        }
         if (gem.Name is not null && IsLinkSkill(player, gem.Effect))
+        {
+            RecordSpellWindup();
             return await CastLink(player, skillId, gem.Effect, targetId, Current);
+        }
         if (placedAdmission is null && !vaalCast && gem.Name is not null && PlacedKind(SupportedSkill(player, skillId)) is { Trap: false, Mine: false }
             && SupportedReservationCost(player, skillId) is { } reservation)
         {
@@ -1301,6 +1316,7 @@ public static partial class Game
                 if (paid && dash) player.Walk.Teleport(dashTo.X, dashTo.Y, ProjectileWorldTime(player));
                 if (paid)
                 {
+                    RecordSpellWindup();
                     if (!locationInstant && placedAdmission is null)
                     {
                         if (paymentGem.Stats.GetValueOrDefault(Stat.VirtualSkillGainsIntensity) != 0) paidIntensity = paymentGem;
@@ -1358,6 +1374,7 @@ public static partial class Game
         if (vaalCast)
         {
             recoveryGeneration = vaalUse!.RecoveryGeneration;
+            if (Current()) RecordSpellWindup();
             await PublishVaalUse(player, vaalUse);
         }
         if (!Current() || gem.Name is not null && GemSkillInstanceDisabled(player, gem.Effect, skillId) is not null)
@@ -3247,6 +3264,15 @@ public static partial class Game
 
     public sealed record PlayerRecoveryIntent(int Epoch, int Action, double Until, float Seconds);
 
+    sealed record SpellWindup(int Action, int Recovery, int Epoch, double Until);
+    static readonly RuleTable<Player, SpellWindup> SpellWindups = new();
+
+    static bool InSpellCast(Player player, double now) =>
+        player.PaidChannel is { } channel && CastingSpell(player, channel.Effect) && PaidChannelCurrent(player, channel)
+        || SpellWindups.TryGetValue(player, out var windup)
+            && now < windup.Until && windup.Action == player.ActionCount
+            && windup.Recovery == player.ActionInterruptionGeneration && windup.Epoch == player.ProjectileEpoch;
+
     // Cancellation belongs to the hit boundary; the native animation is a projection of that committed interval.
     public static PlayerRecoveryIntent? CommitPlayerHitRecoveryLocked(Player player, int damage, double now)
     {
@@ -3271,6 +3297,9 @@ public static partial class Game
         // A freeze already holds the player, and its action factor would stretch the recovery a hundredfold.
         if (player.ElementalAilments.ActionFactor(now) == 0) { Trace("frozen"); return null; }
         double chance = PlayerHitRecovery.Chance(damage, player.PlayerMaxLife, Get);
+        int ignoreWhileCasting = Get(Stat.AvoidInterruptionWhileCastingPct);
+        if (chance > 0 && ignoreWhileCasting > 0 && InSpellCast(player, now))
+            chance *= (100 - Math.Min(ignoreWhileCasting, 100)) / 100d;
         float seconds = PlayerHitRecovery.Duration(Get, PlayerActionFactor(player));
         if (seconds <= 0 || AreaRng(player).NextDouble() * 100 >= chance
             || player.Closed || player.PlayerLife == 0 || !player.HitRecovery.Begin(now, seconds))
