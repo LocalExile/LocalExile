@@ -172,6 +172,9 @@ public sealed record MonsterAttack(ushort SkillId, double Seconds, double Range,
     /// virtual cast-time stat; an attack's from the weapon duration. Sending only attack stats for a spell left the client's
     /// cast-duration function without its value and crashed it (0xc0000005, live 2026-10-31).</summary>
     public bool Spell { get; init; }
+    /// <summary>The action's clip only: it lands no contact. A scripted skill whose hit or area the controller applies on
+    /// its own clock sets this, so the client does not also get a zero-damage hit at the clip's contact.</summary>
+    public bool NoContact { get; init; }
     /// <summary>The action casts, but its contact is secondary damage rather than attack or spell damage.</summary>
     public bool Secondary { get; init; }
     /// <summary>The skill's native cooldown in seconds (GrantedEffectsPerLevel Cooldown) for non-kit monsters; 0 when none.</summary>
@@ -322,11 +325,21 @@ public sealed class SpawnedMonster(string label, PlayerWalk walk, int aggroRange
     /// <summary>The rest of a boss's skills (BossKits): the effect each one comes from, its action and its cooldown.
     /// Empty for every monster that swings one attack.</summary>
     public IReadOnlyList<MonsterKitSkill> Kit { get; init; } = [];
+    /// <summary>The effect behind each id on the actor's skill list, so a mod's command can play any of the monster's own
+    /// skills by the GrantedEffects Id the client shows. Empty when the spawn named none.</summary>
+    public IReadOnlyList<(int Effect, ushort Id)> SkillIds { get; init; } = [];
     /// <summary>When each kit skill is ready again, by granted effect (Clock seconds), in the area's frame.</summary>
     public readonly Dictionary<int, double> KitReadyAt = [];
     /// <summary>The damage taken toward each kit trigger on damage taken since it was last cast, by granted effect.</summary>
     public readonly Dictionary<int, double> KitDamageTaken = [];
-    public bool Hostile { get; init; } = true;
+    bool originallyHostile = true;
+    public bool OriginallyHostile => originallyHostile;
+    public bool Hostile { get => originallyHostile && !TemporarilyAllied; init => originallyHostile = value; }
+    /// <summary>The area's time when a temporary ally returns to its original allegiance.</summary>
+    public double TemporaryAllyUntil;
+    public bool TemporarilyAllied => TemporaryAllyUntil > 0 && !Dead && Life > 0;
+    public bool FightsForPlayers => AlliedFighter || TemporarilyAllied;
+
     /// <summary>A controller drives every action (a Survivors gate boss): the ordinary AI neither chases nor swings.</summary>
     public bool Scripted { get; init; }
     /// <summary>Non-blocking actor (e.g. Mirage Warrior): excluded from living collision so walkers pass through it.</summary>
@@ -651,6 +664,9 @@ public sealed class SpawnedMonster(string label, PlayerWalk walk, int aggroRange
     // Its corpse was consumed (a kill explosion, the Kitava tattoo, a Devour-supported killing blow) and its object
     // removed. Owned by the area's frame.
     public bool CorpseConsumed;
+    public int HitFireExplosionPercent;
+    public bool CursedAtDeath;
+    public double NonAuraHexUntilAtDeath;
     // Shared-instance sync shows these bodies to new viewers and removes each view on consumption or expiry.
     public bool CreatedAsCorpse;
     // The Unhinged hit-kill decision captured at the lethal Life mutation, bound to the client that accepted the hit.
@@ -1092,6 +1108,7 @@ public sealed partial class Player(AreaLayout layout, uint ticket, uint seed) : 
     public readonly PlayerHitRecovery HitRecovery = new();
     public readonly WardState Ward = new();
     public readonly AntiquarianCombatState Antiquarian = new();
+    public double WitchbaneImmunityUntil;
     public readonly TimedLifeRecovery EnduringCryRecovery = new();
     /// <summary>Petrified Blood's buff, reservation, deferred hit loss and life-cost rules (Combat/PetrifiedBlood.cs).</summary>
     public readonly PetrifiedBloodState PetrifiedBlood = new();
@@ -1428,6 +1445,10 @@ public sealed partial class Player(AreaLayout layout, uint ticket, uint seed) : 
     public double NextChannelHitAt;
     /// <summary>When the channel last heard from the client (its start, or a C→S 0x197 update; Clock seconds).</summary>
     public double LastChannelUpdateAt;
+    /// <summary>Whether the next lockstep frame owes a moving channel a cursor update.</summary>
+    public bool LockstepChannelAimPending;
+    /// <summary>The cursor and frame time last applied to the current moving channel.</summary>
+    public ((int X, int Y) Aim, double At)? LastLockstepChannelAim;
     /// <summary>The instance this connection is in (its number), for a portal back to it.</summary>
     public ulong InstanceNumber { get; init; }
     /// <summary>Arrive at this cell instead of the spawn (back through a town portal).</summary>

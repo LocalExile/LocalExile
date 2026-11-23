@@ -76,6 +76,7 @@ public static class LeechLimits
                     + Input(Stat.MapPlayerMaximumLeechRatePlusPct));
             if (pool == "energy_shield" && Flag(Stat.MaximumEnergyShieldLeechAmountPerLeechIsDoubled)) instance *= 2;
             if (pool == "life" && Flag(Stat.MaximumLifeLeechRatePctPerMinuteIsDoubled)) rate *= 2;
+            if (pool == "life" && Flag(Stat.KeystoneEternalYouth)) rate *= .5m;
             if (pool == "energy_shield" && Flag(Stat.KeystoneGhostReaver)) rate *= 2;
             instance = Math.Max(0, replacement?.Invoke(instanceVirtual) ?? instance);
             rate = Math.Max(0, replacement?.Invoke(rateVirtual) ?? rate);

@@ -11,10 +11,10 @@ using GameServer.Core.World;
 /// </summary>
 public enum PlayerStatStep : byte
 {
-    Sources, Siphoning, CryMovement, Golems, Offerings, PanelDefaults, God, Auras, AuraPenetration, CatAspect,
+    Sources, Siphoning, SpiritCharges, CryMovement, Golems, Offerings, PanelDefaults, God, Auras, AuraPenetration, CatAspect,
     AvianCrab, Subscribers, ClassAttributes, OvercapCrit, AttackSpeed, UtilityFlasks, SelfVulnerability,
     Onslaught, VaalPrevention, VaalAura, SpiritLeadership, TotemAura, Rage, Blind, UsingFlask, SoulEater, MaximumPoolItems,
-    ActorScale, Recovery, TimedRecovery, TailPanels, Rampage, TailOffence, TailCritical, LeechingDefences, AuraRestriction, AlwaysHit, RecentHits, Ward,
+    ActorScale, Recovery, TimedRecovery, TailPanels, Rampage, TailOffence, TailCritical, LeechingDefences, AuraRestriction, AlwaysHit, RecentHits, Ward, Resonance,
 }
 
 /// <summary>
@@ -48,6 +48,8 @@ public enum PlayerStatChange : byte
     /// <summary>Only the panel: what changed is read when it is published (conditions the graph already tracks, a
     /// trap's degeneration, a revive).</summary>
     Panel,
+    /// <summary>Trinity or Unholy Trinity resonance counters changed.</summary>
+    Resonance,
 }
 
 public static partial class Game
@@ -77,6 +79,15 @@ public static partial class Game
             var sources = CharacterStatSources(player, nodes).Stats;
             outputs.Sources = sources;
             foreach (var (k, v) in sources) stats[k] = v;
+            if (MapModsOf(player) is { } map)
+            {
+                AddTo(stats, Stat.MapPlayersNoRegenerationIncludingEs, map.Get(Stat.MapPlayersNoRegenerationIncludingEs));
+                AddTo(stats, Stat.MapPlayerLifeAndEsRecoverySpeedPlusPctFinal,
+                    map.Get(Stat.MapPlayerLifeAndEsRecoverySpeedPlusPctFinal));
+                AddTo(stats, Stat.MapPlayersSkillAreaOfEffectPlusPctFinal, map.Get(Stat.MapPlayersSkillAreaOfEffectPlusPctFinal));
+                AddTo(stats, Stat.MapPlayerMaximumLeechRatePlusPct, map.Get(Stat.MapPlayerMaximumLeechRatePlusPct));
+                AddTo(stats, Stat.BuffTimePassedPlusPctOnlyBuffCategory, map.Get(Stat.MapPlayerBuffTimePassedPlusPctOnlyBuffCategory));
+            }
             // Their "recently" conditions change by themselves when an event ages out of its window.
             double now = AreaTime(player);
             if (player.RecentEvents.NextExpiry(now) is double expiry) StatsChangeIn(expiry - now);
@@ -90,6 +101,7 @@ public static partial class Game
             siphoning = SiphoningRawStatsLocked(player, stats);
             foreach (var (key, value) in siphoning) AddTo(stats, key, value);
         });
+        Step(PlayerStatStep.SpiritCharges, (player, stats, _) => ApplySpiritChargeStats(player, stats));
         Step(PlayerStatStep.CryMovement, (player, stats, _) =>
         {
             if (Stat.BaseMovementVelocityPlusPct is var cryMovement) AddTo(stats, cryMovement, IntimidatingCryMovement(player));
@@ -111,6 +123,7 @@ public static partial class Game
         {
             List<AuraCatalog.Aura> auras;
             auras = AffectingAuras(player);
+            if (OwnEternalBlessingActive(player)) stats[Stat.NonBlessingSkillsWithManaReservationAreDisabled] = 1;
             // "X% increased Effect of Herald Buffs on you" (passives, gear and tattoos) scales the heralds' buff stats.
             int heraldEffectPct = GetIn(stats, Stat.HeraldEffectOnSelfPlusPct);
             foreach (var (k, v) in AuraCatalog.RawStats(auras.Where(a => a.AffectsSelf), player.Pools.AuraEffectPct, SkillsFor(player), Stats,
@@ -173,10 +186,16 @@ public static partial class Game
         Step(PlayerStatStep.UtilityFlasks, (player, stats, _) =>
         {
             int FlaskGet(uint name) => GetIn(stats, name);
-            AddItemUtilityFlaskRawStats(stats, UtilityStats(player, FlaskGet)
-                .Concat(player.FlaskGrounds.PlayerStats(FlaskGet(Stat.ConsecratedGroundEffectPlusPct))).ToList(), Stats);
+            var running = UtilityStats(player, FlaskGet)
+                .Concat(player.FlaskGrounds.PlayerStats(FlaskGet(Stat.ConsecratedGroundEffectPlusPct))).ToList();
+            AddItemUtilityFlaskRawStats(stats, running, Stats);
+            ApplyWiseOak(stats, running);
         });
-        Step(PlayerStatStep.SelfVulnerability, (player, stats, _) => AddSelfVulnerabilityStats(player, stats));
+        Step(PlayerStatStep.SelfVulnerability, (player, stats, _) =>
+        {
+            var selfVulnerability = AddSelfVulnerabilityStats(player, stats);
+            AddMapHexStats(player, MapModsOf(player), stats, existingVulnerability: selfVulnerability);
+        });
         Step(PlayerStatStep.Onslaught, (player, stats, _) =>
         {
             if (Stat.CurrentlyHasOnslaught is var onslaughtFlag) stats[onslaughtFlag] = HasOnslaught(player) ? 1 : 0;
@@ -194,7 +213,7 @@ public static partial class Game
         Step(PlayerStatStep.UsingFlask, (player, stats, _) => WithUsingFlask(player, stats));
         Step(PlayerStatStep.SoulEater, (player, stats, _) => WithSoulEater(player, stats));
         Step(PlayerStatStep.MaximumPoolItems, (player, stats, _) =>
-            MaximumPoolItemSources.Apply(stats, Stats, player.Pools.Life, player.Pools.Mana));
+            MaximumPoolItemSources.Apply(stats, Stats, player.Pools.Life, player.Pools.Mana, player.Pools.EnergyShield));
         Step(PlayerStatStep.ActorScale, (player, stats, _) => ActorScale.Project(stats, CosmeticScaleSources(player)));
         // Devout of Garukhan: the while-moving evasion rating, and the while-moving regeneration in the recovery below; the
         // unmodified recovery baseline.
@@ -210,9 +229,10 @@ public static partial class Game
             // The low-life flag the damage pipeline reads (Pain Attunement's "30% more Spell Damage when on Low Life"), kept
             // here with the other live state flags so it cannot go stale with the cached stat head.
             stats[Stat.OnLowLife] = CriticalOnLowLife(player, stats) ? 1 : 0;
+            if (Get(Stat.KeystoneCorruptedDefences) != 0) AddTo(stats, IncomingResourceDefences.BypassStat, 50);
             // The unmodified recovery baseline, before the temporary contribution. The resource writer integrates
             // Fortification separately across exact expiry boundaries.
-            outputs.BaselineLifePerSecond = PanelStats.LifePerMinute(recovery, player.Pools.Life) / 60;
+            outputs.BaselineLifePerSecond = PanelStats.LifePerMinute(recovery, player.Pools.Life) * LifeRegenerationKeystoneFactor(Get) / 60;
         });
         Step(PlayerStatStep.TimedRecovery, (player, stats, _) =>
         {
@@ -241,11 +261,13 @@ public static partial class Game
             var ailments = player.ElementalAilments.Snapshot(now);
             if (player.ElementalAilments.NextChangeAt(now) is double ailment) StatsChangeIn(ailment - now);
             if (now - player.LastEnemyHitAt <= RecentlySeconds) StatsChangeIn(player.LastEnemyHitAt + RecentlySeconds - now + 1e-6);
+            var spellDefences = SpellDefences(player);
+            stats[Stat.ChanceToDodgeSpellsPct] = spellDefences.Dodge;
             ComputeStatSnapshotTail(PlayerTailInputs(player, stats) with
             {
                 Ailments = [ailments.Ignite ? 1 : 0, ailments.Chill > 0 ? 1 : 0, ailments.Freeze ? 1 : 0, ailments.Shock > 0 ? 1 : 0],
                 ActionFactor = PlayerActionFactorFrom(player, Get),
-                SuppressionChance = Suppression(player).Chance,
+                SuppressionChance = spellDefences.Suppression,
             }, StatSnapshotStage.Critical);
         });
         Step(PlayerStatStep.LeechingDefences, (player, stats, _) => WithLeechingDefences(stats));
@@ -265,6 +287,7 @@ public static partial class Game
             if (Stat.Ward is var ward) stats[ward] = (int)player.Ward.Maximum;
             if (Stat.WardBroken is var broken) stats[broken] = brokenNow ? 1 : 0;
         });
+        Step(PlayerStatStep.Resonance, (player, stats, _) => AddResonanceStats(player, stats));
         for (int i = 0; i < steps.Length; i++)
             if (steps[i] is null) throw new InvalidOperationException($"player stat step {(PlayerStatStep)i} has no code");
         return steps;
@@ -280,7 +303,8 @@ public static partial class Game
         var (_, lifeRegenerationToEnergyShield) = PanelStats.LifeRegeneration(
             name => name is var key ? stats.GetValueOrDefault(key) : 0, player.Pools.Life);
         return ReadStatSnapshotTailInputs(player, stats, mainLocal, offLocal,
-            lifeRegenerationToEnergyShield, player.Walk.Moving(AreaTime(player)));
+            lifeRegenerationToEnergyShield,
+            player.Walk.Moving(AreaTime(player)));
     }
 
     /// <summary>Runs one step (a player stat graph rule).</summary>

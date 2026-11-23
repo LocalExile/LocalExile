@@ -52,7 +52,10 @@ public static partial class Game
     /// own waits (AreaFrames.Wait).</summary>
     public static Task AreaDelay(Player player, double seconds, CancellationToken stopping = default)
     {
-        if (!player.Frames.Running) return Task.Delay(TimeSpan.FromSeconds(Math.Max(0, seconds)), stopping);
+        if (!player.Frames.Running)
+            return AreaUpdateContext.Value is { } state
+                ? state.Schedule.Wait((int)Math.Clamp(Math.Ceiling(Math.Max(0, seconds) * 1000), 0, int.MaxValue), stopping)
+                : Task.Delay(TimeSpan.FromSeconds(Math.Max(0, seconds)), stopping);
         var done = new TaskCompletionSource(TaskCreationOptions.RunContinuationsAsynchronously);
         long frames = Math.Max(1, (long)Math.Ceiling(Math.Max(0, seconds) * 1000 / Program.FrameMs));
         InArea(player, a => a.Timers.After(a.Frame, frames, _ => done.TrySetResult(), source: CombatLifetime));

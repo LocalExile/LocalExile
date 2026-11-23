@@ -162,8 +162,10 @@ public static class ClientPackets
         P(InstanceEntities.AtlasRefundId, InstanceEntities.AtlasRefundLength),
         P(InstanceProtocol.SwapWeaponsId, 3),
         P(InstanceProtocol.RetargetActionId, InstanceProtocol.RetargetActionLength),
-        P(InstanceProtocol.ChannelUpdateId, 10, Lockstep),
-        P(InstanceProtocol.ChannelUpdateAltId, 10, Lockstep),
+        // Aim updates continue an action that already selected the mode. A native predictive Cyclone sends 0x197
+        // after its 0x25 start. The standing-channel form (0x198) uses the same continuation path.
+        P(InstanceProtocol.ChannelUpdateId, 10),
+        P(InstanceProtocol.ChannelUpdateAltId, 10),
         P(InstanceProtocol.ChannelEndId, 2, Predictive),
         P(InstanceProtocol.LockstepMoveStartId, 15, Lockstep),
         P(InstanceProtocol.LockstepMoveUpdateId, 10, Lockstep),
