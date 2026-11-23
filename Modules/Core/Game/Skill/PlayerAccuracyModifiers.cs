@@ -6,23 +6,36 @@ public static class PlayerAccuracyModifiers
     public const uint BootsMore = Stat.BootsImplicitAccuracyRatingPlusPctFinal;
 
     // Keep flat, increased and more inputs unrounded until the final rating is published or used.
-    public static int Calculate(long basis, long increased, int morePct, int blindLess = 0, int areaMorePct = 0)
+    public static int Calculate(long basis, long increased, int morePct, int blindLess = 0,
+        int areaMorePct = 0, int weaponMorePct = 0)
     {
         var scaled = BigInteger.Max(0, basis) * BigInteger.Max(0, (BigInteger)100 + increased)
             * Math.Max(0L, 100L + morePct) * Math.Max(0L, 100L - blindLess);
-        return (int)BigInteger.Min(int.MaxValue, areaMorePct == 0 ? scaled / 1_000_000
-            : scaled * Math.Max(0L, 100L + areaMorePct) / 100_000_000);
+        long denominator = 1_000_000;
+        if (areaMorePct != 0)
+        {
+            scaled *= Math.Max(0L, 100L + areaMorePct);
+            denominator *= 100;
+        }
+        if (weaponMorePct != 0)
+        {
+            scaled *= Math.Max(0L, 100L + weaponMorePct);
+            denominator *= 100;
+        }
+        return (int)BigInteger.Min(int.MaxValue, scaled / denominator);
     }
 
     public static int Unselected(CharacterStats.Pools pools, int morePct, int blindLess) => blindLess == 0
-        ? pools.Accuracy : Calculate(pools.AccuracyBase, pools.AccuracyPct, morePct, blindLess, pools.AccuracyAreaMorePct);
+        ? pools.Accuracy : Calculate(pools.AccuracyBase, pools.AccuracyPct, morePct, blindLess,
+            pools.AccuracyAreaMorePct, pools.AccuracyWeaponMorePct);
 
     public static int Selected(CharacterStats.Pools pools, WeaponProfile weapon, Func<uint, long> own,
         int morePct, long localDifference = 0, int blindLess = 0)
     {
         long flat = AccuracyRating.Flat(weapon, own, includeLocal: false), increased = AccuracyRating.Increased(weapon, own);
         return localDifference == 0 && flat == 0 && increased == 0 && blindLess == 0 ? pools.Accuracy
-            : Calculate(pools.AccuracyBase + localDifference + flat, pools.AccuracyPct + increased, morePct, blindLess, pools.AccuracyAreaMorePct);
+            : Calculate(pools.AccuracyBase + localDifference + flat, pools.AccuracyPct + increased, morePct, blindLess,
+                pools.AccuracyAreaMorePct, pools.AccuracyWeaponMorePct);
     }
 }
 

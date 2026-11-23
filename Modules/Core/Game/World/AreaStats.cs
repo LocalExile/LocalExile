@@ -24,6 +24,10 @@ public static partial class Game
         var types = new SkillArea.Types(known && skills.IsMelee(effect), known && skills.IsAttack(effect),
             known && skills.IsWarcry(effect), known && skills.IsVaal(effect),
             Get(Stat.IsTotem) != 0, Get(Stat.IsTrap) != 0, Get(Stat.IsRemoteMine) != 0);
+        if (Get(Stat.GladiatorAreaOfEffectPlusPctFinalWhileWieldingMace) != 0
+            && !WeaponProfileFor(player, activeSet: true).Mace
+            && ActiveMainHand(player)?.Type?.Class != "Sceptre" && ActiveOffHand(player)?.Type?.Class != "Sceptre")
+            stats.Remove(Stat.GladiatorAreaOfEffectPlusPctFinalWhileWieldingMace);
         int typed = SkillArea.TypedIncrease(Get, types);
         if (known && skills.EffectId(effect) is { } id && IsHeraldAura(id))
             typed += Get(Stat.AreaOfEffectPlusPctWithHeraldSkills);
