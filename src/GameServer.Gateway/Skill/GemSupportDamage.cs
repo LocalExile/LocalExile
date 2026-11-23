@@ -27,7 +27,7 @@ public static class GemSupportDamage
         Stat.SupportBarrageDamagePlusPctFinal, Stat.SupportCrueltyHitDamagePlusPctFinal,
         Stat.SupportViciousProjectilesPhysicalDamagePlusPctFinal, Stat.SupportViciousProjectilesChaosDamagePlusPctFinal,
         Stat.SupportCastWhileChannellingTriggeredSkillDamagePlusPctFinal, Stat.SupportCastOnCritSpellDamagePlusPctFinal, Stat.CastOnDamageTakenDamagePlusPctFinal, Stat.IncAoePlusMoreAreaDamagePlusPctFinal, Stat.DoedreAuraDamagePlusPctFinal, Stat.BloodSandStanceMeleeSkillsAreaDamagePlusPctFinal,
-        Stat.SupportCastOnMeleeKillSpellDamagePlusPctFinal,
+        Stat.SupportCastOnMeleeKillSpellDamagePlusPctFinal, Stat.SupportManaforgedArrowsDamagePlusPctFinal,
         // The trap, mine and totem supports' own more/less damage: Trap, Trap and Mine Damage, Cluster Traps,
         // Multiple Traps, Blastchain Mine, High-Impact Mine, Locus Mine, Multiple Totems and Focused Ballista.
         Stat.SupportTrapDamagePlusPctFinal, Stat.SupportTrapAndMineDamagePlusPctFinal,

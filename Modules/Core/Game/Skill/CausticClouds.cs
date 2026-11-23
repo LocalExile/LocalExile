@@ -20,6 +20,7 @@ public static partial class Game
             Stat.SupportPhysChaosProjectileChaosDamageOverTimePlusPctFinal,
             Stat.SupportAreaConcentrateAreaDamagePlusPctFinal,
             Stat.CrueltyDamageOverTimePlusPctFinal,
+            Stat.SupportManaforgedArrowsDamagePlusPctFinal,
         }) more *= Math.Max(0, 1 + own(stat) / 100d);
         return Math.Max(0, get(Stat.BaseChaosDamageToDealPerMinute) / 60d) * more * Math.Max(0, 1 + increased / 100)
             * Math.Max(0, 1 + ((double)get(Stat.DotMultiplierPlus) + get(Stat.ChaosDotMultiplierPlus)) / 100);

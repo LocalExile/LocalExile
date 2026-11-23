@@ -1943,6 +1943,8 @@ public static partial class Game
                         try { await Task.Delay(TimeSpan.FromSeconds(wait), SnipeWaitToken(player, generation, action)); }
                         catch (OperationCanceledException) { }
                     }
+                    else if (!player.Frames.Running && AreaUpdateContext.Value is { Schedule: { } schedule })
+                        await schedule.Wait((int)Math.Ceiling(wait * 1000), CancellationToken.None);
                     else await AreaDelay(player, wait);
                 }
                 await WhilePaused(player);
@@ -1975,6 +1977,12 @@ public static partial class Game
                 {
                     player.PaidChannel = CombatLifetime is { IsActive: true } rules
                         ? new(skillId, gem.Effect, action, generation, rules) : null;
+                    if (cost > 0 && SkillsFor(player).IsAttack(gem.Effect) && WeaponProfileFor(player, activeSet: true).Bow)
+                    {
+                        var channelAim = snipe && SnipeRuntimes.TryGetValue(player, out var snipeState)
+                            ? snipeState.Aim : initialAim;
+                        RecordPaidBowAttackLocked(player, skillId, SupportedSkill(player, skillId), cost, channelAim);
+                    }
                     // Overheat: every paid channel tick is a use, so it consumes the Fortification gained since the
                     // last one; the first tick's use already consumed in LaunchProjectile.
                     if (overheatPerThree > 0)
