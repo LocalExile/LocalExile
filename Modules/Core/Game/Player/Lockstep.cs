@@ -1,5 +1,4 @@
 using System.Net.Sockets;
-using System.Runtime.CompilerServices;
 using GameServer.Core.Protocol.Instance;
 using GameServer.Core.Protocol.Login;
 
@@ -24,7 +23,6 @@ public static partial class Game
         if (id == InstanceProtocol.LockstepMoveStartId)
         {
             var click = InstanceProtocol.ReadLockstepMoveStart(bytes);
-            if (!PressAfterUse(player, click.Flags)) return;
             (int X, int Y) aim = (here.X + click.Dx, here.Y + click.Dy);
             player.LockstepUse = null;
             if (SkillsFor(player).ActionName(click.SkillId) == "Move")
@@ -78,34 +76,15 @@ public static partial class Game
             else
             {
                 player.LockstepUse = new(target, skill, 0, flags);
-                UsePressConsumed.AddOrUpdate(player, new StrongBox<bool>(true));
             }
         }
     }
-
-    // A use on an object (0x18f with a skill that is not a gem's: a pickup, a chest, a door, an NPC) uses up the button
-    // press. The client sends its own 0x195 right after the 0x18f (0x140128980 → 0x140123d60). Once the object under
-    // the cursor is gone, its held path (0x14011d730 → 0x14011ecb0, arg press 0) changes the latched kind at +0x120 from
-    // 2 to 1 and asks for a Move without 0x400. Live 2026-11-16, 3 of 3 pickups with LMB held: 0x18e skill 0x2909 flags
-    // 0x8, 77–81 ms after the 0x18f, then 0x192 every 70 ms until the release. On the client, such a Move cannot replace
-    // the use's Interaction: the gate 0x141e941a0 lets an action in over the current one only with 0x400 or when the
-    // current action can be cancelled. So the Move waits in the queue, and when the completion starts it (0x141e95f10),
-    // 0x141e9b860 discards its path. The player stands. Only a new press (0x400) asks again.
-    static readonly ConditionalWeakTable<Player, StrongBox<bool>> UsePressConsumed = new();
 
     // A channelled skill starts once and runs until the release; anything else repeats while the button stays down.
     // A native channelled totem skill (Holy Flame Totem) is placed with a single cast by its owner, not channelled.
     static bool LockstepRepeats(Player player, ushort skill) =>
         !(GemSkillEffects(player).FirstOrDefault(g => g.Id == skill) is { Name: not null } gem
             && SkillsFor(player).IsChannelled(gem.Effect) && !IsTotemSkill(player, skill));
-
-    static bool PressAfterUse(Player player, ushort flags)
-    {
-        if (!UsePressConsumed.TryGetValue(player, out var consumed) || !consumed.Value) return true;
-        if ((flags & 0x400) == 0) return false;
-        consumed.Value = false;
-        return true;
-    }
 
     static ushort NextLockstepSequence(Player player)
     {
@@ -142,7 +121,7 @@ public static partial class Game
         int skillActionBefore = 0;
         double skillBusyBefore = 0, skillBusySet = 0;
         double at;
-        InstanceTransfer.UseSkillOnObject? use = null;
+        InstanceTransfer.UseSkillOnObject? use = null, staleUse = null;
         using (ProjectileMutation(player, phase: "lockstep"))
         {
             if (player.Closed || player.LeavingArea) return;
@@ -213,6 +192,12 @@ public static partial class Game
                 if (!canStartSkill && player.LockstepSkill.Pending) player.LockstepSkill.ClearPending();
                 // Pinned (a spike trap's risen spikes: Pins.cs): no walk starts, and a use waits, as it walks up.
                 bool pinned = Pinned(player, at);
+                if (!pinned && attackReady && player.LockstepUse is { } candidate
+                    && candidate.SkillId == 0x266 && player.Instance.Ground.WasTaken(candidate.TargetId))
+                {
+                    player.LockstepUse = null;
+                    staleUse = candidate;
+                }
                 if (!pinned && attackReady && player.LockstepUse is { } object_)
                 {
                     player.LockstepCastWindow = null;
@@ -253,6 +238,7 @@ public static partial class Game
         // GGG ends a channel with 0x1ae on the release (35 ms later).
         if (ended != 0) await SendWorldRecord(player, player.Id, InstanceProtocol.ChannelFinished(player.Id, ended), $"0x01ae channel 0x{ended:x4} ended");
         if (channelAim is { } aimed) await SendLockstepChannelAim(player, aimed.Sequence, aimed.Aim);
+        if (staleUse is not null) _ = OnUseObject(player, staleUse, at);
         if (sequence == 0) return;
         if (skill) StartLockstepSkill(player, sequence, at, skillActionBefore, skillBusyBefore, skillBusySet);
         else if (use is not null)

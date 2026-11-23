@@ -667,5 +667,50 @@ public class LockstepTests : IDisposable
         player.LockstepHold.Press((120, 100), 0x2909, 0x0408, (20, 0));
         await Game.StartLockstepActions(player, 2.40);
         Assert.Equal((120, 100), player.Walk.Destination);
+
+        // Post-pickup 0x18e inputs without 0x400 (held-LMB Move fallback and queued skills) are accepted and wait on
+        // the post-pickup LockstepBusyUntil hold instead of being dropped.
+        byte[] useObjPacket = [0x01, 0x8f, 0x00, 0x10, 0x00, 0x02, 0x02, 0x66, 0x04, 0x08, 0x00];
+        Game.OnLockstepRequest(player, InstanceProtocol.LockstepUseOnObjectId, useObjPacket);
+        byte[] heldMovePacket = [0x01, 0x8e, 0x00, 0x00, 0x00, 0x0a, 0x00, 0x00, 0x00, 0x00, 0x29, 0x09, 0x00, 0x08, 0x00];
+        Game.OnLockstepRequest(player, InstanceProtocol.LockstepMoveStartId, heldMovePacket);
+        Assert.True(player.LockstepHold.Active);
+        Game.OnLockstepRequest(player, InstanceProtocol.LockstepUseOnObjectId, useObjPacket);
+        byte[] queuedSkillPacket = [0x01, 0x8e, 0x00, 0x00, 0x00, 0x0a, 0x00, 0x00, 0x00, 0x00, (byte)(doubleStrikeId >> 8), (byte)doubleStrikeId, 0x00, 0x08, 0x03];
+        Game.OnLockstepRequest(player, InstanceProtocol.LockstepMoveStartId, queuedSkillPacket);
+        Assert.True(player.LockstepSkill.Pending);
+        player.LockstepHold.Clear();
+        player.LockstepSkill.Clear();
+
+        // TryBeginObjectWalk anchors lockstep walk-ups to LockstepFrame.Start instead of drifting with ProjectileWorldTime.
+        player.Connection.LockstepFrame = (3.5, 3.533);
+        player.Walk.Teleport(100, 100, 3.5);
+        Assert.True(Game.TryBeginObjectWalk(player, 3.5, 130, 100, 20, out var objWalk, centreRange: true, tolerance: 1));
+        Assert.Equal(3.5, objWalk.Now, 6);
+
+        // Stale/taken ground item LockstepUse does not allocate a sequence or send a bogus Interaction.
+        var goldItem = ItemCatalog.Create(Program.Items.Find("Metadata/Items/Currency/GoldCoin")!) with { StackSize = 15 };
+        var goldGround = new WorldItemObject(105, 100, goldItem);
+        uint takenId = player.Instance.Ground.Add(goldGround, player);
+        Assert.NotNull(player.Instance.Ground.Take(takenId, goldGround));
+        player.LockstepBusyUntil = 3.5;
+        player.NextAttackAt = 3.5;
+        player.LockstepHold.Clear();
+        player.LockstepSkill.Clear();
+        ushort seqBefore = player.LockstepSequence;
+        byte[] staleUsePacket = [0x01, 0x8f, (byte)(takenId >> 24), (byte)(takenId >> 16), (byte)(takenId >> 8), (byte)takenId, 0x02, 0x66, 0x04, 0x08, 0x00];
+        Game.OnLockstepRequest(player, InstanceProtocol.LockstepUseOnObjectId, staleUsePacket);
+        await Game.StartLockstepActions(player, 3.5);
+        Assert.Null(player.LockstepUse);
+        Assert.Equal(seqBefore, player.LockstepSequence);
+
+        // Gold pickup feedback (0x278 WorldPopupIcon + AutoPickupWorldItem task 0x9c67) & full-inventory 0x0117 wire bytes.
+        Assert.Equal([0x01, 0x17], InstanceItems.InventoryFull());
+        byte[] popup = InstanceEntities.WorldPopupIcon(100, 200, 0x20000001, Game.WorldPopupGoldCoin, 15);
+        Assert.Equal(19, popup.Length);
+        Assert.Equal([0x02, 0x78, 0x00, 0x00, 0x00, 0x64, 0x00, 0x00, 0x00, 0xc8, 0x20, 0x00, 0x00, 0x01, 0x04, 0x00, 0x00, 0x00, 0x0f], popup);
+        byte[] goldBlob = goldGround.Blob(justDropped: true, tasks: [Game.AutoPickupWorldItemTask]);
+        Assert.Equal([0x01, 0x67, 0x9c], goldBlob[^3..]);
+        Assert.Equal(0x00, goldGround.Blob(justDropped: false)[^1]);
     }
 }
