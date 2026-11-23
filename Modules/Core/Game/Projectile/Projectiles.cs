@@ -177,7 +177,9 @@ public static partial class Game
             }
         }
 
-        public void Schedule(long at, Func<bool> valid, Func<ProjectileUse> release)
+        public void Schedule(long at, Func<bool> valid, Func<ProjectileUse> release) => Schedule(at, valid, release, null);
+
+        internal void Schedule(long at, Func<bool> valid, Func<ProjectileUse> release, Action? released)
         {
             if (Active)
                 Runtime.Schedule(Math.Max(Runtime.Now, at), () =>
@@ -185,7 +187,11 @@ public static partial class Game
                     if (!Active || !valid()) return;
                     try { ReleaseNow(release()); }
                     catch (InvalidOperationException ex)
-                    { Console.WriteLine($"[gateway] {Player.Connection.Remote} projectile path unavailable: {ex.Message}"); }
+                    {
+                        Console.WriteLine($"[gateway] {Player.Connection.Remote} projectile path unavailable: {ex.Message}");
+                        return;
+                    }
+                    released?.Invoke();
                 });
         }
 
@@ -417,22 +423,10 @@ public static partial class Game
                 if (create)
                     await SendWorldCreate(Player, id, () => Project() is { } records ? records.Single() : null,
                         log, wake: wake, awaitBirth: false);
-                else if (!Player.Connection.LockstepClient || !remove)
-                    await SendWorldRecords(Player, id, Project, log);
+                else if (remove)
+                    await SendWorldRecordsEndingInRemoval(Player, id, Project, log);
                 else
-                {
-                    var target = Player.Connection.WorldOutput.PublishedObject(id);
-                    await SendWorldBatch(Player, [target], _ =>
-                    {
-                        if (Project() is not { Length: > 0 } records) return null;
-                        List<OutputRecord> batch = [];
-                        foreach (var bytes in records[..^1]) batch.Add(PresentedRecord(target, bytes, log));
-                        var removal = records[^1].ToArray();
-                        System.Buffers.Binary.BinaryPrimitives.WriteUInt32BigEndian(removal.AsSpan(6), uint.MaxValue);
-                        batch.Add(OutputRecord.Remove(target, WorldOrder.Last, removal, log));
-                        return new([.. batch]);
-                    });
-                }
+                    await SendWorldRecords(Player, id, Project, log);
                 if (completed || Player.Connection.WorldOutput.Closed) return;
                 await AreaDelay(Player, 0.016);
             }
@@ -683,6 +677,7 @@ public static partial class Game
                     .ForSkill(name => name is var k ? shot.SkillStats.GetValueOrDefault(k) : 0, shot.Spell,
                         finalRepeat: contact.Projectile.Use.RepeatsLeft == 0), shot.IntimidatingCryExerted)
                     .ForWeapon(shot.WeaponLocal).RollOutgoingHit(packet, random)), at);
+            rolled = WithOverexertion(rolled, shot.SkillStats, shot.IntimidatingCryExerted);
             int chance = contact.Projectile.Form > 0 && shot.SecondFormCriticalChance is int second ? second
                 : CriticalChanceOn(Player, contact.Target.Id, shot.CriticalChance, shot.VsBlindedCriticalChance,
                     shot.VsGroundCriticalChance);
@@ -691,8 +686,7 @@ public static partial class Game
                 && (shot.Spell || EvasionEntropy.ConfirmsCritical(hitChance, Player.AttackAccuracyRandom));
             int multiplier = CriticalMultiplierOn(target, shot.CriticalMultiplier, noExtra: shot.NoExtraCriticalDamage);
             var (damage, _, mitigated) = MonsterHitDamage(target, rolled, critical, !shot.Spell, at, shot.ResistanceMods,
-                shot.Penetration, gambler.InvertsResistance(random));
-            if (shot.FromTrapOrMine) damage = MonsterTakesTrapOrMineHit(target, mitigated, shot.Spell, at);
+                shot.Penetration, gambler.InvertsResistance(random), random, trapOrMine: shot.FromTrapOrMine);
             if (critical) damage = DamageModel.CriticalDamage(damage, multiplier);
             bool immune = target.Invulnerable;
             LeechOnHitLocked(Player, target, MonsterTakenComponents(target, mitigated, shot.Spell, at), damage, shot.Leech);
@@ -757,7 +751,7 @@ public static partial class Game
                 primary: shot.FirstHit?.Claim() ?? true, skillStats: shot.SkillStats);
             CommitProjectileHit(this, contact, target, hit.Value, damage, shot, critical,
                 OwnerStun(Player, target, damage, mitigated, melee: false, shot.Spell, critical, player, shot.SkillStats, lifeBefore,
-                    localStunReduction: shot.LocalStunThresholdReduction));
+                    localStunReduction: shot.LocalStunThresholdReduction, weaponClass: shot.WeaponClass));
             if (critical) Enqueue(() => MaybeCreateProfaneGround(Player, target.Walk.Position(at)));
             return ProjectileHitResult.Hit;
         }

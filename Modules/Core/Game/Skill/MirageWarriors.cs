@@ -602,7 +602,7 @@ public static partial class Game
                         && EvasionEntropy.ConfirmsCritical(hitChance, player.AttackAccuracyRandom);
                     int multiplier = CriticalMultiplierOn(m, critMult, playerStats, skillStats);
                     var (damage, _, mitigated) = MonsterHitDamage(m, rolled, critical, attack: true, now, resMods, pen,
-                        gambler.InvertsResistance(AreaRng(player)));
+                        gambler.InvertsResistance(AreaRng(player)), AreaRng(player));
                     if (critical) damage = DamageModel.CriticalDamage(damage, multiplier);
                     damage = WithImpaleHitLocked(player, m, damage, rolled, critical, critMult,
                         critical ? critImpale : impale, 1).Damage;

@@ -106,6 +106,7 @@ public sealed class LeechSession
             if (resource.Pool == "life" && (get(Stat.LifeLeechSpeedIsDoubled) != 0
                 || get(Stat.TotalRecoveryPerMinuteFromLifeLeechIsDoubled) != 0)) total *= 2;
             double recovery = Math.Max(0, 1 + get(Stat.Of($"{resource.Pool}_recovery_rate_+%")) / 100.0);
+            if (resource.Pool is "life" or "energy_shield") recovery *= PanelStats.MapRecoveryMultiplier(get);
             if (resource.Pool == "life" && !recoverLife || resource.Pool == "energy_shield" && !recoverEnergyShield) recovery = 0;
             state.Configure(now, new(total, resource.MaximumPerSecond, recovery));
             if (resource.CannotLeech) state.Clear(now);

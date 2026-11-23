@@ -180,10 +180,13 @@ public sealed class AnarchyModule : IModule
         int S(uint name) => stats.GetValueOrDefault(name);
         var rng = new Random(HashCode.Combine(roll.Monster.X, roll.Monster.Y, roll.Monster.VarietyId, player.Seed));
         // Any monster: the altar's and the map's chance of an additional Anarchy scarab; a map boss its scarabs.
-        if (rng.Next(100) < S(Stat.ChancePctToDropAdditionalScarabAnarchy)) roll.Items.Add(AnarchyScarab(rng));
-        if (roll.Monster.Rarity == MonsterRarity.Unique && Monsters.Find(roll.Monster.VarietyId) is { BossHealthBar: true } boss
-            && !RogueExiles.Current.IsExile(boss.Id))
-            for (int i = S(Stat.MapBossDropsXAdditionalScarabsAnarchy); i > 0; i--) roll.Items.Add(AnarchyScarab(rng));
+        if (S(Stat.MapDisableScarabDrops) <= 0)
+        {
+            if (rng.Next(100) < S(Stat.ChancePctToDropAdditionalScarabAnarchy)) roll.Items.Add(AnarchyScarab(rng));
+            if (roll.Monster.Rarity == MonsterRarity.Unique && Monsters.Find(roll.Monster.VarietyId) is { BossHealthBar: true } boss
+                && !RogueExiles.Current.IsExile(boss.Id))
+                for (int i = S(Stat.MapBossDropsXAdditionalScarabsAnarchy); i > 0; i--) roll.Items.Add(AnarchyScarab(rng));
+        }
         if (!PlacedExiles.TryGetValue(player, out var placed)) return;
         Exile? exile;
         lock (placed)

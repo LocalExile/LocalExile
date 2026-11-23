@@ -162,6 +162,8 @@ public static partial class Game
             return Task.CompletedTask;
         }
         int repeats = attack ? 0 : SpellRepeats(player, skillId, gem.Effect);
+        var intensity = CastingIntensity(player, skillId);
+        Action? completed = intensity is null ? null : intensity.Complete;
         for (int release = 0; release <= repeats + seals; release++)
         {
             int ordinal = Math.Max(0, release - seals);
@@ -169,10 +171,14 @@ public static partial class Game
             double more = release > 0 && release <= seals ? reoccurrenceMore : 1;
             double castOffset = ordinal + Math.Min(release, seals) * .1;
             session.Schedule(ProjectileRuntime.Time(acceptedAt + castOffset * cast.Value / 1000d + delay), Valid,
-                () => ClientDrawnVolley(player, session, skillId, gem,
-                    CaptureGemProjectile(player, session, skillId, gem, aim, criticalRoll, sequence, (uint)left, delay,
-                        cryExerted: cryExerted, sacrifice: sacrifice, repeat: ordinal, reoccurrenceMore: more),
-                    sequence, (uint)left));
+                () =>
+                {
+                    using var scope = intensity is null ? null : new IntensityScope(intensity);
+                    return ClientDrawnVolley(player, session, skillId, gem,
+                        CaptureGemProjectile(player, session, skillId, gem, aim, criticalRoll, sequence, (uint)left, delay,
+                            cryExerted: cryExerted, sacrifice: sacrifice, repeat: ordinal, reoccurrenceMore: more),
+                        sequence, (uint)left);
+                }, completed);
         }
         return Task.CompletedTask;
     }
@@ -427,6 +433,7 @@ public static partial class Game
             MaimChance = spell ? 0 : Get(Stat.ProjectileAttacksChanceToMaimOnHitPctIfYouHaveBeastMinion),
             AccuracyMoreUnique = player.Pools.AccuracyMoreVsUniquePct,
             LocalStunThresholdReduction = spell ? 0 : local?.GetValueOrDefault(Stat.LocalStunThresholdReductionPlusPct) ?? 0,
+            WeaponClass = spell ? null : (handWeapon ?? WeaponFor(player)).ItemClass ?? "",
             AccuracyMoreClose = player.Pools.AccuracyMoreInCloseRangePct,
             AlwaysHits = Get(Stat.GlobalAlwaysHit) != 0, FarShot = Get(Stat.PlayerFarShot) != 0,
             PointBlank = Get(Stat.KeystonePointBlank) != 0,

@@ -142,6 +142,85 @@ public class WorldOutputTests : IDisposable
     }
 
     [Fact]
+    public async Task Predictive_projectile_removal_keeps_the_final_update_and_removal_separate_in_the_area_frame()
+    {
+        var player = new Player(new(1, "predictive-projectile", 300, 300, 100, 100, null, []), 1, 1);
+        player.Connection.LockstepClient = false;
+        player.Connection.WorldOutput.Begin(1);
+        const uint id = 100;
+        var projectile = player.Connection.WorldOutput.ExistingObject(id);
+        var finalUpdate = InstanceProtocol.Teleport(id, 20, 30);
+        var removal = InstanceProtocol.RemoveObject(id);
+        var send = typeof(Game.ProjectileSession).GetMethod("SendWorldRecordsNow",
+            System.Reflection.BindingFlags.Instance | System.Reflection.BindingFlags.NonPublic)!;
+        var session = new Game.ProjectileSession(player);
+        var previous = GameArea.Own(player.Area);
+        try
+        {
+            Func<byte[][]?> records = () => [finalUpdate, removal];
+            var projected = (Task)send.Invoke(session, [id, records, null, false, true, false])!;
+            Assert.True(projected.IsCompleted);
+            await projected;
+
+            Assert.Collection(player.Area.Delta.Take(),
+                update =>
+                {
+                    Assert.Equal(AreaDelta.Kind.World, update.Kind);
+                    Assert.Equal(finalUpdate, update.Bytes);
+                },
+                removed =>
+                {
+                    Assert.Equal(AreaDelta.Kind.Remove, removed.Kind);
+                    Assert.Equal(id, removed.Entity);
+                    Assert.Equal(WorldOrder.Last, removed.Order);
+                });
+            Assert.Equal(WorldObject.BirthState.Retired, projectile.State);
+            Assert.Equal(0u, BinaryPrimitives.ReadUInt32BigEndian(removal.AsSpan(6)));
+        }
+        finally
+        {
+            GameArea.Own(previous);
+            session.Invalidate();
+            await session.OutputCompleted;
+        }
+    }
+
+    [Fact]
+    public async Task Predictive_area_frame_completes_object_creation_and_removal()
+    {
+        var player = new Player(new(1, "predictive-object", 300, 300, 100, 100, null, []), 1, 1);
+        player.Connection.LockstepClient = false;
+        player.Connection.WorldOutput.Begin(1);
+        const uint id = 101;
+        var previous = GameArea.Own(player.Area);
+        try
+        {
+            var create = InstanceEntities.CreateObject(id, 0x1234, [0, 0]);
+            var creating = Game.SendWorldCreate(player, id, create);
+            Assert.True(creating.IsCompleted);
+            Assert.True(await creating);
+            var created = Assert.Single(player.Area.Delta.Take());
+            Assert.Equal(AreaDelta.Kind.Create, created.Kind);
+            Assert.Equal(id, created.Entity);
+
+            var target = player.Connection.WorldOutput.PublishedObject(id);
+            Assert.True(target.IsReady);
+
+            var removing = Game.SendWorldRemoval(player, id);
+            Assert.True(removing.IsCompleted);
+            await removing;
+            var removed = Assert.Single(player.Area.Delta.Take());
+            Assert.Equal(AreaDelta.Kind.Remove, removed.Kind);
+            Assert.Equal(id, removed.Entity);
+            Assert.Equal(WorldObject.BirthState.Retired, target.State);
+        }
+        finally
+        {
+            GameArea.Own(previous);
+        }
+    }
+
+    [Fact]
     public async Task Birth_cancellation_and_synchronous_quest_capture_preserve_incarnations_and_owned_bytes()
     {
         var player = new Player(new(1, "world-lifetime", 300, 300, 100, 100, null, []), 1, 1) { Connection = { LockstepClient = true } };
