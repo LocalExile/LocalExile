@@ -160,6 +160,7 @@ public static partial class Game
                 if (!Active) { Invalidate(); return; }
                 if (!Player.Paused)
                 {
+                    DrainPendingExplosiveDetonations();
                     TickChannelTriggers(Player, this, AreaTime(Player));
                     Runtime.AdvanceTo(Math.Max(Runtime.Now, ProjectileRuntime.Time(AreaTime(Player))));
                     FlushPendingGemExperience();
@@ -172,6 +173,7 @@ public static partial class Game
             lock (LevelUpdatesFor(Player).Gate)
             {
                 if (!Active) { Invalidate(); return; }
+                DrainPendingExplosiveDetonations();
                 Runtime.AdvanceTo(at);
                 FlushPendingGemExperience();
             }
@@ -217,6 +219,8 @@ public static partial class Game
             lifetime?.Dispose();
             ClearPods();
             ClearCausticClouds();
+            ClearEnsnares();
+            ClearExplosiveFuses();
             if (archer is { } currentArcher) EndMirage(currentArcher, retire: true);
             Runtime.Clear();
             foreach (var visual in visuals.Values) Player.ProjectileObjects.Remove(visual.Id);
@@ -687,8 +691,12 @@ public static partial class Game
             var weaponLocal = shot.WeaponAttack ? shot.WeaponLocal : null;
             int sourceMultiplier = CriticalMultiplierWithWeapon(shot.CriticalMultiplier, target, weaponLocal);
             int multiplier = CriticalMultiplierOn(target, sourceMultiplier, noExtra: shot.NoExtraCriticalDamage);
+            bool projectileAttack = !shot.Spell
+                && (shot.ProjectileAttack ?? (shot.Effect < 0 || SkillsFor(Player).IsProjectile(shot.Effect)));
+            int additionalTaken = projectileAttack ? EnsnaredProjectileAttackTaken(target, at) : 0;
             var (damage, _, mitigated) = MonsterHitDamage(target, rolled, critical, !shot.Spell, at, shot.ResistanceMods,
-                shot.Penetration, gambler.InvertsResistance(random), random, trapOrMine: shot.FromTrapOrMine);
+                shot.Penetration, gambler.InvertsResistance(random), random, trapOrMine: shot.FromTrapOrMine,
+                additionalTakenPct: additionalTaken);
             if (critical) damage = DamageModel.CriticalDamage(damage, multiplier);
             bool immune = target.Invulnerable;
             LeechOnHitTargetLocked(Player, target, MonsterTakenComponents(target, mitigated, shot.Spell, at), damage,
@@ -780,7 +788,12 @@ public static partial class Game
                     ImpactClip = rigImpact.Index,
                     ImpactLifetime = ProjectileRuntime.Time(Math.Max(0.1, rigImpact.Ms / 1000.0)),
                 };
-            if (valid) CausticGroundAtEnd(value);
+            if (valid && value.Kind == ProjectileEventKind.End)
+            {
+                CausticGroundAtEnd(value);
+                ExplosiveArrowAtEnd(value);
+                EnsnaringArrowAtEnd(value);
+            }
             if (value.Kind == ProjectileEventKind.End && p.ParentId == 0 && ServerTrace.Projectiles && !Quiet(p.Use.Payload))
                 Console.WriteLine($"[gateway] {Player.Connection.Remote} projectile end use={p.UseId} entity={p.Id}"
                     + $" reason={value.Reason} position={value.Position} metadata={p.Profile.Id}"

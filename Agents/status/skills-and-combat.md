@@ -128,6 +128,10 @@ Part of [Status](../Status.md); what to build next in this area is in
   Docs: [20](../docs/protocol/20-damage.md).
 - Bow arrow counts from bow and quiver modifiers. Docs: [11](../docs/protocol/11-skills.md) Â§10,
   [RE count inputs](../docs/re/projectiles/count-stat-inputs.md) Â§3.
+- Explosive Arrow adds fuses on terminal contacts. The first fuse times the combined blast, and hitting the fuse cap
+  detonates it early.
+- Ensnaring Arrow tethers a surviving final target until it leaves the anchor's radius. Its projectile attack
+  damage taken modifier does not multiply with each additional tether.
 - Tornado Shot's terminal secondary arrows. Docs: [11](../docs/protocol/11-skills.md) Â§10,
   [RE terminal geometry](../docs/re/projectiles/tornado-geometry.md).
 - Kinetic Bolt's zig-zags (including multi-projectile volley parity). Docs: [11](../docs/protocol/11-skills.md) Â§10.
@@ -246,6 +250,7 @@ Part of [Status](../Status.md); what to build next in this area is in
 - Summons: quality, source recovery, spell repeats, and enemy-seeking undamageable Skitterbots; mines and traps
   Revenants consume nearby allies, Smiting Guardians use Smite, and Slamming Zombies attack between slams.
   (including Fire Trap proxy stats, detonation aim, burning-enemy bonus, throw clamping, and lockstep timing).
+  Locus Mine keeps close mines armed. Invention scales trap and mine damage by their age at the trigger.
   Docs: [11](../docs/protocol/11-skills.md) Â§10h.
 - Summon Reaper of Eviscerating follows its owner, consumes allies and attacks on recast.
 - Predator targeting, Feeding Frenzy buffs, aggressive Skeleton Warrior dashes, defensive targeting and Meat Shield proximity damage.

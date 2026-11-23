@@ -470,7 +470,9 @@ public static partial class Game
         bool running = player.Placed.All.Values.Any(p => p.Mine && !double.IsPositiveInfinity(p.DetonateAt));
         double next = running ? player.Placed.NextChain : now;
         int prior = running ? player.Placed.Chain : 0;
-        foreach (var mine in player.Placed.All.Values.Where(p => p.Mine && double.IsPositiveInfinity(p.DetonateAt))
+        var playerAt = player.Walk.Position(now);
+        foreach (var mine in player.Placed.All.Values.Where(p => p.Mine && double.IsPositiveInfinity(p.DetonateAt)
+            && MineCanDetonateFrom(p, playerAt))
             .OrderBy(p => p.Armed).ThenBy(p => p.Id))
         {
             int time = GolemStat(mine.Own, Stat.BaseMineDetonationTimeMs);
@@ -484,8 +486,18 @@ public static partial class Game
         player.Placed.Chain = prior;
     }
 
-    public static bool CanDetonateMines(Player player) =>
-        player.Placed.All.Values.Any(p => p.Mine && p.Armed <= AreaTime(player));
+    static bool MineCanDetonateFrom(PlacedSkills.Placed mine, (int X, int Y) playerAt)
+    {
+        int minimum = GolemStat(mine.Own, Stat.SupportLocusMineCannotDetonateMinesWithinXUnits);
+        return minimum <= 0 || Dist(mine.At, playerAt) >= minimum;
+    }
+
+    public static bool CanDetonateMines(Player player)
+    {
+        double now = AreaTime(player);
+        var playerAt = player.Walk.Position(now);
+        return player.Placed.All.Values.Any(p => p.Mine && p.Armed <= now && now < p.Until && MineCanDetonateFrom(p, playerAt));
+    }
 
     static void LandPlacedRecordsLocked(Player player, PlacedSkills.Placed placed, double now, WorldRecordBuilder bytes)
     {
@@ -508,6 +520,8 @@ public static partial class Game
     static void PlacedDamageLocked(Player player,
         PlacedSkills.Placed placed, double now, WorldRecordBuilder bytes)
     {
+        int inventionRate = GolemStat(placed.Own, Stat.SupportInventionTrapAndMineDamagePlusPctFinalPerSecondPlacedUpTo100);
+        double inventionMore = 1 + Math.Clamp(inventionRate * Math.Max(0, now - placed.LandAt), 0, 100) / 100;
         bool bear = SkillsFor(player).EffectId(placed.Effect) is "BearTrap" or "BearTrapAltX";
         double radius = SkillRadius(player, placed.Own, spell: true, placed.Effect);
         bool spellDamage = SkillHitPlan.ForSkill(SkillsFor(player), placed.Effect, 1).Kind != SkillHitKind.Secondary;
@@ -544,13 +558,15 @@ public static partial class Game
             {
                 var use = CaptureGemProjectile(player, session, placed.Skill, payload, shot, critical, from: at);
                 use = ClientDrawnVolley(player, session, placed.Skill, payload, use, 0, 0);
-                return use with { Payload = ((ProjectileOffense)use.Payload!) with { ClientPredicted = false, FromTrapOrMine = true } };
+                var offense = ((ProjectileOffense)use.Payload!).ScaleDamage(inventionMore);
+                return use with { Payload = offense with { ClientPredicted = false, FromTrapOrMine = true } };
             });
             return;
         }
         using var statScope = new PlayerStatScope(player, fresh: true);
         double more = ReservationAura(player, "SummonSkitterbots") is { } skitter
             ? Math.Max(0, 1 + ReservationStat(player, skitter, Stat.SkitterbotsTrapMineDamagePlusPctFinal) / 100d) : 1;
+        more *= inventionMore;
         var owner = CharacterPlayerStats(player);
         var playerStats = placed.Offense?.Caster ?? owner;
         bool spell = placed.Offense?.Spell ?? spellDamage;
@@ -628,7 +644,7 @@ public static partial class Game
                 "damage_over_time_+%_final", "trap_damage_+%_final", "area_damage_+%_final" }
                 .Aggregate(1d, (factor, n) => factor * Math.Max(0, 1 + Get(Stat.Of(n)) / 100d));
             double dps = Get(Stat.BaseFireDamageToDealPerMinute) / 60d * Math.Max(0, 1 + increased / 100d)
-                * Math.Max(0, 1 + (Get(Stat.DotMultiplierPlus) + Get(Stat.FireDotMultiplierPlus)) / 100d) * groundMore;
+                * Math.Max(0, 1 + (Get(Stat.DotMultiplierPlus) + Get(Stat.FireDotMultiplierPlus)) / 100d) * groundMore * inventionMore;
             var damage = new SkillDamageContext(SkillHitKind.Spell, placed.Offense?.Caster ?? TotemCasterStats(playerStats))
                 .OverTime(new(DamageType.Fire, dps, 1));
             int baseDuration = Get(Stat.BaseSkillEffectDuration);
@@ -690,12 +706,19 @@ public static partial class Game
             {
                 if (!CurrentGameWork || player.Closed || player.LeavingArea || player.Paused) return null;
                 var bytes = new WorldRecordBuilder(player, admission);
+                var playerAt = player.Walk.Position(now);
                 foreach (var placed in player.Placed.All.Values.ToArray())
                 {
                     if (player.Connection.LockstepClient && !player.Connection.WorldOutput.PublishedObject(placed.Id).IsReady) continue;
                     if (player.PlayerLife == 0 || now >= placed.Until) { RemovePlacedLocked(player, placed, bytes); continue; }
                     LandPlacedRecordsLocked(player, placed, now, bytes);
                     if (now < placed.Armed) continue;
+                    if (placed.Mine && !MineCanDetonateFrom(placed, playerAt))
+                    {
+                        if (now >= placed.DetonateAt) placed.DetonateAt = double.PositiveInfinity;
+                        continue;
+                    }
+
                     bool skitter = false;
                     if (!placed.SkitterTriggered)
                     {

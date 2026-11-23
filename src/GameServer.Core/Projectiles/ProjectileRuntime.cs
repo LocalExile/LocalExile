@@ -374,7 +374,7 @@ public sealed partial class ProjectileRuntime(IProjectileWorld world)
                 TargetedHits(p, target, strikes);
             bool needsNearby = (!p.Profile.CannotSplit && p.Split > 0) || (!p.Profile.CannotChain && p.Chain > 0);
             if (Continue(p, target, needsNearby ? world.Actors(Now, Now) : [])) return;
-            End(p, ProjectileEndReason.Enemy, victim: target.Key);
+            End(p, ProjectileEndReason.Enemy, victim: target.Key, hitTarget: result == ProjectileHitResult.Hit ? target.Key : null);
         }
         else if (c.End == ProjectileEndReason.Terrain && p.Legs is { } blockedLegs && p.Phase == 0
             && blockedLegs.NextTurn(p.Position + c.Normal * .001, blocked: true) is { } blockedTurn)
@@ -554,7 +554,7 @@ public sealed partial class ProjectileRuntime(IProjectileWorld world)
     }
 
     void End(ProjectileEntity p, ProjectileEndReason reason, bool allowReturn = true, ProjectileActorKey? victim = null,
-        ProjectileVector? terrainNormal = null)
+        ProjectileVector? terrainNormal = null, ProjectileActorKey? hitTarget = null)
     {
         if (allowReturn && ReturnAnchor(p, reason) is { } anchor)
         {
@@ -588,7 +588,7 @@ public sealed partial class ProjectileRuntime(IProjectileWorld world)
             return;
         }
         projectiles.Remove(p.Id);
-        Publish(ProjectileEventKind.End, p, reason);
+        world.Publish(new(ProjectileEventKind.End, p, Now, p.Position, reason) { HitTarget = hitTarget });
     }
 
     ProjectileActor? ReturnAnchor(ProjectileEntity p, ProjectileEndReason reason) =>

@@ -1306,6 +1306,8 @@ public static partial class Game
                     bool walkChanges = channelWalk is not null || player.ChannelMovement.Skill != 0;
                     player.ChannelMovement = channelWalk is int walkPercent ? (skillId, walkPercent) : default;
                     if (walkChanges) player.ApplyMovementSpeed();
+                    player.LastLockstepChannelAim = null;
+                    player.LockstepChannelAimPending = HeldLockstepMovingChannel(player);
                     if (GolemStat(SupportedSkill(player, skillId).Stats, Stat.CastWhileChannellingTimeMs) > 0)
                         BeginChannelTriggers(player, ProjectilesFor(player), skillId,
                             action, player.ChannelGeneration, to, AreaTime(player));
@@ -2122,6 +2124,11 @@ public static partial class Game
                     {
                         ChannelAimedAt(player, aim.X, aim.Y, at);
                         player.LastChannelUpdateAt = now;
+                        if (HeldLockstepMovingChannel(player))
+                        {
+                            player.LastLockstepChannelAim = (aim, at);
+                            player.LockstepChannelAimPending = false;
+                        }
                     }
                     aimLockstepChannel = player.LockstepSkill.Channel is not null;
                 }
@@ -3009,7 +3016,7 @@ public static partial class Game
     // resisted packet that AilmentsOnHitLocked needs: every player hit path calls both (surfcaster.md, Hit paths).
     public static (int Damage, string? Resistance, DamagePacket Mitigated) MonsterHitDamage(SpawnedMonster m, DamagePacket rolled,
         bool critical, bool attack, double now, HitResistances.Mods mods, Penetration.PerType pen = default,
-        bool invertElemental = false, Random? random = null, bool trapOrMine = false)
+        bool invertElemental = false, Random? random = null, bool trapOrMine = false, int additionalTakenPct = 0)
     {
         var described = new List<string>();
         var strike = new HitResistances.Strike(Critical: critical, Attack: attack);
@@ -3024,8 +3031,8 @@ public static partial class Game
             + (attack ? mods.TincturedWeaponIgnorePhysicalReductionChance : 0));
         bool ignorePhys = rolled[DamageType.Physical].Max > 0
             && GameServer.Core.World.RandomRolls.Chance(ignorePhysicalChance, 100, random ?? Random.Shared);
-        int damage = trapOrMine ? MonsterTakesTrapOrMineHit(m, mitigated, spell: !attack, now, random, ignorePhys)
-            : MonsterTakesMitigated(m, mitigated, spell: !attack, now, ignorePhys, random);
+        int takenPct = additionalTakenPct + (trapOrMine ? BearTrapDamageTaken(m, now) : 0);
+        int damage = MonsterTakesMitigatedCore(m, mitigated, spell: !attack, now, takenPct, ignorePhys, random);
         return (damage,
             described.Count > 0 ? string.Join(", ", described) : null, mitigated);
     }
@@ -3475,6 +3482,7 @@ public static partial class Game
         QueueEssenceDeathSpawnLocked(player, id, m);
         if (playerKill) QueueMadnessExplosionLocked(player, id, m);
         StopCorpseBlocking(player, id, m);
+        DetonateExplosiveFusesOnDeath(m);
         if (SpreadContagion(player, id, m) is { } contagion)
             await ShowContagionSpread(player, contagion.At, contagion.Radius, contagion.Ao);
         double now = AreaTime(player);
