@@ -778,6 +778,15 @@ public sealed record MonsterObject(int GridX, int GridY, uint Life, IReadOnlyLis
     public IReadOnlyList<VisibleItem>? Equipped { get; init => field = Owned.List(value); }
     /// <summary>A monster with an NPC component can become a quest speaker after a scripted encounter.</summary>
     public bool HasDialogue { get; init; }
+    /// <summary>The NPC component's second byte (+0x21): 0xff when no component must be alive, as on a boss that speaks; 1 on a
+    /// mercenary that waits to be talked to.</summary>
+    public byte NpcFlags { get; init; } = 0xff;
+    /// <summary>InteractionAction's flags byte (0x141e218a0): 0 for an ordinary monster; 1 lets the client click it, as on a
+    /// mercenary that waits for its duel. Bit 2 adds fields this blob does not write and is left out.</summary>
+    public byte InteractionFlags { get; init; }
+    /// <summary>The Mercenary component, which every Mercenaries variety reads: one u16, the HASH16 of the MercenaryBuilds row the
+    /// client shows the mercenary as.</summary>
+    public ushort MercenaryBuild { get; init; }
     /// <summary>The Actor's native stance byte, retained in an instance's creation snapshot.</summary>
     public byte ActorStance { get; init; }
     /// <summary>The Actor animation seed (0x142199562 -> +0x21c); varies unseeded clip selection across identical pack
@@ -816,10 +825,11 @@ public sealed record MonsterObject(int GridX, int GridY, uint Life, IReadOnlyLis
     /// lists from the .ot) needs <see cref="StateMachineData"/>; DiesAfterTime's primary vtable 0x1435a7888 and Timer's
     /// only vtable 0x1435ab790 (Solaris and Lunaris, The Harbour Bridge) have a bare `ret` slot 17, so they read nothing;
     /// InteractionAction (Kraityn, Alira and Oak, Act 2's bandit lords) reads a u8 of flags (0x141e218a0), as on an NPC;
+    /// Mercenary (the Mercenaries varieties) reads a u16, <see cref="MercenaryBuild"/>;
     /// TriggerableBlockage (Oshabi's Root Wall) is the one component registration whatever the object, read by
     /// 0x141e47880 as <see cref="QuestObject"/> writes it.</summary>
     static readonly HashSet<string> Extras = ["Transitionable", "MinimapIcon", "Preload", "Functions", "PlayerClass", "StateMachine", "DiesAfterTime",
-        "NPC", "InteractionAction", "Timer", "TriggerableBlockage"];
+        "NPC", "InteractionAction", "Timer", "Mercenary", "TriggerableBlockage"];
 
     /// <summary>The registered type path of a variety at a level (1..100), after S→C 0x20 has registered it:
     /// "&lt;variety Id&gt;@&lt;level&gt;" (0x141ec8df0; the Monster type parses the number after the last '@').</summary>
@@ -881,9 +891,10 @@ public sealed record MonsterObject(int GridX, int GridY, uint Life, IReadOnlyLis
                 // A boss that speaks (Fairgraves, Merveil, the Siren: their .ot chain reads NPC after Transitionable): the NPC
                 // component's two bytes as NpcObject writes them, without dialogue (+0x20 0: no NPCTalk rows offered) and
                 // no component that must be alive (+0x21 0xff), 17-npcs.md.
-                case "NPC": w.U8(HasDialogue ? (byte)1 : (byte)0).U8(0xff); break;
+                case "NPC": w.U8(HasDialogue ? (byte)1 : (byte)0).U8(NpcFlags); break;
                 // 0x141e218a0: u8 flags (bit 2 adds a u8 and a u16); 0, as NpcObject and AreaTransitionObject write it.
-                case "InteractionAction": w.U8(0); break;
+                case "InteractionAction": w.U8((byte)(InteractionFlags & ~0x04)); break;
+                case "Mercenary": w.U16(MercenaryBuild); break;
                 // Timer (0x1435ab790): slot 17 is `ret`, nothing to write.
                 // 0x141e42430: u8 shared-state count, u8 shared-timer count (the client throws unless they match the
                 // type); per define_shared_state a compact int value + u8 flags (0x02 keeps the sent value), per
