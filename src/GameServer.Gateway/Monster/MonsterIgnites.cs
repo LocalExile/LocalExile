@@ -31,8 +31,17 @@ public sealed class MonsterIgnites
 
         /// <summary>Whether a hit of <paramref name="hit"/> (rolled, before mitigation) can ignite: its fire damage, or any
         /// damage with "All Damage can Ignite" (<see cref="AllDamage"/>, Shaper of Flames).</summary>
-        public bool CanIgnite(DamagePacket hit) =>
-            AllDamage ? hit.Components.Any(c => c.Range.Max > 0) : hit[DamageType.Fire].Max > 0;
+        public bool CanIgnite(DamagePacket hit)
+        {
+            if (!AllDamage)
+                return (!FireCannotIgnite && hit[DamageType.Fire].Max > 0) || (ColdCanIgnite && hit[DamageType.Cold].Max > 0);
+            foreach (var type in DamageTypes.ConversionOrder)
+                if ((type != DamageType.Fire || !FireCannotIgnite) && hit[type].Max > 0) return true;
+            return false;
+        }
+
+        public bool FireCannotIgnite { get; init; }
+        public bool ColdCanIgnite { get; init; }
 
         /// <summary><paramref name="rows"/>: a context's ailment rows (per minute); <paramref name="get"/>: the merged
         /// caster and skill stats. Base duration 4 s (<see cref="Ailments.IgniteDurationSeconds"/>); the ignite
@@ -60,7 +69,11 @@ public sealed class MonsterIgnites
                 FireExposure: get(Stat.IgnitesApplyFireResistancePlus),
                 AllDamage: get(Stat.AllDamageCanIgnite) != 0 || tinctureWeapon && get(Stat.AllDamageWithTincturedWeaponsCanIgnite) != 0,
                 NeverFromCrit: get(Stat.KeystoneElementalOverload) != 0,
-                OnlyFromCrit: get(Stat.KeystoneAilmentCrit) != 0);
+                OnlyFromCrit: get(Stat.KeystoneAilmentCrit) != 0)
+            {
+                FireCannotIgnite = get(Stat.UniqueFireDamageShocks) != 0,
+                ColdCanIgnite = get(Stat.UniqueColdDamageIgnites) != 0,
+            };
         }
     }
 

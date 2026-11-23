@@ -285,7 +285,7 @@ public static partial class Game
                 int action = 0;
                 (int px, int py) = (0, 0);
                 CooldownUseTicket? cooldownUse = null;
-                int chargeBonus = cast && gem.Name is not null ? ShieldChargeBonusPct(player, use.SkillId, gem.Effect) : 0, chargeToken = 0;
+                int chargeBonus = cast && gem.Name is not null ? ShieldChargeBonusPct(player, use.SkillId, gem.Effect) : 0;
                 // A lockstep client's forced stationary default attack swings where the player stands. Ordinary ground
                 // melee uses take StartLockstepGroundMelee's frame-stepped walk-up before reaching this handler.
                 bool inPlace = cast || player.Connection.LockstepClient && use.SkillId == SkillCatalog.FirstSkillId;
@@ -312,9 +312,8 @@ public static partial class Game
                     // Readiness and reservation precede movement: a raw early Dash cannot teleport anyway. Shield Charge walks
                     // there at its own speed instead (ShieldCharge.cs).
                     if (leap is not null) CommitLeapSlam(player, leap);
-                    else if (chargeBonus != 0) chargeToken = BeginShieldCharge(player, use.SkillId, chargeBonus, use.X, use.Y, at);
                     else if (flicker && flickerTo is { } to) player.Walk.Teleport(to.Landing.X, to.Landing.Y, at);
-                    else if (gem.Name is not null && !IsDashEffect(SkillsFor(player).EffectId(gem.Effect)) && LandsAtAim(player, gem.Effect))
+                    else if (chargeBonus == 0 && gem.Name is not null && !IsDashEffect(SkillsFor(player).EffectId(gem.Effect)) && LandsAtAim(player, gem.Effect))
                     {
                         var landing = MovementLanding(player, gem.Effect, (px, py), (use.X, use.Y), use.SkillId, use.Flags);
                         player.Walk.Teleport(landing.X, landing.Y, at);
@@ -362,9 +361,6 @@ public static partial class Game
                     }
                 }
                 Mark("begin");
-                if (chargeToken != 0) _ = RunShieldCharge(player, chargeToken, player.Walk.ArrivesAt,
-                    use.SkillId, use.Slot, cooldownUse?.ActionToken ?? action, cooldownUse);
-                Mark("charge");
                 bool projectileRuntime = cast && gem.Name is not null && (UsesProjectileRuntime(gem.Effect) || leapSkill);
                 double? swingAt = attack ? at : null;
                 Task<bool>? castTask = projectileRuntime ? CastGemSkill(player, use.SkillId,

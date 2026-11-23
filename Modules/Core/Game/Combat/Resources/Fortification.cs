@@ -92,6 +92,11 @@ public static partial class Game
         var recovery = new Dictionary<uint, int>(sources);
         AddItemUtilityFlaskRawStats(new PlainStatMap(recovery),
             player.UtilityFlaskEffects.Stats().Concat(player.FlaskGrounds.PlayerStats()), Stats);
+        if (MapModsOf(player) is { } map)
+        {
+            recovery[Stat.MapPlayersNoRegenerationIncludingEs] = map.Get(Stat.MapPlayersNoRegenerationIncludingEs);
+            recovery[Stat.MapPlayerLifeAndEsRecoverySpeedPlusPctFinal] = map.Get(Stat.MapPlayerLifeAndEsRecoverySpeedPlusPctFinal);
+        }
         ConfigureFortificationRecovery(player, maximumLife,
             name => name is var key ? recovery.GetValueOrDefault(key) : 0);
     }
