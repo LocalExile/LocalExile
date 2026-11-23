@@ -26,7 +26,12 @@ public static partial class MapEssences
         var catalog = SkillsFor(conn);
         var stats = catalog.EffectStats(spell.Effect, catalog.MaxLevelAt(spell.Effect, monster.Level)).ToDictionary(s => s.Item1, s => s.Item2);
         int Get(string name) => Stats.Key(name) is uint key ? stats.GetValueOrDefault(key) : 0;
-        int count = ScaledSpellCount(spell.Effect, spell.Tier, Get("number_of_additional_projectiles") + 1);
+        int own = Get("number_of_additional_projectiles") + 1;
+        // The skill's own count is the game's: EssenceArcticBreathNova carries number_of_additional_projectiles 15 and
+        // EssenceTriggeredFlameBreath 17 as constant stats, so the ring is 16/18 at every essence tier and level. Only a
+        // nova whose row carries no count (Wrath's mortar projectile row) keeps the observed maximum, scaled by the
+        // essence's tier.
+        int count = own > 1 ? own : ScaledSpellCount(spell.Effect, spell.Tier, own);
         SkillCatalog.MonsterProjectileInfo projectile;
         if (catalog.MonsterProjectile(spell.Effect, includeWeaponAttacks: true) is { } mortar)
             // Wrath: a lightning mortar (MortarLightning, the lightning molten-projectile rig), lobbed. A full-turn spread
