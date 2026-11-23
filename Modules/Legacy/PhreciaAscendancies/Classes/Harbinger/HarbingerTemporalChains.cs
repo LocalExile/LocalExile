@@ -5,7 +5,6 @@ sealed class HarbingerTemporalChains(ushort instance, ushort skill, HarbingerRec
     int otherEffects, bool aura = false)
 {
     public ushort Instance { get; set; } = instance;
-    public double PresentedDeadline { get; set; } = clock.Deadline;
     public ushort Skill { get; } = skill;
     public HarbingerRecipientClock Clock { get; } = clock;
     public bool Aura { get; } = aura;
@@ -14,36 +13,36 @@ sealed class HarbingerTemporalChains(ushort instance, ushort skill, HarbingerRec
     public readonly record struct Source(double Seconds, int NormalSlow, int RareSlow, int OtherEffects);
     public Source Snapshot { get; init; } = new(clock.Remaining, normalSlow, rareSlow, otherEffects);
 
-    internal static Source From(Func<string, int> player, Func<string, int> own, bool self)
+    internal static Source From(Func<uint, int> player, Func<uint, int> own, bool self)
     {
-        int Get(string name) => name is "temporal_chains_action_speed_+%_final"
-            or "temporal_chains_action_speed_+%_vs_rare_or_unique_final"
-            or "buff_time_passed_+%_other_than_temporal_chains" or "base_skill_effect_duration"
-            or "curse_effect_+%_final_vs_players" ? own(name)
+        int Get(uint name) => name is Stat.TemporalChainsActionSpeedPlusPctFinal
+            or Stat.TemporalChainsActionSpeedPlusPctVsRareOrUniqueFinal
+            or Stat.BuffTimePassedPlusPctOtherThanTemporalChains or Stat.BaseSkillEffectDuration
+            or Stat.CurseEffectPlusPctFinalVsPlayers ? own(name)
             : (int)Math.Clamp((long)player(name) + own(name), int.MinValue, int.MaxValue);
-        double effect = Math.Max(0, 1 + ((long)Get("curse_effect_+%") + Get("temporal_chains_curse_effect_+%")
-            + Get("temporal_chains_effeciveness_+%")) / 100.0)
-            * Math.Max(0, 1 + Get("support_blasphemy_curse_effect_+%_final") / 100.0);
-        if (self) effect *= Math.Max(0, 1 + Get("curse_effect_+%_final_vs_players") / 100.0)
-            * Math.Max(0, 1 + player("curse_effect_on_self_+%") / 100.0);
-        return new(Duration(Get("base_skill_effect_duration"), player, own, self),
-            Scale(Get("temporal_chains_action_speed_+%_final"), effect),
-            Scale(Get("temporal_chains_action_speed_+%_vs_rare_or_unique_final"), effect),
-            Math.Max(-75, Scale(Get("buff_time_passed_+%_other_than_temporal_chains"), effect)));
+        double effect = Math.Max(0, 1 + ((long)Get(Stat.CurseEffectPlusPct) + Get(Stat.TemporalChainsCurseEffectPlusPct)
+            + Get(Stat.TemporalChainsEffecivenessPlusPct)) / 100.0)
+            * Math.Max(0, 1 + Get(Stat.SupportBlasphemyCurseEffectPlusPctFinal) / 100.0);
+        if (self) effect *= Math.Max(0, 1 + Get(Stat.CurseEffectPlusPctFinalVsPlayers) / 100.0)
+            * Math.Max(0, 1 + player(Stat.CurseEffectOnSelfPlusPct) / 100.0);
+        return new(Duration(Get(Stat.BaseSkillEffectDuration), player, own, self),
+            Scale(Get(Stat.TemporalChainsActionSpeedPlusPctFinal), effect),
+            Scale(Get(Stat.TemporalChainsActionSpeedPlusPctVsRareOrUniqueFinal), effect),
+            Math.Max(-75, Scale(Get(Stat.BuffTimePassedPlusPctOtherThanTemporalChains), effect)));
     }
 
-    public static double Duration(int baseMilliseconds, Func<string, int> player, Func<string, int> own, bool self)
+    public static double Duration(int baseMilliseconds, Func<uint, int> player, Func<uint, int> own, bool self)
     {
         // Generic and curse-specific increased skill duration share one source bucket.
-        int DurationGet(string name) => name == SkillDurationModifiers.IncreasedDuration
-            ? (int)Math.Clamp((long)player(name) + player("curse_duration_+%")
-                + player("curse_skill_effect_duration_+%") + player("temporal_chains_duration_+%"), int.MinValue, int.MaxValue) : player(name);
-        int OwnGet(string name) => name == SkillDurationModifiers.IncreasedDuration
-            ? (int)Math.Clamp((long)own(name) + own("curse_duration_+%") + own("base_curse_duration_+%")
-                + own("curse_skill_effect_duration_+%") + own("temporal_chains_duration_+%"), int.MinValue, int.MaxValue) : own(name);
+        int DurationGet(uint name) => name == SkillDurationModifiers.IncreasedDuration
+            ? (int)Math.Clamp((long)player(name) + player(Stat.CurseDurationPlusPct)
+                + player(Stat.CurseSkillEffectDurationPlusPct) + player(Stat.TemporalChainsDurationPlusPct), int.MinValue, int.MaxValue) : player(name);
+        int OwnGet(uint name) => name == SkillDurationModifiers.IncreasedDuration
+            ? (int)Math.Clamp((long)own(name) + own(Stat.CurseDurationPlusPct) + own(Stat.BaseCurseDurationPlusPct)
+                + own(Stat.CurseSkillEffectDurationPlusPct) + own(Stat.TemporalChainsDurationPlusPct), int.MinValue, int.MaxValue) : own(name);
         double seconds = SkillDurationModifiers.Seconds(baseMilliseconds, DurationGet, OwnGet);
         // Recipient self-duration changes the received curse, separately from its source duration and elapsed clock.
-        return self ? seconds * Math.Max(0, 1 + player("self_curse_duration_+%") / 100.0) : seconds;
+        return self ? seconds * Math.Max(0, 1 + player(Stat.SelfCurseDurationPlusPct) / 100.0) : seconds;
     }
 
     public static int Scale(int value, double effect) => (int)Math.Truncate(value * Math.Max(0, effect));

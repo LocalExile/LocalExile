@@ -16,6 +16,12 @@ using GameServer.Core;
 /// </summary>
 public static class CharacterStats
 {
+    /// <summary>Fills this type's game data at startup (the world loader, before the Gateway listens).</summary>
+    public static void LoadGameData()
+    {
+        Experience = LoadExperience();
+    }
+
     public sealed record Pools(int Level, uint Life, uint Mana, int Accuracy, uint Experience,
         int Armour = 0, int ArmourPct = 0, int Evasion = BaseEvasion, int EvasionPct = 0,
         int EnergyShieldPct = 0, int MeleePhysicalDamagePct = 0,
@@ -132,7 +138,7 @@ public static class CharacterStats
     /// <summary>Strength, dexterity and intelligence from attribute stats: the single ones, all attributes and the
     /// pairs, each in its base_ and additional_ form, then the percentage modifiers (individual and all-attributes)
     /// applied to the summed flat value.</summary>
-    public static (int Strength, int Dexterity, int Intelligence) Attributes(Func<string, int> get)
+    public static (int Strength, int Dexterity, int Intelligence) Attributes(Func<uint, int> get)
         => AttributeModifiers.From(get).Flat;
 
     static int Percent(int value, int percent) =>
@@ -335,16 +341,16 @@ public static class CharacterStats
             { AttributesResolved = true, AccuracyBase = accuracyBase };
     }
 
-    private static readonly Lazy<uint[]> Experience = new(LoadExperience);
+    private static uint[] Experience = default!;
 
     /// <summary>Every level's starting experience (index = level − 1), ExperienceLevels.dat.</summary>
-    public static IReadOnlyList<uint> LevelStarts => Experience.Value;
+    public static IReadOnlyList<uint> LevelStarts => Experience;
 
     /// <summary>The experience at the start of a level (ExperienceLevels.dat; level 37: 12 361 842). The client derives
     /// the level from the Player component's experience (04 §4).</summary>
     public static uint ExperienceFor(int level)
     {
-        var table = Experience.Value;
+        var table = Experience;
         return level >= 1 && level <= table.Length ? table[level - 1] : 0;
     }
 

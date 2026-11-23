@@ -24,32 +24,32 @@ public sealed class QuestMarkerTests
         nest[^2] = 0;
         Assert.Equal(GlyphQuest.NestBlob(at, true), nest);
 
-        var conn = new ClientState(new(1, "quest-markers", 100, 100, 1, 1, null, []), 1, 1);
+        var player = new Player(new(1, "quest-markers", 100, 100, 1, 1, null, []), 1, 1);
         var rule = new Quests.ChestRule("area", "chest", "item");
         var info = new QuestObjectTypes.Info("chest", components, 2, 1, false, null);
-        Assert.Equal(1, Game.QuestChestState(conn, rule, info, false));
-        Assert.Equal(2, Game.QuestChestState(conn, rule, info, true));
+        Assert.Equal(1, Game.QuestChestState(player, rule, info, false));
+        Assert.Equal(2, Game.QuestChestState(player, rule, info, true));
     }
 
     [Fact]
     public void EncounterChestRequiresTheRetreatAndTheLastLivingGuard()
     {
         var instance = new InstanceState();
-        var conn = new ClientState(new(1, "crematorium", 100, 100, 1, 1, null, []), 1, 1) { Instance = instance };
+        var player = new Player(new(1, "crematorium", 100, 100, 1, 1, null, []), 1, 1) { Instance = instance };
         const string guardId = "Metadata/Monsters/Axis/AxisCasterGuardTolman";
         var gate = Quests.InstanceFlag("CrematoriumPietyFled");
         var rule = new Quests.ChestRule("1_3_3_1", "TolmanChair", "TolmanBracelet", gate) { Guards = [guardId] };
         var info = new QuestObjectTypes.Info("chair", ["Transitionable"], 3, 1, false, null);
-        Assert.Equal(1, Game.QuestChestState(conn, rule, info, false));
+        Assert.Equal(1, Game.QuestChestState(player, rule, info, false));
         var variety = Assert.IsType<MonsterCatalog.Variety>(new MonsterCatalog().Find(guardId));
         var guard = new SpawnedMonster("guard", new(0, 0, 1), 0, 0, 10) { Variety = variety, Hostile = true };
-        conn.Monsters[12] = guard;
+        player.Area.Monsters[12] = guard;
         instance.SetState(gate);
-        Assert.Equal(1, Game.QuestChestState(conn, rule, info, false));
+        Assert.Equal(1, Game.QuestChestState(player, rule, info, false));
         guard.Dead = true;
-        Assert.Equal(2, Game.QuestChestState(conn, rule, info, false));
-        Assert.Equal(3, Game.QuestChestState(conn, rule, info, true));
-        Assert.False(conn.HasQuestFlag(gate));
+        Assert.Equal(2, Game.QuestChestState(player, rule, info, false));
+        Assert.Equal(3, Game.QuestChestState(player, rule, info, true));
+        Assert.False(player.Character.HasQuestFlag(gate));
         Assert.False(new InstanceState().HasState(gate));
     }
 
@@ -65,8 +65,8 @@ public sealed class QuestMarkerTests
         Assert.True(instance.OpenChest(10, 20));
         Assert.False(instance.OpenChest(10, 20));
 
-        ClientState Player(string name) => new(new(1, "crematorium", 100, 100, 1, 1, null, []), 1, 1)
-            { Instance = instance, Character = name };
+        Player Player(string name) => new(new(1, "crematorium", 100, 100, 1, 1, null, []), 1, 1)
+            { Instance = instance, Character = { Name = name } };
         var first = Player("First");
         var reconnect = Player("First");
         var second = Player("Second");

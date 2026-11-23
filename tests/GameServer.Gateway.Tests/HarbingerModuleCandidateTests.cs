@@ -54,9 +54,9 @@ public sealed class HarbingerModuleCandidateTests
         roster.Step(lease, Now.AddSeconds(4), true, false);
         Assert.Equal(3.7, Assert.Single(roster.Buffs(lease, Now.AddSeconds(5))).RemainingBase, 8);
         Assert.Equal(.25, HarbingerRecipientClock.RecipientRate(1, _ => -100));
-        Assert.Equal(1, HarbingerRecipientClock.RecipientRate(3, n => n.Contains("only_buff") ? -50 : 0));
+        Assert.Equal(1, HarbingerRecipientClock.RecipientRate(3, n => Program.Stats.Name(n).Contains("only_buff") ? -50 : 0));
         Assert.Equal(1, HarbingerRecipientClock.RecipientRate(2,
-            n => n == "buff_time_passed_+%_other_than_temporal_chains" ? -40 : 0, temporalChains: true));
+            n => n == Stat.BuffTimePassedPlusPctOtherThanTemporalChains ? -40 : 0, temporalChains: true));
         var catalog = new HarbingerCompanionCatalog();
         Assert.Null(catalog.Error);
         var companions = catalog.All.ToArray();

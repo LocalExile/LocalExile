@@ -52,7 +52,8 @@ sealed class HarbingerCycles
     /// deadline, even if that buff has expired by now; publish only intervals returned by Active(now).</summary>
     public Change Advance(double now, bool canStart)
     {
-        if (!double.IsFinite(now) || now < _lastAt) throw new ArgumentOutOfRangeException(nameof(now));
+        if (!double.IsFinite(now)) throw new ArgumentOutOfRangeException(nameof(now));
+        now = Math.Max(now, _lastAt); // a read from a clock a little behind is no time passing
         if (_cleared) { _lastAt = now; return Change.Empty; }
         var completed = new List<Buff>();
         if (CurrentCast is { } pending && pending.CompletesAt <= now + Precision)

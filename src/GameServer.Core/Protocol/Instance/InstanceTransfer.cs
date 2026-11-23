@@ -32,6 +32,11 @@ public static class InstanceTransfer
     /// 2026-10-18): the picked-up item goes to the cursor instead of the inventory.</summary>
     public const ushort InventoryOpenFlag = 0x0002;
 
+    /// <summary>0x24 / 0x018f flag bit set when the client's <c>auto_equip</c> UI option is enabled (3.29.3c,
+    /// <c>0x14011f2ae</c> via <c>0x1419138c0</c>): a picked-up ground item equips into a compatible empty slot when the
+    /// character meets its requirements.</summary>
+    public const ushort AutoEquipFlag = 0x0008;
+
     /// <summary>0x24 flag bit set when Alt is held and the target has an NPC component (the client's 0x1401285b0, which
     /// also sets 0x0400: GetKeyState(VK_MENU) after the lookup of "NPC" among the target's components). With
     /// <see cref="CtrlFlag"/> it chooses an NPC's shortcut (17-npcs.md §3).</summary>
@@ -45,6 +50,7 @@ public static class InstanceTransfer
     {
         public bool Ctrl => (Flags & CtrlFlag) != 0;
         public bool Alt => (Flags & AltFlag) != 0;
+        public bool AutoEquip => (Flags & AutoEquipFlag) != 0;
 
         /// <summary>The use's start (0x1ab) has already gone to the client: a lockstep client's frame pass sends it before
         /// the handler runs, so the handler sends none of its own. A second start put the client back to its from cell
