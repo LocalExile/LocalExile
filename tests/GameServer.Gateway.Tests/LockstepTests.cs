@@ -644,5 +644,28 @@ public class LockstepTests : IDisposable
         Assert.Equal(0, player.Area.Stats.WrittenValue(player.Id, Stat.MovementVelocityPlusPct));
         player.Area.Stats.Publish();
         Assert.Equal(40, player.Area.Stats.WrittenValue(player.Id, Stat.MovementVelocityPlusPct));
+
+        // Ground melee attack gems (e.g. Double Strike) use LockstepGroundMelee walk-ups (0x141e95400) and defer
+        // LockstepBusyUntil until arrival; attack-in-place (flags & 1) and movement attacks (Leap Slam) do not.
+        ushort doubleStrikeId = fixture.Equip(("Leap Slam", 1), ("Double Strike", 1))[1];
+        Assert.True(Game.LockstepGroundMelee(player, doubleStrikeId, 0x0408));
+        Assert.False(Game.LockstepGroundMelee(player, doubleStrikeId, 0x0409));
+        Assert.False(Game.LockstepGroundMelee(player, leapId, 0x0408));
+        player.LockstepBusyUntil = 2.0;
+        player.LockstepSkill.Press((120, 100), null, doubleStrikeId, 0x0408, repeats: true);
+        Game.HoldLockstepSkill(player, 0x8002, 2.0, 2.0);
+        Assert.Equal(2.0, player.LockstepBusyUntil);
+        player.LockstepSkill.Clear();
+
+        // Non-Move actions (LockstepUse pickups, skills) wait for NextAttackAt during a swing's late window
+        // (0x141e9479e / 0x141e947aa), while Move can still cut in after LockstepBusyUntil.
+        player.LockstepBusyUntil = 2.33;
+        player.NextAttackAt = 2.79;
+        player.LockstepUse = new(0x100001, 0x0266, 0, 0x0408);
+        await Game.StartLockstepActions(player, 2.40);
+        Assert.NotNull(player.LockstepUse);
+        player.LockstepHold.Press((120, 100), 0x2909, 0x0408, (20, 0));
+        await Game.StartLockstepActions(player, 2.40);
+        Assert.Equal((120, 100), player.Walk.Destination);
     }
 }

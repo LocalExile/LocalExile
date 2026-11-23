@@ -11,9 +11,9 @@ public static partial class Game
     // framework's: Program.RunWorldFrames. What the rules do at each frame end is here.
     public static async Task LockstepFrameEnded(Player player, double nextFrameStart)
     {
-        await ProbeLockstepLatency(player);
         SendLockstepDefaultAttack(player);
         await StartLockstepActions(player, nextFrameStart);
+        await ProbeLockstepLatency(player);
     }
 
     // Differs from GGG: it keys a Move from its tick by the player (u16 0x9001, 3 286 of 3 492 Moves). Keys must reach the
