@@ -42,6 +42,11 @@ public sealed partial class ProjectileRuntime(IProjectileWorld world)
         int returnRoll = new Random(unchecked(use.Seed * 397 ^ (int)useId ^ 0x3172c85d)).Next(100);
         var unresolved = use.Profile;
         use = use with { Profile = ResolveReturn(use.Profile, returnRoll) };
+        if (use.Profile.LaunchArea is { } area && use.CanEmit?.Invoke() != false)
+        {
+            var direction = (use.Aim - use.Origin).Unit;
+            Area(new ProjectileEntity(++sequence, useId, ++sequence, 0, use, use.Origin, direction, Now), area);
+        }
         var random = use.Profile.RandomSpread ? new Random(unchecked(use.Seed * 397 ^ (int)useId)) : null;
         int count = use.Profile.Count;
         double spread = use.Profile.SpreadRadians;
@@ -86,15 +91,17 @@ public sealed partial class ProjectileRuntime(IProjectileWorld world)
 
     static void Validate(ProjectileProfile p)
     {
-        if (p.Count is < 1 or > 256 || !double.IsFinite(p.Speed) || p.Speed <= 0
+        if (p.Count is < 0 or > 256 || p.Count == 0 && p.LaunchArea is null || !double.IsFinite(p.Speed) || p.Speed <= 0
             || !double.IsFinite(p.Range) || p.Range <= 0 || !double.IsFinite(p.Radius) || p.Radius < 0
             || p.Lifetime <= 0 || p.SequentialDelay < 0 || p.ReturnChancePercent is < 0 or > 100
             || p.ReturnRolls is { } rolls && rolls.Count < p.Count
             || !double.IsFinite(p.ReturnSpeedMultiplier) || p.ReturnSpeedMultiplier <= 0
             || !double.IsFinite(p.ReturnOvershoot) || p.ReturnOvershoot < 0 || p.ReturnHitLimit < 0 || p.OutboundHitLimit < 0)
             throw new ArgumentOutOfRangeException(nameof(p));
-        foreach (var area in new[] { p.ContactArea, p.EndArea })
-            if (area is { Delay: < 0 } or { Interval: < 0 }) throw new ArgumentOutOfRangeException(nameof(p));
+        foreach (var area in new[] { p.LaunchArea, p.ContactArea, p.EndArea })
+            if (area is { Delay: < 0 } or { Interval: < 0 } or { ConeHalfAngle: < 0 or > Math.PI }
+                || area is not null && !double.IsFinite(area.ConeHalfAngle))
+                throw new ArgumentOutOfRangeException(nameof(p));
     }
 
     static ProjectileProfile ResolveReturn(ProjectileProfile profile, int roll) => profile with
@@ -382,7 +389,7 @@ public sealed partial class ProjectileRuntime(IProjectileWorld world)
             p.Contacts.Add(target.Key);
             if (p.Phase > 0) p.ReturnContacts++;
             else p.OutboundContacts++;
-            var terminal = p.Profile.EndArea is { } endArea && AllowsEndArea(p, ProjectileEndReason.Enemy)
+            var terminal = p.Profile.EndArea is { ReplacesDirectContact: true } endArea && AllowsEndArea(p, ProjectileEndReason.Enemy)
                 && !CanContinue(p, actors) && ReturnAnchor(p, ProjectileEndReason.Enemy) is null ? endArea : null;
             var result = Damage(p, target, terminal?.Stage ?? "direct", multiplier: terminal?.Multiplier ?? 1,
                 admissionStage: "direct", isArea: terminal is not null);

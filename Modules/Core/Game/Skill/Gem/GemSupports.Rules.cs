@@ -769,6 +769,9 @@ public static partial class Game
         if (volcanicFissure) types.Remove(projectile ? 19 : 2);
         if (area is true) types.Add(7);
         else if (area is false) types.Remove(7);
+        if (area is true && IsGalvanicArrow(SkillsFor(player).EffectId(gem.Effect))
+            && Get(Stat.GalvanicArrowAreaDamagePlusPct) is int galvanic and not 0)
+            stats[Stat.AreaDamagePlusPct] = ActorScale.Saturate((long)Get(Stat.AreaDamagePlusPct) + galvanic);
         if (IsSmite(gem.Effect) && area is true) types.Remove(19);
         bool molten = GatewayProjectileSkillProfiles.IsMoltenStrike(SkillsFor(player).EffectId(gem.Effect));
         if (molten)

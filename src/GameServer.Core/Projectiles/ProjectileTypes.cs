@@ -33,6 +33,10 @@ public sealed record ProjectileAreaRecipe(string Stage, double Radius, int Count
     double Multiplier = 1, ProjectileHitScope Scope = ProjectileHitScope.Projectile)
 {
     public bool ExcludeContactTarget { get; init; }
+    /// <summary>Angular limit from the direction of travel. Zero keeps radial coverage.</summary>
+    public double ConeHalfAngle { get; init; }
+    /// <summary>The terminal impact supplies the direct victim's damage profile.</summary>
+    public bool ReplacesDirectContact { get; init; } = true;
     /// <summary>Lower placement radius; offset is the upper radius.</summary>
     public double MinimumOffset { get; init; }
     /// <summary>Place one independently sampled centre in each angular sector.</summary>
@@ -188,6 +192,7 @@ public sealed record ProjectileProfile(string Id)
     public ProjectileHitRule HitRule { get; init; } = new();
     /// <summary>Optional direct-hit admission during return. Null inherits HitRule.</summary>
     public ProjectileHitRule? ReturnHitRule { get; init; }
+    public ProjectileAreaRecipe? LaunchArea { get; init; }
     public ProjectileAreaRecipe? EndArea { get; init; }
     public IReadOnlySet<ProjectileEndReason>? EndAreaReasons { get; init; }
     /// <summary>Emit an allowed end area before a successful return turnaround; end emissions stay deferred.</summary>

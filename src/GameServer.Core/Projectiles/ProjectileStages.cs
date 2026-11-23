@@ -192,6 +192,7 @@ public sealed partial class ProjectileRuntime
     {
         world.Publish(new(ProjectileEventKind.Area, p, Now, centre, Radius: recipe.Radius, Stage: recipe.Stage));
         var targets = ActorsInOrder(world.ActorsNear(centre, recipe.Radius + 2, Now), generations: true, out int listed);
+        double coneEdge = recipe.ConeHalfAngle > 0 ? Math.Cos(recipe.ConeHalfAngle) : -1;
         try
         {
             for (int i = 0; i < listed; i++)
@@ -202,7 +203,8 @@ public sealed partial class ProjectileRuntime
                 var delta = target.Position(Now) - centre;
                 double limit = recipe.Radius + target.Radius;
                 if (Math.Abs(delta.X) <= limit && Math.Abs(delta.Y) <= limit
-                    && delta.X * delta.X + delta.Y * delta.Y <= limit * limit)
+                    && delta.X * delta.X + delta.Y * delta.Y <= limit * limit
+                    && (coneEdge <= -1 || delta.Dot(p.Direction) >= coneEdge * delta.Length))
                 {
                     if (target.Key == victim)
                         Damage(p, target, recipe.Stage, multiplier: recipe.Multiplier, admissionStage: "direct", isArea: true);
