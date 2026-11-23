@@ -154,7 +154,7 @@ sealed class ChatSession(ChatService chat, string name, Player player) : IDispos
         return frame.Type switch
         {
             ChatFrame.Line when named && frame.Kind is ChatChannelKind.Global or ChatChannelKind.Trade && text.Length > 0 =>
-                ChatService.IsIgnored(Player, frame.Name) ? Task.CompletedTask
+                ChatService.IsIgnored(Player, frame.Name) || GameEvents.GetChatAvailability(Player).Dnd ? Task.CompletedTask
                     : Deliver(InstanceChat.ChatLine(text, InstanceChat.Sender(frame.Kind == ChatChannelKind.Global ? TypedChannel.Global : TypedChannel.Trade, frame.Name!),
                         items: chat.LineItems(Player, text, frame.Items)),
                         $"0x0017 {frame.Kind} chat line from {frame.Name}"),

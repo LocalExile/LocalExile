@@ -1307,6 +1307,23 @@ public static partial class Game
         await PublishLevelChange(player, before, level);
     }
 
+    public static string ClassDisplayName(Player player)
+    {
+        var cls = SkillsFor(player).ClassFor(player.Character.ClassRow);
+        if (Game.AscendancyRules.Validate((byte)cls.IntegerId, player.Character.MainAscendancy) is { } asc)
+            return asc.Name;
+        return ((GameServer.Core.Accounts.CharacterClass)cls.IntegerId).ToString();
+    }
+
+    public static string ClassDisplayName(GameServer.Core.Accounts.CharacterClass baseClass, string? ascendancyId)
+    {
+        if (!string.IsNullOrEmpty(ascendancyId)
+            && Ascendancies.Definitions.FirstOrDefault(d => d.BaseClass == (byte)baseClass
+                && d.Identity.Id.Equals(ascendancyId, StringComparison.OrdinalIgnoreCase)) is { } asc)
+            return asc.Name;
+        return baseClass.ToString();
+    }
+
     public static async Task PublishLevelChange(Player player, int before, int level)
     {
         if (HardcoreProgressBlocked(player)) return;
@@ -1321,6 +1338,16 @@ public static partial class Game
         await SendPlayerMana(player, $"0x01b1 player mana {player.PlayerMana}");
         await SendPassives(player);
         await CheckLevelAchievements(player, level);
+        // BackendErrors LevelUp (143): "{0} ({1}) is now level {2}". Each recipient gets its own bytes (in-place cipher).
+        string text = $"{CharacterName(player)} ({ClassDisplayName(player)}) is now level {level}";
+        var seen = new HashSet<Player>(ReferenceEqualityComparer.Instance);
+        foreach (var recipient in InGame.Keys.Append(player))
+        {
+            if (!seen.Add(recipient) || recipient is not { Controlled: false, Closed: false, LeavingArea: false, Connection.Outbox: { } outbox }
+                || !ReferenceEquals(recipient.Instance.Presence, player.Instance.Presence)) continue;
+            try { await outbox(InstanceChat.ChatLine(text), $"0x0017 level up \"{text}\""); }
+            catch (Exception ex) when (ex is IOException or ObjectDisposedException) { }
+        }
     }
 
     // The player's stats (0x1b3) and the skills computed with them (0x2bc Actor), after the level or the passives changed.
