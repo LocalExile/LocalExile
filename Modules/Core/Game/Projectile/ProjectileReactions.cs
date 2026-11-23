@@ -166,7 +166,8 @@ public static partial class Game
             ChargesOnKill(player, monster);
             RecoverOnKill(player, monster, tinctureKill);
             GainPhasingOnKill(player);
-            session.EnqueueLater(async () => await ExplodeOnKill(player, id, monster, position));
+            var explosionEquipment = CaptureKillEquipment(player, monster, position, now);
+            session.EnqueueLater(async () => await ExplodeOnKill(player, id, monster, position, explosionEquipment));
         }
         SoulEaterSoul(player, id, position);
         if (CommitQuestFlags(player, QuestsOf(player).OnMonsterKilled(player.Layout.Id, variety.Id)) is { } quest)

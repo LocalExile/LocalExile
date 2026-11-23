@@ -156,6 +156,12 @@ public static partial class Game
     public static bool CompleteResourceRecoveryLocked(Player player, double from, double now,
         IReadOnlyDictionary<uint, int> stats, double earnedMana, uint manaBefore, uint manaCap, ref double manaCarry)
     {
+        if (player.WitchbaneImmunityUntil is > 0 and var expiry && now >= expiry)
+        {
+            player.WitchbaneImmunityUntil = 0;
+            if (HasMapHexes(MapModsOf(player))) RecomputePoolsAndSpeed(player);
+            MarkPlayerStats(player, PlayerStatStep.SelfVulnerability);
+        }
         AdvancePlayerAilmentsLocked(player, from, now, stats);
         if (player.PlayerLife > 0) AdvanceSiphoningDamageLocked(player, now, stats);
         if (player.PlayerLife > 0) AdvanceHerEmbraceDamageLocked(player, now, stats);

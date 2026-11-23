@@ -30,6 +30,7 @@ public static partial class Game
 
     public static void CommitAcceptedKillLocked(Player player, uint victimId, SpawnedMonster monster, double now, bool playerKill, List<PlayerMinions.AcceptedCharges>? chargeBatch = null)
     {
+        RememberCursedCorpse(player, victimId, monster);
         HitSummonsOnDeathLocked(player, victimId, monster, now);
         QueueEssenceDeathSpawnLocked(player, victimId, monster);
         var state = player.Minions;
@@ -52,7 +53,8 @@ public static partial class Game
                 Frozen: monster.Ailments.FrozenAtDeath(now));
             if (chargeBatch is not null) chargeBatch.Add(charge);
             else CommitAcceptedChargeBatchLocked(player, [charge], CharacterPlayerStats(player));
-            ProjectilesFor(player).EnqueueLater(async () => await ExplodeOnKill(player, victimId, monster, at));
+            var explosionEquipment = CaptureKillEquipment(player, monster, at, now);
+            ProjectilesFor(player).EnqueueLater(async () => await ExplodeOnKill(player, victimId, monster, at, explosionEquipment));
         }
         var packets = new List<(byte[] Packet, string? Log)>();
         if (CommitQuestFlags(player, QuestsOf(player).OnMonsterKilled(player.Layout.Id, variety.Id)) is { } quest)

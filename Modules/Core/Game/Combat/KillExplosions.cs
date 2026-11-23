@@ -1,5 +1,6 @@
 using System.Buffers.Binary;
 using System.Net.Sockets;
+using System.Runtime.CompilerServices;
 using GameServer.Core.Protocol.Instance;
 using GameServer.Core.Protocol.Login;
 using GameServer.Core.Diagnostics;
@@ -10,12 +11,59 @@ public static partial class Game
 {
     const uint CursedCorpseBlast = Stat.EnemiesNearCursedCorpsesAreBlindedAndExplodeOnDeathForPctLifeAsPhysicalDamage;
 
+    static readonly ConditionalWeakTable<GameArea, SortedDictionary<uint, SpawnedMonster>> AreaCursedCorpses = new();
+
+    static SortedDictionary<uint, SpawnedMonster> CursedCorpsesOf(GameArea area) =>
+        AreaCursedCorpses.GetValue(area, static world =>
+        {
+            var corpses = new SortedDictionary<uint, SpawnedMonster>();
+            foreach (var (id, corpse) in world.Monsters)
+                if ((corpse.Dead || corpse.Life == 0) && !corpse.CorpseConsumed
+                    && corpse.Curses.All.Values.Any(c => c.RemainsOnDeath))
+                    corpses.Add(id, corpse);
+            return corpses;
+        });
+
+    static void RememberCursedCorpse(Player player, uint id, SpawnedMonster corpse)
+    {
+        if (!corpse.CorpseConsumed && corpse.Curses.All.Values.Any(c => c.RemainsOnDeath))
+            CursedCorpsesOf(player.Area)[id] = corpse;
+    }
+
     static IEnumerable<(uint Id, (int X, int Y) At)> OwnCursedCorpses(Player player, double now, SpawnedMonster? except = null)
     {
-        foreach (var (id, corpse) in player.Area.Monsters)
-            if (!ReferenceEquals(corpse, except) && !corpse.CorpseConsumed && (corpse.Dead || corpse.Life == 0)
-                && corpse.Curses.All.Values.Any(c => c.Caster == player.Id && c.RemainsOnDeath && c.Until > now))
+        var area = player.Area;
+        var corpses = CursedCorpsesOf(area);
+        List<uint>? expired = null;
+        foreach (var (id, corpse) in corpses)
+        {
+            if (corpse.CorpseConsumed || !ReferenceEquals(area.Monsters.GetValueOrDefault(id), corpse)
+                || !corpse.Curses.All.Values.Any(c => c.RemainsOnDeath && c.Until > now))
+            {
+                (expired ??= []).Add(id);
+                continue;
+            }
+            if (!ReferenceEquals(corpse, except) && corpse.Curses.All.Values.Any(c => c.Caster == player.Id
+                    && c.RemainsOnDeath && c.Until > now))
                 yield return (id, corpse.Walk.Position(now));
+        }
+        if (expired is not null)
+            foreach (uint id in expired) corpses.Remove(id);
+    }
+
+    public readonly record struct KillEquipmentSnapshot(int CursedCorpsePhysicalPct, int PrideChance, int CursedVictimChaosChance);
+
+    static KillEquipmentSnapshot CaptureKillEquipment(Player player, SpawnedMonster victim, (int X, int Y) at, double now,
+        IReadOnlyDictionary<uint, int>? stats = null)
+    {
+        stats ??= CharacterPlayerStats(player);
+        int corpsePercent = stats.GetValueOrDefault(CursedCorpseBlast);
+        if (corpsePercent > 0 && !OwnCursedCorpses(player, now, victim).Any(other => Dist(other.At, at) <= KillExplosionRadius))
+            corpsePercent = 0;
+        int prideChance = stats.GetValueOrDefault(Stat.ExplodeEnemiesFor10PctLifeAsPhysicalOnKillChancePctWhileUsingPride);
+        if (prideChance != 0 && ReservationAura(player, "Pride") is null) prideChance = 0;
+        return new(corpsePercent, prideChance,
+            victim.CursedAtDeath ? stats.GetValueOrDefault(Stat.ExplodeCursedEnemiesFor25PctLifeAsChaosOnKillChancePct) : 0);
     }
 
     static void CaptureEquippedHitExplosionLocked(SpawnedMonster target, IReadOnlyDictionary<uint, int> playerStats)
@@ -73,7 +121,8 @@ public static partial class Game
     /// already are, so the player's damage increases do not scale it. The corpse is consumed at once (the official
     /// client removes it 0-6 ms after the death), and a kill by the explosion is the player's and can trigger another
     /// explosion.</summary>
-    public static async Task<bool> ExplodeOnKill(Player player, uint corpseId, SpawnedMonster corpse, (int X, int Y) at)
+    public static async Task<bool> ExplodeOnKill(Player player, uint corpseId, SpawnedMonster corpse, (int X, int Y) at,
+        KillEquipmentSnapshot? equipment = null)
     {
         var playerStats = CharacterPlayerStats(player);
         int Get(uint key) => playerStats.GetValueOrDefault(key);
@@ -84,18 +133,12 @@ public static partial class Game
         bleeding = corpse.Bleeds.Burning || corpse.Bleeds.DiedBurning;
         // A bleeding kill has both explosion modifiers; their percentages add (the generic one and the bleeding one
         // are separate sources on the same kill).
-        long percent = (long)generic + (bleeding ? bleedingPercent : 0);
-        int cursedCorpsePercent = Get(CursedCorpseBlast);
-        if (cursedCorpsePercent > 0
-            && OwnCursedCorpses(player, AreaTime(player), corpse).Any(other => Dist(other.At, at) <= KillExplosionRadius))
-            percent += cursedCorpsePercent;
-        int prideChance = Get(Stat.ExplodeEnemiesFor10PctLifeAsPhysicalOnKillChancePctWhileUsingPride);
-        long physicalChance = Get(Stat.ExplodeEnemiesFor10PctLifeAsPhysicalOnKillChancePct);
-        if (prideChance > 0 && ReservationAura(player, "Pride") is not null) physicalChance += prideChance;
+        var captured = equipment ?? CaptureKillEquipment(player, corpse, at, AreaTime(player), playerStats);
+        long percent = (long)generic + (bleeding ? bleedingPercent : 0) + captured.CursedCorpsePhysicalPct;
+        long physicalChance = (long)Get(Stat.ExplodeEnemiesFor10PctLifeAsPhysicalOnKillChancePct) + captured.PrideChance;
         if (physicalChance > 0 && AreaRng(player).Next(100) < physicalChance) percent += 10;
         // The same quarter-life chaos explosion can come from a general or a cursed-enemy source.
-        long chaosChance = Get(Stat.ExplodeEnemiesFor25PctLifeAsChaosOnKillChancePct);
-        if (corpse.CursedAtDeath) chaosChance += Get(Stat.ExplodeCursedEnemiesFor25PctLifeAsChaosOnKillChancePct);
+        long chaosChance = (long)Get(Stat.ExplodeEnemiesFor25PctLifeAsChaosOnKillChancePct) + captured.CursedVictimChaosChance;
         int chaosPercent = chaosChance > 0 && AreaRng(player).Next(100) < chaosChance ? 25 : 0;
         // Oriath's End: "(20-30)% chance for Enemies you Kill during Effect to Explode, dealing 10% of their maximum
         // Life as Damage of a Random Element" (the flask's local stat becomes this one while it runs, UtilityFlasks).

@@ -113,6 +113,8 @@ Part of [Status](../Status.md); what to build next in this area is in
 
 ## Partly working
 
+- Nightmare maps apply their levelled hexes while the player is in the map.
+
 - Named scarabs: Domination/Cloister, Ambush boxes, Essence release/Ascent/Calcification/Stability and Terrors bosses;
   Essence: corruption/transfers, Toughness, enrage, Decay, Envy, Karui and death insects; other skills/scaling partial (#505).
 - Tormented Spirits in maps and the campaign: touch, possession, right-click Possession cancellation (`C→S 0x004b`),

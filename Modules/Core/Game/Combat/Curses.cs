@@ -199,6 +199,7 @@ public static partial class Game
             || StatSourceValues(player).GetValueOrDefault(Stat.ImmuneToCursesOnKillingCursedEnemyForRemainingDurationOfCurse) == 0)
             return;
         player.WitchbaneImmunityUntil = until;
+        if (HasMapHexes(MapModsOf(player))) RecomputePoolsAndSpeed(player);
         MarkPlayerStats(player, PlayerStatStep.Sources);
         MarkPlayerStats(player, PlayerStatStep.SelfVulnerability);
         player.AuraStatsDirty = true;

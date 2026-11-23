@@ -67,8 +67,7 @@ Part of [Status](../Status.md); what to build next in this area is in
 
 - Cursed and ignited kill effects use the accepted hit and corpse state. Retained hexes support Asenath's corpse effects.
   Witchbane grants its timed immunity on player kills, and minion curse explosions use the killing minion's damage.
-- Hex Master and Defiled Forces govern curse duration and ailment refresh. Contagion of Transference spreads on hit.
-  Essence Drain of Desperation costs Life and Energy Shield as its debuff deals damage. Firestorm schedules timed hits.
+- Hex Master and Defiled Forces govern curse duration and ailment refresh. Firestorm schedules timed hits.
 
 - Summoned followers stop pathless walk orders and retry when a route becomes available.
 - Spell-totem summons keep their minion identity instead of inheriting their summoning skill's totem flags.
@@ -86,13 +85,12 @@ Part of [Status](../Status.md); what to build next in this area is in
 - Leap Slam: landing hits and full-life stuns; recovery cadence awaits a client check. Docs: [11](../docs/protocol/11-skills.md) Â§9a.
 
 - Contagion and Contagion of Subsiding: a chaos damage over time with no hit; a monster that dies affected spreads
-  it for the time it had left. Not yet: the debuff icon (BuffDefinitions 504 crashes the client), Contagion of
-  Transference, a spread when a projectile or a minion makes the kill.
+  it for the time it had left. Contagion of Transference spreads on hit. The debuff icon and some kill paths remain open.
 - Bane and Bane of Condemnation: independent chaos damage over time and linked Hex application. Damage and duration
   use the Hexes applied to each target. The Bane-specific buff presentation remains open.
 - Essence Drain: a surviving hit leaves a chaos damage over time that recovers life for its caster, and
-  Contagion's spread carries it. Not yet: the debuff icon (503 crashes the client), Essence Drain of
-  Desperation's life loss, the debuff in Survivors.
+  Contagion's spread carries it. Desperation drains the caster's Life and Energy Shield while its debuff deals damage.
+  The debuff icon and Survivors support remain open.
 - Ice Shot: its primary arrows (`IceArrow`) hit; the cone splash is open.
   Docs: [11](../docs/protocol/11-skills.md) Â§10.
 - Multi-strike skills (Double Strike): each strike is its own hit, sharing one critical roll.
