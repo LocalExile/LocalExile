@@ -290,6 +290,7 @@ public static partial class Game
                 state.FlaskRewards.RemoveAt(0);
                 var playerStats = CharacterPlayerStats(player);
                 int Get(uint key) => playerStats.GetValueOrDefault(key);
+                int areaIncrease = MapFlaskChargeGain(player);
                 var changed = new List<InventoryItem>();
                 foreach (var flask in items.Items(PlayerInventories.Flask))
                 {
@@ -298,7 +299,8 @@ public static partial class Game
                     var local = ItemModStats.Local(flask.Item, ItemsFor(player).Mods); var charges = FlaskCharges.Of(basis, local);
                     if (flask.Item.Charges >= charges.MaxCharges) continue;
                     double gain = reward.CritGains is { } gains ? gains.GetValueOrDefault(flask.Id) : FlaskCharges.FullShortcut ? int.MaxValue : FlaskCharges.KillCharges(reward.Rarity, ItemsFor(player).Mods);
-                    int whole = player.FlaskChargeCarry.Take(flask.Id, gain * FlaskCharges.GainMultiplier(local, Get));
+                    int whole = player.FlaskChargeCarry.Take(flask.Id,
+                        gain * FlaskCharges.GainMultiplier(local, Get, areaIncrease));
                     if (whole > 0 && items.ChangeUnsaved(PlayerInventories.Flask, flask.Id, item => Flasks.Gain(item, charges, whole)) is { } done) changed.Add(done);
                 }
                 return ([.. changed.Select(i => i.Id)], changed);

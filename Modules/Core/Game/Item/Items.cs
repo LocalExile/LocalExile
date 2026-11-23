@@ -882,10 +882,12 @@ public static partial class Game
 
     // FillFlasks, and the changed flasks to the client (one S→C 0xbf).
     public static Task GainFlaskCharges(Player player, int charges, string why) =>
-        ChangeFlaskBar(player, items => Flasks.Fill(items, ItemsFor(player), charges, saveNow: false,
-                canGain: flask => CanGainFlaskCharges(player, flask)) is { Count: > 0 } changed
-                ? ([.. changed.Select(c => c.Id)], changed) : null,
-            changed => $"0x00bf flasks: {string.Join(", ", changed.Select(c => $"{c.X}: {c.Item.Charges}"))} charges ({why})");
+        charges != int.MaxValue && MapFlaskChargeGain(player) != 0
+            ? GainFlaskCharges(player, (_, _) => charges, why)
+            : ChangeFlaskBar(player, items => Flasks.Fill(items, ItemsFor(player), charges, saveNow: false,
+                    canGain: flask => CanGainFlaskCharges(player, flask)) is { Count: > 0 } changed
+                    ? ([.. changed.Select(c => c.Id)], changed) : null,
+                changed => $"0x00bf flasks: {string.Join(", ", changed.Select(c => $"{c.X}: {c.Item.Charges}"))} charges ({why})");
 
     // A new character's class weapon lies on the ground a few cells from where it appears, as on the real game's Twilight
     // Strand, until it is picked up (PlayerInventories.StartWeapon): put once into each instance it enters outside towns.

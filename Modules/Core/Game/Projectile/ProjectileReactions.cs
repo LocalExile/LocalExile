@@ -285,6 +285,7 @@ public static partial class Game
         // Built only for a flask that can still gain: a full flask bar (the common case in a pack fight) needs no stats,
         // and every kill of an explosion asked for the full snapshot under the lock.
         Dictionary<uint, int>? stats = null;
+        int? areaIncrease = null;
         int Get(uint key) => (stats ??= new Dictionary<uint, int>(CharacterPlayerStats(player))).GetValueOrDefault(key);
         var items = ItemsOf(player);
         List<InventoryItem>? changed = null;
@@ -294,7 +295,8 @@ public static partial class Game
             if (ItemsFor(player).ByHash(flask.Item.TypeHash) is not { } type || ItemsFor(player).FlaskChargesOf(type) is not { } basis) continue;
             var local = FlaskLocalStats(player, flask.Item); var charges = FlaskCharges.Of(basis, local);
             if (flask.Item.Charges >= charges.MaxCharges) continue;
-            int whole = player.FlaskChargeCarry.Take(flask.Id, gain(flask, local) * FlaskCharges.GainMultiplier(local, Get));
+            int whole = player.FlaskChargeCarry.Take(flask.Id,
+                gain(flask, local) * FlaskCharges.GainMultiplier(local, Get, areaIncrease ??= MapFlaskChargeGain(player)));
             if (whole > 0 && items.ChangeUnsaved(PlayerInventories.Flask, flask.Id, value => Flasks.Gain(value, charges, whole)) is { } item)
                 (changed ??= []).Add(item);
         }

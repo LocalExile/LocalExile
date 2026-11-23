@@ -5,6 +5,8 @@ using GameServer.Core.Diagnostics;
 
 public static partial class Game
 {
+    static int MapFlaskChargeGain(Player player) => MapModsOf(player)?.Get(Stat.MapPlayerChargesGainedPlusPct) ?? 0;
+
     // Apply the flask's area-entry rule before publishing the inventory. An entry reset takes priority over a refill.
     static void SettleAreaEntryFlasks(Player player, PlayerInventories inventory)
     {
@@ -117,6 +119,7 @@ public static partial class Game
             if (gain > 0 && flask.Item.Charges < charges.MaxCharges) gaining.Add((flask, local, charges, gain));
         }
         if (gaining.Count == 0) return;
+        int areaIncrease = MapFlaskChargeGain(player);
         var character = CharacterPlayerStats(player);
         int Get(uint key) => character.GetValueOrDefault(key);
         await ChangeFlaskBar(player, items =>
@@ -125,7 +128,7 @@ public static partial class Game
             foreach (var (flask, local, charges, gain) in gaining)
             {
                 if (!CanGainFlaskCharges(player, flask)) continue;
-                int whole = player.FlaskChargeCarry.Take(flask.Id, gain * FlaskCharges.GainMultiplier(local, Get));
+                int whole = player.FlaskChargeCarry.Take(flask.Id, gain * FlaskCharges.GainMultiplier(local, Get, areaIncrease));
                 if (whole > 0 && items.ChangeUnsaved(PlayerInventories.Flask, flask.Id, i => Flasks.Gain(i, charges, whole)) is { } done)
                 {
                     changed.Add(done);
