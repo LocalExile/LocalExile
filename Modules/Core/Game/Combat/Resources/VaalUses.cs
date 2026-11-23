@@ -16,7 +16,7 @@ public static partial class Game
     public static bool VaalExecutor(Player player, int effect)
     {
         string id = SkillsFor(player).EffectId(effect) ?? "";
-        return id is "VaalGroundSlam" or "VaalFireball" or "VaalSpark" or "VaalMoltenStrike" or VaalImmortalCallEffect or "VaalSmite"
+        return id is "VaalGroundSlam" or "VaalFireball" or "VaalSpark" or "VaalMoltenStrike" or "VaalFireTrap" or VaalImmortalCallEffect or "VaalSmite"
             || IsVaalMinion(id) || VaalAuras.ContainsKey(id) || TimedVaalAuraBuffRows.ContainsKey(id);
     }
     static double VaalResourceTime(Player player) => player.LeavingArea && player.RampageTransferAt is double frozen
