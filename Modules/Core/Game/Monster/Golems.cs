@@ -362,10 +362,12 @@ public static partial class Game
         double remaining = arrival && double.IsFinite(summonedSecondsRemaining)
             ? Math.Clamp(summonedSecondsRemaining, 0, 8) : arrival ? 0 : 8;
         double summonedAt = replacement?.SummonedAt ?? preparedNow - (8 - remaining);
+        double freshMeat = !arrival && replacement is null ? FreshMeatSeconds(supported.Stats, double.PositiveInfinity) : 0;
         var probe = new GolemState.Golem(0, null!, definition, source, gemSource)
         {
             GemLevel = supported.Level, Quality = supported.Quality, Own = new(supported.Stats), Player = new(playerStats),
             Limit = limit, SummonedAt = summonedAt, Utility = MinionOfferingStats(player, preparedNow),
+            FreshMeatUntil = replacingOld?.FreshMeatUntil ?? (freshMeat > 0 ? preparedNow + freshMeat : 0),
         };
         var mods = GolemModifiers(player, probe, playerStats, preparedNow);
         var pools = GolemPools.Calculate(Monsters, variety, level, probe, playerStats, mods.Effects);
@@ -410,6 +412,7 @@ public static partial class Game
                 else if (player.Golems.Replacement(definition.Kind, limit) is { } old)
                     RemoveGolemLocked(player, old, committed, reconcileBlessing: false);
                 probe.SummonedAt = replacement?.SummonedAt ?? committed - (8 - remaining);
+                if (freshMeat > 0) probe.FreshMeatUntil = committed + freshMeat;
                 probe.LastStep = replacement?.LastStep ?? committed;
                 probe.ShieldPool.SetMaximum(maximumEnergyShield,
                     refill: committedResources is null && resources is null && !legacyArrival);

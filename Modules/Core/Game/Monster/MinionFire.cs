@@ -32,7 +32,8 @@ public static partial class Game
         var (general, typed) = GemSupportDamage.Multipliers(DamageTypes.HistoryOf(type), support, MinionAreaDamageTags);
         double factor = Math.Max(0, 1 + increased / 100d) * general * typed
             * Math.Max(0, 1 + Own(Stat.ActiveSkillMinionDamagePlusPctFinal) / 100d)
-            * Math.Max(0, 1 + Own(Stat.SupportMinionDamagePlusPctFinal) / 100d);
+            * Math.Max(0, 1 + Own(Stat.SupportMinionDamagePlusPctFinal) / 100d)
+            * Math.Max(0, 1 + effects[Stat.NecromancerMinionDamagePlusPctFinal] / 100d);
         if (damageOverTime)
             factor *= Math.Max(0, 1 + (effects[Stat.DotMultiplierPlus] + effects[Stat.FireDotMultiplierPlus]) / 100d);
         return factor;
