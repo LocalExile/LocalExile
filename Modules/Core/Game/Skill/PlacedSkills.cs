@@ -467,7 +467,9 @@ public static partial class Game
         bool running = player.Placed.All.Values.Any(p => p.Mine && !double.IsPositiveInfinity(p.DetonateAt));
         double next = running ? player.Placed.NextChain : now;
         int prior = running ? player.Placed.Chain : 0;
-        foreach (var mine in player.Placed.All.Values.Where(p => p.Mine && double.IsPositiveInfinity(p.DetonateAt))
+        var playerAt = player.Walk.Position(now);
+        foreach (var mine in player.Placed.All.Values.Where(p => p.Mine && double.IsPositiveInfinity(p.DetonateAt)
+            && MineCanDetonateFrom(p, playerAt))
             .OrderBy(p => p.Armed).ThenBy(p => p.Id))
         {
             int time = GolemStat(mine.Own, Stat.BaseMineDetonationTimeMs);
@@ -481,8 +483,18 @@ public static partial class Game
         player.Placed.Chain = prior;
     }
 
-    public static bool CanDetonateMines(Player player) =>
-        player.Placed.All.Values.Any(p => p.Mine && p.Armed <= AreaTime(player));
+    static bool MineCanDetonateFrom(PlacedSkills.Placed mine, (int X, int Y) playerAt)
+    {
+        int minimum = GolemStat(mine.Own, Stat.SupportLocusMineCannotDetonateMinesWithinXUnits);
+        return minimum <= 0 || Dist(mine.At, playerAt) >= minimum;
+    }
+
+    public static bool CanDetonateMines(Player player)
+    {
+        double now = AreaTime(player);
+        var playerAt = player.Walk.Position(now);
+        return player.Placed.All.Values.Any(p => p.Mine && p.Armed <= now && now < p.Until && MineCanDetonateFrom(p, playerAt));
+    }
 
     static void LandPlacedRecordsLocked(Player player, PlacedSkills.Placed placed, double now, WorldRecordBuilder bytes)
     {
@@ -686,12 +698,19 @@ public static partial class Game
             {
                 if (!CurrentGameWork || player.Closed || player.LeavingArea || player.Paused) return null;
                 var bytes = new WorldRecordBuilder(player, admission);
+                var playerAt = player.Walk.Position(now);
                 foreach (var placed in player.Placed.All.Values.ToArray())
                 {
                     if (player.Connection.LockstepClient && !player.Connection.WorldOutput.PublishedObject(placed.Id).IsReady) continue;
                     if (player.PlayerLife == 0 || now >= placed.Until) { RemovePlacedLocked(player, placed, bytes); continue; }
                     LandPlacedRecordsLocked(player, placed, now, bytes);
                     if (now < placed.Armed) continue;
+                    if (placed.Mine && !MineCanDetonateFrom(placed, playerAt))
+                    {
+                        if (now >= placed.DetonateAt) placed.DetonateAt = double.PositiveInfinity;
+                        continue;
+                    }
+
                     bool skitter = false;
                     if (!placed.SkitterTriggered)
                     {
