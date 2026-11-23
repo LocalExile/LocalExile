@@ -70,10 +70,11 @@ public static partial class Game
         definition.Family == "Skeleton" ? Math.Max(1, new[] { Stat.NumberOfMeleeSkeletonsToSummon,
             Stat.NumberOfArcherSkeletonsToSummon, Stat.NumberOfMageSkeletonsToSummon }.Sum(stat)) : 1;
 
-    public static int SummonLimit(Player player, SummonCatalog.Definition definition, SupportedGem gem)
+    public static int SummonLimit(Player player, SummonCatalog.Definition definition, SupportedGem gem) =>
+        definition.LimitStat == 0 ? 1 : SummonLimit(definition, gem, CharacterPlayerStats(player));
+
+    static int SummonLimit(SummonCatalog.Definition definition, SupportedGem gem, IReadOnlyDictionary<uint, int> playerStats)
     {
-        if (definition.LimitStat == 0) return 1;
-        var playerStats = CharacterPlayerStats(player);
         uint final = definition.FinalLimitStat;
         long value = (long)GolemStat(gem.Stats, definition.LimitStat) + GolemStat(playerStats, definition.LimitStat) + GolemStat(playerStats, final);
         if (definition.Family == "Zombie")
@@ -434,7 +435,24 @@ public static partial class Game
                 state.HolyBuff = 0; state.HolyRegenerationPerMinute = 0; player.Minions.StatRevision++;
             }
             var playerStats = now >= state.RefreshAt && state.Fighters.Count > 0 ? CharacterPlayerStats(player) : null;
-            if (playerStats is not null) state.RefreshAt = now + .5;
+            if (playerStats is not null)
+            {
+                state.RefreshAt = now + .5;
+                if (GolemStat(playerStats, Stat.NumberOfZombiesAllowedPlusPct) < 0)
+                {
+                    var zombies = state.Fighters.Values.Where(fighter => fighter.Definition.Kind == "Zombie"
+                        && !fighter.Monster.Dead && fighter.Monster.Life > 0).OrderByDescending(fighter => fighter.SummonedAt).ToArray();
+                    if (zombies.FirstOrDefault() is { } newest && SupportedSkill(player, newest.Source) is { RequirementsMet: true } skill)
+                    {
+                        int limit = SummonLimit(state.Definitions[newest.Id], skill, playerStats);
+                        foreach (var extra in zombies.Skip(limit))
+                        {
+                            RemoveSummonLocked(player, extra, now);
+                            changed = true;
+                        }
+                    }
+                }
+            }
             foreach (var fighter in state.Fighters.Values.ToArray())
             {
                 if (player.PlayerLife == 0 || fighter.Monster.Dead || fighter.Monster.Life == 0 || now >= state.Until[fighter.Id])

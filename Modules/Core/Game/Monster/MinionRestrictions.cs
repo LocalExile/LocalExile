@@ -43,7 +43,7 @@ public static partial class Game
     static void RetireDisallowedMinions(Player player, double now)
     {
         if (player.Minions.All.Count == 0 || player.Closed || player.LeavingArea || player.Paused) return;
-        var allowed = AllowedMinionFamilies(CharacterPlayerStats(player));
+        var allowed = AllowedMinionFamilies(StatSourceValues(player));
         if (allowed == OwnedMinionFamily.All) return;
         bool saveGolems = false, saveSummons = false;
         using (ProjectileMutation(player))
