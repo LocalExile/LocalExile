@@ -417,7 +417,11 @@ public static partial class Game
                 if (create)
                     await SendWorldCreate(Player, id, () => Project() is { } records ? records.Single() : null,
                         log, wake: wake, awaitBirth: false);
-                else if (!Player.Connection.LockstepClient || !remove)
+                // A removal is its own kind of record wherever the records go out as a world batch: for a lockstep
+                // client always, and for a predictive one inside the area's frame (SendWorldRecords sends plain bytes
+                // only outside it). Sent as a plain world record there, the batch refused it and the connection closed
+                // (live 2026-11-22: a predictive client's first arrow, "Removals require an explicit lifecycle record").
+                else if (!remove || !Player.Connection.LockstepClient && !InAreaFrame(Player))
                     await SendWorldRecords(Player, id, Project, log);
                 else
                 {
