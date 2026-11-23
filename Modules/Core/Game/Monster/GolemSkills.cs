@@ -3,6 +3,24 @@ using GameServer.Core.World;
 
 public static partial class Game
 {
+    const uint FreshMeatDurationPercent = Stat.SupportRecentMinionsEffectDurationIsPctSummonDuration;
+    const uint WakenedFuryChance = Stat.SupportRecentMinionsAdditionalCriticalStrikeChanceFromWakenedFury;
+    const uint WakenedFuryMultiplier = Stat.SupportRecentMinionsAdditionalCriticalStrikeMultiplierFromWakenedFury;
+
+    static double FreshMeatSeconds(IReadOnlyDictionary<uint, int> own, double summonSeconds)
+    {
+        int percent = GolemStat(own, FreshMeatDurationPercent);
+        if (percent <= 0) return 0;
+        double maximum = GolemStat(own, Stat.SupportRecentMinionsMaxEffectDurationMs) / 1000.0;
+        return Math.Max(0, Math.Min(maximum, summonSeconds * (percent / 100.0)));
+    }
+
+    static bool FreshMeatActive(GolemState.Golem minion, double now) =>
+        minion.FreshMeatUntil > 0 && minion.FreshMeatUntil > now && GolemStat(minion.Own, FreshMeatDurationPercent) > 0;
+
+    static double MindlessAggressionDamage(IReadOnlyDictionary<uint, int> stats) =>
+        Math.Max(0, 1 + GolemStat(stats, Stat.NecromancerMinionDamagePlusPctFinal) / 100.0);
+
     public static bool GolemSummonedInPastEightSeconds(GolemState.Golem golem, double at) =>
         golem.Definition.IsGolem && at >= golem.SummonedAt && at - golem.SummonedAt < 8;
 
@@ -35,6 +53,7 @@ public static partial class Game
                     "cold_damage_resistance_%" => Stat.BaseColdDamageResistancePct,
                     "lightning_damage_resistance_%" => Stat.BaseLightningDamageResistancePct,
                     "chaos_resistance_%" => Stat.BaseChaosDamageResistancePct,
+                    "skill_area_of_effect_+%" => Stat.BaseSkillAreaOfEffectPlusPct,
                     var plain => Stat.Of(plain),
                 };
             else if (key is Stat.EnergyShieldPlusPctFinalForMinion or Stat.MinionsHaveNoArmourOrEnergyShield)
@@ -44,6 +63,7 @@ public static partial class Game
         }
         foreach (var (key, value) in golem.Own)
         {
+            if (key is WakenedFuryChance or WakenedFuryMultiplier) continue;
             string name = Stats.Name(key) ?? "";
             // Spell Totem changes the summoning skill, not the actor that skill summons.
             if (name is "is_totem" or "base_skill_is_totemified" or "skill_is_totemified" or "is_ranged_attack_totem") continue;
@@ -53,6 +73,14 @@ public static partial class Game
             if (name.StartsWith("global_", StringComparison.Ordinal) && name.Contains("_added_", StringComparison.Ordinal)
                 && name.EndsWith("_damage", StringComparison.Ordinal)) continue;
             values[id] = values.GetValueOrDefault(id) + value;
+        }
+        if (FreshMeatActive(golem, double.IsNegativeInfinity(at) ? AreaTime(player) : at))
+        {
+            foreach (var (key, value) in AntiquarianEffects.AdrenalineStats)
+                values[key] = ActorScale.Saturate((long)values.GetValueOrDefault(key) + value);
+            values[WakenedFuryChance] = GolemStat(golem.Own, WakenedFuryChance);
+            values[Stat.BaseCriticalStrikeMultiplierPlus] = ActorScale.Saturate(
+                (long)values.GetValueOrDefault(Stat.BaseCriticalStrikeMultiplierPlus) + GolemStat(golem.Own, WakenedFuryMultiplier));
         }
         foreach (var (name, value) in golem.Auras.Concat(golem.Utility)) values[name] = values.GetValueOrDefault(name) + value;
         foreach (var (name, value) in golem.Gear) values[name] = values.GetValueOrDefault(name) + value;
@@ -271,6 +299,7 @@ public static partial class Game
                 * Math.Max(0, 1 + Own(Stat.ActiveSkillMinionDamagePlusPctFinal) / 100.0)
                 * Math.Max(0, 1 + Own(Stat.SupportMinionDamagePlusPctFinal) / 100.0)
                 * Math.Max(0, 1 + Own(Stat.Of("minion_damage_+%_final")) / 100.0)
+                * MindlessAggressionDamage(playerStats)
                 * Math.Max(0, 1 + Raw(Stat.ActiveSkillDamagePlusPctFinal) / 100.0)
                 * (golem.Definition.IsGolem ? Math.Max(0, 1 + GolemTether(playerStats, "damage") / 100.0) : 1);
             more *= 1 + .04 * (golem.CombatCharges?.Held(ChargeType.Frenzy) ?? 0);
@@ -394,6 +423,7 @@ public static partial class Game
         var hash = new HashCode();
         hash.Add(CombatLifetime);
         hash.Add(GolemSummonedInPastEightSeconds(golem, now));
+        hash.Add(FreshMeatActive(golem, now));
         hash.Add(SkeletonShieldChaos(player, golem, playerStats));
         foreach (var p in playerStats.Where(p => (Stats.Name(p.Key) ?? "").Contains("minion", StringComparison.Ordinal)
             || (Stats.Name(p.Key) ?? "").Contains("golem", StringComparison.Ordinal)).OrderBy(p => p.Key)) hash.Add(p);

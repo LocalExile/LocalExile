@@ -27,7 +27,8 @@ public static partial class Game
         var (general, typed) = GemSupportDamage.Multipliers(history, minion.Own.Select(p => (p.Key, p.Value)), MinionFireArea);
         double factor = Math.Max(0, 1 + increased / 100d) * general * typed
             * Math.Max(0, 1 + Own(Stat.ActiveSkillMinionDamagePlusPctFinal) / 100d)
-            * Math.Max(0, 1 + Own(Stat.SupportMinionDamagePlusPctFinal) / 100d);
+            * Math.Max(0, 1 + Own(Stat.SupportMinionDamagePlusPctFinal) / 100d)
+            * MindlessAggressionDamage(minion.Player);
         if (damageOverTime)
             factor *= Math.Max(0, 1 + (effects[Stat.DotMultiplierPlus] + effects[Stat.FireDotMultiplierPlus]) / 100d);
         return basis * factor;

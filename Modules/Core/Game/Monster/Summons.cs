@@ -222,8 +222,12 @@ public static partial class Game
             inheritedMods = MonsterModRolls.Create(MonsterModRolls.Species(variety.SpeciesModsOrEmpty, Random.Shared),
                 [], MonsterRarity.Normal, level);
         var native = new GolemCatalog.Definition(gem.Effect, definition.Id, definition.Family, path, 0, [], false, false, false);
+        double freshMeat = remaining is null && replacement is null && !legacyArrival
+            && GolemStat(gem.Stats, FreshMeatDurationPercent) > 0
+            ? FreshMeatSeconds(gem.Stats, SummonDuration(player, definition, gem)) : 0;
         var fighter = new GolemState.Golem(0, null!, native, source)
         { GemLevel = gem.Level, Quality = gem.Quality, Own = new(gem.Stats), Player = new(playerStats), Limit = limit,
+            FreshMeatUntil = replacingOld?.FreshMeatUntil ?? (freshMeat > 0 ? AreaTime(player) + freshMeat : 0),
             InheritedMods = inheritedMods ?? MonsterModSet.None, RetainedSkillStats = retainedStats is null ? [] : new(retainedStats),
             SourceIdentity = gem.SourceGem is null ? null : PlayerInventories.GemIdentity(gem.SourceGem) };
         if (animated is not null)
@@ -292,6 +296,7 @@ public static partial class Game
                     TransferIncomingReplacementStateLocked(replacement.Old, fighter, committed);
                 if (replacement is not null) RetireReplacementLocked(player, replacement, committed);
                 fighter.SummonedAt = replacement?.SummonedAt ?? committed;
+                if (freshMeat > 0) fighter.FreshMeatUntil = committed + freshMeat;
                 fighter.LastStep = replacement?.LastStep ?? committed;
                 fighter.ShieldPool.SetMaximum(maximumEnergyShield,
                     refill: committedResources is null && resources is null && !legacyArrival);
