@@ -11,43 +11,52 @@ using GameServer.Core;
 /// </summary>
 public static class AreaTransitionCatalog
 {
+    /// <summary>Fills this type's game data at startup (the world loader, before the Gateway listens).</summary>
+    public static void LoadGameData()
+    {
+        Atlas = Load();
+        AreaActs = LoadAreaActs();
+        ClientStrings = LoadClientStrings();
+        ObjectTypes = LoadObjectTypes();
+    }
+
     const string Folder = "data/walkability";
     /// <summary>Server object ids of an area's area transitions: 0x2000, 0x2001, …</summary>
     public const uint FirstId = 0x2000;
 
-    static readonly Lazy<Dictionary<ushort, AtlasArea>?> Atlas = new(Load);
+    static Dictionary<ushort, AtlasArea>? Atlas = default!;
 
     /// <summary>The HASH16 of a WorldAreas id or name (case-insensitive, from the atlas), or null.</summary>
     public static ushort? HashOf(string idOrName) =>
-        Atlas.Value?.Values.FirstOrDefault(a => a.Id.Equals(idOrName, StringComparison.OrdinalIgnoreCase)
+        Atlas?.Values.FirstOrDefault(a => a.Id.Equals(idOrName, StringComparison.OrdinalIgnoreCase)
             || (a.Name?.Equals(idOrName, StringComparison.OrdinalIgnoreCase) ?? false))?.Hash16;
 
     /// <summary>The WorldAreas id of an area hash (from the atlas), or null without the atlas.</summary>
-    public static string? IdOf(ushort hash) => Atlas.Value?.GetValueOrDefault(hash)?.Id;
+    public static string? IdOf(ushort hash) => Atlas?.GetValueOrDefault(hash)?.Id;
 
     // Repeated area connections are distinct edges: the k-th way out pairs with the k-th way back.
     public static int? PairedEntrance(ushort source, ushort destination, int? entrance)
     {
-        var outgoing = Atlas.Value?.GetValueOrDefault(source)?.Connections?.Where(c => c.Hash16 == destination).ToArray() ?? [];
-        var incoming = Atlas.Value?.GetValueOrDefault(destination)?.Connections?.Where(c => c.Hash16 == source).ToArray() ?? [];
+        var outgoing = Atlas?.GetValueOrDefault(source)?.Connections?.Where(c => c.Hash16 == destination).ToArray() ?? [];
+        var incoming = Atlas?.GetValueOrDefault(destination)?.Connections?.Where(c => c.Hash16 == source).ToArray() ?? [];
         if (outgoing.Length < 2 || outgoing.Length != incoming.Length || entrance is null) return null;
         int index = Array.FindIndex(outgoing, c => c.Index == entrance);
         return index < 0 ? null : incoming[index].Index;
     }
 
     /// <summary>The WorldAreas name of an area hash (from the atlas), or null.</summary>
-    public static string? NameOf(ushort hash) => Atlas.Value?.GetValueOrDefault(hash)?.Name;
+    public static string? NameOf(ushort hash) => Atlas?.GetValueOrDefault(hash)?.Name;
 
     /// <summary>Every area /goto finds (<see cref="HashOf"/>): its id and name.</summary>
-    public static IEnumerable<(string Id, string? Name)> Areas => Atlas.Value?.Values.Select(a => (a.Id, a.Name)) ?? [];
+    public static IEnumerable<(string Id, string? Name)> Areas => Atlas?.Values.Select(a => (a.Id, a.Name)) ?? [];
 
     /// <summary>The area transitions to create for this (area, seed), with one line per decision for the log.</summary>
     public static (uint Id, AreaTransitionObject Transition)[] For(ushort hash, string id, uint seed, List<string> notes)
     {
-        var area = Atlas.Value?.GetValueOrDefault(hash);
+        var area = Atlas?.GetValueOrDefault(hash);
         if (area is null)
         {
-            notes.Add(Atlas.Value is null ? "no area_transition_areas table in client.db" : $"area 0x{hash:x4} is not in the atlas");
+            notes.Add(Atlas is null ? "no area_transition_areas table in client.db" : $"area 0x{hash:x4} is not in the atlas");
             return [];
         }
         // A layout the Gateway generates itself knows each object's room and graph node: that decides (§8).
@@ -267,10 +276,12 @@ public static class AreaTransitionCatalog
 
     /// <summary>Whether two areas are of one act (WorldAreas Act; true when either is unknown or the table is missing).</summary>
     public static bool SameAct(string a, string b) =>
-        !AreaActs.Value.TryGetValue(a, out int x) || !AreaActs.Value.TryGetValue(b, out int y) || x == y;
+        !AreaActs.TryGetValue(a, out int x) || !AreaActs.TryGetValue(b, out int y) || x == y;
 
     // WorldAreas Id → Act.
-    static readonly Lazy<Dictionary<string, int>> AreaActs = new(() =>
+    static Dictionary<string, int> AreaActs = default!;
+
+    static Dictionary<string, int> LoadAreaActs()
     {
         var acts = new Dictionary<string, int>(StringComparer.Ordinal);
         try
@@ -284,7 +295,7 @@ public static class AreaTransitionCatalog
             Console.WriteLine($"[gateway] WorldAreas: {ex.Message}");
         }
         return acts;
-    });
+    }
 
     /// <summary>The exits of a generated layout (<see cref="ServerLevels.Level.Exits"/>, <c>AreaExits</c>): "entranceN" leads
     /// to the area's Connections[N − 1], "teleportN" within the area to its "telepadN" node; an unused object and a
@@ -414,9 +425,11 @@ public static class AreaTransitionCatalog
 
     /// <summary>The ClientStrings HASH32 of a gate's label key (the ClientStrings client table), null for "%areaname%",
     /// an unknown key or without the table.</summary>
-    static uint? LabelHash(string? key) => key is null or "%areaname%" ? null : ClientStrings.Value?.GetValueOrDefault(key);
+    static uint? LabelHash(string? key) => key is null or "%areaname%" ? null : ClientStrings?.GetValueOrDefault(key);
 
-    static readonly Lazy<Dictionary<string, uint>?> ClientStrings = new(() =>
+    static Dictionary<string, uint>? ClientStrings = default!;
+
+    static Dictionary<string, uint>? LoadClientStrings()
     {
         if (!ClientTables.Has("ClientStrings")) return null;
         try
@@ -432,14 +445,14 @@ public static class AreaTransitionCatalog
         {
             return null;
         }
-    });
+    }
 
     /// <summary>Where a player arriving from <paramref name="from"/> belongs in a generated layout: the named point of the
     /// "entranceN" (enabled or not) whose connection is that area, e.g. The Submerged Passage's Depths return
     /// (entrance4disabled) for a player coming up from The Flooded Depths.</summary>
     public static (int X, int Y)? EntrancePoint(ushort hash, IReadOnlyList<EntrancePoint> entrances, ushort from)
     {
-        if (Atlas.Value?.GetValueOrDefault(hash)?.Connections is not { } connections) return null;
+        if (Atlas?.GetValueOrDefault(hash)?.Connections is not { } connections) return null;
         var numbers = connections.Where(c => c.Hash16 == from).Select(c => c.Index).ToHashSet();
         return entrances.Where(p => numbers.Contains(p.Number)).OrderBy(p => p.Enabled ? 1 : 0).Select(p => ((int, int)?)(p.X, p.Y)).FirstOrDefault();
     }
@@ -468,7 +481,7 @@ public static class AreaTransitionCatalog
     {
         stateMachine = null;
         if (type is null or AreaTransitionObject.MetadataPath) return AreaTransitionObject.MetadataPath;
-        if (ObjectTypes.Value?.GetValueOrDefault(type) is not { Components: not null } info)
+        if (ObjectTypes?.GetValueOrDefault(type) is not { Components: not null } info)
         {
             notes.Add($"{what}: {type} is not in the object_types table, created as a plain AreaTransition");
             return AreaTransitionObject.MetadataPath;
@@ -485,14 +498,16 @@ public static class AreaTransitionCatalog
     }
 
     // The object_types table (scripts/re/ot_components.py --all --json): each type's components and StateMachine defaults.
-    static readonly Lazy<Dictionary<string, (List<string> Components, StateMachineData? StateMachine)>?> ObjectTypes = new(() =>
+    static Dictionary<string, (List<string> Components, StateMachineData? StateMachine)>? ObjectTypes = default!;
+
+    static Dictionary<string, (List<string> Components, StateMachineData? StateMachine)>? LoadObjectTypes()
     {
         if (!ClientTables.Has("object_types")) return null;
         var shared = global::ObjectTypes.SharedStates();
         return global::ObjectTypes.All().ToDictionary(
             t => t.Type,
             t => (global::ObjectTypes.Components(t.Row).ToList(), global::ObjectTypes.StateMachine(t.Row, shared)));
-    });
+    }
 
     /// <summary>Whether an exit the atlas lists is created: a disabled one (its room point is named "…disabled": the game
     /// enables it by script) only when a quest gates that very exit (<see cref="Gated"/>).</summary>
@@ -608,9 +623,7 @@ public sealed record TransitionEffect(string Type, string Model, int X, int Y, f
     public byte[] Blob()
     {
         var w = new BlobWriter().U8(0).U8(0);
-        w.I32(X).I32(Y).F32(Rotation).U16(0).U8((byte)(Z is null ? 0 : 0x04)).U8(2);
-        if (Z is float h) w.I32((int)MathF.Round(-h / 7.8125f)).F32(h);
-        w.U8(0).U8(1);
+        w.Positioned(X, Y, Rotation, fixedHeight: Z is float h ? BlobWriter.FixedHeight(h) : null);
         w.U8(1).WStr32(Model);
         return w.U8(State).U8(0).ToArray();
     }

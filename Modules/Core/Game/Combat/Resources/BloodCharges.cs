@@ -14,15 +14,15 @@
 public static class BloodCharges
 {
     public const int BaseMaximum = 5;
-    public const string DamagePerCharge = "blood_scythe_damage_+%_final_per_charge";
-    public const string CostPerCharge = "blood_scythe_cost_+%_final_per_charge";
-    public const string Maximum = "maximum_blood_scythe_charges";
-    public const string Current = "current_blood_scythe_charges";
-    public const string Show = "show_blood_charge_info";
+    public const uint DamagePerCharge = Stat.BloodScytheDamagePlusPctFinalPerCharge;
+    public const uint CostPerCharge = Stat.BloodScytheCostPlusPctFinalPerCharge;
+    public const uint Maximum = Stat.MaximumBloodScytheCharges;
+    public const uint Current = Stat.CurrentBloodScytheCharges;
+    public const uint Show = Stat.ShowBloodChargeInfo;
     public const ushort BuffRow = 1822;
 
     /// <summary>Whether a skill uses Blood Charges: it has the per-charge damage stat (Reap, Vaal Reap).</summary>
-    public static bool Uses(Func<string, int> own) => own(DamagePerCharge) != 0;
+    public static bool Uses(Func<uint, int> own) => own(DamagePerCharge) != 0;
 
     /// <summary>The more multiplier of <paramref name="held"/> charges at <paramref name="perCharge"/> percent each: one
     /// multiplier of value × charges (PoB's Multiplier tag), not compounded, never below zero.</summary>

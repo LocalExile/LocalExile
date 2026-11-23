@@ -1,8 +1,9 @@
 namespace GameServer.Core.Protocol.Instance;
 
 /// <summary>The non-monster actor component order used by the client's trap and mine misc objects.</summary>
+/// <param name="Team">Its Positioned team, as a monster object's: 0 the player's side, 1 the monsters'.</param>
 public sealed record TrapMineObject(int X, int Y, bool Mine, IReadOnlyList<GrantedSkill> Skills,
-    IReadOnlyList<(uint Key, int Value)> Stats)
+    IReadOnlyList<(uint Key, int Value)> Stats, ushort Team = 0)
 {
     public IReadOnlyList<GrantedSkill> Skills { get; init => field = Owned.List(value); } = Owned.List(Skills);
     public IReadOnlyList<(uint Key, int Value)> Stats { get; init => field = Owned.List(value); } = Owned.List(Stats);
@@ -10,7 +11,7 @@ public sealed record TrapMineObject(int X, int Y, bool Mine, IReadOnlyList<Grant
     {
         var w = new BlobWriter();
         w.U8(0).U8(0);
-        w.I32(X).I32(Y).F32(0).U16(0).U8(0).U8(2).U8(0).U8(1);
+        w.Positioned(X, Y, team: Team);
         w.U8(0);
         w.Stats(Stats).U32(0).U32(0).U8(0);
         w.U16(0);

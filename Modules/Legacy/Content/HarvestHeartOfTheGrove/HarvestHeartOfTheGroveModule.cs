@@ -12,7 +12,7 @@ namespace GameServer.Modules.HarvestHeartOfTheGrove;
 /// </summary>
 public sealed class HarvestHeartOfTheGroveModule : IModule
 {
-    const string ChanceStat = "map_harvest_chance_for_oshabi_+%";
+    static readonly uint ChanceStat = Stat.MapHarvestChanceForOshabiPlusPct;
 
     sealed record Choices
     {
@@ -24,18 +24,18 @@ public sealed class HarvestHeartOfTheGroveModule : IModule
     {
         double basePercent = module.Settings<Choices>().ChancePercent;
         string id = module.Manifest.Id;
-        module.Lifetime.Own(SacredGrove.AddReplacement(new(id, Roll: (conn, _, random) =>
+        module.Lifetime.Own(SacredGrove.AddReplacement(new(id, Roll: (player, _, random) =>
         {
-            if (!LeagueFor(conn).Modules.Contains(id)) return false;
-            int increase = MapModsOf(conn)?.Get(ChanceStat) ?? 0;
+            if (!LeagueFor(player).Modules.Contains(id)) return false;
+            int increase = MapModsOf(player)?.Get(ChanceStat) ?? 0;
             double chance = basePercent * Math.Max(0, 1 + increase / 100.0);
             if (random.NextDouble() * 100 >= chance) return false;
-            module.Log($"{conn.Layout.Id}: the Sacred Grove is the Heart of the Grove (chance {chance:0.##}%: {basePercent:0.##}% "
+            module.Log($"{player.Layout.Id}: the Sacred Grove is the Heart of the Grove (chance {chance:0.##}%: {basePercent:0.##}% "
                 + $"x (1 + {increase}%))");
             return true;
         },
         // A reload places it again: the encounter's own saved state keeps its progress.
-        Place: (conn, site) => OshabiEncounter.Place(conn, site.Centre, site.Level,
+        Place: (player, site) => OshabiEncounter.Place(player, site.Centre, site.Level,
             new(Altar: false, Log: "Heart of the Grove")))));
     }
 }

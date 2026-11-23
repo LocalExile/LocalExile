@@ -16,6 +16,6 @@ public static partial class Game
         bool lifeModifier = equipment.Any(e => e.Row != PlayerInventories.BodyArmour
             && (active is null || active.Any(item => ReferenceEquals(item, e.Item.Item)))
             && e.Item.Item.Mods.Any(m => catalog.Mods.ByHash(m.Hash)?.Tags.Contains("life") == true));
-        return new Dictionary<string, bool>(captured) { [NoOtherLifeModifiersCondition] = !lifeModifier };
+        return WithFlags(captured, (NoOtherLifeModifiersCondition, !lifeModifier));
     }
 }

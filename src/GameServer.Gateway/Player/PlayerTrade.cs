@@ -8,17 +8,17 @@ using GameServer.Core.Protocol.Login;
 /// item stays reserved in its owner's inventory (PlayerInventories.Offer, hidden from that client like a sale) until the
 /// trade completes or ends. Guarded by its own lock; the sends happen outside it.
 /// </summary>
-public sealed class PlayerTrade(ClientState a, ClientState b)
+public sealed class PlayerTrade(Player a, Player b)
 {
-    public readonly ClientState A = a, B = b;
+    public readonly Player A = a, B = b;
     public readonly object Lock = new();
     public bool Over;
     /// <summary>Per client: the revision of its own offer inventory and of the other's, as last sent to it.</summary>
-    public readonly Dictionary<ClientState, (uint Mine, uint Theirs)> Revisions = new() { [a] = (0, 0), [b] = (0, 0) };
+    public readonly Dictionary<Player, (uint Mine, uint Theirs)> Revisions = new() { [a] = (0, 0), [b] = (0, 0) };
     /// <summary>Per client: the revision of the other's offer it accepted, or null.</summary>
-    public readonly Dictionary<ClientState, uint?> Accepted = new() { [a] = null, [b] = null };
+    public readonly Dictionary<Player, uint?> Accepted = new() { [a] = null, [b] = null };
     /// <summary>Per offering client: its item id → the id the other client sees it under (its own id space).</summary>
-    public readonly Dictionary<ClientState, Dictionary<uint, uint>> Views = new() { [a] = [], [b] = [] };
+    public readonly Dictionary<Player, Dictionary<uint, uint>> Views = new() { [a] = [], [b] = [] };
 
-    public ClientState Other(ClientState c) => ReferenceEquals(c, A) ? B : A;
+    public Player Other(Player c) => ReferenceEquals(c, A) ? B : A;
 }

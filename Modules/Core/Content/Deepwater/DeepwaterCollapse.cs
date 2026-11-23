@@ -23,9 +23,9 @@ internal static class DeepwaterCollapse
     /// <summary>Starts the collapse of the lanterns that <paramref name="collapses"/> picks (a Voyage keeps the light at
     /// the called Bathysphere); <paramref name="floor"/> is the lantern that stops at the floor radius, if any. Once per
     /// run; false when it had started already.</summary>
-    public static async Task<bool> Start(IModuleContext module, ClientState conn, DeepwaterRun run, Func<DeepwaterRun.Lantern, bool> collapses, uint? floor)
+    public static async Task<bool> Start(IModuleContext module, Player player, DeepwaterRun run, Func<DeepwaterRun.Lantern, bool> collapses, uint? floor)
     {
-        double now = conn.Clock.Elapsed.TotalSeconds;
+        double now = AreaTime(player);
         List<(DeepwaterRun.Lantern Lantern, DeepwaterRun.Shrink Shrink)> order;
         lock (run.Gate)
         {
@@ -42,22 +42,22 @@ internal static class DeepwaterCollapse
             }
             run.NextSwarm = now + SwarmEvery;
         }
-        module.Log($"{CharacterName(conn)}: Allflame collapse: {order.Count} lanterns shrink newest first ("
+        module.Log($"{CharacterName(player)}: Allflame collapse: {order.Count} lanterns shrink newest first ("
             + string.Join(", ", order.Select(o => $"{o.Lantern.Order} at +{o.Shrink.Start - now:0} s{(o.Shrink.Floor ? " to the floor" : "")}")) + ")");
-        foreach (var member in DeepwaterLoot.Members(conn))
+        foreach (var member in DeepwaterLoot.Members(player))
             if (DeepwaterRuleset.Collapse(1) is { } state)
                 await PlayerOf(member).Send(state, "0x02c9 ruleset DeepwaterRules mode 3: collapse 1 (DeepwaterCollapseStart)");
-        await Tick(module, conn, run);
+        await Tick(module, player, run);
         return true;
     }
 
     /// <summary>One tick of a collapsing run: lanterns whose time came start shrinking, a held lantern stops at the floor,
     /// lanterns whose light reached 0 go out, and the swarm's next pack. Nothing while the run explores or after it ended;
     /// a few comparisons per lantern otherwise.</summary>
-    public static async Task Tick(IModuleContext module, ClientState conn, DeepwaterRun run)
+    public static async Task Tick(IModuleContext module, Player player, DeepwaterRun run)
     {
-        if (run.CollapseState == 0 || run.Phase == DeepwaterRun.RunPhase.Ended || conn.Closed || conn.LeavingArea) return;
-        double now = conn.Clock.Elapsed.TotalSeconds;
+        if (run.CollapseState == 0 || run.Phase == DeepwaterRun.RunPhase.Ended || player.Closed || player.LeavingArea) return;
+        double now = AreaTime(player);
         List<(DeepwaterRun.Lantern Lantern, string Kind, bool Collected)>? changes = null;
         bool firstOut = false, swarm = false;
         lock (run.Gate)
@@ -95,7 +95,7 @@ internal static class DeepwaterCollapse
                 }
             }
             if (run.Phase is DeepwaterRun.RunPhase.Collapsing or DeepwaterRun.RunPhase.Descending or DeepwaterRun.RunPhase.Extractable
-                && now >= run.NextSwarm && run.SwarmPacks < MaxSwarmPacks && conn.PlayerLife > 0)
+                && now >= run.NextSwarm && run.SwarmPacks < MaxSwarmPacks && player.PlayerLife > 0)
             {
                 run.NextSwarm = now + SwarmEvery;
                 run.SwarmPacks++;
@@ -103,7 +103,7 @@ internal static class DeepwaterCollapse
             }
         }
         if (changes is { Count: > 0 } || firstOut)
-            foreach (var member in DeepwaterLoot.Members(conn))
+            foreach (var member in DeepwaterLoot.Members(player))
             {
                 if (changes is not null)
                     foreach (var (lantern, kind, collected) in changes)
@@ -126,7 +126,7 @@ internal static class DeepwaterCollapse
             }
         if (changes is not null)
             foreach (var (lantern, kind, _) in changes)
-                module.Log($"{CharacterName(conn)}: Allflame lantern {lantern.Order} 0x{lantern.Id:x} {kind} at +{now:0.0} s");
-        if (swarm) await DeepwaterMonsters.Swarm(module, conn, run);
+                module.Log($"{CharacterName(player)}: Allflame lantern {lantern.Order} 0x{lantern.Id:x} {kind} at +{now:0.0} s");
+        if (swarm) await DeepwaterMonsters.Swarm(module, player, run);
     }
 }

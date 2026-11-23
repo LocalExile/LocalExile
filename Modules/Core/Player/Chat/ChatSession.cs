@@ -5,7 +5,7 @@ namespace GameServer.Modules.Chat;
 
 /// <summary>A character's place in chat, from its first channel until it leaves the game: it outlives the connection of each
 /// area. It is on the local chat server, or on the remote one a mod chose while that can be reached.</summary>
-sealed class ChatSession(ChatService chat, string name, ClientState conn) : IDisposable
+sealed class ChatSession(ChatService chat, string name, Player player) : IDisposable
 {
     /// <summary>The time between tries of a remote server that failed, each at an area change.</summary>
     const long RetryMilliseconds = 60_000;
@@ -18,7 +18,7 @@ sealed class ChatSession(ChatService chat, string name, ClientState conn) : IDis
     long _nextRemoteTry;
     int _trying;
 
-    public ClientState Conn { get; private set; } = conn;
+    public Player Player { get; private set; } = player;
 
     /// <summary>Done when the local chat server has the character, so a typed line has somewhere to go.</summary>
     public Task Ready { get; private set; } = Task.CompletedTask;
@@ -30,9 +30,9 @@ sealed class ChatSession(ChatService chat, string name, ClientState conn) : IDis
     }
 
     /// <summary>The character's connection in the area it entered, and another try of a remote server that failed.</summary>
-    public void Entered(ClientState entered)
+    public void Entered(Player entered)
     {
-        Conn = entered;
+        Player = entered;
         bool retry;
         lock (_gate) retry = chat.Remote is not null && !_onRemote && !_disposed && Environment.TickCount64 >= _nextRemoteTry;
         if (retry) _ = TryRemoteAsync();
@@ -155,12 +155,12 @@ sealed class ChatSession(ChatService chat, string name, ClientState conn) : IDis
         {
             ChatFrame.Line when named && frame.Kind is ChatChannelKind.Global or ChatChannelKind.Trade && text.Length > 0 =>
                 Deliver(InstanceChat.ChatLine(text, InstanceChat.Sender(frame.Kind == ChatChannelKind.Global ? TypedChannel.Global : TypedChannel.Trade, frame.Name!),
-                    items: chat.LineItems(Conn, text, frame.Items)),
+                    items: chat.LineItems(Player, text, frame.Items)),
                     $"0x0017 {frame.Kind} chat line from {frame.Name}"),
             ChatFrame.Whisper when named && text.Length > 0 =>
-                Deliver(InstanceChat.ChatLine(text, "@" + frame.Name, items: chat.LineItems(Conn, text, frame.Items)), $"0x0017 whisper from {frame.Name}"),
+                Deliver(InstanceChat.ChatLine(text, "@" + frame.Name, items: chat.LineItems(Player, text, frame.Items)), $"0x0017 whisper from {frame.Name}"),
             ChatFrame.Whispered when named && text.Length > 0 =>
-                Deliver(InstanceChat.ChatLine(text, "@" + frame.Name, InstanceChat.WhisperSentFlag, chat.LineItems(Conn, text, frame.Items)), $"0x0017 whisper to {frame.Name}"),
+                Deliver(InstanceChat.ChatLine(text, "@" + frame.Name, InstanceChat.WhisperSentFlag, chat.LineItems(Player, text, frame.Items)), $"0x0017 whisper to {frame.Name}"),
             ChatFrame.Offline when named => Tell($"{frame.Name} is not online."),
             ChatFrame.TooFast => Tell("You are sending messages too fast."),
             _ => Task.CompletedTask,
@@ -172,7 +172,7 @@ sealed class ChatSession(ChatService chat, string name, ClientState conn) : IDis
     async Task Deliver(byte[] line, string log)
     {
         // Between two areas nobody is there to see it.
-        if (Conn is not { Closed: false, Outbox: { } outbox }) return;
+        if (Player is not { Closed: false, Connection.Outbox: { } outbox }) return;
         try { await outbox(line, log); }
         catch (Exception e) when (e is IOException or ObjectDisposedException) { }
     }

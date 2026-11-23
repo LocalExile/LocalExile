@@ -10,13 +10,15 @@ namespace GameServer.Modules.Deepwater;
 internal static class DeepwaterRuleset
 {
     /// <summary>The Rulesets row of DeepwaterRules, sent (0x1f) only in the encounter areas.</summary>
-    public static readonly Lazy<byte?> Row = new(() =>
+    public static byte? Row { get; private set; }
+
+    public static void LoadGameData() => Row =
         ClientTables.TableOrEmpty("Rulesets").FirstOrDefault(r => r.Text("Id") == "DeepwaterRules") is { Table: not null } row && row.Index <= byte.MaxValue
-            ? (byte)row.Index : null);
+            ? (byte)row.Index : null;
 
     public enum Op : byte { PlaceLantern = 0, SendItemsToSurface = 2, RequestExtraction = 3 }
 
-    static byte[]? Data(params byte[] payload) => Row.Value is { } row ? InstanceRulesets.Data(row, payload) : null;
+    static byte[]? Data(params byte[] payload) => Row is { } row ? InstanceRulesets.Data(row, payload) : null;
 
     static byte[] I32(int v) { var b = new byte[4]; BinaryPrimitives.WriteInt32LittleEndian(b, v); return b; }
     static byte[] U32(uint v) { var b = new byte[4]; BinaryPrimitives.WriteUInt32LittleEndian(b, v); return b; }
@@ -46,7 +48,7 @@ internal static class DeepwaterRuleset
     public static (Op Op, int X, int Y)? Read(byte[] message)
     {
         var (row, payload) = InstanceRulesets.ReadAction(message);
-        if (Row.Value != row || payload.Length < 1) return null;
+        if (Row != row || payload.Length < 1) return null;
         var op = (Op)payload[0];
         if (op != Op.PlaceLantern) return (op, 0, 0);
         if (payload.Length < 9) return null;
