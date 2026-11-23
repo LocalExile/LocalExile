@@ -17,6 +17,7 @@
     <Project Path="Modules/Core/Content/Deepwater/Deepwater.csproj" />
     <Project Path="Modules/Core/Content/Delve/Delve.csproj" />
     <Project Path="Modules/Core/Content/Delirium/Delirium.csproj" />
+    <Project Path="Modules/Core/Content/Expedition/Expedition.csproj" />
     <Project Path="Modules/Core/Content/Harvest/Harvest.csproj" />
     <Project Path="Modules/Core/Content/Heist/Heist.csproj" />
     <Project Path="Modules/Core/World/HideoutEditing/HideoutEditing.csproj" />
