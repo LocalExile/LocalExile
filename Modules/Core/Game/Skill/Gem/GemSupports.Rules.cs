@@ -708,8 +708,10 @@ public static partial class Game
     {
         var gem = capturedGem ?? SupportedSkill(player, skillId);
         var caster = FinalPlayerStats(player).ToDictionary(v => v.Item1, v => v.Item2);
-        var stats = MergeSkillStats(caster, gem.Stats);
-        if (SkillsFor(player).IsVaal(gem.Effect) && stats.GetValueOrDefault(Stat.VaalSkillDamagePlusPct) is int vaalDamage and not 0)
+        var skills = SkillsFor(player);
+        var stats = MergeSkillStats(caster, gem.Stats, skills.IsChannelled(gem.Effect), SkillCostMore(player, gem.Stats),
+            CostEfficiencyFor(skills, gem.Effect));
+        if (skills.IsVaal(gem.Effect) && stats.GetValueOrDefault(Stat.VaalSkillDamagePlusPct) is int vaalDamage and not 0)
             stats[Stat.DamagePlusPct] = ActorScale.Add(Stat.DamagePlusPct, stats.GetValueOrDefault(Stat.DamagePlusPct), vaalDamage);
         if (charges is not null)
             foreach (var (type, count) in charges)
@@ -794,6 +796,18 @@ public static partial class Game
         // The Frenzy gem's "5% more Attack Damage per Frenzy Charge": its hit and the ailments from it.
         if (attack && Get(Stat.FrenzySkillAttackDamagePlusPctFinalPerFrenzyCharge) is int frenzyMore and not 0)
             raw = raw.Scale(Math.Max(0, 1 + (double)frenzyMore * Get(Stat.CurrentFrenzyCharges) / 100));
+        // Manaforged Arrows: "Supported Skills deal 1% more Damage with Hits and Ailments per 1 Mana Cost".
+        if (Get(Stat.SupportManaforgedArrowsDamagePlusPctFinalPerManaSpent) is int manaforgedPerMana and not 0
+            && !Lifetap.ConvertsCostToLife(gem.Stats, stats))
+        {
+            int manaCost = Math.Max(0, Get(Stat.ManaCost));
+            if (Math.Clamp(Get(Stat.BaseAttackSkillCostLifeInsteadOfManaPct), 0, 100) is int split and > 0
+                && attack && gem.Stats.TryGetValue(Stat.ManaCost, out int baseMana))
+                (manaCost, _, _) = ManaRecoveryRules.SplitCostToLife(baseMana, Get, skills.IsChannelled(gem.Effect),
+                    SkillCostMore(player, gem.Stats), split);
+            if (manaCost > 0)
+                raw = raw.Scale(Math.Max(0, 1 + (double)manaforgedPerMana * manaCost / 100.0));
+        }
         var modifiers = gem.Supports.SelectMany(s => s.Stats).Select(s => (s.Key, s.Value)).ToList();
         modifiers.AddRange(gem.Stats.Where(s => s.Key == Stat.BloodSandStanceMeleeSkillsAreaDamagePlusPctFinal).Select(s => (s.Key, s.Value)));
         // Elemental Overload's per-skill window (see WithElementalOverload): this skill's hits and ailments, including a

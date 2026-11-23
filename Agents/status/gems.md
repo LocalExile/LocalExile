@@ -100,6 +100,9 @@ Nothing yet.
   ([25](../docs/protocol/25-gem-supports.md)).
   Maim, Bloodlust for melee physical-origin damage, Pulverise, Rage, Power Charge on Critical, Volatility, Combustion, Item Quantity, Item Rarity,
   Iron Grip and Iron Will apply their stats as well ([25](../docs/protocol/25-gem-supports.md)).
+  Manaforged Arrows triggers off paid bow uses and channelled bow ticks and scales supported hit and ailment damage.
+  Cast when Stunned releases eligible linked spells from committed player stuns through the incoming-hit trigger queue
+  ([25](../docs/protocol/25-gem-supports.md)).
   Intensify and Pinpoint gain Intensity on supported casts, lose it while moving or teleporting, and project their area
   and projectile modifiers from the cast's starting stack count ([25](../docs/protocol/25-gem-supports.md)).
   Momentum uses paid attacks or channel time, loses stacks on movement, and spends the cap on timed Swiftness.

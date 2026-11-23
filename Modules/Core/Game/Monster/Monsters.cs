@@ -1336,7 +1336,7 @@ public static partial class Game
         await MonsterMarkersTick(player);
         await HostileGroundsTick(player);
         await PlayerDebuffsTick(player);
-        if (DamageTriggers.TryGetValue(player, out _))
+        if (IncomingHitTriggersPending(player))
             ReleaseDamageTakenTriggers(player, ProjectilesFor(player));
         // Advance the projectile runtime first: decisions and committed projectile contacts share one game time and pose.
         using (ProjectileMutation(player, phase: "ai")) plan = PlanMonsterAi(player, cadence, Math.Max(ProjectileWorldTime(player), AreaTime(player)));
@@ -2647,7 +2647,7 @@ public static partial class Game
             InflictMonsterBlind(player, id, m, now, (blindAttackerChance, StatOf(Stat.BlindEffectPlusPct), BlindSeconds(StatOf)),
                 AreaRng(player));
         ReservationWhenHitLocked(player, id, m, blocked, now);
-        if (player.PlayerLife == 0) { DamageTriggers.Remove(player); player.InvalidateIncomingHits(); ClearAntiquarianOnDeath(player); }
+        if (player.PlayerLife == 0) { ClearIncomingHitTriggers(player); player.InvalidateIncomingHits(); ClearAntiquarianOnDeath(player); }
         RecordHardcoreDeath(player);
         bool spirit = m.Rarity == MonsterRarity.Unique
             && SpiritChieftainsWhenHitLocked(player, stats, blocked, monsterCritical, Math.Max(0, lifeBefore - player.PlayerLife));
