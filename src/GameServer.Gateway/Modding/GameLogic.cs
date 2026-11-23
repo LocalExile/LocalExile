@@ -14,6 +14,8 @@ public interface IGameLogic
     /// <summary>A server frame of the connection ended (Program.RunWorldFrames); the next one starts at
     /// <paramref name="nextFrameStart"/>, on the connection's clock.</summary>
     Task WorldFrameEnded(Player player, double nextFrameStart) => Task.CompletedTask;
+    /// <summary>A frame's shared world delta is about to be written to <paramref name="player"/> (before its frame window advances).</summary>
+    void WritingWorldDelta(Player player, IReadOnlyList<AreaDelta.Record> delta) { }
     /// <summary>Prepare immutable item-value rules for this game generation, or null for the existing calculation.</summary>
     ItemModStats.ModifierValueRule? ItemModifierValues(Item item, ModCatalog mods) => null;
     /// <summary>One read's client messages, in order, on the connection's handler task.</summary>
