@@ -169,12 +169,17 @@ public static partial class Game
                 });
                 continue;
             }
-            if (arc)
+            bool rain = totem.Ballista && BallistaRain(player, gem.Effect);
+            if (arc || rain)
             {
                 session.Runtime.Schedule(Math.Max(session.Runtime.Now, ProjectileRuntime.Time(totem.NextCast)), () =>
                 {
-                    if (session.Active && ReferenceEquals(lifetime, CombatLifetime) && SpellTotemCurrent(player, totem)
-                        && player.Area.Monsters.GetValueOrDefault(target.Key) == target.Value)
+                    if (!session.Active || !ReferenceEquals(lifetime, CombatLifetime) || !SpellTotemCurrent(player, totem))
+                        return;
+                    if (rain)
+                        ReleaseArrowRain(session, totem.SkillId, gem, aim, CaptureSkillCriticalRoll(player, totem.SkillId),
+                            sequence, mirage: false, transform: null, podDamageFactor: 1, totem);
+                    else if (player.Area.Monsters.GetValueOrDefault(target.Key) == target.Value)
                         ReleaseArcTotem(player, session, totem, target.Key, sequence);
                 });
                 continue;
