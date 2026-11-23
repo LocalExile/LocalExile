@@ -21,27 +21,26 @@ public sealed class PantheonModule : IModule
     /// <inheritdoc/>
     public void Load(IModuleContext module)
     {
-        GameEvents.Packet(InstancePantheon.ChooseGodId).Add(module.Manifest.Id, async (conn, bytes) =>
+        GameEvents.Packet(InstancePantheon.ChooseGodId).Add(module.Manifest.Id, async (player, bytes) =>
         {
-            var (remote, stream, ciphers) = conn.Wire;
-            await PantheonRules.ChooseGod(remote, stream, ciphers, conn, InstancePantheon.ReadChooseGod(bytes.AsSpan()));
+            await PantheonRules.ChooseGod(player, InstancePantheon.ReadChooseGod(bytes.AsSpan()));
             return true;
         });
         GameEvents.PlayerStatSources.Add(module.Manifest.Id, PantheonRules.WithGods);
-        GameEvents.StateBuilding.Add(module.Manifest.Id, (conn, state) => state["pantheon"] = PantheonRules.Json(conn));
-        GameEvents.CommandsBuilding.Add(module.Manifest.Id, (commands, remote, stream, ciphers, conn) => commands
+        GameEvents.StateBuilding.Add(module.Manifest.Id, (player, state) => state["pantheon"] = PantheonRules.Json(player));
+        GameEvents.CommandsBuilding.Add(module.Manifest.Id, (commands, player) => commands
             .Add("pantheon", "/pantheon [<god> ...] (dev: list the Pantheon gods, or choose them as C→S 0x1ee does: an Id, name or panel row, e.g. /pantheon TheBrineKing Tukohama)", async args =>
             {
-                var catalog = PantheonCatalog.Default.Value;
+                var catalog = PantheonCatalog.Default;
                 foreach (string arg in args)
                 {
                     var god = int.TryParse(arg, out int row) && row >= 0 && row < catalog.Gods.Count ? catalog.Gods[row]
                         : catalog.Gods.FirstOrDefault(g => g.Id.Equals(arg, StringComparison.OrdinalIgnoreCase))
                         ?? catalog.Gods.FirstOrDefault(g => g.Name.Contains(arg, StringComparison.OrdinalIgnoreCase));
-                    if (god is null) { await conn.Commands!.Reply($"No Pantheon god {arg}."); continue; }
-                    await PantheonRules.ChooseGod(remote, stream, ciphers, conn, god.Wire);
+                    if (god is null) { await player.Commands!.Reply($"No Pantheon god {arg}."); continue; }
+                    await PantheonRules.ChooseGod(player, god.Wire);
                 }
-                await conn.Commands!.Reply($"Pantheon: {PantheonRules.Json(conn).ToJsonString()}");
+                await player.Commands!.Reply($"Pantheon: {PantheonRules.Json(player).ToJsonString()}");
             }));
     }
 }
@@ -58,70 +57,67 @@ static class PantheonRules
 
     /// <summary>Where a god may be chosen: a town, a hideout, the Rogue Harbour, or with CanChangePantheon set (the
     /// client's own gate before it sends 0x1ee, 0x14097fb60).</summary>
-    internal static bool CanChoose(ClientState conn) =>
-        InTown(conn) || HideoutCatalog.ByArea(conn.Layout.Hash) is not null || Hubs.Contains(conn.Layout.Hash)
-        || ClientHasQuestFlag(conn, CanChangePantheon);
+    internal static bool CanChoose(Player player) =>
+        InTown(player) || HideoutCatalog.ByArea(player.Layout.Hash) is not null || Hubs.Contains(player.Layout.Hash)
+        || ClientHasQuestFlag(player, CanChangePantheon);
 
     /// <summary>C→S 0x1ee: the god of a PantheonPanelLayout row (+1) replaces the major or the minor one, when it is unlocked
     /// and the place allows it; the client hears the choice back either way (a refusal shows the gods it had).</summary>
-    internal static async Task ChooseGod(string remote, NetworkStream stream, ConnectionCiphers ciphers, ClientState conn, byte wire)
+    internal static async Task ChooseGod(Player player, byte wire)
     {
-        var god = PantheonCatalog.Default.Value.ByWire(wire);
-        if (god is null || !PantheonCatalog.Unlocked(god, f => ClientHasQuestFlag(conn, f)))
+        var god = PantheonCatalog.Default.ByWire(wire);
+        if (god is null || !PantheonCatalog.Unlocked(god, f => ClientHasQuestFlag(player, f)))
         {
-            Console.WriteLine($"[gateway] {remote} <= 0x01ee pantheon {wire}: {(god is null ? "no such row" : $"{god.Id} is not unlocked ({god.UnlockFlag})")}");
-            await SendGods(remote, stream, ciphers, conn, "refused");
+            Console.WriteLine($"[gateway] {player.Connection.Remote} <= 0x01ee pantheon {wire}: {(god is null ? "no such row" : $"{god.Id} is not unlocked ({god.UnlockFlag})")}");
+            await SendGods(player, "refused");
             return;
         }
-        if (!CanChoose(conn))
+        if (!CanChoose(player))
         {
-            Console.WriteLine($"[gateway] {remote} <= 0x01ee pantheon {god.Id}: not in a town or hideout, and no {CanChangePantheon}");
-            await SendGods(remote, stream, ciphers, conn, "refused");
+            Console.WriteLine($"[gateway] {player.Connection.Remote} <= 0x01ee pantheon {god.Id}: not in a town or hideout, and no {CanChangePantheon}");
+            await SendGods(player, "refused");
             return;
         }
-        lock (conn.Monsters)
-        {
-            if (god.Major) conn.PantheonMajor = god.Id; else conn.PantheonMinor = god.Id;
-            CharacterSaves.SetPantheon(CharacterName(conn), conn.PantheonMajor, conn.PantheonMinor);
-            conn.Pools = PoolsFor(conn, conn.Pools.Level);
-            conn.ApplyMovementSpeed();
-        }
-        Console.WriteLine($"[gateway] {remote} {CharacterName(conn)}: {(god.Major ? "major" : "minor")} Pantheon god {god.Name} ({god.Id})");
-        await SendGods(remote, stream, ciphers, conn, god.Name);
-        await SendCharacterStats(remote, stream, ciphers, conn, $"Pantheon {god.Name}");
+        if (god.Major) player.Character.PantheonMajor = god.Id; else player.Character.PantheonMinor = god.Id;
+        CharacterSaves.SetPantheon(CharacterName(player), player.Character.PantheonMajor, player.Character.PantheonMinor);
+        player.Pools = PoolsFor(player, player.Pools.Level);
+        player.ApplyMovementSpeed();
+        Console.WriteLine($"[gateway] {player.Connection.Remote} {CharacterName(player)}: {(god.Major ? "major" : "minor")} Pantheon god {god.Name} ({god.Id})");
+        await SendGods(player, god.Name);
+        await SendCharacterStats(player, PlayerStatChange.Build);
     }
 
-    static async Task SendGods(string remote, NetworkStream stream, ConnectionCiphers ciphers, ClientState conn, string why)
+    static async Task SendGods(Player player, string why)
     {
-        var catalog = PantheonCatalog.Default.Value;
+        var catalog = PantheonCatalog.Default;
         byte major, minor;
-        lock (conn.Monsters) (major, minor) = (catalog.Wire(conn.PantheonMajor), catalog.Wire(conn.PantheonMinor));
-        await global::Game.SendWorldRecord(remote, stream, ciphers, conn, PlayerId, InstanceEntities.PlayerPantheonUpdate(PlayerId, major, minor),
+        (major, minor) = (catalog.Wire(player.Character.PantheonMajor), catalog.Wire(player.Character.PantheonMinor));
+        await global::Game.SendWorldRecord(player, player.Id, InstanceEntities.PlayerPantheonUpdate(player.Id, major, minor),
             $"0x02bc player Pantheon: major {major}, minor {minor} ({why})");
     }
 
     /// <summary>The chosen gods' stats on top of the character's other sources (PantheonCatalog.ChosenStats): a god whose
     /// unlock flag the character lost grants nothing, the souls' upgrades count once EndGameAvailable is earned.</summary>
-    internal static Dictionary<uint, int> WithGods(ClientState conn, Dictionary<uint, int> sources)
+    internal static Dictionary<uint, int> WithGods(Player player, Dictionary<uint, int> sources)
     {
-        foreach (var (key, value) in PantheonCatalog.Default.Value.ChosenStats(conn, f => ClientHasQuestFlag(conn, f)))
+        foreach (var (key, value) in PantheonCatalog.Default.ChosenStats(player, f => ClientHasQuestFlag(player, f)))
             sources[key] = (int)Math.Clamp((long)sources.GetValueOrDefault(key) + value, int.MinValue, int.MaxValue);
         return sources;
     }
 
     /// <summary>/state's "pantheon": the chosen gods (Ids, null = none), the unlocked ones (majors first) and whether a god
     /// may be chosen here.</summary>
-    internal static JsonObject Json(ClientState conn)
+    internal static JsonObject Json(Player player)
     {
-        bool Has(string f) => ClientHasQuestFlag(conn, f);
-        var unlocked = PantheonCatalog.Default.Value.Gods.Where(g => PantheonCatalog.Unlocked(g, Has)).OrderBy(g => !g.Major).ThenBy(g => g.Row);
+        bool Has(string f) => ClientHasQuestFlag(player, f);
+        var unlocked = PantheonCatalog.Default.Gods.Where(g => PantheonCatalog.Unlocked(g, Has)).OrderBy(g => !g.Major).ThenBy(g => g.Row);
         return new()
         {
-            ["major"] = conn.PantheonMajor,
-            ["minor"] = conn.PantheonMinor,
+            ["major"] = player.Character.PantheonMajor,
+            ["minor"] = player.Character.PantheonMinor,
             ["unlocked"] = new JsonArray([.. unlocked.Select(g => (JsonNode?)new JsonObject
                 { ["id"] = g.Id, ["name"] = g.Name, ["major"] = g.Major, ["row"] = g.Row })]),
-            ["canChoose"] = CanChoose(conn),
+            ["canChoose"] = CanChoose(player),
         };
     }
 }

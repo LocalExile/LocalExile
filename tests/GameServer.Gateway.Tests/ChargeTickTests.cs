@@ -17,8 +17,8 @@ public class ChargeTickTests
         readonly Random random = new(7);
         int periodic;
 
-        Func<string, int> Stats(double now) => name =>
-            name == "buff_time_passed_+%" ? Passed(now) : name == "gain_X_power_charges_per_second" ? periodic : 0;
+        Func<uint, int> Stats(double now) => name =>
+            name == Stat.BuffTimePassedPlusPct ? Passed(now) : name == Stat.GainXPowerChargesPerSecond ? periodic : 0;
 
         /// <summary>The character's stats were worked out (an item, an aura): the session sees them, as in WithCharges.</summary>
         public void Observe(double now, int powerPerSecond = 0)

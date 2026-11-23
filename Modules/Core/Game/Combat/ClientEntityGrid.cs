@@ -18,26 +18,29 @@ public static class ClientEntityGrid
         public readonly Dictionary<uint, (int Tx, int Ty, long Order)> Entries = [];
     }
 
-    static readonly RuleTable<ClientState, Grid> Grids = new();
+    static readonly Store<Player, Grid> Grids = new();
 
-    // An area change (ClientState.ProjectileEpoch) starts a new grid.
-    static Grid For(ClientState conn)
+    // An area change (Player.ProjectileEpoch) starts a new grid.
+    // An instance's walkers are stepped by the area (AreaMovement), so its grid is the area's, one for every client in it.
+    static readonly System.Runtime.CompilerServices.ConditionalWeakTable<InstanceWorld, Grid> AreaGrids = new();
+    static Grid For(Player player)
     {
-        var grid = Grids.GetOrCreateValue(conn);
-        if (grid.Epoch != conn.ProjectileEpoch)
+        if (player.Instance is { } instance) return AreaGrids.GetValue(instance.World, _ => new());
+        var grid = Grids.GetOrCreateValue(player);
+        if (grid.Epoch != player.ProjectileEpoch)
         {
             grid.Entries.Clear();
-            grid.Epoch = conn.ProjectileEpoch;
+            grid.Epoch = player.ProjectileEpoch;
         }
         return grid;
     }
 
     /// <summary>Whether the grid lists the object already. Under conn.Monsters.</summary>
-    public static bool Lists(ClientState conn, uint id) => For(conn).Entries.ContainsKey(id);
+    public static bool Lists(Player player, uint id) => For(player).Entries.ContainsKey(id);
 
     /// <summary>The object stands on the cell: listed at its tile's end when that is a tile it was not in. Under
     /// conn.Monsters, in the order the client's world moves them.</summary>
-    public static void Stepped(ClientState conn, uint id, (int X, int Y) cell) => Enter(For(conn), id, cell);
+    public static void Stepped(Player player, uint id, (int X, int Y) cell) => Enter(For(player), id, cell);
 
     static void Enter(Grid grid, uint id, (int X, int Y) cell)
     {
@@ -48,9 +51,9 @@ public static class ClientEntityGrid
 
     /// <summary>The items in the order the client's area scans list them: by tile row, tile column, then entry into the
     /// tile. Under conn.Monsters.</summary>
-    public static List<T> Ordered<T>(ClientState conn, IEnumerable<T> items, Func<T, uint> id, Func<T, (int X, int Y)> cell)
+    public static List<T> Ordered<T>(Player player, IEnumerable<T> items, Func<T, uint> id, Func<T, (int X, int Y)> cell)
     {
-        var grid = For(conn);
+        var grid = For(player);
         var list = items.ToList();
         foreach (var item in list.OrderBy(id)) Enter(grid, id(item), cell(item));
         return [.. list.OrderBy(i => grid.Entries[id(i)].Ty).ThenBy(i => grid.Entries[id(i)].Tx).ThenBy(i => grid.Entries[id(i)].Order)];

@@ -14,6 +14,13 @@ namespace GameServer.Modules.Survivors;
 
 static partial class SurvivorsSkills
 {
+    /// <summary>Fills this type's game data at startup (the world loader, before the Gateway listens).</summary>
+    public static void LoadRulesData()
+    {
+        SurvivorsSkillIdPool = [.. Skills.SkillIds().Where(id => id >= SurvivorsSkillIdBase)];
+        HeraldBuffRows = LoadHeraldBuffRows();
+    }
+
     /// <summary>A herald's aura reaches this far around the player, in cells, before its rank and area grow it.</summary>
     internal const double SurvivorsHeraldRadius = 48;
 
@@ -46,8 +53,8 @@ static partial class SurvivorsSkills
             ["HeraldOfPurity"] = new("Metadata/Effects/Spells/herald/light/slam_impact/slam_impact.ao", 1000),
         };
 
-    internal static SurvivorsHeraldImpact? SurvivorsHeraldImpactFor(ClientState conn, SurvivorsSkill skill) =>
-        SkillsFor(conn).EffectId(skill.Effect) is { } id && SurvivorsHeraldImpacts.TryGetValue(id, out var impact)
+    internal static SurvivorsHeraldImpact? SurvivorsHeraldImpactFor(Player player, SurvivorsSkill skill) =>
+        SkillsFor(player).EffectId(skill.Effect) is { } id && SurvivorsHeraldImpacts.TryGetValue(id, out var impact)
             ? impact : null;
 
     // The per-cast mechanic trace for the gem verification pass (issue #503): Game_SURVIVORS_TRACE=1 in the Gateway's
@@ -61,13 +68,12 @@ static partial class SurvivorsSkills
     internal const ushort SurvivorsSkillIdBase = 0x0300;
 
     // The ids a run's skills may use, in the order the catalogue hands them out.
-    internal static readonly Lazy<ushort[]> SurvivorsSkillIdPool =
-        new(() => [.. Skills.SkillIds().Where(id => id >= SurvivorsSkillIdBase)]);
+    internal static ushort[] SurvivorsSkillIdPool = default!;
 
     /// <summary>The skill id of a catalogue entry. The catalogue follows the item data's order, so an entry keeps its id
     /// for the whole run, across area changes.</summary>
     internal static ushort SurvivorsSkillId(int index) =>
-        index >= 0 && index < SurvivorsSkillIdPool.Value.Length ? SurvivorsSkillIdPool.Value[index] : (ushort)0;
+        index >= 0 && index < SurvivorsSkillIdPool.Length ? SurvivorsSkillIdPool[index] : (ushort)0;
 
     /// <summary>The base cooldown of a run skill: its gem's cast interval, which the client shows on the skill bar.</summary>
     internal static int SurvivorsSkillCooldownMs(SurvivorsSkill skill, int rank) =>
@@ -75,7 +81,9 @@ static partial class SurvivorsSkills
 
     // The BuffDefinitions row of each Herald effect (the aura the client draws around the player), read once: the
     // effect's ActiveSkills row names the buff (<c>herald_of_ash</c> and the like).
-    internal static readonly Lazy<IReadOnlyDictionary<int, int>> HeraldBuffRows = new(() =>
+    internal static IReadOnlyDictionary<int, int> HeraldBuffRows = default!;
+
+    static IReadOnlyDictionary<int, int> LoadHeraldBuffRows()
     {
         var result = new Dictionary<int, int>();
         if (ClientTables.TableOrNull("GrantedEffects") is not { } effects || ClientTables.TableOrNull("ActiveSkills") is not { } actives
@@ -87,13 +95,13 @@ static partial class SurvivorsSkills
             if (effect.IntOrNull("ActiveSkill") is int at && actives.Row(at) is { } active
                 && active.TextOrNull("Id") is { } effectId && byId.TryGetValue(effectId, out int buff)) result[effect.Index] = buff;
         return result;
-    });
+    }
 
     /// <summary>
     /// The run's learned skills as Actor skills, so the client puts their gems on the skill bar and draws their cooldown.
     /// Each is the real gem's effect at the run skill's rank, with one stored use and its cast interval as the cooldown.
     /// </summary>
-    internal static IReadOnlyList<GrantedSkill> SurvivorsGrantedSkills(ClientState conn, SurvivorsRun run,
+    internal static IReadOnlyList<GrantedSkill> SurvivorsGrantedSkills(Player player, SurvivorsRun run,
         IReadOnlyList<SurvivorsSkill> catalog)
     {
         var skills = new List<GrantedSkill>();
@@ -102,8 +110,8 @@ static partial class SurvivorsSkills
             if (index < 0 || index >= catalog.Count) continue;
             ushort id = SurvivorsSkillId(index);
             if (id == 0) continue;
-            var stats = SurvivorsSkillStats(conn, catalog[index], rank);
-            if (SkillsFor(conn).FindByRow(id, catalog[index].Effect, rank, stats) is { } granted)
+            var stats = SurvivorsSkillStats(player, catalog[index], rank);
+            if (SkillsFor(player).FindByRow(id, catalog[index].Effect, rank, stats) is { } granted)
                 skills.Add(granted with { CooldownMs = (uint)SurvivorsSkillCooldownMs(catalog[index], rank) });
         }
         return skills;
@@ -111,40 +119,37 @@ static partial class SurvivorsSkills
 
     // A run skill's stats: the gem's own at its rank. The client creates the bar's cooldown record only with a stored use
     // and the record's duration (0x141ef0f00), and the run pays no mana.
-    internal static IReadOnlyList<(uint, int)> SurvivorsSkillStats(ClientState conn, SurvivorsSkill skill, int rank)
+    internal static IReadOnlyList<(uint, int)> SurvivorsSkillStats(Player player, SurvivorsSkill skill, int rank)
     {
-        var stats = SkillsFor(conn).EffectStats(skill.Effect, rank).ToDictionary(s => s.Item1, s => s.Item2);
-        foreach (var name in new[] { "base_cooldown_count", "virtual_total_cooldown_count" })
-            if (Stats.Key(name) is uint key) stats[key] = 1;
-        foreach (var name in new[] { "base_mana_cost", "mana_cost" })
-            if (Stats.Key(name) is uint key) stats[key] = 0;
+        var stats = SkillsFor(player).EffectStats(skill.Effect, rank).ToDictionary(s => s.Item1, s => s.Item2);
+        foreach (var key in new[] { Stat.BaseCooldownCount, Stat.VirtualTotalCooldownCount }) stats[key] = 1;
+        foreach (var key in new[] { Stat.BaseManaCost, Stat.ManaCost }) stats[key] = 0;
         return [.. stats.Select(kv => (kv.Key, kv.Value))];
     }
 
     /// <summary>The skill bar's cooldown for one run skill: one server instant action per target runs the gem's own use
     /// there (the client draws its projectile and starts the bar's cooldown, live 2026-10-21), then the actor's cooldown
     /// trailer sets the exact time to the next cast.</summary>
-    internal static async Task SendSurvivorsCooldown(string remote, NetworkStream stream, ConnectionCiphers ciphers,
-        ClientState conn, int skill, int rank, IReadOnlyList<(int X, int Y)> aims, double interval)
+    internal static async Task SendSurvivorsCooldown(Player player, int skill, int rank, IReadOnlyList<(int X, int Y)> aims, double interval)
     {
-        if (StateOf(conn).Ownership is not { Current: true } ownership) return;
+        if (StateOf(player).Ownership is not { Current: true } ownership) return;
         ushort id = SurvivorsSkillId(skill);
         if (id == 0) return;
         foreach (var aim in aims)
-            await global::Game.SendWorldRecord(remote, stream, ciphers, conn, PlayerId, InstanceProtocol.InstantAction(PlayerId, id, aim.X, aim.Y),
+            await global::Game.SendWorldRecord(player, player.Id, InstanceProtocol.InstantAction(player.Id, id, aim.X, aim.Y),
                 $"0x01ce survivors skill 0x{id:x4} used at ({aim.X}, {aim.Y})", still: () => ownership.Current);
         if (!ownership.Current) return;
-        var definition = StateOf(conn).SurvivorsCatalog is { } catalog && skill < catalog.Count ? catalog[skill] : null;
+        var definition = StateOf(player).SurvivorsCatalog is { } catalog && skill < catalog.Count ? catalog[skill] : null;
         float total = (definition is null ? 1000 : SurvivorsSkillCooldownMs(definition, rank)) / 1000f;
         float remaining = (float)Math.Clamp(interval, 0, total);
-        await global::Game.SendWorldRecord(remote, stream, ciphers, conn, PlayerId, InstanceEntities.PlayerSingleUseCooldowns(PlayerId, [new SingleUseCooldownUpdate(id, remaining, total, 1f)]),
+        await global::Game.SendWorldRecord(player, player.Id, InstanceEntities.PlayerSingleUseCooldowns(player.Id, [new SingleUseCooldownUpdate(id, remaining, total, 1f)]),
             $"0x02bc survivors cooldown 0x{id:x4} {remaining:0.00}/{total:0.00} s", still: () => ownership.Current);
     }
 
     /// <summary>True when a skill id is one of the run's skills: a click on its bar slot must not become a walk.</summary>
-    internal static bool SurvivorsOwnsSkill(ClientState conn, ushort id)
+    internal static bool SurvivorsOwnsSkill(Player player, ushort id)
     {
-        if (StateOf(conn).SurvivorsCatalog is not { } catalog) return false;
+        if (StateOf(player).SurvivorsCatalog is not { } catalog) return false;
         for (int index = 0; index < catalog.Count; index++)
             if (SurvivorsSkillId(index) == id) return true;
         return false;
@@ -184,19 +189,19 @@ static partial class SurvivorsSkills
     /// around the player with its own area damage. A gem with neither flight nor area (Arc, a curse) stays out, and so
     /// does a gem that cannot link at least five of the run's supports: the links-first offer needs them.
     /// </summary>
-    internal static IReadOnlyList<SurvivorsSkill> SurvivorsCatalogFor(ClientState conn)
+    internal static IReadOnlyList<SurvivorsSkill> SurvivorsCatalogFor(Player player)
     {
         var catalog = new List<SurvivorsSkill>();
-        var supports = SurvivorsSupportsFor(conn);
+        var supports = SurvivorsSupportsFor(player);
         bool Linkable(int effect, SurvivorsSupportItem support)
         {
             if (Supports.Of(effect) is not { } target) return false;
             if (Supports.Of(support.Effect) is not { Support: true } sup) return false;
             return GemSupports.Compatible(sup, target.Types.ToHashSet(), target.MinionTypes, weapon: null);
         }
-        foreach (string path in SurvivorsGemPaths(conn))
+        foreach (string path in SurvivorsGemPaths(player))
         {
-            if (ItemsFor(conn).Find(path) is not { } baseType || ItemsFor(conn).Gem(baseType) is not { } gem) continue;
+            if (ItemsFor(player).Find(path) is not { } baseType || ItemsFor(player).Gem(baseType) is not { } gem) continue;
             // A placeholder row ("[UNUSED] Coiling Assault") or a playtest row is not a skill a player can be offered.
             if (baseType.Name.Contains("[UNUSED]", StringComparison.OrdinalIgnoreCase)) continue;
             if (baseType.Name.Contains("Playtest", StringComparison.OrdinalIgnoreCase)) continue;
@@ -207,23 +212,23 @@ static partial class SurvivorsSkills
             bool herald = baseType.Name.StartsWith("Herald of", StringComparison.OrdinalIgnoreCase);
             // A melee attack gem (Elemental Hit, Cyclone, ...) carries a Projectiles row for its bow version and would
             // otherwise pass as a caster: the run is a caster's mode, so melee attacks stay out.
-            bool melee = SkillsFor(conn).IsMelee(variant.Effect);
+            bool melee = SkillsFor(player).IsMelee(variant.Effect);
             var projectileRow = Skills.ProjectileFor(variant.Effect);
             bool projectile = projectileRow is not null && !melee;
             // A projectile gem with no Projectiles row has no flight to draw: falling back to a nova around the player
             // would show the wrong effect. It stays out until its row (or a fallback) is known.
-            if (!herald && SkillsFor(conn).IsProjectile(variant.Effect) && projectileRow is null) continue;
+            if (!herald && SkillsFor(player).IsProjectile(variant.Effect) && projectileRow is null) continue;
             // An area gem without a flight and without a melee swing: its ActiveSkillTypes carry the Area flag, so the
             // run casts it as a nova pulse. It must also deal a hit: a warcry/curse/buff (Enduring Cry, Temporal
             // Chains) has no damage to pulse and too few supports to link.
-            bool attack = SkillsFor(conn).IsAttack(variant.Effect);
+            bool attack = SkillsFor(player).IsAttack(variant.Effect);
             bool area = !herald && !attack && projectileRow is null
                 && Supports.Of(variant.Effect)?.Types.Contains(7) == true
-                && !SkillsFor(conn).HitDamage(variant.Effect, 1).IsZero;
+                && !SkillsFor(player).HitDamage(variant.Effect, 1).IsZero;
             // The run has one presentation for a hit: a flight at the nearest monster or a pulse at the cast's
             // centre. A trap, mine, totem, brand, channel, travel or minion gem is not that; it stays out until the
             // run models the object or movement it places.
-            if (!herald && !SurvivorsMechanicsSupported(conn, variant.Effect)) continue;
+            if (!herald && !SurvivorsMechanicsSupported(player, variant.Effect)) continue;
             if (!herald && !projectile && !area) continue;
             // The links-first offer needs the five supports a skill can take; a gem with fewer (Icefire) is left out.
             if (!herald && supports.Count(support => Linkable(variant.Effect, support)) < SurvivorsRules.MaxSupportsPerSkill)
@@ -234,10 +239,10 @@ static partial class SurvivorsSkills
             catalog.Add(new SurvivorsSkill(path, baseType.Name, SurvivorsDamageType(baseType.Name), variant.Effect, variant.Effect,
                 metadata, herald ? SurvivorsSkillKind.Herald : area ? SurvivorsSkillKind.Area : SurvivorsSkillKind.Projectile)
             {
-                CastTimeMs = SurvivorsCastTimeMs(conn, variant.Effect),
-                Attack = SkillsFor(conn).IsAttack(variant.Effect),
-                SelfTargeted = SkillsFor(conn).IsSelfTargeted(variant.Effect),
-                Nova = SkillsFor(conn).IsNova(variant.Effect),
+                CastTimeMs = SurvivorsCastTimeMs(player, variant.Effect),
+                Attack = SkillsFor(player).IsAttack(variant.Effect),
+                SelfTargeted = SkillsFor(player).IsSelfTargeted(variant.Effect),
+                Nova = SkillsFor(player).IsNova(variant.Effect),
             });
         }
         return catalog;
@@ -254,19 +259,19 @@ static partial class SurvivorsSkills
 
     /// <summary>Whether the run can present the gem's use: a flight at one monster or a pulse at the cast's centre.
     /// A trap, mine, totem, brand, channel, travel, minion or orb mechanic has no such presentation yet.</summary>
-    internal static bool SurvivorsMechanicsSupported(ClientState conn, int effect)
+    internal static bool SurvivorsMechanicsSupported(Player player, int effect)
     {
         foreach (string type in SurvivorsUnsupportedSkillTypes)
-            if (SkillsFor(conn).HasType(effect, type)) return false;
+            if (SkillsFor(player).HasType(effect, type)) return false;
         return true;
     }
 
     // A gem's own cast time (GrantedEffects CastTime in EffectStats) is the run's interval base; an attack gem's
     // CastTime is its weapon swing time at 1.0 s here, since the run has no weapon to read a speed from.
-    internal static int SurvivorsCastTimeMs(ClientState conn, int effect)
+    internal static int SurvivorsCastTimeMs(Player player, int effect)
     {
-        foreach (var (key, value) in SkillsFor(conn).EffectStats(effect, 1))
-            if (Stats.Name(key) == "base_spell_cast_time_ms" && value > 0) return Math.Clamp(value, 200, 3000);
+        foreach (var (key, value) in SkillsFor(player).EffectStats(effect, 1))
+            if (key == Stat.BaseSpellCastTimeMs && value > 0) return Math.Clamp(value, 200, 3000);
         return 1000;
     }
 
@@ -275,10 +280,10 @@ static partial class SurvivorsSkills
     /// Each gem keeps its own base damage, its own gem-level curve (rank = gem level) and its own supports, so the run
     /// stays playable in every area without flattening the gems into one number.
     /// </summary>
-    internal static double SurvivorsDamageScale(ClientState conn, IReadOnlyList<SurvivorsSkill> catalog, SurvivorsRoster roster)
+    internal static double SurvivorsDamageScale(Player player, IReadOnlyList<SurvivorsSkill> catalog, SurvivorsRoster roster)
     {
         List<double> hits = [.. catalog.Where(s => s.Kind == SurvivorsSkillKind.Projectile && !s.Attack)
-            .Select(s => SkillsFor(conn).HitDamage(s.Effect, 1).AverageTotal).Where(h => h > 0).Order()];
+            .Select(s => SkillsFor(player).HitDamage(s.Effect, 1).AverageTotal).Where(h => h > 0).Order()];
         double median = hits.Count == 0 ? 0 : hits[hits.Count / 2];
         return median > 0 ? roster.WeaponDamage / median : 1;
     }
@@ -309,25 +314,25 @@ static partial class SurvivorsSkills
         "SupportWindburst",
     };
 
-    internal static IReadOnlyList<SurvivorsSupportItem> SurvivorsSupportsFor(ClientState conn)
+    internal static IReadOnlyList<SurvivorsSupportItem> SurvivorsSupportsFor(Player player)
     {
-        if (StateOf(conn).SurvivorsSupports is { Count: > 0 } cached) return cached;
+        if (StateOf(player).SurvivorsSupports is { Count: > 0 } cached) return cached;
         var result = new List<SurvivorsSupportItem>();
         var seen = new HashSet<string>(StringComparer.OrdinalIgnoreCase);
-        foreach (string path in SurvivorsSupportPaths(conn))
+        foreach (string path in SurvivorsSupportPaths(player))
         {
-            if (ItemsFor(conn).Find(path) is not { } type || ItemsFor(conn).Gem(type) is not { IsSupport: true, Variants.Count: > 0 } gem
+            if (ItemsFor(player).Find(path) is not { } type || ItemsFor(player).Gem(type) is not { IsSupport: true, Variants.Count: > 0 } gem
                 || gem.IsAwakened || gem.IsExceptional) continue;
             var variant = gem.Variant(0);
             if (variant.Effect < 0 || !seen.Add(type.Name)) continue;
-            string? id = SkillsFor(conn).EffectId(variant.Effect);
+            string? id = SkillsFor(player).EffectId(variant.Effect);
             if (id is null || SurvivorsUnsupportedSupportIds.Contains(id)) continue;
             // A support that adds a trap, mine, totem, brand, trigger, curse, minion or aura type places an object or
             // takes a route the run does not carry; its stats alone would pretend the link worked.
-            if (SkillsFor(conn).AddedTypes(variant.Effect).Any(SurvivorsUnsupportedSkillTypes.Contains)) continue;
+            if (SkillsFor(player).AddedTypes(variant.Effect).Any(SurvivorsUnsupportedSkillTypes.Contains)) continue;
             result.Add(new(path, type.Name, SurvivorsSupportOf(id), variant.Effect, SurvivorsHeraldSupport(id)));
         }
-        StateOf(conn).SurvivorsSupports = result;
+        StateOf(player).SurvivorsSupports = result;
         return result;
     }
 
@@ -355,8 +360,8 @@ static partial class SurvivorsSkills
 
     /// <summary>The support gems the run may offer: normal SupportGem rows, without the Royale/playtest/placeholder
     /// duplicates.</summary>
-    internal static IReadOnlyList<string> SurvivorsSupportPaths(ClientState conn) =>
-        [.. ItemsFor(conn).All.Where(t => t.Supported
+    internal static IReadOnlyList<string> SurvivorsSupportPaths(Player player) =>
+        [.. ItemsFor(player).All.Where(t => t.Supported
             && t.Id.Contains("SupportGem", StringComparison.Ordinal)
             && !t.Id.Contains("Royale", StringComparison.Ordinal)
             && !t.Name.Contains("[UNUSED]", StringComparison.OrdinalIgnoreCase)
@@ -364,8 +369,8 @@ static partial class SurvivorsSkills
             && !t.Name.StartsWith("WIP", StringComparison.OrdinalIgnoreCase))
             .Select(t => t.Id)];
 
-    internal static int SurvivorsGemEffect(ClientState conn, string path) =>
-        ItemsFor(conn).Find(path) is { } type && ItemsFor(conn).Gem(type) is { Variants.Count: > 0 } gem
+    internal static int SurvivorsGemEffect(Player player, string path) =>
+        ItemsFor(player).Find(path) is { } type && ItemsFor(player).Gem(type) is { Variants.Count: > 0 } gem
             ? gem.Variant(0).Effect : -1;
 
     /// <summary>
@@ -374,15 +379,15 @@ static partial class SurvivorsSkills
     /// burn/shatter, not a hit), so these damage supports have nothing to modify; the run's aura pulse is the mode's
     /// own effect, not the gem's hit.
     /// </summary>
-    internal static bool SurvivorsCanSupport(ClientState conn, int skillIndex, int supportIndex)
+    internal static bool SurvivorsCanSupport(Player player, int skillIndex, int supportIndex)
     {
-        if (StateOf(conn).SurvivorsCatalog is not { } catalog || StateOf(conn).SurvivorsSupports is not { } supports
+        if (StateOf(player).SurvivorsCatalog is not { } catalog || StateOf(player).SurvivorsSupports is not { } supports
             || skillIndex < 0 || skillIndex >= catalog.Count || supportIndex < 0 || supportIndex >= supports.Count)
             return false;
         var skill = catalog[skillIndex];
         // Brutality cuts every non-physical type and Void Manipulation every non-chaos type: the real game allows the
         // link but the skill then deals nothing, which in a run means it stops casting. Never offer that combination.
-        string? supportId = SkillsFor(conn).EffectId(supports[supportIndex].Effect);
+        string? supportId = SkillsFor(player).EffectId(supports[supportIndex].Effect);
         if (supportId is "SupportBrutality" && skill.Type != DamageType.Physical) return false;
         if (supportId is "SupportVoidManipulation" && skill.Type != DamageType.Chaos) return false;
         // The real Herald is a buff. Only the pulse supports that move the run's synthetic hit are offered; the rest
@@ -394,12 +399,12 @@ static partial class SurvivorsSkills
     }
 
     /// <summary>The offer pairs a support with a learned skill only when the game's type rules allow the link.</summary>
-    internal static Func<int, int, bool> SurvivorsLinkRule(ClientState conn) => (skill, support) =>
-        SurvivorsCanSupport(conn, skill, support);
+    internal static Func<int, int, bool> SurvivorsLinkRule(Player player) => (skill, support) =>
+        SurvivorsCanSupport(player, skill, support);
 
     // BaseItemTypes rows for skill gems, read once; a table without the key yields an empty catalogue.
-    internal static IReadOnlyList<string> SurvivorsGemPaths(ClientState conn) =>
-        [.. ItemsFor(conn).All.Where(t => t.Supported && t.Id.Contains("SkillGem", StringComparison.Ordinal)).Select(t => t.Id)];
+    internal static IReadOnlyList<string> SurvivorsGemPaths(Player player) =>
+        [.. ItemsFor(player).All.Where(t => t.Supported && t.Id.Contains("SkillGem", StringComparison.Ordinal)).Select(t => t.Id)];
 
     internal static DamageType SurvivorsDamageType(string name) => name switch
     {
@@ -441,11 +446,11 @@ static partial class SurvivorsSkills
     /// runtime, so the run follows the gem rather than one flat "base damage" number.
     /// Returns the interval to the next cast, 0 when nothing fired.
     /// </summary>
-    internal static async Task<double> SurvivorsCast(string remote, NetworkStream stream, ConnectionCiphers ciphers, ClientState conn,
+    internal static async Task<double> SurvivorsCast(Player player,
         SurvivorsRun run, SurvivorsRoster roster, SurvivorsSkill skill, int rank, int skillIndex)
     {
-        if (StateOf(conn).Ownership is not { Current: true } ownership || !ReferenceEquals(ownership.Run, run)) return 0;
-        if (SurvivorsComputeCast(conn, run, skill, rank, skillIndex, roster) is not { } cast) return 0;
+        if (StateOf(player).Ownership is not { Current: true } ownership || !ReferenceEquals(ownership.Run, run)) return 0;
+        if (SurvivorsComputeCast(player, run, skill, rank, skillIndex, roster) is not { } cast) return 0;
         (int X, int Y) origin;
         List<(int X, int Y)> aims = [];
         List<(uint Id, double Distance, uint Life, int X, int Y)> inReach = [];
@@ -454,13 +459,13 @@ static partial class SurvivorsSkills
         // range, then gathers around that monster: its effect belongs where it lands, not at the player's feet.
         bool selfCentered = cast.Herald && (skill.Kind == SurvivorsSkillKind.Herald || skill.SelfTargeted || skill.Nova);
         double reach = cast.Herald && !selfCentered ? SurvivorsRules.Range : SurvivorsCastReach(cast.Herald, cast.HeraldRadius);
-        using (ProjectileMutation(conn))
+        using (ProjectileMutation(player))
         {
-            double world = ProjectileWorldTime(conn);
-            if (conn.Closed || conn.LeavingArea || conn.PlayerLife == 0 || conn.Paused) return 0;
-            var here = conn.Walk.Position(world);
+            double world = ProjectileWorldTime(player);
+            if (player.Closed || player.LeavingArea || player.PlayerLife == 0 || player.Paused) return 0;
+            var here = player.Walk.Position(world);
 
-            foreach (var (id, m) in conn.Monsters)
+            foreach (var (id, m) in player.Area.Monsters)
             {
                 if (m.Dead || m.Life == 0 || !m.Hostile) continue;
                 var at = m.Walk.Position(world);
@@ -481,7 +486,7 @@ static partial class SurvivorsSkills
                 if (!selfCentered)
                 {
                     inReach.Clear();
-                    foreach (var (id, m) in conn.Monsters)
+                    foreach (var (id, m) in player.Area.Monsters)
                     {
                         if (m.Dead || m.Life == 0 || !m.Hostile) continue;
                         var at = m.Walk.Position(world);
@@ -507,7 +512,7 @@ static partial class SurvivorsSkills
             // Each herald's pulse plays the game's own hit effect at every struck target: Ash's fire explosion, Ice's
             // shatter, Thunder's bolt from above, Agony's poison splash, Purity's slam. The effect object is removed
             // when its clip ends, before the next pulse.
-            var impact = SurvivorsHeraldImpactFor(conn, skill);
+            var impact = SurvivorsHeraldImpactFor(player, skill);
             int effectBudget = SurvivorsHeraldEffectCount(inReach.Count);
             int strikes = 0;
             foreach (var (id, distance, _, tx, ty) in inReach)
@@ -515,24 +520,23 @@ static partial class SurvivorsSkills
                 if (distance > cast.HeraldRadius) continue;
                 MonsterHit? hit = null;
                 SpawnedMonster? target = null;
-                lock (conn.Monsters)
-                    if (ownership.Current && conn.Monsters.TryGetValue(id, out target) && !target.Dead && target.Life > 0)
-                        hit = ApplyMonsterHitLocked(conn, target, cast.HeraldDamage);
+                if (ownership.Current && player.Area.Monsters.TryGetValue(id, out target) && !target.Dead && target.Life > 0)
+                    hit = ApplyMonsterHitLocked(player, target, cast.HeraldDamage);
                 if (hit is not { } applied) continue;
                 struck++;
-                await NotifyMonsterHit(remote, stream, ciphers, conn, id, target!, applied, cast.HeraldDamage, skill.Name, log: false, melee: true, hitCode: hitCode);
+                await NotifyMonsterHit(player, id, target!, applied, cast.HeraldDamage, skill.Name, log: false, melee: true, hitCode: hitCode);
                 if (!ownership.Current) return 0;
                 if (impact is { } art && strikes++ < effectBudget)
-                    await SurvivorsHeraldEffect(remote, stream, ciphers, conn, tx, ty, art.Ao, art.Ms, skill.Name);
+                    await SurvivorsHeraldEffect(player, tx, ty, art.Ao, art.Ms, skill.Name);
             }
             if (struck == 0) return 0;
-            await SurvivorsPlayCastAnimation(remote, stream, ciphers, conn, skill, cast.Interval);
+            await SurvivorsPlayCastAnimation(player, skill, cast.Interval);
             if (!ownership.Current) return 0;
             ushort pulseId = SurvivorsSkillId(skillIndex);
-            await global::Game.SendWorldRecord(remote, stream, ciphers, conn, PlayerId, InstanceProtocol.InstantAction(PlayerId, pulseId, origin.X, origin.Y),
+            await global::Game.SendWorldRecord(player, player.Id, InstanceProtocol.InstantAction(player.Id, pulseId, origin.X, origin.Y),
                 $"0x01ce survivors pulse 0x{pulseId:x4} {skill.Name} around ({origin.X}, {origin.Y})", still: () => ownership.Current);
             if (!ownership.Current) return 0;
-            await SendSurvivorsCooldown(remote, stream, ciphers, conn, skillIndex, rank, [origin], cast.Interval);
+            await SendSurvivorsCooldown(player, skillIndex, rank, [origin], cast.Interval);
             return cast.Interval;
         }
         var profile = cast.Profile!;
@@ -543,22 +547,22 @@ static partial class SurvivorsSkills
             : inReach.OrderBy(t => t.Distance);
         aims = [.. pick.Take(Math.Min(cast.Count, inReach.Count)).Select(t => (t.X, t.Y))];
         if (SurvivorsTrace)
-            Console.WriteLine($"[gateway] {remote} survivors cast {skill.Name} rank {rank}: {aims.Count} aim(s) of {cast.Count}, " +
+            Console.WriteLine($"[gateway] {player.Connection.Remote} survivors cast {skill.Name} rank {rank}: {aims.Count} aim(s) of {cast.Count}, " +
                 $"pierce {profile.Pierce}, chain {profile.Chain}, fork {profile.Fork}, radius {profile.Radius:0.#}, " +
                 $"speed {profile.Speed:0.#}, hit {shot.Hit}, crit {shot.CriticalChance / 100.0:0.##}%, " +
                 $"leech {shot.Leech.Life.MinTotal:0.#}, interval {cast.Interval:0.00} s");
-        await SurvivorsPlayCastAnimation(remote, stream, ciphers, conn, skill, cast.Interval);
+        await SurvivorsPlayCastAnimation(player, skill, cast.Interval);
         if (!ownership.Current) return 0;
-        var owner = new ProjectileActorKey(PlayerId, conn.ProjectileEpoch);
-        var runtime = ProjectilesFor(remote, stream, ciphers, conn);
-        long now = ProjectileRuntime.Time(conn.Clock.Elapsed.TotalSeconds);
+        var owner = new ProjectileActorKey(player.Id, player.ProjectileEpoch);
+        var runtime = ProjectilesFor(player);
+        long now = ProjectileRuntime.Time(AreaTime(player));
         foreach (var aim in aims)
         {
             var use = new ProjectileUse(profile, owner, owner, 1, ProjectileSession.Vector(origin), ProjectileSession.Vector(aim))
             { Payload = shot, ReturnAnchor = owner };
             runtime.Schedule(now, () => ownership.Current, () => use);
         }
-        await SendSurvivorsCooldown(remote, stream, ciphers, conn, skillIndex, rank, aims, cast.Interval);
+        await SendSurvivorsCooldown(player, skillIndex, rank, aims, cast.Interval);
         return cast.Interval;
     }
 
@@ -568,22 +572,21 @@ static partial class SurvivorsSkills
     /// clip is the class/weapon stance's own (spell_projectile_wand, attack1_bow, ...), stretched over the cast
     /// interval, so the character visibly casts while the run keeps moving the player.
     /// </summary>
-    internal static async Task SurvivorsPlayCastAnimation(string remote, NetworkStream stream, ConnectionCiphers ciphers,
-        ClientState conn, SurvivorsSkill skill, double interval)
+    internal static async Task SurvivorsPlayCastAnimation(Player player, SurvivorsSkill skill, double interval)
     {
-        if (StateOf(conn).Ownership is not { Current: true } ownership) return;
+        if (StateOf(player).Ownership is not { Current: true } ownership) return;
         // A cast clip replaces the rig's walk clip while it plays, which reads as the character strafing sideways.
         // Play it only while the player stands still: the skill's own projectile, pulse and hit art still show.
         bool moving;
-        lock (conn.Monsters) moving = conn.Walk.Moving(conn.Clock.Elapsed.TotalSeconds);
+        moving = player.Walk.Moving(AreaTime(player));
         if (moving) return;
         string ao = Environment.GetEnvironmentVariable("Game_PLAYER_AO")
-            ?? SkillsFor(conn).ClassFor(conn.ClassRow).AnimatedObject;
+            ?? SkillsFor(player).ClassFor(player.Character.ClassRow).AnimatedObject;
         CastAnimationKind kind = SurvivorsCastKind(skill);
-        if (Animations.CastClip(ao, AnimationWeaponProfileFor(conn), kind) is not { } clip) return;
+        if (Animations.CastClip(ao, AnimationWeaponProfileFor(player), kind) is not { } clip) return;
         float speed = interval > 0 && clip.LengthMs > 0
             ? (float)Math.Clamp(clip.LengthMs / 1000.0 / interval, 0.1, 10) : 1;
-        await global::Game.SendWorldRecord(remote, stream, ciphers, conn, PlayerId, InstanceProtocol.AnimationUpdate(PlayerId, 0, clip.Index, speed),
+        await global::Game.SendWorldRecord(player, player.Id, InstanceProtocol.AnimationUpdate(player.Id, 0, clip.Index, speed),
             $"0x01b2 survivors cast {clip.Name} ({kind}) for {skill.Name}: index {clip.Index}, " +
             $"{clip.LengthMs} ms over {interval:0.00} s (speed {speed:0.##})", still: () => ownership.Current);
     }
@@ -594,29 +597,25 @@ static partial class SurvivorsSkills
     /// Agony's <c>mortarimpact</c>, Purity's <c>slam_impact</c>), removed when its clip ends. The same art the real
     /// client plays for that herald's hit.
     /// </summary>
-    internal static async Task SurvivorsHeraldEffect(string remote, NetworkStream stream, ConnectionCiphers ciphers,
-        ClientState conn, int x, int y, string ao, int ms, string label)
+    internal static async Task SurvivorsHeraldEffect(Player player, int x, int y, string ao, int ms, string label)
     {
-        if (StateOf(conn).Ownership is not { Current: true } ownership) return;
-        int epoch = conn.ProjectileEpoch;
+        if (StateOf(player).Ownership is not { Current: true } ownership) return;
+        int epoch = player.ProjectileEpoch;
         uint id;
-        lock (conn.Monsters)
-        {
-            if (!ownership.Current) return;
-            id = conn.TakeObjectId();
-            StateOf(conn).Effects.Add(id);
-        }
-        await global::Game.SendWorldCreate(remote, stream, ciphers, conn, id, InstanceEntities.CreateObject(id, InstanceEntities.ObjectTypeHash(EffectObject.TypePath),
+        if (!ownership.Current) return;
+        id = player.TakeObjectId();
+        StateOf(player).Effects.Add(id);
+        await global::Game.SendWorldCreate(player, id, InstanceEntities.CreateObject(id, InstanceEntities.ObjectTypeHash(EffectObject.TypePath),
                 new EffectObject(x, y, ao).Blob()),
             $"0x02bb survivors herald {label} effect 0x{id:x} {ao} at ({x}, {y})", still: () => ownership.Current);
-        await global::Game.SendWorldRecord(remote, stream, ciphers, conn, id, InstanceProtocol.EnterWakeZone(id), null, still: () => ownership.Current);
-        _ = Task.Run(async () =>
+        await global::Game.SendWorldRecord(player, id, InstanceProtocol.EnterWakeZone(id), null, still: () => ownership.Current);
+        _ = AreaFrames.Start(async () =>
         {
-            try { await Task.Delay(ms, ownership.Token); }
+            try { await AreaDelay(player, ms / 1000.0, ownership.Token); }
             catch (OperationCanceledException) when (ownership.Token.IsCancellationRequested) { }
-            if (conn.ProjectileActive(epoch))
-                await global::Game.SendWorldRemoval(remote, stream, ciphers, conn, id, null);
-            lock (conn.Monsters) StateOf(conn).Effects.Remove(id);
+            if (player.ProjectileActive(epoch))
+                await global::Game.SendWorldRemoval(player, id, null);
+            StateOf(player).Effects.Remove(id);
         });
     }
 
@@ -652,49 +651,41 @@ static partial class SurvivorsSkills
 
     /// <summary>Drops one monster's experience as an orb at the kill cell. The client object is a permanent effect;
     /// the run tick removes it when the player passes within <see cref="SurvivorsRules.OrbPickupRadius"/>.</summary>
-    internal static async Task SurvivorsDropOrb(string remote, NetworkStream stream, ConnectionCiphers ciphers,
-        ClientState conn, (int X, int Y) at, int experience)
+    internal static async Task SurvivorsDropOrb(Player player, (int X, int Y) at, int experience)
     {
-        if (experience <= 0 || StateOf(conn).Survivors is null) return;
+        if (experience <= 0 || StateOf(player).Survivors is null) return;
         uint id;
-        lock (conn.Monsters)
+        if (StateOf(player).Survivors is null) return;
+        var orbs = StateOf(player).SurvivorsOrbs;
+        if (orbs.Count >= SurvivorsOrbCap)
         {
-            if (StateOf(conn).Survivors is null) return;
-            var orbs = StateOf(conn).SurvivorsOrbs;
-            if (orbs.Count >= SurvivorsOrbCap)
-            {
-                var oldest = orbs[0];
-                orbs[0] = oldest with { Experience = oldest.Experience + experience };
-                return;
-            }
-            id = conn.TakeObjectId();
-            orbs.Add(new(id, at.X, at.Y, experience));
+            var oldest = orbs[0];
+            orbs[0] = oldest with { Experience = oldest.Experience + experience };
+            return;
         }
-        await global::Game.SendWorldCreate(remote, stream, ciphers, conn, id, InstanceEntities.CreateObject(id, InstanceEntities.ObjectTypeHash(EffectObject.TypePath),
+        id = player.TakeObjectId();
+        orbs.Add(new(id, at.X, at.Y, experience));
+        await global::Game.SendWorldCreate(player, id, InstanceEntities.CreateObject(id, InstanceEntities.ObjectTypeHash(EffectObject.TypePath),
                 new EffectObject(at.X, at.Y, SurvivorsOrbArt) { Scale = SurvivorsOrbScale }.Blob()),
             $"0x02bb survivors xp orb 0x{id:x} {experience} xp at ({at.X}, {at.Y})",
-            still: () => StateOf(conn).Survivors is not null);
-        await global::Game.SendWorldRecord(remote, stream, ciphers, conn, id, InstanceProtocol.EnterWakeZone(id), null,
-            still: () => StateOf(conn).Survivors is not null);
+            still: () => StateOf(player).Survivors is not null);
+        await global::Game.SendWorldRecord(player, id, InstanceProtocol.EnterWakeZone(id), null,
+            still: () => StateOf(player).Survivors is not null);
     }
 
     /// <summary>Collects every orb inside the pickup radius around the player and pays its experience.</summary>
-    internal static async Task SurvivorsCollectOrbs(string remote, NetworkStream stream, ConnectionCiphers ciphers,
-        ClientState conn, SurvivorsRun run)
+    internal static async Task SurvivorsCollectOrbs(Player player, SurvivorsRun run)
     {
-        if (StateOf(conn).Survivors is null || conn.PlayerLife == 0) return;
-        var here = conn.Walk.Position(conn.Clock.Elapsed.TotalSeconds);
+        if (StateOf(player).Survivors is null || player.PlayerLife == 0) return;
+        var here = player.Walk.Position(AreaTime(player));
         List<SurvivorsExperienceOrb> taken;
-        lock (conn.Monsters)
-        {
-            var orbs = StateOf(conn).SurvivorsOrbs;
-            taken = SurvivorsOrbsInReach(orbs, here, SurvivorsRules.OrbPickupRadius);
-            foreach (var orb in taken) orbs.Remove(orb);
-        }
+        var orbs = StateOf(player).SurvivorsOrbs;
+        taken = SurvivorsOrbsInReach(orbs, here, SurvivorsRules.OrbPickupRadius);
+        foreach (var orb in taken) orbs.Remove(orb);
         foreach (var orb in taken)
         {
-            await global::Game.SendWorldRemoval(remote, stream, ciphers, conn, orb.Id, null,
-                still: () => StateOf(conn).Survivors is not null);
+            await global::Game.SendWorldRemoval(player, orb.Id, null,
+                still: () => StateOf(player).Survivors is not null);
             run.RecordOrbExperience(orb.Experience);
         }
     }
@@ -706,126 +697,102 @@ static partial class SurvivorsSkills
         [.. orbs.Where(orb => Dist(here, (orb.X, orb.Y)) <= radius)];
 
     /// <summary>Removes the run's orbs from the client and the state (run end or a fresh start).</summary>
-    internal static async Task SurvivorsClearOrbs(string remote, NetworkStream stream, ConnectionCiphers ciphers, ClientState conn)
+    internal static async Task SurvivorsClearOrbs(Player player)
     {
         uint[] ids;
-        lock (conn.Monsters)
-        {
-            ids = [.. StateOf(conn).SurvivorsOrbs.Select(orb => orb.Id)];
-            StateOf(conn).SurvivorsOrbs.Clear();
-        }
+        ids = [.. StateOf(player).SurvivorsOrbs.Select(orb => orb.Id)];
+        StateOf(player).SurvivorsOrbs.Clear();
         foreach (uint id in ids)
-            await global::Game.SendWorldRemoval(remote, stream, ciphers, conn, id, null);
+            await global::Game.SendWorldRemoval(player, id, null);
     }
 
     /// <summary>Removes the run's death ground zones from the client and the state (run end or a fresh start).</summary>
-    internal static async Task SurvivorsClearGroundZones(string remote, NetworkStream stream, ConnectionCiphers ciphers,
-        ClientState conn)
+    internal static async Task SurvivorsClearGroundZones(Player player)
     {
         uint[] ids;
-        lock (conn.Monsters)
-        {
-            ids = [.. StateOf(conn).SurvivorsGroundZones.Select(zone => zone.Id)];
-            StateOf(conn).SurvivorsGroundZones.Clear();
-        }
+        ids = [.. StateOf(player).SurvivorsGroundZones.Select(zone => zone.Id)];
+        StateOf(player).SurvivorsGroundZones.Clear();
         foreach (uint id in ids)
-            await global::Game.SendWorldRemoval(remote, stream, ciphers, conn, id, null);
+            await global::Game.SendWorldRemoval(player, id, null);
     }
 
     /// <summary>Drops one death ground zone for a killed monster: 50/50 under the monster or under the player, drawn
     /// as a desecrated ground patch and drained by <see cref="SurvivorsAdvanceDeathZones"/> while the player stays.</summary>
-    internal static async Task SurvivorsDropDeathZone(string remote, NetworkStream stream, ConnectionCiphers ciphers,
-        ClientState conn, (int X, int Y) at)
+    internal static async Task SurvivorsDropDeathZone(Player player, (int X, int Y) at)
     {
-        if (StateOf(conn).Survivors is null) return;
-        var (px, py) = conn.Walk.Position(conn.Clock.Elapsed.TotalSeconds);
+        if (StateOf(player).Survivors is null) return;
+        var (px, py) = player.Walk.Position(AreaTime(player));
         // 50/50: the zone appears under the monster or under the player.
-        bool underPlayer = Random.Shared.Next(2) == 0;
+        bool underPlayer = AreaRng(player).Next(2) == 0;
         int x = underPlayer ? px : at.X, y = underPlayer ? py : at.Y;
         uint id;
-        lock (conn.Monsters)
-        {
-            if (StateOf(conn).Survivors is null) return;
-            id = conn.TakeObjectId();
-            StateOf(conn).SurvivorsGroundZones.Add(new(id, x, y, SurvivorsRules.DeathZoneRadius,
-                conn.Clock.Elapsed.TotalSeconds + SurvivorsRules.DeathZoneDurationSeconds,
-                SurvivorsRules.DeathZoneDamagePerSecond((int)conn.PlayerMaxLife)));
-        }
-        await global::Game.SendWorldCreate(remote, stream, ciphers, conn, id, InstanceEntities.CreateObject(id, InstanceEntities.ObjectTypeHash(EffectObject.TypePath),
+        if (StateOf(player).Survivors is null) return;
+        id = player.TakeObjectId();
+        StateOf(player).SurvivorsGroundZones.Add(new(id, x, y, SurvivorsRules.DeathZoneRadius,
+            AreaTime(player) + SurvivorsRules.DeathZoneDurationSeconds,
+            SurvivorsRules.DeathZoneDamagePerSecond((int)player.PlayerMaxLife)));
+        await global::Game.SendWorldCreate(player, id, InstanceEntities.CreateObject(id, InstanceEntities.ObjectTypeHash(EffectObject.TypePath),
                 new EffectObject(x, y, SurvivorsDeathZoneArt).Blob()),
             $"0x02bb survivors death zone 0x{id:x} at ({x}, {y})",
-            still: () => StateOf(conn).Survivors is not null);
-        await global::Game.SendWorldRecord(remote, stream, ciphers, conn, id, InstanceProtocol.EnterWakeZone(id), null,
-            still: () => StateOf(conn).Survivors is not null);
+            still: () => StateOf(player).Survivors is not null);
+        await global::Game.SendWorldRecord(player, id, InstanceProtocol.EnterWakeZone(id), null,
+            still: () => StateOf(player).Survivors is not null);
     }
 
     /// <summary>Removes a dead monster's body from the server and the client after
     /// <see cref="SurvivorsRules.CorpseLingerSeconds"/>, so a long run's corpses do not pile up. Runs every half second
     /// from the run tick; the corpse time is tracked per connection.</summary>
-    internal static async Task SurvivorsSweepCorpses(string remote, NetworkStream stream, ConnectionCiphers ciphers,
-        ClientState conn, HashSet<uint> horde)
+    internal static async Task SurvivorsSweepCorpses(Player player, HashSet<uint> horde)
     {
-        if (StateOf(conn).Survivors is null) return;
-        double now = conn.Clock.Elapsed.TotalSeconds;
+        if (StateOf(player).Survivors is null) return;
+        double now = AreaTime(player);
         List<uint> remove = [];
-        lock (conn.Monsters)
+        var corpses = StateOf(player).SurvivorsCorpses;
+        foreach (var id in corpses.Keys.ToArray())
+            if (!player.Area.Monsters.ContainsKey(id)) corpses.Remove(id);
+        foreach (var (id, monster) in player.Area.Monsters)
         {
-            var corpses = StateOf(conn).SurvivorsCorpses;
-            foreach (var id in corpses.Keys.ToArray())
-                if (!conn.Monsters.ContainsKey(id)) corpses.Remove(id);
-            foreach (var (id, monster) in conn.Monsters)
-            {
-                if (!monster.Dead && monster.Life > 0) { corpses.Remove(id); continue; }
-                if (!corpses.TryGetValue(id, out double at)) corpses[id] = at = now;
-                if (now - at >= SurvivorsRules.CorpseLingerSeconds) remove.Add(id);
-            }
-            foreach (uint id in remove)
-            {
-                conn.Monsters.Remove(id);
-                corpses.Remove(id);
-                horde.Remove(id);
-            }
+            if (!monster.Dead && monster.Life > 0) { corpses.Remove(id); continue; }
+            if (!corpses.TryGetValue(id, out double at)) corpses[id] = at = now;
+            if (now - at >= SurvivorsRules.CorpseLingerSeconds) remove.Add(id);
         }
         foreach (uint id in remove)
-            await global::Game.SendWorldRemoval(remote, stream, ciphers, conn, id, null,
-                still: () => StateOf(conn).Survivors is not null);
+        {
+            player.Area.Monsters.Remove(id);
+            corpses.Remove(id);
+            horde.Remove(id);
+        }
+        foreach (uint id in remove)
+            await global::Game.SendWorldRemoval(player, id, null,
+                still: () => StateOf(player).Survivors is not null);
     }
 
     /// <summary>Advances the death ground zones each run tick: removes the expired ones and drains life while the
     /// player stands inside one. The drain is <see cref="SurvivorsRules.DeathZoneDamagePercentPerSecond"/> of maximum
     /// life a second; standing still in a zone is fatal.</summary>
-    internal static async Task SurvivorsAdvanceDeathZones(string remote, NetworkStream stream, ConnectionCiphers ciphers,
-        ClientState conn, double step)
+    internal static async Task SurvivorsAdvanceDeathZones(Player player, double step)
     {
-        if (StateOf(conn).Survivors is null) return;
-        double now = conn.Clock.Elapsed.TotalSeconds;
-        var here = conn.Walk.Position(now);
+        if (StateOf(player).Survivors is null) return;
+        double now = AreaTime(player);
+        var here = player.Walk.Position(now);
         uint[] expired;
         int damagePerSecond = 0;
-        lock (conn.Monsters)
-        {
-            var zones = StateOf(conn).SurvivorsGroundZones;
-            expired = zones.Where(zone => zone.ExpiresAt <= now).Select(zone => zone.Id).ToArray();
-            foreach (uint id in expired) zones.RemoveAll(zone => zone.Id == id);
-            foreach (var zone in zones)
-                if (Dist(here, (zone.X, zone.Y)) <= zone.Radius) { damagePerSecond = zone.DamagePerSecond; break; }
-        }
+        var zones = StateOf(player).SurvivorsGroundZones;
+        expired = zones.Where(zone => zone.ExpiresAt <= now).Select(zone => zone.Id).ToArray();
+        foreach (uint id in expired) zones.RemoveAll(zone => zone.Id == id);
+        foreach (var zone in zones)
+            if (Dist(here, (zone.X, zone.Y)) <= zone.Radius) { damagePerSecond = zone.DamagePerSecond; break; }
         foreach (uint id in expired)
-            await global::Game.SendWorldRemoval(remote, stream, ciphers, conn, id, null,
-                still: () => StateOf(conn).Survivors is not null);
+            await global::Game.SendWorldRemoval(player, id, null,
+                still: () => StateOf(player).Survivors is not null);
         if (damagePerSecond <= 0 || step <= 0) return;
         int damage = (int)Math.Round(damagePerSecond * step);
         if (damage <= 0) return;
         uint life;
-        lock (conn.Monsters)
-        {
-            if (conn.PlayerLife == 0) return;
-            life = conn.PlayerLife > (uint)damage ? conn.PlayerLife - (uint)damage : 0;
-            conn.PlayerLife = life;
-        }
-        await global::Game.SendWorldRecord(remote, stream, ciphers, conn, PlayerId,
-            PlayerLifeUpdate(conn, life == 0 ? InstanceProtocol.DeathKindDegen : InstanceProtocol.DeathKindNormal), "survivors death zone drain",
-            still: () => StateOf(conn).Survivors is not null);
+        if (player.PlayerLife == 0) return;
+        life = player.PlayerLife > (uint)damage ? player.PlayerLife - (uint)damage : 0;
+        player.PlayerLife = life;
+        Note("survivors death zone drain");
     }
 
     /// <summary>One cast's computed numbers, before the live part (positions, aims, packets) needs a monster.</summary>
@@ -838,39 +805,39 @@ static partial class SurvivorsSkills
     /// projectile profile and the resolved hit. It reads no position and sends nothing, so the support matrix can be
     /// checked for every gem and support without a live area.
     /// </summary>
-    internal static SurvivorsComputedCast? SurvivorsComputeCast(ClientState conn, SurvivorsRun run, SurvivorsSkill skill,
+    internal static SurvivorsComputedCast? SurvivorsComputeCast(Player player, SurvivorsRun run, SurvivorsSkill skill,
         int rank, int skillIndex, SurvivorsRoster roster)
     {
-        var supports = StateOf(conn).SurvivorsSupports ?? [];
-        var own = SurvivorsStatsByName(conn, skill.Effect, rank);
-        var skillStats = SurvivorsSkillAndSupportStats(conn, run, skill, skillIndex, rank, supports, own);
-        var playerKeys = FinalPlayerStats(conn).ToDictionary(kv => kv.Item1, kv => kv.Item2);
+        var supports = StateOf(player).SurvivorsSupports ?? [];
+        var own = SurvivorsStatsByName(player, skill.Effect, rank);
+        var skillStats = SurvivorsSkillAndSupportStats(player, run, skill, skillIndex, rank, supports, own);
+        var playerKeys = FinalPlayerStats(player).ToDictionary(kv => kv.Item1, kv => kv.Item2);
         var playerStats = SurvivorsPlayerStats(playerKeys);
         // The panel's skill_area_of_effect_+% already counts the player's base area (PanelStats); keeping the base key as
         // well would count it twice in SkillArea.Increased.
         playerStats.Remove(SkillArea.BaseIncreased);
-        var merged = new Dictionary<string, int>(playerStats, StringComparer.Ordinal);
+        var merged = new Dictionary<uint, int>(playerStats);
         foreach (var (name, value) in skillStats) merged[name] = merged.GetValueOrDefault(name) + value;
-        int Get(string name) => merged.GetValueOrDefault(name);
+        int Get(uint name) => merged.GetValueOrDefault(name);
         bool spell = !skill.Attack;
         // An attack gem swings the weapon the character actually wears (a unique weapon's local damage, attack speed and
         // type now matter); with no weapon it falls back to the mode's nominal weapon and the gem's cast time.
-        var weapon = WeaponFor(conn);
+        var weapon = WeaponFor(player);
         bool armedAttack = skill.Attack && weapon.LocalSources is not null;
         var mergedKeys = SurvivorsKeyStats(merged);
         double baseSeconds = armedAttack ? weapon.AttackSeconds(mergedKeys) : skill.CastTimeMs / 1000.0;
-        int castSpeed = armedAttack ? 0 : Get("base_cast_speed_+%") + Get("cast_speed_+%") + (spell ? Get("spell_cast_speed_+%") : 0);
+        int castSpeed = armedAttack ? 0 : Get(Stat.BaseCastSpeedPlusPct) + Get(Stat.CastSpeedPlusPct) + (spell ? Get(Stat.Of("spell_cast_speed_+%")) : 0);
         double interval = SurvivorsFormulas.CastInterval(baseSeconds, rank, castSpeed);
         var skillKeys = SurvivorsKeyStats(skillStats);
         var accuracy = spell ? new AttackAccuracyProfile(int.MaxValue)
-            : AttackAccuracyProfile.From(conn.Pools, playerKeys, Stats, skillKeys, weapon.LocalSources)
-            with { Rating = WeaponAccuracyFor(conn, null, playerKeys, skillKeys) };
+            : AttackAccuracyProfile.From(player.Pools, playerKeys, Stats, skillKeys, weapon.LocalSources)
+            with { Rating = WeaponAccuracyFor(player, null, playerKeys, skillKeys) };
         var conversion = DamageStats.Conversion(mergedKeys, Stats, skill.Attack);
-        List<(string Name, int Value)> supportMods = [];
+        List<(uint Id, int Value)> supportMods = [];
         foreach (int index in run.SupportsOf(skillIndex))
             if (index >= 0 && index < supports.Count && supports[index].Effect >= 0)
-                foreach (var (key, value) in SkillsFor(conn).EffectStats(supports[index].Effect, rank))
-                    if (Stats.Name(key) is { Length: > 0 } name) supportMods.Add((name, value));
+                foreach (var (key, value) in SkillsFor(player).EffectStats(supports[index].Effect, rank))
+                    supportMods.Add((key, value));
         if (skill.Kind == SurvivorsSkillKind.Herald)
         {
             // The real gem is a buff, so the run's pulse is synthetic; still resolve it through the same hit pipeline
@@ -882,7 +849,7 @@ static partial class SurvivorsSkills
                 supportModifiers: supportMods);
             if (pulse.IsZero) return null;
             double radius = SurvivorsFormulas.AreaRadius(SurvivorsHeraldRadius * SurvivorsRules.SkillRadius(rank),
-                run.AreaIncreasedPercent + Get("skill_area_of_effect_+%") + Get("base_skill_area_of_effect_+%"));
+                run.AreaIncreasedPercent + Get(Stat.SkillAreaOfEffectPlusPct) + Get(Stat.BaseSkillAreaOfEffectPlusPct));
             return new(interval, skill, rank, 0, null, null, null, false, true,
                 (int)Math.Max(1, pulse.AverageTotal), radius);
         }
@@ -890,14 +857,14 @@ static partial class SurvivorsSkills
         // run's rank curve. Shared by the area pulse and the projectile path.
         DamagePacket RawDamage()
         {
-            int effectiveness = SkillsFor(conn).DamageEffectiveness(skill.Effect, rank);
-            var coefficients = SkillsFor(conn).DamageCoefficients(skill.Effect, rank);
+            int effectiveness = SkillsFor(player).DamageEffectiveness(skill.Effect, rank);
+            var coefficients = SkillsFor(player).DamageCoefficients(skill.Effect, rank);
             DamagePacket own;
             if (spell)
             {
                 // The gem's first-level row is its identity; the run's rank curve (the reference's +30% a rank) is applied
                 // once, below, to the whole hit, so the power curve is the reference's and the gem stays itself.
-                own = SkillsFor(conn).HitDamage(skill.Effect, 1);
+                own = SkillsFor(player).HitDamage(skill.Effect, 1);
                 own = DamageStats.RawAdded(own, Get, spell: true, effectiveness / 10_000.0);
                 own = own.Scale(roster.SkillScale);
             }
@@ -907,7 +874,7 @@ static partial class SurvivorsSkills
             }
             else
             {
-                bool unarmed = Get("flask_throw_charges_used_per_projectile") != 0;
+                bool unarmed = Get(Stat.FlaskThrowChargesUsedPerProjectile) != 0;
                 var nominal = unarmed ? DamagePacket.Empty
                     : DamagePacket.Of(DamageType.Physical, roster.WeaponDamage * 0.45, roster.WeaponDamage * 0.9);
                 var added = DamageStats.RawAdded(DamagePacket.Empty, Get, spell: false);
@@ -927,19 +894,19 @@ static partial class SurvivorsSkills
                 supportModifiers: supportMods);
             if (pulse.IsZero) return null;
             double pulseRadius = SurvivorsFormulas.AreaRadius(SurvivorsHeraldRadius * SurvivorsRules.SkillRadius(rank),
-                run.AreaIncreasedPercent + Get("skill_area_of_effect_+%") + Get("base_skill_area_of_effect_+%"));
+                run.AreaIncreasedPercent + Get(Stat.SkillAreaOfEffectPlusPct) + Get(Stat.BaseSkillAreaOfEffectPlusPct));
             return new(interval, skill, rank, 0, null, null, null, false, true,
                 (int)Math.Max(1, pulse.AverageTotal), pulseRadius);
         }
         if (SurvivorsDefinition(skill) is not { } definition) return null;
-        int baseSpeed = SkillsFor(conn).Projectile(definition.Metadata)?.Speed ?? 1000;
+        int baseSpeed = SkillsFor(player).Projectile(definition.Metadata)?.Speed ?? 1000;
         // Riptide's Projectiles row is a 10-unit placeholder: a projectile that slow cannot cross a cell.
         if (baseSpeed < 100) baseSpeed = 800;
         double speed = ProjectileSpeed.CellsPerSecond(baseSpeed, Get, Get,
             Environment.GetEnvironmentVariable("Game_PROJECTILE_SPEED"));
         if (!double.IsFinite(speed) || speed <= 0) return null;
-        var profile = definition.Parameters.Resolve(Get, speed, ArrowsFor(conn, skill.Effect));
-        profile = SurvivorsMechanics(skill, Get, profile, spell);
+        var profile = definition.Parameters.Resolve(Get, speed, ArrowsFor(player, skill.Effect));
+        profile = SurvivorsMechanics(player.Id, skill, Get, profile, spell);
         int count = Math.Clamp(profile.Count, 1, 32);
         // PoB's calcRadius: increased area grows the radius by its square root, never linearly.
         profile = profile with
@@ -949,7 +916,7 @@ static partial class SurvivorsSkills
         };
         var raw = RawDamage();
         if (raw.IsZero) return null;
-        Func<string, int> hitStats = armedAttack ? SupportedAttackDamage.HitModifiers(weapon, Get) : Get;
+        Func<uint, int> hitStats = armedAttack ? SupportedAttackDamage.HitModifiers(weapon, Get) : Get;
         var hitDamage = PlayerHitDamage.Resolve(raw, hitStats, conversion, spell, area: false, projectile: true,
             supportModifiers: supportMods);
         var areaHit = PlayerHitDamage.Resolve(raw, hitStats, conversion, spell, area: true, projectile: true,
@@ -958,24 +925,25 @@ static partial class SurvivorsSkills
 
         // The character's penetration, resistance modifiers and leech join the run's hit exactly as they join a gem's.
         var local = spell ? null : weapon.LocalSources;
-        int baseCrit = spell ? SkillsFor(conn).SpellCritChance(skill.Effect, rank) ?? 0
-            : armedAttack ? WeaponProfileFor(conn, activeSet: true).Critical : 500;
+        int baseCrit = spell ? SkillsFor(player).SpellCritChance(skill.Effect, rank) ?? 0
+            : armedAttack ? WeaponProfileFor(player, activeSet: true).Critical : 500;
         int crit = spell
             ? SpellCriticalStrike.Chance(baseCrit, _ => 0, Get)
-            : AddedBaseCriticalStrike.Chance(baseCrit, Get("critical_strike_chance_+%"), spell: false, _ => 0, Get);
+            : AddedBaseCriticalStrike.Chance(baseCrit, Get(Stat.CriticalStrikeChancePlusPct), spell: false, _ => 0, Get);
         int? secondForm = null;
-        if (spell && Get("ice_spear_second_form_critical_strike_chance_+%") is > 0 and var secondCrit)
+        if (spell && Get(Stat.IceSpearSecondFormCriticalStrikeChancePlusPct) is > 0 and var secondCrit)
             secondForm = AddedBaseCriticalStrike.Chance(baseCrit,
-                Get("critical_strike_chance_+%") + secondCrit, spell: true, _ => 0, Get);
+                Get(Stat.CriticalStrikeChancePlusPct) + secondCrit, spell: true, _ => 0, Get);
         int multiplier = spell
-            ? (int)Math.Clamp((long)conn.Pools.SpellCriticalStrikeMultiplier
-                + skillStats.GetValueOrDefault("base_critical_strike_multiplier_+"), int.MinValue, int.MaxValue)
-            : AttackCriticalMultiplier(conn, playerKeys, skill.Effect, skillKeys);
+            ? (int)Math.Clamp((long)player.Pools.SpellCriticalStrikeMultiplier
+                + skillStats.GetValueOrDefault(Stat.BaseCriticalStrikeMultiplierPlus), int.MinValue, int.MaxValue)
+            : AttackCriticalMultiplier(player, playerKeys, skill.Effect, skillKeys);
         string hand = spell ? "spell" : "main_hand";
         var ailmentRows = AilmentPanelStats.Compute(new(hand, Spell: spell), raw, conversion, Get);
         var shot = new ProjectileOffense(hitDamage, spell, Accuracy: spell ? int.MaxValue : accuracy.Rating,
             CriticalChance: crit, CriticalMultiplier: multiplier, Label: skill.Name)
         {
+            WeaponAttack = armedAttack && !SkillsFor(player).RequiresShield(skill.Effect),
             AreaHit = areaHit,
             // The survivor projectile is the server's own (ClientPredicted=false), so it carries its flight and impact
             // clips; the client's instant action only starts the bar's cooldown and the cast animation.
@@ -984,7 +952,7 @@ static partial class SurvivorsSkills
             Penetration = Penetration.Of(playerKeys, Stats, attack: !spell, skillKeys, local),
             ResistanceMods = HitResistMods(playerKeys, skillKeys),
             AccuracyProfile = spell ? null : accuracy,
-            AlwaysHits = Get("global_always_hit") != 0,
+            AlwaysHits = Get(Stat.GlobalAlwaysHit) != 0,
             Ignite = MonsterIgnites.Settings.From(ailmentRows, hand, Get),
             Poison = MonsterPoisons.Settings.From(ailmentRows, hand, Get, local),
             Leech = LeechSources.From(Get, skill.Attack),
@@ -995,7 +963,7 @@ static partial class SurvivorsSkills
         // ThrownWeapon is Spectral Throw's client-predicted weapon: it has a flight clip but no server-side model, so
         // it is routed to the fallback below like a missing clip.
         if (definition.Metadata != "Metadata/Projectiles/ThrownWeapon"
-            && MonsterProjectilePresentation(SkillsFor(conn).Clips(definition.Metadata),
+            && MonsterProjectilePresentation(SkillsFor(player).Clips(definition.Metadata),
                 SurvivorsRules.Range / Math.Max(0.01, speed)) is { } presentation)
         {
             shot = shot with { Presentation = presentation };
@@ -1040,24 +1008,18 @@ static partial class SurvivorsSkills
     }
 
     /// <summary>A gem's own stats by name at a gem level (the run's rank is the gem level).</summary>
-    internal static Dictionary<string, int> SurvivorsStatsByName(ClientState conn, int effect, int level)
+    internal static Dictionary<uint, int> SurvivorsStatsByName(Player player, int effect, int level)
     {
-        var stats = new Dictionary<string, int>(StringComparer.Ordinal);
+        var stats = new Dictionary<uint, int>();
         if (effect < 0) return stats;
-        foreach (var (key, value) in SkillsFor(conn).EffectStats(effect, level))
-            if (Stats.Name(key) is { Length: > 0 } name) stats[name] = stats.GetValueOrDefault(name) + value;
+        foreach (var (key, value) in SkillsFor(player).EffectStats(effect, level))
+            stats[key] = stats.GetValueOrDefault(key) + value;
         return stats;
     }
 
     /// <summary>The character's final stats by name (passives, equipped uniques, flasks): the player side of Path of
     /// Building's damage formula, which a run skill now reads beside its own gem and supports.</summary>
-    internal static Dictionary<string, int> SurvivorsPlayerStats(IReadOnlyDictionary<uint, int> player)
-    {
-        var stats = new Dictionary<string, int>(StringComparer.Ordinal);
-        foreach (var (key, value) in player)
-            if (Stats.Name(key) is { Length: > 0 } name) stats[name] = stats.GetValueOrDefault(name) + value;
-        return stats;
-    }
+    internal static Dictionary<uint, int> SurvivorsPlayerStats(IReadOnlyDictionary<uint, int> player) => new(player);
 
     /// <summary>
     /// The skill side of a run cast: its own gem, each linked support at the skill's rank, and the run's blessings as
@@ -1065,40 +1027,34 @@ static partial class SurvivorsSkills
     /// <see cref="SurvivorsCast"/>, so the profile resolver, the damage resolver and the ailment code read one
     /// dictionary and a support cannot mean one thing to the flight and another to the hit.
     /// </summary>
-    internal static Dictionary<string, int> SurvivorsSkillAndSupportStats(ClientState conn, SurvivorsRun run, SurvivorsSkill skill,
-        int skillIndex, int rank, IReadOnlyList<SurvivorsSupportItem> supports, Dictionary<string, int> own)
+    internal static Dictionary<uint, int> SurvivorsSkillAndSupportStats(Player player, SurvivorsRun run, SurvivorsSkill skill,
+        int skillIndex, int rank, IReadOnlyList<SurvivorsSupportItem> supports, Dictionary<uint, int> own)
     {
-        var stats = new Dictionary<string, int>(own, StringComparer.Ordinal);
+        var stats = new Dictionary<uint, int>(own);
         foreach (int index in run.SupportsOf(skillIndex))
         {
             if (index < 0 || index >= supports.Count || supports[index].Effect < 0) continue;
-            foreach (var (key, value) in SkillsFor(conn).EffectStats(supports[index].Effect, rank))
-                if (Stats.Name(key) is { Length: > 0 } name) stats[name] = stats.GetValueOrDefault(name) + value;
+            foreach (var (key, value) in SkillsFor(player).EffectStats(supports[index].Effect, rank))
+                stats[key] = stats.GetValueOrDefault(key) + value;
         }
-        void Add(string name, int value) { if (value != 0) stats[name] = stats.GetValueOrDefault(name) + value; }
-        Add("damage_+%", run.DamageIncreasedPercent);
-        Add("cast_speed_+%", run.CastSpeedIncreasedPercent);
-        Add("base_skill_area_of_effect_+%", run.AreaIncreasedPercent);
-        Add("additional_base_critical_strike_chance", run.CriticalChanceAddedPermyriad);
-        Add("life_leech_from_any_damage_permyriad", run.LeechPermyriad);
-        Add("base_projectile_speed_+%", run.ProjectileSpeedIncreasedPercent);
+        void Add(uint name, int value) { if (value != 0) stats[name] = stats.GetValueOrDefault(name) + value; }
+        Add(Stat.DamagePlusPct, run.DamageIncreasedPercent);
+        Add(Stat.CastSpeedPlusPct, run.CastSpeedIncreasedPercent);
+        Add(Stat.BaseSkillAreaOfEffectPlusPct, run.AreaIncreasedPercent);
+        Add(Stat.AdditionalBaseCriticalStrikeChance, run.CriticalChanceAddedPermyriad);
+        Add(Stat.LifeLeechFromAnyDamagePermyriad, run.LeechPermyriad);
+        Add(Stat.BaseProjectileSpeedPlusPct, run.ProjectileSpeedIncreasedPercent);
         // Gems whose signature mechanic lives in a stat the generic profile does not read.
-        if (stats.GetValueOrDefault("lightning_arrow_maximum_number_of_extra_targets") is > 0 and var extraTargets)
-            stats["number_of_chains"] = Math.Max(stats.GetValueOrDefault("number_of_chains"), extraTargets);
-        if (stats.GetValueOrDefault("vaal_lightning_arrow_number_of_redirects") is > 0 and var redirects)
-            stats["number_of_chains"] = Math.Max(stats.GetValueOrDefault("number_of_chains"), redirects);
-        if (stats.GetValueOrDefault("base_number_of_projectiles_in_spiral_nova") is > 0 and var spiral)
-            stats["base_number_of_projectiles"] = Math.Min(12, Math.Max(1, spiral / 8));
+        if (stats.GetValueOrDefault(Stat.LightningArrowMaximumNumberOfExtraTargets) is > 0 and var extraTargets)
+            stats[Stat.NumberOfChains] = Math.Max(stats.GetValueOrDefault(Stat.NumberOfChains), extraTargets);
+        if (stats.GetValueOrDefault(Stat.VaalLightningArrowNumberOfRedirects) is > 0 and var redirects)
+            stats[Stat.NumberOfChains] = Math.Max(stats.GetValueOrDefault(Stat.NumberOfChains), redirects);
+        if (stats.GetValueOrDefault(Stat.BaseNumberOfProjectilesInSpiralNova) is > 0 and var spiral)
+            stats[Stat.BaseNumberOfProjectiles] = Math.Min(12, Math.Max(1, spiral / 8));
         return stats;
     }
 
-    internal static Dictionary<uint, int> SurvivorsKeyStats(Dictionary<string, int> stats)
-    {
-        var keys = new Dictionary<uint, int>();
-        foreach (var (name, value) in stats)
-            if (Stats.Key(name) is uint key) keys[key] = keys.GetValueOrDefault(key) + value;
-        return keys;
-    }
+    internal static Dictionary<uint, int> SurvivorsKeyStats(Dictionary<uint, int> stats) => new(stats);
 
     internal static string SurvivorsDamageSlug(DamageType type) => type switch
     {
@@ -1111,12 +1067,12 @@ static partial class SurvivorsSkills
     /// area hits along its flight and Storm Burst's jumping orbs. Everything else (Fireball's explosion, Kinetic
     /// Blast's clusters, Spark's hit window, Tornado Shot's arrows) is part of the resolved profile already.
     /// </summary>
-    internal static ProjectileProfile SurvivorsMechanics(SurvivorsSkill skill, Func<string, int> get, ProjectileProfile profile, bool spell)
+    internal static ProjectileProfile SurvivorsMechanics(uint owner, SurvivorsSkill skill, Func<uint, int> get, ProjectileProfile profile, bool spell)
     {
         string? effect = Skills.EffectId(skill.Effect);
         if (effect == "IceSpear")
         {
-            double formSpeed = 1 + get("ice_spear_second_form_projectile_speed_+%_final") / 100.0;
+            double formSpeed = 1 + get(Stat.IceSpearSecondFormProjectileSpeedPlusPctFinal) / 100.0;
             profile = profile with { FormChange = new(profile.Range * 0.35, Math.Max(1, formSpeed), -1) };
         }
         if (effect is "BallLightning")
@@ -1127,20 +1083,20 @@ static partial class SurvivorsSkills
         if (effect is "StormBurst")
         {
             int radius = SkillArea.Radius(SkillArea.BaseRadius(effect, get), get, spell);
-            int ms = Math.Clamp(get("display_storm_burst_jump_time_ms"), 100, 2000);
+            int ms = Math.Clamp(get(Stat.DisplayStormBurstJumpTimeMs), 100, 2000);
             profile = profile with { Pulse = new("storm-burst", radius, ProjectileRuntime.Time(ms / 1000.0)) };
         }
         // A gem whose own duration is the projectile's life (Spark, Vaal Spark, Storm Burst, Static Tether).
         if (effect is ("Spark" or "SparkAltX" or "SparkAltY" or "VaalSpark" or "StormBurst" or "StaticTether")
-            && get("base_skill_effect_duration") is > 0 and var duration)
+            && get(Stat.BaseSkillEffectDuration) is > 0 and var duration)
             profile = profile with { Lifetime = ProjectileRuntime.Time(Math.Clamp(duration / 1000.0, 0.4, 10)) };
         // Spark's signature wander, the client's own seeded legs (SparkLegs): the server flies the same path it draws.
         if (effect is ("Spark" or "SparkAltX" or "SparkAltY" or "VaalSpark"))
         {
-            double life = get("base_skill_effect_duration") is > 0 and var ms ? ms / 1000.0 : 2.0;
-            int randomDuration = get("spark_random_duration_%");
+            double life = get(Stat.BaseSkillEffectDuration) is > 0 and var ms ? ms / 1000.0 : 2.0;
+            int randomDuration = get(Stat.SparkRandomDurationPct);
             int sparkIndex = 0;
-            profile = profile with { Legs = _ => new SparkLegs(0, sparkIndex++, PlayerId, life, randomDuration, profile.Speed) };
+            profile = profile with { Legs = _ => new SparkLegs(0, sparkIndex++, owner, life, randomDuration, profile.Speed) };
         }
         return profile;
     }
@@ -1155,44 +1111,44 @@ static partial class SurvivorsSkills
     /// </summary>
     /// <summary>Puts a learned Herald's aura buff on the player (S→C 0x1c1), so the client draws it and its icon; the
     /// instances are removed when the run ends.</summary>
-    internal static async Task SurvivorsPublishHeralds(string remote, NetworkStream stream, ConnectionCiphers ciphers,
-        ClientState conn, SurvivorsRun run, IReadOnlyList<SurvivorsSkill> catalog)
+    internal static async Task SurvivorsPublishHeralds(Player player, SurvivorsRun run, IReadOnlyList<SurvivorsSkill> catalog)
     {
-        if (StateOf(conn).Ownership is not { Current: true } ownership || !ReferenceEquals(ownership.Run, run)) return;
+        if (StateOf(player).Ownership is not { Current: true } ownership || !ReferenceEquals(ownership.Run, run)) return;
         foreach (var (index, _) in run.Skills)
         {
             if (!ownership.Current) return;
             if (index < 0 || index >= catalog.Count || catalog[index].Kind != SurvivorsSkillKind.Herald) continue;
-            if (!StateOf(conn).SurvivorsHeraldSkills.Add(index)) continue;
-            if (!HeraldBuffRows.Value.TryGetValue(catalog[index].Effect, out int row) || row is < 0 or > 0xffff) continue;
+            if (!StateOf(player).SurvivorsHeraldSkills.Add(index)) continue;
+            if (!HeraldBuffRows.TryGetValue(catalog[index].Effect, out int row) || row is < 0 or > 0xffff) continue;
             ushort skillId = SurvivorsSkillId(index);
-            ushort aura = conn.NextBuff++;
-            StateOf(conn).SurvivorsHeraldBuffs.Add(aura);
-            await global::Game.SendWorldRecord(remote, stream, ciphers, conn, PlayerId, InstanceEntities.AddBuff(PlayerId, aura, (ushort)row, PlayerId, skillId, auraSource: true, displayState: 0),
-                $"0x01c1 survivors herald aura {catalog[index].Name} (BuffDefinitions row {row})", still: () => ownership.Current);
             if (!ownership.Current) return;
-            if (SkillsFor(conn).ActionHash(catalog[index].Effect) is ushort action)
+            // The herald's two buffs: its aura's source and its icon (the list keeps their row to end them).
+            StateOf(player).SurvivorsHeraldBuffs.Add((ushort)row);
+            player.Area.Buffs.Set(player.Id, new((ushort)row, player.Id, skillId, AuraSource: true, DisplayState: 0,
+                Tag: (ushort)BuffTag.SurvivorsHerald));
+            if (SkillsFor(player).ActionHash(catalog[index].Effect) is ushort action)
             {
-                ushort icon = conn.NextBuff++;
-                StateOf(conn).SurvivorsHeraldBuffs.Add(icon);
-                await global::Game.SendWorldRecord(remote, stream, ciphers, conn, PlayerId, InstanceEntities.AddBuff(PlayerId, icon, (ushort)row, PlayerId, skillId, activeSkill: (skillId, action)),
-                    $"0x01c1 survivors herald icon {catalog[index].Name}", still: () => ownership.Current);
+                player.Area.Buffs.Set(player.Id, new((ushort)row, player.Id, skillId, ActiveSkill: (skillId, action),
+                    Tag: (ushort)BuffTag.SurvivorsHerald));
             }
         }
     }
 
     /// <summary>Removes every herald aura buff the run put on the player.</summary>
-    internal static async Task SurvivorsClearHeralds(string remote, NetworkStream stream, ConnectionCiphers ciphers, ClientState conn)
+    internal static async Task SurvivorsClearHeralds(Player player)
     {
         ushort[] buffs;
-        lock (conn.Monsters)
-        {
-            buffs = [.. StateOf(conn).SurvivorsHeraldBuffs];
-            StateOf(conn).SurvivorsHeraldBuffs.Clear();
-            StateOf(conn).SurvivorsHeraldSkills.Clear();
-        }
-        foreach (ushort buff in buffs)
-            await global::Game.SendWorldRecord(remote, stream, ciphers, conn, PlayerId, InstanceEntities.RemoveBuff(PlayerId, buff), $"0x01c2 survivors herald buff {buff}");
+        buffs = [.. StateOf(player).SurvivorsHeraldBuffs];
+        StateOf(player).SurvivorsHeraldBuffs.Clear();
+        StateOf(player).SurvivorsHeraldSkills.Clear();
+        foreach (ushort row in buffs) ClearSurvivorsHerald(player, row);
+        await Task.CompletedTask;
+    }
+
+    internal static void ClearSurvivorsHerald(Player player, ushort row)
+    {
+        player.Area.Buffs.Clear(player.Id, row, player.Id, auraSource: true, tag: (ushort)BuffTag.SurvivorsHerald);
+        player.Area.Buffs.Clear(player.Id, row, player.Id, tag: (ushort)BuffTag.SurvivorsHerald);
     }
 
 }

@@ -4,7 +4,7 @@ public static partial class Game
 {
     // Kalandra's Touch ("Reflects opposite Ring", local_ring_duplicate_other_ring): a ring with the stat in one ring slot
     // gives the modifiers of the active ring in the other slot as well (Agents/docs/protocol/13-items.md §2e).
-    public const string ReflectRingStat = "local_ring_duplicate_other_ring";
+    public const uint ReflectRingStat = Stat.LocalRingDuplicateOtherRing;
     public const byte LeftRing = 6, RightRing = 7;
 
     public static bool ReflectsOtherRing(Item item, ModCatalog mods) =>

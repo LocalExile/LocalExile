@@ -5,7 +5,9 @@ using GameServer.Core;
 /// the server sent for it or an empty one (<c>0x141eca930</c>).</summary>
 public static class AreaTerrainPlugins
 {
-    static readonly Lazy<Dictionary<ushort, (ushort Id, string Name)>> ByArea = new(() =>
+    static Dictionary<ushort, (ushort Id, string Name)> ByArea = default!;
+
+    public static void LoadGameData()
     {
         var plugins = ClientTables.TableOrEmpty("TerrainPlugins");
         var byArea = new Dictionary<ushort, (ushort, string)>();
@@ -15,11 +17,11 @@ public static class AreaTerrainPlugins
             var plugin = plugins[(int)row];
             byArea[(ushort)area.Int("HASH16")] = ((ushort)plugin.Int("__col1"), plugin.Text("Id") ?? "");
         }
-        return byArea;
-    });
+        ByArea = byArea;
+    }
 
     /// <summary>The plugin of the area (WorldAreas HASH16), null for none.</summary>
-    public static (ushort Id, string Name)? Of(ushort areaHash) => ByArea.Value.TryGetValue(areaHash, out var p) ? p : null;
+    public static (ushort Id, string Name)? Of(ushort areaHash) => ByArea.TryGetValue(areaHash, out var p) ? p : null;
 
     /// <summary>The u16 id of a TerrainPlugins row by its Id, null when there is none.</summary>
     public static ushort? IdOf(string name) =>

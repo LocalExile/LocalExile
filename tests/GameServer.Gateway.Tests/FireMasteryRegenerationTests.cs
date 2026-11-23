@@ -6,11 +6,11 @@ public sealed class FireMasteryRegenerationTests
     [Fact]
     public void Fire_mastery_regenerates_life_per_uncapped_fire_resistance()
     {
-        static Func<string, int> Get(int resistance, int increased = 0) => name => name switch
+        static Func<uint, int> Get(int resistance, int increased = 0) => name => name switch
         {
-            "life_regeneration_per_minute_per_1%_uncapped_fire_damage_resistance" => 60,
-            "uncapped_fire_damage_resistance_%" => resistance,
-            "life_regeneration_rate_+%" => increased,
+            Stat.LifeRegenerationPerMinutePer1PctUncappedFireDamageResistance => 60,
+            Stat.UncappedFireDamageResistancePct => resistance,
+            Stat.LifeRegenerationRatePlusPct => increased,
             _ => 0,
         };
 

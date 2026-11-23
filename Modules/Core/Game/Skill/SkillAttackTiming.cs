@@ -3,10 +3,10 @@
 /// <summary>Weapon-based attack timing with additional base time and the gem's inherent GEPL attack-speed multiplier.</summary>
 public static class SkillAttackTiming
 {
-    public const string AdditionalBaseAttackTime = "additional_weapon_base_attack_time_ms";
+    public const uint AdditionalBaseAttackTime = Stat.AdditionalWeaponBaseAttackTimeMs;
 
     public static int AdditionalMilliseconds(IReadOnlyDictionary<uint, int> stats) =>
-        Program.Stats.Key(AdditionalBaseAttackTime) is uint key ? stats.GetValueOrDefault(key) : 0;
+        AdditionalBaseAttackTime is var key ? stats.GetValueOrDefault(key) : 0;
 
     /// <summary><paramref name="own"/> is the skill's unmerged stat set, or the catalog's own rows when omitted.</summary>
     public static double ForSkill(SkillCatalog skills, int effect, int level, SkillCatalog.Unarmed weapon,
@@ -15,7 +15,7 @@ public static class SkillAttackTiming
     {
         if (!skills.IsAttack(effect)) return Math.Max(Program.TickSeconds, weapon.AttackSeconds(player) / actionSpeed);
         int skillAdditional = own is not null ? AdditionalMilliseconds(own)
-            : Program.Stats.Key(AdditionalBaseAttackTime) is uint key
+            : AdditionalBaseAttackTime is var key
                 ? skills.EffectStats(effect, level).FirstOrDefault(s => s.Item1 == key).Item2 : 0;
         int additional = (int)Math.Clamp((long)AdditionalMilliseconds(player) + skillAdditional, int.MinValue, int.MaxValue);
         int inherent = skills.AttackSpeedMultiplier(effect, level);
@@ -62,16 +62,16 @@ public static class SkillAttackTiming
     // total base duration before global speed; GEPL inherent speed remains in the final percent, not the duration.
     public static void Apply(Dictionary<uint, int> stats, int inherentPercent, int localSpeedInPercent = 0)
     {
-        if (!stats.TryGetValue(StatKeys.MainHandAttackDurationMs, out int main) || main <= 0) return;
+        if (!stats.TryGetValue(Stat.MainHandBaseWeaponAttackDurationMs, out int main) || main <= 0) return;
         int additional = AdditionalMilliseconds(stats);
         if (additional != 0)
         {
-            stats[StatKeys.MainHandTotalAttackDurationMs] = BaseMilliseconds(main, additional);
-            if (stats.TryGetValue(StatKeys.OffHandAttackDurationMs, out int off) && off > 0)
-                stats[StatKeys.OffHandTotalAttackDurationMs] = BaseMilliseconds(off, additional);
+            stats[Stat.MainHandTotalBaseWeaponAttackDurationMs] = BaseMilliseconds(main, additional);
+            if (stats.TryGetValue(Stat.OffHandBaseWeaponAttackDurationMs, out int off) && off > 0)
+                stats[Stat.OffHandTotalBaseWeaponAttackDurationMs] = BaseMilliseconds(off, additional);
         }
-        stats[StatKeys.HundredTimesAttacksPerSecond] = (int)Math.Round(100
-            / Seconds(main, stats.GetValueOrDefault(StatKeys.MainHandAttackSpeedPct), inherentPercent, additional,
+        stats[Stat.HundredTimesAttacksPerSecond] = (int)Math.Round(100
+            / Seconds(main, stats.GetValueOrDefault(Stat.MainHandAttackSpeedPlusPct), inherentPercent, additional,
                 localSpeedInPercent: localSpeedInPercent));
     }
 }

@@ -9,7 +9,7 @@ public class ElementalAttackSkillDamageTests
     [Fact]
     public void Elemental_damage_with_attack_skills_applies_to_attacks_only()
     {
-        int Get(string name) => name == "elemental_damage_with_attack_skills_+%" ? 100 : 0;
+        int Get(uint name) => name == Stat.ElementalDamageWithAttackSkillsPlusPct ? 100 : 0;
         var raw = DamagePacket.Of(DamageType.Fire, 100, 100);
         var attack = PlayerHitDamage.Resolve(raw, Get, new DamageConversion(), spell: false);
         Assert.Equal(200, attack[DamageType.Fire].Min);

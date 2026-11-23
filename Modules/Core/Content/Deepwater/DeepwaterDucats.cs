@@ -54,7 +54,7 @@ public static class DeepwaterDucats
     const int HazardBeltFamily = 7814;
     const int InfamousDomain = 41;
     const int DeepwaterModDomain = 42;
-    const string ImmutableImplicitStat = "local_implicit_mod_cannot_be_changed";
+    const uint ImmutableImplicitStat = Stat.LocalImplicitModCannotBeChanged;
 
     static readonly HashSet<string> AmuletTagOnly = ["amulet"];
 

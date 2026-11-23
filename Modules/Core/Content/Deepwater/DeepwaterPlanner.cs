@@ -21,12 +21,12 @@ internal static class DeepwaterPlanner
     /// <summary>The plan as saved: the 12 border modifiers (none before the 3 × 3 board) and the rerolls made on them.</summary>
     public sealed record Plan(IReadOnlyList<ItemMod> Border, int Rerolls);
 
-    public static Plan Load(ClientState conn)
+    public static Plan Load(Player player)
     {
-        var mods = ItemsFor(conn).Mods;
+        var mods = ItemsFor(player).Mods;
         try
         {
-            if (CharacterSaves.ModuleData(CharacterName(conn), SaveKey) is { } json && JsonSerializer.Deserialize<Saved>(json) is { } saved)
+            if (CharacterSaves.ModuleData(CharacterName(player), SaveKey) is { } json && JsonSerializer.Deserialize<Saved>(json) is { } saved)
             {
                 var border = saved.Border.Select(s => mods.ById(s.Id) is { } mod ? new ItemMod(ModSection.Implicit, mod.Hash, s.Values) : null).ToList();
                 if (border.All(b => b is not null)) return new([.. border!], saved.Rerolls);
@@ -37,21 +37,19 @@ internal static class DeepwaterPlanner
     }
 
     /// <summary>Saves a plan as it was (a Voyage whose entry failed gets its border back).</summary>
-    public static void Put(ClientState conn, Plan plan) => Save(conn, plan);
+    public static void Put(Player player, Plan plan) => Save(player, plan);
 
-    static void Save(ClientState conn, Plan plan)
+    static void Save(Player player, Plan plan)
     {
-        var mods = ItemsFor(conn).Mods;
+        var mods = ItemsFor(player).Mods;
         var saved = new Saved([.. plan.Border.Select(m => new SavedMod(mods.ByHash(m.Hash)?.Id ?? "", [.. m.Values]))], plan.Rerolls);
-        CharacterSaves.ChangeModuleData(CharacterName(conn), SaveKey, _ => JsonSerializer.Serialize(saved));
+        CharacterSaves.ChangeModuleData(CharacterName(player), SaveKey, _ => JsonSerializer.Serialize(saved));
     }
 
     /// <summary>The 3 × 3 board is open (league quest flag 1893 Deepwater3x3VoyagesEnabled; the window's side is 2 + the
     /// flag, H).</summary>
-    public static bool Board3x3(ClientState conn)
-    {
-        lock (conn.Monsters) return conn.LeagueQuestFlags.Contains(DeepwaterConstants.VoyagesEnabledLeagueFlag);
-    }
+    public static bool Board3x3(Player player) =>
+        player.Character.LeagueQuestFlags.Contains(DeepwaterConstants.VoyagesEnabledLeagueFlag);
 
     /// <summary>The cost of the next reroll after <paramref name="rerolls"/>: RerollBorderCostBase × (GrowthPercent / 100)^k
     /// (3000, 6000 … with the 3.29 values); <see cref="DeepwaterHubRuleset.NoReroll"/> once RerollBorderMax were made.</summary>
@@ -63,33 +61,33 @@ internal static class DeepwaterPlanner
     }
 
     /// <summary>The plan, with border modifiers rolled and saved when the 3 × 3 board is open and it has none.</summary>
-    public static Plan Current(ClientState conn)
+    public static Plan Current(Player player)
     {
-        var plan = Load(conn);
-        if (!Board3x3(conn) || plan.Border.Count == 12) return plan;
-        plan = new(Roll(conn, Random.Shared), 0);
-        Save(conn, plan);
+        var plan = Load(player);
+        if (!Board3x3(player) || plan.Border.Count == 12) return plan;
+        plan = new(Roll(player, AreaRng(player)), 0);
+        Save(player, plan);
         return plan;
     }
 
     /// <summary>New border modifiers and no rerolls (after a started Voyage).</summary>
-    public static Plan Renew(ClientState conn)
+    public static Plan Renew(Player player)
     {
-        var plan = new Plan(Board3x3(conn) ? Roll(conn, Random.Shared) : [], 0);
-        Save(conn, plan);
+        var plan = new Plan(Board3x3(player) ? Roll(player, AreaRng(player)) : [], 0);
+        Save(player, plan);
         return plan;
     }
 
     /// <summary>Mode 1 for this player: the border and the next reroll's cost, or no mods and no reroll before the 3 × 3
     /// board (the first Voyage has none, the wiki).</summary>
-    public static byte[]? Message(ClientState conn, Plan plan) => Board3x3(conn)
+    public static byte[]? Message(Player player, Plan plan) => Board3x3(player)
         ? DeepwaterHubRuleset.Border(Cost(plan.Rerolls), plan.Border)
         : DeepwaterHubRuleset.Border(DeepwaterHubRuleset.NoReroll, []);
 
-    public static async Task Send(ClientState conn, Plan plan)
+    public static async Task Send(Player player, Plan plan)
     {
-        if (Message(conn, plan) is not { } message) return;
-        await PlayerOf(conn).Send(message, $"0x02c9 DeepwaterHubRules mode 1: {plan.Border.Count} border mods, reroll cost {(Board3x3(conn) ? Cost(plan.Rerolls) : DeepwaterHubRuleset.NoReroll)}");
+        if (Message(player, plan) is not { } message) return;
+        await PlayerOf(player).Send(message, $"0x02c9 DeepwaterHubRules mode 1: {plan.Border.Count} border mods, reroll cost {(Board3x3(player) ? Cost(plan.Rerolls) : DeepwaterHubRuleset.NoReroll)}");
     }
 
     static string BorderFamily(string id)
@@ -102,10 +100,10 @@ internal static class DeepwaterPlanner
     /// <summary>12 border modifiers: uniform over the pool, no family (the Id without its HardMode suffix or tier digit)
     /// twice on the board; in Ruthless any family with a HardMode variant uses only that variant (all G: the client data
     /// has no weights).</summary>
-    static List<ItemMod> Roll(ClientState conn, Random random)
+    static List<ItemMod> Roll(Player player, Random random)
     {
-        bool hard = LeagueFor(conn).HardMode;
-        var allBorder = ItemsFor(conn).Mods.All.Where(m => m.Domain == BorderDomain && m.GenerationType == BorderGeneration).ToList();
+        bool hard = LeagueFor(player).HardMode;
+        var allBorder = ItemsFor(player).Mods.All.Where(m => m.Domain == BorderDomain && m.GenerationType == BorderGeneration).ToList();
         HashSet<string>? hardModeFamilies = hard
             ? allBorder.Where(m => m.Id.EndsWith(HardModeOnly, StringComparison.Ordinal)).Select(m => BorderFamily(m.Id)).ToHashSet(StringComparer.Ordinal)
             : null;
@@ -126,21 +124,21 @@ internal static class DeepwaterPlanner
 
     // ---- the ops ----
 
-    static InventoryItem? At(ClientState conn, int x) => ItemsOf(conn).Items(DeepwaterLocker.ChartedRow).FirstOrDefault(i => i.X == x);
+    static InventoryItem? At(Player player, int x) => ItemsOf(player).Items(DeepwaterLocker.ChartedRow).FirstOrDefault(i => i.X == x);
 
     /// <summary>Op 4: the chart at <paramref name="from"/> in 104 goes to <paramref name="to"/>, swapping with a chart
     /// there; one 0xbf with both.</summary>
-    public static async Task Move(IModuleContext module, ClientState conn, int from, int to)
+    public static async Task Move(IModuleContext module, Player player, int from, int to)
     {
-        var items = ItemsOf(conn);
-        string what = $"{CharacterName(conn)} <= 0x02ca DeepwaterHubRules MoveStoredChart {from} → {to}";
+        var items = ItemsOf(player);
+        string what = $"{CharacterName(player)} <= 0x02ca DeepwaterHubRules MoveStoredChart {from} → {to}";
         int width = InstanceInventories.PlayerDefaults[DeepwaterLocker.ChartedRow].Width;
-        if (At(conn, from) is not { } moving || to < 0 || to >= width || from == to)
+        if (At(player, from) is not { } moving || to < 0 || to >= width || from == to)
         {
             module.Log($"{what}: refused (no chart there, or no such cell)");
             return;
         }
-        var other = At(conn, to);
+        var other = At(player, to);
         var added = new List<InventoryItem>();
         Saves.Atomically(() =>
         {
@@ -151,60 +149,60 @@ internal static class DeepwaterPlanner
         });
         if (added.Count == 0) return;
         module.Log($"{what}{(other is null ? "" : $", swapped with item {other.Id}")}");
-        await PlayerOf(conn).Send(InstanceItems.InventoryChange(PlayerInventories.InventoryId(DeepwaterLocker.ChartedRow), items.NextRevision(DeepwaterLocker.ChartedRow),
+        await PlayerOf(player).Send(InstanceItems.InventoryChange(PlayerInventories.InventoryId(DeepwaterLocker.ChartedRow), items.NextRevision(DeepwaterLocker.ChartedRow),
             [.. added.Select(a => a.Id)], added), $"0x00bf inventory {PlayerInventories.InventoryId(DeepwaterLocker.ChartedRow)}: charts moved");
     }
 
     /// <summary>Op 5: the chart at <paramref name="x"/> in 104 turns one quarter (rotation + 1 mod 4, G: the direction) and
     /// is sent again (remove and add of the same id), as the client changes nothing itself.</summary>
-    public static async Task Rotate(IModuleContext module, ClientState conn, int x)
+    public static async Task Rotate(IModuleContext module, Player player, int x)
     {
-        var items = ItemsOf(conn);
-        string what = $"{CharacterName(conn)} <= 0x02ca DeepwaterHubRules RotateStoredChart {x}";
-        if (At(conn, x) is not { Item.Chart: { } chart } it
+        var items = ItemsOf(player);
+        string what = $"{CharacterName(player)} <= 0x02ca DeepwaterHubRules RotateStoredChart {x}";
+        if (At(player, x) is not { Item.Chart: { } chart } it
             || items.Change(DeepwaterLocker.ChartedRow, it.Id, i => i with { Chart = chart with { Rotation = (byte)((chart.Rotation + 1) & 3) } }) is not { } turned)
         {
             module.Log($"{what}: refused (no chart there)");
             return;
         }
         module.Log($"{what}: item {it.Id} rotation {chart.Rotation} → {turned.Item.Chart!.Value.Rotation}");
-        await PlayerOf(conn).Send(InstanceItems.InventoryChange(PlayerInventories.InventoryId(DeepwaterLocker.ChartedRow), items.NextRevision(DeepwaterLocker.ChartedRow),
+        await PlayerOf(player).Send(InstanceItems.InventoryChange(PlayerInventories.InventoryId(DeepwaterLocker.ChartedRow), items.NextRevision(DeepwaterLocker.ChartedRow),
             [turned.Id], [turned]), $"0x00bf inventory {PlayerInventories.InventoryId(DeepwaterLocker.ChartedRow)}: item {turned.Id} turned");
     }
 
     /// <summary>Op 6: the chart at <paramref name="x"/> in 104 is destroyed (G: the client asks first).</summary>
-    public static async Task Delete(IModuleContext module, ClientState conn, int x)
+    public static async Task Delete(IModuleContext module, Player player, int x)
     {
-        var items = ItemsOf(conn);
-        string what = $"{CharacterName(conn)} <= 0x02ca DeepwaterHubRules DeleteStoredChart {x}";
-        if (At(conn, x) is not { } it || items.Remove(DeepwaterLocker.ChartedRow, it.Id) is null)
+        var items = ItemsOf(player);
+        string what = $"{CharacterName(player)} <= 0x02ca DeepwaterHubRules DeleteStoredChart {x}";
+        if (At(player, x) is not { } it || items.Remove(DeepwaterLocker.ChartedRow, it.Id) is null)
         {
             module.Log($"{what}: refused (no chart there)");
             return;
         }
         module.Log($"{what}: item {it.Id} destroyed");
-        await PlayerOf(conn).Send(InstanceItems.InventoryChange(PlayerInventories.InventoryId(DeepwaterLocker.ChartedRow), items.NextRevision(DeepwaterLocker.ChartedRow),
+        await PlayerOf(player).Send(InstanceItems.InventoryChange(PlayerInventories.InventoryId(DeepwaterLocker.ChartedRow), items.NextRevision(DeepwaterLocker.ChartedRow),
             [it.Id], []), $"0x00bf inventory {PlayerInventories.InventoryId(DeepwaterLocker.ChartedRow)}: remove item {it.Id}");
     }
 
     /// <summary>Op 7: new border modifiers for <see cref="Cost"/> Sulphur (locker first, then the main inventory, G); none
     /// before the 3 × 3 board or after RerollBorderMax. Mode 1 is sent again either way.</summary>
-    public static async Task Reroll(IModuleContext module, ClientState conn)
+    public static async Task Reroll(IModuleContext module, Player player)
     {
-        var plan = Current(conn);
-        string what = $"{CharacterName(conn)} <= 0x02ca DeepwaterHubRules RerollBorderModifiers";
+        var plan = Current(player);
+        string what = $"{CharacterName(player)} <= 0x02ca DeepwaterHubRules RerollBorderModifiers";
         uint cost = Cost(plan.Rerolls);
-        string? why = !Board3x3(conn) ? "no border modifiers before the 3 × 3 board"
+        string? why = !Board3x3(player) ? "no border modifiers before the 3 × 3 board"
             : cost == DeepwaterHubRuleset.NoReroll ? $"{plan.Rerolls} rerolls made already"
-            : DeepwaterLocker.SulphurHeld(conn) < cost ? $"{cost} Sulphur needed, {DeepwaterLocker.SulphurHeld(conn)} held"
-            : !await DeepwaterLocker.PaySulphur(conn, (int)cost) ? "the Sulphur could not be taken" : null;
+            : DeepwaterLocker.SulphurHeld(player) < cost ? $"{cost} Sulphur needed, {DeepwaterLocker.SulphurHeld(player)} held"
+            : !await DeepwaterLocker.PaySulphur(player, (int)cost) ? "the Sulphur could not be taken" : null;
         if (why is null)
         {
-            plan = new(Roll(conn, Random.Shared), plan.Rerolls + 1);
-            Save(conn, plan);
-            module.Log($"{what}: paid {cost} Sulphur, reroll {plan.Rerolls}: {string.Join(", ", plan.Border.Select(m => ItemsFor(conn).Mods.ByHash(m.Hash)?.Id))}");
+            plan = new(Roll(player, AreaRng(player)), plan.Rerolls + 1);
+            Save(player, plan);
+            module.Log($"{what}: paid {cost} Sulphur, reroll {plan.Rerolls}: {string.Join(", ", plan.Border.Select(m => ItemsFor(player).Mods.ByHash(m.Hash)?.Id))}");
         }
         else module.Log($"{what}: refused ({why})");
-        await Send(conn, plan);
+        await Send(player, plan);
     }
 }

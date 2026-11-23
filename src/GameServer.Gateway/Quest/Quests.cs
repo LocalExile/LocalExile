@@ -32,6 +32,13 @@ using GameServer.Core;
 /// </summary>
 public static partial class Quests
 {
+    /// <summary>Fills this type's game data at startup (the world loader, before the Gateway listens).</summary>
+    public static void LoadGameData()
+    {
+        TableRows = LoadTableRows();
+        Tutorials = LoadTutorials();
+    }
+
     /// <summary>A rule of a quest's table. Area and object/variety Ids are WorldAreas, MonsterVarieties, NPCs, Chests or
     /// .ot type Ids, as the data names them.</summary>
     public abstract record Rule;
@@ -139,6 +146,9 @@ public static partial class Quests
     {
         /// <summary>Advance the newly created NPC once to release its paused entrance animation.</summary>
         public bool AdvanceOnAppearance { get; init; }
+        /// <summary>Room/tile object where the NPC stands on a later visit to a fresh instance while the kill flag is
+        /// set and <see cref="GoneWith"/> is not (when no death site is remembered in this instance).</summary>
+        public string? AtObject { get; init; }
     }
     /// <summary>A dialogue row of the NPC with this option text hands in every carried copy of the item, setting its
     /// remove_flag in the same save, for rows whose own flags do not (Hargan's "Victario's Holdfasts" takes each Platinum
@@ -169,6 +179,9 @@ public static partial class Quests
     /// then. Using it is a <see cref="UsedRule"/>.</summary>
     public sealed record ObjectRule(string Area, string ObjectType, string? TransitionedBy) : Rule
     {
+        /// <summary>Optional flag that returns a transitioned object back to state 1 once set (Prisoner's Gate's
+        /// SpikeBlockage closes on <c>a1q9-RoadBlocked</c> and reopens on <c>a1q9-RoadOpened</c>).</summary>
+        public string? UntransitionedBy { get; init; }
         /// <summary>Removed once transitioned instead of shown open: the client's step check (0x141e65ae0) stops at
         /// every Positioned body with a size, open or not (the Apex door, object_size 6, live 2026-11-04).</summary>
         public bool GoneWhenTransitioned { get; init; }
@@ -221,6 +234,8 @@ public static partial class Quests
         public static Rule Used(string area, string objectType, params string[] flags) => new UsedRule(area, objectType, flags);
         public static Rule UsedWith(string area, string objectType, string[] needs, params string[] flags) => new UsedRule(area, objectType, flags, needs);
         public static Rule Object(string area, string objectType, string? transitionedBy = null) => new ObjectRule(area, objectType, transitionedBy);
+        public static Rule Object(string area, string objectType, string? transitionedBy, string? untransitionedBy) =>
+            new ObjectRule(area, objectType, transitionedBy) { UntransitionedBy = untransitionedBy };
         public static Rule Door(string area, string objectType, string openedBy) =>
             new ObjectRule(area, objectType, openedBy) { GoneWhenTransitioned = true };
         public static Rule Spawns(string area, string objectType, string variety) => new SpawnRule(area, objectType, variety);
@@ -238,8 +253,8 @@ public static partial class Quests
         public static Rule Exists(string objectType, string? from = null, string? until = null, string? to = null) =>
             new ExistsRule(objectType, from, until) { To = to };
         public static Rule Appears(string area, string variety, string npcType, string? goneWith = null, bool stayAfterReward = false,
-            bool advanceOnAppearance = false) =>
-            new AppearsRule(area, variety, npcType, goneWith, stayAfterReward) { AdvanceOnAppearance = advanceOnAppearance };
+            bool advanceOnAppearance = false, string? atObject = null) =>
+            new AppearsRule(area, variety, npcType, goneWith, stayAfterReward) { AdvanceOnAppearance = advanceOnAppearance, AtObject = atObject };
         public static Rule HandIn(string npc, string option, string item, int? row = null) => new HandInRule(npc, option, item) { Row = row };
         public static Rule TalkRow(int row, params string[] flags) => new TalkRowRule(row, flags);
         public static Rule Portal(string area, string atObject, string to, string type) => new PortalRule(area, atObject, to, type);
@@ -639,17 +654,17 @@ public static partial class Quests
     /// epilogue flag the client requires before an Atlas map can be activated: until earned it is one of
     /// <see cref="EndgameOnly"/>.</summary>
     public static readonly string[] EveryCharacter = ["HideoutUnlocked", "HideoutJukeboxEnabled", "CanEditHideout", "MapDeviceActive",
-        CompletedAllTutorials, ThisIsMyHideout, EndGameAvailable];
+        ThisIsMyHideout, EndGameAvailable];
 
     /// <summary>
     /// Of <see cref="EveryCharacter"/>, the flags given for the endgame only, until the character earns them (Kitava's
-    /// end sets EndGameAvailable; ClientState.UnearnedQuestFlags). The client needs EndGameAvailable to activate an Atlas
+    /// end sets EndGameAvailable; Player.UnearnedQuestFlags). The client needs EndGameAvailable to activate an Atlas
     /// map at the map device (live 2026-10-29) and to enter a map area (every map's WorldAreas EndQuestFlags), and every
     /// character here may run maps from its hideout. But the same flag is Kitava's Act 10 penalty (QuestStaticRewards 39,
     /// which the client applies from the flags it has), the Epilogue's gate (Karui Shores' and Oriath's EndQuestFlags) and
     /// the condition of Act 10's last rows (Lilly's "Set Sail from Oriath" 1433, Lani's "Kitava" and "Kitava Reward"
     /// 1415/1416) and exits (Sin's portal home). So an unearned one is not among the character's flags
-    /// (ClientState.QuestFlags): the client gets it only in a hideout or a map area (Game.PlayerQuestFlags, as
+    /// (Player.QuestFlags): the client gets it only in a hideout or a map area (Game.PlayerQuestFlags, as
     /// ThisIsMyHideout only in a hideout), and every server gate reads the flags the client has, so the campaign's gates
     /// stay shut until Kitava. In a hideout or a map before Kitava the client's character panel shows the second −30%;
     /// the server's resistances (Game.ResistancePenalty) count it only once earned.
@@ -659,10 +674,14 @@ public static partial class Quests
     /// <summary>QuestFlags row 717, sent only while the player is in a hideout (Program.PlayerQuestFlags).</summary>
     public const string ThisIsMyHideout = "ThisIsMyHideout";
 
-    /// <summary>QuestFlags row 367: the tutorials are done, as on an account that has played before. Quest states that
-    /// teach (a1q1 after Hillock: "Open the Passive Skill Screen …", FlagsMissing 280/367) give way to the next step
-    /// ("Enter through the gate for a reward").</summary>
+    /// <summary>QuestFlags row 367 (Tutorial.dat row 17 AllTutorials): the tutorials are skipped or disabled. Quest states
+    /// that teach (a1q1 after Hillock: "Open the Passive Skill Screen …", FlagsMissing 280/367) give way to the next step
+    /// ("Enter through the gate for a reward"), and the HUD "Skip All Tutorials" button and Options checkbox check it.</summary>
     public const string CompletedAllTutorials = "CompletedAllTutorials";
+
+    /// <summary>QuestFlags row 713 (Tutorial.dat row 77 HidePopups): suppresses Help Panel article popup notifications
+    /// (checked at 0x140a901ec, 0x140a910e3, 0x140a916e1, 0x140a917e5, 0x140a92dca).</summary>
+    public const string TutorialPanelHideArticlePopups = "TutorialPanelHideArticlePopups";
 
     /// <summary>CharacterStartQuestState/QuestStates EpilogueAtlasDemo flag: without it the client refuses to activate an
     /// Atlas map ("You do not have the required Quest State to access this area"; live 2026-10-29).</summary>
@@ -682,8 +701,8 @@ public static partial class Quests
     /// </summary>
     public static class League
     {
-        public const int HaveGuild = 2, UnlockedHideouts = 3, HaveHideout = 200, AtlasUnlocked = 296,
-            UnlockedMapDevice = 350;
+        public const int HaveGuild = 2, UnlockedHideouts = 3, HaveHideout = 200, CraftedItemAtBench = 201,
+            AtlasUnlocked = 296, UnlockedMapDevice = 350, VisitedMenagerie = 408;
 
         /// <summary>The client's number of league quest flags (ids 1 to 0x776); a table's league flag column uses 1911 for none.</summary>
         public const int Count = 0x776;
@@ -693,7 +712,8 @@ public static partial class Quests
 
         /// <summary>Niko met in a map: his Delve options (View Subterranean Chart, Visit Mine Encampment) need it. NPCTalk
         /// columns 15-18 are league quest flag ids (16 required, 18 refused: the first-meeting "Talk to Niko" has 68 there).</summary>
-        public const int DelveEncounterComplete = 68;
+        public const int DelveCraftedDynamite = 19, DelveCraftedFlares = 20, DelveSulphiteUnlocked = 23,
+            DelveEncounterComplete = 68;
 
         /// <summary>The World panel's special pins (SpecialMapPins.dat column 2 is the league quest flag id that shows each):
         /// HaveGuildHideout, MenagerieUnlocked, NikoHaveMinedSulphite (the Mine Encampment), SanctumIntroNewGivenTexts,
@@ -702,7 +722,7 @@ public static partial class Quests
         public static readonly int[] WorldPanelPins = [1033, 409, 9, 414, 608, 736, 636, 677, 419];
 
         public static readonly int[] EveryCharacter = [UnlockedHideouts, HaveHideout, AtlasUnlocked, UsedMapDevice, UnlockedMapDevice,
-            DelveEncounterComplete, .. WorldPanelPins];
+            DelveSulphiteUnlocked, DelveEncounterComplete, .. WorldPanelPins];
 
         /// <summary>The bits the client keeps for these ids (id − 1).</summary>
         public static IEnumerable<int> Bits(IEnumerable<int> ids) => ids.Where(id => id > 0).Select(id => id - 1);
@@ -719,15 +739,17 @@ public static partial class Quests
         return rows;
     }
 
-    static readonly Lazy<Dictionary<string, int>> TableRows = new(() =>
+    static Dictionary<string, int> TableRows = default!;
+
+    static Dictionary<string, int> LoadTableRows()
     {
         try { return FlagRows(ClientTables.TableOrNull("QuestFlags")); }
         catch (Exception ex) when (ex is IOException or Microsoft.Data.Sqlite.SqliteException) { Console.WriteLine($"[gateway] QuestFlags: {ex.Message}"); return []; }
-    });
+    }
 
     /// <summary>The QuestFlags rows of these flag Ids, ascending; unknown Ids are skipped.</summary>
     public static IReadOnlyList<int> Rows(IEnumerable<string> ids, IReadOnlyDictionary<string, int>? rows = null) =>
-        [.. ids.Select(id => (rows ?? TableRows.Value).TryGetValue(id, out int r) ? r : -1).Where(r => r >= 0).Order()];
+        [.. ids.Select(id => (rows ?? TableRows).TryGetValue(id, out int r) ? r : -1).Where(r => r >= 0).Order()];
 
     /// <summary>Whether the client has a quest flag: the character's own, or among the rows the client gets (the
     /// player's flag set also carries the World panel's access flags: an activated waypoint's area, 16-waypoints.md §4).
@@ -743,6 +765,50 @@ public static partial class Quests
     public static IReadOnlySet<string> Names(IEnumerable<int> rows)
     {
         var wanted = rows.ToHashSet();
-        return TableRows.Value.Where(kv => wanted.Contains(kv.Value)).Select(kv => kv.Key).ToHashSet();
+        return TableRows.Where(kv => wanted.Contains(kv.Value)).Select(kv => kv.Key).ToHashSet();
     }
+
+    sealed record TutorialCatalog(IReadOnlyDictionary<byte, string> ByRow, IReadOnlyList<string> AllFlags);
+
+    static TutorialCatalog Tutorials = default!;
+
+    static TutorialCatalog LoadTutorials()
+    {
+        try
+        {
+            var table = ClientTables.TableOrNull("Tutorial");
+            if (table is null) return new(new Dictionary<byte, string>(), [CompletedAllTutorials, TutorialPanelHideArticlePopups]);
+            var flagNames = TableRows.ToDictionary(kv => kv.Value, kv => kv.Key);
+            var byRow = new Dictionary<byte, string>();
+            var allFlags = new List<string>();
+            var seen = new HashSet<string>(StringComparer.Ordinal);
+            foreach (var r in table)
+            {
+                if (r.Index < 0 || r.Index > byte.MaxValue) continue;
+                if (r.IntOrNull("QuestFlagComplete") is not int flagRow || !flagNames.TryGetValue(flagRow, out string? flag)) continue;
+                byRow[(byte)r.Index] = flag;
+                // Rows without a UIFile are the tutorial completion flags (0..18) and HidePopups (77); rows with a UIFile
+                // are Help Panel articles (23..76, ArticleRead*), which stay unread individually when tutorials are skipped.
+                if (string.IsNullOrEmpty(r.TextOrNull("UIFile")) && seen.Add(flag))
+                    allFlags.Add(flag);
+            }
+            if (seen.Add(CompletedAllTutorials)) allFlags.Add(CompletedAllTutorials);
+            if (seen.Add(TutorialPanelHideArticlePopups)) allFlags.Add(TutorialPanelHideArticlePopups);
+            return new(byRow, allFlags);
+        }
+        catch (Exception ex) when (ex is IOException or Microsoft.Data.Sqlite.SqliteException)
+        {
+            Console.WriteLine($"[gateway] Tutorial: {ex.Message}");
+            return new(new Dictionary<byte, string>(), [CompletedAllTutorials, TutorialPanelHideArticlePopups]);
+        }
+    }
+
+    /// <summary>The QuestFlags.dat Id of a Tutorial.dat row's QuestFlagComplete column, or null when the row is out of
+    /// range (such as the client's null-article sentinel 0x4e at 0x140a91c4f) or has no completion flag.</summary>
+    public static string? TutorialFlag(byte row) => Tutorials.ByRow.GetValueOrDefault(row);
+
+    /// <summary>Every tutorial completion flag from Tutorial.dat (rows 0..18, including CompletedSkillGemTutorial and
+    /// CompletedAllTutorials) plus TutorialPanelHideArticlePopups (row 77): set together when skipping or disabling all
+    /// tutorials (C→S 0x020a row 17 AllTutorials).</summary>
+    public static IReadOnlyList<string> AllTutorialFlags => Tutorials.AllFlags;
 }

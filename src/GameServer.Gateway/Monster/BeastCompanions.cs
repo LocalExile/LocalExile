@@ -34,7 +34,7 @@ public sealed class BeastCompanions
     {
         public ushort SourceSkill { get; init; }
         public IReadOnlyDictionary<uint, int> SkillStats { get; init; } = new Dictionary<uint, int>();
-        public MonsterModEffects Intrinsic { get; init; } = new(new Dictionary<string, int>());
+        public MonsterModEffects Intrinsic { get; init; } = new(new Dictionary<uint, int>());
     }
 
     public PendingSummon? Pending;
@@ -42,8 +42,8 @@ public sealed class BeastCompanions
     public readonly Dictionary<WornGrantedSkills.Grant, SourceGeneration> SourceGenerations = [];
 }
 
-public sealed partial class ClientState
+public sealed partial class Player
 {
-    /// <summary>The player's source-owned beasts, under the Monsters lock.</summary>
+    /// <summary>The player's source-owned beasts, in the area's frame.</summary>
     public readonly BeastCompanions Beasts = new();
 }

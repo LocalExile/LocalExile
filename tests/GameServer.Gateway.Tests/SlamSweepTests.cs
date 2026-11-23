@@ -17,7 +17,7 @@ public sealed class SlamSweepTests
 
         var fissure = Game.ResolveProjectileDefinition(Program.Skills.EffectRow("VolcanicFissure"));
         Assert.NotNull(fissure);
-        var profile = fissure.Parameters.Resolve(key => key == "base_number_of_projectiles" ? 5 : 0, 60, false);
+        var profile = fissure.Parameters.Resolve(key => key == Stat.BaseNumberOfProjectiles ? 5 : 0, 60, false);
         Assert.Equal(5, profile.Count);
         Assert.True(profile.Lobbed);
         Assert.False(profile.DirectDamage);

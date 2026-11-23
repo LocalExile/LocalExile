@@ -150,7 +150,7 @@ Offsets are inside the component object. "If bN" means that bit of the component
 | if f0 & 0x04: i32 +0x290, f32 +0x2b4 | | **fixed height**: −z / 7.8125 in whole steps (world z points down) and the world z; when `+0x290` ≠ `0x7fffffff` the z is used instead of the terrain height (`0x141e38b40`) |
 | if f0 & 0x40: f32 +0x2b8, f32 +0x2bc | else derived from x/y | world x, y (else `(grid + 0.5) × 250/23`) |
 | if f1 & 0x01: u32, u32, u32, u8, u32, u8 | | movement (`0x141e37460`) |
-| if f1 & 0x02: u8, u8 | | visibility toggles |
+| if f1 & 0x02: u8, u8 | | `+0x1e7` bit 0, then **blocking** (`+0x1e5` bit 0x08, the bit 0x2b2 clears on a corpse); each change calls vtable +0xb0. The constructor (`0x141e31ca0`) already set blocking from the type's .ot `blocking` (type +0x16, parser `0x141e30ba0`; unset is false, `0x141e281d0`) and cleared `+0x1e7`, so the pair only overrides: a hard-coded `0, 1` made a `blocking = false` object (the Labyrinth trial's return portal, waypoints, area transitions) a body |
 | if f1 & 0x08: u8 | | `+0x1e6` bit 0x40: the object blocks no walker (the collision test `0x141e65ae0` skips it; pets) |
 | if f1 & 0x10: u32 +0x2a0 | | |
 
