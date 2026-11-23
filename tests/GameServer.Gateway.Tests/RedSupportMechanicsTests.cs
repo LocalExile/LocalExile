@@ -6,6 +6,30 @@ namespace GameServer.Gateway.Tests;
 // Red/blue supports whose stats had no consumer: Maim, Bloodlust, Power Charge on Critical and Volatility.
 public sealed class RedSupportMechanicsTests
 {
+    [Fact]
+    public void Bloodlust_scales_melee_physical_damage_through_conversion_and_gain()
+    {
+        var player = new Player(new(1, "bloodlust", 300, 300, 100, 100, null, []), 1, 1);
+        var target = new SpawnedMonster("target", new(100, 100, 0), 0, 0, 1000);
+        var stats = new Dictionary<uint, int> { [Stat.SupportBloodlustMeleePhysicalDamagePlusPctFinalVsBleedingEnemies] = 25 };
+        var raw = DamagePacket.Of(DamageType.Physical, 100, 100)
+            .Add(DamageType.Cold, new(40, 40)).Add(DamageType.Fire, new(30, 30));
+        var conversion = new DamageConversion().AddSkill(DamageType.Physical, DamageType.Cold, 60)
+            .AddGain(DamageType.Physical, DamageType.Fire, 20);
+        var melee = PlayerHitDamage.Resolve(raw, _ => 0, conversion, spell: false, melee: true, trackPhysicalOrigin: true);
+        var projectile = PlayerHitDamage.Resolve(raw, _ => 0, conversion, spell: false, projectile: true);
+
+        DamagePacket Hit(DamagePacket packet) => Game.WithConditionalSupportDamageLocked(player, stats, attack: true,
+            target, packet.Roll(new Random(1)), now: 0);
+        Assert.Equal(190, Hit(melee).MaxTotal);
+        Assert.True(target.Bleeds.Add(0, 1, 10));
+        var affected = Hit(melee);
+        Assert.Equal(50, affected[DamageType.Physical].Max);
+        Assert.Equal(115, affected[DamageType.Cold].Max);
+        Assert.Equal(55, affected[DamageType.Fire].Max);
+        Assert.Equal(190, Hit(projectile).MaxTotal);
+    }
+
     static Func<uint, int> Stats(params (string Name, int Value)[] stats) =>
         name => stats.Where(s => Stat.Of(s.Name) == name).Sum(s => s.Value);
 
