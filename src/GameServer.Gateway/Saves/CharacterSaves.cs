@@ -433,17 +433,27 @@ public static class CharacterSaves
     /// <summary>Read-only character directory entry from <c>account_characters</c> combined with saved experience and
     /// ascendancy (for directory/age/ladder queries).</summary>
     public sealed record CharacterSummary(string Name, CharacterClass Class, int Level, uint Experience, string League,
-        string AreaId, DateTimeOffset CreatedUtc, bool HardcoreDead, string? Ascendancy);
+        string AreaId, DateTimeOffset CreatedUtc, bool HardcoreDead, string? Ascendancy, string? AscendancyFamily = null);
 
-    static DateTimeOffset ParseUtc(string text) =>
-        DateTimeOffset.Parse(text, System.Globalization.CultureInfo.InvariantCulture, System.Globalization.DateTimeStyles.RoundtripKind);
+    static DateTimeOffset ParseUtc(string text)
+    {
+        try
+        {
+            return DateTimeOffset.Parse(text, System.Globalization.CultureInfo.InvariantCulture, System.Globalization.DateTimeStyles.RoundtripKind);
+        }
+        catch (Exception e) when (e is FormatException or OverflowException)
+        {
+            throw new UnreadableSaveException(Saves.Db.Path, $"character timestamp in {Saves.Db.Path} can't be read ({e.Message})", e);
+        }
+    }
 
     static CharacterSummary ReadSummary(Microsoft.Data.Sqlite.SqliteDataReader r)
     {
         string name = r.GetString(0);
         uint xp = UnsavedExperience.TryGetValue(name, out uint unsaved) ? unsaved : (uint)Math.Max(0L, r.GetInt64(3));
         return new(name, (CharacterClass)r.GetInt64(1), checked((int)r.GetInt64(2)), xp, r.GetString(4), r.GetString(5),
-            ParseUtc(r.GetString(6)), r.GetInt64(7) != 0, r.IsDBNull(8) ? null : r.GetString(8));
+            ParseUtc(r.GetString(6)), r.GetInt64(7) != 0, r.IsDBNull(8) ? null : r.GetString(8),
+            r.IsDBNull(9) ? null : r.GetString(9));
     }
 
     public static CharacterSummary? LookupCharacter(string name)
@@ -453,7 +463,7 @@ public static class CharacterSaves
         {
             using var c = Saves.Db.Command(
                 "SELECT ac.name, ac.class, ac.level, coalesce(cs.experience, 0), ac.league, ac.area_id, " +
-                "ac.created_utc, ac.hardcore_death_utc IS NOT NULL, ca.ascendancy " +
+                "ac.created_utc, ac.hardcore_death_utc IS NOT NULL, ca.ascendancy, ca.family " +
                 "FROM account_characters ac " +
                 "LEFT JOIN character_saves cs ON cs.name = ac.name AND cs.deleted_utc IS NULL " +
                 "LEFT JOIN character_ascendancies ca ON ca.save = cs.id " +
@@ -471,11 +481,12 @@ public static class CharacterSaves
         {
             using var c = Saves.Db.Command(
                 "SELECT ac.name, ac.class, ac.level, coalesce(cs.experience, 0), ac.league, ac.area_id, " +
-                "ac.created_utc, ac.hardcore_death_utc IS NOT NULL, ca.ascendancy " +
+                "ac.created_utc, ac.hardcore_death_league IS NOT NULL AND ac.hardcore_death_league = $league COLLATE NOCASE, " +
+                "ca.ascendancy, ca.family " +
                 "FROM account_characters ac " +
                 "LEFT JOIN character_saves cs ON cs.name = ac.name AND cs.deleted_utc IS NULL " +
                 "LEFT JOIN character_ascendancies ca ON ca.save = cs.id " +
-                "WHERE ac.league = $league COLLATE NOCASE " +
+                "WHERE ac.league = $league COLLATE NOCASE OR ac.hardcore_death_league = $league COLLATE NOCASE " +
                 "ORDER BY ac.level DESC, coalesce(cs.experience, 0) DESC, ac.name COLLATE NOCASE ASC " +
                 "LIMIT $limit",
                 ("$league", league), ("$limit", limit));

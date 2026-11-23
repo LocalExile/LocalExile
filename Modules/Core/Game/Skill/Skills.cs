@@ -1310,18 +1310,42 @@ public static partial class Game
     public static string ClassDisplayName(Player player)
     {
         var cls = SkillsFor(player).ClassFor(player.Character.ClassRow);
-        if (Game.AscendancyRules.Validate((byte)cls.IntegerId, player.Character.MainAscendancy) is { } asc)
+        if (player.Character.MainAscendancy?.Selection is { } sel
+            && Ascendancies?.Find(sel) is { } asc
+            && asc.BaseClass == (byte)cls.IntegerId)
             return asc.Name;
-        return ((GameServer.Core.Accounts.CharacterClass)cls.IntegerId).ToString();
+        var baseClass = (GameServer.Core.Accounts.CharacterClass)cls.IntegerId;
+        return Enum.IsDefined(baseClass) ? baseClass.ToString() : "Exile";
     }
 
-    public static string ClassDisplayName(GameServer.Core.Accounts.CharacterClass baseClass, string? ascendancyId)
+    public static string ClassDisplayName(GameServer.Core.Accounts.CharacterClass baseClass, string? ascendancyId, string? ascendancyFamily = null)
     {
-        if (!string.IsNullOrEmpty(ascendancyId)
-            && Ascendancies.Definitions.FirstOrDefault(d => d.BaseClass == (byte)baseClass
+        if (!string.IsNullOrEmpty(ascendancyId) && Ascendancies is { } catalog)
+        {
+            AscendancyFamily? family = Enum.TryParse<AscendancyFamily>(ascendancyFamily, ignoreCase: true, out var parsed)
+                && Enum.IsDefined(parsed) ? parsed : null;
+            if (catalog.Definitions.FirstOrDefault(d => d.BaseClass == (byte)baseClass
+                && (family is null || d.Identity.Family == family)
                 && d.Identity.Id.Equals(ascendancyId, StringComparison.OrdinalIgnoreCase)) is { } asc)
-            return asc.Name;
-        return baseClass.ToString();
+                return asc.Name;
+        }
+        return Enum.IsDefined(baseClass) ? baseClass.ToString() : "Exile";
+    }
+
+    internal static async Task BroadcastLevelChange(Player player, int level)
+    {
+        if (player.Instance is not { Presence: { } presence }) return;
+        // BackendErrors LevelUp (143): "{0} ({1}) is now level {2}". Each recipient gets its own bytes (in-place cipher).
+        string text = $"{CharacterName(player)} ({ClassDisplayName(player)}) is now level {level}";
+        var seen = new HashSet<Player>(ReferenceEqualityComparer.Instance);
+        foreach (var recipient in InGame.Keys.Append(player))
+        {
+            if (!seen.Add(recipient)
+                || recipient is not { Controlled: false, Closed: false, LeavingArea: false, Connection: { PlayerSent: true, Outbox: { } outbox } }
+                || !ReferenceEquals(recipient.Instance?.Presence, presence)) continue;
+            try { await outbox(InstanceChat.ChatLine(text), $"0x0017 level up \"{text}\""); }
+            catch (Exception ex) when (ex is IOException or ObjectDisposedException) { }
+        }
     }
 
     public static async Task PublishLevelChange(Player player, int before, int level)
@@ -1338,16 +1362,7 @@ public static partial class Game
         await SendPlayerMana(player, $"0x01b1 player mana {player.PlayerMana}");
         await SendPassives(player);
         await CheckLevelAchievements(player, level);
-        // BackendErrors LevelUp (143): "{0} ({1}) is now level {2}". Each recipient gets its own bytes (in-place cipher).
-        string text = $"{CharacterName(player)} ({ClassDisplayName(player)}) is now level {level}";
-        var seen = new HashSet<Player>(ReferenceEqualityComparer.Instance);
-        foreach (var recipient in InGame.Keys.Append(player))
-        {
-            if (!seen.Add(recipient) || recipient is not { Controlled: false, Closed: false, LeavingArea: false, Connection.Outbox: { } outbox }
-                || !ReferenceEquals(recipient.Instance.Presence, player.Instance.Presence)) continue;
-            try { await outbox(InstanceChat.ChatLine(text), $"0x0017 level up \"{text}\""); }
-            catch (Exception ex) when (ex is IOException or ObjectDisposedException) { }
-        }
+        await BroadcastLevelChange(player, level);
     }
 
     // The player's stats (0x1b3) and the skills computed with them (0x2bc Actor), after the level or the passives changed.

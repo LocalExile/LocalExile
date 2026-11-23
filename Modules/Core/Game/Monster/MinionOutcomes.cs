@@ -325,6 +325,8 @@ public static partial class Game
         }
         await SendSentinelOwnership(player, Current);
         if (!Current() || account == state.PresentedAccountRevision) return;
+        if (!HardcoreProgressBlocked(player)) await BroadcastLevelChange(player, player.Pools.Level);
+        if (!Current()) return;
         await SynchronizeAccountLevel(player);
         if (Current() && !player.Closed && !player.LeavingArea) state.PresentedAccountRevision = Math.Max(state.PresentedAccountRevision, account);
     }

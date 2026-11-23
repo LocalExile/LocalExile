@@ -46,7 +46,10 @@ public sealed class CharacterKills(Func<double>? time = null) : IDisposable
         if (!player.Connection.PlayerSent) return;
         Pending? s;
         lock (sessions) sessions.TryGetValue(player, out s);
-        if (s is not null && s.Kills > 0 && now() - s.FlushedAt >= 30) Flush(s);
+        if (s is null) return;
+        bool due;
+        lock (s) due = s.Kills > 0 && now() - s.FlushedAt >= 30;
+        if (due) Flush(s);
     }
 
     public long Count(Player player)
@@ -97,7 +100,9 @@ public sealed class CharacterKills(Func<double>? time = null) : IDisposable
             open = [.. sessions.Values];
             sessions.Clear();
         }
-        foreach (var s in open) Flush(s);
+        foreach (var s in open)
+            try { Flush(s); }
+            catch (Exception e) { Console.WriteLine($"[commands] kills of {s.Character} not saved on shutdown: {e.Message}"); }
     }
 
     // BackendErrors PlayerKillCount1 (579) / PlayerKillCountN (176).
