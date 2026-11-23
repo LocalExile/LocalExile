@@ -139,6 +139,7 @@ public static partial class Game
         destroyCorpse = playerKill && TakeUnhingedHitKillLocked(player, monster);
         if (playerKill) QueueMadnessExplosionLocked(player, id, monster);
         StopCorpseBlocking(player, id, monster);
+        DetonateExplosiveFusesOnDeath(monster, session);
         // A soul only moves on some kills: an unchanged balance must not take a gate turn through the presentation.
         if (VaalSoulsUnpresented(player))
             session.World(player.Id, () => VaalSoulPresentation(player), "Vaal souls after projectile kill");
@@ -159,6 +160,7 @@ public static partial class Game
         ShareKill(player, id, monster, variety, position, partyShares);
         if (playerKill)
         {
+            WitchbaneOnKill(player, monster, now);
             // The kill's bookkeeping goes behind the presentation queued with it (EnqueueLater): queued in line, it ended
             // the projectile step's world group, and the first kill's life update went a frame before the others.
             session.EnqueueLater(() => GameEvents.RunMonsterKilled(new(PlayerOf(killer), modMonster)));
@@ -166,7 +168,8 @@ public static partial class Game
             ChargesOnKill(player, monster);
             RecoverOnKill(player, monster, tinctureKill);
             GainPhasingOnKill(player);
-            session.EnqueueLater(async () => await ExplodeOnKill(player, id, monster, position));
+            var explosionEquipment = CaptureKillEquipment(player, monster, position, now);
+            session.EnqueueLater(async () => await ExplodeOnKill(player, id, monster, position, explosionEquipment));
         }
         SoulEaterSoul(player, id, position);
         if (CommitQuestFlags(player, QuestsOf(player).OnMonsterKilled(player.Layout.Id, variety.Id)) is { } quest)
@@ -190,7 +193,7 @@ public static partial class Game
             {
                 CommitExperienceLevel(player, level);
                 player.PlayerLife = LifeCap(player); player.PlayerMana = (uint)UnreservedMana(player);
-                player.EnergyShield.SetMaximum(player.Pools.EnergyShield, true);
+                RefillPlayerEnergyShield(player);
                 TrimLeechLocked(player);
                 session.Enqueue(() => SendCharacterStats(player, PlayerStatChange.Build));
                 session.Enqueue(() => SendPlayerMana(player, "projectile kill level"));
@@ -228,8 +231,11 @@ public static partial class Game
         if (modded is not { Cancel: true })
         {
             int mapTier = MapRunOf(player)?.Area.Tier ?? 0;
+            var mapMods = MapModsOf(player);
             drops.AddRange(DropsFor(player).Roll(monster.Level, monster.Rarity, random, IncreasedItemRarity(player, monster),
-                balance.ItemDropMultiplier * (modded?.Quantity ?? 1) * ItemQuantityFactor(player, monster), balance.EquipmentRarityMultiplier * (modded?.Rarity ?? 1), mapTier, MapModsOf(player)));
+                balance.ItemDropMultiplier * (modded?.Quantity ?? 1) * ItemQuantityFactor(player, monster), balance.EquipmentRarityMultiplier * (modded?.Rarity ?? 1), mapTier, mapMods, MapScarabQuantity(mapMods)));
+            if (RollMapDropForKill(player, monster.Level, monster.Rarity, mapTier, random, modded?.MapRelated ?? 1) is { } mapDrop)
+                drops.Add(mapDrop);
             if (DropsFor(player).Gold(monster.Level, monster.Rarity, random, balance.GoldMultiplier * (modded?.Gold ?? 1)) is { } gold) drops.Add(gold);
             drops.AddRange(ExtraDropsFromMap(player, monster.Level, monster.Rarity, random));
         }
@@ -286,6 +292,7 @@ public static partial class Game
         // Built only for a flask that can still gain: a full flask bar (the common case in a pack fight) needs no stats,
         // and every kill of an explosion asked for the full snapshot under the lock.
         Dictionary<uint, int>? stats = null;
+        int? areaIncrease = null;
         int Get(uint key) => (stats ??= new Dictionary<uint, int>(CharacterPlayerStats(player))).GetValueOrDefault(key);
         var items = ItemsOf(player);
         List<InventoryItem>? changed = null;
@@ -295,7 +302,8 @@ public static partial class Game
             if (ItemsFor(player).ByHash(flask.Item.TypeHash) is not { } type || ItemsFor(player).FlaskChargesOf(type) is not { } basis) continue;
             var local = FlaskLocalStats(player, flask.Item); var charges = FlaskCharges.Of(basis, local);
             if (flask.Item.Charges >= charges.MaxCharges) continue;
-            int whole = player.FlaskChargeCarry.Take(flask.Id, gain(flask, local) * FlaskCharges.GainMultiplier(local, Get));
+            int whole = player.FlaskChargeCarry.Take(flask.Id,
+                gain(flask, local) * FlaskCharges.GainMultiplier(local, Get, areaIncrease ??= MapFlaskChargeGain(player)));
             if (whole > 0 && items.ChangeUnsaved(PlayerInventories.Flask, flask.Id, value => Flasks.Gain(value, charges, whole)) is { } item)
                 (changed ??= []).Add(item);
         }

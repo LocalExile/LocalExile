@@ -65,6 +65,15 @@ public static partial class Game
                 own = new Dictionary<uint, int>(own) { [travelRecovery] = ActorScale.Saturate((long)own.GetValueOrDefault(travelRecovery)
                     + flat + coefficient * Math.Max(0, GolemStat(playerStats, Stat.CurrentFrenzyCharges))) };
         }
+        uint scopedRecovery = skills.IsGuard(effect) ? Stat.GuardSkillCooldownRecoveryPlusPct
+            : Supports.Of(effect)?.Types.Contains(120) == true ? Stat.CounterattacksCooldownRecoveryPlusPct : 0;
+        if (scopedRecovery != 0)
+        {
+            long scoped = (long)playerStats.GetValueOrDefault(scopedRecovery) + own.GetValueOrDefault(scopedRecovery);
+            if (scoped != 0)
+                own = new Dictionary<uint, int>(own) { [Stat.BaseCooldownSpeedPlusPct] =
+                    ActorScale.Saturate(scoped + own.GetValueOrDefault(Stat.BaseCooldownSpeedPlusPct)) };
+        }
         if (SingleUseCooldown.ForSkill(skills, Stats, effect, supported.Level, playerStats, own) is not { } plan) return null;
         if (skills.EffectId(effect) == MadnessEffect && MadnessActiveLocked(player))
             plan = plan with { BaseMilliseconds = plan.BaseMilliseconds

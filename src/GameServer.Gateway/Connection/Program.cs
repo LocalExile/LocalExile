@@ -78,22 +78,43 @@ if (args is ["commands"] or ["values", _])
     // The modules give the commands and the values: their load lines would break the JSON.
     var stdout = Console.Out;
     Console.SetOut(TextWriter.Null);
-    // The modules build their game data in their load, from the Gateway's (WorldLoader).
-    ClientTables.LoadAll();
-    WorldLoader.Load();
-    StartMods();
-    Console.SetOut(stdout);
+    try
+    {
+        // The modules build their game data in their load, from world.db and the Gateway's catalogs (WorldLoader).
+        ClientTables.LoadAll();
+        GameTables.Isolated(() => GameData.Open(GameData.DefaultPath));
+        WorldLoader.Load();
+        StartMods();
+    }
+    finally
+    {
+        Console.SetOut(stdout);
+    }
 }
 if (args is ["commands"])
 {
-    foreach (var (name, usage, arguments) in CommandUsages()) Console.WriteLine(JsonSerializer.Serialize(new { name, usage, args = arguments }));
-    return 0;
+    try
+    {
+        foreach (var (name, usage, arguments) in CommandUsages()) Console.WriteLine(JsonSerializer.Serialize(new { name, usage, args = arguments }));
+        return 0;
+    }
+    finally
+    {
+        GameData.Close();
+    }
 }
 if (args is ["values", var kind])
 {
-    if (GameLogicOrNull?.CompletionValues(kind) is not { } values) { Console.Error.WriteLine($"[gateway] no values of kind {kind}"); return 1; }
-    foreach (var (value, detail) in values) Console.WriteLine(JsonSerializer.Serialize(new { value, detail }));
-    return 0;
+    try
+    {
+        if (GameLogicOrNull?.CompletionValues(kind) is not { } values) { Console.Error.WriteLine($"[gateway] no values of kind {kind}"); return 1; }
+        foreach (var (value, detail) in values) Console.WriteLine(JsonSerializer.Serialize(new { value, detail }));
+        return 0;
+    }
+    finally
+    {
+        GameData.Close();
+    }
 }
 
 ServerLog.Install("gateway");
@@ -220,7 +241,9 @@ public sealed partial class Program
         Console.SetOut(TextWriter.Null);
         try
         {
+            if (!WorldLoader.Loaded) ClientTables.LoadAll();
             GameTables.Isolated(() => GameData.Open(worldPath));
+            WorldLoader.Load();
             return [.. ItemCrafter.Catalog(Items, Rolls, Bench, StatDescriptions.Load()).Select(l => l.ToJsonString())];
         }
         finally

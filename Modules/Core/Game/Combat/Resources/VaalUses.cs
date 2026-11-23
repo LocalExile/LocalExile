@@ -112,12 +112,13 @@ public static partial class Game
         ManaSpentLocked(player, plan.Mana, stats);
         if (plan.Life > 0 || plan.Mana > 0)
             ApplyPaidSupportCostsLocked(player, plan.Skill, SupportedSkill(player, plan.Skill).Stats, plan.Mana, (int)plan.Life, now);
-        if (plan.Life > 0) PresentStats(player);
+        uint sacrificed = SacrificeItemLifeLocked(player, plan.Effect, stats);
+        if (plan.Life + sacrificed > 0) PresentStats(player);
         if (attackDeadline is double next) player.NextAttackAt = next;
         player.VaalPreventionUntil = Math.Max(player.VaalPreventionUntil, now + plan.PreventionSeconds);
         Console.WriteLine($"[gateway] Vaal use paid: skill 0x{plan.Skill:x4} {SkillsFor(player).EffectId(plan.Effect)}, " +
             $"-{plan.Souls} souls, -{plan.Rage} Rage, soul gain prevention {plan.PreventionSeconds:0.##} s (until t={player.VaalPreventionUntil:0.000})");
-        player.VaalUse = plan with { Action = player.ActionCount, Epoch = player.ProjectileEpoch,
+        player.VaalUse = plan with { Action = player.ActionCount, Epoch = player.ProjectileEpoch, Life = plan.Life + sacrificed,
             CriticalRoll = CaptureSkillCriticalRoll(player, plan.Skill), RecoveryGeneration = player.ActionInterruptionGeneration };
     }
 

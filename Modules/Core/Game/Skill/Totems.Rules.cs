@@ -164,7 +164,7 @@ public static partial class Game
         var lifetime = CombatLifetime;
         var source = SupportedSkill(player, skillId);
         bool SourceCurrent() => SupportedSkill(player, skillId) is var live && live.Host == source.Host
-            && SameSocketedSkillSource(source, live) && IsTotemSkill(player, skillId);
+            && SameLinkedSkillSource(source, live) && IsTotemSkill(player, skillId);
         bool Valid() => CurrentGameWork && ReferenceEquals(lifetime, CombatLifetime) && current() && SourceCurrent()
             && !player.Closed && !player.LeavingArea && player.PlayerLife > 0;
         double start = AreaTime(player), placedAt = start + seconds;
@@ -555,7 +555,7 @@ public static partial class Game
                 SupportedCriticalChanceVsBlinded(player, totem.SkillId, false), SupportedCriticalChanceVsGround(player, totem.SkillId, false));
             bool crit = RollCriticalStrike(player, chance, skill.Stats, attack: false, skillRoll: criticalRoll, playerStats: caster);
             var (damage, _, mitigated) = MonsterHitDamage(m, rolled, crit, false, now, resistance, penetration,
-                GamblerFor(caster).InvertsResistance(AreaRng(player)));
+                GamblerFor(caster).InvertsResistance(AreaRng(player)), AreaRng(player));
             if (crit) damage = DamageModel.CriticalDamage(damage, CriticalMultiplierOn(m, SupportedCriticalMultiplier(player, totem.SkillId)));
             if (ApplyMonsterHitLocked(player, m, damage, allyAt: totem.At) is not { } accepted) continue;
             if (accepted.StageStarts) { CommitProjectileBossStage(session, id, m, session.Runtime.Now); accepted = accepted with { StageStarts = false }; }

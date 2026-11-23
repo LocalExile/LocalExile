@@ -21,12 +21,13 @@ static partial class Game
     internal const double KnockbackDelaySeconds = .2;
 
     /// <summary>Whether a monster may be knocked back at all: hostile, alive, not staged, scripted or asleep (the
-    /// states HitReaction and the AI skip), and neither carrying the client's ImmuneToKnockback component (King in the
-    /// Mists' humanoid, for one) nor naming that mod in its own row (Dominus, Malachai, Avarius, Vilenta … act bosses
-    /// that are immune by mod only; BossMods).</summary>
+    /// states HitReaction and the AI skip), not carrying the client's ImmuneToKnockback component (King in the
+    /// Mists' humanoid, for one) nor a mod in its own row whose stats say nothing may shove it (Dominus, Malachai,
+    /// Avarius, Vilenta … act bosses that are immune by mod only; BossMods), and not granted
+    /// <c>cannot_be_knocked_back</c> by a mod it was spawned or upgraded with.</summary>
     internal static bool KnockbackAllowed(SpawnedMonster m) =>
         m.Hostile && !m.Dead && m.Life > 0 && !m.StageRunning && !m.Scripted && !m.Asleep
-        && !BossMods.KnockbackImmune(m.Variety);
+        && !BossMods.KnockbackImmune(m.Variety) && m.Effects[Stat.CannotBeKnockedBack] <= 0;
 
     /// <summary>The push destination: the farthest walkable cell along the direction from <paramref name="from"/>
     /// (the player) to <paramref name="at"/> (the monster), from <paramref name="cells"/> down to 1 away; null when
@@ -58,7 +59,7 @@ static partial class Game
         if (!(radius > 0) || !double.IsFinite(radius)) return;
         foreach (var m in player.Area.Monsters.Values)
         {
-            if (!KnockbackAllowed(m) || m.Effects[Stat.CannotBeKnockedBack] > 0) continue;
+            if (!KnockbackAllowed(m)) continue;
             var at = m.Walk.Position(now);
             double dx = (double)at.X - landing.X, dy = (double)at.Y - landing.Y;
             double distance = Math.Sqrt(dx * dx + dy * dy);
