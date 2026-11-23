@@ -56,7 +56,7 @@ public static partial class Game
                 && activeBuff.Row == GuardRow(guard.Effect))
             {
                 bool guardHasSession = guard.Session is not null;
-                EndTriggeredGuard(player, guard, now, triggerExplosion: false);
+                EndTriggeredGuard(player, guard, now, triggerExplosion: guard.Effect == VaalMoltenShellEffect);
                 if (!guardHasSession)
                 {
                     guard.Buff = 0;

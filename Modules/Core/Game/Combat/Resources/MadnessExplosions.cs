@@ -97,8 +97,9 @@ public static partial class Game
                         gambler.RollOutgoingHit(profile.Hit, player.Madness.Random));
                     var strike = new HitResistances.Strike(Critical: critical, Attack: false);
                     bool invert = gambler.InvertsResistance(player.Madness.Random);
+                    var defenses = ImpurityHitMods(target, now, resistanceMods);
                     var mitigated = rolled.Select((type, range) => range.Scale(Math.Max(0, 1 - HitResistances.FinalValue(
-                        type, MonsterHitResistance(target, type, penetration, now), strike, resistanceMods, invert) / 100)));
+                        type, MonsterHitResistance(target, type, penetration, now), strike, defenses, invert) / 100)));
                     int damage = MonsterTakesMitigated(target, mitigated, spell: false, now);
                     if (critical) damage = DamageModel.CriticalDamage(damage,
                         CriticalMultiplierOn(target, CriticalHitMultiplier(150L + Get(Stat.BaseCriticalStrikeMultiplierPlus),

@@ -370,9 +370,30 @@ public static partial class Game
         var skill = SupportedSkill(player, skillId);
         var skills = SkillsFor(player);
         MergeSkillStatsInto(playerStats.GetValueOrDefault, (key, value) => playerStats[key] = value,
-            WithBlessingCost(player, skill), skills.IsChannelled(skill.Effect), SkillCostMore(player, skill.Stats),
+            WithManaPoolCost(player, skill, WithBlessingCost(player, skill), ManaCostPool(player, skill)),
+            skills.IsChannelled(skill.Effect), SkillCostMore(player, skill.Stats),
             CostEfficiencyFor(skills, skill.Effect));
         return playerStats;
+    }
+
+    // Frostmage is a variant of Archmage. Support resolution keeps only one member of that family.
+    static int ManaCostPool(Player player, SupportedGem skill)
+    {
+        if (skill.Stats.GetValueOrDefault(Stat.FrostmageCostEqualsPctReservedMana) > 0) return ReservedMana(player);
+        return skill.Stats.GetValueOrDefault(Stat.ManaweaveCostEqualsPctUnreservedMana) > 0 ? UnreservedMana(player) : -1;
+    }
+
+    static IReadOnlyDictionary<uint, int> WithManaPoolCost(Player player, SupportedGem skill,
+        IReadOnlyDictionary<uint, int> own, int pool)
+    {
+        if (pool < 0) return own;
+        int percent = Math.Max(own.GetValueOrDefault(Stat.ManaweaveCostEqualsPctUnreservedMana),
+            own.GetValueOrDefault(Stat.FrostmageCostEqualsPctReservedMana));
+        uint native = ManaCost(Stats, SkillsFor(player), skill.Effect, skill.Level, skill.Quality);
+        decimal factor = skill.Supports.Aggregate(1m, (value, support) => value * support.CostMultiplier / 100m);
+        // The added base cost and the gem's own base are charged by the same support multipliers, with one floor.
+        int cost = (int)Math.Clamp(decimal.Floor((native + pool * (decimal)percent / 100m) * factor), 0, int.MaxValue);
+        return new Dictionary<uint, int>(own) { [Stat.BaseManaCost] = cost, [Stat.ManaCost] = cost };
     }
 
     [Flags]
@@ -714,8 +735,23 @@ public static partial class Game
         var gem = capturedGem ?? SupportedSkill(player, skillId);
         var caster = FinalPlayerStats(player).ToDictionary(v => v.Item1, v => v.Item2);
         var skills = SkillsFor(player);
-        var stats = MergeSkillStats(caster, gem.Stats, skills.IsChannelled(gem.Effect), SkillCostMore(player, gem.Stats),
-            CostEfficiencyFor(skills, gem.Effect));
+        int manaPool = ManaCostPool(player, gem);
+        var stats = MergeSkillStats(caster, WithManaPoolCost(player, gem, gem.Stats, manaPool),
+            skills.IsChannelled(gem.Effect), SkillCostMore(player, gem.Stats), CostEfficiencyFor(skills, gem.Effect));
+        if (manaPool >= 0)
+        {
+            AddManaPoolDamage(Stat.ArchmageGainLightningDamagePctOfMaxUnreservedMana,
+                Stat.SpellMinimumAddedLightningDamage, Stat.SpellMaximumAddedLightningDamage);
+            AddManaPoolDamage(Stat.FrostmageGainColdDamagePctOfMaxReservedMana,
+                Stat.SpellMinimumAddedColdDamage, Stat.SpellMaximumAddedColdDamage);
+        }
+        void AddManaPoolDamage(uint percent, uint min, uint max)
+        {
+            int added = (int)Math.Clamp((long)manaPool * gem.Stats.GetValueOrDefault(percent) / 100, 0, int.MaxValue);
+            if (added == 0) return;
+            stats[min] = ActorScale.Add(min, stats.GetValueOrDefault(min), added);
+            stats[max] = ActorScale.Add(max, stats.GetValueOrDefault(max), added);
+        }
         if (skills.IsVaal(gem.Effect) && stats.GetValueOrDefault(Stat.VaalSkillDamagePlusPct) is int vaalDamage and not 0)
             stats[Stat.DamagePlusPct] = ActorScale.Add(Stat.DamagePlusPct, stats.GetValueOrDefault(Stat.DamagePlusPct), vaalDamage);
         if (charges is not null)
@@ -729,6 +765,9 @@ public static partial class Game
             uint placedDamage = placed.Mine ? Stat.MineDamagePlusPct : Stat.TrapDamagePlusPct;
             long increased = (long)GolemStat(stats, placedDamage) + GolemStat(stats, Stat.TrapOrMineDamagePlusPct);
             if (increased != 0) stats[Stat.DamagePlusPct] = ActorScale.Saturate(stats.GetValueOrDefault(Stat.DamagePlusPct) + increased);
+            if (placed.Mine && GolemStat(stats, Stat.MineAreaDamagePlusPctIfDetonatedMineRecently) is int recentArea and not 0
+                && player.RecentEvents.Happened(StatConditions.DetonatedMine, AreaTime(player)))
+                stats[Stat.AreaDamagePlusPct] = ActorScale.Add(Stat.AreaDamagePlusPct, GolemStat(stats, Stat.AreaDamagePlusPct), recentArea);
         }
         int Get(uint name) => name == Stat.IsAreaDamage && area is bool isArea ? isArea ? 1 : 0
             : name is var k ? stats.GetValueOrDefault(k) : 0;
@@ -800,6 +839,8 @@ public static partial class Game
         }
         if (molten && projectile && Get(Stat.ActiveSkillHitAilmentDamageWithProjectilePlusPctFinal) is int projFinal and not 0)
             raw = raw.Scale(Math.Max(0, 1 + projFinal / 100.0));
+        if (totem && Get(Stat.StygianSpireTotemDamagePlusPctFinalPerMaximumTotem) is int totemMore and not 0)
+            raw = raw.Scale(Math.Max(0, 1 + totemMore * (double)TotemAllowance(player, gem.Effect, own: gem.Stats, stats) / 100));
         // Phase Run's damage buff: more physical damage for the player's own melee attacks (a totem's are not its own).
         if (attack && !totem && types.Contains(19) && Get(Stat.PhaseRunMeleePhysicalDamagePlusPctFinal) is int phase and not 0)
             raw = raw.Add(GameServer.Core.World.DamageType.Physical,
@@ -923,9 +964,15 @@ public static partial class Game
             : playerStats.GetValueOrDefault(name);
         if (SkillsFor(player).IsVaal(gem.Effect))
             extraIncrease += (long)Own(Stat.VaalSkillCriticalStrikeChancePlusPct) + Player(Stat.VaalSkillCriticalStrikeChancePlusPct);
-        if (Own(Stat.MineCriticalStrikeChancePlusPctPerPowerCharge) is int minePerPower and not 0
-            && PlacedKind(gem).Mine)
-            extraIncrease += (long)minePerPower * Player(Stat.CurrentPowerCharges);
+        long mineChance = (long)Own(Stat.MineCriticalStrikeChancePlusPct) + Player(Stat.MineCriticalStrikeChancePlusPct);
+        long trapChance = (long)Own(Stat.TrapCriticalStrikeChancePlusPct) + Player(Stat.TrapCriticalStrikeChancePlusPct);
+        int minePerPower = Own(Stat.MineCriticalStrikeChancePlusPctPerPowerCharge);
+        if (mineChance != 0 || trapChance != 0 || minePerPower != 0)
+        {
+            var (trap, mine) = PlacedKind(gem);
+            if (mine) extraIncrease += mineChance + (long)minePerPower * Player(Stat.CurrentPowerCharges);
+            else if (trap) extraIncrease += trapChance;
+        }
         if (SkillsFor(player).IsAttack(gem.Effect))
         {
             if (new[] { Stat.GlobalCannotCrit, Stat.VirtualGlobalCannotCrit, Stat.CannotCriticalStrikeWithAttacks }

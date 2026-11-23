@@ -1440,7 +1440,8 @@ public static partial class Game
                     () => !player.Closed && PlayerActionCurrent(player, action) && Current()) is { } accepted) return CompleteSupportedUse(accepted);
         if (gem.Name is not null && GameEvents.RunSkillCast(player, SkillsFor(player).EffectId(gem.Effect), skillId, from,
                 () => !player.Closed && PlayerActionCurrent(player, action) && Current()) is { } taken) return CompleteSupportedUse(taken);
-        if (gem.Name is not null && CurseCatalog.All.ContainsKey(SkillsFor(player).EffectId(gem.Effect) ?? ""))
+        if (gem.Name is not null && CurseCatalog.All.ContainsKey(SkillsFor(player).EffectId(gem.Effect) ?? "")
+            && !IsTotemSkill(player, skillId))
             return CompleteSupportedUse(await CastCurse(player, skillId, to, targetId, recoveryGeneration, Current));
         if (gem.Name is not null && IsVaalMinion(SkillsFor(player).EffectId(gem.Effect)))
             return await RepeatSummonCast(player, skillId, recoveryGeneration, Current, false,
@@ -1477,8 +1478,9 @@ public static partial class Game
         }
         if (gem.Name is not null && vaalUse is not null && VaalAuras.ContainsKey(SkillsFor(player).EffectId(gem.Effect) ?? ""))
             return await ActivateVaalAura(player, skillId, Current);
-        if (gem.Name is not null && vaalUse is not null && SkillsFor(player).EffectId(gem.Effect) == "VaalHaste")
-            return await ActivateVaalHaste(player, skillId, Current);
+        if (gem.Name is not null && vaalUse is not null && SkillsFor(player).EffectId(gem.Effect) is { } auraEffect
+            && TimedVaalAuraBuffRows.TryGetValue(auraEffect, out ushort auraRow))
+            return await ActivateTimedVaalAura(player, skillId, auraEffect, auraRow, Current);
         if (gem.Name is not null && IsBlessing(SupportedSkill(player, skillId)))
             return ScheduleBlessing(player, skillId, recoveryGeneration, Current);
         // A guard skill cast from the skill bar starts its buff in CastSelfBuff. An instant cast passes guardStart, and
@@ -1930,31 +1932,7 @@ public static partial class Game
         // support_spell_cascade_sideways, one per side across it. Each centre is one effective radius from the aim
         // (live 2026-11-04: Reap at the character's area of effect had radius 28.5 and repeats 28-29 cells apart; the
         // client draws each effect half a radius toward the caster, so the hit centre is the aim +- one radius).
-        var cascadeAreas = new List<(int X, int Y)>();
-        {
-            var cascadeStats = SupportedSkill(player, skillId).Stats;
-            int Cascade(uint key) => cascadeStats.GetValueOrDefault(key);
-            int sides = spell ? Cascade(Stat.SupportSpellCascadeNumberOfCascadesPerSide) : 0;
-            double dx = to.X - from.X, dy = to.Y - from.Y;
-            double length = Math.Sqrt(dx * dx + dy * dy);
-            if (sides > 0 && length > 0)
-            {
-                int radius = SkillRadius(player, cascadeStats, spell, gem.Effect);
-                bool sideways = Cascade(Stat.SupportSpellCascadeSideways) != 0;
-                double ax = dx / length, ay = dy / length;
-                for (int side = 1; side <= sides && radius > 0; side++)
-                {
-                    int alongX = (int)Math.Round(ax * radius * side), alongY = (int)Math.Round(ay * radius * side);
-                    cascadeAreas.Add((to.X + alongX, to.Y + alongY));
-                    cascadeAreas.Add((to.X - alongX, to.Y - alongY));
-                    if (sideways)
-                    {
-                        cascadeAreas.Add((to.X - alongY, to.Y + alongX));
-                        cascadeAreas.Add((to.X + alongY, to.Y - alongX));
-                    }
-                }
-            }
-        }
+        List<(int X, int Y)> cascadeAreas = spell ? SpellCascadeAreas(player, gem.Effect, supported.Stats, from, to) : [];
         var jobs = new List<Task>();
         // Discharge: one use, one count of its charges, for every repeat and cascade area (DischargeUse).
         var discharge = DischargeUseFor(player, gem.Effect, gem.Level, gem.Quality);
@@ -2252,6 +2230,33 @@ public static partial class Game
         return gem.Name is not null && gem.Effect == receipt.Effect
             && Supports.Of(gem.Effect)?.Types.Contains(47) == true
             && GemSkillInstanceDisabled(player, gem.Effect, receipt.Skill) is null;
+    }
+
+    static List<(int X, int Y)> SpellCascadeAreas(Player player, int effect, IReadOnlyDictionary<uint, int> stats,
+        (int X, int Y) from, (int X, int Y) to)
+    {
+        var areas = new List<(int X, int Y)>();
+        int sides = stats.GetValueOrDefault(Stat.SupportSpellCascadeNumberOfCascadesPerSide);
+        if (sides <= 0 || from == to) return areas;
+        int radius = SkillRadius(player, stats, spell: true, effect);
+        if (radius <= 0) return areas;
+        bool sideways = stats.GetValueOrDefault(Stat.SupportSpellCascadeSideways) != 0;
+        double dx = to.X - from.X, dy = to.Y - from.Y;
+        double length = Math.Sqrt(dx * dx + dy * dy);
+        double ax = dx / length, ay = dy / length;
+        for (int side = 1; side <= sides; side++)
+        {
+            int alongX = (int)Math.Round(ax * radius * side);
+            int alongY = (int)Math.Round(ay * radius * side);
+            areas.Add((to.X + alongX, to.Y + alongY));
+            areas.Add((to.X - alongX, to.Y - alongY));
+            if (sideways)
+            {
+                areas.Add((to.X - alongY, to.Y + alongX));
+                areas.Add((to.X + alongY, to.Y - alongX));
+            }
+        }
+        return areas;
     }
 
     // The radius in cells of a gem skill's hit around its aimed point (AreaSkillHit): its own
@@ -3152,6 +3157,7 @@ public static partial class Game
         bool invertElemental = false, Random? random = null, bool trapOrMine = false, int additionalTakenPct = 0)
     {
         var described = new List<string>();
+        mods = ImpurityHitMods(m, now, mods);
         var strike = new HitResistances.Strike(Critical: critical, Attack: attack);
         var mitigated = rolled.Select((type, range) =>
         {

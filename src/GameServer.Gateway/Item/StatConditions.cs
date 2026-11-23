@@ -582,6 +582,8 @@ public static class StatConditions
 
     static Func<Subject, State> ParseKnownCondition(string statId)
     {
+        // Placed mines choose this modifier when they release their area damage. Keep the source available at placement.
+        if (statId == "mine_area_damage_+%_if_detonated_mine_recently") return static _ => State.None;
         if (PrideStat(statId) is not null)
             return static subject => subject.Flags is { } flags && flags.TryGetValue(UsingPride, out bool active)
                 ? active ? State.Holds : State.Fails : State.NotModelled;

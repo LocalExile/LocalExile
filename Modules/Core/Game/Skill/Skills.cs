@@ -439,7 +439,7 @@ public static partial class Game
         {
             var supported = SupportedSkill(player, id);
             int level = supported.Level;
-            var own = WithBlessingCost(player, supported);
+            var own = WithManaPoolCost(player, supported, WithBlessingCost(player, supported), ManaCostPool(player, supported));
             UnleashSeals(player, id, supported, ProjectileWorldTime(player));
             var skills = SkillsFor(player);
             var stats = MergeSkillStats(playerStats, own, skills.IsChannelled(effect), SkillCostMore(player, own),
@@ -779,6 +779,11 @@ public static partial class Game
                 Publish(Stat.ManaCost, remainingMana);
                 if (convertedLife > 0)
                     Publish(Stat.LifeCost, (int)Math.Min(int.MaxValue, (long)Math.Max(0, Get(Stat.LifeCost)) + convertedLife));
+            }
+            if (Get(Stat.NoManaCost) != 0)
+            {
+                Publish(Stat.ManaCost, 0);
+                Publish(Stat.ManaCostPerMinute, 0);
             }
             // Bladefall of Trarthus' volley interval: 0 hung the client on its first use (#584).
             if (Get(Stat.BladefallBaseVolleyFrequencyMs) is int volleyMs and > 0)

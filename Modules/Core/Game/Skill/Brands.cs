@@ -491,13 +491,13 @@ public static partial class Game
     }
 
     internal static async Task<bool> ResolveCastBrand(Player player, ushort skillId, (ushort Id, int Effect, string Name, int Level, int Quality, uint Gem) gem,
-        (int X, int Y) to, int recoveryGeneration, Func<bool> current)
+        (int X, int Y) to, int? recoveryGeneration, Func<bool> current)
     {
         bool spawned = false;
         await SendWorldBatch(player, [], admission =>
         {
             if (!CurrentGameWork || player.Closed || player.LeavingArea || player.Paused || player.PlayerLife == 0
-                || !current() || player.ActionInterruptionGeneration != recoveryGeneration) return null;
+                || !current() || recoveryGeneration is int generation && player.ActionInterruptionGeneration != generation) return null;
             var supported = SupportedSkill(player, skillId);
             if (supported.Effect != gem.Effect || !supported.RequirementsMet) return null;
             if (BrandFamilyOf(SkillsFor(player).EffectId(gem.Effect)) is not { } family) return null;
@@ -505,7 +505,7 @@ public static partial class Game
             double now = AreaTime(player);
             var state = BrandStates.GetOrCreateValue(player);
             state.Epoch = player.ProjectileEpoch;
-            state.LastBrandCastAt = now;
+            if (recoveryGeneration is not null) state.LastBrandCastAt = now;
 
             var playerStats = CharacterPlayerStats(player);
             var own = supported.Stats;
