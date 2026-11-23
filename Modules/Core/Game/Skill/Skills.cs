@@ -441,7 +441,9 @@ public static partial class Game
             int level = supported.Level;
             var own = WithBlessingCost(player, supported);
             UnleashSeals(player, id, supported, ProjectileWorldTime(player));
-            var stats = MergeSkillStats(playerStats, own, SkillsFor(player).IsChannelled(effect), SkillCostMore(player, own));
+            var skills = SkillsFor(player);
+            var stats = MergeSkillStats(playerStats, own, skills.IsChannelled(effect), SkillCostMore(player, own),
+                CostEfficiencyFor(skills, effect));
             // A shield attack swings the shield in the off hand, which OffStats leaves out (not a weapon): the client then
             // read off_hand_total_base_weapon_attack_duration_ms 0, and Shield Charge's end-of-charge attack never finished
             // (Frida 2026-11-01, 11-skills.md "Shield Charge"). Its base time is the gem's own AttackTime.
@@ -745,8 +747,9 @@ public static partial class Game
             if (Get(Stat.BaseManaCostPctPerMinute) is int costPct and > 0)
                 Publish(Stat.ManaCostPerMinute, BladefallVolleys.ManaPerMinute(costPct, paysLife ? player.Pools.Life : player.Pools.Mana));
             // Network skill stats skip the client's cost-conversion calculators (0x141eedb80 reads mana_cost and
-            // life_cost directly). Publish the converted Life cost on the wire so the client spends Life instead of
-            // Mana, while leaving SupportedSkill/SupportedStats unchanged for server cost accounting.
+            // life_cost directly). Publish the final admitted Mana and Life costs on the wire so the client matches
+            // server admission (Lifetap/Blood Magic, Deathmarked, Cannibalistic Rite), while leaving
+            // SupportedSkill/SupportedStats unchanged for server cost accounting.
             if (paysLife)
             {
                 Publish(Stat.SkillCostLifeInsteadOfMana, 1);
@@ -762,6 +765,19 @@ public static partial class Game
                     Publish(Stat.LifeCostPerMinute, (int)Math.Min(int.MaxValue, (long)Math.Max(0, Get(Stat.LifeCostPerMinute)) + manaPerMinute));
                     Publish(Stat.ManaCostPerMinute, 0);
                 }
+            }
+            else if (Get(Stat.MarkSkillsCostNoMana) != 0 && skills.HasType(effect, "Mark"))
+            {
+                Publish(Stat.ManaCost, 0);
+            }
+            else if (Math.Clamp(Get(Stat.BaseAttackSkillCostLifeInsteadOfManaPct), 0, 100) is int split and > 0
+                && skills.IsAttack(effect) && own.TryGetValue(Stat.ManaCost, out int baseMana))
+            {
+                var (remainingMana, _, convertedLife) = ManaRecoveryRules.SplitCostToLife(
+                    baseMana, Get, skills.IsChannelled(effect), SkillCostMore(player, own), split);
+                Publish(Stat.ManaCost, remainingMana);
+                if (convertedLife > 0)
+                    Publish(Stat.LifeCost, (int)Math.Min(int.MaxValue, (long)Math.Max(0, Get(Stat.LifeCost)) + convertedLife));
             }
             // Bladefall of Trarthus' volley interval: 0 hung the client on its first use (#584).
             if (Get(Stat.BladefallBaseVolleyFrequencyMs) is int volleyMs and > 0)
@@ -1057,6 +1073,9 @@ public static partial class Game
     {
         if (SkillsFor(player).EffectId(effect) is "AnimateGuardian" or "AnimateGuardianAltX"
             && AnimatedGuardianUnavailable(player)) return "the Animated Guardian died in this area";
+        if (EternalBlessingDisables(player, skillId)) return "Eternal Blessing disables mana reservations";
+        if (skillId is ushort blessingSkill && GuardianBlessingDisables(player, effect, blessingSkill))
+            return "Guardian's Blessing requires a living minion linked to its support";
         // What it reads (the skill's gem, the stat sources, the stats) changes only with the skills (ActiveSkills).
         if (BuildScopeOf(player) is not { Building: true } && CurrentActiveSkills(player) is { } current)
         {
