@@ -181,7 +181,7 @@ public sealed class GameplayParityTests
         int dist = Math.Max(Math.Abs(arrival.X - townGate.GridX), Math.Abs(arrival.Y - townGate.GridY));
         Assert.True(dist > 10, $"Expected authored Coast entrance well clear of portal, got distance {dist}");
 
-        // #2: Resurrect at Checkpoint sends 0x00cb transition fade before teleporting.
+        // #2: Resurrect at Checkpoint sends 0x00cb transition fade while still dead before reviving and teleporting.
         string database = Path.Combine(Path.GetTempPath(), "LocalExile-resfade-" + Guid.NewGuid().ToString("N") + ".db");
         Saves.Open(database);
         try
@@ -190,6 +190,7 @@ public sealed class GameplayParityTests
             wire.Player.PlayerLife = 0;
             var resTask = Game.Resurrect(wire.Player, inTown: false);
             byte[] received = await wire.ReadUntilOpcodeAsync(InstanceProtocol.FadeMoveId);
+            Assert.Equal(0u, wire.Player.PlayerLife);
             wire.Player.Closed = true;
             await resTask;
             Assert.NotEmpty(received);

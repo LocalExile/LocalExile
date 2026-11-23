@@ -903,6 +903,7 @@ public sealed partial class Player(AreaLayout layout, uint ticket, uint seed) : 
     public IncomingDamagingAilments.State? PresentedIncomingAilments;
     public int PresentedIncomingAilmentEpoch;
     public int DeathNotificationEpoch = -1;
+    public int Resurrecting;
     public int FreezeGeneration, FreezeShown;
     public double FreezeHeldUntil;
     public double NextWakeZoneAt;
