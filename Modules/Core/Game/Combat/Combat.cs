@@ -1736,6 +1736,10 @@ public static partial class Game
         await SendCharacterStats(player, PlayerStatChange.Auras);
         await SendPlayerMana(player,
             $"0x01b1 player mana {player.PlayerMana}/{player.Pools.Mana}, {ReservedMana(player)} reserved");
+        // The toggle's skill refresh can empty the aura's own bound slot (live 2026-11-22: Malevolence with Eternal
+        // Blessing left Q), and the full refresh above resends the skill list without the bar, so the saved bar goes out
+        // again after it.
+        await RestoreSkillBarAfterActorUpdate(player);
         return true;
     }
 

@@ -900,11 +900,21 @@ public static partial class Game
             _ = Task.Delay(2 * FrameMs + 16).ContinueWith(_ =>
             {
                 if (!player.Closed && !player.LeavingArea && player.SkillBarRestoreGeneration == gen)
-                    _ = player.Frames.Run(() => SendSkillBar(player));
+                    _ = player.Frames.Run(() => SendSkillBarHoldingGuard(player));
             });
             return Task.CompletedTask;
         }
-        return SendSkillBar(player);
+        return SendSkillBarHoldingGuard(player);
+    }
+
+    // The bar re-creates every slot's cooldown entry, so a held guard's frozen entry goes out again behind it, or its
+    // cooldown counts while the buff runs (issue #1127). Built at the send gate, as SendSkills' re-hold is.
+    static async Task SendSkillBarHoldingGuard(Player player)
+    {
+        await SendSkillBar(player);
+        if (TriggeredGuards.TryGetValue(player, out _))
+            await Send(player, [], "0x02bc guard cooldown re-held after the skill bar",
+                atGate: () => HeldGuardCooldownRefresh(player));
     }
 
     // A bind received while an earlier refresh waits for the send gate must win over that refresh.
