@@ -92,8 +92,11 @@ public static partial class Game
             + GolemStat(playerStats, final);
         // Clones have no ordinary cap; duration is their lifetime constraint.
         if (value == 0 && definition.Family == "Clone") return 100;
-        return (int)Math.Clamp(DarkMonarchLimit(definition.Family, value, playerStats), 0, 200);
+        return SupportedMinionLimit(DarkMonarchLimit(definition.Family, value, playerStats), skillStats);
     }
+
+    static int SupportedMinionLimit(long limit, IReadOnlyDictionary<uint, int> skillStats) =>
+        (int)Math.Clamp(limit * (100L + GolemStat(skillStats, Stat.SupportUndeadArmyMinionMaximumCountPlusPctFinal)) / 100, 0, 200);
 
     static void ApplySocketedGhastlyEyeSpectreLimit(IEnumerable<Item> active, ItemCatalog catalog, Dictionary<uint, int> sources)
     {
@@ -477,11 +480,13 @@ public static partial class Game
         return true;
     }
 
-    static bool RefreshDoubledSummonLimitsLocked(Player player, IReadOnlyDictionary<uint, int> stats, double now)
+    static bool RefreshSupportedSummonLimitsLocked(Player player, IReadOnlyDictionary<uint, int> stats, double now)
     {
         var state = player.Summons;
         var current = DarkMonarchSelection(stats);
-        if (current is null && !state.Fighters.Values.Any(fighter => DarkMonarchSelection(fighter.Player) is not null))
+        bool HadSupportedLimit(GolemState.Golem fighter) => GolemStat(fighter.Own, Stat.SupportUndeadArmyMinionMaximumCountPlusPctFinal) != 0;
+        if (current is null && !state.Fighters.Values.Any(fighter => HadSupportedLimit(fighter)
+            || DarkMonarchSelection(fighter.Player) is not null))
             return false;
         var families = state.Fighters.Values.Where(fighter => !fighter.Monster.Dead
                 && now < state.Until[fighter.Id] && fighter.Definition.Kind != "Spectre")
@@ -489,8 +494,9 @@ public static partial class Game
         bool changed = false;
         foreach (var family in families)
         {
-            if (DarkMonarchMinionFamily(family.Key) is not ushort type
-                || (type != current && !family.Any(fighter => type == DarkMonarchSelection(fighter.Player)))) continue;
+            bool doubledFamily = DarkMonarchMinionFamily(family.Key) is ushort type
+                && (type == current || family.Any(fighter => type == DarkMonarchSelection(fighter.Player)));
+            if (!doubledFamily && !family.Any(HadSupportedLimit)) continue;
             foreach (var fighter in family)
             {
                 var gem = SupportedSkill(player, fighter.Source);
@@ -599,7 +605,7 @@ public static partial class Game
             {
                 state.RefreshAt = now + .5;
                 changed |= RefreshSpectreLimitLocked(player, playerStats, now);
-                changed |= RefreshDoubledSummonLimitsLocked(player, playerStats, now);
+                changed |= RefreshSupportedSummonLimitsLocked(player, playerStats, now);
             }
             foreach (var fighter in state.Fighters.Values.ToArray())
             {

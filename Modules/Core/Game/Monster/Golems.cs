@@ -393,7 +393,7 @@ public static partial class Game
             || Monsters.Find(definition.Variety) is not { Supported: true } variety) return 0;
         if (!DarkMonarchAllows("Golem", playerStats)) return 0;
         int Own(uint name) => GolemStat(supported.Stats, name);
-        int limit = GolemRosterLimit(Own(Stat.BaseNumberOfGolemsAllowed), playerStats);
+        int limit = GolemRosterLimit(supported.Stats, playerStats);
         if (limit == 0) return 0;
         byte level = (byte)Math.Clamp(Own(Stat.BaseDisplayMinionActorLevel), 1, 100);
         double remaining = arrival && double.IsFinite(summonedSecondsRemaining)
@@ -649,7 +649,7 @@ public static partial class Game
                     continue;
                 }
                 golem.Own = new(gem.Stats); golem.GemLevel = gem.Level; golem.Quality = gem.Quality;
-                golem.Limit = GolemRosterLimit(GolemStat(gem.Stats, Stat.BaseNumberOfGolemsAllowed), playerStats);
+                golem.Limit = GolemRosterLimit(gem.Stats, playerStats);
                 int level = GolemStat(gem.Stats, Stat.BaseDisplayMinionActorLevel);
                 if (level != golem.Monster.Level)
                 {

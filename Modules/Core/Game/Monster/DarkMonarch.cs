@@ -107,10 +107,11 @@ public static partial class Game
         if (saveSummons) SaveSummons(player);
     }
 
-    static int GolemRosterLimit(int skillBase, IReadOnlyDictionary<uint, int> playerStats)
+    static int GolemRosterLimit(IReadOnlyDictionary<uint, int> skillStats, IReadOnlyDictionary<uint, int> playerStats)
     {
         bool doubled = DarkMonarchDoubles("Golem", playerStats);
-        return GolemCatalog.Limit(skillBase, key => key == Stat.DoubleGolemLimit && doubled
-            ? 1 : GolemStat(playerStats, key));
+        int limit = GolemCatalog.Limit(GolemStat(skillStats, Stat.BaseNumberOfGolemsAllowed),
+            key => key == Stat.DoubleGolemLimit && doubled ? 1 : GolemStat(playerStats, key));
+        return SupportedMinionLimit(limit, skillStats);
     }
 }
