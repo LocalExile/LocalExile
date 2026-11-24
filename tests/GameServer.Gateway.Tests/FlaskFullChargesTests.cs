@@ -42,13 +42,23 @@ public class FlaskFullChargesTests
         Assert.Equal(utility.MaxCharges - utility.ChargesPerUse, Held());
         Assert.NotNull(player.UtilityFlaskEffects.Of(flask.Id));
         inventory.Change(PlayerInventories.Flask, flask.Id, i => i with { Charges = utility.MaxCharges });
-        using var freeUse = GameEvents.PlayerStatSources.Add("Game", (owner, stats) =>
+        using (GameEvents.PlayerStatSources.Add("Game", (owner, stats) =>
         {
             if (owner == player) stats[Stat.FlaskChargesUsedPlusPct] = -100;
             return stats;
-        });
-        Game.QueueFullFlasks(player);
-        Assert.Empty(player.FlaskAutomation.Events);
+        }))
+        {
+            Game.QueueFullFlasks(player);
+            Assert.Empty(player.FlaskAutomation.Events);
+        }
         Assert.Equal(utility.MaxCharges, inventory.Items(PlayerInventories.Flask).Single(i => i.Id == 302).Item.Charges);
+
+        // Hideouts have IsTown = 0, IsHideout = 1: standing full-charge auto-use must not fire in Hideouts.
+        var hideout = Assert.IsType<HideoutCatalog.Hideout>(HideoutCatalog.Default);
+        player.Use(new AreaLayout(hideout.AreaHash16, hideout.AreaId, 100, 100, 50, 50, (_, _) => true, []));
+        inventory.Change(PlayerInventories.Flask, flask.Id, i => i with { Charges = utility.MaxCharges });
+        await Game.DrainFlaskTriggers(player);
+        Assert.Empty(player.FlaskAutomation.Events);
+        Assert.Equal(utility.MaxCharges, Held());
     }
 }

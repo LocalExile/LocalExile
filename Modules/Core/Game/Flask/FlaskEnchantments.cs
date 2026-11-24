@@ -42,6 +42,7 @@ public static partial class Game
     // use the town, the grace period, death or an area change held back happens on the first drain that admits it.
     public static void QueueFullFlasks(Player player)
     {
+        if (HideoutCatalog.ByArea(player.Layout.Hash) is not null) return;
         IReadOnlyDictionary<uint, int>? character = null;
         foreach (var flask in ItemsOf(player).Items(PlayerInventories.Flask).OrderBy(i => i.X))
         {
@@ -70,6 +71,7 @@ public static partial class Game
         if (player.PlayerLife == 0 || InTown(player) || InGracePeriod(player))
         { state.Discard(); return; }
         QueueFullFlasks(player);
+        IReadOnlyDictionary<uint, int>? character = null;
         while (CurrentGameWork && state.Events.TryPeek(out var signal))
         {
             foreach (var flask in ItemsOf(player).Items(PlayerInventories.Flask).OrderBy(i => i.X))
@@ -80,12 +82,14 @@ public static partial class Game
                 if (!EndSignalCurrent(player, flask, signal)) continue;
                 if (ItemsFor(player).ByHash(flask.Item.TypeHash) is not { } type || ItemsFor(player).UtilityFlaskOf(type) is not { } utility) continue;
                 bool active = player.UtilityFlaskEffects.Of(flask.Id) is { } effect && effect.Ends > AreaTime(player);
-                var local = ItemModStats.Local(flask.Item, ItemsFor(player).Mods);
+                var local = FlaskLocalStats(player, flask.Item);
                 if (!FlaskEnchantments.Matches(local, signal.Trigger, flask.X, signal.Slot, active)) continue;
                 // Current charges are authoritative; an event cannot conjure charges or bypass Mageblood/death checks.
                 if (signal.Trigger == FlaskEnchantments.Trigger.Full
-                    && flask.Item.Charges < FlaskCharges.Of(utility.Charges, local).MaxCharges) continue;
+                    && flask.Item.Charges < FlaskCharges.Of(utility.Charges, local,
+                        key => (character ??= CharacterPlayerStats(player)).GetValueOrDefault(key)).MaxCharges) continue;
                 await UseUtilityFlaskForSignal(player, flask.X, flask, type, utility, signal);
+                character = null;
                 if (!CurrentGameWork) return; // Leave an unfinished edge for the replacement drainer.
             }
             if (!CurrentGameWork) return;
