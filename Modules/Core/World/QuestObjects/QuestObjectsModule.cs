@@ -44,6 +44,24 @@ public sealed class QuestObjectsModule : IModule
             if (bytes.Length >= InstanceNpcs.VoteAnswerLength && bytes[2] <= 1) await BanditChoices.VoteAnswer(conn, bytes[2] == 1);
             return true;
         });
+        GameEvents.Packet(InstanceLabyrinth.CraftSelectId).Add(module.Manifest.Id, async (player, bytes) =>
+        {
+            if (bytes.Length < InstanceLabyrinth.CraftSelectLength) return false;
+            await QuestobjectsRules.UseDivineFontOption(player, InstanceLabyrinth.ReadCraftSelect(bytes));
+            return true;
+        });
+        GameEvents.Packet(InstanceLabyrinth.CraftApplyId).Add(module.Manifest.Id, async (player, bytes) =>
+        {
+            if (bytes.Length < InstanceLabyrinth.CraftApplyLength) return false;
+            await QuestobjectsRules.UseDivineFontIndex(player, InstanceLabyrinth.ReadCraftApply(bytes));
+            return true;
+        });
+        GameEvents.Packet(InstanceLabyrinth.CraftResultSelectId).Add(module.Manifest.Id, async (player, bytes) =>
+        {
+            if (bytes.Length < InstanceLabyrinth.CraftResultSelectLength) return false;
+            await QuestobjectsRules.PickDivineFontResult(player, InstanceLabyrinth.ReadCraftResultSelect(bytes));
+            return true;
+        });
         GameEvents.PlayerLeaving.Add(module.Manifest.Id, (conn, why) => BanditChoices.OnPlayerLeaving(conn, why));
         Console.WriteLine($"[gateway] quest engine: {string.Join(", ", acts)}");
         // The player's quest view: what their quest state shows them (the walls and blockers they have not opened, quest
@@ -176,6 +194,7 @@ public sealed class QuestObjectsModule : IModule
                         Act3Objects.LabyrinthSelect => () => QuestobjectsRules.UseLabyrinthSelect(player),
                         Act3Objects.ReturnPortal or Act3Objects.ChamberPortal => () => QuestobjectsRules.UsePlazaReturnPortal(player),
                         Act3Objects.AscendancyFont => () => QuestobjectsRules.UseAscendancyFont(player),
+                        Act3Objects.DivineFont => () => QuestobjectsRules.UseDivineFont(player),
                         Act7Objects.Orrery => () => Send(player,
                             InstanceWaypoints.OpenUi(InstanceWaypoints.MapDeviceUi, use.TargetId), "0x007b open the Reverie Device"),
                         _ => null,
