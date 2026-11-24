@@ -100,6 +100,10 @@ public sealed class ProtocolCombatDeltaTests
             player.PlayerLife = 0;
             await Game.RunChannel(player, 0x0105, (0x0105, divineIreEffect, "Divine Ire", 1, 0, 0u), 42, (112, 100));
 
+            // The first channel's finally can run after the next release.
+            await Game.EmitPredictiveChannelFinished(player, 0, 0x0007);
+            await Game.EmitPredictiveChannelFinished(player, player.ChannelGeneration, 0x0009);
+
             byte[] sent = wire.FinishAndDecrypt();
             byte[] expectedShrineUpdate = InstanceEntities.ShrineUpdate(shrineId, (byte)accel.Row, player.Id, claimed: true);
             byte[] unexpectedShrineRemoval = InstanceProtocol.RemoveObject(shrineId);
@@ -110,6 +114,8 @@ public sealed class ProtocolCombatDeltaTests
             Assert.True(ContainsSequence(sent, expectedShrineUpdate), "expected 0x02bc Shrine claim update");
             Assert.False(ContainsSequence(sent, unexpectedShrineRemoval), "normal shrine claim must not remove/recreate");
             Assert.True(ContainsSequence(sent, expectedChannelEnd), "expected 0x01ae ChannelFinished for predictive release");
+            int endAt = sent.AsSpan().IndexOf(expectedChannelEnd);
+            Assert.False(ContainsSequence(sent.AsSpan(endAt + expectedChannelEnd.Length), expectedChannelEnd));
             Assert.True(ContainsSequence(sent, expectedDivineStage1), "expected 0x01b3 Divine Ire stage 1 stat");
             Assert.True(ContainsSequence(sent, expectedDivineClear), "expected 0x01b3 Divine Ire stage reset to 0");
         }

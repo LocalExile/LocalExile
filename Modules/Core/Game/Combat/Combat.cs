@@ -2147,7 +2147,6 @@ public static partial class Game
         1 + Math.Clamp(Math.Floor(seconds) * perSecond, 0, 60) / 100d;
 
     public const double ChannelSilenceSeconds = 1.0;
-    const int DivineIreMaxStages = 20;
 
     sealed class ChannelEndTracker { public int FinishedGeneration = -1; }
     static readonly System.Runtime.CompilerServices.ConditionalWeakTable<Player, ChannelEndTracker> ChannelEnds = new();
@@ -2159,7 +2158,11 @@ public static partial class Game
     {
         if (player.Closed || player.LeavingArea || player.Connection.LockstepClient) return;
         var tracker = ChannelEnds.GetOrCreateValue(player);
-        if (Interlocked.Exchange(ref tracker.FinishedGeneration, generation) == generation) return;
+        lock (tracker)
+        {
+            if (generation <= tracker.FinishedGeneration) return;
+            tracker.FinishedGeneration = generation;
+        }
         await SendWorldRecord(player, player.Id, InstanceProtocol.ChannelFinished(player.Id, sequence),
             $"0x01ae channel 0x{sequence:x4} ended");
     }
@@ -2178,6 +2181,7 @@ public static partial class Game
         bool snipe = IsSnipe(gem.Effect);
         bool firstSnipeStage = snipe;
         bool divineIre = IsDivineIre(player, gem.Effect);
+        int divineIreMaxStages = divineIre && SkillsFor(player).EffectId(gem.Effect) == "DivineIreRoyale" ? 20 : 10;
         int divineIreStages = 0;
         try
         {
@@ -2269,7 +2273,7 @@ public static partial class Game
                     await SnipePresentStages(player);
                     continue;
                 }
-                if (divineIre && divineIreStages < DivineIreMaxStages)
+                if (divineIre && divineIreStages < divineIreMaxStages)
                 {
                     divineIreStages++;
                     await SendWorldRecord(player, player.Id,
@@ -2293,7 +2297,8 @@ public static partial class Game
             if (snipe) await SnipeRelease(player, generation, action);
             if (!player.Connection.LockstepClient)
                 await EmitPredictiveChannelFinished(player, generation, channelSequence);
-            if (divineIreStages > 0 && !player.Closed && !player.LeavingArea)
+            if (divineIreStages > 0 && !player.Closed && !player.LeavingArea
+                && (player.ChannelSkill == 0 || player.ChannelGeneration == generation))
                 await SendWorldRecord(player, player.Id,
                     InstanceEntities.StatsUpdate(player.Id, [(Stat.DivineTempestCurrentNumberOfStages, 0)]),
                     "0x01b3 Divine Ire stages cleared");
