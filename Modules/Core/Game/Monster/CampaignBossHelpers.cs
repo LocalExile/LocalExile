@@ -15,7 +15,13 @@ internal static class CampaignBossHelpers
     public static readonly IReadOnlyDictionary<uint, int> CannotBeDamagedStats =
         new Dictionary<uint, int> { [Stat.BaseCannotBeDamaged] = 1 };
 
+    sealed class DeathStamp { public int Deaths; public int Epoch = -1; }
+
     static readonly RuleTable<Player, Dictionary<uint, bool>> SyncedGateStates = new();
+    static readonly RuleTable<InstanceState, QuestObjectTypes.AreaPlacements> CachedAreaPlacements = new();
+    static readonly RuleTable<Player, DeathStamp> HandledPlayerDeaths = new();
+
+    public const double BossHealOnDeathRadius = 160;
 
     public sealed record TimedEffect(uint Id, (int X, int Y) At, double Ends, string Model, float Scale = 1f);
 
@@ -71,6 +77,82 @@ internal static class CampaignBossHelpers
 
     public static QuestObjectTypes.AreaPlacements LoadAreaPlacements(string area, uint seed) =>
         new(area, seed, []);
+
+    /// <summary>Cached per-instance <see cref="QuestObjectTypes.AreaPlacements"/> (loaded once per instance, never per tick).</summary>
+    public static QuestObjectTypes.AreaPlacements AreaPlacements(Player runner) =>
+        CachedAreaPlacements.GetValue(runner.Instance, _ => new(runner.Layout.Id, runner.Seed, []));
+
+    public static string StartedFlag(string phaseKey) => Quests.InstanceFlag($"{phaseKey}-started");
+    public static string PhaseFlag(string phaseKey, int index) => Quests.InstanceFlag($"{phaseKey}-phase-{index}");
+    public static bool IsStarted(InstanceState instance, string phaseKey) => instance.HasState(StartedFlag(phaseKey));
+    public static void MarkStarted(InstanceState instance, string phaseKey) => instance.SetState(StartedFlag(phaseKey));
+    public static void MarkPhaseCompleted(InstanceState instance, string phaseKey, int completedIndex) =>
+        instance.SetState(PhaseFlag(phaseKey, completedIndex));
+
+    /// <summary>Synchronizes a boss's <see cref="LifePhaseGate"/> and <see cref="SpawnedMonster.EntranceGrace"/>
+    /// against persisted <see cref="InstanceState"/> flags (and restored <see cref="SpawnedMonster.Life"/>) so
+    /// <c>SavedMonster</c> portal re-entry never replays completed phases or traps the boss in entrance grace.</summary>
+    public static int SyncSavedPhases(InstanceState instance, SpawnedMonster boss, string phaseKey, int[] thresholds)
+    {
+        boss.LifePhases ??= new(thresholds);
+        int completed = 0;
+        for (int i = 0; i < thresholds.Length; i++)
+            if (instance.HasState(PhaseFlag(phaseKey, i)))
+                completed = i + 1;
+        if (completed == 0 && boss.MaxLife > 0 && boss.Life > 0 && boss.Life < boss.MaxLife)
+        {
+            double pct = 100.0 * boss.Life / boss.MaxLife;
+            for (int i = 0; i < thresholds.Length; i++)
+                if (pct < thresholds[i] - 1.0)
+                    completed = i + 1;
+        }
+        if (completed > boss.LifePhases.Completed)
+            AdvancePhases(boss.LifePhases, completed);
+        if (instance.HasState(StartedFlag(phaseKey)) || boss.LifePhases.Completed > 0
+            || (boss.MaxLife > 0 && boss.Life > 0 && boss.Life < boss.MaxLife))
+        {
+            boss.EntranceGrace = false;
+            boss.Aggro = true;
+        }
+        return boss.LifePhases.Completed;
+    }
+
+    /// <summary>Idempotent hook called on player death (and checked when <c>PlayerLife == 0</c>) so nearby living
+    /// bosses carrying <c>BossHealOnPlayerDeath</c> (+10%) or <c>BossHealOnPlayerDeathMinor</c> (+5%) recover life.</summary>
+    public static async Task OnPlayerDiedInBossArea(Player player)
+    {
+        if (!CurrentGameWork || player.Closed || player.LeavingArea || player.PlayerLife != 0) return;
+        var stamp = HandledPlayerDeaths.GetValue(player, _ => new());
+        if (stamp.Deaths == player.PlayerDeaths && stamp.Epoch == player.DeathNotificationEpoch) return;
+        stamp.Deaths = player.PlayerDeaths;
+        stamp.Epoch = player.DeathNotificationEpoch;
+        await ApplyBossHealOnPlayerDeath(player);
+    }
+
+    /// <summary>Heals nearby alive hostile bosses carrying <see cref="BossMods.HealOnPlayerDeath"/> (+10% max life) or
+    /// <see cref="BossMods.HealOnPlayerDeathMinor"/> (+5% max life) and broadcasts their updated life.</summary>
+    public static async Task ApplyBossHealOnPlayerDeath(Player player)
+    {
+        if (!CurrentGameWork || player.Closed || player.LeavingArea) return;
+        double now = AreaTime(player);
+        var playerAt = player.Walk.Position(now);
+        List<(uint Id, uint Life)> healed = [];
+        foreach (var (id, m) in player.Area.Monsters.ToArray())
+        {
+            if (!m.Hostile || m.Dead || m.Life == 0 || m.MaxLife == 0 || m.Life >= m.MaxLife || m.WorldHidden) continue;
+            double fraction = BossMods.PlayerDeathHealFraction(m.Variety);
+            if (fraction <= 0) continue;
+            if (Distance(m.Walk.Position(now), playerAt) > BossHealOnDeathRadius) continue;
+            uint gain = (uint)Math.Max(1, Math.Round(m.MaxLife * fraction));
+            uint nextLife = (uint)Math.Min((ulong)m.MaxLife, (ulong)m.Life + gain);
+            if (nextLife <= m.Life) continue;
+            m.Life = nextLife;
+            healed.Add((id, nextLife));
+        }
+        foreach (var (id, life) in healed)
+            await SendWorldRecord(player, id, InstanceProtocol.LifeUpdate(id, life),
+                $"[BossHealOnPlayerDeath] boss 0x{id:x} heals to {life}");
+    }
 
     public static async Task<uint> SpawnTimedEffect(Player runner, List<TimedEffect> list, (int X, int Y) at,
         string aoPath, double ends, float scale = 1f, float rotation = 0f, bool fixedRotation = true)
