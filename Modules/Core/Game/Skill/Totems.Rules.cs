@@ -27,7 +27,12 @@ public static partial class Game
     /// totem_aura_life_regen, base radius 10, wiki Rejuvenation Totem) regenerates the player's Life. A totem skill that
     /// is not here still places its totem and uses its own skill (TotemUseLocked), or casts that skill through the
     /// ordinary projectile runtime when it is an adopted projectile spell (SpellTotems.cs); only the aura is special.</summary>
-    static readonly Dictionary<string, (ushort Buff, int Radius)> TotemAuras = new() { ["RejuvenationTotem"] = (172, 10) };
+    const string VaalRejuvenationTotemEffect = "VaalRejuvenationTotem";
+    static readonly Dictionary<string, (ushort Buff, int Radius)> TotemAuras = new()
+    {
+        ["RejuvenationTotem"] = (172, 10),
+        [VaalRejuvenationTotemEffect] = (2201, 10),
+    };
 
     /// <summary>The ActiveSkillType a dedicated totem skill's own ActiveSkills row carries. SkillTotemId cannot serve as
     /// the marker: every one of the 1941 rows has it, and 1906 share the default 22, so it names the sprite a
@@ -155,9 +160,12 @@ public static partial class Game
         // share a 0.6 s base placement time (Decoy/Devouring Totem's 1000 ms CastTime is their proxy action, not placement).
         bool ballista = BallistaEffect(player, effect)
             && GolemStat(SupportedSkill(player, skillId).Stats, Stat.IsRangedAttackTotem) != 0;
-        double basis = ballista ? .5 : .6;
+        double basis = SkillsFor(player).EffectId(effect) == VaalRejuvenationTotemEffect
+            ? SkillsFor(player).CastTimeMs(effect) / 1000d : ballista ? .5 : .6;
         return basis / Math.Max(.01, 1 + speed / 100) / Math.Max(.01, factor);
     }
+
+    static double TotemDurationFactor(int increased) => Math.Max(0, 1 + increased / 100d);
 
     static async Task PlaceTotem(Player player,
         ushort skillId, int effect, int level, MonsterCatalog.Variety variety, (int X, int Y) at, Func<bool> current)
@@ -273,7 +281,7 @@ public static partial class Game
         int baseLife = Monsters.BaseLife(variety, level) ?? 1;
         bool decoy = SkillsFor(player).EffectId(effect) == "DecoyTotem";
         uint life = (uint)Math.Clamp((long)baseLife * (100 + Get(Stat.TotemLifePlusPct)) / 100, 1, int.MaxValue);
-        double seconds = Get(Stat.BaseTotemDuration) / 1000.0 * Math.Max(0, 100 + Get(Stat.TotemDurationPlusPct)) / 100;
+        double seconds = Get(Stat.BaseTotemDuration) / 1000d * TotemDurationFactor(Get(Stat.TotemDurationPlusPct));
         TotemState.Aura? aura = null;
         if (SkillsFor(player).EffectId(effect) is { } id && TotemAuras.TryGetValue(id, out var source))
         {
@@ -282,7 +290,10 @@ public static partial class Game
                 + area.GetValueOrDefault(name);
             var buffStats = TotemBuffStats.GetValueOrDefault(source.Buff) ?? [];
             aura = new(source.Buff, SkillArea.Radius(source.Radius, Area, spell: true),
-                [.. buffStats.Where(own.ContainsKey).Select(s => (s, own[s])).Where(s => s.Item2 != 0)]);
+                [.. buffStats.Where(own.ContainsKey).Select(s => (s, own[s])).Where(s => s.Item2 != 0)])
+            {
+                HitRedirectPercent = own.GetValueOrDefault(Stat.VaalRejuvenationTotemPctDamageTakenAppliedToTotemInstead),
+            };
         }
         int bodySize = Math.Clamp(variety.ObjectSize - 1, -1, 127);
         (int X, int Y) place = (Math.Clamp(at.X, 0, Math.Max(0, player.Layout.GridW - 1)), Math.Clamp(at.Y, 0, Math.Max(0, player.Layout.GridH - 1)));
@@ -452,10 +463,24 @@ public static partial class Game
     public static (int NonChaos, int Chaos) TotemsTakeHitLocked(Player player, int nonChaos, int chaos, double now,
         IReadOnlyDictionary<uint, int> stats)
     {
+        if (player.Totems.All.Count == 0) return (nonChaos, chaos);
         int pct = TotemRedirectStat is var key ? stats.GetValueOrDefault(key) : 0;
         // The totems live on the connection clock; the hit's world time places the player.
         double clock = AreaTime(player);
-        if (pct <= 0 || player.Totems.Nearest(player.Walk.Position(now), clock) is not { } totem) return (nonChaos, chaos);
+        var at = player.Walk.Position(now);
+        // This protection follows the totem that grants the aura. An unrelated closer totem cannot absorb its share.
+        var aura = player.Totems.Living(clock)
+            .Where(t => t.Aura is { HitRedirectPercent: > 0 } effect && Dist(t.At, at) <= effect.Radius)
+            .MinBy(t => Dist(t.At, at));
+        if (aura is not null)
+            (nonChaos, chaos) = RedirectTotemHitLocked(player, aura, nonChaos, chaos, aura.Aura!.HitRedirectPercent, clock, stats);
+        return pct > 0 && player.Totems.Nearest(at, clock) is { } nearest
+            ? RedirectTotemHitLocked(player, nearest, nonChaos, chaos, pct, clock, stats) : (nonChaos, chaos);
+    }
+
+    static (int NonChaos, int Chaos) RedirectTotemHitLocked(Player player, TotemState.Totem totem,
+        int nonChaos, int chaos, int pct, double clock, IReadOnlyDictionary<uint, int> stats)
+    {
         var (keptNonChaos, life) = TotemState.Redirect(nonChaos, pct, totem.Life);
         var (keptChaos, left) = TotemState.Redirect(chaos, pct, life);
         totem.Life = left;

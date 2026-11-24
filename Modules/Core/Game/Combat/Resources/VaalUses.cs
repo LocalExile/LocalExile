@@ -15,7 +15,8 @@ public static partial class Game
     // A Vaal name never opts into the generic area fallback. Each executor is admitted explicitly.
     public static bool VaalExecutor(Player player, int effect) =>
         SkillsFor(player).EffectId(effect) is "VaalGroundSlam" or "VaalFireball" or "VaalSpark" or "VaalMoltenStrike"
-            or VaalImmortalCallEffect or VaalArcticArmourEffect or "VaalHaste" or "VaalSmite" or "VaalHeavyStrike"
+            or VaalImmortalCallEffect or VaalArcticArmourEffect or VaalRejuvenationTotemEffect
+            or "VaalHaste" or "VaalSmite" or "VaalHeavyStrike"
             || IsVaalMinion(SkillsFor(player).EffectId(effect)) || VaalAuras.ContainsKey(SkillsFor(player).EffectId(effect) ?? "");
     static double VaalResourceTime(Player player) => player.LeavingArea && player.RampageTransferAt is double frozen
         ? frozen : ProjectileWorldTime(player);
@@ -62,6 +63,8 @@ public static partial class Game
             : Get(Stat.ModifiersToSkillEffectDurationAlsoAffectSoulPreventionDuration) != 0
             ? SkillDurationModifiers.Seconds(preventionMs, n => GolemStat(playerStats, n), n => GolemStat(gem.Stats, n))
             : preventionMs / 1000d;
+        if (Get(Stat.ModifiersToTotemDurationAlsoAffectSoulPreventionDuration) != 0)
+            preventionBase *= TotemDurationFactor(Get(Stat.TotemDurationPlusPct));
         double prevention = Get(Stat.VaalSkillDoesNotApplySoulGainPrevention) != 0
             || Get(Stat.MapPlayerDisableSoulGainPrevention) != 0 ? 0
             : Math.Max(0, preventionBase
