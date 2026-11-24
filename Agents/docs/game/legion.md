@@ -62,6 +62,12 @@ The ruleset `LegionRules` (Rulesets 94) reads the same duration from the S->C 0x
 - Is the swap of a broken-out monster for a fresh fighting one visible, and does a stored hit show a number or a flinch?
 - Does buff 1311 with visual 1082 look right, or the faction visual?
 - Does the animation stay paused after the buff is removed, and does a fleeing general play its animation?
+- With two players, does the one who enters during the timer see the army frozen? The area gives a joiner the monsters
+  (`JoinArea`, at the end of the joiner's first frame); their buff 1311 and 0x1b2 pause are sent to it alone at
+  `PlayerEntered` (`LegionStasis.Present`). If `PlayerEntered` runs before that frame ends, these records (order 0) are
+  written before the monster creates (order Last, `SharedMonsters.cs:299`; sorted at `Program.WorldOutput.cs:225`).
+  A deterministic fix would be the frozen buff as an area buff (`player.Area.Buffs.Set`, given to joiners by
+  `AreaBuffs.Join`), as the rarity glow is (`Monsters.cs:628`); not done yet.
 
 ## What the encounter does
 
@@ -74,4 +80,3 @@ The ruleset `LegionRules` (Rulesets 94) reads the same duration from the S->C 0x
 - A broken war chest breaks out the non-sergeant, non-general monsters near it and becomes an openable chest.
 - The encounter ends at the timer, or early at 90% of the plain and elite monsters broken plus every chest, sergeant and general.
   Each broken member is then swapped for a new fighting monster, the others vanish, and an unbroken general flees.
-- An encounter whose army did not survive a Gateway restart is ended when the area is entered again.

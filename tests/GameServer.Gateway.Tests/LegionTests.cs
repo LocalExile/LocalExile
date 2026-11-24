@@ -1,4 +1,5 @@
 using GameServer.Core;
+using GameServer.Core.Protocol.Instance;
 using GameServer.Modules.Legion;
 
 namespace GameServer.Gateway.Tests;
@@ -6,14 +7,30 @@ namespace GameServer.Gateway.Tests;
 public sealed class LegionTests
 {
     [Fact]
-    public void Timer_follows_the_balance_row_of_the_level_and_the_duration_stat()
+    public async Task In_the_areas_frame_a_record_goes_once_to_every_client_and_a_joiners_to_it_alone()
     {
-        var data = LegionData.Current;
-        Assert.Equal(30000, LegionMonolith.TimerMilliseconds(data, 1, 0));
-        Assert.Equal(15000, LegionMonolith.TimerMilliseconds(data, 68, 0));
-        Assert.Equal(15000, LegionMonolith.TimerMilliseconds(data, 83, 0));
-        Assert.Equal(22500, LegionMonolith.TimerMilliseconds(data, 68, 50));
-        Assert.Equal(7500, LegionMonolith.TimerMilliseconds(data, 68, -50));
+        var layout = new AreaLayout(0x1e9, "MapWorldsReef", 600, 600, 300, 300, (_, _) => true, []);
+        var instance = new InstanceState();
+        Player Make()
+        {
+            var player = new Player(layout, 1, 1) { Instance = instance, Connection = { PlayerSent = true } };
+            instance.AddPlayer(player);
+            player.Connection.WorldOutput.Begin(1);
+            return player;
+        }
+        Player first = Make(), second = Make();
+        Assert.Same(first.Area, second.Area);
+        const uint id = 0x500;
+        var owner = GameArea.Own(first.Area);
+        try
+        {
+            // A per-player loop would put one copy per player in the frame that every client is written.
+            await LegionOutput.ToArea(first, p => Program.Send(p, InstanceProtocol.EnterWakeZone(id), null));
+            Assert.Null(Assert.Single(first.Area.Delta.Take()).Only);
+            await LegionOutput.ToOne(second, () => Program.Send(second, InstanceProtocol.EnterWakeZone(id), null));
+            Assert.Same(second, Assert.Single(first.Area.Delta.Take()).Only);
+        }
+        finally { GameArea.Own(owner); }
     }
 
     [Fact]

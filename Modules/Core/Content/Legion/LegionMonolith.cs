@@ -12,7 +12,8 @@ namespace GameServer.Modules.Legion;
 /// states <c>charging</c>, then <c>shattered</c>), plays the pulse and starts the Legion timer; when the timer ends the
 /// monolith is <c>locked</c>. The army stands in stasis meanwhile: <see cref="BeginArmy"/> and
 /// <see cref="ReleaseArmy"/> are the hand-over points for it. The encounter is the instance's, kept in
-/// <c>Instance.ContentState</c>, and a client that enters later is shown it as it is.
+/// <c>Instance.ContentState</c>; its objects are the area's, each record sent once (LegionOutput), and a client that
+/// enters later is given them by the area as they are.
 /// </summary>
 static partial class LegionMonolith
 {
@@ -53,8 +54,6 @@ static partial class LegionMonolith
     }
 
     static readonly ConditionalWeakTable<object, Encounter> Encounters = new();
-    /// <summary>The objects each connection has been sent (a connection is one area visit).</summary>
-    static readonly ConditionalWeakTable<Player, HashSet<uint>> Shown = new();
     static readonly JsonSerializerOptions Json = new();
 
     static QuestObjectTypes.Info? Info;
@@ -75,8 +74,7 @@ static partial class LegionMonolith
             module.Log($"the monolith's type {InitiatorType} is not in the client data or cannot be written: no monolith");
             return;
         }
-        // After a hot reload mid-timer, players already in the area see the updates only after they re-enter.
-        module.Lifetime.Own(new Cleanup(() => { Encounters.Clear(); Shown.Clear(); Holds.Clear(); anyHold = false; Models = null; }));
+        module.Lifetime.Own(new Cleanup(() => { Encounters.Clear(); Holds.Clear(); anyHold = false; Models = null; }));
         GameEvents.OutgoingDamage.Add(id, (player, _, target, rolled) => Hit(module, player, target, rolled));
         GameEvents.AreaPopulated.Add(id, area => Place(module, area));
         GameEvents.PlayerEntered.Add(id, player => Enter(player));
@@ -104,8 +102,11 @@ static partial class LegionMonolith
     static void Keep(Player player, Encounter e) =>
         player.Instance.ContentState[SaveKey] = JsonSerializer.Serialize(e.ToSaved(), Json);
 
-    static IEnumerable<Player> Members(Player player) => player.Instance.PlayersExcept(player.Id)
-        .Prepend(player).Where(p => !p.Closed && !p.LeavingArea && p.Instance == player.Instance).Distinct();
+    static IEnumerable<Player> Members(Player player) => LegionOutput.Members(player);
+
+    /// <summary>Whether the area's clients have the object: the area keeps what it wrote of its objects until their removal,
+    /// and gives it to each client that joins later (AreaObjectRecords).</summary>
+    static bool InArea(Player player, uint id) => player.Area.Objects.Has(id);
 
     /// <summary>GameEvents.AreaPopulated: a new instance that rolled the monolith room gets its monolith at the room's locator.</summary>
     static async Task Place(IModuleContext module, AreaPopulated area)
@@ -122,7 +123,8 @@ static partial class LegionMonolith
         await Show(player, e);
     }
 
-    /// <summary>GameEvents.PlayerEntered: a later player, or a returning one, is shown the monolith as it is now.</summary>
+    /// <summary>GameEvents.PlayerEntered: a later player, or a returning one. The area gives its client the monolith, the pulse,
+    /// the chests and the army as they are; the army's stasis, which the area does not keep, is sent to that player alone.</summary>
     static async Task Enter(Player player)
     {
         if (Of(player) is not { } e) return;
@@ -142,41 +144,48 @@ static partial class LegionMonolith
         return states;
     }
 
+    /// <summary>The monolith for the area, created once (the area keeps it for the players who enter later; a later call
+    /// creates it only if the first create failed), and the player's own part: its blocker before the charge and the timer
+    /// while it runs.</summary>
     static async Task Show(Player player, Encounter e)
     {
-        var shown = Shown.GetValue(player, _ => []);
         Phase phase; uint pulse; double endsAt;
         lock (e) (phase, pulse, endsAt) = (e.Phase, e.Pulse, e.EndsAt);
-        lock (shown) if (!shown.Add(e.Id)) return;
-        var modPlayer = PlayerOf(player);
-        var obj = new QuestObject(e.X, e.Y, Info!.Components, e.Rotation, e.Z, Info.Model) { StateMachine = StatesOf(phase, e) };
-        if (!await global::Game.SendWorldCreate(modPlayer, e.Id, InstanceEntities.CreateObject(e.Id, InstanceEntities.ObjectTypeHash(InitiatorType), obj.Blob()),
-            $"0x02bb Legion monolith 0x{e.Id:x} at ({e.X}, {e.Y}) phase {phase}"))
+        if (!InArea(player, e.Id))
         {
-            lock (shown) shown.Remove(e.Id);
-            return;
+            var obj = new QuestObject(e.X, e.Y, Info!.Components, e.Rotation, e.Z, Info.Model) { StateMachine = StatesOf(phase, e) };
+            var create = InstanceEntities.CreateObject(e.Id, InstanceEntities.ObjectTypeHash(InitiatorType), obj.Blob());
+            bool created = false;
+            await LegionOutput.ToArea(player, async p =>
+            {
+                if (!await global::Game.SendWorldCreate(PlayerOf(p), e.Id, create, $"0x02bb Legion monolith 0x{e.Id:x} at ({e.X}, {e.Y}) phase {phase}")) return;
+                created = true;
+                await global::Game.SendWorldRecord(PlayerOf(p), e.Id, InstanceProtocol.EnterWakeZone(e.Id));
+            });
+            if (!created) return;
         }
-        await global::Game.SendWorldRecord(modPlayer, e.Id, InstanceProtocol.EnterWakeZone(e.Id));
         // A server-placed blocking object blocks walking until it charges (the client drops its collision then).
         // The phase may have moved on while the create was sent: a pulse is made only while the encounter still runs.
         lock (e) (phase, pulse) = (e.Phase, e.Pulse);
-        if (phase == Phase.Idle && Info.Blocking) player.SetBlocker(e.Id, e.X, e.Y, Math.Max(1, Info.Size));
+        if (phase == Phase.Idle && Info!.Blocking) player.SetBlocker(e.Id, e.X, e.Y, Math.Max(1, Info.Size));
         if (phase == Phase.Running && pulse != 0) await ShowPulse(player, e, pulse);
         if (phase is Phase.Charging or Phase.Running)
         {
             double left = Math.Ceiling(endsAt - global::Game.AreaTime(player));
             if (left > 0 && left < 3600)
-                await modPlayer.Send(InstanceTimers.MissionTimer(InstanceTimers.MissionTimerType.Legion, (uint)left), $"0x0163 mission timer Legion: {left} s (sync)");
+                await PlayerOf(player).Send(InstanceTimers.MissionTimer(InstanceTimers.MissionTimerType.Legion, (uint)left), $"0x0163 mission timer Legion: {left} s (sync)");
         }
     }
 
     static async Task ShowPulse(Player player, Encounter e, uint id)
     {
-        lock (Shown.GetValue(player, _ => [])) Shown.GetValue(player, _ => []).Add(id);
-        var modPlayer = PlayerOf(player);
-        await global::Game.SendWorldCreate(modPlayer, id, InstanceEntities.CreateObject(id,
-            InstanceEntities.ObjectTypeHash(EffectObject.TypePath), new EffectObject(e.X, e.Y, PulseModel).Blob()), $"0x02bb Legion monolith pulse 0x{id:x}");
-        await global::Game.SendWorldRecord(modPlayer, id, InstanceProtocol.EnterWakeZone(id));
+        if (InArea(player, id)) return;
+        var create = InstanceEntities.CreateObject(id, InstanceEntities.ObjectTypeHash(EffectObject.TypePath), new EffectObject(e.X, e.Y, PulseModel).Blob());
+        await LegionOutput.ToArea(player, async p =>
+        {
+            if (await global::Game.SendWorldCreate(PlayerOf(p), id, create, $"0x02bb Legion monolith pulse 0x{id:x}"))
+                await global::Game.SendWorldRecord(PlayerOf(p), id, InstanceProtocol.EnterWakeZone(id));
+        });
     }
 
     /// <summary>The Legion timer's length: the LegionBalancePerLevel row with the highest MinLevel &lt;= level (the first row if
@@ -245,7 +254,7 @@ static partial class LegionMonolith
         if (step == 1)
         {
             await ToAll(player, e, StatesOf(Phase.Running, e), "shattered=1");
-            foreach (var member in Members(player).Where(m => Shown.TryGetValue(m, out var s) && s.Contains(e.Id))) await ShowPulse(member, e, pulse);
+            if (InArea(player, e.Id)) await ShowPulse(player, e, pulse);
             await EarlyEnd(module, player, e);   // a break-out during the charge could not end it yet
         }
         else if (step == 2) await Finish(module, player, e, pulse, "timer");
@@ -258,7 +267,7 @@ static partial class LegionMonolith
         foreach (var member in Members(player))
             await PlayerOf(member).Send(InstanceTimers.HideMissionTimer(InstanceTimers.MissionTimerType.Legion), "0x0163 mission timer Legion: hidden");
         await ToAll(player, e, StatesOf(Phase.Finished, e), "locked=1");
-        if (pulse != 0) foreach (var member in Members(player).Where(m => Shown.TryGetValue(m, out var s) && s.Contains(pulse))) await global::Game.SendWorldRemoval(member, pulse);
+        if (pulse != 0 && InArea(player, pulse)) await LegionOutput.Remove(player, pulse);
         module.Log($"{PlayerOf(player).Character}: monolith 0x{e.Id:x} ended ({reason})");
         await ReleaseArmy(module, player, reason);
     }
@@ -285,14 +294,12 @@ static partial class LegionMonolith
         await Finish(module, player, e, pulse, "early");
     }
 
+    /// <summary>The monolith's states, once to every client in the area (the area keeps the latest for a client that joins).</summary>
     static async Task ToAll(Player player, Encounter e, StateMachineData states, string what)
     {
-        foreach (var member in Members(player))
-        {
-            if (!Shown.TryGetValue(member, out var shown) || !shown.Contains(e.Id)) continue;
-            await global::Game.SendWorldRecord(PlayerOf(member), e.Id, InstanceEntities.StateMachineUpdate(e.Id, (byte)StateIndex, states),
-                $"0x02bc Legion monolith 0x{e.Id:x}: {what}");
-        }
+        if (!InArea(player, e.Id)) return;
+        await LegionOutput.ToArea(player, p => global::Game.SendWorldRecord(PlayerOf(p), e.Id,
+            InstanceEntities.StateMachineUpdate(e.Id, (byte)StateIndex, states), $"0x02bc Legion monolith 0x{e.Id:x}: {what}"));
     }
 
     /// <summary>The monolith was used and the timer runs: the two armies stand up frozen around it (LegionStasis.cs).</summary>
@@ -313,7 +320,7 @@ static partial class LegionMonolith
                 return true;
             }
         }
-        try { await LegionStasis.Spawn(module, player, plan, e.X, e.Y, e.Level, Keeps, Members(player)); }
+        try { await LegionStasis.Spawn(module, player, plan, e.X, e.Y, e.Level, Keeps); }
         finally { lock (e) e.Spawning = false; }
         Phase phase;
         lock (e) { phase = e.Phase; Keep(player, e); }
@@ -331,7 +338,6 @@ static partial class LegionMonolith
         LegionStasis.Member[]? army;
         lock (e) { army = e.Army; e.Army = []; Keep(player, e); }
         if (army is not { Length: > 0 }) return;
-        var members = Members(player).ToList();
         var remove = new List<LegionStasis.Member>();
         var flee = new List<LegionStasis.Member>();
         int woken = 0;
@@ -342,34 +348,34 @@ static partial class LegionMonolith
             if (m.Broken && !m.Chest)
             {
                 Holds.Remove(monster);   // its hits count again
-                if (await LegionStasis.Wake(player, m, monster, members)) { woken++; generalFought |= m.Tier == 3; }
+                if (await LegionStasis.Wake(player, m, monster)) { woken++; generalFought |= m.Tier == 3; }
                 else remove.Add(m);   // no replacement could be made: it goes like an unbroken one
             }
             else if (m.Tier == 3 && !m.Chest) flee.Add(m);
             else remove.Add(m);
         }
-        await LegionStasis.Remove(player, remove, members);
+        await LegionStasis.Remove(player, remove);
         foreach (var g in flee)
         {
             if (!player.Area.Monsters.TryGetValue(g.Id, out var monster)) continue;
             Holds.Remove(monster);
             // LIVE CHECK: with the frozen buff gone and the animation running again, the client plays its flee animation (fleeing=1).
-            foreach (var p in members)
+            await LegionOutput.ToArea(player, async p =>
             {
                 await global::Game.SendWorldRecord(p, g.Id, InstanceEntities.RemoveBuff(g.Id, g.Buff), null);
                 await global::Game.SendWorldRecord(p, g.Id, InstanceProtocol.AnimationUpdate(g.Id, 0, 0, 1), null);
-            }
-            await LegionStasis.SetState(player, g.Id, monster, members, "fleeing");
+            });
+            await LegionStasis.SetState(player, g.Id, monster, "fleeing");
             // The server forgets it now (no leak if the timer below is dropped, and it gives no rewards); only the client's removal waits.
             if (player.Area.Monsters.Remove(g.Id, out var gone)) { gone.Dead = true; gone.Life = 0; gone.ActionGeneration++; }
             player.Instance.World.MonsterOrigins.TryRemove(g.Id, out _);
         }
+        // One area timer: it fires if the player who ended the encounter left, and takes the players there then.
         if (flee.Count > 0)
-            global::Game.SendAfter(player, FleeSeconds, async () =>
+            global::Game.SendAfter(player, FleeSeconds, () => LegionOutput.ToArea(player, async p =>
             {
-                foreach (var p in Members(player))
-                    foreach (var g in flee) await global::Game.SendWorldRemoval(p, g.Id);
-            });
+                foreach (var g in flee) await global::Game.SendWorldRemoval(p, g.Id);
+            }));
         string general = flee.Count > 0 ? "fled" : generalFought ? "fought" : "none";
         module.Log($"Legion: army released ({reason}): {army.Count(m => m.Broken)} of {army.Length} broken out, general {general}");
         await ToAll(player, e, StatesOf(Phase.Finished, e), "spawn_lightning=0");

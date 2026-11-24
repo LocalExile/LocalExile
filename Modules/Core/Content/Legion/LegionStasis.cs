@@ -45,7 +45,7 @@ static class LegionStasis
     }
 
     /// <summary>Spawns both armies of the plan frozen; each member is handed to <paramref name="keep"/> (false: the timer ended, it is removed and spawning stops).</summary>
-    public static async Task Spawn(IModuleContext module, Player player, LegionArmy.ArmyPlan plan, int cx, int cy, int level, Func<Member, bool> keep, IEnumerable<Player> members)
+    public static async Task Spawn(IModuleContext module, Player player, LegionArmy.ArmyPlan plan, int cx, int cy, int level, Func<Member, bool> keep)
     {
         var rng = global::Game.AreaRng(player);
         double axis = rng.NextDouble() * Math.PI * 2;
@@ -64,7 +64,7 @@ static class LegionStasis
                 friendly: false, unrisen: false, alone: false, scripted: true, instanceOwned: true, bulk: true, log: false);
             if (id == 0) { skipped++; return; }
             ushort buff = await Freeze(player, id, variety.Id);
-            if (!keep(new Member(id, buff, faction, tier, chest, hoard))) { stopped = true; await Remove(player, [new Member(id, buff, faction, tier, chest, hoard)], members); return; }
+            if (!keep(new Member(id, buff, faction, tier, chest, hoard))) { stopped = true; await Remove(player, [new Member(id, buff, faction, tier, chest, hoard)]); return; }
             counts[faction]++;
             if (chest) chests++; else if (tier == 2) sergeants++; else if (tier == 3) generals++;
         }
@@ -98,30 +98,34 @@ static class LegionStasis
             monster.BusyUntil = double.PositiveInfinity;
         }
         ushort buff = player.NextBuff++;
-        await SendStasis(player, id, buff, variety);
+        await LegionOutput.ToArea(player, p => SendStasis(p, id, buff, variety, true));
         return buff;
     }
 
-    static async Task SendStasis(Player player, uint id, ushort buff, string variety)
+    static async Task SendStasis(Player player, uint id, ushort buff, string variety, bool withBuff)
     {
-        await global::Game.SendWorldRecord(player, id, InstanceEntities.AddBuff(id, buff, FrozenBuff), $"legion stasis {variety}");
+        if (withBuff) await global::Game.SendWorldRecord(player, id, InstanceEntities.AddBuff(id, buff, FrozenBuff), $"legion stasis {variety}");
         // Pause the actor: 0x1b2 kind 0 plays animation 0 at speed 0.
         await global::Game.SendWorldRecord(player, id, InstanceProtocol.AnimationUpdate(id, 0, 0, 0), $"legion freeze {variety}");
     }
 
-    /// <summary>A player who enters later: the monsters exist for them, their buff and paused animation are sent.</summary>
+    /// <summary>A player who enters later: the area gives its client the monsters with their states (MonsterOrigins), but not
+    /// the buff and the paused animation sent at spawn, so these go to that player alone (only the pause for one that broke out).</summary>
     public static async Task Present(Player player, Member[]? army)
     {
         if (army is not { Length: > 0 }) return;
-        foreach (var member in army)
+        await LegionOutput.ToOne(player, async () =>
         {
-            if (member.Broken || !player.Area.Monsters.TryGetValue(member.Id, out var m) || m.Dead) continue;
-            await SendStasis(player, member.Id, member.Buff, "member");
-        }
+            foreach (var member in army)
+            {
+                if (!player.Area.Monsters.TryGetValue(member.Id, out var m) || m.Dead) continue;
+                await SendStasis(player, member.Id, member.Buff, "member", !member.Broken);   // a broken-out one is still paused, without the buff
+            }
+        });
     }
 
-    /// <summary>Sets StateMachine states (each to 1) on a monster, server-side (a player who enters later is created with them) and for the given players.</summary>
-    public static async Task SetState(Player player, uint id, SpawnedMonster monster, IEnumerable<Player> members, params string[] names)
+    /// <summary>Sets StateMachine states (each to 1) on a monster, server-side (a player who enters later is created with them) and once for every client in the area.</summary>
+    public static async Task SetState(Player player, uint id, SpawnedMonster monster, params string[] names)
     {
         var states = monster.States ?? monster.Variety?.StateMachine;
         if (states is null) return;
@@ -131,30 +135,28 @@ static class LegionStasis
             player.Instance.World.MonsterOrigins[id] = origin with { Object = origin.Object with { StateMachine = states } };
         int component = monster.Variety?.ComponentsOrBase.ToList().IndexOf("StateMachine") ?? -1;
         if (component < 0) return;
-        foreach (var p in members)
-            await global::Game.SendWorldRecord(p, id, InstanceEntities.StateMachineUpdate(id, (byte)component, states), null);
+        await LegionOutput.ToArea(player, p => global::Game.SendWorldRecord(p, id, InstanceEntities.StateMachineUpdate(id, (byte)component, states), null));
     }
 
     /// <summary>The end of the stasis for a member that broke out. The frozen monster was spawned scripted (no AI, no kit, cannot be
     /// stunned: all fixed at spawn), so it is swapped for a new ordinary monster of the same variety, rarity and cell, with its own
     /// kit, AI and rewards, already <c>breakout</c> 1 and <c>activated</c> 1. LIVE CHECK: whether the swap is visible.
     /// Returns false when the new monster could not be made (the frozen one is then left standing).</summary>
-    public static async Task<bool> Wake(Player player, Member member, SpawnedMonster monster, IEnumerable<Player> members)
+    public static async Task<bool> Wake(Player player, Member member, SpawnedMonster monster)
     {
-        var present = members.ToList();
         var variety = monster.Variety;
         if (variety is null) return false;
         var (x, y) = monster.Walk.Position(global::Game.AreaTime(player));
         uint id = await SpawnMonster(player, variety, monster.Level, monster.Rarity, x, y, mods: monster.Mods,
             friendly: false, unrisen: false, alone: false, instanceOwned: true, bulk: true, log: false, placement: MonsterPlacement.Established);
         if (id == 0 || !player.Area.Monsters.TryGetValue(id, out var woken)) return false;   // the frozen one stays: the caller removes it
-        await Remove(player, [member], present);
-        await SetState(player, id, woken, present, "breakout", "activated");
+        await Remove(player, [member]);
+        await SetState(player, id, woken, "breakout", "activated");
         return true;
     }
 
-    /// <summary>Removes the members still standing from the instance and from every member's client; returns how many.</summary>
-    public static async Task<int> Remove(Player player, IEnumerable<Member> army, IEnumerable<Player> members)
+    /// <summary>Removes the members still standing from the instance and from every client in the area; returns how many.</summary>
+    public static async Task<int> Remove(Player player, IEnumerable<Member> army)
     {
         var ids = new List<uint>();
         foreach (var member in army)
@@ -164,9 +166,9 @@ static class LegionStasis
                 player.Instance.World.MonsterOrigins.TryRemove(member.Id, out _);
                 ids.Add(member.Id);
             }
-        var present = members.ToList();
+        var members = LegionOutput.Members(player).ToList();
         foreach (uint id in ids)
-            foreach (var p in present) _ = global::Game.SendWorldRemoval(p, id);   // not awaited: ~200 sends must not hold the tick
+            _ = LegionOutput.ToArea(members, p => global::Game.SendWorldRemoval(p, id));   // not awaited: ~200 sends must not hold the tick
         return ids.Count;
     }
 }

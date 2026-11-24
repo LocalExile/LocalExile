@@ -114,7 +114,6 @@ static partial class LegionMonolith
         items = [.. items.Where(i => !i.Monster.Dead && player.Area.Monsters.ContainsKey(i.Hold.Member.Id))];   // none that ReleaseArmy removed
         if (items.Count == 0) return;
         bool general = MarkBroken(player, e, [.. items.Select(i => i.Hold.Member.Id)]);
-        var members = Members(player).ToList();
         double now = global::Game.AreaTime(player);
         foreach (var (hold, monster) in items)
         {
@@ -128,16 +127,16 @@ static partial class LegionMonolith
             }
             int component = monster.Variety?.ComponentsOrBase.ToList().IndexOf("StateMachine") ?? -1;
             var (x, y) = monster.Walk.Position(now);
-            foreach (var p in members)
+            await LegionOutput.ToArea(player, async p =>
             {
                 if (states is not null && component >= 0)
                     await global::Game.SendWorldRecord(PlayerOf(p), id, InstanceEntities.StateMachineUpdate(id, (byte)component, states), null);
                 await global::Game.SendWorldRecord(PlayerOf(p), id, InstanceEntities.RemoveBuff(id, hold.Member.Buff), null);
-            }
+            });
             string? model = e.Plan is { } plan && hold.Member.Faction < plan.Factions.Length
                 && LegionData.Current.Factions.FirstOrDefault(f => f.Row == plan.Factions[hold.Member.Faction].Faction) is { MiscAnimated.Length: > 0 } faction
                     ? ModelOf(faction.MiscAnimated[0]) : null;
-            await Flash(player, members, model, x, y);
+            await Flash(player, model, x, y);
         }
         if (general)
         {
@@ -148,21 +147,20 @@ static partial class LegionMonolith
     }
 
     /// <summary>A one-shot effect object at a cell, removed after <see cref="FlashSeconds"/>.</summary>
-    static async Task Flash(Player player, List<Player> members, string? model, int x, int y)
+    static async Task Flash(Player player, string? model, int x, int y)
     {
         if (model is null) return;
         uint id = player.TakeObjectId();
-        foreach (var p in members)
+        bool created = false;
+        await LegionOutput.ToArea(player, async p =>
         {
-            await global::Game.SendWorldCreate(PlayerOf(p), id, InstanceEntities.CreateObject(id,
-                InstanceEntities.ObjectTypeHash(EffectObject.TypePath), new EffectObject(x, y, model).Blob()), null);
+            if (!await global::Game.SendWorldCreate(PlayerOf(p), id, InstanceEntities.CreateObject(id,
+                InstanceEntities.ObjectTypeHash(EffectObject.TypePath), new EffectObject(x, y, model).Blob()), null)) return;
+            created = true;
             await global::Game.SendWorldRecord(PlayerOf(p), id, InstanceProtocol.EnterWakeZone(id));
-        }
-        global::Game.SendAfter(player, FlashSeconds, async () =>
-        {
-            foreach (var p in members)
-                if (!p.Closed && !p.LeavingArea) await global::Game.SendWorldRemoval(p, id);
         });
+        // One area timer: it fires if the player who triggered it left, and takes the players there then.
+        if (created) global::Game.SendAfter(player, FlashSeconds, () => LegionOutput.Remove(player, id));
     }
 
     static async Task BreakChest(IModuleContext module, Player player, Hold hold, int x, int y)
@@ -185,9 +183,8 @@ static partial class LegionMonolith
             near.Add((h, monster));
         }
         MarkBroken(player, e, [chest.Id]);
-        var members = Members(player).ToList();
-        await Flash(player, members, ModelOf(ChestExplodeKey), x, y);
-        await LegionStasis.Remove(player, [chest], members);
+        await Flash(player, ModelOf(ChestExplodeKey), x, y);
+        await LegionStasis.Remove(player, [chest]);
         await SpawnBox(module, player, e, chest, x, y);
         await Free(player, e, near);
         module.Log($"Legion: chest broke out at ({x}, {y}), freed {near.Count}");
@@ -208,32 +205,40 @@ static partial class LegionMonolith
         }
         var box = new Box(player.TakeObjectId(), type, x, y, 0, null, info.OwnModel ? null : info.Model, member.WarHoard, false);
         lock (e) { e.Boxes = [.. e.Boxes ?? [], box]; Keep(player, e); }
-        foreach (var p in Members(player)) await ShowBox(p, box, info);
+        if (await ShowBox(player, box, info))
+            foreach (var p in Members(player)) BlockBox(p, box, info);
     }
 
-    static async Task ShowBox(Player player, Box box, QuestObjectTypes.Info info)
+    /// <summary>The chest for the area, created once; true when the area has it.</summary>
+    static async Task<bool> ShowBox(Player player, Box box, QuestObjectTypes.Info info)
     {
-        var shown = Shown.GetValue(player, _ => []);
-        lock (shown) if (!shown.Add(box.Id)) return;
+        if (InArea(player, box.Id)) return true;
         var obj = new QuestObject(box.X, box.Y, info.Components, box.Rotation, box.Z, box.Model,
             TransitionState: (byte)(box.Opened ? info.States : 1), Opened: box.Opened);
-        if (!await global::Game.SendWorldCreate(PlayerOf(player), box.Id, InstanceEntities.CreateObject(box.Id,
-            InstanceEntities.ObjectTypeHash(box.Type), obj.Blob()), $"0x02bb Legion chest 0x{box.Id:x} at ({box.X}, {box.Y}), opened={box.Opened}"))
+        var create = InstanceEntities.CreateObject(box.Id, InstanceEntities.ObjectTypeHash(box.Type), obj.Blob());
+        bool created = false;
+        await LegionOutput.ToArea(player, async p =>
         {
-            lock (shown) shown.Remove(box.Id);
-            return;
-        }
-        await global::Game.SendWorldRecord(PlayerOf(player), box.Id, InstanceProtocol.EnterWakeZone(box.Id));
+            if (!await global::Game.SendWorldCreate(PlayerOf(p), box.Id, create, $"0x02bb Legion chest 0x{box.Id:x} at ({box.X}, {box.Y}), opened={box.Opened}")) return;
+            created = true;
+            await global::Game.SendWorldRecord(PlayerOf(p), box.Id, InstanceProtocol.EnterWakeZone(box.Id));
+        });
+        return created;
+    }
+
+    /// <summary>The chest blocks the player's own walk.</summary>
+    static void BlockBox(Player player, Box box, QuestObjectTypes.Info info)
+    {
         if (info.Blocking) player.SetObjectBlocker(box.Id, box.X, box.Y, Math.Max(1, info.Size), info.ActorOrChest);
     }
 
-    /// <summary>A player who enters later is shown the chests as they are.</summary>
+    /// <summary>A player who enters later: the area gives its client the chests as they are; the player's walk is blocked by them.</summary>
     static async Task ShowBoxes(Player player, Encounter e)
     {
         Box[] boxes;
         lock (e) boxes = e.Boxes ?? [];
         foreach (var box in boxes)
-            if (QuestObjectTypes.Find(box.Type) is { } info) await ShowBox(player, box, info);
+            if (QuestObjectTypes.Find(box.Type) is { } info && await ShowBox(player, box, info)) BlockBox(player, box, info);
     }
 
     /// <summary>A click on one of the chests: walk up, open it once (it is created again opened under a new id, as a Chest
@@ -254,16 +259,12 @@ static partial class LegionMonolith
             e.Boxes = [.. e.Boxes.Select((b, n) => n == i ? opened : b)];
             Keep(player, e);
         }
-        foreach (var member in Members(player))
-        {
-            member.RemoveBlocker(targetId);
-            if (Shown.TryGetValue(member, out var shown) && lockedRemove(shown, targetId)) await global::Game.SendWorldRemoval(member, targetId);
-            await ShowBox(member, opened, info);
-        }
+        foreach (var member in Members(player)) member.RemoveBlocker(targetId);
+        if (InArea(player, targetId)) await LegionOutput.Remove(player, targetId);
+        if (await ShowBox(player, opened, info))
+            foreach (var member in Members(player)) BlockBox(member, opened, info);
         await DropBox(player, e, opened, info.Size);
         return true;
-
-        static bool lockedRemove(HashSet<uint> set, uint id) { lock (set) return set.Remove(id); }
     }
 
     /// <summary>The chest's items on the ground in a ring around it: the server's container roll at the area level (GUESS for the
