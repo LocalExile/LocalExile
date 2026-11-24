@@ -21,6 +21,7 @@ public sealed class MonsterElementalAilments
         // The player who caused it, by their PeerId (Program.ActingPlayer when it landed); 0 when no player did. A spread
         // copy keeps its source's.
         public uint Source { get; init; }
+        internal bool RemovableAura { get; init; }
         public double Duration { get; init; }
     }
     readonly List<Effect> effects = [];
@@ -343,6 +344,14 @@ public sealed class MonsterElementalAilments
         Apply(new(kind, now, now + seconds, BaseWithoutDamage(kind, attacker, target, stated))
             { Spread = SpreadRadius(kind, attacker, area) }, attacker, target);
 
+    public void ApplyAura(Kind kind, uint source, double seconds, double now, Func<uint, int> attacker, Func<uint, int> target)
+    {
+        if (Apply(new(kind, now, now + seconds, BaseWithoutDamage(kind, attacker, target))
+            { Source = source, RemovableAura = true }, attacker, target) is null) RemoveAura(source);
+    }
+
+    public void RemoveAura(uint source) => effects.RemoveAll(e => e.RemovableAura && e.Source == source);
+
     // Chill and shock without damage: 10% and 15% base unless the source states its own (wiki Chill and Shock), through
     // the effect modifiers, up to the cap.
     static double BaseWithoutDamage(Kind kind, Func<uint, int> attacker, Func<uint, int> target, int? stated = null) =>
@@ -416,7 +425,8 @@ public sealed class MonsterElementalAilments
             Source = effect.Source != 0 ? effect.Source : Program.ActingPlayer.Value?.Id ?? 0 };
         // A weaker one of the same sort that also ends sooner can never be the strongest again.
         effects.RemoveAll(e => e.Until <= now || e.Kind == kind && e.Magnitude <= effect.Magnitude && e.Until <= effect.Until
-            && (e.MoreTaken, e.LessDealt, e.Spread) == (effect.MoreTaken, effect.LessDealt, effect.Spread));
+            && (e.MoreTaken, e.LessDealt, e.Spread) == (effect.MoreTaken, effect.LessDealt, effect.Spread)
+            && (e.RemovableAura == effect.RemovableAura && (!e.RemovableAura || e.Source == effect.Source)));
         effects.Add(effect);
         Interlocked.Increment(ref anyAdded);
         if (effect.Spread > 0) Interlocked.Increment(ref spreadsAdded);

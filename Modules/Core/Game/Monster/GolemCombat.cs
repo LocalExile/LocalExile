@@ -340,7 +340,7 @@ public static partial class Game
                 || MonsterAsleep(player, id) || double.IsPositiveInfinity(monster.BusyUntil)) continue;
             var at = monster.Walk.Position(now);
             if (Dist(at, owner) > 100) continue;
-            bool uncovered = monster.Ailments.Magnitude(ailment, now) <= 0;
+            bool uncovered = !SkitterAuraCovers(g, monster, ailment, now);
             double dist = Dist(at, here);
             if (best is null || (uncovered && !bestUncovered) || (uncovered == bestUncovered && dist < bestDist))
             {

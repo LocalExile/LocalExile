@@ -120,6 +120,7 @@ public static partial class Game
 
     static void RemoveReservationFighterLocked(Player player, GolemState.Golem fighter, double now)
     {
+        ClearSkitterAuraLocked(fighter);
         player.Reservations.Fighters.Remove(fighter.Id);
         player.Reservations.Until.Remove(fighter.Id);
         RemoveGolemLocked(player, fighter, now);
@@ -172,15 +173,7 @@ public static partial class Game
                 GolemStepLocked(player, fighter, now);
                 if (fighter.Monster.Dead || fighter.Monster.Life == 0
                     || !fighter.Definition.Kind.StartsWith("Skitter", StringComparison.Ordinal)) continue;
-                bool cold = fighter.Definition.Kind == "SkitterCold";
-                int auraRadius = SkitterAuraRadius(fighter);
-                var botAt = fighter.Monster.Walk.Position(now);
-                foreach (var monster in player.Area.Monsters.Values)
-                    if (monster is { Hostile: true, Dead: false, Life: > 0 }
-                        && Dist(monster.Walk.Position(now), botAt) <= auraRadius)
-                        monster.Ailments.WithoutDamage(cold ? MonsterElementalAilments.Kind.Chill : MonsterElementalAilments.Kind.Shock,
-                            .5, now, n => SkitterAilmentStat(fighter, n),
-                            n => monster.Mods.Effects[n]);
+                SkitterAuraTickLocked(player, fighter, now);
             }
         }
         if (ReservationAura(player, "HeraldOfAgony") is { } activeAgony && state.Virulence > 0)
