@@ -253,7 +253,7 @@ public static partial class Game
             var stepTo = ((int)Math.Round(target.At.X + (here.X - target.At.X) * f),
                 (int)Math.Round(target.At.Y + (here.Y - target.At.Y) * f));
             GolemMoveLocked(player, g, stepTo, now, fallbackToOwner: follows ? owner : null);
-            CheckMinionStuckLocked(player, g, here, Dist(here, owner), pursuing: true, now);
+            CheckMinionStuckLocked(player, g, here, follows && stepTo != here && Dist(here, owner) > 10, now);
             return;
         }
         if (ability.Effect == 10802 && g.Combo >= 3)
@@ -459,17 +459,17 @@ public static partial class Game
         return true;
     }
 
-    static void CheckMinionStuckLocked(Player player, GolemState.Golem g, (int X, int Y) here, double ownerDist, bool pursuing, double now)
+    static void CheckMinionStuckLocked(Player player, GolemState.Golem g, (int X, int Y) here, bool shouldMove, double now)
     {
         var stuck = GolemStuck.GetOrCreateValue(g);
-        if (Dist(here, stuck.LastProgressPos) >= 2)
+        if (!shouldMove || Dist(here, stuck.LastProgressPos) >= 2)
         {
             stuck.LastProgressPos = here;
             stuck.StuckSince = double.NaN;
             return;
         }
         bool stagnant = !g.Monster.Walk.Moving(now) || g.Monster.Walk.Destination == here;
-        if (stagnant && (ownerDist > 18 || (pursuing && ownerDist > 10)))
+        if (stagnant)
         {
             if (double.IsNaN(stuck.StuckSince)) stuck.StuckSince = now;
             else if (now - stuck.StuckSince >= 0.75)
@@ -483,7 +483,7 @@ public static partial class Game
                 player.Minions.OutputQueue.Add(new(InstanceProtocol.Teleport(g.Id, at.X, at.Y), "golem unstuck teleport", g.Id, g.Monster, WorldId: g.Id));
             }
         }
-        else if (!stagnant) stuck.StuckSince = double.NaN;
+        else stuck.StuckSince = double.NaN;
     }
 
     static void GolemFollowLocked(Player player, GolemState.Golem g, (int X, int Y) owner, double now)
@@ -495,7 +495,7 @@ public static partial class Game
         if (distance > 18)
         {
             if (now >= g.NextMove) GolemMoveLocked(player, g, NextToPlayer(player, size, g.Id), now, fallbackToOwner: owner);
-            CheckMinionStuckLocked(player, g, here, distance, pursuing: false, now);
+            CheckMinionStuckLocked(player, g, here, true, now);
         }
         else
         {
@@ -528,7 +528,7 @@ public static partial class Game
         if (now < g.NextMove || g.Monster.LastTarget is { } old && Dist(old, to) < 5 && now < g.Monster.Walk.ArrivesAt) return;
         int size = Math.Max(0, LivingCollision.Size(g.Monster));
         bool CanStand((int X, int Y) cell) => !player.Barrier.Contains(cell)
-            && (player.Layout.WalkableFor(cell.X, cell.Y, size) || (size > 0 && player.Layout.WalkableFor(cell.X, cell.Y, 0)));
+            && player.Layout.WalkableFor(cell.X, cell.Y, size);
         if (!CanStand(to))
         {
             var nearTo = player.Layout.Near(to);
@@ -543,9 +543,6 @@ public static partial class Game
             if (InAreaFrame(player))
             {
                 g.NextMove = now + .5;
-                var stuck = GolemStuck.GetOrCreateValue(g);
-                stuck.StuckSince = double.NaN;
-                stuck.LastProgressPos = from;
                 int generation = ++m.ActionGeneration;
                 player.Minions.OutputQueue.Add(new([], null, g.Id, m, Action: generation, At: to, WorldId: g.Id));
                 return;
@@ -566,9 +563,6 @@ public static partial class Game
             m.LastTarget = null;
             return;
         }
-        var progressed = GolemStuck.GetOrCreateValue(g);
-        progressed.StuckSince = double.NaN;
-        progressed.LastProgressPos = from;
         m.LastTarget = to; int gen = ++m.ActionGeneration;
         player.Minions.OutputQueue.Add(new(InstanceProtocol.ActionStarted(g.Id, from.X, from.Y, to.X, to.Y,
             0x2909, NextMonsterMoveSequence(player, m), player.MonsterOrderFlags), null, g.Id, m, Action: gen, WorldId: g.Id));

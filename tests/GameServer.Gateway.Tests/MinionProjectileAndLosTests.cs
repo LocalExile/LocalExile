@@ -88,6 +88,30 @@ public sealed class MinionProjectileAndLosTests
             Assert.Null(golem.Pending);
             Assert.NotNull(golem.Monster.LastTarget);
             Assert.InRange(golem.Monster.LastTarget!.Value.X, 100, 120);
+
+            // Waiting at the desired firing distance for a cooldown is not a failed move order.
+            golem.Abilities = [spellAbility];
+            f.Player.Walk.Teleport(70, 100, 3);
+            golem.Monster.Walk.Teleport(100, 100, 3);
+            for (int tick = 0; tick < 12; tick++)
+            {
+                clock.Time = 3 + tick * .2;
+                Game.GolemStepLocked(f.Player, golem, clock.Time);
+            }
+            Assert.Equal((100, 100), golem.Monster.Walk.Position(clock.Time));
+
+            // A minion stranded on a separate island does need to recover to its owner.
+            f.Player.Area.Monsters.Remove(6001);
+            f.Player.Use(new AreaLayout(1, "minion-islands", 200, 200, 70, 100,
+                (x, y) => y >= 80 && y <= 120 && (x >= 55 && x <= 80 || x >= 95 && x <= 105), []));
+            f.Player.Walk.Teleport(70, 100, 6);
+            golem.Monster.Walk = f.Player.NewMonsterWalk(golem.Id, 100, 100, 20, 2, false);
+            for (int tick = 0; tick < 16; tick++)
+            {
+                clock.Time = 6 + tick * .2;
+                Game.GolemStepLocked(f.Player, golem, clock.Time);
+            }
+            Assert.InRange(golem.Monster.Walk.Position(clock.Time).X, 55, 80);
         }
         finally
         {
