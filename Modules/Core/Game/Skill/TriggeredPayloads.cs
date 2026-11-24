@@ -63,7 +63,8 @@ public static partial class Game
     }
 
     static bool PlacedUtilityPayload(string? effect) =>
-        effect is "FleshOffering" or "BoneOffering" or "SpiritOffering" || CurseCatalog.All.ContainsKey(effect ?? "");
+        effect is "FleshOffering" or "BoneOffering" or "SpiritOffering" or "Contagion" or "ContagionAltX" or "ContagionAltY"
+        || CurseCatalog.All.ContainsKey(effect ?? "");
 
     public static Task ReleaseTriggeredNonProjectile(Player player, ProjectileSession session, ushort id,
         (int X, int Y) aim, Func<bool> current) => ReleaseTriggeredNonProjectile(player, session, id, aim, current, fromPlacement: false);
@@ -111,6 +112,12 @@ public static partial class Game
                 }
             }
             await EnemyDebuffsTick(player, AreaTime(player));
+        }
+        else if (fromPlacement && ContagionCast(player, id, gem.Effect) is { } contagion)
+        {
+            using (ProjectileMutation(player))
+                if (current() && CurrentGameWork && !player.Closed && !player.LeavingArea && !player.Paused && player.PlayerLife > 0)
+                    ApplyContagionLocked(player, aim, contagion with { SpreadAo = ContagionSkinAo(player, skill.Gem) });
         }
         else if (TriggerBrandSpell(player, gem.Effect))
             await ResolveCastBrand(player, id, skill, aim, recoveryGeneration: null, current);
