@@ -29,6 +29,17 @@ public static class InstanceEvents
     /// <summary>An instance to join for a transfer without a chosen one (a party member's), 0 for the default choice.</summary>
     public static readonly GameEvent<Func<Player, PendingTransfer, ulong>> TransferInstance = new();
 
+    /// <summary>The waypoint an area shows, before it is sent: a subscriber may move it, replace it, or return null for
+    /// none at all. Each subscriber sees what the ones before it left.</summary>
+    public static readonly GameEvent<Func<Player, WaypointObject?, WaypointObject?>> AreaWaypoint = new();
+
+    public static WaypointObject? RunAreaWaypoint(Player player, WaypointObject? waypoint)
+    {
+        foreach (var (owner, run) in AreaWaypoint.Subscribers(player))
+            GameEventOwners.Guard(owner, nameof(AreaWaypoint), () => waypoint = run(player, waypoint));
+        return waypoint;
+    }
+
     /// <summary>The area stats a new instance is played with (0x1d's first stat list, 1-based Stats ids): the client's
     /// level generator reads them, so the Gateway generates the level with the same list. Asked once per instance, by
     /// its first connection, before that connection's state exists; the answers are summed.</summary>
