@@ -157,7 +157,7 @@ public static partial class Game
             if (!ally.LeavingArea && ally.PlayerLife > 0 && Dist(ally.Walk.Position(now), at) <= radius)
                 Grant(ally);
         foreach (var (id, ally) in player.Area.Monsters)
-            if (!ally.Hostile && ally.OwnerId != null && !ally.Dead && ally.Life > 0 && Dist(ally.Walk.Position(now), at) <= radius)
+            if (!ally.Hostile && !ally.Dead && ally.Life > 0 && Dist(ally.Walk.Position(now), at) <= radius)
                 ReceiveWarcry(player.Area, id, MinionWarcryGrants.GetOrCreateValue(ally), gift, now);
         Console.WriteLine($"[gateway] {effectId}: warcry buff row {row} power={power} for {duration:0.###} s");
     }
