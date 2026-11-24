@@ -271,6 +271,68 @@ public sealed class HarvestCropRotationTests
         }
     }
 
+    [Fact]
+    public async Task SacredGrove_multiplayer_enter_keeps_grove_objects_per_viewer_after_ruleset()
+    {
+        var level = SyntheticGroveLevel(siteCount: 2);
+        var layout = new AreaLayout(1, "MapWorldsStrand", 300, 300, 10, 10, (x, y) => x is >= 0 and < 300 && y is >= 0 and < 300, [])
+        {
+            Level = level,
+        };
+        var instance = new InstanceState();
+        instance.OpenedWith(new("CropOwner", new(layout.Hash, layout.Id, "Strand", 16) { Level = 83 }, new MapMods(new Dictionary<uint, int>())));
+
+        using var module = new HarvestModule();
+        using var context = new HarvestTestContext();
+        await using var wire1 = new CaptureWire();
+        await using var wire2 = new CaptureWire();
+        var player1 = NewConn(layout, instance, seed: 11, wire1);
+        var player2 = NewConn(layout, instance, seed: 11, wire2);
+        player1.Character.Name = "GrovePeer1";
+        player2.Character.Name = "GrovePeer2";
+        try
+        {
+            module.Load(context);
+            instance.AddPlayer(player1);
+            Program.InGame[player1] = 0;
+            await GameEvents.RunPlayerEntered(player1);
+
+            var grove = ReadGrove(instance);
+            Assert.NotEmpty(grove.Objects);
+            // Grove objects must be scoped to Program.ViewOf so shared Area.Objects never replays them ahead of 0x001f.
+            Assert.All(grove.Objects.Keys, id => Assert.False(player1.Area.Objects.Has(id)));
+
+            // Drain player1's enter packets, then attach a fresh wire to confirm player2's entry does not duplicate creates to player1.
+            wire1.CloseWriter();
+            await wire1.ReadAllAsync();
+            await using var peer1After = new CaptureWire();
+            player1.Connection.Session = new("harvest-peer1-after", peer1After.Stream, peer1After.Ciphers);
+
+            instance.AddPlayer(player2);
+            Program.InGame[player2] = 0;
+            await GameEvents.RunPlayerEntered(player2);
+
+            peer1After.CloseWriter();
+            wire2.CloseWriter();
+            var p1Extra = ParsePackets(await peer1After.ReadAllAsync());
+            var p2Enter = ParsePackets(await wire2.ReadAllAsync());
+
+            Assert.DoesNotContain(p1Extra, p => p.Id == InstanceEntities.CreateObjectId);
+            int rulesetAt = p2Enter.FindIndex(p => p.Id == InstanceProtocol.AddRulesetId);
+            int firstCreateAt = p2Enter.FindIndex(p => p.Id == InstanceEntities.CreateObjectId);
+            Assert.True(rulesetAt >= 0 && firstCreateAt > rulesetAt, "0x001f AddRuleset must precede any grove 0x02bb CreateObject");
+            var createdIds = p2Enter.Where(p => p.Id == InstanceEntities.CreateObjectId).Select(p => p.EntityId).ToList();
+            Assert.Equal(grove.Objects.Count, createdIds.Count);
+            Assert.Equal(grove.Objects.Keys.ToHashSet(), createdIds.ToHashSet());
+        }
+        finally
+        {
+            Program.InGame.TryRemove(player1, out _);
+            Program.InGame.TryRemove(player2, out _);
+            for (int rank = 0; rank <= 3; rank++) GameEventOwners.Release("Harvest", rank);
+        }
+    }
+
     sealed class HarvestTestContext : IModuleContext, IDisposable
     {
         readonly ModuleLifetime lifetime = new("Harvest");
