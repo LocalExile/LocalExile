@@ -128,6 +128,11 @@ public static class UtilityFlasks
         (Stat.LocalUniqueFlaskAllDamageFromCriticalStrikesCanShockDuringEffect, Stat.AllDamageFromCriticalStrikesCanShock, 1, true),
         (Stat.LocalUniqueFlaskAllDamageFromCriticalStrikesCanChillDuringEffect, Stat.AllDamageFromCriticalStrikesCanChill, 1, true),
         (Stat.LocalUniqueFlaskAllDamageFromCriticalStrikesCanFreezeDuringEffect, Stat.AllDamageFromCriticalStrikesCanFreeze, 1, true),
+        // "25% reduced Mana Cost of Skills during Effect" (the official Topaz Flask,
+        // JunMaster2LocalFlaskSkillManaCostDuringFlaskEffect1): the local stat is
+        // negative, the character stat is the reduction, so the sign flips.
+        // The finished skill mana cost reads base_mana_cost_-% as its first percentage.
+        (Stat.LocalFlaskSkillManaCostPlusPctDuringFlaskEffect, Stat.BaseManaCostMinusPct, -1, false),
     ];
 
     // The "during effect" flags modules handed over (HandOverDuringEffectFlags), in the order they were handed over.
@@ -191,6 +196,7 @@ public static class UtilityFlasks
         Stat.MonsterBaseBlockPct, Stat.BaseSpellBlockPct,   // Rumi's Concoction (Apply)
         Stat.AllDamageFromCriticalStrikesCanShock, Stat.AllDamageFromCriticalStrikesCanChill,
         Stat.AllDamageFromCriticalStrikesCanFreeze,   // Stormblood
+        Stat.BaseManaCostMinusPct,   // "reduced Mana Cost of Skills during Effect"
     };
 
     /// <summary>The flask buff flag that stands for Onslaught (the Silver Flask's flask_utility_haste has no stats of its
@@ -596,6 +602,9 @@ public static class UtilityFlasks
                 // Quartz: the client's Pathfinding reads virtual_phase_through_objects (0x141ea3618: +0x52e "Phase Through
                 // Objects", which picks its blocker filter, 0x141e81e6c).
                 Stat.PhaseThroughObjects => Stat.VirtualPhaseThroughObjects,
+                // The flask's reduced skill mana cost: the finished cost reads it
+                // off the character's stats, and the running flasks reach those only here.
+                Stat.BaseManaCostMinusPct => stat,
                 _ when ActorScale.IsInput(stat) || PanelOnly.Contains(stat) || ElementalAilmentInputs.Contains(stat)
                     || HandedFlag(stat) => stat,
                 _ => null,

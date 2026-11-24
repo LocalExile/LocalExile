@@ -155,6 +155,19 @@ public static partial class Game
         await Task.CompletedTask;
     }
 
+    // The resurrect Grace (the official's 20 s, after the teleport so the protection's origin is the new position).
+    public static async Task StartResurrectGracePeriod(Player player)
+    {
+        double now = AreaTime(player);
+        bool hideout = HideoutCatalog.ByArea(player.Layout.Hash) is not null;
+        if (player.EntryProtection.StartResurrect(now, player.Walk.Position(now), GracePeriod.BuffRow, InTown(player), hideout))
+        {
+            player.Area.Buffs.Set(player.Id, GracePeriod.BeginResurrectPacket(player.Id));
+            Note($"Grace Period: {GracePeriod.ResurrectSeconds} seconds of resurrect protection");
+        }
+        await Task.CompletedTask;
+    }
+
     /// <summary>Commits all unsaved in-memory progress (XP, inventory, vitals, golems, and cached character/stash saves)
     /// to the permanent SQLite database when leaving an area or exiting.</summary>
     public static void FlushAreaProgress(Player player)
@@ -219,6 +232,7 @@ public static partial class Game
         RecordHardcoreDeath(player);
         player.InvalidateIncomingHits();
         player.DeathNotificationEpoch = deathEpoch = player.IncomingHitEpoch;
+        player.PlayerDeaths++;
         FortificationOf(player).Clear();
         LeechOf(player).Clear(AreaTime(player));
         ClearRageOnDeath(player);
@@ -261,16 +275,28 @@ public static partial class Game
         if (xpPenaltyPct > 0)
             await Send(player, InstanceChat.ChatLine($"You have lost {xpPenaltyPct}% experience."),
                 $"0x0017 death XP penalty chat ({xpPenaltyPct}%)");
-        await SendPlayerDeathPresentation(player, label, deathEpoch, deathKind);
+        int deaths = player.PlayerDeaths;
+        await SendPlayerDeathPresentation(player, label, deathEpoch, deaths, deathKind);
     }
 
-    public static Task SendPlayerDeathPresentation(Player player, string label, int deathEpoch, byte deathKind = InstanceProtocol.DeathKindNormal) => SendWorldBatch(player, [], admission =>
+    public static Task SendPlayerDeathPresentation(Player player, string label, int deathEpoch, int deaths, byte deathKind = InstanceProtocol.DeathKindNormal) => SendWorldBatch(player, [], admission =>
     {
         if (player.Closed || player.LeavingArea || player.PlayerLife != 0 || player.IncomingHitEpoch != deathEpoch) return null;
         var records = new WorldRecordBuilder(player, admission);
         Note(label);
+        // main hides the mini life bar on death and shows it again once the resurrect fade is over; kept as it is.
         SetStats(player, player.Id, [(Stat.HideMiniLifeBar, 1)]);
-        records.Immediate(InstanceProtocol.DeathScreen(DeathScreenFlags(player)));
+        // The official death order, measured on 12 official 3.29.3b captures, in one frame (the killing hit already
+        // sent life 0 before this frame): the is_dead row, the message naming the dead character, the death screen
+        // carrying the death count, the alive-state row, component 4, then component 6 with the experience. The
+        // message and the death screen carry no object header, so they go out immediately, not as world records
+        // (RecordOrder throws on them); the frame's world records keep their native order at the frame end.
+        records.World(player.Id, InstanceEntities.StatsUpdate(player.Id, [(Stat.IsDead, 1)]));
+        records.Immediate(InstanceProtocol.DeathMessage(CharacterName(player)));
+        records.Immediate(InstanceProtocol.DeathScreen(DeathScreenFlags(player), (ushort)Math.Clamp(deaths, 0, ushort.MaxValue)));
+        records.World(player.Id, InstanceProtocol.AliveState(player.Id, 0xfffffffe, dead: true));
+        records.World(player.Id, InstanceEntities.ComponentUpdate(player.Id, 4, [0x01]));
+        records.World(player.Id, InstanceEntities.PlayerExperienceUpdate(player.Id, player.Character.Experience));
         return records.Build();
     });
 
@@ -1604,7 +1630,7 @@ public static partial class Game
             if (player.Closed || player.LeavingArea) return;
             RestorePlayerOnResurrect(player);
             player.Walk.Teleport(x, y, AreaTime(player));
-            await StartGracePeriod(player);
+            await StartResurrectGracePeriod(player);
             await GainFlaskCharges(player, int.MaxValue, "resurrected");
             // Revive first: a teleport sent while the player is dead left them where they died (live 2026-10-17).
             Note($"0x01b1 player revived with {player.PlayerLife} life");
@@ -1613,6 +1639,12 @@ public static partial class Game
             // Death may have published false full-pool conditions while the player ticker kept its pre-death chance.
             // Publish the restored life/ES conditions explicitly even when that cached chance is unchanged.
             await SendCharacterStats(player, PlayerStatChange.Panel);
+            // The official resurrect first: 0x1f1 with the alive flag clear, then is_dead 0 — the checkpoint resurrect
+            // sends the alive-state row before the stats row, as the official respawn capture does.
+            await SendWorldRecord(player, player.Id, InstanceProtocol.AliveState(player.Id, 0, dead: false),
+                "0x01f1 resurrect: actor alive again, b=0");
+            await SendWorldRecord(player, player.Id, InstanceEntities.StatsUpdate(player.Id, [(Stat.IsDead, 0)]),
+                "0x01b3 player is_dead = 0");
             await SendWorldRecord(player, player.Id, InstanceProtocol.Teleport(player.Id, x, y),
                 $"0x01b7 player to the checkpoint ({x}, {y}): {(activated && player.Layout.Waypoint is not null ? "the activated waypoint" : "the arrival point")}");
             await GameEvents.RunResurrected(player);

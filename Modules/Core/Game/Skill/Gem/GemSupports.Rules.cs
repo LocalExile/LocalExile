@@ -605,7 +605,10 @@ public static partial class Game
         if (Stat.AttackSpeedPlusPct is var raw && Stat.MainHandAttackSpeedPlusPct is var final)
         {
             var profile = WeaponProfileFor(player);
-            double factor = profile.DualWield || profile.Unarmed ? 1.1 : 1;
+            // The pools' dual-wield "more" (PassiveBonus), doubled by the Claw Mastery with two claws.
+            double factor = profile.DualWield || profile.Unarmed
+                ? profile.DualClaws && Get(Stat.DualWieldInherentAttackSpeedIsDoubledWhileDualWieldingClaws) != 0 ? 1.2 : 1.1
+                : 1;
             int skillSpeed = gem.Stats.GetValueOrDefault(raw) + TaggedAttackAndCastSpeedPct(SkillsFor(player), gem.Effect, Get);
             if (Supports.Of(gem.Effect)?.Types.Contains(120) == true)
                 skillSpeed += Get(Stat.RetaliationSkillSpeedPlusPct);

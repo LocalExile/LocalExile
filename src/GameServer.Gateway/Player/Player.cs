@@ -921,6 +921,8 @@ public sealed partial class Player(AreaLayout layout, uint ticket, uint seed) : 
     public IncomingDamagingAilments.State? PresentedIncomingAilments;
     public int PresentedIncomingAilmentEpoch;
     public int DeathNotificationEpoch = -1;
+    // Deaths this connection has recorded; the official death order carries the count in the death screen.
+    public int PlayerDeaths;
     public int Resurrecting;
     public int FreezeGeneration, FreezeShown;
     public double FreezeHeldUntil;
