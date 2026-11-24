@@ -619,8 +619,8 @@ public static partial class Game
             new(life, DamagePacket.Empty, DamagePacket.Empty), targetId);
     }
 
-    static void PlacedDamageLocked(Player player, PlacedSkills.Placed placed, double now, WorldRecordBuilder bytes,
-        KeyValuePair<uint, SpawnedMonster> triggeringEnemy)
+    static void PlacedDamageLocked(Player player, PlacedSkills.Placed placed, double now,
+        KeyValuePair<uint, SpawnedMonster> triggeringEnemy, WorldRecordBuilder bytes)
     {
         int inventionRate = GolemStat(placed.Own, Stat.SupportInventionTrapAndMineDamagePlusPctFinalPerSecondPlacedUpTo100);
         double inventionMore = 1 + Math.Clamp(inventionRate * Math.Max(0, now - placed.LandAt), 0, 100) / 100;
@@ -1019,7 +1019,7 @@ public static partial class Game
                     }
                     else if (placed.Mine) placed.Chain = 0;
                     if (conversion) TriggerConversionTrap(player, placed, trigger, now, bytes);
-                    else PlacedDamageLocked(player, placed, now, bytes, trigger);
+                    else PlacedDamageLocked(player, placed, now, trigger, bytes);
                     PlacedChargesLocked(player, placed, nearby, now);
                     bool rearm = skitter && placed.Mine && effect != "SmokeMine";
                     Console.WriteLine($"[gateway] placed skill 0x{placed.Id:x} {(skitter ? "Skitterbot" : nearby ? "proximity" : expired ? "duration" : "chain")} trigger; rearm={rearm}");
