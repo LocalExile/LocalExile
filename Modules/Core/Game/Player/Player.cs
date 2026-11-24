@@ -283,6 +283,8 @@ public static partial class Game
         if (player.Closed || player.LeavingArea || player.PlayerLife != 0 || player.IncomingHitEpoch != deathEpoch) return null;
         var records = new WorldRecordBuilder(player, admission);
         Note(label);
+        // main hides the mini life bar on death and shows it again once the resurrect fade is over; kept as it is.
+        SetStats(player, player.Id, [(Stat.HideMiniLifeBar, 1)]);
         // The official death order, measured on 12 official 3.29.3b captures, in one frame (the killing hit already
         // sent life 0 before this frame): the is_dead row, the message naming the dead character, the death screen
         // carrying the death count, the alive-state row, component 4, then component 6 with the experience. The
