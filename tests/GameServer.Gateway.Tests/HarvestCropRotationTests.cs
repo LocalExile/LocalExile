@@ -314,6 +314,13 @@ public sealed class HarvestCropRotationTests
 
         Assert.False(await SacredGrove.ActivateFromLabel(player, 0x999999u));
 
+        // Player at (10, 10) is far outside label range: activation is rejected.
+        Assert.True(await SacredGrove.ActivateFromLabel(player, decoded));
+        Assert.Equal(SacredGrove.Phase.Idle, ReadGrove(instance).Crops.Single(c => c.Irrigator == chosen.Irrigator).Phase);
+
+        var chosenIrrigator = initial.Objects[chosen.Irrigator];
+        player.Walk.Teleport(chosenIrrigator.X, chosenIrrigator.Y, 0);
+
         await using var startWire = new CaptureWire();
         player.Connection.Session = new("harvest-label-start", startWire.Stream, startWire.Ciphers);
         Assert.True(await SacredGrove.ActivateFromLabel(player, decoded));

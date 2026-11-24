@@ -463,13 +463,7 @@ public static class SacredGrove
         }
         // The walk stops near the post's footprint even when adjacent seeds/structures surround it.
         int reach = Math.Max(14, StationaryCollision.Resolve(target.Type).Size);
-        if (!TryBeginObjectWalk(player, requestedAt, target.X, target.Y, reach, out var walk))
-        {
-            var cur = player.Walk.Position(AreaTime(player));
-            if (Math.Abs(cur.X - target.X) > 32 || Math.Abs(cur.Y - target.Y) > 32) return true;
-            double t = AreaTime(player);
-            walk = (player.ActionCount, t, cur, cur, t);
-        }
+        if (!TryBeginObjectWalk(player, requestedAt, target.X, target.Y, reach, out var walk)) return true;
         var (action, now, here, stop, arrive) = walk;
         if (!use.Started)
             await SendWorldRecord(player, player.Id,
@@ -479,9 +473,8 @@ public static class SacredGrove
         await area.Gate.WaitAsync();
         try
         {
-            if (crop.Phase != Phase.Idle || area.Running || !PlayerActionCurrent(player, action) || player.PlayerLife == 0) return true;
-            bool closeEnough = Math.Abs(stop.X - target.X) <= 32 && Math.Abs(stop.Y - target.Y) <= 32;
-            if (!closeEnough && !PlayerWalk.InReach(stop, (target.X, target.Y), reach, (x, y) => player.Layout.WalkableFor(x, y, 1))) return true;
+            if (crop.Phase != Phase.Idle || area.Running || !PlayerActionCurrent(player, action) || player.PlayerLife == 0
+                || !PlayerWalk.InWalkUpRange(stop, (target.X, target.Y), reach)) return true;
             await Start(player, area, grove, index);
         }
         finally
@@ -492,17 +485,24 @@ public static class SacredGrove
         return true;
     }
 
+    const int LabelActivateMaxDistance = 100;
+
     /// <summary>C→S 0x275: a click on a crop label's Harvest button icon (carries the crop's Irrigator or Extractor id).</summary>
     public static async Task<bool> ActivateFromLabel(Player player, uint targetId)
     {
         if (player.Instance is null || !Areas.TryGetValue(player.Instance, out var area) || area.Grove is not { } grove) return false;
         int index = grove.Crops.FindIndex(c => c.Irrigator == targetId || c.Extractor == targetId);
-        if (index < 0) return false;
+        if (index < 0 || !grove.Objects.TryGetValue(targetId, out var target)) return false;
         if (player.PlayerLife == 0 || player.Closed || player.LeavingArea) return true;
         await area.Gate.WaitAsync();
         try
         {
             if (player.PlayerLife == 0 || player.Closed || player.LeavingArea) return true;
+            double now = AreaTime(player);
+            if (PlayerActionBlocked(player, now, now)) return true;
+            var pos = player.Walk.Position(now);
+            long dx = pos.X - target.X, dy = pos.Y - target.Y;
+            if (dx * dx + dy * dy > (long)LabelActivateMaxDistance * LabelActivateMaxDistance) return true;
             var crop = grove.Crops[index];
             if (crop.Phase != Phase.Idle)
             {
