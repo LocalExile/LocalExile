@@ -34,6 +34,31 @@ public static partial class Game
         finally { state.UseGate.Release(); }
     }
 
+    // "Used when Charges reach full" (local_flask_use_on_full_charges) is a condition on the charges a flask HOLDS, not
+    // only on a charge change: the official captures of a Pathfinder with five such flasks enter the area with all five
+    // at their maximum and use all five together shortly after the player's first input - before the first hit on a
+    // monster and before the first kill, so with no charge change at all. A charge change can never carry the entry
+    // case: a flask that is already full never rises to full again. Checked on each drain of the flask triggers, so a
+    // use the town, the grace period, death or an area change held back happens on the first drain that admits it.
+    public static void QueueFullFlasks(Player player)
+    {
+        foreach (var flask in ItemsOf(player).Items(PlayerInventories.Flask).OrderBy(i => i.X))
+        {
+            if (ItemsFor(player).ByHash(flask.Item.TypeHash) is not { } type
+                || ItemsFor(player).UtilityFlaskOf(type) is not { } utility) continue;
+            var local = ItemModStats.Local(flask.Item, ItemsFor(player).Mods);
+            if (!FlaskEnchantments.Matches(local, FlaskEnchantments.Trigger.Full, flask.X, flask.X, active: false)) continue;
+            var charges = FlaskCharges.Of(utility.Charges, local);
+            // A use that took no charges, or one Mageblood refuses, would leave the flask at its maximum, and a
+            // standing condition would then use it on every tick.
+            if (charges.ChargesPerUse <= 0 || flask.Item.Charges < charges.MaxCharges
+                || MagebloodBlocksFlaskUse(player, flask.Item)) continue;
+            if (Automation(player).Enqueue(new(FlaskEnchantments.Trigger.Full, flask.Id, flask.X)))
+                Console.WriteLine($"[gateway] {player.Connection.Remote} flask {flask.X} ({type.Name}) holds {flask.Item.Charges}/{charges.MaxCharges} charges "
+                    + $"with local_flask_use_on_full_charges: automatic use queued (takes {charges.ChargesPerUse})");
+        }
+    }
+
     // Runs as a stat presentation after a trigger was queued (QueueFlaskTrigger), outside combat/inventory locks. Each flask is used at most
     // once per event chain, preventing adjacent enchanted flasks from recursively emptying one another.
     public static async Task DrainFlaskTriggers(Player player)
@@ -43,6 +68,7 @@ public static partial class Game
         if (!CurrentGameWork) return;
         if (player.PlayerLife == 0 || InTown(player) || InGracePeriod(player))
         { state.Discard(); return; }
+        QueueFullFlasks(player);
         while (CurrentGameWork && state.Events.TryPeek(out var signal))
         {
             foreach (var flask in ItemsOf(player).Items(PlayerInventories.Flask).OrderBy(i => i.X))
