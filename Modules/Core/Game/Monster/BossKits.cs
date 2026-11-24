@@ -81,7 +81,10 @@ public static class BossKits
                 || id.StartsWith("SpiderGodActivateLaser", StringComparison.Ordinal)
                 || id.Contains("EmptyAction", StringComparison.Ordinal)
                 || id.Contains("Emerge", StringComparison.Ordinal)
-                || id.Contains("Retreat", StringComparison.Ordinal))) continue;
+                || id.Contains("Retreat", StringComparison.Ordinal)
+                // GA* GeometryAttack rows (e.g. GANavaliGoatmanLeapDamage, GAGoatmanLeapSlamDamage) are secondary
+                // payloads paired with another action (such as a leap), not standalone swings.
+                || IsLeapDamagePayload(id, effect))) continue;
             // A summon row the tables give no attack, spell or projectile type (Piety's eye spawners: their
             // ActiveSkills rows carry no type at all) is still an action when the server can name what it raises;
             // anything else without a type is no action.
@@ -92,6 +95,10 @@ public static class BossKits
         }
         return usable;
     }
+
+    internal static bool IsLeapDamagePayload(string id, int effect) =>
+        id.StartsWith("GA", StringComparison.Ordinal) && id.Contains("Leap", StringComparison.Ordinal)
+        && id.EndsWith("Damage", StringComparison.Ordinal) && SkillCatalog.ActionTypeId(effect) == "GeometryAttack";
 
     /// <summary>A summoned monster's kit: its whole usable effect list, not only its cooldown spells. A totem casts its
     /// Arc (no cooldown) as well as its shocked ground, a spider its Viper Strike, a summoned daemon its nova / ball
@@ -262,6 +269,7 @@ public static class BossKits
         if (!KeepUnshapedForUniques && !IsKitBoss(catalog, variety)) return false;
         string id = catalog.EffectId(effect) ?? "";
         if (id.Length == 0 || catalog.HasType(effect, "Triggered") || id.StartsWith("GS", StringComparison.Ordinal)
+            || SkillCatalog.ActionTypeId(effect) == "CastGroundEffect"
             || SetOffWords.Any(w => id.Contains(w, StringComparison.Ordinal))) return false;
         return !(variety.Id.Contains("/Exiles/", StringComparison.Ordinal) || variety.Id.Contains("Mercenar", StringComparison.Ordinal)
             || id.Contains("Exile", StringComparison.Ordinal) || id.Contains("Mercenary", StringComparison.Ordinal)
@@ -344,6 +352,9 @@ public static class BossKits
         if (area)
         {
             var ground = SkillGround(kind, setOff ? ActionClasses.GroundAt.Trap : ActionClasses.GroundAt.Landing, Get, names, radius, spell);
+            // CastGroundEffect has no client ground visuals of its own (0x141298280 installs the base action vtable)
+            // and relies on a server-spawned ground effect; without a ground spec it would fire invisible ranged hits.
+            if (ground is null && SkillCatalog.ActionTypeId(effect) == "CastGroundEffect") return null;
             double reach = radius ?? ground?.Radius ?? 0;
             // Damaging area spells without an explicit radius stat (e.g. DelayedBlast, SeaWitchScreech) use a safe
             // 14-cell default radius rather than failing to shape.
