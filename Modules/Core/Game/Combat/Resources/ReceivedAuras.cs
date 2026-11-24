@@ -82,7 +82,12 @@ public static partial class Game
         {
             double now = AreaTime(player);
             for (int i = cries.Count - 1; i >= 0; i--)
-                if (cries[i].Until <= now || monster.Dead) cries.RemoveAt(i);
+            {
+                var cry = cries[i];
+                if (cry.Area == player.Area && cry.Until > now && !monster.Dead) continue;
+                if (cry.Area == player.Area) player.Area.Buffs.Clear(minion.Id, cry.Row, cry.Source);
+                cries.RemoveAt(i);
+            }
             if (cries.Count == 0) MinionWarcryGrants.Remove(monster);
             else AddWarcryStats(cries, player.Area, now, values);
         }
