@@ -127,7 +127,7 @@ static partial class VendorsRules
             if (equipped && items.Items(targetRow).FirstOrDefault(i => i.Id == buy.TargetItemId) is { } host
                 && buy.Socket < host.Item.Sockets.Count && host.Item.Sockets[(int)buy.Socket].Gem is { } oldGem)
                 displacedSources = GemSourceRowsLocked(player, host.Id, (int)buy.Socket, oldGem);
-            if (equipped && GemRequirementsUnmetAt(player, reward, null, targetItemId: buy.TargetItemId) is { } unmet)
+            if (GemRequirementsUnmetAt(player, reward, null, targetItemId: buy.TargetItemId) is { } unmet)
                 missing = unmet;
             else
             {

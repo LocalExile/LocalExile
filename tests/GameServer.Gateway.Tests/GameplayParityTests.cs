@@ -129,6 +129,18 @@ public sealed class GameplayParityTests
             var (px, py) = player.Walk.Position(player.Clock.Elapsed.TotalSeconds);
             var nessa = Game.Npcs.Find("Metadata/NPC/Act1/Nessa")!;
             lock (player.Npcs) player.Npcs[0x300] = new SpawnedNpc(nessa, px, py);
+            // Direct socketing must apply the same character requirements as socketing a held gem, even in the bag.
+            using (var shopWire = new Wire(name))
+            {
+                var tooHigh = ItemCatalog.Create(catalog.Find("Ball Lightning")!) with { Price = [(portal.Hash, 1)] };
+                var shopPlayer = shopWire.Player;
+                shopPlayer.Shop = new(new SpawnedNpc(nessa, px, py), new() { [42] = (1, new(42, 0, 0, tooHigh)) });
+                Assert.NotNull(Game.GemRequirementsUnmetAt(shopPlayer, tooHigh, null, targetItemId: host.Id));
+                int currencyBefore = items.Count(PlayerInventories.MainInventory, portal.Hash);
+                await VendorsFeature.BuyAndSocketFromShop(shopPlayer, new(42, PlayerInventories.InventoryId(PlayerInventories.MainInventory), host.Id, 1, 0, 0));
+                Assert.Equal(currencyBefore, items.Count(PlayerInventories.MainInventory, portal.Hash));
+                Assert.Null(items.Items(PlayerInventories.MainInventory).Single(i => i.Id == host.Id).Item.Sockets[1].Gem);
+            }
             player.NpcRewardOffer = 2;
             await Game.OnUseObject(player,
                 new InstanceTransfer.UseSkillOnObject(0x300, 0x266, 1, 0x000a), player.Clock.Elapsed.TotalSeconds);
