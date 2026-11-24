@@ -817,8 +817,7 @@ public static partial class Game
                     Stat.NumberOfDominatedMonsters, Stat.NumberOfDominatedVaalMonsters }) Publish(count, GolemStat(playerStats, count));
             }
             if (GolemData.Find(SkillsFor(player).EffectId(effect)) is { IsGolem: true })
-                Publish(Stat.NumberOfGolemsAllowed, GolemCatalog.Limit(OwnPanel(Stat.BaseNumberOfGolemsAllowed),
-                    n => GolemStat(playerStats, n)));
+                Publish(Stat.NumberOfGolemsAllowed, GolemRosterLimit(OwnPanel(Stat.BaseNumberOfGolemsAllowed), playerStats));
             var placed = PlacedKind(supported);
             if (placed.Trap || placed.Mine)
             {

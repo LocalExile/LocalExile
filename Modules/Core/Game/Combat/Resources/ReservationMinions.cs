@@ -41,8 +41,8 @@ public static partial class Game
         if (Monsters.Find(path) is not { Supported: true } variety) return;
         var supported = SupportedSkill(player, aura.SkillId);
         if (!supported.RequirementsMet) return;
-        int limit = kind == "Purity" ? ReservationStat(player, aura, Stat.BaseNumberOfChampionsOfLightAllowed)
-            + GolemStat(CharacterPlayerStats(player), Stat.BaseNumberOfChampionsOfLightAllowed) : 1;
+        var playerStats = CharacterPlayerStats(player);
+        int limit = kind == "Purity" ? PurityMinionLimit(supported, playerStats) : 1;
         if (limit <= 0) return;
         if (ReservationAura(player, aura.EffectId) is null) return;
         var existing = player.Reservations.Fighters.Values.Where(g => g.Definition.Kind == kind && !g.Monster.Dead).ToArray();
@@ -60,7 +60,6 @@ public static partial class Game
         byte level = (byte)Math.Clamp(GolemStat(supported.Stats, Stat.BaseDisplayMinionActorLevel) is > 0 and var actorLevel
             ? actorLevel : SkillsFor(player).PlayerLevelReq(aura.Effect, aura.Level), 1, 100);
         var definition = new GolemCatalog.Definition(aura.Effect, aura.EffectId, kind, path, 0, [], false, false, IsGolem: false);
-        var playerStats = CharacterPlayerStats(player);
         bool skitter = kind.StartsWith("Skitter", StringComparison.Ordinal);
         double summonDuration = kind == "Purity"
             ? ReservationDuration(player, aura, Stat.BaseSkillEffectDuration, 12000) : double.PositiveInfinity;
@@ -107,6 +106,11 @@ public static partial class Game
             });
     }
 
+    static int PurityMinionLimit(SupportedGem gem, IReadOnlyDictionary<uint, int> playerStats) =>
+        (int)Math.Clamp(DarkMonarchLimit("Purity",
+            (long)GolemStat(gem.Stats, Stat.BaseNumberOfChampionsOfLightAllowed)
+            + GolemStat(playerStats, Stat.BaseNumberOfChampionsOfLightAllowed), playerStats), 0, 200);
+
     static void RemoveReservationFighterLocked(Player player, GolemState.Golem fighter, double now)
     {
         player.Reservations.Fighters.Remove(fighter.Id);
@@ -142,6 +146,13 @@ public static partial class Game
             bool refresh = now >= state.RefreshFightersAt;
             if (refresh) state.RefreshFightersAt = now + .5;
             var playerStats = refresh && state.Fighters.Count > 0 ? CharacterPlayerStats(player) : null;
+            if (playerStats is not null && ReservationAura(player, "HeraldOfPurity") is { } purity)
+            {
+                int limit = PurityMinionLimit(SupportedSkill(player, purity.SkillId), playerStats);
+                foreach (var excess in state.Fighters.Values.Where(fighter => fighter.Definition.Kind == "Purity")
+                    .OrderByDescending(fighter => state.Until[fighter.Id]).Skip(limit).ToArray())
+                    RemoveReservationFighterLocked(player, excess, now);
+            }
             foreach (var fighter in state.Fighters.Values.ToArray())
             {
                 if (!player.Auras.TryGetValue(fighter.Source, out var aura)) continue;

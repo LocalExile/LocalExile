@@ -359,8 +359,7 @@ public static partial class Game
             || gemSource is null || replacingOld is null && fresh is null
             || Monsters.Find(definition.Variety) is not { Supported: true } variety) return 0;
         int Own(uint name) => GolemStat(supported.Stats, name);
-        int Player(uint name) => GolemStat(playerStats, name);
-        int limit = GolemCatalog.Limit(Own(Stat.BaseNumberOfGolemsAllowed), Player);
+        int limit = GolemRosterLimit(Own(Stat.BaseNumberOfGolemsAllowed), playerStats);
         if (limit == 0) return 0;
         byte level = (byte)Math.Clamp(Own(Stat.BaseDisplayMinionActorLevel), 1, 100);
         double remaining = arrival && double.IsFinite(summonedSecondsRemaining)
@@ -570,7 +569,7 @@ public static partial class Game
                     continue;
                 }
                 golem.Own = new(gem.Stats); golem.GemLevel = gem.Level; golem.Quality = gem.Quality;
-                golem.Limit = GolemCatalog.Limit(GolemStat(gem.Stats, Stat.BaseNumberOfGolemsAllowed), n => GolemStat(playerStats, n));
+                golem.Limit = GolemRosterLimit(GolemStat(gem.Stats, Stat.BaseNumberOfGolemsAllowed), playerStats);
                 int level = GolemStat(gem.Stats, Stat.BaseDisplayMinionActorLevel);
                 if (level != golem.Monster.Level)
                 {

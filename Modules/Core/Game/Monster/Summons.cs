@@ -17,6 +17,7 @@ public static partial class Game
             .ToDictionary(row => row.Int("Monster"), row => row.Int("Spectre"));
         LoadItemisedCorpseData();
         LoadDivineSentinelAuraData();
+        LoadDarkMonarchData();
     }
 
     public static void SaveSummons(Player player)
@@ -89,7 +90,8 @@ public static partial class Game
         long value = (long)GolemStat(skillStats, definition.LimitStat) + GolemStat(playerStats, definition.LimitStat)
             + GolemStat(playerStats, final);
         // Clones have no ordinary cap; duration is their lifetime constraint.
-        return (int)Math.Clamp(value == 0 && definition.Family == "Clone" ? 100 : value, 0, 200);
+        if (value == 0 && definition.Family == "Clone") return 100;
+        return (int)Math.Clamp(DarkMonarchLimit(definition.Family, value, playerStats), 0, 200);
     }
 
     static void ApplySocketedGhastlyEyeSpectreLimit(IEnumerable<Item> active, ItemCatalog catalog, Dictionary<uint, int> sources)
@@ -224,7 +226,7 @@ public static partial class Game
         // A replacement keeps the stats its body was given at summon (a Vaal ascension's upgrade).
         retainedStats ??= replacingOld?.RetainedSkillStats;
         if (retainedStats is not null) gem = gem with { Stats = MergeSummonStats(gem.Stats, retainedStats) };
-        int limit = SummonLimit(player, definition, gem);
+        int limit = definition.LimitStat == 0 ? 1 : SummonLimit(definition, gem.Stats, playerStats);
         if (limit < 1) return 0;
         if (resources is { Life: 0 } || legacyArrival && (!double.IsFinite(life) || life <= 0)) return 0;
         SpawnedMonster? corpse = consumedCorpse;
@@ -434,6 +436,34 @@ public static partial class Game
         return true;
     }
 
+    static bool RefreshDoubledSummonLimitsLocked(Player player, IReadOnlyDictionary<uint, int> stats, double now)
+    {
+        var state = player.Summons;
+        var current = DarkMonarchSelection(stats);
+        var families = state.Fighters.Values.Where(fighter => !fighter.Monster.Dead
+                && now < state.Until[fighter.Id] && fighter.Definition.Kind != "Spectre"
+                && DarkMonarchMinionFamily(fighter.Definition.Kind) is ushort type
+                && (type == current || type == DarkMonarchSelection(fighter.Player)))
+            .GroupBy(fighter => fighter.Definition.Kind);
+        bool changed = false;
+        foreach (var family in families)
+        {
+            foreach (var fighter in family)
+            {
+                var gem = SupportedSkill(player, fighter.Source);
+                if (fighter.Definition.Kind == "Phantasm") gem = PhantasmGem(player, gem);
+                fighter.Limit = SummonLimit(state.Definitions[fighter.Id], gem.Stats, stats);
+            }
+            int surplus = family.Count() - family.Max(fighter => fighter.Limit);
+            foreach (var fighter in family.OrderBy(fighter => fighter.SummonedAt).Take(surplus))
+            {
+                RemoveSummonLocked(player, fighter, now);
+                changed = true;
+            }
+        }
+        return changed;
+    }
+
     public static async Task SummonsTick(Player player, double now)
     {
         await HitSummonsTick(player, now);
@@ -479,6 +509,7 @@ public static partial class Game
             {
                 state.RefreshAt = now + .5;
                 changed |= RefreshSpectreLimitLocked(player, playerStats, now);
+                changed |= RefreshDoubledSummonLimitsLocked(player, playerStats, now);
             }
             foreach (var fighter in state.Fighters.Values.ToArray())
             {
