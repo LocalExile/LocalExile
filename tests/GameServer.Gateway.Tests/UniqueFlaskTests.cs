@@ -48,6 +48,76 @@ public class UniqueFlaskTests
         Assert.Equal(0, Game.OriathExplosionPacket(100, DamageType.Fire, player)[DamageType.Fire].Min);
     }
 
+    // The conditional-immunity flask suffixes remove their ailment and protect for their rolled seconds ONLY when
+    // used while afflicted (never leaking unconditional immunity into DuringEffect / Mageblood), and Aquamarine
+    // Flask's chilled ground resolves its GroundEffects Ice art, marks NeedsMonsterUpdates, and creates a radius-28 ground.
+    [Fact]
+    public void Flask_conditional_immunities_and_chilled_ground()
+    {
+        var local = new Dictionary<uint, int>
+        {
+            [Stat.LocalFlaskChillOrFreezeImmunityIfChilledOrFrozenS] = 8,
+            [Stat.LocalFlaskIgniteImmunityIfIgnitedAndRemoveBurningS] = 6,
+            [Stat.LocalFlaskShockImmunityIfShockedS] = 5,
+        };
+        // Conditional "if used while ..." suffixes must not grant unconditional DuringEffect stats (e.g. Mageblood).
+        Assert.Empty(UtilityFlasks.DuringEffectSources(local, 1.5));
+
+        var player = new Player(new(1, "cond-flask", 100, 100, 100, 100, null, []), 0, 1);
+        // Unafflicted use grants no protection.
+        Game.ApplyConditionalFlaskAilmentProtectionLocked(player, local, now: 1);
+        Assert.False(player.ElementalAilments.IsProtected(PlayerElementalAilments.Kind.Chill, 2));
+        Assert.False(player.ElementalAilments.IsProtected(PlayerElementalAilments.Kind.Freeze, 2));
+        Assert.False(player.ElementalAilments.IsProtected(PlayerElementalAilments.Kind.Ignite, 2));
+        Assert.False(player.ElementalAilments.IsProtected(PlayerElementalAilments.Kind.Shock, 2));
+
+        // Afflicted use removes each active ailment and protects for its exact rolled duration.
+        player.ElementalAilments.Inflict(PlayerElementalAilments.Kind.Freeze, 100, 2, now: 1, _ => 0, new Random(1));
+        player.ElementalAilments.Inflict(PlayerElementalAilments.Kind.Ignite, 50, 4, now: 1, _ => 0, new Random(1));
+        player.ElementalAilments.Inflict(PlayerElementalAilments.Kind.Shock, 20, 2, now: 1, _ => 0, new Random(1));
+        Game.ApplyConditionalFlaskAilmentProtectionLocked(player, local, now: 1);
+        Assert.Equal((false, 0, false, 0), player.ElementalAilments.Snapshot(1));
+        Assert.True(player.ElementalAilments.IsProtected(PlayerElementalAilments.Kind.Chill, 8.5));
+        Assert.True(player.ElementalAilments.IsProtected(PlayerElementalAilments.Kind.Freeze, 8.5));
+        Assert.False(player.ElementalAilments.IsProtected(PlayerElementalAilments.Kind.Freeze, 9.5));
+        Assert.True(player.ElementalAilments.IsProtected(PlayerElementalAilments.Kind.Ignite, 6.5));
+        Assert.False(player.ElementalAilments.IsProtected(PlayerElementalAilments.Kind.Ignite, 7.5));
+        Assert.True(player.ElementalAilments.IsProtected(PlayerElementalAilments.Kind.Shock, 5.5));
+        Assert.False(player.ElementalAilments.IsProtected(PlayerElementalAilments.Kind.Shock, 6.5));
+        // New applications while protected are blocked.
+        player.ElementalAilments.Inflict(PlayerElementalAilments.Kind.Shock, 25, 2, now: 3, _ => 0, new Random(1));
+        Assert.Equal(0, player.ElementalAilments.Magnitude(PlayerElementalAilments.Kind.Shock, 3));
+
+        Assert.Equal((FlaskGrounds.Kind.ChilledGround, 28), FlaskGrounds.OnUse(
+            new Dictionary<uint, int> { [Stat.LocalFlaskChilledGroundOnFlaskUseRadius] = 28 }).Single());
+        Assert.True(FlaskGrounds.LoadArt("data").ContainsKey(FlaskGrounds.Kind.ChilledGround));
+        var grounds = new FlaskGrounds.State();
+        grounds.Add(new(FlaskGrounds.Kind.ChilledGround, 10, 10, 28, 10));
+        Assert.True(grounds.NeedsMonsterUpdates);
+    }
+
+    // A use's "during effect" suffix buffs: one BuffDefinitions row per suffix mod, in DuringEffect order
+    // (flask_bonus_cast_speed 1386, flask_bonus_attack_speed 1385, flask_bonus_mana_cost 1241); a mod with no
+    // flask_bonus_* row sends nothing.
+    [Fact]
+    public void Flask_suffix_buffs_are_one_row_per_suffix()
+    {
+        var local = new Dictionary<uint, int>
+        {
+            [Stat.LocalFlaskCastSpeedPlusPctWhileHealing] = 20,
+            [Stat.LocalFlaskAttackSpeedPlusPctWhileHealing] = 15,
+            [Stat.LocalFlaskSkillManaCostPlusPctDuringFlaskEffect] = -14,
+            [Stat.LocalFlaskMovementSpeedPlusPctWhileHealing] = 10,
+        };
+        var rows = new Dictionary<uint, ushort>
+        {
+            [Stat.BaseCastSpeedPlusPct] = 1386,
+            [Stat.AttackSpeedPlusPct] = 1385,
+            [Stat.BaseManaCostMinusPct] = 1241,
+        };
+        Assert.Equal(new ushort[] { 1386, 1385, 1241 }, UtilityFlasks.SuffixBuffRowsFor(local, rows));
+    }
+
     // Bottled Faith's tripled ground and its damage taken, and Stormblood's crit-only ailments.
     [Fact]
     public void Bottled_Faith_ground_and_Stormblood_critical_ailments()
