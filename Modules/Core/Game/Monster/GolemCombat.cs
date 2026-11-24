@@ -788,8 +788,16 @@ public static partial class Game
         var to = target.Walk.Position(now);
         var cull = Cull.Of(effects.Stats, a.Stats, critical, a.Attack.Spell).WithWeapon(g.Weapon?.LocalSources) with { RecoverLifePct = 0 };
         int chaosDamage = MonsterHitChaosDamage(target, mitigated, a.Attack.Spell, now, damage, projectileTaken, ignorePhysical);
-        if (ApplyMonsterHitLocked(player, target, damage, rampageSource: null, playerStats: null,
-            allyAt: from, cull: cull, cullPlayer: null, chaosDamage: chaosDamage) is not { } hit) return false;
+        bool attackCanImpale = !a.Attack.Spell && !a.Attack.Secondary && rolled[DamageType.Physical].Min > 0
+            && (effects[Stat.AttacksImpaleOnHitPctChance] != 0 || effects[Stat.ImpaleOnHitPctChance] != 0
+                || GolemStat(a.Stats, Stat.AttacksImpaleOnHitPctChance) != 0
+                || g.Weapon?.LocalSources?.GetValueOrDefault(Stat.LocalAttacksImpaleOnHitPctChance) > 0);
+        ImpaleContact? impale = attackCanImpale || target.Impale.Stacks > 0
+            ? new(attackCanImpale ? rolled[DamageType.Physical].Min : 0, now,
+                attackCanImpale ? ImpaleStats.From(effects.Stats, Stats, attack: true, a.Stats, g.Weapon?.LocalSources) : default,
+                random) : null;
+        if (ApplyMonsterHitCoreLocked(player, target, damage, rampageSource: null, playerStats: null,
+            allyAt: from, cull: cull, cullPlayer: null, chaosDamage: chaosDamage, impale: impale) is not { } hit) return false;
         if (!a.Attack.Spell && !a.Attack.Secondary && damage > 0)
             MinionGainsLifeOnHitLocked(player, g, a);
         if (damage > 0 && profile is not null)

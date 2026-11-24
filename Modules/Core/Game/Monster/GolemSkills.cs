@@ -88,6 +88,7 @@ public static partial class Game
                     "lightning_damage_resistance_%" => Stat.BaseLightningDamageResistancePct,
                     "chaos_resistance_%" => Stat.BaseChaosDamageResistancePct,
                     "additional_physical_damage_reduction_%" => Stat.BaseAdditionalPhysicalDamageReductionPct,
+                    "chance_to_impale_on_attack_hit_%" => Stat.AttacksImpaleOnHitPctChance,
                     "skill_area_of_effect_+%" or "area_of_effect_+%" => Stat.BaseSkillAreaOfEffectPlusPct,
                     var plain => Stat.Of(plain),
                 };
@@ -110,6 +111,7 @@ public static partial class Game
                 {
                     Stat.MinionElementalResistancePct => Stat.BaseResistAllElementsPct,
                     Stat.MinionMaximumAllElementalResistancesPct => Stat.AdditionalMaximumAllElementalResistancesPct,
+                    Stat.MinionChanceToImpaleOnAttackHitPct => Stat.AttacksImpaleOnHitPctChance,
                     _ => Stat.Of(name),
                 };
             }

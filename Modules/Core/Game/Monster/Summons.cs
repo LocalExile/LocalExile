@@ -98,19 +98,24 @@ public static partial class Game
     static int SupportedMinionLimit(long limit, IReadOnlyDictionary<uint, int> skillStats) =>
         (int)Math.Clamp(limit * (100L + GolemStat(skillStats, Stat.SupportUndeadArmyMinionMaximumCountPlusPctFinal)) / 100, 0, 200);
 
-    static void ApplySocketedGhastlyEyeSpectreLimit(IEnumerable<Item> active, ItemCatalog catalog, Dictionary<uint, int> sources)
+    static void ApplySocketedGhastlyEyeBonuses(IEnumerable<Item> active, ItemCatalog catalog, Dictionary<uint, int> sources)
     {
-        long additional = 0;
+        long spectres = 0, impale = 0;
         foreach (var item in active)
         {
             int socketed = item.Sockets.Count(socket => socket is { Colour: SocketColour.Abyss, Gem: { } jewel }
                 && catalog.ByHash(jewel.TypeHash)?.Id == "Metadata/Items/Jewels/JewelAbyssSummoner");
-            if (socketed > 0)
-                additional += (long)socketed * GolemStat(PlainItemSum(item, catalog.Mods), Stat.AdditionalSpectresPerGhastlyEyeJewel);
+            if (socketed == 0) continue;
+            var itemStats = PlainItemSum(item, catalog.Mods);
+            spectres += (long)socketed * GolemStat(itemStats, Stat.AdditionalSpectresPerGhastlyEyeJewel);
+            impale += (long)socketed * GolemStat(itemStats, Stat.MinionChanceToImpaleOnAttackHitPctPerSocketedGhastlyJewel);
         }
-        if (additional != 0)
+        if (spectres != 0)
             sources[Stat.BaseNumberOfSpectresAllowed] = ActorScale.Saturate(
-                (long)sources.GetValueOrDefault(Stat.BaseNumberOfSpectresAllowed) + additional);
+                (long)sources.GetValueOrDefault(Stat.BaseNumberOfSpectresAllowed) + spectres);
+        if (impale != 0)
+            sources[Stat.MinionChanceToImpaleOnAttackHitPct] = ActorScale.Saturate(
+                (long)sources.GetValueOrDefault(Stat.MinionChanceToImpaleOnAttackHitPct) + impale);
     }
 
     static double SummonDuration(Player player, SummonCatalog.Definition definition, SupportedGem gem)
