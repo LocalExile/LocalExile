@@ -56,6 +56,38 @@ public static class ItemMoves
     });
 
     /// <summary>
+    /// One oil from a blight tab stack into the first free input cell beside the anoint cell (Ctrl + click, C→S 0xf5, while
+    /// the anoint cell holds an item: <see cref="AccountStash.AnointInputFor"/>), with a new id.
+    /// Null (nothing changes) when the inputs don't apply; <paramref name="full"/> when they apply but are all taken.
+    /// </summary>
+    public static Transfer? StashToAnointInput(AccountStash stash, int tab, uint itemId,
+        Func<Item, PlayerInventories.Shape?> shapeOf, out bool full)
+    {
+        bool isFull = false;
+        var result = Saves.Atomically(() =>
+        {
+            if (stash.AnointInputFor(tab, itemId, out isFull) is not var (x, y)
+                || stash.Inventory(tab).Items.FirstOrDefault(i => i.Id == itemId) is not { } oil) return null;
+            InventoryItem? left = null;
+            InventoryItem one;
+            if (oil.Item.StackSize > 1)
+            {
+                left = stash.Shrink(tab, itemId, 1);
+                one = new InventoryItem(stash.NewItemId(), 0, 0, oil.Item with { StackSize = 1 });
+            }
+            else if (stash.Take(tab, itemId) is { } taken) one = taken with { Id = stash.NewItemId() };   // a new id: one 0xbf removes the old
+            else return null;
+            if (stash.Place(tab, x, y, one, shapeOf, out _) is not var (placed, _)) return null;
+            stash.SetLastTab(tab);
+            return oil.Item.StackSize > 1
+                ? new Transfer(Main, 0, null, tab, [], [placed], [], [], itemId, left)
+                : new Transfer(Main, 0, null, tab, [], [placed], [], [], itemId);
+        });
+        full = isFull;
+        return result;
+    }
+
+    /// <summary>
     /// An item out of whichever inventory holds it into a stash tab (Ctrl + click: C→S 0xe0 into the shown tab, 0xe1 into
     /// the tab of its affinity): a stack onto the tab's stacks of its type first, then into free cells (a slotted tab: its
     /// own slot), and what doesn't fit stays in the inventory; any other item into the first free cell (or its slot) with a

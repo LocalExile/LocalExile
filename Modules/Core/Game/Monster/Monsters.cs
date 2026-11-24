@@ -21,6 +21,18 @@ public static partial class Game
     static int NativeMonsterStat(IReadOnlyDictionary<uint, int>? stats, uint key) =>
         stats is not null ? stats.GetValueOrDefault(key) : 0;
 
+    /// <summary>The distance (cells) at which a monster first notices a player: its variety's MinAgroRange when that
+    /// is a real notice distance (0 &lt; Min &lt;= the monster's AggroRange), else its AggroRange. Official captures: zombies
+    /// with a MinAgroRange of 40 first move towards the player at 36.6-39.9 cells.</summary>
+    public static int MonsterNoticeRange(SpawnedMonster m) =>
+        m.Variety is { MinAgroRange: > 0 and var min } && min <= m.AggroRange ? min : m.AggroRange;
+
+    /// <summary>The player distance (cells) past which a chasing monster lets go: its AggroRange (MaxAgroRange) when
+    /// its variety has a real notice distance, else twice its AggroRange. Official captures: no chase is re-issued past
+    /// MaxAgroRange (106-108 cells).</summary>
+    public static int MonsterLeashRange(SpawnedMonster m) =>
+        m.Variety is { MinAgroRange: > 0 and var min } && min <= m.AggroRange ? m.AggroRange : 2 * m.AggroRange;
+
     /// <summary>Ranged spell engagement reach in cells: scales a 60-cell base by native
     /// <c>spell_maximum_action_distance_+%</c> and caps unmodified spells to on-screen range (40 cells for projectiles
     /// like bow monsters, 28 cells for non-projectile area spells like BatScreech), instead of firing across the full
@@ -557,7 +569,7 @@ public static partial class Game
         // The King in the Mists needs its whole granted-effect list on the actor, not only the default attack: each 0x1ab
         // names one of these ids (KingInMists.cs). The three Mystic Fetishes likewise need their hazard list, because the
         // official server sends those actions to the fetish actor.
-        var kingSkills = Sirus.SkillsFor(player, variety, level) ?? KitavaActFive.SkillsFor(player, variety, level) ?? KitavaActTen.SkillsFor(player, variety, level) ?? DepravedTrinity.SkillsFor(player, variety, level) ?? VaalOversoul.SkillsFor(player, variety, level) ?? DoedreSewers.SkillsFor(player, variety, level) ?? BrineKing.SkillsFor(player, variety, level, attack) ?? IzaroSkills.SkillsFor(player, variety, level, attack, skill) ?? IzaroIdols.SkillsFor(player, variety, level, attack, skill) ?? GoddessOfJustice.SkillsFor(player, variety, level, attack, skill) ?? KingInMists.SkillsFor(player, variety, level, attack)
+        var kingSkills = Sirus.SkillsFor(player, variety, level) ?? KitavaActFive.SkillsFor(player, variety, level) ?? KitavaActTen.SkillsFor(player, variety, level) ?? DepravedTrinity.SkillsFor(player, variety, level) ?? VaalOversoul.SkillsFor(player, variety, level) ?? DoedreSewers.SkillsFor(player, variety, level) ?? BrineKing.SkillsFor(player, variety, level, attack) ?? Arakaali.SkillsFor(player, variety, level) ?? IzaroSkills.SkillsFor(player, variety, level, attack, skill) ?? IzaroIdols.SkillsFor(player, variety, level, attack, skill) ?? GoddessOfJustice.SkillsFor(player, variety, level, attack, skill) ?? KingInMists.SkillsFor(player, variety, level, attack)
             ?? AtlasBosses.SkillsFor(player, variety, level, attack)
             ?? (KingInMists.IsFetish(variety) ? KingInMists.FetishSkillsFor(player, variety, level, attack) : null);
         // A monster the campaign places as a boss, one with a bar of its own, or a hostile unique (a Rogue Exile), and that
@@ -973,8 +985,9 @@ public static partial class Game
     static bool IsBossControllerVariety(MonsterCatalog.Variety? variety) =>
         variety is not null && BossControllerVarieties.GetOrAdd(variety, static v =>
             Sirus.IsActor(v) || KitavaActFive.IsActor(v) || KitavaActTen.IsActor(v) || DepravedTrinity.IsBoss(v)
-            || VaalOversoul.IsBoss(v) || DoedreSewers.IsBoss(v) || BrineKing.IsBoss(v) || KingInMists.IsBoss(v)
-            || KingInMists.IsFetish(v) || KingInMists.IsGuidingLight(v) || AtlasBosses.IsBoss(v));
+            || VaalOversoul.IsBoss(v) || DoedreSewers.IsBoss(v) || BrineKing.IsBoss(v) || Arakaali.IsBoss(v)
+            || KingInMists.IsBoss(v) || KingInMists.IsFetish(v) || KingInMists.IsGuidingLight(v) || AtlasBosses.IsBoss(v)
+            || Act6To8Encounters.IsBossControllerVariety(v.Id) || Act9To10Encounters.IsBossControllerVariety(v.Id));
 
     /// <summary>Pack-wide aggro propagation: when one pack member aggros or takes a hit, nearby living hostile
     /// packmates sharing <see cref="SpawnedMonster.PackId"/> alert immediately and unrisen buried/lurking packmates
@@ -1117,7 +1130,7 @@ public static partial class Game
                     Player? reaggroTarget = null;
                     if (homeDist <= reaggroAnchorCap)
                     {
-                        double bestDist = m.AggroRange;
+                        double bestDist = MonsterNoticeRange(m);
                         foreach (var peer in player.Frames.Players())
                         {
                             if (peer.Closed || peer.LeavingArea || peer.PlayerLife == 0 || InGracePeriod(peer)) continue;
@@ -1175,7 +1188,7 @@ public static partial class Game
                     if (chosen?.SkillId != m.Attack?.SkillId) m.ClientChase = null;
                     m.Attack = chosen;
                 }
-                if (!m.Aggro && d <= m.AggroRange)
+                if (!m.Aggro && d <= MonsterNoticeRange(m))
                 {
                     m.Aggro = true;
                     m.ReturningHome = false;
@@ -1189,10 +1202,10 @@ public static partial class Game
                     plan.BossBars.Add((id, m));
                 }
                 // A flee walk is not cut short. A minion or temporary ally keeps its own target policy.
-                // Retail leash: break pursuit when the player pulls beyond 2 × AggroRange OR when an ordinary monster is
-                // dragged beyond 2 × AggroRange from its SpawnAnchor, then walk back to SpawnAnchor.
+                // Retail leash: break pursuit when the player pulls beyond MonsterLeashRange OR when an ordinary monster
+                // is dragged beyond 2 × AggroRange from its SpawnAnchor, then walk back to SpawnAnchor.
                 else if (decoy is null && m.Aggro && !m.Fleeing && !player.Minions.Owns(id) && !m.TemporarilyAllied
-                    && (d > 2 * m.AggroRange || (CanLeashReturn(player, id, m) && Dist((mx, my), m.SpawnAnchor) > 2.0 * Math.Max(40, m.AggroRange))))
+                    && (d > MonsterLeashRange(m) || (CanLeashReturn(player, id, m) && Dist((mx, my), m.SpawnAnchor) > 2.0 * Math.Max(40, m.AggroRange))))
                 {
                     m.Aggro = false;
                     m.Target = null;
@@ -1634,6 +1647,7 @@ public static partial class Game
         await MonsterMarkersTick(player);
         await HostileGroundsTick(player);
         await PlayerDebuffsTick(player);
+        if (player.PlayerLife == 0) await CampaignBossHelpers.OnPlayerDiedInBossArea(player);
         if (IncomingHitTriggersPending(player))
             ReleaseDamageTakenTriggers(player, ProjectilesFor(player));
         // Advance the projectile runtime first: decisions and committed projectile contacts share one game time and pose.
@@ -2964,6 +2978,13 @@ public static partial class Game
         int damage = 0, chaosDamage = 0, physicalDamage = 0;
         var ailmentTaken = DamagePacket.Empty;
         int sourceTakenPct = DamageTakenFromBlindedPct(player, id, stats) + DamageTakenFromMonster(m, stats);
+        bool hitRecently = player.RecentEvents.Happened(StatConditions.BeenHit, now);
+        int pantheonElemTakenPct = hitRecently
+            ? StatOf(Stat.ElementalDamageTakenPlusPctIfBeenHitRecently)
+            : StatOf(Stat.ElementalDamageTakenPlusPctIfNotHitRecently);
+        bool isAreaHit = a.AreaRadius > 0 || a.Projectile is { AreaRadius: > 0 } || a.Projectile is { Lobbed: true };
+        bool halfAreaDamage = isAreaHit && StatOf(Stat.TakeHalfAreaDamageFromHitPctChance) is int halfAreaChance and > 0
+            && GameServer.Core.World.RandomRolls.Chance(halfAreaChance, 100, player.IncomingHitRandom);
         double reservationFactor = ReservationHitTakenFactor(player, m, now);
         foreach (var (type, range) in mitigated.Components)
         {
@@ -2978,9 +2999,11 @@ public static partial class Game
             if (!immune.Contains(type)) value = Math.Max(0, value + PlayerDamageTaken.Flat(type, attack: attackHit, StatOf));
             if (type == DamageType.Physical)
                 value = AntiquarianEffects.RangedPhysical(value, a.Ranged, StatOf);
+            int extraTakenPct = sourceTakenPct + (DamageTypes.IsElemental(type) ? pantheonElemTakenPct : 0);
             value = (int)Math.Round(value * player.ElementalAilments.DamageTakenFactor(now,
-                    sourceTakenPct + PlayerDamageTaken.IncreasedPct(type, melee: !a.Ranged && attackHit, StatOf, spell: spellHit, projectile: projectile))
+                    extraTakenPct + PlayerDamageTaken.IncreasedPct(type, melee: !a.Ranged && attackHit, StatOf, spell: spellHit, projectile: projectile))
                 * reservationFactor * ReservationTypedHitTakenFactor(player, type, now)
+                * (halfAreaDamage ? 0.5 : 1.0)
                 * (blocked ? PlayerDamageTaken.BlockedPct(type, StatOf) / 100.0 : 1));
             // Suppression prevents calculated damage. Armour must see the unsuppressed hit, and flat taken damage
             // belongs to that hit too (as in the synthetic spell-hit path).
@@ -3028,7 +3051,7 @@ public static partial class Game
         AlternateAilmentsOnPlayerLocked(player, m, ailmentTaken.Select((_, r) =>
             new(FortificationDamageTakenLocked(player, (int)r.Min, now, stats), FortificationDamageTakenLocked(player, (int)r.Max, now, stats))), blocked, now, stats, incomingAilments);
         ApplyMonsterDamagingAilmentsLocked(player, id, m, baseHit, blocked, now, attack: attackHit, prepared: stats,
-            skillPoisonChance: a.PoisonChance, skillPoisonSeconds: a.PoisonSeconds);
+            skillPoisonChance: a.PoisonChance, skillPoisonSeconds: a.PoisonSeconds, critical: monsterCritical);
         ApplyMonsterDecayLocked(player, id, m, blocked, now, stats);
         ApplyCorruptedBloodOnHit(player, a, baseHit, blocked, now, stats);
         // Monster on-hit charge gains (of Frenzy, of Power, species charge-on-hit, of Enervation).
@@ -3058,8 +3081,16 @@ public static partial class Game
             && SpiritChieftainsWhenHitLocked(player, stats, blocked, monsterCritical, Math.Max(0, lifeBefore - player.PlayerLife));
         PlayerRecoveryIntent? recovery = null;
         bool alwaysStun = m.Effects[Stat.AlwaysStun] > 0;
-        if (!blocked && player.PlayerLife > 0 && (alwaysStun || (!a.Ranged && a.Damage.Components.All(c => c.Type == DamageType.Physical))))
+        bool stunEligible = alwaysStun || (!a.Ranged && a.Damage.Components.All(c => c.Type == DamageType.Physical));
+        if (!blocked && player.PlayerLife > 0 && stunEligible)
             recovery = CommitPlayerHitRecoveryLocked(player, alwaysStun ? Math.Max(damage, (int)player.PlayerMaxLife) : damage, now);
+        else if (blocked && player.PlayerLife > 0 && stunEligible
+            && StatOf(Stat.CannotBeStunnedIfHaveBeenStunnedOrBlockedStunningHitInPast2Seconds) != 0)
+        {
+            int stunCheckDamage = alwaysStun ? (int)player.PlayerMaxLife : Math.Max(rawDamage, damage);
+            if (alwaysStun || AreaRng(player).NextDouble() * 100 < PlayerHitRecovery.Chance(stunCheckDamage, player.PlayerMaxLife, StatOf))
+                player.LastStunnedOrBlockedStunAt = now;
+        }
         else if (AntiquarianEffects.StunRecoverySource is var turtle && stats.GetValueOrDefault(turtle) > 0)
             Console.WriteLine($"[gateway] Turtle Shell hit ineligible: block={blocked}, ranged={a.Ranged}, "
                 + $"alive={player.PlayerLife > 0}, types={string.Join(',', a.Damage.Components.Select(c => c.Type))}");
@@ -3146,7 +3177,10 @@ public static partial class Game
                 $"0x01b1 player mana {hit.Mana} ({(long)hit.Mana - hit.ManaBefore:+0;-0}{(hit.Blocked ? ", blocked" : "")})");
         if (!CurrentGameWork) return;
         if (hit.Life == 0)
+        {
             await PlayerDied(player, $"0x0055 death screen ({player.Character.League ?? "?"} league)");
+            await CampaignBossHelpers.OnPlayerDiedInBossArea(player);
+        }
         else
         {
             if (!hit.Blocked) await SendAttackerSlows(player, id);

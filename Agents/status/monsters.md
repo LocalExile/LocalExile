@@ -114,7 +114,8 @@ Part of [Status](../Status.md); what to build next in this area is in
   Ordinary monster spells use level-scaled `GrantedEffectStatSets` elemental/chaos base damage, native cast-speed
   modifiers and cooldowns, and on-screen reach capped by `spell_maximum_action_distance_+%`.
   `MinimumAttackDistance` is not read yet.
-  A give-up beyond twice the aggro range ends the client's chase action with S→C 0x1ac before its Move (GGG's server
+  A monster notices at its MinAgroRange and gives up past its MaxAgroRange (twice the aggro range for a row
+  without a MinAgroRange); a give-up ends the client's chase action with S→C 0x1ac before its Move (GGG's server
   does the same: 925 of 1166 live give-ups carried one, 3.29 capture; a predictive client needs it, a lockstep one
   ignores it — [07](../docs/protocol/07-latency-visibility-movement.md) §11).
   Attack busy time covers the full attack duration; pending swing and stage generations prevent duplicate work.
@@ -238,8 +239,9 @@ Part of [Status](../Status.md); what to build next in this area is in
   Docs: [Act 9](../docs/game/campaign/act9.md).
 - Act 10 Kitava: three hearts, finale and manual Epilogue portal; allies retain visibility for later observers.
   AI provisional ([Act 10](../docs/game/campaign/act10.md)).
-- Act 1–5 boss encounters have dedicated staged controllers (Hillock, Brutus, Weaver, Fairgraves, Merveil, Oversoul,
-  Piety, Dominus, Kaom, Daresso, Malachai, Innocence, Kitava) and multi-skill AI (not all verified live).
+- Act 1–10 boss encounters have dedicated staged controllers (Hillock through Kitava, including Act 6–10 Pantheon gods,
+  Ryslatha, Abberath, Tukohama, Shavronne/Brutus, Tolman, General Adus, Basilisk and Plaguewing) and multi-skill AI
+  (not all verified live).
 - Act 5 Kitava: body/heart sequence and rescue; AI tuning provisional ([Act 5](../docs/game/campaign/act5.md)).
 - Doedre: cauldron and effluent modes; AI tuning provisional ([Act 8](../docs/game/campaign/act8.md)).
 

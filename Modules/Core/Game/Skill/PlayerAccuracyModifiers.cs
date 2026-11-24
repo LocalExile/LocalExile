@@ -10,7 +10,7 @@ public static class PlayerAccuracyModifiers
         Calculate(basis, increased, morePct, blindLess, areaMorePct, weaponMorePct: 0);
 
     public static int Calculate(long basis, long increased, int morePct, int blindLess,
-        int areaMorePct, int weaponMorePct)
+        int areaMorePct, int weaponMorePct, int chargeMorePct = 0)
     {
         var scaled = BigInteger.Max(0, basis) * BigInteger.Max(0, (BigInteger)100 + increased)
             * Math.Max(0L, 100L + morePct) * Math.Max(0L, 100L - blindLess);
@@ -25,12 +25,17 @@ public static class PlayerAccuracyModifiers
             scaled *= Math.Max(0L, 100L + weaponMorePct);
             denominator *= 100;
         }
+        if (chargeMorePct != 0)
+        {
+            scaled *= Math.Max(0L, 100L + chargeMorePct);
+            denominator *= 100;
+        }
         return (int)BigInteger.Min(int.MaxValue, scaled / denominator);
     }
 
     public static int Unselected(CharacterStats.Pools pools, int morePct, int blindLess) => blindLess == 0
         ? pools.Accuracy : Calculate(pools.AccuracyBase, pools.AccuracyPct, morePct, blindLess,
-            pools.AccuracyAreaMorePct, pools.AccuracyWeaponMorePct);
+            pools.AccuracyAreaMorePct, pools.AccuracyWeaponMorePct, pools.AccuracyChargeMorePct);
 
     public static int Selected(CharacterStats.Pools pools, WeaponProfile weapon, Func<uint, long> own,
         int morePct, long localDifference = 0, int blindLess = 0)
@@ -38,7 +43,7 @@ public static class PlayerAccuracyModifiers
         long flat = AccuracyRating.Flat(weapon, own, includeLocal: false), increased = AccuracyRating.Increased(weapon, own);
         return localDifference == 0 && flat == 0 && increased == 0 && blindLess == 0 ? pools.Accuracy
             : Calculate(pools.AccuracyBase + localDifference + flat, pools.AccuracyPct + increased, morePct, blindLess,
-                pools.AccuracyAreaMorePct, pools.AccuracyWeaponMorePct);
+                pools.AccuracyAreaMorePct, pools.AccuracyWeaponMorePct, pools.AccuracyChargeMorePct);
     }
 }
 

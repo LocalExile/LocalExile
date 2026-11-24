@@ -248,6 +248,11 @@ public static partial class Game
     public static MonsterHitOutcome? CommitHostilePlayerHitLocked(ProjectileSession session, ProjectileDamage contact, HostileProjectileOffense shot)
     {
         var player = session.Player;
+        // Soul of Lunaris: avoid projectiles that have chained.
+        if (contact.Projectile.ChainsRemaining < contact.Projectile.Profile.Chain
+            && PlayerStat(player, Stat.AvoidChainedProjectilePctChance) is int avoidChained and > 0
+            && GameServer.Core.World.RandomRolls.Chance(avoidChained, 100, player.IncomingHitRandom))
+            return null;
         // The hit pipeline's timers (fortification, recent hits, ailments, evasion entropy) run on the connection clock and
         // refuse to go backwards. The contact's simulated instant lies a few milliseconds behind that clock, which other
         // reads (a stats refresh, a melee swing) may already have advanced, so the hit lands at whichever is later. The

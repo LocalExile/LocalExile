@@ -1448,6 +1448,14 @@ public sealed partial class Player(AreaLayout layout, uint ticket, uint seed) : 
     // The previous recovery tick's states of the once-per-transition Loyalty triggers (Energy Shield Recharge started,
     // Low Life reached): Game.LoyaltyResourceStateLocked.
     public bool LoyaltyRechargeSeen, LoyaltyLowLifeSeen;
+    // O(1) Pantheon combat state (Brine King, Arakaali, Solaris, Abberath, Shakari, Tukohama, Ryslatha).
+    public double LastStunnedOrBlockedStunAt = double.NegativeInfinity;
+    public double LastStoppedTakingDotAt = double.NegativeInfinity;
+    public bool TakingDotLastTick;
+    public double LastCritTakenAt = double.NegativeInfinity;
+    public double StationarySince = double.NegativeInfinity;
+    public bool OnBurningGround;
+    public bool InCausticCloud;
     /// <summary>The degeneration on the player from what is around them (a trial's trap, an encounter's pool, a ground or a
     /// debuff), points a second, energy shield first: StartResourceRecovery deals the total, and while any runs the client is
     /// sent no recovery rates to predict a rise with. In the area's frame.</summary>
@@ -1551,6 +1559,8 @@ public sealed partial class Player(AreaLayout layout, uint ticket, uint seed) : 
     public (uint Id, int X, int Y)? ReturnPortal;
     /// <summary>The portal back to the character's open town portal, in its town or hideout (SpawnBackPortal).</summary>
     public (uint Id, int X, int Y)? BackPortal;
+    /// <summary>Another player's standing town/map portal shown to this client (object id -> opener, position, returnTown).</summary>
+    public readonly Dictionary<uint, (string Owner, int X, int Y, ushort ReturnToTown)> PeerPortals = [];
     /// <summary>The gem skill being channelled (Cyclone: C→S 0x197 until 0x199), 0 for none, and when it next hits.
     /// Leaving a moving channel (<see cref="ChannelMovement"/>) gives the walk its usual speed back.</summary>
     public ushort ChannelSkill

@@ -70,8 +70,18 @@ public static class MapEssenceCatalog
         return result;
     }
 
+    // Retail essence tier retirement: Whispering (T1) retires after L31, Muttering (T2) after L47,
+    // Weeping (T3) after L67; Wailing (T4, 48+), Screaming (T5, 68+), and Shrieking (T6, 73+) remain active.
+    static bool TierActiveAt(int tier, int level) => tier switch
+    {
+        1 => level <= 31,
+        2 => level <= 47,
+        3 => level <= 67,
+        _ => true,
+    };
+
     public static IReadOnlyList<Essence> Pool(int level) => [.. All.Where(e => !e.Corrupted && e.Tier > 0
-        && e.DropLevels.Any(l => l <= level))];
+        && TierActiveAt(e.Tier, level) && e.DropLevels.Any(l => l <= level))];
 
     public static Essence Higher(Essence essence) => All.FirstOrDefault(e => e.Type == essence.Type
         && e.Tier == essence.Tier + 1) ?? essence;
