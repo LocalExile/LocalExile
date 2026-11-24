@@ -742,8 +742,9 @@ public static partial class Game
         var (inactive, active) = ItemModStats.ResolveEquipment(wornItems, level ?? player.Pools.Level, active =>
         {
             var ids = active.Select(w => w.Id).ToHashSet();
-            var (str, dex, intel) = AttributeInputs(RawAttributes(AbyssJewels.Sources(active.Select(w => w.Item)
-                    .Concat(RingReflections(equipment, i => ids.Contains(i.Id), catalog.Mods)), catalog)))
+            var candidateItems = WithQuiverModifierEffect(AbyssJewels.Sources(active.Select(w => w.Item)
+                .Concat(RingReflections(equipment, i => ids.Contains(i.Id), catalog.Mods)), catalog).ToArray(), catalog, passives);
+            var (str, dex, intel) = AttributeInputs(RawAttributes(candidateItems))
                 .Apply(c.Strength + god, c.Dexterity + god, c.Intelligence + god);
             return (str, dex, intel);
         }, before, ItemsFor(player).Mods);
@@ -1113,6 +1114,12 @@ public static partial class Game
         var minionAuras = SelectMinionAuras(player, player.Id, auras, bonus.AuraEffectPct);
         var aura = AuraCatalog.Bonus(auras.Where(a => a.AffectsSelf), bonus.AuraEffectPct, SkillsFor(player), Stats);
         aura = WithTemporaryAuraBonus(auras, bonus.AuraEffectPct, aura);
+        // Commander of Darkness ("You and nearby Allies have +30% to Elemental Resistances"): applies to the caster
+        // even with zero active auras, deduplicated against any Commander resistance already counted by AuraCatalog.
+        int ownCommanderRes = Math.Max(0, sources.GetValueOrDefault(Stat.ElementalResistancesPlusPctForYouAndAlliesAffectedByYourAuras));
+        int auraCommanderRes = auras.Where(a => a.AffectsSelf && AuraCatalog.CommanderEligible(a, SkillsFor(player)))
+            .Select(a => a.CommanderElementalResistancePct).DefaultIfEmpty(0).Max();
+        int extraCommanderRes = Math.Max(0, ownCommanderRes - auraCommanderRes);
         int sentinelChaos = 0;
         foreach (var sentinel in minionAuras)
             foreach (var (key, value) in sentinel.Stats)
@@ -1154,9 +1161,9 @@ public static partial class Game
         }
         bonus = bonus with
         {
-            FireResistance = bonus.FireResistance + aura.FireResistance,
-            ColdResistance = bonus.ColdResistance + aura.ColdResistance,
-            LightningResistance = bonus.LightningResistance + aura.LightningResistance,
+            FireResistance = bonus.FireResistance + aura.FireResistance + extraCommanderRes,
+            ColdResistance = bonus.ColdResistance + aura.ColdResistance + extraCommanderRes,
+            LightningResistance = bonus.LightningResistance + aura.LightningResistance + extraCommanderRes,
             ChaosResistance = bonus.ChaosResistance + aura.ChaosResistance + sentinelChaos,
             FireMaxResistance = bonus.FireMaxResistance + aura.FireMaxResistance,
             ColdMaxResistance = bonus.ColdMaxResistance + aura.ColdMaxResistance,

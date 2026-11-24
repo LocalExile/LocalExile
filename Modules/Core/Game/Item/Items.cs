@@ -507,22 +507,32 @@ public static partial class Game
     }
 
     /// <summary>Every modifier of one item raised by an increased-modifier-effect percentage, in every list (implicit,
-    /// explicit, enchant …): the game's increased-effect multiplication on each integer value, rounded down as The
-    /// Adorned's jewel effect and <c>ItemModStats</c>' own explicit-effect stats are.</summary>
+    /// explicit, enchant …): the game's increased-effect multiplication on each integer value, truncated toward zero
+    /// as The Adorned's jewel effect and <c>ItemModStats</c>' own explicit-effect stats are.</summary>
     public static Item ScaledModifiers(Item item, int percent) => percent == 0 ? item : item with
     {
         Mods = [.. item.Mods.Select(mod => mod with
         {
-            Values = [.. mod.Values.Select(value => (int)Math.Floor(value * (100 + percent) / 100.0))],
+            Values = [.. mod.Values.Select(value =>
+                (int)Math.Clamp((long)value * Math.Max(0, 100 + percent) / 100, int.MinValue, int.MaxValue))],
         })],
     };
 
+    static Item CachedScaledQuiver(Item item, int percent)
+    {
+        if (percent == 0) return item;
+        if (ScaledQuivers.TryGetValue(item, out var kept) && kept.Percent == percent) return kept.Item;
+        var scaled = ScaledModifiers(item, percent);
+        ScaledQuivers.AddOrUpdate(item, new(percent, scaled));
+        return scaled;
+    }
+
     /// <summary>The equipped quiver's modifiers raised by <c>quiver_mod_effect_+%</c> (the Bow Mastery's Bow5, "20%
-    /// increased bonuses gained from your Equipped Quiver"; a unique's mod and the Crucible weapon-tree ones also grant
-    /// it). It scales every modifier on the quiver, implicit and explicit alike, so the scaling happens here, on the
-    /// copy whose stats become the character's, and leaves the item in the inventory as it is. The percentage comes
-    /// from the allocated passives and from the other equipped items, never from the quiver's own scaled values.</summary>
-    static IReadOnlyList<Item> WithQuiverModifierEffect(IReadOnlyList<Item> active, ItemCatalog catalog,
+    /// increased bonuses gained from your Equipped Quiver"; Widowhail and Crucible weapon-tree mods also grant it).
+    /// Scales every modifier on the quiver, implicit and explicit alike, on a cached copy (preserving reference
+    /// equality for stat-source caches) and leaves the item in inventory unchanged. The percentage comes from the
+    /// allocated passives and from the other equipped items, never from the quiver's own scaled values.</summary>
+    public static IReadOnlyList<Item> WithQuiverModifierEffect(IReadOnlyList<Item> active, ItemCatalog catalog,
         IReadOnlyDictionary<uint, int> passives)
     {
         bool IsQuiver(Item i) => catalog.ByHash(i.TypeHash)?.Class == "Quiver";
@@ -532,11 +542,12 @@ public static partial class Game
             if (!IsQuiver(item))
                 foreach (var (id, value) in ItemModStats.Values(item, catalog.Mods))
                     if (id == Stat.QuiverModEffectPlusPct) percent += value;
-        return percent == 0 ? active : [.. active.Select(i => IsQuiver(i) ? ScaledModifiers(i, percent) : i)];
+        return percent == 0 ? active : [.. active.Select(i => IsQuiver(i) ? CachedScaledQuiver(i, percent) : i)];
     }
 
     sealed record ScaledJewel(int Percent, Item Item);
     static readonly RuleTable<Item, ScaledJewel> AdornedJewels = new();
+    static readonly RuleTable<Item, ScaledJewel> ScaledQuivers = new();
 
     /// <summary>Why a held item cannot go into PassiveJewels1 at (x, y), or null: the slot must be an ordinary large
     /// jewel socket whose passive node is allocated, or a cluster jewel's expansion socket whose jewel is socketed,

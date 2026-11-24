@@ -13,4 +13,16 @@ static partial class Game
             sources.GetValueOrDefault(Stat.ElementalResistancesPlusPctForYouAndAlliesAffectedByYourAuras),
             sources.GetValueOrDefault(Stat.DamagePlusPctForYouAndAlliesAffectedByYourAuras));
     }
+
+    internal static AuraCatalog.Aura WithCasterAuraStamps(AuraCatalog.Aura aura, IReadOnlyDictionary<uint, int> sources)
+    {
+        var commander = CommanderOfDarkness(sources);
+        return aura with
+        {
+            PerAuraEffectPct = AuraCatalog.PerAuraEffectPctFor(aura, sources),
+            CommanderAttackCastSpeedPct = commander.Speed,
+            CommanderElementalResistancePct = commander.Resistance,
+            CommanderDamagePct = commander.Damage,
+        };
+    }
 }
