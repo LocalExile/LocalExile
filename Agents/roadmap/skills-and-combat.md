@@ -97,7 +97,7 @@ The issue #75 native matrices were run on the source LocalExile revisions, not r
 - **Known:** [11](../docs/protocol/11-skills.md) §13 has reservation, the implemented auras and the own-aura lifecycle.
   Passive enemy auras other than the implemented ones (the Occultist's) need consumers for their stats first (§10e).
 - **Start:** the auras' 3D effects (BuffVisuals EPKs of the `IsSkillBuff` rows do not render, unlike Righteous Fire's);
-  banners, enemy aura executors, the other Vaal auras and unsupported conditional effects.
+  enemy aura executors, the other Vaal auras and unsupported conditional effects.
   Vaal auras: allies do not receive them, and no skill bar soul gain prevention countdown is shown.
   Verify the herald combat matrix, retail Virulence decay, the skill-specific trap/mine payloads beyond Skitterbots'
   trigger/rearm, and the skill-bar indicator's buff association (0x1c1 bit3) live.

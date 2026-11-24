@@ -394,6 +394,8 @@ public static class UtilityFlasks
     {
         public long Activation { get; set; }
         public int SelfChaosDamageLifePctPerMinute { get; set; }
+        public IReadOnlyDictionary<uint, int>? LocalStats { get; init; }
+        public double PeriodicThrough { get; set; } = Started;
         public double Ends { get; set; } = Ends;
         public double ExpiryRate { get; set; } = 1;
 
@@ -484,6 +486,12 @@ public static class UtilityFlasks
         public Active? Of(uint itemId)
         {
             lock (_lock) return _active.FirstOrDefault(a => a.ItemId == itemId);
+        }
+
+        public Active? FirstWithLocalStat(uint stat, Func<Active, bool> eligible)
+        {
+            lock (_lock)
+                return _active.FirstOrDefault(effect => effect.LocalStats?.GetValueOrDefault(stat) > 0 && eligible(effect));
         }
 
         /// <summary>Starts an effect, next to any other, of the same kind or not: each keeps its own duration

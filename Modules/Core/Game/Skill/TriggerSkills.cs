@@ -37,6 +37,9 @@ public static partial class Game
 
     public static string? TriggerOnlyReason(SupportedGem gem)
     {
+        if (CooldownTriggerSupport(gem) is { } timed)
+            return timed.Effect.Id == AutoexertionSupport
+                ? "this warcry can only be triggered by Autoexertion" : "this spell can only be triggered by Automation";
         if (gem.WornGrant is { EffectId: GuardianWeaponEffect })
             return "Animate Guardian's Weapon triggers from a qualifying minion kill";
         if (GolemStat(gem.Stats, Stat.CastOnLoseCatsStealth) != 0)
