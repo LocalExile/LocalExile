@@ -2,11 +2,10 @@ public static partial class Game
 {
     public static bool BallistaEffect(Player player, int effect) => SkillsFor(player).IsAttack(effect)
         && !SkillsFor(player).IsTravel(effect) && Supports.Of(effect)?.Types.Contains(47) != true
-        && (BallistaRain(player, effect) || UsesProjectileRuntime(effect) && ResolveProjectileDefinition(effect) is not null)
-        // The artillery mortar needs a landing sequence, not a straight-arrow approximation.
-        && SkillsFor(player).EffectId(effect) is not ("ArtilleryBallista" or "ArtilleryBallistaAltX" or "ArtilleryBallistaAltY");
+        && (BallistaRain(player, effect) || UsesProjectileRuntime(effect) && ResolveProjectileDefinition(effect) is not null);
 
-    static bool BallistaRain(Player player, int effect) => SkillsFor(player).EffectId(effect) == "BlastRain";
+    static bool BallistaRain(Player player, int effect) =>
+        SkillsFor(player).EffectId(effect) is var id && (id == "BlastRain" || IsToxicRain(id) || IsArtilleryBallista(id));
 
     public static bool BallistaPathAvailable(Player player, ushort skill)
     {
@@ -35,6 +34,29 @@ public static partial class Game
         if (GolemStat(own, Stat.IsRangedAttackTotem) != 0)
             limit += GolemStat(stats, Stat.AttackSkillsAdditionalBallistaTotemsAllowed);
         return (int)Math.Clamp(limit, 0, int.MaxValue);
+    }
+
+    /// <summary>The distance a totem plants from its caster: 20 cells before totem_placement_range_+%. The observed
+    /// 25 cells on the official servers were one character's, whose own stats carry +25% (19 of 19 readable captures),
+    /// so 25 is the distance WITH the modifier and the base is 20; until now the measured 25 was multiplied by the
+    /// same +25% again and planted at 31.2. The corpus cannot tell "base 20, stat applied" from "base 25, stat
+    /// ignored"; this keeps the stat meaningful.</summary>
+    public const double BaseTotemPlacementRange = 20;
+
+    public static double TotemPlacementRange(Player player, ushort skill) => BaseTotemPlacementRange
+        * Math.Max(0, 1 + GolemStat(SupportedStats(player, skill), Stat.TotemPlacementRangePlusPct) / 100d);
+
+    /// <summary>The cell a totem plants at for an aim: the aim itself inside the placement range, else the point on
+    /// the way to it at the range's edge (the clamp runs before the collision shove, which can still move the totem a
+    /// cell or two off a body).</summary>
+    public static (int X, int Y) TotemPlacementPoint(Player player, ushort skill, (int X, int Y) from, (int X, int Y) aim)
+    {
+        double range = TotemPlacementRange(player, skill);
+        double dx = aim.X - from.X, dy = aim.Y - from.Y;
+        double distance = double.Hypot(dx, dy);
+        if (distance <= range) return aim;
+        double scale = range / distance;
+        return ((int)Math.Round(from.X + dx * scale), (int)Math.Round(from.Y + dy * scale));
     }
 
     public static double TotemTargetRange(Player player, ushort skill)

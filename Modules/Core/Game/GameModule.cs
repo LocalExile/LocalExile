@@ -69,6 +69,7 @@ public sealed class GameModule : IModule, IDisposable
         Rules.GolemData = new();
         Rules.SummonData = new();
         Rules.LoadSummonsData();
+        Rules.LoadOwnedSummonsData();
         Rules.RampageData = new();
         Rules.Supports = new();
         Rules.LoadMinionSupportsData();
@@ -241,6 +242,7 @@ public sealed class GameModule : IModule, IDisposable
         module.Lifetime.Own(Rules.InstallJoining());
         string id = module.Manifest.Id;
         GameEvents.PlayerLeaving.Add(id, (player, _) => { Rules.LeaveArea(player); return Task.CompletedTask; });
+        GameEvents.PlayerLeaving.Add(id, (player, _) => { Rules.EndRejuvenationTotemAura(player); return Task.CompletedTask; });
         GameEvents.AreaTick.Add(id, GameEvents.InArea(global::DoedreSewers.Area, global::DoedreSewers.Tick));
         GameEvents.ObjectUse.Add(module.Manifest.Id, global::DoedreSewers.Use);
         GameEvents.PlayerStatSources.Add(module.Manifest.Id, global::DoedreSewers.PlayerStats);
@@ -293,6 +295,9 @@ public sealed class GameModule : IModule, IDisposable
         GameEvents.AreaTick.Add(id, GameEvents.InArea(global::KitavaActTen.Area, global::KitavaActTen.Tick));
         module.Lifetime.Own(global::KitavaActTen.CleanupOnUnload());
         GameEvents.PlayerLeaving.Add(id, (player, _) => global::KitavaActTen.Leaving(player));
+        // Act 6-10 dedicated campaign boss encounter controllers.
+        global::Act6To8Encounters.Register(module);
+        global::Act9To10Encounters.Register(module);
         module.Lifetime.Own(global::VaalOversoul.CleanupOnUnload());
         GameEvents.PlayerLeaving.Add(id, (player, _) => global::VaalOversoul.Leaving(player));
         GameEvents.PlayerStatSources.Add(module.Manifest.Id, global::BrineKing.PlayerStats);
@@ -301,6 +306,11 @@ public sealed class GameModule : IModule, IDisposable
         module.Lifetime.Own(global::BrineKing.CleanupOnUnload());
         module.Lifetime.Own(global::AtlasBosses.CleanupOnUnload());
         GameEvents.Kill.Add(module.Manifest.Id, Rules.ReservationKill);
+        GameEvents.Kill.Add(module.Manifest.Id, Rules.GrantLinkedMinionRareModifiers);
+        GameEvents.Kill.Add(module.Manifest.Id, Rules.ItemMinionsOnKill);
+        GameEvents.Kill.Add(module.Manifest.Id, Rules.AkoyaItemOnKill);
+        GameEvents.PlayerStatSources.Add(module.Manifest.Id, Rules.ItemMinionStatSources);
+        GameEvents.PlayerStatSources.Add(module.Manifest.Id, Rules.ItemHarbingerStatSources);
         GameEvents.AreaTick.Add(id, GameEvents.Always((player, _) => global::Slayer.Tick(player)));
         GameEvents.Kill.Add(module.Manifest.Id, global::Slayer.Kill);
         GameEvents.Kill.Add(module.Manifest.Id, Rules.SpreadPoisonOnKill);
@@ -308,6 +318,10 @@ public sealed class GameModule : IModule, IDisposable
         GameEvents.OutgoingDamage.Add(module.Manifest.Id, global::Slayer.OutgoingDamage);
         GameEvents.PlayerLeaving.Add(id, (player, _) => global::Slayer.Leaving(player));
         GameEvents.AreaTick.Add(id, GameEvents.Always((player, _) => global::Game.VaalImmortalCallTick(player)));
+        GameEvents.AreaTick.Add(id, GameEvents.Always((player, _) => global::Game.VaalArcticArmourTick(player)));
+        GameEvents.TransientClosing.Add(id, global::Game.EndTimedSkillBuffs);
+        GameEvents.PlayerLeaving.Add(id, (player, _) => { global::Game.EndTimedSkillBuffs(player); return Task.CompletedTask; });
+        module.Lifetime.Own(new global::Game.TimedSkillBuffCleanup());
         GameEvents.PlayerLeaving.Add(id, (player, _) => global::Game.LeavingVaalImmortalCall(player));
         GameEvents.AreaTick.Add(id, GameEvents.Always((player, _) => global::Hierophant.Tick(player)));
         GameEvents.PlayerStatSources.Add(module.Manifest.Id, global::Hierophant.PlayerStats);

@@ -124,7 +124,7 @@ public static partial class Game
         // From the swing's start when it began before now (a lockstep walk-up's goal frame, CastGemSkill's swingAt).
         double acceptedAt = swingAt ?? AreaTime(player);
         // A Spectral Throw's own weapon leaves on the client's swing (SpectralThrowRelease), without the server-object lead.
-        double? thrown = attack && SkillsFor(player).EffectId(gem.Effect) == "SpectralThrow"
+        double? thrown = attack && SkillsFor(player).EffectId(gem.Effect) is "SpectralThrow" or "SpectralThrowAltX"
             ? SpectralThrowRelease.Delay(player, Environment.GetEnvironmentVariable("Game_PLAYER_AO")
                 ?? SkillsFor(player).ClassFor(player.Character.ClassRow).AnimatedObject, AnimationWeaponProfileFor(player),
                 SupportedAttackSeconds(player, skillId, sequence))
@@ -142,6 +142,13 @@ public static partial class Game
             ? PlayerActionCurrent(player, action)
             : player.PlayerLife > 0 && player.ElementalAilments.ActionFactor(AreaTime(player)) > 0 && !player.HitRecovery.Active(AreaTime(player))))
             && GemSkillInstanceDisabled(player, gem.Effect, skillId) is null;
+        if (IsBarrageGem(SkillsFor(player).EffectId(gem.Effect)))
+        {
+            ScheduleBarrage(player, session, skillId, gem.Effect, acceptedAt, SupportedAttackSeconds(player, skillId, sequence),
+                sequence, Valid, firstRelease => CaptureGemProjectile(player, session, skillId, gem, aim, criticalRoll,
+                    sequence, releaseDelay: firstRelease, cryExerted: cryExerted, sacrifice: sacrifice));
+            return Task.CompletedTask;
+        }
         // A spell's repeats (SpellRepeats) release again a cast time apart, with the use's critical roll; a new action
         // cancels the rest, as it ends the client's.
         // shortcut: a repeat keeps the cast's aim point; check live whether the client re-aims at a moving target.
@@ -226,20 +233,27 @@ public static partial class Game
         int Own(uint k) => own.GetValueOrDefault(k);
         int Get(uint key) => Player(key) + Own(key);
         use = use with { Profile = ClientDrawnProfile(player, use.Profile, Get, sequence, use.Aim - use.Origin, repeatsLeft, use.Emitter.Id) };
-        if (use.Emitter.Id != player.Id && NativeProjectileTotem(player, gem.Effect)
-            && use.Payload is ProjectileOffense nativeTotemShot && SkillsFor(player).Clips(use.Profile.Id) is { Flight: not null } clips)
-            use = use with { Payload = nativeTotemShot with { ClientPredicted = false,
-                Presentation = MonsterProjectilePresentation(clips, use.Profile.Range / Math.Max(1, use.Profile.Speed)) } };
-        if (SkillsFor(player).EffectId(gem.Effect) == "SpectralThrow")
+        if (SkillsFor(player).EffectId(gem.Effect) == "BlazingSalvo" && use.Profile.NativeVolley is { Angles: null, Nova: false })
+            use = use with { Profile = use.Profile with { NativeVolley = null } };
+        // A totem's action plays its cast but spawns no projectile on the client (live 2026-11-19: a totem's Fireball
+        // cast and hit with nothing flying), so the server draws a totem's shots, with the rig's flight and impact clips.
+        if (use.Emitter.Id != player.Id && use.Payload is ProjectileOffense totemShot)
+            use = use with { Payload = totemShot with { ClientPredicted = false,
+                Presentation = WithProjectileClips(totemShot.Presentation, SkillsFor(player).Clips(use.Profile.Id),
+                    use.Profile.Range / Math.Max(1, use.Profile.Speed)) } };
+        if (SkillsFor(player).EffectId(gem.Effect) is "SpectralThrow" or "SpectralThrowAltX")
         {
+            bool materialising = SkillsFor(player).EffectId(gem.Effect) == "SpectralThrowAltX";
             double thrown = use.Profile.Speed;
+            double deceleration = Math.Max(.01, 1 + Get(Stat.SpectralThrowProjectileDecelerationPlusPct) / 100d);
             return use with
             {
                 // Its hits showed no blood or particles without the 0x1af the ordinary arrow sends (live 2026-11-02).
                 Payload = (ProjectileOffense)use.Payload! with { HitPacket = true, ActionSequence = sequence },
                 Profile = use.Profile with
                 {
-                    Legs = _ => new SpectralThrowLegs(thrown), LegLeash = SpectralThrowLegs.Leash(thrown), ReturnOvershoot = 0,
+                    Legs = _ => new SpectralThrowLegs(thrown, deceleration, returnAtWall: materialising),
+                    LegLeash = SpectralThrowLegs.Leash(thrown, deceleration), ReturnOvershoot = 0,
                     ReturnSpeedMultiplier = use.Profile.ReturnSpeedMultiplier * SpectralThrowLegs.ReturnSpeedMultiplier
                 }
             };
@@ -349,6 +363,21 @@ public static partial class Game
         var admittedGem = SupportedSkill(player, skillId);
         var own = admittedGem.Stats;
         var merged = MergeSkillStats(playerStats, own);
+        if (SkillsFor(player).EffectId(gem.Effect) is "Fireball" or "FireballAltX" or "FireballAltY")
+        {
+            bool cannotIgnite = merged.GetValueOrDefault(Stat.FireballCannotIgnite) != 0;
+            int scorch = merged.GetValueOrDefault(Stat.FireballChanceToScorchPct);
+            if (cannotIgnite || scorch != 0)
+            {
+                var projected = new Dictionary<uint, int>(own);
+                if (cannotIgnite) projected[Stat.NeverIgnite] = 1;
+                if (scorch != 0) projected[Stat.ChanceToScorchPct] =
+                    ActorScale.Add(Stat.ChanceToScorchPct, projected.GetValueOrDefault(Stat.ChanceToScorchPct), scorch);
+                own = projected;
+                admittedGem = admittedGem with { Stats = own };
+                merged = MergeSkillStats(playerStats, own);
+            }
+        }
         int Get(uint k) => merged.GetValueOrDefault(k);
         int Player(uint k) => playerStats.GetValueOrDefault(k);
         int Own(uint k) => own.GetValueOrDefault(k);
@@ -398,9 +427,10 @@ public static partial class Game
         // A dual-wielded attack's projectiles carry the hand this use swings (AttackHands): its weapon's damage, local
         // modifiers, accuracy and critical chance. A totem's own use swings the main hand.
         var swingHand = spell || totem is not null ? AttackHand.Main : AttackHandFor(player, skillId, sequence);
-        var handWeapon = OffHandSwing(player, swingHand);
+        var shield = spell ? null : ShieldWeapon(player, skillId);
+        var handWeapon = shield ?? OffHandSwing(player, swingHand);
         int? handCritical = SwingWeaponCritical(player, swingHand);
-        var local = spell ? null : HandLocalSources(player, swingHand);
+        var local = spell || shield is not null ? null : HandLocalSources(player, swingHand);
         int addedChaos = sacrifice?.AddedChaos() ?? 0;
         string hand = spell ? "spell" : "main_hand";
         var hitInputs = SupportedHitInputsFor(player, skillId, area: false, weapon: handWeapon, capturedGem: admittedGem, projectile: true, addedChaos: addedChaos, totem: totem is not null);
@@ -419,6 +449,7 @@ public static partial class Game
         {
             WeaponAttack = weaponAttack,
             TargetCritical = TargetCriticalBonuses.From(playerStats, own),
+            SkeletonWeaponContactSource = weaponAttack && totem is null ? SkeletonWeaponContactSource(player, swingHand, local) : null,
             ProjectileAttack = !spell && SkillsFor(player).IsProjectile(gem.Effect),
             TinctureKill = weaponAttack && totem is null ? TinctureKillBonusFor(player, playerStats, swingHand) : null,
             NoExtraCriticalDamage = CriticalHitsDealNoExtraDamage(playerStats, own),
@@ -430,6 +461,9 @@ public static partial class Game
             Effect = gem.Effect, Level = gem.Level, Quality = gem.Quality, SourceSkill = skillId, Gem = gem.Gem,
             HitPacket = true, ActionSequence = sequence,
             SkillStats = new Dictionary<uint, int>(own), FirstHit = new(),
+            FreezingPulseFalloff = SkillsFor(player).EffectId(gem.Effect) is
+                "FreezingPulse" or "FreezingPulseAltX" or "FreezingPulseAltY" or "FreezingPulseRoyale",
+            RemainingChainDamagePercent = Own(Stat.CobraLashHitAndAilmentDamagePlusPctFinalForEachRemainingChain),
             Spider = hitInputs is null ? null : CaptureSpiderDamage(player, hitInputs,
                 AddedEffectiveness(player, gem.Effect, gem.Level), context: false, local: local,
                 bow: !spell && WeaponProfileFor(player, activeSet: true).Bow, offHand: swingHand == AttackHand.Off),
@@ -480,7 +514,7 @@ public static partial class Game
             // Kinetic Bolt's ZigZagProjectile action creates and zig-zags both primary and secondary projectiles locally.
             // Molten Strike's action spawns its local chunks on melee hit (0x141a6a4b0 -> 0x141ba7c30); server objects would duplicate them.
             ClientPredicted = totem is not null || spell
-                || SkillsFor(player).EffectId(gem.Effect) is "SpectralThrow" or "KineticBolt" or "KineticBoltAltX" or "KineticBoltAltY" || IsLightningStrike(gem.Effect)
+                || SkillsFor(player).EffectId(gem.Effect) is "SpectralThrow" or "SpectralThrowAltX" or "KineticBolt" or "KineticBoltAltX" or "KineticBoltAltY" || IsLightningStrike(gem.Effect)
                 || GatewayProjectileSkillProfiles.IsMoltenStrike(SkillsFor(player).EffectId(gem.Effect)),
             // Only where the skill's recipe draws nothing of its own (PresentationFor prefers this one).
             Presentation = rain

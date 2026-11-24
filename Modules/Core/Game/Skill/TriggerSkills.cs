@@ -37,6 +37,8 @@ public static partial class Game
 
     public static string? TriggerOnlyReason(SupportedGem gem)
     {
+        if (gem.WornGrant is { EffectId: GuardianWeaponEffect })
+            return "Animate Guardian's Weapon triggers from a qualifying minion kill";
         if (GolemStat(gem.Stats, Stat.CastOnLoseCatsStealth) != 0)
             return "this skill can only trigger when Cat's Stealth is lost";
         if (gem.Supports.Any(s => s.Effect.Id == "SupportCastWhenDamageTaken"))
@@ -49,6 +51,8 @@ public static partial class Game
             return "this skill can only trigger on a linked attack critical strike";
         if (GolemStat(gem.Stats, Stat.CastSpellOnLinkedMeleeKill) != 0)
             return "this skill can only trigger on a linked melee attack's kill";
+        if (GolemStat(gem.Stats, Stat.TriggerOnTriggerLinkTargetHit) != 0)
+            return "this skill can only trigger on an Intuitive Link target's hit";
         if (GolemStat(gem.Stats, Stat.CastSpellWhileLinkedSkillChannelling) != 0)
             return "this skill can only trigger while a linked skill is channelled";
         if (GolemStat(gem.Stats, Stat.UniqueCosprisMaliceColdSpellsTriggered) != 0)

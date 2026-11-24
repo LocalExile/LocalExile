@@ -25,11 +25,21 @@ public static partial class Game
         {
             if (m.Dead || m.Life == 0 || !m.Hostile || Dist(m.Walk.Position(now), at) > radius) continue;
             m.TauntedUntil = now + seconds / m.RecipientDebuffRate;
+            m.TauntingPlayerId = player.Id;
             m.TakenFromPlayer = m.TakenFromPlayer with { All = player.EnemyDebuffs.TauntedDamageTakenPct };
             m.PresentationChanged?.Invoke();
             taunted++;
         }
         return taunted;
+    }
+
+    static bool TauntPreventsAttackEvasion(Player attacker, SpawnedMonster target, double now)
+    {
+        if (target.TauntedUntil <= now || target.TauntingPlayerId is not uint source) return false;
+        var taunter = source == attacker.Id ? attacker : attacker.Instance.Player(source);
+        return taunter is { PlayerLife: > 0, Closed: false, LeavingArea: false }
+            && ReferenceEquals(taunter.Area, attacker.Area)
+            && PlayerStat(taunter, Stat.EnemiesTauntedByYouCannotEvadeAttacks) != 0;
     }
 
     /// <summary>This player's Yoke of Suffering value on a monster, as their enemy-debuff step sets it (0 while they do
@@ -256,15 +266,17 @@ public static partial class Game
         for (int i = 0; i < ExposureTypes.Length; i++)
             if (!Timed(ref m.ExposureUntil[i], ref m.ExposureShownUntil[i], ref m.ExposureBuff[i], ExposureBuffRows[i], null))
                 EndExposureLocked(m, ExposureTypes[i]);
-        // Its Withered stacks (WitherOnHitLocked): one buff with their count and the time the last one has left, shown
+        // Its Withered stacks: one buff with their count and the time the last one has left, shown
         // again when either changes; off when none runs or it or the player dies.
-        if (m.Withered.Count > 0 || m.WitherBuff != 0)
+        if (m.Withered.Count > 0)
         {
             if (living) m.Withered.RemoveAll(s => s.Until <= now);
             else m.Withered.Clear();
-            int stacks = m.Withered.Count;
-            double until = stacks > 0 ? m.Withered.Max(s => s.Until) : 0;
-            if (m.WitherBuff != 0 && (stacks != m.WitherShownStacks || until != m.WitherShownUntil))
+        }
+        var (stacks, _, witheredUntil, witheredPct) = living ? ReadWithered(m, now) : default;
+        if (stacks > 0 || m.WitherBuff != 0)
+        {
+            if (m.WitherBuff != 0 && (stacks != m.WitherShownStacks || witheredUntil != m.WitherShownUntil))
             {
                 player.Area.Buffs.Clear(id, WitheredBuffRow, player.Id);
                 m.WitherBuff = 0;
@@ -272,10 +284,10 @@ public static partial class Game
             }
             if (stacks > 0 && m.WitherBuff == 0)
             {
-                (m.WitherShownStacks, m.WitherShownUntil) = (stacks, until);
+                (m.WitherShownStacks, m.WitherShownUntil) = (stacks, witheredUntil);
                 m.WitherBuff = 1;
-                player.Area.Buffs.Set(id, new(WitheredBuffRow, player.Id, Values: [(uint)Math.Round(m.Withered[^1].Pct), 1],
-                    U68: Buff.Seconds(until - now), Stacks: (ushort)stacks, U82: 0));
+                player.Area.Buffs.Set(id, new(WitheredBuffRow, player.Id, Values: [(uint)Math.Round(witheredPct), 1],
+                    U68: Buff.Seconds(witheredUntil - now), Stacks: (ushort)stacks, U82: 0));
                 counts[0]++;
             }
         }

@@ -33,6 +33,7 @@ public static partial class Game
         state.ArcaneSurgeCastSpeedPct = running ? Math.Max(state.ArcaneSurgeCastSpeedPct, castSpeedPct) : castSpeedPct;
         state.ArcaneSurgeManaRegenPct = running ? Math.Max(state.ArcaneSurgeManaRegenPct, manaRegenPct) : manaRegenPct;
         state.ArcaneSurgeUntil = running ? Math.Max(state.ArcaneSurgeUntil, until) : until;
+        GrantSpectreArcaneSurgeLocked(player, now);
         PresentStats(player);
         if (stronger || state.ArcaneSurgeUntil - state.ArcaneSurgeShownUntil >= ArcaneSurgeRepresentSeconds)
         {
@@ -142,6 +143,7 @@ public static partial class Game
     public static Dictionary<uint, int> WithSupportGemBuffs(Player player, Dictionary<uint, int> stats)
     {
         stats = WithSelfBuffs(player, WithTriggeredGuard(player, stats));
+        stats = WithVaalArcticArmour(player, stats);
         AddMomentumStats(player, stats);
         if (!player.SupportGems.ArcaneSurgeActiveAt(AreaTime(player))) return stats;
         StatsChangeIn(player.SupportGems.ArcaneSurgeUntil - AreaTime(player));

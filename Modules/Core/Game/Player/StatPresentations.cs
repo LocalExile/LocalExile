@@ -41,8 +41,8 @@ public static partial class Game
     // movement), a blocker was added, and with the stat presentations (a stat change moves radii and grants).
     static readonly Func<Player, Task>[] NearbyPresentations =
     [
-        SendNearbyAuras, TickPassiveAuras, SendBlind, SendPushOut, SendNearbyWorld, SendQuestThresholds,
-        SendFlaskGrounds,
+        SendNearbyAuras, SendReceivedTotemAura, TickPassiveAuras, SendBlind, SendPushOut, SendNearbyWorld,
+        SendQuestThresholds, SendFlaskGrounds,
     ];
 
     // A monster that never dies reached its quest threshold (its PresentationChanged).
@@ -127,8 +127,9 @@ public static partial class Game
         // a1q4: coming near the Glyph Wall ("Investigate the Mud Flats for a way to lower the water").
         if (player.Glyphs?.Wall is not null && !player.Character.HasQuestFlag(GlyphQuest.SeenGlyphWall) && Sees(player, GlyphWallSight))
             await SetQuestFlags(player, [GlyphQuest.SeenGlyphWall]);
-        // The quest engine's sight rules (room objects, exits).
+        // The quest engine's sight rules (room objects, exits) and town NPC voice-line proximity triggers.
         await CheckQuestSights(player, at);
+        await CharacterVoiceLines.CheckNpcProximity(player, at);
         if (player.QuestNearSpawns.Count > 0) await CheckQuestNearSpawns(player, at);
     }
 

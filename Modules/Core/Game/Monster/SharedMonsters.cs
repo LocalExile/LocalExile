@@ -134,7 +134,17 @@ public static partial class Game
     // At disconnect: this player's minions leave the instance with them.
     public static void RemoveLeavingMinionsLocked(Player left)
     {
-        foreach (uint id in left.MinionOrigins.Keys) left.Instance.World.Area.Monsters.Remove(id);
+        foreach (uint id in left.MinionOrigins.Keys)
+        {
+            if (OwnedFighter(left, id) is { } fighter)
+            {
+                ClearItemHarbingerLocked(left, fighter);
+                ClearEffigyHexesLocked(fighter);
+                ClearSkitterAuraLocked(fighter);
+                ClearSharedMinionAuras(left, id);
+            }
+            left.Instance.World.Area.Monsters.Remove(id);
+        }
     }
 
 

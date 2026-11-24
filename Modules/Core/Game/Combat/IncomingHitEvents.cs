@@ -1,12 +1,23 @@
 public static partial class Game
 {
+    const string TakenProjectileDamage = "have_taken_projectile_damage_recently";
+
     // Every accepted enemy hit records the same events, whether it came from a monster action or a testing tool.
     // Call in the area's frame after applying damage. Presentation must not create gameplay events a second time.
     static void RecordIncomingHitLocked(Player player, double now, bool spell, bool blocked, bool suppressed,
-        long lifeDamage, bool damaged, bool critical = false)
+        long lifeDamage, bool damaged, bool critical = false, bool enemy = true, bool projectile = false)
     {
-        player.RecentEnemyHits.Record(now);
+        if (enemy)
+        {
+            player.RecentEnemyHits.Record(now);
+            if (damaged)
+            {
+                player.RecentEvents.Record(DamagedByHitEvent, now);
+                if (projectile) player.RecentEvents.Record(TakenProjectileDamage, now);
+            }
+        }
         player.RecentEvents.Record(StatConditions.BeenHit, now);
+        if (critical) player.LastCritTakenAt = now;
         if (blocked)
         {
             player.RecentEvents.Record(StatConditions.Blocked, now);
@@ -14,7 +25,6 @@ public static partial class Game
             QueueFlaskTrigger(player, FlaskEnchantments.Trigger.Block);
         }
         if (suppressed) player.RecentEvents.Record(StatConditions.SuppressedSpell, now);
-        if (damaged) player.RecentEvents.Record(DamagedByHitEvent, now);
         if (lifeDamage > 0 && lifeDamage * 100 >= (long)player.PlayerMaxLife * 15)
         {
             player.RecentEvents.Record(StatConditions.TakenSavageHit, now);

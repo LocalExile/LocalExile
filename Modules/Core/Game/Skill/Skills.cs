@@ -584,10 +584,22 @@ public static partial class Game
                 if (Stat.TotalSkillAreaOfEffectRadiusPlusPctIncludingFinal is var scaleKey) stats[scaleKey] = radiusPercent;
                 if (Stat.SkillAreaOfEffectPlusPct is var areaKey) stats[areaKey] = increased;
             }
-            // Other area skills: the client's effect builders read the final radius (0x4876) too; without it Ice Nova drew
-            // nothing (live 2026-10-30). The radius the server's hit uses (SkillRadius, AreaSkillHit).
-            else if (Get(Stat.ActiveSkillBaseAreaOfEffectRadius) > 0 && Stat.ActiveSkillAreaOfEffectRadius is var finalRadius)
-                stats[finalRadius] = SkillRadius(player, own, SkillsFor(player).IsSpell(effect), effect);
+            // Other area skills (slams, sweeps, area spells): the client reads final radius (0x4876) as well as
+            // total_skill_area_of_effect_radius_+%_including_final (0x1591) and skill_area_of_effect_+% (0xd7) for
+            // visual scaling; publishing all three aligns client visuals with server SkillRadius.
+            else if (Get(Stat.ActiveSkillBaseAreaOfEffectRadius) > 0 || SkillsFor(player).IsArea(effect))
+            {
+                bool spellArea = SkillsFor(player).IsSpell(effect) && !SkillsFor(player).IsAttack(effect);
+                var areaStats = SkillAreaStats(player, own, effect, playerStats);
+                int AreaGet(uint key) => areaStats.GetValueOrDefault(key);
+                int baseRadius = SkillArea.BaseRadius(SkillsFor(player).EffectId(effect), AreaGet);
+                if (Stat.ActiveSkillAreaOfEffectRadius is var finalRadius)
+                    stats[finalRadius] = SkillArea.Radius(baseRadius, AreaGet, spellArea);
+                if (Stat.TotalSkillAreaOfEffectRadiusPlusPctIncludingFinal is var scaleKey)
+                    stats[scaleKey] = SkillArea.RadiusPercent(AreaGet, spellArea);
+                if (Stat.SkillAreaOfEffectPlusPct is var areaKey)
+                    stats[areaKey] = SkillArea.Increased(AreaGet, spellArea);
+            }
             // The final secondary radius too (0x4879): Holy Sweep's hammer art scales to it over its base size
             // (0x1414f44b0, 0x1414f50e0), and at 0 the hammers were drawn at scale 0, never seen (live 2026-11-09).
             if (Get(Stat.ActiveSkillBaseSecondaryAreaOfEffectRadius) > 0
@@ -829,8 +841,7 @@ public static partial class Game
                     Stat.NumberOfDominatedMonsters, Stat.NumberOfDominatedVaalMonsters }) Publish(count, GolemStat(playerStats, count));
             }
             if (GolemData.Find(SkillsFor(player).EffectId(effect)) is { IsGolem: true })
-                Publish(Stat.NumberOfGolemsAllowed, GolemEffectiveLimit(OwnPanel(Stat.BaseNumberOfGolemsAllowed),
-                    n => GolemStat(playerStats, n)));
+                Publish(Stat.NumberOfGolemsAllowed, GolemRosterLimit(own, playerStats));
             var placed = PlacedKind(supported);
             if (placed.Trap || placed.Mine)
             {
@@ -1150,6 +1161,9 @@ public static partial class Game
         if (VaalMinionProxyDisabled(player, effect, skillId) is { } proxy) return proxy;
         if (SkillMinionFamily(SkillsFor(player).EffectId(effect)) is { } family && !CanHaveMinion(PlayerStatValues(player), family))
             return "equipment prevents summoning this type of minion";
+        if (DarkMonarchCastFamily(SkillsFor(player).EffectId(effect)) is { } darkFamily
+            && !DarkMonarchAllows(darkFamily, StatSourceValues(player)))
+            return "The Dark Monarch prevents this minion type";
         if (OwnAuraSkillRestricted(player, effect, skillId)) return "own aura skills are disabled";
         if (skillId is ushort beastSkill && BeastKindFor(SkillsFor(player).EffectId(effect)) is { } beastKind)
         {
@@ -1191,6 +1205,8 @@ public static partial class Game
         if (gem.Effect != effect || gem.SourceGem is null && !gem.Granted && gem.WornGrant is null)
             return "skill is unavailable";
         if (gem.WornGrant is not null && !gem.RequirementsMet) return "the granting item is inactive";
+        if (!triggered && gem.WornGrant is { } grant && TriggeredItemMinion(grant) is not null)
+            return "this minion is triggered by its item";
         if (GolemStat(gem.Stats, Stat.CannotCastCurses) != 0) return "this curse is triggered by Hextouch";
         if (!triggered && CurseCatalog.Hex(SkillsFor(player).EffectId(effect)) && IsBaneLinkedHex(player, gem))
             return "this curse is triggered by Bane";

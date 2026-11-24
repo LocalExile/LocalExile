@@ -81,10 +81,8 @@ public static partial class Game
                     SupportEffectPct: supportEffect, AffectsSelf: affectsSelf, Stance: stance,
                     ReservesLife: context.Life, ReservationEfficiencyPct: context.Efficiency,
                     IsHerald: IsHeraldAura(effectId),
-                    ArtVariation: artVariation, HideVisual: hideVisual, SourceVisual: sourceVisual, BuffVisual: buffVisual,
-                    // This aura's own named effect term, from the caster's raw sources; the reconcile re-stamps it
-                    // whenever those sources change, so the record stays fresh without another read per hit.
-                    PerAuraEffectPct: AuraCatalog.PerAuraEffectPctFor(effectId, CharacterStatSources(player).Stats));
+                    ArtVariation: artVariation, HideVisual: hideVisual, SourceVisual: sourceVisual, BuffVisual: buffVisual);
+                candidate = WithCasterAuraStamps(candidate, CharacterStatSources(player).Stats);
                 candidates.Add(stanceSource ? candidate with { StanceOwner = new object() } : candidate);
             }
         }
@@ -255,6 +253,7 @@ public static partial class Game
         ChargesOnDeath(player);
         ClearBloodChargesOnDeath(player);
         ClearResonance(player);
+        EndTimedSkillBuffs(player);
         player.WitchbaneImmunityUntil = 0;
         ClearMomentum(player);
         VaalAuraStates.Remove(player); // CancelOnDeath: it cannot return after resurrection.
@@ -262,6 +261,7 @@ public static partial class Game
         player.StrikeLocations.Clear();   // skill_location_memory is CancelOnDeath
         player.SpiritChieftains.End(AreaTime(player));   // the chieftain minion dies with the player
         player.Totems.KillAll(AreaTime(player));   // and his totems (the tick sends their deaths)
+        SyncRejuvenationAllyZones(player, AreaTime(player), leaving: true);
         // Every "Recently" ends at death, the enemies' "hit by you" and "hit you" recently too.
         foreach (var monster in player.Area.Monsters.Values) monster.PlayerHitAt = monster.HitPlayerAt = double.NegativeInfinity;
         foreach (var (id, life) in RecoverBossesOnDeath(player))
@@ -519,6 +519,8 @@ public static partial class Game
         if (es + fromEs > 0)
         {
             player.EnergyShield.Spend(es + fromEs);
+            if (ReadShaperMemoryVariant(playerStats) != 0)
+                RecordShaperMemoryEnergyShieldLocked(player, es + fromEs, playerStats);
             // The client paid it from its own Energy Shield too: the pool goes out even when recharge has already brought
             // it back to the last value written (live 2026-11-13: the globe stayed at 5249/5324 while the server was full).
             player.Frames.Area?.Life.Resend(player);
@@ -1161,6 +1163,11 @@ public static partial class Game
                     player.EnergyShield.Empty();
                     KeystoneRecovery.Remove(player);
                     ClearAntiquarianOnDeath(player);
+                    player.LastStunnedOrBlockedStunAt = double.NegativeInfinity;
+                    player.LastStoppedTakingDotAt = double.NegativeInfinity;
+                    player.TakingDotLastTick = false;
+                    player.LastCritTakenAt = double.NegativeInfinity;
+                    player.StationarySince = double.NegativeInfinity;
                     periodicRegenStart = null;
                     lifeAfter = lifeBefore;
                     manaAfter = manaBefore;
@@ -1168,15 +1175,33 @@ public static partial class Game
                 else
                 {
                     uint lifeCap = LifeCap(player);
-                    leech.ClearFull(now, lifeBefore >= lifeCap, manaBefore >= manaCap,
+                    var leeched = TakeLeechRecovery(player, now, lifeBefore >= lifeCap, manaBefore >= manaCap,
                         player.EnergyShield.Current >= player.EnergyShield.Maximum);
-                    var leeched = leech.TakeRecovery(now);
                     int IncomingStat(uint name) => RecoveryStat(name);
                     double mapRecovery = PanelStats.MapRecoveryMultiplier(RecoveryStat);
                     bool noRegeneration = RecoveryStat(Stat.MapPlayersNoRegenerationIncludingEs) != 0;
                     life *= mapRecovery;
                     double takenFactor = IncomingStat(Stat.BaseCannotBeDamaged) > 0 ? 0
-                        : IncomingResourceDefences.FinalTakenFactor(player.Pools, IncomingStat);
+                        : IncomingResourceDefences.FinalTakenFactor(player.Pools, IncomingStat)
+                            * Math.Max(0, 1 + IncomingStat(Stat.DegenEffectPlusPct) / 100.0);
+                    bool movingNow = player.Walk.Moving(now);
+                    if (movingNow) player.StationarySince = double.NegativeInfinity;
+                    else if (!double.IsFinite(player.StationarySince)) player.StationarySince = now;
+                    bool takingDotNow = player.TrapDegenPerSecond > 0 || burnPerSecond > 0
+                        || player.ElementalAilments.Magnitude(PlayerElementalAilments.Kind.Ignite, now) > 0
+                        || player.IncomingAilments.Bleeding(now)
+                        || player.IncomingAilments.PoisonStacks(now) > 0
+                        || CorruptedBloodStacks(player, now) > 0;
+                    if (player.TakingDotLastTick && !takingDotNow)
+                    {
+                        player.LastStoppedTakingDotAt = now;
+                        if (IncomingStat(Stat.LifeAndEnergyShieldRecoveryRatePlusPctIfStoppedTakingDamageOverTimeRecently) != 0)
+                        {
+                            rates.Stale = true;
+                            MarkPlayerStats(player, PlayerStatStep.Recovery);
+                        }
+                    }
+                    player.TakingDotLastTick = takingDotNow;
                     double trapTakenFactor = takenFactor
                         * Math.Max(0, 1 + IncomingStat(IncomingResourceDefences.UnhingedSaneDamageFinal) / 100.0);
                     burnCarry += (InGracePeriod(player) ? 0 : burnPerSecond * player.ElementalAilments.DamageTakenFactor(now))
@@ -1341,13 +1366,14 @@ public static partial class Game
         foreach (var e in ended)
             if (FlaskBuffs && e.Buff != 0) { player.Area.Buffs.Clear(player.Id, e.BuffRow, player.Id, tag: e.Buff); Note($"player buff {e.Buff}: flask {e.Slot} effect ends ({why})"); }
             else Console.WriteLine($"[gateway] {player.Connection.Remote} flask {e.Slot} effect ends ({why})");
-        // A life, mana or hybrid flask's "during effect" mods end with its recovery.
-        bool changed;
-        changed = player.RecoveryFlaskStats.Prune(player.FlaskEffects);
+        // A life, mana or hybrid flask's "during effect" mods end with its recovery; plain recovery flasks can also
+        // satisfy "_during_any_flask_effect" item modifiers when the last active recovery flask ends.
+        bool changed = player.RecoveryFlaskStats.Prune(player.FlaskEffects);
         if (changed) RecomputePoolsAndSpeed(player);
-        if (changed)
+        bool conditionalChanged = !changed && !player.FlaskEffects.Any && ended.Count > 0 && EnsureConditionalItemPools(player);
+        if (changed || conditionalChanged)
         {
-            Console.WriteLine($"[gateway] {player.Connection.Remote} recovery flask during effect ends ({why})");
+            if (changed) Console.WriteLine($"[gateway] {player.Connection.Remote} recovery flask during effect ends ({why})");
             await SendCharacterStats(player, PlayerStatChange.Flasks);
         }
     }
@@ -1377,7 +1403,8 @@ public static partial class Game
         double dotMultiplier = Combined(Stat.DotMultiplierPlus) + Combined(Stat.FireDotMultiplierPlus);
         dps = dps * Math.Max(0, 100 + dotMultiplier) / 100;
         int deliriumMore = playerStats.GetValueOrDefault(Stat.DeliriumAuraDamageOverTimePlusPctFinal);
-        return dps * Math.Max(0, 1 + deliriumMore / 100d) * ChargeDamageMore(playerStats);
+        return dps * Math.Max(0, 1 + deliriumMore / 100d) * ChargeDamageMore(playerStats)
+            * DamageStats.ElementalMore(playerStats.GetValueOrDefault(Stat.CombinedElementalDamagePlusPctFinal));
     }
 
     // Righteous Fire's burn: a damage aura (DamageAuras.cs) around the player, its fire damage a share of the player's
@@ -1547,13 +1574,14 @@ public static partial class Game
         => (SpellDefences(player).Suppression, Math.Max(0, player.Pools.SpellSuppressionEffect),
             player.Pools.SpellSuppressionLucky, player.Pools.SpellSuppressionUnlucky);
 
-    public static (int Suppression, int Dodge) SpellDefences(Player player)
+    public static (int Suppression, int Dodge) SpellDefences(Player player) =>
+        SpellDefences(player, SelfCurseConditionInputs(player), AreaTime(player));
+
+    static (int Suppression, int Dodge) SpellDefences(Player player, IReadOnlyDictionary<uint, int> stats, double now)
     {
-        double now = AreaTime(player);
-        bool fullLife, fullEnergyShield, hitRecently;
-        fullLife = CountsAsFullLife(player.PlayerLife, player.PlayerMaxLife, SelfCurseConditionInputs(player));
-        fullEnergyShield = player.PlayerLife > 0 && player.EnergyShield.Full;
-        hitRecently = now - player.LastEnemyHitAt <= RecentlySeconds;
+        bool fullLife = CountsAsFullLife(player.PlayerLife, player.PlayerMaxLife, stats);
+        bool fullEnergyShield = player.PlayerLife > 0 && player.EnergyShield.Full;
+        bool hitRecently = now - player.LastEnemyHitAt <= RecentlySeconds;
         bool moving = player.Walk.Moving(now);
         return (CharacterStats.SuppressionChance(player.Pools, fullLife, moving, hitRecently, fullEnergyShield),
             CharacterStats.SpellDodgeChance(player.Pools, fullLife, moving, hitRecently, fullEnergyShield));
@@ -1797,7 +1825,8 @@ public static partial class Game
         foreach (var (id, effect) in layout.Effects)
             messages.Add(($"0x02bb create transition effect 0x{id:x} {effect}",
                 Create(id, InstanceEntities.ObjectTypeHash(effect.Type), effect.Blob())));
-        if (layout.Waypoint is { } waypoint)
+        var waypoint = InstanceEvents.RunAreaWaypoint(player, layout.Waypoint);
+        if (waypoint is not null)
             messages.Add(($"0x02bb create waypoint 0x{WaypointCatalog.ObjectId:x} {waypoint}",
                 Create(WaypointCatalog.ObjectId, InstanceEntities.ObjectTypeHash(WaypointObject.MetadataPath), waypoint.Blob())));
         if (Environment.GetEnvironmentVariable("Game_GATEWAY_ENTER") == "1")
@@ -1828,7 +1857,7 @@ public static partial class Game
                 messages.Add(($"0x01a9 area transition 0x{id:x} enters wake zone", Wake(id)));
             foreach (var (id, _) in layout.Effects)
                 messages.Add(($"0x01a9 transition effect 0x{id:x} enters wake zone", Wake(id)));
-            if (layout.Waypoint is not null) messages.Add(($"0x01a9 waypoint 0x{WaypointCatalog.ObjectId:x} enters wake zone", Wake(WaypointCatalog.ObjectId)));
+            if (waypoint is not null) messages.Add(($"0x01a9 waypoint 0x{WaypointCatalog.ObjectId:x} enters wake zone", Wake(WaypointCatalog.ObjectId)));
             // The attributes once more as a stats update. UI built on entering caches them (0x141e869c0 reads the Stats
             // component's getter); live 2026-10-18 the cache held 0 while the getter returned 14/14/32.
             messages.Add(("0x01b3 class attributes", []));

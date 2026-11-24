@@ -27,12 +27,6 @@ public static partial class Game
         var state = ResourceEffectsOf(player);
         if (!ResourceEffectsCurrent(player, state) || player.LeavingArea) return 0;
         int Get(uint key) => playerStats.GetValueOrDefault(key);
-        // Redirect the combined non-chaos hit before Ward, retaining the physical share.
-        int nonChaos = (int)Math.Min(int.MaxValue, (long)physical + other);
-        var kept = TotemsTakeHitLocked(player, nonChaos, chaos, at, playerStats);
-        physical = nonChaos == 0 ? 0 : (int)((long)physical * kept.NonChaos / nonChaos);
-        other = kept.NonChaos - physical;
-        chaos = kept.Chaos;
         int less = IncomingResourceDefences.LessTakenPct(player.Pools, Get);
         physical = IncomingResourceDefences.Taken(physical, Get, less);
         other = IncomingResourceDefences.Taken(other, Get, less);
@@ -42,12 +36,31 @@ public static partial class Game
         physical = ApplyUnhingedTaken(physical, DamageType.Physical, Get);
         chaos = ApplyUnhingedTaken(chaos, DamageType.Chaos, Get);
         (physical, other, chaos) = MitigateTriggeredGuardHit(player, physical, other, chaos, at);
+        (physical, other, chaos) = VaalArcticArmourHit(player, physical, other, chaos, at);
+        // Redirect the mitigated non-chaos and chaos hit before Aegis, Guard absorption, Ward, ES and Life, retaining
+        // the physical share.
+        int nonChaos = (int)Math.Min(int.MaxValue, (long)physical + other);
+        var kept = TotemsTakeHitLocked(player, nonChaos, chaos, at, playerStats);
+        physical = nonChaos == 0 ? 0 : (int)((long)physical * kept.NonChaos / nonChaos);
+        other = kept.NonChaos - physical;
+        chaos = kept.Chaos;
         // Recoup counts the mitigated hit damage before Aegis, guard absorption, Ward and Energy Shield absorb any of it.
         int recoupable = (int)Math.Min(int.MaxValue, (long)physical + other + chaos);
         // Physical Aegis follows mitigation and totem redirection. Path of Exile's damage order puts an Aegis before
         // Ward; only the Aegis overflow reaches Ward, ES, Mana and Life.
         physical = PhysicalAegisDamage(player, physical, at);
         (physical, other, chaos) = AbsorbTriggeredGuardHit(player, physical, other, chaos, at);
+        int total = (int)Math.Min(int.MaxValue, (long)physical + other + chaos);
+        int diverted = MinionsTakeOwnerHitLocked(player, total, at, playerStats);
+        if (diverted > 0)
+        {
+            long keptTotal = total - diverted;
+            int keptNonChaos = (int)(((long)physical + other) * keptTotal / total);
+            physical = (int)(physical * keptTotal / total);
+            other = keptNonChaos - physical;
+            chaos = (int)keptTotal - keptNonChaos;
+        }
+        recoupable -= diverted;
         RecordDamageTakenTriggers(player, (int)Math.Min(int.MaxValue, (long)physical + other + chaos), at);
         (physical, other, chaos) = AbsorbPlayerWard(player, physical, other, chaos, at, playerStats);
         CrabPhysicalHitLocked(player, physical, at, playerStats);

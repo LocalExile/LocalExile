@@ -79,10 +79,7 @@ public static partial class Game
             var sources = CharacterStatSources(player, nodes).Stats;
             outputs.Sources = sources;
             foreach (var (k, v) in sources) stats[k] = v;
-            // Only the general increased/reduced minion stats transfer. Equivalent damage rules use the highest share.
-            int minionDamageShare = Math.Max(sources.GetValueOrDefault(Stat.AdditiveMinionDamageModifiersApplyToYouAtPctValue),
-                sources.GetValueOrDefault(Stat.AdditiveMinionDamageModifiersApplyToYouAt150PctValue) != 0 ? 150
-                : sources.GetValueOrDefault(Stat.MinionDamageIncreasesAndReductionsAlsoAffectsYou) != 0 ? 100 : 0);
+            int minionDamageShare = PlayerMinionDamageShare(sources);
             if (minionDamageShare > 0)
                 AddTo(stats, Stat.DamagePlusPct, (long)sources.GetValueOrDefault(Stat.MinionDamagePlusPct) * minionDamageShare / 100);
             if (MapModsOf(player) is { } map)
@@ -99,6 +96,8 @@ public static partial class Game
             if (player.RecentEvents.NextExpiry(now) is double expiry) StatsChangeIn(expiry - now);
             if (player.ElementalAilments.NextChangeAt(now) is double ailment) StatsChangeIn(ailment - now);
             if (player.IncomingAilments.NextChangeAt(now) is double incoming) StatsChangeIn(incoming - now);
+            if (player.UtilityFlaskEffects.NextExpiry(now) is double utilityFlask) StatsChangeIn(utilityFlask - now);
+            if (player.FlaskEffects.NextExpiry(now) is double recoveryFlask) StatsChangeIn(recoveryFlask - now);
             MarkLaterStep(player, PlayerStatStep.Onslaught);
         });
         Step(PlayerStatStep.Siphoning, (player, stats, _) =>
@@ -114,8 +113,9 @@ public static partial class Game
         });
         Step(PlayerStatStep.Golems, (player, stats, _) => AddGolemStats(player, stats));
         Step(PlayerStatStep.Offerings, (player, stats, _) => AddSelfOfferingStats(player, stats));
-        Step(PlayerStatStep.PanelDefaults, (_, stats, _) =>
+        Step(PlayerStatStep.PanelDefaults, (player, stats, _) =>
         {
+            ApplyConvergenceStats(player, stats);
             foreach (var (stat, value) in PanelStatDefaults.Compute(name => GetIn(stats, name)))
                 if (stat is var key) stats[key] = value;
         });
@@ -132,9 +132,19 @@ public static partial class Game
             if (OwnEternalBlessingActive(player)) stats[Stat.NonBlessingSkillsWithManaReservationAreDisabled] = 1;
             // "X% increased Effect of Herald Buffs on you" (passives, gear and tattoos) scales the heralds' buff stats.
             int heraldEffectPct = GetIn(stats, Stat.HeraldEffectOnSelfPlusPct);
+            var minionAuras = SelectMinionAuras(player, player.Id, auras, player.Pools.AuraEffectPct);
             foreach (var (k, v) in AuraCatalog.RawStats(auras.Where(a => a.AffectsSelf), player.Pools.AuraEffectPct, SkillsFor(player), Stats,
-                         heraldEffectPct).Concat(MinionAuraStats(player, auras)).ToList())
+                         heraldEffectPct).Concat(minionAuras.SelectMany(a => a.Stats)).ToList())
                 AddTo(stats, k, v);
+            // Commander of Darkness ("You and nearby Allies deal 30% increased Damage"): applies to the caster even
+            // with zero active auras, deduplicated against any Commander damage already counted by AuraCatalog.
+            int ownCommanderDamage = Math.Max(0, GetIn(stats, Stat.DamagePlusPctForYouAndAlliesAffectedByYourAuras));
+            if (ownCommanderDamage > 0)
+            {
+                int auraCommanderDamage = auras.Where(a => a.AffectsSelf && AuraCatalog.CommanderEligible(a, SkillsFor(player)))
+                    .Select(a => a.CommanderDamagePct).DefaultIfEmpty(0).Max();
+                if (ownCommanderDamage > auraCommanderDamage) AddTo(stats, Stat.DamagePlusPct, ownCommanderDamage - auraCommanderDamage);
+            }
             // "Auras from your Skills grant #% increased Damage to you and Allies": once for each of the player's own Aura
             // skills affecting them, scaled by that aura's effect as its other stats are.
             // shortcut: allies and minions do not get it yet.
@@ -250,6 +260,13 @@ public static partial class Game
         {
             int Get(uint name) => GetIn(stats, name);
             double statsAt = AreaTime(player);
+            if (Get(Stat.LifeAndEnergyShieldRecoveryRatePlusPctIfStoppedTakingDamageOverTimeRecently) is int stoppedDotRec and not 0
+                && statsAt - player.LastStoppedTakingDotAt <= RecentEvents.WindowSeconds)
+            {
+                AddTo(stats, Stat.LifeRecoveryRatePlusPct, stoppedDotRec);
+                AddTo(stats, Stat.EnergyShieldRecoveryRatePlusPct, stoppedDotRec);
+                StatsChangeIn(player.LastStoppedTakingDotAt + RecentEvents.WindowSeconds - statsAt + 1e-6);
+            }
             bool moving = player.Walk.Moving(statsAt);
             var recovery = PanelStats.WhileMoving(Get, moving);
             if (Stat.EvasionRating is var evasionKey)

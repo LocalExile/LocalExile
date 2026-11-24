@@ -76,23 +76,19 @@ public sealed class WarcryBuffTests
     }
 
     [Fact]
-    public void Rallying_Cry_Generals_Cry_and_Vengeful_Cry_grant_no_buff()
+    public void Generals_Cry_and_Vengeful_Cry_grant_no_buff()
     {
         using var f = new TriggeredSummonTests.Fixture();
         var player = f.Player;
         var playerStats = new Dictionary<uint, int> { [Stat.WarcriesHaveInfinitePower] = 1 };
 
-        // Rallying Cry's row (399) does not settle its values, General's Cry has no buff row at all, and
-        // Vengeful Cry's row (2476) is a retaliation buff with no warcry handling here.
-        Assert.Null(Game.WarcryBuffRow("RallyingCry"));
+        // General's Cry has no buff row. Vengeful Cry's row (2476) describes its retaliation buff.
         Assert.Null(Game.WarcryBuffRow("GeneralsCry"));
         Assert.Null(Game.WarcryBuffRow("VengefulCry"));
-        Assert.Null(Game.WarcryBuffStats("RallyingCry", 25, 1.0, _ => 0));
         Assert.Null(Game.WarcryBuffStats("GeneralsCry", 25, 1.0, _ => 0));
         Assert.Null(Game.WarcryBuffStats("VengefulCry", 25, 1.0, _ => 0));
 
         var before = Game.CharacterPlayerStats(player);
-        Game.ApplyWarcryBuffLocked(player, "RallyingCry", new Dictionary<uint, int>(), playerStats, (100, 100), 60, 1, 4.0, 1.0);
         Game.ApplyWarcryBuffLocked(player, "GeneralsCry", new Dictionary<uint, int>(), playerStats, (100, 100), 60, 1, 4.0, 1.0);
         Game.ApplyWarcryBuffLocked(player, "VengefulCry", new Dictionary<uint, int>(), playerStats, (100, 100), 60, 1, 4.0, 1.0);
         var after = Game.CharacterPlayerStats(player);

@@ -109,6 +109,8 @@ public static class StatConditions
         "gain_phasing_while_at_maximum_frenzy_charges", "gain_phasing_while_affected_by_haste",
     };
 
+    public const string DuringAnyFlaskEffect = "_during_any_flask_effect";
+
     static readonly string[] StateSuffixes =
     [
         "_while_on_full_energy_shield", "_while_es_full", "_on_full_energy_shield", "_while_no_energy_shield",
@@ -122,7 +124,7 @@ public static class StatConditions
         "_while_unarmed", "_while_wielding_staff", "_while_wielding_sword",
         "_while_life_leeching", "_while_mana_leeching", "_while_energy_shield_leeching", "_while_es_leeching", "_while_leeching",
         "_while_at_maximum_endurance_charges", "_while_at_maximum_frenzy_charges", "_while_at_maximum_power_charges",
-        "_while_using_flask", "_during_flask_effect", "_if_affected_by_no_flasks",
+        "_while_using_flask", "_during_flask_effect", DuringAnyFlaskEffect, "_if_affected_by_no_flasks",
         "_while_bleeding", "_while_poisoned", "_while_on_consecrated_ground",
         "_while_cursed", "_while_not_cursed",
         .. new[] { "frenzy", "power", "endurance" }.SelectMany(type => new[]
@@ -158,11 +160,15 @@ public static class StatConditions
     static bool EndsWithCondition(string id, string condition) => id.EndsWith(condition, StringComparison.Ordinal)
         || TrailingUnits.Any(unit => id.EndsWith(condition + unit, StringComparison.Ordinal));
 
-    static string? StateSuffix(string statId) =>
-        // These flags change how leech behaves at full ES; they are active below full ES as well.
+    static bool IsRecipientRule(string statId) =>
+        // Resource and ailment rules consume these flags at the point where they apply.
         statId is "energy_shield_leech_does_not_stop_on_full_energy_shield"
             or "energy_shield_leech_from_attacks_does_not_stop_on_full_energy_shield"
-            ? null : StateSuffixes.FirstOrDefault(s => EndsWithCondition(statId, s));
+            or "minion_chance_to_deal_double_damage_while_on_full_life_%"
+            or "minion_no_extra_bleed_damage_while_moving";
+
+    static string? StateSuffix(string statId) =>
+        IsRecipientRule(statId) ? null : StateSuffixes.FirstOrDefault(s => EndsWithCondition(statId, s));
 
     /// <summary>The plain stat a conditional id names: <c>spell_damage_+%_while_dual_wielding</c> →
     /// <c>spell_damage_+%</c>, and <c>damage_+%_if_you_have_frozen_enemy_recently</c> → <c>damage_+%</c>. Null when the
@@ -184,6 +190,7 @@ public static class StatConditions
 
     static (int At, string Suffix)? TrailingNamedState(string id)
     {
+        if (IsRecipientRule(id)) return null;
         int at = Math.Max(id.LastIndexOf("_if_", StringComparison.Ordinal), id.LastIndexOf("_while_", StringComparison.Ordinal));
         if (at < 0) return null;
         string suffix = id[at..];
@@ -842,7 +849,7 @@ public static class StatConditions
         : left is State.Holds || right is State.Holds ? State.Holds : State.None;
 
     static readonly System.Text.RegularExpressions.Regex RecentAmountId =
-        new(@"_per_(?:(?<unit>\d+)_)?(?<event>enemy_killed|mana_spent)_recently(?:_up_to_(?<cap>\d+)%)?$", System.Text.RegularExpressions.RegexOptions.Compiled);
+        new(@"_per_(?:(?<unit>\d+)_)?(?<event>enemy_killed|mana_spent|warcry_used)_recently(?:_up_to_(?<cap>\d+)%)?$", System.Text.RegularExpressions.RegexOptions.Compiled);
 
     public static bool TryRecentAmount(string id, out string key, out long unit, out int? cap)
     {
@@ -855,7 +862,12 @@ public static class StatConditions
             if (!int.TryParse(match.Groups["cap"].Value, out int maximum)) return false;
             cap = maximum;
         }
-        key = match.Groups["event"].Value == "enemy_killed" ? KilledEnemy : SpentMana;
+        key = match.Groups["event"].Value switch
+        {
+            "enemy_killed" => KilledEnemy,
+            "warcry_used" => UsedWarcry,
+            _ => SpentMana,
+        };
         return true;
     }
 
@@ -1059,7 +1071,8 @@ public static class StatConditions
         IReadOnlyDictionary<string, bool>? Flags = null,
         IReadOnlyDictionary<string, long>? Amounts = null,
         Func<Item, string, int?>? ItemValue = null,
-        IReadOnlySet<string>? NamedConditions = null)
+        IReadOnlySet<string>? NamedConditions = null,
+        IReadOnlyCollection<Item>? InfluencedEquipment = null)
     {
         /// <summary>Nothing known: every condition is NotModelled and no stat changes.</summary>
         public static Subject Unknown => new();

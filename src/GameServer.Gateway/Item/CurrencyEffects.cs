@@ -560,8 +560,15 @@ public static class CurrencyEffects
             layouts.Add(layout);
             sizes[layout.Max()]++;
         }
+        double qualityBonus = 1.0 + item.Quality / 100.0;
+        int boostedMinLink = Math.Min(count, 5);
         var choices = layouts.Where(g => !g.SequenceEqual(old)).Select(g =>
-            (Links: g, Weight: weights[g.Max()] / sizes[g.Max()] * Math.Pow(1 + item.Quality / 100.0, g.Max() - 1))).ToArray();
+        {
+            byte largest = g.Max();
+            double weight = weights[largest] / sizes[largest];
+            if (largest >= boostedMinLink) weight *= qualityBonus;
+            return (Links: g, Weight: weight);
+        }).ToArray();
         if (choices.Length == 0) return null;
         double roll = random.NextDouble() * choices.Sum(c => c.Weight);
         foreach (var choice in choices)
@@ -593,15 +600,18 @@ public static class CurrencyEffects
     {
         int max = MaximumSockets(item, type);
         if (max == 0 || item.Sockets.Count >= SocketCapacity(item, type) || item.Sockets.Any(s => s.Gem is not null)) return null;
-        (int Count, int Weight)[] choices = [(1, 50), (2, 120), (3, 100), (4, 30), (5, 5), (6, 1)];
+        double qualityBonus = 1.0 + item.Quality / 100.0;
+        int boostedMinSockets = Math.Min(max, 5);
+        (int Count, double Weight)[] choices = [(1, 50), (2, 120), (3, 100), (4, 30), (5, 5), (6, 1)];
         var abyss = item.Sockets.Where(s => s.Colour == SocketColour.Abyss).ToArray();
         if (abyss.Length > 0 && ItemModStats.Local(item, Program.Items.Mods).ContainsKey(Stat.LocalCannotHaveNonAbyssalSockets))
             return null;
         var ordinary = item.Sockets.Where(s => s.Colour != SocketColour.Abyss).ToArray();
-        var allowed = choices.Where(c => c.Count >= abyss.Length && c.Count <= max && c.Count != item.Sockets.Count).ToArray();
+        var allowed = choices.Where(c => c.Count >= abyss.Length && c.Count <= max && c.Count != item.Sockets.Count)
+            .Select(c => (c.Count, Weight: c.Count >= boostedMinSockets ? c.Weight * qualityBonus : c.Weight)).ToArray();
         if (allowed.Length == 0) return null;
-        int roll = random.Next(allowed.Sum(c => c.Weight));
-        int count = allowed[0].Count;
+        double roll = random.NextDouble() * allowed.Sum(c => c.Weight);
+        int count = allowed[^1].Count;
         foreach (var choice in allowed)
         {
             if (roll < choice.Weight) { count = choice.Count; break; }

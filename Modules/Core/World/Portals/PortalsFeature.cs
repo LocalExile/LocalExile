@@ -227,9 +227,12 @@ static class PortalsFeature
         var entrance = player.Layout.Near((device.Value.X, device.Value.Y));
         var open = MapDevice.Activate(CharacterName(player), area, opening.Mods, opening.ItemRow,
             campaign || request.ReturnToSource ? new(player.Layout.Hash, player.InstanceNumber, device.Value.X, device.Value.Y) : null,
-            entrance: new(player.Layout.Hash, player.InstanceNumber, entrance.X, entrance.Y), bossOption: resolvedBossOption);
+            entrance: new(player.Layout.Hash, player.InstanceNumber, entrance.X, entrance.Y), bossOption: resolvedBossOption,
+            pantheonSoul: opening.PantheonSoul);
         if (campaign)
             await SetQuestFlags(player, ["a7q2-DeliveredItem"]);
+        else if (!ClientHasQuestFlag(player, "MapDeviceActive"))
+            await SetQuestFlags(player, ["MapDeviceActive"]);
         string extra = opening.Mods.ExtraMagicPacks > 0 || opening.Mods.PacksDropCards > 0
             ? $", +{opening.Mods.ExtraMagicPacks} magic packs, {opening.Mods.PacksDropCards} pack(s) drop cards"
             : "";
@@ -282,6 +285,7 @@ static class PortalsFeature
         Console.WriteLine($"[gateway] {player.Connection.Remote} <= 0x0024 {device.Name} ({use}) from ({here.X}, {here.Y}): reached at ({stop.X}, {stop.Y}) in {arrive - now:0.00} s");
         if (arrive > now) await AreaDelay(player, arrive - now);
         if (!PlayerActionCurrent(player, action)) return;
+        await global::Game.DeliverCapturedSouls(player, CharacterName(player));
         await Send(player, InstanceWaypoints.OpenUi(InstanceWaypoints.HideoutMapDeviceUi, use.TargetId),
             "0x007b open the map device window", still: () => PlayerActionCurrent(player, action));
     }
