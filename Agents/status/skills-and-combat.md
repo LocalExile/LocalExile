@@ -200,7 +200,7 @@ Part of [Status](../Status.md); what to build next in this area is in
 - Spectre roars grant native charges ([minions](../docs/protocol/11-skills.md#10h-player-minions-that-fight)).
 - Itemised corpses raise native spectres ([minions](../docs/protocol/11-skills.md#10h-player-minions-that-fight)).
 - Wraithlord counts socketed Ghastly Eyes ([minions](../docs/protocol/11-skills.md#10h-player-minions-that-fight)).
-- Holy Strike hits summon attacking weapon copies ([minions](../docs/protocol/11-skills.md#10h-player-minions-that-fight)).
+- Holy Strike summons weapon copies ([minions](../docs/protocol/11-skills.md#10h-player-minions-that-fight)).
 - Holy Relic nova reaches allies ([minions](../docs/protocol/11-skills.md#10h-player-minions-that-fight)).
 - Phantasmal Might follows active Phantasms ([minions](../docs/protocol/11-skills.md#10h-player-minions-that-fight)).
 - Equipped summons use active sources ([minions](../docs/protocol/11-skills.md#10h-player-minions-that-fight)).
