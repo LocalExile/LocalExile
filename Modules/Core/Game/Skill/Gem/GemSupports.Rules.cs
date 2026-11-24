@@ -19,7 +19,10 @@ public static partial class Game
     static WornGrantedSkills RuthlessWornGrantedSkillCatalog = default!;
     public sealed record SupportedGem(int Effect, int Level, int Quality, IReadOnlyList<GemSupports.Applied> Supports,
         IReadOnlyDictionary<uint, int> Stats, Item? SourceGem = null, bool RequirementsMet = true, bool Granted = false,
-        WornGrantedSkills.Grant? WornGrant = null, uint Host = 0, int Group = -1);
+        WornGrantedSkills.Grant? WornGrant = null, uint Host = 0, int Group = -1)
+    {
+        internal IReadOnlyList<GemSupports.Applied> LivingLightningSupports { get; init; } = [];
+    }
 
     public sealed record PlayerSkillSource(ushort Id, int Effect, string Name, int Level, int Quality, uint Gem,
         GemSkillIds.Gem Identity, Item? SourceGem, WornGrantedSkills.Grant? WornGrant,
@@ -167,7 +170,11 @@ public static partial class Game
         return new(selected.Effect, level, quality, supports, own, selected.Place.Gem,
             inactive?.Contains(selected.Place.ItemId) != true
                 && GemRequirementsUnmetAt(player, selected.Place.Gem, requirements) is null,
-            Host: selected.Place.ItemId, Group: group);
+            Host: selected.Place.ItemId, Group: group)
+        {
+            LivingLightningSupports = ResolveLivingLightningSupports(player, supports, candidates, equipment,
+                requirements?.Inactive ?? inactive),
+        };
     }
 
     /// <summary>
@@ -252,7 +259,10 @@ public static partial class Game
             own[OwnAuraRestriction.BaseAura] = 1;
         own[OwnAuraRestriction.Aura] = OwnAuraRestriction.IsAura(own) ? 1 : 0;
         return new(grant.Effect, grant.Level, 0, supports, own,
-            RequirementsMet: !requirements.Inactive.Contains(grant.Host), WornGrant: grant);
+            RequirementsMet: !requirements.Inactive.Contains(grant.Host), WornGrant: grant)
+        {
+            LivingLightningSupports = ResolveLivingLightningSupports(player, supports, candidates, equipment, requirements.Inactive),
+        };
     }
 
     static IReadOnlyList<GemSupports.Applied> ResolveEquippedSupports(Player player, int effect, int level,

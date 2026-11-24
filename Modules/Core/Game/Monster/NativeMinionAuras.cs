@@ -11,6 +11,19 @@ public static partial class Game
     }
 
     static readonly RuleTable<GolemState.Golem, NativeMinionAuraState> NativeMinionAuraStates = new();
+    static (int LeerCast, int DyingBreath) GuardianItemAuraRadii = (75, 75);
+
+    static void LoadGuardianItemAuraRadii()
+    {
+        var templates = ClientTables.TableOrEmpty("BuffTemplates");
+        int Radius(string id)
+        {
+            foreach (var row in templates)
+                if (row.Text("Id") == id && row.Int("AuraRadius") is > 0 and var radius) return radius;
+            return 75;
+        }
+        GuardianItemAuraRadii = (Radius("DamageAuraUniqueHelmetDexInt2"), Radius("UndyingBreathDamageAuraUniqueStaff5"));
+    }
 
     static bool SpectreAuraEffect(int effect) => effect is 1962 or 2001 or 2022 or 2034;
 
@@ -84,9 +97,9 @@ public static partial class Game
         int leer = GolemStat(local, Stat.LocalDisplayAuraDamagePlusPct);
         int dyingBreath = GolemStat(local, Stat.LocalDisplayAuraDamagePlusPctAlliesOnly);
         var auras = new List<PlayerMinions.Aura>(2);
-        if (leer > 0) auras.Add(NativeMinionAura("LeerCast", 221, 75, [(Stat.DamagePlusPct, leer)]));
+        if (leer > 0) auras.Add(NativeMinionAura("LeerCast", 221, GuardianItemAuraRadii.LeerCast, [(Stat.DamagePlusPct, leer)]));
         if (dyingBreath > 0)
-            auras.Add(NativeMinionAura("DyingBreath", 292, 75, [(Stat.DamagePlusPct, dyingBreath)]) with { AffectsSource = false });
+            auras.Add(NativeMinionAura("DyingBreath", 292, GuardianItemAuraRadii.DyingBreath, [(Stat.DamagePlusPct, dyingBreath)]) with { AffectsSource = false });
         state.Auras = [.. auras];
     }
 }

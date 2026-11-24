@@ -133,6 +133,7 @@ public sealed class SummonedMinions
         GameServer.Core.Protocol.Instance.Item? Gem, bool ConsumeCorpse, string Kind = "", string Supports = "")
     {
         public GameServer.Core.Protocol.Instance.Item? Weapon { get; init; }
+        public WornGrantedSkills.Grant? WornGrant { get; init; }
         public bool PlayerConsumesCorpse { get; init; } = true;
     }
     public readonly List<HitSummon> HitSummons = [];

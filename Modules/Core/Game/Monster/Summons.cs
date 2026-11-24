@@ -17,6 +17,7 @@ public static partial class Game
             .ToDictionary(row => row.Int("Monster"), row => row.Int("Spectre"));
         LoadItemisedCorpseData();
         LoadDivineSentinelAuraData();
+        LoadGuardianItemAuraRadii();
         LoadSpectreChildrenData();
     }
 

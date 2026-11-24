@@ -27,8 +27,11 @@ public static partial class Game
         ]));
     }
 
-    static string SummonSupportStamp(SupportedGem gem) => string.Join(";", gem.Supports.Select(s =>
-        $"{s.Gem.Effect}:{s.Gem.Level}:{s.Gem.Quality}:{s.Gem.Socket}"));
+    static string SummonSupportStamp(SupportedGem gem, bool livingLightning = false)
+    {
+        var supports = livingLightning ? gem.Supports.Concat(gem.LivingLightningSupports) : gem.Supports;
+        return string.Join(";", supports.Select(s => $"{s.Gem.Effect}:{s.Gem.Level}:{s.Gem.Quality}:{s.Gem.Socket}"));
+    }
 
     static SummonCatalog.Definition PhantasmDefinition(string effect) => new(effect, "Phantasm",
         "Metadata/Monsters/SummonedPhantasm/SummonedPhantasm", Stat.BaseNumberOfSupportGhostsAllowed, 0);

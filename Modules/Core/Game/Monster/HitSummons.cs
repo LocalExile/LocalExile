@@ -97,14 +97,23 @@ public static partial class Game
                 _ => HitSummonDefinition(SkillsFor(player).EffectId(gem.Effect),
                     request.ConsumeCorpse ? request.Monster.Rarity : MonsterRarity.Normal),
             };
-            bool Current() => CurrentGameWork && !player.Closed && !player.LeavingArea && player.PlayerLife > 0
-                && (request.Weapon is not null || player.Area.Monsters.GetValueOrDefault(request.Target) == request.Monster)
-                && (!request.ConsumeCorpse || request.Monster.Dead && !request.Monster.CorpseConsumed && !request.Monster.Ailments.Shattered)
-                && SameTriggerSource(gem, SupportedSkill(player, request.Source))
-                && (request.Kind is not ("Phantasm" or LivingLightningFamily) || request.Supports == SummonSupportStamp(gem));
-            if (definition is null || gem.Effect != request.Effect || !(gem.SourceGem is not null && request.Gem is not null
-                    && ReferenceEquals(PlayerInventories.GemIdentity(gem.SourceGem), PlayerInventories.GemIdentity(request.Gem)))
-                || !gem.RequirementsMet) continue;
+            bool livingLightning = request.Kind == LivingLightningFamily;
+            bool MatchesSource(SupportedGem candidate) => request.WornGrant is { } grant
+                ? candidate.WornGrant == grant
+                : candidate.SourceGem is not null && request.Gem is not null
+                    && ReferenceEquals(PlayerInventories.GemIdentity(candidate.SourceGem), PlayerInventories.GemIdentity(request.Gem));
+            bool Current()
+            {
+                if (!CurrentGameWork || player.Closed || player.LeavingArea || player.PlayerLife == 0
+                    || request.Weapon is null && player.Area.Monsters.GetValueOrDefault(request.Target) != request.Monster
+                    || request.ConsumeCorpse && (!request.Monster.Dead || request.Monster.CorpseConsumed || request.Monster.Ailments.Shattered))
+                    return false;
+                var current = SupportedSkill(player, request.Source);
+                return MatchesSource(current) && SameTriggerSource(gem, current)
+                    && (request.Kind is not ("Phantasm" or LivingLightningFamily)
+                        || request.Supports == SummonSupportStamp(current, livingLightning));
+            }
+            if (definition is null || gem.Effect != request.Effect || !MatchesSource(gem) || !gem.RequirementsMet) continue;
             if (!Current()) continue;
             if (!DarkMonarchAllows(definition.Family, StatSourceValues(player))) continue;
             int limit = SummonLimit(player, definition, definition.Family == LivingLightningFamily ? LivingLightningGem(player, gem) : gem);

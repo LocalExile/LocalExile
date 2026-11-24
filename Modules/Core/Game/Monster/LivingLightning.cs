@@ -19,13 +19,24 @@ public static partial class Game
                 Stat.BaseNumberOfLivingLightningAllowed, 0, Follows: false, Targetable: false) : null;
     }
 
-    static SupportedGem LivingLightningGem(Player player, SupportedGem source)
+    static IReadOnlyList<GemSupports.Applied> ResolveLivingLightningSupports(Player player,
+        IReadOnlyList<GemSupports.Applied> supports, List<GemSupports.Candidate> candidates,
+        IReadOnlyList<(byte Row, InventoryItem Item)> equipment, IReadOnlySet<uint>? inactive)
+    {
+        if (supports.FirstOrDefault(s => s.Effect.Id == LivingLightningSupport) is not { } support) return [];
+        int effect = SkillsFor(player).EffectRow("TriggeredSupportLivingLightning");
+        return ResolveEquippedSupports(player, effect, support.Gem.Level,
+            candidates.Where(candidate => candidate.Effect != support.Gem.Effect).ToList(),
+            equipment, inactive, sourceIsGem: false);
+    }
+
+    internal static SupportedGem LivingLightningGem(Player player, SupportedGem source)
     {
         var support = source.Supports.First(s => s.Effect.Id == LivingLightningSupport);
         var catalog = SkillsFor(player);
         int effect = catalog.EffectRow("TriggeredSupportLivingLightning");
         var stats = catalog.EffectStats(effect, support.Gem.Level).ToDictionary(kv => kv.Item1, kv => kv.Item2);
-        ApplySupportStats(player, stats, source.Supports);
+        ApplySupportStats(player, stats, source.LivingLightningSupports);
         stats[Stat.BaseDisplayMinionActorLevel] = catalog.PlayerLevelReq(effect, support.Gem.Level);
         stats[Stat.LivingLightningNumberOfAttacks] = GolemStat(stats, Stat.LivingLightningNumberOfAttacks)
             + support.Gem.Quality / 10;
@@ -54,7 +65,7 @@ public static partial class Game
         }
         if (!cooldownState.State.TryUse(now, plan)) return;
         player.Summons.HitSummons.Add(new(id, target, source, gem.Effect, gem.SourceGem, false,
-            Kind: LivingLightningFamily, Supports: SummonSupportStamp(gem)));
+            Kind: LivingLightningFamily, Supports: SummonSupportStamp(gem, livingLightning: true)) { WornGrant = gem.WornGrant });
     }
 
     static void ReleaseLivingLightningZapLocked(Player player, GolemState.Golem minion, GolemState.Action action, double now)
