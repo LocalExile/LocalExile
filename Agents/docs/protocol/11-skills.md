@@ -2798,7 +2798,10 @@ rows to their raised counterparts. The three Marionette bodies share `AzmeriMann
 4,000 ms delay.
 
 Phantasmal Might uses BuffDefinitions row 1472 with the spell physical minimum and maximum. The two values per
-Phantasm come from the Summon Phantasm support's per-level stats.
+Phantasm come from its source's per-level stats.
+
+Spectral Spirits use the `SpectralSummonedSkull` body while the Essence of Insanity grant is active. Soulwrest's
+`TriggeredSummonGhostOnKill` row names a corpse-consumption trigger in its stats and supplies the Phantasm lifetime.
 
 UpgradeMinion's availability check (`0x1412ea7d0`) requires a matching ownership entry.
 It maps a skill id to `0xc000 | (id & 0x3fff)`, or `0x8000 | (id & 0x3fff)` for an id already tagged `0xc000`.
