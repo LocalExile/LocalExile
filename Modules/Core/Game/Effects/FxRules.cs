@@ -235,6 +235,13 @@ public static class FxRules
                     if (target != "self") throw new FormatException("Arcane Surge is given to the actor itself");
                     effect["kind"] = "arcane_surge";
                     break;
+                case "ailment":
+                    if (target != "enemy") throw new FormatException("an ailment is put on the trigger's enemy");
+                    effect["kind"] = "ailment";
+                    effect["ailment"] = with["ailment"]?.DeepClone() ?? throw new FormatException("the action \"ailment\" needs \"ailment\"");
+                    if (Duration() is { } lasts) effect["seconds"] = lasts;
+                    if (Value(JsonNode.Parse(value)) is { } stated) effect["amount"] = stated;
+                    break;
                 case "curse":
                     if (target != "enemy") throw new FormatException("a curse is put on the trigger's enemy");
                     effect["kind"] = "curse";

@@ -3040,15 +3040,17 @@ public static partial class Game
             long leeched = Math.Min((long)damage * leechPermyriad / 10_000, Math.Max(1L, m.MaxLife / 10));
             if (leeched > 0) m.Life = (uint)Math.Min(m.MaxLife, (long)m.Life + leeched);
         }
-        RecordIncomingHitLocked(player, now, spellHit, blocked, suppressed, lifeDamage, damage > 0, monsterCritical, projectile: projectile, by: m);
+        RecordIncomingHitLocked(player, now, spellHit, blocked, suppressed, lifeDamage, damage > 0, monsterCritical, projectile: projectile, by: m,
+            stats: stats, byId: id);
         RecentHitLifeLossOnHitLocked(player, now);
         UnhingedHitRecoveryLocked(player, now, stats);
         // Brine Bound: a hit that lands, blocked too (blocking keeps the defender's when-hit effects, wiki
         // Blocking), may freeze its monster for 1 s. Its own random keeps the incoming hit's draws in order.
-        if (GameServer.Core.World.RandomRolls.Chance(StatOf(Stat.ChanceToFreezeEnemiesFor1SecondWhenHitPct), 100, AreaRng(player)))
+        if (!EffectRules.LiveFor(player, Stat.ChanceToFreezeEnemiesFor1SecondWhenHitPct)
+            && GameServer.Core.World.RandomRolls.Chance(StatOf(Stat.ChanceToFreezeEnemiesFor1SecondWhenHitPct), 100, AreaRng(player)))
             InflictedLocked(player, m, m.Ailments.Freeze(1, now, StatOf, name => m.Effects[name], AilmentArea(StatOf, _ => 0, spell: false)));
         AilmentsWhenHitLocked(player, m, StatOf, blocked, now, AreaRng(player));
-        if (StatOf(Stat.BlindEnemiesWhenHitPctChance) is > 0 and var blindAttackerChance)
+        if (!EffectRules.LiveFor(player, Stat.BlindEnemiesWhenHitPctChance) && StatOf(Stat.BlindEnemiesWhenHitPctChance) is > 0 and var blindAttackerChance)
             InflictMonsterBlind(player, id, m, now, (blindAttackerChance, StatOf(Stat.BlindEffectPlusPct), BlindSeconds(StatOf)),
                 AreaRng(player));
         ReservationWhenHitLocked(player, id, m, blocked, now);

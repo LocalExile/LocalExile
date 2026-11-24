@@ -105,6 +105,10 @@ A rule on the `interval` trigger (`{"seconds": ...}`, fixed or the stat's own va
 charges-over-time stats are such rules: `FxRules.Periodics` hands them to the charge system, whose timers use that list
 while the rules are on and `ChargeGains.Periodics` otherwise, each stat in the same timer slot.
 
+The `when_hit` and `block` events carry what their site had (`ChargeEvent.PlayerStats`, `HitAt`, `MonsterId`), and their
+monster is the attacker. The `ailment` action puts an ailment without damage on it (chill, shock or freeze for the
+duration timer; scorch, brittle or sap at their own length), and `debuff` with `blinded` blinds it.
+
 A plain number is granted to the calculator the game module already has (the stat graph); `fx_modifiers` records what
 the number means so that a formula can later move to a table one quantity at a time, each measured. Nothing reads these
 tables during play: they are loaded at startup into arrays by stat id, and an actor's rules are worked out when its

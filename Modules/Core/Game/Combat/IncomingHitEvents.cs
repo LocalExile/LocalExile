@@ -5,7 +5,8 @@ public static partial class Game
     // Every accepted enemy hit records the same events, whether it came from a monster action or a testing tool.
     // Call in the area's frame after applying damage. Presentation must not create gameplay events a second time.
     static void RecordIncomingHitLocked(Player player, double now, bool spell, bool blocked, bool suppressed,
-        long lifeDamage, bool damaged, bool critical = false, bool enemy = true, bool projectile = false, SpawnedMonster? by = null)
+        long lifeDamage, bool damaged, bool critical = false, bool enemy = true, bool projectile = false, SpawnedMonster? by = null,
+        IReadOnlyDictionary<uint, int>? stats = null, uint byId = 0)
     {
         if (enemy)
         {
@@ -29,6 +30,6 @@ public static partial class Game
             player.RecentEvents.Record(StatConditions.TakenSavageHit, now);
             QueueFlaskTrigger(player, FlaskEnchantments.Trigger.SavageHit);
         }
-        ChargesWhenHit(player, blocked, spell, critical, by);
+        ChargesWhenHit(player, blocked, spell, critical, by, stats, now, byId);
     }
 }

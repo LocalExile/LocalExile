@@ -5,6 +5,13 @@ using GameServer.Core.Protocol.Instance;
 /// the /charges command.</summary>
 public abstract record ChargeEvent : CombatEvent
 {
+    /// <summary>For a monster's hit on the player (WhenHit, Block), what its site had: the player's stats as it read
+    /// them, its own time for the hit, and the monster's id in the area. What an effect on the attacker (an ailment, a
+    /// blind) is worked out from; null or 0 where the site gave none.</summary>
+    public IReadOnlyDictionary<uint, int>? PlayerStats { get; init; }
+    public double? HitAt { get; init; }
+    public uint MonsterId { get; init; }
+
     /// <summary>The player hit a monster (one per monster hit). <paramref name="Skill"/>: the stats of the skill used
     /// (its "on hit" chances, e.g. Flicker Strike's 15%); <paramref name="SkillEffect"/>: its GrantedEffects Id;
     /// <paramref name="Killed"/>: the hit killed it; <paramref name="Primary"/>: the use's first target (a skill's

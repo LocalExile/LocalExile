@@ -59,10 +59,14 @@ public static partial class Game
         EffectRules.Register(new("debuff", ["seconds", "amount"], ["debuff"], fire =>
         {
             if (fire.Event.Monster is not { } monster) return;
+            // A hit of the actor's side carries its stats; so does a monster's hit that reached the actor (when hit,
+            // on block), where the monster is the attacker.
             var hit = fire.Event as HitLanded;
-            var (own, skill) = (hit?.PlayerStats, hit?.SkillStats);
-            ApplyNamedDebuffLocked(fire.Conn, monster, hit?.MonsterId ?? 0, fire.Word("debuff") ?? "", fire.Number("seconds"), fire.Number("amount"),
-                hit?.At ?? fire.Now, key => (own?.GetValueOrDefault(key) ?? 0) + (skill?.GetValueOrDefault(key) ?? 0));
+            var taken = fire.Event as ChargeEvent;
+            var (own, skill) = (hit?.PlayerStats ?? taken?.PlayerStats, hit?.SkillStats);
+            ApplyNamedDebuffLocked(fire.Conn, monster, hit?.MonsterId ?? taken?.MonsterId ?? 0, fire.Word("debuff") ?? "",
+                fire.Number("seconds"), fire.Number("amount"), hit?.At ?? taken?.HitAt ?? fire.Now,
+                key => (own?.GetValueOrDefault(key) ?? 0) + (skill?.GetValueOrDefault(key) ?? 0));
         }, (_, word) => NamedDebuff(word))
         {
             Defaults = new Dictionary<string, double> { ["amount"] = 0 },
@@ -79,6 +83,20 @@ public static partial class Game
         })
         {
             Defaults = new Dictionary<string, double> { ["level"] = 1, ["refresh_after"] = 1 },
+        });
+
+        // An ailment without damage on the monster whose hit reached the actor (when hit, on block): "ailment" chill,
+        // shock or freeze for "seconds", or scorch, brittle or sap at their own length. "amount": a chill's own effect
+        // when its source states one ("reducing their Action Speed by 30%").
+        EffectRules.Register(new("ailment", ["seconds", "amount"], ["ailment"], fire =>
+        {
+            if (fire.Event is not ChargeEvent { Monster: { } attacker } hit) return;
+            var stats = hit.PlayerStats ?? StatSourceValues(fire.Conn);
+            AilmentOnAttackerLocked(fire.Conn, attacker, fire.Word("ailment") ?? "", fire.Number("seconds"), fire.Number("amount"),
+                key => stats.GetValueOrDefault(key), hit.HitAt ?? fire.Now);
+        }, (_, word) => AttackerAilment(word))
+        {
+            Defaults = new Dictionary<string, double> { ["seconds"] = 4, ["amount"] = 0 },
         });
 
         // Arcane Surge, as its gains on hit give it (the standard duration, cast speed and mana regeneration).

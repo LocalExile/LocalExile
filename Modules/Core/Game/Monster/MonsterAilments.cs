@@ -147,14 +147,45 @@ public static partial class Game
     {
         int Target(uint name) => m.Effects[name];
         double area = AilmentArea(playerStats, _ => 0, spell: false);
-        if (playerStats(Stat.ChillEnemyWhenHitDurationMs) is > 0 and int ms)
+        // A stat an effect rule is live for is the rule's: it rolls and inflicts through AilmentOnAttackerLocked.
+        bool Ruled(uint stat) => EffectRules.LiveFor(player, stat);
+        if (!Ruled(Stat.ChillEnemyWhenHitDurationMs) && playerStats(Stat.ChillEnemyWhenHitDurationMs) is > 0 and int ms)
             InflictedLocked(player, m, m.Ailments.WithoutDamage(Kind.Chill, ms / 1000.0, now, playerStats, Target, area, stated: 30));
         if (!blocked) return;
-        AlternateAilmentsOnBlockLocked(m, playerStats, now);
-        if (RandomRolls.Chance(playerStats(Stat.ChillAttackersFor4SecondsOnBlockPctChance), 100, random))
+        AlternateAilmentsOnBlockLocked(m, playerStats, now, Ruled);
+        if (!Ruled(Stat.ChillAttackersFor4SecondsOnBlockPctChance)
+            && RandomRolls.Chance(playerStats(Stat.ChillAttackersFor4SecondsOnBlockPctChance), 100, random))
             InflictedLocked(player, m, m.Ailments.WithoutDamage(Kind.Chill, 4, now, playerStats, Target, area));
-        if (RandomRolls.Chance(playerStats(Stat.ShockAttackersFor4SecondsOnBlockPctChance), 100, random))
+        if (!Ruled(Stat.ShockAttackersFor4SecondsOnBlockPctChance)
+            && RandomRolls.Chance(playerStats(Stat.ShockAttackersFor4SecondsOnBlockPctChance), 100, random))
             InflictedLocked(player, m, m.Ailments.WithoutDamage(Kind.Shock, 4, now, playerStats, Target, area));
+    }
+
+    /// <summary>The ailments an ailment without damage can be for the effect rules' "ailment".</summary>
+    public static bool AttackerAilment(string ailment) => ailment is "chill" or "shock" or "freeze" or "scorch" or "brittle" or "sap";
+
+    /// <summary>An ailment without damage on the monster whose hit reached the player (the effect rules' "ailment"):
+    /// chill or shock for <paramref name="seconds"/> (<paramref name="stated"/>: the chill's own effect, when its
+    /// source gives one), a freeze for them, or Scorch, Brittle or Sap at their own length. The player's stats are the
+    /// ones the hit's site read; the ailment's own rules (duration, immunity, spreading) are the ailment code's.</summary>
+    public static void AilmentOnAttackerLocked(Player player, SpawnedMonster m, string ailment, double seconds, double stated,
+        Func<uint, int> playerStats, double now)
+    {
+        if (m.Dead || m.Life == 0) return;
+        int Target(uint name) => m.Effects[name];
+        double area = AilmentArea(playerStats, _ => 0, spell: false);
+        switch (ailment)
+        {
+            case "chill" or "shock":
+                InflictedLocked(player, m, m.Ailments.WithoutDamage(ailment == "chill" ? Kind.Chill : Kind.Shock, seconds, now, playerStats,
+                    Target, area, stated > 0 ? (int)Math.Round(stated) : null));
+                break;
+            case "freeze": InflictedLocked(player, m, m.Ailments.Freeze(seconds, now, playerStats, Target, area)); break;
+            case "scorch" or "brittle" or "sap":
+                var kind = ailment switch { "scorch" => AlternateKind.Scorch, "brittle" => AlternateKind.Brittle, _ => AlternateKind.Sap };
+                if (!m.EntranceGrace) AlternateAilmentWithoutHit(m.RuleAilments, kind, now, playerStats, Target);
+                break;
+        }
     }
 
     /// <summary>The area of effect modifier a hit's shock spreads by (SkillArea.Modifier): the player's panel total
