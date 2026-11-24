@@ -14,7 +14,9 @@ public static partial class Game
     {
         if (TriggerGuardSpell(player, gem) || TriggerSummonSpell(player, gem)
             || TriggerBrandSpell(player, gem.Effect) || MinionUtility(SkillsFor(player).EffectId(gem.Effect))) return true;
-        if (CurseCatalog.All.ContainsKey(SkillsFor(player).EffectId(gem.Effect) ?? "")) return true;
+        string? effect = SkillsFor(player).EffectId(gem.Effect);
+        if (TimedAreaSpellEffect(effect) && effect != "VaalDetonateDead" || PlacedArcPayload(effect)) return true;
+        if (CurseCatalog.All.ContainsKey(effect ?? "")) return true;
         return (UsesProjectileRuntime(gem.Effect) && ResolveProjectileDefinition(gem.Effect) is not null
                 || TriggerAreaSpell(player, gem) || IsFirestorm(player, gem.Effect)
                 || IsStormCall(SkillsFor(player).EffectId(gem.Effect)))
@@ -23,7 +25,8 @@ public static partial class Game
 
     // Prepare without payment or a player action. The caller commits exactly one cost before invoking this release.
     static Action? PrepareTriggeredPayload(Player player, ProjectileSession session, ushort id,
-        (int X, int Y) aim, Func<bool> current, (int X, int Y)? brandOrigin = null, SpawnedMonster? brandedTarget = null)
+        (int X, int Y) aim, Func<bool> current, (int X, int Y)? brandOrigin = null, SpawnedMonster? brandedTarget = null,
+        uint triggerTarget = 0)
     {
         var gem = SupportedSkill(player, id);
         var skill = GemSkillEffects(player).FirstOrDefault(g => g.Id == id);
@@ -33,6 +36,20 @@ public static partial class Game
                 ? () => StartTriggeredGuard(player, session, id, AreaTime(player)) : null;
         if (TriggerSummonSpell(player, gem))
             return () => session.Enqueue(() => ReleaseTriggeredSummon(player, session, id, aim, current));
+        if (TimedAreaSpellEffect(SkillsFor(player).EffectId(gem.Effect)))
+        {
+            var sacrifice = new SacrificeUse(player, id, skill.Effect, skill.Gem, triggered: true);
+            var critical = CaptureSkillCriticalRoll(player, id);
+            return () =>
+            {
+                var origin = brandOrigin ?? player.Walk.Position(AreaTime(player));
+                session.ScheduleTimedAreaSpell(skill, aim, 0, 0, 0xffff, current, critical, sacrifice, 1, 0);
+                foreach (var area in SpellCascadeAreas(player, skill.Effect, gem.Stats, origin, aim))
+                    session.ScheduleTimedAreaSpell(skill, area, 0, 0, 0xffff, current, critical, sacrifice, 1, 0);
+            };
+        }
+        if (PlacedArcPayload(SkillsFor(player).EffectId(gem.Effect)))
+            return () => ScheduleTriggeredArc(player, session, skill, aim, brandOrigin, current, triggerTarget);
         if (IsStormCall(SkillsFor(player).EffectId(gem.Effect)))
         {
             var sacrifice = new SacrificeUse(player, id, skill.Effect, skill.Gem, triggered: true);

@@ -12,23 +12,57 @@ public static partial class Game
 
     const double PlacedArcTargetRange = 60;
 
-    static KeyValuePair<uint, SpawnedMonster> PlacedArcTarget(Player player, PlacedSkills.Placed placed,
+    static KeyValuePair<uint, SpawnedMonster> PlacedSpellTarget(Player player, (int X, int Y) origin,
         double radius, double now) =>
-        player.Area.MonstersNear(placed.At, radius)
-            .Where(p => ArcProxyTarget(player, p.Key, p.Value) && Dist(p.Value.Walk.Position(now), placed.At) <= radius)
-            .OrderBy(p => Dist(p.Value.Walk.Position(now), placed.At)).ThenBy(p => p.Key).FirstOrDefault();
+        player.Area.MonstersNear(origin, radius)
+            .Where(p => ArcProxyTarget(player, p.Key, p.Value) && Dist(p.Value.Walk.Position(now), origin) <= radius)
+            .OrderBy(p => Dist(p.Value.Walk.Position(now), origin)).ThenBy(p => p.Key).FirstOrDefault();
 
     static void ReleasePlacedArc(Player player, ProjectileSession session, PlacedSkills.Placed placed,
         KeyValuePair<uint, SpawnedMonster> triggeringEnemy, double damageMore, WorldRecordBuilder bytes)
     {
         double now = ProjectileWorldTime(player);
-        var target = triggeringEnemy.Value is not null ? triggeringEnemy : PlacedArcTarget(player, placed, PlacedArcTargetRange, now);
+        var target = triggeringEnemy.Value is not null ? triggeringEnemy : PlacedSpellTarget(player, placed.At, PlacedArcTargetRange, now);
         if (target.Value is null || !MonsterPresent(player, target.Key, target.Value)) return;
         var at = target.Value.Walk.Position(now);
         bytes.World(placed.Id, InstanceProtocol.ActionStarted(placed.Id, placed.At.X, placed.At.Y,
             at.X, at.Y, 0x4000, 0xffff, player.MonsterOrderFlags, targetObjectId: target.Key));
         ReleaseArcProxy(player, session, placed.Skill, placed.Id, placed.At, 0, PlacedArcTargetRange,
             target.Key, 0xffff, totem: false, mine: placed.Mine, damageMore: damageMore);
+    }
+
+    static void ScheduleTriggeredArc(Player player, ProjectileSession session,
+        (ushort Id, int Effect, string Name, int Level, int Quality, uint Gem) gem, (int X, int Y) aim,
+        (int X, int Y)? brandOrigin, Func<bool> current, uint triggerTarget)
+    {
+        var sacrifice = new SacrificeUse(player, gem.Id, gem.Effect, gem.Gem, triggered: true);
+        var critical = CaptureSkillCriticalRoll(player, gem.Id);
+        session.Runtime.Schedule(session.Runtime.Now, () =>
+        {
+            bool Current() => session.Active && current() && sacrifice.Current;
+            if (!Current()) return;
+            double now = ProjectileWorldTime(player);
+            var origin = brandOrigin ?? player.Walk.Position(now);
+            uint first = triggerTarget != 0 && player.Area.Monsters.TryGetValue(triggerTarget, out var enemy)
+                && ArcProxyTarget(player, triggerTarget, enemy) ? triggerTarget : player.Area.MonstersNear(aim, PlacedArcTargetRange)
+                .Where(p => ArcProxyTarget(player, p.Key, p.Value))
+                .Select(p => (p.Key, Distance: Dist(p.Value.Walk.Position(now), aim)))
+                .Where(p => p.Distance <= PlacedArcTargetRange)
+                .OrderBy(p => p.Distance).ThenBy(p => p.Key).Select(p => p.Key).FirstOrDefault();
+            if (first == 0) return;
+            var stats = MergeSkillStats(CharacterPlayerStats(player), SupportedSkill(player, gem.Id).Stats);
+            int Get(uint key) => stats.GetValueOrDefault(key);
+            ArcChainTargets(player, first, origin, now, Get(Stat.ArcChainDistance),
+                Math.Max(0, Get(Stat.NumberOfChains)), Get(Stat.ArcEnhancedBehaviour) != 0,
+                (victim, remaining, from) =>
+                {
+                    var at = player.Area.Monsters[victim].Walk.Position(now);
+                    double more = Math.Max(0, 1 + remaining * (Get(Stat.ArcDamagePlusPctFinalForEachRemainingChain) / 100d));
+                    _ = AreaSkillHitForUse(null, player, gem.Id, gem, from, at, immediate: true, sequence: 0xffff,
+                        radiusOverride: 1, damageMore: more, criticalRoll: critical, sacrifice: sacrifice,
+                        triggeredCurrent: Current, scheduledSession: session, targetFilter: (id, _) => id == victim);
+                });
+        });
     }
 
     static bool ArcProxyTarget(Player player, uint id, SpawnedMonster m) =>
@@ -56,9 +90,6 @@ public static partial class Game
         var resistance = HitResistMods(caster, skill.Stats);
         int range = Get(Stat.ArcChainDistance);
         int chains = Math.Max(0, Get(Stat.NumberOfChains));
-        var mainTargets = new HashSet<uint>();
-        uint current = first, previous = 0;
-
         void Land(uint id, int remaining, (int X, int Y) from)
         {
             var m = player.Area.Monsters[id];
@@ -96,12 +127,19 @@ public static partial class Game
             CommitAcceptedHitLocked(player, id, m, accepted, damage, now, totem ? "Arc totem" : "placed Arc", playerKill: false);
         }
 
-        bool canOscillate = Get(Stat.ArcEnhancedBehaviour) != 0;
+        ArcChainTargets(player, first, origin, now, range, chains, Get(Stat.ArcEnhancedBehaviour) != 0, Land);
+    }
+
+    static void ArcChainTargets(Player player, uint first, (int X, int Y) origin, double now, int range, int chains,
+        bool canOscillate, Action<uint, int, (int X, int Y)> land)
+    {
+        var mainTargets = new HashSet<uint>();
+        uint current = first, previous = 0;
         for (int remaining = chains; ; remaining--)
         {
             var at = player.Area.Monsters[current].Walk.Position(now);
             mainTargets.Add(current);
-            Land(current, remaining, origin);
+            land(current, remaining, origin);
             if (remaining == 0) break;
             var nearby = player.Area.MonstersNear(at, range).Where(p => p.Key != current && (canOscillate || p.Key != previous)
                     && ArcProxyTarget(player, p.Key, p.Value))
@@ -110,7 +148,7 @@ public static partial class Game
             if (nearby.Count == 0) break;
             uint next = nearby[0].Id;
             if (nearby.Skip(1).FirstOrDefault(p => !mainTargets.Contains(p.Id)) is { Id: > 0 } secondary)
-                Land(secondary.Id, remaining - 1, at);
+                land(secondary.Id, remaining - 1, at);
             origin = at;
             previous = current;
             current = next;

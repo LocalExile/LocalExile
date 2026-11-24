@@ -27,6 +27,7 @@ public sealed record ProjectileOffense(DamagePacket Hit, bool Spell, int Accurac
     public double AilmentProfileMore { get; init; } = 1;
     public Func<bool>? Valid { get; init; }
     public DamagePacket? AreaHit { get; init; }
+    internal Game.ForbiddenRiteCast? ForbiddenRite { get; init; }
     public Penetration.PerType Penetration { get; init; }
     public HitResistances.Mods ResistanceMods { get; init; }
     public int ImpaleChance { get; init; }
@@ -46,6 +47,7 @@ public sealed record ProjectileOffense(DamagePacket Hit, bool Spell, int Accurac
     public CausticCloudSpec? CausticCloud { get; init; }
     public sealed record GroundBladeSpec(int EveryProjectile, int Maximum, long Lifetime);
     public GroundBladeSpec? GroundBlade { get; init; }
+    internal Game.UnearthCorpse? Unearth { get; init; }
     public Game.ExplosiveFuseSpec? ExplosiveFuse { get; init; }
     public Game.EnsnareSpec? Ensnare { get; init; }
     public ImpaleStats.Settings? ImpaleSettings { get; init; }

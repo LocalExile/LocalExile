@@ -9,7 +9,7 @@ public static partial class Game
         public readonly int Epoch = epoch;
         public readonly object? Rules = rules;
         public readonly Dictionary<ushort, TriggerCounter> Counters = [];
-        public readonly Queue<(ushort Skill, TriggerCounter Counter, (int X, int Y) Aim, double At)> Pending = [];
+        public readonly Queue<(ushort Skill, TriggerCounter Counter, (int X, int Y) Aim, double At, uint Target)> Pending = [];
     }
     sealed class TriggerCounter(SupportedGem gem)
     {
@@ -88,7 +88,7 @@ public static partial class Game
     public static void RecordDamageTakenTriggers(Player player, int damage, double at) =>
         RecordIncomingHitTriggers(player, damage, at, stunned: false);
 
-    static void RecordIncomingHitTriggers(Player player, int damage, double at, bool stunned)
+    static void RecordIncomingHitTriggers(Player player, int damage, double at, bool stunned, uint attacker = 0)
     {
         var triggers = stunned ? StunTriggers : DamageTriggers;
         if (!CurrentGameRules || player.Closed || player.LeavingArea || player.PendingTransfer is not null
@@ -131,7 +131,14 @@ public static partial class Game
             var aim = player.Area.Monsters.Where(e => e.Value.Hostile && !e.Value.Dead && e.Value.Life > 0)
                 .OrderBy(e => Dist(origin, e.Value.Walk.Position(at))).ThenBy(e => e.Key)
                 .Select(e => e.Value.Walk.Position(at)).FirstOrDefault((origin.X + 20, origin.Y));
-            state.Pending.Enqueue((skill.Id, counter, aim, at));
+            uint target = 0;
+            if (attacker != 0 && PlacedArcPayload(SkillsFor(player).EffectId(gem.Effect))
+                && player.Area.Monsters.TryGetValue(attacker, out var enemy) && ArcProxyTarget(player, attacker, enemy))
+            {
+                target = attacker;
+                aim = enemy.Walk.Position(at);
+            }
+            state.Pending.Enqueue((skill.Id, counter, aim, at, target));
         }
         foreach (var id in state.Counters.Keys.Where(id => !live.Contains(id)).ToArray()) state.Counters.Remove(id);
     }
@@ -170,17 +177,18 @@ public static partial class Game
                 && player.PlayerLife > 0 && !player.LeavingArea && player.PendingTransfer is null
                 && SameTriggerSource(gem, SupportedSkill(player, skillId));
             if (TryReleaseAutomaticPayload(player, session, skillId, gem, support, request.Aim, Current, now,
-                stunned ? "Cast when Stunned" : "CWDT", out double readyAt))
+                stunned ? "Cast when Stunned" : "CWDT", out double readyAt, request.Target))
                 counter.ReadyAt = readyAt;
         }
     }
 
     static bool TryReleaseAutomaticPayload(Player player, ProjectileSession session, ushort skillId, SupportedGem gem,
-        GemSupports.Applied support, (int X, int Y) aim, Func<bool> current, double now, string label, out double readyAt)
+        GemSupports.Applied support, (int X, int Y) aim, Func<bool> current, double now, string label, out double readyAt,
+        uint triggerTarget = 0)
     {
         readyAt = 0;
         if (!current()) return false;
-        var release = PrepareTriggeredPayload(player, session, skillId, aim, current);
+        var release = PrepareTriggeredPayload(player, session, skillId, aim, current, triggerTarget: triggerTarget);
         if (release is null || !PayMana(player, skillId, out uint mana, out uint life)) return false;
         var playerStats = CharacterPlayerStats(player);
         int milliseconds = Math.Max(SkillsFor(player).CooldownMs(gem.Effect, gem.Level),

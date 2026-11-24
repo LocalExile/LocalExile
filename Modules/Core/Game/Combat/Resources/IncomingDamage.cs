@@ -49,7 +49,11 @@ public static partial class Game
     // Accepted, mitigated hit components: Ward once, typed ES, then defensive Mana (PlayerDamageTaken). types: the hit's
     // damage by type (only its proportions count).
     public static int DamagePlayerHitTyped(Player player, int physical, int other, int chaos, double at,
-        IReadOnlyDictionary<uint, int> playerStats, GameServer.Core.World.DamagePacket types)
+        IReadOnlyDictionary<uint, int> playerStats, GameServer.Core.World.DamagePacket types) =>
+        DamagePlayerHitFrom(player, physical, other, chaos, at, playerStats, types, attacker: 0);
+
+    static int DamagePlayerHitFrom(Player player, int physical, int other, int chaos, double at,
+        IReadOnlyDictionary<uint, int> playerStats, GameServer.Core.World.DamagePacket types, uint attacker)
     {
         if (player.Immune) return 0;
         // "You cannot be Damaged or Killed": base_cannot_be_damaged (BuffDefinitions 261 shrine_godmode, the Divine
@@ -94,7 +98,7 @@ public static partial class Game
             chaos = (int)keptTotal - keptNonChaos;
         }
         recoupable -= diverted;
-        RecordDamageTakenTriggers(player, (int)Math.Min(int.MaxValue, (long)physical + other + chaos), at);
+        RecordIncomingHitTriggers(player, (int)Math.Min(int.MaxValue, (long)physical + other + chaos), at, stunned: false, attacker: attacker);
         (physical, other, chaos) = AbsorbPlayerWard(player, physical, other, chaos, at, playerStats);
         CrabPhysicalHitLocked(player, physical, at, playerStats);
         bool protectsMana = Get(Stat.VirtualEnergyShieldProtectsMana) != 0 || Get(Stat.KeystoneEldritchBattery) != 0;

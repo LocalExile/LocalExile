@@ -30,6 +30,8 @@ public static partial class Game
         long limit = (long)BaseTotemsAllowed + GolemStat(stats, Stat.NumberOfAdditionalTotemsAllowed)
             + Math.Max(0, GolemStat(own, Stat.BaseNumberOfTotemsAllowed));
         if (GolemStat(stats, Stat.KeystoneAncestralBond) != 0) limit++;
+        if (GolemStat(own, Stat.NumberOfAdditionalTotemsAllowedPerMaximumPowerCharge) is int perPower and not 0)
+            limit += (long)perPower * OwnerMaximumPowerCharges(stats);
         if (SkillsFor(player).IsAttack(effect)) limit += GolemStat(stats, Stat.AttackSkillsAdditionalTotemsAllowed);
         if (GolemStat(own, Stat.IsRangedAttackTotem) != 0)
             limit += GolemStat(stats, Stat.AttackSkillsAdditionalBallistaTotemsAllowed);

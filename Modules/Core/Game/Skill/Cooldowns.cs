@@ -287,6 +287,7 @@ public static partial class Game
             if (vengeful && (triggered || skillId is not ushort vengeanceSkill || !VengefulCryReady(player, vengeanceSkill, AreaTime(player))))
                 return false;
             if (admit is not null && !admit()) return false;
+            int? totemPlacements = null;
             bool bypassed = false, cooldownReset = false, retainRetaliationUse = false;
             int resetBaseMilliseconds = 0;
             ushort? payer = reserve && vaal is null && skillId is ushort candidate && PaysOnUse(player, candidate, effect)
@@ -310,6 +311,13 @@ public static partial class Game
                     if (triggered || CooldownBypassCharge(player, effect, skillId) is not { } charge) return false;
                     if (reserve ? !ChargesOf(player).Spend(charge) : !ChargesOf(player).CanSpend(charge)) return false;
                     bypassed = true;
+                }
+                if (reserve && skillId is ushort totemSkill && IsTotemSkill(player, totemSkill))
+                {
+                    // Each totem uses a stored cooldown, but the placement skill pays once per action.
+                    totemPlacements = !bypassed && !cooldownReset && state.Ready
+                        && TotemLimit(player, totemSkill) >= 2 && WantsTwoTotems(player, totemSkill)
+                        && state.TryUse(now, cooldown) ? 2 : 1;
                 }
                 player.SkillReadyAt[key] = now + state.RemainingSeconds;
                 if (reserve && !bypassed && !cooldownReset)
@@ -336,7 +344,7 @@ public static partial class Game
             if (plan is not null || stance is not null || attack is not null) ticket = new(effect, player.ActionCount, player.ProjectileEpoch,
                 instant, reserve, bypassed ? null : state, bypassed ? 0 : state?.UseVersion ?? 0, stance)
             {
-                SharedUses = sharedUses, Paid = paid, Attack = attack,
+                SharedUses = sharedUses, Paid = paid, Attack = attack, TotemPlacements = totemPlacements,
                 CooldownReset = cooldownReset, ResetBaseMilliseconds = resetBaseMilliseconds
             };
             return true;

@@ -135,6 +135,7 @@ Part of [Status](../Status.md); what to build next in this area is in
   [RE count inputs](../docs/re/projectiles/count-stat-inputs.md) Â§3.
 - Explosive Arrow adds fuses on terminal contacts. The first fuse times the combined blast, and hitting the fuse cap
   detonates it early.
+- Forbidden Rite and Soul Sacrifice lob chaos explosions and apply their caster-specific backlash (checked offline).
 - Ensnaring Arrow tethers a surviving final target until it leaves the anchor's radius. Its projectile attack
   damage taken modifier does not multiply with each additional tether.
 - Tornado Shot's terminal secondary arrows and Cloudburst's landing volley.
@@ -278,6 +279,14 @@ Part of [Status](../Status.md); what to build next in this area is in
   Locus Mine keeps close mines armed and aims detonated volleys at the player.
   Invention scales trap and mine damage by their age at the trigger.
   Docs: [11](../docs/protocol/11-skills.md) Â§10h.
+- Bladefall places timed volleys and eligible lingering blades for supported mine, totem and triggered casts.
+- Ball Lightning of Static places a finite stationary orb for self-casts, damage triggers and mines.
+- Frost Bomb uses its crystal duration and pulse or detonation behavior for supported triggers and totems.
+- Detonate Dead and Volatile Dead use eligible corpses and their timed effects across supported cast and proxy paths.
+- Cremation variants place finite geysers and resolve their corpse and impact effects.
+- Unearth pierces along its flight and creates a usable Bone Archer corpse at the landing.
+- Corpse Walk creates ordinary or eligible Spectral Corpses with elapsed walking while its item grant is equipped.
+- Cast when Damage Taken releases Arc from the triggering enemy when that enemy is still available.
 - Summon Reaper of Eviscerating follows its owner, consumes allies and attacks on recast.
 - Predator targeting, Feeding Frenzy buffs, aggressive Skeleton Warrior dashes, defensive targeting and Meat Shield proximity damage.
   Docs: [11](../docs/protocol/11-skills.md) Â§10h.
@@ -301,6 +310,7 @@ Part of [Status](../Status.md); what to build next in this area is in
 - Totems: Rejuvenation, Arc, projectile spells, supported summons, ballistas, Shockwave, Devouring and Decoy Totem
   (ordinary monster AI), with totem limit, range, duration and Lockstep placement timing. Eligible placements can summon
   two totems. Skill bars without a saved attack-in-place mask use each bound skill's default.
+- Searing Bond totems burn enemies along their links, and Searing Bond of Detonation leaves a timed area burn at cap.
 - Artillery Ballista's mortar volleys, including Cross Strafe and Focus Fire (checked offline).
   Docs: [11](../docs/protocol/11-skills.md) §10g.
 - Minions inherit spell suppression chance and the minion damage over time multiplier from their owner.

@@ -14,6 +14,7 @@ public sealed record CooldownUseTicket(int Effect, int ActionToken, int Projecti
     // The cost paid when the use was accepted (mana, life), as the client pays it at the start of the use; null when the
     // admission paid nothing and the cast pays when its effect starts.
     public (uint Mana, uint Life)? Paid { get; init; }
+    internal int? TotemPlacements { get; init; }
     /// <summary>The attack window reserved with this use, before movement or the native action echo.</summary>
     public (ushort Skill, double At, double Seconds)? Attack { get; init; }
     public bool Current(Player player)

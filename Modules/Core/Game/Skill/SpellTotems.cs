@@ -10,13 +10,15 @@ public static partial class Game
         GatewayProjectileSkillProfiles.IsHolyFlameTotem(SkillsFor(player).EffectId(effect));
     sealed class TotemChannel { public bool Active; public ushort Sequence; }
     static readonly RuleTable<TotemState.Totem, TotemChannel> TotemChannels = new();
-    static readonly RuleTable<TotemState.Totem, SupportedGem> TotemSources = new();
+    sealed record TotemSkillSource(SupportedGem Skill, GemSourceLifetimes.SourceLifetime? Lifetime);
+    static readonly RuleTable<TotemState.Totem, TotemSkillSource> TotemSources = new();
     public static bool SpellTotemEffect(Player player, int effect) => SkillsFor(player).IsSpell(effect)
         && !SkillsFor(player).IsAttack(effect) && !SkillsFor(player).IsTravel(effect)
         && Supports.Of(effect)?.Types.Contains(47) != true
         && (TotemSummon(player, effect) is not null || GolemData.Find(SkillsFor(player).EffectId(effect)) is not null
             || CurseCatalog.All.ContainsKey(SkillsFor(player).EffectId(effect) ?? "")
             || (SkillsFor(player).EffectId(effect) == "Arc" || IsAbsolutionHitSpell(player, effect) || SpellTotemNova(player, effect)
+                || BladefallEffect(SkillsFor(player).EffectId(effect)) || FrostBombEffect(SkillsFor(player).EffectId(effect))
                 || UsesProjectileRuntime(effect) && ResolveProjectileDefinition(effect) is not null)
                 && SkillHitPlan.ForSkill(SkillsFor(player), effect, 1).CanHit);
 
@@ -33,7 +35,9 @@ public static partial class Game
             .SequenceEqual(b.Supports.Select(s => (s.Gem.Effect, s.Gem.Socket, s.Gem.Quality)));
     public static void BindTotemSource(Player player, TotemState.Totem totem)
     {
-        TotemSources.Remove(totem); TotemSources.Add(totem, SupportedSkill(player, totem.SkillId));
+        TotemSources.Remove(totem);
+        var skill = SupportedSkill(player, totem.SkillId);
+        TotemSources.Add(totem, new(skill, CaptureGemSourceLifetimeLocked(player, totem.SkillId, skill.Effect)));
     }
 
     public static Dictionary<uint, int> TotemCasterStats(IReadOnlyDictionary<uint, int> owner)
@@ -113,7 +117,8 @@ public static partial class Game
             && SupportedSkill(player, totem.SkillId) is var supported && supported.Host == totem.SourceHost
             && supported.SourceGem is not null && totem.SourceItem is not null
             && ReferenceEquals(PlayerInventories.GemIdentity(supported.SourceGem), PlayerInventories.GemIdentity(totem.SourceItem))
-            && (!TotemSources.TryGetValue(totem, out var captured) || SameLinkedSkillSource(captured, supported))
+            && (!TotemSources.TryGetValue(totem, out var captured) || SameLinkedSkillSource(captured.Skill, supported)
+                && (captured.Lifetime is null || player.GemSourceLifetimes.IsCurrent(captured.Lifetime)))
             && GemSkillInstanceDisabled(player, totem.Effect, totem.SkillId) is null
             && TotemPathAvailable(player, totem.SkillId, totem.Effect)
             && IsTotemSkill(player, totem.SkillId);
@@ -343,6 +348,19 @@ public static partial class Game
                 return Dist(livePos, totem.At) <= range ? NonZeroTotemAim(totem.At, livePos) : initialAim;
             }
 
+            if (BladefallEffect(effect) || FrostBombEffect(effect))
+            {
+                bool Current() => session.Active && ReferenceEquals(lifetime, CombatLifetime) && SpellTotemCurrent(player, totem);
+                session.Runtime.Schedule(Math.Max(session.Runtime.Now, ProjectileRuntime.Time(totem.NextCast)), () =>
+                {
+                    if (!Current()) return;
+                    var at = ReleaseAim();
+                    if (BladefallEffect(effect)) session.ReleaseTotemBladefall(totem, at, sequence, Current);
+                    else session.ReleaseFrostBomb(gem.Effect, SupportedSkill(player, totem.SkillId).Stats, at, Current,
+                        (centre, radius, _) => TotemNovaLocked(player, session, totem, centre, radius, sequence));
+                });
+                continue;
+            }
             if (rain)
             {
                 session.Runtime.Schedule(Math.Max(session.Runtime.Now, ProjectileRuntime.Time(totem.NextCast)), () =>
