@@ -29,7 +29,10 @@ public static partial class Game
         ScarabsDisabled(mods) ? 0 : Math.Max(0, 1 + (mods?.Get(Stat.MapPlusPctIncreasedScarabDrops) ?? 0) / 100d);
 
     public static ItemDrops.Drop? MapScarab(ItemDrops drops, Random random, int level, MapMods? mods) =>
-        ScarabsDisabled(mods) ? null : drops.Scarab(random, level, mods);
+        MapScarab(drops, random, level, mods, null);
+
+    public static ItemDrops.Drop? MapScarab(ItemDrops drops, Random random, int level, MapMods? mods, DropWeights? weights) =>
+        ScarabsDisabled(mods) ? null : drops.Scarab(random, level, mods, weights);
 
     static readonly uint[] RandomPhysicalGain =
         [Stat.PhysicalDamagePctToAddAsFire, Stat.PhysicalDamagePctToAddAsCold, Stat.PhysicalDamagePctToAddAsLightning];
@@ -142,29 +145,31 @@ public static partial class Game
     /// <summary>A map's extra drops: a card from each monster of the card-dropping magic packs, and the map's card and
     /// scarab drop factors (its increased and more modifiers multiplied, 1 for none) on the base map chances
     /// (<c>drop_card_chance_pct</c>, <c>drop_scarab_chance_pct</c>, ItemDrops.Roll): a factor f adds the base chance
-    /// × (f − 1) per kill.</summary>
-    static IEnumerable<ItemDrops.Drop> ExtraDropsFromMap(Player player, int monsterLevel, MonsterRarity rarity, Random rng)
+    /// × (f − 1) per kill. A mod's factors per card, scarab and currency (<see cref="DropWeights.Item"/>) weigh the picks;
+    /// a currency kind factor of 0 leaves the extra currency out.</summary>
+    static IEnumerable<ItemDrops.Drop> ExtraDropsFromMap(Player player, int monsterLevel, MonsterRarity rarity, Random rng,
+        DropWeights? weights = null)
     {
         if (MapModsOf(player) is not { } mods) yield break;
         var drops = DropsFor(player);
-        if (rarity == MonsterRarity.Magic && mods.PacksDropCards > 0 && drops.Card(rng, monsterLevel) is { } packCard)
+        if (rarity == MonsterRarity.Magic && mods.PacksDropCards > 0 && drops.Card(rng, monsterLevel, weights) is { } packCard)
             yield return packCard;
         double card = MapDropFactor(mods, Stat.MapDivinationCardDropChancePlusPct, Stat.MapDivinationCardDropChancePlusPctFinalFromQuality,
             Stat.MapDivinationCardDropChancePlusPctFinalFromFaridunWish);
-        if (card > 1 && MapDropExtra("drop_card_chance_pct", card - 1, rng) && drops.Card(rng, monsterLevel) is { } extraCard)
+        if (card > 1 && MapDropExtra("drop_card_chance_pct", card - 1, rng) && drops.Card(rng, monsterLevel, weights) is { } extraCard)
             yield return extraCard;
         double scarab = MapDropFactor(mods, Stat.MapScarabDropChancePlusPctFinalFromUberMod,
             Stat.MapUnscaledScarabDropChancePlusPctFinalFromUberMod, Stat.MapScarabDropChancePlusPctFinalFromFaridunWish);
         if (scarab > 1 && MapDropExtra("drop_scarab_chance_pct", (scarab - 1) * MapScarabQuantity(mods), rng)
-            && MapScarab(drops, rng, monsterLevel, mods) is { } extraScarab)
+            && MapScarab(drops, rng, monsterLevel, mods, weights) is { } extraScarab)
             yield return extraScarab;
         double currency = MapDropFactor(mods, Stat.MapCurrencyDropChancePlusPctFinalFromUberMod);
-        if (currency > 1)
+        if (currency > 1 && (weights is null || weights.Currency > 0))
         {
             double expected = CurrencyDropExpected(rarity) * (currency - 1);
             int whole = (int)expected + (rng.NextDouble() < expected - (int)expected ? 1 : 0);
             for (int i = 0; i < whole; i++)
-                if (drops.CurrencyDrop(monsterLevel, rng) is { } extraCurrency) yield return extraCurrency;
+                if (drops.CurrencyDrop(monsterLevel, rng, weights) is { } extraCurrency) yield return extraCurrency;
         }
     }
 
