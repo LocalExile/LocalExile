@@ -78,6 +78,10 @@ public static partial class Game
     public static bool TryMaimOnHitLocked(SpawnedMonster m, int chance, int physicalTaken, double now, Random random) =>
         m.Hostile && TryApplyMaimLocked(m, chance, physicalTaken, now, random);
 
+    /// <summary>Whether the player avoids an incoming Maim (immune_to_maim or Garukhan's avoid_maim_%_chance).</summary>
+    public static bool PlayerAvoidsMaim(Func<uint, int> get, Random random) =>
+        get(Stat.ImmuneToMaim) != 0 || RandomRolls.Chance(get(Stat.AvoidMaimPctChance), 100, random);
+
     static bool TryApplyMaimLocked(SpawnedMonster m, int chance, int physicalTaken, double now, Random random)
     {
         if (m.Dead || m.Life == 0) return false;

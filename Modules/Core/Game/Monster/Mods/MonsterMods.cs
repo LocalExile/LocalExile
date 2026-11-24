@@ -310,6 +310,9 @@ public static partial class Game
     public static int SelfCriticalReduction(Player player)
     {
         var stats = CharacterPlayerStats(player);
+        if (stats.GetValueOrDefault(Stat.SelfTakeNoExtraDamageFromCriticalStrikesIfHaveBeenCritRecently) != 0
+            && AreaTime(player) - player.LastCritTakenAt <= RecentEvents.WindowSeconds)
+            return 100;
         return SelfCriticalReduction(name => name is var key ? stats.GetValueOrDefault(key) : 0);
     }
 
