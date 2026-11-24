@@ -110,6 +110,8 @@ public sealed class SystemSettings
     public double DropPenaltyPerLevelPct => Math.Clamp(GetOrDefault("drop_penalty_per_level_pct", 2.5), 0, 100);
     public int DropPenaltyCharacterLevelCap => Math.Clamp(GetIntOrDefault("drop_penalty_character_level_cap", 68), 1, 100);
     public double DropCampaignCardChancePct => Math.Clamp(GetOrDefault("drop_campaign_card_chance_pct", 0.5), 0, 100);
+    public double DropCampaignMapChanceMultiplier => Math.Clamp(GetOrDefault("drop_campaign_map_chance_multiplier", 0.18), 0, 100);
+    public double DropDivineVesselChancePct => Math.Clamp(GetOrDefault("drop_divine_vessel_chance_pct", 0.08), 0, 100);
     public bool DropFirstKillBossBonus => GetIntOrDefault("drop_first_kill_boss_bonus", 1) != 0;
     public int VendorRefreshLevels => Math.Clamp(GetIntOrDefault("vendor_refresh_levels", 1), 1, 100);
 
@@ -233,6 +235,7 @@ public sealed class SystemSettings
             || key.Equals("drop_natural_quality_chance_pct", StringComparison.OrdinalIgnoreCase)
             || key.Equals("drop_penalty_per_level_pct", StringComparison.OrdinalIgnoreCase)
             || key.Equals("drop_campaign_card_chance_pct", StringComparison.OrdinalIgnoreCase)
+            || key.Equals("drop_divine_vessel_chance_pct", StringComparison.OrdinalIgnoreCase)
             || key.Equals("campaign_pack_magic_chance_pct", StringComparison.OrdinalIgnoreCase)
             || key.Equals("campaign_pack_rare_chance_pct", StringComparison.OrdinalIgnoreCase))
         {
@@ -249,6 +252,7 @@ public sealed class SystemSettings
         }
         else if (key.Equals("drop_socket_link_scale", StringComparison.OrdinalIgnoreCase)
             || key.Equals("drop_unique_chance_multiplier", StringComparison.OrdinalIgnoreCase)
+            || key.Equals("drop_campaign_map_chance_multiplier", StringComparison.OrdinalIgnoreCase)
             || key.Equals("campaign_chest_density_multiplier", StringComparison.OrdinalIgnoreCase)
             || key.Equals("monster_ailment_threshold_scaling", StringComparison.OrdinalIgnoreCase))
         {

@@ -104,8 +104,11 @@ public static class VendorStock
             int max = CurrencyEffects.MaximumSockets(item, type);
             if (max > 0)
             {
-                var choices = new[] { (Count:1, Weight:50), (Count:2, Weight:120), (Count:3, Weight:100),
-                    (Count:4, Weight:30), (Count:5, Weight:5), (Count:6, Weight:1) }.Where(c => c.Count <= max).ToArray();
+                int capacity = CurrencyEffects.SocketCapacity(item, type);
+                var choices = (capacity == 4
+                    ? new[] { (Count: 1, Weight: 100), (Count: 2, Weight: 90), (Count: 3, Weight: 80), (Count: 4, Weight: 30) }
+                    : new[] { (Count: 1, Weight: 50), (Count: 2, Weight: 120), (Count: 3, Weight: 100),
+                        (Count: 4, Weight: 30), (Count: 5, Weight: 5), (Count: 6, Weight: 1) }).Where(c => c.Count <= max).ToArray();
                 int draw = random.Next(choices.Sum(c => c.Weight)), sockets = 1;
                 foreach (var c in choices) { draw -= c.Weight; if (draw < 0) { sockets = c.Count; break; } }
                 var links = ItemCatalog.RollSocketLinks(sockets, random);
@@ -156,12 +159,15 @@ public static class VendorStock
             var item = ItemCatalog.Create(type);
             if (price.Price(item) is { } priced) goods.Add((priced, null));
         }
-        if (profile.Kind == "Weapons") { Supply("Armourer's Scrap"); if (profile.Act >= 2) Supply("Blacksmith's Whetstone"); }
-        if (profile.Kind == "Magic")
+        if (!hardMode)
         {
-            foreach (string name in profile.Act == 1 ? new[] { "Orb of Transmutation", "Orb of Alteration", "Orb of Augmentation", "Portal Scroll" }
-                : profile.Act == 2 ? new[] { "Orb of Regret", "Orb of Scouring", "Portal Scroll", "Orb of Fusing", "Jeweller's Orb", "Chromatic Orb" }
-                : new[] { "Orb of Alchemy", "Orb of Chance", "Orb of Regret", "Orb of Transmutation", "Orb of Alteration", "Orb of Scouring", "Orb of Augmentation", "Portal Scroll", "Orb of Fusing", "Jeweller's Orb", "Chromatic Orb", "Glassblower's Bauble" }) Supply(name);
+            if (profile.Kind == "Weapons") { Supply("Armourer's Scrap"); if (profile.Act >= 2) Supply("Blacksmith's Whetstone"); }
+            if (profile.Kind == "Magic")
+            {
+                foreach (string name in profile.Act == 1 ? new[] { "Orb of Transmutation", "Orb of Alteration", "Orb of Augmentation", "Portal Scroll" }
+                    : profile.Act == 2 ? new[] { "Orb of Regret", "Orb of Scouring", "Portal Scroll", "Orb of Fusing", "Jeweller's Orb", "Chromatic Orb" }
+                    : new[] { "Orb of Alchemy", "Orb of Chance", "Orb of Regret", "Orb of Transmutation", "Orb of Alteration", "Orb of Scouring", "Orb of Augmentation", "Portal Scroll", "Orb of Fusing", "Jeweller's Orb", "Chromatic Orb", "Glassblower's Bauble" }) Supply(name);
+            }
         }
         if (profile.Kind == "Kirac") Supply("Orb of Unmaking");
         var tabs = new List<NpcShops.ShopTab>();
@@ -224,7 +230,7 @@ public static class VendorStock
                 foreach (string id in group)
                 {
                     if (!remaining.Remove(id,out var type) || items.Gem(type) is not { } gem) continue;
-                    int gemLevel = profile.Act <= 4 && profile.Kind != "Gems" && !hardMode
+                    int gemLevel = profile.Act <= 9 && profile.Kind != "Gems" && !hardMode
                         ? Math.Min(gem.MaxLevel, skills.MaxLevelAt(gem.Variant(0).Effect, Math.Min(level,52))) : 1;
                     var item = ItemCatalog.Create(type) with { GemExperience = gem.ExperienceFor(gemLevel) };
                     if (price.Price(item) is not { } priced) { notes.Add($"No price for vendor gem {id}"); continue; }
