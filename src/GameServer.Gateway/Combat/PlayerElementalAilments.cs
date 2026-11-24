@@ -187,8 +187,9 @@ public sealed class PlayerElementalAilments
         {
             Reconcile(get);
             // The caller's duration factor scales the ailments a hit puts on you; a reflected one (Inflict) is excluded.
+            int critAvoid = critical ? Math.Max(0, get(Stat.AvoidAilmentsPctFromCrit)) : 0;
             void Add(Kind kind, double magnitude, double seconds) => AddLocked(kind, magnitude,
-                seconds * durationFactor, now, get, random, source);
+                seconds * durationFactor, now, get, random, source, critAvoid);
             if (critical || RandomRolls.Chance(settings.IgniteChance, 100, random))
                 Add(Kind.Ignite, baseHit[DamageType.Fire].Min * .9 * (critical ? MonsterCriticalAilmentMultiplier : 1)
                     * Math.Max(0, 1 + settings.IgniteDamageFinalPct / 100.0), 4);
@@ -217,13 +218,15 @@ public sealed class PlayerElementalAilments
         + get(Stat.NonDamagingAilmentEffectPlusPctOnSelf);
 
     void AddLocked(Kind kind, double magnitude, double seconds, double now, Func<uint, int> get, Random random,
-        uint? source = null)
+        uint? source = null, int extraAvoidPct = 0)
     {
         if (now < protectedUntil[(int)kind]) return;
         seconds *= Math.Max(0, 1 - get(KindStats[(int)kind].SelfDuration) / 100.0);
+        if (kind == Kind.Ignite)
+            seconds *= Math.Max(0, 1 + get(Stat.PantheonAbberathIgniteDurationOnSelfPlusPctFinal) / 100.0);
         uint avoid = KindStats[(int)kind].Avoid;
         if (magnitude <= 0 || seconds <= 0 || kind == Kind.Freeze && seconds < .3 || Immune(kind, get)
-            || RandomRolls.Chance(get(avoid), 100, random)) return;
+            || RandomRolls.Chance(get(avoid) + extraAvoidPct, 100, random)) return;
         effects.Add(new(kind, now, now + seconds / expiryRate, magnitude, source));
         if (kind == Kind.Ignite) latestIgniteStart = now;
         Changed?.Invoke();

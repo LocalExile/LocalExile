@@ -245,7 +245,18 @@ public static partial class Game
         long minionReduction = perMinion <= 0 ? 0 : Math.Min(10,
             (long)perMinion * player.Minions.All.Count(minion => !minion.Monster.Dead && minion.Monster.Life > 0
                 && player.Area.Monsters.GetValueOrDefault(minion.Id) == minion.Monster));
-        return (ActorScale.Saturate((long)reduction.Physical + Get(SiphoningHitReduction) + minionReduction), reduction.Elemental);
+        double now = AreaTime(player);
+        int nearby = Slayer.Of(player).Nearby;
+        long pantheonPhysical = 0;
+        if (nearby == 1) pantheonPhysical += Get(Stat.PhysicalDamageReductionPctIfOnlyOneEnemyNearby);
+        int perNearby = Get(Stat.PhysicalDamageReductionPctPerNearbyEnemy);
+        if (perNearby != 0 && nearby > 0) pantheonPhysical += (long)Math.Min(8, nearby) * perNearby;
+        int perRecentHit = Get(Stat.PhysicalDamageReductionPctPerHitYouHaveTakenRecently);
+        if (perRecentHit != 0) pantheonPhysical += (long)Math.Min(5, player.RecentEnemyHits.Count(now)) * perRecentHit;
+        int tukohamaPerSec = Get(Stat.WhileStationaryGainAdditionalPhysicalDamageReductionPct);
+        if (tukohamaPerSec > 0 && !player.Walk.Moving(now) && double.IsFinite(player.StationarySince))
+            pantheonPhysical += Math.Min(9L, (long)Math.Min(3, (int)Math.Floor(Math.Max(0, now - player.StationarySince))) * tukohamaPerSec);
+        return (ActorScale.Saturate((long)reduction.Physical + Get(SiphoningHitReduction) + minionReduction + pantheonPhysical), reduction.Elemental);
     }
 
     // A hit's damage taken after the player's mitigation (the dev /hit commands, MonsterSwing's rules): physical through

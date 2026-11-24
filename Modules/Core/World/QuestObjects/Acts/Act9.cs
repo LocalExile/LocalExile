@@ -14,6 +14,7 @@ static class Act9Monsters
     public const string Adus = "Metadata/Monsters/GeneralAdus/GeneralAdus";                           // 6211 General Adus
     public const string Basilisk = "Metadata/Monsters/GemMonster/IguanaBossPhoenix";                  // 6150 The Basilisk
     public const string Garukhan = "Metadata/Monsters/Garukhan/Garukhan";                             // 6103 Garukhan, Queen of the Winds
+    public const string Kira = "Metadata/Monsters/Kira/Kira";                                         // 6120 Kira (The Quarry)
     public const string Boulderback = "Metadata/Monsters/Bull/BullBossFoothills";                     // 4328 Boulderback
     public const string Shakari = "Metadata/Monsters/Shakari/Shakari";                                // 6275 Shakari (first stage, mapboss1WG)
     public const string Shakari2 = "Metadata/Monsters/Shakari/Shakari2";                              // 6278 Shakari (second stage, mapboss2)
@@ -95,25 +96,16 @@ sealed class Act9 : Act
                 On.TalkRow(1302, "TasuniTakeFeather"),
                 On.TalkRow(1313, "IrashaTakeFeather"),
                 On.Seen(Quarry, Act9Monsters.Garukhan, "a9q2-SeenBoss"),
+                On.Killed(Quarry, Act9Monsters.Kira, "a9q2-KilledKira"),
                 On.Killed(Quarry, Act9Monsters.Garukhan, "a9q2-KilledBoss"),
                 On.Drops(Quarry, Act9Monsters.Garukhan, Act9Items.SekhemaFeather),
                 On.Appears(Quarry, Act9Monsters.Garukhan, Act9Objects.SinGarukhan, "a9q2-DeliveredItem"),
             },
-            // a9q3 "The Storm Blade" (act9.md a9q3): the mummy event chest in The Vastiri Desert (boss_questchest.arm; a server
-            // object with a StateMachine the quest-object blob does not write): coming to it begins the encounter
-            // (a9q3-BeginEncounter) and brings its sand warriors; once they are dead the encounter is over
-            // (a9q3-FinishEncounter) and the Storm Blade drops (simplified: one warrior of each kind instead of the room's
-            // spawner waves, the blade from the last instead of the opened chest). Petarus and Vanja take it (1281); offer 60
-            // (rare weapons and armour).
-            new Quest("a9q3")
-            {
-                On.Near(VastiriDesert, Act9Objects.MummyEventChest, "a9q3-BeginEncounter"),
-                On.SpawnsNear(VastiriDesert, Act9Objects.MummyEventChest, Act9Monsters.SandWarrior, until: "a9q3-FinishEncounter"),
-                On.SpawnsNear(VastiriDesert, Act9Objects.MummyEventChest, Act9Monsters.SandGoliath, until: "a9q3-FinishEncounter"),
-                On.KilledAll(VastiriDesert, [Act9Monsters.SandWarrior, Act9Monsters.SandGoliath], "a9q3-FinishEncounter"),
-                On.Drops(VastiriDesert, Act9Monsters.SandGoliath, Act9Items.StormBlade),
-                On.Drops(VastiriDesert, Act9Monsters.SandWarrior, Act9Items.StormBlade),
-            },
+            // a9q3 "The Storm Blade" (act9.md a9q3): the mummy event chest in The Vastiri Desert (boss_questchest.arm;
+            // GeneralAdusBasiliskEncounters owns the interactive click-to-start MummyEventChest StateMachine,
+            // a9q3-BeginEncounter, 3-wave ambush, a9q3-FinishEncounter, and Storm Blade drop). Petarus and Vanja take
+            // it (1281); offer 60 (rare weapons and armour).
+            new Quest("a9q3"),
             // a9q4 "Fastis Fortuna" (act9.md a9q4): Boulderback dies in The Foothills (boss.arm mapboss) and drops the
             // Maraketh Calendar (wiki); Petarus and Vanja take it (1291); offer 61 is a Book of Regrets (QSR 26: 2 respec).
             new Quest("a9q4")

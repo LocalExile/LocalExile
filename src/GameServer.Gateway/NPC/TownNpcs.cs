@@ -52,8 +52,9 @@ public static class TownNpcs
 
     /// <summary>An NPC line of the room: NPCs.dat Id, room cell, angle; the line's model when it is not the type's own
     /// (types without a model, e.g. Irasha's <c>Metadata/NPC/NPC</c>, or another pose); its z when the line has one;
-    /// a Transitionable state other than the type's.</summary>
-    public sealed record Line(string Id, int X, int Y, float Angle, string? Model = null, float? Z = null, byte? State = null);
+    /// a Transitionable state other than the type's; optional quest flags that gate a town stage/pose.</summary>
+    public sealed record Line(string Id, int X, int Y, float Angle, string? Model = null, float? Z = null, byte? State = null,
+        string? ShownBy = null, string? GoneWith = null);
 
     /// <summary>A room of a town and its NPC lines.</summary>
     public sealed record Part(Room Room, Line[] Npcs)
@@ -61,7 +62,7 @@ public static class TownNpcs
         public IEnumerable<NpcCatalog.Placement> Placements() => Npcs.Select(n =>
         {
             var (x, y) = Room.Cell(n.X, n.Y);
-            return new NpcCatalog.Placement(n.Id, x, y, Room.Angle(n.Angle), n.Model, n.Z, n.State) { FromRoom = true };
+            return new NpcCatalog.Placement(n.Id, x, y, Room.Angle(n.Angle), n.Model, n.Z, n.State, n.ShownBy, n.GoneWith) { FromRoom = true };
         });
     }
 
@@ -138,14 +139,15 @@ public static class TownNpcs
             new(Npc + "Act5/Vilenta", 275, 178, -1.5708f),
         ]),
         // p2_beachtown.dgr: R270. Act 6's NPCs.dat Ids have no .ot of their own: the client files them on their Metadata
-        // (Act 1's Tarkleigh, Bestel). Lilly (type without a model) also sits at (148, 343) with LillySitting.ao; placed
-        // here by her ship (Metadata/QuestObjects/Act6/LillyShip at (404, 228)).
+        // (Act 1's Tarkleigh, Bestel). Lilly stands by her ship (Metadata/QuestObjects/Act6/LillyShip at (404, 228))
+        // until Tukohama falls (a6q3-KilledBoss), then sits on the dock at (148, 343) with LillySitting.ao.
         new(0xb0fb, "2_6_town", new("Metadata/Terrain/Act6/BeachTown/Rooms/part2_beach_town.arm", 552, 690, 3),
         [
             new(Npc + "Act6/Tarkleigh", 230, 390, 0f),
             new(Npc + "Act6/Bestel", 166, 360, 0.0872663f),
             new(Npc + "Act6/SinTown", 301, 263, -0.0170866f, Z: -332.881f),
-            new(Npc + "Act6/Lilly", 408, 229, -1.57466f, Model: "Metadata/NPC/Act6/Lilly.ao", Z: -83.5598f),
+            new(Npc + "Act6/Lilly", 408, 229, -1.57466f, Model: "Metadata/NPC/Act6/Lilly.ao", Z: -83.5598f, GoneWith: "a6q3-KilledBoss"),
+            new(Npc + "Act6/Lilly", 148, 343, 1.05179f, Model: "Metadata/NPC/Act6/LillySitting.ao", Z: -237.432f, ShownBy: "a6q3-KilledBoss"),
         ]),
         // bridge_town.tgr: node "town" I (its other nodes are flow sources and sinks without rooms).
         new(0x2a6d, "2_7_town", new("Metadata/Terrain/Act7/Town/Rooms/broken_bridge_town.arm", 230, 759, 0, 437, 207, Seed: 1),
@@ -156,12 +158,13 @@ public static class TownNpcs
             new(Npc + "Act7/SinTown", 143, 202, -2.18261f, Z: -433.084f),
             new(Npc + "Act7/Weylam", 95, 203, 1.00597f, Model: "Metadata/NPC/Act6/RotTooth.ao"),
         ]),
-        // city_town.dgr (Act8): I. Tolman at (179, 373) has no NPCTalk rows; not placed.
+        // city_town.dgr (Act8): I. Cosmetic Tolman stands beside Clarissa before a8q6-KilledBoss.
         new(0x0334, "2_8_town", new("Metadata/Terrain/Act8/Town/Rooms/city_town.arm", 759, 667, 0, 69, 69, Seed: 1),
         [
             new(Npc + "Act8/Hargan", 304, 402, -0.492313f),
             new(Npc + "Act8/Maramoa", 304, 349, -1.36175f),
             new(Npc + "Act8/ClarissaTown", 170, 382, -0.488777f),
+            new(Npc + "Act8/Tolman", 179, 373, -1.17812f, Model: "Metadata/NPC/Act8/Tolman.ao", GoneWith: "a8q6-KilledBoss"),
             new(Npc + "Act8/SinTown", 205, 306, 1.64849f),
         ]),
         // town.dgr (Act9): R270.
@@ -203,8 +206,7 @@ public static class TownNpcs
                 new(Npc + "Epilogue/Helena", 389, 175, 0.742503f, Model: "Metadata/NPC/Missions/Helena.ao", State: 2),
             ]),
         ]),
-        // island_camp.dgr: I. Commander Kirac (786, 675) and HelenaIntro (510, 173: the trigger by the tunnel that plays
-        // "HelenaThroughTheTunnel", then hides) are not placed yet.
+        // island_camp.dgr: I. Commander Kirac (786, 675) and HelenaIntro (510, 173: tunnel intro trigger for a11q1).
         new(0xb4e7, "2_11_endgame_town", new("Metadata/Terrain/Act11/Camp/Rooms/camp.arm", 1679, 1058, 0, 92, 92, Seed: 1),
         [
             new(Npc + "Epilogue/Lilly", 186, 366, 0.499106f, Model: "Metadata/NPC/Act5/Lilly.ao", Z: -202.5f),
@@ -212,6 +214,8 @@ public static class TownNpcs
             new(Npc + "Epilogue/Lani", 712, 778, -0.355253f),
             // Her .ot's create_untransitioned is DisableRendering(): Transitionable state 1 left her invisible live, 2 shows her.
             new(Npc + "Epilogue/Helena", 771, 696, 0.564095f, Model: "Metadata/NPC/Missions/Helena.ao", State: 2),
+            new(Npc + "Epilogue/HelenaIntro", 510, 173, 0.903148f, Model: "Metadata/NPC/Missions/Helena.ao", State: 2),
+            new(Npc + "Epilogue/Kirac", 786, 675, -2.32129f, Model: "Metadata/Monsters/Masters/Kirac.ao"),
         ]),
         // The Rogue Harbour (HeistHub). Not a campaign town, but its hub room names its NPCs the same way. hub.dgr places
         // the single node "hub" with rotation I, at (92, 92) on every seed; a version 31 room (no 0 before the angle),
