@@ -518,10 +518,20 @@ public static partial class Game
             else if (id is InstanceProtocol.AttackInPlaceId or InstanceProtocol.SlotMask52Id)
             {
                 // A slot option the client already applied (its bit of instance +0xcfd0 / +0xcfd2); saved so the next
-                // 0x53 sends it back instead of clearing it.
+                // 0x53 sends it back instead of clearing it. The first box this character touches starts from the
+                // slots' own defaults, so ticking one slot does not untick the attack-in-place skill in another one;
+                // from then on the saved mask is the whole truth, as the player left it.
                 var (slot, on) = InstanceProtocol.ReadSlotOption(bytes);
                 Console.WriteLine($"[gateway] {player.Connection.Remote} <= 0x{id:x4} {(id == InstanceProtocol.AttackInPlaceId ? "always attack without moving" : "slot option 0x52")} slot {slot} {(on ? "on" : "off")}");
-                if (slot < 16) CharacterSaves.SetSkillBarOption(CharacterName(player), id == InstanceProtocol.AttackInPlaceId, slot, on);
+                if (slot < 16)
+                {
+                    bool attackInPlace = id == InstanceProtocol.AttackInPlaceId;
+                    string character = CharacterName(player);
+                    ushort? seed = attackInPlace
+                        ? AttackInPlaceDefaults(player, SkillBarIds(player, CharacterSaves.Load(character)?.SkillBar))
+                        : null;
+                    CharacterSaves.SetSkillBarOption(character, attackInPlace, slot, on, seed);
+                }
             }
             else if (id == InstanceEntities.AllocatePassiveId)
             {
@@ -891,7 +901,7 @@ public static partial class Game
                 if (move.Kind == InstanceStash.Personal && !player.StashOpen) continue;
                 Console.WriteLine($"[gateway] {player.Connection.Remote} <= 0x00f5 take blight oil {move.ItemId} from stash kind {move.Kind} tab {move.Tab} (panelState {move.UiPanelState})");
                 if (move.Tab <= int.MaxValue)
-                    await TakeFromStash(player, (int)move.Tab, move.ItemId, all: false, kind: move.Kind);
+                    await TakeBlightOil(player, (int)move.Tab, move.ItemId, move.Kind);
             }
             else if (id == InstanceHarvest.MoveItemId)
             {
