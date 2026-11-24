@@ -232,6 +232,7 @@ public static partial class Game
         RecordHardcoreDeath(player);
         player.InvalidateIncomingHits();
         player.DeathNotificationEpoch = deathEpoch = player.IncomingHitEpoch;
+        player.PlayerDeaths++;
         FortificationOf(player).Clear();
         LeechOf(player).Clear(AreaTime(player));
         ClearRageOnDeath(player);
@@ -273,16 +274,27 @@ public static partial class Game
         if (xpPenaltyPct > 0)
             await Send(player, InstanceChat.ChatLine($"You have lost {xpPenaltyPct}% experience."),
                 $"0x0017 death XP penalty chat ({xpPenaltyPct}%)");
-        await SendPlayerDeathPresentation(player, label, deathEpoch, deathKind);
+        int deaths = player.PlayerDeaths;
+        await SendPlayerDeathPresentation(player, label, deathEpoch, deaths, deathKind);
     }
 
-    public static Task SendPlayerDeathPresentation(Player player, string label, int deathEpoch, byte deathKind = InstanceProtocol.DeathKindNormal) => SendWorldBatch(player, [], admission =>
+    public static Task SendPlayerDeathPresentation(Player player, string label, int deathEpoch, int deaths, byte deathKind = InstanceProtocol.DeathKindNormal) => SendWorldBatch(player, [], admission =>
     {
         if (player.Closed || player.LeavingArea || player.PlayerLife != 0 || player.IncomingHitEpoch != deathEpoch) return null;
         var records = new WorldRecordBuilder(player, admission);
         Note(label);
-        SetStats(player, player.Id, [(Stat.HideMiniLifeBar, 1)]);
-        records.Immediate(InstanceProtocol.DeathScreen(DeathScreenFlags(player)));
+        // The official death order, measured on 12 official 3.29.3b captures, in one frame (the killing hit already
+        // sent life 0 before this frame): the is_dead row, the message naming the dead character, the death screen
+        // carrying the death count, the alive-state row, component 4, then component 6 with the experience. The
+        // message and the death screen carry no object header, so they go out immediately, not as world records
+        // (RecordOrder throws on them); the frame's world records keep their native order at the frame end.
+        // The mini life bar is no longer hidden on death: the official order has no such row.
+        records.World(player.Id, InstanceEntities.StatsUpdate(player.Id, [(Stat.IsDead, 1)]));
+        records.Immediate(InstanceProtocol.DeathMessage(CharacterName(player)));
+        records.Immediate(InstanceProtocol.DeathScreen(DeathScreenFlags(player), (ushort)deaths));
+        records.World(player.Id, InstanceProtocol.AliveState(player.Id, 0xfffffffe, dead: true));
+        records.World(player.Id, InstanceEntities.ComponentUpdate(player.Id, 4, [0x01]));
+        records.World(player.Id, InstanceEntities.ComponentUpdate(player.Id, 6, new BlobWriter().U16(1).U32(player.Character.Experience).ToArray()));
         return records.Build();
     });
 
