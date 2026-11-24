@@ -5,7 +5,7 @@ namespace GameServer.Gateway.Tests;
 public sealed class ModCompatibilityTests
 {
     [Fact]
-    public void Game_exports_the_monster_spawn_signature_used_by_published_mods()
+    public void Game_exports_the_monster_spawn_and_placement_signatures_used_by_published_mods()
     {
         var spawn = typeof(Game).GetMethod(nameof(Game.SpawnMonster),
         [
@@ -19,6 +19,11 @@ public sealed class ModCompatibilityTests
         Assert.NotNull(spawn);
         Assert.True(spawn.IsStatic);
         Assert.Equal(typeof(Task<uint>), spawn.ReturnType);
+
+        var next = typeof(Game).GetMethod(nameof(Game.NextToPlayer), [typeof(Player)]);
+        Assert.NotNull(next);
+        Assert.True(next.IsStatic);
+        Assert.Equal(typeof((int, int)), next.ReturnType);
     }
 
     [Fact]
