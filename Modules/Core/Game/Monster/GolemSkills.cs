@@ -76,6 +76,21 @@ public static partial class Game
             values[id] = values.GetValueOrDefault(id) + value;
         }
         double now = double.IsNegativeInfinity(at) ? AreaTime(player) : at;
+        var link = MinionLinkOffenceAt(player, golem, playerStats, now);
+        void AddLinkStat(uint stat, int value)
+        {
+            if (value != 0) values[stat] = ActorScale.Saturate((long)values.GetValueOrDefault(stat) + value);
+        }
+        AddLinkStat(Stat.GlobalMinimumAddedFireDamage, link.FireMin);
+        AddLinkStat(Stat.GlobalMaximumAddedFireDamage, link.FireMax);
+        AddLinkStat(Stat.BaseChanceToIgnitePct, link.Ignite);
+        AddLinkStat(Stat.BaseCriticalStrikeMultiplierPlus, link.CritMultiplier);
+        AddLinkStat(Stat.AccuracyRatingPlusPct, link.Accuracy);
+        if (link.MainHandCrit is int linkedCrit)
+        {
+            values[Stat.DisplayCriticalLinkOverridesMainHandCriticalStrikeChance] = 1;
+            values[Stat.OverrideMainHandCriticalStrikeChancePctFromCriticalLink] = linkedCrit;
+        }
         if (FreshMeatActive(golem, now))
         {
             foreach (var (key, value) in AntiquarianEffects.AdrenalineStats)
@@ -277,6 +292,8 @@ public static partial class Game
             else if (catalog.IsAttack(effect) && Raw(Stat.BaseDealNoDamage) == 0)
             {
                 if (crit == 0) crit = MinionWeaponCritical(player, golem);
+                if (mods[Stat.DisplayCriticalLinkOverridesMainHandCriticalStrikeChance] != 0)
+                    crit = mods[Stat.OverrideMainHandCriticalStrikeChancePctFromCriticalLink];
                 var (min, max) = Monsters.BaseDamage(variety, level) ?? (1, 1);
                 damage = (golem.Weapon is { } equipped ? equipped.LocalDamage ?? DamagePacket.Of(DamageType.Physical, equipped.MinDamage, equipped.MaxDamage)
                     : DamagePacket.Of(DamageType.Physical, min, max)).Scale(multiplier);
@@ -453,6 +470,7 @@ public static partial class Game
         hash.Add(GolemSummonedInPastEightSeconds(golem, now));
         hash.Add(FreshMeatActive(golem, now));
         hash.Add(now < golem.OnslaughtUntil);
+        hash.Add(MinionLinkOffenceAt(player, golem, playerStats, now));
         hash.Add(SkeletonShieldChaos(player, golem, playerStats));
         foreach (var p in playerStats.Where(p => (Stats.Name(p.Key) ?? "").Contains("minion", StringComparison.Ordinal)
             || (Stats.Name(p.Key) ?? "").Contains("golem", StringComparison.Ordinal)).OrderBy(p => p.Key)) hash.Add(p);

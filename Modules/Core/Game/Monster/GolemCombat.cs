@@ -620,6 +620,8 @@ public static partial class Game
 
     public static int GolemCriticalChance(GolemState.Ability ability, MonsterModSet mods, int additionalIncrease = 0)
     {
+        if (!ability.Attack.Spell && mods.Effects[Stat.DisplayCriticalLinkOverridesMainHandCriticalStrikeChance] != 0)
+            return ability.Crit;
         long increased = (long)mods.Effects[Stat.CriticalStrikeChancePlusPct] + additionalIncrease
             + (ability.Attack.Spell ? mods.Effects[Stat.SpellCriticalStrikeChancePlusPct] : 0);
         double chance = (ability.Crit + (double)mods.Effects[WakenedFuryChance]) * Math.Max(0, 100L + increased) / 100.0;

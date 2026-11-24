@@ -109,11 +109,21 @@ public static partial class Game
         }
         int block = attack.Spell ? Player(Stat.MinionAdditionalSpellBlockPct) + effects[Stat.BaseSpellBlockPct]
             : Player(Stat.MinionBlockPct) + effects[Stat.MonsterBaseBlockPct];
-        if (!attack.Secondary && random.Next(100) < Math.Clamp(block, 0, 75))
+        var link = ActiveMinionLink(player, g, now);
+        bool protective = link?.EffectId == "ProtectiveLink";
+        int maximumBlock = DamageModel.DefaultMaxBlockChance;
+        if (protective && !attack.Spell)
+        {
+            maximumBlock = Math.Clamp(player.Pools.BlockChanceMax, 0, DamageModel.BlockChanceCap);
+            block = player.Pools.AttackBlockAtMaximum ? maximumBlock : player.Pools.BlockChance;
+        }
+        if (!attack.Secondary && random.Next(100) < Math.Clamp(block, 0, maximumBlock))
         {
             g.BlockedAt = now;
+            int linkedRecovery = protective
+                ? ScaledLinkStat(link!, Stat.BulwarkLinkGrantsRecoverXLifeOnBlock, LinkBuffPercent(g, currentPlayer)) : 0;
             m.Life = (uint)Math.Min(m.MaxLife, m.Life + m.MaxLife * (long)Player(Stat.MinionRecoverPctOfMaximumLifeOnBlock) / 100
-                + Player(Stat.MinionRecoverXLifeOnBlock));
+                + Player(Stat.MinionRecoverXLifeOnBlock) + linkedRecovery);
             player.Minions.OutputQueue.Add(new([], null, g.Id, m, PlayerMinions.OutputKind.Life));
             return false;
         }
@@ -133,6 +143,16 @@ public static partial class Game
         }
         long damage = 0;
         var mitigated = DamagePacket.Empty;
+        int interceptedPct = 0;
+        double soulDamageTaken = 1;
+        long interceptedCarry = 0;
+        if (link is { EffectId: "SoulLink" })
+        {
+            long effect = LinkBuffPercent(g, currentPlayer);
+            soulDamageTaken = SoulLinkDamageTaken(link, effect);
+            interceptedPct = Math.Clamp(ScaledLinkStat(link, Stat.SoulLinkGrantsTakePctOfHitDamageFromSoulLinkSourceEnergyShieldBeforeYou,
+                effect), 0, 100);
+        }
         foreach (var (type, range) in rolled.Components)
         {
             if (elementalImmune && type is DamageType.Fire or DamageType.Cold or DamageType.Lightning) continue;
@@ -155,12 +175,20 @@ public static partial class Game
                 value = (int)Math.Round(value * GolemElementalReductionFactor(effects));
             value = (int)Math.Round(value * effects.DamageTaken(spellHit)
                 * GolemMeatShieldDamageFactor(g)
+                * soulDamageTaken
                 * Math.Max(0, 1 + GolemStat(g.Own, Stat.VaalUpgradeMinionDamageTakenPlusPctFinal) / 100d)
                 * (area ? Math.Max(0, 1 + effects[Stat.Of("damage_taken_+%_from_area_hits")] / 100.0) : 1));
             if (prevented != 0) value = DamageModel.Suppress(value, prevented);
             if (value > 0)
             {
                 mitigated = mitigated.Add(type, new(value, value));
+                if (interceptedPct > 0 && player.EnergyShield.Current > 0)
+                {
+                    long share = interceptedCarry + (long)value * interceptedPct;
+                    int intercept = (int)(share / 100);
+                    interceptedCarry = share % 100;
+                    value -= intercept - player.EnergyShield.Damage(intercept, bypass: false, now);
+                }
                 damage += g.ShieldPool.Damage(value, type == DamageType.Chaos && !chaosNoBypass, now);
             }
         }
