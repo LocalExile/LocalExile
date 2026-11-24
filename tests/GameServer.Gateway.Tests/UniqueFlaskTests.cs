@@ -48,6 +48,51 @@ public class UniqueFlaskTests
         Assert.Equal(0, Game.OriathExplosionPacket(100, DamageType.Fire, player)[DamageType.Fire].Min);
     }
 
+    // The conditional-immunity flask suffixes grant the ailment immunities they name while the flask effect
+    // runs (flag rows: value 1, unscaled by effect), and Aquamarine Flask's chilled ground is a flask ground
+    // like the sulphur one: the use's local stat names the kind and its radius (28), and the ground lasts the
+    // flask effect (FlaskGrounds.OnUse).
+    [Fact]
+    public void Flask_conditional_immunities_and_chilled_ground()
+    {
+        var local = new Dictionary<uint, int>
+        {
+            [Stat.LocalFlaskChillOrFreezeImmunityIfChilledOrFrozenS] = 8,
+            [Stat.LocalFlaskIgniteImmunityIfIgnitedAndRemoveBurningS] = 6,
+            [Stat.LocalFlaskShockImmunityIfShockedS] = 5,
+        };
+        var sources = UtilityFlasks.DuringEffectSources(local, 1.5);
+        Assert.Contains(sources, s => s is { Stat: Stat.BaseImmuneToChill, Value: 1 });
+        Assert.Contains(sources, s => s is { Stat: Stat.BaseImmuneToFreeze, Value: 1 });
+        Assert.Contains(sources, s => s is { Stat: Stat.BaseImmuneToIgnite, Value: 1 });
+        Assert.Contains(sources, s => s is { Stat: Stat.BaseImmuneToShock, Value: 1 });
+
+        Assert.Equal((FlaskGrounds.Kind.ChilledGround, 28), FlaskGrounds.OnUse(
+            new Dictionary<uint, int> { [Stat.LocalFlaskChilledGroundOnFlaskUseRadius] = 28 }).Single());
+    }
+
+    // A use's "during effect" suffix buffs: one BuffDefinitions row per suffix mod, in DuringEffect order
+    // (flask_bonus_cast_speed 1386, flask_bonus_attack_speed 1385, flask_bonus_mana_cost 1241); a mod with no
+    // flask_bonus_* row sends nothing.
+    [Fact]
+    public void Flask_suffix_buffs_are_one_row_per_suffix()
+    {
+        var local = new Dictionary<uint, int>
+        {
+            [Stat.LocalFlaskCastSpeedPlusPctWhileHealing] = 20,
+            [Stat.LocalFlaskAttackSpeedPlusPctWhileHealing] = 15,
+            [Stat.LocalFlaskSkillManaCostPlusPctDuringFlaskEffect] = -14,
+            [Stat.LocalFlaskMovementSpeedPlusPctWhileHealing] = 10,
+        };
+        var rows = new Dictionary<uint, ushort>
+        {
+            [Stat.BaseCastSpeedPlusPct] = 1386,
+            [Stat.AttackSpeedPlusPct] = 1385,
+            [Stat.BaseManaCostMinusPct] = 1241,
+        };
+        Assert.Equal(new ushort[] { 1386, 1385, 1241 }, UtilityFlasks.SuffixBuffRowsFor(local, rows));
+    }
+
     // Bottled Faith's tripled ground and its damage taken, and Stormblood's crit-only ailments.
     [Fact]
     public void Bottled_Faith_ground_and_Stormblood_critical_ailments()
