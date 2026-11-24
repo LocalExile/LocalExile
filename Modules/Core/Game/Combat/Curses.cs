@@ -199,6 +199,7 @@ public static partial class Game
                 catalog.EffectStats(catalog.EffectRow(effect), 1).ToDictionary(p => p.Item1, p => p.Item2));
             if (curse.Count != 0) ApplyCurseDataLocked(player, target, 0, effect, curse, now, false, hitStats);
         }
+        if (playerHit) ItemCursesOnHitLocked(player, target, hitStats, now);
         bool mayHextouch = sourceSkill != 0
             && (sourceStats is null || GolemStat(sourceStats, Stat.ApplyLinkedCursesOnHitPct) > 0);
         if (!mayHextouch && (spell || target.Rarity is not (MonsterRarity.Rare or MonsterRarity.Unique))) return;

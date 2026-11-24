@@ -134,7 +134,8 @@ public static partial class Game
         bool elementalImmune = GolemElementalImmune(g);
         bool chaosNoBypass = effects[Stat.ChaosDamageDoesNotBypassEnergyShield] != 0;
         var rejuvenation = RejuvenationTotemAt(player, m.Walk.Position(now));
-        long damage = 0;
+        long damage = 0, nonChaos = 0;
+        int chaos = 0;
         var mitigated = DamagePacket.Empty;
         int minionFort = MinionFortificationStacksLocked(player, g, g.Monster.Walk.Position(now), now);
         double fortFactor = Math.Max(0d, 1d - minionFort / 100d);
@@ -161,17 +162,26 @@ public static partial class Game
                 // Meat Shield's defensive half: "Minions take 15% less Damage" (the stat is the negative more).
                 * Math.Max(0, 1 + GolemStat(g.Own, Stat.SupportMinionDefensiveStanceMinionDamageTakenPlusPctFinal) / 100.0)
                 * Math.Max(0, 1 + GolemStat(g.Own, Stat.VaalUpgradeMinionDamageTakenPlusPctFinal) / 100d)
-                * (area ? Math.Max(0, 1 + effects[Stat.Of("damage_taken_+%_from_area_hits")] / 100.0) : 1)
+                // area_damage_taken_from_hits_+% (Stats 8037).
+                * (area ? Math.Max(0, 1 + effects[Stat.AreaDamageTakenFromHitsPlusPct] / 100.0) : 1)
                 * fortFactor);
             if (value > 0)
             {
                 mitigated = mitigated.Add(type, new(value, value));
-                if (rejuvenation is { Totem.Life: > 0 } protection)
-                    value = RedirectTotemHitLocked(protection.Owner, protection.Totem, value, 0,
-                        protection.Totem.Aura!.HitRedirectPercent, AreaTime(protection.Owner),
-                        protection.Owner == player ? currentPlayer : null).NonChaos;
-                damage += g.ShieldPool.Damage(value, type == DamageType.Chaos && !chaosNoBypass, now);
+                if (rejuvenation is null)
+                    damage += g.ShieldPool.Damage(value, type == DamageType.Chaos && !chaosNoBypass, now);
+                else if (type == DamageType.Chaos) chaos = value;
+                else nonChaos += value;
             }
+        }
+        if (rejuvenation is { } protection && nonChaos + chaos > 0)
+        {
+            int redirectable = (int)Math.Min(int.MaxValue, nonChaos);
+            var kept = RedirectTotemHitLocked(protection.Owner, protection.Totem, redirectable, chaos,
+                protection.Totem.Aura!.HitRedirectPercent, AreaTime(protection.Owner),
+                protection.Owner == player ? currentPlayer : null);
+            damage = nonChaos - redirectable + g.ShieldPool.Damage(kept.NonChaos, false, now)
+                + g.ShieldPool.Damage(kept.Chaos, !chaosNoBypass, now);
         }
         PublishEnergyShieldLocked(player, g);
         m.Life = (uint)Math.Max(0, (long)m.Life - damage);
@@ -214,6 +224,11 @@ public static partial class Game
         EndDot(player, g.Id, ref g.Monster.Ignites.Buff, g.Monster.Ignites.BuffSource);
         EndDot(player, g.Id, ref g.Monster.Bleeds.Buff, g.Monster.Bleeds.BuffSource);
         EndDot(player, g.Id, ref g.Monster.Poisons.Buff, g.Monster.Poisons.BuffSource);
+        if (g.SpectreBuff != 0)
+        {
+            player.Area.Buffs.Clear(g.Id, SpectreBuffRowValue(), g.Id);
+            g.SpectreBuff = 0;
+        }
         g.Monster.Ignites.Clear();
         g.Monster.Bleeds.Clear();
         g.Monster.Poisons.Clear();

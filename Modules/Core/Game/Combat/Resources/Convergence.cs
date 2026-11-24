@@ -13,8 +13,8 @@ public static partial class Game
     static void GainConvergenceOnHitLocked(Player player, SpawnedMonster target, double now,
         IReadOnlyDictionary<uint, int>? stats)
     {
-        if (target.Rarity != MonsterRarity.Unique || player.PlayerLife == 0) return;
-        var area = player.Area;
+        if (target.Rarity != MonsterRarity.Unique || !target.Hostile || player.PlayerLife == 0
+            || player.Frames.Area is not { } area) return;
         if (ConvergenceWindows.TryGetValue(player, out var window) && ReferenceEquals(window.Area, area)
             && now < window.NextGain) return;
         stats ??= CharacterPlayerStats(player);
@@ -36,6 +36,9 @@ public static partial class Game
             StatsChangeAt(window.Until, () => ProjectileWorldTime(player));
             stats[Stat.HaveConvergence] = 1;
             stats[Stat.ConvergenceElementalDamagePlusPctFinal] = ConvergenceDamageMore;
+            int combined = stats.GetValueOrDefault(Stat.CombinedElementalDamagePlusPctFinal);
+            stats[Stat.CombinedElementalDamagePlusPctFinal] =
+                ActorScale.Saturate((Math.Max(0, 100L + combined) * (100 + ConvergenceDamageMore)) / 100 - 100);
         }
         else if (increasedArea != 0)
         {
@@ -46,8 +49,9 @@ public static partial class Game
 
     static void ClearConvergence(Player player)
     {
-        if (!ConvergenceWindows.Remove(player)) return;
-        player.Area.Buffs.Clear(player.Id, ConvergenceBuffRow, player.Id);
+        if (!ConvergenceWindows.TryGetValue(player, out var window)) return;
+        ConvergenceWindows.Remove(player);
+        window.Area.Buffs.Clear(player.Id, ConvergenceBuffRow, player.Id);
         MarkPlayerStats(player, PlayerStatStep.PanelDefaults);
     }
 }

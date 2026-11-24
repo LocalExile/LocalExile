@@ -605,6 +605,7 @@ public static partial class Game
                 player.Area.Buffs.Set(player.Id, new(aura.Row, player.Id, Tag: (ushort)BuffTag.TotemAura));
             }
             totems.SentAuraTotem = source;
+            MarkPlayerStats(player, PlayerStatStep.TotemAura);
             bytes.World(player.Id, PlayerStatsOffFrames(player));
         }
         return bytes.Count == 0 ? null : bytes.Build();

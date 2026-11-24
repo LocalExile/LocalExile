@@ -811,6 +811,7 @@ public static partial class Game
         foreach (var (name, value) in rawAttributes)
             sources[name] = AttributeModifiers.Signed(value);
         AbyssJewels.Count(active, catalog, Stats, sources);
+        ItemStatAliases.Apply(sources);
         var attributes = AttributeInputs(rawAttributes);
         var finalAttributes = attributes.Apply(c.Strength + (player.God ? 1000 : 0),
             c.Dexterity + (player.God ? 1000 : 0), c.Intelligence + (player.God ? 1000 : 0));
@@ -820,6 +821,7 @@ public static partial class Game
         LevelItemSources.Apply(sources, Stats, sourcesKey.Level);
         OwnedCountItemStats.Apply(sources, Stats, sourcesKey.Amounts);
         ApplyRecentSavageHitItemStats(sources, Stats, sourcesKey.Flags);
+        ApplyFlaggedItemStats(sources, sourcesKey.Flags);
         if (recentAmounts.GetValueOrDefault(StatConditions.DetonatedMine) is long mines and > 0)
         {
             int count = ActorScale.Saturate(mines);
@@ -1451,7 +1453,8 @@ public static partial class Game
         // Reservation efficiency: generic efficiency applies to both pools; the mana/life-specific stats only to theirs.
         // Aura effect is the generic non-curse/aura effect; the Reservation mastery's self-aura effect is included.
         int manaReservation = Get(Stat.BaseManaReservationEfficiencyPlusPct) + Get(Stat.BaseReservationEfficiencyPlusPct)
-            + Get(Stat.ManaReservationEfficiencyPlusPct) + Get(Stat.ReservationEfficiencyPlusPct);
+            + Get(Stat.ManaReservationEfficiencyPlusPct) + Get(Stat.ReservationEfficiencyPlusPct)
+            - 2 * Get(Stat.ManaReservationEfficiencyMinus2PctPer1);
         int lifeReservation = Get(Stat.BaseLifeReservationEfficiencyPlusPct) + Get(Stat.BaseReservationEfficiencyPlusPct)
             + Get(Stat.LifeReservationEfficiencyPlusPct) + Get(Stat.ReservationEfficiencyPlusPct);
         // Absolution's increase counts while the player has a linked target, as the client's 0x142829960 adds it.
@@ -1468,10 +1471,13 @@ public static partial class Game
         int evasionPct = Get(Stat.EvasionRatingPlusPct) + defencesPct;
         long attackBlockLuck = (long)Get(Stat.BaseBlockLuck) + Get(Stat.AttackBlockLuck) + Get(Stat.BaseAttackBlockLuck);
         long spellBlockLuck = (long)Get(Stat.BaseBlockLuck) + Get(Stat.SpellBlockLuck) + Get(Stat.BaseSpellBlockLuck);
+        decimal lifeMorePct = Get(Stat.LifeMasteryCountMaximumLifePlusPctFinal);
+        if (Get(Stat.KeystoneBloodMagic) != 0)
+            lifeMorePct = (100m + lifeMorePct) * (100m + BloodMagic.LifeMorePct) / 100m - 100m;
         return new CharacterStats.Bonus(
             Attributes: attributes, Ward: Get(Stat.BaseWard), WardPct: Get(Stat.WardPlusPct) + Get(Stat.GlobalDefencesPlusPct) + Get(Stat.CombinedGlobalDefencesPlusPct),
             Life: Get(Stat.BaseMaximumLife), LifePct: Get(Stat.MaximumLifePlusPct), Mana: Get(Stat.BaseMaximumMana), ManaPct: Get(Stat.MaximumManaPlusPct),
-            LifeMorePct: Get(Stat.LifeMasteryCountMaximumLifePlusPctFinal),
+            LifeMorePct: lifeMorePct,
             ManaPerFourStrength: Get(StrengthMana.PerFourStrength),
             LifePerLevel: Get(LifeManaPoolSources.LifePerLevel), ManaPerLevel: Get(LifeManaPoolSources.ManaPerLevel),
             LifePerTenDexterity: Get(LifeManaPoolSources.LifePerTenDexterity),
@@ -1496,6 +1502,9 @@ public static partial class Game
             SharedDefencesPct: defencesPct, IronReflexes: Get(Stat.KeystoneIronReflexes) != 0,
             MentalConditioning: Get(PowerOfPurpose.RawFlag) != 0,
             ChaosInoculation: Get(Stat.KeystoneChaosInoculation) != 0,
+            // Blood Magic (the tree keystone and every item mod grant keystone_blood_magic): "Removes all mana. 10% more
+            // maximum Life" (ReminderTextKeystoneBloodMagic). no_mana/base_no_mana ("Removes all Mana") remove it too.
+            NoMana: Get(Stat.KeystoneBloodMagic) != 0 || Get(Stat.NoMana) != 0 || Get(Stat.BaseNoMana) != 0,
             ArmourAppliesToChaosDamage: Get(PlayerHitMitigation.ArmourAppliesToChaos) != 0,
             EnergyShield: Get(Stat.BaseMaximumEnergyShield),
             EnergyShieldPctPerTenStrength: Get(AttributeDefenceSources.EnergyShieldPerTenStrength),
@@ -1530,7 +1539,8 @@ public static partial class Game
             ColdMaxResistance: allMax + allElemMax + Get(Stat.BaseMaximumColdDamageResistancePct),
             LightningMaxResistance: allMax + allElemMax + Get(Stat.BaseMaximumLightningDamageResistancePct),
             ChaosMaxResistance: allMax + Get(Stat.BaseMaximumChaosDamageResistancePct),
-            SpellSuppressionChance: Get(Stat.BaseSpellSuppressionChancePct),
+            // The former dodge mods: "150% of value" is the description's multiplier, shown rounded down.
+            SpellSuppressionChance: Get(Stat.BaseSpellSuppressionChancePct) + Get(Stat.BaseSpellSuppressionChance150PctOfValue) * 3 / 2,
             SpellSuppressionEffect: Get(Stat.BaseSpellDamagePctSuppressed),
             SpellSuppressionLucky: Get(Stat.SpellSuppressionChanceIsLucky) != 0,
             SpellSuppressionUnlucky: Get(Stat.Of("spell_suppression_chance_is_unlucky")) != 0,

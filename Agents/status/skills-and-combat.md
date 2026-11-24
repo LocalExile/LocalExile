@@ -122,7 +122,8 @@ Part of [Status](../Status.md); what to build next in this area is in
   supports' more or less area, Duration masteries and warcry and Vaal duration (not checked live).
   Docs: [11](../docs/protocol/11-skills.md) Â§12.
 - Lifetap Support and Blood Magic publish converted wire `life_cost` / `life_cost_per_minute` (zeroing wire mana cost)
-  so the client spends Life only. Docs: [25](../docs/protocol/25-gem-supports.md).
+  so the client spends Life only; Blood Magic also removes all Mana, gives 10% more maximum Life and reserves Life
+  instead of Mana. Docs: [25](../docs/protocol/25-gem-supports.md).
 - Movement, travel and stance skill cooldowns read their recovery stats. Spell and curse costs read their efficiency.
   Mark waivers, Cannibalistic Rite, the Covenant and Rathpith Globe use the server's resource admission.
 - Energy Shield skill costs (Energy Blade, Wild Strike of Extremes, Replica Covenant) and Eldritch Battery: costs paid

@@ -173,6 +173,8 @@ public static partial class Game
         }
         var stats = AreaPlayerStats(player);
         int Get(uint key) => stats.GetValueOrDefault(key);
+        // "Removes Bleeding when you use a Warcry": the bleed owner a flask's bleed suffix also clears, with no protection.
+        if (Get(Stat.RemoveBleedingOnWarcry) != 0) player.IncomingAilments.RemoveOrProtectBleeding(AreaTime(player), 0);
         if (Get(CorpseExplosionStat) is int percent and > 0)
             await ExplodeCorpses(player, at, radius, epoch, percent, Get,
                 DamageStats.Conversion(stats, Stats, attack: null));

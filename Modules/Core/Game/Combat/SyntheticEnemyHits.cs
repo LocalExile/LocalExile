@@ -62,7 +62,7 @@ public static partial class Game
                 type == DamageType.Chaos ? dealt : 0, now, stats, taken);
             player.PlayerLife = (uint)Math.Max(0, (long)lifeBefore - lifeDamage);
             TrimLeechLocked(player);
-            RecordIncomingHitLocked(player, now, spell, blocked, suppressed, lifeDamage);
+            RecordIncomingHitLocked(player, now, spell, blocked, suppressed, lifeDamage, dealt > 0);
             RecentHitLifeLossOnHitLocked(player, now);
             UnhingedHitRecoveryLocked(player, now, stats);
             if (player.PlayerLife == 0) { player.InvalidateIncomingHits(); ClearAntiquarianOnDeath(player); }

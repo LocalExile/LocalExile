@@ -64,7 +64,8 @@ public sealed record ProjectileEmissionRecipe(ProjectileProfile Child, bool Radi
 {
     /// <summary>Wait this long after the parent's end before emitting (Arrow Nova's rain delay).</summary>
     public long Delay { get; init; }
-    public double DamageMultiplier { get; init; } = 1;
+    /// <summary>Adapts the parent's release data once for each group of child projectiles.</summary>
+    public Func<object?, object?>? ChildPayload { get; init; }
     public bool ExcludeImpactTarget { get; init; }
     public IReadOnlySet<ProjectileEndReason>? EndReasons { get; init; }
     /// <summary>Optional individually timed groups emitted after the parent stops.</summary>

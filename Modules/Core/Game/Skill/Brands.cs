@@ -1328,7 +1328,7 @@ public static partial class Game
             + Get(Stat.SigilDamagePlusPct) + Get(Stat.WinterBrandDamagePlusPct)
             + (Get(Stat.SpellDamageModifiersApplyToSkillDot) != 0 ? Get(Stat.SpellDamagePlusPct) : 0);
         double more = WintertideDotSupportMore.Aggregate(
-            DamageStats.ConvergenceMore(Get(Stat.ConvergenceElementalDamagePlusPctFinal)),
+            DamageStats.ElementalMore(Get(Stat.CombinedElementalDamagePlusPctFinal)),
             (m, name) => m * Math.Max(0, 1 + Own(name) / 100.0));
         if (Get(Stat.KeystoneElementalOverloadDamagePlusPctFinal) is int eo and not 0)
             more *= Math.Max(0, 1 + eo / 100.0);

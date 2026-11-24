@@ -255,7 +255,7 @@ public static partial class Game
         ChargesOnDeath(player);
         ClearBloodChargesOnDeath(player);
         ClearResonance(player);
-        ClearConvergence(player);
+        EndTimedSkillBuffs(player);
         player.WitchbaneImmunityUntil = 0;
         ClearMomentum(player);
         VaalAuraStates.Remove(player); // CancelOnDeath: it cannot return after resurrection.
@@ -1121,7 +1121,9 @@ public static partial class Game
                     preventedPerSecond = PreventedDamageRecovery.PerSecond(
                         PanelStats.WhileMoving(RecoveryStat, player.Walk.Moving(AreaTime(player))));
                     lifeRegenFactor = LifeRegenerationKeystoneFactor(RecoveryStat);
-                    int periodic = RecoveryStat(Stat.VirtualGainLifeRegenerationPerMinutePctFor1SecondEvery4Seconds);
+                    // The influenced body armour suffix: its id says ten seconds, its text "Every 4 seconds".
+                    int periodic = RecoveryStat(Stat.VirtualGainLifeRegenerationPerMinutePctFor1SecondEvery4Seconds)
+                        + RecoveryStat(Stat.GuardianGainLifeRegenerationPerMinutePctFor1SecondEvery10Seconds);
                     periodicRegenStart = periodic > 0 && player.PlayerLife > 0 ? periodicRegenStart ?? now : null;
                     periodicRegenPerSecond = player.PlayerMaxLife * (double)periodic / 6000
                         * PanelStats.LifeRegenerationMultiplier(RecoveryStat) * lifeRegenFactor;
@@ -1377,7 +1379,7 @@ public static partial class Game
         dps = dps * Math.Max(0, 100 + dotMultiplier) / 100;
         int deliriumMore = playerStats.GetValueOrDefault(Stat.DeliriumAuraDamageOverTimePlusPctFinal);
         return dps * Math.Max(0, 1 + deliriumMore / 100d) * ChargeDamageMore(playerStats)
-            * DamageStats.ConvergenceMore(playerStats.GetValueOrDefault(Stat.ConvergenceElementalDamagePlusPctFinal));
+            * DamageStats.ElementalMore(playerStats.GetValueOrDefault(Stat.CombinedElementalDamagePlusPctFinal));
     }
 
     // Righteous Fire's burn: a damage aura (DamageAuras.cs) around the player, its fire damage a share of the player's
@@ -1528,6 +1530,16 @@ public static partial class Game
         var result = DamageImmunities.From(name => name is var key ? prepared.GetValueOrDefault(key) : 0);
         if (AreaTime(player) < player.PhysicalImmunityUntil) result.Add(DamageType.Physical);
         return result;
+    }
+
+    /// <summary>"Unaffected by Burning/Chilled/Shocked Ground": the player's, not their minions'. Burning ground is a
+    /// zone's fire damage over time, chilled and shocked ground its chill and shock.</summary>
+    public static (bool Burning, bool Chilled, bool Shocked) UnaffectedByGround(Player player)
+    {
+        bool Has(uint stat, uint virtualStat) => PlayerStat(player, stat) != 0 || PlayerStat(player, virtualStat) != 0;
+        return (Has(Stat.UnaffectedByBurningGround, Stat.VirtualUnaffectedByBurningGround),
+            Has(Stat.UnaffectedByChilledGround, Stat.VirtualUnaffectedByChilledGround),
+            Has(Stat.UnaffectedByShockedGround, Stat.VirtualUnaffectedByShockedGround));
     }
 
     // Spell Suppression: chance in 0..100 with the conditional passives that hold now (full life, full energy shield,

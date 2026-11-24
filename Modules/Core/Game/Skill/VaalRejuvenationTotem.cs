@@ -2,18 +2,21 @@ public static partial class Game
 {
     // Placement and expiry update the area list. Contacts only inspect owners with a live source.
     static readonly RuleTable<GameArea, Player[]> RejuvenationCasters = new();
+    static readonly RuleTable<Player, AuraPotency> RejuvenationPotencies = new();
+
+    sealed record AuraPotency(int Percent);
 
     static (Player Owner, TotemState.Totem Totem)? RejuvenationTotemAt(Player recipient, (int X, int Y) at,
         bool preferRegeneration = false)
     {
-        if (!RejuvenationCasters.TryGetValue(recipient.Area, out var casters)) return null;
+        if (recipient.Frames.Area is not { } area || !RejuvenationCasters.TryGetValue(area, out var casters)) return null;
         (Player Owner, TotemState.Totem Totem)? source = null;
         double strongest = double.NegativeInfinity;
         double distance = double.PositiveInfinity;
         void Consider(Player owner)
         {
             if (owner.Closed || owner.LeavingArea || owner.PlayerLife == 0
-                || owner.Area != recipient.Area || owner.Totems.All.Count == 0) return;
+                || owner.Frames.Area != area || owner.Totems.All.Count == 0) return;
             double now = AreaTime(owner);
             foreach (var totem in owner.Totems.All)
             {
@@ -33,26 +36,43 @@ public static partial class Game
 
     static void SyncRejuvenationAllyZones(Player owner, double now, bool leaving = false)
     {
-        var live = leaving ? [] : owner.Totems.Living(now).Where(t => t.Aura is { HitRedirectPercent: > 0 }).ToArray();
-        var area = owner.Area;
+        if (owner.Frames.Area is not { } area) return;
         var casters = RejuvenationCasters.TryGetValue(area, out var known) ? known : [];
         bool registered = Array.IndexOf(casters, owner) >= 0;
+        if (!registered && (leaving || owner.Totems.All.Count == 0)) return;
+        TotemState.Totem[] live = leaving ? [] : owner.Totems.Living(now)
+            .Where(t => t.Aura is { HitRedirectPercent: > 0 }).ToArray();
         if (live.Length == 0)
         {
             if (!registered) return;
             if (casters.Length == 1) RejuvenationCasters.Remove(area);
             else RejuvenationCasters.AddOrUpdate(area, casters.Where(p => !ReferenceEquals(p, owner)).ToArray());
+            RejuvenationPotencies.Remove(owner);
         }
-        else if (!registered) RejuvenationCasters.AddOrUpdate(area, [.. casters, owner]);
+        else
+        {
+            if (!registered) RejuvenationCasters.AddOrUpdate(area, [.. casters, owner]);
+            int potency = owner.Pools.AuraEffectPct;
+            if (!RejuvenationPotencies.TryGetValue(owner, out var previous) || potency != previous.Percent)
+            {
+                RejuvenationPotencies.AddOrUpdate(owner, new(potency));
+                MarkPlayerStats(owner, PlayerStatStep.TotemAura);
+                foreach (var totem in live)
+                    foreach (var id in ZoneMembers(owner, owner.Id, ZoneKind.RejuvenationTotemAllies, totem.Id))
+                        MarkAlly(id);
+            }
+        }
 
         SyncZones(owner, owner.Id, ZoneKind.RejuvenationTotemAllies,
             live.Select(t => (t.Id, t.Aura!.Radius, t.At)),
-            new(ReachesAlliesBut(owner, owner.Id), Changed: id =>
-            {
-                if (AreaPlayer(owner, id.Value) is not { } ally) return;
-                MarkPlayerStats(ally, PlayerStatStep.TotemAura);
-                PresentNearby(ally);
-            }));
+            new(ReachesPlayersBut(owner.Id), Changed: MarkAlly));
+
+        void MarkAlly(EntityId id)
+        {
+            if (AreaPlayer(owner, id.Value) is not { } ally) return;
+            MarkPlayerStats(ally, PlayerStatStep.TotemAura);
+            PresentNearby(ally);
+        }
     }
 
     internal static void EndRejuvenationTotemAura(Player owner)

@@ -269,7 +269,7 @@ public static partial class Game
                 + Get(Stat.DamagePlusPctWithHeraldSkills)) / 100.0)
             * Math.Max(0, 1 + (Get(Stat.DotMultiplierPlus) + Get(Stat.FireDotMultiplierPlus)) / 100.0)
             * Math.Max(0, 1 + ReservationStat(player, aura, Stat.HeraldOfAshBurningDamagePlusPctFinal) / 100.0)
-            * DamageStats.ConvergenceMore(Get(Stat.ConvergenceElementalDamagePlusPctFinal))
+            * DamageStats.ElementalMore(Get(Stat.CombinedElementalDamagePlusPctFinal))
             * Math.Max(0, 1 + Get(Stat.DeliriumAuraDamageOverTimePlusPctFinal) / 100.0);
         double radius = ReservationRadius(player, aura, 10, skill, playerStats);
         double burnSeconds = ReservationDuration(player, aura, Stat.BaseSkillEffectDuration, 4000);

@@ -5,9 +5,10 @@ public static partial class Game
     const ushort VaalArcticArmourIceRow = 2175;
     const ushort VaalArcticArmourRecoveryRow = 2178;
 
-    sealed class VaalArcticArmourState(int epoch, double until, double castFinishes, ushort skill,
+    sealed class VaalArcticArmourState(GameArea area, int epoch, double until, double castFinishes, ushort skill,
         int hits, int hitDamageChange, int manaRegen, int shieldRegen)
     {
+        public readonly GameArea Area = area;
         public readonly int Epoch = epoch;
         public readonly double Until = until, CastFinishes = castFinishes;
         public readonly ushort Skill = skill;
@@ -35,7 +36,7 @@ public static partial class Game
             DurationKinds(player, gem.Effect)) / RecipientEffectTime.Rate(1, PlayerStat);
         if (seconds <= 0 || Own(Stat.VaalArcticArmourNumberOfHitsAbsorbed) <= 0) return;
         EndVaalArcticArmour(player);
-        var state = VaalArcticArmours.GetValue(player, _ => new(player.ProjectileEpoch, now + seconds,
+        var state = VaalArcticArmours.GetValue(player, _ => new(player.Area, player.ProjectileEpoch, now + seconds,
             now + castMs / 1000d, skill, Own(Stat.VaalArcticArmourNumberOfHitsAbsorbed),
             Own(Stat.VaalArcticArmourDamageTakenPlusPctFinalFromHits), Own(Stat.BaseManaRegenerationRatePerMinute),
             Own(Stat.BaseEnergyShieldRegenerationRatePerMinute)));
@@ -47,11 +48,26 @@ public static partial class Game
 
     static void EndVaalArcticArmour(Player player)
     {
-        if (!VaalArcticArmours.TryGetValue(player, out _)) return;
+        if (!VaalArcticArmours.TryGetValue(player, out var state)) return;
         VaalArcticArmours.Remove(player);
-        player.Area.Buffs.Clear(player.Id, VaalArcticArmourIceRow, player.Id);
-        player.Area.Buffs.Clear(player.Id, VaalArcticArmourRecoveryRow, player.Id);
+        state.Area.Buffs.Clear(player.Id, VaalArcticArmourIceRow, player.Id);
+        state.Area.Buffs.Clear(player.Id, VaalArcticArmourRecoveryRow, player.Id);
         MarkPlayerStats(player, PlayerStatStep.Sources);
+    }
+
+    internal static void EndTimedSkillBuffs(Player player)
+    {
+        EndVaalArcticArmour(player);
+        ClearConvergence(player);
+    }
+
+    internal sealed class TimedSkillBuffCleanup : IDisposable
+    {
+        public void Dispose()
+        {
+            foreach (var (player, _) in VaalArcticArmours) EndVaalArcticArmour(player);
+            foreach (var (player, _) in ConvergenceWindows) ClearConvergence(player);
+        }
     }
 
     public static Task VaalArcticArmourTick(Player player)

@@ -82,16 +82,16 @@ public sealed partial class ProjectileRuntime
         Validate(child);
         if (parent.ChildEmission == 0) parent.ChildEmission = ++sequence;
         var baseDirection = recipe.BaseDirection?.Invoke(parent) ?? parent.Direction;
+        var payload = recipe.ChildPayload is { } childPayload ? childPayload(parent.Use.Payload) : parent.Use.Payload;
         for (int i = 0; i < child.Count; i++)
         {
             double angle = recipe.RandomDirections ? parent.Random.NextDouble() * Math.Tau
                 : recipe.Radial ? Math.Tau * i / child.Count + parent.EmissionNumber * 2.399963229728653
                 : child.Count <= 1 ? 0 : child.SpreadRadians * (i / (double)(child.Count - 1) - .5);
             var direction = recipe.RandomDirections ? parent.Direction.Rotate(angle) : baseDirection.Rotate(angle);
-            var use = parent.Use with { Profile = child, Origin = parent.Position,
+            var use = parent.Use with { Profile = child, Origin = parent.Position, Payload = payload,
                 Aim = parent.Position + direction * child.Range };
             var spawned = Spawn(use, parent.UseId, parent.ChildEmission, parent.Id, parent.Position, direction);
-            spawned.DamageMultiplier *= recipe.DamageMultiplier;
             if (excluded is { } target) spawned.TurnaroundTarget = target;
             // Point Blank/Far Shot measure the whole continuation, not just the child's own segment.
             spawned.Distance = parent.Distance;

@@ -738,7 +738,7 @@ public static partial class Game
             if (Get(Stat.SpellDamageModifiersApplyToSkillDot) != 0) increased += Get(Stat.SpellDamagePlusPct);
             double groundMore = new[] { "damage_+%_final", "fire_damage_+%_final", "elemental_damage_+%_final",
                 "damage_over_time_+%_final", "trap_damage_+%_final", "area_damage_+%_final" }
-                .Aggregate(DamageStats.ConvergenceMore(Get(Stat.ConvergenceElementalDamagePlusPctFinal)),
+                .Aggregate(DamageStats.ElementalMore(Get(Stat.CombinedElementalDamagePlusPctFinal)),
                     (factor, n) => factor * Math.Max(0, 1 + Get(Stat.Of(n)) / 100d));
             double dps = Get(Stat.BaseFireDamageToDealPerMinute) / 60d * Math.Max(0, 1 + increased / 100d)
                 * Math.Max(0, 1 + (Get(Stat.DotMultiplierPlus) + Get(Stat.FireDotMultiplierPlus)) / 100d) * groundMore * skitterMore * inventionMore;

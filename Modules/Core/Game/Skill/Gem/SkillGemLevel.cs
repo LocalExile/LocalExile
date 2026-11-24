@@ -5,7 +5,8 @@ public static class SkillGemLevel
 {
     public static readonly uint[] FamilyStats =
         [Stat.HeraldSkillGemLevelPlus, Stat.VaalSkillGemLevelPlus, Stat.LinkSkillGemLevelPlus,
-            Stat.RaiseZombieGemLevelPlus, Stat.RaiseSpectreGemLevelPlus, Stat.CurseSkillGemLevelPlus];
+            Stat.RaiseZombieGemLevelPlus, Stat.RaiseSpectreGemLevelPlus, Stat.SummonSkeletonGemLevelPlus,
+            Stat.CurseSkillGemLevelPlus];
 
     public static readonly (uint Stat, string Tag)[] TaggedActiveLevelStats =
     [

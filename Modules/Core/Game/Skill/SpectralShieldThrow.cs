@@ -19,10 +19,11 @@ public static partial class Game
             definitions[effect] = SkillProjectileDefinition(effect, primary, new((get, speed, _) =>
             {
                 var shard = GatewayProjectileDefaults.Create(secondary, get, speed) with { Count = 0 };
+                double more = Math.Max(0, 1 + get(Stat.ThrownShieldSecondaryProjectileDamagePlusPctFinal) / 100d);
                 var burst = new ProjectileEmissionRecipe(shard, Radial: true,
                     RandomDirections: get(Stat.ThrownShieldProjectileFireRandomDirections) != 0)
                 {
-                    DamageMultiplier = Math.Max(0, 1 + get(Stat.ThrownShieldSecondaryProjectileDamagePlusPctFinal) / 100d),
+                    ChildPayload = payload => payload is ProjectileOffense offense ? offense.ScaleDamage(more) : payload,
                     ExcludeImpactTarget = true,
                     EndReasons = stationary ? ShieldAtTarget : ShieldImpact,
                 };

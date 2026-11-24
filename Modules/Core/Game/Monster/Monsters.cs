@@ -2250,6 +2250,14 @@ public static partial class Game
             (lifeCap - player.PlayerLife) * (double)pct / 100.0, ref leech.LifeInstantCarry, minimum: 1);
     }
 
+    // The sequence a predictive swing's 0x1ab carries: the walk-up takes the monster's next sequence, and so does
+    // an in-place action. Until now the in-place one kept the 0xffff placeholder, leaving the client with no current
+    // action for the matching 0x1af (one access violation in StartChannelling from reusing 0xffff, recorded in
+    // ClientState.cs). An explicit sequence a caller passed is kept; a lockstep order takes its sequence from
+    // MonsterSwingOrderLocked instead.
+    public static ushort MonsterSwingSequence(Player player, SpawnedMonster m, bool walkUp, ushort sequence) =>
+        !player.Connection.LockstepClient && (walkUp || sequence == MonsterActionSequence) ? m.NextSequence() : sequence;
+
     // A swing order written in its send gate at `now` (under conn.Monsters): when it starts (LockstepOrderStart), its
     // attack time, the monster's and the player's cells there, and the monster's state from it; null when the monster
     // cannot act. A generic swing's action speed is read at `now`, not at the order's start: a freeze or chill sent
@@ -2377,7 +2385,7 @@ public static partial class Game
             if (a.Projectile is { Variation: > 0, Lobbed: false }) projectileAim = playerAt;
             // An area skill lands where its action aims (a nova around its user), wherever the player goes meanwhile.
             areaAim = a.AreaAtSelf ? from : playerAt;
-            if (walkUp && !player.Connection.LockstepClient) seq = m.NextSequence();
+            seq = MonsterSwingSequence(player, m, walkUp, seq);
             a = MonsterAttackForSequence(player, m, a, seq);
             if (walkUp) meleeClock = BeginMonsterMeleeClockLocked(player, m, action, seq, startedAt, now);
             // A summoning skill's action (ActionTypes SummonSpecificMonstersInFront) plays nothing on the client (live
@@ -2994,7 +3002,7 @@ public static partial class Game
             long leeched = Math.Min((long)damage * leechPermyriad / 10_000, Math.Max(1L, m.MaxLife / 10));
             if (leeched > 0) m.Life = (uint)Math.Min(m.MaxLife, (long)m.Life + leeched);
         }
-        RecordIncomingHitLocked(player, now, spellHit, blocked, suppressed, lifeDamage, monsterCritical);
+        RecordIncomingHitLocked(player, now, spellHit, blocked, suppressed, lifeDamage, damage > 0, monsterCritical);
         RecentHitLifeLossOnHitLocked(player, now);
         UnhingedHitRecoveryLocked(player, now, stats);
         // Brine Bound: a hit that lands, blocked too (blocking keeps the defender's when-hit effects, wiki
