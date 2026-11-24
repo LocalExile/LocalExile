@@ -322,7 +322,8 @@ public static partial class Game
             QueueHolyArmamentLocked(player, targetId, m, sourceSkill);
         PhantasmsOnHitLocked(player, m, sourceSkill, now, random, skill: skill);
         CursesOnHitLocked(player, m, sourceSkill, spell, now, skill, playerStats, playerHit, random);
-        if (playerHit && critical) ArcaneSurgeOnCritLocked(player, playerStats, now, random);
+        if (playerHit && critical && !EffectRules.LiveFor(player, Stat.GainArcaneSurgeOnCritPctChance))
+            ArcaneSurgeOnCritLocked(player, playerStats, now, random);
         bool criticalProjectileKnockback = critical && projectileDamage
             && (playerStats.GetValueOrDefault(Stat.KnockbackOnCritWithProjectileDamage) != 0
                 || skill?.GetValueOrDefault(Stat.KnockbackOnCritWithProjectileDamage) > 0);
@@ -331,7 +332,8 @@ public static partial class Game
         // "You gain Onslaught for 4 seconds on Hit" and "Gain Arcane Surge on Hit with Spells" (Honoured Berserker
         // and Flood tattoos): every player hit, the spells-only one gated by the hit's own spell flag.
         if (playerHit) OnslaughtOnHitLocked(player, now);
-        if (playerHit && spell) ArcaneSurgeOnSpellHitLocked(player, playerStats, now, random);
+        if (playerHit && spell && !EffectRules.LiveFor(player, Stat.GainArcaneSurgeOnHitPctChance))
+            ArcaneSurgeOnSpellHitLocked(player, playerStats, now, random);
         // "on Critical Strike against Marked Unique Enemy" (Loyalty Tattoo of Rakiata).
         if (playerHit && critical) LoyaltyCritVsMarkedUniqueLocked(player, m, playerStats);
         if (playerHit && !spell && player.Summons.Fighters.Values.Any(g => g.Definition.Kind == "HolyRelic"))

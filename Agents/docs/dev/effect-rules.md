@@ -95,6 +95,12 @@ Exposure extras) stays in `ApplyNamedDebuffLocked`, read from the hit's own stat
 `SkillStats`); `fx_modifiers` lists those stats. A term's `when` may be `deals_fire`, `deals_cold` or `deals_lightning`
 (`HitLanded.Damage`, after mitigation). Elemental Equilibrium and the projectile-only Maim chance are still the code's.
 
+More actions: `curse` puts a hex on the hit's monster at the gem level its value gives ("Curse Enemies with X on Hit";
+`refresh_after` is how long a running curse is left alone); `buff` with `phasing` or `arcane_surge` gives the game's own
+buff of that name; `charge` with type `spirit` gives a Spirit Charge. An amount the hit or block code works out itself
+(recovery on block, the chances to poison, bleed, freeze, impale, stun and knock back) is modifier rows of a quantity
+and one rule written as 'not built': the code still spends it.
+
 A plain number is granted to the calculator the game module already has (the stat graph); `fx_modifiers` records what
 the number means so that a formula can later move to a table one quantity at a time, each measured. Nothing reads these
 tables during play: they are loaded at startup into arrays by stat id, and an actor's rules are worked out when its

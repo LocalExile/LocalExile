@@ -162,6 +162,26 @@ public static class FxRules
                     effect["kind"] = "onslaught";
                     effect["seconds"] = Duration() ?? throw new FormatException("Onslaught needs a \"duration\" timer");
                     break;
+                case "buff" when with["buff"]?.GetValue<string>() == "phasing":
+                    if (target != "self") throw new FormatException("Phasing is given to the actor itself");
+                    effect["kind"] = "phasing";
+                    effect["seconds"] = Duration() ?? throw new FormatException("Phasing needs a \"duration\" timer");
+                    break;
+                case "buff" when with["buff"]?.GetValue<string>() == "arcane_surge":
+                    if (target != "self") throw new FormatException("Arcane Surge is given to the actor itself");
+                    effect["kind"] = "arcane_surge";
+                    break;
+                case "curse":
+                    if (target != "enemy") throw new FormatException("a curse is put on the trigger's enemy");
+                    effect["kind"] = "curse";
+                    effect["curse"] = with["curse"]?.DeepClone() ?? throw new FormatException("the action \"curse\" needs \"curse\"");
+                    if (with.ContainsKey("refresh_after")) effect["refresh_after"] = with["refresh_after"]!.DeepClone();
+                    if (Value(JsonNode.Parse(value)) is { } level) effect["level"] = level;
+                    break;
+                case "charge" when with["type"]?.GetValue<string>() == "spirit":
+                    if (target != "self") throw new FormatException("charges are given to the actor itself");
+                    effect["kind"] = "spirit_charge";
+                    break;
                 case "buff":
                     if (target != "self") throw new FormatException("a buff is given to the actor itself so far");
                     effect["kind"] = "buff";

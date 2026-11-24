@@ -37,6 +37,7 @@ public static partial class Game
     /// <summary>The charm's "X% chance to gain Phasing for 4 seconds on Kill": one roll per kill.</summary>
     public static void GainPhasingOnKill(Player player)
     {
+        if (EffectRules.LiveFor(player, Stat.PhasingFor4SecondsOnKillPct)) return;   // the effect rule rolls it
         int chance = StatSourceValues(player).GetValueOrDefault(Stat.PhasingFor4SecondsOnKillPct);
         if (chance <= 0 || AreaRng(player).Next(100) >= Math.Min(100, chance)) return;
         GainPhasing(player, 4);

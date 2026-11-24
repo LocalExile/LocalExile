@@ -68,6 +68,29 @@ public static partial class Game
             Defaults = new Dictionary<string, double> { ["amount"] = 0 },
         });
 
+        // A hex on the monster of the hit, as a cast of it at gem "level" would put it (curse limit, hexproof). "curse":
+        // its GrantedEffects Id. "refresh_after": a hit within this many seconds of the last application leaves the
+        // running curse alone (0: every hit applies it again).
+        EffectRules.Register(new("curse", ["level", "refresh_after"], ["curse"], fire =>
+        {
+            if (fire.Event is HitLanded { Monster: { } target } hit && hit.PlayerStats is { } hitStats)
+                CurseOnHitLocked(fire.Conn, target, fire.Word("curse") ?? "", (int)Math.Round(fire.Number("level")), hitStats,
+                    hit.At ?? fire.Now, fire.Number("refresh_after"));
+        })
+        {
+            Defaults = new Dictionary<string, double> { ["level"] = 1, ["refresh_after"] = 1 },
+        });
+
+        // Arcane Surge, as its gains on hit give it (the standard duration, cast speed and mana regeneration).
+        EffectRules.Register(new("arcane_surge", [], [], fire =>
+            GainArcaneSurgeLocked(fire.Conn, (fire.Event as HitLanded)?.At ?? fire.Now)));
+
+        // Phasing for "seconds": a running one is lengthened, never shortened.
+        EffectRules.Register(new("phasing", ["seconds"], [], fire => GainPhasing(fire.Conn, fire.Number("seconds"))));
+
+        // One more Spirit Charge, up to the character's limit.
+        EffectRules.Register(new("spirit_charge", [], [], fire => GainSpiritChargeLocked(fire.Conn, fire.Now)));
+
         // Charges of "type" (endurance, frenzy, power, or random: one of the three, drawn when the rule fires), through
         // the charge rules at their next step, with the maximum and the refresh they give any gain. "does": gain "count"
         // of them (the default), to_maximum, lose_all (down to the minimum) or lose_one.

@@ -222,8 +222,9 @@ public static partial class Game
         if (target.Dead || target.Life == 0 || player.Reservations.Secondary) return;
         if (playerHit)
         {
-            TemporalChainsOnSuccessfulHitLocked(player, target, now, hitStats,
-                hitStats.GetValueOrDefault(Stat.CurseOnHitPctTemporalChains), random);
+            if (!EffectRules.LiveFor(player, Stat.CurseOnHitPctTemporalChains))
+                TemporalChainsOnSuccessfulHitLocked(player, target, now, hitStats,
+                    hitStats.GetValueOrDefault(Stat.CurseOnHitPctTemporalChains), random);
             ItemCursesOnHitLocked(player, target, hitStats, now);
         }
         bool mayHextouch = sourceSkill != 0
