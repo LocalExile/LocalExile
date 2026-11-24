@@ -166,10 +166,13 @@ public static class GroundSlamWave
     /// reach in about 0.15 s and keeps the nearest-first stagger.</summary>
     public const double CellsPerSecond = 400;
 
+    // Volcanic Fissure and older callers use the original bounded sweep.
+    public static double Length(int areaRadius) => Math.Max(0, BaseLength + areaRadius - GenericAreaRadius);
+
     /// <summary>The reach in cells of the wave a skill of <paramref name="areaRadius"/> cells sends: at 0% AoE it grows
     /// by <paramref name="gemBasePlus"/> (e.g. gem level's active_skill_base_radius_+) without runaway multiplication, and
     /// scales proportionally with increased/more area (including Fist of War).</summary>
-    public static double Length(int areaRadius, int gemBasePlus = 0)
+    public static double Length(int areaRadius, int gemBasePlus)
     {
         double baseScaleRadius = Math.Max(1, GenericAreaRadius + Math.Max(0, gemBasePlus));
         double baseLength = Math.Max(0, BaseLength + Math.Max(0, gemBasePlus));

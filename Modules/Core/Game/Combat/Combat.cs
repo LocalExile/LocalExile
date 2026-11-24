@@ -284,10 +284,10 @@ public static partial class Game
         IReadOnlyDictionary<uint, int> skillStats, int swingReach)
     {
         double reach = swingReach + 2;
-        if (!SkillsFor(player).IsArea(effect) || SkillsFor(player).IsStrike(effect)) return reach;
+        if (!weapon.Melee || !SkillsFor(player).IsArea(effect) || SkillsFor(player).IsStrike(effect)) return reach;
         int radius = SkillRadius(player, skillStats, spell: false, effect);
         string? effectId = SkillsFor(player).EffectId(effect);
-        double areaReach = SkillsFor(player).ActionHash(effect) == GroundSlamWave.Action || effectId is "Sunder" or "SunderAltX"
+        double areaReach = SkillsFor(player).ActionHash(effect) == GroundSlamWave.Action
             ? GroundSlamWave.Length(radius, skillStats.GetValueOrDefault(Stat.ActiveSkillBaseRadiusPlus))
             : effectId is "IceCrash" or "IceCrashAltX" or "IceCrashAltY"
                 ? SkillRadius(player, skillStats.GetValueOrDefault(Stat.ActiveSkillBaseTertiaryAreaOfEffectRadius) is > 0 and var t ? t : 31,
@@ -300,9 +300,9 @@ public static partial class Game
     // the swing starts at once, when MoveTo finds its goal where the player stands (0x141e81c20 → 0x141e81950). A walk-up
     // with steps swings once it is over at a cell in reach. A lockstep client's is PlaceLockstepAttack's.
     public static ((int X, int Y) Here, (int X, int Y) Stop, double At, bool Swing) WalkUpToSwing(Player player,
-        SpawnedMonster m, (int X, int Y) target, SkillCatalog.Unarmed weapon, double now, int precision, int? reachOverride = null)
+        SpawnedMonster m, (int X, int Y) target, SkillCatalog.Unarmed weapon, double now, int precision)
     {
-        int reach = reachOverride is int r ? Math.Max(r, 1) - 1 : WalkUpRange(weapon);
+        int reach = WalkUpRange(weapon);
         var (here, stop, at) = player.Walk.Approach(target.X, target.Y, reach, now, tolerance: m.StopRange - 2, precision);
         return (here, stop, at, SwingInReach(player, m, here, target, reach) || at <= now && SwingInReach(player, m, stop, target, reach));
     }
@@ -314,7 +314,7 @@ public static partial class Game
     // lockstep client both the start of the frame it began in); null when the walk-up failed or another action replaced it.
     public static async Task<((int X, int Y) Stop, double Arrive, double Begun)?> FollowMonsterToSwing(Player player,
         SpawnedMonster m, SkillCatalog.Unarmed weapon, Func<bool> current, Func<double, double, Task<bool>> until,
-        (int X, int Y) stop, double arrive, bool swing, double now, int precision = 1, LockstepAttack? lockstep = null, int? reachOverride = null)
+        (int X, int Y) stop, double arrive, bool swing, double now, int precision = 1, LockstepAttack? lockstep = null)
     {
         if (lockstep is not null)
         {
@@ -326,7 +326,7 @@ public static partial class Game
             }
             return lockstep.Decided.IsCompleted && await lockstep.Decided is { } decided ? (decided.From, decided.Start, decided.Start) : null;
         }
-        int reach = reachOverride is int r ? Math.Max(r, 1) - 1 : WalkUpRange(weapon);
+        int reach = WalkUpRange(weapon);
         if (swing) return (stop, arrive, now);
         while (true)
         {
@@ -340,7 +340,7 @@ public static partial class Game
                 bool done = m.Life == 0;
                 if (now >= arrive && (done || SwingInReach(player, m, stop, target, reach))) return (stop, arrive, now);
                 if (done) continue;
-                (_, stop, arrive, swing) = WalkUpToSwing(player, m, target, weapon, now, precision, reachOverride);
+                (_, stop, arrive, swing) = WalkUpToSwing(player, m, target, weapon, now, precision);
                 if (swing) return (stop, arrive, now);
             }
         }
@@ -803,6 +803,7 @@ public static partial class Game
             var weapon = HandWeapon(player, AttackHandFor(player, use.SkillId, use.Sequence));
             var supportedStats = SupportedSkill(player, use.SkillId).Stats;
             int swingReach = MeleeSkillReach(player, weapon, gem.Effect, supportedStats);
+            weapon = weapon with { Range = swingReach };
             double admitReach = MeleeAreaSwingReach(player, weapon, gem.Effect, supportedStats, swingReach);
             int precision = AttackPrecision(player);
             double now = AreaTime(player);
@@ -819,7 +820,7 @@ public static partial class Game
                     target = m.Walk.Position(now);
                     // A lockstep client's walk-up is placed where its 0x1ab goes out (LockstepAttackStart).
                     if (player.Connection.LockstepClient) (here, stop, arrive, atOnce) = (player.Walk.Position(now), player.Walk.Position(now), now, false);
-                    else (here, stop, arrive, atOnce) = WalkUpToSwing(player, m, target, weapon, now, precision, swingReach);
+                    else (here, stop, arrive, atOnce) = WalkUpToSwing(player, m, target, weapon, now, precision);
                 }, out var approachTicket, reserve: false, requestedAt: requestedAt)) return;
             if (!player.Connection.LockstepClient)
                 Console.WriteLine($"[gateway] {player.Connection.Remote} <= 0x0024 skill 0x{use.SkillId:x4} {gem.Name} on 0x{use.TargetId:x}: player ({here.X}, {here.Y}), " +
@@ -833,7 +834,7 @@ public static partial class Game
                 return true;
             }
             if (await FollowMonsterToSwing(player, m, weapon, () => player.ActionCount == action && approachTicket?.Current(player) != false,
-                Walked, stop, arrive, atOnce, now, precision, lockstep, swingReach) is not { } swing)
+                Walked, stop, arrive, atOnce, now, precision, lockstep) is not { } swing)
             {
                 Console.WriteLine($"[gateway] {player.Connection.Remote} skill 0x{use.SkillId:x4} {gem.Name} on 0x{use.TargetId:x} cancelled before the swing");
                 player.Connection.Performance.Count("use cancelled before the swing");
@@ -2576,7 +2577,7 @@ public static partial class Game
         // the Vaal blast keeps its radial hit.
         bool wave = !immediate && !spell && SkillsFor(player).ActionHash(gem.Effect) == GroundSlamWave.Action;
         bool fissure = !immediate && IsVolcanicFissure(gem.Effect);
-        double waveLength = wave ? GroundSlamWave.Length(radius) : 0;
+        double waveLength = wave ? GroundSlamWave.Length(radius, skillStats.GetValueOrDefault(global::Stat.ActiveSkillBaseRadiusPlus)) : 0;
         int waveCloseDamage = wave ? Stat(global::Stat.GroundslamDamageToCloseTargetsPlusPctFinal) : 0;
         double waveHalfAngle = wave ? GroundSlamWave.HalfAngle(Stat) : 0;
         (double X, double Y) waveDir = wave ? GroundSlamWave.Direction(from, to) : (0, 0);
