@@ -30,8 +30,9 @@ public sealed record PlacedExit(PlacedTileObject Object, ExitKind Kind, int Numb
 }
 
 /// <summary>A layout's named entrance point: where "entranceN" (enabled or not) sits, i.e. where a player arriving from
-/// Connections[N − 1] belongs.</summary>
-public sealed record EntrancePoint(int Number, bool Enabled, int X, int Y);
+/// Connections[N − 1] belongs. <paramref name="NamedPoint"/> is true when the room authored an explicit entrance point
+/// slot (rather than falling back to the transition object or room centre).</summary>
+public sealed record EntrancePoint(int Number, bool Enabled, int X, int Y, bool NamedPoint = true);
 
 /// <summary>
 /// The area transitions of a generated layout and where each leads, decided by the layout itself
@@ -151,8 +152,9 @@ public static class AreaExits
             foreach (var d in room.Descriptions.Where(d => d.Kind == ExitKind.Entrance))
             {
                 var inRoom = objects.FirstOrDefault(o => room.Contains(o.X, o.Y));
-                (int X, int Y) at = room.SlotOf(d) is { } p ? (p.X, p.Y) : inRoom is { } o ? (o.X, o.Y) : room.Centre;
-                points.Add(new EntrancePoint(d.Number, d.Enabled, at.X, at.Y));
+                var slot = room.SlotOf(d);
+                (int X, int Y) at = slot is { } p ? (p.X, p.Y) : inRoom is { } o ? (o.X, o.Y) : room.Centre;
+                points.Add(new EntrancePoint(d.Number, d.Enabled, at.X, at.Y, NamedPoint: slot is not null));
             }
         return points;
     }

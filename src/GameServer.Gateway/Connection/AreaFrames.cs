@@ -520,6 +520,8 @@ public sealed class AreaFrames
                         foreach (var m in snap)
                         {
                             if (!m.Framed || boundary < m.First + frame - 1e-9) continue;
+                            if (delta.Count > 0 && Program.GameLogicOrNull is { } logic)
+                                OnFrame(() => logic.WritingWorldDelta(m.Player, delta));
                             if (await Pumping(Guard(m, () => Program.EndWorldFrame(m.Player, (boundary, boundary + frame), delta))))
                             {
                                 m.LastEnded = boundary;
