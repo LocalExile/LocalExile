@@ -52,13 +52,29 @@ public static partial class Game
 
         EnsureTriggeredSkills();
 
-        // "count" charges of "type" (endurance, frenzy, power), as a skill's own grant: the charge rules apply it at
-        // their next step, with the maximum and the refresh they give any gain.
-        EffectRules.Register(new("charge", ["count"], ["type"], fire =>
+        // Charges of "type" (endurance, frenzy, power, or random: one of the three, drawn when the rule fires), through
+        // the charge rules at their next step, with the maximum and the refresh they give any gain. "does": gain "count"
+        // of them (the default), to_maximum, lose_all (down to the minimum) or lose_one.
+        EffectRules.Register(new("charge", ["count"], ["type", "does"], fire =>
         {
+            string word = fire.Word("type") ?? "";
+            ChargeType type;
+            if (word == "random") type = Charges.Types[AreaRng(fire.Conn).Next(Charges.Types.Length)];
+            else if (!Enum.TryParse(word, ignoreCase: true, out type)) return;
             int count = (int)Math.Round(fire.Number("count"));
-            if (count > 0 && Enum.TryParse<ChargeType>(fire.Word("type"), ignoreCase: true, out var type))
-                ChargesOf(fire.Conn).Enqueue(new ChargeEvent.Grant(type, count, "effect rule"));
-        }, (parameter, word) => Enum.TryParse<ChargeType>(word, ignoreCase: true, out ChargeType known)));
+            ChargeGains.Gain? gain = fire.Word("does") switch
+            {
+                "to_maximum" => new(type, 1, "effect rule", ToMaximum: true),
+                "lose_all" => new(type, ChargeGains.Gain.All, "effect rule"),
+                "lose_one" => new(type, -1, "effect rule"),
+                _ => count > 0 ? new(type, count, "effect rule") : null,
+            };
+            if (gain is { } gained) ChargesOf(fire.Conn).Enqueue(new ChargeEvent.RuleGain(gained));
+        }, (parameter, word) => parameter == "does" ? word is "gain" or "to_maximum" or "lose_all" or "lose_one"
+            : word == "random" || Enum.TryParse<ChargeType>(word, ignoreCase: true, out ChargeType known))
+        {
+            Defaults = new Dictionary<string, double> { ["count"] = 1 },
+            NameDefaults = new Dictionary<string, string> { ["does"] = "gain" },
+        });
     }
 }

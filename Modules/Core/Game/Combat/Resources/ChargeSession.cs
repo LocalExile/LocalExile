@@ -208,6 +208,9 @@ public sealed class ChargeSession(Charges.State? state = null, Action<ChargeType
         return true;
     }
 
+    /// <summary>The stats an effect rule is live for on this character: left to the rule (ChargeGains.Roll).</summary>
+    public Func<uint, bool>? Ruled { get; set; }
+
     void ApplyEvent(ChargeEvent e, double now, Func<uint, int> stats, Func<WeaponProfile> weapon, Random rng, List<string> log)
     {
         SettleDegeneration(now);
@@ -223,7 +226,7 @@ public sealed class ChargeSession(Charges.State? state = null, Action<ChargeType
             log.Add(set.Type is { } t ? $"{Charges.Name(t)} charges set to {set.Count}" : "charges cleared");
             return;
         }
-        foreach (var gain in ChargeGains.Roll(e, stats, weapon(), rng)) Apply(gain, now, rng, log);
+        foreach (var gain in ChargeGains.Roll(e, stats, weapon(), rng, Ruled)) Apply(gain, now, rng, log);
     }
 
     StepResult Finish(double now, List<string> log, Random? rng = null)

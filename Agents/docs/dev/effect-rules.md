@@ -76,6 +76,13 @@ auras or one recent event (641 stats); any other part (a count, an amount) stays
 on/off switch turns this off too (`StatConditions.UseTable`). Run over all 23,362 stats with 60 random subjects each,
 table and id agree everywhere; per stat the table costs less (the plain stats are a stored array).
 
+The charge rules of `ChargeGains.cs` (62 of its 66; not the four of one skill each, nor the charges gained over time)
+are fx rules, one per stat. They use the trigger `skill_hit`: the hit as the charge rules count it (`ChargeEvent.Hit`),
+which carries its facts, where `hit` (`HitLanded`) is every hit of the character's side. A chance may add the event's
+skill's own share of the stat (`"skill": true`). While a rule is live for a character (`EffectRules.LiveFor`),
+`ChargeGains.Roll` leaves its stat to the rule; a character without the stat still gets a skill's own share from the
+code. The `charge` action gains, fills to the maximum, or takes one or all, of a type or a random one.
+
 A plain number is granted to the calculator the game module already has (the stat graph); `fx_modifiers` records what
 the number means so that a formula can later move to a table one quantity at a time, each measured. Nothing reads these
 tables during play: they are loaded at startup into arrays by stat id, and an actor's rules are worked out when its

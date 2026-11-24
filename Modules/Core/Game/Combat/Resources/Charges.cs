@@ -23,7 +23,8 @@ public static partial class Game
             ChargeType.Frenzy => StatConditions.GainedFrenzyCharge,
             ChargeType.Power => StatConditions.GainedPowerCharge,
             _ => StatConditions.GainedEnduranceCharge,
-        }, at), () => ResourceEffectsTime(player), (from, until) => player.Walk.MovingSeconds(from, until)));
+        }, at), () => ResourceEffectsTime(player), (from, until) => player.Walk.MovingSeconds(from, until))
+        { Ruled = stat => EffectRules.LiveFor(player, stat) });
 
     static readonly System.Runtime.CompilerServices.ConditionalWeakTable<SkillCatalog, System.Collections.Concurrent.ConcurrentDictionary<(int Effect, int Level, int Quality), Func<uint, int>>> ChargeHitSkillStats = new();
 
@@ -40,10 +41,11 @@ public static partial class Game
         ChargesOf(player).Enqueue(e);
         // The charge system's hit record is its own: the hit event of rules, modules and mods is HitLanded, raised
         // where every hit passes (brands, heralds and totems too), with who made it.
-        if (e is ChargeEvent.Hit) return;
         // An event caused by a triggered skill says so (CombatEvent.Depth), for the loop guard.
         if (TriggerDepth != 0 && e.Depth == 0) e = e with { Depth = TriggerDepth };
         EffectRules.Run(player, e);
+        // Rules see the charge system's hit ("skill_hit"); modules and mods get HitLanded for a hit.
+        if (e is ChargeEvent.Hit) return;
         GameEvents.RaiseCombat(player, e);
     }
 

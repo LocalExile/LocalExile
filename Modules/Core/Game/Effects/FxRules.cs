@@ -18,7 +18,7 @@ public static class FxRules
     static readonly Dictionary<string, string> Triggers = new(StringComparer.Ordinal)
     {
         ["hit"] = "hit", ["kill"] = "kill", ["when_hit"] = "when_hit", ["block"] = "block", ["stun"] = "stun",
-        ["skill_use"] = "skill_use", ["active"] = "worn",
+        ["skill_use"] = "skill_use", ["active"] = "worn", ["skill_hit"] = "skill_hit",
     };
 
     /// <summary>Every enabled fx rule the engine can carry out, one entry per stat that turns it on.
@@ -95,6 +95,16 @@ public static class FxRules
                 case "enemy_rarity" or "enemy_state" or "skill_type":
                     Add(facts, group, Fact(Word("is") ?? throw new FormatException($"\"{condition}\" needs \"is\"")));
                     break;
+                case "self_state":
+                    Add(facts, group, Fact("self_" + (Word("is") ?? throw new FormatException("\"self_state\" needs \"is\""))));
+                    break;
+                case "weapon":
+                    Add(facts, group, Fact(Word("is") switch
+                    {
+                        "shield" => "shield", "dual wielding" => "dual_wield", "wand" => "wand", "claw or dagger" => "claw_or_dagger",
+                        var other => throw new FormatException($"the weapon \"{other}\" has no code yet for a rule"),
+                    }));
+                    break;
                 default: throw new FormatException($"the condition \"{condition}\" has no code yet");
             }
         }
@@ -145,6 +155,7 @@ public static class FxRules
                     if (target != "self") throw new FormatException("charges are given to the actor itself");
                     effect["kind"] = "charge";
                     effect["type"] = with["type"]?.DeepClone() ?? throw new FormatException("the action \"charge\" needs \"type\"");
+                    if (with.ContainsKey("does")) effect["does"] = with["does"]!.DeepClone();
                     effect["count"] = Value(JsonNode.Parse(value)) ?? 1;
                     break;
                 default: throw new FormatException($"the action \"{action}\" has no code yet");
@@ -170,7 +181,7 @@ public static class FxRules
                 case "from": break;
                 case "stat" when from == "stat": value["stat"] = part?.DeepClone(); break;
                 case "name" when from == "source": value["data"] = part?.DeepClone(); break;
-                case "fixed" or "scale" or "fallback" or "min" or "max": value[name] = part?.DeepClone(); break;
+                case "fixed" or "scale" or "fallback" or "min" or "max" or "skill": value[name] = part?.DeepClone(); break;
                 default: throw new FormatException($"a value has no \"{name}\"" + (from is null ? "" : $" from \"{from}\""));
             }
         if (from == "roll") value["from"] = "stat";

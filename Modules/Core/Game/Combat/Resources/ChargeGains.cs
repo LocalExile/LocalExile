@@ -45,6 +45,9 @@ public abstract record ChargeEvent : CombatEvent
     /// <summary>The /charges command sets a type's count; null type with 0 clears all.</summary>
     public sealed record Set(ChargeType? Type, int Count) : ChargeEvent;
 
+    /// <summary>What an effect rule's "charge" does: one gain or loss, as a rule of <see cref="ChargeGains"/> gives it.</summary>
+    public sealed record RuleGain(ChargeGains.Gain Gain) : ChargeEvent;
+
     /// <summary>A skill spends <paramref name="Count"/> charges of a type (Discharge): never below the minimum.</summary>
     public sealed record Spend(ChargeType Type, int Count, string Why) : ChargeEvent;
 }
@@ -184,11 +187,16 @@ public static class ChargeGains
     /// the used skill's own stats to its "on hit" chances. Each rule rolls once; a random type is drawn with
     /// <c>rng.Next(3)</c> in the order Endurance, Frenzy, Power.
     /// </summary>
-    public static List<Gain> Roll(ChargeEvent e, Func<uint, int> get, WeaponProfile weapon, Random rng)
+    /// <paramref name="ruled"/>: the stats an effect rule is live for on this character (EffectRules.LiveFor); the rule
+    /// rolls those, the skill's own part included, so they are left out here.
+    public static List<Gain> Roll(ChargeEvent e, Func<uint, int> get, WeaponProfile weapon, Random rng, Func<uint, bool>? ruled = null)
     {
         var gains = new List<Gain>();
         switch (e)
         {
+            case ChargeEvent.RuleGain rule:
+                gains.Add(rule.Gain);
+                return gains;
             case ChargeEvent.Grant g:
                 if (g.Count > 0) gains.Add(new(g.Type, g.Count, g.Why));
                 return gains;
@@ -202,6 +210,7 @@ public static class ChargeGains
         foreach (var rule in Rules)
         {
             if (!rule.When(e, weapon)) continue;
+            if (ruled is not null && ruled(rule.Stat)) continue;
             int value = get(rule.Stat) + (skill?.Invoke(rule.Stat) ?? 0);
             int chance = rule.Flag ? (value != 0 ? 100 : 0) : value;
             if (!Rolls(chance, rng)) continue;

@@ -21,8 +21,11 @@ public static class EffectRules
 {
     /// <summary>The events a rule may name. Worn is no event: its rule stands while its stat is there (an item's
     /// always-on skill), and its effects are started and ended rather than run (<see cref="Kind.Stand"/>).</summary>
-    public enum What { Hit, Kill, WhenHit, Block, Stun, SkillUse, Worn }
-    static readonly string[] WhatNames = ["hit", "kill", "when_hit", "block", "stun", "skill_use", "worn"];
+    /// SkillHit is the hit as the charge system counts it (ChargeEvent.Hit): one per monster hit by the character's own
+    /// skill, with what the hit found already in it. Hit (HitLanded) is every hit of the character's side, totems,
+    /// traps and mines included.
+    public enum What { Hit, Kill, WhenHit, Block, Stun, SkillUse, Worn, SkillHit }
+    static readonly string[] WhatNames = ["hit", "kill", "when_hit", "block", "stun", "skill_use", "worn", "skill_hit"];
 
     /// <summary>Turns every rule off (the code a rule replaced runs again from the next stat build). A testing switch.</summary>
     public static bool Enabled
@@ -47,6 +50,10 @@ public static class EffectRules
     /// <summary>A number a rule uses and where it comes from.</summary>
     public sealed record Value(double Fixed, string? Stat, bool OwnStat, double Scale, double Fallback, double? Min, double? Max)
     {
+        /// <summary>For a chance from the rule's own stat: the event's skill adds what it has of that stat itself (a
+        /// support's "chance to gain a Power Charge on Critical Strike" with the character's own).</summary>
+        public bool WithSkill { get; init; }
+
         public static readonly Value Always = new(100, null, false, 1, 0, null, null);
 
         /// <summary>A number of the rule's carrier by name (a granted skill's "cooldown" or "level"), in place of a stat.</summary>
@@ -157,6 +164,8 @@ public static class EffectRules
     sealed class Live
     {
         public LiveRule[][] ByWhat = NoRules;
+        // The stats whose own rule (not a carrier's) is live for the actor: what the code a rule replaced asks.
+        public HashSet<uint> Keys = [];
         // A rule's cooldown uses: how many are held and when the next comes back.
         public Dictionary<(Rule Rule, object? Source), (int Held, double NextAt)>? Cooldowns;
         // The "worn" rules whose effects stand now, by rule and carrier. Replaced whole, read by each effect's On.
@@ -189,7 +198,9 @@ public static class EffectRules
     static readonly Dictionary<What, string[]> Facts = new()
     {
         [What.Hit] = ["critical", "spell", "attack", "melee", "bow", "killed", "frozen", "ignited", "bleeding", "marked", "has_mark", "normal", "magic", "rare", "unique", "rare_or_unique"],
-        [What.Kill] = ["frozen", "ignited", "bleeding", "poisoned", "normal", "magic", "rare", "unique", "rare_or_unique"],
+        [What.Kill] = ["frozen", "ignited", "bleeding", "poisoned", "five_poisons", "shield", "dual_wield", "normal", "magic", "rare", "unique", "rare_or_unique"],
+        [What.SkillHit] = ["critical", "spell", "attack", "melee", "killed", "primary", "frozen", "bleeding", "marked", "self_bleeding", "self_poisoned",
+            "shield", "dual_wield", "wand", "claw_or_dagger", "normal", "magic", "rare", "unique", "rare_or_unique"],
         [What.WhenHit] = ["critical"],
         [What.Block] = ["spell", "attack"],
         [What.Stun] = ["melee"],
@@ -361,7 +372,7 @@ public static class EffectRules
         if (e.ValueKind == JsonValueKind.Number) return new(e.GetDouble(), null, false, 1, 0, null, null);
         double? Number(string name) => e.TryGetProperty(name, out var n) ? n.GetDouble() : null;
         foreach (var property in e.EnumerateObject())
-            if (property.Name is not ("fixed" or "from" or "stat" or "data" or "scale" or "fallback" or "min" or "max"))
+            if (property.Name is not ("fixed" or "from" or "stat" or "data" or "scale" or "fallback" or "min" or "max" or "skill"))
                 throw new FormatException($"unknown value key \"{property.Name}\"");
         bool own = e.TryGetProperty("from", out var from)
             && (from.GetString() == "stat" ? true : throw new FormatException($"unknown value source \"{from.GetString()}\""));
@@ -373,7 +384,9 @@ public static class EffectRules
         uint key = 0;
         if (stat is not null && Program.Stats.Key(stat) is not uint known) throw new FormatException($"unknown stat \"{stat}\"");
         else if (stat is not null) key = Program.Stats.Key(stat)!.Value;
-        return new(value ?? 0, stat, own, Number("scale") ?? 1, Number("fallback") ?? 0, Number("min"), Number("max")) { Data = data, StatKey = key };
+        bool withSkill = e.TryGetProperty("skill", out var adds) && adds.GetBoolean();
+        if (withSkill && !own) throw new FormatException("\"skill\" adds the event's skill to a value from the rule's own stat (\"from\":\"stat\")");
+        return new(value ?? 0, stat, own, Number("scale") ?? 1, Number("fallback") ?? 0, Number("min"), Number("max")) { Data = data, StatKey = key, WithSkill = withSkill };
     }
 
     /// <summary>Works out the actor's live rules from its stats, and from the stats of its carriers
@@ -419,6 +432,7 @@ public static class EffectRules
         var live = Lives.GetOrCreateValue(player);
         var byWhat = lists is null ? NoRules : [.. lists.Select(l => l?.ToArray() ?? [])];
         Volatile.Write(ref live.ByWhat, byWhat);
+        Volatile.Write(ref live.Keys, [.. byWhat.SelectMany(rules => rules).Where(r => r.Source is null).Select(r => r.Rule.Key)]);
         // The "worn" rules: one that is new starts its effects, one that is gone leaves the set and its effects see
         // that at their next step. A rule that stays is not started again.
         var worn = byWhat[(int)What.Worn];
@@ -438,6 +452,11 @@ public static class EffectRules
         if (before.Any(key => !now.Contains(key))) Game.MarkPlayerStats(player, PlayerStatStep.Sources);
     }
 
+    /// <summary>Whether a rule of this stat is live for the actor now (its own stat, not a carrier's): the code the
+    /// rule replaced leaves the stat alone then, and runs as before for an actor whose rule is not live.</summary>
+    public static bool LiveFor(Player player, uint stat) =>
+        Enabled && Lives.TryGetValue(player, out var live) && Volatile.Read(ref live.Keys).Contains(stat);
+
     /// <summary>Whether the actor has a live rule for this event: what a per-hit caller asks before it builds one.</summary>
     public static bool Listens(Player player, What what) =>
         Enabled && Lives.TryGetValue(player, out var live) && Volatile.Read(ref live.ByWhat)[(int)what].Length > 0;
@@ -451,7 +470,7 @@ public static class EffectRules
         int what = e switch
         {
             HitLanded => 0, ChargeEvent.Kill => 1, ChargeEvent.WhenHit => 2, ChargeEvent.Block => 3,
-            ChargeEvent.Stun => 4, ChargeEvent.SkillUse => 5, _ => -1,
+            ChargeEvent.Stun => 4, ChargeEvent.SkillUse => 5, ChargeEvent.Hit => 7, _ => -1,
         };
         if (what < 0) return;
         var rules = Volatile.Read(ref live.ByWhat)[what];
@@ -462,7 +481,8 @@ public static class EffectRules
             if (rule.Rule.Who is { } who && who != e.Who) continue;
             if (rule.Rule.Chains && e.Depth > rule.Rule.MaxDepth && LoopGuard) continue;
             if (!Passes(rule.Rule, e, player)) continue;
-            if (rule.Chance * ChanceScale < 100 && Game.AreaRng(player).NextDouble() * 100 >= rule.Chance * ChanceScale) continue;
+            double chance = rule.Rule.Chance.WithSkill ? rule.Chance + SkillStat(e, rule.Rule.Key) : rule.Chance;
+            if (chance * ChanceScale < 100 && Game.AreaRng(player).NextDouble() * 100 >= chance * ChanceScale) continue;
             if (rule.Cooldown > 0)
                 lock (live)
                     if (!live.TakeUse(rule, now)) continue;
@@ -478,6 +498,16 @@ public static class EffectRules
             }
         }
     }
+
+    // What the event's own skill has of a stat (its supports' included), for a chance that adds it.
+    static int SkillStat(CombatEvent e, uint stat) => e switch
+    {
+        ChargeEvent.Hit h => h.Skill?.Invoke(stat) ?? 0,
+        ChargeEvent.Kill k => k.Skill?.Invoke(stat) ?? 0,
+        ChargeEvent.Stun s => s.Skill?.Invoke(stat) ?? 0,
+        HitLanded h => h.SkillStats?.GetValueOrDefault(stat) ?? 0,
+        _ => 0,
+    };
 
     static bool Passes(Rule rule, CombatEvent e, Player player)
     {
@@ -495,6 +525,25 @@ public static class EffectRules
     // Monsters lock): nothing is worked out for a hit no rule checks.
     static bool Fact(string fact, CombatEvent e, Player player) => (fact, e) switch
     {
+        // The character's own weapons, for a rule that asks ("while holding a Shield", "with Wands").
+        ("shield", _) => Game.WeaponProfileFor(player).Shield,
+        ("dual_wield", _) => Game.WeaponProfileFor(player).DualWield,
+        ("wand", _) => Game.WeaponProfileFor(player).Wand,
+        ("claw_or_dagger", _) => Game.WeaponProfileFor(player) is { Claw: true } or { Dagger: true },
+        // The hit as the charge system counts it carries its facts.
+        ("critical", ChargeEvent.Hit h) => h.Critical,
+        ("spell", ChargeEvent.Hit h) => h.Spell,
+        ("attack", ChargeEvent.Hit h) => !h.Spell,
+        ("melee", ChargeEvent.Hit h) => h.Melee ?? (!h.Spell && Game.WeaponProfileFor(player) is { Bow: false, Wand: false }),
+        ("killed", ChargeEvent.Hit h) => h.Killed,
+        ("primary", ChargeEvent.Hit h) => h.Primary,
+        ("frozen", ChargeEvent.Hit h) => h.Frozen,
+        ("bleeding", ChargeEvent.Hit h) => h.Bleeding,
+        ("marked", ChargeEvent.Hit h) => h.Marked,
+        ("self_bleeding", ChargeEvent.Hit h) => h.SelfBleeding,
+        ("self_poisoned", ChargeEvent.Hit h) => h.SelfPoisoned,
+        (_, ChargeEvent.Hit h) => Rarity(fact, h.Rarity),
+        ("five_poisons", ChargeEvent.Kill k) => k.Poisons >= 5,
         ("critical", HitLanded h) => h.Critical,
         ("critical", ChargeEvent.WhenHit w) => w.Critical,
         ("spell", HitLanded h) => h.Spell,
