@@ -182,7 +182,7 @@ public static partial class Game
                 await AreaWait(PlayerUpdateRole.Minions, waitMs);
             }
         }
-        if (source.Supports.Any(s => s.Effect.Id is "SupportMultipleTotems" or "SupportMultipleTotemsRoyale"))
+        if (TotemsPerUse(player, skillId) is 2)
         {
             if (await WaitUntil(placedAt))
                 await CreateTotems(player, skillId, effect, level, variety, at, Valid, finishPlacement: null, count: 2);
@@ -471,6 +471,17 @@ public static partial class Game
             if (!active && !player.Closed && !player.LeavingArea)
                 await SendWorldRemoval(player, pendingId, "cancelled totem placement");
         }
+    }
+
+    /// <summary>How many totems one use of the skill summons: two with Multiple Totems Support (its `summon_2_totems` stat, Stats row 8677, or the support gem itself), or on `chance_to_summon_two_totems_%` (Stats row 15272; Crucible weapon trees, Animal Charm), never more than the skill's limit -- CreateTotems clamps the count to it. A skill with a cooldown summons one a use (Multiple Totems Support: each totem takes a use).</summary>
+    public static int TotemsPerUse(Player player, ushort skillId)
+    {
+        if (CooldownForSkill(player, skillId) is not null) return 1;
+        var own = SupportedSkill(player, skillId);
+        bool two = GolemStat(own.Stats, Stat.Summon2Totems) != 0
+            || own.Supports.Any(s => s.Effect.Id is "SupportMultipleTotems" or "SupportMultipleTotemsRoyale")
+            || Random.Shared.Next(100) < GolemStat(SupportedStats(player, skillId), Stat.ChanceToSummonTwoTotemsPct);
+        return two ? 2 : 1;
     }
 
     /// <summary>
