@@ -260,6 +260,9 @@ Part of [Status](../Status.md); what to build next in this area is in
   discharges, and Life held at 1 while the buff runs. Docs: [11](../docs/protocol/11-skills.md) Â§11, Â§12.
 - Vaal Molten Shell: soul-paid armour and hit absorption, fire reflection each second and on removal, and a single
   active guard buff with separate Vaal and regular cooldowns.
+- Vaal Sweep repeats its attack and knocks back eligible enemies. Vaal Lightning Warp damages and moves nearby
+  enemies without moving its caster. Vaal Ancestral Warchief slams, leaps and grants its owner more melee damage
+  while active. Offline checks cover the server's timing, damage and movement.
 - Steelskin, Immortal Call and Molten Shell cast by hand start the triggered guard buff; a running or recovering
   guard refuses the next before its cost. Docs: [11](../docs/protocol/11-skills.md) Â§12.
 - Phase Run: movement speed and Phasing for its duration, longer per Frenzy Charge consumed; the next skill use
@@ -282,7 +285,7 @@ Part of [Status](../Status.md); what to build next in this area is in
 - Absolution and Dominating sentinels, Phantasms, direct Vaal Skeletons and Vaal Absolution/Domination ascensions.
   HUD minion counter icons (`PlayerMinionsChange`) now publish for all active player minion types (not checked live).
   Docs: [11](../docs/protocol/11-skills.md) Â§10h.
-  Vaal minion totem, trap and mine casts are refused before spending souls or starting an action.
+  Vaal minion casts linked to a totem, trap or mine support are refused before spending souls or starting an action.
 - Removable player buffs can be right-click cancelled via C→S `0x4b` (Grace Period, Shrines, guards, auras, Arcane
   Surge, phasing; non-removable debuffs rejected; not checked live). Docs: [11](../docs/protocol/11-skills.md) §12.
 - Native knockback hit presentation (`0x1af` bit 11 + `u3c`/`u3e`), totem directional `HitAngle`/`HitCode`, `0x1b0`

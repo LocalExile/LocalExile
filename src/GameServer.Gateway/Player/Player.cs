@@ -968,6 +968,29 @@ public sealed partial class Player(AreaLayout layout, uint ticket, uint seed) : 
     public int ProjectileEpoch;
     public IProjectileRuntime? ProjectileRuntimeState;
     public readonly HashSet<uint> ProjectileObjects = [];
+    readonly Lock projectileObjectsGate = new();
+
+    // Runtime publication and the asynchronous world-output queue both update this ownership set.
+    public void TrackProjectileObject(uint id)
+    {
+        lock (projectileObjectsGate)
+            if (!LeavingArea && !Closed) ProjectileObjects.Add(id);
+    }
+
+    public bool UntrackProjectileObject(uint id)
+    {
+        lock (projectileObjectsGate) return ProjectileObjects.Remove(id);
+    }
+
+    uint[] TakeProjectileObjects()
+    {
+        lock (projectileObjectsGate)
+        {
+            uint[] snapshot = [.. ProjectileObjects];
+            ProjectileObjects.Clear();
+            return snapshot;
+        }
+    }
 
     public bool ProjectileActive(int epoch)
     {
@@ -990,9 +1013,8 @@ public sealed partial class Player(AreaLayout layout, uint ticket, uint seed) : 
             RetireOwnedCombat();
             InvalidateIncomingHits(clear: false);
             ProjectileEpoch++;
-            projectiles = [.. ProjectileObjects];
+            projectiles = TakeProjectileObjects();
             ProjectileRuntimeState?.Invalidate();
-            ProjectileObjects.Clear();
             return true;
         }
     }

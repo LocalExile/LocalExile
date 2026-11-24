@@ -1,4 +1,5 @@
 using System.Net.Sockets;
+using GameServer.Core.Projectiles;
 using GameServer.Core.Protocol.Instance;
 using GameServer.Core.Protocol.Login;
 
@@ -45,6 +46,7 @@ public static partial class Game
     }
 
     sealed record StormCallUse(SkillCriticalRoll? Critical, SacrificeUse Sacrifice, double DamageMore, IntensityCast? Intensity);
+    internal sealed record PlacedStormCallUse(PlacedAreaHit Placement, Func<bool> Current, string? Loop, string? Impact);
 
     public static async Task PlaceStormCall(Player player,
         ushort skillId, (ushort Id, int Effect, string Name, int Level, int Quality, uint Gem) gem, (int X, int Y) at,
@@ -149,6 +151,20 @@ public static partial class Game
     static async Task StormCallStrike(Player player,
         StormCallMarkers.Marker marker, bool removeMarker)
     {
+        if (marker.Use is PlacedStormCallUse placed)
+        {
+            if (player.ProjectileRuntime is not { Active: true } session) return;
+            var area = player.Area;
+            void Strike(GameArea _)
+            {
+                using (ProjectileMutation(player, advance: false))
+                    if (session.Active) session.CommitPlacedStormCallStrike(marker, placed, removeMarker);
+            }
+
+            if (area.Driven && !area.Owned) area.Defer(Strike);
+            else Strike(area);
+            return;
+        }
         if (removeMarker) await Send(player, InstanceProtocol.RemoveObject(marker.Object), null);
         var gem = GemSkillEffects(player).FirstOrDefault(g => g.Id == marker.Skill);
         if (marker.Use is not StormCallUse use || !use.Sacrifice.Current || gem.Name is null || !IsStormCall(SkillsFor(player).EffectId(gem.Effect)) || player.PlayerLife == 0)
@@ -174,8 +190,71 @@ public static partial class Game
                 await Send(player, InstanceProtocol.RemoveObject(effect), null);
             });
         }
+
         await AreaSkillHit(player, marker.Skill, gem, marker.At, marker.At, immediate: true,
             criticalRoll: use.Critical, repeat: marker.Repeat, sacrifice: use.Sacrifice, damageMore: use.DamageMore,
             triggeredCurrent: () => !player.Closed && !player.LeavingArea && player.ProjectileEpoch == marker.Epoch && player.PlayerLife > 0);
+    }
+
+    public sealed partial class ProjectileSession
+    {
+        internal void SchedulePlacedStormCall(
+            (ushort Id, int Effect, string Name, int Level, int Quality, uint Gem) gem, PlacedAreaHit placement, Func<bool> current)
+        {
+            if (!Active || !current()) return;
+            var stats = placement.Device.Own;
+            var caster = CharacterPlayerStats(Player);
+            int Own(uint key) => stats.GetValueOrDefault(key);
+            double duration = SkillDurationModifiers.Seconds(Own(Stat.BaseSkillEffectDuration),
+                key => caster.GetValueOrDefault(key), Own);
+            long due = Runtime.Now + ProjectileRuntime.Time(duration);
+            var (loop, impact, _) = StormCallArt(Player, gem.Gem);
+            var use = new PlacedStormCallUse(placement, current, loop, impact);
+            var aim = placement.Device.At;
+            var markers = Player.StormCall;
+            foreach (var at in new[] { aim }.Concat(SpellCascadeAreas(Player, gem.Effect, stats, aim, aim)))
+            {
+                var marker = new StormCallMarkers.Marker(Player.TakeObjectId(), gem.Id, at,
+                    due / (double)ProjectileRuntime.QuantaPerSecond, 0, Player.ProjectileEpoch, 0, use);
+                lock (markers) markers.Place(marker);
+                if (loop is not null)
+                {
+                    Player.TrackProjectileObject(marker.Object);
+                    Create(marker.Object, () => InstanceEntities.CreateObject(marker.Object,
+                        InstanceEntities.ObjectTypeHash(EffectObject.TypePath),
+                        new EffectObject(at.X, at.Y, loop) { Flags0 = EffectObject.FixedRotation }.Blob()), wake: true);
+                }
+                int chance = Own(Stat.StormCallChanceToStrikeOnCastPct);
+                if (chance > 0 && AreaRng(Player).Next(100) < chance)
+                    CommitPlacedStormCallStrike(marker, use, removeMarker: false);
+            }
+
+            Runtime.Schedule(due, () =>
+            {
+                if (!Active) return;
+                IReadOnlyList<StormCallMarkers.Marker> struck;
+                lock (markers) struck = markers.TakeStrikes(ProjectileWorldTime(Player), Player.ProjectileEpoch);
+                foreach (var marker in struck)
+                    if (marker.Use is PlacedStormCallUse proxy)
+                        CommitPlacedStormCallStrike(marker, proxy, removeMarker: true);
+                    else Enqueue(() => StormCallStrike(Player, marker, removeMarker: true));
+            });
+        }
+
+        internal void CommitPlacedStormCallStrike(StormCallMarkers.Marker marker, PlacedStormCallUse use, bool removeMarker)
+        {
+            if (Player.ProjectileEpoch != marker.Epoch) return;
+            if (removeMarker && use.Loop is not null)
+            {
+                Player.UntrackProjectileObject(marker.Object);
+                WorldRecords(marker.Object, () => [InstanceProtocol.RemoveObject(marker.Object)], remove: true);
+            }
+            if (Player.PlayerLife == 0 || !use.Current()) return;
+            var device = use.Placement.Device;
+            int radius = SkillRadius(Player, device.Own, spell: true, device.Effect);
+            if (use.Impact is { } art)
+                Effect(marker.At.X, marker.At.Y, art, ProjectileRuntime.Time(StormCallImpactArtSeconds), radius);
+            use.Placement.Apply(Player, marker.At, radius, ProjectileWorldTime(Player));
+        }
     }
 }
