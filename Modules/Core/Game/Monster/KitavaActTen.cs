@@ -1,4 +1,3 @@
-using System.Runtime.CompilerServices;
 using GameServer.Core.Protocol.Instance;
 using GameServer.Core.World;
 using static Game;
@@ -19,19 +18,20 @@ static partial class KitavaActTen
     internal static LifePhaseGate? Phases(MonsterCatalog.Variety v) => v.Id is Body or Heart ? new([66, 33, 1]) : null;
     internal const string Epilogue = "2_11_endgame_town", Docks = "2_10_town",
         PortalType = "Metadata/QuestObjects/Act10/EpiloguePortal";
-    internal const uint EpilogueLabel = 410179532; // ClientStrings.EpilogueActName2; localized by the client.
+    internal const uint EpilogueLabel = 410179532; // ClientStrings.EpilogueActName2; kept for reference.
 
+    // Retail 3.29 (Option A): Sin's post-Kitava portal routes back to Oriath Docks (2_10_town)
+    // so players claim Lani's reward, finish town talks, and sail with Lilly (A11q0) to Karui Shores.
     internal static AreaTransitionObject PortalFor(Player c, AreaTransitionObject portal) =>
-        c.Layout.Id == Area && portal.SourceType == PortalType && AreaTransitionCatalog.HashOf(Epilogue) is { } destination
-            ? portal with { DestinationHash16 = destination, Label = EpilogueLabel } : portal;
+        c.Layout.Id == Area && portal.SourceType == PortalType && AreaTransitionCatalog.HashOf(Docks) is { } destination
+            ? portal with { DestinationHash16 = destination, Label = null } : portal;
 
-    // Karui Shores' named entrance is connected to the docks. The direct epilogue portal
-    // uses that same arrival instead of the default waypoint cell.
+    // Keep Karui Shores shore-entrance mapping for direct epilogue arrival helper compatibility
+    // (no-op when PortalFor routes EpiloguePortal to Oriath Docks 2_10_town).
     internal static ushort? ArrivalSource(string area, ushort destination) =>
         area == Area && destination == AreaTransitionCatalog.HashOf(Epilogue)
             ? AreaTransitionCatalog.HashOf(Docks) : null;
 
-    // The quest table supplies the native portal's position/model. Its server destination is the epilogue directly.
     // Replace only this connection's exit so cached layouts and already-open arenas behave alike after a module reload.
     internal static IReadOnlyList<uint> ConfigurePortal(Player c)
     {
@@ -56,12 +56,12 @@ static partial class KitavaActTen
             lock (c.Connection.ShownTransitions) shown = c.Connection.ShownTransitions.Remove(objectId);
             if (shown)
             {
-                await SendWorldRemoval(c, objectId, "Kitava portal now leads to the epilogue");
+                await SendWorldRemoval(c, objectId, "Kitava portal now leads to Oriath Docks");
             }
         }
         if (changed.Count > 0)
         {
-            await UpdateShownTransitions(c, "Kitava epilogue portal");
+            await UpdateShownTransitions(c, "Kitava Oriath Docks portal");
         }
     }
     static string Flag(string name) => Quests.InstanceFlag("KitavaAct10-" + name);
@@ -84,8 +84,7 @@ static partial class KitavaActTen
         await RefreshPortal(c);
         if (!Fights.TryGetValue(c.Instance, out var f))
         {
-            KeyValuePair<uint, SpawnedMonster> found;
-            found = c.Area.Monsters.FirstOrDefault(m => IsBody(m.Value.Variety));
+            var found = c.Area.Monsters.FirstOrDefault(m => IsBody(m.Value.Variety));
             if (found.Value is null) return;
             f = Fights.GetValue(c.Instance, _ => new(found.Key, found.Value, c));
         }
@@ -111,6 +110,7 @@ static partial class KitavaActTen
         readonly HashSet<uint> guards = [];
         readonly uint id;
         readonly SpawnedMonster body;
+        readonly GameArea area;
         readonly Anchor anchor;
         readonly (int X, int Y) heartAt, sinAt, innocenceAt;
         uint heartId, sinId, innocenceId;
@@ -124,7 +124,7 @@ static partial class KitavaActTen
         // 8 release, 9 death, 10 complete. The original fight has three body/heart intervals.
         public Fight(uint objectId, SpawnedMonster monster, Player c)
         {
-            id = objectId; body = monster; body.LifePhases ??= Phases(monster.Variety!);
+            id = objectId; body = monster; area = c.Area; body.LifePhases ??= Phases(monster.Variety!);
             anchor = AnchorOf(c, body.Walk.Position(AreaTime(c)));
             heartAt = c.Layout.Near((anchor.X, anchor.Y - 48));
             (int X, int Y) AllyPoint(string type, int x) => c.Layout.Level?.RoomObjects.FirstOrDefault(p => p.Type == type) is { } p
@@ -142,13 +142,21 @@ static partial class KitavaActTen
             else if (body.LifePhases!.Active) stage = heart?.LifePhases?.Active == true ? Round == 2 ? 8 : 5 : heart is null ? 3 : 4;
             else if (c.Instance.HasState(Flag("Started"))) stage = Round == 2 && !c.Instance.HasState(Flag("Grabbed")) ? 6 : 2;
             while (c.Instance.HasState(Flag($"Guard-{Round}-{guardStep}"))) guardStep++;
+            SyncInvulnerability(c);
+        }
+        void SyncInvulnerability(Player c)
+        {
+            bool bodyInvuln = stage is 0 or 1 or 3 or 4 or 5 or 6 or 7 or 8;
+            CampaignBossHelpers.SetInvulnerable(c, id, body, bodyInvuln);
+            if (heart is not null && heartId != 0)
+                CampaignBossHelpers.SetInvulnerable(c, heartId, heart, stage != 4);
         }
         IEnumerable<Player> Present => players.Where(p => !p.Closed && !p.LeavingArea);
         bool Awake(Player p) => MonsterShown(p, id) && !MonsterAsleep(p, id);
         public async Task Bind(Player c)
         {
             players.RemoveAll(p => p.Closed || p.LeavingArea);
-            if (!players.Contains(c)) { players.Add(c); foreach (var fx in visuals) await CreateFx(c, fx); }
+            if (!players.Contains(c)) players.Add(c);
             if (bound.Add(c) && Awake(c))
             {
                 if (SkillsFor(c, body.Variety!, body.Level) is { } skills)
@@ -167,14 +175,16 @@ static partial class KitavaActTen
         Task All(uint target, byte[] bytes, bool actor = false) => All(target, new[] { bytes }, actor);
         async Task All(uint target, byte[][] records, bool actor = false)
         {
-            if ((Present.Where(p => !actor || Awake(p)).ToArray()).FirstOrDefault() is { } p)
-            { await SendWorldRecords(p, target, () => records.Select(r => r.ToArray()).ToArray(), null,
-                still: () => !stopped && CurrentGameWork && !p.Closed && !p.LeavingArea); }
+            if (Present.FirstOrDefault(p => !actor || Awake(p)) is { } p)
+            {
+                await SendWorldRecords(p, target, () => records.Select(r => r.ToArray()).ToArray(), null,
+                    still: () => !stopped && CurrentGameWork && !p.Closed && !p.LeavingArea);
+            }
         }
         async Task AllRemoval(uint target)
         {
-            if ((Present.ToArray()).FirstOrDefault() is { } p)
-            { await SendWorldRemoval(p, target); }
+            if (Present.FirstOrDefault() is { } p)
+                await SendWorldRemoval(p, target);
         }
         async Task Basic(Player c, uint actor, ushort action, double now, double seconds, uint? target = null)
         {
@@ -187,12 +197,16 @@ static partial class KitavaActTen
             body.BossBarShown = shown;
             if (body.States is not { } states) return;
             body.States = states.Set("boss_life_bar", shown ? 1 : 0).Set("disable_life_bar", shown ? 0 : 1);
-            if ((Present).FirstOrDefault() is { } p)
+            var present = Present.ToArray();
+            if (present.FirstOrDefault() is { } first && first.Instance.World.MonsterOrigins.TryGetValue(id, out var origin))
+                first.Instance.World.MonsterOrigins[id] = origin with { Object = origin.Object with { StateMachine = body.States } };
+            if (present.FirstOrDefault(Awake) is { } awake
+                && body.Variety!.ComponentsOrBase.ToList().IndexOf("StateMachine") is int component and >= 0)
             {
-                if (p.Instance.World.MonsterOrigins.TryGetValue(id, out var origin))
-                    p.Instance.World.MonsterOrigins[id] = origin with { Object = origin.Object with { StateMachine = body.States } };
-                if (Awake(p) && body.Variety!.ComponentsOrBase.ToList().IndexOf("StateMachine") is int component and >= 0)
-                { await SendWorldRecord(p, id, InstanceEntities.StateMachineUpdate(id, (byte)component, body.States), null); }
+                await SendWorldRecord(awake, id, InstanceEntities.StateMachineUpdate(id, (byte)component, body.States), null);
+            }
+            foreach (var p in present)
+            {
                 if (shown) BossBars(p).Add(id); else BossBars(p).Remove(id);
             }
         }
@@ -234,19 +248,27 @@ static partial class KitavaActTen
                 initialized = true;
                 if (stage == 0)
                 {
-                    if (!c.Character.HasQuestFlag(Started)) { initialized = false; return; }
+                    if (!Present.Any(p => p.Character.HasQuestFlag(Started))) { initialized = false; return; }
                     c.Instance.SetState(Flag("Started")); body.EntranceGrace = true;
                     foreach (var p in Present) { await UpdateQuestNpcs(p, "Kitava fight begins"); }
-                    await Allies(c, now); await Bar(false); await Basic(c, id, 16641, now, 4.833); stage = 1; deadline = now + 4.833;
+                    await Allies(c, now); await Bar(false); await Basic(c, id, 16641, now, 4.833);
+                    stage = 1; deadline = now + 4.833;
+                    SyncInvulnerability(c);
                     Console.WriteLine("[Kitava A10] encounter begins"); return;
                 }
+                SyncInvulnerability(c);
                 if (stage is 5 or 8) deadline = now + (stage == 5 ? 6 : 5);
                 if (stage == 6) { await Basic(c, id, 38927, now, 5, sinId); deadline = now + 5; }
                 if (stage == 9) deadline = now + 16.8;
                 if (stage == 3) { await Expose(c, now); return; }
                 if (stage == 4) { guardAt = now + 4; nextWave = now; }
             }
-            if (stage == 1 && now >= deadline) { stage = 2; body.EntranceGrace = false; ready = now; await Bar(true); }
+            if (stage == 1 && now >= deadline)
+            {
+                stage = 2; body.EntranceGrace = false; ready = now;
+                SyncInvulnerability(c);
+                await Bar(true);
+            }
             if (stage == 2)
             {
                 if (body.LifePhases!.Begin(body.Life, body.MaxLife)) { await Expose(c, now); return; }
@@ -263,6 +285,7 @@ static partial class KitavaActTen
                     for (int i = 0; i < Round; i++) { heart.Life = (uint)((ulong)heart.MaxLife * (uint)heart.LifePhases!.NextPercent / 100); heart.LifePhases.Begin(heart.Life, heart.MaxLife); heart.LifePhases.Finish(); }
                 }
                 heart.EntranceGrace = false; stage = 4; nextWave = now; guardAt = now; guardStep = 0;
+                SyncInvulnerability(c);
                 while (c.Instance.HasState(Flag($"Guard-{Round}-{guardStep}"))) guardStep++;
                 await All(heartId, [InstanceProtocol.ActionStarted(heartId, heartAt.X, heartAt.Y, heartAt.X, heartAt.Y, 16641, c.NextActionSequence(), 0x0408), InstanceProtocol.ActionEnded(heartId)]);
                 Console.WriteLine($"[Kitava A10] heart interval {Round + 1}");
@@ -275,9 +298,12 @@ static partial class KitavaActTen
                     if (Round == 2)
                     {
                         await Basic(c, id, 59397, now, 5); stage = 8; deadline = now + 5;
+                        SyncInvulnerability(c);
                         Console.WriteLine("[Kitava A10] final heart defeated; releasing allies"); return;
                     }
-                    await Basic(c, id, 5831, now, 6); stage = 5; deadline = now + 6; return;
+                    await Basic(c, id, 5831, now, 6); stage = 5; deadline = now + 6;
+                    SyncInvulnerability(c);
+                    return;
                 }
                 if (now >= nextWave) await Wave(c, now);
                 if (now >= guardAt && guardStep < (Round == 2 ? 3 : 2))
@@ -293,23 +319,40 @@ static partial class KitavaActTen
                 await RemoveHeart(c);
                 body.LifePhases!.Finish();
                 if (Round == 2 && !c.Instance.HasState(Flag("Grabbed")))
-                { await Basic(c, id, 38927, now, 5, sinId); stage = 6; deadline = now + 5; return; }
-                stage = 2; body.EntranceGrace = false; ready = now + 1; await Bar(true);
+                {
+                    await Basic(c, id, 38927, now, 5, sinId); stage = 6; deadline = now + 5;
+                    SyncInvulnerability(c);
+                    return;
+                }
+                stage = 2; body.EntranceGrace = false; ready = now + 1;
+                SyncInvulnerability(c);
+                await Bar(true);
                 Console.WriteLine($"[Kitava A10] body interval {Round + 1}"); return;
             }
             if (stage == 6 && now >= deadline)
-            { await Basic(c, id, 39515, now, 5, innocenceId); stage = 7; deadline = now + 5; return; }
+            {
+                await Basic(c, id, 39515, now, 5, innocenceId); stage = 7; deadline = now + 5;
+                SyncInvulnerability(c);
+                return;
+            }
             if (stage == 7 && now >= deadline)
             {
-                c.Instance.SetState(Flag("Grabbed")); stage = 2; body.EntranceGrace = false; ready = now + 1; await Bar(true);
+                c.Instance.SetState(Flag("Grabbed")); stage = 2; body.EntranceGrace = false; ready = now + 1;
+                SyncInvulnerability(c);
+                await Bar(true);
                 Console.WriteLine("[Kitava A10] both allies captured; final body interval"); return;
             }
             if (stage == 8 && now >= deadline)
             {
                 c.Instance.SetState(Flag("Dying"));
                 foreach (uint ally in new[] { sinId, innocenceId }) await Basic(c, ally, 5775, now, 16.8, id);
+                CampaignBossHelpers.SetInvulnerable(c, id, body, false);
                 body.Life = 0; body.Dead = true; body.ActionGeneration++;
-                if (heart is not null) { heart.Life = 0; heart.Dead = true; }
+                if (heart is not null)
+                {
+                    if (heartId != 0) CampaignBossHelpers.SetInvulnerable(c, heartId, heart, false);
+                    heart.Life = 0; heart.Dead = true;
+                }
                 await Bar(false);
                 stage = 9; deadline = now + 16.8;
                 Console.WriteLine("[Kitava A10] dark ember and native death sequence"); return;
@@ -320,12 +363,17 @@ static partial class KitavaActTen
                 if (heart is not null && c.Instance.SetState(Flag("Rewards")))
                     await MonsterKilled(c, heartId, heart);
                 await RemoveHeart(c);
-                foreach (var p in Present.Where(p => p.PlayerLife > 0 && Distance(p.Walk.Position(now), heartAt) < 180).ToArray())
+                // Broadcast Sin's dialogue object transformation ONCE for the whole instance.
+                await ReadySin(c);
+                // Dead in-arena party members also earn EndGameAvailable.
+                foreach (var p in Present.Where(p => Distance(p.Walk.Position(now), heartAt) < 180).ToArray())
                 {
-                    await Leaving(p); await SetQuestFlags(p, [Quests.EndGameAvailable]);
-                    await ReadySin(p); await UpdateShownTransitions(p, "Kitava defeated");
+                    await Leaving(p);
+                    await SetQuestFlags(p, [Quests.EndGameAvailable]);
+                    RegisterSin(p);
+                    await UpdateShownTransitions(p, "Kitava defeated");
                 }
-                Console.WriteLine("[Kitava A10] victory; Sin can open the epilogue portal");
+                Console.WriteLine("[Kitava A10] victory; Sin can open the Oriath Docks portal");
             }
         }
         async Task Expose(Player c, double now)
@@ -333,14 +381,17 @@ static partial class KitavaActTen
             CancelCombat(); body.EntranceGrace = true; await Bar(false);
             foreach (uint ally in new[] { sinId, innocenceId }) if (ally != 0) await Basic(c, ally, 9281, now, 5, id);
             await Basic(c, id, 5828, now, 5); stage = 3; deadline = now + 5;
+            SyncInvulnerability(c);
         }
         async Task Guard(Player c, string type, int ordinal, MonsterRarity rarity)
         {
             var v = Monsters.Find(type); if (v is not { Supported: true } || v.Id != type) throw new InvalidOperationException($"Unsupported Kitava guard {type}");
             double a = ordinal * 2.1;
             var at = c.Layout.Near((heartAt.X + (int)(Math.Cos(a) * 23), heartAt.Y + (int)(Math.Sin(a) * 23)));
-            uint obj = await SpawnMonster(c, v, body.Level, rarity, at.X, at.Y);
-            if (obj != 0) { guards.Add(obj); c.Area.Monsters[obj].SummonerId = id; }
+            await SpawnMonster(c, v, body.Level, rarity, at.X, at.Y,
+                instanceOwned: true,
+                owned: (obj, m) => { m.SummonerId = id; m.NoRewards = true; m.Aggro = true; guards.Add(obj); },
+                ownedCurrent: () => !stopped);
         }
         async Task Wave(Player c, double now)
         {
@@ -358,7 +409,7 @@ static partial class KitavaActTen
         {
             foreach (uint obj in guards.ToArray())
             {
-                if (c.Area.Monsters.Remove(obj, out var m)) { m.Dead = true; m.Life = 0; m.ActionGeneration++; c.Instance.World.MonsterOrigins.TryRemove(obj, out _); }
+                if (c.Area.Monsters.Remove(obj, out var m)) { m.Dead = true; m.Life = 0; m.NoRewards = true; m.ActionGeneration++; c.Instance.World.MonsterOrigins.TryRemove(obj, out _); }
                 await AllRemoval(obj);
                 foreach (var p in Present) { BossBars(p).Remove(obj); }
             }
@@ -367,7 +418,9 @@ static partial class KitavaActTen
         async Task RemoveHeart(Player c)
         {
             if (heartId == 0) return;
-            c.Area.Monsters.Remove(heartId); c.Instance.World.MonsterOrigins.TryRemove(heartId, out _);
+            if (c.Area.Monsters.Remove(heartId, out var h))
+                CampaignBossHelpers.ClearInvulnerableOnUnload(c.Area, heartId, h);
+            c.Instance.World.MonsterOrigins.TryRemove(heartId, out _);
             await AllRemoval(heartId);
             foreach (var p in Present) { BossBars(p).Remove(heartId); }
             heart = null; heartId = 0;
@@ -377,21 +430,23 @@ static partial class KitavaActTen
             if (sinId != 0 && Npcs.Find(Sin) is { } npc)
                 lock (p.Npcs) p.Npcs.TryAdd(sinId, new(npc, sinAt.X, sinAt.Y));
         }
-        async Task ReadySin(Player p)
+        async Task ReadySin(Player runner)
         {
-            if (sinId == 0 || !p.Instance.World.MonsterOrigins.TryGetValue(sinId, out var origin)) return;
+            if (sinId == 0 || !runner.Instance.World.MonsterOrigins.TryGetValue(sinId, out var origin)) return;
             var states = origin.Object.StateMachine?.Set("finished", 1);
             var obj = origin.Object with { StateMachine = states, HasDialogue = true, TransitionState = 2 };
-            p.Instance.World.MonsterOrigins[sinId] = origin with { Object = obj };
-            if (p.Area.Monsters.TryGetValue(sinId, out var m)) m.States = states;
-            await SendWorldRemoval(p, sinId);
-            await SendWorldCreate(p, sinId, () => InstanceEntities.CreateObject(sinId, origin.Type, obj.Blob()), "[Kitava A10] Sin's post-fight dialogue");
-            await SendWorldRecord(p, sinId, () => InstanceProtocol.EnterWakeZone(sinId));
-            RegisterSin(p);
+            runner.Instance.World.MonsterOrigins[sinId] = origin with { Object = obj };
+            if (runner.Area.Monsters.TryGetValue(sinId, out var m)) m.States = states;
+            await SendWorldRemoval(runner, sinId);
+            await SendWorldCreate(runner, sinId, () => InstanceEntities.CreateObject(sinId, origin.Type, obj.Blob()),
+                "[Kitava A10] Sin's post-fight dialogue", wake: true);
         }
         public void Stop()
         {
             stopped = true;
+            CampaignBossHelpers.ClearInvulnerableOnUnload(area, id, body);
+            if (heart is not null && heartId != 0)
+                CampaignBossHelpers.ClearInvulnerableOnUnload(area, heartId, heart);
             foreach (var p in Present.ToArray()) _ = Leaving(p);
             // The effects go once, for every client (the area's records).
             if (Present.FirstOrDefault() is { } any)

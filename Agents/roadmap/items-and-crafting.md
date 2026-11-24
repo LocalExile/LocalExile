@@ -29,6 +29,8 @@ essence upgrading remain separate features.
   (#60's follow-ups), and area and monster mods (#61).
   The Mud Flats glyphs are quest items (`Metadata/Items/QuestItems/Glyphs/Glyph1..3`,
   [12](../docs/protocol/12-quests.md)).
+  Divine Vessels capture Pantheon souls from matching Atlas map bosses into the Map Device for Sin's upgrades
+  ([pantheon](../docs/game/campaign/pantheon.md)).
 - **Start:** special mods and the uniques' own mechanics (#60, 13 §2e: `UniqueCatalog`
   has every unique's base, mods and rolls, the mechanics behind those mods are the open part), and chancing.
   Mageblood's "effects cannot be removed" waits for a server mechanic that removes flask effects (13 §2e).

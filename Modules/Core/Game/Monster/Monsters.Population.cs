@@ -236,6 +236,10 @@ public static partial class Game
         "Metadata/Monsters/Totems/TotemMonsterSpeed",
         "Metadata/Monsters/Totems/TotemSlowPlayer",
         "Metadata/Monsters/CorpseWheel/CorpseWheelAggroCharge",
+        "Metadata/Monsters/Bandits/BanditRangedBarragePetrified",
+        "Metadata/Monsters/Bandits/BanditRangedTornadoShotPetrified",
+        "Metadata/Monsters/Bandits/BanditSwordShieldPetrified",
+        "Metadata/Monsters/LeagueHeist/Robot/RobotMannequinRefinery",
     };
 
     static readonly HashSet<string> AllowedBanditCampGuards = new(StringComparer.OrdinalIgnoreCase)

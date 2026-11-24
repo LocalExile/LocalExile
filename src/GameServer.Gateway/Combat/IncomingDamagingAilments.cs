@@ -80,6 +80,8 @@ public sealed class IncomingDamagingAilments
     {
         if (now < poisonProtectedUntil) return false;
         if (!(perSecond > 0) || !(seconds > 0)) return false;
+        if (victim is not null && victim(Stat.CannotBePoisonedIfXPoisonsOnYou) is int poisonCap and > 0
+            && PoisonStacks(now) >= poisonCap) return false;
         seconds *= SelfDuration(victim, bleed: false);
         if (!reflected) seconds *= durationFactor;
         if (!(seconds > 0)) return false;
@@ -145,7 +147,7 @@ public sealed class IncomingDamagingAilments
         int poisonMaxResistance, bool immune, bool physicalImmune, bool chaosImmune,
         Func<double, double, double> movingSeconds,
         ref double nonChaosBypassCarry, ref double chaosBypassCarry, double dotTakenFactor = 1,
-        Func<int, double, int>? damageChaos = null)
+        Func<int, double, int>? damageChaos = null, bool inCausticCloud = false)
     {
         Reconcile(get);
         from = Math.Max(from, last);
@@ -156,6 +158,7 @@ public sealed class IncomingDamagingAilments
             return 0;
         }
 
+        double movingBleed = 0;
         if (!immune)
         {
             // The wall-to-wall partitions make mid-interval applications and expiries explicit.
@@ -180,9 +183,9 @@ public sealed class IncomingDamagingAilments
                     .Select(x => x.DamagePerSecond).DefaultIfEmpty(0).Max();
                 if (strongest > 0)
                 {
-                    double moved = get(Stat.NoExtraBleedDamageWhileMoving) == 0
-                        ? Math.Clamp(movingSeconds(start, end), 0, seconds) : 0;
-                    bleedFraction += strongest * (seconds + 2 * moved);
+                    double moved = Math.Clamp(movingSeconds(start, end), 0, seconds);
+                    bleedFraction += strongest * (seconds - moved);
+                    movingBleed += strongest * moved * (get(Stat.NoExtraBleedDamageWhileMoving) == 0 ? 3 : 1);
                 }
                 foreach (var p in poisons)
                     if (Active(p.From, p.Until, start)) poisonFraction += p.DamagePerSecond * seconds;
@@ -221,8 +224,18 @@ public sealed class IncomingDamagingAilments
             typedIncreasedPct: get(Stat.PhysicalDamageTakenPlusPct),
             reductionPct: ChargeEffects.Reduction(get).Physical,
             finalTakenPct: get(IncomingResourceDefences.UnhingedSaneDamageFinal));
+        if (movingBleed > 0 && !unaffectedBleed && !physicalImmune)
+        {
+            double movingMitigated = DamageModel.Mitigate(movingBleed, bleedResistance, bleedMaxResistance) * dotTakenFactor;
+            int movingRaw = IncomingResourceDefences.TakenOverTime(movingMitigated, get, ref bleedTakenFraction, less,
+                typedIncreasedPct: get(Stat.PhysicalDamageTakenPlusPct) + get(Stat.PhysicalDamageOverTimeTakenPlusPctWhileMoving),
+                reductionPct: ChargeEffects.Reduction(get).Physical,
+                finalTakenPct: get(IncomingResourceDefences.UnhingedSaneDamageFinal));
+            bleedRaw = (int)Math.Min(int.MaxValue, (long)bleedRaw + movingRaw);
+        }
         int poisonRaw = IncomingResourceDefences.TakenOverTime(poisonMitigated, get, ref poisonTakenFraction, less,
-            typedIncreasedPct: get(Stat.ChaosDamageTakenPlusPct),
+            typedIncreasedPct: get(Stat.ChaosDamageTakenPlusPct)
+                + (inCausticCloud ? get(Stat.ChaosDamageTakenOverTimePlusPctWhileInCausticCloud) : 0),
             finalTakenPct: get(IncomingResourceDefences.UnhingedSaneDamageFinal));
 
         Prune(until);

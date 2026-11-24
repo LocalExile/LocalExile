@@ -106,7 +106,7 @@ public static partial class MapEssences
             else
             {
                 // The clicked stack, not the smallest stack of its type anywhere in the stash.
-                if (!CurrentGameWork || MapStrongboxes.PayOne(stash!, stashTab, used) is not { } paid) return true;
+                if (!CurrentGameWork || stash!.PayOne(stashTab, used) is not { } paid) return true;
                 notify = () => SendStashPayment(player, stash!, paid);
             }
             monolith = result.Monolith;
