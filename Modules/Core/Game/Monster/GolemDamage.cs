@@ -145,8 +145,12 @@ public static partial class Game
                 int fromArmour = effects[Stat.EnergyShieldPctOfArmourRatingGainedOnBlock];
                 double recovery = effects[Stat.EnergyShieldGainedOnBlock]
                     + (fromArmour > 0 ? GolemArmour(g) * fromArmour / 100 : 0);
-                g.ShieldPool.Recover((uint)Math.Clamp(recovery, 0, uint.MaxValue));
-                if (g.ShieldPool.Full) MinionShieldLeeches.Remove(g);
+                if (recovery >= 1)
+                {
+                    g.ShieldPool.Recover((uint)Math.Min(recovery, uint.MaxValue));
+                    if (g.ShieldPool.Full) MinionShieldLeeches.Remove(g);
+                    PublishEnergyShieldLocked(player, g);
+                }
             }
             player.Minions.OutputQueue.Add(new([], null, g.Id, m, PlayerMinions.OutputKind.Life));
             return false;
