@@ -129,7 +129,8 @@ public static partial class Game
                 player.Pools, player.EnergyShield, Get, Resistance(player, physical), MaxResistance(player, physical),
                 Resistance(player, chaos), MaxResistance(player, chaos), player.Immune || Get(Stat.BaseCannotBeDamaged) > 0,
                 immunities.Contains(physical), immunities.Contains(chaos), player.Walk.MovingSeconds,
-                ref player.NonChaosDotBypassCarry, ref player.ChaosDotBypassCarry, letheFactor));
+                ref player.NonChaosDotBypassCarry, ref player.ChaosDotBypassCarry, letheFactor,
+                (poisonDmg, poisonAt) => DamagePlayerChaosOverTime(player, poisonDmg, poisonAt, stats)));
         }
         lifeDamage = (int)Math.Min(int.MaxValue, (long)lifeDamage + AdvancePlayerDecayLocked(player, until, stats,
             immunities.Contains(DamageType.Chaos), letheFactor));

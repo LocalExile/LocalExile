@@ -195,7 +195,8 @@ public static partial class Game
         }
         var state = ResourceEffectsOf(player);
         double recoup = ResourceEffectsCurrent(player, state) ? state.Mana.Take(now) : 0;
-        player.PlayerMana = RecoveryPool.Advance(manaBefore, manaCap, earnedMana + recoup, ref manaCarry);
+        // Advance from live PlayerMana so Chaos DoT Mana-before-Life drain applied above is preserved.
+        player.PlayerMana = RecoveryPool.Advance(player.PlayerMana, manaCap, earnedMana + recoup, ref manaCarry);
         if (player.PlayerMana >= manaCap && ResourceEffectsCurrent(player, state)) state.Mana.DiscardRecoveryFraction();
         return true;
     }

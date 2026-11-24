@@ -1247,7 +1247,7 @@ public static partial class Game
         // added Energy Shield is a global flat source and cannot feed back into Life conversion or reservation.
         int itemReservationPercent = EquipmentStat(LifeReservation.ItemPercentStat);
         var reservedLife = LifeReservation.FromInputs((int)pools.Life, itemReservationPercent,
-            pools.LifeReservationEfficiencyPct, auras, AdditionalLifeReservation(player));
+            pools.LifeReservationEfficiencyPct, player.Auras.Values, AdditionalLifeReservation(player));
         int perHundred = LifeReservation.EnergyShieldPerReservedStat is var reservedEsKey
             ? sources.GetValueOrDefault(reservedEsKey) : 0;
         int reservationEnergyShield = LifeReservation.EnergyShield(reservedLife.Reserved, perHundred);

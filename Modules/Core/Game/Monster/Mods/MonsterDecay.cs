@@ -103,7 +103,6 @@ public static partial class Game
         damage = IncomingResourceDefences.TakenOverTime(damage, Get, ref state.TakenCarry,
             IncomingResourceDefences.LessTakenPct(player.Pools, Get), typedIncreasedPct: Get(Stat.ChaosDamageTakenPlusPct),
             finalTakenPct: Get(IncomingResourceDefences.UnhingedSaneDamageFinal));
-        bool bypass = ChaosDamageBypassesEnergyShield(player, playerStats);
-        return IncomingResourceDefences.DamageOverTime(player.EnergyShield, damage, bypass ? 100 : 0, now, ref player.ChaosDotBypassCarry);
+        return DamagePlayerChaosOverTime(player, damage, now, playerStats);
     }
 }
