@@ -55,7 +55,7 @@ public sealed class TemporaryAuraTests
     {
         using var f = new Fixture();
         var c = f.Conn;
-        Game.ItemsOf(c).Add(PlayerInventories.Weapon1, 0, 0,
+        var weapon = Game.ItemsOf(c).Add(PlayerInventories.Weapon1, 0, 0,
             ItemCatalog.Create(Program.Items.Find("Driftwood Club")!) with
             { Sockets = [new(SocketColour.White, Gem("Static Strike"))], Links = [1] });
         var skill = Game.GemSkillEffects(c).Single();
@@ -81,6 +81,13 @@ public sealed class TemporaryAuraTests
         await Game.PulseStaticStrike(c);
         Assert.True(target.Life < lifeBeforePulse);
         Assert.Empty(c.TemporarySkillEffects);
+
+        // Removing the Static Strike gem clears static_strike_buff and stops periodic beam hits immediately.
+        Game.ItemsOf(c).Remove(PlayerInventories.Weapon1, weapon.Id);
+        uint lifeAfterRemove = target.Life;
+        await Game.PulseStaticStrike(c);
+        Assert.Equal(lifeAfterRemove, target.Life);
+        Assert.False(c.Area.Buffs.HasRow(c.Id, 1172));
     }
 
     [Fact]

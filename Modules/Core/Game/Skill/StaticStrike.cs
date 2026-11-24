@@ -10,6 +10,7 @@ static partial class Game
         public long PulseGeneration;
         public long ExpiryGeneration;
         public bool Running;
+        public GameArea? Area;
         public double Until;
         public int IntervalMs;
         public ushort SkillId;
@@ -68,7 +69,14 @@ static partial class Game
             onHit: _ => hit = true, scheduledSession: session, cryExerted: cryExerted, repeat: repeat);
         if (!melee.IsCompleted) throw new InvalidOperationException("Scheduled Static Strike contact must not yield.");
         melee.GetAwaiter().GetResult();
-        if (hit && repeat == 0) StartStaticStrike(player, skillId, gem, sequence, source);
+        if (hit) StartStaticStrike(player, skillId, gem, sequence, source);
+    }
+
+    static void ClearStaticStrike(Player player, StaticStrikeState state)
+    {
+        state.Running = false;
+        (state.Area ?? player.Area).Buffs.Clear(player.Id, StaticStrikeBuffRow, player.Id, tag: state.BuffTag);
+        state.Area = null;
     }
 
     static void StartStaticStrike(Player player, ushort skillId,
@@ -81,10 +89,12 @@ static partial class Game
         double now = AreaTime(player);
         int interval = StaticStrikeIntervalMs(source);
         var state = StaticStrikeStates.GetOrCreateValue(player);
-        bool keepPulse = state.Running && now < state.Until && state.IntervalMs == interval;
-        if (state.Running && state.BuffTag != sequence)
-            player.Area.Buffs.Clear(player.Id, StaticStrikeBuffRow, player.Id, tag: state.BuffTag);
+        bool sameArea = ReferenceEquals(state.Area, player.Area);
+        bool keepPulse = state.Running && sameArea && now < state.Until && state.IntervalMs == interval;
+        if (state.Running && (!sameArea || state.BuffTag != sequence))
+            (state.Area ?? player.Area).Buffs.Clear(player.Id, StaticStrikeBuffRow, player.Id, tag: state.BuffTag);
         long expiryGeneration = ++state.ExpiryGeneration;
+        state.Area = player.Area;
         state.Until = now + seconds;
         state.IntervalMs = interval;
         state.SkillId = skillId;
@@ -104,14 +114,18 @@ static partial class Game
         {
             long pulseGeneration = ++state.PulseGeneration;
             EveryAsPlayer(player, interval,
-                () => StaticStrikeCurrent(player, state, pulseGeneration),
+                () =>
+                {
+                    if (StaticStrikeCurrent(player, state, pulseGeneration)) return true;
+                    if (state.Running && state.PulseGeneration == pulseGeneration) ClearStaticStrike(player, state);
+                    return false;
+                },
                 _ => StaticStrikePulse(player, state, pulseGeneration));
         }
         AfterAsPlayer(player, seconds, p =>
         {
             if (!state.Running || state.ExpiryGeneration != expiryGeneration) return Task.CompletedTask;
-            state.Running = false;
-            p.Area.Buffs.Clear(p.Id, StaticStrikeBuffRow, p.Id, tag: state.BuffTag);
+            ClearStaticStrike(p, state);
             return Task.CompletedTask;
         });
     }
@@ -124,7 +138,8 @@ static partial class Game
     }
 
     static bool StaticStrikeCurrent(Player player, StaticStrikeState state, long pulseGeneration) =>
-        state.Running && state.PulseGeneration == pulseGeneration && AreaTime(player) < state.Until
+        state.Running && ReferenceEquals(state.Area, player.Area) && state.PulseGeneration == pulseGeneration
+        && AreaTime(player) < state.Until
         && player.PlayerLife > 0 && !player.Closed && !player.LeavingArea
         && SameTriggerSource(state.Source, SupportedSkill(player, state.SkillId))
         && Skills.EffectId(state.Source.Effect) == "StaticStrike"
@@ -137,7 +152,11 @@ static partial class Game
 
     static Task StaticStrikePulse(Player player, StaticStrikeState state, long pulseGeneration)
     {
-        if (!StaticStrikeCurrent(player, state, pulseGeneration)) return Task.CompletedTask;
+        if (!StaticStrikeCurrent(player, state, pulseGeneration))
+        {
+            if (state.Running && state.PulseGeneration == pulseGeneration) ClearStaticStrike(player, state);
+            return Task.CompletedTask;
+        }
         var session = ProjectilesFor(player);
         session.Advance();
         double now = ProjectileWorldTime(player);
@@ -154,8 +173,8 @@ static partial class Game
         double more = Math.Max(0, 1 + source.Stats.GetValueOrDefault(Stat.StaticStrikeBeamDamagePlusPctFinal) / 100.0);
         foreach (var target in targets)
         {
-            var task = AreaSkillHitForUse(null, player, state.SkillId, state.Gem,
-                from, target.Position, immediate: true, sequence: state.Sequence, criticalRoll: null,
+            var task = AreaSkillHitForUse(1, player, state.SkillId, state.Gem,
+                from, target.Position, immediate: true, sequence: state.Sequence, melee: false, criticalRoll: null,
                 damageMore: more, radiusOverride: radius, singleStrikeTarget: target.Id,
                 scheduledSession: session, cryExerted: false);
             if (!task.IsCompleted) throw new InvalidOperationException("Static Strike beam contact must not yield.");
