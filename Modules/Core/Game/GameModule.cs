@@ -68,6 +68,7 @@ public sealed class GameModule : IModule, IDisposable
         Rules.Emerges = new();
         Rules.GolemData = new();
         Rules.SummonData = new();
+        Rules.LoadSummonsData();
         Rules.RampageData = new();
         Rules.Supports = new();
         Rules.LoadMinionSupportsData();

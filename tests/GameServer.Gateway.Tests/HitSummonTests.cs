@@ -292,21 +292,40 @@ public sealed class HitSummonTests
     }
 
     [Fact]
-    public async Task Spectre_receives_spectral_buff_and_summon_ownership_entry()
+    public async Task Spectre_receives_spectral_buff_ownership_and_cosmetic_visual()
     {
         using var f = new MinionUtilityTests.Fixture();
         var clock = new Clock { Time = 1 }; var outer = Game.AreaUpdateContext.Value;
         Game.AreaUpdateContext.Value = new(Game.CombatLifetime!, clock);
+        string charName = f.Player.Character.Name ?? "animate";
+        uint gemHash = 0;
         try
         {
             var sources = f.Equip(("Raise Spectre", 20), ("Raise Zombie", 20));
             ushort spectreSource = sources[0], zombieSource = sources[1];
+            gemHash = Game.GemSkillEffects(f.Player).Single(g => g.Id == spectreSource).Gem;
             var variety = Game.Monsters.Find("Metadata/Monsters/Zombies/Zombie")!;
             f.Player.Area.Monsters[950] = new("corpse", new(100, 100, 0), 100, 3, 1000) { Hostile = true, Dead = true, Life = 0, Variety = variety };
+            var stygian = Assert.IsType<GameServer.Core.Protocol.Instance.InstanceMicrotransactions.Record>(Game.Mtx.ByHash(230254224u)); // MicrotransactionStygianRaiseSpectreSkin
+            CharacterSaves.SetSkillCosmetic(charName, gemHash, 0, new CharacterSaves.SavedCosmetic(stygian.Id, 0, stygian.MtxTypeHash));
+
+            ushort buffInstance = f.Player.Area.Buffs.Next;
             uint spectreId = await Game.SummonFighter(f.Player, spectreSource, Game.SummonData.Find("RaiseSpectre")!, (100, 100), 950);
             Assert.NotEqual(0u, spectreId);
             var spectre = f.Player.Summons.Fighters[spectreId];
             Assert.NotEqual(0, spectre.SpectreBuff);
+            f.Player.Area.Buffs.Publish();
+            var applied = Assert.IsType<Buff>(f.Player.Area.Buffs.Find(spectreId, buffInstance));
+            ushort stygianVisual = Assert.IsType<ushort>(applied.Visual);
+            Assert.Equal("stygian_spectres", GameServer.Core.ClientTables.Table("BuffVisuals").Row((int)stygianVisual)?.Text("Id"));
+
+            // Clearing the skill cosmetic restores default spectre_buff visual on live spectres.
+            CharacterSaves.SetSkillCosmetic(charName, gemHash, 0, null);
+            Game.RefreshSpectreCosmetics(f.Player, gemHash);
+            f.Player.Area.Buffs.Publish();
+            var reverted = Assert.IsType<Buff>(f.Player.Area.Buffs.Find(spectreId, buffInstance));
+            Assert.Null(reverted.Visual);
+
             Assert.NotNull(Game.SentinelOwnershipPresentation(f.Player));
             var entry = Assert.Single(f.Player.Summons.PresentedOwnership).Value;
             Assert.Equal(spectreId, entry.Id);
@@ -323,41 +342,6 @@ public sealed class HitSummonTests
             Assert.Equal(0, spectre.SpectreBuff);
             Assert.NotNull(Game.SentinelOwnershipPresentation(f.Player));
             Assert.False(f.Player.Summons.PresentedOwnership.ContainsKey(spectreId));
-        }
-        finally { Game.AreaUpdateContext.Value = outer; }
-    }
-
-    [Fact]
-    public async Task Spectre_cosmetic_sets_matching_buff_visual_and_refreshes_on_skill_pick()
-    {
-        using var f = new MinionUtilityTests.Fixture();
-        var clock = new Clock { Time = 1 }; var outer = Game.AreaUpdateContext.Value;
-        Game.AreaUpdateContext.Value = new(Game.CombatLifetime!, clock);
-        string charName = f.Player.Character.Name ?? "animate";
-        uint gemHash = 0;
-        try
-        {
-            ushort spectreSource = Assert.Single(f.Equip(("Raise Spectre", 20)));
-            gemHash = Game.GemSkillEffects(f.Player).Single(g => g.Id == spectreSource).Gem;
-            var variety = Game.Monsters.Find("Metadata/Monsters/Zombies/Zombie")!;
-            f.Player.Area.Monsters[951] = new("corpse", new(100, 100, 0), 100, 3, 1000) { Hostile = true, Dead = true, Life = 0, Variety = variety };
-            var stygian = Assert.IsType<GameServer.Core.Protocol.Instance.InstanceMicrotransactions.Record>(Game.Mtx.ByHash(230254224u)); // MicrotransactionStygianRaiseSpectreSkin
-            CharacterSaves.SetSkillCosmetic(charName, gemHash, 0, new CharacterSaves.SavedCosmetic(stygian.Id, 0, stygian.MtxTypeHash));
-
-            ushort buffInstance = f.Player.Area.Buffs.Next;
-            uint spectreId = await Game.SummonFighter(f.Player, spectreSource, Game.SummonData.Find("RaiseSpectre")!, (100, 100), 951);
-            Assert.NotEqual(0u, spectreId);
-            f.Player.Area.Buffs.Publish();
-            var applied = Assert.IsType<Buff>(f.Player.Area.Buffs.Find(spectreId, buffInstance));
-            ushort stygianVisual = Assert.IsType<ushort>(applied.Visual);
-            Assert.Equal("stygian_spectres", GameServer.Core.ClientTables.Table("BuffVisuals").Row((int)stygianVisual)?.Text("Id"));
-
-            // Clearing the skill cosmetic restores default spectre_buff visual on live spectres.
-            CharacterSaves.SetSkillCosmetic(charName, gemHash, 0, null);
-            Game.RefreshSpectreCosmetics(f.Player, gemHash);
-            f.Player.Area.Buffs.Publish();
-            var reverted = Assert.IsType<Buff>(f.Player.Area.Buffs.Find(spectreId, buffInstance));
-            Assert.Null(reverted.Visual);
         }
         finally
         {
@@ -383,20 +367,22 @@ public sealed class HitSummonTests
             Assert.Contains(revenant.Id, f.Player.Summons.SpectreBank);
             Game.SaveSummons(f.Player);
 
-            // Simulate player death: temporary actors are cleared, LostPersistentOnDeath blocks save overwrite.
-            f.Player.PlayerLife = 0;
-            await Game.SummonsTick(f.Player, 2.0);
-            Assert.True(f.Player.Summons.LostPersistentOnDeath);
-            Assert.Empty(f.Player.Summons.Fighters);
-            Game.SaveSummons(f.Player);
+            // Simulate two consecutive deaths + revives: guard.NextIndex must reset so the 2nd revive also restores.
+            for (int cycle = 0; cycle < 2; cycle++)
+            {
+                f.Player.PlayerLife = 0;
+                await Game.SummonsTick(f.Player, 2.0 + cycle * 2.0);
+                Assert.True(f.Player.Summons.LostPersistentOnDeath);
+                Assert.Empty(f.Player.Summons.Fighters);
+                Game.SaveSummons(f.Player);
 
-            // Revive: persistent spectre restores automatically with its spectral buff.
-            f.Player.PlayerLife = 10000;
-            await Game.SummonsTick(f.Player, 3.0);
-            Assert.False(f.Player.Summons.LostPersistentOnDeath);
-            var restored = Assert.Single(f.Player.Summons.Fighters.Values);
-            Assert.Equal(revenant.Id, restored.Monster.Variety!.Id);
-            Assert.NotEqual(0, restored.SpectreBuff);
+                f.Player.PlayerLife = 10000;
+                await Game.SummonsTick(f.Player, 3.0 + cycle * 2.0);
+                Assert.False(f.Player.Summons.LostPersistentOnDeath);
+                var restored = Assert.Single(f.Player.Summons.Fighters.Values);
+                Assert.Equal(revenant.Id, restored.Monster.Variety!.Id);
+                Assert.NotEqual(0, restored.SpectreBuff);
+            }
 
             // Desecrate draws from persisted SpectreBank even after clearing active fighters/memory cache.
             f.Player.Summons.Fighters.Clear();

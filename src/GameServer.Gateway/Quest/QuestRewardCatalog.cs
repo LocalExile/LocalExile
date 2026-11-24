@@ -78,13 +78,19 @@ public sealed class QuestRewardCatalog
 
     // Grant level-one gems/currency and normal flasks at the row's level. With the mode's ItemRolls (Game's OfferNpcReward passes
     // them in every mode) gear is built at its actual item level and rarity: HardMode's magic armours, the later acts' rare
-    // belts and amulets. Scripted rewards without a model remain unavailable; OfferNpcReward omits a choice when this
-    // returns null.
+    // belts and amulets. A levelled choice with no rarity is a normal item at that item level (the Act 1/Act 3 rings), unless
+    // it is a gem, whose level lives in its experience instead: those still return null. Scripted rewards without a model
+    // remain unavailable; OfferNpcReward omits a choice when this returns null.
     public static Item? Create(Choice choice, ItemCatalog items, ItemRolls? rolls = null)
     {
         if (choice.Stack <= 0 || items.Row(choice.ItemRow) is not { Supported: true } type) return null;
         bool normalFlask = type.Components.Contains("Flask") && choice.Rarity == 0 && choice.Level is >= 1 and <= 100;
-        if ((choice.Level != 1 && !normalFlask) || choice.Rarity is > 0)
+        // A row that settles only the base and the item level carries no rarity: the plain path below makes it a normal
+        // item at that level. Gems are the exception (their level is their experience, ItemCatalog.GemLevel), and flasks
+        // keep their own rule keyed on Rarity == 0, so neither takes this branch.
+        bool levelledNoRarity = choice.Rarity is null && choice.Level is >= 1 and <= 100
+            && items.Gem(type) is null && !type.Components.Contains("Flask");
+        if ((choice.Level != 1 && !normalFlask && !levelledNoRarity) || choice.Rarity is > 0)
         {
             if (rolls is null || choice.Level is < 1 or > 100 || choice.Rarity is not (0 or 1 or 2)
                 || !type.Components.Contains("Mods")) return null;
