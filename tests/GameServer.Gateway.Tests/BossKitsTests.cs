@@ -198,6 +198,201 @@ public sealed class BossKitsTests
         Assert.Equal(0x4000, BossKits.Choose(boss, 40, 500)!.SkillId);
     }
 
+    [Fact]
+    public void A_boss_teleports_and_walks_up_for_its_swing()
+    {
+        InGame(conn =>
+        {
+            var catalog = Game.SkillsFor(conn);
+            // Merveil, the Siren: her teleport is a move of the kit (BossMoves), with a cooldown the tables do not give.
+            var siren = Assert.IsType<MonsterCatalog.Variety>(Game.Monsters.Find("Metadata/Monsters/seawitchillusion/BossMerveil"));
+            var kit = BossKits.Kit(conn, siren, 13, Game.MavenNucleus.CombatEffect(catalog, siren), unique: true);
+            var teleport = Assert.Single(kit, k => catalog.EffectId(k.Effect) == "MerveilTeleport");
+            Assert.Equal(MonsterSkillShape.Travel, teleport.Attack.Use?.Shape);
+            Assert.True(teleport.CooldownSeconds >= BossMoves.TeleportCooldown);
+            // Ice Spear reaches her whole aggro range: once her swing has waited its turn she walks up for it.
+            var boss = new SpawnedMonster("Merveil", new(0, 0, 1), 60, 2, maxLife: 100) { Kit = kit, Attack = kit[0].Attack, Variety = siren };
+            var melee = Assert.Single(kit, k => catalog.EffectId(k.Effect) == "Melee");
+            // She opens with her spells: the swing's wait starts with the fight.
+            Assert.NotEqual(melee.Attack.SkillId, BossKits.Choose(boss, 1, 30)!.SkillId);
+            foreach (var entry in kit) boss.KitReadyAt[entry.Effect] = 1;
+            Assert.Equal(melee.Attack.SkillId, BossKits.Choose(boss, 12, 30)!.SkillId);
+        });
+    }
+
+    [Fact]
+    public void Boss_moves_unshaped_filters_summons_and_form_cleanup_hold()
+    {
+        InGame(conn =>
+        {
+            var catalog = Game.SkillsFor(conn);
+            // Cyclones, projectile-moves, mines and triggered effects are never misclassified as moves or teleports.
+            Assert.True(BossMoves.IsTeleport(catalog, 4007)); // MerveilTeleport
+            foreach (int excluded in new[] { 2530, 6052, 6566, 2803, 71 }) // Cyclone, HydraTeleportShot, AvariusCharge, SmokeMine, IceNovaTriggered
+            {
+                Assert.False(BossMoves.IsMove(catalog, excluded));
+                Assert.False(BossMoves.IsTeleport(catalog, excluded));
+            }
+            // Kit bosses still pass unshaped safety filters (DeathNova / Triggered excluded) while keeping Merveil's own skills.
+            var twisted = Assert.IsType<MonsterCatalog.Variety>(Game.Monsters.Find("Metadata/Monsters/Seawitch/BossMerveil2"));
+            Assert.False(BossKits.KeepsUnshaped(catalog, twisted, 1618)); // SpikerBossIceSpearDeathNova
+            Assert.False(BossKits.KeepsUnshaped(catalog, twisted, 71));   // IceNovaTriggered
+            Assert.True(BossKits.KeepsUnshaped(catalog, twisted, 3250));  // MerveilSeaWitchScreech
+            Assert.True(BossKits.KeepsUnshaped(catalog, twisted, 3777));  // MerveilGeyser
+            Assert.True(BossKits.KeepsUnshaped(catalog, twisted, 6995));  // SeawitchWaveGeometrySpellMerveil
+            var twistedKit = BossKits.Kit(conn, twisted, 13, Game.MavenNucleus.CombatEffect(catalog, twisted), unique: true);
+            Assert.Contains(twistedKit, k => k.Effect == 3777 && k.Attack.Strike is not null);
+            Assert.Contains(twistedKit, k => k.Effect == 3250);
+            Assert.Contains(twistedKit, k => k.IsTeleport && k.Effect == 4007);
+            // Geyser impact art ends with the final pulse instead of hanging past stay.
+            var geyser = Assert.NotNull(BossMoves.StrikeOf(catalog, 3777, 13));
+            Assert.InRange(geyser.Strike.ImpactSeconds, 0.1, 9.01);
+
+            // Teleport opener respects MinRange and Range before being consumed.
+            var form = new SpawnedMonster("Merveil", new(0, 0, 1), 60, 2, maxLife: 100) { Kit = twistedKit, Attack = twistedKit[0].Attack, Variety = twisted };
+            BossKits.OpenWithTeleport(form);
+            var teleport = Assert.Single(twistedKit, k => k.IsTeleport);
+            Assert.NotEqual(teleport.Attack.SkillId, BossKits.Choose(form, 1, 5)!.SkillId);
+            Assert.NotEqual(teleport.Attack.SkillId, BossKits.Choose(form, 1, 100)!.SkillId);
+            Assert.Equal(teleport.Attack.SkillId, BossKits.Choose(form, 1, 30)!.SkillId);
+
+            // Guessed boss summons resolve to safe adds with world-unit offset and DiesWithParent, excluding chieftains.
+            var piety = Assert.IsType<MonsterCatalog.Variety>(Game.Monsters.Find("Metadata/Monsters/Axis/PietyBoss"));
+            var blood = BossSummons.For(catalog, piety, 2507);
+            Assert.NotNull(blood);
+            Assert.Equal("Metadata/Monsters/BloodElemental/BloodElemental", Game.Monsters.Find(blood.Variety.ToString())?.Id);
+            Assert.Equal(65, blood.Offset);
+            Assert.True(blood.DiesWithParent);
+            var daresso = Assert.IsType<MonsterCatalog.Variety>(Game.Monsters.Find("Metadata/Monsters/Daresso/DaressoBoss"));
+            var clone = BossSummons.For(catalog, daresso, 4614);
+            Assert.NotNull(clone);
+            Assert.Equal("Metadata/Monsters/Daresso/DaressoClone", Game.Monsters.Find(clone.Variety.ToString())?.Id);
+            Assert.True(clone.DiesWithParent);
+            var chief = Assert.IsType<MonsterCatalog.Variety>(Game.Monsters.Find("Metadata/Monsters/BloodChieftain/MonkeyChiefBloodBossPale"));
+            var monkey = BossSummons.For(catalog, chief, 883);
+            Assert.NotNull(monkey);
+            Assert.DoesNotContain("Chief", Game.Monsters.Find(monkey.Variety.ToString())?.Id ?? "");
+
+            // Second-form cleanup always clears EntranceGrace and removes Form 1 even if the killer leaves mid-transform.
+            var before = new SpawnedMonster("Merveil", new(10, 10, 1), 60, 2, maxLife: 100) { Dead = true, Life = 0 };
+            form.EntranceGrace = true;
+            conn.Area.Monsters[0x9001] = before;
+            conn.Area.Monsters[0x9002] = form;
+            conn.LeavingArea = true;
+            BossForms.Finish(conn, 0x9001, before, 0x9002, form).GetAwaiter().GetResult();
+            Assert.False(form.EntranceGrace);
+            Assert.True(before.CorpseConsumed);
+            Assert.DoesNotContain(0x9001u, conn.Area.Monsters.Keys);
+        });
+    }
+
+    [Fact]
+    public void Boss_summon_overrides_name_the_monster_the_guess_cannot_find()
+    {
+        InGame(player =>
+        {
+            var catalog = Game.SkillsFor(player);
+            // Atziri's demons are skeletons from another folder and her mirrors are a skill with no summon word;
+            // Piety's eye spawners carry no summon word, and Shavronne's books name no monster. Each override names
+            // the row's monster and how many it brings.
+            var atziri = Assert.IsType<MonsterCatalog.Variety>(Game.Monsters.Find("Metadata/Monsters/Atziri/Atziri"));
+            var demons = BossSummons.For(catalog, atziri, 3386); // AtziriSummonDemons
+            Assert.NotNull(demons);
+            Assert.Equal("Metadata/Monsters/Skeletons/SkeletonMeleeKnightElementalSwordAtziri", Game.Monsters.Find(demons.Variety.ToString())?.Id);
+            Assert.Equal(3, demons.Count);
+            Assert.True(demons.DiesWithParent);
+            var mirror = BossSummons.For(catalog, atziri, 3401); // AtziriMirrorImage
+            Assert.NotNull(mirror);
+            Assert.Equal("Metadata/Monsters/Atziri/AtziriMirror", Game.Monsters.Find(mirror.Variety.ToString())?.Id);
+            Assert.Equal(2, mirror.Count);
+            Assert.True(mirror.DiesWithParent);
+            var atziri2 = Assert.IsType<MonsterCatalog.Variety>(Game.Monsters.Find("Metadata/Monsters/Atziri/Atziri2"));
+            var mirror2 = BossSummons.For(catalog, atziri2, 3402); // AtziriMirrorImageUber
+            Assert.NotNull(mirror2);
+            Assert.Equal("Metadata/Monsters/Atziri/AtziriMirror2", Game.Monsters.Find(mirror2.Variety.ToString())?.Id);
+            Assert.Equal(2, mirror2.Count);
+            // AvariusRaiseStatues (6326-6329) and TriggerKaomArcherSpawners (5142) are dropped: the encounter
+            // controllers run those fights, so the rows resolve to nothing here.
+            var avarius = Assert.IsType<MonsterCatalog.Variety>(Game.Monsters.Find("Metadata/Monsters/AvariusCasticus/AvariusCasticus"));
+            Assert.Null(BossSummons.For(catalog, avarius, 6326)); // AvariusRaiseStatues
+            var kaom = Assert.IsType<MonsterCatalog.Variety>(Game.Monsters.Find("Metadata/Monsters/Kaom/KaomBoss"));
+            Assert.Null(BossSummons.For(catalog, kaom, 5142)); // TriggerKaomArcherSpawners
+            var beast = Assert.IsType<MonsterCatalog.Variety>(Game.Monsters.Find("Metadata/Monsters/Axis/PietyBeastBoss"));
+            var eye = BossSummons.For(catalog, beast, 5243); // PietyActivateEyeSpawner
+            Assert.NotNull(eye);
+            Assert.Equal("Metadata/Monsters/EyeSpawner/EyeSpawnerEmergePiety", Game.Monsters.Find(eye.Variety.ToString())?.Id);
+            Assert.Equal(1, eye.Count);
+            var eye2 = BossSummons.For(catalog, beast, 5244); // PietyActivateEyeSpawner2
+            Assert.NotNull(eye2);
+            Assert.Equal("Metadata/Monsters/Eyes/EyePiety", Game.Monsters.Find(eye2.Variety.ToString())?.Id);
+            Assert.Equal(1, eye2.Count);
+            var tower = Assert.IsType<MonsterCatalog.Variety>(Game.Monsters.Find("Metadata/Monsters/Shavronne/ShavronneTower"));
+            var books = BossSummons.For(catalog, tower, 6674); // ShavronneSummonLightningBooks
+            Assert.NotNull(books);
+            Assert.Equal("Metadata/Monsters/Totems/ShavronneTowerLightningBook", Game.Monsters.Find(books.Variety.ToString())?.Id);
+            Assert.Equal(2, books.Count);
+        });
+    }
+
+    [Fact]
+    public void Boss_kits_play_the_summon_rows_the_tables_give_no_type()
+    {
+        InGame(player =>
+        {
+            // The summon rows are in the kit, not only resolvable: Atziri's demons and mirrors, and Piety's eye
+            // spawners. The last carry no attack, spell or projectile type, so without the override the kit drops
+            // them before it ever asks what they raise.
+            var atziri = Assert.IsType<MonsterCatalog.Variety>(Game.Monsters.Find("Metadata/Monsters/Atziri/Atziri"));
+            var atziriKit = BossKits.Kit(player, atziri, 70);
+            Assert.Contains(atziriKit, k => k.Effect == 3386 && k.Attack.Summon is not null);
+            Assert.Contains(atziriKit, k => k.Effect == 3401 && k.Attack.Summon is not null);
+            // Kaom's archer spawners (5142) are dropped: the encounter controller runs those waves, so the row
+            // is no kit entry here.
+            var kaom = Assert.IsType<MonsterCatalog.Variety>(Game.Monsters.Find("Metadata/Monsters/Kaom/KaomBoss"));
+            var kaomKit = BossKits.Kit(player, kaom, 40);
+            Assert.DoesNotContain(kaomKit, k => k.Effect == 5142);
+            var beast = Assert.IsType<MonsterCatalog.Variety>(Game.Monsters.Find("Metadata/Monsters/Axis/PietyBeastBoss"));
+            var beastKit = BossKits.Kit(player, beast, 45);
+            Assert.Contains(beastKit, k => k.Effect == 5243 && k.Attack.Summon is not null);
+            var tower = Assert.IsType<MonsterCatalog.Variety>(Game.Monsters.Find("Metadata/Monsters/Shavronne/ShavronneTower"));
+            var towerKit = BossKits.Kit(player, tower, 50);
+            Assert.Contains(towerKit, k => k.Effect == 6674 && k.Attack.Summon is not null);
+        });
+    }
+
+    [Fact]
+    public void The_Faun_uses_melee_default_and_drops_ungrounded_CastGroundEffect_and_leap_payload()
+    {
+        InGame(player =>
+        {
+            var catalog = Game.SkillsFor(player);
+            var faun = Assert.IsType<MonsterCatalog.Variety>(
+                Game.Monsters.Find("Metadata/Monsters/Goatman/GoatmanLeapSlamNavaliBoss"));
+            int defaultEffect = Game.MavenNucleus.CombatEffect(catalog, faun);
+            Assert.Equal("MeleeAtAnimationSpeedUnique", catalog.EffectId(defaultEffect));
+            var kit = BossKits.Kit(player, faun, 6, defaultEffect, unique: true);
+            Assert.Equal(defaultEffect, kit[0].Effect);
+            Assert.DoesNotContain(kit, k => catalog.EffectId(k.Effect) == "TheFaunCastGroundEffectLavaTemporary");
+            Assert.DoesNotContain(kit, k => catalog.EffectId(k.Effect) == "GANavaliGoatmanLeapDamage");
+            Assert.DoesNotContain(kit, k => catalog.EffectId(k.Effect) == "NavaliGoatEmergeExplosion");
+            Assert.Contains(kit, k => catalog.EffectId(k.Effect) == "TheFaunTectonicSlam");
+            Assert.Contains(kit, k => catalog.EffectId(k.Effect) == "GoatmanMoltenShell");
+            Assert.Contains(kit, k => catalog.EffectId(k.Effect) == "GoatmanNavaliBossLeapSlam");
+        });
+    }
+
+    [Fact]
+    public void Burning_Menace_keeps_its_animated_cleave()
+    {
+        InGame(player =>
+        {
+            var catalog = Game.SkillsFor(player);
+            var monster = Assert.IsType<MonsterCatalog.Variety>(Game.Monsters.Find("Metadata/Monsters/Hellion/HellionBoss"));
+            var kit = BossKits.Kit(player, monster, 6, Game.MavenNucleus.CombatEffect(catalog, monster), unique: true);
+            Assert.Contains(kit, k => catalog.EffectId(k.Effect) == "GABurningMenaceCleave");
+        });
+    }
+
     /// <summary>Runs the body with the game module mounted on a connection of its own, as BossStageTests does.</summary>
     static void InGame(Action<Player> body)
     {

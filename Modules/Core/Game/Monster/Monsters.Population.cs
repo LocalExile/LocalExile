@@ -66,23 +66,35 @@ public static partial class Game
         area = MapBossOverride.Apply(area, Quests.Names(PlayerQuestFlags(player)), row => Monsters.Find(row.ToString())?.Id);
         var notes = new List<string>();
         var placedRooms = new List<AreaPopulation.PlacedRoom>();
-        var (points, objects, _) = AreaPopulation.FitRooms(layout.Id, player.Seed, notes, "data", placedRooms: placedRooms);
-        // A boss whose room has a spawner object for it (The Quay's Tolman) stands at the spawner.
+        var (points, objects, capturedRooms) = AreaPopulation.FitRooms(layout.Id, player.Seed, notes, "data", placedRooms: placedRooms);
+        // A boss whose room or tile has a spawner object for it (The Quay's Tolman, The Marketplace's Marceus) stands at the spawner.
         points.AddRange(AreaPopulation.SpawnerPoints(area, objects, row => Monsters.Find(row.ToString())?.Id));
+        if (layout.Level?.TileBossSpawners is { Count: > 0 } tileSpawners)
+            points.AddRange(AreaPopulation.SpawnerPoints(area, tileSpawners, row => Monsters.Find(row.ToString())?.Id));
         // A shrine the level generator placed is guarded (ShrineGuards): its own pack rows when the Shrines row names
         // them, else one of the area's packs at that pack's own count. A shrine too close to an entrance or waypoint is not
         // guarded (the 1.0.0d note). The guards are planned with the area's monsters, so an instance keeps them and a
         // re-entry or an activation never spawns them again.
         var safePoints = layout.AreaTransitions.Select(t => (t.Transition.GridX, t.Transition.GridY)).ToList();
         if (layout.Waypoint is { } wp) safePoints.Add((wp.GridX, wp.GridY));
+        var earlyMapMods = MapModsOf(player);
+        bool isMapArea = MapDevices.IsMapArea(layout.Hash);
+        int greedChancePct = earlyMapMods?.Get(Stat.MapShrinesChanceToBeGreedShrinePct) ?? 0;
+        bool magicShrineGuards = earlyMapMods?.Get(Stat.MapShrinesHaveGuaranteedMagicPack) > 0;
+        int extraShrinePackChance = earlyMapMods?.Get(Stat.MapShrinesAdditionalPackChancePct) ?? 0;
         var shrineGuards = ServerLevels.For(layout.Id, player.Seed) is { } shrineLevel
-            ? ShrinePlacement.Plan(shrineLevel.RoomObjects, walkable, player.Seed)
+            ? ShrinePlacement.Plan(shrineLevel.RoomObjects, walkable, player.Seed, greedChancePct: greedChancePct)
                 .Where(p => !ShrineGuards.TooNearEntrance((p.X, p.Y), (layout.SpawnX, layout.SpawnY),
                     safePoints, AreaPopulation.TransitionClearance))
-                .Select(p =>
+                .SelectMany(p =>
                 {
-                    var (rule, packs) = ShrineGuards.Resolve(p.Shrine, MapDevices.IsMapArea(layout.Hash), Packs.Find);
-                    return (Shrine: p.Shrine.Id, Rule: rule, Packs: packs, X: p.X, Y: p.Y);
+                    var (rule, packs) = ShrineGuards.Resolve(p.Shrine, isMapArea, Packs.Find, magic: magicShrineGuards);
+                    var entry = (Shrine: p.Shrine.Id, Rule: rule, Packs: packs, X: p.X, Y: p.Y);
+                    if (isMapArea && extraShrinePackChance > 0
+                        && GameServer.Core.World.RandomRolls.Chance(extraShrinePackChance, 100,
+                            new Random(HashCode.Combine(player.Seed, p.X, p.Y, 0x53485249))))
+                        return new[] { entry, entry };
+                    return [entry];
                 }).ToList()
             : [];
         // A Trial of Ascendancy's rooms (live 2026-10-31, the original): no monsters among the traps, so the area's
@@ -107,6 +119,22 @@ public static partial class Game
         var layoutPacks = (layout.Level?.PackRooms ?? [])
             .Where(r => !trialRooms.Any(t => t.Path.Equals(r.Path, StringComparison.OrdinalIgnoreCase)))
             .SelectMany(r => r.Points).Where(p => !InFeatureArea(p.X, p.Y));
+        // Rooms placed by the generated level that room_point_areas did not index (e.g. Imperial Gardens open_*_boss.arm
+        // for Thistlesage's mapboss + %area%-bosspack, and campaign rooms with pre-placed Metadata/Monsters/* guards).
+        var capturedSet = new HashSet<string>(capturedRooms, StringComparer.OrdinalIgnoreCase);
+        var trialSet = new HashSet<string>(trialRooms.Select(t => t.Path), StringComparer.OrdinalIgnoreCase);
+        var layoutDirectMonsters = new List<(string Room, AreaPopulation.RoomPoint Point)>();
+        if (layout.Level?.Records is { Count: > 0 } records)
+        {
+            var (extraPoints, directMonsters) = AreaPopulation.LayoutRoomPoints(records);
+            foreach (var ep in extraPoints)
+            {
+                if (InFeatureArea(ep.X, ep.Y) || ep.Room is { } r && (capturedSet.Contains(r) || trialSet.Contains(r))) continue;
+                if (!points.Any(existing => existing.Name == ep.Name && Math.Abs(existing.X - ep.X) <= 3 && Math.Abs(existing.Y - ep.Y) <= 3))
+                    points.Add(ep);
+            }
+            layoutDirectMonsters = directMonsters;
+        }
         var trapClear = new HashSet<(int X, int Y)>();
         // The Labyrinth's own rooms keep their packs off their traps too: the generated rooms' and tiles' trap lines.
         var labyrinthTraps = LabyrinthTrials.InLabyrinth(layout.Id) && ServerLevels.For(layout.Id, player.Seed) is { } labyrinthLevel
@@ -147,18 +175,44 @@ public static partial class Game
                     && t.Transition.TeleportTo.HasValue)
                 .Select(t => (layout.Near((t.Transition.GridX, t.Transition.GridY)), layout.Near(t.Transition.TeleportTo!.Value)))],
             additionalPacks: MapScarabPacks.Requests(mapMods),
-            ordinaryPacks: mapMods?.Get(Stat.MapMonstrousTreasureNoMonsters) is not > 0);
+            ordinaryPacks: mapMods?.Get(Stat.MapMonstrousTreasureNoMonsters) is not > 0,
+            grounds: layout.Level?.Grounds);
         // Twinned doubles the area's own bosses, not the shrines' Atlas guards.
         spawns = WithTwinBosses(spawns, mapMods).ToList();
         if (mapMods?.Get(Stat.MapShrinesHaveStandaloneMapBoss) > 0 && ServerLevels.For(layout.Id, player.Seed) is { } shrineRooms)
             spawns.AddRange(MapScarabBosses.Guards(player,
                 [.. ShrinePlacement.Plan(shrineRooms.RoomObjects, walkable, player.Seed).Select(p => (p.X, p.Y))], spawns, layout));
         spawns.AddRange(nests);
+        var directPlaced = new HashSet<(int Variety, int X, int Y)>();
         foreach (var chest in QuestsOf(player).Chests(layout.Id).Where(r => r.Guards is not null))
             foreach (var room in placedRooms.Where(r => !trialRooms.Contains(r) && r.Objects.Any(o => o.Type == chest.ChestType)))
                 foreach (var point in room.Points.Where(p => chest.Guards!.Contains(p.Name)))
-                    if (Monsters.Find(point.Name) is { } guard && guard.Id == point.Name && Spawnable(guard.Row))
+                    if (Monsters.Find(point.Name) is { } guard && guard.Id == point.Name && Spawnable(guard.Row)
+                        && directPlaced.Add((guard.Row, point.X, point.Y)))
                         spawns.Add(new AreaPopulation.Spawn(guard.Row, point.X, point.Y, MonsterRarity.Normal, "quest chest guard"));
+        // Pre-placed .arm campaign monsters (Act 1..10 campaign areas only, strict allowlist of ordinary room guards):
+        // skips towns/hideouts/maps/Labyrinth/league areas, trial rooms, sub-areas, already-captured rooms (prevents
+        // 1-cell offset duplication), quest chest guards, and Act 2 bandit guards while BanditChoices holds the camp.
+        if (area.Act is >= 1 and <= 10 && !InTown(player) && HideoutCatalog.ByArea(layout.Hash) is null
+            && !MapDevices.IsMapArea(layout.Hash) && !LabyrinthTrials.InLabyrinth(layout.Id)
+            && (mapMods?.Get(Stat.MapMonstrousTreasureNoMonsters) is not > 0))
+        {
+            bool banditCampHeld = BanditChoices.In(player) is { } bandit && BanditChoices.Held(player, bandit);
+            var preplacedCandidates = placedRooms.Where(r => !trialRooms.Contains(r))
+                .SelectMany(r => r.Points.Where(p => p.Name.StartsWith("Metadata/Monsters/", StringComparison.Ordinal)).Select(p => (Room: r.Path, Point: p)))
+                .Concat(layoutDirectMonsters.Where(d => !trialSet.Contains(d.Room) && !capturedSet.Contains(d.Room)));
+            int directPackId = spawns.Count == 0 ? 1 : spawns.Max(s => s.PackId) + 1;
+            var roomDirectPackIds = new Dictionary<string, int>(StringComparer.OrdinalIgnoreCase);
+            foreach (var (roomPath, p) in preplacedCandidates)
+            {
+                if (InFeatureArea(p.X, p.Y) || !IsAllowedCampaignPreplacedMonster(p.Name, banditCampHeld)) continue;
+                if (Monsters.Find(p.Name) is not { } v || !v.Id.Equals(p.Name, StringComparison.OrdinalIgnoreCase) || !Spawnable(v.Row)) continue;
+                var cell = walkable(p.X, p.Y) ? (X: p.X, Y: p.Y) : layout.Near((p.X, p.Y));
+                if (!walkable(cell.X, cell.Y) || !directPlaced.Add((v.Row, cell.X, cell.Y))) continue;
+                if (!roomDirectPackIds.TryGetValue(roomPath, out int pid)) roomDirectPackIds[roomPath] = pid = directPackId++;
+                spawns.Add(new AreaPopulation.Spawn(v.Row, cell.X, cell.Y, MonsterRarity.Normal, "room guard") { PackId = pid });
+            }
+        }
         foreach (var room in trialRooms)
             foreach (var p in room.Points)
             {
@@ -171,4 +225,35 @@ public static partial class Game
             }
         return new(layout, questFlags, area, spawns, notes, laterForms, watch.Elapsed.TotalMilliseconds);
     }
+
+    static readonly HashSet<string> AllowedCampaignRoomGuards = new(StringComparer.OrdinalIgnoreCase)
+    {
+        "Metadata/Monsters/Axis/AxisCasterGuardGravicius",
+        "Metadata/Monsters/Axis/AxisEliteSoldierGuardShieldGravicius",
+        "Metadata/Monsters/CrabMonsters/CrabCoconutEmerge",
+        "Metadata/Monsters/RootSpiders/RootSpiderHidden",
+        "Metadata/Monsters/Totems/TotemMonsterHealthRegen",
+        "Metadata/Monsters/Totems/TotemMonsterSpeed",
+        "Metadata/Monsters/Totems/TotemSlowPlayer",
+        "Metadata/Monsters/CorpseWheel/CorpseWheelAggroCharge",
+        "Metadata/Monsters/Bandits/BanditRangedBarragePetrified",
+        "Metadata/Monsters/Bandits/BanditRangedTornadoShotPetrified",
+        "Metadata/Monsters/Bandits/BanditSwordShieldPetrified",
+        "Metadata/Monsters/LeagueHeist/Robot/RobotMannequinRefinery",
+    };
+
+    static readonly HashSet<string> AllowedBanditCampGuards = new(StringComparer.OrdinalIgnoreCase)
+    {
+        "Metadata/Monsters/Bandits/BanditGuardBow",
+        "Metadata/Monsters/Bandits/BanditGuardBowBurningArrow",
+        "Metadata/Monsters/Bandits/BanditGuardBowExplosiveArrow",
+        "Metadata/Monsters/Bandits/BanditGuardBowPoison",
+        "Metadata/Monsters/Bandits/BanditGuardMeleeChaos",
+        "Metadata/Monsters/Bandits/BanditGuardMeleePuncture",
+        "Metadata/Monsters/Bandits/BanditGuardMeleeWarlordsMark",
+    };
+
+    static bool IsAllowedCampaignPreplacedMonster(string id, bool banditCampHeld) =>
+        AllowedCampaignRoomGuards.Contains(id)
+        || (!banditCampHeld && AllowedBanditCampGuards.Contains(id));
 }

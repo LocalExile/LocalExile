@@ -54,7 +54,9 @@ public static partial class Game
             double now = AreaTime(player), left = player.ElementalAilments.FreezeUntil(now) - now;
             if (left <= 0 || player.PlayerLife == 0 || player.LeavingArea || player.Paused) return null;
             player.FreezeShown = player.FreezeGeneration;
-            if (player.Connection.LockstepClient) player.Walk.Cancel(now);
+            bool shieldCharging = IsShieldChargeActive(player);
+            EndShieldChargeIfInterrupted(player);
+            if (player.Connection.LockstepClient || shieldCharging) player.Walk.Cancel(now);
             return [.. InstanceProtocol.ActorAnimation(player.Id, (float)left, PlayerHitRecovery.TakeHitAnimation),
                 .. ResyncPacketLocked(player, now)];
         });
@@ -132,6 +134,7 @@ public static partial class Game
         player.SharedAuras = [.. player.Auras.Values.Where(a => SharedPlayerAura(a.EffectId)).Select(a => new SharedAura(a,
                 AuraRadius.Of(a, player.Pools.AuraAreaPct, SkillsFor(player), Stats),
                 player.Pools.AuraEffectPct + a.SupportEffectPct)).Concat(SharedAvianAuras(player))];
+        player.Fortification = OwnFortificationShareLocked(player, AreaTime(player));
         SyncSharedAuraZones(player, player.SharedAuras);
     }
 
@@ -407,11 +410,26 @@ public static partial class Game
     {
         // A Dash's slide crosses gaps and bodies (PlayerWalk.Slide): none of its steps is checked.
         bool floor = walk.Slides || walk.Floor(cell.X, cell.Y);
-        bool body = floor && ClientPathfinder.ObjectBlocks(id == player.Id ? bodies.ForPlayer : bodies.For(id),
+        if (!floor)
+        {
+            walk.StopAt(at);
+            return false;
+        }
+        if (walk.ChargesThrough && !walk.Slides)
+        {
+            if (ShieldChargeStepBlocked(player, id, walk, at, cell))
+            {
+                walk.StopAt(at);
+                return false;
+            }
+            if (id == player.Id) bodies.MovePlayer(cell.X, cell.Y);
+            else bodies.Move(id, cell.X, cell.Y);
+            ClientEntityGrid.Stepped(player, id, cell);
+            return true;
+        }
+        bool body = ClientPathfinder.ObjectBlocks(id == player.Id ? bodies.ForPlayer : bodies.For(id),
             cell.X, cell.Y, walk.Size + 1, walk.Size + 4);
-        // A monster's charge runs through bodies (sync trace 2026-11-17: Jonah Unchained's ran past monsters on its line,
-        // also ones beside its start).
-        if (!floor || body && !walk.WalksThrough && !walk.ChargesThrough && !walk.Slides)
+        if (body && !walk.WalksThrough && !walk.Slides)
         {
             walk.StopAt(at);
             return false;

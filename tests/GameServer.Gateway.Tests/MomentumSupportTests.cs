@@ -109,7 +109,7 @@ public sealed class MomentumSupportTests
         Game.ClearMomentum(f.Player);
         f.Player.NextAttackAt = 0;
         var chargeStart = f.Player.Walk.Position(f.At);
-        Assert.True(await Game.CastGemSkill(f.Player, charge, chargeStart, (chargeStart.X + 20, chargeStart.Y)));
+        Assert.True(await Game.CastGemSkill(f.Player, charge, chargeStart, (chargeStart.X + 30, chargeStart.Y)));
         Assert.NotEqual(chargeStart, f.Player.Walk.Position(f.At));
         Assert.Equal(chargeBase, Game.SupportedSkill(f.Player, charge).Stats.GetValueOrDefault(Stat.AttackSpeedPlusPct));
 
@@ -118,7 +118,7 @@ public sealed class MomentumSupportTests
         Assert.True(await Game.CastGemSkill(f.Player, heavy, standing, (standing.X + 3, standing.Y)));
         Assert.Equal(chargeBase + 15, Game.SupportedSkill(f.Player, charge).Stats.GetValueOrDefault(Stat.AttackSpeedPlusPct));
         f.Player.NextAttackAt = 0;
-        Assert.True(await Game.CastGemSkill(f.Player, charge, standing, (standing.X - 20, standing.Y)));
+        Assert.True(await Game.CastGemSkill(f.Player, charge, standing, (standing.X - 30, standing.Y)));
         Assert.NotEqual(standing, f.Player.Walk.Position(f.At));
         Assert.Equal(chargeBase, Game.SupportedSkill(f.Player, charge).Stats.GetValueOrDefault(Stat.AttackSpeedPlusPct));
     }

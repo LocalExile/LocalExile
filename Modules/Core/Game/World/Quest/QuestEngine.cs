@@ -316,7 +316,20 @@ public static partial class Game
         if (QuestsOf(player).SecondForm(area, variety.Id) is { } next && Monsters.Find(next) is { Supported: true } form && form.Id == next)
         {
             Console.WriteLine($"[gateway] {player.Connection.Remote} {m.Label} died: its second form {form.Name} appears");
-            await SpawnMonster(player, form, m.Level, MonsterRarity.Unique, at.X, at.Y);
+            // The new form cannot be hurt while it takes shape, opens with its teleport when it has one, and the body
+            // of the form before it leaves when the change is done instead of lying under it (BossForms).
+            uint before = player.Area.Monsters.FirstOrDefault(p => ReferenceEquals(p.Value, m)).Key;
+            SpawnedMonster? formedRef = null;
+            uint formed = await SpawnMonster(player, form, m.Level, MonsterRarity.Unique, at.X, at.Y,
+                owned: (_, spawned) =>
+                {
+                    formedRef = spawned;
+                    spawned.EntranceGrace = true;
+                    spawned.BusyUntil = AreaTime(player) + BossForms.TransformSeconds;
+                    BossKits.OpenWithTeleport(spawned);
+                });
+            if (formed != 0 && formedRef is not null)
+                _ = BossForms.Finish(player, before, m, formed, formedRef);
         }
         // A room NPC this death frees (Quests.NpcRule.FreedBy): its last Transitionable state (UpdateQuestNpcs, QuestNpcs.cs).
         bool frees;
@@ -456,9 +469,10 @@ public static partial class Game
             return;
         }
         if (rule.GoneWhenTransitioned && QuestObjectTransitioned(player, rule)) return;
+        if (!QuestsOf(player).Exists(rule.ObjectType, f => ClientHasQuestFlag(player, f))) return;
         uint id = player.TakeObjectId();
         lock (player.QuestObjects) player.QuestObjects[id] = (rule, at, info);
-        if (info.Blocking) player.SetBlocker(id, at.X, at.Y, info.Size);
+        if (info.Blocking && !QuestObjectTransitioned(player, rule)) player.SetObjectBlocker(id, at.X, at.Y, info.Size, info.ActorOrChest);
         await SendWorldCreate(player, id, () => InstanceEntities.CreateObject(id, InstanceEntities.ObjectTypeHash(rule.ObjectType), QuestObjectBlob(player, rule, at, info)),
             $"0x02bb quest object 0x{id:x} {rule.ObjectType} at ({at.X}, {at.Y}), {(QuestObjectTransitioned(player, rule) ? "transitioned" : "untransitioned")}" +
             (rule.TransitionedBy is { } f ? $" (flag {f})" : ""), wake: true, awaitBirth: false);
@@ -580,6 +594,11 @@ public static partial class Game
         foreach (var (id, rule, at, info) in objects)
         {
             bool done = QuestObjectTransitioned(player, rule);
+            if (info.Blocking)
+            {
+                if (done) player.RemoveBlocker(id);
+                else player.SetObjectBlocker(id, at.X, at.Y, info.Size, info.ActorOrChest);
+            }
             if (done && QuestObjectTypes.OpensInPlace(rule.ObjectType) && QuestObject.TransitionableIndex(info.Components) is int opening and >= 0)
             {
                 await SendWorldRecord(player, id, InstanceEntities.TransitionableUpdate(id, (byte)opening, (byte)info.States),
@@ -705,7 +724,7 @@ public static partial class Game
             uint next = player.TakeObjectId();
             lock (player.QuestChests) { player.QuestChests.Remove(id); player.QuestChests[next] = (rule, at); }
             player.RemoveBlocker(id);
-            player.SetBlocker(next, at.X, at.Y, QuestChestSize);
+            player.SetObjectBlocker(next, at.X, at.Y, QuestChestSize, QuestObjectTypes.Find(rule.ChestType)?.ActorOrChest ?? true);
             await SendWorldRemoval(player, id, null);
             await SendWorldCreate(player, next, () => InstanceEntities.CreateObject(next, InstanceEntities.ObjectTypeHash(rule.ChestType),
                 QuestChestBlob(player, rule, at, rule.Guards is not null || player.Instance.ChestOpened(at.X, at.Y), hideMinimapIcon: true)),
@@ -718,7 +737,7 @@ public static partial class Game
             uint next = player.TakeObjectId();
             lock (player.GlyphNests) { player.GlyphNests.Remove(id); player.GlyphNests[next] = nest; }
             player.RemoveBlocker(id);
-            player.SetBlocker(next, nest.At.X, nest.At.Y, GlyphQuest.NestSize);
+            player.SetObjectBlocker(next, nest.At.X, nest.At.Y, GlyphQuest.NestSize, QuestObjectTypes.Find(nest.Type)?.ActorOrChest ?? true);
             await SendWorldRemoval(player, id, null);
             await SendWorldCreate(player, next, () => InstanceEntities.CreateObject(next, InstanceEntities.ObjectTypeHash(nest.Type),
                 GlyphQuest.NestBlob(nest.At, player.Instance.ChestOpened(nest.At.X, nest.At.Y), hideMinimapIcon: true)),
@@ -733,7 +752,7 @@ public static partial class Game
         bool opened = collected || player.Instance.ChestOpened(at.X, at.Y, QuestChestOwner(player, rule));
         uint id = player.TakeObjectId();
         lock (player.QuestChests) player.QuestChests[id] = (rule, at);
-        player.SetBlocker(id, at.X, at.Y, QuestChestSize);
+        player.SetObjectBlocker(id, at.X, at.Y, QuestChestSize, QuestObjectTypes.Find(rule.ChestType)?.ActorOrChest ?? true);
         bool pending = !opened && rule.Guards is not null && !QuestChestReady(player, rule);
         await SendWorldCreate(player, id, () => InstanceEntities.CreateObject(id, InstanceEntities.ObjectTypeHash(rule.ChestType), QuestChestBlob(player, rule, at, opened, hideMinimapIcon: collected)),
             $"0x02bb quest chest 0x{id:x} {rule.ChestType} at ({at.X}, {at.Y}), opened={opened}" + (rule.OpensWith is { } f ? $", opens with {f}" : ""), wake: true, awaitBirth: false);
@@ -768,13 +787,40 @@ public static partial class Game
         uint opened = player.TakeObjectId();
         lock (player.QuestChests) { player.QuestChests.Remove(use.TargetId); player.QuestChests[opened] = (rule, at); }
         player.RemoveBlocker(use.TargetId);
-        player.SetBlocker(opened, at.X, at.Y, QuestChestSize);
+        player.SetObjectBlocker(opened, at.X, at.Y, QuestChestSize, QuestObjectTypes.Find(rule.ChestType)?.ActorOrChest ?? true);
         await Game.SendWorldRemoval(player, use.TargetId, null);
         await SendWorldCreate(player, opened, () => InstanceEntities.CreateObject(opened, InstanceEntities.ObjectTypeHash(rule.ChestType), QuestChestBlob(player, rule, at, true)),
             $"0x02bb opened quest chest 0x{opened:x} (was 0x{use.TargetId:x})", wake: true, awaitBirth: false);
         if (QuestsOf(player).OnUsed(player.Layout.Id, rule.ChestType, f => ClientHasQuestFlag(player, f)) is { Count: > 0 } used) await SetQuestFlags(player, used);
+        if (rule.ChestType == "Metadata/Chests/QuestChests/Ossuary/PurityBox")
+            await SpawnOssuaryTombAmbush(player, (at.X, at.Y));
         await DropQuestItem(player, rule.Item, (at.X, at.Y), rule.ChestType.Split('/')[^1]);
         await SendWorldRecord(player, player.Id, InstanceProtocol.ActionEnded(player.Id), null);
+    }
+
+    // Opening the Tomb of the First Templar (PurityBox) in The Ossuary triggers a skeleton ambush around the tomb.
+    static async Task SpawnOssuaryTombAmbush(Player player, (int X, int Y) at)
+    {
+        const string claim = "instance:ossuary-puritybox-ambush";
+        if (!player.Instance.SetState(claim)) return;
+        byte level = (byte)Math.Clamp(Packs.For(player.Layout.Id)?.AreaLevel ?? 43, 1, 100);
+        (string VarietyId, int Dx, int Dy)[] ambush =
+        [
+            ("Metadata/Monsters/Skeletons/SkeletonMelee2Black", -4, -3),
+            ("Metadata/Monsters/Skeletons/SkeletonMelee2Black2", 4, -3),
+            ("Metadata/Monsters/Skeletons/SkeletonMelee2Black", -4, 3),
+            ("Metadata/Monsters/Skeletons/SkeletonMelee2Black2", 4, 3),
+            ("Metadata/Monsters/Skeletons/SkeletonCasterBlack", 0, -5),
+            ("Metadata/Monsters/Skeletons/SkeletonCasterBlack", 0, 5),
+        ];
+        foreach (var (varietyId, dx, dy) in ambush)
+        {
+            if (Monsters.Find(varietyId) is not { Supported: true } variety || variety.Id != varietyId) continue;
+            var target = (at.X + dx, at.Y + dy);
+            var (sx, sy) = player.Layout.Walkable is { } walks && !walks(target.Item1, target.Item2) ? player.Layout.Near(target) : target;
+            await SpawnMonster(player, variety, level, MonsterRarity.Normal, sx, sy,
+                owned: (_, spawned) => spawned.Aggro = true);
+        }
     }
 
     // ---- dialogue ----
@@ -938,11 +984,39 @@ public static partial class Game
         player.Area.Monsters.Remove(id);
         if (rule is null) return;
         Console.WriteLine($"[gateway] {player.Connection.Remote} {m.Label} 0x{id:x} reached {rule.LifePct}% life: {string.Join(", ", rule.Flags)}; it leaves the fight");
+        var at = m.Walk.Position(ProjectileWorldTime(player));
+        if (m.Variety?.Id == "Metadata/Monsters/Axis/PietyEscape")
+            await SpawnPietyRetreatPortal(player, at);
         await Game.SendWorldRemoval(player, id, $"0x02bd monster 0x{id:x} {m.Label} leaves (quest threshold)");
         var own = rule.Flags.Where(f => !Quests.IsInstanceFlag(f)).ToArray();
         if (own.Length > 0) await SetQuestFlags(player, own);
         if (m.Variety is { } variety)
-            await FormQuestBosses(player, m, variety.Id, m.Walk.Position(ProjectileWorldTime(player)));
+            await FormQuestBosses(player, m, variety.Id, at);
+    }
+
+    static async Task SpawnPietyRetreatPortal(Player player, (int X, int Y) at)
+    {
+        const string portalType = "Metadata/QuestObjects/Piety/PietySinsPortal";
+        if (QuestObjectTypes.Find(portalType) is not { } info || !QuestObject.CanSerialize(info.Components)) return;
+        uint portalId = player.TakeObjectId();
+        var instance = player.Instance;
+        // Create untransitioned (state 1), then step Transitionable so on_transition plays Piety's portal retreat clip.
+        var blob = new QuestObject(at.X, at.Y, info.Components, 0, null, info.Model, 1, Blocked: false).Blob();
+        await SendWorldCreate(player, portalId, () => InstanceEntities.CreateObject(portalId, InstanceEntities.ObjectTypeHash(portalType), blob),
+            $"0x02bb Piety retreat portal 0x{portalId:x} at ({at.X}, {at.Y})", wake: true, awaitBirth: false);
+        if (QuestObject.TransitionableIndex(info.Components) is int slot and >= 0 && info.States > 1)
+            await SendWorldRecord(player, portalId, InstanceEntities.TransitionableUpdate(portalId, (byte)slot, (byte)info.States),
+                $"0x02bc Piety retreat portal 0x{portalId:x} Transitionable -> {info.States}");
+        _ = Task.Run(async () =>
+        {
+            try
+            {
+                await AreaDelay(player, 2.5);
+                if (player.Closed || player.LeavingArea || !ReferenceEquals(player.Instance, instance)) return;
+                await SendWorldRemoval(player, portalId, $"0x02bd Piety retreat portal 0x{portalId:x} closed");
+            }
+            catch (Exception ex) when (ex is IOException or ObjectDisposedException or InvalidOperationException) { }
+        });
     }
 
     // A FormsRule can follow either a death or a quest threshold, using the point fitted for the new variety.

@@ -61,11 +61,31 @@ public static partial class Game
         double seconds, object? holder)
     {
         if (player.Closed || player.LeavingArea || player.PlayerLife == 0 || InGracePeriod(player) || seconds <= 0) return;
+        if (row == MaimedBuffRow && PlayerAvoidsMaim(PlayerStatValues(player).GetValueOrDefault, AreaRng(player)))
+            return;
+        double now = AreaTime(player);
+        if (holder is null && row != 0 && caster != 0
+            && PlayerStat(player, Stat.ReflectHexesChancePct) is int reflectChance and > 0
+            && CurseCatalog.All.FirstOrDefault(kv => !kv.Value.Mark && kv.Value.Buff == row) is { Key: { } hexEffect }
+            && RandomRolls.Chance(reflectChance, 100, AreaRng(player)))
+        {
+            var reflected = new Dictionary<uint, int>(stats);
+            reflected.TryAdd(Stat.BaseSkillEffectDuration, Math.Max(1000, (int)Math.Round(seconds * 1000)));
+            var layout = player.Layout;
+            void Reflect(GameArea area)
+            {
+                if (player.Closed || player.LeavingArea || !ReferenceEquals(player.Layout, layout)) return;
+                if (area.Monsters.TryGetValue(caster, out var casterMonster)
+                    && casterMonster is { Dead: false, Life: > 0, Hostile: true })
+                    ApplyCurseDataLocked(player, casterMonster, 0, hexEffect, reflected, AreaTime(player), false, CharacterPlayerStats(player));
+            }
+            if (player.Frames.Running) InArea(player, Reflect);
+            else Reflect(player.Area);
+        }
         var set = DebuffsOf.GetValue(player, _ => new());
         var info = BuffRows.Of(row);
         List<PlayerDebuff> replaced = [];
         ushort instance;
-        double now = AreaTime(player);
         if (!ReferenceEquals(set.Area, player.Layout)) { set.Active.Clear(); set.Area = player.Layout; }
         if (holder is not null && set.Active.FirstOrDefault(d => ReferenceEquals(d.Holder, holder) && d.Row == row) is { } held)
         {
@@ -158,8 +178,14 @@ public static partial class Game
             uint stat = Stat.Of($"base_{type.ToString().ToLowerInvariant()}_damage_taken_per_minute");
             double perMinute = set.Active.Where(d => d.Until > now).Sum(d => (double)d.Stats.GetValueOrDefault(stat));
             if (perMinute <= 0 || immune.Contains(type)) continue;
-            double resisted = type == DamageType.Physical ? 0 : Math.Min(MaxResistance(player, type), Resistance(player, type));
-            total += perMinute / 60 * (1 - resisted / 100.0);
+            int extraRes = type == DamageType.Chaos ? PlayerStat(player, Stat.AdditionalChaosResistanceAgainstDamageOverTimePct) : 0;
+            double resisted = type == DamageType.Physical ? 0 : Math.Min(MaxResistance(player, type), Resistance(player, type) + extraRes);
+            double rate = perMinute / 60 * (1 - resisted / 100.0);
+            if (type == DamageType.Chaos && player.InCausticCloud)
+                rate *= Math.Max(0, 1 + PlayerStat(player, Stat.ChaosDamageTakenOverTimePlusPctWhileInCausticCloud) / 100.0);
+            else if (type == DamageType.Physical && player.Walk.Moving(now))
+                rate *= Math.Max(0, 1 + PlayerStat(player, Stat.PhysicalDamageOverTimeTakenPlusPctWhileMoving) / 100.0);
+            total += rate;
         }
         return Math.Max(0, total);
     }

@@ -241,7 +241,7 @@ public sealed class TriggeredSummonTests
             Pools = new(100, 10000, 10000, 2, 0, Strength: 1000, Dexterity: 1000, Intelligence: 1000),
             LeagueModule = new(new League("animate-test", "Standard", false, false), new HashSet<string>(["Game"]))
         };
-        internal Fixture()
+        internal Fixture(IPlayerUpdateSchedule? projectileSchedule = null)
         {
             Saves.Open(save); Game.CombatLifetime = lifetime;
             Program.SetGameLogic(new GameServer.Modules.Game.GameLogic(lifetime));
@@ -265,7 +265,11 @@ public sealed class TriggeredSummonTests
             Player.Connection.Session = new("test", Stream, Ciphers);
             drain = Task.Run(async () => { try { var bytes = new byte[65536]; while (await reader.GetStream().ReadAsync(bytes) > 0) { } }
                 catch (Exception ex) when (ex is IOException or ObjectDisposedException) { } });
-            Session = new(Player);
+            // The projectile outbox captures the schedule when the session is created.
+            var previousUpdates = Game.AreaUpdateContext.Value;
+            if (projectileSchedule is not null) Game.AreaUpdateContext.Value = new(lifetime, projectileSchedule);
+            try { Session = new(Player); }
+            finally { Game.AreaUpdateContext.Value = previousUpdates; }
         }
         internal Task<uint> Summon(string effect, uint target)
         {

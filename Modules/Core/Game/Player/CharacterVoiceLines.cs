@@ -30,6 +30,7 @@ public static class CharacterVoiceLines
     };
 
     const string EnteredMapsFlag = "EnteredMaps";
+    const string WashedUpFlag = "WashedUp";
 
     // Boss kills whose CharacterAudioEvents flag is a dedicated AudioEventKilled* / side-boss / endgame flag not
     // already set by the campaign quest tables (Acts 2 bandits, Act 4 Voll/Kaom/Daresso/Malachai, Acts 5–10 story
@@ -38,9 +39,7 @@ public static class CharacterVoiceLines
     static readonly Dictionary<string, (string Area, string Flag)[]> BossKillFlags = new(StringComparer.Ordinal)
     {
         // Act 1
-        ["Metadata/Monsters/ZombieDismember/ZombieDrownedStrandWake1"] = [("1_1_1", "AudioEventKilledBiteZombie")],
-        ["Metadata/Monsters/ZombieDismember/ZombieDrownedStrandWake1Standalone"] = [("1_1_1", "AudioEventKilledBiteZombie")],
-        ["Metadata/Monsters/ZombieDismember/ZombieDrownedStrandWake2"] = [("1_1_1", "AudioEventKilledBiteZombie")],
+        ["Metadata/Monsters/Zombies/ZombieBite"] = [("1_1_1", "AudioEventKilledBiteZombie")],
         ["Metadata/Monsters/ZombieBoss/ZombieBossHillockNormal"] = [("1_1_1", "AudioEventKilledHillock")],
         ["Metadata/Monsters/Cannibal/CannibalFemaleBossWitch"] = [("1_1_2", "AudioEventKilledFireFury")],
         ["Metadata/Monsters/Necromancer/NecromancerBossFetidPool"] = [("1_1_3a", "AudioEventKilledKadavrus")],
@@ -78,7 +77,7 @@ public static class CharacterVoiceLines
         // Act 5 & Act 9 side bosses
         ["Metadata/Monsters/MotherOfFlames/MotherOfFlamesBoss"] = [("1_5_3", "KilledMatriarchOriathSquare")],
         ["Metadata/Monsters/Axis/Cleric/BlackguardClericPureBoss"] = [("1_5_4b", "KilledCatoTorchedCourts")],
-        ["Metadata/Monsters/Kira/Kira"] = [("2_9_2", "a9q2-KilledKira")],
+        ["Metadata/Monsters/Kira/Kira"] = [("2_9_8", "a9q2-KilledKira")],
 
         // Endgame / pinnacle bosses (if not already granted by Atlas unlock flags)
         ["Metadata/Monsters/AtlasExiles/AtlasExile5"] = [("", "SirusDefeated")],
@@ -149,15 +148,51 @@ public static class CharacterVoiceLines
     public static string? FlagForNpcMeet(string npcId) =>
         NpcMeetFlags.TryGetValue(npcId, out var flag) ? flag : null;
 
-    /// <summary>GameEvents.AreaGenerated: grants special area-entry voice-line flags (Act 4 mines, first Atlas map).</summary>
+    /// <summary>GameEvents.AreaGenerated: grants special area-entry voice-line flags (Act 4 mines, first Atlas map, Twilight Strand intro).</summary>
     public static async Task OnAreaGenerated(Player player)
     {
         if (player.Closed || player.LeavingArea || !player.Connection.PlayerSent) return;
         string areaId = player.Layout.Id;
+        if (areaId == TutorialObjects.Strand && !Game.LyingOnBeach(player))
+            await GrantAudioFlag(player, WashedUpFlag);
         bool isMap = Game.MapDevices.IsMapArea(player.Layout.Hash);
+        if (isMap && !player.Character.HasQuestFlag("InMapArea"))
+            await Game.SetQuestFlags(player, ["InMapArea"]);
         if (FlagForAreaEntry(areaId, isMap) is { } flag)
             await GrantAudioFlag(player, flag);
     }
+
+    // Town NPC proximity voice-line triggers (CharacterAudioEvents ApproachEramir / MetSinA6).
+    static readonly (string AreaId, string NpcId, string Flag)[] NpcProximityTriggers =
+    [
+        ("2_6_town", "Metadata/NPC/Act6/SinTown", "MetSinA6"),
+        ("2_7_town", "Metadata/NPC/Act7/Eramir", "A7ApproachEramir"),
+    ];
+
+    /// <summary>Grants proximity-triggered town NPC voice-line quest flags (<c>MetSinA6</c>, <c>A7ApproachEramir</c>).</summary>
+    public static async Task CheckNpcProximity(Player player, (int X, int Y) at)
+    {
+        if (player.Closed || player.LeavingArea || !player.Connection.PlayerSent) return;
+        string areaId = player.Layout.Id;
+        foreach (var (area, npcId, flag) in NpcProximityTriggers)
+        {
+            if (area != areaId || player.Character.HasQuestFlag(flag)) continue;
+            bool near = false;
+            lock (player.Npcs)
+            {
+                foreach (var spawned in player.Npcs.Values)
+                {
+                    if (spawned.Npc.Id != npcId) continue;
+                    double dx = at.X - spawned.X, dy = at.Y - spawned.Y;
+                    if (dx * dx + dy * dy <= Quests.SightRange * Quests.SightRange) { near = true; break; }
+                }
+            }
+            if (near) await GrantAudioFlag(player, flag);
+        }
+    }
+
+    /// <summary>Grants the Twilight Strand wake-up voice-line quest flag (<c>EventWashedUp</c>) when the exile stands up.</summary>
+    public static Task OnWakeUpOnBeach(Player player) => GrantAudioFlag(player, WashedUpFlag);
 
     /// <summary>GameEvents.Kill: schedules boss-kill voice-line quest flags after the kill commits.</summary>
     public static void OnKill(KillContext kill)

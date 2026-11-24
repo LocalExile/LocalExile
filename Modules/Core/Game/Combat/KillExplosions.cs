@@ -206,14 +206,16 @@ public static partial class Game
         {
             if (!m.Hostile || m.Dead || m.Life == 0 || ReferenceEquals(m, corpse)) continue;
             if (Dist(m.Walk.Position(now), at) > radius) continue;
-            int damage = MonsterTakesRolled(m, packet, spell: false, now: now);
+            var resisted = GameServer.Core.World.DamageModel.Mitigate(packet, t => MonsterHitResistance(m, t, default, now));
+            int damage = MonsterTakesMitigated(m, resisted, false, now);
+            int bypass = MonsterHitChaosDamage(m, resisted, false, now, damage);
             if (!elementalPacket.IsZero)
             {
-                var mitigated = GameServer.Core.World.DamageModel.Mitigate(elementalPacket,
-                    type => MonsterHitResistance(m, type, elementalPenetration, now));
+                var mitigated = MitigateMonsterHit(m, elementalPacket, now, elementalPenetration,
+                    playerStats.GetValueOrDefault(Stat.CannotPenetrateOrIgnoreElementalResistances));
                 damage = (int)Math.Min(int.MaxValue, (long)damage + MonsterTakesMitigated(m, mitigated, false, now));
             }
-            if (ApplyMonsterHitLocked(player, m, damage, allyAt: at) is not { } hit) continue;
+            if (ApplyTypedMonsterHitLocked(player, m, damage, bypass, allyAt: at) is not { } hit) continue;
             hits.Add((id, m, hit));
         }
         // A corpse that explodes shows the explosion whether or not anyone stood in it: the art is the corpse's
@@ -308,7 +310,7 @@ public static partial class Game
                 if (!target.Hostile || target.Dead || target.Life == 0 || target.Invulnerable
                     || Dist(target.Walk.Position(now), at) > radius) continue;
                 int damage = MonsterTakesRolled(target, packet, spell: false, now: now);
-                if (damage <= 0 || ApplyMonsterHitLocked(player, target, damage, allyAt: at) is not { } hit) continue;
+                if (damage <= 0 || ApplyTypedMonsterHitLocked(player, target, damage, damage, allyAt: at) is not { } hit) continue;
                 if (hit.StageStarts)
                 {
                     CommitBossStage(player, targetId, target, now);

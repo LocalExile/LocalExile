@@ -244,6 +244,7 @@ public static partial class Game
             if (changed)
             {
                 if (!poolsRebuilt) player.Pools = PoolsFor(player, player.Pools.Level);
+                player.EnergyShield.SetMaximum(player.Pools.EnergyShield);
                 player.ApplyMovementSpeed();
                 player.PlayerMana = Math.Min(player.PlayerMana, (uint)UnreservedMana(player));
             }
@@ -278,6 +279,7 @@ public static partial class Game
     /// <summary>The Stats phase: the own auras' timed changes (<see cref="OwnAurasNextChangeAt"/>) once due.</summary>
     internal static void StepOwnAuras(Player player)
     {
+        ExpireWarcryBuffs(player);
         if (ReservationInputCaches.TryGetValue(player, out var cache) && AreaTime(player) >= cache.NextAt)
             EnsureOwnAuraPools(player);
     }
@@ -394,6 +396,32 @@ public static partial class Game
         var inputs = AuraReconcileInputs.Capture(player);
         var cached = AuraReconcileCaches.GetOrCreateValue(player);
         if (!validateSkills && cached.Inputs is { } previous && previous.Matches(inputs)) return;
+        // Each aura's own named effect term, re-stamped from the caster's raw sources whenever they change:
+        // the reconcile already holds the fresh sources (inputs), so this adds no new stat read, and the
+        // stamped value rides the record to every consumer (Bonus, RawStats, ResistanceStats, Pride, allies
+        // and minions) without another lookup. Received auras live in player.ReceivedAuras, not player.Auras,
+        // so only the caster's own auras are re-stamped here.
+        // Commander of Darkness: the caster's current values, stamped onto each running aura so the allies
+        // and minions it reaches learn them (AuraCatalog.Aura's Commander* fields). The reconcile cache
+        // compares Sources, so allocating or removing the node re-runs this loop.
+        var commander = CommanderOfDarkness(inputs.Sources);
+        List<AuraCatalog.Aura>? restamped = null;
+        foreach (var aura in player.Auras.Values)
+        {
+            int perAura = AuraCatalog.PerAuraEffectPctFor(aura, inputs.Sources);
+            if (perAura != aura.PerAuraEffectPct
+                || commander.Speed != aura.CommanderAttackCastSpeedPct
+                || commander.Resistance != aura.CommanderElementalResistancePct
+                || commander.Damage != aura.CommanderDamagePct)
+                (restamped ??= []).Add(aura with { PerAuraEffectPct = perAura,
+                    CommanderAttackCastSpeedPct = commander.Speed, CommanderElementalResistancePct = commander.Resistance,
+                    CommanderDamagePct = commander.Damage });
+        }
+        if (restamped is not null)
+        {
+            foreach (var updated in restamped) player.Auras[updated.SkillId] = updated;
+            player.AuraStatsDirty = true;
+        }
         EnsureOwnAuraPools(player);
         // Revalidate the source skill as well as the restriction before queued activation/entry adds.
         // Dirty runtime or presented instances are owned by this lifecycle; pure unpresented pool inputs are not adds.
@@ -420,6 +448,7 @@ public static partial class Game
         if (player.AuraStatsDirty)
         {
             player.Pools = PoolsFor(player, player.Pools.Level);
+            player.EnergyShield.SetMaximum(player.Pools.EnergyShield);
             player.ApplyMovementSpeed();
             player.PlayerMana = Math.Min(player.PlayerMana, (uint)UnreservedMana(player));
             player.PlayerLife = LifeReservation.Clamp(player.PlayerLife, LifeReservationOf(player));
@@ -457,7 +486,8 @@ public static partial class Game
         ClampReservedResources(player);
         // The player's own aura buffs are its auras now (both buffs of each, Generosity's too: its received one only has
         // its icon suppressed); the Buffs component writes what changed.
-        player.Area.Buffs.Replace(player.Id, b => b.Source == player.Id && b.Tag == 0 && AuraCatalog.IsAuraRow(b.Row),
+        player.Area.Buffs.Replace(player.Id, b => b.Source == player.Id && b.Tag is 0 or (ushort)BuffTag.BloodAndSand
+                && (AuraCatalog.IsAuraRow(b.Row) || TimedVaalAuraBuffRows.ContainsValue(b.Row)),
             player.Auras.Values.SelectMany(aura => AuraBuffs(player.Id, aura, TemporaryAuraSecondsLeft(player, aura))));
         PresentAvianPhaseLocked(player);
         PresentCrabLocked(player);

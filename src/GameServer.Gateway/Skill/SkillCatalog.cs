@@ -56,7 +56,7 @@ public sealed class SkillCatalog
     private readonly System.Collections.Concurrent.ConcurrentDictionary<int, bool> _castsOnDeath = new();
 
     public bool CastsOnDeath(int effect) => _castsOnDeath.GetOrAdd(effect, row =>
-        Stat.CastOnDeathPct is var key && EffectStats(row, 1).Any(stat => stat.Item1 == key && stat.Item2 > 0));
+        EffectStats(row, 1).Any(stat => (stat.Item1 == Stat.CastOnDeathPct || stat.Item1 == Stat.AttackOnDeathPct) && stat.Item2 > 0));
 
 
     // Both sets of effects already have their own native rows and per-level stat sets. Only name-based lookups
@@ -350,13 +350,18 @@ public sealed class SkillCatalog
 
     /// <summary>The effect's primary stat set's base spell critical chance at this gem level, in permyriad.
     /// Null means missing/invalid data, distinct from a known zero (a spell with no inherent critical chance).</summary>
-    public int? SpellCritChance(int effectRow, int level)
+    public int? SpellCritChance(int effectRow, int level) => BaseCriticalChances(effectRow, level).Spell;
+
+    /// <summary>The effect's own attack critical chance in permyriad, used by attacks that swing a shield.</summary>
+    public int? AttackCritChance(int effectRow, int level) => BaseCriticalChances(effectRow, level).Attack;
+
+    (int? Spell, int? Attack) BaseCriticalChances(int effectRow, int level)
     {
-        if (_tables is not { } t || effectRow < 0 || effectRow >= t.StatSets.Count || level < 1) return null;
+        if (_tables is not { } t || effectRow < 0 || effectRow >= t.StatSets.Count || level < 1) return default;
         int set = t.StatSets[effectRow];
-        if (set < 0) return null;
+        if (set < 0) return default;
         int row = PickLevel(t.StatSetsPerLevel, set, level);
-        return row >= 0 ? t.SpellCritChances[row] : null;
+        return row >= 0 ? t.CriticalChances[row] : default;
     }
 
     /// <summary>A gem's requirement for one attribute at a level (0x142476710): the level requirement of that level
@@ -614,8 +619,11 @@ public sealed class SkillCatalog
     public bool IsChannelled(int effectRow) => _skillTypes.Channel.Contains(effectRow);
     public bool IsTravel(int effectRow) => _skillTypes.Travel.Contains(effectRow);
     public bool IsGuard(int effectRow) => _skillTypes.Guard.Contains(effectRow);
-    /// <summary>A skill that needs a shield (ActiveSkillType RequiresShield: Shield Charge, Shield Crush …).</summary>
-    public bool RequiresShield(int effectRow) => _skillTypes.RequiresShield.Contains(effectRow);
+    const int ShieldItemClass = 26; // ItemClasses row, also the sole weapon restriction on Spectral Shield Throw.
+
+    /// <summary>A shield requirement from the skill type or an exclusive shield item-class restriction.</summary>
+    public bool RequiresShield(int effectRow) => _skillTypes.RequiresShield.Contains(effectRow)
+        || _weaponRestrictions.TryGetValue(effectRow, out var rows) && rows.Count == 1 && rows.Contains(ShieldItemClass);
 
     /// <summary>Whether a GrantedEffects row's skill is an attack (ActiveSkillType Attack: the default attack, Holy
     /// Strike, Flicker Strike …): it swings with the weapon's attack time and its use is paced like the default
@@ -626,6 +634,9 @@ public sealed class SkillCatalog
     /// gem's hit takes melee_damage_+% (the default attack does by its weapon profile instead).</summary>
     public bool IsMelee(int effectRow) => _meleeEffects.Contains(effectRow);
 
+    /// <summary>Whether a GrantedEffects row's ActiveSkill has the Area type (slams, sweeps, novas, area spells).</summary>
+    public bool IsArea(int effectRow) => _skillTypes.HasType(effectRow, "Area");
+
     public bool IsSpell(int effectRow) => _spellEffects.Contains(effectRow);
     public bool IsProjectile(int effectRow) => _projectileEffects.Contains(effectRow);
     // Generic monster Melee also carries Projectile. Actual melee classification takes precedence.
@@ -635,7 +646,14 @@ public sealed class SkillCatalog
     public bool FamilyStatRaises(uint stat, int gemRow) =>
         stat is var key && _families.Raises((int)key - 1, gemRow);
 
+    public bool FamilyStatRaises(uint stat, int gemRow, int variantIndex) =>
+        _families.Raises((int)stat - 1, gemRow, variantIndex);
+
     public bool IsExceptional(int gemRow) => _families.IsExceptional(gemRow);
+
+    public bool IsExceptional(int gemRow, int variantIndex) => _families.IsExceptional(gemRow, variantIndex);
+
+    public bool GemHasTag(int gemRow, int variantIndex, string tag) => _families.HasTag(gemRow, variantIndex, tag);
 
     readonly SkillGemFamilies _families;
 
@@ -1003,6 +1021,13 @@ public sealed class SkillCatalog
         ["WinterOrb"] = "Metadata/Projectiles/FrostFuryMortar",
         ["Snipe"] = "Metadata/Projectiles/ChannelledSnipeDefaultProjectile",
         ["SpectralThrow"] = "Metadata/Projectiles/ThrownWeapon",
+        // Venom Gyre throws the same claw the Spectral Throw row draws: the client tables have no
+        // Metadata/Projectiles/VenomGyre row at all, and the gem grants VenomGyre (GrantedEffects row 10850)
+        // and VaalVenomGyre (row 12333); both take the ThrownWeapon row (row 94, speed 1000). Without these
+        // every press was refused as having no projectile. The transfigured VenomGyreAltX/AltY/Royale resolve
+        // through the base effect's entry via ProjectileCandidates, so they need no entry of their own.
+        ["VenomGyre"] = "Metadata/Projectiles/ThrownWeapon",
+        ["VaalVenomGyre"] = "Metadata/Projectiles/ThrownWeapon",
         ["LightningStrike"] = "Metadata/Projectiles/LightningSlash",
         // Unearth fires its old name's row, BoneLance: the BoneLance action class loads Metadata/Projectiles/BoneLance
         // (3.29.3c FUN_1413e64b0, by skill_art_variation).
@@ -1257,6 +1282,7 @@ public sealed class SkillCatalog
     /// <summary>Also reads weapon projectile metadata when the caller explicitly enables those attacks.</summary>
     public MonsterProjectileInfo? MonsterProjectile(int effectRow, bool includeWeaponAttacks)
     {
+        if (MonsterProjectileOverrides.TryGetValue(effectRow, out var overridden)) return overridden;
         var projectiles = includeWeaponAttacks ? _weaponMonsterProjectiles : _monsterProjectiles;
         if (!projectiles.TryGetValue(effectRow, out var projectile)) return null;
         // Constants of the skill's stat set, so level 1 reads them.
@@ -1276,6 +1302,11 @@ public sealed class SkillCatalog
                 || Get(Stat.ProjectileBallisticAngleFromTargetDistance) != 0),
         };
     }
+
+    /// <summary>Module-provided monster-projectile art for skills the client tables give no MonsterProjectile row (an
+    /// essence daemon's Ball Lightning / Fireball): effect row -> projectile. Populated once at startup by a module; empty
+    /// for a build that provides none. Consulted before the tables, so no boss or skill class has to name an essence.</summary>
+    public static readonly Dictionary<int, MonsterProjectileInfo> MonsterProjectileOverrides = [];
 
     /// <summary>What a monster's summoning skill brings: its stat set's <c>alternate_minion</c> (a SummonedSpecificMonsters
     /// Id, whose MonsterVarietiesKey is the monster), <c>number_of_monsters_to_summon</c>, <c>summon_specific_monsters_in_front_offset</c>
@@ -1340,6 +1371,84 @@ public sealed class SkillCatalog
         };
     }
 
+    /// <summary>A storm skill's cast, from its own stats: Firestorm's <c>base_skill_effect_duration</c> and
+    /// <c>fire_storm_fireball_delay_ms</c>, the drop area's <c>active_skill_base_area_of_effect_radius</c> scaled by
+    /// <c>firestorm_base_area_of_effect_+%</c>, each fall's explosion radius (<c>ImpactRadius</c>, scaled by
+    /// <c>firestorm_explosion_area_of_effect_+%</c> when present), and the fall's own hit, the skill's fire damage. Fire Fury's
+    /// (<c>FemaleCannibalBossFireStorm</c>, stat set 1474) is 3000 ms / 100 ms: 30 falls 0.1 s apart, each in a
+    /// 5-cell drop area.</summary>
+    public sealed record StormInfo(int DurationMs, int DelayMs, double Radius, DamagePacket Damage)
+    {
+        /// <summary>Each individual fall's explosion radius in cells. Kept separate from <see cref="Radius"/> (the drop
+        /// scatter zone) so large-spread storms like Gravicius's (+600% storm area) do not inflate each fireball's blast
+        /// to the whole arena, and zero-spread storms (-100% storm area) keep their base blast radius.</summary>
+        public double ImpactRadius { get; init; }
+        /// <summary>The falls one cast brings: the duration over the delay (30 for Fire Fury's 3000 ms / 100 ms).</summary>
+        public int Falls => Math.Clamp(DurationMs / DelayMs, 1, MaxFalls);
+        public double IntervalSeconds => DelayMs / 1000.0;
+        /// <summary>The most falls one cast schedules: a guard on a mis-typed row, above the longest fire storm the
+        /// tables ship (FireWitchFirestorm and GladiatorBossFirestorm, 15000/125 and 12000/100, are 120).</summary>
+        public const int MaxFalls = 128;
+    }
+
+    /// <summary>A downpour spell's falls for a monster at <paramref name="level"/>, or null for every other skill. The
+    /// gate is ActionTypes <c>FireStorm</c> with <c>fire_storm_fireball_delay_ms</c>, a duration, a base radius and fire
+    /// damage: the ice and chaos storms (an Icestorm's cold, a Chaosstorm's chaos, all sharing ActiveSkills row 206 with
+    /// Firestorm) and non-FireStorm cascades drop nothing extra here.</summary>
+    public StormInfo? MonsterStorm(int effectRow, int level)
+    {
+        if (ActionTypeId(effectRow) != "FireStorm") return null;
+        int effectLevel = MonsterEffectLevel(effectRow, level);
+        var stats = EffectStats(effectRow, effectLevel);
+        int Get(uint key) => stats.FirstOrDefault(s => s.Item1 == key).Item2;
+        int delay = Get(Stat.FireStormFireballDelayMs), duration = Get(Stat.BaseSkillEffectDuration);
+        if (delay <= 0 || duration <= 0) return null;
+        int baseRadius = Get(Stat.ActiveSkillBaseAreaOfEffectRadius);
+        if (baseRadius <= 0) return null;
+        var damage = HitDamage(effectRow, effectLevel);
+        if (damage[DamageType.Fire].Max <= 0) return null;
+        // SkillArea.Radius's rule, over the storm's own base area stat: the radius times the square root of its area.
+        double area = Math.Max(0, 1 + Get(Stat.FirestormBaseAreaOfEffectPlusPct) / 100.0);
+        double dropRadius = baseRadius * Math.Sqrt(area);
+        int explosionPct = Get(Stat.FirestormExplosionAreaOfEffectPlusPct);
+        double impactRadius = explosionPct != 0
+            ? baseRadius * Math.Sqrt(Math.Max(0, 1 + explosionPct / 100.0))
+            : dropRadius > 0 ? Math.Min(baseRadius, dropRadius) : baseRadius;
+        return new(duration, delay, dropRadius, damage) { ImpactRadius = impactRadius };
+    }
+
+    /// <summary>Measured launch frames for monster projectile skills: frames of 33 ms from the start of the action,
+    /// measured on official captures, counted from the start of the action 0x1ab. The key is
+    /// the skill's GrantedEffects Id; the value is its frame and how many capture events
+    /// the frame rests on. The table is embedded here: the Gateway reads no generated JSON data file (only
+    /// data/game-files.zip comes from data/ itself), so a file-based load would need a client.db regeneration
+    /// before the first use, and a generated-table migration can replace this table when that is scheduled.</summary>
+    static readonly FrozenDictionary<string, (int Frames, int Samples)> MonsterLaunchFrameRows =
+        new Dictionary<string, (int, int)>(StringComparer.Ordinal)
+        {
+            ["EinharSnipe"] = (18, 24),
+            ["FireballIncursionChaos"] = (10, 9),
+            ["FireballIncusionFire"] = (16, 18),
+            ["FireballIncusionLightning"] = (6, 24),
+            ["HeraldOfAgonyMinionTailSpike"] = (5, 298),
+            ["IncaMinionProjectile"] = (12, 19),
+            ["IncursionAlvaProjectileFast"] = (26, 4),
+            ["IncursionIncaMinionProjectile"] = (14, 16),
+            ["IncursionWraithProjectile"] = (14, 3),
+            ["MonsterLesserMultiFireball"] = (11, 12),
+            ["MonsterMultiFireball"] = (11, 14),
+            ["MonsterSpark"] = (14, 18),
+            ["MonsterSplitArrow"] = (0, 10),
+            ["MonsterSplitFireball"] = (11, 16),
+            ["ScavengerThrow"] = (11, 14),
+            ["SkeletonSpark"] = (1, 5),
+            ["SnakeProjectileSlow"] = (15, 17),
+        }.ToFrozenDictionary();
+
+    /// <summary>A monster skill's measured launch frame, or null for every other skill, which keeps its clip contact.
+    /// Read once when the attack is built (Monsters), never per hit.</summary>
+    public int? LaunchFrames(string? effectsId) =>
+        effectsId is { Length: > 0 } id && MonsterLaunchFrameRows.TryGetValue(id, out var row) ? row.Frames : null;
     private readonly Dictionary<string, int> _monsterVarietyRowsById;
 
     static Dictionary<string, int> LoadMonsterVarietyRowsById()
@@ -1577,6 +1686,7 @@ public sealed class SkillCatalog
         /// <summary>The weapon's own added elemental/chaos damage (its local added damage mods, ItemWeapons), added to
         /// every hit it makes; empty for unarmed and for weapons without such mods.</summary>
         public DamagePacket LocalAdded { get; init; } = DamagePacket.Empty;
+        public bool OffHand { get; init; }
         public bool WieldingWand { get; init; }
         /// <summary>An ordinary bow: its attacks also take the items' "with Bows" added damage stats.</summary>
         public bool Bow { get; init; }
@@ -1768,7 +1878,7 @@ public sealed class SkillCatalog
         List<(int, int)[]> StatSetLevelStats, List<(int StatSet, int GemLevel, int PlayerLevelReq)> GemLevelReqs, List<int> ManaCost, List<int> LifeCost,
         List<(int ManaFlat, int ManaPercent, int LifeFlat, int LifePercent)> Reservations, List<(int Ms, int Uses, int Bypass, int Group)> Cooldowns,
         List<int> VaalSouls, List<int> VaalStoredUses, List<int?> ActiveSkills, List<int> SoulPrevention, List<int> RageCost,
-        Dictionary<int, (int, int)[]> Quality, List<int> Effectiveness, List<int?> SpellCritChances, List<int> AttackSpeedMultipliers,
+        Dictionary<int, (int, int)[]> Quality, List<int> Effectiveness, List<(int? Spell, int? Attack)> CriticalChances, List<int> AttackSpeedMultipliers,
         List<int> ManaPerMinute, List<int> ManaPercentPerMinute, List<(int Base, int Added)> DamageCoefficients,
         List<int> EsCost)
     {
@@ -1865,7 +1975,7 @@ public sealed class SkillCatalog
             var setLevels = new List<(int, int)>();
             var effectiveness = new List<int>();
             var damageCoefficients = new List<(int Base, int Added)>();
-            var spellCritChances = new List<int?>();
+            var criticalChances = new List<(int?, int?)>();
             var levelStats = new List<(int, int)[]>();
             var levelReqs = new List<(int, int, int)>();
             foreach (var r in s)
@@ -1875,14 +1985,14 @@ public sealed class SkillCatalog
                 effectiveness.Add(r.IntOrNull("DamageEffectiveness") is int offset
                     ? (int)Math.Clamp(10_000L + offset, 0, int.MaxValue) : 0);
                 damageCoefficients.Add((Coefficient(r.IntOrNull("BaseMultiplier")), Coefficient(r.IntOrNull("DamageEffectiveness"))));
-                int crit = Int(r, "SpellCritChance");
-                spellCritChances.Add(crit >= 0 ? crit : null);
+                int spellCrit = Int(r, "SpellCritChance"), attackCrit = Int(r, "AttackCritChance");
+                criticalChances.Add((spellCrit >= 0 ? spellCrit : null, attackCrit >= 0 ? attackCrit : null));
                 levelStats.Add([.. Pairs(Ints(r, "FloatStats"), Ints(r, "BaseResolvedValues")),
                     .. Pairs(Ints(r, "AdditionalStats"), Ints(r, "AdditionalStatsValues"))]);
                 if (Int(r, "PlayerLevelReq") is >= 0 and var req) levelReqs.Add((Int(r, "StatSet"), Int(r, "GemLevel"), req));
             }
             return new Tables(effects, statSets, perLevel, setLevels, effectInfo, baseStats, levelStats, levelReqs, mana, life, reservations, cooldowns,
-                vaalSouls, vaalStoredUses, activeSkills, soulPrevention, rageCost, quality, effectiveness, spellCritChances, attackSpeedMultipliers, manaPerMinute,
+                vaalSouls, vaalStoredUses, activeSkills, soulPrevention, rageCost, quality, effectiveness, criticalChances, attackSpeedMultipliers, manaPerMinute,
                 manaPercentPerMinute, damageCoefficients, es);
 
             static int Coefficient(int? offset) => offset is int value

@@ -89,6 +89,10 @@ public static partial class Game
             ClearPlayerDecay(player);
             ClearCorruptedBlood(player);
             ClearEssenceAuraExposure(player);
+            ClearRemnantAuraExposure(player);
+            // The essence pulses' debuffs and Misery stacks end with the player too, or they would outlive a death in
+            // the same area.
+            MapEssences.ClearEffects(player);
             return 0;
         }
         double previousAction = player.ElementalAilments.ActionFactor(from);
@@ -101,13 +105,16 @@ public static partial class Game
         if (Blood.TryGetValue(player, out var blood)) dotStart = Math.Max(dotStart, blood.Started);
         int auraDamage = AdvanceEssenceAuraLocked(player, from, until, stats, immunities.Contains(DamageType.Chaos), dotStart);
         dotStart = Math.Max(dotStart, PlayerEssenceAuraStarted(player));
+        auraDamage = (int)Math.Min(int.MaxValue, (long)auraDamage + AdvanceRemnantAuraLocked(player, from, until, stats, immunities.Contains(DamageType.Physical), dotStart));
+        dotStart = Math.Max(dotStart, PlayerRemnantAuraStarted(player));
         double letheFactor = Get(Stat.KeystoneLetheShade) != 0 && until - dotStart < 1 ? .5 : 1;
         int damage = 0, lifeDamage = auraDamage;
         if (player.ElementalAilments.HasEffects)
         {
             damage = player.ElementalAilments.Advance(from, until, Get, Resistance(player, DamageType.Fire),
                 MaxResistance(player, DamageType.Fire), immunities.Contains(DamageType.Fire),
-                source => DamageTakenFromBlindedPct(player, source, stats), letheFactor);
+                source => DamageTakenFromBlindedPct(player, source, stats)
+                    + DamageTakenFromMonster(player.Area.Monsters.GetValueOrDefault(source), stats), letheFactor);
             if (Get(Stat.BaseCannotBeDamaged) > 0) damage = 0;
             damage = IncomingResourceDefences.TakenOverTime(damage, Get, ref player.NonChaosDotTakenCarry,
                 IncomingResourceDefences.LessTakenPct(player.Pools, Get));
@@ -118,11 +125,14 @@ public static partial class Game
         {
             var physical = DamageType.Physical;
             var chaos = DamageType.Chaos;
+            int chaosDotRes = Resistance(player, chaos) + Get(Stat.AdditionalChaosResistanceAgainstDamageOverTimePct);
             lifeDamage = (int)Math.Min(int.MaxValue, (long)lifeDamage + player.IncomingAilments.Advance(from, until,
                 player.Pools, player.EnergyShield, Get, Resistance(player, physical), MaxResistance(player, physical),
-                Resistance(player, chaos), MaxResistance(player, chaos), player.Immune || Get(Stat.BaseCannotBeDamaged) > 0,
+                chaosDotRes, MaxResistance(player, chaos), player.Immune || Get(Stat.BaseCannotBeDamaged) > 0,
                 immunities.Contains(physical), immunities.Contains(chaos), player.Walk.MovingSeconds,
-                ref player.NonChaosDotBypassCarry, ref player.ChaosDotBypassCarry, letheFactor));
+                ref player.NonChaosDotBypassCarry, ref player.ChaosDotBypassCarry, letheFactor,
+                (poisonDmg, poisonAt) => DamagePlayerChaosOverTime(player, poisonDmg, poisonAt, stats),
+                inCausticCloud: player.InCausticCloud));
         }
         lifeDamage = (int)Math.Min(int.MaxValue, (long)lifeDamage + AdvancePlayerDecayLocked(player, until, stats,
             immunities.Contains(DamageType.Chaos), letheFactor));
@@ -138,6 +148,8 @@ public static partial class Game
             ClearPlayerDecay(player);
             ClearCorruptedBlood(player);
             ClearEssenceAuraExposure(player);
+            ClearRemnantAuraExposure(player);
+            MapEssences.ClearEffects(player);
             // Commit the mode outcome inside lethal damage, before disconnects or network writes can intervene.
             RecordHardcoreDeath(player);
         }
@@ -151,17 +163,19 @@ public static partial class Game
     /// by the shared incoming owner; an evaded, blocked or damage-immune contact never reaches here.
     /// </summary>
     public static void ApplyMonsterDamagingAilmentsLocked(Player player, uint source, SpawnedMonster m,
-        DamagePacket hit, bool blocked, double now, bool attack = true, IReadOnlyDictionary<uint, int>? prepared = null)
+        DamagePacket hit, bool blocked, double now, bool attack = true, IReadOnlyDictionary<uint, int>? prepared = null,
+        int skillPoisonChance = 0, double skillPoisonSeconds = 0, bool critical = false)
     {
         if (blocked || player.PlayerLife == 0 || player.Closed || player.LeavingArea || InGracePeriod(player)) return;
         var effects = m.Mods.Effects;
         var playerStats = prepared ?? CharacterPlayerStats(player);
         int Player(uint key) => playerStats.GetValueOrDefault(key);
+        int critAvoid = critical ? Math.Max(0, Player(Stat.AvoidAilmentsPctFromCrit)) : 0;
         int bleedChance = Math.Max(effects[Stat.GlobalBleedOnHit] != 0 ? 100 : 0,
             attack ? effects[Stat.BleedOnHitWithAttacksPct] : 0);
         if (attack) bleedChance += Player(Stat.ReceiveBleedingChancePctWhenHitByAttack);
-        int poisonChance = Math.Max(effects[Stat.GlobalPoisonOnHit] != 0 ? 100 : 0,
-            effects[Stat.BaseChanceToPoisonOnHitPct]);
+        int poisonChance = Math.Max(Math.Max(effects[Stat.GlobalPoisonOnHit] != 0 ? 100 : 0,
+            effects[Stat.BaseChanceToPoisonOnHitPct]), skillPoisonChance);
         if (attack) poisonChance = Math.Max(poisonChance,
             effects[Stat.BaseAttacksPoison] != 0 ? 100 : effects[Stat.ChanceToPoisonOnHitWithAttacksPct]);
         if (bleedChance <= 0 && poisonChance <= 0) return;
@@ -177,7 +191,7 @@ public static partial class Game
             && Player(Stat.BaseCannotGainBleeding) == 0
             && Player(Stat.VirtualImmuneToBleeding) == 0 && Player(Stat.ImmuneToBleeding) == 0
             && GameServer.Core.World.RandomRolls.Chance(bleedChance, 100, player.IncomingHitRandom)
-            && !GameServer.Core.World.RandomRolls.Chance(Player(Stat.AvoidBleedPct), 100, player.IncomingHitRandom))
+            && !GameServer.Core.World.RandomRolls.Chance(Player(Stat.AvoidBleedPct) + critAvoid, 100, player.IncomingHitRandom))
         {
             double more = Math.Max(0, 1 + effects[Stat.BleedingDamagePlusPct] / 100.0);
             double seconds = Ailments.BleedDurationSeconds
@@ -189,10 +203,10 @@ public static partial class Game
         if (poisonChance > 0 && poisonable && Player(Stat.CannotBePoisoned) == 0
             && Player(Stat.ImmuneToPoison) == 0
             && GameServer.Core.World.RandomRolls.Chance(poisonChance, 100, player.IncomingHitRandom)
-            && !GameServer.Core.World.RandomRolls.Chance(Player(Stat.AvoidPoisonPct), 100, player.IncomingHitRandom))
+            && !GameServer.Core.World.RandomRolls.Chance(Player(Stat.AvoidPoisonPct) + critAvoid, 100, player.IncomingHitRandom))
         {
             double more = Math.Max(0, 1 + effects[Stat.BasePoisonDamagePlusPct] / 100.0);
-            double seconds = Ailments.PoisonDurationSeconds
+            double seconds = (skillPoisonSeconds > 0 ? skillPoisonSeconds : Ailments.PoisonDurationSeconds)
                 * Math.Max(0, 1 + effects[Stat.BasePoisonDurationPlusPct] / 100.0);
             player.IncomingAilments.ApplyPoison(now, poisonBase * 0.30 * more
                 * Math.Max(0, 1 + effects[Stat.MonsterPoisonDamagePlusPctFinal] / 100.0), seconds, source,
@@ -243,8 +257,9 @@ public static partial class Game
         }
     }
 
-    public static bool PlayerActionBlocked(Player player, double requestedAt, double now) =>
-        player.HitRecovery.BlocksInput(requestedAt, now) || player.ElementalAilments.ActionFactor(now) == 0;
+    public static bool PlayerActionBlocked(Player player, double requestedAt, double now, bool instant = false) =>
+        player.HitRecovery.BlocksInput(requestedAt, now) || player.ElementalAilments.ActionFactor(now) == 0
+        || !instant && VaalArcticArmourActive(player, now);
 
     /// <summary>The signed <c>action_speed_-%</c> from the character's raw sources and dev overrides: positive is slower.
     /// The client's own action-speed bucket, and the planned ActionSpeed/EffectClock contract (#246), keep it separate

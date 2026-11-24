@@ -601,15 +601,17 @@ public static partial class Game
                     bool critical = RollCriticalStrike(player, critChance, skillStats, attack: true, skillRoll: criticalRoll, playerStats: playerStats)
                         && EvasionEntropy.ConfirmsCritical(hitChance, player.AttackAccuracyRandom);
                     int sourceMultiplier = CriticalMultiplierWithWeapon(critMult, m, local);
-                    int multiplier = CriticalMultiplierOn(m, sourceMultiplier, playerStats, skillStats);
+                    int multiplier = CriticalMultiplierOn(m, sourceMultiplier, now, playerStats, skillStats);
                     var (damage, _, mitigated) = MonsterHitDamage(m, rolled, critical, attack: true, now, resMods, pen,
                         gambler.InvertsResistance(AreaRng(player)), AreaRng(player));
                     if (critical) damage = DamageModel.CriticalDamage(damage, multiplier);
-                    damage = WithImpaleHitLocked(player, m, damage, rolled, critical, sourceMultiplier,
-                        critical ? critImpale : impale, 1).Damage;
-                    var stun = OwnerStun(player, m, damage, mitigated, melee: true, spell: false, critical, playerStats, skillStats);
+                    int chaosDamage = MonsterHitChaosDamage(m, mitigated, spell: false, now, damage);
+                    damage = WithImpaleHitLocked(player, m, damage, rolled, critical,
+                        sourceMultiplier + FullLifeCriticalMultiplier(m, playerStats, skillStats), critical ? critImpale : impale, 1).Damage;
+                    var stun = OwnerStun(player, gem.Effect, m, damage, mitigated, melee: true, spell: false, critical, playerStats, skillStats);
                     if (ApplyMonsterHitLocked(player, m, damage, rampageSource: null, playerStats: null, allyAt: warriorPos,
-                        cull: Cull.Of(playerStats, skillStats, critical, spell: false).WithWeapon(local), cullPlayer: playerStats) is not { } applied) continue;
+                        cull: Cull.Of(playerStats, skillStats, critical, spell: false).WithWeapon(local), cullPlayer: playerStats,
+                        chaosDamage: chaosDamage) is not { } applied) continue;
                     if (applied.StageStarts)
                     {
                         CommitBossStage(player, id, m, now);

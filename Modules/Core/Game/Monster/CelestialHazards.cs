@@ -4,10 +4,12 @@ using static Game;
 using static Program;
 using static ArenaHazards;
 
-/// <summary>The bridge's celestial attacks, with server-owned visible footprints and contacts on the same clock.</summary>
-internal sealed class CelestialHazards(uint casterId, SpawnedMonster caster, Player owner, Func<bool> current)
+/// <summary>The bridge's celestial attacks (both alternating celestial orbs and solo state-5 finale daemons),
+/// with server-owned visible footprints and contacts on the same clock.</summary>
+internal sealed class CelestialHazards(uint casterId, SpawnedMonster caster, Player owner, Func<bool> current, bool finalForm = false)
 {
     const string Art = "Metadata/Effects/Spells/monsters_effects/Solaris_and_Lunaris/";
+    readonly InstanceState instance = owner.Instance;
     readonly HashSet<Player> players = [];
     readonly Dictionary<Player, Exposure> exposures = [];
     readonly Dictionary<uint, Visual> visuals = [];
@@ -32,22 +34,24 @@ internal sealed class CelestialHazards(uint casterId, SpawnedMonster caster, Pla
         internal double NextPatch;
     }
     bool Current => !stopped && CurrentGameWork && current() && !caster.Dead && caster.Life > 0;
-    IEnumerable<Player> Present => players.Where(p => !p.Closed && !p.LeavingArea && ReferenceEquals(p.Instance, owner.Instance));
-    internal async Task Bind(Player p)
+    IEnumerable<Player> Present => players.Where(p => !p.Closed && !p.LeavingArea && ReferenceEquals(p.Instance, instance));
+    internal Task Bind(Player p)
     {
-        players.Add(p);
-        foreach (var v in visuals.Values.ToArray()) await Show(p, v);
+        if (players.Add(p))
+            foreach (var v in visuals.Values)
+                Scenes(p).Add(v.Id);
+        return Task.CompletedTask;
     }
-    async Task Show(Player p, Visual v)
+    async Task BroadcastCreate(Player c, Visual v)
     {
-        if (Scenes(p).Contains(v.Id)) return;
-        if (await SendWorldCreate(p, v.Id, () => InstanceEntities.CreateObject(v.Id,
+        // SendWorldCreate broadcasts once to every client currently in the instance via AreaDelta.
+        if (await SendWorldCreate(c, v.Id, () => InstanceEntities.CreateObject(v.Id,
             InstanceEntities.ObjectTypeHash(v.Link is null ? EffectObject.TypePath : BeamEffectObject.TypePath),
             v.Link?.Blob() ?? v.Object.Blob()), "[Celestial] arena effect", wake: true))
         {
-            Scenes(p).Add(v.Id);
-            if (v.Clip is { } clip) await SendWorldRecord(p, v.Id,
-                InstanceProtocol.AnimationUpdate(v.Id, 0, clip, v.Speed), "[Celestial] effect animation");
+            foreach (var p in Present.ToArray()) Scenes(p).Add(v.Id);
+            if (v.Clip is { } clip)
+                await SendWorldRecord(c, v.Id, InstanceProtocol.AnimationUpdate(v.Id, 0, clip, v.Speed), "[Celestial] effect animation");
         }
     }
     async Task<uint> Effect(Player c, (int X, int Y) at, string art, double until, float rotation = 0, float scale = 1,
@@ -57,25 +61,26 @@ internal sealed class CelestialHazards(uint casterId, SpawnedMonster caster, Pla
         var v = new Visual(id, new(at.X, at.Y, Art + art) { Rotation = rotation, Scale = scale,
             AnimatedFlags = 9, Flags0 = EffectObject.FixedRotation }, until, clip, speed);
         visuals[id] = v;
-        foreach (var p in Present.ToArray()) await Show(p, v);
+        await BroadcastCreate(c, v);
         return id;
     }
-    async Task Drop(uint id)
+    async Task Drop(Player c, uint id)
     {
         if (!visuals.Remove(id)) return;
+        bool anyShown = false;
         foreach (var p in Present.ToArray())
-        {
-            bool shown; shown = Scenes(p).Remove(id);
-            if (shown) { await SendWorldRemoval(p, id, "[Celestial] arena effect ends"); }
-        }
+            anyShown |= Scenes(p).Remove(id);
+        if (anyShown)
+            await SendWorldRemoval(c, id, "[Celestial] arena effect ends");
     }
     async Task LinkBeam(Player c, (int X, int Y) from, (int X, int Y) to, uint end, double until)
     {
         uint id = c.Instance.World.TakeObjectId();
         var link = new BeamEffectObject(from.X, from.Y, casterId, to.X * BeamEffectObject.WorldPerCell,
             to.Y * BeamEffectObject.WorldPerCell, end, BeamRow: 41, StartBone: "<root>"); // SolarisSkyBeamBeam.
-        var v = new Visual(id, new(from.X, from.Y, ""), until, Link: link); visuals[id] = v;
-        foreach (var p in Present.ToArray()) await Show(p, v);
+        var v = new Visual(id, new(from.X, from.Y, ""), until, Link: link);
+        visuals[id] = v;
+        await BroadcastCreate(c, v);
     }
     internal static bool ConeContains((int X, int Y) at, (int X, int Y) origin, (int X, int Y) aim, double inner, double outer)
     {
@@ -93,10 +98,9 @@ internal sealed class CelestialHazards(uint casterId, SpawnedMonster caster, Pla
     internal async Task Step(Player c, double now)
     {
         if (c.Paused || stopped) return;
-        if (!Current) { await Clear(); return; }
+        if (!Current) { await Clear(c); return; }
         if (!Present.Any(p => p.PlayerLife > 0 && MonsterShown(p, casterId) && !MonsterAsleep(p, casterId))) return;
-        foreach (var p in Present.ToArray()) await Bind(p);
-        foreach (var v in visuals.Values.Where(v => now >= v.Until).OrderBy(v => v.Link is null).ToArray()) await Drop(v.Id);
+        foreach (var v in visuals.Values.Where(v => now >= v.Until).OrderBy(v => v.Link is null).ToArray()) await Drop(c, v.Id);
         patches.RemoveAll(p => now >= p.Until);
         foreach (var flare in flares.Where(f => now >= f.At).ToArray())
         {
@@ -115,9 +119,8 @@ internal sealed class CelestialHazards(uint casterId, SpawnedMonster caster, Pla
             if (visuals.TryGetValue(sweep.Visual, out var v))
             {
                 visuals[sweep.Visual] = v with { Object = v.Object with { GridX = at.Item1, GridY = at.Item2 } };
-                if (Present.FirstOrDefault() is { } sweeper)
-                { await SendWorldRecord(sweeper, v.Id,
-                    InstanceProtocol.MoveTo(v.Id, at.Item1, at.Item2, 30, InstanceProtocol.FollowTerrain), "[Celestial] solar beam sweeps"); }
+                await SendWorldRecord(c, v.Id,
+                    InstanceProtocol.MoveTo(v.Id, at.Item1, at.Item2, 30, InstanceProtocol.FollowTerrain), "[Celestial] solar beam sweeps");
             }
             if (now <= sweep.Starts + 2.25 && now >= sweep.NextPatch)
             {
@@ -173,18 +176,21 @@ internal sealed class CelestialHazards(uint casterId, SpawnedMonster caster, Pla
         if (now < nextCast) return;
         var target = Present.Where(p => p.PlayerLife > 0).MinBy(p => Distance(caster.Walk.Position(now), p.Walk.Position(now)));
         if (target is null) return;
-        bool solar = caster.Variety!.Id == SolarisLunaris.Sun + "CelestialForm";
+        bool solar = caster.Variety!.Id == SolarisLunaris.Sun + "CelestialForm" || caster.Variety!.Id == SolarisLunaris.Sun;
         int effectId = solar ? (cast % 2 == 0 ? 6464 : 6477) : (cast % 2 == 0 ? 6473 : 8433); cast++;
         var cat = SkillsFor(c);
         var origin = caster.Walk.Position(now); var aim = target.Walk.Position(now);
         double facing = Math.Atan2(aim.Y - origin.Y, aim.X - origin.X);
         double seconds = cat.CastTimeMs(effectId) / 1000d;
         double release = now + seconds * .299 / .966;
-        nextCast = now + Math.Max(seconds, cat.CooldownMs(effectId, cat.MaxLevelAt(effectId, caster.Level)) / 1000d);
-        if (Present.FirstOrDefault() is { } sender)
-        { await SendWorldRecord(sender, casterId,
-            InstanceProtocol.AnimationUpdate(casterId, 0, solar ? effectId == 6477 ? (ushort)5 : (ushort)4 : (ushort)3,
-                effectId == 6477 ? 1 : (float)(.966 / Math.Max(.01, seconds))), "[Celestial] cast"); }
+        double baseCooldown = Math.Max(seconds, cat.CooldownMs(effectId, cat.MaxLevelAt(effectId, caster.Level)) / 1000d);
+        nextCast = now + (finalForm ? Math.Max(baseCooldown, 6.5) : baseCooldown);
+        if (!finalForm)
+        {
+            await SendWorldRecord(c, casterId,
+                InstanceProtocol.AnimationUpdate(casterId, 0, solar ? effectId == 6477 ? (ushort)5 : (ushort)4 : (ushort)3,
+                    effectId == 6477 ? 1 : (float)(.966 / Math.Max(.01, seconds))), "[Celestial] cast");
+        }
         if (effectId == 6464)
         {
             var from = ((int)Math.Round(aim.X - Math.Sin(facing) * 30), (int)Math.Round(aim.Y + Math.Cos(facing) * 30));
@@ -215,20 +221,24 @@ internal sealed class CelestialHazards(uint casterId, SpawnedMonster caster, Pla
             for (int i = 0; i < count; i++) meteors.Add(new(release + i * interval, CascadePoint(aim, facing, i, a, b, degrees)));
         }
     }
-    internal async Task Clear()
+    internal async Task Clear(Player? c = null)
     {
         beam = null; patches.Clear(); impacts.Clear(); meteors.Clear(); flares.Clear();
-        foreach (var v in visuals.Values.OrderBy(v => v.Link is null).ToArray()) await Drop(v.Id);
+        var runner = c ?? Present.FirstOrDefault();
+        if (runner is null) { visuals.Clear(); return; }
+        foreach (var v in visuals.Values.OrderBy(v => v.Link is null).ToArray()) await Drop(runner, v.Id);
     }
     internal void Stop()
     {
         stopped = true; beam = null; patches.Clear(); impacts.Clear(); meteors.Clear(); flares.Clear();
-        foreach (var p in Present.ToArray())
-            foreach (uint id in visuals.Values.OrderBy(v => v.Link is null).Select(v => v.Id).ToArray())
-            {
+        var present = Present.ToArray();
+        var ids = visuals.Values.OrderBy(v => v.Link is null).Select(v => v.Id).ToArray();
+        foreach (var p in present)
+            foreach (uint id in ids)
                 Scenes(p).Remove(id);
-                _ = Send(p, InstanceProtocol.RemoveObject(id), null);
-            }
+        if (present.FirstOrDefault() is { } runner)
+            foreach (uint id in ids)
+                _ = SendWorldRemoval(runner, id, null);
         visuals.Clear();
     }
 }

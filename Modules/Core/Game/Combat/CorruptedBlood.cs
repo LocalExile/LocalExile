@@ -21,6 +21,18 @@ public static partial class Game
 
     static readonly RuleTable<Player, BloodState> Blood = new();
 
+    /// <summary>The Corrupted Blood a monster skill applies, from its stats: <see cref="CorruptedBloodOnHit.From"/>'s reader,
+    /// plus the stack count the blood-projectile family leaves out. Those rows (EssenceBloodProjectileNova — Greed's essence
+    /// daemons — and the BellyTotem/Breach/Vaal bonespires) declare a duration and a per-stack percentage but no count, and
+    /// apply one stack; a duration with no damage source is still not a Corrupted Blood skill.</summary>
+    public static CorruptedBloodOnHit? CorruptedBloodFor(Func<uint, int> stat)
+    {
+        if (CorruptedBloodOnHit.From(stat) is { } declared) return declared;
+        int duration = stat(Stat.CorruptedBloodOnHitDuration);
+        int perStack = stat(Stat.CorruptedBloodOnHitPctAverageDamageToDealPerMinutePerStack);
+        return duration > 0 && perStack > 0 ? new(1, duration / 1000d, 0, perStack) : null;
+    }
+
     public static void ApplyCorruptedBloodOnHit(Player player, MonsterAttack attack, DamagePacket hit,
         bool blocked, double now, IReadOnlyDictionary<uint, int> stats)
     {
@@ -115,7 +127,9 @@ public static partial class Game
         else if (damage > 0)
             damage *= player.ElementalAilments.DamageTakenFactor(now, 0) * letheFactor;
         int whole = IncomingResourceDefences.TakenOverTime(damage, Get, ref state.Carry,
-            IncomingResourceDefences.LessTakenPct(player.Pools, Get), typedIncreasedPct: Get(Stat.PhysicalDamageTakenPlusPct),
+            IncomingResourceDefences.LessTakenPct(player.Pools, Get),
+            typedIncreasedPct: Get(Stat.PhysicalDamageTakenPlusPct)
+                + (player.Walk.Moving(now) ? Get(Stat.PhysicalDamageOverTimeTakenPlusPctWhileMoving) : 0),
             reductionPct: ChargeEffects.Reduction(Get).Physical, finalTakenPct: Get(IncomingResourceDefences.UnhingedSaneDamageFinal));
         if (state.Stacks.Count == 0 && now >= state.ProtectedUntil) Blood.Remove(player);
         return IncomingResourceDefences.DamageOverTime(player.EnergyShield, whole, Get(IncomingResourceDefences.BypassStat), now, ref player.NonChaosDotBypassCarry);
