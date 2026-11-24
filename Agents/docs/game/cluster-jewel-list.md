@@ -298,7 +298,7 @@ The theme is the stat every small passive of a cluster jewel grants. The client 
 | **Snaring Spirits** | 30% increased Totem Damage; Totems Hinder Enemies near them when Summoned | inert (no stat read); conditional |
 | **Snowstorm** | Gain 8% of Lightning Damage as Extra Cold Damage against Chilled Enemies | inert (no stat read) |
 | **Special Reserve** | Regenerate 120% of Life per second during any Flask Effect; 20% increased Damage during any Flask Effect | inert (no stat read); conditional |
-| **Spiked Concoction** | 100% chance to gain Alchemist's Genius when you use a Flask; 5% increased Attack and Cast Speed during any Flask Effect | inert (no stat read); conditional |
+| **Spiked Concoction** | 100% chance to gain Alchemist's Genius when you use a Flask; 5% increased Attack and Cast Speed during any Flask Effect | grants the buff on a flask use; conditional |
 | **Spring Back** | 10% increased maximum Energy Shield; 5% faster start of Energy Shield Recharge | works |
 | **Volatile Presence** | Anger has 50% increased Mana Reservation Efficiency; 20% increased Duration of Fire Ailments | partial (1/2 stats read) |
 | **Steady Torment** | +6% to Damage over Time Multiplier for Bleeding you inflict on Poisoned Enemies; +6% to Damage over Time Multiplier for Poison you inflict on Bleeding Enemies; 15% increased Bleeding Duration; 15% increased Poison Duration | inert (no stat read) |

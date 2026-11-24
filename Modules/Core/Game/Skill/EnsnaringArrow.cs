@@ -115,8 +115,8 @@ public static partial class Game
                     lock (ropes) ropes.Remove(rope);
                 if (rope.ClaimRemoval() && rope.BuffRow != 0)
                     Player.Area.Buffs.Clear(rope.TargetId, rope.BuffRow, rope.SourceId, tag: rope.BuffTag);
-                Player.ProjectileObjects.Remove(rope.AnchorId);
-                Player.ProjectileObjects.Remove(rope.BeamId);
+                Player.UntrackProjectileObject(rope.AnchorId);
+                Player.UntrackProjectileObject(rope.BeamId);
             }
         }
 
@@ -177,8 +177,8 @@ public static partial class Game
             // The movement update already sends the combined walk modifier. The buff owns the icon; the beam follows
             // the moving target while its other end stays attached to the stationary ground arrow.
             if (row != 0) Player.Area.Buffs.Set(key.Id, BuffRows.Spec(row, rope.SourceId, null, tag: tag));
-            Player.ProjectileObjects.Add(anchorId);
-            Player.ProjectileObjects.Add(beamId);
+            Player.TrackProjectileObject(anchorId);
+            Player.TrackProjectileObject(beamId);
             Create(anchorId, () =>
             {
                 if (rope.Ended) return null;
@@ -239,19 +239,19 @@ public static partial class Game
             if (!Active)
             {
                 lock (activeSnares) activeSnares.Remove(rope);
-                Player.ProjectileObjects.Remove(rope.AnchorId);
-                Player.ProjectileObjects.Remove(rope.BeamId);
+                Player.UntrackProjectileObject(rope.AnchorId);
+                Player.UntrackProjectileObject(rope.BeamId);
                 return;
             }
             WorldRecords(rope.BeamId, () =>
             {
-                Player.ProjectileObjects.Remove(rope.BeamId);
+                Player.UntrackProjectileObject(rope.BeamId);
                 return rope.BeamCreated ? [InstanceProtocol.RemoveObject(rope.BeamId)] : null;
             }, remove: true);
             WorldRecords(rope.AnchorId, () =>
             {
                 lock (activeSnares) activeSnares.Remove(rope);
-                Player.ProjectileObjects.Remove(rope.AnchorId);
+                Player.UntrackProjectileObject(rope.AnchorId);
                 return rope.AnchorCreated ? [InstanceProtocol.RemoveObject(rope.AnchorId)] : null;
             }, remove: true);
         }

@@ -315,7 +315,7 @@ public static partial class Game
                 await SendWorldRemoval(player, id, output.Log, atGate: () =>
                 {
                     var records = Project();
-                    if (records is not null) player.ProjectileObjects.Remove(id);
+                    if (records is not null) player.UntrackProjectileObject(id);
                     return records;
                 });
             }
