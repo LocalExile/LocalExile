@@ -97,6 +97,51 @@ public sealed class VendorsModule : IModule
                 else await OfferFromInventory(player, sale, inventory, item);
                 return true;
             });
+        GameEvents.Packet(InstanceNpcs.TradeCtrlMoveId).Add(module.Manifest.Id, async (player, bytes) =>
+        {
+            // A trade between players has these messages first.
+            if (player.Trade is not null) return false;
+            var (itemId, inventory, _) = InstanceNpcs.ReadTradeCtrlMove(bytes);
+            if (player.Sale is not { } sale)
+            {
+                Console.WriteLine($"[gateway] {player.Connection.Remote} <= 0x00b4 trade ctrl-move: no sale open");
+                return true;
+            }
+            var items = ItemsOf(player);
+            if (items.Offered().FirstOrDefault(i => i.Id == itemId) is { } offeredTarget)
+            {
+                uint type = offeredTarget.Item.TypeHash;
+                uint[] ids = [itemId, .. items.Offered().Where(i => i.Id != itemId && i.Item.TypeHash == type)
+                    .OrderBy(i => i.Y).ThenBy(i => i.X).Select(i => i.Id)];
+                bool moved = false;
+                foreach (uint id in ids)
+                {
+                    if (player.Sale != sale) break;
+                    int before = items.Offered().Count;
+                    await TakeFromSale(player, sale, id, sendReward: false);
+                    if (items.Offered().Count != before) moved = true;
+                }
+                if (moved && player.Sale == sale) await SendSaleReward(player, sale);
+                return true;
+            }
+            byte? row = PlayerInventories.Row(inventory);
+            var clicked = row is byte r ? items.Items(r).FirstOrDefault(i => i.Id == itemId) : null;
+            if (clicked is null) return true;
+            uint matchType = clicked.Item.TypeHash;
+            uint[] toOffer = [itemId, .. items.Items(row!.Value).Where(i => i.Id != itemId && i.Item.TypeHash == matchType)
+                .OrderBy(i => i.Y).ThenBy(i => i.X).Select(i => i.Id)];
+            bool offeredAny = false;
+            foreach (uint id in toOffer)
+            {
+                if (player.Sale != sale) break;
+                int before = items.Offered().Count;
+                await OfferFromInventory(player, sale, inventory, id, sendReward: false);
+                if (items.Offered().Count == before) break;
+                offeredAny = true;
+            }
+            if (offeredAny && player.Sale == sale) await SendSaleReward(player, sale);
+            return true;
+        });
         GameEvents.Packet(InstanceNpcs.TradeAcceptId).Add(module.Manifest.Id, async (player, bytes) =>
         {
             // A trade between players has these messages first.
@@ -115,6 +160,11 @@ public sealed class VendorsModule : IModule
         GameEvents.Packet(InstanceNpcs.BuyId).Add(module.Manifest.Id, async (player, bytes) =>
         {
             await BuyFromShop(player, InstanceNpcs.ReadBuy(bytes));
+            return true;
+        });
+        GameEvents.Packet(InstanceNpcs.BuyAndSocketId).Add(module.Manifest.Id, async (player, bytes) =>
+        {
+            await BuyAndSocketFromShop(player, InstanceNpcs.ReadBuyAndSocket(bytes));
             return true;
         });
         GameEvents.Packet(InstanceNpcs.CtrlBuyId).Add(module.Manifest.Id, async (player, bytes) =>

@@ -14,17 +14,23 @@ public readonly record struct SingleUseCooldown(int BaseMilliseconds, int Recove
 
     public static SingleUseCooldown? ForSkill(SkillCatalog skills, StatCatalog catalog, int effect, int level,
         IReadOnlyDictionary<uint, int> player, IReadOnlyDictionary<uint, int> own)
+        => ForSkill(skills, catalog, effect, level, player, own, additionalMilliseconds: 0);
+
+    public static SingleUseCooldown? ForSkill(SkillCatalog skills, StatCatalog catalog, int effect, int level,
+        IReadOnlyDictionary<uint, int> player, IReadOnlyDictionary<uint, int> own, int additionalMilliseconds)
     {
-        int ms = skills.CooldownMs(effect, level);
+        int native = skills.CooldownMs(effect, level);
+        int ms = ActorScale.Saturate((long)native + additionalMilliseconds);
+        int uses = skills.CooldownUses(effect, level);
+        if (uses <= 0 && native <= 0 && ms > 0) uses = 1;
         // The hidden "Trigger level X Summon Spirit of ..." skills (the Ancestral Spirit options and the Loyalty
         // tattoos) are neither spells, attacks nor warcries, but their shared cooldown is still a plain stored use.
         bool castable = skills.EffectId(effect) == "Unhinge" || skills.IsSpell(effect) || skills.IsAttack(effect) || skills.IsWarcry(effect)
             || skills.EffectId(effect)?.StartsWith("TriggerSummonedAncestor", StringComparison.Ordinal) == true;
-        if (ms <= 0 || skills.CooldownUses(effect, level) <= 0 || skills.CooldownPausesWhileActive(effect) || !castable)
+        if (ms <= 0 || uses <= 0 || skills.CooldownPausesWhileActive(effect) || !castable)
             return null;
         int Get(IReadOnlyDictionary<uint, int> values, uint name) => name is var key ? values.GetValueOrDefault(key) : 0;
         if (Unsupported.Any(name => Get(player, name) != 0 || Get(own, name) != 0)) return null;
-        int uses = skills.CooldownUses(effect, level);
         // Second Wind adds a stored use only to a non-instant skill. Its recovery penalty still affects instant skills.
         if (!skills.IsInstant(effect)) uses += Math.Max(0, Get(own, Stat.SupportAddedCooldownCountIfNotInstant));
         if (uses is < 1 or > 255) return null;
@@ -34,10 +40,14 @@ public readonly record struct SingleUseCooldown(int BaseMilliseconds, int Recove
         // Warcry recovery is an increase for the Warcry type (PoB ModParser); the client adds it when is_warcry (0x142824b50).
         if (skills.IsWarcry(effect))
             recovery += (long)Get(player, Stat.WarcryCooldownSpeedPlusPct) + Get(own, Stat.WarcryCooldownSpeedPlusPct);
+        if (skills.IsMovement(effect))
+            recovery += (long)Get(player, Stat.MovementSkillsCooldownSpeedPlusPct) + Get(own, Stat.MovementSkillsCooldownSpeedPlusPct);
+        if (skills.HasType(effect, "Stance"))
+            recovery += (long)Get(player, Stat.StanceSkillCooldownSpeedPlusPct) + Get(own, Stat.StanceSkillCooldownSpeedPlusPct);
         if (skills.EffectId(effect) is "GeneralsCry" or "GeneralsCryAltX" or "GeneralsCryAltY")
             recovery += (long)Get(player, Stat.GeneralsCryCooldownSpeedPlusPct) + Get(own, Stat.GeneralsCryCooldownSpeedPlusPct);
         if (skills.EffectId(effect) is { } id && id.StartsWith("Summon", StringComparison.Ordinal) && id.Contains("Golem", StringComparison.Ordinal))
-            recovery += (long)Get(player, Stat.GolemCooldownRecoveryPlusPct) + Get(own, Stat.GolemCooldownRecoveryPlusPct);
+            recovery += (long)Get(player, Stat.GolemSkillCooldownRecoveryPlusPct) + Get(own, Stat.GolemSkillCooldownRecoveryPlusPct);
         // Native construction adds 100 in a signed i32. Zero recovery stalls rather than reversing the clock.
         return new(ms, (int)Math.Clamp(recovery, -100, int.MaxValue - 100), uses);
     }
@@ -155,6 +165,16 @@ public sealed class SingleUseCooldownState(double at, double rate, double remain
         nativeRate = spentRate;
         NativeSkillId = skillId;
         nativeDirty |= synchronizeProgress || Uses > 1;
+    }
+
+    /// <summary>Marks a skill whose use triggered an instant cooldown reset/prevention (0x50cd/0x52e2) so the next
+    /// <c>PlayerSingleUseCooldowns</c> update clears the client's predicted cooldown sweep.</summary>
+    public void SynchronizeNativeReset(ushort skillId, int baseMilliseconds)
+    {
+        TotalBaseMilliseconds = Math.Max(1, baseMilliseconds);
+        NativeSkillId = skillId;
+        nativeAcknowledged = true;
+        nativeDirty = true;
     }
     public bool NeedsNativeRefresh => nativeAcknowledged && nativeDirty;
     public void NativeRefreshed()

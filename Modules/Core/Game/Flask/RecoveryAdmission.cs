@@ -50,7 +50,7 @@ public static partial class Game
             if (FlaskBuffs)
             {
                 player.Area.Buffs.Set(player.Id, Flasks.Buff(player.Id, effect.Buff, effect.BuffRow, (byte)slot,
-                    withDuration ? duration : null, [perMinute]));
+                    withDuration ? duration : null, [perMinute], FlaskEffectVisual(player, (byte)slot)));
                 Note($"player buff {effect.Buff}: {(effect.BuffRow == FlaskEffectLifeBuffRow ? "flask_effect_life" : "flask_effect_mana")} " +
                     $"(BuffDefinitions row {effect.BuffRow}), {perMinute} per minute, {(withDuration ? $"{duration:0.##} s" : "no duration")}");
             }
@@ -63,6 +63,11 @@ public static partial class Game
     static int BleedFlaskProtection(IReadOnlyDictionary<uint, int> local) =>
         Math.Max(local.GetValueOrDefault(Stat.LocalFlaskBleedingImmunityIfBleedingAndRemoveCorruptedBloodS),
             local.GetValueOrDefault(Stat.LocalFlaskBleedingImmunityIfBleedingAndRemoveCorruptedBlood) != 0 ? 4 : 0);
+
+    static bool DispelsBurning(IReadOnlyDictionary<uint, int> local) =>
+        local.GetValueOrDefault(Stat.LocalFlaskDispelsBurningAndIgniteImmunityDuringEffect) != 0
+        || local.GetValueOrDefault(Stat.LocalFlaskIgniteImmunityIfIgnitedAndRemoveBurning) != 0
+        || local.GetValueOrDefault(Stat.LocalFlaskIgniteImmunityIfIgnitedAndRemoveBurningS) > 0;
 
     internal static void ApplyConditionalFlaskAilmentProtectionLocked(Player player,
         IReadOnlyDictionary<uint, int> local, double now)
@@ -78,6 +83,8 @@ public static partial class Game
         if (local.GetValueOrDefault(Stat.LocalFlaskPoisonImmunityIfPoisonedS) is int poison
             && poison > 0 && player.IncomingAilments.RemoveOrProtectPoison(now, poison))
             Console.WriteLine($"[gateway] flask removed poison and protects for {poison} s");
+        if (DispelsBurning(local))
+            EndFlameTouched(player, now);
     }
 
     static bool ConditionalFlaskAilmentProtectionTriggered(Player player,
@@ -85,5 +92,6 @@ public static partial class Game
         BleedFlaskProtection(local) > 0
             && (player.IncomingAilments.Bleeding(now) || CorruptedBloodStacks(player, now) > 0)
         || local.GetValueOrDefault(Stat.LocalFlaskPoisonImmunityIfPoisonedS) > 0
-            && player.IncomingAilments.PoisonStacks(now) > 0;
+            && player.IncomingAilments.PoisonStacks(now) > 0
+        || DispelsBurning(local) && FlameTouchedActive(player);
 }

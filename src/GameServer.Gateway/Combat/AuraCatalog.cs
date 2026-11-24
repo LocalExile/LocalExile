@@ -13,7 +13,8 @@ public static class AuraCatalog
         int SupportEffectPct = 0, bool AffectsSelf = true, string? Stance = null, int? ExternalEffectPct = null,
         bool ReservesLife = false, int ReservationEfficiencyPct = 0, bool IsHerald = false,
         int LifeFlat = 0, int LifePercent = 0,
-        int ArtVariation = 0, bool HideVisual = false, ushort? SourceVisual = null, ushort? BuffVisual = null)
+        int ArtVariation = 0, bool HideVisual = false, ushort? SourceVisual = null, ushort? BuffVisual = null,
+        int PerAuraEffectPct = 0)
     {
         public object? StanceOwner { get; init; }
     }
@@ -129,6 +130,42 @@ public static class AuraCatalog
     public static bool Supported(string effectId) => BuffRows.ContainsKey(Family(effectId));
 
     public static ushort BuffRow(string effectId) => BuffRows[Family(effectId)];
+
+    /// <summary>The per-aura effect stat for each aura family, by the client's Stats ids (Stat.g.cs is
+    /// generated from the client's Stats table). One place: the generic aura effect never reads these, and
+    /// Value() adds the stamped term, so no caller reads them again. Malevolence's stat is named for
+    /// Delirium, not the skill ("delirium_aura_effect_+%"); the other fourteen spell the family name in
+    /// lower snake case. The three out-of-scope rows (minions_have_..., banner_aura_effect_+%,
+    /// mine_aura_effect_+%) are not here: minions, banners and mines scale elsewhere.</summary>
+    public static readonly IReadOnlyDictionary<string, uint> PerAuraEffectStats =
+        new Dictionary<string, uint>(StringComparer.Ordinal)
+        {
+            ["Anger"] = Stat.AngerAuraEffectPlusPct,
+            ["Malevolence"] = Stat.DeliriumAuraEffectPlusPct,
+            ["Hatred"] = Stat.HatredAuraEffectPlusPct,
+            ["Wrath"] = Stat.WrathAuraEffectPlusPct,
+            ["Zealotry"] = Stat.ZealotryAuraEffectPlusPct,
+            ["Determination"] = Stat.DeterminationAuraEffectPlusPct,
+            ["Discipline"] = Stat.DisciplineAuraEffectPlusPct,
+            ["Grace"] = Stat.GraceAuraEffectPlusPct,
+            ["Pride"] = Stat.PrideAuraEffectPlusPct,
+            ["Precision"] = Stat.PrecisionAuraEffectPlusPct,
+            ["Haste"] = Stat.HasteAuraEffectPlusPct,
+            ["PurityOfElements"] = Stat.PurityOfElementsAuraEffectPlusPct,
+            ["PurityOfFire"] = Stat.PurityOfFireAuraEffectPlusPct,
+            ["PurityOfIce"] = Stat.PurityOfIceAuraEffectPlusPct,
+            ["PurityOfLightning"] = Stat.PurityOfLightningAuraEffectPlusPct,
+        };
+
+    /// <summary>One aura's own named effect term from the caster's raw sources (the reconcile stamps it, so
+    /// the value rides the record to allies and minions). 0 when the family has no named stat or the caster
+    /// has none.</summary>
+    public static int PerAuraEffectPctFor(Aura aura, IReadOnlyDictionary<uint, int> sources) =>
+        PerAuraEffectPctFor(aura.EffectId, sources);
+
+    /// <summary>One aura's own named effect term from the caster's raw sources, by effect id.</summary>
+    public static int PerAuraEffectPctFor(string effectId, IReadOnlyDictionary<uint, int> sources) =>
+        PerAuraEffectStats.TryGetValue(Family(effectId), out uint key) ? sources.GetValueOrDefault(key) : 0;
 
     /// <summary>The character stat that exempts a supported aura family from Mana reservation. The shipped rows use the
     /// lower snake-case effect family (for example EnvyNoReservationUnique__1 carries envy_reserves_no_mana).</summary>
@@ -458,6 +495,11 @@ public static class AuraCatalog
     {
         if (!(name is var key)) return 0;
         auraEffectPct = aura.ExternalEffectPct ?? auraEffectPct;
+        // The aura's own named effect, stamped at reconcile: it joins the generic effect here, the one place
+        // every aura stat scales through, so Bonus, RawStats, ResistanceStats, Pride and Flesh and Stone all
+        // read it without a second lookup. ExternalEffectPct never carries it (the stamps add only the generic
+        // effect plus support), so it is added once, never twice.
+        auraEffectPct += aura.PerAuraEffectPct;
         if (!skills.IsAura(aura.Effect)) auraEffectPct = 0;
         auraEffectPct += extraEffectPct;
         int value = EffectStats(aura, skills).FirstOrDefault(kv => kv.Item1 == key).Item2;

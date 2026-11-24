@@ -71,4 +71,37 @@ public class ClusterJewelTests
         Assert.Equal((fire, 10, 1), (ClusterJewels.ThemeOf(large, given), Game.ClusterNodeBudget(given), given.Mods.Count));
         Assert.DoesNotContain(new UniqueCatalog(items).Create("Megalomaniac", new Random(202))!.Mods, m => m.Section == ModSection.Enchant);
     }
+
+    [Fact]
+    public void Allocated_cluster_nodes_use_the_native_cast_speed_stat_and_notable_row()
+    {
+        var items = Program.Items;
+        var type = items.Find("Large Cluster Jewel")!;
+        var theme = ClusterJewels.FindTheme(type.Cluster!, "Fire Damage")!;
+        var jewel = ClusterJewels.Create(type, theme, 8, 2,
+        [
+            items.Mods.ById("AfflictionJewelSmallPassivesGrantCastSpeed")!,
+            items.Mods.ById("AfflictionNotableDoryanisLesson_")!,
+        ])!;
+        var player = new Player(new(1, "cluster", 100, 100, 100, 100, null, []), 1, 1);
+        InventoryItem[] placed = [new(11, 20, 0, jewel)];
+        var layout = ClusterJewelLayout.For(20, jewel)!;
+        uint castSpeedAffix = Stat.LocalAfflictionJewelSmallNodesGrantBaseCastSpeedPlusPct;
+        int castSpeed = Assert.Single(ClusterJewelStats.Entries(jewel), s => s.Stat == castSpeedAffix).Value;
+        Assert.True(castSpeed > 0);
+
+        Assert.Empty(ClusterJewelStats.For(player, placed, items.Mods, Program.Stats));
+        foreach (var (offset, _) in layout.ByOffset.Where(p => p.Value == ClusterJewelLayout.Kind.Small).Take(2))
+            player.Character.ClusterPassives.Add((ushort)(layout.Base + offset));
+        var fromSmalls = ClusterJewelStats.For(player, placed, items.Mods, Program.Stats).ToArray();
+        Assert.Equal(2 * castSpeed, fromSmalls.Where(s => s.Key == Stat.BaseCastSpeedPlusPct).Sum(s => s.Value));
+
+        player.Character.ClusterPassives.Clear();
+        int notable = Assert.Single(layout.NotableOrders).Key;
+        player.Character.ClusterPassives.Add((ushort)(layout.Base + notable));
+        var expected = Program.Passives.FindById("affliction_notable_doryani's_lesson")!.Stats;
+        var fromNotable = ClusterJewelStats.For(player, placed, items.Mods, Program.Stats).ToArray();
+        Assert.NotEmpty(expected);
+        Assert.Equal(expected, fromNotable);
+    }
 }

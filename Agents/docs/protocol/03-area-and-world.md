@@ -36,9 +36,11 @@ Dispatcher case 6. Class `0x1435e4c20` (0x168 bytes, ctor `0x1421a42b0`), write 
 | 22 | vec16⟨u8⟩ | +0x150 | only if flag 0x22 bit 2 |
 
 Flag bits read by the handler (from the 3 bytes at +0x21): 0, 1, 2, 4, 5 (inverted) → `+0xc3e5..` bytes; 0xc, 0xd, 0xe →
-world setters; 3 = second area hash; 2 → `0x142149680`; 0xa → `0x1421495e0(+0x150)`; 0xf → with the area's own flag.
+world setters; 3 = second area hash (`AreaState +0xc0` via `0x142149620`, Delve return area); 2 → `0x142149680`;
+0xa → `0x1421495e0(+0x150)`; 0xf (byte 1 bit `0x80`) → `AreaState +0xda` via `0x142149670` in hideouts.
 
-`AreaInstance.Encode()` defaults to the minimal form, with optional league stat lists and extra terrain data.
+`AreaInstance.Encode()` defaults to the minimal form, with optional league stat lists, hideout permissions, return area
+hash and extra terrain data.
 `TerrainData` sets flag 0x22 bit 2 and appends a big-endian u16 byte count followed by the extra-data bytes.
 The extra-data decoder (`0x141ecdad0`) has its own two-byte flags and little-endian nested records.
 Its first flag byte's bit 5 selects the Delve terrain block (`0x141ecc7d0`).
@@ -67,9 +69,12 @@ An old real-server session in `Client/logs/Client.txt` (2026-02-13, Highgate) ha
 
 ## 2. C→S 0x7d: area generated
 
-When generation finishes, the tick (`0x14214f1d0`, flag `+0xe1f9`) sends **0x7d** with two u32 from world `+0x114`:
-the **tile hash** and the **doodad hash** that were just logged. Live: `007D 43E6886D 8EA8DD43` (0x43E6886D =
-1139181677, 0x8EA8DD43 = 2393431363). The Gateway sends the player and enters the area on this message.
+When generation finishes, the tick (`0x14214f1d0`, flag `+0xe1f9`) sends **0x7d** with two u32 BE hashes from world `+0x114`:
+the **tile hash** (`0x142054070`) and the **doodad hash** (`0x142048e20`) that were just logged. Live: `007D 43E6886D 8EA8DD43`
+(0x43E6886D = 1139181677, 0x8EA8DD43 = 2393431363). `InstanceProtocol.ReadAreaGenerated` parses both hashes; the Gateway logs
+them, stores them on `Player`, and when `ServerLevels` generated the area compares `TileHash` against
+`ServerLevels.Level.TileHash` (flagging `Player.LevelDesynced`, logging a warning, and notifying the player in chat on a
+non-zero mismatch) before entering the area.
 
 ## 3. S→C 0x22: local player id
 
@@ -296,4 +301,28 @@ Removed and created again with `opened` = 1 it shows opened with no minimap mark
 A unique box (live 2026-11-18, Strange Barrel and Redblade Cache) is its base strongbox's object with rarity 3, the
 UniqueChests row's `AOFile` as the Animated model, its Words row's HASH32 as the name (flags bit 8, as a unique item),
 and its UniqueChests mods in the explicit list: the nameplate shows the name in unique colour and the mod lines. A currency used on it is C→S 0x74 ([13](13-items.md)).
-Not verified live: whether the box plays its opening (`.ao` animation `open`), and what `started` does.
+Its opening is the model's one clip: `Art/Models/Chests/Strongboxes/<box>.amd` declares `1 "open" once 1166`, and the
+`.ao`'s client `SoundEvents` bind the model's lid sounds to it (`Small_Open`/`Small_Stop_01`, `Large_Open`/`Large_Stop`,
+`Armoury_Open`/`Armoury_Stop`, `Ornate_Open`/`Ornate_Close`, `SB_Open`/`SB_Stop`, or a unique box's `Kaoms`,
+`Malachais`, `Pendarus`, `Vase`+`VaseMagic`, `BaroqueVase_01`+`_02`+`BaroqueVaseMagic`, `ChestMetal`+`ChestMetalMagic`).
+Live (2026-11-22): the client's own opened-flag path (Chest vtable +0xc0, `0x141e17130`) looks the clip up by name and
+resolves nothing for these objects, so the server plays clip 0 with S→C 0x1b2; the Chest component has **no 0x2bc
+reader** (slot 20 is `ret`), so `opened` = 1 reaches the client only in a created object, and the box is created again
+opened once the clip is over (nameplate and marker gone). `Chests.ChestEffectsKey` names the `ChestEffects` row that
+gives the per-rarity `…_Closed_AOFile` looping glow (no SoundEvents) and the `…_Open_AOFile` open effect, whose
+`openfx` clip carries `Chests/Strongbox/Effect_$(#)`; the boxes' monster-spawn art is `MiscAnimated
+SummonedMonsterEffect` (`chestsummon.ao`: `Chests/TrapTrigger/MonsterSpawn/Spawn_$(#)` and `Layer_$(#)`) and
+`StrongboxCorpseExplode`'s is `MiscAnimated StrongboxExplosion` (`strongbox_explode/rig.ao`: `NewStrongBoxExplode`).
+What `started` does is not verified.
+The Chest flag byte's **bit 1** is the box's activated flag: the client's warning routine (`0x1415d6470`) reads it and
+plays `Audio/…/Chests/TrapTrigger/Trigger_$(#).ogg` for a mod with `chest_play_warning_sound`. A closed box created
+with the bit set showed no nameplate at all (live 2026-11-22), so the server sets it only on the opened object. The
+`ObjectMagicProperties` component has a real 0x2bc reader (slot 17 forwards to slot 20 `0x141e7e080`), so a currency
+change is sent in place and the client's nameplate and selection stay. A daemon skill's record must carry the area
+level's `active_skill_area_of_effect_radius` and `total_skill_area_of_effect_radius_+%_including_final`, and its
+`skill_behaviour_variation` (`GrantedEffects.SkillID`, e.g. ChestExplode's 30), or the client draws the wrong effect or
+none. The daemon's action is held open for the skill's own cast time (GrantedEffects `CastTime`: Ice Nova 800 ms,
+storms 900 ms, Explode 1000 ms) and ended together with the effect: ending it at once made every spell appear the
+moment the box opened (live 2026-11-23). Not solved (issue "Strongbox daemon spells"): Firestorm's and Lightning
+Storm's falling projectiles (the client draws only the first) and Putrifying's corpse detonation (one delayed cast,
+21 cells).

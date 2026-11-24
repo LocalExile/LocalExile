@@ -13,27 +13,47 @@ sealed partial class VendorRecipes
     readonly Dictionary<uint, int> _upgradeCosts = [];
     readonly Dictionary<uint, uint> _upgrades = [];
     readonly List<ItemCatalog.BaseType> _types;
+    readonly Dictionary<string, ItemCatalog.BaseType> _byId;
+    readonly Dictionary<string, ItemCatalog.BaseType> _byName;
 
     public VendorRecipes(ItemCatalog catalog, string folder = "data")
     {
         _catalog = catalog;
         _rolls = new(catalog, folder);
-        _types = Enumerable.Range(0, 20000).Select(catalog.Row).TakeWhile(t => t is not null).Select(t => t!).ToList();
+        _types = [];
+        _byId = new(StringComparer.Ordinal);
+        _byName = new(StringComparer.Ordinal);
+        for (int row = 0; row < 20000; row++)
+        {
+            if (catalog.Row(row) is not { } t) break;
+            _types.Add(t);
+            _byId.TryAdd(t.Id, t);
+            _byName.TryAdd(t.Name, t);
+        }
         var modTypes = Read("ModType");
         if (modTypes.Count == 0) throw new InvalidOperationException("Vendor pricing data is missing: run scripts/dev/extract-data.ps1 and restart Gateway.");
+        var sellTypesByModType = new int[modTypes.Count][];
+        var namesByModType = new string[modTypes.Count];
+        for (int i = 0; i < modTypes.Count; i++)
+        {
+            sellTypesByModType[i] = modTypes[i].Ints("ModSellPriceTypesKeys").ToArray();
+            namesByModType[i] = modTypes[i].Text("Name")!;
+        }
         foreach (var mod in Read("Mods"))
-            if (mod.IntOrNull("ModTypeKey") is int key && key < modTypes.Count)
+            if (mod.IntOrNull("ModTypeKey") is int key && (uint)key < (uint)modTypes.Count)
             {
                 ushort hash = (ushort)mod.Int("HASH16");
-                _sellTypes.TryAdd(hash, modTypes[key].Ints("ModSellPriceTypesKeys").ToArray());
-                _sellFamilies.TryAdd(hash, modTypes[key].Text("Name")!);
+                _sellTypes.TryAdd(hash, sellTypesByModType[key]);
+                _sellFamilies.TryAdd(hash, namesByModType[key]);
             }
         var essences = Read("Essences");
+        var essenceBaseByTypeLevel = new Dictionary<(int Type, int Level), int>(essences.Count);
         foreach (var essence in essences)
-            if (essences.Cast<ClientRow?>().FirstOrDefault(e => e!.Value.Int("EssenceTypeKey") == essence.Int("EssenceTypeKey")
-                && e.Value.Int("Level") == essence.Int("Level") + 1) is { } next
+            essenceBaseByTypeLevel.TryAdd((essence.Int("EssenceTypeKey"), essence.Int("Level")), essence.Int("BaseItemTypesKey"));
+        foreach (var essence in essences)
+            if (essenceBaseByTypeLevel.TryGetValue((essence.Int("EssenceTypeKey"), essence.Int("Level") + 1), out int nextBaseKey)
                 && catalog.Row(essence.Int("BaseItemTypesKey")) is { } from
-                && catalog.Row(next.Int("BaseItemTypesKey")) is { } to)
+                && catalog.Row(nextBaseKey) is { } to)
                 _upgrades[from.Hash] = to.Hash;
         // The table contains legacy map series too; only expose upgrades belonging to that exact base row.
         foreach (var map in Read("Maps"))
@@ -52,7 +72,8 @@ sealed partial class VendorRecipes
         IReadOnlyList<ClientRow> Read(string name) => ClientTables.TableOrNull(name) ?? (IReadOnlyList<ClientRow>)[];
     }
 
-    ItemCatalog.BaseType? Exact(string idOrName) => _types.FirstOrDefault(t => t.Id == idOrName || t.Name == idOrName);
+    ItemCatalog.BaseType? Exact(string idOrName) =>
+        _byId.TryGetValue(idOrName, out var byId) ? byId : _byName.GetValueOrDefault(idOrName);
     ItemCatalog.BaseType Type(Item item) => _catalog.ByHash(item.TypeHash)
         ?? throw new InvalidOperationException($"Unknown vendor item 0x{item.TypeHash:x8}");
     public sealed record Quote(IReadOnlyList<Item> Rewards, IReadOnlyList<string> Recipes);
@@ -137,6 +158,26 @@ sealed partial class VendorRecipes
         }
         while (Has("Orb of Fusing") && Has("Chromatic Orb"))
         { Spend("Orb of Fusing", 1); Spend("Chromatic Orb", 1); Money("Jeweller's Orb"); recipes.Add("socket currency downgrade"); }
+
+        // Act 2 Bandit Respec: 20 Orbs of Regret + Amber/Jade/Lapis/Onyx Amulet -> Book of Reform (Oak/Kraityn/Alira/Eramir).
+        // Runs before CraftEquipment so Onyx/hybrid amulet recipes do not consume the amulet first.
+        (string AmuletId, string BookId)[] banditBooks =
+        [
+            ("Metadata/Items/Amulets/Amulet3", "Metadata/Items/QuestItems/SkillBooks/BanditRespecOak"),
+            ("Metadata/Items/Amulets/Amulet4", "Metadata/Items/QuestItems/SkillBooks/BanditRespecKraityn"),
+            ("Metadata/Items/Amulets/Amulet5", "Metadata/Items/QuestItems/SkillBooks/BanditRespecAlira"),
+            ("Metadata/Items/Amulets/Amulet7", "Metadata/Items/QuestItems/SkillBooks/BanditRespecEramir"),
+        ];
+        foreach (var (amuletId, bookId) in banditBooks)
+        {
+            if (Exact(bookId) is not { Supported: true } bookType) continue;
+            while (Has("Orb of Regret", 20) && Find(i => i.Type.Id == amuletId) is { } amulet)
+            {
+                Spend("Orb of Regret", 20);
+                Use("book of reform", amulet);
+                rewards.Add(ItemCatalog.Create(bookType));
+            }
+        }
 
         CraftEquipment(pool, rewards, recipes, rng, Has, Spend);
 

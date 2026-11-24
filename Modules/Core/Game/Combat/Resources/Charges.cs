@@ -35,7 +35,8 @@ public static partial class Game
         int quality = 0, bool? melee = null, bool primary = true, IReadOnlyDictionary<uint, int>? skillStats = null)
     {
         if (critical)
-            TryGainElusiveLocked(player, critical: true, kill: false, ProjectileWorldTime(player));
+            TryGainElusiveLocked(player, critical: true, kill: false, ProjectileWorldTime(player),
+                random: null, skillStats: spell ? null : skillStats);
         if (m.Rarity is MonsterRarity.Rare or MonsterRarity.Unique)
             QueueFlaskTrigger(player, FlaskEnchantments.Trigger.RareHit);
         Func<uint, int>? skill = null;
@@ -73,6 +74,7 @@ public static partial class Game
     public static void ChargesOnDeath(Player player)
     {
         ChargesOf(player).Die(); ClearSiphoningOnDeath(player);
+        if (SpiritCharges.TryGetValue(player, out var spirit)) ChangeSpiritCharges(player, spirit, 0, AreaTime(player));
     }
 
     // A hostile monster the player killed (MonsterKilled): its "on kill" gains, "on Killing a Frozen Enemy" too when the
@@ -88,6 +90,7 @@ public static partial class Game
         if (player.TinctureEffects.BurnStacks > 0) TinctureOnKillLocked(player, CharacterPlayerStats(player));
         TryGainElusiveLocked(player, critical: false, kill: true, now);
         ChargesOf(player).Enqueue(new ChargeEvent.Kill(m.Rarity, frozen, poisons));
+        SpiritChargeOnKill(player, AreaTime(player));
         SelfBuffsOnKill(player);
         CurseCharges(player, m, true);
     }
@@ -245,9 +248,9 @@ public static partial class Game
     {
         int priorContacts = player.RecentEnemyHits.Count(AreaTime(player));
         var stats = CharacterPlayerStats(player);
-        bool relevant = amount > 0 && (type == DamageType.Physical
-            || PlayerHitMitigation.ArmourPercent(player.Pools, type, name => name is var key ? stats.GetValueOrDefault(key) : 0) > 0
-                && DamageModel.Mitigate(amount, resistance, maxResistance) > 0);
+        bool relevant = amount > 0
+            && PlayerHitMitigation.ArmourPercent(player.Pools, type, stats.GetValueOrDefault) > 0
+            && (type == DamageType.Physical || DamageModel.Mitigate(amount, resistance, maxResistance) > 0);
         var armour = IncomingArmourLocked(player, relevant, priorContacts, stats);
         return MitigateTakenWithArmour(player, type, amount, resistance, maxResistance, armour.EffectiveArmour, stats);
     }
@@ -266,7 +269,8 @@ public static partial class Game
         var reduction = PlayerDamageReduction(player, stats);
         int resisted = type == DamageType.Physical ? amount : DamageModel.Mitigate(amount, resistance, maxResistance);
         int value = Math.Max(0, PlayerHitMitigation.AfterResistance(player.Pools, type, resisted,
-            reduction.Physical, reduction.Elemental, effectiveArmour, PlayerHitMitigation.ArmourPercent(player.Pools, type, Get))
+            reduction.Physical, reduction.Elemental, effectiveArmour, PlayerHitMitigation.ArmourPercent(player.Pools, type, Get),
+            imbalancedGuard: Get(Stat.KeystoneSacredBastion) != 0)
             + PlayerDamageTaken.Flat(type, attack, Get));
         if (type == DamageType.Physical) value = AntiquarianEffects.RangedPhysical(value, ranged, Get);
         double now = AreaTime(player);
@@ -280,7 +284,8 @@ public static partial class Game
     // its life regeneration (Path of Building: power 1 normal, 2 magic, 10 rare, 20 unique). warcries_have_infinite_power
     // (Bring the Battle) makes the power 999999 (PoB CalcPerform's override): the charges reach their maximum and the
     // regeneration its 25-power cap. Every warcry then runs the on-warcry effects (WarcryReleased). The other warcries'
-    // own buffs and exerted attacks remain separate, except Intimidating Cry (IntimidatingCry.cs).
+    // supported buffs are granted by ApplyWarcryBuffLocked, except Intimidating Cry, which has its own
+    // (IntimidatingCry.cs); their exerted attacks are still not modelled.
     // True when the skill was a warcry.
     public static bool UseWarcryInstance(Player player,
         ushort skillId, int effect)
@@ -293,7 +298,9 @@ public static partial class Game
     public static double WarcryCastSeconds(Player player, int effect, IReadOnlyDictionary<uint, int> playerStats,
         IReadOnlyDictionary<uint, int> own)
     {
-        long speed = Stat.WarcrySpeedPlusPct is var key ? (long)playerStats.GetValueOrDefault(key) + own.GetValueOrDefault(key) : 0;
+        long speed = (long)playerStats.GetValueOrDefault(Stat.WarcrySpeedPlusPct) + own.GetValueOrDefault(Stat.WarcrySpeedPlusPct)
+            + (Supports.Of(effect)?.Types.Contains(120) == true
+                ? (long)playerStats.GetValueOrDefault(Stat.RetaliationSkillSpeedPlusPct) + own.GetValueOrDefault(Stat.RetaliationSkillSpeedPlusPct) : 0);
         return Math.Max(TickSeconds, SkillsFor(player).CastTimeMs(effect) / 1000.0 / Math.Max(0.01, 1 + speed / 100.0) / PlayerActionFactor(player));
     }
 
@@ -312,7 +319,9 @@ public static partial class Game
         double castSeconds = WarcryCastSeconds(player, effect, playerStats, own);
         double until = AreaTime(player) + castSeconds;
         int epoch = player.ProjectileEpoch;
-        double duration = SkillDurationModifiers.Seconds(Own(Stat.BaseSkillEffectDuration), Player, Own, DurationKinds(player, effect));
+        double duration = SkillDurationModifiers.Seconds(Own(Stat.BaseSkillEffectDuration), Player, Own, DurationKinds(player, effect))
+            * SkillDurationModifiers.CallToArmsMore(Player);
+        bool callToArms = Player(Stat.KeystoneCallToArms) != 0;
         double buffEffect = Math.Max(0, 1 + ((long)Player(Stat.WarcryBuffEffectPlusPct) + Own(Stat.WarcryBuffEffectPlusPct)) / 100d);
         _ = AreaFrames.Start(async () =>
         {
@@ -332,9 +341,11 @@ public static partial class Game
                 Console.WriteLine($"[gateway] {SkillsFor(player).EffectId(effect)}: taunts {taunted} monster(s) within {radius} cells for {taunt:0.##} s");
             if (!enduring)
             {
-                if (SkillsFor(player).EffectId(effect) == "IntimidatingCry")
-                    if (player.ProjectileActive(epoch) && player.PlayerLife > 0)
-                        ApplyIntimidatingCryLocked(player, own, CharacterPlayerStats(player), now);
+                string effectId = SkillsFor(player).EffectId(effect) ?? "";
+                if (effectId == "IntimidatingCry")
+                    ApplyIntimidatingCryLocked(player, own, CharacterPlayerStats(player), now);
+                else
+                    ApplyWarcryBuffLocked(player, effectId, own, playerStats, here, radius, now, duration, buffEffect);
                 var warriors = skillId != 0 && IsGeneralsCry(player, effect)
                     ? GeneralsCryReleased(player, skillId, here, radius, epoch)
                     : Task.CompletedTask;
@@ -349,12 +360,12 @@ public static partial class Game
             double percentPerMinute = Math.Min(25, power) / 5d
                 * Own(Stat.EnduringCryLifeRegenerationRatePerMinutePctPer5PowerUpToCap)
                 * buffEffect;
-            player.EnduringCryRecovery.Begin(now, duration, player.PlayerMaxLife * percentPerMinute / 6000d);
+            if (!callToArms) player.EnduringCryRecovery.Begin(now, duration, player.PlayerMaxLife * percentPerMinute / 6000d);
             Console.WriteLine($"[gateway] Enduring Cry recovery: {power} power, {duration:0.###} seconds, "
                 + $"{percentPerMinute:0.###}% Life/min (Whaletooth included)");
             int charges = per > 0 ? power / per : 0;
             Console.WriteLine($"[gateway] Enduring Cry: {power} power within {radius} cells, {charges} endurance charge(s), {taunted} taunted");
-            if (charges > 0) ChargesOf(player).Enqueue(new ChargeEvent.Grant(ChargeType.Endurance, charges, $"Enduring Cry ({power} power)"));
+            if (charges > 0 && !callToArms) ChargesOf(player).Enqueue(new ChargeEvent.Grant(ChargeType.Endurance, charges, $"Enduring Cry ({power} power)"));
             await WarcryReleased(player, here, radius, epoch);
         });
         return true;

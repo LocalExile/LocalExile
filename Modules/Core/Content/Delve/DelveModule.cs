@@ -1,3 +1,4 @@
+using System.Collections.Concurrent;
 using System.Runtime.CompilerServices;
 using System.Text.Json;
 using GameServer.Core.Protocol.Instance;
@@ -20,7 +21,7 @@ public sealed partial class DelveModule : IModule
     public const ushort Hub = 0x8b9b;
     const string HubId = "Delve_Hub";
     /// <summary>Where a module saves: the account's equipment and the character's sulphite.</summary>
-    public const string EquipmentKey = "delve", SulphiteKey = "delve.sulphite", DepthKey = "delve.depth";
+    public const string EquipmentKey = "delve", SulphiteKey = "delve.sulphite", DepthKey = "delve.depth", ReturnAreaKey = "delve.return";
 
     /// <summary>Where the Crawler stands in the encampment, on the rails by the mine entrance, and its facing
     /// (placed live with /delve_crawler 408 310 90, 2026-10-30).</summary>
@@ -54,6 +55,30 @@ public sealed partial class DelveModule : IModule
     }
 
     readonly ConditionalWeakTable<IPlayer, State> _states = new();
+    readonly ConcurrentDictionary<string, (ushort Area, ulong Instance)> _lastWorldArea = new(StringComparer.OrdinalIgnoreCase);
+
+    /// <summary>Only towns, the player's own hideout, and waypoint campaign areas can be saved as a Delve return
+    /// destination — never maps, pinnacle boss recipes, Labyrinth areas, Delve areas, or another player's hideout.</summary>
+    public static bool IsReturnableArea(Player player, ushort areaHash)
+    {
+        if (areaHash is 0 or Hub or InstanceDelve.MineArea) return false;
+        return global::Game.IsReturnableWorldArea(player, areaHash);
+    }
+
+    public void RememberReturnArea(Player player, ushort areaHash, ulong instanceId = 0)
+    {
+        if (!IsReturnableArea(player, areaHash)) return;
+        _lastWorldArea[CharacterName(player)] = (areaHash, instanceId);
+        WorldOf(player).CharacterData.Change(ReturnAreaKey, _ => areaHash.ToString());
+    }
+
+    public (ushort Area, ulong Instance) ResolveReturnTarget(Player player)
+    {
+        (ushort Area, ulong Instance)? recent = _lastWorldArea.TryGetValue(CharacterName(player), out var r) ? r : null;
+        ushort? saved = ushort.TryParse(WorldOf(player).CharacterData.Get(ReturnAreaKey), out ushort s) ? s : null;
+        return global::Game.ResolveReturnWorldArea(player, recent, saved);
+    }
+
     /// <summary>The account's equipment, in the league.</summary>
     public static DelveProgress Equipment(ISavedData account) =>
         account.Get(EquipmentKey) is { } text ? JsonSerializer.Deserialize<DelveProgress>(text, Json) ?? new() : new();
@@ -99,11 +124,35 @@ public sealed partial class DelveModule : IModule
             var world = WorldOf(modPlayer);
             return [("0x0228 Delve resources and equipment", DelveData(world))];
         });
-        GameEvents.AreaHeader.Add(module.Manifest.Id, player => PlayerOf(player).AreaId switch
+        GameEvents.PlayerLeaving.Add(module.Manifest.Id, (player, why) =>
         {
-            "Delve_Main" => MineHeader(module, PlayerOf(player)),
-            HubId => new AreaHeader(null, [2]),
-            _ => null,
+            if (why == "disconnected") _lastWorldArea.TryRemove(CharacterName(player), out _);
+            return Task.CompletedTask;
+        });
+        GameEvents.AreaHeader.Add(module.Manifest.Id, player =>
+        {
+            var modPlayer = PlayerOf(player);
+            string character = CharacterName(player);
+            switch (modPlayer.AreaId)
+            {
+                case "Delve_Main":
+                    if (player.CameFrom is ushort fromMine and not 0)
+                        RememberReturnArea(player, fromMine,
+                            _lastWorldArea.TryGetValue(character, out var prevMine) && prevMine.Area == fromMine ? prevMine.Instance : 0);
+                    player.ReturnAreaHash = ResolveReturnTarget(player).Area;
+                    return MineHeader(module, modPlayer);
+                case HubId:
+                    if (player.CameFrom is ushort fromHub and not 0)
+                        RememberReturnArea(player, fromHub,
+                            _lastWorldArea.TryGetValue(character, out var prevHub) && prevHub.Area == fromHub ? prevHub.Instance : 0);
+                    else if (_lastWorldArea.TryGetValue(character, out var recent))
+                        RememberReturnArea(player, recent.Area, recent.Instance);
+                    return new AreaHeader(null, [2]);
+                default:
+                    if (IsReturnableArea(player, player.Layout.Hash))
+                        _lastWorldArea[character] = (player.Layout.Hash, player.InstanceNumber);
+                    return null;
+            }
         });
         GameEvents.Stats.Add(module.Manifest.Id, (Action<StatSheet>)(sheet =>
         {
@@ -183,11 +232,29 @@ public sealed partial class DelveModule : IModule
                 await world.NpcClose("0x0084 close NPC dialogue for Mine Encampment");
                 var player = talk.Player;
                 if (player.Layout.Hash != Hub)
+                {
+                    RememberReturnArea(player, player.Layout.Hash, player.InstanceNumber);
                     await ChangeArea(player,
                         new PendingTransfer(Hub, 0, false, AtWaypoint: true), $"{talk.Npc}: {talk.Option}");
+                }
                 return true;
             }
             return false;
+        });
+        GameEvents.Packet(InstanceDelve.ReturnToWorldId).Add(module.Manifest.Id, async (player, _) =>
+        {
+            if (player.Closed || player.LeavingArea || player.PendingTransfer is not null || player.PlayerLife == 0) return true;
+            if (player.Layout.Hash is not (InstanceDelve.MineArea or Hub)) return false;
+            var (dest, instance) = ResolveReturnTarget(player);
+            if (instance != 0 && await AreaInstances.Gone(player, dest, instance))
+                instance = 0;
+            if (player.Closed || player.LeavingArea || player.PendingTransfer is not null || player.PlayerLife == 0) return true;
+            bool atWaypoint = WaypointCatalog.Areas.Find(dest) is not null || HideoutCatalog.ByArea(dest) is not null;
+            Console.WriteLine($"[gateway] {player.Connection.Remote} <= 0x0186 Delve return to world 0x{dest:x4}" +
+                (instance != 0 ? $" instance {instance}" : ""));
+            await ChangeArea(player,
+                new PendingTransfer(dest, instance, false, AtWaypoint: atWaypoint, AtSpawn: !atWaypoint), "Delve return to world");
+            return true;
         });
         GameEvents.Packet(InstanceDelve.RouteId).Add(module.Manifest.Id, async (player, bytes) =>
         {

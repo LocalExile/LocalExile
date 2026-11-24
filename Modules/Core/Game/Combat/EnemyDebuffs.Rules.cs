@@ -65,7 +65,7 @@ public static partial class Game
     {
         public readonly Lock Gate = new();
         public int Scope;
-        public bool Stepped;
+        public bool Stepped, HadCursedCorpses;
         public readonly HashSet<uint> Changed = [];
         // Each monster's next timed change on the area's timers (the earliest one asked for).
         public readonly Dictionary<uint, double> Wakes = [];
@@ -84,13 +84,22 @@ public static partial class Game
     // The zones of the player's auras on enemies: an aura's by its definition (a BuffDefinitions row), the others past the
     // rows, a curse aura's by its skill.
     const ZoneKind EnemyAuraZones = ZoneKind.EnemyAuras;
-    const uint FleshZone = 0x10000, BlindZone = 0x10001, AegisBlindZone = 0x10002, CurseZone = 0x20000;
+    const uint FleshZone = 0x10000, BlindZone = 0x10001, AegisBlindZone = 0x10002, DoryaniZone = 0x10003, CurseZone = 0x20000;
+
+    // Doryani's Prototype: while its wearer lives, the hostile monsters in its aura keep his capped lightning resistance
+    // (EnemyDebuffsTick sets it; MonsterHitResistance replaces their own with it). 60 cells (6 metres) is the retail
+    // aura's reach. Stored with an offset so a 0% wearer resistance stays distinct from SetSourceValue's 0-removal.
+    const int DoryaniAuraRadius = 60;
+    const int DoryaniResistOffset = 1_000_000;
+    const string LightningResistEqualsYours = "nearby_enemies_lightning_resist_equal_to_yours";
 
     // The player's own side of the step: what every monster's step reads. Its Hash changes when any of it does.
     sealed record EnemyDebuffScope(bool Alive, IReadOnlyList<PassiveBuffAuras.Aura> Auras, bool Pride, (int Min, int Max) PrideValues,
-        int FleshRadius, int FleshPhysical, int TauntedTakenPct, int PerAilmentType, CurseAura[] Curses, IReadOnlyDictionary<uint, int>? CurseStats, int Hash);
+        int FleshRadius, int FleshPhysical, int? LightningEquals, int TauntedTakenPct, int PerAilmentType, CurseAura[] Curses,
+        IReadOnlyDictionary<uint, int>? CurseStats, uint[] CursedCorpses, IReadOnlyDictionary<ushort, double>? Impurities, int Hash);
 
-    static EnemyDebuffScope PrepareEnemyDebuffs(Player player, double now, IReadOnlyList<PassiveBuffAuras.Aura> current)
+    static EnemyDebuffScope PrepareEnemyDebuffs(Player player, double now, IReadOnlyList<PassiveBuffAuras.Aura> current,
+        DebuffSteps steps)
     {
         var auras = current.Where(a => a.Template != PassiveBuffAuras.BlindTemplate).ToList();
         int? blindRadius = PassiveBuffAuras.BlindRadius(current);
@@ -124,7 +133,20 @@ public static partial class Game
             if (flesh.Stance != "Sand")
                 fleshPhysical = AuraCatalog.FleshAndStonePhysicalTaken(flesh, player.Pools.AuraEffectPct, skills, Stats);
         }
+        var impurities = AddImpurityEnemyAuras(player, now, auras);
         var curses = CurseAuras(player, out var curseStats);
+        // Doryani's Prototype: its aura carries the wearer's own effective (capped) lightning resistance to the enemies
+        // around him, negative included (floored at -200% and capped at his max lightning resistance).
+        int? lightningEquals = alive && StatOf(playerStats, Stat.NearbyEnemiesLightningResistEqualToYours) > 0
+            ? GameServer.Core.World.DamageModel.Capped(
+                Resistance(player, GameServer.Core.World.DamageType.Lightning),
+                MaxResistance(player, GameServer.Core.World.DamageType.Lightning))
+            : null;
+        var cursedCorpses = alive && StatOf(playerStats, CursedCorpseBlast) > 0 ? OwnCursedCorpses(player, now).ToArray() : [];
+        if (cursedCorpses.Length > 0 || steps.HadCursedCorpses)
+            SyncZones(player, player.Id, ZoneKind.CursedCorpses, cursedCorpses.Select(c => (c.Id, KillExplosionRadius, c.At)),
+                new(ReachesHostileMonsters(player, body: false), Changed: id => MonsterDebuffsChanged(player, id.Value)));
+        steps.HadCursedCorpses = cursedCorpses.Length > 0;
         var aegis = PhysicalAegisStatus(player, now);
         int aegisReach = alive && aegis.Active && PhysicalAegisHasBlind(player, aegis) ? PhysicalAegisRadius(player, aegis) : 0;
         bool cursing = alive && !InTown(player);
@@ -132,6 +154,7 @@ public static partial class Game
         SyncZones(player, player.Id, EnemyAuraZones, !alive ? []
             : [.. auras.Select(a => ((uint)a.Definition, a.Radius, here)),
                 .. flesh is not null ? [(FleshZone, fleshRadius, here)] : Array.Empty<(uint, int, (int, int))>(),
+                .. lightningEquals is not null ? [(DoryaniZone, DoryaniAuraRadius, here)] : Array.Empty<(uint, int, (int, int))>(),
                 .. blindRadius is int blindAt and > 0 ? [(BlindZone, blindAt, here)] : Array.Empty<(uint, int, (int, int))>(),
                 .. aegisReach > 0 ? [(AegisBlindZone, aegisReach, here)] : Array.Empty<(uint, int, (int, int))>(),
                 .. cursing ? curses.Select(c => (CurseZone + c.Aura.SkillId, c.Radius, here)) : Array.Empty<(uint, int, (int, int))>()],
@@ -145,12 +168,15 @@ public static partial class Game
             hash.Add(a.Definition); hash.Add(a.Radius);
             foreach (var s in a.Stats) hash.Add(s);
         }
-        hash.Add(prideValues); hash.Add(fleshRadius); hash.Add(fleshPhysical);
+        hash.Add(prideValues); hash.Add(fleshRadius); hash.Add(fleshPhysical); hash.Add(lightningEquals);
+        if (impurities is not null)
+            foreach (var (row, until) in impurities) { hash.Add(row); hash.Add(until); }
         // A curse aura's application reads the player's stats.
         foreach (var c in curses) { hash.Add(c.Aura.SkillId); hash.Add(c.Radius); }
         if (curseStats is not null) hash.Add(System.Runtime.CompilerServices.RuntimeHelpers.GetHashCode(curseStats));
-        return new(alive, auras, pride is not null, prideValues, fleshRadius, fleshPhysical, player.EnemyDebuffs.TauntedDamageTakenPct,
-            perAilmentType, curses, curseStats, hash.ToHashCode());
+        return new(alive, auras, pride is not null, prideValues, fleshRadius, fleshPhysical, lightningEquals,
+            player.EnemyDebuffs.TauntedDamageTakenPct, perAilmentType, curses, curseStats, [.. cursedCorpses.Select(c => c.Id)],
+            impurities, hash.ToHashCode());
     }
 
     public static async Task EnemyDebuffsTick(Player player, double now)
@@ -166,8 +192,8 @@ public static partial class Game
             ushort[] currentNodes = [.. player.Character.Passives, .. player.Character.MainAscendancy.Allocated];
             var current = nodes.SequenceEqual(currentNodes) ? all
                 : PassiveBuffAuras.EnemyAurasFor(currentNodes, LeagueFor(player).HardMode, EnemyAuraActs);
-            var scope = PrepareEnemyDebuffs(player, now, current);
             var steps = DebuffStepsOf.GetOrCreateValue(player);
+            var scope = PrepareEnemyDebuffs(player, now, current, steps);
             uint[] ids;
             lock (steps.Gate)
             {
@@ -180,7 +206,7 @@ public static partial class Game
             var counts = new int[2];
             foreach (uint id in ids)
                 if (player.Area.Monsters.TryGetValue(id, out var m)) StepMonsterDebuffsLocked(player, scope, steps, id, m, now, bytes, counts);
-            ReconcileBlinds(player, now, counts);
+            ReconcileBlinds(player, now, scope.CursedCorpses, counts);
             if (counts[0] + counts[1] > 0)
                 Console.WriteLine($"[gateway] {player.Connection.Remote} enemy debuffs: {counts[0]} added, {counts[1]} removed (t={now:0.000})");
             return bytes.Count == 0 ? null : [.. bytes];
@@ -272,6 +298,8 @@ public static partial class Game
                 player.Area.Buffs.Set(id, new(aura.Definition, player.Id));
                 counts[0]++;
             }
+            if (scope.Impurities?.TryGetValue(aura.Definition, out double until) == true)
+                m.MarkSource(player.Id, ImpurityMark(aura.Definition)!, until);
             elemental += aura.Stats.Where(s => s.Key == elementalKey).Sum(s => s.Value);
         }
         double wake = double.PositiveInfinity;
@@ -290,6 +318,10 @@ public static partial class Game
         // Blood Stance: its full value here; a hit works out the falloff with the distance (FleshTaken).
         bool flesh = living && scope.FleshPhysical > 0 && In(FleshZone);
         (m.FleshFrom, m.FleshRadius) = flesh ? (player, scope.FleshRadius) : (null, 0);
+        // Doryani's Prototype: the monsters in its zone keep his lightning resistance until they leave it, he dies or
+        // takes the chest off (a hash change re-steps everyone). Offset keeps 0% distinct from SetSourceValue's removal.
+        m.SetSourceValue(player.Id, LightningResistEqualsYours,
+            living && scope.LightningEquals is int ownResist && In(DoryaniZone) ? ownResist + DoryaniResistOffset : 0);
         // Bottled Faith: consecrated ground created during its effect makes the enemies on it take more damage.
         int consecrated = living ? ConsecratedEnemyDamageTaken(player, id) : 0;
         m.TakenFromPlayer = ((taunted ? scope.TauntedTakenPct : 0) + consecrated, elemental, flesh ? scope.FleshPhysical : 0);
@@ -300,7 +332,10 @@ public static partial class Game
         Next(m.MaimedUntil); Next(m.HinderedUntil); Next(m.CoveredInAshUntil);
         foreach (double until in m.ExposureUntil) Next(until);
         foreach (var stack in m.Withered) Next(stack.Until);
-        foreach (var curse in m.Curses.All.Values) Next(curse.Until);
+        foreach (var curse in m.Curses.All.Values) { Next(curse.Until); Next(curse.AmplifiesAt); }
+        if (scope.Impurities is not null)
+            foreach (var (row, until) in scope.Impurities)
+                if (In(row)) Next(until);
         if (!double.IsFinite(wake)) return;
         lock (steps.Gate)
         {
@@ -321,12 +356,17 @@ public static partial class Game
             m.FleshRadius), MidpointRounding.AwayFromZero);
 
     // The blind auras: the hostile monsters in their zones that can be blinded.
-    static void ReconcileBlinds(Player player, double now, int[] counts)
+    static void ReconcileBlinds(Player player, double now, IReadOnlyList<uint> cursedCorpses, int[] counts)
     {
         bool alive = player.PlayerLife > 0;
         HashSet<uint> Inside(uint zone) => !alive ? [] : ZoneMembers(player, player.Id, EnemyAuraZones, zone).Select(e => e.Value)
             .Where(id => player.Area.Monsters.GetValueOrDefault(id) is { } m && m.Effects[Stat.CannotBeBlinded] == 0).ToHashSet();
-        foreach (var (id, _, blinded) in player.BlindAura.Reconcile(Inside(BlindZone), player.Area.Monsters.ContainsKey, () => 1))
+        var blindedByAura = Inside(BlindZone);
+        foreach (uint corpse in cursedCorpses)
+            foreach (var target in ZoneMembers(player, player.Id, ZoneKind.CursedCorpses, corpse))
+                if (player.Area.Monsters.GetValueOrDefault(target.Value) is { } enemy && enemy.Effects[Stat.CannotBeBlinded] == 0)
+                    blindedByAura.Add(target.Value);
+        foreach (var (id, _, blinded) in player.BlindAura.Reconcile(blindedByAura, player.Area.Monsters.ContainsKey, () => 1))
         {
             if (blinded) player.Area.Buffs.Set(id, new(FlaskGrounds.BlindedBuffRow, player.Id, Tag: (ushort)BuffTag.BlindAura));
             else player.Area.Buffs.Clear(id, FlaskGrounds.BlindedBuffRow, player.Id, tag: (ushort)BuffTag.BlindAura);

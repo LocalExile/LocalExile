@@ -39,6 +39,9 @@ Part of [Status](../Status.md); what to build next in this area is in
   class it lists), the Goblin Shaman Skin's town and hideout form (the server sends the morph, its model and
   animation set), Alternate Charge Skins (the charge buffs name the skin's art), and a portal effect on a Portal
   Scroll's portal, which is listed twice so that a slow client cannot miss it and is restyled by a pick while it stands.
+  Verified live 2026-11-22: Flask Effect slots (26-30, one per flask cell) restyle that cell's Mageblood flask buffs
+  and flask phasing; Invisible Flask Effect hides them, at once when picked or emptied. A running utility flask's buff
+  is sent again the same way, not yet checked by eye.
   Code: `InstanceMicrotransactions.cs`, `Microtransactions.cs` (`MtxCatalog`, `CosmeticEffects`), Gateway
   (`AnswerMtxRequest`, `PickCosmetic`, `Looks`, `CosmeticStats`), `CharacterSaves.Cosmetics`, `PetObject`,
   `SpawnPets`, `StepPetFollow`, `SkillSlots`.

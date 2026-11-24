@@ -42,6 +42,7 @@ public static class CharacterSaves
         [JsonIgnore(Condition = JsonIgnoreCondition.WhenWritingNull)] public int? RequiredLevel { get; init; }
         [JsonIgnore(Condition = JsonIgnoreCondition.WhenWritingNull)] public byte? RelicStyle { get; init; }
         [JsonIgnore(Condition = JsonIgnoreCondition.WhenWritingNull)] public ChartData? Chart { get; init; }
+        [JsonIgnore(Condition = JsonIgnoreCondition.WhenWritingNull)] public string? Note { get; init; }
     }
 
     public sealed record SavedPlacement(uint Id, byte X, byte Y, SavedItem Item);
@@ -294,7 +295,12 @@ public static class CharacterSaves
 
     /// <summary>Records the character's inventories and its start weapon still on the ground, keeping the rest of the save.</summary>
     public static void SetInventories(string character, Dictionary<byte, List<SavedPlacement>> inventories, SavedItem? startWeapon = null) =>
-        Update(character, s => s with { Inventories = inventories, StartWeapon = startWeapon });
+        Saves.Atomically(() =>
+        {
+            uint? unsavedXp = UnsavedExperience.TryGetValue(character, out uint xp) ? xp : null;
+            if (!Saves.PutCharacterInventories(character, inventories, startWeapon, unsavedXp))
+                Write(character, new Save(inventories, Experience: unsavedXp, StartWeapon: startWeapon));
+        });
 
     /// <summary>The character's level: from its saved experience. The account's level (Auth, the ticket's) is only a copy
     /// for the character list, which a failed update at a level-up leaves behind; it counts only for a save without
@@ -404,7 +410,7 @@ public static class CharacterSaves
         {
             // Sample inside the write transaction: a queued flush must not restore XP captured before a level reset.
             if (!UnsavedExperience.TryGetValue(character, out uint xp)) return;
-            if (Saves.LoadCharacter(character) is { } save) Write(character, save with { Experience = xp });
+            Saves.PutCharacterExperience(character, xp);
             flushed = xp;
         });
         if (flushed is { } saved)
@@ -423,6 +429,73 @@ public static class CharacterSaves
     /// <summary>Drops a character's unsaved experience without saving it: its save is gone (deleted), and a new character
     /// of that name must not get it.</summary>
     public static void ForgetExperience(string character) => UnsavedExperience.TryRemove(character, out _);
+
+    /// <summary>Read-only character directory entry from <c>account_characters</c> combined with saved experience and
+    /// ascendancy (for directory/age/ladder queries).</summary>
+    public sealed record CharacterSummary(string Name, CharacterClass Class, int Level, uint Experience, string League,
+        string AreaId, DateTimeOffset CreatedUtc, bool HardcoreDead, string? Ascendancy, string? AscendancyFamily = null);
+
+    static DateTimeOffset ParseUtc(string text)
+    {
+        try
+        {
+            return DateTimeOffset.Parse(text, System.Globalization.CultureInfo.InvariantCulture, System.Globalization.DateTimeStyles.RoundtripKind);
+        }
+        catch (Exception e) when (e is FormatException or OverflowException)
+        {
+            throw new UnreadableSaveException(Saves.Db.Path, $"character timestamp in {Saves.Db.Path} can't be read ({e.Message})", e);
+        }
+    }
+
+    static CharacterSummary ReadSummary(Microsoft.Data.Sqlite.SqliteDataReader r)
+    {
+        string name = r.GetString(0);
+        uint xp = UnsavedExperience.TryGetValue(name, out uint unsaved) ? unsaved : (uint)Math.Max(0L, r.GetInt64(3));
+        return new(name, (CharacterClass)r.GetInt64(1), checked((int)r.GetInt64(2)), xp, r.GetString(4), r.GetString(5),
+            ParseUtc(r.GetString(6)), r.GetInt64(7) != 0, r.IsDBNull(8) ? null : r.GetString(8),
+            r.IsDBNull(9) ? null : r.GetString(9));
+    }
+
+    public static CharacterSummary? LookupCharacter(string name)
+    {
+        if (string.IsNullOrWhiteSpace(name) || !Saves.IsOpen) return null;
+        return Saves.Db.Read(() =>
+        {
+            using var c = Saves.Db.Command(
+                "SELECT ac.name, ac.class, ac.level, coalesce(cs.experience, 0), ac.league, ac.area_id, " +
+                "ac.created_utc, ac.hardcore_death_utc IS NOT NULL, ca.ascendancy, ca.family " +
+                "FROM account_characters ac " +
+                "LEFT JOIN character_saves cs ON cs.name = ac.name AND cs.deleted_utc IS NULL " +
+                "LEFT JOIN character_ascendancies ca ON ca.save = cs.id " +
+                "WHERE ac.name = $v LIMIT 1",
+                ("$v", name.Trim()));
+            using var r = c.ExecuteReader();
+            return r.Read() ? ReadSummary(r) : null;
+        });
+    }
+
+    public static IReadOnlyList<CharacterSummary> TopLeagueCharacters(string league, int limit = 10)
+    {
+        if (string.IsNullOrWhiteSpace(league) || limit <= 0 || !Saves.IsOpen) return [];
+        return Saves.Db.Read(() =>
+        {
+            using var c = Saves.Db.Command(
+                "SELECT ac.name, ac.class, ac.level, coalesce(cs.experience, 0), ac.league, ac.area_id, " +
+                "ac.created_utc, ac.hardcore_death_league IS NOT NULL AND ac.hardcore_death_league = $league COLLATE NOCASE, " +
+                "ca.ascendancy, ca.family " +
+                "FROM account_characters ac " +
+                "LEFT JOIN character_saves cs ON cs.name = ac.name AND cs.deleted_utc IS NULL " +
+                "LEFT JOIN character_ascendancies ca ON ca.save = cs.id " +
+                "WHERE ac.league = $league COLLATE NOCASE OR ac.hardcore_death_league = $league COLLATE NOCASE " +
+                "ORDER BY ac.level DESC, coalesce(cs.experience, 0) DESC, ac.name COLLATE NOCASE ASC " +
+                "LIMIT $limit",
+                ("$league", league), ("$limit", limit));
+            using var r = c.ExecuteReader();
+            var list = new List<CharacterSummary>();
+            while (r.Read()) list.Add(ReadSummary(r));
+            return list;
+        });
+    }
 
     /// <summary>Sets (or clears) quest flags (QuestFlags.dat Ids) in the save and keeps the others, so flags another
     /// connection set meanwhile stay. Session flags (SessionQuestFlags.dat, e.g. a1q6-FairgravesAggro) are never saved. A
@@ -618,7 +691,7 @@ public static class CharacterSaves
         i.DefenceBaseRoll, i.Influences, i.Split, i.Synthesised, i.Foreseeing, i.ForeseeSeed, i.AlternateQualityType,
         i.OriginalItem is null ? null : ToSaved(i.OriginalItem, mods), i.Vestigial, i.HeistBlueprint)
         { SkinTransferSource = i.SkinTransferSource is null ? null : ToSaved(i.SkinTransferSource, mods), MemoryStrands = i.MemoryStrands, Intangibility = i.Intangibility, RequiredLevel = i.RequiredLevel,
-            RelicStyle = i.RelicStyle, Chart = i.Chart };
+            RelicStyle = i.RelicStyle, Chart = i.Chart, Note = i.Note };
 
     /// <summary>The item again, with its socketed gems and mods. A type, gem or mod the game data doesn't know throws
     /// <see cref="UnknownSavedItemException"/>: dropping it would lose it at the next save.</summary>
@@ -643,7 +716,7 @@ public static class CharacterSaves
             HeistBlueprint = s.HeistBlueprint, Chart = s.Chart,
             Foreseeing = s.Foreseeing, ForeseeSeed = s.ForeseeSeed, AlternateQualityType = s.AlternateQualityType,
             MemoryStrands = s.MemoryStrands, Intangibility = s.Intangibility,
-            RelicStyle = s.RelicStyle,
+            RelicStyle = s.RelicStyle, Note = s.Note,
         };
         if (s.Mods is not null) item = item with { Mods = [.. s.Mods.Select(m => FromSaved(m, catalog.Mods))] };
         // Repair the missing base socket on old ordinary items only if the saved implicit still grants it.

@@ -25,6 +25,31 @@ public sealed class DoedreSewersTests
     }
 
     [GameFilesFact]
+    public void Cesspool_arena_entrance_and_sewer_outlet_use_opposite_sides_of_the_room()
+    {
+        const string area = "2_8_2_2";
+        const string faceDoor = "Metadata/Monsters/Doedre/DoedreSewer/DoedreSewerFaceDoor";
+        foreach (uint seed in new uint[] { 698178759, 1208971859, 1611285441, 1 })
+        {
+            var layout = Assert.IsType<ServerLevels.Level>(ServerLevels.For(area, seed));
+            var door = Assert.Single(new QuestObjectTypes.AreaPlacements(area, seed, []).Of(faceDoor));
+            var fromTunnels = Assert.Single(layout.Exits, exit => exit.Label == "ArenaNameDoedre");
+            var sewerOutlet = Assert.Single(layout.Exits, exit => exit.Label == "MapStairAlternativeSewerOutlet");
+            var backToTunnels = Assert.Single(layout.Exits, exit => exit.Label == "%areaname%");
+            var fromWaypoint = Assert.Single(layout.Exits, exit => exit.Label == "Arena");
+
+            int DoorDistance(int x, int y) => Math.Abs(x - door.X) + Math.Abs(y - door.Y);
+            Assert.True(DoorDistance(sewerOutlet.Object.X, sewerOutlet.Object.Y) <
+                DoorDistance(backToTunnels.Object.X, backToTunnels.Object.Y),
+                $"Seed {seed}: the Sewer Outlet must be beside the face door that opens when Doedre dies.");
+            Assert.Equal((backToTunnels.Object.X, backToTunnels.Object.Y), fromTunnels.Target);
+            Assert.Equal((fromTunnels.Object.X, fromTunnels.Object.Y), backToTunnels.Target);
+            Assert.Equal((fromWaypoint.Object.X, fromWaypoint.Object.Y), sewerOutlet.Target);
+            Assert.Equal((sewerOutlet.Object.X, sewerOutlet.Object.Y), fromWaypoint.Target);
+        }
+    }
+
+    [GameFilesFact]
     public async Task Doedre_sewers_liquid_animations_use_kind_zero()
     {
         using var runtime = new Runtime();

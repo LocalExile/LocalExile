@@ -1,0 +1,10 @@
+<Project Sdk="Microsoft.NET.Sdk">
+
+  <!-- Smuggler's Caches as a module (Agents/docs/dev/modules.md). Everything else is in Directory.Build.props. -->
+
+  <ItemGroup>
+    <!-- The encounter's own open and its create bytes (HeistCacheTests). -->
+    <InternalsVisibleTo Include="GameServer.Gateway.Tests" />
+  </ItemGroup>
+
+</Project>

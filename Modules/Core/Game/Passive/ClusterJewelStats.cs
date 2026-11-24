@@ -1,3 +1,4 @@
+using GameServer.Core;
 using GameServer.Core.Protocol.Instance;
 
 
@@ -38,15 +39,76 @@ public static class ClusterJewelStats
         [Stat.LocalAfflictionJewelSmallNodesGrantChaosResistancePct] = Stat.BaseChaosDamageResistancePct,
         [Stat.LocalAfflictionJewelSmallNodesGrantElementalResistancePct] = Stat.BaseResistAllElementsPct,
         [Stat.LocalAfflictionJewelSmallNodesGrantDamagePlusPct] = Stat.DamagePlusPct,
+        [Stat.LocalAfflictionJewelSmallNodesGrantDamageOverTimePlusPct] = Stat.DamageOverTimePlusPct,
         [Stat.LocalAfflictionJewelSmallNodesGrantAttackSpeedPlusPct] = Stat.AttackSpeedPlusPct,
-        [Stat.LocalAfflictionJewelSmallNodesGrantBaseCastSpeedPlusPct] = Stat.Of("base_cast_speed_%"),
+        [Stat.LocalAfflictionJewelSmallNodesGrantBaseCastSpeedPlusPct] = Stat.BaseCastSpeedPlusPct,
+        [Stat.LocalAfflictionJewelSmallNodesGrantAttackAndCastSpeedPlusPctWhileAffectedByAHerald] =
+            Stat.AttackAndCastSpeedPlusPctWhileAffectedByAHerald,
+        [Stat.LocalAfflictionJewelSmallNodesGrantAttackAndCastSpeedPlusPctWithChannellingSkills] =
+            Stat.AttackAndCastSpeedPlusPctWithChannellingSkills,
+        [Stat.LocalAfflictionJewelSmallNodesGrantAttackAndCastSpeedPlusPctWithPhysicalSkills] =
+            Stat.AttackAndCastSpeedPlusPctWithPhysicalSkills,
+        [Stat.LocalAfflictionJewelSmallNodesGrantAttackAndCastSpeedPlusPctWithFireSkills] = Stat.AttackAndCastSpeedPlusPctWithFireSkills,
+        [Stat.LocalAfflictionJewelSmallNodesGrantAttackAndCastSpeedPlusPctWithColdSkills] = Stat.AttackAndCastSpeedPlusPctWithColdSkills,
+        [Stat.LocalAfflictionJewelSmallNodesGrantAttackAndCastSpeedPlusPctWithLightningSkills] =
+            Stat.AttackAndCastSpeedPlusPctWithLightningSkills,
+        [Stat.LocalAfflictionJewelSmallNodesGrantAttackAndCastSpeedPlusPctWithChaosSkills] = Stat.AttackAndCastSpeedPlusPctWithChaosSkills,
+        [Stat.LocalAfflictionJewelSmallNodesGrantAttackAndCastSpeedPlusPctWithElementalSkills] =
+            Stat.AttackAndCastSpeedPlusPctWithElementalSkills,
         [Stat.LocalAfflictionJewelSmallNodesGrantManaRegenerationPlusPct] = Stat.ManaRegenerationRatePlusPct,
         [Stat.LocalAfflictionJewelSmallNodesGrantPctLifeRegenerationPerMinute] = Stat.LifeRegenerationRatePerMinutePct,
         [Stat.LocalAfflictionJewelSmallNodesGrantBaseCriticalStrikeMultiplierPlus] = Stat.BaseCriticalStrikeMultiplierPlus,
+        [Stat.LocalAfflictionJewelSmallNodesGrantBaseElementalStatusAilmentDurationPlusPct] = Stat.BaseElementalStatusAilmentDurationPlusPct,
+        [Stat.LocalAfflictionJewelSmallNodesGrantBaseAuraAreaOfEffectPlusPct] = Stat.BaseAuraAreaOfEffectPlusPct,
+        [Stat.LocalAfflictionJewelSmallNodesGrantCurseAreaOfEffectPlusPct] = Stat.CurseAreaOfEffectPlusPct,
+        [Stat.LocalAfflictionJewelSmallNodesGrantBaseSkillAreaOfEffectPlusPct] = Stat.BaseSkillAreaOfEffectPlusPct,
+        [Stat.LocalAfflictionJewelSmallNodesGrantBaseProjectileSpeedPlusPct] = Stat.BaseProjectileSpeedPlusPct,
+        [Stat.LocalAfflictionJewelSmallNodesGrantSigilTargetSearchRangePlusPct] = Stat.SigilTargetSearchRangePlusPct,
+        [Stat.LocalAfflictionJewelSmallNodesGrantWarcryDurationPlusPct] = Stat.WarcryDurationPlusPct,
+        [Stat.LocalAfflictionJewelSmallNodesGrantMinionAttackAndCastSpeedPlusPct] = Stat.MinionAttackAndCastSpeedPlusPct,
+        [Stat.LocalAfflictionJewelSmallNodesGrantMinionAttackAndCastSpeedPlusPctWhileYouAreAffectedByAHerald] =
+            Stat.MinionAttackAndCastSpeedPlusPctWhileYouAreAffectedByAHerald,
+        [Stat.LocalAfflictionJewelSmallNodesGrantMinionLifeRegenerationRatePerMinutePct] = Stat.MinionLifeRegenerationRatePerMinutePct,
+        [Stat.LocalAfflictionJewelSmallNodesGrantTrapAndMineThrowingSpeedPlusPct] = Stat.TrapAndMineThrowingSpeedPlusPct,
+        [Stat.LocalAfflictionJewelSmallNodesGrantSummonTotemCastSpeedPlusPct] = Stat.SummonTotemCastSpeedPlusPct,
+        [Stat.LocalAfflictionJewelSmallNodesGrantChargesGainedPlusPct] = Stat.ChargesGainedPlusPct,
     };
 
-    const string NotablePrefix = "local_affliction_notable_";
+    const string NotableIdPrefix = "affliction_notable_";
+    const string NotablePrefix = "local_" + NotableIdPrefix;
     const string KeystonePrefix = "local_jewel_expansion_keystone_";
+    static Dictionary<uint, string> NotableIds = [];
+
+    public static void LoadClusterJewelStatsData()
+    {
+        static string Key(string id) => string.Concat(id.Where(char.IsAsciiLetterOrDigit));
+
+        var ids = ClientTables.Table("PassiveSkills").Select(row => row.Text("Id")).OfType<string>()
+            .Where(id => id.StartsWith(NotableIdPrefix, StringComparison.Ordinal)).ToHashSet(StringComparer.Ordinal);
+        // Item stat IDs omit punctuation that the corresponding passive rows sometimes retain.
+        var aliases = ids.GroupBy(Key, StringComparer.Ordinal).Where(rows => rows.Count() == 1)
+            .ToDictionary(rows => rows.Key, rows => rows.Single(), StringComparer.Ordinal);
+        var result = new Dictionary<uint, string>();
+        var names = Program.Stats.Names;
+        for (int row = 0; row < names.Count; row++)
+        {
+            string stat = names[row];
+            if (!stat.StartsWith(NotablePrefix, StringComparison.Ordinal)) continue;
+            string suffix = stat[NotablePrefix.Length..] switch
+            {
+                "arcane_focus" => "arcane_adept",
+                "summer_commander" => "fiery_commander",
+                "winter_commander" => "icy_commander",
+                "grounded_commander" => "shocking_commander",
+                var id => id,
+            };
+            string candidate = NotableIdPrefix + suffix;
+            uint statId = (uint)row + 1;
+            if (ids.Contains(candidate)) result[statId] = candidate;
+            else if (aliases.TryGetValue(Key(candidate), out string? alias)) result[statId] = alias;
+        }
+        NotableIds = result;
+    }
 
     // The item's local stat and the PassiveSkills ID sometimes use different names.
     public static PassiveTree.Node? Keystone(Item jewel, PassiveTree? tree = null)
@@ -164,17 +226,8 @@ public static class ClusterJewelStats
     static IEnumerable<(uint Key, int Value)> Notable(Item jewel, int order)
     {
         var notables = Notables(jewel);
-        if (order >= notables.Count) yield break;
-        string suffix = Program.Stats.Name(notables[order])[NotablePrefix.Length..] switch
-        {
-            "arcane_focus" => "arcane_adept",
-            "summer_commander" => "fiery_commander",
-            "winter_commander" => "icy_commander",
-            "grounded_commander" => "shocking_commander",
-            var id => id,
-        };
-        string row = "affliction_notable_" + suffix;
-        if (Program.Passives.FindById(row) is not { } node) yield break;
+        if (order >= notables.Count || !NotableIds.TryGetValue(notables[order], out string? id)
+            || Program.Passives.FindById(id) is not { } node) yield break;
         foreach (var (key, value) in node.Stats) yield return (key, value);
     }
 }
