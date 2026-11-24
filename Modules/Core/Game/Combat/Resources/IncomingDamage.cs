@@ -2,6 +2,39 @@ using GameServer.Core.World;
 
 public static partial class Game
 {
+    static void ApplySelfHitLocked(Player player, DamagePacket hit, double now)
+    {
+        var stats = PlayerStatValues(player);
+        int Get(uint stat) => stats.GetValueOrDefault(stat);
+        if (player.Immune || Get(Stat.BaseCannotBeDamaged) != 0) return;
+        using var defenceTime = FortificationOf(player).Capture(now);
+        var shifted = PlayerDamageTaken.Shift(hit, Get);
+        var immune = PlayerImmunities(player, stats);
+        bool usesArmour = shifted.Components.Any(c => !immune.Contains(c.Type)
+            && PlayerHitMitigation.ArmourPercent(player.Pools, c.Type, Get) > 0);
+        var armour = IncomingArmourLocked(player, usesArmour, player.RecentEnemyHits.Count(now), stats);
+        var taken = shifted.Select((type, range) =>
+        {
+            int damage = immune.Contains(type) ? 0 : MitigateTakenWithArmour(player, type, (int)range.Min,
+                Resistance(player, type), MaxResistance(player, type), armour.EffectiveArmour, stats, attack: false);
+            return new(damage, damage);
+        });
+        RecoupHitLocked(player, taken, now, stats);
+        PreventedDamageOf(player).Add(now, shifted[DamageType.Physical].Min - taken[DamageType.Physical].Min);
+        long lifeBefore = player.PlayerLife;
+        int toLife = DamagePlayerHitTyped(player, (int)taken[DamageType.Physical].Min,
+            ActorScale.Saturate((long)(taken.MaxTotal - taken[DamageType.Physical].Min - taken[DamageType.Chaos].Min)),
+            (int)taken[DamageType.Chaos].Min, now, stats, taken);
+        player.PlayerLife = (uint)Math.Max(0, lifeBefore - toLife);
+        TrimLeechLocked(player);
+        RecordIncomingHitLocked(player, now, spell: false, blocked: false, suppressed: false,
+            lifeDamage: toLife, damaged: taken.MaxTotal > 0, enemy: false);
+        RecentHitLifeLossOnHitLocked(player, now);
+        UnhingedHitRecoveryLocked(player, now, stats);
+        if (player.PlayerLife == 0) { player.InvalidateIncomingHits(); ClearAntiquarianOnDeath(player); }
+        RecordHardcoreDeath(player);
+    }
+
     public static bool ChaosDamageBypassesEnergyShield(Player player, IReadOnlyDictionary<uint, int> stats)
     {
         int Get(uint key) => stats.GetValueOrDefault(key);
@@ -169,11 +202,14 @@ public static partial class Game
         int nonChaosAbsorbed = Math.Min(nonChaosEligible, absorbed);
         int physicalEligible = physical - (int)((long)physical * bypass / 100);
         int physicalAbsorbed = Math.Min(physicalEligible, nonChaosAbsorbed);
-        if (!wasBroken && player.Ward.Broken
-            && player.Antiquarian.GrantAdrenaline(now, Get(AntiquarianEffects.AdrenalineSource)))
+        if (!wasBroken && player.Ward.Broken)
         {
-            player.Pools = PoolsFor(player, player.Pools.Level);
-            player.ApplyMovementSpeed();
+            if (player.Antiquarian.GrantAdrenaline(now, Get(AntiquarianEffects.AdrenalineSource)))
+            {
+                player.Pools = PoolsFor(player, player.Pools.Level);
+                player.ApplyMovementSpeed();
+            }
+            EndOnWardBreakLocked(player, now);
         }
         return (physical - physicalAbsorbed, Math.Max(0, other - (nonChaosAbsorbed - physicalAbsorbed)),
             Math.Max(0, chaos - (absorbed - nonChaosAbsorbed)));

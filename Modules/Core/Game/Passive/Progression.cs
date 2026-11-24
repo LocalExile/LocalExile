@@ -168,6 +168,7 @@ public static partial class Game
         sources = WithElusive(player, sources);
         sources = WithTinctures(player, sources);
         sources = WithAlchemistsGenius(player, sources);
+        AddBannerAuraStats(player, sources);
         sources = WithLinks(player, GameEvents.WithPlayerStatSources(player, WithQuestStats(player, WithAntiquarian(player, WithFortification(player, WithCharges(player, WithSupportGemBuffs(player, sources))), equipment, inactive))));
         if (sources.GetValueOrDefault(Stat.MovementSpeedPlusPctPerNearbyEnemy) is int perEnemy and not 0)
             sources[Stat.BaseMovementVelocityPlusPct] = ActorScale.Saturate((long)sources.GetValueOrDefault(Stat.BaseMovementVelocityPlusPct)
@@ -176,7 +177,7 @@ public static partial class Game
         if (player.Frames.Area is { } statArea) statArea.AddStatBuffs(new EntityId(player.Id), sources);
         AddWarcryStats(player, sources);
         sources = WithSummonBuffs(player, sources);
-        sources = WithRighteousFireSpellBonus(player, sources);
+        sources = WithRighteousFireBonuses(player, sources);
         sources = WithSpreadPoisonRegeneration(player, sources);
         if (sources.GetValueOrDefault(Stat.AdditiveModifiersToMinionAttackSpeedAlsoAffectYou) != 0)
             sources[Stat.AttackSpeedPlusPct] = ActorScale.Saturate((long)sources.GetValueOrDefault(Stat.AttackSpeedPlusPct)
@@ -1116,7 +1117,10 @@ public static partial class Game
         List<AuraCatalog.Aura> auras;
         auras = AffectingAuras(player);
         var minionAuras = SelectMinionAuras(player, player.Id, auras, bonus.AuraEffectPct);
-        var aura = AuraCatalog.Bonus(auras.Where(a => a.AffectsSelf), bonus.AuraEffectPct, SkillsFor(player), Stats);
+        int auraPerHerald = sources.GetValueOrDefault(Stat.AuraEffectOnSelfFromSkillsPlusPctPerHeraldEffectingYou);
+        var ownAuraProjection = WithHeraldScaledOwnAuras(auras, SkillsFor(player), auraPerHerald,
+            auraPerHerald == 0 ? 0 : ActiveHeraldCount(auras));
+        var aura = AuraCatalog.Bonus(ownAuraProjection.Where(a => a.AffectsSelf), bonus.AuraEffectPct, SkillsFor(player), Stats);
         aura = WithTemporaryAuraBonus(auras, bonus.AuraEffectPct, aura);
         // Commander of Darkness ("You and nearby Allies have +30% to Elemental Resistances"): applies to the caster
         // even with zero active auras, deduplicated against any Commander resistance already counted by AuraCatalog.

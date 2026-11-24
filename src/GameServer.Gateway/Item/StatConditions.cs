@@ -548,6 +548,8 @@ public static class StatConditions
 
     /// <summary>The recent-event keys <see cref="Subject.Recent"/> carries, as this class uses them.</summary>
     public const string HitEnemyWithWeapon = "hit_enemy_with_weapon";
+    public const string HitUniqueEnemy = "hit_unique_enemy";
+    public const string SummonedTotem = "summoned_totem";
     public const string HitEnemy = "hit_enemy", KilledEnemy = "killed_enemy", KilledCursedEnemy = "killed_cursed_enemy",
         ShatteredEnemy = "shattered_enemy", FrozeEnemy = "froze_enemy", Crit = "crit", Blocked = "blocked",
         BlockedStun = "blocked_stun", TakenSavageHit = "taken_savage_hit", BeenHit = "been_hit", BeenStunned = "been_stunned",

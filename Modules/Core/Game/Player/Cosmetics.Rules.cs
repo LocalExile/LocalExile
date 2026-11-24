@@ -76,7 +76,7 @@ public static partial class Game
             var supported = SupportedSkill(player, expectedRelight.Skill);
             source = CurrentPlayerSkillSourceLocked(player, expectedRelight.Skill)!;
             if (!supported.RequirementsMet || supported.Effect < 0
-                || SkillsFor(player).EffectId(supported.Effect) != "RighteousFire"
+                || !IsRighteousFireEffect(SkillsFor(player).EffectId(supported.Effect))
                 || source is not { Active: true } || source.Effect != supported.Effect
                 || source.Identity != lifetime.Key || (gem is uint type && source.Gem != type))
                 return false;
