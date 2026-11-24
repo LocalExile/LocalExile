@@ -28,7 +28,7 @@ public static partial class Game
             }
             player.PetrifiedBlood.Activate(skillId, effect, Get(stats, PetrifiedBlood.LoseOverTimeSource),
                 Get(stats, PetrifiedBlood.PreventSource), Get(stats, PetrifiedBlood.LifeCostSource),
-                reservation.ManaPercent, LowLifeThresholdPct(CharacterPlayerStats(player)), player.NextBuff++,
+                context.Life ? reservation.LifePercent : reservation.ManaPercent, LowLifeThresholdPct(CharacterPlayerStats(player)), player.NextBuff++,
                 AreaTime(player), context.Life, context.Efficiency);
             ClampReservedResources(player);
             started = true;
@@ -56,11 +56,12 @@ public static partial class Game
         if (gem.Name is null || GemSkillInstanceDisabled(player, gem.Effect, gem.Id) is not null
             || SupportedReservationCost(player, gem.Id) is not { } reservation) return;
         var context = ReservationContext(player, gem.Id);
-        if (!ReservationBudgetFits(player, reservation.ManaPercent, context.Life, context.Efficiency)) return;
+        int reservationPct = context.Life ? reservation.LifePercent : reservation.ManaPercent;
+        if (!ReservationBudgetFits(player, reservationPct, context.Life, context.Efficiency)) return;
         var stats = PetrifiedBloodEffectStats(player, gem.Effect, gem.Level, gem.Quality);
         player.PetrifiedBlood.Activate(gem.Id, gem.Effect, Get(stats, PetrifiedBlood.LoseOverTimeSource),
             Get(stats, PetrifiedBlood.PreventSource), Get(stats, PetrifiedBlood.LifeCostSource),
-            reservation.ManaPercent, LowLifeThresholdPct(CharacterPlayerStats(player)), player.NextBuff++,
+            reservationPct, LowLifeThresholdPct(CharacterPlayerStats(player)), player.NextBuff++,
             AreaTime(player), context.Life, context.Efficiency);
         ClampReservedResources(player);
         player.AuraStatsDirty = true;

@@ -144,7 +144,8 @@ public sealed class IncomingDamagingAilments
         Func<uint, int> get, int bleedResistance, int bleedMaxResistance, int poisonResistance,
         int poisonMaxResistance, bool immune, bool physicalImmune, bool chaosImmune,
         Func<double, double, double> movingSeconds,
-        ref double nonChaosBypassCarry, ref double chaosBypassCarry, double dotTakenFactor = 1)
+        ref double nonChaosBypassCarry, ref double chaosBypassCarry, double dotTakenFactor = 1,
+        Func<int, double, int>? damageChaos = null)
     {
         Reconcile(get);
         from = Math.Max(from, last);
@@ -234,9 +235,11 @@ public sealed class IncomingDamagingAilments
             life += IncomingResourceDefences.DamageOverTime(shield, bleedRaw,
                 get(IncomingResourceDefences.BypassStat), until, ref nonChaosBypassCarry);
         if (poisonRaw > 0)
-            life += IncomingResourceDefences.DamageOverTime(shield, poisonRaw,
-                get(Stat.ChaosDamageDoesNotBypassEnergyShield) != 0 ? 0 : 100,
-                until, ref chaosBypassCarry);
+            life += damageChaos is not null
+                ? damageChaos(poisonRaw, until)
+                : IncomingResourceDefences.DamageOverTime(shield, poisonRaw,
+                    get(Stat.ChaosDamageDoesNotBypassEnergyShield) != 0 ? 0 : 100,
+                    until, ref chaosBypassCarry);
         return (int)Math.Min(int.MaxValue, life);
     }
 

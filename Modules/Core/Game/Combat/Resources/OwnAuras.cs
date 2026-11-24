@@ -244,6 +244,7 @@ public static partial class Game
             if (changed)
             {
                 if (!poolsRebuilt) player.Pools = PoolsFor(player, player.Pools.Level);
+                player.EnergyShield.SetMaximum(player.Pools.EnergyShield);
                 player.ApplyMovementSpeed();
                 player.PlayerMana = Math.Min(player.PlayerMana, (uint)UnreservedMana(player));
             }
@@ -421,6 +422,7 @@ public static partial class Game
         if (player.AuraStatsDirty)
         {
             player.Pools = PoolsFor(player, player.Pools.Level);
+            player.EnergyShield.SetMaximum(player.Pools.EnergyShield);
             player.ApplyMovementSpeed();
             player.PlayerMana = Math.Min(player.PlayerMana, (uint)UnreservedMana(player));
             player.PlayerLife = LifeReservation.Clamp(player.PlayerLife, LifeReservationOf(player));

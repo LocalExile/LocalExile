@@ -56,7 +56,7 @@ public static partial class Game
         int otherLife = protectsMana ? player.EnergyShield.Damage(other, true, at)
             : IncomingResourceDefences.Damage(player.EnergyShield, other, bypass, at);
         int nonChaosLife = (int)Math.Min(int.MaxValue, (long)physicalLife + otherLife);
-        int chaosLife = player.EnergyShield.Damage(chaos, true, at);
+        int chaosLife = player.EnergyShield.Damage(chaos, ChaosDamageBypassesEnergyShield(player, playerStats), at);
         var manaTypes = RemainingManaDamageTypes(types, physicalLife, otherLife);
         int manaPool = protectsMana ? (int)Math.Min(int.MaxValue, (long)player.PlayerMana + player.EnergyShield.Current) : (int)player.PlayerMana;
         int fromMana = PlayerDamageTaken.FromMana(nonChaosLife, chaosLife, manaTypes, manaPool, Get);
@@ -70,6 +70,48 @@ public static partial class Game
             PetrifiedBlood.PreventHitLifeLoss(player, (int)Math.Min(int.MaxValue, (long)nonChaosLife + chaosLife - fromMana), at), at);
         RecordRechargeLifeDamage(player, lifeDamage, at, playerStats);
         return lifeDamage;
+    }
+
+    /// <summary>Takes already-mitigated Chaos damage over time through Energy Shield (when not bypassed) and then from
+    /// Mana before Life (<c>chaos_damage_%_taken_from_mana_before_life</c> and shared Mana-before-Life), returning
+    /// the remaining Life loss.</summary>
+    public static int DamagePlayerChaosOverTime(Player player, int chaosDamage, double at, IReadOnlyDictionary<uint, int> playerStats)
+    {
+        if (chaosDamage <= 0) return 0;
+        int Get(uint key) => playerStats.GetValueOrDefault(key);
+        bool bypass = ChaosDamageBypassesEnergyShield(player, playerStats);
+        int remaining = IncomingResourceDefences.DamageOverTime(player.EnergyShield, chaosDamage, bypass ? 100 : 0,
+            at, ref player.ChaosDotBypassCarry);
+        if (remaining <= 0) return 0;
+        int manaPct = PlayerDamageTaken.ManaBeforeLifePct(GameServer.Core.World.DamageType.Chaos, Get);
+        if (manaPct <= 0)
+        {
+            player.ChaosDotManaCarry = 0;
+            return remaining;
+        }
+        bool protectsMana = Get(Stat.VirtualEnergyShieldProtectsMana) != 0 || Get(Stat.KeystoneEldritchBattery) != 0;
+        int manaPool = protectsMana
+            ? (int)Math.Min(int.MaxValue, (long)player.PlayerMana + player.EnergyShield.Current)
+            : (int)player.PlayerMana;
+        int fromMana;
+        if (manaPct >= 100)
+        {
+            player.ChaosDotManaCarry = 0;
+            fromMana = Math.Min(manaPool, remaining);
+        }
+        else
+        {
+            double share = remaining * (manaPct / 100.0) + player.ChaosDotManaCarry;
+            int desired = (int)Math.Floor(share + 1e-9);
+            player.ChaosDotManaCarry = share - desired;
+            fromMana = Math.Clamp(desired, 0, manaPool);
+        }
+        if (fromMana > 0)
+        {
+            int toMana = protectsMana ? player.EnergyShield.Damage(fromMana, false, at) : fromMana;
+            player.PlayerMana -= (uint)Math.Min(toMana, player.PlayerMana);
+        }
+        return remaining - fromMana;
     }
 
     // Mana-before-Life uses the remaining typed weights after Aegis, Ward and ES. In particular, physical damage
