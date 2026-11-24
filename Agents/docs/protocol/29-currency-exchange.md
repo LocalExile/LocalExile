@@ -29,7 +29,7 @@ All u32 are big-endian, and items are `BaseItemTypes` hashes. Counts are under 1
 | 0x2f5 | 0xf7 | u8: the order slots again |
 | 0x2f7 | 0xf8 | u32 item, u32 fee, bool: gold is want count × fee, or with the bool the count ÷ fee rounded up |
 | 0x2f9 | 0xfa | u16 BE `BackendErrors` row: 604 `InvalidRequest`, 608 `MarketDisabled`, 612 `TooManyOrders`, 615 `GenericOrderFailure`, 616 `CouldNotFindSellItems` |
-| 0x2ef | 0xf3 | debug log only ("CX query order returned …") |
+| 0x2ef | 0xf3 | `u32 BE queryId`, `u16 BE status`, `u32 BE bought`, `u32 BE sold` (read `0x1421b80e0`, logs `"CX query order returned …"`) |
 
 Until 0x2e9 arrives the window reads "The Currency Exchange is closed" (`+0x570`, `0x140b92550`).
 

@@ -98,10 +98,12 @@ Part of [Status](../Status.md); what to build next in this area is in
 - Direct vendor equipment purchases validate placement, preserve payment on failure and refresh equipped items; 3.29.3c belt purchase/swap protocol controls pass; rendered UI checks remain open.
 
 - Faustus's Currency Exchange works with built-in baseline chaos ratios when `liveeconomy` rates are absent,
-  distinct `0x2f9` refusal codes for gold/currency/slots/market, and cursor vs Ctrl-click `0x2ed` claim modes.
+  distinct `0x2f9` refusal codes for gold/currency/slots/market, `0x2ef` query results, and `0x2ed` claim modes.
   Spreads by volume, a market of 6 steps, fills limited per hour, orders filling while away and with time are written.
   Moving out of reach closes open NPC dialogue, shops, vendor sales (`0x00b9`/`0x0084` object 0), stashes and benches.
   See [29](../docs/protocol/29-currency-exchange.md).
+- Localized chat text (`0x18`), broadcasts (`0x19`), awards (`0x1d5`/`0x1d6`), notices (`0x2cc`) and trackers (`0x15f`).
+  Protocol encoders and initial emitters are wired (live check pending); docs: [30](../docs/protocol/30-hud-signals-and-timers.md).
 - Ruthless selects its native gem/reward restrictions and purchase costs; equipment uses local generation policy.
   Ordinary vendors offer no gems or jewellery; unlocked Siosa exchanges Uncarved Gemstones for eligible active gems.
   Support gems are excluded from deterministic rewards and the opening support chest.
