@@ -153,7 +153,7 @@ public static partial class Game
                 InflictMonsterBlind(player, monster.ObjectId, monster, now, 100, Get(Stat.BlindEffectPlusPct), BlindSeconds(Get), null);
             RecoverOnFreshCurseLocked(player, Get);
         }
-        if (!aura) monster.PresentationChanged?.Invoke();
+        if (!aura || casterId is not null) monster.PresentationChanged?.Invoke();
         return true;
     }
 

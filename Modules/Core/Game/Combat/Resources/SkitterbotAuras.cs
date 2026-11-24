@@ -48,14 +48,14 @@ public static partial class Game
         int radius = SkitterAuraRadius(fighter);
         var at = fighter.Monster.Walk.Position(now);
         int AilmentStat(uint stat) => SkitterAilmentStat(fighter, stat);
-        foreach (var monster in player.Area.Monsters.Values)
+        foreach (var (_, monster) in player.Area.MonstersNear(at, radius))
         {
             if (monster is not { Hostile: true, Dead: false, Life: > 0 } || Dist(monster.Walk.Position(now), at) > radius) continue;
             if (hex is not null)
             {
                 if (!ApplyCurseDataLocked(player, monster, hex.Skill, hex.Effect, hex.Gem.Stats, now,
                     aura: true, fighter.Player, casterId: fighter.Id))
-                    monster.Curses.Remove(fighter.Id, hex.Effect);
+                    RemoveEmittedHex(monster, fighter.Id, hex.Effect);
             }
             else monster.Ailments.ApplyAura(ailment, fighter.Id, .5, now, AilmentStat, n => monster.Effects[n]);
             state.Current.Add(monster);
