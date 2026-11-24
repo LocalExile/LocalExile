@@ -1,6 +1,7 @@
 using System.Net.Sockets;
 using GameServer.Core.Protocol.Instance;
 using GameServer.Core.Protocol.Login;
+using GameServer.Core.World;
 using GameServer.Modding;
 using Progression = GameServer.Core.World.Progression;
 
@@ -19,6 +20,7 @@ public static partial class Game
             {
                 CurseCharges(player, monster, death: true, now, fighter);
                 MinionOnslaughtOnKillLocked(player, fighter, now);
+                MinionRecoversFromPoisonedKillLocked(player, fighter, monster, now);
                 QueueGuardianWeaponOnKillLocked(player, fighter, monster.Walk.Position(now), now);
             }
         }
@@ -28,6 +30,28 @@ public static partial class Game
         if (!damageOverTime && monster.Hostile && fighter is not null && ReferenceEquals(source, fighter.Monster))
             ReleaseIntuitiveLinkLocked(player, fighter, monster.Walk.Position(now), now);
         if (hit.Life == 0 && source is not null) ResolveCursedMinionKillLocked(player, id, monster, source, skill, now);
+        if (hit.Life == 0 && !damageOverTime && monster.Hostile && fighter is not null && ReferenceEquals(source, fighter.Monster)
+            && skill is not null)
+            MinionDevourKillingBlowLocked(player, fighter, id, monster, skill, now);
+    }
+
+    static void MinionRecoversFromPoisonedKillLocked(Player player, GolemState.Golem fighter, SpawnedMonster victim, double now)
+    {
+        var body = fighter.Monster;
+        int percent = GolemStat(fighter.Player, Stat.MinionsRecoverPctMaximumLifeOnKillingPoisonedEnemy)
+            + body.Effects[Stat.RecoverPctMaximumLifeOnKillingPoisonedEnemy];
+        if (percent > 0 && victim.Poisons.Stacks(now) > 0)
+            RecoverMinionLifeLocked(player, fighter, (long)body.MaxLife * percent / 100);
+    }
+
+    static void RecoverMinionLifeLocked(Player player, GolemState.Golem fighter, long life)
+    {
+        var body = fighter.Monster;
+        if (life <= 0 || body.Dead || body.Life == 0 || body.Life >= body.MaxLife || !GolemCurrent(player, fighter)
+            || LifeRecovery.NonLeechBlocked(key => body.Effects[key])) return;
+        body.Life = (uint)Math.Min(body.MaxLife, body.Life + life);
+        if (body.Life == body.MaxLife) MinionLifeLeeches.Remove(fighter);
+        player.Minions.OutputQueue.Add(new([], null, fighter.Id, body, PlayerMinions.OutputKind.Life));
     }
 
     static void MinionOnslaughtOnKillLocked(Player player, GolemState.Golem fighter, double now)
@@ -150,6 +174,7 @@ public static partial class Game
         IModuleLifetime? rules)
     {
         bool Current() => CurrentGameWork && ReferenceEquals(CombatLifetime, rules);
+        if (Current()) await RunMinionDeathHits(player);
         var state = player.Minions;
         while (true)
         {
@@ -285,7 +310,15 @@ public static partial class Game
             else if (output.CreatesObject)
                 await SendWorldCreate(player, output.WorldId!.Value, Project, output.Log);
             else if (output.RemovesObject || output.Kind is PlayerMinions.OutputKind.Remove or PlayerMinions.OutputKind.QuestRoomRemove)
-                await SendWorldRemoval(player, output.WorldId ?? output.TargetId!.Value, output.Log, atGate: Project);
+            {
+                uint id = output.WorldId ?? output.TargetId!.Value;
+                await SendWorldRemoval(player, id, output.Log, atGate: () =>
+                {
+                    var records = Project();
+                    if (records is not null) player.ProjectileObjects.Remove(id);
+                    return records;
+                });
+            }
             else if (output.Kind is PlayerMinions.OutputKind.GolemAction or PlayerMinions.OutputKind.EnergyShield)
                 await SendWorldRecords(player, output.TargetId!.Value,
                     () => Project() is null ? null : actionRecords, output.Log);

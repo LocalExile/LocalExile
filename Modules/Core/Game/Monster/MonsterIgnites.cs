@@ -142,8 +142,7 @@ public static partial class Game
         {
             int cap = get(Stat.SupportRecentIgnitesIgniteDamagePerRecentIgnitePlusPctFinalMaximum);
             int recent = RecentlyIgnitedCount(player, ProjectileWorldTime(player));
-            long added = Math.Min((long)per * recent, cap > 0 ? cap : long.MaxValue);
-            double more = Math.Max(0, 1 + added / 100.0);
+            double more = ControlledBlazeIgniteFactor(per, cap, recent);
             settings = settings with { Min = settings.Min * more, Max = settings.Max * more,
                 CriticalMin = settings.CriticalMin * more, CriticalMax = settings.CriticalMax * more };
         }

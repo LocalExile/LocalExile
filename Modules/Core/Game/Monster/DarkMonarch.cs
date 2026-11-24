@@ -23,7 +23,7 @@ public static partial class Game
         "AnimatedWeapon" or "VaalAnimatedWeapon" => 19,
         "RagingSpirit" => 20,
         "Golem" => 24,
-        "Wolf" => 28,
+        "SpectralWolf" => 28,
         "Spider" => 32,
         "Purity" => 40,
         "HolyRelic" => 41,
@@ -42,7 +42,8 @@ public static partial class Game
 
     static ushort? DarkMonarchAllowedType(string family) => family switch
     {
-        "SpectreSkeleton" or "SpectreConstruct" => 0,
+        "SpectreSkeleton" or "SpectreConstruct" or "SpectreEnfeebleGround" or "SpectreVulnerabilityGround"
+            or "SpectreTemporalChainsGround" => 0,
         "VaalAbsolution" => 50,
         "VaalDomination" => 1,
         _ => DarkMonarchMinionFamily(family),
@@ -107,10 +108,11 @@ public static partial class Game
         if (saveSummons) SaveSummons(player);
     }
 
-    static int GolemRosterLimit(int skillBase, IReadOnlyDictionary<uint, int> playerStats)
+    static int GolemRosterLimit(IReadOnlyDictionary<uint, int> skillStats, IReadOnlyDictionary<uint, int> playerStats)
     {
         bool doubled = DarkMonarchDoubles("Golem", playerStats);
-        return GolemCatalog.Limit(skillBase, key => key == Stat.DoubleGolemLimit && doubled
-            ? 1 : GolemStat(playerStats, key));
+        int limit = GolemCatalog.Limit(GolemStat(skillStats, Stat.BaseNumberOfGolemsAllowed),
+            key => key == Stat.DoubleGolemLimit && doubled ? 1 : GolemStat(playerStats, key));
+        return SupportedMinionLimit(limit, skillStats);
     }
 }

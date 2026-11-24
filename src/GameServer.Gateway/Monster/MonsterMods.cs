@@ -500,6 +500,8 @@ public sealed class MonsterModCatalog
 
     public ModCatalog Mods => mods;
 
+    public bool HasVarietyTag(int row, string tag) => _varietyTags.GetValueOrDefault(row)?.Contains(tag) == true;
+
     /// <summary>The monster's tags for spawn weights: its MonsterVarieties TagsKeys, "default", "magic" / "rare" for
     /// its rarity (the client adds the same tag, 0x142205d50) and "not_part_of_pack" for a monster on its own.</summary>
     public IReadOnlySet<string> TagsOf(MonsterCatalog.Variety variety, MonsterRarity rarity, bool alone)

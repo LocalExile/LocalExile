@@ -70,10 +70,13 @@ public static partial class Game
             || !player.Area.Monsters.TryGetValue(targetId, out var current) || !ReferenceEquals(current, t)) return null;
         var at = m.Walk.Position(now);
         if (checkReach && Dist(at, t.Walk.Position(now)) > MinionReach(a, t) + 2) return null;
-        int hitAccuracy = accuracy ?? m.Mods.Effects.Accuracy(Monsters.BaseAccuracy(m.Level) ?? 0);
-        int evasion = UnderBlind(player, targetId, t.Mods.Effects.Evasion(Monsters.BaseEvasion(t.Level) ?? 0));
-        if (!DamageModel.Hits(DamageModel.AccuracyHitChance(evasion, hitAccuracy), random.Next(100)) || MonsterBlocks(t, random, spell: false))
-            return null;
+        if (!TauntPreventsAttackEvasion(player, t, now))
+        {
+            int hitAccuracy = accuracy ?? m.Mods.Effects.Accuracy(Monsters.BaseAccuracy(m.Level) ?? 0);
+            int evasion = UnderBlind(player, targetId, t.Mods.Effects.Evasion(Monsters.BaseEvasion(t.Level) ?? 0));
+            if (!DamageModel.Hits(DamageModel.AccuracyHitChance(evasion, hitAccuracy), random.Next(100))) return null;
+        }
+        if (MonsterBlocks(t, random, spell: false)) return null;
         var supported = BeastSupportedAttack(player, id, m, a, now);
         var offense = supported?.Attack.Damage ?? a.Damage;
         // A minion the player summoned takes his minion modifiers; a shrine's ally is not his to scale (GGG: "You are not
@@ -89,7 +92,7 @@ public static partial class Game
         bool ignorePhysical = MinionIgnoresPhysicalReduction(mitigated, m.Effects, t, random, supported?.Stats);
         int damage = MonsterTakesMitigated(t, mitigated, spell: false, now: now, ignorePhysicalReduction: ignorePhysical);
         var cull = player.Minions.Owns(id, m) ? MinionIgniteKillRule(StatSourceValues(player), t, now) : default;
-        int chaosDamage = MonsterHitChaosDamage(t, mitigated, spell: false, now, damage);
+        int chaosDamage = MonsterHitChaosDamage(t, mitigated, spell: false, now, damage, ignorePhysicalReduction: ignorePhysical);
         if (ApplyMonsterHitLocked(player, t, damage, rampageSource: null, playerStats: null, allyAt: at,
             cull: cull, cullPlayer: null, chaosDamage: chaosDamage) is not { } hit) return null;
         if (!t.Dead && damage > 0 && supported is not null && player.Beasts.Active is { } beast)

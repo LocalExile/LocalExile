@@ -24,6 +24,10 @@ public sealed class GolemState
         public double FreshMeatUntil;
         public double OnslaughtUntil;
         public double Regeneration;
+        public Flasks.Effects? RecoveryFlasks;
+        public UtilityFlasks.Effects? UtilityFlasks;
+        public StolenMods? LinkedModifiers;
+        public Dictionary<int, Queue<double>>? RecentSkillIgnites;
         public readonly EnergyShield ShieldPool = new();
         public uint Shield => ShieldPool.Current;
         public uint MaximumShield => ShieldPool.Maximum;
@@ -31,7 +35,7 @@ public sealed class GolemState
         public uint Target;
         public readonly Dictionary<uint, double> Taunts = [];
         public bool CorpseEmpowered;
-        public bool DeathBurstDone;
+        public bool DeathBurstDone, DeathEffectsApplied;
         public double WrathUntil, NextOrb;
         public int InputHash;
         public Dictionary<uint, int> Own = [], OwnerBuff = [], Player = [];
@@ -41,9 +45,12 @@ public sealed class GolemState
         public Dictionary<byte, Item> Equipment = [];
         public Dictionary<uint, int> Gear = [];
         public SkillCatalog.Unarmed? Weapon;
+        public Item? SkeletonWeapon;
         public double HolyRegenerationSince, HolyRegenerationUntil, HolyRegenerationPerSecond;
         public readonly Dictionary<int, Queue<double>> Charges = [];
         public Charges.State? CombatCharges;
+        public bool ChargesFollowOwner;
+        public SoulEaterState? DevouredSouls;
         public IReadOnlyList<GrantedSkill> Skills = [];
         public IReadOnlyList<Ability> Abilities = [];
         public Action? Pending;
@@ -53,20 +60,24 @@ public sealed class GolemState
     }
     public sealed record Ability(int Effect, ushort Skill, string Id, MonsterAttack Attack,
         IReadOnlyDictionary<uint, int> Stats, double Radius, double Cooldown, int Uses, double Contact,
-        SkillCatalog.MonsterProjectileInfo? Projectile = null, int Crit = 0);
+        SkillCatalog.MonsterProjectileInfo? Projectile = null, int Crit = 0)
+    {
+        public int? RepeatCriticalRoll { get; init; }
+    }
     public sealed record Action(Ability Ability, uint Target, SpawnedMonster? Victim, (int X, int Y) Aim, double ContactAt, int Generation)
     {
         public bool Started;
         public double At = ContactAt;
         public Ability? Original;
         public int RepeatIndex, RepeatsRemaining;
+        public int? RepeatCriticalRoll;
         public double UseDamageMore = 1, UseAilmentMore = 1;
     }
     public sealed record Hazard(int Effect, (int X, int Y) At, double Until, double Radius, double DamagePerSecond,
         GameServer.Core.World.DamageType Type, bool Follows = false, bool Wither = false,
         double UnitDamagePerSecond = 0, int NormalDamageIncrease = 0)
     {
-        public double LastAt;
+        public double LastAt, NextDischarge;
         public uint? Object;
         public readonly Dictionary<uint, double> Carry = [];
         public readonly Dictionary<uint, double> DamageCarry = [];

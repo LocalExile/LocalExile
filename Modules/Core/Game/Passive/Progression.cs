@@ -651,6 +651,18 @@ public static partial class Game
         foreach (var (key, value) in scalingStats.Concat(copiedSmallStats))
             if (AttributeModifiers.IsInput(key))
                 passiveAttributes[key] = passiveAttributes.GetValueOrDefault(key) + value;
+        var offhand = equipment.FirstOrDefault(e => e.Row == PlayerInventories.Offhand1).Item?.Item;
+        var shield = offhand is not null && catalog.ByHash(offhand.TypeHash)?.Class == "Shield" ? offhand : null;
+        bool passiveAegis = passives.GetValueOrDefault(Stat.MinionsGetShieldStatsInsteadOfYou) != 0;
+        var aegisItems = shield is null || passiveAegis ? [] : worn.Select(i => i.Item)
+            .Where(item => !ReferenceEquals(item, shield) && item.Mods.Any(mod =>
+                catalog.Mods.ByHash(mod.Hash)?.Stats.Any(stat => stat.Id == Stat.MinionsGetShieldStatsInsteadOfYou) == true))
+            .ToHashSet(ReferenceEqualityComparer.Instance);
+        IReadOnlyList<Item> ItemBonuses(IReadOnlyList<Item> activeItems)
+            => shield is not null && (passiveAegis || aegisItems.Count > 0 && activeItems.Any(aegisItems.Contains))
+                ? activeItems.Where(item => !ReferenceEquals(item, shield)).ToArray()
+                : activeItems;
+
         StatConditions.Subject ConditionSubject(IReadOnlyDictionary<uint, long> raw, IReadOnlyList<Item>? activeItems = null)
         {
             var attributes = AttributeInputs(raw).Apply(c.Strength + (player.God ? 1000 : 0),
@@ -677,13 +689,14 @@ public static partial class Game
         Dictionary<uint, long> RawAttributes(IEnumerable<Item> active)
         {
             var items = active.ToArray();
-            var raw = ItemModStats.RawAttributes(items, ItemsFor(player).Mods);
+            var itemBonuses = ItemBonuses(items);
+            var raw = ItemModStats.RawAttributes(itemBonuses, ItemsFor(player).Mods);
             foreach (var (name, value) in passiveAttributes) raw[name] = raw.GetValueOrDefault(name) + value;
             // Independent equipment-count modifiers settle before comparisons that read those final attributes.
             // Keep wide attribute inputs and use the same conditional view for qualification and final pools.
             for (int pass = 0; pass < 4; pass++)
             {
-                var next = ItemModStats.RawAttributes(items, ItemsFor(player).Mods, ConditionSubject(raw, items), Stats.Has);
+                var next = ItemModStats.RawAttributes(itemBonuses, ItemsFor(player).Mods, ConditionSubject(raw, items), Stats.Has);
                 foreach (var (name, value) in passiveAttributes) next[name] = next.GetValueOrDefault(name) + value;
                 bool same = raw.Count == next.Count && raw.All(p => next.TryGetValue(p.Key, out long value) && p.Value == value);
                 raw = next;
@@ -740,6 +753,7 @@ public static partial class Game
         // Kalandra's Touch: the opposite active ring's modifiers once more (RingReflections).
         active = AbyssJewels.Sources(active.Concat(RingReflections(equipment, i => !inactive.Contains(i.Id), catalog.Mods)),
             catalog).ToArray();
+        var itemBonuses = ItemBonuses(active);
         var rawAttributes = RawAttributes(active);
         // Qualification for this exact build is now known. Re-evaluate reservation-only conditions from that active set,
         // so an item's first action after a requirement change cannot use the previous inactive cache.
@@ -747,7 +761,7 @@ public static partial class Game
         var qualifiedSlotFlags = new Dictionary<string, bool>(conditionFlags);
         foreach (var (key, value) in ConditionalRings(equipment, active).Flags) qualifiedSlotFlags[key] = value;
         conditionFlags = qualifiedSlotFlags;
-        var curseInputs = SelfCurseConditionInputs(player, active, passives, conditionNow, recentEvents);
+        var curseInputs = SelfCurseConditionInputs(player, itemBonuses, passives, conditionNow, recentEvents);
         bool cursed = Stat.CursedByVulnerability is var cursedKey && curseInputs.GetValueOrDefault(cursedKey) != 0;
         auraEffects = StatConditions.AuraSet(AffectingAuras(player).Where(a => a.EffectId != "Vulnerability").Select(a => a.EffectId)
             .Concat(cursed ? ["Vulnerability"] : []));
@@ -770,7 +784,7 @@ public static partial class Game
         conditionFlags = RequalifySourcePhasing(player, conditionFlags, phaseInputs, recentEvents, auraEffects, conditionNow);
         conditionFlags = QualifiedEquipmentItemFlags(conditionFlags, equipment, catalog, active);
         int qualifiedItemReservationPercent = LifeReservation.ItemPercentStat is var itemReservationKey
-            ? ItemModStats.Sum(active, ItemsFor(player).Mods).GetValueOrDefault(LifeReservation.ItemPercentStat)
+            ? ItemModStats.Sum(itemBonuses, ItemsFor(player).Mods).GetValueOrDefault(LifeReservation.ItemPercentStat)
             : 0;
         sourcesKey = sourcesKey with
         {
@@ -784,7 +798,7 @@ public static partial class Game
         // cannot answer stays unmodelled and keeps its previous behaviour rather than counting wrongly.
         var conditionSubject = ConditionSubject(rawAttributes, active);
         var sources = ItemModStats.Plus(FoldPassiveConditions(passives, conditionSubject),
-            ItemModStats.Global(active, ItemsFor(player).Mods, Stats, conditionSubject));
+            ItemModStats.Global(itemBonuses, ItemsFor(player).Mods, Stats, conditionSubject));
         // The tree's base_devotion and the item's ..._per_10_devotion stats meet here: replace the latter with their
         // normal stat at floor(Devotion / 10) steps before the pools and panels read this view.
         DevotionStats.Apply(sources, Stats);
@@ -798,7 +812,7 @@ public static partial class Game
             if (chargeFlags.All(p => conditionFlags.TryGetValue(p.Key, out bool prior) && p.Value == prior)) break;
             conditionFlags = chargeFlags;
             sources = ItemModStats.Plus(FoldPassiveConditions(passives, ConditionSubject(rawAttributes, active)),
-                ItemModStats.Global(active, ItemsFor(player).Mods, Stats, ConditionSubject(rawAttributes, active)));
+                ItemModStats.Global(itemBonuses, ItemsFor(player).Mods, Stats, ConditionSubject(rawAttributes, active)));
             DevotionStats.Apply(sources, Stats);
             GrandSpectrum.Apply(sources, Stats);
         }
@@ -808,7 +822,7 @@ public static partial class Game
         foreach (var (name, value) in rawAttributes)
             sources[name] = AttributeModifiers.Signed(value);
         AbyssJewels.Count(active, catalog, Stats, sources);
-        ApplySocketedGhastlyEyeSpectreLimit(active, catalog, sources);
+        ApplySocketedGhastlyEyeBonuses(active, catalog, sources);
         var attributes = AttributeInputs(rawAttributes);
         var finalAttributes = attributes.Apply(c.Strength + (player.God ? 1000 : 0),
             c.Dexterity + (player.God ? 1000 : 0), c.Intelligence + (player.God ? 1000 : 0));
@@ -1076,10 +1090,11 @@ public static partial class Game
         };
         List<AuraCatalog.Aura> auras;
         auras = AffectingAuras(player);
+        var minionAuras = SelectMinionAuras(player, player.Id, auras, bonus.AuraEffectPct);
         var aura = AuraCatalog.Bonus(auras.Where(a => a.AffectsSelf), bonus.AuraEffectPct, SkillsFor(player), Stats);
         aura = WithTemporaryAuraBonus(auras, bonus.AuraEffectPct, aura);
         int sentinelChaos = 0;
-        foreach (var sentinel in DivineSentinelAurasReaching(player, player.Id))
+        foreach (var sentinel in minionAuras)
             foreach (var (key, value) in sentinel.Stats)
                 if (key == Stat.BaseChaosDamageResistancePct) sentinelChaos += value;
         int CatInput(uint key) => sources.GetValueOrDefault(key);
@@ -1263,7 +1278,8 @@ public static partial class Game
                 playerIncrease: pools.SpellCriticalStrikeChancePct), RawCritical)
         };
         // Only the active usable shield contributes. The alternate set and unmet requirements cannot grant block.
-        int shieldBlock = ActiveOffHand(player) is { Type.Class: "Shield" } shield
+        int shieldBlock = EquipmentInput(Stat.MinionsGetShieldStatsInsteadOfYou) == 0
+            && ActiveOffHand(player) is { Type.Class: "Shield" } shield
             ? EquipmentInput(Stat.BlockChanceFromEquippedShieldIsPct) is > 0 and var replacement
                 ? replacement : ItemModStats.ShieldBlock(ItemsFor(player), shield.Item, shield.Type) : 0;
         int rawAttack = pools.BlockChanceUncapped + shieldBlock;

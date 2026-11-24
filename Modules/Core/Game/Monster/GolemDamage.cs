@@ -130,6 +130,7 @@ public static partial class Game
             maximumBlock = Math.Clamp(player.Pools.BlockChanceMax, 0, DamageModel.BlockChanceCap);
             block = player.Pools.AttackBlockAtMaximum ? maximumBlock : player.Pools.BlockChance;
         }
+        if (!attack.Spell && effects[Stat.CannotBlockAttacks] != 0) block = 0;
         if (!attack.Secondary && random.Next(100) < Math.Clamp(block, 0, maximumBlock))
         {
             g.BlockedAt = now;
@@ -164,7 +165,7 @@ public static partial class Game
         bool spellHit = attack.Spell && !attack.Secondary;
         double taken = effects.DamageTaken(spellHit, m.Ailments.Magnitude(MonsterElementalAilments.Kind.Shock, now)
             + m.Ailments.ChillDamageTakenPct(now) + HitDebuffTaken(m, spellHit, now)) * MinionFortificationAt(player, g, now)
-            * CompanionshipDamageTaken(player, g, now);
+            * CompanionshipDamageTaken(player, g, now) * HallowedMonarchDamageTaken(link, currentPlayer);
         int prevented = 0;
         if (spellHit)
         {
@@ -192,8 +193,7 @@ public static partial class Game
             var resistance = MonsterHitResistance(m, type, default, now);
             if (type != DamageType.Physical)
                 resistance = resistance with { Maximum = Math.Clamp(resistance.Maximum
-                    + effects[Stat.Of($"base_maximum_{type.ToString().ToLowerInvariant()}_damage_resistance_%")]
-                    + (type != DamageType.Chaos ? effects[Stat.AdditionalMaximumAllElementalResistancesPct] : 0), 0, 90) };
+                    + effects[Stat.Of($"base_maximum_{type.ToString().ToLowerInvariant()}_damage_resistance_%")], 0, 90) };
             int value = (int)Math.Round(DamageModel.Mitigate(DamagePacket.Of(type, range.Min, range.Min), _ => resistance)[type].Min);
             if (type == DamageType.Physical)
             {
@@ -225,10 +225,12 @@ public static partial class Game
         }
         PublishEnergyShieldLocked(player, g);
         m.Life = (uint)Math.Max(0, (long)m.Life - damage);
+        StealMapChargesLocked(player, attacker, source, g, now, random);
         if (!elementalImmune)
             m.Ailments.Inflict(rolled, critical, m.MaxLife, now, n => n == Stat.NeverFreeze && attack.Ailments.NeverFreeze ? 1 : source.Effects[n], n => effects[n], random);
         if (m.Life > 0)
         {
+            if (mitigated.MinTotal > 0) SpectreDamagedLocked(player, g, now, random);
             GolemHostileAilmentsLocked(player, g, attacker, source, rolled, critical, !attack.Spell && !attack.Secondary, now,
                 (100 - prevented) / 100d);
             if (!attack.Secondary && mitigated.MinTotal > 0)
@@ -277,6 +279,8 @@ public static partial class Game
         return Math.Max(0L, (long)GolemStat(minion.Player, Stat.MinionPhysicalDamageReductionRating)
             + (minion.Definition.IsGolem ? GolemStat(minion.Player, Stat.GolemPhysicalDamageReductionRating) : 0)
             + effects[Stat.BasePhysicalDamageReductionRating])
+            * Math.Max(0, 1 + effects[Stat.PhysicalDamageReductionRatingPlusPct] / 100.0)
+            * Math.Max(0, 1 + effects[Stat.BasaltFlaskArmourPlusPctFinal] / 100.0)
             * Math.Max(0, 1 + effects[Stat.DeterminationAuraArmourPlusPctFinal] / 100.0)
             * Math.Max(0, 1 + effects[Stat.ArmourPlusPctFinalFromSeismicCryBuff] / 100.0);
     }
@@ -285,9 +289,18 @@ public static partial class Game
     {
         if (g.Monster.Dead && double.IsFinite(g.ReviveAt)) return;
         g.Monster.Dead = true; g.Monster.Life = 0; g.Monster.ActionGeneration++; g.Pending = null;
+        OwnedMinionDeathEffectsLocked(player, g, now);
+        ClearSharedMinionAuras(player, g.Id);
+        ClearMinionFlasksLocked(player, g, now);
+        ReconcileLinkedMinionModifiersLocked(player, g, now, dead: true);
         MinionLifeLeeches.Remove(g);
         MinionShieldLeeches.Remove(g);
         ClearSpectreArcaneSurgeLocked(player, g);
+        if (g.DevouredSouls is not null)
+        {
+            g.DevouredSouls = null;
+            player.Area.Buffs.Clear(g.Id, SoulEaterBuffRow, g.Id);
+        }
         MinionFortification.Remove(g);
         player.Area.Buffs.Clear(g.Id, FortificationBuffRow, g.Id);
         if (g.Definition.Kind == "Phantasm")

@@ -55,8 +55,10 @@ public static class HitReaction
     public static bool TryFlinch(SpawnedMonster m, StunHit hit, double now, Random random)
     {
         if (m.Life == 0 || m.Dead || m.Invulnerable || m.HitAnimations is not { Count: > 0 }) return false;
-        if (m.CannotBeStunned || m.Mods.Effects.CannotBeStunned || m.Effects.CannotBeStunned || now < m.StunImmuneUntil) return false;   // Unwavering / MonsterImplicitCannotBeStunned1
-        if (random.NextDouble() * 100 >= Chance(hit, m.MaxLife * Math.Max(.01, 1 + m.Mods.Effects[Stat.StunThresholdPlusPct] / 100d))) return false;
+        if (m.CannotBeStunned || m.Effects.CannotBeStunned || now < m.StunImmuneUntil) return false;
+        double threshold = m.MaxLife * Math.Max(.01, 1 + m.Effects[Stat.StunThresholdPlusPct] / 100d);
+        if (random.NextDouble() * 100 >= Chance(hit, threshold)) return false;
+        hit.OnStun?.Invoke();
         hit.OnStun?.Invoke();
         if (hit.Owner is { } owner)
         {

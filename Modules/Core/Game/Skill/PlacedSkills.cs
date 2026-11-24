@@ -433,6 +433,7 @@ public static partial class Game
                         context.Life, context.Efficiency)
                     {
                         LandAt = land, Landed = false, Offense = offense, TriggerRadius = TrapTriggerRadius(Get),
+                        Source = admission.Source,
                         EffectDurationSeconds = GolemStat(payload, Stat.SkillEffectDuration) / 1000d,
                     };
                     player.Placed.All.Add(id, placement);
@@ -625,6 +626,22 @@ public static partial class Game
             aim = target.Value?.Walk.Position(now) ?? placed.At;
         }
         bytes.World(placed.Id, InstanceProtocol.ActionStarted(placed.Id, placed.At.X, placed.At.Y, aim.X, aim.Y, 0x4000, 0xffff, player.MonsterOrderFlags));
+        if (currentSkill && placed.Source is { } source && SupportedSkill(player, placed.Skill) is var gem
+            && TriggerSummonSpell(player, gem))
+        {
+            var session = ProjectilesFor(player);
+            var lifetime = CombatLifetime;
+            bool Current()
+            {
+                if (!ReferenceEquals(lifetime, CombatLifetime) || !player.GemSourceLifetimes.IsCurrent(source)) return false;
+                var supported = SupportedSkill(player, placed.Skill);
+                var kind = PlacedKind(supported);
+                return kind.Mine == placed.Mine && (kind.Mine || kind.Trap) && SameLinkedSkillSource(gem, supported);
+            }
+            session.Enqueue(() => ReleaseTriggeredSummon(player, session, placed.Skill, placed.At, Current,
+                useProxyOrigin: true));
+            return;
+        }
         // A projectile spell leaves the trap or mine towards the nearest enemy as its own projectile, with the hit and
         // support modifiers of the supported skill, instead of an area hit around the object. The server draws it, as it
         // does a triggered spell's: no local input action predicts it.

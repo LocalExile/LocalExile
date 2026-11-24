@@ -107,6 +107,7 @@ public static partial class Game
     {
         if (m.Dead || m.Life == 0 || !m.Hostile) return;
         var e = m.Effects;
+        if (!blocked) StealMapChargesLocked(player, id, m, victim: null, now, random);
         if (!blocked && e[Stat.AddFrenzyChargeOnSkillHitPct] is int frenzyPct and > 0
             && RandomRolls.Chance(frenzyPct, 100, random))
             GrantMonsterChargeLocked(player.Area, id, m, ChargeType.Frenzy, now);
@@ -127,6 +128,34 @@ public static partial class Game
             foreach (var type in Charges.Types)
                 if (!charges.Converted(type) && charges.CanSpend(type))
                     charges.Enqueue(new ChargeEvent.Spend(type, 1, "of Enervation"));
+        }
+    }
+
+    static void StealMapChargesLocked(Player player, uint attacker, SpawnedMonster monster, GolemState.Golem? victim,
+        double now, Random random)
+    {
+        if (!monster.Hostile || monster.Dead || monster.Life == 0) return;
+        int chance = monster.Effects[Stat.MapMonstersStealCharges];
+        if (chance <= 0 || !RandomRolls.Chance(chance, 100, random)) return;
+        if (victim is null)
+        {
+            var charges = ChargesOf(player);
+            foreach (var type in Charges.Types)
+                if (!charges.Converted(type) && charges.Spend(type))
+                    GrantMonsterChargeLocked(player.Area, attacker, monster, type, now);
+            return;
+        }
+        if (victim.ChargesFollowOwner || victim.CombatCharges is not { } local) return;
+        int Get(uint key) => victim.Monster.Effects[key];
+        foreach (var type in Charges.Types)
+        {
+            int? maximum = GolemStat(victim.Player, Stat.MinionsHaveSameMaximumNumOfChargesAsOwner) != 0
+                ? ChargeMaxima.Of(type, key => GolemStat(victim.Player, key)) : null;
+            var limits = Charges.LimitsOf(type, Get, local.Held(type), maximum);
+            var (before, count) = local.Lose(type, 1, limits);
+            if (count == before) continue;
+            PublishMinionChargeLocked(player, victim, type, count, local.ExpiresAt(type), now);
+            GrantMonsterChargeLocked(player.Area, attacker, monster, type, now);
         }
     }
 

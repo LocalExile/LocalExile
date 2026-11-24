@@ -844,13 +844,16 @@ public static partial class Game
             stat => flaskCharacter(stat) + (stat == Stat.FlaskLifeToRecoverPlusPct ? Lifetap.FlaskRecovery(player) : 0),
             player.PlayerLife, player.PlayerMaxLife, playerLevel, finalMultiplier);
         copyLife = ManaFlaskCopiesLife(r, character);
-        canRecover = Flasks.CanRecover(use, player.PlayerLife, LifeCap(player), player.PlayerMana, (uint)UnreservedMana(player))
-            || copyLife && player.PlayerLife < LifeCap(player)
-            || ConditionalFlaskAilmentProtectionTriggered(player, local, AreaTime(player));
+        bool appliesToPlayer = Get(Stat.CannotBeAffectedByFlasks) == 0;
+        canRecover = appliesToPlayer && (Flasks.CanRecover(use, player.PlayerLife, LifeCap(player), player.PlayerMana,
+                (uint)UnreservedMana(player)) || copyLife && player.PlayerLife < LifeCap(player)
+            || ConditionalFlaskAilmentProtectionTriggered(player, local, AreaTime(player)))
+            || CanRecoverRaisedMinionsWithFlask(player, use, Get);
         bool CurrentRecovery()
         {
             return ResourceEffectsCurrent(player, recoveryOwner) && CurrentGameWork
                 && !player.LeavingArea && player.PlayerLife > 0
+                && (appliesToPlayer || CanRecoverRaisedMinionsWithFlask(player, use, Get))
                 && items.Items(PlayerInventories.Flask).Any(i => i.Id == flask.Id && i.X == slot);
         }
         if (!canRecover)
@@ -876,7 +879,7 @@ public static partial class Game
             FlaskEffectScaling.Multiplier(flaskCharacter, playerLevel, local.GetValueOrDefault(Stat.LocalFlaskEffectPlusPct),
                 finalMultiplier: finalMultiplier));
         await SpendFlask(player, flask, charges, slot, CurrentRecovery,
-            spent => AcceptRecoveryFlaskLocked(player, slot, spent, type, use, r, copyLife, local, during));
+            spent => AcceptRecoveryFlaskLocked(player, slot, spent, type, use, r, copyLife, local, Get, appliesToPlayer, during));
     }
 
     // Gives each life, mana and utility flask in the flask bar up to `charges` charges (int.MaxValue: full) and saves them (or, for

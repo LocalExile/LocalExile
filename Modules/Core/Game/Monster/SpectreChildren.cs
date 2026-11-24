@@ -13,6 +13,12 @@ public static partial class Game
         {
             ("AzmeriGoddessSummonSkeletonGhostflame", "SpectreSkeleton"),
             ("SSMAzmeriRobotArgusItsRainingMannequins", "SpectreConstruct"),
+            ("AzmeriWanderingEnfeebleGeofriHexproof", "SpectreEnfeebleGround"),
+            ("AzmeriWanderingVulnerabilityGeofriHexproof", "SpectreVulnerabilityGround"),
+            ("AzmeriWanderingTemporalChainsGeofriHexproof", "SpectreTemporalChainsGround"),
+            ("AzmeriWanderingEnfeebleGeofri", "SpectreEnfeebleGround"),
+            ("AzmeriWanderingVulnerabilityGeofri", "SpectreVulnerabilityGround"),
+            ("AzmeriWanderingTemporalChainsGeofri", "SpectreTemporalChainsGround"),
         })
         {
             int effect = Skills.EffectRow(name);
@@ -56,7 +62,9 @@ public static partial class Game
             var (parent, plan, aim) = request;
             bool ParentCurrent() => GolemCurrent(player, parent) && !parent.Monster.Dead && parent.Monster.Life > 0;
             if (!ParentCurrent()) continue;
-            var definition = new SummonCatalog.Definition(parent.Definition.Id, plan.Family, plan.Variety, 0, 0);
+            bool curseGround = SpectreGroundHex(plan.Family) is not null;
+            var definition = new SummonCatalog.Definition(parent.Definition.Id, plan.Family, plan.Variety, 0, 0,
+                Follows: !curseGround, Targetable: !curseGround);
             for (int index = 0; index < Math.Min(plan.Count, plan.Limit); index++)
                 if (await SummonFighterCore(player, parent.Source, definition, aim, restoredVariety: plan.Variety,
                     current: ParentCurrent, remaining: plan.Lifetime, triggered: true, spectreChild: request) == 0) break;

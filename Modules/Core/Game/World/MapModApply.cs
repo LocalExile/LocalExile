@@ -71,6 +71,8 @@ public static partial class Game
     public static Dictionary<uint, int> MapMonsterEffects(MapMods mods)
     {
         var extra = mods.MonsterEffectStats();
+        if (mods.Get(Stat.MapMonstersStealCharges) is > 0 and var steal)
+            extra[Stat.MapMonstersStealCharges] = steal;
         foreach (var (map, atlas) in AtlasPairs)
             if (mods.Get(map) is int more and not 0) extra[atlas] = more;
         if (mods.Get(Stat.MapMonstersCannotBeStunned) != 0)
@@ -90,6 +92,8 @@ public static partial class Game
                 new(RandomPhysicalGain[Random.Shared.Next(RandomPhysicalGain.Length)])).Stat;
             extra[element] = ActorScale.Saturate((long)extra.GetValueOrDefault(element) + elementalGain);
         }
+        Gain(Stat.MapRareMonstersPhysicalThornsForXDamage, Stat.PhysicalThornsBaseDamage);
+        Gain(Stat.MapRareMonstersElementalThornsForXDamage, Stat.ElementalThornsBaseDamage);
         Gain(Stat.MapMonstersAttackSpeedPlusPct, Stat.AttackSpeedPlusPct);
         Gain(Stat.MapMonstersCastSpeedPlusPct, Stat.BaseCastSpeedPlusPct);
         Gain(Stat.MapMonstersMovementSpeedPlusPct, Stat.BaseMovementVelocityPlusPct);

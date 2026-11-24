@@ -11,6 +11,7 @@ public sealed class ResourceEffectsState(IModuleLifetime? rules, IModuleLifetime
     public readonly ManaRecoupState Mana = new();
     public readonly TimedBlind PlayerBlind = new();
     internal FlameTouchedState? FlameTouched;
+    internal double MinionLifeLossCarry, MinionShieldLossCarry;
     public readonly Dictionary<uint, (SpawnedMonster Target, TimedBlind Blind)> Targets = [];
     readonly HashSet<(uint Actor, ushort Buff)> retired = [];
     public sealed record Snapshot(ManaRecoupState.Carried Mana, (double Seconds, int Less)[] Blind,
@@ -82,6 +83,7 @@ public sealed class ResourceEffectsState(IModuleLifetime? rules, IModuleLifetime
     }
     public void Clear()
     {
+        MinionLifeLossCarry = MinionShieldLossCarry = 0;
         if (player is not null)
         {
             Game.RetireAvatarOfFire(player);
@@ -185,6 +187,7 @@ public static partial class Game
         if (player.PlayerLife > 0) AdvanceUtilityFlaskChaosDamageLocked(player, now, stats);
         if (player.PlayerLife > 0) AdvanceChargeDegenerationLocked(player, now, stats);
         if (player.PlayerLife > 0) AdvanceRecentHitLifeLossLocked(player, now);
+        if (player.PlayerLife > 0) AdvanceMinionPoolLossLocked(player, from, now, stats);
         if (player.PlayerLife == 0)
         {
             manaCarry = 0; LeechOf(player).Clear(now); FortificationOf(player).Clear();
@@ -195,6 +198,36 @@ public static partial class Game
         player.PlayerMana = RecoveryPool.Advance(manaBefore, manaCap, earnedMana + recoup, ref manaCarry);
         if (player.PlayerMana >= manaCap && ResourceEffectsCurrent(player, state)) state.Mana.DiscardRecoveryFraction();
         return true;
+    }
+
+    static void AdvanceMinionPoolLossLocked(Player player, double from, double now, IReadOnlyDictionary<uint, int> stats)
+    {
+        int shieldRate = Math.Max(0, stats.GetValueOrDefault(Stat.LifeAndEnergyShieldDegenerationPermyriadPerMinutePerMinion));
+        long lifeRate = shieldRate + (long)Math.Max(0, stats.GetValueOrDefault(Stat.LifeDegenerationPermyriadPerMinutePerMinion));
+        if (lifeRate == 0)
+        {
+            if (player.ResourceEffectsState is ResourceEffectsState inactive)
+                inactive.MinionLifeLossCarry = inactive.MinionShieldLossCarry = 0;
+            return;
+        }
+        if (now <= from || HardcoreProgressBlocked(player) || InGracePeriod(player)) return;
+        var state = ResourceEffectsOf(player);
+        if (!ResourceEffectsCurrent(player, state)) return;
+        int count = player.Minions.All.Count(minion => minion.Until > now && !minion.Monster.Dead && minion.Monster.Life > 0
+            && ReferenceEquals(player.Area.Monsters.GetValueOrDefault(minion.Id), minion.Monster));
+        if (count == 0)
+        {
+            state.MinionLifeLossCarry = state.MinionShieldLossCarry = 0;
+            return;
+        }
+        double time = (now - from) * count / 600_000;
+        uint life = RecoveryPool.Advance(player.PlayerLife, player.PlayerMaxLife,
+            -time * lifeRate * player.PlayerMaxLife, ref state.MinionLifeLossCarry);
+        player.PlayerLife = VaalImmortalCallLife(player, life, now);
+        player.EnergyShield.Lose(time * shieldRate * player.EnergyShield.Maximum, ref state.MinionShieldLossCarry);
+        if (player.PlayerLife != 0) return;
+        player.InvalidateIncomingHits();
+        RecordHardcoreDeath(player);
     }
 
     sealed record ResourceTransfer(string Character, DateTime At, IModuleLifetime Rules, IModuleLifetime? Source,

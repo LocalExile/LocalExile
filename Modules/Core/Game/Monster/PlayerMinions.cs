@@ -65,6 +65,10 @@ public static partial class Game
             await tick(player, now);
             if (!Current()) return;
         }
+        await TickEquippedItemMinions(player, now);
+        if (!Current()) return;
+        await TickWeaponMinionTriggers(player, now);
+        if (!Current()) return;
         await TickBeastCompanions(player, now, rules);
         if (!Current()) return;
         await TickEssenceSummons(player, now);
@@ -110,7 +114,8 @@ public static partial class Game
                 bool current = player.Area.Monsters.TryGetValue(minion.Id, out var held) && ReferenceEquals(held, m);
                 if (current && keep && !m.Dead && m.Life > 0 && now < minion.Until) continue;
                 player.Minions.Remove(minion.Id);
-                DropZones(player, minion.Id, MinionAuraZones);
+                if (minion.OwnerAura is { SharesWithAllies: true }) ClearSharedMinionAuras(player, minion.Id);
+                else DropZones(player, minion.Id, MinionAuraZones);
                 if (minion.OwnerBuff != 0)
                 {
                     player.Area.Buffs.ClearSource(player.Id, minion.Id);
@@ -157,10 +162,14 @@ public static partial class Game
             }
             if (bytes.Count > 0) player.Minions.OutputQueue.Add(new([.. bytes], "minion teleport", minion.Id, m));
             bytes.Clear();
-            if (minion.OwnerAura is not { } aura) continue;
+            if (minion.OwnerAura is not { } aura)
+            {
+                SyncNativeMinionAuras(player, minion, now);
+                continue;
+            }
             if (aura.SharesWithAllies)
             {
-                SyncDivineSentinelAura(player, minion, aura, now);
+                SyncSharedMinionAura(player, minion, aura, now);
                 continue;
             }
             // The aura is a zone around the minion that reaches its owner (OwnedZones).
@@ -176,20 +185,18 @@ public static partial class Game
         await PublishMinionOutcomesFor(player, rules);
     }
 
-    /// <summary>The auras the player's minions cast on him, as raw stats. The strongest of one aura applies (wiki Aura):
-    /// his own aura of the same family wins when its stats add up to at least as much.</summary>
-    static IEnumerable<(uint Key, int Value)> MinionAuraStats(Player player, IReadOnlyList<AuraCatalog.Aura> own)
+    static PlayerMinions.Aura[] SelectMinionAuras(Player player, uint target, List<AuraCatalog.Aura> auras, int effect)
     {
-        List<PlayerMinions.Aura> auras;
-        auras = [.. player.Minions.All.Where(m => m.OwnerBuff != 0).Select(m => m.OwnerAura).OfType<PlayerMinions.Aura>()];
-        auras.AddRange(DivineSentinelAurasReaching(player, player.Id));
-        foreach (var aura in auras)
-        {
-            var same = own.Where(a => AuraCatalog.Family(a.EffectId) == AuraCatalog.Family(aura.EffectId)).ToList();
-            if (same.Count > 0 && AuraCatalog.RawStats(same, player.Pools.AuraEffectPct, SkillsFor(player), Stats).Sum(s => (long)s.Value)
-                >= aura.Stats.Sum(s => (long)s.Value)) continue;
-            foreach (var stat in aura.Stats) yield return stat;
-        }
+        var candidates = SharedMinionAurasReaching(player, target);
+        if (target == player.Id)
+            candidates = candidates.Concat(player.Minions.All.Where(m => m.OwnerBuff != 0)
+                .Select(m => m.OwnerAura).OfType<PlayerMinions.Aura>().Where(a => !a.SharesWithAllies));
+        var selected = candidates.GroupBy(aura => AuraCatalog.Family(aura.EffectId))
+            .Select(family => family.MaxBy(aura => aura.Stats.Sum(stat => (long)stat.Value))!)
+            .Where(aura => !PlayerAuraAtLeastAsStrong(player, aura, auras, effect)).ToArray();
+        if (selected.Length > 0)
+            auras.RemoveAll(a => selected.Any(other => AuraCatalog.Family(other.EffectId) == AuraCatalog.Family(a.EffectId)));
+        return selected;
     }
 
     // A triggered Summon Elemental Relic: a relic of a random element next to the player at his level up to the skill's
@@ -271,7 +278,7 @@ public static partial class Game
             var own = skills.EffectStats(effect, skills.MaxLevelAt(effect, level)).ToDictionary(s => s.Item1, s => s.Item2);
             int Get(uint k) => own.GetValueOrDefault(k);
             return new(id, AuraCatalog.BuffRow(id), SkillArea.Radius(AuraCatalog.BaseRadius, Get, spell: false),
-                PlayerMinions.AuraStatsAt(skills, Stats, effect, id, level));
+                PlayerMinions.AuraStatsAt(skills, Stats, effect, id, level)) { SharesWithAllies = true };
         }
         return null;
     }

@@ -355,13 +355,13 @@ public static partial class Game
 
     internal static Task<bool> CastGolem(Player player,
         ushort source, GolemCatalog.Definition definition, (int X, int Y) aim, int recovery, Func<bool> current,
-        bool triggered = false)
+        bool triggered = false, bool atProxy = false)
     {
         int onslaughtMs = triggered ? 0 : GolemStat(SupportedSkill(player, source).Stats,
             Stat.LocalDisplaySocketedGolemSkillGrantsOnslaughtWhenSummoned);
         return RepeatSummonCast(player, source, recovery, current, triggered, async () =>
         {
-            uint id = await SummonGolem(player, source, definition, aim, current: current);
+            uint id = await SummonGolem(player, source, definition, aim, current: current, atProxy: atProxy);
             if (id != 0 && onslaughtMs > 0)
             {
                 bool present;
@@ -381,7 +381,7 @@ public static partial class Game
         Func<bool>? current = null, double summonedSecondsRemaining = 0,
         GolemState.MinionResourceSnapshot? resources = null, bool legacyArrival = false,
         GolemState.Golem? replacingOld = null, GemSourceLifetimes.SourceLifetime? retainedSource = null,
-        bool claimActivation = true)
+        bool claimActivation = true, bool atProxy = false)
     {
         if (replacingOld is null && Monsters.Find(definition.Variety) is { Supported: true } preVariety)
         {
@@ -421,7 +421,7 @@ public static partial class Game
             || Monsters.Find(definition.Variety) is not { Supported: true } variety) return 0;
         if (!DarkMonarchAllows("Golem", playerStats)) return 0;
         int Own(uint name) => GolemStat(supported.Stats, name);
-        int limit = GolemRosterLimit(Own(Stat.BaseNumberOfGolemsAllowed), playerStats);
+        int limit = GolemRosterLimit(supported.Stats, playerStats);
         if (limit == 0) return 0;
         byte level = (byte)Math.Clamp(Own(Stat.BaseDisplayMinionActorLevel), 1, 100);
         double remaining = arrival && double.IsFinite(summonedSecondsRemaining)
@@ -454,7 +454,7 @@ public static partial class Game
             probe.Abilities = GolemAbilities(player, variety, level, probe, playerStats, preparedNow);
             probe.Skills = GolemNativeSkills(player, level, probe.Abilities);
         }
-        var at = definition.Kind == "Flame" && definition.Special && !arrival
+        var at = !arrival && (atProxy || definition.Kind == "Flame" && definition.Special)
             ? aim : NextToPlayer(player, Math.Clamp(variety.ObjectSize - 1, 0, 127));
         uint id = await SpawnMonster(player, variety, level, MonsterRarity.Normal, at.X, at.Y,
             friendly: true, mods: mods, unrisen: false, extraStats: MinionStats,
@@ -476,7 +476,10 @@ public static partial class Game
                     TransferIncomingReplacementStateLocked(replacement.Old, probe, committed);
                 if (replacement is not null) RetireReplacementLocked(player, replacement, committed);
                 else if (player.Golems.Replacement(definition.Kind, limit) is { } old)
+                {
+                    if (!old.Monster.Dead && old.Monster.Life > 0) OwnedMinionDeathEffectsLocked(player, old, committed);
                     RemoveGolemLocked(player, old, committed, reconcileBlessing: false);
+                }
                 probe.SummonedAt = replacement?.SummonedAt ?? committed - (8 - remaining);
                 if (freshMeat > 0) probe.FreshMeatUntil = committed + freshMeat;
                 probe.LastStep = replacement?.LastStep ?? committed;
@@ -507,6 +510,8 @@ public static partial class Game
                 else ReconcileGuardianBlessingLocked(player);
             });
         if (id == 0) return 0;
+        if (!arrival && replacingOld is null && !pools.Fatal)
+            await UseParentFlasksOnSummon(player, probe);
         if (!arrival && definition.Kind == "Flame" && definition.Special && !pools.Fatal)
             using (ProjectileMutation(player))
                 if (player.Golems.All.TryGetValue(id, out var spawned)) GolemMeteorLocked(player, spawned, AreaTime(player));
@@ -517,8 +522,9 @@ public static partial class Game
 
     static void RemoveGolemLocked(Player player, GolemState.Golem golem, double now, bool reconcileBlessing = true)
     {
-        if (player.Minions.All.FirstOrDefault(minion => minion.Id == golem.Id)?.OwnerAura is { SharesWithAllies: true } aura)
-            ClearDivineSentinelAura(player, golem.Id, aura);
+        ClearSharedMinionAuras(player, golem.Id);
+        ClearMinionFlasksLocked(player, golem, now);
+        ReconcileLinkedMinionModifiersLocked(player, golem, now, dead: true);
         player.Golems.All.Remove(golem.Id); player.Minions.Remove(golem.Id);
         MinionLifeLeeches.Remove(golem);
         MinionShieldLeeches.Remove(golem);
@@ -675,7 +681,7 @@ public static partial class Game
                     continue;
                 }
                 golem.Own = new(gem.Stats); golem.GemLevel = gem.Level; golem.Quality = gem.Quality;
-                golem.Limit = GolemRosterLimit(GolemStat(gem.Stats, Stat.BaseNumberOfGolemsAllowed), playerStats);
+                golem.Limit = GolemRosterLimit(gem.Stats, playerStats);
                 int level = GolemStat(gem.Stats, Stat.BaseDisplayMinionActorLevel);
                 if (level != golem.Monster.Level)
                 {
@@ -725,13 +731,8 @@ public static partial class Game
             if (!buffs.TryGetValue(g.Definition.Buff, out var best) || g.OwnerBuff.Values.Sum() > best.OwnerBuff.Values.Sum())
                 buffs[g.Definition.Buff] = g;
         }
-        var wrath = alive.Where(g => g.WrathUntil > AreaTime(player)
-                && Dist(g.Monster.Walk.Position(AreaTime(player)), player.Walk.Position(AreaTime(player))) <= 60)
-            .Select(g => (Golem: g, Skill: g.Abilities.FirstOrDefault(a => a.Effect == 5906))).Where(p => p.Skill is not null)
-            .OrderByDescending(p => p.Golem.Monster.Level).FirstOrDefault();
         foreach (var (row, old) in player.Golems.Buffs.ToArray())
-            if (row == 676 ? wrath.Skill is null || wrath.Golem.Id != old.Source
-                : !buffs.TryGetValue(row, out var next) || old.Source != next.Id || row == 592 && changedRecovery.Contains(old.Source))
+            if (!buffs.TryGetValue(row, out var next) || old.Source != next.Id || row == 592 && changedRecovery.Contains(old.Source))
             { player.Area.Buffs.Clear(player.Id, row, old.Source); player.Golems.Buffs.Remove(row); }
         foreach (var (row, g) in buffs)
         {
@@ -741,21 +742,6 @@ public static partial class Game
                 player.Golems.Buffs[row] = (g.Id, 1);
             }
             foreach (var (k, v) in g.OwnerBuff) totals[k] = totals.GetValueOrDefault(k) + v;
-        }
-        // Wrath belongs to the Lightning Golem, scales at its level, and has a finite duration/range.
-        if (wrath.Skill is not null)
-        {
-            foreach (string kind in new[] { "attack", "spell" })
-                foreach (string bound in new[] { "minimum", "maximum" })
-                {
-                    uint stat = Stat.Of($"{kind}_{bound}_added_lightning_damage");
-                    GolemAdd(totals, stat, GolemStat(wrath.Skill.Stats, stat));
-                }
-            if (!player.Golems.Buffs.ContainsKey(676))
-            {
-                player.Area.Buffs.Set(player.Id, new(676, wrath.Golem.Id));
-                player.Golems.Buffs[676] = (wrath.Golem.Id, 1);
-            }
         }
         GolemAdd(totals, Stat.VirtualTotalNumberOfActiveGolems, alive.Length);
         GolemAdd(totals, Stat.VirtualCurrentNumberOfGolemTypes, alive.Select(g => g.Definition.Kind).Distinct().Count());

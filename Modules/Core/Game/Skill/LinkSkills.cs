@@ -102,6 +102,40 @@ public static partial class Game
         player.PlayerLife > 0 && player.Links.On(fighter.Id) is { } link && now < link.Until
         && (link.AwaySince is not double away || now - away < LinkSkills.BreakSeconds) ? link : null;
 
+    public static void GrantLinkedMinionRareModifiers(KillContext kill)
+    {
+        var player = kill.Player;
+        var monster = kill.Monster;
+        if (player.Links.Count == 0 || player.PlayerLife == 0 || monster.Rarity != MonsterRarity.Rare
+            || !monster.Mods.Affixes.Any() || !KilledByPlayerOrOwned(kill)) return;
+        var stats = CharacterPlayerStats(player);
+        int centiseconds = stats.GetValueOrDefault(Stat.LinkSkillsGrantRandomLinkedMinionRareMonsterModsOnKillCentiseconds);
+        if (centiseconds <= 0) return;
+        double now = AreaTime(player);
+        var recipients = player.Links.All.Select(link => OwnedFighter(player, link.Target))
+            .OfType<GolemState.Golem>().Where(minion => LinkTargetAliveLocked(player, minion.Id)
+                && ActiveMinionLink(player, minion, now) is not null).ToArray();
+        if (recipients.Length == 0) return;
+        var target = recipients[AreaRng(player).Next(recipients.Length)];
+        (target.LinkedModifiers ??= new()).Steal(monster.Mods, ItemsFor(player).Mods, now, centiseconds / 100d);
+        RefreshGolemLocked(player, target, stats, now);
+    }
+
+    static void ReconcileLinkedMinionModifiersLocked(Player player, GolemState.Golem fighter, double now, bool dead = false)
+    {
+        if (fighter.LinkedModifiers is not { } modifiers) return;
+        if (modifiers.Step(now, dead, out var buff, out _) is null && modifiers.Count > 0) return;
+        fighter.InputHash = 0;
+        if (buff.Count > 0)
+            player.Area.Buffs.Set(fighter.Id, new(StolenMods.BuffRow, player.Id, U68: Buff.Seconds(buff.Remaining),
+                Stacks: (ushort)Math.Min(ushort.MaxValue, buff.Count)));
+        else
+        {
+            fighter.LinkedModifiers = null;
+            player.Area.Buffs.Clear(fighter.Id, StolenMods.BuffRow, player.Id);
+        }
+    }
+
     static long LinkBuffPercent(GolemState.Golem fighter, IReadOnlyDictionary<uint, int> casterStats) =>
         Math.Max(0, 100L + casterStats.GetValueOrDefault(Stat.LinkSkillBuffEffectPlusPct)
             + fighter.InheritedMods.Effects[Stat.LinkBuffEffectOnSelfPlusPct]
@@ -113,9 +147,17 @@ public static partial class Game
     static double SoulLinkDamageTaken(LinkSkills.Link link, long effect) =>
         Math.Max(0, 1 + ScaledLinkStat(link, Stat.SoulLinkGrantsDamageTakenPlusPctFinal, effect) / 100d);
 
-    internal static double MinionSoulLinkDamageTaken(Player player, GolemState.Golem fighter, double now) =>
-        ActiveMinionLink(player, fighter, now) is { EffectId: "SoulLink" } link
-            ? SoulLinkDamageTaken(link, LinkBuffPercent(fighter, CharacterPlayerStats(player))) : 1;
+    static double HallowedMonarchDamageTaken(LinkSkills.Link? link, IReadOnlyDictionary<uint, int> stats) =>
+        link is null ? 1 : Math.Max(0, 1 + stats.GetValueOrDefault(
+            Stat.LinkSkillsGrantMinionsDamageTakenPlusPctFinalFromHallowedMonarch) / 100d);
+
+    internal static double MinionLinkDamageTaken(Player player, GolemState.Golem fighter, double now)
+    {
+        if (ActiveMinionLink(player, fighter, now) is not { } link) return 1;
+        var stats = CharacterPlayerStats(player);
+        double damageTaken = HallowedMonarchDamageTaken(link, stats);
+        return link.EffectId == "SoulLink" ? damageTaken * SoulLinkDamageTaken(link, LinkBuffPercent(fighter, stats)) : damageTaken;
+    }
 
     readonly record struct MinionLinkOffence(int FireMin = 0, int FireMax = 0, int Ignite = 0,
         int? MainHandCrit = null, int CritMultiplier = 0, int Accuracy = 0);
@@ -179,7 +221,8 @@ public static partial class Game
             player.Area.Buffs.Clear(flask.Target, flask.Row, player.Id, tag: flask.Buff);
             if (flask.Extra is ushort extra) player.Area.Buffs.Clear(flask.Target, flask.ExtraRow, player.Id, tag: extra);
         }
-        foreach (uint target in spent.Select(f => f.Target).Distinct()) MinionFlaskSpeedLocked(player, target, now, bytes);
+        foreach (uint target in spent.Select(f => f.Target).Distinct())
+            if (OwnedFighter(player, target) is { } minion) RefreshMinionFlaskStatsLocked(player, minion, now);
         // Every target is a minion (no party play), so without link_skills_can_target_minions (Deep Connections refunded)
         // every link ends, without a death: our rule, as for an Elemental Valiance refund (paladin.md).
         string? all = player.PlayerLife == 0 ? "the player died"
@@ -222,7 +265,11 @@ public static partial class Game
                 link.AwaySince = away ? link.AwaySince ?? now : null;
                 if (away && now - link.AwaySince >= LinkSkills.BreakSeconds) why = $"out of range ({range} cells) for 4 s";
             }
-            if (why is null) continue;
+            if (why is null)
+            {
+                ApplyFrigidBondLocked(player, link, here, playerStats, now);
+                continue;
+            }
             EndLinkLocked(player, link, bytes);
             ended.Add($"{link.EffectId} on 0x{link.Target:x}: {why}");
         }
@@ -242,8 +289,7 @@ public static partial class Game
     // Field Medicine (flasks_apply_to_your_linked_targets): a non-unique utility flask the player uses puts its effect on
     // each linked target for the flask's duration (Path of Building's nonUniqueFlasksApplyToMinion): its buff, the Silver
     // Flask's Onslaught too, and its stats at the flask's own increased effect but without the player's "applied to you"
-    // ones (flask_effect_+%, magic_utility_flask_effect_+%; PoB's effectIncNonPlayer). A minion target walks at their
-    // movement speed (MinionFlaskSpeedLocked); their other stats have nothing to act on (paladin.md).
+    // ones (flask_effect_+%, magic_utility_flask_effect_+%; PoB's effectIncNonPlayer).
     static void FlaskToLinkedTargetsLocked(Player player,
         Item flask, IReadOnlyDictionary<uint, int> local, UtilityFlasks.Utility utility, Func<uint, int> character)
     {
@@ -252,30 +298,18 @@ public static partial class Game
             key => key is Stat.FlaskEffectPlusPct or Stat.MagicUtilityFlaskEffectPlusPct ? 0 : character(key),
             finalMultiplier: MapFlaskEffectMultiplier(player));
         uint duration = BitConverter.SingleToUInt32Bits((float)seconds);
-        var bytes = new List<byte>();
         double now = AreaTime(player);
-        foreach (var link in player.Links.All.Where(l => LinkTargetAliveLocked(player, l.Target)).ToArray())
+        foreach (var link in player.Links.All.ToArray())
         {
+            if (OwnedFighter(player, link.Target) is not { } minion || !LinkTargetAliveLocked(player, link.Target)
+                || ActiveMinionLink(player, minion, now) is null) continue;
             ushort buff = player.NextBuff++;
             ushort? extra = utility.Extra is null ? null : player.NextBuff++;
             player.Links.Flasks.Add(new(link.Target, buff, extra, now + seconds, stats, utility.BuffRow, utility.Extra?.BuffRow ?? 0));
             player.Area.Buffs.Set(link.Target, new(utility.BuffRow, player.Id, U68: duration, Tag: buff));
             if (utility.Extra is { } x && extra is ushort e)
                 player.Area.Buffs.Set(link.Target, new(x.BuffRow, player.Id, U68: duration, Tag: e));
-            MinionFlaskSpeedLocked(player, link.Target, now, bytes);
+            RefreshMinionFlaskStatsLocked(player, minion, now);
         }
-        if (bytes.Count > 0) Automation(player).Packets.Add(new([.. bytes], $"0x01c1 {utility.BuffId} on the linked targets for {seconds:0.##} s"));
-    }
-
-    // A minion's walk with the player's flasks on it (Field Medicine): its variety's speed × (1 + its mods' and the
-    // flasks' base_movement_velocity_+%, the strongest of each flask effect), in the server's walk and, as
-    // movement_velocity_+% (0xf5), in the client's, which walks every mover at its base × (1 + 0xf5 / 100) (0x141e827a0).
-    static void MinionFlaskSpeedLocked(Player player, uint target, double now, List<byte> bytes)
-    {
-        if (!player.Area.Monsters.TryGetValue(target, out var m) || m.Dead || m.Variety is not { } variety) return;
-        int pct = m.Mods.Effects.MovementPct + UtilityFlasks.Strongest(player.Links.Flasks.Where(f => f.Target == target)
-            .SelectMany(f => f.Stats)).Where(s => s.Stat == Stat.BaseMovementVelocityPlusPct).Sum(s => s.Value);
-        m.Walk.SetSpeed(Math.Max(1, variety.MovementSpeed * Math.Max(0, 100 + pct) / 100.0), now);
-        SetStats(player, target, [(Stat.MovementVelocityPlusPct, pct)]);
     }
 }

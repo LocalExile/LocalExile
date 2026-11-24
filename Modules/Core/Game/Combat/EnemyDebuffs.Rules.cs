@@ -25,11 +25,21 @@ public static partial class Game
         {
             if (m.Dead || m.Life == 0 || !m.Hostile || Dist(m.Walk.Position(now), at) > radius) continue;
             m.TauntedUntil = now + seconds / m.RecipientDebuffRate;
+            m.TauntingPlayerId = player.Id;
             m.TakenFromPlayer = m.TakenFromPlayer with { All = player.EnemyDebuffs.TauntedDamageTakenPct };
             m.PresentationChanged?.Invoke();
             taunted++;
         }
         return taunted;
+    }
+
+    static bool TauntPreventsAttackEvasion(Player attacker, SpawnedMonster target, double now)
+    {
+        if (target.TauntedUntil <= now || target.TauntingPlayerId is not uint source) return false;
+        var taunter = source == attacker.Id ? attacker : attacker.Instance.Player(source);
+        return taunter is { PlayerLife: > 0, Closed: false, LeavingArea: false }
+            && ReferenceEquals(taunter.Area, attacker.Area)
+            && PlayerStat(taunter, Stat.EnemiesTauntedByYouCannotEvadeAttacks) != 0;
     }
 
     /// <summary>This player's Yoke of Suffering value on a monster, as their enemy-debuff step sets it (0 while they do

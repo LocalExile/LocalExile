@@ -419,6 +419,7 @@ public static partial class Game
         {
             WeaponAttack = weaponAttack,
             TargetCritical = TargetCriticalBonuses.From(playerStats, own),
+            SkeletonWeaponContactSource = weaponAttack && totem is null ? SkeletonWeaponContactSource(player, swingHand, local) : null,
             ProjectileAttack = !spell && SkillsFor(player).IsProjectile(gem.Effect),
             TinctureKill = weaponAttack && totem is null ? TinctureKillBonusFor(player, playerStats, swingHand) : null,
             NoExtraCriticalDamage = CriticalHitsDealNoExtraDamage(playerStats, own),

@@ -12,6 +12,7 @@ public sealed class MonsterCurses(Action? changed = null)
         public bool UsesBaseExpiryRate { get; init; }
         public double AmplifiesAt { get; init; } = double.PositiveInfinity;
         public IReadOnlyDictionary<uint, int>? AmplifiedStats { get; init; }
+        public int ExpandedCapacity { get; init; }
     }
     public readonly Dictionary<(uint Caster, string Effect), Curse> All = [];
     public readonly Dictionary<(uint Caster, string Effect), Curse> Presented = [];
@@ -55,6 +56,8 @@ public sealed class MonsterCurses(Action? changed = null)
 
     public void Put(Curse curse, int limit)
     {
+        if (curse.ExpandedCapacity > 0 || All.Values.Any(c => c.ExpandedCapacity > 0))
+            limit = Math.Max(limit, Math.Max(curse.ExpandedCapacity, All.Values.Select(c => c.ExpandedCapacity).DefaultIfEmpty().Max()));
         if (limit < 1) return;
         All[(curse.Caster, curse.Effect)] = curse;
         if (curse.Mark)
