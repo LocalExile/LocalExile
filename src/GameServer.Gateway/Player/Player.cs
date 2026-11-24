@@ -1084,9 +1084,34 @@ public sealed partial class Player(AreaLayout layout, uint ticket, uint seed) : 
             ? Math.Max(b.Size, (int)Math.Ceiling(b.CollisionRadius ?? 0)) : 0;
     }
 
-    public void SetBlocker(uint id, int x, int y, int size, double? collisionRadius = null)
+    readonly HashSet<uint> actorOrChestBlockers = [];
+    IReadOnlyList<ClientPathfinder.Blocker>? sceneryBlockers;
+
+    public IReadOnlyList<ClientPathfinder.Blocker> SceneryBlockers
     {
-        lock (_blockers) { _blockers[id] = new(x, y, size) { CollisionRadius = collisionRadius }; _blockerList = new GameServer.Core.World.BlockerSet(_blockers.Values); }
+        get
+        {
+            lock (_blockers) return sceneryBlockers ??= actorOrChestBlockers.Count == 0 ? _blockerList
+                : new GameServer.Core.World.BlockerSet(_blockers.Where(b => !actorOrChestBlockers.Contains(b.Key)).Select(b => b.Value));
+        }
+    }
+
+    public void SetBlocker(uint id, int x, int y, int size, double? collisionRadius = null) =>
+        UpdateBlocker(id, x, y, size, collisionRadius, null);
+
+    public void SetObjectBlocker(uint id, int x, int y, int size, bool actorOrChest, double? collisionRadius = null) =>
+        UpdateBlocker(id, x, y, size, collisionRadius, actorOrChest);
+
+    void UpdateBlocker(uint id, int x, int y, int size, double? collisionRadius, bool? actorOrChest)
+    {
+        lock (_blockers)
+        {
+            if (actorOrChest == true) actorOrChestBlockers.Add(id);
+            else if (actorOrChest == false) actorOrChestBlockers.Remove(id);
+            _blockers[id] = new(x, y, size) { CollisionRadius = collisionRadius };
+            _blockerList = new GameServer.Core.World.BlockerSet(_blockers.Values);
+            sceneryBlockers = null;
+        }
         BlockersChanged?.Invoke();
     }
 
@@ -1095,7 +1120,13 @@ public sealed partial class Player(AreaLayout layout, uint ticket, uint seed) : 
 
     public void RemoveBlocker(uint id)
     {
-        lock (_blockers) if (_blockers.Remove(id)) _blockerList = new GameServer.Core.World.BlockerSet(_blockers.Values);
+        lock (_blockers)
+        {
+            if (!_blockers.Remove(id)) return;
+            actorOrChestBlockers.Remove(id);
+            _blockerList = new GameServer.Core.World.BlockerSet(_blockers.Values);
+            sceneryBlockers = null;
+        }
     }
 
     /// <summary>Applies the passive movement speed to the server's walk estimate; /set_speed is a dev override.</summary>
@@ -1582,6 +1613,12 @@ public sealed partial class Player(AreaLayout layout, uint ticket, uint seed) : 
     public readonly GameServer.Core.World.LockstepSkillHold LockstepSkill = new();
     // Until when the skill started last keeps the player (Clock seconds).
     public double LockstepBusyUntil;
+    // Continuous start time of the last Lockstep action (tracks when Actor +0x1b0 began so Actor +0x1c0 early-queuing
+    // only fires once per action and never overwrites a queued action), plus the continuous start time scheduled for
+    // the currently dispatching skill and any late-Move-cancel backswing lockout (Actor +0x2a0).
+    public double LockstepActionStartedAt;
+    public double LockstepActionScheduledAt;
+    public double LockstepActionBackswingUntil;
     public GameServer.Core.World.LockstepCastWindow? LockstepCastWindow;
     // A skill on a monster whose walk-up or swing is still to come on a lockstep client, null for none
     // (Game.LockstepAttackStart): the next use of a held skill waits for it, and the step pass runs its walk-up.
