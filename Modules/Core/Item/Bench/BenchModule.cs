@@ -104,6 +104,7 @@ static class BenchFeature
             || !PlayerWalk.InWalkUpRange(stop, player.CraftingBenchAt, player.StationaryInteractionSize(player.CraftingBenchObject))) return;
         player.StashOpen = false;
         player.GuildStashOpen = false;
+        player.TradeStashOpen = false;
         player.BenchOpen = true;
         player.ModuleWindow = null;
         player.ModuleWindowAnchor = null;

@@ -25,6 +25,8 @@ public static class InstanceStash
     public const byte Personal = 0;
     /// <summary>The guild stash: 0x136 / 0xc8 kind 1; S→C 0x7b kind 2 opens its panel (listener 0x140dcb010, tabs at instance +0xc4b0).</summary>
     public const byte Guild = 1, OpenGuildStashUi = 2;
+    /// <summary>The async-trade merchant stash: 0x136 / 0xc7 / 0xc8 kind 2; S→C 0x7b kind 0x63 opens its panel (0x142169ebf, tabs at instance +0xc4c8).</summary>
+    public const byte Trade = 2, OpenAsyncTradeStashUi = InstanceAsyncTrade.OpenUiKind;
 
     /// <summary>The guild stash tabs' inventory manager in S→C 0xc0 (instance +0xcb90); the personal stash uses 0.</summary>
     public const byte GuildManager = 2;

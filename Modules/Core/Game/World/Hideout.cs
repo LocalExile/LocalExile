@@ -35,6 +35,7 @@ public static partial class Game
         if (arrive > now) await AreaDelay(player, arrive - now);
         if (!PlayerActionCurrent(player, action)) return;
         player.StashOpen = false;
+        player.TradeStashOpen = false;
         player.BenchOpen = false;
         player.ModuleWindow = null;
         player.ModuleWindowAnchor = null;

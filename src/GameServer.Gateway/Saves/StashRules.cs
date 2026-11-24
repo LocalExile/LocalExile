@@ -13,7 +13,7 @@ using GameServer.Core;
 public sealed class StashRules
 {
     public UniqueStashLayout Uniques { get; private set; } = new();
-    public const byte Currency = 3, Unique = 4, Map = 5, Divination = 6, Essence = 8, Fragment = 9, Folder = 16, Delve = 12, Blight = 13,
+    public const byte Trade = 2, Currency = 3, Unique = 4, Map = 5, Divination = 6, Essence = 8, Fragment = 9, Folder = 16, Delve = 12, Blight = 13,
         Ultimatum = 14, Delirium = 15, Flask = 17, Gem = 18, Breach = 22;
 
     public static bool PreloadsForPrices(byte? tabType, IEnumerable<InventoryItem> inside, ItemCatalog catalog) =>
@@ -84,8 +84,8 @@ public sealed class StashRules
     /// <summary>False without the tables: then every tab holds anything (there is nothing to check against).</summary>
     public bool Loaded { get; private set; }
 
-    /// <summary>Normal, premium, quad (and PC-bang premium) tabs: a grid that holds any item.</summary>
-    public static bool IsGrid(byte tabType) => tabType is 0 or 1 or 7 or 10;
+    /// <summary>Normal, premium, trade, quad (and PC-bang premium) tabs: a grid that holds any item.</summary>
+    public static bool IsGrid(byte tabType) => tabType is 0 or 1 or 2 or 7 or 10;
 
     /// <summary>
     /// Tab types whose page the client lays out its own way, which the Gateway doesn't know yet: items saved there are
