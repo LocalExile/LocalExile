@@ -145,15 +145,28 @@ public class WorldOutputTests : IDisposable
             player.Connection.LockstepClient = true;
             var playerObject = player.Connection.WorldOutput.ExistingObject(player.Id);
             player.PlayerLife = 0;
-            await Game.SendPlayerDeathPresentation(player, "death", player.IncomingHitEpoch);
-            await Read(InstanceProtocol.DeathScreen(Game.DeathScreenFlags(player)));
-            // The life at 0 and the hidden mini life bar are the Life and Stats components' (the area's frame end).
+            await Game.SendPlayerDeathPresentation(player, "death", player.IncomingHitEpoch, 0);
+            // The header-less message and death screen go out immediately, in batch order; the world records
+            // wait for the frame end, where TakeFrame orders them by their WorldOrder key (0 first, in admission
+            // order, then the alive-state row with key 0xfffffffe).
+            await Read(InstanceProtocol.DeathMessage(Program.CharacterName(player)),
+                InstanceProtocol.DeathScreen(Game.DeathScreenFlags(player)));
             await Program.EndWorldFrame(player, (.132, .165));
-            await Read(InstanceProtocol.FrameEnd());
+            await Read(InstanceEntities.StatsUpdate(player.Id, [(Stat.IsDead, 1)]),
+                InstanceEntities.ComponentUpdate(player.Id, 4, [0x01]),
+                InstanceEntities.ComponentUpdate(player.Id, 6, new BlobWriter().U16(1).U32(player.Character.Experience).ToArray()),
+                InstanceProtocol.AliveState(player.Id, 0xfffffffe, dead: true),
+                InstanceProtocol.FrameEnd());
             Assert.Same(playerObject, player.Connection.WorldOutput.PublishedObject(player.Id));
             player.Connection.LockstepClient = false;
-            await Game.SendPlayerDeathPresentation(player, "predictive death", player.IncomingHitEpoch);
-            await Read(InstanceProtocol.DeathScreen(Game.DeathScreenFlags(player)));
+            await Game.SendPlayerDeathPresentation(player, "predictive death", player.IncomingHitEpoch, 0);
+            // Predictive collapses the whole batch into one immediate record, in batch order.
+            await Read(InstanceEntities.StatsUpdate(player.Id, [(Stat.IsDead, 1)]),
+                InstanceProtocol.DeathMessage(Program.CharacterName(player)),
+                InstanceProtocol.DeathScreen(Game.DeathScreenFlags(player)),
+                InstanceProtocol.AliveState(player.Id, 0xfffffffe, dead: true),
+                InstanceEntities.ComponentUpdate(player.Id, 4, [0x01]),
+                InstanceEntities.ComponentUpdate(player.Id, 6, new BlobWriter().U16(1).U32(player.Character.Experience).ToArray()));
 
         }
         finally { player.Closed = true; }

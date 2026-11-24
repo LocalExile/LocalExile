@@ -47,6 +47,8 @@ public static class LesserShrines
         public ItemCatalog? CachedCatalog;
         public SkillCatalog? CachedSkills;
         public (uint Id, Item Item)[]? CachedActiveItems;
+        public int CachedPassivesCount = -1, CachedAscendancyCount = -1, CachedDescendancyCount = -1, CachedNodeHash;
+        public bool CachedHardMode;
         public Grant? CachedGrant;
     }
     sealed record Grant(string Source, int Effect, int Level);
@@ -54,16 +56,35 @@ public static class LesserShrines
     static readonly ConditionalWeakTable<PlayerInventories, State> States = new();
     static readonly ConditionalWeakTable<Player, List<Request>> Pending = new();
 
+    static int PassiveNodeHash(Player player)
+    {
+        int hash = 0;
+        foreach (ushort n in player.Character.Passives) hash ^= HashCode.Combine(1, n);
+        foreach (ushort n in player.Character.MainAscendancy.Allocated) hash ^= HashCode.Combine(2, n);
+        foreach (ushort n in player.Character.DescendancyNodes) hash ^= HashCode.Combine(3, n);
+        return hash;
+    }
+
+    public static (int Effect, int Level)? ActiveGrant(Player player) =>
+        Equipped(player, States.GetOrCreateValue(ItemsOf(player))) is { } g ? (g.Effect, g.Level) : null;
+
     static Grant? Equipped(Player player, State state)
     {
         var items = ItemsOf(player);
         var catalog = ItemsFor(player);
         var skills = SkillsFor(player);
-        // Fast check against the last scanned active equipment snapshot; avoids scanning every item's mods on every kill/tick.
+        bool hardMode = LeagueFor(player).HardMode;
+        int passivesCount = player.Character.Passives.Count;
+        int ascendancyCount = player.Character.MainAscendancy.Allocated.Count;
+        int descendancyCount = player.Character.DescendancyNodes.Count;
+        int nodeHash = PassiveNodeHash(player);
+        // Fast check against the last scanned active equipment & passive snapshot; avoids rescanning on every kill/tick.
         lock (state)
         {
             if (ReferenceEquals(state.CachedCatalog, catalog) && ReferenceEquals(state.CachedSkills, skills)
-                && state.CachedActiveItems is { } prev)
+                && state.CachedHardMode == hardMode && state.CachedPassivesCount == passivesCount
+                && state.CachedAscendancyCount == ascendancyCount && state.CachedDescendancyCount == descendancyCount
+                && state.CachedNodeHash == nodeHash && state.CachedActiveItems is { } prev)
             {
                 int idx = 0;
                 bool same = true;
@@ -87,17 +108,28 @@ public static class LesserShrines
             {
                 if (IsInactive(player, item.Id)) continue;
                 active.Add((item.Id, item.Item));
-                if (grant is not null) continue;
                 foreach (var mod in item.Item.Mods)
                 {
                     foreach (int levelRow in catalog.Mods.ByHash(mod.Hash)?.GrantedEffectLevels ?? [])
-                        if (skills.EffectsPerLevel(levelRow) is { } level && skills.EffectId(level.Effect) == "TriggeredSummonLesserShrine")
-                        { grant = new($"{item.Id}/{mod.Hash}/{levelRow}", level.Effect, level.Level); break; }
-                    if (grant is not null) break;
+                        if (skills.EffectsPerLevel(levelRow) is { } level && skills.EffectId(level.Effect) == "TriggeredSummonLesserShrine"
+                            && (grant is null || level.Level > grant.Level))
+                            grant = new($"{item.Id}/{mod.Hash}/{levelRow}", level.Effect, level.Level);
                 }
+            }
+            if (passivesCount + ascendancyCount + descendancyCount > 0)
+            {
+                ushort[] nodes = [.. player.Character.Passives, .. player.Character.MainAscendancy.Allocated, .. player.Character.DescendancyNodes];
+                foreach (var passive in PassiveSkillGrants(player, nodes))
+                    if (passive.EffectId == "TriggeredSummonLesserShrine" && (grant is null || passive.Level > grant.Level))
+                        grant = new($"passive/{passive.Node}/{passive.Effect}/{passive.Level}", passive.Effect, passive.Level);
             }
             state.CachedCatalog = catalog;
             state.CachedSkills = skills;
+            state.CachedHardMode = hardMode;
+            state.CachedPassivesCount = passivesCount;
+            state.CachedAscendancyCount = ascendancyCount;
+            state.CachedDescendancyCount = descendancyCount;
+            state.CachedNodeHash = nodeHash;
             state.CachedActiveItems = [.. active];
             state.CachedGrant = grant;
             return grant;
