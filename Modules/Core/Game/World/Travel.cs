@@ -14,9 +14,13 @@ public static partial class Game
         started = default;
         using (ProjectileMutation(player))
         {
-            double now = ProjectileWorldTime(player);
-            if (player.Closed || player.PlayerLife == 0 || PlayerActionBlocked(player, requestedAt, now)) return false;
-            CancelMeleeRepeats(player, now);
+            double checkNow = ProjectileWorldTime(player);
+            if (player.Closed || player.PlayerLife == 0 || PlayerActionBlocked(player, requestedAt, checkNow)) return false;
+            CancelMeleeRepeats(player, checkNow);
+            double now = player.Connection.LockstepClient
+                ? player.Connection.LockstepFrame?.Start ?? checkNow
+                : checkNow;
+            if (player.Connection.LockstepClient) StepWalkers(player, now);
             int action = Interlocked.Increment(ref player.ActionCount);
             player.ChannelSkill = 0;
             var (here, stop, arrive) = centreRange ? player.Walk.Approach(x, y, reach, now, tolerance) : player.Walk.WalkUpTo(x, y, (int)reach, now);

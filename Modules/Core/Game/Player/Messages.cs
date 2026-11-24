@@ -312,10 +312,11 @@ public static partial class Game
                         : Math.Max(at, player.ProjectileRuntime?.Runtime.Now / 120000d ?? 0);
                     at = Math.Max(at, player.ProjectileRuntime?.Runtime.Now / 120000d ?? 0);
                     if (lockstep) StepWalkers(player, actionAt);
+                    if (chargeBonus == 0) EndShieldChargeIfInterrupted(player);
                     CancelMeleeRepeats(player, at);
                     action = Interlocked.Increment(ref player.ActionCount);
                     (px, py) = inPlace ? player.Walk.Position(actionAt) : player.Walk.Order(use.X, use.Y, actionAt);
-                    if (inPlace)
+                    if (inPlace && chargeBonus == 0)
                     {
                         if (lockstep) player.Walk.Cancel(actionAt);
                         else player.Walk.Order(px, py, at);
