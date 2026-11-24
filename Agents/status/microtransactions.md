@@ -51,6 +51,7 @@ Part of [Status](../Status.md); what to build next in this area is in
 
 ## Partly working
 
+- Tiered MTX bytes (VisibleItem), incremental deltas (0x1ff-0x205, 0x1f7-0x20f), and mannequins (0x5f-0x6f) are built.
 - Cosmetics skill target lifetime and request validation (issue [#306](https://github.com/Wrathen/LocalExile/issues/306)).
   Key reuse across gem replacements and acceptance of stale/incompatible picks are reproduced in Gateway tests.
   Targets now retain keys only while unchanged; replacements and reappearances get fresh connection-local keys.

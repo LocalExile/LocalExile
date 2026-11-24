@@ -59,8 +59,8 @@ Part of [Status](../Status.md); what to build next in this area is in
   The login screen's New Account button launches a browser URL and sends no login packet.
   See [01](../docs/protocol/01-login.md).
 
-- Leagues with progress (C→S 0x19 → S→C 0x1a): returns `(source, parent)` league pairs for characters in loaded
-  non-Void-parented and ended leagues (not yet checked live). Docs: [01](../docs/protocol/01-login.md) §7.
+- League migration (C→S 0x19/0x3f/0x40 → S→C 0x1a/0x15/0x44), 0x1c private-league paging and local MOTD are built.
+  Docs: [01](../docs/protocol/01-login.md) §7.
 - One connection per character: a newer login ends the older connection and loads the character after it saved; an
   area change is not a second login (not checked with two clients in the real game).
 - Selected league modes have server rules with automated coverage and native entry, exit and migration checks.
