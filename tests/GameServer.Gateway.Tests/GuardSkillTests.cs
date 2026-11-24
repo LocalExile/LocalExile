@@ -142,4 +142,42 @@ public sealed class GuardSkillTests
         }
         finally { Program.Outgoing = outgoing; }
     }
+
+    // An aura toggle can empty its own bound slot, so the saved bar goes out after its last skill list, and the bar
+    // re-creates every slot's cooldown entry: a held guard's frozen entry must go out after it, or its cooldown counts
+    // while the buff runs. Off lockstep: the lockstep bar is sent two frames later on wall-clock time.
+    [Fact]
+    public async Task An_aura_toggle_during_a_held_guard_refreezes_it_after_the_skill_bar()
+    {
+        using var f = new MinionUtilityTests.Fixture();
+        f.Player.Connection.LockstepClient = false;
+        f.Equip(("Immortal Call", 1), ("Clarity", 1));
+        CharacterSaves.SetSkillBar(f.Player.Character.Name!, 2, "ImmortalCall");
+        CharacterSaves.SetSkillBar(f.Player.Character.Name!, 3, "Clarity");
+        var gem = Game.GemSkillEffects(f.Player).Single(g => Game.SkillsFor(f.Player).EffectId(g.Effect) == "ImmortalCall");
+        var aura = Game.GemSkillEffects(f.Player).Single(g => Game.SkillsFor(f.Player).EffectId(g.Effect) == "Clarity");
+        var charges = Game.ChargesOf(f.Player);
+        var limits = charges.Limits(ChargeType.Endurance);
+        charges.State.Set(ChargeType.Endurance, limits.Minimum + 3, 0, limits);
+        await Game.UseInstantSkill(f.Player, gem.Id, 0, f.Player.Walk.Position(Game.AreaTime(f.Player)));
+        Assert.True(Game.SingleUseState(f.Player, gem.Effect, gem.Id)!.Held);
+        var frozen = InstanceEntities.PlayerSingleUseCooldowns(f.Player.Id,
+            [new SingleUseCooldownUpdate(gem.Id, 3f, 3f, 0f, 1)]);
+        var drained = new TaskCompletionSource(TaskCreationOptions.RunContinuationsAsynchronously);
+        Game.ProjectilesFor(f.Player).Enqueue(() => { drained.TrySetResult(); return Task.CompletedTask; });
+        await drained.Task;
+        var packets = new List<byte[]>();
+        var outgoing = Program.Outgoing;
+        Program.Outgoing = (player, bytes) => { if (ReferenceEquals(player, f.Player)) packets.Add(bytes.ToArray()); };
+        try
+        {
+            Assert.True(await Game.ToggleAura(f.Player, aura.Id, aura.Effect, aura.Name,
+                Game.SupportedReservationCost(f.Player, aura.Id)!.Value, aura.Level, aura.Quality));
+            int bar = packets.FindLastIndex(p => p.Length > 2 && p[0] == 0 && p[1] == 0x53);
+            Assert.True(bar >= 0);
+            Assert.DoesNotContain(packets.Skip(bar + 1), p => p[0] == 2 && p[1] == 0xbc && !p.SequenceEqual(frozen));
+            Assert.Contains(packets.Skip(bar + 1), p => p.SequenceEqual(frozen));
+        }
+        finally { Program.Outgoing = outgoing; }
+    }
 }

@@ -22,6 +22,14 @@ public static class StatConditions
 {
     public const string UsingPride = "using_pride";
 
+    /// <summary>The subject flag a "while a Pinnacle Boss is in your Presence" mod is gated on: published by
+    /// <see cref="Game.ItemConditionFlags"/> from <c>Game.CelestialBossInPresenceLocked</c> (the tree's existing
+    /// <c>PresenceRadius</c> of 80; the predicate is the client's <c>PinnacleAtlasBoss</c> marker mod on the
+    /// monster's variety). Absent from a subject, the mod counts as before; present and false, its effect stats
+    /// do not count.</summary>
+    public const string CelestialBossInPresence = "_while_celestial_boss_in_presence";
+
+
     /// <summary>What the server can say about a stat's condition.</summary>
     public enum State
     {

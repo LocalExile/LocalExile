@@ -139,8 +139,9 @@ public class VendorItemLevelTests : IDisposable
         Assert.DoesNotContain(token,Open(91).Finite.Values);
         PlayerInventories.Forget(name); items=PlayerInventories.For(name,catalog);
         Assert.DoesNotContain(token,Open(91).Finite.Values);
+        // Retail 3.29 default vendor_refresh_levels = 1 refreshes 100% of vendor stock on every level-up.
         var rotated=Open(92);
-        Assert.InRange(first.Finite.Values.Intersect(rotated.Finite.Values).Count(),39,40);
+        Assert.Empty(first.Finite.Values.Intersect(rotated.Finite.Values));
         var allNew=Open(94); Assert.Empty(first.Finite.Values.Intersect(allNew.Finite.Values));
         VendorStock.Window Kirac(string character) => VendorStock.Open(character,"Standard","Metadata/NPC/Epilogue/KiracHideout",91,
             catalog,rolls,skills,[],items.NewItemId,LeagueRules.Standard,false,notes,random:new Random(2),account:stash);

@@ -6,7 +6,10 @@ using GameServer.Core.Projectiles;
 
 public static partial class Game
 {
-    internal static bool NativeProjectileTotem(Player player, int effect) => SkillsFor(player).EffectId(effect) == "HolyFlameTotem";
+    internal static bool NativeProjectileTotem(Player player, int effect) =>
+        SkillsFor(player).EffectId(effect) is "HolyFlameTotem" or "HolyFlameTotemAltX";
+    sealed class TotemChannel { public bool Active; public ushort Sequence; }
+    static readonly RuleTable<TotemState.Totem, TotemChannel> TotemChannels = new();
     static readonly RuleTable<TotemState.Totem, SupportedGem> TotemSources = new();
     public static bool SpellTotemEffect(Player player, int effect) => SkillsFor(player).IsSpell(effect)
         && !SkillsFor(player).IsAttack(effect) && !SkillsFor(player).IsTravel(effect)
@@ -105,12 +108,86 @@ public static partial class Game
         bytes.AddRange(records.Bytes());
     }
 
+    static bool SpellTotemTargetable(Player player, uint id, SpawnedMonster monster) =>
+        TotemTargetable(monster) && !MonsterAsleep(player, id) && !monster.WorldHidden && !ArenaHazards.Untargetable(player, monster);
+
+    static (int X, int Y) NonZeroTotemAim((int X, int Y) origin, (int X, int Y) aim) =>
+        aim == origin ? (origin.X + 1, origin.Y) : aim;
+
+    static void StopTotemChannel(TotemState.Totem totem, WorldRecordBuilder bytes)
+    {
+        if (TotemChannels.TryGetValue(totem, out var channel) && channel.Active)
+        {
+            channel.Active = false;
+            bytes.World(totem.Id, InstanceProtocol.ChannelFinished(totem.Id, channel.Sequence));
+        }
+    }
+
+    static (uint Id, SpawnedMonster? Monster, (int X, int Y) Pos) PickSpellTotemTarget(
+        Player player, TotemState.Totem totem, double range, double now, bool preferSight)
+    {
+        double rangeSq = range * range;
+        uint bestId = 0;
+        SpawnedMonster? bestMonster = null;
+        (int X, int Y) bestPos = default;
+        long bestDistSq = long.MaxValue;
+        int count = 0;
+        foreach (var p in player.Area.MonstersNear(totem.At, range))
+        {
+            if (!SpellTotemTargetable(player, p.Key, p.Value)) continue;
+            var pos = p.Value.Walk.Position(now);
+            long dx = pos.X - totem.At.X, dy = pos.Y - totem.At.Y;
+            long distSq = dx * dx + dy * dy;
+            if (distSq > rangeSq) continue;
+            count++;
+            if (distSq < bestDistSq)
+            {
+                bestId = p.Key;
+                bestMonster = p.Value;
+                bestPos = pos;
+                bestDistSq = distSq;
+            }
+        }
+        if (bestMonster is null) return default;
+        if (!preferSight || count <= 1) return (bestId, bestMonster, bestPos);
+        var session = ProjectilesFor(player);
+        var origin = ProjectileSession.Vector(totem.At);
+        if (session.TraceTerrain(origin, ProjectileSession.Vector(bestPos)) is null)
+            return (bestId, bestMonster, bestPos);
+        var others = new List<(uint Id, SpawnedMonster Monster, (int X, int Y) Pos, long DistSq)>(count - 1);
+        foreach (var p in player.Area.MonstersNear(totem.At, range))
+        {
+            if (p.Key == bestId || !SpellTotemTargetable(player, p.Key, p.Value)) continue;
+            var pos = p.Value.Walk.Position(now);
+            long dx = pos.X - totem.At.X, dy = pos.Y - totem.At.Y;
+            long distSq = dx * dx + dy * dy;
+            if (distSq <= rangeSq) others.Add((p.Key, p.Value, pos, distSq));
+        }
+        others.Sort((a, b) => a.DistSq.CompareTo(b.DistSq));
+        for (int i = 0; i < others.Count; i++)
+        {
+            var candidate = others[i];
+            if (session.TraceTerrain(origin, ProjectileSession.Vector(candidate.Pos)) is null)
+                return (candidate.Id, candidate.Monster, candidate.Pos);
+        }
+        return (bestId, bestMonster, bestPos);
+    }
+
     static void TickSpellTotemsLocked(Player player, WorldRecordBuilder bytes)
     {
         double now = AreaTime(player);
         foreach (var totem in player.Totems.Living(now).Where(t => t.Effect >= 0).ToArray())
         {
-            if (!SpellTotemCurrent(player, totem)) { totem.DiedAt = now; MarkPlayerStats(player, PlayerStatStep.TotemAura); continue; }
+            if (!SpellTotemCurrent(player, totem))
+            {
+                totem.DiedAt = now;
+                player.RemoveBlocker(totem.Id);
+                StopTotemChannel(totem, bytes);
+                TotemChannels.Remove(totem);
+                MarkPlayerStats(player, PlayerStatStep.TotemAura);
+                PresentNearby(player);
+                continue;
+            }
             if (player.Paused || now < totem.NextCast) continue;
             // A lockstep client's totem exists from the end of the frame its create is written in: no order before that.
             if (player.Connection.LockstepClient && !player.Connection.WorldOutput.PublishedObject(totem.Id).IsReady) continue;
@@ -118,12 +195,16 @@ public static partial class Game
             var gem = GemSkillEffects(player).First(g => g.Id == totem.SkillId);
             var summon = TotemSummon(player, gem.Effect);
             var golem = GolemData.Find(SkillsFor(player).EffectId(gem.Effect));
-            var target = player.Area.MonstersNear(totem.At, range).Where(p => p.Value is { Hostile: true, Dead: false, Life: > 0 }
-                && Dist(p.Value.Walk.Position(now), totem.At) <= range)
-                .OrderBy(p => Dist(p.Value.Walk.Position(now), totem.At)).FirstOrDefault();
-            if (target.Value is null && summon is null && golem is null
-                || TotemCastSeconds(player, totem.SkillId) is not double seconds) continue;
-            var aim = target.Value?.Walk.Position(now) ?? totem.At;
+            bool nativeChannel = NativeProjectileTotem(player, gem.Effect);
+            var target = PickSpellTotemTarget(player, totem, range, now, preferSight: summon is null && golem is null);
+            if (target.Monster is null && summon is null && golem is null
+                || TotemCastSeconds(player, totem.SkillId) is not double seconds)
+            {
+                if (nativeChannel) StopTotemChannel(totem, bytes);
+                continue;
+            }
+            var aim = target.Monster is not null ? target.Pos : totem.At;
+            if (summon is null && golem is null) aim = NonZeroTotemAim(totem.At, aim);
             uint summonTarget = 0;
             if (summon?.Corpse == true)
             {
@@ -141,14 +222,24 @@ public static partial class Game
             if (CooldownForSkill(player, totem.SkillId) is { } cooldown)
             {
                 totem.Cooldown ??= new(now, cooldown.RecoveryRate);
-                if (!totem.Cooldown.TryUse(now, cooldown)) continue;
+                if (!totem.Cooldown.TryUse(now, cooldown))
+                {
+                    if (nativeChannel) StopTotemChannel(totem, bytes);
+                    continue;
+                }
             }
             var session = ProjectilesFor(player);
             ushort sequence = ++totem.Sequence;
             totem.NextCast = now + seconds;
             bool arc = SkillsFor(player).EffectId(gem.Effect) == "Arc";
             bytes.World(totem.Id, InstanceProtocol.ActionStarted(totem.Id, totem.At.X, totem.At.Y, aim.X, aim.Y,
-                0x4000, sequence, 0x0408, targetObjectId: arc ? target.Key : null));
+                0x4000, sequence, player.MonsterOrderFlags, targetObjectId: arc ? target.Id : null));
+            if (nativeChannel)
+            {
+                var channel = TotemChannels.GetValue(totem, static _ => new());
+                channel.Active = true;
+                channel.Sequence = sequence;
+            }
             var lifetime = CombatLifetime;
             if (summon is not null || golem is not null)
             {
@@ -173,16 +264,29 @@ public static partial class Game
                 session.Runtime.Schedule(Math.Max(session.Runtime.Now, ProjectileRuntime.Time(totem.NextCast)), () =>
                 {
                     if (session.Active && ReferenceEquals(lifetime, CombatLifetime) && SpellTotemCurrent(player, totem)
-                        && player.Area.Monsters.GetValueOrDefault(target.Key) == target.Value)
-                        ReleaseArcTotem(player, session, totem, target.Key, sequence);
+                        && player.Area.Monsters.GetValueOrDefault(target.Id) == target.Monster)
+                        ReleaseArcTotem(player, session, totem, target.Id, sequence);
                 });
                 continue;
             }
+            uint targetId = target.Id;
+            SpawnedMonster? targetMonster = target.Monster;
+            var initialAim = aim;
             session.Schedule(ProjectileRuntime.Time(totem.NextCast),
                 () => ReferenceEquals(lifetime, CombatLifetime) && SpellTotemCurrent(player, totem),
                 () =>
                 {
-                    var use = CaptureGemProjectile(player, session, totem.SkillId, gem, aim,
+                    var releaseAim = initialAim;
+                    if (targetMonster is not null
+                        && player.Area.Monsters.TryGetValue(targetId, out var live) && ReferenceEquals(live, targetMonster)
+                        && SpellTotemTargetable(player, targetId, live))
+                    {
+                        double releaseNow = session.Runtime.Now / (double)ProjectileRuntime.QuantaPerSecond;
+                        var livePos = live.Walk.Position(releaseNow);
+                        if (Dist(livePos, totem.At) <= range)
+                            releaseAim = NonZeroTotemAim(totem.At, livePos);
+                    }
+                    var use = CaptureGemProjectile(player, session, totem.SkillId, gem, releaseAim,
                         CaptureSkillCriticalRoll(player, totem.SkillId), sequence, totem: totem);
                     return ClientDrawnVolley(player, session, totem.SkillId, gem, use, sequence, 0);
                 });
