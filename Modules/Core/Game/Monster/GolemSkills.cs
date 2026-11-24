@@ -103,6 +103,7 @@ public static partial class Game
         }
         foreach (var (name, value) in golem.Auras.Concat(golem.Utility)) values[name] = values.GetValueOrDefault(name) + value;
         foreach (var (name, value) in golem.Gear) values[name] = values.GetValueOrDefault(name) + value;
+        AddMapMinionActionStats(MapModsOf(player), values);
         if (now < golem.OnslaughtUntil && ItemsFor(player).Onslaught is { } onslaught)
         {
             double effect = Math.Max(0, 1 + values.GetValueOrDefault(Stat.OnslaughtEffectPlusPct) / 100d);
@@ -478,6 +479,7 @@ public static partial class Game
         hash.Add(FreshMeatActive(golem, now));
         hash.Add(now < golem.OnslaughtUntil);
         hash.Add(MinionLinkOffenceAt(player, golem, playerStats, now));
+        hash.Add(MapModsOf(player));
         hash.Add(SkeletonShieldChaos(player, golem, playerStats));
         foreach (var p in playerStats.Where(p => (Stats.Name(p.Key) ?? "").Contains("minion", StringComparison.Ordinal)
             || (Stats.Name(p.Key) ?? "").Contains("golem", StringComparison.Ordinal)).OrderBy(p => p.Key)) hash.Add(p);

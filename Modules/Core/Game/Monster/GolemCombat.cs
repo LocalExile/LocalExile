@@ -694,8 +694,9 @@ public static partial class Game
         if (MonsterBlocks(target, AreaRng(player), a.Attack.Spell, now, supported.Stats)) return false;
         double shieldLeechDamage = MinionShieldLeechDamageFactor(g, a);
         if (shieldLeechDamage != 1) a = MinionDamageScale(a, shieldLeechDamage, shieldLeechDamage);
-        double factor = DoedreSewers.MinionDamageFactor(player) * MinionTacticsDamage(player, g, id, target, now)
-            * SappedDamageFactor(g.Monster, now);
+        double ailmentFactor = DoedreSewers.MinionDamageFactor(player) * MinionTacticsDamage(player, g, id, target, now)
+            * MapMinionDamageFactor(player);
+        double factor = ailmentFactor * SappedDamageFactor(g.Monster, now);
         if (supported.Stats.ContainsKey(Stat.SupportDamageWhileOnFullLifePlusPctFinal)
             || supported.Stats.ContainsKey(Stat.SupportDebilitateHitDamagePlusPctFinalPerPoisonStack)
             || supported.Stats.ContainsKey(Stat.EnduranceChargeOnMeleeStunDamagePlusPctFinalPerEnduranceCharge))
@@ -796,7 +797,7 @@ public static partial class Game
             HitDebuffsOnHitLocked(target, Golem, a.Attack.Spell, critical, now, AreaRng(player));
             InflictMonsterBlind(player, id, target, now, BlindHitInput.Capture(Golem), a.Attack.Spell, critical,
                 AreaRng(player));
-            MinionAilmentsLocked(player, g, a, id, target, critical, now);
+            MinionAilmentsLocked(player, a, id, target, critical, now, ailmentFactor);
             MinionTauntOnHitLocked(player, g, a, supported.Stats, id, target, now);
             if (damage > 0)
             {

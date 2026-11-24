@@ -29,11 +29,10 @@ public static partial class Game
             Expose(target, element, DefaultExposure, now);
     }
 
-    static void MinionAilmentsLocked(Player player, GolemState.Golem fighter, GolemState.Ability ability,
-        uint id, SpawnedMonster target, bool critical, double now)
+    static void MinionAilmentsLocked(Player player, GolemState.Ability ability,
+        uint id, SpawnedMonster target, bool critical, double now, double factor)
     {
         if (!MinionHitProfiles.TryGetValue(ability, out var profile)) return;
-        double factor = DoedreSewers.MinionDamageFactor(player) * MinionTacticsDamage(player, fighter, id, target, now);
         if (factor != 1)
         {
             MonsterIgnites.Settings Scale(MonsterIgnites.Settings s) => s with
