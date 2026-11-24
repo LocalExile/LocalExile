@@ -96,7 +96,7 @@ public sealed class MonsterIgnites
     // Spread: its proliferation radius in cells (0: it does not spread). Proliferated: the copy another monster's
     // spreading ignite puts on this one, set again every AI tick (<see cref="Proliferated"/>).
     readonly record struct Ignite(double From, double Until, double DamagePerSecond, bool Aggravated = false, int Spread = 0,
-        bool Proliferated = false, int DamageTakenPct = 0);
+        bool Proliferated = false, int DamageTakenPct = 0, ulong? Source = null);
     readonly List<Ignite> active = [];
     // The spreading ignites it had when it died: a corpse goes on spreading them until they end (wiki Ignite
     // Proliferation Support: the aura continues through death on intact corpses). They deal no damage.
@@ -265,6 +265,26 @@ public sealed class MonsterIgnites
             DamageTakenPct: Math.Max(0, damageTakenPct)));
         LastApplied = now;
         return true;
+    }
+
+    /// <summary>Renews a strongest-only damage effect while its source still reaches this actor.</summary>
+    public void Renew(double now, double perSecond, double seconds, ulong source)
+    {
+        if (!(perSecond > 0) || !(seconds > 0)) return;
+        double end = now + seconds / expiryRate;
+        int index = active.FindIndex(effect => effect.Source == source && effect.Until > now);
+        if (index >= 0)
+        {
+            var current = active[index];
+            if (current.DamagePerSecond == perSecond)
+            {
+                active[index] = current with { Until = end };
+                return;
+            }
+            active[index] = current with { Until = now };
+        }
+        if (active.Count == 0) { last = now; carry = 0; }
+        active.Add(new(now, end, perSecond, Source: source));
     }
 
     /// <summary>The whole damage the strongest ignites deal (<see cref="Dealing"/>) from the last advance to

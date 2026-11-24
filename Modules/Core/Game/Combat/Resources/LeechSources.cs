@@ -18,37 +18,38 @@ public sealed record LeechSources(DamagePacket Life, DamagePacket Mana, DamagePa
     // "X% of Overkill Damage is Leeched as Life" (Slayer's Endless Hunger): the share of a killing hit's damage beyond
     // the target's remaining Life.
     public int OverkillLifePct { get; init; }
+    internal static DamagePacket Coefficients(string pool, Func<uint, int> get, bool attack, Func<uint, int>? local)
+    {
+        var result = DamagePacket.Empty;
+        foreach (var type in DamageTypes.ConversionOrder)
+        {
+            string name = DamageTypes.Name(type).ToLowerInvariant();
+            double coefficient = (double)get(Stat.Of($"{pool}_leech_from_any_damage_permyriad"))
+                + get(Stat.Of($"base_{pool}_leech_from_{name}_damage_permyriad"));
+            if (type is DamageType.Fire or DamageType.Cold or DamageType.Lightning)
+                coefficient += get(Stat.Of($"base_{pool}_leech_from_elemental_damage_permyriad"));
+            if (pool == "life") coefficient += get(Stat.Of($"horrible_ugly_life_leech_from_{name}_damage_perhundredthousand")) / 10.0;
+            if (!attack) coefficient += get(Stat.Of($"base_{pool}_leech_from_spell_damage_permyriad"));
+            else
+            {
+                coefficient += get(Stat.Of($"base_{pool}_leech_from_attack_damage_permyriad"))
+                    + (local?.Invoke(Stat.Of($"local_{pool}_leech_from_any_damage_permyriad")) ?? 0);
+                if (pool == "mana") coefficient += get(Stat.AttackSkillManaLeechFromAnyDamagePermyriad);
+                if (type == DamageType.Physical)
+                {
+                    coefficient += get(Stat.Of($"{pool}_leech_from_physical_attack_damage_permyriad"))
+                        + (local?.Invoke(Stat.Of($"local_{pool}_leech_from_physical_damage_permyriad")) ?? 0);
+                    if (pool != "energy_shield") coefficient += get(Stat.LifeAndManaLeechFromPhysicalDamagePermyriad)
+                        + (local?.Invoke(Stat.LocalLifeAndManaLeechFromPhysicalDamagePermyriad) ?? 0);
+                }
+            }
+            if (coefficient > 0) result = result.Add(DamagePacket.Of(type, coefficient, coefficient));
+        }
+        return result;
+    }
+
     public static LeechSources From(Func<uint, int> get, bool attack, Func<uint, int>? local = null)
     {
-        DamagePacket Pool(string pool)
-        {
-            var result = DamagePacket.Empty;
-            foreach (var type in DamageTypes.ConversionOrder)
-            {
-                string name = DamageTypes.Name(type).ToLowerInvariant();
-                double coefficient = (double)get(Stat.Of($"{pool}_leech_from_any_damage_permyriad"))
-                    + get(Stat.Of($"base_{pool}_leech_from_{name}_damage_permyriad"));
-                if (type is DamageType.Fire or DamageType.Cold or DamageType.Lightning)
-                    coefficient += get(Stat.Of($"base_{pool}_leech_from_elemental_damage_permyriad"));
-                if (pool == "life") coefficient += get(Stat.Of($"horrible_ugly_life_leech_from_{name}_damage_perhundredthousand")) / 10.0;
-                if (!attack) coefficient += get(Stat.Of($"base_{pool}_leech_from_spell_damage_permyriad"));
-                else
-                {
-                    coefficient += get(Stat.Of($"base_{pool}_leech_from_attack_damage_permyriad"))
-                        + (local?.Invoke(Stat.Of($"local_{pool}_leech_from_any_damage_permyriad")) ?? 0);
-                    if (pool == "mana") coefficient += get(Stat.AttackSkillManaLeechFromAnyDamagePermyriad);
-                    if (type == DamageType.Physical)
-                    {
-                        coefficient += get(Stat.Of($"{pool}_leech_from_physical_attack_damage_permyriad"))
-                            + (local?.Invoke(Stat.Of($"local_{pool}_leech_from_physical_damage_permyriad")) ?? 0);
-                        if (pool != "energy_shield") coefficient += get(Stat.LifeAndManaLeechFromPhysicalDamagePermyriad)
-                            + (local?.Invoke(Stat.LocalLifeAndManaLeechFromPhysicalDamagePermyriad) ?? 0);
-                    }
-                }
-                result = result.Add(DamagePacket.Of(type, Math.Max(0, coefficient), Math.Max(0, coefficient)));
-            }
-            return result;
-        }
         int Local(uint name) => local?.Invoke(name) ?? 0;
         var gain = attack ? (Math.Max(0, get(Stat.BaseLifeGainPerTarget) + Local(Stat.LocalLifeGainPerTarget)
                 + Local(Stat.LocalLifeAndManaGainPerTarget)),
@@ -58,7 +59,8 @@ public sealed record LeechSources(DamagePacket Life, DamagePacket Mana, DamagePa
             // "Gain # Life/Mana/Energy Shield per Enemy Hit with Spells".
             : (Math.Max(0, get(Stat.BaseLifeGainedOnSpellHit)), Math.Max(0, get(Stat.ManaGainedOnSpellHit)),
                 Math.Max(0, get(Stat.EnergyShieldGainedOnSpellHit)));
-        return new(Pool("life"), Pool("mana"), Pool("energy_shield"))
+        return new(Coefficients("life", get, attack, local), Coefficients("mana", get, attack, local),
+            Coefficients("energy_shield", get, attack, local))
         {
             Attack = attack, GainOnHit = gain, OverkillLifePct = Math.Max(0, get(Stat.LifeLeechOnOverkillDamagePct)),
             WeaponLifeLeechInstant = attack && Local(Stat.LocalLifeLeechIsInstant) != 0,

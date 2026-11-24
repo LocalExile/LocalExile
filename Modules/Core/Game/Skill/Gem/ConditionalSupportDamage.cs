@@ -31,16 +31,19 @@ public static partial class Game
         // Endurance Charge on Melee Stun: "Supported Skills deal (4)% more Damage per Endurance Charge".
         if (enduranceCharges > 0)
             more *= Math.Max(0, 1 + Get(Stat.EnduranceChargeOnMeleeStunDamagePlusPctFinalPerEnduranceCharge) * enduranceCharges / 100.0);
-        // Controlled Blaze: "(3)% less Damage per Enemy Ignited Recently", floored by the support's minimum.
-        int recentPer = Get(Stat.SupportRecentIgnitesDamagePerRecentIgnitePlusPctFinal);
-        if (recentPer != 0)
-        {
-            int recentMin = Get(Stat.SupportRecentIgnitesDamagePerRecentIgnitePlusPctFinalMinimum);
-            long total = Math.Max(recentMin, (long)recentPer * recentIgnites);
-            more *= Math.Max(0, 1 + total / 100.0);
-        }
-        return more;
+        return more * ControlledBlazeDamageFactor(skill, recentIgnites);
     }
+
+    static double ControlledBlazeDamageFactor(IReadOnlyDictionary<uint, int>? skill, int recentIgnites)
+    {
+        if (recentIgnites == 0 || skill is null) return 1;
+        int per = skill.GetValueOrDefault(Stat.SupportRecentIgnitesDamagePerRecentIgnitePlusPctFinal);
+        int floor = skill.GetValueOrDefault(Stat.SupportRecentIgnitesDamagePerRecentIgnitePlusPctFinalMinimum);
+        return Math.Max(0, 1 + Math.Max(floor, (long)per * recentIgnites) / 100d);
+    }
+
+    static double ControlledBlazeIgniteFactor(int per, int cap, int recentIgnites) =>
+        per <= 0 ? 1 : 1 + Math.Min((long)per * recentIgnites, cap > 0 ? cap : long.MaxValue) / 100d;
 
     // Call in the area's frame, after the per-target outgoing damage hooks.
     public static DamagePacket WithConditionalSupportDamageLocked(Player player, IReadOnlyDictionary<uint, int>? skill,

@@ -786,6 +786,7 @@ public static partial class Game
                         swapItems.SwapWeaponSets();
                         swapItems.WeaponSet = wanted;
                         finalWeaponSet = wanted;
+                        RemoveRallyingCryOnWeaponSwapLocked(player);
                         using (new PlayerStatScope(player, fresh: true))
                         {
                             RecomputePoolsAndSpeed(player);

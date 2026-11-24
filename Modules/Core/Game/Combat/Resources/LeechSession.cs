@@ -10,6 +10,7 @@ public sealed class LeechSession
     bool keepLife, keepEnergyShield, keepAttackEnergyShield;
     bool convertLifeToEnergyShield;
     bool immortalAmbition, fullLife, fullShield;
+    bool lifeRecoveryRedirected;
     double routedAt, pendingLifeRecovery, pendingShieldRecovery;
     public bool ConvertsLifeToEnergyShield => convertLifeToEnergyShield;
     double lifeInstant, manaInstant, shieldInstant, convertedLifeInstant;
@@ -34,6 +35,14 @@ public sealed class LeechSession
     public Action? DisplayChanged;
 
     int Count => Life.Count + Mana.Count + EnergyShield.Count;
+
+    internal void SetLifeRecoveryRedirected(double now, bool redirected)
+    {
+        if (redirected == lifeRecoveryRedirected) return;
+        SettleRedirectedLife(now);
+        lifeRecoveryRedirected = redirected;
+        DisplayChanged?.Invoke();
+    }
 
     // Reports a start or stop, and a granted or removed instance, against the state before a change.
     void Report(double now, (bool, bool, bool) before, int count, bool displayChanged = false)
@@ -156,7 +165,7 @@ public sealed class LeechSession
             var resource = limits.Resources[index];
             if (resource.CannotLeech || full && !keep) return 0;
             double value = State(resource.Pool).Grant(now, amount, resource.MaximumPool, resource.MaximumPerInstance, instant, attack);
-            return recover && !full ? value : 0;
+            return recover && (!full || index == 0 && lifeRecoveryRedirected) ? value : 0;
         }
         // Life and ES source categories create independent ES instances under Ghost Reaver, each with its own cap
         // and duration. They share the ES recovery rate/cap, retaining the Life source's instant fraction.
@@ -165,7 +174,7 @@ public sealed class LeechSession
             : weaponLifeInstant ? 100 : baseline + weaponInstantPercent;
         double convertedShield = convertLifeToEnergyShield && !limits.Resources[0].CannotLeech
             ? Grant(2, amounts.Life, shieldFull, keepShield, LifeFraction(convertedLifeInstant), recoverEnergyShield) : 0;
-        return (convertLifeToEnergyShield ? 0 : Grant(0, amounts.Life, lifeFull, keepLife,
+        return (convertLifeToEnergyShield ? 0 : Grant(0, amounts.Life, lifeFull, keepLife || lifeRecoveryRedirected,
                 LifeFraction(melee ? meleeLifeInstant : lifeInstant), recoverLife),
             Grant(1, amounts.Mana, manaFull, false, manaInstant + (manaInstantReplaced ? 0 : weaponInstantPercent), true),
             convertedShield + Grant(2, amounts.EnergyShield, shieldFull, keepShield,
@@ -186,10 +195,14 @@ public sealed class LeechSession
         // Full Life, not Low Life: Petrified Blood ignores leech recovery above Low Life without removing the
         // instance, so it keeps its full-pool cap and can resume when Life drops.
         fullLife = life; fullShield = shield;
-        if (life) { LifeInstantCarry = 0; pendingLifeRecovery = 0; }
+        if (life)
+        {
+            LifeInstantCarry = 0;
+            if (!lifeRecoveryRedirected) pendingLifeRecovery = 0;
+        }
         if (shield) pendingShieldRecovery = 0;
         if (mana) ManaInstantCarry = 0;
-        if (life && !keepLife) Life.Clear(now);
+        if (life && !keepLife && !lifeRecoveryRedirected) Life.Clear(now);
         if (mana) Mana.Clear(now);
         if (shield && !keepEnergyShield)
         {
@@ -209,7 +222,7 @@ public sealed class LeechSession
     void SettleRedirectedLife(double now)
     {
         if (!immortalAmbition || now <= routedAt) return;
-        if (fullLife && !fullShield)
+        if (fullLife && !fullShield && !lifeRecoveryRedirected)
         {
             while (routedAt < now)
             {
@@ -219,7 +232,7 @@ public sealed class LeechSession
             }
         }
         double life = Life.TakeRecovery(now);
-        if (!fullLife) pendingLifeRecovery += life;
+        if (!fullLife || lifeRecoveryRedirected) pendingLifeRecovery += life;
         routedAt = now;
     }
 
@@ -238,14 +251,14 @@ public sealed class LeechSession
         SettleRedirectedLife(now);
         var life = Life.Display(now);
         var shield = EnergyShield.Display(now);
-        if (immortalAmbition && fullLife)
+        if (immortalAmbition && fullLife && !lifeRecoveryRedirected)
         {
             double bonus = fullShield ? 0 : RedirectedRate(now) * 60;
             if (bonus > 0)
                 shield = new((int)Math.Min(int.MaxValue, Math.Round(shield.PerMinute + bonus)), Math.Max(shield.Expiry, life.Expiry));
             life = new(0, now);
         }
-        return (life, Mana.Display(now), shield);
+        return (lifeRecoveryRedirected ? new(0, now) : life, Mana.Display(now), shield);
     }
 
     // Reading conditions expires instances without consuming the recovery accumulated for the resource writer.
@@ -253,7 +266,8 @@ public sealed class LeechSession
     {
         SettleRedirectedLife(now);
         bool life = Life.Active(now);
-        return (life, Mana.Active(now), EnergyShield.Active(now) || immortalAmbition && fullLife && !fullShield && life);
+        return (life, Mana.Active(now), EnergyShield.Active(now)
+            || immortalAmbition && fullLife && !fullShield && !lifeRecoveryRedirected && life);
     }
 
     public void Clear(double now)
