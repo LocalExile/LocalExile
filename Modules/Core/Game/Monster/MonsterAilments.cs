@@ -283,8 +283,10 @@ public static partial class Game
     /// ailments on the player too: at once, or into <paramref name="reflected"/> for the caller to apply after a sweep
     /// whose hits land together (<see cref="ReflectAilmentsLocked"/>). <paramref name="poison"/>: the hit's poison rows
     /// (<see cref="PoisonOnHitLocked"/>); a hit without them does not poison.
+    /// Returns the poison buff this hit applied, for the caller to show with the hit's damage record; null when the
+    /// hit applied no poison, so the tick still owns the announcement.
     /// </summary>
-    public static void AilmentsOnHitLocked(Player player, uint targetId, SpawnedMonster m, DamagePacket mitigated, bool spell,
+    public static Buff? AilmentsOnHitLocked(Player player, uint targetId, SpawnedMonster m, DamagePacket mitigated, bool spell,
         bool critical, int criticalMultiplier, IReadOnlyDictionary<uint, int> playerStats, IReadOnlyDictionary<uint, int>? skill,
         double now, Random random, List<MonsterElementalAilments.Effect>? reflected = null,
         MonsterPoisons.Settings poison = default, ushort sourceSkill = 0, BlindHitInput blind = default, (int X, int Y)? hitOrigin = null,
@@ -293,7 +295,7 @@ public static partial class Game
             now, random, default(AttackAilmentGains), reflected, poison, sourceSkill, blind, hitOrigin, playerHit,
             attackerSize, attackerHasReversedStat);
 
-    public static void AilmentsOnHitLocked(Player player, uint targetId, SpawnedMonster m, DamagePacket mitigated, bool spell,
+    public static Buff? AilmentsOnHitLocked(Player player, uint targetId, SpawnedMonster m, DamagePacket mitigated, bool spell,
         bool critical, int criticalMultiplier, IReadOnlyDictionary<uint, int> playerStats, IReadOnlyDictionary<uint, int>? skill,
         double now, Random random, AttackAilmentGains attackGains, List<MonsterElementalAilments.Effect>? reflected = null,
         MonsterPoisons.Settings poison = default, ushort sourceSkill = 0, BlindHitInput blind = default, (int X, int Y)? hitOrigin = null,
@@ -302,7 +304,7 @@ public static partial class Game
             now, random, attackGains, false, 0, reflected, poison, sourceSkill, blind, hitOrigin, playerHit,
             attackerSize, attackerHasReversedStat);
 
-    static void AilmentsOnHitLocked(Player player, uint targetId, SpawnedMonster m, DamagePacket mitigated, bool spell,
+    static Buff? AilmentsOnHitLocked(Player player, uint targetId, SpawnedMonster m, DamagePacket mitigated, bool spell,
         bool critical, int criticalMultiplier, IReadOnlyDictionary<uint, int> playerStats, IReadOnlyDictionary<uint, int>? skill,
         double now, Random random, AttackAilmentGains attackGains, bool projectileDamage, int projectileFreezeChance,
         List<MonsterElementalAilments.Effect>? reflected = null, MonsterPoisons.Settings poison = default,
@@ -396,17 +398,19 @@ public static partial class Game
                 player.RecentEvents.Record(StatConditions.ShatteredEnemy, now);
             }
             else ShockOnKillLocked(player, m, playerStats, now);
-            return;
+            return null;
         }
         HitDebuffsOnHitLocked(m, name => Player(name) + Skill(name), spell, critical, now, random);
         InflictMonsterBlind(player, targetId, m, now, blind, spell, critical, random);
         ExposureOnHitLocked(m, name => Player(name) + Skill(name), mitigated, now, AreaRng(player));
         WitherOnHitLocked(m, name => Player(name) + Skill(name), now, AreaRng(player));
+        Buff? poisoned = null;
         int poisonStacksBefore = m.Poisons.Stacks(now);
         if (TryPoisonOnHitLocked(player, m, mitigated, spell, critical, playerStats, skill, poison, now, random,
                 out double poisonDps, out double poisonSeconds))
         {
             player.Area.ActivePoisonMonsters.Add(targetId);
+            if (m.Poisons.Stacks(now) > poisonStacksBefore) poisoned = PoisonBuffToShow(player, m, now);
             if (playerHit && Player(Stat.PoisonReflectedToSelf) != 0 && Player(Stat.CannotBePoisoned) == 0
                 && Player(Stat.ImmuneToPoison) == 0
                 // Golden Rule's reflected-poison source stops adding player stacks at 100; this is not an incoming cap.
@@ -427,12 +431,13 @@ public static partial class Game
                 $"0x{sourceSkill:x4}: {fleeChance}% chance, {m.Effects[Stat.MonsterChanceToNotFleePct]}% not to, to {m.FleeTo}");
         }
         if (added.Count + alternate.Count == 0 || player.PlayerLife == 0
-            || !RandomRolls.Chance(m.Effects[Stat.ReflectNonDamagingAilmentsPctChance], 100, random)) return;
+            || !RandomRolls.Chance(m.Effects[Stat.ReflectNonDamagingAilmentsPctChance], 100, random)) return poisoned;
         // Scorch and Brittle stop no action, so they act on the player at once, even inside a sweep.
         ReflectAlternateAilmentsLocked(player, alternate, now, Player, random);
-        if (added.Count == 0) return;
+        if (added.Count == 0) return poisoned;
         if (reflected is not null) reflected.AddRange(added);
         else ReflectAilmentsLocked(player, added, now, playerStats, random);
+        return poisoned;
     }
 
     static bool TryFleeFromHitLocked(Player player, SpawnedMonster monster, (int X, int Y) from, int chance, double now)
@@ -605,7 +610,7 @@ public static partial class Game
         player.Area.Buffs.Set(id, new((ushort)(kind + 1), source, U82: 0, Values: kind == Kind.Freeze ? null : [(uint)magnitude],
             U68: kind == Kind.Freeze && seconds > 0 ? Buff.Seconds(seconds) : null, Visual: visual));
     }
-    public static void AilmentsOnHitLocked(Player player, SpawnedMonster m, DamagePacket mitigated, bool spell,
+    public static Buff? AilmentsOnHitLocked(Player player, SpawnedMonster m, DamagePacket mitigated, bool spell,
         bool critical, int criticalMultiplier, IReadOnlyDictionary<uint, int> playerStats, IReadOnlyDictionary<uint, int>? skill,
         double now, Random random, List<MonsterElementalAilments.Effect>? reflected = null,
         MonsterPoisons.Settings poison = default, ushort sourceSkill = 0, (int X, int Y)? hitOrigin = null) =>
