@@ -10,6 +10,7 @@ using DamageTypes = GameServer.Core.World.DamageTypes;
 using DamagePacket = GameServer.Core.World.DamagePacket;
 using DamageRange = GameServer.Core.World.DamageRange;
 using HitResistances = GameServer.Core.World.HitResistances;
+using RandomRolls = GameServer.Core.World.RandomRolls;
 
 public static partial class Game
 {

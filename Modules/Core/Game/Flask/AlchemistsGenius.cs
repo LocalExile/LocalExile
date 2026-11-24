@@ -1,3 +1,5 @@
+using GameServer.Core.World;
+
 public static partial class Game
 {
     const ushort AlchemistsGeniusBuffRow = 1573;
