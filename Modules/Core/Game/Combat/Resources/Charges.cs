@@ -283,7 +283,8 @@ public static partial class Game
     // its life regeneration (Path of Building: power 1 normal, 2 magic, 10 rare, 20 unique). warcries_have_infinite_power
     // (Bring the Battle) makes the power 999999 (PoB CalcPerform's override): the charges reach their maximum and the
     // regeneration its 25-power cap. Every warcry then runs the on-warcry effects (WarcryReleased). The other warcries'
-    // own buffs and exerted attacks remain separate, except Intimidating Cry (IntimidatingCry.cs).
+    // own buffs are granted too (Warcries.ApplyWarcryBuffLocked), except Intimidating Cry, which has its own
+    // (IntimidatingCry.cs); their exerted attacks are still not modelled.
     // True when the skill was a warcry.
     public static bool UseWarcryInstance(Player player,
         ushort skillId, int effect)
@@ -340,6 +341,8 @@ public static partial class Game
                 if (SkillsFor(player).EffectId(effect) == "IntimidatingCry")
                     if (player.ProjectileActive(epoch) && player.PlayerLife > 0)
                         ApplyIntimidatingCryLocked(player, own, CharacterPlayerStats(player), now);
+                else if (player.ProjectileActive(epoch) && player.PlayerLife > 0)
+                    ApplyWarcryBuffLocked(player, SkillsFor(player).EffectId(effect) ?? "", own, playerStats, here, radius, now, duration, buffEffect);
                 var warriors = skillId != 0 && IsGeneralsCry(player, effect)
                     ? GeneralsCryReleased(player, skillId, here, radius, epoch)
                     : Task.CompletedTask;
