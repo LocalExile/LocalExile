@@ -15,8 +15,9 @@ namespace GameServer.Modules.Legion;
 /// </summary>
 static partial class LegionMonolith
 {
-    /// <summary>THE RADIUS IS A GUESS (live check): grid cells around a broken chest (about 2.5 x the armies' mean spacing of 12-14; a constant because the spacing is not reachable here), before map_legion_chests_break_out_range_+%.</summary>
-    const double ChestRadius = 32;
+    /// <summary>The chest's break-out reach, from the client's code 0x141c496f0 (R11 section 5): a square query of 45 cells scaled by
+    /// map_legion_chests_break_out_range_+%, plus 5 cells. Whether the 45 is the half side is a GUESS (live check).</summary>
+    const double ChestRadius = 45, ChestMargin = 5;
     /// <summary>How long a one-shot effect object stays before it is removed.</summary>
     const double FlashSeconds = 3;
     /// <summary>GUESS: the rolls an opened chest and an opened War Hoard drop.</summary>
@@ -33,6 +34,8 @@ static partial class LegionMonolith
         public readonly Encounter E = e;
         public readonly LegionStasis.Member Member = member;
         public bool Broken;
+        /// <summary>Set when the reveal (0x2c8 state 2) was sent; until then the member takes no hits (it is hidden and has no body).</summary>
+        public bool Revealed;
     }
 
     static readonly ConditionalWeakTable<SpawnedMonster, Hold> Holds = new();
@@ -52,7 +55,7 @@ static partial class LegionMonolith
     {
         if (!player.Area.Monsters.TryGetValue(member.Id, out var monster)) return;
         // TryAdd: a hold that already exists is kept, as it may be mid break-out (two restores in Of() can run at once).
-        Holds.TryAdd(monster, new Hold(e, member) { Broken = member.Broken });
+        Holds.TryAdd(monster, new Hold(e, member) { Broken = member.Broken, Revealed = member.Revealed });
         anyHold = true;
     }
 
@@ -61,6 +64,7 @@ static partial class LegionMonolith
     static DamagePacket Hit(IModuleContext module, Player player, SpawnedMonster target, DamagePacket rolled)
     {
         if (!anyHold || !Holds.TryGetValue(target, out var hold)) return rolled;
+        if (!hold.Revealed) return DamagePacket.Empty;   // still in action state 0: hidden, no body, no hits
         bool breaks = false;
         lock (hold)
         {
@@ -108,17 +112,21 @@ static partial class LegionMonolith
         }
     }
 
-    /// <summary>Breaks the monsters out: crystal off for everyone now and for players who enter later, buff 1311 removed, the
-    /// faction's effect. The LegionFactions threshold columns and the shards_&lt;F&gt; effects are skipped.</summary>
+    /// <summary>Breaks the monsters out: a 0x2c8 state 3 (the client plays the threshold shards, breaking_free, a general's shell break and the 3 s
+    /// ramp itself, R10), crystal off for everyone now and for players who enter later. Our own effect object of the break-out is gone.</summary>
     static async Task Free(Player player, Encounter e, List<(Hold Hold, SpawnedMonster Monster)> items)
     {
         items = [.. items.Where(i => !i.Monster.Dead && player.Area.Monsters.ContainsKey(i.Hold.Member.Id))];   // none that ReleaseArmy removed
         if (items.Count == 0) return;
         bool general = MarkBroken(player, e, [.. items.Select(i => i.Hold.Member.Id)]);
-        double now = global::Game.AreaTime(player);
+        // A member the reveal has not reached yet (a chest broke within the reveal's 0.8 s) is shown first: state 3 follows 2.
+        await RevealMembers(player, e, [.. items.Where(i => !i.Hold.Revealed).Select(i => i.Hold.Member)]);
         foreach (var (hold, monster) in items)
         {
             uint id = hold.Member.Id;
+            // The break-out carries the life percent the client reads its threshold shards from; 1 at least, as the last hit left 1 life.
+            uint percent = (uint)Math.Max(1, (long)monster.Life * 100 / Math.Max(1, monster.MaxLife));
+            LegionStasis.SetOriginState(player, id, LegionStasis.BreakingOut);
             // Seen in the live test: the life bar must not stay near 0 after the break-out. Full life makes the client hide it; later hits stay zeroed.
             monster.Life = monster.MaxLife;
             var states = (monster.States ?? monster.Variety?.StateMachine)?.Set("breakout", 1);
@@ -129,17 +137,14 @@ static partial class LegionMonolith
                     player.Instance.World.MonsterOrigins[id] = origin with { Object = origin.Object with { StateMachine = states } };
             }
             int component = monster.Variety?.ComponentsOrBase.ToList().IndexOf("StateMachine") ?? -1;
-            var (x, y) = monster.Walk.Position(now);
             await LegionOutput.ToArea(player, async p =>
             {
+                // breakout=1 stays: the client draws the crystal from the StateMachine (R10 says the action handles it; LIVE CHECK whether it is needed).
                 if (states is not null && component >= 0)
                     await global::Game.SendWorldRecord(PlayerOf(p), id, InstanceEntities.StateMachineUpdate(id, (byte)component, states), null);
-                await global::Game.SendWorldRecord(PlayerOf(p), id, InstanceEntities.RemoveBuff(id, hold.Member.Buff), null);
+                await LegionStasis.SendState(p, id, hold.Member.Sequence, LegionStasis.BreakingOut, percent, null);
+                if (LegionStasis.SendFreezeBuff) await global::Game.SendWorldRecord(PlayerOf(p), id, InstanceEntities.RemoveBuff(id, hold.Member.Buff), null);
             });
-            string? model = e.Plan is { } plan && hold.Member.Faction < plan.Factions.Length
-                && LegionData.Current.Factions.FirstOrDefault(f => f.Row == plan.Factions[hold.Member.Faction].Faction) is { MiscAnimated.Length: > 0 } faction
-                    ? ModelOf(faction.MiscAnimated[0]) : null;
-            await Flash(player, model, x, y);
         }
         if (general)
         {
@@ -170,7 +175,7 @@ static partial class LegionMonolith
     {
         var e = hold.E;
         var chest = hold.Member;
-        double radius = ChestRadius * Math.Max(0, 100 + global::Game.AreaLeagueStats(player).GetValueOrDefault(Stat.MapLegionChestsBreakOutRangePlusPct)) / 100.0;
+        double radius = ChestRadius * Math.Max(0, 100 + global::Game.AreaLeagueStats(player).GetValueOrDefault(Stat.MapLegionChestsBreakOutRangePlusPct)) / 100.0 + ChestMargin;
         LegionStasis.Member[] army;
         lock (e) army = e.Army ?? [];
         double now = global::Game.AreaTime(player);
@@ -180,8 +185,7 @@ static partial class LegionMonolith
             if (m.Chest || m.Tier > 1 || m.Broken) continue;
             if (!player.Area.Monsters.TryGetValue(m.Id, out var monster) || monster.Dead || !Holds.TryGetValue(monster, out var h)) continue;
             var (mx, my) = monster.Walk.Position(now);
-            double dx = mx - x, dy = my - y;
-            if (dx * dx + dy * dy > radius * radius) continue;
+            if (Math.Abs(mx - x) > radius || Math.Abs(my - y) > radius) continue;   // a square query (0x141c496f0)
             lock (h) { if (h.Broken) continue; h.Broken = true; }
             near.Add((h, monster));
         }

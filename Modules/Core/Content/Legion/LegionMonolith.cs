@@ -32,8 +32,8 @@ static partial class LegionMonolith
     /// <summary>MiscAnimated 3270 LegionMonolithPulse.</summary>
     const string PulseModel = "Metadata/Effects/Spells/monsters_effects/essence/monolith_pulse/monolith_pulse.ao";
     const string SaveKey = "Legion";
-    /// <summary>The seconds between the build-up (charging) and the shatter.</summary>
-    const double ChargeSeconds = 1.0;
+    /// <summary>The seconds between the build-up (charging) and the shatter: the length of monolith_fx.ao's build_up clip (R10 section 1).</summary>
+    const double ChargeSeconds = 1.5;
     /// <summary>The cells the player may stand from the monolith to use it.</summary>
     const int Reach = 12;
     /// <summary>GUESS (live check): how long an unbroken general stands fleeing before it is removed.</summary>
@@ -106,6 +106,9 @@ static partial class LegionMonolith
         // The old module's holds are gone but its members keep EntranceGrace: hold them again (their life is kept).
         if (restored.Army is { } army && restored.Phase != Phase.Finished)
             foreach (var m in army) Arm(player, restored, m);
+        // A reload during the reveal or the spawn after the shatter lost the pending steps: reveal what is still hidden.
+        if (restored.Phase == Phase.Running && restored.Army is { } standing && standing.Where(m => !m.Revealed).ToList() is { Count: > 0 } hidden)
+            global::Game.SendAfter(player, 0, () => RevealMembers(player, restored, hidden));
         return restored;
     }
 
@@ -139,6 +142,7 @@ static partial class LegionMonolith
     {
         if (Of(player) is not { } e) return;
         await Show(player, e);
+        await ShowRules(player, e);
         await LegionStasis.Present(player, e.Army, e.Plan);
         await ShowBoxes(player, e);
     }
@@ -243,6 +247,7 @@ static partial class LegionMonolith
         module.Log($"{PlayerOf(player).Character}: monolith activated at ({e.X}, {e.Y}), timer {seconds} s");
         module.Log($"{PlayerOf(player).Character}: {plan}");
         await ToAll(player, e, StatesOf(Phase.Charging, e), "charging=1");
+        foreach (var member in Members(player)) await SendRules(member, LegionRules.Add(), "0x001f ruleset LegionRules");
         foreach (var member in Members(player)) member.RemoveBlocker(e.Id);
         foreach (var member in Members(player))
             await PlayerOf(member).Send(InstanceTimers.MissionTimer(InstanceTimers.MissionTimerType.Legion, SecondsShown(seconds)), $"0x0163 mission timer Legion: {seconds} s");
@@ -269,6 +274,8 @@ static partial class LegionMonolith
         {
             await ToAll(player, e, StatesOf(Phase.Running, e), "shattered=1");
             if (InArea(player, e.Id)) await ShowPulse(player, e, pulse);
+            foreach (var member in Members(player)) await SendRules(member, RulesBegin(player, e), "0x02c9 LegionRules mode 0 (HUD and area audio)");
+            await RevealArmy(module, player, e);
             await EarlyEnd(module, player, e);   // a break-out during the charge could not end it yet
         }
         else if (step == 2) await Finish(module, player, e, pulse, "timer");
@@ -281,6 +288,7 @@ static partial class LegionMonolith
         foreach (var member in Members(player))
             await PlayerOf(member).Send(InstanceTimers.HideMissionTimer(InstanceTimers.MissionTimerType.Legion), "0x0163 mission timer Legion: hidden");
         await ToAll(player, e, StatesOf(Phase.Finished, e), "locked=1, shattered=2");
+        foreach (var member in Members(player)) await SendRules(member, LegionRules.End(e.Id), "0x02c9 LegionRules mode 5 (finished)");
         if (pulse != 0 && InArea(player, pulse)) await LegionOutput.Remove(player, pulse);
         module.Log($"{PlayerOf(player).Character}: monolith 0x{e.Id:x} ended ({reason})");
         await ReleaseArmy(module, player, reason);
@@ -334,7 +342,14 @@ static partial class LegionMonolith
                 return true;
             }
         }
-        try { await LegionStasis.Spawn(module, player, plan, e.X, e.Y, e.Level, Keeps); }
+        // A member that stands after the shatter is revealed at once (RevealArmy revealed the ones standing then).
+        async Task Standing(LegionStasis.Member m)
+        {
+            bool reveal;
+            lock (e) reveal = e.Phase == Phase.Running;
+            if (reveal) await RevealMembers(player, e, [m], keep: false);
+        }
+        try { await LegionStasis.Spawn(module, player, plan, e.X, e.Y, e.Level, Keeps, Standing); }
         finally { lock (e) e.Spawning = false; }
         Phase phase;
         lock (e) { phase = e.Phase; Keep(player, e); }
@@ -353,6 +368,7 @@ static partial class LegionMonolith
         lock (e) { army = e.Army; e.Army = []; Keep(player, e); }
         if (army is not { Length: > 0 }) return;
         var remove = new List<LegionStasis.Member>();
+        var ended = new List<LegionStasis.Member>();
         var flee = new List<LegionStasis.Member>();
         int woken = 0;
         bool generalFought = false;
@@ -367,18 +383,26 @@ static partial class LegionMonolith
             }
             else if (m.Tier == 3 && !m.Chest) flee.Add(m);
             else remove.Add(m);
+            if (m.Revealed && !m.Broken) ended.Add(m);   // still frozen: the action ends (state 5: speed restored, props gone)
         }
+        // The action's end (R10: state 5), before the members that are removed go; a hidden one needs none.
+        if (ended.Count > 0)
+            await LegionOutput.ToArea(player, async p =>
+            {
+                foreach (var m in ended) await LegionStasis.SendState(p, m.Id, m.Sequence, LegionStasis.Ended, 100, null);
+            });
         await LegionStasis.Remove(player, remove);
         foreach (var g in flee)
         {
             if (!player.Area.Monsters.TryGetValue(g.Id, out var monster)) continue;
             Holds.Remove(monster);
-            // LIVE CHECK: with the frozen buff gone and the animation running again, the client plays its flee animation (fleeing=1).
-            await LegionOutput.ToArea(player, async p =>
-            {
-                await global::Game.SendWorldRecord(p, g.Id, InstanceEntities.RemoveBuff(g.Id, g.Buff), null);
-                await global::Game.SendWorldRecord(p, g.Id, InstanceProtocol.AnimationUpdate(g.Id, 0, 0, 1), null);
-            });
+            // LIVE CHECK: with the action ended (state 5, sent above) and the animation running again, the client plays its flee animation (fleeing=1).
+            if (LegionStasis.SendFreezeBuff)
+                await LegionOutput.ToArea(player, async p =>
+                {
+                    await global::Game.SendWorldRecord(p, g.Id, InstanceEntities.RemoveBuff(g.Id, g.Buff), null);
+                    await global::Game.SendWorldRecord(p, g.Id, InstanceProtocol.AnimationUpdate(g.Id, 0, 0, 1), null);
+                });
             await LegionStasis.SetState(player, g.Id, monster, "fleeing");
             // The server forgets it now (no leak if the timer below is dropped, and it gives no rewards); only the client's removal waits.
             if (player.Area.Monsters.Remove(g.Id, out var gone)) { gone.Dead = true; gone.Life = 0; gone.ActionGeneration++; }

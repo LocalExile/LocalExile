@@ -193,7 +193,7 @@ Part of [Status](../Status.md); what to build next in this area is in
   selector). Not compared with a retail capture: Oshabi's state sequence (soul tree progression, interactable, emerge, energy and colour stages, death; her emerge,
   travelling and repeat_fight states).
 
-- Legion (partial): the Timeless Monolith, its timer, the two armies frozen around it and their break-out and release.
+- Legion (partial): the Timeless Monolith, its timer, the two armies around it (hidden, then revealed and held by the client's own LegionBreakout action, not yet live-checked) and their break-out and release.
   Splinters, reward symbols, the Domain and the Atlas stats are not built. Docs: [Legion](../docs/game/legion.md).
 
 - Simulacrum: five arenas and a 15-wave controller; opening and the wave-start prompt checked in the client, wave

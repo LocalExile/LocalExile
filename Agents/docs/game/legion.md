@@ -21,7 +21,12 @@ The rules the code follows are the wiki's for 3.29; what the client data and cod
   The crystal is part of the monster's own model, so a new monster is drawn encased with nothing sent.
   Frozen is `breakout` 0, `activated` 0; broken out is `breakout` 1 (crystal off, freed glow); fighting is `activated` 1.
   A general still frozen carries the about-to-flee effect; `fleeing=1` plays its flee animation.
-- Buff 1311 `frozen_in_time` (flags: cannot be knocked back, minions take no actions) holds the monster while it is frozen.
+- Stasis is the client's own `LegionBreakout` action (action type 0xd8fe, skill 0x18fe), created with the monster (Actor current action) in state 0:
+  hidden, no collision and no hits on the client and the server (`noBodyUntilReleased`). At the shatter a 0x2c8 state 2 reveals each member, nearest the
+  monolith first over `RevealSeconds` (a guess), and the client poses it mid-attack in the attack clip the server names; state 3 at the break-out, state 5 at the end;
+  a joiner is created in state 0 (the origin) and gets a 0x2c8 state 2 like the others (a broken-out member is created in state 3 and gets none). Protocol docs follow the live check.
+- Buff 1311 `frozen_in_time` (flags: cannot be knocked back, minions take no actions) is NOT sent for the first live test of the action
+  (`LegionStasis.SendFreezeBuff` = false, with the paused animation); the text below describes what the flag restores.
   Its default visual 1082 `legion_petrify` draws big purple spikes; the server sends it with the faction's visual as the
   AddBuff override (BuffVisuals 1099 Karui, 1100 Maraketh, 1101 Vaal, 1102 Templar, 1103 Eternal; Faridun uses the Maraketh one, a guess).
 - The client keeps no damage for the stasis: `GameEvents.OutgoingDamage` zeroes a hit on a frozen member and lowers its life on the server instead (the area writes the new life to every life bar).
@@ -31,8 +36,8 @@ The rules the code follows are the wiki's for 3.29; what the client data and cod
 
 - 3270 `LegionMonolithPulse`: the ring when the monolith shatters.
 - 3326 `LegionChestBreakoutExplode`: a war chest breaking out.
-- `LegionFactions.MiscAnimatedKey1` (break-out, `breaking_free.ao`) is played at each break-out;
-  keys 2 to 5 (threshold shards, freeze, general break) are not used yet.
+- `LegionFactions.MiscAnimatedKey1` (break-out, `breaking_free.ao`) and keys 2, 3 and 5 are played by the client from the action (state 3), no longer by an effect object;
+  `LegionFlashLight` at the shatter is not sent (no known trigger).
 
 ## The Legion tables
 
@@ -61,7 +66,7 @@ The ruleset `LegionRules` (Rulesets 94) reads the same duration from the S->C 0x
 
 ## Open questions for the live check
 
-- Does the HUD gauge need `LegionRules` (0x1f with row 94, then 0x2c9) or is 0x163 alone enough? Only 0x163 is sent.
+- `LegionRules` (0x1f row 94, then 0x2c9 mode 0 at the shatter, mode 5 at the end) is sent with 0x163: does the HUD and the area audio 3355 start?
 - The formation constants (`LegionFormation.cs`: front gap, body gap, area per member, width over depth, facing rotation) and the chest break-out radius are guesses.
 - Tier rarity (elite Magic, sergeant Rare, general Unique) is a guess.
 - Is the swap of a broken-out monster for a fresh fighting one visible, and does a hit on a frozen monster show a number or a flinch?
@@ -77,7 +82,7 @@ The ruleset `LegionRules` (Rulesets 94) reads the same duration from the S->C 0x
 
 ## What the encounter does
 
-- The monolith is used from 12 cells away; charging lasts 1 s, then it shatters and the timer runs.
+- The monolith is used from 12 cells away; charging lasts 1.5 s (the build_up clip), then it shatters and the timer runs.
 - The factions: in The Climb Eternal Empire and Karui, in The Dried Lake Eternal Empire and one random; elsewhere two are
   drawn by `SpawnWeight` and the `map_legion_monoliths_chance_for_*` stats, among those whose balance row allows the level.
 - The army spawns frozen for every player in the area (`LegionFormation.cs`): a random axis through the monolith, one block per army
