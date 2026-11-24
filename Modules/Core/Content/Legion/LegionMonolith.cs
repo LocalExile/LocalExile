@@ -14,7 +14,7 @@ namespace GameServer.Modules.Legion;
 /// <see cref="ReleaseArmy"/> are the hand-over points for it. The encounter is the instance's, kept in
 /// <c>Instance.ContentState</c>, and a client that enters later is shown it as it is.
 /// </summary>
-static class LegionMonolith
+static partial class LegionMonolith
 {
     public const string LocatorType = "Metadata/Terrain/Leagues/Legion/Objects/Legion_EncounterLocator";
     public const string InitiatorType = "Metadata/Terrain/Leagues/Legion/Objects/LegionInitiator";
@@ -28,7 +28,7 @@ static class LegionMonolith
 
     enum Phase { Idle, Charging, Running, Finished }
 
-    sealed record Saved(uint Id, int X, int Y, int Level, int Phase, double ChargeEnd, double EndsAt, uint Pulse, float Rotation = 0, float? Z = null, LegionArmy.ArmyPlan? Plan = null, LegionStasis.Member[]? Army = null);
+    sealed record Saved(uint Id, int X, int Y, int Level, int Phase, double ChargeEnd, double EndsAt, uint Pulse, float Rotation = 0, float? Z = null, LegionArmy.ArmyPlan? Plan = null, LegionStasis.Member[]? Army = null, Box[]? Boxes = null);
 
     /// <summary>The instance's encounter. Fields change under the object's lock.</summary>
     sealed class Encounter(Saved saved)
@@ -43,7 +43,9 @@ static class LegionMonolith
         public LegionArmy.ArmyPlan? Plan = saved.Plan;
         /// <summary>The spawned army (kept in the save); null until it was spawned.</summary>
         public LegionStasis.Member[]? Army = saved.Army;
-        public Saved ToSaved() => new(Id, X, Y, Level, (int)Phase, ChargeEnd, EndsAt, Pulse, Rotation, Z, Plan, Army);
+        /// <summary>The chests the war chests became (kept in the save).</summary>
+        public Box[]? Boxes = saved.Boxes;
+        public Saved ToSaved() => new(Id, X, Y, Level, (int)Phase, ChargeEnd, EndsAt, Pulse, Rotation, Z, Plan, Army, Boxes);
     }
 
     static readonly ConditionalWeakTable<object, Encounter> Encounters = new();
@@ -70,7 +72,8 @@ static class LegionMonolith
             return;
         }
         // After a hot reload mid-timer, players already in the area see the updates only after they re-enter.
-        module.Lifetime.Own(new Cleanup(() => { Encounters.Clear(); Shown.Clear(); }));
+        module.Lifetime.Own(new Cleanup(() => { Encounters.Clear(); Shown.Clear(); Holds.Clear(); anyHold = false; Models = null; }));
+        GameEvents.OutgoingDamage.Add(id, (player, _, target, rolled) => Hit(module, player, target, rolled));
         GameEvents.AreaPopulated.Add(id, area => Place(module, area));
         GameEvents.PlayerEntered.Add(id, player => Enter(player));
         GameEvents.AreaTick.Add(id, player => HasLocator(player) ? (p, _) => Tick(module, p) : null);
@@ -86,7 +89,12 @@ static class LegionMonolith
         if (!instance.ContentState.TryGetValue(SaveKey, out string? text)) return null;
         // After a module reload: the saved encounter comes back.
         var saved = JsonSerializer.Deserialize<Saved>(text, Json);
-        return saved is null ? null : Encounters.GetValue(instance, _ => new Encounter(saved));
+        if (saved is null) return null;
+        var restored = Encounters.GetValue(instance, _ => new Encounter(saved));
+        // The old module's holds are gone but its members keep EntranceGrace: hold them again (stored damage restarts from 0).
+        if (restored.Army is { } army && restored.Phase != Phase.Finished)
+            foreach (var m in army) Arm(player, restored, m);
+        return restored;
     }
 
     static void Keep(Player player, Encounter e) =>
@@ -116,6 +124,7 @@ static class LegionMonolith
         if (Of(player) is not { } e) return;
         await Show(player, e);
         await LegionStasis.Present(player, e.Army);
+        await ShowBoxes(player, e);
     }
 
     static StateMachineData StatesOf(Phase phase, Encounter? e = null)
@@ -124,9 +133,8 @@ static class LegionMonolith
         if (phase >= Phase.Charging) states = states.Set("charging", 1);
         if (phase >= Phase.Running) states = states.Set("shattered", 1);
         if (phase >= Phase.Finished) states = states.Set("locked", 1);
-        // TODO(E5): the bolts stay on if the general is killed while frozen; E5 turns them off on break-out or kill.
-        // The general indicator: bolts from the monolith towards the general while it stands frozen (R3 section 4).
-        if (e?.Army is { } army && army.Any(m => m.Tier == 3 && !m.Chest)) states = states.Set("spawn_lightning", 1);
+        // The general indicator: bolts from the monolith towards the general while it stands frozen, until it breaks out (R3 section 4).
+        if (e?.Army is { } army && army.Any(m => m.Tier == 3 && !m.Chest && !m.Broken)) states = states.Set("spawn_lightning", 1);
         return states;
     }
 
@@ -182,7 +190,8 @@ static class LegionMonolith
 
     static async Task<bool> Use(IModuleContext module, Player player, InstanceTransfer.UseSkillOnObject use, double requestedAt)
     {
-        if (Of(player) is not { } e || use.TargetId != e.Id) return false;
+        if (Of(player) is not { } e) return false;
+        if (use.TargetId != e.Id) return await OpenBox(player, e, use.TargetId, requestedAt);
         if (player.Closed || player.LeavingArea || player.PlayerLife == 0) return true;
         lock (e) if (e.Phase != Phase.Idle) return true;
         if (!await WorldOf(player).WalkUpTo(e.X, e.Y, Reach, requestedAt)) return true;
@@ -267,6 +276,7 @@ static class LegionMonolith
             {
                 if (e.Phase == Phase.Finished) return false;
                 e.Army = [.. e.Army ?? [], m];
+                Arm(player, e, m);
                 return true;
             }
         }
@@ -277,16 +287,16 @@ static class LegionMonolith
         if (phase != Phase.Finished && e.Army!.Any(m => m.Tier == 3 && !m.Chest)) await ToAll(player, e, StatesOf(phase, e), "spawn_lightning=1");
     }
 
-    /// <summary>The timer ended. MINIMAL until the break-out exists (E5/E6 refine this): every member still standing is
-    /// removed, and the general indicator goes out with it.</summary>
+    /// <summary>The timer ended. MINIMAL until E6: every member still standing, broken out or not, is
+    /// removed (E6 makes the broken-out ones fight), and the general indicator goes out with it.</summary>
     static async Task ReleaseArmy(IModuleContext module, Player player)
     {
         if (Of(player) is not { } e) return;
         LegionStasis.Member[]? army;
         lock (e) { army = e.Army; e.Army = []; Keep(player, e); }
         if (army is not { Length: > 0 }) return;
-        int removed = await LegionStasis.Remove(player, army, Members(player));
-        module.Log($"{PlayerOf(player).Character}: army released: {removed} of {army.Length} members removed");
+        await LegionStasis.Remove(player, army, Members(player));
+        module.Log($"Legion: army released: {army.Count(m => m.Broken)} of {army.Length} broken out");
         await ToAll(player, e, StatesOf(Phase.Finished, e), "spawn_lightning=0");
     }
 }

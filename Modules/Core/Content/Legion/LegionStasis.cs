@@ -9,13 +9,13 @@ namespace GameServer.Modules.Legion;
 /// instance's own hostile monsters, held the way the Essence's encased previews are (no aggro, no attack, no rewards, AI
 /// held, buff 1311 frozen_in_time, animation paused). The client draws the crystal itself (it is in the Legion monsters'
 /// models, and their StateMachine defaults breakout 0 / activated 0 mean frozen), so no state is sent at spawn.
-/// Until the break-out exists a frozen monster can be killed normally and drops nothing.
+/// Hits on a frozen monster are stored and zeroed until it breaks out (LegionMonolith.Breakout.cs).
 /// </summary>
 static class LegionStasis
 {
     /// <summary>A spawned army member: its object id, the army (index into the plan's factions), the rank tier (0 normal,
-    /// 1 elite, 2 sergeant, 3 general), and whether it is a chest monster (a War Hoard when WarHoard).</summary>
-    public sealed record Member(uint Id, ushort Buff, int Faction, int Tier, bool Chest, bool WarHoard);
+    /// 1 elite, 2 sergeant, 3 general), whether it is a chest monster (a War Hoard when WarHoard), and whether it broke out.</summary>
+    public sealed record Member(uint Id, ushort Buff, int Faction, int Tier, bool Chest, bool WarHoard, bool Broken = false);
 
     // THE FORMATION'S GEOMETRY IS A GUESS: tune these after the live check. Radii are in grid cells from the monolith.
     const double MinRadius = 12, MaxRadius = 60;
@@ -88,10 +88,13 @@ static class LegionStasis
     /// <summary>The stasis of one spawned monster: held like the Essence's encased previews (EssenceEncased.cs).</summary>
     static async Task<ushort> Freeze(Player player, uint id, string variety)
     {
-        // No EncounterStats[BaseCannotBeDamaged]: the break-out counts hits through GameEvents.OutgoingDamage (E5).
+        // No EncounterStats[BaseCannotBeDamaged]: the break-out counts hits through GameEvents.OutgoingDamage (LegionMonolith.Breakout.cs).
+        // EntranceGrace makes the monster Invulnerable: damage over time and auras end in TakeDamageLocked, which then takes no life.
+        // Only the player's own direct hits reach OutgoingDamage and count; totems, brands, traps, mines and minions drop the hit earlier.
+        // LIVE CHECK: the animation stays paused (0x1b2 speed 0) when the buff is removed at break-out.
         if (player.Area.Monsters.TryGetValue(id, out var monster))
         {
-            monster.NoRewards = true; monster.Attack = null; monster.Aggro = false;
+            monster.NoRewards = true; monster.Attack = null; monster.Aggro = false; monster.EntranceGrace = true;
             monster.BusyUntil = double.PositiveInfinity;
         }
         ushort buff = player.NextBuff++;
@@ -112,7 +115,7 @@ static class LegionStasis
         if (army is not { Length: > 0 }) return;
         foreach (var member in army)
         {
-            if (!player.Area.Monsters.TryGetValue(member.Id, out var m) || m.Dead) continue;
+            if (member.Broken || !player.Area.Monsters.TryGetValue(member.Id, out var m) || m.Dead) continue;
             await SendStasis(player, member.Id, member.Buff, "member");
         }
     }
