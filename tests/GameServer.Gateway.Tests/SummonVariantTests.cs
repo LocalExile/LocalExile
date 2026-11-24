@@ -70,18 +70,32 @@ public sealed class SummonVariantTests
         {
             var player = cloneFixture.Player;
             ushort[] skills = cloneFixture.Equip(("Blink Arrow", 1), ("Mirror Arrow", 1));
+            bool monarch = false;
             using var restrict = GameEvents.PlayerStatSources.Add("Game", (owner, values) =>
             {
-                if (ReferenceEquals(owner, player)) values[Stat.YouCannotHaveNonGolemMinions] = 1;
+                if (ReferenceEquals(owner, player))
+                    values[monarch ? Stat.MaximumNumberOfXMinionTypeDoubled : Stat.YouCannotHaveNonGolemMinions] = 1;
                 return values;
             });
-            foreach (ushort skill in skills)
+            foreach (bool useMonarch in new[] { false, true })
             {
-                var supported = Game.SupportedSkill(player, skill);
-                string effectId = Assert.IsType<string>(Program.Skills.EffectId(supported.Effect));
-                Assert.Null(Game.ActorSkillDisabled(player, supported.Effect));
-                var definition = Assert.IsType<SummonCatalog.Definition>(Game.SummonData.Find(effectId));
-                Assert.Equal(0u, await Game.SummonFighter(player, skill, definition, (100, 100)));
+                monarch = useMonarch;
+                foreach (ushort skill in skills)
+                {
+                    var supported = Game.SupportedSkill(player, skill);
+                    string effectId = Assert.IsType<string>(Program.Skills.EffectId(supported.Effect));
+                    Assert.Null(Game.ActorSkillDisabled(player, supported.Effect));
+                    var definition = Assert.IsType<SummonCatalog.Definition>(Game.SummonData.Find(effectId));
+                    Assert.Equal(0u, await Game.SummonFighter(player, skill, definition, (100, 100)));
+                    if (effectId == "BlinkArrow")
+                    {
+                        var origin = player.Walk.Position(Game.AreaTime(player));
+                        var aim = (origin.X + 6, origin.Y);
+                        Assert.True(await Game.CastSummon(player, skill, definition, aim, 0, 0, () => true, triggered: true));
+                        Assert.Equal(aim, player.Walk.Position(Game.AreaTime(player)));
+                        Assert.Empty(player.Summons.Fighters);
+                    }
+                }
             }
         }
 

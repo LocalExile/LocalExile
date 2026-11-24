@@ -272,11 +272,20 @@ public static partial class Game
                 {
                     var origin = player.Walk.Position(AreaTime(player));
                     var landing = MovementLanding(player, gem.Effect, origin, aim);
-                    uint clone = await SummonFighterCore(player, source, definition,
-                        origin, target, current: current, triggered: triggered, playerConsumesCorpse: playerConsumesCorpse);
-                    if (clone == 0) return false;
-                    await CommitTravelLanding(player, landing,
-                        () => player.Summons.Fighters.ContainsKey(clone));
+                    bool AllowClone()
+                    {
+                        var stats = StatSourceValues(player);
+                        return MinionFamilyAllowed(stats.GetValueOrDefault, definition.Family);
+                    }
+                    uint clone = 0;
+                    if (AllowClone())
+                    {
+                        clone = await SummonFighterCore(player, source, definition,
+                            origin, target, current: current, triggered: triggered, playerConsumesCorpse: playerConsumesCorpse);
+                        if (clone == 0 && AllowClone()) return false;
+                    }
+                    if (!await CommitTravelLanding(player, landing,
+                            () => current() && (clone == 0 || player.Summons.Fighters.ContainsKey(clone)))) return false;
                 }
                 else await SummonFighterCore(player, source, definition, aim, target,
                     current: current, triggered: triggered, playerConsumesCorpse: playerConsumesCorpse);

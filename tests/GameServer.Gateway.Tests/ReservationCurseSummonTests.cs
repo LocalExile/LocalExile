@@ -42,8 +42,8 @@ public sealed partial class ReservationCurseSummonTests
         curses.Expire(20);
         Assert.Empty(curses.All); Assert.Empty(curses.Stats);
         curses.Put(Curse(3, "TemporalChains", -10, 21) with { Aura = true, ExpandedCapacity = 6, Until = 60 }, 1);
-        curses.Put(Curse(1, "Flammability", -20, 22), 1);
-        curses.Put(Curse(1, "ElementalWeakness", -30, 23), 1);
+        curses.Put(Curse(1, "Flammability", -20, 22) with { Until = 60 }, 1);
+        curses.Put(Curse(1, "ElementalWeakness", -30, 23) with { Until = 60 }, 1);
         Assert.Equal(2, curses.All.Count);
         Assert.Contains((3u, "TemporalChains"), curses.All.Keys);
         Assert.Contains((1u, "ElementalWeakness"), curses.All.Keys);

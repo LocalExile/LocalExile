@@ -136,8 +136,13 @@ public static partial class Game
     {
         foreach (uint id in left.MinionOrigins.Keys)
         {
-            if (OwnedFighter(left, id) is { Definition.Kind: ItemHarbingerFamily } harbinger)
-                ClearItemHarbingerLocked(left, harbinger);
+            if (OwnedFighter(left, id) is { } fighter)
+            {
+                ClearItemHarbingerLocked(left, fighter);
+                ClearEffigyHexesLocked(fighter);
+                ClearSkitterAuraLocked(fighter);
+                ClearSharedMinionAuras(left, id);
+            }
             left.Instance.World.Area.Monsters.Remove(id);
         }
     }

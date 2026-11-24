@@ -68,7 +68,7 @@ public static partial class Game
 
     static void RemoveSkitterAura(GolemState.Golem bot, SpawnedMonster monster, string? curse)
     {
-        if (curse is not null) monster.Curses.Remove(bot.Id, curse);
+        if (curse is not null) RemoveEmittedHex(monster, bot.Id, curse);
         else monster.Ailments.RemoveAura(bot.Definition.Kind == "SkitterCold"
             ? MonsterElementalAilments.Kind.Chill : MonsterElementalAilments.Kind.Shock, bot.Id);
     }
