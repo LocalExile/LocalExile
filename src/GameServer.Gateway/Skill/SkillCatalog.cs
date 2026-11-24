@@ -1161,7 +1161,6 @@ public sealed class SkillCatalog
         public int SpiralTimeMs { get; init; }
         public int SpiralAngle { get; init; }
         public int SpiralStartAngle { get; init; }
-        public bool SpiralBothDirections { get; init; }
     }
 
     /// <summary>One clip of a monster's attack pool (client.db's monster_contact_clips, from scripts/re/monster_contacts.py): its name,
@@ -1293,9 +1292,8 @@ public sealed class SkillCatalog
         // Constants of the skill's stat set, so level 1 reads them.
         var stats = EffectStats(effectRow, 1);
         int Get(uint key) => stats.FirstOrDefault(s => s.Item1 == key).Item2;
-        int spiralCount = Get(Stat.BaseNumberOfProjectilesInSpiralNova);
         int count = Get(Stat.NumberOfProjectilesOverride) is > 0 and var fixedCount ? fixedCount
-            : Math.Max(1, Math.Max(Get(Stat.BaseNumberOfProjectiles), spiralCount)) + Get(Stat.NumberOfAdditionalProjectiles);
+            : Math.Max(1, Get(Stat.BaseNumberOfProjectiles)) + Get(Stat.NumberOfAdditionalProjectiles);
         return projectile with
         {
             MinimumRange = Get(Stat.ProjectileMinimumRange), SpreadRadius = Get(Stat.ProjectileSpreadRadius),
@@ -1303,7 +1301,6 @@ public sealed class SkillCatalog
             SpiralTimeMs = Get(Stat.ProjectileSpiralNovaTimeMs),
             SpiralAngle = Get(Stat.ProjectileSpiralNovaAngle),
             SpiralStartAngle = Get(Stat.ProjectileSpiralNovaStartingAngleOffset),
-            SpiralBothDirections = Get(Stat.ProjectileSpiralNovaBothDirections) != 0,
             // MonsterMortar names the action/data table, not its trajectory. The attack's +0x558 callback
             // (141b6c630 -> 141baf9f0) selects a straight path unless a ballistic stat requests an arc.
             // Straight spell projectiles (MonsterProjectileSpell) start with Lobbed false and stay straight.

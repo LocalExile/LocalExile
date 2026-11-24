@@ -180,6 +180,10 @@ public sealed class MinionSupportExecutionTests
             Invoke("RefreshGolemLocked", f.Player, fighter, Game.CharacterPlayerStats(f.Player), (double?)0d);
             fighter.Abilities = Game.GolemAbilities(f.Player, defilerVariety, 84, fighter, Game.CharacterPlayerStats(f.Player));
             var spell = Assert.Single(fighter.Abilities, a => a.Id == "RevenantBossSpellProjectile");
+            Assert.Equal(9, spell.Projectile!.Count);
+            Assert.Equal(50, spell.Projectile.SpiralAngle);
+            Assert.Equal(750, spell.Projectile.SpiralTimeMs);
+            Assert.Equal(1, Game.SkillsFor(f.Player).MonsterProjectile(spell.Effect)!.Count);
             var enemy = new SpawnedMonster("target", new(130, 100, 0), 100, 3, 1_000_000) { Hostile = true };
             f.Player.Area.Monsters[999] = enemy;
 
@@ -195,8 +199,18 @@ public sealed class MinionSupportExecutionTests
                 Game.GolemStepLocked(f.Player, fighter, time.Time);
                 using (Game.ProjectileMutation(f.Player, advance: false))
                 {
-                    for (int step = 1; step <= 20; step++)
-                        session.AdvanceTo(GameServer.Core.Projectiles.ProjectileRuntime.Time(time.Time + step * 0.05));
+                    var shots = new Dictionary<long, long>();
+                    for (int step = 1; step <= 100; step++)
+                    {
+                        session.AdvanceTo(GameServer.Core.Projectiles.ProjectileRuntime.Time(time.Time + step * 0.01));
+                        foreach (var shot in session.Runtime.Projectiles.Where(p => p.CreatedAt >= GameServer.Core.Projectiles.ProjectileRuntime.Time(time.Time)))
+                        {
+                            Assert.True(shot.Profile.Returns);
+                            shots.TryAdd(shot.Id, shot.CreatedAt);
+                        }
+                    }
+                    Assert.Equal(9, shots.Count);
+                    Assert.Equal(9, shots.Values.Distinct().Count());
                 }
                 if (repeat == 0)
                 {
