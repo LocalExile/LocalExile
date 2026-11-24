@@ -17,8 +17,14 @@ public static partial class BossSummons
 
     /// <summary>The summon for a boss's skill whose tables name no monster, or null for a skill that summons nothing
     /// (or nothing the server can create).</summary>
-    public static SkillCatalog.MonsterSummonInfo? For(SkillCatalog catalog, MonsterCatalog.Variety boss, int effect) =>
-        Cache.GetOrAdd((boss.Row, effect), _ => Resolve(catalog, boss, effect));
+    public static SkillCatalog.MonsterSummonInfo? For(SkillCatalog catalog, MonsterCatalog.Variety boss, int effect)
+    {
+        var info = Cache.GetOrAdd((boss.Row, effect), _ => Resolve(catalog, boss, effect));
+        // A guessed summon takes the count the caller last set (a test or a runtime override): the cached row was
+        // built with the count at its first resolution, and an explicit row names its own count, so only a guessed
+        // one is re-counted here.
+        return info is { } && !HasOverride(effect) ? info with { Count = Count } : info;
+    }
 
     static readonly string[] Skipped = ["EmptyAction", "Portal", "Cage", "Double", "Fragment", "Lieutenant"];
 
@@ -28,23 +34,17 @@ public static partial class BossSummons
     /// <summary>The summon rows the guess cannot name, and what they raise: the row's monster and how many at a time.
     /// A guess looks in the boss's own folder and then for a name the skill's last word starts; these rows name
     /// nothing it can find. Atziri's demons are skeletons from another folder, her mirrors are a skill with no summon
-    /// word at all, Avarius's statues are excluded by name, Kaom's spawners and Piety's eye spawners carry no summon
-    /// word, and Shavronne's books name no monster. Every variety here is one the blob can serialize: a summon the
-    /// catalog cannot create is a skill that silently does nothing.</summary>
+    /// word at all, Piety's eye spawners carry no summon word, and Shavronne's books name no monster. Every variety
+    /// here is one the blob can serialize: a summon the catalog cannot create is a skill that silently does nothing.</summary>
     static readonly Dictionary<int, (string Variety, int Count)> Overrides = new()
     {
         [3386] = ("Metadata/Monsters/Skeletons/SkeletonMeleeKnightElementalSwordAtziri", 3), // AtziriSummonDemons
         [3401] = ("Metadata/Monsters/Atziri/AtziriMirror", 2),                               // AtziriMirrorImage
-        [3402] = ("Metadata/Monsters/Atziri/AtziriMirror", 2),                               // AtziriMirrorImageUber
-        [6326] = ("Metadata/Monsters/BloodElemental/BloodElemental", 2),                     // AvariusRaiseStatues
-        [6327] = ("Metadata/Monsters/BloodElemental/BloodElemental", 2),                     // AvariusRaiseStatuesWickerman
-        [6328] = ("Metadata/Monsters/BloodElemental/BloodElemental", 2),                     // AvariusRaiseStatuesFaster
-        [6329] = ("Metadata/Monsters/BloodElemental/BloodElemental", 2),                     // AvariusRaiseStatuesFastest
-        [5142] = ("Metadata/Monsters/Daemon/KaomVolcanoMortar", 3),                           // TriggerKaomArcherSpawners
-        [5243] = ("Metadata/Monsters/SummonedSkull/SummonedArcaneEye", 1),                    // PietyActivateEyeSpawner
-        [5244] = ("Metadata/Monsters/SummonedSkull/SummonedArcaneEye", 1),                    // PietyActivateEyeSpawner2
-        [6674] = ("Metadata/Monsters/Skeletons/SkeletonCasterLightning", 2),                  // ShavronneSummonLightningBooks
-        [6675] = ("Metadata/Monsters/Skeletons/SkeletonCasterLightning", 2),                  // ShavronneSummonLightningBooksOnTarget
+        [3402] = ("Metadata/Monsters/Atziri/AtziriMirror2", 2),                              // AtziriMirrorImageUber
+        [5243] = ("Metadata/Monsters/EyeSpawner/EyeSpawnerEmergePiety", 1),                  // PietyActivateEyeSpawner
+        [5244] = ("Metadata/Monsters/Eyes/EyePiety", 1),                                     // PietyActivateEyeSpawner2
+        [6674] = ("Metadata/Monsters/Totems/ShavronneTowerLightningBook", 2),                 // ShavronneSummonLightningBooks
+        [6675] = ("Metadata/Monsters/Totems/ShavronneTowerLightningBook", 2),                 // ShavronneSummonLightningBooksOnTarget
     };
 
     /// <summary>Whether the row has an explicit summon override (<see cref="Overrides"/>).</summary>
