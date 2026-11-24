@@ -398,8 +398,11 @@ public static class KingsmarchTown
         // The town's clickable boards, since the client never builds its Kingsmarch panel in this build.
         public readonly Dictionary<uint, TownBoard> Boards = [];
         // Wall-clock seconds the town's wages were last settled at; wages are charged only for time the town is running,
-        // so the time a character was away is neither paid for twice nor left unpaid (RE C.3).
+        // so the time a character was away is settled once, by CatchUp, when the town is loaded again (RE C.3).
         public double WageSettledAt;
+        // Wall-clock seconds the previous session last settled the town at: the start of the gap CatchUp fills in
+        // (the town produces while its owner is away, until its treasury can no longer pay the wages). 0 = nothing owed.
+        public double AwayFrom;
         // Wages earned but not yet a whole gold piece, so a slow trickle of work still costs what it owes.
         public double WageDebt;
         // Wall-clock seconds the farm was last written to data/kingsmarch-farm.json.
@@ -660,14 +663,16 @@ public static class KingsmarchTown
                 {
                     Who = progress.Who, ObjectId = id, Order = order, StateIndex = (byte)stateIndex, States = type.States,
                     Row = o, Type = type, Crop = saved?.Crop ?? 0, Carry = saved?.Carry ?? 0, Produced = saved?.Produced ?? 0,
-                    // The town only produces while it is loaded: the saved timestamp is deliberately dropped so a character
-                    // that was away gets nothing for the time it was gone (an empty treasury would have stopped the town
-                    // anyway, and paying for that time is the open question of RE C.3's P0 list).
-                    SettledAt = UtcNow(), CreatedAt = clock,
+                    // A plot comes back from the timestamp it was left at, so the town keeps producing while its owner is
+                    // in a map: CatchUp settles that gap against the treasury before the ordinary tick takes over.
+                    SettledAt = saved is { Settled: > 0 } kept ? Math.Max(kept.Settled, UtcNow() - AwayCap) : UtcNow(),
+                    CreatedAt = UtcNow(),
                 };
             if (plot) progress.Placed = true;
             created++;
         }
+        // The plots are back, so the gap since the character left can be settled (once per load).
+        if (progress.Placed) CatchUp(progress);
     }
 
     /// <summary>The town's clickable boards, on the plaza next to where the player arrives (590, 655): the treasury, the
@@ -874,6 +879,9 @@ public static class KingsmarchTown
         double now = Environment.TickCount64 / 1000.0;
         progress.MineStartedAt = farm.MineStarted > 0 ? farm.MineStarted : now;
         progress.SmeltStartedAt = farm.SmeltStarted > 0 ? farm.SmeltStarted : now;
+        // The town ran while the character was away; CatchUp settles that gap against the treasury once the plots are
+        // back, and ordinary per-tick billing starts from this load.
+        progress.AwayFrom = farm.WageSettled > 0 ? farm.WageSettled : 0;
         progress.WageSettledAt = UtcNow();
         progress.Halted = false;
         progress.Workers.Clear();
@@ -1100,11 +1108,11 @@ public static class KingsmarchTown
     /// <summary>The town's farming attributes (RE C侫.3), read from VillageBaseStats and read again whenever the town's
     /// stats are refreshed. All three are 0 at the town's base level, which is the state this build can reach: the two
     /// yield bonuses are 0 and the farming speed bonus is 0, so the rate is the plain time-based one.</summary>
-    const int StatFarmingSpeed = 20698;         // farming speed, +%
-    const int StatYieldPerDifferentCrop = 20735;  // yield per distinct crop the town is growing, +%
-    const int StatYieldPerAdjacentPlot = 20736;   // yield per plot next to a growing one, +%
-    const int StatMaxFarmersPerPlot = 20720;   // the plots' worker cap, 3
-    const int StatCropRankMax = 20721;         // the farming rank cap, 5
+    const int StatFarmingSpeed = 20699;         // village_farming_speed_+% (Stat.g.cs)
+    const int StatYieldPerDifferentCrop = 20736;  // village_farming_yield_+%_per_different_crop_farmed
+    const int StatYieldPerAdjacentPlot = 20737;   // village_farming_yield_+%_per_adjacent_plot_farmed
+    const int StatMaxFarmersPerPlot = 20721;   // village_max_farmers_per_plot
+    const int StatCropRankMax = 20722;         // village_can_farm_crops_up_to_rank
 
     /// <summary>How many workers one plot takes (MAX_FARMERS_PER_PLOT, 3 at base level).</summary>
     static int MaxFarmersPerPlot =>
@@ -1147,6 +1155,11 @@ public static class KingsmarchTown
     /// <summary>Unix epoch seconds, the clock the town's continuous production settles on. The town has to settle the
     /// time a character was away, which a process-local tick counter cannot do.</summary>
     static double UtcNow() => DateTimeOffset.UtcNow.ToUnixTimeMilliseconds() / 1000.0;
+
+    /// <summary>How much of a character's absence the town settles at once. The town runs on its own while its owner is
+    /// away, but a month of crops in one load is not what a town of this size holds; a day is the stand-in until the
+    /// village's own storage cap is known.</summary>
+    const double AwayCap = 24 * 3600;
 
     /// <summary>The town's attribute overrides, read from <c>data/kingsmarch-stats.txt</c> ("20735=5" a line). The town's
     /// real attribute sheet is built from its buildings, which this build cannot upgrade, so at the base level every one of
@@ -1444,12 +1457,17 @@ public static class KingsmarchTown
     {
         Progress progress;
         progress = State(player);
-        Plot plot;
+        Plot? plot;
         lock (_lock)
         {
             if (worker < 1 || worker > progress.Workers.Count) return $"no worker {worker}: the town has {progress.Workers.Count} (hire with /village hire)";
-            plot = progress.Plots.Values.FirstOrDefault(p => p.Order == plotOrder - 1)
-                ?? throw new InvalidOperationException($"no plot {plotOrder}: the town has {progress.Plots.Count}");
+            plot = progress.Plots.Values.FirstOrDefault(p => p.Order == plotOrder - 1);
+            // A module reload starts a fresh progress record, so the plots are only in memory once the town has been
+            // loaded again. Saying so beats throwing: an exception in a chat handler drops the player's connection.
+            if (plot is null)
+                return progress.Plots.Count == 0
+                    ? $"the town's plots are not loaded yet: walk into Kingsmarch (/goto {Area}) and try again"
+                    : $"no plot {plotOrder}: the town has {progress.Plots.Count} (1-{progress.Plots.Count})";
             // A plot takes up to MAX_FARMERS_PER_PLOT (3) workers, and each one adds its own rate to the plot (RE C.1).
             int onPlot = progress.Workers.Count(w => w.Plot == plotOrder - 1 && progress.Workers.IndexOf(w) != worker - 1);
             if (onPlot >= MaxFarmersPerPlot)
@@ -1676,6 +1694,49 @@ public static class KingsmarchTown
             : "Kingsmarch: the treasury is funded again, so the town is working.";
     }
 
+    /// <summary>Settles the time the character was away, once per area load and before the ordinary tick: the plots keep
+    /// growing and the working workers keep being paid for that gap, up to the moment the treasury can no longer cover
+    /// the wages -an empty treasury stops every job in the town (RE C.3). So a character who leaves the town running and
+    /// comes back to a funded treasury finds the crops it grew and the gold the wages cost, rather than a frozen town.</summary>
+    /// <param name="progress">This area load's record; <see cref="Progress.AwayFrom"/> is the last settled moment of the
+    /// previous session, and is cleared here so the catch-up happens once.</param>
+    static void CatchUp(Progress progress)
+    {
+        double from = progress.AwayFrom;
+        progress.AwayFrom = 0;
+        if (from <= 0 || progress.Plots.Count == 0) return;
+        double now = UtcNow();
+        double away = Math.Min(now - from, AwayCap);
+        if (away <= 1) return;
+        int working = progress.Workers.Count(w => w.Plot >= 0 || w.Plot == MineJob || w.Plot == SmelterJob);
+        double worked = away;
+        if (working > 0)
+        {
+            // The wages the gap owes, and how much of the gap the treasury could actually pay for.
+            double perHour = WagePerHour * working;
+            double afford = KingsmarchPort.Gold(progress.Who) / perHour * 3600.0;
+            if (afford < worked)
+            {
+                worked = Math.Max(0, afford);
+                progress.Halted = true;
+            }
+            int pay = (int)Math.Floor(perHour * worked / 3600.0);
+            if (pay > 0) KingsmarchPort.Spend(progress.Who, pay);
+        }
+        double start = now - worked;
+        foreach (var plot in progress.Plots.Values)
+        {
+            // A plot produces only for the part of the gap the town was paid for; the rest is time it stood halted.
+            if (plot.SettledAt < start) plot.SettledAt = start;
+            Settle(progress, plot, now);
+        }
+        progress.WageSettledAt = now;
+        progress.WageDebt = 0;
+        Persist(progress);
+        Console.WriteLine($"[gateway] kingsmarch catch-up: {progress.Who} was away {away / 60:0.#} min, "
+            + $"paid {WagePerHour * working:0} gold an hour for {worked / 60:0.#} min{(progress.Halted ? " (the treasury ran out)" : "")}");
+    }
+
     /// <summary>Charges the town's wages for the time since they were last settled: every working worker costs
     /// <see cref="WagePerHour"/> an hour out of the treasury, and an idle one costs nothing (RE C.3). When the treasury
     /// cannot pay, the town halts -the plots keep their crops but stop growing, and one fill of the treasury restarts
@@ -1748,7 +1809,8 @@ public static class KingsmarchTown
             {
                 id = progress.Id++;
                 plot.ObjectId = id;
-                plot.CreatedAt = now;
+                // UtcNow, the clock the click's Quiet guard reads; the queue's At is the area tick's own counter.
+                plot.CreatedAt = UtcNow();
                 progress.Plots[id] = plot;
             }
             int hands = progress.Workers.Count(w => w.Plot == plot.Order);
