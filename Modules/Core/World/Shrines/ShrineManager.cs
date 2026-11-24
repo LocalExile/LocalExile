@@ -61,6 +61,8 @@ public static class ShrineManager
 
     static readonly ConditionalWeakTable<InstanceState, SharedArea> Areas = new();
     static readonly ConditionalWeakTable<Player, AreaState> States = new();
+    public static bool HasBuff(Player player, ushort buffRow) =>
+        States.TryGetValue(player, out var state) && state.Buffs.ContainsKey(buffRow);
     static AreaState Of(Player player) => States.GetValue(player,
         c => new(c.Instance is { } instance ? Areas.GetOrCreateValue(instance) : new()));
     static string ClaimKey(ShrineInstance shrine) => shrine.Definition.Lesser ? $"Shrines/used-lesser/{shrine.ObjectId}"

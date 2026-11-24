@@ -85,6 +85,15 @@ public sealed class ShrineAscendancyAndGearTests
             Assert.Equal(30, withGear[Key("maximum_life_+%")]);
             // BrutalLesser base damage_+% is 20 -> with 50% increased shrine effect = 30
             Assert.Equal(30, withGear[Key("damage_+%")]);
+
+            // Woodland Shrines (AscendancyCustomPathfinder12) grants Lv20 TriggeredSummonLesserShrine through LesserShrines
+            ushort woodlandId = Program.Passives.FindById("AscendancyCustomPathfinder12")!.GraphId;
+            Assert.Null(LesserShrines.ActiveGrant(player));
+            player.Character.DescendancyNodes.Add(woodlandId);
+            var activeGrant = LesserShrines.ActiveGrant(player);
+            Assert.NotNull(activeGrant);
+            Assert.Equal(20, activeGrant!.Value.Level);
+            Assert.Equal(10_000, Program.Skills.CooldownMs(activeGrant.Value.Effect, activeGrant.Value.Level));
         });
 
         // Guardian Harmony of Purpose (61372: gain_shrine_buff_every_x_ms_from_ascendancy = 10000)
@@ -92,12 +101,5 @@ public sealed class ShrineAscendancyAndGearTests
         Assert.Equal((ushort)61372, harmonyNode);
         Assert.Contains(Program.Passives.Find(harmonyNode)!.Stats,
             kv => Program.Stats.Name(kv.Key) == "gain_shrine_buff_every_x_ms_from_ascendancy" && kv.Value == 10000);
-
-        // Woodland Shrines (AscendancyCustomPathfinder12) grants TriggeredSummonLesserShrine Level 20 (10s CD)
-        ushort woodlandGraphId = Program.Passives.FindById("AscendancyCustomPathfinder12")!.GraphId;
-        var passive = new PassiveGrantedSkills(Program.Skills, "data").For([woodlandGraphId]);
-        Assert.Contains(passive, g => g.EffectId == "TriggeredSummonLesserShrine" && g.Level == 20);
-        var lesserGrant = passive.First(g => g.EffectId == "TriggeredSummonLesserShrine");
-        Assert.Equal(10_000, Program.Skills.CooldownMs(lesserGrant.Effect, lesserGrant.Level));
     }
 }

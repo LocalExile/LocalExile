@@ -36,15 +36,17 @@ public static class ShrineGearEffects
 
     public static IReadOnlyList<ShrineCatalog.ShrineDefinition> ActiveDefinitions(IReadOnlyDictionary<uint, int> stats)
     {
-        var seen = new HashSet<ushort>();
-        var list = new List<ShrineCatalog.ShrineDefinition>();
+        HashSet<ushort>? seen = null;
+        List<ShrineCatalog.ShrineDefinition>? list = null;
         foreach (var (key, shrineId) in Sources)
         {
             if (stats.GetValueOrDefault(key) <= 0) continue;
-            if (ShrineCatalog.Find(shrineId) is not { } def || !seen.Add(def.BuffRow)) continue;
-            list.Add(def);
+            if (ShrineCatalog.Find(shrineId) is not { } def) continue;
+            seen ??= [];
+            if (!seen.Add(def.BuffRow)) continue;
+            (list ??= []).Add(def);
         }
-        return list;
+        return list is null ? [] : list;
     }
 
     public static int EffectiveShrineEffectPct(Player player, Func<uint, int> stat, bool mapGranted = false)
@@ -66,9 +68,12 @@ public static class ShrineGearEffects
         int Stat(uint key) => stats.GetValueOrDefault(key);
         int effectPercent = EffectiveShrineEffectPct(player, Stat);
 
-        var next = new Dictionary<uint, int>(stats);
+        Dictionary<uint, int>? next = null;
         foreach (var def in defs)
         {
+            // Do not double-stack the same shrine row when a timed shrine buff of that row is already active.
+            if (ShrineManager.HasBuff(player, def.BuffRow)) continue;
+            next ??= new Dictionary<uint, int>(stats);
             foreach (var (key, raw) in def.Stats)
             {
                 if (IsFlagStat(key))
@@ -84,7 +89,7 @@ public static class ShrineGearEffects
                 }
             }
         }
-        return next;
+        return next ?? stats;
     }
 
     public static Task Tick(Player player)
@@ -92,17 +97,30 @@ public static class ShrineGearEffects
         if (player.Closed || player.LeavingArea) return Task.CompletedTask;
         var playerStats = global::Game.CharacterPlayerStats(player);
         var desired = ActiveDefinitions(playerStats);
+        if (desired.Count == 0 && !ActiveBuffs.TryGetValue(player, out _)) return Task.CompletedTask;
         var shown = ActiveBuffs.GetOrCreateValue(player);
-        var desiredRows = desired.ToDictionary(d => d.BuffRow);
+        if (desired.Count == 0 && shown.Count == 0) return Task.CompletedTask;
 
-        foreach (ushort row in shown.Keys.Where(r => !desiredRows.ContainsKey(r)).ToArray())
+        foreach (ushort row in shown.Keys.ToArray())
         {
-            shown.Remove(row);
-            player.Area.Buffs.Clear(player.Id, row, player.Id);
+            bool stillDesired = false;
+            for (int i = 0; i < desired.Count; i++)
+                if (desired[i].BuffRow == row) { stillDesired = true; break; }
+            if (ShrineManager.HasBuff(player, row))
+            {
+                // Yield ownership of the buff row to the timed shrine without clearing its wire icon.
+                shown.Remove(row);
+            }
+            else if (!stillDesired)
+            {
+                shown.Remove(row);
+                player.Area.Buffs.Clear(player.Id, row, player.Id);
+            }
         }
-        foreach (var def in desired)
+        for (int i = 0; i < desired.Count; i++)
         {
-            if (shown.ContainsKey(def.BuffRow)) continue;
+            var def = desired[i];
+            if (ShrineManager.HasBuff(player, def.BuffRow) || shown.ContainsKey(def.BuffRow)) continue;
             shown[def.BuffRow] = def.Id;
             player.Area.Buffs.Set(player.Id, new(def.BuffRow, player.Id));
         }
