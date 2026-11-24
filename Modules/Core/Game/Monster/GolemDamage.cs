@@ -141,14 +141,16 @@ public static partial class Game
             var resistance = MonsterHitResistance(m, type, default);
             if (type != DamageType.Physical)
                 resistance = resistance with { Maximum = Math.Clamp(resistance.Maximum
-                    + effects[Stat.Of($"base_maximum_{type.ToString().ToLowerInvariant()}_damage_resistance_%")], 0, 90) };
+                    + effects[Stat.Of($"base_maximum_{type.ToString().ToLowerInvariant()}_damage_resistance_%")]
+                    + (type != DamageType.Chaos ? effects[Stat.AdditionalMaximumAllElementalResistancesPct] : 0), 0, 90) };
             int value = (int)Math.Round(DamageModel.Mitigate(DamagePacket.Of(type, range.Min, range.Min), _ => resistance)[type].Min);
             if (type == DamageType.Physical)
             {
                 double armour = Math.Max(0, Player(Stat.MinionPhysicalDamageReductionRating)
                     + (g.Definition.IsGolem ? Player(Stat.GolemPhysicalDamageReductionRating) : 0)
                     + effects[Stat.BasePhysicalDamageReductionRating])
-                    * Math.Max(0, 1 + effects[Stat.DeterminationAuraArmourPlusPctFinal] / 100.0);
+                    * Math.Max(0, 1 + effects[Stat.DeterminationAuraArmourPlusPctFinal] / 100.0)
+                    * Math.Max(0, 1 + effects[Stat.ArmourPlusPctFinalFromSeismicCryBuff] / 100.0);
                 double reduction = Math.Min(.9, armour / Math.Max(1, armour + 5 * value) + effects.PhysicalReduction / 100.0);
                 value = (int)Math.Round(value * (1 - reduction));
             }
