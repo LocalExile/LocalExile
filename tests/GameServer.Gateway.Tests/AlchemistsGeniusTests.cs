@@ -26,21 +26,44 @@ public sealed class AlchemistsGeniusTests
             var items = Game.ItemsOf(player);
             foreach (var existing in items.Items(PlayerInventories.Flask).ToArray())
                 items.Remove(PlayerInventories.Flask, existing.Id);
-            var type = Program.Items.Find("Granite Flask")!;
-            var utility = Program.Items.UtilityFlaskOf(type)!;
-            items.Add(PlayerInventories.Flask, 0, 0, ItemCatalog.Create(type) with { Charges = utility.MaxCharges });
+            // Slot 0: Magic Jade Flask permanently applied by Mageblood (leftmost 1); Slot 1: Normal Granite Flask usable directly.
+            var jadeType = Program.Items.Find("Jade Flask")!;
+            var jadeUtility = Program.Items.UtilityFlaskOf(jadeType)!;
+            items.Add(PlayerInventories.Flask, 0, 0, ItemCatalog.Create(jadeType) with { Rarity = ItemRarity.Magic, Charges = jadeUtility.MaxCharges });
+            var graniteType = Program.Items.Find("Granite Flask")!;
+            var graniteUtility = Program.Items.UtilityFlaskOf(graniteType)!;
+            items.Add(PlayerInventories.Flask, 1, 0, ItemCatalog.Create(graniteType) with { Charges = graniteUtility.MaxCharges });
+            var mageblood = new UniqueCatalog(Program.Items).Create("Mageblood", new Random(5))!;
+            var leftmost = Program.Items.Mods.ById("MagicUtilityFlasksAlwaysApplyUnique__1")!;
+            var belt = mageblood with { Mods = [.. mageblood.Mods.Select(m => m.Hash == leftmost.Hash ? leftmost.With(m.Section, [1], Random.Shared) : m)] };
+            foreach (var existing in items.Items(PlayerInventories.Belt).ToArray())
+                items.Remove(PlayerInventories.Belt, existing.Id);
+            items.Add(PlayerInventories.Belt, 0, 0, belt);
             Game.RecomputePoolsAndSpeed(player);
 
             int Running() => player.UtilityFlaskEffects.All().Single().Stats.Sum(s => s.Value);
+            int ChargesGained() => Game.CharacterPlayerStats(player).GetValueOrDefault(Stat.ChargesGainedPlusPct);
+            int MagebloodJade() => Game.MagebloodSources(player, key => Game.CharacterStatSources(player).Stats.GetValueOrDefault(key))
+                .Where(s => s.Effect == $"buff {jadeUtility.BuffRow}").Max(s => s.Value);
 
-            await Game.UseFlask(player, 0);
+            int baseChargesGained = ChargesGained();
+            int baseMageblood = MagebloodJade();
+            int basePoolEvasion = player.Pools.Evasion;
+
+            await Game.UseFlask(player, 1);
             Assert.True(player.AlchemistsGenius.Active, "the use rolled 100% and should have granted the buff");
             int boosted = Running();
+            Assert.Equal(baseChargesGained + 20, ChargesGained());
+            Assert.True(MagebloodJade() > baseMageblood, $"Mageblood permanent flask did not gain Alchemist's Genius: {baseMageblood} -> {MagebloodJade()}");
+            Assert.True(player.Pools.Evasion > basePoolEvasion, $"Pools.Evasion did not reflect Mageblood + Alchemist's Genius: {basePoolEvasion} -> {player.Pools.Evasion}");
 
             clock.At = 10 + 5;
             Assert.True(Game.EndAlchemistsGeniusIfDue(player, clock.At, dead: false));
             Assert.False(player.AlchemistsGenius.Active);
             Assert.True(boosted > Running(), $"the running flask did not fall back: {boosted} -> {Running()}");
+            Assert.Equal(baseChargesGained, ChargesGained());
+            Assert.Equal(baseMageblood, MagebloodJade());
+            Assert.Equal(basePoolEvasion, player.Pools.Evasion);
         }
         finally { Game.AreaUpdateContext.Value = previous; }
     }

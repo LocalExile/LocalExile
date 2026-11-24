@@ -24,7 +24,11 @@ public static partial class Game
             player.RecentEvents.Record(StatConditions.UsedLifeFlask, now);
         }
         ApplyMinionRecoveryFlasksLocked(player, flask.Item, (byte)slot, use, recovery, local, character, now);
-        if (!appliesToPlayer) return;
+        if (!appliesToPlayer)
+        {
+            TryGrantAlchemistsGenius(player);
+            return;
+        }
         uint lifeBefore = player.PlayerLife, manaBefore = player.PlayerMana;
         // Liveness and the exact source/generation were admitted by 'still' before the charge deduction.
         var (life, mana) = FlaskRecovery.Instant(recovery, lifeBefore, manaBefore, player.PlayerMaxLife,

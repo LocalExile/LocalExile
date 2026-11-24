@@ -60,6 +60,7 @@ public static partial class Game
             FlaskToLinkedTargetsLocked(player, flask.Item, local, utility, Get);
             if (Get(Stat.CannotBeAffectedByFlasks) != 0)
             {
+                TryGrantAlchemistsGenius(player);
                 state.Enqueue(new(FlaskEnchantments.Trigger.Adjacent, flask.Id, (byte)slot), signal?.Chain);
                 state.Packets.Add(new(InstanceItems.ItemUsed(flask.Item.TypeHash,
                     PlayerInventories.InventoryId(PlayerInventories.Flask), flask.Id), $"0x0263 flask {slot} used"));

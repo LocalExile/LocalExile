@@ -249,11 +249,7 @@ public static partial class Game
         Step(PlayerStatStep.TotemAura, (player, stats, _) => AddTotemAuraStats(player, stats));
         Step(PlayerStatStep.Rage, (player, stats, _) => WithRage(player, stats));
         Step(PlayerStatStep.Blind, (player, stats, _) => WithBlind(player, stats));
-        Step(PlayerStatStep.UsingFlask, (player, stats, _) =>
-        {
-            WithUsingFlask(player, stats);
-            WithAlchemistsGenius(player, stats);
-        });
+        Step(PlayerStatStep.UsingFlask, (player, stats, _) => WithUsingFlask(player, stats));
         Step(PlayerStatStep.SoulEater, (player, stats, _) => WithSoulEater(player, stats));
         Step(PlayerStatStep.MaximumPoolItems, (player, stats, _) =>
             MaximumPoolItemSources.Apply(stats, Stats, player.Pools.Life, player.Pools.Mana, player.Pools.EnergyShield));

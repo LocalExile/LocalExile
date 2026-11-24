@@ -2,12 +2,11 @@ using GameServer.Core;
 
 /// <summary>
 /// Alchemist's Genius: a flask use grants the buff (BuffDefinitions "alchemists_genius",
-/// flask_effect_on_self_+% 10 and charges_gained_+% 20 for 4 s) when the character holds
-/// gain_alchemists_genius_on_flask_use_%, rolled as a % chance per use. BuffDefinitions carries only the stat keys
-/// and BuffTemplates has no row for this buff, so the values are constants here; the 4 s duration is an estimate
-/// (no table names one). While it runs its stats count in the snapshot and the flasks already running are
-/// rescaled to the new effect; it ends on its deadline, on death or with the area, like the flask buffs.
-/// There is no setting: this is the ordinary behaviour.
+/// flask_effect_on_self_+% 10 and charges_gained_+% 20 for 4 s per ReminderText row 189
+/// ReminderTextAlchemistsGenius) when the character holds gain_alchemists_genius_on_flask_use_%, rolled as a % chance
+/// per use. While it runs its stats count in CharacterStatSources (feeding PoolsFor, Mageblood, running flasks and
+/// FlaskCharges.GainStats) and the flasks already running are rescaled to the new effect; it ends on its deadline,
+/// on death or with the area, like the flask buffs. There is no setting: this is the ordinary behaviour.
 /// </summary>
 public static partial class Game
 {
@@ -29,24 +28,26 @@ public static partial class Game
             if (row.Text("Id") == AlchemistsGeniusBuffId) { AlchemistsGeniusRow = (ushort)row.Index; return; }
     }
 
-    /// <summary>The snapshot's part: while the buff runs, its stats count on the character. The
-    /// flask_effect_on_self_+% reaches new uses through FlaskEffectScaling and the running flasks
-    /// through the rescale on grant and on expiry; the charges_gained_+% reaches the charge gains
-    /// through FlaskCharges.GainStats. Called from the UsingFlask stat step.</summary>
-    public static void WithAlchemistsGenius(Player player, StatMap stats)
+    /// <summary>The CharacterStatSources part: while the buff runs, its stats count on the character before PoolsFor
+    /// and PlayerStatStep.UtilityFlasks, so Mageblood permanent flasks, new flask uses (FlaskEffectScaling), running
+    /// flasks (via rescale on grant/expiry) and charge gains (FlaskCharges.GainStats) all receive it.</summary>
+    public static Dictionary<uint, int> WithAlchemistsGenius(Player player, Dictionary<uint, int> sources)
     {
         var genius = player.AlchemistsGenius;
-        if (!genius.Active) return;
-        if (AreaTime(player) >= genius.Ends) return;
+        if (!genius.Active) return sources;
+        double now = AreaTime(player);
+        if (now >= genius.Ends) return sources;
+        StatsChangeIn(genius.Ends - now);
         foreach (var (stat, value) in AlchemistsGeniusStats)
-            stats[stat] = (int)Math.Clamp((long)stats.GetValueOrDefault(stat) + value, int.MinValue, int.MaxValue);
+            sources[stat] = ActorScale.Saturate((long)sources.GetValueOrDefault(stat) + value);
+        return sources;
     }
 
     /// <summary>On an admitted flask use (utility or recovery, inside SpendFlask's accepted charge
     /// transaction, under Monsters and FlaskBarGate): roll the character's grant stat with the area's
-    /// random and, when it hits, start the buff, show its 0x01c1, and rescale the flasks already running
-    /// to the new effect. A use while it runs restarts its duration (the old instance is removed first, as a
-    /// refreshed flask effect is). No row for the buff's Id, no stat, or a failed roll: nothing.</summary>
+    /// random and, when it hits, start/refresh the non-stacking buff (MergeMode = 3), show its 0x01c1,
+    /// and rescale the flasks already running to the new effect. No row for the buff's Id, no stat, or
+    /// a failed roll: nothing.</summary>
     public static void TryGrantAlchemistsGenius(Player player)
     {
         int chance = CharacterPlayerStats(player).GetValueOrDefault(Stat.GainAlchemistsGeniusOnFlaskUsePct);
@@ -59,12 +60,9 @@ public static partial class Game
         }
         double now = AreaTime(player);
         var genius = player.AlchemistsGenius;
-        if (genius.Active)
-            player.Area.Buffs.Clear(player.Id, genius.Row, player.Id, tag: genius.Buff);
-        ushort buff = player.NextBuff++;
-        genius.Start(buff, row, now, AlchemistsGeniusSeconds);
-        player.Area.Buffs.Set(player.Id, new(row, player.Id, U68: global::Buff.Seconds(AlchemistsGeniusSeconds), Tag: buff));
-        Console.WriteLine($"[gateway] {player.Connection.Remote} <= 0x0070 Alchemist's Genius granted: buff {buff} row {row} for {AlchemistsGeniusSeconds:0.#} s");
+        genius.Start(row, now, AlchemistsGeniusSeconds);
+        player.Area.Buffs.Set(player.Id, BuffRows.Spec(row, player.Id, null, AlchemistsGeniusSeconds));
+        Console.WriteLine($"[gateway] {player.Connection.Remote} <= 0x0070 Alchemist's Genius granted: row {row} for {AlchemistsGeniusSeconds:0.#} s");
         BuffChanged(player);
     }
 
@@ -74,7 +72,7 @@ public static partial class Game
     {
         var genius = player.AlchemistsGenius;
         if (!genius.Active || !(dead || genius.Due(now))) return false;
-        player.Area.Buffs.Clear(player.Id, genius.Row, player.Id, tag: genius.Buff);
+        player.Area.Buffs.Clear(player.Id, genius.Row, player.Id);
         genius.Clear();
         BuffChanged(player);
         return true;
@@ -94,9 +92,8 @@ public static partial class Game
     /// <summary>Works every running utility flask's stats out again as a use would (UtilityFlaskUseFor), keeping each
     /// effect's buff instance, cell and deadline: the client's icon and timer do not move, only the stats change.
     /// The character's stats come from a fresh build (CharacterPlayerStatsSnapshot), not from CharacterPlayerStats:
-    /// in an area's frames that is the stat graph's last step, which has not yet run the UsingFlask step with the buff
-    /// started or ended just now (a PlayerStatScope(fresh) does not change that, it only starts a new scope).
-    /// A grant or an expiry is rare, so one full build for it costs nothing in the per-hit paths.</summary>
+    /// in an area's frames that is the stat graph's last step, which has not yet re-run the Sources step with the buff
+    /// started or ended just now. A grant or an expiry is rare, so one full build for it costs nothing in per-hit paths.</summary>
     static void RescaleUtilityFlasks(Player player)
     {
         var effects = player.UtilityFlaskEffects.All();
