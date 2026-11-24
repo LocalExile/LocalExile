@@ -492,8 +492,7 @@ public static partial class Game
 
     static void RemoveGolemLocked(Player player, GolemState.Golem golem, double now, bool reconcileBlessing = true)
     {
-        if (player.Minions.All.FirstOrDefault(minion => minion.Id == golem.Id)?.OwnerAura is { SharesWithAllies: true } aura)
-            ClearSharedMinionAura(player, golem.Id, aura);
+        ClearSharedMinionAuras(player, golem.Id);
         player.Golems.All.Remove(golem.Id); player.Minions.Remove(golem.Id);
         MinionLifeLeeches.Remove(golem);
         MinionShieldLeeches.Remove(golem);
@@ -700,13 +699,8 @@ public static partial class Game
             if (!buffs.TryGetValue(g.Definition.Buff, out var best) || g.OwnerBuff.Values.Sum() > best.OwnerBuff.Values.Sum())
                 buffs[g.Definition.Buff] = g;
         }
-        var wrath = alive.Where(g => g.WrathUntil > AreaTime(player)
-                && Dist(g.Monster.Walk.Position(AreaTime(player)), player.Walk.Position(AreaTime(player))) <= 60)
-            .Select(g => (Golem: g, Skill: g.Abilities.FirstOrDefault(a => a.Effect == 5906))).Where(p => p.Skill is not null)
-            .OrderByDescending(p => p.Golem.Monster.Level).FirstOrDefault();
         foreach (var (row, old) in player.Golems.Buffs.ToArray())
-            if (row == 676 ? wrath.Skill is null || wrath.Golem.Id != old.Source
-                : !buffs.TryGetValue(row, out var next) || old.Source != next.Id || row == 592 && changedRecovery.Contains(old.Source))
+            if (!buffs.TryGetValue(row, out var next) || old.Source != next.Id || row == 592 && changedRecovery.Contains(old.Source))
             { player.Area.Buffs.Clear(player.Id, row, old.Source); player.Golems.Buffs.Remove(row); }
         foreach (var (row, g) in buffs)
         {
@@ -716,21 +710,6 @@ public static partial class Game
                 player.Golems.Buffs[row] = (g.Id, 1);
             }
             foreach (var (k, v) in g.OwnerBuff) totals[k] = totals.GetValueOrDefault(k) + v;
-        }
-        // Wrath belongs to the Lightning Golem, scales at its level, and has a finite duration/range.
-        if (wrath.Skill is not null)
-        {
-            foreach (string kind in new[] { "attack", "spell" })
-                foreach (string bound in new[] { "minimum", "maximum" })
-                {
-                    uint stat = Stat.Of($"{kind}_{bound}_added_lightning_damage");
-                    GolemAdd(totals, stat, GolemStat(wrath.Skill.Stats, stat));
-                }
-            if (!player.Golems.Buffs.ContainsKey(676))
-            {
-                player.Area.Buffs.Set(player.Id, new(676, wrath.Golem.Id));
-                player.Golems.Buffs[676] = (wrath.Golem.Id, 1);
-            }
         }
         GolemAdd(totals, Stat.VirtualTotalNumberOfActiveGolems, alive.Length);
         GolemAdd(totals, Stat.VirtualCurrentNumberOfGolemTypes, alive.Select(g => g.Definition.Kind).Distinct().Count());

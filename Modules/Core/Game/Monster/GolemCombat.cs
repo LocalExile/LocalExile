@@ -126,6 +126,12 @@ public static partial class Game
         { SkitterStepLocked(player, g, here, owner, now); return; }
         if (g.Definition.Kind == "HolyRelic")
         { GolemFollowLocked(player, g, owner, now); return; }
+        if (g.Definition.Kind == "Spectre" && !HasSpectreAura(g, now)
+            && g.Abilities.FirstOrDefault(a => SpectreAuraEffect(a.Effect) && GolemReady(g, a, now)) is { } aura)
+        {
+            GolemReserveLocked(player, g, aura, 0, null, here, now);
+            return;
+        }
         if (ReaperConsumeLocked(player, g, now)) return;
         if (g.Definition.Id == "SummonReaperAltY")
         {
@@ -517,7 +523,7 @@ public static partial class Game
             return;
         }
         if (a.Effect is 9927 or 9928) HolyRelicRegenerationLocked(player, g, a, now);
-        if (a.Effect == 5906) { g.WrathUntil = now + GolemStat(a.Stats, Stat.BaseSkillEffectDuration) / 1000.0; player.Golems.RefreshAt = 0; return; }
+        if (ActivateNativeMinionAuraLocked(player, g, a, now)) return;
         if (a.Effect == 10801) { player.Minions.OutputQueue.Add(new([], "golem consumes corpse", g.Id, g.Monster, PlayerMinions.OutputKind.Life)); return; }
         if (a.Effect is 4336 or 4337)
         {

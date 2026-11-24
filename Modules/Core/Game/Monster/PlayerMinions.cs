@@ -108,7 +108,7 @@ public static partial class Game
                 bool current = player.Area.Monsters.TryGetValue(minion.Id, out var held) && ReferenceEquals(held, m);
                 if (current && keep && !m.Dead && m.Life > 0 && now < minion.Until) continue;
                 player.Minions.Remove(minion.Id);
-                if (minion.OwnerAura is { SharesWithAllies: true } shared) ClearSharedMinionAura(player, minion.Id, shared);
+                if (minion.OwnerAura is { SharesWithAllies: true }) ClearSharedMinionAuras(player, minion.Id);
                 else DropZones(player, minion.Id, MinionAuraZones);
                 if (minion.OwnerBuff != 0)
                 {
@@ -156,7 +156,11 @@ public static partial class Game
             }
             if (bytes.Count > 0) player.Minions.OutputQueue.Add(new([.. bytes], "minion teleport", minion.Id, m));
             bytes.Clear();
-            if (minion.OwnerAura is not { } aura) continue;
+            if (minion.OwnerAura is not { } aura)
+            {
+                SyncNativeMinionAuras(player, minion, now);
+                continue;
+            }
             if (aura.SharesWithAllies)
             {
                 SyncSharedMinionAura(player, minion, aura, now);

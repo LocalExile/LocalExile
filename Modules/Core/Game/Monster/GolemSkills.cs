@@ -457,6 +457,8 @@ public static partial class Game
                 double physicalMore = (path.History & DamageTypeHistory.Physical) != 0
                     ? Math.Max(0, 1 + Own(Stat.ActiveSkillMinionPhysicalDamagePlusPctFinal) / 100.0) : 1;
                 double auraMore = spell ? Math.Max(0, 1 + mods[Stat.SpellDamageAuraSpellDamagePlusPctFinal] / 100.0) : 1;
+                if ((path.History & DamageTypeHistory.Cold) != 0)
+                    auraMore *= Math.Max(0, 1 + mods[Stat.HatredAuraColdDamagePlusPctFinal] / 100.0);
                 if (spell && (path.History & DamageTypeHistory.Lightning) != 0)
                     auraMore *= Math.Max(0, 1 + mods[Stat.WrathAuraSpellLightningDamagePlusPctFinal] / 100.0);
                 // Elemental Army: "Minions deal 10% more Elemental Damage" (the support's other half is the exposure).
