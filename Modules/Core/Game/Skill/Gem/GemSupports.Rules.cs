@@ -807,6 +807,9 @@ public static partial class Game
             stats[min] = ActorScale.Add(min, stats.GetValueOrDefault(min), added);
             stats[max] = ActorScale.Add(max, stats.GetValueOrDefault(max), added);
         }
+        int corpseDamage = GolemStat(gem.Stats, Stat.DamagePlusPctIfYouHaveConsumedACorpseRecently);
+        if (corpseDamage != 0 && player.RecentEvents.Happened(StatConditions.ConsumedCorpse, AreaTime(player)))
+            stats[Stat.DamagePlusPct] = ActorScale.Add(Stat.DamagePlusPct, stats.GetValueOrDefault(Stat.DamagePlusPct), corpseDamage);
         int globalMinionShare = PlayerMinionDamageShare(caster);
         int skillMinionShare = Math.Max(gem.Stats.GetValueOrDefault(Stat.ActiveSkillAdditiveMinionDamageModifiersApplyToAllDamageAtPctValue),
             caster.GetValueOrDefault(Stat.DominatingBlowAndAbsolutionAdditiveMinionDamageModifiersApplyToYouAt150PctValue) != 0
