@@ -19,8 +19,8 @@ public static partial class Game
         if (catalog.Defences(type) is { } defences)
         {
             var (armour, evasion, shieldPool) = ItemDefences.Calculate(shield, defences, catalog.Mods);
-            Add(Stat.BasePhysicalDamageReductionRating, (int)Math.Truncate(armour));
-            Add(Stat.BaseEvasionRating, (int)Math.Truncate(evasion));
+            Add(Stat.BasePhysicalDamageReductionRating, armour);
+            Add(Stat.BaseEvasionRating, evasion);
             Add(Stat.BaseMaximumEnergyShield, shieldPool);
         }
         return;

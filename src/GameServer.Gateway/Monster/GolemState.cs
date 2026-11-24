@@ -32,7 +32,7 @@ public sealed class GolemState
         public readonly Dictionary<uint, double> Taunts = [];
         public bool CorpseEmpowered;
         public bool DeathBurstDone;
-        public double WrathUntil;
+        public double WrathUntil, NextOrb;
         public int InputHash;
         public Dictionary<uint, int> Own = [], OwnerBuff = [], Player = [];
         public Dictionary<uint, int> Auras = [], Utility = [];
