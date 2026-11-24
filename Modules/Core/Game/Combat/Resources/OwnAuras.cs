@@ -395,17 +395,24 @@ public static partial class Game
         var inputs = AuraReconcileInputs.Capture(player);
         var cached = AuraReconcileCaches.GetOrCreateValue(player);
         if (!validateSkills && cached.Inputs is { } previous && previous.Matches(inputs)) return;
-        EnsureOwnAuraPools(player);
         // Each aura's own named effect term, re-stamped from the caster's raw sources whenever they change:
         // the reconcile already holds the fresh sources (inputs), so this adds no new stat read, and the
         // stamped value rides the record to every consumer (Bonus, RawStats, ResistanceStats, Pride, allies
         // and minions) without another lookup. Received auras live in player.ReceivedAuras, not player.Auras,
         // so only the caster's own auras are re-stamped here.
-        foreach (var aura in player.Auras.Values.ToArray())
+        List<AuraCatalog.Aura>? restamped = null;
+        foreach (var aura in player.Auras.Values)
         {
             int perAura = AuraCatalog.PerAuraEffectPctFor(aura, inputs.Sources);
-            if (perAura != aura.PerAuraEffectPct) player.Auras[aura.SkillId] = aura with { PerAuraEffectPct = perAura };
+            if (perAura != aura.PerAuraEffectPct)
+                (restamped ??= []).Add(aura with { PerAuraEffectPct = perAura });
         }
+        if (restamped is not null)
+        {
+            foreach (var updated in restamped) player.Auras[updated.SkillId] = updated;
+            player.AuraStatsDirty = true;
+        }
+        EnsureOwnAuraPools(player);
         // Revalidate the source skill as well as the restriction before queued activation/entry adds.
         // Dirty runtime or presented instances are owned by this lifecycle; pure unpresented pool inputs are not adds.
         if (player.Auras.Count > 0 && (validateSkills || player.AuraStatsDirty))
