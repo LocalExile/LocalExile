@@ -137,7 +137,7 @@ public static partial class Game
     static int SummonLimit(SummonCatalog.Definition definition, IReadOnlyDictionary<uint, int> skillStats,
         IReadOnlyDictionary<uint, int> playerStats)
     {
-        if (!DarkMonarchAllows(definition.Family, playerStats)) return 0;
+        if (!MinionFamilyAllowed(key => GolemStat(playerStats, key), definition.Family)) return 0;
         if (definition.LimitStat == 0) return definition.LimitWithoutStat;
         uint final = definition.FinalLimitStat;
         long value = (long)GolemStat(skillStats, definition.LimitStat) + GolemStat(playerStats, definition.LimitStat)
