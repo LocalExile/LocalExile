@@ -244,7 +244,11 @@ static partial class LegionMonolith
     {
         if (InArea(player, box.Id)) return true;
         var obj = new QuestObject(box.X, box.Y, info.Components, box.Rotation, box.Z, box.Model,
-            TransitionState: (byte)(box.Opened ? info.States : 1), Opened: box.Opened);
+            TransitionState: (byte)(box.Opened ? info.States : 1), Opened: box.Opened)
+        {
+            // The closed chest shows its first reward's icon on the minimap (the object has no Buffs: no symbol); an opened one has none.
+            Stats = !box.Opened && LegionStasis.RewardIcon(box.Rewards) is int icon ? [(Stat.MonsterMinimapIcon, icon)] : [],
+        };
         var create = InstanceEntities.CreateObject(box.Id, InstanceEntities.ObjectTypeHash(box.Type), obj.Blob());
         bool created = false;
         await LegionOutput.ToArea(player, async p =>

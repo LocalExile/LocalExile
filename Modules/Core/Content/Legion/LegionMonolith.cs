@@ -86,7 +86,7 @@ static partial class LegionMonolith
             module.Log($"the monolith's type {InitiatorType} is not in the client data or cannot be written: no monolith");
             return;
         }
-        module.Lifetime.Own(new Cleanup(() => { Encounters.Clear(); Holds.Clear(); anyHold = false; Models = null; }));
+        module.Lifetime.Own(new Cleanup(() => { Encounters.Clear(); Holds.Clear(); LegionStasis.Fighters.Clear(); anyHold = false; Models = null; }));
         GameEvents.OutgoingDamage.Add(id, (player, _, target, rolled) => Hit(module, player, target, rolled));
         GameEvents.AreaPopulated.Add(id, area => Place(module, area));
         GameEvents.PlayerEntered.Add(id, player => Enter(player));

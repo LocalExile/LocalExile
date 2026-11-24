@@ -32,6 +32,36 @@ static class LegionStasis
     /// action alone, so the client's native rendering is seen cleanly (user decision 2026-11-24); set true to restore the old stasis.</summary>
     public static readonly bool SendFreezeBuff = false;   // not a const: the compiler rejects the dead branches of a const (CS0162, an error here)
 
+    /// <summary>BuffDefinitions 1328 legion_reward_display: its list is [LegionRewardTypeVisuals row, hidden (0 shows), height, index, count], always 5 entries (P2-R1).</summary>
+    const ushort RewardBuff = 1328;
+
+    /// <summary>The reward types of the members that woke and fight (by the new monster): what P2-E3's drops read.</summary>
+    public static readonly System.Runtime.CompilerServices.ConditionalWeakTable<SpawnedMonster, int[]> Fighters = new();
+
+    /// <summary>The minimap icon stat (monster_minimap_icon = MinimapIcons row + 1) of a reward row, the first reward's; null when none.</summary>
+    public static int? RewardIcon(int[]? rewards) =>
+        rewards is { Length: > 0 } && LegionData.Current.RewardTypes.FirstOrDefault(r => r.Row == rewards[0]) is { MinimapIcon: >= 0 } t ? t.MinimapIcon + 1 : null;
+
+    /// <summary>The create stats of a reward carrier: the icon, and hidden until its reveal when <paramref name="hidden"/> (state 0 shows on the minimap otherwise).</summary>
+    static List<(uint Key, int Value)>? RewardStats(int[]? rewards, bool hidden)
+    {
+        if (RewardIcon(rewards) is not int icon) return null;
+        var stats = new List<(uint, int)> { (Stat.MonsterMinimapIcon, icon) };
+        if (hidden) stats.Add((Stat.MonsterHideMinimapIcon, 1));
+        return stats;
+    }
+
+    /// <summary>The symbols over a monster: one 1328 buff per reward, side by side (index, count), in the AREA's Buffs component (Tag = index + 1,
+    /// so each is its own instance): the area writes them to every client now, replays them to one that joins later and ends them with the
+    /// monster. With <paramref name="reveal"/> also the minimap icon's hide stat 0, through the area's Stats component.</summary>
+    public static void ShowRewards(Player player, uint id, int[]? rewards, bool reveal)
+    {
+        if (rewards is not { Length: > 0 }) return;
+        for (int i = 0; i < rewards.Length; i++)
+            player.Area.Buffs.Set(id, new Buff(RewardBuff, List: [(uint)rewards[i], 0, 0, (uint)i, (uint)rewards.Length], Tag: (ushort)(i + 1)));
+        if (reveal && RewardIcon(rewards) is not null) player.Area.Stats.Set(id, Stat.MonsterHideMinimapIcon, 0);
+    }
+
     /// <summary>The sequence of the next LegionBreakout action: a simple counter, never 0.</summary>
     static int sequences;
     static ushort NextSequence() => (ushort)(Interlocked.Increment(ref sequences) % 0xffff + 1);
@@ -72,7 +102,7 @@ static class LegionStasis
             var action = BreakoutAction(player, variety, row, sequence, Hidden, 100);
             uint id = await SpawnMonster(player, variety, areaLevel, rarity, at.X, at.Y,
                 friendly: false, unrisen: false, alone: false, scripted: true, instanceOwned: true, bulk: true, log: false, rotation: formations[faction].Facing,
-                currentAction: action, noBodyUntilReleased: true,
+                currentAction: action, noBodyUntilReleased: true, extraStats: RewardStats(rewards, true),
                 placement: MonsterPlacement.Established);   // the formation checked the spot (walkable, clear of the others): no nearest-clear search that could stack two
             if (id == 0) { skipped++; return; }
             ushort buff = await Freeze(player, id, variety.Id, TimeLockVisual(plan.Factions[faction].Id));
@@ -234,10 +264,16 @@ static class LegionStasis
         var (x, y) = monster.Walk.Position(global::Game.AreaTime(player));
         uint id = await SpawnMonster(player, variety, monster.Level, monster.Rarity, x, y, mods: monster.Mods,
             friendly: false, unrisen: false, alone: false, instanceOwned: true, bulk: true, log: false, placement: MonsterPlacement.Established,
-            rotation: (float)Math.Atan2(cx - x, -(cy - y)));   // faces the monolith, as the spawn faces the enemy
+            rotation: (float)Math.Atan2(cx - x, -(cy - y)),   // faces the monolith, as the spawn faces the enemy
+            extraStats: RewardStats(member.Rewards, false));   // the icon, shown
         if (id == 0 || !player.Area.Monsters.TryGetValue(id, out var woken)) return false;   // the frozen one stays: the caller removes it
         await Remove(player, [member]);
         await SetState(player, id, woken, "breakout", "activated");
+        if (member.Rewards is { Length: > 0 } rewards)
+        {
+            Fighters.AddOrUpdate(woken, rewards);   // P2-E3 reads it for the drops
+            ShowRewards(player, id, rewards, false);
+        }
         return true;
     }
 

@@ -85,6 +85,9 @@ static partial class LegionMonolith
                 if (keep) Keep(player, e);   // the spawn path (Standing) skips it: BeginArmy keeps once after Spawn
             }
         }
+        // The reward symbols and the minimap icon appear with the reveal, not before: the area's components write them to every client
+        // (and to one that joins later), once.
+        foreach (var m in done) LegionStasis.ShowRewards(player, m.Id, m.Rewards, true);
         await LegionOutput.ToArea(player, async p =>
         {
             foreach (var m in done) await LegionStasis.SendState(p, m.Id, m.Sequence, LegionStasis.Revealed, 100, null);
