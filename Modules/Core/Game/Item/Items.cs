@@ -879,22 +879,25 @@ public static partial class Game
             player.PlayerLife, player.PlayerMaxLife, playerLevel, finalMultiplier);
         copyLife = ManaFlaskCopiesLife(r, character);
         bool appliesToPlayer = Get(Stat.CannotBeAffectedByFlasks) == 0;
-        canRecover = appliesToPlayer && (Flasks.CanRecover(use, player.PlayerLife, LifeCap(player), player.PlayerMana,
-                (uint)UnreservedMana(player)) || copyLife && player.PlayerLife < LifeCap(player)
+        bool lifeFlaskBlocked = use.LifePerUse > 0 && Get(Stat.CannotUseLifeFlasks) != 0;
+        canRecover = !lifeFlaskBlocked && (appliesToPlayer && (Flasks.CanRecover(use, player.PlayerLife, LifeCap(player),
+                player.PlayerMana, (uint)UnreservedMana(player)) || copyLife && player.PlayerLife < LifeCap(player)
             || ConditionalFlaskAilmentProtectionTriggered(player, local, AreaTime(player)))
-            || CanRecoverRaisedMinionsWithFlask(player, use, Get);
+            || CanRecoverRaisedMinionsWithFlask(player, use, Get));
         bool CurrentRecovery()
         {
             return ResourceEffectsCurrent(player, recoveryOwner) && CurrentGameWork
                 && !player.LeavingArea && player.PlayerLife > 0
+                && (use.LifePerUse <= 0 || CharacterPlayerStats(player).GetValueOrDefault(Stat.CannotUseLifeFlasks) == 0)
                 && (appliesToPlayer || CanRecoverRaisedMinionsWithFlask(player, use, Get))
                 && items.Items(PlayerInventories.Flask).Any(i => i.Id == flask.Id && i.X == slot);
         }
         if (!canRecover)
         {
+            string reason = lifeFlaskBlocked ? "life flask use disabled" : "recovery pools full";
             await Send(player, InstanceItems.ItemUsed(flask.Item.TypeHash,
                 PlayerInventories.InventoryId(PlayerInventories.Flask), flask.Id, result: 0x4e2),
-                $"0x0263 flask {slot} ({type.Name}) refused: recovery pools full (0x4e2), charges unchanged");
+                $"0x0263 flask {slot} ({type.Name}) refused: {reason} (0x4e2), charges unchanged");
             // The client can hold a lower pool than the server (a use it started but the server did not pay for): the
             // refusal carries the authoritative value, so the orb and the next press agree.
             if (use.LifePerUse > 0)
