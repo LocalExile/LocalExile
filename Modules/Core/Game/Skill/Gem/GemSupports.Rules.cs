@@ -684,6 +684,15 @@ public static partial class Game
         // Supports.AttackSpeedMultiplier reads the skill's own GEPL row too: its inherent -20 on Tornado Shot is
         // already part of this factor. Do not apply the same GEPL value again.
         int additional = SkillAttackTiming.AdditionalMilliseconds(stats);
+        if (SkillsFor(player).EffectId(gem.Effect) == "VaalSweep"
+            && gem.Stats.GetValueOrDefault(Stat.CastTimeOverridesAttackDuration) != 0
+            && SkillsFor(player).CastMs(gem.Effect) is > 0 and var swingMilliseconds)
+        {
+            int speed = (offHand ?? WeaponFor(player)).IncreasedAttackSpeed(stats);
+            more *= Math.Max(.01, 1 + gem.Stats.GetValueOrDefault(Stat.ActiveSkillAttackSpeedPlusPctFinal) / 100d);
+            return (SkillAttackTiming.Seconds(swingMilliseconds, speed, more, additional,
+                proxy ? 1 : PlayerActionFactor(player), clampToTick), speed, more);
+        }
         if (additional != 0)
         {
             var weapon = offHand ?? WeaponFor(player);
