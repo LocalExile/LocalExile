@@ -107,6 +107,6 @@ The ruleset `LegionRules` (Rulesets 94) reads the same duration from the S->C 0x
   (`0x142191100`), and stat 10006 `monster_hide_minimap_icon` non-zero hides it (`0x142191200`), so the server creates the member with both and sets 10006 to 0 at the reveal.
 - The opened chest object has no Buffs component, so it shows only the icon. No client table links a reward type to items: what a type drops is the server's own
   (`LegionRewards.cs`, the row -> kind table). Incubators (row 17) no longer drop in 3.29, and row 11 repeats row 10 (Essences): neither is rolled.
-- Every chance and count of the rewards (who carries one, how many, items per reward, splinters, the general's crystal and jewel, the Harbinger weights) is a
-  guess, a named constant in `LegionArmy.cs` and `LegionRewards.cs`. Splinters come only from sergeants, chests and the general, never normal soldiers.
+- Every chance and count of the rewards (who carries one, how many, items per reward, splinters, the general's crystal, the pool weights) is a
+  guess, a named constant in `LegionArmy.cs` and `LegionRewards.cs`. Splinters come only from sergeants, chests and the general, never normal soldiers. A map general drops no Timeless Jewel (`GeneralJewelPermille` is 0): they come from the Domain of Timeless Conflict.
 - 100 splinters become an emblem through the generic `FullStack` row of the item, with no Legion code.

@@ -32,7 +32,7 @@ static class LegionStasis
     /// action alone, so the client's native rendering is seen cleanly (user decision 2026-11-24); set true to restore the old stasis.</summary>
     public static readonly bool SendFreezeBuff = false;   // not a const: the compiler rejects the dead branches of a const (CS0162, an error here)
 
-    /// <summary>BuffDefinitions 1328 legion_reward_display: its list is [LegionRewardTypeVisuals row, hidden (0 shows), height, index, count], always 5 entries (P2-R1).</summary>
+    /// <summary>BuffDefinitions 1328 legion_reward_display: its list is [LegionRewardTypeVisuals row, hidden (0 shows), height, index, count], always 5 entries.</summary>
     public const ushort RewardBuff = 1328;
 
     /// <summary>A woken member as the drops see it: its reward types (LegionRewardTypeVisuals rows), its faction's LegionFactions Id and its rank tier.</summary>

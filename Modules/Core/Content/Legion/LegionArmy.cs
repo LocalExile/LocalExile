@@ -39,7 +39,7 @@ static class LegionArmy
     /// <summary>The fewest chests an army has (GUESS, see PlanChests); chests are never scaled by <see cref="CampaignArmyScale"/>.</summary>
     const int MinChestsPerArmy = 1;
 
-    // ---- the rewards (P2-E1). ALL OF THESE ARE GUESSES; the live game's numbers are not known. Rolled only in Plan/Compose. ----
+    // ---- the rewards. ALL OF THESE ARE GUESSES; the live game's numbers are not known. Rolled only in Plan/Compose. ----
 
     /// <summary>GUESS: the percent chance a sergeant carries a reward, before map_legion_sergeants_reward_additional_chance_% (added to it, as percentage points).</summary>
     const int SergeantRewardChance = 75;

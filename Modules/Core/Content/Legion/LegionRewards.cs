@@ -5,7 +5,7 @@ namespace GameServer.Modules.Legion;
 
 /// <summary>
 /// What a fighter of the army drops (GameEvents.Drops): its reward types' items, and Timeless Splinters. Only the monsters that
-/// woke at the release (LegionStasis.Fighters) are looked at: a frozen member cannot die, and a general that flees drops nothing.
+/// woke at the release (the per-area fighters table in LegionStasis) are looked at: a frozen member cannot die, and a general that flees drops nothing.
 /// ALL THE NUMBERS ARE GUESSES (nothing of the real game's is known); tune them here.
 /// </summary>
 static class LegionRewards
@@ -17,8 +17,14 @@ static class LegionRewards
     /// <summary>GUESS: the general always drops this many splinters.</summary>
     const int GeneralSplinterMin = 15, GeneralSplinterMax = 30;
     /// <summary>GUESS: the general's percent chance of its faction's Enshrouding Crystal (maps of at least <see cref="CrystalMinLevel"/> only) and its
-    /// per mille chance of a Timeless Jewel (when the faction's unique exists).</summary>
-    const int GeneralCrystalChance = 15, GeneralJewelPermille = 5, CrystalMinLevel = 68;
+    /// per mille chance of a Timeless Jewel (when the faction's unique exists).
+    /// The jewel is off (0): jewels come from the Domain of Timeless Conflict (phase 3); poewiki: "extremely rarely" from map generals, the user's experience: none.</summary>
+    const int GeneralCrystalChance = 15, GeneralJewelPermille = 0, CrystalMinLevel = 68;
+    /// <summary>GUESS: a picked item of a pool is a stack of this range (the Mirror Shard always one); a Maps reward's roll chance factor (the generic 5% of a rare becomes certain).</summary>
+    const int StackMin = 1, StackMax = 3, MapChanceFactor = 20;
+    /// <summary>GUESS: a chest's items per reward type, a War Hoard's; and the splinters of its faction (percent chance, then min..max).</summary>
+    const int ChestItemsPerReward = 3, HoardItemsPerReward = 4;
+    const int ChestSplinterChance = 60, ChestSplinterMin = 4, ChestSplinterMax = 10, HoardSplinterChance = 100, HoardSplinterMin = 10, HoardSplinterMax = 20;
 
     /// <summary>The faction's splinter, Enshrouding Crystal (BaseItemTypes ids) and Timeless Jewel (unique name), by LegionFactions Id. Afarud uses Maraketh's.</summary>
     static readonly Dictionary<string, (string Splinter, string Crystal, string Jewel)> Factions = new()
@@ -50,11 +56,31 @@ static class LegionRewards
     const int ScrollWeight = 40;
     const string MirrorShard = "/CurrencyDuplicateShard";
 
+    /// <summary>GUESS weights of the Breach pool: the splinters common, the Blessings and the Flesh of Xesht rare.</summary>
+    const int BreachSplinterWeight = 40, BreachBlessingWeight = 5, BreachFleshWeight = 2;
+
+    /// <summary>GUESS weights of the fossils: the plain ones common, the specialised ones less, the sought-after ones rare (by the end of the id).</summary>
+    static readonly string[] RareFossils = ["LuckyModRolls", "Mirror", "GemLevel", "CorruptEssence", "Random"];
+    static readonly string[] UncommonFossils = ["Vaal", "Abyss", "SellPrice", "Sockets", "Enchant", "MinionsAuras", "Quality", "Speed", "Mana", "CasterMods", "AttackMods"];
+    const int CommonFossilWeight = 30, UncommonFossilWeight = 10, RareFossilWeight = 3;
+
+    static bool Weighted(string kind) => kind is "harbinger" or "breach" or "fossils";
+
     static int Weight(string kind, ItemCatalog.BaseType t)
     {
-        if (kind != "harbinger") return 1;
-        foreach (var (id, weight) in HarbingerCurrency) if (t.Id.EndsWith(id, StringComparison.Ordinal)) return weight;
-        return ScrollWeight;
+        switch (kind)
+        {
+            case "harbinger":
+                foreach (var (id, weight) in HarbingerCurrency) if (t.Id.EndsWith(id, StringComparison.Ordinal)) return weight;
+                return ScrollWeight;
+            case "breach":
+                return t.Id.EndsWith("UpgradeUniqueGeneral", StringComparison.Ordinal) ? BreachFleshWeight
+                    : t.Id.Contains("UpgradeUnique", StringComparison.Ordinal) ? BreachBlessingWeight : BreachSplinterWeight;
+            case "fossils":
+                return RareFossils.Any(f => t.Id.EndsWith("CurrencyDelveCrafting" + f, StringComparison.Ordinal)) ? RareFossilWeight
+                    : UncommonFossils.Any(f => t.Id.EndsWith("CurrencyDelveCrafting" + f, StringComparison.Ordinal)) ? UncommonFossilWeight : CommonFossilWeight;
+            default: return 1;
+        }
     }
 
     /// <summary>The catalog's items of each kind picked from the catalog (not a container roll), built once per catalog, sorted by drop level.</summary>
@@ -102,21 +128,20 @@ static class LegionRewards
         return lo;
     }
 
+    /// <summary>The four essences that only corrupt an item (Hysteria, Insanity, Horror, Delirium).</summary>
+    static readonly string[] CorruptionEssences = ["Hysteria1", "Insanity1", "Horror1", "Delirium1"];
+
     static bool Eligible(string kind, ItemCatalog.BaseType t, IReadOnlySet<int>? gems) => kind switch
     {
         "gems" => gems!.Contains(t.Row),
         "abyss" => t.Class == "AbyssJewel" || t.Id.Contains("/JewelAbyss", StringComparison.Ordinal),
         "harbinger" => t.Id.Contains("/CurrencyHarbingerBlessing", StringComparison.Ordinal) || HarbingerCurrency.Any(h => t.Id.EndsWith(h.Id, StringComparison.Ordinal)),
-        "breach" => t.Id.Contains("/CurrencyBreach", StringComparison.Ordinal),
-        "essences" => t.Class == "StackableCurrency" && t.Id.Contains("Essence", StringComparison.Ordinal) && !t.Id.Contains("Corrupt", StringComparison.Ordinal),
+        "breach" => t.Id.Contains("/Currency/CurrencyBreach", StringComparison.Ordinal) && (t.Id.EndsWith("Shard", StringComparison.Ordinal) || t.Id.Contains("UpgradeUnique", StringComparison.Ordinal)),
+        "essences" => t.Id.Contains("/Currency/CurrencyEssence", StringComparison.Ordinal) && !CorruptionEssences.Any(e => t.Id.EndsWith(e, StringComparison.Ordinal)),
         "fragments" => t.Class == "MapFragment" && !t.Id.Contains("CurrencyAffliction", StringComparison.Ordinal) && !t.Id.Contains("/Scarabs/", StringComparison.Ordinal),
         "fossils" => t.Id.Contains("/CurrencyDelveCrafting", StringComparison.Ordinal),
         _ => false,
     };
-
-    /// <summary>GUESS: a chest's items per reward type, a War Hoard's; and the splinters of its faction (percent chance, then min..max).</summary>
-    const int ChestItemsPerReward = 3, HoardItemsPerReward = 4;
-    const int ChestSplinterChance = 60, ChestSplinterMin = 4, ChestSplinterMax = 10, HoardSplinterChance = 100, HoardSplinterMin = 10, HoardSplinterMax = 20;
 
     /// <summary>The items of an opened chest by its reward types, plus its faction's splinters (factionId null: none); the same mapping as a fighter's.</summary>
     public static List<Item> Chest(Player player, int[] rewards, string? factionId, bool hoard, int level, Random rng)
@@ -146,6 +171,8 @@ static class LegionRewards
 
     /// <summary>The Harbinger pool's weight of an item (the Mirror Shard's is the smallest).</summary>
     internal static int HarbingerWeight(ItemCatalog.BaseType t) => Weight("harbinger", t);
+
+    internal static int WeightOf(string kind, ItemCatalog.BaseType t) => Weight(kind, t);
 
     internal static IEnumerable<int> RewardRows => Kinds.Keys;
 
@@ -184,7 +211,7 @@ static class LegionRewards
         }
     }
 
-    /// <summary>A stack of the faction's Timeless Splinters, min..max. Also for the chests (P2-E4).</summary>
+    /// <summary>A stack of the faction's Timeless Splinters, min..max. Also for the chests.</summary>
     public static void Splinter(List<(string Item, int Count)> stacks, string factionId, int min, int max, Random rng)
     {
         if (Factions.TryGetValue(factionId == "Faridun" ? "Maraketh" : factionId, out var f)) stacks.Add((f.Splinter, rng.Next(min, max + 1)));
@@ -211,15 +238,19 @@ static class LegionRewards
                 return;
             }
             case "maps":
-                // chanceFactor 20: the generic 5% map chance of a rare becomes certain, a reward is not a roll to miss.
+            {
+                // MapChanceFactor makes the roll certain: a reward is not a roll to miss. Below level 68 (the campaign) the tier is 0; no map there: generic items.
+                int before = made.Count;
                 for (int i = 0; i < count; i++)
-                    if (drops.Map(level, MonsterRarity.Rare, Math.Clamp(level - 67, 1, 16), rng, chanceFactor: 20) is { } map) made.Add(map.Item);
+                    if (drops.Map(level, MonsterRarity.Rare, level >= 68 ? level - 67 : 0, rng, chanceFactor: MapChanceFactor) is { } map) made.Add(map.Item);
+                if (made.Count == before) made.AddRange(Items(drops.Container(level, count, 0, rng)));
                 return;
+            }
             case "scarabs":
                 for (int i = 0; i < count; i++) if (drops.Scarab(rng, level) is { } scarab) made.Add(scarab.Item);
                 return;
             case "divination":
-                if (catalog.Find(StackedDeck) is { Supported: true }) stacks.Add((StackedDeck, rng.Next(1, 4)));
+                if (catalog.Find(StackedDeck) is { Supported: true }) stacks.Add((StackedDeck, rng.Next(StackMin, StackMax + 1)));
                 return;
             case "jewellery":
                 made.AddRange(Items(drops.Container(level, count, 0, rng, t => t.Class is "Ring" or "Amulet" or "Belt")));
@@ -247,12 +278,12 @@ static class LegionRewards
         for (int i = 0; i < count; i++)
         {
             var type = pool[rng.Next(eligible)];
-            if (kind == "harbinger")
+            if (Weighted(kind))
             {
                 int pick = rng.Next(Enumerable.Range(0, eligible).Sum(k => Weight(kind, pool[k])));
                 for (int k = 0; k < eligible; k++) { type = pool[k]; if ((pick -= Weight(kind, type)) < 0) break; }
             }
-            int stack = type.Id.EndsWith(MirrorShard, StringComparison.Ordinal) ? 1 : rng.Next(1, 4);   // a Mirror Shard is never more than one
+            int stack = type.Id.EndsWith(MirrorShard, StringComparison.Ordinal) ? 1 : rng.Next(StackMin, StackMax + 1);   // a Mirror Shard is never more than one
             made.Add(ItemCatalog.Create(type) with { ItemLevel = (byte)level, StackSize = (ushort)Math.Min(type.MaxStack, stack) });
         }
     }

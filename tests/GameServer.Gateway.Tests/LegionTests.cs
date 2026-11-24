@@ -60,6 +60,10 @@ public sealed class LegionTests
             InstanceProtocol.ActionData(id, 0xd8fe, 0x18fe, 7, 0, [2, 100, 0, 0, 0]));
     }
 
+    static string Describe(LegionArmy.ArmyPlan plan) => string.Join("|", plan.Factions.Select(f => f.Id
+        + ":" + string.Join(",", f.Squads.Select(q => $"{q.Tier}x{q.Count}[{string.Join(";", (q.Rewards ?? []).Select(r => string.Join("+", r)))}]"))
+        + ":" + string.Join(",", f.Chests.Select(c => $"{c.WarHoard}[{string.Join("+", c.Rewards ?? [])}]"))));
+
     [Fact]
     public void The_reward_plan_uses_only_the_allowed_rows_gives_hoards_two_or_three_and_is_the_same_for_a_seed()
     {
@@ -67,11 +71,10 @@ public sealed class LegionTests
         Assert.NotEmpty(data.RewardTypes);
         var stats = new Dictionary<uint, int>();
         int sergeants = 0, rewarded = 0, chests = 0, hoards = 0;
-        for (int seed = 1; seed <= 60; seed++)
+        for (int seed = 1; seed <= 300; seed++)
         {
             var plan = LegionArmy.Plan(data, 75, "MapWorldsReef", stats, new Random(seed));
-            Assert.Equal(plan.Factions.Select(f => (f.Id, f.Squads.Length, f.Chests.Length)),
-                LegionArmy.Plan(data, 75, "MapWorldsReef", stats, new Random(seed)).Factions.Select(f => (f.Id, f.Squads.Length, f.Chests.Length)));
+            Assert.Equal(Describe(plan), Describe(LegionArmy.Plan(data, 75, "MapWorldsReef", stats, new Random(seed))));
             foreach (var f in plan.Factions)
             {
                 foreach (var squad in f.Squads)
@@ -91,7 +94,7 @@ public sealed class LegionTests
                 }
             }
         }
-        Assert.True(sergeants > 0 && rewarded > 0 && chests > 0);
+        Assert.True(sergeants > 0 && rewarded > 0 && chests > 0 && hoards > 0, "the seeds must include a War Hoard");
         Assert.True(rewarded < sergeants, "a sergeant carries a reward with a chance, not always");
     }
 
@@ -104,6 +107,8 @@ public sealed class LegionTests
         var harbinger = LegionRewards.Pool(catalog, 8, 100)!;
         var mirror = Assert.Single(harbinger, t => t.Id.EndsWith("/CurrencyDuplicateShard", StringComparison.Ordinal));
         Assert.All(harbinger.Where(t => t != mirror), t => Assert.True(LegionRewards.HarbingerWeight(t) > LegionRewards.HarbingerWeight(mirror)));
+        Assert.DoesNotContain(LegionRewards.Pool(catalog, 10, 100)!, t => t.Id.Contains("Hysteria1") || t.Id.Contains("Delirium1") || t.Id.Contains("Affliction"));
+        Assert.All(LegionRewards.Pool(catalog, 9, 100)!, t => Assert.DoesNotContain("Breachstone", t.Name));
         Assert.Contains(harbinger, t => t.Id.EndsWith("/CurrencyUpgradeMapTier", StringComparison.Ordinal));
     }
 }
