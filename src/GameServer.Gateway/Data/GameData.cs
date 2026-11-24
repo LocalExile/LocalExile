@@ -32,6 +32,9 @@ public static class GameData
     static IReadOnlyList<GameDataStore.EffectSkillRow> _effectSkills = [];
     /// <summary>The enabled rows of <c>effect_buffs</c>: the buffs released skills give (the game module reads them).</summary>
     public static IReadOnlyList<GameDataStore.EffectBuffRow> EffectBuffs => Volatile.Read(ref _effectBuffs);
+    /// <summary>The fx rules as their tables have them (fx_rules and its four tables).</summary>
+    public static IReadOnlyList<GameDataStore.FxRuleRow> FxRules => Volatile.Read(ref _fxRules);
+    static IReadOnlyList<GameDataStore.FxRuleRow> _fxRules = [];
     static IReadOnlyList<GameDataStore.EffectBuffRow> _effectBuffs = [];
     public static Snapshot Current => Volatile.Read(ref _snapshot);
 
@@ -83,6 +86,7 @@ public static class GameData
         var effectRules = store.LoadEffectRules();
         var effectSkills = store.LoadEffectSkills();
         var effectBuffs = store.LoadEffectBuffs();
+        var fxRules = store.LoadFxRules();
 
         // Build the catalogues and settings first: a bad payload leaves the previous ranges/limits and catalogues intact.
         GameDataCatalog.Reload(store);
@@ -94,6 +98,7 @@ public static class GameData
         Volatile.Write(ref _effectRules, effectRules);
         Volatile.Write(ref _effectSkills, effectSkills);
         Volatile.Write(ref _effectBuffs, effectBuffs);
+        Volatile.Write(ref _fxRules, fxRules);
         Volatile.Write(ref _snapshot, snapshot);
         var (uniqueWeights, uniqueWeightOverrides) = store.UniqueWeightCounts();
         var drop = store.DropCounts();

@@ -241,13 +241,24 @@ public static class EffectRules
             if (_table.Revision == revision) return _table;
             Game.EnsureEffectKinds();
             var rules = new List<Rule>();
+            // The fx tables first: a stat they have a rule for is theirs, and its effect_rules rows are left out.
+            var fromTables = new HashSet<string>(StringComparer.Ordinal);
+            foreach (var compiled in FxRules.Compile(GameData.FxRules,
+                (rule, why) => Console.WriteLine($"[rules] left out the fx rule {rule}: {why}")))
+            {
+                try { rules.Add(Parse(compiled.Stat, compiled.Ord, compiled.Json)); fromTables.Add(compiled.Stat); }
+                catch (Exception e) when (e is FormatException or JsonException or InvalidOperationException or KeyNotFoundException)
+                { Console.WriteLine($"[rules] refused the fx rule {compiled.Rule} for {compiled.Stat}: {e.Message}"); }
+            }
+            int tables = rules.Count;
             foreach (var row in GameData.EffectRules)
             {
+                if (fromTables.Contains(row.Stat)) continue;
                 try { rules.Add(Parse(row.Stat, row.Ord, row.Rule)); }
                 catch (Exception e) when (e is FormatException or JsonException or InvalidOperationException or KeyNotFoundException)
                 { Console.WriteLine($"[rules] refused the rule of {row.Stat} #{row.Ord}: {e.Message}"); }
             }
-            Console.WriteLine($"[rules] {rules.Count} effect rule(s) loaded, {Kinds.Count} effect kind(s) (game data revision {revision})");
+            Console.WriteLine($"[rules] {rules.Count} effect rule(s) loaded, {tables} of them from the fx tables, {Kinds.Count} effect kind(s) (game data revision {revision})");
             Volatile.Write(ref _table, new(revision, [.. rules], [.. rules.Where(r => r.Carrier is null).Select(r => r.Key)],
                 rules.Where(r => r.Carrier is not null).GroupBy(r => r.Carrier!).ToDictionary(g => g.Key, g => g.ToArray())));
             return _table;

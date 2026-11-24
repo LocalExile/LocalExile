@@ -54,8 +54,9 @@ Rows are added with a new file in `sql/updates/pending_world/` ([databases](data
 
 ## The fx tables
 
-The next form of the rules, being filled stat by stat; the engine still reads the three tables above until the
-`fx_` loader replaces them. The unit is the stat: a mod is a list of stats (client.db `Mods`), so a stat rebuilt once is
+The next form of the rules, being filled stat by stat. `FxRules.Compile` turns each fx rule into the engine's own
+rule when the game data loads, so the 30 first rules now come from these tables; a stat with an fx rule leaves its
+`effect_rules` row out, and a rule that names a part with no code yet is left out with the reason in the log. The unit is the stat: a mod is a list of stats (client.db `Mods`), so a stat rebuilt once is
 rebuilt for every mod, passive or area modifier that carries it.
 
 | Table | Holds |
