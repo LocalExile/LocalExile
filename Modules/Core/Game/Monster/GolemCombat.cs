@@ -1021,12 +1021,16 @@ public static partial class Game
         var mods = g.Monster.Mods.Effects;
         int SpeedStat(uint name) => GolemStat(a.Stats, name)
             + (name == Stat.SupportSlowerProjectilesProjectileSpeedPlusPctFinal ? mods[name] : 0);
-        var profile = new ProjectileProfile(p.Metadata)
+        double speed = ProjectileSpeed.CellsPerSecond(p.Speed,
+            _ => mods[Stat.ProjectileSpeedPlusPct] + mods[Stat.BaseProjectileSpeedPlusPct], SpeedStat);
+        double maxRange = p.Lobbed ? distance : Math.Max(SystemSettings.Default.ProjectileMaximumRangeCells, distance + 10);
+        var profile = GatewayProjectileDefaults.Create(p.Metadata, k => mods[k], speed, arrows: g.Weapon is { Bow: true }) with
         {
-            Speed = ProjectileSpeed.CellsPerSecond(p.Speed,
-                _ => mods[Stat.ProjectileSpeedPlusPct] + mods[Stat.BaseProjectileSpeedPlusPct], SpeedStat), Radius = p.CollisionRadius,
-            Range = p.Lobbed ? distance : Math.Max(60, distance + 10), Lobbed = p.Lobbed,
-            Count = nova ? 14 : Math.Max(1, p.Count), SpreadRadians = nova ? Math.PI * 2 : p.SpreadRadians,
+            Radius = p.CollisionRadius,
+            Range = maxRange,
+            Lobbed = p.Lobbed,
+            Count = nova ? 14 : Math.Max(1, p.Count),
+            SpreadRadians = nova ? Math.PI * 2 : p.SpreadRadians,
             DirectDamage = !p.Lobbed,
             Pierce = a.Effect == 2378 || GolemStat(a.Stats, Stat.AlwaysPierce) != 0 ? -1 : 0,
             EndArea = p.Lobbed ? new("golem mortar", a.Radius) : null,
@@ -1035,7 +1039,9 @@ public static partial class Game
         // The profile already contains the native skill's quantity; the minion's own modifiers add to it once,
         // including ProjectileNumberOfTargetsToPierce / ProjectileBaseNumberOfTargetsToPierce inside Resolve.
         profile = GatewayProjectileModifiers.Resolve(profile, name => mods[name], attack: !a.Attack.Spell,
-            arrows: g.Weapon is { Bow: true });
+            arrows: g.Weapon is { Bow: true },
+            skillPierce: Math.Max(GolemStat(a.Stats, Stat.ProjectileNumberOfTargetsToPierce),
+                GolemStat(a.Stats, Stat.ProjectileBaseNumberOfTargetsToPierce)));
         if (!nova && !p.Lobbed && mods[Stat.SupportParallelProjectileNumberOfPointsPerSide] is > 0 and var points)
         {
             int x = Math.Max(mods[Stat.VirtualAdditionalProjectilesFireParallelXDist],
@@ -1068,6 +1074,43 @@ public static partial class Game
             if (hit) s.Enqueue(() => PublishMinionOutcomes(player));
             return hit ? ProjectileHitResult.Hit : ProjectileHitResult.Miss;
         }) { Quiet = true, Presentation = MonsterProjectilePresentation(SkillsFor(player).Clips(p.Metadata), distance / profile.Speed) };
+        if (p.SpiralAngle != 0 && profile.Count > 1 && !nova)
+        {
+            int total = Math.Clamp(profile.Count, 2, 36);
+            double spanRad = p.SpiralAngle * (Math.PI / 180.0);
+            double baseAngle = Math.Atan2(to.Y - from.Y, to.X - from.X);
+            double baseSec = SkillsFor(player).CastTimeMs(a.Effect) is > 0 and var ct ? ct / 1000.0 : a.Attack.Seconds;
+            double sweepSec = p.SpiralTimeMs > 0
+                ? p.SpiralTimeMs / 1000.0 * (baseSec > 0 ? a.Attack.Seconds / baseSec : 1.0)
+                : 0.0;
+            double reach = Math.Max(profile.Range, maxRange);
+            for (int i = 0; i < total; i++)
+            {
+                double frac = (double)i / (total - 1);
+                double offset = Math.Abs(p.SpiralAngle) >= 350
+                    ? p.SpiralStartAngle * (Math.PI / 180.0) + frac * spanRad
+                    : (frac - 0.5) * spanRad;
+                var dir = new ProjectileVector(Math.Cos(baseAngle + offset), Math.Sin(baseAngle + offset));
+                var boltTarget = from + dir * reach;
+                var singleProfile = profile with
+                {
+                    Count = 1,
+                    SpreadRadians = 0,
+                    HitRule = new(ProjectileHitScope.Projectile),
+                };
+                double boltAt = now + (sweepSec > 0 ? frac * sweepSec : 0);
+                session.Schedule(ProjectileRuntime.Time(boltAt),
+                    () => CurrentGameWork && !player.Closed && !player.LeavingArea && !g.Monster.Dead,
+                    () => new(singleProfile, owner, owner, 1, from, boltTarget)
+                    {
+                        Payload = offense, ReturnAnchor = canReturn ? owner : null, ProjectileTargets = landings,
+                        TargetSplit = (target, at) => player.Area.Monsters.GetValueOrDefault(target.Id) is { Hostile: true } victim
+                            ? MinionProjectileCurseStat(victim, Stat.ProjectilesHittingSelfSplitIntoX,
+                                at / (double)ProjectileRuntime.QuantaPerSecond) : 0
+                    });
+            }
+            return;
+        }
         session.Schedule(ProjectileRuntime.Time(now), () => CurrentGameWork && !player.Closed && !player.LeavingArea,
             () => new(profile, owner, owner, 1, from, to)
             {

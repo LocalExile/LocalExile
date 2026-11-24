@@ -144,4 +144,88 @@ public sealed class MinionSupportExecutionTests
         Assert.Equal(10000u, f.Player.Area.Monsters[997].Life);
         Assert.Equal(10000u, f.Player.Area.Monsters[996].Life);
     }
+
+    [Fact]
+    public async Task Spell_echo_repeats_spectre_spell_and_launches_spiral_nova_with_returning_projectiles()
+    {
+        using var f = new AnimatedAdmissionTests.Fixture();
+        var time = new Clock();
+        var before = Game.AreaUpdateContext.Value;
+        Game.AreaUpdateContext.Value = new(Game.CombatLifetime!, time);
+        try
+        {
+            var items = Game.ItemsOf(f.Player);
+            foreach (var p in items.Items(PlayerInventories.Weapon1)) items.Remove(PlayerInventories.Weapon1, p.Id);
+            Item Gem(string name)
+            {
+                var type = Program.Items.FindGem(name)!.Value;
+                return ItemCatalog.Create(type.Type) with
+                {
+                    GemVariant = type.Variant.Index,
+                    GemExperience = Program.Items.Gem(type.Type)!.ExperienceFor(20)
+                };
+            }
+            var names = new[] { "Raise Spectre", "Spell Echo Support", "Returning Projectiles Support" };
+            items.Add(PlayerInventories.Weapon1, 0, 0, ItemCatalog.Create(Program.Items.Find("Gnarled Branch")!) with
+            {
+                Sockets = names.Select(n => new ItemSocket(SocketColour.White, Gem(n))).ToArray(),
+                Links = [(byte)names.Length]
+            });
+            ushort source = Game.GemSkillEffects(f.Player).Single().Id;
+            var defilerVariety = Game.Monsters.Find("Metadata/Monsters/Revenant/RevenantMapBossStandalone_AtlasUber")!;
+            uint id = await Game.SummonFighter(f.Player, source,
+                Game.SummonData.Find("RaiseSpectre")!, (100, 100), restoredVariety: defilerVariety.Id);
+            var fighter = f.Player.Summons.Fighters[id];
+            fighter.Monster.Walk.Teleport(100, 100, 0);
+            Invoke("RefreshGolemLocked", f.Player, fighter, Game.CharacterPlayerStats(f.Player), (double?)0d);
+            fighter.Abilities = Game.GolemAbilities(f.Player, defilerVariety, 84, fighter, Game.CharacterPlayerStats(f.Player));
+            var spell = Assert.Single(fighter.Abilities, a => a.Id == "RevenantBossSpellProjectile");
+            Assert.Equal(9, spell.Projectile!.Count);
+            Assert.Equal(50, spell.Projectile.SpiralAngle);
+            Assert.Equal(750, spell.Projectile.SpiralTimeMs);
+            Assert.Equal(1, Game.SkillsFor(f.Player).MonsterProjectile(spell.Effect)!.Count);
+            var enemy = new SpawnedMonster("target", new(130, 100, 0), 100, 3, 1_000_000) { Hostile = true };
+            f.Player.Area.Monsters[999] = enemy;
+
+            var session = Game.ProjectilesFor(f.Player);
+            Invoke("GolemReserveLocked", f.Player, fighter, spell, 999u, enemy, (130, 100), time.Time);
+            for (int repeat = 0; repeat < 2; repeat++)
+            {
+                Invoke("GolemActionRecords", f.Player, new PlayerMinions.Output([], null, fighter.Id, fighter.Monster,
+                    PlayerMinions.OutputKind.GolemAction, Action: fighter.Monster.ActionGeneration));
+                var pending = fighter.Pending!;
+                Assert.Equal(repeat, pending.RepeatIndex);
+                time.Time = pending.At;
+                Game.GolemStepLocked(f.Player, fighter, time.Time);
+                using (Game.ProjectileMutation(f.Player, advance: false))
+                {
+                    var shots = new Dictionary<long, long>();
+                    for (int step = 1; step <= 100; step++)
+                    {
+                        session.AdvanceTo(GameServer.Core.Projectiles.ProjectileRuntime.Time(time.Time + step * 0.01));
+                        foreach (var shot in session.Runtime.Projectiles.Where(p => p.CreatedAt >= GameServer.Core.Projectiles.ProjectileRuntime.Time(time.Time)))
+                        {
+                            Assert.True(shot.Profile.Returns);
+                            shots.TryAdd(shot.Id, shot.CreatedAt);
+                        }
+                    }
+                    Assert.Equal(9, shots.Count);
+                    Assert.Equal(9, shots.Values.Distinct().Count());
+                }
+                if (repeat == 0)
+                {
+                    Assert.NotNull(fighter.Repeat);
+                    time.Time = Math.Max(time.Time + 1.0, fighter.Monster.BusyUntil);
+                    Game.GolemStepLocked(f.Player, fighter, time.Time);
+                    Assert.NotNull(fighter.Pending);
+                }
+                else
+                {
+                    Assert.Null(fighter.Repeat);
+                }
+            }
+            Assert.True(enemy.Life < 1_000_000u);
+        }
+        finally { Game.AreaUpdateContext.Value = before; }
+    }
 }
