@@ -309,7 +309,15 @@ public static partial class Game
             else if (output.CreatesObject)
                 await SendWorldCreate(player, output.WorldId!.Value, Project, output.Log);
             else if (output.RemovesObject || output.Kind is PlayerMinions.OutputKind.Remove or PlayerMinions.OutputKind.QuestRoomRemove)
-                await SendWorldRemoval(player, output.WorldId ?? output.TargetId!.Value, output.Log, atGate: Project);
+            {
+                uint id = output.WorldId ?? output.TargetId!.Value;
+                await SendWorldRemoval(player, id, output.Log, atGate: () =>
+                {
+                    var records = Project();
+                    if (records is not null) player.ProjectileObjects.Remove(id);
+                    return records;
+                });
+            }
             else if (output.Kind is PlayerMinions.OutputKind.GolemAction or PlayerMinions.OutputKind.EnergyShield)
                 await SendWorldRecords(player, output.TargetId!.Value,
                     () => Project() is null ? null : actionRecords, output.Log);

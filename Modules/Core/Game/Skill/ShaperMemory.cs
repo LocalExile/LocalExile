@@ -41,7 +41,7 @@ public static partial class Game
     static async Task<bool> CastShaperMemory(Player player, ushort source, (int X, int Y) aim, Func<bool> current)
     {
         var gem = SupportedSkill(player, source);
-        if (gem.WornGrant is not { } grant || !ShaperMemories.TryGetValue(player, out var state) || state.Grant != grant
+        if (!gem.RequirementsMet || gem.WornGrant is not { } grant || !ShaperMemories.TryGetValue(player, out var state) || state.Grant != grant
             || state.Actor != 0 || state.Pending || state.EnergyShieldSpent < RemembranceEnergyShield * RemembranceMaximum
             || Monsters.Find(ShaperMemoryBody) is not { Supported: true } variety) return false;
         var catalog = SkillsFor(player);
@@ -52,7 +52,7 @@ public static partial class Game
         if (catalog.FindByRow(ShaperMemorySkill, effect, level, [.. local.Select(p => (p.Key, p.Value))]) is not { } skill) return false;
         int epoch = player.ProjectileEpoch;
         bool SourceCurrent() => CurrentGameWork && player.ProjectileActive(epoch) && player.PlayerLife > 0
-            && CurrentShaperMemoryGrant(player) == grant;
+            && SupportedSkill(player, source) is { RequirementsMet: true, WornGrant: { } worn } && worn == grant;
         state.Pending = true;
         try
         {

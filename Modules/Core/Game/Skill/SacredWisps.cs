@@ -110,12 +110,13 @@ public static partial class Game
                 if (body.Dead || !ReferenceEquals(Player.Area.Monsters.GetValueOrDefault(id), body)
                     || !RandomRolls.Chance(chance, 100, AreaRng(Player))) continue;
                 var from = body.Walk.Position(now);
+                var actor = ActorKey(id, body);
                 WorldRecords(id, () => CurrentSacredWisps(wisps)
                     ? [InstanceProtocol.ActionStarted(id, from.X, from.Y, (int)Math.Round(use.Aim.X), (int)Math.Round(use.Aim.Y),
                         wisps.Skill, 0xffff, Player.MonsterOrderFlags), InstanceProtocol.ActionEnded(id)] : null);
                 Runtime.Release(use with
                 {
-                    Seed = ++seed, Emitter = new(id), Origin = Vector(from), ReturnAnchor = new(id),
+                    Seed = ++seed, Emitter = actor, Origin = Vector(from), ReturnAnchor = actor,
                     Payload = Copy(shot), CanEmit = () => CurrentSacredWisps(wisps) && Runtime.Now < wisps.Expires
                         && !body.Dead && ReferenceEquals(Player.Area.Monsters.GetValueOrDefault(id), body),
                     ProjectilePayloads = use.ProjectilePayloads?.Select(payload => payload is ProjectileOffense offense

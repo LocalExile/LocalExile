@@ -53,7 +53,9 @@ public static partial class Game
 
         void Place((int X, int Y) cell, int impact, double arm, string animation)
         {
+            _ = ProjectilesFor(player);
             uint id = player.TakeObjectId();
+            player.ProjectileObjects.Add(id);
             var visual = new EffectObject(cell.X, cell.Y, animation);
             player.Minions.OutputQueue.Add(new(InstanceEntities.CreateObject(id,
                 InstanceEntities.ObjectTypeHash(EffectObject.TypePath), visual.Blob()), null, WorldId: id, CreatesObject: true));

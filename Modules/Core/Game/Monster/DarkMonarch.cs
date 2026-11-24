@@ -23,7 +23,7 @@ public static partial class Game
         "AnimatedWeapon" or "VaalAnimatedWeapon" => 19,
         "RagingSpirit" => 20,
         "Golem" => 24,
-        "Wolf" => 28,
+        "SpectralWolf" => 28,
         "Spider" => 32,
         "Purity" => 40,
         "HolyRelic" => 41,
@@ -42,7 +42,8 @@ public static partial class Game
 
     static ushort? DarkMonarchAllowedType(string family) => family switch
     {
-        "SpectreSkeleton" or "SpectreConstruct" => 0,
+        "SpectreSkeleton" or "SpectreConstruct" or "SpectreEnfeebleGround" or "SpectreVulnerabilityGround"
+            or "SpectreTemporalChainsGround" => 0,
         "VaalAbsolution" => 50,
         "VaalDomination" => 1,
         _ => DarkMonarchMinionFamily(family),
