@@ -80,6 +80,8 @@ public static class GameDataFiles
     [
         ("data/game-files.zip", "levels the Gateway generates itself, the Phrecia classes' passive graph check"),
         ("data/kingsmarch-town.json", "the Settlers hub's town objects (Kingsmarch's floor, decks and buildings)"),
+        ("data/doodad-collision/KalguuranSettlersLeague.json",
+            "the town's walls, props and villagers stop a click where the client's own hulls say they are"),
     ];
 
     public static IEnumerable<(string File, string Feature)> Missing(string root = ".") =>

@@ -94,6 +94,11 @@ $manifest = @(
     @{ Name = 'kingsmarch-town'; Outputs = @('data\kingsmarch-town.json'); Runner = 'python'; Servers = $true
        Args = @('scripts/dev/kingsmarch_town.py'); Version = 1; Needs = @()
        UsedBy = 'Kingsmarch''s town objects: the floor, decks and buildings the client does not draw (settlers.md)' }
+    # The cells those objects (and the hub's villagers) would block: the client walks on its own hulls, which it never
+    # built here, so the server refuses a click that lands behind them. The .ao hulls come from the GGPK (ggdump).
+    @{ Name = 'kingsmarch-collision'; Outputs = @('data\doodad-collision\KalguuranSettlersLeague.json'); Runner = 'python'
+       Servers = $true; Args = @('scripts/dev/kingsmarch_collision.py'); Version = 1; Needs = @('kingsmarch-town')
+       UsedBy = 'the walk cells Kingsmarch''s walls, wharves, huts, barrels and villagers block (settlers.md)' }
 )
 
 function Need($ok, $message) { if (-not $ok) { throw "setup incomplete: $message (see Agents/GettingStarted.md)" } }

@@ -1,17 +1,15 @@
 using System.Text.Json;
 
-
-
 /// <summary>The obstacle cells the client's own doodads put in an area's walk grid (an .ao's <c>Hull</c>, stamped by
 /// <c>0x141d8ad70</c>), baked ahead of time for the areas whose floor and buildings only exist as client doodads.
 ///
 /// <para>Kingsmarch is such an area: its room's 444 doodads are typed <c>DecoUpgrade*</c>, whose .ot inherits
 /// <c>BaseEvents { server_only = true }</c>, so the client builds none of them from the server's side and the walk grid it
-/// generates 鈥?the one a capture gives this port 鈥?has no wall, wharf or hut in it. Nothing stops a player there: the
+/// generates - the one a capture gives this port - has no wall, wharf or hut in it. Nothing stops a player there: the
 /// client's own collision test only sees the objects it built. Stamping the hulls into the captured grid makes the grid
 /// itself refuse those cells, which every walker on this port already honours.</para>
 ///
-/// <para>The data is <c>data/doodad-collision/&lt;area&gt;.json</c>: <c>{"note": 鈥? "objects": [{"i", "model", "runs"}]}</c>,
+/// <para>The data is <c>data/doodad-collision/&lt;area&gt;.json</c>: <c>{"note": "...", "objects": [{"i", "model", "runs"}]}</c>,
 /// each <c>run</c> a <c>[y, x0, x1)</c> span of cells in the area's grid, produced by
 /// <c>scripts/dev/kingsmarch_collision.py</c>.</para>
 /// </summary>

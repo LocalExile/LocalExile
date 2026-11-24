@@ -25,8 +25,9 @@ public sealed class VillageModule : IModule
     public const ushort ActionId = InstanceRulesets.ActionId;
 
     /// <summary>The ruleset record kind of the town (the client's <c>ClientVillage</c>): 0x5a8 bytes, created by S→C 0x1f.
-    /// The farm record is 0x74.</summary>
-    public const byte TownRecordKind = 0x9b, FarmRecordKind = 0x74;
+    /// Kind <c>0x74</c> was tried as "the farm record" and is not one: the client answers it with the
+    /// "ExpeditionPlugin not found!" dialog, so nothing sends it.</summary>
+    public const byte TownRecordKind = 0x9b;
 
     /// <summary>The village's own state: what the treasury holds and who works where. The panel draws these numbers from
     /// the settlement record the client keeps; the server owns them.</summary>
