@@ -8,6 +8,7 @@ static class HideoutEditingFeature
     const string DecorationKeyPrefix = "deco:";
     const int MaxUncapturedCoordinate = 2048;
     static readonly ConditionalWeakTable<GameArea, Dictionary<uint, HideoutCatalog.Doodad>> AreaDecorations = new();
+    static readonly ConditionalWeakTable<GameArea, SemaphoreSlim> ImportGates = new();
 
     static Dictionary<uint, HideoutCatalog.Doodad> DecorationsOf(Player player) =>
         AreaDecorations.GetValue(player.Area, _ => []);
@@ -406,5 +407,144 @@ static class HideoutEditingFeature
             $"hideout rotation {p.Rotation:0.###}");
         await BroadcastRebuildCollision(player, "rebuild hideout model collision from current placements");
         await PushOutOfCollision(player);
+    }
+
+    /// <summary>C→S 0x0213: imports a hideout template layout, validating hideout match, bounds and serializable doodads,
+    /// replacing saved custom decorations, moving matched functional stations and broadcasting world updates.</summary>
+    internal static async Task ImportLayout(Player player, InstanceHideoutEditing.Layout layout)
+    {
+        if (player.Closed || player.LeavingArea || !CanEditHere(player) || player.Character.Account is null) return;
+        var gate = ImportGates.GetValue(player.Area, _ => new SemaphoreSlim(1, 1));
+        await gate.WaitAsync();
+        try
+        {
+            if (player.Closed || player.LeavingArea || !CanEditHere(player) || player.Character.Account is null) return;
+            await ImportLayoutLocked(player, layout);
+        }
+        finally { gate.Release(); }
+    }
+
+    static async Task ImportLayoutLocked(Player player, InstanceHideoutEditing.Layout layout)
+    {
+        if (HideoutCatalog.ByArea(player.Layout.Hash) is not { } hideout || layout.HideoutHash != hideout.Hash16)
+        {
+            Console.WriteLine($"[gateway] {player.Connection.Remote} refused 0x0213 hideout import: template hash 0x{layout.HideoutHash:x4} does not match current hideout {player.Layout.Id}");
+            if (player.Commands is { } wrongCmd)
+                await wrongCmd.Reply("Cannot import hideout layout: template does not match the current hideout.");
+            return;
+        }
+        if (global::Game.HideoutHasStoredDisplayCaseItems(player, player.Layout.Id))
+        {
+            Console.WriteLine($"[gateway] {player.Connection.Remote} refused 0x0213 hideout import: an Item Display Case holds a stored item");
+            if (player.Commands is { } dcCmd)
+                await dcCmd.Reply("Cannot import hideout layout while an Item Display Case holds a stored item. Remove all displayed items first.");
+            return;
+        }
+
+        // Map known functional station hashes so imported templates reposition installed stations rather than duplicating them.
+        var functionalByHash = new Dictionary<uint, string>();
+        void MapFunctional(uint hash, string key) { if (hash != 0) functionalByHash.TryAdd(hash, key); }
+        if (hideout.First(WaypointObject.MetadataPath) is { } wp) MapFunctional(wp.Hash, "waypoint");
+        if (player.CurrentHideoutScene is { } scene)
+        {
+            MapFunctional(scene.Stash.Hash, "stash");
+            if (hideout.First(StashObject.GuildMetadataPath) is { } gs) MapFunctional(gs.Hash, "guild-stash");
+            MapFunctional(scene.Bench.Hash, "bench");
+            MapFunctional(scene.Device.Hash, "map-device");
+        }
+        var objectIdByKey = new Dictionary<string, (uint Id, HideoutEditing.Entry Entry)>(StringComparer.Ordinal);
+        foreach (var (id, entry) in player.HideoutEditor.All())
+            if (!entry.Key.StartsWith(DecorationKeyPrefix, StringComparison.Ordinal))
+                objectIdByKey.TryAdd(entry.Key, (id, entry));
+
+        var importedPlacements = new Dictionary<string, HideoutPlacement>(StringComparer.Ordinal);
+        var importedDecorations = new List<global::Game.SavedHideoutDecoration>();
+        int skipped = 0;
+        foreach (var d in layout.Doodads)
+        {
+            if (!PlacementInBounds(player.Layout, d.X, d.Y)) { skipped++; continue; }
+            float rot = d.RotationRadians;
+            if (!float.IsFinite(rot)) { skipped++; continue; }
+            if (functionalByHash.TryGetValue(d.Hash, out string? key) && !importedPlacements.ContainsKey(key))
+            {
+                importedPlacements[key] = new HideoutPlacement(d.X, d.Y, rot);
+                continue;
+            }
+            if (importedDecorations.Count >= global::Game.MaxHideoutDecorations) { skipped++; continue; }
+            if (HideoutCatalog.DoodadByHash(d.Hash) is not var (type, _) || string.IsNullOrEmpty(type)
+                || HideoutCatalog.TypeOf(type) is not var (components, _) || !HideoutObject.CanSerialize(components))
+            {
+                skipped++;
+                continue;
+            }
+            string decoKey = DecorationKeyPrefix + Guid.NewGuid().ToString("N")[..12];
+            importedDecorations.Add(new(decoKey, d.Hash, d.X, d.Y, rot, d.Variation, d.Mirrored));
+        }
+        ushort? musicRow = HideoutCatalog.HideoutMusicRowByHash16(layout.MusicHash);
+
+        if (!global::Game.ReplaceAccountHideoutLayout(player, player.Layout.Id, importedPlacements, importedDecorations, musicRow))
+            return;
+
+        // Remove previously spawned custom decorations before spawning the imported layout.
+        var existingCustom = player.HideoutEditor.All()
+            .Where(o => o.Entry.Key.StartsWith(DecorationKeyPrefix, StringComparison.Ordinal))
+            .ToList();
+        var areaDecorations = DecorationsOf(player);
+        foreach (var (oldId, oldEntry) in existingCustom)
+        {
+            lock (areaDecorations) areaDecorations.Remove(oldId);
+            foreach (var member in AreaPlayers(player))
+            {
+                member.HideoutEditor.Unregister(oldId);
+                member.RemoveBlocker(oldId);
+                lock (member.HideoutDoodads) member.HideoutDoodads.Remove(oldId);
+            }
+            await global::Game.SendWorldRemoval(player, oldId,
+                $"0x02bd remove replaced hideout decoration {oldEntry.Key} (0x{oldId:x})");
+        }
+
+        // Move matched functional objects in place and broadcast teleport + rotation.
+        foreach (var (key, p) in importedPlacements)
+        {
+            if (!objectIdByKey.TryGetValue(key, out var target)) continue;
+            var (objId, entry) = target;
+            lock (areaDecorations)
+                if (areaDecorations.TryGetValue(objId, out var areaDoodad))
+                    areaDecorations[objId] = areaDoodad with { X = p.X, Y = p.Y, Rotation = p.Rotation };
+            foreach (var member in AreaPlayers(player))
+            {
+                member.HideoutEditor.Register(objId, entry.Key, p.X, p.Y, p.Rotation, entry.BlockerSize, entry.CollisionRadius);
+                if (entry.BlockerSize >= 0) member.SetBlocker(objId, p.X, p.Y, entry.BlockerSize, entry.CollisionRadius);
+                if (objId == member.StashObject) member.StashAt = (p.X, p.Y);
+                if (objId == member.GuildStashObject) member.GuildStashAt = (p.X, p.Y);
+                if (objId == member.CraftingBenchObject) member.CraftingBenchAt = (p.X, p.Y);
+                lock (member.HideoutDoodads)
+                    if (member.HideoutDoodads.TryGetValue(objId, out var memberDoodad))
+                        member.HideoutDoodads[objId] = memberDoodad with { X = p.X, Y = p.Y, Rotation = p.Rotation };
+                if (objId == WaypointCatalog.ObjectId && member.Layout.Waypoint is { } waypoint)
+                    member.MoveWaypoint(waypoint with { GridX = p.X, GridY = p.Y, Rotation = p.Rotation });
+            }
+            if (objId == player.StashObject) global::Game.SetAreaStash(player, objId, (p.X, p.Y));
+            if (objId == player.GuildStashObject) global::Game.SetAreaGuildStash(player, objId, (p.X, p.Y));
+            if (objId == player.CraftingBenchObject) global::Game.SetAreaBench(player, objId, (p.X, p.Y));
+            await global::Game.SendWorldRecord(player, objId, InstanceProtocol.Teleport(objId, p.X, p.Y, InstanceProtocol.FollowTerrain),
+                $"hideout import move {entry.Key} 0x{objId:x} to ({p.X},{p.Y})");
+            await global::Game.SendWorldRecord(player, objId, InstanceHideoutEditing.Rotation(objId, p.Rotation),
+                $"hideout import rotation {entry.Key} {p.Rotation:0.###}");
+        }
+
+        // Spawn newly imported custom decorations.
+        int spawned = 0;
+        foreach (var deco in importedDecorations)
+            if (await SpawnDecorationObject(player, deco, "imported hideout decoration") is not null)
+                spawned++;
+
+        player.Furniture = null;
+        await BroadcastRebuildCollision(player, $"rebuild hideout collision after 0x0213 import ({spawned} decoration(s))");
+        await PushOutOfCollision(player);
+        Console.WriteLine($"[gateway] {player.Connection.Remote} <= 0x0213 hideout import {hideout.Name}: {spawned} decoration(s), {importedPlacements.Count} station(s), {skipped} skipped");
+        if (player.Commands is { } cmd)
+            await cmd.Reply($"Imported hideout layout \"{hideout.Name}\" ({spawned} decoration(s), {importedPlacements.Count} station(s)" +
+                (skipped > 0 ? $", {skipped} skipped" : "") + ").");
     }
 }

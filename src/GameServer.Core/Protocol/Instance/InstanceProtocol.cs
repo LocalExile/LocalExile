@@ -723,6 +723,9 @@ public static class InstanceProtocol
             // u16 id, u8 ruleset, CompactUInt(len), len bytes (ruleset message, writer 0x141fa7c10 / reader 0x141fa7ca0).
             case InstanceRulesets.ActionId:
                 return InstanceRulesets.MeasureActionLength(data, out length);
+            // u16 id, u16 hideoutHash, u16 musicHash, u8 environment, u16 count, count * 11B (writer 0x141fa3630 → 0x141fab3f0).
+            case InstanceHideoutEditing.LayoutId:
+                return InstanceHideoutEditing.MeasureLayoutLength(data, out length);
             // Custom mod envelope (non-retail): u16 BE 0xF7E0, u32 BE payloadLen (<= ModEnvelopeMaxPayload), payload bytes.
             case ModEnvelopeId:
                 return MeasureModEnvelope(data, out length);

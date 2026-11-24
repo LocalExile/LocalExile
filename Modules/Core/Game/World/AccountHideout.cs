@@ -240,6 +240,39 @@ public static partial class Game
         });
     }
 
+    /// <summary>Atomically replaces an area's saved custom decorations, functional placements and optional music row
+    /// for C→S 0x0213 template import. Refuses if any Item Display Case in this area holds a stored item.</summary>
+    public static bool ReplaceAccountHideoutLayout(Player player, string area,
+        IReadOnlyDictionary<string, HideoutPlacement> placements,
+        IReadOnlyList<SavedHideoutDecoration> decorations, ushort? musicRow)
+    {
+        if (player.Character.Account is null || HideoutHasStoredDisplayCaseItems(player, area)) return false;
+        if (decorations.Count > MaxHideoutDecorations) return false;
+        ChangeSharedHideout(player, p =>
+        {
+            var nextPlacements = new Dictionary<string, Dictionary<string, HideoutPlacement>>(p.Placements);
+            if (placements.Count > 0)
+            {
+                var merged = nextPlacements.TryGetValue(area, out var old)
+                    ? new Dictionary<string, HideoutPlacement>(old) : [];
+                foreach (var (k, v) in placements) merged[k] = v;
+                nextPlacements[area] = merged;
+            }
+            var nextDecorations = p.Decorations is null
+                ? new Dictionary<string, List<SavedHideoutDecoration>>() : new(p.Decorations);
+            if (decorations.Count > 0) nextDecorations[area] = [.. decorations];
+            else nextDecorations.Remove(area);
+            var nextMusic = p.Music is null ? new Dictionary<string, ushort>() : new(p.Music);
+            if (musicRow is ushort row)
+            {
+                if (row == InstanceHideoutEditing.DefaultMusicRow) nextMusic.Remove(area);
+                else nextMusic[area] = row;
+            }
+            return p with { Placements = nextPlacements, Decorations = nextDecorations, Music = nextMusic };
+        });
+        return true;
+    }
+
     static Dictionary<string, Dictionary<string, CharacterSaves.SavedItem>>? ReadDisplayCaseMap(AccountStash stash) =>
         stash.ModuleData(LeagueDisplayCasesKey) is { } text
             ? JsonSerializer.Deserialize<Dictionary<string, Dictionary<string, CharacterSaves.SavedItem>>>(text)

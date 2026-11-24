@@ -63,6 +63,7 @@ public static class ClientPackets
         V(InstanceSocial.DuelChallengeId, InstanceSocial.PartyInviteLength),
         V(InstanceSocial.HideoutInviteId, InstanceSocial.WStrU8Length),
         V(InstanceEntities.AtlasTreeRenameId, InstanceEntities.AtlasTreeRenameLength),
+        V(InstanceHideoutEditing.LayoutId, InstanceHideoutEditing.LayoutLength),
         // Messages of fixed length.
         P(InstanceDivination.TurnInId, InstanceDivination.TurnInLength),
         P(InstanceDivination.MoveId, InstanceDivination.MoveLength),
