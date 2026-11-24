@@ -31,6 +31,9 @@ public sealed record QuestObject(int GridX, int GridY, IReadOnlyList<string> Com
     /// <summary>The Chest component's other flag bits (bit 0 is <see cref="Opened"/>): bit 1 makes the client play the
     /// object's warning sound, its own stat checks deciding (a strongbox's <c>chest_play_warning_sound</c>).</summary>
     public byte ChestFlags { get; init; }
+    /// <summary>ObjectMagicProperties' corrupted bit (0x141e7e080 trailing flags bit 0 → +0x360), checked by
+    /// the client's chest currency validator (0x141f8ddd0 → ItemErrorTargetCorrupted).</summary>
+    public bool Corrupted { get; init; }
     /// <summary>Suppress the object's own map marker without removing its model or interaction.</summary>
     public bool HideMinimapIcon { get; init; }
     public StateMachineData? StateMachine { get; init; }
@@ -106,8 +109,8 @@ public sealed record QuestObject(int GridX, int GridY, IReadOnlyList<string> Com
                 // Stationary initially; the server drives the rail with MoveTo (as for the Labyrinth's roombas).
                 case "Movement": w.U8(0).I32(GridX).I32(GridY).U32(0).U32(0).U32(0).U32(0).U8(0).U8(0); break;
                 case "ObjectMagicProperties":
-                    if (Mods.Count == 0 && Rarity == 0) w.U16(0).U8(0).U8(0);
-                    else { MagicProperties.Write(w, Rarity, Identified, Mods, NameWords); w.U8(0); }
+                    if (Mods.Count == 0 && Rarity == 0 && !Corrupted) w.U16(0).U8(0).U8(0);
+                    else { MagicProperties.Write(w, Rarity, Identified, Mods, NameWords); w.U8((byte)(Corrupted ? 1 : 0)); }
                     break;
                 case "StateMachine": StateMachine!.Write(w); break;
                 case "TriggerableBlockage": if (Blocked) w.U8(1).U8(0); else w.U8(0); break;
