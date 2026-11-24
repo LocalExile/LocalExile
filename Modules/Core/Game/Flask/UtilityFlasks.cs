@@ -234,6 +234,7 @@ public static partial class Game
         else AccrueUtilityFlaskDamage(player, now);
         var bar = ItemsOf(player).Items(PlayerInventories.Flask);
         bool Gone(UtilityFlasks.Active effect) => UtilityFlasks.LeftItsCell(effect, bar);
+        if (!dead) AdvanceUtilityFlaskChargesLocked(player, now, Gone);
         var ended = UtilityFlasks.EndDue(player, now, dead, Gone,
             () => RecomputePoolsAndSpeed(player), out _);
         if (ended.Count == 0) return;
@@ -245,6 +246,27 @@ public static partial class Game
                 dead ? "death" : triggered ? "its time is up" : "the flask left its cell", triggered);
         }
         state.StatRevision++;
+    }
+
+    sealed class UtilityFlaskChargeClock
+    {
+        public double Through = double.NegativeInfinity;
+    }
+    static readonly RuleTable<Player, UtilityFlaskChargeClock> UtilityFlaskChargeClocks = new();
+
+    static void AdvanceUtilityFlaskChargesLocked(Player player, double now, Func<UtilityFlasks.Active, bool> gone)
+    {
+        const uint stat = Stat.LocalFlaskGainEnduranceChargePerSecondDuringFlaskEffect;
+        if (player.UtilityFlaskEffects.FirstWithLocalStat(stat, effect => !gone(effect)) is not { } active) return;
+        var clock = UtilityFlaskChargeClocks.GetOrCreateValue(player);
+        // Concurrent copies share the charge rate. The first active source's already-issued seconds cannot be
+        // spent again by another copy when the older activation expires.
+        double last = Math.Max(active.PeriodicThrough, clock.Through);
+        int elapsed = (int)Math.Clamp(Math.Floor(Math.Min(now, Math.BitDecrement(active.Ends)) - last), 0, int.MaxValue);
+        if (elapsed == 0) return;
+        active.PeriodicThrough = clock.Through = last + elapsed;
+        int count = ActorScale.Saturate((long)elapsed * active.LocalStats!.GetValueOrDefault(stat));
+        ChargesOf(player).Enqueue(new ChargeEvent.Grant(ChargeType.Endurance, count, "utility flask periodic effect"));
     }
 
     static void EndOnWardBreakLocked(Player player, double now)
