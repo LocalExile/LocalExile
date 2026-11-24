@@ -62,6 +62,113 @@ public class StashTabReloadTests : IDisposable
     }
 
     [Fact]
+    public async Task Tab_affinities_save_to_the_stash_their_kind_names_whichever_panel_is_open()
+    {
+        var catalog = new ItemCatalog("data");
+        TestEnvironment.OpenOwnSaves("stashaffinities");
+        string account = "Affinities" + Guid.NewGuid().ToString("N");
+        string personalKey = AccountStash.Key(account, "Standard"), guildKey = "guild:" + personalKey;
+        var player = new Player(new(ushort.MaxValue, "AffinitiesTest", 128, 128, 32, 32, null, []), 0, 1)
+            { Character = { Account = account, Name = account, League = "Standard" }, GuildStashOpen = true };
+        using var wire = new Wire();
+        player.Connection.Session = new("stash-test", wire.Stream, wire.Ciphers);
+        try
+        {
+            var personal = Game.PersonalStashOf(player);
+            var guild = Game.GuildStashOf(player);
+            uint Bits(AccountStash s) => s.Records(null, new HashSet<int>())[0].Affinities;
+
+            // The guild panel is open: a guild change goes to the guild stash and its list goes out as kind 1.
+            await Game.SetTabAffinities(player, new(0, InstanceStash.Guild, [(3, true)]));
+            Assert.Equal(1u << 3, Bits(guild));
+            Assert.Equal(0u, Bits(personal));
+            wire.Expect(InstanceStash.EncodeSetAffinities(0, InstanceStash.Guild, [(3, true)]));
+            wire.Expect(InstanceStash.TabList(guild.Records(null, player.Connection.GuildStashTabsSent), InstanceStash.Guild));
+
+            // A personal change with the guild panel still open goes to the personal stash, not the guild's.
+            await Game.SetTabAffinities(player, new(0, InstanceStash.Personal, [(5, true)]));
+            Assert.Equal(1u << 5, Bits(personal));
+            Assert.Equal(1u << 3, Bits(guild));
+            wire.Expect(InstanceStash.EncodeSetAffinities(0, InstanceStash.Personal, [(5, true)]));
+            wire.Expect(InstanceStash.TabList(personal.Records(null, player.Connection.StashTabsSent)));
+
+            // Both are kept after a reload.
+            AccountStash.Forget(personalKey);
+            AccountStash.Forget(guildKey);
+            Assert.Equal(1u << 5, Bits(Game.PersonalStashOf(player)));
+            Assert.Equal(1u << 3, Bits(Game.GuildStashOf(player)));
+        }
+        finally
+        {
+            AccountStash.Forget(personalKey);
+            AccountStash.Forget(guildKey);
+        }
+    }
+
+    [Fact]
+    public void Blight_tab_anoint_oil_and_map_cells_take_their_items_and_keep_them_after_a_reload()
+    {
+        var catalog = new ItemCatalog("data");
+        TestEnvironment.OpenOwnSaves("blightcells");
+        string account = "BlightCells" + Guid.NewGuid().ToString("N");
+        PlayerInventories.Shape? ShapeOf(Item i) => catalog.ByHash(i.TypeHash) is { } t ? new(t.Width, t.Height, t.Class, t.MaxStack) : null;
+        try
+        {
+            var stash = AccountStash.For(account, catalog);
+            int blight = Enumerable.Range(0, stash.Count).Single(i => stash.TabType(i) == StashRules.Blight);
+            var amulet = catalog.All.First(t => t.Class == "Amulet" && t.Supported);
+            var oil = catalog.Find("Metadata/Items/Currency/Mushrune1")!;
+            var map = catalog.All.First(t => catalog.Stash.MapTier(t.Hash) is not null);
+            var tainted = catalog.Find("Metadata/Items/Currency/MushruneCorrupt")!;
+            InventoryItem New(ItemCatalog.BaseType type) => new(stash.NewItemId(), 0, 0, ItemCatalog.Create(type));
+            InventoryItem Blighted(string mod) => New(map) with
+                { Item = ItemCatalog.Create(map) with { Mods = [new(ModSection.Implicit, catalog.Mods.ById(mod)!.Hash, [1])] } };
+
+            // Ctrl + click on an oil (0xf5) with the anoint cell empty: not into the input cells.
+            var stack = stash.Place(blight, 0, 0, New(oil) with { Item = ItemCatalog.Create(oil) with { StackSize = 3 } }, ShapeOf, out _)!.Value.Placed;
+            Assert.Null(ItemMoves.StashToAnointInput(stash, blight, stack.Id, ShapeOf, out bool full));
+            Assert.False(full);
+
+            // The anoint cell (CraftingItem, slot 13), an oil input (CraftingInputs1, slot 15) and two of the 60 map cells
+            // (BlightedMapSlots, slots 18..77) keep what is dropped there; a map cell takes only blighted maps.
+            Assert.NotNull(stash.Place(blight, 13, 0, New(amulet), ShapeOf, out _));
+            Assert.NotNull(stash.Place(blight, 15, 0, New(oil), ShapeOf, out _));
+            Assert.NotNull(stash.Place(blight, 18, 0, Blighted("InfectedMap"), ShapeOf, out _));
+            Assert.NotNull(stash.Place(blight, 77, 0, Blighted("UberInfectedMap__"), ShapeOf, out _));
+            Assert.Null(stash.Place(blight, 19, 0, New(map), ShapeOf, out string why));
+            Assert.Contains("maps only", why);
+            Assert.Null(stash.Place(blight, 19, 0, New(amulet), ShapeOf, out _));
+            // An amulet anywhere else on the tab is still refused.
+            Assert.Null(stash.Place(blight, 16, 0, New(amulet), ShapeOf, out _));
+            // Ctrl + click (0xe0 / 0xe1 affinity 13) takes a blighted map into the first free map cell, never an ordinary one.
+            Assert.True(stash.Holds(blight, Blighted("InfectedMap").Item));
+            Assert.False(stash.Holds(blight, New(map).Item));
+            Assert.Equal(((byte)19, (byte)0), stash.CellFor(blight, Blighted("InfectedMap").Item, ShapeOf));
+            Assert.Null(stash.CellFor(blight, New(map).Item, ShapeOf));
+
+            // With an item in the anoint cell, one oil goes to the first free input (15 is taken), a Tainted Oil to its own
+            // cell (78), and nothing moves once the inputs are full.
+            var moved = ItemMoves.StashToAnointInput(stash, blight, stack.Id, ShapeOf, out _)!;
+            Assert.Equal((16, 1, 2), ((int)moved.TabAdded[0].X, (int)moved.TabAdded[0].Item.StackSize, (int)moved.LeftInTab!.Item.StackSize));
+            Assert.NotNull(ItemMoves.StashToAnointInput(stash, blight, stack.Id, ShapeOf, out _));
+            Assert.Null(ItemMoves.StashToAnointInput(stash, blight, stack.Id, ShapeOf, out full));
+            Assert.True(full);
+            var taint = stash.Place(blight, 1, 0, New(tainted), ShapeOf, out _)!.Value.Placed;
+            Assert.Equal(78, ItemMoves.StashToAnointInput(stash, blight, taint.Id, ShapeOf, out _)!.TabAdded[0].X);
+
+            AccountStash.Forget(account);
+            var cells = AccountStash.For(account, catalog).Inventory(blight).Items
+                .Select(i => (i.X, i.Item.TypeHash)).Where(c => c.X >= 13).OrderBy(c => c.X).ToArray();
+            Assert.Equal([(13, amulet.Hash), (15, oil.Hash), (16, oil.Hash), (17, oil.Hash), (18, map.Hash), (77, map.Hash), (78, tainted.Hash)],
+                cells.Select(c => ((int)c.X, c.TypeHash)).ToArray());
+        }
+        finally
+        {
+            AccountStash.Forget(account);
+        }
+    }
+
+    [Fact]
     public async Task Unique_collection_categories_remain_registered_after_another_tab_loads()
     {
         var catalog = new ItemCatalog("data");
