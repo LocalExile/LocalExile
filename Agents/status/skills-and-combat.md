@@ -88,6 +88,8 @@ Part of [Status](../Status.md); what to build next in this area is in
 - Divine Blessing (including March of the Legion) pays a one-time cost and grants one temporary Blessing;
   Vaal Haste has a soul-paid temporary aura. Smite has separate melee/lightning hits and a timed on-hit aura.
   Smite impacts and Vaal Haste's speed buff are verified live; complete build and party parity remain partial.
+- Static Strike (ordinary): melee hit grants `static_strike_buff` bound to the client's `StaticStrikeNew` action and
+  runs data-driven periodic chained beam hits (`Modules/Core/Game/Skill/StaticStrike.cs`, live-verified).
 - Eternal Blessing suspends other skills' mana reservations while its aura is active and preserves life reservations.
 - Guardian's Blessing needs a living minion that shares its support link. The minion takes physical damage over time,
   and the aura ends when the last qualifying minion is gone.
@@ -121,7 +123,8 @@ Part of [Status](../Status.md); what to build next in this area is in
   supports' more or less area, Duration masteries and warcry and Vaal duration (not checked live).
   Docs: [11](../docs/protocol/11-skills.md) Â§12.
 - Lifetap Support and Blood Magic publish converted wire `life_cost` / `life_cost_per_minute` (zeroing wire mana cost)
-  so the client spends Life only. Docs: [25](../docs/protocol/25-gem-supports.md).
+  so the client spends Life only; Blood Magic also removes all Mana, gives 10% more maximum Life and reserves Life
+  instead of Mana. Docs: [25](../docs/protocol/25-gem-supports.md).
 - Movement, travel and stance skill cooldowns read their recovery stats. Spell and curse costs read their efficiency.
   Mark waivers, Cannibalistic Rite, the Covenant and Rathpith Globe use the server's resource admission.
 - Energy Shield skill costs (Energy Blade, Wild Strike of Extremes, Replica Covenant) and Eldritch Battery: costs paid
@@ -176,6 +179,7 @@ Part of [Status](../Status.md); what to build next in this area is in
 - Player minions: Conviction novas, Multistrike, Ruthless and Melee Splash. Docs: [11](../docs/protocol/11-skills.md) Â§10h.
   Infernal Legion causes self-burn and burning damage nearby, and Minion Instability explodes a living minion at Low Life.
 - Life Recoup. Docs: [20](../docs/protocol/20-damage.md) Â§5.
+- Master Toxicist, Call to Arms, chaos pair resistances, chaos Energy Shield opt-out; Mana Recoup before Ward.
 - Ancestral Commander defences. Docs: [Ancestral Commander](../docs/game/ancestral-commander.md),
   [20](../docs/protocol/20-damage.md) Â§4.
 - Aura restoration bootstrap fix. Docs: [11](../docs/protocol/11-skills.md), "Aura restoration bootstrap correction".
@@ -198,7 +202,13 @@ Part of [Status](../Status.md); what to build next in this area is in
 - Approaching Flames from Annihilation's Approach toggles Flame-Touched, its Adrenaline and its fire damage.
 - Owned minions: relics, chieftains and the 17 golems. Docs: [11](../docs/protocol/11-skills.md) §10h.
   Mindless Aggression and minion area mastery scale minions. Fresh Meat grants timed Adrenaline and Wakened Fury.
-- Raised Host and Carnage Chieftains grant Power and Frenzy Charges with their native roars. Spectre charge visuals still need live verification.
+- Spectre roars grant native charges ([minions](../docs/protocol/11-skills.md#10h-player-minions-that-fight)).
+- Itemised corpses raise native spectres ([minions](../docs/protocol/11-skills.md#10h-player-minions-that-fight)).
+- Wraithlord counts socketed Ghastly Eyes ([minions](../docs/protocol/11-skills.md#10h-player-minions-that-fight)).
+- Holy Strike summons weapon copies ([minions](../docs/protocol/11-skills.md#10h-player-minions-that-fight)).
+- Holy Relic nova reaches allies ([minions](../docs/protocol/11-skills.md#10h-player-minions-that-fight)).
+- Phantasmal Might follows active Phantasms ([minions](../docs/protocol/11-skills.md#10h-player-minions-that-fight)).
+- Equipped summons use active sources ([minions](../docs/protocol/11-skills.md#10h-player-minions-that-fight)).
 - Link skills. Docs: [11](../docs/protocol/11-skills.md) §13, [Paladin](../docs/game/paladin.md#link-skills).
   Docs: [11](../docs/protocol/11-skills.md) Â§13, [Paladin](../docs/game/paladin.md).
 - Owned minions: relics, chieftains and the 17 golems. Docs: [11](../docs/protocol/11-skills.md) Â§10h.
@@ -243,6 +253,8 @@ Part of [Status](../Status.md); what to build next in this area is in
   Docs: [11](../docs/protocol/11-skills.md) Â§9, Â§11.
 - Vaal Immortal Call: 100 souls, its 60 s cooldown, 8 s of soul gain prevention, a duration from the Endurance Charges it
   discharges, and Life held at 1 while the buff runs. Docs: [11](../docs/protocol/11-skills.md) Â§11, Â§12.
+- Vaal Molten Shell: soul-paid armour and hit absorption, fire reflection each second and on removal, and a single
+  active guard buff with separate Vaal and regular cooldowns.
 - Steelskin, Immortal Call and Molten Shell cast by hand start the triggered guard buff; a running or recovering
   guard refuses the next before its cost. Docs: [11](../docs/protocol/11-skills.md) Â§12.
 - Phase Run: movement speed and Phasing for its duration, longer per Frenzy Charge consumed; the next skill use
@@ -260,6 +272,7 @@ Part of [Status](../Status.md); what to build next in this area is in
 - Summon Reaper of Eviscerating follows its owner, consumes allies and attacks on recast.
 - Predator targeting, Feeding Frenzy buffs, aggressive Skeleton Warrior dashes, defensive targeting and Meat Shield proximity damage.
   Docs: [11](../docs/protocol/11-skills.md) Â§10h.
+- Minion equipment rules: limits, restrictions, Triad Grip, Speaker's Wreath, Alberon's Warpath, and on-hit ailments.
 - Absolution and Dominating sentinels, Phantasms, direct Vaal Skeletons and Vaal Absolution/Domination ascensions.
   HUD minion counter icons (`PlayerMinionsChange`) now publish for all active player minion types (not checked live).
   Docs: [11](../docs/protocol/11-skills.md) Â§10h.
@@ -277,7 +290,7 @@ Part of [Status](../Status.md); what to build next in this area is in
   unique enemy triggers the ring's mark if the player has no living marked enemy. [Skill details](../docs/protocol/11-skills.md)
 - Totems: Rejuvenation, Arc, projectile spells, supported summons, ballistas, Shockwave, Devouring and Decoy Totem
   (ordinary monster AI), with totem limit, range, duration and Lockstep placement timing.
-- Holy Flame Totem places without channelling on its owner, creates Consecrated Ground, and fires piercing bolts.
+- Holy Flame Totem and its Ire variant use their native projectiles.
   Docs: [11](../docs/protocol/11-skills.md) Â§10g.
 - Passive self buffs. Docs: [11](../docs/protocol/11-skills.md) Â§12.
 - Onslaught on kill reads its chances and durations from world rules. Restarting with `Game_EFFECT_RULES=0` restores

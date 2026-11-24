@@ -578,6 +578,16 @@ public static class InstanceItems
     /// <summary>The 0x2a0 result code that plays the client's Hinekora fail animation (0 shows the preview).</summary>
     public const ushort CurrencyApplicationForesightFailure = 0x04FA;
 
+    /// <summary>The client's item error for a currency used on a worn item: ClientStrings row 1207
+    /// <c>ItemErrorItemEquipped</c> + 1 ("Item is currently equipped."), returned by the validators 0x141f86f70 and
+    /// 0x141f89920 (mov eax,0x4b8 at 0x141f89a29).</summary>
+    public const ushort ItemErrorItemEquipped = 0x04B8;
+
+    /// <summary>The client's item errors for a currency used on a corrupted or a mirrored target, by the same rule
+    /// (ClientStrings row + 1): row 1203 <c>ItemErrorTargetCorrupted</c> ("Target is corrupted.") and row 1223
+    /// <c>ItemErrorItemMirrored</c> ("Item is mirrored.").</summary>
+    public const ushort ItemErrorTargetCorrupted = 0x04B4, ItemErrorItemMirrored = 0x04C8;
+
     /// <summary>
     /// S→C 0x2a0 CurrencyApplicationForesightResult (dispatcher case 223, handler 0x14215ae11, reader 0x141fa8680):
     /// u16 id, u16 BE keyA (the C→S 0x29d request key), u16 raw status (0: preview, non-zero: failure; the client's
@@ -640,6 +650,20 @@ public static class InstanceItems
 
     // C→S 0x2d (class 0x1435cacf0, write 0x141f96c30, senders 0x142165e90 / 0x142165ee0; 8 bytes): an inventory request,
     // not mapped yet. The right-click item use is 0x58 below.
+
+    public const ushort UseItemClickId = 0x57;
+    public const int UseItemClickLength = 11;
+
+    /// <summary>
+    /// C→S 0x57 (11 bytes, live 2026-11-22): right-clicking a self-usable stacked item such as Stacked Deck
+    /// (<c>0057 00000807 40000061 00</c> from stash, <c>0057 00000001 40000061 00</c> from inventory):
+    /// u32 inventory id, u32 item id, u8 flag.
+    /// </summary>
+    public static UseItemRequest ReadUseItemClick(ReadOnlySpan<byte> m)
+    {
+        var r = new LoginReader(m[2..]);
+        return new(r.U32(), r.U32());
+    }
 
     public const ushort UseItemId = 0x58;
     public const int UseItemLength = 10;

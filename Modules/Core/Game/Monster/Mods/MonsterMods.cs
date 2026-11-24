@@ -126,7 +126,8 @@ public static partial class Game
         int basePermyriad = baseCritPermyriad >= 0 ? baseCritPermyriad : MonsterBaseCritChancePermyriad;
         int baseCrit = e.CriticalChanceWith(basePermyriad);
         int chance = baseCrit + additionalCritical;
-        critical = !cannotCrit && chance > 0 && random.Next(10_000) < chance;
+        critical = !cannotCrit && chance > 0 && !(m.HasCurses && m.Curses.PreventsCritical(now))
+            && random.Next(10_000) < chance;
         int extraMult = critical
             ? Math.Max(0, (MonsterModEffects.CriticalMultiplier - 100) + e[Stat.BaseCriticalStrikeMultiplierPlus] + (extraCriticalMultiplier?.Invoke() ?? 0))
             : 0;
@@ -162,6 +163,21 @@ public static partial class Game
         Penetration.PerType pen, double now = double.NaN)
     {
         var resistance = HitMitigation.Resistance(Monsters, m.Variety, m.Level, type);
+        // Doryani's Prototype ("Nearby Enemies have Lightning Resistance equal to yours"): while a wearer keeps his own
+        // resistance on the monster (EnemyDebuffsTick's zone), the whole composed value is replaced with it — negative
+        // and zero included — and only the cap and penetration still apply. Zero-alloc when no source values are set;
+        // multiple wearers deterministically take the lowest resistance.
+        if (type == DamageType.Lightning && m.HasSourceValues)
+        {
+            int? lowest = null;
+            foreach (var (_, encoded) in m.SourceValues(LightningResistEqualsYours))
+            {
+                int v = encoded - DoryaniResistOffset;
+                if (lowest is null || v < lowest.Value) lowest = v;
+            }
+            if (lowest is int ownResist)
+                return resistance with { Value = ownResist, Maximum = m.Effects.MaximumResistance(type), Penetration = pen.Of(type) };
+        }
         return resistance with { Value = resistance.Value + m.Effects.Resistance(type) + MonsterExposure(m, type, now)
                 + ScorchedResistance(m, type, now)
                 + (type == DamageType.Physical ? 0 : m.SpiderWebs.Resistance(now)),
@@ -172,8 +188,7 @@ public static partial class Game
     // Already rolled: no extra RNG or per-component rounding, including ordinary bow contact snapshots.
     public static int MonsterTakesRolled(SpawnedMonster m, DamagePacket rolled, bool spell, Penetration.PerType pen = default,
         double now = double.NaN, Random? random = null)
-        => MonsterTakesMitigated(m, DamageModel.Mitigate(rolled, type => MonsterHitResistance(m, type, pen, now)),
-            spell, now, random: random);
+        => MonsterTakesMitigated(m, MitigateMonsterHit(m, rolled, now, pen), spell, now, random: random);
 
     /// <summary>
     /// The damage a resisted hit of the player deals to a monster: the physical part less its physical damage reduction,
@@ -331,13 +346,33 @@ public static partial class Game
     public static MonsterHit? HitUnlessBlockedLocked(Player player, SpawnedMonster m, int damage) =>
         damage is Blocked or Evaded ? null : ApplyMonsterHitLocked(player, m, damage);
 
+    internal readonly record struct TargetCriticalBonuses(long FullLife, long Unique, long Taunted)
+    {
+        public static TargetCriticalBonuses From(IReadOnlyDictionary<uint, int>? player, IReadOnlyDictionary<uint, int>? own)
+        {
+            long Sum(uint key) => (long)(player?.GetValueOrDefault(key) ?? 0) + (own?.GetValueOrDefault(key) ?? 0);
+            return new(Sum(Stat.CriticalStrikeMultiplierVsEnemiesOnFullLifePlus),
+                Sum(Stat.CriticalStrikeMultiplierPlusVsUniqueEnemies), Sum(Stat.CriticalStrikeMultiplierPlusVsTauntedEnemies));
+        }
+    }
+
     /// <summary>The critical strike multiplier against this monster after reductions to the bonus above 100%.</summary>
     public static int CriticalMultiplierOn(SpawnedMonster m, int multiplier,
-        IReadOnlyDictionary<uint, int>? player = null, IReadOnlyDictionary<uint, int>? own = null, bool noExtra = false)
+        IReadOnlyDictionary<uint, int>? player = null, IReadOnlyDictionary<uint, int>? own = null, bool noExtra = false) =>
+        CriticalMultiplierOn(m, multiplier, TargetCriticalBonuses.From(player, own), double.PositiveInfinity,
+            noExtra || player is not null && CriticalHitsDealNoExtraDamage(player, own));
+
+    static int CriticalMultiplierOn(SpawnedMonster m, int multiplier, double at,
+        IReadOnlyDictionary<uint, int> player, IReadOnlyDictionary<uint, int>? own = null) =>
+        CriticalMultiplierOn(m, multiplier, TargetCriticalBonuses.From(player, own), at, CriticalHitsDealNoExtraDamage(player, own));
+
+    static int CriticalMultiplierOn(SpawnedMonster m, int multiplier, TargetCriticalBonuses bonuses, double at, bool noExtra)
     {
-        if (noExtra || m.Effects.NoExtraCriticalDamage || player is not null && CriticalHitsDealNoExtraDamage(player, own))
-            return 100;
+        if (noExtra || m.Effects.NoExtraCriticalDamage) return 100;
         long ordinary = (long)multiplier + m.Curses[Stat.EnemyAdditionalCriticalStrikeMultiplierAgainstSelf];
+        if (m.MaxLife > 0 && m.Life >= m.MaxLife) ordinary += bonuses.FullLife;
+        if (m.Rarity == MonsterRarity.Unique) ordinary += bonuses.Unique;
+        if (m.TauntedUntil > at) ordinary += bonuses.Taunted;
         if (ordinary > 100)
         {
             int reduction = Math.Clamp(m.Effects[Stat.BaseSelfCriticalStrikeMultiplierMinusPct], 0, 100);
@@ -345,6 +380,13 @@ public static partial class Game
         }
         return CriticalHitMultiplier(ordinary, noExtra: false);
     }
+
+    // For an impale's source multiplier.
+    static int FullLifeCriticalMultiplier(SpawnedMonster m, IReadOnlyDictionary<uint, int> player,
+        IReadOnlyDictionary<uint, int>? own) => m.MaxLife > 0 && m.Life >= m.MaxLife
+        ? ActorScale.Saturate((long)player.GetValueOrDefault(Stat.CriticalStrikeMultiplierVsEnemiesOnFullLifePlus)
+            + (own?.GetValueOrDefault(Stat.CriticalStrikeMultiplierVsEnemiesOnFullLifePlus) ?? 0))
+        : 0;
 
     static int CriticalMultiplierWithWeapon(int multiplier, SpawnedMonster target, IReadOnlyDictionary<uint, int>? local)
     {

@@ -383,6 +383,8 @@ public static partial class Game
             // A separate spell block row is only drawn when display_spell_block_chance is non-zero.
             (Stat.SpellBlockPct, pools.SpellBlockChance), (Stat.DisplaySpellBlockChance, pools.SpellBlockChance),
             (Stat.BaseSpellBlockPct, 0),
+            (Stat.AttackBlockLuck, pools.AttackBlockLucky == pools.AttackBlockUnlucky ? 0 : pools.AttackBlockLucky ? 1 : -1),
+            (Stat.SpellBlockLuck, pools.SpellBlockLucky == pools.SpellBlockUnlucky ? 0 : pools.SpellBlockLucky ? 1 : -1),
             // Resistance display: the client shows fire_damage_resistance_% as the capped value and
             // uncapped_fire_damage_resistance_% (and the other three) in parentheses as the overcap. The passives' base
             // resistances are already summed into the pools, so zero the all-elements input to avoid counting it twice. The
@@ -439,7 +441,7 @@ public static partial class Game
         {
             var supported = SupportedSkill(player, id);
             int level = supported.Level;
-            var own = WithBlessingCost(player, supported);
+            var own = WithManaPoolCost(player, supported, WithBlessingCost(player, supported), ManaCostPool(player, supported));
             UnleashSeals(player, id, supported, ProjectileWorldTime(player));
             var skills = SkillsFor(player);
             var stats = MergeSkillStats(playerStats, own, skills.IsChannelled(effect), SkillCostMore(player, own),
@@ -791,12 +793,21 @@ public static partial class Game
                 if (convertedLife > 0)
                     Publish(Stat.LifeCost, (int)Math.Min(int.MaxValue, (long)Math.Max(0, Get(Stat.LifeCost)) + convertedLife));
             }
+            if (Get(Stat.NoManaCost) != 0)
+            {
+                Publish(Stat.ManaCost, 0);
+                Publish(Stat.ManaCostPerMinute, 0);
+            }
             // Bladefall of Trarthus' volley interval: 0 hung the client on its first use (#584).
             if (Get(Stat.BladefallBaseVolleyFrequencyMs) is int volleyMs and > 0)
                 Publish(Stat.BladefallVolleyFrequencyMs, BladefallVolleys.FrequencyMs(volleyMs,
                     Get(Stat.BladefallVolleyFrequencyPlusPctPer100MaximumMana), player.Pools.Mana));
             if (SummonData.Find(SkillsFor(player).EffectId(effect)) is { LimitStat: > 0 } summon)
-                Publish(summon.FinalLimitStat, SummonLimit(player, summon, supported));
+            {
+                int limit = SummonLimit(player, summon, supported);
+                Publish(summon.FinalLimitStat, limit);
+                Publish(summon.LimitStat, limit);
+            }
             if (SkillsFor(player).EffectId(effect) is "DominatingBlow" or "DominatingBlowAltX")
                 foreach (var rarity in new[] { MonsterRarity.Normal, MonsterRarity.Magic, MonsterRarity.Rare })
                     if (HitSummonDefinition(SkillsFor(player).EffectId(effect), rarity) is { } sentinel)
@@ -810,15 +821,15 @@ public static partial class Game
                 uint display = absolution ? Stat.DisplayMaxUpgradedSentinelsOfAbsolution : Stat.DisplayMaxUpgradedSentinelsOfDominance;
                 int basis = GolemStat(own, Stat.Of("base_max_number_of_vaal_" + family));
                 if (basis == 0) basis = GolemStat(own, display);
-                Publish(Stat.Of("max_number_of_vaal_" + family), Math.Clamp(basis
+                Publish(Stat.Of("max_number_of_vaal_" + family), ApplyDarkMonarchLimit(Math.Clamp(basis
                     + GolemStat(playerStats, Stat.Of("base_max_number_of_vaal_" + family))
-                    + GolemStat(playerStats, Stat.Of("max_number_of_vaal_" + family)), 0, 200));
+                    + GolemStat(playerStats, Stat.Of("max_number_of_vaal_" + family)), 0, 200),
+                    n => GolemStat(playerStats, n), absolution ? "VaalAbsolution" : "VaalDomination"));
                 foreach (uint count in new[] { Stat.NumberOfActiveAbsolutionSentinels, Stat.NumberOfActiveVaalAbsolutionSentinels,
                     Stat.NumberOfDominatedMonsters, Stat.NumberOfDominatedVaalMonsters }) Publish(count, GolemStat(playerStats, count));
             }
             if (GolemData.Find(SkillsFor(player).EffectId(effect)) is { IsGolem: true })
-                Publish(Stat.NumberOfGolemsAllowed, GolemCatalog.Limit(OwnPanel(Stat.BaseNumberOfGolemsAllowed),
-                    n => GolemStat(playerStats, n)));
+                Publish(Stat.NumberOfGolemsAllowed, GolemRosterLimit(own, playerStats));
             var placed = PlacedKind(supported);
             if (placed.Trap || placed.Mine)
             {
@@ -1112,6 +1123,11 @@ public static partial class Game
     static string? ActorSkillDisabledNow(Player player, int effect, ushort? skillId)
     {
         if (VaalMinionProxyDisabled(player, effect, skillId) is { } proxy) return proxy;
+        if (SkillMinionFamily(SkillsFor(player).EffectId(effect)) is { } family && !CanHaveMinion(PlayerStatValues(player), family))
+            return "equipment prevents summoning this type of minion";
+        if (DarkMonarchCastFamily(SkillsFor(player).EffectId(effect)) is { } darkFamily
+            && !DarkMonarchAllows(darkFamily, StatSourceValues(player)))
+            return "The Dark Monarch prevents this minion type";
         if (OwnAuraSkillRestricted(player, effect, skillId)) return "own aura skills are disabled";
         if (skillId is ushort beastSkill && BeastKindFor(SkillsFor(player).EffectId(effect)) is { } beastKind)
         {
@@ -1153,6 +1169,8 @@ public static partial class Game
         if (gem.Effect != effect || gem.SourceGem is null && !gem.Granted && gem.WornGrant is null)
             return "skill is unavailable";
         if (gem.WornGrant is not null && !gem.RequirementsMet) return "the granting item is inactive";
+        if (!triggered && gem.WornGrant is { } grant && TriggeredItemMinion(grant) is not null)
+            return "this minion is triggered by its item";
         if (GolemStat(gem.Stats, Stat.CannotCastCurses) != 0) return "this curse is triggered by Hextouch";
         if (!triggered && CurseCatalog.Hex(SkillsFor(player).EffectId(effect)) && IsBaneLinkedHex(player, gem))
             return "this curse is triggered by Bane";
@@ -1436,16 +1454,19 @@ public static partial class Game
             var gem = SupportedSkill(player, id);
             if (gem.Effect < 0 || SupportedReservationCost(player, id) is not { } reservation) continue;
             var before = player.Auras[id];
+            var context = ReservationContext(player, id);
             var skillStats = gem.Stats.Select(kv => (kv.Key, kv.Value)).ToArray();
             player.Auras[id] = before with
             {
                 ManaFlat = reservation.ManaFlat, ManaPercent = reservation.ManaPercent,
                 LifeFlat = reservation.LifeFlat, LifePercent = reservation.LifePercent,
+                ReservesLife = context.Life, ReservationEfficiencyPct = context.Efficiency,
                 Level = gem.Level, Quality = gem.Quality, WornGrant = gem.WornGrant,
                 SkillStats = skillStats
             };
             player.AuraStatsDirty |= before.ManaFlat != reservation.ManaFlat || before.ManaPercent != reservation.ManaPercent
                 || before.LifeFlat != reservation.LifeFlat || before.LifePercent != reservation.LifePercent
+                || before.ReservesLife != context.Life || before.ReservationEfficiencyPct != context.Efficiency
                 || before.Level != gem.Level || before.Quality != gem.Quality || before.WornGrant != gem.WornGrant
                 || before.SkillStats is null || !before.SkillStats.SequenceEqual(skillStats);
         }
@@ -1461,7 +1482,7 @@ public static partial class Game
                 var context = ReservationContext(player, id);
                 player.PetrifiedBlood.Refresh(gem.Effect, Get(stats, PetrifiedBlood.LoseOverTimeSource),
                     Get(stats, PetrifiedBlood.PreventSource), Get(stats, PetrifiedBlood.LifeCostSource),
-                    reservation.ManaPercent, LowLifeThresholdPct(CharacterPlayerStats(player)), context.Life, context.Efficiency);
+                    reservation.Percent, LowLifeThresholdPct(CharacterPlayerStats(player)), context.Life, context.Efficiency);
                 if (!ReservationBudgetFits(player)) player.PetrifiedBlood.Suspend();
                 ClampReservedResources(player);
                 player.AuraStatsDirty = true;

@@ -122,10 +122,13 @@ public static partial class Game
         if (hand is not var (item, type) || type is null || skills.WeaponBase(type.Row) is not var (ms, min, max, range)) return null;
         var local = ItemWeaponStats.Calculate(item, (ms, min, max, range), catalog.Mods);
         var physical = local.Damage[GameServer.Core.World.DamageType.Physical];
+        var sources = SupportedAttackDamage.WeaponSources(item, catalog.Mods);
+        // "+# to Weapon Range" is in the same tenths of a metre as WeaponTypes' range.
+        range += sources.GetValueOrDefault(Stat.LocalWeaponRangePlus);
         // The weapon's class decides Arcane Might's wand-only grant and the melee context of its own components.
         return new SkillCatalog.Unarmed(local.AttackMs, (int)physical.Min, (int)physical.Max, Math.Max(range, unarmed.Range))
         {
-            LocalDamage = local.Damage, LocalSources = SupportedAttackDamage.WeaponSources(item, catalog.Mods),
+            LocalDamage = local.Damage, LocalSources = sources,
             ItemClass = type.Class,
             WieldingWand = type.Class == "Wand", Bow = type.Class == "Bow", Melee = type.Class is not ("Wand" or "Bow"),
         };

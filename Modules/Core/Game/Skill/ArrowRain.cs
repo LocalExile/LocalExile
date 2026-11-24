@@ -43,10 +43,16 @@ public static partial class Game
         (ushort Id, int Effect, string Name, int Level, int Quality, uint Gem) gem, (int X, int Y) aim,
         SkillCriticalRoll critical, ushort sequence, bool mirage = false,
         Func<ProjectileOffense, ProjectileOffense>? transform = null, double podDamageFactor = 1)
+        => ReleaseArrowRain(session, skill, gem, aim, critical, sequence, mirage, transform, podDamageFactor, totem: null);
+
+    static void ReleaseArrowRain(ProjectileSession session, ushort skill,
+        (ushort Id, int Effect, string Name, int Level, int Quality, uint Gem) gem, (int X, int Y) aim,
+        SkillCriticalRoll critical, ushort sequence, bool mirage, Func<ProjectileOffense, ProjectileOffense>? transform,
+        double podDamageFactor, TotemState.Totem? totem)
     {
         var player = session.Player;
         string id = SkillsFor(player).EffectId(gem.Effect)!;
-        var use = CaptureGemProjectile(player, session, skill, gem, aim, critical, sequence);
+        var use = CaptureGemProjectile(player, session, skill, gem, aim, critical, sequence, totem: totem);
         var shot = (ProjectileOffense)use.Payload!;
         if (mirage) shot = MirageOffense(player, shot);
         if (transform is not null) shot = transform(shot);

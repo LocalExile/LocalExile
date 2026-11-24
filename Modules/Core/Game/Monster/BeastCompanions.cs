@@ -139,7 +139,7 @@ public static partial class Game
     /// <summary>Captures accepted work under the same Monsters lock that paid for it.</summary>
     public static void QueueBeastCompanionLocked(Player player, SupportedGem gem, ushort skillId, int? actionToken)
     {
-        if (!CurrentGameWork || player.Closed || player.LeavingArea || player.PlayerLife == 0
+        if (!CurrentGameWork || player.Closed || player.LeavingArea || player.PlayerLife == 0 || InTown(player)
             || gem.WornGrant is not { } grant
             || BeastKindFor(grant.EffectId) is not { } kind
             || CurrentBeastSourceLocked(player, grant) is not { } owner) return;
@@ -165,12 +165,17 @@ public static partial class Game
             bool present = player.Minions.Owns(active.Id, active.Monster)
                 && ReferenceEquals(active.Area, player.Instance) && ReferenceEquals(active.Lifetime, rules)
                 && player.Area.Monsters.TryGetValue(active.Id, out var held) && ReferenceEquals(held, active.Monster);
-            bool keep = present && player.PlayerLife > 0 && !active.Monster.Dead && active.Monster.Life > 0
+            bool keep = !InTown(player) && present && player.PlayerLife > 0 && !active.Monster.Dead && active.Monster.Life > 0
                 && BeastSourceGenerationCurrentLocked(player, active.Source);
             if (!keep) RetireBeastCompanionLocked(player, active, now,
                 output: ReferenceEquals(active.Area, player.Instance) && ReferenceEquals(active.Lifetime, rules));
         }
 
+        if (InTown(player))
+        {
+            player.Beasts.Pending = null;
+            return;
+        }
         var pending = player.Beasts.Pending;
         if (pending is not null && !BeastPendingCurrentLocked(player, pending, rules))
         {
@@ -217,7 +222,8 @@ public static partial class Game
                 player.Beasts.Active = new(id, m, summon.Source, summon.Skill, summon.Variety, summon.MinionKind,
                     summon.Lifetime, summon.Area)
                     { SourceSkill = summon.SkillId, SkillStats = summon.SkillStats, Intrinsic = native.Effects };
-            }, ownedCurrent: () => Current() && BeastPendingCurrentLocked(player, summon, rules));
+            }, ownedCurrent: () => Current() && BeastPendingCurrentLocked(player, summon, rules)
+                && CanHaveOtherMinions(player) && DarkMonarchAllows("Beast", StatSourceValues(player)));
         if (Current())
         {
             if (ReferenceEquals(player.Beasts.Pending, summon)

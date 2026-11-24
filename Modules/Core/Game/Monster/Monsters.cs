@@ -220,6 +220,7 @@ public static partial class Game
         saved.Planned
             ? SpawnPackMonster(saved.PackId, player, variety, saved.Level, saved.Rarity, saved.X, saved.Y,
                 log: false, alone: false, bulk: bulk)
+            : WasItemisedCorpse(saved) ? PlaceItemisedCorpse(player, variety, (saved.X, saved.Y), saved.Level, saved.Mods)
             : SpawnPackMonster(saved.PackId, player, variety, saved.Level, saved.Rarity, saved.X, saved.Y,
                 friendly: !saved.Hostile, log: false, damagedLife: saved.Life, mods: saved.Mods,
                 unrisen: saved.Unrisen, placement: MonsterPlacement.Established, bulk: bulk);
@@ -229,10 +230,10 @@ public static partial class Game
     // created yet, so it is on no client and nothing acts on it or sends about it. RevealHeldBack creates it when a
     // player comes near: up to PopulationRevealPerPass nearest per pass within PopulationRevealCells (a screen is about
     // 50 cells across), and up to PopulationShownPerPass from the outer ring out to PopulationShowCells, the wake
-    // zone's return distance (Resync.cs), so walking into dense packs or teleporting into a full region never stalls a
+    // zone's half-side, so walking into dense packs or teleporting into a full region never stalls a
     // frame and none is created only to be put to sleep.
     public const int PopulationRevealCells = 120;
-    public const int PopulationShowCells = WakeZoneReturn;
+    public const int PopulationShowCells = WakeZoneHalfSide;
     public const int PopulationRevealPerPass = 12;
     public const int PopulationShownPerPass = 6;
 
@@ -696,7 +697,7 @@ public static partial class Game
         else
         {
             // A boss or buried monster far from the player (Dominus at the top of the Sceptre, The Faun in The Ledge)
-            // stays out of the wake zone until a player comes near: StepAreaWake wakes it at WakeZoneReturn (163 cells),
+            // stays out of the wake zone until a player comes near: StepAreaWake wakes it at WakeZoneHalfSide (172 cells),
             // long before a buried monster rises at MonsterEmerge.Range (24 cells). Woken at creation far away, the
             // client put its far copy to sleep on its own while the server still had it awake, and a 0x2bc update for
             // it crashed the client at 0x1401297ca (an Actor lookup on an object without components, live 2026-11-05).
@@ -1073,8 +1074,9 @@ public static partial class Game
             var bandit = BanditChoices.In(player);
             bool banditHeld = bandit is not null && BanditChoices.Held(player, bandit);
             // Only the monsters in the grid cells around the player: one beyond the wake zone sleeps on this client and
-            // gets no order (below), and one that targets another player acts on that player's pass.
-            foreach (var (id, m) in player.Area.MonstersNear((px, py), WakeZoneRadius + 16))
+            // gets no order (below), and one that targets another player acts on that player's pass. The query is a
+            // Euclid radius, so it must reach the square's corner (WakeZoneCorner), not just its half-side.
+            foreach (var (id, m) in player.Area.MonstersNear((px, py), WakeZoneCorner + 16))
             {
                 if (bandit is not null && m.Variety?.Id == bandit.Variety && m.Hostile)
                 {
@@ -2249,6 +2251,14 @@ public static partial class Game
             (lifeCap - player.PlayerLife) * (double)pct / 100.0, ref leech.LifeInstantCarry, minimum: 1);
     }
 
+    // The sequence a predictive swing's 0x1ab carries: the walk-up takes the monster's next sequence, and so does
+    // an in-place action. Until now the in-place one kept the 0xffff placeholder, leaving the client with no current
+    // action for the matching 0x1af (one access violation in StartChannelling from reusing 0xffff, recorded in
+    // ClientState.cs). An explicit sequence a caller passed is kept; a lockstep order takes its sequence from
+    // MonsterSwingOrderLocked instead.
+    public static ushort MonsterSwingSequence(Player player, SpawnedMonster m, bool walkUp, ushort sequence) =>
+        !player.Connection.LockstepClient && (walkUp || sequence == MonsterActionSequence) ? m.NextSequence() : sequence;
+
     // A swing order written in its send gate at `now` (under conn.Monsters): when it starts (LockstepOrderStart), its
     // attack time, the monster's and the player's cells there, and the monster's state from it; null when the monster
     // cannot act. A generic swing's action speed is read at `now`, not at the order's start: a freeze or chill sent
@@ -2376,7 +2386,7 @@ public static partial class Game
             if (a.Projectile is { Variation: > 0, Lobbed: false }) projectileAim = playerAt;
             // An area skill lands where its action aims (a nova around its user), wherever the player goes meanwhile.
             areaAim = a.AreaAtSelf ? from : playerAt;
-            if (walkUp && !player.Connection.LockstepClient) seq = m.NextSequence();
+            seq = MonsterSwingSequence(player, m, walkUp, seq);
             a = MonsterAttackForSequence(player, m, a, seq);
             if (walkUp) meleeClock = BeginMonsterMeleeClockLocked(player, m, action, seq, startedAt, now);
             // A summoning skill's action (ActionTypes SummonSpecificMonstersInFront) plays nothing on the client (live
@@ -2800,6 +2810,10 @@ public static partial class Game
         if (outcome is not null) MapEssences.MiseryOnAttack(player, m, player);
     }
 
+    static int DamageTakenFromMonster(SpawnedMonster? monster, IReadOnlyDictionary<uint, int> stats) =>
+        stats.GetValueOrDefault(Stat.DamageTakenPlusPctFromSkeletons) is int skeletons and not 0
+        && monster?.Variety is { } variety && MonsterModRolls.HasVarietyTag(variety.Row, "skeleton") ? skeletons : 0;
+
     /// <summary>The monster hit packet's flags: generic particles (0x4000), main hand (0x0200) and blood (0x0001) always,
     /// 0x0040 for a blocked hit and 0x0020 for a critical strike (action-hit-packet-3.29.3b.md §2).</summary>
     public static ushort MonsterHitFlags(bool blocked, bool critical) =>
@@ -2843,6 +2857,10 @@ public static partial class Game
         int evasion = TimedBlind.Apply(PlayerEvasionBase(player, now), PlayerBlindValue(player, stats).Less);
         evasion = EvasionKeystones.Rating(evasion, a.Projectile is not null, !a.Ranged && !a.Spell, StatOf);
         int hitChance = DamageModel.AccuracyHitChance(evasion, monsterAccuracy);
+        bool cannotEvade = StatOf(Stat.KeystoneUnwaveringStance) != 0 || StatOf(Stat.CannotEvade) != 0
+            || StatOf(Stat.BaseCannotEvade) != 0 || StatOf(Stat.MapCannotEvade) != 0;
+        if (attackHit && !cannotEvade && StatOf(Stat.ChanceToEvadeAttacksPct) is int additionalEvade and not 0)
+            hitChance = (int)Math.Clamp((long)hitChance - additionalEvade, 5L, 100L);
         if (attackHit && EvadesLocked(player, hitChance, now))
         {
             if (ServerTrace.Combat)
@@ -2860,6 +2878,14 @@ public static partial class Game
         foreach (var temporary in m.TemporaryStats.Values) hitDamage = MonsterModEffects.AddedTo(hitDamage, temporary);
         if (KingInMists.IsBoss(m.Variety) && player.KingPortentStacks > 0 && now < player.KingPortentUntil)
             hitDamage = hitDamage.Scale(1 + 0.1 * player.KingPortentStacks);
+        var suppression = spellHit ? Suppression(player) : default;
+        bool RollSuppression() => spellHit && suppression.Chance > 0
+            && DamageModel.Suppresses(suppression.Chance, player.IncomingHitRandom.Next(100), suppression.Lucky, suppression.Unlucky);
+        // Vaal Grace needs the suppression outcome before rolling the damage. Other hits keep their ordinary roll order.
+        bool suppressionChangesRoll = spellHit && StatOf(Stat.DamageTakenFromSuppressedHitsIsUnlucky) != 0;
+        bool suppressed = suppressionChangesRoll && RollSuppression();
+        if (suppressed && gambler.EnemyDamageExtraRolls >= 0)
+            gambler = gambler with { EnemyDamageExtraRolls = gambler.EnemyDamageExtraRolls - 1 };
         var rolled = gambler.RollIncomingHit(hitDamage, player.IncomingHitRandom);
         int baseCritPermyriad = a.Secondary ? 0
             : spellHit ? (a.Effect is int eff ? SkillsFor(player).SpellCritChance(eff, m.Level) ?? 0 : 0)
@@ -2881,9 +2907,7 @@ public static partial class Game
         // Damage taken as shifts the hit's types before any mitigation. Chill, freeze and shock read the shifted damage
         // taken; ignite still reads the damage dealt (baseHit), as the wiki's Damage taken as says.
         // Then each type taken may be avoided, and ignite reads only the damage dealt that lands.
-        var suppression = spellHit ? Suppression(player) : default;
-        bool suppressed = spellHit && suppression.Chance > 0
-            && DamageModel.Suppresses(suppression.Chance, player.IncomingHitRandom.Next(100), suppression.Lucky, suppression.Unlucky);
+        if (!suppressionChangesRoll) suppressed = RollSuppression();
         // "when you Suppress Spell Damage from a Unique Enemy" (Loyalty Tattoo of Ahuana).
         if (suppressed && m.Rarity == MonsterRarity.Unique && player.PlayerLife > 0)
             LoyaltySuppressedHitLocked(player, stats);
@@ -2906,7 +2930,7 @@ public static partial class Game
         int rawDamage = (int)Math.Round(taken[DamageType.Physical].Min);
         int damage = 0, chaosDamage = 0, physicalDamage = 0;
         var ailmentTaken = DamagePacket.Empty;
-        int blindedPct = DamageTakenFromBlindedPct(player, id, stats);
+        int sourceTakenPct = DamageTakenFromBlindedPct(player, id, stats) + DamageTakenFromMonster(m, stats);
         double reservationFactor = ReservationHitTakenFactor(player, m, now);
         foreach (var (type, range) in mitigated.Components)
         {
@@ -2922,7 +2946,7 @@ public static partial class Game
             if (type == DamageType.Physical)
                 value = AntiquarianEffects.RangedPhysical(value, a.Ranged, StatOf);
             value = (int)Math.Round(value * player.ElementalAilments.DamageTakenFactor(now,
-                    blindedPct + PlayerDamageTaken.IncreasedPct(type, melee: !a.Ranged && attackHit, StatOf, spell: spellHit))
+                    sourceTakenPct + PlayerDamageTaken.IncreasedPct(type, melee: !a.Ranged && attackHit, StatOf, spell: spellHit))
                 * reservationFactor * ReservationTypedHitTakenFactor(player, type, now)
                 * (blocked ? PlayerDamageTaken.BlockedPct(type, StatOf) / 100.0 : 1));
             // Suppression prevents calculated damage. Armour must see the unsuppressed hit, and flat taken damage
@@ -2935,9 +2959,9 @@ public static partial class Game
             if (type == DamageType.Physical) physicalDamage += value;
             damage += value;
         }
-        damage = FortificationDamageTaken(player, damage);
-        chaosDamage = FortificationDamageTaken(player, chaosDamage);
-        physicalDamage = Math.Min(FortificationDamageTaken(player, physicalDamage), Math.Max(0, damage - chaosDamage));
+        damage = FortificationDamageTakenLocked(player, damage, now, stats);
+        chaosDamage = FortificationDamageTakenLocked(player, chaosDamage, now, stats);
+        physicalDamage = Math.Min(FortificationDamageTakenLocked(player, physicalDamage, now, stats), Math.Max(0, damage - chaosDamage));
         if (attackHit && !a.Ranged && damage > 0)
         {
             int before = damage; damage = GolemSafeguardLocked(player, damage, now);
@@ -2958,7 +2982,7 @@ public static partial class Game
         if (blocked) RecoverOnBlockLocked(player, stats);
         // A blocked hit recoups the share it deals (ailmentTaken holds it).
         RecoupHitLocked(player, ailmentTaken.Select((_, r) =>
-            new(FortificationDamageTaken(player, (int)r.Min), FortificationDamageTaken(player, (int)r.Max))), now, stats);
+            new(FortificationDamageTakenLocked(player, (int)r.Min, now, stats), FortificationDamageTakenLocked(player, (int)r.Max, now, stats))), now, stats);
         long lifeBefore = player.PlayerLife;
         int lifeDamage = DamagePlayerHitTyped(player, physicalDamage, Math.Max(0, damage - physicalDamage - chaosDamage), chaosDamage, now, stats,
             ailmentTaken);
@@ -2966,10 +2990,10 @@ public static partial class Game
         TrimLeechLocked(player);
         var incomingAilments = MergeMonsterModAilments(a.Ailments, m.Effects);
         ApplyPlayerAilmentsLocked(player, baseHit, ailmentTaken.Select((_, r) =>
-            new(FortificationDamageTaken(player, (int)r.Min), FortificationDamageTaken(player, (int)r.Max))),
+            new(FortificationDamageTakenLocked(player, (int)r.Min, now, stats), FortificationDamageTakenLocked(player, (int)r.Max, now, stats))),
             monsterCritical, blocked, now, stats, incomingAilments, source: id);
         AlternateAilmentsOnPlayerLocked(player, m, ailmentTaken.Select((_, r) =>
-            new(FortificationDamageTaken(player, (int)r.Min), FortificationDamageTaken(player, (int)r.Max))), blocked, now, stats, incomingAilments);
+            new(FortificationDamageTakenLocked(player, (int)r.Min, now, stats), FortificationDamageTakenLocked(player, (int)r.Max, now, stats))), blocked, now, stats, incomingAilments);
         ApplyMonsterDamagingAilmentsLocked(player, id, m, baseHit, blocked, now, attack: attackHit, prepared: stats,
             skillPoisonChance: a.PoisonChance, skillPoisonSeconds: a.PoisonSeconds);
         ApplyMonsterDecayLocked(player, id, m, blocked, now, stats);
@@ -2983,7 +3007,7 @@ public static partial class Game
             long leeched = Math.Min((long)damage * leechPermyriad / 10_000, Math.Max(1L, m.MaxLife / 10));
             if (leeched > 0) m.Life = (uint)Math.Min(m.MaxLife, (long)m.Life + leeched);
         }
-        RecordIncomingHitLocked(player, now, spellHit, blocked, suppressed, lifeDamage, monsterCritical, m);
+        RecordIncomingHitLocked(player, now, spellHit, blocked, suppressed, lifeDamage, damage > 0, monsterCritical, attacker: m);
         RecentHitLifeLossOnHitLocked(player, now);
         UnhingedHitRecoveryLocked(player, now, stats);
         // Brine Bound: a hit that lands, blocked too (blocking keeps the defender's when-hit effects, wiki

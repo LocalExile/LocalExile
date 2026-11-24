@@ -545,4 +545,13 @@ public sealed class MapDevice
         double angle = Math.PI / 2 + 2 * Math.PI * index / Math.Max(count, 1);
         return (deviceX + (int)Math.Round(radius * Math.Cos(angle)), deviceY + (int)Math.Round(radius * Math.Sin(angle)));
     }
+
+    /// <summary>Radial facing angle (in radians, matching PoE Positioned's atan2(dx, -dy) convention) for a portal
+    /// on the ring around the map device, so each of the 6 portals faces radially instead of all 6 sharing 0°.</summary>
+    public static float PortalRotation(int deviceX, int deviceY, int portalX, int portalY, int index, int count = PortalCount)
+    {
+        int dx = portalX - deviceX, dy = portalY - deviceY;
+        if (dx == 0 && dy == 0) return 2f * MathF.PI * index / Math.Max(count, 1);
+        return MathF.Atan2(dx, -dy);
+    }
 }

@@ -290,6 +290,7 @@ public static partial class Game
         {
             var seeded = use with { Seed = ++seed };
             long useId = Runtime.Release(seeded);
+            SacredWispsOnRelease(seeded);
             if (ServerTrace.Projectiles && !Quiet(seeded.Payload))
                 Console.WriteLine($"[gateway] {Player.Connection.Remote} projectile release t={Runtime.Now / (double)ProjectileRuntime.QuantaPerSecond:0.000000} use={useId} "
                     + $"skill={PayloadLabel(seeded.Payload)} metadata={seeded.Profile.Id} count={seeded.Profile.Count} "
@@ -298,7 +299,7 @@ public static partial class Game
         }
 
         public double NowTicks => Runtime.Now;
-        public long Release(ProjectileUse use) => Runtime.Release(use with { Seed = ++seed });
+        public long Release(ProjectileUse use) => ReleaseNow(use);
 
         public void Invalidate()
         {
@@ -306,10 +307,12 @@ public static partial class Game
             invalid = true;
             lifetime?.Dispose();
             ClearPods();
-            ClearCausticClouds();
+            ClearDamageGrounds();
             ClearEnsnares();
             ClearExplosiveFuses();
             if (archer is { } currentArcher) EndMirage(currentArcher, retire: true);
+            EndSacredWisps(retire: true);
+            if (ShaperMemories.TryGetValue(Player, out var memory)) memory.RemoveActor?.Invoke(true);
             lock (flaskBarGate)
             {
                 flasksPending = null;
@@ -796,19 +799,7 @@ public static partial class Game
                     Enqueue(() => SendRampageStun(Player, stun));
                 return ProjectileHitResult.Hit;
             }
-            // The damage profile is selected once from the target state before outgoing hooks or hit side effects.
-            // AilmentsOnHit can Blind on this hit; that must not retroactively boost the hit or the ailments it applies.
             double at = contact.At / (double)ProjectileRuntime.QuantaPerSecond;
-            shot = shot.Against(Blinded(Player, contact.Target.Id), target.SpiderWebs.Count(at),
-                target.Ignites.Burning, target.Bleeds.Burning, EnemyOnLowLife(target));
-            double overexertionMore = OverexertionMore(shot.SkillStats, shot.IntimidatingCryExerted);
-            if (overexertionMore != 1)
-                shot = shot with
-                {
-                    Ignite = RepeatAilment(shot.Ignite, overexertionMore),
-                    Bleed = RepeatAilment(shot.Bleed, overexertionMore),
-                    Poison = RepeatAilment(shot.Poison, overexertionMore),
-                };
             int hitChance = 100;
             if (!shot.Spell)
             {
@@ -818,6 +809,19 @@ public static partial class Game
                     return ProjectileHitResult.Miss;
             }
             if (MonsterBlocks(target, random, shot.Spell, at, shot.SkillStats)) return ProjectileHitResult.Blocked;
+            // Select the profile only for an accepted contact, before this hit can apply Blind or other ailments.
+            var conditional = shot.Spider is { } spider ? ContactDamage(Player, target, at, spider.Stats) : default;
+            shot = shot.Against(Blinded(Player, contact.Target.Id, at), target.SpiderWebs.Count(at),
+                target.Ignites.IgnitedAt(at), target.Bleeds.IgnitedAt(at), EnemyOnLowLife(target), target.MaimedUntil > at,
+                conditional, areaContact: contact.IsArea);
+            double overexertionMore = OverexertionMore(shot.SkillStats, shot.IntimidatingCryExerted);
+            if (overexertionMore != 1)
+                shot = shot with
+                {
+                    Ignite = RepeatAilment(shot.Ignite, overexertionMore),
+                    Bleed = RepeatAilment(shot.Bleed, overexertionMore),
+                    Poison = RepeatAilment(shot.Poison, overexertionMore),
+                };
             double more = contact.Multiplier * (contact.Phase > 0 ? shot.ReturnMultiplier : 1);
             if (ReferenceEquals(shot.BrandedTarget, target))
                 more *= Math.Max(0, 1 + GolemStat(shot.SkillStats, Stat.TriggerBrandSupportHitDamagePlusPctFinalVsBrandedEnemy) / 100.0);
@@ -842,7 +846,7 @@ public static partial class Game
                 && (shot.Spell || EvasionEntropy.ConfirmsCritical(hitChance, Player.AttackAccuracyRandom));
             var weaponLocal = shot.WeaponAttack ? shot.WeaponLocal : null;
             int sourceMultiplier = CriticalMultiplierWithWeapon(shot.CriticalMultiplier, target, weaponLocal);
-            int multiplier = CriticalMultiplierOn(target, sourceMultiplier, noExtra: shot.NoExtraCriticalDamage);
+            int multiplier = CriticalMultiplierOn(target, sourceMultiplier, shot.TargetCritical, at, shot.NoExtraCriticalDamage);
             bool canBenefitResonance = !shot.FromTrapOrMine && (shot.ActualCaster is null || shot.Mirage);
             bool canGainResonance = canBenefitResonance && !shot.Mirage;
             var resonance = canBenefitResonance
@@ -864,7 +868,9 @@ public static partial class Game
             if (!immune)
             {
                 var settings = (critical ? shot.CriticalImpaleSettings : null) ?? shot.ImpaleSettings ?? new(shot.ImpaleChance);
-                double physical = rolled[DamageType.Physical].Min * (critical ? Math.Max(0, sourceMultiplier) / 100d : 1);
+                long impaleMultiplier = shot.NoExtraCriticalDamage ? sourceMultiplier
+                    : sourceMultiplier + (target.MaxLife > 0 && target.Life >= target.MaxLife ? shot.TargetCritical.FullLife : 0);
+                double physical = rolled[DamageType.Physical].Min * (critical ? Math.Max(0, impaleMultiplier) / 100d : 1);
                 var (stored, _) = target.Impale.OnHit(physical, at, settings, random, target.Effects[Stat.AvoidImpalePct]);
                 damage = ImpaleStats.AddReflected(damage, MonsterImpaleDamage(target, stored, at));
             }
@@ -895,7 +901,8 @@ public static partial class Game
             SoulEaterHit(Player, target);
             if (shot.WeaponAttack && shot.ActualCaster is null && !shot.FromTrapOrMine && !shot.Mirage && target.Hostile)
             {
-                Player.RecentEvents.Record(StatConditions.HitEnemyWithWeapon, at);
+                RecordWeaponContactLocked(Player, at, shot.SkeletonWeaponContactSource);
+                if (critical) ItemMinionsOnWeaponCriticalLocked(Player, shot.SkeletonWeaponContactSource, target, at);
                 if (hit.Value.Life == 0) RecordTinctureKill(target, shot.TinctureKill);
             }
             if (shot.ActualCaster is null && !shot.Spell && Player.TinctureEffects.AnyEffective)
@@ -903,6 +910,10 @@ public static partial class Game
             if (shot.ActualCaster is null && hit.Value.Life == 0) DevourOnKill(Player, target, shot.SkillStats);
             if (shot.MirageSource is not null && target.Hostile && contact.Projectile.Use.Emitter.Id == Player.Id)
                 MirageOnArrowHit(shot);
+            if (!immune && target.Hostile && contact.Projectile.Use.Emitter.Id == Player.Id
+                && shot.ActualCaster is null && !shot.Spell && !shot.FromTrapOrMine && !shot.FromTotem
+                && shot.SkillStats.GetValueOrDefault(Stat.SummonSacredWispsOnHit) > 0)
+                SacredWispsOnHit(shot);
             if (!immune && shot.SourceSkill == 0 && shot.WeaponAttack && shot.ActualCaster is null && !shot.FromTrapOrMine)
                 CaptureEquippedHitExplosionLocked(target, player);
             if (!immune)
@@ -935,7 +946,7 @@ public static partial class Game
             if (shot.ActualCaster is null) ChargesOnHit(Player, target, critical, shot.Spell, shot.Effect, shot.Level, shot.Quality, melee: false,
                 primary: shot.FirstHit?.Claim() ?? true, skillStats: shot.SkillStats);
             CommitProjectileHit(this, contact, target, hit.Value, damage, shot, critical,
-                OwnerStun(Player, target, damage, mitigated, melee: false, shot.Spell, critical, player, shot.SkillStats, lifeBefore,
+                OwnerStun(Player, shot.Effect, target, damage, mitigated, melee: false, shot.Spell, critical, player, shot.SkillStats, lifeBefore,
                     localStunReduction: shot.LocalStunThresholdReduction, weaponClass: shot.WeaponClass));
             if (critical) Enqueue(() => MaybeCreateProfaneGround(Player, target.Walk.Position(at)));
             return ProjectileHitResult.Hit;

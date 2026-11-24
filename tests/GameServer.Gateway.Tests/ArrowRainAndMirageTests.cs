@@ -59,7 +59,7 @@ public class ArrowRainAndMirageTests
                     Assert.All(attack.Attack.Damage.Components, p => Assert.Equal(element, p.Type));
                     var ailmentTarget = new SpawnedMonster("ailment target", new(120, 100, 0), 100, 3, 100000) { Hostile = true };
                     typeof(Game).GetMethod("MinionAilmentsLocked", BindingFlags.Public | BindingFlags.NonPublic | BindingFlags.Static)!
-                        .Invoke(null, [c, clone, attack, 999u, ailmentTarget, true, 1d]);
+                        .Invoke(null, [c, clone, attack, clone.Own, 999u, ailmentTarget, true, 1d, 1d, false, 0]);
                     Assert.False(ailmentTarget.Poisons.Poisoned);
                     Assert.Equal(element == DamageType.Fire, ailmentTarget.Ignites.Burning);
                 }

@@ -37,8 +37,10 @@ public static partial class Game
 
     public static string? TriggerOnlyReason(SupportedGem gem)
     {
-        if (gem.WornGrant is { } grant && ItemEffectRules.MarkFamily(grant.EffectId) is not null)
+        if (ItemEffectRules.Enabled && gem.WornGrant is { } grant && ItemEffectRules.MarkFamily(grant.EffectId) is not null)
             return "this mark is triggered by the granting item";
+        if (gem.WornGrant is { EffectId: GuardianWeaponEffect })
+            return "Animate Guardian's Weapon triggers from a qualifying minion kill";
         if (GolemStat(gem.Stats, Stat.CastOnLoseCatsStealth) != 0)
             return "this skill can only trigger when Cat's Stealth is lost";
         if (gem.Supports.Any(s => s.Effect.Id == "SupportCastWhenDamageTaken"))
@@ -51,8 +53,12 @@ public static partial class Game
             return "this skill can only trigger on a linked attack critical strike";
         if (GolemStat(gem.Stats, Stat.CastSpellOnLinkedMeleeKill) != 0)
             return "this skill can only trigger on a linked melee attack's kill";
+        if (GolemStat(gem.Stats, Stat.TriggerOnTriggerLinkTargetHit) != 0)
+            return "this skill can only trigger on an Intuitive Link target's hit";
         if (GolemStat(gem.Stats, Stat.CastSpellWhileLinkedSkillChannelling) != 0)
             return "this skill can only trigger while a linked skill is channelled";
+        if (GolemStat(gem.Stats, Stat.UniqueCosprisMaliceColdSpellsTriggered) != 0)
+            return "this skill can only trigger on a melee critical strike with the item it is socketed in";
         if (GolemStat(gem.Stats, Stat.SkillTriggeredBySnipe) != 0)
             return "this skill can only be triggered by Snipe";
         if (GolemStat(gem.Stats, Stat.TriggerOnSkillUsePctIfYouHaveASpiritCharge) > 0)

@@ -58,6 +58,10 @@ Part of [Status](../Status.md); what to build next in this area is in
 - On-kill explosions and Eater of Worlds attribute damage reduction.
   Docs: [13](../docs/protocol/13-items.md), "Kill explosions and attribute damage reduction".
 - Conditional item operators and qualified source lifetimes (#504). Docs: [13](../docs/protocol/13-items.md).
+- Influenced item mods (Shaper, Elder, conquerors) apply, curses on hit and ground immunities included.
+  Not checked live: ground immunities, bleeding removal on warcry.
+  Not read yet: nearby-enemy auras, reflect, Unholy Might, Conflux, triggered marks, damage against ailing enemies,
+  damage over time with attacks and the weapon-local ailment stats.
 - Item modifier effect and affix-cap implicits. Docs: [13](../docs/protocol/13-items.md), "Item modifier effect".
 - Utility-flask orbs: Enkindling/Instilling enchantments and incoming Bleed/Poison triggers.
   Docs: [13](../docs/protocol/13-items.md), "Enkindling Orb and Instilling Orb".
@@ -119,7 +123,9 @@ Part of [Status](../Status.md); what to build next in this area is in
 - **Instilling Orb.** Docs: [13](../docs/protocol/13-items.md), "Enkindling Orb and Instilling Orb",
   [evidence](../docs/re/instilling-coe.md).
 - **Currency results look right in the client** for every implemented currency's main use; Vaal on jewels is outside
-  the local rule.
+  the local rule. Currency cannot be used out of a public stash tab; currency other than quality and flask enchants is
+  refused on a worn item ("Item is currently equipped."), and on mirrored or corrupted targets with the client's
+  reason ("Item is mirrored.", "Target is corrupted.").
 - **Glassblower's Bauble** (level-scaled quality not checked live).
   Docs: [13](../docs/protocol/13-items.md), "Glassblower's Bauble".
 - **Catalysts and Tainted Catalyst** (not checked live): apply jewellery quality (+5/+2/+1 up to 20%, switching replaces
@@ -127,7 +133,8 @@ Part of [Status](../Status.md); what to build next in this area is in
   Docs: [13](../docs/protocol/13-items.md).
 - **Fracturing Orb** (verified live). Docs: [13](../docs/protocol/13-items.md), "Fracturing Orb",
   [the game rules](../docs/re/fracturing-mirror-mechanics.md).
-- Mirror of Kalandra copies non-unique equipment, flasks and T1–16 maps. Docs: [13](../docs/protocol/13-items.md).
+- Mirror of Kalandra copies non-unique equipment, flasks and T1–16 maps, from non-public stash tabs and onto stash
+  tabs too. Docs: [13](../docs/protocol/13-items.md).
 - **Hinekora's Lock** (server rules verified live). Docs: [13](../docs/protocol/13-items.md), "Hinekora's Lock",
   [evidence](../docs/re/hinekora-lock.md).
 - **Orb of Fusing** (verified live). Docs: [13](../docs/protocol/13-items.md), "Orb of Fusing".
