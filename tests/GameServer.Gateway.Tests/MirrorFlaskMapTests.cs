@@ -158,6 +158,26 @@ public class MirrorFlaskMapTests
             // A Mirror in the inventory on the flask in the tab.
             await Use(inventory, invMirror.Id, stash.InventoryOf(targetTab), tabFlask.Id, 2);
             Assert.Equal(1, items.Items(main).Single(i => i.Id == invMirror.Id).Item.StackSize);
+            // A worn item (here the flask bar) takes no currency: refused, nothing spent, nothing held.
+            var worn = items.Add(PlayerInventories.Flask, 0, 0, source);
+            byte[] onWorn = new byte[18];
+            BinaryPrimitives.WriteUInt16BigEndian(onWorn, InstanceItems.UseItemOnId);
+            BinaryPrimitives.WriteUInt32BigEndian(onWorn.AsSpan(2), inventory);
+            BinaryPrimitives.WriteUInt32BigEndian(onWorn.AsSpan(6), invMirror.Id);
+            BinaryPrimitives.WriteUInt32BigEndian(onWorn.AsSpan(10), PlayerInventories.InventoryId(PlayerInventories.Flask));
+            BinaryPrimitives.WriteUInt32BigEndian(onWorn.AsSpan(14), worn.Id);
+            await Game.OnClientMessages([(InstanceItems.UseItemOnId, onWorn)], [], c);
+            Assert.Empty(items.Items(PlayerInventories.Cursor));
+            Assert.Equal(1, items.Items(main).Single(i => i.Id == invMirror.Id).Item.StackSize);
+            Assert.Equal(source, items.Items(PlayerInventories.Flask).Single(i => i.Id == worn.Id).Item);
+            // Quality currency works on a worn item: a Glassblower's Bauble on a flask in the flask bar.
+            var plain = items.Add(PlayerInventories.Flask, 1, 0, source with { Quality = 0 });
+            var bauble = items.Add(main, 9, 0, ItemCatalog.Create(Program.Items.Find(CurrencyEffects.GlassblowersBauble)!) with { StackSize = 2 });
+            BinaryPrimitives.WriteUInt32BigEndian(onWorn.AsSpan(6), bauble.Id);
+            BinaryPrimitives.WriteUInt32BigEndian(onWorn.AsSpan(14), plain.Id);
+            await Game.OnClientMessages([(InstanceItems.UseItemOnId, onWorn)], [], c);
+            Assert.True(items.Items(PlayerInventories.Flask).Single(i => i.Id == plain.Id).Item.Quality > 0);
+            Assert.Equal(1, items.Items(main).Single(i => i.Id == bauble.Id).Item.StackSize);
             PlayerInventories.Forget(name);
             AccountStash.Forget(key);
             var restored = PlayerInventories.For(name, Program.Items);

@@ -578,6 +578,11 @@ public static class InstanceItems
     /// <summary>The 0x2a0 result code that plays the client's Hinekora fail animation (0 shows the preview).</summary>
     public const ushort CurrencyApplicationForesightFailure = 0x04FA;
 
+    /// <summary>The client's item error for a currency used on a worn item: ClientStrings row 1207
+    /// <c>ItemErrorItemEquipped</c> + 1 ("Item is currently equipped."), returned by the validators 0x141f86f70 and
+    /// 0x141f89920 (mov eax,0x4b8 at 0x141f89a29).</summary>
+    public const ushort ItemErrorItemEquipped = 0x04B8;
+
     /// <summary>
     /// S→C 0x2a0 CurrencyApplicationForesightResult (dispatcher case 223, handler 0x14215ae11, reader 0x141fa8680):
     /// u16 id, u16 BE keyA (the C→S 0x29d request key), u16 raw status (0: preview, non-zero: failure; the client's

@@ -1732,6 +1732,15 @@ public static partial class Game
             return;
         }
         var type = ItemsFor(player).ByHash(used.Item.TypeHash);
+        // A worn item (equipment, the flask bar, jewels in the passive tree) takes only quality and flask enchant
+        // currency: the others' client validators refuse it with ItemErrorItemEquipped, and the client still sends 0x71
+        // for one, so the server refuses it too, before anything is spent.
+        if (RefusedOnWorn(player, used.Item, targetSpot))
+        {
+            Console.WriteLine($"[gateway] {player.Connection.Remote} <= 0x0071 use {type?.Name ?? "item"} on item {use.TargetId}: refused, item is equipped (row {targetRow})");
+            await SendItemError(player, InstanceItems.ItemErrorItemEquipped);
+            return;
+        }
         bool isEssence = type is not null && EssencesFor(player).Contains(type.Hash);
         // Mirror of Kalandra: a mirrored copy of the target goes onto the (empty) cursor, as if picked up, for the player to
         // place; the target stays as it was and its place gets no message.
@@ -1801,6 +1810,34 @@ public static partial class Game
         if (stash.TabOf(inventoryId) is int tab)
             return (new(tab, 0, itemId), stash.Inventory(tab).Items.FirstOrDefault(i => i.Id == itemId));
         return items.RowOf(itemId) is byte row ? (new(null, row, itemId), items.Items(row).FirstOrDefault(i => i.Id == itemId)) : (new(null, 0, itemId), null);
+    }
+
+    // A worn item: one of the character's own slots (Inventories column 4, sent as flag bit 1: equipment and the flask bar)
+    // or the passive tree's jewels (row 23). The client's currency validators (0x141f86f70, 0x141f89920) refuse these with
+    // ItemErrorItemEquipped; the second weapon set's rows are not among them.
+    public static bool Worn(ItemMoves.Spot spot) => spot.Tab is null
+        && (spot.Row == PlayerInventories.PassiveJewels
+            || spot.Row < InstanceInventories.PlayerDefaults.Length && InstanceInventories.PlayerDefaults[spot.Row] is { Equipment: true } slot && slot.Row == spot.Row);
+
+    // Whether a currency is refused on its target because the target is worn. Quality currency (armour, weapon, flask and
+    // jewellery quality, Tainted ones included) and the flask enchant orbs (Enkindling, Instilling) work on worn items in
+    // the official game (live 2026-11-23); every other currency checked there (transmutation to scouring, Divine,
+    // Blessed, Eldritch) is refused. Decided by the client's CurrencyItems action.
+    public static bool RefusedOnWorn(Player player, Item currency, ItemMoves.Spot target) =>
+        Worn(target) && !TakesWorn(ItemsFor(player).ByHash(currency.TypeHash) is { } t ? ItemsFor(player).CurrencyAction(t) : null);
+
+    static bool TakesWorn(string? action) => action is not null
+        && (action.StartsWith("add_", StringComparison.Ordinal) && action.Contains("_quality", StringComparison.Ordinal)
+            && action != "add_gem_quality" && action != "add_map_alt_quality"
+            || action is "add_flask_seal" or "add_flask_injector");
+
+    // The refusal line the player reads: BackendErrors FailedToApplyCurrency (149) "Failed to apply item: {0}" with the
+    // item error's ClientStrings text. Sent as a chat line (0x17) until the official message that prints it is found.
+    static async Task SendItemError(Player player, ushort error)
+    {
+        string reason = error == InstanceItems.ItemErrorItemEquipped ? "Item is currently equipped." : $"error 0x{error:x4}";
+        string text = $"Failed to apply item: {reason}";
+        await Send(player, InstanceChat.ChatLine(text), $"0x0017 \"{text}\"");
     }
 
     // A currency use (C→S 0x71 / Shift 0x72) committed for any inventory and stash combination (ItemMoves.Use): one 0xbf per

@@ -118,6 +118,7 @@ Part of [Status](../Status.md); what to build next in this area is in
   [evidence](../docs/re/instilling-coe.md).
 - **Currency results look right in the client** for every implemented currency's main use; Vaal on jewels is outside
   the local rule.
+  Currency other than quality and flask enchants is refused on a worn item: "Item is currently equipped."
 - **Glassblower's Bauble** (level-scaled quality not checked live).
   Docs: [13](../docs/protocol/13-items.md), "Glassblower's Bauble".
 - **Catalysts and Tainted Catalyst** (not checked live): apply jewellery quality (+5/+2/+1 up to 20%, switching replaces

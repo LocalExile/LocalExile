@@ -1039,8 +1039,8 @@ public static partial class Game
                 var items = ItemsOf(player);
                 var stash = StashOf(player);
                 var currency = Locate(items, stash, req.CurrencyInventory, req.CurrencyId).Item;
-                var target = Locate(items, stash, req.TargetInventory, req.TargetId).Item;
-                Item? rawPreview = currency is not null && target is not null && target.Item.Foreseeing
+                var (targetSpot, target) = Locate(items, stash, req.TargetInventory, req.TargetId);
+                Item? rawPreview = currency is not null && target is not null && target.Item.Foreseeing && !RefusedOnWorn(player, currency.Item, targetSpot)
                     ? CurrencyResult(player, target.Item, currency.Item.TypeHash,
                         ItemRolls.ForeseeRandom(target.Item, currency.Item.TypeHash))
                     : null;
@@ -1072,8 +1072,8 @@ public static partial class Game
                 var items = ItemsOf(player);
                 var stash = StashOf(player);
                 var currency = Locate(items, stash, currencyInventory, currencyId).Item;
-                var target = Locate(items, stash, targetInventory, targetId).Item;
-                Item? rawPreview = currency is not null && target is not null && target.Item.Foreseeing
+                var (targetSpot, target) = Locate(items, stash, targetInventory, targetId);
+                Item? rawPreview = currency is not null && target is not null && target.Item.Foreseeing && !RefusedOnWorn(player, currency.Item, targetSpot)
                     ? CurrencyResult(player, target.Item, currency.Item.TypeHash,
                         ItemRolls.ForeseeRandom(target.Item, currency.Item.TypeHash))
                     : null;

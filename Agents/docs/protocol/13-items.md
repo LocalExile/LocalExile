@@ -564,6 +564,15 @@ Fields come from the client's readers and its debug dumps of the two components,
 `0x1421e7b00`, which print each field's name.
 A refusal code near a check names it too: the code is a ClientStrings row + 1 (`0x1762` is
 `ItemErrorFailedRerollVariableDefence`, row `0x1761`).
+About 60 of the client's currency validators (`0x141f86f70`, `0x141f89920` among them) return `0x4b8`
+(`ItemErrorItemEquipped`, "Item is currently equipped.") when the target's inventory has the character-slot flag
+(+0x149: equipment and the flask bar) or is row 23 (passive tree jewels); about 30 others lack the test.
+In the official game (live 2026-11-23) quality currency (armour, weapon, flask, catalysts) and Enkindling/Instilling
+work on worn items, and transmutation through scouring, Divine, Blessed and Eldritch currency are refused.
+The client still sends 0x71 for a refused target, so the Gateway refuses it before anything is spent
+(`Game.RefusedOnWorn`, by the CurrencyItems action), and the Hinekora preview answers with a failure.
+Sockets, Vaal, Fracturing, Hinekora's Lock and Mirror were not checked live and are refused. The official game prints "Failed to apply item: Item is currently equipped." (BackendErrors
+`FailedToApplyCurrency`); the message that carries it is not found, so the Gateway sends that line as chat (0x17).
 
 | State | Where | Server |
 |---|---|---|
@@ -1030,7 +1039,6 @@ The local server samples uniformly, as it does for newly created armour; the off
 One orb is spent even when the new roll equals the old roll.
 Mods, quality, rarity, identification, sockets, gems, links, names and fractured state stay unchanged.
 The existing atomic inventory/stash mutation saves the stack and target together and sends their 0xbf replacements.
-Rerolling worn equipment refreshes the character's shared defence pools and panel.
 
 The native target validator `0x141f89920` requires Armour and Mods components and rejects mirrored items.
 The ordinary crafting protection also refuses corrupted targets.
