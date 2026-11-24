@@ -7,7 +7,7 @@ using GameServer.Core.Projectiles;
 public static partial class Game
 {
     internal static bool NativeProjectileTotem(Player player, int effect) =>
-        SkillsFor(player).EffectId(effect) is "HolyFlameTotem" or "HolyFlameTotemAltX";
+        GatewayProjectileSkillProfiles.IsHolyFlameTotem(SkillsFor(player).EffectId(effect));
     sealed class TotemChannel { public bool Active; public ushort Sequence; }
     static readonly RuleTable<TotemState.Totem, TotemChannel> TotemChannels = new();
     static readonly RuleTable<TotemState.Totem, SupportedGem> TotemSources = new();
@@ -15,8 +15,12 @@ public static partial class Game
         && !SkillsFor(player).IsAttack(effect) && !SkillsFor(player).IsTravel(effect)
         && Supports.Of(effect)?.Types.Contains(47) != true
         && (TotemSummon(player, effect) is not null || GolemData.Find(SkillsFor(player).EffectId(effect)) is not null
-            || (SkillsFor(player).EffectId(effect) == "Arc" || UsesProjectileRuntime(effect) && ResolveProjectileDefinition(effect) is not null)
+            || CurseCatalog.All.ContainsKey(SkillsFor(player).EffectId(effect) ?? "")
+            || (SkillsFor(player).EffectId(effect) == "Arc" || SpellTotemNova(player, effect)
+                || UsesProjectileRuntime(effect) && ResolveProjectileDefinition(effect) is not null)
                 && SkillHitPlan.ForSkill(SkillsFor(player), effect, 1).CanHit);
+
+    static bool SpellTotemNova(Player player, int effect) => SkillsFor(player).EffectId(effect) is "IceNova" or "IceNovaAltY";
 
     static SummonCatalog.Definition? TotemSummon(Player player, int effect) =>
         SummonData.Find(SkillsFor(player).EffectId(effect)) is { Family: not "Clone", Id: not "AnimateWeaponAltX" } summon ? summon : null;
@@ -36,7 +40,11 @@ public static partial class Game
     {
         var caster = new Dictionary<uint, int>(owner);
         // Only owner-only prohibitions are bypassed. Gruthkul's spell prohibition still belongs to the spell.
-        foreach (uint name in new[] { Stat.KeystoneAncestralBond, Stat.DealNoDamageYourself })
+        foreach (uint name in new[]
+        {
+            Stat.KeystoneAncestralBond, Stat.DealNoDamageYourself,
+            Stat.RecoverPctMaximumLifeWhenCursingNonCursedEnemy, Stat.RecoverPctMaximumManaWhenCursingNonCursedEnemy,
+        })
             caster.Remove(name);
         // Arcane Surge is a buff on the owner, not on his totems: its more Spell Damage stays his.
         if (ArcaneSurgeSpellMore is var arcane) caster.Remove(arcane);
@@ -75,6 +83,10 @@ public static partial class Game
             (Stat.VirtualBaseSpellCastTimeMs, SkillsFor(player).CastTimeMs(gem.Effect)) })
             if (name is var key) payload[key] = value;
         payload[Stat.SkillIsNonPathing] = 1;
+        if (SpellTotemNova(player, gem.Effect))
+            payload[Stat.ActiveSkillAreaOfEffectRadius] = SkillRadius(player, gem.Stats, spell: true, gem.Effect);
+        else if (CurseCatalog.Hex(SkillsFor(player).EffectId(gem.Effect)))
+            payload[Stat.ActiveSkillAreaOfEffectRadius] = CurseRadius(player, skill, aura: false, gem);
         if (!SkillsFor(player).IsAttack(gem.Effect) && TotemCastSeconds(player, skill) is double seconds && Stat.CastSpeedPlusPct is var speed)
             payload[speed] = (int)Math.Round(100 * (SkillsFor(player).CastTimeMs(gem.Effect) / (seconds * 1000) - 1));
         if (SkillsFor(player).IsAttack(gem.Effect))
@@ -199,16 +211,17 @@ public static partial class Game
             var gem = GemSkillEffects(player).First(g => g.Id == totem.SkillId);
             var summon = TotemSummon(player, gem.Effect);
             var golem = GolemData.Find(SkillsFor(player).EffectId(gem.Effect));
+            bool nova = SpellTotemNova(player, gem.Effect);
             bool nativeChannel = NativeProjectileTotem(player, gem.Effect);
-            var target = PickSpellTotemTarget(player, totem, range, now, preferSight: summon is null && golem is null);
+            var target = PickSpellTotemTarget(player, totem, range, now, preferSight: !nova && summon is null && golem is null);
             if (target.Monster is null && summon is null && golem is null
                 || TotemCastSeconds(player, totem.SkillId) is not double seconds)
             {
                 if (nativeChannel) StopTotemChannel(totem, bytes);
                 continue;
             }
-            var aim = target.Monster is not null ? target.Pos : totem.At;
-            if (summon is null && golem is null) aim = NonZeroTotemAim(totem.At, aim);
+            var aim = nova || target.Monster is null ? totem.At : target.Pos;
+            if (!nova && summon is null && golem is null) aim = NonZeroTotemAim(totem.At, aim);
             uint summonTarget = 0;
             if (summon is { Corpse: true } && SummonNeedsCorpse(summon, PlayerStatValues(player)))
             {
@@ -235,9 +248,11 @@ public static partial class Game
             var session = ProjectilesFor(player);
             ushort sequence = ++totem.Sequence;
             totem.NextCast = now + seconds;
-            bool arc = SkillsFor(player).EffectId(gem.Effect) == "Arc";
+            string effect = SkillsFor(player).EffectId(gem.Effect) ?? "";
+            bool arc = effect == "Arc";
+            var curse = CurseCatalog.All.GetValueOrDefault(effect);
             bytes.World(totem.Id, InstanceProtocol.ActionStarted(totem.Id, totem.At.X, totem.At.Y, aim.X, aim.Y,
-                0x4000, sequence, player.MonsterOrderFlags, targetObjectId: arc ? target.Id : null));
+                0x4000, sequence, player.MonsterOrderFlags, targetObjectId: arc || curse?.Mark == true ? target.Id : null));
             if (nativeChannel)
             {
                 var channel = TotemChannels.GetValue(totem, static _ => new());
@@ -263,12 +278,31 @@ public static partial class Game
                 });
                 continue;
             }
-            if (arc)
+            bool rain = totem.Ballista && BallistaRain(player, gem.Effect);
+            if (arc || rain || nova || curse is not null)
             {
                 session.Runtime.Schedule(Math.Max(session.Runtime.Now, ProjectileRuntime.Time(totem.NextCast)), () =>
                 {
-                    if (session.Active && ReferenceEquals(lifetime, CombatLifetime) && SpellTotemCurrent(player, totem)
-                        && player.Area.Monsters.GetValueOrDefault(target.Id) == target.Monster)
+                    if (!session.Active || !ReferenceEquals(lifetime, CombatLifetime) || !SpellTotemCurrent(player, totem))
+                        return;
+                    if (curse is not null)
+                    {
+                        if (curse.Mark && player.Area.Monsters.GetValueOrDefault(target.Id) != target.Monster) return;
+                        double releasedAt = session.Runtime.Now / (double)ProjectileRuntime.QuantaPerSecond;
+                        var linked = SupportedSkill(player, totem.SkillId);
+                        var caster = TotemCasterStats(CharacterPlayerStats(player));
+                        ApplyCurseTargetsLocked(player, totem.SkillId, linked, curse, aim, target.Id, releasedAt, caster);
+                        session.Enqueue(() => EnemyDebuffsTick(player, releasedAt));
+                    }
+                    else if (nova)
+                    {
+                        int radius = SkillRadius(player, SupportedSkill(player, totem.SkillId).Stats, spell: true, gem.Effect);
+                        ReleaseTotemNova(player, session, totem, radius, sequence, SkillArtVariation(player, gem.Gem));
+                    }
+                    else if (rain)
+                        ReleaseArrowRain(session, totem.SkillId, gem, aim, CaptureSkillCriticalRoll(player, totem.SkillId),
+                            sequence, mirage: false, transform: null, podDamageFactor: 1, totem);
+                    else if (player.Area.Monsters.GetValueOrDefault(target.Id) == target.Monster)
                         ReleaseArcTotem(player, session, totem, target.Id, sequence);
                 });
                 continue;
