@@ -52,7 +52,8 @@ static class Act6Objects
 static class Act6Npcs
 {
     public const string NessaMudFlats = "Metadata/NPC/Act6/NessaMudFlats", NessaPrisonersGate = "Metadata/NPC/Act6/NessaPrisonersGate",
-        NessaMerveilsCaverns = "Metadata/NPC/Act6/NessaMerveilsCaverns", WeylamBeacon = "Metadata/NPC/Act6/WeylamBeacon",
+        NessaMerveilsCaverns = "Metadata/NPC/Act6/NessaMerveilsCaverns", NessaBrineKing = "Metadata/NPC/Act6/NessaBrineKing",
+        WeylamBeacon = "Metadata/NPC/Act6/WeylamBeacon",
         WeylamReef1 = "Metadata/NPC/Act6/WeylamReef1", WeylamReef2 = "Metadata/NPC/Act6/WeylamReef2",
         SinTukohama = "Metadata/NPC/Act6/SinTukohama", SinShavronne = "Metadata/NPC/Act6/SinShavronne",
         SinAbberath = "Metadata/NPC/Act6/SinAbberath", SinRyslatha = "Metadata/NPC/Act6/SinRyslatha",
@@ -108,16 +109,18 @@ sealed class Act6 : Act
                 On.Seen(BrineKingsReef, Act6Monsters.BrineKing, "a6q1-SeenBoss"),
                 On.Killed(BrineKingsReef, Act6Monsters.BrineKing, "a6q1-KilledBoss"),
                 On.Appears(BrineKingsReef, Act6Monsters.BrineKing, Act6Npcs.SinBrineKing, "SinBrineKingReward", stayAfterReward: true),
+                On.Appears(BrineKingsReef, Act6Monsters.BrineKing, Act6Npcs.NessaBrineKing, "a6q1-Congratulated", stayAfterReward: true),
             },
             // a6q2 "Essence of Umbra": Shavronne the Returned and Reassembled Brutus in her tower (boss1.arm
-            // mapboss1/mapboss2); her death sets KilledBoss (the gate of Prisoner's Gate and the forests; which death sets it
-            // is not in the data: hers, the quest's name). Sin harvests her soul (SinShavronne, 995: no god). Tarkleigh's
-            // "Shavronne Reward" is offer 40.
+            // mapboss1/mapboss2); both must fall for KilledBoss (the gate of Prisoner's Gate and the forests). Sin harvests
+            // her soul (SinShavronne, 995: no god). Tarkleigh's "Shavronne Reward" is offer 40.
             new Quest("a6q2")
             {
                 On.Seen(ShavronnesTower, Act6Monsters.Shavronne, "a6q2-SeenBoss"),
-                On.Killed(ShavronnesTower, Act6Monsters.Shavronne, "a6q2-KilledBoss"),
+                On.Seen(ShavronnesTower, Act6Monsters.Brutus, "a6q2-SeenBoss"),
+                On.KilledAll(ShavronnesTower, [Act6Monsters.Shavronne, Act6Monsters.Brutus], "a6q2-KilledBoss"),
                 On.Appears(ShavronnesTower, Act6Monsters.Shavronne, Act6Npcs.SinShavronne, "SinShavronneReward", stayAfterReward: true),
+                On.Appears(ShavronnesTower, Act6Monsters.Brutus, Act6Npcs.SinShavronne, "SinShavronneReward", stayAfterReward: true),
             },
             // a6q3 "The Father of War": the Dishonoured Queen (floodedcave.arm mapboss1, with three Forgotten Warriors) drops
             // the Eye of Conquest (wiki; KaruiEye.it: grant a6q3-HaveItem, remove a6q3-DeliveredItem), which opens the totem
@@ -131,10 +134,12 @@ sealed class Act6 : Act
                 On.Near(MudFlatsAct6, Act6Objects.MudFlatsKaruiDoor, "a6q3-SeenEntrance"),
                 On.Drops(MudFlatsAct6, Act6Monsters.DishonouredQueen, Act6Items.EyeOfConquest),
                 On.Object(MudFlatsAct6, Act6Objects.MudFlatsKaruiDoor, "a6q3-DeliveredItem"),
+                On.Blocker(MudFlatsAct6, Act6Objects.MudFlatsKaruiDoor, 4, "a6q3-DeliveredItem"),
                 On.UsedWith(MudFlatsAct6, Act6Objects.MudFlatsKaruiDoor, ["a6q3-HaveItem"], "a6q3-DeliveredItem"),
                 On.Exit(MudFlatsAct6, KaruiFortress, "a6q3-DeliveredItem"),
                 On.Near(KaruiFortress, Act6Objects.FortressKaruiDoor, "a6q3-SeenExit"),
                 On.Object(KaruiFortress, Act6Objects.FortressKaruiDoor, "a6q3-KilledBoss"),
+                On.Blocker(KaruiFortress, Act6Objects.FortressKaruiDoor, 4, "a6q3-KilledBoss"),
                 On.Seen(KaruiFortress, Act6Monsters.Tukohama, "a6q3-SeenBoss"),
                 On.Killed(KaruiFortress, Act6Monsters.Tukohama, "a6q3-KilledBoss"),
                 On.Exit(KaruiFortress, Ridge, "a6q3-KilledBoss"),
@@ -142,10 +147,11 @@ sealed class Act6 : Act
                 On.Exists(Act6Objects.LillyShip, until: "a6q3-KilledBoss"),
             },
             // a6q4 "Fallen from Grace": Lilly's task, then every monster of The Twilight Strand dies ("Clear the Twilight
-            // Strand"). Her "Twilight Strand Reward" (offer 42) is a Book of Regrets (QSR 16: 2 respec).
+            // Strand", even if cleared before speaking to Lilly). Her "Twilight Strand Reward" (offer 42) is a Book of Regrets
+            // (QSR 16: 2 respec).
             new Quest("a6q4")
             {
-                On.Cleared(TwilightStrandAct6, "a6q4-QuestReceived", "a6q4-AreaCleared"),
+                On.Cleared(TwilightStrandAct6, null, "a6q4-AreaCleared"),
             },
             // a6q5 "Bestel's Epic": the storage chest on The Tidal Island's wreck (medicine_boat_1/2.arm, Chests 207) holds the
             // manuscript (remove_flag a6q5-DeliveredItem: Bestel's 934 takes it). Offer 43.
@@ -154,7 +160,9 @@ sealed class Act6 : Act
                 On.Chest(TidalIslandAct6, Act6Objects.BestelChest, Act6Items.BestelsManuscript),
             },
             // a6q6 "The Puppet Mistress": Ryslatha in The Wetlands (bossfight.arm mapboss): her Pantheon unlock, and Sin
-            // (1000). Tarkleigh's "Puppet Mistress Reward" (offer 44) is a Book of Skill.
+            // (1000). On.Forms keeps LaterFormPoints[Ryslatha] for RyslathaEncounter (which spawns Ryslatha active from
+            // pull alongside her 3 nests; FormQuestBosses skips duplicating an already-spawned boss). Tarkleigh's
+            // "Puppet Mistress Reward" (offer 44) is a Book of Skill.
             new Quest("a6q6")
             {
                 On.Forms(WetlandsAct6, [RyslathaEncounter.Nest], Act6Monsters.Ryslatha),
@@ -163,14 +171,15 @@ sealed class Act6 : Act
                 On.Appears(WetlandsAct6, Act6Monsters.Ryslatha, Act6Npcs.SinRyslatha, "SinRyslathaReward", stayAfterReward: true),
             },
             // a6q7 "The Cloven One": Abberath fights at Prisoner's Gate in two phases (bossphase1/2.arm, mapboss1WG /
-            // mapboss2WG); the second phase's death sets KilledBoss (inferred: the final death), his Pantheon unlock, and Sin
-            // appears (997; the flag's Id is spelt SinAberrathReward). Bestel's "Abberath Reward" (offer 45) is a Book of
-            // Skill.
+            // mapboss2WG; On.Forms keeps LaterFormPoints[Abberath2] for AbberathEncounter, which drives the 50% HP
+            // canyon retreat and Phase 2 emergence without duplicating); the second phase's death sets KilledBoss, his
+            // Pantheon unlock, and Sin appears (997; the flag's Id is spelt SinAberrathReward). Bestel's "Abberath
+            // Reward" (offer 45) is a Book of Skill.
             new Quest("a6q7")
             {
+                On.Forms(PrisonersGateAct6, [Act6Monsters.Abberath], Act6Monsters.Abberath2),
                 On.Seen(PrisonersGateAct6, Act6Monsters.Abberath, "a6q7-SeenBoss"),
                 On.Seen(PrisonersGateAct6, Act6Monsters.Abberath2, "a6q7-SeenBoss"),
-                On.Forms(PrisonersGateAct6, [Act6Monsters.Abberath], Act6Monsters.Abberath2),
                 On.Killed(PrisonersGateAct6, Act6Monsters.Abberath2, "a6q7-KilledBoss"),
                 On.Appears(PrisonersGateAct6, Act6Monsters.Abberath2, Act6Npcs.SinAbberath, "SinAberrathReward", stayAfterReward: true),
             },

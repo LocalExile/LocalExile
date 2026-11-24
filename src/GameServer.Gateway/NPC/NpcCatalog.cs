@@ -148,7 +148,7 @@ public sealed class NpcCatalog
     /// <summary>An NPC standing in a town: its NPCs.dat Id, cell and facing (radians); optionally the model and fixed
     /// height its town room gives it and a Transitionable state other than the type's.</summary>
     public sealed record Placement(string Id, int X, int Y, float Rotation, string? Model = null, float? Height = null,
-        byte? TransitionState = null)
+        byte? TransitionState = null, string? ShownBy = null, string? GoneWith = null)
     {
         /// <summary>A town room's own line (TownNpcs): it may stand on a cell the walk map blocks (a stall, a pier).</summary>
         public bool FromRoom { get; init; }

@@ -50,6 +50,13 @@ public static partial class Game
         if (alive || !progress.Bosses.IsSubsetOf(progress.Killed)) return;
         progress.Completed = true;
         Console.WriteLine($"[gateway] {run.Owner} map run {run.Run} completed: {run.Area.Id}");
+        // Epilogue a11q1 ("A Call to Arms"): killing a Map Boss grants league quest flag 1037 to players in this map.
+        foreach (var member in Program.InGame.Keys.Where(c => ReferenceEquals(c.Instance, instance)
+            && !c.Closed && !c.LeavingArea && !c.Character.LeagueQuestFlags.Contains(1037)))
+            await SetLeagueQuestFlags(member, [1037]);
+        // Divine Vessel soul capture: deposit the filled CapturedVessel into the owner's Map Device inventory.
+        if (run.PantheonSoul is { } soul && ItemsFor(player).Find(soul.VesselItemId) is { Supported: true } vesselType)
+            await DepositCapturedPantheonSoul(player, run.Owner, vesselType);
         foreach (var visitor in Program.InGame.Keys.Where(c => c.MapPortalRun?.Run == run.Run
             && c.Connection.PlayerSent && !c.Closed && !c.LeavingArea))
         {
@@ -62,6 +69,36 @@ public static partial class Game
             {
                 // A visitor disconnected; the next listing still reads this run's completed state.
             }
+        }
+    }
+
+    static async Task DepositCapturedPantheonSoul(Player context, string ownerName, ItemCatalog.BaseType vesselType)
+    {
+        var owner = Program.InGame.Keys.FirstOrDefault(p => !p.Closed
+            && string.Equals(CharacterName(p), ownerName, StringComparison.OrdinalIgnoreCase));
+        var ownerItems = owner is not null ? ItemsOf(owner) : PlayerInventories.For(ownerName, ItemsFor(context));
+        byte targetRow = PlayerInventories.MapDevice;
+        var cell = ownerItems.FreeCell(targetRow, (byte)vesselType.Width, (byte)vesselType.Height, ShapeOf);
+        if (cell is null)
+        {
+            targetRow = PlayerInventories.MainInventory;
+            cell = ownerItems.FreeCell(targetRow, (byte)vesselType.Width, (byte)vesselType.Height, ShapeOf);
+        }
+        if (cell is not { } at)
+        {
+            Console.WriteLine($"[gateway] {ownerName}: no room in Map Device or inventory for {vesselType.Name}");
+            return;
+        }
+        var placed = ownerItems.Add(targetRow, at.X, at.Y, ItemCatalog.Create(vesselType));
+        Console.WriteLine($"[gateway] {ownerName}: captured {vesselType.Name} ({vesselType.Id}) into row {targetRow} at ({at.X}, {at.Y})");
+        if (owner is not null && !owner.Closed)
+        {
+            await Send(owner, InstanceItems.InventoryChange(PlayerInventories.InventoryId(targetRow),
+                ownerItems.NextRevision(targetRow), [], [placed]),
+                $"0x00bf inventory {PlayerInventories.InventoryId(targetRow)}: captured {vesselType.Name}");
+            string where = targetRow == PlayerInventories.MapDevice ? "your Map Device" : "your inventory";
+            await Send(owner, InstanceChat.ChatLine($"Captured {vesselType.Name} in {where}."),
+                $"0x0017 chat line: captured {vesselType.Name}");
         }
     }
 

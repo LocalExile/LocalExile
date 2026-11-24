@@ -2965,6 +2965,13 @@ public static partial class Game
         int damage = 0, chaosDamage = 0, physicalDamage = 0;
         var ailmentTaken = DamagePacket.Empty;
         int sourceTakenPct = DamageTakenFromBlindedPct(player, id, stats) + DamageTakenFromMonster(m, stats);
+        bool hitRecently = player.RecentEvents.Happened(StatConditions.BeenHit, now);
+        int pantheonElemTakenPct = hitRecently
+            ? StatOf(Stat.ElementalDamageTakenPlusPctIfBeenHitRecently)
+            : StatOf(Stat.ElementalDamageTakenPlusPctIfNotHitRecently);
+        bool isAreaHit = a.AreaRadius > 0 || a.Projectile is { AreaRadius: > 0 } || a.Projectile is { Lobbed: true };
+        bool halfAreaDamage = isAreaHit && StatOf(Stat.TakeHalfAreaDamageFromHitPctChance) is int halfAreaChance and > 0
+            && GameServer.Core.World.RandomRolls.Chance(halfAreaChance, 100, player.IncomingHitRandom);
         double reservationFactor = ReservationHitTakenFactor(player, m, now);
         foreach (var (type, range) in mitigated.Components)
         {
@@ -2979,9 +2986,11 @@ public static partial class Game
             if (!immune.Contains(type)) value = Math.Max(0, value + PlayerDamageTaken.Flat(type, attack: attackHit, StatOf));
             if (type == DamageType.Physical)
                 value = AntiquarianEffects.RangedPhysical(value, a.Ranged, StatOf);
+            int extraTakenPct = sourceTakenPct + (DamageTypes.IsElemental(type) ? pantheonElemTakenPct : 0);
             value = (int)Math.Round(value * player.ElementalAilments.DamageTakenFactor(now,
-                    sourceTakenPct + PlayerDamageTaken.IncreasedPct(type, melee: !a.Ranged && attackHit, StatOf, spell: spellHit, projectile: projectile))
+                    extraTakenPct + PlayerDamageTaken.IncreasedPct(type, melee: !a.Ranged && attackHit, StatOf, spell: spellHit, projectile: projectile))
                 * reservationFactor * ReservationTypedHitTakenFactor(player, type, now)
+                * (halfAreaDamage ? 0.5 : 1.0)
                 * (blocked ? PlayerDamageTaken.BlockedPct(type, StatOf) / 100.0 : 1));
             // Suppression prevents calculated damage. Armour must see the unsuppressed hit, and flat taken damage
             // belongs to that hit too (as in the synthetic spell-hit path).
@@ -3029,7 +3038,7 @@ public static partial class Game
         AlternateAilmentsOnPlayerLocked(player, m, ailmentTaken.Select((_, r) =>
             new(FortificationDamageTakenLocked(player, (int)r.Min, now, stats), FortificationDamageTakenLocked(player, (int)r.Max, now, stats))), blocked, now, stats, incomingAilments);
         ApplyMonsterDamagingAilmentsLocked(player, id, m, baseHit, blocked, now, attack: attackHit, prepared: stats,
-            skillPoisonChance: a.PoisonChance, skillPoisonSeconds: a.PoisonSeconds);
+            skillPoisonChance: a.PoisonChance, skillPoisonSeconds: a.PoisonSeconds, critical: monsterCritical);
         ApplyMonsterDecayLocked(player, id, m, blocked, now, stats);
         ApplyCorruptedBloodOnHit(player, a, baseHit, blocked, now, stats);
         // Monster on-hit charge gains (of Frenzy, of Power, species charge-on-hit, of Enervation).
@@ -3059,8 +3068,16 @@ public static partial class Game
             && SpiritChieftainsWhenHitLocked(player, stats, blocked, monsterCritical, Math.Max(0, lifeBefore - player.PlayerLife));
         PlayerRecoveryIntent? recovery = null;
         bool alwaysStun = m.Effects[Stat.AlwaysStun] > 0;
-        if (!blocked && player.PlayerLife > 0 && (alwaysStun || (!a.Ranged && a.Damage.Components.All(c => c.Type == DamageType.Physical))))
+        bool stunEligible = alwaysStun || (!a.Ranged && a.Damage.Components.All(c => c.Type == DamageType.Physical));
+        if (!blocked && player.PlayerLife > 0 && stunEligible)
             recovery = CommitPlayerHitRecoveryLocked(player, alwaysStun ? Math.Max(damage, (int)player.PlayerMaxLife) : damage, now);
+        else if (blocked && player.PlayerLife > 0 && stunEligible
+            && StatOf(Stat.CannotBeStunnedIfHaveBeenStunnedOrBlockedStunningHitInPast2Seconds) != 0)
+        {
+            int stunCheckDamage = alwaysStun ? (int)player.PlayerMaxLife : Math.Max(rawDamage, damage);
+            if (alwaysStun || AreaRng(player).NextDouble() * 100 < PlayerHitRecovery.Chance(stunCheckDamage, player.PlayerMaxLife, StatOf))
+                player.LastStunnedOrBlockedStunAt = now;
+        }
         else if (AntiquarianEffects.StunRecoverySource is var turtle && stats.GetValueOrDefault(turtle) > 0)
             Console.WriteLine($"[gateway] Turtle Shell hit ineligible: block={blocked}, ranged={a.Ranged}, "
                 + $"alive={player.PlayerLife > 0}, types={string.Join(',', a.Damage.Components.Select(c => c.Type))}");

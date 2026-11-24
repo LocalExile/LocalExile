@@ -80,6 +80,8 @@ public sealed class IncomingDamagingAilments
     {
         if (now < poisonProtectedUntil) return false;
         if (!(perSecond > 0) || !(seconds > 0)) return false;
+        if (victim is not null && victim(Stat.CannotBePoisonedIfXPoisonsOnYou) is int poisonCap and > 0
+            && PoisonStacks(now) >= poisonCap) return false;
         seconds *= SelfDuration(victim, bleed: false);
         if (!reflected) seconds *= durationFactor;
         if (!(seconds > 0)) return false;
@@ -145,7 +147,7 @@ public sealed class IncomingDamagingAilments
         int poisonMaxResistance, bool immune, bool physicalImmune, bool chaosImmune,
         Func<double, double, double> movingSeconds,
         ref double nonChaosBypassCarry, ref double chaosBypassCarry, double dotTakenFactor = 1,
-        Func<int, double, int>? damageChaos = null)
+        Func<int, double, int>? damageChaos = null, bool inCausticCloud = false)
     {
         Reconcile(get);
         from = Math.Max(from, last);
@@ -216,13 +218,16 @@ public sealed class IncomingDamagingAilments
             poisonTakenFraction = 0;
         }
 
+        bool movedInInterval = movingSeconds(from, until) > 0;
         int less = IncomingResourceDefences.LessTakenPct(pools, get);
         int bleedRaw = IncomingResourceDefences.TakenOverTime(bleedMitigated, get, ref bleedTakenFraction, less,
-            typedIncreasedPct: get(Stat.PhysicalDamageTakenPlusPct),
+            typedIncreasedPct: get(Stat.PhysicalDamageTakenPlusPct)
+                + (movedInInterval ? get(Stat.PhysicalDamageOverTimeTakenPlusPctWhileMoving) : 0),
             reductionPct: ChargeEffects.Reduction(get).Physical,
             finalTakenPct: get(IncomingResourceDefences.UnhingedSaneDamageFinal));
         int poisonRaw = IncomingResourceDefences.TakenOverTime(poisonMitigated, get, ref poisonTakenFraction, less,
-            typedIncreasedPct: get(Stat.ChaosDamageTakenPlusPct),
+            typedIncreasedPct: get(Stat.ChaosDamageTakenPlusPct)
+                + (inCausticCloud ? get(Stat.ChaosDamageTakenOverTimePlusPctWhileInCausticCloud) : 0),
             finalTakenPct: get(IncomingResourceDefences.UnhingedSaneDamageFinal));
 
         Prune(until);

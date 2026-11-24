@@ -45,7 +45,8 @@ Part of [Status](../Status.md); what to build next in this area is in
   The shared routing and overlap correction covers spawned NPCs in towns and hideouts.
   Native walking respected the three NPCs and both stashes in Lioneye's Watch; the guild stash receives
   its native HaveGuild access flag when locally available, so its client collision matches the server.
-  League NPCs and later quest stages are not placed ([17](../docs/protocol/17-npcs.md) §2).
+  Act 6 Lilly's post-Tukohama move, Act 8 Tolman, Nessa at Brine King, Yeena at Arakaali and Epilogue Kirac/Helena are
+  placed; league NPCs and remaining quest-stage variants are not placed ([17](../docs/protocol/17-npcs.md) §2).
   Niko also stands in Act 4 Highgate at the player's confirmed position and facing.
   Clicking walks to them and opens the dialogue window (S→C 0x84); talk options play (0x82 → 0x84 + index);
   Continue and Goodbye (C→S 0x85) are answered; Purchase Items opens the shop (S→C 0xc0 manager 1 + 0x8c) and buying

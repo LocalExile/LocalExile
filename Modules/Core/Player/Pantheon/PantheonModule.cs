@@ -1,5 +1,6 @@
 using System.Net.Sockets;
 using System.Text.Json.Nodes;
+using GameServer.Core;
 using GameServer.Core.Protocol.Instance;
 using GameServer.Core.Protocol.Login;
 using GameServer.Modding;
@@ -26,6 +27,7 @@ public sealed class PantheonModule : IModule
             await PantheonRules.ChooseGod(player, InstancePantheon.ReadChooseGod(bytes.AsSpan()));
             return true;
         });
+        GameEvents.NpcOptionPicked.Add(module.Manifest.Id, PantheonRules.UnlockSoulFromItem);
         GameEvents.PlayerStatSources.Add(module.Manifest.Id, PantheonRules.WithGods);
         GameEvents.StateBuilding.Add(module.Manifest.Id, (player, state) => state["pantheon"] = PantheonRules.Json(player));
         GameEvents.CommandsBuilding.Add(module.Manifest.Id, (commands, player) => commands
@@ -96,12 +98,53 @@ static class PantheonRules
             $"0x02bc player Pantheon: major {major}, minor {minor} ({why})");
     }
 
+    /// <summary>Sin's <c>UnlockPantheonPowerFromItem()</c> NPCTalk rows: require and consume the matching filled
+    /// <c>CapturedVessel</c> from the player's main inventory, grant the upgrade flag, and refresh Pantheon stats before
+    /// Sin's audio plays and <c>SendOpenScreen(PantheonScreen)</c> opens the panel.</summary>
+    internal static async Task<bool> UnlockSoulFromItem(Player player, NpcCatalog.Talk talk)
+    {
+        if (!talk.Script.Contains("UnlockPantheonPowerFromItem", StringComparison.Ordinal)) return true;
+        var soul = PantheonCatalog.Default?.SoulByUpgradeFlag(talk.StartFlag);
+        if (soul is null)
+        {
+            Console.WriteLine($"[gateway] {player.Connection.Remote} NPCTalk {talk.Row}: UnlockPantheonPowerFromItem has no PantheonSouls row for {talk.StartFlag}");
+            return false;
+        }
+        if (ClientHasQuestFlag(player, soul.UpgradeFlag))
+        {
+            Console.WriteLine($"[gateway] {player.Connection.Remote} NPCTalk {talk.Row}: UnlockPantheonPowerFromItem skipped ({soul.UpgradeFlag} already unlocked)");
+            return false;
+        }
+        uint vesselHash = InstanceEntities.ObjectTypeHash(soul.VesselItemId);
+        var items = ItemsOf(player);
+        var vessel = items.Items(PlayerInventories.MainInventory).FirstOrDefault(i => i.Item.TypeHash == vesselHash);
+        if (vessel is null)
+        {
+            Console.WriteLine($"[gateway] {player.Connection.Remote} NPCTalk {talk.Row}: UnlockPantheonPowerFromItem refused (missing {soul.VesselItemId})");
+            return false;
+        }
+        if (items.ConsumeOne(PlayerInventories.MainInventory, vessel.Id) is not { } taken)
+            return false;
+        uint inventoryId = PlayerInventories.InventoryId(PlayerInventories.MainInventory);
+        await Send(player, InstanceItems.InventoryChange(inventoryId, items.NextRevision(PlayerInventories.MainInventory),
+            [vessel.Id], taken.Left is { } left ? [left] : []),
+            $"0x00bf inventory {inventoryId}: handed {soul.VesselItemId} to Sin");
+        await SetQuestFlags(player, [soul.UpgradeFlag]);
+        player.Pools = PoolsFor(player, player.Pools.Level);
+        player.ApplyMovementSpeed();
+        await SendCharacterStats(player, PlayerStatChange.Build);
+        Console.WriteLine($"[gateway] {player.Connection.Remote} {CharacterName(player)}: unlocked Pantheon soul {soul.UpgradeFlag} ({soul.VesselItemId})");
+        return true;
+    }
+
     /// <summary>The chosen gods' stats on top of the character's other sources (PantheonCatalog.ChosenStats): a god whose
     /// unlock flag the character lost grants nothing, the souls' upgrades count once EndGameAvailable is earned.</summary>
     internal static Dictionary<uint, int> WithGods(Player player, Dictionary<uint, int> sources)
     {
         foreach (var (key, value) in PantheonCatalog.Default.ChosenStats(player, f => ClientHasQuestFlag(player, f)))
             sources[key] = (int)Math.Clamp((long)sources.GetValueOrDefault(key) + value, int.MinValue, int.MaxValue);
+        if (player.OnBurningGround && sources.GetValueOrDefault(Stat.MovementSpeedPlusPctWhileOnBurningGround) is int burnMove and not 0)
+            sources[Stat.BaseMovementVelocityPlusPct] = (int)Math.Clamp((long)sources.GetValueOrDefault(Stat.BaseMovementVelocityPlusPct) + burnMove, int.MinValue, int.MaxValue);
         return sources;
     }
 
