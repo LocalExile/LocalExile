@@ -2933,7 +2933,8 @@ public static partial class Game
                     var gambler = GamblerFor(playerStats);
                     var rolled = WithConditionalSupportDamageLocked(player, skillStats, !spell, m,
                         GameEvents.WithOutgoingDamage(player, playerStats, m, WithIntimidatingCryExert((gambler with { DamageMorePct = 0 })
-                            .ForSkill(Stat, spell, finalRepeat: repeat == SpellRepeats(player, skillId, gem.Effect)), cryExerted == true)
+                            .ForSkill(Stat, spell, finalRepeat: repeat == SpellRepeats(player, skillId, gem.Effect),
+                                intelligence: player.Pools.Intelligence), cryExerted == true)
                             .ForWeapon(weaponLocal).RollOutgoingHit(contactHit, AreaRng(player))),
                         ProjectileWorldTime(player));
                     // Hallow: an attack against an enemy affected by Hallowing Flame gains its share of physical damage as
