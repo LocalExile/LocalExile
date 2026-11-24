@@ -43,7 +43,7 @@ public sealed class HarvestModule : IModule, IDisposable
         });
         GameEvents.FeatureFilled.Add(module.Manifest.Id, (_, row) => SacredGrove.FeatureRows.Contains(row));
         GameEvents.MapOpening.Add(module.Manifest.Id, SacredGrove.Opening);
-        GameEvents.AreaGenerated.Add(module.Manifest.Id, async player =>
+        GameEvents.PlayerEntered.Add(module.Manifest.Id, async player =>
         {
             await SacredGrove.Enter(player);
             await OshabiEncounter.Enter(player);

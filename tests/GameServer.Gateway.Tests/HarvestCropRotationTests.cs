@@ -6,7 +6,9 @@ using GameServer.Core.Accounts;
 using GameServer.Core.Protocol.Instance;
 using GameServer.Core.Protocol.Login;
 using GameServer.Data.Terrain.Generation;
+using GameServer.Modding;
 using GameServer.Modules.Harvest;
+using League = GameServer.Core.Accounts.League;
 
 namespace GameServer.Gateway.Tests;
 
@@ -247,6 +249,39 @@ public sealed class HarvestCropRotationTests
         var reloadPackets = ParsePackets(await reloadWire.ReadAllAsync());
         var reloadedExtractor = reloadPackets.Single(p => p.Id == InstanceEntities.CreateObjectId && p.EntityId == sampleUp.Extractor);
         Assert.Equal(expectedBlob, reloadedExtractor.Blob);
+
+        // Death / portal re-entry via GameEvents.PlayerEntered: returning player on a new socket in the same instance
+        // still receives HarvestRules and all grove objects through HarvestModule's PlayerEntered subscription.
+        using var module = new HarvestModule();
+        using var context = new HarvestTestContext();
+        try
+        {
+            module.Load(context);
+            await using var reentryWire = new CaptureWire();
+            var returning = NewConn(layout, instance, chosenSeed, reentryWire);
+            await GameEvents.RunPlayerEntered(returning);
+            reentryWire.CloseWriter();
+            var reentryPackets = ParsePackets(await reentryWire.ReadAllAsync());
+            Assert.Contains(reentryPackets, p => p.Id == InstanceProtocol.AddRulesetId);
+            Assert.Contains(reentryPackets, p => p.Id == InstanceEntities.CreateObjectId && p.EntityId == sampleUp.Extractor);
+        }
+        finally
+        {
+            for (int rank = 0; rank <= 3; rank++) GameEventOwners.Release("Harvest", rank);
+        }
+    }
+
+    sealed class HarvestTestContext : IModuleContext, IDisposable
+    {
+        readonly ModuleLifetime lifetime = new("Harvest");
+        public GameServer.Modding.ModManifest Manifest => new("Harvest", "1.0.0", GameServer.Modding.ModKind.Feature, ["Game"], "harvest.dll");
+        public IModuleLifetime Lifetime => lifetime;
+        public string Folder => "";
+        public void Log(string message) { }
+        public T Settings<T>() => throw new NotSupportedException();
+        public void SaveSettings<T>(T settings) => throw new NotSupportedException();
+        public void ProvideLeagueRules(Func<LeagueRules> rules) { }
+        public void Dispose() => lifetime.Stop(e => throw e);
     }
 
     [Fact]

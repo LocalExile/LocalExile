@@ -51,7 +51,8 @@ public sealed class PlayerHitRecovery
         name.StartsWith("cannot_be_stunned_", StringComparison.Ordinal)
             && id is not (Stat.CannotBeStunnedByAttacks or Stat.CannotBeStunnedByHitsOfOnlyPhysicalDamage
                 or Stat.CannotBeStunnedBySpells or Stat.CannotBeStunnedBySuppressedSpellDamage or Stat.CannotBeStunnedByBlockedHits
-                or Stat.CannotBeStunnedWhileLeeching)
+                or Stat.CannotBeStunnedWhileLeeching
+                or Stat.CannotBeStunnedIfHaveBeenStunnedOrBlockedStunningHitInPast2Seconds)
         || name.StartsWith("base_cannot_be_stunned_", StringComparison.Ordinal)
         || name.Contains("avoid_stun", StringComparison.Ordinal) && id is not (Stat.AvoidStunPct or Stat.BaseAvoidStunPct)
         || name.Contains("stun_avoid", StringComparison.Ordinal)

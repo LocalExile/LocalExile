@@ -584,10 +584,22 @@ public static partial class Game
                 if (Stat.TotalSkillAreaOfEffectRadiusPlusPctIncludingFinal is var scaleKey) stats[scaleKey] = radiusPercent;
                 if (Stat.SkillAreaOfEffectPlusPct is var areaKey) stats[areaKey] = increased;
             }
-            // Other area skills: the client's effect builders read the final radius (0x4876) too; without it Ice Nova drew
-            // nothing (live 2026-10-30). The radius the server's hit uses (SkillRadius, AreaSkillHit).
-            else if (Get(Stat.ActiveSkillBaseAreaOfEffectRadius) > 0 && Stat.ActiveSkillAreaOfEffectRadius is var finalRadius)
-                stats[finalRadius] = SkillRadius(player, own, SkillsFor(player).IsSpell(effect), effect);
+            // Other area skills (slams, sweeps, area spells): the client reads final radius (0x4876) as well as
+            // total_skill_area_of_effect_radius_+%_including_final (0x1591) and skill_area_of_effect_+% (0xd7) for
+            // visual scaling; publishing all three aligns client visuals with server SkillRadius.
+            else if (Get(Stat.ActiveSkillBaseAreaOfEffectRadius) > 0 || SkillsFor(player).IsArea(effect))
+            {
+                bool spellArea = SkillsFor(player).IsSpell(effect) && !SkillsFor(player).IsAttack(effect);
+                var areaStats = SkillAreaStats(player, own, effect, playerStats);
+                int AreaGet(uint key) => areaStats.GetValueOrDefault(key);
+                int baseRadius = SkillArea.BaseRadius(SkillsFor(player).EffectId(effect), AreaGet);
+                if (Stat.ActiveSkillAreaOfEffectRadius is var finalRadius)
+                    stats[finalRadius] = SkillArea.Radius(baseRadius, AreaGet, spellArea);
+                if (Stat.TotalSkillAreaOfEffectRadiusPlusPctIncludingFinal is var scaleKey)
+                    stats[scaleKey] = SkillArea.RadiusPercent(AreaGet, spellArea);
+                if (Stat.SkillAreaOfEffectPlusPct is var areaKey)
+                    stats[areaKey] = SkillArea.Increased(AreaGet, spellArea);
+            }
             // The final secondary radius too (0x4879): Holy Sweep's hammer art scales to it over its base size
             // (0x1414f44b0, 0x1414f50e0), and at 0 the hammers were drawn at scale 0, never seen (live 2026-11-09).
             if (Get(Stat.ActiveSkillBaseSecondaryAreaOfEffectRadius) > 0
@@ -903,10 +915,10 @@ public static partial class Game
     public static string? SkillBarEntry(Player player, ushort skillId) =>
         skillId == 0 ? "" : SkillEffectId(player, skillId) ?? (SkillsFor(player).ActionName(skillId) is { } a ? "Action/" + a : null);
 
-    // The saved skill bar as the player's current skill ids, sent with S→C 0x53 together with the saved per-slot option
-    // masks (0x53 sets them, so 0 would clear "Always Attack Without Moving"). The default attack goes on slot 0 (left
-    // mouse button) only when nothing at all was saved for that slot; nothing is sent without a saved bar, so the client
-    // keeps its own default.
+    // The saved skill bar as the player's current skill ids, sent with S→C 0x53 together with the per-slot option
+    // masks (0x53 sets them, so 0 would clear "Always Attack Without Moving": a slot the player never touched is sent
+    // its skill's own default, AttackInPlaceDefaults). The default attack goes on slot 0 (left mouse button) only when
+    // nothing at all was saved for that slot; nothing is sent without a saved bar, so the client keeps its own default.
     public static Task SendSkillBar(Player player) =>
         Send(player, [], "0x0053 current skill bar", atGate: () => SkillBarRecord(player));
 
@@ -940,12 +952,11 @@ public static partial class Game
     }
 
     // A bind received while an earlier refresh waits for the send gate must win over that refresh.
-    internal static byte[]? SkillBarRecord(Player player)
+    // The skill ids the saved bar names, slot by slot: a slot's save names a GrantedEffects Id or a basic action, since
+    // the ids themselves change with the socketed gems. Taken out of SkillBarRecord so the slot options can be read
+    // against the same bar (AttackInPlaceDefaults).
+    public static ushort[] SkillBarIds(Player player, IReadOnlyDictionary<int, string>? saved)
     {
-        FillSkillBar(player);
-        var save = CharacterSaves.Load(CharacterName(player));
-        var saved = save?.SkillBar;
-        if (saved is not { Count: > 0 } && GameEvents.ExtraSkills(player).Count == 0) return null;
         var ids = new ushort[InstanceProtocol.SkillBarSlots];
         var byEffect = GemSkillEffects(player).Select(g => (g.Id, Effect: SkillsFor(player).EffectId(g.Effect)))
             .Append((Id: SkillCatalog.FirstSkillId, Effect: SkillEffectId(player, SkillCatalog.FirstSkillId)))
@@ -959,7 +970,32 @@ public static partial class Game
             }
         if (saved is not { Count: > 0 } || !saved.ContainsKey(0)) ids[0] = SkillCatalog.FirstSkillId;
         foreach (var build in GameEvents.SkillBarBuilding.For(player)) build(player, ids);
-        ushort attackInPlace = save?.AttackInPlaceSlots ?? 0, mask52 = save?.SkillBarMask52 ?? 0;
+        return ids;
+    }
+
+    // The "Always Attack Without Moving" bits a slot carries by its skill's own data: ActiveSkillType
+    // AttackInPlaceIsDefault (row 82; artillery_ballista's ActiveSkills row carries it, the default attack's does
+    // not). The client ticks such a box itself, and 0x53 overwrites both masks (instance +0xcfd0 / +0xcfd2), so a bar
+    // sent with 0 unticks it -- and then the client's ground press carries no flag 0x0001, its action asks MoveTo for
+    // the aim with the weapon's range instead of for its own cell, and it walks up to a far aim while every following
+    // action start puts it back. The saved mask, once the player has touched a box, always wins.
+    public static ushort AttackInPlaceDefaults(Player player, IReadOnlyList<ushort> ids)
+    {
+        ushort mask = 0;
+        for (int slot = 0; slot < ids.Count && slot < 16; slot++)
+            if (ids[slot] != 0 && GemSkillEffects(player).FirstOrDefault(g => g.Id == ids[slot]) is { Name: not null } gem
+                && SkillsFor(player).HasType(gem.Effect, "AttackInPlaceIsDefault")) mask |= (ushort)(1 << slot);
+        return mask;
+    }
+
+    internal static byte[]? SkillBarRecord(Player player)
+    {
+        FillSkillBar(player);
+        var save = CharacterSaves.Load(CharacterName(player));
+        var saved = save?.SkillBar;
+        if (saved is not { Count: > 0 } && GameEvents.ExtraSkills(player).Count == 0) return null;
+        var ids = SkillBarIds(player, saved);
+        ushort attackInPlace = save?.AttackInPlaceSlots ?? AttackInPlaceDefaults(player, ids), mask52 = save?.SkillBarMask52 ?? 0;
         return InstanceProtocol.SkillBar(ids, attackInPlace, mask52);
     }
 

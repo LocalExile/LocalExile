@@ -629,7 +629,11 @@ public static partial class Game
                 if (animated?.Ground is not null)
                     player.Minions.OutputQueue.Add(new(InstanceProtocol.RemoveObject(animated.Id), "animated item consumed", WorldId: animated.Id, RemovesObject: true));
                 if (animated?.BladeSource is not null)
-                    player.Minions.OutputQueue.Add(new(InstanceProtocol.RemoveObject(animated.Id), "lingering blade animated"));
+                {
+                    bool projectileBlade = player.ProjectileObjects.Remove(animated.Id);
+                    player.Minions.OutputQueue.Add(new(InstanceProtocol.RemoveObject(animated.Id), "lingering blade animated",
+                        WorldId: projectileBlade ? animated.Id : null, RemovesObject: projectileBlade));
+                }
                 if (definition.Family == "AnimatedGuardian") player.Summons.GuardianEquipment = new(fighter.Equipment);
                 double committed = AreaTime(player);
                 double? reformUntil = null;
