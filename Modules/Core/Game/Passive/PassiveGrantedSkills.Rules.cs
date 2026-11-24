@@ -389,8 +389,9 @@ public static partial class Game
                 var (damage, _, mitigated) = MonsterHitDamage(m, rolled, critical, attack: false, hitAt, mods, pen,
                     gambler.InvertsResistance(AreaRng(player)), AreaRng(player));
                 if (critical) damage = DamageModel.CriticalDamage(damage, CriticalMultiplierOn(m, multiplier, playerStats, own));
+                int chaosDamage = MonsterHitChaosDamage(m, mitigated, spell: true, hitAt, damage);
                 var stun = OwnerStun(player, m, damage, mitigated, melee: false, spell: true, critical, playerStats, own);
-                var applied = ApplyMonsterHitLocked(player, m, damage);
+                var applied = ApplyMonsterHitLocked(player, m, damage, null, null, null, default, null, chaosDamage);
                 if (applied is { StageStarts: true } staged)
                 {
                     CommitBossStage(player, id, m, ProjectileWorldTime(player));

@@ -787,7 +787,9 @@ public static partial class Game
         var from = g.Monster.Walk.Position(now);
         var to = target.Walk.Position(now);
         var cull = Cull.Of(effects.Stats, a.Stats, critical, a.Attack.Spell).WithWeapon(g.Weapon?.LocalSources) with { RecoverLifePct = 0 };
-        if (ApplyMonsterHitLocked(player, target, damage, allyAt: from, cull: cull) is not { } hit) return false;
+        int chaosDamage = MonsterHitChaosDamage(target, mitigated, a.Attack.Spell, now, damage, projectileTaken, ignorePhysical);
+        if (ApplyMonsterHitLocked(player, target, damage, rampageSource: null, playerStats: null,
+            allyAt: from, cull: cull, cullPlayer: null, chaosDamage: chaosDamage) is not { } hit) return false;
         if (!a.Attack.Spell && !a.Attack.Secondary && damage > 0)
             MinionGainsLifeOnHitLocked(player, g, a);
         if (damage > 0 && profile is not null)
@@ -1031,7 +1033,7 @@ public static partial class Game
                 double total = resisted * MonsterDamageTaken(m, spell: true, now, chaos: hazard.Type == DamageType.Chaos)
                     + hazard.DamageCarry.GetValueOrDefault(id);
                 int damage = (int)Math.Floor(total); hazard.DamageCarry[id] = total - damage;
-                if (damage <= 0 || ApplyMonsterHitLocked(player, m, damage, allyAt: centre) is not { } hit) continue;
+                if (damage <= 0 || ApplyTypedMonsterHitLocked(player, m, damage, hazard.Type == DamageType.Chaos ? damage : 0, allyAt: centre) is not { } hit) continue;
                 if (hit.StageStarts) { CommitBossStage(player, id, m, now); hit = hit with { StageStarts = false }; }
                 CommitMinionHitLocked(player, id, m, hit, damage, now, $"golem {g.Id:x} ground damage",
                     source: g.Monster, skill: g.Own, fighter: g, damageOverTime: true);

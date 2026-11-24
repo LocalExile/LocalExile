@@ -30,6 +30,7 @@ public static class CharacterVoiceLines
     };
 
     const string EnteredMapsFlag = "EnteredMaps";
+    const string WashedUpFlag = "WashedUp";
 
     // Boss kills whose CharacterAudioEvents flag is a dedicated AudioEventKilled* / side-boss / endgame flag not
     // already set by the campaign quest tables (Acts 2 bandits, Act 4 Voll/Kaom/Daresso/Malachai, Acts 5–10 story
@@ -38,9 +39,7 @@ public static class CharacterVoiceLines
     static readonly Dictionary<string, (string Area, string Flag)[]> BossKillFlags = new(StringComparer.Ordinal)
     {
         // Act 1
-        ["Metadata/Monsters/ZombieDismember/ZombieDrownedStrandWake1"] = [("1_1_1", "AudioEventKilledBiteZombie")],
-        ["Metadata/Monsters/ZombieDismember/ZombieDrownedStrandWake1Standalone"] = [("1_1_1", "AudioEventKilledBiteZombie")],
-        ["Metadata/Monsters/ZombieDismember/ZombieDrownedStrandWake2"] = [("1_1_1", "AudioEventKilledBiteZombie")],
+        ["Metadata/Monsters/Zombies/ZombieBite"] = [("1_1_1", "AudioEventKilledBiteZombie")],
         ["Metadata/Monsters/ZombieBoss/ZombieBossHillockNormal"] = [("1_1_1", "AudioEventKilledHillock")],
         ["Metadata/Monsters/Cannibal/CannibalFemaleBossWitch"] = [("1_1_2", "AudioEventKilledFireFury")],
         ["Metadata/Monsters/Necromancer/NecromancerBossFetidPool"] = [("1_1_3a", "AudioEventKilledKadavrus")],
@@ -149,15 +148,20 @@ public static class CharacterVoiceLines
     public static string? FlagForNpcMeet(string npcId) =>
         NpcMeetFlags.TryGetValue(npcId, out var flag) ? flag : null;
 
-    /// <summary>GameEvents.AreaGenerated: grants special area-entry voice-line flags (Act 4 mines, first Atlas map).</summary>
+    /// <summary>GameEvents.AreaGenerated: grants special area-entry voice-line flags (Act 4 mines, first Atlas map, Twilight Strand intro).</summary>
     public static async Task OnAreaGenerated(Player player)
     {
         if (player.Closed || player.LeavingArea || !player.Connection.PlayerSent) return;
         string areaId = player.Layout.Id;
+        if (areaId == TutorialObjects.Strand && !Game.LyingOnBeach(player))
+            await GrantAudioFlag(player, WashedUpFlag);
         bool isMap = Game.MapDevices.IsMapArea(player.Layout.Hash);
         if (FlagForAreaEntry(areaId, isMap) is { } flag)
             await GrantAudioFlag(player, flag);
     }
+
+    /// <summary>Grants the Twilight Strand wake-up voice-line quest flag (<c>EventWashedUp</c>) when the exile stands up.</summary>
+    public static Task OnWakeUpOnBeach(Player player) => GrantAudioFlag(player, WashedUpFlag);
 
     /// <summary>GameEvents.Kill: schedules boss-kill voice-line quest flags after the kill commits.</summary>
     public static void OnKill(KillContext kill)

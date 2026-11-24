@@ -33,7 +33,9 @@ public static partial class Game
             DamageType Type, double Dps, Visual? Visual);
 
         readonly List<DamageGround> damageGrounds = [];
-        readonly ConditionalWeakTable<SpawnedMonster, PodDamage> groundRemainders = new();
+        sealed class GroundDamageCarry { public double Fire, Chaos; }
+
+        readonly ConditionalWeakTable<SpawnedMonster, GroundDamageCarry> groundRemainders = new();
         bool damageGroundTickScheduled;
         long damageGroundPreviousTick;
 
@@ -136,6 +138,13 @@ public static partial class Game
         {
             double at = to / (double)ProjectileRuntime.QuantaPerSecond;
             double seconds = (to - from) / (double)ProjectileRuntime.QuantaPerSecond;
+            int Accrue(double dps, ref double fraction)
+            {
+                double total = fraction + seconds * dps;
+                double whole = Math.Floor(total);
+                fraction = total - whole;
+                return (int)Math.Clamp(whole, 0, int.MaxValue);
+            }
             foreach (var (id, monster) in monsters)
             {
                 if (!monster.Hostile || monster.Dead || monster.Life == 0) continue;
@@ -148,14 +157,14 @@ public static partial class Game
                     else chaos = Math.Max(chaos, ground.Dps);
                 }
                 if (fire == 0 && chaos == 0) continue;
-                double dps = (fire > 0 ? fire * MonsterDotTaken(monster, DamageType.Fire, at) : 0)
-                    + (chaos > 0 ? chaos * MonsterDotTaken(monster, DamageType.Chaos, at) : 0);
-                var carry = groundRemainders.GetValue(monster, _ => new PodDamage());
-                double total = carry.Fraction + seconds * dps;
-                int damage = (int)Math.Clamp(Math.Floor(total), 0, int.MaxValue);
-                carry.Fraction = total - Math.Floor(total);
+                var carry = groundRemainders.GetValue(monster, _ => new GroundDamageCarry());
+                int fireDamage = fire > 0 ? Accrue(fire * MonsterDotTaken(monster, DamageType.Fire, at), ref carry.Fire) : 0;
+                int chaosDamage = chaos > 0 ? Accrue(chaos * MonsterDotTaken(monster, DamageType.Chaos, at), ref carry.Chaos) : 0;
+                int damage = ActorScale.Saturate((long)fireDamage + chaosDamage);
                 if (damage == 0) continue;
-                var (life, stage) = TakeOwnerDamageLocked(Player, monster, damage);
+                int lifeDamage = AbsorbMonsterEnergyShieldLocked(Player.Area, monster, damage, chaosDamage, at);
+                if (lifeDamage <= 0) continue;
+                var (life, stage) = TakeOwnerDamageLocked(Player, monster, lifeDamage);
                 monster.Life = life;
                 monster.Aggro = life > 0;
                 if (stage) CommitProjectileBossStage(this, id, monster, to);

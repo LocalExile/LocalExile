@@ -90,7 +90,8 @@ public static partial class Game
         var mitigated = DamageModel.Mitigate(offense.Roll(random), type => MonsterHitResistance(t, type, default, now));
         bool ignorePhysical = MinionIgnoresPhysicalReduction(mitigated, m.Effects, t, random, supported?.Stats);
         int damage = MonsterTakesMitigated(t, mitigated, spell: false, now: now, ignorePhysicalReduction: ignorePhysical);
-        if (ApplyMonsterHitLocked(player, t, damage, allyAt: at) is not { } hit) return null;
+        int chaosDamage = MonsterHitChaosDamage(t, mitigated, false, now, damage, ignorePhysicalReduction: ignorePhysical);
+        if (ApplyTypedMonsterHitLocked(player, t, damage, chaosDamage, allyAt: at) is not { } hit) return null;
         if (!t.Dead && damage > 0 && supported is not null && player.Beasts.Active is { } beast)
             MinionExposureOnHitLocked(beast.SkillStats, t, mitigated, now, random);
         return (hit, damage, HitCode(mitigated));

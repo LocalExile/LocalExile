@@ -2218,9 +2218,9 @@ public static partial class Game
     public static (List<byte[]> Packets, bool Leveled) CommitGemExperience(Player player, uint gain,
         List<(byte Row, uint[] Items)>? projectRows = null)
     {
-        if (HardcoreProgressBlocked(player)) return ([], false);
-        int share = LeagueFor(player).Rules.GemExperienceMultiplier is { } gemShare ? LeagueGameplay.GemExperience(gain, gemShare,
-            ref player.Character.GemExperienceCarry) : (int)Math.Min(gain / 10, int.MaxValue);
+        if (gain == 0 || HardcoreProgressBlocked(player)) return ([], false);
+        double gemShare = LeagueFor(player).Rules.GemExperienceMultiplier ?? 1.0;
+        int share = LeagueGameplay.GemExperience(gain, gemShare, ref player.Character.GemExperienceCarry);
         if (share == 0) return ([], false);
         var items = ItemsOf(player);
         var catalog = ItemsFor(player);

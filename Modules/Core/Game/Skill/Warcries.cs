@@ -305,8 +305,10 @@ public static partial class Game
                 foreach (var (targetId, m) in player.Area.MonstersNear(centre, blast).Where(e => e.Value.Hostile && !e.Value.Dead && e.Value.Life > 0
                     && Dist(e.Value.Walk.Position(now), centre) <= blast).ToList())
                 {
-                    int damage = MonsterTakes(m, hit, AreaRng(player), spell: false, now: now);
-                    if (ApplyMonsterHitLocked(player, m, damage) is not { } applied) continue;
+                    var rng = AreaRng(player);
+                    var resisted = DamageModel.Mitigate(hit.Roll(rng), type => MonsterHitResistance(m, type, default, now));
+                    int damage = MonsterTakesMitigated(m, resisted, false, now, random: rng);
+                    if (ApplyTypedMonsterHitLocked(player, m, damage, MonsterHitChaosDamage(m, resisted, false, now, damage)) is not { } applied) continue;
                     if (applied.StageStarts)
                     {
                         CommitBossStage(player, targetId, m, now);
