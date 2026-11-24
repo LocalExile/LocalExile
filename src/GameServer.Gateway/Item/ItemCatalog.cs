@@ -42,6 +42,7 @@ public sealed class ItemCatalog
         _defences = LoadDefences(folder);
         _flasks = LoadFlasks(folder, _rows.Rows, hardMode);
         _utilityFlasks = UtilityFlasks.Load(folder, _rows.Rows, hardMode);
+        _suffixBuffRows = UtilityFlasks.SuffixBuffRows();
         _tinctures = Tinctures.Load(folder, _rows.Rows);
         _onslaught = _utilityFlasks.Values.Select(u => u.Extra).FirstOrDefault(x => x is not null);
         _visualsById = LoadVisualsById(folder);
@@ -486,6 +487,12 @@ public sealed class ItemCatalog
 
     /// <summary>A utility flask's use (<see cref="UtilityFlasks"/>), or null for other types.</summary>
     public UtilityFlasks.Utility? UtilityFlaskOf(BaseType t) => _utilityFlasks.GetValueOrDefault(t.Row);
+
+    /// <summary>The BuffDefinitions row of each "during effect" suffix buff (<see cref="UtilityFlasks.SuffixBuffRows"/>),
+    /// by the character stat it grants: the flask_bonus_* rows, read from the tables once at load.</summary>
+    public IReadOnlyDictionary<uint, ushort> SuffixBuffRows => _suffixBuffRows;
+
+    private readonly Dictionary<uint, ushort> _suffixBuffRows;
 
     private readonly Tinctures.Catalog _tinctures;
 
