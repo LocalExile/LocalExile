@@ -831,7 +831,7 @@ public static partial class Game
         var coefficients = SkillsFor(player).DamageCoefficients(gem.Effect, gem.Level);
         var raw = secondary ? SecondaryRawHit(player, gem, plan.SpellBaseWith(Get), Get)
             : attackWeapon is not null
-            ? SupportedAttackDamage.Raw(attackWeapon, Get, new(WeaponAccuracyFor(player, weapon, caster, gem.Stats)),
+            ? SupportedAttackDamage.Raw(attackWeapon, Get, new(WeaponAccuracyFor(player, weapon, caster, gem.Stats, gem.Effect)),
                 coefficients.Base, coefficients.Added, melee: types.Contains(19) && !SkillsFor(player).RequiresShield(gem.Effect))
             : DamageStats.RawAdded(plan.SpellBaseWith(Get), Get, spell: true, AddedEffectiveness(player, gem.Effect, gem.Level));
         if (!attack && !secondary && Get(Stat.KeystoneBattlemage) != 0
@@ -966,10 +966,10 @@ public static partial class Game
 
     public static AttackAccuracyProfile SupportedAccuracy(Player player, ushort skillId)
     {
-        var own = SupportedSkill(player, skillId).Stats;
+        var gem = SupportedSkill(player, skillId);
         var playerStats = CharacterPlayerStats(player);
-        return AttackAccuracyProfile.From(player.Pools, playerStats, Stats, own, MainHandLocalSources(player))
-            with { Rating = WeaponAccuracyFor(player, null, playerStats, own) };
+        return AttackAccuracyProfile.From(player.Pools, playerStats, Stats, gem.Stats, MainHandLocalSources(player))
+            with { Rating = WeaponAccuracyFor(player, null, playerStats, gem.Stats, gem.Effect) };
     }
 
     public static int SupportedCriticalChance(Player player, ushort skillId) => SupportedCriticalChanceFor(player, skillId, false);

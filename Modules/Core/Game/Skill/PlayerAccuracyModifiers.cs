@@ -44,13 +44,22 @@ public static partial class Game
     // Pools already include main-hand local accuracy. Only a substituted weapon replaces that contribution.
     // A shield damage override has no local weapon packet and uses the ordinary rating.
     public static int WeaponAccuracyFor(Player player, SkillCatalog.Unarmed? weapon,
-        IReadOnlyDictionary<uint, int> playerStats, IReadOnlyDictionary<uint, int>? own = null)
+        IReadOnlyDictionary<uint, int> playerStats, IReadOnlyDictionary<uint, int>? own = null) =>
+        WeaponAccuracyFor(player, weapon, playerStats, own, effect: -1);
+
+    static int WeaponAccuracyFor(Player player, SkillCatalog.Unarmed? weapon,
+        IReadOnlyDictionary<uint, int> playerStats, IReadOnlyDictionary<uint, int>? own, int effect)
     {
-        long Own(uint key) => own?.GetValueOrDefault(key) ?? 0;
+        var weapons = WeaponProfileFor(player, activeSet: true);
+        int jewel = playerStats.GetValueOrDefault(Stat.DualStrikeAccuracyRatingPlusPctWhileWieldingSword);
+        if (jewel != 0 && (!weapons.Sword || effect < 0
+            || SkillsFor(player).EffectId(effect) is not ("DualStrike" or "DualStrikeAltX" or "DualStrikeAltY" or "DualStrikeRoyale")))
+            jewel = 0;
+        long Own(uint key) => (own?.GetValueOrDefault(key) ?? 0L) + (key == Stat.AccuracyRatingPlusPct ? jewel : 0);
         long localDifference = weapon?.LocalSources is { } local
             ? (long)local.GetValueOrDefault(Stat.LocalAccuracyRating)
                 - (MainHandLocalSources(player)?.GetValueOrDefault(Stat.LocalAccuracyRating) ?? 0) : 0;
-        return PlayerAccuracyModifiers.Selected(player.Pools, WeaponProfileFor(player, activeSet: true), Own,
+        return PlayerAccuracyModifiers.Selected(player.Pools, weapons, Own,
             GolemStat(playerStats, Stat.BootsImplicitAccuracyRatingPlusPctFinal), localDifference, PlayerBlindValue(player, playerStats).Less);
     }
 }
