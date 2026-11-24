@@ -1,3 +1,4 @@
+using GameServer.Core.Projectiles;
 using GameServer.Core.World;
 
 public static partial class Game
@@ -16,9 +17,44 @@ public static partial class Game
                 if (minion.Id != dead.Id && OwnedFighter(player, minion.Id) is { } survivor)
                     RecoverMinionLifeLocked(player, survivor, (long)survivor.Monster.MaxLife * recovery / 100);
 
+        MinionDeathGroundLocked(player, dead, stats, now);
         int physical = GolemStat(stats, Stat.PhysicalDamageTakenOnMinionDeath);
         if (physical > 0)
             MinionDeathHits.GetOrCreateValue(player).Enqueue(new(player.Area, player.ProjectileEpoch, physical, now));
+    }
+
+    static void MinionDeathGroundLocked(Player player, GolemState.Golem dead, IReadOnlyDictionary<uint, int> stats, double now)
+    {
+        int chaos = GolemStat(stats, Stat.MinionCausticCloudOnDeathMaximumLifePerMinuteToDealAsChaosDamagePct);
+        int fire = GolemStat(stats, Stat.MinionFireCloudOnDeathMaximumLifePerMinuteToDealAsFireDamagePct);
+        if (chaos > 0) Place(DamageType.Chaos, chaos, "MonsterCausticCloudOnDeath", Stat.MonsterCausticCloudOnDeathBaseAreaOfEffectRadius);
+        if (fire > 0) Place(DamageType.Fire, fire, "MonsterGroundFireOnDeath1", Stat.MonsterGroundFireOnDeathBaseAreaOfEffectRadius);
+
+        void Place(DamageType type, int perMinute, string nativeGround, uint radiusStat)
+        {
+            var effects = dead.Monster.Effects;
+            int Get(uint stat) => effects[stat];
+            if (DamageStats.Prohibited(type, Get) || ItemsFor(player).Mods.ById(nativeGround) is not { } basis) return;
+            // The belt records store damage only. The corresponding native death grounds supply the geometry and lifetime.
+            int radius = basis.Stats.FirstOrDefault(stat => stat.Id == radiusStat)?.Min ?? 0;
+            int duration = basis.Stats.FirstOrDefault(stat => stat.Id == Stat.MonsterGroundEffectOnDeathBaseDurationMs)?.Min ?? 0;
+            double seconds = SkillDurationModifiers.Seconds(duration, _ => 0, Get);
+            if (seconds <= 0 || radius <= 0) return;
+            var (_, unitDps, increase) = MinionHazardDamage(player, dead, now, dead.Monster.MaxLife * perMinute / 6000d, area: true);
+            bool burning = type == DamageType.Fire;
+            double increased = (double)increase + Get(Stat.DamageOverTimePlusPct) +
+                (burning ? Get(Stat.FireDamagePlusPct) + Get(Stat.BurnDamagePlusPct) + Get(Stat.FireDamageOverTimePlusPct)
+                    : Get(Stat.ChaosDamagePlusPct) + Get(Stat.ChaosDamageOverTimePlusPct));
+            double dotMultiplier = Get(Stat.DotMultiplierPlus) + Get(burning ? Stat.FireDotMultiplierPlus : Stat.ChaosDotMultiplierPlus);
+            double dps = unitDps * Math.Max(0, 1 + increased / 100) * Math.Max(0, 1 + dotMultiplier / 100)
+                * Math.Max(0, 1 + Get(Stat.SupportEfficacyDamageOverTimePlusPctFinal) / 100d)
+                * Math.Max(0, 1 + Get(Stat.SupportRapidDecayDamageOverTimePlusPctFinal) / 100d)
+                * Math.Max(0, 1 + Get(burning ? Stat.SupportBurningDamagePlusPctFinal : Stat.SupportVoidManipulationChaosDamagePlusPctFinal) / 100d)
+                * DoedreSewers.MinionDamageFactor(player) * MapMinionDamageFactor(player);
+            if (dps <= 0) return;
+            ProjectilesFor(player).PlaceDamageGround(ProjectileSession.Vector(dead.Monster.Walk.Position(now)),
+                SkillArea.Radius(radius, Get, spell: true), seconds, type, dps, ProjectileRuntime.Time(now));
+        }
     }
 
     // A minion can die while a hit aimed at its owner is still being allocated. Apply the self-hit only after

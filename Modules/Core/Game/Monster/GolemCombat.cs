@@ -641,6 +641,12 @@ public static partial class Game
         Player player, GolemState.Golem g, double now, double intrinsicDamagePerSecond, bool area)
     {
         RefreshGolemLocked(player, g, g.Player, now);
+        return MinionHazardDamage(player, g, now, intrinsicDamagePerSecond, area);
+    }
+
+    static (double DamagePerSecond, double UnitDamagePerSecond, int NormalDamageIncrease) MinionHazardDamage(
+        Player player, GolemState.Golem g, double now, double intrinsicDamagePerSecond, bool area)
+    {
         int normalIncrease = g.Monster.Mods.Effects[Stat.DamagePlusPct] - GolemRecentDamageIncrease(g, now)
             + (area ? g.Monster.Mods.Effects[Stat.AreaDamagePlusPct] : 0);
         double more = MinionTacticsBaseDamage(player, g, now) * Math.Max(0, 1 + GolemStat(g.Own, Stat.ActiveSkillMinionDamagePlusPctFinal) / 100.0)

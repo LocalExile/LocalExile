@@ -306,7 +306,7 @@ public static partial class Game
             invalid = true;
             lifetime?.Dispose();
             ClearPods();
-            ClearCausticClouds();
+            ClearDamageGrounds();
             ClearEnsnares();
             ClearExplosiveFuses();
             if (archer is { } currentArcher) EndMirage(currentArcher, retire: true);
