@@ -282,10 +282,10 @@ public static partial class Game
     {
         var accuracy = SupportedAccuracy(player, skillId);
         if (hand != AttackHand.Off || OffhandWeaponFor(player) is not { } off) return accuracy;
-        var own = SupportedSkill(player, skillId).Stats;
+        var gem = SupportedSkill(player, skillId);
         var playerStats = CharacterPlayerStats(player);
-        return AttackAccuracyProfile.From(player.Pools, playerStats, Stats, own, off.LocalSources)
-            with { Rating = WeaponAccuracyFor(player, off, playerStats, own) };
+        return AttackAccuracyProfile.From(player.Pools, playerStats, Stats, gem.Stats, off.LocalSources)
+            with { Rating = WeaponAccuracyFor(player, off, playerStats, gem.Stats, gem.Effect) };
     }
 
     /// <summary>The swinging hand's local modifiers (on-hit chances, leech, penetration): the main hand's for both

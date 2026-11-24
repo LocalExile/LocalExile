@@ -76,6 +76,7 @@ public sealed record ProjectileOffense(DamagePacket Hit, bool Spell, int Accurac
     public bool FarShot { get; init; }
     public bool PointBlank { get; init; }
     public double ReturnMultiplier { get; init; } = 1;
+    public int DamageMorePerGroundBounce { get; init; }
     public BlindHitInput Blind { get; init; }
     /// <summary>The hit, area hit and damaging ailments captured with the conditional increased damage against a
     /// Blinded target, or null when the shot has none.</summary>

@@ -52,7 +52,9 @@ public static class WeaponTypeDamage
     /// "increased Hit and Ailment Damage with Axes or Swords", and the tree's "with Two Handed / One Handed Weapons"
     /// rows, which are the Two Hand Mastery's 60% and its attack speed cost).</summary>
     public static int Any(SkillCatalog.Unarmed weapon, Func<uint, int> get) =>
-        Any(FamiliesOf(weapon), TwoHanded(weapon.ItemClass), get, ailment: false);
+        ActorScale.Saturate((long)Any(FamiliesOf(weapon), TwoHanded(weapon.ItemClass), get, ailment: false)
+            + (!weapon.OffHand && weapon.ItemClass is not null && get(Stat.IsDualWielding) != 0
+                ? get(Stat.MainHandDamagePlusPctWhileDualWielding) : 0));
 
     /// <summary>The physical, elemental and per-element rows of this hand's weapon type, in the shape
     /// <see cref="PlayerHitDamage.Resolve"/> applies after conversion.</summary>

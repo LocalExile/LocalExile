@@ -66,7 +66,8 @@ Nothing yet.
 - **Linked support gems.** Native compatibility, link groups, duplicate families and skill-bar support records
   are implemented; Cyclone with Increased Area of Effect was read successfully by the real client.
   Ordinary hit, area, speed, critical, cost and reservation calculations use linked support stats.
-  Barrage's attack-time penalty uses resolved projectile quantity; sequential release and native validation remain open.
+  Barrage and Barrage of Volley Fire release ordered projectiles for direct attacks and Ballista Totem Support.
+  Offline coverage checks the individual contacts and cancellation between shots.
   Overcharge, Bloodthirst and four more supports scale hits by their more damage ([20](../docs/protocol/20-damage.md)).
   Nightblade grants Elusive on a supported attack's critical strike. Its supported attacks gain base critical chance
   during Elusive, and Nightblade's own Elusive adds a critical multiplier that decays with the buff.
@@ -153,9 +154,14 @@ Nothing yet.
   one aura of a kind runs at a time (`GemSkillIds.cs`; [19](../docs/protocol/19-gems.md) §3).
 - **Gem levels (tested, level 1 → 2 checked with the real client).** A gem's level comes from its experience up to its
   experience type's cap; its skill uses that level's cost, damage, reservation and cooldown, and its quality stats;
-  transfigured and Trarthan gems grant their own skill; Vaal gems grant their Vaal skill and base skill.
+  Transfigured and Trarthan gems grant their own skill.
+  Vaal gems grant their Vaal skill and base skill.
+  Effective levels include the gem's native tags, its host item's socketed bonuses and active equipment conditions.
   Vaal soul collection/native budget payloads are implemented, pending native acceptance. Vaal Clarity spends souls
   to grant a timed aura that removes mana costs for the caster and nearby allies while preserving other skill costs.
+  Vaal Rejuvenation Totem regenerates life and redirects part of nearby allies' hit damage into the totem's life.
+  Offline regressions cover Vaal Heavy Strike contact and knockback, Vaal Arctic Armour mitigation, Blazing Salvo
+  impacts and the three Spectral Shield Throw variants.
   Unsupported Vaal casts remain refused even with souls; see [27](../docs/protocol/27-vaal-souls.md).
   The variant is sent in the SkillGem data and saved.
   Item serialization also derives the native variant flag for standalone and socketed gems, preserving level-lock

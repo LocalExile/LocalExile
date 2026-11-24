@@ -63,6 +63,7 @@ Part of [Status](../Status.md); what to build next in this area is in
 - Passive mastery effects on defences, attributes and equipment: slot increases (helmet ES, gloves and boots armour,
   body evasion), the all-equipment and socket conditions, per-mastery attributes, six Life masteries, the full-life
   threshold, per-dagger suppression and the shield, claw and dual-wield effects.
+  Staff Mastery can recover life from blocked attacks while wielding the staff.
   Not checked live: the socket, ring and amulet conditions, Claw2, Leech2 and Reservation2.
 - Hierophant, except the Brand nodes. Docs: [Hierophant](../docs/game/hierophant.md).
 - Behemoth through the optional Phrecia module. Docs: [Behemoth](../docs/game/behemoth.md).

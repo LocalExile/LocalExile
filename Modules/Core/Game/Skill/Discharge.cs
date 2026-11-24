@@ -17,6 +17,8 @@ public sealed class DischargeUse(IReadOnlyDictionary<ChargeType, int> charges)
 
 static partial class Game
 {
+    static bool IsDischarge(string? effect) => effect is "Discharge" or "DischargeAltX" or "DischargeAltY";
+
     // The charges a use can spend, per type: the held ones above the minimum.
     internal static Dictionary<ChargeType, int> RemovableCharges(Player player)
     {
