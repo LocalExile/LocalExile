@@ -26,7 +26,7 @@ public sealed class WarcryBuffTests
         var playerStats = new Dictionary<uint, int> { [Stat.WarcriesHaveInfinitePower] = 1 };
 
         // Row 1544 (seismic_cry) carries exactly two GrantedStats, in this order, at 25 power (five whole
-        // 5-power steps): 5 x 15% increased Armour (final) and 5 x 50% increased Stun Threshold.
+        // 5-power steps), using the equipped gem's armour and stun-threshold values.
         var stats = Game.WarcryBuffStats("SeismicCry", 25, 1.0, Own);
         Assert.NotNull(stats);
         Assert.Equal(2, stats.Length);
@@ -45,7 +45,7 @@ public sealed class WarcryBuffTests
                 if (owner == player) values[Stat.BasePhysicalDamageReductionRating] = 100;
                 return values;
             });
-            var body = new SpawnedMonster("ally", new(100, 100, 0), 10, 3, 100) { OwnerId = player.Id, Hostile = false };
+            var body = new SpawnedMonster("ally", new(100, 100, 0), 10, 3, 100) { Hostile = false };
             player.Area.Monsters[900] = body;
             var ally = new GolemState.Golem(900, body, Game.GolemData.Find("SummonStoneGolem")!, 1);
             var before = Game.BuildPoolsFor(player, 100);
