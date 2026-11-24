@@ -113,9 +113,17 @@ public static partial class Game
     static double SoulLinkDamageTaken(LinkSkills.Link link, long effect) =>
         Math.Max(0, 1 + ScaledLinkStat(link, Stat.SoulLinkGrantsDamageTakenPlusPctFinal, effect) / 100d);
 
-    internal static double MinionSoulLinkDamageTaken(Player player, GolemState.Golem fighter, double now) =>
-        ActiveMinionLink(player, fighter, now) is { EffectId: "SoulLink" } link
-            ? SoulLinkDamageTaken(link, LinkBuffPercent(fighter, CharacterPlayerStats(player))) : 1;
+    static double HallowedMonarchDamageTaken(LinkSkills.Link? link, IReadOnlyDictionary<uint, int> stats) =>
+        link is null ? 1 : Math.Max(0, 1 + stats.GetValueOrDefault(
+            Stat.LinkSkillsGrantMinionsDamageTakenPlusPctFinalFromHallowedMonarch) / 100d);
+
+    internal static double MinionLinkDamageTaken(Player player, GolemState.Golem fighter, double now)
+    {
+        if (ActiveMinionLink(player, fighter, now) is not { } link) return 1;
+        var stats = CharacterPlayerStats(player);
+        double damageTaken = HallowedMonarchDamageTaken(link, stats);
+        return link.EffectId == "SoulLink" ? damageTaken * SoulLinkDamageTaken(link, LinkBuffPercent(fighter, stats)) : damageTaken;
+    }
 
     readonly record struct MinionLinkOffence(int FireMin = 0, int FireMax = 0, int Ignite = 0,
         int? MainHandCrit = null, int CritMultiplier = 0, int Accuracy = 0);

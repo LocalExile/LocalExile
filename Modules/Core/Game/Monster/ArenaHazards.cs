@@ -100,7 +100,7 @@ internal static class ArenaHazards
                 bool elementalImmune = g.Definition.IsGolem && (MinionStat(global::Stat.GolemImmunityToElementalDamage) != 0
                     || g.Definition.Kind is "Flame" or "Ice" or "Lightning" && MinionStat(global::Stat.ElementalGolemImmunityToElementalDamage) != 0);
                 double amount = e.MinionCarry.GetValueOrDefault(g.Id);
-                double soulLink = MinionSoulLinkDamageTaken(p, g, now);
+                double soulLink = MinionLinkDamageTaken(p, g, now);
                 foreach (var type in DamageTypes.ConversionOrder)
                 {
                     if (elementalImmune && DamageTypes.IsElemental(type)) continue;

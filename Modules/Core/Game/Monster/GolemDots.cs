@@ -45,18 +45,18 @@ public static partial class Game
         bool elementalImmune = GolemElementalImmune(golem);
         bool ignoresDots = GolemIgnoresDots(golem) || m.Effects[Stat.BaseCannotBeDamaged] != 0;
         double supportReduction = GolemMeatShieldDamageFactor(golem) * CompanionshipDamageTaken(player, golem, to);
-        double soulLink = MinionSoulLinkDamageTaken(player, golem, Math.BitDecrement(to));
+        double linkDamageTaken = MinionLinkDamageTaken(player, golem, Math.BitDecrement(to));
         double fireFactor = elementalImmune || ignoresDots ? 0
-            : MonsterDotTaken(m, DamageType.Fire, to) * GolemElementalReductionFactor(m.Effects) * soulLink;
+            : MonsterDotTaken(m, DamageType.Fire, to) * GolemElementalReductionFactor(m.Effects) * linkDamageTaken;
         int fire = m.Ignites.Advance(to, fireFactor * supportReduction, 0, out double? fireAt);
         int legion = InfernalLegionSelfDamage(golem, to - from, fireFactor);
-        int blessing = ignoresDots ? 0 : (int)(GuardianBlessingMinionDamage(player, golem, from, to) * soulLink);
+        int blessing = ignoresDots ? 0 : (int)(GuardianBlessingMinionDamage(player, golem, from, to) * linkDamageTaken);
         double bleedFactor = ignoresDots ? 0
-            : BleedTaken(m, to, m.Effects[Stat.NoExtraBleedDamageWhileMoving] != 0) * supportReduction * soulLink
+            : BleedTaken(m, to, m.Effects[Stat.NoExtraBleedDamageWhileMoving] != 0) * supportReduction * linkDamageTaken
                 * (100 - m.Effects.PhysicalReduction) / 100d;
         int bleed = m.Bleeds.Advance(to, bleedFactor,
-            ignoresDots ? 0 : AggravatedExtra(m, to) * soulLink, out double? bleedAt);
-        int poison = m.Poisons.Advance(to, ignoresDots ? 0 : MonsterDotTaken(m, DamageType.Chaos, to) * supportReduction * soulLink,
+            ignoresDots ? 0 : AggravatedExtra(m, to) * linkDamageTaken, out double? bleedAt);
+        int poison = m.Poisons.Advance(to, ignoresDots ? 0 : MonsterDotTaken(m, DamageType.Chaos, to) * supportReduction * linkDamageTaken,
             out double? poisonAt);
         if (ignoresDots) fire = bleed = poison = 0;
 

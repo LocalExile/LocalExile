@@ -6,13 +6,20 @@ public static partial class Game
     // friendly monsters: an ally coming in or going out presents its auras again (a minion: its owner's stats).
     const ZoneKind SharedAuraZones = ZoneKind.SharedAuras;
 
-    static void SyncSharedAuraZones(Player player, IReadOnlyList<SharedAura> shared) =>
-        SyncZones(player, player.Id, SharedAuraZones, shared.Select(a => ((uint)a.Aura.SkillId, a.Radius, default((int, int)))),
+    static bool NonCurseAurasOnlyReachLinks(Player player) =>
+        StatSourceValues(player).GetValueOrDefault(Stat.NonCurseAurasOnlyApplyToYouAndLinkedTargets) != 0;
+
+    static void SyncSharedAuraZones(Player player, IReadOnlyList<SharedAura> shared)
+    {
+        bool linkedOnly = NonCurseAurasOnlyReachLinks(player);
+        var ordinary = shared.Where(aura => !linkedOnly || !SharedPlayerAura(aura.Aura.EffectId));
+        SyncZones(player, player.Id, SharedAuraZones, ordinary.Select(a => ((uint)a.Aura.SkillId, a.Radius, default((int, int)))),
             new(ReachesAlliesBut(player, player.Id), new EntityId(player.Id), id =>
             {
                 if (AreaPlayer(player, id.Value) is { } ally) PresentNearby(ally);
                 else PresentStats(player);
             }));
+    }
 
     // Whether a player's shared aura reaches the entity.
     static bool SharedAuraReaches(Player player, uint owner, ushort skill, uint id) => InZone(player, owner, SharedAuraZones, skill, id);
@@ -67,8 +74,10 @@ public static partial class Game
         // A minion without a body stands with its owner: every aura of his reaches it.
         bool Reaches(uint owner, ushort skill) => minion.Monster is null ? owner == player.Id : SharedAuraReaches(player, owner, skill, minion.Id);
         var skills = SkillsFor(player);
+        bool linkedOnly = player.Auras.Count > 0 && NonCurseAurasOnlyReachLinks(player);
+        bool linked = linkedOnly && minion.Monster is not null && ActiveMinionLink(player, minion, AreaTime(player)) is not null;
         var own = player.PlayerLife == 0 || InTown(player) ? [] : player.Auras.Values
-            .Where(a => SharedPlayerAura(a.EffectId) && Reaches(player.Id, a.SkillId))
+            .Where(a => SharedPlayerAura(a.EffectId) && (linkedOnly ? linked : Reaches(player.Id, a.SkillId)))
             .Select(a => a with { AffectsSelf = true, ExternalEffectPct = player.Pools.AuraEffectPct + a.SupportEffectPct });
         var directAvian = SharedAvianAuras(player).Where(a => Reaches(player.Id, a.Aura.SkillId)).Select(a => a.Aura);
         var auras = own.Concat(directAvian).Concat(player.Instance.PlayersExcept(player.Id).Where(p => p.PlayerLife > 0)
