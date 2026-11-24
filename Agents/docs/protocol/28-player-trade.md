@@ -13,11 +13,16 @@ offer messages ([17](17-npcs.md) "Sell"); this file covers what is specific to t
 | **0x93** | var | wstr the character's name | "Invite to Party" |
 | **0x95** | 6 | u32 BE the party id (from 0xa9) | Accept on the party invite notice |
 | **0x96** | 6 | u32 BE the party id | "Leave Party" |
-| **0x80** | var | wstr name, u8 list, u8 action | Friends: list 0; add 0, remove/decline 1, accept 2 |
+| **0x98** | var | wstr description, u8 flag | Create or rename a public party (empty description clears public state) |
+| **0x80** | var | wstr name, u8 list, u8 action | list 0 = Friends (add 0, remove/decline 1, accept 2); list 1 = Ignore (add 0, remove 1) |
+| **0xb4** | 12 | u32 BE item id, u32 BE inventory id, u16 LE token | Ctrl+right-click bulk move of all items matching that base type (`0x1403119d0`) |
+| **0xca** | var | wstr status | Set account social status message (persisted and broadcast in `0xa7` `+0x50`) |
+| **0x155** | var | wstr character name | Challenge an online player to a duel (forwarded as `S→C 0x157`) |
+| **0x179** | var | wstr character name, u8 flag | Invite an online player to the sender's hideout (grants `0x17a` visit access) |
 
 The offer, accept and cancel messages of the open window are the sale's: C→S 0xb2 (drop / Ctrl + click, x = y = 0xff),
-0xb3 and 0xb5 (Shift / Ctrl + Shift + click), 0xb6 (Accept: u32 the revision of the other side's offer inventory),
-0xb7 (Cancel Accept), 0xb1 (Cancel).
+0xb3 and 0xb5 (Shift / Ctrl + Shift + click), 0xb4 (Ctrl + right-click bulk move of matching `Item.TypeHash`),
+0xb6 (Accept: u32 the revision of the other side's offer inventory), 0xb7 (Cancel Accept), 0xb1 (Cancel).
 
 ## 2. Known players: S→C 0xa7
 
@@ -29,7 +34,7 @@ was dropped silently: S→C **0xa7** adds an entry, S→C 0xa8 (case 0x29) remov
 
 0xa7 (class `0x1435e6cc8`, 0xd0 bytes, write `0x1421a7b10` → `0x141f95e70`):
 
-- wstr account (the key; entry `+0x30`), wstr (`+0x50`), u8 flags: bit 0 a u16 pair (`+0xaa`, `+0xae`) follows, bit 1 a
+- wstr account (the key; entry `+0x30`), wstr status (`+0x50`, updated by `C→S 0xca`), u8 flags: bit 0 a u16 pair (`+0xaa`, `+0xae`) follows, bit 1 a
   u16 pair (`+0xb0`, `+0xb2`), bit 2 (`+0xba`) the character section, bits 3–6 `+0xbb` / `+0xbc` / `+0xbd` / `+0xbe`;
 - with bit 2 (or bit 5): wstr character (`+0x70`), u8 (`+0xb9`), u8 (`+0xb8`, the packed class); with bit 2 also u16 BE
   (`+0xa8`, the area the player is in), u16 BE (`+0xac`), wstr (`+0x90`), u8 (`+0xb4`), then the pairs;
@@ -121,7 +126,7 @@ Invite, accept and leave work. The Social module keeps human and module-owned pa
     The answer is the area change (0x2b4, then 0x27), or a refusal. The selected human must still own its party connection.
     Campaign travel uses that member's checkpoint or open portal in their exact instance and checks area access flags.
     Map travel goes to the source device, preserving portal consumption; missing source destinations are refused.
-    These routes follow [GGG�s party travel rules](https://www.pathofexile.com/forum/view-thread/2163379).
+    These routes follow [GGG’s party travel rules](https://www.pathofexile.com/forum/view-thread/2163379).
     Labyrinth and areas that disable portals cannot be entered this way. Campaign travel and quest-gate refusal were
     checked through the native client, including guest entry through the source device and return after the sixth portal.
 - **Leaving.** C→S 0x96 is answered with **S→C 0xaa** (class `0x1435c9f88`, read `0x141fa2ae0`, case 0x2b at
@@ -129,8 +134,14 @@ Invite, accept and leave work. The Social module keeps human and module-owned pa
   - For the client's current party (`+0xc680`) it resets the party; for another id it drops it from `+0xc668`.
   - S→C 0xab (case 0x2c) only clears a pending invite (`+0xc730`) and did nothing for a party.
   - With fewer than two members left, every member gets 0xaa (disbanded); otherwise the others get the smaller party.
+- **Public parties & disconnects.** `C→S 0x98` updates the party's public description (published as `0xa9`'s title;
+  empty description clears public state and disbands a solo party). Accepting an invite (`0x95`) whose inviter has
+  already disconnected cleans up the stale invite and sends `0xaa` instead of throwing on a disposed socket; true
+  disconnects (`DisconnectHuman`) remove the member from parties and cancel pending invites while preserving area-change
+  rebinds.
+- **Party votes and PvP queue.** Party bandit votes (`HUD +0x4e8`, `VoteType.dat` / `VoteState.dat`, S→C `0xbe` / C→S `0xbd`) and the PvP queue bar (`HUD +0x4b0`, S→C `0x118` / `0x119`, C→S `0x11a` / `0x18d`) are documented in [30](30-hud-signals-and-timers.md) §3–§4.
 
-## 6. Friends
+## 6. Friends, ignore list, status, hideout invites and duels
 
 The Social module handles the ordinary context-menu and Friends-panel actions through C→S `0x80`.
 The final bytes are independent list/action bytes (`0x141f9b7e0`), not a network-order ushort.
@@ -160,12 +171,16 @@ Accept, confirmed Unfriend removing the row on both clients, offline display, ac
 and reconstruction after a new login (including presence updates while the players occupy different areas).
 Automated checks cover persistence/reopen, rollback, duplicates, self/missing identities, pair deletion,
 Unicode names, action-byte framing and relation/offline packet layouts.
-Friend notes, ignore lists and account status editing remain separate features.
+Ignore lists (`C→S 0x80`, list 1, action 0 add / 1 remove) and account status messages (`C→S 0xca`, max 200 chars,
+broadcast in `0xa7` `+0x50`) persist in account stash module data (`social.ignore`, `social.status`).
+Ignored accounts are blocked from local/party/whisper chat, party invites, trade requests, hideout invites and duel
+challenges. `C→S 0x179` notifies an online player and records visit permission for `C→S 0x17a`; `C→S 0x155` forwards
+`S→C 0x157` to the target. Friend notes remain separate follow-up work.
 
 ## Open
 
-- Party: Decline and promoting members, a member's disconnect or area change, the party panel's other fields
+- Party: Decline and promoting members, the party panel's other fields
   (`+0x6c`, `+0x6f`, the leader's character string), and parties across instances.
-- Friends: notes, ignore lists and account status editing.
+- Friends: notes and cross-Gateway presence.
 - The exact meaning of 0xa7's other fields (class, league, online state) and of the request option `0x19`.
 - Trades across instances (the client only offers Trade on a player it sees).

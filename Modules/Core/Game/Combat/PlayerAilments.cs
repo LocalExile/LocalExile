@@ -89,6 +89,10 @@ public static partial class Game
             ClearPlayerDecay(player);
             ClearCorruptedBlood(player);
             ClearEssenceAuraExposure(player);
+            ClearRemnantAuraExposure(player);
+            // The essence pulses' debuffs and Misery stacks end with the player too, or they would outlive a death in
+            // the same area.
+            MapEssences.ClearEffects(player);
             return 0;
         }
         double previousAction = player.ElementalAilments.ActionFactor(from);
@@ -101,6 +105,8 @@ public static partial class Game
         if (Blood.TryGetValue(player, out var blood)) dotStart = Math.Max(dotStart, blood.Started);
         int auraDamage = AdvanceEssenceAuraLocked(player, from, until, stats, immunities.Contains(DamageType.Chaos), dotStart);
         dotStart = Math.Max(dotStart, PlayerEssenceAuraStarted(player));
+        auraDamage = (int)Math.Min(int.MaxValue, (long)auraDamage + AdvanceRemnantAuraLocked(player, from, until, stats, immunities.Contains(DamageType.Physical), dotStart));
+        dotStart = Math.Max(dotStart, PlayerRemnantAuraStarted(player));
         double letheFactor = Get(Stat.KeystoneLetheShade) != 0 && until - dotStart < 1 ? .5 : 1;
         int damage = 0, lifeDamage = auraDamage;
         if (player.ElementalAilments.HasEffects)
@@ -122,20 +128,25 @@ public static partial class Game
                 player.Pools, player.EnergyShield, Get, Resistance(player, physical), MaxResistance(player, physical),
                 Resistance(player, chaos), MaxResistance(player, chaos), player.Immune || Get(Stat.BaseCannotBeDamaged) > 0,
                 immunities.Contains(physical), immunities.Contains(chaos), player.Walk.MovingSeconds,
-                ref player.NonChaosDotBypassCarry, ref player.ChaosDotBypassCarry, letheFactor));
+                ref player.NonChaosDotBypassCarry, ref player.ChaosDotBypassCarry, letheFactor,
+                (poisonDmg, poisonAt) => DamagePlayerChaosOverTime(player, poisonDmg, poisonAt, stats)));
         }
         lifeDamage = (int)Math.Min(int.MaxValue, (long)lifeDamage + AdvancePlayerDecayLocked(player, until, stats,
             immunities.Contains(DamageType.Chaos), letheFactor));
         if (blood is not null)
             lifeDamage = (int)Math.Min(int.MaxValue, (long)lifeDamage + AdvanceCorruptedBlood(player, blood, until, stats,
                 immunities.Contains(DamageType.Physical), letheFactor));
-        player.PlayerLife = VaalImmortalCallLife(player, (uint)Math.Max(0, (long)player.PlayerLife - lifeDamage), until);
+        uint lifeAfter = VaalImmortalCallLife(player, (uint)Math.Max(0, (long)player.PlayerLife - lifeDamage), until);
+        RecordRechargeLifeDamage(player, (long)player.PlayerLife - lifeAfter, until, stats);
+        player.PlayerLife = lifeAfter;
         if (player.PlayerLife == 0)
         {
             player.InvalidateIncomingHits();
             ClearPlayerDecay(player);
             ClearCorruptedBlood(player);
             ClearEssenceAuraExposure(player);
+            ClearRemnantAuraExposure(player);
+            MapEssences.ClearEffects(player);
             // Commit the mode outcome inside lethal damage, before disconnects or network writes can intervene.
             RecordHardcoreDeath(player);
         }
@@ -149,7 +160,8 @@ public static partial class Game
     /// by the shared incoming owner; an evaded, blocked or damage-immune contact never reaches here.
     /// </summary>
     public static void ApplyMonsterDamagingAilmentsLocked(Player player, uint source, SpawnedMonster m,
-        DamagePacket hit, bool blocked, double now, bool attack = true, IReadOnlyDictionary<uint, int>? prepared = null)
+        DamagePacket hit, bool blocked, double now, bool attack = true, IReadOnlyDictionary<uint, int>? prepared = null,
+        int skillPoisonChance = 0, double skillPoisonSeconds = 0)
     {
         if (blocked || player.PlayerLife == 0 || player.Closed || player.LeavingArea || InGracePeriod(player)) return;
         var effects = m.Mods.Effects;
@@ -158,8 +170,8 @@ public static partial class Game
         int bleedChance = Math.Max(effects[Stat.GlobalBleedOnHit] != 0 ? 100 : 0,
             attack ? effects[Stat.BleedOnHitWithAttacksPct] : 0);
         if (attack) bleedChance += Player(Stat.ReceiveBleedingChancePctWhenHitByAttack);
-        int poisonChance = Math.Max(effects[Stat.GlobalPoisonOnHit] != 0 ? 100 : 0,
-            effects[Stat.BaseChanceToPoisonOnHitPct]);
+        int poisonChance = Math.Max(Math.Max(effects[Stat.GlobalPoisonOnHit] != 0 ? 100 : 0,
+            effects[Stat.BaseChanceToPoisonOnHitPct]), skillPoisonChance);
         if (attack) poisonChance = Math.Max(poisonChance,
             effects[Stat.BaseAttacksPoison] != 0 ? 100 : effects[Stat.ChanceToPoisonOnHitWithAttacksPct]);
         if (bleedChance <= 0 && poisonChance <= 0) return;
@@ -190,7 +202,7 @@ public static partial class Game
             && !GameServer.Core.World.RandomRolls.Chance(Player(Stat.AvoidPoisonPct), 100, player.IncomingHitRandom))
         {
             double more = Math.Max(0, 1 + effects[Stat.BasePoisonDamagePlusPct] / 100.0);
-            double seconds = Ailments.PoisonDurationSeconds
+            double seconds = (skillPoisonSeconds > 0 ? skillPoisonSeconds : Ailments.PoisonDurationSeconds)
                 * Math.Max(0, 1 + effects[Stat.BasePoisonDurationPlusPct] / 100.0);
             player.IncomingAilments.ApplyPoison(now, poisonBase * 0.30 * more
                 * Math.Max(0, 1 + effects[Stat.MonsterPoisonDamagePlusPctFinal] / 100.0), seconds, source,
@@ -264,6 +276,8 @@ public static partial class Game
         {
             if (!(name is var key)) return 0;
             long value = sources.GetValueOrDefault(key);
+            if (key == Stat.TemporalChainsActionSpeedPlusPctFinal)
+                value += player.Pools.MapTemporalChainsActionSpeedPct;
             if (leadership is { } active)
                 foreach (var (stat, amount) in active.Stats)
                     if (stat == key) value += amount;

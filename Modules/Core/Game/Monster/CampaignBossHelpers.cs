@@ -1,0 +1,327 @@
+using GameServer.Core.Protocol.Instance;
+using GameServer.Core.World;
+using static Game;
+using static Program;
+
+/// <summary>
+/// Shared helpers for campaign Act 1–5 boss encounter controllers: timed ground effects (using <c>TakeObjectId()</c>),
+/// <c>NoRewards</c> add spawning, invulnerability / Transitionable state updates, arena gate locking with per-player
+/// diffed blocker/hull sync and safe cleanup, and zero-allocation target lookup. Every state container lives in a
+/// <see cref="RuleTable{TKey, TValue}"/> so hot-reload clears everything cleanly with zero static player references.
+/// </summary>
+internal static class CampaignBossHelpers
+{
+    public const string InvulnerableStatKey = "campaign_boss_invulnerable";
+    public static readonly IReadOnlyDictionary<uint, int> CannotBeDamagedStats =
+        new Dictionary<uint, int> { [Stat.BaseCannotBeDamaged] = 1 };
+
+    static readonly RuleTable<Player, Dictionary<uint, bool>> SyncedGateStates = new();
+
+    public sealed record TimedEffect(uint Id, (int X, int Y) At, double Ends, string Model, float Scale = 1f);
+
+    public sealed record ArenaGate(uint Id, string Type, string? Model, int X, int Y, float Rotation, float? Z,
+        int TransitionableIndex, int Size, bool HasBlockage, byte LockedState, byte UnlockedState)
+    {
+        public bool Locked;
+    }
+
+    public static bool Alive(SpawnedMonster? m) => m is { Dead: false, Life: > 0 };
+
+    public static double Distance((int X, int Y) a, (int X, int Y) b)
+    {
+        double dx = a.X - b.X, dy = a.Y - b.Y;
+        return Math.Sqrt(dx * dx + dy * dy);
+    }
+
+    public static Player[] ActivePlayers(Player runner) =>
+        [.. runner.Frames.Players().Where(p => !p.Closed && !p.LeavingArea && p.Connection.PlayerSent
+            && ReferenceEquals(p.Instance, runner.Instance))];
+
+    public static Player? NearestLivingTarget(Player runner, (int X, int Y) origin, double now, double maxRange = 140, uint? awakeId = null)
+    {
+        Player? best = null;
+        double bestDist = maxRange;
+        foreach (var p in runner.Frames.Players())
+        {
+            if (p.Closed || p.LeavingArea || !p.Connection.PlayerSent || !ReferenceEquals(p.Instance, runner.Instance))
+                continue;
+            if (p.PlayerLife == 0 || p.Paused || InGracePeriod(p))
+                continue;
+            if (awakeId is uint mid && (!MonsterShown(p, mid) || MonsterAsleep(p, mid)))
+                continue;
+            double d = Distance(origin, p.Walk.Position(now));
+            if (d <= bestDist)
+            {
+                bestDist = d;
+                best = p;
+            }
+        }
+        return best;
+    }
+
+    public static (int X, int Y) WalkableNear(Player runner, (int X, int Y) at) =>
+        runner.Layout.Walkable is { } w && !w(at.X, at.Y) ? runner.Layout.Near(at) : at;
+
+    public static (int X, int Y) RingSpot(Player runner, (int X, int Y) center, double angle, double radius)
+    {
+        int x = (int)Math.Round(center.X + Math.Cos(angle) * radius);
+        int y = (int)Math.Round(center.Y + Math.Sin(angle) * radius);
+        return WalkableNear(runner, (x, y));
+    }
+
+    public static QuestObjectTypes.AreaPlacements LoadAreaPlacements(string area, uint seed) =>
+        new(area, seed, []);
+
+    public static async Task<uint> SpawnTimedEffect(Player runner, List<TimedEffect> list, (int X, int Y) at,
+        string aoPath, double ends, float scale = 1f, float rotation = 0f, bool fixedRotation = true)
+    {
+        uint id = runner.TakeObjectId();
+        var obj = new EffectObject(at.X, at.Y, aoPath)
+        {
+            Scale = scale,
+            Rotation = rotation,
+            Flags0 = fixedRotation ? EffectObject.FixedRotation : (byte)0,
+        };
+        var blob = obj.Blob();
+        list.Add(new(id, at, ends, aoPath, scale));
+        await SendWorldCreate(runner, id, () => InstanceEntities.CreateObject(id, InstanceEntities.ObjectTypeHash(EffectObject.TypePath), blob),
+            null, wake: true, awaitBirth: false);
+        return id;
+    }
+
+    public static async Task ExpireEffects(Player runner, List<TimedEffect> list, double now)
+    {
+        for (int i = list.Count - 1; i >= 0; i--)
+        {
+            if (list[i].Ends > now) continue;
+            uint id = list[i].Id;
+            list.RemoveAt(i);
+            await SendWorldRemoval(runner, id, null);
+        }
+    }
+
+    public static async Task ClearAllEffects(Player runner, List<TimedEffect> list)
+    {
+        var copy = list.ToArray();
+        list.Clear();
+        foreach (var fx in copy)
+            await SendWorldRemoval(runner, fx.Id, null);
+    }
+
+    public static async Task<uint> SpawnAdd(Player runner, string varietyId, byte level, (int X, int Y) at,
+        uint summonerId, HashSet<uint>? track = null, bool friendly = false, bool entranceGrace = false,
+        MonsterRarity rarity = MonsterRarity.Normal, Func<bool>? ownedCurrent = null)
+    {
+        if (Monsters.Find(varietyId) is not { Supported: true } v || !v.Id.Equals(varietyId, StringComparison.OrdinalIgnoreCase))
+            return 0;
+        var spot = WalkableNear(runner, at);
+        uint id = await SpawnMonster(runner, v, level, rarity, spot.X, spot.Y,
+            friendly: friendly,
+            instanceOwned: true,
+            owned: (mid, m) =>
+            {
+                m.NoRewards = true;
+                m.SummonerId = summonerId;
+                m.Aggro = !friendly;
+                m.EntranceGrace = entranceGrace;
+                track?.Add(mid);
+            },
+            ownedCurrent: ownedCurrent);
+        return id;
+    }
+
+    public static async Task RetireMonsters(Player runner, IEnumerable<uint> ids)
+    {
+        List<uint>? removed = null;
+        using (ProjectileMutation(runner))
+        {
+            foreach (uint id in ids.ToArray())
+            {
+                if (!runner.Area.Monsters.TryGetValue(id, out var m)) continue;
+                m.NoRewards = true;
+                m.Dead = true;
+                m.Life = 0;
+                m.Aggro = false;
+                m.ActionGeneration++;
+                ClearMonsterAuraCarrier(runner.Area, m);
+                runner.Area.Monsters.Remove(id);
+                runner.Instance.World.MonsterOrigins.TryRemove(id, out _);
+                (removed ??= []).Add(id);
+            }
+        }
+        if (removed is null) return;
+        foreach (uint id in removed)
+            await SendWorldRemoval(runner, id, null);
+    }
+
+    public static void SetInvulnerable(Player runner, uint id, SpawnedMonster m, bool invulnerable, ushort? buffRow = null)
+    {
+        if (invulnerable)
+        {
+            m.SetTemporaryStats(InvulnerableStatKey, CannotBeDamagedStats);
+            m.RebuildStats();
+            if (buffRow is ushort b) runner.Area.Buffs.Set(id, new(b, id));
+        }
+        else
+        {
+            m.RemoveTemporaryStats(InvulnerableStatKey);
+            m.RebuildStats();
+            if (buffRow is ushort b) runner.Area.Buffs.Clear(id, b, id);
+        }
+        m.PresentationChanged?.Invoke();
+    }
+
+    public static void ClearInvulnerableOnUnload(GameArea area, uint id, SpawnedMonster m, ushort? buffRow = null)
+    {
+        m.RemoveTemporaryStats(InvulnerableStatKey);
+        m.RebuildStats();
+        if (buffRow is ushort b) area.Buffs.Clear(id, b, id);
+        m.PresentationChanged?.Invoke();
+    }
+
+    public static async Task SetMonsterTransition(Player runner, uint id, SpawnedMonster m, byte state, string? log = null)
+    {
+        if (m.Variety is null) return;
+        int idx = m.Variety.ComponentsOrBase.ToList().IndexOf("Transitionable");
+        if (idx < 0) return;
+        if (runner.Instance.World.MonsterOrigins.TryGetValue(id, out var origin))
+            runner.Instance.World.MonsterOrigins[id] = origin with { Object = origin.Object with { TransitionState = state } };
+        await SendWorldRecord(runner, id, InstanceEntities.TransitionableUpdate(id, (byte)idx, state), log);
+    }
+
+    public static MonsterAttack PhysicalAttack(SpawnedMonster source, double scale, double radius = 14)
+    {
+        var (min, max) = Monsters.BaseDamage(source.Variety!, source.Level) ?? (8, 12);
+        return new(0x4000, 1.0, radius, DamagePacket.Of(DamageType.Physical, min * scale, max * scale))
+        { Spell = false, Scripted = true };
+    }
+
+    public static MonsterAttack ElementalSpellAttack(SpawnedMonster source, DamageType element, double scale, double radius = 16)
+    {
+        var (min, max) = Monsters.BaseDamage(source.Variety!, source.Level) ?? (8, 12);
+        return new(0x4000, 1.0, radius, DamagePacket.Of(element, min * scale, max * scale))
+        { Spell = true, Scripted = true };
+    }
+
+    public static void AdvancePhases(LifePhaseGate phases, int completedCount)
+    {
+        while (phases.Completed < completedCount)
+        {
+            if (!phases.Begin(0, 1)) break;
+            phases.Finish();
+        }
+    }
+
+    public static async Task<ArenaGate?> CreateGate(Player runner, string objectType, GlyphQuest.Placement at,
+        bool startLocked, byte lockedState, byte unlockedState, string? fallbackModel = null)
+    {
+        if (QuestObjectTypes.Find(objectType) is not { } info || !QuestObject.CanSerialize(info.Components))
+            return null;
+        int trIdx = QuestObject.TransitionableIndex(info.Components);
+        if (trIdx < 0) return null;
+        bool hasBlockage = info.Components.Contains("TriggerableBlockage");
+        int size = Math.Max(2, info.Size);
+        string? model = info.OwnModel ? null : (string.IsNullOrEmpty(at.Model) ? info.Model ?? fallbackModel : at.Model);
+        uint id = runner.TakeObjectId();
+        var gate = new ArenaGate(id, objectType, model, at.X, at.Y, at.Rotation, at.Z, trIdx, size, hasBlockage, lockedState, unlockedState)
+        {
+            Locked = startLocked,
+        };
+        byte state = startLocked ? lockedState : unlockedState;
+        // Always pass blockage: true so Positioned uses dynamic + blocksNoWalker and never stamps a permanent static Hull.
+        var blob = LabyrinthTrials.Blob(info.Components, model ?? "", at.X, at.Y, at.Rotation, 1f, state, at.Z,
+            blockage: true, blocked: startLocked);
+        await SendWorldCreate(runner, id, () => InstanceEntities.CreateObject(id, InstanceEntities.ObjectTypeHash(objectType), blob),
+            null, wake: true, awaitBirth: false);
+        foreach (var p in ActivePlayers(runner))
+            SyncGateForPlayer(p, gate);
+        return gate;
+    }
+
+    public static async Task SetGateLocked(Player runner, ArenaGate gate, bool locked)
+    {
+        if (gate.Locked == locked) return;
+        gate.Locked = locked;
+        byte state = locked ? gate.LockedState : gate.UnlockedState;
+        await SendWorldRecord(runner, gate.Id, InstanceEntities.TransitionableUpdate(gate.Id, (byte)gate.TransitionableIndex, state), null);
+        if (gate.HasBlockage)
+            await SendWorldRecord(runner, gate.Id, InstanceEntities.BlockageUpdate(gate.Id, locked), null);
+        foreach (var p in ActivePlayers(runner))
+            SyncGateForPlayer(p, gate);
+    }
+
+    static HashSet<(int X, int Y)> GateBarrierCells(Player player, ArenaGate gate)
+    {
+        if (!string.IsNullOrEmpty(gate.Model))
+        {
+            var hull = ServerLevels.ModelWalkCells(gate.Model, gate.X, gate.Y, gate.Rotation);
+            if (hull.Count > 0) return hull;
+        }
+        if (player.Layout.Walkable is { } walk)
+        {
+            var (halfX, halfY) = LabyrinthTrials.DoorHull(gate.Model ?? "");
+            var cells = LabyrinthTrials.HullCells(gate.X, gate.Y, gate.Rotation, halfX, halfY)
+                .Where(c => walk(c.X, c.Y)).ToHashSet();
+            if (cells.Count > 0) return cells;
+        }
+        return [];
+    }
+
+    public static void SyncGateForPlayer(Player player, ArenaGate gate)
+    {
+        var map = SyncedGateStates.GetValue(player, _ => []);
+        if (map.TryGetValue(gate.Id, out bool applied) && applied == gate.Locked)
+            return;
+        map[gate.Id] = gate.Locked;
+        ApplyGateBlocking(player, gate, gate.Locked);
+    }
+
+    public static void SyncGatesForPlayer(Player player, IEnumerable<ArenaGate> gates)
+    {
+        foreach (var gate in gates)
+            SyncGateForPlayer(player, gate);
+    }
+
+    public static void ReleaseGatesForPlayer(Player player, IEnumerable<ArenaGate> gates)
+    {
+        SyncedGateStates.TryGetValue(player, out var map);
+        foreach (var gate in gates)
+        {
+            map?.Remove(gate.Id);
+            ApplyGateBlocking(player, gate, locked: false);
+        }
+    }
+
+    public static void ReleaseAllGatesOnUnload()
+    {
+        foreach (var pair in SyncedGateStates)
+        {
+            var player = pair.Key;
+            bool dirty = false;
+            foreach (var gateId in pair.Value.Keys.ToArray())
+            {
+                player.RemoveBlocker(gateId);
+                dirty |= player.DoorBarriers.Remove(gateId);
+            }
+            pair.Value.Clear();
+            if (dirty) player.UpdateBarrier();
+        }
+    }
+
+    static void ApplyGateBlocking(Player player, ArenaGate gate, bool locked)
+    {
+        if (!locked)
+        {
+            player.RemoveBlocker(gate.Id);
+            if (player.DoorBarriers.Remove(gate.Id)) player.UpdateBarrier();
+            return;
+        }
+        player.SetBlocker(gate.Id, gate.X, gate.Y, gate.Size);
+        var barrier = GateBarrierCells(player, gate);
+        if (barrier.Count > 0)
+        {
+            player.DoorBarriers[gate.Id] = barrier;
+            player.UpdateBarrier();
+        }
+    }
+}

@@ -47,9 +47,12 @@ public static class InstanceEntities
         return h ^ h >> 15;
     }
 
+    /// <summary>Bit 0 of 0x33/0x3d flags: character has an unused one-off free full passive tree reset (0x14215404c / 0x142154374).</summary>
+    public const byte PassiveFreeResetFlag = 0x01;
+
     /// <summary>
     /// S→C 0x3d (dispatcher case 0x11, class 0x1435e6708, write 0x1421a54b0): the three **Atlas** passive tree presets.
-    /// u16 +0x28, u16 +0x2a, flags (bit0 +0x2c, bit1 +0x2d = no list, bits 2/3/4 → create or update preset 0/1/2 via
+    /// u16 +0x28, u16 +0x2a, flags (bit0 +0x2c free reset, bit1 +0x2d = no list, bits 2/3/4 → create or update preset 0/1/2 via
     /// 0x14215c540), then unless bit1 a vec16 of raw (little-endian) u16 node ids. Each flagged preset gets the list and
     /// the two u16 (0x141ef3040): +0x28 → +0x468, +0x2a → +0x46c, its points (0x141ef3860: "atlas passive skills
     /// allocated but only allowed"). The presets at instance+0xc2f8 (active index +0xc2f0) are read when the area UI is
@@ -63,6 +66,32 @@ public static class InstanceEntities
         return w.ToArray();
     }
 
+    /// <summary>S→C 0x3c (vtable 0x1435e72b0, write 0x1421a52c0, read 0x1421a53e0; dispatcher case 0x10):
+    /// the three Atlas passive tree preset names as narrow UTF-8 strings (u16 BE byte length + bytes, converted to UTF-16 at 0x1421542ec).</summary>
+    public const ushort AtlasTreeNamesId = 0x3c, AtlasTreeRenameId = 0x2a7;
+
+    public static byte[] AtlasTreeNames(string name0, string name1, string name2) =>
+        new LoginWriter().U16(AtlasTreeNamesId).Str(name0).Str(name1).Str(name2).ToArray();
+
+    /// <summary>C→S 0x2a7 (2 + u8 + WStr, writer 0x141fa5e60): rename one Atlas passive tree preset (0..2).</summary>
+    public static int? AtlasTreeRenameLength(ReadOnlySpan<byte> m) =>
+        m.Length >= 3 && LoginReader.TryMeasureWStr(m[3..], out int textLength) == WireMeasure.Ok ? 3 + textLength : null;
+
+    /// <summary>C→S 0x2a7 (2 + u8 + WStr, writer 0x141fa5e60): rename one Atlas passive tree preset (0..2).</summary>
+    public static (byte Preset, string Name) ReadAtlasTreeRename(ReadOnlySpan<byte> m)
+    {
+        if (m.Length < 3 || LoginReader.TryMeasureWStr(m[3..], out _) != WireMeasure.Ok)
+            return (byte.MaxValue, "");
+        var r = new LoginReader(m[3..]);
+        return (m[2], r.WStr());
+    }
+
+    /// <summary>C→S 0x129 (2 bytes, AtlasWindow::Show 0x1407b2ea0) and S→C 0x91 (read 0x1421a77b0, dispatcher case 0x23):
+    /// CompactUInt count followed by count × (WStr, 8 raw bytes). Empty list is [0x00, 0x91, 0x00].</summary>
+    public const ushort AtlasWindowRequestId = 0x129, AtlasWindowReplyId = 0x91;
+
+    public static byte[] AtlasWindowReply() => [0x00, 0x91, 0x00];
+
     /// <summary>
     /// C→S 0x3e (7 bytes): the Atlas tree's allocate click. u8 preset index (0..2), u32 BE PassiveSkillGraphId. The
     /// client's active preset is at Atlas tree +0xc2f0 (sender 0x1403cc9a0).
@@ -73,13 +102,13 @@ public static class InstanceEntities
     public const ushort AtlasAllocateId = 0x03e, AtlasRefundId = 0x03f;
     public const int AtlasAllocateLength = 7, AtlasRefundLength = 8;
 
-    /// <summary>C→S 0x3f (8 bytes): refund one Atlas node. u8 preset, u32 BE node, u8 flag (0 seen).</summary>
+    /// <summary>C→S 0x3f (8 bytes): refund one Atlas node. u8 preset, u32 BE node, u8 gold flag (1 when gold-respec mode).</summary>
     public static (byte Preset, uint Node, byte Flag) ReadAtlasRefund(ReadOnlySpan<byte> m) =>
         (m[2], (uint)(m[3] << 24 | m[4] << 16 | m[5] << 8 | m[6]), m[7]);
 
     /// <summary>C→S 0x2a8 (3 bytes): an Atlas tree tab picked; u8 the tab's AtlasTrees row, the preset to make active.
-    /// C→S 0x40 and 0x41 (3 bytes, u8 the active preset) are the Atlas tree's analogues of 0x37 and 0x38.</summary>
-    public const ushort AtlasTreeTabId = 0x2a8, AtlasRefundAllId = 0x40, AtlasTreeWidgetId = 0x41;
+    /// C→S 0x40 (Refund All for gold) and 0x41 (one-off free Reset All) carry u8 the active preset, analogues of 0x37 and 0x38.</summary>
+    public const ushort AtlasTreeTabId = 0x2a8, AtlasRefundAllId = 0x40, AtlasTreeWidgetId = 0x41, AtlasResetAllId = AtlasTreeWidgetId;
     public const int AtlasTreeTabLength = 3;
 
     public const ushort AddBuffId = 0x1c1, RemoveBuffId = 0x1c2;
@@ -164,7 +193,7 @@ public static class InstanceEntities
     public static (ushort Node, ushort Effect) ReadMasteryEffect(ReadOnlySpan<byte> m) =>
         ((ushort)(m[2] << 8 | m[3]), (ushort)(m[4] << 8 | m[5]));
 
-    public const ushort RefundPassiveId = 0x36, RefundAllPassivesId = 0x37;
+    public const ushort RefundPassiveId = 0x36, RefundAllPassivesId = 0x37, ResetAllPassivesId = 0x38;
     public const int RefundPassiveLength = 8;
 
     /// <summary>
@@ -194,10 +223,11 @@ public static class InstanceEntities
     /// </summary>
     public static byte[] CharacterPassives(byte level, byte classByte, IReadOnlyList<ushort>? nodes = null, ushort questPoints = 0,
         ushort refundPoints = 0, ushort ascendancyPoints = 0, IReadOnlyDictionary<ushort, ushort>? masteryEffects = null,
-        IReadOnlyList<ushort>? clusterNodes = null, IReadOnlyDictionary<ushort, ushort>? tattoos = null, byte descendancy = 0)
+        IReadOnlyList<ushort>? clusterNodes = null, IReadOnlyDictionary<ushort, ushort>? tattoos = null, byte descendancy = 0,
+        bool freeReset = false)
     {
         var w = new LoginWriter().U16(CharacterPassivesId).U16(refundPoints).U16(questPoints).U16(ascendancyPoints)
-            .U8(level).U8(classByte).U8(descendancy).U8(0).U16(checked((ushort)(nodes?.Count ?? 0)));
+            .U8(level).U8(classByte).U8(descendancy).U8((byte)(freeReset ? PassiveFreeResetFlag : 0)).U16(checked((ushort)(nodes?.Count ?? 0)));
         foreach (ushort n in (nodes ?? []).Order()) w.U8((byte)n).U8((byte)(n >> 8));
         // The second list stays empty; the cluster jewel nodes of the expansion cells (the client's own small ids,
         // not PassiveSkillGraphIds) go in the third, which is where the client looks for them.
@@ -262,7 +292,7 @@ public static class InstanceEntities
     /// an unsigned compact key (Stats.dat row) and a signed compact value. The world handler (0x14218ddf0) sets each on the
     /// object's Stats component (0x1424d65c0).
     /// </summary>
-    public const ushort ComponentUpdateId = 0x2bc;
+    public const ushort ComponentUpdateId = 0x2bc, BaseDataUpdateId = 0x2c1;
 
     /// <summary>
     /// S→C 0x2bc (world group, read 0x141fe6dd0): world header, then blob16 = u8 component index (in the object's
@@ -270,6 +300,17 @@ public static class InstanceEntities
     /// </summary>
     public static byte[] ComponentUpdate(uint entityId, byte componentIndex, byte[] data) =>
         new LoginWriter().U16(ComponentUpdateId).U32(entityId).U32(0).U16(0).Blob([componentIndex, .. data]).ToArray();
+
+    /// <summary>
+    /// S→C 0x2c1 (world group, factory 0x1421cda1c, class 0x1435e81c8, read 0x141fe6dd0; world handler
+    /// 0x14218f011 → 0x141dedf80): live base-data KV update. 10-byte object header (u32 entity id, u32 order key,
+    /// u16 checkpoint) followed by blob16 of the entity base-data variables (<see cref="EntityVariable.EncodeBlob"/>).
+    /// </summary>
+    public static byte[] BaseDataUpdate(uint entityId, byte[] baseDataBlob, uint orderKey = 0, ushort checkpoint = 0) =>
+        new LoginWriter().U16(BaseDataUpdateId).U32(entityId).U32(orderKey).U16(checkpoint).Blob(baseDataBlob).ToArray();
+
+    public static byte[] BaseDataUpdate(uint entityId, IReadOnlyList<EntityVariable> variables, uint orderKey = 0, ushort checkpoint = 0) =>
+        BaseDataUpdate(entityId, EntityVariable.EncodeBlob(variables), orderKey, checkpoint);
 
     public const ushort AddTaskId = 0x2c2, UpdateTaskId = 0x2c3, RemoveTaskId = 0x2c5;
 
@@ -464,12 +505,22 @@ public static class InstanceEntities
     public static byte[] PlayerPortraitUpdate(uint playerId, ushort portrait) =>
         ComponentUpdate(playerId, PlayerObject.PlayerComponentIndex, new BlobWriter().U16(0x40).U16(portrait).ToArray());
 
-    public const ushort GoldId = 0x2aa;
+    public const ushort GoldId = 0x2aa, WorldPopupIconId = 0x278;
 
     /// <summary>S→C 0x2aa (class 0x1431767e8, read 0x140911270): u32 BE, the character's gold. The instance dispatcher (case
     /// 0xe2, 0x142154531) stores it at session +0xc40c (the inventory's and the gold respec's amount) and plays
     /// Gold_Spend.ogg when it drops.</summary>
     public static byte[] Gold(uint amount) => new LoginWriter().U16(GoldId).U32(amount).ToArray();
+
+    /// <summary>
+    /// S→C 0x278 (19 bytes, class 0x1435e6f80, read 0x1421b5640, dispatcher case 0xd0 at 0x14215a675 →
+    /// InGameUI::vtable[+0xb00] 0x140d7a560): floating world/entity popup icon with signed amount.
+    /// Layout: u16 BE id, i32 BE gridX, i32 BE gridY, u32 BE entityId (0 anchors to the world cell; non-zero follows
+    /// that entity and merges mergeable popups within the row's merge window via 0x140cb2660), u8 1-based
+    /// <c>WorldPopupIconTypes</c> row (0x140cb1478 decrements by 1; e.g. 4 = row 3 <c>GoldCoin</c>), i32 BE amount.
+    /// </summary>
+    public static byte[] WorldPopupIcon(int gridX, int gridY, uint entityId, byte iconType, int amount) =>
+        new LoginWriter().U16(WorldPopupIconId).U32((uint)gridX).U32((uint)gridY).U32(entityId).U8(iconType).U32((uint)amount).ToArray();
 
     /// <summary>The player's Inventories component again (0x2bc): what its model wears after an equipment change.</summary>
     public static byte[] PlayerEquipmentUpdate(uint playerId, IReadOnlyList<VisibleItem> equipped)
@@ -739,6 +790,9 @@ public sealed record MonsterObject(int GridX, int GridY, uint Life, IReadOnlyLis
     public bool HasDialogue { get; init; }
     /// <summary>The Actor's native stance byte, retained in an instance's creation snapshot.</summary>
     public byte ActorStance { get; init; }
+    /// <summary>The Actor animation seed (0x142199562 -> +0x21c); varies unseeded clip selection across identical pack
+    /// monsters (0x141e9f579). Defaults to 0 so unconfigured fixtures keep the legacy blob.</summary>
+    public ushort AnimationSeed { get; init; }
 
     /// <summary>Facing in radians (Positioned +0x29c); the create blobs of the Mystic Fetishes carry 5.236, 1.047 and 3.142.</summary>
     public float Rotation { get; init; }
@@ -820,9 +874,10 @@ public sealed record MonsterObject(int GridX, int GridY, uint Life, IReadOnlyLis
                             .U8(AttachKind).U8(AttachFlags).F32(0).F32(0).F32(0);
                     break;
                 case "Inventories": PlayerObject.WriteInventories(w, Equipped); break;
-                // path, u16, u8, (life >= 1: no conditional bytes), u32, u32, then slot 20's two flag bytes.
+                // path, u16 animation seed (+0x21c), u8 stance (+0x21e), (life >= 1: no conditional bytes), u32, u32,
+                // then slot 20's two flag bytes.
                 case "Actor":
-                    w.WStr32("").U16(0).U8(ActorStance).U32(0).U32(0);
+                    w.WStr32("").U16(AnimationSeed).U8(ActorStance).U32(0).U32(0);
                     if (Skills is { Count: > 0 }) { w.U8(0x40).U8(0); PlayerObject.WriteSkillList(w, Skills); }   // its skills (11-skills.md §3)
                     else w.U8(0).U8(0);
                     break;

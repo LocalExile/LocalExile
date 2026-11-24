@@ -16,12 +16,15 @@ public sealed class BlockerSet : IReadOnlyList<ClientPathfinder.Blocker>, IBlock
     const int GridShift = 8;
     readonly List<ClientPathfinder.Blocker> all = [];
     // Flat 2D bucket grid covering [0..2047] x [0..2047] world cells (all standard PoE areas) for O(1) array-load
-    // queries without Dictionary hashing. Out-of-range coordinates (e.g., negative test coords) fall back to overflow.
-    readonly List<int>?[] grid = new List<int>?[GridDim * GridDim];
+    // queries without Dictionary hashing, allocated on first in-range blocker so empty sets use no LOH buffer.
+    // Out-of-range coordinates (e.g., negative test coords) fall back to overflow.
+    List<int>?[]? grid;
     readonly List<int> occupiedSlots = [];
     readonly Dictionary<long, List<int>> overflow = [];
     readonly Stack<List<int>> bucketPool = [];
     int reach;
+    int activeCount;
+    int minX = int.MaxValue, maxX = int.MinValue, minY = int.MaxValue, maxY = int.MinValue;
 
     public BlockerSet() { }
 
@@ -33,19 +36,22 @@ public sealed class BlockerSet : IReadOnlyList<ClientPathfinder.Blocker>, IBlock
     public void Reset(IReadOnlyList<ClientPathfinder.Blocker> blockers)
     {
         all.Clear();
-        var slots = CollectionsMarshal.AsSpan(occupiedSlots);
-        for (int i = 0; i < slots.Length; i++)
+        if (grid is not null)
         {
-            int slot = slots[i];
-            var list = grid[slot];
-            if (list is not null)
+            var slots = CollectionsMarshal.AsSpan(occupiedSlots);
+            for (int i = 0; i < slots.Length; i++)
             {
-                list.Clear();
-                bucketPool.Push(list);
-                grid[slot] = null;
+                int slot = slots[i];
+                var list = grid[slot];
+                if (list is not null)
+                {
+                    list.Clear();
+                    bucketPool.Push(list);
+                    grid[slot] = null;
+                }
             }
+            occupiedSlots.Clear();
         }
-        occupiedSlots.Clear();
         if (overflow.Count > 0)
         {
             foreach (var list in overflow.Values)
@@ -56,6 +62,8 @@ public sealed class BlockerSet : IReadOnlyList<ClientPathfinder.Blocker>, IBlock
             overflow.Clear();
         }
         reach = 0;
+        activeCount = 0;
+        minX = int.MaxValue; maxX = int.MinValue; minY = int.MaxValue; maxY = int.MinValue;
         for (int i = 0; i < blockers.Count; i++) Add(blockers[i]);
     }
 
@@ -63,17 +71,28 @@ public sealed class BlockerSet : IReadOnlyList<ClientPathfinder.Blocker>, IBlock
     {
         int index = all.Count;
         all.Add(blocker);
+        activeCount++;
         Index(index, blocker);
         return index;
     }
 
+    void TrackBounds(ClientPathfinder.Blocker blocker)
+    {
+        int r = Math.Max(blocker.Size, blocker.CollisionRadius is double cr ? (int)Math.Ceiling(cr) : 0);
+        if (r > reach) reach = r;
+        if (blocker.X < minX) minX = blocker.X;
+        if (blocker.X > maxX) maxX = blocker.X;
+        if (blocker.Y < minY) minY = blocker.Y;
+        if (blocker.Y > maxY) maxY = blocker.Y;
+    }
+
     void Index(int index, ClientPathfinder.Blocker blocker)
     {
-        reach = Math.Max(reach, Math.Max(blocker.Size,
-            blocker.CollisionRadius is double r ? (int)Math.Ceiling(r) : 0));
+        TrackBounds(blocker);
         int bx = Floor(blocker.X), by = Floor(blocker.Y);
         if ((uint)bx < GridDim && (uint)by < GridDim)
         {
+            grid ??= new List<int>?[GridDim * GridDim];
             int slot = (bx << GridShift) | by;
             var list = grid[slot];
             if (list is null)
@@ -93,23 +112,30 @@ public sealed class BlockerSet : IReadOnlyList<ClientPathfinder.Blocker>, IBlock
     public void Replace(int index, ClientPathfinder.Blocker blocker)
     {
         var previous = all[index];
+        if (previous == Gone)
+        {
+            all[index] = blocker;
+            activeCount++;
+            Index(index, blocker);
+            return;
+        }
         int oldBx = Floor(previous.X), oldBy = Floor(previous.Y);
         int newBx = Floor(blocker.X), newBy = Floor(blocker.Y);
         all[index] = blocker;
+        // An overestimate after a smaller or inward replacement only visits extra buckets; it never loses a blocker.
+        TrackBounds(blocker);
         if (oldBx != newBx || oldBy != newBy)
         {
             RemoveFromBucket(index, oldBx, oldBy);
             Index(index, blocker);
         }
-        // An overestimate after a smaller replacement only visits extra buckets; it never loses a blocker.
-        reach = Math.Max(reach, Math.Max(blocker.Size,
-            blocker.CollisionRadius is double r ? (int)Math.Ceiling(r) : 0));
     }
 
     void RemoveFromBucket(int index, int bx, int by)
     {
         if ((uint)bx < GridDim && (uint)by < GridDim)
         {
+            if (grid is null) return;
             int slot = (bx << GridShift) | by;
             var list = grid[slot];
             if (list is not null && list.Remove(index) && list.Count == 0)
@@ -132,8 +158,10 @@ public sealed class BlockerSet : IReadOnlyList<ClientPathfinder.Blocker>, IBlock
     public void Remove(int index)
     {
         var previous = all[index];
+        if (previous == Gone) return;
         RemoveFromBucket(index, Floor(previous.X), Floor(previous.Y));
         all[index] = Gone;
+        activeCount--;
     }
 
     static readonly ClientPathfinder.Blocker Gone = new(int.MinValue / 2, int.MinValue / 2, -1);
@@ -180,20 +208,23 @@ public sealed class BlockerSet : IReadOnlyList<ClientPathfinder.Blocker>, IBlock
 
     bool Query(int x, int y, int threshold, int radius, int first, int second, bool footprintOnly)
     {
+        if (activeCount == 0) return false;
         int range = reach + threshold;
+        if (x + range < minX || x - range > maxX || y + range < minY || y - range > maxY) return false;
         int tx0 = Math.Max(0, (x - radius) / 23), tx1 = (x + radius) / 23 + 1;
         int ty0 = Math.Max(0, (y - radius) / 23), ty1 = (y + radius) / 23 + 1;
         int bx0 = Floor(x - range), bx1 = Floor(x + range);
         int by0 = Floor(y - range), by1 = Floor(y + range);
         var allSpan = CollectionsMarshal.AsSpan(all);
-        if ((uint)bx0 < GridDim && (uint)bx1 < GridDim && (uint)by0 < GridDim && (uint)by1 < GridDim)
+        var g = grid;
+        if (g is not null && (uint)bx0 < GridDim && (uint)bx1 < GridDim && (uint)by0 < GridDim && (uint)by1 < GridDim)
         {
             for (int bx = bx0; bx <= bx1; bx++)
             {
                 int row = bx << GridShift;
                 for (int by = by0; by <= by1; by++)
                 {
-                    var list = grid[row | by];
+                    var list = g[row | by];
                     if (list is null) continue;
                     var indices = CollectionsMarshal.AsSpan(list);
                     for (int i = 0; i < indices.Length; i++)
@@ -213,12 +244,13 @@ public sealed class BlockerSet : IReadOnlyList<ClientPathfinder.Blocker>, IBlock
             }
             return false;
         }
+        bool hasOverflow = overflow.Count > 0;
         for (int bx = bx0; bx <= bx1; bx++)
             for (int by = by0; by <= by1; by++)
             {
                 List<int>? list = (uint)bx < GridDim && (uint)by < GridDim
-                    ? grid[(bx << GridShift) | by]
-                    : (overflow.TryGetValue(Key(bx, by), out var olist) ? olist : null);
+                    ? g?[(bx << GridShift) | by]
+                    : (hasOverflow && overflow.TryGetValue(Key(bx, by), out var olist) ? olist : null);
                 if (list is null) continue;
                 var indices = CollectionsMarshal.AsSpan(list);
                 for (int i = 0; i < indices.Length; i++)

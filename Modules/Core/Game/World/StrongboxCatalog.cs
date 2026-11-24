@@ -8,6 +8,7 @@ public static class StrongboxCatalog
     public static void LoadGameData()
     {
         Data = LoadData();
+        Effects = LoadEffects();
     }
 
     public sealed record Definition(int Row, string Id, string Name, int Weight, int HardModeWeight, int MinLevel, int MaxLevel,
@@ -25,6 +26,9 @@ public static class StrongboxCatalog
         public Contents Kind { get; init; }
         /// <summary>The Chests row's tags and "default": what its explicit mods' spawn weights read.</summary>
         public IReadOnlySet<string> Tags { get; init; } = new HashSet<string>(["default"]);
+        /// <summary>The Chests row's <c>ChestEffectsKey</c>: the ChestEffects row whose per-rarity open effect the box
+        /// plays as it opens (<see cref="OpenEffect"/>).</summary>
+        public int? ChestEffect { get; init; }
     }
 
     /// <summary>What a box drops: from its Chests tags (armour, weapon, jewellery, gem, map, divination_card, scarab), else
@@ -76,6 +80,7 @@ public static class StrongboxCatalog
                 Items = Math.Max(1, row.IntOrNull("__col2") ?? 5),
                 Kind = KindOf(id, chestTags),
                 Tags = chestTags,
+                ChestEffect = chest.IntOrNull("ChestEffectsKey") is int effect and >= 0 ? effect : null,
             });
         }
         return result;
@@ -94,6 +99,44 @@ public static class StrongboxCatalog
         : id.Contains("/Arcanist", StringComparison.Ordinal) ? Contents.Currency
         : id.Contains("/Artisan", StringComparison.Ordinal) ? Contents.QualityCurrency
         : Contents.General;
+
+    /// <summary>A ChestEffects row: the effect models a chest plays while closed (a looping glow) and when it opens,
+    /// one per rarity (the strongbox rows 0-3 are the white/blue/gold/brown effect sets; 4-5 have a single one).</summary>
+    sealed record EffectRow(string Id, string? NormalClosed, string? MagicClosed, string? RareClosed, string? UniqueClosed,
+        string? Normal, string? Magic, string? Rare, string? Unique);
+
+    static IReadOnlyList<EffectRow> Effects = [];
+
+    /// <summary>The ChestEffects rows in row order (Chests <c>ChestEffectsKey</c> indexes them).</summary>
+    static IReadOnlyList<EffectRow> LoadEffects()
+    {
+        if (!ClientTables.Has("ChestEffects")) return [];
+        return [.. ClientTables.Table("ChestEffects").Select(row => new EffectRow(row.Text("Id") ?? "",
+            AO(row.Text("Normal_Closed_AOFile")), AO(row.Text("Magic_Closed_AOFile")),
+            AO(row.Text("Rare_Closed_AOFile")), AO(row.Text("Unique_Closed_AOFile")),
+            AO(row.Text("Normal_Open_AOFile")), AO(row.Text("Magic_Open_AOFile")),
+            AO(row.Text("Rare_Open_AOFile")), AO(row.Text("Unique_Open_AOFile"))))];
+        static string? AO(string? path) => string.IsNullOrEmpty(path) ? null : path;
+    }
+
+    static EffectRow? EffectOf(Definition type) =>
+        type.ChestEffect is int key && (uint)key < (uint)Effects.Count ? Effects[key] : null;
+
+    /// <summary>The .ao of the looping effect a closed box wears: the ChestEffects row's <c>Normal_Closed_AOFile</c> (0),
+    /// <c>Magic_…</c> (1), <c>Rare_…</c> (2) or <c>Unique_…</c> (3); null when the row leaves that one empty. Its default
+    /// animation is "loop": the coloured glow that tells a box's rarity apart.</summary>
+    public static string? ClosedEffect(Definition type, byte rarity) => EffectOf(type) is not { } row ? null : rarity switch
+    {
+        0 => row.NormalClosed, 1 => row.MagicClosed, 2 => row.RareClosed, _ => row.UniqueClosed,
+    };
+
+    /// <summary>The .ao of the effect the box plays as it opens: the ChestEffects row's <c>Normal_Open_AOFile</c> (0),
+    /// <c>Magic_…</c> (1), <c>Rare_…</c> (2) or <c>Unique_…</c> (3); null when the row leaves that one empty. Each is an
+    /// effect whose default "openfx" animation carries its own SoundEvents (Audio/…/Chests/Strongbox/Effect_$(#).ogg).</summary>
+    public static string? OpenEffect(Definition type, byte rarity) => EffectOf(type) is not { } row ? null : rarity switch
+    {
+        0 => row.Normal, 1 => row.Magic, 2 => row.Rare, _ => row.Unique,
+    };
 
     public static int Weight(Definition type, int level, bool hardMode, MapMods mods)
     {
@@ -120,12 +163,13 @@ public static class StrongboxCatalog
 
     /// <param name="unique">A unique box: its own model, and its name (Words) in ObjectMagicProperties.</param>
     public static byte[] Blob(Definition type, int x, int y, bool started, bool opened, byte rarity,
-        IReadOnlyList<ItemMod>? mods, IReadOnlyList<(uint Key, int Value)>? stats, UniqueBox? unique) =>
+        IReadOnlyList<ItemMod>? mods, IReadOnlyList<(uint Key, int Value)>? stats, UniqueBox? unique, byte chestFlags = 0) =>
         new QuestObject(x, y, type.Components, Model: unique?.Model ?? type.Model, Opened: opened)
         {
             StateMachine = type.States?.Set("started", started ? 1 : 0).Set("opened", opened ? 1 : 0),
             Mods = mods ?? type.Mods, Rarity = rarity, Stats = stats ?? [],
             NameWords = unique is null ? [] : [unique.NameWord],
+            ChestFlags = chestFlags,
         }.Blob();
 
     /// <summary>A unique strongbox (UniqueChests): its name (a Words row's HASH32), its own model, the area level from which

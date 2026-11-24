@@ -4,17 +4,20 @@ namespace GameServer.Core.Protocol.Instance;
 
 /// <summary>
 /// Changing area through an area transition, and the instance chooser (Agents/docs/protocol/09-area-change.md).
-/// <para>Flow: C→S 0x24 (use skill on the area transition object) → S→C 0x2b4 (change area: the client shows the loading screen and
-/// answers C→S 0x2cd, built by 0x14214efe0) → S→C 0x27 (the destination instance's address, ticket and key, on the
-/// current instance connection) → the client connects to it. In game nothing listens to login 0x14 (the login
-/// connection's listener list at +0x298 is empty), so an area change cannot come from Auth.
+/// <para>Flow: C→S 0x24 (use skill on the area transition object) → S→C 0x2b4 (change area: the client displays the HUD
+/// "Entering &lt;area&gt;" banner, stores any loading-screen override, and answers C→S 0x2cd, built by 0x14214efe0) →
+/// server creates and pre-generates the destination instance while "Entering &lt;area&gt;" is shown → S→C 0x27 (the
+/// destination instance's address, ticket and key, on the current instance connection: hides the banner, pushes the
+/// loading screen and opens the new connection), or S→C 0x2b5 on refusal (hides the banner without connecting). In game
+/// nothing listens to login 0x14 (the login connection's listener list at +0x298 is empty), so an area change cannot
+/// come from Auth.
 /// With Ctrl held the 0x24 flags carry 0x0004, and the server answers 0xae (instance list) instead, which opens the
 /// client's InstanceChooserWindow (ShowForTransition(area, vector&lt;ClientInstanceListEntry&gt;, bool)).</para>
 /// </summary>
 public static class InstanceTransfer
 {
-    public const ushort UseSkillOnObjectId = 0x24, ChangeAreaId = 0x2b4, InstanceListId = 0xae, LeaveAreaAckId = 0x2cd,
-        ConnectInstanceId = 0x27, ChooseInstanceId = 0xaf;
+    public const ushort UseSkillOnObjectId = 0x24, ChangeAreaId = 0x2b4, CancelChangeAreaId = 0x2b5,
+        InstanceListId = 0xae, LeaveAreaAckId = 0x2cd, ConnectInstanceId = 0x27, ChooseInstanceId = 0xaf;
 
     /// <summary>The length of a C→S 0x2cd at the start of <paramref name="data"/> (writer 0x141fa6480): u16 id, u16 BE byte
     /// count, then that many bytes (u16 6 and 0x360 bytes: 870 in all). Null until its header has arrived.</summary>
@@ -42,6 +45,10 @@ public static class InstanceTransfer
     /// <see cref="CtrlFlag"/> it chooses an NPC's shortcut (17-npcs.md §3).</summary>
     public const ushort AltFlag = 0x0200;
 
+    /// <summary>0x24 / 0x018f flag bit set only on the initial fresh press (3.29.3c <c>0x1401285b0</c>), cleared on
+    /// held-button repeat ticks.</summary>
+    public const ushort InitialPressFlag = 0x0400;
+
     /// <summary>
     /// C→S 0x24 (12 bytes, 0x25's sibling aimed at an object): u32 target object id, u16 skill id (0x0266 = interact,
     /// seen on area transitions), u16 sequence, u16 flags (0x0408; | 0x0004 with Ctrl; | 0x0200 with Alt on an NPC).
@@ -51,6 +58,7 @@ public static class InstanceTransfer
         public bool Ctrl => (Flags & CtrlFlag) != 0;
         public bool Alt => (Flags & AltFlag) != 0;
         public bool AutoEquip => (Flags & AutoEquipFlag) != 0;
+        public bool InitialPress => (Flags & InitialPressFlag) != 0;
 
         /// <summary>The use's start (0x1ab) has already gone to the client: a lockstep client's frame pass sends it before
         /// the handler runs, so the handler sends none of its own. A second start put the client back to its from cell
@@ -66,12 +74,20 @@ public static class InstanceTransfer
 
     /// <summary>
     /// S→C 0x2b4 (class 0x1435ca918, write 0x141f99270; dispatcher case 0xe8): u16 destination WorldAreas.HASH16, u16
-    /// LoadingScreenOverrides row (1-based, 0 = the area's default). The handler notifies the loading-screen listeners
-    /// (+0x6d70) and calls 0x14214efe0, which sends C→S 0x2cd once and flushes. An unknown hash is fatal ("Instance sent
-    /// change area notification that does not exist").
+    /// LoadingScreenOverrides row (1-based, 0 = the area's default). The handler notifies the listeners at +0x6d70
+    /// (0x140d5acb0 → InGameUI +0x570 0x140dc70b0, which shows ClientStrings 695 "Entering {0}" and records the override
+    /// on LoadingState +0x88a without pushing the loading screen yet) and calls 0x14214efe0, which sends C→S 0x2cd once
+    /// (+0xcd4a) and flushes. An unknown hash is fatal ("Instance sent change area notification that does not exist").
     /// </summary>
     public static byte[] ChangeArea(ushort destinationHash16, ushort loadingScreen = 0) =>
         new LoginWriter().U16(ChangeAreaId).U16(destinationHash16).U16(loadingScreen).ToArray();
+
+    /// <summary>
+    /// S→C 0x2b5 (empty message 0x1431768d8; dispatcher case 0xe9 → +0x6df0 → 0x140d60720 → InGameUI +0x578 0x140dc73a0):
+    /// hides the HUD "Entering &lt;area&gt;" banner shown by 0x2b4 when a transfer is refused or cancelled. Does not
+    /// reset the one-shot 0x2cd flag (+0xcd4a).
+    /// </summary>
+    public static byte[] CancelChangeArea() => new LoginWriter().U16(CancelChangeAreaId).ToArray();
 
     /// <summary>
     /// S→C 0x27 (class vtable 0x1435e7180, write 0x1421a4760, read 0x1421a4900; dispatcher case 0xe): connect to another
@@ -81,11 +97,11 @@ public static class InstanceTransfer
     /// area, key, data8, u8 +0x89) and hands it to the game state's listener at instance+0xa00, which calls
     /// 0x140d57090 ("Got Instance Details from login server") and opens the new instance connection.
     /// </summary>
-    public static byte[] ConnectInstance(string host, ushort port, uint ticket, ushort areaHash16, byte[] key64)
+    public static byte[] ConnectInstance(string host, ushort port, uint ticket, ushort areaHash16, byte[] key64, byte[]? data8 = null)
     {
         uint ip = System.Buffers.Binary.BinaryPrimitives.ReadUInt32BigEndian(System.Net.IPAddress.Parse(host).GetAddressBytes());
         return new LoginWriter().U16(ConnectInstanceId).Str(host).U16(port).U32(ip).U32(0).U16(areaHash16).U32(ticket)
-            .U8(0).U8(0).Fixed(key64, 64).Fixed(new byte[8], 8).ToArray();
+            .U8(0).U8(0).Fixed(key64, 64).Fixed(data8 ?? new byte[8], 8).ToArray();
     }
 
     /// <summary>One row of the instance chooser (ClientInstanceListEntry, 0x28 bytes in the client). Live 2026-10-16: the

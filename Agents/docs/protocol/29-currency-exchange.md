@@ -14,7 +14,7 @@ The window asks for everything it shows. No market lives in the client: it compu
 | 0x2f0 | u32 low, u32 high | the market of the two items | 0x2f4 |
 | 0x2ea | u32 want, u32 have, u32 want count, u32 have count | places an order | 0x2f3 |
 | 0x2eb | u32 order | the X on an order | 0x2f3 |
-| 0x2ed | u32 order, u8 side, u8 all, u8, u8, u8 | moves a stack to the inventory (side 1 what was bought, 0 what was sold; 0xfe 0xff: no cell) | 0x2f3 |
+| 0x2ed | u32 order, u8 side, u8 pressKind, u8 toCursor, u8 cellX, u8 cellY | claims currency (side 1 bought, 0 sold; toCursor 1 puts one stack on cursor, else pressKind 1 = Ctrl-left 1 stack, 0 = Ctrl-right all) | 0x2f3 |
 
 All u32 are big-endian, and items are `BaseItemTypes` hashes. Counts are under 1,000,000 and the reduced ratio at most 65000 : 65000: the window checks both.
 
@@ -28,7 +28,7 @@ All u32 are big-endian, and items are `BaseItemTypes` hashes. Counts are under 1
 | 0x2f4 | 0xf6 | u32 low, u32 high, levels of those selling low, levels of those selling high |
 | 0x2f5 | 0xf7 | u8: the order slots again |
 | 0x2f7 | 0xf8 | u32 item, u32 fee, bool: gold is want count × fee, or with the bool the count ÷ fee rounded up |
-| 0x2f9 | 0xfa | u16: an error; 0x261 is "The Currency Exchange is closed" (the others not mapped) |
+| 0x2f9 | 0xfa | u16 BE `BackendErrors` row: 604 `InvalidRequest`, 608 `MarketDisabled`, 612 `TooManyOrders`, 615 `GenericOrderFailure`, 616 `CouldNotFindSellItems` |
 | 0x2ef | 0xf3 | debug log only ("CX query order returned …") |
 
 Until 0x2e9 arrives the window reads "The Currency Exchange is closed" (`+0x570`, `0x140b92550`).
@@ -56,6 +56,17 @@ An **order** (`0x1429adaf0`, 0x58 bytes in memory; offsets are the row's):
 
 A status string's id in the client is its `ClientStrings` row + 1. `FaustusSettlersOrderFilled_Random` is named nowhere in the client: the server says it (S→C 0x1c7, [17](17-npcs.md)).
 
+## Troubleshooting
+
+- **Unknown `/exchange`:** check the character's effective [module list](../dev/modules.md).
+  If Currency Exchange is absent, enable it for that league in Waypoint's **Leagues**, select
+  **Save module choices**, then restart the servers. If it is still unavailable, check module-load errors.
+- **Window opens without quotes:** without a rates file, the exchange uses built-in prices.
+  With [Live Economy](https://github.com/LocalExile/LocalExile-Mods/tree/main/mods/liveeconomy),
+  a stale feed can leave the whole market empty. If only one pair is empty, check whether the
+  selected feed prices both items. **Current league** uses the official challenge league's feed
+  even when the local league is Phrecia. See [Rates](#rates).
+
 ## Rates
 
 GGG's public `GET https://web.poecdn.com/api/currency-exchange/<hour>` has hourly digests per league and pair, none of the current hour. A digest's lowest and
@@ -74,3 +85,4 @@ a rare one. A player can earn the spread that way, as in a live market; gold pay
 
 The Gateway itself contacts nothing for them: a mod, LocalExile-Mods' `liveeconomy`, gets the rates and hands them over with `ExchangeRateStore.Publish`, and says how to trade with `ExchangeRateStore.Use`, among it the official league:
 Standard or the current challenge league, the one with the most priced items among the others. Hardcore leagues have too few markets to price on their own.
+When no `data/currency-exchange-rates.json` file is present, `CurrencyExchangeModule` falls back to built-in baseline chaos ratios derived from `CurrencyExchange.GoldPurchaseFee` so Faustus stays usable without mods, while `liveeconomy` overrides take priority.

@@ -105,6 +105,16 @@ public sealed class PortalsModule : IModule
             await ActivateMapDevice(player, InstanceMapDevice.ReadActivate(bytes));
             return true;
         });
+        GameEvents.Packet(InstanceMapDevice.ActivateMemoryLineId).Add(module.Manifest.Id, async (player, bytes) =>
+        {
+            await ActivateMemoryLine(player, InstanceMapDevice.ReadActivateMemoryLine(bytes));
+            return true;
+        });
+        GameEvents.Packet(InstanceMapDevice.ActivateMavenInvitationId).Add(module.Manifest.Id, async (player, bytes) =>
+        {
+            await ActivateMavenInvitation(player, InstanceMapDevice.ReadActivateMavenInvitation(bytes));
+            return true;
+        });
         GameEvents.Packet(InstanceMapDevice.SelectMapId).Add(module.Manifest.Id, async (player, bytes) =>
         {
             await SelectAtlasMap(player, InstanceMapDevice.ReadSelectMap(bytes));
