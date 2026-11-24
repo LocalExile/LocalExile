@@ -280,10 +280,35 @@ public static class ChargeGains
     /// </summary>
     static (double Period, int Count) EachSecond(int value) => (1, value);
 
+    // The same list as the fx tables give it ("interval" rules that give or take charges), each stat at its place in
+    // Periodics so a character's timers keep their slots; a stat only the tables have follows. Null until they load.
+    static volatile IReadOnlyList<Periodic>? tablePeriodics;
+
+    /// <summary>The periodic charges in use: the fx tables' while the effect rules are on, the list above otherwise.</summary>
+    public static IReadOnlyList<Periodic> ActivePeriodics => EffectRules.Enabled && tablePeriodics is { } table ? table : Periodics;
+
+    /// <summary>Every periodic charge stat either list has (what a character's charge session watches).</summary>
+    public static IReadOnlyList<Periodic> KnownPeriodics => tablePeriodics ?? Periodics;
+
+    /// <summary>Takes the periodic charges the fx tables describe (FxRules.Periodics), when the game data loads. A stat
+    /// of the list above that the tables do not have keeps its entry.</summary>
+    public static void LoadPeriodics(IReadOnlyList<Periodic> fromTables)
+    {
+        if (fromTables.Count == 0) { tablePeriodics = null; return; }
+        var merged = new List<Periodic>(Periodics);
+        foreach (var periodic in fromTables)
+        {
+            int at = merged.FindIndex(p => p.Stat == periodic.Stat);
+            if (at >= 0) merged[at] = periodic;
+            else merged.Add(periodic);
+        }
+        tablePeriodics = merged;
+    }
+
     /// <summary>The timers of the <see cref="Periodics"/> of one character.</summary>
     public sealed class Timers
     {
-        private readonly double[] elapsed = new double[Periodics.Count];
+        private double[] elapsed = new double[Periodics.Count];
 
         /// <summary>Advances every timer by <paramref name="seconds"/> of game time and returns the charges that came due.
         /// A timer whose stat is absent or whose condition does not hold is reset. <paramref name="lostRecently"/>: whether
@@ -295,9 +320,11 @@ public static class ChargeGains
             bool mineDetonatedRecently, Func<ChargeType, bool>? lostRecently = null)
         {
             var gains = new List<Gain>();
-            for (int i = 0; i < Periodics.Count; i++)
+            var periodics = ActivePeriodics;
+            if (elapsed.Length < periodics.Count) Array.Resize(ref elapsed, periodics.Count);
+            for (int i = 0; i < periodics.Count; i++)
             {
-                var p = Periodics[i];
+                var p = periodics[i];
                 int value = get(p.Stat);
                 // Not zero rather than above zero: the per-second jewel stats store -1 for their one charge.
                 bool holds = value != 0 && p.Condition switch

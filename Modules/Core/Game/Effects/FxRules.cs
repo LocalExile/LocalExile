@@ -30,6 +30,8 @@ public static class FxRules
         foreach (var row in rows)
         {
             if (row.Status == "not built") continue;
+            // A rule on a timer is not an event rule: the system that keeps the timers reads it (Periodics).
+            if (row.When.Count == 1 && row.When[0].Trigger == "interval") continue;
             try
             {
                 var rule = Engine(row);
@@ -46,6 +48,68 @@ public static class FxRules
                     result.Add(new(row.Id, key, ord, json.ToJsonString()));
                 }
                 if (row.Sources.Count == 0) throw new FormatException("no source");
+            }
+            catch (Exception e) when (e is FormatException or JsonException or InvalidOperationException or KeyNotFoundException)
+            {
+                refused?.Invoke(row.Id, e.Message);
+            }
+        }
+        return result;
+    }
+
+    /// <summary>The "interval" rules that give or take charges, as the charge system's own timers read them
+    /// (ChargeGains.Periodic): the stat, the charge type (null: a random one each), the one condition the timers know,
+    /// and the period and count worked out from the stat's value. <paramref name="refused"/> is told each one left out.</summary>
+    public static List<ChargeGains.Periodic> Periodics(IReadOnlyList<GameDataStore.FxRuleRow> rows, Action<string, string>? refused = null)
+    {
+        var result = new List<ChargeGains.Periodic>();
+        foreach (var row in rows)
+        {
+            if (row.Status == "not built" || row.When.Count != 1 || row.When[0].Trigger != "interval") continue;
+            try
+            {
+                if (row.Sources.Count != 1 || row.Sources[0].Kind != "stat") throw new FormatException("a timed rule is turned on by one stat");
+                uint stat = Program.Stats.Key(row.Sources[0].Key) ?? throw new FormatException($"unknown stat \"{row.Sources[0].Key}\"");
+                if (row.Do.Count != 1 || row.Do[0].Action != "charge" || row.Do[0].Target != "self")
+                    throw new FormatException("a timed rule gives or takes the actor's charges only so far");
+                // A number of the rule: fixed, or the stat's own value times a scale.
+                static Func<int, double> Number(JsonNode? node, string what)
+                {
+                    if (node is JsonValue plain) { double n = plain.GetValue<double>(); return _ => n; }
+                    if (node is not JsonObject written) throw new FormatException($"a timed rule needs {what}");
+                    if (written["fixed"] is { } given) { double n = given.GetValue<double>(); return _ => n; }
+                    if (written["from"]?.GetValue<string>() != "roll") throw new FormatException($"{what} is fixed or the stat's own value (\"from\":\"roll\")");
+                    double scale = written["scale"]?.GetValue<double>() ?? 1;
+                    return value => value * scale;
+                }
+                var seconds = Number(Object(row.When[0].Args)["seconds"], "\"seconds\"");
+                var with = Object(row.Do[0].Args);
+                string word = with["type"]?.GetValue<string>() ?? throw new FormatException("the action \"charge\" needs \"type\"");
+                ChargeType? type = word == "random" ? null
+                    : Enum.TryParse(word, ignoreCase: true, out ChargeType known) ? known : throw new FormatException($"unknown charge type \"{word}\"");
+                var count = with["does"]?.GetValue<string>() switch
+                {
+                    null or "gain" => Number(JsonNode.Parse(row.Do[0].Value), "a count"),
+                    "lose_one" => _ => -1,
+                    var other => throw new FormatException($"a timed rule cannot \"{other}\" yet"),
+                };
+                var condition = ChargeGains.PeriodicCondition.Always;
+                if (row.If.Count > 1) throw new FormatException("a timed rule has one condition at most so far");
+                if (row.If.Count == 1)
+                {
+                    var (_, name, negate, text) = row.If[0];
+                    var asked = Object(text);
+                    condition = (name, asked["is"]?.GetValue<string>() ?? asked["event"]?.GetValue<string>(), negate) switch
+                    {
+                        ("recently", "been_hit", false) => ChargeGains.PeriodicCondition.HitRecently,
+                        ("self_state", "stationary", false) => ChargeGains.PeriodicCondition.Stationary,
+                        ("self_state", "moving", false) => ChargeGains.PeriodicCondition.Moving,
+                        ("recently", "detonated_mines", true) => ChargeGains.PeriodicCondition.NoMineDetonatedRecently,
+                        ("recently", "lost_charge", true) => ChargeGains.PeriodicCondition.NotLostRecently,
+                        _ => throw new FormatException($"the condition \"{name}\" has no code yet for a timed rule"),
+                    };
+                }
+                result.Add(new(stat, type, condition, value => (seconds(value), (int)Math.Round(count(value)))));
             }
             catch (Exception e) when (e is FormatException or JsonException or InvalidOperationException or KeyNotFoundException)
             {

@@ -67,8 +67,9 @@ public sealed class ChargeSession(Charges.State? state = null, Action<ChargeType
         get
         {
             if (Pending || Holds) return true;
-            for (int i = 0; i < ChargeGains.Periodics.Count; i++)
-                if (Observed(ChargeGains.Periodics[i].Stat) != 0) return true;
+            var periodics = ChargeGains.KnownPeriodics;
+            for (int i = 0; i < periodics.Count; i++)
+                if (Observed(periodics[i].Stat) != 0) return true;
             return false;
         }
     }
@@ -99,7 +100,7 @@ public sealed class ChargeSession(Charges.State? state = null, Action<ChargeType
             Record(Charges.ConversionFlag(type));
             Record(Charges.MinimumConversionFlag(type));
         }
-        foreach (var p in ChargeGains.Periodics) Record(p.Stat);
+        foreach (var p in ChargeGains.KnownPeriodics) Record(p.Stat);
         foreach (uint name in ChargeTriggers.Observed) Record(name);
         observed = seen;
     }

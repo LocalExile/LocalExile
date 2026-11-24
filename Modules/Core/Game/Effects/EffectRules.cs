@@ -279,6 +279,11 @@ public static class EffectRules
                 { Console.WriteLine($"[rules] refused the fx rule {compiled.Rule} for {compiled.Stat}: {e.Message}"); }
             }
             int tables = rules.Count;
+            // The timed rules that give or take charges go to the charge system's timers.
+            var timed = FxRules.Periodics(GameData.FxRules,
+                (rule, why) => Console.WriteLine($"[rules] left out the timed fx rule {rule}: {why}"));
+            ChargeGains.LoadPeriodics(timed);
+            if (timed.Count > 0) Console.WriteLine($"[rules] {timed.Count} timed rule(s) from the fx tables (charges over time)");
             foreach (var row in GameData.EffectRules)
             {
                 if (fromTables.Contains(row.Stat)) continue;
