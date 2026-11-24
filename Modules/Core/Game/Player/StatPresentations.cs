@@ -144,8 +144,14 @@ public static partial class Game
             if (rf is not null) await EndRighteousFire(player, "death", rf);
             if (player.BladefallTrarthus is not null) await EndBladefallTrarthus(player, "death");
         }
-        else if (player.BladefallTrarthus is not null && player.PlayerMana == 0)
-            await EndBladefallTrarthus(player, "out of mana");
+        else if (player.BladefallTrarthus is { PaysLife: false } bladefall)
+        {
+            bool freeMana = CharacterPlayerStats(player).GetValueOrDefault(Stat.NoManaCost) != 0;
+            if (!freeMana && player.PlayerMana == 0)
+                await EndBladefallTrarthus(player, "out of mana");
+            else
+                await SendBladefallCost(player, life: false, freeMana ? 0 : bladefall.CostPerMinute);
+        }
     }
 
     sealed class Presenting
@@ -222,8 +228,10 @@ public static partial class Game
     static void RunStatPresentations(Player player)
     {
         var presenting = PresentingOf.GetOrCreateValue(player);
+        double now = AreaTime(player);
+        CheckIntensityPresentation(player, now);
         lock (presenting)
-            if (AreaTime(player) >= presenting.NextAt)
+            if (now >= presenting.NextAt)
             {
                 presenting.NextAt = double.PositiveInfinity;
                 presenting.Pending = true;

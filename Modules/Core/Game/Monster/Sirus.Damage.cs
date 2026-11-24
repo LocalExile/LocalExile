@@ -36,7 +36,7 @@ static partial class Sirus
 
         async Task GroundDamage(Player p, double now, double seconds)
         {
-            bool died = false, shieldChanged = false;
+            bool died = false, shieldChanged = false, manaChanged = false;
             await SendWorldRecord(p, p.Id, [], null, atGate: () =>
             {
                 if (stopped || !CurrentGameWork || p.Closed || p.LeavingArea || p.Paused) return null;
@@ -47,6 +47,7 @@ static partial class Sirus
                 var immune = PlayerImmunities(p);
                 double shieldBefore = p.EnergyShield.Current;
                 uint lifeBefore = p.PlayerLife;
+                uint manaBefore = p.PlayerMana;
                 int lifeDamage = 0;
                 foreach (var type in DamageTypes.ConversionOrder)
                 {
@@ -58,12 +59,15 @@ static partial class Sirus
                         * IncomingResourceDefences.FinalTakenFactor(p.Pools, Get);
                     double earned = (immune.Contains(type) ? 0 : raw[type].Min * Math.Max(0, 1 - resistance / 100d) * seconds * factor) + e.DotCarry[slot];
                     int damage = (int)Math.Min(int.MaxValue, Math.Floor(earned)); e.DotCarry[slot] = earned - damage;
-                    bool chaosBypasses = type == DamageType.Chaos && ChaosDamageBypassesEnergyShield(p, stats);
-                    lifeDamage += type == DamageType.Chaos ? p.EnergyShield.Damage(damage, chaosBypasses, now)
+                    lifeDamage += type == DamageType.Chaos
+                        ? DamagePlayerChaosOverTime(p, damage, now, stats)
                         : IncomingResourceDefences.DamageOverTime(p.EnergyShield, damage, Get(IncomingResourceDefences.BypassStat), now, ref p.NonChaosDotBypassCarry);
                 }
-                p.PlayerLife = VaalImmortalCallLife(p, (uint)Math.Max(0, (long)p.PlayerLife - lifeDamage), now);
+                uint lifeAfter = VaalImmortalCallLife(p, (uint)Math.Max(0, (long)p.PlayerLife - lifeDamage), now);
+                RecordRechargeLifeDamage(p, (long)p.PlayerLife - lifeAfter, now, stats);
+                p.PlayerLife = lifeAfter;
                 shieldChanged = p.EnergyShield.Current != shieldBefore;
+                manaChanged = manaBefore != p.PlayerMana;
                 if (died = lifeBefore > 0 && p.PlayerLife == 0)
                 { p.InvalidateIncomingHits(); RecordHardcoreDeath(p); }
                 foreach (var g in p.Golems.All.Values.Concat(p.Reservations.Fighters.Values).Concat(p.Summons.Fighters.Values).ToArray())
@@ -94,6 +98,7 @@ static partial class Sirus
                     u2c: p.PlayerLife == 0 ? InstanceProtocol.DeathKindDegen : InstanceProtocol.DeathKindNormal);
             });
             if (shieldChanged) await SendPlayerEnergyShield(p);
+            if (manaChanged) await SendPlayerMana(p, "[Sirus] ground mana");
             if (died) await PlayerDied(p, "[Sirus] ground damage", deathKind: InstanceProtocol.DeathKindDegen);
         }
     }

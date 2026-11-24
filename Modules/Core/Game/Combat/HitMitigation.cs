@@ -36,4 +36,22 @@ public static class HitMitigation
     /// consumes a draw when rolled).</summary>
     public static int Mitigated(DamagePacket rolled, Func<DamageType, DamageModel.ResistanceValue> resistance) =>
         (int)Math.Round(DamageModel.Mitigate(rolled, resistance).MinTotal);
+
+    /// <summary>A monster's total physical damage reduction (%) against a hit of <paramref name="rawPhysicalDamage"/>:
+    /// combines flat PDR (<paramref name="flatReductionPct"/>, which may be negative from Crush) with 3.16+ armour
+    /// mitigation <c>Armour / (Armour + 5 × rawPhysicalDamage)</c> when <paramref name="armourEnabled"/> is true,
+    /// capped at 90% total PDR.</summary>
+    public static double PhysicalReduction(MonsterCatalog monsters, SpawnedMonster m, double rawPhysicalDamage,
+        int flatReductionPct, bool armourEnabled)
+    {
+        double armourPdr = 0;
+        if (armourEnabled && rawPhysicalDamage > 0)
+        {
+            int baseArmour = m.Variety is not null ? monsters.BaseArmour(m.Variety, m.Level) ?? 0 : 0;
+            int armour = m.Effects.Armour(baseArmour);
+            if (armour > 0)
+                armourPdr = 100.0 * armour / (armour + 5.0 * rawPhysicalDamage);
+        }
+        return Math.Min(MonsterModEffects.MaxTotalPhysicalReduction, flatReductionPct + armourPdr);
+    }
 }

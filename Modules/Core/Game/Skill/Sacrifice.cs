@@ -2,6 +2,16 @@ using GameServer.Core.Protocol.Instance;
 
 static partial class Game
 {
+    static uint SacrificeItemLifeLocked(Player caster, int effect, IReadOnlyDictionary<uint, int> stats)
+    {
+        if (!SkillsFor(caster).IsSpell(effect) || caster.PlayerLife <= 1) return 0;
+        int percent = stats.GetValueOrDefault(Stat.SacrificePctLifeOnSpellSkill);
+        if (percent <= 0) return 0;
+        uint sacrificed = (uint)Math.Min(caster.PlayerLife - 1, (long)caster.PlayerLife * percent / 100);
+        caster.PlayerLife -= sacrificed;
+        return sacrificed;
+    }
+
     // Owned by one original player cast, shared by its repeats/cascades; never created by a proxy executor.
     public sealed class SacrificeUse(Player caster, ushort skill, int effect, uint gem, bool triggered = false)
     {

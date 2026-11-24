@@ -56,7 +56,7 @@ public sealed class SkillCatalog
     private readonly System.Collections.Concurrent.ConcurrentDictionary<int, bool> _castsOnDeath = new();
 
     public bool CastsOnDeath(int effect) => _castsOnDeath.GetOrAdd(effect, row =>
-        Stat.CastOnDeathPct is var key && EffectStats(row, 1).Any(stat => stat.Item1 == key && stat.Item2 > 0));
+        EffectStats(row, 1).Any(stat => (stat.Item1 == Stat.CastOnDeathPct || stat.Item1 == Stat.AttackOnDeathPct) && stat.Item2 > 0));
 
 
     // Both sets of effects already have their own native rows and per-level stat sets. Only name-based lookups
@@ -664,6 +664,9 @@ public sealed class SkillCatalog
     /// <summary>Whether a GrantedEffects row's ActiveSkill has the Warcry type.</summary>
     public bool IsWarcry(int effectRow) => _warcryEffects.Contains(effectRow);
 
+    /// <summary>Whether a GrantedEffects row's ActiveSkill has the Retaliation type (row 120).</summary>
+    public bool IsRetaliation(int effectRow) => HasType(effectRow, "Retaliation");
+
     /// <summary>A Strike skill: ActiveSkillType MeleeSingleTarget, whose FlagStat is <c>skill_is_strike_skill</c>, the
     /// stat the client's own strike virtuals test (<c>0x14289ced0</c>, <c>0x1428b7e90</c>). The default attack is one
     /// (PoB's Default Attack has MeleeSingleTarget too).</summary>
@@ -1000,6 +1003,13 @@ public sealed class SkillCatalog
         ["WinterOrb"] = "Metadata/Projectiles/FrostFuryMortar",
         ["Snipe"] = "Metadata/Projectiles/ChannelledSnipeDefaultProjectile",
         ["SpectralThrow"] = "Metadata/Projectiles/ThrownWeapon",
+        // Venom Gyre throws the same claw the Spectral Throw row draws: the client tables have no
+        // Metadata/Projectiles/VenomGyre row at all, and the gem grants VenomGyre (GrantedEffects row 10850)
+        // and VaalVenomGyre (row 12333); both take the ThrownWeapon row (row 94, speed 1000). Without these
+        // every press was refused as having no projectile. The transfigured VenomGyreAltX/AltY/Royale resolve
+        // through the base effect's entry via ProjectileCandidates, so they need no entry of their own.
+        ["VenomGyre"] = "Metadata/Projectiles/ThrownWeapon",
+        ["VaalVenomGyre"] = "Metadata/Projectiles/ThrownWeapon",
         ["LightningStrike"] = "Metadata/Projectiles/LightningSlash",
         // Unearth fires its old name's row, BoneLance: the BoneLance action class loads Metadata/Projectiles/BoneLance
         // (3.29.3c FUN_1413e64b0, by skill_art_variation).
@@ -1254,6 +1264,7 @@ public sealed class SkillCatalog
     /// <summary>Also reads weapon projectile metadata when the caller explicitly enables those attacks.</summary>
     public MonsterProjectileInfo? MonsterProjectile(int effectRow, bool includeWeaponAttacks)
     {
+        if (MonsterProjectileOverrides.TryGetValue(effectRow, out var overridden)) return overridden;
         var projectiles = includeWeaponAttacks ? _weaponMonsterProjectiles : _monsterProjectiles;
         if (!projectiles.TryGetValue(effectRow, out var projectile)) return null;
         // Constants of the skill's stat set, so level 1 reads them.
@@ -1273,6 +1284,11 @@ public sealed class SkillCatalog
                 || Get(Stat.ProjectileBallisticAngleFromTargetDistance) != 0),
         };
     }
+
+    /// <summary>Module-provided monster-projectile art for skills the client tables give no MonsterProjectile row (an
+    /// essence daemon's Ball Lightning / Fireball): effect row -> projectile. Populated once at startup by a module; empty
+    /// for a build that provides none. Consulted before the tables, so no boss or skill class has to name an essence.</summary>
+    public static readonly Dictionary<int, MonsterProjectileInfo> MonsterProjectileOverrides = [];
 
     /// <summary>What a monster's summoning skill brings: its stat set's <c>alternate_minion</c> (a SummonedSpecificMonsters
     /// Id, whose MonsterVarietiesKey is the monster), <c>number_of_monsters_to_summon</c>, <c>summon_specific_monsters_in_front_offset</c>

@@ -20,6 +20,16 @@ using GameServer.Core.Protocol.Instance;
 /// </summary>
 public static class StatConditions
 {
+    public const string UsingPride = "using_pride";
+
+    /// <summary>The subject flag a "while a Pinnacle Boss is in your Presence" mod is gated on: published by
+    /// <see cref="Game.ItemConditionFlags"/> from <c>Game.CelestialBossInPresenceLocked</c> (the tree's existing
+    /// <c>PresenceRadius</c> of 80; the predicate is the client's <c>PinnacleAtlasBoss</c> marker mod on the
+    /// monster's variety). Absent from a subject, the mod counts as before; present and false, its effect stats
+    /// do not count.</summary>
+    public const string CelestialBossInPresence = "_while_celestial_boss_in_presence";
+
+
     /// <summary>What the server can say about a stat's condition.</summary>
     public enum State
     {
@@ -62,6 +72,10 @@ public static class StatConditions
         "accuracy_rating_while_dual_wielding_+%",
         "add_frenzy_charge_on_kill_%_chance_while_dual_wielding",
         "attack_speed_while_dual_wielding_+%",
+        "consecrated_ground_enemy_damage_taken_+%_while_affected_by_zealotry",
+        // Evil Eye's condition is on the recipient of a curse; the caster need not be cursed.
+        "enemies_damage_taken_+%_while_cursed",
+        "gain_arcane_surge_for_4_seconds_when_you_create_consecrated_ground_while_affected_by_zealotry",
         "block_while_dual_wielding_%",
         "block_while_dual_wielding_claws_%",
         "critical_strike_chance_while_dual_wielding_+%",
@@ -177,8 +191,20 @@ public static class StatConditions
         return name.Length > 0 && name.All(c => c is >= 'a' and <= 'z' or >= '0' and <= '9' or '_') ? (at, suffix) : null;
     }
 
+    // These Watcher's Eye stat IDs encode the caster's active Pride, which is an aura on enemies.
+    static string? PrideStat(string statId) => statId switch
+    {
+        "pride_chance_to_deal_double_damage_%" => "chance_to_deal_double_damage_%",
+        "pride_intimidate_enemy_for_4_seconds_on_hit" => "intimidate_enemies_on_hit",
+        "pride_physical_damage_+%" => "physical_damage_+%",
+        "pride_chance_to_impale_with_attacks_%" => "attacks_impale_on_hit_%_chance",
+        "pride_your_impaled_debuff_lasts_+_additional_hits" => "impaled_debuff_number_of_reflected_hits",
+        _ => null,
+    };
+
     static string? ParsePlainName(string statId)
     {
+        if (PrideStat(statId) is { } pride) return pride;
         var property = EquipmentPropertyThresholdId.Match(statId);
         if (property.Success)
         {
@@ -256,7 +282,7 @@ public static class StatConditions
             int at = statId.LastIndexOf(stateSuffix, StringComparison.Ordinal);
             return Trim(statId, at, at + stateSuffix.Length);
         }
-        foreach (string prefix in new[] { WhileAffectedBy, IfAffectedBy })
+        foreach (string prefix in AuraConditions)
         {
             int at = statId.IndexOf(prefix, StringComparison.Ordinal);
             if (at >= 0 && TryAuraName(statId, out string family) && IsModelledAura(family))
@@ -290,6 +316,8 @@ public static class StatConditions
         // Table spellings shared by several conditional rolls, mapped to the existing unconditional consumer.
         plain = plain switch
         {
+            "attack_skills_damage_+%" => "attack_damage_+%",
+            "resist_all_elements_+%" => "base_resist_all_elements_%",
             "evasion_+%" => "evasion_rating_+%",
             // The tree spells the global one without "global" on its conditional rows (Staff Mastery's "30% increased
             // Defences while wielding a Staff"); the pools read global_defences_+% for armour, evasion, ES and ward.
@@ -300,7 +328,9 @@ public static class StatConditions
             "armour" or "armour_+" or "X_armour" => "base_physical_damage_reduction_rating",
             "local_chance_to_bleed_%" => "local_chance_to_bleed_on_hit_%",
             "physical_damage_reduction_rating_%" => "physical_damage_reduction_rating_+%",
-            "maximum_es_+%" => "maximum_energy_shield_+%",
+            "maximum_es_+%" or "energy_shield_+%" => "maximum_energy_shield_+%",
+            "energy_shield_recharge_+%" => "energy_shield_recharge_rate_+%",
+            "armour_and_evasion_+%" or "armour_evasion_+%" => "evasion_and_physical_damage_reduction_rating_+%",
             "life_+%" => "maximum_life_+%",
             "movement_speed_+%" or "movement_velocity_+%" => "base_movement_velocity_+%",
             "spell_damage_taken_+%" => "base_spell_damage_taken_+%",
@@ -321,6 +351,8 @@ public static class StatConditions
             "critical_strike_multiplier_+" or "global_critical_strike_multiplier_+" => "base_critical_strike_multiplier_+",
             "critical_strike_multiplier_+%" => "base_critical_strike_multiplier_+",
             "cooldown_recovery_+%" => "base_cooldown_speed_+%",
+            "debuff_time_passed_-%" => "debuff_time_passed_+%",
+            "recover_10%_mana_on_skill_use_%_chance" => "recover_10%_of_maximum_mana_on_skill_use_%",
             "gain_frenzy_charge_on_hit_%" => "add_frenzy_charge_on_skill_hit_%",
             "hits_ignore_enemy_fire_resistance" => "virtual_hits_ignore_enemy_fire_resistance",
             "hits_ignore_enemy_chaos_resistance" => "virtual_hits_ignore_enemy_chaos_resistance",
@@ -333,7 +365,9 @@ public static class StatConditions
             "physical_damage_%_to_gain_as_chaos" => "physical_damage_%_to_add_as_chaos",
             "physical_damage_%_to_add_as_fire_damage" => "physical_damage_%_to_add_as_fire",
             "physical_damage_%_to_add_as_lightning_damage" => "physical_damage_%_to_add_as_lightning",
-            "fire_penetration_%" => "base_reduce_enemy_fire_resistance_%",
+            "fire_penetration_%" or "reduce_enemy_fire_resistance_%" => "base_reduce_enemy_fire_resistance_%",
+            "reduce_enemy_cold_resistance_%" => "base_reduce_enemy_cold_resistance_%",
+            "reduce_enemy_lightning_resistance_%" => "base_reduce_enemy_lightning_resistance_%",
             "elemental_penetration_%" => "base_penetrate_elemental_resistances_%",
             "block_%" => "additional_block_%",
             "chance_to_deal_triple_damage_%" => "base_chance_to_deal_triple_damage_%",
@@ -434,12 +468,16 @@ public static class StatConditions
             return [.. new[] { "base_cannot_be_chilled", "base_cannot_be_frozen" }.Where(exists)];
         if (plainName == "cannot_be_shocked_or_ignited")
             return [.. new[] { "base_cannot_be_shocked", "base_cannot_be_ignited" }.Where(exists)];
+        if (plainName == "maximum_life_and_mana_+%")
+            return [.. new[] { "maximum_life_+%", "maximum_mana_+%" }.Where(exists)];
+        if (plainName == "spell_and_attack_block_chance_is_lucky")
+            return [.. new[] { "base_block_luck" }.Where(exists)];
         return FoldFromPlain(statId, exists, plainName) is { } plain ? [plain] : [];
     }
 
     public static int ValueForFold(string statId, int value) => PlainOf(statId) switch
     {
-        "extra_damage_taken_from_crit_+%" => ActorScale.Saturate(-(long)value),
+        "extra_damage_taken_from_crit_+%" or "debuff_time_passed_-%" => ActorScale.Saturate(-(long)value),
         "intimidate_enemies_on_hit" or "inflict_withered_for_2_seconds_on_hit" or "inflict_fire_exposure"
             or "inflict_cold_exposure" or "inflict_lightning_exposure" => value == 0 ? 0 : 100,
         _ => value,
@@ -458,6 +496,7 @@ public static class StatConditions
 
     const string WhileAffectedBy = "_while_affected_by_";
     const string IfAffectedBy = "_if_affected_by_";
+    static readonly string[] AuraConditions = [WhileAffectedBy, IfAffectedBy, "_while_you_are_affected_by_"];
 
     /// <summary>
     /// The "recently" phrase a stat id uses, the event <see cref="Subject.Recent"/> answers it with, and whether the id
@@ -557,6 +596,13 @@ public static class StatConditions
 
     static Func<Subject, State> ParseKnownCondition(string statId)
     {
+        // Placed mines choose this modifier when they release their area damage. Keep the source available at placement.
+        if (statId == "mine_area_damage_+%_if_detonated_mine_recently") return static _ => State.None;
+        if (PrideStat(statId) is not null)
+            return static subject => subject.Flags is { } flags && flags.TryGetValue(UsingPride, out bool active)
+                ? active ? State.Holds : State.Fails : State.NotModelled;
+        // Evil Eye tests the recipient of the curse; the caster need not be cursed.
+        if (statId == "enemies_damage_taken_+%_while_cursed") return static _ => State.None;
         var property = EquipmentPropertyThresholdId.Match(statId);
         if (property.Success)
         {
@@ -787,7 +833,8 @@ public static class StatConditions
         new(@"_if_(?:other_ring_is_(?:shaper|elder)_item|(?:left|right)_ring_is_magic_item)$", System.Text.RegularExpressions.RegexOptions.Compiled);
 
     // These table-local values describe a relationship to the source, then project onto the recipient's stats.
-    public static bool SourceLocalCondition(string id) => RingConditionId.IsMatch(id)
+    public static bool SourceLocalCondition(string id) => id == "spell_chance_to_shock_frozen_enemies_%"
+        || RingConditionId.IsMatch(id)
         && id.Contains("_if_other_ring_", StringComparison.Ordinal);
 
     static State And(State left, State right) => left is State.Fails || right is State.Fails ? State.Fails
@@ -898,12 +945,13 @@ public static class StatConditions
     public static bool TryAuraName(string statId, out string family)
     {
         family = "";
-        int at = statId.IndexOf(WhileAffectedBy, StringComparison.Ordinal);
-        int skip = WhileAffectedBy.Length;
-        if (at < 0)
+        int at = -1, skip = 0;
+        foreach (string prefix in AuraConditions)
         {
-            at = statId.IndexOf(IfAffectedBy, StringComparison.Ordinal);
-            skip = IfAffectedBy.Length;
+            at = statId.IndexOf(prefix, StringComparison.Ordinal);
+            if (at < 0) continue;
+            skip = prefix.Length;
+            break;
         }
         if (at < 0) return false;
         family = statId[(at + skip)..];

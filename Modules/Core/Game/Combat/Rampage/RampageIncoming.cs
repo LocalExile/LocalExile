@@ -28,7 +28,10 @@ public static partial class Game
         var target = owned.Value.Walk.Position(now);
         double distance = Dist(from, target);
         if (distance >= playerDistance) return false;
-        if (monster.Attack is { } attack && distance <= attack.Range)
+        // Only a hitting attack goes into a weapon: a kit spell that summons or only places something (an essence's
+        // Locus/Corsair summon, cast instantly) has no damage and a near-zero action time, so swinging it every AI step
+        // read as a monster attacking the air eight times a second while standing still (live 2026-11-23).
+        if (monster.Attack is { Damage.IsZero: false } attack && distance <= attack.Range)
         {
             // Stand, then act (PlanMonsterAi): an in-place action waits for the walk's end.
             if (StandsToAct(attack) && monster.Walk.Moving(now)) return true;

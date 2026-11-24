@@ -5,9 +5,10 @@ Part of [Status](../Status.md); what to build next in this area is in
 
 ## Works (verified with the real client)
 
-- Experience and levels from kills, with the level penalty and party share.
+- Experience and levels from kills, with the level penalty, party share and unpenalised 10% socketed gem XP carry.
   Docs: [15](../docs/protocol/15-progression.md) §1.
-- Passive Skill Tree: allocation, refunds, Orbs of Regret, Books of Skill and Regrets.
+- Passive Skill Tree: allocation, refunds, Orbs of Regret, Books of Skill, Regrets, Books of Reform (bandit respec)
+  and one-off free resets (0x33 bit 0 and C→S 0x38).
   Docs: [15](../docs/protocol/15-progression.md) §2.
 - Passive masteries, with Block, Fire and Wand Mastery effects. Docs: [15](../docs/protocol/15-progression.md) §2.
 - A passive node's conditional stats (`..._while_dual_wielding`, `..._if_..._recently`) count only while their
@@ -31,7 +32,9 @@ Part of [Status](../Status.md); what to build next in this area is in
 - Cluster jewels: a new one has its theme, passive count and sockets, its small passives grant the theme and its
   notables roll for it; the single-keystone smalls' keystone stats, nesting (including smaller clusters in larger
   sockets), unidentified/empty-jewel refusal, block bases, refund-point sync and the client's layout; keystones,
-  radius rules and the vendor recipe are missing. Docs: [cluster jewels](../docs/game/cluster-jewels.md).
+  radius rules and the vendor recipe are missing.
+  Small-passive stats and notable IDs with punctuation are recognized.
+  Docs: [cluster jewels](../docs/game/cluster-jewels.md).
 - Timeless jewels: the alternate tree in radius and Militant Faith's Devotion mods; conqueror keystone mechanics are
   missing. Docs: [timeless jewels](../docs/game/timeless-jewels.md).
 - Radius unique jewels: 42 implemented and the 33 threshold jewels; skill-specific consumers are partial.
@@ -54,7 +57,13 @@ Part of [Status](../Status.md); what to build next in this area is in
 
 ## Partly working
 
+- Permanent Achievements (S→C 0x124–0x127, C→S 0x123): tracks permanent achievement items (`SetId == 2`), persists
+  progress account-wide, syncs packed bitsets on entry and panel open, and emits completion toasts (not yet checked live).
 - Dual Wielding Mastery's different-weapon-types damage. Docs: [20](../docs/protocol/20-damage.md) §2b.
+- Passive mastery effects on defences, attributes and equipment: slot increases (helmet ES, gloves and boots armour,
+  body evasion), the all-equipment and socket conditions, per-mastery attributes, six Life masteries, the full-life
+  threshold, per-dagger suppression and the shield, claw and dual-wield effects.
+  Not checked live: the socket, ring and amulet conditions, Claw2, Leech2 and Reservation2.
 - Hierophant, except the Brand nodes. Docs: [Hierophant](../docs/game/hierophant.md).
 - Behemoth through the optional Phrecia module. Docs: [Behemoth](../docs/game/behemoth.md).
 - Whisperer through the optional module. Docs: [Whisperer](../docs/game/whisperer.md).
@@ -67,6 +76,8 @@ Part of [Status](../Status.md); what to build next in this area is in
   Docs: [Phrecia modules](../docs/game/phrecia-modules.md), [Harbinger](../docs/game/harbinger.md),
   [ascendancies](../docs/game/ascendancies.md).
 - Ruthless experience and passive alternatives. Docs: [league modes](../docs/game/league-modes.md).
+- Standard death experience penalty: 5% after Act 5 Kitava and 10% after Act 10 Kitava, clamped to the current level's
+  floor (0% in Hardcore, towns, hideouts, and PvP areas; not checked live). Docs: [15](../docs/protocol/15-progression.md) §1.
 
 ## Not working yet
 

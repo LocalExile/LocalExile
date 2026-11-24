@@ -30,7 +30,8 @@ public static partial class Game
                 HardModeAtlas = new(HardModeItems);
                 HardModeCrafting = new(HardModeItems, HardModeRolls);
                 RuthlessGrantedSkills = NewGrantedSkills(ruthless: true);
-                RuthlessWornGrantedSkillCatalog = new(HardModeSkills, HardModeItems.Mods, ruthless: true);
+                RuthlessWornGrantedSkillCatalog = new(HardModeSkills, HardModeItems.Mods, ruthless: true,
+                    legacyGrantMods: LegacyWornGrantMods);
                 VendorPrices.For(HardModeItems, hardMode: true);
                 foreach (bool supports in new[] { true, false })
                     GemVendorStock.For(HardModeItems, Npcs, HardModeSkills, hardMode: true, supportGems: supports);
@@ -118,7 +119,7 @@ public static partial class Game
         }
         player.PlayerLife = initial.Life;
         player.PlayerMana = initial.Mana;
-        player.EnergyShield.SetMaximum(player.Pools.EnergyShield, refill: true);
+        InitializePlayerEnergyShield(player);
         player.AuraDeathHandled = false;
     }
 

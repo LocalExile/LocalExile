@@ -129,6 +129,25 @@ static class TattoosFeature
             Console.WriteLine($"[gateway] {player.Connection.Remote} <= 0x0077 tattoo {entry.Name} on {use.Node} refused: {error}: {hex}");
     }
 
+    static readonly byte[] TattooRows = [PlayerInventories.MainInventory, PlayerInventories.ExpandedInventory];
+
+    /// <summary>C→S 0x78: repeat / Shift-click use of a Tattoo or Orb of Scouring named by BaseItemTypes HASH32.
+    /// Locates the first matching stack in player inventories (main inventory first) and delegates to 0x77.</summary>
+    internal static async Task UseTattooTypeOnPassive(Player player, InstanceItems.UseItemTypeOnPassive use, string hex)
+    {
+        var items = ItemsOf(player);
+        foreach (byte row in TattooRows)
+        {
+            if (items.Items(row).FirstOrDefault(i => i.Item.TypeHash == use.TypeHash && items.RowOf(i.Id) == row) is { } stack)
+            {
+                await UseTattooOnPassive(player,
+                    new(PlayerInventories.InventoryId(row), stack.Id, use.Node), hex);
+                return;
+            }
+        }
+        Console.WriteLine($"[gateway] {player.Connection.Remote} <= 0x0078 passive item type 0x{use.TypeHash:x8} on node {use.Node}: none left in inventory");
+    }
+
     /// <summary>Removes the tattoo from a passive and restores the passive's own stats.</summary>
     internal static async Task<string?> RemoveTattoo(Player player, ushort node, byte? consumeRow = null, uint consumeItemId = 0)
     {

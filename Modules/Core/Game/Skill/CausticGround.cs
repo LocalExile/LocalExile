@@ -153,7 +153,8 @@ public static partial class Game
                     int damage = (int)Math.Clamp(Math.Floor(total), 0, int.MaxValue);
                     cover.Fraction = total - Math.Floor(total);
                     if (damage == 0) continue;
-                    var (life, stage) = TakeOwnerDamageLocked(Player, monster, damage);
+                    int lifeDamage = ApplyMonsterDotEnergyShieldLocked(Player.Area, monster, damage, chaos: true, AreaTime(Player));
+                    var (life, stage) = lifeDamage > 0 ? TakeOwnerDamageLocked(Player, monster, lifeDamage) : (monster.Life, false);
                     monster.Life = life;
                     monster.Aggro = life > 0;
                     if (stage) CommitProjectileBossStage(this, id, monster, now);
@@ -164,6 +165,7 @@ public static partial class Game
                             World(id, InstanceProtocol.LifeUpdate(id, life, u2c: deathKind,
                                 orderKey: Player.Connection.LockstepClient ? uint.MaxValue : 0u));
                         monster.Dead = true;
+                        CleanupDeadMonsterLocked(Player.Area, id, monster);
                         monster.LastHitBy = Player;
                         CollectVaalSoulAtDeathLocked(Player, monster);
                         Enqueue(() => DotKilled(Player, id, monster));

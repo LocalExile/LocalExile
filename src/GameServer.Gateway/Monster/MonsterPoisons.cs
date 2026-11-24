@@ -40,9 +40,7 @@ public sealed class MonsterPoisons
             long chance = (long)get(Stat.BaseChanceToPoisonOnHitPct) + get(Stat.ChaosDamageChanceToPoisonPct);
             int projectileChance = projectileAttack
                 ? Math.Clamp(get(Stat.ProjectileAttacksChanceToPoisonOnHitPctIfYouHaveBeastMinion), 0, 100) : 0;
-            double seconds = Ailments.PoisonDurationSeconds
-                * Math.Max(0, 1 + ((double)get(Stat.PoisonDurationPlusPct) + get(Stat.BaseAllAilmentDurationPlusPct)) / 100) / faster
-                * MonsterIgnites.DurationMultiplier(get);
+            double seconds = BaseSeconds(get) / faster * MonsterIgnites.DurationMultiplier(get);
             return new((int)Math.Clamp(chance, 0, 100), Row("minimum", "non_critical"), Row("maximum", "non_critical"),
                 Row("minimum", "critical"), Row("maximum", "critical"), seconds,
                 local?.GetValueOrDefault(Stat.LocalPoisonOnHitPct) ?? 0, projectileChance, Secondary: hand == "secondary",
@@ -56,6 +54,10 @@ public sealed class MonsterPoisons
     public static bool Prohibited(Func<uint, int> get) =>
         get(Stat.Of("cannot_poison_enemies")) != 0 || get(Stat.NeverDamagingAilments) != 0
         || DamageStats.Prohibited(DamageType.Chaos, get);
+
+    public static double BaseSeconds(Func<uint, int> get) => Ailments.PoisonDurationSeconds
+        * Math.Max(0, 1 + ((double)get(Stat.BasePoisonDurationPlusPct) + get(Stat.PoisonDurationPlusPct)
+            + get(Stat.BaseAllAilmentDurationPlusPct)) / 100);
 
     public static double Faster(Func<uint, int> get) =>
         Math.Max(0, 1 + ((double)get(Stat.FasterPoisonPct) + get(Stat.DamagingAilmentsDealDamagePlusPctFaster)) / 100.0);

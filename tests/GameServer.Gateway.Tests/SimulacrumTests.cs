@@ -44,6 +44,60 @@ public sealed class SimulacrumTests
     }
 
     [Fact]
+    public void Simulacrum_portals_do_not_apply_the_owners_atlas_passives()
+    {
+        const string owner = "SimulacrumAtlasRegression";
+        TestEnvironment.OpenOwnSaves("simulacrum-atlas");
+        try
+        {
+            uint harvest = Program.Stats.Key("map_chance_for_area_%_to_contain_harvest")!.Value;
+            var harvestNode = Game.AtlasPassiveNodes.Nodes.First(node => node.Stats.Any(stat => stat.Key == harvest && stat.Value > 0));
+            CharacterSaves.SetAtlasPassives(owner, [[harvestNode.GraphId]], 1);
+
+            var map = new MapDevice.MapArea(0x1234, "MapWorldsStrand", "Strand Map", 3);
+            var mapRun = MapDevice.Run.Of(owner, MapDevice.Activate(owner, map));
+            var mapStats = Game.MapAreaStats(new(owner, "Standard", map.Hash16, mapRun))!;
+            Assert.True(mapStats.GetValueOrDefault(harvest) > 0);
+
+            var arena = SimulacrumRules.Arenas().Single(area => area.Id == "AfflictionTown6");
+            var arenaRun = MapDevice.Run.Of(owner, MapDevice.Activate(owner, arena));
+            var arenaStats = Game.MapAreaStats(new(owner, "Standard", arena.Hash16, arenaRun))!;
+            Assert.Equal(0, arenaStats.GetValueOrDefault(harvest));
+        }
+        finally
+        {
+            MapDevice.Close(owner);
+            TestEnvironment.ReleaseOwnSaves();
+        }
+    }
+
+    [Fact]
+    public void Scaled_wave_releases_its_pending_boss_after_spending_the_spawn_budget()
+    {
+        var run = new DeliriumModule.Run
+        {
+            Wave = 10, Active = true, ProgressGoal = 70, SpawnPoints = 70, KillPoints = 70,
+            Spawned = 36, OmniThisWave = true, KosisThisWave = true, NextSpawnAt = 2
+        };
+        Assert.Equal(0, run.SpawnAllowance(2, 15, 100));
+        Assert.False(run.CanSpawnDueBoss(1, 100));
+        Assert.True(run.CanSpawnDueBoss(2, 100));
+        Assert.Equal(SimulacrumRules.Kosis, run.DueBoss());
+        Assert.False(run.TryComplete());
+
+        run.Monsters.Add(77);
+        run.Spawned++;
+        run.KosisSpawnedThisWave = true;
+        run.KosisCount++;
+        var restored = JsonSerializer.Deserialize<DeliriumModule.Run>(JsonSerializer.Serialize(run))!;
+        Assert.Null(restored.DueBoss());
+        Assert.False(restored.TryComplete());
+        Assert.True(restored.RecordKill(77));
+        Assert.True(restored.TryComplete());
+        Assert.False(restored.TryComplete());
+    }
+
+    [Fact]
     public void Wave_waits_for_the_last_spawn_and_enemy_and_cannot_pay_twice_after_reentry()
     {
         var run = new DeliriumModule.Run { Wave = 15, Active = true, Budget = 3, Spawned = 2, Monsters = [42] };

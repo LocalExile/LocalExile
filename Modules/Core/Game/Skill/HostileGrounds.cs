@@ -105,10 +105,17 @@ public static partial class Game
             }
             var playerAt = player.Walk.Position(now);
             bool exposed = player.PlayerLife > 0 && !InGracePeriod(player);
+            var unaffected = exposed && placed.Grounds.Count > 0 ? UnaffectedByGround(player) : default;
+            ushort fireBuff = unaffected.Burning ? GroundTypes.GetValueOrDefault("Fire").Buff : (ushort)0;
+            ushort iceBuff = unaffected.Chilled ? GroundTypes.GetValueOrDefault("Ice").Buff : (ushort)0;
+            ushort lightningBuff = unaffected.Shocked ? GroundTypes.GetValueOrDefault("Lightning").Buff : (ushort)0;
             foreach (ushort row in holders.Keys) standing[row] = null;
             foreach (var ground in placed.Grounds.Values)
             {
                 if (!exposed || Dist(playerAt, ground.At) > ground.Radius) continue;
+                if (fireBuff != 0 && ground.BuffRow == fireBuff
+                    || iceBuff != 0 && ground.BuffRow == iceBuff
+                    || lightningBuff != 0 && ground.BuffRow == lightningBuff) continue;
                 if (standing.GetValueOrDefault(ground.BuffRow) is { } best && Strength(best) >= Strength(ground)) continue;
                 standing[ground.BuffRow] = ground;
             }

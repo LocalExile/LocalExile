@@ -978,7 +978,7 @@ public static class DeepwaterCrafting
             $"0x02bb GhostflameCraftingOutput 0x{vat.Id:x} at ({vat.X}, {vat.Y}), has_item {(vat.Copy is not null ? 1 : 0)}, open {vat.OpenAttempts}, take {vat.TakeState}"))
             return;
         await global::Game.SendWorldRecord(modPlayer, vat.Id, InstanceProtocol.EnterWakeZone(vat.Id));
-        if (info.Blocking) player.SetBlocker(vat.Id, vat.X, vat.Y, Math.Max(1, info.Size));
+        if (info.Blocking) player.SetObjectBlocker(vat.Id, vat.X, vat.Y, Math.Max(1, info.Size), info.ActorOrChest);
     }
 
     static async Task RecreateVat(Player player, Vat vat, uint oldId)
