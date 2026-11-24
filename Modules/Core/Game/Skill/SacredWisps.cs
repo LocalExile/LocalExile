@@ -9,14 +9,15 @@ public static partial class Game
         const string SacredWispVariety = "Metadata/Monsters/SacredWisp/SacredWisp_";
         const string SacredWispSupport = "SupportSacredWisps";
 
-        sealed class SacredWisps(ushort skill, SupportedGem source, int cap, int chance, int presenceChance)
+        sealed record SacredWispStats(int BaseLimit, int DurationMs, int AttackChance, int PresenceChance);
+
+        sealed class SacredWisps(ushort skill, SupportedGem source, int cap, SacredWispStats native)
         {
             public readonly ushort Skill = skill;
             public readonly SupportedGem Source = source;
             public readonly List<(uint Id, SpawnedMonster Body)> Actors = new(cap);
             public readonly int Limit = cap;
-            public readonly int Chance = chance;
-            public readonly int PresenceChance = presenceChance;
+            public readonly SacredWispStats Native = native;
             public long Expires;
         }
         SacredWisps? sacredWisps;
@@ -27,33 +28,30 @@ public static partial class Game
 
         void SacredWispsOnHit(ProjectileOffense shot)
         {
-            if (!WeaponProfileFor(Player, activeSet: true).Wand) return;
+            if (!Active || Player.PlayerLife == 0 || !WeaponProfileFor(Player, activeSet: true).Wand) return;
             var source = SupportedSkill(Player, shot.SourceSkill);
             if (!source.RequirementsMet || source.Effect != shot.Effect
                 || source.Supports.FirstOrDefault(s => s.Effect.Id == SacredWispSupport) is not { } support
                 || PlacedKind(source) != (false, false) || GolemStat(source.Stats, Stat.IsTotem) != 0) return;
-            var catalog = SkillsFor(Player);
-            int effect = catalog.EffectRow("SummonSacredWisp");
-            var native = catalog.EffectStats(effect, support.Gem.Level).ToDictionary(pair => pair.Item1, pair => pair.Item2);
-            int Get(uint key) => native.GetValueOrDefault(key);
+            var active = sacredWisps is { } candidate && candidate.Skill == shot.SourceSkill
+                && Runtime.Now < candidate.Expires && SameTriggerSource(candidate.Source, source) ? candidate : null;
+            var native = active?.Native ?? NativeSacredWispStats(support.Gem.Level);
             const uint capStat = Stat.BaseNumberOfSacredWispsAllowed;
             var stats = PlayerStatValues(Player);
-            int cap = (int)Math.Clamp(Get(capStat) + (long)source.Stats.GetValueOrDefault(capStat)
+            int cap = (int)Math.Clamp(native.BaseLimit + (long)source.Stats.GetValueOrDefault(capStat)
                 + stats.GetValueOrDefault(capStat), 0, 200);
-            double duration = SkillDurationModifiers.Seconds(Get(Stat.BaseSkillEffectDuration),
+            double duration = SkillDurationModifiers.Seconds(native.DurationMs,
                 key => GolemStat(stats, key), key => GolemStat(source.Stats, key));
             if (cap <= 0 || duration <= 0) return;
             long until = Runtime.Now + ProjectileRuntime.Time(duration);
-            if (sacredWisps is { } active && active.Skill == shot.SourceSkill && active.Limit == cap
-                && Runtime.Now < active.Expires && CurrentSacredWisps(active))
+            if (active is not null && active.Limit == cap)
             {
                 active.Expires = until;
                 return;
             }
 
             EndSacredWisps();
-            var current = sacredWisps = new(shot.SourceSkill, source, cap, Get(Stat.SupportSacredWispsWispPctChanceToAttack),
-                Get(Stat.SupportSacredWispsWispAdditionalPctChanceToAttackWhenRareOrUniqueEnemyInPresence)) { Expires = until };
+            var current = sacredWisps = new(shot.SourceSkill, source, cap, native) { Expires = until };
             Enqueue(() => SpawnSacredWisps(current));
 
             void Check()
@@ -63,6 +61,17 @@ public static partial class Game
                 Runtime.Schedule(Math.Min(current.Expires, Runtime.Now + ProjectileRuntime.Time(.25)), Check);
             }
             Runtime.Schedule(Math.Min(until, Runtime.Now + ProjectileRuntime.Time(.25)), Check);
+        }
+
+        SacredWispStats NativeSacredWispStats(int level)
+        {
+            var catalog = SkillsFor(Player);
+            var native = catalog.EffectStats(catalog.EffectRow("SummonSacredWisp"), level)
+                .ToDictionary(pair => pair.Item1, pair => pair.Item2);
+            return new(native.GetValueOrDefault(Stat.BaseNumberOfSacredWispsAllowed),
+                native.GetValueOrDefault(Stat.BaseSkillEffectDuration),
+                native.GetValueOrDefault(Stat.SupportSacredWispsWispPctChanceToAttack),
+                native.GetValueOrDefault(Stat.SupportSacredWispsWispAdditionalPctChanceToAttackWhenRareOrUniqueEnemyInPresence));
         }
 
         async Task SpawnSacredWisps(SacredWisps wisps)
@@ -98,19 +107,22 @@ public static partial class Game
             bool inPresence = Player.Area.MonstersNear(at, PresenceRadius).Any(pair =>
                 pair.Value is { Hostile: true, Dead: false, Life: > 0, Rarity: MonsterRarity.Rare or MonsterRarity.Unique }
                 && Dist(at, pair.Value.Walk.Position(now)) <= PresenceRadius);
-            int chance = wisps.Chance + (inPresence ? wisps.PresenceChance : 0);
-            var own = new Dictionary<uint, int>(shot.SkillStats) { [Stat.SkillUsedBySacredWisp] = 1 };
-            own.Remove(Stat.SummonLivingLightningOnLightningHit);
-            var caster = new Dictionary<uint, int>(PlayerStatValues(Player));
-            caster.Remove(Stat.KeystoneAncestralBond);
-            caster.Remove(Stat.DealNoDamageYourself);
-            ProjectileOffense Copy(ProjectileOffense payload) =>
-                payload.ScaleDamage(Math.Max(0, 1 + own.GetValueOrDefault(Stat.SkillUsedBySacredWispDamagePlusPctFinal) / 100d)) with
+            int chance = wisps.Native.AttackChance + (inPresence ? wisps.Native.PresenceChance : 0);
+            ProjectileOffense? copy = null;
+            ProjectileOffense Copy()
+            {
+                var own = new Dictionary<uint, int>(shot.SkillStats) { [Stat.SkillUsedBySacredWisp] = 1 };
+                own.Remove(Stat.SummonLivingLightningOnLightningHit);
+                var caster = new Dictionary<uint, int>(PlayerStatValues(Player));
+                caster.Remove(Stat.KeystoneAncestralBond);
+                caster.Remove(Stat.DealNoDamageYourself);
+                return shot.ScaleDamage(Math.Max(0, 1 + own.GetValueOrDefault(Stat.SkillUsedBySacredWispDamagePlusPctFinal) / 100d)) with
                 {
                     ActualCaster = caster, ClientPredicted = false, CriticalTrigger = null, MirageSource = null,
                     FirstHit = null, ActionSequence = null, SkillStats = own, TinctureKill = null,
                     Leech = new(DamagePacket.Empty, DamagePacket.Empty, DamagePacket.Empty),
                 };
+            }
             foreach (var (id, body) in wisps.Actors)
             {
                 if (body.Dead || !ReferenceEquals(Player.Area.Monsters.GetValueOrDefault(id), body)
@@ -123,7 +135,7 @@ public static partial class Game
                 Runtime.Release(use with
                 {
                     Seed = ++seed, Emitter = actor, Origin = Vector(from), ReturnAnchor = actor,
-                    Payload = Copy(shot), CanEmit = () => CurrentSacredWisps(wisps) && Runtime.Now < wisps.Expires
+                    Payload = copy ??= Copy(), CanEmit = () => CurrentSacredWisps(wisps) && Runtime.Now < wisps.Expires
                         && !body.Dead && ReferenceEquals(Player.Area.Monsters.GetValueOrDefault(id), body),
                     ProjectilePayloads = use.ProjectilePayloads?.Select(payload => payload is ProjectileOffense offense
                         ? Copy(offense) : payload).ToArray(),

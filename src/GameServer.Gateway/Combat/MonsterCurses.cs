@@ -62,9 +62,12 @@ public sealed class MonsterCurses(Action? changed = null)
             foreach (var old in All.Values.Where(c => c.Mark && c.Effect != curse.Effect).ToArray()) All.Remove((old.Caster, old.Effect));
         if (All.Count > limit)
         {
-            var ordinary = PreferredEffects(All.Values.Where(c => c.ExpandedCapacity == 0), limit);
-            foreach (var old in All.Values.Where(c => c.ExpandedCapacity == 0 && !ordinary.Contains(c.Effect)).ToArray())
-                All.Remove((old.Caster, old.Effect));
+            var ordinaryCurses = All.Values.Where(c => c.ExpandedCapacity == 0);
+            var ordinary = curse.ExpandedCapacity == 0 ? PreferredEffects(ordinaryCurses, limit)
+                : ordinaryCurses.Select(c => c.Effect).ToHashSet();
+            if (curse.ExpandedCapacity == 0)
+                foreach (var old in ordinaryCurses.Where(c => !ordinary.Contains(c.Effect)).ToArray())
+                    All.Remove((old.Caster, old.Effect));
 
             // The extra slots belong to the emitter that granted them. Ordinary spells still use the caster's limit.
             if (hasExpandedCurse || curse.ExpandedCapacity > 0)
