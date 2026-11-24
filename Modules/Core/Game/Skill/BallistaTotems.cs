@@ -2,12 +2,10 @@ public static partial class Game
 {
     public static bool BallistaEffect(Player player, int effect) => SkillsFor(player).IsAttack(effect)
         && !SkillsFor(player).IsTravel(effect) && Supports.Of(effect)?.Types.Contains(47) != true
-        && (BallistaRain(player, effect) || UsesProjectileRuntime(effect) && ResolveProjectileDefinition(effect) is not null)
-        // The artillery mortar needs a landing sequence, not a straight-arrow approximation.
-        && SkillsFor(player).EffectId(effect) is not ("ArtilleryBallista" or "ArtilleryBallistaAltX" or "ArtilleryBallistaAltY");
+        && (BallistaRain(player, effect) || UsesProjectileRuntime(effect) && ResolveProjectileDefinition(effect) is not null);
 
     static bool BallistaRain(Player player, int effect) =>
-        SkillsFor(player).EffectId(effect) is var id && (id == "BlastRain" || IsToxicRain(id));
+        SkillsFor(player).EffectId(effect) is var id && (id == "BlastRain" || IsToxicRain(id) || IsArtilleryBallista(id));
 
     public static bool BallistaPathAvailable(Player player, ushort skill)
     {

@@ -8,6 +8,9 @@ public static partial class Game
 
     static bool IsToxicRain(string? id) => id is "ToxicRain" or "ToxicRainAltX" or "ToxicRainAltY";
 
+    static bool IsArtilleryBallista(string? id) =>
+        id is "ArtilleryBallista" or "ArtilleryBallistaAltX" or "ArtilleryBallistaAltY";
+
     // These bow attacks have area hit stats but no travelling Projectiles row. Capture the normal
     // offensive snapshot at release; each arrow resolves its own area at the landing cell.
     static readonly ProjectileSkillDefinition GroundArrow = new("Metadata/Projectiles/DefaultArrow",
@@ -28,6 +31,28 @@ public static partial class Game
                 if (effect == "RainOfArrows") radius *= Math.Sqrt(i / (double)count);
                 points.Add(aim + new ProjectileVector(1, 0).Rotate(random.NextDouble() * Math.Tau) * radius);
             }
+        }
+        return points;
+    }
+
+    static IReadOnlyList<ProjectileVector> ArtilleryLandings(ProjectileVector origin, ProjectileVector aim, int count,
+        bool cross, bool focus, double range, IReadOnlyList<ProjectileVector> enemies)
+    {
+        if (focus)
+            return enemies.Where(p => (p - origin).Length <= range).OrderBy(p => (p - aim).Length).Take(count).ToArray();
+
+        var forward = (aim - origin).Unit;
+        if (forward.Length == 0) forward = new(1, 0);
+        var across = new ProjectileVector(-forward.Y, forward.X);
+        // Use a fixed cell interval for this landing line. Only each impact's coverage scales with area modifiers.
+        const double spacing = 10;
+        var points = new ProjectileVector[count];
+        for (int i = 0; i < count; i++)
+        {
+            bool side = cross && i % 2 != 0;
+            int axisCount = cross ? side ? count / 2 : (count + 1) / 2 : count;
+            int index = cross ? i / 2 : i;
+            points[i] = aim + (side ? across : forward) * ((index - (axisCount - 1) / 2d) * spacing);
         }
         return points;
     }
@@ -73,10 +98,17 @@ public static partial class Game
         var (radius, spread) = RainArea(player, id, gem.Effect, own, playerStats);
         var enemies = session.Actors(session.Runtime.Now, session.Runtime.Now)
             .Where(a => a.Team != use.Team).Select(a => a.Position(session.Runtime.Now)).ToArray();
-        var landings = RainLandings(id, ProjectileSession.Vector(aim), count, spread, enemies, AreaRng(player));
+        bool artillery = IsArtilleryBallista(id);
+        var landings = artillery
+            ? ArtilleryLandings(use.Origin, ProjectileSession.Vector(aim), count,
+                Own(Stat.ArtilleryBallistaCrossStrafePattern) != 0, Own(Stat.ArtilleryBallistaNumberOfArrowsIsEqualToNumberOfNearbyTargets) != 0,
+                TotemTargetRange(player, skill), enemies)
+            : RainLandings(id, ProjectileSession.Vector(aim), count, spread, enemies, AreaRng(player));
         string? up = toxic ? ArtOf("toxic_rain_arrow_up") : blast ? "Metadata/Effects/Spells/blast_rain/arrow_up.ao" : ArtOf("expanding_rain_of_arrows_up");
-        string? down = toxic ? ArtOf("toxic_rain_arrow_down") : blast ? "Metadata/Effects/Spells/blast_rain/arrow_drop.ao" : ArtOf("expanding_rain_of_arrows_arrow");
-        string? impact = toxic ? null : blast ? "Metadata/Effects/Spells/blast_rain/blastrainexplosion_aoe.ao" : ArtOf("expanding_rain_of_arrows_explosion");
+        string? down = artillery ? "Metadata/Effects/Spells/mortar_totem/arrow_down.ao"
+            : toxic ? ArtOf("toxic_rain_arrow_down") : blast ? "Metadata/Effects/Spells/blast_rain/arrow_drop.ao" : ArtOf("expanding_rain_of_arrows_arrow");
+        string? impact = artillery ? "Metadata/Effects/Spells/mortar_totem/impact.ao"
+            : toxic ? null : blast ? "Metadata/Effects/Spells/blast_rain/blastrainexplosion_aoe.ao" : ArtOf("expanding_rain_of_arrows_explosion");
         // The volley leaves towards the aim and each arrow comes down leaning the way it was shot (an object's
         // rotation: atan2(x, -y), as a projectile's).
         static float Facing(ProjectileVector d) => d.Length < .001 ? 0 : (float)Math.Atan2(d.X, -d.Y);
@@ -108,8 +140,10 @@ public static partial class Game
         for (int i = 0; i < landings.Count; i++)
         {
             var at = landings[i];
-            long land = session.Runtime.Now + ProjectileRuntime.Time(.35 + i * spacing);
-            session.Runtime.Schedule(land - ProjectileRuntime.Time(fall), () =>
+            double travel = artillery ? .35 * (SkillsFor(player).Projectile(GroundArrow.Metadata)?.Speed ?? 1000)
+                / (WorldUnits.PerCell * Math.Max(1, use.Profile.Speed)) : .35;
+            long land = session.Runtime.Now + ProjectileRuntime.Time(travel + i * spacing);
+            session.Runtime.Schedule(Math.Max(session.Runtime.Now, land - ProjectileRuntime.Time(fall)), () =>
             {
                 if (session.Active && player.PlayerLife != 0) session.RainArt(at, down, 1, rotation: Facing(at - use.Origin), clip: 0);
             });
