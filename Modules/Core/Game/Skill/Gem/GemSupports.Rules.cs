@@ -721,6 +721,11 @@ public static partial class Game
         public bool Armed { get; init; }
     }
 
+    static int PlayerMinionDamageShare(IReadOnlyDictionary<uint, int> stats) =>
+        Math.Max(stats.GetValueOrDefault(Stat.AdditiveMinionDamageModifiersApplyToYouAtPctValue),
+            stats.GetValueOrDefault(Stat.AdditiveMinionDamageModifiersApplyToYouAt150PctValue) != 0 ? 150
+            : stats.GetValueOrDefault(Stat.MinionDamageIncreasesAndReductionsAlsoAffectsYou) != 0 ? 100 : 0);
+
     public static SupportedHitInputs? SupportedHitInputsFor(Player player, ushort skillId, bool? area = null,
         SkillCatalog.Unarmed? weapon = null, IReadOnlyDictionary<ChargeType, int>? charges = null, SupportedGem? capturedGem = null,
         bool projectile = false, int addedChaos = 0, bool totem = false)
@@ -730,6 +735,18 @@ public static partial class Game
         var skills = SkillsFor(player);
         var stats = MergeSkillStats(caster, gem.Stats, skills.IsChannelled(gem.Effect), SkillCostMore(player, gem.Stats),
             CostEfficiencyFor(skills, gem.Effect));
+        int globalMinionShare = PlayerMinionDamageShare(caster);
+        int skillMinionShare = Math.Max(gem.Stats.GetValueOrDefault(Stat.ActiveSkillAdditiveMinionDamageModifiersApplyToAllDamageAtPctValue),
+            caster.GetValueOrDefault(Stat.DominatingBlowAndAbsolutionAdditiveMinionDamageModifiersApplyToYouAt150PctValue) != 0
+                && skills.EffectId(gem.Effect) is { } effect && (effect.StartsWith("Absolution", StringComparison.Ordinal)
+                    || effect.StartsWith("DominatingBlow", StringComparison.Ordinal)) ? 150 : 0);
+        if (skillMinionShare > 0)
+        {
+            // Only the strongest transfer applies. The character snapshot already carries the global share.
+            long increased = (long)stats.GetValueOrDefault(Stat.MinionDamagePlusPct) * Math.Max(globalMinionShare, skillMinionShare) / 100
+                - (long)caster.GetValueOrDefault(Stat.MinionDamagePlusPct) * globalMinionShare / 100;
+            stats[Stat.DamagePlusPct] = ActorScale.Saturate(stats.GetValueOrDefault(Stat.DamagePlusPct) + increased);
+        }
         if (skills.IsVaal(gem.Effect) && stats.GetValueOrDefault(Stat.VaalSkillDamagePlusPct) is int vaalDamage and not 0)
             stats[Stat.DamagePlusPct] = ActorScale.Add(Stat.DamagePlusPct, stats.GetValueOrDefault(Stat.DamagePlusPct), vaalDamage);
         if (charges is not null)
