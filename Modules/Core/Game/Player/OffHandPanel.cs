@@ -18,14 +18,17 @@ public static partial class Game
         int mainHandAttackSpeedPct, IReadOnlyDictionary<uint, int>? own = null, int effect = -1) =>
         OffHandPanelStats(() => OffhandWeaponFor(player), () => ActiveOffHand(player), () => player.Pools,
             () => WeaponProfileFor(player, activeSet: true), ItemsFor(player), () => AttackCriticalMultiplier(player, playerStats, effect, own),
-            playerStats, mainLocal, offLocal, mainHandAttackSpeedPct, own, PlayerBlindValue(player, playerStats).Less);
+            playerStats, mainLocal, offLocal, mainHandAttackSpeedPct, own, PlayerBlindValue(player, playerStats).Less,
+            elusiveActive: ElusiveFactor(player) > 0,
+            extraCriticalMultiplier: own is null ? 0 : NightbladeCriticalMultiplier(player, own));
 
     // The same rows from inputs read once (the stat snapshot's tail inputs), each asked where the line above asks conn.
     public static List<(uint Stat, int Value)>? OffHandPanelStats(Func<SkillCatalog.Unarmed?> offhandWeapon,
         Func<(Item Item, ItemCatalog.BaseType? Type)?> activeOffHand, Func<CharacterStats.Pools> currentPools,
         Func<WeaponProfile> weaponProfile, ItemCatalog catalog, Func<int> attackCriticalMultiplier,
         IReadOnlyDictionary<uint, int> player, IReadOnlyDictionary<uint, int> mainLocal, IReadOnlyDictionary<uint, int> offLocal,
-        int mainHandAttackSpeedPct, IReadOnlyDictionary<uint, int>? own, int blindLess = 0)
+        int mainHandAttackSpeedPct, IReadOnlyDictionary<uint, int>? own, int blindLess = 0,
+        bool elusiveActive = false, int extraCriticalMultiplier = 0)
     {
         if (offhandWeapon() is null || activeOffHand() is not { Type: { } offType }) return null;
         var pools = currentPools();
@@ -41,11 +44,15 @@ public static partial class Game
         // Critical chance: the off-hand weapon's base with its local mods, the same override and global increases.
         int weaponBase = AddedBaseCriticalStrike.LocalWeaponChance(catalog.WeaponCritical(offType),
             offLocal.GetValueOrDefault(Stat.LocalCriticalStrikeChance), offLocal.GetValueOrDefault(Stat.LocalCriticalStrikeChancePlusPct));
-        int chance = AttackBaseCriticalStrike.Chance(true, weaponBase,
+        int basis = AttackBaseCriticalStrike.OfMainHand(true, weaponBase, Player);
+        if (own is not null && elusiveActive
+            && Own(Stat.AdditionalCriticalStrikeChancePermyriadWhileAffectedByElusive) is int elusiveBase and not 0)
+            basis = ActorScale.Saturate((long)basis + elusiveBase);
+        int chance = AttackBaseCriticalStrike.ChanceOfBase(basis,
             pools.CriticalStrikeChancePct + (own is null ? 0 : AttackBaseCriticalStrike.IncreasedSum(profile, n => Own(n))),
             Player, own is null ? null : Own);
         int multiplier = CriticalHitMultiplier((long)attackCriticalMultiplier()
-            + Own(Stat.BaseCriticalStrikeMultiplierPlus), player, own);
+            + Own(Stat.BaseCriticalStrikeMultiplierPlus) + extraCriticalMultiplier, player, own);
         return
         [
             (Stat.SkillUsesOffHand, 1),

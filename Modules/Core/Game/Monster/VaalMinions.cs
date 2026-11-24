@@ -35,8 +35,10 @@ public static partial class Game
         string family = absolution ? "VaalAbsolution" : "VaalDomination";
         int limit = GolemStat(gem.Stats, absolution ? Stat.DisplayMaxUpgradedSentinelsOfAbsolution : Stat.DisplayMaxUpgradedSentinelsOfDominance);
         var playerStats = CharacterPlayerStats(player);
+        int PlayerStat(uint key) => GolemStat(playerStats, key);
         string cap = absolution ? "absolution_sentinels" : "dominated_monsters";
-        limit = Math.Clamp(limit + GolemStat(playerStats, Stat.Of("base_max_number_of_vaal_" + cap)) + GolemStat(playerStats, Stat.Of("max_number_of_vaal_" + cap)), 0, 200);
+        limit = ApplyDarkMonarchLimit(Math.Clamp(limit + PlayerStat(Stat.Of("base_max_number_of_vaal_" + cap))
+            + PlayerStat(Stat.Of("max_number_of_vaal_" + cap)), 0, 200), PlayerStat, family);
         var living = player.Summons.Fighters.Values.Where(g => !g.Monster.Dead && g.Monster.Life > 0 && SameSummonGem(player,g,gem)).ToArray();
         var ascended = living.Where(g => g.Definition.Kind == family).ToArray();
         return (living.OrderByDescending(g => g.Id == target).FirstOrDefault(g => absolution ? g.Definition.Kind == regular : g.Definition.Kind.StartsWith(regular,StringComparison.Ordinal)),

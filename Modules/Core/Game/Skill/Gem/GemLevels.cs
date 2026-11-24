@@ -30,10 +30,15 @@ public static partial class Game
     // The attribute gem-level stat for a SkillGems GemColour (Active gems only: support gems have their own).
     static uint? AttributeStat(int colour) => SkillGemLevel.AttributeStat(colour);
 
-    // +% quality of all skill gems: active gems only, like the level stat.
-    public static int GemQualityBonus(Player player, GameServer.Core.Protocol.Instance.Item gem) =>
-        ItemsFor(player).ByHash(gem.TypeHash) is { } type && ItemsFor(player).Gem(type) is { IsSupport: false }
-            ? RawGemStat(player, SkillGemLevel.AllSkillGemQuality) : 0;
+    // Global skill gem quality applies to active gems with the relevant native gem tag.
+    public static int GemQualityBonus(Player player, GameServer.Core.Protocol.Instance.Item gem)
+    {
+        var items = ItemsFor(player);
+        if (items.ByHash(gem.TypeHash) is not { } type || items.Gem(type) is not { IsSupport: false }) return 0;
+        int quality = RawGemStat(player, SkillGemLevel.AllSkillGemQuality);
+        return !SkillsFor(player).FamilyStatRaises(Stat.LocalSocketedMinionGemLevelPlus, type.Row) ? quality
+            : ActorScale.Saturate((long)quality + RawGemStat(player, Stat.MinionSkillGemQualityPlus));
+    }
 
     public static int RawGemStat(Player player, uint stat)
     {

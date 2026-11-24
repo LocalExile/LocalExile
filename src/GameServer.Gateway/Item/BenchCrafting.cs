@@ -15,15 +15,23 @@ public sealed class BenchCrafting
         this.rolls = rolls;
         this.folder = folder;
         _all = Load(catalog, folder);
+        _recipeUnlocks = LoadRecipeUnlocks();
     }
 
     public sealed record Recipe(int Row, string Name, ModCatalog.Mod? Mod, ModCatalog.Mod? Enchant,
         int Action, int Sockets, int Links, string Colours, IReadOnlySet<int> Classes,
         IReadOnlyList<(uint Currency, int Amount)> Costs, IReadOnlyList<int> Unlocks);
     public sealed record Result(Item Item, IReadOnlyList<(uint Currency, int Amount)> Costs);
+    public sealed record RecipeUnlock(int Row, int RecipeId, string Description, int? UnlockAreaRow, string? UnlockAreaId);
     readonly IReadOnlyList<Recipe> _all;
+    readonly IReadOnlyList<RecipeUnlock> _recipeUnlocks;
     public IReadOnlyList<Recipe> All => _all;
+    public IReadOnlyList<RecipeUnlock> RecipeUnlocks => _recipeUnlocks;
     public IEnumerable<int> UnlockFlags => All.SelectMany(r => r.Unlocks).Where(i => i > 0).Distinct();
+    public IReadOnlyList<int> UnlocksForArea(string areaId) =>
+        [.. RecipeUnlocks.Where(u => u.RecipeId > 0 && string.Equals(u.UnlockAreaId, areaId, StringComparison.OrdinalIgnoreCase))
+            .Select(u => u.RecipeId).Distinct()];
+    public RecipeUnlock? UnlockByRecipeId(int recipeId) => RecipeUnlocks.FirstOrDefault(u => u.RecipeId == recipeId);
     public Recipe? Find(int row) => All.FirstOrDefault(r => r.Row == row);
     public bool IsCrafted(ItemMod mod) => mod.Section == ModSection.Explicit && catalog.Mods.ByHash(mod.Hash)?.Domain == 9;
 
@@ -196,6 +204,22 @@ public sealed class BenchCrafting
                 r.Int("CraftingBenchCustomAction"), r.Int("Sockets"),
                 r.Int("Links"), r.Text("SocketColours")!, classes, costs,
                 r.Ints("RecipeIds").ToList()));
+        }
+        return result;
+    }
+
+    static IReadOnlyList<RecipeUnlock> LoadRecipeUnlocks()
+    {
+        if (!ClientTables.Has("RecipeUnlockDisplay")) return [];
+        var areas = ClientTables.Has("WorldAreas") ? ClientTables.Table("WorldAreas") : null;
+        var result = new List<RecipeUnlock>();
+        foreach (var r in ClientTables.Table("RecipeUnlockDisplay"))
+        {
+            int recipeId = r.Int("RecipeId");
+            if (recipeId <= 0) continue;
+            int? areaRow = r.IntOrNull("UnlockArea");
+            string? areaId = areaRow is >= 0 and int row && areas is not null && row < areas.Count ? areas[row].Text("Id") : null;
+            result.Add(new(r.Index, recipeId, r.Text("Description") ?? "", areaRow, areaId));
         }
         return result;
     }

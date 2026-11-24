@@ -72,8 +72,23 @@ public static class PassiveBuffAuras
     static Dictionary<ushort, Aura[]> ruthlessAuras = default!;
 
     /// <summary>Every buff of these nodes (PassiveSkillGraphIds), one per template however many nodes grant it.</summary>
-    public static IReadOnlyList<Aura> For(IEnumerable<ushort> nodes, bool ruthless = false) =>
-        [.. nodes.SelectMany(n => (ruthless ? ruthlessAuras : normal).GetValueOrDefault(n) ?? []).DistinctBy(a => a.Template)];
+    public static IReadOnlyList<Aura> For(IEnumerable<ushort> nodes, bool ruthless = false)
+    {
+        if (nodes is ICollection<ushort> { Count: 0 }) return [];
+        using var e = nodes.GetEnumerator();
+        if (!e.MoveNext()) return [];
+        var map = ruthless ? ruthlessAuras : normal;
+        List<Aura>? found = null;
+        HashSet<string>? seen = null;
+        do
+        {
+            if (!map.TryGetValue(e.Current, out var auras)) continue;
+            foreach (var aura in auras)
+                if ((seen ??= []).Add(aura.Template)) (found ??= []).Add(aura);
+        }
+        while (e.MoveNext());
+        return found is null ? [] : found;
+    }
 
     /// <summary>The enemy auras of these nodes the server applies.</summary>
     public static IReadOnlyList<Aura> EnemyAurasFor(IEnumerable<ushort> nodes, bool ruthless, Func<Aura, bool> acts) =>

@@ -96,7 +96,7 @@ public static class PanelStats
         .. Hands(h => new(Stat.Of($"virtual_total_{h}_chance_to_bleed_on_hit_%"), [Stat.BleedOnHitWithAttacksPct],
             Local: [Stat.LocalChanceToBleedOnHitPct, new(Stat.LocalChanceToBleedOnHit25Pct, Mul: 25),
                 new(Stat.LocalChanceToBleedOnHit50Pct, Mul: 50)])),
-        .. Hands(h => new(Stat.Of($"virtual_total_{h}_chance_to_ignite_on_hit_%"), [IgniteChance, FreezeShockIgniteChance])),
+        .. Hands(h => new(Stat.Of($"virtual_total_{h}_chance_to_ignite_on_hit_%"), [IgniteChance, FreezeShockIgniteChance, Stat.AttackIgniteChancePct])),
         .. Hands(h => new(Stat.Of($"virtual_total_{h}_chance_to_poison_on_hit_%"),
             [Stat.BaseChanceToPoisonOnHitPct, Stat.ChanceToPoisonOnHitWithAttacksPct], Local: [Stat.LocalPoisonOnHitPct])),
         .. Hands(h => new(Stat.Of($"{h}_maim_on_hit_%"), [Stat.MaimOnHitPct])),
@@ -508,10 +508,12 @@ public static class PanelStats
     /// for its own pool stepping: the Life constructor (0x141e6de70) binds these keys to the pools, and 0x141e718c0
     /// applies the rate / 60 times the client tick duration. The display totals alone do not drive that stepping.
     /// </summary>
-    public static List<(uint Stat, int Value)> Recovery(Func<uint, int> get, uint maxLife, uint maxMana)
+    public static List<(uint Stat, int Value)> Recovery(Func<uint, int> get, uint maxLife, uint maxMana,
+        double lifeRegenerationFactor = 1)
     {
         var result = new List<(uint, int)>();
-        var (life, _) = LifeRegeneration(get, maxLife);
+        var (regeneration, _) = LifeRegeneration(get, maxLife);
+        double life = regeneration * lifeRegenerationFactor;
         if (life != 0)
         {
             result.Add((Stat.TotalLifeRecoveryPerMinuteFromRegeneration, RecoveryValue(life)));
@@ -534,12 +536,16 @@ public static class PanelStats
 
     static int RecoveryValue(double rate) => (int)Math.Clamp(Math.Round(rate), int.MinValue, int.MaxValue);
 
+    public static double MapRecoveryMultiplier(Func<uint, int> get) =>
+        Math.Max(0, 1 + get(Stat.MapPlayerLifeAndEsRecoverySpeedPlusPctFinal) / 100.0);
+
     /// <summary>Ordinary Life regeneration increases and recovery increases are distinct multiplicative buckets.
     /// Shared with the expiry-aware Fortification recovery writer so its added source follows the same rules.</summary>
     public static double LifeRegenerationMultiplier(Func<uint, int> get) =>
-        get(Stat.NoLifeRegeneration) != 0 || get(Stat.CannotRecoverLife) != 0 ? 0 :
+        get(Stat.MapPlayersNoRegenerationIncludingEs) != 0 || get(Stat.NoLifeRegeneration) != 0
+            || get(Stat.CannotRecoverLife) != 0 ? 0 :
         Math.Max(0, 1 + get(Stat.LifeRegenerationRatePlusPct) / 100.0)
-        * Math.Max(0, 1 + get(Stat.LifeRecoveryRatePlusPct) / 100.0);
+        * Math.Max(0, 1 + get(Stat.LifeRecoveryRatePlusPct) / 100.0) * MapRecoveryMultiplier(get);
 
     /// <summary>Flat plus percentage Life regeneration, scaled by regeneration and recovery increases.
     /// PoB 3.29.x CalcDefence's regeneration calculation; conditional/conversion operators remain separate.
@@ -569,7 +575,8 @@ public static class PanelStats
     /// mana and flat <c>base_mana_regeneration_rate_per_minute</c> (Clarity), raised by regeneration then recovery increases.
     /// </summary>
     public static double ManaPerMinute(Func<uint, int> get, uint maxMana) =>
-        get(Stat.NoManaRegeneration) != 0 || get(Stat.CannotLeechOrRegenerateMana) != 0 ? 0 :
+        get(Stat.MapPlayersNoRegenerationIncludingEs) != 0 || get(Stat.NoManaRegeneration) != 0
+            || get(Stat.CannotLeechOrRegenerateMana) != 0 ? 0 :
         (maxMana * (BaseManaRegenPctPerMinute + (double)get(Stat.ManaRegenerationRatePerMinutePct)) / 100.0
             + get(Stat.BaseManaRegenerationRatePerMinute))
         * Math.Max(0, 1 + get(Stat.ManaRegenerationRatePlusPct) / 100.0)

@@ -20,7 +20,8 @@ public static partial class Game
         Apply(lowLife, Stat.SupportExecutionerDamageVsEnemiesOnLowLifePlusPctFinal);
         Apply(attack && fullLife, Stat.SupportDamageWhileOnFullLifePlusPctFinal);
         Apply(lifetap, Stat.SupportLifetapDamagePlusPctFinalWhileBuffed);
-        Apply(bleeding, Stat.SupportBloodlustMeleePhysicalDamagePlusPctFinalVsBleedingEnemies);
+        // Existing scalar callers may request Bloodlust's factor for a pure melee physical contribution.
+        Apply(attack && bleeding, Stat.SupportBloodlustMeleePhysicalDamagePlusPctFinalVsBleedingEnemies);
         Apply(arcaneSurge, Stat.SupportArcaneSurgeSpellDamagePlusPctFinalWhileYouHaveArcaneSurge);
         // The per-stack share applies to the stacks that count (PoB: capped by the support's maximum).
         int counted = Math.Clamp(poisonStacks, 0, Math.Max(0, Get(Stat.SupportDebilitateHitDamageMaxPoisonStacks)));
@@ -54,10 +55,12 @@ public static partial class Game
             ? RecentlyIgnitedCount(player, now) : 0;
         double more = ConditionalSupportMore(skill, attack, target.Ailments.Magnitude(MonsterElementalAilments.Kind.Chill, now) > 0,
             FlaskRecovery.LowLife(target.Life, target.MaxLife), fullLife,
-            Lifetap.ActiveAt(player, now), target.Poisons.Stacks(now), target.Bleeds.Burning,
-            ChargesOf(player).Effective(ChargeType.Power), ArcaneSurgeActive(player, now), recentIgnites,
-            ChargesOf(player).Effective(ChargeType.Endurance));
+            Lifetap.ActiveAt(player, now), target.Poisons.Stacks(now), powerCharges: ChargesOf(player).Effective(ChargeType.Power),
+            arcaneSurge: ArcaneSurgeActive(player, now), recentIgnites: recentIgnites,
+            enduranceCharges: ChargesOf(player).Effective(ChargeType.Endurance));
         var packet = more == 1 ? rolled : rolled.Scale(more);
+        if (attack && target.Bleeds.Burning && Get(Stat.SupportBloodlustMeleePhysicalDamagePlusPctFinalVsBleedingEnemies) is int bloodlust and not 0)
+            packet = packet.ScalePhysicalOrigin(1 + bloodlust / 100.0);
         // Immolate and Fire Trap: added Fire Damage against Burning Enemies (ignite, burning ground, RF, Herald burn).
         int min = Get(Stat.GlobalMinimumAddedFireDamageVsBurningEnemies);
         int max = Get(Stat.GlobalMaximumAddedFireDamageVsBurningEnemies);

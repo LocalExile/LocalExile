@@ -80,6 +80,9 @@ abstract class AtlasBossFight
         // Timed effects of a skill already cast (a degen's ticks, a slam's delayed contact) run whatever the boss is doing:
         // they belong to the clip that started them, not to the rotation.
         await Ticks(player, now);
+        // /ai off is the dev command's monster pause, and a scripted fight is monsters too. Timed effects above still
+        // finish: they belong to the clip that started them, not to the rotation.
+        if (!player.AiEnabled) return;
         bool watched = players.Any(p => !p.Closed && !p.LeavingArea && p.PlayerLife > 0);
         if (!watched)
         {

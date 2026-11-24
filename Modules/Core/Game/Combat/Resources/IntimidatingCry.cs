@@ -3,6 +3,7 @@ using System.Net.Sockets;
 using System.Runtime.CompilerServices;
 using GameServer.Core.Protocol.Instance;
 using GameServer.Core.Protocol.Login;
+using GameServer.Core.World;
 
 public static partial class Game
 {
@@ -123,16 +124,21 @@ public static partial class Game
         if (Own(Stat.EnemiesTauntedByYourWarciesAreIntimidated) != 0 && taunt > 0)
             foreach (var m in enemies)
                 { m.IntimidatedUntil = Math.Max(m.IntimidatedUntil, now + taunt / m.RecipientDebuffRate); m.PresentationChanged?.Invoke(); }
-        double duration = SkillDurationModifiers.Seconds(Own(Stat.BaseSkillEffectDuration), Player, Own);
+        double duration = SkillDurationModifiers.Seconds(Own(Stat.BaseSkillEffectDuration), Player, Own)
+            * SkillDurationModifiers.CallToArmsMore(Player);
         double effect = Math.Max(0, 1 + ((long)Player(Stat.WarcryBuffEffectPlusPct) + Own(Stat.SkillBuffEffectPlusPct)) / 100d);
         int movement = (int)Math.Clamp(Math.Floor(Math.Min(30, power) / 5d)
             * Own(Stat.IntimidatingCryMovementSpeedPlusPctPer5PowerUpToCap) * effect, 0, int.MaxValue);
         var gift = new CryGift(player.Instance.Presence, now + duration, movement);
         if (duration > 0)
         {
-            CryOf(player).Gifts.Add(gift);
-            CryGiftGained(player);
-            MarkPlayerStats(player, PlayerStatStep.CryMovement);
+            // Call to Arms: "Your Warcries do not grant Buffs or Charges to You"; the allies still get theirs.
+            if (Player(Stat.KeystoneCallToArms) == 0)
+            {
+                CryOf(player).Gifts.Add(gift);
+                CryGiftGained(player);
+                MarkPlayerStats(player, PlayerStatStep.CryMovement);
+            }
             // Deliver immutable release-time gifts. Recipients consume their own inbox, without cross-simulation reads.
             foreach (var peer in player.Instance.PlayersExcept(player.Id)
                          .Where(p => p.PlayerLife > 0 && Dist(p.Walk.Position(AreaTime(p)), at) <= radius))
@@ -145,7 +151,9 @@ public static partial class Game
                          && Dist(m.Walk.Position(now), at) <= radius))
                 MinionCryGifts.GetOrCreateValue(m).Add(gift);
         }
-        CryOf(player).Exerts = Math.Max(0, Own(Stat.SkillEmpowersNextXMeleeAttacks));
+        int attacks = Math.Max(0, Own(Stat.SkillEmpowersNextXMeleeAttacks));
+        CryOf(player).Exerts = Player(Stat.WarcriesExertTwiceAsManyAttacks) != 0
+            ? ActorScale.Saturate(2L * attacks) : attacks;
         player.RecentEvents.Record(StatConditions.UsedWarcry, now);
         player.AuraStatsDirty = true;
         Console.WriteLine($"[gateway] Intimidating Cry: power={power} taunted={enemies.Length} movement={movement} "
@@ -195,10 +203,26 @@ public static partial class Game
     static bool IntimidatingCryCanExert(Player player, ushort skill, int effect) =>
         SkillsFor(player).IsAttack(effect) && SkillsFor(player).IsMelee(effect) && !SkillsFor(player).IsVaal(effect)
         && !SkillsFor(player).IsChannelled(effect) && MeleeAttackRepeats(player, skill) == 0
-        && !IsTotemSkill(player, skill) && PlacedKind(SupportedSkill(player, skill)) is { Trap: false, Mine: false };
+        && !IsTotemSkill(player, skill) && PlacedKind(SupportedSkill(player, skill)) is { Trap: false, Mine: false }
+        && SupportedSkill(player, skill).Stats.GetValueOrDefault(Stat.SkillCannotBeExerted) == 0
+        && (!SkillsFor(player).IsTravel(effect) || CharacterPlayerStats(player).GetValueOrDefault(Stat.TravelSkillsCannotBeExerted) == 0);
 
     public static GamblerModifiers WithIntimidatingCryExert(GamblerModifiers modifiers, bool exerted) =>
         exerted ? modifiers with { DoubleDamageChance = Math.Max(100, modifiers.DoubleDamageChance) } : modifiers;
+
+    static double OverexertionMore(IReadOnlyDictionary<uint, int> skill, bool exerted)
+    {
+        if (!exerted) return 1;
+        double warcryMore = Math.Max(0, 1 + skill.GetValueOrDefault(Stat.SupportOverexertionDamagePlusPctFinalPerWarcryExertingAction) / 100d);
+        double exertedMore = Math.Max(0, 1 + skill.GetValueOrDefault(Stat.SupportOverexertionDamagePlusPctFinalIfExerted) / 100d);
+        return warcryMore * exertedMore; // Intimidating Cry contributes one warcry to this attack.
+    }
+
+    static DamagePacket WithOverexertion(DamagePacket hit, IReadOnlyDictionary<uint, int> skill, bool exerted)
+    {
+        double more = OverexertionMore(skill, exerted);
+        return more == 1 ? hit : hit.Scale(more);
+    }
 
     static bool IntimidatingCryPoolsChangedLocked(Player player)
     {

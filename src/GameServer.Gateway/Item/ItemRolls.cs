@@ -25,6 +25,10 @@ public sealed class ItemRolls
         _words = LoadWords(folder);
         _influenceTags = LoadInfluenceTags(folder);
         _mirrorMapTypes = LoadMirrorMapTypes();
+        _affixesByDomain = catalog.Mods.All
+            .Where(m => m.GenerationType is Prefix or Suffix && !m.EssenceOnly)
+            .GroupBy(m => m.Domain)
+            .ToDictionary(g => g.Key, g => g.ToArray());
     }
 
     readonly SystemSettings _settings;
@@ -43,6 +47,7 @@ public sealed class ItemRolls
     public IReadOnlyList<Word> Words => _words;
     private readonly System.Collections.Concurrent.ConcurrentDictionary<(int Row, int Level, ItemInfluence Influences, string? Tag), IReadOnlyList<(ModCatalog.Mod, int)>> _pools = new();
     private readonly Dictionary<(int Class, int Influence), string> _influenceTags;
+    private readonly Dictionary<int, ModCatalog.Mod[]> _affixesByDomain;
 
     /// <summary>The affixes that can roll on this base at this item level. Influence mods are ordinary affixes behind a
     /// tag per item class (InfluenceTags.dat: boots_shaper, ring_eyrie …), so an influence opens them.</summary>
@@ -55,11 +60,18 @@ public sealed class ItemRolls
         ItemInfluence influences, string? tag) =>
         _pools.GetOrAdd((t.Row, itemLevel, influences, tag), _ =>
         {
+            if (!_affixesByDomain.TryGetValue(t.ModDomain, out var domainMods)) return [];
             var tags = TagsWith(t, influences);
             if (tag is { Length: > 0 }) tags = new HashSet<string>(tags) { tag };
-            return [.. catalog.Mods.All
-                .Where(m => m.Domain == t.ModDomain && m.GenerationType is Prefix or Suffix && m.Level <= itemLevel && !m.EssenceOnly)
-                .Select(m => (m, m.WeightFor(tags))).Where(p => p.Item2 > 0)];
+            var result = new List<(ModCatalog.Mod, int)>();
+            for (int i = 0; i < domainMods.Length; i++)
+            {
+                var m = domainMods[i];
+                if (m.Level > itemLevel) continue;
+                int weight = m.WeightFor(tags);
+                if (weight > 0) result.Add((m, weight));
+            }
+            return result;
         });
 
     /// <summary>The affixes that can roll on this item.</summary>
@@ -267,6 +279,61 @@ public sealed class ItemRolls
     public bool HasEldritchImplicit(Item item) =>
         item.Mods.Any(m => m.Section == ModSection.Implicit && catalog.Mods.ByHash(m.Hash) is { } mod
             && mod.GenerationType is EaterImplicit or ExarchImplicit);
+
+    /// <summary>The tier (1-6) of an Eldritch implicit mod, from its Mods.dat Id suffix (EldritchImplicit,
+    /// UniquePresence or PinnaclePresence followed by the tier); null for any other mod.</summary>
+    static int? EldritchTier(string id)
+    {
+        if (id.Length == 0 || id[^1] is < '1' or > '6') return null;
+        string tier = id[^1..];
+        return id.EndsWith("EldritchImplicit" + tier, StringComparison.Ordinal)
+            || id.EndsWith("UniquePresence" + tier, StringComparison.Ordinal)
+            || id.EndsWith("PinnaclePresence" + tier, StringComparison.Ordinal) ? id[^1] - '0' : null;
+    }
+
+    /// <summary>The index and tier of the item's Eldritch implicit of one influence, or null when it has none.</summary>
+    (int Index, int Tier)? EldritchImplicitOn(Item item, int influence)
+    {
+        for (int i = 0; i < item.Mods.Count; i++)
+        {
+            var mod = item.Mods[i];
+            if (mod.Section == ModSection.Implicit && catalog.Mods.ByHash(mod.Hash) is { } found
+                && found.GenerationType == influence && EldritchTier(found.Id) is int tier)
+                return (i, tier);
+        }
+        return null;
+    }
+
+    /// <summary>Orb of Conflict (CurrencyItems row 1204, Action conflict_orb): a non-unique item carrying both a
+    /// Searing Exarch and an Eater of Worlds implicit has one raised a tier and the other lowered a tier; a tier 1
+    /// (Lesser) implicit lowered below 1 is removed. The table only says the chance of raising or lowering depends on
+    /// the relative strength, so the direction is a local rule: the weaker implicit is the likelier to rise (its weight
+    /// is the other implicit's tier). A tier at 6 cannot rise, so a 6/6 pair is refused. Corrupted and mirrored items
+    /// are refused, and so is an item whose new tier has no Mods.dat row.</summary>
+    public Item? Conflict(Item item, Random random)
+    {
+        if (item.Rarity == ItemRarity.Unique || item.Corrupted || item.Mirrored) return null;
+        if (EldritchImplicitOn(item, EaterImplicit) is not (int eaterAt, int eaterTier) ||
+            EldritchImplicitOn(item, ExarchImplicit) is not (int exarchAt, int exarchTier)) return null;
+        bool eaterCanRise = eaterTier < 6;
+        bool exarchCanRise = exarchTier < 6;
+        if (!eaterCanRise && !exarchCanRise) return null;
+        bool raiseEater = eaterCanRise && exarchCanRise
+            ? random.Next(eaterTier + exarchTier) < exarchTier : eaterCanRise;
+        var eaterMod = catalog.Mods.ByHash(item.Mods[eaterAt].Hash)!;
+        var exarchMod = catalog.Mods.ByHash(item.Mods[exarchAt].Hash)!;
+        int newEaterTier = raiseEater ? eaterTier + 1 : eaterTier - 1;
+        int newExarchTier = raiseEater ? exarchTier - 1 : exarchTier + 1;
+        ModCatalog.Mod? newEater = newEaterTier > 0 ? catalog.Mods.ById(eaterMod.Id[..^1] + newEaterTier) : null;
+        ModCatalog.Mod? newExarch = newExarchTier > 0 ? catalog.Mods.ById(exarchMod.Id[..^1] + newExarchTier) : null;
+        if ((newEaterTier > 0 && newEater is null) || (newExarchTier > 0 && newExarch is null)) return null;
+        var mods = item.Mods.ToList();
+        if (newEater is not null) mods[eaterAt] = newEater.Roll(ModSection.Implicit, random);
+        if (newExarch is not null) mods[exarchAt] = newExarch.Roll(ModSection.Implicit, random);
+        if (newEaterTier == 0) mods.RemoveAt(eaterAt);
+        else if (newExarchTier == 0) mods.RemoveAt(exarchAt);
+        return item with { Mods = mods };
+    }
 
     Item? EldritchImplicit(Item item, ItemCatalog.BaseType type, int tier, int influence, int keptInfluence, Random random)
     {

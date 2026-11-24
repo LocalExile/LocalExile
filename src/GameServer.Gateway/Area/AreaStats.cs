@@ -23,6 +23,23 @@ public sealed class AreaStats(GameArea area)
     /// <summary>The stats the entity's create carried: later changes are written against them.</summary>
     public void Created(uint id, IReadOnlyList<(uint Key, int Value)> stats) => created[id] = stats;
 
+    /// <summary>Whether the area has recorded baseline or published stats for <paramref name="id"/>.</summary>
+    public bool HasWritten(uint id) => written.ContainsKey(id) || created.ContainsKey(id);
+
+    /// <summary>The last published (or creation-baseline) value of <paramref name="key"/> for <paramref name="id"/>, or 0.</summary>
+    public int WrittenValue(uint id, uint key)
+    {
+        if (written.TryGetValue(id, out var values)) return values.GetValueOrDefault(key);
+        if (created.TryGetValue(id, out var initial))
+        {
+            int found = 0;
+            for (int i = 0; i < initial.Count; i++)
+                if (initial[i].Key == key) found = initial[i].Value;
+            return found;
+        }
+        return 0;
+    }
+
     /// <summary>The entity's whole list of stats now; what its last list had and this one has not goes to 0.</summary>
     public void SetAll(uint id, IReadOnlyList<(uint Key, int Value)> stats) => lists[id] = stats;
 
