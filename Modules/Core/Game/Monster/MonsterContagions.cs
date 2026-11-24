@@ -257,11 +257,14 @@ static partial class Game
                     // The kill and its owner-only gains (Rampage, Vaal soul, the kill itself) go to the owner of the
                     // application whose damage landed it, never to this connection for running the world.
                     var owner = DotOwner(player, dot.WinnerAt(fraction)?.Caster);
-                    (m.Life, bool stageStarts) = owner is null ? TakeDamageLocked(m, damage) : TakeOwnerDamageLocked(owner, m, damage);
+                    int lifeDamage = ApplyMonsterDotEnergyShieldLocked(player.Area, m, damage, chaos: true, AreaTime(player));
+                    bool stageStarts = false;
+                    if (lifeDamage > 0) (m.Life, stageStarts) = owner is null ? TakeDamageLocked(m, lifeDamage) : TakeOwnerDamageLocked(owner, m, lifeDamage);
                     m.Aggro = m.Life > 0;
                     if (m.Life == 0)
                     {
                         m.Dead = true;
+                        CleanupDeadMonsterLocked(player.Area, id, m);
                         m.LastHitBy = owner;
                         if (owner is not null) CollectVaalSoulAtDeathLocked(owner, m);
                         // Its own damage killed it partway through the tick: what affected it then spreads, with the

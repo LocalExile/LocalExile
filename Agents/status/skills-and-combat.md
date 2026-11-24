@@ -17,7 +17,7 @@ Part of [Status](../Status.md); what to build next in this area is in
   accepted. Docs: [11](../docs/protocol/11-skills.md) Â§9.
 - Fortification from melee hits. Docs: [Fortification](../docs/game/fortification.md).
 - Vigilant Strike consumes its direct 8-second melee-hit Fortify grant and refreshes the displayed Fortification timer on a later grant through the shared path; cooldown bypass and fresh supported-client icon/timer behavior are verified live.
-- Shield skills beside a one-handed weapon (`is_dual_wielding`), and Shield Charge's charge and shield damage.
+- Shield skills beside a one-handed weapon (`is_dual_wielding`), and Shield Charge's path hits, arrival bash and forward wave. The charge passes through Actors and Chests and stops on solid scenery or its targeted monster.
   Docs: [11](../docs/protocol/11-skills.md) Â§10a and Â§10k, [13](../docs/protocol/13-items.md).
 - Antiquarian's nodes. Docs: [Antiquarian](../docs/game/antiquarian.md).
 - Conditional critical policy (#242): signed clamp, luck, unarmed multiplier and one roll per gem use.
@@ -165,7 +165,9 @@ Part of [Status](../Status.md); what to build next in this area is in
   Docs: [11](../docs/protocol/11-skills.md) Â§9a.
 - Heavy Strike and Trarthus confirmed-hit particles/audio, with typed and critical melee feedback. Single-clip Heavy Strike stances use their ACT contact.
   Docs: [11](../docs/protocol/11-skills.md), "Hit effects".
-- Warcry release and cooldowns. Intimidating Cry applies War Bringer's exertion count and carries the spent exertion
+- Seismic, Ancestral, Infernal and Battlemage's Cry grant their timed buffs to the caster and nearby allies.
+- Poison hits and spread use increased Poison Duration. Unnatural Strength grants minions conversion and Wither on hit.
+- Intimidating Cry applies War Bringer's exertion count and carries the spent exertion
   to the attack's melee and projectile hits for Overexertion. Docs: [11](../docs/protocol/11-skills.md) Â§10i.
 - Strike targeting: spirit strikes and the previous location. Docs: [11](../docs/protocol/11-skills.md) Â§10d.
 - Passive enemy auras. Docs: [11](../docs/protocol/11-skills.md) Â§10e.

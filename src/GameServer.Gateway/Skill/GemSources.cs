@@ -10,7 +10,24 @@ using GameServer.Core;
 /// </summary>
 public static class GemSources
 {
-    static readonly string[] DropOnlySupports = ["Empower Support", "Enhance Support", "Enlighten Support"];
+    public static readonly HashSet<string> ExceptionalSupports = new(StringComparer.Ordinal)
+    {
+        "Empower Support",
+        "Enhance Support",
+        "Enlighten Support",
+    };
+
+    static readonly string[] DropOnlyGems =
+    [
+        "Empower Support",
+        "Enhance Support",
+        "Enlighten Support",
+        "Portal",
+        "Detonate Mines",
+    ];
+
+    public static bool IsExceptionalSupport(ItemCatalog.BaseType type) =>
+        ExceptionalSupports.Contains(type.Name);
 
     public static IReadOnlySet<int> DropPool(ItemCatalog items, string folder = "data")
     {
@@ -29,7 +46,7 @@ public static class GemSources
                         && items.Row(baseRow) is { } type && items.Gem(type) is not null)
                         pool.Add(type.Row);
         }
-        foreach (string name in DropOnlySupports)
+        foreach (string name in DropOnlyGems)
             if (items.Find(name) is { } type && items.Gem(type) is not null) pool.Add(type.Row);
         return pool;
     }

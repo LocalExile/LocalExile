@@ -165,7 +165,7 @@ static class PortalsFeature
             ? new MapDevice.Slot(i.Item.TypeHash, t.Class, t.Name, t.Row, i.Item.Mods, i.Item.Quality)
             {
                 AlternateQualityType = i.Item.AlternateQualityType, Components = t.Components,
-                Rarity = i.Item.Rarity, Corrupted = i.Item.Corrupted, BaseId = t.Id,
+                Rarity = i.Item.Rarity, Corrupted = i.Item.Corrupted, BaseId = t.Id, NameWords = i.Item.NameWords,
             }
             : new MapDevice.Slot(i.Item.TypeHash, "", $"Item 0x{i.Item.TypeHash:x8}", -1, [], 0))];
         byte bossOption = !campaign && bossOptionInput is >= 1 and <= 3 ? bossOptionInput : (byte)0;

@@ -56,6 +56,17 @@ An **order** (`0x1429adaf0`, 0x58 bytes in memory; offsets are the row's):
 
 A status string's id in the client is its `ClientStrings` row + 1. `FaustusSettlersOrderFilled_Random` is named nowhere in the client: the server says it (S→C 0x1c7, [17](17-npcs.md)).
 
+## Troubleshooting
+
+- **Unknown `/exchange`:** check the character's effective [module list](../dev/modules.md).
+  If Currency Exchange is absent, enable it for that league in Waypoint's **Leagues**, select
+  **Save module choices**, then restart the servers. If it is still unavailable, check module-load errors.
+- **Window opens without quotes:** without a rates file, the exchange uses built-in prices.
+  With [Live Economy](https://github.com/LocalExile/LocalExile-Mods/tree/main/mods/liveeconomy),
+  a stale feed can leave the whole market empty. If only one pair is empty, check whether the
+  selected feed prices both items. **Current league** uses the official challenge league's feed
+  even when the local league is Phrecia. See [Rates](#rates).
+
 ## Rates
 
 GGG's public `GET https://web.poecdn.com/api/currency-exchange/<hour>` has hourly digests per league and pair, none of the current hour. A digest's lowest and
