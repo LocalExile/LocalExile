@@ -29,6 +29,9 @@ public static partial class Game
         definitions["BlazingSalvo"] = SkillProjectileDefinition("BlazingSalvo", ember, SkillProjectileParameters("BlazingSalvo", ember));
         RegisterSpectralShieldThrows(definitions);
         RegisterEyeOfWinter(definitions);
+        const string creepingFrost = "Metadata/Projectiles/ArcticBreath";
+        foreach (string effect in new[] { "CreepingFrost", "CreepingFrostAltX", "CreepingFrostAltY", "CreepingFrostRoyale" })
+            definitions[effect] = SkillProjectileDefinition(effect, creepingFrost, SkillProjectileParameters(effect, creepingFrost));
         const string coldMine = "Metadata/Projectiles/ColdProjectileMine";
         foreach (string effect in new[] { "IcicleMine", "IcicleMineAltX", "IcicleMineAltY" })
             definitions[effect] = SkillProjectileDefinition(effect, coldMine, SkillProjectileParameters(effect, coldMine));

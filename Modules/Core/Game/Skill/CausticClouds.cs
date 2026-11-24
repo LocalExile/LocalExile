@@ -33,6 +33,8 @@ public static partial class Game
             DamageType Type, double Dps, Visual? Visual, uint ChillSource, IReadOnlyDictionary<uint, int>? ChillStats)
         {
             public readonly HashSet<SpawnedMonster> Chilled = [];
+            public ProjectileVector CurrentCentre = Centre;
+            public GroundMovement? Movement { get; init; }
         }
 
         sealed class GroundDamageCarry { public double Fire, Cold, Chaos; }
@@ -116,7 +118,8 @@ public static partial class Game
         }
 
         void AddDamageGround(ProjectileVector centre, double radius, double seconds, DamageType type,
-            double dps, long start, Visual? visual = null, IReadOnlyDictionary<uint, int>? chillStats = null)
+            double dps, long start, Visual? visual = null, IReadOnlyDictionary<uint, int>? chillStats = null,
+            GroundMovement? movement = null)
         {
             var area = Player.Area;
             var state = DamageGroundsByArea.GetOrCreateValue(area);
@@ -129,7 +132,18 @@ public static partial class Game
                 state.Previous = start;
                 state.Next = start + DamageGroundInterval;
             }
-            state.Grounds.Add(new(this, centre, radius, start, end, type, dps, visual, chillSource, chillStats));
+            if (movement is { Limit: > 0 })
+            {
+                var matching = state.Grounds.Where(g => ReferenceEquals(g.Source, this)
+                    && g.Movement?.Effect == movement.Effect).ToArray();
+                foreach (var oldest in matching.Take(matching.Length - movement.Limit + 1))
+                {
+                    state.Grounds.Remove(oldest);
+                    RemoveDamageGround(area, oldest);
+                }
+            }
+            state.Grounds.Add(new(this, centre, radius, start, end, type, dps, visual, chillSource, chillStats)
+                { Movement = movement });
             state.Next = Math.Min(state.Next, end);
             if (AreaRunsGame(Player) || groundFallbackScheduled) return;
             groundFallbackScheduled = true;
@@ -216,9 +230,10 @@ public static partial class Game
             foreach (var ground in state.Grounds)
             {
                 if (!ground.Source.Active || from < ground.Start || from >= ground.End) continue;
+                if (ground.Movement is not null) MoveColdGround(area, ground, at, seconds);
                 double chillLeft = Math.Min(.2, (ground.End - to) / (double)ProjectileRuntime.QuantaPerSecond);
                 bool Covers(SpawnedMonster monster) => DamageGroundTarget(monster)
-                    && (Vector(monster.Walk.Position(at)) - ground.Centre).Length <= ground.Radius;
+                    && (Vector(monster.Walk.Position(at)) - ground.CurrentCentre).Length <= ground.Radius;
                 if (ground.ChillStats is not null)
                     ground.Chilled.RemoveWhere(monster =>
                     {
@@ -226,7 +241,7 @@ public static partial class Game
                         monster.Ailments.RemoveAura(MonsterElementalAilments.Kind.Chill, ground.ChillSource);
                         return true;
                     });
-                foreach (var (id, monster) in area.MonstersNear((ground.Centre.X, ground.Centre.Y), ground.Radius))
+                foreach (var (id, monster) in area.MonstersNear((ground.CurrentCentre.X, ground.CurrentCentre.Y), ground.Radius))
                 {
                     if (!Covers(monster)) continue;
                     if (ground.ChillStats is { } chill && chillLeft > 0)

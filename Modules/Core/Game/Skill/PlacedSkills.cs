@@ -759,6 +759,8 @@ public static partial class Game
             && player.RecentEvents.Happened(StatConditions.DetonatedMine, now))
             offenseSnapshot = active;
         var playerStats = offenseSnapshot?.Caster ?? owner;
+        if (effect == "Vortex")
+            ProjectilesFor(player).PlaceVortexGround(placed, owner, inventionMore);
         int skitterPct = playerStats.GetValueOrDefault(Stat.SkitterbotsTrapMineDamagePlusPctFinal);
         if (placed.Offense is null && skitterPct == 0 && ReservationAura(player, "SummonSkitterbots") is { } skitter)
             skitterPct = ReservationStat(player, skitter, Stat.SkitterbotsTrapMineDamagePlusPctFinal);

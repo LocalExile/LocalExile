@@ -997,6 +997,7 @@ public static partial class Game
             if (valid && value.Kind == ProjectileEventKind.End)
             {
                 CausticGroundAtEnd(value);
+                CreepingFrostAtEnd(value);
                 LeaveKnifeBlade(value);
                 ExplosiveArrowAtEnd(value);
                 EnsnaringArrowAtEnd(value);
