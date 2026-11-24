@@ -1142,7 +1142,7 @@ public static partial class Game
         }) { Quiet = true, Presentation = MonsterProjectilePresentation(SkillsFor(player).Clips(p.Metadata), distance / profile.Speed) };
         if (p.SpiralAngle != 0 && profile.Count > 1 && !nova)
         {
-            int total = Math.Clamp(profile.Count, 2, 36);
+            int total = Math.Clamp(profile.Count, 2, 256);
             double spanRad = p.SpiralAngle * (Math.PI / 180.0);
             double baseAngle = Math.Atan2(to.Y - from.Y, to.X - from.X);
             double baseSec = SkillsFor(player).CastTimeMs(a.Effect) is > 0 and var ct ? ct / 1000.0 : a.Attack.Seconds;
@@ -1153,9 +1153,7 @@ public static partial class Game
             for (int i = 0; i < total; i++)
             {
                 double frac = (double)i / (total - 1);
-                double offset = Math.Abs(p.SpiralAngle) >= 350
-                    ? p.SpiralStartAngle * (Math.PI / 180.0) + frac * spanRad
-                    : (frac - 0.5) * spanRad;
+                double offset = p.SpiralStartAngle * (Math.PI / 180.0) + frac * spanRad;
                 var dir = new ProjectileVector(Math.Cos(baseAngle + offset), Math.Sin(baseAngle + offset));
                 var boltTarget = from + dir * reach;
                 var singleProfile = profile with
