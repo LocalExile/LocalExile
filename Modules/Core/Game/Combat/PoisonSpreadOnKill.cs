@@ -80,6 +80,10 @@ public static partial class Game
     /// <summary>"Enemies within 3 metres" (10 cells to the metre).</summary>
     public const int PoisonSpreadRadius = 30;
 
+    /// <summary>Master Toxicist: "Enemies within 1.5 metres" of the dead enemy, measured to each receiver's body (its
+    /// <see cref="LivingCollision.Size"/>, the term the melee reach adds), not to its centre.</summary>
+    public const int DuringFlaskSpreadRadius = 15;
+
     static readonly Store<Player, SpreadPoisonRegeneration> SpreadPoisonRegenerations = new();
     static readonly RuleTable<SpawnedMonster, SpreadPoisonRegeneration> AllySpreadPoisonRegenerations = new();
     public static SpreadPoisonRegeneration SpreadPoisonRegenerationOf(Player player) =>
@@ -92,14 +96,22 @@ public static partial class Game
     static int SourceStat(Player player, uint name) => player.StatSourcesCache is { } cached
         ? cached.Sources.GetValueOrDefault(name) : 0;
 
-    /// <summary>Bino's Kitchen Knife (GameEvents.Kill): the player killed a poisoned enemy, so its strongest poison stack
-    /// is applied as a new poison (<see cref="SpreadPoisonSeconds"/>) to every living enemy within 3 metres of it, and
-    /// the player and living allies within 3 metres regenerate Life for that time. A spread poison can spread again from its own kill.</summary>
+    /// <summary>The distance from the dead enemy within which <paramref name="receiver"/> is poisoned by Master Toxicist's
+    /// spread: 1.5 metres to its body.</summary>
+    public static int DuringFlaskSpreadReach(SpawnedMonster receiver) => DuringFlaskSpreadRadius + LivingCollision.Size(receiver);
+
+    /// <summary>GameEvents.Kill: the player killed a poisoned enemy, so its strongest poison stack is applied as a new
+    /// poison (<see cref="SpreadPoisonSeconds"/>) to the living enemies around it. Bino's Kitchen Knife reaches every
+    /// enemy within 3 metres of it and the player and living allies within 3 metres regenerate Life for that time;
+    /// Master Toxicist (while any flask effect runs) reaches the enemies within 1.5 metres of their own body. One spread
+    /// per kill: the knife's wider one covers the passive's. A spread poison can spread again from its own kill.</summary>
     public static void SpreadPoisonOnKill(KillContext kill)
     {
         var player = kill.Player;
-        if (!CurrentGameWork || player.Closed || player.LeavingArea || !kill.PlayerKill || SourceStat(player, Stat.UniqueSpreadPoisonToNearbyEnemiesOnKill) <= 0) return;
-        bool regenerates = SourceStat(player, Stat.UniqueSpreadPoisonToNearbyAlliesAs200LifeRegenerationPerSecondOnKill) > 0;
+        if (!CurrentGameWork || player.Closed || player.LeavingArea || !kill.PlayerKill) return;
+        bool bino = SourceStat(player, Stat.UniqueSpreadPoisonToNearbyEnemiesOnKill) > 0;
+        if (!bino && !(SourceStat(player, Stat.UniqueSpreadPoisonToNearbyEnemiesDuringFlaskEffect) > 0 && AnyFlaskEffect(player))) return;
+        bool regenerates = bino && SourceStat(player, Stat.UniqueSpreadPoisonToNearbyAlliesAs200LifeRegenerationPerSecondOnKill) > 0;
         var dead = kill.Monster;
         int spread = 0;
         double dps, seconds;
@@ -111,7 +123,7 @@ public static partial class Game
         foreach (var (mid, m) in player.Area.Monsters)
         {
             if (ReferenceEquals(m, dead) || m.Dead || m.Life == 0 || !m.Hostile
-                || Dist(m.Walk.Position(now), kill.At) > PoisonSpreadRadius) continue;
+                || Dist(m.Walk.Position(now), kill.At) > (bino ? PoisonSpreadRadius : DuringFlaskSpreadReach(m))) continue;
             if (m.Effects[Stat.CannotBePoisoned] != 0) continue;
             int avoid = m.Effects[Stat.AvoidPoisonPct];
             if (avoid > 0 && RandomRolls.Chance(avoid, 100, AreaRng(player))) continue;
@@ -130,7 +142,7 @@ public static partial class Game
                     && Dist(ally.Walk.Position(now), kill.At) <= PoisonSpreadRadius)
                     AllySpreadPoisonRegenerations.GetValue(ally, _ => new()).Grant(now, seconds, trackRecovery: true);
         PresentStats(player);
-        Console.WriteLine($"[gateway] Bino's: poison spread to {spread} enemies ({dps:0} dps, {seconds:0.0} s)");
+        Console.WriteLine($"[gateway] poison spread to {spread} enemies ({dps:0} dps, {seconds:0.0} s)");
         if (!regenerates) return;
         if (player.PlayerLife > 0 && Dist(player.Walk.Position(AreaTime(player)), kill.At) <= PoisonSpreadRadius)
             SpreadPoisonRegenerationOf(player).Grant(AreaTime(player), seconds);

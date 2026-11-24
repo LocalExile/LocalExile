@@ -28,6 +28,20 @@ public static partial class Game
             && m.Rarity == MonsterRarity.Unique && Dist(m.Walk.Position(now), here) <= PresenceRadius);
     }
 
+    /// <summary>"while a Pinnacle Boss is in your Presence": a living hostile monster within the same fixed
+    /// base_presence_radius (80 cells, <see cref="PresenceRadius"/>) whose variety carries the client's
+    /// <c>PinnacleAtlasBoss</c> marker mod (<see cref="BossMods.PinnacleAtlasBoss"/>, MonsterVarieties ModsKeys; the
+    /// Shaper, the Elder, Sirus, the Maven, the Eater of Worlds, the Searing Exarch, Venarius and the Atlas Memory
+    /// Incarnations). No rarity filter: the marker mod itself is the client's definition of the set (49 varieties),
+    /// and it carries no stats, so the check is the mod id, not a stat. Under the Monsters lock, like the Unique
+    /// version above; no new lock is taken.</summary>
+    public static bool CelestialBossInPresenceLocked(Player player, double now)
+    {
+        var here = player.Walk.Position(now);
+        return player.Area.Monsters.Values.Any(m => m.Hostile && !m.Dead && m.Life > 0
+            && BossMods.Has(m.Variety, BossMods.PinnacleAtlasBoss) && Dist(m.Walk.Position(now), here) <= PresenceRadius);
+    }
+
     // The Presence-gated Loyalty triggers (maximum Rage, Travel Skill, Energy Shield Recharge, Low Life). Under the
     // Monsters lock; false without a Unique in the player's presence.
     static bool LoyaltyInPresenceTriggerLocked(Player player, uint trigger, double now)
