@@ -2991,15 +2991,19 @@ public static partial class Game
                         m.HallowingFlameUntil = 0;
                     }
                     rolled = WithOverexertion(rolled, skillStats, cryExerted == true);
-                    // The shared roll meets each target's current chance: a source can change between targets.
-                    int criticalChance = CriticalChanceOn(player, id, SupportedCriticalChance(player, skillId, hand, offCritical),
-                        SupportedCriticalChanceVsBlinded(player, skillId, release: false, swingCritical),
-                        SupportedCriticalChanceVsGround(player, skillId, release: false, swingCritical));
+                    // The shared roll meets each target's current chance, before this hit can inflict Bleeding.
+                    double at = ProjectileWorldTime(player);
+                    long bleedingCrit = spell ? 0 : (long)Stat(global::Stat.CriticalStrikeChancePlusPctVsBleedingEnemies)
+                        + playerStats.GetValueOrDefault(global::Stat.CriticalStrikeChancePlusPctVsBleedingEnemies);
+                    if (bleedingCrit != 0 && !m.Bleeds.IgnitedAt(at)) bleedingCrit = 0;
+                    int criticalChance = CriticalChanceOn(player, id,
+                        SupportedCriticalChance(player, skillId, hand, offCritical, bleedingCrit),
+                        SupportedCriticalChanceVsBlinded(player, skillId, release: false, swingCritical, bleedingCrit),
+                        SupportedCriticalChanceVsGround(player, skillId, release: false, swingCritical, bleedingCrit));
                     critical = RollCriticalStrike(player, criticalChance, skillStats,
                             attack: !spell, skillRoll: criticalRoll, playerStats: playerStats)
                         && (spell || GameServer.Core.World.EvasionEntropy.ConfirmsCritical(hitChance, player.AttackAccuracyRandom));
                     int sourceMultiplier = CriticalMultiplierWithWeapon(sweepMultiplier, m, weaponLocal);
-                    double at = ProjectileWorldTime(player);
                     int multiplier = CriticalMultiplierOn(m, sourceMultiplier, at, playerStats, skillStats);
                     // Deferred manual hits use the same lifetime guard as automatic payloads. The native link
                     // resolver excludes triggered skills from these supports.
