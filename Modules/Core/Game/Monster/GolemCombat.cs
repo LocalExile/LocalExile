@@ -693,7 +693,7 @@ public static partial class Game
                 prismatic: element).Single(ability => ability.Effect == a.Effect);
         }
         a = CurrentMinionHit(a, current);
-        if (!a.Attack.Spell)
+        if (!a.Attack.Spell && !TauntPreventsAttackEvasion(player, target, now))
         {
             int accuracy = g.Monster.Mods.Effects.Accuracy((Monsters.BaseAccuracy(g.Monster.Level) ?? 0)
                 + g.Monster.Mods.Effects[Stat.AccuracyRating]);
