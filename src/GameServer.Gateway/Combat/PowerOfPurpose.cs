@@ -40,22 +40,25 @@ public static class PowerOfPurpose
 
     public static (uint Mana, int Armour) Pools(long rawFlatManaTwice, CharacterStats.Bonus b, int intelligence = 0)
     {
-        Exact Slots(decimal total, decimal shield, decimal body, long increase, long shieldIncrease)
+        Exact Slots(decimal total, decimal shield, decimal body, long increase, long shieldIncrease,
+            long bodyIncrease, decimal glovesBoots)
         {
             decimal bodyFactor = b.NoBodyArmour ? 0 : b.DoubleBodyArmour ? 2 : 1;
-            return (Exact)(total - shield - body) * ((100m + increase) / 100m)
+            return (Exact)(total - shield - body - glovesBoots) * ((100m + increase) / 100m)
                 + (Exact)(b.NoShieldDefences ? 0 : shield) * ((100m + increase + shieldIncrease) / 100m)
-                + (Exact)body * bodyFactor * ((100m + increase) / 100m);
+                + (Exact)body * bodyFactor * ((100m + increase + bodyIncrease) / 100m)
+                + (Exact)glovesBoots * ((100m + increase + b.GlovesBootsArmourPct) / 100m);
         }
         Exact manaBase = rawFlatManaTwice / 2m;
         Exact armourMore = (100m + b.ArmourMorePct) / 100m;
         Exact armour = Slots(b.Armour, b.ShieldArmour, b.BodyArmour, b.ArmourPct,
-            (long)b.ShieldArmourPct + b.SharedShieldDefencesPct) * armourMore;
+            (long)b.ShieldArmourPct + b.SharedShieldDefencesPct, b.BodyArmourPct, b.GlovesBootsArmour) * armourMore;
         if (b.IronReflexes)
             armour += Slots(CharacterStats.BaseEvasion + b.Evasion, b.ShieldEvasion, b.BodyEvasion,
                 (long)b.ArmourPct + b.EvasionPct + b.ColdOvercapEvasionPct - b.SharedDefencesPct
                     + (long)b.EvasionPctPerTenIntelligence * (intelligence / 10),
-                (long)b.ShieldArmourPct + b.ShieldEvasionPct + b.SharedShieldDefencesPct)
+                (long)b.ShieldArmourPct + b.ShieldEvasionPct + b.SharedShieldDefencesPct,
+                (long)b.BodyArmourPct + b.BodyEvasionPct, b.GlovesBootsEvasion)
                 * ((100m + b.EvasionMorePct) / 100m) * armourMore;
         Exact convertedArmour = manaBase * 1.6m * ((100m + b.ManaPct + b.ArmourPct) / 100m) * armourMore;
         return ((uint)(manaBase * .2m * ((100m + b.ManaPct) / 100m)).Native(), (armour + convertedArmour).Native());
