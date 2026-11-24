@@ -653,6 +653,8 @@ public static partial class Game
                 await HeldOntoItem(player, InstanceItems.ReadItemAction(bytes), Convert.ToHexString(bytes));
             else if (id == InstanceItems.SplitStackId)
                 await SplitStack(player, InstanceItems.ReadSplitStack(bytes), Convert.ToHexString(bytes));
+            else if (id == InstanceItems.UseItemClickId)
+                await UseItem(player, InstanceItems.ReadUseItemClick(bytes), Convert.ToHexString(bytes));
             else if (id == InstanceItems.UseItemId)
                 await UseItem(player, InstanceItems.ReadUseItem(bytes), Convert.ToHexString(bytes));
             else if (id == InstanceItems.UseFlaskId)
