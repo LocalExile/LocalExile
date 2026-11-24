@@ -1,0 +1,138 @@
+-- Add DoubleMinionLimitsUnique_1 to The Dark Monarch (rolls 1..16 per Mods.sql / stat-descriptions)
+-- and RollGroups/options for Betrayal/Catarina veiled uniques using 3.29 client spawn weights.
+DELETE FROM unique_item_ranges WHERE name = 'The Dark Monarch' AND base_type = 'Metadata/Items/Armours/Helmets/HelmetInt14' AND mod = 'DoubleMinionLimitsUnique_1';
+
+INSERT OR IGNORE INTO unique_item_mods (name, base_type, implicit, ord, mod)
+VALUES ('The Dark Monarch', 'Metadata/Items/Armours/Helmets/HelmetInt14', 0, 4, 'DoubleMinionLimitsUnique_1');
+
+DELETE FROM unique_item_roll_options
+WHERE (name, base_type) IN (
+    ('Bitterbind Point', 'Metadata/Items/Armours/Shields/ShieldInt16'),
+    ('Cinderswallow Urn', 'Metadata/Items/Flasks/FlaskUtility14'),
+    ('The Devouring Diadem', 'Metadata/Items/Armours/Helmets/HelmetInt8'),
+    ('Paradoxica', 'Metadata/Items/Weapons/OneHandWeapons/OneHandThrustingSwords/Rapier20'),
+    ('Cane of Kulemak', 'Metadata/Items/Weapons/TwoHandWeapons/Staves/Staff11')
+);
+
+DELETE FROM unique_item_roll_groups
+WHERE (name, base_type) IN (
+    ('Bitterbind Point', 'Metadata/Items/Armours/Shields/ShieldInt16'),
+    ('Cinderswallow Urn', 'Metadata/Items/Flasks/FlaskUtility14'),
+    ('The Devouring Diadem', 'Metadata/Items/Armours/Helmets/HelmetInt8'),
+    ('Paradoxica', 'Metadata/Items/Weapons/OneHandWeapons/OneHandThrustingSwords/Rapier20'),
+    ('Cane of Kulemak', 'Metadata/Items/Weapons/TwoHandWeapons/Staves/Staff11')
+);
+
+INSERT INTO unique_item_roll_groups (name, base_type, grp, count) VALUES
+('Bitterbind Point', 'Metadata/Items/Armours/Shields/ShieldInt16', 0, 1),
+('Cinderswallow Urn', 'Metadata/Items/Flasks/FlaskUtility14', 0, 1),
+('The Devouring Diadem', 'Metadata/Items/Armours/Helmets/HelmetInt8', 0, 1),
+('Paradoxica', 'Metadata/Items/Weapons/OneHandWeapons/OneHandThrustingSwords/Rapier20', 0, 1),
+('Paradoxica', 'Metadata/Items/Weapons/OneHandWeapons/OneHandThrustingSwords/Rapier20', 1, 1),
+('Cane of Kulemak', 'Metadata/Items/Weapons/TwoHandWeapons/Staves/Staff11', 0, 1),
+('Cane of Kulemak', 'Metadata/Items/Weapons/TwoHandWeapons/Staves/Staff11', 1, 2);
+
+INSERT INTO unique_item_roll_options (name, base_type, grp, ord, mod, weight) VALUES
+('Bitterbind Point', 'Metadata/Items/Armours/Shields/ShieldInt16', 0, 0, 'JunMasterVeiledMaximumSpectreCount', 2000),
+('Bitterbind Point', 'Metadata/Items/Armours/Shields/ShieldInt16', 0, 1, 'JunMasterVeiledSpectresBaseMaximumAllResistance', 2000),
+('Bitterbind Point', 'Metadata/Items/Armours/Shields/ShieldInt16', 0, 2, 'JunMasterVeiledSpectresAdditionalProjectiles', 2000),
+('Bitterbind Point', 'Metadata/Items/Armours/Shields/ShieldInt16', 0, 3, 'JunMasterVeiledSpectresAdditionalBaseCriticalChance', 2000),
+('Bitterbind Point', 'Metadata/Items/Armours/Shields/ShieldInt16', 0, 4, 'JunMasterVeiledSpectresAreaOfEffect', 2000),
+('Bitterbind Point', 'Metadata/Items/Armours/Shields/ShieldInt16', 0, 5, 'JunMasterVeiledLocalIncreasedEnergyShieldAndLifeMed', 1000),
+('Bitterbind Point', 'Metadata/Items/Armours/Shields/ShieldInt16', 0, 6, 'JunMasterVeiledPhysicalDamageReductionRatingDuringSoulGainPrevention', 1000),
+('Bitterbind Point', 'Metadata/Items/Armours/Shields/ShieldInt16', 0, 7, 'JunMasterVeiledAddedFireAndColdDamage', 1000),
+('Bitterbind Point', 'Metadata/Items/Armours/Shields/ShieldInt16', 0, 8, 'JunMasterVeiledAddedFireAndLightningDamage', 1000),
+('Bitterbind Point', 'Metadata/Items/Armours/Shields/ShieldInt16', 0, 9, 'JunMasterVeiledAddedColdAndLightningDamage', 1000),
+
+('Cinderswallow Urn', 'Metadata/Items/Flasks/FlaskUtility14', 0, 0, 'JunMasterVeiledLocalFlaskPhysicalDamageCanIgnite', 2000),
+('Cinderswallow Urn', 'Metadata/Items/Flasks/FlaskUtility14', 0, 1, 'JunMasterVeiledLocalFlaskIgnitedEnemiesHaveMalediction', 2000),
+('Cinderswallow Urn', 'Metadata/Items/Flasks/FlaskUtility14', 0, 2, 'JunMasterVeiledLocalFlaskAdditionalCurseOnEnemies', 2000),
+('Cinderswallow Urn', 'Metadata/Items/Flasks/FlaskUtility14', 0, 3, 'JunMasterVeiledLocalFlaskIgniteProlif', 2000),
+('Cinderswallow Urn', 'Metadata/Items/Flasks/FlaskUtility14', 0, 4, 'JunMasterVeiledLocalFlaskIgniteDamageLifeLeech', 2000),
+('Cinderswallow Urn', 'Metadata/Items/Flasks/FlaskUtility14', 0, 5, 'JunMasterVeiledLocalFlaskLifeRegenerationPerMinuteDuringFlaskEffect', 1000),
+('Cinderswallow Urn', 'Metadata/Items/Flasks/FlaskUtility14', 0, 6, 'JunMasterVeiledLocalFlaskAvoidStunChanceDuringFlaskEffect', 1000),
+('Cinderswallow Urn', 'Metadata/Items/Flasks/FlaskUtility14', 0, 7, 'JunMasterVeiledLocalFlaskItemFoundRarityDuringFlaskEffect', 1000),
+('Cinderswallow Urn', 'Metadata/Items/Flasks/FlaskUtility14', 0, 8, 'JunMasterVeiledLocalFlaskLifeLeechOnDamageTakenPermyriadDuringFlaskEffect', 1000),
+('Cinderswallow Urn', 'Metadata/Items/Flasks/FlaskUtility14', 0, 9, 'JunMasterVeiledLocalFlaskReducedReflectDuringEffect', 1000),
+
+('The Devouring Diadem', 'Metadata/Items/Armours/Helmets/HelmetInt8', 0, 0, 'JunMasterVeiledLocalIncreaseSocketedGemLevel', 2000),
+('The Devouring Diadem', 'Metadata/Items/Armours/Helmets/HelmetInt8', 0, 1, 'JunMasterVeiledDamageIfConsumedCorpse', 2000),
+('The Devouring Diadem', 'Metadata/Items/Armours/Helmets/HelmetInt8', 0, 2, 'JunMasterVeiledCorpseLife', 2000),
+('The Devouring Diadem', 'Metadata/Items/Armours/Helmets/HelmetInt8', 0, 3, 'JunMasterVeiledAttackAndCastSpeedIfCorpseConsumedRecently', 2000),
+('The Devouring Diadem', 'Metadata/Items/Armours/Helmets/HelmetInt8', 0, 4, 'JunMasterVeiledTakeNoExtraDamageFromCriticalStrikesIfEnergyShieldRechargeStartedRecently', 2000),
+('The Devouring Diadem', 'Metadata/Items/Armours/Helmets/HelmetInt8', 0, 5, 'JunMasterVeiledMaximumZombieAndSkeleton', 2000),
+('The Devouring Diadem', 'Metadata/Items/Armours/Helmets/HelmetInt8', 0, 6, 'JunMasterVeiledSkillAreaOfEffectPercentAndAreaOfEffectGemLevel', 1500),
+('The Devouring Diadem', 'Metadata/Items/Armours/Helmets/HelmetInt8', 0, 7, 'JunMasterVeiledProjectilePierceAndProjectileGemLevel', 1500),
+('The Devouring Diadem', 'Metadata/Items/Armours/Helmets/HelmetInt8', 0, 8, 'JunMasterVeiledMeleeRangeAndMeleeGemLevel', 1500),
+('The Devouring Diadem', 'Metadata/Items/Armours/Helmets/HelmetInt8', 0, 9, 'JunMasterVeiledPhysicalDamageReductionDuringFocus_', 1500),
+('The Devouring Diadem', 'Metadata/Items/Armours/Helmets/HelmetInt8', 0, 10, 'JunMasterVeiledLocalIncreasedEnergyShieldAndLifeMed', 1000),
+('The Devouring Diadem', 'Metadata/Items/Armours/Helmets/HelmetInt8', 0, 11, 'JunMasterVeiledDodgeChanceDuringFocus_', 1000),
+('The Devouring Diadem', 'Metadata/Items/Armours/Helmets/HelmetInt8', 0, 12, 'JunMasterVeiledBaseLifeAndManaRegen_', 1000),
+('The Devouring Diadem', 'Metadata/Items/Armours/Helmets/HelmetInt8', 0, 13, 'JunMasterVeiledBaseManaAndLifeRegen__', 1000),
+
+('Paradoxica', 'Metadata/Items/Weapons/OneHandWeapons/OneHandThrustingSwords/Rapier20', 0, 0, 'JunMasterVeiledLocalIncreasedPhysicalDamageAndImpaleCrafted', 1000),
+('Paradoxica', 'Metadata/Items/Weapons/OneHandWeapons/OneHandThrustingSwords/Rapier20', 0, 1, 'JunMasterVeiledLocalIncreasedPhysicalDamageAndBleedChanceCrafted_', 1000),
+('Paradoxica', 'Metadata/Items/Weapons/OneHandWeapons/OneHandThrustingSwords/Rapier20', 0, 2, 'JunMasterVeiledLocalIncreasedPhysicalDamageAndBlindChanceCrafted_', 1000),
+('Paradoxica', 'Metadata/Items/Weapons/OneHandWeapons/OneHandThrustingSwords/Rapier20', 0, 3, 'JunMasterVeiledLocalIncreasedPhysicalDamageAndPoisonChanceCrafted_', 1000),
+('Paradoxica', 'Metadata/Items/Weapons/OneHandWeapons/OneHandThrustingSwords/Rapier20', 0, 4, 'JunMasterVeiledElementalPenetrationWithAttacks_', 1000),
+('Paradoxica', 'Metadata/Items/Weapons/OneHandWeapons/OneHandThrustingSwords/Rapier20', 0, 5, 'JunMasterVeiledChaosPenetrationWithAttacks__', 1000),
+('Paradoxica', 'Metadata/Items/Weapons/OneHandWeapons/OneHandThrustingSwords/Rapier20', 0, 6, 'JunMasterVeiledMinionDamageAndMinionMaximumLife1h', 400),
+('Paradoxica', 'Metadata/Items/Weapons/OneHandWeapons/OneHandThrustingSwords/Rapier20', 0, 7, 'JunMasterVeiledFireDamageAndChanceToIgnite1h', 100),
+('Paradoxica', 'Metadata/Items/Weapons/OneHandWeapons/OneHandThrustingSwords/Rapier20', 0, 8, 'JunMasterVeiledColdDamageAndBaseChanceToFreeze1h', 100),
+('Paradoxica', 'Metadata/Items/Weapons/OneHandWeapons/OneHandThrustingSwords/Rapier20', 0, 9, 'JunMasterVeiledLightningDamageAndChanceToShock1h_', 100),
+('Paradoxica', 'Metadata/Items/Weapons/OneHandWeapons/OneHandThrustingSwords/Rapier20', 0, 10, 'JunMasterVeiledChaosDamageAndChaosSkillDuration1h', 100),
+('Paradoxica', 'Metadata/Items/Weapons/OneHandWeapons/OneHandThrustingSwords/Rapier20', 0, 11, 'JunMasterVeiledSpellDamageAndManaRegenerationRate1h', 100),
+('Paradoxica', 'Metadata/Items/Weapons/OneHandWeapons/OneHandThrustingSwords/Rapier20', 0, 12, 'JunMasterVeiledSpellDamageAndNonChaosDamageToAddAsChaosDamage1h', 100),
+('Paradoxica', 'Metadata/Items/Weapons/OneHandWeapons/OneHandThrustingSwords/Rapier20', 1, 0, 'JunMasterVeiledDoubleDamageChance1h', 1000),
+('Paradoxica', 'Metadata/Items/Weapons/OneHandWeapons/OneHandThrustingSwords/Rapier20', 1, 1, 'JunMasterVeiledDamagePerEnduranceCharge1h', 1000),
+('Paradoxica', 'Metadata/Items/Weapons/OneHandWeapons/OneHandThrustingSwords/Rapier20', 1, 2, 'JunMasterVeiledDamagePerFrenzyCharge1h', 1000),
+('Paradoxica', 'Metadata/Items/Weapons/OneHandWeapons/OneHandThrustingSwords/Rapier20', 1, 3, 'JunMasterVeiledDamagePerPowerCharge1h_', 1000),
+('Paradoxica', 'Metadata/Items/Weapons/OneHandWeapons/OneHandThrustingSwords/Rapier20', 1, 4, 'JunMasterVeiledCriticalStrikeMultiplierIfRareOrUniqueEnemyNearby1h', 1000),
+('Paradoxica', 'Metadata/Items/Weapons/OneHandWeapons/OneHandThrustingSwords/Rapier20', 1, 5, 'JunMasterVeiledAttackSpeedPercentIfRareOrUniqueEnemyNearby1h', 1000),
+('Paradoxica', 'Metadata/Items/Weapons/OneHandWeapons/OneHandThrustingSwords/Rapier20', 1, 6, 'JunMasterVeiledChanceToDealDoubleDamageWhileFocused1h', 1000),
+('Paradoxica', 'Metadata/Items/Weapons/OneHandWeapons/OneHandThrustingSwords/Rapier20', 1, 7, 'JunMasterVeiledLocalAttackSpeedDexterityIntelligence', 1000),
+('Paradoxica', 'Metadata/Items/Weapons/OneHandWeapons/OneHandThrustingSwords/Rapier20', 1, 8, 'JunMasterVeiledLocalCriticalStrikeChanceStrengthIntelligence__', 1000),
+('Paradoxica', 'Metadata/Items/Weapons/OneHandWeapons/OneHandThrustingSwords/Rapier20', 1, 9, 'JunMasterVeiledLocalAccuracyRatingStrengthDexterity_', 1000),
+('Paradoxica', 'Metadata/Items/Weapons/OneHandWeapons/OneHandThrustingSwords/Rapier20', 1, 10, 'JunMasterVeiledLocalAttackSpeedAndLocalDisplayTriggerLevel1BloodRageOnKillChance_', 1000),
+('Paradoxica', 'Metadata/Items/Weapons/OneHandWeapons/OneHandThrustingSwords/Rapier20', 1, 11, 'JunMasterVeiledMinionAttackAndCastSpeedOnWeapon1h', 400),
+('Paradoxica', 'Metadata/Items/Weapons/OneHandWeapons/OneHandThrustingSwords/Rapier20', 1, 12, 'JunMasterVeiledPhysicalDamageOverTimeMultiplier', 400),
+('Paradoxica', 'Metadata/Items/Weapons/OneHandWeapons/OneHandThrustingSwords/Rapier20', 1, 13, 'JunMasterVeiledColdDamageOverTimeMultiplier___', 400),
+('Paradoxica', 'Metadata/Items/Weapons/OneHandWeapons/OneHandThrustingSwords/Rapier20', 1, 14, 'JunMasterVeiledFireDamageOverTimeMultiplier', 400),
+('Paradoxica', 'Metadata/Items/Weapons/OneHandWeapons/OneHandThrustingSwords/Rapier20', 1, 15, 'JunMasterVeiledChaosDamageOverTimeMultiplier__', 100),
+('Paradoxica', 'Metadata/Items/Weapons/OneHandWeapons/OneHandThrustingSwords/Rapier20', 1, 16, 'JunMasterVeiledCastSpeedAndGainArcaneSurgeOnKillChance1h__', 100),
+
+('Cane of Kulemak', 'Metadata/Items/Weapons/TwoHandWeapons/Staves/Staff11', 0, 0, 'JunMasterVeiledLocalIncreaseSocketedSupportGemLevel', 2000),
+('Cane of Kulemak', 'Metadata/Items/Weapons/TwoHandWeapons/Staves/Staff11', 0, 1, 'JunMasterVeiledChaosExplosionOnKill', 2000),
+('Cane of Kulemak', 'Metadata/Items/Weapons/TwoHandWeapons/Staves/Staff11', 0, 2, 'JunMasterVeiledSupportedByCastOnCritAndSpellDamage', 2000),
+('Cane of Kulemak', 'Metadata/Items/Weapons/TwoHandWeapons/Staves/Staff11', 0, 3, 'JunMasterVeiledSupportedByCastWhileChannelingAndSpellDamage', 2000),
+('Cane of Kulemak', 'Metadata/Items/Weapons/TwoHandWeapons/Staves/Staff11', 0, 4, 'JunMasterVeiledSupportedByArcaneSurgeAndSpellDamage', 2000),
+('Cane of Kulemak', 'Metadata/Items/Weapons/TwoHandWeapons/Staves/Staff11', 0, 5, 'JunMasterVeiledLocalIncreasedPhysicalDamageAndImpaleCrafted', 1000),
+('Cane of Kulemak', 'Metadata/Items/Weapons/TwoHandWeapons/Staves/Staff11', 0, 6, 'JunMasterVeiledLocalIncreasedPhysicalDamageAndBleedChanceCrafted_', 1000),
+('Cane of Kulemak', 'Metadata/Items/Weapons/TwoHandWeapons/Staves/Staff11', 0, 7, 'JunMasterVeiledLocalIncreasedPhysicalDamageAndBlindChanceCrafted_', 1000),
+('Cane of Kulemak', 'Metadata/Items/Weapons/TwoHandWeapons/Staves/Staff11', 0, 8, 'JunMasterVeiledLocalIncreasedPhysicalDamageAndPoisonChanceCrafted_', 1000),
+('Cane of Kulemak', 'Metadata/Items/Weapons/TwoHandWeapons/Staves/Staff11', 0, 9, 'JunMasterVeiledElementalPenetrationWithAttacks_', 1000),
+('Cane of Kulemak', 'Metadata/Items/Weapons/TwoHandWeapons/Staves/Staff11', 0, 10, 'JunMasterVeiledChaosPenetrationWithAttacks__', 1000),
+('Cane of Kulemak', 'Metadata/Items/Weapons/TwoHandWeapons/Staves/Staff11', 0, 11, 'JunMasterVeiledFireDamageAndChanceToIgnite2h', 1000),
+('Cane of Kulemak', 'Metadata/Items/Weapons/TwoHandWeapons/Staves/Staff11', 0, 12, 'JunMasterVeiledColdDamageAndBaseChanceToFreeze2h__', 1000),
+('Cane of Kulemak', 'Metadata/Items/Weapons/TwoHandWeapons/Staves/Staff11', 0, 13, 'JunMasterVeiledLightningDamageAndChanceToShock2h', 1000),
+('Cane of Kulemak', 'Metadata/Items/Weapons/TwoHandWeapons/Staves/Staff11', 0, 14, 'JunMasterVeiledChaosDamageAndChaosSkillDuration2h_', 1000),
+('Cane of Kulemak', 'Metadata/Items/Weapons/TwoHandWeapons/Staves/Staff11', 0, 15, 'JunMasterVeiledSpellDamageAndManaRegenerationRate2h', 1000),
+('Cane of Kulemak', 'Metadata/Items/Weapons/TwoHandWeapons/Staves/Staff11', 0, 16, 'JunMasterVeiledSpellDamageAndNonChaosDamageToAddAsChaosDamage2h', 1000),
+('Cane of Kulemak', 'Metadata/Items/Weapons/TwoHandWeapons/Staves/Staff11', 0, 17, 'JunMasterVeiledMinionDamageAndMinionMaximumLife2h__', 1000),
+('Cane of Kulemak', 'Metadata/Items/Weapons/TwoHandWeapons/Staves/Staff11', 1, 0, 'JunMasterVeiledMinionAttackAndCastSpeedOnWeapon2h', 1000),
+('Cane of Kulemak', 'Metadata/Items/Weapons/TwoHandWeapons/Staves/Staff11', 1, 1, 'JunMasterVeiledChaosDamageOverTimeMultiplierTwoHand', 1000),
+('Cane of Kulemak', 'Metadata/Items/Weapons/TwoHandWeapons/Staves/Staff11', 1, 2, 'JunMasterVeiledPhysicalDamageOverTimeMultiplierTwoHand_', 1000),
+('Cane of Kulemak', 'Metadata/Items/Weapons/TwoHandWeapons/Staves/Staff11', 1, 3, 'JunMasterVeiledDoubleDamageChance2h_', 1000),
+('Cane of Kulemak', 'Metadata/Items/Weapons/TwoHandWeapons/Staves/Staff11', 1, 4, 'JunMasterVeiledDamagePerEnduranceCharge2h', 1000),
+('Cane of Kulemak', 'Metadata/Items/Weapons/TwoHandWeapons/Staves/Staff11', 1, 5, 'JunMasterVeiledDamagePerFrenzyCharge2h__', 1000),
+('Cane of Kulemak', 'Metadata/Items/Weapons/TwoHandWeapons/Staves/Staff11', 1, 6, 'JunMasterVeiledDamagePerPowerCharge2h', 1000),
+('Cane of Kulemak', 'Metadata/Items/Weapons/TwoHandWeapons/Staves/Staff11', 1, 7, 'JunMasterVeiledCriticalStrikeMultiplierIfRareOrUniqueEnemyNearby2h', 1000),
+('Cane of Kulemak', 'Metadata/Items/Weapons/TwoHandWeapons/Staves/Staff11', 1, 8, 'JunMasterVeiledAttackSpeedPercentIfRareOrUniqueEnemyNearby2h', 1000),
+('Cane of Kulemak', 'Metadata/Items/Weapons/TwoHandWeapons/Staves/Staff11', 1, 9, 'JunMasterVeiledChanceToDealDoubleDamageWhileFocused2h_', 1000),
+('Cane of Kulemak', 'Metadata/Items/Weapons/TwoHandWeapons/Staves/Staff11', 1, 10, 'JunMasterVeiledLocalAttackSpeedDexterityIntelligence', 1000),
+('Cane of Kulemak', 'Metadata/Items/Weapons/TwoHandWeapons/Staves/Staff11', 1, 11, 'JunMasterVeiledLocalCriticalStrikeChanceStrengthIntelligence__', 1000),
+('Cane of Kulemak', 'Metadata/Items/Weapons/TwoHandWeapons/Staves/Staff11', 1, 12, 'JunMasterVeiledLocalAccuracyRatingStrengthDexterity_', 1000),
+('Cane of Kulemak', 'Metadata/Items/Weapons/TwoHandWeapons/Staves/Staff11', 1, 13, 'JunMasterVeiledLocalAttackSpeedAndLocalDisplayTriggerLevel1BloodRageOnKillChance_', 1000),
+('Cane of Kulemak', 'Metadata/Items/Weapons/TwoHandWeapons/Staves/Staff11', 1, 14, 'JunMasterVeiledCastSpeedAndGainArcaneSurgeOnKillChance2h_', 1000),
+('Cane of Kulemak', 'Metadata/Items/Weapons/TwoHandWeapons/Staves/Staff11', 1, 15, 'JunMasterVeiledColdDamageOverTimeMultiplierTwoHand', 400),
+('Cane of Kulemak', 'Metadata/Items/Weapons/TwoHandWeapons/Staves/Staff11', 1, 16, 'JunMasterVeiledFireDamageOverTimeMultiplierTwoHand', 400);

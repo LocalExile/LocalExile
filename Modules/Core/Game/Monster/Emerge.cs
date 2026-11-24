@@ -30,20 +30,22 @@ public static partial class Game
         {
             while (!player.Closed && rules is not { IsActive: false })
             {
-                await (rules is null ? AreaDelay(player, 0.25) : AreaDelay(player, 0.25, rules.Stopping));
-                if (player.Paused || player.PlayerLife == 0) continue;
+                double step = MonsterEmerge.HasScheduledEmerge(player) ? 0.15 : 0.25;
+                await (rules is null ? AreaDelay(player, step) : AreaDelay(player, step, rules.Stopping));
+                if (player.Paused) continue;
                 double now = AreaTime(player);
-                List<(uint Id, SpawnedMonster Monster, (int X, int Y) At, double Seconds)> risen;
-                bool watching;
+                List<(uint Id, SpawnedMonster Monster, (int X, int Y) At, double Seconds)> risen = [];
+                bool watching = true;
                 using (ProjectileMutation(player))
                 {
                     now = ProjectileWorldTime(player);
-                    // Near any player in the instance: whoever comes near wakes them.
-                    risen = Emerges.RiseLocked(player, player.Walk.Position(now), now, out watching);
+                    // Near any living player in the instance: whoever comes near wakes them (a dead host does not freeze party emerges).
+                    if (player.PlayerLife > 0)
+                        risen = Emerges.RiseLocked(player, player, player.Walk.Position(now), now, out watching);
                     foreach (var other in InGame.Keys)
                         if (!ReferenceEquals(other, player) && ReferenceEquals(other.Instance, player.Instance) && !other.Closed
                             && !other.LeavingArea && other.PlayerLife > 0 && watching)
-                            risen.AddRange(Emerges.RiseLocked(player, other.Walk.Position(now), now, out watching));
+                            risen.AddRange(Emerges.RiseLocked(player, other, other.Walk.Position(now), now, out watching));
                 }
                 foreach (var (id, m, at, seconds) in risen)
                     _ = Emerge(player, id, m, at, seconds);

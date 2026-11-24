@@ -56,6 +56,23 @@ public sealed class InstanceRegistry(TimeProvider? clock = null)
         }
     }
 
+    /// <summary>Joins another character's personal area (such as a hideout), creating it under <paramref name="owner"/>
+    /// if no live instance exists yet. Refused for solo (SSF) leagues or non-personal areas.</summary>
+    public AreaInstanceState? EnterPersonal(ushort area, string visitor, string owner, string? league = null, bool solo = false,
+        string? soloIdentity = null)
+    {
+        if (solo || string.IsNullOrWhiteSpace(owner)) return null;
+        lock (_lock)
+        {
+            Prune();
+            if (!PersonalAreas.Contains(area)) return null;
+            var existing = _instances.Values.FirstOrDefault(i => i.AreaHash == area && i.League == LeagueKey(league)
+                && string.Equals(i.Owner, owner, StringComparison.OrdinalIgnoreCase)
+                && CanEnter(i, soloIdentity ?? visitor, league, solo: false));
+            return Join(existing ?? CreateLocked(area, league, soloOwner: null, owner: owner), visitor);
+        }
+    }
+
     /// <summary>Joins a specific live instance (chooser), or null if it expired. Towns ignore the id (there is only one).</summary>
     public AreaInstanceState? EnterExisting(ulong id, string character, string? league = null, bool solo = false,
         ushort? expectedArea = null, string? soloIdentity = null)

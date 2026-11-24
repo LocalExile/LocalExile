@@ -13,6 +13,9 @@ public static partial class Game
     {
         if (!player.Connection.PlayerSent || player.PlayerLife == 0 || player.PendingTransfer is not null || player.Closed
             || player.Layout.GridW <= 0 || player.Layout.GridH <= 0) return;
+        // A lockstep client never silently teleports out of stationary blockers; moving the server's walk without
+        // telling the client causes the next 0x1ab Move to snap the client onto the escaped cell.
+        if (!tell && player.Connection.LockstepClient) return;
         (int X, int Y) from, to;
         using (ProjectileMutation(player))
         {

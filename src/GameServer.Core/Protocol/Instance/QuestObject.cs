@@ -28,6 +28,9 @@ public sealed record QuestObject(int GridX, int GridY, IReadOnlyList<string> Com
     string? Model = null, byte TransitionState = 1, bool Opened = false, bool Blocked = false, ushort Team = 0)
 {
     public IReadOnlyList<string> Components { get; init => field = Owned.List(value); } = Owned.List(Components);
+    /// <summary>The Chest component's other flag bits (bit 0 is <see cref="Opened"/>): bit 1 makes the client play the
+    /// object's warning sound, its own stat checks deciding (a strongbox's <c>chest_play_warning_sound</c>).</summary>
+    public byte ChestFlags { get; init; }
     /// <summary>Suppress the object's own map marker without removing its model or interaction.</summary>
     public bool HideMinimapIcon { get; init; }
     public StateMachineData? StateMachine { get; init; }
@@ -43,6 +46,8 @@ public sealed record QuestObject(int GridX, int GridY, IReadOnlyList<string> Com
     public IReadOnlyDictionary<uint, int> IntVariables { get; init; } = new Dictionary<uint, int>();
     /// <summary>Base-data script variables containing one f32 (type 8), written after the int ones.</summary>
     public IReadOnlyDictionary<uint, float> FloatVariables { get; init; } = new Dictionary<uint, float>();
+    /// <summary>Extended or multi-value base-data script variables (types 1, 7, 8, 9, 10, 11 or empty clears), written after the typed dictionaries.</summary>
+    public IReadOnlyList<EntityVariable> Variables { get; init => field = Owned.List(value); } = [];
 
     /// <summary>A script variable's name hash (0x1406db8f0): MurmurHash2 of the UTF-16LE name, seed 0.</summary>
     public static uint VariableHash(string name) =>
@@ -74,16 +79,18 @@ public sealed record QuestObject(int GridX, int GridY, IReadOnlyList<string> Com
         if (!CanSerialize(Components, StateMachine is not null)) throw new ArgumentException($"unsupported components: {string.Join(", ", Components)}");
         var w = new BlobWriter();
         w.U8(0);            // object flags
-        int variables = EntityVariables.Count + IntVariables.Count + FloatVariables.Count;
+        int variables = EntityVariables.Count + IntVariables.Count + FloatVariables.Count + Variables.Count;
         if (variables > byte.MaxValue) throw new ArgumentException("too many script variables");
         w.U8((byte)variables);
-        // Each: u32 name hash, u8 flags 0, u8 value count 1, u8 type (1 entity, 9 i32, 8 f32), the value.
+        // Each: u32 name hash, u8 flags 0, u8 value count, and when count > 0: u8 type + values.
         foreach (var (hash, entity) in EntityVariables.OrderBy(v => v.Key))
-            w.U32(hash).U8(0).U8(1).U8(1).U32(entity);
+            w.U32(hash).U8(0).U8(1).U8((byte)EntityVariableType.Entity).U32(entity);
         foreach (var (hash, value) in IntVariables.OrderBy(v => v.Key))
-            w.U32(hash).U8(0).U8(1).U8(9).I32(value);
+            w.U32(hash).U8(0).U8(1).U8((byte)EntityVariableType.Int).I32(value);
         foreach (var (hash, value) in FloatVariables.OrderBy(v => v.Key))
-            w.U32(hash).U8(0).U8(1).U8(8).F32(value);
+            w.U32(hash).U8(0).U8(1).U8((byte)EntityVariableType.Float).F32(value);
+        foreach (var variable in Variables)
+            variable.Write(w);
         foreach (string c in Components)
         {
             switch (c)
@@ -93,7 +100,7 @@ public sealed record QuestObject(int GridX, int GridY, IReadOnlyList<string> Com
                 case "Positioned": w.Positioned(GridX, GridY, Rotation, Team, fixedHeight: Height is float z && !float.IsNaN(z) ? BlobWriter.FixedHeight(z) : null); break;
                 case "Animated": if (Model is null) w.U8(0); else w.U8(1).WStr32(Model); break;
                 case "Transitionable": w.U8((byte)(Math.Max((byte)1, TransitionState) & 0x7f)); break;
-                case "Chest": w.U8((byte)(Opened ? 1 : 0)).U8(0).U8(0); break;
+                case "Chest": w.U8((byte)((Opened ? 1 : 0) | (ChestFlags & 0xfe))).U8(0).U8(0); break;
                 // As a monster's (0x1421c98b0): compact count + pairs, u32, f32, u8.
                 case "Stats": w.Stats(Stats).U32(0).U32(0).U8(0); break;
                 // Stationary initially; the server drives the rail with MoveTo (as for the Labyrinth's roombas).
@@ -134,3 +141,120 @@ public sealed record QuestObject(int GridX, int GridY, IReadOnlyList<string> Com
 /// <summary>The HeistRewardDisplay component (reader 0x141eb4120, writer 0x141eb4070): u8 hasPrimary, u8 hasSecondary,
 /// raw <see cref="Item.Payload"/> for each present item (no u16 length prefix), then i32 LE openAttempts (clamped &gt;= 0).</summary>
 public sealed record RewardDisplayData(Item? Primary, Item? Secondary = null, int OpenAttempts = 0);
+
+/// <summary>Entity base-data KV value types read by 0x141dfe5a0 via dispatch table 0x1435a2110 (3.29.3c).</summary>
+public enum EntityVariableType : byte
+{
+    Entity = 1,
+    /// <summary>Two little-endian u32 values (0x141e00260 → 0x140df7350).</summary>
+    IntPair = 7,
+    /// <summary>IEEE-754 little-endian f32 (0x141e00330).</summary>
+    Float = 8,
+    /// <summary>Little-endian i32 (0x141e00430).</summary>
+    Int = 9,
+    /// <summary>Single u8 / boolean byte (0x141e00530).</summary>
+    Byte = 10,
+    /// <summary>u32 LE char count + UTF-16LE wide string (0x141e00620 → 0x140e27600).</summary>
+    String = 11,
+}
+
+/// <summary>
+/// One base-data key-value variable entry for 0x2bb creation and S→C 0x2c1 live updates (reader 0x141dedf80 /
+/// 0x141dfe5a0). Entries carry u32 LE name hash, u8 flags, u8 count; only when count &gt; 0 do the u8 type and
+/// <see cref="Count"/> little-endian values follow.
+/// </summary>
+public sealed class EntityVariable
+{
+    readonly Action<BlobWriter> _writeValues;
+
+    public uint Hash { get; }
+    public byte Flags { get; }
+    public EntityVariableType Type { get; }
+    public byte Count { get; }
+
+    EntityVariable(uint hash, byte flags, EntityVariableType type, int count, Action<BlobWriter> writeValues)
+    {
+        if (count < 0 || count > byte.MaxValue) throw new ArgumentOutOfRangeException(nameof(count), count, "At most 255 values per variable.");
+        Hash = hash;
+        Flags = flags;
+        Type = type;
+        Count = (byte)count;
+        _writeValues = writeValues;
+    }
+
+    public static EntityVariable Empty(uint hash, byte flags = 0) => new(hash, flags, 0, 0, _ => { });
+    public static EntityVariable Empty(string name, byte flags = 0) => Empty(QuestObject.VariableHash(name), flags);
+
+    public static EntityVariable Entity(uint hash, params uint[] values) => Entity(hash, 0, values);
+    public static EntityVariable Entity(uint hash, byte flags, params uint[] values)
+    {
+        var copy = values.ToArray();
+        return new(hash, flags, EntityVariableType.Entity, copy.Length, w => { foreach (uint v in copy) w.U32(v); });
+    }
+    public static EntityVariable Entity(string name, params uint[] values) => Entity(QuestObject.VariableHash(name), values);
+
+    public static EntityVariable IntPair(uint hash, params (uint A, uint B)[] values) => IntPair(hash, 0, values);
+    public static EntityVariable IntPair(uint hash, byte flags, params (uint A, uint B)[] values)
+    {
+        var copy = values.ToArray();
+        return new(hash, flags, EntityVariableType.IntPair, copy.Length, w => { foreach (var (a, b) in copy) w.U32(a).U32(b); });
+    }
+    public static EntityVariable IntPair(string name, params (uint A, uint B)[] values) => IntPair(QuestObject.VariableHash(name), values);
+
+    public static EntityVariable Float(uint hash, params float[] values) => Float(hash, 0, values);
+    public static EntityVariable Float(uint hash, byte flags, params float[] values)
+    {
+        var copy = values.ToArray();
+        return new(hash, flags, EntityVariableType.Float, copy.Length, w => { foreach (float v in copy) w.F32(v); });
+    }
+    public static EntityVariable Float(string name, params float[] values) => Float(QuestObject.VariableHash(name), values);
+
+    public static EntityVariable Int(uint hash, params int[] values) => Int(hash, 0, values);
+    public static EntityVariable Int(uint hash, byte flags, params int[] values)
+    {
+        var copy = values.ToArray();
+        return new(hash, flags, EntityVariableType.Int, copy.Length, w => { foreach (int v in copy) w.I32(v); });
+    }
+    public static EntityVariable Int(string name, params int[] values) => Int(QuestObject.VariableHash(name), values);
+
+    public static EntityVariable Byte(uint hash, params byte[] values) => Byte(hash, 0, values);
+    public static EntityVariable Byte(uint hash, byte flags, params byte[] values)
+    {
+        var copy = values.ToArray();
+        return new(hash, flags, EntityVariableType.Byte, copy.Length, w => { foreach (byte v in copy) w.U8(v); });
+    }
+    public static EntityVariable Byte(string name, params byte[] values) => Byte(QuestObject.VariableHash(name), values);
+
+    public static EntityVariable Bool(uint hash, params bool[] values) => Byte(hash, 0, [.. values.Select(v => v ? (byte)1 : (byte)0)]);
+    public static EntityVariable Bool(string name, params bool[] values) => Bool(QuestObject.VariableHash(name), values);
+
+    public static EntityVariable String(uint hash, params string[] values) => String(hash, 0, values);
+    public static EntityVariable String(uint hash, byte flags, params string[] values)
+    {
+        var copy = values.ToArray();
+        return new(hash, flags, EntityVariableType.String, copy.Length, w => { foreach (string v in copy) w.WStr32(v); });
+    }
+    public static EntityVariable String(string name, params string[] values) => String(QuestObject.VariableHash(name), values);
+
+    public void Write(BlobWriter w)
+    {
+        w.U32(Hash).U8(Flags).U8(Count);
+        if (Count == 0) return;
+        w.U8((byte)Type);
+        _writeValues(w);
+    }
+
+    public static void WriteAll(BlobWriter w, IReadOnlyList<EntityVariable> variables)
+    {
+        if (variables.Count > byte.MaxValue) throw new ArgumentOutOfRangeException(nameof(variables), variables.Count, "At most 255 base-data variables.");
+        w.U8((byte)variables.Count);
+        foreach (var v in variables) v.Write(w);
+    }
+
+    public static byte[] EncodeBlob(IReadOnlyList<EntityVariable> variables)
+    {
+        var w = new BlobWriter();
+        WriteAll(w, variables);
+        return w.ToArray();
+    }
+}

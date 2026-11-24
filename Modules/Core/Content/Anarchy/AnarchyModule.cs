@@ -21,23 +21,49 @@ public sealed class AnarchyModule : IModule
     sealed record Exile(uint Id, string VarietyId, bool Exceptional, bool Special);
 
     sealed class Placed { public readonly List<Exile> Exiles = []; public object? Area; }
-    static readonly ConditionalWeakTable<Player, Placed> PlacedExiles = new();
+    static readonly RuleTable<InstanceState, Placed> PlacedExiles = new();
 
     /// <inheritdoc/>
     public void Load(IModuleContext module)
     {
         GameEvents.AreaPopulated.Add(module.Manifest.Id, area => Place(module, area));
         GameEvents.Drops.Add(module.Manifest.Id, Drops);
+        MapStrongboxes.RogueExiles.Add(module.Manifest.Id, (player, at, count) => SpawnStrongboxExiles(module, player, at, count));
+    }
+
+    static async Task<IReadOnlyList<uint>> SpawnStrongboxExiles(IModuleContext module, Player player, (int X, int Y) at, int count)
+    {
+        var ids = new List<uint>();
+        if (count <= 0 || player.Instance is null || player.Closed || player.LeavingArea || player.Layout.Walkable is null) return ids;
+        byte level = (byte)Math.Clamp(MapRunOf(player) is { Area.Level: > 0 } map ? map.Area.Level : ServerLevels.AreaLevel(player.Layout.Id), 1, 100);
+        var stats = AreaLeagueStats(player);
+        var placed = PlacedExiles.GetValue(player.Instance, _ => new());
+        lock (placed)
+        {
+            if (!ReferenceEquals(placed.Area, player.Layout)) { placed.Exiles.Clear(); placed.Area = player.Layout; }
+        }
+        var rng = new Random(unchecked((int)(player.Seed ^ (uint)(at.X * 73856093) ^ (uint)(at.Y * 19349663))));
+        var used = new List<string>();
+        int capped = Math.Min(count, MostExiles);
+        for (int i = 0; i < capped; i++)
+        {
+            double angle = i * Math.Tau / Math.Max(1, capped);
+            var spot = player.Layout.Near((at.X + (int)Math.Round(Math.Cos(angle) * 6), at.Y + (int)Math.Round(Math.Sin(angle) * 6)));
+            if (await SpawnExile(module, player, level, spot, stats, rng, used, false, placed, "strongbox guard", aggro: true) is not uint id)
+                break;
+            if (id != 0) ids.Add(id);
+        }
+        return ids;
     }
 
     static async Task Place(IModuleContext module, AreaPopulated area)
     {
         var player = area.Player;
         var layout = player.Layout;
-        if (layout.Walkable is not { } walkable) return;
+        if (player.Instance is null || layout.Walkable is not { } walkable) return;
         var stats = AreaLeagueStats(player);
         int S(uint name) => stats.GetValueOrDefault(name);
-        var placed = PlacedExiles.GetValue(player, _ => new());
+        var placed = PlacedExiles.GetValue(player.Instance, _ => new());
         lock (placed) { placed.Exiles.Clear(); placed.Area = layout; }
         if (S(Stat.MapNoExiles) > 0) return;
         // The encounter's own draws, apart from the packs' (the same instance gets the same exiles).
@@ -45,6 +71,7 @@ public sealed class AnarchyModule : IModule
         bool Chance(int percent) => percent > 0 && rng.Next(100) < percent;
         int count = S(Stat.MapDisableRogueExilesFromChance) > 0 ? 0
             : LeagueChances.Current.Count(layout.Id, LeagueChances.Anarchy, rng,
+                alternate: LeagueFor(player).HardMode,
                 increased: S(Stat.MapLeagueBaseChancePlusPctFinal),
                 added: S(Stat.MapLeagueContentAdditionalChancePct) + S(Stat.MapRogueExileChancePct));
         // What the map adds: its affixes' and the Anarchy Scarab's exiles, Unexpected Stranger's one.
@@ -114,7 +141,7 @@ public sealed class AnarchyModule : IModule
     /// spawn here (the caller places no more).</summary>
     static async Task<uint?> SpawnExile(IModuleContext module, Player player, byte level, (int X, int Y) at,
         Dictionary<uint, int> stats, Random rng, List<string> used, bool exceptional, Placed placed, string kind, bool bodyguard = false,
-        bool giant = false)
+        bool giant = false, bool aggro = false)
     {
         int S(uint name) => stats.GetValueOrDefault(name);
         bool anyLevel = S(Stat.MapOverrideRogueExileMinLevel) > 0;
@@ -154,7 +181,8 @@ public sealed class AnarchyModule : IModule
         if (exceptional) Extra(Stat.RogueExileIsExceptional, 1);
         var mods = new MonsterModSet([], [], new MonsterModEffects(effects));
         uint id = await SpawnMonster(player, exile, level, MonsterRarity.Unique, at.X, at.Y,
-            log: true, alone: true, extraMods: mods, extraStats: extraStats);
+            log: true, alone: true, extraMods: mods, extraStats: extraStats,
+            owned: aggro ? (_, monster) => monster.Aggro = true : null);
         if (id != 0) lock (placed) placed.Exiles.Add(new(id, exile.Id, exceptional, special));
         module.Log($"{player.Layout.Id}: Rogue Exile {exile.Name} ({exile.Id}, {kind}{(giant ? ", gigantified" : "")}" +
             $"{(exceptional ? ", exceptional" : "")}{(special ? ", special reward" : "")}{(bodyguard ? ", bodyguard" : "")}) at ({at.X}, {at.Y}), " +
@@ -180,11 +208,14 @@ public sealed class AnarchyModule : IModule
         int S(uint name) => stats.GetValueOrDefault(name);
         var rng = new Random(HashCode.Combine(roll.Monster.X, roll.Monster.Y, roll.Monster.VarietyId, player.Seed));
         // Any monster: the altar's and the map's chance of an additional Anarchy scarab; a map boss its scarabs.
-        if (rng.Next(100) < S(Stat.ChancePctToDropAdditionalScarabAnarchy)) roll.Items.Add(AnarchyScarab(rng));
-        if (roll.Monster.Rarity == MonsterRarity.Unique && Monsters.Find(roll.Monster.VarietyId) is { BossHealthBar: true } boss
-            && !RogueExiles.Current.IsExile(boss.Id))
-            for (int i = S(Stat.MapBossDropsXAdditionalScarabsAnarchy); i > 0; i--) roll.Items.Add(AnarchyScarab(rng));
-        if (!PlacedExiles.TryGetValue(player, out var placed)) return;
+        if (S(Stat.MapDisableScarabDrops) <= 0)
+        {
+            if (rng.Next(100) < S(Stat.ChancePctToDropAdditionalScarabAnarchy)) roll.Items.Add(AnarchyScarab(rng));
+            if (roll.Monster.Rarity == MonsterRarity.Unique && Monsters.Find(roll.Monster.VarietyId) is { BossHealthBar: true } boss
+                && !RogueExiles.Current.IsExile(boss.Id))
+                for (int i = S(Stat.MapBossDropsXAdditionalScarabsAnarchy); i > 0; i--) roll.Items.Add(AnarchyScarab(rng));
+        }
+        if (player.Instance is null || !PlacedExiles.TryGetValue(player.Instance, out var placed)) return;
         Exile? exile;
         lock (placed)
         {

@@ -11,6 +11,12 @@ public sealed class HideoutEditing
     /// <summary>Where a registered object stands now.</summary>
     public HideoutPlacement? PositionOf(uint id) => _objects.GetValueOrDefault(id)?.Position;
 
+    public bool TryGet(uint id, out Entry entry) => _objects.TryGetValue(id, out entry!);
+
+    public Entry? Unregister(uint id) => _objects.Remove(id, out var entry) ? entry : null;
+
+    public IReadOnlyList<(uint Id, Entry Entry)> All() => [.. _objects.Select(kv => (kv.Key, kv.Value))];
+
     public void Register(uint id, string key, int x, int y, float rotation, int size, double? collisionRadius = null) =>
         _objects[id] = new(key, new(x, y, rotation), size, collisionRadius);
 

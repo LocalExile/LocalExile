@@ -10,6 +10,40 @@ public static partial class Game
         "DominatingNormal" => 1, "DominatingMagic" => 2, "DominatingRare" => 3, "VaalDomination" => 4, _ => 0,
     };
 
+    // MinionType.dat row for every non-sentinel player minion family so the client's top-left HUD minion counter
+    // (Actor 0x0100, 0x14219a648 / 0x1413119bd) shows live counts across all summon types. Row 0 is SpectreMinion.
+    static ushort? MinionNativeType(GolemState.Golem minion)
+    {
+        if (minion.Definition.IsGolem) return 24;
+        return minion.Definition.Kind switch
+        {
+            "Spectre" => 0,
+            "Zombie" => minion.Definition.Id == "RaiseZombieAltY" ? (ushort)8 : (ushort)7,
+            "Skeleton" => 9,
+            "VaalSkeleton" => 10,
+            "Phantasm" => 11,
+            "AnimatedGuardian" => 18,
+            "AnimatedWeapon" => minion.Definition.Id == "AnimateWeaponAltY" ? (ushort)27 : (ushort)19,
+            "VaalAnimatedWeapon" => minion.Definition.Id == "VaalAnimateWeaponAltY" ? (ushort)57 : (ushort)56,
+            "RagingSpirit" => 20,
+            "Clone" => minion.Definition.Id.EndsWith("AltX", StringComparison.Ordinal) ? (ushort)66
+                : minion.Definition.Id.EndsWith("AltY", StringComparison.Ordinal) ? (ushort)67 : (ushort)38,
+            "Agony" => 39,
+            "Purity" => 40,
+            "HolyRelic" => 41,
+            "Reaper" => 52,
+            _ => null,
+        };
+    }
+
+    static ushort? ElementalRelicNativeType(string kind) => kind switch
+    {
+        "Fire" => 61,
+        "Cold" => 62,
+        "Lightning" => 63,
+        _ => null,
+    };
+
     static ushort SentinelSourceGroup(ushort source) =>
         (ushort)(((source & 0xc000) == 0xc000 ? 0x8000 : 0xc000) | (source & 0x3fff));
 
@@ -39,22 +73,47 @@ public static partial class Game
         var gems = GemSkillEffects(player);
         foreach (var minion in player.Summons.Fighters.Values)
         {
-            ushort type = SentinelNativeType(minion.Definition.Kind);
-            if (type == 0 || minion.Monster.Dead || minion.Monster.Life == 0) continue;
-            var regular = SupportedSkill(player, minion.Source);
-            if (!regular.RequirementsMet || regular.SourceGem is null || minion.SourceIdentity is not null
-                && !ReferenceEquals(minion.SourceIdentity, PlayerInventories.GemIdentity(regular.SourceGem))) continue;
-            string vaal = type is 50 or 51 ? "VaalAbsolution" : "VaalDomination";
-            ushort source = minion.Source;
-            foreach (var gem in gems.Where(g => SkillsFor(player).EffectId(g.Effect) == vaal))
+            if (minion.Monster.Dead || minion.Monster.Life == 0) continue;
+            ushort sentinelType = SentinelNativeType(minion.Definition.Kind);
+            if (sentinelType != 0)
             {
-                var companion = SupportedSkill(player, gem.Id);
-                if (companion.SourceGem is not null && companion.Host == regular.Host
-                    && ReferenceEquals(PlayerInventories.GemIdentity(companion.SourceGem), PlayerInventories.GemIdentity(regular.SourceGem)))
-                { source = gem.Id; break; }
+                var regular = SupportedSkill(player, minion.Source);
+                if (!regular.RequirementsMet || regular.SourceGem is null || minion.SourceIdentity is not null
+                    && !ReferenceEquals(minion.SourceIdentity, PlayerInventories.GemIdentity(regular.SourceGem))) continue;
+                string vaal = sentinelType is 50 or 51 ? "VaalAbsolution" : "VaalDomination";
+                ushort source = minion.Source;
+                foreach (var gem in gems.Where(g => SkillsFor(player).EffectId(g.Effect) == vaal))
+                {
+                    var companion = SupportedSkill(player, gem.Id);
+                    if (companion.SourceGem is not null && companion.Host == regular.Host
+                        && ReferenceEquals(PlayerInventories.GemIdentity(companion.SourceGem), PlayerInventories.GemIdentity(regular.SourceGem)))
+                    { source = gem.Id; break; }
+                }
+                ushort group = SentinelSourceGroup(source);
+                current.Add(minion.Id, new(minion.Id, group, sentinelType));
+                continue;
             }
-            ushort group = SentinelSourceGroup(source);
-            current.Add(minion.Id, new(minion.Id, group, type));
+            if (minion.Source != 0 && player.Area.Monsters.ContainsKey(minion.Id)
+                && MinionNativeType(minion) is ushort summonType)
+                current[minion.Id] = new(minion.Id, minion.Source, summonType);
+        }
+        foreach (var golem in player.Golems.All.Values)
+            if (!golem.Monster.Dead && golem.Monster.Life > 0 && golem.Source != 0
+                && player.Area.Monsters.ContainsKey(golem.Id)
+                && MinionNativeType(golem) is ushort golemType)
+                current[golem.Id] = new(golem.Id, golem.Source, golemType);
+        foreach (var fighter in player.Reservations.Fighters.Values)
+            if (!fighter.Monster.Dead && fighter.Monster.Life > 0 && fighter.Source != 0
+                && player.Area.Monsters.ContainsKey(fighter.Id)
+                && MinionNativeType(fighter) is ushort reservationType)
+                current[fighter.Id] = new(fighter.Id, fighter.Source, reservationType);
+        foreach (var minion in player.Minions.All)
+        {
+            if (current.ContainsKey(minion.Id) || minion.Monster.Dead || minion.Monster.Life == 0
+                || !player.Area.Monsters.ContainsKey(minion.Id)) continue;
+            if (ElementalRelicNativeType(minion.Kind) is not ushort relicType) continue;
+            ushort skillId = gems.FirstOrDefault(g => SkillsFor(player).EffectId(g.Effect) == minion.Skill).Id;
+            if (skillId != 0) current[minion.Id] = new(minion.Id, skillId, relicType);
         }
         var sent = player.Summons.PresentedOwnership;
         var changes = sent.Values.Where(old => !current.TryGetValue(old.Id, out var now) || old != now)
@@ -66,6 +125,6 @@ public static partial class Game
     }
 
     static Task SendSentinelOwnership(Player player,
-        Func<bool> current) => SendWorldRecord(player, player.Id, [], "owned sentinel roster",
+        Func<bool> current) => SendWorldRecord(player, player.Id, [], "owned minion roster",
             atGate: () => current() ? SentinelOwnershipPresentation(player) : null);
 }

@@ -28,6 +28,20 @@ public static partial class Game
             && m.Rarity == MonsterRarity.Unique && Dist(m.Walk.Position(now), here) <= PresenceRadius);
     }
 
+    /// <summary>"while a Pinnacle Boss is in your Presence": a living hostile monster within the same fixed
+    /// base_presence_radius (80 cells, <see cref="PresenceRadius"/>) whose variety carries the client's
+    /// <c>PinnacleAtlasBoss</c> marker mod (<see cref="BossMods.PinnacleAtlasBoss"/>, MonsterVarieties ModsKeys; the
+    /// Shaper, the Elder, Sirus, the Maven, the Eater of Worlds, the Searing Exarch, Venarius and the Atlas Memory
+    /// Incarnations). No rarity filter: the marker mod itself is the client's definition of the set (49 varieties),
+    /// and it carries no stats, so the check is the mod id, not a stat. Under the Monsters lock, like the Unique
+    /// version above; no new lock is taken.</summary>
+    public static bool CelestialBossInPresenceLocked(Player player, double now)
+    {
+        var here = player.Walk.Position(now);
+        return player.Area.Monsters.Values.Any(m => m.Hostile && !m.Dead && m.Life > 0
+            && BossMods.Has(m.Variety, BossMods.PinnacleAtlasBoss) && Dist(m.Walk.Position(now), here) <= PresenceRadius);
+    }
+
     // The Presence-gated Loyalty triggers (maximum Rage, Travel Skill, Energy Shield Recharge, Low Life). Under the
     // Monsters lock; false without a Unique in the player's presence.
     static bool LoyaltyInPresenceTriggerLocked(Player player, uint trigger, double now)
@@ -205,6 +219,11 @@ public static partial class Game
             return;
         }
         var playerStats = CharacterPlayerStats(player);
+        if (!CanHaveMinion(playerStats, OwnedMinionFamily.Other))
+        {
+            if (ReferenceEquals(player.SpiritChieftains.Pending, summon)) player.SpiritChieftains.Pending = null;
+            return;
+        }
         int Player(uint k) => playerStats.GetValueOrDefault(k);
         // shortcut: the player's minion modifiers are taken at the summon, not followed for its 12 s.
         var mods = MonsterModSet.None with { Effects = new(new Dictionary<uint, int>
@@ -223,7 +242,7 @@ public static partial class Game
                 player.Minions.Add(new(id, m, summon.Skill, variety.Name)
                     { Until = summon.Until, Fights = true, SpiritChieftain = true });
             }, ownedCurrent: () => player.PlayerLife > 0 && ReferenceEquals(player.SpiritChieftains.Pending, summon)
-                && AreaTime(player) < summon.Until);
+                && AreaTime(player) < summon.Until && CanHaveOtherMinions(player));
         if (!CurrentGameWork) return;
         Console.WriteLine($"[gateway] {CharacterName(player)}: {summon.Skill} summons {variety.Name} at level {summon.Level} for "
             + $"{summon.Until - now:0.##} s");

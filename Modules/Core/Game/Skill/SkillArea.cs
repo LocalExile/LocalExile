@@ -21,7 +21,7 @@ public static class SkillArea
 
     static int? KnownBaseRadius(string? effect) =>
         effect == "LightningWarp" ? 16 : effect == "VaalGroundSlam" ? 40 : IsCyclone(effect) ? 16 : effect == "RollingMagma" ? 14
-            : effect == "FireTrap" ? 15 : effect == "StormblastMine" ? 20 : effect is "DarkPact" or "DarkPactRoyale" ? 26
+            : effect is "FireTrap" or "VaalFireTrap" ? 16 : effect == "StormblastMine" ? 20 : effect is "DarkPact" or "DarkPactRoyale" ? 26
             : effect is "StormCall" or "Frostblink" or "FrostblinkHardMode" ? 20
             : effect is "StormBrand" or "StormBrandAltX" or "StormBrandAltY"
                 or "PenanceBrand" or "PenanceBrandAltX" or "PenanceBrandAltY"
@@ -33,7 +33,7 @@ public static class SkillArea
     [
         Stat.ActiveSkillAreaOfEffectPlusPctFinal, Stat.SkillAreaOfEffectPlusPctFinal,
         Stat.SupportConcentratedEffectSkillAreaOfEffectPlusPctFinal, Stat.SkillAreaOfEffectPlusPctFinalFromSkillSpecificStat,
-        Stat.BloodSandStanceMeleeSkillsAreaOfEffectPlusPctFinal,
+        Stat.BloodSandStanceMeleeSkillsAreaOfEffectPlusPctFinal, Stat.MapPlayersSkillAreaOfEffectPlusPctFinal,
     ];
 
     const uint MorePerRemovableCharge = Stat.AreaOfEffectPlusPctFinalPerRemovablePowerFrenzyOrEnduranceCharge;
@@ -67,6 +67,7 @@ public static class SkillArea
     [
         Stat.SupportSpellCascadeAreaOfEffectPlusPctFinal, Stat.SupportBrandAreaOfEffectPlusPctFinal,
         Stat.SupportCorruptingCryAreaOfEffectPlusPctFinal, Stat.ConsecratedCryWarcryAreaOfEffectPlusPctFinal,
+        Stat.SupportSpellBoostAreaOfEffectPlusPctFinal,
     ];
 
     /// <summary>Greater Spell Echo: increased area for each repeat of the spell (the first cast is repeat 0).</summary>
@@ -83,6 +84,8 @@ public static class SkillArea
         double mod = Math.Max(0, 1 + increased / 100.0);
         foreach (uint more in MoreArea) mod *= Math.Max(0, 1 + get(more) / 100.0);
         foreach (uint more in SupportMoreArea) mod *= Math.Max(0, 1 + get(more) / 100.0);
+        if (get(Stat.IsTotem) != 0)
+            mod *= Math.Max(0, 1 + get(Stat.StygianSpireTotemAreaOfEffectPlusPctFinalPerMaximumTotem) / 100.0);
         // Discharge: more area per removable charge it will spend (the charges above the minimum).
         if (get(MorePerRemovableCharge) is int perCharge and not 0)
             mod *= Math.Max(0, 1 + perCharge * Charges.Types.Sum(t => Math.Max(0, get(Stat.Of($"current_removable_{Charges.Name(t)}_charges")))) / 100.0);

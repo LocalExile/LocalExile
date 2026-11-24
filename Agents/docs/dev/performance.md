@@ -239,6 +239,30 @@ Now the Gateway keeps its data the way a game server does (TrinityCore loads its
   league logs in, in the Game module's admission and before that character loads. The same step builds that league's
   drops. That login waits a few seconds once; a server whose players never play Ruthless never builds it.
 
+## Kill path, movement, and save latency (2026-11-21)
+
+- **Kill path & catalogs**: `IncreasedItemRarity`, `ItemQuantityFactor`, `ExplodeOnKill`, `SoulEaterRecords`,
+  `GainFlaskCharges`, `CommitProjectileFlaskGain`, and `CommitProjectileCritFlasks` read `PlayerStatValues` without
+  copying the stat graph; `CommitProjectileKill` skips queuing `MonsterKilled` and `ExplodeOnKill` when inactive and
+  coalesces flask bar updates in `ProjectileSession`; `CommitGemExperience` scans socketed gems in a single pass;
+  `StepCursesLocked` skips uncursed/unmodified monsters without allocating `MonsterCurses` or `StatGraph`;
+  `SetQuestFlags`/`CommitQuestFlags` fast-return on empty flag sets; `LesserShrines` caches the equipped Gull grant per
+  active equipment snapshot; `AntiquarianPresentation` skips the first-tick empty baseline; `PassiveBuffAuras.For` uses
+  a zero-allocation loop; `BossMods.Parse` reads only the `Mods` rows referenced by `MonsterVarieties`; `ItemRolls`
+  indexes affixes by `ModDomain` at construction; `VendorRecipes` precomputes `ModType` tables and indexes essences and
+  base types once.
+- **Movement & pathing**: `Player.Blockers` caches an immutable `BlockerSet` until stationary, monster, or peer bodies
+  move (avoiding a 512 KB flat-grid allocation and rebuild on every Move tick); `BlockerSet` allocates its 2D grid on
+  first in-range blocker and prunes queries against its bounding box; `ClientPathfinder` skips invariant `ellipse`,
+  `walkable`, `InObjectAt`, and unguided `Heuristic` work on already-opened nodes and adds `LineRest` for `PlayerWalk`;
+  `InstancePresence.PlayersExcept` fast-returns `[]` in solo instances; `0x0025` skips `SkillAcknowledgementAllowed`,
+  ranged-weapon lookup, and `SingleUseCooldowns` LINQ scans on `Move`.
+- **Saves & stash**: `SaveRows` caches `stash_tab_headers` and `stash_module_data` fingerprints per `SaveDatabase`
+  (synced to SQLite `data_version` via `SaveDatabase.ExternalVersion` and cleared on rollback), partitions character
+  items by inventory row, updates inventories without reloading the whole character save (`WriteCharacterInventories`),
+  and flushes experience with a single-row `UPDATE` (`WriteCharacterExperience`), integrating with `Saves` pinned-session
+  caching.
+
 ## Where the remaining cost is
 
 - **Memoized lookups.** A few per-key memos stay: cast-on-death, blood charges and the item roll pools. Each one is a

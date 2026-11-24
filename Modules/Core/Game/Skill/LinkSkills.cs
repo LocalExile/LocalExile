@@ -147,7 +147,7 @@ public static partial class Game
         }
         double elapsed = Math.Max(0, now - links.PaidAt);
         bool outOfMana = false;
-        if (all is null && links.Count > 0)
+        if (all is null && links.Count > 0 && playerStats.GetValueOrDefault(Stat.NoManaCost) == 0)
         {
             double due = links.ManaCarry + links.All.Sum(l => l.ManaPerMinute) / 60 * elapsed;
             uint whole = (uint)Math.Min(uint.MaxValue, Math.Floor(due));
@@ -204,7 +204,8 @@ public static partial class Game
     {
         if (flask.Rarity == ItemRarity.Unique || character(Stat.FlasksApplyToYourLinkedTargets) == 0) return;
         var (stats, seconds) = ItemUtilityFlaskFor(utility, flask, local,
-            name => name is Stat.FlaskEffectPlusPct or Stat.MagicUtilityFlaskEffectPlusPct ? 0 : character(name));
+            key => key is Stat.FlaskEffectPlusPct or Stat.MagicUtilityFlaskEffectPlusPct ? 0 : character(key),
+            finalMultiplier: MapFlaskEffectMultiplier(player));
         uint duration = BitConverter.SingleToUInt32Bits((float)seconds);
         var bytes = new List<byte>();
         double now = AreaTime(player);

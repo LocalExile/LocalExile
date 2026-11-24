@@ -75,7 +75,8 @@ public static partial class Game
                 handAccuracy, criticalChance, player.Pools.CriticalStrikeMultiplier,
                 additionalBlindedIncreased);
         var raw = SupportedAttackDamage.Raw(sourceWeapon, Get, new(handAccuracy));
-        var conversion = DamageStats.Conversion(character, Stats, attack: true);
+        var conversion = SupportedAttackDamage.WithWeaponGains(
+            DamageStats.Conversion(character, Stats, attack: true), sourceWeapon, Get);
         var ailmentRows = AilmentPanelStats.Compute(new("main_hand", Spell: false), raw, conversion, Get);
         var blindedRows = blindedCapture is null ? null
             : AilmentPanelStats.Compute(new("main_hand", Spell: false), raw, conversion, Get, additionalBlindedIncreased);
@@ -85,10 +86,18 @@ public static partial class Game
             WeaponAttack = true,
             TinctureKill = TinctureKillBonusFor(player, character, hand),
             NoExtraCriticalDamage = CriticalHitsDealNoExtraDamage(character),
-            Spider = !HasSpiderDamage(Get) ? null : new(raw, conversion, new Dictionary<uint, int>(character),
+            TargetCritical = TargetCriticalBonuses.From(character, null),
+            Spider = !HasSpiderDamage(Get) && !HasLowLifeDamage(Get) && !HasTypedTargetDamage(Get)
+                && !HasContactDamage(Get) && Get(Stat.AttackDamagePlusPctVsMaimedEnemies) == 0 ? null
+                : new(raw, conversion, new Dictionary<uint, int>(character),
                 new Dictionary<uint, int>(character), true, false, false, true, [], new HashSet<int> { 0, 2 }, 1,
-                Volatile: false, Local: sourceWeapon.LocalSources is null ? null : new Dictionary<uint, int>(sourceWeapon.LocalSources),
-                Bow: !wand),
+                WieldingWand: sourceWeapon.WieldingWand, Volatile: false,
+                Local: sourceWeapon.LocalSources is null ? null : new Dictionary<uint, int>(sourceWeapon.LocalSources),
+                Bow: !wand, WeaponIncreased: SupportedAttackDamage.WeaponIncrease(sourceWeapon, Get),
+                WeaponTypedIncreases: WeaponTypeDamage.Of(sourceWeapon, Get))
+            {
+                Armed = WeaponAttributeDamage.Armed(sourceWeapon), OffHand = hand == AttackHand.Off,
+            },
             SkillStats = SkillsFor(player).EffectStats(effect, 1).ToDictionary(s => s.Item1, s => s.Item2),
             VsBlindedCriticalChance = AttackCriticalChanceVsBlinded(player, character, release: true, hand: hand),
             VsGroundCriticalChance = AttackCriticalChanceVsGround(player, character, release: true, hand: hand),
@@ -119,13 +128,14 @@ public static partial class Game
         };
         var origin = ProjectileSession.Vector(player.Walk.Position(session.Runtime.Now / (double)ProjectileRuntime.QuantaPerSecond));
         var target = ProjectileSession.Vector(aim);
-        // The shot leaves from the clip's contact keyframe, in front of the body along the aim (the Ranger's bow
-        // 5.5 cells, a wand's tip 7.5), else 1.5 cells ahead; never past half way to the aim, so a close target
-        // is not behind the release. The lateral part of the keyframe is not applied (ContactPoint).
-        double ahead = release is { ForwardCells: > 0 } point ? point.ForwardCells : OrdinaryRangedAttack.ReleaseAheadCells;
-        origin += (target - origin).Unit * Math.Min(ahead, (target - origin).Length / 2);
+        // 3.29.3c client spawn forward offset (0x141ba7840 -> 0x141ba7c30): 30 world units (~2.76 cells) for ordinary
+        // bows/wands (projectile_uses_contact_position is 0 on PlayerMelee), clamped so a close aim is not behind origin.
+        double ahead = NativeProjectileForwardCells(Get, release);
+        if (ahead > 0)
+            origin += (target - origin).Unit * Math.Min(ahead, (target - origin).Length / 2);
         var profile = OrdinaryRangedProfile(player, projectileId, weapon.Bow, Get);
-        profile = clientDrawn ? ClientDrawnProfile(player, profile, Get, sequence, target - origin) : NativeVolley(profile, Get);
+        profile = clientDrawn ? ClientDrawnProfile(player, profile, Get, sequence, target - origin)
+            : NativeVolley(profile, Get, sequence, target - origin, player.Id);
         return new(profile, new(player.Id, session.Player.ProjectileEpoch), new(player.Id, session.Player.ProjectileEpoch), 1,
             origin, target)
             { Payload = shot, ReturnAnchor = new(player.Id, session.Player.ProjectileEpoch) };
