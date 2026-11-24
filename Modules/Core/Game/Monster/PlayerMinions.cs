@@ -305,6 +305,9 @@ public static partial class Game
         Console.WriteLine($"[gateway] {player.Connection.Remote} {minion.Kind} Relic 0x{minion.Id:x} explodes for {amount} {blast.Type} within {blast.Radius} cells: {hits.Count} hit, {hits.Count(h => h.Hit.Life == 0)} killed");
     }
 
+    // Published mods bind the one-argument signature.
+    public static (int X, int Y) NextToPlayer(Player player) => NextToPlayer(player, bodySize: 1);
+
     // A walkable, collision-clear cell just outside the player's footprint for a mover of size bodySize.
     public static (int X, int Y) NextToPlayer(Player player, int bodySize = 1, uint excludeId = 0)
     {

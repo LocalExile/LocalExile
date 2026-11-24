@@ -943,15 +943,13 @@ public static partial class Game
         }
     }
 
-    // The content's work for this area (GameEvents.AreaTick: boss fights, Delve, Delirium), every frame while the player's
-    // updates run; no timer when no content has work here. With Game_PRESENT_VERIFY=1 the presentations' check (a debug
-    // tool) runs every PlayerTickMs.
+    // A mod can add area work while the player is still in this area. The runner reuses its bindings until a subscription changes.
+    // With Game_PRESENT_VERIFY=1 the presentations' check (a debug tool) runs every PlayerTickMs.
     static void StartContentTick(Player player, PlayerUpdatesState state)
     {
-        var work = GameEvents.AreaTickWork(player);
-        if (work.Count > 0)
-            EveryFrameAsPlayer(player, () => PlayerUpdatesCurrent(player, state),
-                player => GameEvents.RunAreaTick(work, player, FrameSeconds));
+        var content = new GameEvents.AreaTickRunner(player);
+        EveryFrameAsPlayer(player, () => PlayerUpdatesCurrent(player, state), _ => content.Run(FrameSeconds),
+            needsWork: () => content.NeedsTick);
         EveryAsPlayer(player, PlayerTickMs, () => PlayerUpdatesCurrent(player, state), async player =>
         {
             // Elemental Overload's diamond: the client does not expire the invisible indicator buff itself, so remove it
