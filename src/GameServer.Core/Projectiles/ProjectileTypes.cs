@@ -321,6 +321,7 @@ public sealed class ProjectileEntity
     public double Speed { get; internal set; }
     public int Form { get; internal set; }
     public int GroundBounces { get; internal set; }
+    public int ChainsRemaining => Chain;
     public double DamageMultiplier { get; internal set; } = 1;
     internal int Pierce, Fork, Chain, Split, TerrainBounces;
     internal bool HasSplit;

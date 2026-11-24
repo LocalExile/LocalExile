@@ -814,15 +814,18 @@ public static partial class Game
             shot = shot.Against(Blinded(Player, contact.Target.Id, at), target.SpiderWebs.Count(at),
                 target.Ignites.IgnitedAt(at), target.Bleeds.IgnitedAt(at), EnemyOnLowLife(target), target.MaimedUntil > at,
                 conditional, areaContact: contact.IsArea);
-            double overexertionMore = OverexertionMore(shot.SkillStats, shot.IntimidatingCryExerted);
-            if (overexertionMore != 1)
+            int chainDamage = GolemStat(shot.SkillStats, Stat.CobraLashHitAndAilmentDamagePlusPctFinalForEachRemainingChain);
+            double chainsMore = Math.Max(0, 1 + (double)chainDamage * contact.Projectile.ChainsRemaining / 100);
+            double returnMore = contact.Phase > 0 ? shot.ReturnMultiplier : 1;
+            double ailmentMore = chainsMore * returnMore * OverexertionMore(shot.SkillStats, shot.IntimidatingCryExerted);
+            if (ailmentMore != 1)
                 shot = shot with
                 {
-                    Ignite = RepeatAilment(shot.Ignite, overexertionMore),
-                    Bleed = RepeatAilment(shot.Bleed, overexertionMore),
-                    Poison = RepeatAilment(shot.Poison, overexertionMore),
+                    Ignite = RepeatAilment(shot.Ignite, ailmentMore),
+                    Bleed = RepeatAilment(shot.Bleed, ailmentMore),
+                    Poison = RepeatAilment(shot.Poison, ailmentMore),
                 };
-            double more = contact.Multiplier * (contact.Phase > 0 ? shot.ReturnMultiplier : 1);
+            double more = contact.Multiplier * chainsMore * returnMore;
             if (ReferenceEquals(shot.BrandedTarget, target))
                 more *= Math.Max(0, 1 + GolemStat(shot.SkillStats, Stat.TriggerBrandSupportHitDamagePlusPctFinalVsBrandedEnemy) / 100.0);
             if (!shot.Spell && shot.FarShot) more *= AntiquarianEffects.FarShot(contact.Projectile.Distance);
