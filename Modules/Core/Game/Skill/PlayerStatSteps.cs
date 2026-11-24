@@ -251,7 +251,7 @@ public static partial class Game
                 stats[turtle] = (int)Math.Clamp(stats.GetValueOrDefault(turtle)
                     + (player.Antiquarian.RecoveryPerSecond(now) + player.EnduringCryRecovery.Rate(now)) * 60, 0, int.MaxValue);
             var session = FortificationOf(player);
-            var value = session.Read(now);
+            var value = EvaluateFortificationLocked(player, now, stats).Value;
             if (value.NextExpiry is double expires) StatsChangeIn(expires - now);
             AddFortificationCounts(stats, value);
             if (FortificationSession.Regeneration is var regen)

@@ -20,6 +20,11 @@ public sealed class PassiveConditionTests
         // One weapon only: the stat does not count at all.
         Assert.Empty(Game.FoldPassiveConditions(passives, new StatConditions.Subject(DualWield: false)));
 
+        var shieldResistances = new Dictionary<uint, int> { [Stat.ResistAllElementsPlusPctWhileHoldingShield] = 12 };
+        var holdingShield = Game.FoldPassiveConditions(shieldResistances, new StatConditions.Subject(Shield: true));
+        Assert.Equal(12, holdingShield.GetValueOrDefault(Stat.BaseResistAllElementsPct));
+        Assert.Empty(Game.FoldPassiveConditions(shieldResistances, new StatConditions.Subject(Shield: false)));
+
         // A condition this build cannot answer keeps the stat as it was, never dropping or moving it.
         var unknown = Game.FoldPassiveConditions(passives, StatConditions.Subject.Unknown);
         Assert.Equal(25, unknown.GetValueOrDefault(conditional));
@@ -34,6 +39,18 @@ public sealed class PassiveConditionTests
         Assert.Equal(30, wielding.GetValueOrDefault(globalDefences));
         Assert.Empty(Game.FoldPassiveConditions(staff, new StatConditions.Subject(
             Flags: new Dictionary<string, bool> { ["_while_wielding_staff"] = false })));
+
+        var heraldSpeed = new Dictionary<uint, int>
+        {
+            [Stat.AttackAndCastSpeedPlusPctWhileAffectedByAHerald] = 2,
+            [Stat.MinionAttackAndCastSpeedPlusPctWhileYouAreAffectedByAHerald] = 3,
+        };
+        var affected = Game.FoldPassiveConditions(heraldSpeed,
+            new StatConditions.Subject(Auras: StatConditions.AuraSet(["HeraldOfIce"])));
+        Assert.Equal(2, affected.GetValueOrDefault(Stat.AttackAndCastSpeedPlusPct));
+        Assert.Equal(3, affected.GetValueOrDefault(Stat.MinionAttackAndCastSpeedPlusPct));
+        Assert.Empty(Game.FoldPassiveConditions(heraldSpeed,
+            new StatConditions.Subject(Auras: StatConditions.AuraSet(["Haste"]))));
     }
 
     [Fact]

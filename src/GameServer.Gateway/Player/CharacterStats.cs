@@ -103,7 +103,7 @@ public static class CharacterStats
         int AccuracyFromStrengthPct = 0, int AttackSpeedPer150Accuracy = 0,
         int AccuracyMoreVsUniquePct = 0, int AccuracyMoreInCloseRangePct = 0,
         int ManaReservationEfficiencyPct = 0, int LifeReservationEfficiencyPct = 0,
-        int AuraEffectPct = 0, int AuraAreaPct = 0, decimal ArmourMorePct = 0, decimal EvasionMorePct = 0, int EnergyShield = 0,
+        int AuraEffectPct = 0, int AuraAreaPct = 0, decimal ArmourMorePct = 0, decimal EvasionMorePct = 0, decimal ExtraDefenceMorePct = 0, int EnergyShield = 0,
         // The overcapped-resistance flags' derived increases (ResistanceOvercap), computed once in PoolsFor from the
         // final raw resistances and maxima: +1% per 1% of cold overcap on evasion, lightning overcap on crit chance.
         int ColdOvercapEvasionPct = 0, int LightningOvercapCritPct = 0,
@@ -258,9 +258,9 @@ public static class CharacterStats
             return factor > 1m && value > decimal.MaxValue / factor ? decimal.MaxValue : value * factor;
         }
         int Rating(decimal value) => (int)Math.Clamp(Math.Round(value, MidpointRounding.AwayFromZero), 0m, int.MaxValue);
-        decimal armourValue = More(Increased(b.Armour, b.ShieldArmour, b.BodyArmour, armourPct,
+        decimal armourValue = More(More(Increased(b.Armour, b.ShieldArmour, b.BodyArmour, armourPct,
             (long)b.ShieldArmourPct + b.SharedShieldDefencesPct, b.BodyArmourPct, bodyAsArmour: true,
-            b.GlovesBootsArmour, b.GlovesBootsArmourPct), b.ArmourMorePct);
+            b.GlovesBootsArmour, b.GlovesBootsArmourPct), b.ArmourMorePct), b.ExtraDefenceMorePct);
         // These item coefficients use complete groups of final production attributes. They join ordinary INC,
         // before slot increases/MORE; Iron Reflexes retains this item term while excluding inherent Dexterity.
         long ordinaryEvasionPct = (long)b.EvasionPct + b.ColdOvercapEvasionPct
@@ -268,13 +268,13 @@ public static class CharacterStats
         long totalEvasionPct = (b.NoDexterityBonuses || b.NoDexterityEvasion ? 0L : dex / 5L) + ordinaryEvasionPct;
         int evasionPct = (int)Math.Clamp(totalEvasionPct, int.MinValue, int.MaxValue);
         decimal evasionBase = BaseEvasion + b.Evasion;
-        decimal evasionValue = More(Increased(evasionBase, b.ShieldEvasion, b.BodyEvasion, totalEvasionPct,
-            (long)b.ShieldEvasionPct + b.SharedShieldDefencesPct, b.BodyEvasionPct), b.EvasionMorePct);
+        decimal evasionValue = More(More(Increased(evasionBase, b.ShieldEvasion, b.BodyEvasion, totalEvasionPct,
+            (long)b.ShieldEvasionPct + b.SharedShieldDefencesPct, b.BodyEvasionPct), b.EvasionMorePct), b.ExtraDefenceMorePct);
         // "Increased evasion while moving" joins the same increased bucket while the condition holds (PoB Condition Moving).
         // shortcut: Iron Reflexes' converted armour does not get it; upgrade when armour reads a moving condition.
         int? evasionWhileMoving = b.EvasionWhileMovingPct == 0 || b.IronReflexes ? null
-            : Rating(More(Increased(evasionBase, b.ShieldEvasion, b.BodyEvasion, totalEvasionPct + b.EvasionWhileMovingPct,
-                (long)b.ShieldEvasionPct + b.SharedShieldDefencesPct, b.BodyEvasionPct), b.EvasionMorePct));
+            : Rating(More(More(Increased(evasionBase, b.ShieldEvasion, b.BodyEvasion, totalEvasionPct + b.EvasionWhileMovingPct,
+                (long)b.ShieldEvasionPct + b.SharedShieldDefencesPct, b.BodyEvasionPct), b.EvasionMorePct), b.ExtraDefenceMorePct));
         if (b.IronReflexes)
         {
             // Iron Reflexes converts all evasion rating to armour and removes dexterity's evasion bonus. The converted
@@ -282,10 +282,10 @@ public static class CharacterStats
             long convertedPct = armourPct + ordinaryEvasionPct - b.SharedDefencesPct;
             // Native 0x14273862b also doubles converted body EV, or suppresses it with the no-body-AR flag.
             // Converted evasion keeps its slot's armour and evasion increases (PoB CalcDefence per slot).
-            decimal converted = More(More(Increased(evasionBase, b.ShieldEvasion, b.BodyEvasion, convertedPct,
+            decimal converted = More(More(More(Increased(evasionBase, b.ShieldEvasion, b.BodyEvasion, convertedPct,
                 (long)b.ShieldArmourPct + b.ShieldEvasionPct + b.SharedShieldDefencesPct,
                 (long)b.BodyArmourPct + b.BodyEvasionPct, bodyAsArmour: true,
-                b.GlovesBootsEvasion, b.GlovesBootsArmourPct), b.EvasionMorePct), b.ArmourMorePct);
+                b.GlovesBootsEvasion, b.GlovesBootsArmourPct), b.EvasionMorePct), b.ArmourMorePct), b.ExtraDefenceMorePct);
             armourValue = armourValue > decimal.MaxValue - converted ? decimal.MaxValue : armourValue + converted;
             evasionPct = (int)Math.Clamp(ordinaryEvasionPct, int.MinValue, int.MaxValue);
             evasionValue = 0;
