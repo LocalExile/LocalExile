@@ -283,7 +283,7 @@ public static partial class Game
     // its life regeneration (Path of Building: power 1 normal, 2 magic, 10 rare, 20 unique). warcries_have_infinite_power
     // (Bring the Battle) makes the power 999999 (PoB CalcPerform's override): the charges reach their maximum and the
     // regeneration its 25-power cap. Every warcry then runs the on-warcry effects (WarcryReleased). The other warcries'
-    // own buffs are granted too (Warcries.ApplyWarcryBuffLocked), except Intimidating Cry, which has its own
+    // supported buffs are granted by ApplyWarcryBuffLocked, except Intimidating Cry, which has its own
     // (IntimidatingCry.cs); their exerted attacks are still not modelled.
     // True when the skill was a warcry.
     public static bool UseWarcryInstance(Player player,
