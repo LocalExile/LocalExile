@@ -59,5 +59,7 @@
     <ProjectReference Include="..\..\Modules\Core\Content\Anarchy\Anarchy.csproj" />
     <!-- The Legion timer and army plan (LegionTests). -->
     <ProjectReference Include="..\..\Modules\Core\Content\Legion\Legion.csproj" />
+    <!-- Kingsmarch's mining and smelting lines (VillageProductionTests). -->
+    <ProjectReference Include="..\..\Modules\Core\Village\Village.csproj" />
   </ItemGroup>
 </Project>
