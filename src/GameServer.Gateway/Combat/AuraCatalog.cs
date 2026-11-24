@@ -21,7 +21,7 @@ public static class AuraCatalog
 
     // The source supplies the ground art; the received buff supplies the HUD icon and active-skill association.
     // Both are the aura's (one row, one source), told apart by the source flag; they end together.
-    public static IEnumerable<Buff> Buffs(Aura aura, uint player, ushort? action, byte? receivedDisplayState = null)
+    public static IEnumerable<Buff> Buffs(Aura aura, uint player, ushort? action, byte? receivedDisplayState = null, ushort tag = 0)
     {
         // Both source and received buffs instantiate these native behaviours, which read two words unchecked.
         uint[]? behaviourData = aura.EffectId switch
@@ -31,13 +31,13 @@ public static class AuraCatalog
             _ => null,
         };
         if (aura.SourceBuff is not null)
-            yield return new(aura.BuffRow, player, aura.SkillId, AuraSource: true, DisplayState: 0, Visual: aura.SourceVisual, List: behaviourData);
+            yield return new(aura.BuffRow, player, aura.SkillId, AuraSource: true, DisplayState: 0, Visual: aura.SourceVisual, List: behaviourData, Tag: tag);
         // An enemy hex aura has a source on its caster, never a received self curse.
         if (!CurseCatalog.Hex(aura.EffectId))
             // TempestShieldBuff's native behaviour reads the art variation and hide-user-buff flag
             // from the first two list entries without checking its length (0x1417a9410).
             yield return new(aura.BuffRow, player, aura.SkillId, ActiveSkill: action is ushort hash ? (aura.SkillId, hash) : null,
-                DisplayState: receivedDisplayState, Visual: aura.BuffVisual, List: behaviourData);
+                DisplayState: receivedDisplayState, Visual: aura.BuffVisual, List: behaviourData, Tag: tag);
     }
 
     /// <summary>Whether a buff row is one of the auras' (a player's own aura buffs are replaced as one group).</summary>

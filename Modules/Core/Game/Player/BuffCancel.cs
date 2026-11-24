@@ -120,7 +120,7 @@ public static partial class Game
             }
 
             // 6. Player toggled own auras (Determination, Grace, Discipline, etc.; Removable = 1).
-            if (activeBuff.Tag == 0 && activeBuff.Source == player.Id
+            if (activeBuff.Tag is 0 or (ushort)BuffTag.BloodAndSand && activeBuff.Source == player.Id
                 && player.Auras.Values.FirstOrDefault(a => a.BuffRow == activeBuff.Row
                     && (activeBuff.SourceSkill == 0 || a.SkillId == activeBuff.SourceSkill)) is { } ownAura
                 && player.Auras.Remove(ownAura.SkillId))
