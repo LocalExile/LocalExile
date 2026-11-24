@@ -3,7 +3,8 @@
 /// state it starts in, and its object id while created (0: not). Only data: the Game module's QuestNpcs.cs creates,
 /// removes and transitions them as the character's flags change, asking <see cref="Present"/> with the player's tables,
 /// so a reload of the rules leaves nothing of the old ones here.</summary>
-public sealed class QuestNpc(NpcCatalog.Npc npc, int x, int y, float angle, string area, string npcType, Quests.AppearsRule? appears, bool roomState)
+public sealed class QuestNpc(NpcCatalog.Npc npc, int x, int y, float angle, string area, string npcType, Quests.AppearsRule? appears, bool roomState,
+    string? shownBy = null, string? goneWith = null)
 {
     public NpcCatalog.Npc Npc { get; } = npc;
     public int X { get; } = x;
@@ -17,11 +18,14 @@ public sealed class QuestNpc(NpcCatalog.Npc npc, int x, int y, float angle, stri
     /// <summary>A room NPC outside a town starts in Transitionable state 1 (Fairgraves on his ship); a town NPC in its
     /// room line's.</summary>
     public bool RoomState { get; } = roomState;
+    /// <summary>Optional per-placement quest gates (e.g. Lilly's shipside vs sitting pose in Act 6 town).</summary>
+    public string? ShownBy { get; } = shownBy;
+    public string? GoneWith { get; } = goneWith;
     public uint Id { get; set; }
 
     /// <summary>Whether it stands there for a character with these flags, by these tables: an NPC that appeared until its
-    /// GoneWith (and while its type exists), a placed one by its area's NpcRules and its type's ExistsRules.</summary>
+    /// GoneWith (and while its type exists), a placed one by its placement gates, its area's NpcRules and its type's ExistsRules.</summary>
     public bool Present(Quests.RuleSet rules, Func<string, bool> has) => Appears is { } rule
         ? rules.Exists(rule.NpcType, has) && (rule.GoneWith is null || !has(rule.GoneWith) || rule.StayAfterReward && Id != 0)
-        : rules.NpcPresent(Area, NpcType, has);
+        : (ShownBy is null || has(ShownBy)) && (GoneWith is null || !has(GoneWith)) && rules.NpcPresent(Area, NpcType, has);
 }
