@@ -84,7 +84,7 @@ public static partial class Game
         IReadOnlyDictionary<uint, int> curseStats, double now, bool aura, IReadOnlyDictionary<uint, int>? sources,
         int addedEffect = 0, double effectMultiplier = 1, uint? casterId = null, int additionalCapacity = 0)
     {
-        if (!CurseCatalog.All.TryGetValue(effect, out var definition) || (casterId is null || aura) && ExternalTemporalChains(player, effect)
+        if (!CurseCatalog.All.TryGetValue(effect, out var definition) || casterId is null && ExternalTemporalChains(player, effect)
             || monster.Dead || monster.Life == 0 || !monster.Hostile) return false;
         var playerStats = sources ?? CharacterPlayerStats(player);
         int Own(uint n) => GolemStat(curseStats, n);

@@ -45,6 +45,11 @@ public static partial class Game
             EffigyHexesTickLocked(player, g, now);
             return;
         }
+        if (SpectreGroundHex(g.Definition.Kind) is { } hex)
+        {
+            SpectreCurseGroundTickLocked(player, g, hex, now);
+            return;
+        }
         double oldLastStep = g.LastStep;
         double elapsed = Math.Max(0, now - oldLastStep);
         double recoveryRate = MinionLifeRecoveryMultiplier(m);
