@@ -173,10 +173,10 @@ public static partial class Game
         }
     }
 
-    static void Expose(SpawnedMonster m, int i, int magnitude, double now)
+    static void Expose(SpawnedMonster m, int i, int magnitude, double now, double seconds = ExposureSeconds)
     {
         var key = (ExposureTypes[i], magnitude);
-        double until = now + ExposureSeconds;
+        double until = now + seconds;
         m.Exposures[key] = Math.Max(m.Exposures.GetValueOrDefault(key, double.NegativeInfinity), until);
         { m.ExposureUntil[i] = Math.Max(m.ExposureUntil[i], until); m.PresentationChanged?.Invoke(); }
     }

@@ -665,10 +665,11 @@ public static partial class Game
         bool arc = PlacedArcPayload(effect);
         bool storm = IsStormCall(effect) || IsFirestorm(player, placed.Effect);
         bool brand = TriggerBrandSpell(player, placed.Effect);
+        bool frostBomb = effect == "FrostBomb";
         if (!arc)
             bytes.World(placed.Id, InstanceProtocol.ActionStarted(placed.Id, placed.At.X, placed.At.Y, aim.X, aim.Y, 0x4000, 0xffff, player.MonsterOrderFlags));
         if (currentSkill && placed.Source is { } source && SupportedSkill(player, placed.Skill) is var gem
-            && (TriggerSummonSpell(player, gem) || PlacedUtilityPayload(effect) || arc || storm || brand))
+            && (TriggerSummonSpell(player, gem) || PlacedUtilityPayload(effect) || arc || storm || brand || frostBomb))
         {
             var session = ProjectilesFor(player);
             var lifetime = CombatLifetime;
@@ -682,6 +683,8 @@ public static partial class Game
             if (TriggerSummonSpell(player, gem))
                 session.Enqueue(() => ReleaseTriggeredSummon(player, session, placed.Skill, placed.At, Current,
                     useProxyOrigin: true));
+            else if (frostBomb)
+                session.SchedulePlacedFrostBomb(new(placed, inventionMore), Current);
             else if (brand)
                 session.Enqueue(() => ResolveCastBrand(player, placed.Skill, payload, placed.At, recoveryGeneration: null,
                     Current, new(placed, inventionMore)));
