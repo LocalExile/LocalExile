@@ -36,8 +36,9 @@ public static partial class Game
     static bool TauntPreventsAttackEvasion(Player attacker, SpawnedMonster target, double now)
     {
         if (target.TauntedUntil <= now || target.TauntingPlayerId is not uint source) return false;
-        var taunter = source == attacker.Id ? attacker : AreaPlayer(attacker, source);
+        var taunter = source == attacker.Id ? attacker : attacker.Instance.Player(source);
         return taunter is { PlayerLife: > 0, Closed: false, LeavingArea: false }
+            && ReferenceEquals(taunter.Area, attacker.Area)
             && PlayerStat(taunter, Stat.EnemiesTauntedByYouCannotEvadeAttacks) != 0;
     }
 

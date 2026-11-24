@@ -27,7 +27,7 @@ public static partial class Game
         if (elemental > 0)
         {
             var strongest = hit.Components.Where(component => DamageTypes.IsElemental(component.Type))
-                .MaxBy(component => component.Range.Min);
+                .OrderByDescending(component => component.Range.Min).FirstOrDefault();
             if (DamageTypes.IsElemental(strongest.Type) && strongest.Range.Min > 0)
                 Reflect(strongest.Type, elemental, 2760, ref activation.ElementalAt, ref received.ElementalAt);
         }
