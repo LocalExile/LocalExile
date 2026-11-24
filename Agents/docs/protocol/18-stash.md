@@ -137,6 +137,9 @@ connection. Later opens send b = 0x16: the panel keeps its own tab while the con
   the tab's own index as the folder: only then does the sender leave the tab's +0x3a alone, so the server makes the
   folder (a StashType 16 tab, never asked for contents) and the tab list (S→C 0x136) puts the tab in it. A drag in the
   tab list (`0x140a8cf75`) sends the same pair. Kept (`AccountStash.MoveToFolder`, the parent column).
+  Live 2026-11-24: the new folder's settings then open with its name; the check mark sends 0xcd only for a changed
+  name and closes the window on its 0x136, while an unchanged "New Folder" sends nothing and the window stays open
+  (client side: the 0x136 header's listener byte 1 instead of 0 after 0xd1 changed nothing).
 - **0xcd** (vtable `0x1435cab10`, write `0x141f9ccd0`; built by the tab settings `0x14025b9b0`): a premium tab renamed.
   u8 kind, u16 BE tab, u64 (0), wstr name. **0xce** (17 bytes, vtable `0x1435ca3c0`, write `0x141f9d0a0`): its colour,
   u8 kind, u16 BE tab, u64 (0), u32 BE colour; the client keeps the colour in the tab record's +0x2c, which the tab lists
@@ -148,6 +151,8 @@ connection. Later opens send b = 0x16: the panel keeps its own tab while the con
 - **0x1a1** (variable length, writer `0x141fa2270`, senders `0x14021de00`/`0x1402fbbf0`/`0x140b10ca0`): sets or clears
   an item's price note (u32 BE inventory id, u32 BE item id with bit 31 flag, WStr note) on items in an open, visible,
   public, premium stash tab.
+  Live 2026-11-24: the note stays on the item when it leaves the tab (inventory, then a normal tab); whether retail
+  clears it is not known.
   The note travels in the item's `Base` component bit 4 (0x10) as `WStr32` before `SkinTransferSource` (0x40) and
   `Price` (0x80).
 - **0xf5** (12 bytes, writer `0x141f9a550`, sender `0x1403136e1`): Blight tab oil take-out (u32 BE item id, u8 kind,
@@ -357,7 +362,7 @@ Gold stays with the personal stash.
 - **Last tab:** switching to an already loaded tab sends nothing, so a switch followed by a logout without reopening
   the stash or moving an item is not seen; the next login opens on the tab before it.
 - Not checked live yet: the special tabs other than currency and map.
-- Tab folders in the real client (0xd1 and 0xd2 are handled, not checked live), 0xe2, the unique, divination and other special tabs, the
+- 0xe2, the unique, divination and other special tabs, the
   real guilds (shared guild stash, members, rights; the guild tabs' affinity settings wait on them),
   stashes per league, and stashes in the other towns.
 

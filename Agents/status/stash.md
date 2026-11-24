@@ -11,6 +11,9 @@ Part of [Status](../Status.md); what to build next in this area is in
   Empty legacy resonators migrate to stackable types with 1–4 independent yellow/orange Delve sockets.
   Automated layout/merge/reload coverage; confirmed working by the user in the real client.
   See protocol/18-stash.md.
+- Tab settings, live 2026-11-24, all kept after a relog: the public flag (C→S 0xcf), item price notes (0x1a1) on a
+  public tab's items, the tab order (0xcc), and folders: Create New Folder (0xd1), renaming it (0xcd) and Delete Folder
+  (0xd2). Currency in a public tab is refused for use.
 - **Currency withdrawal (#249).** Ctrl + left click takes at most one normal inventory stack from the clicked slot;
   Ctrl + right click uses the separate `0xe3` bulk boolean to take as much of that stack as fits.
   Ctrl + right click on an inventory stack moves every stack of its type into the stash, to its affinity tab or the shown tab.
@@ -85,9 +88,6 @@ Part of [Status](../Status.md); what to build next in this area is in
 
 ## Partly working
 
-- Tab folders: Create New Folder, moving tabs in and out (C→S 0xd1) and Delete Folder (0xd2) are kept with the stash; a
-  deleted folder stays hidden so the later tabs keep their places (18 "C→S"). Checked offline; not yet in the real
-  client.
 - Personal stash and gold are shared only within the same account and full league, including mode combinations.
   Guild stash storage is also league-scoped; Standard retains the legacy bank and other leagues use separate banks.
   SSF refuses guild opening, tab requests and inventory moves.
@@ -98,8 +98,7 @@ Part of [Status](../Status.md); what to build next in this area is in
 - **Crafting cells.** Delve crafting cells accept equipment, support swaps and retain their contents after reload.
   Lioneye's Watch now creates a guild stash beside its personal stash.
   Persistence checks pass; the real client opened the city guild stash and loaded its guild tab.
-- **Public tabs, item price notes and Blight oil withdrawal:** `C→S 0xcf` persists `TabFlags.Public` in `0x136`,
-  `C→S 0x1a1` saves item price notes (`Base` bit 4 `WStr32`), and `C→S 0xf5` withdraws Blight oils from stash.
+- **Blight oil withdrawal:** `C→S 0xf5` withdraws Blight oils from stash; not checked live.
   Delve sockets (colour 6) now accept only Fossils and reject skill gems (offline verified; live client check pending).
 
 ## Not working yet
