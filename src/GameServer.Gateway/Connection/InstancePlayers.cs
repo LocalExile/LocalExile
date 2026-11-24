@@ -30,11 +30,23 @@ public static class InstanceEvents
     /// its first connection, before that connection's state exists; the answers are summed.</summary>
     public static readonly GameEvent<Func<AreaStatsRequest, IReadOnlyDictionary<uint, int>?>> AreaStats = new();
 
+    /// <summary>The stats displayed under the map overlay header (S→C 0x1d's second stat list): map mods (scaled by Atlas
+    /// modifier effect) and fragments/scarabs, without raw Atlas passive tree stats.</summary>
+    public static readonly GameEvent<Func<AreaStatsRequest, IReadOnlyDictionary<uint, int>?>> AreaDisplayStats = new();
+
     /// <summary>The league's answers to <see cref="AreaStats"/>, summed; a failing answer counts as none.</summary>
-    public static IReadOnlyDictionary<uint, int> ComposeAreaStats(LeagueRuntime league, AreaStatsRequest request)
+    public static IReadOnlyDictionary<uint, int> ComposeAreaStats(LeagueRuntime league, AreaStatsRequest request) =>
+        ComposeAreaStatEvent(AreaStats, league, request);
+
+    /// <summary>The league's answers to <see cref="AreaDisplayStats"/>, summed; a failing answer counts as none.</summary>
+    public static IReadOnlyDictionary<uint, int> ComposeAreaDisplayStats(LeagueRuntime league, AreaStatsRequest request) =>
+        ComposeAreaStatEvent(AreaDisplayStats, league, request);
+
+    static IReadOnlyDictionary<uint, int> ComposeAreaStatEvent(GameEvent<Func<AreaStatsRequest, IReadOnlyDictionary<uint, int>?>> ev,
+        LeagueRuntime league, AreaStatsRequest request)
     {
         var sum = new Dictionary<uint, int>();
-        foreach (var compose in AreaStats.For(league))
+        foreach (var compose in ev.For(league))
         {
             IReadOnlyDictionary<uint, int>? part;
             try { part = compose(request); }

@@ -59,9 +59,15 @@ static partial class PortalsRules
             var ring = MapDevice.PortalCell(centre.X, centre.Y, index);
             return device.Campaign && player.Layout.Walkable is { } walk && !walk(ring.X, ring.Y) ? player.Layout.Near(ring) : ring;
         }
+        static float RadialRotation((int X, int Y) c, int x, int y, int index)
+        {
+            int dx = x - c.X, dy = y - c.Y;
+            return dx == 0 && dy == 0 ? 2f * MathF.PI * index / MapDevice.PortalCount : MathF.Atan2(dx, -dy);
+        }
         Task Create(uint id, int x, int y, int index, string log) =>
             global::Game.SendWorldCreate(player, id, () => InstanceEntities.CreateObject(id, type,
-                new MapPortalObject(x, y, index, MapPortalType, Open: 1, Rotation: player.PortalRotationRadians).Blob()), log, wake: true, awaitBirth: false);
+                new MapPortalObject(x, y, index, MapPortalType, Open: 1,
+                    Rotation: RadialRotation(centre, x, y, index) + player.PortalRotationRadians).Blob()), log, wake: true, awaitBirth: false);
         _ = AreaFrames.Start(async () =>
         {
             try
@@ -94,6 +100,12 @@ static partial class PortalsRules
                     await AreaDelay(player, MapPortalListMs / 1000.0);
                     if (!Current()) return;
                     await SendMapPortals(player, deviceId, open.Area.Hash16);
+                    foreach (var (pid, px, py, index) in placed)
+                    {
+                        lock (player.MapPortals) if (!player.MapPortals.ContainsKey(pid)) continue;
+                        await global::Game.SendWorldRecord(player, pid,
+                            InstanceHideoutEditing.Rotation(pid, RadialRotation(centre, px, py, index) + player.PortalRotationRadians), null);
+                    }
                     await AreaDelay(player, MapPortalRelistMs / 1000.0);
                     if (Current()) await SendMapPortals(player, deviceId, open.Area.Hash16);
                     return;
@@ -123,6 +135,8 @@ static partial class PortalsRules
                     await AreaDelay(player, MapPortalListMs / 1000.0);
                     if (!Current()) return;
                     await SendMapPortals(player, deviceId, open.Area.Hash16);
+                    await global::Game.SendWorldRecord(player, id,
+                        InstanceHideoutEditing.Rotation(id, RadialRotation(centre, x, y, index) + player.PortalRotationRadians), null);
                 }
                 // Every portal but the last was listed again with the next one; the last gets its second listing here
                 // (Game.ListPortal says why one listing can be lost).
