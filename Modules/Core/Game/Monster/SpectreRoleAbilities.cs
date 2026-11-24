@@ -6,7 +6,7 @@ public static partial class Game
     const string FieryCannibal = "Metadata/Monsters/LeagueAzmeri/SpecialCorpses/Firefury/";
     const int CannibalGlacialHammer = 1016, CannibalGlacialCascade = 3342, CannibalIceCrash = 4823, CannibalIceNova = 7601;
     const int CannibalMoltenStrike = 3756, CannibalCremation = 8817;
-    const string SerpentWarrior = "Metadata/Monsters/LeagueAzmeri/SpecialCorpses/BasaliskHigh";
+    const string SerpentWarrior = "Metadata/Monsters/LeagueAzmeri/SpecialCorpses/Basalisk";
     const int SerpentSword = 417, SerpentShroud = 6863;
     const int NavalCannonFire = 10349, NavalCannonImpact = 7603;
     const int CannibalPartnerRadius = 60;
@@ -16,20 +16,20 @@ public static partial class Game
     static bool SpectreUtilityAction(int effect) => effect is NavalCannonFire or SpectreFireOffering or SpectreChaosOffering
         or AstralMineCast or PustuleCast or AstralProjectileCast;
 
-    static bool IsCannibal(GolemState.Golem fighter, string family) =>
+    static bool SpectreVarietyStartsWith(GolemState.Golem fighter, string family) =>
         fighter.Monster.Variety?.Id.StartsWith(family, StringComparison.Ordinal) == true;
 
     static bool CannibalEmpowered(Player player, GolemState.Golem fighter, double now)
     {
-        string? partner = IsCannibal(fighter, FrozenCannibal) ? FieryCannibal
-            : IsCannibal(fighter, FieryCannibal) ? FrozenCannibal : null;
+        string? partner = SpectreVarietyStartsWith(fighter, FrozenCannibal) ? FieryCannibal
+            : SpectreVarietyStartsWith(fighter, FieryCannibal) ? FrozenCannibal : null;
         if (partner is null) return false;
         var at = fighter.Monster.Walk.Position(now);
         return HasPartner(player) || player.Instance.PlayersExcept(player.Id).Any(
             ally => ReferenceEquals(player.Area, ally.Area) && HasPartner(ally));
 
         bool HasPartner(Player owner) => owner.PlayerLife > 0 && owner.Summons.Fighters.Values.Any(other =>
-            other.Definition.Kind == "Spectre" && IsCannibal(other, partner)
+            other.Definition.Kind == "Spectre" && SpectreVarietyStartsWith(other, partner)
             && !other.Monster.Dead && other.Monster.Life > 0 && GolemCurrent(owner, other)
             && Dist(other.Monster.Walk.Position(now), at) <= CannibalPartnerRadius);
     }
@@ -37,10 +37,10 @@ public static partial class Game
     static bool SpectreActionAllowed(GolemState.Golem fighter, GolemState.Ability ability, bool defensive,
         bool pairedCannibal, double distance)
     {
-        if (ability.Effect is CannibalIceCrash or CannibalIceNova && IsCannibal(fighter, FrozenCannibal)) return false;
-        if (ability.Effect is CannibalMoltenStrike or CannibalCremation && IsCannibal(fighter, FieryCannibal))
+        if (ability.Effect is CannibalIceCrash or CannibalIceNova && SpectreVarietyStartsWith(fighter, FrozenCannibal)) return false;
+        if (ability.Effect is CannibalMoltenStrike or CannibalCremation && SpectreVarietyStartsWith(fighter, FieryCannibal))
             return pairedCannibal;
-        if (fighter.Monster.Variety?.Id == SerpentWarrior)
+        if (SpectreVarietyStartsWith(fighter, SerpentWarrior))
             return defensive ? SpectreShoulderMortar(ability.Effect)
                 && distance >= GolemStat(ability.Stats, Stat.ProjectileMinimumRange) : ability.Effect == SerpentSword;
         return ability.Effect is not (SerpentShroud or NavalCannonImpact or AstralProjectileImpact or AstralMineImpact or PustuleImpact);
@@ -48,7 +48,7 @@ public static partial class Game
 
     static bool ReleaseSpectreRoleLocked(Player player, GolemState.Golem fighter, GolemState.Action action, double now)
     {
-        if (fighter.Monster.Variety?.Id == SerpentWarrior && (action.Ability.Effect == SerpentSword || SpectreShoulderMortar(action.Ability.Effect)))
+        if (SpectreVarietyStartsWith(fighter, SerpentWarrior) && (action.Ability.Effect == SerpentSword || SpectreShoulderMortar(action.Ability.Effect)))
         {
             var source = SupportedSkill(player, fighter.Source);
             var (_, defensive) = MinionStance(source.Stats, fighter.Player, false, now - fighter.BlockedAt is >= 0 and <= 4);
@@ -61,7 +61,7 @@ public static partial class Game
             ReleaseSpectreOfferingLocked(player, fighter, action, now);
             return true;
         }
-        if (action.Ability.Effect is CannibalMoltenStrike or CannibalCremation && IsCannibal(fighter, FieryCannibal))
+        if (action.Ability.Effect is CannibalMoltenStrike or CannibalCremation && SpectreVarietyStartsWith(fighter, FieryCannibal))
             return !CannibalEmpowered(player, fighter, now);
         if (action.Ability.Effect == TurtleBoon)
         {
@@ -84,7 +84,7 @@ public static partial class Game
         SpawnedMonster victim, double now)
     {
         var at = victim.Walk.Position(now);
-        if (hit.Effect is CannibalGlacialHammer or CannibalGlacialCascade && IsCannibal(fighter, FrozenCannibal)
+        if (hit.Effect is CannibalGlacialHammer or CannibalGlacialCascade && SpectreVarietyStartsWith(fighter, FrozenCannibal)
             && CannibalEmpowered(player, fighter, now)
             && fighter.Abilities.FirstOrDefault(a => a.Effect == (hit.Effect == CannibalGlacialHammer ? CannibalIceCrash : CannibalIceNova)) is { } burst)
         {

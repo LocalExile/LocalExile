@@ -154,7 +154,7 @@ public static partial class Game
     internal static double MinionLinkDamageTaken(Player player, GolemState.Golem fighter, double now)
     {
         if (ActiveMinionLink(player, fighter, now) is not { } link) return 1;
-        var stats = CharacterPlayerStats(player);
+        var stats = PlayerStatValues(player);
         double damageTaken = HallowedMonarchDamageTaken(link, stats);
         return link.EffectId == "SoulLink" ? damageTaken * SoulLinkDamageTaken(link, LinkBuffPercent(fighter, stats)) : damageTaken;
     }

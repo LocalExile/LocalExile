@@ -51,8 +51,9 @@ public static partial class Game
             < GolemStat(skill, definition.Family == "Absolution" ? Stat.AbsolutionBlastChanceToSummonOnHittingRareOrUniquePct : Stat.DominatingBlowChanceToSummonOnHittingUnqiuePct))
             player.Summons.HitSummons.Add(new(pair.Key, monster, source, gem.Effect, gem.SourceGem, false));
         if (monster.Rarity == MonsterRarity.Unique) return;
+        var playerStats = PlayerStatValues(player);
         double duration = SkillDurationModifiers.Seconds(GolemStat(skill, Stat.BaseSkillEffectDuration),
-            n => GolemStat(CharacterPlayerStats(player), n), n => GolemStat(skill, n));
+            playerStats.GetValueOrDefault, n => GolemStat(skill, n));
         player.Summons.HitMarks[(pair.Key, source)] = new(monster, source, gem.Effect, gem.SourceGem, now + duration)
             { PlayerConsumesCorpse = playerConsumesCorpse };
         if (monster.Dead || monster.Life == 0) HitSummonsOnDeathLocked(player, pair.Key, monster, now);

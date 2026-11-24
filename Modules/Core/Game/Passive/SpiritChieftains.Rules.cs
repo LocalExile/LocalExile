@@ -132,7 +132,7 @@ public static partial class Game
         if (!CurrentGameWork || !kill.PlayerKill || !kill.Monster.Hostile || player.PlayerLife == 0
             || player.Closed || player.LeavingArea) return;
         const uint trigger = Stat.ChanceToGainTukohamasEmbracePctOnKill;
-        var stats = CharacterPlayerStats(player);
+        var stats = PlayerStatValues(player);
         int chance = stats.GetValueOrDefault(trigger);
         if (chance <= 0) return;
         var equipment = ItemsOf(player).EquipmentSnapshot();

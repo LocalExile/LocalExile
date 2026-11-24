@@ -216,7 +216,7 @@ public static partial class Game
 
     static SupportedGem WornSupportedSkill(Player player, WornGrantedSkills.Grant grant,
         IReadOnlyList<(byte Row, InventoryItem Item)> equipment,
-        GemRequirementSnapshot? requirements)
+        GemRequirementSnapshot? requirements, int? supportTarget = null)
     {
         // The accepted-use path cannot trust the last panel publication: requirements and support eligibility must
         // come from the current equipment/attribute snapshot even when no stat update announced the change.
@@ -243,7 +243,7 @@ public static partial class Game
                         Quality(place.Socket, place.Gem), place.Socket));
             }
         candidates.AddRange(Supports.ItemCandidates(host, ItemsFor(player).Mods));
-        var supports = ResolveEquippedSupports(player, grant.Effect, grant.Level, candidates, equipment,
+        var supports = ResolveEquippedSupports(player, supportTarget ?? grant.Effect, grant.Level, candidates, equipment,
             requirements.Inactive, sourceIsGem: false);
         var own = SkillsFor(player).EffectStats(grant.Effect, grant.Level).ToDictionary(kv => kv.Item1, kv => kv.Item2);
         ApplySupportStats(player, own, supports);

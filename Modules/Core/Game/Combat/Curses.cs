@@ -115,8 +115,10 @@ public static partial class Game
         uint caster = casterId ?? auraSource ?? player.Id;
         int damageTaken = GolemStat(playerStats, Stat.EnemiesDamageTakenPlusPctWhileCursed);
         bool preventsCritical = Get(definition.Mark ? Stat.MarkedEnemiesCannotDealCriticalStrikes : Stat.HexedEnemiesCannotDealCriticalStrikes) != 0;
+        int limit = CurseLimit(player, playerStats);
+        int expandedCapacity = additionalCapacity > 0 ? ActorScale.Saturate((long)limit + additionalCapacity) : 0;
         if (aura && monster.Curses.All.GetValueOrDefault((caster, effect)) is { Aura: true } existing
-            && existing.Skill == skill && existing.CursedDamageTaken == damageTaken
+            && existing.Skill == skill && existing.ExpandedCapacity == expandedCapacity && existing.CursedDamageTaken == damageTaken
             && existing.PreventsCriticalStrikes == preventsCritical
             && existing.Stats.Count == stats.Count && existing.Stats.All(p => stats.GetValueOrDefault(p.Key) == p.Value)) return true;
         bool newlyCursed = !monster.HasCurses || !monster.Curses.HasActive(now);
@@ -124,13 +126,12 @@ public static partial class Game
             foreach (var m in player.Area.Monsters.Values.Where(m => !ReferenceEquals(m, monster) && m.HasCurses))
                 foreach (var mark in m.Curses.All.Values.Where(c => c.Caster == player.Id && c.Mark).ToArray())
                 { m.Curses.Remove(mark.Caster, mark.Effect); m.PresentationChanged?.Invoke(); }
-        int limit = CurseLimit(player, playerStats);
         double until = aura || hexMaster && !definition.Mark ? double.PositiveInfinity : now + seconds / rate;
         int amplify = double.IsFinite(until) ? Get(Stat.WhileCurseIs50PctExpiredCurseEffectPlusPct) : 0;
         var curse = new MonsterCurses.Curse(caster, effect, skill, definition.Buff, player.NextBuff++, now, until, aura, definition.Mark, stats)
         {
             RemainsOnDeath = !aura && Get(Stat.CursesYouInflictRemainAfterDeath) != 0,
-            ExpandedCapacity = additionalCapacity > 0 ? ActorScale.Saturate((long)limit + additionalCapacity) : 0,
+            ExpandedCapacity = expandedCapacity,
             CursedDamageTaken = damageTaken,
             PreventsCriticalStrikes = preventsCritical,
             TransferChance = definition.Mark ? Get(Stat.YourMarksTransferToNearbyEnemiesOnDeathPctChance) : 0,

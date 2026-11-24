@@ -1,8 +1,6 @@
 public static partial class Game
 {
-    // Doedre's Skin grants five extra Hex slots and applies a 20% less modifier to these auras.
     const int EffigyAdditionalHexes = 5;
-    const double EffigyCurseEffect = .8;
 
     sealed class EffigyHexes
     {
@@ -21,6 +19,9 @@ public static partial class Game
         }
         var state = EffigyAuras.GetOrCreateValue(effigy);
         var at = effigy.Monster.Walk.Position(now);
+        int penalty = GolemStat(effigy.Player, Stat.CursePillarCurseEffectPlusPctFinal);
+        if (penalty == 0) penalty = GolemStat(effigy.Own, Stat.CursePillarCurseEffectPlusPctFinal);
+        double multiplier = Math.Max(0, 1 + penalty / 100d);
         foreach (var row in GemSkillEffects(player))
         {
             string? effect = SkillsFor(player).EffectId(row.Effect);
@@ -31,11 +32,11 @@ public static partial class Game
             foreach (var (_, monster) in player.Area.MonstersNear(at, radius))
                 if (Dist(at, monster.Walk.Position(now)) <= radius
                     && ApplyCurseDataLocked(player, monster, row.Id, effect, hex.Stats, now, true, effigy.Player,
-                        effectMultiplier: EffigyCurseEffect, casterId: effigy.Id, additionalCapacity: EffigyAdditionalHexes))
+                        effectMultiplier: multiplier, casterId: effigy.Id, additionalCapacity: EffigyAdditionalHexes))
                     state.Current.Add((monster, effect));
         }
         foreach (var (monster, effect) in state.Covered)
-            if (!state.Current.Contains((monster, effect))) monster.Curses.Remove(effigy.Id, effect);
+            if (!state.Current.Contains((monster, effect))) RemoveEmittedHex(monster, effigy.Id, effect);
         (state.Covered, state.Current) = (state.Current, state.Covered);
         state.Current.Clear();
     }
@@ -66,7 +67,7 @@ public static partial class Game
                     casterId: ground.Id, additionalCapacity: 3))
                 state.Current.Add((monster, effect));
         foreach (var (monster, old) in state.Covered)
-            if (!state.Current.Contains((monster, old))) monster.Curses.Remove(ground.Id, old);
+            if (!state.Current.Contains((monster, old))) RemoveEmittedHex(monster, ground.Id, old);
         (state.Covered, state.Current) = (state.Current, state.Covered);
         state.Current.Clear();
 
@@ -84,7 +85,14 @@ public static partial class Game
     static void ClearEffigyHexesLocked(GolemState.Golem effigy)
     {
         if (!EffigyAuras.TryGetValue(effigy, out var state)) return;
-        foreach (var (monster, effect) in state.Covered) monster.Curses.Remove(effigy.Id, effect);
+        foreach (var (monster, effect) in state.Covered) RemoveEmittedHex(monster, effigy.Id, effect);
         EffigyAuras.Remove(effigy);
+    }
+
+    static void RemoveEmittedHex(SpawnedMonster monster, uint source, string effect)
+    {
+        if (!monster.Curses.All.ContainsKey((source, effect))) return;
+        monster.Curses.Remove(source, effect);
+        monster.PresentationChanged?.Invoke();
     }
 }

@@ -84,9 +84,9 @@ public static partial class Game
         int leer = GolemStat(local, Stat.LocalDisplayAuraDamagePlusPct);
         int dyingBreath = GolemStat(local, Stat.LocalDisplayAuraDamagePlusPctAlliesOnly);
         var auras = new List<PlayerMinions.Aura>(2);
-        if (leer > 0) auras.Add(NativeMinionAura("LeerCast", 221, 60, [(Stat.DamagePlusPct, leer)]));
+        if (leer > 0) auras.Add(NativeMinionAura("LeerCast", 221, 75, [(Stat.DamagePlusPct, leer)]));
         if (dyingBreath > 0)
-            auras.Add(NativeMinionAura("DyingBreath", 292, 60, [(Stat.DamagePlusPct, dyingBreath)]) with { AffectsSource = false });
+            auras.Add(NativeMinionAura("DyingBreath", 292, 75, [(Stat.DamagePlusPct, dyingBreath)]) with { AffectsSource = false });
         state.Auras = [.. auras];
     }
 }

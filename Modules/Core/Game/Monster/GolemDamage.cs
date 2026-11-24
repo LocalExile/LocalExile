@@ -124,7 +124,8 @@ public static partial class Game
             : Player(Stat.MinionBlockPct) + effects[Stat.MonsterBaseBlockPct];
         var link = ActiveMinionLink(player, g, now);
         bool protective = link?.EffectId == "ProtectiveLink";
-        int maximumBlock = DamageModel.DefaultMaxBlockChance;
+        int maximumBlock = Math.Clamp(DamageModel.DefaultMaxBlockChance
+            + effects[attack.Spell ? Stat.BaseMaximumSpellBlockPct : Stat.MaximumBlockPct], 0, DamageModel.BlockChanceCap);
         if (protective && !attack.Spell)
         {
             maximumBlock = Math.Clamp(player.Pools.BlockChanceMax, 0, DamageModel.BlockChanceCap);

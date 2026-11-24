@@ -517,7 +517,7 @@ public static partial class Game
         {
             player.EnergyShield.Spend(es + fromEs);
             if (ReadShaperMemoryVariant(playerStats) != 0)
-                RecordShaperMemoryEnergyShieldLocked(player, es + fromEs);
+                RecordShaperMemoryEnergyShieldLocked(player, es + fromEs, playerStats);
             // The client paid it from its own Energy Shield too: the pool goes out even when recharge has already brought
             // it back to the last value written (live 2026-11-13: the globe stayed at 5249/5324 while the server was full).
             player.Frames.Area?.Life.Resend(player);

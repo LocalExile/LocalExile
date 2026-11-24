@@ -107,6 +107,10 @@ public static partial class Game
     static async Task TickEquippedItemMinions(Player player, double now)
     {
         if (player.Closed || player.LeavingArea || player.Paused) return;
+        var worn = AllWornGrantedSkillsOf(player);
+        bool maySummonVoid = worn.Any(grant => TriggeredItemMinion(grant) == ItemVoidSpawn);
+        bool maySummonSpectral = worn.Any(grant => TriggeredItemMinion(grant) == ItemSpectralSpirit);
+        if (!maySummonVoid && !maySummonSpectral && !VoidSpawnTimers.TryGetValue(player, out _)) return;
         ItemMinionTrigger? voidSpawn;
         bool spectralSpirits;
         using (ProjectileMutation(player, advance: false))
@@ -117,16 +121,14 @@ public static partial class Game
                 VoidSpawnTimers.Remove(player);
                 return;
             }
-            var worn = AllWornGrantedSkillsOf(player);
-            if (worn.Any(grant => TriggeredItemMinion(grant) == ItemVoidSpawn))
+            if (maySummonVoid)
                 voidSpawn = AdvanceVoidSpawnTimerLocked(player, now);
             else
             {
                 VoidSpawnTimers.Remove(player);
                 voidSpawn = null;
             }
-            spectralSpirits = worn.Any(grant => TriggeredItemMinion(grant) == ItemSpectralSpirit)
-                && DarkMonarchAllows(SpectralSpiritFamily, StatSourceValues(player));
+            spectralSpirits = maySummonSpectral && DarkMonarchAllows(SpectralSpiritFamily, StatSourceValues(player));
         }
         if (voidSpawn is not null) await FireItemMinionTrigger(player, voidSpawn, now);
         if (!spectralSpirits) return;
@@ -171,12 +173,13 @@ public static partial class Game
 
     static async Task TickWeaponMinionTriggers(Player player, double now)
     {
+        if (player.Paused || !WeaponMinionTriggers.TryGetValue(player, out _)) return;
         ItemMinionTrigger[] pending;
         using (ProjectileMutation(player, advance: false))
         {
-            if (!WeaponMinionTriggers.TryGetValue(player, out var triggers) || triggers.Count == 0 || player.Paused) return;
+            if (!WeaponMinionTriggers.TryGetValue(player, out var triggers) || player.Paused) return;
             pending = triggers.ToArray();
-            triggers.Clear();
+            WeaponMinionTriggers.Remove(player);
         }
         foreach (var trigger in pending) await FireItemMinionTrigger(player, trigger, now);
     }
@@ -233,8 +236,11 @@ public static partial class Game
         }
 
         if (definition != ItemSpider)
+        {
+            bool requireVacancy = definition == ItemVoidSpawn || definition == ItemWolf || definition == ItemSpectralSpirit;
             return await SummonFighterCore(player, trigger.Skill, definition, trigger.From,
-                current: () => Current() && (definition != ItemVoidSpawn || !AtCap()), triggered: true) != 0;
+                current: () => Current() && (!requireVacancy || !AtCap()), triggered: true) != 0;
+        }
 
         int planned = remaining;
         foreach (var (id, corpse) in corpses)

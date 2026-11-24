@@ -12,7 +12,11 @@ public static partial class Game
 
     static bool CanRecoverRaisedMinionsWithFlask(Player player, Flasks.Flask flask, Func<uint, int> character) =>
         flask.LifePerUse > 0 && character(Stat.FlasksApplyToYourZombiesAndSpectres) != 0
-        && FlaskMinions(player, raisedOnly: true).Any(minion => minion.Monster.Life < minion.Monster.MaxLife);
+        && FlaskMinions(player, raisedOnly: true).Any(minion => CanUseMinionLifeFlask(minion, character));
+
+    static bool CanUseMinionLifeFlask(GolemState.Golem minion, Func<uint, int> character) =>
+        minion.Monster.Life < minion.Monster.MaxLife
+        || MinionFlaskStat(minion, character, Stat.LifeFlaskEffectsAreNotRemovedAtFullLife) > 0;
 
     static void ApplyMinionRecoveryFlasksLocked(Player player, Item flask, byte slot, Flasks.Flask type,
         FlaskRecovery.Use recovery, IReadOnlyDictionary<uint, int> local, Func<uint, int> character, double now)
@@ -40,7 +44,12 @@ public static partial class Game
     }
 
     static int MinionFlaskStat(GolemState.Golem minion, Func<uint, int> character, uint stat) =>
-        minion.Monster.Effects[stat] + (stat == Stat.FlaskDurationPlusPct ? character(Stat.FlaskDurationOnMinionsPlusPct) : 0);
+        minion.Monster.Effects[stat] + (stat switch
+        {
+            Stat.FlaskDurationPlusPct => character(Stat.FlaskDurationOnMinionsPlusPct),
+            Stat.LifeFlaskEffectsAreNotRemovedAtFullLife => character(stat),
+            _ => 0,
+        });
 
     static async Task UseParentFlasksOnSummon(Player player, GolemState.Golem minion)
     {
@@ -60,8 +69,11 @@ public static partial class Game
             double now = AreaTime(player);
             foreach (var flask in inventory.Items(PlayerInventories.Flask))
             {
-                if (catalog.ByHash(flask.Item.TypeHash) is not { } type
+                if (MagebloodBlocksFlaskUse(player, flask.Item) || catalog.ByHash(flask.Item.TypeHash) is not { } type
                     || catalog.FlaskChargesOf(type) is not { } native) continue;
+                var utility = catalog.UtilityFlaskOf(type);
+                var recovery = catalog.FlaskOf(type);
+                if (utility is null && (recovery is not { LifePerUse: > 0 } || !CanUseMinionLifeFlask(minion, GetOwner))) continue;
                 var local = ItemModStats.Local(flask.Item, catalog.Mods);
                 var cost = FlaskCharges.Of(native, local, GetCharges);
                 if (flask.Item.Charges < cost.ChargesPerUse) continue;
@@ -74,9 +86,9 @@ public static partial class Game
                 });
                 if (!accepted || paid is null) continue;
                 spent.Add(paid);
-                if (catalog.UtilityFlaskOf(type) is { } utility)
+                if (utility is not null)
                     ApplyMinionUtilityFlaskLocked(player, minion, paid, type, utility, local, GetOwner, now);
-                else if (catalog.FlaskOf(type) is { LifePerUse: > 0 } recovery)
+                else if (recovery is not null)
                     ApplyMinionRecoveryFlaskLocked(player, minion, paid.Item, paid.X, recovery, local, GetOwner, now);
             }
             return ([.. spent.Select(flask => flask.Id)], spent);
