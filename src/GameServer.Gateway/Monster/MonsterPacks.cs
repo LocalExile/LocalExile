@@ -23,8 +23,14 @@ public sealed class PackCatalog
         VarietyRows = LoadVarietyRows();
     }
 
+    /// <param name="Grounds">The ground types the pack may stand on, by the name of the <c>.gt</c> file
+    /// (MonsterPacks <c>Grounds</c>, a list of strings: Act1-ZombieDrowned, row 3, lists BeachOceanShallowWet,
+    /// BeachOceanShallow, BeachOceanShallowNonwalkable, BeachOceanDeep and BeachBottomWet). Empty for all but 155 of
+    /// the 3 168 rows. It is read for the scattered placement; the column carries nothing else — no radius, no shape
+    /// and no effect.</param>
     public sealed record Pack(int Row, string Id, int MinCount, int MaxCount, int BossChance, int BossCount,
-        IReadOnlyList<int> BossVarieties, IReadOnlyList<(int Variety, int Weight)> Entries, IReadOnlyDictionary<int, int> AreaWeights)
+        IReadOnlyList<int> BossVarieties, IReadOnlyList<(int Variety, int Weight)> Entries, IReadOnlyDictionary<int, int> AreaWeights,
+        IReadOnlyList<string>? Grounds = null)
     {
         public int PickVariety(Random rng)
         {
@@ -126,7 +132,15 @@ public sealed class PackCatalog
             result.Add(new Pack(row, p.Text("Id") ?? "", p.Int("MinCount"), p.Int("MaxCount"),
                 p.Int("BossMonsterSpawnChance"), p.Int("BossMonsterCount"),
                 [.. p.Ints("BossMonster_MonsterVarietiesKeys")],
-                byPack.GetValueOrDefault(row) ?? [], areaWeights));
+                byPack.GetValueOrDefault(row) ?? [], areaWeights, Grounds(p)));
+        }
+        static IReadOnlyList<string>? Grounds(ClientRow p)
+        {
+            if (!p.Has("Grounds") || p.IsNull("Grounds")) return null;
+            // "-" is the column's own placeholder for nothing (pantheon-piety1, row 1122: its only entry), and no
+            // ground-type file is named that, so it stands for no restriction rather than a ground nothing matches.
+            string[] names = [.. p.Texts("Grounds").Where(g => !string.IsNullOrWhiteSpace(g) && g != "-")];
+            return names.Length > 0 ? names : null;
         }
         var areaRows = new List<(string, int, int[])>();
         foreach (var a in ClientTables.Table("WorldAreas"))
@@ -307,6 +321,9 @@ public static class AreaPopulation
     /// packs of that rarity (a Trial of Ascendancy's rooms: the Lower Prison trial's plaque platform).</param>
     /// <param name="scatterable">Where a scattered pack may have its centre, besides the walk map (not among a trial's
     /// traps); null: anywhere.</param>
+    /// <param name="grounds">The layout's ground types by name
+    /// (<see cref="GameServer.Data.Terrain.Generation.CellGrounds"/>), which the packs that list their own grounds are
+    /// placed on; null for a layout that is not generated here, where the rule cannot apply.</param>
     // Keep the earlier CLR signatures for independently compiled modules and mods.
     public static List<Spawn> Plan(PackCatalog.AreaPacks area, int w, int h, Func<int, int, bool> walkable, (int X, int Y) arrival,
         IReadOnlyList<(int X, int Y)> transitions, IReadOnlyList<RoomPoint> points, int seed, Func<int, bool> spawnable, List<string> notes,
@@ -332,7 +349,8 @@ public static class AreaPopulation
         Func<int, int, bool>? scatterable = null,
         IReadOnlyList<(string Shrine, ShrineGuards.Rule Rule, IReadOnlyList<PackCatalog.Pack> Packs, int X, int Y)>? shrineGuards = null,
         Func<int, bool>? guardSpawnable = null, IReadOnlyList<AdditionalPacks>? additionalPacks = null, bool ordinaryPacks = true,
-        IReadOnlyList<((int X, int Y) From, (int X, int Y) To)>? localTransitions = null)
+        IReadOnlyList<((int X, int Y) From, (int X, int Y) To)>? localTransitions = null,
+        GameServer.Data.Terrain.Generation.CellGrounds? grounds = null)
     {
         var rng = new Random(seed);
         var spawns = new List<Spawn>();
@@ -549,15 +567,46 @@ public static class AreaPopulation
         // already exceed that budget.
         wanted = Math.Max(0, wanted - roomPlaced) + scale.ExtraNormal + scale.ExtraMagic + scale.ExtraRare;
         if (wanted <= 0) { notes.Add($"{roomPlaced} room pack point(s) place the area's packs"); return spawns; }
+        // The packs that list ground types of their own (MonsterPacks Grounds) stand only on one of their grounds,
+        // and only where the layout is generated here (so it has ground names at all). A pack whose grounds are
+        // nowhere on this map leaves the draw: The Solaris Temple Level 2's only Grounds pack wants TempleWaterBottom,
+        // the generated map of the captured seed has no such corner, and the official instance of it created none of
+        // that pack's monsters.
+        var groundPacks = packs;
+        bool useGrounds = grounds is not null;
+        if (useGrounds)
+        {
+            int listed = packs.Count(s => s.Pack.Grounds is { Count: > 0 });
+            groundPacks = [.. packs.Where(s => s.Pack.Grounds is not { Count: > 0 } g || grounds!.HasAny(g))];
+            // Every pack of the area wanting a ground this map has none of would leave it with no scattered monsters
+            // at all. No capture shows an area like that, so the rule steps aside rather than emptying it.
+            if (groundPacks.Count == 0)
+            {
+                groundPacks = packs;
+                useGrounds = false;
+                notes.Add($"pack grounds: all {packs.Count} pack(s) of {area.AreaId} want a ground this map has none of, so the rule is not applied");
+            }
+            else if (listed > 0)
+                notes.Add($"pack grounds: {listed} of {packs.Count} pack(s) list their own ground types, "
+                    + $"{packs.Count - groundPacks.Count} of them have none on this map and leave the draw");
+        }
+        bool OnItsGround((int X, int Y) at, PackCatalog.Pack pack) =>
+            pack.Grounds is not { Count: > 0 } g || grounds!.On(at.X, at.Y, g);
         var plans = new List<((int X, int Y) At, PackCatalog.Pack Pack)>();
+        int offGround = 0;
         foreach (var c in candidates)
         {
             if (plans.Count >= wanted) break;
             if (InSafeZone(c, spawnClearance, transitionClearance) || centres.AnyNear(c)
                 || scatterable is not null && !scatterable(c.X, c.Y)) continue;
+            // With the rule on, the cell draws only among the packs whose grounds it is one of; a cell no pack suits
+            // stands none and is not taken, so it does not keep the next pack away either.
+            var eligible = useGrounds ? groundPacks.Where(s => OnItsGround(c, s.Pack)).ToList() : groundPacks;
+            if (eligible.Count == 0) { offGround++; continue; }
             centres.Add(c);
-            plans.Add((c, PickPack(packs, rng)));
+            plans.Add((c, PickPack(eligible, rng)));
         }
+        if (offGround > 0) notes.Add($"pack grounds: {offGround} candidate cell(s) suit no pack's grounds and stand none");
         bool strand = area.AreaId == TutorialObjects.Strand;
         List<MonsterRarity> rarities;
         if (strand)
@@ -577,7 +626,12 @@ public static class AreaPopulation
         int placedPacks = 0;
         for (int i = 0; i < plans.Count && spawns.Count - scatteredStart < memberBudget; i++)
         {
-            AddPack(spawns, taken, ReachableMember, plans[i].At, plans[i].Pack, rarities[i], true, rng, spawnable, packSize: size,
+            // The members of a pack with grounds of its own keep to them as well, not only its centre: the pack rules
+            // one patch of ground, so a Drowned does not stand on the sand beside the water it rose from.
+            var stand = useGrounds && plans[i].Pack.Grounds is { Count: > 0 } g
+                ? (x, y) => ReachableMember(x, y) && grounds!.On(x, y, g)
+                : (Func<int, int, bool>)ReachableMember;
+            AddPack(spawns, taken, stand, plans[i].At, plans[i].Pack, rarities[i], true, rng, spawnable, packSize: size,
                 memberLimit: memberBudget - (spawns.Count - scatteredStart));
             placedPacks++;
         }

@@ -18,7 +18,7 @@ The Coast (`1_1_2`, WorldAreas row 6, level 2):
 | Pack | Weight | Members | Placed |
 |---|---|---|---|
 | `Act1-CoastCrabs` (row 2) | 100 | 2–4 Savage / Kelp / Shore / Coconut / Spider Crabs; 80%: one large Savage Crab (row 4515) | scattered |
-| `Act1-ZombieDrowned` (row 3) | 100 | 3–4 Drowned; `Grounds`: the beach/ocean ground types | scattered (grounds not checked) |
+| `Act1-ZombieDrowned` (row 3) | 100 | 3–4 Drowned; `Grounds`: the beach/ocean ground types | scattered, on its own grounds (§1a) |
 | `Act1-SandspitterEmerge` (row 4) | 100 | 3–4 Gravel Eaters | scattered, buried: they rise when the player comes near ([10](10-chat-and-commands.md) §5) |
 | `1_1_2-cannibalfire` (row 620) | 0 | 2–4 Cannibals (male, female, fire throwers, Fire-eater) | room points `%area%-cannibalfire` |
 | `1_1_2-bosspack` (row 621) | 0 | 6–8 Cannibals | with the boss at `mapboss` |
@@ -34,6 +34,33 @@ around them; members stand within 9 cells. Population uses a stable MurmurHash2 
 `population:<area HASH16, 4 hex digits>:<area seed, 8 hex digits>`.
 The previous `HashCode.Combine` used a process-random salt, so a restart changed the population for the same seed.
 This is a local seed derivation; the official server population RNG and placement algorithm remain unrecovered.
+
+### 1a. `Grounds`: the pack's own ground
+
+`MonsterPacks.Grounds` is a list of **ground-type names** — the first line of a `.gt` file, as
+`BeachOceanShallowWet` or `ForestCaveFloor` — and nothing else: no radius, no shape, no effect, and no row of its own
+to look up (client.db has no ground-type table; the name *is* the reference). 155 of the 3 168 rows carry one, over
+39 areas, with 53 distinct values: `-` and 52 names, which are 51 once case is ignored (rows 548 / 549 write `Knoll`,
+rows 1195 / 1202 `knoll`, and one `.gt` carries that name — hence a case-insensitive match). 51 of the 52 are the
+first line of a `.gt` file in the client's data, and 50 of the 51 case-insensitive names are named by the terrain
+files the level generator reads (`.tdt` tiles, `.arm` rooms, `.dgr`/`.tgr` graphs, `.et` edges). The one that names no
+ground type at all is `InvasionBoss-GoatmanShaman2`'s `GoatmanShamanBossSideArea`; `pantheon-piety1`'s single entry is
+`-`, the placeholder for nothing.
+
+**Nothing of it is on the wire.** No ground-type name and no `GroundType` string appears in any of the 3 061 415
+server packets of the 26 decoded captures, 25 of them official (the only hits for `Beach` and `Forest` are `.ao` art
+paths). The client reads the column into its runtime pack and never places from it, so this is a server-side placement
+rule, not something to send.
+
+The generated layout keeps its tile corners' ground names (`CellGrounds`, on `ServerLevels.Level.Grounds`), a cell takes
+its **nearest corner**'s ground (a corner every 23 cells), and a scattered pack with grounds of its own has its centre
+and its members only on cells of one of them. A pack whose grounds are nowhere on the map leaves the draw — The Solaris
+Temple Level 2's only such pack wants `TempleWaterBottom`, and the official instance of the captured seed created none
+of its monsters — unless that would empty the area, where the rule steps aside and says so in the notes. A cell no pack
+suits stands none. The nearest-corner rule is a reading: measured offline against captured official instances (7
+instances of 5 areas), it put 96 of 98 official monsters of a `Grounds` pack on a listed ground, and the four corners
+of the cell's tile 97 of 98 — one monster apart. An area whose layout is not generated here has no ground names, so the
+rule cannot apply to it.
 
 ## 2. Spawning
 
@@ -254,7 +281,9 @@ placement algorithms remain unknown.
 - Unique map bosses get `MonsterMapBossDifficulty` plus `MonsterMapDifficulty` life and damage percentages
   (`MonsterCatalog.MapBossScaling`; level 83 is ×20.73 life and ×1.15 damage). The area level is the map level here; a
   future map-affix system may add more.
-- `Grounds` (Drowned on wet beach) is not checked; we have no ground-type grid.
+- `Grounds` (Drowned on wet beach) is read (§1a); still open there: the official cell rule itself (ours is the nearest
+  tile corner, a reading), what the official does with a pack whose grounds the map lacks, and whether it keeps the
+  area's pack count when such packs leave the draw (ours does not rescale).
 - Emerge packs (Gravel Eaters, Dripping Dead, the Strand's Drowned, Tide Striders …) are placed waiting and rise within
   24 cells of the player ([10](10-chat-and-commands.md) §5); the distance is ours (the official one is in the server's
   AI files). The pack rule for the 161 varieties whose Id contains "Emerge": the 85 without a Transitionable are

@@ -50,6 +50,11 @@ public static class ServerLevels
         public IReadOnlyList<PlacedLink> RoomLinks { get; init; } = [];
         /// <summary>The placed rooms that have pack points, with those points (<see cref="AreaPopulation.PackRooms"/>).</summary>
         public IReadOnlyList<AreaPopulation.PlacedRoom> PackRooms { get; init; } = [];
+        /// <summary>The ground type of the layout's cells by the name MonsterPacks' <c>Grounds</c> column lists
+        /// (<see cref="CellGrounds"/>): the tile corners' own grounds. Every generated layout has one; a layout that is
+        /// not generated here (a captured one) has no <see cref="Level"/> at all, so the pack ground rule cannot apply
+        /// there.</summary>
+        public CellGrounds? Grounds { get; init; }
         public long Milliseconds { get; init; }
         /// <summary>The generator's subgraph records with their placed rooms (each room's graph node descriptions).</summary>
         public IReadOnlyList<DoodadRecord> Records { get; init; } = [];
@@ -433,6 +438,10 @@ public static class ServerLevels
                 RoomObjects = AreaObjects.RoomObjects(result, points: true, links: roomLinks),
                 RoomLinks = roomLinks,
                 PackRooms = AreaPopulation.PackRooms(result.Records),
+                // The tile corners' ground types by name, for the packs that may only stand on their own ground
+                // (MonsterPacks Grounds). Built once here, from the finished grid, with the same files.Ground reader
+                // the doodad stage already calls on those same corners — no new way for a level build to fail.
+                Grounds = CellGrounds.Build(result.Grid, files.Ground),
                 FeatureAreas = [.. result.Records.Where(r => r.FeatureWorldArea >= 0).Select(r => (r.X * 23, r.Y * 23, (r.X + r.W) * 23, (r.Y + r.H) * 23))],
             };
         }

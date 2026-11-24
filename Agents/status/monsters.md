@@ -198,6 +198,9 @@ Part of [Status](../Status.md); what to build next in this area is in
   server-published projectiles; other than simulated mortars and spell projectiles, flight damage remains incomplete.
 - Normal Sirus: entry, four phases and rewards; AI/drop tuning provisional ([14](../docs/protocol/14-monster-packs.md)).
 
+- A scattered pack with ground types of its own (`MonsterPacks` `Grounds`: the Drowned's wet beach) stands only on
+  them. Docs: [14](../docs/protocol/14-monster-packs.md) §1a.
+
 - Monsters using the ordinary AI can acquire an in-range fighting golem even while its owner is outside aggro range.
 - Campaign bosses play their whole skill kit rather than one attack: a monster an act's area names as its boss
   (`WorldAreas` `Bosses_MonsterVarietiesKeys`, bar or not) or one with a bar of its own that no encounter controller

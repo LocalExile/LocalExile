@@ -143,6 +143,9 @@ public static partial class Game
             // A shrine's guards must be seen standing: not an emerge variety, which lies buried until the player is near.
             guardSpawnable: row => Spawnable(row) && Monsters.Find(row.ToString()) is { } guardVariety && Emerges.Kind(guardVariety) == EmergeKind.None,
             scatterable: scatterable,
+            // The layout's ground types by name, for the packs that list their own (MonsterPacks Grounds).
+            // A captured layout has none, and the rule then does not apply.
+            grounds: layout.Level?.Grounds,
             localTransitions: [.. layout.AreaTransitions.Where(t => t.Transition.DestinationHash16 == layout.Hash
                     && t.Transition.TeleportTo.HasValue)
                 .Select(t => (layout.Near((t.Transition.GridX, t.Transition.GridY)), layout.Near(t.Transition.TeleportTo!.Value)))],
