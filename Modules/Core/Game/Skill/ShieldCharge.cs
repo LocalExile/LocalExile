@@ -246,7 +246,7 @@ public static partial class Game
                 double frameEnd = player.Connection.LockstepFrame?.End ?? startAt;
                 string ao = Environment.GetEnvironmentVariable("Game_PLAYER_AO") ?? SkillsFor(player).ClassFor(player.Character.ClassRow).AnimatedObject;
                 double cutIn = endSeconds * Animations.AttackCutIn(ao, AnimationWeaponProfileFor(player), "bash1");
-                player.LockstepBusyUntil = Math.Max(player.LockstepBusyUntil, frameEnd + cutIn + player.LockstepActionTail);
+                player.LockstepBusyUntil = Math.Max(player.LockstepBusyUntil, Math.Min(startAt + endSeconds, frameEnd + cutIn));
             }
             return run.Token;
         }

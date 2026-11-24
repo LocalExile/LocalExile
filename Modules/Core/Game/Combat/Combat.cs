@@ -85,7 +85,7 @@ public static partial class Game
                 ? SupportedOffHandAttackSeconds(player, skillId, shieldWeapon)
                 : SupportedAttackSeconds(player, skillId, sequence))
             : SkillAttackSeconds(player, effect, level);
-        double now = AreaTime(player);
+        double now = LockstepScheduledAt(player, AreaTime(player));
         return AttackTiming.Ready(now, player.NextAttackAt, seconds);
     }
 
@@ -890,7 +890,8 @@ public static partial class Game
         }
         bool spellAcknowledged = false;
         bool spellProjectileRuntime = UsesProjectileRuntime(gem.Effect) || leapSkill || shieldCharge;
-        double? immediateSwingAt = leap?.At ?? (immediateAttack ? castAt : null);
+        double? immediateSwingAt = leap?.At ?? (immediateAttack || player.Connection.LockstepClient
+            ? LockstepScheduledAt(player, castAt) : null);
         bool movedByCast = flickers && landing != stand || moves && chargeBonus == 0 && landing != stand;
         Task<bool>? spellTask = spellProjectileRuntime ? CastGemSkill(player, use.SkillId, stand, aim,
             use.TargetId, sequence: use.Sequence, actionToken: spellUse?.ActionToken ?? castAction, cooldownUse: spellUse,
@@ -3333,6 +3334,8 @@ public static partial class Game
         bool wasCharging = IsShieldChargeActive(player);
         EndShieldChargeIfInterrupted(player);
         player.ChannelSkill = 0; player.NextAttackAt = now;
+        player.LockstepActionBackswingUntil = 0;
+        player.LockstepActionScheduledAt = 0;
         // A predictive client stops for the recovery and then goes on with its walk (live 2026-11-01: 30 cells apart when
         // this ended it). A lockstep one ends its walk in the frame the 0x1d1 reaches it (PlayerHitRecoveryRecordLocked).
         if (!player.Connection.LockstepClient)

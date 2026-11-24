@@ -1582,6 +1582,12 @@ public sealed partial class Player(AreaLayout layout, uint ticket, uint seed) : 
     public readonly GameServer.Core.World.LockstepSkillHold LockstepSkill = new();
     // Until when the skill started last keeps the player (Clock seconds).
     public double LockstepBusyUntil;
+    // Continuous start time of the last Lockstep action (tracks when Actor +0x1b0 began so Actor +0x1c0 early-queuing
+    // only fires once per action and never overwrites a queued action), plus the continuous start time scheduled for
+    // the currently dispatching skill and any late-Move-cancel backswing lockout (Actor +0x2a0).
+    public double LockstepActionStartedAt;
+    public double LockstepActionScheduledAt;
+    public double LockstepActionBackswingUntil;
     public GameServer.Core.World.LockstepCastWindow? LockstepCastWindow;
     // A skill on a monster whose walk-up or swing is still to come on a lockstep client, null for none
     // (Game.LockstepAttackStart): the next use of a held skill waits for it, and the step pass runs its walk-up.

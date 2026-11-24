@@ -369,13 +369,13 @@ public static partial class Game
                         // A lockstep client's default attack at the ground is a swing where it stands (inPlace), which takes
                         // the attack time: the next use waits for it, as after a swing at a monster (Attack).
                         if (inPlace && !cast && use.SkillId == SkillCatalog.FirstSkillId)
-                            player.NextAttackAt = AttackTiming.After(at, player.NextAttackAt,
+                            player.NextAttackAt = AttackTiming.After(LockstepScheduledAt(player, at), player.NextAttackAt,
                                 Math.Max(TickSeconds, DefaultAttackSeconds(player, use.Slot, CharacterPlayerStats(player)) / PlayerActionFactor(player)));
                     }
                 }
                 Mark("begin");
                 bool projectileRuntime = cast && gem.Name is not null && (UsesProjectileRuntime(gem.Effect) || leapSkill || chargeBonus != 0);
-                double? swingAt = attack ? at : null;
+                double? swingAt = attack || player.Connection.LockstepClient ? LockstepScheduledAt(player, at) : null;
                 Task<bool>? castTask = projectileRuntime ? CastGemSkill(player, use.SkillId,
                     (px, py), (use.X, use.Y), sequence: use.Slot, actionToken: cooldownUse?.ActionToken ?? action, cooldownUse: cooldownUse,
                     swingAt: swingAt, leap: leap, movedByCast: movedByCast) : null;
