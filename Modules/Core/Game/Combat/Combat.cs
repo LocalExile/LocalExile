@@ -415,6 +415,8 @@ public static partial class Game
         string handNote = HandNote(player, hand);
         string? ordinaryProjectile = OrdinaryRangedAttack.ProjectileId(WeaponProfileFor(player, activeSet: true));
         bool ranged = ordinaryProjectile is not null;
+        if (weapon.Melee && !ranged)
+            weapon = weapon with { Range = MeleeSkillReach(player, weapon, effect: -1) };
         int precision = ranged ? RangedPrecision : 1;
         double now = AreaTime(player), duration;
         duration = Math.Max(TickSeconds,
