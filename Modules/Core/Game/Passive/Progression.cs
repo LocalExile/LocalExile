@@ -173,7 +173,7 @@ public static partial class Game
         if (player.Frames.Area is { } statArea) statArea.AddStatBuffs(new EntityId(player.Id), sources);
         AddWarcryStats(player, sources);
         sources = WithSummonBuffs(player, sources);
-        sources = WithRighteousFireSpellBonus(player, sources);
+        sources = WithRighteousFireBonuses(player, sources);
         sources = WithSpreadPoisonRegeneration(player, sources);
         if (sources.GetValueOrDefault(Stat.AdditiveModifiersToMinionAttackSpeedAlsoAffectYou) != 0)
             sources[Stat.AttackSpeedPlusPct] = ActorScale.Saturate((long)sources.GetValueOrDefault(Stat.AttackSpeedPlusPct)

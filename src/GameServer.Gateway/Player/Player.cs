@@ -816,6 +816,9 @@ public sealed record RighteousFireState(ushort Buff, ushort SelfAura, ushort Ski
     public string? RingArt { get; init; }
     /// <summary>The current gem's neutral righteous_fire_spell_damage_+%_final value, refreshed from its own stats.</summary>
     public int SpellDamageMore { get; set; }
+    public int CastSpeedMore { get; set; }
+    public int ManaBurnPctPerMinute { get; init; }
+    public int ManaDamagePctPerMinute { get; init; }
     /// <summary>The retained skill's two conditional support values and its pending changes in added damage factor.</summary>
     public (int Lifetap, int PerInspiration) ConditionalSupportMore { get; set; }
     public List<(double At, double Extra)>? SupportDamageChanges { get; set; }

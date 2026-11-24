@@ -33,7 +33,8 @@ public static partial class Game
         if (support.Effect.Id == AutoexertionSupport) return skills.IsWarcry(gem.Effect);
         return skills.IsSpell(gem.Effect) && skills.IsInstant(gem.Effect) && !skills.IsAttack(gem.Effect)
             && skills.Reservation(gem.Effect, gem.Level) is null
-            && (CooldownTriggerSelfBuff(skills.EffectId(gem.Effect)) || TriggerPayloadAvailable(player, gem));
+            && (CooldownTriggerSelfBuff(skills.EffectId(gem.Effect))
+                || IsRighteousFireEffect(skills.EffectId(gem.Effect)) || TriggerPayloadAvailable(player, gem));
     }
 
     static int CooldownTriggerReservation(Player player, bool life) =>
@@ -198,6 +199,15 @@ public static partial class Game
             {
                 if (Current()) await CastSelfBuff(player, skillId, gem.Effect);
             });
+        else if (IsRighteousFireEffect(effect))
+        {
+            if (player.RighteousFire is not null) return;
+            release = () => session.Enqueue(async () =>
+            {
+                if (Current())
+                    await ActivateRighteousFire(player, skillId, gem.Effect, gem.Level, gem.Quality, gem.SourceGem?.TypeHash ?? 0);
+            });
+        }
         else release = PrepareTriggeredPayload(player, session, skillId, aim, Current);
         if (release is null || !TryBeginCooldownUseCore(player, gem.Effect, cooldown, instant: true, () => { },
                 out var ticket, null, true, null, skillId, Current, triggered: true)
