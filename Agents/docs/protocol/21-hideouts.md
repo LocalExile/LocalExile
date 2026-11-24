@@ -684,11 +684,31 @@ The arena's authored initiator placement supplies the position where available.
 
 The module now sends these native object states and a stable affix preview; shared boss skill kits supply combat.
 Live Hysteriagate shows the familiar entity, native Wave 1/15 prompt and the rolled affixes.
+The wave's reward types ride the initiator's ObjectMagicProperties and Stats: `AfflictionMapReward1..9`
+(`AfflictionRewardMapMods`, Mods rows 23338–23346) carry `map_endgame_affliction_reward_N`, whose
+`affliction_reward_type` formatter treats the stat value as 1-based (`value - 1` is the `AfflictionRewardTypes` id),
+so the module sends each id incremented.
+
+The Delirium reward HUD is driven natively by ruleset `AfflictionEndGameRules` (`Rulesets` row 103 / `0x67`, factory
+`0x141764c70`, reader `0x141745400`), installed via S→C `0x1f` and updated via S→C `0x2c9` ([03](03-area-and-world.md) §8):
+
+- **Mode `1`** (reward tiles): `u8 1`, `u8 count`, then `count` × 13-byte little-endian entries
+  `{u8 type, u32 current, u32 max, u32 count}` (`0x141fbacc0` → `0x142172a00` → instance `+0xda58` → HUD listener
+  `0x1403341a0`). Sending `count = 0` clears and hides the HUD when a wave ends.
+- **Mode `0`** carries fog state alongside the same reward-tile stream.
+
+Each reward type tracks its own bar (`RewardGoal`: wave progress divided by `RewardPace`, explicit server policy) and
+completed cycle count (`x`); kills advance every bar and the wave pays all counted rewards at once when it ends, at
+each arena's measured `RewardSpot` (or the player's cell). The five arenas also use measured `StashSpot` and
+`StarterSpot` placements. `InstanceEvents.AreaWaypoint` suppresses the arena's authored waypoint because the encounter
+is entered from the map device and left through its portal. `ServerLevels.Level.TileAt` resolves the `.tdt` covering a
+cell (23 × 23 cells per tile slot) so Lunacy's Watch keeps wave spawns off `AfflictionShip_v01_01.tdt`. Leftover hostile
+monsters (boss summons and phased bodies, excluding friendly player minions) are cleared on wave start and completion.
 `AfflictionMinionBase.ot` independently hides its models in `create_state_visible_0` / `on_state_visible_0`;
 live waves were attacking and dying while their health bars floated over invisible bodies.
 The `visible` shared state is 1 (server override), including the shared monster origin used for re-entry.
 Updating an already-created monster from 0 to 1 also runs its native spawn effect.
-The separate in-combat reward HUD, fog, specialised boss behaviours and the full fifteen-wave clear remain incomplete or unverified.
+Fog visual state, specialised boss behaviours and the full fifteen-wave clear remain incomplete or unverified.
 GGG's [3.25 notes](https://www.pathofexile.com/forum/view-thread/3531661) establish the fifteen-wave version;
 exact population, reward-tier and exclusive drop weights are server policy, not published GGG probabilities.
 

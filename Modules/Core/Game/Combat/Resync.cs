@@ -38,7 +38,7 @@ public static partial class Game
     /// <summary>Whether a skill immediately puts the player where it was aimed. A channelled one (Cyclone) reports its own way.</summary>
     public static bool LandsAtAim(Player player, int effect) =>
         SkillsFor(player).IsMovement(effect) && !SkillsFor(player).IsChannelled(effect)
-        && !(SkillsFor(player).EffectId(effect) is { } id && (id is "LightningWarp" or VaalLightningWarpEffect
+        && !(SkillsFor(player).EffectId(effect) is { } id && (id is "LightningWarp" or VaalLightningWarpEffect or "FrostblinkAltX"
             || id.StartsWith("BlinkArrow", StringComparison.Ordinal)
             || MovementInPlace.Any(name => id.StartsWith(name, StringComparison.Ordinal))));
 
@@ -50,6 +50,14 @@ public static partial class Game
         if (player.Layout.Walkable is not { } floor) return aim;
         bool walkable(int x, int y) => floor(x, y) && !player.Barrier.Contains((x, y));
         string? id = SkillsFor(player).EffectId(effect);
+        if (id == "FrostblinkAltX")
+        {
+            const uint distanceStat = Stat.SkillMaximumTravelDistancePlusPct;
+            int travel = GolemStat(CharacterPlayerStats(player), distanceStat);
+            if (skill != 0) travel += GolemStat(SupportedSkill(player, skill).Stats, distanceStat);
+            return InstantLocationSkill.TryResolveLanding(player, from, aim, travel, allowTerrainFallback: true, out var landing)
+                ? landing : from;
+        }
         if (id is "Dash" or "DashHardMode")
         {
             const uint distanceStat = Stat.SkillTravelDistancePlusPct;

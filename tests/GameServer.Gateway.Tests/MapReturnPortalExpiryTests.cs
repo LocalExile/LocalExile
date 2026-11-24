@@ -26,4 +26,20 @@ public sealed class MapReturnPortalExpiryTests
         Assert.True(AreaInstances.RecreatedOnEntry(HideoutCatalog.Default!.AreaHash16));
         Assert.False(AreaInstances.RecreatedOnEntry(AreaLayouts.TheCoast));
     }
+
+    [Fact]
+    public void PrepareHideoutWaypoint_preserves_map_return_arrival_beside_device()
+    {
+        var hideout = HideoutCatalog.Default!;
+        var layout = AreaLayouts.For(hideout.AreaHash16, 1) with { SpawnX = 376, SpawnY = 375 };
+        var returning = new Player(layout, 0, 1) { ArriveAt = (376, 375) };
+
+        Game.PrepareHideoutWaypoint(returning);
+        Assert.Equal((376, 375), (returning.Layout.SpawnX, returning.Layout.SpawnY));
+
+        var warp = new Player(layout, 0, 1) { ArriveAt = null, ArriveAtWaypoint = true };
+        Game.PrepareHideoutWaypoint(warp);
+        var waypoint = warp.Layout.Waypoint!;
+        Assert.Equal((waypoint.GridX, waypoint.GridY), (warp.Layout.SpawnX, warp.Layout.SpawnY));
+    }
 }

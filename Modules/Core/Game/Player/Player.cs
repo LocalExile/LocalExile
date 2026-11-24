@@ -1825,7 +1825,8 @@ public static partial class Game
         foreach (var (id, effect) in layout.Effects)
             messages.Add(($"0x02bb create transition effect 0x{id:x} {effect}",
                 Create(id, InstanceEntities.ObjectTypeHash(effect.Type), effect.Blob())));
-        if (layout.Waypoint is { } waypoint)
+        var waypoint = InstanceEvents.RunAreaWaypoint(player, layout.Waypoint);
+        if (waypoint is not null)
             messages.Add(($"0x02bb create waypoint 0x{WaypointCatalog.ObjectId:x} {waypoint}",
                 Create(WaypointCatalog.ObjectId, InstanceEntities.ObjectTypeHash(WaypointObject.MetadataPath), waypoint.Blob())));
         if (Environment.GetEnvironmentVariable("Game_GATEWAY_ENTER") == "1")
@@ -1856,7 +1857,7 @@ public static partial class Game
                 messages.Add(($"0x01a9 area transition 0x{id:x} enters wake zone", Wake(id)));
             foreach (var (id, _) in layout.Effects)
                 messages.Add(($"0x01a9 transition effect 0x{id:x} enters wake zone", Wake(id)));
-            if (layout.Waypoint is not null) messages.Add(($"0x01a9 waypoint 0x{WaypointCatalog.ObjectId:x} enters wake zone", Wake(WaypointCatalog.ObjectId)));
+            if (waypoint is not null) messages.Add(($"0x01a9 waypoint 0x{WaypointCatalog.ObjectId:x} enters wake zone", Wake(WaypointCatalog.ObjectId)));
             // The attributes once more as a stats update. UI built on entering caches them (0x141e869c0 reads the Stats
             // component's getter); live 2026-10-18 the cache held 0 while the getter returned 14/14/32.
             messages.Add(("0x01b3 class attributes", []));
@@ -1865,19 +1866,23 @@ public static partial class Game
         // mark them as this player's view so they are never recorded in Area.Objects and replayed to later joiners.
         var previousView = Program.ViewOf.Value;
         Program.ViewOf.Value = player;
+        IReadOnlyList<GrantedSkill> overflowSkills = [];
         try
         {
             foreach (var (label, bytes) in messages)
                 if (label == creationLabel)
+                {
                     await SendWorldCreate(player, player.Id, () =>
                     {
                         if (player.Closed || player.LeavingArea || player.RageRetired) return null;
                         ReconcileOwnAuras(player, validateSkills: true);
-                        var playerObject = PlayerForCreation(player);
-                        player.PeerTemplate = playerObject;
-                        player.ClientSkillIds = [.. playerObject.Skills!.Select(s => s.Id)];
+                        var raw = PlayerForCreation(player);
+                        var (fitted, overflow) = raw.FitSkillList(out byte[] fittedBlob);
+                        overflowSkills = overflow;
+                        player.PeerTemplate = fitted;
+                        player.ClientSkillIds = [.. raw.Skills!.Select(s => s.Id)];
                         player.SentVaalSouls.Clear();
-                        foreach (var budget in playerObject.Souls ?? [])
+                        foreach (var budget in fitted.Souls ?? [])
                             player.SentVaalSouls.Add(budget.ActiveSkillsRow, budget);
                         // A new player object has no buffs: every system's are written again.
                         player.Area.Buffs.Removed(player.Id);
@@ -1887,8 +1892,15 @@ public static partial class Game
                         player.PetrifiedBlood.SentLossExpiry = 0;
                         player.AuraStatsDirty = false;
                         player.Connection.PlayerObjectCreated = true;
-                        return InstanceEntities.CreateObject(player.Id, player.PeerType, playerObject.Blob());
+                        RecordPlayerSkills(player, raw.Skills!);
+                        return InstanceEntities.CreateObject(player.Id, player.PeerType, fittedBlob);
                     }, label);
+                    if (overflowSkills.Count > 0)
+                        await SendWorldRecords(player, player.Id,
+                            () => InstanceEntities.PlayerSkillsChangeBatches(player.Id, overflowSkills, [],
+                                canDetonateMines: CanDetonateMines(player)),
+                            $"0x02bc overflow player skills ({overflowSkills.Count})");
+                }
                 else if (label == "0x01b3 class attributes")
                     await SendPlayerStatSnapshot(player,
                         () => PublishPlayerStats(player), label);

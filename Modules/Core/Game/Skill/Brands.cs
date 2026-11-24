@@ -1509,6 +1509,8 @@ public static partial class Game
                 return;
             }
             int cdMs = catalog.CooldownMs(spellGem.Effect, spellGem.Level);
+            if (spellGem.Stats.GetValueOrDefault(Stat.SpellCastTimeAddedToCooldownIfTriggered) != 0)
+                cdMs += catalog.CastTimeMs(spellGem.Effect);
             if (cdMs > 0)
             {
                 double rate = Math.Max(0.05, 1 + (BrandStat(playerStats, "virtual_cooldown_speed_+%")

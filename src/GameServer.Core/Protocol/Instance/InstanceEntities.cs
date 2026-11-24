@@ -387,18 +387,122 @@ public static class InstanceEntities
     /// Unlike the 0x40 list it removes skills, and it tells the client's UI that the skills changed
     /// (<c>0x140b37970</c> before and after, when there is a record or an id): the character panel's skill list follows it.
     /// </summary>
+    /// <summary>Conservative u16 Blob payload cap (LoginWriter.Blob throws OverflowException above 65,535 bytes).</summary>
+    public const int MaxSkillBlobBytes = 56_000;
+
     public static byte[] PlayerSkillsChange(uint playerId, IReadOnlyList<GrantedSkill> skills, IReadOnlyList<ushort> removed,
         IReadOnlyList<VaalSoulSeed>? soulSeeds = null, IReadOnlyList<VaalSoulUpdate>? soulUpdates = null,
         bool canDetonateMines = false)
     {
-        var w = new BlobWriter().U8(canDetonateMines ? (byte)0xa0 : (byte)0x20).U8(0).U8((byte)skills.Count).U8((byte)removed.Count);
+        var w = new BlobWriter().U8(canDetonateMines ? (byte)0xa0 : (byte)0x20).U8(0)
+            .U8(checked((byte)skills.Count)).U8(checked((byte)removed.Count));
         foreach (var s in skills) PlayerObject.WriteSkillRecord(w, s);
         foreach (var id in removed) w.U16(id);
+        WriteSoulChanges(w, soulSeeds, soulUpdates);
+        return ComponentUpdate(playerId, PlayerObject.ActorComponentIndex, w.ToArray());
+    }
+
+    static void WriteSoulChanges(BlobWriter w, IReadOnlyList<VaalSoulSeed>? soulSeeds, IReadOnlyList<VaalSoulUpdate>? soulUpdates)
+    {
         w.U8(checked((byte)(soulSeeds?.Count ?? 0)));
         foreach (var s in soulSeeds ?? []) w.U32(s.ActiveSkillsRow).U32(s.Capacity);
         w.U8(checked((byte)(soulUpdates?.Count ?? 0)));
         foreach (var s in soulUpdates ?? []) w.U32(s.ActiveSkillsRow).U32(s.Current).U32(s.NewCapacity);
-        return ComponentUpdate(playerId, PlayerObject.ActorComponentIndex, w.ToArray());
+    }
+
+    /// <summary>Encodes <see cref="PlayerSkillsChange"/> as one or more Actor 0x20 packets so each <see cref="ComponentUpdate"/>
+    /// stays within the 65,535-byte wire u16 length limit even for characters with many socketed skills and stats.</summary>
+    public static byte[][] PlayerSkillsChangeBatches(uint playerId, IReadOnlyList<GrantedSkill> skills, IReadOnlyList<ushort> removed,
+        IReadOnlyList<VaalSoulSeed>? soulSeeds = null, IReadOnlyList<VaalSoulUpdate>? soulUpdates = null,
+        bool canDetonateMines = false, int maxBlobBytes = MaxSkillBlobBytes)
+    {
+        byte flag0 = canDetonateMines ? (byte)0xa0 : (byte)0x20;
+        // Single-pass fast path: encode once directly when counts fit in u8 and total blob fits in maxBlobBytes.
+        if (skills.Count <= 255 && removed.Count <= 255)
+        {
+            var single = new BlobWriter().U8(flag0).U8(0).U8((byte)skills.Count).U8((byte)removed.Count);
+            foreach (var s in skills) PlayerObject.WriteSkillRecord(single, s);
+            foreach (var id in removed) single.U16(id);
+            WriteSoulChanges(single, soulSeeds, soulUpdates);
+            if (1 + single.Length <= maxBlobBytes)
+                return [ComponentUpdate(playerId, PlayerObject.ActorComponentIndex, single.ToArray())];
+        }
+
+        var skillBytes = new byte[skills.Count][];
+        for (int i = 0; i < skills.Count; i++)
+        {
+            var probe = new BlobWriter();
+            PlayerObject.WriteSkillRecord(probe, skills[i]);
+            skillBytes[i] = probe.ToArray();
+        }
+        int soulsBytes = 1 + 8 * (soulSeeds?.Count ?? 0) + 1 + 12 * (soulUpdates?.Count ?? 0);
+        int fullTailBytes = 2 * removed.Count + soulsBytes;
+
+        var packets = new List<byte[]>();
+        bool tailAttached = false;
+        int start = 0;
+        while (start < skills.Count)
+        {
+            int count = 0;
+            int bodySkills = 0;
+            while (start + count < skills.Count && count < 255)
+            {
+                int nextLen = skillBytes[start + count].Length;
+                bool wouldEnd = start + count + 1 == skills.Count;
+                int needed = 1 + 4 + bodySkills + nextLen + (wouldEnd && removed.Count <= 255 ? fullTailBytes : 2);
+                if (count > 0 && needed > maxBlobBytes) break;
+                bodySkills += nextLen;
+                count++;
+            }
+            bool lastSkills = start + count == skills.Count;
+            bool attachTail = lastSkills && removed.Count <= 255 && 1 + 4 + bodySkills + fullTailBytes <= maxBlobBytes;
+            var w = new BlobWriter().U8(flag0).U8(0).U8((byte)count).U8(attachTail ? (byte)removed.Count : (byte)0);
+            for (int i = 0; i < count; i++) w.Bytes(skillBytes[start + i]);
+            if (attachTail)
+            {
+                foreach (var id in removed) w.U16(id);
+                WriteSoulChanges(w, soulSeeds, soulUpdates);
+                tailAttached = true;
+            }
+            else
+            {
+                w.U8(0).U8(0);
+            }
+            packets.Add(ComponentUpdate(playerId, PlayerObject.ActorComponentIndex, w.ToArray()));
+            start += count;
+        }
+        if (!tailAttached)
+        {
+            bool soulsAttached = false;
+            int maxRemovedPerBatch = Math.Max(1, Math.Min(255, (maxBlobBytes - 1 - 4 - 2) / 2));
+            int remStart = 0;
+            while (remStart < removed.Count)
+            {
+                int remCount = Math.Min(maxRemovedPerBatch, removed.Count - remStart);
+                bool attachSouls = remStart + remCount == removed.Count
+                    && 1 + 4 + 2 * remCount + soulsBytes <= maxBlobBytes;
+                var w = new BlobWriter().U8(flag0).U8(0).U8(0).U8((byte)remCount);
+                for (int i = 0; i < remCount; i++) w.U16(removed[remStart + i]);
+                if (attachSouls)
+                {
+                    WriteSoulChanges(w, soulSeeds, soulUpdates);
+                    soulsAttached = true;
+                }
+                else
+                {
+                    w.U8(0).U8(0);
+                }
+                packets.Add(ComponentUpdate(playerId, PlayerObject.ActorComponentIndex, w.ToArray()));
+                remStart += remCount;
+            }
+            if (!soulsAttached && (packets.Count == 0 || soulSeeds is { Count: > 0 } || soulUpdates is { Count: > 0 }))
+            {
+                var w = new BlobWriter().U8(flag0).U8(0).U8(0).U8(0);
+                WriteSoulChanges(w, soulSeeds, soulUpdates);
+                packets.Add(ComponentUpdate(playerId, PlayerObject.ActorComponentIndex, w.ToArray()));
+            }
+        }
+        return [.. packets];
     }
 
     /// <summary>Actor 0x0100: incremental minion ownership (0x142199c20). Source zero removes an id;
@@ -1299,6 +1403,9 @@ public enum MonsterRarity : byte { Normal = 0, Magic = 1, Rare = 2, Unique = 3 }
 public sealed class BlobWriter
 {
     private readonly List<byte> _b = [];
+    public int Length => _b.Count;
+    internal void SetByte(int index, byte value) => _b[index] = value;
+    internal void Truncate(int length) => _b.RemoveRange(length, _b.Count - length);
     public byte[] ToArray() => [.. _b];
     /// <summary>
     /// The Positioned component (reader 0x141e323f0), written in the reader's order: x, y, rotation, u16 team (+0x1e0), u8
@@ -1425,9 +1532,8 @@ public sealed record PlayerObject(string Name, byte ClassIndex, int GridX, int G
         foreach (var (block, bits) in blocks) w.U8((byte)block).U32((uint)bits).U32((uint)(bits >> 32));
     }
 
-    public byte[] Blob()
+    void WriteHeader(BlobWriter w)
     {
-        var w = new BlobWriter();
         w.U8(0);            // object flags (0x141ec4a40: bit0 → +0x8c|0x80, bit1 → +0x8d|2)
         w.U8(0);            // base data entry count (0x141dedf80)
         // Positioned (BlobWriter.Positioned): the type's +0x21 prefix (Sector) is off; blocking is the character type's
@@ -1474,6 +1580,12 @@ public sealed record PlayerObject(string Name, byte ClassIndex, int GridX, int G
         // vtable+0xa0 reader 0x142199c20: two flag bytes. f0 0x40 = the skill list (0x14219e480); the rest stay off.
         // Player's WashedUp flag selects that stance, but Actor is read afterwards and replaces it with this byte.
         w.WStr32(ActorFile ?? "").U16(0).U8(WashedUp ? WashedUpStance : (byte)0).U32(0).U32(0);
+    }
+
+    public byte[] Blob()
+    {
+        var w = new BlobWriter();
+        WriteHeader(w);
         if (Skills is { Count: > 0 } || Souls is { Count: > 0 })
         {
             w.U8(0x40).U8(0);
@@ -1482,6 +1594,49 @@ public sealed record PlayerObject(string Name, byte ClassIndex, int GridX, int G
         else w.U8(0).U8(0);
         w.U8(0);            // tasks (0x141ee6950)
         return w.ToArray();
+    }
+
+    /// <summary>Splits <see cref="Skills"/> when the full <see cref="Blob"/> exceeds <paramref name="maxBlobBytes"/>
+    /// or the u8 skill-count limit (255) so <c>0x02bb CreateObject</c> stays valid; overflow skills follow via <c>0x02bc</c>.</summary>
+    public (PlayerObject Fitted, IReadOnlyList<GrantedSkill> OverflowSkills) FitSkillList(
+        int maxBlobBytes = InstanceEntities.MaxSkillBlobBytes) => FitSkillList(out _, maxBlobBytes);
+
+    /// <summary>Single-pass <see cref="FitSkillList(int)"/> that also returns the encoded <c>Fitted</c> blob so callers
+    /// do not serialize the <see cref="PlayerObject"/> twice.</summary>
+    public (PlayerObject Fitted, IReadOnlyList<GrantedSkill> OverflowSkills) FitSkillList(
+        out byte[] fittedBlob, int maxBlobBytes = InstanceEntities.MaxSkillBlobBytes)
+    {
+        if (Skills is not { Count: > 0 })
+        {
+            fittedBlob = Blob();
+            return (this, []);
+        }
+        var w = new BlobWriter();
+        WriteHeader(w);
+        w.U8(0x40).U8(0);
+        int countOffset = w.Length;
+        w.U8(0);
+        int suffixBytes = 1 + 12 * (Souls?.Count ?? 0) + 4 + 1;
+        int fittedCount = 0;
+        for (int i = 0; i < Skills.Count && fittedCount < 255; i++)
+        {
+            int beforeSkill = w.Length;
+            WriteSkillRecord(w, Skills[i]);
+            if (fittedCount > 0 && w.Length + suffixBytes > maxBlobBytes)
+            {
+                w.Truncate(beforeSkill);
+                break;
+            }
+            fittedCount++;
+        }
+        w.SetByte(countOffset, (byte)fittedCount);
+        WriteSoulBudgets(w, Souls);
+        w.U32(0);
+        w.U8(0);            // tasks (0x141ee6950)
+        fittedBlob = w.ToArray();
+        if (fittedCount == Skills.Count)
+            return (this, []);
+        return (this with { Skills = [.. Skills.Take(fittedCount)] }, [.. Skills.Skip(fittedCount)]);
     }
 
     /// <summary>Actor slot 20, f0 0x40 (0x14219e480): u8 n × skill (0x14219d650), u8 m × (u32 row, u32, u32), u32 k ×

@@ -34,7 +34,7 @@ public sealed class MapReentryPortalTests
             // Still no extra entrance beside the device: re-entry spends the shared portals, and arrives at this one.
             Assert.False(PortalsRules.OpenPortals.ContainsKey(owner));
             Assert.Equal(portal, PortalsFeature.MapEntrySpot(owner, entered));
-            Assert.Null(PortalsFeature.MapEntrySpot(guest, entered));   // each player's entry goes to their own portal
+            Assert.Equal(portal, PortalsFeature.MapEntrySpot(guest, entered));   // party entries through the device arrive at the active portal in that map
 
             // Resurrect at Checkpoint in the map leaves it for the device it was entered from, as the official servers do.
             var exit = Game.MapCheckpointExit(inMap)!;
@@ -107,6 +107,86 @@ public sealed class MapReentryPortalTests
         }
         finally
         {
+            MapDevice.Close(owner);
+            PortalsRules.MapTownPortals.TryRemove(owner, out _);
+            PortalsRules.OpenPortals.TryRemove(owner, out _);
+        }
+    }
+
+    [Fact]
+    public async Task A_players_open_portal_is_visible_to_a_peer_in_the_same_instance()
+    {
+        const string owner = "peer-portal-owner", guest = "peer-portal-guest", late = "peer-portal-late";
+        var area = new MapDevice.MapArea(0x2a5a, "MapWorldsStrand", "Strand", 1);
+        using var runtime = new PartyFollowerTests.Runtime();
+        using var ownerWire = new PartyFollowerTests.Wire();
+        using var guestWire = new PartyFollowerTests.Wire();
+        using var lateWire = new PartyFollowerTests.Wire();
+        var instance = new InstanceState();
+        Player Make(string name, PartyFollowerTests.Wire wire)
+        {
+            var c = new Player(new(area.Hash16, area.Id, 300, 300, 10, 10, null, []), 0, 1)
+            {
+                Character = { Name = name, Account = name },
+                Connection = { PlayerSent = true, Session = new(name, wire.Stream, wire.Ciphers) },
+                Instance = instance, InstanceNumber = 987720, PlayerLife = 100,
+            };
+            Program.InGame.TryAdd(c, 0);
+            instance.AddPlayer(c);
+            return c;
+        }
+        var ownerConn = Make(owner, ownerWire);
+        var guestConn = Make(guest, guestWire);
+        try
+        {
+            MapDevice.Entered(MapDevice.Activate(owner, area, entrance: new(0x1234, 7, 50, 50)), 987720);
+            await PortalsFeature.OpenTownPortal(ownerConn, 120, 140, "test");
+
+            Assert.Single(guestConn.PeerPortals);
+            var peerPortal = Assert.Single(guestConn.PeerPortals.Values);
+            Assert.Equal(owner, peerPortal.Owner);
+            Assert.Equal(ownerConn.ReturnPortal!.Value.X, peerPortal.X);
+            Assert.Equal(ownerConn.ReturnPortal!.Value.Y, peerPortal.Y);
+
+            var lateConn = Make(late, lateWire);
+            try
+            {
+                await PortalsFeature.SpawnMapReturnPortal(lateConn);
+                Assert.Null(lateConn.ReturnPortal);
+                await PortalsFeature.SpawnTownPortals(lateConn);
+                var latePeerPortal = Assert.Single(lateConn.PeerPortals);
+                Assert.Equal(owner, latePeerPortal.Value.Owner);
+                var lines = Program.HistoryFor(lateWire.Ciphers).Lines().ToList();
+                string hex = latePeerPortal.Key.ToString("X8");
+                int listed = lines.FindIndex(l => l.Contains(" 0x008f ") && l.Contains("01" + hex));
+                int created = lines.FindIndex(l => l.Contains(" 0x02bb ") && l.Contains("02BB" + hex));
+                Assert.True(listed >= 0 && created >= 0 && listed < created);
+            }
+            finally { lateConn.Closed = true; Program.InGame.TryRemove(lateConn, out _); }
+
+            // Opening a new portal in a different instance removes the owner's stale peer portal from viewers in the old one.
+            using var movedWire = new PartyFollowerTests.Wire();
+            var otherInstance = new InstanceState();
+            var movedOwner = new Player(new(area.Hash16, area.Id, 300, 300, 10, 10, null, []), 0, 1)
+            {
+                Character = { Name = owner, Account = owner },
+                Connection = { PlayerSent = true, Session = new(owner, movedWire.Stream, movedWire.Ciphers) },
+                Instance = otherInstance, InstanceNumber = 987721, PlayerLife = 100,
+            };
+            Program.InGame.TryAdd(movedOwner, 0);
+            otherInstance.AddPlayer(movedOwner);
+            try
+            {
+                await PortalsFeature.OpenTownPortal(movedOwner, 130, 150, "moved");
+                Assert.Empty(guestConn.PeerPortals);
+            }
+            finally { movedOwner.Closed = true; Program.InGame.TryRemove(movedOwner, out _); }
+        }
+        finally
+        {
+            ownerConn.Closed = true; guestConn.Closed = true;
+            Program.InGame.TryRemove(ownerConn, out _);
+            Program.InGame.TryRemove(guestConn, out _);
             MapDevice.Close(owner);
             PortalsRules.MapTownPortals.TryRemove(owner, out _);
             PortalsRules.OpenPortals.TryRemove(owner, out _);
