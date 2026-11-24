@@ -17,14 +17,20 @@ public static partial class Game
         int amount = type == ChargeType.Endurance
             ? GolemStat(ability.Stats, Stat.EnduringCryGrantsXAdditionalEnduranceCharges) : 1;
         if (amount <= 0) return;
-        var grant = new ChargeEvent.Grant(type, amount, ability.Id);
+        GrantNearbyChargesLocked(player, at, now, ability.Radius, new(type, amount, ability.Id), includeOwner: true);
+    }
+
+    static void GrantNearbyChargesLocked(Player player, (int X, int Y) at, double now, double radius,
+        ChargeEvent.Grant grant, bool includeOwner, uint exceptFighter = 0)
+    {
         void Grant(Player recipient, (int X, int Y) playerAt, double recipientTime)
         {
-            if (recipient.PlayerLife > 0 && Dist(at, playerAt) <= ability.Radius)
+            if ((includeOwner || !ReferenceEquals(player, recipient)) && recipient.PlayerLife > 0 && Dist(at, playerAt) <= radius)
                 ChargesOf(recipient).Enqueue(grant);
             foreach (var fighter in UtilityFighters(recipient))
-                if (Dist(at, fighter.Monster.Walk.Position(recipientTime)) <= ability.Radius)
-                    GrantMinionChargeLocked(recipient, fighter, type, amount, recipientTime);
+                if (fighter.Id != exceptFighter && GolemCurrent(recipient, fighter)
+                    && Dist(at, fighter.Monster.Walk.Position(recipientTime)) <= radius)
+                    GrantMinionChargeLocked(recipient, fighter, grant.Type, grant.Count, recipientTime);
         }
 
         Grant(player, player.Walk.Position(now), now);
@@ -32,6 +38,33 @@ public static partial class Game
             if (!recipient.Closed && !recipient.LeavingArea
                 && !ReferenceEquals(player, recipient) && ReferenceEquals(player.Instance, recipient.Instance))
                 Grant(recipient, recipient.Walk.Position(AreaTime(recipient)), AreaTime(recipient));
+    }
+
+    // The native on-hit/on-kill modifier rows describe allies within four metres.
+    const int NearbyChargeRadius = 40;
+
+    static void PlayerGrantsNearbyChargesLocked(Player player, bool kill, double now)
+    {
+        var stats = StatSourceValues(player);
+        uint first = kill ? Stat.ChanceToGrantPowerChargeToNearbyAlliesOnKillPct : Stat.ChanceToGrantFrenzyChargeToNearbyAlliesOnHitPct;
+        uint second = kill ? Stat.ChanceToGrantFrenzyChargeToNearbyAlliesOnKillPct : Stat.ChanceToGrantEnduranceChargeToNearbyAlliesOnHitPct;
+        void TryGrant(uint key, ChargeType type)
+        {
+            if (GameServer.Core.World.RandomRolls.Chance(GolemStat(stats, key), 100, AreaRng(player)))
+                GrantNearbyChargesLocked(player, player.Walk.Position(now), now, NearbyChargeRadius,
+                    new(type, 1, "nearby allies"), includeOwner: false);
+        }
+        TryGrant(first, kill ? ChargeType.Power : ChargeType.Frenzy);
+        TryGrant(second, kill ? ChargeType.Frenzy : ChargeType.Endurance);
+    }
+
+    static void MinionGrantsNearbyChargesOnHitLocked(Player player, GolemState.Golem fighter,
+        (int X, int Y) at, double now, Random random)
+    {
+        int chance = fighter.Monster.Effects[Stat.ChanceToGrantFrenzyChargeToNearbyAlliesOnHitPct];
+        if (GameServer.Core.World.RandomRolls.Chance(chance, 100, random))
+            GrantNearbyChargesLocked(player, at, now, NearbyChargeRadius, new(ChargeType.Frenzy, 1, "minion hit"),
+                includeOwner: true, exceptFighter: fighter.Id);
     }
 
     static void GrantMinionChargeLocked(Player owner, GolemState.Golem fighter, ChargeType type, int amount, double now)

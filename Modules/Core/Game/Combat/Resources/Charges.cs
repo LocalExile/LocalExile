@@ -68,6 +68,7 @@ public static partial class Game
             skill, Killed: m.Dead || m.Life == 0, Primary: primary, Frozen: frozen, Bleeding: bleeding, Marked: marked,
             SelfBleeding: selfBleeding, SelfPoisoned: selfPoisoned));
         CurseCharges(player, m, death: false, now);
+        PlayerGrantsNearbyChargesLocked(player, kill: false, now);
     }
 
     // The player died (PlayerDied): every gained charge goes now, not at the ticker's next step, which a pause holds back.
@@ -93,6 +94,7 @@ public static partial class Game
         SpiritChargeOnKill(player, AreaTime(player));
         SelfBuffsOnKill(player);
         CurseCharges(player, m, death: true, now);
+        PlayerGrantsNearbyChargesLocked(player, kill: true, now);
     }
 
     // A monster's hit on the player that landed or was blocked (when hit), and on block when blocked: "if you've been hit

@@ -814,7 +814,11 @@ public static partial class Game
                 TryFleeFromHitLocked(player, target, from, flee, now);
             }
         }
-        if (damage > 0) FeedingFrenzyOnHitLocked(player, g, now);
+        if (damage > 0)
+        {
+            FeedingFrenzyOnHitLocked(player, g, now);
+            MinionGrantsNearbyChargesOnHitLocked(player, g, from, now, random);
+        }
         return true;
     }
 
