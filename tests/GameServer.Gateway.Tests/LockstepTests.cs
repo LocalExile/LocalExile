@@ -473,32 +473,64 @@ public class LockstepTests : IDisposable
     [Fact]
     public void Close_range_held_move_continues_smoothly_and_nimis_randomizes_attack_volleys()
     {
-        // Close-range held Move (4 cells left) must project from here when LockstepClientCell lags behind or the
-        // short walk is about to finish within 2 frames, and stop cleanly once released or held on feet.
+        // Close-range held Move: scales 2-4 cell held offsets along their direction (~5 cells / ~140 ms at base speed)
+        // so walks run smoothly across the 69-99 ms 0x0192 cadence without 33 ms integer-cell snaps or stutters,
+        // projects forward when lagged 0x192 lands shorter or behind here, and stops on feet (< 2 cells) or release.
         var player = new Player(new(1, "close-hold", 300, 300, 100, 100, null, []), 1, 1)
         {
+            Instance = new(),
             Connection = { LockstepClient = true }
         };
+        player.Npcs[0x04000000] = new(Game.Npcs.Find("Metadata/NPC/Act1/Nessa")!, 105, 100);
+        var npcClick = Convert.FromHexString("018F040000000266040000");
+        var heldMove = Convert.FromHexString("018E00000006000000002909000800");
+        Game.OnLockstepRequest(player, InstanceProtocol.LockstepUseOnObjectId, npcClick);
+        Game.OnLockstepRequest(player, InstanceProtocol.LockstepMoveStartId, heldMove);
+        Assert.NotNull(player.LockstepUse);
+        Assert.False(player.LockstepHold.Held);
+        var drop = player.Instance.Ground.Add(new(105, 100, ItemCatalog.Create(Program.Items.Find("Scroll of Wisdom")!)));
+        var pickup = new LoginWriter().U16(InstanceProtocol.LockstepUseOnObjectId).U32(drop).U16(0x266).U16(0x400).U8(0).ToArray();
+        Game.OnLockstepRequest(player, InstanceProtocol.LockstepUseOnObjectId, pickup);
+        Game.OnLockstepRequest(player, InstanceProtocol.LockstepMoveStartId, heldMove);
+        Assert.Equal(drop, player.LockstepUse?.TargetId);
+        player.Instance.Ground.Take(drop);
+        Game.OnLockstepRequest(player, InstanceProtocol.LockstepMoveStartId, heldMove);
+        Assert.True(player.LockstepHold.Held);
+        Assert.Null(player.LockstepUse);
+
         player.LockstepHold.Press((96, 100), 0x2909, 0x0400, (-4, 0));
-        Assert.Equal((96, 100), Game.LockstepMoveDue(player, 0));
-        player.Walk.Order(96, 100, 0);
-        // 66 ms in: walk finishes at ~108 ms (within 2 frames of 66 ms) -> seamlessly projects (-4, 0) from here.
-        var extended = Game.LockstepMoveDue(player, 0.066);
+        var first = Game.LockstepMoveDue(player, 0);
+        Assert.NotNull(first);
+        Assert.Equal(100, first.Value.Y);
+        Assert.True(first.Value.X <= 95);
+        player.Walk.Order(first.Value.X, first.Value.Y, 0);
+        // 33 ms in: plenty of walk left (> 1 frame) -> no 33 ms position-snap spam.
+        Assert.Null(Game.LockstepMoveDue(player, 0.033));
+        // Within 1 frame of arrival -> seamlessly extends without stopping.
+        double nearEnd = player.Walk.ArrivesAt - 0.02;
+        var here = player.Walk.Position(nearEnd);
+        var extended = Game.LockstepMoveDue(player, nearEnd);
         Assert.NotNull(extended);
-        var here = player.Walk.Position(0.066);
-        Assert.Equal((here.X - 4, here.Y), extended.Value);
-        // Lagged 0x192 whose target (98, 100) lands within 2 cells of here still projects (-4, 0) from here.
-        player.LockstepHold.Update((here.X - 1, here.Y), (-4, 0));
-        Assert.Equal((here.X - 4, here.Y), Game.LockstepMoveDue(player, 0.066));
-        // Cursor moved directly onto feet (< 3 cells) stops cleanly.
+        Assert.True(extended.Value.X <= here.X - 5);
+        // Very close offset (2 cells beside feet) smoothly walks in that direction.
+        player.LockstepHold.Update((here.X - 2, here.Y), (-2, 0));
+        var veryClose = Game.LockstepMoveDue(player, nearEnd);
+        Assert.NotNull(veryClose);
+        Assert.True(veryClose.Value.X <= here.X - 5);
+        // A lagged 0x192 whose target lands behind here (dot <= 0) projects forward instead of walking backwards.
+        player.LockstepHold.Update((here.X + 2, here.Y), (-4, 0));
+        var forward = Game.LockstepMoveDue(player, nearEnd);
+        Assert.NotNull(forward);
+        Assert.True(forward.Value.X <= here.X - 5);
+        // Cursor moved directly onto feet (< 2 cells) stops cleanly.
         player.LockstepHold.Update((here.X - 1, here.Y), (-1, 0));
-        Assert.Null(Game.LockstepMoveDue(player, 0.066));
-        // Releasing clears offset and stops cleanly.
+        Assert.Null(Game.LockstepMoveDue(player, nearEnd));
+        // Releasing clears offset and issues the final target at most once without extending.
         player.LockstepHold.Update((here.X - 4, here.Y), (-4, 0));
         player.LockstepHold.Release();
         Assert.Null(player.LockstepHold.Offset);
-        Assert.Equal((here.X - 4, here.Y), Game.LockstepMoveDue(player, 0.066));
-        Assert.Null(Game.LockstepMoveDue(player, 0.066));
+        Assert.Equal((here.X - 4, here.Y), Game.LockstepMoveDue(player, nearEnd));
+        Assert.Null(Game.LockstepMoveDue(player, nearEnd));
 
         // Nimis (random_projectile_direction) randomizes non-ClientPredicted attack volleys using the client's
         // seeded angles, and IceShot is natively client-drawn so no duplicate server arrow is spawned.
