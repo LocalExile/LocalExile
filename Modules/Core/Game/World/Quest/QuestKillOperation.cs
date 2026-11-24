@@ -121,20 +121,25 @@ public static partial class Game
 
         async Task<bool> PredictiveBatch()
         {
+            var reservations = new WorldAdmission(player.Connection.WorldOutput, creates ?? []);
             bool projected = false;
-            await Program.Send(player, [], null, still, atGate: () =>
+            try
             {
-                // Preserve predictive's existing batching, guards, projection time and combined wire write.
-                var admission = new WorldAdmission(player.Connection.WorldOutput, []);
-                try
+                await Program.Send(player, [], null, still, atGate: () =>
                 {
-                    if (atGate(admission) is not { } batch) return null;
-                    projected = true;
-                    return [.. batch.Records.SelectMany(record => record.CopyBytes())];
-                }
-                finally { admission.Finish(false); }
-            });
-            return projected;
+                    // Preserve predictive's existing batching, guards, projection time and combined wire write.
+                    var admission = new WorldAdmission(player.Connection.WorldOutput, []);
+                    try
+                    {
+                        if (atGate(admission) is not { } batch) return null;
+                        projected = true;
+                        return [.. batch.Records.SelectMany(record => record.CopyBytes())];
+                    }
+                    finally { admission.Finish(false); }
+                });
+                return projected;
+            }
+            finally { reservations.Finish(false); }
         }
     }
 
