@@ -138,8 +138,8 @@ connection. Later opens send b = 0x16: the panel keeps its own tab while the con
   folder (a StashType 16 tab, never asked for contents) and the tab list (S→C 0x136) puts the tab in it. A drag in the
   tab list (`0x140a8cf75`) sends the same pair. Kept (`AccountStash.MoveToFolder`, the parent column).
   Live 2026-11-24: the new folder's settings then open with its name; the check mark sends 0xcd only for a changed
-  name and closes the window on its 0x136, while an unchanged "New Folder" sends nothing and the window stays open
-  (client side: the 0x136 header's listener byte 1 instead of 0 after 0xd1 changed nothing).
+  name and closes the window on its 0x136, while an unchanged "New Folder" sends nothing and the window stays open, as
+  in retail (the 0x136 header's listener byte 1 instead of 0 after 0xd1 changed nothing).
 - **0xcd** (vtable `0x1435cab10`, write `0x141f9ccd0`; built by the tab settings `0x14025b9b0`): a premium tab renamed.
   u8 kind, u16 BE tab, u64 (0), wstr name. **0xce** (17 bytes, vtable `0x1435ca3c0`, write `0x141f9d0a0`): its colour,
   u8 kind, u16 BE tab, u64 (0), u32 BE colour; the client keeps the colour in the tab record's +0x2c, which the tab lists
