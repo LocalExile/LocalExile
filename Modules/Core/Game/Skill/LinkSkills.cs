@@ -80,7 +80,9 @@ public static partial class Game
         if (playerStats(Stat.LinkSkillsCanTargetMinions) == 0) return null;
         var here = player.Walk.Position(now);
         int range = LinkSkills.Range(playerStats(Stat.LinkSkillRangePlusPct));
-        var valid = player.Minions.All.Where(m => LinkTargetAliveLocked(player, m.Id)
+        var valid = player.Minions.All.Where(m => LinkTargetAliveLocked(player, m)
+            && !m.Monster.Invulnerable && m.Monster.Effects[Stat.BaseCannotBeDamaged] == 0
+            && (OwnedFighter(player, m.Id) is not { } fighter || !GolemIgnoresDots(fighter))
             && Dist(m.Monster.Walk.Position(now), here) <= range).ToList();
         if (valid.FirstOrDefault(m => m.Id == aimed) is { } chosen) return chosen.Id;
         return valid.OrderBy(m => player.Links.On(m.Id) is null ? 0 : 1).ThenBy(m => Dist(m.Monster.Walk.Position(now), here))
@@ -88,8 +90,15 @@ public static partial class Game
     }
 
     static bool LinkTargetAliveLocked(Player player, uint id) =>
-        player.Minions.All.FirstOrDefault(m => m.Id == id) is { } minion && player.Area.Monsters.TryGetValue(id, out var held)
+        player.Minions.All.FirstOrDefault(m => m.Id == id) is { } minion && LinkTargetAliveLocked(player, minion);
+
+    static bool LinkTargetAliveLocked(Player player, PlayerMinions.Minion minion) =>
+        player.Area.Monsters.TryGetValue(minion.Id, out var held)
         && ReferenceEquals(held, minion.Monster) && !held.Dead && held.Life > 0;
+
+    static LinkSkills.Link? ActiveMinionLink(Player player, GolemState.Golem fighter, double now) =>
+        player.PlayerLife > 0 && player.Links.On(fighter.Id) is { } link && now < link.Until
+        && (link.AwaySince is not double away || now - away < LinkSkills.BreakSeconds) ? link : null;
 
     // A link ends: both its buffs come off (the target's only while its object is there).
     static void EndLinkLocked(Player player, LinkSkills.Link link, List<byte> bytes)

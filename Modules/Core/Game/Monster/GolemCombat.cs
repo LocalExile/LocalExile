@@ -13,6 +13,14 @@ public static partial class Game
         && (player.Golems.All.GetValueOrDefault(g.Id) == g || player.Reservations.Fighters.GetValueOrDefault(g.Id) == g || player.Summons.Fighters.GetValueOrDefault(g.Id) == g)
         && player.Area.Monsters.GetValueOrDefault(g.Id) == g.Monster;
 
+    // ItemisedCorpse 84–86: every Half-remembered Goliath needs a link before its body can act.
+    static bool MinionPowered(Player player, GolemState.Golem g, double now) =>
+        g.Definition.Kind != "Spectre" || g.Monster.Variety?.Id is not (
+            "Metadata/Monsters/LeagueAzmeri/SpecialCorpses/SynthesisGolemLow"
+            or "Metadata/Monsters/LeagueAzmeri/SpecialCorpses/SynthesisGolemMid"
+            or "Metadata/Monsters/LeagueAzmeri/SpecialCorpses/SynthesisGolemHigh")
+        || ActiveMinionLink(player, g, now) is not null;
+
     public static void GolemStepLocked(Player player, GolemState.Golem g, double now)
     {
         var m = g.Monster;
@@ -49,6 +57,19 @@ public static partial class Game
         if (m.Dead || m.Life == 0 || MinionInstabilityLocked(player, g, now)) return;
         g.ShieldPool.Advance(oldLastStep, now, name => m.Mods.Effects[name], alive: true);
         PublishEnergyShieldLocked(player, g);
+        if (!MinionPowered(player, g, now))
+        {
+            if (g.Pending is { Started: true })
+                player.Minions.OutputQueue.Add(new(InstanceProtocol.ActionEnded(g.Id), null, g.Id, m, WorldId: g.Id));
+            g.Pending = null;
+            g.Repeat = null;
+            g.Pulses.RemoveAll(pulse => pulse.Follows);
+            m.BusyUntil = now;
+            var at = m.Walk.Position(now);
+            m.Walk.Order(at.X, at.Y, now);
+            m.LastTarget = null;
+            return;
+        }
         GolemHazardsLocked(player, g, now);
         if (MonsterActionFactor(m, now) == 0)
         {
@@ -216,7 +237,9 @@ public static partial class Game
         if (output.TargetId is not uint id || OwnedFighter(player, id) is not { } g || !GolemCurrent(player, g)
             || g.Monster.Dead || g.Pending is not { Started: false } pending || pending.Generation != output.Action
             || pending.Generation != g.Monster.ActionGeneration) return null;
-        double now = AreaTime(player); var from = g.Monster.Walk.Position(now); var a = MinionSupportAction(player, g, pending);
+        double now = AreaTime(player);
+        if (!MinionPowered(player, g, now)) return null;
+        var from = g.Monster.Walk.Position(now); var a = MinionSupportAction(player, g, pending);
         g.Pending = pending = pending with { Ability = a };
         pending.Started = true; pending.At = now + a.Attack.Seconds * a.Contact;
         g.Monster.BusyUntil = now + a.Attack.Seconds;
@@ -315,6 +338,7 @@ public static partial class Game
     public static void GolemAbilityContactLocked(Player player,
         GolemState.Golem g, GolemState.Action action, double now)
     {
+        if (!MinionPowered(player, g, now)) return;
         if (SpectreChargeRoar(g, action.Ability.Effect) is { } charge)
         {
             ReleaseSpectreChargeRoarLocked(player, g.Monster.Walk.Position(now), charge, action.Ability, now);
