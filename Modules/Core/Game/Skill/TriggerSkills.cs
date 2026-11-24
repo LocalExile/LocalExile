@@ -185,6 +185,8 @@ public static partial class Game
         var playerStats = CharacterPlayerStats(player);
         int milliseconds = Math.Max(SkillsFor(player).CooldownMs(gem.Effect, gem.Level),
             SkillsFor(player).CooldownMs(support.Gem.Effect, support.Gem.Level));
+        if (gem.Stats.GetValueOrDefault(Stat.SpellCastTimeAddedToCooldownIfTriggered) != 0)
+            milliseconds += SkillsFor(player).CastTimeMs(gem.Effect);
         double rate = Math.Max(0, 1 + ((long)playerStats.GetValueOrDefault(Stat.VirtualCooldownSpeedPlusPct)
             + gem.Stats.GetValueOrDefault(Stat.BaseCooldownSpeedPlusPct)
             + gem.Stats.GetValueOrDefault(Stat.VirtualCooldownSpeedPlusPct)) / 100d);

@@ -1541,7 +1541,7 @@ public static partial class Game
             added = skills.Select(s => s.Id).Where(id => !player.ClientSkillIds.Contains(id)).ToList();
             player.ClientSkillIds = [.. skills.Select(s => s.Id)];
             RecordPlayerSkills(player, skills);
-            return PlayerSkillsWithVaalSouls(player, skills, gone);
+            return PlayerSkillsBatchesWithVaalSouls(player, skills, gone);
         }, "0x02bc player Actor: current skill stats");
         if (!CurrentGameRules) return;
         await SendNativeCooldownRefresh(player);

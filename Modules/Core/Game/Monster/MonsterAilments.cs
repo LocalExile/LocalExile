@@ -419,10 +419,13 @@ public static partial class Game
         ExposureOnHitLocked(m, name => Player(name) + Skill(name), mitigated, now, AreaRng(player));
         WitherOnHitLocked(m, name => Player(name) + Skill(name), now, AreaRng(player));
         int poisonStacksBefore = m.Poisons.Stacks(now);
+        double poisonUntilBefore = m.Poisons.Until;
         if (TryPoisonOnHitLocked(player, m, mitigated, spell, critical, playerStats, skill, poison, now, random,
                 out double poisonDps, out double poisonSeconds))
         {
             player.Area.ActivePoisonMonsters.Add(targetId);
+            if (m.Poisons.Stacks(now) > poisonStacksBefore || m.Poisons.Until > poisonUntilBefore)
+                ShowPoisonBuff(player, targetId, m, PoisonBuffToShow(player, m, now));
             if (playerHit && Player(Stat.PoisonReflectedToSelf) != 0 && Player(Stat.CannotBePoisoned) == 0
                 && Player(Stat.ImmuneToPoison) == 0
                 // Golden Rule's reflected-poison source stops adding player stacks at 100; this is not an incoming cap.

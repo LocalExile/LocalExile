@@ -19,13 +19,16 @@ public static partial class Game
             $"{(recovery.RemovesLife + recovery.RemovesMana > 0 ? $", removes {recovery.RemovesLife:0.#} life, {recovery.RemovesMana:0.#} mana" : "")}" +
             $"{(recovery.ExtraLife > 0 ? $", {recovery.ExtraLife:0.#} more life over {FlaskRecovery.ExtraLifeSeconds} s" : "")}");
         double now = AreaTime(player);
-        GrantAlchemistsGeniusLocked(player, now, character(Stat.GainAlchemistsGeniusOnFlaskUsePct));
         if (use.LifePerUse > 0)
         {
             player.RecentEvents.Record(StatConditions.UsedLifeFlask, now);
         }
         ApplyMinionRecoveryFlasksLocked(player, flask.Item, (byte)slot, use, recovery, local, character, now);
-        if (!appliesToPlayer) return;
+        if (!appliesToPlayer)
+        {
+            TryGrantAlchemistsGenius(player);
+            return;
+        }
         uint lifeBefore = player.PlayerLife, manaBefore = player.PlayerMana;
         // Liveness and the exact source/generation were admitted by 'still' before the charge deduction.
         var (life, mana) = FlaskRecovery.Instant(recovery, lifeBefore, manaBefore, player.PlayerMaxLife,
@@ -68,6 +71,7 @@ public static partial class Game
                     $"(BuffDefinitions row {effect.BuffRow}), {perMinute} per minute, {(withDuration ? $"{duration:0.##} s" : "no duration")}");
             }
         }
+        TryGrantAlchemistsGenius(player);
     }
 
     // The extracted "if afflicted" suffixes remove an ailment that exists when the paid use is accepted and then

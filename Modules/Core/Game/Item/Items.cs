@@ -870,7 +870,8 @@ public static partial class Game
         FlaskRecovery.Use r;
         ResourceEffectsState recoveryOwner;
         int adjacentEffect = AdjacentTinctureFlaskEffect(player, (byte)slot, Get, AreaTime(player));
-        var flaskCharacter = SelfFlaskEffectValues(Get, adjacentEffect);
+        Func<uint, int> flaskCharacter = adjacentEffect == 0 ? Get
+            : stat => stat == Stat.FlaskEffectPlusPct ? Get(stat) + adjacentEffect : Get(stat);
         double finalMultiplier = MapFlaskEffectMultiplier(player);
         recoveryOwner = ResourceEffectsOf(player);
         r = FlaskRecovery.For(use, flask.Item, local,

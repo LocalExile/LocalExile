@@ -25,7 +25,7 @@ public static class SkillArea
             : effect == "Cleave" ? 20
             : effect == "TectonicSlam" ? 15
             : effect is "FireTrap" or "VaalFireTrap" ? 16 : effect == "StormblastMine" ? 20 : effect is "DarkPact" or "DarkPactRoyale" ? 26
-            : effect is "StormCall" or "Frostblink" or "FrostblinkHardMode" ? 20
+            : effect is "StormCall" or "Frostblink" or "FrostblinkHardMode" or "FrostblinkAltX" ? 20
             : effect is "GalvanicArrow" or "GalvanicArrowAltX" or "GalvanicArrowAltY" ? 28
             : effect is "StormBrand" or "StormBrandAltX" or "StormBrandAltY"
                 or "PenanceBrand" or "PenanceBrandAltX" or "PenanceBrandAltY"

@@ -129,6 +129,8 @@ public static partial class Game
             }
             int milliseconds = Math.Max(SkillsFor(player).CooldownMs(gem.Effect, gem.Level),
                 SkillsFor(player).CooldownMs(trigger.Gem.Effect, trigger.Gem.Level));
+            if (gem.Stats.GetValueOrDefault(Stat.SpellCastTimeAddedToCooldownIfTriggered) != 0)
+                milliseconds += SkillsFor(player).CastTimeMs(gem.Effect);
             var playerStats = CharacterPlayerStats(player);
             double rate = Math.Max(0, 1 + (GolemStat(playerStats, Stat.VirtualCooldownSpeedPlusPct)
                 + GolemStat(playerStats, Stat.BaseSpellCooldownSpeedPlusPct) + GolemStat(gem.Stats, Stat.BaseSpellCooldownSpeedPlusPct)
