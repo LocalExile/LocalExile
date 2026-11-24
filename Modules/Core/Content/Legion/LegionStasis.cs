@@ -33,10 +33,27 @@ static class LegionStasis
     public static readonly bool SendFreezeBuff = false;   // not a const: the compiler rejects the dead branches of a const (CS0162, an error here)
 
     /// <summary>BuffDefinitions 1328 legion_reward_display: its list is [LegionRewardTypeVisuals row, hidden (0 shows), height, index, count], always 5 entries (P2-R1).</summary>
-    const ushort RewardBuff = 1328;
+    public const ushort RewardBuff = 1328;
 
-    /// <summary>The reward types of the members that woke and fight (by the new monster): what P2-E3's drops read.</summary>
-    public static readonly System.Runtime.CompilerServices.ConditionalWeakTable<SpawnedMonster, int[]> Fighters = new();
+    /// <summary>A woken member as the drops see it: its reward types (LegionRewardTypeVisuals rows), its faction's LegionFactions Id and its rank tier.</summary>
+    public sealed record Fighter(int[] Rewards, string FactionId, int Tier);
+
+    /// <summary>The members that woke and fight, by the new monster's id, per AREA (ids restart in every area instance; the table goes with its area).
+    /// LegionRewards takes an entry when its monster dies.</summary>
+    static readonly System.Runtime.CompilerServices.ConditionalWeakTable<GameArea, System.Collections.Concurrent.ConcurrentDictionary<uint, Fighter>> FightersByArea = new();
+    static volatile bool anyFighter;
+
+    /// <summary>True once any fighter was registered (the drops' cheap first test); false after the module's cleanup.</summary>
+    public static bool AnyFighter => anyFighter;
+
+    public static void ClearFighters() { FightersByArea.Clear(); anyFighter = false; }
+
+    public static Fighter? FighterOf(Player player, uint id, bool remove)
+    {
+        if (!FightersByArea.TryGetValue(player.Area, out var fighters)) return null;
+        if (remove) return fighters.TryRemove(id, out var taken) ? taken : null;
+        return fighters.TryGetValue(id, out var found) ? found : null;
+    }
 
     /// <summary>The minimap icon stat (monster_minimap_icon = MinimapIcons row + 1) of a reward row, the first reward's; null when none.</summary>
     public static int? RewardIcon(int[]? rewards) =>
@@ -257,7 +274,7 @@ static class LegionStasis
     /// stunned: all fixed at spawn), so it is swapped for a new ordinary monster of the same variety, rarity and cell, with its own
     /// kit, AI and rewards, already <c>breakout</c> 1 and <c>activated</c> 1. LIVE CHECK: whether the swap is visible.
     /// Returns false when the new monster could not be made (the frozen one is then left standing).</summary>
-    public static async Task<bool> Wake(Player player, Member member, SpawnedMonster monster, int cx, int cy)
+    public static async Task<bool> Wake(Player player, Member member, SpawnedMonster monster, int cx, int cy, string? factionId = null)
     {
         var variety = monster.Variety;
         if (variety is null) return false;
@@ -269,10 +286,11 @@ static class LegionStasis
         if (id == 0 || !player.Area.Monsters.TryGetValue(id, out var woken)) return false;   // the frozen one stays: the caller removes it
         await Remove(player, [member]);
         await SetState(player, id, woken, "breakout", "activated");
-        if (member.Rewards is { Length: > 0 } rewards)
+        if (member.Rewards is { Length: > 0 } rewards) ShowRewards(player, id, rewards, false);
+        if (member.Tier >= 2 && factionId is not null || member.Rewards is { Length: > 0 })
         {
-            Fighters.AddOrUpdate(woken, rewards);   // P2-E3 reads it for the drops
-            ShowRewards(player, id, rewards, false);
+            FightersByArea.GetOrCreateValue(player.Area)[id] = new Fighter(member.Rewards ?? [], factionId ?? "", member.Tier);   // for the drops (LegionRewards)
+            anyFighter = true;
         }
         return true;
     }

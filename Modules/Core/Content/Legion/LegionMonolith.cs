@@ -86,8 +86,10 @@ static partial class LegionMonolith
             module.Log($"the monolith's type {InitiatorType} is not in the client data or cannot be written: no monolith");
             return;
         }
-        module.Lifetime.Own(new Cleanup(() => { Encounters.Clear(); Holds.Clear(); LegionStasis.Fighters.Clear(); anyHold = false; Models = null; }));
+        module.Lifetime.Own(new Cleanup(() => { Encounters.Clear(); Holds.Clear(); LegionStasis.ClearFighters(); anyHold = false; Models = null; }));
         GameEvents.OutgoingDamage.Add(id, (player, _, target, rolled) => Hit(module, player, target, rolled));
+        GameEvents.Drops.Add(id, drop => LegionRewards.Drops(drop));
+        GameEvents.MonsterKilled.Add(id, LegionRewards.Killed);
         GameEvents.AreaPopulated.Add(id, area => Place(module, area));
         GameEvents.PlayerEntered.Add(id, player => Enter(player));
         GameEvents.AreaTick.Add(id, player => HasLocator(player) ? (p, _) => Tick(module, p) : null);
@@ -382,7 +384,7 @@ static partial class LegionMonolith
             if (m.Broken && !m.Chest)
             {
                 Holds.Remove(monster);   // its hits count again
-                if (await LegionStasis.Wake(player, m, monster, e.X, e.Y)) { woken++; generalFought |= m.Tier == 3; }
+                if (await LegionStasis.Wake(player, m, monster, e.X, e.Y, e.Plan is { } wp && m.Faction < wp.Factions.Length ? wp.Factions[m.Faction].Id : null)) { woken++; generalFought |= m.Tier == 3; }
                 else remove.Add(m);   // no replacement could be made: it goes like an unbroken one
             }
             else if (m.Tier == 3 && !m.Chest) flee.Add(m);
