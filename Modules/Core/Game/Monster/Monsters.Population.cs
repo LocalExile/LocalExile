@@ -77,14 +77,24 @@ public static partial class Game
         // re-entry or an activation never spawns them again.
         var safePoints = layout.AreaTransitions.Select(t => (t.Transition.GridX, t.Transition.GridY)).ToList();
         if (layout.Waypoint is { } wp) safePoints.Add((wp.GridX, wp.GridY));
+        var earlyMapMods = MapModsOf(player);
+        bool isMapArea = MapDevices.IsMapArea(layout.Hash);
+        int greedChancePct = earlyMapMods?.Get(Stat.MapShrinesChanceToBeGreedShrinePct) ?? 0;
+        bool magicShrineGuards = earlyMapMods?.Get(Stat.MapShrinesHaveGuaranteedMagicPack) > 0;
+        int extraShrinePackChance = earlyMapMods?.Get(Stat.MapShrinesAdditionalPackChancePct) ?? 0;
         var shrineGuards = ServerLevels.For(layout.Id, player.Seed) is { } shrineLevel
-            ? ShrinePlacement.Plan(shrineLevel.RoomObjects, walkable, player.Seed)
+            ? ShrinePlacement.Plan(shrineLevel.RoomObjects, walkable, player.Seed, greedChancePct: greedChancePct)
                 .Where(p => !ShrineGuards.TooNearEntrance((p.X, p.Y), (layout.SpawnX, layout.SpawnY),
                     safePoints, AreaPopulation.TransitionClearance))
-                .Select(p =>
+                .SelectMany(p =>
                 {
-                    var (rule, packs) = ShrineGuards.Resolve(p.Shrine, MapDevices.IsMapArea(layout.Hash), Packs.Find);
-                    return (Shrine: p.Shrine.Id, Rule: rule, Packs: packs, X: p.X, Y: p.Y);
+                    var (rule, packs) = ShrineGuards.Resolve(p.Shrine, isMapArea, Packs.Find, magic: magicShrineGuards);
+                    var entry = (Shrine: p.Shrine.Id, Rule: rule, Packs: packs, X: p.X, Y: p.Y);
+                    if (isMapArea && extraShrinePackChance > 0
+                        && GameServer.Core.World.RandomRolls.Chance(extraShrinePackChance, 100,
+                            new Random(HashCode.Combine(player.Seed, p.X, p.Y, 0x53485249))))
+                        return new[] { entry, entry };
+                    return [entry];
                 }).ToList()
             : [];
         // A Trial of Ascendancy's rooms (live 2026-10-31, the original): no monsters among the traps, so the area's
