@@ -61,6 +61,16 @@ public static partial class Game
             if (signal is { } step) state.Accepted(step, flask.Id);
             double now = AreaTime(player);
             if (NamedFlaskRecent(type.Id) is { } recent) player.RecentEvents.Record(recent, now);
+            if (Get(Stat.FlasksApplyToYourZombiesAndSpectres) != 0)
+                foreach (var minion in FlaskMinions(player, raisedOnly: true))
+                    ApplyMinionUtilityFlaskLocked(player, minion, flask, type, utility, local, Get, now);
+            if (Get(Stat.CannotBeAffectedByFlasks) != 0)
+            {
+                state.Enqueue(new(FlaskEnchantments.Trigger.Adjacent, flask.Id, (byte)slot), signal?.Chain);
+                state.Packets.Add(new(InstanceItems.ItemUsed(flask.Item.TypeHash,
+                    PlayerInventories.InventoryId(PlayerInventories.Flask), flask.Id), $"0x0263 flask {slot} used"));
+                return;
+            }
             var effect = new UtilityFlasks.Active(flask.Id, (byte)slot, type.Name, utility, player.NextBuff++,
                 utility.Extra is null ? null : player.NextBuff++, stats, now, now + seconds)
                 { SelfChaosDamageLifePctPerMinute = selfChaosRate };

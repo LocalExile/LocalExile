@@ -24,6 +24,8 @@ public sealed class GolemState
         public double FreshMeatUntil;
         public double OnslaughtUntil;
         public double Regeneration;
+        public Flasks.Effects? RecoveryFlasks;
+        public UtilityFlasks.Effects? UtilityFlasks;
         public readonly EnergyShield ShieldPool = new();
         public uint Shield => ShieldPool.Current;
         public uint MaximumShield => ShieldPool.Maximum;

@@ -39,7 +39,8 @@ public static partial class Game
         double elapsed = Math.Max(0, now - oldLastStep);
         double recoveryRate = MinionLifeRecoveryMultiplier(m);
         double recovery = Math.Max(0, Math.Min(now, g.RecallUntil) - oldLastStep) * m.MaxLife * g.RecallRate / 6000d
-            + HolyRelicRecoveryBetween(g, oldLastStep, now);
+            + HolyRelicRecoveryBetween(g, oldLastStep, now)
+            + AdvanceMinionRecoveryFlasksLocked(player, g, oldLastStep, now);
         g.LastStep = Math.Max(oldLastStep, now);
         int Own(uint n) => GolemStat(g.Own, n);
         int Player(uint n) => GolemStat(g.Player, n);
@@ -59,6 +60,8 @@ public static partial class Game
             if (m.Life == m.MaxLife) MinionLifeLeeches.Remove(g);
             player.Minions.OutputQueue.Add(new([], null, g.Id, m, PlayerMinions.OutputKind.Life));
         }
+        if (g.RecoveryFlasks is not null && m.Life == m.MaxLife)
+            EndMinionRecoveryFlasksLocked(player, g, effect => effect.EndsWhenFull(lifeFull: true, manaFull: true));
         GolemDotsLocked(player, g, oldLastStep, now);
         if (m.Dead || m.Life == 0 || MinionInstabilityLocked(player, g, now)) return;
         _ = MinionFortificationAt(player, g, now);

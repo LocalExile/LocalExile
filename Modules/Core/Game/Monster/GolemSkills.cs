@@ -192,13 +192,22 @@ public static partial class Game
             values[Stat.ManaRegenerationRatePlusPct] = values.GetValueOrDefault(Stat.ManaRegenerationRatePlusPct) + ArcaneSurgeManaRegenPct;
             values[Stat.HasArcaneSurge] = 1;
         }
-        if (now < golem.OnslaughtUntil && ItemsFor(player).Onslaught is { } onslaught)
+        var flaskSources = MinionUtilityFlaskSources(player, golem, now);
+        IEnumerable<UtilityFlasks.Source> utility = flaskSources;
+        if (ItemsFor(player).Onslaught is { } onslaught && (flaskSources.Count > 0 || now < golem.OnslaughtUntil))
         {
-            double effect = Math.Max(0, 1 + values.GetValueOrDefault(Stat.OnslaughtEffectPlusPct) / 100d);
-            foreach (var source in UtilityFlasks.OnslaughtSources(onslaught, effect))
-                values[source.Stat] = ActorScale.Saturate((long)values.GetValueOrDefault(source.Stat) + source.Value);
-            values[Stat.CurrentlyHasOnslaught] = 1;
+            if (now < golem.OnslaughtUntil)
+            {
+                double effect = Math.Max(0, 1 + values.GetValueOrDefault(Stat.OnslaughtEffectPlusPct) / 100d);
+                utility = utility.Concat(UtilityFlasks.OnslaughtSources(onslaught, effect));
+                values[Stat.CurrentlyHasOnslaught] = 1;
+            }
+            else if (flaskSources.Any(source => source.Effect == $"buff {onslaught.BuffRow}"))
+                values[Stat.CurrentlyHasOnslaught] = 1;
         }
+        if (flaskSources.Count > 0 || now < golem.OnslaughtUntil)
+            foreach (var (stat, value) in UtilityFlasks.Strongest(utility))
+                AddStat(stat, value);
         if (golem.CombatCharges is { } charges)
         {
             int frenzy = charges.Held(ChargeType.Frenzy);
@@ -606,6 +615,8 @@ public static partial class Game
         hash.Add(FreshMeatActive(golem, now));
         hash.Add(ExemplarAttackCriticals(player, golem, now));
         hash.Add(now < golem.OnslaughtUntil);
+        EndMinionUtilityFlasksLocked(player, golem, now);
+        foreach (var flaskSource in MinionUtilityFlaskSources(player, golem, now)) hash.Add(flaskSource);
         hash.Add(SpectreArcaneSurgeActiveLocked(player, golem, now));
         hash.Add(MinionLinkOffenceAt(player, golem, playerStats, now));
         hash.Add(MapModsOf(player));

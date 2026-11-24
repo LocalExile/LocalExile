@@ -278,6 +278,8 @@ public static partial class Game
         return Math.Max(0L, (long)GolemStat(minion.Player, Stat.MinionPhysicalDamageReductionRating)
             + (minion.Definition.IsGolem ? GolemStat(minion.Player, Stat.GolemPhysicalDamageReductionRating) : 0)
             + effects[Stat.BasePhysicalDamageReductionRating])
+            * Math.Max(0, 1 + effects[Stat.PhysicalDamageReductionRatingPlusPct] / 100.0)
+            * Math.Max(0, 1 + effects[Stat.BasaltFlaskArmourPlusPctFinal] / 100.0)
             * Math.Max(0, 1 + effects[Stat.DeterminationAuraArmourPlusPctFinal] / 100.0)
             * Math.Max(0, 1 + effects[Stat.ArmourPlusPctFinalFromSeismicCryBuff] / 100.0);
     }
@@ -288,6 +290,7 @@ public static partial class Game
         g.Monster.Dead = true; g.Monster.Life = 0; g.Monster.ActionGeneration++; g.Pending = null;
         OwnedMinionDeathEffectsLocked(player, g, now);
         ClearSharedMinionAuras(player, g.Id);
+        ClearMinionFlasksLocked(player, g, now);
         MinionLifeLeeches.Remove(g);
         MinionShieldLeeches.Remove(g);
         ClearSpectreArcaneSurgeLocked(player, g);

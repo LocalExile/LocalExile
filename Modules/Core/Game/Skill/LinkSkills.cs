@@ -179,7 +179,8 @@ public static partial class Game
             player.Area.Buffs.Clear(flask.Target, flask.Row, player.Id, tag: flask.Buff);
             if (flask.Extra is ushort extra) player.Area.Buffs.Clear(flask.Target, flask.ExtraRow, player.Id, tag: extra);
         }
-        foreach (uint target in spent.Select(f => f.Target).Distinct()) MinionFlaskSpeedLocked(player, target, now, bytes);
+        foreach (uint target in spent.Select(f => f.Target).Distinct())
+            if (OwnedFighter(player, target) is { } minion) RefreshMinionFlaskStatsLocked(player, minion, now);
         // Every target is a minion (no party play), so without link_skills_can_target_minions (Deep Connections refunded)
         // every link ends, without a death: our rule, as for an Elemental Valiance refund (paladin.md).
         string? all = player.PlayerLife == 0 ? "the player died"
@@ -242,8 +243,7 @@ public static partial class Game
     // Field Medicine (flasks_apply_to_your_linked_targets): a non-unique utility flask the player uses puts its effect on
     // each linked target for the flask's duration (Path of Building's nonUniqueFlasksApplyToMinion): its buff, the Silver
     // Flask's Onslaught too, and its stats at the flask's own increased effect but without the player's "applied to you"
-    // ones (flask_effect_+%, magic_utility_flask_effect_+%; PoB's effectIncNonPlayer). A minion target walks at their
-    // movement speed (MinionFlaskSpeedLocked); their other stats have nothing to act on (paladin.md).
+    // ones (flask_effect_+%, magic_utility_flask_effect_+%; PoB's effectIncNonPlayer).
     static void FlaskToLinkedTargetsLocked(Player player,
         Item flask, IReadOnlyDictionary<uint, int> local, UtilityFlasks.Utility utility, Func<uint, int> character)
     {
@@ -252,30 +252,18 @@ public static partial class Game
             key => key is Stat.FlaskEffectPlusPct or Stat.MagicUtilityFlaskEffectPlusPct ? 0 : character(key),
             finalMultiplier: MapFlaskEffectMultiplier(player));
         uint duration = BitConverter.SingleToUInt32Bits((float)seconds);
-        var bytes = new List<byte>();
         double now = AreaTime(player);
-        foreach (var link in player.Links.All.Where(l => LinkTargetAliveLocked(player, l.Target)).ToArray())
+        foreach (var link in player.Links.All.ToArray())
         {
+            if (OwnedFighter(player, link.Target) is not { } minion || !LinkTargetAliveLocked(player, link.Target)
+                || ActiveMinionLink(player, minion, now) is null) continue;
             ushort buff = player.NextBuff++;
             ushort? extra = utility.Extra is null ? null : player.NextBuff++;
             player.Links.Flasks.Add(new(link.Target, buff, extra, now + seconds, stats, utility.BuffRow, utility.Extra?.BuffRow ?? 0));
             player.Area.Buffs.Set(link.Target, new(utility.BuffRow, player.Id, U68: duration, Tag: buff));
             if (utility.Extra is { } x && extra is ushort e)
                 player.Area.Buffs.Set(link.Target, new(x.BuffRow, player.Id, U68: duration, Tag: e));
-            MinionFlaskSpeedLocked(player, link.Target, now, bytes);
+            RefreshMinionFlaskStatsLocked(player, minion, now);
         }
-        if (bytes.Count > 0) Automation(player).Packets.Add(new([.. bytes], $"0x01c1 {utility.BuffId} on the linked targets for {seconds:0.##} s"));
-    }
-
-    // A minion's walk with the player's flasks on it (Field Medicine): its variety's speed × (1 + its mods' and the
-    // flasks' base_movement_velocity_+%, the strongest of each flask effect), in the server's walk and, as
-    // movement_velocity_+% (0xf5), in the client's, which walks every mover at its base × (1 + 0xf5 / 100) (0x141e827a0).
-    static void MinionFlaskSpeedLocked(Player player, uint target, double now, List<byte> bytes)
-    {
-        if (!player.Area.Monsters.TryGetValue(target, out var m) || m.Dead || m.Variety is not { } variety) return;
-        int pct = m.Mods.Effects.MovementPct + UtilityFlasks.Strongest(player.Links.Flasks.Where(f => f.Target == target)
-            .SelectMany(f => f.Stats)).Where(s => s.Stat == Stat.BaseMovementVelocityPlusPct).Sum(s => s.Value);
-        m.Walk.SetSpeed(Math.Max(1, variety.MovementSpeed * Math.Max(0, 100 + pct) / 100.0), now);
-        SetStats(player, target, [(Stat.MovementVelocityPlusPct, pct)]);
     }
 }
