@@ -245,17 +245,24 @@ Part of [Status](../Status.md); what to build next in this area is in
   Lightning Warp queues teleports and hits both endpoints.
 - Instant skills, shared Blink and Guard cooldowns (a guard skill cast from the bar as well as one a trigger releases),
   opt-in warcry sharing and cost admission, Bladefall of Trarthus and both Frostblink hit and chill areas, with clear
-  landings across terrain gaps. A guard's bar entry is held at the skill's own cooldown with a zero recovery rate while
-  its buff runs and counts at the character's recovery after it, as the official client shows. The held entry is published
-  before the instant action so the client skips its press prediction, and a stat-only skill refresh (a guard or self buff
-  starting/ending) no longer rebuilds the skill bar; a skill-list refresh during the buff (movement, conditional item stats)
-  re-publishes the held entry, since the client's skill replacement would otherwise refresh its zero-rate entry: the ring
-  does not sweep or replay on the first press or while moving (#1127).
-  Docs: [11](../docs/protocol/11-skills.md) Â§9, Â§11.
+  landings across terrain gaps, monster-blocker landing slide, and same-frame `0x02bc` cooldown refreshes queued behind
+  `0x01ce` so predictive clients execute the blink (verified live). `Frostblink of Wintry Blast` (`FrostblinkAltX`)
+  teleports at cast contact with 32/42-cell IceDash clamping, hits both ends at 20 base radius without chilled ground,
+  scales hit damage per 5% target chill and removes chill on hit (verified live). A guard's bar entry is held at the
+  skill's own cooldown with a zero recovery rate while its buff runs and counts at the character's recovery after it, as
+  the official client shows. The held entry is published before the instant action so the client skips its press
+  prediction, and a stat-only skill refresh (a guard or self buff starting/ending) no longer rebuilds the skill bar; a
+  skill-list refresh during the buff (movement, conditional item stats) re-publishes the held entry, since the client's
+  skill replacement would otherwise refresh its zero-rate entry: the ring does not sweep or replay on the first press or
+  while moving (#1127).
+  Docs: [11](../docs/protocol/11-skills.md) §9, §11.
 - Vaal Immortal Call: 100 souls, its 60 s cooldown, 8 s of soul gain prevention, a duration from the Endurance Charges it
   discharges, and Life held at 1 while the buff runs. Docs: [11](../docs/protocol/11-skills.md) Â§11, Â§12.
 - Vaal Molten Shell: soul-paid armour and hit absorption, fire reflection each second and on removal, and a single
   active guard buff with separate Vaal and regular cooldowns.
+- Vaal Sweep repeats its attack and knocks back eligible enemies. Vaal Lightning Warp damages and moves nearby
+  enemies without moving its caster. Vaal Ancestral Warchief slams, leaps and grants its owner more melee damage
+  while active. Offline checks cover the server's timing, damage and movement.
 - Steelskin, Immortal Call and Molten Shell cast by hand start the triggered guard buff; a running or recovering
   guard refuses the next before its cost. Docs: [11](../docs/protocol/11-skills.md) Â§12.
 - Phase Run: movement speed and Phasing for its duration, longer per Frenzy Charge consumed; the next skill use
@@ -278,7 +285,7 @@ Part of [Status](../Status.md); what to build next in this area is in
 - Absolution and Dominating sentinels, Phantasms, direct Vaal Skeletons and Vaal Absolution/Domination ascensions.
   HUD minion counter icons (`PlayerMinionsChange`) now publish for all active player minion types (not checked live).
   Docs: [11](../docs/protocol/11-skills.md) Â§10h.
-  Vaal minion totem, trap and mine casts are refused before spending souls or starting an action.
+  Vaal minion casts linked to a totem, trap or mine support are refused before spending souls or starting an action.
 - Removable player buffs can be right-click cancelled via C→S `0x4b` (Grace Period, Shrines, guards, auras, Arcane
   Surge, phasing; non-removable debuffs rejected; not checked live). Docs: [11](../docs/protocol/11-skills.md) §12.
 - Native knockback hit presentation (`0x1af` bit 11 + `u3c`/`u3e`), totem directional `HitAngle`/`HitCode`, `0x1b0`

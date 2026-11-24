@@ -168,7 +168,8 @@ The issue #75 native matrices were run on the source LocalExile revisions, not r
   costs, death/resurrection and slow destination loading ([27](../docs/protocol/27-vaal-souls.md)).
   Validate the [modular Behemoth candidate](../docs/game/behemoth.md) natively; other Vaal executors and official
   distribution/capacity parity remain open.
-  Vaal minion totem, trap and mine execution remains open; these casts are refused before souls or actions are spent.
+  Vaal minion casts linked to a totem, trap or mine support still need a proxy executor.
+  Check Vaal Sweep push reach, Vaal Lightning Warp timing and Warchief's slam coverage with the client.
   Vaal Animate Weapon, full ascended special attacks and minion stance targeting remain open.
 
 ### Death screen variants
@@ -186,7 +187,7 @@ The issue #75 native matrices were run on the source LocalExile revisions, not r
 - **Known:** the [framework](../docs/game/projectile-framework.md) owns production routing and the only simulator;
   [registered skills](../docs/game/projectile-skills.md) add special behaviour.
 - **Open:**
-  - Nonzero intrinsic attack repeats; per-skill duration before the 150-cell cap and a
+  - Remaining intrinsic attack repeats; per-skill duration before the 150-cell cap and a
     native check of the continuation boundary; the action-speed/Tailwind contract (#246).
   - Combat body geometry: actor positions use integer walk estimates and Gateway actor radii are zero, so area
     coverage is centre-based; calibrate against `ObjectSize`.

@@ -182,6 +182,8 @@ public static partial class Game
         var playerStats = CharacterPlayerStats(player);
         int milliseconds = Math.Max(SkillsFor(player).CooldownMs(gem.Effect, gem.Level),
             SkillsFor(player).CooldownMs(support.Gem.Effect, support.Gem.Level));
+        if (gem.Stats.GetValueOrDefault(Stat.SpellCastTimeAddedToCooldownIfTriggered) != 0)
+            milliseconds += SkillsFor(player).CastTimeMs(gem.Effect);
         double rate = Math.Max(0, 1 + ((long)playerStats.GetValueOrDefault(Stat.VirtualCooldownSpeedPlusPct)
             + gem.Stats.GetValueOrDefault(Stat.BaseCooldownSpeedPlusPct)
             + gem.Stats.GetValueOrDefault(Stat.VirtualCooldownSpeedPlusPct)) / 100d);
@@ -190,5 +192,95 @@ public static partial class Game
         release();
         if (mana > 0 || life > 0) session.Enqueue(() => SendSkillCost(player, life, label + " cost"));
         return true;
+    }
+
+    static double TriggerCooldownRate(IReadOnlyDictionary<uint, int> playerStats, SupportedGem gem) => Math.Max(0.01,
+        1 + (GolemStat(playerStats, Stat.VirtualCooldownSpeedPlusPct)
+            + GolemStat(playerStats, Stat.BaseSpellCooldownSpeedPlusPct)
+            + GolemStat(gem.Stats, Stat.BaseSpellCooldownSpeedPlusPct)
+            + GolemStat(gem.Stats, Stat.BaseCooldownSpeedPlusPct)
+            + GolemStat(gem.Stats, Stat.VirtualCooldownSpeedPlusPct)) / 100.0);
+
+    public static void TriggerCraftedWeaponSpells(Player player, (int X, int Y) aim, double at)
+    {
+        if (!CurrentGameRules || player.Closed || player.LeavingArea || player.PendingTransfer is not null
+            || player.Paused || player.PlayerLife == 0 || InTown(player)) return;
+        using var mutation = ProjectileMutation(player, advance: false);
+        if (!CurrentGameRules || player.Closed || player.LeavingArea || player.PendingTransfer is not null
+            || player.Paused || player.PlayerLife == 0 || InTown(player)) return;
+        var session = ProjectilesFor(player);
+        if (!session.Active) return;
+
+        // Group crafted-trigger spells by weapon host in native socket order: each weapon triggers up to one spell
+        // per skill use, rotating independently and keeping a per-spell cooldown in LinkedTriggersOf(player).
+        List<(uint Host, List<(ushort Id, SupportedGem Gem)> Spells)>? byHost = null;
+        foreach (var s in GemSkillEffects(player))
+        {
+            var gem = SupportedSkill(player, s.Id);
+            if (GolemStat(gem.Stats, Stat.SpellHasTriggerFromCraftedItemMod) == 0
+                && !gem.Supports.Any(sup => sup.Effect.Id == "SupportTriggerSpellOnSkillUse")) continue;
+            if (!TriggeredSpellExecutable(player, s.Id, gem)) continue;
+            byHost ??= [];
+            List<(ushort Id, SupportedGem Gem)>? list = null;
+            foreach (var entry in byHost)
+                if (entry.Host == gem.Host) { list = entry.Spells; break; }
+            if (list is null) byHost.Add((gem.Host, list = []));
+            list.Add((s.Id, gem));
+        }
+        if (byHost is null) return;
+
+        var state = LinkedTriggersOf(player);
+        double now = Math.Max(at, AreaTime(player));
+        var origin = player.Walk.Position(now);
+        if (aim == default || aim == (origin.X, origin.Y))
+        {
+            aim = player.Area.Monsters.Where(e => e.Value.Hostile && !e.Value.Dead && e.Value.Life > 0)
+                .OrderBy(e => Dist(origin, e.Value.Walk.Position(now))).ThenBy(e => e.Key)
+                .Select(e => e.Value.Walk.Position(now)).FirstOrDefault((origin.X + 20, origin.Y));
+        }
+        var playerStats = CharacterPlayerStats(player);
+
+        foreach (var (host, candidates) in byHost)
+        {
+            var key = (host, -1, "CraftedWeapon");
+            int next = state.Rotation.TryGetValue(key, out var previous) ? previous.Next : 0;
+            for (int i = 0; i < candidates.Count; i++)
+            {
+                int idx = (next + i) % candidates.Count;
+                var (spellId, gem) = candidates[idx];
+                if (GemSkillInstanceDisabled(player, gem.Effect, spellId, triggered: true) is not null) continue;
+                if (now < state.ReadyAt.GetValueOrDefault(gem.Effect)) continue;
+
+                int supportCdMs = GolemStat(gem.Stats, Stat.LocalWeaponTriggerSocketedSpellOnSkillUseDisplayCooldownMs);
+                if (supportCdMs <= 0 && gem.Supports.FirstOrDefault(s => s.Effect.Id == "SupportTriggerSpellOnSkillUse") is { } sup)
+                    supportCdMs = SkillsFor(player).CooldownMs(sup.Gem.Effect, sup.Gem.Level);
+                if (supportCdMs <= 0) supportCdMs = 4000;
+                int cdMs = Math.Max(SkillsFor(player).CooldownMs(gem.Effect, gem.Level), supportCdMs);
+                if (gem.Stats.GetValueOrDefault(Stat.SpellCastTimeAddedToCooldownIfTriggered) != 0)
+                    cdMs += SkillsFor(player).CastTimeMs(gem.Effect);
+
+                double rate = TriggerCooldownRate(playerStats, gem);
+                bool Current() => state.Epoch == player.ProjectileEpoch && CurrentGameRules
+                    && ReferenceEquals(state.Rules, CombatLifetime) && session.Active && !player.Paused
+                    && player.PlayerLife > 0 && !player.LeavingArea && player.PendingTransfer is null
+                    && SameTriggerSource(gem, SupportedSkill(player, spellId));
+
+                var release = PrepareTriggeredPayload(player, session, spellId, aim, Current);
+                if (release is null) continue;
+
+                if (!PayMana(player, spellId, out uint cost, out uint lifeCost))
+                {
+                    state.Rotation[key] = (null, (idx + 1) % candidates.Count);
+                    break;
+                }
+
+                state.ReadyAt[gem.Effect] = now + (cdMs / 1000.0) / rate;
+                state.Rotation[key] = (null, (idx + 1) % candidates.Count);
+                release();
+                if (cost > 0 || lifeCost > 0)
+                    session.Enqueue(() => SendSkillCost(player, lifeCost, "trigger wand cost"));
+                break;
+            }
+        }
     }
 }

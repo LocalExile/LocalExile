@@ -500,7 +500,7 @@ public static partial class Game
         {
             player.AuraStatsDirty = false;
             packets.Add(PlayerStatsOffFrames(player));
-            packets.Add(PlayerSkillsIfChanged(player, PlayerSkills(player)));
+            packets.AddRange(PlayerSkillsBatchesIfChanged(player, PlayerSkills(player)));
             player.Frames.Area?.Life.Changed(player);
         }
         var petrified = player.PetrifiedBlood;

@@ -66,6 +66,47 @@ public class SacrificeSupportTests
     }
 
     [Fact]
+    public async Task Frostblink_of_Wintry_Blast_clamps_landing_uses_20_radius_and_consumes_chill_for_more_damage()
+    {
+        using var fixture = new Fixture();
+        var c = fixture.Player;
+        c.Connection.PlayerSent = true;
+        c.Use(new(1, "wintry-blast", 200, 200, 100, 100, (x, y) => x >= 0 && y >= 0 && x < 200 && y < 200, []));
+        var found = Program.Items.FindGem("Frostblink of Wintry Blast")!.Value;
+        var gemItem = ItemCatalog.Create(found.Type) with { GemVariant = found.Variant.Index };
+        var wand = ItemCatalog.Create(Program.Items.Find("Metadata/Items/Weapons/OneHandWeapons/Wands/Wand1")!) with
+        {
+            Mods = [],
+            Sockets = [new(SocketColour.White, gemItem)],
+            Links = [1]
+        };
+        Game.ItemsOf(c).Add(PlayerInventories.Weapon1, 0, 0, wand);
+        var gem = Game.GemSkillEffects(c).Single(g => g.Gem != 0);
+        Assert.Equal("FrostblinkAltX", Game.SkillsFor(c).EffectId(gem.Effect));
+        Assert.Equal(20, SkillArea.BaseRadius("FrostblinkAltX", _ => 0));
+        Assert.False(Game.LandsAtAim(c, gem.Effect));
+        Assert.Equal((142, 100), Game.MovementLanding(c, gem.Effect, (100, 100), (190, 100)));
+        Assert.Equal((132, 100), Game.MovementLanding(c, gem.Effect, (100, 100), (110, 100)));
+        double now = Game.ProjectileWorldTime(c);
+        var unchilled = new SpawnedMonster("target-a", new(105, 100, 0), 0, 0, 10000) { Hostile = true };
+        var chilled = new SpawnedMonster("target-b", new(105, 100, 0), 0, 0, 10000) { Hostile = true };
+        chilled.Ailments.Proliferated(MonsterElementalAilments.Kind.Chill,
+            new(MonsterElementalAilments.Kind.Chill, now - 1, now + 5, 30), _ => 0);
+        Assert.Equal(30, chilled.Ailments.Magnitude(MonsterElementalAilments.Kind.Chill, now));
+        c.Area.Monsters[0x80000001u] = unchilled;
+        c.Area.Monsters[0x80000002u] = chilled;
+        await Game.AreaSkillHit(c, gem.Id, gem, (100, 100), (105, 100), immediate: true);
+        uint unchilledLost = 10000 - unchilled.Life;
+        uint chilledLost = 10000 - chilled.Life;
+        Assert.True(unchilledLost > 0);
+        Assert.True(chilledLost > unchilledLost, $"expected chilled damage ({chilledLost}) > unchilled ({unchilledLost})");
+        double afterHit = Game.ProjectileWorldTime(c);
+        Assert.Equal(0, chilled.Ailments.Magnitude(MonsterElementalAilments.Kind.Chill, afterHit));
+        Assert.Equal(0, unchilled.Ailments.Magnitude(MonsterElementalAilments.Kind.Chill, afterHit));
+        Assert.False(unchilled.SourceMarked(c.Id, "inflicted_chill", afterHit));
+    }
+
+    [Fact]
     public async Task Lightning_warp_moves_at_release_and_hits_both_endpoints()
     {
         using var fixture = new Fixture();

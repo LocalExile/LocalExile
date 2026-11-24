@@ -968,6 +968,29 @@ public sealed partial class Player(AreaLayout layout, uint ticket, uint seed) : 
     public int ProjectileEpoch;
     public IProjectileRuntime? ProjectileRuntimeState;
     public readonly HashSet<uint> ProjectileObjects = [];
+    readonly Lock projectileObjectsGate = new();
+
+    // Runtime publication and the asynchronous world-output queue both update this ownership set.
+    public void TrackProjectileObject(uint id)
+    {
+        lock (projectileObjectsGate)
+            if (!LeavingArea && !Closed) ProjectileObjects.Add(id);
+    }
+
+    public bool UntrackProjectileObject(uint id)
+    {
+        lock (projectileObjectsGate) return ProjectileObjects.Remove(id);
+    }
+
+    uint[] TakeProjectileObjects()
+    {
+        lock (projectileObjectsGate)
+        {
+            uint[] snapshot = [.. ProjectileObjects];
+            ProjectileObjects.Clear();
+            return snapshot;
+        }
+    }
 
     public bool ProjectileActive(int epoch)
     {
@@ -990,9 +1013,8 @@ public sealed partial class Player(AreaLayout layout, uint ticket, uint seed) : 
             RetireOwnedCombat();
             InvalidateIncomingHits(clear: false);
             ProjectileEpoch++;
-            projectiles = [.. ProjectileObjects];
+            projectiles = TakeProjectileObjects();
             ProjectileRuntimeState?.Invalidate();
-            ProjectileObjects.Clear();
             return true;
         }
     }
@@ -1561,6 +1583,8 @@ public sealed partial class Player(AreaLayout layout, uint ticket, uint seed) : 
     public (uint Id, int X, int Y)? ReturnPortal;
     /// <summary>The portal back to the character's open town portal, in its town or hideout (SpawnBackPortal).</summary>
     public (uint Id, int X, int Y)? BackPortal;
+    /// <summary>Another player's standing town/map portal shown to this client (object id -> opener, position, returnTown).</summary>
+    public readonly Dictionary<uint, (string Owner, int X, int Y, ushort ReturnToTown)> PeerPortals = [];
     /// <summary>The gem skill being channelled (Cyclone: C→S 0x197 until 0x199), 0 for none, and when it next hits.
     /// Leaving a moving channel (<see cref="ChannelMovement"/>) gives the walk its usual speed back.</summary>
     public ushort ChannelSkill
