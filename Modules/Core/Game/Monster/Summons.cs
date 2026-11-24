@@ -430,6 +430,8 @@ public static partial class Game
                 if (pools.Fatal) GolemDieLocked(player, fighter, AreaTime(player), emitLife: false, canReform: false);
                 else ReconcileGuardianBlessingLocked(player);
             });
+        if (id != 0 && !arrival && replacingOld is null && spectreChild is null && !pools.Fatal)
+            await UseParentFlasksOnSummon(player, fighter);
         return id;
     }
 

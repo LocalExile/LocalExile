@@ -38,7 +38,48 @@ public static partial class Game
     }
 
     static int MinionFlaskStat(GolemState.Golem minion, Func<uint, int> character, uint stat) =>
-        stat == Stat.FlaskDurationPlusPct ? character(Stat.FlaskDurationOnMinionsPlusPct) : minion.Monster.Effects[stat];
+        minion.Monster.Effects[stat] + (stat == Stat.FlaskDurationPlusPct ? character(Stat.FlaskDurationOnMinionsPlusPct) : 0);
+
+    static async Task UseParentFlasksOnSummon(Player player, GolemState.Golem minion)
+    {
+        if (GolemStat(minion.Player, Stat.MinionsUseParentsFlasksOnSummon) == 0) return;
+        var lifetime = CombatLifetime;
+        await ChangeFlaskBar(player, inventory =>
+        {
+            using var mutation = ProjectileMutation(player, advance: false, phase: "minion flask use");
+            if (!ReferenceEquals(lifetime, CombatLifetime) || !GolemCurrent(player, minion)
+                || player.PlayerLife == 0 || minion.Monster.Dead || minion.Monster.Life == 0) return null;
+            var stats = CharacterPlayerStats(player);
+            if (GolemStat(stats, Stat.MinionsUseParentsFlasksOnSummon) == 0) return null;
+            int GetOwner(uint stat) => GolemStat(stats, stat);
+            int GetCharges(uint stat) => stat == Stat.FlaskChargesUsedPlusPct ? GetOwner(Stat.MinionFlaskChargesUsedPlusPct) : 0;
+            var catalog = ItemsFor(player);
+            List<InventoryItem> spent = [];
+            double now = AreaTime(player);
+            foreach (var flask in inventory.Items(PlayerInventories.Flask))
+            {
+                if (catalog.ByHash(flask.Item.TypeHash) is not { } type
+                    || catalog.FlaskChargesOf(type) is not { } native) continue;
+                var local = ItemModStats.Local(flask.Item, catalog.Mods);
+                var cost = FlaskCharges.Of(native, local, GetCharges);
+                if (flask.Item.Charges < cost.ChargesPerUse) continue;
+                bool accepted = false;
+                var paid = inventory.Change(PlayerInventories.Flask, flask.Id, item =>
+                {
+                    if (Flasks.Spend(item, cost) is not { } next) return item;
+                    accepted = true;
+                    return next;
+                });
+                if (!accepted || paid is null) continue;
+                spent.Add(paid);
+                if (catalog.UtilityFlaskOf(type) is { } utility)
+                    ApplyMinionUtilityFlaskLocked(player, minion, paid, type, utility, local, GetOwner, now);
+                else if (catalog.FlaskOf(type) is { LifePerUse: > 0 } recovery)
+                    ApplyMinionRecoveryFlaskLocked(player, minion, paid.Item, paid.X, recovery, local, GetOwner, now);
+            }
+            return ([.. spent.Select(flask => flask.Id)], spent);
+        }, spent => $"0x00bf flask charges (minion 0x{minion.Id:x} used {spent.Count} flasks)");
+    }
 
     static void StartMinionRecoveryFlaskLocked(Player player, GolemState.Golem minion, byte slot,
         FlaskRecovery.Use recovery, double now, double share = 1)

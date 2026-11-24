@@ -482,6 +482,8 @@ public static partial class Game
                 else ReconcileGuardianBlessingLocked(player);
             });
         if (id == 0) return 0;
+        if (!arrival && replacingOld is null && !pools.Fatal)
+            await UseParentFlasksOnSummon(player, probe);
         if (!arrival && definition.Kind == "Flame" && definition.Special && !pools.Fatal)
             using (ProjectileMutation(player))
                 if (player.Golems.All.TryGetValue(id, out var spawned)) GolemMeteorLocked(player, spawned, AreaTime(player));
