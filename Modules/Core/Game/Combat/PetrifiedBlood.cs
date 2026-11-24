@@ -21,14 +21,15 @@ public static partial class Game
         {
             var stats = PetrifiedBloodEffectStats(player, effect, level, quality);
             var context = ReservationContext(player, skillId);
-            if (!ReservationBudgetFits(player, reservation.ManaPercent, context.Life, context.Efficiency))
+            int reservationPct = context.Life ? reservation.LifePercent : reservation.ManaPercent;
+            if (!ReservationBudgetFits(player, reservationPct, context.Life, context.Efficiency))
             {
                 Console.WriteLine($"[gateway] {player.Connection.Remote} skill 0x{skillId:x4} {name}: insufficient unreserved {(context.Life ? "life" : "mana")}");
                 return false;
             }
             player.PetrifiedBlood.Activate(skillId, effect, Get(stats, PetrifiedBlood.LoseOverTimeSource),
                 Get(stats, PetrifiedBlood.PreventSource), Get(stats, PetrifiedBlood.LifeCostSource),
-                context.Life ? reservation.LifePercent : reservation.ManaPercent, LowLifeThresholdPct(CharacterPlayerStats(player)), player.NextBuff++,
+                reservationPct, LowLifeThresholdPct(CharacterPlayerStats(player)), player.NextBuff++,
                 AreaTime(player), context.Life, context.Efficiency);
             ClampReservedResources(player);
             started = true;
@@ -42,6 +43,7 @@ public static partial class Game
         await SendOwnAuraChanges(player);
         await SendPlayerMana(player,
             $"0x01b1 player mana {player.PlayerMana}/{player.Pools.Mana}, {ReservedMana(player)} reserved (Petrified Blood {(started ? "on" : "off")})");
+        await SendPlayerEnergyShield(player);
         return true;
     }
 

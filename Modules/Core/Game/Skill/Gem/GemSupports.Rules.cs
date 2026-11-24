@@ -570,7 +570,10 @@ public static partial class Game
         if (Stat.AttackSpeedPlusPct is var raw && Stat.MainHandAttackSpeedPlusPct is var final)
         {
             var profile = WeaponProfileFor(player);
-            double factor = profile.DualWield || profile.Unarmed ? 1.1 : 1;
+            // The pools' dual-wield "more" (PassiveBonus), doubled by the Claw Mastery with two claws.
+            double factor = profile.DualWield || profile.Unarmed
+                ? profile.DualClaws && Get(Stat.DualWieldInherentAttackSpeedIsDoubledWhileDualWieldingClaws) != 0 ? 1.2 : 1.1
+                : 1;
             int skillSpeed = gem.Stats.GetValueOrDefault(raw);
             if (Supports.Of(gem.Effect)?.Types.Contains(120) == true)
                 skillSpeed += Get(Stat.RetaliationSkillSpeedPlusPct);
@@ -923,12 +926,21 @@ public static partial class Game
             : gem.Stats.GetValueOrDefault(name);
         int Player(uint name) => release && IsCriticalProhibition(name) ? 0
             : playerStats.GetValueOrDefault(name);
-        if (SkillsFor(player).IsVaal(gem.Effect))
+        var skills = SkillsFor(player);
+        var placed = PlacedKind(gem);
+        if (skills.IsVaal(gem.Effect))
             extraIncrease += (long)Own(Stat.VaalSkillCriticalStrikeChancePlusPct) + Player(Stat.VaalSkillCriticalStrikeChancePlusPct);
         if (Own(Stat.MineCriticalStrikeChancePlusPctPerPowerCharge) is int minePerPower and not 0
-            && PlacedKind(gem).Mine)
+            && placed.Mine)
             extraIncrease += (long)minePerPower * Player(Stat.CurrentPowerCharges);
-        if (SkillsFor(player).IsAttack(gem.Effect))
+        // The per-use critical chance families read the skill's own tags, not the hit: a totem skill by its
+        // resolved is_totem, a mine by the RemoteMined type a mine support adds. They join extraIncrease, which
+        // both the attack and the spell branch already fold in.
+        if (gem.Stats.GetValueOrDefault(Stat.IsTotem) != 0)
+            extraIncrease += (long)Player(Stat.TotemCriticalStrikeChancePlusPct) + Own(Stat.TotemCriticalStrikeChancePlusPct);
+        if (placed.Mine)
+            extraIncrease += (long)Player(Stat.MineCriticalStrikeChancePlusPct) + Own(Stat.MineCriticalStrikeChancePlusPct);
+        if (skills.IsAttack(gem.Effect))
         {
             if (new[] { Stat.GlobalCannotCrit, Stat.VirtualGlobalCannotCrit, Stat.CannotCriticalStrikeWithAttacks }
                 .Any(name => Player(name) != 0 || Own(name) != 0)) return 0;
@@ -1019,10 +1031,20 @@ public static partial class Game
         long extra = (long)gem.Stats.GetValueOrDefault(Stat.BaseCriticalStrikeMultiplierPlus) + NightbladeCriticalMultiplier(player, gem.Stats);
         var playerStats = CharacterPlayerStats(player);
         long Sum(uint key) => (long)playerStats.GetValueOrDefault(key) + gem.Stats.GetValueOrDefault(key);
+        var skills = SkillsFor(player);
         var placed = PlacedKind(gem);
         if (placed.Trap) extra += Sum(Stat.TrapCriticalStrikeMultiplierPlus);
         if (placed.Mine) extra += Sum(Stat.MineCriticalStrikeMultiplierPlus);
-        if (SkillsFor(player).HasType(gem.Effect, "Lightning")) extra += Sum(Stat.LightningCriticalStrikeMultiplierPlus);
+        bool lightning = skills.HasType(gem.Effect, "Lightning");
+        bool fire = skills.HasType(gem.Effect, "Fire");
+        bool cold = skills.HasType(gem.Effect, "Cold");
+        if (lightning) extra += Sum(Stat.LightningCriticalStrikeMultiplierPlus);
+        if (fire) extra += Sum(Stat.FireCriticalStrikeMultiplierPlus);
+        if (cold) extra += Sum(Stat.ColdCriticalStrikeMultiplierPlus);
+        if (skills.HasType(gem.Effect, "Chaos")) extra += Sum(Stat.ChaosCriticalStrikeMultiplierPlus);
+        // "with elemental skills" is one value with three flags set and keyword flags match any of them, so it
+        // counts once for the skill, never once per element dealt.
+        if (fire || cold || lightning) extra += Sum(Stat.ElementalCriticalStrikeMultiplierPlus);
         // The skill's own "+X% to Critical Strike Multiplier per Power Charge" (Power Siphon): the character's own
         // per-charge stats are already in its stats (ChargeEffects), this one only on the skill.
         if (GolemStat(gem.Stats, Stat.CriticalStrikeMultiplierPlusPerPowerCharge) is int perPower and not 0)

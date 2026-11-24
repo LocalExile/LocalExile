@@ -43,9 +43,29 @@ public sealed class IvoryTowerTests
                 DamagePacket.Empty.Add(DamageType.Chaos, new(200, 200)));
             Assert.Equal(0, shavsHit);
             Assert.Equal(300u, player.EnergyShield.Current);
+
+            // 5. Eldritch Battery + Ivory Tower: Chaos DoT still bypasses ES protecting Mana and drains Mana directly.
+            stats.Remove(Key("chaos_damage_does_not_bypass_energy_shield"));
+            stats[Stat.KeystoneEldritchBattery] = 1;
+            player.PlayerMana = 400;
+            player.EnergyShield.SetMaximum(500, refill: true);
+            int ebDotLife = Game.DamagePlayerChaosOverTime(player, 150, 4.0, stats);
+            Assert.Equal(0, ebDotLife);
+            Assert.Equal(250u, player.PlayerMana);
+            Assert.Equal(500u, player.EnergyShield.Current);
+
+            // 6. CompleteResourceRecoveryLocked preserves Poison Mana-before-Life drain instead of reverting to manaBefore.
+            stats.Remove(Stat.KeystoneEldritchBattery);
+            player.PlayerLife = 100;
+            player.PlayerMana = 500;
+            player.IncomingAilments.ApplyPoison(10.0, 200.0, 4.0);
+            double manaCarry = 0;
+            Assert.True(Game.CompleteResourceRecoveryLocked(player, 10.0, 11.0, stats, 0, 500, 1000, ref manaCarry));
+            Assert.Equal(100u, player.PlayerLife);
+            Assert.Equal(300u, player.PlayerMana);
         }
 
-        // 5. LifeReservation +30 ES per 100 Reserved Life
+        // 7. LifeReservation +30 ES per 100 Reserved Life
         Assert.Equal(300, LifeReservation.EnergyShield(reserved: 1050, perHundred: 30));
     }
 }
