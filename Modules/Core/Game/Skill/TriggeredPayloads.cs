@@ -66,63 +66,61 @@ public static partial class Game
         effect is "FleshOffering" or "BoneOffering" or "SpiritOffering" or "Contagion" or "ContagionAltX" or "ContagionAltY"
         || CurseCatalog.All.ContainsKey(effect ?? "");
 
-    public static Task ReleaseTriggeredNonProjectile(Player player, ProjectileSession session, ushort id,
-        (int X, int Y) aim, Func<bool> current) => ReleaseTriggeredNonProjectile(player, session, id, aim, current, fromPlacement: false);
-
-    static async Task ReleaseTriggeredNonProjectile(Player player, ProjectileSession session, ushort id,
-        (int X, int Y) aim, Func<bool> current, bool fromPlacement)
+    public static async Task ReleaseTriggeredNonProjectile(Player player, ProjectileSession session, ushort id,
+        (int X, int Y) aim, Func<bool> current)
     {
         var gem = SupportedSkill(player, id);
         var skill = GemSkillEffects(player).FirstOrDefault(g => g.Id == id);
         if (skill.Name is null || !current()) return;
-        if (MinionUtility(SkillsFor(player).EffectId(gem.Effect)))
+        string effect = SkillsFor(player).EffectId(gem.Effect) ?? "";
+        if (MinionUtility(effect) || CurseCatalog.All.ContainsKey(effect))
         {
             using (ProjectileMutation(player, advance: false))
             {
                 if (!current() || !CurrentGameWork || player.Closed || player.LeavingArea || player.Paused || player.PlayerLife == 0) return;
-                double now = AreaTime(player);
-                string effect = SkillsFor(player).EffectId(gem.Effect)!;
-                if (effect is "ConvocationOld" or "Convocation") RecallMinionsLocked(player, gem, now);
-                else StartOfferingLocked(player, id, gem, effect, aim, 0, now);
+                CommitTriggeredUtilityLocked(player, id, gem, skill.Gem, effect, aim, AreaTime(player), fromPlacement: false);
             }
-            await PublishMinionOutcomes(player);
-        }
-        else if (CurseCatalog.All.TryGetValue(SkillsFor(player).EffectId(gem.Effect) ?? "", out var curse))
-        {
-            using (ProjectileMutation(player, advance: false))
-            {
-                if (!current() || !CurrentGameWork || player.Closed || player.LeavingArea || player.Paused || player.PlayerLife == 0) return;
-                double now = AreaTime(player);
-                var playerStats = CharacterPlayerStats(player);
-                if (curse.Mark)
-                {
-                    var target = player.Area.Monsters.Values.Where(m => m is { Hostile: true, Dead: false, Life: > 0, OwnerId: null }
-                            && (!fromPlacement || Dist(m.Walk.Position(now), aim) <= 60 && !m.Asleep && !m.Invulnerable))
-                        .OrderBy(m => Dist(m.Walk.Position(now), aim)).ThenBy(m => m.ObjectId).FirstOrDefault();
-                    if (target is not null)
-                        ApplyCurseLocked(player, target, id, now, false, gem, playerStats, 0, 1, fromPlacement);
-                }
-                else
-                {
-                    int radius = CurseRadius(player, id, false, gem, playerStats);
-                    foreach (var monster in player.Area.Monsters.Values)
-                        if (Dist(monster.Walk.Position(now), aim) <= radius
-                            && (!fromPlacement || monster is { OwnerId: null, Asleep: false, Invulnerable: false }))
-                            ApplyCurseLocked(player, monster, id, now, false, gem, playerStats, 0, 1, fromPlacement);
-                }
-            }
-            await EnemyDebuffsTick(player, AreaTime(player));
-        }
-        else if (fromPlacement && ContagionCast(player, id, gem.Effect) is { } contagion)
-        {
-            using (ProjectileMutation(player))
-                if (current() && CurrentGameWork && !player.Closed && !player.LeavingArea && !player.Paused && player.PlayerLife > 0)
-                    ApplyContagionLocked(player, aim, contagion with { SpreadAo = ContagionSkinAo(player, skill.Gem) });
+            if (MinionUtility(effect)) await PublishMinionOutcomes(player);
+            else await EnemyDebuffsTick(player, AreaTime(player));
         }
         else if (TriggerBrandSpell(player, gem.Effect))
             await ResolveCastBrand(player, id, skill, aim, recoveryGeneration: null, current);
         else if (TriggerAreaSpell(player, gem))
             await AreaSkillHit(player, id, skill,
                 player.Walk.Position(AreaTime(player)), aim, immediate: true, triggeredCurrent: current);
+    }
+
+    static void CommitTriggeredUtilityLocked(Player player, ushort id, SupportedGem gem, uint gemObject,
+        string effect, (int X, int Y) aim, double now, bool fromPlacement)
+    {
+        if (MinionUtility(effect))
+        {
+            if (effect is "ConvocationOld" or "Convocation") RecallMinionsLocked(player, gem, now);
+            else StartOfferingLocked(player, id, gem, effect, aim, 0, now);
+        }
+        else if (CurseCatalog.All.TryGetValue(effect, out var curse))
+        {
+            var playerStats = CharacterPlayerStats(player);
+            if (curse.Mark)
+            {
+                var nearby = fromPlacement ? player.Area.MonstersNear(aim, 60).Select(p => p.Value) : player.Area.Monsters.Values;
+                var target = nearby.Where(m => m is { Hostile: true, Dead: false, Life: > 0, OwnerId: null }
+                        && (!fromPlacement || Dist(m.Walk.Position(now), aim) <= 60 && !m.Asleep && !m.Invulnerable))
+                    .OrderBy(m => Dist(m.Walk.Position(now), aim)).ThenBy(m => m.ObjectId).FirstOrDefault();
+                if (target is not null)
+                    ApplyCurseLocked(player, target, id, now, false, gem, playerStats, 0, 1, fromPlacement);
+            }
+            else
+            {
+                int radius = CurseRadius(player, id, false, gem, playerStats);
+                var nearby = fromPlacement ? player.Area.MonstersNear(aim, radius).Select(p => p.Value) : player.Area.Monsters.Values;
+                foreach (var monster in nearby)
+                    if (Dist(monster.Walk.Position(now), aim) <= radius
+                        && (!fromPlacement || monster is { OwnerId: null, Asleep: false, Invulnerable: false }))
+                        ApplyCurseLocked(player, monster, id, now, false, gem, playerStats, 0, 1, fromPlacement);
+            }
+        }
+        else if (fromPlacement && ContagionCast(player, id, gem.Effect) is { } contagion)
+            ApplyContagionLocked(player, aim, contagion with { SpreadAo = ContagionSkinAo(player, gemObject) });
     }
 }

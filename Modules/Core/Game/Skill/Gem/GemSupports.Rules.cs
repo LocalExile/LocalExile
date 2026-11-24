@@ -990,7 +990,7 @@ public static partial class Game
             additional: inputs.WeaponTypedIncreases, trackPhysicalOrigin: inputs.Melee && !inputs.Secondary
                 && inputs.Get(Stat.SupportBloodlustMeleePhysicalDamagePlusPctFinalVsBleedingEnemies) != 0);
         if (inputs.Attack) hit = MaximumAttackDamage.Apply(Volatility.Apply(RageStats.ApplyAttack(hit, inputs.Get), inputs.Get), inputs.Get);
-        if (inputs.Melee && !inputs.Secondary) hit = hit.Scale(VaalWarchiefHitFactor(inputs.Get));
+        if (inputs.Melee && !inputs.Secondary) hit = WithVaalWarchiefBuff(hit, inputs.Get);
         double intensityMore = SupportedHitIntensityMore(inputs);
         if (intensityMore != 1) hit = hit.Scale(intensityMore);
         return suppress ? new SkillDamageContext(inputs.Plan.Kind, inputs.Caster).Hit(hit) : hit;

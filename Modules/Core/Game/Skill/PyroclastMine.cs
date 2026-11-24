@@ -13,7 +13,7 @@ public static partial class Game
         int count = use.Profile.Count;
         var targets = new ProjectileVector[count];
         var aim = use.Aim - use.Origin;
-        var random = new Random(use.Seed);
+        var random = new Random(unchecked((int)mine.Id));
         if (count > 0) targets[0] = use.Origin + aim.Unit * Math.Min(aim.Length, spread);
         for (int i = 1; i < count; i++)
         {
@@ -37,12 +37,13 @@ public static partial class Game
     }
 
     sealed record PyroclastAura(GameArea Area, Player Owner, PlacedSkills.Placed Mine, Zone Zone, int Exposure);
-    static readonly RuleTable<Player, Dictionary<uint, PyroclastAura>> PyroclastAuras = new();
+    static readonly RuleTable<GameArea, Dictionary<uint, PyroclastAura>> PyroclastAuras = new();
     static readonly RuleTable<SpawnedMonster, Dictionary<uint, PyroclastAura>> PyroclastRecipients = new();
 
     static void KeepPyroclastAura(Player player, PlacedSkills.Placed mine)
     {
-        if (PyroclastAuras.TryGetValue(player, out var current) && current.ContainsKey(mine.Id)) return;
+        var area = player.Area;
+        if (PyroclastAuras.TryGetValue(area, out var current) && current.ContainsKey(mine.Id)) return;
         int exposure = mine.Own.GetValueOrDefault(Stat.PyroclastMineAuraFireExposurePctToApply);
         if (exposure >= 0) return;
         var stats = CharacterPlayerStats(player);
@@ -54,7 +55,6 @@ public static partial class Game
             * Math.Max(0, 1 + increased / 100)), int.MinValue, 0));
         if (exposure >= 0) return;
 
-        var area = player.Area;
         var scaling = SkillAreaStats(player, mine.Own, mine.Effect, stats);
         int radius = SkillArea.Radius(35, key => scaling.GetValueOrDefault(key)
             + (key == SkillArea.Increase ? player.Pools.AuraAreaPct : 0), spell: true);
@@ -74,7 +74,7 @@ public static partial class Game
             Left = id => DropRecipient(area, mine.Id, id),
         };
         aura = new(area, player, mine, zone, exposure);
-        (current ?? PyroclastAuras.GetOrCreateValue(player)).Add(mine.Id, aura);
+        (current ?? PyroclastAuras.GetOrCreateValue(area)).Add(mine.Id, aura);
         area.Zones.Add(zone, CombatLifetime);
     }
 
@@ -88,18 +88,26 @@ public static partial class Game
         }
     }
 
-    static void RemovePyroclastAura(Player player, uint mineId)
+    static void RemovePyroclastAura(GameArea area, uint mineId)
     {
-        if (!PyroclastAuras.TryGetValue(player, out var active) || !active.Remove(mineId, out var aura)) return;
-        foreach (var id in aura.Zone.Inside) DropRecipient(aura.Area, mineId, id);
-        aura.Area.Zones.Remove(aura.Zone);
-        if (active.Count == 0) PyroclastAuras.Remove(player);
+        if (!PyroclastAuras.TryGetValue(area, out var active) || !active.Remove(mineId, out var aura)) return;
+        foreach (var id in aura.Zone.Inside) DropRecipient(area, mineId, id);
+        area.Zones.Remove(aura.Zone);
+        if (active.Count == 0) PyroclastAuras.Remove(area);
     }
 
     public static void ClearPyroclastAuras(Player player)
     {
-        if (PyroclastAuras.TryGetValue(player, out var active))
-            foreach (uint id in active.Keys.ToArray()) RemovePyroclastAura(player, id);
+        var area = player.Area;
+        void Clear(GameArea oldArea)
+        {
+            if (!PyroclastAuras.TryGetValue(oldArea, out var active)) return;
+            foreach (var (id, _) in active.Where(pair => ReferenceEquals(pair.Value.Owner, player)).ToArray())
+                RemovePyroclastAura(oldArea, id);
+        }
+
+        if (area.Driven && !area.Owned) area.Defer(Clear);
+        else Clear(area);
     }
 
     static int PyroclastExposure(SpawnedMonster monster, double now)

@@ -12,28 +12,27 @@ public static partial class Game
 
     const double PlacedArcTargetRange = 60;
 
+    static KeyValuePair<uint, SpawnedMonster> PlacedArcTarget(Player player, PlacedSkills.Placed placed,
+        double radius, double now) =>
+        player.Area.MonstersNear(placed.At, radius)
+            .Where(p => ArcProxyTarget(player, p.Key, p.Value) && Dist(p.Value.Walk.Position(now), placed.At) <= radius)
+            .OrderBy(p => Dist(p.Value.Walk.Position(now), placed.At)).ThenBy(p => p.Key).FirstOrDefault();
+
     static void ReleasePlacedArc(Player player, ProjectileSession session, PlacedSkills.Placed placed,
-        Func<bool> current, double damageMore)
+        KeyValuePair<uint, SpawnedMonster> triggeringEnemy, double damageMore, WorldRecordBuilder bytes)
     {
-        using (ProjectileMutation(player, advance: false))
-        {
-            if (!current()) return;
-            double now = ProjectileWorldTime(player);
-            var target = player.Area.MonstersNear(placed.At, PlacedArcTargetRange)
-                .Where(p => ArcProxyTarget(player, p.Key, p.Value)
-                    && Dist(p.Value.Walk.Position(now), placed.At) <= PlacedArcTargetRange)
-                .OrderBy(p => Dist(p.Value.Walk.Position(now), placed.At)).ThenBy(p => p.Key).FirstOrDefault();
-            if (target.Value is null) return;
-            session.World(placed.Id, InstanceProtocol.ActionStarted(placed.Id, placed.At.X, placed.At.Y,
-                target.Value.Walk.Position(now).X, target.Value.Walk.Position(now).Y, 0x4000, 0xffff,
-                player.MonsterOrderFlags, targetObjectId: target.Key));
-            ReleaseArcProxy(player, session, placed.Skill, placed.Id, placed.At, 0, PlacedArcTargetRange,
-                target.Key, 0xffff, totem: false, mine: placed.Mine, damageMore: damageMore);
-        }
+        double now = ProjectileWorldTime(player);
+        var target = triggeringEnemy.Value is not null ? triggeringEnemy : PlacedArcTarget(player, placed, PlacedArcTargetRange, now);
+        if (target.Value is null || !MonsterPresent(player, target.Key, target.Value)) return;
+        var at = target.Value.Walk.Position(now);
+        bytes.World(placed.Id, InstanceProtocol.ActionStarted(placed.Id, placed.At.X, placed.At.Y,
+            at.X, at.Y, 0x4000, 0xffff, player.MonsterOrderFlags, targetObjectId: target.Key));
+        ReleaseArcProxy(player, session, placed.Skill, placed.Id, placed.At, 0, PlacedArcTargetRange,
+            target.Key, 0xffff, totem: false, mine: placed.Mine, damageMore: damageMore);
     }
 
     static bool ArcProxyTarget(Player player, uint id, SpawnedMonster m) =>
-        m is { Hostile: true, Dead: false, Life: > 0, OwnerId: null, Asleep: false, Invulnerable: false }
+        m is { Hostile: true, Dead: false, Life: > 0, OwnerId: null, Asleep: false, Invulnerable: false, WorldHidden: false }
         && !MonsterAsleep(player, id);
 
     static void ReleaseArcProxy(Player player, ProjectileSession session, ushort skillId, uint emitter,
@@ -88,6 +87,11 @@ public static partial class Game
             ConsumeNativeKnockbackLocked(m, ref hitFlags, ref hitKind, ref hitAngle, out ushort u3c, out ushort u3e);
             session.World(emitter, InstanceProtocol.ActionHit(emitter, sequence, id, flags: hitFlags,
                 kind: hitKind, code: hitCode, angle: hitAngle, u3c: u3c, u3e: u3e));
+            if (accepted.StageStarts)
+            {
+                CommitProjectileBossStage(session, id, m, session.Runtime.Now);
+                accepted = accepted with { StageStarts = false };
+            }
             OwnedKillLocked(m, accepted.Life);
             CommitAcceptedHitLocked(player, id, m, accepted, damage, now, totem ? "Arc totem" : "placed Arc", playerKill: false);
         }
@@ -99,7 +103,7 @@ public static partial class Game
             mainTargets.Add(current);
             Land(current, remaining, origin);
             if (remaining == 0) break;
-            var nearby = player.Area.Monsters.Where(p => p.Key != current && (canOscillate || p.Key != previous)
+            var nearby = player.Area.MonstersNear(at, range).Where(p => p.Key != current && (canOscillate || p.Key != previous)
                     && ArcProxyTarget(player, p.Key, p.Value))
                 .Select(p => (Id: p.Key, Distance: Dist(p.Value.Walk.Position(now), at)))
                 .Where(p => p.Distance <= range).OrderBy(p => p.Distance).ThenBy(p => p.Id).ToList();

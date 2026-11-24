@@ -44,15 +44,19 @@ public static partial class Game
         }
         else
         {
-            if (!SentVaalWarchiefBuff.Remove(player)) return;
+            bool wasSent = SentVaalWarchiefBuff.Remove(player);
+            if (!wasSent && !player.Area.Buffs.Has(player.Id, VaalWarchiefBuff, player.Id)) return;
             player.Area.Buffs.Clear(player.Id, VaalWarchiefBuff, player.Id);
         }
         MarkPlayerStats(player, PlayerStatStep.TotemAura);
         bytes.World(player.Id, PlayerStatsOffFrames(player));
     }
 
-    static double VaalWarchiefHitFactor(Func<uint, int> get) =>
-        1 + get(Stat.SlamAncestorTotemGrantedMeleeDamagePlusPctFinal) / 100d;
+    static GameServer.Core.World.DamagePacket WithVaalWarchiefBuff(GameServer.Core.World.DamagePacket hit, Func<uint, int> get)
+    {
+        int bonus = get(Stat.SlamAncestorTotemGrantedMeleeDamagePlusPctFinal);
+        return bonus == 0 ? hit : hit.Scale(1 + bonus / 100d);
+    }
 
     static void ReleaseVaalWarchiefSlam(Player player, ProjectileSession session, TotemState.Totem totem,
         (int X, int Y) aim, ushort sequence)

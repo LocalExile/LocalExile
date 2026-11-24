@@ -60,7 +60,7 @@ public static partial class Game
             {
                 session.Runtime.Schedule(session.Runtime.Now + ProjectileRuntime.Time(delay), () =>
                 {
-                    if (Active()) session.Enqueue(() => WarpEnemies(player, gem, origin, landing, source, critical, Active));
+                    if (Active()) WarpEnemies(player, session, gem, origin, landing, source, critical, Active);
                 });
                 return;
             }
@@ -89,7 +89,7 @@ public static partial class Game
         return true;
     }
 
-    static async Task WarpEnemies(Player player,
+    static void WarpEnemies(Player player, ProjectileSession session,
         (ushort Id, int Effect, string Name, int Level, int Quality, uint Gem) gem,
         (int X, int Y) origin, (int X, int Y) landing, SupportedGem source, SkillCriticalRoll? critical, Func<bool> inArea)
     {
@@ -103,40 +103,33 @@ public static partial class Game
         if (targets.Count == 0) return;
 
         var sacrifice = new SacrificeUse(player, gem.Id, gem.Effect, gem.Gem);
-        Task Hit((int X, int Y) at, IReadOnlyDictionary<uint, SpawnedMonster> eligible) =>
-            AreaSkillHitForUse(null, player, gem.Id, gem, at, at, immediate: true, criticalRoll: critical, radiusOverride: radius,
-                sacrifice: sacrifice, triggeredCurrent: Current, targetFilter: (id, _) =>
+        // Immediate hits with a scheduled session commit on this frame and queue their presentation.
+        void Hit((int X, int Y) at, IReadOnlyDictionary<uint, SpawnedMonster> eligible) =>
+            _ = AreaSkillHitForUse(null, player, gem.Id, gem, at, at, immediate: true, criticalRoll: critical, radiusOverride: radius,
+                sacrifice: sacrifice, triggeredCurrent: Current, scheduledSession: session, targetFilter: (id, _) =>
                     eligible.TryGetValue(id, out var target) && ReferenceEquals(target, player.Area.Monsters.GetValueOrDefault(id)));
-        await Hit(origin, targets);
+        Hit(origin, targets);
+        if (!Current()) return;
 
         var arrivals = new Dictionary<uint, SpawnedMonster>();
-        var moves = new List<(uint Id, (int X, int Y) Destination)>();
-        using (ProjectileMutation(player))
+        foreach (var (id, target) in targets)
         {
-            if (!Current()) return;
-            now = ProjectileWorldTime(player);
-            foreach (var (id, target) in targets)
-            {
-                if (!MonsterPresent(player, id, target) || target.Invulnerable || !target.Hostile) continue;
-                var at = target.Walk.Position(now);
-                if (Dist(origin, at) > radius) continue;
-                var destination = (X: landing.X + at.X - origin.X, Y: landing.Y + at.Y - origin.Y);
-                int size = LivingCollision.Size(target);
-                bool Walkable((int X, int Y) cell) =>
-                    player.Layout.WalkableFor(cell.X, cell.Y, size) && !player.Barrier.Contains(cell);
-                if (!Walkable(destination)) destination = landing;
-                if (!Walkable(destination)) continue;
-                target.Walk.Teleport(destination.X, destination.Y, now);
-                player.Area.Grid.Set(new(id), destination);
-                target.ActionGeneration++;
-                target.SwingGeneration = null;
-                target.LastTarget = null;
-                moves.Add((id, destination));
-                arrivals.Add(id, target);
-            }
+            if (!MonsterPresent(player, id, target) || target.Invulnerable || !target.Hostile) continue;
+            var at = target.Walk.Position(now);
+            if (Dist(origin, at) > radius) continue;
+            var destination = (X: landing.X + at.X - origin.X, Y: landing.Y + at.Y - origin.Y);
+            int size = LivingCollision.Size(target);
+            bool Walkable((int X, int Y) cell) => player.Layout.WalkableFor(cell.X, cell.Y, size) && !player.Barrier.Contains(cell);
+            if (!Walkable(destination)) destination = landing;
+            if (!Walkable(destination)) continue;
+            target.Walk.Teleport(destination.X, destination.Y, now);
+            player.Area.Grid.Set(new(id), destination);
+            target.ActionGeneration++;
+            target.SwingGeneration = null;
+            target.LastTarget = null;
+            session.World(id, InstanceProtocol.Teleport(id, destination.X, destination.Y), "Vaal Lightning Warp");
+            arrivals.Add(id, target);
         }
-        foreach (var (id, at) in moves)
-            await SendWorldRecord(player, id, InstanceProtocol.Teleport(id, at.X, at.Y), "Vaal Lightning Warp");
-        if (arrivals.Count > 0) await Hit(landing, arrivals);
+        if (arrivals.Count > 0) Hit(landing, arrivals);
     }
 }

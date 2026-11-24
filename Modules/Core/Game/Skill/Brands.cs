@@ -492,58 +492,65 @@ public static partial class Game
         return await ResolveCastBrand(player, skillId, gem, to, recoveryGeneration, current);
     }
 
-    internal static async Task<bool> ResolveCastBrand(Player player, ushort skillId, (ushort Id, int Effect, string Name, int Level, int Quality, uint Gem) gem,
-        (int X, int Y) to, int? recoveryGeneration, Func<bool> current, PlacedAreaHit? placement = null)
+    internal static async Task<bool> ResolveCastBrand(Player player, ushort skillId,
+        (ushort Id, int Effect, string Name, int Level, int Quality, uint Gem) gem, (int X, int Y) to,
+        int? recoveryGeneration, Func<bool> current)
     {
         bool spawned = false;
         await SendWorldBatch(player, [], admission =>
         {
-            if (!CurrentGameWork || player.Closed || player.LeavingArea || player.Paused || player.PlayerLife == 0
-                || !current() || recoveryGeneration is int generation && player.ActionInterruptionGeneration != generation) return null;
-            var supported = SupportedSkill(player, skillId);
-            if (supported.Effect != gem.Effect || !supported.RequirementsMet) return null;
-            if (BrandFamilyOf(SkillsFor(player).EffectId(gem.Effect)) is not { } family) return null;
-
-            double now = AreaTime(player);
-            var state = BrandStates.GetOrCreateValue(player);
-            state.Epoch = player.ProjectileEpoch;
-            if (recoveryGeneration is not null) state.LastBrandCastAt = now;
-
-            var playerStats = CharacterPlayerStats(player);
-            var own = supported.Stats;
-            int maxTotal = BrandMaxTotal(playerStats, own);
-            int count = Math.Clamp(1 + BrandStat(playerStats, "additional_number_of_brands_to_create")
-                + BrandStat(own, "additional_number_of_brands_to_create"), 1, maxTotal);
-            int extraChance = BrandStat(playerStats, "create_additional_brand_%_chance")
-                + BrandStat(own, "create_additional_brand_%_chance");
-            if (extraChance > 0 && AreaRng(player).Next(100) < extraChance) count++;
-
-            var place = player.Layout.WalkableFor(to.X, to.Y, 0) ? to : player.Walk.Position(now);
             var bytes = new WorldRecordBuilder(player, admission);
-            var session = ProjectilesFor(player);
-            string effectId = SkillsFor(player).EffectId(gem.Effect)!;
-
-            for (int i = 0; i < count; i++)
-            {
-                while (state.Brands.Count >= maxTotal && state.Brands.Count > 0)
-                    ExpireBrandLocked(player, session, state, state.Brands[0], now, bytes, replaced: true);
-
-                var brand = CreateBrandLocked(state, skillId, gem.Effect, effectId, family, supported, playerStats, place, now);
-                brand.Placement = placement;
-                state.Brands.Add(brand);
-                Interlocked.Increment(ref _globalActiveBrandCount);
-
-                if (!TryAttachBrandLocked(player, session, state, brand, playerStats, now, bytes, excludeMonster: 0))
-                    SpawnDetachedVisualLocked(player, brand, bytes);
-                spawned = true;
-            }
-
-            ReconcileBrandPresentationLocked(player, state, now, bytes);
+            spawned = ResolveCastBrandLocked(player, skillId, gem.Effect, to, recoveryGeneration, current, bytes);
             return bytes.Count > 0 ? bytes.Build() : null;
         });
 
         if (spawned) await PublishMinionOutcomes(player);
         return spawned;
+    }
+
+    static bool ResolveCastBrandLocked(Player player, ushort skillId, int effect, (int X, int Y) to,
+        int? recoveryGeneration, Func<bool> current, WorldRecordBuilder bytes, PlacedAreaHit? placement = null)
+    {
+        if (!CurrentGameWork || player.Closed || player.LeavingArea || player.Paused || player.PlayerLife == 0
+            || !current() || recoveryGeneration is int generation && player.ActionInterruptionGeneration != generation) return false;
+        var supported = SupportedSkill(player, skillId);
+        if (supported.Effect != effect || !supported.RequirementsMet) return false;
+        string? effectId = SkillsFor(player).EffectId(effect);
+        if (BrandFamilyOf(effectId) is not { } family) return false;
+
+        double now = AreaTime(player);
+        var state = BrandStates.GetOrCreateValue(player);
+        state.Epoch = player.ProjectileEpoch;
+        if (recoveryGeneration is not null) state.LastBrandCastAt = now;
+
+        var playerStats = CharacterPlayerStats(player);
+        var own = supported.Stats;
+        int maxTotal = BrandMaxTotal(playerStats, own);
+        int count = Math.Clamp(1 + BrandStat(playerStats, "additional_number_of_brands_to_create")
+            + BrandStat(own, "additional_number_of_brands_to_create"), 1, maxTotal);
+        int extraChance = BrandStat(playerStats, "create_additional_brand_%_chance")
+            + BrandStat(own, "create_additional_brand_%_chance");
+        if (extraChance > 0 && AreaRng(player).Next(100) < extraChance) count++;
+
+        var place = player.Layout.WalkableFor(to.X, to.Y, 0) ? to : player.Walk.Position(now);
+        var session = ProjectilesFor(player);
+
+        for (int i = 0; i < count; i++)
+        {
+            while (state.Brands.Count >= maxTotal && state.Brands.Count > 0)
+                ExpireBrandLocked(player, session, state, state.Brands[0], now, bytes, replaced: true);
+
+            var brand = CreateBrandLocked(state, skillId, effect, effectId!, family, supported, playerStats, place, now);
+            brand.Placement = placement;
+            state.Brands.Add(brand);
+            Interlocked.Increment(ref _globalActiveBrandCount);
+
+            if (!TryAttachBrandLocked(player, session, state, brand, playerStats, now, bytes, excludeMonster: 0))
+                SpawnDetachedVisualLocked(player, brand, bytes);
+        }
+
+        ReconcileBrandPresentationLocked(player, state, now, bytes);
+        return true;
     }
 
     public static async Task<bool> CastBrandRecall(Player player, ushort skillId, (ushort Id, int Effect, string Name, int Level, int Quality, uint Gem) gem,

@@ -58,18 +58,9 @@ public static partial class Game
                             Expose(monster, 1, exposure, now, debuff);
                         double began = FrostBombDebuffs.TryGetValue(monster, out var old) && old.Until > now
                             ? old.Started : now;
-                        var effect = new FrostBombDebuff(began, now + debuff, recovery);
-                        FrostBombDebuffs.AddOrUpdate(monster, effect);
-                        Player.Area.Buffs.Set(id, BuffRows.Spec(FrostBombDebuffRow, Player.Id,
+                        FrostBombDebuffs.AddOrUpdate(monster, new(began, now + debuff, recovery));
+                        Player.Area.Buffs.Set(id, BuffRows.Spec(FrostBombDebuffRow, 0,
                             new Dictionary<uint, int> { [Stat.LifeRegenerationRatePlusPct] = recovery }, debuff));
-                        var area = Player.Area;
-                        Runtime.Schedule(Runtime.Now + ProjectileRuntime.Time(debuff), () =>
-                        {
-                            if (FrostBombDebuffs.TryGetValue(monster, out var latest) && ReferenceEquals(effect, latest))
-                            {
-                                area.Buffs.Clear(id, FrostBombDebuffRow, Player.Id);
-                            }
-                        });
                     }
                     long next = Runtime.Now + ProjectileRuntime.Time(.5);
                     if (next < end) Runtime.Schedule(next, Pulse);

@@ -42,6 +42,8 @@ public static partial class Game
                 firestorms.Add(run);
                 long end = Runtime.Now + ProjectileRuntime.Time(duration);
                 long spacing = Math.Max(1, ProjectileRuntime.Time(interval));
+                if (placedHit is not null && Art.Animated("FireStormEffect", 0) is { } stormArt)
+                    Effect(aim.X, aim.Y, stormArt, ProjectileRuntime.Time(duration), spread);
                 ScheduleImpact(Runtime.Now + spacing, first: true);
                 Runtime.Schedule(end, () => firestorms.Remove(run));
 
@@ -56,7 +58,11 @@ public static partial class Game
                         int hitRadius = first ? firstRadius : radius;
                         double impactMore = damageMore * (first ? firstDamage : 1);
                         if (placedHit is { } proxy)
+                        {
+                            Effect(at.X, at.Y, "Metadata/Effects/Spells/monsters_effects/fire_elemental/meteor/meteorexplosion.ao",
+                                ProjectileRuntime.Time(.4), hitRadius);
                             proxy.Apply(Player, at, hitRadius, ProjectileWorldTime(Player), impactMore);
+                        }
                         else Enqueue(() => AreaSkillHitForUse(null, Player, gem.Id, gem, at, at, immediate: true, repeat: repeat,
                             damageMore: impactMore, radiusOverride: hitRadius, criticalRoll: critical, sacrifice: sacrifice,
                             triggeredCurrent: CanImpact, brandedTarget: brandedTarget));
