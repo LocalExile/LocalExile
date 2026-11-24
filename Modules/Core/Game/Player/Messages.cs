@@ -984,6 +984,9 @@ public static partial class Game
                     if (newlyVisited && WaypointCatalog.Areas.Entries.Count == 0)
                         await SendWorldRecord(player, player.Id, [], "0x02bc player quest flags (area visit)",
                             atGate: () => QuestFlagPresentation(player));
+                    if (newlyVisited && CharacterAudioCatalog.Default.FirstEntryFor(player.Layout.Id) is { } firstEntry)
+                        await Send(player, InstanceNpcs.TextAudio(0, firstEntry.NpcRow, firstEntry.TextAudioRow),
+                            $"0x01c7 first-entry NPC audio for {player.Layout.Id} (npc {firstEntry.NpcRow}, line {firstEntry.TextAudioRow})");
                     uint gold = PersonalStashOf(player).Gold;
                     await Send(player, InstanceEntities.Gold(gold), $"0x02aa gold: {gold} (account, {player.Character.League ?? "Standard"})");
                     // The worn cosmetics (S→C 0x1f3): the client's worn table starts empty with every instance connection.

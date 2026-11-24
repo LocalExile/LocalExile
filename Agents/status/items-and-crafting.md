@@ -27,9 +27,10 @@ Part of [Status](../Status.md); what to build next in this area is in
 - Sacred Orb rerolls of the shared defence base. Docs: [13](../docs/protocol/13-items.md), "Sacred Orb".
 - Special defence overrides and ES-to-Life conversion. Docs: [13](../docs/protocol/13-items.md) §2,
   [20](../docs/protocol/20-damage.md), "Player energy shield".
-- Gold: per account and league, dropped by monsters and picked up by itself. Gold and ground stacks share the saved pickup transaction.
+- Gold: per account and league, level/rarity-scaled monster drops picked up automatically in one saved transaction.
   Docs: [04](../docs/protocol/04-player-entity.md) §6.
-- Loot: currency (34 enabled core orbs from world.db of 36 rows, the 12 beyond the original 24 with estimated weights; Engineer's and Harbinger's Orbs disabled as no longer usable in the client), gems, flasks, equipment and uniques by weight, equipment drops at area level (+1 magic monster, +2 rare or unique), one-socket base implicits on ordinary jewellery and quivers, ordinary equipment socket counts bounded by class and item level, cards and scarabs in maps, stacked drops.
+- Loot: retail currency weights (34 enabled core orbs), gems, flasks, equipment, uniques, campaign and map divination
+  cards by area tag, scarabs, stacked drops, and class/ilvl-bounded socket counts and one-socket implicits.
   Docs: [15](../docs/protocol/15-progression.md) §3, [drop data](../docs/dev/drop-data-schema.md).
 
 ## Partly working
