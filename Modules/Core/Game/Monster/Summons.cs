@@ -120,7 +120,7 @@ public static partial class Game
 
     static double SummonDuration(Player player, SummonCatalog.Definition definition, SupportedGem gem)
     {
-        if (definition.Persistent) return double.PositiveInfinity;
+        if (definition.Persistent || GolemStat(gem.Stats, Stat.InfiniteMinionDuration) != 0) return double.PositiveInfinity;
         bool secondary = definition.Family == "Absolution" || definition.Family.StartsWith("Dominating", StringComparison.Ordinal);
         int ms = GolemStat(gem.Stats, definition.Family == "Spectre" ? Stat.SpectresHaveBaseDurationMs
             : secondary ? Stat.BaseSecondarySkillEffectDuration : Stat.BaseSkillEffectDuration);

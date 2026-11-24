@@ -6,6 +6,8 @@ public static partial class Game
     const string WolfKill = "SummonWolfOnKillUnique__1", WolfCritical = "SummonWolfOnCritUnique__1",
         SpiritKill = "SummonRagingSpiritOnKillUnique__1", SpiderKill = "SummonSpidersOnKillUnique__1";
     const int SpiderCorpseRadius = 25;
+    const string VoidSpawnFamily = "VoidSpawn";
+    const double VoidSpawnInterval = 4;
 
     static readonly SummonCatalog.Definition ItemWolf = new("SummonSpectralWolf", "SpectralWolf",
         "Metadata/Monsters/Lion/SummonedSpectralWolf", Stat.NumberOfWolvesAllowed, 0);
@@ -15,11 +17,16 @@ public static partial class Game
     static readonly SummonCatalog.Definition ItemSpider = new("RaiseSpiders", "Spider",
         "Metadata/Monsters/SummonedSpider/SummonedSpider", Stat.NumberOfSpiderMinionsAllowed, 0, Targetable: false);
 
+    static readonly SummonCatalog.Definition ItemVoidSpawn = new("SummonVoidSpawn", VoidSpawnFamily,
+        "Metadata/Monsters/ElderTentacle/ElderTentacleMinionLargePlayer", Stat.BaseNumberOfVoidSpawnsAllowed, Stat.NumberOfActiveVoidSpawn);
+
     static SummonCatalog.Definition? TriggeredItemMinion(WornGrantedSkills.Grant grant) => grant.ModId switch
     {
         WolfKill or WolfCritical when grant.EffectId == ItemWolf.Id => ItemWolf,
         SpiritKill when grant.EffectId == ItemSpirit.Id => ItemSpirit,
         SpiderKill when grant.EffectId == ItemSpider.Id => ItemSpider,
+        ("GrantsSummonVoidSpawnUnique__1" or "DivergentGrantsSummonVoidSpawnUnique__1")
+            when grant.EffectId == ItemVoidSpawn.Id => ItemVoidSpawn,
         _ => null,
     };
 
@@ -37,7 +44,7 @@ public static partial class Game
         foreach (var skill in GemSkillEffects(player))
         {
             var gem = SupportedSkill(player, skill.Id);
-            if (!gem.RequirementsMet || gem.WornGrant is not { } grant || grant.ModId == WolfCritical
+            if (!gem.RequirementsMet || gem.WornGrant is not { } grant || grant.ModId is not (WolfKill or SpiritKill or SpiderKill)
                 || TriggeredItemMinion(grant) is not { } definition) continue;
             int chance = GolemStat(gem.Stats, Stat.ChanceToCastOnKillPctTargetSelf);
             if (!RandomRolls.Chance(chance, 100, AreaRng(player))) continue;
@@ -66,6 +73,36 @@ public static partial class Game
                     target.Walk.Position(now), player.ProjectileEpoch, CombatLifetime));
             return;
         }
+    }
+
+    sealed record VoidSpawnIntervalState(WornGrantedSkills.Grant Grant, int Epoch, double Next);
+    static readonly RuleTable<Player, VoidSpawnIntervalState> VoidSpawnTimers = new();
+
+    static async Task TickVoidSpawnTimer(Player player, double now)
+    {
+        if (player.PlayerLife == 0 || InTown(player) || player.Closed || player.LeavingArea || player.Paused
+            || !AllWornGrantedSkillsOf(player).Any(grant => TriggeredItemMinion(grant) == ItemVoidSpawn))
+        {
+            VoidSpawnTimers.Remove(player);
+            return;
+        }
+        foreach (var skill in GemSkillEffects(player))
+        {
+            var gem = SupportedSkill(player, skill.Id);
+            if (!gem.RequirementsMet || gem.WornGrant is not { } grant || TriggeredItemMinion(grant) != ItemVoidSpawn) continue;
+            if (!VoidSpawnTimers.TryGetValue(player, out var timer) || timer.Grant != grant || timer.Epoch != player.ProjectileEpoch)
+            {
+                VoidSpawnTimers.AddOrUpdate(player, new(grant, player.ProjectileEpoch, now + VoidSpawnInterval));
+                return;
+            }
+            if (now < timer.Next) return;
+            double elapsedTicks = 1 + Math.Floor((now - timer.Next) / VoidSpawnInterval);
+            VoidSpawnTimers.AddOrUpdate(player, timer with { Next = timer.Next + elapsedTicks * VoidSpawnInterval });
+            await FireItemMinionTrigger(player, new(skill.Id, grant, ItemVoidSpawn, player.Walk.Position(now),
+                player.ProjectileEpoch, CombatLifetime), now);
+            return;
+        }
+        VoidSpawnTimers.Remove(player);
     }
 
     static async Task TickWeaponMinionTriggers(Player player, double now)
@@ -100,6 +137,7 @@ public static partial class Game
             player.Minions.OutputQueue.Add(new([], "spectral wolf refreshed", wolf.Id, wolf.Monster, PlayerMinions.OutputKind.Life));
             return;
         }
+        if (definition == ItemVoidSpawn && active.Length >= limit) return;
         if (definition != ItemSpider)
         {
             await SummonFighterCore(player, trigger.Skill, definition, trigger.From, current: Current, triggered: true);
@@ -143,11 +181,13 @@ public static partial class Game
     public static Dictionary<uint, int> ItemMinionStatSources(Player player, Dictionary<uint, int> sources)
     {
         if (player.Summons.Fighters.Count == 0) return sources;
+        int voidSpawns = 0;
         foreach (var fighter in player.Summons.Fighters.Values)
         {
-            if (fighter.Definition.Kind is not ("SpectralWolf" or "Spider") || !GolemCurrent(player, fighter)
+            if (fighter.Definition.Kind is not ("SpectralWolf" or "Spider" or VoidSpawnFamily) || !GolemCurrent(player, fighter)
                 || fighter.Monster.Dead || fighter.Monster.Life == 0) continue;
-            if (fighter.Definition.Kind == "SpectralWolf")
+            if (fighter.Definition.Kind == VoidSpawnFamily) voidSpawns++;
+            else if (fighter.Definition.Kind == "SpectralWolf")
             {
                 Add(Stat.SpectralWolfGrantsAttackMinimumAddedPhysicalDamage, Stat.AttackMinimumAddedPhysicalDamage, fighter);
                 Add(Stat.SpectralWolfGrantsAttackMaximumAddedPhysicalDamage, Stat.AttackMaximumAddedPhysicalDamage, fighter);
@@ -157,6 +197,12 @@ public static partial class Game
                 Add(Stat.SummonedSpiderGrantsAttackSpeedPlusPct, Stat.AttackSpeedPlusPct, fighter);
                 Add(Stat.SummonedSpiderGrantsPoisonDamagePlusPct, Stat.BasePoisonDamagePlusPct, fighter);
             }
+        }
+        if (voidSpawns > 0)
+        {
+            long extraChaos = (long)voidSpawns * sources.GetValueOrDefault(Stat.NonChaosDamagePctToAddAsChaosDamagePerVoidSpawn);
+            if (extraChaos != 0) sources[Stat.NonChaosDamageToAddAsChaosDamagePct] =
+                ActorScale.Saturate(sources.GetValueOrDefault(Stat.NonChaosDamageToAddAsChaosDamagePct) + extraChaos);
         }
         return sources;
 

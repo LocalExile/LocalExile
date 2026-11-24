@@ -864,6 +864,10 @@ public static partial class Game
             TemporalChainsOnSuccessfulHitLocked(player, target, now, effects.Stats,
                 Golem(Stat.CurseOnHitPctTemporalChains), random, g.Id);
             WitherOnHitLocked(target, Golem, now, random);
+            if (g.Definition.Kind == VoidSpawnFamily
+                && RandomRolls.Chance(GolemStat(g.Own, Stat.VoidSpawnWitheredOnHitChancePct), 100, random))
+                ApplyWitherStacksLocked(target, 1, WitherDurationSeconds(
+                    GolemStat(g.Own, Stat.VoidSpawnWitheredBaseDurationMs) / 1000d, Golem), Golem, now);
             InflictMonsterBlind(player, id, target, now, BlindHitInput.Capture(Golem), a.Attack.Spell, critical,
                 AreaRng(player));
             MinionAilmentsLocked(player, g, a, supported.Stats, id, target, critical, now, ailmentFactor,

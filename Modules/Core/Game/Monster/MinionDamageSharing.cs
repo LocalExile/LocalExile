@@ -48,6 +48,19 @@ public static partial class Game
                     + (i < share % spectres.Length ? 1 : 0), now);
         }
 
+        int voidSpawnPct = GolemStat(stats, Stat.DamageRemovedFromVoidSpawnsBeforeLifeOrEsPerVoidSpawnsPct);
+        if (voidSpawnPct > 0)
+        {
+            var spawns = player.Summons.Fighters.Values.Where(g => g.Definition.Kind == VoidSpawnFamily && Eligible(g))
+                .OrderBy(g => g.Id).ToArray();
+            if (spawns.Length > 0)
+            {
+                int share = (int)((long)(damage - diverted) * Math.Min(100L, (long)spawns.Length * voidSpawnPct) / 100);
+                for (int i = 0; i < spawns.Length; i++)
+                    diverted += TakeMinionLifeLocked(player, spawns[i], share / spawns.Length + (i < share % spawns.Length ? 1 : 0), now);
+            }
+        }
+
         if (companion is not null && companionPct > 0)
             diverted += TakeMinionLifeLocked(player, companion, (int)((long)(damage - diverted) * companionPct / 100), now);
         return diverted;
