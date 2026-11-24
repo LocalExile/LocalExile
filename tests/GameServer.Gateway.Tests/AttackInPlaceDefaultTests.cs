@@ -37,6 +37,26 @@ public sealed class AttackInPlaceDefaultTests
     }
 
     [Fact]
+    public void Placement_counts_the_support_and_the_chance_but_respects_a_cooldown()
+    {
+        using var fixture = new TriggeredSummonTests.Fixture();
+        var player = fixture.Player;
+        ushort skill = fixture.Equip(("Shockwave Totem", 1))[0];
+        Assert.Equal(1, Game.TotemsPerUse(player, skill));
+        skill = fixture.Equip(("Shockwave Totem", 1), ("Multiple Totems Support", 1))[0];
+        Assert.Equal(2, Game.TotemsPerUse(player, skill));
+        using var chance = GameEvents.PlayerStatSources.Add("Game", (owner, stats) =>
+        {
+            if (owner == player) stats[Stat.ChanceToSummonTwoTotemsPct] = 100;
+            return stats;
+        });
+        skill = fixture.Equip(("Shockwave Totem", 1))[0];
+        Assert.Equal(2, Game.TotemsPerUse(player, skill));
+        skill = fixture.Equip(("Decoy Totem", 1), ("Multiple Totems Support", 1))[0];
+        Assert.Equal(1, Game.TotemsPerUse(player, skill));
+    }
+
+    [Fact]
     public void Artillery_ballista_on_slot_2_keeps_its_attack_in_place_default_through_the_first_tick()
     {
         string path = Path.Combine(Path.GetTempPath(), $"localexile-attack-in-place-{Guid.NewGuid():N}.db");
