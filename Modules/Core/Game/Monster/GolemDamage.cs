@@ -160,7 +160,8 @@ public static partial class Game
                 // Meat Shield's defensive half: "Minions take 15% less Damage" (the stat is the negative more).
                 * Math.Max(0, 1 + GolemStat(g.Own, Stat.SupportMinionDefensiveStanceMinionDamageTakenPlusPctFinal) / 100.0)
                 * Math.Max(0, 1 + GolemStat(g.Own, Stat.VaalUpgradeMinionDamageTakenPlusPctFinal) / 100d)
-                * (area ? Math.Max(0, 1 + effects[Stat.Of("damage_taken_+%_from_area_hits")] / 100.0) : 1)
+                // area_damage_taken_from_hits_+% (Stats 8037).
+                * (area ? Math.Max(0, 1 + effects[Stat.AreaDamageTakenFromHitsPlusPct] / 100.0) : 1)
                 * fortFactor);
             if (value > 0)
             {

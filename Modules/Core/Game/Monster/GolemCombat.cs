@@ -33,7 +33,9 @@ public static partial class Game
         double regen = (g.Definition.IsGolem ? g.Definition.Kind == "Stone" ? .02 : .01 : 0) +
             (Player(Stat.MinionLifeRegenerationRatePerMinutePct) + Own(Stat.MinionLifeRegenerationRatePerMinutePct)
                 + (g.Definition.IsGolem ? Player(Stat.GolemLifeRegenerationPerMinutePct) : 0)) / 6000.0;
-        g.Regeneration += elapsed * (m.MaxLife * regen + Player(Stat.Of("minion_base_life_regeneration_rate_per_minute")) / 60.0
+        // minion_base_life_regeneration_rate_per_minute is not a client Stats row, so the term was always 0.
+        // The per-second flat read below already carries the only flat minion-regen source.
+        g.Regeneration += elapsed * (m.MaxLife * regen
             + Player(Stat.MinionLifeRegenerationRatePerSecond) + m.Mods.Effects[Stat.BaseLifeRegenerationRatePerMinute] / 60.0
             + (now < g.HolyRegenerationUntil ? g.HolyRegenerationPerSecond : 0)
             + (now - g.BlockedAt <= 4 ? m.MaxLife * m.Mods.Effects[Stat.LifeRegenerationRatePerMinutePctIfBlockedRecently] / 6000d : 0));
@@ -624,7 +626,9 @@ public static partial class Game
         }
         bool prey = IsPrey(player, g.Own, id, target, now);
         var effects = g.Monster.Mods.Effects;
-        int roll = effects[Stat.Of("never_crit")] == 0 && effects[Stat.AlwaysCrit] == 0 ? AreaRng(player).Next(10_000) : 0;
+        // cannot_crit is the GolemModifiers strip of minion_cannot_crit ("Minions never deal Critical Strikes",
+        // Stats 18294). never_crit is not a Stats row and no minion_never_crit exists, so the gate was always open.
+        int roll = effects[Stat.Of("cannot_crit")] == 0 && effects[Stat.AlwaysCrit] == 0 ? AreaRng(player).Next(10_000) : 0;
         bool critical = GolemCriticalStrike(a, g.Monster.Mods, roll,
             prey ? GolemStat(g.Own, Stat.SupportMinionFocusFireCriticalStrikeChancePlusPctVsFocusedTarget) : 0,
             BrittleCriticalChance(target, now));   // every hit against a Brittle enemy
@@ -703,7 +707,7 @@ public static partial class Game
     /// <summary><paramref name="additionalChance"/>: flat chance in hundredths added after the increases (the target's Brittle).</summary>
     public static bool GolemCriticalStrike(GolemState.Ability ability, MonsterModSet mods, int roll, int additionalIncrease = 0,
         int additionalChance = 0) =>
-        mods.Effects[Stat.Of("never_crit")] == 0 && (mods.Effects[Stat.AlwaysCrit] != 0
+        mods.Effects[Stat.Of("cannot_crit")] == 0 && (mods.Effects[Stat.AlwaysCrit] != 0
             || roll < GolemCriticalChance(ability, mods, additionalIncrease) + additionalChance);
 
     static void GolemLaunch(Player player, GolemState.Golem g,
@@ -728,9 +732,10 @@ public static partial class Game
             EndArea = p.Lobbed ? new("golem mortar", a.Radius) : null,
             EndAreaReasons = p.Lobbed ? new HashSet<ProjectileEndReason> { ProjectileEndReason.Landing, ProjectileEndReason.Terrain } : null,
         };
-        // The profile already contains the native skill's quantity; the minion's own modifiers add to it once.
+        // The profile already contains the native skill's quantity; the minion's own modifiers add to it once,
+        // including ProjectileNumberOfTargetsToPierce / ProjectileBaseNumberOfTargetsToPierce inside Resolve.
         profile = GatewayProjectileModifiers.Resolve(profile, name => mods[name], attack: !a.Attack.Spell,
-            arrows: g.Weapon is { Bow: true }, skillPierce: mods[Stat.Of("number_of_additional_projectiles_to_pierce")]);
+            arrows: g.Weapon is { Bow: true });
         var offense = new ObjectProjectileOffense(a.Id, (s, contact) =>
         {
             if (!CurrentGameWork || player.Area.Monsters.GetValueOrDefault(contact.Target.Id) is not { Hostile: true } victim) return ProjectileHitResult.Miss;
