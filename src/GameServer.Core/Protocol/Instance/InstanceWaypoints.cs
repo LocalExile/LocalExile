@@ -132,6 +132,10 @@ public static class InstanceWaypoints
     /// <c>0x142169dd0</c> reads the row and notifies the listeners at instance +0x1af8. Accept sends 0x3a.</summary>
     public const byte DescendancySelectUi = 0x4c;
 
+    /// <summary>S→C 0x7b kind 0x72: <c>DeepwaterActiveVoyageWindow</c> (<c>CurrentVoyage</c>, <c>0x14216b9a6</c> ->
+    /// <c>instance+0x4678</c>). Ignores the four u32 arguments and requires ruleset 172 (<c>DeepwaterHubRules</c>).</summary>
+    public const byte DeepwaterActiveVoyageUi = 0x72;
+
     /// <summary>
     /// S→C 0x4c (class 0x1435e76c0, read 0x1421a5dd0; dispatcher case 0x12): u32 BE (+0x10, passed with the bitset to the
     /// listeners at instance +0x73f0), then 19 raw bytes (+0x14) copied to instance +0xcf31: bit i = the i-th WorldAreas

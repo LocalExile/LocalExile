@@ -176,6 +176,16 @@ public sealed partial class DeepwaterModule : IModule
             await WorldOf(player).TravelTo(HubId, "/boat");
             return true;
         });
+        GameEvents.Command(id, "deepwater_voyage", "/deepwater_voyage (opens the active Deepwater Voyage panel)", async (player, _) =>
+        {
+            var area = PlayerOf(player).AreaId;
+            if (area != HubId && !DeepwaterGrid.IsEncounter(area))
+            {
+                await PlayerOf(player).Tell("Current Voyage is only available on The Sovereign or inside an Allflame run.");
+                return;
+            }
+            await OpenCurrentVoyage(player, "/deepwater_voyage");
+        });
         GameEvents.PlayerEntered.Add(id, async player =>
         {
             var previousView = Program.ViewOf.Value;
