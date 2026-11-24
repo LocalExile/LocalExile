@@ -82,12 +82,14 @@ public class StashTabReloadTests : IDisposable
             await Game.SetTabAffinities(player, new(0, InstanceStash.Guild, [(3, true)]));
             Assert.Equal(1u << 3, Bits(guild));
             Assert.Equal(0u, Bits(personal));
+            wire.Expect(InstanceStash.EncodeSetAffinities(0, InstanceStash.Guild, [(3, true)]));
             wire.Expect(InstanceStash.TabList(guild.Records(null, player.Connection.GuildStashTabsSent), InstanceStash.Guild));
 
             // A personal change with the guild panel still open goes to the personal stash, not the guild's.
             await Game.SetTabAffinities(player, new(0, InstanceStash.Personal, [(5, true)]));
             Assert.Equal(1u << 5, Bits(personal));
             Assert.Equal(1u << 3, Bits(guild));
+            wire.Expect(InstanceStash.EncodeSetAffinities(0, InstanceStash.Personal, [(5, true)]));
             wire.Expect(InstanceStash.TabList(personal.Records(null, player.Connection.StashTabsSent)));
 
             // Both are kept after a reload.

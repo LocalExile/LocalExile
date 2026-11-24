@@ -16,8 +16,7 @@ verify the corrected fossil/resonator presentation in the real client (18-stash.
   tabs each item in its slot, and affinities (0xd3) are saved (18 §7).
   Currency stack limits follow the extracted table; lifeforce merging to 50 000 is verified in the real client.
   Switching to a loaded tab sends nothing to the server.
-- **Start:** check live that the affinity window closes on S→C 0x136;
-  verify public tab flag (0xcf), item price notes (0x1a1), Blight oil take-out (0xf5), tab rename / colour
+- **Start:** verify public tab flag (0xcf), item price notes (0x1a1), Blight oil take-out (0xf5), tab rename / colour
   (0xcd / 0xce), order (0xcc) and folders (0xd1 / 0xd2) in the real client.
   Unique collection categories and `/item_tab` filling are implemented; unique Heist contract generation and
   catalogue entries absent from the native collection remain unsupported.

@@ -35,7 +35,8 @@ Part of [Status](../Status.md); what to build next in this area is in
   and the divination tab shows each held card with its count over the set. Fragment layout rows use both
   FirstSlotIndex and Subtab, including all eight current Allflame embers.
   Ctrl + click on currency goes to its affinity tab's slot (C→S 0xe1, live 2026-10-20) and a plain click on a currency
-  slot picks up the stack; the tab settings' affinities (0xd3) are saved;
+  slot picks up the stack; the tab settings' affinities (0xd3) are saved, close the window and route Ctrl + click
+  (premium tab, live 2026-11-24; guild tabs show no affinities without real guilds);
   the stash reopens on the account's last tab after a relog (0x7b affinity on the first open per connection) and keeps
   the panel's own tab while the connection lasts; tabs and items are account-wide (the account's row in
   `data/characters.db`).
@@ -85,8 +86,8 @@ Part of [Status](../Status.md); what to build next in this area is in
 ## Partly working
 
 - Tab folders: Create New Folder, moving tabs in and out (C→S 0xd1) and Delete Folder (0xd2) are kept with the stash; a
-  deleted folder stays hidden so the later tabs keep their places, and S→C 0xd3 encodes guild stash affinity updates
-  (18 "C→S"). Checked offline; not yet in the real client.
+  deleted folder stays hidden so the later tabs keep their places (18 "C→S"). Checked offline; not yet in the real
+  client.
 - Personal stash and gold are shared only within the same account and full league, including mode combinations.
   Guild stash storage is also league-scoped; Standard retains the legacy bank and other leagues use separate banks.
   SSF refuses guild opening, tab requests and inventory moves.

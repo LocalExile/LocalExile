@@ -159,13 +159,14 @@ connection. Later opens send b = 0x16: the panel keeps its own tab while the con
 - **0xd3** (class `0x1435cad70`, read `0x141f9d9a0`, write `0x141f9d7d0`, built by `0x14216de70`): the tab settings' affinities, sent by the
   window's check mark. u16 BE tab, u8 kind, u8 n, n × (u8 affinity, u8 on). Live 2026-10-20: `00D3 0005 00 01 03 01`
   (Currency on, tab 5). The window stays open until the server answers; the Gateway saves the bits with the tab
-  (`SavedTab.Affinities`) and sends the tab list again (S→C 0x136), with flag 0x40 and the bitset in each record. Whether
-  0x136 is what closes the window is not checked live yet. The message's kind names the stash (guild kind 1 saves to
-  the guild stash), whichever panel is open. Live 2026-11-24: the guild tabs' settings show no affinities, though
-  retail has them; the guess is that the client wants guild rights this server never sends.
-  S→C **0xd3** uses the same class and wire layout for guild stash
-  affinity broadcasts (dispatcher case `0x3f` at `0x142155f46` → `0x142174850`, accepting `kind == 1` only), encoded by
-  `InstanceStash.EncodeSetAffinities`.
+  (`SavedTab.Affinities`), echoes the change as S→C 0xd3 and sends the tab list again (S→C 0x136), with flag 0x40 and
+  the bitset in each record. Live 2026-11-24: the window closes on the echo (kind 0 too); on 0x136 alone it stays open.
+  Ticking an affinity another tab has makes the client send two: that tab's off, then this tab's on.
+  The message's kind names the stash (guild kind 1 saves to the guild stash), whichever panel is open. Live
+  2026-11-24: the guild tabs' settings show no affinities, though retail has them; the guess is that the client wants
+  guild rights this server never sends.
+  S→C **0xd3** uses the same class and wire layout (dispatcher case `0x3f` at `0x142155f46` → `0x142174850`), encoded
+  by `InstanceStash.EncodeSetAffinities`; the earlier reading that it accepts `kind == 1` only does not hold.
 - **0xe0** (20 bytes, vtable `0x1435cb2b0`, write `0x141f9df90`, built by `0x14216f460`): Ctrl + click on an inventory
   item while a tab is shown. u16 BE tab (the stash page's +0x4a4), u32 BE item id, u8 flags (bit 1: Ctrl + right click, the
   bulk boolean of `0x1403119d0`, as 0xe1 below), u8 kind (page +0x491), u16 token (raw, changes per request), u64 raw (0). The
@@ -355,7 +356,7 @@ Gold stays with the personal stash.
 
 - **Last tab:** switching to an already loaded tab sends nothing, so a switch followed by a logout without reopening
   the stash or moving an item is not seen; the next login opens on the tab before it.
-- Not checked live yet: the affinity window closing on S→C 0x136, and the special tabs other than currency and map.
+- Not checked live yet: the special tabs other than currency and map.
 - Tab folders in the real client (0xd1 and 0xd2 are handled, not checked live), 0xe2, the unique, divination and other special tabs, the
   real guilds (shared guild stash, members, rights; the guild tabs' affinity settings wait on them),
   stashes per league, and stashes in the other towns.

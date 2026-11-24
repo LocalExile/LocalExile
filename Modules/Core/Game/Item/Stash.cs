@@ -354,10 +354,8 @@ public static partial class Game
         if (t.InventoryItemId != 0 && PlayerInventories.ShowsOnModel(t.Row)) await SendEquipment(player, items);
     }
 
-    // C→S 0xd3: the tab settings' affinities, confirmed: saved with the tab, and the tab list again (S→C 0x136), which the
-    // settings window waits for.
-    // After the tab settings change a tab (0xcd, 0xce): the tab list again (S→C 0x136), as after the affinities; the
-    // settings window waits for it before it closes.
+    // After the tab settings change a tab (0xcd, 0xce, 0xcf, 0xd1, 0xd2, 0xd3): the tab list again (S→C 0x136); after
+    // a rename or colour the settings window waits for it before it closes.
     public static async Task SendTabListAgain(Player player, byte kind)
     {
         if (player.Character.Ssf && kind == InstanceStash.Guild) return;
@@ -376,6 +374,9 @@ public static partial class Game
         uint? now = stash.SetAffinities(set.Tab, set.Changes);
         Console.WriteLine($"[gateway] {player.Connection.Remote} <= 0x00d3 stash {set.Kind} tab {set.Tab} affinities [{string.Join(", ", set.Changes.Select(c => $"{c.Affinity}={(c.On ? "on" : "off")}"))}]" +
             (now is uint bits ? $": now 0x{bits:x}" : ": refused (no such tab)"));
+        // The settings window closes on the change echoed as S→C 0xd3; on 0x136 alone it stays open (live 2026-11-24).
+        if (now is not null)
+            await Send(player, set.Encode(), $"0x00d3 stash {set.Kind} tab {set.Tab} affinities echoed");
         await SendTabListAgain(player, set.Kind);
     }
 }
