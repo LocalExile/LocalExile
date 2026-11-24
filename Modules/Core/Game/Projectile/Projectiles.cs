@@ -290,6 +290,7 @@ public static partial class Game
         {
             var seeded = use with { Seed = ++seed };
             long useId = Runtime.Release(seeded);
+            SacredWispsOnRelease(seeded);
             if (ServerTrace.Projectiles && !Quiet(seeded.Payload))
                 Console.WriteLine($"[gateway] {Player.Connection.Remote} projectile release t={Runtime.Now / (double)ProjectileRuntime.QuantaPerSecond:0.000000} use={useId} "
                     + $"skill={PayloadLabel(seeded.Payload)} metadata={seeded.Profile.Id} count={seeded.Profile.Count} "
@@ -298,7 +299,7 @@ public static partial class Game
         }
 
         public double NowTicks => Runtime.Now;
-        public long Release(ProjectileUse use) => Runtime.Release(use with { Seed = ++seed });
+        public long Release(ProjectileUse use) => ReleaseNow(use);
 
         public void Invalidate()
         {
@@ -310,6 +311,7 @@ public static partial class Game
             ClearEnsnares();
             ClearExplosiveFuses();
             if (archer is { } currentArcher) EndMirage(currentArcher, retire: true);
+            EndSacredWisps(retire: true);
             lock (flaskBarGate)
             {
                 flasksPending = null;
@@ -904,6 +906,10 @@ public static partial class Game
             if (shot.ActualCaster is null && hit.Value.Life == 0) DevourOnKill(Player, target, shot.SkillStats);
             if (shot.MirageSource is not null && target.Hostile && contact.Projectile.Use.Emitter.Id == Player.Id)
                 MirageOnArrowHit(shot);
+            if (!immune && target.Hostile && contact.Projectile.Use.Emitter.Id == Player.Id
+                && shot.ActualCaster is null && !shot.Spell && !shot.FromTrapOrMine && !shot.FromTotem
+                && shot.SkillStats.GetValueOrDefault(Stat.SummonSacredWispsOnHit) > 0)
+                SacredWispsOnHit(shot);
             if (!immune && shot.SourceSkill == 0 && shot.WeaponAttack && shot.ActualCaster is null && !shot.FromTrapOrMine)
                 CaptureEquippedHitExplosionLocked(target, player);
             if (!immune)
