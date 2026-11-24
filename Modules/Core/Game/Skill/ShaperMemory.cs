@@ -134,7 +134,8 @@ public static partial class Game
             var (coefficient, effectiveness) = catalog.DamageCoefficients(effect, level);
             var raw = SupportedAttackDamage.Raw(weapon, Get, default, coefficient, effectiveness, melee: true);
             var hit = PlayerHitDamage.Resolve(raw, Get, SupportedAttackDamage.WithWeaponGains(new(), weapon), spell: false,
-                melee: true, area: true, additionalIncreased: SupportedAttackDamage.WeaponIncrease(weapon, Get));
+                melee: true, area: true, additionalIncreased: SupportedAttackDamage.WeaponIncrease(weapon, Get),
+                additional: new() { MeleePhysicalMorePct = Get(Stat.WarBannerPhysicalDamagePlusPctFinalWithMeleeSkills) });
             session.Runtime.Schedule(finish, () =>
             {
                 if (Alive())

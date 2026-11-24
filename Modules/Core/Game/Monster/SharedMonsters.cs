@@ -101,11 +101,11 @@ public static partial class Game
         bool live = TargetLive(t, player);
         if (live && ReferenceEquals(t, player))
         {
-            if (!m.Aggro && candidate.Distance > m.AggroRange) m.Target = null; // gave up: free for whoever comes
+            if (!m.Aggro && candidate.Distance > MonsterNoticeRange(m)) m.Target = null; // gave up: free for whoever comes
             return true;
         }
-        // In its reach, or still chasing (the AI gives up beyond twice its aggro range, as before).
-        double reach = Math.Max(1, m.AggroRange) * (m.Aggro && !live ? 2 : 1);
+        // In its reach, or still chasing (the AI gives up beyond its leash range).
+        double reach = Math.Max(1, !m.Aggro ? MonsterNoticeRange(m) : live ? m.AggroRange : MonsterLeashRange(m));
         if (player.PlayerLife == 0 || candidate.Distance > reach) return false;
         if (live)
         {

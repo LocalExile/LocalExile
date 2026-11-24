@@ -9,10 +9,13 @@ public static partial class Game
         sealed class FirestormRun { public bool Replaced; }
         readonly List<FirestormRun> firestorms = [];
         const int FirestormSpreadRadius = 25;
+        const string FirestormStormArt = "Metadata/Effects/Spells/meteor_shower/meteor_shower.ao";
+        const string FirestormImpactArt = "Metadata/Effects/Spells/meteor_shower/meteor_aoe.ao";
+        const string FirestormSmallImpactArt = "Metadata/Effects/Spells/meteor_shower/meteor_aoe_shards.ao";
 
         internal void ScheduleFirestorm((ushort Id, int Effect, string Name, int Level, int Quality, uint Gem) gem,
             (int X, int Y) aim, double windup, Func<bool> current, SacrificeUse sacrifice, SkillCriticalRoll? critical,
-            int repeat = 0, double damageMore = 1, SpawnedMonster? brandedTarget = null)
+            int repeat = 0, double damageMore = 1, SpawnedMonster? brandedTarget = null, PlacedAreaHit? placedHit = null)
         {
             if (!Active || !current()) return;
             var source = SupportedSkill(Player, gem.Id);
@@ -42,10 +45,12 @@ public static partial class Game
                 firestorms.Add(run);
                 long end = Runtime.Now + ProjectileRuntime.Time(duration);
                 long spacing = Math.Max(1, ProjectileRuntime.Time(interval));
+                if (placedHit is not null)
+                    Effect(aim.X, aim.Y, FirestormStormArt, ProjectileRuntime.Time(duration), spread);
                 ScheduleImpact(Runtime.Now + spacing, first: true);
                 Runtime.Schedule(end, () => firestorms.Remove(run));
 
-                bool CanImpact() => Active && Player.PlayerLife > 0 && sacrifice.Current;
+                bool CanImpact() => Active && Player.PlayerLife > 0 && sacrifice.Current && (placedHit is null || current());
                 void ScheduleImpact(long due, bool first)
                 {
                     if (due > end) return;
@@ -53,9 +58,17 @@ public static partial class Game
                     {
                         if (run.Replaced || !CanImpact()) return;
                         var at = first ? aim : Impact();
-                        Enqueue(() => AreaSkillHitForUse(null, Player, gem.Id, gem, at, at, immediate: true, repeat: repeat,
-                            damageMore: damageMore * (first ? firstDamage : 1), radiusOverride: first ? firstRadius : radius,
-                            criticalRoll: critical, sacrifice: sacrifice, triggeredCurrent: CanImpact, brandedTarget: brandedTarget));
+                        int hitRadius = first ? firstRadius : radius;
+                        double impactMore = damageMore * (first ? firstDamage : 1);
+                        if (placedHit is { } proxy)
+                        {
+                            Effect(at.X, at.Y, first ? FirestormImpactArt : FirestormSmallImpactArt,
+                                ProjectileRuntime.Time(.4), hitRadius);
+                            proxy.Apply(Player, at, hitRadius, ProjectileWorldTime(Player), impactMore);
+                        }
+                        else Enqueue(() => AreaSkillHitForUse(null, Player, gem.Id, gem, at, at, immediate: true, repeat: repeat,
+                            damageMore: impactMore, radiusOverride: hitRadius, criticalRoll: critical, sacrifice: sacrifice,
+                            triggeredCurrent: CanImpact, brandedTarget: brandedTarget));
                         ScheduleImpact(due + spacing, first: false);
                     });
                 }

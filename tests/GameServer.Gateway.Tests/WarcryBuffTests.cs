@@ -1,3 +1,4 @@
+using GameServer.Core.Protocol.Instance;
 using GameServer.Core.World;
 
 namespace GameServer.Gateway.Tests;
@@ -76,23 +77,82 @@ public sealed class WarcryBuffTests
     }
 
     [Fact]
-    public void Generals_Cry_and_Vengeful_Cry_grant_no_buff()
+    public void Generals_Cry_grants_no_buff()
     {
         using var f = new TriggeredSummonTests.Fixture();
         var player = f.Player;
         var playerStats = new Dictionary<uint, int> { [Stat.WarcriesHaveInfinitePower] = 1 };
 
-        // General's Cry has no buff row. Vengeful Cry's row (2476) describes its retaliation buff.
         Assert.Null(Game.WarcryBuffRow("GeneralsCry"));
-        Assert.Null(Game.WarcryBuffRow("VengefulCry"));
         Assert.Null(Game.WarcryBuffStats("GeneralsCry", 25, 1.0, _ => 0));
-        Assert.Null(Game.WarcryBuffStats("VengefulCry", 25, 1.0, _ => 0));
 
         var before = Game.CharacterPlayerStats(player);
         Game.ApplyWarcryBuffLocked(player, "GeneralsCry", new Dictionary<uint, int>(), playerStats, (100, 100), 60, 1, 4.0, 1.0);
-        Game.ApplyWarcryBuffLocked(player, "VengefulCry", new Dictionary<uint, int>(), playerStats, (100, 100), 60, 1, 4.0, 1.0);
         var after = Game.CharacterPlayerStats(player);
         Assert.Equal(before.GetValueOrDefault(Stat.DamagePlusPct), after.GetValueOrDefault(Stat.DamagePlusPct));
         Assert.Equal(before.GetValueOrDefault(Stat.BaseManaRegenerationRatePerMinute), after.GetValueOrDefault(Stat.BaseManaRegenerationRatePerMinute));
+    }
+
+    [Fact]
+    public void Vengeful_Cry_spends_a_savage_hit_window_and_grants_a_timed_rage_buff()
+    {
+        using var fixture = new TriggeredSummonTests.Fixture();
+        var player = fixture.Player;
+        ushort skill = Assert.Single(fixture.Equip(("Vengeful Cry", 1)));
+        var gem = Game.SupportedSkill(player, skill);
+        var clock = new Clock();
+        var previous = Game.AreaUpdateContext.Value;
+        Game.AreaUpdateContext.Value = new(fixture.Lifetime, clock);
+        try
+        {
+            var attacker = new SpawnedMonster("warcry witness", new(106, 100, 0), 0, 0, 10000)
+            {
+                ObjectId = 951, Hostile = true, NoRewards = true, Rarity = MonsterRarity.Unique, Level = 30
+            };
+            player.Area.Monsters[attacker.ObjectId] = attacker;
+            void TakeHit(int percent)
+            {
+                player.PlayerLife = player.PlayerMaxLife;
+                int damage = (int)(player.PlayerMaxLife * percent / 100);
+                var attack = new MonsterAttack(0, 1, 20, DamagePacket.Of(DamageType.Chaos, damage, damage)) { Secondary = true };
+                Assert.NotNull(Game.CommitMonsterHitLocked(player, attacker.ObjectId, attacker, attack,
+                    clock.Time, (100, 100), (106, 100), checkRange: false));
+            }
+            bool Admit() => Game.TryBeginSkillCooldownUse(player, skill, gem.Effect, Game.CooldownForSkill(player, skill),
+                false, () => { }, out _);
+
+            uint mana = player.PlayerMana;
+            Assert.False(Admit());
+            TakeHit(5);
+            Assert.False(Admit());
+            TakeHit(25);
+            int window = gem.Stats.GetValueOrDefault(Stat.RetaliationBaseUseWindowDurationMs);
+            Assert.Equal(2000, window);
+            clock.Time += window / 1000d;
+            Assert.True(player.RecentEvents.Happened(StatConditions.TakenSavageHit, clock.Time));
+            Assert.False(Admit());
+            Assert.Equal(mana, player.PlayerMana);
+            TakeHit(25);
+            Assert.True(Admit());
+            Assert.True(player.PlayerMana < mana);
+            Assert.False(Game.TryBeginSkillCooldownUse(player, skill, gem.Effect, null, false, () => { }, out _, reserve: false));
+
+            var before = Game.CharacterPlayerStats(player);
+            var power = new Dictionary<uint, int> { [Stat.WarcriesHaveInfinitePower] = 1 };
+            Game.ApplyWarcryBuffLocked(player, "VengefulCry", gem.Stats, power, (100, 100), 60, clock.Time, 4, 1);
+            Assert.True(player.Area.Buffs.Has(player.Id, Game.VengefulCryBuffRow, player.Id));
+            var buffed = Game.CharacterPlayerStats(player);
+            Assert.Equal(before.GetValueOrDefault(Stat.MaximumRage) + 25, buffed.GetValueOrDefault(Stat.MaximumRage));
+            Assert.Equal(before.GetValueOrDefault(Stat.BaseRageRegenerationPerMinute) + 900,
+                buffed.GetValueOrDefault(Stat.BaseRageRegenerationPerMinute));
+
+            clock.Time += 4;
+            Game.ExpireWarcryBuffs(player);
+            Assert.False(player.Area.Buffs.Has(player.Id, Game.VengefulCryBuffRow, player.Id));
+            var expired = Game.CharacterPlayerStats(player);
+            Assert.Equal(before.GetValueOrDefault(Stat.MaximumRage), expired.GetValueOrDefault(Stat.MaximumRage));
+            Assert.Equal(before.GetValueOrDefault(Stat.BaseRageRegenerationPerMinute), expired.GetValueOrDefault(Stat.BaseRageRegenerationPerMinute));
+        }
+        finally { Game.AreaUpdateContext.Value = previous; }
     }
 }
