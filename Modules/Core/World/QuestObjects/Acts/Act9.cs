@@ -102,16 +102,10 @@ sealed class Act9 : Act
                 On.Appears(Quarry, Act9Monsters.Garukhan, Act9Objects.SinGarukhan, "a9q2-DeliveredItem"),
             },
             // a9q3 "The Storm Blade" (act9.md a9q3): the mummy event chest in The Vastiri Desert (boss_questchest.arm;
-            // GeneralAdusBasiliskEncounters owns the interactive click-to-start MummyEventChest wave ambush and Storm Blade
-            // drop; keep a9q3-BeginEncounter and fallback StormBlade drop rules here). Petarus and Vanja take it (1281);
-            // offer 60 (rare weapons and armour).
-            new Quest("a9q3")
-            {
-                On.Near(VastiriDesert, Act9Objects.MummyEventChest, "a9q3-BeginEncounter"),
-                On.KilledAll(VastiriDesert, [Act9Monsters.SandWarrior, Act9Monsters.SandGoliath], "a9q3-FinishEncounter"),
-                On.Drops(VastiriDesert, Act9Monsters.SandGoliath, Act9Items.StormBlade),
-                On.Drops(VastiriDesert, Act9Monsters.SandWarrior, Act9Items.StormBlade),
-            },
+            // GeneralAdusBasiliskEncounters owns the interactive click-to-start MummyEventChest StateMachine,
+            // a9q3-BeginEncounter, 3-wave ambush, a9q3-FinishEncounter, and Storm Blade drop). Petarus and Vanja take
+            // it (1281); offer 60 (rare weapons and armour).
+            new Quest("a9q3"),
             // a9q4 "Fastis Fortuna" (act9.md a9q4): Boulderback dies in The Foothills (boss.arm mapboss) and drops the
             // Maraketh Calendar (wiki); Petarus and Vanja take it (1291); offer 61 is a Book of Regrets (QSR 26: 2 respec).
             new Quest("a9q4")

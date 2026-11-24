@@ -485,15 +485,14 @@ public static class DoedreSewers
             {
                 var blob = SceneCreateBlob(new(h.Id, info.Type, cauldron.At with { Type = info.Type }, info));
                 await SendWorldCreate(c, h.Id, () => InstanceEntities.CreateObject(h.Id, InstanceEntities.ObjectTypeHash(info.Type), blob),
-                    "[Doedre] cauldron liquid", wake: true, awaitBirth: false,
-                    afterCreation: () => [HazardAnimation(h.Id, clip)]);
+                    "[Doedre] cauldron liquid", wake: true);
             }
             else
             {
                 await SendWorldCreate(c, h.Id, () => InstanceEntities.CreateObject(h.Id, InstanceEntities.ObjectTypeHash(EffectObject.TypePath),
-                    new EffectObject(h.At.X, h.At.Y, model).Blob()), null, wake: true, awaitBirth: false,
-                    afterCreation: () => [HazardAnimation(h.Id, clip)]);
+                    new EffectObject(h.At.X, h.At.Y, model).Blob()), null, wake: true);
             }
+            await SendWorldRecord(c, h.Id, HazardAnimation(h.Id, clip), null);
             foreach (var p in Present) Scenes(p).Add(h.Id);
         }
         static string LiquidType(Hazard h) => Objects + (h.Kind == 5 ? "DoedreSewersPipeLiquid" : "DoedreSewersCauldronLiquid")

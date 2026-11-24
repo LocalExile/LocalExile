@@ -974,7 +974,8 @@ public static partial class Game
         variety is not null && BossControllerVarieties.GetOrAdd(variety, static v =>
             Sirus.IsActor(v) || KitavaActFive.IsActor(v) || KitavaActTen.IsActor(v) || DepravedTrinity.IsBoss(v)
             || VaalOversoul.IsBoss(v) || DoedreSewers.IsBoss(v) || BrineKing.IsBoss(v) || Arakaali.IsBoss(v)
-            || KingInMists.IsBoss(v) || KingInMists.IsFetish(v) || KingInMists.IsGuidingLight(v) || AtlasBosses.IsBoss(v));
+            || KingInMists.IsBoss(v) || KingInMists.IsFetish(v) || KingInMists.IsGuidingLight(v) || AtlasBosses.IsBoss(v)
+            || Act6To8Encounters.IsBossControllerVariety(v.Id) || Act9To10Encounters.IsBossControllerVariety(v.Id));
 
     /// <summary>Pack-wide aggro propagation: when one pack member aggros or takes a hit, nearby living hostile
     /// packmates sharing <see cref="SpawnedMonster.PackId"/> alert immediately and unrisen buried/lurking packmates
