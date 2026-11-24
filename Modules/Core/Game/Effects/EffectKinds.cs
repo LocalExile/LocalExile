@@ -80,6 +80,10 @@ public static partial class Game
             if (fire.Event is HitLanded { Monster: { } target } hit && hit.PlayerStats is { } hitStats)
                 CurseOnHitLocked(fire.Conn, target, fire.Word("curse") ?? "", (int)Math.Round(fire.Number("level")), hitStats,
                     hit.At ?? fire.Now, fire.Number("refresh_after"));
+            // A monster's hit that reached the actor (when hit, on block): the attacker is cursed.
+            else if (fire.Event is ChargeEvent { Monster: { } attacker } taken and (ChargeEvent.WhenHit or ChargeEvent.Block))
+                CurseOnHitLocked(fire.Conn, attacker, fire.Word("curse") ?? "", (int)Math.Round(fire.Number("level")),
+                    taken.PlayerStats ?? StatSourceValues(fire.Conn), taken.HitAt ?? fire.Now, fire.Number("refresh_after"));
         })
         {
             Defaults = new Dictionary<string, double> { ["level"] = 1, ["refresh_after"] = 1 },

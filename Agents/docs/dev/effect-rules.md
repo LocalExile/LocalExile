@@ -113,6 +113,12 @@ A stat that counts once per charge held is a modifier row with a `per` (`{"of":"
 `maximum`, `cap`, and `when` for "with no / any charges"); the row's quantity is the stat it adds to, one row for each.
 `ChargeEffects.LoadTable` reads them, and `Expand` uses the tables' lists while the rules are on.
 
+A stat no code reads can be built from rows alone, and then works only while the rules are on: a rule made of
+existing parts (origin `parts`), or a modifier row whose `conditions` the table can answer and whose `counts_as` is a
+stat the calculator already reads (the Labyrinth boot enchantments). A rule on `hit` can ask the monster's state as the
+hit found it (`enemy_state`: bleeding, poisoned, chilled, shocked, blinded, cursed, frozen, ignited), and one on
+`when_hit` or `block` the attacker's rarity.
+
 A plain number is granted to the calculator the game module already has (the stat graph); `fx_modifiers` records what
 the number means so that a formula can later move to a table one quantity at a time, each measured. Nothing reads these
 tables during play: they are loaded at startup into arrays by stat id, and an actor's rules are worked out when its

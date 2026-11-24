@@ -213,8 +213,8 @@ public static class EffectRules
         [What.Kill] = ["frozen", "ignited", "bleeding", "poisoned", "five_poisons", "shield", "dual_wield", "normal", "magic", "rare", "unique", "rare_or_unique"],
         [What.SkillHit] = ["critical", "spell", "attack", "melee", "killed", "primary", "frozen", "bleeding", "marked", "self_bleeding", "self_poisoned",
             "shield", "dual_wield", "wand", "claw_or_dagger", "normal", "magic", "rare", "unique", "rare_or_unique"],
-        [What.WhenHit] = ["critical"],
-        [What.Block] = ["spell", "attack"],
+        [What.WhenHit] = ["critical", "normal", "magic", "rare", "unique", "rare_or_unique"],
+        [What.Block] = ["spell", "attack", "normal", "magic", "rare", "unique", "rare_or_unique"],
         [What.Stun] = ["melee"],
         [What.Worn] = [],
         [What.SkillUse] = ["vaal", "curse", "trap", "attack", "spell", "melee", "bow", "travel", "movement", "warcry", "strike", "slam", "channelled", "brand", "aura", "guard"],
@@ -644,6 +644,9 @@ public static class EffectRules
         ("trap", ChargeEvent.SkillUse u) => u.Trap,
         (_, HitLanded { Monster: { } m }) => Rarity(fact, m.Rarity),
         (_, ChargeEvent.Kill k) => Rarity(fact, k.Rarity),
+        // The attacker's rarity, for a monster's hit that reached the actor.
+        (_, ChargeEvent.WhenHit { Monster: { } by }) => Rarity(fact, by.Rarity),
+        (_, ChargeEvent.Block { Monster: { } by }) => Rarity(fact, by.Rarity),
         _ => false,
     };
 

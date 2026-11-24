@@ -66,7 +66,7 @@ public static partial class Game
 
     /// <summary>The debuffs the effect rules' "debuff" can put on the monster of a hit.</summary>
     public static bool NamedDebuff(string debuff) => debuff is "intimidated" or "unnerved" or "crushed" or "hindered"
-        or "maimed" or "blinded" or "withered" or "fire_exposure" or "cold_exposure" or "lightning_exposure";
+        or "maimed" or "blinded" or "withered" or "fire_exposure" or "cold_exposure" or "lightning_exposure" or "covered_in_ash";
 
     /// <summary>What the effect rules' "debuff" does to the monster of a hit: one of the debuffs below, from
     /// <paramref name="now"/>, a later one restarting it. The rule has rolled its chance; what the debuff itself asks of
@@ -86,6 +86,8 @@ public static partial class Game
             case "unnerved": m.UnnervedUntil = Math.Max(m.UnnervedUntil, now + seconds); break;
             case "crushed": m.CrushedUntil = Math.Max(m.CrushedUntil, now + seconds); break;
             case "hindered": m.HinderedUntil = Math.Max(m.HinderedUntil, now + seconds); break;
+            // Covered in Ash: slower, and more fire damage taken, while it lasts.
+            case "covered_in_ash": m.CoveredInAshUntil = Math.Max(m.CoveredInAshUntil, now + seconds); break;
             // Maim: the monster's immunity and its chance to avoid it, and the Maim support's physical damage taken.
             case "maimed":
                 TryApplyMaimLocked(m, 100, Math.Max(0, get(Stat.SupportMaimedEnemiesPhysicalDamageTakenPlusPct)), now, AreaRng(player), seconds);
