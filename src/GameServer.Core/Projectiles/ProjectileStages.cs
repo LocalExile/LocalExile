@@ -208,8 +208,9 @@ public sealed partial class ProjectileRuntime
     void ResolveArea(ProjectileEntity p, ProjectileAreaRecipe recipe, ProjectileVector centre,
         ProjectileActorKey? victim, long areaId)
     {
-        world.Publish(new(ProjectileEventKind.Area, p, Now, centre, Radius: recipe.Radius, Stage: recipe.Stage));
-        var targets = ActorsInOrder(world.ActorsNear(centre, recipe.Radius + 2, Now), generations: true, out int listed);
+        double radius = recipe.RadiusForGroundBounce?.Invoke(p.GroundBounces) ?? recipe.Radius;
+        world.Publish(new(ProjectileEventKind.Area, p, Now, centre, Radius: radius, Stage: recipe.Stage));
+        var targets = ActorsInOrder(world.ActorsNear(centre, radius + 2, Now), generations: true, out int listed);
         double coneEdge = recipe.ConeHalfAngle > 0 ? Math.Cos(recipe.ConeHalfAngle) : -1;
         try
         {
@@ -219,7 +220,7 @@ public sealed partial class ProjectileRuntime
                 if (target.Team == p.Use.Team || target.Key == p.Use.Owner
                     || (recipe.ExcludeContactTarget && target.Key == victim)) continue;
                 var delta = target.Position(Now) - centre;
-                double limit = recipe.Radius + target.Radius;
+                double limit = radius + target.Radius;
                 if (Math.Abs(delta.X) <= limit && Math.Abs(delta.Y) <= limit
                     && delta.X * delta.X + delta.Y * delta.Y <= limit * limit
                     && (coneEdge <= -1 || delta.Dot(p.Direction) >= coneEdge * delta.Length))

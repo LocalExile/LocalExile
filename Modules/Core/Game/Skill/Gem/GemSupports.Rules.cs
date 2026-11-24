@@ -894,6 +894,8 @@ public static partial class Game
         }
         if (IsDischarge(skills.EffectId(gem.Effect)) && Get(Stat.DischargeDamagePlusPctFinal) is int dischargeMore and not 0)
             raw = raw.Scale(Math.Max(0, 1 + dischargeMore / 100d));
+        if (skills.EffectId(gem.Effect) == "RollingMagma" && Get(Stat.ThresholdJewelMagmaOrbDamagePlusPctFinal) is int magmaMore and not 0)
+            raw = raw.Scale(Math.Max(0, 1 + magmaMore / 100d));
         if (gem.Stats.GetValueOrDefault(Stat.ActiveSkillDamagePlusPctFinal) is int skillDamage and not 0)
             raw = raw.Scale(Math.Max(0, 1 + skillDamage / 100d));
         var modifiers = gem.Supports.SelectMany(s => s.Stats).Select(s => (s.Key, s.Value)).ToList();

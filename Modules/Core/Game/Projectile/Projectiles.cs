@@ -823,6 +823,8 @@ public static partial class Game
                     Bleed = RepeatAilment(shot.Bleed, overexertionMore),
                     Poison = RepeatAilment(shot.Poison, overexertionMore),
                 };
+            if (shot.DamageMorePerGroundBounce != 0 && contact.Projectile.GroundBounces > 0)
+                shot = shot.ScaleDamage(Math.Max(0, 1 + shot.DamageMorePerGroundBounce * (double)contact.Projectile.GroundBounces / 100));
             double more = contact.Multiplier * (contact.Phase > 0 ? shot.ReturnMultiplier : 1);
             if (ReferenceEquals(shot.BrandedTarget, target))
                 more *= Math.Max(0, 1 + GolemStat(shot.SkillStats, Stat.TriggerBrandSupportHitDamagePlusPctFinalVsBrandedEnemy) / 100.0);

@@ -136,6 +136,19 @@ public static partial class Game
                 if (effect == "BlazingSalvo") return BlazingSalvoRelease(use, Get);
                 if (effect == "SpectralShieldThrowAltY") return StationaryShieldRelease(context, use);
                 var shot = (ProjectileOffense)use.Payload!;
+                if (effect == "RollingMagma" && use.Profile.EndArea is { } magma)
+                {
+                    var profile = use.Profile;
+                    if (Get(Stat.MagmaOrbSkillAreaOfEffectPlusPctPerBounce) is int area and not 0)
+                    {
+                        int baseRadius = SkillArea.BaseRadius(effect, Get);
+                        double BounceRadius(int count) => SkillArea.Radius(baseRadius, key => key == SkillArea.Increase
+                            ? ActorScale.Saturate((long)Get(key) + (long)count * area) : Get(key), spell: true);
+                        profile = profile with { EndArea = magma with { RadiusForGroundBounce = BounceRadius } };
+                    }
+                    return use with { Profile = profile, Payload = shot with
+                        { DamageMorePerGroundBounce = context.Get(Stat.ThresholdJewelMagmaOrbDamagePlusPctFinalPerChain) } };
+                }
                 if (GatewayProjectileSkillProfiles.IsCausticArrow(effect) && effect != "CausticArrowAltX")
                 {
                     int radius = (int)(use.Profile.ContactArea?.Radius ?? 12);

@@ -37,6 +37,8 @@ public static class ThresholdJewels
         ["molten_strike_projectiles_chain_count_+"] = new(Stat.MoltenStrikeChainCountPlus),
         ["molten_strike_projectiles_count_+%_final"] =
             new(Stat.ThresholdJewelMoltenStrikeDamageProjectileCountPlusPctFinal),
+        ["magma_orb_damage_+%_final"] = new(Stat.ThresholdJewelMagmaOrbDamagePlusPctFinal),
+        ["magma_orb_damage_+%_final_per_chain"] = new(Stat.ThresholdJewelMagmaOrbDamagePlusPctFinalPerChain),
         ["cold_snap_uses_gains_power_charges_instead_of_frenzy"] =
             new(Stat.ColdSnapUsesAndGainsPowerChargesInsteadOfFrenzy, 1),
         ["vigilant_strike_fortifies_nearby_allies_for_x_seconds"] =
@@ -84,7 +86,7 @@ public static class ThresholdJewels
                     key = alias.Target;
                     value = alias.FixedValue ?? value;
                 }
-                if (value == 0 || key is null) continue;
+                if (key is null) continue;
                 effects.Add(new(attributes, required, key.Value, value));
             }
         }
