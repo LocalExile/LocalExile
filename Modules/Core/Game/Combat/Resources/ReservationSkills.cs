@@ -39,7 +39,20 @@ public static partial class Game
                 player.Reservations.Procs.Enqueue(new(aura.SkillId, kill.At,
                     aura.EffectId == "HeraldOfAsh" ? (uint)kill.Monster.Overkill : 0));
         if (ReservationAura(player, "HeraldOfThunder") is { } thunder && kill.Monster.Ailments.ShockedAtDeath(now))
-            player.Reservations.ThunderUntil = now + ReservationDuration(player, thunder, Stat.BaseSkillEffectDuration, 6000);
+            StartThunderStormLocked(player, thunder, now);
+    }
+
+    static void ReservationShockLocked(Player player, double now)
+    {
+        if (!player.Reservations.Secondary && ReservationAura(player, "HeraldOfThunder") is { } thunder)
+            StartThunderStormLocked(player, thunder, now);
+    }
+
+    static void StartThunderStormLocked(Player player, AuraCatalog.Aura thunder, double now)
+    {
+        var state = player.Reservations;
+        if (state.ThunderUntil <= now) state.NextThunder = now;
+        state.ThunderUntil = now + ReservationDuration(player, thunder, Stat.BaseSkillEffectDuration, 6000);
     }
 
     static double ReservationDuration(Player player, AuraCatalog.Aura aura, uint name, int fallback)
@@ -313,7 +326,11 @@ public static partial class Game
             }
             if (ReservationAura(player, "HeraldOfThunder") is { } thunder && now < state.ThunderUntil && now >= state.NextThunder)
             {
-                state.NextThunder = now + Math.Max(.05, ReservationStat(player, thunder, Stat.HeraldOfThunderBoltBaseFrequency) / 1000.0);
+                var stats = CharacterPlayerStats(player);
+                double frequency = 1 + ((long)ReservationStat(player, thunder, Stat.HeraldOfThunderBoltFrequencyPlusPct)
+                    + stats.GetValueOrDefault(Stat.HeraldOfThunderBoltFrequencyPlusPct)) / 100.0;
+                double interval = ReservationStat(player, thunder, Stat.HeraldOfThunderBoltBaseFrequency) / 1000.0;
+                state.NextThunder = now + Math.Max(.05, interval / Math.Max(.01, frequency));
                 ReservationDamageLocked(player, thunder, player.Walk.Position(now), now);
             }
             if (ReservationAura(player, "TemporalRift") is not null && now >= state.NextEcho)

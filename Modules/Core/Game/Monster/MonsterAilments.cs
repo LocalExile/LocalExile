@@ -385,7 +385,13 @@ public static partial class Game
                 if (m.Hostile) GainFromAttackAilmentLocked(player, attackGains.FreezeEndurance,
                     ChargeType.Endurance, EnduranceOnAttackFreeze);
             }
-            else if (effect.Kind == Kind.Shock) player.RecentEvents.Record(StatConditions.ShockedEnemy, now);
+            else if (effect.Kind == Kind.Shock)
+            {
+                player.RecentEvents.Record(StatConditions.ShockedEnemy, now);
+                if (playerHit && m.Hostile && !m.Dead && m.Life > 0
+                    && Player(Stat.CreateHeraldOfThunderStormOnShockingEnemy) != 0)
+                    ReservationShockLocked(player, now);
+            }
         }
         if (m.Dead || m.Life == 0)
         {
