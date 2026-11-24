@@ -98,8 +98,8 @@ public static class PlayerHitDamage
             {
                 range = range.Scale(Math.Max(0, 1 + get(Stat.HeraldOfPurityPhysicalDamagePlusPctFinal) / 100.0));
                 if (attack) range = range.Scale(Math.Max(0, 1 + get(Stat.CombinedAttackPhysicalDamagePlusPctFinal) / 100.0));
-                if (melee && get(Stat.WarBannerPhysicalDamagePlusPctFinalWithMeleeSkills) is int war and not 0)
-                    range = range.Scale(Math.Max(0, 1 + war / 100d));
+                if (melee && additional.MeleePhysicalMorePct != 0)
+                    range = range.Scale(Math.Max(0, 1 + additional.MeleePhysicalMorePct / 100d));
             }
             if (melee && area)
                 range = range.Scale(Math.Max(0, 1 + get(get(Stat.InSandStance) != 0
@@ -145,8 +145,10 @@ public static class PlayerHitDamage
     }
 }
 
-/// <summary>Increases the caller computed for this hit beyond the resolver's generic buckets: a physical-only one, an
-/// elemental-only one, and per damage-type ones (a history so a converted portion inherits each type it was). The tree's
-/// "with &lt;weapon type&gt;" rows arrive here.</summary>
+/// <summary>Additional modifiers supplied by the caller. Typed modifiers follow the conversion history so a portion keeps
+/// each damage type it inherited.</summary>
 public readonly record struct HitIncreases(int Physical = 0, int Elemental = 0,
-    IReadOnlyList<(DamageTypeHistory History, int Increased)>? Typed = null);
+    IReadOnlyList<(DamageTypeHistory History, int Increased)>? Typed = null)
+{
+    public int MeleePhysicalMorePct { get; init; }
+}
