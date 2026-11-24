@@ -73,6 +73,8 @@ public static class StatConditions
         "add_frenzy_charge_on_kill_%_chance_while_dual_wielding",
         "attack_speed_while_dual_wielding_+%",
         "consecrated_ground_enemy_damage_taken_+%_while_affected_by_zealotry",
+        // Evil Eye's condition is on the recipient of a curse; the caster need not be cursed.
+        "enemies_damage_taken_+%_while_cursed",
         "gain_arcane_surge_for_4_seconds_when_you_create_consecrated_ground_while_affected_by_zealotry",
         "block_while_dual_wielding_%",
         "block_while_dual_wielding_claws_%",
@@ -280,7 +282,7 @@ public static class StatConditions
             int at = statId.LastIndexOf(stateSuffix, StringComparison.Ordinal);
             return Trim(statId, at, at + stateSuffix.Length);
         }
-        foreach (string prefix in new[] { WhileAffectedBy, IfAffectedBy })
+        foreach (string prefix in AuraConditions)
         {
             int at = statId.IndexOf(prefix, StringComparison.Ordinal);
             if (at >= 0 && TryAuraName(statId, out string family) && IsModelledAura(family))
@@ -315,6 +317,7 @@ public static class StatConditions
         plain = plain switch
         {
             "attack_skills_damage_+%" => "attack_damage_+%",
+            "resist_all_elements_+%" => "base_resist_all_elements_%",
             "evasion_+%" => "evasion_rating_+%",
             // The tree spells the global one without "global" on its conditional rows (Staff Mastery's "30% increased
             // Defences while wielding a Staff"); the pools read global_defences_+% for armour, evasion, ES and ward.
@@ -493,6 +496,7 @@ public static class StatConditions
 
     const string WhileAffectedBy = "_while_affected_by_";
     const string IfAffectedBy = "_if_affected_by_";
+    static readonly string[] AuraConditions = [WhileAffectedBy, IfAffectedBy, "_while_you_are_affected_by_"];
 
     /// <summary>
     /// The "recently" phrase a stat id uses, the event <see cref="Subject.Recent"/> answers it with, and whether the id
@@ -592,9 +596,13 @@ public static class StatConditions
 
     static Func<Subject, State> ParseKnownCondition(string statId)
     {
+        // Placed mines choose this modifier when they release their area damage. Keep the source available at placement.
+        if (statId == "mine_area_damage_+%_if_detonated_mine_recently") return static _ => State.None;
         if (PrideStat(statId) is not null)
             return static subject => subject.Flags is { } flags && flags.TryGetValue(UsingPride, out bool active)
                 ? active ? State.Holds : State.Fails : State.NotModelled;
+        // Evil Eye tests the recipient of the curse; the caster need not be cursed.
+        if (statId == "enemies_damage_taken_+%_while_cursed") return static _ => State.None;
         var property = EquipmentPropertyThresholdId.Match(statId);
         if (property.Success)
         {
@@ -937,12 +945,13 @@ public static class StatConditions
     public static bool TryAuraName(string statId, out string family)
     {
         family = "";
-        int at = statId.IndexOf(WhileAffectedBy, StringComparison.Ordinal);
-        int skip = WhileAffectedBy.Length;
-        if (at < 0)
+        int at = -1, skip = 0;
+        foreach (string prefix in AuraConditions)
         {
-            at = statId.IndexOf(IfAffectedBy, StringComparison.Ordinal);
-            skip = IfAffectedBy.Length;
+            at = statId.IndexOf(prefix, StringComparison.Ordinal);
+            if (at < 0) continue;
+            skip = prefix.Length;
+            break;
         }
         if (at < 0) return false;
         family = statId[(at + skip)..];

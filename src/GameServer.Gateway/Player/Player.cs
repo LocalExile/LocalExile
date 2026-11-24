@@ -935,7 +935,7 @@ public sealed partial class Player(AreaLayout layout, uint ticket, uint seed) : 
     public void InvalidateIncomingHits(bool clear = true)
     {
         if (PlayerLife == 0 || Closed)
-        { PaidChannel = null; NonChaosDotBypassCarry = NonChaosDotTakenCarry = ChaosDotBypassCarry = 0; }
+        { PaidChannel = null; NonChaosDotBypassCarry = NonChaosDotTakenCarry = ChaosDotBypassCarry = ChaosDotManaCarry = 0; }
         IncomingHitEpoch++;
         // The action state machine replaces the old swing epoch argument. Retired work cannot
         // resume after a failed transfer, even when admission reopens on this same connection.

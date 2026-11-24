@@ -168,6 +168,15 @@ public class PartyAreaTests
             Assert.Equal("Owner", own.Owner);
             Assert.Same(guestsHome, registry.Enter(graveyard, "Guest"));
             Assert.Same(own, registry.Enter(graveyard, "Owner"));
+            // Each player has an independent instance presence when they are in different areas/hideouts; invites still cross them.
+            var townInviteSender = Player("CrossAreaSender", town, "1_1_town", new(), number: 70);
+            var hideoutInviteReceiver = Player("CrossAreaReceiver", graveyard, "1_1_9", new(), number: 71);
+            Assert.True(await PartyRoster.InviteHuman(townInviteSender, hideoutInviteReceiver.Character.Name!));
+            uint crossParty = PartyRoster.PartyOf(townInviteSender);
+            Assert.NotEqual(0u, crossParty);
+            await PartyRoster.AcceptHuman(hideoutInviteReceiver, crossParty);
+            Assert.Equal(crossParty, PartyRoster.PartyOf(hideoutInviteReceiver));
+
             var homeArea = HideoutCatalog.Default!;
             var homeMember = Player("HomeMember", homeArea.AreaHash16, homeArea.AreaId);
             await PartyRoster.InviteHuman(leader, homeMember.Character.Name!); await PartyRoster.AcceptHuman(homeMember, party);

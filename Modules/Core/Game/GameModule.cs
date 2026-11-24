@@ -97,6 +97,7 @@ public sealed class GameModule : IModule, IDisposable
         global::MonsterSkills.LoadMonsterSkillsData();
         // Passives and the player.
         global::ClusterJewelLayout.LoadClusterJewelLayoutData();
+        global::ClusterJewelStats.LoadClusterJewelStatsData();
         global::JewelPathEffects.LoadJewelPathEffectsData();
         global::ForbiddenTattoo.LoadForbiddenTattooData();
         global::JourneyMakanuiCatalogue.LoadJourneyMakanuiCatalogueData();
@@ -161,6 +162,7 @@ public sealed class GameModule : IModule, IDisposable
         GameEvents.PlayerLeaving.Add(module.Manifest.Id, (player, _) => global::Sirus.Leaving(player));
         GameEvents.PlayerStatSources.Add(module.Manifest.Id, global::Sirus.PlayerStats);
         InstanceEvents.AreaStats.Add(module.Manifest.Id, Rules.MapAreaStats);
+        InstanceEvents.AreaDisplayStats.Add(module.Manifest.Id, Rules.MapAreaDisplayStats);
         GameEvents.MapOpening.Add(module.Manifest.Id, MapScarabContent.Describe);
         GameEvents.MapOpening.Add(module.Manifest.Id, MapScarabPacks.Opening);
         GameEvents.Drops.Add(module.Manifest.Id, MapScarabPacks.Drops);
@@ -416,7 +418,7 @@ public sealed class GameLogic(IModuleLifetime? lifetime = null) : IGameLogic, IC
         foreach (var close in GameEvents.TransientClosing.For(player)) close(player);
         Rules.EndEscapePause(player);
         player.PaidChannel = null;
-        player.NonChaosDotBypassCarry = player.NonChaosDotTakenCarry = player.ChaosDotBypassCarry = 0;
+        player.NonChaosDotBypassCarry = player.NonChaosDotTakenCarry = player.ChaosDotBypassCarry = player.ChaosDotManaCarry = 0;
         player.IncomingAilments.Clear();
         Rules.ClearPlayerDecay(player);
         Rules.ClearCorruptedBlood(player);

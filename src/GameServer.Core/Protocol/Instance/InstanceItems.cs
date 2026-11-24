@@ -651,6 +651,20 @@ public static class InstanceItems
     // C→S 0x2d (class 0x1435cacf0, write 0x141f96c30, senders 0x142165e90 / 0x142165ee0; 8 bytes): an inventory request,
     // not mapped yet. The right-click item use is 0x58 below.
 
+    public const ushort UseItemClickId = 0x57;
+    public const int UseItemClickLength = 11;
+
+    /// <summary>
+    /// C→S 0x57 (11 bytes, live 2026-11-22): right-clicking a self-usable stacked item such as Stacked Deck
+    /// (<c>0057 00000807 40000061 00</c> from stash, <c>0057 00000001 40000061 00</c> from inventory):
+    /// u32 inventory id, u32 item id, u8 flag.
+    /// </summary>
+    public static UseItemRequest ReadUseItemClick(ReadOnlySpan<byte> m)
+    {
+        var r = new LoginReader(m[2..]);
+        return new(r.U32(), r.U32());
+    }
+
     public const ushort UseItemId = 0x58;
     public const int UseItemLength = 10;
 
