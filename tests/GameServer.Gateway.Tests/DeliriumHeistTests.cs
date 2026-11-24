@@ -70,7 +70,7 @@ public class DeliriumHeistTests
     }
 
     [Fact]
-    public void Heist_module_registers_planning_packets_and_cleans_up_on_unload()
+    public async Task Heist_module_registers_planning_packets_and_cleans_up_on_unload()
     {
         string moduleDir = Path.GetFullPath("Modules/Core/Content/Heist");
         Assert.True(File.Exists(Path.Combine(moduleDir, "bin", "heist.dll")), $"Expected built Heist module in {moduleDir}");
@@ -84,6 +84,23 @@ public class DeliriumHeistTests
             Assert.True(GameEvents.WantsPacket(InstanceHeist.RevealBlueprintId));
             Assert.True(GameEvents.WantsPacket(InstanceHeist.ConfirmBlueprintId));
             Assert.True(GameEvents.WantsPacket(InstanceHeist.SetBlueprintCrewId));
+
+            using var fixture = new TriggeredSummonTests.Fixture();
+            var player = fixture.Player;
+            player.Use(player.Layout with { Id = "HeistHub" });
+            player.LeagueModule = new(new GameServer.Core.Accounts.League("heist-review", "Standard", false, false), new HashSet<string>(["Game", "Heist"]));
+            var items = Game.ItemsOf(player);
+            const byte planningRow = 55;
+            var blueprint = ItemCatalog.Create(Program.Items.Find("Metadata/Items/Heist/HeistBlueprintMines")!) with
+            {
+                HeistBlueprint = new(1, 68, 0, false, [new HeistWing(true, [], [], [])])
+            };
+            var planned = items.Add(planningRow, 0, 0, blueprint);
+            var markers = ItemCatalog.Create(Program.Items.Find("Metadata/Items/Heist/HeistCoin")!) with { StackSize = 2000 };
+            var coins = items.Add(PlayerInventories.MainInventory, 1, 0, markers);
+            Assert.True(await GameEvents.AnyPacket(player, InstanceHeist.ConfirmBlueprintId, [0x02, 0x7e]));
+            Assert.Equal(planned, Assert.Single(items.Items(planningRow)));
+            Assert.Equal(coins, Assert.Single(items.Items(PlayerInventories.MainInventory), i => i.Id == coins.Id));
         }
         Assert.False(GameEvents.WantsPacket(InstanceHeist.SignContractId));
         Assert.False(GameEvents.WantsPacket(InstanceHeist.RevealBlueprintId));
