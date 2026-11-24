@@ -2542,10 +2542,9 @@ public static partial class Game
         if (spell && repeat > 0 && Stat(SkillArea.IncreasedPerRepeat) is int perRepeat and not 0)
             areaStats = new Dictionary<uint, int>(skillStats) { [SkillArea.BaseIncreased] = skillStats.GetValueOrDefault(SkillArea.BaseIncreased) + perRepeat * repeat };
         bool divineBlast = SkillsFor(player).EffectId(gem.Effect) is "DivineBlast" or "DivineBlastAltX";
-        int baseRadius = divineBlast && !immediate
+        int radius = (int)Math.Round((radiusOverride ?? (divineBlast && !immediate
             ? SkillRadius(player, Stat(global::Stat.ActiveSkillBaseSecondaryAreaOfEffectRadius), areaStats, spell: false, gem.Effect)
-            : SkillRadius(player, areaStats, spell, gem.Effect);
-        int radius = (int)Math.Round((radiusOverride ?? baseRadius) * radiusMore);
+            : SkillRadius(player, areaStats, spell, gem.Effect))) * radiusMore);
         // Ground Slam's wave: the skills whose action is the data's "DistanceScaledGroundSlam" travel forward from where
         // the player stands instead of landing one circle (GroundSlamWave; its length, half angle and direction are read
         // once here, so the log after the sweep can report them). Vaal Ground Slam's own skill is a different action, so

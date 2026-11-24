@@ -267,8 +267,11 @@ public static partial class Game
 
     /// <summary><see cref="SupportedCriticalChance(Player, ushort, AttackHand)"/> with the off-hand weapon's base
     /// critical chance read once by the caller (null: no off-hand weapon), for a sweep that asks per victim.</summary>
-    public static int SupportedCriticalChance(Player player, ushort skillId, AttackHand hand, int? offCritical,
-        long extraIncrease = 0) => (hand, offCritical) switch
+    public static int SupportedCriticalChance(Player player, ushort skillId, AttackHand hand, int? offCritical) =>
+        SupportedCriticalChance(player, skillId, hand, offCritical, 0);
+
+    static int SupportedCriticalChance(Player player, ushort skillId, AttackHand hand, int? offCritical,
+        long extraIncrease) => (hand, offCritical) switch
         {
             (AttackHand.Off, int off) => SupportedCriticalChanceFor(player, skillId, false, extraIncrease, off),
             (AttackHand.Both, int off) => (int)Math.Round((SupportedCriticalChanceFor(player, skillId, false, extraIncrease)
