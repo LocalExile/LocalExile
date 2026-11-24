@@ -66,7 +66,7 @@ public static partial class Game
         if (kind != "shock" && get(Stat.HasAvoidShockAsAvoidAllElementalAilments) != 0)
             avoidance += (long)get(Stat.AvoidShockPct) - sharedAvoidance;
         int suppressionPct = get(Stat.SpellSuppressionChanceModifiersApplyToAvoidAllElementalAilmentsAtPctValue);
-        if (suppressionPct > 0) avoidance += (long)SpellDefences(player, forAilmentAvoidance: true).Suppression * suppressionPct / 100;
+        if (suppressionPct > 0) avoidance += (long)SpellDefences(player, SelfCurseConditionInputs(player), AreaTime(player), forAilmentAvoidance: true).Suppression * suppressionPct / 100;
         int chance = (int)Math.Clamp(avoidance, 0, 100);
         if (ground) return new(chance, 1);
 
@@ -159,7 +159,8 @@ public static partial class Game
         {
             damage = player.ElementalAilments.Advance(from, until, Get, Resistance(player, DamageType.Fire),
                 MaxResistance(player, DamageType.Fire), immunities.Contains(DamageType.Fire),
-                source => DamageTakenFromBlindedPct(player, source, stats), letheFactor);
+                source => DamageTakenFromBlindedPct(player, source, stats)
+                    + DamageTakenFromMonster(player.Area.Monsters.GetValueOrDefault(source), stats), letheFactor);
             if (Get(Stat.BaseCannotBeDamaged) > 0) damage = 0;
             damage = IncomingResourceDefences.TakenOverTime(damage, Get, ref player.NonChaosDotTakenCarry,
                 IncomingResourceDefences.LessTakenPct(player.Pools, Get));

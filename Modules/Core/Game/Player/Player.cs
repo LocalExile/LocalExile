@@ -519,6 +519,8 @@ public static partial class Game
         if (es + fromEs > 0)
         {
             player.EnergyShield.Spend(es + fromEs);
+            if (ReadShaperMemoryVariant(playerStats) != 0)
+                RecordShaperMemoryEnergyShieldLocked(player, es + fromEs, playerStats);
             // The client paid it from its own Energy Shield too: the pool goes out even when recharge has already brought
             // it back to the last value written (live 2026-11-13: the globe stayed at 5249/5324 while the server was full).
             player.Frames.Area?.Life.Resend(player);
@@ -1168,9 +1170,8 @@ public static partial class Game
                 else
                 {
                     uint lifeCap = LifeCap(player);
-                    leech.ClearFull(now, lifeBefore >= lifeCap, manaBefore >= manaCap,
+                    var leeched = TakeLeechRecovery(player, now, lifeBefore >= lifeCap, manaBefore >= manaCap,
                         player.EnergyShield.Current >= player.EnergyShield.Maximum);
-                    var leeched = leech.TakeRecovery(now);
                     int IncomingStat(uint name) => RecoveryStat(name);
                     double mapRecovery = PanelStats.MapRecoveryMultiplier(RecoveryStat);
                     bool noRegeneration = RecoveryStat(Stat.MapPlayersNoRegenerationIncludingEs) != 0;
@@ -1547,15 +1548,14 @@ public static partial class Game
         => (SpellDefences(player).Suppression, Math.Max(0, player.Pools.SpellSuppressionEffect),
             player.Pools.SpellSuppressionLucky, player.Pools.SpellSuppressionUnlucky);
 
-    public static (int Suppression, int Dodge) SpellDefences(Player player) => SpellDefences(player, false);
+    public static (int Suppression, int Dodge) SpellDefences(Player player) =>
+        SpellDefences(player, SelfCurseConditionInputs(player), AreaTime(player));
 
-    static (int Suppression, int Dodge) SpellDefences(Player player, bool forAilmentAvoidance)
+    static (int Suppression, int Dodge) SpellDefences(Player player, IReadOnlyDictionary<uint, int> stats, double now, bool forAilmentAvoidance = false)
     {
-        double now = AreaTime(player);
-        bool fullLife, fullEnergyShield, hitRecently;
-        fullLife = CountsAsFullLife(player.PlayerLife, player.PlayerMaxLife, SelfCurseConditionInputs(player));
-        fullEnergyShield = player.PlayerLife > 0 && player.EnergyShield.Full;
-        hitRecently = now - player.LastEnemyHitAt <= RecentlySeconds;
+        bool fullLife = CountsAsFullLife(player.PlayerLife, player.PlayerMaxLife, stats);
+        bool fullEnergyShield = player.PlayerLife > 0 && player.EnergyShield.Full;
+        bool hitRecently = now - player.LastEnemyHitAt <= RecentlySeconds;
         bool moving = player.Walk.Moving(now);
         if (forAilmentAvoidance)
             return ((int)Math.Clamp(CharacterStats.UncappedSuppressionChance(

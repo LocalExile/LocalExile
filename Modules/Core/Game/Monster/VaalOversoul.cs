@@ -439,7 +439,7 @@ public static partial class Game
         foreach (var g in player.Golems.All.Values.Concat(player.Reservations.Fighters.Values).ToArray())
         {
             var m = g.Monster;
-            if (!GolemCurrent(player, g) || m.Dead || m.Life == 0 || g.Definition.Kind is "Agony" or "SkitterCold" or "SkitterLightning"
+            if (!GolemCurrent(player, g) || m.Dead || m.Life == 0 || GolemIgnoresDots(g)
                 || !inside(m.Walk.Position(now))) continue;
             int Player(uint n) => GolemStat(g.Player, n);
             if (g.Definition.IsGolem && (Player(Stat.GolemImmunityToElementalDamage) != 0

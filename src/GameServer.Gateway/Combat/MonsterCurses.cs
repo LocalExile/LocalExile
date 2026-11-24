@@ -12,13 +12,14 @@ public sealed class MonsterCurses(Action? changed = null)
         public bool UsesBaseExpiryRate { get; init; }
         public double AmplifiesAt { get; init; } = double.PositiveInfinity;
         public IReadOnlyDictionary<uint, int>? AmplifiedStats { get; init; }
+        public int ExpandedCapacity { get; init; }
     }
     public readonly Dictionary<(uint Caster, string Effect), Curse> All = [];
     public readonly Dictionary<(uint Caster, string Effect), Curse> Presented = [];
     public readonly HashSet<uint> PresentedStats = [];
     public int Version, PresentedVersion;
     Dictionary<uint, int> stats = [];
-    bool hasCursedDamageTaken, hasCriticalPrevention;
+    bool hasCursedDamageTaken, hasCriticalPrevention, hasExpandedCurse;
 
     public bool HasActive(double now)
     {
@@ -55,15 +56,36 @@ public sealed class MonsterCurses(Action? changed = null)
 
     public void Put(Curse curse, int limit)
     {
-        if (limit < 1) return;
+        if (limit < 1 && curse.ExpandedCapacity < 1) return;
         All[(curse.Caster, curse.Effect)] = curse;
         if (curse.Mark)
             foreach (var old in All.Values.Where(c => c.Mark && c.Effect != curse.Effect).ToArray()) All.Remove((old.Caster, old.Effect));
-        var keep = All.Values.GroupBy(c => c.Effect).OrderByDescending(g => g.Any(c => c.Aura))
-            .ThenByDescending(g => g.Max(c => c.Applied)).ThenByDescending(g => g.Max(c => c.Buff)).Take(limit).Select(g => g.Key).ToHashSet();
-        foreach (var old in All.Values.Where(c => !keep.Contains(c.Effect)).ToArray()) All.Remove((old.Caster, old.Effect));
+        if (All.Count > limit)
+        {
+            var ordinaryCurses = All.Values.Where(c => c.ExpandedCapacity == 0);
+            var ordinary = curse.ExpandedCapacity == 0 ? PreferredEffects(ordinaryCurses, limit)
+                : ordinaryCurses.Select(c => c.Effect).ToHashSet();
+            if (curse.ExpandedCapacity == 0)
+                foreach (var old in ordinaryCurses.Where(c => !ordinary.Contains(c.Effect)).ToArray())
+                    All.Remove((old.Caster, old.Effect));
+
+            // The extra slots belong to the emitter that granted them. Ordinary spells still use the caster's limit.
+            if (hasExpandedCurse || curse.ExpandedCapacity > 0)
+                foreach (var emitter in All.Values.Where(c => c.ExpandedCapacity > 0).GroupBy(c => c.Caster).ToArray())
+                {
+                    int specialSlots = Math.Max(0, emitter.Max(c => c.ExpandedCapacity) - ordinary.Count);
+                    var keep = PreferredEffects(emitter.Where(c => !ordinary.Contains(c.Effect)), specialSlots);
+                    foreach (var old in emitter)
+                        if (!ordinary.Contains(old.Effect) && !keep.Contains(old.Effect)) All.Remove((old.Caster, old.Effect));
+                }
+        }
         Rebuild();
     }
+
+    static HashSet<string> PreferredEffects(IEnumerable<Curse> curses, int capacity) =>
+        curses.GroupBy(c => c.Effect).OrderByDescending(g => g.Any(c => c.Aura))
+            .ThenByDescending(g => g.Max(c => c.Applied)).ThenByDescending(g => g.Max(c => c.Buff))
+            .Take(capacity).Select(g => g.Key).ToHashSet();
 
     public void Remove(uint caster, string effect)
     { if (All.Remove((caster, effect))) Rebuild(); }
@@ -114,8 +136,13 @@ public sealed class MonsterCurses(Action? changed = null)
     void Rebuild()
     {
         stats = [];
-        hasCursedDamageTaken = All.Values.Any(c => c.CursedDamageTaken > 0);
-        hasCriticalPrevention = All.Values.Any(c => c.PreventsCriticalStrikes);
+        hasCursedDamageTaken = hasCriticalPrevention = hasExpandedCurse = false;
+        foreach (var curse in All.Values)
+        {
+            hasCursedDamageTaken |= curse.CursedDamageTaken > 0;
+            hasCriticalPrevention |= curse.PreventsCriticalStrikes;
+            hasExpandedCurse |= curse.ExpandedCapacity > 0;
+        }
         // The same curse from several casters never stacks; take the strongest application as a whole.
         foreach (var family in All.Values.GroupBy(c => c.Effect))
             foreach (var (key, value) in family.MaxBy(c => c.Stats.Sum(p => Math.Abs((long)p.Value)))!.Stats)
