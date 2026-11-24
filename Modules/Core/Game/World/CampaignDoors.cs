@@ -5,18 +5,23 @@ using static Game;
 
 /// <summary>
 /// Ordinary clickable and breakable campaign dungeon doors placed by tiles (.tmd) and rooms (.arm):
-/// <c>Metadata/MiscellaneousObjects/Door</c>, <c>IncaDoorLight</c>, <c>ScepterDoorLight</c>, and
-/// <c>Smashable</c>. Every type is verified against <c>client.db</c> <c>object_types</c> and
-/// <see cref="QuestObject.CanSerialize"/> at startup; missing or unsupported types are skipped.
+/// <c>Metadata/MiscellaneousObjects/Door</c>, <c>Door_grate_temp</c>, <c>IncaDoorLight</c>, <c>ScepterDoorLight</c>,
+/// <c>Smashable</c>, <c>SmashableNoHighlight</c>, and Act 8's StateMachine <c>GoldenDoor</c>. Every type is verified
+/// against <c>client.db</c> <c>object_types</c> and <see cref="QuestObject.CanSerialize"/> at startup; boss-controlled
+/// non-interactive doors (e.g. <c>BanditDoor</c>) and unsupported types are skipped.
 /// State is owned per <see cref="InstanceState"/> so re-entries and party members see consistent doors.
 /// </summary>
 public static class CampaignDoors
 {
     const string SmashableType = "Metadata/MiscellaneousObjects/Smashable";
+    const string SmashableNoHighlightType = "Metadata/MiscellaneousObjects/SmashableNoHighlight";
+    const string GoldenDoorType = "Metadata/Terrain/Act8/Area3/Objects/GoldenDoor";
     const int SmashReach = 18;
 
+    static readonly string[] ProminadeGardenFlags = ["HiddenSolarisButton", "HiddenLunarisButton"];
+
     sealed record DoorDef(string Type, IReadOnlyList<string> Components, int States, int Size, int TransitionableIndex,
-        bool OwnModel, bool IsSmashable);
+        int StateMachineIndex, StateMachineData? StateMachine, bool OwnModel, bool IsSmashable, bool HasTriggerableBlockage);
     sealed record Door(uint Id, string Type, string? Model, int X, int Y, float Rotation, float? Z);
 
     sealed class Area
@@ -30,24 +35,41 @@ public static class CampaignDoors
     static readonly RuleTable<InstanceState, Area> Areas = new();
     static readonly RuleTable<Player, HashSet<uint>> Presented = new();
 
+    static bool IsSmashableType(string type) =>
+        type.Equals(SmashableType, StringComparison.OrdinalIgnoreCase)
+        || type.Equals(SmashableNoHighlightType, StringComparison.OrdinalIgnoreCase);
+
     /// <summary>Builds the verified set of interactive ordinary door types from client.db object_types.</summary>
     public static void LoadGameData()
     {
         var map = new Dictionary<string, DoorDef>(StringComparer.OrdinalIgnoreCase);
+        var sharedStates = ObjectTypes.SharedStates();
         foreach (var (type, row) in ObjectTypes.All())
         {
             if (!ServerLevels.IsOrdinaryDoorType(type)) continue;
             var components = ObjectTypes.Components(row);
-            if (!QuestObject.CanSerialize(components, haveStateMachine: false)) continue;
-            if (!components.Contains("InteractionAction")) continue;
+            bool smashable = IsSmashableType(type);
+            // Non-interactive, non-smashable gates (such as BanditDoor, owned by EarlyActBossPolish) must not be
+            // spawned closed by CampaignDoors or players would be locked out without a way to open them.
+            if (!components.Contains("InteractionAction") && !smashable) continue;
             int transIdx = QuestObject.TransitionableIndex(components);
-            if (transIdx < 0) continue;
+            int smIdx = components.ToList().IndexOf("StateMachine");
+            StateMachineData? sm = smIdx >= 0 ? ObjectTypes.StateMachine(row, sharedStates) : null;
+            if (smIdx >= 0)
+            {
+                if (sm is null || !QuestObject.CanSerialize(components, haveStateMachine: true)) continue;
+                if (sm.Names is null || !sm.Names.Contains("open", StringComparer.Ordinal)) continue;
+            }
+            else
+            {
+                if (!QuestObject.CanSerialize(components, haveStateMachine: false) || transIdx < 0) continue;
+            }
             int states = Math.Max(2, row.IntOrNull("transitionable_num_states") ?? 2);
             int size = row.TextOrNull("positioned_object_size") is { } os && int.TryParse(os, out int parsed)
                 ? Math.Max(1, parsed - 1) : 3;
             bool ownModel = !components.Contains("Animated") || row.TextOrNull("animated_object") is not null;
-            bool smashable = type.Equals(SmashableType, StringComparison.OrdinalIgnoreCase);
-            map[type] = new DoorDef(type, components, states, size, transIdx, ownModel, smashable);
+            bool hasBlockage = components.Contains("TriggerableBlockage");
+            map[type] = new DoorDef(type, components, states, size, transIdx, smIdx, sm, ownModel, smashable, hasBlockage);
         }
         Supported = map;
     }
@@ -195,10 +217,36 @@ public static class CampaignDoors
 
     static byte[] DoorBlob(Door door, DoorDef def, bool opened)
     {
-        // Door / IncaDoorLight / ScepterDoorLight have TriggerableBlockage and NO RemoveCollidability() on transition:
-        // send dynamic Positioned + blocksNoWalker (matching LabyrinthTrials.Blob) so only TriggerableBlockage closes
-        // cells and opening never leaves a permanently stamped Hull blocking client walking. Smashable keeps static
-        // Positioned because its on_transition calls RemoveCollidability().
+        if (def.StateMachine is { } sm)
+        {
+            // StateMachine doors (e.g. Act 8 GoldenDoor using Thaumaturgy_SlidingDoor.ao) have a walk Hull and no
+            // RemoveCollidability() or TriggerableBlockage: send dynamic Positioned + blocksNoWalker so the client
+            // never permanently stamps the closed Hull, while server DoorBarriers blocks movement until opened.
+            var w = new BlobWriter().U8(0).U8(0);
+            foreach (string c in def.Components)
+                switch (c)
+                {
+                    case "Positioned":
+                        w.Positioned(door.X, door.Y, door.Rotation, scale: 1f,
+                            fixedHeight: door.Z is float z && !float.IsNaN(z) ? BlobWriter.FixedHeight(z) : null,
+                            dynamic: true, blocksNoWalker: true);
+                        break;
+                    case "Animated":
+                        if (door.Model is { Length: > 0 } model && model.EndsWith(".ao", StringComparison.OrdinalIgnoreCase))
+                            w.U8(1).WStr32(model);
+                        else w.U8(0);
+                        break;
+                    case "InteractionAction": w.U8(0); break;
+                    case "StateMachine": sm.Set("open", opened ? 1 : 0).Write(w); break;
+                    case "Stats": w.Stats(null).U32(0).U32(0).U8(0); break;
+                    case "Buffs": w.U16(0); break;
+                }
+            return w.U8(0).ToArray();
+        }
+        // Door / Door_grate_temp / IncaDoorLight / ScepterDoorLight have TriggerableBlockage and NO RemoveCollidability()
+        // on transition: send dynamic Positioned + blocksNoWalker (matching LabyrinthTrials.Blob) so only
+        // TriggerableBlockage closes cells and opening never leaves a permanently stamped Hull blocking client walking.
+        // Smashable and SmashableNoHighlight keep static Positioned because their on_transition calls RemoveCollidability().
         bool blockage = !def.IsSmashable;
         byte state = (byte)(opened ? def.States : 1);
         return LabyrinthTrials.Blob(def.Components, door.Model ?? "", door.X, door.Y, door.Rotation, 1f, state,
@@ -221,42 +269,59 @@ public static class CampaignDoors
             area.Shown[door.Id] = opened;
         }
         ApplyBlocking(player, door, def, opened);
+        if (opened && door.Type.Equals(GoldenDoorType, StringComparison.OrdinalIgnoreCase)
+            && ProminadeGardenFlags.Any(f => !player.Character.HasQuestFlag(f)))
+            await SetQuestFlags(player, ProminadeGardenFlags);
         shown.Add(door.Id);
     }
 
     static async Task OpenDoorLocked(Player player, Area area, Door door, DoorDef def)
     {
         if (!player.Instance.Transition(door.Type, door.X, door.Y)) return;
-        await SendWorldRecord(player, door.Id,
-            InstanceEntities.TransitionableUpdate(door.Id, (byte)def.TransitionableIndex, (byte)def.States),
-            $"campaign door 0x{door.Id:x} {door.Type.Split('/')[^1]} opens at ({door.X}, {door.Y})");
-        await SendWorldRecord(player, door.Id, InstanceEntities.BlockageUpdate(door.Id, false), null);
+        if (def.StateMachine is { } sm)
+        {
+            await SendWorldRecord(player, door.Id,
+                InstanceEntities.StateMachineUpdate(door.Id, (byte)def.StateMachineIndex, sm.Set("open", 1)),
+                $"campaign door 0x{door.Id:x} {door.Type.Split('/')[^1]} opens at ({door.X}, {door.Y})");
+        }
+        else
+        {
+            await SendWorldRecord(player, door.Id,
+                InstanceEntities.TransitionableUpdate(door.Id, (byte)def.TransitionableIndex, (byte)def.States),
+                $"campaign door 0x{door.Id:x} {door.Type.Split('/')[^1]} opens at ({door.X}, {door.Y})");
+            if (def.HasTriggerableBlockage)
+                await SendWorldRecord(player, door.Id, InstanceEntities.BlockageUpdate(door.Id, false), null);
+        }
         area.Shown[door.Id] = true;
         foreach (var member in Members(player))
+        {
             ApplyBlocking(member, door, def, opened: true);
+            if (door.Type.Equals(GoldenDoorType, StringComparison.OrdinalIgnoreCase))
+                await SetQuestFlags(member, ProminadeGardenFlags);
+        }
     }
 
-    /// <summary>GameEvents.SkillCast: attacks/casts within reach break nearby Smashable doors (transition_on_damage_taken).</summary>
+    /// <summary>GameEvents.SkillCast: attacks/casts within reach break nearby Smashable and SmashableNoHighlight doors (transition_on_damage_taken).</summary>
     public static async Task BreakSmashablesNear(Player player, (int X, int Y) from)
     {
         if (player.Instance is null || player.Closed || player.LeavingArea || player.PlayerLife == 0
             || !Areas.TryGetValue(player.Instance, out var area) || area.Doors is not { Count: > 0 } doors)
             return;
-        List<Door>? candidates = null;
+        List<(Door Door, DoorDef Def)>? candidates = null;
         foreach (var d in doors)
         {
-            if (!d.Type.Equals(SmashableType, StringComparison.OrdinalIgnoreCase)) continue;
+            if (!Supported.TryGetValue(d.Type, out var ddef) || !ddef.IsSmashable) continue;
             if (player.Instance.Transitioned(d.Type, d.X, d.Y)) continue;
             long dx = d.X - from.X, dy = d.Y - from.Y;
             if (dx * dx + dy * dy <= (long)SmashReach * SmashReach)
-                (candidates ??= []).Add(d);
+                (candidates ??= []).Add((d, ddef));
         }
-        if (candidates is null || !Supported.TryGetValue(SmashableType, out var def)) return;
+        if (candidates is null) return;
         await area.Gate.WaitAsync();
         try
         {
             if (player.Closed || player.LeavingArea || player.PlayerLife == 0) return;
-            foreach (var door in candidates)
+            foreach (var (door, def) in candidates)
                 await OpenDoorLocked(player, area, door, def);
         }
         finally { area.Gate.Release(); }

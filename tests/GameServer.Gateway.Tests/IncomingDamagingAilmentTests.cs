@@ -68,6 +68,13 @@ static class IncomingDamagingAilmentTestCases
         Assert.Equal(10000u, player.PlayerLife);
         Assert.Equal(cap, player.PlayerLifeCap);
         player.Auras.Clear();
+        var mixed = new IncomingDamagingAilments();
+        mixed.ApplyBleed(0, 100, 2);
+        double nonChaosCarry = 0, chaosCarry = 0;
+        int Ralakesh(uint stat) => stat == Stat.NoExtraBleedDamageWhileMoving ? 1
+            : stat == Stat.PhysicalDamageOverTimeTakenPlusPctWhileMoving ? -25 : 0;
+        Assert.Equal(175, mixed.Advance(0, 2, player.Pools, player.EnergyShield, Ralakesh, 0, 75, 0, 75,
+            false, false, false, (_, _) => 1, ref nonChaosCarry, ref chaosCarry));
         player.IncomingAilments.ApplyBleed(now, 10, 2);
         player.IncomingAilments.ApplyBleed(now, 5, 4);
         player.IncomingAilments.ApplyPoison(now + 1, 10, 2);
