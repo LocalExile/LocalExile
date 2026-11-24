@@ -523,7 +523,7 @@ public static partial class Game
         bool maimShown = m.MaimedMovementShown;
         bool movementChanged = maimed
             ? !maimShown || movementPct != m.MaimedMovementShownPct
-            : maimShown && movement.Pct != m.MaimedMovementShownPct;
+            : maimShown && movementPct != m.MaimedMovementShownPct;
         m.MaimedMovementShown = maimed;
         if (movementChanged)
         {
