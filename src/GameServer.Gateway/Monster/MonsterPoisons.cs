@@ -40,8 +40,12 @@ public sealed class MonsterPoisons
             long chance = (long)get(Stat.BaseChanceToPoisonOnHitPct) + get(Stat.ChaosDamageChanceToPoisonPct);
             int projectileChance = projectileAttack
                 ? Math.Clamp(get(Stat.ProjectileAttacksChanceToPoisonOnHitPctIfYouHaveBeastMinion), 0, 100) : 0;
+            // "increased Poison Duration" is base_poison_duration_+% on every one of its Mods rows, while
+            // poison_duration_+% is named by no mod, passive or gem; both are read, as MonsterBleeds reads
+            // bleed_duration_+% and base_bleed_duration_+% together.
             double seconds = Ailments.PoisonDurationSeconds
-                * Math.Max(0, 1 + ((double)get(Stat.PoisonDurationPlusPct) + get(Stat.BaseAllAilmentDurationPlusPct)) / 100) / faster
+                * Math.Max(0, 1 + ((double)get(Stat.PoisonDurationPlusPct) + get(Stat.BasePoisonDurationPlusPct)
+                    + get(Stat.BaseAllAilmentDurationPlusPct)) / 100) / faster
                 * MonsterIgnites.DurationMultiplier(get);
             return new((int)Math.Clamp(chance, 0, 100), Row("minimum", "non_critical"), Row("maximum", "non_critical"),
                 Row("minimum", "critical"), Row("maximum", "critical"), seconds,
