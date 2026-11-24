@@ -116,6 +116,8 @@ public static partial class Game
         var (aggressive, defensive) = MinionStance(g.Own, g.Player, g.Definition.IsGolem, now - g.BlockedAt is >= 0 and <= 4);
         bool follows = !player.Summons.Definitions.TryGetValue(g.Id, out var summon) || summon.Follows;
         follows |= defensive && summon?.Family != "Clone";
+        bool whispers = HearsWhispers(g, now);
+        if (whispers) (aggressive, defensive, follows) = (true, false, false);
         if (follows && Dist(here, owner) > 150)
         {
             var at = NextToPlayer(player, LivingCollision.Size(m), g.Id);
@@ -161,9 +163,9 @@ public static partial class Game
                 && !p.Value.Asleep && !MonsterAsleep(player, p.Key) && !double.IsPositiveInfinity(p.Value.BusyUntil)
                 && (g.Definition.Kind != "HolyArmament" || IsHolyArmamentTarget(player, g, p.Key, p.Value)))
             .Select(p => (p.Key, M: p.Value, At: p.Value.Walk.Position(now)))
-            .Where(t => IsPrey(player, g.Own, t.Key, t.M, now) || Dist(t.At, here) <= aggroRange
+            .Where(t => !whispers && IsPrey(player, g.Own, t.Key, t.M, now) || Dist(t.At, here) <= aggroRange
                 && (!(follows || defensive) || Dist(t.At, owner) <= ownerRange))
-            .OrderByDescending(t => IsPrey(player, g.Own, t.Key, t.M, now)).ThenBy(t => Dist(t.At, here)).FirstOrDefault();
+            .OrderByDescending(t => !whispers && IsPrey(player, g.Own, t.Key, t.M, now)).ThenBy(t => Dist(t.At, here)).FirstOrDefault();
         if (target.M is null) { if (follows) GolemFollowLocked(player, g, owner, now); return; }
         g.Target = target.Key;
         double distance = Dist(target.At, here);
@@ -873,6 +875,7 @@ public static partial class Game
         }
         if (damage > 0)
         {
+            if (critical) MinionWhispersOnCriticalLocked(player, g, now);
             FeedingFrenzyOnHitLocked(player, g, now);
             MinionGrantsNearbyChargesOnHitLocked(player, g, from, now, random);
         }

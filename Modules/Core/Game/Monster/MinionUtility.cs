@@ -44,7 +44,8 @@ static partial class Game
         foreach (var minion in player.Minions.All)
         {
             var m = minion.Monster;
-            if (m.Dead || m.Life == 0 || player.Summons.Definitions.GetValueOrDefault(minion.Id) is { Follows: false }) continue;
+            if (m.Dead || m.Life == 0 || player.Summons.Definitions.GetValueOrDefault(minion.Id) is { Follows: false }
+                || OwnedFighter(player, minion.Id) is { } whispering && HearsWhispers(whispering, now)) continue;
             var at = NextToPlayer(player);
             m.Walk = player.NewMonsterWalk(minion.Id, at.X, at.Y, Math.Max(m.Walk.Speed, 1), LivingCollision.Size(m), false);
             m.ActionGeneration++; m.LastTarget = null; m.BusyUntil = now;

@@ -56,15 +56,16 @@ public static partial class Game
                 * (100 - m.Effects.PhysicalReduction) / 100d;
         int bleed = m.Bleeds.Advance(to, bleedFactor,
             ignoresDots ? 0 : AggravatedExtra(m, to) * linkDamageTaken, out double? bleedAt);
-        int poison = m.Poisons.Advance(to, ignoresDots ? 0 : MonsterDotTaken(m, DamageType.Chaos, to) * supportReduction * linkDamageTaken,
-            out double? poisonAt);
+        double chaosFactor = ignoresDots ? 0 : MonsterDotTaken(m, DamageType.Chaos, to) * supportReduction * linkDamageTaken;
+        int poison = m.Poisons.Advance(to, chaosFactor, out double? poisonAt);
+        int whispers = MinionWhispersDamageLocked(player, golem, from, to, chaosFactor);
         if (ignoresDots) fire = bleed = poison = 0;
 
         double? lastDamageAt = null;
         foreach (double? at in new[] { fireAt, bleedAt, poisonAt })
             if (at is double value && (lastDamageAt is not double last || value > last))
                 lastDamageAt = value;
-        if (legion > 0 || blessing > 0) lastDamageAt = to;
+        if (legion > 0 || blessing > 0 || whispers > 0) lastDamageAt = to;
         if (lastDamageAt is double endpoint) golem.ShieldPool.Interrupt(endpoint);
 
         long lifeDamage = 0;
@@ -72,8 +73,8 @@ public static partial class Game
         if (legion > 0) lifeDamage += golem.ShieldPool.Damage(legion, bypass: false, to);
         if (blessing > 0) lifeDamage += golem.ShieldPool.Damage(blessing, bypass: false, to);
         if (bleed > 0) lifeDamage += golem.ShieldPool.Damage(bleed, bypass: false, lastDamageAt!.Value);
-        if (poison > 0)
-            lifeDamage += golem.ShieldPool.Damage(poison,
+        if (poison > 0 || whispers > 0)
+            lifeDamage += golem.ShieldPool.Damage((long)poison + whispers,
                 m.Mods.Effects[Stat.ChaosDamageDoesNotBypassEnergyShield] == 0, lastDamageAt!.Value);
 
         if (lifeDamage > 0)

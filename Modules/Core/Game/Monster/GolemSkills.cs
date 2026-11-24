@@ -177,6 +177,12 @@ public static partial class Game
         }
         foreach (var (name, value) in golem.Auras.Concat(golem.Utility)) values[name] = values.GetValueOrDefault(name) + value;
         foreach (var (name, value) in golem.Gear) values[name] = values.GetValueOrDefault(name) + value;
+        if (HearsWhispers(golem, now))
+        {
+            AddStat(Stat.IsCrazy, 1);
+            AddStat(Stat.AttackSpeedPlusPct, WhispersAttackSpeed);
+            AddStat(Stat.DamagePlusPct, WhispersDamage);
+        }
         if (golem.LinkedModifiers is { } stolen)
             foreach (var (name, value) in stolen.Stats())
                 AddStat(name, value);
@@ -665,6 +671,7 @@ public static partial class Game
         hash.Add(FreshMeatActive(golem, now));
         hash.Add(ExemplarAttackCriticals(player, golem, now));
         hash.Add(now < golem.OnslaughtUntil);
+        hash.Add(HearsWhispers(golem, now));
         EndMinionUtilityFlasksLocked(player, golem, now);
         ReconcileLinkedMinionModifiersLocked(player, golem, now);
         foreach (var flaskSource in MinionUtilityFlaskSources(player, golem, now)) hash.Add(flaskSource);
