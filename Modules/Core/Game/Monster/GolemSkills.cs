@@ -58,7 +58,17 @@ public static partial class Game
         {
             string name = Stats.Name(key);
             uint target;
-            if (name.StartsWith("minion_", StringComparison.Ordinal))
+            long amount = value;
+            if (key == Stat.MinionDamagePlusPctPer5Dex)
+            {
+                target = Stat.DamagePlusPct;
+                amount *= Math.Max(0, GolemStat(playerStats, Stat.Dexterity)) / 5;
+            }
+            else if (key == Stat.PermanenetMercenaryDamagePlusPctAndMinionDamagePlusPct)
+                target = Stat.DamagePlusPct;
+            else if (key == Stat.PermanenetMercenaryMaximumLifePlusPctAndMinionMaximumLifePlusPct)
+                target = Stat.MaximumLifePlusPct;
+            else if (name.StartsWith("minion_", StringComparison.Ordinal))
                 target = name[7..] switch
                 {
                     "elemental_resistance_%" => Stat.BaseResistAllElementsPct,
@@ -74,7 +84,7 @@ public static partial class Game
             else if (key is Stat.EnergyShieldPlusPctFinalForMinion or Stat.MinionsHaveNoArmourOrEnergyShield)
                 target = key;
             else continue;
-            values[target] = ActorScale.Saturate((long)values.GetValueOrDefault(target) + value);
+            values[target] = ActorScale.Saturate(values.GetValueOrDefault(target) + amount);
         }
         foreach (var (key, value) in golem.Own)
         {
