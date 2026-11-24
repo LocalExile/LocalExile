@@ -362,7 +362,9 @@ public static partial class Game
     {
         if (!player.Area.MonsterTypes.Add((row, level))) return;
         var bytes = InstanceEntities.MonsterTypes([(row, level)]);
-        if (player.Area.Owned) player.Area.Delta.Add(0, bytes, log, AreaDelta.Kind.Message);
-        if (!player.Connection.WorldOutput.Started) await Send(player, bytes, log);
+        bool direct = !player.Connection.WorldOutput.Started;
+        if (player.Area.Owned) player.Area.Delta.Add(0, bytes, log, AreaDelta.Kind.Message, except: direct ? player : null);
+        // Direct writes encrypt in place. The area keeps its plaintext for other clients.
+        if (direct) await Send(player, bytes.ToArray(), log);
     }
 }

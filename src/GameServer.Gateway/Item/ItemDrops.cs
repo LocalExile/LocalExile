@@ -772,11 +772,14 @@ public sealed class ItemDrops
         return Math.Max(1, (int)Math.Round(GoldBaseForLevel(monsterLevel, respecCosts) * times * (0.75 + 0.5 * rng.NextDouble())));
     }
 
+    public Drop? Gold(int monsterLevel, MonsterRarity rarity, Random rng, double multiplier = 1) =>
+        Gold(monsterLevel, rarity, rng, multiplier, increasedRarity: 0, quantityFactor: 1);
+
     /// <summary>A pile of gold for a dying monster (<see cref="GoldAmount"/>), scaled by <paramref name="multiplier"/>,
     /// effective IIR (<paramref name="increasedRarity"/>, already diminished by the caller) and area IIQ
     /// (<paramref name="quantityFactor"/>), or null for none.</summary>
-    public Drop? Gold(int monsterLevel, MonsterRarity rarity, Random rng, double multiplier = 1,
-        int increasedRarity = 0, double quantityFactor = 1.0)
+    public Drop? Gold(int monsterLevel, MonsterRarity rarity, Random rng, double multiplier,
+        int increasedRarity, double quantityFactor = 1.0)
     {
         double iirScale = Math.Max(0.0, 1.0 + increasedRarity / 100.0);
         double iiqScale = double.IsFinite(quantityFactor) ? Math.Max(0, quantityFactor) : 1.0;

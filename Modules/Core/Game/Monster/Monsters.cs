@@ -218,11 +218,11 @@ public static partial class Game
     // by its planned one, with its mods rolled now. bulk: see SpawnMonster.
     public static Task<uint> RestoreMonster(Player player, MonsterCatalog.Variety variety, SavedMonster saved, bool bulk = false) =>
         saved.Planned
-            ? SpawnMonster(player, variety, saved.Level, saved.Rarity, saved.X, saved.Y,
-                log: false, alone: false, bulk: bulk, packId: saved.PackId)
-            : SpawnMonster(player, variety, saved.Level, saved.Rarity, saved.X, saved.Y,
+            ? SpawnPackMonster(saved.PackId, player, variety, saved.Level, saved.Rarity, saved.X, saved.Y,
+                log: false, alone: false, bulk: bulk)
+            : SpawnPackMonster(saved.PackId, player, variety, saved.Level, saved.Rarity, saved.X, saved.Y,
                 friendly: !saved.Hostile, log: false, damagedLife: saved.Life, mods: saved.Mods,
-                unrisen: saved.Unrisen, placement: MonsterPlacement.Established, bulk: bulk, packId: saved.PackId);
+                unrisen: saved.Unrisen, placement: MonsterPlacement.Established, bulk: bulk);
 
     // An area's monsters are all placed at its first entry (14-monster-packs.md §2). One placed far from the player is
     // held back (InstanceWorld.HeldBackMonsters): it is the instance's, counted and saved with it, but it is not
@@ -318,7 +318,7 @@ public static partial class Game
                 ? InstanceEntities.MonsterTypes([((ushort)variety.Row, level)]) : null);
     }
 
-    public static async Task<uint> SpawnMonster(Player player, MonsterCatalog.Variety variety,
+    public static Task<uint> SpawnMonster(Player player, MonsterCatalog.Variety variety,
         byte level, MonsterRarity rarity, int x, int y, string? name = null, bool friendly = false, bool log = true, uint? damagedLife = null,
         MonsterModSet? mods = null, bool alone = true, bool? unrisen = null, float rotation = 0,
         IReadOnlyList<(uint Key, int Value)>? extraStats = null, Action<uint, SpawnedMonster>? owned = null, Func<bool>? ownedCurrent = null,
@@ -331,7 +331,26 @@ public static partial class Game
         MonsterMovement? movement = null, (uint Parent, string Bone, byte Kind, byte Flags)? attachTo = null, bool instanceOwned = false,
         // An area's population (PopulateArea) is created in bulk: its create carries the wake and its glow, and the
         // producer does not wait for the birth, which on a lockstep client is a frame per monster.
-        bool bulk = false, bool nonBlocking = false, int packId = 0)
+        bool bulk = false, bool nonBlocking = false) =>
+        SpawnPackMonster(0, player, variety, level, rarity, x, y, name, friendly, log, damagedLife, mods, alone, unrisen,
+            rotation, extraStats, owned, ownedCurrent, ownedSkills, ownedMaximumLife, ownedMaximumEnergyShield,
+            ownedEnergyShield, extraMods, scripted, ownedLooks, extraKit, ownedAdmission, ownedInitialDeath, placement,
+            lifePercent, movement, attachTo, instanceOwned, bulk, nonBlocking);
+
+    static async Task<uint> SpawnPackMonster(int packId, Player player, MonsterCatalog.Variety variety,
+        byte level, MonsterRarity rarity, int x, int y, string? name = null, bool friendly = false, bool log = true, uint? damagedLife = null,
+        MonsterModSet? mods = null, bool alone = true, bool? unrisen = null, float rotation = 0,
+        IReadOnlyList<(uint Key, int Value)>? extraStats = null, Action<uint, SpawnedMonster>? owned = null, Func<bool>? ownedCurrent = null,
+        IReadOnlyList<GrantedSkill>? ownedSkills = null,
+        uint? ownedMaximumLife = null, uint ownedMaximumEnergyShield = 0,
+        uint ownedEnergyShield = 0,
+        MonsterModSet? extraMods = null, bool scripted = false, IReadOnlyList<VisibleItem>? ownedLooks = null, IReadOnlyList<MonsterKitSkill>? extraKit = null,
+        Func<bool>? ownedAdmission = null, bool ownedInitialDeath = false,
+        MonsterPlacement placement = MonsterPlacement.Proposed, int? lifePercent = null,
+        MonsterMovement? movement = null, (uint Parent, string Bone, byte Kind, byte Flags)? attachTo = null, bool instanceOwned = false,
+        // An area's population (PopulateArea) is created in bulk: its create carries the wake and its glow, and the
+        // producer does not wait for the birth, which on a lockstep client is a frame per monster.
+        bool bulk = false, bool nonBlocking = false)
     {
         movement ??= MonsterMovement.Default;
         // A hostile unique (a Rogue Exile, a kept one too) holds the weapons its variety names, as Izaro's are given.
@@ -639,12 +658,12 @@ public static partial class Game
                             || !player.MonsterTypes.Add((variety.Row, level)))
                             return null;
                         typeBytes = InstanceEntities.MonsterTypes([((ushort)variety.Row, level)]);
-                        return typeBytes;
+                        return typeBytes.ToArray();
                     });
                     if (typeBytes is not null)
                         foreach (var peer in player.Frames.Players())
                             if (!ReferenceEquals(peer, player) && !peer.Closed && !peer.LeavingArea)
-                                await Send(peer, typeBytes, typeLog);
+                                await Send(peer, typeBytes.ToArray(), typeLog);
                 }
             }
         }
@@ -847,8 +866,8 @@ public static partial class Game
         // A lockstep client's create waits for the frame that carries it (WorldOutput.AwaitBirths): one after another, the
         // packs took a frame each (292 monsters in 9.6 s in The Coast), so they go out together and share frames. Each
         // starts in order, so the ids and rolls are taken in order before its first wait.
-        Task<uint> Spawn(AreaPopulation.Spawn s) => SpawnMonster(player, Monsters.Find(s.Variety.ToString())!, level,
-            s.Rarity, s.X, s.Y, log: s.Rarity is MonsterRarity.Unique or MonsterRarity.Rare, alone: false, bulk: true, packId: s.PackId);
+        Task<uint> Spawn(AreaPopulation.Spawn s) => SpawnPackMonster(s.PackId, player, Monsters.Find(s.Variety.ToString())!, level,
+            s.Rarity, s.X, s.Y, log: s.Rarity is MonsterRarity.Unique or MonsterRarity.Rare, alone: false, bulk: true);
         if (player.Connection.LockstepClient) await Task.WhenAll(now.Select(Spawn).ToList());
         else foreach (var s in now) await Spawn(s);
         if (ServerTrace.Latency)

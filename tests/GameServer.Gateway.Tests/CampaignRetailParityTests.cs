@@ -1,6 +1,7 @@
 using GameServer.Core;
 using GameServer.Core.Protocol.Instance;
 using GameServer.Modding;
+using GameServer.Core.World;
 
 namespace GameServer.Gateway.Tests;
 
@@ -201,6 +202,22 @@ public sealed class CampaignRetailParityTests : IDisposable
 
         // Energy Shield = 40% (GameConstants.EnergyShieldRatioOfLife) * MonsterTypes.EnergyShield / 100.
         Assert.Equal(400, monsters.BaseEnergyShield(alira, 20, 1000));
+
+        using (var fixture = new MinionUtilityTests.Fixture())
+        {
+            var player = fixture.Player;
+            var ally = player.Area.Monsters[900] = new("ally", new(100, 100, 0), 100, 3, 1000)
+            {
+                AlliedFighter = true,
+                Attack = new(0x4000, 1, 20, DamagePacket.Of(DamageType.Chaos, 100, 100))
+            };
+            var enemy = player.Area.Monsters[901] = new("enemy", new(101, 100, 0), 100, 3, 1000);
+            Game.InitMonsterEnergyShield(player.Area, enemy, 400);
+            var hit = Game.MinionHitTargetLocked(player, 900, ally, 901, enemy, 1, new Random(1), true, accuracy: 100000);
+            Assert.NotNull(hit);
+            Assert.Equal(900u, enemy.Life);
+            Assert.Equal(400u, Game.MonsterEnergyShieldOf(enemy).Current);
+        }
 
         // Evasion interpolation (0 -> BaseEvasion, 20 -> 40% of delta, 50 -> BaseEvasiveEvasion).
         int evBase = monsters.BaseEvasion(30)!.Value;

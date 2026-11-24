@@ -3229,6 +3229,10 @@ public static partial class Game
         Cull cull = default) =>
         ApplyMonsterHitLocked(player, m, damage, rampageSource, playerStats, allyAt, cull, null);
 
+    static MonsterHit? ApplyTypedMonsterHitLocked(Player player, SpawnedMonster m, int damage, int chaosDamage,
+        (int X, int Y)? allyAt = null, IReadOnlyDictionary<uint, int>? playerStats = null) =>
+        ApplyMonsterHitLocked(player, m, damage, null, playerStats, allyAt, default, null, chaosDamage);
+
     // The area-hit caller passes the attack's cached snapshot as `cullPlayer` for every victim: Rampage's `player` is
     // rebuilt only for the first target, so the two contexts must stay separate. This is an overload rather than an
     // extra optional parameter so the seven-argument entry point keeps its reflection-visible signature.

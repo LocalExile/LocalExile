@@ -41,7 +41,7 @@ public static partial class Game
                     bytes = player.MonsterTypes.Add(output.MonsterType!.Value)
                         ? GameServer.Core.Protocol.Instance.InstanceEntities.MonsterTypes([output.MonsterType.Value]) : [];
                     if (bytes.Length != 0 && player.Area.Owned)
-                        player.Area.Delta.Add(0, bytes, output.Log, AreaDelta.Kind.Message, except: player);
+                        player.Area.Delta.Add(0, bytes.ToArray(), output.Log, AreaDelta.Kind.Message, except: player);
                 }
                 else
                 {

@@ -848,7 +848,7 @@ public static partial class Game
                     var packet = DamagePacket.Of(DamageType.Chaos, chaosDmg, chaosDmg);
                     var mitigated = DamageModel.Mitigate(packet, type => MonsterHitResistance(m, type, default, now));
                     int dmg = (int)Math.Floor(mitigated.Components.Sum(c => c.Range.Min) * MonsterDamageTaken(m, false, now, false, true, true));
-                    if (dmg <= 0 || ApplyMonsterHitLocked(player, m, dmg) is not { } hit) continue;
+                    if (dmg <= 0 || ApplyTypedMonsterHitLocked(player, m, dmg, dmg) is not { } hit) continue;
                     CommitAcceptedHitLocked(player, id, m, hit, dmg, now, "branded enemy explosion", playerKill: true);
                 }
             }
