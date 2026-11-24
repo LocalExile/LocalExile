@@ -11,7 +11,7 @@ using GameServer.Core.World;
 /// </summary>
 public enum PlayerStatStep : byte
 {
-    Sources, Siphoning, SpiritCharges, CryMovement, WarcryBuffs, Golems, Offerings, PanelDefaults, God, Auras, AuraPenetration, CatAspect,
+    Sources, Siphoning, SpiritCharges, CryMovement, Golems, Offerings, PanelDefaults, God, Auras, AuraPenetration, CatAspect,
     AvianCrab, Subscribers, ClassAttributes, OvercapCrit, AttackSpeed, UtilityFlasks, SelfVulnerability,
     Onslaught, VaalPrevention, VaalAura, SpiritLeadership, TotemAura, Rage, Blind, UsingFlask, SoulEater, MaximumPoolItems,
     ActorScale, Recovery, TimedRecovery, TailPanels, Rampage, TailOffence, TailCritical, LeechingDefences, AuraRestriction, AlwaysHit, RecentHits, Ward, Resonance,
@@ -105,16 +105,6 @@ public static partial class Game
         Step(PlayerStatStep.CryMovement, (player, stats, _) =>
         {
             if (Stat.BaseMovementVelocityPlusPct is var cryMovement) AddTo(stats, cryMovement, IntimidatingCryMovement(player));
-        });
-        Step(PlayerStatStep.WarcryBuffs, (player, stats, _) =>
-        {
-            var state = WarcryBuffsOf(player);
-            double now = AreaTime(player);
-            if (player.PlayerLife == 0 || !state.ActiveAt(now)) return;
-            // The step runs again when the buff ends, so the stats leave on time.
-            StatsChangeIn(state.Until - now);
-            foreach (var (key, value) in state.Values)
-                if (value != 0) AddTo(stats, key, value);
         });
         Step(PlayerStatStep.Golems, (player, stats, _) => AddGolemStats(player, stats));
         Step(PlayerStatStep.Offerings, (player, stats, _) => AddSelfOfferingStats(player, stats));

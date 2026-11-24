@@ -19,36 +19,8 @@ public static partial class Game
     public const string CorpseExplosionAo = "Metadata/Effects/Spells/monsters_effects/gore_explode/gore_explosion_no_gibs.ao";
     const int CorpseExplosionArtMs = 2000;
 
-    // ---- The other warcries' own buffs ----
-    //
-    // Only Enduring Cry had an executor (Charges.UseWarcry: charges + life regeneration) and Intimidating Cry its own
-    // (IntimidatingCry.cs: the movement gift). The other warcries taunted and cooled down only. What each grants is
-    // settled by its own BuffDefinitions row, whose GrantedStats are the stats the buff carries, in order, and by the
-    // gem's per-power stats (GrantedEffectStatSets):
-    //
-    //   warcry            row  GrantedStats (count)                          per-power source
-    //   Seismic Cry       1544 armour_+%_final_from_seismic_cry_buff,       seismic_cry_armour_+%_final_per_5_power (15)
-    //                          stun_threshold_+% (2)                        seismic_cry_stun_threshold_+%_per_5_power (50)
-    //   Ancestral Cry     1545 base_resist_all_elements_%,                 ancestral_cry_elemental_resist_%_per_5_power (5)
-    //                          additional_maximum_all_elemental_             ancestral_cry_maximum_elemental_resist_%_per_10_power (1)
-    //                          resistances_% (2)
-    //   Infernal Cry      1540 physical_damage_%_to_add_as_fire (1)       infernal_cry_physical_damage_%_to_add_as_fire_per_5_power (6)
-    //   Battlemage's Cry  1866 additional_base_critical_strike_chance (1)  divine_cry_additional_base_critical_strike_chance_per_5_power (50)
-    //
-    // Every row is IsRecovery = 0, so the buff carries no values (only IsRecovery rows carry one u32 per GrantedStats
-    // entry); the stats reach the client through the player's stats, via the WarcryBuffs step, and the server reads
-    // them from the same place. The power steps are whole 5s (10s for Ancestral's maximum resistance), capped at 25
-    // power like Enduring Cry's regeneration, and scaled by warcry_buff_effect_+% like Enduring Cry's rate.
-    //
-    // Not granted: Rallying Cry (row 399) — its damage term is per nearby ally, not per power, and no gem stat
-    // settles its mana-regeneration value; General's Cry — no BuffDefinitions row, its effect is exerted attacks
-    // only; Vengeful Cry (row 2476) — a retaliation skill with no warcry handling here; Abyssal Cry (row 402) — a
-    // monster skill. Exerted attacks are not built at all: the buffs above are the rows that fully settle.
     public const ushort SeismicCryBuffRow = 1544, AncestralCryBuffRow = 1545,
         InfernalCryBuffRow = 1540, BattlemagesCryBuffRow = 1866;
-
-    /// <summary>The warcry power a buff's values stop growing at (Enduring Cry's regeneration cap).</summary>
-    public const int WarcryBuffPowerCap = 25;
 
     /// <summary>The BuffDefinitions row a warcry's own buff uses, or null when no buff is granted for it.</summary>
     public static ushort? WarcryBuffRow(string effectId) => effectId switch
@@ -65,7 +37,7 @@ public static partial class Game
     public static (uint Key, int Value)[]? WarcryBuffStats(string effectId, int power, double buffEffect, Func<uint, int> own)
     {
         if (WarcryBuffRow(effectId) is null) return null;
-        int capped = Math.Min(WarcryBuffPowerCap, power);
+        int capped = Math.Clamp(power, 0, effectId == "AncestralCry" ? 30 : 25);
         int steps5 = capped / 5, steps10 = capped / 10;
         int Scaled(int steps, int per) => (int)Math.Clamp(Math.Floor(steps * (double)per * buffEffect), 0, int.MaxValue);
         return effectId switch
@@ -88,54 +60,59 @@ public static partial class Game
         };
     }
 
-    /// <summary>One running warcry buff: the stats captured at the release (in the row's GrantedStats order) and
-    /// when it ends.</summary>
-    public sealed class WarcryBuffState
+    sealed record WarcryGrant(ushort Row, double Until, int Epoch, (uint Key, int Value)[] Values);
+    static readonly Store<Player, List<WarcryGrant>> WarcryGrants = new();
+
+    static void AddWarcryStats(Player player, Dictionary<uint, int> stats)
     {
-        public string? EffectId;
-        public ushort Row;
-        public double Until;
-        public List<(uint Key, int Value)> Values = [];
-        public bool ActiveAt(double now) => EffectId is not null && Until > now;
+        if (!WarcryGrants.TryGetValue(player, out var grants) || player.PlayerLife == 0) return;
+        double now = AreaTime(player);
+        foreach (var grant in grants)
+            if (grant.Until > now && grant.Epoch == player.ProjectileEpoch)
+                foreach (var (key, value) in grant.Values)
+                    stats[key] = ActorScale.Saturate((long)stats.GetValueOrDefault(key) + value);
     }
 
-    static readonly Store<Player, WarcryBuffState> WarcryBuffStates = new();
-
-    public static WarcryBuffState WarcryBuffsOf(Player player) => WarcryBuffStates.GetOrCreateValue(player);
-
-    /// <summary>Whether a warcry buff is running: the WarcryBuffs step's key (a re-grant moves the deadline, so the
-    /// active flag alone is enough to rebuild on).</summary>
-    public static bool WarcryBuffActive(Player player) =>
-        player.PlayerLife > 0 && WarcryBuffsOf(player).ActiveAt(AreaTime(player));
-
-    /// <summary>A running warcry buff's stats, for the WarcryBuffs step: empty when none runs.</summary>
-    public static IReadOnlyList<(uint Key, int Value)> WarcryBuffStatsOf(Player player)
+    static void UpdateWarcryStats(Player player)
     {
-        var state = WarcryBuffsOf(player);
-        if (player.PlayerLife == 0 || !state.ActiveAt(AreaTime(player))) return [];
-        return state.Values;
+        RebuildPools(player);
+        MarkPlayerStats(player, PlayerStatStep.Sources);
+        PresentStats(player);
     }
 
-    /// <summary>Grant (or refresh) a warcry's own buff at its release. A warcry with no granted buff is a no-op, so
-    /// Rallying Cry, General's Cry and Vengeful Cry keep today's behaviour. A re-cry replaces the running buff with
-    /// the new release's values, as a fresh cast does.</summary>
+    internal static void ExpireWarcryBuffs(Player player)
+    {
+        if (!WarcryGrants.TryGetValue(player, out var grants)) return;
+        double now = AreaTime(player);
+        bool changed = false;
+        for (int i = grants.Count - 1; i >= 0; i--)
+        {
+            var grant = grants[i];
+            if (player.PlayerLife > 0 && grant.Until > now && grant.Epoch == player.ProjectileEpoch) continue;
+            player.Area.Buffs.Clear(player.Id, grant.Row, player.Id);
+            grants.RemoveAt(i);
+            changed = true;
+        }
+        if (grants.Count == 0) WarcryGrants.Remove(player);
+        if (changed) UpdateWarcryStats(player);
+    }
+
     public static void ApplyWarcryBuffLocked(Player player, string effectId, IReadOnlyDictionary<uint, int> own,
         IReadOnlyDictionary<uint, int> playerStats, (int X, int Y) at, int radius, double now, double duration, double buffEffect)
     {
-        if (duration <= 0 || WarcryBuffRow(effectId) is not ushort row) return;
+        if (playerStats.GetValueOrDefault(Stat.WarcriesDoNotApplyBuffsToSelfOrAllies) != 0
+            || own.GetValueOrDefault(Stat.WarcriesDoNotApplyBuffsToSelfOrAllies) != 0
+            || duration <= 0 || WarcryBuffRow(effectId) is not ushort row) return;
         int power = playerStats.GetValueOrDefault(Stat.WarcriesHaveInfinitePower) != 0 ? InfiniteWarcryPower
             : player.Area.Monsters.Values.Where(m => m.Hostile && !m.Dead && m.Life > 0 && Dist(m.Walk.Position(now), at) <= radius)
                 .Sum(m => WarcryPower(m.Rarity));
+        if (playerStats.GetValueOrDefault(Stat.WarcriesHaveMinimum10Power) != 0) power = Math.Max(power, 10);
         if (WarcryBuffStats(effectId, power, buffEffect, key => own.GetValueOrDefault(key)) is not { } stats) return;
-        var state = WarcryBuffsOf(player);
-        state.EffectId = effectId;
-        state.Row = row;
-        state.Values = stats.ToList();
-        state.Until = now + duration;
-        // The area publishes the buff (0x1c1) and removes it when its countdown ends; a re-cry's new duration is a
-        // new instance. The row is not IsRecovery, so no values ride the buff itself.
+        var grants = WarcryGrants.GetOrCreateValue(player);
+        grants.RemoveAll(grant => grant.Row == row);
+        grants.Add(new(row, now + duration, player.ProjectileEpoch, stats));
         player.Area.Buffs.Set(player.Id, new Buff(row, player.Id, U68: Buff.Seconds(duration)));
-        MarkPlayerStats(player, PlayerStatStep.WarcryBuffs);
+        UpdateWarcryStats(player);
         Console.WriteLine($"[gateway] {effectId}: warcry buff row {row} power={power} for {duration:0.###} s");
     }
 

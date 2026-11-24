@@ -2,11 +2,19 @@ using GameServer.Core.World;
 
 namespace GameServer.Gateway.Tests;
 
-// The other warcries grant the buffs their own BuffDefinitions rows settle (Seismic, Ancestral, Infernal,
-// Battlemage's Cry), in the shape Intimidating Cry's executor uses. The rows are not IsRecovery, so the buff
-// carries no values; the stats ride the player's stats through the WarcryBuffs step.
 public sealed class WarcryBuffTests
 {
+    sealed class Clock : IPlayerUpdateSchedule
+    {
+        public double Time = 1;
+        public double Now(Player _) => Time;
+        public Task Wait(int milliseconds, CancellationToken stopping)
+        {
+            Time += milliseconds / 1000d;
+            return Task.CompletedTask;
+        }
+    }
+
     [Fact]
     public void Seismic_Cry_grants_its_row_stats_with_the_rows_own_value_count()
     {
@@ -27,27 +35,39 @@ public sealed class WarcryBuffTests
         Assert.Equal(Stat.StunThresholdPlusPct, stats[1].Key);
         Assert.Equal(5 * Own(Stat.SeismicCryStunThresholdPlusPctPer5PowerUpToCap), stats[1].Value);
 
-        var before = Game.CharacterPlayerStats(player);
-        double now = 1;
-        Game.ApplyWarcryBuffLocked(player, "SeismicCry", gem.Stats, playerStats, (100, 100), 60, now, 4.0, 1.0);
-        Assert.True(Game.WarcryBuffActive(player));
-        Assert.Equal(stats, Game.WarcryBuffStatsOf(player));
-        Assert.True(player.Area.Buffs.Has(player.Id, 1544, player.Id));
-        var after = Game.CharacterPlayerStats(player);
-        Assert.Equal(before.GetValueOrDefault(Stat.ArmourPlusPctFinalFromSeismicCryBuff) + stats[0].Value,
-            after.GetValueOrDefault(Stat.ArmourPlusPctFinalFromSeismicCryBuff));
-        Assert.Equal(before.GetValueOrDefault(Stat.StunThresholdPlusPct) + stats[1].Value,
-            after.GetValueOrDefault(Stat.StunThresholdPlusPct));
+        var previous = Game.AreaUpdateContext.Value;
+        var clock = new Clock();
+        Game.AreaUpdateContext.Value = new(f.Lifetime, clock);
+        try
+        {
+            using var modifiers = GameEvents.PlayerStatSources.Add("Game", (owner, values) =>
+            {
+                if (owner == player) values[Stat.BasePhysicalDamageReductionRating] = 100;
+                return values;
+            });
+            var before = Game.BuildPoolsFor(player, 100);
+            Game.CharacterPlayerStats(player);
+            Game.ApplyWarcryBuffLocked(player, "SeismicCry", gem.Stats, playerStats, (100, 100), 60, clock.Time, 4, 1);
+            Assert.True(stats[0].Value > 0);
+            Assert.True(player.Area.Buffs.Has(player.Id, 1544, player.Id));
+            Assert.True(player.Pools.Armour > before.Armour);
 
-        // Past the deadline the stats leave.
-        Game.WarcryBuffsOf(player).Until = now - 1;
-        Assert.False(Game.WarcryBuffActive(player));
-        Assert.Empty(Game.WarcryBuffStatsOf(player));
-        var expired = Game.CharacterPlayerStats(player);
-        Assert.Equal(before.GetValueOrDefault(Stat.ArmourPlusPctFinalFromSeismicCryBuff),
-            expired.GetValueOrDefault(Stat.ArmourPlusPctFinalFromSeismicCryBuff));
-        Assert.Equal(before.GetValueOrDefault(Stat.StunThresholdPlusPct),
-            expired.GetValueOrDefault(Stat.StunThresholdPlusPct));
+            id = Assert.Single(f.Equip(("Ancestral Cry", 1)));
+            var ancestral = Game.SupportedSkill(player, id);
+            clock.Time = 2;
+            Game.ApplyWarcryBuffLocked(player, "AncestralCry", ancestral.Stats, playerStats, (100, 100), 60, clock.Time, 5, 1);
+            Assert.Equal(before.FireMaxResistance + 3, player.Pools.FireMaxResistance);
+            Assert.True(player.Pools.Armour > before.Armour);
+
+            clock.Time = 5;
+            Game.ExpireWarcryBuffs(player);
+            Assert.Equal(before.Armour, player.Pools.Armour);
+            Assert.Equal(before.FireMaxResistance + 3, player.Pools.FireMaxResistance);
+            clock.Time = 7;
+            Game.ExpireWarcryBuffs(player);
+            Assert.Equal(before.FireMaxResistance, player.Pools.FireMaxResistance);
+        }
+        finally { Game.AreaUpdateContext.Value = previous; }
     }
 
     [Fact]
@@ -70,8 +90,6 @@ public sealed class WarcryBuffTests
         Game.ApplyWarcryBuffLocked(player, "RallyingCry", new Dictionary<uint, int>(), playerStats, (100, 100), 60, 1, 4.0, 1.0);
         Game.ApplyWarcryBuffLocked(player, "GeneralsCry", new Dictionary<uint, int>(), playerStats, (100, 100), 60, 1, 4.0, 1.0);
         Game.ApplyWarcryBuffLocked(player, "VengefulCry", new Dictionary<uint, int>(), playerStats, (100, 100), 60, 1, 4.0, 1.0);
-        Assert.False(Game.WarcryBuffActive(player));
-        Assert.Empty(Game.WarcryBuffStatsOf(player));
         var after = Game.CharacterPlayerStats(player);
         Assert.Equal(before.GetValueOrDefault(Stat.DamagePlusPct), after.GetValueOrDefault(Stat.DamagePlusPct));
         Assert.Equal(before.GetValueOrDefault(Stat.BaseManaRegenerationRatePerMinute), after.GetValueOrDefault(Stat.BaseManaRegenerationRatePerMinute));

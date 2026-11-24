@@ -338,11 +338,11 @@ public static partial class Game
                 Console.WriteLine($"[gateway] {SkillsFor(player).EffectId(effect)}: taunts {taunted} monster(s) within {radius} cells for {taunt:0.##} s");
             if (!enduring)
             {
-                if (SkillsFor(player).EffectId(effect) == "IntimidatingCry")
-                    if (player.ProjectileActive(epoch) && player.PlayerLife > 0)
-                        ApplyIntimidatingCryLocked(player, own, CharacterPlayerStats(player), now);
-                else if (player.ProjectileActive(epoch) && player.PlayerLife > 0)
-                    ApplyWarcryBuffLocked(player, SkillsFor(player).EffectId(effect) ?? "", own, playerStats, here, radius, now, duration, buffEffect);
+                string effectId = SkillsFor(player).EffectId(effect) ?? "";
+                if (effectId == "IntimidatingCry")
+                    ApplyIntimidatingCryLocked(player, own, CharacterPlayerStats(player), now);
+                else
+                    ApplyWarcryBuffLocked(player, effectId, own, playerStats, here, radius, now, duration, buffEffect);
                 var warriors = skillId != 0 && IsGeneralsCry(player, effect)
                     ? GeneralsCryReleased(player, skillId, here, radius, epoch)
                     : Task.CompletedTask;
