@@ -13,7 +13,8 @@ public static partial class Game
 
     static bool SpectreShoulderMortar(int effect) => effect is 9992 or 9994;
 
-    static bool SpectreUtilityAction(int effect) => effect is NavalCannonFire or SpectreFireOffering or SpectreChaosOffering;
+    static bool SpectreUtilityAction(int effect) => effect is NavalCannonFire or SpectreFireOffering or SpectreChaosOffering
+        or AstralMineCast or PustuleCast or AstralProjectileCast;
 
     static bool CannibalEmpowered(Player player, GolemState.Golem fighter, double now)
     {
@@ -39,12 +40,13 @@ public static partial class Game
         if (fighter.Monster.Variety?.Id == SerpentWarrior)
             return defensive ? SpectreShoulderMortar(ability.Effect)
                 && distance >= GolemStat(ability.Stats, Stat.ProjectileMinimumRange) : ability.Effect == SerpentSword;
-        return ability.Effect is not (SerpentShroud or NavalCannonImpact);
+        return ability.Effect is not (SerpentShroud or NavalCannonImpact or AstralProjectileImpact or AstralMineImpact or PustuleImpact);
     }
 
     static bool ReleaseSpectreRoleLocked(Player player, GolemState.Golem fighter, GolemState.Action action, double now)
     {
         if (!TryPaySpectreLifeLocked(player, fighter, action.Ability, now)) return true;
+        if (ReleaseSpectreTimedPayloadLocked(player, fighter, action, now)) return true;
         if (action.Ability.Effect is SpectreFireOffering or SpectreChaosOffering)
         {
             ReleaseSpectreOfferingLocked(player, fighter, action, now);

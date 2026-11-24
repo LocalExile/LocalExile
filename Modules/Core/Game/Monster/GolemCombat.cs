@@ -98,6 +98,7 @@ public static partial class Game
             return;
         }
         GolemHazardsLocked(player, g, now);
+        if (g.Definition.Kind == "Spectre") TickSpectreTimedPayloadsLocked(player, g, now);
         double actionRate = MonsterActionFactor(m, now);
         if (actionRate == 0)
         {

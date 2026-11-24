@@ -466,6 +466,7 @@ public static partial class Game
         if (fighter.Definition.Kind == "Spectre")
         {
             ClearTurtleBoonLocked(player, fighter);
+            ClearSpectreTimedPayloadsLocked(player, fighter);
             foreach (var child in player.Summons.Fighters.Values.Where(child => child.Monster.SummonerId == fighter.Id).ToArray())
                 RemoveSummonLocked(player, child, now, reconcileBlessing: false);
         }
