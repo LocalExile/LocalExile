@@ -358,6 +358,7 @@ public static partial class Game
         if (supported.Effect != definition.Effect || !supported.RequirementsMet
             || gemSource is null || replacingOld is null && fresh is null
             || Monsters.Find(definition.Variety) is not { Supported: true } variety) return 0;
+        if (!DarkMonarchAllows("Golem", playerStats)) return 0;
         int Own(uint name) => GolemStat(supported.Stats, name);
         int limit = GolemRosterLimit(Own(Stat.BaseNumberOfGolemsAllowed), playerStats);
         if (limit == 0) return 0;

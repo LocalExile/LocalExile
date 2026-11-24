@@ -42,6 +42,7 @@ public static partial class Game
         var supported = SupportedSkill(player, aura.SkillId);
         if (!supported.RequirementsMet) return;
         var playerStats = CharacterPlayerStats(player);
+        if (!DarkMonarchAllows(kind, playerStats)) return;
         int limit = kind == "Purity" ? PurityMinionLimit(supported, playerStats) : 1;
         if (limit <= 0) return;
         if (ReservationAura(player, aura.EffectId) is null) return;
@@ -88,7 +89,8 @@ public static partial class Game
             ownedMaximumLife: transportMaximum, ownedMaximumEnergyShield: maximumEnergyShield,
             ownedEnergyShield: energyShield, damagedLife: pools.Fatal ? 1 : transportMaximum,
             ownedInitialDeath: pools.Fatal,
-            ownedCurrent: () => ReservationAura(player, aura.EffectId)?.SkillId == aura.SkillId,
+            ownedCurrent: () => ReservationAura(player, aura.EffectId)?.SkillId == aura.SkillId
+                && DarkMonarchAllows(kind, StatSourceValues(player)),
             owned: (id, monster) =>
             {
                 double committed = AreaTime(player);

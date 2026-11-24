@@ -220,6 +220,7 @@ public static partial class Game
         }
         if (!gem.RequirementsMet || gemSource is null || replacingOld is null && fresh is null
             || SkillsFor(player).EffectId(gem.Effect) != definition.Id) return 0;
+        if (!DarkMonarchAllows(definition.Family, playerStats)) return 0;
         if (definition.Family == "Phantasm") gem = PhantasmGem(player, gem);
         inheritedMods ??= replacingOld?.InheritedMods;
         if (replacingOld is not null) rarity = replacingOld.Monster.Rarity;

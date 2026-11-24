@@ -95,6 +95,7 @@ public static partial class Game
                     && ReferenceEquals(PlayerInventories.GemIdentity(gem.SourceGem), PlayerInventories.GemIdentity(request.Gem)))
                 || !gem.RequirementsMet) continue;
             if (!Current()) continue;
+            if (!DarkMonarchAllows(definition.Family, StatSourceValues(player))) continue;
             int limit = SummonLimit(player, definition, gem);
             if (limit <= 0) continue;
             var alive = player.Summons.Fighters.Values.Where(g => g.Definition.Kind == definition.Family && !g.Monster.Dead && g.Monster.Life > 0).ToArray();
