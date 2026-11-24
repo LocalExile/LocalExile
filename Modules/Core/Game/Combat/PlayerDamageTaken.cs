@@ -99,11 +99,12 @@ public static class PlayerDamageTaken
     /// happen (wiki Avoidance). <paramref name="avoidAllPct"/> is a separate "Avoid All Damage" roll (Elusive). The
     /// same packet when nothing is avoided.</summary>
     public static DamagePacket Avoid(DamagePacket hit, Func<uint, int> get, Random random, out DamageType[] avoided,
-        int avoidAllPct = 0, bool projectile = false)
+        int avoidAllPct = 0, bool projectile = false, bool recentlyDamagedByProjectile = false)
     {
         if (avoidAllPct > 0 && AvoidsAll(avoidAllPct, random)
             || projectile && RandomRolls.Chance((int)Math.Clamp((long)get(Stat.BaseAvoidProjectilesPctChance)
-                + get(Stat.AvoidProjectilesPctChance), 0, AvoidCap), 100, random))
+                + get(Stat.AvoidProjectilesPctChance)
+                + (recentlyDamagedByProjectile ? get(Stat.AvoidProjectilesPctChanceIfTakenProjectileDamageRecently) : 0), 0, AvoidCap), 100, random))
         {
             var all = new List<DamageType>();
             foreach (var (type, _) in hit.Components) all.Add(type);
@@ -141,10 +142,11 @@ public static class PlayerDamageTaken
     public static int IncreasedPct(DamageType type, bool melee, Func<uint, int> get) =>
         IncreasedPct(type, melee, get, spell: false);
 
-    public static int IncreasedPct(DamageType type, bool melee, Func<uint, int> get, bool spell) =>
+    public static int IncreasedPct(DamageType type, bool melee, Func<uint, int> get, bool spell, bool projectile = false) =>
         ActorScale.Saturate((long)get(Increased) + get(TypedIncreased(type))
             + (DamageTypes.IsElemental(type) ? (long)get(ElementalIncreased) + get(ItemChargeDefences.ElementalHitTaken) : 0)
             + (melee ? get(MeleeIncreased) : 0) + (spell ? get(SpellIncreased) : 0)
+            + (projectile ? get(Stat.ProjectileDamageTakenPlusPct) : 0)
             + (get(Leeching) != 0 ? get(WhileLeeching) : 0));
 
     const uint Leeching = Stat.IsLeeching, WhileLeeching = Stat.DamageTakenPlusPctWhileLeeching;
