@@ -76,6 +76,9 @@ public sealed class GameModule : IModule, IDisposable
         Rules.LoadWornGrantedSkillsData();
         Rules.LoadPhasingData();
         Rules.LoadAlchemistsGeniusData();
+        // The Heist rogue allies carry SectorEvents, which the client's create reads nothing for; the other types that
+        // carry it (Kirac, the Sanctum NPC, Expedition, pirates, Delve) stay uncreatable.
+        MonsterObject.AllowExtraFor("SectorEvents", "Metadata/Monsters/LeagueHeist/NPCAllies/NPCAlliesBase");
         Rules.LoadBuffCancelData();
         Rules.LoadDeathPenaltyData();
         Rules.LoadModuleWorldData();

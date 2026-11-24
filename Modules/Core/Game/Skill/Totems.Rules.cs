@@ -437,7 +437,7 @@ public static partial class Game
                 place = ClearPosition(objectId);
                 var blob = new MonsterObject(place.X, place.Y, life, variety.ComponentsOrBase, StateMachine: variety.StateMachine,
                     TransitionState: variety.TransitionStates, Team: 0, Skills: action is null ? null : [action],
-                    Stats: objectStats) { LifeData = variety.LifeData };
+                    Stats: objectStats) { LifeData = variety.LifeData, Chain = variety.Chain };
                 bytes.Create(objectId, InstanceEntities.CreateObject(objectId,
                     InstanceEntities.ObjectTypeHash(MonsterObject.TypePath(variety.Id, level)), blob.Blob()));
                 bytes.Presentation(objectId, InstanceProtocol.EnterWakeZone(objectId));
