@@ -42,9 +42,15 @@ public sealed class LoginServerSession(AccountService accounts)
         CreateCharacter m => Create(m),
         // Delete on the character screen, after its confirmation (0x140cfaf60): the character's name and a byte (0 live).
         WStringU8Message { MessageId: DeleteCharacterId } m => Delete(m.Text),
-        // "Leagues with progress" (0x140d166d0): the leagues a character could migrate progress from. None yet; the
-        // client then shows "There are no available leagues to migrate progress from."
-        EmptyMessage { MessageId: 0x19 } => Session is null ? [] : [new LeaguesWithProgress(0, [])],
+        // Change password (0x140cf30c0): SHA-256(UTF-16LE old password), SHA-256(UTF-16LE new password) → S→C 0x0b.
+        TwoDigests { MessageId: ChangePasswordId } m => ChangePassword(m),
+        // Rename character (0x140d15c80 → 0x1406a6e00 → 0x140d26970 → 0x1421471e0): old name, new name, flag → 0x15 + 0x3e.
+        // Note: Create Account on the login screen (new_account_button, 0x140d04b97) launches a browser URL via ShellExecuteW
+        // and sends no login TCP message.
+        TwoWStringsBool { MessageId: RenameCharacterId } m => Rename(m),
+        // "Leagues with progress" (0x140d166d0 → 0x140cc82a0): consecutive (source, parent) league pairs a character
+        // could migrate progress from. Empty shows "There are no available leagues to migrate progress from."
+        EmptyMessage { MessageId: 0x19 } => Session is null ? [] : [new LeaguesWithProgress(0, LeaguesWithProgressList())],
         _ => [],
     };
 
@@ -59,8 +65,8 @@ public sealed class LoginServerSession(AccountService accounts)
     /// 0x14 for the account's first character. The area hash is WorldAreas.HASH16 (Lioneye's Watch, 1_1_town = 0x235c
     /// in 3.29.3b); an unknown hash makes the client throw "Area reported by instance does not exist". +0x30 is the port
     /// (live-verified). The client echoes +0x34 (here the IPv4 address) in instance 0x0E and the ticket at +0x38 in
-    /// instance 0x0F. The 64 key bytes become the instance connection's Salsa20 key material (Agents/docs/re/010). Data8 goes
-    /// into the 0x0E digest and stays zero.
+    /// instance 0x0F. The 64 key bytes become the instance connection's Salsa20 key material (Agents/docs/re/010). Data8 is
+    /// derived per ticket via <see cref="InstanceKeyring.Data8"/> and verified against the client's 0x0E SipHash-2-4 digest.
     /// </summary>
     private ILoginMessage[] EnterGame(U8U32 play)
     {
@@ -118,7 +124,7 @@ public sealed class LoginServerSession(AccountService accounts)
     public InstanceInfo InstanceAssignment(ushort areaHash16, uint ticket)
     {
         uint ip = System.Buffers.Binary.BinaryPrimitives.ReadUInt32BigEndian(System.Net.IPAddress.Parse(InstanceHost).GetAddressBytes());
-        return new InstanceInfo(InstanceHost, InstancePort, ip, areaHash16, ticket, Keyring.Key(ticket), new byte[8], 0);
+        return new InstanceInfo(InstanceHost, InstancePort, ip, areaHash16, ticket, Keyring.Key(ticket), Keyring.Data8(ticket), 0);
     }
 
     private ILoginMessage[] Login(AccountLogin m)
@@ -166,14 +172,63 @@ public sealed class LoginServerSession(AccountService accounts)
         return (byte)Math.Min(best, 255);
     }
 
+    /// <summary>C→S 0x0a: change password (two UTF-16LE SHA-256 digests); answered with S→C 0x0b (u16 result).</summary>
+    public const ushort ChangePasswordId = 0x0a, ChangePasswordResultId = 0x0b;
+
     /// <summary>C→S 0x0c: delete a character; answered with S→C 0x0d (u16 result).</summary>
     public const ushort DeleteCharacterId = 0x0c, DeleteCharacterResultId = 0x0d;
+
+    /// <summary>C→S 0x3d: rename a character (old name, new name, bool flag); answered with S→C 0x3e (u16 result, bool flag).</summary>
+    public const ushort RenameCharacterId = 0x3d, RenameCharacterResultId = 0x3e;
 
     /// <summary>BackendErrors row 15 + 1 ("CharacterDoesNotExist"); the delete screen shows any non-zero code's text.</summary>
     public const ushort ResultCharacterDoesNotExist = 16;
 
     /// <summary>Called with the deleted character's name (GameServer.Auth: sets its save aside).</summary>
     public Action<string>? CharacterDeleted { get; init; }
+
+    /// <summary>True when the named character currently has an active login link, ticket or instance and cannot be renamed.</summary>
+    public Func<string, bool>? IsCharacterActive { get; init; }
+
+    /// <summary>Called with (oldName, newName) after a character rename commits (GameServer.Auth: migrates any legacy JSON save).</summary>
+    public Action<string, string>? CharacterRenamed { get; init; }
+
+    /// <summary>Change password (0x0a) → 0x0b result 0 (ChangePasswordScreen 0x140cf3650 clears saved password and
+    /// succeeds), or BackendErrors code on invalid old password.</summary>
+    private ILoginMessage[] ChangePassword(TwoDigests m)
+    {
+        if (Session is null) return [];
+        var r = accounts.ChangePasswordWithClientDigest(Session.AccountId, m.DigestA, m.DigestB);
+        if (!r.Ok) return [new U16Message(ChangePasswordResultId, ResultInvalidPassword)];
+        Account = r.Value;
+        return [new U16Message(ChangePasswordResultId, ResultOk)];
+    }
+
+    /// <summary>Rename character (0x3d) → updated character list (0x15) then 0x3e result 0 (handler 0x140d16a40), or
+    /// 0x3e with a BackendErrors code on failure.</summary>
+    private ILoginMessage[] Rename(TwoWStringsBool m)
+    {
+        if (Session is null) return [];
+        var c = accounts.Characters(Session.AccountId)
+            .FirstOrDefault(ch => string.Equals(ch.Name, m.A.Trim(), StringComparison.OrdinalIgnoreCase));
+        if (c is null) return [new U16Bool(ResultCharacterDoesNotExist, m.Flag)];
+        if (string.Equals(CharacterName, c.Name, StringComparison.OrdinalIgnoreCase)
+            || IsCharacterActive?.Invoke(c.Name) == true)
+            return [new U16Bool(ResultCharacterNameInvalid, m.Flag)];
+        string newName = m.B.Trim();
+        if (newName.Length < 3) return [new U16Bool(ResultCharacterNameTooShort, m.Flag)];
+        if (newName.Length > 23) return [new U16Bool(ResultCharacterNameTooLong, m.Flag)];
+        var r = accounts.RenameCharacter(Session.AccountId, c.Id, newName);
+        if (!r.Ok)
+            return [new U16Bool(r.Error switch
+            {
+                AuthError.CharacterNameTaken => ResultCharacterNameTaken,
+                AuthError.NotFound => ResultCharacterDoesNotExist,
+                _ => ResultCharacterNameInvalid,
+            }, m.Flag)];
+        CharacterRenamed?.Invoke(c.Name, newName);
+        return [CharacterList(), new U16Bool(ResultOk, m.Flag)];
+    }
 
     /// <summary>
     /// Delete character (0x0c) → the new character list (0x15), then 0x0d result 0, on which the delete screen
@@ -248,6 +303,49 @@ public sealed class LoginServerSession(AccountService accounts)
         foreach (uint v in (ReadOnlySpan<uint>)[m.U50, m.U54])
             if (v <= (uint)CharacterClass.Shadow) return (CharacterClass)v;
         return null;
+    }
+
+    /// <summary>
+    /// Builds the S→C 0x1a (<see cref="LeaguesWithProgress"/>) vector for C→S 0x19. The client migration panel
+    /// (<c>0x140d171a0</c> → <c>0x140d166d0</c> → <c>0x140cc82a0</c>) iterates the vector in consecutive
+    /// <c>(source, parent)</c> pairs (<c>r15 += 2</c>, row constructor <c>0x140cc72b0</c>), formatting the first entry
+    /// with <c>LeaguesWithProgressEntryLabel</c> (<c>"League: {0}"</c>, ClientString <c>0x16ca</c>) and the second with
+    /// <c>LeaguesWithProgressEntryParentLabel</c> (<c>"Parent League: {0}"</c>, ClientString <c>0x16cb</c>).
+    /// </summary>
+    private LeagueEntry[] LeaguesWithProgressList()
+    {
+        if (Session is null) return [];
+        var seen = new HashSet<string>(StringComparer.OrdinalIgnoreCase);
+        var pairs = new List<(League Source, League Parent)>();
+        foreach (var c in accounts.Characters(Session.AccountId))
+        {
+            if (c.HardcoreDeath?.PermanentlyDead == true) continue;
+            if (Leagues.FindLoaded(c.League) is not { Parent: { Length: > 0 } parentName } source) continue;
+            if (string.Equals(parentName, HardcoreDeathRules.VoidLeague, StringComparison.OrdinalIgnoreCase)) continue;
+            if (Leagues.FindLoaded(parentName) is not { } parent) continue;
+            if (!SupportsManualProgressMigration(source, parent)) continue;
+            if (!seen.Add(source.Name)) continue;
+            pairs.Add((source, parent));
+        }
+        if (pairs.Count == 0) return [];
+        pairs.Sort((a, b) => StringComparer.OrdinalIgnoreCase.Compare(a.Source.Name, b.Source.Name));
+        var entries = new LeagueEntry[pairs.Count * 2];
+        for (int i = 0; i < pairs.Count; i++)
+        {
+            entries[i * 2] = pairs[i].Source.Entry();
+            entries[i * 2 + 1] = pairs[i].Parent.Entry();
+        }
+        return entries;
+    }
+
+    static bool SupportsManualProgressMigration(League source, League parent)
+    {
+        if (source.Ended) return true;
+        // Plain Hardcore -> Softcore moves characters on death, never via manual "Migrate All".
+        if (source.Hardcore && !parent.Hardcore && !source.Ssf) return false;
+        return source.Ssf
+            || !string.IsNullOrEmpty(source.Form)
+            || string.Equals(source.DataSet, "HardMode", StringComparison.OrdinalIgnoreCase);
     }
 
     /// <summary>

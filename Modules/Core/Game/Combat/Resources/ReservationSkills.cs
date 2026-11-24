@@ -53,13 +53,18 @@ public static partial class Game
 
     static void ReservationHitLocked(Player player, SpawnedMonster target)
     {
-        if (target.Rarity is MonsterRarity.Rare or MonsterRarity.Unique && AffectingAuras(player).Any(a => a.EffectId == "Zealotry")
-            && RandomRolls.Chance(GolemStat(CharacterPlayerStats(player), Stat.CreateConsecratedGroundOnHitPctVsRareOrUniqueEnemy), 100, AreaRng(player)))
+        if (target.Rarity is MonsterRarity.Rare or MonsterRarity.Unique && AffectingAuras(player).Any(a => a.EffectId == "Zealotry"))
         {
-            var at = target.Walk.Position(AreaTime(player));
-            player.FlaskGrounds.Add(new(FlaskGrounds.Kind.ConsecratedGround, at.X, at.Y, 14,
-                AreaTime(player) + 8, QueueGroundArtLocked(player, FlaskGrounds.Kind.ConsecratedGround, at, 14)));
-            PresentNearby(player);
+            var playerStats = CharacterPlayerStats(player);
+            if (RandomRolls.Chance(GolemStat(playerStats, Stat.CreateConsecratedGroundOnHitPctVsRareOrUniqueEnemy), 100, AreaRng(player)))
+            {
+                double now = AreaTime(player);
+                var at = target.Walk.Position(now);
+                player.FlaskGrounds.Add(new(FlaskGrounds.Kind.ConsecratedGround, at.X, at.Y, 14,
+                    now + 8, QueueGroundArtLocked(player, FlaskGrounds.Kind.ConsecratedGround, at, 14),
+                    OwnConsecratedGroundCreatedLocked(player, playerStats)));
+                PresentNearby(player);
+            }
         }
         if (ReservationAura(player, "HeraldOfPurity") is { } purity && !target.Dead
             && target.Rarity is MonsterRarity.Rare or MonsterRarity.Unique
@@ -91,11 +96,11 @@ public static partial class Game
     {
         if (aura.EffectId == "TempestShield") return SupportedHitFor(player, aura.SkillId, suppress: false);
         var skill = SupportedSkill(player, aura.SkillId);
-        return ReservationSecondaryProfiles(player, aura, skill, CharacterPlayerStats(player))(0, 0, false, false, false).Hit;
+        return ReservationSecondaryProfiles(player, aura, skill, CharacterPlayerStats(player))(0, 0, false, false, false, default).Hit;
     }
 
     // One proc captures the raw secondary packet and its source modifiers before selecting any target.
-    static Func<long, int, bool, bool, bool, ReservationDamageProfile> ReservationSecondaryProfiles(Player player, AuraCatalog.Aura aura,
+    static Func<long, int, bool, bool, bool, TargetContact, ReservationDamageProfile> ReservationSecondaryProfiles(Player player, AuraCatalog.Aura aura,
         SupportedGem skill, IReadOnlyDictionary<uint, int> playerStats)
     {
         var stats = MergeSkillStats(playerStats, skill.Stats);
@@ -112,17 +117,25 @@ public static partial class Game
         var modifiers = skill.Supports.SelectMany(s => s.Stats)
             .Select(s => (s.Key, s.Value)).ToArray();
         var types = Supports.Of(aura.Effect)?.Types.ToHashSet();
-        return (increased, webs, ignited, bleeding, lowLife) =>
+        int herald = aura.IsHerald ? Get(Stat.DamagePlusPctWithHeraldSkills) : 0;
+        return (increased, webs, ignited, bleeding, lowLife, contact) =>
         {
             int TargetStat(uint name) => TypedTargetDamageStat(Get, name, ignited, bleeding, lowLife, attack: false);
-            increased += SpiderDamageIncrease(Get, webs);
+            int HitStat(uint name) => TargetHitStat(name, TargetStat(name), contact);
+            var target = TargetModifiers(Get, lowLife, contact: contact);
+            increased += herald + SpiderDamageIncrease(Get, webs);
             var woven = SpiderRawDamage(raw, Get, webs, AddedEffectiveness(player, aura.Effect, aura.Level));
-            var hit = PlayerHitDamage.Resolve(woven, TargetStat, conversion,
+            var hit = PlayerHitDamage.Resolve(woven, HitStat, conversion,
                 spell: false, area: aura.EffectId != "HeraldOfThunder", secondary: true,
-                supportModifiers: modifiers, skillTypes: types, additionalIncreased: increased);
-            var rows = AilmentPanelStats.Compute(new("secondary", Spell: false), woven, conversion, TargetStat, increased);
-            return new(hit, MonsterIgnites.Settings.From(rows, "secondary", TargetStat), MonsterIgnites.Settings.None,
-                MonsterPoisons.Settings.From(rows, "secondary", TargetStat));
+                supportModifiers: modifiers, skillTypes: types, additionalIncreased: increased + target.HitIncrease);
+            var rows = AilmentPanelStats.Compute(new("secondary", Spell: false), woven, conversion, TargetStat,
+                increased + target.AilmentIncrease);
+            var ignite = MonsterIgnites.Settings.From(rows, "secondary", TargetStat);
+            var poison = MonsterPoisons.Settings.From(rows, "secondary", TargetStat);
+            if (target.HitMore != 1) hit = hit.Scale(target.HitMore);
+            return target.AilmentMore == 1 ? new(hit, ignite, MonsterIgnites.Settings.None, poison)
+                : new(hit, RepeatAilment(ignite, target.AilmentMore), MonsterIgnites.Settings.None,
+                    RepeatAilment(poison, target.AilmentMore));
         };
     }
 
@@ -149,7 +162,8 @@ public static partial class Game
         long additionalIncreased = PlayerHitDamage.VsBlindedDamageStat is var key
             ? (long)playerStats.GetValueOrDefault(key) + skill.Stats.GetValueOrDefault(key) : 0;
         ReservationDamageProfile normalProfile, blindedProfile;
-        Func<long, int, bool, bool, bool, ReservationDamageProfile> targetProfile;
+        Func<long, int, bool, bool, bool, TargetContact, ReservationDamageProfile> targetProfile;
+        bool contactDamage = HasContactDamage(playerStats.GetValueOrDefault);
         if (aura.EffectId == "TempestShield")
         {
             if (SupportedHitInputsFor(player, aura.SkillId, capturedGem: skill) is not { } inputs) return;
@@ -164,18 +178,19 @@ public static partial class Game
             normalProfile = Profile(0);
             blindedProfile = additionalIncreased == 0 ? normalProfile : Profile(additionalIncreased);
             var spider = CaptureSpiderDamage(player, inputs, AddedEffectiveness(player, aura.Effect, aura.Level), context: true);
-            targetProfile = (increase, webs, ignited, bleeding, lowLife) =>
+            targetProfile = (increase, webs, ignited, bleeding, lowLife, contact) =>
             {
                 if (spider is null) return increase == 0 ? normalProfile : blindedProfile;
-                var woven = SpiderDamageProfile(spider, webs, increase != 0, ignited, bleeding, lowLife);
+                var woven = SpiderDamageProfile(spider, webs, increase != 0, ignited, bleeding, lowLife,
+                    maimed: false, contact: contact);
                 return new(woven.Hit, woven.Ignite, woven.Bleed, woven.Poison);
             };
         }
         else
         {
             var secondary = ReservationSecondaryProfiles(player, aura, skill, playerStats);
-            normalProfile = secondary(0, 0, false, false, false);
-            blindedProfile = additionalIncreased == 0 ? normalProfile : secondary(additionalIncreased, 0, false, false, false);
+            normalProfile = secondary(0, 0, false, false, false, default);
+            blindedProfile = additionalIncreased == 0 ? normalProfile : secondary(additionalIncreased, 0, false, false, false, default);
             targetProfile = secondary;
         }
         double radius = ReservationRadius(player, aura, aura.EffectId == "TempestShield" ? 60 : 32, skill, playerStats);
@@ -193,9 +208,9 @@ public static partial class Game
                     || MonsterAsleep(player, id)
                     || !player.Area.Monsters.TryGetValue(id, out var current) || !ReferenceEquals(current, m)) continue;
                 // Select the target profile before any RNG, outgoing effects, or this contact's own Blind.
-                bool targetWasBlinded = Blinded(player, id);
+                bool targetWasBlinded = Blinded(player, id, now);
                 var profile = targetProfile(targetWasBlinded ? additionalIncreased : 0, m.SpiderWebs.Count(now),
-                    m.Ignites.Burning, m.Bleeds.Burning, EnemyOnLowLife(m));
+                    m.Ignites.IgnitedAt(now), m.Bleeds.IgnitedAt(now), EnemyOnLowLife(m), contactDamage ? ContactDamage(player, m, now, playerStats) : default);
                 var targetPacket = profile.Hit;
                 bool spell = aura.EffectId == "TempestShield";
                 int Player(uint n) => GolemStat(playerStats, n);
@@ -211,9 +226,10 @@ public static partial class Game
                     : CriticalHitMultiplier(150L + Player(Stat.BaseCriticalStrikeMultiplierPlus)
                         + Own(Stat.BaseCriticalStrikeMultiplierPlus), playerStats, skill.Stats);
                 var rolled = targetPacket.Roll(AreaRng(player)).Scale(critical ? multiplier / 100.0 : 1);
-                var mitigated = DamageModel.Mitigate(rolled, type => MonsterHitResistance(m, type, default, now));
-                int damage = MonsterTakesMitigated(m, mitigated, spell, now);
-                if (ApplyMonsterHitLocked(player, m, damage) is not { } hit) continue;
+                var mitigated = MitigateMonsterHit(m, rolled, now, cannotPenetrateOrIgnore:
+                    Math.Max(Player(Stat.CannotPenetrateOrIgnoreElementalResistances), Own(Stat.CannotPenetrateOrIgnoreElementalResistances)));
+                int damage = MonsterTakesMitigated(m, mitigated, spell, now, random: AreaRng(player));
+                if (ApplyTypedMonsterHitLocked(player, m, damage, MonsterHitChaosDamage(m, mitigated, spell, now, damage)) is not { } hit) continue;
                 if (hit.StageStarts)
                 { CommitBossStage(player, id, m, now); hit = hit with { StageStarts = false }; }
                 {
@@ -241,7 +257,7 @@ public static partial class Game
         finally { player.Reservations.Secondary = false; }
     }
 
-    static void ReservationAshLocked(Player player, AuraCatalog.Aura aura, (int X, int Y) at, uint overkill, double now)
+    public static void ReservationAshLocked(Player player, AuraCatalog.Aura aura, (int X, int Y) at, uint overkill, double now)
     {
         var skill = SupportedSkill(player, aura.SkillId);
         var playerStats = CharacterPlayerStats(player);
@@ -249,7 +265,8 @@ public static partial class Game
         if (DamageStats.Prohibited(DamageType.Fire, Get)) return;
         // Overkill is already final hit damage. Only burning/DoT (including typed DoT multipliers) scales this burn.
         double dps = overkill * ReservationStat(player, aura, Stat.HeraldOfAshBurningPctOverkillDamagePerMinute) / 6000.0
-            * Math.Max(0, 1 + (Get(Stat.BurnDamagePlusPct) + Get(Stat.DamageOverTimePlusPct)) / 100.0)
+            * Math.Max(0, 1 + (Get(Stat.BurnDamagePlusPct) + Get(Stat.DamageOverTimePlusPct)
+                + Get(Stat.DamagePlusPctWithHeraldSkills)) / 100.0)
             * Math.Max(0, 1 + (Get(Stat.DotMultiplierPlus) + Get(Stat.FireDotMultiplierPlus)) / 100.0)
             * Math.Max(0, 1 + ReservationStat(player, aura, Stat.HeraldOfAshBurningDamagePlusPctFinal) / 100.0)
             * Math.Max(0, 1 + Get(Stat.DeliriumAuraDamageOverTimePlusPctFinal) / 100.0);

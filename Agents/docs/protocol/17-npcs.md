@@ -52,9 +52,10 @@ Merveil, the Siren's `seawitchillusion/Merveil`; Piety, General Gravicius and th
 Kaom, Daresso, Utula, Malachai and the three in The Harvest): the monster blob writes it as `00 ff` (no dialogue, no
 component that must be alive). Without it these monsters could not be created at all ([12](12-quests.md) §9–10).
 Act 2's bandit lords add InteractionAction before their NPC. An NPC delta (reader `0x141e7b780`) carries the same
-two bytes as creation. The solo dialogue's vote uses S→C `0xbe` (writer `0x1421a9f80`): u8 VoteType row plus one
-(zero closes), u8 answered, u8 local voter, u8 number of vote entries. A solo choice has no vote entries. The buttons
-send C→S `0xbd` (sender `0x14026ff10`) with u8 1 for Help or 0 for Kill.
+two bytes as creation. The solo dialogue's vote uses S→C `0xbe` (writer `0x1421a9f80`, reader `0x141fe35f0`): u8 VoteType
+row plus one (zero closes), u8 answered, u8 local voter, u8 number of vote entries, then per voter `(wstr characterName,
+u8 VoteState row plus one)` ([30](30-hud-signals-and-timers.md) §4). A solo choice has no vote entries. The buttons send
+C→S `0xbd` (sender `0x14026ff10`) with u8 1 for Help or 0 for Kill.
 
 NPC collision uses the same inherited Positioned metadata as the client, including NPCs.dat Id aliases whose
 OT is the row's Metadata. Server routing and overlap escape register every spawned NPC with its own footprint,
@@ -217,6 +218,7 @@ u8 = the chosen NPCTalk row's index among the NPC's rows (column 1). The client 
 | SellItems | two offer inventories (0xc0, manager 1) + S→C 0xb8 (verified: drops, Ctrl + click, Accept, Cancel; §5) |
 | RespecPassivePointsForGold | S→C 0x7b kind 0x5f with 1: the character's passive tree (UI +0x650, listener 0x140dc5fe0; a non-zero u32 shows it in mode 2, `0x1409df890`), the script's `SendOpenScreen( CharacterPassiveTreeScreen, 1 )`. Not kind 0x11 (Atlas tree, UI +0x668) or 0x45 (UI +0x678). "Apply refunds" (C→S 0x36 per node) and "Refund All" (0x37) are paid in gold ([15](15-progression.md) §2) |
 | IdentifyItems | script `triggerer.IdentifyItems()`: every unidentified item with mods in the main inventory becomes identified, free (0xbf removes and re-adds the same ids), then a chat line "{0} Items identified" / "{0} Item identified" (ClientStrings `IdentifyItemsChatMessage(Single)`, S→C 0x17, [10](10-chat-and-commands.md) §2) and 0x84 0xff to list the options again (verified 2026-10-20). The client grays the option itself (`0x141e7bb90` case 0x3b: no unidentified item in the inventory → ClientStrings id 0x1f07 "No items in your inventory can be identified", drawn gray by `0x14071ff10`), but only when the options are listed. The real game probably charges Scrolls of Wisdom (ClientStrings `IdentifyItemsNotEnoughScrollsOfWisdom`); ours is free. The IdentifyAll sound effect is not sent |
+| EndlessHeistContracts | row 39 (`0x27`, sole `NPCTalk` row 2424 on Adiyah, option 17 `"Buy Contracts"`, gated by league category `world +0xd0 == 0x2b` in `0x141e7bb90`): sends ordinary C→S `0x82` with no dedicated client handler or `0x7b` UI kind; maps to `NPCShop` row 37 (window kind 0, standard `0xc0` + `0x8c` shop; [30](30-hud-signals-and-timers.md) §5) |
 
 Divination cards still use NPC dialogue in 3.29.3d: NPCTalk rows 616/1310 (Tasuni) and 2801 (hideout Lilly)
 have category `TradeDivinationCards` (36).
@@ -314,7 +316,7 @@ Not implemented: `UnlockPantheonPowerFromItem`, `RemoveQuestItem`, `DispatchRule
   (live 2026-11-02).
   Awakened stock restores disabled rows; exceptional stock uses GemTags, excluding awakened rows.
   Maps use generic tier keys and Nightmare Map; Originator Maps carry `MapZanaInfluenced`.
-  Unique maps have catalogue identities; full unique modifiers and unique-area routing remain incomplete.
+  Unique maps have catalogue identities and open their own areas; full unique modifiers remain incomplete.
 - **Custom tab protocol**: development tabs fill row by row. 0x8c's u16 is the window kind (`0x140740840`, +0x5f0), not an NPCShop row: 0 buy, 1-4 haggle,
   deal, exchange and expedition, 9 Azmeri, 10 black market, 11 unset; the Gateway sends 0. The window is chosen by the
   NPC's DialogueStyle (`0x14072c7a0`: not LEGACY → UI +0x7b8), not by the u8. The u8 is the async trade mode (title

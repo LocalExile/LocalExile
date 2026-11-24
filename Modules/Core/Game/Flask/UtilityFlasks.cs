@@ -44,7 +44,14 @@ public static partial class Game
         int adjacentEffect = AdjacentTinctureFlaskEffect(player, (byte)slot, Get, AreaTime(player));
         Func<uint, int> flaskCharacter = adjacentEffect == 0 ? Get
             : stat => stat == Stat.FlaskEffectPlusPct ? Get(stat) + adjacentEffect : Get(stat);
-        var (stats, seconds) = ItemUtilityFlaskFor(utility, flask.Item, local, flaskCharacter, playerLevel);
+        double finalMultiplier = MapFlaskEffectMultiplier(player);
+        var (stats, seconds) = ItemUtilityFlaskFor(utility, flask.Item, local, flaskCharacter, playerLevel, finalMultiplier);
+        int heal = local.GetValueOrDefault(Stat.LocalUniqueFlaskInstantlyRecoversPctMaximumLife);
+        int selfChaos = local.GetValueOrDefault(Stat.LocalUniqueFlaskChaosDamagePctOfMaximumLifeToDealPerMinuteWhileHealing);
+        double effectPower = heal > 0 || selfChaos > 0 ? FlaskEffectScaling.Multiplier(flaskCharacter, playerLevel,
+            local.GetValueOrDefault(Stat.LocalFlaskEffectPlusPct), finalMultiplier: finalMultiplier) : 1;
+        int selfChaosRate = selfChaos > 0 ? UtilityFlasks.Scale(selfChaos, effectPower) : 0;
+        bool gainedSouls = false;
         if (FlaskGrounds.OnUse(local).Any(g => g.Kind != FlaskGrounds.Kind.Taunt)) _ = FlaskGroundArt;
         // Payment and installation are one admitted transaction. A reload after the inventory send cannot
         // strand paid charges without their accepted snapshot, deadline, Adjacent edge and presentation.
@@ -55,10 +62,13 @@ public static partial class Game
             double now = AreaTime(player);
             if (NamedFlaskRecent(type.Id) is { } recent) player.RecentEvents.Record(recent, now);
             var effect = new UtilityFlasks.Active(flask.Id, (byte)slot, type.Name, utility, player.NextBuff++,
-                utility.Extra is null ? null : player.NextBuff++, stats, now, now + seconds);
+                utility.Extra is null ? null : player.NextBuff++, stats, now, now + seconds)
+                { SelfChaosDamageLifePctPerMinute = selfChaosRate };
+            AccrueUtilityFlaskDamage(player, now);
             if (player.UtilityFlaskEffects.Of(flask.Id) is { } previous)
                 QueueUtilityFlaskEnd(player, state, previous, "refreshed");
             UtilityFlasks.Start(player, effect, () => RecomputePoolsAndSpeed(player));
+            gainedSouls = ApplyUtilityResourceEffectsLocked(player, local, charges.ChargesPerUse, now, effectPower);
             ApplyConditionalFlaskAilmentProtectionLocked(player, local, now);
             if (UtilityFlasks.RestoreWardAfterPaidUse(player.Ward, name => local.GetValueOrDefault(name), now))
                 Console.WriteLine($"[gateway] Ward restored on paid {type.Name}: {player.Ward.Current}/{player.Ward.Maximum}");
@@ -76,7 +86,11 @@ public static partial class Game
             state.Enqueue(new(FlaskEnchantments.Trigger.Adjacent, flask.Id, (byte)slot), signal?.Chain);
         }) is null) return false;
         await PublishFlaskChanges(player);
-        if (CurrentGameWork && !player.Closed && !player.LeavingArea) await EnemyDebuffsTick(player, AreaTime(player));
+        if (CurrentGameWork && !player.Closed && !player.LeavingArea)
+        {
+            if (gainedSouls) await SendVaalSouls(player);
+            await EnemyDebuffsTick(player, AreaTime(player));
+        }
         return true;
     }
 
@@ -96,31 +110,83 @@ public static partial class Game
         (Stat.LocalFlaskGainPowerChargesOnUse, ChargeType.Power),
     ];
 
-    // The player's increased rarity of items found (Gold Flask, gear, passives) that the drops of a kill use
-    // (ItemDrops.WithIncreasedRarity). A kill made with a supported skill adds that skill's own
-    // base_killed_monster_dropped_item_rarity_+% (Item Rarity Support).
+    // Innate monster IIQ/IIR baselines already represented by ItemDrops.Roll's rarity count ratios
+    // (MonsterMagic3 +600%, MonsterRare3 +1400%, MonsterUnique3 +2850%) and RarityChances
+    // (MonsterMagic4 +200%, MonsterRare4 +1000%, MonsterUnique4 +1000%).
+    static int BaselineMonsterIiq(MonsterRarity rarity) => rarity switch
+    {
+        MonsterRarity.Magic => 600,
+        MonsterRarity.Rare => 1400,
+        MonsterRarity.Unique => 2850,
+        _ => 0,
+    };
+
+    static int BaselineMonsterIir(MonsterRarity rarity) => rarity switch
+    {
+        MonsterRarity.Magic => 200,
+        MonsterRarity.Rare => 1000,
+        MonsterRarity.Unique => 1000,
+        _ => 0,
+    };
+
+    // The player's increased rarity of items found (Gold Flask, gear, passives, and Item Rarity Support) multiplied
+    // by area and monster/boss rarity (ItemDrops.WithIncreasedRarity). Player IIR uses PoE diminishing returns;
+    // innate boss rarity (MonsterDroppedItemRarityPlusPct above the baseline rarity tier) uses soft diminishing
+    // returns so Act Bosses (+10,000-15,000% IIR) drop abundant rares and elevated uniques (~3-4.5x) without
+    // turning half their drops into uniques.
     public static int IncreasedItemRarity(Player player, SpawnedMonster? monster = null)
     {
-        var stats = CharacterPlayerStats(player);
+        var stats = PlayerStatValues(player);
         int Get(uint key) => stats.GetValueOrDefault(key);
-        int playerValue = Get(Stat.BaseItemFoundRarityPlusPct) + Get(Stat.ItemFoundRarityPlusPct);
-        return playerValue + (MapModsOf(player)?.Rarity ?? 0)
-            + (monster?.Effects[Stat.BaseItemFoundRarityPlusPct] ?? 0)
-            + (monster?.Effects[Stat.FromLeagueItemRarityPlusPctPermyriad] ?? 0) / 100
+        int rawPlayerIir = Get(Stat.BaseItemFoundRarityPlusPct) + Get(Stat.ItemFoundRarityPlusPct);
+        double effectivePlayerIir = ItemDrops.EffectivePlayerIir(rawPlayerIir)
             + Math.Max(0, monster?.KilledWithItemRarityPct ?? 0);
+        double monsterIirFactor = 1.0;
+        if (monster is not null)
+        {
+            int rawMonsterIir = monster.Effects[Stat.MonsterDroppedItemRarityPlusPct];
+            int baseline = BaselineMonsterIir(monster.Rarity);
+            if (rawMonsterIir > baseline)
+            {
+                double extraPct = ((100.0 + rawMonsterIir) / (100.0 + baseline) - 1.0) * 100.0;
+                double effectiveBossPct = extraPct / (1.0 + extraPct / 450.0);
+                monsterIirFactor = 1.0 + effectiveBossPct / 100.0;
+            }
+            else if (rawMonsterIir < 0)
+                monsterIirFactor = Math.Max(0, 100.0 + rawMonsterIir) / 100.0;
+        }
+        int areaAndExtraIir = (MapModsOf(player)?.Rarity ?? 0)
+            + (monster?.Effects[Stat.BaseItemFoundRarityPlusPct] ?? 0)
+            + (monster?.Effects[Stat.FromLeagueItemRarityPlusPctPermyriad] ?? 0) / 100;
+        double totalFactor = Math.Max(0, 100.0 + effectivePlayerIir) / 100.0
+            * Math.Max(0, 100.0 + areaAndExtraIir) / 100.0
+            * monsterIirFactor;
+        return (int)Math.Round((totalFactor - 1.0) * 100.0);
     }
 
     // The player's increased quantity of items found (gear, passives) as a multiplier of the kill's item rolls
-    // (ItemDrops.Roll). A kill made with a supported skill adds the skill's own
-    // base_killed_monster_dropped_item_quantity_+% (Item Quantity Support).
+    // (ItemDrops.Roll). Player IIQ uses PoE diminishing returns; innate monster/boss quantity above the
+    // baseline rarity tier (MonsterDroppedItemQuantityPlusPct) scales relative to the baseline without double-counting.
     public static double ItemQuantityFactor(Player player, SpawnedMonster? monster = null)
     {
-        var stats = CharacterPlayerStats(player);
+        var stats = PlayerStatValues(player);
         int Get(uint key) => stats.GetValueOrDefault(key);
-        double playerValue = Math.Max(0, 100 + Get(Stat.BaseItemFoundQuantityPlusPct) + Get(Stat.ItemFoundQuantityPlusPct)) / 100.0;
+        int rawPlayerIiq = Get(Stat.BaseItemFoundQuantityPlusPct) + Get(Stat.ItemFoundQuantityPlusPct);
+        double playerValue = Math.Max(0, 1.0 + ItemDrops.EffectivePlayerIiq(rawPlayerIiq));
+        double monsterIiqFactor = 1.0;
+        if (monster is not null)
+        {
+            int rawMonsterIiq = monster.Effects[Stat.MonsterDroppedItemQuantityPlusPct];
+            int baseline = BaselineMonsterIiq(monster.Rarity);
+            if (rawMonsterIiq > baseline)
+                monsterIiqFactor = (100.0 + rawMonsterIiq) / (100.0 + baseline);
+            else if (rawMonsterIiq < 0)
+                monsterIiqFactor = Math.Max(0, 100.0 + rawMonsterIiq) / 100.0;
+        }
         return playerValue * (1 + Math.Max(0, monster?.KilledWithItemQuantityPct ?? 0) / 100.0)
             * Math.Max(0, 1 + (monster?.Effects[Stat.BaseItemFoundQuantityPlusPct] ?? 0) / 100.0)
             * Math.Max(0, 1 + (monster?.Effects[MapSulphite.EnragedQuantity] ?? 0) / 10000.0)
+            * monsterIiqFactor
             * (MapModsOf(player)?.QuantityFactor ?? 1);
     }
 
@@ -132,13 +198,13 @@ public static partial class Game
         using (new PlayerStatScope(player, fresh: true))
         {
             player.Pools = PoolsFor(player, player.Pools.Level);
-            player.ApplyMovementSpeed();
+            player.ApplyMovementSpeedAt(AreaTime(player));
             player.PlayerLife = LifeReservation.Clamp(player.PlayerLife, LifeReservationOf(player));
             var stats = CharacterPlayerStats(player);
             int Get(uint key) => stats.GetValueOrDefault(key);
             player.Phasing = UtilityFlasks.Phasing(UtilityStats(player, Get));
             player.ElementalAilments.Reconcile(Get);
-            player.ApplyMovementSpeed();
+            player.ApplyMovementSpeedAt(AreaTime(player));
         }
     }
 
@@ -148,9 +214,12 @@ public static partial class Game
     {
         if (!PlayerUpdatesCurrent(player, updates) || player.LeavingArea || !player.UtilityFlaskEffects.Any) return;
         bool dead = player.PlayerLife == 0;
+        double now = updates.Schedule.Now(player);
+        if (dead) ClearUtilityFlaskDamage(player, now);
+        else AccrueUtilityFlaskDamage(player, now);
         var bar = ItemsOf(player).Items(PlayerInventories.Flask);
         bool Gone(UtilityFlasks.Active effect) => UtilityFlasks.LeftItsCell(effect, bar);
-        var ended = UtilityFlasks.EndDue(player, updates.Schedule.Now(player), dead, Gone,
+        var ended = UtilityFlasks.EndDue(player, now, dead, Gone,
             () => RecomputePoolsAndSpeed(player), out _);
         if (ended.Count == 0) return;
         var state = Automation(player);
@@ -202,7 +271,7 @@ public static partial class Game
                         bool live = player.PlayerLife > 0 && effect.Ends > now
                             && player.UtilityFlaskEffects.IsLatest(effect.ItemId, effect.Activation)
                             && ReferenceEquals(player.UtilityFlaskEffects.Of(effect.ItemId), effect);
-                        if (live) UtilityFlasks.ShowBuffs(effect with { Started = now }, player);
+                        if (live) UtilityFlasks.ShowBuffs(effect with { Started = now }, player, FlaskEffectVisual(player, effect.Slot));
                         packet = [prefix];
                     }
                     state.Packets.RemoveAt(0); sent = true; return packet;

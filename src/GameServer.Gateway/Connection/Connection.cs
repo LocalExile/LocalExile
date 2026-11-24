@@ -25,6 +25,8 @@ public sealed partial class Connection(Player player)
     public void Disconnect() => Session.Stream?.Close();
     /// <summary>The key a ticket of this connection's keyring gives (the next instance's connect, S→C 0x14).</summary>
     public byte[] TicketKey(uint ticket) => Session.Keyring.Key(ticket);
+    /// <summary>The ticket-bound 8-byte Data8 nonce for S→C 0x27, verified against C→S 0x0E SipHash-2-4.</summary>
+    public byte[] TicketData8(uint ticket) => Session.Keyring.Data8(ticket);
     public readonly ConnectionPerformance Performance = new();
     // Why the server closed the connection (the DISCONNECT line).
     public volatile string? CloseReason;

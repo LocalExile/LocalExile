@@ -9,12 +9,16 @@ public static partial class Game
     public static bool PlayerAlwaysHits(Player player) => Stat.GlobalAlwaysHit is var key
         && CharacterPlayerStats(player).GetValueOrDefault(key) != 0;
 
-    public static Dictionary<uint, int> WithAntiquarian(Player player, Dictionary<uint, int> sources)
+    public static Dictionary<uint, int> WithAntiquarian(Player player, Dictionary<uint, int> sources,
+        IReadOnlyList<(byte Row, InventoryItem Item)>? equipment = null, IReadOnlySet<uint>? inactive = null)
     {
-        int Get(uint key) => sources.GetValueOrDefault(key);
+        bool flameTouched = FlameTouchedActive(player, equipment, inactive);
+        if (flameTouched) sources[Stat.AffectedByTouchOfFire] = 1;
+        var state = player.Antiquarian;
         double now = AreaTime(player);
-        if (Get(AntiquarianEffects.AdrenalineSource) > 0 && player.PlayerLife > 0 && player.Antiquarian.Adrenaline(now)
-            && StatsChangeInAnd(player.Antiquarian.AdrenalineUntil - now))
+        bool timedAdrenaline = sources.GetValueOrDefault(AntiquarianEffects.AdrenalineSource) > 0
+            && now < state.TimedAdrenalineUntil && StatsChangeInAnd(state.TimedAdrenalineUntil - now);
+        if (player.PlayerLife > 0 && (timedAdrenaline || flameTouched && state.SustainedAdrenaline))
             foreach (var (key, value) in AntiquarianEffects.AdrenalineStats)
                 sources[key] = (int)Math.Clamp((long)sources.GetValueOrDefault(key) + value, int.MinValue, int.MaxValue);
         return sources;
@@ -30,6 +34,7 @@ public static partial class Game
 
     public static void EnsureAntiquarianPools(Player player)
     {
+        ReconcileFlameTouched(player, AreaTime(player));
         bool active = player.PlayerLife > 0 && !player.RageRetired
             && player.Antiquarian.Adrenaline(AreaTime(player));
         if (player.AppliedAdrenaline != active)
@@ -47,6 +52,7 @@ public static partial class Game
     public static void ClearAntiquarianOnDeath(Player player)
     {
         if (player.PlayerLife != 0) return;
+        if (player.ResourceEffectsState is ResourceEffectsState resources) RetireFlameTouched(player, resources);
         player.Antiquarian.Clear(); player.EnduringCryRecovery.Clear(); player.Ward.SetMaximum(0);
     }
 
@@ -64,12 +70,21 @@ public static partial class Game
         if (player.SentWard == ward && player.SentAdrenalineUntil == adrenaline
             && player.SentStunRecoveryUntil == recovery && player.SentEnduringCryUntil == cry)
             return null;
+        // First area tick with no Ward, Adrenaline, Stun Recovery or Enduring Cry active: baseline already sent at area entry.
+        if (player.SentWard is null && ward == (0u, false)
+            && double.IsNegativeInfinity(adrenaline) && double.IsNegativeInfinity(recovery) && double.IsNegativeInfinity(cry))
+        {
+            player.SentWard = ward; player.SentAdrenalineUntil = adrenaline;
+            player.SentStunRecoveryUntil = recovery; player.SentEnduringCryUntil = cry;
+            return null;
+        }
         var bytes = new List<byte>();
         var buffs = player.Area.Buffs;
         if (ward.Maximum > 0 && ward.Broken) buffs.Set(player.Id, new(AntiquarianEffects.WardBrokenDefinition, player.Id));
         else buffs.Clear(player.Id, AntiquarianEffects.WardBrokenDefinition, player.Id);
-        if (double.IsFinite(adrenaline))
-            buffs.Set(player.Id, new(AntiquarianEffects.AdrenalineDefinition, player.Id, U68: Buff.Seconds(adrenaline - AreaTime(player))));
+        if (adrenaline > double.NegativeInfinity)
+            buffs.Set(player.Id, new(AntiquarianEffects.AdrenalineDefinition, player.Id,
+                U68: double.IsFinite(adrenaline) ? Buff.Seconds(adrenaline - AreaTime(player)) : null));
         else buffs.Clear(player.Id, AntiquarianEffects.AdrenalineDefinition, player.Id);
         if (double.IsFinite(cry)) buffs.Set(player.Id, new(1541, player.Id, U68: Buff.Seconds(cry - AreaTime(player))));
         else buffs.Clear(player.Id, 1541, player.Id);
@@ -82,7 +97,7 @@ public static partial class Game
         player.SentStunRecoveryUntil = recovery;
         player.SentEnduringCryUntil = cry;
         Console.WriteLine($"[gateway] Antiquarian Ward {player.Ward.Current}/{player.Ward.Maximum}, "
-            + $"broken={player.Ward.Broken}, Adrenaline={double.IsFinite(adrenaline)}");
+            + $"broken={player.Ward.Broken}, Adrenaline={adrenaline > double.NegativeInfinity}");
         return [.. bytes];
     }
 
