@@ -819,6 +819,15 @@ public static partial class Game
         LevelItemSources.Apply(sources, Stats, sourcesKey.Level);
         OwnedCountItemStats.Apply(sources, Stats, sourcesKey.Amounts);
         ApplyRecentSavageHitItemStats(sources, Stats, sourcesKey.Flags);
+        if (recentAmounts.GetValueOrDefault(StatConditions.DetonatedMine) is long mines and > 0)
+        {
+            int count = ActorScale.Saturate(mines);
+            if (sources.GetValueOrDefault(Stat.TrapCooldownSpeedPlusPctPerRecentMineDetonation) != 0)
+                sources[Stat.NumberOfMinesDetonatedRecently] = count;
+            if (sources.GetValueOrDefault(Stat.CriticalStrikeChancePlusPctPerMineDetonatedRecentlyUpTo100Pct) is int perMine and > 0)
+                sources[Stat.CriticalStrikeChancePlusPct] = ActorScale.Saturate(sources.GetValueOrDefault(Stat.CriticalStrikeChancePlusPct)
+                    + Math.Min(100L, (long)count * perMine));
+        }
         player.StatSourcesCache = new(sourcesKey with { Before = inactive }, new(sources), attributes, inactive, wornItems);
         PublishQualifiedItemLifeReservationPercent(player, qualifiedItemReservationPercent);
         player.Connection.Performance.LookupMiss(probe, missed);
@@ -1138,6 +1147,7 @@ public static partial class Game
             EnergyShield = (int)Math.Min(int.MaxValue, (long)bonus.EnergyShield + aura.EnergyShield),
             ArmourMorePct = (100m + aura.ArmourMorePct) * (100m + EquipmentInput(Stat.ArmourPlusPctFinalFromSeismicCryBuff)) / 100m - 100m,
             EvasionMorePct = aura.EvasionMorePct,
+            ExtraDefenceMorePct = EvaluateFortificationLocked(player, AreaTime(player), sources).Above20DefenceMorePct,
             CriticalStrikeChancePct = attackIncrease,
             SpellCriticalStrikeChancePct = spellIncrease,
             AttackSpeedPct = bonus.AttackSpeedPct + aura.AttackSpeedPct + cat.AttackSpeedPct,
@@ -1218,7 +1228,7 @@ public static partial class Game
         // added Energy Shield is a global flat source and cannot feed back into Life conversion or reservation.
         int itemReservationPercent = EquipmentStat(LifeReservation.ItemPercentStat);
         var reservedLife = LifeReservation.FromInputs((int)pools.Life, itemReservationPercent,
-            pools.LifeReservationEfficiencyPct, auras, AdditionalLifeReservation(player));
+            pools.LifeReservationEfficiencyPct, player.Auras.Values, AdditionalLifeReservation(player));
         int perHundred = LifeReservation.EnergyShieldPerReservedStat is var reservedEsKey
             ? sources.GetValueOrDefault(reservedEsKey) : 0;
         int reservationEnergyShield = LifeReservation.EnergyShield(reservedLife.Reserved, perHundred);
@@ -2193,6 +2203,7 @@ public static partial class Game
             }
             await SendCharacterStats(player, PlayerStatChange.Build);
             await Send(player, [], "0x01c1/0x01c2 passive buffs (passives)", atGate: () => PassiveBuffAuras.Presentation(player));
+            await SendFortification(player);
             // A refund can lower the maximum life: the current life needs its own 0x1b1 (0x1b3 only carries the maximum).
             Note($"0x01b1 player life {player.PlayerLife} (passives)");
             await SendPlayerMana(player, $"0x01b1 player mana {player.PlayerMana} (passives)");
