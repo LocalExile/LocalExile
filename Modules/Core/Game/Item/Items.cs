@@ -1724,29 +1724,51 @@ public static partial class Game
         const string Wisdom = "Metadata/Items/Currency/CurrencyIdentification";
         var items = ItemsOf(player);
         var stash = StashOf(player);
-        // The currency can come from a stash tab (right-click it in the open stash, then click an item in the inventory): the
-        // message names the tab's inventory. Decided by the inventory, not the item id: stash and character ids can be equal.
-        int? stashTab = stash.TabOf(use.InventoryId);
-        byte usedRow = stashTab is null && items.RowOf(use.ItemId) is byte row ? row : (byte)0;
-        var used = stashTab is int fromTab ? stash.Inventory(fromTab).Items.FirstOrDefault(i => i.Id == use.ItemId)
-            : items.RowOf(use.ItemId) is not null ? items.Items(usedRow).FirstOrDefault(i => i.Id == use.ItemId) : null;
-        // The target can be in a stash tab too (the currency tab's crafting slot, live 2026-10-23), decided the same way.
-        int? targetTab = stash.TabOf(use.TargetInventoryId);
-        byte targetRow = targetTab is null && items.RowOf(use.TargetId) is byte tRow ? tRow : (byte)0;
-        var target = targetTab is int toTab ? stash.Inventory(toTab).Items.FirstOrDefault(i => i.Id == use.TargetId)
-            : items.RowOf(use.TargetId) is not null ? items.Items(targetRow).FirstOrDefault(i => i.Id == use.TargetId) : null;
+        // The currency and the target can each be in a stash tab (right-click the currency in the open stash; the target in
+        // the currency tab's crafting slot, live 2026-10-23, or any tab): the message names the tab's inventory.
+        var (usedSpot, used) = Locate(items, stash, use.InventoryId, use.ItemId);
+        var (targetSpot, target) = Locate(items, stash, use.TargetInventoryId, use.TargetId);
+        int? targetTab = targetSpot.Tab;
+        byte targetRow = targetSpot.Row;
+        string where = (usedSpot.Tab is int t ? $" (currency in stash tab {t})" : "") + (targetTab is int tt ? $" (target in stash tab {tt})" : "");
         if (used is null || target is null)
         {
-            Console.WriteLine($"[gateway] {player.Connection.Remote} <= 0x0071 use item on item {use}: no such item" + (stashTab is int t ? $" (currency in stash tab {t})" : "")
-                + (targetTab is int tt ? $" (target in stash tab {tt})" : "") + $": {hex}");
+            Console.WriteLine($"[gateway] {player.Connection.Remote} <= 0x0071 use item on item {use}: no such item{where}: {hex}");
+            return;
+        }
+        if (usedSpot.Tab is int pubTab && stash.IsPublic(pubTab))
+        {
+            Console.WriteLine($"[gateway] {player.Connection.Remote} <= 0x0071 use item on item {use}: refused, currency is in public stash tab {pubTab}");
             return;
         }
         var type = ItemsFor(player).ByHash(used.Item.TypeHash);
+        // A worn item (equipment, the flask bar, jewels in the passive tree) takes only quality and flask enchant
+        // currency: the others' client validators refuse it with ItemErrorItemEquipped, and the client still sends 0x71
+        // for one, so the server refuses it too, before anything is spent.
+        if (RefusedOnWorn(player, used.Item, targetSpot))
+        {
+            Console.WriteLine($"[gateway] {player.Connection.Remote} <= 0x0071 use {type?.Name ?? "item"} on item {use.TargetId}: refused, item is equipped (row {targetRow})");
+            await SendItemError(player, InstanceItems.ItemErrorItemEquipped);
+            return;
+        }
+        if (RefusedByState(player, used.Item, target.Item) is ushort stateError)
+        {
+            Console.WriteLine($"[gateway] {player.Connection.Remote} <= 0x0071 use {type?.Name ?? "item"} on item {use.TargetId}: refused, target is {(target.Item.Mirrored ? "mirrored" : "corrupted")}{where}");
+            await SendItemError(player, stateError);
+            return;
+        }
         bool isEssence = type is not null && EssencesFor(player).Contains(type.Hash);
+        // Mirror of Kalandra: a mirrored copy of the target goes onto the (empty) cursor, as if picked up, for the player to
+        // place; the target stays as it was and its place gets no message.
         if (type?.Id == CurrencyEffects.MirrorOfKalandra)
         {
-            if (stashTab is not null || targetTab is not null) { Console.WriteLine($"[gateway] {player.Connection.Remote} <= 0x0071 Mirror of Kalandra with the stash: not handled, use it in the inventory"); return; }
-            await MirrorItem(player, items, RollsFor(player), usedRow, used, target);
+            if (CurrencyEffects.Mirror(target.Item, RollsFor(player)) is not { } copy || items.Items(PlayerInventories.Cursor).Count > 0)
+            {
+                Console.WriteLine($"[gateway] {player.Connection.Remote} <= 0x0071 Mirror of Kalandra on item {target.Id}: refused (corrupted / mirrored / unique / unsupported class or map tier / unmodifiable / no mods / cursor not empty){where}");
+                return;
+            }
+            if (await CommitUse(player, items, stash, usedSpot, targetSpot, type.Name, null, copy) is not { Held: { } held }) return;
+            Console.WriteLine($"[gateway] {player.Connection.Remote} <= 0x0071 Mirror of Kalandra ({used.Id}) on item {target.Id}: copy {held.Id} on the cursor{where}");
             return;
         }
         // What the currency makes of the target, or null (nothing happens, nothing is spent).
@@ -1785,50 +1807,7 @@ public static partial class Game
             return;
         }
         // The currency and the changed item are saved together.
-        InventoryItem identified;
-        uint targetInventory = PlayerInventories.InventoryId(targetRow);
-        if (stashTab is not null || targetTab is not null)
-        {
-            // The stash is in it (currency from a tab, or the target in one): one transaction, then one 0xbf per place changed
-            // (one for both when they share it), removing and adding the same ids as the client needs. A tab the panel
-            // shows again after a tab switch unloaded it is loaded again first (SendTabChange, #710).
-            if (ItemMoves.UseAcross(items, stash, new(stashTab, usedRow, used.Id), new(targetTab, targetRow, target.Id), _ => result)
-                is not var (left, changedItem)) return;
-            identified = changedItem;
-            async Task SendPlace(int? tab, byte row, List<uint> gone, List<InventoryItem> now, string what)
-            {
-                if (tab is int t) await SendTabChange(player, stash, t, gone, now, $"0x00bf stash tab {t}: {what}");
-                else await Send(player, InstanceItems.InventoryChange(PlayerInventories.InventoryId(row), items.NextRevision(row), gone, now),
-                    $"0x00bf inventory {PlayerInventories.InventoryId(row)}: {what}");
-            }
-            List<InventoryItem> usedNow = left is { } l ? [l] : [];
-            if (stashTab == targetTab && (stashTab is not null || usedRow == targetRow))
-                await SendPlace(targetTab, targetRow, [used.Id, target.Id], [.. usedNow, identified], $"item {target.Id} changed, {type!.Name} used");
-            else
-            {
-                await SendPlace(stashTab, usedRow, [used.Id], usedNow, $"{type!.Name} used" + (left is null ? ", stack gone" : $", {left.Item.StackSize} left"));
-                await SendPlace(targetTab, targetRow, [target.Id], [identified], $"item {target.Id} changed");
-                if (targetTab is null && PlayerInventories.ShowsOnModel(targetRow)) await SendEquipment(player, items);
-            }
-        }
-        else
-        {
-            if (ItemMoves.UseOn(items, usedRow, used.Id, targetRow, target.Id, _ => result) is not var (taken, changed)) return;
-            identified = changed;
-            // Remove and add the same ids: the client replaces an item only that way (see UseItem).
-            uint usedInventory = PlayerInventories.InventoryId(usedRow);
-            if (usedRow == targetRow)
-                await Send(player, InstanceItems.InventoryChange(targetInventory, items.NextRevision(targetRow), [used.Id, target.Id],
-                    taken.Left is { } left ? [left, identified] : [identified]), $"0x00bf inventory {targetInventory}: item {target.Id} changed, {type!.Name} used");
-            else
-            {
-                await Send(player, InstanceItems.InventoryChange(usedInventory, items.NextRevision(usedRow), [used.Id],
-                    taken.Left is { } left ? [left] : []), $"0x00bf inventory {usedInventory}: {type!.Name} used");
-                await Send(player, InstanceItems.InventoryChange(targetInventory, items.NextRevision(targetRow), [target.Id], [identified]),
-                    $"0x00bf inventory {targetInventory}: item {target.Id} changed");
-                if (PlayerInventories.ShowsOnModel(targetRow)) await SendEquipment(player, items);
-            }
-        }
+        if (await CommitUse(player, items, stash, usedSpot, targetSpot, type!.Name, result, null) is not { Changed: { } identified }) return;
         if (targetTab is null && targetRow == PlayerInventories.Flask)
             await ReconcileTincturesAfterFlaskBarChange(player);
         await CheckCraftingAchievements(player, type!.Id, target.Item, identified.Item);
@@ -1840,25 +1819,93 @@ public static partial class Game
             : $"sockets {string.Join(" ", identified.Item.Sockets.Select(k => k.Colour))}; link groups {string.Join(",", identified.Item.Links ?? [])}"));
     }
 
-    // Mirror of Kalandra (C→S 0x71 / Shift 0x72): a mirrored copy of the target goes onto the (empty) cursor, as if picked
-    // up, for the player to place; the target stays as it was. One mirror and the copy are saved together.
-    public static async Task MirrorItem(Player player, PlayerInventories items,
-        ItemRolls rolls, byte usedRow, InventoryItem used, InventoryItem target)
+    // Where an item named by (inventory id, item id) is: a stash tab when the inventory is one (decided by the inventory, not
+    // the item id: stash and character ids can be equal), otherwise the character inventory row holding the id.
+    public static (ItemMoves.Spot Spot, InventoryItem? Item) Locate(PlayerInventories items, AccountStash stash, uint inventoryId, uint itemId)
     {
-        if (CurrencyEffects.Mirror(target.Item, rolls) is not { } copy || items.Items(PlayerInventories.Cursor).Count > 0)
+        if (stash.TabOf(inventoryId) is int tab)
+            return (new(tab, 0, itemId), stash.Inventory(tab).Items.FirstOrDefault(i => i.Id == itemId));
+        return items.RowOf(itemId) is byte row ? (new(null, row, itemId), items.Items(row).FirstOrDefault(i => i.Id == itemId)) : (new(null, 0, itemId), null);
+    }
+
+    // A worn item: one of the character's own slots (Inventories column 4, sent as flag bit 1: equipment and the flask bar)
+    // or the passive tree's jewels (row 23). The client's currency validators (0x141f86f70, 0x141f89920) refuse these with
+    // ItemErrorItemEquipped; the second weapon set's rows are not among them.
+    public static bool Worn(ItemMoves.Spot spot) => spot.Tab is null
+        && (spot.Row == PlayerInventories.PassiveJewels
+            || spot.Row < InstanceInventories.PlayerDefaults.Length && InstanceInventories.PlayerDefaults[spot.Row] is { Equipment: true } slot && slot.Row == spot.Row);
+
+    // Whether a currency is refused on its target because the target is worn. Quality currency (armour, weapon, flask and
+    // jewellery quality, Tainted ones included) and the flask enchant orbs (Enkindling, Instilling) work on worn items in
+    // the official game (live 2026-11-23); every other currency checked there (transmutation to scouring, Divine,
+    // Blessed, Eldritch) is refused. Decided by the client's CurrencyItems action.
+    public static bool RefusedOnWorn(Player player, Item currency, ItemMoves.Spot target) =>
+        Worn(target) && !TakesWorn(ItemsFor(player).ByHash(currency.TypeHash) is { } t ? ItemsFor(player).CurrencyAction(t) : null);
+
+    static bool TakesWorn(string? action) => action is not null
+        && (action.StartsWith("add_", StringComparison.Ordinal) && action.Contains("_quality", StringComparison.Ordinal)
+            && action != "add_gem_quality" && action != "add_map_alt_quality"
+            || action is "add_flask_seal" or "add_flask_injector");
+
+    // The item error a handled currency gets from its target's state, or null: a mirrored item takes no currency (a
+    // Reflective Oil is not modelled), a corrupted one only a Scroll of Wisdom and Tainted currency. An item the server
+    // does not handle keeps its "not handled" log instead of a reason. Vestigial items have no known string and stay silent.
+    public static ushort? RefusedByState(Player player, Item currency, Item target)
+    {
+        if (!target.Mirrored && !target.Corrupted || ItemsFor(player).ByHash(currency.TypeHash) is not { } type
+            || type.Id is not (CurrencyEffects.MirrorOfKalandra or CurrencyEffects.HinekorasLock)
+                && !CurrencyEffects.Recognizes(ItemsFor(player), type, EssencesFor(player).Contains(type.Hash)))
+            return null;
+        if (target.Mirrored) return InstanceItems.ItemErrorItemMirrored;
+        return type.Id == "Metadata/Items/Currency/CurrencyIdentification" || CurrencyEffects.TaintedIds.Contains(type.Id)
+            ? null : InstanceItems.ItemErrorTargetCorrupted;
+    }
+
+    // The refusal line the player reads: BackendErrors FailedToApplyCurrency (149) "Failed to apply item: {0}" with the
+    // item error's ClientStrings text (the error is the row + 1). Sent as a chat line (0x17) until the official message
+    // that prints it is found.
+    static async Task SendItemError(Player player, ushort error)
+    {
+        string reason = GameServer.Core.ClientTables.TableOrNull("ClientStrings")?.Row(error - 1)?.TextOrNull("Text") is { Length: > 0 } known
+            ? known : $"error 0x{error:x4}";
+        string text = $"Failed to apply item: {reason}";
+        await Send(player, InstanceChat.ChatLine(text), $"0x0017 \"{text}\"");
+    }
+
+    // A currency use (C→S 0x71 / Shift 0x72) committed for any inventory and stash combination (ItemMoves.Use): one 0xbf per
+    // place changed, one for both when the currency and the target share it, removing and adding the same ids as the client
+    // needs; then the cursor when a new item is held. A tab the panel shows again after a tab switch unloaded it is loaded
+    // again first (SendTabChange, #710). Null when nothing changed.
+    static async Task<(InventoryItem? Changed, InventoryItem? Held)?> CommitUse(Player player, PlayerInventories items, AccountStash stash,
+        ItemMoves.Spot used, ItemMoves.Spot target, string name, Item? change, Item? held)
+    {
+        if (ItemMoves.Use(items, stash, used, target, change, held) is not var (left, changed, heldItem))
         {
-            Console.WriteLine($"[gateway] {player.Connection.Remote} <= 0x0071 Mirror of Kalandra on item {target.Id}: refused (corrupted / mirrored / unique / unsupported class or map tier / unmodifiable / no mods / cursor not empty)");
-            return;
+            Console.WriteLine($"[gateway] {player.Connection.Remote} <= 0x0071 {name} on item {target.Id}: refused (the currency or the target is gone, or something is held)");
+            return null;
         }
-        var done = Saves.Atomically<(PlayerInventories.Consumption, InventoryItem)?>(() =>
-            items.ConsumeOne(usedRow, used.Id) is { } taken ? (taken, items.Add(PlayerInventories.Cursor, 0, 0, copy)) : null);
-        if (done is not var (taken, held)) return;
-        uint usedInventory = PlayerInventories.InventoryId(usedRow), cursor = PlayerInventories.InventoryId(PlayerInventories.Cursor);
-        await Send(player, InstanceItems.InventoryChange(usedInventory, items.NextRevision(usedRow), [used.Id],
-            taken.Left is { } left ? [left] : []), $"0x00bf inventory {usedInventory}: Mirror of Kalandra used");
-        await Send(player, InstanceItems.InventoryChange(cursor, items.NextRevision(PlayerInventories.Cursor), [], [held]),
-            $"0x00bf cursor: mirrored copy {held.Id}");
-        Console.WriteLine($"[gateway] {player.Connection.Remote} <= 0x0071 Mirror of Kalandra ({used.Id}) on item {target.Id}: copy {held.Id} on the cursor");
+        async Task SendPlace(ItemMoves.Spot spot, List<uint> gone, List<InventoryItem> now, string what)
+        {
+            if (spot.Tab is int t) await SendTabChange(player, stash, t, gone, now, $"0x00bf stash tab {t}: {what}");
+            else await Send(player, InstanceItems.InventoryChange(PlayerInventories.InventoryId(spot.Row), items.NextRevision(spot.Row), gone, now),
+                $"0x00bf inventory {PlayerInventories.InventoryId(spot.Row)}: {what}");
+        }
+        List<InventoryItem> usedNow = left is { } l ? [l] : [];
+        string spent = $"{name} used" + (left is null ? ", stack gone" : $", {left.Item.StackSize} left");
+        if (changed is null)
+            await SendPlace(used, [used.Id], usedNow, spent);
+        else if (used.Tab == target.Tab && (used.Tab is not null || used.Row == target.Row))
+            await SendPlace(target, [used.Id, target.Id], [.. usedNow, changed], $"item {target.Id} changed, {spent}");
+        else
+        {
+            await SendPlace(used, [used.Id], usedNow, spent);
+            await SendPlace(target, [target.Id], [changed], $"item {target.Id} changed");
+            if (target.Tab is null && PlayerInventories.ShowsOnModel(target.Row)) await SendEquipment(player, items);
+        }
+        if (heldItem is not null)
+            await Send(player, InstanceItems.InventoryChange(PlayerInventories.InventoryId(PlayerInventories.Cursor), items.NextRevision(PlayerInventories.Cursor), [], [heldItem]),
+                $"0x00bf cursor: {name} made item {heldItem.Id}");
+        return (changed, heldItem);
     }
 
     // C→S 0x4a: the held item clicked on an item. A stack of the same type with room takes what fits (PlayerInventories.MergeOnto,
