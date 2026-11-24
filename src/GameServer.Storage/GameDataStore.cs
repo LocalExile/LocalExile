@@ -156,6 +156,24 @@ public sealed class GameDataStore : IDisposable
         }
     }
 
+    /// <summary>One fx_skill_stats row: a character's stat that is a general stat for one skill.</summary>
+    public sealed record FxSkillStatRow(string Stat, string Skill, string Gives, double Scale);
+
+    /// <summary>The enabled fx_skill_stats rows. Empty when the table is not there (an older world.db in a test).</summary>
+    public IReadOnlyList<FxSkillStatRow> LoadFxSkillStats()
+    {
+        lock (_gate)
+        {
+            using (var exists = Command("SELECT 1 FROM sqlite_master WHERE type = 'table' AND name = 'fx_skill_stats'"))
+                if (exists.ExecuteScalar() is null) return [];
+            using var command = Command("SELECT stat, skill, gives, scale FROM fx_skill_stats WHERE enabled = 1 ORDER BY stat, ord");
+            using var reader = command.ExecuteReader();
+            var result = new List<FxSkillStatRow>();
+            while (reader.Read()) result.Add(new(reader.GetString(0), reader.GetString(1), reader.GetString(2), reader.GetDouble(3)));
+            return result;
+        }
+    }
+
     /// <summary>One fx_reads_as row: a stat as a bundle writes it, and the stat an actor of this kind reads for it.</summary>
     public sealed record FxReadsAsRow(string Actor, string Stat, string Reads, double Scale);
 

@@ -159,6 +159,11 @@ creatures, so `RuleSources` reads each worn item's own lines as rolled. The rule
 the stat. In those rows the game's data pairs the display stat with the stat meant for the nearby creature (54 Mods
 rows); the rules name the stats monster code reads instead, since several of the paired ones are player names.
 
+A character's stat that is a general stat for one skill ("40% increased Fireball Damage") is a row of
+`fx_skill_stats` (stat, skill, the skill stat it adds to): `ApplySkillSpecificStats` adds the character's value to the
+skill's own stats where they are put together (`SupportedSkillAt`, after the supports), so whatever merges a skill's
+stats with the character's reads it. The skill is named by its ActiveSkills Id or its GrantedEffects Id in snake case.
+
 A number that is set in stone once rolled is "unscalable" (`ModScaling`): the game marks it per stat (Stats
 `IsScalable`) and per line (Mods `IsUnscalable`), and the tables hold the same marks as rows the server reads
 (`fx_stats.unscalable`, `fx_lines`), so a new unique's line can be marked or an existing one opened up by a row; a mod
