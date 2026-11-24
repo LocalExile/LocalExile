@@ -687,7 +687,7 @@ All senders sit together at `0x142165c70`… and queue through `0x1421752b0`.
 | 0x16 | 5 + n | `0x1435ca938` / `0x141f97d70` | a Commands.dat command: u8 command (row + 1), u16 byte count + UTF-8 argument. The town popup's Destroy sends **9** (row 8 DestroyCursorItem, `/destroy`) | 0xbf cursor (the item is gone) |
 | 0x2d | 8 | `0x1435cacf0` / `0x141f96c30`, senders `0x142165e90` / `0x142165ee0` | inventory request, not mapped: u8, u32, u8 flag (0 / 1 by sender) | not handled |
 | 0x58 | 10 | `0x1435ca2c0` / `0x141f98f90` | use an item that needs no target (right-click): u32 inventory id, u32 item id, both big-endian | an Orb of Regret loses one item and adds one refund point (0xbf the stack, 0x33 the tree) |
-| 0x71 | 18 | not traced | use an item on an item (right-click it, then click the target): u32 inventory id, u32 item id of the used item, then of the target, all big-endian (live 2026-10-20); the first inventory id is a stash tab (e.g. 2053) when the currency is right-clicked in the open stash (live 2026-10-23): one is taken off that tab's stack; the target inventory id can be a stash tab too, e.g. the currency tab's crafting slot (live 2026-10-23: currency in its slot used on the item in the crafting slot, both inventory ids 2053). `ItemMoves.UseAcross`: the currency and the target saved together, one 0xbf per place changed (one for both when they share it) | a Scroll of Wisdom identifies the target (§2b); a Chromatic Orb uses the 3.29 rule (`CurrencyEffects.Chromatic`, below): one socket is forced non-white, the rest roll normally, gems and links stay: 0xbf with the stack and the target |
+| 0x71 | 18 | not traced | use an item on an item (right-click it, then click the target): u32 inventory id, u32 item id of the used item, then of the target, all big-endian (live 2026-10-20); the first inventory id is a stash tab (e.g. 2053) when the currency is right-clicked in the open stash (live 2026-10-23): one is taken off that tab's stack; the target inventory id can be a stash tab too, e.g. the currency tab's crafting slot (live 2026-10-23: currency in its slot used on the item in the crafting slot, both inventory ids 2053). `ItemMoves.Use`: the currency and the target saved together, one 0xbf per place changed (one for both when they share it) | a Scroll of Wisdom identifies the target (§2b); a Chromatic Orb uses the 3.29 rule (`CurrencyEffects.Chromatic`, below): one socket is forced non-white, the rest roll normally, gems and links stay: 0xbf with the stack and the target |
 | 0x72 | 23 | not traced | the held currency used again with **Shift** (the client keeps it on the cursor while the inventory has more, live 2026-10-21): u32 its BaseItemTypes HASH32 (the type, not an item), u32 inventory id and u32 item id of the target, all big-endian, then u32 0, u8 1, u8 0, u8 7, u16 2 (unknown) | as 0x71, with a stack of that type from the inventories (the main inventory first), then from the stash tabs |
 | 0x74 | 14 | `0x1435cac10` / `0x141f9ad60` | use an item on a **world object** (right-click it, then click the object, live 2026-11-17: a currency on a strongbox): u32 inventory id, u32 item id of the used item, u32 the object's id, all big-endian (`0074 00000001 0000000E 04000000`). No reply of its own, as for 0x71 | `MapStrongboxes`: on its box, the currency's change, 0xbf with the stack, the box removed and created again (same id) |
 | 0x4a | 14 | `0x1435ca0e8` / `0x141fa7300`, sender `0x142165f30` | the held item clicked **on an item** (§4a): u32 inventory id with HNC bits from bit 20 (mask `0xc00fffff`), u32 the clicked item's id, u8 flags (bit 2 = Shift; HNC bits 3-7), u8 (3), u16 (low byte first, differs every click, unknown) | a merge (0xbf the stack, 0xbf cursor), else a swap as 0x2a |
@@ -1101,7 +1101,7 @@ See [the game rules](../re/fracturing-mirror-mechanics.md).
 
 ### Mirror of Kalandra (2026-10-21, verified live; rules rechecked 2026-10-30)
 
-`CurrencyDuplicate`, same 0x71 / 0x72 messages (`MirrorItem`). Non-unique equipment, flasks and maps of tiers 1–16
+`CurrencyDuplicate`, same 0x71 / 0x72 messages (`UseItemOn`). Non-unique equipment, flasks and maps of tiers 1–16
 are eligible. Flask/map admission extends the native equipment-class rule; map tiers come from `MapKeys` or `Maps`.
 The target must be neither corrupted nor mirrored, on a supported non-`Unmodifiable` base with `Mods`.
 It is copied with every property (mods and values, fractured mods, quality, sockets, links, socketed gems, rarity,
@@ -1109,8 +1109,8 @@ identification and name); the copy is **mirrored** and goes onto the cursor (S�
 the player to place, the original stays unchanged. A held item, a corrupted or mirrored target, a unique item, a
 different item class (including jewels and currency), a map outside tiers 1–16, an unmodifiable base or an item without mods is refused and
 nothing is spent. A mirrored item takes no currency at all, including a Scroll of Wisdom; Reflective Oil is not
-modelled. The Mirror and the target can each be in a stash tab (`ItemMoves.MirrorAcross`): 0xbf on the Mirror's tab
-or inventory, then on the cursor; the target's place gets none.
+modelled. The Mirror and the target can each be in a stash tab (`ItemMoves.Use`, the copy as its held item): 0xbf on the
+Mirror's tab or inventory, then on the cursor; the target's place gets none.
 
 `Item.Mirrored` (saved) is sent as the Mods component's u16 flags bit 1 (`+0x2df`, a plain bool with no data after
 it): the client's crafting check refuses an item with it (`0x141d6c62b`); the tooltip shows

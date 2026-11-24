@@ -114,10 +114,11 @@ public class MirrorFlaskMapTests
         var items = Game.ItemsOf(c);
         const byte main = PlayerInventories.MainInventory;
         uint inventory = PlayerInventories.InventoryId(main);
+        // The key the server uses for this player's stash (it depends on the league catalog other tests may load).
+        string key = AccountStash.Key(c.Character.Account ?? name, c.Character.League);
         try
         {
             var stash = Game.StashOf(c);
-            Assert.Same(stash, AccountStash.For(name, Program.Items));
             var tabs = stash.Records(null, new HashSet<int>()).Where(t => t.Type is 0 or 1 && !t.Hidden && t.HiddenKey == 0).Select(t => t.Index).ToArray();
             int mirrorTab = tabs[0], targetTab = tabs[1];
             var mirror = ItemCatalog.Create(Program.Items.Find(CurrencyEffects.MirrorOfKalandra)!) with { StackSize = 2 };
@@ -158,9 +159,9 @@ public class MirrorFlaskMapTests
             await Use(inventory, invMirror.Id, stash.InventoryOf(targetTab), tabFlask.Id, 2);
             Assert.Equal(1, items.Items(main).Single(i => i.Id == invMirror.Id).Item.StackSize);
             PlayerInventories.Forget(name);
-            AccountStash.Forget(name);
+            AccountStash.Forget(key);
             var restored = PlayerInventories.For(name, Program.Items);
-            var restoredStash = AccountStash.For(name, Program.Items);
+            var restoredStash = AccountStash.For(key, Program.Items);
             Assert.Equal(3, restored.Items(main).Count(i => i.Item.Mirrored));
             Assert.Equal(1, restored.Items(main).Single(i => i.Item.TypeHash == mirror.TypeHash).Item.StackSize);
             Assert.DoesNotContain(restoredStash.Inventory(mirrorTab).Items, i => i.Item.TypeHash == mirror.TypeHash);
@@ -168,6 +169,6 @@ public class MirrorFlaskMapTests
             Assert.False(restoredFlask.Mirrored);
             Assert.Equal((source.TypeHash, source.Quality, source.ItemLevel), (restoredFlask.TypeHash, restoredFlask.Quality, restoredFlask.ItemLevel));
         }
-        finally { PlayerInventories.Forget(name); AccountStash.Forget(name); TestEnvironment.ReleaseSaves(save); }
+        finally { PlayerInventories.Forget(name); AccountStash.Forget(key); TestEnvironment.ReleaseSaves(save); }
     }
 }
