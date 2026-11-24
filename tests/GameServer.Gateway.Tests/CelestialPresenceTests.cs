@@ -12,28 +12,35 @@ namespace GameServer.Gateway.Tests;
 /// </summary>
 public class CelestialPresenceTests
 {
-    const string ConditionStat = "local_influence_mod_requires_celestial_boss_presence";
-
     [Fact]
-    public void Gated_mod_counts_only_while_a_pinnacle_boss_is_in_presence()
+    public void Pinnacle_presence_refreshes_equipped_resistance_at_the_radius_boundary()
     {
-        var items = Program.Items;
-        // This row's StatsKey* were verified in client.db (3.29.3c): StatsKey1 = 70 (attack_speed_+%),
-        // StatsKey2 = 15802 (the celestial condition stat).
-        var mod = items.Mods.All.Single(m => m.Id == "IncreasedAttackSpeedEldritchImplicitPinnaclePresence1");
-        Assert.Contains(mod.Stats, s => s.Name == ConditionStat);
-        var item = ItemCatalog.Create(items.Find("Iron Hat")!) with
+        var player = new Player(new(1, "presence", 100, 100, 100, 100, null, []), 1, 1)
         {
-            // The row's own values: attack_speed_+% 16 (Stat1Min = Stat1Max = 16) and the condition stat's 1.
-            Mods = [new(ModSection.Implicit, mod.Hash, [16, 1])],
+            Character = { Name = "Presence" + Guid.NewGuid().ToString("N") }, PlayerLife = 100
         };
-        uint key = Program.Stats.Key("attack_speed_+%")!.Value;
-        var absent = new StatConditions.Subject(Flags: new Dictionary<string, bool> { [StatConditions.CelestialBossInPresence] = false });
-        var present = new StatConditions.Subject(Flags: new Dictionary<string, bool> { [StatConditions.CelestialBossInPresence] = true });
-        Assert.Equal(0, ItemModStats.Global([item], items.Mods, Program.Stats, absent).GetValueOrDefault(key));
-        Assert.Equal(16, ItemModStats.Global([item], items.Mods, Program.Stats, present)[key]);
-        // A subject that does not answer presence leaves the mod as before.
-        Assert.Equal(16, ItemModStats.Global([item], items.Mods, Program.Stats)[key]);
+        player.Walk.Teleport(100, 100, 0);
+        var items = Program.Items;
+        var mod = items.Mods.All.Single(m => m.Id == "MaximumColdResistanceEldritchImplicitPinnaclePresence1");
+        var helmet = ItemCatalog.Create(items.Find("Iron Hat")!) with
+        {
+            Mods = [new(ModSection.Implicit, mod.Hash, [3, 1])],
+        };
+        Game.ItemsOf(player).Put(PlayerInventories.Helmet, new(42, 0, 0, helmet));
+        player.Pools = Game.PoolsFor(player, 100);
+        Game.EnsureConditionalItemPools(player);
+        Assert.Equal(75, player.Pools.ColdMaxResistance);
+
+        var boss = new SpawnedMonster("The Shaper", new(180, 100, 0), 60, 6, 100)
+        {
+            Variety = Game.Monsters.Find("Metadata/Monsters/AtlasBosses/TheShaperBoss"), Life = 100
+        };
+        player.Area.Monsters[900] = boss;
+        Game.EnsureConditionalItemPools(player);
+        Assert.Equal(78, player.Pools.ColdMaxResistance);
+        boss.Walk.Teleport(181, 100, 0);
+        Game.EnsureConditionalItemPools(player);
+        Assert.Equal(75, player.Pools.ColdMaxResistance);
     }
 
     [Fact]

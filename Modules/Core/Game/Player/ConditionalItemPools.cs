@@ -345,7 +345,8 @@ public static partial class Game
             state.CheckedTattooRevision = tattooRevision;
             state.CheckedLevel = level;
             state.CheckedGod = god;
-            state.HasConditionalMods = WornHasConditionalMods(player, current.Worn);
+            state.HasConditionalMods = current.Key.Flags?.ContainsKey(StatConditions.CelestialBossInPresence) == true
+                || WornHasConditionalMods(player, current.Worn);
             state.HasBeastCompanions = HasAnyBeastCompanionState(player)
                 || AllWornGrantedSkillsOf(player).Any(g => BeastSourceEligible(player, g));
         }
@@ -361,12 +362,13 @@ public static partial class Game
         state.AppliedOnslaughtEffect = onslaughtEffect;
         // After a Game-module reload the source marker is new but the connection's old final pools survive.
         // Rebuild conditional equipment on first observation instead of accepting an already-expired old bonus.
-        bool conditionalEquipment = before is null && current.Worn.Any(w => w.Item.Mods.Any(m =>
+        bool conditionalEquipment = before is null && (current.Key.Flags?.ContainsKey(StatConditions.CelestialBossInPresence) == true
+            || current.Worn.Any(w => w.Item.Mods.Any(m =>
             ItemsFor(player).Mods.ByHash(m.Hash)?.Stats.Any(s => !s.Local
                 && (s.Name.Contains("_if_", StringComparison.Ordinal)
                     || s.Name.Contains("_while_", StringComparison.Ordinal)
                     || StatConditions.IsActiveNonVaalSkillMinionCoefficient(s.Name)
-                    || OwnedCountItemStats.IsCoefficient(s.Id))) == true));
+                    || OwnedCountItemStats.IsCoefficient(s.Id))) == true)));
         bool sameHerEmbrace = (before?.Key.Flags?.GetValueOrDefault("_while_in_her_embrace") == true)
             == (current.Key.Flags?.GetValueOrDefault("_while_in_her_embrace") == true);
         if (!providersChanged && sameElusive && sameHerEmbrace && sameOnslaughtEffect

@@ -165,7 +165,7 @@ public static class ItemModStats
     static bool IsEffectStat(uint id) => id is ExplicitEffect or PrefixEffect or SuffixEffect;
 
     /// <summary>The Eldritch condition stat (Stats 15802, IsLocal): a mod carrying it with a nonzero value only
-    /// applies while a Pinnacle Boss is in the wearer's presence (1,362 Mods rows, always as StatsKey2, value 1).</summary>
+    /// applies while a Pinnacle Boss is in the wearer's presence (1,362 Mods rows, value 1).</summary>
     const uint RequiresCelestialBossPresence = Stat.LocalInfluenceModRequiresCelestialBossPresence;
 
     static bool RequiresCelestialPresence(ModCatalog.Mod row, ItemMod mod)
