@@ -130,6 +130,12 @@ public static partial class Game
             }
             bool aliveMonster = monster.Hostile && !monster.Dead && monster.Life > 0;
             bool inProfane = aliveMonster && InFlaskGround(player, FlaskGrounds.Kind.ProfaneGround, id);
+            // Aquamarine Flask's chilled ground: the same chill Arctic Armour's trail applies
+            // (ReservationSkills): 0.3 s at the stated 10% action-speed slow, re-applied every tick while
+            // the monster stands in it.
+            if (aliveMonster && InFlaskGround(player, FlaskGrounds.Kind.ChilledGround, id))
+                InflictedLocked(player, monster, monster.Ailments.WithoutDamage(MonsterElementalAilments.Kind.Chill,
+                    .3, now, _ => 0, n => monster.Mods.Effects[n], stated: 10));
             if (state.SetProfane(id, inProfane, aliveMonster, now, () => 1) is { } profane)
             {
                 if (profane.Added) player.Area.Buffs.Set(id, new(FlaskGrounds.ProfaneBuffRow, player.Id));

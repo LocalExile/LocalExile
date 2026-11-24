@@ -5,13 +5,14 @@ using GameServer.Core;
 /// Ground effects the player creates. Utility flasks leave them on use, from their implicit mods (Agents/docs/
 /// protocol/13-items.md §8a): Stibnite Flask's smoke cloud (local_smoke_ground_on_flask_use_radius 16), which blinds the
 /// enemies standing in it; Sulphur Flask's consecrated ground (local_consecrate_ground_on_flask_use_radius 18), on which
-/// the player regenerates life; Basalt Flask's taunt (local_flask_taunt_enemies_on_use_radius 30, 3 s). Rational
+/// the player regenerates life; Basalt Flask's taunt (local_flask_taunt_enemies_on_use_radius 30, 3 s); Aquamarine
+/// Flask's chilled ground (local_flask_chilled_ground_on_flask_use_radius), which chills the enemies standing in it. Rational
 /// Doctrine adds the stationary consecrated ground and the profane ground created on a critical strike. Radii are in
 /// cells. A flask ground lasts as long as the flask's effect: the tables do not give its own duration.
 /// </summary>
 public static class FlaskGrounds
 {
-    public enum Kind { SmokeCloud, ConsecratedGround, ProfaneGround, Taunt }
+    public enum Kind { SmokeCloud, ConsecratedGround, ProfaneGround, Taunt, ChilledGround }
 
     /// <summary>The flask's implicit stats that make something on use, by kind.</summary>
     static readonly (uint Stat, Kind Kind)[] OnUseStats =
@@ -19,6 +20,7 @@ public static class FlaskGrounds
         (Stat.LocalSmokeGroundOnFlaskUseRadius, Kind.SmokeCloud),
         (Stat.LocalConsecrateGroundOnFlaskUseRadius, Kind.ConsecratedGround),
         (Stat.LocalFlaskTauntEnemiesOnUseRadius, Kind.Taunt),
+        (Stat.LocalFlaskChilledGroundOnFlaskUseRadius, Kind.ChilledGround),
     ];
 
     /// <summary>What a use of a flask with these local stats makes, and its radius.</summary>
@@ -115,7 +117,7 @@ public static class FlaskGrounds
         var ids = ClientTables.Table("GroundEffectTypes").Select(r => r.Text("Id")).ToList();
         var e = ClientTables.Table("GroundEffects");
         foreach (var (kind, id) in new[] { (Kind.SmokeCloud, "Smoke"), (Kind.ConsecratedGround, "Consecration"),
-            (Kind.ProfaneGround, "Profane") })
+            (Kind.ProfaneGround, "Profane"), (Kind.ChilledGround, "Chilled") })
             foreach (var r in e)
                 if (r.IntOrNull("GroundEffectTypesKey") is int k && ids.ElementAtOrDefault(k) == id
                     && r.Int("__col1") == 0 && r.Int("__col2") == 2
