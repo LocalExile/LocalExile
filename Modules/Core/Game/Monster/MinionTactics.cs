@@ -85,8 +85,10 @@ public static partial class Game
     static void MinionTauntOnHitLocked(Player player, GolemState.Golem fighter, GolemState.Ability ability,
         IReadOnlyDictionary<uint, int> own, uint id, SpawnedMonster target, double now)
     {
-        int chance = GolemStat(own, Stat.MinionChanceToTauntOnHitPct);
-        if (ability.Effect == 136) chance += GolemStat(ability.Stats, Stat.ChanceToTauntOnHitPct);
+        var effects = fighter.Monster.Effects;
+        int chance = Math.Max(GolemStat(own, Stat.MinionChanceToTauntOnHitPct), effects[Stat.ChanceToTauntOnHitPct])
+            + GolemStat(ability.Stats, Stat.ChanceToTauntOnHitPct);
+        if (!ability.Attack.Spell) chance += effects[Stat.AttacksChanceToTauntOnHitPct];
         if (chance <= 0 || target.Effects[Stat.CannotBeTaunted] != 0
             || player.Summons.Definitions.GetValueOrDefault(fighter.Id) is { Targetable: false }
             || player.Minions.Random.Next(100) >= chance) return;

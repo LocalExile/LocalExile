@@ -170,9 +170,9 @@ public static partial class Game
                 && distance <= a.Attack.Range + LivingCollision.Size(target.M))
             .OrderByDescending(a => a.Cooldown > 0).ThenByDescending(a => a.Effect == 10800).FirstOrDefault();
         if (g.Definition.Kind == "Spectre"
-            && g.Abilities.FirstOrDefault(a => CanUseSpectreSummon(player, g, a, distance, now)) is { } summon)
+            && g.Abilities.FirstOrDefault(a => CanUseSpectreSummon(player, g, a, distance, now)) is { } summonAbility)
         {
-            GolemReserveLocked(player, g, summon, target.Key, target.M, target.At, now);
+            GolemReserveLocked(player, g, summonAbility, target.Key, target.M, target.At, now);
             return;
         }
         if (g.Definition.Kind == "Spectre"
@@ -624,6 +624,11 @@ public static partial class Game
             int Golem(uint name) => g.Monster.Mods.Effects[name] + GolemStat(a.Stats, name);
             target.Ailments.Inflict(mitigated, critical, target.MaxLife, now, Golem,
                 n => target.Mods.Effects[n], AreaRng(player));
+            if (damage > 0 && (Golem(Stat.FireExposureOnHitMagnitude) < 0 || Golem(Stat.ColdExposureOnHitMagnitude) < 0
+                || Golem(Stat.LightningExposureOnHitMagnitude) < 0))
+                ExposureOnHitLocked(target, Golem, mitigated, now, random);
+            if (damage > 0 && mitigated.MinTotal > 0 && Golem(Stat.ChanceToInflictSappedPct) > 0)
+                AlternateAilmentsOnHitLocked(target, mitigated.Scale(damage / mitigated.MinTotal), critical, now, Golem, random);
             HitDebuffsOnHitLocked(target, Golem, a.Attack.Spell, critical, now, AreaRng(player));
             InflictMonsterBlind(player, id, target, now, BlindHitInput.Capture(Golem), a.Attack.Spell, critical,
                 AreaRng(player));
