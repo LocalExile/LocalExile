@@ -17,6 +17,8 @@ public static class StationaryCollision
         public int BlockerSize(double? hull) => Blocking ? Math.Max(0, Size - 1) : hull > 0 ? 0 : -1;
     }
 
+    public static IReadOnlySet<uint> StaticPositionedTypes { get; private set; } = new HashSet<uint>();
+
     static Dictionary<string, Profile> Types = default!;
 
     static Dictionary<string, Profile> LoadTypes()
@@ -52,14 +54,19 @@ public static class StationaryCollision
     public static Dictionary<string, Profile> Load()
     {
         var result = new Dictionary<string, Profile>(StringComparer.Ordinal);
+        var positioned = new HashSet<uint>();
         foreach (var (type, t) in ObjectTypes.All())
         {
             if (t.BoolOrNull("positioned") != true) continue;
             int size = int.TryParse(t.TextOrNull("positioned_object_size"), out int n) ? n : 1;
+            bool isStatic = ObjectTypes.Flag(t, "positioned_static") == true;
+            if (isStatic && ObjectTypes.Components(t) is ["Positioned", ..] && !t.Texts("components").Contains("Sector"))
+                positioned.Add(GameServer.Core.Protocol.Instance.InstanceEntities.ObjectTypeHash(type));
             result[type] = new(Math.Max(1, size), ObjectTypes.Flag(t, "positioned_blocking") == true,
-                ObjectTypes.Flag(t, "positioned_static") == true, t.TextOrNull("animated_object"))
+                isStatic, t.TextOrNull("animated_object"))
                 { BlockingLeagueFlag = t.TextOrNull("positioned_block_league_flag") };
         }
+        StaticPositionedTypes = positioned;
         return result;
     }
 }

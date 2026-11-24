@@ -14,7 +14,7 @@ public static partial class Game
         public readonly object? Rules = rules;
         public double Until;
         public int Charges;
-        public ushort Buff, Skill;
+        public ushort Skill;
     }
     static readonly RuleTable<Player, VaalImmortalCallState> VaalImmortalCalls = new();
 
@@ -67,37 +67,40 @@ public static partial class Game
         state.Skill = skill;
         state.Until = now + Math.Max(0, duration);
         state.Charges = removable;
-        if (state.Buff == 0) state.Buff = player.NextBuff++;
+        player.Area.Buffs.Set(player.Id, VaalImmortalCallBuff(player, state, now));
         session.PresentCharges();
-        session.Packet(VaalImmortalCallPresentation(player, now),
-            $"Vaal Immortal Call {duration:0.###} s, {removable} Endurance Charge(s) removed");
+        Note($"Vaal Immortal Call {duration:0.###} s, {removable} Endurance Charge(s) removed");
     }
+
+    // The immortal call backend reads additional-data element 0 (the removed charge count), as Immortal Call's does.
+    // No skill-bar action: a Vaal skill's buff is presented with its source skill alone, as the Vaal auras' are.
+    static Buff VaalImmortalCallBuff(Player player, VaalImmortalCallState state, double now) =>
+        new(VaalImmortalCallBuffRow, player.Id, state.Skill,
+            U68: Buff.Seconds(state.Until - now),
+            List: [(uint)state.Charges]);
 
     public static byte[] VaalImmortalCallPresentation(Player player, double now)
     {
-        if (!VaalImmortalCalls.TryGetValue(player, out var state) || state.Buff == 0) return [];
-        // The immortal call backend reads additional-data element 0 (the removed charge count), as Immortal Call's does.
-        // No skill-bar action: a Vaal skill's buff is presented with its source skill alone, as the Vaal auras' are.
-        return InstanceEntities.AddBuff(player.Id, state.Buff, VaalImmortalCallBuffRow, player.Id, state.Skill,
-            u68: BitConverter.SingleToUInt32Bits((float)Math.Max(0, state.Until - now)),
-            list: [(uint)state.Charges]);
+        if (!VaalImmortalCalls.TryGetValue(player, out var state)
+            || !VaalImmortalCallCurrent(player, state) || now >= state.Until) return [];
+        return VaalImmortalCallBuff(player, state, now).Add(player.Id, 1);
     }
 
     // The buff ends with its duration, the area, a transfer or death: the icon goes and the state with it.
-    public static async Task VaalImmortalCallTick(Player player)
+    public static Task VaalImmortalCallTick(Player player)
     {
-        if (!VaalImmortalCalls.TryGetValue(player, out var state)) return;
-        if (VaalImmortalCallCurrent(player, state) && AreaTime(player) < state.Until) return;
+        if (!VaalImmortalCalls.TryGetValue(player, out var state)) return Task.CompletedTask;
+        if (VaalImmortalCallCurrent(player, state) && AreaTime(player) < state.Until) return Task.CompletedTask;
         VaalImmortalCalls.Remove(player);
-        var done = state.Buff == 0 ? null : state;
-        if (done is null) return;
-        await Send(player, InstanceEntities.RemoveBuff(player.Id, done.Buff), "Vaal Immortal Call ended");
+        player.Area.Buffs.Clear(player.Id, VaalImmortalCallBuffRow, player.Id);
+        return Task.CompletedTask;
     }
 
     /// <summary>A new area is a new connection: the leaving one forgets its buff.</summary>
     public static Task LeavingVaalImmortalCall(Player player)
     {
         VaalImmortalCalls.Remove(player);
+        player.Area.Buffs.Clear(player.Id, VaalImmortalCallBuffRow, player.Id);
         return Task.CompletedTask;
     }
 }

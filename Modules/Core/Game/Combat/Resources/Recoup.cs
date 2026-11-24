@@ -29,6 +29,11 @@ public static partial class Game
         get(Stat.RecoupEffectsApplyOver3SecondsInstead) != 0
             || get(Stat.RecoupLifeEffectsApplyOver3SecondsInstead) != 0 ? 3 : 4;
 
+    /// <summary>The Mana recoup window. "Recoup Effects instead occur over 3 seconds" covers every kind of recoup; the
+    /// stat has a Life-only form, which does not shorten this.</summary>
+    public static double ManaRecoupSeconds(Func<uint, int> get) =>
+        get(Stat.RecoupEffectsApplyOver3SecondsInstead) != 0 ? 3 : ManaRecoupState.RecoupSeconds;
+
     // A hit the player took (after block, mitigation and Fortification), in the area's frame: its recoup starts.
     public static void RecoupHitLocked(Player player, DamagePacket taken, double now,
         IReadOnlyDictionary<uint, int> stats)

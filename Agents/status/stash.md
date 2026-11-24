@@ -85,7 +85,8 @@ Part of [Status](../Status.md); what to build next in this area is in
 ## Partly working
 
 - Tab folders: Create New Folder, moving tabs in and out (C→S 0xd1) and Delete Folder (0xd2) are kept with the stash; a
-  deleted folder stays hidden so the later tabs keep their places (18 "C→S"). Checked offline; not yet in the real client.
+  deleted folder stays hidden so the later tabs keep their places, and S→C 0xd3 encodes guild stash affinity updates
+  (18 "C→S"). Checked offline; not yet in the real client.
 - Personal stash and gold are shared only within the same account and full league, including mode combinations.
   Guild stash storage is also league-scoped; Standard retains the legacy bank and other leagues use separate banks.
   SSF refuses guild opening, tab requests and inventory moves.
@@ -96,6 +97,9 @@ Part of [Status](../Status.md); what to build next in this area is in
 - **Crafting cells.** Delve crafting cells accept equipment, support swaps and retain their contents after reload.
   Lioneye's Watch now creates a guild stash beside its personal stash.
   Persistence checks pass; the real client opened the city guild stash and loaded its guild tab.
+- **Public tabs, item price notes and Blight oil withdrawal:** `C→S 0xcf` persists `TabFlags.Public` in `0x136`,
+  `C→S 0x1a1` saves item price notes (`Base` bit 4 `WStr32`), and `C→S 0xf5` withdraws Blight oils from stash.
+  Delve sockets (colour 6) now accept only Fossils and reject skill gems (offline verified; live client check pending).
 
 ## Not working yet
 

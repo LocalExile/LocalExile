@@ -26,6 +26,7 @@ public static class QuestObjectTypes
         /// <summary>Whether the .ot names its own model (Animated animated_object); one that does not takes the placing
         /// line's (the Aspirants' Plaza's LabyrinthAirlockPortal, LabyrinthAirlockPortal.ao in airlock.arm).</summary>
         public bool OwnModel { get; init; } = true;
+        public bool ActorOrChest => Components.Contains("Actor") || Components.Contains("Chest");
         public string? AnimatedModel { get; init; }
         /// <summary>The .ot's Positioned <c>static</c>: unless the object is sent with no static position (flags1 0x20),
         /// the client stamps its model's Hull into the walk grid when it creates it (0x141d8bd20).</summary>

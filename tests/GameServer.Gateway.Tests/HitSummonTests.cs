@@ -291,4 +291,150 @@ public sealed class HitSummonTests
         finally { Game.AreaUpdateContext.Value=outer; }
     }
 
+    [Fact]
+    public async Task Town_suppresses_persistent_summons_and_golems_without_wiping_saves()
+    {
+        using var f = new MinionUtilityTests.Fixture();
+        var ids = f.Equip(("Raise Zombie", 20), ("Summon Stone Golem", 20));
+        var zombieDef = Game.SummonData.Find("RaiseZombie")!;
+        var savedZombie = new SummonedMinions.Saved("RaiseZombie", ids[0], zombieDef.Variety, 1);
+        var savedGolem = new GolemState.Saved("SummonStoneGolem", ids[1], 1);
+        CharacterSaves.ChangeModuleData(f.Player.Character.Name!, "Game.SummonedMinions",
+            _ => System.Text.Json.JsonSerializer.Serialize(new[] { savedZombie }));
+        CharacterSaves.ChangeModuleData(f.Player.Character.Name!, "Game.Golems",
+            _ => System.Text.Json.JsonSerializer.Serialize(new[] { savedGolem }));
+
+        // Entering Town (1_1_town, 0x235c): summons and golems do not spawn, and saved data is preserved.
+        f.Player.Use(new AreaLayout(0x235c, "1_1_town", 1000, 1000, 100, 100, null, []));
+        f.Player.Summons.Restored = false;
+        f.Player.Golems.Restored = false;
+        await Game.SummonsTick(f.Player, 0);
+        await Game.GolemsTick(f.Player, 0);
+        Assert.Empty(f.Player.Summons.Fighters);
+        Assert.Empty(f.Player.Golems.All);
+        Assert.False(f.Player.Summons.Restored);
+        Assert.False(f.Player.Golems.Restored);
+        Game.SaveSummons(f.Player);
+        Game.SaveGolems(f.Player);
+        Assert.Single(System.Text.Json.JsonSerializer.Deserialize<SummonedMinions.Saved[]>(
+            CharacterSaves.Load(f.Player.Character.Name!)!.ModuleData!["Game.SummonedMinions"])!);
+        Assert.Single(System.Text.Json.JsonSerializer.Deserialize<GolemState.Saved[]>(
+            CharacterSaves.ModuleData(f.Player.Character.Name!, "Game.Golems")!)!);
+
+        // Entering Hideout / combat area: saved persistent minions and golems restore cleanly.
+        var hideout = HideoutCatalog.Default!;
+        f.Player.Use(new AreaLayout(hideout.AreaHash16, hideout.AreaId, 1000, 1000, 100, 100, null, []));
+        await Game.SummonsTick(f.Player, 1);
+        await Game.GolemsTick(f.Player, 1);
+        Assert.Single(f.Player.Summons.Fighters);
+        Assert.Single(f.Player.Golems.All);
+        Assert.True(f.Player.Summons.Restored);
+        Assert.True(f.Player.Golems.Restored);
+    }
+
+    [Fact]
+    public async Task Spectre_receives_spectral_buff_ownership_and_cosmetic_visual()
+    {
+        using var f = new MinionUtilityTests.Fixture();
+        var clock = new Clock { Time = 1 }; var outer = Game.AreaUpdateContext.Value;
+        Game.AreaUpdateContext.Value = new(Game.CombatLifetime!, clock);
+        string charName = f.Player.Character.Name ?? "animate";
+        uint gemHash = 0;
+        try
+        {
+            var sources = f.Equip(("Raise Spectre", 20), ("Raise Zombie", 20));
+            ushort spectreSource = sources[0], zombieSource = sources[1];
+            gemHash = Game.GemSkillEffects(f.Player).Single(g => g.Id == spectreSource).Gem;
+            var variety = Game.Monsters.Find("Metadata/Monsters/Zombies/Zombie")!;
+            f.Player.Area.Monsters[950] = new("corpse", new(100, 100, 0), 100, 3, 1000) { Hostile = true, Dead = true, Life = 0, Variety = variety };
+            var stygian = Assert.IsType<GameServer.Core.Protocol.Instance.InstanceMicrotransactions.Record>(Game.Mtx.ByHash(230254224u)); // MicrotransactionStygianRaiseSpectreSkin
+            CharacterSaves.SetSkillCosmetic(charName, gemHash, 0, new CharacterSaves.SavedCosmetic(stygian.Id, 0, stygian.MtxTypeHash));
+
+            ushort buffInstance = f.Player.Area.Buffs.Next;
+            uint spectreId = await Game.SummonFighter(f.Player, spectreSource, Game.SummonData.Find("RaiseSpectre")!, (100, 100), 950);
+            Assert.NotEqual(0u, spectreId);
+            var spectre = f.Player.Summons.Fighters[spectreId];
+            Assert.NotEqual(0, spectre.SpectreBuff);
+            f.Player.Area.Buffs.Publish();
+            var applied = Assert.IsType<Buff>(f.Player.Area.Buffs.Find(spectreId, buffInstance));
+            ushort stygianVisual = Assert.IsType<ushort>(applied.Visual);
+            Assert.Equal("stygian_spectres", GameServer.Core.ClientTables.Table("BuffVisuals").Row((int)stygianVisual)?.Text("Id"));
+
+            // Clearing the skill cosmetic restores default spectre_buff visual on live spectres.
+            CharacterSaves.SetSkillCosmetic(charName, gemHash, 0, null);
+            Game.RefreshSpectreCosmetics(f.Player, gemHash);
+            f.Player.Area.Buffs.Publish();
+            var reverted = Assert.IsType<Buff>(f.Player.Area.Buffs.Find(spectreId, buffInstance));
+            Assert.Null(reverted.Visual);
+
+            Assert.NotNull(Game.SentinelOwnershipPresentation(f.Player));
+            var entry = Assert.Single(f.Player.Summons.PresentedOwnership).Value;
+            Assert.Equal(spectreId, entry.Id);
+            Assert.Equal(spectreSource, entry.Source);
+            Assert.Equal((ushort)0, entry.Type); // MinionType.SpectreMinion == 0
+
+            uint zombieId = await Game.SummonFighter(f.Player, zombieSource, Game.SummonData.Find("RaiseZombie")!, (102, 100), restoredVariety: variety.Id);
+            Assert.NotEqual(0u, zombieId);
+            Assert.Equal(0, f.Player.Summons.Fighters[zombieId].SpectreBuff);
+            Assert.NotNull(Game.SentinelOwnershipPresentation(f.Player));
+            Assert.Equal((ushort)7, f.Player.Summons.PresentedOwnership[zombieId].Type); // MinionType.ZombieMinion == 7
+
+            Game.GolemDieLocked(f.Player, spectre, clock.Time);
+            Assert.Equal(0, spectre.SpectreBuff);
+            Assert.NotNull(Game.SentinelOwnershipPresentation(f.Player));
+            Assert.False(f.Player.Summons.PresentedOwnership.ContainsKey(spectreId));
+        }
+        finally
+        {
+            if (gemHash != 0) CharacterSaves.SetSkillCosmetic(charName, gemHash, 0, null);
+            Game.AreaUpdateContext.Value = outer;
+        }
+    }
+
+    [Fact]
+    public async Task Persistent_spectre_survives_player_death_and_populates_desecrate_bank()
+    {
+        using var f = new MinionUtilityTests.Fixture();
+        var clock = new Clock { Time = 1 }; var outer = Game.AreaUpdateContext.Value;
+        Game.AreaUpdateContext.Value = new(Game.CombatLifetime!, clock);
+        try
+        {
+            var sources = f.Equip(("Raise Spectre", 20), ("Desecrate", 20));
+            ushort spectreSource = sources[0], desecrateSource = sources[1];
+            var revenant = Game.Monsters.Find("Metadata/Monsters/Revenant/RevenantBoss")!;
+            f.Player.Area.Monsters[952] = new("corpse", new(100, 100, 0), 100, 3, 1000) { Hostile = true, Dead = true, Life = 0, Variety = revenant };
+            uint spectreId = await Game.SummonFighter(f.Player, spectreSource, Game.SummonData.Find("RaiseSpectre")!, (100, 100), 952);
+            Assert.NotEqual(0u, spectreId);
+            Assert.Contains(revenant.Id, f.Player.Summons.SpectreBank);
+            Game.SaveSummons(f.Player);
+
+            // Simulate two consecutive deaths + revives: guard.NextIndex must reset so the 2nd revive also restores.
+            for (int cycle = 0; cycle < 2; cycle++)
+            {
+                f.Player.PlayerLife = 0;
+                await Game.SummonsTick(f.Player, 2.0 + cycle * 2.0);
+                Assert.True(f.Player.Summons.LostPersistentOnDeath);
+                Assert.Empty(f.Player.Summons.Fighters);
+                Game.SaveSummons(f.Player);
+
+                f.Player.PlayerLife = 10000;
+                await Game.SummonsTick(f.Player, 3.0 + cycle * 2.0);
+                Assert.False(f.Player.Summons.LostPersistentOnDeath);
+                var restored = Assert.Single(f.Player.Summons.Fighters.Values);
+                Assert.Equal(revenant.Id, restored.Monster.Variety!.Id);
+                Assert.NotEqual(0, restored.SpectreBuff);
+            }
+
+            // Desecrate draws from persisted SpectreBank even after clearing active fighters/memory cache.
+            f.Player.Summons.Fighters.Clear();
+            f.Player.Area.Monsters.Clear();
+            f.Player.Summons.SpectreBank.Clear();
+            f.Player.Summons.SpectreBankLoaded = false;
+            bool ok = await Game.Desecrate(f.Player, desecrateSource, (100, 100), () => true, triggered: true);
+            Assert.True(ok);
+            Assert.Contains(f.Player.Area.Monsters.Values, m => m.Dead && m.Variety?.Id == revenant.Id);
+        }
+        finally { Game.AreaUpdateContext.Value = outer; }
+    }
+
 }

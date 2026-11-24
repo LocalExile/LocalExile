@@ -6,5 +6,6 @@
   "ssf": true,
   "entryOf": "Allflame",
   "entryKind": "ssf",
-  "description": "Plunder sunken treasures and harness the power of the Allflame. Solo Self-Found: no trading or parties."
+  "description": "Plunder sunken treasures and harness the power of the Allflame. Solo Self-Found: no trading or parties.",
+  "launchCategory": 59
 }

@@ -128,14 +128,19 @@ public static class ClientPathfinder
         public void ToTarget() => (minRange, maxRange) = (0, 0);
         readonly int _threshold = moverSize + 1, _objectRadius = 5 - 1 + moverSize;   // DAT_143a6ae58 = 5
         readonly int _vx = target.X - start.X, _vy = target.Y - start.Y;
+        readonly IBlockerQuery? _indexed = blockers as IBlockerQuery;
+        readonly bool _hasBlockers = blockers.Count > 0;
         // The coarse waypoints (goal first) and the path length from each to the target (DAT_1445c69c0 / 0x1445c69d8).
         readonly List<(int X, int Y)> _coarse = t_coarse ??= [];
         readonly List<float> _coarseLength = t_coarseLength ??= [];
 
-        bool InObjectAt(int x, int y) => ObjectBlocks(blockers, x, y, _threshold, _objectRadius);
+        bool InObjectAt(int x, int y) => _hasBlockers && (_indexed is not null
+            ? _indexed.Blocks(x, y, _threshold, _objectRadius)
+            : ObjectBlocks(blockers, x, y, _threshold, _objectRadius));
 
         bool LineInObject((int X, int Y) a, (int X, int Y) b)
         {
+            if (!_hasBlockers) return false;
             var cells = new LineCells(a, b);
             while (cells.Next(out int x, out int y))
                 if (InObjectAt(x, y)) return true;
@@ -180,17 +185,22 @@ public static class ClientPathfinder
             reached = false;
             var nodes = t_nodes ??= new Node[Window * Window];
             var heap = t_heap ??= [];
-            _coarse.Clear();
-            _coarseLength.Clear();
-            if (coarse) CoarsePass(nodes, heap);
+            bool hasCoarse = false;
+            if (coarse)
+            {
+                _coarse.Clear();
+                _coarseLength.Clear();
+                CoarsePass(nodes, heap);
+                hasCoarse = _coarse.Count > 0;
+            }
 
             heap.Clear();
             int gen = ++t_gen;
             float ellipse = MathF.Max(MathF.Min(MathF.Sqrt(_vx * _vx + _vy * _vy) * 2, 136f), 20f);
             int maxExpansions = limit switch { SearchLimit.Expansions1000 => 1000, SearchLimit.Expansions100 => 100, _ => -1 };
 
-            var origin = start;
-            int Index(int x, int y) => (x - origin.X + Half) * Window + (y - origin.Y + Half);
+            int sx = start.X, sy = start.Y;
+            int Index(int x, int y) => (x - sx + Half) * Window + (y - sy + Half);
             void Close(ref Node n)
             {
                 if (n.Gen != gen) { n.Gen = gen; n.Flags = 0; }
@@ -202,15 +212,16 @@ public static class ClientPathfinder
             s.Gen = gen;
             s.Flags = (byte)(!walkable(start.X, start.Y) || InObjectAt(start.X, start.Y) ? InObject : 0);
             s.Dir = NoParent;
-            s.Coarse = Progress(_coarse.Count == 0 ? (byte)0 : (byte)(_coarse.Count - 1), start);
+            s.Coarse = hasCoarse ? Progress((byte)(_coarse.Count - 1), start) : (byte)0;
             s.G = 0;
-            s.H = GuidedHeuristic(start.X, start.Y, s.Coarse);
+            s.H = hasCoarse ? GuidedHeuristic(start.X, start.Y, s.Coarse) : Heuristic(start.X, start.Y);
             s.F = s.H + 0f;
             Push(heap, si, s.F);
 
             (int X, int Y) best = (0, 0), end = (0, 0);
             float bestH = float.MaxValue;
             int expansions = 0;
+            bool isPlayer = limit == SearchLimit.Player;
             while (heap.Count > 0)
             {
                 var (ci, cf) = Pop(heap);
@@ -227,38 +238,57 @@ public static class ClientPathfinder
                 }
                 if (maxExpansions >= 0 && ++expansions > maxExpansions) break;
                 Close(ref c);
+                bool cInObj = (c.Flags & InObject) != 0;
                 for (int d = 0; d < 8; d++)
                 {
                     int nx = cx + Dirs[d].X, ny = cy + Dirs[d].Y;
-                    uint wx = (uint)(nx - start.X + Half), wy = (uint)(ny - start.Y + Half);
+                    uint wx = (uint)(nx - sx + Half), wy = (uint)(ny - sy + Half);
                     if (wx >= Window || wy >= Window) continue;
                     int ni = (int)wx * Window + (int)wy;
                     ref var n = ref nodes[ni];
-                    if (n.Gen == gen && (n.Flags & Closed) != 0) continue;
-                    if (limit == SearchLimit.Player)
+                    if (n.Gen == gen)
+                    {
+                        if ((n.Flags & Closed) != 0) continue;
+                        // Already opened in this generation: ellipse, walkable, InObject and (without coarse) H are invariant.
+                        bool nInObj = (n.Flags & InObject) != 0;
+                        if (nInObj && !cInObj) { n.Flags |= Closed; continue; }
+                        float ng = c.G + (nInObj ? 21f : d < 4 ? 1f : 1.4142f);
+                        if (!(ng < n.G)) continue;
+                        if (hasCoarse)
+                        {
+                            byte nProgress = Progress(c.Coarse, (nx, ny));
+                            n.Coarse = nProgress;
+                            n.H = GuidedHeuristic(nx, ny, nProgress);
+                        }
+                        n.G = ng;
+                        n.F = n.H + ng;
+                        n.Dir = Reverse[d];
+                        Push(heap, ni, n.F);
+                        continue;
+                    }
+                    if (isPlayer)
                     {
                         int tx = nx - target.X, ty = ny - target.Y, ox = nx - start.X, oy = ny - start.Y;
                         if (!(ellipse > MathF.Sqrt(tx * tx + ty * ty) + MathF.Sqrt(ox * ox + oy * oy))) continue;
                     }
-                    if (!walkable(nx, ny)) { Close(ref n); continue; }
+                    if (!walkable(nx, ny)) { n.Gen = gen; n.Flags = Closed; continue; }
                     bool penalty = false;
                     if (InObjectAt(nx, ny))
                     {
                         // Only a walker already inside an object's footprint may cross others (cost 21 a cell).
-                        if ((c.Flags & InObject) == 0) { Close(ref n); continue; }
+                        if (!cInObj) { n.Gen = gen; n.Flags = Closed; continue; }
                         penalty = true;
                     }
                     float g = c.G + (penalty ? 21f : d < 4 ? 1f : 1.4142f);
-                    if (n.Gen == gen && !(g < n.G)) continue;
-                    byte progress = Progress(c.Coarse, (nx, ny));
-                    float h = GuidedHeuristic(nx, ny, progress);
-                    if (n.Gen != gen) { n.Gen = gen; n.Flags = 0; }
+                    byte progress = hasCoarse ? Progress(c.Coarse, (nx, ny)) : (byte)0;
+                    float h = hasCoarse ? GuidedHeuristic(nx, ny, progress) : Heuristic(nx, ny);
+                    n.Gen = gen;
+                    n.Flags = penalty ? InObject : (byte)0;
                     n.Coarse = progress;
                     n.G = g;
                     n.H = h;
                     n.F = h + g;
                     n.Dir = Reverse[d];
-                    if (penalty) n.Flags |= InObject;
                     Push(heap, ni, n.F);
                 }
             }
@@ -409,6 +439,19 @@ public static class ClientPathfinder
     {
         var cells = new LineCells(a, b);
         while (cells.Next(out int x, out int y)) yield return (x, y);
+    }
+
+    /// <summary>The cells of <see cref="Line"/> after <paramref name="a"/>, directly into an array with no iterator.</summary>
+    internal static (int X, int Y)[] LineRest((int X, int Y) a, (int X, int Y) b)
+    {
+        var cells = new LineCells(a, b);
+        if (!cells.Next(out _, out _)) return [];
+        int count = Math.Max(Math.Abs(b.X - a.X), Math.Abs(b.Y - a.Y));
+        if (count == 0) return [];
+        var result = new (int X, int Y)[count];
+        int i = 0;
+        while (cells.Next(out int x, out int y)) result[i++] = (x, y);
+        return result;
     }
 
     // The cells of Line one at a time, with no iterator object: a search's line tests walk thousands of short lines

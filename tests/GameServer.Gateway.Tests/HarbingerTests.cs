@@ -1,3 +1,4 @@
+using GameServer.Core.Projectiles;
 using System.Buffers.Binary;
 using System.Net;
 using System.Net.Sockets;
@@ -422,6 +423,23 @@ public sealed class HarbingerTests
         player.Pools = Game.PoolsFor(player, 75);
         player.PlayerLife = player.PlayerMaxLife;
         instance.World.Runner = player;
+        var clock = new HarbingerClock();
+        var previousClock = Game.AreaUpdateContext.Value;
+        Game.AreaUpdateContext.Value = new(lifetime, clock);
+        var projectiles = new Game.ProjectileSession(player);
+        player.ProjectileRuntimeState = projectiles;
+
+        async Task Tick(double seconds)
+        {
+            clock.At += seconds;
+            projectiles.AdvanceTo(ProjectileRuntime.Time(clock.At));
+            await MapHarbinger.Tick(player, seconds);
+            var written = new TaskCompletionSource(TaskCreationOptions.RunContinuationsAsynchronously);
+            projectiles.Enqueue(() => { written.SetResult(); return Task.CompletedTask; });
+            await Task.WhenAny(written.Task, projectiles.OutputCompleted);
+            Assert.True(written.Task.IsCompletedSuccessfully, "The encounter's queued projectile output drained.");
+        }
+
         try
         {
             // Seed two deterministic encounters:
@@ -476,17 +494,17 @@ public sealed class HarbingerTests
 
             // 1. Repeat-wave summoning (skill_repeat_count = 2 => 3 sub-waves per activation).
             player.Walk.Teleport(152, 150, 0);
-            await MapHarbinger.Tick(player, 0.2);
+            await Tick(0.2);
             king = Encounters()[0];
             int wave1 = king.Minions.Count;
             Assert.InRange(wave1, 1, 10);
 
-            await MapHarbinger.Tick(player, 0.4); // sub-wave 2 (repeat 1)
+            await Tick(0.4); // sub-wave 2 (repeat 1)
             king = Encounters()[0];
             int wave2 = king.Minions.Count;
             Assert.True(wave2 > wave1, $"Expected repeat sub-wave 2 to add minions ({wave1} -> {wave2})");
 
-            await MapHarbinger.Tick(player, 0.4); // sub-wave 3 (repeat 2)
+            await Tick(0.4); // sub-wave 3 (repeat 2)
             king = Encounters()[0];
             int wave3 = king.Minions.Count;
             Assert.True(wave3 > wave2, $"Expected repeat sub-wave 3 to add minions ({wave2} -> {wave3})");
@@ -504,17 +522,17 @@ public sealed class HarbingerTests
 
             // An immune player is not cursed, and is cursed again once the immunity ends.
             player.Immune = true;
-            await MapHarbinger.Tick(player, 0.01);
+            await Tick(0.01);
             Assert.Empty(MapHarbinger.PlayerStats(player, []));
             player.Immune = false;
-            await MapHarbinger.Tick(player, 0.01);
+            await Tick(0.01);
             Assert.NotEmpty(MapHarbinger.PlayerStats(player, []));
 
             // 3. Advance ticks so King Harbinger, Avatar6, helpers (FireMortar, BeamCannon, ActionSpeedAura) and
             //    Empowered Obelisks (Scarab2 BallLightning, Scarab4 WarpFlame) cast their real skills.
             uint lifeBefore = player.PlayerLife;
             for (int step = 0; step < 12; step++)
-                await MapHarbinger.Tick(player, 0.5);
+                await Tick(0.5);
 
             // Verify King Harbinger warped away from its initial (150, 150) cell near its anchor.
             var kingPos = player.Area.Monsters[king.Monster].Walk.Position(Game.AreaTime(player));
@@ -537,7 +555,7 @@ public sealed class HarbingerTests
             var ob3Body = player.Area.Monsters[ob3];
             ob3Body.Life = 0; ob3Body.Dead = true;
             MapHarbinger.Kill(new(player, ob3Body, ob3Body.Variety!.Id, (158, 152)));
-            await MapHarbinger.Tick(player, 0.1);
+            await Tick(0.1);
             Assert.Equal(0, sampleMinion.Effects[Stat.BaseDamageTakenPlusPct]);
             Assert.DoesNotContain(sampleMinion.TemporaryStats.Keys, k => k.StartsWith($"harbinger:obelisk:{ob3}:", StringComparison.Ordinal));
 
@@ -547,6 +565,8 @@ public sealed class HarbingerTests
             Assert.Empty(afterLeave);
 
             // 6. Verify real 0x1ab action packets were emitted on the decrypted wire for Harbinger, helpers, and spell obelisks.
+            projectiles.Invalidate();
+            await projectiles.OutputCompleted;
             byte[] captured = await wire.FinishAndCaptureAsync();
             Assert.True(WireContainsAction0x1ab(captured, king.Monster), "Expected 0x1ab for King Harbinger");
             Assert.True(WireContainsAction0x1ab(captured, m1), "Expected 0x1ab for AvatarAtlasMinion1 (AvatarFireMortarAtlas)");
@@ -557,6 +577,9 @@ public sealed class HarbingerTests
         }
         finally
         {
+            projectiles.Invalidate();
+            await projectiles.OutputCompleted;
+            Game.AreaUpdateContext.Value = previousClock;
             tankHook.Dispose();
             MapHarbinger.Leave(player);
             PlayerInventories.Forget(player.Character.Name!);
@@ -564,6 +587,17 @@ public sealed class HarbingerTests
             Game.CombatLifetime = previousLifetime;
             Program.SetGameLogic(previousLogic!);
             TestEnvironment.ReleaseOwnSaves();
+        }
+    }
+
+    sealed class HarbingerClock : IPlayerUpdateSchedule
+    {
+        public double At;
+        public double Now(Player player) => At;
+        public Task Wait(int milliseconds, CancellationToken stopping)
+        {
+            stopping.ThrowIfCancellationRequested();
+            return Task.CompletedTask;
         }
     }
 }

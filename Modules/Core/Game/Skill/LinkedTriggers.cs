@@ -10,6 +10,7 @@ public static partial class Game
         public readonly int Epoch = epoch;
         public readonly object? Rules = rules;
         public readonly Dictionary<int, double> ReadyAt = [];
+        public Dictionary<ushort, ManaforgedProgress>? Manaforged;
         public readonly Dictionary<(uint Host, int Group, string Family), (LinkedTriggerSource Source, int Next)> Rotation = [];
     }
     static readonly Store<Player, LinkedTriggerState> LinkedTriggers = new();
@@ -69,11 +70,13 @@ public static partial class Game
         return ReleaseLinkedSpell(player, session, source, "CoMK", aim, at, Stat.CastSpellOnLinkedMeleeKill);
     }
 
+    // rotation: the host and group the cycle over the spells belongs to, when it is not the driving gem's own socket
+    // group (an item's trigger cycles for the item: ReleaseItemCriticalTrigger).
     static bool ReleaseLinkedSpell(Player player, ProjectileSession session, LinkedTriggerSource source,
-        string family, (int X, int Y) aim, double at, uint spellFlag)
+        string family, (int X, int Y) aim, double at, uint spellFlag, (uint Host, int Group)? rotation = null)
     {
         var state = LinkedTriggersOf(player);
-        var key = (source.Gem.Host, source.Gem.Group, family);
+        var key = (rotation?.Host ?? source.Gem.Host, rotation?.Group ?? source.Gem.Group, family);
         bool Same(LinkedTriggerSource a, LinkedTriggerSource b) => SameTriggerSource(a.Gem, b.Gem)
             && a.Spells.Length == b.Spells.Length && a.Spells.Zip(b.Spells)
                 .All(p => p.First.Skill == p.Second.Skill && SameTriggerSource(p.First.Gem, p.Second.Gem));

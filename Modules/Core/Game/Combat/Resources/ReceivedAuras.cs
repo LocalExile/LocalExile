@@ -77,6 +77,14 @@ public static partial class Game
             .ToArray();
         var values = AuraCatalog.RawStats(auras, 0, skills, Stats).ToDictionary(p => p.Key, p => p.Value);
         WithTemporaryAuraStats(auras, 0, values);
+        if (minion.Monster is { } monster && MinionWarcryGrants.TryGetValue(monster, out var cries))
+        {
+            double now = AreaTime(player);
+            for (int i = cries.Count - 1; i >= 0; i--)
+                if (cries[i].Until <= now || monster.Dead) cries.RemoveAt(i);
+            if (cries.Count == 0) MinionWarcryGrants.Remove(monster);
+            else AddWarcryStats(cries, player.Area, now, values);
+        }
         if (MinionIntimidatingCryMovement(player, minion.Monster) is > 0 and var cryMovement)
             values[Stat.BaseMovementVelocityPlusPct] = ActorScale.Saturate((long)values.GetValueOrDefault(Stat.BaseMovementVelocityPlusPct)
                 + cryMovement);
@@ -100,6 +108,8 @@ public static partial class Game
         Add(Stat.BasePhysicalDamageReductionRating, bonus.Armour);
         Add(Stat.DeterminationAuraArmourPlusPctFinal, bonus.ArmourMorePct);
         Add(Stat.BaseEvasionRating, bonus.Evasion); Add(Stat.GraceAuraEvasionRatingPlusPctFinal, bonus.EvasionMorePct);
+        var fortAlly = MinionAllyFortificationLocked(player, minion, minion.Monster?.Walk.Position(AreaTime(player)) ?? player.Walk.Position(AreaTime(player)), AreaTime(player));
+        Add(Stat.BaseCriticalStrikeMultiplierPlus, fortAlly.KingmakerCritMulti);
         return values;
     }
 }

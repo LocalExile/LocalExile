@@ -33,6 +33,10 @@ public static partial class MapStrongboxes
         public RolledMod[] Mods { get; init; } = [];
         /// <summary>No currency changes it any more (<c>map_strongboxes_are_corrupted</c>, a Vaal Orb).</summary>
         public bool Corrupted { get; init; }
+        /// <summary>The earliest the items drop (UTC ticks): the daemons' finish (<see cref="DropFrames"/>), never
+        /// before a summon wave the daemons still owe. The drop still waits for every guard to die. 0 for a box whose
+        /// mods do not delay the drop (<c>chest_delay_drops_until_daemons_finish</c>).</summary>
+        public long DropAtTicks { get; init; }
         /// <summary>A unique box's UniqueChests Id (<see cref="StrongboxCatalog.Uniques"/>); its mods are in <see cref="Mods"/>.</summary>
         public string? Unique { get; init; }
         /// <summary>Optional pack-pool area id for guard spawns in biome-populated instances where <c>Packs.For(Layout.Id)</c> is empty.</summary>
@@ -63,6 +67,9 @@ public static partial class MapStrongboxes
         public List<Box>? Boxes;
         // Each box as the area's clients were last shown it (its object is the area's, created once per change).
         public readonly Dictionary<uint, Box> Shown = [];
+        /// <summary>The closed glow each box wears (box id → effect id and art): the object is the area's, created once
+        /// and shown to every client (a per-viewer copy doubled the glow in a party).</summary>
+        public readonly Dictionary<uint, (uint Id, string Art)> Worn = [];
         /// <summary>The daemons' ground effects (StrongboxDaemonSpells.cs).</summary>
         public readonly List<Zone> Zones = [];
     }
@@ -143,12 +150,45 @@ public static partial class MapStrongboxes
         return StrongboxCatalog.Roll(level, hardMode, mods, random);
     }
 
-    public static IReadOnlyList<(int X, int Y)> Positions(AreaLayout layout, uint seed, int count)
+    public static IReadOnlyList<(int X, int Y)> Positions(AreaLayout layout, uint seed, int count) =>
+        Positions(layout, seed, count, preferAmbushPoints: true);
+
+    public static IReadOnlyList<(int X, int Y)> Positions(AreaLayout layout, uint seed, int count, bool preferAmbushPoints)
     {
         if (count <= 0 || layout.Walkable is not { } walk) return [];
         var reach = AreaPopulation.Reachable(layout.GridW, layout.GridH, walk, (layout.SpawnX, layout.SpawnY));
         if (reach is null) return [];
         var random = new Random(unchecked((int)(seed ^ 0x414d4255)));
+        var result = new List<(int X, int Y)>();
+        // Prefer authored .arm AmbushPoint / AmbushPointSmall markers when present in the generated layout.
+        if (preferAmbushPoints && layout.Level?.RoomObjects is { Count: > 0 } roomObjects)
+        {
+            var markers = new List<(int X, int Y)>();
+            foreach (var o in roomObjects)
+            {
+                if (!o.Type.Equals("Metadata/MiscellaneousObjects/AmbushPoint", StringComparison.OrdinalIgnoreCase)
+                    && !o.Type.Equals("Metadata/MiscellaneousObjects/AmbushPointSmall", StringComparison.OrdinalIgnoreCase))
+                    continue;
+                var spot = (uint)o.X < (uint)layout.GridW && (uint)o.Y < (uint)layout.GridH && layout.WalkableFor(o.X, o.Y, 2)
+                    ? (X: o.X, Y: o.Y) : layout.Near((o.X, o.Y));
+                if ((uint)spot.X >= (uint)layout.GridW || (uint)spot.Y >= (uint)layout.GridH || !reach[spot.Y * layout.GridW + spot.X]) continue;
+                if (MapSulphite.Distance(spot, (layout.SpawnX, layout.SpawnY)) < 45
+                    || layout.AreaTransitions.Any(t => MapSulphite.Distance(spot, (t.Transition.GridX, t.Transition.GridY)) < 30))
+                    continue;
+                markers.Add(spot);
+            }
+            for (int i = markers.Count - 1; i > 0; i--)
+            {
+                int j = random.Next(i + 1);
+                (markers[i], markers[j]) = (markers[j], markers[i]);
+            }
+            foreach (var p in markers)
+            {
+                if (result.Count >= count) break;
+                if (result.All(other => MapSulphite.Distance(p, other) >= 30)) result.Add(p);
+            }
+            if (result.Count >= count) return result;
+        }
         var candidates = new List<(int X, int Y)>();
         for (int y = 3; y < layout.GridH - 3; y += 7)
             for (int x = 3; x < layout.GridW - 3; x += 7)
@@ -161,7 +201,6 @@ public static partial class MapStrongboxes
             int j = random.Next(i + 1);
             (candidates[i], candidates[j]) = (candidates[j], candidates[i]);
         }
-        var result = new List<(int X, int Y)>();
         foreach (var p in candidates)
         {
             if (result.Count >= count) break;
@@ -175,6 +214,12 @@ public static partial class MapStrongboxes
     static IEnumerable<Player> Members(Player player) => player.Instance.PlayersExcept(player.Id)
         .Prepend(player)
         .Where(p => !p.Closed && !p.LeavingArea && p.Instance == player.Instance).Distinct();
+
+    /// <summary>A player still in the instance who can carry a deferred presentation send: the opener, else any member.
+    /// A callback keyed to the opener must not be lost when the opener leaves within the clip, and the effect objects
+    /// and the opened box belong to the area, not to one client.</summary>
+    static Player? Survivor(Player player) =>
+        player.Instance is null ? null : Members(player).FirstOrDefault(p => p.Connection.PlayerSent);
 
     public readonly record struct SpawnRequest(int X, int Y, StrongboxCatalog.Contents? Kind, int Level, MapMods Mods, string? PackArea = null);
 
@@ -343,18 +388,143 @@ public static partial class MapStrongboxes
         if (!area.Shown.TryGetValue(box.Id, out var was) || !ReferenceEquals(was, box))
         {
             if (was is not null) await SendWorldRemoval(player, box.Id, null);
+            // Chest bit 1 is the box's activated flag: the client plays a trap mod's warning sound (chest_play_warning_sound)
+            // and drops the nameplate. Set only once the box is open — a closed box created with it showed no label at all
+            // (live 2026-11-22).
+            byte chestFlags = ChestFlags(player, type, box);
             await SendWorldCreate(player, box.Id,
                 InstanceEntities.CreateObject(box.Id, InstanceEntities.ObjectTypeHash(type.Id),
-                    StrongboxCatalog.Blob(type, box.X, box.Y, box.Phase > 0, box.Phase == 2, box.Rarity,
+                    StrongboxCatalog.Blob(type, box.X, box.Y, box.Phase > 0, box.Phase > 0, box.Rarity,
                         box.Mods.Length > 0 ? [.. type.Mods, .. box.Explicits] : null, null,
-                        box.Unique is { } unique ? StrongboxCatalog.FindUnique(unique) : null)),
+                        box.Unique is { } unique ? StrongboxCatalog.FindUnique(unique) : null, chestFlags)),
                 $"strongbox 0x{box.Id:x} {Label(player, box)} phase={box.Phase} cycle={box.Cycle} at ({box.X}, {box.Y})");
             await SendWorldRecord(player, box.Id, InstanceProtocol.EnterWakeZone(box.Id), null);
             area.Shown[box.Id] = box;
         }
         // The box blocks each player's own walk.
-        player.SetBlocker(box.Id, box.X, box.Y, 1);
+        player.SetObjectBlocker(box.Id, box.X, box.Y, 1, true);
         shown.Add(box.Id);
+        await Wear(player, box);
+    }
+
+    /// <summary>The Chest component's extra flags for this box: bit 1 (0x02) once it is open, when one of its mods carries
+    /// <c>chest_play_warning_sound</c> — the client plays the trap mod's warning then (and shows no nameplate). A closed
+    /// box carries none, whatever its mods.</summary>
+    static byte ChestFlags(Player player, StrongboxCatalog.Definition type, Box box) =>
+        box.Phase > 0 && StrongboxMods.Stat(ItemsFor(player).Mods, type, box.Explicits, "chest_play_warning_sound") != 0
+            ? (byte)0x02 : (byte)0;
+
+    /// <summary>The rarity's looping glow on a closed box, and none on an opened one: the ChestEffects row's
+    /// <c>…_Closed_AOFile</c> (white/blue/gold/brown for normal/magic/rare/unique; their default animation is "loop") is
+    /// an effect object at the box, replaced or removed whenever the box is presented again. Without it every box looks
+    /// alike — the client never wears it by itself, and the base model is the same for all rarities.</summary>
+    static async Task Wear(Player player, Box box)
+    {
+        if (!Areas.TryGetValue(player.Instance, out var area)) return;
+        string? art = box.Phase != 0 || StrongboxCatalog.Find(box.Type) is not { } type
+            ? null : StrongboxCatalog.ClosedEffect(type, box.Rarity);
+        if (area.Worn.TryGetValue(box.Id, out var worn))
+        {
+            if (worn.Art == art) return;
+            area.Worn.Remove(box.Id);
+            await SendWorldRemoval(player, worn.Id, null);
+        }
+        if (art is null) return;
+        uint id = player.TakeObjectId();
+        await SendWorldCreate(player, id, InstanceEntities.CreateObject(id,
+            InstanceEntities.ObjectTypeHash(EffectObject.TypePath), new EffectObject(box.X, box.Y, art).Blob()),
+            $"strongbox 0x{box.Id:x} closed glow {art}");
+        await SendWorldRecord(player, id, InstanceProtocol.EnterWakeZone(id), null);
+        area.Worn[box.Id] = (id, art);
+    }
+
+    /// <summary>The client's summoned-monster effect (MiscAnimated <c>SummonedMonsterEffect</c>): a dust column whose
+    /// one-shot "animate" clip (4958 ms, `.amd`) starts the spawn sounds, which the client files under the chests'
+    /// trap triggers (Audio/…/Chests/TrapTrigger/MonsterSpawn/Spawn_$(#).ogg and Layer_$(#).ogg) — the effect the
+    /// official game plays where a chest's monsters appear. Nothing creates it for a monster the server spawns, so the
+    /// guards of a strongbox appear with it.</summary>
+    const string SummonEffectAo = "Metadata/Effects/Environment/chests/Strongboxes/chestsummon.ao";
+    const double SummonEffectSeconds = 5;
+
+    /// <summary>The spawn column and its sound at a cell, removed when its 5 s clip is over.</summary>
+    static async Task SummonEffect(Player player, int x, int y)
+    {
+        uint id = player.TakeObjectId();
+        await SendWorldCreate(player, id, InstanceEntities.CreateObject(id,
+            InstanceEntities.ObjectTypeHash(EffectObject.TypePath), new EffectObject(x, y, SummonEffectAo).Blob()),
+            $"summoned monster effect at ({x}, {y})");
+        await SendWorldRecord(player, id, InstanceProtocol.EnterWakeZone(id), null);
+        await SendWorldRecord(player, id, InstanceProtocol.AnimationUpdate(id, 0, 0, 1),
+            "summoned monster effect: the spawn sounds");
+        SendAfter(player, SummonEffectSeconds, async () =>
+        {
+            if (Survivor(player) is not { } viewer) return;
+            await SendWorldRemoval(viewer, id, null);
+        });
+    }
+
+    /// <summary>The box's "open" clip's length (its .amd: 1166 ms) and a margin: after it the box is presented opened.</summary>
+    const double OpenClipSeconds = 1.2;
+
+    /// <summary>How long the open effect object lives: its "openfx" clip is 166 ms (the animation metadata), and the
+    /// particle bursts it starts need a little longer to play out.</summary>
+    const double OpenEffectSeconds = 2;
+
+    /// <summary>A box's opening, on the object <see cref="Present"/> made. The box's .ao declares one animation, "open"
+    /// (Art/Models/Chests/Strongboxes/<c>&lt;box&gt;.amd</c>: <c>1 "open" once 1166</c>), whose SoundEvents are the
+    /// model's own lid sounds (Small_Open, Large_Open, Armoury_Open, Ornate_Open, SB_Open, or a unique box's
+    /// Kaoms/Malachais/Pendarus). The client's chest code looks the clip up by name when the opened flag changes
+    /// (<c>0x141e17130</c>, Chest vtable +0xc0), but live that lookup resolves to nothing for these objects; selecting
+    /// clip index 0 fires the sounds. The Chest component itself has no 0x2bc reader (slot 20 is <c>ret</c>), so the
+    /// opened flag only reaches the client in a created object: when the clip ends the box is presented again, opened
+    /// and without its nameplate. The StateMachine's opened state hides the marker at once (the .ot's
+    /// <c>on_or_create_state_opened_1</c>). The ChestEffects row's open effect
+    /// (<see cref="StrongboxCatalog.OpenEffect"/>, by rarity) is created at the box and its own default "openfx" clip
+    /// started, as the Delve effects start theirs: its SoundEvents are the open swoosh and it starts its particles.</summary>
+    static async Task OpenPresentation(Player player, Box box)
+    {
+        if (StrongboxCatalog.Find(box.Type) is not { } type) return;
+        if (type.Components.ToList().IndexOf("StateMachine") is int machine and >= 0 && type.States is { } states)
+            await SendWorldRecord(player, box.Id,
+                InstanceEntities.StateMachineUpdate(box.Id, (byte)machine, states.Set("started", 1).Set("opened", 1)),
+                $"strongbox 0x{box.Id:x} opened state (the marker hides)");
+        // The clip itself: the opened flag alone does not start it. Index 0 is the .ao's only animation, "open", and
+        // playing it is what fires the model's SoundEvents (live: the lid's creak, 0 s and 0.52 s).
+        await SendWorldRecord(player, box.Id, InstanceProtocol.AnimationUpdate(box.Id, 0, 0, 1),
+            $"strongbox 0x{box.Id:x} plays its open clip (lid sound)");
+        await Wear(player, box);
+        // The opened flag only arrives in a created object: once the clip has played, present the box opened, which
+        // drops its nameplate (and the marker, should the state script not). Any live member carries the send: the opener
+        // may have left within the clip, and the box is the area's.
+        SendAfter(player, OpenClipSeconds, async () =>
+        {
+            if (player.Instance is null) return;
+            // The area's shown/worn state is the gate's: the clip's callback runs outside the opening's own gate.
+            var area = Areas.GetOrCreateValue(player.Instance);
+            await area.Gate.WaitAsync();
+            try
+            {
+                if (Survivor(player) is not { } viewer) return;
+                if (area.Boxes is { } boxes && box.Index < boxes.Count && boxes[box.Index] is { } current && current.Id == box.Id)
+                    await Present(viewer, current, true);
+            }
+            finally { area.Gate.Release(); }
+        });
+        if (StrongboxCatalog.OpenEffect(type, box.Rarity) is not { } art) return;
+        uint id = player.TakeObjectId();
+        await SendWorldCreate(player, id, InstanceEntities.CreateObject(id,
+            InstanceEntities.ObjectTypeHash(EffectObject.TypePath), new EffectObject(box.X, box.Y, art).Blob()),
+            $"strongbox 0x{box.Id:x} open effect {art}");
+        await SendWorldRecord(player, id, InstanceProtocol.EnterWakeZone(id), null);
+        // As the Delve completion effect does: an effect object's own clip must be started for its SoundEvents to fire
+        // (its default "openfx" animation's sound is Audio/…/Chests/Strongbox/Effect_$(#).ogg).
+        await SendWorldRecord(player, id, InstanceProtocol.AnimationUpdate(id, 0, 0, 1),
+            $"strongbox 0x{box.Id:x} open effect sound");
+        SendAfter(player, OpenEffectSeconds, async () =>
+        {
+            if (Survivor(player) is not { } viewer) return;
+            await SendWorldRemoval(viewer, id, null);
+        });
     }
 
     public static async Task<bool> Use(Player player, InstanceTransfer.UseSkillOnObject use, double requestedAt)
@@ -406,7 +576,13 @@ public static partial class MapStrongboxes
         finally { area.Gate.Release(); }
     }
 
-    /// <summary>Opens a closed box (under the area's gate): its guards spawn, and its loot waits for them.</summary>
+    /// <summary>The frames after the click at which a box's guards arrive, one third of them each time.</summary>
+    static readonly int[] GuardWaveFrames = [7, 14, 22];
+
+    const double FramesPerSecond = 30;
+
+    /// <summary>Opens a closed box (under the area's gate): its guards spawn, and its loot drops once every guard is dead
+    /// (and, when its mods delay the drop, not before its daemons are gone).</summary>
     static async Task Open(Player player, Area area, Box box)
     {
         bool first = area.Boxes!.All(b => b.Phase == 0 && b.Cycle == 0);
@@ -420,10 +596,30 @@ public static partial class MapStrongboxes
             Console.WriteLine($"[map-content] strongbox {box.Type}: no supported guards or free cells; remains closed");
             return;
         }
-        box = ReleaseWaves(box with { Phase = 1, Pending = guards, Waves = waves }, now);
+        // The guards come in three waves, 7, 14 and 22 frames after the click (as in every opened box of the official
+        // recordings); Tick releases each and spawns it with its dust columns and spawn sounds.
+        var arrivals = new List<Wave>();
+        for (int i = 0; i < GuardWaveFrames.Length; i++)
+        {
+            int size = (guards.Count + GuardWaveFrames.Length - 1 - i) / GuardWaveFrames.Length;
+            int from = Enumerable.Range(0, i).Sum(j => (guards.Count + GuardWaveFrames.Length - 1 - j) / GuardWaveFrames.Length);
+            if (size > 0) arrivals.Add(new(now.AddSeconds(GuardWaveFrames[i] / FramesPerSecond).Ticks, guards.GetRange(from, size)));
+        }
+        long dropAt = 0;
+        if (StrongboxCatalog.Find(box.Type) is { } dropType
+            && StrongboxMods.Stat(ItemsFor(player).Mods, dropType, box.Explicits, "chest_delay_drops_until_daemons_finish") > 0)
+        {
+            // Never before a summon wave the daemons still owe.
+            dropAt = Math.Max(now.AddSeconds(DropFrames(Daemons(player, dropType, box).Select(d => d.Daemon)) / FramesPerSecond).Ticks,
+                waves.Select(w => w.AtTicks).DefaultIfEmpty(0).Max());
+        }
+        box = ReleaseWaves(box with { Phase = 1, Pending = [], DropAtTicks = dropAt, Waves = [.. arrivals.Concat(waves).OrderBy(w => w.AtTicks)] }, now);
         area.Boxes![box.Index] = box;
         Keep(player, area);
-        foreach (var member in Members(player)) await Present(member, box, true);
+        // The object the client has stays while its clip plays; OpenPresentation presents it opened once the clip is over.
+        // One call: world objects are the area's (created once and shown to every client), so the open effect must not
+        // be made once per member.
+        await OpenPresentation(player, box);
         await SpawnPending(player, area, box);
         if (StrongboxCatalog.Find(box.Type) is { } exiled
             && StrongboxMods.Stat(ItemsFor(player).Mods, exiled, box.Explicits, "chest_spawn_rogue_exiles") is int exiles and > 0)
@@ -436,7 +632,14 @@ public static partial class MapStrongboxes
                 (RogueExiles.Any ? "" : " (no module spawns rogue exiles)"));
         }
         if (StrongboxCatalog.Find(box.Type) is { } opened)
-            CastDaemons(player, area, opened, box, new Random(unchecked((int)player.Seed ^ box.Index * 9973 ^ box.Cycle * 31)));
+            // After the lid's creak, as the guards: a daemon's spell at 0 s buried it under the skill's own sound. A
+            // live member of the instance runs them: the trap daemons must not be skipped when the opener left by then.
+            SendAfter(player, OpenClipSeconds, () =>
+            {
+                if (Survivor(player) is { } viewer)
+                    CastDaemons(viewer, area, opened, box, new Random(unchecked((int)viewer.Seed ^ box.Index * 9973 ^ box.Cycle * 31)));
+                return Task.CompletedTask;
+            });
     }
 
     public static List<AreaPopulation.Spawn> Guards(Player player, Box box) => Guards(player, box, false);
@@ -584,10 +787,49 @@ public static partial class MapStrongboxes
                     if (quantity != 0) monster.EncounterStats = new Dictionary<uint, int> { [MapSulphite.EnragedQuantity] = quantity * 100 };
                 });
             if (id == 0) return;
+            await SummonEffect(player, spawn.X, spawn.Y);
             box.Guards.Add(id);
             box.Pending.RemoveAt(0);
             Keep(player, area);
         }
+    }
+
+    /// <summary>The tests' way past the opening clip's real-time wait (tests never wait on real time): release every
+    /// waiting wave of the opened boxes and spawn it now.</summary>
+    internal static async Task SpawnWavesNow(Player player)
+    {
+        if (player.Instance is null || !Areas.TryGetValue(player.Instance, out var area) || area.Boxes is null) return;
+        await area.Gate.WaitAsync();
+        try
+        {
+            foreach (var waiting in area.Boxes.ToArray())
+            {
+                if (waiting.Phase != 1 || waiting.Waves.Count == 0) continue;
+                var released = waiting with
+                {
+                    Pending = [.. waiting.Pending, .. waiting.Waves.SelectMany(w => w.Spawns)],
+                    Waves = [],
+                };
+                area.Boxes[waiting.Index] = released;
+                Keep(player, area);
+                await SpawnPending(player, area, released);
+            }
+        }
+        finally { area.Gate.Release(); }
+    }
+
+    /// <summary>The tests' way past the daemons' real-time wait: every open box's drop time is due now. The guard gate
+    /// still applies: a box drops only once its guards are dead.</summary>
+    internal static async Task DropNow(Player player)
+    {
+        if (player.Instance is null || !Areas.TryGetValue(player.Instance, out var area) || area.Boxes is null) return;
+        await area.Gate.WaitAsync();
+        try
+        {
+            foreach (var open in area.Boxes.Where(b => b.Phase == 1 && b.DropAtTicks > 0).ToArray()) area.Boxes[open.Index] = open with { DropAtTicks = 1 };
+            Keep(player, area);
+        }
+        finally { area.Gate.Release(); }
     }
 
     public static async Task Tick(Player player)
@@ -607,13 +849,17 @@ public static partial class MapStrongboxes
                     Keep(player, area);
                 }
                 if (prior.Pending.Count > 0) await SpawnPending(player, area, prior);
+                // The drop waits for every guard to die (chest_delay_drops_until_daemons_finish): no branch drops
+                // while a wave is still unspawned, a spawn still pending, or a guard still standing. DropAtTicks is
+                // only an extra minimum floor on top of that gate.
                 if (prior.Pending.Count > 0 || prior.Waves.Count > 0 || prior.Guards.Count == 0) continue;
                 if (prior.Guards.Any(id => player.Area.Monsters.TryGetValue(id, out var m) && !m.Dead && m.Life > 0)) continue;
+                if (prior.DropAtTicks > 0 && DateTime.UtcNow.Ticks < prior.DropAtTicks) continue;
                 if (!player.Instance.SetState($"Ambush/rewards/{prior.Index}/{prior.Cycle}")) continue;
                 var opened = prior with { Phase = 2 };
                 area.Boxes[prior.Index] = opened;
                 Keep(player, area);
-                foreach (var member in Members(player)) await Present(member, opened, true);
+                // No re-present: the client's box was opened by the component change (OpenPresentation) and stays so.
                 await Rewards(player, opened);
                 int close = AreaMods(player).Get(Stat.MapStrongboxCloseAfterOpeningChancePct)
                     + (StrongboxCatalog.Find(opened.Type) is { } type
@@ -629,6 +875,8 @@ public static partial class MapStrongboxes
         }
         finally { area.Gate.Release(); }
     }
+
+    const double ItemDistanceMin = 3.0, ItemDistanceMax = 8.5;
 
     /// <summary>The box's items (<see cref="StrongboxLoot"/>) on the ground around it.</summary>
     static async Task Rewards(Player player, Box box)
@@ -647,7 +895,9 @@ public static partial class MapStrongboxes
         var items = ItemDrops.Stacked(contents);
         foreach (var drop in items)
         {
-            var at = player.Layout.Near((box.X + AreaRng(player).Next(-5, 6), box.Y + AreaRng(player).Next(-5, 6)));
+            // 3.0 to 8.5 cells from the box, as the recorded drops lie.
+            double reach = ItemDistanceMin + AreaRng(player).NextDouble() * (ItemDistanceMax - ItemDistanceMin), turn = AreaRng(player).NextDouble() * Math.Tau;
+            var at = player.Layout.Near((box.X + (int)Math.Round(Math.Cos(turn) * reach), box.Y + (int)Math.Round(Math.Sin(turn) * reach)));
             var ground = new WorldItemObject(at.X, at.Y, drop.Item);
             uint id = player.Instance.Ground.Add(ground, player);
             await SendGroundItem(player, id, ground, $"strongbox 0x{box.Id:x} drops {drop.Type.Name}", justDropped: true);

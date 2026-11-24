@@ -622,6 +622,7 @@ internal static class DeepwaterExtraction
             success = !backup && done && (cap == 0 || sulphur * 4 >= cap);
             run.Phase = DeepwaterRun.RunPhase.Ended;
             run.LandAt = 0;
+            run.CollapseEndAt = 0;
             run.Outcome = success ? "success" : backup ? "failure: the backup capsule" : !done ? "failure: not finished" : $"failure: {sulphur}/{cap} Sulphur";
             run.OpenCapsule.Clear();
         }
@@ -707,6 +708,8 @@ internal static class DeepwaterExtraction
     static async Task SendEnd(Player player, bool success)
     {
         var modPlayer = PlayerOf(player);
+        await modPlayer.Send(InstanceTimers.HideMissionTimer(InstanceTimers.MissionTimerType.Deepwater),
+            "0x0163 hide mission timer Deepwater (the run is over)");
         if (DeepwaterRuleset.Collapse(3) is { } hide) await modPlayer.Send(hide, "0x02c9 ruleset DeepwaterRules mode 3: 3 (the run is over)");
         if ((success ? DeepwaterRuleset.Success() : DeepwaterRuleset.Failure()) is { } line)
             await modPlayer.Send(line, $"0x02c9 ruleset DeepwaterRules mode {(success ? 5 : 6)}: {(success ? "success" : "failure")}");
@@ -723,6 +726,7 @@ internal static class DeepwaterExtraction
             if (run.Phase == DeepwaterRun.RunPhase.Ended) return [];
             run.Phase = DeepwaterRun.RunPhase.Ended;
             run.LandAt = 0;
+            run.CollapseEndAt = 0;
             run.Outcome = $"failure: {reason}, {run.Sulphur} Sulphur lost";
             run.Failed = true;
             run.OpenCapsule.Clear();
