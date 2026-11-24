@@ -324,7 +324,7 @@ public static partial class Game
                 flaskFlushQueued = false;
             }
             Runtime.Clear();
-            foreach (var visual in visuals.Values) Player.ProjectileObjects.Remove(visual.Id);
+            foreach (var visual in visuals.Values) Player.UntrackProjectileObject(visual.Id);
             visuals.Clear(); flightRays.Clear(); later.Clear(); output.Writer.TryComplete();
         }
 
@@ -1069,7 +1069,7 @@ public static partial class Game
                         : ProjectileHeight.Flight(TerrainHeights.At(Player.Layout.Id, Player.Seed, x, y),
                             Environment.GetEnvironmentVariable("Game_PROJECTILE_HEIGHT"), presentation.LaunchHeight);
                 var visual = new Visual(id, height) { SpawnedAt = value.Position };
-                visuals[p.Id] = visual; Player.ProjectileObjects.Add(id);
+                visuals[p.Id] = visual; Player.TrackProjectileObject(id);
                 if (p.Profile.Lobbed) BeginArc(p, visual);
                 CreateFlight(id, () =>
                 {
@@ -1134,7 +1134,7 @@ public static partial class Game
                         visuals.Remove(p.Id);
                         WorldRecords(end.Id, () =>
                         {
-                            Player.ProjectileObjects.Remove(end.Id);
+                            Player.UntrackProjectileObject(end.Id);
                             return end.Created ? [InstanceProtocol.RemoveObject(end.Id)] : null;
                         }, remove: true);
                     });
@@ -1144,7 +1144,7 @@ public static partial class Game
                     visuals.Remove(p.Id);
                     WorldRecords(end.Id, () =>
                     {
-                        Player.ProjectileObjects.Remove(end.Id);
+                        Player.UntrackProjectileObject(end.Id);
                         return end.Created ? [height.StopAt(end.Id, x, y), InstanceProtocol.RemoveObject(end.Id)] : null;
                     }, remove: true);
                 }
@@ -1182,7 +1182,7 @@ public static partial class Game
                 Console.WriteLine($"[gateway] {Player.Connection.Remote} projectile area object={id} position=({x}, {y})"
                     + $" radius={radius:0.###} art={ao} scale={scale:0.###}");
             var visual = new Visual(id, default);
-            Player.ProjectileObjects.Add(id);
+            Player.TrackProjectileObject(id);
             Create(id, () =>
             {
                 if (visual.Ended) return null;
@@ -1201,7 +1201,7 @@ public static partial class Game
                 visual.Ended = true;
                 WorldRecords(id, () =>
                 {
-                    Player.ProjectileObjects.Remove(id);
+                    Player.UntrackProjectileObject(id);
                     return visual.Created ? [InstanceProtocol.RemoveObject(id)] : null;
                 }, remove: true);
             });
@@ -1213,7 +1213,7 @@ public static partial class Game
             var childEffect = new EffectObject(x, y, child.Ao)
                 { Parent = attachParent != 0 ? attachParent : id, Bone = child.Bone, AttachKind = 0, AttachFlags = 3 };
             var childVisual = new Visual(childId, default);
-            Player.ProjectileObjects.Add(childId);
+            Player.TrackProjectileObject(childId);
             Create(childId, () =>
             {
                 if (childVisual.Ended) return null;
@@ -1226,7 +1226,7 @@ public static partial class Game
                 childVisual.Ended = true;
                 WorldRecords(childId, () =>
                 {
-                    Player.ProjectileObjects.Remove(childId);
+                    Player.UntrackProjectileObject(childId);
                     return childVisual.Created ? [InstanceProtocol.RemoveObject(childId)] : null;
                 }, remove: true);
             });

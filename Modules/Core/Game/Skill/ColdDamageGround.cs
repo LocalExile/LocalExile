@@ -74,7 +74,7 @@ public static partial class Game
             if (duration <= 0 || radius <= 0) return;
             uint id = Player.TakeObjectId();
             var visual = new Visual(id, default);
-            Player.ProjectileObjects.Add(id);
+            Player.TrackProjectileObject(id);
             var effect = new EffectObject((int)Math.Round(centre.X), (int)Math.Round(centre.Y),
                 "Metadata/Effects/Spells/arctic_breath_02/aura/arctic_aura.ao")
                 { Flags0 = EffectObject.FixedRotation, Scale = radius / 23f };

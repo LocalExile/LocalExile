@@ -79,7 +79,7 @@ public static partial class Game
                 monster.Ailments.RemoveAura(MonsterElementalAilments.Kind.Chill, ground.ChillSource);
             if (ground.Visual is not { } visual) return;
             visual.Ended = true;
-            ground.Source.Player.ProjectileObjects.Remove(visual.Id);
+            ground.Source.Player.UntrackProjectileObject(visual.Id);
             if (!visual.Created) return;
             if (area.Driven) area.Delta.RemoveSharedObject(visual.Id, InstanceProtocol.RemoveObject(visual.Id));
             else ground.Source.WorldRecords(visual.Id, () => [InstanceProtocol.RemoveObject(visual.Id)], remove: true);
@@ -103,7 +103,7 @@ public static partial class Game
             {
                 uint id = Player.TakeObjectId();
                 visual = new Visual(id, default);
-                Player.ProjectileObjects.Add(id);
+                Player.TrackProjectileObject(id);
                 float scale = kind.ArtCells > 0 ? (float)(radius / kind.ArtCells) : 1;
                 var ground = new GroundEffectObject((int)Math.Round(centre.X), (int)Math.Round(centre.Y),
                     kind.ArtRow, kind.Art, (float)seconds) { Scale = scale, Team = 0 };
