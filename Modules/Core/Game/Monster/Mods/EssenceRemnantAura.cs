@@ -176,7 +176,7 @@ public static partial class Game
             int life = g.ShieldPool.Damage(damage, false, now);
             m.Life = (uint)Math.Max(0, (long)m.Life - life);
             if (damage > 0) conn.Minions.OutputQueue.Add(new([], "Remnant aura damages minion", g.Id, m, PlayerMinions.OutputKind.Life));
-            if (m.Life == 0) GolemDieLocked(conn, g, now, killedByEnemy: true);
+            if (m.Life == 0) GolemDieLocked(conn, g, now);
         }
     }
 }
