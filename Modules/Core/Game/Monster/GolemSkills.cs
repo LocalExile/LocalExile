@@ -349,6 +349,8 @@ public static partial class Game
             speed *= Math.Max(.01, 1 + Raw(spell ? Stat.ActiveSkillCastSpeedPlusPctFinal : Stat.ActiveSkillAttackSpeedPlusPctFinal) / 100.0);
             speed *= Math.Max(.01, 1 + Own(spell ? Stat.Of("active_skill_minion_cast_speed_+%_final") : Stat.ActiveSkillMinionAttackSpeedPlusPctFinal) / 100d);
             bool multistrike = MinionSupportMatches(effect, "SupportMultistrike");
+            bool spellEcho = spell && MinionSpellEchoRepeats(player, effect, Own) > 0;
+            if (spellEcho) speed *= Math.Max(.01, 1 + Own(Stat.SupportMulticastCastSpeedPlusPctFinal) / 100d);
             if (!spell && catalog.IsMelee(effect))
                 speed *= (multistrike ? Math.Max(.01, 1 + Own(Stat.SupportMultipleAttacksMeleeAttackSpeedPlusPctFinal) / 100d) : 1)
                     * Math.Max(.01, 1 + Own(Stat.Of("support_melee_physical_attack_speed_+%_final")) / 100d);
@@ -416,6 +418,7 @@ public static partial class Game
                 * Math.Max(0, 1 + Raw(Stat.ActiveSkillDamagePlusPctFinal) / 100.0)
                 * (golem.Definition.IsGolem ? Math.Max(0, 1 + GolemTether(playerStats, "damage") / 100.0) : 1);
             more *= 1 + .04 * (golem.CombatCharges?.Held(ChargeType.Frenzy) ?? 0);
+            if (spellEcho) more *= Math.Max(0, 1 + Own(Stat.SupportEchoDamagePlusPctFinal) / 100d);
             if (golem.Definition.Kind != "Reaper") more *= Math.Max(0, 1 + GolemStat(playerStats, Stat.ActiveSkillNonReaperMinionDamagePlusPctFinal) / 100d);
             var types = new HashSet<int>();
             if (spell) types.Add(1);

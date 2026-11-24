@@ -54,13 +54,17 @@ public sealed class GolemState
     }
     public sealed record Ability(int Effect, ushort Skill, string Id, MonsterAttack Attack,
         IReadOnlyDictionary<uint, int> Stats, double Radius, double Cooldown, int Uses, double Contact,
-        SkillCatalog.MonsterProjectileInfo? Projectile = null, int Crit = 0);
+        SkillCatalog.MonsterProjectileInfo? Projectile = null, int Crit = 0)
+    {
+        public int? RepeatCriticalRoll { get; init; }
+    }
     public sealed record Action(Ability Ability, uint Target, SpawnedMonster? Victim, (int X, int Y) Aim, double ContactAt, int Generation)
     {
         public bool Started;
         public double At = ContactAt;
         public Ability? Original;
         public int RepeatIndex, RepeatsRemaining;
+        public int? RepeatCriticalRoll;
         public double UseDamageMore = 1, UseAilmentMore = 1;
     }
     public sealed record Hazard(int Effect, (int X, int Y) At, double Until, double Radius, double DamagePerSecond,

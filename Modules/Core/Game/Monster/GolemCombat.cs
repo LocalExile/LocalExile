@@ -106,7 +106,7 @@ public static partial class Game
             else return;
         }
         if (now < m.BusyUntil || now < m.FlinchUntil) return;
-        if (RepeatMinionAttackLocked(player, g, now)) return;
+        if (RepeatMinionActionLocked(player, g, now)) return;
         double walkSpeed = GolemWalkSpeed(m, now, actionRate);
         m.Walk.SetSpeed(walkSpeed, now);
         var here = m.Walk.Position(now); var owner = player.Walk.Position(now);
@@ -726,7 +726,7 @@ public static partial class Game
             if (a.Effect == 10802 && g.Combo >= 3) factor *= 1 + GolemStat(a.Stats, Stat.BoneGolemDamagePlusPctFinalAfterThirdComboIndex) / 100.0;
         }
         bool prey = IsPrey(player, g.Own, id, target, now);
-        int roll = effects[Stat.Of("never_crit")] == 0 && effects[Stat.AlwaysCrit] == 0 ? AreaRng(player).Next(10_000) : 0;
+        int roll = a.RepeatCriticalRoll ?? (effects[Stat.Of("never_crit")] == 0 && effects[Stat.AlwaysCrit] == 0 ? AreaRng(player).Next(10_000) : 0);
         bool critical = GolemCriticalStrike(a, g.Monster.Mods, roll,
             prey ? GolemStat(g.Own, Stat.SupportMinionFocusFireCriticalStrikeChancePlusPctVsFocusedTarget) : 0,
             target.Curses[Stat.EnemyAdditionalCriticalStrikeChanceAgainstSelf] + BrittleCriticalChance(target, now));
