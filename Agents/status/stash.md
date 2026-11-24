@@ -11,6 +11,10 @@ Part of [Status](../Status.md); what to build next in this area is in
   Empty legacy resonators migrate to stackable types with 1–4 independent yellow/orange Delve sockets.
   Automated layout/merge/reload coverage; confirmed working by the user in the real client.
   See protocol/18-stash.md.
+- Tab settings, live 2026-11-24, all kept after a relog: the public flag (C→S 0xcf), item price notes (0x1a1) on a
+  public tab's items, the tab order (0xcc), and folders: Create New Folder (0xd1), renaming it (0xcd) and Delete Folder
+  (0xd2). Currency in a public tab is refused for use; a price note is cleared when its item lands in a tab that
+  isn't public, as in retail.
 - **Currency withdrawal (#249).** Ctrl + left click takes at most one normal inventory stack from the clicked slot;
   Ctrl + right click uses the separate `0xe3` bulk boolean to take as much of that stack as fits.
   Ctrl + right click on an inventory stack moves every stack of its type into the stash, to its affinity tab or the shown tab.
@@ -35,7 +39,8 @@ Part of [Status](../Status.md); what to build next in this area is in
   and the divination tab shows each held card with its count over the set. Fragment layout rows use both
   FirstSlotIndex and Subtab, including all eight current Allflame embers.
   Ctrl + click on currency goes to its affinity tab's slot (C→S 0xe1, live 2026-10-20) and a plain click on a currency
-  slot picks up the stack; the tab settings' affinities (0xd3) are saved;
+  slot picks up the stack; the tab settings' affinities (0xd3) are saved, close the window and route Ctrl + click
+  (premium tab, live 2026-11-24; guild tabs show no affinities without real guilds);
   the stash reopens on the account's last tab after a relog (0x7b affinity on the first open per connection) and keeps
   the panel's own tab while the connection lasts; tabs and items are account-wide (the account's row in
   `data/characters.db`).
@@ -98,8 +103,10 @@ Part of [Status](../Status.md); what to build next in this area is in
 - **Crafting cells.** Delve crafting cells accept equipment, support swaps and retain their contents after reload.
   Lioneye's Watch now creates a guild stash beside its personal stash.
   Persistence checks pass; the real client opened the city guild stash and loaded its guild tab.
-- **Public tabs, item price notes and Blight oil withdrawal:** `C→S 0xcf` persists `TabFlags.Public` in `0x136`,
-  `C→S 0x1a1` saves item price notes (`Base` bit 4 `WStr32`), and `C→S 0xf5` withdraws Blight oils from stash.
+- **Blight tab:** oils in their slots, the anoint cell, the oil cells and the 60-cell map row (blighted maps only)
+  take their items and keep them after a relog; Ctrl + click on an oil (`C→S 0xf5`) moves it to the inventory, or one
+  oil to a free oil cell while the anoint cell holds an item, and Ctrl + click on a blighted map fills the map row
+  (live 2026-11-24).
   Delve sockets (colour 6) now accept only Fossils and reject skill gems (offline verified; live client check pending).
 
 ## Not working yet
