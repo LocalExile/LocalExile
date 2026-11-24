@@ -21,9 +21,9 @@ public static class SkillArea
 
     static int? KnownBaseRadius(string? effect) =>
         effect == "LightningWarp" ? 16 : effect == "VaalGroundSlam" ? 40 : IsCyclone(effect) ? 16 : effect == "RollingMagma" ? 14
-            : effect is "Earthquake" or "Cleave" ? 18
-            : effect is "Earthshatter" or "TectonicSlam" ? 15
-            : effect == "Sunder" ? 14
+            : effect is "Earthquake" or "Earthshatter" ? 18
+            : effect == "Cleave" ? 20
+            : effect == "TectonicSlam" ? 15
             : effect is "FireTrap" or "VaalFireTrap" ? 16 : effect == "StormblastMine" ? 20 : effect is "DarkPact" or "DarkPactRoyale" ? 26
             : effect is "StormCall" or "Frostblink" or "FrostblinkHardMode" ? 20
             : effect is "GalvanicArrow" or "GalvanicArrowAltX" or "GalvanicArrowAltY" ? 28
