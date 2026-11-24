@@ -16,8 +16,9 @@ public static partial class Game
         foreach (string effect in new[] { "EnsnaringArrow", "EnsnaringArrowAltX", "EnsnaringArrowAltY", "EnsnaringArrowRoyale" })
             definitions[effect] = SkillProjectileDefinition(effect, tetheringArrow, SkillProjectileParameters(effect, tetheringArrow));
         const string holyFlameProjectile = "Metadata/Projectiles/TotemHolyFireSpray";
-        definitions["HolyFlameTotem"] = SkillProjectileDefinition("HolyFlameTotem", holyFlameProjectile,
-            SkillProjectileParameters("HolyFlameTotem", holyFlameProjectile));
+        foreach (string effect in new[] { "HolyFlameTotem", "HolyFlameTotemAltX" })
+            definitions[effect] = SkillProjectileDefinition(effect, holyFlameProjectile,
+                SkillProjectileParameters(effect, holyFlameProjectile));
         const string fissureProjectile = "Metadata/Projectiles/VolcanicSlamMortar";
         definitions["VolcanicFissure"] = SkillProjectileDefinition("VolcanicFissure", fissureProjectile,
             SkillProjectileParameters("VolcanicFissure", fissureProjectile));

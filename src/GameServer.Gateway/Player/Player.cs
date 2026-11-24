@@ -903,6 +903,7 @@ public sealed partial class Player(AreaLayout layout, uint ticket, uint seed) : 
     public IncomingDamagingAilments.State? PresentedIncomingAilments;
     public int PresentedIncomingAilmentEpoch;
     public int DeathNotificationEpoch = -1;
+    public int Resurrecting;
     public int FreezeGeneration, FreezeShown;
     public double FreezeHeldUntil;
     public double NextWakeZoneAt;
@@ -1014,6 +1015,7 @@ public sealed partial class Player(AreaLayout layout, uint ticket, uint seed) : 
     {
         get
         {
+            if (Instance?.World.AreaBodies is { } area) return area(Id);
             var fixedOnes = _blockerList;
             if (IsPhasing) return fixedOnes;   // phasing (Quartz Flask, Rampage threshold): monsters do not block
             double now = Clock.Elapsed.TotalSeconds;
@@ -1070,6 +1072,11 @@ public sealed partial class Player(AreaLayout layout, uint ticket, uint seed) : 
     }
 
     public IReadOnlyList<ClientPathfinder.Blocker> StationaryBlockers => _blockerList;
+
+    public (int X, int Y)? StationaryPosition(uint id)
+    {
+        lock (_blockers) return _blockers.TryGetValue(id, out var b) ? (b.X, b.Y) : null;
+    }
 
     public int StationaryInteractionSize(uint id)
     {
@@ -1571,6 +1578,7 @@ public sealed partial class Player(AreaLayout layout, uint ticket, uint seed) : 
     public ushort LockstepSequence;
     // The object use (C→S 0x18f) the next frame starts.
     public InstanceTransfer.UseSkillOnObject? LockstepUse;
+    public uint? LockstepInteractionTarget;
     public readonly GameServer.Core.World.LockstepSkillHold LockstepSkill = new();
     // Until when the skill started last keeps the player (Clock seconds).
     public double LockstepBusyUntil;

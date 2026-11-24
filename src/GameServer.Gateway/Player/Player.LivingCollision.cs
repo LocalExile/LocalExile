@@ -112,6 +112,8 @@ public sealed partial class Player
         return new(p.X, p.Y, LivingCollision.Size(monster));
     }
 
+    BlockerSet? correctionBlockers;
+
     public IReadOnlyList<ClientPathfinder.Blocker> CorrectionBlockers()
     {
         var result = new List<ClientPathfinder.Blocker>(StationaryBlockers);
@@ -121,7 +123,10 @@ public sealed partial class Player
         foreach (var peer in Instance?.PlayersExcept(Id) ?? [])
             if (peer.Id < Id && peer.PlayerLife > 0 && peer.Walk.Position(peer.Frames.Now(peer)) is var at)
                 result.Add(new(at.X, at.Y, LivingCollision.PlayerSize));
-        return new BlockerSet(result);
+        if (result.Count == 0) return result;
+        var set = correctionBlockers ??= new();
+        set.Reset(result);
+        return set;
     }
 
     /// <summary>What stands in a monster's way now. Inside a pass its frame answers. Outside one (an order placed at
