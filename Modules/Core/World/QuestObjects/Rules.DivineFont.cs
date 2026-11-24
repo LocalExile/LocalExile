@@ -250,25 +250,15 @@ static partial class QuestobjectsRules
         if (sameGemOnly)
         {
             foreach (var v in gemType.Variants)
-                if (v.Index > 0 && v.Index != source.GemVariant && !v.Name.StartsWith("Vaal ", StringComparison.Ordinal))
+                if (v.Creatable && v.Index > 0 && v.Index != source.GemVariant && !v.Name.StartsWith("Vaal ", StringComparison.Ordinal))
                     pool.Add((baseType, v));
         }
-        if (pool.Count == 0 && gemType.Colour is >= 1 and <= 3)
+        else if (gemType.Colour is >= 1 and <= 3)
         {
             foreach (var (t, v) in catalog.FullShopGems(gemType.Colour, gemType.IsSupport, ordinaryOnly: false))
                 if (v.Index > 0 && !v.Name.StartsWith("Vaal ", StringComparison.Ordinal)
                     && (t.Hash != source.TypeHash || v.Index != source.GemVariant))
                     pool.Add((t, v));
-        }
-        if (pool.Count == 0)
-        {
-            for (int colour = 1; colour <= 3; colour++)
-            {
-                foreach (var (t, v) in catalog.FullShopGems(colour, gemType.IsSupport, ordinaryOnly: false))
-                    if (v.Index > 0 && !v.Name.StartsWith("Vaal ", StringComparison.Ordinal)
-                        && (t.Hash != source.TypeHash || v.Index != source.GemVariant))
-                        pool.Add((t, v));
-            }
         }
         var results = new List<Item>(3);
         int take = Math.Min(3, pool.Count);

@@ -21,7 +21,10 @@ public static class AtlasProgress
     }
 
     public sealed record Node(int Row, string Id, ushort Hash16, string Name, IReadOnlySet<string> Areas, IReadOnlySet<string> Bosses,
-        IReadOnlySet<string> FinalBosses, IReadOnlySet<ushort> AreaHashes);
+        IReadOnlySet<string> FinalBosses, IReadOnlySet<ushort> AreaHashes)
+    {
+        public bool IsNormalMap { get; init; }
+    }
 
     const string CompletedKey = "completed", BonusKey = "atlas.bonusCompleted", ScryKeyPrefix = "atlas.scry.";
 
@@ -124,10 +127,43 @@ public static class AtlasProgress
         return removedCompleted || removedBonus;
     }
 
-    public static bool SetScry(ISavedData data, Node from, Node to) =>
-        data.Change(ScryKeyPrefix + from.Id, old => old == to.Id ? null : to.Id);
+    // Published review builds stored each donor's destination separately. Import those links once.
+    static Dictionary<string, string> ScryLinks(ISavedData data)
+    {
+        const string key = "atlas.scryLinks";
+        string? json = data.Get(key);
+        if (json is not null) return JsonSerializer.Deserialize<Dictionary<string, string>>(json) ?? [];
+        var links = new Dictionary<string, string>();
+        foreach (var node in Maps)
+            if (data.Get(ScryKeyPrefix + node.Id) is { Length: > 0 } destination)
+                links[node.Id] = destination;
+        data.Change(key, _ => JsonSerializer.Serialize(links));
+        return links;
+    }
 
-    public static string? ScryTarget(ISavedData data, Node from) => data.Get(ScryKeyPrefix + from.Id);
+    public static bool SetScry(ISavedData data, Node from, Node to) => Saves.Atomically(() =>
+    {
+        var links = ScryLinks(data);
+        if (links.GetValueOrDefault(from.Id) == to.Id) return false;
+        foreach (var key in links.Where(pair => pair.Key == to.Id || pair.Value == from.Id || pair.Value == to.Id)
+            .Select(pair => pair.Key).ToArray())
+            links.Remove(key);
+        links[from.Id] = to.Id;
+        data.Change("atlas.scryLinks", _ => JsonSerializer.Serialize(links));
+        return true;
+    });
+
+    public static string? ScryTarget(ISavedData data, Node from) =>
+        Saves.Atomically(() => ScryLinks(data).GetValueOrDefault(from.Id));
+
+    public static void ApplyScry(MapOpening request)
+    {
+        if (request.Opening is not { Area.UsesAtlas: true } opening || OfArea(opening.Area.Id) is not { } target) return;
+        var data = Program.WorldOf(Program.PlayerOf(request.Player)).CharacterData;
+        string? donor = Saves.Atomically(() => ScryLinks(data).FirstOrDefault(p => p.Value == target.Id).Key);
+        if (donor is not null && Find(donor)?.Areas.FirstOrDefault() is { } sourceArea)
+            request.Opening = opening with { Area = opening.Area with { DivinationCardArea = sourceArea } };
+    }
 
     /// <summary>S→C 0x01a5: incremental Voidstone T16 region-mask delta for one socketed/unsocketed slot (0..3).</summary>
     public static byte[] VoidstoneDeltaMessage(int slot, bool socketed) =>
@@ -210,10 +246,10 @@ public static class AtlasProgress
                 if (i >= 0 && i < areaRows.Count) cur.Areas.Add(i);
         }
         var onAtlas = new HashSet<int>();
-        var n = ClientTables.Table("AtlasNode");
+        var nTable = ClientTables.Table("AtlasNode");
         {
             int index = 0;
-            var atlas = n.ToList();
+            var atlas = nTable.ToList();
             foreach (var row in atlas)
             {
                 int r = index++;
@@ -265,7 +301,8 @@ public static class AtlasProgress
             return new Node(kv.Key, n.Id, n.Hash16, n.Name,
                 n.Areas.Select(i => areaRows[i].Id).ToHashSet(StringComparer.Ordinal),
                 bosses, finals.Count > 0 ? finals : bosses,
-                n.Areas.Select(i => areaRows[i].Hash16).Where(h => h != 0).ToHashSet());
+                n.Areas.Select(i => areaRows[i].Hash16).Where(h => h != 0).ToHashSet())
+                { IsNormalMap = nTable[kv.Key].Bool("IsNormalMap") };
         })], onAtlas);
     }
 }
