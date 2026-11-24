@@ -7,10 +7,10 @@ public static partial class Game
 
     static void GrantSpectreArcaneSurgeLocked(Player player, double now)
     {
-        if (player.Golems.All.Count == 0 || StatSourceValues(player).GetValueOrDefault(Stat.SpectresGainArcaneSurgeWhenYouDo) == 0)
+        if (player.Summons.Fighters.Count == 0 || StatSourceValues(player).GetValueOrDefault(Stat.SpectresGainArcaneSurgeWhenYouDo) == 0)
             return;
         double until = now + ArcaneSurgeSeconds;
-        foreach (var fighter in player.Golems.All.Values)
+        foreach (var fighter in player.Summons.Fighters.Values)
         {
             if (fighter.Definition.Kind != "Spectre" || fighter.Monster.SummonerId is not null
                 || fighter.Monster.Dead || fighter.Monster.Life == 0) continue;
@@ -23,7 +23,7 @@ public static partial class Game
                 shown = until;
             }
             SpectreSurges.AddOrUpdate(fighter, new(until, shown));
-            player.Golems.RefreshAt = 0;
+            player.Summons.RefreshAt = 0;
         }
     }
 

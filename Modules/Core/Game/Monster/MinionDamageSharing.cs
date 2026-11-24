@@ -40,7 +40,7 @@ public static partial class Game
         int spectrePct = Math.Clamp(GolemStat(stats, Stat.DamageRemovedFromSpectresBeforeLifeOrEsPct), 0, 100);
         if (spectrePct > 0)
         {
-            var spectres = player.Golems.All.Values.Where(g => g.Definition.Kind == "Spectre"
+            var spectres = player.Summons.Fighters.Values.Where(g => g.Definition.Kind == "Spectre"
                 && g.Monster.SummonerId is null && Eligible(g)).OrderBy(g => g.Id).ToArray();
             int share = (int)((long)damage * spectrePct / 100);
             for (int i = 0; i < spectres.Length; i++)
