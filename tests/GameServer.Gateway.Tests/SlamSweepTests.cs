@@ -33,6 +33,10 @@ public sealed class SlamSweepTests
         Assert.True(GroundSlamWave.Length(46, gemBasePlus: 10) > 140);
         Assert.True(GroundSlamWave.Length(27, gemBasePlus: 10) > 85);
 
+        Assert.Equal(20, SkillArea.BaseRadius("Cleave", _ => 0));
+        Assert.Equal(18, SkillArea.BaseRadius("Earthshatter", _ => 0));
+        Assert.Equal(12, SkillArea.BaseRadius("Sunder", _ => 0));
+
         // Pulverise more area multiplies SkillArea.Radius.
         int baseRadius = SkillArea.Radius(18, _ => 0, spell: false);
         int withPulverise = SkillArea.Radius(18, k => k == Stat.SupportPulveriseAreaOfEffectPlusPctFinal ? 54 : 0, spell: false);
