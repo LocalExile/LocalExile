@@ -448,16 +448,28 @@ public static class SacredGrove
         var target = grove.Objects[use.TargetId];
         Task End(int action) => SendWorldRecord(player, player.Id, InstanceProtocol.ActionEnded(player.Id), null,
             still: () => PlayerActionCurrent(player, action));
-        if (crop.Phase != Phase.Idle) { await End(player.ActionCount); return true; }
+        if (crop.Phase != Phase.Idle)
+        {
+            if (crop.Phase == Phase.Withered) await PlayerOf(player).Tell("This crop has withered.");
+            else if (crop.Phase == Phase.Done) await PlayerOf(player).Tell("This crop has already been harvested.");
+            await End(player.ActionCount);
+            return true;
+        }
         if (area.Running)
         {
             await PlayerOf(player).Tell(Refusal);
             await End(player.ActionCount);
             return true;
         }
-        // The walk stops at the post's footprint even when adjacent seeds/structures occupy the nearest cell.
-        int reach = Math.Max(2, StationaryCollision.Resolve(target.Type).Size);
-        if (!TryBeginObjectWalk(player, requestedAt, target.X, target.Y, reach, out var walk)) return true;
+        // The walk stops near the post's footprint even when adjacent seeds/structures surround it.
+        int reach = Math.Max(14, StationaryCollision.Resolve(target.Type).Size);
+        if (!TryBeginObjectWalk(player, requestedAt, target.X, target.Y, reach, out var walk))
+        {
+            var cur = player.Walk.Position(AreaTime(player));
+            if (Math.Abs(cur.X - target.X) > 32 || Math.Abs(cur.Y - target.Y) > 32) return true;
+            double t = AreaTime(player);
+            walk = (player.ActionCount, t, cur, cur, t);
+        }
         var (action, now, here, stop, arrive) = walk;
         if (!use.Started)
             await SendWorldRecord(player, player.Id,
@@ -467,9 +479,9 @@ public static class SacredGrove
         await area.Gate.WaitAsync();
         try
         {
-            if (crop.Phase != Phase.Idle || area.Running || !PlayerActionCurrent(player, action) || player.PlayerLife == 0
-                // The walk's stop, not the position now: the delay can end a frame before the last cell.
-                || !PlayerWalk.InReach(stop, (target.X, target.Y), reach, (x, y) => player.Layout.WalkableFor(x, y, 1))) return true;
+            if (crop.Phase != Phase.Idle || area.Running || !PlayerActionCurrent(player, action) || player.PlayerLife == 0) return true;
+            bool closeEnough = Math.Abs(stop.X - target.X) <= 32 && Math.Abs(stop.Y - target.Y) <= 32;
+            if (!closeEnough && !PlayerWalk.InReach(stop, (target.X, target.Y), reach, (x, y) => player.Layout.WalkableFor(x, y, 1))) return true;
             await Start(player, area, grove, index);
         }
         finally
@@ -477,6 +489,35 @@ public static class SacredGrove
             area.Gate.Release();
             await End(action);
         }
+        return true;
+    }
+
+    /// <summary>C→S 0x275: a click on a crop label's Harvest button icon (carries the crop's Irrigator or Extractor id).</summary>
+    public static async Task<bool> ActivateFromLabel(Player player, uint targetId)
+    {
+        if (player.Instance is null || !Areas.TryGetValue(player.Instance, out var area) || area.Grove is not { } grove) return false;
+        int index = grove.Crops.FindIndex(c => c.Irrigator == targetId || c.Extractor == targetId);
+        if (index < 0) return false;
+        if (player.PlayerLife == 0 || player.Closed || player.LeavingArea) return true;
+        await area.Gate.WaitAsync();
+        try
+        {
+            if (player.PlayerLife == 0 || player.Closed || player.LeavingArea) return true;
+            var crop = grove.Crops[index];
+            if (crop.Phase != Phase.Idle)
+            {
+                if (crop.Phase == Phase.Withered) await PlayerOf(player).Tell("This crop has withered.");
+                else if (crop.Phase == Phase.Done) await PlayerOf(player).Tell("This crop has already been harvested.");
+                return true;
+            }
+            if (area.Running)
+            {
+                await PlayerOf(player).Tell(Refusal);
+                return true;
+            }
+            await Start(player, area, grove, index);
+        }
+        finally { area.Gate.Release(); }
         return true;
     }
 

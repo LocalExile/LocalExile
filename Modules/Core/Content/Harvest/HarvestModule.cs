@@ -80,6 +80,11 @@ public sealed class HarvestModule : IModule, IDisposable
         {
             return await MoveItem(player, InstanceHarvest.ReadMoveItem(bytes));
         });
+        GameEvents.Packet(InstanceHarvest.ActivateCropId).Add(module.Manifest.Id, async (player, bytes) =>
+        {
+            if (bytes.Length < InstanceHarvest.ActivateCropLength) return false;
+            return await SacredGrove.ActivateFromLabel(player, InstanceHarvest.ReadActivateCrop(bytes));
+        });
     }
 
     /// <summary>C→S 0xf9: Ctrl + click an item between inventory/stash and HarvestCraftingItem (row 43).</summary>
