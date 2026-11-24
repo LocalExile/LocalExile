@@ -119,6 +119,11 @@ stat the calculator already reads (the Labyrinth boot enchantments). A rule on `
 hit found it (`enemy_state`: bleeding, poisoned, chilled, shocked, blinded, cursed, frozen, ignited), and one on
 `when_hit` or `block` the attacker's rarity.
 
+`recover` gives or takes life, mana or energy shield at once (flat, or a percent of the maximum with `"of":"maximum"`).
+`raise` records an event by name for the duration timer (4 seconds), and a modifier row's `recently` condition can ask
+for it. A stat whose rule records the event its own condition waits for keeps its id in the sums whatever the condition
+says (`StatConditions.KeepsOwnId`), or the rule could never be live.
+
 A plain number is granted to the calculator the game module already has (the stat graph); `fx_modifiers` records what
 the number means so that a formula can later move to a table one quantity at a time, each measured. Nothing reads these
 tables during play: they are loaded at startup into arrays by stat id, and an actor's rules are worked out when its

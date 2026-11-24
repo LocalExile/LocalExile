@@ -121,14 +121,23 @@ public static class ItemModStats
                         var state = StatConditions.Of(name, subject);
                         // Unknown source relationships retain the local view instead of leaking into a global one.
                         if (row.Stats[s].Local && !local && state is StatConditions.State.NotModelled) continue;
-                        if (!StatConditions.Counts(state)) continue;
+                        if (!StatConditions.Counts(state))
+                        {
+                            // Its rule records the event its condition waits for: the id stays, with a value nothing reads.
+                            if (StatConditions.KeepsOwnId(name)) yield return (id, 1);
+                            continue;
+                        }
                         // The condition holds: a conditional stat with no consumer of its own moves onto its plain
                         // name, which is what the pools read (issue #504).
                         int value = IsEffectStat(row.Stats[s].Id) ? mod.Values[s]
                             : rule?.Invoke(mod, row, s, percent) ?? Scale(mod.Values[s], percent);
                         value = StatConditions.Counted(name, value, state, subject, statExists, out var targets);
                         if (targets is null) yield return (id, value);
-                        else foreach (string target in targets) yield return (Stat.Of(target), value);
+                        else
+                        {
+                            foreach (string target in targets) yield return (Stat.Of(target), value);
+                            if (StatConditions.KeepsOwnId(name)) yield return (id, 1);
+                        }
                     }
             }
     }

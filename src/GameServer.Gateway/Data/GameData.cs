@@ -103,6 +103,8 @@ public static class GameData
         Volatile.Write(ref _fxRules, fxRules);
         StatConditions.LoadTable(fxModifiers);
         ChargeEffects.LoadTable(fxPerRows);
+        StatConditions.SetRecorderStats(fxRules.Where(r => r.Status != "not built" && r.Do.Any(d => d.Action == "raise"))
+            .SelectMany(r => r.Sources.Where(s => s.Kind == "stat").Select(s => s.Key)));
         Volatile.Write(ref _snapshot, snapshot);
         var (uniqueWeights, uniqueWeightOverrides) = store.UniqueWeightCounts();
         var drop = store.DropCounts();

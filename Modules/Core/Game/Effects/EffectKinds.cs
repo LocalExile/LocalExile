@@ -103,6 +103,32 @@ public static partial class Game
             Defaults = new Dictionary<string, double> { ["seconds"] = 4, ["amount"] = 0 },
         });
 
+        // Life, mana or energy shield at once: "pool" life, mana or energy_shield; "does" gain (the default) or lose;
+        // "amount" flat and "percent" of the pool's maximum.
+        EffectRules.Register(new("recover", ["amount", "percent"], ["pool", "does"],
+            fire => RecoverByRuleLocked(fire.Conn, fire.Word("pool") ?? "", fire.Word("does") == "lose", fire.Number("amount"), fire.Number("percent")),
+            (parameter, word) => parameter == "does" ? word is "gain" or "lose" : word is "life" or "mana" or "energy_shield")
+        {
+            Defaults = new Dictionary<string, double> { ["amount"] = 0, ["percent"] = 0 },
+            NameDefaults = new Dictionary<string, string> { ["does"] = "gain" },
+        });
+
+        // Records that something happened now, for "seconds" (4: "Recently"): "event" is a name the modifier table's
+        // "recently" conditions can ask for. The rule is the event's recorder, for the characters it is live for.
+        EffectRules.Register(new("remember", ["seconds"], [], fire =>
+            fire.Conn.RecentEvents.Record((string)fire.Data!, ProjectileWorldTime(fire.Conn), fire.Number("seconds") is var seconds && seconds != 4 ? seconds : null))
+        {
+            Defaults = new Dictionary<string, double> { ["seconds"] = 4 },
+            Extra = ["event"],
+            Prepare = effect =>
+            {
+                string name = effect.TryGetProperty("event", out var given) ? given.GetString() ?? "" : "";
+                if (name.Length == 0) throw new FormatException("the effect \"remember\" needs \"event\"");
+                TrackRecentEvents([name]);
+                return name;
+            },
+        });
+
         // Arcane Surge, as its gains on hit give it (the standard duration, cast speed and mana regeneration).
         EffectRules.Register(new("arcane_surge", [], [], fire =>
             GainArcaneSurgeLocked(fire.Conn, (fire.Event as HitLanded)?.At ?? fire.Now)));

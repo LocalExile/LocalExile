@@ -49,6 +49,17 @@ public static class StatConditions
     /// <summary>Whether a state means the stat's value counts.</summary>
     public static bool Counts(State state) => state is State.None or State.Holds or State.NotModelled;
 
+    // Stats that turn on an effect rule which records an event (fx rules with the "raise" action), from the game data.
+    static HashSet<string> _recorderStats = [];
+
+    /// <summary>Takes the stats whose rule records a "recently" event, when the game data loads.</summary>
+    public static void SetRecorderStats(IEnumerable<string> stats) => Volatile.Write(ref _recorderStats, new HashSet<string>(stats, StringComparer.Ordinal));
+
+    /// <summary>Whether a character that has this stat must keep it under its own id whatever its condition says: its
+    /// rule records the very event its condition asks for, so the rule has to stay live while the condition fails and
+    /// while it holds (the value moves onto the plain stats then). Only while the tables are the source.</summary>
+    public static bool KeepsOwnId(string statId) => _useTable && Volatile.Read(ref _recorderStats).Contains(statId);
+
     /// <summary>The weapon/shield condition of <see cref="Of"/>, as a suffix in the stat id.</summary>
     static readonly string[] WeaponSuffixes =
     [

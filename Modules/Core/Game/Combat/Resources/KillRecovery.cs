@@ -65,4 +65,34 @@ public static partial class Game
         session.InstantLifeChanged |= life != player.PlayerLife;
         session.InstantManaChanged |= mana != player.PlayerMana;
     }
+
+    /// <summary>Life, mana or energy shield gained or lost at once (the effect rules' "recover"): <paramref name="flat"/>
+    /// plus <paramref name="percent"/> of the pool's maximum. A gain goes through the same recovery as a kill's; a
+    /// loss is not damage (nothing mitigates it, and it does not interrupt the recharge) and leaves 1 life.</summary>
+    public static void RecoverByRuleLocked(Player player, string pool, bool lose, double flat, double percent)
+    {
+        if (player.PlayerLife == 0) return;
+        var session = LeechOf(player);
+        double Amount(uint maximum) => Math.Max(0, Math.Floor(flat + maximum * percent / 100));
+        switch (pool)
+        {
+            case "life":
+                uint life = player.PlayerLife;
+                if (lose) player.PlayerLife = (uint)Math.Max(1, life - Math.Min(life - 1, Amount(player.PlayerMaxLife)));
+                else player.PlayerLife = PetrifiedBlood.RecoverLife(player, life, Amount(player.PlayerMaxLife), ref session.LifeInstantCarry, minimum: 1);
+                session.InstantLifeChanged |= life != player.PlayerLife;
+                break;
+            case "mana":
+                uint mana = player.PlayerMana;
+                if (lose) player.PlayerMana = (uint)Math.Max(0, mana - Math.Min(mana, Amount(player.Pools.Mana)));
+                else player.PlayerMana = RecoveryPool.Advance(mana, (uint)UnreservedMana(player), Amount(player.Pools.Mana), ref session.ManaInstantCarry);
+                session.InstantManaChanged |= mana != player.PlayerMana;
+                break;
+            case "energy_shield":
+                double carry = 0;
+                if (lose) player.EnergyShield.Lose(Amount(player.EnergyShield.Maximum), ref carry);
+                else player.EnergyShield.Gain(Amount(player.EnergyShield.Maximum));
+                break;
+        }
+    }
 }

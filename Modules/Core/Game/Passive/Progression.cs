@@ -873,11 +873,16 @@ public static partial class Game
         {
             if (Stats.Name(key) is not { } name) { Add(key, raw); continue; }
             var state = StatConditions.Of(name, subject);
-            if (!StatConditions.Counts(state)) continue;
+            // A stat whose rule records the event its condition waits for keeps its id (StatConditions.KeepsOwnId).
+            if (!StatConditions.Counts(state)) { if (StatConditions.KeepsOwnId(name)) Add(key, 1); continue; }
             int value = StatConditions.Counted(name, raw, state, subject, Stats.Has, out var targets);
             if (targets is null) Add(key, value);
-            else foreach (string target in targets)
+            else
+            {
+                foreach (string target in targets)
                     if (Stats.Key(target) is uint targetKey) Add(targetKey, value);
+                if (StatConditions.KeepsOwnId(name)) Add(key, 1);
+            }
         }
         return folded;
     }

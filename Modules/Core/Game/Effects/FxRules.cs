@@ -235,6 +235,20 @@ public static class FxRules
                     if (target != "self") throw new FormatException("Arcane Surge is given to the actor itself");
                     effect["kind"] = "arcane_surge";
                     break;
+                case "recover":
+                    if (target != "self") throw new FormatException("the actor itself recovers or loses so far");
+                    effect["kind"] = "recover";
+                    effect["pool"] = (with["pool"]?.GetValue<string>() ?? throw new FormatException("the action \"recover\" needs \"pool\"")).Replace(' ', '_');
+                    if (with.ContainsKey("does")) effect["does"] = with["does"]!.DeepClone();
+                    // The value is flat, or a percent of the pool's maximum with "of": "maximum".
+                    if (Value(JsonNode.Parse(value)) is { } recovered) effect[with["of"]?.GetValue<string>() == "maximum" ? "percent" : "amount"] = recovered;
+                    break;
+                case "raise":
+                    if (target != "self") throw new FormatException("an event is recorded for the actor itself");
+                    effect["kind"] = "remember";
+                    effect["event"] = with["event"]?.DeepClone() ?? throw new FormatException("the action \"raise\" needs \"event\"");
+                    if (Duration() is { } remembered) effect["seconds"] = remembered;
+                    break;
                 case "ailment":
                     if (target != "enemy") throw new FormatException("an ailment is put on the trigger's enemy");
                     effect["kind"] = "ailment";

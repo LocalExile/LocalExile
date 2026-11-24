@@ -223,7 +223,19 @@ public static partial class Game
     // A named event is answerable only when a production commit records it. Other mechanics retain their dedicated
     // stat id until their owning subsystem supplies the event; an absent unsupported event is not evidence of false.
     // Each entry needs a production Record call; the slice that adds an event's recorder adds it here, never earlier.
-    public static readonly IReadOnlySet<string> TrackedItemRecentEvents = new HashSet<string>(TrackedCurseCastEvents())
+    public static IReadOnlySet<string> TrackedItemRecentEvents => Volatile.Read(ref _trackedRecentEvents);
+
+    /// <summary>Events an effect rule records ("remember"): they are answerable from the moment the rule loads, as the
+    /// rule is their recorder. A rule records for the characters it is live for, so every stat that asks for such an
+    /// event is one of that rule's sources.</summary>
+    public static void TrackRecentEvents(IEnumerable<string> events)
+    {
+        var current = Volatile.Read(ref _trackedRecentEvents);
+        var added = events.Where(e => !current.Contains(e)).ToArray();
+        if (added.Length > 0) Volatile.Write(ref _trackedRecentEvents, new HashSet<string>(current.Concat(added)));
+    }
+
+    static IReadOnlySet<string> _trackedRecentEvents = new HashSet<string>(TrackedCurseCastEvents())
     {
         StatConditions.HitEnemy, StatConditions.KilledEnemy, StatConditions.Crit, StatConditions.BeenHit,
         StatConditions.Blocked, StatConditions.BlockedAttack, StatConditions.BlockedSpell,
