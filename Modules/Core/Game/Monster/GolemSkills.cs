@@ -104,6 +104,12 @@ public static partial class Game
         foreach (var (name, value) in golem.Auras.Concat(golem.Utility)) values[name] = values.GetValueOrDefault(name) + value;
         foreach (var (name, value) in golem.Gear) values[name] = values.GetValueOrDefault(name) + value;
         AddMapMinionActionStats(MapModsOf(player), values);
+        if (SpectreSurges.TryGetValue(golem, out var surge) && now < surge.Until)
+        {
+            values[Stat.CastSpeedPlusPct] = values.GetValueOrDefault(Stat.CastSpeedPlusPct) + ArcaneSurgeCastSpeedPct;
+            values[Stat.ManaRegenerationRatePlusPct] = values.GetValueOrDefault(Stat.ManaRegenerationRatePlusPct) + ArcaneSurgeManaRegenPct;
+            values[Stat.HasArcaneSurge] = 1;
+        }
         if (now < golem.OnslaughtUntil && ItemsFor(player).Onslaught is { } onslaught)
         {
             double effect = Math.Max(0, 1 + values.GetValueOrDefault(Stat.OnslaughtEffectPlusPct) / 100d);
@@ -479,6 +485,7 @@ public static partial class Game
         hash.Add(GolemSummonedInPastEightSeconds(golem, now));
         hash.Add(FreshMeatActive(golem, now));
         hash.Add(now < golem.OnslaughtUntil);
+        hash.Add(SpectreArcaneSurgeActiveLocked(player, golem, now));
         hash.Add(MinionLinkOffenceAt(player, golem, playerStats, now));
         hash.Add(MapModsOf(player));
         hash.Add(SkeletonShieldChaos(player, golem, playerStats));

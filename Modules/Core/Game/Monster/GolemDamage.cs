@@ -284,6 +284,7 @@ public static partial class Game
         g.Monster.Dead = true; g.Monster.Life = 0; g.Monster.ActionGeneration++; g.Pending = null;
         MinionLifeLeeches.Remove(g);
         MinionShieldLeeches.Remove(g);
+        ClearSpectreArcaneSurgeLocked(player, g);
         MinionFortification.Remove(g);
         player.Area.Buffs.Clear(g.Id, FortificationBuffRow, g.Id);
         if (g.Definition.Kind == "Phantasm")
