@@ -31,7 +31,7 @@ public sealed class GolemState
         public uint Target;
         public readonly Dictionary<uint, double> Taunts = [];
         public bool CorpseEmpowered;
-        public bool DeathBurstDone;
+        public bool DeathBurstDone, DeathEffectsApplied;
         public double WrathUntil, NextOrb;
         public int InputHash;
         public Dictionary<uint, int> Own = [], OwnerBuff = [], Player = [];

@@ -376,8 +376,11 @@ public static partial class Game
                     RemoveSummonLocked(player, reformingSpectre, committed, reconcileBlessing: false);
                 }
                 while (replacement is null && reformingSpectre is null && player.Summons.Fighters.Values.Count(SameLimit) >= limit)
-                    RemoveSummonLocked(player, player.Summons.Fighters.Values.Where(SameLimit)
-                        .MinBy(g => g.SummonedAt)!, committed, reconcileBlessing: false);
+                {
+                    var oldest = player.Summons.Fighters.Values.Where(SameLimit).MinBy(g => g.SummonedAt)!;
+                    if (!oldest.Monster.Dead && oldest.Monster.Life > 0) OwnedMinionDeathEffectsLocked(player, oldest, committed);
+                    RemoveSummonLocked(player, oldest, committed, reconcileBlessing: false);
+                }
                 SummonReplacementResources? committedResources = replacement is null
                     ? null : CaptureReplacementResources(replacement.Old, committed);
                 var retainedAura = replacement is null ? null
@@ -602,6 +605,8 @@ public static partial class Game
                 if (!state.Until.TryGetValue(fighter.Id, out double until)) continue;
                 if (player.PlayerLife == 0 || now >= until || !SpectreChildStillOwned(player, fighter))
                 {
+                    if (now >= until && !fighter.Monster.Dead && fighter.Monster.Life > 0)
+                        OwnedMinionDeathEffectsLocked(player, fighter, now);
                     RemoveSummonLocked(player, fighter, now); changed = true; continue;
                 }
                 if (fighter.Monster.Dead || fighter.Monster.Life == 0)

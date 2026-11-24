@@ -14,13 +14,7 @@ public static partial class Game
         corpse.DevourCorpse = true;
         if (!ConsumeDevouredCorpseLocked(player, id, corpse, now, playerConsumes: false)) return;
         player.Minions.OutputQueue.Add(new(InstanceProtocol.RemoveObject(id), "minion devours corpse", WorldId: id, RemovesObject: true));
-        var body = fighter.Monster;
-        if (life > 0 && body.Life < body.MaxLife && !LifeRecovery.NonLeechBlocked(key => body.Effects[key]))
-        {
-            body.Life = (uint)Math.Min(body.MaxLife, body.Life + (long)life);
-            if (body.Life == body.MaxLife) MinionLifeLeeches.Remove(fighter);
-            player.Minions.OutputQueue.Add(new([], null, fighter.Id, body, PlayerMinions.OutputKind.Life));
-        }
+        RecoverMinionLifeLocked(player, fighter, life);
 
         int chance = GolemStat(skill, Stat.KillingBlowConsumesCorpseChanceToGainSoulPerPowerPermillage);
         if (chance <= 0 || !RandomRolls.Chance(ActorScale.Saturate((long)chance * WarcryPower(corpse.Rarity)), 1000, AreaRng(player))) return;

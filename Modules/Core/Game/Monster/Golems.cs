@@ -448,7 +448,10 @@ public static partial class Game
                     TransferIncomingReplacementStateLocked(replacement.Old, probe, committed);
                 if (replacement is not null) RetireReplacementLocked(player, replacement, committed);
                 else if (player.Golems.Replacement(definition.Kind, limit) is { } old)
+                {
+                    if (!old.Monster.Dead && old.Monster.Life > 0) OwnedMinionDeathEffectsLocked(player, old, committed);
                     RemoveGolemLocked(player, old, committed, reconcileBlessing: false);
+                }
                 probe.SummonedAt = replacement?.SummonedAt ?? committed - (8 - remaining);
                 if (freshMeat > 0) probe.FreshMeatUntil = committed + freshMeat;
                 probe.LastStep = replacement?.LastStep ?? committed;

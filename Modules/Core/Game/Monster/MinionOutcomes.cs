@@ -40,9 +40,16 @@ public static partial class Game
         var body = fighter.Monster;
         int percent = GolemStat(fighter.Player, Stat.MinionsRecoverPctMaximumLifeOnKillingPoisonedEnemy)
             + body.Effects[Stat.RecoverPctMaximumLifeOnKillingPoisonedEnemy];
-        if (percent <= 0 || body.Dead || body.Life >= body.MaxLife || !GolemCurrent(player, fighter)
-            || LifeRecovery.NonLeechBlocked(key => body.Effects[key]) || victim.Poisons.Stacks(now) == 0) return;
-        body.Life = (uint)Math.Min(body.MaxLife, body.Life + (long)body.MaxLife * percent / 100);
+        if (percent > 0 && victim.Poisons.Stacks(now) > 0)
+            RecoverMinionLifeLocked(player, fighter, (long)body.MaxLife * percent / 100);
+    }
+
+    static void RecoverMinionLifeLocked(Player player, GolemState.Golem fighter, long life)
+    {
+        var body = fighter.Monster;
+        if (life <= 0 || body.Dead || body.Life == 0 || body.Life >= body.MaxLife || !GolemCurrent(player, fighter)
+            || LifeRecovery.NonLeechBlocked(key => body.Effects[key])) return;
+        body.Life = (uint)Math.Min(body.MaxLife, body.Life + life);
         if (body.Life == body.MaxLife) MinionLifeLeeches.Remove(fighter);
         player.Minions.OutputQueue.Add(new([], null, fighter.Id, body, PlayerMinions.OutputKind.Life));
     }
@@ -187,6 +194,7 @@ public static partial class Game
         IModuleLifetime? rules)
     {
         bool Current() => CurrentGameWork && ReferenceEquals(CombatLifetime, rules);
+        if (Current()) await RunMinionDeathHits(player);
         var state = player.Minions;
         while (true)
         {
