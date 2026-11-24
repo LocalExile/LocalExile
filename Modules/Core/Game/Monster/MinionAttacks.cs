@@ -87,7 +87,8 @@ public static partial class Game
         var mitigated = MitigateMonsterHit(t, offense.Roll(random), now,
             cannotPenetrateOrIgnore: m.Mods.Effects[Stat.CannotPenetrateOrIgnoreElementalResistances]);
         int damage = MonsterTakesMitigated(t, mitigated, spell: false, now: now);
-        var cull = player.Minions.Owns(id, m) ? MinionIgniteKillRule(PlayerStatValues(player), t, now) : default;
+        var cull = (player.Minions.Owns(id, m) ? MinionIgniteKillRule(PlayerStatValues(player), t, now) : default)
+            with { Threshold = MinionCullLocked(player, null, at, now).Threshold };
         int chaosDamage = MonsterHitChaosDamage(t, mitigated, spell: false, now, damage);
         if (ApplyMonsterHitLocked(player, t, damage, rampageSource: null, playerStats: null, allyAt: at,
             cull: cull, cullPlayer: null, chaosDamage: chaosDamage) is not { } hit) return null;
