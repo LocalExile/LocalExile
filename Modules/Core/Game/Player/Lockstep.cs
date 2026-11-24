@@ -595,7 +595,7 @@ public static partial class Game
             && LockstepPlayerFree(player, frameStart);
         player.LockstepCastWindow = null;
         double prevEnd = earlyCancel ? frameStart
-            : Math.Max(player.LockstepActionBackswingUntil, spell ? player.LockstepBusyUntil : Math.Max(player.NextAttackAt, player.LockstepBusyUntil));
+            : Math.Max(player.LockstepActionBackswingUntil, Math.Max(player.NextAttackAt, player.LockstepBusyUntil));
         double actualStart = prevEnd > frameStart && prevEnd <= frameEnd ? prevEnd : frameStart;
         player.LockstepActionStartedAt = actualStart;
         player.LockstepActionScheduledAt = actualStart;

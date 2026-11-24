@@ -120,7 +120,7 @@ public sealed partial class DelveModule
             MapSulphite.Blob(deposit.X, deposit.Y, player.Layout.GroundHeight(deposit.X, deposit.Y), mined, MapSulphite.Fumes(encounter.Mods))),
             $"Sulphite deposit {deposit.Index + 1} ({deposit.X}, {deposit.Y}), mined={mined}");
         await global::Game.SendWorldRecord(modPlayer, deposit.Id, InstanceProtocol.EnterWakeZone(deposit.Id));
-        world.SetBlocker(deposit.Id, deposit.X, deposit.Y, 4);
+        player.SetObjectBlocker(deposit.Id, deposit.X, deposit.Y, 4, QuestObjectTypes.Find(deposit.Type)?.ActorOrChest == true);
     }
 
     static async Task MoveNiko(IModuleContext module, IPlayer modPlayer, SulphiteEncounter encounter, Deposit deposit)
@@ -138,7 +138,7 @@ public sealed partial class DelveModule
         await global::Game.SendWorldCreate(modPlayer, WildNikoId, InstanceEntities.CreateObject(WildNikoId, InstanceEntities.ObjectTypeHash(type), obj.Blob()), "Niko at sulphite deposit");
         await global::Game.SendWorldRecord(modPlayer, WildNikoId, InstanceProtocol.EnterWakeZone(WildNikoId));
         lock (player.Npcs) player.Npcs[WildNikoId] = new SpawnedNpc(npc, at.X, at.Y);
-        world.SetBlocker(WildNikoId, at.X, at.Y, 2);
+        player.SetObjectBlocker(WildNikoId, at.X, at.Y, 2, npc.Components!.Contains("Actor"));
         encounter.NikoAt = deposit.Index;
     }
 

@@ -669,6 +669,14 @@ public class LockstepTests : IDisposable
         Assert.True(player.Walk.ChargesThrough);
         Assert.False(Game.ShieldChargeStepBlocked(player, player.Id, player.Walk, 1.05, (109, 100), []));
         Assert.True(bystander.Walk.Slides);
+        // A strongbox and a solid quest barrier share the ordinary pathfinder. Only the barrier ends a charge.
+        player.SetObjectBlocker(777, 130, 100, 1, actorOrChest: true);
+        Assert.True(ClientPathfinder.ObjectBlocks(player.StationaryBlockers, 130, 100, 2, 5));
+        Assert.False(Game.ShieldChargeStepBlocked(player, player.Id, player.Walk, 1.1, (130, 100)));
+        player.SetBlocker(778, 130, 100, 1);
+        Assert.True(Game.ShieldChargeStepBlocked(player, player.Id, player.Walk, 1.1, (130, 100)));
+        player.RemoveBlocker(778);
+        Assert.False(Game.ShieldChargeStepBlocked(player, player.Id, player.Walk, 1.1, (130, 100)));
         Assert.True(Game.ShieldChargeStepBlocked(player, player.Id, player.Walk, 1.15, (119, 100), []));
         Assert.True(Game.ShieldChargeStepBlocked(player, player.Id, player.Walk, 1.05, (105, 100), [new ClientPathfinder.Blocker(106, 100, 2)]));
         Game.EndShieldChargeIfInterrupted(player);
@@ -710,6 +718,49 @@ public class LockstepTests : IDisposable
         player.LockstepHold.Press((130, 100), 0x2909, 0x0408, (30, 0));
         await Game.StartLockstepActions(player, lateAt);
         Assert.Equal(firstEnd + spellDuration, player.LockstepActionBackswingUntil, 6);
+
+        // A queued spell starts at the preceding attack's deadline inside this frame.
+        player.Connection.LockstepFrame = (10, 10.033);
+        player.NextAttackAt = 10.025;
+        player.LockstepBusyUntil = 10;
+        player.LockstepSkill.Press((150, 100), null, fireballId, 0x0409, repeats: true);
+        await Game.StartLockstepActions(player, 10);
+        Assert.Equal(10.025, player.LockstepCastWindow!.Value.Start, 6);
+    }
+
+    [Fact]
+    public async Task Rejected_ground_charge_leaves_the_newer_charge_running()
+    {
+        using var fixture = new TriggeredSummonTests.Fixture();
+        var player = fixture.Player;
+        var items = Game.ItemsOf(player);
+        items.Change(PlayerInventories.Weapon1, items.Items(PlayerInventories.Weapon1).Single().Id,
+            _ => ItemCatalog.Create(Program.Items.Find("Driftwood Club")!));
+        items.Add(PlayerInventories.Offhand1, 0, 0, ItemCatalog.Create(Program.Items.Find("Splintered Tower Shield")!));
+        ushort skill = Assert.Single(fixture.Equip(("Shield Charge", 1)));
+        var gem = Game.GemSkillEffects(player).Single(g => g.Id == skill);
+        int bonus = Game.ShieldChargeBonusPct(player, skill, gem.Effect);
+        player.Walk.Teleport(100, 100, Game.AreaTime(player));
+        var request = new LoginWriter().U16(InstanceProtocol.UseSkillAtLocationId).U32(160).U32(100)
+            .U16(skill).U16(1).U16(0x0400).ToArray();
+        var gate = Program.SendGates.GetValue(fixture.Ciphers, _ => new(1, 1));
+        await gate.WaitAsync();
+        Task first;
+        try
+        {
+            first = Game.OnClientMessages([(InstanceProtocol.UseSkillAtLocationId, request)], [], player);
+            Assert.False(first.IsCompleted);
+            Assert.True(player.ActionCount > 0);
+            Assert.False(player.Walk.ChargesThrough);
+            Game.BeginShieldCharge(player, skill, bonus, 100, 165, Game.AreaTime(player), ++player.ActionCount, out bool charged);
+            Assert.True(charged);
+        }
+        finally { gate.Release(); }
+        await first;
+
+        Assert.True(player.Walk.ChargesThrough);
+        Assert.Equal((100, 165), player.Walk.Destination);
+        Assert.Equal(bonus, Game.ShieldChargeMovementPct(player));
     }
 
     [Fact]

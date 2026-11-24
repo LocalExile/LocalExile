@@ -17,7 +17,7 @@ Part of [Status](../Status.md); what to build next in this area is in
   accepted. Docs: [11](../docs/protocol/11-skills.md) Â§9.
 - Fortification from melee hits. Docs: [Fortification](../docs/game/fortification.md).
 - Vigilant Strike consumes its direct 8-second melee-hit Fortify grant and refreshes the displayed Fortification timer on a later grant through the shared path; cooldown bypass and fresh supported-client icon/timer behavior are verified live.
-- Shield skills beside a one-handed weapon (`is_dual_wielding`), and Shield Charge's charge and shield damage.
+- Shield skills beside a one-handed weapon (`is_dual_wielding`), and Shield Charge's path hits, arrival bash and forward wave. The charge passes through Actors and Chests and stops on solid scenery or its targeted monster.
   Docs: [11](../docs/protocol/11-skills.md) Â§10a and Â§10k, [13](../docs/protocol/13-items.md).
 - Antiquarian's nodes. Docs: [Antiquarian](../docs/game/antiquarian.md).
 - Conditional critical policy (#242): signed clamp, luck, unarmed multiplier and one roll per gem use.

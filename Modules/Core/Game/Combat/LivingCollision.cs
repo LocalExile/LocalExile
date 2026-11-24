@@ -416,13 +416,11 @@ public static partial class Game
         }
         if (walk.ChargesThrough && !walk.Slides)
         {
-            if (ShieldChargeStepBlocked(player, id, walk, at, cell, player.StationaryBlockers))
+            if (ShieldChargeStepBlocked(player, id, walk, at, cell))
             {
                 walk.StopAt(at);
                 return false;
             }
-            if (!ClientPathfinder.ObjectBlocks(player.StationaryBlockers, cell.X, cell.Y, walk.Size + 1, walk.Size + 4))
-                walk.WalksThrough = false;
             if (id == player.Id) bodies.MovePlayer(cell.X, cell.Y);
             else bodies.Move(id, cell.X, cell.Y);
             ClientEntityGrid.Stepped(player, id, cell);

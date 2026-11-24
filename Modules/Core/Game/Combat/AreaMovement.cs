@@ -302,13 +302,11 @@ public static partial class Game
         }
         if (walk.ChargesThrough && !walk.Slides)
         {
-            if (ShieldChargeStepBlocked(first, id, walk, at, cell, bodies.Fixed))
+            if (ShieldChargeStepBlocked(first, id, walk, at, cell))
             {
                 walk.StopAt(at);
                 return false;
             }
-            if (!ClientPathfinder.ObjectBlocks(bodies.Fixed, cell.X, cell.Y, walk.Size + 1, walk.Size + 4))
-                walk.WalksThrough = false;
             bodies.Move(id, cell.X, cell.Y);
             ClientEntityGrid.Stepped(first, id, cell);
             return true;
@@ -331,7 +329,6 @@ public static partial class Game
     sealed class AreaBodies
     {
         readonly BlockerSet current = new(), fixedSet = new();
-        public IReadOnlyList<ClientPathfinder.Blocker> Fixed => fixedSet;
         readonly Dictionary<uint, int> index = [];
         readonly Dictionary<uint, IReadOnlyList<ClientPathfinder.Blocker>> views = [];
         readonly HashSet<uint> passThrough = [];

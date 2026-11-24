@@ -852,6 +852,7 @@ public static partial class Game
             castAt = leap?.At ?? ProjectileWorldTime(player);
             double actionAt = lockstep && player.Connection.LockstepFrame is { } frame ? frame.Start : castAt;
             if (lockstep) StepWalkers(player, actionAt);
+            AdvanceShieldChargeForUse(player, actionAt, immediateAttack);
             if (chargeBonus == 0) EndShieldChargeIfInterrupted(player);
             castAction = Interlocked.Increment(ref player.ActionCount);
             aim = m.Walk.Position(actionAt);
@@ -888,17 +889,24 @@ public static partial class Game
             if (noFlickerTarget) await FlickerRefused(player, gem.Name!);
             return;
         }
+        Action? startCharge = null;
         bool spellAcknowledged = false;
         bool spellProjectileRuntime = UsesProjectileRuntime(gem.Effect) || leapSkill || shieldCharge;
         double? immediateSwingAt = leap?.At ?? (immediateAttack || player.Connection.LockstepClient
             ? LockstepScheduledAt(player, castAt) : null);
         bool movedByCast = flickers && landing != stand || moves && chargeBonus == 0 && landing != stand;
-        Task<bool>? spellTask = spellProjectileRuntime ? CastGemSkill(player, use.SkillId, stand, aim,
+        Task<bool>? spellTask = spellProjectileRuntime ? CastGemSkillWithAdmission(player,
+            shieldCharge ? start => startCharge = start : null, use.SkillId, stand, aim,
             use.TargetId, sequence: use.Sequence, actionToken: spellUse?.ActionToken ?? castAction, cooldownUse: spellUse,
             swingAt: immediateSwingAt, leap: leap, movedByCast: movedByCast) : null;
+        if (shieldCharge && !await spellTask!) return;
         if (spellTask is { IsCompletedSuccessfully: true, Result: false }) return;
-        byte[][] ActionRecords() => [InstanceProtocol.ActionStarted(player.Id, stand.X, stand.Y, aim.X, aim.Y,
-            use.SkillId, use.Sequence, use.Flags, targetObjectId: use.TargetId), InstanceProtocol.ActionEnded(player.Id)];
+        byte[][] ActionRecords()
+        {
+            Interlocked.Exchange(ref startCharge, null)?.Invoke();
+            return [InstanceProtocol.ActionStarted(player.Id, stand.X, stand.Y, aim.X, aim.Y,
+                use.SkillId, use.Sequence, use.Flags, targetObjectId: use.TargetId), InstanceProtocol.ActionEnded(player.Id)];
+        }
         bool Acknowledge() => spellAcknowledged = SkillAcknowledgementAllowed(player, gem.Effect, use.SkillId,
             () => spellUse?.CommitNativeUse(player, use.SkillId) ?? PlayerActionCurrent(player, castAction));
         bool predictedLeap = PredictsLeapSlam(player, SkillsFor(player).EffectId(gem.Effect), use.Sequence);
@@ -908,11 +916,7 @@ public static partial class Game
                 atGate: () => LeapSlamAcknowledgement(player, [.. ActionRecords().SelectMany(p => p)]));
         else
             await SendWorldRecords(player, player.Id, ActionRecords, acknowledgement, still: Acknowledge);
-        if (shieldCharge && !spellAcknowledged)
-        {
-            EndShieldChargeIfInterrupted(player);
-            return;
-        }
+        if (shieldCharge && !spellAcknowledged) return;
         if (flickers && spellAcknowledged)
         {
             await FlickerArt(player, gem.Gem, stand, landing);
@@ -1086,7 +1090,15 @@ public static partial class Game
     // A gem skill's cast: Righteous Fire puts its buff on, any other skill launches its projectile (if it has one). False when
     // it was refused (cooldown, mana), so its use is not confirmed to the client. An attack's timer, hit and release
     // count from swingAt when its swing began before now (a lockstep walk-up's goal frame, CastOn), else from now.
-    public static async Task<bool> CastGemSkill(Player player,
+    public static Task<bool> CastGemSkill(Player player,
+        ushort skillId, (int X, int Y) from, (int X, int Y) to, uint targetId = 0, ushort sequence = 0,
+        int? actionToken = null, CooldownUseTicket? cooldownUse = null, bool locationInstant = false,
+        DashUseReceipt? dashReceipt = null, double? swingAt = null, LeapSlam.Use? leap = null, Action? guardStart = null,
+        bool movedByCast = false) =>
+        CastGemSkillWithAdmission(player, null, skillId, from, to, targetId, sequence, actionToken, cooldownUse,
+            locationInstant, dashReceipt, swingAt, leap, guardStart, movedByCast);
+
+    static async Task<bool> CastGemSkillWithAdmission(Player player, Action<Action>? onShieldChargeReady,
         ushort skillId, (int X, int Y) from, (int X, int Y) to, uint targetId = 0, ushort sequence = 0,
         int? actionToken = null, CooldownUseTicket? cooldownUse = null, bool locationInstant = false,
         DashUseReceipt? dashReceipt = null, double? swingAt = null, LeapSlam.Use? leap = null, Action? guardStart = null,
@@ -1478,7 +1490,7 @@ public static partial class Game
         if (gem.Name is not null && IsRighteousFire(gem.Effect))
             await ActivateRighteousFire(player, skillId, gem.Effect, gem.Level, gem.Quality, gem.Gem);
         else
-            await LaunchProjectile(player, skillId, from, to, recoveryGeneration, targetId, sequence: sequence,
+            await LaunchProjectileForUse(player, onShieldChargeReady, skillId, from, to, recoveryGeneration, targetId, sequence: sequence,
                 actionToken: actionToken, cooldownUse: cooldownUse, criticalRoll: criticalRoll, channelGeneration: channelGeneration,
                 swingAt: cooldownUse?.Attack?.At ?? swingAt, leap: leap, previousNextAttackAt: reservedNextAttackAt);
         return CompleteSupportedUse(true);
@@ -1822,6 +1834,13 @@ public static partial class Game
     public static Task LaunchProjectile(Player player,
         ushort skillId, (int X, int Y) from, (int X, int Y) to, int recoveryGeneration, uint targetId = 0, ushort sequence = 0,
         int? actionToken = null, CooldownUseTicket? cooldownUse = null, SkillCriticalRoll? criticalRoll = null,
+        int? channelGeneration = null, double? swingAt = null, LeapSlam.Use? leap = null) =>
+        LaunchProjectileForUse(player, null, skillId, from, to, recoveryGeneration, targetId, sequence, actionToken,
+            cooldownUse, criticalRoll, channelGeneration, swingAt, leap);
+
+    static Task LaunchProjectileForUse(Player player, Action<Action>? onShieldChargeReady,
+        ushort skillId, (int X, int Y) from, (int X, int Y) to, int recoveryGeneration, uint targetId = 0, ushort sequence = 0,
+        int? actionToken = null, CooldownUseTicket? cooldownUse = null, SkillCriticalRoll? criticalRoll = null,
         int? channelGeneration = null, double? swingAt = null, LeapSlam.Use? leap = null, double? previousNextAttackAt = null)
     {
         var gem = GemSkillEffects(player).FirstOrDefault(g => g.Id == skillId);
@@ -1858,12 +1877,15 @@ public static partial class Game
         int chargeBonus = ShieldChargeBonusPct(player, skillId, gem.Effect);
         if (chargeBonus != 0)
         {
-            double chargeAt = player.Connection.LockstepClient && player.Connection.LockstepFrame is { } frame
-                ? frame.Start : AreaTime(player);
-            int chargeAction = actionToken ?? player.ActionCount;
-            int token = BeginShieldCharge(player, skillId, chargeBonus, to.X, to.Y, chargeAt, chargeAction, out bool charged,
-                targetObjectId: targetId, previousNextAttackAt: previousNextAttackAt);
-            _ = RunShieldCharge(player, token, charged, skillId, sequence, chargeAction, cooldownUse, cryExerted);
+            void StartCharge()
+            {
+                int chargeAction = actionToken ?? player.ActionCount;
+                int token = BeginShieldCharge(player, skillId, chargeBonus, to.X, to.Y, AreaTime(player), chargeAction,
+                    out bool charged, targetObjectId: targetId, previousNextAttackAt: previousNextAttackAt);
+                _ = RunShieldChargeHits(player, token, charged, skillId, sequence, chargeAction, cooldownUse, cryExerted, criticalRoll);
+            }
+            if (onShieldChargeReady is null) StartCharge();
+            else onShieldChargeReady(StartCharge);
             return Task.CompletedTask;
         }
         criticalRoll ??= CaptureSkillCriticalRoll(player, skillId);
@@ -2293,16 +2315,11 @@ public static partial class Game
         uint targetId = 0, int repeat = 0, int? radiusOverride = null, ISet<uint>? once = null, double repeatDelay = 0,
         double radiusMore = 1, SacrificeUse? sacrifice = null, double? swingAt = null, Func<bool>? triggeredCurrent = null,
         DischargeUse? discharge = null, int scaledBlastChaos = 0, uint? singleStrikeTarget = null, Action<uint>? onHit = null,
-        ProjectileSession? scheduledSession = null, bool? cryExerted = null, long addedChaos = 0, long baseChaos = 0, HolySweepHammers.Settings? hammer = null,
-        Func<uint, (int X, int Y), bool>? targetFilter = null, int extraStunThresholdReduction = 0, int extraStunDurationPct = 0,
-        int extraKnockbackDistancePct = 0, bool removeStunAndKnockback = false, bool offHandWeapon = false) =>
+        ProjectileSession? scheduledSession = null, bool? cryExerted = null, long addedChaos = 0, long baseChaos = 0, HolySweepHammers.Settings? hammer = null) =>
         AreaSkillHitForUse(null, player, skillId, gem, from, to, immediate, sequence, actionToken,
             cooldownUse, melee, damageMore, excludeMonster, criticalRoll, channelGeneration, targetId, repeat,
             radiusOverride, once, repeatDelay, radiusMore, sacrifice, swingAt, triggeredCurrent, discharge, scaledBlastChaos,
-            singleStrikeTarget, onHit, scheduledSession, cryExerted, addedChaos, baseChaos, hammer,
-            targetFilter: targetFilter, extraStunThresholdReduction: extraStunThresholdReduction,
-            extraStunDurationPct: extraStunDurationPct, extraKnockbackDistancePct: extraKnockbackDistancePct,
-            removeStunAndKnockback: removeStunAndKnockback, offHandWeapon: offHandWeapon);
+            singleStrikeTarget, onHit, scheduledSession, cryExerted, addedChaos, baseChaos, hammer);
 
     static Task AreaSkillHitForUse(double? ruthlessMore, Player player,
         ushort skillId, (ushort Id, int Effect, string Name, int Level, int Quality, uint Gem) gem, (int X, int Y) from, (int X, int Y) to,

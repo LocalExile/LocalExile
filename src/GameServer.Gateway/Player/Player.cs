@@ -1084,9 +1084,34 @@ public sealed partial class Player(AreaLayout layout, uint ticket, uint seed) : 
             ? Math.Max(b.Size, (int)Math.Ceiling(b.CollisionRadius ?? 0)) : 0;
     }
 
-    public void SetBlocker(uint id, int x, int y, int size, double? collisionRadius = null)
+    readonly HashSet<uint> actorOrChestBlockers = [];
+    IReadOnlyList<ClientPathfinder.Blocker>? sceneryBlockers;
+
+    public IReadOnlyList<ClientPathfinder.Blocker> SceneryBlockers
     {
-        lock (_blockers) { _blockers[id] = new(x, y, size) { CollisionRadius = collisionRadius }; _blockerList = new GameServer.Core.World.BlockerSet(_blockers.Values); }
+        get
+        {
+            lock (_blockers) return sceneryBlockers ??= actorOrChestBlockers.Count == 0 ? _blockerList
+                : new GameServer.Core.World.BlockerSet(_blockers.Where(b => !actorOrChestBlockers.Contains(b.Key)).Select(b => b.Value));
+        }
+    }
+
+    public void SetBlocker(uint id, int x, int y, int size, double? collisionRadius = null) =>
+        UpdateBlocker(id, x, y, size, collisionRadius, null);
+
+    public void SetObjectBlocker(uint id, int x, int y, int size, bool actorOrChest, double? collisionRadius = null) =>
+        UpdateBlocker(id, x, y, size, collisionRadius, actorOrChest);
+
+    void UpdateBlocker(uint id, int x, int y, int size, double? collisionRadius, bool? actorOrChest)
+    {
+        lock (_blockers)
+        {
+            if (actorOrChest == true) actorOrChestBlockers.Add(id);
+            else if (actorOrChest == false) actorOrChestBlockers.Remove(id);
+            _blockers[id] = new(x, y, size) { CollisionRadius = collisionRadius };
+            _blockerList = new GameServer.Core.World.BlockerSet(_blockers.Values);
+            sceneryBlockers = null;
+        }
         BlockersChanged?.Invoke();
     }
 
@@ -1095,7 +1120,13 @@ public sealed partial class Player(AreaLayout layout, uint ticket, uint seed) : 
 
     public void RemoveBlocker(uint id)
     {
-        lock (_blockers) if (_blockers.Remove(id)) _blockerList = new GameServer.Core.World.BlockerSet(_blockers.Values);
+        lock (_blockers)
+        {
+            if (!_blockers.Remove(id)) return;
+            actorOrChestBlockers.Remove(id);
+            _blockerList = new GameServer.Core.World.BlockerSet(_blockers.Values);
+            sceneryBlockers = null;
+        }
     }
 
     /// <summary>Applies the passive movement speed to the server's walk estimate; /set_speed is a dev override.</summary>

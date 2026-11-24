@@ -2975,10 +2975,9 @@ object-targeted monster at ≥ 15 cells (`dist² > 0xe0`). A charge from inside 
 
 **Hits.** The client's (`trace-charge-hits.js`, four charges): kind 0 at its position as it starts and then about every
 100 ms (every ~8 cells at charge speed) within 8 cells (`0x141a70170` returns the range), kind 1 within 16 cells where
-it arrives, and kind 2 (range 28) as the end phase starts. The Gateway lands kind 0 and 1 on its own walk
-(`RunShieldCharge`): path hits every 100 ms within 8 cells, each monster at most once per charge (neighbouring path
-areas overlap), and a final hit within 16 cells reaching every monster there. The generic area hit, which landed once
-around the starting cell, skips Shield Charge. Verified live: path and arrival hits land.
+it arrives, and kind 2 (range 28) when the end animation finishes. The Gateway spaces path hits by distance
+travelled, once per monster along the path. The arrival hit and the forward wave share their target list. A Move
+that cancels the end animation preserves the arrival hit. A queued follow-up preserves a completed wave.
 
 **Maximum distance.** The setup stops a charge aimed further away at 75 cells × (1 + `shield_charge_range_+%` / 100)
 (integer, `(100 + range) * 75 / 100`) along the aim; the Gateway clamps its walk the same way. The setup also adds
@@ -2991,9 +2990,6 @@ at the off hand's speed. Shield Charge's description of `shield_charge_damage_+%
 is "{0}% more Damage with Hits at Maximum Charge Distance": the Gateway scales each hit linearly by the distance from
 the start over the maximum (a guess; the client's ramp is not read). Verified live: level 1 with a 219-armour shield,
 base 51–83, panel 79–136 and 2.1 attacks per second, hits ×1.00 at the start up to ×1.83 at 62 cells.
-
-**Not modelled yet:** the stun and knockback scaling, `shield_charge_extra_distance`, and the end phase's kind-2
-effects.
 
 ## 10f. Synthetic action instructions (S→C 0x1ce / 0x1cf)
 
