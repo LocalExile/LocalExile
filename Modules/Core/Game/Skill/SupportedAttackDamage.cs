@@ -110,7 +110,7 @@ public static class SupportedAttackDamage
                     dexterityGroups * (double)source.GetValueOrDefault(ColdPerDexterityMax)));
             int esPct = source.GetValueOrDefault(EphemeralEdgeLightningFromEs);
             if (esPct > 0 && get(Stat.MaximumEnergyShield) is int maxEnergyShield and > 0)
-                added = added.Add(DamageType.Lightning, new(0, maxEnergyShield * (esPct / 100.0)));
+                added = added.Add(DamageType.Lightning, new(0, (long)maxEnergyShield * esPct / 100.0));
         }
         foreach (var (itemClass, ranges) in MeleeFamilyAddedRanges)
             if (WeaponIdentity.CountsAs(weapon.ItemClass, weapon.LocalSources, itemClass)
