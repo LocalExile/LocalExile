@@ -1415,6 +1415,10 @@ public static partial class Game
         int pairRes = Get(ResistanceOvercap.ColdAndLightningResistance);
         int fireColdRes = Get(Stat.FireAndColdDamageResistancePct);
         int fireLightningRes = Get(Stat.FireAndLightningDamageResistancePct);
+        // The three chaos pairs follow the same rule: each adds to both named resistances.
+        int fireChaosRes = Get(Stat.FireAndChaosDamageResistancePct);
+        int coldChaosRes = Get(Stat.ColdAndChaosDamageResistancePct);
+        int lightningChaosRes = Get(Stat.LightningAndChaosDamageResistancePct);
         // Reservation efficiency: generic efficiency applies to both pools; the mana/life-specific stats only to theirs.
         // Aura effect is the generic non-curse/aura effect; the Reservation mastery's self-aura effect is included.
         int manaReservation = Get(Stat.BaseManaReservationEfficiencyPlusPct) + Get(Stat.BaseReservationEfficiencyPlusPct)
@@ -1477,12 +1481,12 @@ public static partial class Game
             NoBodyArmour: Get(Stat.GainNoArmourFromBodyArmour) != 0,
             MeleePhysicalDamagePct: Get(Stat.MeleePhysicalDamagePlusPct),
             FireResistance: allRes + Get(Stat.BaseFireDamageResistancePct) + Get(Stat.FireDamageResistancePlusPct) + elementalRes
-                + fireColdRes + fireLightningRes,
+                + fireColdRes + fireLightningRes + fireChaosRes,
             ColdResistance: allRes + Get(Stat.BaseColdDamageResistancePct) + Get(Stat.ColdDamageResistancePlusPct) + elementalRes
-                + pairRes + fireColdRes,
+                + pairRes + fireColdRes + coldChaosRes,
             LightningResistance: allRes + Get(Stat.BaseLightningDamageResistancePct) + Get(Stat.LightningDamageResistancePlusPct)
-                + elementalRes + pairRes + fireLightningRes,
-            ChaosResistance: Get(Stat.BaseChaosDamageResistancePct),
+                + elementalRes + pairRes + fireLightningRes + lightningChaosRes,
+            ChaosResistance: Get(Stat.BaseChaosDamageResistancePct) + fireChaosRes + coldChaosRes + lightningChaosRes,
             FireMaxResistance: allMax + allElemMax + Get(Stat.BaseMaximumFireDamageResistancePct),
             ColdMaxResistance: allMax + allElemMax + Get(Stat.BaseMaximumColdDamageResistancePct),
             LightningMaxResistance: allMax + allElemMax + Get(Stat.BaseMaximumLightningDamageResistancePct),

@@ -8,6 +8,8 @@ public static partial class Game
     public static GolemCatalog GolemData = null!;
     const string GolemSaveKey = "Game.Golems";
     static int GolemStat(IReadOnlyDictionary<uint, int> stats, uint name) => name is var key ? stats.GetValueOrDefault(key) : 0;
+    static int GolemEffectiveLimit(int gemGolems, Func<uint, int> playerStat) =>
+        Math.Min(100, ApplyDarkMonarchLimit(GolemCatalog.Limit(gemGolems, playerStat), playerStat, "Golem"));
     static void GolemAdd(Dictionary<uint, int> stats, uint name, int value)
     { if (value != 0 && name is var key) stats[key] = ActorScale.Saturate((long)stats.GetValueOrDefault(key) + value); }
 
@@ -409,7 +411,7 @@ public static partial class Game
             || Monsters.Find(definition.Variety) is not { Supported: true } variety) return 0;
         int Own(uint name) => GolemStat(supported.Stats, name);
         int Player(uint name) => GolemStat(playerStats, name);
-        int limit = GolemCatalog.Limit(Own(Stat.BaseNumberOfGolemsAllowed), Player);
+        int limit = GolemEffectiveLimit(Own(Stat.BaseNumberOfGolemsAllowed), Player);
         if (limit == 0) return 0;
         byte level = (byte)Math.Clamp(Own(Stat.BaseDisplayMinionActorLevel), 1, 100);
         double remaining = arrival && double.IsFinite(summonedSecondsRemaining)
@@ -652,13 +654,14 @@ public static partial class Game
                 if (!sources.TryGetValue(golem.Source, out int effect) || effect != golem.Definition.Effect)
                 { RemoveGolemLocked(player, golem, now); changed = true; continue; }
                 var gem = SupportedSkill(player, golem.Source);
-                if (!gem.RequirementsMet) { RemoveGolemLocked(player, golem, now); changed = true; continue; }
+                if (!gem.RequirementsMet || !MinionFamilyAllowed(n => GolemStat(playerStats, n), "Golem"))
+                { RemoveGolemLocked(player, golem, now); changed = true; continue; }
                 if (golem.Monster.Dead)
                 {
                     continue;
                 }
                 golem.Own = new(gem.Stats); golem.GemLevel = gem.Level; golem.Quality = gem.Quality;
-                golem.Limit = GolemCatalog.Limit(GolemStat(gem.Stats, Stat.BaseNumberOfGolemsAllowed), n => GolemStat(playerStats, n));
+                golem.Limit = GolemEffectiveLimit(GolemStat(gem.Stats, Stat.BaseNumberOfGolemsAllowed), n => GolemStat(playerStats, n));
                 int level = GolemStat(gem.Stats, Stat.BaseDisplayMinionActorLevel);
                 if (level != golem.Monster.Level)
                 {

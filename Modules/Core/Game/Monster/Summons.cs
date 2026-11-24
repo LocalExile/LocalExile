@@ -70,11 +70,62 @@ public static partial class Game
         definition.Family == "Skeleton" ? Math.Max(1, new[] { Stat.NumberOfMeleeSkeletonsToSummon,
             Stat.NumberOfArcherSkeletonsToSummon, Stat.NumberOfMageSkeletonsToSummon }.Sum(stat)) : 1;
 
+    internal static string? DarkMonarchMinionFamily(int value) => value switch
+    {
+        1 => "AnimatedWeapon",
+        2 => "Golem",
+        3 => "RagingSpirit",
+        4 => "Spectre",
+        5 => "Spider",
+        6 => "Zombie",
+        7 => "Reaper",
+        8 => "Absolution",
+        9 => "Dominating",
+        10 => "Purity",
+        11 => "HolyRelic",
+        12 => "Phantasm",
+        13 => "Skeleton",
+        14 => "SpectralWolf",
+        15 => "LivingLightning",
+        16 => "HolyArmament",
+        _ => null,
+    };
+
+    static string CanonicalMinionFamily(string family) => family switch
+    {
+        "VaalAbsolution" => "Absolution",
+        "VaalDomination" => "Dominating",
+        "VaalSkeleton" => "Skeleton",
+        "VaalAnimatedWeapon" => "AnimatedWeapon",
+        _ when family.StartsWith("Dominating", StringComparison.Ordinal) => "Dominating",
+        _ => family,
+    };
+
+    public static bool MinionFamilyAllowed(Func<uint, int> playerStat, string family)
+    {
+        string canon = CanonicalMinionFamily(family);
+        if (playerStat(Stat.YouCannotHaveNonSpectreMinions) != 0 && canon != "Spectre") return false;
+        if (playerStat(Stat.YouCannotHaveNonAnimatedMinions) != 0 && canon is not ("AnimatedWeapon" or "AnimatedGuardian")) return false;
+        if (playerStat(Stat.YouCannotHaveNonGolemMinions) != 0 && canon != "Golem") return false;
+        int monarch = playerStat(Stat.MaximumNumberOfXMinionTypeDoubled);
+        return monarch == 0 || DarkMonarchMinionFamily(monarch) == canon;
+    }
+
+    public static int ApplyDarkMonarchLimit(int limit, Func<uint, int> playerStat, string family) =>
+        !MinionFamilyAllowed(playerStat, family) ? 0
+        : playerStat(Stat.MaximumNumberOfXMinionTypeDoubled) is int monarch and > 0
+            && DarkMonarchMinionFamily(monarch) == CanonicalMinionFamily(family)
+            ? Math.Clamp(limit * 2, 0, 200)
+            : limit;
+
     public static int SummonLimit(Player player, SummonCatalog.Definition definition, SupportedGem gem) =>
-        definition.LimitStat == 0 ? 1 : SummonLimit(definition, gem, CharacterPlayerStats(player));
+        SummonLimit(definition, gem, CharacterPlayerStats(player));
 
     static int SummonLimit(SummonCatalog.Definition definition, SupportedGem gem, IReadOnlyDictionary<uint, int> playerStats)
     {
+        int PlayerStat(uint key) => GolemStat(playerStats, key);
+        if (!MinionFamilyAllowed(PlayerStat, definition.Family)) return 0;
+        if (definition.LimitStat == 0) return 1;
         uint final = definition.FinalLimitStat;
         long value = (long)GolemStat(gem.Stats, definition.LimitStat) + GolemStat(playerStats, definition.LimitStat) + GolemStat(playerStats, final);
         if (definition.Family == "Zombie")
@@ -83,14 +134,19 @@ public static partial class Game
                 ? Math.Max(0, GolemStat(playerStats, attribute)) / step : 0;
             value += (long)PerAttribute(Stat.Strength, Stat.NumberOfZombiesAllowedPlus1PerXStrength)
                 + PerAttribute(Stat.Intelligence, Stat.NumberOfZombiesAllowedPlus1PerXIntelligenceFromFoulbornBaron);
-            return (int)Math.Clamp(value * (1 + GolemStat(playerStats, Stat.NumberOfZombiesAllowedPlusPct) / 100d), 0, 200);
+            int scaled = (int)Math.Clamp(value * (1 + GolemStat(playerStats, Stat.NumberOfZombiesAllowedPlusPct) / 100d), 0, 200);
+            return ApplyDarkMonarchLimit(scaled, PlayerStat, definition.Family);
         }
         if (definition.Family == "Skeleton")
             value += GolemStat(playerStats, Stat.NumberOfSkeletonsAllowedPer2Old) / 2;
         if (definition.Family == "RagingSpirit")
-            return (int)Math.Clamp(value * (1 + GolemStat(playerStats, Stat.PctNumberOfRagingSpiritsAllowed) / 100d), 0, 200);
+        {
+            int scaled = (int)Math.Clamp(value * (1 + GolemStat(playerStats, Stat.PctNumberOfRagingSpiritsAllowed) / 100d), 0, 200);
+            return ApplyDarkMonarchLimit(scaled, PlayerStat, definition.Family);
+        }
         // Clones have no ordinary cap; duration is their lifetime constraint.
-        return (int)Math.Clamp(value == 0 && definition.Family == "Clone" ? 100 : value, 0, 200);
+        if (value == 0 && definition.Family == "Clone") return 100;
+        return ApplyDarkMonarchLimit((int)Math.Clamp(value, 0, 200), PlayerStat, definition.Family);
     }
 
     static bool PermanentSkeletonWarriors(SummonCatalog.Definition definition, IReadOnlyDictionary<uint, int> owner) =>
@@ -546,6 +602,9 @@ public static partial class Game
                     || SkillsFor(player).EffectId(gem.Effect) != fighter.Definition.Id || !gem.RequirementsMet)
                 { RemoveSummonLocked(player, fighter, now); changed = true; continue; }
                 gem = gem with { Stats = MergeSummonStats(gem.Stats, fighter.RetainedSkillStats) };
+                int liveLimit = SummonLimit(player, state.Definitions[fighter.Id], gem);
+                if (liveLimit <= 0 || state.Fighters.Values.Count(g => g.Definition.Kind == fighter.Definition.Kind && !g.Monster.Dead) > liveLimit)
+                { RemoveSummonLocked(player, fighter, now); changed = true; continue; }
                 int actorLevel = GolemStat(gem.Stats, fighter.Definition.Kind == "Spectre" ? Stat.RaisedSpectreLevel : Stat.BaseDisplayMinionActorLevel);
                 if (actorLevel <= 0 && (fighter.Definition.Kind.StartsWith("Dominating", StringComparison.Ordinal) || fighter.Definition.Kind == "VaalDomination"))
                     actorLevel = SkillsFor(player).PlayerLevelReq(gem.Effect, gem.Level);
