@@ -1,4 +1,5 @@
 using System.Buffers.Binary;
+using GameServer.Core.Protocol.Login;
 using GameServer.Core;
 using GameServer.Core.Accounts;
 using GameServer.Core.Protocol.Instance;
@@ -18,7 +19,38 @@ public sealed class BatchEndgameAtlasDelveHudTests
 
         // Atlas Scrying persistence, Uncomplete, and Voidstone 0x01a5 region-bit delta mapping.
         Assert.Null(AtlasProgress.ScryTarget(data, chateau));
-        Assert.True(AtlasProgress.SetScry(data, chateau, alleyways));
+        const byte mainBag = PlayerInventories.MainInventory;
+        var bag = Game.ItemsOf(fixture.Player);
+        var orb = bag.Add(mainBag, 0, 0, ItemCatalog.Create(Program.Items.Find("Metadata/Items/Currency/CurrencyScryingOrb")!) with { StackSize = 2 });
+        var compass = bag.Add(mainBag, 1, 0, ItemCatalog.Create(Program.Items.Find("Metadata/Items/Currency/CurrencyItemiseSextantModifier")!));
+        const uint npc = 123;
+        var confirm = new InstanceMapDevice.AtlasScryRequest(chateau.AreaHashes.First(), alleyways.AreaHashes.First(), npc);
+        fixture.Player.Use(fixture.Player.Layout with { Id = chateau.Areas.First(), Hash = chateau.AreaHashes.First() });
+        fixture.Player.TalkingTo = npc;
+        using (var host = new ModHost("Modules", _ => { }, modules: true) { Wanted = () => new HashSet<string>(["Game", "Atlas"]) })
+        {
+            host.Start(watch: false);
+            Assert.True(host.IsLoaded("Atlas"));
+            fixture.Player.LeagueModule = new(new League("atlas-test", "Standard", false, false), new HashSet<string>(["Game", "Atlas"]));
+            Task<bool> Use(uint id, ushort hash) => GameEvents.AnyPacket(fixture.Player, InstanceMapDevice.UseItemOnAtlasNodeId,
+                new LoginWriter().U16(InstanceMapDevice.UseItemOnAtlasNodeId).U32(PlayerInventories.InventoryId(mainBag)).U32(id).U16(hash).ToArray());
+            Task<bool> Confirm() => GameEvents.AnyPacket(fixture.Player, InstanceMapDevice.AtlasScryId,
+                new LoginWriter().U16(InstanceMapDevice.AtlasScryId).U16(confirm.FromAreaHash).U16(confirm.ToAreaHash).U32(npc).ToArray());
+            Assert.True(await Use(compass.Id, alleyways.Hash16));
+            Assert.Contains(bag.Items(mainBag), item => item == compass);
+            Assert.True(await Use(orb.Id, chateau.Hash16));
+            Assert.True(await Confirm());
+            Assert.Null(AtlasProgress.ScryTarget(data, chateau));
+
+            Assert.True(await GameEvents.AllowNpcOption(fixture.Player, new NpcCatalog.Talk(0, 0, 0, "Scry a Map", "", "", [])));
+            Assert.True(await Confirm());
+            Assert.Null(AtlasProgress.ScryTarget(data, chateau));
+            Assert.Contains(bag.Items(mainBag), item => item == orb);
+            Assert.True(AtlasProgress.Complete(data, [chateau, alleyways]));
+            Assert.True(await Confirm());
+            Assert.True(await Confirm());
+        }
+        Assert.Equal(2, bag.Items(mainBag).Single(item => item.Id == orb.Id).Item.StackSize);
         Assert.Equal(alleyways.Id, AtlasProgress.ScryTarget(data, chateau));
         MapDevice.MapArea Map(AtlasProgress.Node node) => new(node.AreaHashes.First(), node.Areas.First(), node.Name, 1);
         var destination = new MapOpening(fixture.Player, [], false, new(Map(alleyways), MapMods.None), "");
@@ -28,7 +60,7 @@ public sealed class BatchEndgameAtlasDelveHudTests
         AtlasProgress.ApplyScry(original);
         Assert.Null(original.Opening!.Area.DivinationCardArea);
 
-        Assert.True(AtlasProgress.Complete(data, [chateau]));
+        Assert.Contains(chateau.Id, AtlasProgress.Completed(data));
         Assert.True(AtlasProgress.CompleteBonus(data, [chateau]));
         Assert.Contains(chateau.Id, AtlasProgress.Completed(data));
         Assert.True(AtlasProgress.Uncomplete(data, chateau));

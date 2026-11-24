@@ -484,20 +484,16 @@ public static class AtlasFeature
             "0x02c9 AtlasPrimordialBossInfluenceRules sub-id 0 (altar mods update)");
 
     /// <summary>Opens the Atlas in scrying mode (S→C 0x7b kind 0x13, mode 1, source object id).</summary>
-    sealed record ScryOffer(InstanceState Instance, uint ObjectId, string? Source, ItemMoves.Spot? Currency, AccountStash? Stash);
+    sealed record ScryOffer(InstanceState Instance, uint ObjectId, string Source);
     static readonly System.Runtime.CompilerServices.ConditionalWeakTable<Player, ScryOffer> ScryOffers = new();
 
-    public static Task OpenScrying(Player player, uint sourceObjectId) =>
-        OpenScrying(player, new ScryOffer(player.Instance, sourceObjectId,
-            AtlasProgress.OfArea(player.Layout.Id)?.Id, null, null));
-
-    static Task OpenScrying(Player player, ScryOffer offer)
+    public static Task OpenScrying(Player player, uint sourceObjectId)
     {
-        uint sourceObjectId = offer.ObjectId;
-        ScryOffers.AddOrUpdate(player, offer);
+        ScryOffers.Remove(player);
+        if (sourceObjectId != 0 && player.TalkingTo == sourceObjectId && AtlasProgress.OfArea(player.Layout.Id) is { IsNormalMap: true } source)
+            ScryOffers.AddOrUpdate(player, new(player.Instance, sourceObjectId, source.Id));
         return Send(player, InstanceWaypoints.OpenUi(InstanceWaypoints.AtlasScryingUi, 1, sourceObjectId),
-            $"0x007b open Atlas in scrying mode (kind 0x{InstanceWaypoints.AtlasScryingUi:x2}, source 0x{sourceObjectId:x})");
-
+            $"0x007b open Atlas in scrying mode (source 0x{sourceObjectId:x})");
     }
 
     // C→S 0x01a7: swap divination card drop pools between two Atlas maps (Atlas Scrying).
@@ -513,55 +509,19 @@ public static class AtlasFeature
         }
         var data = WorldOf(PlayerOf(player)).CharacterData;
         if (!ScryOffers.TryGetValue(player, out var offer) || offer.Instance != player.Instance
-            || offer.ObjectId != req.ObjectId || (offer.Source is not null && offer.Source != from.Id)
-            || !to.IsNormalMap || !from.IsNormalMap) return;
-        var items = ItemsOf(player);
+            || offer.ObjectId != req.ObjectId || offer.Source != from.Id || !to.IsNormalMap || !from.IsNormalMap) return;
         const string usedKey = "Atlas.ScryUsed";
-        PlayerInventories.Payment? payment = null;
-        InventoryItem? stashReplacement = null;
         bool accepted = Saves.Atomically(() =>
         {
             var completed = AtlasProgress.Completed(data);
             if (!completed.Contains(from.Id) || !completed.Contains(to.Id)
-                || AtlasProgress.ScryTarget(data, from) == to.Id) return false;
-            if (offer.Currency is { } spot)
-            {
-                uint orbHash = InstanceEntities.ObjectTypeHash("Metadata/Items/Currency/CurrencyScryingOrb");
-                if (spot.Tab is int t)
-                {
-                    var stash = offer.Stash!;
-                    if (!(player.StashOpen || player.GuildStashOpen) || !ReferenceEquals(stash, global::Game.StashOf(player))
-                        || stash.IsPublic(t) || stash.Inventory(t).Items.FirstOrDefault(i => i.Id == spot.Id) is not { } orb
-                        || orb.Item.TypeHash != orbHash) return false;
-                    if (orb.Item.StackSize > 1)
-                        stashReplacement = stash.Change(t, orb.Id, i => i with { StackSize = (ushort)(i.StackSize - 1) });
-                    else if (stash.Take(t, orb.Id) is null) return false;
-                }
-                else
-                {
-                    var orb = items.Items(spot.Row).FirstOrDefault(i => i.Id == spot.Id);
-                    if (orb is null || orb.Item.TypeHash != orbHash) return false;
-                    if (orb.Item.StackSize > 1)
-                        payment = new([orb.Id], [items.Change(spot.Row, orb.Id, i => i with { StackSize = (ushort)(i.StackSize - 1) })!]);
-                    else if (items.Remove(spot.Row, orb.Id) is not null)
-                        payment = new([orb.Id], []);
-                    else return false;
-                }
-            }
-            else if (offer.ObjectId != 0 && !player.Instance.ContentState.TryAdd(usedKey, "1")) return false;
-            return AtlasProgress.SetScry(data, from, to);
+                || AtlasProgress.ScryTarget(data, from) == to.Id || player.Instance.ContentState.ContainsKey(usedKey)) return false;
+            if (!AtlasProgress.SetScry(data, from, to)) return false;
+            player.Instance.ContentState[usedKey] = "1";
+            return true;
         });
         if (!accepted) return;
         ScryOffers.Remove(player);
-        if (offer.Currency is { } spent)
-        {
-            if (spent.Tab is int tab && offer.Stash is { } stash)
-                await Send(player, InstanceItems.InventoryChange(stash.InventoryOf(tab), stash.NextRevision(tab), [spent.Id],
-                    stashReplacement is null ? [] : [stashReplacement]), "0x00bf spent Scrying Orb");
-            else if (payment is not null)
-                await Send(player, InstanceItems.InventoryChange(PlayerInventories.InventoryId(spent.Row), items.NextRevision(spent.Row),
-                    payment.Removed, payment.Changed), "0x00bf spent Scrying Orb");
-        }
         await PlayerOf(player).Tell($"Atlas Scrying: {to.Name} now drops the divination cards from {from.Name}.");
     }
 
@@ -652,13 +612,6 @@ public static class AtlasFeature
         bool isSeal = type.Id.Contains("CartographerSeal", StringComparison.OrdinalIgnoreCase)
             || type.Id.Contains("Unshaping", StringComparison.OrdinalIgnoreCase)
             || type.Id.Contains("AtlasSeal", StringComparison.OrdinalIgnoreCase);
-        bool isScry = type.Id == "Metadata/Items/Currency/CurrencyScryingOrb";
-
-        if (isScry)
-        {
-            await OpenScrying(player, new ScryOffer(player.Instance, 0, node.Id, spot, spot.Tab is null ? null : global::Game.StashOf(player)));
-            return;
-        }
         if (!isSeal)
         {
             Console.WriteLine($"[gateway] {player.Connection.Remote} <= Atlas node currency {type.Id} on {node.Name}: unsupported currency");
