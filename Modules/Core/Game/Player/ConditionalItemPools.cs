@@ -98,6 +98,11 @@ public static partial class Game
         flags["_while_on_consecrated_ground"] = player.FlaskGrounds.Consecrated;
         bool onslaught = HasIndependentOnslaught(player);
         flags["independent_onslaught"] = onslaught;
+        // "while a Pinnacle Boss is in your Presence": the client's PinnacleAtlasBoss marker mod
+        // (BossMods.PinnacleAtlasBoss, MonsterVarieties ModsKeys), same PresenceRadius 80, already under
+        // the Monsters lock here, so no new lock is taken. The flag rides the stat-sum cache key, so a
+        // pinnacle boss entering or leaving presence recomputes the sources.
+        flags[StatConditions.CelestialBossInPresence] = alive && CelestialBossInPresenceLocked(player, now);
         flags["_while_onslaught_is_active"] = onslaught;
         flags["_while_have_onslaught"] = onslaught;
         flags["_while_channelling"] = player.ChannelSkill != 0;
