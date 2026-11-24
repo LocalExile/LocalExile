@@ -490,6 +490,7 @@ public static partial class Game
                 * Math.Max(0, 1 + Own(Stat.SupportMinionDamagePlusPctFinal) / 100.0)
                 * Math.Max(0, 1 + Own(Stat.Of("minion_damage_+%_final")) / 100.0)
                 * MindlessAggressionDamage(playerStats)
+                * MinionNecromancerCorpseDamage(mods)
                 * Math.Max(0, 1 + Raw(Stat.ActiveSkillDamagePlusPctFinal) / 100.0)
                 * (golem.Definition.IsGolem ? Math.Max(0, 1 + GolemTether(playerStats, "damage") / 100.0) : 1);
             more *= 1 + .04 * (golem.CombatCharges?.Held(ChargeType.Frenzy) ?? 0);

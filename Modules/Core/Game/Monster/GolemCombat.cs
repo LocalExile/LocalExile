@@ -654,6 +654,7 @@ public static partial class Game
         double more = MinionTacticsBaseDamage(player, g, now) * Math.Max(0, 1 + GolemStat(g.Own, Stat.ActiveSkillMinionDamagePlusPctFinal) / 100.0)
             * Math.Max(0, 1 + GolemStat(g.Own, Stat.SupportMinionDamagePlusPctFinal) / 100.0)
             * MindlessAggressionDamage(g.Player)
+            * MinionNecromancerCorpseDamage(g.Monster.Effects)
             * Math.Max(0, 1 + GolemTether(g.Player, "damage") / 100.0);
         double increasedMultiplier = Math.Max(0, 1 + normalIncrease / 100.0);
         double factor = increasedMultiplier * more;

@@ -125,6 +125,7 @@ public static partial class Game
         Add(Stat.BasePhysicalDamageReductionRating, bonus.Armour);
         Add(Stat.DeterminationAuraArmourPlusPctFinal, bonus.ArmourMorePct);
         Add(Stat.BaseEvasionRating, bonus.Evasion); Add(Stat.GraceAuraEvasionRatingPlusPctFinal, bonus.EvasionMorePct);
+        if (minion.Monster is not null) AddMinionNecromancerCorpseAuras(player, minion, values, AreaTime(player));
         return values;
     }
 }
