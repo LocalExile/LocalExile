@@ -24,7 +24,7 @@ The rules the code follows are the wiki's for 3.29; what the client data and cod
 - Stasis is the client's own `LegionBreakout` action (action type 0xd8fe, skill 0x18fe), created with the monster (Actor current action) in state 0:
   hidden, no collision and no hits on the client and the server (`noBodyUntilReleased`). At the shatter a 0x2c8 state 2 reveals each member, nearest the
   monolith first over `RevealSeconds` (a guess), and the client poses it mid-attack in the attack clip the server names; state 3 at the break-out, state 5 at the end;
-  a joiner is created in state 0 (the origin) and gets a 0x2c8 state 2 like the others (a broken-out member is created in state 3 and gets none). Protocol docs follow the live check.
+  a joiner is created in state 0 (the origin) and gets a 0x2c8 state 2 like the others (a broken-out member is created in state 3 and gets none). Wire layout: [protocol 07 section 4.1](../protocol/07-latency-visibility-movement.md).
 - Buff 1311 `frozen_in_time` (flags: cannot be knocked back, minions take no actions) is NOT sent for the first live test of the action
   (`LegionStasis.SendFreezeBuff` = false, with the paused animation); the text below describes what the flag restores.
   Its default visual 1082 `legion_petrify` draws big purple spikes; the server sends it with the faction's visual as the
@@ -86,8 +86,8 @@ The ruleset `LegionRules` (Rulesets 94) reads the same duration from the S->C 0x
 - The factions: in The Climb Eternal Empire and Karui, in The Dried Lake Eternal Empire and one random; elsewhere two are
   drawn by `SpawnWeight` and the `map_legion_monoliths_chance_for_*` stats, among those whose balance row allows the level.
 - The army spawns frozen for every player in the area (`LegionFormation.cs`): a random axis through the monolith, one block per army
-  on each side, facing the other; width about 1.75 times depth, sized from the member count. Spacing between centres is max(12, 4.5 x ObjectSize) cells in rows (jitter 0.3 of it) and
-  max(13, 5 x ObjectSize) in loose groups, each member drawing a factor 0.85-1.4 for its minimum distance (ObjectSize is only the collision size; the coated soldier is drawn 6-8 cells wide); the fronts are
+  on each side, facing the other; width about 1.75 times depth, sized from the member count. Spacing between centres is a minimum plus a factor of ObjectSize, in rows (with jitter) and
+  in loose groups (the named constants of `LegionFormation.cs`), each member drawing a factor 0.85-1.4 for its minimum distance (ObjectSize is only the collision size; the coated soldier is drawn 6-8 cells wide); the fronts are
   1.5 spacings apart. Eternal Empire and Templar stand in rows and columns, the others in loose groups. The band percent is the distance from
   the front (0) to the rear (100): a member fills its band first and spills to the rows behind, then in front, only when the band is full.
   The general is placed first, centred at the rear, and falls back to the rear half (loose groups) or any free slot (rows). A blocked cell tries its neighbours, then the member is skipped.
