@@ -178,6 +178,21 @@ public class MirrorFlaskMapTests
             await Game.OnClientMessages([(InstanceItems.UseItemOnId, onWorn)], [], c);
             Assert.True(items.Items(PlayerInventories.Flask).Single(i => i.Id == plain.Id).Item.Quality > 0);
             Assert.Equal(1, items.Items(main).Single(i => i.Id == bauble.Id).Item.StackSize);
+            // A mirrored or corrupted target is refused with the client's reason, before anything is spent.
+            Assert.Equal("ItemErrorItemMirrored", GameServer.Core.ClientTables.Table("ClientStrings").Row(InstanceItems.ItemErrorItemMirrored - 1)?.TextOrNull("Id"));
+            Assert.Equal("ItemErrorTargetCorrupted", GameServer.Core.ClientTables.Table("ClientStrings").Row(InstanceItems.ItemErrorTargetCorrupted - 1)?.TextOrNull("Id"));
+            BinaryPrimitives.WriteUInt32BigEndian(onWorn.AsSpan(10), inventory);
+            BinaryPrimitives.WriteUInt32BigEndian(onWorn.AsSpan(6), invMirror.Id);
+            BinaryPrimitives.WriteUInt32BigEndian(onWorn.AsSpan(14), items.Items(main).First(i => i.Item.Mirrored).Id);
+            await Game.OnClientMessages([(InstanceItems.UseItemOnId, onWorn)], [], c);
+            Assert.Empty(items.Items(PlayerInventories.Cursor));
+            Assert.Equal(1, items.Items(main).Single(i => i.Id == invMirror.Id).Item.StackSize);
+            var corrupted = items.Add(main, 10, 0, source with { Quality = 0, Corrupted = true });
+            BinaryPrimitives.WriteUInt32BigEndian(onWorn.AsSpan(6), bauble.Id);
+            BinaryPrimitives.WriteUInt32BigEndian(onWorn.AsSpan(14), corrupted.Id);
+            await Game.OnClientMessages([(InstanceItems.UseItemOnId, onWorn)], [], c);
+            Assert.Equal(0, items.Items(main).Single(i => i.Id == corrupted.Id).Item.Quality);
+            Assert.Equal(1, items.Items(main).Single(i => i.Id == bauble.Id).Item.StackSize);
             PlayerInventories.Forget(name);
             AccountStash.Forget(key);
             var restored = PlayerInventories.For(name, Program.Items);

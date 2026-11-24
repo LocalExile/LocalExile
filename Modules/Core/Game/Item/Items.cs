@@ -1741,6 +1741,12 @@ public static partial class Game
             await SendItemError(player, InstanceItems.ItemErrorItemEquipped);
             return;
         }
+        if (RefusedByState(player, used.Item, target.Item) is ushort stateError)
+        {
+            Console.WriteLine($"[gateway] {player.Connection.Remote} <= 0x0071 use {type?.Name ?? "item"} on item {use.TargetId}: refused, target is {(target.Item.Mirrored ? "mirrored" : "corrupted")}{where}");
+            await SendItemError(player, stateError);
+            return;
+        }
         bool isEssence = type is not null && EssencesFor(player).Contains(type.Hash);
         // Mirror of Kalandra: a mirrored copy of the target goes onto the (empty) cursor, as if picked up, for the player to
         // place; the target stays as it was and its place gets no message.
@@ -1831,11 +1837,27 @@ public static partial class Game
             && action != "add_gem_quality" && action != "add_map_alt_quality"
             || action is "add_flask_seal" or "add_flask_injector");
 
+    // The item error a handled currency gets from its target's state, or null: a mirrored item takes no currency (a
+    // Reflective Oil is not modelled), a corrupted one only a Scroll of Wisdom and Tainted currency. An item the server
+    // does not handle keeps its "not handled" log instead of a reason. Vestigial items have no known string and stay silent.
+    public static ushort? RefusedByState(Player player, Item currency, Item target)
+    {
+        if (!target.Mirrored && !target.Corrupted || ItemsFor(player).ByHash(currency.TypeHash) is not { } type
+            || type.Id is not (CurrencyEffects.MirrorOfKalandra or CurrencyEffects.HinekorasLock)
+                && !CurrencyEffects.Recognizes(ItemsFor(player), type, EssencesFor(player).Contains(type.Hash)))
+            return null;
+        if (target.Mirrored) return InstanceItems.ItemErrorItemMirrored;
+        return type.Id == "Metadata/Items/Currency/CurrencyIdentification" || CurrencyEffects.TaintedIds.Contains(type.Id)
+            ? null : InstanceItems.ItemErrorTargetCorrupted;
+    }
+
     // The refusal line the player reads: BackendErrors FailedToApplyCurrency (149) "Failed to apply item: {0}" with the
-    // item error's ClientStrings text. Sent as a chat line (0x17) until the official message that prints it is found.
+    // item error's ClientStrings text (the error is the row + 1). Sent as a chat line (0x17) until the official message
+    // that prints it is found.
     static async Task SendItemError(Player player, ushort error)
     {
-        string reason = error == InstanceItems.ItemErrorItemEquipped ? "Item is currently equipped." : $"error 0x{error:x4}";
+        string reason = GameServer.Core.ClientTables.TableOrNull("ClientStrings")?.Row(error - 1)?.TextOrNull("Text") is { Length: > 0 } known
+            ? known : $"error 0x{error:x4}";
         string text = $"Failed to apply item: {reason}";
         await Send(player, InstanceChat.ChatLine(text), $"0x0017 \"{text}\"");
     }

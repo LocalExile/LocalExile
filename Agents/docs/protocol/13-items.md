@@ -573,6 +573,10 @@ The client still sends 0x71 for a refused target, so the Gateway refuses it befo
 (`Game.RefusedOnWorn`, by the CurrencyItems action), and the Hinekora preview answers with a failure.
 Sockets, Vaal, Fracturing, Hinekora's Lock and Mirror were not checked live and are refused. The official game prints "Failed to apply item: Item is currently equipped." (BackendErrors
 `FailedToApplyCurrency`); the message that carries it is not found, so the Gateway sends that line as chat (0x17).
+A mirrored target (`0x4c8` `ItemErrorItemMirrored`, "Item is mirrored.") and a corrupted one (`0x4b4`
+`ItemErrorTargetCorrupted`, "Target is corrupted.", except a Scroll of Wisdom and Tainted currency) are refused the
+same way, after the worn check (`Game.RefusedByState`); the client's order of the three checks, and the text for a
+Mirror or Hinekora's Lock on a corrupted item, are not checked.
 
 | State | Where | Server |
 |---|---|---|

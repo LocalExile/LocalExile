@@ -583,6 +583,11 @@ public static class InstanceItems
     /// 0x141f89920 (mov eax,0x4b8 at 0x141f89a29).</summary>
     public const ushort ItemErrorItemEquipped = 0x04B8;
 
+    /// <summary>The client's item errors for a currency used on a corrupted or a mirrored target, by the same rule
+    /// (ClientStrings row + 1): row 1203 <c>ItemErrorTargetCorrupted</c> ("Target is corrupted.") and row 1223
+    /// <c>ItemErrorItemMirrored</c> ("Item is mirrored.").</summary>
+    public const ushort ItemErrorTargetCorrupted = 0x04B4, ItemErrorItemMirrored = 0x04C8;
+
     /// <summary>
     /// S→C 0x2a0 CurrencyApplicationForesightResult (dispatcher case 223, handler 0x14215ae11, reader 0x141fa8680):
     /// u16 id, u16 BE keyA (the C→S 0x29d request key), u16 raw status (0: preview, non-zero: failure; the client's
