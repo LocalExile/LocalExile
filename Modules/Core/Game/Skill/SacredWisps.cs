@@ -22,12 +22,12 @@ public static partial class Game
         SacredWisps? sacredWisps;
 
         bool CurrentSacredWisps(SacredWisps wisps) => Active && ReferenceEquals(sacredWisps, wisps)
-            && Player.PlayerLife > 0 && WeaponProfileFor(Player, activeSet: true).WieldingWand
+            && Player.PlayerLife > 0 && WeaponProfileFor(Player, activeSet: true).Wand
             && SameTriggerSource(wisps.Source, SupportedSkill(Player, wisps.Skill));
 
         void SacredWispsOnHit(ProjectileOffense shot)
         {
-            if (!WeaponProfileFor(Player, activeSet: true).WieldingWand) return;
+            if (!WeaponProfileFor(Player, activeSet: true).Wand) return;
             var source = SupportedSkill(Player, shot.SourceSkill);
             if (!source.RequirementsMet || source.Effect != shot.Effect
                 || source.Supports.FirstOrDefault(s => s.Effect.Id == SacredWispSupport) is not { } support
