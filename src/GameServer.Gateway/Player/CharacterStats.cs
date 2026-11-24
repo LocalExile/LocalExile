@@ -115,6 +115,12 @@ public static class CharacterStats
         // Body values are likewise local subsets of the flat totals, before slot-specific global operators.
         decimal BodyArmour = 0, decimal BodyEvasion = 0, int BodyEnergyShield = 0, int BodyEnergyShieldPct = 0,
         bool DoubleBodyArmour = false, bool NoBodyArmour = false,
+        int BodyArmourPct = 0, int BodyEvasionPct = 0,
+        // The helmet's local ES and the gloves' and boots' local armour and evasion, for the masteries' slot increases.
+        int HelmetEnergyShield = 0, int HelmetEnergyShieldPct = 0,
+        decimal GlovesBootsArmour = 0, decimal GlovesBootsEvasion = 0, int GlovesBootsArmourPct = 0,
+        // Final "more" multiplier on maximum Life (combined multiplicatively across sources, after increases).
+        decimal LifeMorePct = 0,
         int SpellSuppressionWhileFullEnergyShield = 0,
         bool ArmourAppliesToChaosDamage = false, AttributeModifiers Attributes = default,
         int StrengthPct = 0, int DexterityPct = 0, int IntelligencePct = 0, int AllAttributesPct = 0,
@@ -128,8 +134,8 @@ public static class CharacterStats
         // Dexterity's inherent evasion grant can be removed on its own, leaving its accuracy bonus alone, and a source
         // can add spell suppression chance per complete group of 15 Dexterity.
         bool NoDexterityEvasion = false, int SpellSuppressionPerFifteenDexterity = 0,
-        // A source that removes the whole Mana pool (maximum 0), and a final "more" multiplier on maximum Life.
-        bool NoMana = false, int LifeMorePct = 0)
+        // A source that removes the whole Mana pool (maximum 0).
+        bool NoMana = false)
     {
         public bool ConvertSuppressionToSpellDodge { get; init; }
         public int BaseSpellDodgeChance { get; init; }
@@ -235,15 +241,17 @@ public static class CharacterStats
         int armourPct = b.ArmourPct;
         // Native slot calculations add slot-specific increases to the applicable global bucket. Sum fractional
         // contributions before rounding the final rating (AR 0x142739a97, EV 0x14273114b, ES 0x142533297).
+        // A further slot (the helmet, or the gloves and boots) has its own increase in the same way.
         decimal Increased(decimal total, decimal shield, decimal body, long increase, long shieldIncrease,
-            long bodyIncrease = 0, bool bodyAsArmour = false)
+            long bodyIncrease = 0, bool bodyAsArmour = false, decimal slot = 0, long slotIncrease = 0)
         {
             // Keep each known local source even if the aggregate was saturated while merging equipment.
-            decimal fromShield = Math.Max(0m, shield), fromBody = Math.Max(0m, body);
+            decimal fromShield = Math.Max(0m, shield), fromBody = Math.Max(0m, body), fromSlot = Math.Max(0m, slot);
             decimal bodyFactor = bodyAsArmour ? b.NoBodyArmour ? 0m : b.DoubleBodyArmour ? 2m : 1m : 1m;
-            return Math.Max(0m, total - fromShield - fromBody) * Math.Max(0m, 100m + increase) / 100m
+            return Math.Max(0m, total - fromShield - fromBody - fromSlot) * Math.Max(0m, 100m + increase) / 100m
                 + (b.NoShieldDefences ? 0m : fromShield * Math.Max(0m, 100m + increase + shieldIncrease) / 100m)
-                + fromBody * Math.Max(0m, 100m + increase + bodyIncrease) / 100m * bodyFactor;
+                + fromBody * Math.Max(0m, 100m + increase + bodyIncrease) / 100m * bodyFactor
+                + fromSlot * Math.Max(0m, 100m + increase + slotIncrease) / 100m;
         }
         decimal More(decimal value, decimal increase)
         {
@@ -252,7 +260,8 @@ public static class CharacterStats
         }
         int Rating(decimal value) => (int)Math.Clamp(Math.Round(value, MidpointRounding.AwayFromZero), 0m, int.MaxValue);
         decimal armourValue = More(Increased(b.Armour, b.ShieldArmour, b.BodyArmour, armourPct,
-            (long)b.ShieldArmourPct + b.SharedShieldDefencesPct, bodyAsArmour: true), b.ArmourMorePct);
+            (long)b.ShieldArmourPct + b.SharedShieldDefencesPct, b.BodyArmourPct, bodyAsArmour: true,
+            b.GlovesBootsArmour, b.GlovesBootsArmourPct), b.ArmourMorePct);
         // These item coefficients use complete groups of final production attributes. They join ordinary INC,
         // before slot increases/MORE; Iron Reflexes retains this item term while excluding inherent Dexterity.
         long ordinaryEvasionPct = (long)b.EvasionPct + b.ColdOvercapEvasionPct
@@ -261,21 +270,23 @@ public static class CharacterStats
         int evasionPct = (int)Math.Clamp(totalEvasionPct, int.MinValue, int.MaxValue);
         decimal evasionBase = BaseEvasion + b.Evasion;
         decimal evasionValue = More(Increased(evasionBase, b.ShieldEvasion, b.BodyEvasion, totalEvasionPct,
-            (long)b.ShieldEvasionPct + b.SharedShieldDefencesPct), b.EvasionMorePct);
+            (long)b.ShieldEvasionPct + b.SharedShieldDefencesPct, b.BodyEvasionPct), b.EvasionMorePct);
         // "Increased evasion while moving" joins the same increased bucket while the condition holds (PoB Condition Moving).
         // shortcut: Iron Reflexes' converted armour does not get it; upgrade when armour reads a moving condition.
         int? evasionWhileMoving = b.EvasionWhileMovingPct == 0 || b.IronReflexes ? null
             : Rating(More(Increased(evasionBase, b.ShieldEvasion, b.BodyEvasion, totalEvasionPct + b.EvasionWhileMovingPct,
-                (long)b.ShieldEvasionPct + b.SharedShieldDefencesPct), b.EvasionMorePct));
+                (long)b.ShieldEvasionPct + b.SharedShieldDefencesPct, b.BodyEvasionPct), b.EvasionMorePct));
         if (b.IronReflexes)
         {
             // Iron Reflexes converts all evasion rating to armour and removes dexterity's evasion bonus. The converted
             // evasion keeps the armour, evasion and shared defence increases (each once), but not dexterity.
             long convertedPct = armourPct + ordinaryEvasionPct - b.SharedDefencesPct;
             // Native 0x14273862b also doubles converted body EV, or suppresses it with the no-body-AR flag.
+            // Converted evasion keeps its slot's armour and evasion increases (PoB CalcDefence per slot).
             decimal converted = More(More(Increased(evasionBase, b.ShieldEvasion, b.BodyEvasion, convertedPct,
-                (long)b.ShieldArmourPct + b.ShieldEvasionPct + b.SharedShieldDefencesPct, bodyAsArmour: true),
-                b.EvasionMorePct), b.ArmourMorePct);
+                (long)b.ShieldArmourPct + b.ShieldEvasionPct + b.SharedShieldDefencesPct,
+                (long)b.BodyArmourPct + b.BodyEvasionPct, bodyAsArmour: true,
+                b.GlovesBootsEvasion, b.GlovesBootsArmourPct), b.EvasionMorePct), b.ArmourMorePct);
             armourValue = armourValue > decimal.MaxValue - converted ? decimal.MaxValue : armourValue + converted;
             evasionPct = (int)Math.Clamp(ordinaryEvasionPct, int.MinValue, int.MaxValue);
             evasionValue = 0;
@@ -295,7 +306,8 @@ public static class CharacterStats
             + (long)b.EnergyShieldPctPerTenStrength * (str / 10);
         int energyShieldPct = (int)Math.Clamp(totalEnergyShieldPct, int.MinValue, int.MaxValue);
         uint energyShield = b.NoEnergyShield ? 0u : (uint)Rating(Increased(b.EnergyShield, b.ShieldEnergyShield, b.BodyEnergyShield,
-            totalEnergyShieldPct, (long)b.ShieldEnergyShieldPct + b.SharedShieldDefencesPct, b.BodyEnergyShieldPct));
+            totalEnergyShieldPct, (long)b.ShieldEnergyShieldPct + b.SharedShieldDefencesPct, b.BodyEnergyShieldPct,
+            slot: b.HelmetEnergyShield, slotIncrease: b.HelmetEnergyShieldPct));
         int Max(int bonus) => Math.Min(DamageModel.MaxResistCap, DamageModel.DefaultMaxResistance + bonus);
         int maxBlock = Math.Min(DamageModel.BlockChanceCap, DamageModel.DefaultMaxBlockChance + b.BlockChanceMax);
         int maxSpellBlock = Math.Min(DamageModel.BlockChanceCap, DamageModel.DefaultMaxSpellBlockChance + b.SpellBlockChanceMax);

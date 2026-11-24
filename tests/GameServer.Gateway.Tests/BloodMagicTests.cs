@@ -74,6 +74,10 @@ public sealed class BloodMagicTests
         Assert.Equal(259u, with.Life);
         Assert.True(without.Mana > 0);
         Assert.Equal(0u, with.Mana);
+        // A second "more" Life multiplier (Life Mastery) stacks multiplicatively: 235.5 x 1.1 x 1.1 = 284.955 -> 284.
+        stats[Stat.LifeMasteryCountMaximumLifePlusPctFinal] = 10;
+        var withMastery = CharacterStats.For(SkillCatalog.ClassInfo.Witch, 1, Game.PassiveBonus(stats, default, default));
+        Assert.Equal(284u, withMastery.Life);
     }
 
     // With Blood Magic an aura's Mana reservation is taken from Life instead, Petrified Blood's too.

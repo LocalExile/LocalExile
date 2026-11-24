@@ -219,6 +219,11 @@ public static partial class Game
             return;
         }
         var playerStats = CharacterPlayerStats(player);
+        if (!CanHaveMinion(playerStats, OwnedMinionFamily.Other))
+        {
+            if (ReferenceEquals(player.SpiritChieftains.Pending, summon)) player.SpiritChieftains.Pending = null;
+            return;
+        }
         int Player(uint k) => playerStats.GetValueOrDefault(k);
         // shortcut: the player's minion modifiers are taken at the summon, not followed for its 12 s.
         var mods = MonsterModSet.None with { Effects = new(new Dictionary<uint, int>
@@ -237,7 +242,7 @@ public static partial class Game
                 player.Minions.Add(new(id, m, summon.Skill, variety.Name)
                     { Until = summon.Until, Fights = true, SpiritChieftain = true });
             }, ownedCurrent: () => player.PlayerLife > 0 && ReferenceEquals(player.SpiritChieftains.Pending, summon)
-                && AreaTime(player) < summon.Until);
+                && AreaTime(player) < summon.Until && CanHaveOtherMinions(player));
         if (!CurrentGameWork) return;
         Console.WriteLine($"[gateway] {CharacterName(player)}: {summon.Skill} summons {variety.Name} at level {summon.Level} for "
             + $"{summon.Until - now:0.##} s");

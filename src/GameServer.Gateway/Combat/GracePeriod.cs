@@ -7,6 +7,9 @@ public sealed class GracePeriod
 
     /// <summary>The current entry-protection duration; the system setting may change it without a restart.</summary>
     public static int Seconds => SystemSettings.Default.GracePeriodSeconds;
+
+    /// <summary>The resurrect-protection duration: the official's measured 20 s after reviving at a checkpoint.</summary>
+    public const int ResurrectSeconds = 20;
     readonly Lock _lock = new();
     ushort? _buff;
     bool _protecting;
@@ -24,6 +27,19 @@ public sealed class GracePeriod
             _protecting = _buff is not null;
             _origin = origin;
             _until = now + seconds;
+            return _buff is not null;
+        }
+    }
+
+    /// <summary>Like <see cref="Start"/> but for a resurrect, with the official 20 s instead of the entry seconds.</summary>
+    public bool StartResurrect(double now, (int X, int Y) origin, ushort buff, bool town, bool hideout)
+    {
+        lock (_lock)
+        {
+            _buff = town || hideout ? null : buff;
+            _protecting = _buff is not null;
+            _origin = origin;
+            _until = now + ResurrectSeconds;
             return _buff is not null;
         }
     }
@@ -51,4 +67,7 @@ public sealed class GracePeriod
     }
 
     public static Buff Buff(uint player) => new(BuffRow, player, U68: global::Buff.Seconds(Seconds));
+
+    public static Buff BeginResurrectPacket(uint player) =>
+        new(BuffRow, player, U68: global::Buff.Seconds(ResurrectSeconds));
 }

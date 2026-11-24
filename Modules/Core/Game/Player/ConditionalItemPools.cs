@@ -57,6 +57,7 @@ public static partial class Game
             ["_while_es_full"] = alive && player.EnergyShield.Full,
             ["_on_full_energy_shield"] = alive && player.EnergyShield.Full,
             ["_while_no_energy_shield"] = player.EnergyShield.Current == 0,
+            [HaveEnergyShieldCondition] = alive && player.EnergyShield.Current > 0,
             ["_while_moving"] = moving, ["_while_stationary"] = !moving, ["_while_not_moving"] = !moving,
             ["_while_phasing"] = player.IsPhasing,
             ["_while_affected_by_elusive"] = player.IsElusive,

@@ -1916,6 +1916,9 @@ public static partial class Game
         if (IsSmite(gem.Effect))
             return ScheduleSmite(player, skillId, gem, from, to, targetId,
                 recoveryGeneration, cooldownUse, criticalRoll, sequence, swingAt, cryExerted);
+        if (IsStaticStrike(gem.Effect))
+            return ScheduleStaticStrike(player, skillId, gem, from, to, targetId,
+                recoveryGeneration, cooldownUse, criticalRoll, sequence, swingAt, cryExerted);
         var supported = SupportedSkill(player, skillId);
         int seals = UnleashSeals(player, skillId, supported, ProjectileWorldTime(player), spend: true);
         double reoccurrenceMore = Math.Max(0, 1 + GolemStat(supported.Stats, Stat.SupportSpellRapidFireRepeatUseDamagePlusPctFinal) / 100d);
@@ -2417,6 +2420,7 @@ public static partial class Game
         criticalRoll ??= CaptureSkillCriticalRoll(player, skillId);
         // A dual-wielded attack's hand for this use (AttackHands): its weapon, time, hit, chance and local modifiers.
         var hand = spell ? AttackHand.Main : AttackHandFor(player, skillId, sequence);
+        var itemCriticalTrigger = spell ? null : CaptureItemCriticalTriggerSource(player, skillId, hand);
         var weapon = HandWeapon(player, hand);
         // Read once per use: the per-victim hit log and the target-conditional critical chances reuse them.
         string handNote = spell ? "" : HandNote(player, hand);
@@ -2874,8 +2878,13 @@ public static partial class Game
                         if (applied.Value.Life < lifeBefore)
                             RecordResonanceHitLocked(player, m, skillStats, rolled, at);
                         CrueltyOnHitLocked(player, skillId, damage, lifeBefore, m.MaxLife, skillStats, at);
-                        if (!spell) ReleaseCriticalTrigger(player, ProjectilesFor(player),
-                            criticalTrigger, critical, m.Hostile, m.Walk.Position(at), at);
+                        if (!spell)
+                        {
+                            ReleaseCriticalTrigger(player, ProjectilesFor(player),
+                                criticalTrigger, critical, m.Hostile, m.Walk.Position(at), at);
+                            ReleaseItemCriticalTrigger(player, ProjectilesFor(player),
+                                itemCriticalTrigger, critical, m.Hostile, m.Walk.Position(at), at);
+                        }
                         else ArcaneSurgeOnSpellHitLocked(player, playerStats, m);
                         if (!spell && applied.Value.Life == 0) ReleaseMeleeKillTrigger(player,
                             ProjectilesFor(player), meleeKillTrigger, true, m.Hostile, m.Walk.Position(at), at);
