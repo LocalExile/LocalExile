@@ -526,6 +526,8 @@ public static partial class Game
     // The wait before a mine of a detonation sequence goes off after the one before it: the mine's detonation time
     // (base_mine_detonation_time_ms, 250 in every 3.29.3c mine row) at 10% more detonation speed for each mine before
     // it in the sequence (Detonate Mines' display_mine_deontation_mechanics_detonation_speed_+%_final_per_sequence_mine).
+    static bool IsMineDetonation(string? effect) => effect is "DetonateMines" or "GemDetonateMines" or "TriggeredDetonateMines";
+
     public static double MineSequenceGap(int milliseconds, int prior) =>
         (milliseconds > 0 ? milliseconds : 250) / 1000d / (1 + .1 * Math.Max(0, prior));
 

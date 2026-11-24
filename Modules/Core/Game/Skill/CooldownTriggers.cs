@@ -34,7 +34,8 @@ public static partial class Game
         return skills.IsSpell(gem.Effect) && skills.IsInstant(gem.Effect) && !skills.IsAttack(gem.Effect)
             && skills.Reservation(gem.Effect, gem.Level) is null
             && (CooldownTriggerSelfBuff(skills.EffectId(gem.Effect))
-                || IsRighteousFireEffect(skills.EffectId(gem.Effect)) || TriggerPayloadAvailable(player, gem));
+                || IsRighteousFireEffect(skills.EffectId(gem.Effect)) || IsMineDetonation(skills.EffectId(gem.Effect))
+                || TriggerPayloadAvailable(player, gem));
     }
 
     static int CooldownTriggerReservation(Player player, bool life) =>
@@ -194,6 +195,12 @@ public static partial class Game
         bool warcry = trigger.Row == AutoexertionBuffRow;
         Action? release;
         if (warcry) release = () => UseWarcry(player, gem.Effect, gem.Stats, skillId, triggered: true);
+        else if (IsMineDetonation(effect))
+        {
+            if (!player.Placed.All.Values.Any(mine => mine.Mine && double.IsPositiveInfinity(mine.DetonateAt)
+                && now < mine.Until && MineCanDetonateFrom(mine, aim))) return;
+            release = () => DetonateMinesLocked(player, now);
+        }
         else if (CooldownTriggerSelfBuff(effect))
             release = () => session.Enqueue(async () =>
             {

@@ -1550,7 +1550,7 @@ public static partial class Game
         }
         // The instant's two areas are resolved at the endpoints accepted by the outgoing movement record.
         if (locationInstant) return true;
-        if (gem.Name is not null && (SkillsFor(player).EffectId(gem.Effect) is "DetonateMines" or "GemDetonateMines" or "TriggeredDetonateMines"))
+        if (gem.Name is not null && IsMineDetonation(SkillsFor(player).EffectId(gem.Effect)))
         { DetonateMinesLocked(player, AreaTime(player)); return true; }
         if (placedAdmission is { } placed)
             return await PlaceSkill(player, from, to, placed, recoveryGeneration, Current);
