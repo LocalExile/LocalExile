@@ -281,7 +281,7 @@ public static class CharacterStats
             evasionValue = 0;
         }
         int armour = Rating(armourValue), evasion = Rating(evasionValue);
-        if (b.MentalConditioning)
+        if (b.MentalConditioning && !b.NoMana)
         {
             long rawFlatManaTwice = (long)Math.Clamp(2m * (c.BaseMaxMana + 6L * level + b.Mana
                 + LifeManaPoolSources.AdditionalMana(level, b) + b.AdditionalMana + StrengthMana.Flat(str, b.ManaPerFourStrength))
