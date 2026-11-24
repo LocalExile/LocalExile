@@ -17,7 +17,7 @@ Part of [Status](../Status.md); what to build next in this area is in
   accepted. Docs: [11](../docs/protocol/11-skills.md) Â§9.
 - Fortification from melee hits. Docs: [Fortification](../docs/game/fortification.md).
 - Vigilant Strike consumes its direct 8-second melee-hit Fortify grant and refreshes the displayed Fortification timer on a later grant through the shared path; cooldown bypass and fresh supported-client icon/timer behavior are verified live.
-- Shield skills beside a one-handed weapon (`is_dual_wielding`), and Shield Charge's charge and shield damage.
+- Shield skills beside a one-handed weapon (`is_dual_wielding`), and Shield Charge's path hits, arrival bash and forward wave. The charge passes through Actors and Chests and stops on solid scenery or its targeted monster.
   Docs: [11](../docs/protocol/11-skills.md) Â§10a and Â§10k, [13](../docs/protocol/13-items.md).
 - Antiquarian's nodes. Docs: [Antiquarian](../docs/game/antiquarian.md).
 - Conditional critical policy (#242): signed clamp, luck, unarmed multiplier and one roll per gem use.
@@ -87,6 +87,8 @@ Part of [Status](../Status.md); what to build next in this area is in
 - Divine Blessing (including March of the Legion) pays a one-time cost and grants one temporary Blessing;
   Vaal Haste has a soul-paid temporary aura. Smite has separate melee/lightning hits and a timed on-hit aura.
   Smite impacts and Vaal Haste's speed buff are verified live; complete build and party parity remain partial.
+- Static Strike (ordinary): melee hit grants `static_strike_buff` bound to the client's `StaticStrikeNew` action and
+  runs data-driven periodic chained beam hits (`Modules/Core/Game/Skill/StaticStrike.cs`, live-verified).
 - Eternal Blessing suspends other skills' mana reservations while its aura is active and preserves life reservations.
 - Guardian's Blessing needs a living minion that shares its support link. The minion takes physical damage over time,
   and the aura ends when the last qualifying minion is gone.
@@ -164,7 +166,9 @@ Part of [Status](../Status.md); what to build next in this area is in
   Docs: [11](../docs/protocol/11-skills.md) Â§9a.
 - Heavy Strike and Trarthus confirmed-hit particles/audio, with typed and critical melee feedback. Single-clip Heavy Strike stances use their ACT contact.
   Docs: [11](../docs/protocol/11-skills.md), "Hit effects".
-- Warcry release and cooldowns. Intimidating Cry applies War Bringer's exertion count and carries the spent exertion
+- Seismic, Ancestral, Infernal and Battlemage's Cry grant their timed buffs to the caster and nearby allies.
+- Poison hits and spread use increased Poison Duration. Unnatural Strength grants minions conversion and Wither on hit.
+- Intimidating Cry applies War Bringer's exertion count and carries the spent exertion
   to the attack's melee and projectile hits for Overexertion. Docs: [11](../docs/protocol/11-skills.md) Â§10i.
 - Strike targeting: spirit strikes and the previous location. Docs: [11](../docs/protocol/11-skills.md) Â§10d.
 - Passive enemy auras. Docs: [11](../docs/protocol/11-skills.md) Â§10e.
@@ -173,6 +177,7 @@ Part of [Status](../Status.md); what to build next in this area is in
 - Player minions: Conviction novas, Multistrike, Ruthless and Melee Splash. Docs: [11](../docs/protocol/11-skills.md) Â§10h.
   Infernal Legion causes self-burn and burning damage nearby, and Minion Instability explodes a living minion at Low Life.
 - Life Recoup. Docs: [20](../docs/protocol/20-damage.md) Â§5.
+- Master Toxicist, Call to Arms, chaos pair resistances, chaos Energy Shield opt-out; Mana Recoup before Ward.
 - Ancestral Commander defences. Docs: [Ancestral Commander](../docs/game/ancestral-commander.md),
   [20](../docs/protocol/20-damage.md) Â§4.
 - Aura restoration bootstrap fix. Docs: [11](../docs/protocol/11-skills.md), "Aura restoration bootstrap correction".
@@ -240,6 +245,8 @@ Part of [Status](../Status.md); what to build next in this area is in
   Docs: [11](../docs/protocol/11-skills.md) Â§9, Â§11.
 - Vaal Immortal Call: 100 souls, its 60 s cooldown, 8 s of soul gain prevention, a duration from the Endurance Charges it
   discharges, and Life held at 1 while the buff runs. Docs: [11](../docs/protocol/11-skills.md) Â§11, Â§12.
+- Vaal Molten Shell: soul-paid armour and hit absorption, fire reflection each second and on removal, and a single
+  active guard buff with separate Vaal and regular cooldowns.
 - Steelskin, Immortal Call and Molten Shell cast by hand start the triggered guard buff; a running or recovering
   guard refuses the next before its cost. Docs: [11](../docs/protocol/11-skills.md) Â§12.
 - Phase Run: movement speed and Phasing for its duration, longer per Frenzy Charge consumed; the next skill use
@@ -257,6 +264,7 @@ Part of [Status](../Status.md); what to build next in this area is in
 - Summon Reaper of Eviscerating follows its owner, consumes allies and attacks on recast.
 - Predator targeting, Feeding Frenzy buffs, aggressive Skeleton Warrior dashes, defensive targeting and Meat Shield proximity damage.
   Docs: [11](../docs/protocol/11-skills.md) Â§10h.
+- Minion equipment rules: limits, restrictions, Triad Grip, Speaker's Wreath, Alberon's Warpath, and on-hit ailments.
 - Absolution and Dominating sentinels, Phantasms, direct Vaal Skeletons and Vaal Absolution/Domination ascensions.
   HUD minion counter icons (`PlayerMinionsChange`) now publish for all active player minion types (not checked live).
   Docs: [11](../docs/protocol/11-skills.md) Â§10h.
@@ -273,7 +281,7 @@ Part of [Status](../Status.md); what to build next in this area is in
 - Hexes and marks. Docs: [11](../docs/protocol/11-skills.md) Â§12.
 - Totems: Rejuvenation, Arc, projectile spells, supported summons, ballistas, Shockwave, Devouring and Decoy Totem
   (ordinary monster AI), with totem limit, range, duration and Lockstep placement timing.
-- Holy Flame Totem places without channelling on its owner, creates Consecrated Ground, and fires piercing bolts.
+- Holy Flame Totem and its Ire variant use their native projectiles.
   Docs: [11](../docs/protocol/11-skills.md) Â§10g.
 - Passive self buffs. Docs: [11](../docs/protocol/11-skills.md) Â§12.
 - Onslaught on kill and from a Silver Flask. Docs: [13](../docs/protocol/13-items.md) Â§8a.

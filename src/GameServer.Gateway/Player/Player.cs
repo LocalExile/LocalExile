@@ -101,7 +101,7 @@ public enum MonsterSkillShape
 /// each, <paramref name="Pulses"/> times <paramref name="PulseSeconds"/> apart.</summary>
 public sealed record MonsterSkillUse(MonsterSkillShape Shape, ushort BuffRow, double Seconds, IReadOnlyDictionary<uint, int> Stats,
     double MinRange = 0, bool OnCorpse = false, double Radius = 0, double Reach = 0, int Corpses = 1, int Pulses = 1,
-    double PulseSeconds = 0);
+    double PulseSeconds = 0, ChargeType? RallyCharge = null, int RallyCount = 0);
 
 /// <summary>A ground a monster skill leaves where it lands (Game.HostileGrounds): its GroundEffectTypes kind and skin
 /// (<c>ground_*_art_variation</c>), the stats its buff gives whoever stands in it, how far it reaches (cells) and for how
@@ -188,6 +188,9 @@ public sealed record MonsterAttack(ushort SkillId, double Seconds, double Range,
     public bool NoContact { get; init; }
     /// <summary>The action casts, but its contact is secondary damage rather than attack or spell damage.</summary>
     public bool Secondary { get; init; }
+    /// <summary>Monster Discharge skill: only usable while holding Endurance, Frenzy or Power charges, scales damage
+    /// from active charges, and consumes them on contact.</summary>
+    public bool IsDischarge { get; init; }
     /// <summary>The skill's native cooldown in seconds (GrantedEffectsPerLevel Cooldown) for non-kit monsters; 0 when none.</summary>
     public double CooldownSeconds { get; init; }
     /// <summary>It holds a weapon in each hand (<see cref="VisibleItem"/> lists it): the client sets the off hand's strike up
@@ -671,6 +674,18 @@ public sealed class SpawnedMonster(string label, PlayerWalk walk, int aggroRange
     // A boss cannot be stunned again until then (HitReaction). Owned by the area's frame.
     public double StunImmuneUntil = double.NegativeInfinity;
     public bool Aggro, Dead;
+    /// <summary>Instance-local pack identifier from AreaPopulation.Spawn (0 when spawned standalone).</summary>
+    public int PackId { get; init; }
+    /// <summary>Original spawn cell for leash return when pulled past 2 × AggroRange.</summary>
+    public (int X, int Y) SpawnAnchor { get; init; }
+    /// <summary>True while walking back to <see cref="SpawnAnchor"/> after breaking pursuit.</summary>
+    public bool ReturningHome;
+    /// <summary>Earliest area time a ranged monster may perform another MinimumAttackDistance backoff move.</summary>
+    public double NextBackoffAt = double.NegativeInfinity;
+    /// <summary>Area time when a pack-triggered buried/lurking monster should emerge (NaN when not scheduled).</summary>
+    public double ScheduledEmergeAt = double.NaN;
+    /// <summary>One-shot guards so on-death skills and kin-death charges execute at most once per monster.</summary>
+    public bool DeathSkillsTriggered, KinDeathChargesGranted;
     /// <summary>The player the instance's monster acts for now (its chase, swings and damage run on that player's
     /// connection: SharedMonsters.cs MonsterTargetsLocked); null while it has none.</summary>
     public Player? Target;
@@ -903,6 +918,9 @@ public sealed partial class Player(AreaLayout layout, uint ticket, uint seed) : 
     public IncomingDamagingAilments.State? PresentedIncomingAilments;
     public int PresentedIncomingAilmentEpoch;
     public int DeathNotificationEpoch = -1;
+    // Deaths this connection has recorded; the official death order carries the count in the death screen.
+    public int PlayerDeaths;
+    public int Resurrecting;
     public int FreezeGeneration, FreezeShown;
     public double FreezeHeldUntil;
     public double NextWakeZoneAt;
@@ -917,7 +935,7 @@ public sealed partial class Player(AreaLayout layout, uint ticket, uint seed) : 
     public void InvalidateIncomingHits(bool clear = true)
     {
         if (PlayerLife == 0 || Closed)
-        { PaidChannel = null; NonChaosDotBypassCarry = NonChaosDotTakenCarry = ChaosDotBypassCarry = 0; }
+        { PaidChannel = null; NonChaosDotBypassCarry = NonChaosDotTakenCarry = ChaosDotBypassCarry = ChaosDotManaCarry = 0; }
         IncomingHitEpoch++;
         // The action state machine replaces the old swing epoch argument. Retired work cannot
         // resume after a failed transfer, even when admission reopens on this same connection.
@@ -1014,6 +1032,7 @@ public sealed partial class Player(AreaLayout layout, uint ticket, uint seed) : 
     {
         get
         {
+            if (Instance?.World.AreaBodies is { } area) return area(Id);
             var fixedOnes = _blockerList;
             if (IsPhasing) return fixedOnes;   // phasing (Quartz Flask, Rampage threshold): monsters do not block
             double now = Clock.Elapsed.TotalSeconds;
@@ -1071,15 +1090,45 @@ public sealed partial class Player(AreaLayout layout, uint ticket, uint seed) : 
 
     public IReadOnlyList<ClientPathfinder.Blocker> StationaryBlockers => _blockerList;
 
+    public (int X, int Y)? StationaryPosition(uint id)
+    {
+        lock (_blockers) return _blockers.TryGetValue(id, out var b) ? (b.X, b.Y) : null;
+    }
+
     public int StationaryInteractionSize(uint id)
     {
         lock (_blockers) return _blockers.TryGetValue(id, out var b)
             ? Math.Max(b.Size, (int)Math.Ceiling(b.CollisionRadius ?? 0)) : 0;
     }
 
-    public void SetBlocker(uint id, int x, int y, int size, double? collisionRadius = null)
+    readonly HashSet<uint> actorOrChestBlockers = [];
+    IReadOnlyList<ClientPathfinder.Blocker>? sceneryBlockers;
+
+    public IReadOnlyList<ClientPathfinder.Blocker> SceneryBlockers
     {
-        lock (_blockers) { _blockers[id] = new(x, y, size) { CollisionRadius = collisionRadius }; _blockerList = new GameServer.Core.World.BlockerSet(_blockers.Values); }
+        get
+        {
+            lock (_blockers) return sceneryBlockers ??= actorOrChestBlockers.Count == 0 ? _blockerList
+                : new GameServer.Core.World.BlockerSet(_blockers.Where(b => !actorOrChestBlockers.Contains(b.Key)).Select(b => b.Value));
+        }
+    }
+
+    public void SetBlocker(uint id, int x, int y, int size, double? collisionRadius = null) =>
+        UpdateBlocker(id, x, y, size, collisionRadius, null);
+
+    public void SetObjectBlocker(uint id, int x, int y, int size, bool actorOrChest, double? collisionRadius = null) =>
+        UpdateBlocker(id, x, y, size, collisionRadius, actorOrChest);
+
+    void UpdateBlocker(uint id, int x, int y, int size, double? collisionRadius, bool? actorOrChest)
+    {
+        lock (_blockers)
+        {
+            if (actorOrChest == true) actorOrChestBlockers.Add(id);
+            else if (actorOrChest == false) actorOrChestBlockers.Remove(id);
+            _blockers[id] = new(x, y, size) { CollisionRadius = collisionRadius };
+            _blockerList = new GameServer.Core.World.BlockerSet(_blockers.Values);
+            sceneryBlockers = null;
+        }
         BlockersChanged?.Invoke();
     }
 
@@ -1088,7 +1137,13 @@ public sealed partial class Player(AreaLayout layout, uint ticket, uint seed) : 
 
     public void RemoveBlocker(uint id)
     {
-        lock (_blockers) if (_blockers.Remove(id)) _blockerList = new GameServer.Core.World.BlockerSet(_blockers.Values);
+        lock (_blockers)
+        {
+            if (!_blockers.Remove(id)) return;
+            actorOrChestBlockers.Remove(id);
+            _blockerList = new GameServer.Core.World.BlockerSet(_blockers.Values);
+            sceneryBlockers = null;
+        }
     }
 
     /// <summary>Applies the passive movement speed to the server's walk estimate; /set_speed is a dev override.</summary>
@@ -1571,9 +1626,16 @@ public sealed partial class Player(AreaLayout layout, uint ticket, uint seed) : 
     public ushort LockstepSequence;
     // The object use (C→S 0x18f) the next frame starts.
     public InstanceTransfer.UseSkillOnObject? LockstepUse;
+    public uint? LockstepInteractionTarget;
     public readonly GameServer.Core.World.LockstepSkillHold LockstepSkill = new();
     // Until when the skill started last keeps the player (Clock seconds).
     public double LockstepBusyUntil;
+    // Continuous start time of the last Lockstep action (tracks when Actor +0x1b0 began so Actor +0x1c0 early-queuing
+    // only fires once per action and never overwrites a queued action), plus the continuous start time scheduled for
+    // the currently dispatching skill and any late-Move-cancel backswing lockout (Actor +0x2a0).
+    public double LockstepActionStartedAt;
+    public double LockstepActionScheduledAt;
+    public double LockstepActionBackswingUntil;
     public GameServer.Core.World.LockstepCastWindow? LockstepCastWindow;
     // A skill on a monster whose walk-up or swing is still to come on a lockstep client, null for none
     // (Game.LockstepAttackStart): the next use of a held skill waits for it, and the step pass runs its walk-up.

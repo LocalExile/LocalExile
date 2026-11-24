@@ -60,7 +60,8 @@ public partial class Program
     /// while the client displays "Entering &lt;area&gt;", then reused when the client connects during its loading screen.</summary>
     public sealed record PreparedArea(InstanceState Instance, MapDevice.Run? Map, byte AreaLevel,
         IReadOnlyDictionary<uint, int> AreaStats, int LeagueCategory,
-        IReadOnlyList<(ushort Plugin, byte[] State)> PluginStates, uint Seed, AreaLayout Layout);
+        IReadOnlyList<(ushort Plugin, byte[] State)> PluginStates, uint Seed, AreaLayout Layout,
+        IReadOnlyDictionary<uint, int>? AreaDisplayStats = null);
 
     /// <summary>Prepares the destination instance's map, area stats, league category, terrain plugin states, playable
     /// seed and generated layout before S→C 0x27 opens the client's loading screen.</summary>
@@ -81,6 +82,7 @@ public partial class Program
         var areaLeague = ServerLeagues.Resolve(leagueForm, league, LeagueCatalog.Startup);
         var areaRequest = new AreaStatsRequest(characterName, league, areaHash, map);
         var areaStats = instance.AreaStats(() => InstanceEvents.ComposeAreaStats(areaLeague, areaRequest));
+        var areaDisplayStats = instance.AreaDisplayStats(() => InstanceEvents.ComposeAreaDisplayStats(areaLeague, areaRequest));
         // The league content category (0x1d +0x28, InstanceEvents.LeagueCategory): the client picks the topology by it.
         int leagueCategory = instance.LeagueCategory(() => InstanceEvents.ComposeLeagueCategory(areaLeague, areaRequest));
         // The terrain plugin states (0x1d extra data, InstanceEvents.TerrainPluginStates), which a plugin builds its part
@@ -95,7 +97,7 @@ public partial class Program
             uint playable = AreaLayouts.PlayableSeed(areaHash, authSeed, areaLevel, areaStats, leagueCategory, pluginStates);
             return (playable, AreaLayouts.For(areaHash, playable));
         }, knownSeed => AreaLayouts.For(areaHash, knownSeed), Instances.Now);
-        return new(instance, map, areaLevel, areaStats, leagueCategory, pluginStates, seed, layout);
+        return new(instance, map, areaLevel, areaStats, leagueCategory, pluginStates, seed, layout, areaDisplayStats);
     }
 
     public static async Task HandleAsync(TcpClient client, InstanceKeyring keyring)
@@ -258,12 +260,21 @@ public partial class Program
                 }
                 byte[]? terrainData = moduleHeader?.Terrain ?? (labyrinthNode is not null ? LabyrinthDay.ExtraData(labyrinthNode)
                     : pluginStates.Count > 0 ? InstanceProtocol.TerrainPluginStates(pluginStates) : null);
+                // A map area always carries the level it is played at, as the official does: over every first message
+                // of the decoded captures, an area whose level comes from the item that opens it carries it, while
+                // every campaign zone, town, hideout and league hub carries 0 and lets the client take the WorldAreas
+                // level. WorldAreas.IsMapArea is the client's own flag for the first set, so a map entered without a
+                // device open — a dev goto, a second entry into the same instance — carries the level the Gateway
+                // generated the layout at instead of 0.
+                if (areaLevel == 0 && ServerLevels.IsMapArea(layout.Id))
+                    areaLevel = (byte)Math.Clamp(ServerLevels.PlayedLevel(layout.Id, seed), 1, 100);
                 var area = new AreaInstance(InstanceId: (uint)instanceId, AreaHash: areaHash, Seed: seed, Level: areaLevel,
                     Text: resolved.League ?? "", LeagueStats: InstanceEvents.Merge(areaStats, Logic.AreaLeagueStats(player)),
                     TerrainData: terrainData,
                     AchievementSets: moduleHeader?.AchievementSets, B28: (byte)leagueCategory,
                     HideoutPermissions: OwnsHideoutInstance(player),
-                    ReturnAreaHash: player.ReturnAreaHash);
+                    ReturnAreaHash: player.ReturnAreaHash,
+                    DisplayStats: preparedArea.AreaDisplayStats);
                 await Send(remote, stream, ciphers, area.Encode(), $"0x001d {area}; {areaStats.Count} area stat(s); ascendancy family {player.Character.MainAscendancy.Selection?.Family}" +
                     (labyrinthNode is null ? "" : $"; labyrinth day {labyrinthNode.Seed} node {labyrinthNode.Row} difficulty {labyrinthNode.Difficulty}") +
                     string.Concat(pluginStates.Select(p => $"; plugin {p.Plugin} state {Convert.ToHexString(p.State)}")));

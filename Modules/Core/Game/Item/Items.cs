@@ -365,7 +365,7 @@ public static partial class Game
     }
 
     // Removing a physical source is an explicit deactivation, unlike town travel or a temporary actor restriction.
-    static void ForgetGemActivation(Player player, Item gem)
+    public static void ForgetGemActivation(Player player, Item gem)
     {
         var effects = ItemsFor(player).GemEffects(gem).Select(e => SkillsFor(player).EffectId(e)).OfType<string>().ToArray();
         foreach (string effect in effects)
@@ -963,6 +963,7 @@ public static partial class Game
             Console.WriteLine($"[gateway] {player.Connection.Remote} <= 0x0024 pick up world item 0x{id:x} at ({ground.GridX}, {ground.GridY}) from ({here.X}, {here.Y}): out of reach (stopped at ({stop.X}, {stop.Y}))");
             return;
         }
+        bool inReachAtStart = player.Walk.InReachOf(here, (ground.GridX, ground.GridY), (int)PickupReach, tolerance);
         Console.WriteLine($"[gateway] {player.Connection.Remote} <= 0x0024 pick up world item 0x{id:x} at ({ground.GridX}, {ground.GridY}) {use} from ({here.X}, {here.Y}): reached at ({stop.X}, {stop.Y}) in {arrive - now:0.00} s");
         // Echo the interaction at once, from where the player is now (as a move's echo does): the client then walks to its
         // own pickup range itself. An echo sent on arrival carried the server's estimated stop, and the client snapped to it.
@@ -970,15 +971,34 @@ public static partial class Game
         if (!use.Started)
             await SendWorldRecord(player, player.Id, InstanceProtocol.ActionStarted(player.Id, here.X, here.Y, ground.GridX, ground.GridY, use.SkillId, use.Sequence, use.Flags, targetObjectId: id),
                 $"0x01ab player picks up world item 0x{id:x}", still: () => PlayerActionCurrent(player, action));
-        if (arrive > now) await AreaDelay(player, arrive - now);
+        if (player.Connection.LockstepClient && use.Started)
+        {
+            // When already in reach at the action's frame start, the client's Interaction starts its 0.1 s completion in
+            // this frame while MoveTo finishes any deferred stop step; do not delay another frame. When walking up,
+            // step frame-by-frame instead of AreaDelay(arrive - now), which rounds/overshoots and misses blocker stops.
+            if (!inReachAtStart)
+            {
+                double previousStep = double.NegativeInfinity;
+                while (PlayerActionCurrent(player, action) && !player.Closed && !player.LeavingArea)
+                {
+                    double stepAt = player.Connection.LockstepFrame?.Start ?? AreaTime(player);
+                    if (player.Walk.InReachOf(player.Walk.Position(stepAt), (ground.GridX, ground.GridY), (int)PickupReach, tolerance)
+                        || !player.Walk.Moving(stepAt)) break;
+                    if (stepAt <= previousStep) break;
+                    previousStep = stepAt;
+                    await AreaDelay(player, FrameMs / 1000d);
+                }
+            }
+        }
+        else if (arrive > now) await AreaDelay(player, arrive - now);
         if (!PlayerActionCurrent(player, action)) return;
-        if (!player.Walk.InReachOf(player.Walk.Position(AreaTime(player)), (ground.GridX, ground.GridY), (int)PickupReach, tolerance)) return;
+        double arrivalAt = player.Connection.LockstepClient ? player.Connection.LockstepFrame?.Start ?? AreaTime(player) : AreaTime(player);
+        if (!player.Walk.InReachOf(player.Walk.Position(arrivalAt), (ground.GridX, ground.GridY), (int)PickupReach, tolerance)) return;
         // Interaction's default completion lasts 0.1 s (3.29.3c, 0x1419478b0). A Move queued before it ends
         // starts in Actor's completion callback, then its path is discarded by 0x141e9b860. Keep the request
         // pending on the server until that completion has passed; the walk-up itself remains interruptible.
         if (player.Connection.LockstepClient && use.Started)
-            player.LockstepBusyUntil = Math.Max(player.LockstepBusyUntil,
-                (player.Connection.LockstepFrame?.Start ?? AreaTime(player)) + .1);
+            player.LockstepBusyUntil = Math.Max(player.LockstepBusyUntil, arrivalAt + .1);
         if (IsGold(ground))
         {
             await PickUpGold(player, id, ground, "picked up");
@@ -991,8 +1011,12 @@ public static partial class Game
         byte row = toCursor ? PlayerInventories.Cursor : PlayerInventories.MainInventory;
         if (!toCursor && shape.MaxStack > 1)
         {
-            GroundPickup? pickup;
-            if (HardcoreProgressBlocked(player) || (pickup = TakeGroundStack(player, id, ground)) is null) return;
+            if (HardcoreProgressBlocked(player)) return;
+            if (TakeGroundStack(player, id, ground, out bool stackFull) is not { } pickup)
+            {
+                if (stackFull) await RedropFullInventory(player, id, ground);
+                return;
+            }
             await SendPickup(player, id, pickup);
             return;
         }
@@ -1000,6 +1024,7 @@ public static partial class Game
         byte[]? inventoryPacket = null;
         List<string> pickupFlags = [];
         (byte X, byte Y) cell = (0, 0);
+        bool inventoryFull = false;
         if (HardcoreProgressBlocked(player)) return;
         using (ProjectileMutation(player, advance: false, phase: "ground item pickup"))
         {
@@ -1018,44 +1043,52 @@ public static partial class Game
                 else
                 {
                     Console.WriteLine($"[gateway] {player.Connection.Remote} world item 0x{id:x}: no room in the inventory");
-                    return;
+                    inventoryFull = true;
                 }
             }
-            if (player.Instance.Ground.Take(id) is null) return;   // already picked up
-            // The start weapon stops waiting; the Put below saves both changes at once.
-            if (player.Instance.IsStartWeapon(CharacterName(player), id) && items.ClaimStartWeapon())
-                Console.WriteLine($"[gateway] {player.Connection.Remote} start weapon picked up");
-
-            bool isEquipment = ItemModStats.EquipmentRows.Contains(row);
-            var sourcesBefore = isEquipment ? PlayerSkillSourcesLocked(player) : [];
-            var itemToPut = row == PlayerInventories.Flask
-                ? FlaskCharges.WhenEquipped(ground.Item, safeArea: InTown(player) || HideoutCatalog.ByArea(player.Layout.Hash) is not null)
-                : ground.Item;
-
-            // A quest item sets its flags (grant_flag, extra_flag) with the pickup, in the same save.
-            pickupFlags = questFlags is null ? [] : QuestItems.PickupFlags(questFlags, f => ClientHasQuestFlag(player, f));
-            placed = KeepOnGroundIfNotSaved(player, ground, () =>
+            if (!inventoryFull && player.Instance.Ground.Take(id) is not null)
             {
-                InventoryItem Put() => items.Put(row, new InventoryItem(items.NewItemId(), cell.X, cell.Y, itemToPut));
-                if (CharacterSaves.Load(CharacterName(player))?.Tutorial is { } tutorial)
-                    foreach (bool support in new[] { false, true })
-                        if (player.Instance.IsStartWeapon(TutorialObjects.DropKey(CharacterName(player), tutorial, support), id))
-                            return TutorialObjects.Claim(CharacterName(player), support, ground.Item, Put);
-                return questFlags is not null ? QuestItems.Claim(CharacterName(player), questFlags, Put) : Put();
-            }, id);
-            if (placed is not null)
-            {
-                if (isEquipment)
+                // The start weapon stops waiting; the Put below saves both changes at once.
+                if (player.Instance.IsStartWeapon(CharacterName(player), id) && items.ClaimStartWeapon())
+                    Console.WriteLine($"[gateway] {player.Connection.Remote} start weapon picked up");
+
+                bool isEquipment = ItemModStats.EquipmentRows.Contains(row);
+                var sourcesBefore = isEquipment ? PlayerSkillSourcesLocked(player) : [];
+                var itemToPut = row == PlayerInventories.Flask
+                    ? FlaskCharges.WhenEquipped(ground.Item, safeArea: InTown(player) || HideoutCatalog.ByArea(player.Layout.Hash) is not null)
+                    : ground.Item;
+
+                // A quest item sets its flags (grant_flag, extra_flag) with the pickup, in the same save.
+                pickupFlags = questFlags is null ? [] : QuestItems.PickupFlags(questFlags, f => ClientHasQuestFlag(player, f));
+                placed = KeepOnGroundIfNotSaved(player, ground, () =>
                 {
-                    using (new PlayerStatScope(player, fresh: true))
+                    InventoryItem Put() => items.Put(row, new InventoryItem(items.NewItemId(), cell.X, cell.Y, itemToPut));
+                    if (CharacterSaves.Load(CharacterName(player))?.Tutorial is { } tutorial)
+                        foreach (bool support in new[] { false, true })
+                            if (player.Instance.IsStartWeapon(TutorialObjects.DropKey(CharacterName(player), tutorial, support), id))
+                                return TutorialObjects.Claim(CharacterName(player), support, ground.Item, Put);
+                    return questFlags is not null ? QuestItems.Claim(CharacterName(player), questFlags, Put) : Put();
+                }, id);
+                if (placed is not null)
+                {
+                    if (isEquipment)
                     {
-                        RecomputePoolsAndSpeed(player);
-                        ReconcileBeastCompanionsLocked(player);
-                        ReconcileEquipmentSourceLifetimesLocked(player, sourcesBefore);
+                        using (new PlayerStatScope(player, fresh: true))
+                        {
+                            RecomputePoolsAndSpeed(player);
+                            ReconcileBeastCompanionsLocked(player);
+                            ReconcileEquipmentSourceLifetimesLocked(player, sourcesBefore);
+                        }
                     }
+                    inventoryPacket = InstanceItems.InventoryChange(PlayerInventories.InventoryId(row), items.NextRevision(row), [], [placed]);
                 }
-                inventoryPacket = InstanceItems.InventoryChange(PlayerInventories.InventoryId(row), items.NextRevision(row), [], [placed]);
             }
+            else if (!inventoryFull) return;   // already picked up
+        }
+        if (inventoryFull)
+        {
+            await RedropFullInventory(player, id, ground);
+            return;
         }
         await Game.SendWorldRemoval(player, id, $"0x02bd remove world item 0x{id:x} (picked up from ({stop.X}, {stop.Y}))");
         if (placed is null || inventoryPacket is null) return;
@@ -1183,7 +1216,7 @@ public static partial class Game
     // Auto-loots multiple gold piles in one send gate and one stash Persist() instead of N sequential SQLite writes.
     static async Task PickUpGoldBatch(Player player, List<(uint Id, WorldItemObject Gold)> piles, (int X, int Y) pathFrom)
     {
-        if (player.Connection.LockstepClient)
+        if (player.Connection.LockstepClient || InAreaFrame(player))
         {
             var ready = new List<(uint Id, WorldItemObject Gold, WorldObject Target)>(piles.Count);
             bool inFrame = InAreaFrame(player);
@@ -1230,13 +1263,20 @@ public static partial class Game
                         player.Instance.Ground.Restore(taken[i].Id, taken[i].Gold, taken[i].Origin.By, taken[i].Origin.Shared);
                     throw;
                 }
-                goldUpdate = InstanceEntities.Gold(total);
-                var records = new OutputRecord[taken.Count];
+                int popupAmount = (int)Math.Min(added, int.MaxValue);
+                goldUpdate =
+                [
+                    .. InstanceEntities.Gold(total),
+                    .. InstanceEntities.WorldPopupIcon(here.X, here.Y, player.Id, WorldPopupGoldCoin, popupAmount),
+                ];
+                var records = new OutputRecord[taken.Count * 2];
                 for (int i = 0; i < taken.Count; i++)
                 {
+                    records[i * 2] = PresentedRecord(taken[i].Target,
+                        InstanceEntities.UpdateTask(taken[i].Id, AutoPickupWorldItemTask, []), null);
                     var removeBytes = InstanceProtocol.RemoveObject(taken[i].Id);
                     System.Buffers.Binary.BinaryPrimitives.WriteUInt32BigEndian(removeBytes.AsSpan(6), uint.MaxValue);
-                    records[i] = OutputRecord.Remove(taken[i].Target, WorldOrder.Last, removeBytes,
+                    records[i * 2 + 1] = OutputRecord.Remove(taken[i].Target, WorldOrder.Last, removeBytes,
                         i == 0 ? $"gold auto-looted x{taken.Count} (+{added})" : null);
                 }
                 return new OutputBatch(records);
@@ -1270,7 +1310,7 @@ public static partial class Game
         // ignored, and left a pile on the ground that was already taken.
         byte[]? update = null;
         string log = $"gold 0x{id:x} {how} (+{ground.Item.StackSize})";
-        if (player.Connection.LockstepClient)
+        if (player.Connection.LockstepClient || InAreaFrame(player))
         {
             // Only a pile whose create was admitted (SeenGround is set at that gate): asking for the removal of one not yet
             // sent marked its id as published, and its create, still to come in the kill's output, then failed and closed
@@ -1279,16 +1319,20 @@ public static partial class Game
             // the kill's output creates it (a projectile kill's drops wait in its session), so the world output must also
             // hold the pile's create (live 2026-11-17: Fireball kills, auto-looted gold, the create failed).
             if (!InAreaFrame(player) && !player.Connection.WorldOutput.Has(id)) return;
-            await SendWorldRemoval(player, id, log, atGate: () =>
+            await SendWorldRecordsEndingInRemoval(player, id, () =>
             {
-                if (Take() is not { } bytes) return null;
-                update = bytes[InstanceProtocol.RemoveObject(id).Length..];
-                return bytes[..InstanceProtocol.RemoveObject(id).Length];
-            });
+                if (Take() is not { } pickupUpdate) return null;
+                update = pickupUpdate;
+                return [InstanceEntities.UpdateTask(id, AutoPickupWorldItemTask, []), InstanceProtocol.RemoveObject(id)];
+            }, log);
             if (update is { Length: > 0 }) await Send(player, update, null);
             return;
         }
-        await Send(player, [], log, atGate: Take);
+        await Send(player, [], log, atGate: () =>
+        {
+            if (Take() is not { } pickupUpdate) return null;
+            return [.. InstanceEntities.UpdateTask(id, AutoPickupWorldItemTask, []), .. InstanceProtocol.RemoveObject(id), .. pickupUpdate];
+        });
 
         byte[]? Take()
         {
@@ -1302,8 +1346,35 @@ public static partial class Game
             var (by, shared) = player.Instance.Ground.Origin(id);
             if (!shared && !ReferenceEquals(by, player)) return null;
             if (TakeGroundStack(player, id, ground) is not { } pickup) return null;
-            return [.. InstanceProtocol.RemoveObject(id), .. pickup.Update];
+            return [.. pickup.Update, .. InstanceEntities.WorldPopupIcon(ground.GridX, ground.GridY, player.Id, WorldPopupGoldCoin, ground.Item.StackSize)];
         }
+    }
+
+    static bool IsTrackedGroundDrop(Player player, uint id)
+    {
+        string name = CharacterName(player);
+        if (player.Instance.IsStartWeapon(name, id)) return true;
+        if (CharacterSaves.Load(name)?.Tutorial is { } tutorial)
+            foreach (bool support in new[] { false, true })
+                if (player.Instance.IsStartWeapon(TutorialObjects.DropKey(name, tutorial, support), id))
+                    return true;
+        return false;
+    }
+
+    // Clicking a ground item with no room plays the character's InvFull voice line (S→C 0x0117) and re-drops the item
+    // on the ground (remove old id + create a fresh id with WorldItem +0x50 = 1 so the client replays its bounce and
+    // drop/filter sound). Tracked tutorial/start-weapon ids keep their id intact so claim tracking stays valid.
+    static async Task RedropFullInventory(Player player, uint id, WorldItemObject ground)
+    {
+        await Send(player, InstanceItems.InventoryFull(), $"0x0117 inventory full (world item 0x{id:x})");
+        if (IsTrackedGroundDrop(player, id)) return;
+        var origin = player.Instance.Ground.Origin(id);
+        if (!origin.Shared && !ReferenceEquals(origin.By, player)) return;
+        if (player.Instance.Ground.Take(id, ground) is null) return;
+        uint redroppedId = player.Instance.Ground.Add(ground, origin.By, shared: origin.Shared, justDropped: true);
+        await SendWorldRemoval(player, id, $"0x02bd remove world item 0x{id:x} (inventory full re-drop)");
+        await SendGroundItem(player, redroppedId, ground,
+            $"0x02bb re-drop world item 0x{redroppedId:x} at ({ground.GridX}, {ground.GridY}) (inventory full)", justDropped: true);
     }
 
     public sealed record GroundPickup(byte[] Update, string Log, uint RestId = 0, WorldItemObject? Rest = null);
@@ -1320,8 +1391,12 @@ public static partial class Game
     }
 
     // Commits the visible gold or stack once. The caller checks reach and sends the captured update after the lock.
-    public static GroundPickup? TakeGroundStack(Player player, uint id, WorldItemObject ground)
+    public static GroundPickup? TakeGroundStack(Player player, uint id, WorldItemObject ground) =>
+        TakeGroundStack(player, id, ground, out _);
+
+    public static GroundPickup? TakeGroundStack(Player player, uint id, WorldItemObject ground, out bool inventoryFull)
     {
+        inventoryFull = false;
         var origin = player.Instance.Ground.Origin(id);
         if ((!origin.Shared && !ReferenceEquals(origin.By, player)) || HardcoreProgressBlocked(player)) return null;
         if (!IsGold(ground) && ShapeOf(ground.Item) is not { MaxStack: > 1 }) return null;
@@ -1335,8 +1410,12 @@ public static partial class Game
         var items = ItemsOf(player);
         byte[] rows = ExpandedInventoryGranted(player)
             ? [PlayerInventories.MainInventory, PlayerInventories.ExpandedInventory] : [PlayerInventories.MainInventory];
-        if (items.StackAcross(rows, ground.Item, ShapeOf, preview: true).Values.Any(s => s.Left > 0)
-            || player.Instance.Ground.Take(id, ground) is null) return null;
+        if (items.StackAcross(rows, ground.Item, ShapeOf, preview: true).Values.Any(s => s.Left > 0))
+        {
+            inventoryFull = ReferenceEquals(player.Instance.Ground.Get(id), ground);
+            return null;
+        }
+        if (player.Instance.Ground.Take(id, ground) is null) return null;
         var stacked = KeepOnGroundIfNotSaved(player, ground,
             () => items.StackAcross(rows, ground.Item, ShapeOf), id, origin);
         WorldItemObject? rest = null;
@@ -1406,12 +1485,33 @@ public static partial class Game
             items.NextRevision(PlayerInventories.Cursor), [], [held]), $"0x00bf cursor: hold {held.Item.StackSize} as item {held.Id}");
     }
 
-    // C→S 0x58: use an item that needs no target (a right-click), such as an Orb of Regret: one item becomes one refund point.
+    // C→S 0x57 / 0x58: use an item that needs no target (a right-click), such as Stacked Deck or an Orb of Regret.
     public static async Task UseItem(Player player,
         InstanceItems.UseItemRequest use, string hex)
     {
         const string Regret = "Metadata/Items/Currency/CurrencyPassiveRefund";
         var items = ItemsOf(player);
+        if (StashOf(player) is { } stash && stash.TabOf(use.InventoryId) is int stashTab)
+        {
+            if (stash.Inventory(stashTab).Items.FirstOrDefault(i => i.Id == use.ItemId) is not { } stashItem
+                || ItemsFor(player).ByHash(stashItem.Item.TypeHash) is not { } stashType)
+            {
+                Console.WriteLine($"[gateway] {player.Connection.Remote} <= use item {use}: no such item in stash tab {stashTab}: {hex}");
+                return;
+            }
+            if (stash.IsPublic(stashTab))
+            {
+                Console.WriteLine($"[gateway] {player.Connection.Remote} <= use item {use}: refused, item is in public stash tab {stashTab}");
+                return;
+            }
+            if (stashType.Id == StackedDeck)
+            {
+                await UseStackedDeckFromStash(player, items, stash, stashTab, stashItem, stashType);
+                return;
+            }
+            Console.WriteLine($"[gateway] {player.Connection.Remote} <= use item {use}: {stashType.Name} from stash tab {stashTab} is not handled: {hex}");
+            return;
+        }
         byte? row = null;
         foreach (uint inventory in new[] { use.InventoryId, use.InventoryId + 1 })
             if (PlayerInventories.Row(inventory) is byte candidate && items.Items(candidate).Any(i => i.Id == use.ItemId))
@@ -1430,6 +1530,11 @@ public static partial class Game
             return;
         }
         if (await GameEvents.AnyItemUse(player, r, item, type)) return;
+        if (BanditChoices.IsBookOfReform(type.Id))
+        {
+            await BanditChoices.UseBookOfReform(player, items, r, item, type);
+            return;
+        }
         // A quest item with a use_flag (the quest books, Book of Regrets included): its flag, and QuestStaticRewards' points.
         if (type.Quest?.Use is not null)
         {
@@ -1444,6 +1549,11 @@ public static partial class Game
         if (type.Id == CurrencyEffects.OrbOfUnmaking)
         {
             await UseOrbOfUnmaking(player, items, r, item, type);
+            return;
+        }
+        if (type.Id == StackedDeck)
+        {
+            await UseStackedDeck(player, items, r, item, type);
             return;
         }
         if (type.Id != Regret && type.Name != RegretBook)
@@ -1503,6 +1613,115 @@ public static partial class Game
             $"0x00bf inventory {inventoryId}: {type.Name} used");
         await SendAtlasSlots(player, "Orb of Unmaking");
         Console.WriteLine($"[gateway] {player.Connection.Remote} <= 0x0058 use {type.Name} ({item.Id}): {respec} Atlas respec point(s)");
+    }
+
+    public const string StackedDeck = "Metadata/Items/DivinationCards/DivinationCardDeck";
+
+    static Item? DrawStackedCard(Player player)
+    {
+        if (Drops.Card(AreaRng(player), 0)?.Item is { } card) return card;
+        var fallback = ItemsFor(player).Find("The Gambler")
+            ?? ItemsFor(player).All.FirstOrDefault(b => b.Class == "DivinationCard");
+        return fallback is null ? null : ItemCatalog.Create(fallback) with { StackSize = 1 };
+    }
+
+    static async Task UseStackedDeckFromStash(Player player,
+        PlayerInventories items, AccountStash stash, int tab, InventoryItem item, ItemCatalog.BaseType type)
+    {
+        if (DrawStackedCard(player) is not { } card) return;
+        var drawn = Saves.Atomically<
+            (InventoryItem? Left, byte DestRow, IReadOnlyList<uint> Removed, IReadOnlyList<InventoryItem> Added)?>
+            (() =>
+        {
+            if (stash.IsPublic(tab)) return null;
+            if (stash.Inventory(tab).Items.FirstOrDefault(i => i.Id == item.Id) is not { } current) return null;
+            bool toCursor = items.Items(PlayerInventories.Cursor).Count == 0;
+            if (!toCursor && !items.Fits(PlayerInventories.MainInventory, card, ShapeOf)) return null;
+            InventoryItem? left = null;
+            if (current.Item.StackSize <= 1)
+            {
+                if (stash.Take(tab, item.Id) is null) return null;
+            }
+            else
+            {
+                if (stash.Shrink(tab, item.Id, 1) is not { } shrunk) return null;
+                left = shrunk;
+            }
+            if (toCursor)
+            {
+                var onCursor = items.Add(PlayerInventories.Cursor, 0, 0, card);
+                return (left, PlayerInventories.Cursor, [], [onCursor]);
+            }
+            var stacked = items.AddStacked(PlayerInventories.MainInventory, card, ShapeOf);
+            return (left, PlayerInventories.MainInventory, [.. stacked.Changed.Select(i => i.Id)], [.. stacked.Changed, .. stacked.Added]);
+        });
+        if (drawn is not { } result)
+        {
+            Console.WriteLine($"[gateway] {player.Connection.Remote} <= use {type.Name} from stash tab {tab}: no room for drawn card or item {item.Id} disappeared");
+            return;
+        }
+        await SendTabChange(player, stash, tab, [result.Left?.Id ?? item.Id],
+            result.Left is { } remaining ? [remaining] : [],
+            result.Left is null ? $"0x00bf stash tab {tab}: {type.Name} emptied" : $"0x00bf stash tab {tab}: {type.Name} now {result.Left.Item.StackSize}");
+        uint destInvId = PlayerInventories.InventoryId(result.DestRow);
+        await Send(player,
+            InstanceItems.InventoryChange(destInvId, items.NextRevision(result.DestRow), result.Removed, result.Added),
+            $"0x00bf inventory {destInvId}: {type.Name} drew divination card");
+        string cardName = ItemsFor(player).ByHash(card.TypeHash)?.Name ?? $"0x{card.TypeHash:x8}";
+        Console.WriteLine($"[gateway] {player.Connection.Remote} <= use {type.Name} ({item.Id}) from stash tab {tab}: drew {cardName} -> row {result.DestRow}");
+    }
+
+    // Stacked Deck (C->S 0x57 / 0x58, right-click; Metadata/Items/DivinationCards/DivinationCardDeck): consumes one Stacked Deck
+    // and draws a random weighted Divination Card onto the cursor (if empty) or into the main inventory.
+    public static async Task UseStackedDeck(Player player,
+        PlayerInventories items, byte row, InventoryItem item, ItemCatalog.BaseType type)
+    {
+        if (DrawStackedCard(player) is not { } card) return;
+        var drawn = Saves.Atomically<
+            (PlayerInventories.Consumption Taken, byte DestRow, IReadOnlyList<uint> Removed, IReadOnlyList<InventoryItem> Added)?>
+            (() =>
+        {
+            bool toCursor = row != PlayerInventories.Cursor && items.Items(PlayerInventories.Cursor).Count == 0;
+            if (!toCursor && !items.Fits(PlayerInventories.MainInventory, card, ShapeOf)) return null;
+            if (items.ConsumeOne(row, item.Id) is not { } consumed) return null;
+            if (toCursor)
+            {
+                var onCursor = items.Add(PlayerInventories.Cursor, 0, 0, card);
+                return (consumed, PlayerInventories.Cursor, [], [onCursor]);
+            }
+            var stacked = items.AddStacked(PlayerInventories.MainInventory, card, ShapeOf);
+            return (consumed, PlayerInventories.MainInventory, [.. stacked.Changed.Select(i => i.Id)], [.. stacked.Changed, .. stacked.Added]);
+        });
+        if (drawn is not { } result)
+        {
+            Console.WriteLine($"[gateway] {player.Connection.Remote} <= 0x0058 use {type.Name}: no room for drawn card or item {item.Id} disappeared");
+            return;
+        }
+        uint sourceInvId = PlayerInventories.InventoryId(row);
+        if (result.DestRow == row)
+        {
+            var removed = new List<uint> { item.Id };
+            foreach (uint cid in result.Removed) if (!removed.Contains(cid)) removed.Add(cid);
+            var added = new List<InventoryItem>();
+            if (result.Taken.Left is { } left) added.Add(left);
+            added.AddRange(result.Added);
+            await Send(player,
+                InstanceItems.InventoryChange(sourceInvId, items.NextRevision(row), removed, added),
+                $"0x00bf inventory {sourceInvId}: {type.Name} opened into same inventory");
+        }
+        else
+        {
+            await Send(player,
+                InstanceItems.InventoryChange(sourceInvId, items.NextRevision(row), [item.Id],
+                    result.Taken.Left is { } left ? [left] : []),
+                $"0x00bf inventory {sourceInvId}: {type.Name} consumed");
+            uint destInvId = PlayerInventories.InventoryId(result.DestRow);
+            await Send(player,
+                InstanceItems.InventoryChange(destInvId, items.NextRevision(result.DestRow), result.Removed, result.Added),
+                $"0x00bf inventory {destInvId}: {type.Name} drew divination card");
+        }
+        string cardName = ItemsFor(player).ByHash(card.TypeHash)?.Name ?? $"0x{card.TypeHash:x8}";
+        Console.WriteLine($"[gateway] {player.Connection.Remote} <= 0x0058 use {type.Name} ({item.Id}): drew {cardName} -> row {result.DestRow}");
     }
 
     // A Book of Skill used (C→S 0x58, right-click; any of the quest books named so, Metadata/Items/QuestItems/SkillBooks/…):
@@ -1583,6 +1802,7 @@ public static partial class Game
             CurrencyEffects.EldritchChaosOrb => CurrencyEffects.EldritchChaos(target, RollsFor(player), random),
             CurrencyEffects.EldritchExaltedOrb => CurrencyEffects.EldritchExalted(target, RollsFor(player), random),
             CurrencyEffects.EldritchAnnulmentOrb => CurrencyEffects.EldritchAnnulment(target, RollsFor(player), random),
+            CurrencyEffects.OrbOfConflict => CurrencyEffects.Conflict(target, RollsFor(player), random),
             CurrencyEffects.OrbOfBinding => ItemsFor(player).ByHash(target.TypeHash) is { } bindingType
                 ? CurrencyEffects.Binding(target, bindingType, RollsFor(player), ItemsFor(player).Requirements(bindingType), random)
                 : null,
@@ -1640,29 +1860,51 @@ public static partial class Game
         const string Wisdom = "Metadata/Items/Currency/CurrencyIdentification";
         var items = ItemsOf(player);
         var stash = StashOf(player);
-        // The currency can come from a stash tab (right-click it in the open stash, then click an item in the inventory): the
-        // message names the tab's inventory. Decided by the inventory, not the item id: stash and character ids can be equal.
-        int? stashTab = stash.TabOf(use.InventoryId);
-        byte usedRow = stashTab is null && items.RowOf(use.ItemId) is byte row ? row : (byte)0;
-        var used = stashTab is int fromTab ? stash.Inventory(fromTab).Items.FirstOrDefault(i => i.Id == use.ItemId)
-            : items.RowOf(use.ItemId) is not null ? items.Items(usedRow).FirstOrDefault(i => i.Id == use.ItemId) : null;
-        // The target can be in a stash tab too (the currency tab's crafting slot, live 2026-10-23), decided the same way.
-        int? targetTab = stash.TabOf(use.TargetInventoryId);
-        byte targetRow = targetTab is null && items.RowOf(use.TargetId) is byte tRow ? tRow : (byte)0;
-        var target = targetTab is int toTab ? stash.Inventory(toTab).Items.FirstOrDefault(i => i.Id == use.TargetId)
-            : items.RowOf(use.TargetId) is not null ? items.Items(targetRow).FirstOrDefault(i => i.Id == use.TargetId) : null;
+        // The currency and the target can each be in a stash tab (right-click the currency in the open stash; the target in
+        // the currency tab's crafting slot, live 2026-10-23, or any tab): the message names the tab's inventory.
+        var (usedSpot, used) = Locate(items, stash, use.InventoryId, use.ItemId);
+        var (targetSpot, target) = Locate(items, stash, use.TargetInventoryId, use.TargetId);
+        int? targetTab = targetSpot.Tab;
+        byte targetRow = targetSpot.Row;
+        string where = (usedSpot.Tab is int t ? $" (currency in stash tab {t})" : "") + (targetTab is int tt ? $" (target in stash tab {tt})" : "");
         if (used is null || target is null)
         {
-            Console.WriteLine($"[gateway] {player.Connection.Remote} <= 0x0071 use item on item {use}: no such item" + (stashTab is int t ? $" (currency in stash tab {t})" : "")
-                + (targetTab is int tt ? $" (target in stash tab {tt})" : "") + $": {hex}");
+            Console.WriteLine($"[gateway] {player.Connection.Remote} <= 0x0071 use item on item {use}: no such item{where}: {hex}");
+            return;
+        }
+        if (usedSpot.Tab is int pubTab && stash.IsPublic(pubTab))
+        {
+            Console.WriteLine($"[gateway] {player.Connection.Remote} <= 0x0071 use item on item {use}: refused, currency is in public stash tab {pubTab}");
             return;
         }
         var type = ItemsFor(player).ByHash(used.Item.TypeHash);
+        // A worn item (equipment, the flask bar, jewels in the passive tree) takes only quality and flask enchant
+        // currency: the others' client validators refuse it with ItemErrorItemEquipped, and the client still sends 0x71
+        // for one, so the server refuses it too, before anything is spent.
+        if (RefusedOnWorn(player, used.Item, targetSpot))
+        {
+            Console.WriteLine($"[gateway] {player.Connection.Remote} <= 0x0071 use {type?.Name ?? "item"} on item {use.TargetId}: refused, item is equipped (row {targetRow})");
+            await SendItemError(player, InstanceItems.ItemErrorItemEquipped);
+            return;
+        }
+        if (RefusedByState(player, used.Item, target.Item) is ushort stateError)
+        {
+            Console.WriteLine($"[gateway] {player.Connection.Remote} <= 0x0071 use {type?.Name ?? "item"} on item {use.TargetId}: refused, target is {(target.Item.Mirrored ? "mirrored" : "corrupted")}{where}");
+            await SendItemError(player, stateError);
+            return;
+        }
         bool isEssence = type is not null && EssencesFor(player).Contains(type.Hash);
+        // Mirror of Kalandra: a mirrored copy of the target goes onto the (empty) cursor, as if picked up, for the player to
+        // place; the target stays as it was and its place gets no message.
         if (type?.Id == CurrencyEffects.MirrorOfKalandra)
         {
-            if (stashTab is not null || targetTab is not null) { Console.WriteLine($"[gateway] {player.Connection.Remote} <= 0x0071 Mirror of Kalandra with the stash: not handled, use it in the inventory"); return; }
-            await MirrorItem(player, items, RollsFor(player), usedRow, used, target);
+            if (CurrencyEffects.Mirror(target.Item, RollsFor(player)) is not { } copy || items.Items(PlayerInventories.Cursor).Count > 0)
+            {
+                Console.WriteLine($"[gateway] {player.Connection.Remote} <= 0x0071 Mirror of Kalandra on item {target.Id}: refused (corrupted / mirrored / unique / unsupported class or map tier / unmodifiable / no mods / cursor not empty){where}");
+                return;
+            }
+            if (await CommitUse(player, items, stash, usedSpot, targetSpot, type.Name, null, copy) is not { Held: { } held }) return;
+            Console.WriteLine($"[gateway] {player.Connection.Remote} <= 0x0071 Mirror of Kalandra ({used.Id}) on item {target.Id}: copy {held.Id} on the cursor{where}");
             return;
         }
         // What the currency makes of the target, or null (nothing happens, nothing is spent).
@@ -1701,50 +1943,7 @@ public static partial class Game
             return;
         }
         // The currency and the changed item are saved together.
-        InventoryItem identified;
-        uint targetInventory = PlayerInventories.InventoryId(targetRow);
-        if (stashTab is not null || targetTab is not null)
-        {
-            // The stash is in it (currency from a tab, or the target in one): one transaction, then one 0xbf per place changed
-            // (one for both when they share it), removing and adding the same ids as the client needs. A tab the panel
-            // shows again after a tab switch unloaded it is loaded again first (SendTabChange, #710).
-            if (ItemMoves.UseAcross(items, stash, new(stashTab, usedRow, used.Id), new(targetTab, targetRow, target.Id), _ => result)
-                is not var (left, changedItem)) return;
-            identified = changedItem;
-            async Task SendPlace(int? tab, byte row, List<uint> gone, List<InventoryItem> now, string what)
-            {
-                if (tab is int t) await SendTabChange(player, stash, t, gone, now, $"0x00bf stash tab {t}: {what}");
-                else await Send(player, InstanceItems.InventoryChange(PlayerInventories.InventoryId(row), items.NextRevision(row), gone, now),
-                    $"0x00bf inventory {PlayerInventories.InventoryId(row)}: {what}");
-            }
-            List<InventoryItem> usedNow = left is { } l ? [l] : [];
-            if (stashTab == targetTab && (stashTab is not null || usedRow == targetRow))
-                await SendPlace(targetTab, targetRow, [used.Id, target.Id], [.. usedNow, identified], $"item {target.Id} changed, {type!.Name} used");
-            else
-            {
-                await SendPlace(stashTab, usedRow, [used.Id], usedNow, $"{type!.Name} used" + (left is null ? ", stack gone" : $", {left.Item.StackSize} left"));
-                await SendPlace(targetTab, targetRow, [target.Id], [identified], $"item {target.Id} changed");
-                if (targetTab is null && PlayerInventories.ShowsOnModel(targetRow)) await SendEquipment(player, items);
-            }
-        }
-        else
-        {
-            if (ItemMoves.UseOn(items, usedRow, used.Id, targetRow, target.Id, _ => result) is not var (taken, changed)) return;
-            identified = changed;
-            // Remove and add the same ids: the client replaces an item only that way (see UseItem).
-            uint usedInventory = PlayerInventories.InventoryId(usedRow);
-            if (usedRow == targetRow)
-                await Send(player, InstanceItems.InventoryChange(targetInventory, items.NextRevision(targetRow), [used.Id, target.Id],
-                    taken.Left is { } left ? [left, identified] : [identified]), $"0x00bf inventory {targetInventory}: item {target.Id} changed, {type!.Name} used");
-            else
-            {
-                await Send(player, InstanceItems.InventoryChange(usedInventory, items.NextRevision(usedRow), [used.Id],
-                    taken.Left is { } left ? [left] : []), $"0x00bf inventory {usedInventory}: {type!.Name} used");
-                await Send(player, InstanceItems.InventoryChange(targetInventory, items.NextRevision(targetRow), [target.Id], [identified]),
-                    $"0x00bf inventory {targetInventory}: item {target.Id} changed");
-                if (PlayerInventories.ShowsOnModel(targetRow)) await SendEquipment(player, items);
-            }
-        }
+        if (await CommitUse(player, items, stash, usedSpot, targetSpot, type!.Name, result, null) is not { Changed: { } identified }) return;
         if (targetTab is null && targetRow == PlayerInventories.Flask)
             await ReconcileTincturesAfterFlaskBarChange(player);
         await CheckCraftingAchievements(player, type!.Id, target.Item, identified.Item);
@@ -1756,25 +1955,93 @@ public static partial class Game
             : $"sockets {string.Join(" ", identified.Item.Sockets.Select(k => k.Colour))}; link groups {string.Join(",", identified.Item.Links ?? [])}"));
     }
 
-    // Mirror of Kalandra (C→S 0x71 / Shift 0x72): a mirrored copy of the target goes onto the (empty) cursor, as if picked
-    // up, for the player to place; the target stays as it was. One mirror and the copy are saved together.
-    public static async Task MirrorItem(Player player, PlayerInventories items,
-        ItemRolls rolls, byte usedRow, InventoryItem used, InventoryItem target)
+    // Where an item named by (inventory id, item id) is: a stash tab when the inventory is one (decided by the inventory, not
+    // the item id: stash and character ids can be equal), otherwise the character inventory row holding the id.
+    public static (ItemMoves.Spot Spot, InventoryItem? Item) Locate(PlayerInventories items, AccountStash stash, uint inventoryId, uint itemId)
     {
-        if (CurrencyEffects.Mirror(target.Item, rolls) is not { } copy || items.Items(PlayerInventories.Cursor).Count > 0)
+        if (stash.TabOf(inventoryId) is int tab)
+            return (new(tab, 0, itemId), stash.Inventory(tab).Items.FirstOrDefault(i => i.Id == itemId));
+        return items.RowOf(itemId) is byte row ? (new(null, row, itemId), items.Items(row).FirstOrDefault(i => i.Id == itemId)) : (new(null, 0, itemId), null);
+    }
+
+    // A worn item: one of the character's own slots (Inventories column 4, sent as flag bit 1: equipment and the flask bar)
+    // or the passive tree's jewels (row 23). The client's currency validators (0x141f86f70, 0x141f89920) refuse these with
+    // ItemErrorItemEquipped; the second weapon set's rows are not among them.
+    public static bool Worn(ItemMoves.Spot spot) => spot.Tab is null
+        && (spot.Row == PlayerInventories.PassiveJewels
+            || spot.Row < InstanceInventories.PlayerDefaults.Length && InstanceInventories.PlayerDefaults[spot.Row] is { Equipment: true } slot && slot.Row == spot.Row);
+
+    // Whether a currency is refused on its target because the target is worn. Quality currency (armour, weapon, flask and
+    // jewellery quality, Tainted ones included) and the flask enchant orbs (Enkindling, Instilling) work on worn items in
+    // the official game (live 2026-11-23); every other currency checked there (transmutation to scouring, Divine,
+    // Blessed, Eldritch) is refused. Decided by the client's CurrencyItems action.
+    public static bool RefusedOnWorn(Player player, Item currency, ItemMoves.Spot target) =>
+        Worn(target) && !TakesWorn(ItemsFor(player).ByHash(currency.TypeHash) is { } t ? ItemsFor(player).CurrencyAction(t) : null);
+
+    static bool TakesWorn(string? action) => action is not null
+        && (action.StartsWith("add_", StringComparison.Ordinal) && action.Contains("_quality", StringComparison.Ordinal)
+            && action != "add_gem_quality" && action != "add_map_alt_quality"
+            || action is "add_flask_seal" or "add_flask_injector");
+
+    // The item error a handled currency gets from its target's state, or null: a mirrored item takes no currency (a
+    // Reflective Oil is not modelled), a corrupted one only a Scroll of Wisdom and Tainted currency. An item the server
+    // does not handle keeps its "not handled" log instead of a reason. Vestigial items have no known string and stay silent.
+    public static ushort? RefusedByState(Player player, Item currency, Item target)
+    {
+        if (!target.Mirrored && !target.Corrupted || ItemsFor(player).ByHash(currency.TypeHash) is not { } type
+            || type.Id is not (CurrencyEffects.MirrorOfKalandra or CurrencyEffects.HinekorasLock)
+                && !CurrencyEffects.Recognizes(ItemsFor(player), type, EssencesFor(player).Contains(type.Hash)))
+            return null;
+        if (target.Mirrored) return InstanceItems.ItemErrorItemMirrored;
+        return type.Id == "Metadata/Items/Currency/CurrencyIdentification" || CurrencyEffects.TaintedIds.Contains(type.Id)
+            ? null : InstanceItems.ItemErrorTargetCorrupted;
+    }
+
+    // The refusal line the player reads: BackendErrors FailedToApplyCurrency (149) "Failed to apply item: {0}" with the
+    // item error's ClientStrings text (the error is the row + 1). Sent as a chat line (0x17) until the official message
+    // that prints it is found.
+    static async Task SendItemError(Player player, ushort error)
+    {
+        string reason = GameServer.Core.ClientTables.TableOrNull("ClientStrings")?.Row(error - 1)?.TextOrNull("Text") is { Length: > 0 } known
+            ? known : $"error 0x{error:x4}";
+        string text = $"Failed to apply item: {reason}";
+        await Send(player, InstanceChat.ChatLine(text), $"0x0017 \"{text}\"");
+    }
+
+    // A currency use (C→S 0x71 / Shift 0x72) committed for any inventory and stash combination (ItemMoves.Use): one 0xbf per
+    // place changed, one for both when the currency and the target share it, removing and adding the same ids as the client
+    // needs; then the cursor when a new item is held. A tab the panel shows again after a tab switch unloaded it is loaded
+    // again first (SendTabChange, #710). Null when nothing changed.
+    static async Task<(InventoryItem? Changed, InventoryItem? Held)?> CommitUse(Player player, PlayerInventories items, AccountStash stash,
+        ItemMoves.Spot used, ItemMoves.Spot target, string name, Item? change, Item? held)
+    {
+        if (ItemMoves.Use(items, stash, used, target, change, held) is not var (left, changed, heldItem))
         {
-            Console.WriteLine($"[gateway] {player.Connection.Remote} <= 0x0071 Mirror of Kalandra on item {target.Id}: refused (corrupted / mirrored / unique / unsupported class or map tier / unmodifiable / no mods / cursor not empty)");
-            return;
+            Console.WriteLine($"[gateway] {player.Connection.Remote} <= 0x0071 {name} on item {target.Id}: refused (the currency or the target is gone, or something is held)");
+            return null;
         }
-        var done = Saves.Atomically<(PlayerInventories.Consumption, InventoryItem)?>(() =>
-            items.ConsumeOne(usedRow, used.Id) is { } taken ? (taken, items.Add(PlayerInventories.Cursor, 0, 0, copy)) : null);
-        if (done is not var (taken, held)) return;
-        uint usedInventory = PlayerInventories.InventoryId(usedRow), cursor = PlayerInventories.InventoryId(PlayerInventories.Cursor);
-        await Send(player, InstanceItems.InventoryChange(usedInventory, items.NextRevision(usedRow), [used.Id],
-            taken.Left is { } left ? [left] : []), $"0x00bf inventory {usedInventory}: Mirror of Kalandra used");
-        await Send(player, InstanceItems.InventoryChange(cursor, items.NextRevision(PlayerInventories.Cursor), [], [held]),
-            $"0x00bf cursor: mirrored copy {held.Id}");
-        Console.WriteLine($"[gateway] {player.Connection.Remote} <= 0x0071 Mirror of Kalandra ({used.Id}) on item {target.Id}: copy {held.Id} on the cursor");
+        async Task SendPlace(ItemMoves.Spot spot, List<uint> gone, List<InventoryItem> now, string what)
+        {
+            if (spot.Tab is int t) await SendTabChange(player, stash, t, gone, now, $"0x00bf stash tab {t}: {what}");
+            else await Send(player, InstanceItems.InventoryChange(PlayerInventories.InventoryId(spot.Row), items.NextRevision(spot.Row), gone, now),
+                $"0x00bf inventory {PlayerInventories.InventoryId(spot.Row)}: {what}");
+        }
+        List<InventoryItem> usedNow = left is { } l ? [l] : [];
+        string spent = $"{name} used" + (left is null ? ", stack gone" : $", {left.Item.StackSize} left");
+        if (changed is null)
+            await SendPlace(used, [used.Id], usedNow, spent);
+        else if (used.Tab == target.Tab && (used.Tab is not null || used.Row == target.Row))
+            await SendPlace(target, [used.Id, target.Id], [.. usedNow, changed], $"item {target.Id} changed, {spent}");
+        else
+        {
+            await SendPlace(used, [used.Id], usedNow, spent);
+            await SendPlace(target, [target.Id], [changed], $"item {target.Id} changed");
+            if (target.Tab is null && PlayerInventories.ShowsOnModel(target.Row)) await SendEquipment(player, items);
+        }
+        if (heldItem is not null)
+            await Send(player, InstanceItems.InventoryChange(PlayerInventories.InventoryId(PlayerInventories.Cursor), items.NextRevision(PlayerInventories.Cursor), [], [heldItem]),
+                $"0x00bf cursor: {name} made item {heldItem.Id}");
+        return (changed, heldItem);
     }
 
     // C→S 0x4a: the held item clicked on an item. A stack of the same type with room takes what fits (PlayerInventories.MergeOnto,
@@ -1840,6 +2107,8 @@ public static partial class Game
         Console.WriteLine($"[gateway] {player.Connection.Remote} <= 0x004a held item onto {a}: {hex}");
         if (done.Merged || done.Rest is not null) { await SendMerged(player, items, done); return; }
         // Not a stack with room: swapped, as 0x2a on that cell.
+        if (done.Row == PlayerInventories.Flask && done.FromRow != PlayerInventories.Flask)
+            done = done with { Placed = EmptyIfEquippedInHostileArea(player, items, done.Placed) };
         var d = done.Displaced;
         uint target = PlayerInventories.InventoryId(done.Row);
         await Send(player, InstanceItems.InventoryChange(target, items.NextRevision(done.Row), d is null ? [] : [d.Id], [done.Placed]),
@@ -1956,7 +2225,8 @@ public static partial class Game
             Console.WriteLine($"[gateway] {player.Connection.Remote} <= 0x002a place {place}: refused ({why})");
             return;
         }
-        if (done.Row == PlayerInventories.Flask) done = done with { Placed = EmptyIfEquippedInHostileArea(player, items, done.Placed) };
+        if (done.Row == PlayerInventories.Flask && done.FromRow != PlayerInventories.Flask)
+            done = done with { Placed = EmptyIfEquippedInHostileArea(player, items, done.Placed) };
         var d = done.Displaced;
         uint target = PlayerInventories.InventoryId(done.Row);   // may differ from the clicked one (off hand → main hand)
         if (done.Merged || done.Rest is not null) { await SendMerged(player, items, done); return; }

@@ -6,6 +6,23 @@ using Kind = MonsterElementalAilments.Kind;
 // inflicted by every outgoing hit, shock as increased damage taken, chill and freeze in the monster AI, and their buffs.
 public static partial class Game
 {
+    static void ApplyRetaliationAilmentDuration(Dictionary<uint, int> stats)
+    {
+        uint duration = Stat.BaseAllAilmentDurationPlusPct;
+        if (stats.GetValueOrDefault(Stat.RetaliationSkillsAllAilmentDurationPlusPct) is int increased and not 0)
+            stats[duration] = ActorScale.Add(duration, stats.GetValueOrDefault(duration), increased);
+    }
+
+    static Func<uint, int> SupportedAilmentStats(Player player, ushort skillId,
+        IReadOnlyDictionary<uint, int> playerStats, SupportedHitInputs? capturedInputs)
+    {
+        if (capturedInputs is not null) return capturedInputs.Get;
+        var skill = SupportedSkill(player, skillId);
+        var merged = MergeSkillStats(playerStats, skill.Stats);
+        if (SkillsFor(player).IsRetaliation(skill.Effect)) ApplyRetaliationAilmentDuration(merged);
+        return merged.GetValueOrDefault;
+    }
+
     /// <summary>The factor on damage a monster takes: its mods' increased damage taken, its shock, Glacial Wave's chill and
     /// the player's debuffs on it (his taunt's on every type, his enemy auras' on <paramref name="elemental"/> damage, his
     /// Withered on <paramref name="chaos"/> damage), added together (PoB DamageTaken, ElementalDamageTaken and
@@ -21,6 +38,7 @@ public static partial class Game
             + (chaos ? WitheredTaken(m, now) : 0)
             + m.Ignites.DamageTaken(now)
             + PerAilmentTypeTakenPct(m, now)
+            + (m.HasCurses ? m.Curses.DamageTaken(now) : 0)
             + BrandMonsterTakenPctLocked(m)
             + (m.Life * 2L <= m.MaxLife ? m.Curses[Stat.DamageTakenPlusPctOnLowLife] : 0))
         * MonsterToughnessFactor(m.Effects);
@@ -297,10 +315,13 @@ public static partial class Game
         double factor = MonsterDamageTaken(m, spell, now, hit: true) * (critical ? criticalMultiplier / 100.0 : 1);
         int Player(uint key) => playerStats.GetValueOrDefault(key);
         int Skill(uint name) => skill is not null && name is var key ? skill.GetValueOrDefault(key) : 0;
-        // The physical part counts after the monster's physical reduction and its Maim, as the hit's damage does.
+        // The physical part counts after the monster's armour + physical reduction and its Maim, as the hit's damage does.
+        double physRaw = mitigated[DamageType.Physical].Min;
+        double physReduction = HitMitigation.PhysicalReduction(Monsters, m, physRaw,
+            m.Effects.PhysicalReduction - CrushReduction(m, now), MonsterArmourEnabled);
         var taken = mitigated.Select((type, range) => range.Scale(factor
             * (type == DamageType.Physical
-                ? Math.Max(0, 1 - (m.Effects.PhysicalReduction - CrushReduction(m, now)) / 100.0)
+                ? Math.Max(0, 1 - physReduction / 100.0)
                     * (1 + MaimedPhysicalTaken(m, now) / 100.0) : 1)));
         bool tinctureWeapon = !spell && Player(Stat.TinctureApplied) != 0;
         int frozenShock = spell && m.Ailments.Magnitude(Kind.Freeze, now) > 0
@@ -324,7 +345,11 @@ public static partial class Game
                 _ => value,
             };
         }
-        var added = m.Ailments.Inflict(taken, critical, m.MaxLife, now, Attacker, name => m.Effects[name], random,
+        double thresholdScale = MonsterAilmentThresholdScaling;
+        long ailmentThreshold = thresholdScale > 0 && m.Variety is not null
+            ? Math.Max(1L, (long)Math.Round(Monsters.AilmentThreshold(m.Variety, m.Level, m.MaxLife) * thresholdScale))
+            : m.MaxLife;
+        var added = m.Ailments.Inflict(taken, critical, (uint)Math.Min(uint.MaxValue, ailmentThreshold), now, Attacker, name => m.Effects[name], random,
             AilmentArea(Player, Skill, spell));
         // Scorch, Brittle and Sap (MonsterAlternateAilments): only from a source, after chill, freeze and shock's draws.
         var alternate = AlternateAilmentsOnHitLocked(m, taken, critical, now, Attacker, random);

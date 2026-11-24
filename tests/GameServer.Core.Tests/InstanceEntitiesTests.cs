@@ -617,6 +617,18 @@ public class InstanceEntitiesTests
     }
 
     [Fact]
+    public void Use_item_click_reads_the_inventory_and_item_big_endian()
+    {
+        Assert.Equal(11, InstanceProtocol.KnownClientLength(InstanceItems.UseItemClickId));
+        var fromStash = InstanceItems.ReadUseItemClick(Convert.FromHexString("0057000008074000006100"));
+        Assert.Equal(0x807u, fromStash.InventoryId);
+        Assert.Equal(0x40000061u, fromStash.ItemId);
+        var fromInventory = InstanceItems.ReadUseItemClick(Convert.FromHexString("0057000000014000006100"));
+        Assert.Equal(1u, fromInventory.InventoryId);
+        Assert.Equal(0x40000061u, fromInventory.ItemId);
+    }
+
+    [Fact]
     public void Character_passives_carry_refund_quest_and_ascendancy_points()
     {
         // Refund points come first, then extra_skill_points and ascendancy points.
