@@ -274,6 +274,7 @@ public static partial class Game
         var measured = player.RecentEvents.Amounts(conditionNow);
         measured.TryAdd(StatConditions.KilledEnemy, 0);
         measured.TryAdd(StatConditions.SpentMana, 0);
+        measured.TryAdd(StatConditions.UsedWarcry, 0);
         measured[StatConditions.ActiveNonVaalSkillMinionCount] =
             ActiveNonVaalSkillMinionCountLocked(player, conditionNow);
         OwnedCountItemStats.Capture(player, conditionNow, AreaTime(player), measured);
@@ -1221,8 +1222,10 @@ public static partial class Game
             (long)classInfo.Intelligence + bonus.Intelligence);
         bonus = bonus with { AdditionalMana = (long)finalAttributes.Dexterity * perDexterity };
         int areaAccuracy = map?.Get(Stat.MapPlayerAccuracyRatingPlusPctFinal) ?? 0;
+        int weaponAccuracy = (int)RawAccuracy(Stat.GladiatorAccuracyRatingPlusPctFinalWhileWieldingSword);
+        if (weaponAccuracy != 0 && !WeaponProfileFor(player, activeSet: true).Sword) weaponAccuracy = 0;
         int ResolveAccuracy(long basis, long increased) => PlayerAccuracyModifiers.Calculate(basis, increased,
-            (int)RawAccuracy(PlayerAccuracyModifiers.BootsMore), areaMorePct: areaAccuracy);
+            (int)RawAccuracy(PlayerAccuracyModifiers.BootsMore), areaMorePct: areaAccuracy, weaponMorePct: weaponAccuracy);
         var pools = CharacterStats.For(classInfo, level, bonus, ResolveAccuracy);
         // Reservation-derived defences are a second, explicit projection from the completed full maximum Life. The
         // added Energy Shield is a global flat source and cannot feed back into Life conversion or reservation.
@@ -1336,6 +1339,7 @@ public static partial class Game
         return pools with
         {
             AccuracyAreaMorePct = areaAccuracy,
+            AccuracyWeaponMorePct = weaponAccuracy,
             FortificationRevision = FortificationOf(player).Revision,
             AttackerSlowPct = EquipmentInput(AttackerSlow), EnemyRegenerationOnHitPct = EquipmentInput(EnemyRegenerationOnHit),
             VsBlindedCriticalPct = EquipmentInput(VsBlindedCriticalStat), WhileMovingStats = WhileMovingInputs.Any(n => EquipmentInput(n) != 0),

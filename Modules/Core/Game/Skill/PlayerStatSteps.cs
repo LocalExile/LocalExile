@@ -114,8 +114,9 @@ public static partial class Game
         });
         Step(PlayerStatStep.Golems, (player, stats, _) => AddGolemStats(player, stats));
         Step(PlayerStatStep.Offerings, (player, stats, _) => AddSelfOfferingStats(player, stats));
-        Step(PlayerStatStep.PanelDefaults, (_, stats, _) =>
+        Step(PlayerStatStep.PanelDefaults, (player, stats, _) =>
         {
+            ApplyConvergenceStats(player, stats);
             foreach (var (stat, value) in PanelStatDefaults.Compute(name => GetIn(stats, name)))
                 if (stat is var key) stats[key] = value;
         });

@@ -92,7 +92,7 @@ public static partial class Game
         bool flask = player.FlaskEffects.Any || player.UtilityFlaskEffects.ActiveAt(now)
             || MagebloodBelt(player) is { } belt
                 && MagebloodFlasks(ItemsOf(player).Items(PlayerInventories.Flask), MagebloodFlaskCount(belt)).Count > 0;
-        flags["_while_using_flask"] = flags["_during_flask_effect"] = flask;
+        flags["_while_using_flask"] = flags["_during_flask_effect"] = flags[StatConditions.DuringAnyFlaskEffect] = flask;
         flags["_if_affected_by_no_flasks"] = !flask;
         flags["_while_bleeding"] = player.IncomingAilments.Bleeding(now);
         flags["_while_poisoned"] = player.IncomingAilments.PoisonStacks(now) > 0;

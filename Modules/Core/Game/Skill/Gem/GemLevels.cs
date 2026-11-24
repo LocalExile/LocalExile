@@ -20,9 +20,12 @@ public static partial class Game
         var type = ItemsFor(player).ByHash(gem.TypeHash);
         if (type is null || ItemsFor(player).Gem(type) is not { } info)
             return SkillGemLevel.Resolve(intrinsic, supportedBonus, []);
+        var skills = SkillsFor(player);
         uint[] stats = info.IsSupport
-            ? SkillsFor(player).IsExceptional(type.Row) ? [] : [SkillGemLevel.NonExceptionalSupports]
-            : [SkillGemLevel.AllSkillGems, .. SkillGemLevel.FamilyStats.Where(stat => SkillsFor(player).FamilyStatRaises(stat, type.Row)),
+            ? [.. skills.IsExceptional(type.Row) ? Array.Empty<uint>() : [SkillGemLevel.NonExceptionalSupports],
+                .. skills.GemHasTag(type.Row, "critical") ? [Stat.CriticalSupportGemLevelPlus] : Array.Empty<uint>()]
+            : [SkillGemLevel.AllSkillGems, .. SkillGemLevel.FamilyStats.Where(stat => skills.FamilyStatRaises(stat, type.Row)),
+                .. SkillGemLevel.TaggedActiveLevelStats.Where(entry => skills.GemHasTag(type.Row, entry.Tag)).Select(entry => entry.Stat),
                 .. AttributeStat(info.Colour) is { } attribute ? [attribute] : Array.Empty<uint>()];
         return SkillGemLevel.Resolve(intrinsic, supportedBonus, stats.Select(stat => RawGemStat(player, stat)));
     }

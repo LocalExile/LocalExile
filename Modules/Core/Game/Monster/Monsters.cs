@@ -2966,7 +2966,7 @@ public static partial class Game
         PreventedDamageOf(player).Add(now, shifted[DamageType.Physical].Min - physicalDamage);
         if (!blocked) m.HitPlayerAt = now;
         uint manaBefore = player.PlayerMana;
-        if (blocked) RecoverOnBlockLocked(player, stats);
+        if (blocked) RecoverOnBlockLocked(player, stats, now, attackHit);
         // A blocked hit recoups the share it deals (ailmentTaken holds it).
         RecoupHitLocked(player, ailmentTaken.Select((_, r) =>
             new(FortificationDamageTakenLocked(player, (int)r.Min, now, stats), FortificationDamageTakenLocked(player, (int)r.Max, now, stats))), now, stats);

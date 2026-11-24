@@ -26,6 +26,8 @@ public static partial class Game
         if (life != lifeBefore) state.Packets.Add(new([], $"0x01b1 player life {life} (flask)", FlaskOutputPool.Life));
         if (mana != manaBefore) state.Packets.Add(new([], $"0x01b1 player mana {mana} (flask)", FlaskOutputPool.Mana));
         double now = AreaTime(player);
+        if (local.GetValueOrDefault(Stat.LocalUniqueFlaskStartEnergyShieldRecharge) != 0)
+            player.EnergyShield.StartRecharge(now, CharacterPlayerStats(player).GetValueOrDefault);
         if (use.LifePerUse > 0) player.RecentEvents.Record(StatConditions.UsedLifeFlask, now);
         ApplyConditionalFlaskAilmentProtectionLocked(player, local, now);
         if (recovery.ExtraLife > 0)

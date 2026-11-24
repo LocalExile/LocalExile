@@ -3383,6 +3383,7 @@ public static partial class Game
         {
             player.LastEnemyHitAt = m.PlayerHitAt = hitNow;
             player.RecentEvents.Record(StatConditions.HitEnemy, m.PlayerHitAt);
+            GainConvergenceOnHitLocked(player, m, m.PlayerHitAt, playerStats);
         }
         if (m.Life == 0)
         {

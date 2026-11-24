@@ -52,7 +52,7 @@ public static partial class Game
                 player.IncomingHitRandom.Next(100), suppression.Lucky, suppression.Unlucky);
             if (suppressed) dealt = DamageModel.Suppress(dealt, suppression.Effect);
             uint manaBefore = player.PlayerMana;
-            if (blocked) RecoverOnBlockLocked(player, stats);
+            if (blocked) RecoverOnBlockLocked(player, stats, now, attack: !spell);
             var taken = DamagePacket.Of(type, dealt, dealt);
             RecoupHitLocked(player, taken, now, stats);
             if (type == DamageType.Physical) PreventedDamageOf(player).Add(now, amount - dealt);

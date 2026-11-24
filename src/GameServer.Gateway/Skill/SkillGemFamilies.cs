@@ -19,10 +19,11 @@ public sealed class SkillGemFamilies
     public SkillGemFamilies(string folder = "data")
     {
         this.folder = folder;
-        _members = Load(folder);
+        (_members, _tagsByGem) = Load(folder);
     }
 
     readonly Dictionary<int, HashSet<int>> _members;
+    readonly Dictionary<int, HashSet<string>> _tagsByGem;
 
     // A family keyed by no stat row: the gems carrying the GemTags "exceptional" tag (Empower, Enlighten, ...).
     const int ExceptionalFamily = -1;
@@ -35,24 +36,33 @@ public sealed class SkillGemFamilies
     /// <summary>Whether the gem (its base item type's row) carries the Exceptional tag.</summary>
     public bool IsExceptional(int gemRow) => Raises(ExceptionalFamily, gemRow);
 
+    public bool HasTag(int gemRow, string tag) =>
+        _tagsByGem.TryGetValue(gemRow, out var tags) && tags.Contains(tag);
+
     // A Stats.dat row -> the base item type rows of the gems it raises: those whose MinionGlobalSkillLevelStat is the
     // stat, and those with a variant whose GemTags row carries the stat in its Stat1..Stat4 columns.
-    static Dictionary<int, HashSet<int>> Load(string folder)
+    static (Dictionary<int, HashSet<int>> Members, Dictionary<int, HashSet<string>> TagsByGem) Load(string folder)
     {
         string[] needed = ["GemTags", "GemEffects", "SkillGems"];
         var members = new Dictionary<int, HashSet<int>>();
-        if (needed.Any(n => !ClientTables.Has(n))) return members;
+        var tagsByGem = new Dictionary<int, HashSet<string>>();
+        if (needed.Any(n => !ClientTables.Has(n))) return (members, tagsByGem);
         var tags = ClientTables.Table("GemTags");
         var effects = ClientTables.Table("GemEffects");
         var gems = ClientTables.Table("SkillGems");
         static int Int(ClientRow r, string name) => (r.IntOrNull(name) ?? -1);
         // A GemTags row's stat rows (Stat1..Stat4): the family stats whose gems carry the tag.
         var tagStats = new Dictionary<int, int[]>();
+        var tagNames = new Dictionary<int, string>();
         int row = 0;
         foreach (var t in tags)
         {
             int[] stats = [.. new[] { Int(t, "Stat1"), Int(t, "Stat2"), Int(t, "Stat3"), Int(t, "Stat4") }.Where(s => s >= 0).Distinct()];
-            if (t.TextOrNull("Id") == "exceptional") stats = [ExceptionalFamily];
+            if (t.TextOrNull("Id") is { } name)
+            {
+                tagNames[row] = name;
+                if (name == "exceptional") stats = [ExceptionalFamily];
+            }
             if (stats.Length > 0) tagStats[row] = stats;
             row++;
         }
@@ -67,12 +77,20 @@ public sealed class SkillGemFamilies
                 foreach (int variant in g.Ints("GemVariants"))
                     if (variant >= 0 && variant < effectRows)
                         foreach (int t in effects[variant].Ints("GemTags"))
+                        {
+                            if (tagNames.TryGetValue(t, out string? tag))
+                            {
+                                if (!tagsByGem.TryGetValue(gemRow, out var ownTags))
+                                    tagsByGem[gemRow] = ownTags = new(StringComparer.Ordinal);
+                                ownTags.Add(tag);
+                            }
                             if (tagStats.TryGetValue(t, out var stats))
                                 foreach (int stat in stats) Add(stat, gemRow);
+                        }
             }
             row++;
         }
-        return members;
+        return (members, tagsByGem);
 
         void Add(int statRow, int gemRow)
         {

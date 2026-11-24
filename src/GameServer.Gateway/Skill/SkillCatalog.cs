@@ -645,6 +645,8 @@ public sealed class SkillCatalog
 
     public bool IsExceptional(int gemRow) => _families.IsExceptional(gemRow);
 
+    public bool GemHasTag(int gemRow, string tag) => _families.HasTag(gemRow, tag);
+
     readonly SkillGemFamilies _families;
 
     /// <summary>The ItemClasses rows a GrantedEffects row's skill can be used with (its ActiveSkill's
@@ -1598,6 +1600,7 @@ public sealed class SkillCatalog
         /// <summary>The weapon's own added elemental/chaos damage (its local added damage mods, ItemWeapons), added to
         /// every hit it makes; empty for unarmed and for weapons without such mods.</summary>
         public DamagePacket LocalAdded { get; init; } = DamagePacket.Empty;
+        public bool OffHand { get; init; }
         public bool WieldingWand { get; init; }
         /// <summary>An ordinary bow: its attacks also take the items' "with Bows" added damage stats.</summary>
         public bool Bow { get; init; }
