@@ -512,6 +512,9 @@ public sealed record SavedMonster(int Variety, byte Level, MonsterRarity Rarity,
     /// planned one, its mods are not rolled and its life is full.</summary>
     public bool Planned { get; init; }
 
+    /// <summary>Instance-local pack identifier from AreaPopulation.Spawn (0 when standalone).</summary>
+    public int PackId { get; init; }
+
     /// <summary>The living monsters: <paramref name="monsters"/> (the connection's) and the ones waiting to rise
     /// (<paramref name="unrisen"/>: the buried ones and the lurking ones, which are among the connection's too).</summary>
     public static List<SavedMonster> Save(IEnumerable<SpawnedMonster> monsters, double now, IEnumerable<SpawnedMonster>? unrisen = null)
@@ -522,7 +525,7 @@ public sealed record SavedMonster(int Variety, byte Level, MonsterRarity Rarity,
         return [.. all.Concat(waiting.Where(m => !all.Contains(m))).Where(m => !m.Dead && m.OwnerId is null && m.SummonerId is null && m.Variety is not null).Select(m =>
         {
             var (x, y) = m.Walk.Position(now);
-            return new SavedMonster(m.Variety!.Row, m.Level, m.Rarity, m.OriginallyHostile, x, y, m.Life, waiting.Contains(m)) { Mods = m.Mods };
+            return new SavedMonster(m.Variety!.Row, m.Level, m.Rarity, m.OriginallyHostile, x, y, m.Life, waiting.Contains(m)) { Mods = m.Mods, PackId = m.PackId };
         })];
     }
 }

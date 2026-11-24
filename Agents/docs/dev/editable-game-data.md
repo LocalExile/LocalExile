@@ -94,6 +94,8 @@ Unique drop weights are **absolute** (0..1): `ItemDrops.PickUnique` compares eac
 range is "no unique". A unique missing from `unique_weights` weighs zero and does not drop; `unique_weight_overrides`
 wins over it. The weights come from `VillageUniqueDisenchantValues` (1 / value, capped at 1); ItemDrops reads that
 client table only while world.db is not open.
+The disenchant value is 1.03^(drop level - 1) x a tier coefficient, so 1 / value makes a late-dropping unique rarer
+than its tier: the overrides give 522 drop-anywhere uniques their tier's weight instead (the file's header has the rule).
 
 To change a mod's roll range, a row in `mod_stat_overrides` names the Mods.dat Id and the 0-based stat index; the
 client's own ranges are client.db's `Mods` (`Stat1Min`..). An override applies to new rolls only: an existing item stores
