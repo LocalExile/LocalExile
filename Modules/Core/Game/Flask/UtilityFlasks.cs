@@ -18,7 +18,7 @@ public static partial class Game
             && (signal is null || Automation(player).CanAccept(signal.Value, current.Id))
             && EndSignalCurrent(player, current, signal)
             && (signal?.Trigger != FlaskEnchantments.Trigger.Full || fullCost is null
-                || current.Item.Charges >= fullCost.MaxCharges && fullCost.ChargesPerUse > 0);
+                || current.Item.Charges >= fullCost.MaxCharges);
         if (!CurrentUse()) return false;
         // Mageblood: its magic utility flasks are always on and cannot be used (the client enforces the mod; this is the
         // server backstop).

@@ -42,16 +42,17 @@ public static partial class Game
     // use the town, the grace period, death or an area change held back happens on the first drain that admits it.
     public static void QueueFullFlasks(Player player)
     {
+        IReadOnlyDictionary<uint, int>? character = null;
         foreach (var flask in ItemsOf(player).Items(PlayerInventories.Flask).OrderBy(i => i.X))
         {
             if (ItemsFor(player).ByHash(flask.Item.TypeHash) is not { } type
                 || ItemsFor(player).UtilityFlaskOf(type) is not { } utility) continue;
-            var local = ItemModStats.Local(flask.Item, ItemsFor(player).Mods);
+            var local = FlaskLocalStats(player, flask.Item);
             if (!FlaskEnchantments.Matches(local, FlaskEnchantments.Trigger.Full, flask.X, flask.X, active: false)) continue;
-            var charges = FlaskCharges.Of(utility.Charges, local);
+            var charges = FlaskCharges.Of(utility.Charges, local, key => (character ??= CharacterPlayerStats(player)).GetValueOrDefault(key));
             // A use that took no charges, or one Mageblood refuses, would leave the flask at its maximum, and a
             // standing condition would then use it on every tick.
-            if (charges.ChargesPerUse <= 0 || flask.Item.Charges < charges.MaxCharges
+            if (charges.ChargesPerUse <= 0 || charges.ChargesPerUse > flask.Item.Charges || flask.Item.Charges < charges.MaxCharges
                 || MagebloodBlocksFlaskUse(player, flask.Item)) continue;
             if (Automation(player).Enqueue(new(FlaskEnchantments.Trigger.Full, flask.Id, flask.X)))
                 Console.WriteLine($"[gateway] {player.Connection.Remote} flask {flask.X} ({type.Name}) holds {flask.Item.Charges}/{charges.MaxCharges} charges "

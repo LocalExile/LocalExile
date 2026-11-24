@@ -41,6 +41,14 @@ public class FlaskFullChargesTests
         await Game.DrainFlaskTriggers(player);
         Assert.Equal(utility.MaxCharges - utility.ChargesPerUse, Held());
         Assert.NotNull(player.UtilityFlaskEffects.Of(flask.Id));
+        inventory.Change(PlayerInventories.Flask, flask.Id, i => i with { Charges = utility.MaxCharges });
+        using var freeUse = GameEvents.PlayerStatSources.Add("Game", (owner, stats) =>
+        {
+            if (owner == player) stats[Stat.FlaskChargesUsedPlusPct] = -100;
+            return stats;
+        });
+        Game.QueueFullFlasks(player);
+        Assert.Empty(player.FlaskAutomation.Events);
         Assert.Equal(utility.MaxCharges, inventory.Items(PlayerInventories.Flask).Single(i => i.Id == 302).Item.Charges);
     }
 }
