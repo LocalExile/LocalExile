@@ -131,7 +131,7 @@ public static partial class Game
                             Quality(p.Socket, p.Gem), p.Socket));
                 else if (variant.Effect2 >= 0
                     && Supports.Of(variant.Effect2) is { Support: true, Id: SnipeSupportEffect or GeneralsCrySupportEffect
-                        or "SupportBrandSupport" or "SupportIntuitiveLink" })
+                        or "SupportBrandSupport" or "SupportIntuitiveLink" or AutomationSupport or AutoexertionSupport })
                     candidates.Add(new(variant.Effect2, EffectiveGemLevel(player, p.Gem, LocalBonus(p.Socket, p.Gem).Level),
                         Quality(p.Socket, p.Gem), p.Socket));
             }
@@ -312,6 +312,8 @@ public static partial class Game
                 if (stat == Stat.SkillCostPlusPctPerKeystone && Stat.BaseCostPlusPct is var costKey)
                     own[costKey] = own.GetValueOrDefault(costKey) + own[perKey];
             }
+        int warcryMana = GolemStat(own, Stat.SupportAutoexertionBaseManaCostOverride);
+        if (warcryMana > 0) own[Stat.ManaCost] = own[Stat.BaseManaCost] = warcryMana;
         double costMultiplier = supports.Aggregate(1.0, (v, s) => v * s.CostMultiplier / 100.0);
         if (GolemStat(own, Stat.SkillIsBlessingSkill) != 0 && GolemStat(own, Stat.SupportAuraDurationBaseBuffDuration) > 0)
             foreach (uint instant in new[] { Stat.BaseSkillIsInstant, Stat.SkillIsInstant })

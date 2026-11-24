@@ -1280,6 +1280,12 @@ public static partial class Game
                 return false;
             }
         }
+        if (gem.Name is not null && CooldownTriggerController(SkillsFor(player).EffectId(gem.Effect)) != 0)
+        {
+            bool accepted = await ToggleCooldownTrigger(player, skillId, Current);
+            if (accepted) RecordAcceptedGemUse(player, gem.Effect, to);
+            return accepted;
+        }
         if (gem.Name is not null && SkillsFor(player).EffectId(gem.Effect) == ApproachingFlamesEffect)
         {
             bool accepted = await ToggleApproachingFlames(player, skillId, Current);
@@ -1820,7 +1826,8 @@ public static partial class Game
                 && (!eternal || !OrdinaryManaAura(a))).Append(aura).ToArray();
             long reserved = (long)AuraCatalog.RequiredMana(player.Pools, proposedAuras)
                 + (eternal ? 0 : PetrifiedBlood.RequiredMana(player.Pools, player.PetrifiedBlood))
-                + PlacedSkills.Reserved(player.Pools, player.Placed.All.Values, false);
+                + PlacedSkills.Reserved(player.Pools, player.Placed.All.Values, false)
+                + CooldownTriggerReservation(player, life: false);
             var lifeReservation = LifeReservationFor(player, proposedAuras);
             int requiredLife = lifeReservation.Required;
             if (reserved > player.Pools.Mana || requiredLife >= player.Pools.Life)

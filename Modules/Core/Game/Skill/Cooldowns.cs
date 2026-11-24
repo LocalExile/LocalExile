@@ -221,7 +221,7 @@ public static partial class Game
 
     public static bool TryBeginCooldownUseCore(Player player, int effect, SingleUseCooldown? plan, bool instant,
         Action sideEffects, out CooldownUseTicket? ticket, int? actionToken, bool reserve, double? requestedAt,
-        ushort? skillId, Func<bool>? admit = null, bool reserveAttack = false)
+        ushort? skillId, Func<bool>? admit = null, bool reserveAttack = false, bool triggered = false)
     {
         using (ProjectileMutation(player, advance: !reserveAttack))
         {
@@ -246,7 +246,7 @@ public static partial class Game
                 double acceptedAt = AreaTime(player);
                 if (reserve && !TryPlanStanceLocked(player, requestedSkill, effect, acceptedAt, out stancePlan)) return false;
             }
-            if (skillId is ushort manual && TriggerOnlyReason(SupportedSkill(player, manual)) is not null) return false;
+            if (!triggered && skillId is ushort manual && TriggerOnlyReason(SupportedSkill(player, manual)) is not null) return false;
             // A guard skill shares one cooldown with the other guard skills, and its own buff has to be over before a
             // new one starts: Immortal Call's cooldown does not recover during its effect, so it is ready again only
             // after the buff and its 3 s cooldown (real game and Path of Building). Refuse here, before a cooldown use,
@@ -301,7 +301,7 @@ public static partial class Game
                 else if (reserve ? !state.TryUse(now, cooldown) : !state.Ready)
                 {
                     // Cooling down: a skill with a cooldown bypass is used for a charge instead (CooldownBypass).
-                    if (CooldownBypassCharge(player, effect, skillId) is not { } charge) return false;
+                    if (triggered || CooldownBypassCharge(player, effect, skillId) is not { } charge) return false;
                     if (reserve ? !ChargesOf(player).Spend(charge) : !ChargesOf(player).CanSpend(charge)) return false;
                     bypassed = true;
                 }

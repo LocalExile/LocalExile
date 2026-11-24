@@ -308,7 +308,8 @@ public static partial class Game
         EnsureReservationInputs(player);
         long reserved = (long)AuraCatalog.RequiredMana(player.Pools, player.Auras.Values)
             + PetrifiedBlood.RequiredMana(player.Pools, player.PetrifiedBlood)
-            + PlacedSkills.Reserved(player.Pools, player.Placed.All.Values, false);
+            + PlacedSkills.Reserved(player.Pools, player.Placed.All.Values, false)
+            + CooldownTriggerReservation(player, life: false);
         return (int)Math.Min((long)player.Pools.Mana, Math.Min(int.MaxValue, reserved));
     }
 

@@ -310,7 +310,7 @@ public static partial class Game
     }
 
     public static bool UseWarcry(Player player, int effect,
-        IReadOnlyDictionary<uint, int> own, ushort skillId = 0)
+        IReadOnlyDictionary<uint, int> own, ushort skillId = 0, bool triggered = false)
     {
         if (!SkillsFor(player).IsWarcry(effect)) return false;
         bool enduring = SkillsFor(player).EffectId(effect) == "EnduringCry";
@@ -327,11 +327,13 @@ public static partial class Game
         double duration = SkillDurationModifiers.Seconds(Own(Stat.BaseSkillEffectDuration), Player, Own, DurationKinds(player, effect))
             * SkillDurationModifiers.CallToArmsMore(Player);
         bool callToArms = Player(Stat.KeystoneCallToArms) != 0;
+        bool suppressBuffs = Own(Stat.WarcriesDoNotApplyBuffsToSelfOrAllies) != 0
+            || Player(Stat.WarcriesDoNotApplyBuffsToSelfOrAllies) != 0;
         double buffEffect = Math.Max(0, 1 + ((long)Player(Stat.WarcryBuffEffectPlusPct) + Own(Stat.WarcryBuffEffectPlusPct)) / 100d);
         _ = AreaFrames.Start(async () =>
         {
-            // The game clock: a pause holds the cry.
-            while (!player.Closed && AreaTime(player) < until) await AreaDelay(player, 0.016);
+            // A triggered warcry has no cast windup. Ordinary casts still release on the area clock.
+            while (!triggered && !player.Closed && AreaTime(player) < until) await AreaDelay(player, 0.016);
             if (!player.ProjectileActive(epoch) || player.PlayerLife == 0) return;
             double taunt = TauntSeconds(Player);
             foreach (var (k, v) in own) playerStats[k] = v;
@@ -347,10 +349,13 @@ public static partial class Game
             if (!enduring)
             {
                 string effectId = SkillsFor(player).EffectId(effect) ?? "";
-                if (effectId == "IntimidatingCry")
-                    ApplyIntimidatingCryLocked(player, own, CharacterPlayerStats(player), now);
-                else
-                    ApplyWarcryBuffLocked(player, effectId, own, playerStats, here, radius, now, duration, buffEffect);
+                if (!suppressBuffs)
+                {
+                    if (effectId == "IntimidatingCry")
+                        ApplyIntimidatingCryLocked(player, own, CharacterPlayerStats(player), now);
+                    else
+                        ApplyWarcryBuffLocked(player, effectId, own, playerStats, here, radius, now, duration, buffEffect);
+                }
                 var warriors = skillId != 0 && IsGeneralsCry(player, effect)
                     ? GeneralsCryReleased(player, skillId, here, radius, epoch)
                     : Task.CompletedTask;
@@ -365,12 +370,12 @@ public static partial class Game
             double percentPerMinute = Math.Min(25, power) / 5d
                 * Own(Stat.EnduringCryLifeRegenerationRatePerMinutePctPer5PowerUpToCap)
                 * buffEffect;
-            if (!callToArms) player.EnduringCryRecovery.Begin(now, duration, player.PlayerMaxLife * percentPerMinute / 6000d);
+            if (!callToArms && !suppressBuffs) player.EnduringCryRecovery.Begin(now, duration, player.PlayerMaxLife * percentPerMinute / 6000d);
             Console.WriteLine($"[gateway] Enduring Cry recovery: {power} power, {duration:0.###} seconds, "
                 + $"{percentPerMinute:0.###}% Life/min (Whaletooth included)");
             int charges = per > 0 ? power / per : 0;
             Console.WriteLine($"[gateway] Enduring Cry: {power} power within {radius} cells, {charges} endurance charge(s), {taunted} taunted");
-            if (charges > 0 && !callToArms) ChargesOf(player).Enqueue(new ChargeEvent.Grant(ChargeType.Endurance, charges, $"Enduring Cry ({power} power)"));
+            if (charges > 0 && !callToArms && !suppressBuffs) ChargesOf(player).Enqueue(new ChargeEvent.Grant(ChargeType.Endurance, charges, $"Enduring Cry ({power} power)"));
             await WarcryReleased(player, here, radius, epoch);
         });
         return true;
