@@ -662,9 +662,11 @@ public static partial class Game
                 .OrderBy(p => Dist(p.Value.Walk.Position(now), placed.At)).FirstOrDefault();
             aim = target.Value?.Walk.Position(now) ?? placed.At;
         }
-        bytes.World(placed.Id, InstanceProtocol.ActionStarted(placed.Id, placed.At.X, placed.At.Y, aim.X, aim.Y, 0x4000, 0xffff, player.MonsterOrderFlags));
+        bool arc = PlacedArcPayload(effect);
+        if (!arc)
+            bytes.World(placed.Id, InstanceProtocol.ActionStarted(placed.Id, placed.At.X, placed.At.Y, aim.X, aim.Y, 0x4000, 0xffff, player.MonsterOrderFlags));
         if (currentSkill && placed.Source is { } source && SupportedSkill(player, placed.Skill) is var gem
-            && (TriggerSummonSpell(player, gem) || PlacedUtilityPayload(effect)))
+            && (TriggerSummonSpell(player, gem) || PlacedUtilityPayload(effect) || arc))
         {
             var session = ProjectilesFor(player);
             var lifetime = CombatLifetime;
@@ -678,6 +680,12 @@ public static partial class Game
             if (TriggerSummonSpell(player, gem))
                 session.Enqueue(() => ReleaseTriggeredSummon(player, session, placed.Skill, placed.At, Current,
                     useProxyOrigin: true));
+            else if (arc)
+                session.Enqueue(() =>
+                {
+                    ReleasePlacedArc(player, session, placed, Current, inventionMore);
+                    return Task.CompletedTask;
+                });
             else session.Enqueue(() => ReleaseTriggeredNonProjectile(player, session, placed.Skill, placed.At,
                 Current, fromPlacement: true));
             return;
