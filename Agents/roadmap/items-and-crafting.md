@@ -81,8 +81,7 @@ essence upgrading remain separate features.
   See Status and 13-items.md, "Sacred Orb" for the native checks and local roll distribution policy.
   Fracturing and Mirror have validated class/rarity admission (Fracturing uses `ItemClasses.CanBeFractured`, Mirror
   the equipment flag, non-unique targets and no currency on mirrored items); the 2026-10-30 native run covered the
-  success and refusal paths. Veiled modifiers and Reflective Oil/Sanctified remain separate,
-  and Mirror from a stash tab is still unsupported. See
+  success and refusal paths. Veiled modifiers and Reflective Oil/Sanctified remain separate. See
   [the game rules](../docs/re/fracturing-mirror-mechanics.md).
   Hinekora's Lock's server rules are in (Mods flag bit 8 + seed, C→S 0x29d / S→C 0x2a0 preview with status 0,
   exact committed result, clear-on-modification); the client's preview branch is the item popup's foresight element.

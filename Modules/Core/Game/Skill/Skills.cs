@@ -796,7 +796,11 @@ public static partial class Game
                 Publish(Stat.BladefallVolleyFrequencyMs, BladefallVolleys.FrequencyMs(volleyMs,
                     Get(Stat.BladefallVolleyFrequencyPlusPctPer100MaximumMana), player.Pools.Mana));
             if (SummonData.Find(SkillsFor(player).EffectId(effect)) is { LimitStat: > 0 } summon)
-                Publish(summon.FinalLimitStat, SummonLimit(player, summon, supported));
+            {
+                int limit = SummonLimit(player, summon, supported);
+                Publish(summon.FinalLimitStat, limit);
+                Publish(summon.LimitStat, limit);
+            }
             if (SkillsFor(player).EffectId(effect) is "DominatingBlow" or "DominatingBlowAltX")
                 foreach (var rarity in new[] { MonsterRarity.Normal, MonsterRarity.Magic, MonsterRarity.Rare })
                     if (HitSummonDefinition(SkillsFor(player).EffectId(effect), rarity) is { } sentinel)
@@ -810,14 +814,15 @@ public static partial class Game
                 uint display = absolution ? Stat.DisplayMaxUpgradedSentinelsOfAbsolution : Stat.DisplayMaxUpgradedSentinelsOfDominance;
                 int basis = GolemStat(own, Stat.Of("base_max_number_of_vaal_" + family));
                 if (basis == 0) basis = GolemStat(own, display);
-                Publish(Stat.Of("max_number_of_vaal_" + family), Math.Clamp(basis
+                Publish(Stat.Of("max_number_of_vaal_" + family), ApplyDarkMonarchLimit(Math.Clamp(basis
                     + GolemStat(playerStats, Stat.Of("base_max_number_of_vaal_" + family))
-                    + GolemStat(playerStats, Stat.Of("max_number_of_vaal_" + family)), 0, 200));
+                    + GolemStat(playerStats, Stat.Of("max_number_of_vaal_" + family)), 0, 200),
+                    n => GolemStat(playerStats, n), absolution ? "VaalAbsolution" : "VaalDomination"));
                 foreach (uint count in new[] { Stat.NumberOfActiveAbsolutionSentinels, Stat.NumberOfActiveVaalAbsolutionSentinels,
                     Stat.NumberOfDominatedMonsters, Stat.NumberOfDominatedVaalMonsters }) Publish(count, GolemStat(playerStats, count));
             }
             if (GolemData.Find(SkillsFor(player).EffectId(effect)) is { IsGolem: true })
-                Publish(Stat.NumberOfGolemsAllowed, GolemCatalog.Limit(OwnPanel(Stat.BaseNumberOfGolemsAllowed),
+                Publish(Stat.NumberOfGolemsAllowed, GolemEffectiveLimit(OwnPanel(Stat.BaseNumberOfGolemsAllowed),
                     n => GolemStat(playerStats, n)));
             var placed = PlacedKind(supported);
             if (placed.Trap || placed.Mine)
@@ -1112,6 +1117,8 @@ public static partial class Game
     static string? ActorSkillDisabledNow(Player player, int effect, ushort? skillId)
     {
         if (VaalMinionProxyDisabled(player, effect, skillId) is { } proxy) return proxy;
+        if (SkillMinionFamily(SkillsFor(player).EffectId(effect)) is { } family && !CanHaveMinion(PlayerStatValues(player), family))
+            return "equipment prevents summoning this type of minion";
         if (OwnAuraSkillRestricted(player, effect, skillId)) return "own aura skills are disabled";
         if (skillId is ushort beastSkill && BeastKindFor(SkillsFor(player).EffectId(effect)) is { } beastKind)
         {
