@@ -365,7 +365,7 @@ public static partial class Game
     }
 
     // Removing a physical source is an explicit deactivation, unlike town travel or a temporary actor restriction.
-    static void ForgetGemActivation(Player player, Item gem)
+    public static void ForgetGemActivation(Player player, Item gem)
     {
         var effects = ItemsFor(player).GemEffects(gem).Select(e => SkillsFor(player).EffectId(e)).OfType<string>().ToArray();
         foreach (string effect in effects)
@@ -1509,6 +1509,11 @@ public static partial class Game
             return;
         }
         if (await GameEvents.AnyItemUse(player, r, item, type)) return;
+        if (BanditChoices.IsBookOfReform(type.Id))
+        {
+            await BanditChoices.UseBookOfReform(player, items, r, item, type);
+            return;
+        }
         // A quest item with a use_flag (the quest books, Book of Regrets included): its flag, and QuestStaticRewards' points.
         if (type.Quest?.Use is not null)
         {
@@ -1919,6 +1924,8 @@ public static partial class Game
         Console.WriteLine($"[gateway] {player.Connection.Remote} <= 0x004a held item onto {a}: {hex}");
         if (done.Merged || done.Rest is not null) { await SendMerged(player, items, done); return; }
         // Not a stack with room: swapped, as 0x2a on that cell.
+        if (done.Row == PlayerInventories.Flask && done.FromRow != PlayerInventories.Flask)
+            done = done with { Placed = EmptyIfEquippedInHostileArea(player, items, done.Placed) };
         var d = done.Displaced;
         uint target = PlayerInventories.InventoryId(done.Row);
         await Send(player, InstanceItems.InventoryChange(target, items.NextRevision(done.Row), d is null ? [] : [d.Id], [done.Placed]),
@@ -2035,7 +2042,8 @@ public static partial class Game
             Console.WriteLine($"[gateway] {player.Connection.Remote} <= 0x002a place {place}: refused ({why})");
             return;
         }
-        if (done.Row == PlayerInventories.Flask) done = done with { Placed = EmptyIfEquippedInHostileArea(player, items, done.Placed) };
+        if (done.Row == PlayerInventories.Flask && done.FromRow != PlayerInventories.Flask)
+            done = done with { Placed = EmptyIfEquippedInHostileArea(player, items, done.Placed) };
         var d = done.Displaced;
         uint target = PlayerInventories.InventoryId(done.Row);   // may differ from the clicked one (off hand → main hand)
         if (done.Merged || done.Rest is not null) { await SendMerged(player, items, done); return; }

@@ -5,12 +5,10 @@ using GameServer.Core.Protocol.Instance;
 /// (longer with the support's quality) and adds more damage and flask Life recovery while it runs.</summary>
 public sealed class LifetapState
 {
-    /// <summary>When the buff ends (Clock seconds). A refresh moves it later; 0 means neither running nor shown.</summary>
+    /// <summary>When the buff ends (area time seconds). A refresh moves it later; 0 means neither running nor shown.</summary>
     public double Until;
     /// <summary>Life spent on supported skills since the previous buff, compared with the skill's threshold.</summary>
     public int Spent;
-    /// <summary>The buff instance allocated for the next add; 0 before one is needed.</summary>
-    public ushort Buff;
 
     public bool ActiveAt(double now) => Until > now;
 
@@ -79,7 +77,7 @@ public static class Lifetap
 
     /// <summary>The flask Life recovery increase while the buff runs, 0 otherwise.</summary>
     public static int FlaskRecovery(Player player) =>
-        ActiveAt(player, player.Clock.Elapsed.TotalSeconds) ? FlaskRecoveryPct : 0;
+        ActiveAt(player, player.Frames.Now(player)) ? FlaskRecoveryPct : 0;
 
     /// <summary>
     /// One supported skill's upfront Life cost: adds it to the spent-Life counter and grants or refreshes Lifetap
@@ -96,8 +94,10 @@ public static class Lifetap
 
         state.Spent = Math.Max(0, state.Spent - threshold);
         double seconds = DurationSeconds(stats);
+        double prior = state.Until;
         state.Gain(now, seconds);
-        player.Area.Buffs.Set(player.Id, new(BuffRow, player.Id, U68: Buff.Seconds(state.Until - now)));
+        if (state.Until > prior || !player.Area.Buffs.Has(player.Id, BuffRow, player.Id))
+            player.Area.Buffs.Set(player.Id, new(BuffRow, player.Id, U68: Buff.Seconds(state.Until - now)));
         Console.WriteLine($"[gateway] Lifetap: buff for {seconds:0.##} s after {life} Life spent " +
             $"(threshold {threshold}, {state.Spent} toward the next)");
     }
@@ -116,7 +116,7 @@ public static class Lifetap
     // The Lifetap buff while it lasts; its countdown is set when it is gained (Spend).
     public static byte[][]? PresentationRecords(Player player)
     {
-        if (!player.Lifetap.ActiveAt(player.Clock.Elapsed.TotalSeconds)) player.Area.Buffs.Clear(player.Id, BuffRow, player.Id);
+        if (!player.Lifetap.ActiveAt(player.Frames.Now(player))) player.Area.Buffs.Clear(player.Id, BuffRow, player.Id);
         return null;
     }
 }
