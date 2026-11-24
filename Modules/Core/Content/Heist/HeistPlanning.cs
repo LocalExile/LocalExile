@@ -7,8 +7,7 @@ namespace GameServer.Modules.Heist;
 
 /// <summary>
 /// Handles Rogue Harbour planning screens, C→S <c>0x279</c> (sign contract), <c>0x27d</c> (reveal blueprint),
-/// <c>0x27e</c> (confirm blueprint plans), <c>0x27f</c> (assign crew), Heist inventory guards, and Adiyah's
-/// <c>EndlessHeistContracts</c> vendor shop (<c>NPCShop</c> row 37).
+/// <c>0x27e</c> (confirm blueprint plans), <c>0x27f</c> (assign crew), and Heist inventory placement guards.
 /// </summary>
 public static class HeistPlanning
 {
@@ -57,56 +56,72 @@ public static class HeistPlanning
         if (req.RevealerRow >= HeistTables.Revealers.Length) return true;
 
         var items = ItemsOf(player);
-        var bpEntry = items.Items(HeistTables.BlueprintMissionRow).FirstOrDefault();
-        if (bpEntry?.Item.HeistBlueprint is not { Confirmed: false } bp) return true;
-        if (req.WingIndex >= bp.Wings.Count) return true;
-
-        var wing = bp.Wings[req.WingIndex];
-        if (!TryApplyReveal(wing, req.RoomTarget, out var updatedWing, out int baseCost))
-        {
-            await PlayerOf(player).Tell("That blueprint detail is already revealed or invalid.");
-            return true;
-        }
-
-        var progress = HeistProgress.Load(player);
-        if (HeistProgress.RevealsFor(progress, req.RevealerRow) == 0)
-        {
-            await PlayerOf(player).Tell("No blueprint reveals remaining with this rogue.");
-            return true;
-        }
-
-        int discount = HeistTables.Revealers[req.RevealerRow].DiscountPct;
-        int markerCost = Math.Max(1, baseCost * (100 - discount) / 100);
         uint coinHash = InstanceEntities.ObjectTypeHash(HeistTables.HeistCoinPath);
-        if (!TryComputeMarkerSplit(items, coinHash, markerCost, out int fromMain, out int fromLocker))
-        {
-            await PlayerOf(player).Tell($"Requires {markerCost} Rogue's Markers to reveal this detail.");
-            return true;
-        }
+        int discount = HeistTables.Revealers[req.RevealerRow].DiscountPct;
 
-        var nextWings = bp.Wings.ToList();
-        nextWings[req.WingIndex] = updatedWing;
-        var nextBpItem = bpEntry.Item with { HeistBlueprint = bp with { Wings = nextWings } };
-
+        string? failure = null;
+        int markerCost = 0;
+        uint removedBpId = 0;
         PlayerInventories.Payment? mainPay = null, lockerPay = null;
         InventoryItem? replaced = null;
-        bool committed = false;
+        HeistProgress.ProgressData? updatedProgress = null;
+
         Saves.Atomically(() =>
         {
-            if (fromMain > 0) { mainPay = items.Pay(PlayerInventories.MainInventory, coinHash, fromMain); if (mainPay is null) return; }
-            if (fromLocker > 0) { lockerPay = items.Pay(HeistTables.HeistLockerRow, coinHash, fromLocker); if (lockerPay is null) return; }
-            if (items.Remove(HeistTables.BlueprintMissionRow, bpEntry.Id) is null) return;
+            var bpEntry = items.Items(HeistTables.BlueprintMissionRow).FirstOrDefault();
+            if (bpEntry?.Item.HeistBlueprint is not { Confirmed: false } bp) return;
+            if (req.WingIndex >= bp.Wings.Count) return;
+
+            var wing = bp.Wings[req.WingIndex];
+            if (!TryApplyReveal(wing, req.RoomTarget, out var updatedWing, out int baseCost))
+            {
+                failure = "That blueprint detail is already revealed or invalid.";
+                return;
+            }
+
+            var progress = HeistProgress.Load(player);
+            if (HeistProgress.RevealsFor(progress, req.RevealerRow) == 0)
+            {
+                failure = "No blueprint reveals remaining with this rogue.";
+                return;
+            }
+
+            markerCost = Math.Max(1, baseCost * (100 - discount) / 100);
+            if (!TryComputeMarkerSplit(items, coinHash, markerCost, out int fromMain, out int fromLocker))
+            {
+                failure = $"Requires {markerCost} Rogue's Markers to reveal this detail.";
+                return;
+            }
+
+            var nextWings = bp.Wings.ToList();
+            nextWings[req.WingIndex] = updatedWing;
+            var nextBpItem = bpEntry.Item with { HeistBlueprint = bp with { Wings = nextWings } };
+
+            // All preconditions verified under Saves.Atomically's lock; any mid-transaction failure throws to roll back.
+            if (fromMain > 0)
+                mainPay = items.Pay(PlayerInventories.MainInventory, coinHash, fromMain)
+                    ?? throw new InvalidOperationException("Main inventory Rogue's Markers changed during blueprint reveal");
+            if (fromLocker > 0)
+                lockerPay = items.Pay(HeistTables.HeistLockerRow, coinHash, fromLocker)
+                    ?? throw new InvalidOperationException("Heist Locker Rogue's Markers changed during blueprint reveal");
+            if (items.Remove(HeistTables.BlueprintMissionRow, bpEntry.Id) is null)
+                throw new InvalidOperationException("Blueprint disappeared during reveal");
+            removedBpId = bpEntry.Id;
             replaced = items.Add(HeistTables.BlueprintMissionRow, bpEntry.X, bpEntry.Y, nextBpItem);
-            committed = true;
+            updatedProgress = HeistProgress.Update(player, p => HeistProgress.DecrementReveal(p, req.RevealerRow));
         });
 
-        if (!committed || replaced is null) return true;
+        if (failure is not null)
+        {
+            await PlayerOf(player).Tell(failure);
+            return true;
+        }
+        if (replaced is null || updatedProgress is null) return true;
 
-        var updatedProgress = HeistProgress.Update(player, p => HeistProgress.DecrementReveal(p, req.RevealerRow));
         await SendMarkerPayments(player, items, mainPay, lockerPay);
         await PlayerOf(player).Send(
             InstanceItems.InventoryChange(PlayerInventories.InventoryId(HeistTables.BlueprintMissionRow),
-                items.NextRevision(HeistTables.BlueprintMissionRow), [bpEntry.Id], [replaced]),
+                items.NextRevision(HeistTables.BlueprintMissionRow), [removedBpId], [replaced]),
             $"0x00bf update revealed blueprint {replaced.Id} (wing {req.WingIndex}, target 0x{req.RoomTarget:x2})");
         await PlayerOf(player).Send(
             InstanceHeist.RevealResult(req.WingIndex, req.RoomTarget, req.RevealerRow),
@@ -154,39 +169,44 @@ public static class HeistPlanning
         if (!InstanceHeist.TryReadSetBlueprintCrew(packet, out var req)) return true;
 
         var items = ItemsOf(player);
-        var bpEntry = items.Items(HeistTables.BlueprintMissionRow).FirstOrDefault();
-        if (bpEntry?.Item.HeistBlueprint is not { Confirmed: false } bp) return true;
-        if (req.WingIndex >= bp.Wings.Count) return true;
-
-        var wing = bp.Wings[req.WingIndex];
-        if (!wing.Revealed || req.Crew.Length != wing.Jobs.Count) return true;
-
-        var progress = HeistProgress.Load(player);
-        var assigned = new HashSet<byte>();
-        for (int i = 0; i < req.Crew.Length; i++)
-        {
-            byte rogue = req.Crew[i];
-            if (rogue == InstanceHeist.EmptyRogueSlot) continue;
-            if (rogue >= InstanceHeist.RogueCount || !assigned.Add(rogue)) return true;
-            var job = wing.Jobs[i];
-            if (HeistProgress.EffectiveJobLevel(player, progress, rogue, job.Row) < job.Level) return true;
-        }
-
-        var nextWings = bp.Wings.ToList();
-        nextWings[req.WingIndex] = wing with { Crew = req.Crew };
-        var nextBpItem = bpEntry.Item with { HeistBlueprint = bp with { Wings = nextWings } };
-
+        uint removedBpId = 0;
         InventoryItem? replaced = null;
+
         Saves.Atomically(() =>
         {
-            if (items.Remove(HeistTables.BlueprintMissionRow, bpEntry.Id) is null) return;
+            var bpEntry = items.Items(HeistTables.BlueprintMissionRow).FirstOrDefault();
+            if (bpEntry?.Item.HeistBlueprint is not { Confirmed: false } bp) return;
+            if (req.WingIndex >= bp.Wings.Count) return;
+
+            var wing = bp.Wings[req.WingIndex];
+            if (!wing.Revealed || req.Crew.Length != wing.Jobs.Count) return;
+
+            var progress = HeistProgress.Load(player);
+            var assigned = new HashSet<byte>();
+            for (int i = 0; i < req.Crew.Length; i++)
+            {
+                byte rogue = req.Crew[i];
+                if (rogue == InstanceHeist.EmptyRogueSlot) continue;
+                if (rogue >= InstanceHeist.RogueCount || !assigned.Add(rogue)) return;
+                var job = wing.Jobs[i];
+                if (HeistProgress.EffectiveJobLevel(player, progress, rogue, job.Row) < job.Level) return;
+            }
+
+            var nextWings = bp.Wings.ToList();
+            nextWings[req.WingIndex] = wing with { Crew = req.Crew };
+            var nextBpItem = bpEntry.Item with { HeistBlueprint = bp with { Wings = nextWings } };
+
+            if (items.Remove(HeistTables.BlueprintMissionRow, bpEntry.Id) is null)
+                throw new InvalidOperationException("Blueprint disappeared during crew update");
+            removedBpId = bpEntry.Id;
             replaced = items.Add(HeistTables.BlueprintMissionRow, bpEntry.X, bpEntry.Y, nextBpItem);
         });
+
         if (replaced is null) return true;
 
         await PlayerOf(player).Send(
             InstanceItems.InventoryChange(PlayerInventories.InventoryId(HeistTables.BlueprintMissionRow),
-                items.NextRevision(HeistTables.BlueprintMissionRow), [bpEntry.Id], [replaced]),
+                items.NextRevision(HeistTables.BlueprintMissionRow), [removedBpId], [replaced]),
             $"0x00bf update blueprint {replaced.Id} wing {req.WingIndex} crew");
         module.Log($"{PlayerOf(player).Character}: set blueprint wing {req.WingIndex} crew [{string.Join(", ", req.Crew)}]");
         return true;
@@ -199,51 +219,85 @@ public static class HeistPlanning
         if (!Current(player) || player.PlayerLife == 0 || !HeistTables.IsRogueHarbour(player.Layout.Id)) return false;
 
         var items = ItemsOf(player);
-        var bpEntry = items.Items(HeistTables.BlueprintMissionRow).FirstOrDefault();
-        if (bpEntry?.Item.HeistBlueprint is not { Confirmed: false } bp) return true;
-
-        var revealedWings = bp.Wings.Where(w => w.Revealed).ToArray();
-        if (revealedWings.Length == 0 || revealedWings.Any(w => w.Crew.Count != w.Jobs.Count || w.Crew.Any(c => c >= InstanceHeist.RogueCount)))
-        {
-            await PlayerOf(player).Tell("Assign qualified rogues to every job slot in your revealed wings first.");
-            return true;
-        }
-
-        int markerCost = Math.Max(200, revealedWings.Length * (250 + bp.AreaLevel * 8));
         uint coinHash = InstanceEntities.ObjectTypeHash(HeistTables.HeistCoinPath);
-        if (!TryComputeMarkerSplit(items, coinHash, markerCost, out int fromMain, out int fromLocker))
-        {
-            await PlayerOf(player).Tell($"Requires {markerCost} Rogue's Markers to confirm this Grand Heist.");
-            return true;
-        }
 
-        var confirmedItem = bpEntry.Item with { HeistBlueprint = bp with { Confirmed = true } };
+        string? failure = null;
+        int revealedWingCount = 0;
+        int markerCost = 0;
+        uint removedBpId = 0;
         PlayerInventories.Payment? mainPay = null, lockerPay = null;
         InventoryItem? replaced = null;
-        bool committed = false;
+
         Saves.Atomically(() =>
         {
-            if (fromMain > 0) { mainPay = items.Pay(PlayerInventories.MainInventory, coinHash, fromMain); if (mainPay is null) return; }
-            if (fromLocker > 0) { lockerPay = items.Pay(HeistTables.HeistLockerRow, coinHash, fromLocker); if (lockerPay is null) return; }
-            if (items.Remove(HeistTables.BlueprintMissionRow, bpEntry.Id) is null) return;
+            var bpEntry = items.Items(HeistTables.BlueprintMissionRow).FirstOrDefault();
+            if (bpEntry?.Item.HeistBlueprint is not { Confirmed: false } bp) return;
+
+            var revealedWings = bp.Wings.Where(w => w.Revealed).ToArray();
+            var progress = HeistProgress.Load(player);
+            if (revealedWings.Length == 0 || !AreRevealedWingsQualified(player, progress, revealedWings))
+            {
+                failure = "Assign qualified rogues to every job slot in your revealed wings first.";
+                return;
+            }
+
+            revealedWingCount = revealedWings.Length;
+            markerCost = Math.Max(200, revealedWingCount * (250 + bp.AreaLevel * 8));
+            if (!TryComputeMarkerSplit(items, coinHash, markerCost, out int fromMain, out int fromLocker))
+            {
+                failure = $"Requires {markerCost} Rogue's Markers to confirm this Grand Heist.";
+                return;
+            }
+
+            var confirmedItem = bpEntry.Item with { HeistBlueprint = bp with { Confirmed = true } };
+            if (fromMain > 0)
+                mainPay = items.Pay(PlayerInventories.MainInventory, coinHash, fromMain)
+                    ?? throw new InvalidOperationException("Main inventory Rogue's Markers changed during blueprint confirm");
+            if (fromLocker > 0)
+                lockerPay = items.Pay(HeistTables.HeistLockerRow, coinHash, fromLocker)
+                    ?? throw new InvalidOperationException("Heist Locker Rogue's Markers changed during blueprint confirm");
+            if (items.Remove(HeistTables.BlueprintMissionRow, bpEntry.Id) is null)
+                throw new InvalidOperationException("Blueprint disappeared during confirmation");
+            removedBpId = bpEntry.Id;
             replaced = items.Add(HeistTables.BlueprintMissionRow, bpEntry.X, bpEntry.Y, confirmedItem);
-            committed = true;
         });
 
-        if (!committed || replaced is null) return true;
+        if (failure is not null)
+        {
+            await PlayerOf(player).Tell(failure);
+            return true;
+        }
+        if (replaced is null) return true;
 
         await SendMarkerPayments(player, items, mainPay, lockerPay);
         await PlayerOf(player).Send(
             InstanceItems.InventoryChange(PlayerInventories.InventoryId(HeistTables.BlueprintMissionRow),
-                items.NextRevision(HeistTables.BlueprintMissionRow), [bpEntry.Id], [replaced]),
+                items.NextRevision(HeistTables.BlueprintMissionRow), [removedBpId], [replaced]),
             $"0x00bf confirm blueprint {replaced.Id}");
         await HeistProgress.SendState(player, reason: "after blueprint confirmed");
 
         if (!LevelGenerator.PortsPlugin(HeistTables.HeistPluginId))
-            await PlayerOf(player).Tell($"Grand Heist plans confirmed ({revealedWings.Length} wing(s), {markerCost} Markers). Grand Heist wing portal entry requires the unported HeistPlugin terrain generator.");
+            await PlayerOf(player).Tell($"Grand Heist plans confirmed ({revealedWingCount} wing(s), {markerCost} Markers). Grand Heist wing portal entry requires the unported HeistPlugin terrain generator.");
         else
-            await PlayerOf(player).Tell($"Grand Heist plans confirmed ({revealedWings.Length} wing(s)).");
-        module.Log($"{PlayerOf(player).Character}: confirmed blueprint {replaced.Id} ({revealedWings.Length} wings, {markerCost} Markers)");
+            await PlayerOf(player).Tell($"Grand Heist plans confirmed ({revealedWingCount} wing(s)).");
+        module.Log($"{PlayerOf(player).Character}: confirmed blueprint {replaced.Id} ({revealedWingCount} wings, {markerCost} Markers)");
+        return true;
+    }
+
+    static bool AreRevealedWingsQualified(Player player, HeistProgress.ProgressData progress, HeistWing[] revealedWings)
+    {
+        foreach (var wing in revealedWings)
+        {
+            if (wing.Crew.Count != wing.Jobs.Count) return false;
+            var seen = new HashSet<byte>();
+            for (int i = 0; i < wing.Jobs.Count; i++)
+            {
+                byte rogue = wing.Crew[i];
+                if (rogue >= InstanceHeist.RogueCount || !seen.Add(rogue)) return false;
+                var job = wing.Jobs[i];
+                if (HeistProgress.EffectiveJobLevel(player, progress, rogue, job.Row) < job.Level) return false;
+            }
+        }
         return true;
     }
 
@@ -261,9 +315,10 @@ public static class HeistPlanning
             await PlayerOf(player).Tell("Place a Heist Contract into Adiyah's contract slot first.");
             return true;
         }
-        if (rogues.Length == 0 || rogues.Any(r => r >= InstanceHeist.RogueCount))
+        var seen = new HashSet<byte>();
+        if (rogues.Length == 0 || rogues.Any(r => r >= InstanceHeist.RogueCount || !seen.Add(r)))
         {
-            await PlayerOf(player).Tell("Select a valid rogue for this contract.");
+            await PlayerOf(player).Tell("Select valid, distinct rogues for this contract.");
             return true;
         }
 
@@ -284,60 +339,13 @@ public static class HeistPlanning
     static string RogueNames(byte[] rogues) =>
         string.Join(", ", rogues.Select(r => r < HeistTables.Rogues.Length ? HeistTables.Rogues[r].Name : $"Rogue {r}"));
 
-    // ---- Adiyah's EndlessHeistContracts vendor shop (NPCShop row 37, C→S 0x82 0x11) ---------------------------------
-
-    public static async Task<bool> OpenEndlessContractsShop(IModuleContext module, Player player, uint npcObject, SpawnedNpc npc)
-    {
-        if (!Current(player) || Items.Error is not null) return false;
-        var catalog = ItemsFor(player);
-        var rolls = RollsFor(player);
-        int level = Math.Clamp(player.Pools.Level, 48, 83);
-        var contracts = catalog.All
-            .Where(t => t.Class == "HeistContract" && t.Supported && !t.Id.Contains("/QuestContracts/", StringComparison.OrdinalIgnoreCase))
-            .OrderBy(t => t.Row)
-            .ToArray();
-        if (contracts.Length == 0) return false;
-
-        var rng = new Random(HashCode.Combine(player.Seed, level, 0x45484353));
-        var items = ItemsOf(player);
-        var shopItems = new List<InventoryItem>();
-        int x = 0, y = 0;
-        foreach (var cType in contracts)
-        {
-            if (y >= NpcShops.Tab.Height) break;
-            var item = ItemCatalog.Create(cType) with { ItemLevel = (byte)level };
-            if (rng.Next(100) < 35)
-                item = rolls.Roll(item, ItemRarity.Magic, rng) with { Identified = true };
-            uint id = items.NewItemId();
-            shopItems.Add(new InventoryItem(id, (byte)x, (byte)y, item));
-            x++;
-            if (x >= NpcShops.Tab.Width) { x = 0; y++; }
-        }
-
-        uint tabId = NpcShops.FirstTabId;
-        player.BenchOpen = false;
-        player.ModuleWindow = null;
-        lock (player.Npcs)
-            player.Shop = new OpenShop(npc, shopItems.ToDictionary(i => i.Id, i => (tabId, i)));
-
-        await PlayerOf(player).Send(
-            InstanceInventories.AddInventory(tabId, NpcShops.Tab, NpcShops.Manager, shopItems),
-            $"0x00c0 EndlessHeistContracts shop tab {tabId}: {shopItems.Count} contract(s)");
-        player.InNpcTalk = false;
-        await PlayerOf(player).Send(
-            InstanceNpcs.Dialogue(npcObject, 0, false, [tabId], [new InstanceNpcs.Choice(0, "Contracts")]),
-            $"0x008c open EndlessHeistContracts buy window ({npc.Npc.Name})");
-        module.Log($"{PlayerOf(player).Character}: opened Adiyah EndlessHeistContracts shop ({shopItems.Count} contracts)");
-        return true;
-    }
-
     // ---- Rogue's Marker payment helpers ------------------------------------------------------------------------------
 
     static bool TryComputeMarkerSplit(PlayerInventories items, uint coinHash, int cost, out int fromMain, out int fromLocker)
     {
         int mainHave = items.Count(PlayerInventories.MainInventory, coinHash);
         int lockerHave = items.Count(HeistTables.HeistLockerRow, coinHash);
-        if (mainHave + lockerHave < cost)
+        if ((long)mainHave + lockerHave < cost)
         {
             fromMain = fromLocker = 0;
             return false;

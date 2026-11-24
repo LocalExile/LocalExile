@@ -630,8 +630,10 @@ Verified wire layouts in 3.29.3c/d `Client/Game.exe`:
 - **C→S `0x027f`** (assign wing crew, `4 + n` B): `u8 wingIndex`, `u8 n`, `n × u8` rogue row (`0xff` empty).
 - Heist biome `.dgr` graphs (`HeistBunker*`–`HeistMansion*`) have `Nodes: 0, Edges: 0` and depend on the unported
   `HeistPlugin` terrain plugin, so `0x0279` / `0x027e` keep contracts and Markers rather than opening broken portals.
-- Adiyah's `EndlessHeistContracts` option (`NPCTalkCategory` row 39, `C→S 0x82 0x11`, `NPCShop` row 37) opens a
-  standard vendor buy shop (`0xc0` manager 1 + `0x8c` kind 0) stocked with contracts ([30](30-hud-signals-and-timers.md) §5).
+- **HeistContract** item component (writer `0x1424ac540`, reader `0x1424ac770`): `u32 LE` seed,
+  `u8` area level, `u8` `HeistObjectives` row, `u8` job count, `u8` NPC count, `jobCount × (u8 HeistJobs row, u8 level)`,
+  `npcCount × u8 HeistNPCs row`. Adiyah's `EndlessHeistContracts` option (`NPCTalkCategory` row 39, `NPCShop` row 37)
+  and contract drops/execution await `HeistContract` item save support and `HeistPlugin` terrain generation.
 
 ### Horticrafting Station (recipe browser and execution)
 
@@ -726,7 +728,7 @@ The Delirium reward HUD is driven natively by ruleset `AfflictionEndGameRules` (
 - **Mode `0`** carries fog state alongside the same reward-tile stream.
 
 Map Delirium Mirrors (`Metadata/MiscellaneousObjects/Affliction/AfflictionInitiator`, `StateMachine` `"interacted"`)
-use `AfflictionEncounterRules` (`Rulesets` row 102 / `0x66`, ctor `0x141742140`, vtable `0x14348b830`, slot 8 S→C
+use `AfflictionEncounterRules` (`Rulesets` row 102 / `0x66`, ctor `0x141742140`, slot 8 S→C
 `0x2c9` reader `0x1417442e0`) and skip/end button C→S `0x0260` (2 B, senders `0x140deb800` / `0x142172b40`):
 
 - **Mode `0`** (snapshot): `u8 0`, `u8 active`, `u8 ended`, `f32 LE outerElapsed`, `f32 LE innerElapsed`,

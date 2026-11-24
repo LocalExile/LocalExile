@@ -90,11 +90,14 @@ public class DeliriumHeistTests
         Assert.False(GameEvents.WantsPacket(InstanceHeist.ConfirmBlueprintId));
         Assert.False(GameEvents.WantsPacket(InstanceHeist.SetBlueprintCrewId));
 
-        // Verify client.db Heist tables match the protocol assumptions.
+        // Verify client.db Heist tables match the protocol and Stat.* assumptions.
         var npcs = ClientTables.Table("HeistNPCs").Take(InstanceHeist.RogueCount).ToArray();
         Assert.Equal(InstanceHeist.RogueCount, npcs.Length);
         Assert.All(npcs, r => Assert.False(string.IsNullOrEmpty(r.Text("AOFile"))));
         Assert.Equal(3, ClientTables.Table("HeistRevealingNPCs").Count);
-        Assert.Equal("EndlessHeistContracts", ClientTables.Table("NPCShop")[37].Text("Id"));
+        var jobs = ClientTables.Table("HeistJobs");
+        Assert.Equal(9, jobs.Count);
+        for (int j = 0; j < 9; j++)
+            Assert.Equal((int)(Stat.HeistJobLockpickingLevelPlus + j) - 1, jobs[j].IntOrNull("Level_StatsKey"));
     }
 }

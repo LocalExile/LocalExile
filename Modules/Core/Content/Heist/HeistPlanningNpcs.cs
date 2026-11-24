@@ -1,4 +1,5 @@
 using System.Runtime.CompilerServices;
+using System.Text.Json;
 using GameServer.Core.Protocol.Instance;
 using GameServer.Modding;
 
@@ -7,12 +8,14 @@ namespace GameServer.Modules.Heist;
 /// <summary>
 /// Spawns the nine <c>Metadata/NPC/League/Heist/PlanningNPC</c> entities around the Rogue Harbour planning table
 /// (<c>ops_1.arm</c>, placed by <c>hub.dgr</c> into <c>Level.RoomObjects</c>), matching each rogue's
-/// <c>HeistNPCs.AOFile</c>. State is per-<see cref="InstanceState"/> so re-entry, party join, and module hot-reload
-/// do not duplicate entities.
+/// <c>HeistNPCs.AOFile</c>. Spawned ids persist in <see cref="InstanceState.ContentState"/> so re-entry, party join,
+/// and module hot-reload do not duplicate entities.
 /// </summary>
 public sealed class HeistPlanningNpcs
 {
+    const string StateKey = "Heist.PlanningNpcs";
     static readonly string[] PlanningComponents = ["Positioned", "Animated"];
+    static readonly JsonSerializerOptions Json = new() { TypeInfoResolver = new System.Text.Json.Serialization.Metadata.DefaultJsonTypeInfoResolver() };
 
     sealed class HubState
     {
@@ -32,7 +35,26 @@ public sealed class HeistPlanningNpcs
         await hub.Gate.WaitAsync();
         try
         {
-            if (ReferenceEquals(hub.ShownArea, player.Area) && hub.EntityIds.Count > 0) return;
+            if (ReferenceEquals(hub.ShownArea, player.Area) && hub.EntityIds.Count > 0 && hub.EntityIds.All(player.Area.Objects.Has))
+                return;
+
+            // Recover ids persisted before a module hot-reload so re-entry does not duplicate existing area objects.
+            if (player.Instance.ContentState.TryGetValue(StateKey, out var raw) && !string.IsNullOrEmpty(raw))
+            {
+                try
+                {
+                    var persisted = JsonSerializer.Deserialize<uint[]>(raw, Json);
+                    if (persisted is { Length: > 0 } && persisted.All(player.Area.Objects.Has))
+                    {
+                        hub.EntityIds.Clear();
+                        hub.EntityIds.AddRange(persisted);
+                        hub.ShownArea = player.Area;
+                        return;
+                    }
+                }
+                catch (JsonException) { }
+            }
+
             hub.EntityIds.Clear();
 
             var fromRoom = (player.Layout.Level?.RoomObjects ?? [])
@@ -61,7 +83,10 @@ public sealed class HeistPlanningNpcs
             }
             hub.ShownArea = player.Area;
             if (hub.EntityIds.Count > 0)
+            {
+                player.Instance.ContentState[StateKey] = JsonSerializer.Serialize(hub.EntityIds, Json);
                 module.Log($"HeistHub: spawned {hub.EntityIds.Count} PlanningNPC entity(ies) around planning table");
+            }
         }
         finally { hub.Gate.Release(); }
     }

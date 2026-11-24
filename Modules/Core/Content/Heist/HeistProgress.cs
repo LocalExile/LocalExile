@@ -98,6 +98,21 @@ public static class HeistProgress
         return Math.Clamp(level, 1, 6);
     }
 
+    /// <summary>Stat id for the job-specific +job-level bonus (<c>HeistJobs</c> rows 0..8).</summary>
+    public static uint JobLevelStatFor(byte jobRow) => jobRow switch
+    {
+        0 => Stat.HeistJobLockpickingLevelPlus,
+        1 => Stat.HeistJobBruteForceLevelPlus,
+        2 => Stat.HeistJobPerceptionLevelPlus,
+        3 => Stat.HeistJobDemolitionLevelPlus,
+        4 => Stat.HeistJobCounterThaumaturgyLevelPlus,
+        5 => Stat.HeistJobTrapDisarmamentLevelPlus,
+        6 => Stat.HeistJobAgilityLevelPlus,
+        7 => Stat.HeistJobDeceptionLevelPlus,
+        8 => Stat.HeistJobEngineeringLevelPlus,
+        _ => 0,
+    };
+
     /// <summary>Inspects the rogue's Ally Equipment inventory (<c>HeistNpcEquipment1..9</c>, rows 45..53) for +job-level mods.</summary>
     public static int EquippedJobLevelBonus(Player player, byte rogueRow, byte jobRow)
     {
@@ -105,6 +120,7 @@ public static class HeistProgress
         byte invRow = (byte)(HeistTables.FirstNpcEquipmentRow + rogueRow);
         var items = ItemsOf(player).Items(invRow);
         if (items.Count == 0) return 0;
+        uint specificStat = JobLevelStatFor(jobRow);
         var mods = ItemsFor(player).Mods;
         int bonus = 0;
         foreach (var entry in items)
@@ -113,9 +129,8 @@ public static class HeistProgress
                 if (mods.ByHash(mod.Hash) is not { } def) continue;
                 for (int i = 0; i < def.Stats.Count && i < mod.Values.Count; i++)
                 {
-                    string statName = Stats.Name(def.Stats[i].Id);
-                    if (statName.Contains("heist_job_level", StringComparison.OrdinalIgnoreCase)
-                        || statName.Contains("heist_npc_job_level", StringComparison.OrdinalIgnoreCase))
+                    uint statId = def.Stats[i].Id;
+                    if (statId == Stat.HeistJobLevelPlus || (specificStat != 0 && statId == specificStat))
                         bonus += Math.Max(0, mod.Values[i]);
                 }
             }

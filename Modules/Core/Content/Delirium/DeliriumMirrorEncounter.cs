@@ -27,7 +27,7 @@ public sealed class DeliriumMirrorEncounter
     const double SpawnIntervalSeconds = 2.5;
     const int MaxRewardTiles = 3;
 
-    static readonly string[] FallbackMirrorComponents = ["Positioned", "Animated", "StateMachine", "MinimapIcon"];
+    static readonly string[] FallbackMirrorComponents = ["Positioned", "Animated", "MinimapIcon", "StateMachine"];
     static readonly int[] MirrorRewardPool = [0, 1, 2, 3, 4, 5, 6, 7, 8, 10, 11, 13, 14, 15, 17, 22, 23, 24, 25];
     static readonly string[] DeliriumMonsterIds =
     [
@@ -51,6 +51,7 @@ public sealed class DeliriumMirrorEncounter
         public byte Level { get; set; }
         public float OuterElapsed { get; set; }
         public float InnerElapsed { get; set; }
+        public bool InnerWaveSent { get; set; }
         public float OutOfFogSeconds { get; set; }
         public int LastTimerSeconds { get; set; }
         public bool FogPaused { get; set; }
@@ -181,11 +182,17 @@ public sealed class DeliriumMirrorEncounter
     public MirrorState? Existing(Player player)
     {
         if (player.Instance is not { } instance) return null;
-        if (_states.TryGetValue(instance, out var state)) return state.Stage != MirrorStage.None ? state : null;
+        if (_states.TryGetValue(instance, out var state))
+        {
+            lock (state) return state.Stage != MirrorStage.None ? state : null;
+        }
         return instance.ContentState.ContainsKey(StateKey) ? For(player) : null;
     }
 
-    void Save(Player player, MirrorState state) =>
+    static bool IsActive(MirrorState state) { lock (state) return state.Stage == MirrorStage.Active; }
+
+    // Must be called while holding lock (state).
+    void SaveLocked(Player player, MirrorState state) =>
         player.Instance.ContentState[StateKey] = JsonSerializer.Serialize(state, _json);
 
     static bool Current(Player player) => player.Connection.PlayerSent && !player.LeavingArea && !player.Closed;
@@ -209,26 +216,30 @@ public sealed class DeliriumMirrorEncounter
         await state.Gate.WaitAsync();
         try
         {
-            if (state.Placed) return;
-            state.Placed = true;
+            lock (state)
+            {
+                if (state.Placed) return;
+                state.Placed = true;
+            }
             var stats = player.Instance.AreaStats(() => AreaLeagueStats(player));
             int S(uint id) => stats.GetValueOrDefault(id);
             if (S(Stat.MapDisableLeagues) > 0 || S(Stat.AtlasKeystoneNoExtraContent) > 0
                 || S(Stat.MapNukeEverything) > 0 || S(Stat.MapAreaUnderlevelled) > 0)
             {
-                state.Why = "disabled by map stats";
+                lock (state) state.Why = "disabled by map stats";
                 return;
             }
             bool forced = S(Stat.MapAfflictionLeague) > 0;
             int count;
+            string why;
             if (forced)
             {
                 count = 1;
-                state.Why = "forced by map_affliction_league";
+                why = "forced by map_affliction_league";
             }
             else if (S(Stat.MapDisableDeliriumFromChance) > 0)
             {
-                state.Why = "disabled by map_disable_delirium_from_chance";
+                lock (state) state.Why = "disabled by map_disable_delirium_from_chance";
                 return;
             }
             else
@@ -239,8 +250,9 @@ public sealed class DeliriumMirrorEncounter
                     increased: S(Stat.MapExtraContentHasNoBaseChanceToSpawn) > 0 ? -100 : S(Stat.MapLeagueBaseChancePlusPctFinal),
                     added: S(Stat.MapLeagueContentAdditionalChancePct) + S(Stat.MapAfflictionEncounterAdditionalChancePct),
                     encounterIncrease: S(Stat.MapAfflictionEncounterChancePlusPct));
-                state.Why = $"league roll Delirium {count}";
+                why = $"league roll Delirium {count}";
             }
+            lock (state) state.Why = why;
             if (count <= 0) return;
 
             var placeRng = new Random(area.Seed ^ 0x4166666c);
@@ -253,16 +265,19 @@ public sealed class DeliriumMirrorEncounter
                 if (!pickedRewards.Contains(r)) pickedRewards.Add(r);
             }
 
-            state.Stage = MirrorStage.Ready;
-            state.MirrorX = spot.X;
-            state.MirrorY = spot.Y;
-            state.Level = area.Level;
-            state.Rewards = [.. pickedRewards];
-            state.RewardPoints = new int[pickedRewards.Count];
-            state.RewardCounts = new int[pickedRewards.Count];
+            lock (state)
+            {
+                state.Stage = MirrorStage.Ready;
+                state.MirrorX = spot.X;
+                state.MirrorY = spot.Y;
+                state.Level = area.Level;
+                state.Rewards = [.. pickedRewards];
+                state.RewardPoints = new int[pickedRewards.Count];
+                state.RewardCounts = new int[pickedRewards.Count];
+            }
             await PresentMirror(player, state);
-            Save(player, state);
-            _context.Log($"Delirium Mirror {player.Layout.Id}: {state.Why} at ({spot.X}, {spot.Y})");
+            lock (state) SaveLocked(player, state);
+            _context.Log($"Delirium Mirror {player.Layout.Id}: {why} at ({spot.X}, {spot.Y})");
         }
         finally { state.Gate.Release(); }
     }
@@ -273,20 +288,47 @@ public sealed class DeliriumMirrorEncounter
         await state.Gate.WaitAsync();
         try
         {
-            if (state.Stage == MirrorStage.None) return;
-            if (!ReferenceEquals(state.ShownArea, player.Area))
+            MirrorStage stage;
+            bool needPresent = false;
+            lock (state)
             {
-                if (state.EntityId != 0 && player.Area.Objects.Has(state.EntityId)) state.ShownArea = player.Area;
-                else { state.EntityId = 0; await PresentMirror(player, state); Save(player, state); }
+                stage = state.Stage;
+                if (stage == MirrorStage.None) return;
+                if (!ReferenceEquals(state.ShownArea, player.Area))
+                {
+                    if (state.EntityId != 0 && player.Area.Objects.Has(state.EntityId))
+                        state.ShownArea = player.Area;
+                    else
+                    {
+                        state.EntityId = 0;
+                        needPresent = true;
+                    }
+                }
             }
-            if (state.Stage is MirrorStage.Active or MirrorStage.Ended && BuildSnapshot(player, state) is { } snap)
-                await PlayerOf(player).Send(snap, $"0x02c9 ruleset AfflictionEncounterRules mode 0 ({state.Stage})");
-            if (state.Stage == MirrorStage.Active)
+            if (needPresent)
+            {
+                await PresentMirror(player, state);
+                lock (state) SaveLocked(player, state);
+            }
+
+            byte[]? snap = null;
+            int timerSeconds;
+            lock (state)
+            {
+                stage = state.Stage;
+                timerSeconds = state.LastTimerSeconds;
+                if (stage is MirrorStage.Active or MirrorStage.Ended)
+                    snap = BuildSnapshotLocked(player, state);
+            }
+
+            if (snap is not null)
+                await PlayerOf(player).Send(snap, $"0x02c9 ruleset AfflictionEncounterRules mode 0 ({stage})");
+            if (stage == MirrorStage.Active)
             {
                 await WorldOf(player).RefreshStats();
-                if (state.LastTimerSeconds > 0)
-                    await PlayerOf(player).Send(InstanceTimers.MissionTimer(InstanceTimers.MissionTimerType.Affliction, (uint)state.LastTimerSeconds),
-                        $"0x0163 Delirium fog timer {state.LastTimerSeconds}s");
+                if (timerSeconds > 0)
+                    await PlayerOf(player).Send(InstanceTimers.MissionTimer(InstanceTimers.MissionTimerType.Affliction, (uint)timerSeconds),
+                        $"0x0163 Delirium fog timer {timerSeconds}s");
             }
         }
         finally { state.Gate.Release(); }
@@ -319,20 +361,31 @@ public sealed class DeliriumMirrorEncounter
 
     async Task PresentMirror(Player player, MirrorState state)
     {
-        if (state.EntityId == 0) state.EntityId = WorldOf(player).NewObjectId();
-        var components = MirrorComponents();
-        var obj = new QuestObject(state.MirrorX, state.MirrorY, components)
+        uint entityId;
+        int mirrorX, mirrorY;
+        MirrorStage stage;
+        lock (state)
         {
-            StateMachine = MirrorStates(state.Stage != MirrorStage.Ready),
+            if (state.EntityId == 0) state.EntityId = WorldOf(player).NewObjectId();
+            entityId = state.EntityId;
+            mirrorX = state.MirrorX;
+            mirrorY = state.MirrorY;
+            stage = state.Stage;
+        }
+        var components = MirrorComponents();
+        var obj = new QuestObject(mirrorX, mirrorY, components)
+        {
+            StateMachine = MirrorStates(stage != MirrorStage.Ready),
         };
-        await SendWorldCreate(player, state.EntityId, () =>
-            InstanceEntities.CreateObject(state.EntityId, InstanceEntities.ObjectTypeHash(MirrorPath), obj.Blob()),
-            $"Delirium Mirror 0x{state.EntityId:x} at ({state.MirrorX}, {state.MirrorY}) ({state.Stage})",
+        await SendWorldCreate(player, entityId, () =>
+            InstanceEntities.CreateObject(entityId, InstanceEntities.ObjectTypeHash(MirrorPath), obj.Blob()),
+            $"Delirium Mirror 0x{entityId:x} at ({mirrorX}, {mirrorY}) ({stage})",
             wake: true, awaitBirth: false);
-        state.ShownArea = player.Area;
+        lock (state) state.ShownArea = player.Area;
     }
 
-    static AfflictionRuleset.RewardTile[] BuildTiles(MirrorState state)
+    // Must be called while holding lock (state).
+    static AfflictionRuleset.RewardTile[] BuildTilesLocked(MirrorState state)
     {
         if (state.Stage != MirrorStage.Active || state.Rewards.Length == 0) return [];
         state.EnsureRewardArrays();
@@ -347,7 +400,8 @@ public sealed class DeliriumMirrorEncounter
         return tiles;
     }
 
-    static byte[]? BuildSnapshot(Player player, MirrorState state)
+    // Must be called while holding lock (state).
+    static byte[]? BuildSnapshotLocked(Player player, MirrorState state)
     {
         bool active = state.Stage == MirrorStage.Active;
         bool ended = state.Stage == MirrorStage.Ended;
@@ -360,16 +414,27 @@ public sealed class DeliriumMirrorEncounter
         };
         return AfflictionRuleset.EncounterSnapshot(active, ended, state.OuterElapsed, state.InnerElapsed,
             innerDelay, pauseTimer, state.FogPaused, state.MirrorX, state.MirrorY, state.EntityId,
-            regions, BuildTiles(state));
+            regions, BuildTilesLocked(state));
     }
 
     // ---- activation, tick, kills, skip -------------------------------------------------------------------------------
 
     public async Task<bool> OnObjectUse(Player player, InstanceTransfer.UseSkillOnObject use, double requestedAt)
     {
-        if (Existing(player) is not { } state || state.EntityId == 0 || use.TargetId != state.EntityId) return false;
+        if (Existing(player) is not { } state) return false;
+        uint entityId;
+        MirrorStage stage;
+        int mirrorX, mirrorY;
+        lock (state)
+        {
+            entityId = state.EntityId;
+            stage = state.Stage;
+            mirrorX = state.MirrorX;
+            mirrorY = state.MirrorY;
+        }
+        if (entityId == 0 || use.TargetId != entityId) return false;
         if (!Current(player) || player.PlayerLife == 0) return true;
-        if (state.Stage == MirrorStage.Ready && await WorldOf(player).WalkUpTo(state.MirrorX, state.MirrorY, ActivationRadius, requestedAt))
+        if (stage == MirrorStage.Ready && await WorldOf(player).WalkUpTo(mirrorX, mirrorY, ActivationRadius, requestedAt))
             await Activate(player, state);
         return true;
     }
@@ -377,32 +442,38 @@ public sealed class DeliriumMirrorEncounter
     async Task Activate(Player player, MirrorState state)
     {
         bool activated = false;
+        uint entityId = 0;
         byte[]? snap = null;
         await state.Gate.WaitAsync();
         try
         {
-            if (state.Stage != MirrorStage.Ready || !Current(player)) return;
-            state.Stage = MirrorStage.Active;
-            state.OuterElapsed = 0.05f;
-            state.InnerElapsed = 0f;
-            state.OutOfFogSeconds = 0f;
-            state.LastTimerSeconds = 0;
-            state.DepthPercent = 10;
-            state.LastTickAt = AreaTime(player);
-            state.NextSpawnAt = state.LastTickAt;
-            state.TilesDirty = false;
-            Save(player, state);
-            snap = BuildSnapshot(player, state);
-            activated = true;
+            lock (state)
+            {
+                if (state.Stage != MirrorStage.Ready || !Current(player)) return;
+                state.Stage = MirrorStage.Active;
+                state.OuterElapsed = 0.05f;
+                state.InnerElapsed = 0f;
+                state.InnerWaveSent = false;
+                state.OutOfFogSeconds = 0f;
+                state.LastTimerSeconds = 0;
+                state.DepthPercent = 10;
+                state.LastTickAt = AreaTime(player);
+                state.NextSpawnAt = state.LastTickAt;
+                state.TilesDirty = false;
+                entityId = state.EntityId;
+                SaveLocked(player, state);
+                snap = BuildSnapshotLocked(player, state);
+                activated = true;
+            }
         }
         finally { state.Gate.Release(); }
 
         if (!activated) return;
         int smIdx = MirrorComponents().ToList().IndexOf("StateMachine");
-        if (smIdx >= 0 && state.EntityId != 0)
-            await SendWorldRecord(player, state.EntityId,
-                InstanceEntities.StateMachineUpdate(state.EntityId, (byte)smIdx, MirrorStates(true)),
-                $"0x02bc Delirium Mirror 0x{state.EntityId:x} interacted = 1");
+        if (smIdx >= 0 && entityId != 0)
+            await SendWorldRecord(player, entityId,
+                InstanceEntities.StateMachineUpdate(entityId, (byte)smIdx, MirrorStates(true)),
+                $"0x02bc Delirium Mirror 0x{entityId:x} interacted = 1");
         if (snap is not null)
             foreach (var peer in Clients(player))
                 await PlayerOf(peer).Send(snap, "0x02c9 ruleset AfflictionEncounterRules mode 0 (mirror activated)");
@@ -420,14 +491,23 @@ public sealed class DeliriumMirrorEncounter
         if (!ReferenceEquals(Clients(player).Where(c => c.PlayerLife > 0).MinBy(c => c.Id), player)) return;
         if (Existing(player) is not { } state) return;
 
-        if (state.Stage == MirrorStage.Ready)
+        MirrorStage stage;
+        int mirrorX, mirrorY;
+        lock (state)
+        {
+            stage = state.Stage;
+            mirrorX = state.MirrorX;
+            mirrorY = state.MirrorY;
+        }
+
+        if (stage == MirrorStage.Ready)
         {
             double now = AreaTime(player);
             foreach (var peer in Clients(player))
             {
                 if (peer.PlayerLife == 0) continue;
                 var pos = peer.Walk.Position(now);
-                long dx = pos.X - state.MirrorX, dy = pos.Y - state.MirrorY;
+                long dx = pos.X - mirrorX, dy = pos.Y - mirrorY;
                 if (dx * dx + dy * dy <= (long)ActivationRadius * ActivationRadius)
                 {
                     await Activate(peer, state);
@@ -437,90 +517,100 @@ public sealed class DeliriumMirrorEncounter
             return;
         }
 
-        if (state.Stage != MirrorStage.Active) return;
+        if (stage != MirrorStage.Active) return;
 
         bool shouldEnd = false;
         bool shouldSpawn = false;
+        byte[]? innerWaveSnapshot = null;
         byte[]? tilesPacket = null;
         int? timerChange = null;
         double nowTime = AreaTime(player);
         float step = (float)Math.Clamp(dt, 0.0, 0.5);
+        var alivePositions = Clients(player).Where(c => c.PlayerLife > 0).Select(c => c.Walk.Position(nowTime)).ToArray();
 
         await state.Gate.WaitAsync();
         try
         {
-            if (state.Stage != MirrorStage.Active) return;
-            state.LastTickAt = nowTime;
-            if (!state.FogPaused)
-            {
-                state.OuterElapsed += step;
-                if (state.OuterElapsed >= InnerDelaySeconds)
-                    state.InnerElapsed += step;
-            }
-
-            // Reap dead Delirium monsters from our active tracking set.
             lock (state)
             {
+                if (state.Stage != MirrorStage.Active) return;
+                state.LastTickAt = nowTime;
+                bool innerStarted = false;
+                if (!state.FogPaused)
+                {
+                    state.OuterElapsed += step;
+                    if (state.OuterElapsed >= InnerDelaySeconds)
+                    {
+                        state.InnerElapsed += step;
+                        if (!state.InnerWaveSent)
+                        {
+                            state.InnerWaveSent = true;
+                            innerStarted = true;
+                        }
+                    }
+                }
+
+                // Reap dead Delirium monsters from our active tracking set.
                 foreach (uint id in state.Monsters.ToArray())
                     if (!player.Area.Monsters.TryGetValue(id, out var m) || m.Dead || m.Life == 0)
                         state.Monsters.Remove(id);
-            }
 
-            bool anyInFog = false;
-            int maxDepth = 0;
-            foreach (var peer in Clients(player))
-            {
-                if (peer.PlayerLife == 0) continue;
-                var pos = peer.Walk.Position(nowTime);
-                if (state.IsCellInFog(pos.X, pos.Y))
+                bool anyInFog = false;
+                int maxDepth = 0;
+                foreach (var pos in alivePositions)
                 {
-                    anyInFog = true;
-                    maxDepth = Math.Max(maxDepth, state.DepthAt(pos.X, pos.Y));
+                    if (state.IsCellInFog(pos.X, pos.Y))
+                    {
+                        anyInFog = true;
+                        maxDepth = Math.Max(maxDepth, state.DepthAt(pos.X, pos.Y));
+                    }
                 }
-            }
-            if (anyInFog)
-            {
-                state.DepthPercent = Math.Max(state.DepthPercent, maxDepth);
-                state.OutOfFogSeconds = 0f;
-                if (state.LastTimerSeconds != 0)
+                if (anyInFog)
                 {
-                    state.LastTimerSeconds = 0;
-                    timerChange = 0;
+                    state.DepthPercent = Math.Max(state.DepthPercent, maxDepth);
+                    state.OutOfFogSeconds = 0f;
+                    if (state.LastTimerSeconds != 0)
+                    {
+                        state.LastTimerSeconds = 0;
+                        timerChange = 0;
+                    }
+                    if (nowTime >= state.NextSpawnAt && state.Monsters.Count < MaxActiveMonsters && state.Spawned < MaxSpawnTotal)
+                    {
+                        state.NextSpawnAt = nowTime + SpawnIntervalSeconds;
+                        shouldSpawn = true;
+                    }
                 }
-                int activeCount;
-                lock (state) activeCount = state.Monsters.Count;
-                if (nowTime >= state.NextSpawnAt && activeCount < MaxActiveMonsters && state.Spawned < MaxSpawnTotal)
+                else
                 {
-                    state.NextSpawnAt = nowTime + SpawnIntervalSeconds;
-                    shouldSpawn = true;
+                    state.OutOfFogSeconds += step;
+                    int remaining = Math.Max(0, (int)Math.Ceiling(OutOfFogGraceSeconds - state.OutOfFogSeconds));
+                    if (remaining != state.LastTimerSeconds)
+                    {
+                        state.LastTimerSeconds = remaining;
+                        timerChange = remaining;
+                    }
+                    if (state.OutOfFogSeconds >= OutOfFogGraceSeconds)
+                        shouldEnd = true;
                 }
-            }
-            else
-            {
-                state.OutOfFogSeconds += step;
-                int remaining = Math.Max(0, (int)Math.Ceiling(OutOfFogGraceSeconds - state.OutOfFogSeconds));
-                if (remaining != state.LastTimerSeconds)
-                {
-                    state.LastTimerSeconds = remaining;
-                    timerChange = remaining;
-                }
-                if (state.OutOfFogSeconds >= OutOfFogGraceSeconds)
-                    shouldEnd = true;
-            }
 
-            lock (state)
-            {
+                bool needSave = false;
+                if (innerStarted && !shouldEnd)
+                {
+                    innerWaveSnapshot = BuildSnapshotLocked(player, state);
+                    needSave = true;
+                }
                 if (state.TilesDirty)
                 {
                     state.TilesDirty = false;
-                    var pkt = AfflictionRuleset.EncounterRewardTiles(BuildTiles(state));
+                    var pkt = AfflictionRuleset.EncounterRewardTiles(BuildTilesLocked(state));
                     if (pkt is not null && (state.LastTiles is null || !state.LastTiles.AsSpan().SequenceEqual(pkt)))
                     {
                         state.LastTiles = pkt;
                         tilesPacket = pkt;
                     }
-                    Save(player, state);
+                    needSave = true;
                 }
+                if (needSave) SaveLocked(player, state);
             }
         }
         finally { state.Gate.Release(); }
@@ -530,6 +620,9 @@ public sealed class DeliriumMirrorEncounter
             await EndEncounter(player, state, byPlayer: false);
             return;
         }
+        if (innerWaveSnapshot is not null)
+            foreach (var peer in Clients(player))
+                await PlayerOf(peer).Send(innerWaveSnapshot, "0x02c9 ruleset AfflictionEncounterRules mode 0 (inner fog wave started)");
         if (timerChange is int sec)
         {
             var pkt = sec > 0
@@ -547,7 +640,7 @@ public sealed class DeliriumMirrorEncounter
 
     public void OnKill(KillContext kill)
     {
-        if (!IsEligibleMap(kill.Player) || Existing(kill.Player) is not { Stage: MirrorStage.Active } state) return;
+        if (!IsEligibleMap(kill.Player) || Existing(kill.Player) is not { } state) return;
         var stats = kill.Player.Instance.AreaStats(() => AreaLeagueStats(kill.Player));
         int bonusPct = stats.GetValueOrDefault(Stat.MapAfflictionRewardProgressOnKillPlusPct);
         uint deadId = kill.Player.Area.Monsters.FirstOrDefault(p => ReferenceEquals(p.Value, kill.Monster)).Key;
@@ -556,20 +649,26 @@ public sealed class DeliriumMirrorEncounter
             if (state.Stage != MirrorStage.Active) return;
             state.RecordKill(kill.Monster.Rarity, bonusPct);
             if (deadId != 0) state.Monsters.Remove(deadId);
-            Save(kill.Player, state);
+            SaveLocked(kill.Player, state);
         }
     }
 
     public void OnExperience(ExperienceGain gain)
     {
-        if (!IsEligibleMap(gain.Player) || Existing(gain.Player) is not { Stage: MirrorStage.Active } state) return;
-        uint pct = (uint)(100 + Math.Clamp(state.DepthPercent / 2, 0, 50));
+        if (!IsEligibleMap(gain.Player) || Existing(gain.Player) is not { } state) return;
+        int depth;
+        lock (state)
+        {
+            if (state.Stage != MirrorStage.Active) return;
+            depth = state.DepthPercent;
+        }
+        uint pct = (uint)(100 + Math.Clamp(depth / 2, 0, 50));
         gain.Experience = (uint)Math.Min(uint.MaxValue, (ulong)gain.Experience * pct / 100);
     }
 
     public Dictionary<uint, int> PlayerStats(Player player, Dictionary<uint, int> stats)
     {
-        if (!IsEligibleMap(player) || Existing(player) is not { Stage: MirrorStage.Active }) return stats;
+        if (!IsEligibleMap(player) || Existing(player) is not { } state || !IsActive(state)) return stats;
         if (StatCatalog.IsClientId(Stat.AffectedByDelirium)) stats[Stat.AffectedByDelirium] = 1;
         if (StatCatalog.IsClientId(Stat.IsInAfflictionFog)) stats[Stat.IsInAfflictionFog] = 1;
         return stats;
@@ -579,7 +678,7 @@ public sealed class DeliriumMirrorEncounter
     public async Task<bool> OnEndRequested(Player player)
     {
         if (!Current(player) || player.PlayerLife == 0 || !IsEligibleMap(player)) return false;
-        if (Existing(player) is not { Stage: MirrorStage.Active } state) return false;
+        if (Existing(player) is not { } state || !IsActive(state)) return false;
         await EndEncounter(player, state, byPlayer: true);
         return true;
     }
@@ -590,22 +689,27 @@ public sealed class DeliriumMirrorEncounter
         int[] rewards;
         int[] counts;
         int splinters;
+        int kills;
         byte[]? snap;
         await state.Gate.WaitAsync();
         try
         {
-            if (state.Stage != MirrorStage.Active) return;
-            state.Stage = MirrorStage.Ended;
-            state.LastTimerSeconds = 0;
-            state.OutOfFogSeconds = 0f;
-            state.EnsureRewardArrays();
-            level = state.Level > 0 ? state.Level : (byte)Math.Clamp(ServerLevels.AreaLevel(player.Layout.Id), 68, 84);
-            rewards = [.. state.Rewards];
-            counts = [.. state.RewardCounts];
-            splinters = state.Splinters;
-            state.Monsters.Clear();
-            Save(player, state);
-            snap = BuildSnapshot(player, state);
+            lock (state)
+            {
+                if (state.Stage != MirrorStage.Active) return;
+                state.Stage = MirrorStage.Ended;
+                state.LastTimerSeconds = 0;
+                state.OutOfFogSeconds = 0f;
+                state.EnsureRewardArrays();
+                level = state.Level > 0 ? state.Level : (byte)Math.Clamp(ServerLevels.AreaLevel(player.Layout.Id), 68, 84);
+                rewards = [.. state.Rewards];
+                counts = [.. state.RewardCounts];
+                splinters = state.Splinters;
+                kills = state.Kills;
+                state.Monsters.Clear();
+                SaveLocked(player, state);
+                snap = BuildSnapshotLocked(player, state);
+            }
         }
         finally { state.Gate.Release(); }
 
@@ -632,12 +736,26 @@ public sealed class DeliriumMirrorEncounter
         string reason = byPlayer ? "Delirium encounter ended." : "The Delirium fog has dissipated.";
         foreach (var peer in Clients(player))
             await PlayerOf(peer).Tell($"{reason} ({loot.Count} reward item(s) dropped.)");
-        _context.Log($"Delirium Mirror {player.Layout.Id} ended (byPlayer={byPlayer}): {state.Kills} kills, {loot.Count} reward items");
+        _context.Log($"Delirium Mirror {player.Layout.Id} ended (byPlayer={byPlayer}): {kills} kills, {loot.Count} reward items");
     }
 
     async Task SpawnPack(Player player, MirrorState state)
     {
-        if (!_context.Lifetime.IsActive || !Current(player) || state.Stage != MirrorStage.Active) return;
+        if (!_context.Lifetime.IsActive || !Current(player)) return;
+        byte level;
+        int packSize;
+        int spawnedBase;
+        double delirious;
+        lock (state)
+        {
+            if (state.Stage != MirrorStage.Active) return;
+            level = state.Level > 0 ? state.Level : (byte)Math.Clamp(ServerLevels.AreaLevel(player.Layout.Id), 68, 84);
+            packSize = Math.Min(5, Math.Min(MaxActiveMonsters - state.Monsters.Count, MaxSpawnTotal - state.Spawned));
+            spawnedBase = state.Spawned;
+            delirious = Math.Clamp(state.DepthPercent / 100.0, 0.05, 1.0);
+        }
+        if (packSize <= 0) return;
+
         var pool = DeliriumMonsterIds
             .Select(id => Monsters.Find("Metadata/Monsters/LeagueAffliction/" + id))
             .OfType<MonsterCatalog.Variety>()
@@ -647,14 +765,11 @@ public sealed class DeliriumMirrorEncounter
 
         var rng = AreaRng(player);
         var centre = player.Walk.Position(AreaTime(player));
-        byte level = state.Level > 0 ? state.Level : (byte)Math.Clamp(ServerLevels.AreaLevel(player.Layout.Id), 68, 84);
-        int packSize = Math.Min(5, Math.Min(MaxActiveMonsters - state.Monsters.Count, MaxSpawnTotal - state.Spawned));
-        if (packSize <= 0) return;
-        double delirious = Math.Clamp(state.DepthPercent / 100.0, 0.05, 1.0);
+        bool spawnedAny = false;
 
         for (int i = 0; i < packSize; i++)
         {
-            if (!_context.Lifetime.IsActive || !Current(player) || state.Stage != MirrorStage.Active) break;
+            if (!_context.Lifetime.IsActive || !Current(player) || !IsActive(state)) break;
             var variety = pool[rng.Next(pool.Length)];
             variety = variety with { StateMachine = DeliriumModule.MonsterStates(variety.StateMachine), AggroRange = Math.Max(90, variety.AggroRange) };
             int roll = rng.Next(100);
@@ -668,20 +783,26 @@ public sealed class DeliriumMirrorEncounter
             if (StatCatalog.IsClientId(Stat.MonsterIsInAfflictionFog)) extraStats[Stat.MonsterIsInAfflictionFog] = 1;
             if (StatCatalog.IsClientId(Stat.IsInAfflictionFog)) extraStats[Stat.IsInAfflictionFog] = 1;
             var extra = new MonsterModSet([], [], new MonsterModEffects(extraStats));
-            double a = (state.Spawned + i) * 2.399963229728653;
+            double a = (spawnedBase + i) * 2.399963229728653;
             int radius = 26 + rng.Next(24);
             var at = player.Layout.Near((centre.X + (int)Math.Round(Math.Cos(a) * radius),
                 centre.Y + (int)Math.Round(Math.Sin(a) * radius)));
             await SpawnMonster(player, variety, level, rarity, at.X, at.Y,
                 mods: rolledMods, extraMods: extra, unrisen: false, log: false,
-                ownedCurrent: () => _context.Lifetime.IsActive && Current(player) && state.Stage == MirrorStage.Active,
+                ownedCurrent: () => _context.Lifetime.IsActive && Current(player) && IsActive(state),
                 owned: (spawnedId, monster) =>
                 {
                     monster.Aggro = true;
-                    state.Monsters.Add(spawnedId);
-                    state.Spawned++;
+                    lock (state)
+                    {
+                        if (state.Stage != MirrorStage.Active) return;
+                        state.Monsters.Add(spawnedId);
+                        state.Spawned++;
+                        spawnedAny = true;
+                    }
                 });
         }
-        Save(player, state);
+        if (spawnedAny)
+            lock (state) SaveLocked(player, state);
     }
 }

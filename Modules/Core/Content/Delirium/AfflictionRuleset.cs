@@ -7,7 +7,7 @@ namespace GameServer.Modules.Delirium;
 /// <summary>
 /// Delirium client rulesets verified against 3.29.3c/d <c>Client/Game.exe</c>:
 /// <list type="bullet">
-/// <item><description>Row 102 (<c>0x66</c>) <c>AfflictionEncounterRules</c> (ctor <c>0x141742140</c>, vtable <c>0x14348b830</c>,
+/// <item><description>Row 102 (<c>0x66</c>) <c>AfflictionEncounterRules</c> (ctor <c>0x141742140</c>,
 /// S→C <c>0x2c9</c> slot 8 reader <c>0x1417442e0</c>): map Delirium Mirror fog waves, region grid, reward tiles, and pause state.</description></item>
 /// <item><description>Row 103 (<c>0x67</c>) <c>AfflictionEndGameRules</c> (factory <c>0x141764c70</c>, reader <c>0x141745400</c>):
 /// Simulacrum reward HUD (mode 1 feeds instance <c>+0xda58</c> via <c>0x141fbacc0</c> → <c>0x142172a00</c>).</description></item>

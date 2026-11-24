@@ -8,8 +8,7 @@ namespace GameServer.Modules.Heist;
 /// <summary>
 /// Heist module: hideout Heist Locker, Rogue Harbour native screens (<c>0x34</c>–<c>0x37</c>), <c>PlanningNPC</c> spawns,
 /// blueprint reveal/crew/confirm &amp; contract signing handlers (<c>0x279</c>, <c>0x27d</c>–<c>0x27f</c>), S→C <c>0x27c</c>
-/// rogue state, alert/lockdown mission controller (<c>0x164</c>, <c>0x163</c> type 8), and Adiyah's
-/// <c>EndlessHeistContracts</c> vendor shop.
+/// rogue state, and alert/lockdown mission controller (<c>0x164</c>, <c>0x163</c> type 8).
 /// </summary>
 public sealed partial class HeistModule : IModule
 {
@@ -82,7 +81,8 @@ public sealed partial class HeistModule : IModule
         GameEvents.MessagesHandled.Add(id, async (player, ids) =>
         {
             if (!HeistTables.IsRogueHarbour(player.Layout.Id)) return;
-            if (ids.Contains(InstanceItems.PlaceItemId) || ids.Contains(InstanceItems.PickUpItemId))
+            if (ids.Contains(InstanceItems.PlaceItemId) || ids.Contains(InstanceItems.PickUpItemId)
+                || ids.Contains(InstanceItems.MissionSlotMoveId) || ids.Contains(InstanceItems.LockerMoveId))
                 await HeistProgress.SendState(player, reason: "inventory updated in Rogue Harbour");
         });
 
@@ -90,11 +90,9 @@ public sealed partial class HeistModule : IModule
         {
             if (talk.Category == "EndlessHeistContracts")
             {
-                SpawnedNpc? npc;
-                lock (talk.Player.Npcs) npc = talk.Player.Npcs.GetValueOrDefault(talk.Player.TalkingTo);
-                if (npc is not null)
-                    return await HeistPlanning.OpenEndlessContractsShop(module, talk.Player, talk.Player.TalkingTo, npc);
-                return false;
+                WorldOf(talk.Player).NpcEndTalk();
+                await talk.ModPlayer.Tell("Adiyah's contract shop requires HeistContract item support and the unported HeistPlugin terrain generator.");
+                return true;
             }
 
             if (talk.Category == "OpenHeistNPCBlueprint")
