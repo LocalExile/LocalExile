@@ -145,6 +145,18 @@ public static class Flasks
             lock (_lock) return _running.FirstOrDefault(r => ReferenceEquals(r.Effect, effect))?.Remaining ?? 0;
         }
 
+        /// <summary>The earliest instant at which a running recovery effect can finish, or null when none are running.</summary>
+        public double? NextExpiry(double now)
+        {
+            lock (_lock)
+            {
+                double next = double.PositiveInfinity;
+                foreach (var r in _running)
+                    if (r.Remaining > Done) next = Math.Min(next, now + r.Remaining);
+                return double.IsFinite(next) ? next : null;
+            }
+        }
+
         /// <summary>The life and mana recovered between <paramref name="from"/> and <paramref name="to"/>, and the effects
         /// that ran out by <paramref name="to"/> (removed; one with mana at the end gives it then).</summary>
         public (double Life, double Mana, List<Effect> Ended) Advance(double from, double to,

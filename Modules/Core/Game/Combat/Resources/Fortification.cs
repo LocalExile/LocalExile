@@ -55,14 +55,17 @@ public static partial class Game
 
     // Called only at an accepted melee damage commit, before any notification can yield to another action/area.
     public static bool FortificationOnHitLocked(Player player, SpawnedMonster target, decimal rawDamage,
-        bool melee, IReadOnlyDictionary<uint, int> playerStats, IReadOnlyDictionary<uint, int>? skill = null, Random? random = null)
+        bool melee, IReadOnlyDictionary<uint, int> playerStats, IReadOnlyDictionary<uint, int>? skill = null, Random? random = null,
+        bool movement = false)
     {
         if (!melee || !target.Hostile || player.Closed || player.LeavingArea || player.Paused || player.PlayerLife == 0) return false;
-        int Get(uint name)
+        int Get(uint key)
         {
-            if (!(name is var key)) return 0;
-            return (int)Math.Clamp((long)playerStats.GetValueOrDefault(key) + (skill?.GetValueOrDefault(key) ?? 0),
-                int.MinValue, int.MaxValue);
+            long value = (long)playerStats.GetValueOrDefault(key) + (skill?.GetValueOrDefault(key) ?? 0);
+            // "Melee Movement Skills have #% chance to Fortify on Hit".
+            if (movement && key == FortificationSession.ChanceOnMeleeHit)
+                value += playerStats.GetValueOrDefault(Stat.MeleeMovementSkillChanceToFortifyOnHitPct);
+            return (int)Math.Clamp(value, int.MinValue, int.MaxValue);
         }
         return FortificationOf(player).Hit(AreaTime(player), rawDamage, target.MaxLife,
             target.Rarity, Get, random ?? AreaRng(player));
@@ -149,11 +152,11 @@ public static partial class Game
                     var packets = new List<byte[]>();
                     session.Buff = (ushort)(value.Current > 0 ? 1 : 0);
                     if (value.Current > 0)
-                        player.Area.Buffs.Set(player.Id, new(1943, player.Id,
+                        player.Area.Buffs.Set(player.Id, new(FortificationBuffRow, player.Id,
                             Visual: BuffArtVisual(player, "fortify_buff", Stat.VirtualFortifyArtVariation),
                             U68: value.LatestExpiry is double expiry ? Buff.Seconds((expiry - now) * session.State.ExpiryRate) : null,
                             Stacks: (ushort)Math.Min(ushort.MaxValue, value.Current)));
-                    else player.Area.Buffs.Clear(player.Id, 1943, player.Id);
+                    else player.Area.Buffs.Clear(player.Id, FortificationBuffRow, player.Id);
                     // Fortification changes on every melee hit; rebuilding the whole skill list here held the
                     // Monsters lock and the send gate for 50-110 ms (2026-11-05), starving input and the other sends.
                     // Its stacks and attack speed are in the 0x1b3 stats; the server keeps the authoritative action

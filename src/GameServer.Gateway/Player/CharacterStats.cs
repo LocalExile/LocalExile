@@ -74,6 +74,7 @@ public static class CharacterStats
         // Real pool builds retain the signed base before the one final floor; legacy partial pools use their rating.
         public long AccuracyBase { get; init; } = Accuracy;
         public int AccuracyAreaMorePct { get; init; }
+        public int AccuracyWeaponMorePct { get; init; }
     }
 
     /// <summary>What allocated passives and equipped base items add to the pools: attributes, flat and increased life,
@@ -119,8 +120,8 @@ public static class CharacterStats
         // The helmet's local ES and the gloves' and boots' local armour and evasion, for the masteries' slot increases.
         int HelmetEnergyShield = 0, int HelmetEnergyShieldPct = 0,
         decimal GlovesBootsArmour = 0, decimal GlovesBootsEvasion = 0, int GlovesBootsArmourPct = 0,
-        // "more maximum Life" (the Life Mastery's at-least-six-masteries effect), after the increases.
-        int LifeMorePct = 0,
+        // Final "more" multiplier on maximum Life (combined multiplicatively across sources, after increases).
+        decimal LifeMorePct = 0,
         int SpellSuppressionWhileFullEnergyShield = 0,
         bool ArmourAppliesToChaosDamage = false, AttributeModifiers Attributes = default,
         int StrengthPct = 0, int DexterityPct = 0, int IntelligencePct = 0, int AllAttributesPct = 0,
@@ -133,7 +134,9 @@ public static class CharacterStats
         bool MentalConditioning = false, decimal Ward = 0, int WardPct = 0, long AdditionalMana = 0, int EvasionWhileMovingPct = 0,
         // Dexterity's inherent evasion grant can be removed on its own, leaving its accuracy bonus alone, and a source
         // can add spell suppression chance per complete group of 15 Dexterity.
-        bool NoDexterityEvasion = false, int SpellSuppressionPerFifteenDexterity = 0)
+        bool NoDexterityEvasion = false, int SpellSuppressionPerFifteenDexterity = 0,
+        // A source that removes the whole Mana pool (maximum 0).
+        bool NoMana = false)
     {
         public bool ConvertSuppressionToSpellDodge { get; init; }
         public int BaseSpellDodgeChance { get; init; }
@@ -290,13 +293,14 @@ public static class CharacterStats
             evasionValue = 0;
         }
         int armour = Rating(armourValue), evasion = Rating(evasionValue);
-        if (b.MentalConditioning)
+        if (b.MentalConditioning && !b.NoMana)
         {
             long rawFlatManaTwice = (long)Math.Clamp(2m * (c.BaseMaxMana + 6L * level + b.Mana
                 + LifeManaPoolSources.AdditionalMana(level, b) + b.AdditionalMana + StrengthMana.Flat(str, b.ManaPerFourStrength))
                 + (b.NoManaFromIntelligence || b.NoIntelligenceBonuses ? 0 : intel), long.MinValue, long.MaxValue);
             (mana, armour) = PowerOfPurpose.Pools(rawFlatManaTwice, b, intel);
         }
+        if (b.NoMana) mana = 0;
         // Native ClientStrings IntelligenceDescription: 10 Intelligence grants 1% increased ES.
         // Pinned PoB CalcPerform applies complete groups after resolving final attributes.
         long totalEnergyShieldPct = (b.NoIntelligenceBonuses ? 0L : intel / 10L) + b.EnergyShieldPct

@@ -43,7 +43,7 @@ receives (S→C 0x2bc Player). Every unlock flag is a boss kill the act's quest 
 | 9 | Yugul | no | `a8q4-KilledBoss` | a8q4 Reflection of Terror ([act 8](act8.md)) | Yugul, Reflection of Terror (`Frog/FrogGod/SilverFrog`), The High Gardens 2_8_4 |
 | 10 | Shakari | no | `a9q5-KilledBoss` | a9q5 Queen of the Sands ([act 9](act9.md)) | Shakari, Queen of the Sands (`Shakari/Shakari`, `Shakari2`), The Oasis 2_9_4 |
 | 11 | Tukohama | no | `a6q3-KilledBoss` | a6q3 The Father of War ([act 6](act6.md)) | Tukohama, Karui God of War (`Tukohama/Tukohama`), The Karui Fortress 2_6_5 |
-| 13 | Ralakesh | no | `a7q1-KilledBoss` | a7q1 The Master of a Million Faces ([act 7](act7.md)) | Greust, Lord of the Forest (`Ralakesh/Greust/Greust`, Ralakesh's avatar; in WorldAreas `Monsters`, not `Bosses`, so the server does not place him today), The Ashen Fields 2_7_7 |
+| 13 | Ralakesh | no | `a7q1-KilledBoss` | a7q1 The Master of a Million Faces ([act 7](act7.md)) | Greust (`Ralakesh/Greust/Greust`) or the spared Act 2 bandit avatar (`RalakeshOak`, `RalakeshAlira`, `RalakeshKraityn`), The Ashen Fields 2_7_7 |
 | 14 | Garukhan | no | `a9q2-KilledBoss` | a9q2 The Ruler of Highgate ([act 9](act9.md)) | Garukhan, Queen of the Winds (`Garukhan/Garukhan`), The Quarry 2_9_8 |
 | 15 | Ryslatha | no | `a6q6-KilledBoss` | a6q6 The Puppet Mistress ([act 6](act6.md)) | Ryslatha, the Puppet Mistress (`InsectSpawner/InsectSpawnerParasiteBoss`), The Wetlands 2_6_11 |
 
@@ -133,32 +133,40 @@ Stats from PantheonPanelLayout (Stats Ids in the table; text through RePoE stat 
 | 14 | Soul of Garukhan | `shocked_effect_on_self_+%` −60 | The Blacksmith (Dunes, `GarukhanUpgrade1`): `cannot_be_blinded` 1, `avoid_maim_%_chance` 100 |
 | 15 | Soul of Ryslatha | `life_flasks_gain_X_charges_every_3_seconds_if_you_have_not_used_a_life_flask_recently` 3, `life_recovery_+%_from_flasks_while_on_low_life` 60 | Gorulis (Infested Valley, `RyslathaUpgrade1`): `enemy_life_regeneration_rate_+%_for_4_seconds_on_hit` −50 |
 
-Most of these are conditional defensive stats the server's damage model does not evaluate yet; for the campaign it is
-enough to store and show the choice. Applying them belongs with [damage](../../protocol/20-damage.md).
+All 12 gods' base powers and upgraded soul stats are evaluated by the server's combat, recovery, debuff and flask
+pipelines (`Combat`, `PlayerDebuffs`, `IncomingDamagingAilments`, `Charges`, `Slayer`, `Monsters`, `HostileGrounds`,
+`MapThorns`, `ProjectileHostile`, `FlaskCharges`, `FlaskRecovery`, `PanelStats`, `PlayerStatSteps`).
 
 ## 7. What is built
 
-**Implemented** (played live on 2026-10-30 before the game moved into modules: the campaign runner chose The Brine King
-and Tukohama through 0x1ee and `/state` showed them; the panel's highlight of the choice is still to be checked):
+**Implemented** (selection played live on 2026-10-30 before the game moved into modules; panel highlight, full combat
+evaluation and Divine Vessel soul capture are awaiting a live-client pass):
 
 - **Framework** (Gateway, Core): C→S 0x1ee framed (`InstancePantheon`, 3 bytes; unframed, the Gateway logged it as raw
   bytes and nothing was chosen), the Player update 0x0080 (`InstanceEntities.PlayerPantheonUpdate`) and the creation
   blob's two bytes (`PlayerObject.PantheonMajor/Minor`, written from the save), the choice per character
   (`CharacterSaves.SetPantheon`, `PantheonMajor` / `PantheonMinor` by row Id, `Player`), the tables
-  (`Player/PantheonCatalog.cs`: rows, unlock flags, powers, the souls' upgrade flags).
+  (`Player/PantheonCatalog.cs`: rows, unlock flags, powers, the 20 `PantheonSouls` map-to-vessel mappings) and Map
+  Device Divine Vessel validation (`World/MapDevice.cs`, `World/MapRun.cs`).
 - **The Pantheon module** (`Modules/Core/Player/Pantheon`, listed by every league that lists the quest tables): 0x1ee
   as §4 (refused for a disabled or locked row, or outside a town, hideout or the Rogue Harbour without
   `CanChangePantheon`; the client hears the gods back either way); the god's Effect1 stats, plus Effect2–4 whose
   PantheonSouls upgrade flag the character has once `EndGameAvailable` is earned (not merely given at login:
   `Player.UnearnedQuestFlags`, as Kitava's Act 10 penalty), join the character's stat sources
-  (`GameEvents.PlayerStatSources`; most are conditional stats the damage model does not read yet); `/pantheon [<god> …]`
-  (dev) and /state's `pantheon` field (`GameEvents.StateBuilding`) for the driver's `pantheon` verb and the bridge's
-  `pantheon:select <row>`.
+  (`GameEvents.PlayerStatSources`) and are evaluated across combat, recovery, ground, reflect and flask paths;
+  `/pantheon [<god> …]` (dev) and `/state`'s `pantheon` field (`GameEvents.StateBuilding`) for the driver's `pantheon`
+  verb and the bridge's `pantheon:select <row>`.
+- **Divine Vessel soul capture and Sin upgrades**: placing 1 `Divine Vessel` (`FragmentPantheonFlask` or
+  `CurrencyFragmentPantheonFlask`) alongside a map whose `WorldArea` matches a `PantheonSouls` row consumes the vessel
+  on activation and tags the `MapDevice.Run`; killing the map's completion boss (`TickMapRunBoss` in `Portals.cs`)
+  deposits the matching `CapturedVessel` (`PantheonSoul<God>Upgrade<N>`, `BIT 3613–3632`) into the owner's Map Device
+  inventory; Sin's 126 `UnlockPantheonPowerFromItem()` rows (`GameEvents.NpcOptionPicked` in `PantheonModule.cs`)
+  verify and consume the filled vessel from main inventory, set `QuestFlagUpgrade`, refresh Pantheon stats, play Sin's
+  line and open `PantheonScreen` (S→C 0x7b kind 0x14).
 - **From the quests**: the unlock flags are the act tables' kills; the arena Sins appear on the kills (`On.Appears`),
   and their god rows set `CanChangePantheon` and open the panel (`SendOpenScreen(PantheonScreen)`, 0x7b kind 0x14:
   the Game module's NPCTalk scripts).
 
-**Not built:** the souls (Divine Vessels in maps, Sin's "Unlock Power" and `UnlockPantheonPowerFromItem()`), so the
-upgrades come only from flags set by hand; most powers' conditional stats are not evaluated by the damage model. The
-panel itself (the Pantheon button and its key, `ActionOpenPantheonPanel`) is the client's own: it opens without the
-server and lists the gods from the quest flags.
+**Not verified live:** the panel's highlight of the chosen gods and end-to-end Divine Vessel capture/hand-in in the
+real client. The panel itself (the Pantheon button and its key, `ActionOpenPantheonPanel`) is the client's own: it
+opens without the server and lists the gods from the quest flags.

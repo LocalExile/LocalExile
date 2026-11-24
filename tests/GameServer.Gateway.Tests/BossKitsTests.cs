@@ -360,6 +360,39 @@ public sealed class BossKitsTests
         });
     }
 
+    [Fact]
+    public void The_Faun_uses_melee_default_and_drops_ungrounded_CastGroundEffect_and_leap_payload()
+    {
+        InGame(player =>
+        {
+            var catalog = Game.SkillsFor(player);
+            var faun = Assert.IsType<MonsterCatalog.Variety>(
+                Game.Monsters.Find("Metadata/Monsters/Goatman/GoatmanLeapSlamNavaliBoss"));
+            int defaultEffect = Game.MavenNucleus.CombatEffect(catalog, faun);
+            Assert.Equal("MeleeAtAnimationSpeedUnique", catalog.EffectId(defaultEffect));
+            var kit = BossKits.Kit(player, faun, 6, defaultEffect, unique: true);
+            Assert.Equal(defaultEffect, kit[0].Effect);
+            Assert.DoesNotContain(kit, k => catalog.EffectId(k.Effect) == "TheFaunCastGroundEffectLavaTemporary");
+            Assert.DoesNotContain(kit, k => catalog.EffectId(k.Effect) == "GANavaliGoatmanLeapDamage");
+            Assert.DoesNotContain(kit, k => catalog.EffectId(k.Effect) == "NavaliGoatEmergeExplosion");
+            Assert.Contains(kit, k => catalog.EffectId(k.Effect) == "TheFaunTectonicSlam");
+            Assert.Contains(kit, k => catalog.EffectId(k.Effect) == "GoatmanMoltenShell");
+            Assert.Contains(kit, k => catalog.EffectId(k.Effect) == "GoatmanNavaliBossLeapSlam");
+        });
+    }
+
+    [Fact]
+    public void Burning_Menace_keeps_its_animated_cleave()
+    {
+        InGame(player =>
+        {
+            var catalog = Game.SkillsFor(player);
+            var monster = Assert.IsType<MonsterCatalog.Variety>(Game.Monsters.Find("Metadata/Monsters/Hellion/HellionBoss"));
+            var kit = BossKits.Kit(player, monster, 6, Game.MavenNucleus.CombatEffect(catalog, monster), unique: true);
+            Assert.Contains(kit, k => catalog.EffectId(k.Effect) == "GABurningMenaceCleave");
+        });
+    }
+
     /// <summary>Runs the body with the game module mounted on a connection of its own, as BossStageTests does.</summary>
     static void InGame(Action<Player> body)
     {

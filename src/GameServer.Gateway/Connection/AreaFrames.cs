@@ -465,7 +465,7 @@ public sealed class AreaFrames
                         next = Math.Max(next, Math.Ceiling(watch.Elapsed.TotalSeconds / frame) * frame);
                         continue;
                     }
-                    if (paused.Player.Connection.LockstepClient) await Pumping(Guard(paused, async () => { await Program.EndPausedFrame(paused.Player); return true; }));
+                    if (paused.Player.Connection.LockstepClient) await Pumping(Guard(paused, async () => { await EndPausedFrame(paused.Player); return true; }));
                     await Task.Delay(Math.Max(1, Program.FrameMs / 3));
                     if (Stopwatch.GetElapsedTime(pausedStep).TotalMilliseconds >= Program.FrameMs)
                     {
@@ -557,6 +557,21 @@ public sealed class AreaFrames
         }
         catch (Exception ex) { Console.WriteLine($"[frames] area driver failed: {ServerLog.Describe(ex)}"); }
         finally { Stop(generation); }
+    }
+
+    /// <summary>A paused member's frame of 0 ms (Program.EndPausedFrame). What its messages changed meanwhile (a passive
+    /// point's maximum life and mana, its pools) is the area's components': the Stats phase steps it and they publish it
+    /// here, as a frame's end does, so it goes out now and not at the resume.</summary>
+    internal Task EndPausedFrame(Player player)
+    {
+        IReadOnlyList<AreaDelta.Record> delta = [];
+        if (Area is { } area)
+        {
+            OnFrame(() => area.Systems.Run(area, AreaPhase.Stats, AreaPhase.Stats));
+            Pump();
+            OnFrame(() => { area.Buffs.Publish(); area.Stats.Publish(); area.Life.Publish(); delta = area.Delta.Take(); });
+        }
+        return Program.EndPausedFrame(player, delta);
     }
 
     static double Ms(long from, long to) => (to - from) * 1000.0 / Stopwatch.Frequency;

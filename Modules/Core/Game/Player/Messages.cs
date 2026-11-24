@@ -205,13 +205,18 @@ public static partial class Game
                 // position, and the client snapped the player back onto it (live trace: up to 98 cells).
                 // A ranged weapon (a bow) fires at the point instead: arrows flew nowhere while this branch walked the
                 // player, since the projectile is launched by the cast below (live 2026-10-25).
-                bool attack = cast && gem.Name is not null && SkillsFor(player).IsAttack(gem.Effect);
+                // An attack thrown as a trap or mine is a throw, not a swing: it takes the throwing time and is paced by
+                // the placement itself. Gated on the bow's attack time, every third held throw was ignored (live 2026-11-19:
+                // Toxic Rain with Trap Support, throws 0.385 s apart against a 0.45 s attack).
+                bool attack = cast && gem.Name is not null && SkillsFor(player).IsAttack(gem.Effect)
+                    && PlacedKind(SupportedSkill(player, use.SkillId)) is { Trap: false, Mine: false };
                 if (attack && (use.Flags & 0x1) == 0 && !SkillsFor(player).IsMovement(gem.Effect)
                     && (!SkillsFor(player).IsProjectile(gem.Effect) || GatewayProjectileSkillProfiles.IsMoltenStrike(SkillsFor(player).EffectId(gem.Effect)))
                     && WeaponProfileFor(player).Melee)
                 {
                     var here = player.Walk.Position(at);
-                    if (GroundAttackWalks(here, (use.X, use.Y), WeaponFor(player).Range))
+                    int swingReach = MeleeSkillReach(player, WeaponFor(player), gem.Effect, SupportedSkill(player, use.SkillId).Stats);
+                    if (GroundAttackWalks(here, (use.X, use.Y), swingReach))
                     {
                         int walkAction = 0;
                         double arrive = at;
@@ -225,7 +230,7 @@ public static partial class Game
                                 CancelMeleeRepeats(player, at);
                                 walkAction = Interlocked.Increment(ref player.ActionCount);
                                 if (player.Connection.LockstepClient) player.Walk.Order(use.X, use.Y, at);
-                                else arrive = player.Walk.Approach(use.X, use.Y, WalkUpRange(WeaponFor(player)), at).At;
+                                else arrive = player.Walk.Approach(use.X, use.Y, Math.Max(swingReach, 1) - 1, at).At;
                                 player.ChannelSkill = 0;
                             },
                             out var approachTicket, reserve: false, requestedAt: at)) continue;
@@ -786,6 +791,7 @@ public static partial class Game
                         swapItems.SwapWeaponSets();
                         swapItems.WeaponSet = wanted;
                         finalWeaponSet = wanted;
+                        RemoveRallyingCryOnWeaponSwapLocked(player);
                         using (new PlayerStatScope(player, fresh: true))
                         {
                             RecomputePoolsAndSpeed(player);

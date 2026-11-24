@@ -11,6 +11,8 @@ public static class DamageStats
 {
     public const uint SpellDamageIncreasesApplyToAttacks150 = ArcaneMight.Fixed150;
 
+    public static double ElementalMore(int percent) => Math.Max(0, 1 + percent / 100d);
+
     // Arcane Might: transfer increased/reduced spell damage into the attack's increased bucket at the strongest grant's
     // ratio (ArcaneMight: the flag, the 150% keystone, the actor/skill ratios, the wand-only and retaliation-only ones),
     // retaining half-percent values; spell-only more multipliers and speed never enter this contribution.
