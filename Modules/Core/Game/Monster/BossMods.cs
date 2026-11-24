@@ -29,6 +29,13 @@ public static class BossMods
     /// Shaper and the campaign bosses that carry it).</summary>
     public const string SlowFloor = "CannotBeSlowedBelowValueBosses";
 
+    /// <summary>The marker mod that names a pinnacle boss: MonsterVarieties <c>ModsKeys</c> carries
+    /// <c>PinnacleAtlasBoss</c> (Mods row 32441) on exactly 49 varieties — the Shaper, the Elder, Sirus and the
+    /// Conquerors, the Maven, the Eater of Worlds, the Searing Exarch, Venarius and the Atlas Memory Incarnations,
+    /// with their standalone, gauntlet and Uber forms (client.db, 3.29.3c). No other variety carries it. Read
+    /// through <see cref="Has"/> like the other marker mods here.</summary>
+    public const string PinnacleAtlasBoss = "PinnacleAtlasBoss";
+
     /// <summary>An act boss cannot be stunned again for this long after a stun ends (2000 ms in its row).</summary>
     const uint StunImmunityStat = Stat.CannotBeStunnedForMsAfterStunFinished;
 

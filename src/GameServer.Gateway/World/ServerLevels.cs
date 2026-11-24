@@ -205,6 +205,35 @@ public static class ServerLevels
     static int LevelOf(string areaId, uint seed, int areaLevel) =>
         areaLevel > 0 ? areaLevel : PlayedLevels.TryGetValue((areaId, seed), out int played) ? played : AreaLevel(areaId);
 
+    /// <summary>The level this instance is really played at — the one a map device set for it, else the area's own
+    /// WorldAreas level. It is the level the layout was generated at, so the area's first message can carry it.</summary>
+    public static int PlayedLevel(string areaId, uint seed) => LevelOf(areaId, seed, 0);
+
+    /// <summary>Whether this area's level comes from the item that opens it rather than from the act's own
+    /// progression: <c>WorldAreas.IsMapArea</c>, the client's own flag. It decides whether the area's first message
+    /// carries a level.</summary>
+    public static bool IsMapArea(string areaId)
+    {
+        lock (MapAreasGate) { _mapAreas ??= LoadMapAreas(); return _mapAreas.Contains(areaId); }
+    }
+
+    static readonly Lock MapAreasGate = new();
+    static HashSet<string>? _mapAreas;
+
+    // The WorldAreas rows flagged IsMapArea, read once; a missing or unreadable table means no area carries a level.
+    static HashSet<string> LoadMapAreas()
+    {
+        var areas = new HashSet<string>(StringComparer.Ordinal);
+        try
+        {
+            if (ClientTables.Has("WorldAreas"))
+                foreach (var row in ClientTables.Table("WorldAreas"))
+                    if ((row.IntOrNull("IsMapArea") ?? 0) != 0 && row.Text("Id") is { Length: > 0 } id) areas.Add(id);
+        }
+        catch (Exception ex) when (ex is FileNotFoundException or InvalidOperationException or KeyNotFoundException) { }
+        return areas;
+    }
+
     /// <summary>Whether the Gateway generates this area itself (<see cref="Supported"/>).</summary>
     public static bool IsSupported(string areaId) => Enabled && Supported.Contains(areaId);
 
