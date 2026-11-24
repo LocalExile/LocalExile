@@ -312,6 +312,7 @@ public static partial class Game
             lifetime?.Dispose();
             ClearPods();
             ClearDamageGrounds();
+            ClearKnifeBlades();
             ClearEnsnares();
             ClearExplosiveFuses();
             if (archer is { } currentArcher) EndMirage(currentArcher, retire: true);
@@ -982,6 +983,7 @@ public static partial class Game
             if (valid && value.Kind == ProjectileEventKind.End)
             {
                 CausticGroundAtEnd(value);
+                LeaveKnifeBlade(value);
                 ExplosiveArrowAtEnd(value);
                 EnsnaringArrowAtEnd(value);
             }
