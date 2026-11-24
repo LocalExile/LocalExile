@@ -38,7 +38,7 @@ Part of [Status](../Status.md); what to build next in this area is in
   Docs: [20](../docs/protocol/20-damage.md) Â§2c.
 - Behemoth Steel Willed: attack damage per 450 final armour. Docs: [20](../docs/protocol/20-damage.md) Â§2d.
 - Steel Willed incoming-hit armour. Docs: [Steel Willed armour](../docs/game/steel-willed-armour.md).
-- Accuracy, the Accuracy Mastery's target conditions and attack evasion.
+- Accuracy, the Accuracy Mastery's target conditions, Deadeye's Avidity and attack evasion.
   Docs: [11](../docs/protocol/11-skills.md) Â§4â€“5, [20](../docs/protocol/20-damage.md) Â§2h.
 - Armour, Evasion and Energy Shield from passives and equipment, Iron Reflexes and Chaos Inoculation.
   Docs: [11](../docs/protocol/11-skills.md) Â§4, [13](../docs/protocol/13-items.md) Â§2.
@@ -202,6 +202,7 @@ Part of [Status](../Status.md); what to build next in this area is in
 - Approaching Flames from Annihilation's Approach toggles Flame-Touched, its Adrenaline and its fire damage.
 - Owned minions: relics, chieftains and the 17 golems. Docs: [11](../docs/protocol/11-skills.md) §10h.
   Mindless Aggression and minion area mastery scale minions. Fresh Meat grants timed Adrenaline and Wakened Fury.
+- Straight minion projectiles need a clear shot. The Wretched Defiler spectre fires its timed spiral and supports Spell Echo and Returning Projectiles.
 - Spectre roars grant native charges ([minions](../docs/protocol/11-skills.md#10h-player-minions-that-fight)).
 - Itemised corpses raise native spectres ([minions](../docs/protocol/11-skills.md#10h-player-minions-that-fight)).
 - Wraithlord counts socketed Ghastly Eyes ([minions](../docs/protocol/11-skills.md#10h-player-minions-that-fight)).
@@ -289,9 +290,11 @@ Part of [Status](../Status.md); what to build next in this area is in
 - Bear Trap's single secondary hit immobilises the target, then applies a decaying slow and trap/mine hit vulnerability.
 - Hexes and marks. Docs: [11](../docs/protocol/11-skills.md) Â§12.
 - Totems: Rejuvenation, Arc, projectile spells, supported summons, ballistas, Shockwave, Devouring and Decoy Totem
-  (ordinary monster AI), with totem limit, range, duration and Lockstep placement timing.
+  (ordinary monster AI), with totem limit, range, duration and Lockstep placement timing. Eligible placements can summon
+  two totems. Skill bars without a saved attack-in-place mask use each bound skill's default.
 - Artillery Ballista's mortar volleys, including Cross Strafe and Focus Fire (checked offline).
   Docs: [11](../docs/protocol/11-skills.md) §10g.
+- Minions inherit spell suppression chance and the minion damage over time multiplier from their owner.
 - Holy Flame Totem and its Ire variant use their native projectiles.
   Docs: [11](../docs/protocol/11-skills.md) Â§10g.
 - Passive self buffs. Docs: [11](../docs/protocol/11-skills.md) Â§12.

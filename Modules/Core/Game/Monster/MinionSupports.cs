@@ -33,8 +33,14 @@ public static partial class Game
     static bool MinionMelee(Player player, GolemState.Ability a) =>
         !a.Attack.Spell && a.Projectile is null && SkillsFor(player).IsMelee(a.Effect);
 
-    static int MinionSpellEchoRepeats(Player player, int effect, Func<uint, int> own) =>
-        MinionSupportMatches(effect, "SupportSpellEcho") ? SpellRepeats(player, effect, own) : 0;
+    static int MinionSpellEchoRepeats(Player player, int effect, Func<uint, int> own)
+    {
+        // Monster GrantedEffects (e.g. monster_projectile_spell) omit player-gem ActiveSkillType.Multicastable (21),
+        // while Raise Spectre already passes SupportSpellEcho stats when linked; still honour Excluded skill types.
+        if (!MinionSupportRules.TryGetValue("SupportSpellEcho", out var rule) || Supports.Of(effect) is not { } info) return 0;
+        if (GemSupports.Matches(rule.Excluded, info.Types.ToHashSet(), false)) return 0;
+        return SpellRepeats(player, effect, own);
+    }
 
     static GolemState.Ability MinionDamageScale(GolemState.Ability original, double hitMore, double ailmentMore,
         IReadOnlyDictionary<uint, int>? stats = null, int? criticalRoll = null)

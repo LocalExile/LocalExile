@@ -1096,13 +1096,19 @@ public static partial class Game
                             + $" metadata={p.Profile.Id} created={at} simulated={p.Position} direction={p.Direction}"
                             + $" lagMs={(Runtime.Now - p.CreatedAt) / 120d:0.###} height={(obj.Height is int h ? h.ToString() : "terrain")}");
                     return CreateProjectileObject(id, obj);
-                }, () => Projected(visual));
+                }, () =>
+                {
+                    var anim = presentation.FlightClip is { } clip
+                        ? InstanceProtocol.AnimationUpdate(id, 0, clip, presentation.FlightClipSpeed)
+                        : null;
+                    var moves = Projected(visual);
+                    if (anim is null) return moves;
+                    return moves is { Length: > 0 } ? [anim, .. moves] : [anim];
+                });
                 // No 0x1a9: the projectile blob's first-byte flag 0x02 puts it in the client's wake zone already, and a
                 // second entry ("ObjectInWakeZone ... already in the wake zone", every projectile since 2026-11-01, thousands of
                 // Poison Arrow Trap bolts in The Upper Sceptre of God) broke its object list until it crashed at 0x1401297ca
                 // on an object that was gone (live 2026-11-04 and 2026-11-05, with traps firing).
-                if (presentation.FlightClip is { } clip)
-                    World(id, () => visual.Created && !visual.Ended ? InstanceProtocol.AnimationUpdate(id, 0, clip, presentation.FlightClipSpeed) : null);
                 UpdateForm(p, visual);
                 Glide(p, visual);
             }

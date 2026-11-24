@@ -78,7 +78,8 @@ public static class ItemModStats
 
     /// <summary>One item's stats by Stats.dat Id, local or global. An explicit modifier's values include the
     /// item's own increased effect for its list (all, prefix or suffix); the effect stats themselves stay raw, so
-    /// they never scale each other. Implicits, enchants and the other lists are unchanged.
+    /// they never scale each other. Implicits and enchants follow the module's ModifierValueRule (their own
+    /// magnitude stats); the other lists are unchanged.
     /// <para>A stat whose id carries a condition only counts while that condition holds (issue #504); with no
     /// <paramref name="subject"/> every condition is unmodelled and no stat changes.</para></summary>
     public static IEnumerable<(uint Id, int Value)> Values(Item item, ModCatalog mods, bool local = false,
