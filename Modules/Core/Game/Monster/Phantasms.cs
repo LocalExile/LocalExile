@@ -2,6 +2,31 @@ using GameServer.Core.Protocol.Instance;
 
 public static partial class Game
 {
+    const ushort PhantasmalMightBuff = 1472;
+
+    static bool PhantasmGrantsMight(Player player, GolemState.Golem fighter, double now, out double until)
+    {
+        until = 0;
+        return fighter.Definition.Kind == "Phantasm" && fighter.Monster.Life > 0 && !fighter.Monster.Dead
+            && player.Summons.Until.TryGetValue(fighter.Id, out until) && now < until;
+    }
+
+    static void PresentPhantasmalMightLocked(Player player, GolemState.Golem fighter,
+        IReadOnlyDictionary<uint, int> owner, double now)
+    {
+        if (fighter.Definition.Kind != "Phantasm") return;
+        if (GolemStat(owner, Stat.SummonedPhantasmsGrantBuff) <= 0 || !PhantasmGrantsMight(player, fighter, now, out _))
+        {
+            player.Area.Buffs.Clear(player.Id, PhantasmalMightBuff, fighter.Id);
+            return;
+        }
+        player.Area.Buffs.Keep(player.Id, new(PhantasmalMightBuff, fighter.Id, Values:
+        [
+            (uint)Math.Max(0, GolemStat(fighter.Own, Stat.PhantasmMinimumAddedPhysicalDamageToGrant)),
+            (uint)Math.Max(0, GolemStat(fighter.Own, Stat.PhantasmMaximumAddedPhysicalDamageToGrant))
+        ]));
+    }
+
     static string SummonSupportStamp(SupportedGem gem) => string.Join(";", gem.Supports.Select(s =>
         $"{s.Gem.Effect}:{s.Gem.Level}:{s.Gem.Quality}:{s.Gem.Socket}"));
 
@@ -10,6 +35,11 @@ public static partial class Game
 
     static SupportedGem PhantasmGem(Player player, SupportedGem source)
     {
+        if (source.WornGrant is { } item && TriggeredItemMinion(item) == ItemSoulwrestPhantasm)
+            return source with { Stats = new Dictionary<uint, int>(source.Stats)
+            {
+                [Stat.BaseDisplayMinionActorLevel] = SkillsFor(player).PlayerLevelReq(source.Effect, source.Level),
+            } };
         var support = source.Supports.FirstOrDefault(s => s.Effect.Id == "SupportSummonPhantasm");
         var stats = new Dictionary<uint, int>(source.Stats);
         void Set(uint name, int value) { if (name is var key) stats[key] = value; }

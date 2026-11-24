@@ -31,6 +31,7 @@ public static partial class Game
             "Agony" => 39,
             "Purity" => 40,
             "HolyRelic" => 41,
+            "HolyArmament" => 78,
             "Reaper" => 52,
             _ => null,
         };

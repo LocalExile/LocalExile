@@ -260,6 +260,7 @@ public static partial class Game
             // A dual-wielded use's hand (AttackHands): its reach, hit, chance and local modifiers.
             var hand = AttackHandFor(player, skillId, sequence);
             var weapon = HandWeapon(player, hand);
+            var weaponContactSource = SkeletonWeaponContactSource(player, hand, weapon.LocalSources);
             var skillStats = SupportedSkill(player, skillId).Stats;
             int Stat(uint k) => skillStats.GetValueOrDefault(k);
             if (Stat(global::Stat.BaseDealNoDamage) != 0) return;
@@ -394,7 +395,8 @@ public static partial class Game
                     chaosDamage: chaosDamage);
                 if (applied is not { } hit) continue;
                 if (hit.Life < lifeBefore) RecordResonanceHitLocked(player, m, skillStats, rolled, now);
-                if (weapon.ItemClass is not null) player.RecentEvents.Record(StatConditions.HitEnemyWithWeapon, now);
+                if (weapon.ItemClass is not null) RecordWeaponContactLocked(player, now, weaponContactSource);
+                if (critical) ItemMinionsOnWeaponCriticalLocked(player, weaponContactSource, m, now);
                 if (hit.Life == 0) RecordTinctureKill(m, TinctureKillBonusFor(player, playerStats, hand));
                 // Cruelty, as AreaSkillHit's hit grants it: this pipeline is a copy of that one.
                 CrueltyOnHitLocked(player, skillId, damage, lifeBefore, m.MaxLife, skillStats, now);
@@ -403,7 +405,7 @@ public static partial class Game
                 ReleaseCriticalTrigger(player, ProjectilesFor(player), criticalTrigger, critical, m.Hostile, mAt, now);
                 if (hit.Life == 0) ReleaseMeleeKillTrigger(player, ProjectilesFor(player),
                     meleeKillTrigger, true, m.Hostile, mAt, now);
-                player.RecentEvents.RecordCriticalOutcome(now, critical);
+                player.RecentEvents.RecordCriticalOutcome(now, critical, attack: true);
                 if (ElementalOverloadCritLocked(player, skillId, null, playerStats, critical) is { } eoBuff)
                     ProjectilesFor(player).Packet(eoBuff, $"elemental overload on skill 0x{skillId:x4}");
                 if (global::Stat.BaseKilledMonsterDroppedItemQuantityPlusPct is var quantityKey)

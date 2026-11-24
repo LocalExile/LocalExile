@@ -4,17 +4,39 @@ using GameServer.Core.Protocol.Login;
 
 public static partial class Game
 {
+    sealed record HolyArmamentTarget(uint Id, SpawnedMonster Monster);
+    static readonly RuleTable<Player, Dictionary<ushort, HolyArmamentTarget>> HolyArmamentTargets = new();
+
+    static bool IsAbsolutionHitSpell(Player player, int effect) =>
+        SkillsFor(player).EffectId(effect) is "Absolution" or "AbsolutionAltX";
+
     static SummonCatalog.Definition? HitSummonDefinition(string? effect, MonsterRarity rarity = MonsterRarity.Normal) => effect switch
     {
         "Absolution" or "AbsolutionAltX" => new(effect, "Absolution", "Metadata/Monsters/TemplarJudge/AbsolutionTemplarJudge",
             Stat.BaseMaxNumberOfAbsolutionSentinels, 0),
         "DominatingBlow" or "DominatingBlowAltX" => new(effect, "Dominating" + rarity,
             "Metadata/Monsters/Axis/AxisEliteSoldierDominatingBlow", Stat.Of("base_max_number_of_dominated_" + rarity.ToString().ToLowerInvariant() + "_monsters"), 0),
+        "HolyStrike" => new(effect, "HolyArmament", "Metadata/Monsters/AnimatedItem/HolyStrikeAnimatedWeapon",
+            Stat.BaseHolyStrikeMaximumNumberOfAnimatedWeapons, Stat.HolyStrikeMaximumNumberOfAnimatedWeapons, Targetable: false),
         _ => null,
     };
 
+    static void QueueHolyArmamentLocked(Player player, uint id, SpawnedMonster monster, ushort source)
+    {
+        if (!monster.Hostile || monster.Invulnerable || player.PlayerLife == 0
+            || player.Area.Monsters.GetValueOrDefault(id) != monster || ActiveMainHand(player) is not { } weapon) return;
+        var gem = SupportedSkill(player, source);
+        if (!gem.RequirementsMet || SkillsFor(player).EffectId(gem.Effect) != "HolyStrike") return;
+        HolyArmamentTargets.GetOrCreateValue(player)[source] = new(id, monster);
+        player.Summons.HitSummons.Add(new(id, monster, source, gem.Effect, gem.SourceGem, false) { Weapon = weapon.Item });
+    }
+
+    static bool IsHolyArmamentTarget(Player player, GolemState.Golem fighter, uint id, SpawnedMonster monster) =>
+        HolyArmamentTargets.TryGetValue(player, out var targets) && targets.GetValueOrDefault(fighter.Source) is { } target
+            && target.Id == id && ReferenceEquals(target.Monster, monster);
+
     internal static void HitSummonsOnHitLocked(Player player, SpawnedMonster monster,
-        IReadOnlyDictionary<uint, int>? skill, ushort source, double now, Random random)
+        IReadOnlyDictionary<uint, int>? skill, ushort source, double now, Random random, bool playerConsumesCorpse = true)
     {
         if (skill is null || GolemStat(skill, Stat.BaseMaxNumberOfAbsolutionSentinels) + GolemStat(skill, Stat.BaseMaxNumberOfDominatedNormalMonsters) <= 0
             || !monster.Hostile || player.PlayerLife == 0) return;
@@ -31,7 +53,8 @@ public static partial class Game
         if (monster.Rarity == MonsterRarity.Unique) return;
         double duration = SkillDurationModifiers.Seconds(GolemStat(skill, Stat.BaseSkillEffectDuration),
             n => GolemStat(CharacterPlayerStats(player), n), n => GolemStat(skill, n));
-        player.Summons.HitMarks[(pair.Key, source)] = new(monster, source, gem.Effect, gem.SourceGem, now + duration);
+        player.Summons.HitMarks[(pair.Key, source)] = new(monster, source, gem.Effect, gem.SourceGem, now + duration)
+            { PlayerConsumesCorpse = playerConsumesCorpse };
         if (monster.Dead || monster.Life == 0) HitSummonsOnDeathLocked(player, pair.Key, monster, now);
     }
 
@@ -49,7 +72,8 @@ public static partial class Game
         {
             player.Summons.HitMarks.Remove(key);
             if (!ReferenceEquals(mark.Monster, monster) || now >= mark.Until || monster.Rarity == MonsterRarity.Unique) continue;
-            player.Summons.HitSummons.Add(new(id, monster, mark.Source, mark.Effect, mark.Gem, true));
+            player.Summons.HitSummons.Add(new(id, monster, mark.Source, mark.Effect, mark.Gem, true)
+                { PlayerConsumesCorpse = mark.PlayerConsumesCorpse });
         }
     }
 
@@ -65,18 +89,24 @@ public static partial class Game
         foreach (var request in pending)
         {
             var gem = SupportedSkill(player, request.Source);
-            var definition = request.Kind == "Phantasm" ? PhantasmDefinition(SkillsFor(player).EffectId(gem.Effect) ?? "")
-                : HitSummonDefinition(SkillsFor(player).EffectId(gem.Effect), request.ConsumeCorpse ? request.Monster.Rarity : MonsterRarity.Normal);
+            var definition = request.Kind switch
+            {
+                "Phantasm" => PhantasmDefinition(SkillsFor(player).EffectId(gem.Effect) ?? ""),
+                LivingLightningFamily => LivingLightningDefinition(player, gem),
+                _ => HitSummonDefinition(SkillsFor(player).EffectId(gem.Effect),
+                    request.ConsumeCorpse ? request.Monster.Rarity : MonsterRarity.Normal),
+            };
             bool Current() => CurrentGameWork && !player.Closed && !player.LeavingArea && player.PlayerLife > 0
-                && player.Area.Monsters.GetValueOrDefault(request.Target) == request.Monster
+                && (request.Weapon is not null || player.Area.Monsters.GetValueOrDefault(request.Target) == request.Monster)
                 && (!request.ConsumeCorpse || request.Monster.Dead && !request.Monster.CorpseConsumed && !request.Monster.Ailments.Shattered)
                 && SameTriggerSource(gem, SupportedSkill(player, request.Source))
-                && (request.Kind != "Phantasm" || request.Supports == SummonSupportStamp(gem));
+                && (request.Kind is not ("Phantasm" or LivingLightningFamily) || request.Supports == SummonSupportStamp(gem));
             if (definition is null || gem.Effect != request.Effect || !(gem.SourceGem is not null && request.Gem is not null
                     && ReferenceEquals(PlayerInventories.GemIdentity(gem.SourceGem), PlayerInventories.GemIdentity(request.Gem)))
                 || !gem.RequirementsMet) continue;
             if (!Current()) continue;
-            int limit = SummonLimit(player, definition, gem);
+            if (!DarkMonarchAllows(definition.Family, StatSourceValues(player))) continue;
+            int limit = SummonLimit(player, definition, definition.Family == LivingLightningFamily ? LivingLightningGem(player, gem) : gem);
             if (limit <= 0) continue;
             var alive = player.Summons.Fighters.Values.Where(g => g.Definition.Kind == definition.Family && !g.Monster.Dead && g.Monster.Life > 0).ToArray();
             if (alive.Length >= limit && definition.Family == "Absolution")
@@ -91,7 +121,9 @@ public static partial class Game
             }
             uint id = await SummonFighterCore(player, request.Source, definition,
                 request.Monster.Walk.Position(now), current: Current, triggered: true,
+                playerConsumesCorpse: request.PlayerConsumesCorpse,
                 consumedCorpse: request.ConsumeCorpse ? request.Monster : null,
+                preparedEquipment: request.Weapon is { } weapon ? new(0, null, new() { [2] = weapon }) : null,
                 inheritedMods: definition.Family.StartsWith("Dominating", StringComparison.Ordinal) && request.ConsumeCorpse
                     ? MonsterModRolls.Create(request.Monster.Mods.Affixes.ToArray(), request.Monster.Mods.NameWords,
                         request.Monster.Rarity, Math.Clamp(SkillsFor(player).PlayerLevelReq(gem.Effect, gem.Level), 1, 100)) : null,
@@ -104,7 +136,7 @@ public static partial class Game
 
     static void ConsumeHitSummonCorpseLocked(Player player, SummonedMinions.HitSummon request)
     {
-        ConsumeSummonCorpseLocked(player, request.Monster);
+        ConsumeSummonCorpseLocked(player, request.Monster, request.PlayerConsumesCorpse);
         player.Minions.OutputQueue.Add(new(InstanceProtocol.RemoveObject(request.Target), "Sentinel corpse consumed",
             WorldId: request.Target, RemovesObject: true));
     }

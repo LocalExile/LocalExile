@@ -151,11 +151,11 @@ public static partial class Game
                     var packets = new List<byte[]>();
                     session.Buff = (ushort)(value.Current > 0 ? 1 : 0);
                     if (value.Current > 0)
-                        player.Area.Buffs.Set(player.Id, new(1943, player.Id,
+                        player.Area.Buffs.Set(player.Id, new(FortificationBuffRow, player.Id,
                             Visual: BuffArtVisual(player, "fortify_buff", Stat.VirtualFortifyArtVariation),
                             U68: Buff.Seconds((value.LatestExpiry!.Value - now) * session.State.ExpiryRate),
                             Stacks: (ushort)Math.Min(ushort.MaxValue, value.Current)));
-                    else player.Area.Buffs.Clear(player.Id, 1943, player.Id);
+                    else player.Area.Buffs.Clear(player.Id, FortificationBuffRow, player.Id);
                     // Fortification changes on every melee hit; rebuilding the whole skill list here held the
                     // Monsters lock and the send gate for 50-110 ms (2026-11-05), starving input and the other sends.
                     // Its stacks and attack speed are in the 0x1b3 stats; the server keeps the authoritative action

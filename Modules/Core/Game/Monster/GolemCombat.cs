@@ -8,15 +8,26 @@ public static partial class Game
 {
     sealed class GolemWanderClock { public double Next; }
     static readonly RuleTable<GolemState.Golem, GolemWanderClock> GolemWander = new();
+    sealed record GolemActionClock(int Generation, ActionTimeClock Clock, double Duration);
+    static readonly RuleTable<GolemState.Golem, GolemActionClock> GolemActionClocks = new();
 
     internal static bool GolemCurrent(Player player, GolemState.Golem g) => CurrentGameWork && !player.Closed && !player.LeavingArea
         && (player.Golems.All.GetValueOrDefault(g.Id) == g || player.Reservations.Fighters.GetValueOrDefault(g.Id) == g || player.Summons.Fighters.GetValueOrDefault(g.Id) == g)
         && player.Area.Monsters.GetValueOrDefault(g.Id) == g.Monster;
 
+    // ItemisedCorpse 84–86: every Half-remembered Goliath needs a link before its body can act.
+    static bool MinionPowered(Player player, GolemState.Golem g, double now) =>
+        g.Definition.Kind != "Spectre" || g.Monster.Variety?.Id is not (
+            "Metadata/Monsters/LeagueAzmeri/SpecialCorpses/SynthesisGolemLow"
+            or "Metadata/Monsters/LeagueAzmeri/SpecialCorpses/SynthesisGolemMid"
+            or "Metadata/Monsters/LeagueAzmeri/SpecialCorpses/SynthesisGolemHigh")
+        || ActiveMinionLink(player, g, now) is not null;
+
     public static void GolemStepLocked(Player player, GolemState.Golem g, double now)
     {
         var m = g.Monster;
-        if (!GolemCurrent(player, g) || m.Dead || player.PlayerLife == 0) return;
+        if (!GolemCurrent(player, g) || m.Dead || player.PlayerLife == 0
+            || m.SummonerId is not null && !SpectreChildStillOwned(player, g)) return;
         using PlayerStatScope? dotScope = GolemHasDots(g) ? new PlayerStatScope(player, fresh: true) : null;
         var currentPlayer = dotScope is null ? g.Player : CharacterPlayerStats(player);
         // The half-second source cadence is too slow for an exact eight-second window. Re-evaluate only this golem's
@@ -24,37 +35,79 @@ public static partial class Game
         ExpireMinionChargesLocked(player, g, now);
         RefreshGolemLocked(player, g, currentPlayer, now);
         if (m.Dead || m.Life == 0) return;
+        if (g.Definition.Kind == VolatileAnomalyFamily)
+        {
+            VolatileAnomalyStepLocked(player, g, now);
+            return;
+        }
+        if (g.Definition.Kind == "DoedresEffigy")
+        {
+            EffigyHexesTickLocked(player, g, now);
+            return;
+        }
+        if (SpectreGroundHex(g.Definition.Kind) is { } hex)
+        {
+            SpectreCurseGroundTickLocked(player, g, hex, now);
+            return;
+        }
         double oldLastStep = g.LastStep;
         double elapsed = Math.Max(0, now - oldLastStep);
-        g.Regeneration += Math.Max(0, Math.Min(now, g.RecallUntil) - oldLastStep) * m.MaxLife * g.RecallRate / 6000d;
+        double recoveryRate = MinionLifeRecoveryMultiplier(m);
+        double recovery = Math.Max(0, Math.Min(now, g.RecallUntil) - oldLastStep) * m.MaxLife * g.RecallRate / 6000d
+            + HolyRelicRecoveryBetween(g, oldLastStep, now)
+            + AdvanceMinionRecoveryFlasksLocked(player, g, oldLastStep, now);
         g.LastStep = Math.Max(oldLastStep, now);
         int Own(uint n) => GolemStat(g.Own, n);
         int Player(uint n) => GolemStat(g.Player, n);
         double regen = (g.Definition.IsGolem ? g.Definition.Kind == "Stone" ? .02 : .01 : 0) +
             (Player(Stat.MinionLifeRegenerationRatePerMinutePct) + Own(Stat.MinionLifeRegenerationRatePerMinutePct)
+                + GolemStat(g.Auras, Stat.LifeRegenerationRatePerMinutePct)
                 + (g.Definition.IsGolem ? Player(Stat.GolemLifeRegenerationPerMinutePct) : 0)) / 6000.0;
-        g.Regeneration += elapsed * (m.MaxLife * regen + Player(Stat.Of("minion_base_life_regeneration_rate_per_minute")) / 60.0
+        recovery += elapsed * (m.MaxLife * regen + Player(Stat.Of("minion_base_life_regeneration_rate_per_minute")) / 60.0
             + Player(Stat.MinionLifeRegenerationRatePerSecond) + m.Mods.Effects[Stat.BaseLifeRegenerationRatePerMinute] / 60.0
-            + (now < g.HolyRegenerationUntil ? g.HolyRegenerationPerSecond : 0)
             + (now - g.BlockedAt <= 4 ? m.MaxLife * m.Mods.Effects[Stat.LifeRegenerationRatePerMinutePctIfBlockedRecently] / 6000d : 0));
+        if (g.Definition.Kind == "Spectre") recovery += SpectreLifeRecoveryLocked(player, g, elapsed, now);
+        g.Regeneration += recovery * recoveryRate;
         int heal = (int)Math.Min(int.MaxValue, g.Regeneration); g.Regeneration -= heal;
+        heal = ActorScale.Saturate((long)heal + TakeMinionLifeLeech(g, now, recoveryRate));
         if (heal > 0 && m.Life < m.MaxLife)
         {
             m.Life = (uint)Math.Min(m.MaxLife, (long)m.Life + heal);
+            if (m.Life == m.MaxLife) MinionLifeLeeches.Remove(g);
             player.Minions.OutputQueue.Add(new([], null, g.Id, m, PlayerMinions.OutputKind.Life));
         }
+        if (g.RecoveryFlasks is not null && m.Life == m.MaxLife)
+            EndMinionRecoveryFlasksLocked(player, g, effect => effect.EndsWhenFull(lifeFull: true, manaFull: true));
         GolemDotsLocked(player, g, oldLastStep, now);
         if (m.Dead || m.Life == 0 || MinionInstabilityLocked(player, g, now)) return;
+        _ = MinionFortificationAt(player, g, now);
         g.ShieldPool.Advance(oldLastStep, now, name => m.Mods.Effects[name], alive: true);
+        RecoverMinionShieldLeech(g, now);
         PublishEnergyShieldLocked(player, g);
+        if (!MinionPowered(player, g, now))
+        {
+            if (g.Pending is { Started: true })
+                player.Minions.OutputQueue.Add(new(InstanceProtocol.ActionEnded(g.Id), null, g.Id, m, WorldId: g.Id));
+            g.Pending = null;
+            g.Repeat = null;
+            g.Pulses.RemoveAll(pulse => pulse.Follows);
+            m.BusyUntil = now;
+            var at = m.Walk.Position(now);
+            m.Walk.Order(at.X, at.Y, now);
+            m.LastTarget = null;
+            return;
+        }
         GolemHazardsLocked(player, g, now);
-        if (MonsterActionFactor(m, now) == 0)
+        if (g.Definition.Kind == "Spectre") TickSpectreTimedPayloadsLocked(player, g, now);
+        double actionRate = MonsterActionFactor(m, now);
+        if (actionRate == 0)
         {
             g.Pending = null; g.Repeat = null; g.Pulses.RemoveAll(p => p.Follows);
             if (double.IsPositiveInfinity(m.BusyUntil)) m.BusyUntil = now;
             m.Walk.Order(m.Walk.Position(now).X, m.Walk.Position(now).Y, now);
             return;
         }
+        RetimeGolemAction(g, now, actionRate);
         GolemPulsesLocked(player, g, now);
         if (g.Pending is { } pending)
         {
@@ -72,20 +125,27 @@ public static partial class Game
             }
             else return;
         }
-        if (now < m.BusyUntil || now < m.FlinchUntil || MonsterActionFactor(m, now) == 0) return;
-        if (RepeatMinionAttackLocked(player, g, now)) return;
-        m.Walk.SetSpeed(m.Mods.Effects.MovementSpeed(m.Variety!.MovementSpeed) * MonsterSpeedRoll.Factor(m.SpeedRoll), now);
+        if (now < m.BusyUntil || now < m.FlinchUntil) return;
+        if (RepeatMinionActionLocked(player, g, now)) return;
+        double walkSpeed = GolemWalkSpeed(m, now, actionRate);
+        m.Walk.SetSpeed(walkSpeed, now);
         var here = m.Walk.Position(now); var owner = player.Walk.Position(now);
         var (aggressive, defensive) = MinionStance(g.Own, g.Player, g.Definition.IsGolem, now - g.BlockedAt is >= 0 and <= 4);
         bool follows = !player.Summons.Definitions.TryGetValue(g.Id, out var summon) || summon.Follows;
         follows |= defensive && summon?.Family != "Clone";
+        bool whispers = HearsWhispers(g, now);
+        if (whispers) (aggressive, defensive, follows) = (true, false, false);
         if (follows && Dist(here, owner) > 150)
         {
             var at = NextToPlayer(player, LivingCollision.Size(m), g.Id);
-            m.Walk = player.NewMonsterWalk(g.Id, at.X, at.Y, m.Mods.Effects.MovementSpeed(m.Variety!.MovementSpeed)
-                * MonsterSpeedRoll.Factor(m.SpeedRoll), LivingCollision.Size(m), false);
+            m.Walk = player.NewMonsterWalk(g.Id, at.X, at.Y, walkSpeed, LivingCollision.Size(m), false);
             m.ActionGeneration++; m.LastTarget = null;
             player.Minions.OutputQueue.Add(new(InstanceProtocol.Teleport(g.Id, at.X, at.Y), "golem follows owner", g.Id, m, WorldId: g.Id));
+            return;
+        }
+        if (g.Definition.Kind == ItemHarbingerFamily)
+        {
+            ItemHarbingerStepLocked(player, g, here, owner, now);
             return;
         }
         if (InTown(player)) { GolemFollowLocked(player, g, owner, now); return; }
@@ -93,6 +153,13 @@ public static partial class Game
         { SkitterStepLocked(player, g, here, owner, now); return; }
         if (g.Definition.Kind == "HolyRelic")
         { GolemFollowLocked(player, g, owner, now); return; }
+        if (g.Definition.Kind == "Spectre" && !HasSpectreAura(g, now)
+            && g.Abilities.FirstOrDefault(a => SpectreAuraEffect(a.Effect) && GolemReady(g, a, now)) is { } aura)
+        {
+            GolemReserveLocked(player, g, aura, 0, null, here, now);
+            return;
+        }
+        if (g.Definition.Kind == "Spectre" && TryReserveTurtleBoonLocked(player, g, here, owner, now)) return;
         if (ReaperConsumeLocked(player, g, now)) return;
         if (g.Definition.Id == "SummonReaperAltY")
         {
@@ -103,6 +170,7 @@ public static partial class Game
             g.Abilities.FirstOrDefault(a => a.Effect == 10801) is { } consume && GolemReady(g, consume, now))
         {
             var corpse = player.Area.MonstersNear(here, 15).FirstOrDefault(p => p.Value.Hostile && p.Value.Dead && !p.Value.CorpseConsumed
+                && !IsSpectreCorpse(p.Value)
                 && Dist(here, p.Value.Walk.Position(now)) <= 15);
             if (corpse.Value is not null)
             {
@@ -115,11 +183,12 @@ public static partial class Game
         double aggroRange = aggressive ? Math.Max(m.AggroRange, AggressiveMinionMinimumRange) : m.AggroRange;
         double ownerRange = defensive ? Math.Min(DefensiveMinionMaximumRange, aggroRange) : 100;
         var target = player.Area.Monsters.Where(p => p.Value.Hostile && !p.Value.Dead && p.Value.Life > 0 && !p.Value.Invulnerable
-                && !p.Value.Asleep && !MonsterAsleep(player, p.Key) && !double.IsPositiveInfinity(p.Value.BusyUntil))
+                && !p.Value.Asleep && !MonsterAsleep(player, p.Key) && !double.IsPositiveInfinity(p.Value.BusyUntil)
+                && (g.Definition.Kind != "HolyArmament" || IsHolyArmamentTarget(player, g, p.Key, p.Value)))
             .Select(p => (p.Key, M: p.Value, At: p.Value.Walk.Position(now)))
-            .Where(t => IsPrey(player, g.Own, t.Key, t.M, now) || Dist(t.At, here) <= aggroRange
+            .Where(t => !whispers && IsPrey(player, g.Own, t.Key, t.M, now) || Dist(t.At, here) <= aggroRange
                 && (!(follows || defensive) || Dist(t.At, owner) <= ownerRange))
-            .OrderByDescending(t => IsPrey(player, g.Own, t.Key, t.M, now)).ThenBy(t => Dist(t.At, here)).FirstOrDefault();
+            .OrderByDescending(t => !whispers && IsPrey(player, g.Own, t.Key, t.M, now)).ThenBy(t => Dist(t.At, here)).FirstOrDefault();
         if (target.M is null) { if (follows) GolemFollowLocked(player, g, owner, now); return; }
         g.Target = target.Key;
         double distance = Dist(target.At, here);
@@ -137,9 +206,20 @@ public static partial class Game
                 return;
             }
         }
-        var ability = g.Abilities.Where(a => (g.Definition.IsGolem || a.Attack.Damage.MaxTotal > 0) && GolemUsable(g, a) && GolemReady(g, a, now)
+        bool spectre = g.Definition.Kind == "Spectre";
+        bool pairedCannibal = spectre && CannibalEmpowered(player, g, now);
+        var ability = g.Abilities.Where(a => (g.Definition.IsGolem || a.Attack.Damage.MaxTotal > 0 || spectre && SpectreUtilityAction(a.Effect))
+                && GolemUsable(g, a) && GolemReady(g, a, now)
+                && (!spectre || SpectreActionAllowed(g, a, defensive, pairedCannibal, distance) && SpectreCanSpendLife(g, a))
                 && distance <= a.Attack.Range + LivingCollision.Size(target.M))
-            .OrderByDescending(a => a.Cooldown > 0).ThenByDescending(a => a.Effect == 10800).FirstOrDefault();
+            .OrderByDescending(a => a.Effect == NavalCannonFire).ThenByDescending(a => a.Cooldown > 0)
+            .ThenByDescending(a => a.Effect == 10800).FirstOrDefault();
+        if (g.Definition.Kind == "Spectre"
+            && g.Abilities.FirstOrDefault(a => CanUseSpectreSummon(player, g, a, distance, now)) is { } summonAbility)
+        {
+            GolemReserveLocked(player, g, summonAbility, target.Key, target.M, target.At, now);
+            return;
+        }
         if (g.Definition.Kind == "Spectre"
             && g.Abilities.FirstOrDefault(a => SpectreChargeRoar(g, a.Effect) is not null && GolemReady(g, a, now)) is { } roar)
         {
@@ -148,7 +228,18 @@ public static partial class Game
         }
         if (ability is null)
         {
-            double range = g.Abilities.Where(a => GolemUsable(g, a)).Select(a => a.Attack.Range).DefaultIfEmpty(8).Min();
+            if (spectre && defensive && g.Monster.Variety?.Id == SerpentWarrior
+                && g.Abilities.FirstOrDefault(a => SpectreShoulderMortar(a.Effect)) is { } mortar
+                && GolemStat(mortar.Stats, Stat.ProjectileMinimumRange) is > 0 and var minimum && distance < minimum)
+            {
+                double dx = distance == 0 ? 1 : (here.X - target.At.X) / distance;
+                double dy = distance == 0 ? 0 : (here.Y - target.At.Y) / distance;
+                var retreat = (target.At.X + (int)Math.Round(dx * (minimum + 3)), target.At.Y + (int)Math.Round(dy * (minimum + 3)));
+                if (Dist(owner, retreat) <= ownerRange) GolemMoveLocked(player, g, retreat, now);
+                return;
+            }
+            double range = g.Abilities.Where(a => GolemUsable(g, a)
+                && (!spectre || SpectreActionAllowed(g, a, defensive, pairedCannibal, distance))).Select(a => a.Attack.Range).DefaultIfEmpty(8).Min();
             double f = distance > 0 ? Math.Max(0, range - 2) / distance : 0;
             GolemMoveLocked(player, g, ((int)Math.Round(target.At.X + (here.X - target.At.X) * f),
                 (int)Math.Round(target.At.Y + (here.Y - target.At.Y) * f)), now);
@@ -175,7 +266,7 @@ public static partial class Game
             _ => a.Effect == 406,
         } : a.Effect switch
     {
-        4839 or 5026 or 5268 or 10801 or 10844 or 12032 or 12033 or 10584 => false,
+        4839 or 5026 or 5268 or MeatsackCausticCloud or EldritchEyeShockExplosion or 10801 or 10844 or 12032 or 12033 or 10584 => false,
         4336 => !g.Definition.Special,
         4337 => g.Definition.Special,
         5069 => !g.Definition.Special,
@@ -189,6 +280,14 @@ public static partial class Game
         if (!g.Charges.TryGetValue(a.Effect, out var charges)) return true;
         while (charges.TryPeek(out double at) && at <= now) charges.Dequeue();
         return charges.Count < a.Uses;
+    }
+
+    static void GolemStartCooldown(GolemState.Golem g, GolemState.Ability ability, double now)
+    {
+        if (ability.Cooldown <= 0) return;
+        if (!g.Charges.TryGetValue(ability.Effect, out var charges)) g.Charges[ability.Effect] = charges = new();
+        double readyAt = charges.TryPeek(out _) ? Math.Max(now, charges.Last()) : now;
+        charges.Enqueue(readyAt + ability.Cooldown);
     }
 
     static void GolemReserveLocked(Player player, GolemState.Golem g, GolemState.Ability ability, uint target,
@@ -213,21 +312,30 @@ public static partial class Game
             || g.Monster.Dead || g.Pending is not { Started: false } pending || pending.Generation != output.Action
             || pending.Generation != g.Monster.ActionGeneration) return null;
         double now = LockstepOrderStart(player, AreaTime(player));
+        if (!MinionPowered(player, g, now)) return null;
+        double rate = MonsterActionFactor(g.Monster, now);
+        if (rate == 0)
+        {
+            g.Pending = null;
+            g.Monster.BusyUntil = now;
+            return null;
+        }
         var from = g.Monster.Walk.Position(now); var a = MinionSupportAction(player, g, pending);
         g.Pending = pending = pending with { Ability = a };
-        pending.Started = true; pending.At = now + a.Attack.Seconds * a.Contact;
-        g.Monster.BusyUntil = now + a.Attack.Seconds;
+        var clock = new ActionTimeClock(now, rate);
+        GolemActionClocks.AddOrUpdate(g, new(pending.Generation, clock, a.Attack.Seconds));
+        pending.Started = true;
+        pending.At = clock.Deadline(a.Attack.Seconds * a.Contact);
+        g.Monster.BusyUntil = clock.Deadline(a.Attack.Seconds);
         g.Monster.Walk.Order(from.X, from.Y, now);
         if (a.Effect is 349 or 2563)
         {
-            double speed = g.Monster.Mods.Effects.MovementSpeed(g.Monster.Variety!.MovementSpeed) * MonsterSpeedRoll.Factor(g.Monster.SpeedRoll);
+            double speed = GolemWalkSpeed(g.Monster, now, rate);
             if (a.Effect == 2563) speed *= 1 + GolemStat(a.Stats, Stat.CycloneMovementSpeedPlusPctFinal) / 100.0;
             g.Monster.Walk.SetSpeed(speed, now);
             g.Monster.Walk.Order(pending.Aim.X, pending.Aim.Y, now);
         }
-        if (!g.Charges.TryGetValue(a.Effect, out var charges)) g.Charges[a.Effect] = charges = new();
-        double after = charges.TryPeek(out _) ? charges.Last() : now;
-        if (pending.RepeatIndex == 0 && a.Cooldown > 0) charges.Enqueue(Math.Max(now, after) + a.Cooldown);
+        if (pending.RepeatIndex == 0) GolemStartCooldown(g, a, now);
         // The skeleton dash needs movement presentation. A generic skill start can crash the 3.29.3d client.
         // Contact publishes the authoritative landing position after checking the path again.
         if (a.Effect == 10844)
@@ -238,6 +346,29 @@ public static partial class Game
             : InstanceProtocol.ActionStarted(id, from.X, from.Y, pending.Aim.X, pending.Aim.Y, a.Skill,
                 0xffff, player.MonsterOrderFlags, targetObjectId: pending.Target == 0 ? null : pending.Target);
         return [InstanceEntities.PlayerSkillsChange(id, GolemNativeSkills(player, g.Monster.Level, [a]), []), action];
+    }
+
+    static void RetimeGolemAction(GolemState.Golem g, double now, double rate)
+    {
+        if (!GolemActionClocks.TryGetValue(g, out var timing)) return;
+        var m = g.Monster;
+        if (m.ActionGeneration != timing.Generation || now >= m.BusyUntil)
+        {
+            GolemActionClocks.Remove(g);
+            return;
+        }
+        if (rate == timing.Clock.Rate) return;
+        timing.Clock.SetRate(now, rate);
+        m.BusyUntil = timing.Clock.Deadline(timing.Duration);
+        if (g.Pending is { Started: true } pending && now < pending.At)
+            pending.At = timing.Clock.Deadline(timing.Duration * pending.Ability.Contact);
+    }
+
+    static double GolemWalkSpeed(SpawnedMonster m, double now, double rate)
+    {
+        var (factor, _) = MonsterWalkModifiers(m, now, rate, ToxicWalkFactor(m), BearTrapWalkFactor(m, now), EnsnaredWalkFactor(m, now));
+        m.Ailments.WalkFactor = factor;
+        return m.Effects.MovementSpeed(m.Variety!.MovementSpeed) * MonsterSpeedRoll.Factor(m.SpeedRoll) * Math.Max(.01, factor);
     }
 
     // Skitterbots actively seek nearby enemies so their Chilling and Shocking auras reach monsters instead of orbiting
@@ -265,7 +396,7 @@ public static partial class Game
                 || MonsterAsleep(player, id) || double.IsPositiveInfinity(monster.BusyUntil)) continue;
             var at = monster.Walk.Position(now);
             if (Dist(at, owner) > 100) continue;
-            bool uncovered = monster.Ailments.Magnitude(ailment, now) <= 0;
+            bool uncovered = !SkitterAuraCovers(g, monster, ailment, now);
             double dist = Dist(at, here);
             if (best is null || (uncovered && !bestUncovered) || (uncovered == bestUncovered && dist < bestDist))
             {
@@ -399,13 +530,28 @@ public static partial class Game
     public static void GolemAbilityContactLocked(Player player,
         GolemState.Golem g, GolemState.Action action, double now)
     {
+        if (!MinionPowered(player, g, now)) return;
+        if (g.Definition.Kind == "Spectre")
+        {
+            if (ReleaseSpectreRoleLocked(player, g, action, now)) return;
+            QueueSpectreChildrenLocked(player, g, action);
+        }
         if (SpectreChargeRoar(g, action.Ability.Effect) is { } charge)
         {
-            var cast = action.Ability;
-            ReleaseSpectreChargeRoarLocked(player, g.Monster.Walk.Position(now), charge, cast.Radius, now, cast.Id);
+            ReleaseSpectreChargeRoarLocked(player, g.Monster.Walk.Position(now), charge, action.Ability, now);
             return;
         }
         var a = action.Ability; var at = g.Monster.Walk.Position(now);
+        if (g.Definition.Kind == ItemHarbingerFamily)
+        {
+            ReleaseItemHarbingerSkillLocked(player, g, action, now);
+            return;
+        }
+        if (g.Definition.Kind == LivingLightningFamily && a.Effect == LivingLightningZapEffect)
+        {
+            ReleaseLivingLightningZapLocked(player, g, action, now);
+            return;
+        }
         if (a.Effect == 10844)
         {
             if (GolemDashPath(player, g.Monster, at, action.Aim))
@@ -435,7 +581,7 @@ public static partial class Game
             return;
         }
         if (a.Effect is 9927 or 9928) HolyRelicRegenerationLocked(player, g, a, now);
-        if (a.Effect == 5906) { g.WrathUntil = now + GolemStat(a.Stats, Stat.BaseSkillEffectDuration) / 1000.0; player.Golems.RefreshAt = 0; return; }
+        if (ActivateNativeMinionAuraLocked(player, g, a, now)) return;
         if (a.Effect == 10801) { player.Minions.OutputQueue.Add(new([], "golem consumes corpse", g.Id, g.Monster, PlayerMinions.OutputKind.Life)); return; }
         if (a.Effect is 4336 or 4337)
         {
@@ -512,9 +658,11 @@ public static partial class Game
             if (area ? Dist(m.Walk.Position(now), centre) > a.Radius + LivingCollision.Size(m)
                 : id != action.Target || Dist(m.Walk.Position(now), at) > a.Attack.Range + LivingCollision.Size(m) + 2) continue;
             bool landed = GolemHitLocked(player, g, a, id, m, now);
+            if (!landed || area || !MinionMelee(player, a)) continue;
+            int? animatedSplash = AnimatedMinionSplashPenalty(g);
             int SplashStat(uint n) => g.Monster.Mods.Effects[n] + GolemStat(a.Stats, n);
-            if (landed && !area && MinionMelee(player, a) && MinionSupportMatches(a.Effect, "SupportMeleeSplash")
-                && MeleeSplash.Settings(SplashStat) is { } splash)
+            if ((animatedSplash is not null || MinionSupportMatches(a.Effect, "SupportMeleeSplash"))
+                && MeleeSplash.Settings(SplashStat, animatedSplash) is { } splash)
             {
                 var splashAt = m.Walk.Position(now);
                 var spread = MinionDamageScale(a, splash.More, splash.More);
@@ -548,11 +696,18 @@ public static partial class Game
         Player player, GolemState.Golem g, double now, double intrinsicDamagePerSecond, bool area)
     {
         RefreshGolemLocked(player, g, g.Player, now);
+        return MinionHazardDamage(player, g, now, intrinsicDamagePerSecond, area);
+    }
+
+    static (double DamagePerSecond, double UnitDamagePerSecond, int NormalDamageIncrease) MinionHazardDamage(
+        Player player, GolemState.Golem g, double now, double intrinsicDamagePerSecond, bool area)
+    {
         int normalIncrease = g.Monster.Mods.Effects[Stat.DamagePlusPct] - GolemRecentDamageIncrease(g, now)
             + (area ? g.Monster.Mods.Effects[Stat.AreaDamagePlusPct] : 0);
         double more = MinionTacticsBaseDamage(player, g, now) * Math.Max(0, 1 + GolemStat(g.Own, Stat.ActiveSkillMinionDamagePlusPctFinal) / 100.0)
             * Math.Max(0, 1 + GolemStat(g.Own, Stat.SupportMinionDamagePlusPctFinal) / 100.0)
             * MindlessAggressionDamage(g.Player)
+            * MinionNecromancerCorpseDamage(g.Monster.Effects)
             * Math.Max(0, 1 + GolemTether(g.Player, "damage") / 100.0);
         double increasedMultiplier = Math.Max(0, 1 + normalIncrease / 100.0);
         double factor = increasedMultiplier * more;
@@ -581,11 +736,18 @@ public static partial class Game
 
     public static bool GolemHitLocked(Player player, GolemState.Golem g,
         GolemState.Ability a, uint id, SpawnedMonster target, double now)
+        => ResolveGolemHitLocked(player, g, a, id, target, now, 1, false);
+
+    static bool ResolveGolemHitLocked(Player player, GolemState.Golem g,
+        GolemState.Ability a, uint id, SpawnedMonster target, double now, double deliveryMore, bool projectile)
     {
         if (!GolemCurrent(player, g) || !CurrentGameWork || target.Dead || target.Invulnerable || !target.Hostile
-            || player.Area.Monsters.GetValueOrDefault(id) != target) return false;
+            || player.Area.Monsters.GetValueOrDefault(id) != target
+            || g.Monster.SummonerId is not null && !SpectreChildStillOwned(player, g)
+            || g.Definition.Kind == "HolyArmament" && !IsHolyArmamentTarget(player, g, id, target)) return false;
         using var scope = new PlayerStatScope(player, fresh: true);
         var currentPlayer = CharacterPlayerStats(player);
+        ExpireMinionChargesLocked(player, g, now);
         RefreshGolemLocked(player, g, currentPlayer, now);
         if (!GolemCurrent(player, g) || player.PlayerLife == 0 || g.Monster.Dead || g.Monster.Life == 0) return false;
         var source = CurrentPlayerSkillSourceLocked(player, g.Source);
@@ -601,16 +763,38 @@ public static partial class Game
             current = GolemAbilities(player, g.Monster.Variety!, g.Monster.Level, g, currentPlayer, now,
                 prismatic: element).Single(ability => ability.Effect == a.Effect);
         }
+        if (MinionHitProfiles.TryGetValue(current, out var baseProfile)
+            && baseProfile.AgainstIgnited is { } againstIgnited && target.Ignites.IgnitedAt(now))
+            current = againstIgnited;
         a = CurrentMinionHit(a, current);
-        if (!a.Attack.Spell)
+        if (!a.Attack.Spell && !TauntPreventsAttackEvasion(player, target, now))
         {
             int accuracy = g.Monster.Mods.Effects.Accuracy((Monsters.BaseAccuracy(g.Monster.Level) ?? 0)
                 + g.Monster.Mods.Effects[Stat.AccuracyRating]);
             int evasion = UnderBlind(player, id, target.Mods.Effects.Evasion(Monsters.BaseEvasion(target.Level) ?? 0));
             if (!DamageModel.Hits(DamageModel.AccuracyHitChance(evasion, accuracy), AreaRng(player).Next(100))) return false;
         }
-        if (MonsterBlocks(target, AreaRng(player), a.Attack.Spell)) return false;
-        double factor = DoedreSewers.MinionDamageFactor(player) * MinionTacticsDamage(player, g, id, target, now);
+        var effects = g.Monster.Mods.Effects;
+        if (MonsterBlocks(target, AreaRng(player), a.Attack.Spell, now, supported.Stats)) return false;
+        double shieldLeechDamage = MinionShieldLeechDamageFactor(g, a);
+        if (shieldLeechDamage != 1) a = MinionDamageScale(a, shieldLeechDamage, shieldLeechDamage);
+        double ailmentFactor = DoedreSewers.MinionDamageFactor(player) * MinionTacticsDamage(player, g, id, target, now)
+            * MapMinionDamageFactor(player) * deliveryMore;
+        bool controlledBlaze = supported.Stats.ContainsKey(Stat.SupportRecentIgnitesDamagePerRecentIgnitePlusPctFinal)
+            && MinionMelee(player, a);
+        int recentIgnites = controlledBlaze ? RecentMinionSkillIgnites(g, a.Effect, now) : 0;
+        ailmentFactor *= ControlledBlazeDamageFactor(supported.Stats, recentIgnites);
+        double factor = ailmentFactor * SappedDamageFactor(g.Monster, now);
+        if (supported.Stats.ContainsKey(Stat.SupportDamageWhileOnFullLifePlusPctFinal)
+            || supported.Stats.ContainsKey(Stat.SupportDebilitateHitDamagePlusPctFinalPerPoisonStack)
+            || supported.Stats.ContainsKey(Stat.EnduranceChargeOnMeleeStunDamagePlusPctFinalPerEnduranceCharge))
+            factor *= ConditionalSupportMore(supported.Stats, attack: !a.Attack.Spell, chilled: false, lowLife: false,
+                fullLife: g.Monster.Life >= g.Monster.MaxLife, lifetap: false, poisonStacks: target.Poisons.Stacks(now),
+                enduranceCharges: g.CombatCharges?.Held(ChargeType.Endurance) ?? 0);
+        if (!a.Attack.Spell && !a.Attack.Secondary && g.Definition.Kind == "Spectre" && g.Monster.Variety?.Id is
+            ("Metadata/Monsters/LeagueAzmeri/SpecialCorpses/DualstrikeDemonMid" or
+             "Metadata/Monsters/LeagueAzmeri/SpecialCorpses/DualstrikeDemonHigh"))
+            factor *= Math.Max(0, 1 + GolemStat(currentPlayer, Stat.AttackDamagePlusPctFinalFromRage) / 100d);
         if (g.Definition.Kind == "Carrion")
         {
             var here = g.Monster.Walk.Position(now);
@@ -620,16 +804,17 @@ public static partial class Game
             if (a.Effect == 10802 && g.Combo >= 3) factor *= 1 + GolemStat(a.Stats, Stat.BoneGolemDamagePlusPctFinalAfterThirdComboIndex) / 100.0;
         }
         bool prey = IsPrey(player, g.Own, id, target, now);
-        var effects = g.Monster.Mods.Effects;
-        int roll = effects[Stat.Of("never_crit")] == 0 && effects[Stat.AlwaysCrit] == 0 ? AreaRng(player).Next(10_000) : 0;
+        int roll = a.RepeatCriticalRoll ?? (effects[Stat.Of("never_crit")] == 0 && effects[Stat.AlwaysCrit] == 0 ? AreaRng(player).Next(10_000) : 0);
         bool critical = GolemCriticalStrike(a, g.Monster.Mods, roll,
             prey ? GolemStat(g.Own, Stat.SupportMinionFocusFireCriticalStrikeChancePlusPctVsFocusedTarget) : 0,
-            BrittleCriticalChance(target, now));   // every hit against a Brittle enemy
+            target.Curses[Stat.EnemyAdditionalCriticalStrikeChanceAgainstSelf] + BrittleCriticalChance(target, now));
         if (critical) factor *= target.Effects.NoExtraCriticalDamage ? 1 : 1.3 +
             (g.Monster.Mods.Effects[Stat.BaseCriticalStrikeMultiplierPlus] + g.Monster.Mods.Effects[Stat.Of("critical_strike_multiplier_+")]
                 + target.Curses[Stat.EnemyAdditionalCriticalStrikeMultiplierAgainstSelf]
                 + (prey ? GolemStat(g.Own, Stat.SupportMinionFocusFireCriticalStrikeMultiplierPlusVsFocusedTarget) : 0)) / 100.0;
-        var rolled = GolemRollHit(a.Attack.Damage.Scale(factor), effects, a.Attack.Spell, AreaRng(player));
+        var rolled = GolemRollHit(a.Attack.Damage.Scale(factor), effects, a.Attack.Spell, AreaRng(player),
+            fullLife: g.Monster.Life >= g.Monster.MaxLife, tripleDamage: SkeletonWeaponTripleDamage(player, g, a, now));
+        MinionHitProfiles.TryGetValue(a, out var profile);
         bool ignoreElemental = g.Shield > 0
             && g.Monster.Mods.Effects[Stat.HitsIgnoreEnemyElementalResistancesWhileHasEnergyShield] != 0;
         var resistanceMods = new HitResistances.Mods(
@@ -637,48 +822,154 @@ public static partial class Game
             AttackCriticalIgnoreElemental: 0,
             NonCriticalPenetration: 0,
             UnconditionalIgnoreElemental: ignoreElemental,
-            CannotPenetrateOrIgnore: g.Monster.Mods.Effects[Stat.CannotPenetrateOrIgnoreElementalResistances] != 0 ? 1 : 0);
+            CannotPenetrateOrIgnore: effects[Stat.CannotPenetrateOrIgnoreElementalResistances] != 0
+                || GolemStat(a.Stats, Stat.CannotPenetrateOrIgnoreElementalResistances) != 0 ? 1 : 0);
         var strike = new HitResistances.Strike(Critical: critical, Attack: !a.Attack.Spell);
-        var mitigated = DamageModel.Mitigate(rolled,
-            type => HitResistances.Effective(type, MonsterHitResistance(target, type, default, now), strike, resistanceMods));
-        int damage = MonsterTakesMitigated(target, mitigated, a.Attack.Spell, now, random: AreaRng(player));
+        var random = AreaRng(player);
+        int inversionChance = GolemStat(supported.Stats, Stat.TreatEnemyResistancesAsNegatedOnElementalDamageHitPctChance)
+            + GolemStat(a.Stats, Stat.TreatEnemyResistancesAsNegatedOnElementalDamageHitPctChance);
+        bool invert = inversionChance > 0 && rolled.Components.Any(component =>
+                DamageTypes.IsElemental(component.Type) && component.Range.Max > 0)
+            && RandomRolls.Chance(inversionChance, 100, random);
+        var mitigated = rolled.Select((type, range) =>
+        {
+            var resistance = MonsterHitResistance(target, type, profile?.Penetration ?? default, now);
+            double effective = HitResistances.FinalValue(type, resistance, strike, resistanceMods, invert);
+            return range.Scale(Math.Max(0, 1 - effective / 100));
+        });
+        bool ignorePhysical = MinionIgnoresPhysicalReduction(mitigated, effects, target, random, a.Stats);
+        int projectileTaken = projectile ? MinionProjectileCurseStat(target, Stat.ProjectileDamageTakenPlusPct, now) : 0;
+        int damage = MonsterTakesMitigatedCore(target, mitigated, a.Attack.Spell, now, projectileTaken, ignorePhysical, random);
         var from = g.Monster.Walk.Position(now);
         var to = target.Walk.Position(now);
-        if (ApplyTypedMonsterHitLocked(player, target, damage, MonsterHitChaosDamage(target, mitigated, a.Attack.Spell, now, damage), allyAt: from) is not { } hit) return false;
+        var cull = Cull.Of(effects.Stats, a.Stats, critical, a.Attack.Spell).WithWeapon(g.Weapon?.LocalSources) with { RecoverLifePct = 0 };
+        int chaosDamage = MonsterHitChaosDamage(target, mitigated, a.Attack.Spell, now, damage, projectileTaken, ignorePhysical);
+        bool attackCanImpale = !a.Attack.Spell && !a.Attack.Secondary && rolled[DamageType.Physical].Min > 0
+            && (effects[Stat.AttacksImpaleOnHitPctChance] != 0 || effects[Stat.ImpaleOnHitPctChance] != 0
+                || GolemStat(a.Stats, Stat.AttacksImpaleOnHitPctChance) != 0
+                || g.Weapon?.LocalSources?.GetValueOrDefault(Stat.LocalAttacksImpaleOnHitPctChance) > 0);
+        ImpaleContact? impale = attackCanImpale || target.Impale.Stacks > 0
+            ? new(attackCanImpale ? rolled[DamageType.Physical].Min : 0, now,
+                attackCanImpale ? ImpaleStats.From(effects.Stats, Stats, attack: true, a.Stats, g.Weapon?.LocalSources) : default,
+                random) : null;
+        if (ApplyMonsterHitCoreLocked(player, target, damage, rampageSource: null, playerStats: null,
+            allyAt: from, cull: cull, cullPlayer: null, chaosDamage: chaosDamage, impale: impale) is not { } hit) return false;
+        if (!a.Attack.Spell && !a.Attack.Secondary && damage > 0)
+            MinionGainsLifeOnHitLocked(player, g, a);
+        if (damage > 0 && profile is not null)
+        {
+            GrantMinionLifeLeech(g, target, profile.LifeLeech, mitigated, damage, now);
+            GrantMinionShieldLeech(g, target, profile.ShieldLeech, mitigated, damage, now);
+        }
         if (!target.Dead && damage > 0) MinionExposureOnHitLocked(g.Own, target, mitigated, now, AreaRng(player));
         if (hit.StageStarts)
         { CommitBossStage(player, id, target, now); hit = hit with { StageStarts = false }; }
+        ushort flags = MonsterHitFlags(blocked: false, critical);
+        byte kind = 3, angle = HitAngle(to.X - from.X, to.Y - from.Y);
+        ushort knockbackSpeed = 0, knockbackDistance = 0;
+        if (damage > 0 && (long)effects[KnockbackChanceStat] + GolemStat(a.Stats, KnockbackChanceStat) > 0
+            && KnockbackOnHitLocked(player, target, effects.Stats, a.Stats, now, random,
+            origin: from, attackerSize: LivingCollision.Size(g.Monster)))
+            ConsumeNativeKnockbackLocked(target, ref flags, ref kind, ref angle, out knockbackSpeed, out knockbackDistance);
         // Immediate kind 3 reaches the attacker's native result consumer; 0xffff never supplies a consuming action.
         player.Minions.OutputQueue.Add(new(InstanceProtocol.ActionHit(g.Id, 0xffff, id,
-            flags: MonsterHitFlags(blocked: false, critical), kind: 0x03, code: HitCode(mitigated),
-            angle: HitAngle(to.X - from.X, to.Y - from.Y)), null, id, target, WorldId: g.Id));
+            flags: flags, kind: kind, code: HitCode(mitigated), angle: angle, u3c: knockbackSpeed, u3e: knockbackDistance),
+            null, id, target, WorldId: g.Id));
         PhantasmsOnHitLocked(player, target, g.Source, now, AreaRng(player), g);
         bool melee = MinionMelee(player, a);
+        if (melee && damage > 0) MinionFortifyOnHitLocked(player, g, target, rolled, a.Stats, now, random);
         double physicalShare = rolled[DamageType.Physical].Min / Math.Max(1, rolled.MinTotal);
-        var stun = new StunHit(HitReaction.StunningDamage(damage, physicalShare, melee),
+        double stunning = effects[Stat.CannotStun] != 0 || critical && mitigated[DamageType.Cold].Min > 0
+            ? 0 : HitReaction.StunningDamage(damage, physicalShare, melee);
+        var stun = new StunHit(stunning,
             g.Monster.Mods.Effects[Stat.BaseStunThresholdReductionPlusPct], g.Monster.Mods.Effects[Stat.BaseStunDurationPlusPct],
             Melee: melee, BaseSeconds: GolemStat(a.Stats, Stat.SupportRuthlessBigHitStunBaseDurationOverrideMs) / 1000d);
-        CommitMinionHitLocked(player, id, target, hit, damage, now, $"golem {g.Id:x} {a.Id}", stun, g.Monster, g.Own);
+        if (melee)
+        {
+            int gain = GolemStat(supported.Stats, Stat.GainEnduranceChargeOnMeleeStun) != 0 ? 100
+                : GolemStat(supported.Stats, Stat.GainEnduranceChargeOnMeleeStunPct);
+            if (gain > 0)
+                stun = stun with { OnStun = () =>
+                {
+                    if (RandomRolls.Chance(gain, 100, random)) GrantMinionChargeLocked(player, g, ChargeType.Endurance, 1, now);
+                } };
+        }
+        CommitMinionHitLocked(player, id, target, hit, damage, now, $"golem {g.Id:x} {a.Id}", stun, g.Monster, g.Own, g);
+        if (g.Definition.Kind == "Spectre" && damage > 0) SpectreRoleOnHitLocked(player, g, a, id, target, now);
+        SpectreShockExplosionLocked(player, g, a, target, to, now);
         if (!target.Dead)
         {
             int Golem(uint name) => g.Monster.Mods.Effects[name] + GolemStat(a.Stats, name);
+            double ailmentArea = Golem(Stat.ElementalStatusEffectAuraRadius) > 0
+                ? SkillArea.Modifier(Golem, a.Attack.Spell) : 1;
             target.Ailments.Inflict(mitigated, critical, target.MaxLife, now, Golem,
-                n => target.Mods.Effects[n], AreaRng(player));
+                n => target.Mods.Effects[n], AreaRng(player), ailmentArea);
+            if (damage > 0 && (Golem(Stat.FireExposureOnHitMagnitude) < 0 || Golem(Stat.ColdExposureOnHitMagnitude) < 0
+                || Golem(Stat.LightningExposureOnHitMagnitude) < 0))
+                ExposureOnHitLocked(target, Golem, mitigated, now, random);
+            if (damage > 0 && mitigated.MinTotal > 0 && Golem(Stat.ChanceToInflictSappedPct) > 0)
+                AlternateAilmentsOnHitLocked(target, mitigated.Scale(damage / mitigated.MinTotal), critical, now, Golem, random);
             HitDebuffsOnHitLocked(target, Golem, a.Attack.Spell, critical, now, AreaRng(player));
-            // Unnatural Strength: a minion with Unholy Might withers on hit (25% for 2 s, from the buff row's
-            // stats in its Mods); the player path does this in MonsterAilments, the minion path did not.
-            WitherOnHitLocked(target, Golem, now, AreaRng(player));
+            TemporalChainsOnSuccessfulHitLocked(player, target, now, effects.Stats,
+                Golem(Stat.CurseOnHitPctTemporalChains), random, g.Id);
+            WitherOnHitLocked(target, Golem, now, random);
+            if (g.Definition.Kind == VoidSpawnFamily
+                && RandomRolls.Chance(GolemStat(g.Own, Stat.VoidSpawnWitheredOnHitChancePct), 100, random))
+                ApplyWitherStacksLocked(target, 1, WitherDurationSeconds(
+                    GolemStat(g.Own, Stat.VoidSpawnWitheredBaseDurationMs) / 1000d, Golem), Golem, now);
             InflictMonsterBlind(player, id, target, now, BlindHitInput.Capture(Golem), a.Attack.Spell, critical,
                 AreaRng(player));
-            MinionAilmentsLocked(player, g, a, id, target, critical, now);
+            MinionAilmentsLocked(player, g, a, supported.Stats, id, target, critical, now, ailmentFactor,
+                controlledBlaze, recentIgnites);
+            ApplyMinionDecayLocked(player, g, a, id, target, now);
             MinionTauntOnHitLocked(player, g, a, supported.Stats, id, target, now);
+            if (damage > 0)
+            {
+                int flee = Golem(Stat.GlobalHitCausesMonsterFleePct);
+                if (!a.Attack.Spell)
+                    flee += Golem(Stat.MainHandHitCausesMonsterFleePct)
+                        + (g.Weapon?.LocalSources?.GetValueOrDefault(Stat.LocalHitCausesMonsterFleePct) ?? 0);
+                TryFleeFromHitLocked(player, target, from, flee, now);
+            }
         }
-        if (damage > 0) FeedingFrenzyOnHitLocked(player, g, now);
+        if (damage > 0)
+        {
+            if (critical) MinionWhispersOnCriticalLocked(player, g, now);
+            FeedingFrenzyOnHitLocked(player, g, now);
+            MinionGrantsNearbyChargesOnHitLocked(player, g, from, now, random);
+            MinionMapThornsOnHitLocked(player, g, a, id, target, rolled, critical, now);
+        }
         return true;
+    }
+
+    static void MinionGainsLifeOnHitLocked(Player player, GolemState.Golem minion, GolemState.Ability ability)
+    {
+        var monster = minion.Monster;
+        if (monster.Life >= monster.MaxLife || monster.Effects[Stat.CannotRecoverLife] != 0) return;
+        var local = minion.Weapon?.LocalSources;
+        long gain = (long)monster.Effects[Stat.BaseLifeGainPerTarget] + GolemStat(ability.Stats, Stat.BaseLifeGainPerTarget)
+            + (local?.GetValueOrDefault(Stat.LocalLifeGainPerTarget) ?? 0)
+            + (local?.GetValueOrDefault(Stat.LocalLifeAndManaGainPerTarget) ?? 0);
+        if (gain <= 0) return;
+        monster.Life = (uint)Math.Min(monster.MaxLife, monster.Life + gain);
+        if (monster.Life == monster.MaxLife) MinionLifeLeeches.Remove(minion);
+        player.Minions.OutputQueue.Add(new([], null, minion.Id, monster, PlayerMinions.OutputKind.Life));
+    }
+
+    static bool MinionIgnoresPhysicalReduction(DamagePacket hit, MonsterModEffects effects, SpawnedMonster target, Random random,
+        IReadOnlyDictionary<uint, int>? skill = null)
+    {
+        if (hit[DamageType.Physical].Min <= 0 || target.Effects.PhysicalReduction <= 0) return false;
+        uint chance = Stat.HitsIgnoreEnemyMonsterPhysicalDamageReductionPctChance;
+        return effects[Stat.HitsIgnoreEnemyMonsterPhysicalDamageReduction] != 0
+            || skill?.GetValueOrDefault(Stat.HitsIgnoreEnemyMonsterPhysicalDamageReduction) > 0
+            || RandomRolls.Chance(ActorScale.Saturate((long)effects[chance] + (skill?.GetValueOrDefault(chance) ?? 0)), 100, random);
     }
 
     public static int GolemCriticalChance(GolemState.Ability ability, MonsterModSet mods, int additionalIncrease = 0)
     {
+        if (!ability.Attack.Spell && mods.Effects[Stat.DisplayCriticalLinkOverridesMainHandCriticalStrikeChance] != 0)
+            return ability.Crit;
         long increased = (long)mods.Effects[Stat.CriticalStrikeChancePlusPct] + additionalIncrease
             + (ability.Attack.Spell ? mods.Effects[Stat.SpellCriticalStrikeChancePlusPct] : 0);
         double chance = (ability.Crit + (double)mods.Effects[WakenedFuryChance] + mods.Effects[Stat.AdditionalBaseCriticalStrikeChance]) * Math.Max(0, 100L + increased) / 100.0;
@@ -686,7 +977,16 @@ public static partial class Game
     }
 
     public static DamagePacket GolemRollHit(DamagePacket damage, MonsterModEffects effects, bool spell, Random random) =>
-        GamblerModifiers.From(name => effects[name]).ForSkill(_ => 0, spell).RollOutgoingHit(damage, random);
+        GolemRollHit(damage, effects, spell, random, fullLife: false, tripleDamage: false);
+
+    static DamagePacket GolemRollHit(DamagePacket damage, MonsterModEffects effects, bool spell, Random random,
+        bool fullLife, bool tripleDamage)
+    {
+        var modifiers = GamblerModifiers.From(name => effects[name]).ForSkill(name => fullLife && name == Stat.ChanceToDealDoubleDamagePct
+            ? effects[Stat.ChanceToDealDoubleDamageWhileOnFullLifePct] : 0, spell);
+        if (tripleDamage) modifiers = modifiers with { TripleDamageChance = 100 };
+        return modifiers.RollOutgoingHit(damage, random);
+    }
 
     /// <summary><paramref name="additionalChance"/>: flat chance in hundredths added after the increases (the target's Brittle).</summary>
     public static bool GolemCriticalStrike(GolemState.Ability ability, MonsterModSet mods, int roll, int additionalIncrease = 0,
@@ -719,16 +1019,53 @@ public static partial class Game
         // The profile already contains the native skill's quantity; the minion's own modifiers add to it once.
         profile = GatewayProjectileModifiers.Resolve(profile, name => mods[name], attack: !a.Attack.Spell,
             arrows: g.Weapon is { Bow: true }, skillPierce: mods[Stat.Of("number_of_additional_projectiles_to_pierce")]);
+        if (!nova && !p.Lobbed && mods[Stat.SupportParallelProjectileNumberOfPointsPerSide] is > 0 and var points)
+        {
+            int x = Math.Max(mods[Stat.VirtualAdditionalProjectilesFireParallelXDist],
+                Math.Max(mods[Stat.VolleyAdditionalProjectilesFireParallelXDist], mods[Stat.GreaterVolleyAdditionalProjectilesFireParallelXDist]));
+            const double unitsPerCell = 10.869565;
+            profile = profile with { ParallelOrigins = new(points, x / unitsPerCell,
+                mods[Stat.AdditionalProjectilesFireParallelYDist] / unitsPerCell) };
+        }
+        bool canReturn = !profile.CannotReturn && (profile.Returns || profile.ReturnChancePercent > 0);
+        double returnMore = canReturn ? ProjectileReturn.DamageMore(name => mods[name] + GolemStat(a.Stats, name)) : 1;
+        IReadOnlyList<ProjectileVector>? landings = null;
+        if (p.Lobbed && SpectreShoulderMortar(a.Effect) && GolemStat(a.Stats, Stat.ProjectileSpreadRadius) is > 0 and var scatter)
+        {
+            var random = AreaRng(player);
+            var targets = new ProjectileVector[profile.Count];
+            for (int i = 0; i < targets.Length; i++)
+            {
+                double theta = random.NextDouble() * Math.PI * 2;
+                double radius = scatter * Math.Sqrt(random.NextDouble());
+                targets[i] = to + new ProjectileVector(radius * Math.Cos(theta), radius * Math.Sin(theta));
+            }
+            landings = targets;
+        }
         var offense = new ObjectProjectileOffense(a.Id, (s, contact) =>
         {
             if (!CurrentGameWork || player.Area.Monsters.GetValueOrDefault(contact.Target.Id) is not { Hostile: true } victim) return ProjectileHitResult.Miss;
             double at = Math.Max(AreaTime(player), contact.At / (double)ProjectileRuntime.QuantaPerSecond);
-            bool hit = GolemHitLocked(player, g, a, contact.Target.Id, victim, at);
+            double more = contact.Multiplier * (contact.Phase > 0 ? returnMore : 1);
+            bool hit = ResolveGolemHitLocked(player, g, a, contact.Target.Id, victim, at, more, !contact.IsArea);
             if (hit) s.Enqueue(() => PublishMinionOutcomes(player));
             return hit ? ProjectileHitResult.Hit : ProjectileHitResult.Miss;
         }) { Quiet = true, Presentation = MonsterProjectilePresentation(SkillsFor(player).Clips(p.Metadata), distance / profile.Speed) };
         session.Schedule(ProjectileRuntime.Time(now), () => CurrentGameWork && !player.Closed && !player.LeavingArea,
-            () => new(profile, owner, owner, 1, from, to) { Payload = offense });
+            () => new(profile, owner, owner, 1, from, to)
+            {
+                Payload = offense, ReturnAnchor = canReturn ? owner : null, ProjectileTargets = landings,
+                TargetSplit = (target, at) => player.Area.Monsters.GetValueOrDefault(target.Id) is { Hostile: true } victim
+                    ? MinionProjectileCurseStat(victim, Stat.ProjectilesHittingSelfSplitIntoX,
+                        at / (double)ProjectileRuntime.QuantaPerSecond) : 0
+            });
+    }
+
+    static int MinionProjectileCurseStat(SpawnedMonster target, uint stat, double now)
+    {
+        if (!target.HasCurses || target.Curses[stat] == 0) return 0;
+        target.Curses.Expire(now);
+        return target.Curses[stat];
     }
 
     static void GolemMeteorLocked(Player player, GolemState.Golem g, double now)
@@ -762,8 +1099,12 @@ public static partial class Game
                 if (!m.Hostile || m.Dead || m.Invulnerable || Dist(m.Walk.Position(now), centre) > hazard.Radius) continue;
                 if (hazard.Effect == 5908)
                 {
-                    if (now >= g.NextOrb && g.Abilities.FirstOrDefault(a => a.Effect == 5908) is { } orb)
-                    { GolemHitLocked(player, g, orb, id, m, now); g.NextOrb = now + 1; }
+                    if (now < hazard.Until && now >= hazard.NextDischarge
+                        && g.Abilities.FirstOrDefault(a => a.Effect == 5908) is { } orb)
+                    {
+                        GolemHitLocked(player, g, orb, id, m, now);
+                        hazard.NextDischarge = now + 1;
+                    }
                     continue;
                 }
                 if (hazard.Wither && now >= hazard.Carry.GetValueOrDefault(id, double.NegativeInfinity))
@@ -782,7 +1123,7 @@ public static partial class Game
                 if (damage <= 0 || ApplyTypedMonsterHitLocked(player, m, damage, hazard.Type == DamageType.Chaos ? damage : 0, allyAt: centre) is not { } hit) continue;
                 if (hit.StageStarts) { CommitBossStage(player, id, m, now); hit = hit with { StageStarts = false }; }
                 CommitMinionHitLocked(player, id, m, hit, damage, now, $"golem {g.Id:x} ground damage",
-                    source: g.Monster, skill: g.Own);
+                    source: g.Monster, skill: g.Own, fighter: g, damageOverTime: true);
             }
             if (now >= hazard.Until)
             {

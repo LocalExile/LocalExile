@@ -194,17 +194,22 @@ public static partial class Game
     // "Flasks gain # charges every 3 seconds" (FlaskCharges.PerThreeSeconds: every flask, utility, life, life on low life,
     // mana), every 3 s of the area's frames (a pause holds them) while the player's updates run.
     static void StartFlaskChargeRegen(Player player, PlayerUpdatesState updates) =>
-        EveryAsPlayer(player, 3000, () => PlayerUpdatesCurrent(player, updates), player =>
-        {
-            if (player.PlayerLife == 0) return Task.CompletedTask;
-            var character = CharacterPlayerStats(player);
-            int Get(uint key) => character.GetValueOrDefault(key);
-            bool lowLife = FlaskRecovery.LowLife(player.PlayerLife, player.PlayerMaxLife);
-            return GainFlaskCharges(player, (f, _) => ItemsFor(player).ByHash(f.Item.TypeHash) is not { } t ? 0
-                : FlaskCharges.PerThreeSeconds(Get, life: ItemsFor(player).FlaskOf(t)?.LifePerUse > 0, mana: ItemsFor(player).FlaskOf(t)?.ManaPerUse > 0,
-                    utility: ItemsFor(player).UtilityFlaskOf(t) is not null, lowLife),
-                "every 3 seconds");
-        });
+        EveryAsPlayer(player, 3000, () => PlayerUpdatesCurrent(player, updates), GainPeriodicFlaskCharges);
+
+    internal static Task GainPeriodicFlaskCharges(Player player)
+    {
+        if (player.PlayerLife == 0) return Task.CompletedTask;
+        var character = CharacterPlayerStats(player);
+        int alchemist = player.Summons.Fighters.Values.Any(f => f.Definition.Kind == "Spectre"
+            && f.Monster.Variety?.Id == "Metadata/Monsters/LeagueAzmeri/SpecialCorpses/FlaskloverHigh"
+            && !f.Monster.Dead && f.Monster.Life > 0 && GolemCurrent(player, f)) ? 1 : 0;
+        int Get(uint key) => character.GetValueOrDefault(key) + (key == Stat.LifeFlaskChargesRecoveredPer3Seconds ? alchemist : 0);
+        bool lowLife = FlaskRecovery.LowLife(player.PlayerLife, player.PlayerMaxLife);
+        return GainFlaskCharges(player, (f, _) => ItemsFor(player).ByHash(f.Item.TypeHash) is not { } t ? 0
+            : FlaskCharges.PerThreeSeconds(Get, life: ItemsFor(player).FlaskOf(t)?.LifePerUse > 0, mana: ItemsFor(player).FlaskOf(t)?.ManaPerUse > 0,
+                utility: ItemsFor(player).UtilityFlaskOf(t) is not null, lowLife),
+            "every 3 seconds");
+    }
 
     // Cinderswallow Urn: the ignited corpses consumed since the last time (NoteCorpseConsumedLocked marks it), as a stat
     // presentation.

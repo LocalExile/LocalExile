@@ -70,10 +70,13 @@ public static partial class Game
             || !player.Area.Monsters.TryGetValue(targetId, out var current) || !ReferenceEquals(current, t)) return null;
         var at = m.Walk.Position(now);
         if (checkReach && Dist(at, t.Walk.Position(now)) > MinionReach(a, t) + 2) return null;
-        int hitAccuracy = accuracy ?? m.Mods.Effects.Accuracy(Monsters.BaseAccuracy(m.Level) ?? 0);
-        int evasion = UnderBlind(player, targetId, t.Mods.Effects.Evasion(Monsters.BaseEvasion(t.Level) ?? 0));
-        if (!DamageModel.Hits(DamageModel.AccuracyHitChance(evasion, hitAccuracy), random.Next(100)) || MonsterBlocks(t, random, spell: false))
-            return null;
+        if (!TauntPreventsAttackEvasion(player, t, now))
+        {
+            int hitAccuracy = accuracy ?? m.Mods.Effects.Accuracy(Monsters.BaseAccuracy(m.Level) ?? 0);
+            int evasion = UnderBlind(player, targetId, t.Mods.Effects.Evasion(Monsters.BaseEvasion(t.Level) ?? 0));
+            if (!DamageModel.Hits(DamageModel.AccuracyHitChance(evasion, hitAccuracy), random.Next(100))) return null;
+        }
+        if (MonsterBlocks(t, random, spell: false)) return null;
         var supported = BeastSupportedAttack(player, id, m, a, now);
         var offense = supported?.Attack.Damage ?? a.Damage;
         // A minion the player summoned takes his minion modifiers; a shrine's ally is not his to scale (GGG: "You are not
@@ -85,8 +88,10 @@ public static partial class Game
         if (supported is not null && player.Beasts.Active is { } companion)
             offense = offense.Scale(MeatShieldDamage(player, companion.SkillStats, t, now));
         var mitigated = DamageModel.Mitigate(offense.Roll(random), type => MonsterHitResistance(t, type, default, now));
-        int damage = MonsterTakesMitigated(t, mitigated, spell: false, now: now);
-        if (ApplyTypedMonsterHitLocked(player, t, damage, MonsterHitChaosDamage(t, mitigated, false, now, damage), allyAt: at) is not { } hit) return null;
+        bool ignorePhysical = MinionIgnoresPhysicalReduction(mitigated, m.Effects, t, random, supported?.Stats);
+        int damage = MonsterTakesMitigated(t, mitigated, spell: false, now: now, ignorePhysicalReduction: ignorePhysical);
+        int chaosDamage = MonsterHitChaosDamage(t, mitigated, false, now, damage, ignorePhysicalReduction: ignorePhysical);
+        if (ApplyTypedMonsterHitLocked(player, t, damage, chaosDamage, allyAt: at) is not { } hit) return null;
         if (!t.Dead && damage > 0 && supported is not null && player.Beasts.Active is { } beast)
             MinionExposureOnHitLocked(beast.SkillStats, t, mitigated, now, random);
         return (hit, damage, HitCode(mitigated));
@@ -176,10 +181,11 @@ public static partial class Game
                             HitAngle(to.X - at.X, to.Y - at.Y)),
                             $"0x01af minion 0x{id:x} hit on monster 0x{target.Id:x}", target.Id, target.Monster, WorldId: id));
                         bool owned = player.Minions.Owns(id, m);
-                        IReadOnlyDictionary<uint, int>? skill = owned ? OwnedFighter(player, id)?.Own : null;
+                        var fighter = owned ? OwnedFighter(player, id) : null;
+                        IReadOnlyDictionary<uint, int>? skill = fighter?.Own;
                         if (owned && skill is null && player.Beasts.Active is { } beast && beast.Id == id) skill = beast.SkillStats;
                         CommitMinionHitLocked(player, target.Id, target.Monster, accepted.Hit, accepted.Damage, now,
-                            $"minion 0x{id:x} ({m.Label})", source: owned ? m : null, skill: skill);
+                            $"minion 0x{id:x} ({m.Label})", source: owned ? m : null, skill: skill, fighter: fighter);
                     }
                     break;
                 }

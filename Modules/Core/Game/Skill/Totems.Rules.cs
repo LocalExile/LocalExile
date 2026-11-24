@@ -582,7 +582,7 @@ public static partial class Game
         {
             if (session.Active && ReferenceEquals(lifetime, CombatLifetime) && !player.Closed
                 && totem.Alive(session.Runtime.Now / (double)ProjectileRuntime.QuantaPerSecond))
-                TotemNovaLocked(player, session, totem, strike, sequence);
+                TotemNovaLocked(player, session, totem, totem.At, strike.Radius, sequence);
         });
     }
 
@@ -635,8 +635,8 @@ public static partial class Game
     // (TotemCasterStats: Ancestral Bond's "no damage yourself" is the owner's, not the totem's), in the Arc totem's steps
     // (ArcTotems.cs): block, crit, penetration, the 0x1af, ailments. The totem's kills give the player their experience
     // but are not his for his on-kill effects.
-    static void TotemNovaLocked(Player player, ProjectileSession session, TotemState.Totem totem, TotemState.Strike strike,
-        ushort sequence)
+    static void TotemNovaLocked(Player player, ProjectileSession session, TotemState.Totem totem,
+        (int X, int Y) centre, double radius, ushort sequence, bool hitSummon = false)
     {
         double now = session.Runtime.Now / (double)ProjectileRuntime.QuantaPerSecond;
         var skill = SupportedSkill(player, totem.SkillId);
@@ -652,7 +652,7 @@ public static partial class Game
         {
             var targetAt = m.Walk.Position(now);
             if (!TotemTargetable(m) || MonsterAsleep(player, id)
-                || Dist(targetAt, totem.At) > strike.Radius || MonsterBlocks(m, AreaRng(player), spell: true)) continue;
+                || Dist(targetAt, centre) > radius || MonsterBlocks(m, AreaRng(player), spell: true)) continue;
             var rolled = WithConditionalSupportDamageLocked(player, skill.Stats, false, m,
                 GameEvents.WithOutgoingDamage(player, caster, m, hit.Roll(AreaRng(player))), now);
             int chance = CriticalChanceOn(player, id, SupportedCriticalChance(player, totem.SkillId),
@@ -664,6 +664,8 @@ public static partial class Game
             int chaosDamage = MonsterHitChaosDamage(m, mitigated, spell: true, now, damage);
             if (ApplyMonsterHitLocked(player, m, damage, null, null, allyAt: totem.At, default, null, chaosDamage) is not { } accepted) continue;
             if (accepted.StageStarts) { CommitProjectileBossStage(session, id, m, session.Runtime.Now); accepted = accepted with { StageStarts = false }; }
+            if (hitSummon)
+                HitSummonsOnHitLocked(player, m, skill.Stats, totem.SkillId, now, AreaRng(player), playerConsumesCorpse: false);
             if (!m.Dead && damage > 0)
                 AilmentsOnHitLocked(player, id, m, mitigated, true, crit, 100, caster, skill.Stats, now, AreaRng(player),
                     blind: blind, hitOrigin: totem.At, attackerSize: totem.BodySize, attackerHasReversedStat: false);

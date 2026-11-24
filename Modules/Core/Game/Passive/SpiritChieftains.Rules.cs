@@ -1,5 +1,6 @@
 using System.Net.Sockets;
 using System.Text.Json;
+using GameServer.Core.World;
 using GameServer.Core.Protocol.Instance;
 using GameServer.Core.Protocol.Login;
 
@@ -120,25 +121,53 @@ public static partial class Game
     static bool TriggerSpiritChieftainLocked(Player player, uint trigger, IReadOnlyDictionary<uint, int> stats)
     {
         if (!CurrentGameWork) return false;
-        double now = AreaTime(player);
         foreach (var grant in TriggeredGrantsLocked(player, trigger))
-        {
-            var own = SkillsFor(player).EffectStats(grant.Effect, grant.Level).ToDictionary(s => s.Item1, s => s.Item2);
-            if (SpiritChieftains.LeadershipOf(own) is not { } leadership
-                || SingleUseCooldown.ForSkill(SkillsFor(player), Stats, grant.Effect, grant.Level, stats, own) is not { } plan) continue;
-            int Player(uint key) => stats.GetValueOrDefault(key);
-            int Own(uint key) => own.GetValueOrDefault(key);
-            double seconds = SkillDurationModifiers.Seconds(Own(Stat.BaseSkillEffectDuration), Player, Own, minion: true);
-            if (!player.SpiritChieftains.TryTrigger(now, plan, leadership.Row, leadership.Stats, seconds)) continue;
-            // The chieftain at the player's level up to the skill's maximum (minion_actor_level_is_user_level_up_to_maximum).
-            if (leadership.Minion is int minion)
-                player.SpiritChieftains.Pending = new(grant.EffectId, minion,
-                    (byte)Math.Clamp(Math.Min(player.Pools.Level, Own(Stat.MinionActorLevelIsUserLevelUpToMaximum)), 1, 100), now + seconds);
-            Console.WriteLine($"[gateway] {CharacterName(player)}: {grant.EffectId} triggered ({trigger}): buff {leadership.Row} "
-                + $"for {seconds:0.##} s, cooldown {plan.BaseMilliseconds} ms at {plan.RecoveryRate:0.##}x after it");
-            return true;
-        }
+            if (StartSpiritChieftainLocked(player, grant.EffectId, grant.Effect, grant.Level, trigger, stats)) return true;
         return false;
+    }
+
+    public static void AkoyaItemOnKill(KillContext kill)
+    {
+        var player = kill.Player;
+        if (!CurrentGameWork || !kill.PlayerKill || !kill.Monster.Hostile || player.PlayerLife == 0
+            || player.Closed || player.LeavingArea) return;
+        const uint trigger = Stat.ChanceToGainTukohamasEmbracePctOnKill;
+        var stats = CharacterPlayerStats(player);
+        int chance = stats.GetValueOrDefault(trigger);
+        if (chance <= 0) return;
+        var equipment = ItemsOf(player).EquipmentSnapshot();
+        foreach (var grant in AllWornGrantedSkillsOf(player, equipment))
+        {
+            if (grant.ModId != "TukohamasEmbraceOnKillUnique__1" || grant.EffectId != "TriggerSummonedAncestorAkoya"
+                || !WornSupportedSkill(player, grant, equipment, null).RequirementsMet) continue;
+            if (RandomRolls.Chance(chance, 100, AreaRng(player))
+                && StartSpiritChieftainLocked(player, grant.EffectId, grant.Effect, grant.Level, trigger, stats))
+                kill.Later(() => SendSpiritChieftain(player));
+            return;
+        }
+    }
+
+    static bool StartSpiritChieftainLocked(Player player, string skill, int effect, int level, uint trigger,
+        IReadOnlyDictionary<uint, int> stats)
+    {
+        double now = AreaTime(player);
+        var own = SkillsFor(player).EffectStats(effect, level).ToDictionary(s => s.Item1, s => s.Item2);
+        if (SpiritChieftains.LeadershipOf(own) is not { } leadership
+            || SingleUseCooldown.ForSkill(SkillsFor(player), Stats, effect, level, stats, own) is not { } plan) return false;
+        int Player(uint key) => stats.GetValueOrDefault(key);
+        int Own(uint key) => own.GetValueOrDefault(key);
+        double seconds = SkillDurationModifiers.Seconds(Own(Stat.BaseSkillEffectDuration), Player, Own, minion: true);
+        long effectPct = 100L + (long)Own(Stat.AncestralEmbraceEffectPlusPctPerTukohamaTattoo) * Player(Stat.NumTukohamaTattoos);
+        var bonuses = effectPct == 100 ? leadership.Stats : leadership.Stats
+            .Select(stat => (stat.Stat, ActorScale.Saturate((long)(stat.Value * (double)effectPct / 100)))).ToArray();
+        if (!player.SpiritChieftains.TryTrigger(now, plan, leadership.Row, bonuses, seconds)) return false;
+        // The chieftain at the player's level up to the skill's maximum (minion_actor_level_is_user_level_up_to_maximum).
+        if (leadership.Minion is int minion)
+            player.SpiritChieftains.Pending = new(skill, minion,
+                (byte)Math.Clamp(Math.Min(player.Pools.Level, Own(Stat.MinionActorLevelIsUserLevelUpToMaximum)), 1, 100), now + seconds);
+        Console.WriteLine($"[gateway] {CharacterName(player)}: {skill} triggered ({trigger}): buff {leadership.Row} "
+            + $"for {seconds:0.##} s, cooldown {plan.BaseMilliseconds} ms at {plan.RecoveryRate:0.##}x after it");
+        return true;
     }
 
     // The running Leadership's stats join the player's (CharacterPlayerStatsCore), while he lives.
@@ -213,6 +242,11 @@ public static partial class Game
         }
         if (bytes.Count > 0) await Send(player, [.. bytes], "0x01b1/0x02bd chieftain minion ends");
         if (!CurrentGameWork || summon is null || now >= summon.Until) return;
+        if (!DarkMonarchAllows("SpiritChieftain", StatSourceValues(player)))
+        {
+            if (ReferenceEquals(player.SpiritChieftains.Pending, summon)) player.SpiritChieftains.Pending = null;
+            return;
+        }
         if (Monsters.Find(summon.Variety.ToString()) is not { Supported: true } variety)
         {
             Console.WriteLine($"[gateway] {CharacterName(player)}: {summon.Skill}: MonsterVarieties row {summon.Variety} cannot be created");
@@ -237,7 +271,7 @@ public static partial class Game
                 player.Minions.Add(new(id, m, summon.Skill, variety.Name)
                     { Until = summon.Until, Fights = true, SpiritChieftain = true });
             }, ownedCurrent: () => player.PlayerLife > 0 && ReferenceEquals(player.SpiritChieftains.Pending, summon)
-                && AreaTime(player) < summon.Until);
+                && AreaTime(player) < summon.Until && DarkMonarchAllows("SpiritChieftain", StatSourceValues(player)));
         if (!CurrentGameWork) return;
         Console.WriteLine($"[gateway] {CharacterName(player)}: {summon.Skill} summons {variety.Name} at level {summon.Level} for "
             + $"{summon.Until - now:0.##} s");
