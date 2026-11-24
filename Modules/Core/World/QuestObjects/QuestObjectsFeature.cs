@@ -223,7 +223,7 @@ static class QuestObjectsFeature
         uint opened = OpenedNestFirstId + (uint)index;
         lock (player.GlyphNests) { player.GlyphNests.Remove(id); player.GlyphNests[opened] = nest; }
         player.RemoveBlocker(id);
-        player.SetBlocker(opened, at.X, at.Y, GlyphQuest.NestSize);
+        player.SetObjectBlocker(opened, at.X, at.Y, GlyphQuest.NestSize, QuestObjectTypes.Find(nest.Type)?.ActorOrChest ?? true);
         await global::Game.SendWorldRemoval(player, id, null);
         await global::Game.SendWorldCreate(player, opened, () => InstanceEntities.CreateObject(opened, InstanceEntities.ObjectTypeHash(nest.Type), GlyphQuest.NestBlob(at, true)),
             $"0x02bb opened Rhoa Nest 0x{opened:x} (was 0x{id:x})", wake: true, awaitBirth: false);

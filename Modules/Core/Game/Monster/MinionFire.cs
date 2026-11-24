@@ -101,11 +101,14 @@ public static partial class Game
             int damage = (int)Math.Min(int.MaxValue, Math.Floor(total));
             state.Carry[id] = (target, total - Math.Floor(total));
             if (damage == 0) continue;
-            (target.Life, bool stageStarts) = TakeOwnerDamageLocked(player, target, damage);
+            int lifeDamage = ApplyMonsterDotEnergyShieldLocked(player.Area, target, damage, chaos: false, AreaTime(player));
+            bool stageStarts = false;
+            if (lifeDamage > 0) (target.Life, stageStarts) = TakeOwnerDamageLocked(player, target, lifeDamage);
             target.Aggro = target.Life > 0;
             if (target.Life == 0)
             {
                 target.Dead = true;
+                CleanupDeadMonsterLocked(player.Area, id, target);
                 CollectVaalSoulAtDeathLocked(player, target);
                 OwnedKillLocked(target, 0);
                 TriggerElementalRelicLocked(player, target, hit: false, killed: true, field.At);

@@ -170,6 +170,7 @@ public static partial class Game
         sources = WithLinks(player, GameEvents.WithPlayerStatSources(player, WithQuestStats(player, WithAntiquarian(player, WithFortification(player, WithCharges(player, WithSupportGemBuffs(player, sources))), equipment, inactive))));
         // The stat buffs on the player's entity in its area (AreaStatBuffs): sources like any other, so the pools have them.
         if (player.Frames.Area is { } statArea) statArea.AddStatBuffs(new EntityId(player.Id), sources);
+        AddWarcryStats(player, sources);
         sources = WithSummonBuffs(player, sources);
         sources = WithRighteousFireSpellBonus(player, sources);
         sources = WithSpreadPoisonRegeneration(player, sources);
@@ -1131,7 +1132,7 @@ public static partial class Game
             Evasion = bonus.Evasion + aura.Evasion,
             // Discipline is a global flat ES source, added after equipment ES-to-Life conversion.
             EnergyShield = (int)Math.Min(int.MaxValue, (long)bonus.EnergyShield + aura.EnergyShield),
-            ArmourMorePct = aura.ArmourMorePct,
+            ArmourMorePct = (100m + aura.ArmourMorePct) * (100m + EquipmentInput(Stat.ArmourPlusPctFinalFromSeismicCryBuff)) / 100m - 100m,
             EvasionMorePct = aura.EvasionMorePct,
             CriticalStrikeChancePct = attackIncrease,
             SpellCriticalStrikeChancePct = spellIncrease,
@@ -2205,9 +2206,9 @@ public static partial class Game
     public static (List<byte[]> Packets, bool Leveled) CommitGemExperience(Player player, uint gain,
         List<(byte Row, uint[] Items)>? projectRows = null)
     {
-        if (HardcoreProgressBlocked(player)) return ([], false);
-        int share = LeagueFor(player).Rules.GemExperienceMultiplier is { } gemShare ? LeagueGameplay.GemExperience(gain, gemShare,
-            ref player.Character.GemExperienceCarry) : (int)Math.Min(gain / 10, int.MaxValue);
+        if (gain == 0 || HardcoreProgressBlocked(player)) return ([], false);
+        double gemShare = LeagueFor(player).Rules.GemExperienceMultiplier ?? 1.0;
+        int share = LeagueGameplay.GemExperience(gain, gemShare, ref player.Character.GemExperienceCarry);
         if (share == 0) return ([], false);
         var items = ItemsOf(player);
         var catalog = ItemsFor(player);

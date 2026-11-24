@@ -664,6 +664,9 @@ public static partial class Game
         int baseSpeed = offHand is null ? WeaponFor(player).IncreasedAttackSpeed(stats)
             : SkillCatalog.Unarmed.OffHandAttackSpeedPct(stats.GetValueOrDefault(Stat.MainHandAttackSpeedPlusPct),
                 WeaponProfileFor(player, activeSet: true).LocalAttackSpeedPct);
+        if (!clampToTick && offHand is not null)
+            return (SkillAttackTiming.Seconds(offHand.AttackMs, baseSpeed, more,
+                actionSpeed: proxy ? 1 : PlayerActionFactor(player), clampToTick: false), baseSpeed, more);
         double seconds = offHand is null ? WeaponFor(player).AttackSeconds(stats) : DualWieldPanel.OffHandSeconds(offHand, baseSpeed);
         // Preserve the zero-additional-time path's existing minimum and integer final-speed rounding.
         double paced = seconds * Math.Max(.01, 1 + baseSpeed / 100.0)

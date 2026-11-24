@@ -857,6 +857,8 @@ public static partial class Game
                 resonance.Penetration, gambler.InvertsResistance(random), random, trapOrMine: shot.FromTrapOrMine,
                 additionalTakenPct: additionalTaken);
             if (critical) damage = DamageModel.CriticalDamage(damage, multiplier);
+            int chaosDamage = MonsterHitChaosDamage(target, mitigated, shot.Spell, at, damage,
+                additionalTakenPct: additionalTaken + (shot.FromTrapOrMine ? BearTrapDamageTaken(target, at) : 0));
             bool immune = target.Invulnerable;
             LeechOnHitTargetLocked(Player, target, MonsterTakenComponents(target, mitigated, shot.Spell, at), damage,
                 shot.Leech, contact.Target.Id);
@@ -868,9 +870,10 @@ public static partial class Game
                 damage = ImpaleStats.AddReflected(damage, MonsterImpaleDamage(target, stored, at));
             }
             uint lifeBefore = target.Life;
-            var hit = ApplyMonsterHitLocked(Player, target, damage, playerStats: player,
+            var hit = ApplyMonsterHitLocked(Player, target, damage, rampageSource: null, playerStats: player,
+                allyAt: shot.ActualCaster is null ? null : ((int)contact.Projectile.Use.Origin.X, (int)contact.Projectile.Use.Origin.Y),
                 cull: Cull.Of(player, shot.SkillStats, critical, shot.Spell).WithWeapon(weaponLocal),
-                allyAt: shot.ActualCaster is null ? null : ((int)contact.Projectile.Use.Origin.X, (int)contact.Projectile.Use.Origin.Y));
+                cullPlayer: null, chaosDamage: chaosDamage);
             if (hit is null) return ProjectileHitResult.Miss;
             if (canGainResonance && !immune && hit.Value.Life < lifeBefore)
                 RecordResonanceHitLocked(Player, target, shot.SkillStats, rolled, at);

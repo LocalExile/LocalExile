@@ -145,7 +145,7 @@ public sealed class HeistCacheEncounter
                     if (player.Area.Objects.Has(box.Id)) box.Shown = player.Area;
                     else { box.Id = WorldOf(player).NewObjectId(); await Present(player, box); Save(player, state); }
                 }
-                WorldOf(player).SetBlocker(box.Id, box.Cell.X, box.Cell.Y, HeistCacheTables.BoxSize);
+                player.SetObjectBlocker(box.Id, box.Cell.X, box.Cell.Y, HeistCacheTables.BoxSize, true);
             }
         }
         finally { state.Gate.Release(); }
@@ -178,7 +178,7 @@ public sealed class HeistCacheEncounter
     {
         var world = WorldOf(player);
         if (box.Id == 0) box.Id = world.NewObjectId();
-        world.SetBlocker(box.Id, box.Cell.X, box.Cell.Y, HeistCacheTables.BoxSize);
+        player.SetObjectBlocker(box.Id, box.Cell.X, box.Cell.Y, HeistCacheTables.BoxSize, true);
         bool opened = box.Stage == "open";
         // CreateInWakeZone already appends the wake bytes, so no wake: true here or the wake goes out twice. The factory
         // builds the bytes afresh for each client.

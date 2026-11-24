@@ -47,7 +47,7 @@ public static partial class Game
         float rotation, string? editorKey = null, string? model = null)
     {
         var (size, hull) = StationaryCollision.Resolve(type, model);
-        if (size >= 0) player.SetBlocker(id, x, y, size, hull);
+        if (size >= 0) player.SetObjectBlocker(id, x, y, size, QuestObjectTypes.Find(type)?.ActorOrChest == true, hull);
         else player.RemoveBlocker(id);
         if (StationaryCollision.For(type).BlockingLeagueFlag == "HaveGuild"
             && player.Character.LeagueQuestFlags.Add(Quests.League.HaveGuild))

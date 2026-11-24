@@ -315,10 +315,13 @@ public static partial class Game
         double factor = MonsterDamageTaken(m, spell, now, hit: true) * (critical ? criticalMultiplier / 100.0 : 1);
         int Player(uint key) => playerStats.GetValueOrDefault(key);
         int Skill(uint name) => skill is not null && name is var key ? skill.GetValueOrDefault(key) : 0;
-        // The physical part counts after the monster's physical reduction and its Maim, as the hit's damage does.
+        // The physical part counts after the monster's armour + physical reduction and its Maim, as the hit's damage does.
+        double physRaw = mitigated[DamageType.Physical].Min;
+        double physReduction = HitMitigation.PhysicalReduction(Monsters, m, physRaw,
+            m.Effects.PhysicalReduction - CrushReduction(m, now), MonsterArmourEnabled);
         var taken = mitigated.Select((type, range) => range.Scale(factor
             * (type == DamageType.Physical
-                ? Math.Max(0, 1 - (m.Effects.PhysicalReduction - CrushReduction(m, now)) / 100.0)
+                ? Math.Max(0, 1 - physReduction / 100.0)
                     * (1 + MaimedPhysicalTaken(m, now) / 100.0) : 1)));
         bool tinctureWeapon = !spell && Player(Stat.TinctureApplied) != 0;
         int frozenShock = spell && m.Ailments.Magnitude(Kind.Freeze, now) > 0
@@ -342,7 +345,11 @@ public static partial class Game
                 _ => value,
             };
         }
-        var added = m.Ailments.Inflict(taken, critical, m.MaxLife, now, Attacker, name => m.Effects[name], random,
+        double thresholdScale = MonsterAilmentThresholdScaling;
+        long ailmentThreshold = thresholdScale > 0 && m.Variety is not null
+            ? Math.Max(1L, (long)Math.Round(Monsters.AilmentThreshold(m.Variety, m.Level, m.MaxLife) * thresholdScale))
+            : m.MaxLife;
+        var added = m.Ailments.Inflict(taken, critical, (uint)Math.Min(uint.MaxValue, ailmentThreshold), now, Attacker, name => m.Effects[name], random,
             AilmentArea(Player, Skill, spell));
         // Scorch, Brittle and Sap (MonsterAlternateAilments): only from a source, after chill, freeze and shock's draws.
         var alternate = AlternateAilmentsOnHitLocked(m, taken, critical, now, Attacker, random);
