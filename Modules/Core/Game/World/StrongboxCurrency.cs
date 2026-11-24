@@ -38,13 +38,17 @@ public static partial class MapStrongboxes
         foreach (byte row in CurrencyRows)
             if (items.Items(row).FirstOrDefault(i => i.Item.TypeHash == req.TypeHash && items.RowOf(i.Id) == row) is { } stack)
                 return UseItemOnCore(player, new(PlayerInventories.InventoryId(row), stack.Id, req.TargetObjectId), "0x0079");
-        if (StashOf(player) is { } stash)
+        if (OpenStash(player) is { } stash)
             for (int tab = 0; tab < stash.Count; tab++)
-                if (stash.Inventory(tab).Items.FirstOrDefault(i => i.Item.TypeHash == req.TypeHash) is { } stashStack)
+                if (stash.IsShownTab(tab) && !stash.IsPublic(tab)
+                    && stash.Inventory(tab).Items.FirstOrDefault(i => i.Item.TypeHash == req.TypeHash) is { } stashStack)
                     return UseItemOnCore(player, new(stash.InventoryOf(tab), stashStack.Id, req.TargetObjectId), "0x0079");
         Console.WriteLine($"[map-content] {player.Connection.Remote} <= 0x0079 type 0x{req.TypeHash:x8} on strongbox 0x{req.TargetObjectId:x}: none left in inventory or stash");
         return Task.FromResult(true);
     }
+
+    static AccountStash? OpenStash(Player player) =>
+        player.StashOpen || (player.GuildStashOpen && !player.Character.Ssf) ? StashOf(player) : null;
 
     static async Task<bool> UseItemOnCore(Player player, InstanceItems.UseItemOnObject use, string opcode)
     {
@@ -61,7 +65,8 @@ public static partial class MapStrongboxes
             && items.Items(PlayerInventories.Cursor).FirstOrDefault(i => i.Id == use.ItemId) is { } hi)
         { row = PlayerInventories.Cursor; fromChar = true; used = hi; }
         AccountStash? stash = null; int stashTab = -1;
-        if (used is null && StashOf(player) is { } s && s.TabOf(use.InventoryId) is int t
+        if (used is null && OpenStash(player) is { } s && s.TabOf(use.InventoryId) is int t
+            && !s.IsPublic(t)
             && s.Inventory(t).Items.FirstOrDefault(i => i.Id == use.ItemId) is { } si) { stash = s; stashTab = t; used = si; }
         if (used is null)
         {
