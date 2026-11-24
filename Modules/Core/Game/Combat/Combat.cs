@@ -1560,7 +1560,8 @@ public static partial class Game
             return await CastMinionUtility(player, skillId, to, targetId, recoveryGeneration, Current);
         if (gem.Name is not null && !IsTotemSkill(player, skillId) && GolemData.Find(SkillsFor(player).EffectId(gem.Effect)) is { } golem)
             return await CastGolem(player, skillId, golem, to, recoveryGeneration, Current);
-        if (gem.Name is not null && !IsTotemSkill(player, skillId) && SkillsFor(player).EffectId(gem.Effect) == "LightningWarp")
+        if (gem.Name is not null && !IsTotemSkill(player, skillId)
+            && SkillsFor(player).EffectId(gem.Effect) is "LightningWarp" or VaalLightningWarpEffect)
             return CompleteSupportedUse(ScheduleLightningWarp(player, gem, to, Current, criticalRoll));
         if (gem.Name is not null && SkillsFor(player).EffectId(gem.Effect) == ShaperMemoryEffect)
             return CompleteSupportedUse(await CastShaperMemory(player, skillId, to, Current));
@@ -1622,7 +1623,7 @@ public static partial class Game
     static void RecordAcceptedGemUse(Player player, int effect, (int X, int Y) aim) =>
         RecordAcceptedGemUseAt(player, effect, aim, AreaTime(player));
 
-    static void RecordAcceptedGemUseAt(Player player, int effect, (int X, int Y) aim, double acceptedAt)
+    internal static void RecordAcceptedGemUseAt(Player player, int effect, (int X, int Y) aim, double acceptedAt)
     {
         RecordUsedSkillLocked(player, acceptedAt);
         bool movement = SkillsFor(player).IsMovement(effect);
@@ -1638,6 +1639,7 @@ public static partial class Game
         if (SkillsFor(player).IsBrand(effect))
             RecordBrandSkillUsedLocked(player, acceptedAt);
         SpiritBurstOnSkillUse(player, aim, acceptedAt);
+        TriggerCraftedWeaponSpells(player, aim, acceptedAt);
     }
 
     // Lockstep instant replies join the ordinary action sequence. At 0x14219c1f0, flag 0x100 reaches
@@ -1801,6 +1803,52 @@ public static partial class Game
         foreach (var centre in new[] { from, to })
             await AreaSkillHit(player, gem.Id, gem, centre, centre,
                 immediate: true, cooldownUse: use, criticalRoll: crit, sacrifice: sacrifice);
+    }
+
+    static async Task FrostblinkWintryBlastCast(Player player, ushort skillId,
+        (ushort Id, int Effect, string Name, int Level, int Quality, uint Gem) gem, (int X, int Y) aim, uint? targetId,
+        int repeat, int? actionToken, CooldownUseTicket? cooldownUse, SkillCriticalRoll? criticalRoll,
+        SacrificeUse sacrifice, double repeatDelay, double damageMore, double? swingAt)
+    {
+        int? castDuration = CastMs(player, gem.Effect, skillId);
+        if (castDuration is null) return;
+        double delay = castDuration.Value / 1000.0
+            * (repeat + Animations.SpellAreaRelease(SkillsFor(player).ClassFor(player.Character.ClassRow).AnimatedObject))
+            + repeatDelay;
+        if (swingAt is { } swung) delay -= AreaTime(player) - swung;
+        await AreaDelay(player, Math.Max(0.05, delay));
+        await WhilePaused(player);
+        (int X, int Y) origin, landing;
+        using (ProjectileMutation(player))
+        {
+            if (player.Closed || player.LeavingArea || player.PlayerLife <= 0 || InTown(player)) return;
+            if (cooldownUse is not null ? !cooldownUse.Current(player) : actionToken is int token && player.ActionCount != token)
+                return;
+            double now = ProjectileWorldTime(player);
+            origin = player.Walk.Position(now);
+            var own = SupportedSkill(player, skillId).Stats;
+            var playerStats = CharacterPlayerStats(player);
+            int travelPct = GolemStat(own, Stat.SkillMaximumTravelDistancePlusPct)
+                + GolemStat(playerStats, Stat.SkillMaximumTravelDistancePlusPct);
+            var resolvedAim = aim;
+            if (targetId is uint tid && player.Area.Monsters.TryGetValue(tid, out var target)
+                && !target.Dead && target.Life > 0 && target.Variety is { ObjectSize: >= 1 and <= 128 } variety)
+            {
+                var targetPos = target.Walk.Position(now);
+                if (InstantLocationSkill.ObjectAim(origin, targetPos, 1, variety.ObjectSize - 1) is { } trace)
+                    resolvedAim = trace.End;
+                else
+                    resolvedAim = targetPos;
+            }
+            if (!InstantLocationSkill.TryResolveLanding(player, origin, resolvedAim, travelPct, allowTerrainFallback: true, out landing))
+                landing = origin;
+            if (landing != origin)
+                player.Walk.Teleport(landing.X, landing.Y, now);
+        }
+        foreach (var centre in landing != origin ? new[] { origin, landing } : new[] { origin })
+            await AreaSkillHit(player, skillId, gem, centre, centre, immediate: true,
+                actionToken: actionToken, cooldownUse: cooldownUse, criticalRoll: criticalRoll,
+                repeat: repeat, sacrifice: sacrifice, damageMore: damageMore);
     }
 
     // Aura skills toggle: the first cast reserves their mana and puts their buff on the player, the next cast turns them
@@ -2088,6 +2136,7 @@ public static partial class Game
         // Discharge: one use, one count of its charges, for every repeat and cascade area (DischargeUse).
         var discharge = DischargeUseFor(player, gem.Effect, gem.Level, gem.Quality);
         bool darkBargain = IsDarkBargain(player, gem.Effect);
+        bool wintryBlast = SkillsFor(player).EffectId(gem.Effect) == "FrostblinkAltX";
         // Storm Call sets a marker at every landing (each repeat and cascade area) that strikes later (StormCall.cs).
         bool stormCall = IsStormCall(SkillsFor(player).EffectId(gem.Effect));
         var firestorm = IsFirestorm(player, gem.Effect) && CastMs(player, gem.Effect, skillId) is int stormCast
@@ -2119,6 +2168,14 @@ public static partial class Game
             if (darkBargain)
             {
                 jobs.Add(DarkBargainCast(player, skillId, gem, to, repeat, actionToken, cooldownUse, criticalRoll, sacrifice, sealDelay, more));
+                continue;
+            }
+            // Frostblink of Wintry Blast (IceDash, 850 ms cast): teleports at the cast contact frame using the native
+            // 32/42-cell IceDash landing and hits both ends without creating chilled ground.
+            if (wintryBlast)
+            {
+                jobs.Add(FrostblinkWintryBlastCast(player, skillId, gem, to, targetId, repeat, actionToken, cooldownUse,
+                    criticalRoll, sacrifice, repeat * repeatInterval + sealDelay, more, swingAt));
                 continue;
             }
             void Hit((int X, int Y) centre) => jobs.Add(AreaSkillHitForUse(repeatRuthless, player, skillId, gem, from,
@@ -2585,7 +2642,7 @@ public static partial class Game
         // still lands in front of the player, and a sweep around it (MeleeAreaCentre); a self-targeted spell goes off
         // around the caster.
         var centre = IsSmite(gem.Effect) && singleStrikeTarget is null ? to
-            : wave || SkillsFor(player).EffectId(gem.Effect) == "VaalGroundSlam" ? from
+            : wave || SkillsFor(player).EffectId(gem.Effect) is "VaalGroundSlam" or "VaalSweep" ? from
             : spell ? SpellCentre(player, gem.Effect, from, to)
             : MeleeAreaCentre.Of(SkillsFor(player).ActionHash(gem.Effect), from, to, radius + MeleeSkillReach(player, weapon, gem.Effect, skillStats));
         int action = actionToken ?? cooldownUse?.ActionToken ?? player.ActionCount;
@@ -3014,6 +3071,12 @@ public static partial class Game
                     var taken = MonsterTakenComponents(m, mitigated, spell, at);
                     if (critical) damage = DamageModel.CriticalDamage(damage, multiplier);
                     double more = damageMore * bloodMore;
+                    int perChill = GolemStat(skillStats, global::Stat.FrostblinkDamagePlusPctFinalPer5PctChillEffectOnTarget);
+                    if (perChill > 0)
+                    {
+                        double chill = m.Ailments.Magnitude(MonsterElementalAilments.Kind.Chill, at);
+                        if (chill >= 5) more *= 1 + Math.Floor(chill / 5.0) * perChill / 100.0;
+                    }
                     if (ReferenceEquals(brandedTarget, m))
                         more *= Math.Max(0, 1 + GolemStat(skillStats, global::Stat.TriggerBrandSupportHitDamagePlusPctFinalVsBrandedEnemy) / 100.0);
                     if (splashMore.TryGetValue(id, out double splashScale)) more *= splashScale;
@@ -3099,6 +3162,8 @@ public static partial class Game
                             blind: BlindHitInput.Capture(playerStats, skillStats),
                             hitOrigin: IsLeapSlam(player, gem.Effect) ? centre : null,
                             attackGains: AttackAilmentGains.Capture(playerStats, SkillsFor(player).IsAttack(gem.Effect)));
+                        if (GolemStat(skillStats, global::Stat.RemoveChillOnEnemyWhenYouHit) != 0)
+                            m.Ailments.RemoveActive(MonsterElementalAilments.Kind.Chill, at);
                         if (scheduledSession is not null || (melee ?? !spell) || damage > 0)
                             nativeKnockback = TakeNativeKnockbackLocked(m);
                         // As a projectile's hit: a hit with fire that leaves the monster alive may ignite it, an attack with
