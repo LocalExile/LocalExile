@@ -118,7 +118,6 @@ public static partial class Game
                     Stat.MinionChaosResistancePct => Stat.BaseChaosDamageResistancePct,
                     Stat.MinionChanceToImpaleOnAttackHitPct => Stat.AttacksImpaleOnHitPctChance,
                     Stat.MinionSpellSuppressionChancePct => Stat.BaseSpellSuppressionChancePct,
-                    Stat.BaseMinionDotMultiplierPlus => Stat.DotMultiplierPlus,
                     _ => Stat.Of(name),
                 };
             }
