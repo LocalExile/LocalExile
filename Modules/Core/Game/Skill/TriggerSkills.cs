@@ -51,6 +51,8 @@ public static partial class Game
             return "this skill can only trigger on a linked melee attack's kill";
         if (GolemStat(gem.Stats, Stat.CastSpellWhileLinkedSkillChannelling) != 0)
             return "this skill can only trigger while a linked skill is channelled";
+        if (GolemStat(gem.Stats, Stat.UniqueCosprisMaliceColdSpellsTriggered) != 0)
+            return "this skill can only trigger on a melee critical strike with the item it is socketed in";
         if (GolemStat(gem.Stats, Stat.SkillTriggeredBySnipe) != 0)
             return "this skill can only be triggered by Snipe";
         if (GolemStat(gem.Stats, Stat.TriggerOnSkillUsePctIfYouHaveASpiritCharge) > 0)

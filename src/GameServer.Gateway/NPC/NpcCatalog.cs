@@ -167,21 +167,9 @@ public sealed class NpcCatalog
         [StashCatalog.MenagerieHub] = [new("Metadata/NPC/League/Bestiary/EinharMenagerie", 495, 485, 290 * MathF.PI / 180,
             Model: "Metadata/NPC/League/Bestiary/Einhar.ao")],
         // The Forbidden Sanctum (SanctumFoyer_Fellshrine): Divinia by the waypoint (126, 149), to be placed live with /npc_place.
-        // Kingsmarch (KalguuranSettlersLeague): its NPCs around the arrival (offsets, StashCatalog.FromArrival), to be placed
-        // live with /npc_place. Dannig, Faustus and Isla (Functions or ControlZone, which NpcObject now writes) come back
-        // with their live placement: their offsets are unchecked, and VillageFaustus has no currency exchange.
-        [StashCatalog.Kingsmarch] =
-        [
-            new("Metadata/NPC/League/Kalguur/VillageMayor", 0, -14, 4.0f),
-            new("Metadata/NPC/League/Kalguur/VillageTujen", 10, -12, 4.0f),
-            new("Metadata/NPC/League/Kalguur/VillageGwennen", -10, -12, 4.0f),
-            new("Metadata/NPC/League/Kalguur/VillageRog", 14, -4, 4.0f),
-            new("Metadata/NPC/League/Kalguur/VillageFarmer", 8, 14, 4.0f),
-            new("Metadata/NPC/League/Kalguur/VillageRecruiter", -8, 14, 4.0f),
-        ],
-        // The Rogue Harbour (HeistHub) is a TownNpcs room: its hub room names its NPCs.
-        // The Monastery of the Keepers (ChayulaLeague): Ailith (ChayulaFarmerHub, ControlZone) comes with her live placement
-        // (/npc_place); an offset from the arrival is a guess.
+        // Kingsmarch (KalguuranSettlersLeague), the Rogue Harbour (HeistHub) and the Monastery of the Keepers
+        // (ChayulaLeague) are not here: their hub rooms name their NPCs, so they are placed from their rooms' lines
+        // (TownNpcs), as a campaign town's are.
         [StashCatalog.SanctumHub] = [new("Metadata/NPC/League/Sanctum/SanctumNPCTown", 136, 158, 4.0f)],
     };
 

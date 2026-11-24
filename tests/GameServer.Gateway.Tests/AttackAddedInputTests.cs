@@ -540,7 +540,7 @@ public sealed class AttackAddedInputTests : IDisposable
         int GetId(uint key) => stats.GetValueOrDefault(key);
         int maxEs = Get("maximum_energy_shield");
         Assert.True(maxEs >= 900);
-        double expectedEsLightning = maxEs * 0.15;
+        double expectedEsLightning = (long)maxEs * 15 / 100.0;
 
         var weapon = Game.WeaponFor(player);
         Assert.Equal(0, weapon.LocalDamage![DamageType.Lightning].Max);
