@@ -168,7 +168,7 @@ static partial class Game
             return (int)Math.Clamp((long)playerStats.GetValueOrDefault(key) + (skill?.GetValueOrDefault(key) ?? 0),
                 int.MinValue, int.MaxValue);
         }
-        if (!RandomRolls.Chance(Stat(KnockbackChanceStat), 100, random)) return false;
+        if (Stat(global::Stat.GlobalKnockback) == 0 && !RandomRolls.Chance(Stat(KnockbackChanceStat), 100, random)) return false;
         var at = m.Walk.Position(now);
         var from = origin ?? player.Walk.Position(now);
         bool reversed = Stat(KnockbackReversedStat) != 0;

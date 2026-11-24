@@ -610,7 +610,8 @@ public static partial class Game
                 life = m.Life;
                 player.LastEnemyHitAt = m.PlayerHitAt = AreaTime(player);
                 // The "recently" stats (issue #504): hit an enemy, and crit with it when the roll was a critical one.
-                player.RecentEvents.RecordHit(AreaTime(player), critical, attack: true);
+                player.RecentEvents.RecordHit(m.PlayerHitAt, critical, attack: true);
+                GainConvergenceOnHitLocked(player, m, ProjectileWorldTime(player), playerStats);
                 if (ElementalOverloadCritLocked(player, SkillCatalog.FirstSkillId, null, playerStats, critical) is { } eoBuff)
                     ProjectilesFor(player).Packet(eoBuff, "elemental overload (default attack)");
                 if (life == 0) { m.Aggro = false; m.Dead = true; CleanupDeadMonsterLocked(player.Area, targetId, m); CollectVaalSoulAtDeathLocked(player, m); }
@@ -1148,8 +1149,11 @@ public static partial class Game
         PlacedCastAdmission? placedAdmission = null;
         SupportedGem? paidIntensity = null, paidMomentum = null;
         var momentumTravel = player.Walk.ObserveTravel(AreaTime(player));
-        if (SkillsFor(player).EffectId(BaseSupportedSkill(player, skillId).Effect) is TwisterEffect or CatStealthCryEffect) return false;
+        var baseSkill = BaseSupportedSkill(player, skillId);
+        if (SkillsFor(player).EffectId(baseSkill.Effect) is TwisterEffect or CatStealthCryEffect) return false;
         if (actionToken is not null && (player.ActionCount != action || player.ElementalAilments.ActionFactor(AreaTime(player)) == 0 || player.HitRecovery.Active(AreaTime(player)))) return false;
+        if (VaalArcticArmourActive(player, AreaTime(player)) && cooldownUse?.Instant != true && !locationInstant
+            && !SkillsFor(player).IsInstant(baseSkill.Effect)) return false;
         if (!TryCapturePlacedCastAdmissionLocked(player, skillId, out placedAdmission)) return false;
         if (InTown(player) || player.PlayerLife == 0) return false;
         // Direct callers do not go through the action handler that already reserves placed-skill cooldowns.
@@ -1162,6 +1166,8 @@ public static partial class Game
         await EndGracePeriod(player, action: true);
         var gem = GemSkillEffects(player).FirstOrDefault(g => g.Id == skillId);
         if (gem.Name is null) return false;
+        if (VaalArcticArmourActive(player, AreaTime(player)) && cooldownUse?.Instant != true && !locationInstant
+            && !SkillsFor(player).IsInstant(gem.Effect)) return false;
         if (!PlacedCastFamilyCurrent(player, skillId, placedAdmission)) return false;
         if (IsDashEffect(SkillsFor(player).EffectId(gem.Effect)))
         {
@@ -1524,6 +1530,11 @@ public static partial class Game
             return CompleteSupportedUse(await CastBrandsurge(player, skillId, gem, from, to, recoveryGeneration, Current, criticalRoll));
         if (gem.Name is not null && IsBladefallTrarthus(gem.Effect))
             return CompleteSupportedUse(await ActivateBladefallTrarthus(player, skillId));
+        if (vaalUse is not null && SkillsFor(player).EffectId(gem.Effect) == VaalArcticArmourEffect)
+        {
+            StartVaalArcticArmour(player, skillId, CastMs(player, gem.Effect, skillId) ?? SkillsFor(player).CastTimeMs(gem.Effect), AreaTime(player));
+            return true;
+        }
         if (gem.Name is not null && vaalUse is not null && VaalImmortalCallSpell(player, gem.Effect))
         {
             var session = ProjectilesFor(player);
@@ -1958,8 +1969,8 @@ public static partial class Game
         if (GatewayProjectileSkillProfiles.IsMoltenStrike(SkillsFor(player).EffectId(gem.Effect)))
             return ScheduleMoltenStrike(player, skillId, gem, from, to, recoveryGeneration,
                 targetId, sequence, actionToken, cooldownUse, criticalRoll, swingAt, cryExerted);
-        if (IsLightningStrike(gem.Effect))
-            return ScheduleLightningStrike(player, skillId, gem, from, to, targetId,
+        if (IsLightningStrike(gem.Effect) || IsFrostBlades(gem.Effect))
+            return ScheduleProjectileStrike(player, skillId, gem, from, to, targetId,
                 recoveryGeneration, cooldownUse, criticalRoll,
                 sequence, swingAt, cryExerted);
         if (IsSmite(gem.Effect))
@@ -2444,6 +2455,9 @@ public static partial class Game
         sacrifice ??= new SacrificeUse(player, skillId, gem.Effect, gem.Gem, triggered: triggeredCurrent is not null);
         var admittedGem = SupportedSkill(player, skillId);
         var skillStats = admittedGem.Stats;
+        // Vaal Heavy Strike's action knocks back its target on contact.
+        if (SkillsFor(player).EffectId(gem.Effect) == "VaalHeavyStrike")
+            skillStats = new Dictionary<uint, int>(skillStats) { [global::Stat.GlobalKnockback] = 1 };
         bool retaliation = SkillsFor(player).IsRetaliation(gem.Effect);
         // An attack gem's share of the weapon's damage ("Deals 177.3% of base Attack Damage"): the hit below uses it.
         int effectiveness = SkillsFor(player).DamageEffectiveness(gem.Effect, gem.Level);
@@ -3405,6 +3419,7 @@ public static partial class Game
         {
             player.LastEnemyHitAt = m.PlayerHitAt = hitNow;
             player.RecentEvents.Record(StatConditions.HitEnemy, m.PlayerHitAt);
+            GainConvergenceOnHitLocked(player, m, m.PlayerHitAt, playerStats);
         }
         if (m.Life == 0)
         {

@@ -1327,7 +1327,9 @@ public static partial class Game
             + Get(Stat.DamageOverTimePlusPct) + Get(Stat.ColdDamageOverTimePlusPct) + Get(Stat.AreaDamagePlusPct)
             + Get(Stat.SigilDamagePlusPct) + Get(Stat.WinterBrandDamagePlusPct)
             + (Get(Stat.SpellDamageModifiersApplyToSkillDot) != 0 ? Get(Stat.SpellDamagePlusPct) : 0);
-        double more = WintertideDotSupportMore.Aggregate(1.0, (m, name) => m * Math.Max(0, 1 + Own(name) / 100.0));
+        double more = WintertideDotSupportMore.Aggregate(
+            DamageStats.ElementalMore(Get(Stat.CombinedElementalDamagePlusPctFinal)),
+            (m, name) => m * Math.Max(0, 1 + Own(name) / 100.0));
         if (Get(Stat.KeystoneElementalOverloadDamagePlusPctFinal) is int eo and not 0)
             more *= Math.Max(0, 1 + eo / 100.0);
         int perStage = Math.Max(0, GolemStat(gem.Stats, Stat.ImmolationBrandBurnDamagePlusPctFinalPerStage));

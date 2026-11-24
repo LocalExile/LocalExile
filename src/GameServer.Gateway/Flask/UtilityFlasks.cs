@@ -517,6 +517,17 @@ public static class UtilityFlasks
         {
             lock (_lock) return _active.Any(a => a.Started <= now && now < a.Ends);
         }
+
+        public double? NextExpiry(double now)
+        {
+            lock (_lock)
+            {
+                double next = double.PositiveInfinity;
+                foreach (var a in _active)
+                    if (a.Ends > now) next = Math.Min(next, a.Ends);
+                return double.IsFinite(next) ? next : null;
+            }
+        }
     }
 
     /// <summary>poewiki, Flask, "Effects of flasks": "When creating multiple of the same (non-recovery) flask effect, each

@@ -222,10 +222,10 @@ public static partial class Game
         // increase on fire, cold and lightning only, his Withered on chaos only, and Pride's more Physical Damage on the
         // physical part.
         double factor = MonsterDamageTaken(m, spell, now, elemental: false, hit: true, chaos: false, increasedPct: additionalTakenPct);
-        double chaosFactor = m.Withered.Count == 0 ? factor
-            : MonsterDamageTaken(m, spell, now, elemental: false, hit: true, chaos: true, increasedPct: additionalTakenPct);
-        double withered = m.Withered.Count == 0 ? 0
-            : mitigated[DamageType.Chaos].Min * (chaosFactor - factor);
+        double chaosDamage = mitigated[DamageType.Chaos].Min;
+        double witheredPct = chaosDamage > 0 ? WitheredTaken(m, now) : 0;
+        double withered = witheredPct == 0 ? 0 : chaosDamage * (MonsterDamageTaken(m, spell, now,
+            elemental: false, hit: true, chaos: false, increasedPct: additionalTakenPct + witheredPct) - factor);
         double elementalDamage = mitigated[DamageType.Fire].Min + mitigated[DamageType.Cold].Min + mitigated[DamageType.Lightning].Min;
         double elementalFactor = m.TakenFromPlayer.Elemental == 0 ? factor
             : MonsterDamageTaken(m, spell, now, elemental: true, hit: true, chaos: false, increasedPct: additionalTakenPct);
@@ -266,9 +266,11 @@ public static partial class Game
             * (1 + MaimedPhysicalTaken(m, now) / 100.0);
         double total = mitigated.MinTotal - physical + physicalTaken;
         double factor = MonsterDamageTaken(m, spell, now, elemental: false, hit: true, chaos: false, increasedPct: additionalTakenPct);
-        double chaosFactor = m.Withered.Count == 0 ? factor
-            : MonsterDamageTaken(m, spell, now, elemental: false, hit: true, chaos: true, increasedPct: additionalTakenPct);
-        double withered = m.Withered.Count == 0 ? 0 : rawChaos * (chaosFactor - factor);
+        double witheredPct = WitheredTaken(m, now);
+        double chaosFactor = witheredPct == 0 ? factor
+            : MonsterDamageTaken(m, spell, now, elemental: false, hit: true, chaos: false,
+                increasedPct: additionalTakenPct + witheredPct);
+        double withered = rawChaos * (chaosFactor - factor);
         double elementalDamage = mitigated[DamageType.Fire].Min + mitigated[DamageType.Cold].Min + mitigated[DamageType.Lightning].Min;
         double elementalFactor = m.TakenFromPlayer.Elemental == 0 ? factor
             : MonsterDamageTaken(m, spell, now, elemental: true, hit: true, chaos: false, increasedPct: additionalTakenPct);

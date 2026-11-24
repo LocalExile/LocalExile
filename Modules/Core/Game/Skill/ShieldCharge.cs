@@ -1,6 +1,7 @@
 using System.Net.Sockets;
 using System.Runtime.CompilerServices;
 using GameServer.Core.Protocol.Login;
+using GameServer.Core.World;
 
 public static partial class Game
 {
@@ -295,7 +296,17 @@ public static partial class Game
         int max = Own(Stat.OffHandLocalMaximumAddedPhysicalDamage)
             + per15 * Own(Stat.OffHandMaximumAddedPhysicalDamagePer15ShieldArmourAndEvasionRating);
         int attackMs = SkillsFor(player).AttackTimeMs(gem.Effect, gem.Level);
-        return new SkillCatalog.Unarmed(attackMs > 0 ? attackMs : WeaponFor(player).AttackMs, min, Math.Max(min, max), WeaponFor(player).Range);
+        var weapon = new SkillCatalog.Unarmed(attackMs > 0 ? attackMs : WeaponFor(player).AttackMs, min, Math.Max(min, max), WeaponFor(player).Range);
+        int per15Evasion = (int)(shield.Evasion / 15);
+        int coldMin = Own(Stat.OffHandLocalMinimumAddedColdDamage)
+            + per15Evasion * Own(Stat.OffHandMinimumAddedColdDamagePer15ShieldEvasion);
+        int coldMax = Own(Stat.OffHandLocalMaximumAddedColdDamage)
+            + per15Evasion * Own(Stat.OffHandMaximumAddedColdDamagePer15ShieldEvasion);
+        return coldMax <= 0 ? weapon : weapon with
+        {
+            LocalDamage = DamagePacket.Of(DamageType.Physical, min, Math.Max(min, max))
+                .Add(DamageType.Cold, new(coldMin, Math.Max(coldMin, coldMax))),
+        };
     }
 
     // The client's charge hits (FUN_141a6ea70:75-92, 0x141a70170): Kind 0 path hits triggered by distance traveled

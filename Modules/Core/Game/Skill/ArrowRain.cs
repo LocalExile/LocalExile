@@ -4,7 +4,9 @@ using GameServer.Core.World;
 
 public static partial class Game
 {
-    static bool ArrowRain(string? id) => id is "RainOfArrows" or "BlastRain" or "ToxicRain";
+    static bool ArrowRain(string? id) => id is "RainOfArrows" or "BlastRain" || IsToxicRain(id);
+
+    static bool IsToxicRain(string? id) => id is "ToxicRain" or "ToxicRainAltX" or "ToxicRainAltY";
 
     // These bow attacks have area hit stats but no travelling Projectiles row. Capture the normal
     // offensive snapshot at release; each arrow resolves its own area at the landing cell.
@@ -34,7 +36,7 @@ public static partial class Game
     public static (int Radius, double Spread) RainArea(Player player, string id, int effect, IReadOnlyDictionary<uint, int> own,
         IReadOnlyDictionary<uint, int> playerStats)
     {
-        bool toxic = id == "ToxicRain", blast = id == "BlastRain";
+        bool toxic = IsToxicRain(id), blast = id == "BlastRain";
         int radius = SkillRadius(player, toxic ? 18 : blast ? 20 : 10, own, false, effect, playerStats);
         return (radius, blast ? radius * .85 : SkillRadius(player, 24, own, false, effect, playerStats));
     }
@@ -64,7 +66,7 @@ public static partial class Game
         int Get(uint key) => Own(key) + Player(key);
         int variation = SkillArtVariation(player, gem.Gem);
         string? ArtOf(string key) => Art.Animated(key, variation) ?? Art.Animated(key, 0);
-        bool toxic = id == "ToxicRain", blast = id == "BlastRain";
+        bool toxic = IsToxicRain(id), blast = id == "BlastRain";
         int count = Math.Clamp(GatewayProjectileDefaults.Resolve(GroundArrow.Metadata, Get, 1000, true, true).Count
             + (toxic ? Get(Stat.ToxicRainNumOfAdditionalProjectiles) : 0)
             + (mirage ? Get(Stat.MirageArcherNumberOfAdditionalProjectiles) : 0), 1, 256);
@@ -92,8 +94,12 @@ public static partial class Game
         double spacing = blast ? Math.Max(0, Get(Stat.BlastRainArrowDelayMs)) / 1000d : toxic ? 0 : .04;
         double duration = SkillDurationModifiers.Seconds(Own(Stat.BaseSkillEffectDuration), Player, Own);
         var damageContext = new SkillDamageContext(SkillHitKind.Attack, shot.ActualCaster ?? playerStats);
-        double dps = toxic && !damageContext.Suppressed
-            ? ToxicPodDps(Get, Own) * (mirage ? MirageDamageFactor(own) : 1) * podDamageFactor : 0;
+        double dps = toxic && id != "ToxicRainAltX" && !damageContext.Suppressed
+            ? ToxicPodDps(Get, Own, totem is not null) * (mirage ? MirageDamageFactor(own) : 1) * podDamageFactor : 0;
+        if (totem is not null && dps > 0)
+            dps *= Math.Max(0, 1 + Get(Stat.SupportTotemDamagePlusPctFinal) / 100d);
+        double? withered = Own(Stat.ToxicRainSporesApplyWithered) != 0
+            ? WitheredPct * Math.Max(0, 1 + Get(Stat.WitheredEffectPlusPct) / 100d) : null;
         // The falling arrow's art is one clip (index 0: spore_drop.ao and blast_rain's arrow_drop.ao "animate",
         // rain_of_arrows/rig.ao "rainofarrows", which has no default animation) that reaches the ground part-way in:
         // its impact particles at 0.224 s and 0.218 s, Blast Rain's "contact" at 0.333 s. So it starts that long before
@@ -123,21 +129,24 @@ public static partial class Game
                     session.RainArt(at, Art.ObjectModel("toxic_rain_spore", variation) ?? Art.ObjectModel("toxic_rain_spore", 0), duration,
                         rotation: turn, clip: 1, endClip: ((uint)Random.Shared.Next(2, 5), .966));
                     session.PlaceToxicPod(use, at, radius, duration, dps,
-                        -Get(Stat.RainOfSporesVinesMovementSpeedPlusPctFinal), -Get(Stat.MinimumRainOfSporesMovementSpeedPlusPctFinalCap), ArtOf("toxic_rain_explode"));
+                        -Get(Stat.RainOfSporesVinesMovementSpeedPlusPctFinal), -Get(Stat.MinimumRainOfSporesMovementSpeedPlusPctFinalCap),
+                        ArtOf("toxic_rain_explode"), withered);
                 }
             });
         }
     }
 
-    static double ToxicPodDps(Func<uint, int> get, Func<uint, int> own) => ChaosGroundDps(get, own, Stat.ToxicRainDamagePlusPct);
+    static double ToxicPodDps(Func<uint, int> get, Func<uint, int> own, bool totem = false) =>
+        ChaosGroundDps(get, own, Stat.ToxicRainDamagePlusPct, totem);
 
     // A projectile attack's chaos damage over time in an area: Toxic Rain's pods and Caustic Arrow's ground.
     // skillIncrease: the skill's own increased damage stat, if it has one.
-    static double ChaosGroundDps(Func<uint, int> get, Func<uint, int> own, uint? skillIncrease)
+    static double ChaosGroundDps(Func<uint, int> get, Func<uint, int> own, uint? skillIncrease, bool totem = false)
     {
         if (DamageStats.Prohibited(DamageType.Chaos, get)) return 0;
         double increased = (double)get(Stat.DamagePlusPct) + get(Stat.ChaosDamagePlusPct) + get(Stat.AreaDamagePlusPct)
             + get(Stat.ProjectileDamagePlusPct) + get(Stat.DamageOverTimePlusPct) + get(Stat.ChaosDamageOverTimePlusPct)
+            + (totem ? get(Stat.TotemDamagePlusPct) : 0)
             + (skillIncrease is uint key ? get(key) : 0);
         double more = 1;
         foreach (var stat in new[] { Stat.SupportVoidManipulationChaosDamagePlusPctFinal, Stat.SupportRapidDecayDamageOverTimePlusPctFinal,

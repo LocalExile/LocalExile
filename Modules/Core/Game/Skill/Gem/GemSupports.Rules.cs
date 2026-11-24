@@ -844,14 +844,16 @@ public static partial class Game
                 stats[Stat.DamagePlusPct] = ActorScale.Add(Stat.DamagePlusPct, Get(Stat.DamagePlusPct), retaliation);
             ApplyRetaliationAilmentDuration(stats);
         }
-        // Lightning Strike's two components share a gem, not a damage context. Its bolts do not gain melee
-        // modifiers, and its strike does not gain projectile modifiers or the projectile-only less multiplier.
-        bool lightningStrike = IsLightningStrike(gem.Effect);
-        if (lightningStrike) types.Remove(projectile ? 19 : 2);
+        // A strike and the projectiles it releases each use their own damage modifiers.
+        bool projectileStrike = IsLightningStrike(gem.Effect) || IsFrostBlades(gem.Effect);
+        if (projectileStrike) types.Remove(projectile ? 19 : 2);
         bool volcanicFissure = IsVolcanicFissure(gem.Effect);
         if (volcanicFissure) types.Remove(projectile ? 19 : 2);
         if (area is true) types.Add(7);
         else if (area is false) types.Remove(7);
+        if (area is true && IsGalvanicArrow(SkillsFor(player).EffectId(gem.Effect))
+            && Get(Stat.GalvanicArrowAreaDamagePlusPct) is int galvanic and not 0)
+            stats[Stat.AreaDamagePlusPct] = ActorScale.Saturate((long)Get(Stat.AreaDamagePlusPct) + galvanic);
         if (IsSmite(gem.Effect) && area is true) types.Remove(19);
         bool molten = GatewayProjectileSkillProfiles.IsMoltenStrike(SkillsFor(player).EffectId(gem.Effect));
         if (molten)
@@ -866,7 +868,7 @@ public static partial class Game
         var coefficients = SkillsFor(player).DamageCoefficients(gem.Effect, gem.Level);
         var raw = secondary ? SecondaryRawHit(player, gem, plan.SpellBaseWith(Get), Get)
             : attackWeapon is not null
-            ? SupportedAttackDamage.Raw(attackWeapon, Get, new(WeaponAccuracyFor(player, weapon, caster, gem.Stats)),
+            ? SupportedAttackDamage.Raw(attackWeapon, Get, new(WeaponAccuracyFor(player, weapon, caster, gem.Stats, gem.Effect)),
                 coefficients.Base, coefficients.Added, melee: types.Contains(19) && !SkillsFor(player).RequiresShield(gem.Effect))
             : DamageStats.RawAdded(plan.SpellBaseWith(Get), Get, spell: true, AddedEffectiveness(player, gem.Effect, gem.Level));
         if (!attack && !secondary && Get(Stat.KeystoneBattlemage) != 0
@@ -875,7 +877,7 @@ public static partial class Game
         if (!attack && !secondary && addedChaos > 0)
             raw = raw.Add(GameServer.Core.World.DamageType.Chaos,
                 new GameServer.Core.World.DamageRange(addedChaos, addedChaos).Scale(AddedEffectiveness(player, gem.Effect, gem.Level)));
-        if ((lightningStrike || volcanicFissure) && projectile)
+        if ((projectileStrike || volcanicFissure) && projectile)
             raw = raw.Scale(Math.Max(0, 1 + Get(Stat.ActiveSkillHitAilmentDamageWithProjectilePlusPctFinal) / 100.0));
         // Spellblade: a supported spell gains a share of the one-hand melee weapon's damage as added spell damage,
         // scaled by the spell's damage effectiveness like any other added damage.
@@ -925,6 +927,13 @@ public static partial class Game
             if (manaCost > 0)
                 raw = raw.Scale(Math.Max(0, 1 + (double)manaforgedPerMana * manaCost / 100.0));
         }
+        if (IsDischarge(skills.EffectId(gem.Effect)) && Get(Stat.DischargeDamagePlusPctFinal) is int dischargeMore and not 0)
+            raw = raw.Scale(Math.Max(0, 1 + dischargeMore / 100d));
+        if (skills.EffectId(gem.Effect) is "RollingMagma" or "RollingMagmaAltX" or "RollingMagmaAltY" or "RollingMagmaRoyale"
+            && Get(Stat.ThresholdJewelMagmaOrbDamagePlusPctFinal) is int magmaMore and not 0)
+            raw = raw.Scale(Math.Max(0, 1 + magmaMore / 100d));
+        if (gem.Stats.GetValueOrDefault(Stat.ActiveSkillDamagePlusPctFinal) is int skillDamage and not 0)
+            raw = raw.Scale(Math.Max(0, 1 + skillDamage / 100d));
         var modifiers = gem.Supports.SelectMany(s => s.Stats).Select(s => (s.Key, s.Value)).ToList();
         modifiers.AddRange(gem.Stats.Where(s => s.Key == Stat.BloodSandStanceMeleeSkillsAreaDamagePlusPctFinal).Select(s => (s.Key, s.Value)));
         // Elemental Overload's per-skill window (see WithElementalOverload): this skill's hits and ailments, including a
@@ -1002,10 +1011,10 @@ public static partial class Game
 
     public static AttackAccuracyProfile SupportedAccuracy(Player player, ushort skillId)
     {
-        var own = SupportedSkill(player, skillId).Stats;
+        var gem = SupportedSkill(player, skillId);
         var playerStats = CharacterPlayerStats(player);
-        return AttackAccuracyProfile.From(player.Pools, playerStats, Stats, own, MainHandLocalSources(player))
-            with { Rating = WeaponAccuracyFor(player, null, playerStats, own) };
+        return AttackAccuracyProfile.From(player.Pools, playerStats, Stats, gem.Stats, MainHandLocalSources(player))
+            with { Rating = WeaponAccuracyFor(player, null, playerStats, gem.Stats, gem.Effect) };
     }
 
     public static int SupportedCriticalChance(Player player, ushort skillId) => SupportedCriticalChanceFor(player, skillId, false);
@@ -1051,8 +1060,12 @@ public static partial class Game
             if (new[] { Stat.GlobalCannotCrit, Stat.VirtualGlobalCannotCrit, Stat.CannotCriticalStrikeWithAttacks }
                 .Any(name => Player(name) != 0 || Own(name) != 0)) return 0;
             var weapon = WeaponProfileFor(player, activeSet: true);
-            int basis = weapon.Unarmed && (!SkillsFor(player).IsMelee(gem.Effect) || SkillsFor(player).IsSpell(gem.Effect)) ? 0
-                : AttackBaseCriticalStrike.OfMainHand(!weapon.Unarmed, weaponCritical ?? weapon.Critical, Player);
+            int basis;
+            if (skills.RequiresShield(gem.Effect) && skills.AttackCritChance(gem.Effect, gem.Level) is int shieldCritical)
+                basis = shieldCritical;
+            else
+                basis = weapon.Unarmed && (!skills.IsMelee(gem.Effect) || skills.IsSpell(gem.Effect)) ? 0
+                    : AttackBaseCriticalStrike.OfMainHand(!weapon.Unarmed, weaponCritical ?? weapon.Critical, Player);
             if (Own(Stat.AdditionalCriticalStrikeChancePermyriadWhileAffectedByElusive) is int elusiveBase and not 0
                 && ElusiveFactor(player) > 0)
                 basis = ActorScale.Saturate((long)basis + elusiveBase);
