@@ -280,6 +280,8 @@ public static partial class Game
                 if (!AttackTiming.Ready(at, MeleeRepeatAttackDeadline(player, at), seconds)) return false;
                 attack = (attacking, at, seconds);
             }
+            if (skillId is ushort banner && BannerAuraRow(SkillsFor(player).EffectId(effect)) != 0
+                && !CanUseBanner(player, banner)) return false;
             if (admit is not null && !admit()) return false;
             bool bypassed = false, cooldownReset = false;
             int resetBaseMilliseconds = 0;
@@ -366,7 +368,8 @@ public static partial class Game
 
     // Whether a use of the skill pays its cost when it starts (CastGemSkill's PayMana), not a link's or a toggle's.
     static bool PaysOnUse(Player player, ushort skillId, int effect) =>
-        !IsLinkSkill(player, effect) && ToggledReservation(player, skillId) is null;
+        !IsLinkSkill(player, effect) && BannerAuraRow(SkillsFor(player).EffectId(effect)) == 0
+        && ToggledReservation(player, skillId) is null;
 
     // The charge a skill spends to be used while it cools down (CooldownBypass), null when it has no bypass.
     static ChargeType? CooldownBypassCharge(Player player, int effect, ushort? skillId)

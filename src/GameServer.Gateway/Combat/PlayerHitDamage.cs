@@ -98,6 +98,8 @@ public static class PlayerHitDamage
             {
                 range = range.Scale(Math.Max(0, 1 + get(Stat.HeraldOfPurityPhysicalDamagePlusPctFinal) / 100.0));
                 if (attack) range = range.Scale(Math.Max(0, 1 + get(Stat.CombinedAttackPhysicalDamagePlusPctFinal) / 100.0));
+                if (melee && get(Stat.WarBannerPhysicalDamagePlusPctFinalWithMeleeSkills) is int war and not 0)
+                    range = range.Scale(Math.Max(0, 1 + war / 100d));
             }
             if (melee && area)
                 range = range.Scale(Math.Max(0, 1 + get(get(Stat.InSandStance) != 0

@@ -610,6 +610,7 @@ public static partial class Game
                     stageStarts = false;
                 }
                 life = m.Life;
+                if (weapon.Melee) GainValourFromMeleeLocked(player, m, life == 0, at, playerStats);
                 player.LastEnemyHitAt = m.PlayerHitAt = AreaTime(player);
                 // The "recently" stats (issue #504): hit an enemy, and crit with it when the roll was a critical one.
                 player.RecentEvents.RecordHit(m.PlayerHitAt, critical, attack: true);
@@ -1280,6 +1281,12 @@ public static partial class Game
                 Console.WriteLine($"[gateway] {player.Connection.Remote} skill 0x{skillId:x4} {gem.Name}: on cooldown for {(readyAt - now) * 1000:0} ms more");
                 return false;
             }
+        }
+        if (gem.Name is not null && BannerAuraRow(SkillsFor(player).EffectId(gem.Effect)) != 0)
+        {
+            bool accepted = await ToggleBanner(player, skillId, Current);
+            if (accepted) RecordAcceptedGemUse(player, gem.Effect, to);
+            return accepted;
         }
         if (gem.Name is not null && CooldownTriggerController(SkillsFor(player).EffectId(gem.Effect)) != 0)
         {
@@ -3129,6 +3136,7 @@ public static partial class Game
                             melee: !spell && SkillsFor(player).IsMelee(gem.Effect), critical, skillStats, playerStats: playerStats);
                         if (!spell && SkillsFor(player).IsMelee(gem.Effect))
                         {
+                            GainValourFromMeleeLocked(player, m, applied.Value.Life == 0, at, playerStats);
                             CombatRushOnHit(player, skillStats, at);
                             HallowOnMeleeHit(player, m, skillStats, at);
                             ExcommunicateOnMeleeHit(player, m, skillStats, at);
