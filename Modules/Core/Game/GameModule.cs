@@ -97,6 +97,7 @@ public sealed class GameModule : IModule, IDisposable
         global::MonsterSkills.LoadMonsterSkillsData();
         // Passives and the player.
         global::ClusterJewelLayout.LoadClusterJewelLayoutData();
+        global::ClusterJewelStats.LoadClusterJewelStatsData();
         global::JewelPathEffects.LoadJewelPathEffectsData();
         global::ForbiddenTattoo.LoadForbiddenTattooData();
         global::JourneyMakanuiCatalogue.LoadJourneyMakanuiCatalogueData();

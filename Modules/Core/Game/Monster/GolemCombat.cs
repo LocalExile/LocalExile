@@ -638,6 +638,7 @@ public static partial class Game
             NonCriticalPenetration: 0,
             UnconditionalIgnoreElemental: ignoreElemental,
             CannotPenetrateOrIgnore: g.Monster.Mods.Effects[Stat.CannotPenetrateOrIgnoreElementalResistances] != 0 ? 1 : 0);
+        resistanceMods = ImpurityHitMods(target, now, resistanceMods);
         var strike = new HitResistances.Strike(Critical: critical, Attack: !a.Attack.Spell);
         var mitigated = DamageModel.Mitigate(rolled,
             type => HitResistances.Effective(type, MonsterHitResistance(target, type, default, now), strike, resistanceMods));

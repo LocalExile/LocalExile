@@ -129,6 +129,7 @@ Part of [Status](../Status.md); what to build next in this area is in
 - Rogue Harbour: NPCs and stashes at the room's cells; Heist screens open (0x34, 0x35, 0x36), no contract start yet.
 - Nightmare maps apply their levelled hexes while the player is in the map.
 - Map and Atlas modifiers govern scarab drops, monster combat and player recovery, skill area, defences, accuracy and aura effect.
+- Channel and Waterways use walkable arrival and portal anchors on generated layouts.
 
 - Legendary maps: a unique map opens its own area (`UniqueMaps.WorldAreasKey`, by its name word) at the level of the
   `Maps` tier that names it, on the tier-1 key or a MapWorlds base (#1092); checked offline.
@@ -434,8 +435,8 @@ Part of [Status](../Status.md); what to build next in this area is in
 - Hideouts: adding/removing decorative trees/tents and changing decoration appearance are not implemented.
   Personal template selection, saved home login and functional furniture placement are implemented
   ([21](../docs/protocol/21-hideouts.md)).
-- Map device: a map without a walk-map capture puts the player at an arbitrary cell (Beach is captured);
-  such a map now gets a random seed instead of seed 1, which is the seed captures are dumped at — pinning it there handed
+- Without a generated layout or walk-map capture, a map can place the player at an arbitrary cell.
+  Such a map now gets a random seed instead of seed 1, which is the seed captures are dumped at — pinning it there handed
   the client a layout it could not build and it exited (`MapWorldsColosseum`: "no suitable room found … cage_turn");
   the arena gates land next to their pair, not on the telepads;
   the portals look like player portals; the open map is lost on a Gateway restart
