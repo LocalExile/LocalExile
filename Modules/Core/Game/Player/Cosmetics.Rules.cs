@@ -1,9 +1,48 @@
 using System.Net.Sockets;
+using System.Text.Json;
 using GameServer.Core.Protocol.Instance;
 using GameServer.Core.Protocol.Login;
 
 public static partial class Game
 {
+    const string CosmeticDisplayFlagsKey = "cosmetics.displayFlags";
+    const string ExtraCosmeticsKey = "cosmetics.extraSlots";
+
+    public sealed record SavedExtraCosmetic(uint Key, uint Record, byte Option = 0, uint? Hash = null);
+
+    public static byte CosmeticDisplayFlags(Player player) =>
+        byte.TryParse(CharacterSaves.ModuleData(CharacterName(player), CosmeticDisplayFlagsKey), out byte flags)
+            ? (byte)(flags | InstanceMicrotransactions.DefaultFlags)
+            : InstanceMicrotransactions.DefaultFlags;
+
+    public static byte SetCosmeticDisplayFlag(Player player, byte bitMask, bool enabled)
+    {
+        byte updated = CosmeticDisplayFlags(player);
+        updated = enabled ? (byte)(updated | bitMask) : (byte)(updated & ~bitMask);
+        updated |= InstanceMicrotransactions.DefaultFlags;
+        CharacterSaves.ChangeModuleData(CharacterName(player), CosmeticDisplayFlagsKey, _ => updated.ToString());
+        return updated;
+    }
+
+    public static List<SavedExtraCosmetic> SavedExtraCosmetics(Player player)
+    {
+        if (CharacterSaves.ModuleData(CharacterName(player), ExtraCosmeticsKey) is not { Length: > 0 } json) return [];
+        try { return JsonSerializer.Deserialize<List<SavedExtraCosmetic>>(json) ?? []; }
+        catch (JsonException) { return []; }
+    }
+
+    public static List<InstanceMicrotransactions.ExtraSlot> ExtraCosmetics(Player player)
+    {
+        var list = new List<InstanceMicrotransactions.ExtraSlot>();
+        foreach (var saved in SavedExtraCosmetics(player))
+            if (Mtx.Resolve(new CharacterSaves.SavedCosmetic(saved.Record, saved.Option, saved.Hash)) is { } record)
+                list.Add(new InstanceMicrotransactions.ExtraSlot(saved.Key, record.Id, record.MtxTypeHash, record.Qword, saved.Option));
+        return list;
+    }
+
+    public static void SaveExtraCosmetics(Player player, IReadOnlyList<SavedExtraCosmetic> entries) =>
+        CharacterSaves.ChangeModuleData(CharacterName(player), ExtraCosmeticsKey, _ => JsonSerializer.Serialize(entries));
+
     // The Cosmetics tab (K) wears what S→C 0x1f3 lists, all slots at once (23-microtransactions.md). Saved picks first; a
     // portal effect set with /cosmetic and no Portal slot saved shows in that slot too.
     // Read from the save once per connection (the stats ask for it on every hit); a pick clears it.
@@ -24,10 +63,13 @@ public static partial class Game
         {
             var worn = WornCosmetics(player);
             var skills = SkillSlots(player);
+            var extras = ExtraCosmetics(player);
+            byte flags = CosmeticDisplayFlags(player);
             Console.WriteLine($"[gateway] {player.Connection.Remote} => 0x01f3 worn cosmetics ({why}): " +
                 $"{string.Join(", ", worn.Select(w => $"slot {w.Slot} = record {w.Id}"))}; " +
-                $"skills: {string.Join(", ", skills.Select(s => $"key {s.Key} gem 0x{s.GemHash:x8} inventory {s.Inventory} socket {s.Socket} type {s.SlotType} record {s.RecordId}"))}");
-            return InstanceMicrotransactions.Purchased([], worn, skills);
+                $"skills: {string.Join(", ", skills.Select(s => $"key {s.Key} gem 0x{s.GemHash:x8} inventory {s.Inventory} socket {s.Socket} type {s.SlotType} record {s.RecordId}"))}; " +
+                $"extras: {extras.Count}, flags: 0x{flags:x2}");
+            return InstanceMicrotransactions.Purchased([], worn, skills, extras, flags);
         });
     }
 

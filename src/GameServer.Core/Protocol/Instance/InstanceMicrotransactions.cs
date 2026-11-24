@@ -12,6 +12,16 @@ public static class InstanceMicrotransactions
 {
     public const ushort PurchasedId = 0x1f3;
     public const ushort AddedId = 0x1f4;
+    public const ushort WornSlotUpdateId = 0x1ff;
+    public const ushort SkillSlotUpdateId = 0x200;
+    public const ushort SkillSlotRemoveId = 0x201;
+    public const ushort ExtraSlotUpdateId = 0x202;
+    public const ushort ExtraSlotRemoveId = 0x203;
+    public const ushort RecordUpsertId = 0x204;
+    public const ushort RecordRemoveId = 0x205;
+    public const ushort ReclaimQueryResultId = 0x20c;
+    public const ushort RecordStatUpdateId = 0x210;
+    public const ushort RecordStatResetId = 0x211;
 
     /// <summary>
     /// One owned microtransaction, in wire order. <paramref name="MtxTypeHash"/> lands at +0x04 and is the key the
@@ -58,30 +68,88 @@ public static class InstanceMicrotransactions
     /// </summary>
     public sealed record SkillSlot(uint Key, uint GemHash, byte Inventory, byte Socket, byte SlotType = 0, uint RecordId = 0, uint MtxTypeHash = 0);
 
+    /// <summary>An extra cosmetic slot (0x1f3's third list at +0x58, S→C 0x202/0x203, C→S 0x1fb/0x1fc/0x1fe):
+    /// raw u32 LE <paramref name="Key"/> plus the worn entry fields (0x1424b2b90).</summary>
+    public sealed record ExtraSlot(uint Key, uint Id, uint MtxTypeHash, ulong Qword = 0, byte Option = 0);
+
     /// <summary>
     /// S→C 0x1f3 (class 0x1435e72a0, read 0x1421b11a0, dispatcher case 0x92 at 0x142157842): records the client appends
     /// to its owned list, then the worn cosmetics. The handler first resets the whole 50-slot worn table, then fills a
     /// slot per <paramref name="equipped"/> entry (u8 slot, u32 BE id, u32 BE hash, raw u64, u8), so every 0x1f3 carries
-    /// all of them: a slot left out is emptied. The skill slots follow (<see cref="SkillSlot"/>); the list after them
-    /// (message +0x58) is sent empty, its elements are not modelled, and the flags byte keeps the client's own default.
+    /// all of them: a slot left out is emptied. The skill slots (<see cref="SkillSlot"/>) and extra slots
+    /// (<see cref="ExtraSlot"/>) follow, then the display flags byte (bit 0 default, bit 1 from 0x1f7, bit 2 from 0x1f8).
     /// </summary>
     public static byte[] Purchased(IReadOnlyList<Record> records, IReadOnlyList<Equipped>? equipped = null,
-        IReadOnlyList<SkillSlot>? skills = null)
+        IReadOnlyList<SkillSlot>? skills = null, IReadOnlyList<ExtraSlot>? extras = null, byte flags = DefaultFlags)
     {
         equipped ??= [];
         skills ??= [];
+        extras ??= [];
         if (skills.Count > byte.MaxValue) throw new ArgumentOutOfRangeException(nameof(skills), skills.Count, "0x1f3 counts skill slots in one byte");
         if (records.Count > byte.MaxValue) throw new ArgumentOutOfRangeException(nameof(records), records.Count, "0x1f3 counts records in one byte");
         if (equipped.Count > byte.MaxValue) throw new ArgumentOutOfRangeException(nameof(equipped), equipped.Count, "0x1f3 counts worn slots in one byte");
+        if (extras.Count > byte.MaxValue) throw new ArgumentOutOfRangeException(nameof(extras), extras.Count, "0x1f3 counts extra slots in one byte");
         var w = new LoginWriter().U16(PurchasedId).U8((byte)records.Count);
         foreach (var r in records) WriteRecord(w, r);
         w.U8((byte)equipped.Count);
-        foreach (var e in equipped) w.U8(e.Slot).U32(e.Id).U32(e.MtxTypeHash).RawU64(e.Qword).U8(e.Option);
+        foreach (var e in equipped) WriteWornEntry(w.U8(e.Slot), e.Id, e.MtxTypeHash, e.Qword, e.Option);
         w.U8((byte)skills.Count);
-        foreach (var s in skills.OrderBy(s => s.Key))
-            w.RawU32(s.Key).U8(SkillGemTarget).U8(s.Inventory).U8(s.Socket).U8(s.SlotType).U32(s.GemHash).U32(s.RecordId).U32(s.MtxTypeHash).RawU64(0);
-        return w.U8(0).U8(DefaultFlags).ToArray();
+        foreach (var s in skills.OrderBy(s => s.Key)) WriteSkillEntry(w, s);
+        w.U8((byte)extras.Count);
+        foreach (var x in extras.OrderBy(x => x.Key)) WriteWornEntry(w.RawU32(x.Key), x.Id, x.MtxTypeHash, x.Qword, x.Option);
+        return w.U8(flags).ToArray();
     }
+
+    static LoginWriter WriteWornEntry(LoginWriter w, uint id, uint mtxTypeHash, ulong qword, byte option) =>
+        w.U32(id).U32(mtxTypeHash).RawU64(qword).U8(option);
+
+    static LoginWriter WriteSkillEntry(LoginWriter w, SkillSlot s) =>
+        w.RawU32(s.Key).U8(SkillGemTarget).U8(s.Inventory).U8(s.Socket).U8(s.SlotType).U32(s.GemHash).U32(s.RecordId).U32(s.MtxTypeHash).RawU64(0);
+
+    /// <summary>S→C 0x1ff (vtable 0x1435e7480, write 0x1421b19c0, read 0x1421b1a30, case 0x96): incremental worn-slot update.</summary>
+    public static byte[] WornSlotUpdate(Equipped entry) =>
+        WriteWornEntry(new LoginWriter().U16(WornSlotUpdateId).U8(entry.Slot), entry.Id, entry.MtxTypeHash, entry.Qword, entry.Option).ToArray();
+
+    /// <summary>S→C 0x200 (vtable 0x1435e6de0, write 0x1421b1b20, read 0x1421b1b90, case 0x97): incremental skill-slot upsert.</summary>
+    public static byte[] SkillSlotUpdate(SkillSlot slot) =>
+        WriteSkillEntry(new LoginWriter().U16(SkillSlotUpdateId), slot).ToArray();
+
+    /// <summary>S→C 0x201 (vtable 0x1435cb210, write 0x141fa2bb0, read 0x141fa2c10, case 0x98): remove a skill slot by raw u32 LE key.</summary>
+    public static byte[] SkillSlotRemove(uint key) =>
+        new LoginWriter().U16(SkillSlotRemoveId).RawU32(key).ToArray();
+
+    /// <summary>S→C 0x202 (vtable 0x1435e6c08, write 0x1421b1ca0, read 0x1421b1d10, case 0x99): incremental extra-slot upsert.</summary>
+    public static byte[] ExtraSlotUpdate(ExtraSlot entry) =>
+        WriteWornEntry(new LoginWriter().U16(ExtraSlotUpdateId).RawU32(entry.Key), entry.Id, entry.MtxTypeHash, entry.Qword, entry.Option).ToArray();
+
+    /// <summary>S→C 0x203 (vtable 0x1435cb210, write 0x141fa2bb0, read 0x141fa2c10, case 0x9a): remove an extra slot by raw u32 LE key.</summary>
+    public static byte[] ExtraSlotRemove(uint key) =>
+        new LoginWriter().U16(ExtraSlotRemoveId).RawU32(key).ToArray();
+
+    /// <summary>S→C 0x204 (vtable 0x1435e7820, write 0x1421b1e70, read 0x1421b1f10, case 0x9b): upsert one owned record
+    /// into personal (+0xd600 when <paramref name="isStore"/> is false), store owned (+0xd618), or guild (+0xd630).</summary>
+    public static byte[] RecordUpsert(Record record, bool isStore = false, bool isGuild = false, bool justReceived = false)
+    {
+        var w = new LoginWriter().U16(RecordUpsertId).Bool(isStore).Bool(isGuild);
+        WriteRecord(w, record);
+        return w.Bool(justReceived).ToArray();
+    }
+
+    /// <summary>S→C 0x205 (vtable 0x1435e69a8, write 0x1421b2090, read 0x1421b2130, case 0x9c): remove one owned record by id.</summary>
+    public static byte[] RecordRemove(uint recordId, bool isStore = false, bool isGuild = false) =>
+        new LoginWriter().U16(RecordRemoveId).Bool(isStore).Bool(isGuild).U32(recordId).ToArray();
+
+    /// <summary>S→C 0x20c (vtable 0x1435e7a20, write 0x1421b21f0, read 0x1421b25e0, case 0x9d): empty in-use reclaim query response.</summary>
+    public static byte[] ReclaimQueryEmpty() =>
+        new LoginWriter().U16(ReclaimQueryResultId).U16(0).U16(0).U16(0).ToArray();
+
+    /// <summary>S→C 0x210 (vtable 0x1435e6d08, write 0x1421b2940, read 0x1421b29c0, case 0x9e): update one record's stat counter value.</summary>
+    public static byte[] RecordStatUpdate(uint recordId, ulong value) =>
+        new LoginWriter().U16(RecordStatUpdateId).U32(recordId).RawU64(value).ToArray();
+
+    /// <summary>S→C 0x211 (vtable 0x1431767e8, write 0x140911210, read 0x140911270, case 0x9f): clear one record's stat counter.</summary>
+    public static byte[] RecordStatReset(uint recordId) =>
+        new LoginWriter().U16(RecordStatResetId).U32(recordId).ToArray();
 
     static void WriteRecord(LoginWriter w, Record r) =>
         w.U8(r.Flags8)
@@ -222,16 +290,87 @@ public static class InstanceMicrotransactions
         return (BinaryPrimitives.ReadUInt32LittleEndian(m[2..]), BinaryPrimitives.ReadUInt32BigEndian(m[6..]));
     }
 
+    /// <summary>C→S 0x1f7 / 0x1f8 (3 bytes, write 0x140e27920, senders 0x140ce04f0 / 0x140ce0580): cosmetic display flag toggles.</summary>
+    public const ushort DisplayFlag1Id = 0x1f7, DisplayFlag2Id = 0x1f8;
+    public const int DisplayFlagLength = 3;
+
+    public static bool ReadDisplayFlag(ReadOnlySpan<byte> m)
+    {
+        if (m.Length < DisplayFlagLength) throw new InvalidDataException($"0x1f7/0x1f8 is {m.Length} bytes, not {DisplayFlagLength}");
+        ushort id = BinaryPrimitives.ReadUInt16BigEndian(m);
+        if (id != DisplayFlag1Id && id != DisplayFlag2Id) throw new InvalidDataException($"not a 0x1f7/0x1f8: {m[0]:x2}{m[1]:x2}");
+        return m[2] != 0;
+    }
+
+    /// <summary>C→S 0x1fb (7 bytes, write 0x141f96e50, sender 0x140cdf650): equip an extra cosmetic slot (u32 BE record id, u8 option).</summary>
+    public const ushort ExtraEquipId = 0x1fb;
+    public const int ExtraEquipLength = 7;
+
+    public static (uint RecordId, byte Option) ReadExtraEquip(ReadOnlySpan<byte> m)
+    {
+        if (m.Length < ExtraEquipLength || BinaryPrimitives.ReadUInt16BigEndian(m) != ExtraEquipId)
+            throw new InvalidDataException("invalid 0x1fb extra equip packet");
+        return (BinaryPrimitives.ReadUInt32BigEndian(m[2..]), m[6]);
+    }
+
+    /// <summary>C→S 0x1fc (6 bytes, write 0x141fa2bb0, sender 0x140cdfbe0): unequip an extra cosmetic slot (raw u32 LE key).</summary>
+    public const ushort ExtraUnequipId = 0x1fc;
+    public const int ExtraUnequipLength = 6;
+
+    public static uint ReadExtraUnequip(ReadOnlySpan<byte> m)
+    {
+        if (m.Length < ExtraUnequipLength || BinaryPrimitives.ReadUInt16BigEndian(m) != ExtraUnequipId)
+            throw new InvalidDataException("invalid 0x1fc extra unequip packet");
+        return BinaryPrimitives.ReadUInt32LittleEndian(m[2..]);
+    }
+
+    /// <summary>C→S 0x1fd (4 bytes, write 0x141fa2cb0, sender 0x140cdfe00): set a worn cosmetic slot's visual tier (u8 slot, u8 tier).</summary>
+    public const ushort SlotTierId = 0x1fd;
+    public const int SlotTierLength = 4;
+
+    public static (byte Slot, byte Tier) ReadSlotTier(ReadOnlySpan<byte> m)
+    {
+        if (m.Length < SlotTierLength || BinaryPrimitives.ReadUInt16BigEndian(m) != SlotTierId)
+            throw new InvalidDataException("invalid 0x1fd slot tier packet");
+        return (m[2], m[3]);
+    }
+
+    /// <summary>C→S 0x1fe (7 bytes, write 0x141fa2de0, sender 0x140cdfe60): set an extra cosmetic slot's visual tier (raw u32 LE key, u8 tier).</summary>
+    public const ushort ExtraTierId = 0x1fe;
+    public const int ExtraTierLength = 7;
+
+    public static (uint Key, byte Tier) ReadExtraTier(ReadOnlySpan<byte> m)
+    {
+        if (m.Length < ExtraTierLength || BinaryPrimitives.ReadUInt16BigEndian(m) != ExtraTierId)
+            throw new InvalidDataException("invalid 0x1fe extra tier packet");
+        return (BinaryPrimitives.ReadUInt32LittleEndian(m[2..]), m[6]);
+    }
+
+    /// <summary>C→S 0x20b (6 bytes, write 0x140911210, sender 0x140c11790): query where an owned MTX record is in use.</summary>
+    public const ushort ReclaimQueryId = 0x20b;
+    public const int ReclaimQueryLength = 6;
+
+    /// <summary>C→S 0x20e (2 bytes, sender 0x140933e00) and C→S 0x20f (6 bytes, sender 0x140933d70): global / per-record MTX stat counter reset.</summary>
+    public const ushort ResetAllStatsId = 0x20e, ResetRecordStatsId = 0x20f;
+    public const int ResetAllStatsLength = 2, ResetRecordStatsLength = 6;
+
+    public static uint ReadRecordIdU32(ReadOnlySpan<byte> m, ushort expectedId)
+    {
+        if (m.Length < 6 || BinaryPrimitives.ReadUInt16BigEndian(m) != expectedId)
+            throw new InvalidDataException($"invalid 0x{expectedId:x4} packet");
+        return BinaryPrimitives.ReadUInt32BigEndian(m[2..]);
+    }
+
     /// <summary>The skill slots' target variant index for a skill gem (0x1424b34d0's table 0x143645770: 0 empty, 1 a skill
     /// gem, 2 two u32s).</summary>
     public const byte SkillGemTarget = 1;
 
-    /// <summary>An 0x1f3 as read back: the records, the worn slots, the skill slots and the flags byte.</summary>
-    public sealed record PurchasedList(IReadOnlyList<Record> Records, IReadOnlyList<Equipped> Equipped, IReadOnlyList<SkillSlot> Skills, byte Flags);
+    /// <summary>An 0x1f3 as read back: the records, the worn slots, the skill slots, the extra slots and the flags byte.</summary>
+    public sealed record PurchasedList(IReadOnlyList<Record> Records, IReadOnlyList<Equipped> Equipped,
+        IReadOnlyList<SkillSlot> Skills, byte Flags, IReadOnlyList<ExtraSlot>? Extras = null);
 
     /// <summary>
-    /// Parses an 0x1f3 (with its u16 id) the way the client's reader does. Throws when the lists at +0x40/+0x58 are not
-    /// empty, because their elements are only partly known.
+    /// Parses an 0x1f3 (with its u16 id) the way the client's reader does.
     /// </summary>
     public static PurchasedList ReadPurchased(ReadOnlySpan<byte> m)
     {
@@ -267,9 +406,12 @@ public static class InstanceMicrotransactions
             skills.Add(new SkillSlot(key, r.U32(), inventory, socket, slotType, r.U32(), r.U32()));
             r.RawU64();
         }
-        byte c = r.U8(), flags = r.U8();
+        int extraCount = r.U8();
+        var extras = new List<ExtraSlot>(extraCount);
+        for (int i = 0; i < extraCount && !r.Short; i++)
+            extras.Add(new ExtraSlot(r.RawU32(), r.U32(), r.U32(), r.RawU64(), r.U8()));
+        byte flags = r.U8();
         if (r.Short) throw new InvalidDataException("0x1f3 is incomplete");
-        if (c != 0) throw new InvalidDataException($"0x1f3 list +0x58 has {c} entries, not modelled");
-        return new PurchasedList(records, equipped, skills, flags);
+        return new PurchasedList(records, equipped, skills, flags, extras);
     }
 }

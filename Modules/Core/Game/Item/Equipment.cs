@@ -343,7 +343,7 @@ public static partial class Game
 
     // What the player wears changed (an item went into or out of a visible equipment row): 0x2bc Inventories for the model,
     // then the Actor skill list again, since the gems socketed in the equipment grant skills.
-    public static async Task SendEquipment(Player player, PlayerInventories items)
+    public static async Task SendEquipment(Player player, PlayerInventories items, bool refreshCosmetics = true)
     {
         RefreshVaalSouls(player);
         // Refresh the canonical inactive qualification before reconciling grants: a swapped item may change another
@@ -356,7 +356,7 @@ public static partial class Game
         }
         await SendModel(player, Looks(player, items), "equipment");
         // The socketed gems may have changed: the Cosmetics tab's skill slots follow them.
-        await SendWornCosmetics(player, "equipment changed");
+        if (refreshCosmetics) await SendWornCosmetics(player, "equipment changed");
         await SendSkills(player);
         await SendPlayerStatSnapshot(player,
             () => PlayerStatsOffFrames(player),

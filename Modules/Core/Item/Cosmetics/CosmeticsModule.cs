@@ -41,6 +41,51 @@ public sealed class CosmeticsModule : IModule
             await CosmeticsFeature.PickSkillCosmetic(player, InstanceMicrotransactions.ReadSkillPick(bytes));
             return true;
         });
+        GameEvents.Packet(InstanceMicrotransactions.DisplayFlag1Id).Add(module.Manifest.Id, async (player, bytes) =>
+        {
+            await CosmeticsFeature.SetDisplayFlag(player, 0x02, InstanceMicrotransactions.ReadDisplayFlag(bytes));
+            return true;
+        });
+        GameEvents.Packet(InstanceMicrotransactions.DisplayFlag2Id).Add(module.Manifest.Id, async (player, bytes) =>
+        {
+            await CosmeticsFeature.SetDisplayFlag(player, 0x04, InstanceMicrotransactions.ReadDisplayFlag(bytes));
+            return true;
+        });
+        GameEvents.Packet(InstanceMicrotransactions.ExtraEquipId).Add(module.Manifest.Id, async (player, bytes) =>
+        {
+            await CosmeticsFeature.EquipExtraCosmetic(player, InstanceMicrotransactions.ReadExtraEquip(bytes));
+            return true;
+        });
+        GameEvents.Packet(InstanceMicrotransactions.ExtraUnequipId).Add(module.Manifest.Id, async (player, bytes) =>
+        {
+            await CosmeticsFeature.UnequipExtraCosmetic(player, InstanceMicrotransactions.ReadExtraUnequip(bytes));
+            return true;
+        });
+        GameEvents.Packet(InstanceMicrotransactions.SlotTierId).Add(module.Manifest.Id, async (player, bytes) =>
+        {
+            await CosmeticsFeature.SetSlotTier(player, InstanceMicrotransactions.ReadSlotTier(bytes));
+            return true;
+        });
+        GameEvents.Packet(InstanceMicrotransactions.ExtraTierId).Add(module.Manifest.Id, async (player, bytes) =>
+        {
+            await CosmeticsFeature.SetExtraTier(player, InstanceMicrotransactions.ReadExtraTier(bytes));
+            return true;
+        });
+        GameEvents.Packet(InstanceMicrotransactions.ReclaimQueryId).Add(module.Manifest.Id, async (player, bytes) =>
+        {
+            await CosmeticsFeature.QueryReclaim(player, InstanceMicrotransactions.ReadRecordIdU32(bytes, InstanceMicrotransactions.ReclaimQueryId));
+            return true;
+        });
+        GameEvents.Packet(InstanceMicrotransactions.ResetAllStatsId).Add(module.Manifest.Id, async (player, _) =>
+        {
+            await CosmeticsFeature.ResetAllStats(player);
+            return true;
+        });
+        GameEvents.Packet(InstanceMicrotransactions.ResetRecordStatsId).Add(module.Manifest.Id, async (player, bytes) =>
+        {
+            await CosmeticsFeature.ResetRecordStats(player, InstanceMicrotransactions.ReadRecordIdU32(bytes, InstanceMicrotransactions.ResetRecordStatsId));
+            return true;
+        });
     }
 }
 
@@ -100,7 +145,10 @@ public static class CosmeticsFeature
         Console.WriteLine($"[gateway] {player.Connection.Remote} <= 0x01fa skill cosmetic pick: key {pick.Key} (gem 0x{slot.GemHash:x8}, slot type {slot.SlotType}), " +
             $"record {pick.RecordId} (hash 0x{record?.MtxTypeHash ?? 0:x8}, stats {string.Join(", ", (record is null ? null : MtxEffects.Of(record.MtxTypeHash))?.Stats.Select(st => $"{Stats.Name(st.Stat)} {st.Value}") ?? [])})");
         CharacterSaves.SetSkillCosmetic(CharacterName(player), slot.GemHash, slot.SlotType, record is null ? null : new CharacterSaves.SavedCosmetic(record.Id, 0, record.MtxTypeHash));
-        await SendWornCosmetics(player, "after the skill pick");
+        var updatedSkill = slot with { RecordId = record?.Id ?? 0, MtxTypeHash = record?.MtxTypeHash ?? 0 };
+        player.Character.SkillSlots[slot.Key] = updatedSkill;
+        await Send(player, InstanceMicrotransactions.SkillSlotUpdate(updatedSkill),
+            $"0x0200 skill cosmetic slot key {updatedSkill.Key} = record {updatedSkill.RecordId}");
         await SendSkills(player);
         // A Righteous Fire already burning from this gem takes the new art at once: casting again while it burns does
         // nothing, so it is lit again with the new ring and buff visuals only while the exact pick-time owner still exists.
@@ -111,8 +159,8 @@ public static class CosmeticsFeature
         global::Game.RefreshSpectreCosmetics(player, slot.GemHash);
     }
 
-    // C→S 0x1f9: a pick in the Cosmetics tab's slot flyout (record 0 empties the slot). Saved per character, then the whole
-    // worn table goes back in 0x1f3, which is what the client wears. The Portal slot also sets the portals' own variation
+    // C→S 0x1f9: a pick in the Cosmetics tab's slot flyout (record 0 empties the slot). Saved per character, then the
+    // changed slot goes back incrementally via S→C 0x1ff. The Portal slot also sets the portals' own variation
     // (the same one /cosmetic portal sets), so the map device's portals show the picked effect.
     internal static async Task PickCosmetic(Player player, (byte Slot, uint RecordId, byte Option) pick)
     {
@@ -138,9 +186,13 @@ public static class CosmeticsFeature
             player.Character.WornCosmetics = null;
             await ResendMapPortals(player);
         }
-        await SendWornCosmetics(player, "after the pick");
+        var slotUpdate = record is not null
+            ? new InstanceMicrotransactions.Equipped(pick.Slot, record.Id, record.MtxTypeHash, record.Qword, pick.Option)
+            : new InstanceMicrotransactions.Equipped(pick.Slot, 0, 0, 0, randomPortals ? pick.Option : (byte)0);
+        await Send(player, InstanceMicrotransactions.WornSlotUpdate(slotUpdate),
+            $"0x01ff worn cosmetic slot {slotUpdate.Slot} = record {slotUpdate.Id} (option {slotUpdate.Option})");
         // The model and the stats: skins, attachments, character effects, footprints, apparitions.
-        await SendEquipment(player, ItemsOf(player));
+        await SendEquipment(player, ItemsOf(player), refreshCosmetics: false);
         // A skin that turns the character into another creature in towns and hideouts (the Goblin Shaman Skin).
         await SendMorph(player, morph);
         RefreshFlaskEffectCosmetic(player, pick.Slot);
@@ -161,6 +213,96 @@ public static class CosmeticsFeature
             var told = await InstanceControl.CallAsync(new ControlRequest { Op = "set_portrait_frame", Ticket = player.Ticket, PortraitFrame = frame });
             if (!told.Ok) Console.WriteLine($"[gateway] {player.Connection.Remote} set_portrait_frame {frame}: {told.Error}");
         }
+    }
+
+    internal static Task SetDisplayFlag(Player player, byte bitMask, bool enabled)
+    {
+        byte flags = global::Game.SetCosmeticDisplayFlag(player, bitMask, enabled);
+        Console.WriteLine($"[gateway] {player.Connection.Remote} <= cosmetic display flag 0x{bitMask:x2}={enabled} (flags=0x{flags:x2})");
+        return Task.CompletedTask;
+    }
+
+    internal static async Task EquipExtraCosmetic(Player player, (uint RecordId, byte Option) equip)
+    {
+        var record = Mtx.Find(equip.RecordId);
+        if (record is null)
+        {
+            Console.WriteLine($"[gateway] {player.Connection.Remote} <= 0x01fb extra cosmetic equip: record {equip.RecordId} unknown, ignored");
+            return;
+        }
+        var extras = global::Game.SavedExtraCosmetics(player);
+        if (extras.Count >= byte.MaxValue) return;
+        uint key = extras.Count == 0 ? 1u : extras.Max(e => e.Key) + 1u;
+        extras.Add(new global::Game.SavedExtraCosmetic(key, record.Id, equip.Option, record.MtxTypeHash));
+        global::Game.SaveExtraCosmetics(player, extras);
+        await Send(player, InstanceMicrotransactions.ExtraSlotUpdate(new(key, record.Id, record.MtxTypeHash, record.Qword, equip.Option)),
+            $"0x0202 extra cosmetic slot key {key} = record {record.Id} (option {equip.Option})");
+    }
+
+    internal static async Task UnequipExtraCosmetic(Player player, uint key)
+    {
+        var extras = global::Game.SavedExtraCosmetics(player);
+        if (extras.RemoveAll(e => e.Key == key) == 0) return;
+        global::Game.SaveExtraCosmetics(player, extras);
+        await Send(player, InstanceMicrotransactions.ExtraSlotRemove(key),
+            $"0x0203 remove extra cosmetic slot key {key}");
+    }
+
+    internal static async Task SetSlotTier(Player player, (byte Slot, byte Tier) change)
+    {
+        if (change.Slot == 0 || change.Slot >= InstanceMicrotransactions.SlotCount) return;
+        var saved = CharacterSaves.Cosmetics(CharacterName(player));
+        if (!saved.TryGetValue(change.Slot, out var current) || Mtx.Resolve(current) is not { } record) return;
+        byte tier = MtxEffects.Of(record.MtxTypeHash) is { TierCount: > 0 } fx
+            ? (byte)Math.Clamp(change.Tier == 0 ? 1 : change.Tier, 1, fx.TierCount)
+            : change.Tier;
+        CharacterSaves.SetCosmetic(CharacterName(player), change.Slot, current with { Option = tier });
+        player.Character.WornCosmetics = null;
+        await Send(player, InstanceMicrotransactions.WornSlotUpdate(new(change.Slot, record.Id, record.MtxTypeHash, record.Qword, tier)),
+            $"0x01ff cosmetic slot {change.Slot} tier set to {tier}");
+        await SendEquipment(player, ItemsOf(player), refreshCosmetics: false);
+    }
+
+    internal static async Task SetExtraTier(Player player, (uint Key, byte Tier) change)
+    {
+        var extras = global::Game.SavedExtraCosmetics(player);
+        int idx = extras.FindIndex(e => e.Key == change.Key);
+        if (idx < 0) return;
+        var current = extras[idx];
+        if (Mtx.Resolve(new CharacterSaves.SavedCosmetic(current.Record, current.Option, current.Hash)) is not { } record) return;
+        byte tier = MtxEffects.Of(record.MtxTypeHash) is { TierCount: > 0 } fx
+            ? (byte)Math.Clamp(change.Tier == 0 ? 1 : change.Tier, 1, fx.TierCount)
+            : change.Tier;
+        extras[idx] = current with { Option = tier };
+        global::Game.SaveExtraCosmetics(player, extras);
+        await Send(player, InstanceMicrotransactions.ExtraSlotUpdate(new(change.Key, record.Id, record.MtxTypeHash, record.Qword, tier)),
+            $"0x0202 extra cosmetic slot key {change.Key} tier set to {tier}");
+    }
+
+    internal static async Task QueryReclaim(Player player, uint recordId)
+    {
+        Console.WriteLine($"[gateway] {player.Connection.Remote} <= 0x020b reclaim query for record {recordId}");
+        await Send(player, InstanceMicrotransactions.ReclaimQueryEmpty(),
+            $"0x020c reclaim query empty for record {recordId}");
+    }
+
+    internal static async Task ResetAllStats(Player player)
+    {
+        Console.WriteLine($"[gateway] {player.Connection.Remote} <= 0x020e reset all MTX stat counters");
+        foreach (var worn in WornCosmetics(player))
+            if (worn.Id != 0)
+                await Send(player, InstanceMicrotransactions.RecordStatUpdate(worn.Id, 0),
+                    $"0x0210 reset MTX stat counter for record {worn.Id}");
+    }
+
+    internal static async Task ResetRecordStats(Player player, uint recordId)
+    {
+        Console.WriteLine($"[gateway] {player.Connection.Remote} <= 0x020f reset MTX stat counter for record {recordId}");
+        if (Mtx.Find(recordId) is not { } record) return;
+        await Send(player, InstanceMicrotransactions.RecordStatUpdate(record.Id, 0),
+            $"0x0210 reset MTX stat counter for record {record.Id}");
+        await Send(player, InstanceMicrotransactions.RecordUpsert(record with { Qword = 0 }),
+            $"0x0204 upsert MTX record {record.Id} after stat reset");
     }
 
     // The worn pets (Pet slots 18 and 19): one PetObject each beside the player, owned by it (PetAi). A pick removes the

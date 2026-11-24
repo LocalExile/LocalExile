@@ -120,4 +120,22 @@ public static class InstanceHideoutEditing
     /// baseline walk grids and reapply all current model hulls. Its unused object header is zero.</summary>
     public static byte[] RebuildCollision() =>
         new GameServer.Core.Protocol.Login.LoginWriter().U16(0x161).U32(0).U32(0).U16(0).ToArray();
+
+    /// <summary>S→C 0x214 (vtable 0x1435e6ea0, write 0x1421b2a70, read 0x1421b2b00, dispatcher case 0xa1 at
+    /// 0x142159e5d): syncs in-use bit 0 on personal (+0xd618) or guild (+0xd630) hideout decoration MTX records.
+    /// Wire: u16 BE 0x0214, u16 BE hideoutId, u8 inUse (bool), u16 BE count, count × u32 BE recordId.</summary>
+    public const ushort InUseDecorationsId = 0x214;
+
+    public static byte[] InUseDecorations(ushort hideoutId, bool inUse, IReadOnlyList<uint> recordIds)
+    {
+        if (recordIds.Count > ushort.MaxValue)
+            throw new ArgumentOutOfRangeException(nameof(recordIds), recordIds.Count, "0x0214 counts record ids in u16");
+        var w = new GameServer.Core.Protocol.Login.LoginWriter()
+            .U16(InUseDecorationsId)
+            .U16(hideoutId)
+            .Bool(inUse)
+            .U16((ushort)recordIds.Count);
+        foreach (uint id in recordIds) w.U32(id);
+        return w.ToArray();
+    }
 }
