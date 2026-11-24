@@ -184,6 +184,19 @@ public sealed class VillageModule : IModule
                 for (int i = 0; i < crops.Length; i++)
                     settlement.Resources[10 + i] = store.TryGetProperty(crops[i], out var have) ? (uint)Math.Max(0, have.GetInt32()) : 0;
             }
+            // The mine and smeltery lines read VillageResources rows 5..9 (the ores) and 15..19 (the bars); the store
+            // file carries both under the same bag as the crops.
+            string[] ores = ["IronOre", "CopperOre", "Amber", "BismuthOre", "VerisiumOre"];
+            string[] bars = ["RefinedIron", "RefinedCopper", "RefinedAmber", "RefinedBismuth", "RefinedVerisium"];
+            if (root.TryGetProperty("crops", out var mined))
+            {
+                for (int i = 0; i < ores.Length; i++)
+                {
+                    settlement.Resources[5 + i] = mined.TryGetProperty(ores[i], out var ore) ? (uint)Math.Max(0, ore.GetInt32()) : 0;
+                    settlement.Resources[15 + i] = mined.TryGetProperty(bars[i], out var bar) ? (uint)Math.Max(0, bar.GetInt32()) : 0;
+                }
+                settlement.Resources[20] = mined.TryGetProperty("MagicDust", out var dust) ? (uint)Math.Max(0, dust.GetInt32()) : 0;
+            }
             // The six plot slots the client names on the map icons: a plot growing crop n is row 9 + n, a bare one is
             // 0xff (out of range, which the client treats as "no row" instead of dereferencing row 0).
             Array.Fill(settlement.Slots, (byte)0xff);
