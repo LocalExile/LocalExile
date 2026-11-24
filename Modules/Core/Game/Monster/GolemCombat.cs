@@ -707,6 +707,9 @@ public static partial class Game
             current = GolemAbilities(player, g.Monster.Variety!, g.Monster.Level, g, currentPlayer, now,
                 prismatic: element).Single(ability => ability.Effect == a.Effect);
         }
+        if (MinionHitProfiles.TryGetValue(current, out var baseProfile)
+            && baseProfile.AgainstIgnited is { } againstIgnited && target.Ignites.IgnitedAt(now))
+            current = againstIgnited;
         a = CurrentMinionHit(a, current);
         if (!a.Attack.Spell && !TauntPreventsAttackEvasion(player, target, now))
         {

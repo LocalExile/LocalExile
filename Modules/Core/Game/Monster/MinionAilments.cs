@@ -6,7 +6,7 @@ public static partial class Game
 {
     sealed record MinionHitProfile(MonsterIgnites.Settings Ignite, MonsterIgnites.Settings Bleed,
         MonsterPoisons.Settings Poison, int PoisonChance, int AdditionalPoisons, Penetration.PerType Penetration,
-        DamagePacket LifeLeech, DamagePacket ShieldLeech);
+        DamagePacket LifeLeech, DamagePacket ShieldLeech, GolemState.Ability? AgainstIgnited = null);
     static readonly RuleTable<GolemState.Ability, MinionHitProfile> MinionHitProfiles = new();
 
     static void MinionExposureOnHitLocked(IReadOnlyDictionary<uint, int> skillStats, SpawnedMonster target,

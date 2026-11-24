@@ -384,6 +384,8 @@ public static partial class Game
         int shieldChaos = SkeletonShieldChaos(player, golem, playerStats);
         int? ownerAttackCrit = MinionOwnerAttackCritical(player, playerStats);
         int Own(uint name) => GolemStat(golem.Own, name);
+        int ignitedIncrease = GolemStat(playerStats, Stat.MinionDamageAgainstIgnitedEnemiesPlusPct)
+            + Own(Stat.MinionDamageAgainstIgnitedEnemiesPlusPct);
         foreach (var (effect, index) in (variety.GrantedEffects ?? []).Select((e, i) => (e, i)))
         {
             var (skillLevel, raw, multiplier, crit) = GolemData.Skill(catalog, effect, level);
@@ -490,6 +492,7 @@ public static partial class Game
             var supportStats = golem.Own.Select(p => (Id: p.Key, p.Value))
                 .Where(p => multistrike || p.Id != Stat.SupportMultipleAttackDamagePlusPctFinal).ToArray();
             var modified = DamagePacket.Empty;
+            var versusIgnited = DamagePacket.Empty;
             foreach (var path in conversion.Trace(damage))
             {
                 if (effect == 306 && path.Type != prismatic) continue;
@@ -512,7 +515,10 @@ public static partial class Game
                 // Elemental Army: "Minions deal 10% more Elemental Damage" (the support's other half is the exposure).
                 double elementalMore = (path.History & DamageTypeHistory.Elemental) != 0
                     ? Math.Max(0, 1 + Own(Stat.SupportMinionTotemResistanceElementalDamagePlusPctFinal) / 100.0) : 1;
-                modified = modified.Add(path.Type, path.Range.Scale(Math.Max(0, 1 + increase / 100) * more * physicalMore * auraMore * general * typed * elementalMore));
+                var baseRange = path.Range.Scale(more * physicalMore * auraMore * general * typed * elementalMore);
+                modified = modified.Add(path.Type, baseRange.Scale(Math.Max(0, 1 + increase / 100)));
+                if (ignitedIncrease != 0)
+                    versusIgnited = versusIgnited.Add(path.Type, baseRange.Scale(Math.Max(0, 1 + (increase + ignitedIncrease) / 100)));
             }
             damage = spell ? modified : Volatility.Apply(modified, name => mods[name] + Raw(name));
             string id = catalog.EffectId(effect) ?? "";
@@ -534,16 +540,7 @@ public static partial class Game
             var ability = new GolemState.Ability(effect, skill, id, attack, raw, radius, cd, Math.Max(1, catalog.CooldownUses(effect, skillLevel)),
                 Math.Clamp(contact?.Fraction ?? .5, .05, 1), projectile, crit);
             result.Add(ability);
-            int AilmentStat(uint name) => mods[name] + Raw(name) + (name == Stat.CriticalAilmentDotMultiplierPlus ? 50 : 0);
             string hand = spell ? "spell" : "main_hand";
-            var rows = AilmentPanelStats.Compute(new(hand, spell, !spell && projectile is null), rawDamage.Scale(more), conversion, AilmentStat);
-            var ignite = WithIgniteSpread(MonsterIgnites.Settings.From(rows, hand, AilmentStat),
-                mods.Stats, raw, spell, hand, includeActorBaseArea: true);
-            var bleed = spell ? MonsterIgnites.Settings.None : BleedSettings(rows, hand, AilmentStat, golem.Weapon?.LocalSources, projectile is null, projectile is not null);
-            double bleedMore = Math.Max(0, 1 + Own(Stat.ActiveSkillMinionBleedingDamagePlusPctFinal) / 100d);
-            bleed = bleed with { Min = bleed.Min * bleedMore, Max = bleed.Max * bleedMore, CriticalMin = bleed.CriticalMin * bleedMore, CriticalMax = bleed.CriticalMax * bleedMore };
-            var poison = MonsterPoisons.Settings.From(rows, hand, AilmentStat, golem.Weapon?.LocalSources);
-            int chance = AilmentStat(Stat.BaseChanceToPoisonOnHitPct) + AilmentStat(spell ? Stat.SpellsChanceToPoisonOnHitPct : Stat.ChanceToPoisonOnHitWithAttacksPct) + poison.WeaponChance;
             var weaponLocal = spell ? null : golem.Weapon?.LocalSources;
             var penetration = damage.MaxTotal > 0 ? Penetration.Of(mods.Stats, Stats, !spell, raw, weaponLocal) : default;
             int LeechStat(uint name) => mods[name] + Raw(name);
@@ -555,8 +552,38 @@ public static partial class Game
                 && mods[Stat.CannotLeechEnergyShield] == 0 && mods[Stat.BaseCannotLeechEnergyShield] == 0
                 ? LeechSources.Coefficients("energy_shield", LeechStat, !spell, weaponLocal is null ? null : weaponLocal.GetValueOrDefault)
                 : DamagePacket.Empty;
-            MinionHitProfiles.Add(ability, new(ignite, bleed, poison, chance,
-                AilmentStat(Stat.AdditionalPoisonsPlusToApplyVsNonPoisonedEnemies), penetration, lifeLeech, shieldLeech));
+            var profile = BuildHitProfile(0);
+            if (ignitedIncrease != 0 && (modified.MaxTotal > 0 || versusIgnited.MaxTotal > 0))
+            {
+                var alternative = ability with { Attack = attack with
+                {
+                    Damage = spell ? versusIgnited : Volatility.Apply(versusIgnited, name => mods[name] + Raw(name)),
+                }};
+                MinionHitProfiles.Add(alternative, BuildHitProfile(ignitedIncrease));
+                profile = profile with { AgainstIgnited = alternative };
+            }
+            MinionHitProfiles.Add(ability, profile);
+
+            MinionHitProfile BuildHitProfile(int extraDamage)
+            {
+                int AilmentStat(uint name) => mods[name] + Raw(name)
+                    + (name == Stat.CriticalAilmentDotMultiplierPlus ? 50 : 0)
+                    + (name == Stat.DamagePlusPct ? extraDamage : 0);
+                var rows = AilmentPanelStats.Compute(new(hand, spell, !spell && projectile is null),
+                    rawDamage.Scale(more), conversion, AilmentStat);
+                var ignite = WithIgniteSpread(MonsterIgnites.Settings.From(rows, hand, AilmentStat),
+                    mods.Stats, raw, spell, hand, includeActorBaseArea: true);
+                var bleed = spell ? MonsterIgnites.Settings.None
+                    : BleedSettings(rows, hand, AilmentStat, weaponLocal, projectile is null, projectile is not null);
+                double bleedMore = Math.Max(0, 1 + Own(Stat.ActiveSkillMinionBleedingDamagePlusPctFinal) / 100d);
+                bleed = bleed with { Min = bleed.Min * bleedMore, Max = bleed.Max * bleedMore,
+                    CriticalMin = bleed.CriticalMin * bleedMore, CriticalMax = bleed.CriticalMax * bleedMore };
+                var poison = MonsterPoisons.Settings.From(rows, hand, AilmentStat, weaponLocal);
+                int chance = AilmentStat(Stat.BaseChanceToPoisonOnHitPct) + poison.WeaponChance
+                    + AilmentStat(spell ? Stat.SpellsChanceToPoisonOnHitPct : Stat.ChanceToPoisonOnHitWithAttacksPct);
+                return new(ignite, bleed, poison, chance, AilmentStat(Stat.AdditionalPoisonsPlusToApplyVsNonPoisonedEnemies),
+                    penetration, lifeLeech, shieldLeech);
+            }
         }
         return result;
     }
