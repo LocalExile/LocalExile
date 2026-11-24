@@ -665,6 +665,9 @@ public static partial class Game
             target.Ailments.Inflict(mitigated, critical, target.MaxLife, now, Golem,
                 n => target.Mods.Effects[n], AreaRng(player));
             HitDebuffsOnHitLocked(target, Golem, a.Attack.Spell, critical, now, AreaRng(player));
+            // Unnatural Strength: a minion with Unholy Might withers on hit (25% for 2 s, from the buff row's
+            // stats in its Mods); the player path does this in MonsterAilments, the minion path did not.
+            WitherOnHitLocked(target, Golem, now, AreaRng(player));
             InflictMonsterBlind(player, id, target, now, BlindHitInput.Capture(Golem), a.Attack.Spell, critical,
                 AreaRng(player));
             MinionAilmentsLocked(player, g, a, id, target, critical, now);
@@ -678,7 +681,7 @@ public static partial class Game
     {
         long increased = (long)mods.Effects[Stat.CriticalStrikeChancePlusPct] + additionalIncrease
             + (ability.Attack.Spell ? mods.Effects[Stat.SpellCriticalStrikeChancePlusPct] : 0);
-        double chance = (ability.Crit + (double)mods.Effects[WakenedFuryChance]) * Math.Max(0, 100L + increased) / 100.0;
+        double chance = (ability.Crit + (double)mods.Effects[WakenedFuryChance] + mods.Effects[Stat.AdditionalBaseCriticalStrikeChance]) * Math.Max(0, 100L + increased) / 100.0;
         return (int)Math.Clamp(chance, 0, 10_000);
     }
 
