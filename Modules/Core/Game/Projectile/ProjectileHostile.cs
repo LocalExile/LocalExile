@@ -37,7 +37,9 @@ public static partial class Game
         if (TurnToShot && turn && orderedAim is null && releasedFrom is null && (aim - from).Length >= 1)
             session.World(id, GameServer.Core.Protocol.Instance.InstanceProtocol.Orientation(id,
                 MathF.Atan2((float)(aim.X - from.X), (float)(from.Y - aim.Y)), locked: false), null);
-        double speed = ProjectileSpeed.CellsPerSecond(projectile.Speed, _ => 0, _ => 0,
+        var effects = m.Effects;
+        int EffectStat(uint id) => effects[id];
+        double speed = ProjectileSpeed.CellsPerSecond(projectile.Speed, EffectStat, EffectStat,
             Environment.GetEnvironmentVariable("Game_PROJECTILE_SPEED"));
         double distance = Math.Max(1, (aim - from).Length);
         var toward = (aim - from).Unit;
@@ -68,6 +70,13 @@ public static partial class Game
         double landing = Math.Max(0.5, Math.Max((aim - origin).Length, projectile.MinimumRange / WorldUnits.PerCell - ahead));
         var target = projectile.Lobbed ? origin + toward * landing : aim;
         var profile = MonsterProjectileProfile(projectile, speed, landing, Math.Max(distance, a.Range) * 1.5 + 5);
+        if (!profile.Lobbed)
+            profile = profile with
+            {
+                Chain = Math.Clamp(EffectStat(Stat.NumberOfChains), 0, 256),
+                TerrainChainChance = Math.Clamp(EffectStat(Stat.ProjectileChainFromTerrainChancePct), 0, 100),
+                Pierce = EffectStat(Stat.AlwaysPierce) != 0 ? -1 : profile.Pierce,
+            };
         if (a.Effect is int effect && SkillsFor(player).EffectId(effect) is { } effectId && effectId.Contains("TornadoShot", StringComparison.Ordinal))
             profile = MonsterTornadoShot(profile, (aim - origin).Length, SkillsFor(player).EffectStats(effect, m.Level));
         if (nativeTargets is not null)
@@ -121,7 +130,6 @@ public static partial class Game
             // The client's secondary action ends its flight after 300 ms (GatewayProjectileSkillProfiles).
             Range = arrow.Speed * .3,
             Lifetime = ProjectileRuntime.Time(.3),
-            Pierce = 0,
             EndEmission = null,
         };
         return arrow with

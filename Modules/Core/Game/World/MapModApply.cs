@@ -97,6 +97,10 @@ public static partial class Game
         Gain(Stat.MapMonstersAttackSpeedPlusPct, Stat.AttackSpeedPlusPct);
         Gain(Stat.MapMonstersCastSpeedPlusPct, Stat.BaseCastSpeedPlusPct);
         Gain(Stat.MapMonstersMovementSpeedPlusPct, Stat.BaseMovementVelocityPlusPct);
+        Gain(Stat.MapMonsterSkillsChainXAdditionalTimes, Stat.NumberOfChains);
+        Gain(Stat.MapMonsterProjectileChainFromTerrainChancePct, Stat.ProjectileChainFromTerrainChancePct);
+        if (mods.Get(Stat.DelveBiomeMonsterProjectilesAlwaysPierce) != 0)
+            extra[Stat.AlwaysPierce] = 1;
         if (mods.Get(Stat.MapMonstersMovementSpeedCannotBeReducedBelowBase) != 0)
             extra[Stat.MovementSpeedCannotBeReducedBelowBase] = 1;
         if (mods.Get(Stat.MapMonsterActionSpeedCannotBeReducedBelowBase) != 0)
