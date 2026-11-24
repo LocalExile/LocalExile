@@ -566,6 +566,9 @@ public sealed class VillageModule : IModule
 
             Console.WriteLine($"[gateway] 0x02ca village action 0x{action:x2} {named}, kind 0x{kind:x2}, " +
                 $"blob {Convert.ToHexString(blob)}{(note is null ? "" : ", " + note)}");
+            // A refused button has to say why: the panel only shows the numbers it is given, so a hire that the treasury
+            // cannot pay for would otherwise look like a button that does nothing at all.
+            if (note is not null) await player.Tell($"Kingsmarch: {note}");
             await PushWorkers(player);
             await PushRecruits(player);
             await PushState(player);
@@ -666,9 +669,10 @@ public sealed class VillageModule : IModule
             return $"no recruit in slot {index} ({settlement.Recruits.Count} waiting)";
         uint price = Price(settlement.Recruits[index].Row, settlement.Recruits[index].Skill);
         // The treasury the town really holds lives in the farm, and this settlement's copy is rewritten from it every
-        // tick, so the charge has to go through the farm or the gold would come back on the next tick.
-        if (!KingsmarchTown.PayTreasury(player, (int)price))
-            return $"hiring needs {price} gold in the treasury ({KingsmarchTown.Treasury(player)} there)";
+        // tick, so the charge has to go through the farm. When the town's purse is short the player's own gold covers the
+        // rest: the panel offers the hire, so pressing it has to hire.
+        var (paid, paidFrom) = await KingsmarchTown.PayTownPurchase(player, (int)price);
+        if (!paid) return $"hiring needs {price} gold: {paidFrom}";
 
         var (row, skill) = settlement.Recruits[index];
         settlement.Recruits.RemoveAt(index);
@@ -679,17 +683,18 @@ public sealed class VillageModule : IModule
         int hired = KingsmarchTown.AddWorker(player, skill);
         if (hired < 1) return "hiring failed: the town could not take another worker";
         byte worker = (byte)hired;
-        // the farm owns the worker's job, and the panel is rewritten from the farm every tick
-        await KingsmarchTown.MoveTo(player, worker, row);
-        settlement.Assignments[worker] = row;
+        // A new hire joins the idle list, not a job: the recruitment panel hires, the farm panel assigns. VillageJobs row
+        // 0 is the idling row, which is the column the "available workers" list reads.
+        await KingsmarchTown.MoveTo(player, worker, 0);
+        settlement.Assignments[worker] = 0;
         settlement.Ranks[worker] = skill;
         settlement.Workers = (byte)settlement.Assignments.Count;
         settlement.Version++;
         await PushWorkers(player);
         await PushRecruits(player);
         await PushState(player);
-        return $"hired recruit {index}: worker {worker} takes VillageJobs row {row} at rank " +
-            $"{VillageWages.Rank(skill) + 1} for {price} gold (treasury {settlement.Gold})";
+        return $"hired recruit {index} as worker {worker} at rank " +
+            $"{VillageWages.Rank(skill)} for {price} gold ({paidFrom}); assign {worker} on the farm panel";
     }
 
     /// <summary>Picks the two recruits waiting to be hired: a job that has a name to show and a skill level.</summary>

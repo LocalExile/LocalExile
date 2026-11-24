@@ -1342,7 +1342,8 @@ public static class KingsmarchTown
                 + (plot.Crop == 0 ? "" : $", {rate * 3600:0.#}/h, {plot.Produced} grown")
                 + (who.Length > 0 ? $" (worker {who})" : " (no one)"));
         }
-        var idle = progress.Workers.Where(w => w.Plot < 0).Select(w => w.Order + 1).ToList();
+        var idle = progress.Workers.Where(w => w.Plot < 0 && w.Plot != MineJob && w.Plot != SmelterJob)
+            .Select(w => w.Order + 1).ToList();
         lines.Add(idle.Count == 0 ? "workers: none idle" : $"workers: idle {string.Join(",", idle)}");
         var onMine = progress.Workers.Where(w => w.Plot == MineJob).Select(w => w.Order + 1).ToList();
         lines.Add("mine: " + (onMine.Count == 0 ? "no one"
@@ -1469,6 +1470,34 @@ public static class KingsmarchTown
     /// <param name="player">The player whose town it is.</param>
     /// <param name="cost">The gold to take.</param>
     public static bool PayTreasury(IPlayer player, int cost) => KingsmarchPort.Spend(State(player).Who, cost);
+
+    /// <summary>Pays one of the town's purchases (a recruit's price). The treasury is the town's own purse, so it pays
+    /// first; when it is short the rest comes out of the player's gold, the same gold they would have carried over with
+    /// the King's Hand's "Fund the Treasury" - a hire the panel offered should not silently do nothing just because the
+    /// town's purse happens to be empty.</summary>
+    /// <param name="player">The player whose town it is.</param>
+    /// <param name="cost">The gold the purchase costs.</param>
+    /// <returns>True when the gold was taken, and a line saying which purse paid it.</returns>
+    public static async Task<(bool Paid, string From)> PayTownPurchase(IPlayer player, int cost)
+    {
+        if (cost <= 0) return (true, "for nothing");
+        long treasury = Treasury(player);
+        int fromTreasury = (int)Math.Min(cost, treasury);
+        if (fromTreasury > 0 && !PayTreasury(player, fromTreasury)) fromTreasury = 0;
+        int fromStash = cost - fromTreasury;
+        if (fromStash <= 0)
+            return (true, $"{cost} gold out of the treasury ({Treasury(player)} left)");
+        var stash = Game.PersonalStashOf(Program.PlayerOf(player));
+        if (stash.Gold < (uint)fromStash)
+            return (false, $"{cost} gold needed: the treasury holds {treasury} and your purse {stash.Gold}");
+        uint? left = stash.TrySpendGold(fromStash);
+        if (left is null) return (false, $"{cost} gold needed: the treasury holds {treasury}");
+        await player.Send(InstanceEntities.Gold(left.Value),
+            $"0x02aa gold: {left} (paid {fromStash} of a {cost} Kingsmarch purchase out of the player's purse)");
+        return (true, fromTreasury == 0
+            ? $"{cost} gold out of your own purse ({left} left)"
+            : $"{cost} gold ({fromTreasury} from the treasury, {fromStash} from your purse, {left} left)");
+    }
 
     /// <summary>Hires one more worker for the town, the way the recruitment panel's hire button does: the worker joins
     /// the farm's own list, which is what the panel is rewritten from. Returns the worker's number, or 0 when the town is
