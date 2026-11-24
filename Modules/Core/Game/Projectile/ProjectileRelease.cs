@@ -356,6 +356,20 @@ public static partial class Game
         var admittedGem = SupportedSkill(player, skillId);
         var own = admittedGem.Stats;
         var merged = MergeSkillStats(playerStats, own);
+        if (SkillsFor(player).EffectId(gem.Effect) is "Fireball" or "FireballAltX" or "FireballAltY")
+        {
+            bool cannotIgnite = merged.GetValueOrDefault(Stat.FireballCannotIgnite) != 0;
+            int scorch = merged.GetValueOrDefault(Stat.FireballChanceToScorchPct);
+            if (cannotIgnite || scorch != 0)
+            {
+                var projected = new Dictionary<uint, int>(own);
+                if (cannotIgnite) projected[Stat.NeverIgnite] = 1;
+                if (scorch != 0) AddTo(projected, Stat.ChanceToScorchPct, scorch);
+                own = projected;
+                admittedGem = admittedGem with { Stats = own };
+                merged = MergeSkillStats(playerStats, own);
+            }
+        }
         int Get(uint k) => merged.GetValueOrDefault(k);
         int Player(uint k) => playerStats.GetValueOrDefault(k);
         int Own(uint k) => own.GetValueOrDefault(k);

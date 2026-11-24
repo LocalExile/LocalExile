@@ -59,6 +59,15 @@ public static class ThresholdJewels
                     radius = mod.Values[i];
                     continue;
                 }
+                int value = mod.Values[i];
+                if (value == 0) continue;
+                // Rolling Flames' Intelligence requirement is in its descriptions rather than its IDs.
+                if (id is Stat.LocalJewelFireballCannotIgnite or Stat.LocalJewelFireballChanceToScorchPct)
+                {
+                    effects.Add(new(Attributes.Intelligence, 40, id == Stat.LocalJewelFireballCannotIgnite
+                        ? Stat.FireballCannotIgnite : Stat.FireballChanceToScorchPct, value));
+                    continue;
+                }
                 if (!TryParse(Program.Stats.Name(id), out string target, out Attributes attributes, out int required)) continue;
                 // These legacy keys still say 50, but their client stat descriptions use 40.
                 if (id is Stat.LocalUniqueJewelShrapnelShotRadiusPlusPctWith50DexInRadius
@@ -69,7 +78,6 @@ public static class ThresholdJewels
                     or Stat.LocalUniqueJewelCleaveFortifyOnHitWith50StrInRadius
                     or Stat.LocalUniqueJewelMagmaOrbSkillAreaOfEffectPlusPctPerBounceWith50IntInRadius)
                     required = 40;
-                int value = mod.Values[i];
                 uint? key = Program.Stats.Key(target);
                 if (Aliases.TryGetValue(target, out var alias))
                 {
