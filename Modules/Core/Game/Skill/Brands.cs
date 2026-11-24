@@ -848,7 +848,7 @@ public static partial class Game
                     var packet = DamagePacket.Of(DamageType.Chaos, chaosDmg, chaosDmg);
                     var mitigated = DamageModel.Mitigate(packet, type => MonsterHitResistance(m, type, default, now));
                     int dmg = (int)Math.Floor(mitigated.Components.Sum(c => c.Range.Min) * MonsterDamageTaken(m, false, now, false, true, true));
-                    if (dmg <= 0 || ApplyMonsterHitLocked(player, m, dmg) is not { } hit) continue;
+                    if (dmg <= 0 || ApplyTypedMonsterHitLocked(player, m, dmg, dmg) is not { } hit) continue;
                     CommitAcceptedHitLocked(player, id, m, hit, dmg, now, "branded enemy explosion", playerKill: true);
                 }
             }
@@ -1400,7 +1400,7 @@ public static partial class Game
             double total = vis.WintertideCarry + totalDps * step * MonsterDotTaken(m, DamageType.Cold, now);
             int damage = (int)Math.Min(int.MaxValue, Math.Floor(total));
             vis.WintertideCarry = total - damage;
-            if (damage <= 0 || ApplyMonsterHitLocked(player, m, damage) is not { } hit) continue;
+            if (damage <= 0 || ApplyMonsterHitLocked(player, m, damage, allyAt: m.Walk.Position(now)) is not { } hit) continue;
             if (hit.StageStarts) { CommitBossStage(player, id, m, now); hit = hit with { StageStarts = false }; }
             CommitAcceptedHitLocked(player, id, m, hit, damage, now, "Wintertide Brand", playerKill: true);
         }
@@ -1428,7 +1428,7 @@ public static partial class Game
                 bytes.World(id, InstanceEntities.AddBuff(id, end.BuffInstance, WintertideSecondaryBuffRow, player.Id,
                     u68: BitConverter.SingleToUInt32Bits((float)Math.Max(0.1, end.Until - now))));
             }
-            if (damage <= 0 || ApplyMonsterHitLocked(player, m, damage) is not { } hit) continue;
+            if (damage <= 0 || ApplyMonsterHitLocked(player, m, damage, allyAt: m.Walk.Position(now)) is not { } hit) continue;
             if (hit.StageStarts) { CommitBossStage(player, id, m, now); hit = hit with { StageStarts = false }; }
             CommitAcceptedHitLocked(player, id, m, hit, damage, now, "Wintertide's End", playerKill: true);
         }
@@ -1592,8 +1592,10 @@ public static partial class Game
         LeechOnHitLocked(player, m, taken, damage, leech);
 
         var stun = OwnerStun(player, m, damage, mitigated, melee: false, spell: true, critical, playerStats, gem.Stats);
+        int chaosDamage = MonsterHitChaosDamage(m, mitigated, spell: true, now, damage);
         if (ApplyMonsterHitLocked(player, m, damage, null, null, allyAt: null,
-                cull: Cull.Of(playerStats, gem.Stats, critical, spell: true), cullPlayer: playerStats)
+                cull: Cull.Of(playerStats, gem.Stats, critical, spell: true), cullPlayer: playerStats,
+                chaosDamage: chaosDamage)
             is not { } applied) return;
         if (applied.StageStarts) { CommitBossStage(player, monsterId, m, now); applied = applied with { StageStarts = false }; }
 

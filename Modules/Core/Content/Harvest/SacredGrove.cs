@@ -365,7 +365,7 @@ public static class SacredGrove
     internal static void Block(Player player, GroveObject o)
     {
         var (size, hull) = StationaryCollision.Resolve(o.Type);
-        if (size >= 0) player.SetBlocker(o.Id, o.X, o.Y, size, hull);
+        if (size >= 0) player.SetObjectBlocker(o.Id, o.X, o.Y, size, QuestObjectTypes.Find(o.Type)?.ActorOrChest == true, hull);
         else player.RemoveBlocker(o.Id);
     }
 

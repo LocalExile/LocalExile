@@ -463,7 +463,7 @@ public static class DeepwaterVelka
                     .Set("visible", a.AltarEnabled ? 1 : 0);
                 await CreateObject(player, a.Altar, transitionState: 1, blocked: false, states: altarStates, hideMinimap: !a.AltarEnabled);
                 if (a.AltarEnabled && Info(DescensionObjectType) is { Blocking: true } altarInfo)
-                    player.SetBlocker(a.Altar.Id, a.Altar.X, a.Altar.Y, Math.Max(1, altarInfo.Size));
+                    player.SetObjectBlocker(a.Altar.Id, a.Altar.X, a.Altar.Y, Math.Max(1, altarInfo.Size), altarInfo.ActorOrChest);
             }
         }
         finally { enc.Gate.Release(); }

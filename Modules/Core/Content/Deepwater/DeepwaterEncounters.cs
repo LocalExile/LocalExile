@@ -298,7 +298,7 @@ internal static class DeepwaterEncounters
         if (!await global::Game.SendWorldCreate(modPlayer, id, InstanceEntities.CreateObject(id, InstanceEntities.ObjectTypeHash(type), blob),
             $"0x02bb Allflame encounter 0x{id:x} {type.Split('/')[^1]} at ({x}, {y}){(opened ? " (opened)" : "")}")) return;
         await global::Game.SendWorldRecord(modPlayer, id, InstanceProtocol.EnterWakeZone(id));
-        if (info.Blocking) player.SetBlocker(id, x, y, Math.Max(1, info.Size));
+        if (info.Blocking) player.SetObjectBlocker(id, x, y, Math.Max(1, info.Size), info.ActorOrChest);
     }
 
     static async Task SendStates(Player player, string type, uint id, StateMachineData? states, string what)
