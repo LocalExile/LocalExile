@@ -401,6 +401,13 @@ public static class InstanceEntities
         return ComponentUpdate(playerId, PlayerObject.ActorComponentIndex, w.ToArray());
     }
 
+    /// <summary>
+    /// The action an actor runs now (0x2bc to the Actor, flag f0 0x04 → <c>0x142199c20</c>): the client builds it from the
+    /// actor's skill and replaces its current action with it (<see cref="ActorAction"/>). The Actor's index is the type's.
+    /// </summary>
+    public static byte[] ActorCurrentAction(uint entityId, byte actorIndex, ActorAction action) =>
+        ComponentUpdate(entityId, actorIndex, action.Write(new BlobWriter().U8(ActorAction.ActorFlag).U8(0)).ToArray());
+
     /// <summary>Actor 0x0100: incremental minion ownership (0x142199c20). Source zero removes an id;
     /// other entries append, so changing a source/type first requires a removal.</summary>
     public static byte[] PlayerMinionsChange(uint playerId, IReadOnlyList<MinionOwnershipChange> changes,
@@ -797,6 +804,10 @@ public sealed record MonsterObject(int GridX, int GridY, uint Life, IReadOnlyLis
     /// <summary>Facing in radians (Positioned +0x29c); the create blobs of the Mystic Fetishes carry 5.236, 1.047 and 3.142.</summary>
     public float Rotation { get; init; }
 
+    /// <summary>The action the client creates the monster running (Actor f0 0x04, <see cref="ActorAction"/>), from its first
+    /// frame; null: none. Kept on the instance's record, so a client that joins later is created with it too.</summary>
+    public ActorAction? CurrentAction { get; init; }
+
     /// <summary>The object this monster rides on (0: none), at <see cref="Bone"/>: Animated bit 2, the native attachment
     /// record (0x141e5f300), as <see cref="EffectObject.Parent"/> writes it. The client carries it with the parent.</summary>
     public uint Parent { get; init; }
@@ -878,8 +889,10 @@ public sealed record MonsterObject(int GridX, int GridY, uint Life, IReadOnlyLis
                 // then slot 20's two flag bytes.
                 case "Actor":
                     w.WStr32("").U16(AnimationSeed).U8(ActorStance).U32(0).U32(0);
-                    if (Skills is { Count: > 0 }) { w.U8(0x40).U8(0); PlayerObject.WriteSkillList(w, Skills); }   // its skills (11-skills.md §3)
-                    else w.U8(0).U8(0);
+                    // Slot 20's flags: 0x40 its skills (11-skills.md §3), read first; 0x04 the action it runs (read after).
+                    w.U8((byte)((Skills is { Count: > 0 } ? 0x40 : 0) | (CurrentAction is null ? 0 : ActorAction.ActorFlag))).U8(0);
+                    if (Skills is { Count: > 0 }) PlayerObject.WriteSkillList(w, Skills);
+                    CurrentAction?.Write(w);
                     break;
                 // 0x1421c8e20: u8 = state (low 7 bits, → +0x120) | bit 7 (+0x122, "transitioning"). States run 1..num_states
                 // (.ot Transitionable num_states, default 2); num_states = fully transitioned (create_transitioned).

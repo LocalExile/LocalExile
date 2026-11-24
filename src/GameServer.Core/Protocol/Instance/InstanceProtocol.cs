@@ -418,6 +418,19 @@ public static class InstanceProtocol
         return w.ToArray();
     }
 
+    public const ushort ActionDataId = 0x2c8;
+
+    /// <summary>
+    /// S→C 0x2c8 (world group, read <c>0x141fe54d0</c>; the Actor handler <c>0x14219aa10</c>): data for an action an object
+    /// runs, handed to the action class's vtable slot 96 (+0x300). Object header (12 B), then big-endian u16 action type
+    /// (ActionTypes HASH16, action +0x118), u16 skill id (the skill's +0x40), u16 sequence (+0x11a), u8 sub-id (+0x11c),
+    /// u16 length and the payload as is (its meaning is the class's). The client looks for the action among the actor's
+    /// current one, then its detached ones; all four keys must match.
+    /// </summary>
+    public static byte[] ActionData(uint objectId, ushort actionType, ushort skillId, ushort sequence, byte subId, ReadOnlySpan<byte> payload) =>
+        new LoginWriter().U16(ActionDataId).U32(objectId).U32(0).U16(0)
+            .U16(actionType).U16(skillId).U16(sequence).U8(subId).U16(checked((ushort)payload.Length)).Bytes(payload).ToArray();
+
     /// <summary>The fixed-height marker of 0x1b7 and 0x1ba that means none: the object follows the terrain.</summary>
     public const uint FollowTerrain = 0x7fffffff;
 

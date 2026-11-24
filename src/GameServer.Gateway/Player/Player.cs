@@ -353,8 +353,9 @@ public sealed class SpawnedMonster(string label, PlayerWalk walk, int aggroRange
 
     /// <summary>A controller drives every action (a Survivors gate boss): the ordinary AI neither chases nor swings.</summary>
     public bool Scripted { get; init; }
-    /// <summary>Non-blocking actor (e.g. Mirage Warrior): excluded from living collision so walkers pass through it.</summary>
-    public bool NonBlocking { get; init; }
+    /// <summary>Non-blocking actor (e.g. Mirage Warrior): excluded from living collision so walkers pass through it. Read
+    /// each frame, so a caller may give a monster its body later (false), in the area's frame.</summary>
+    public bool NonBlocking { get; set; }
     public uint? OwnerId { get; init; }
     // The monster whose summoning skill brought it (MonsterAttack.Summon), whether its death gives no experience or items
     // (summoned_monsters_no_drops_or_experience), and when its own summoning skill is off cooldown.

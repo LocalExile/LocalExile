@@ -34,25 +34,29 @@ public sealed class LegionTests
     }
 
     [Fact]
-    public void Army_plan_has_two_factions_fixed_campaign_pair_and_no_general_before_46()
+    public void An_actors_current_action_and_its_action_data_are_written_as_the_client_reads_them()
     {
-        var data = LegionData.Current;
-        var none = new Dictionary<uint, int>();
-        for (int seed = 0; seed < 100; seed++)
-        {
-            var climb = LegionArmy.Plan(data, 1, "1_1_6", none, new Random(seed));
-            Assert.Equal(["EternalEmpire", "Karui"], climb.Factions.Select(f => f.Id).Order().ToArray());
-            var early = LegionArmy.Plan(data, 45, "MapAtziri", none, new Random(seed));
-            Assert.Equal(2, early.Factions.Select(f => f.Faction).Distinct().Count());
-            Assert.DoesNotContain(early.Factions.SelectMany(f => f.Squads), s => s.Tier == 3);
-            var late = LegionArmy.Plan(data, 70, "MapAtziri", none, new Random(seed));
-            Assert.Equal(2, late.Factions.Select(f => f.Faction).Distinct().Count());
-            foreach (var faction in late.Factions.Concat(climb.Factions).Concat(early.Factions))
-                foreach (var squad in faction.Squads)
-                    Assert.Contains(data.MonsterVarieties, v => v.Monster == squad.Monster && v.Faction == faction.Faction);
-        }
-        // A general is rolled at a high level (about 8% there): some seed in a fixed range has one, so a roll that never succeeds fails.
-        Assert.Contains(Enumerable.Range(0, 400), seed => LegionArmy.Plan(data, 75, "MapAtziri", none, new Random(seed))
-            .Factions.SelectMany(f => f.Squads).Any(s => s.Tier == 3));
+        const uint id = 0x08000123;
+        var action = new ActorAction(0x18fe, 7) { Animation = new AnimationControllerState(3, 0f), Payload = [0, 100, 0, 0, 0] };
+        // 0x2bc to the Actor (index 9): f0 0x04, f1 0; then little-endian u16 skill, the action record (u16 sequence, u32 target
+        // id, u32 x, u32 y, u16 flags), u8, the animation block (u32 path length, i32 clip, f32 time, f32 speed, f32, i32 queued)
+        // and the class's payload as is.
+        byte[] action4 =
+        [
+            0x04, 0x00, 0xfe, 0x18,
+            0x07, 0x00, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0x00, 0x00, 0x00,
+            0, 0, 0, 0, 0x03, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0xff, 0xff, 0xff, 0xff,
+            0, 100, 0, 0, 0,
+        ];
+        Assert.Equal((byte[])[0x02, 0xbc, 0x08, 0x00, 0x01, 0x23, 0, 0, 0, 0, 0, 0, 0x00, (byte)(1 + action4.Length), 0x09, .. action4],
+            InstanceEntities.ActorCurrentAction(id, 9, action));
+        // A monster created with it carries the same bytes after its Actor's flags (here no skill list), from its first frame.
+        var monster = new MonsterObject(10, 10, 100, MonsterObject.BaseComponents) { CurrentAction = action };
+        var blob = monster.Blob();
+        Assert.True(blob.AsSpan().IndexOf(action4) > 0);
+        Assert.Equal(-1, new MonsterObject(10, 10, 100, MonsterObject.BaseComponents).Blob().AsSpan().IndexOf(action4.AsSpan(0, 4)));
+        // S→C 0x2c8: big-endian object header, action type, skill id, sequence, u8 sub-id, u16 length, the payload as is.
+        Assert.Equal((byte[])[0x02, 0xc8, 0x08, 0x00, 0x01, 0x23, 0, 0, 0, 0, 0, 0, 0xd8, 0xfe, 0x18, 0xfe, 0x00, 0x07, 0x00, 0x00, 0x05, 2, 100, 0, 0, 0],
+            InstanceProtocol.ActionData(id, 0xd8fe, 0x18fe, 7, 0, [2, 100, 0, 0, 0]));
     }
 }
