@@ -93,10 +93,14 @@ public static partial class Game
         int addedMilliseconds = skills.EffectId(effect) == "SummonSkeletons"
             ? ActorScale.Saturate((long)playerStats.GetValueOrDefault(Stat.SummonSkeletonsCooldownModifierMs)
                 + own.GetValueOrDefault(Stat.SummonSkeletonsCooldownModifierMs)) : 0;
+        long dischargeCooldown = IsDischarge(skills.EffectId(effect))
+            ? (long)playerStats.GetValueOrDefault(Stat.DischargeCooldownOverrideMs)
+                + own.GetValueOrDefault(Stat.DischargeCooldownOverrideMs) : 0;
+        if (dischargeCooldown > 0 && skills.CooldownMs(effect, supported.Level) <= 0)
+            addedMilliseconds = ActorScale.Saturate(dischargeCooldown);
         if (SingleUseCooldown.ForSkill(skills, Stats, effect, supported.Level, playerStats, own, addedMilliseconds) is not { } plan)
             return null;
-        if (IsDischarge(skills.EffectId(effect)) && (long)playerStats.GetValueOrDefault(Stat.DischargeCooldownOverrideMs)
-            + own.GetValueOrDefault(Stat.DischargeCooldownOverrideMs) is > 0 and var dischargeCooldown)
+        if (dischargeCooldown > 0)
             plan = plan with { BaseMilliseconds = ActorScale.Saturate(dischargeCooldown) };
         if (skills.EffectId(effect) == MadnessEffect && MadnessActiveLocked(player))
             plan = plan with { BaseMilliseconds = plan.BaseMilliseconds
@@ -229,7 +233,7 @@ public static partial class Game
             int key = skillId is ushort requestedKey ? CooldownKey(player, effect, requestedKey) : effect;
             var sharedUses = new List<(SingleUseCooldownState State, int Version, ushort Skill)>();
             if (player.Closed || player.LeavingArea || player.RageRetired || player.PlayerLife == 0 || player.Paused
-                || requestedAt is double asked && PlayerActionBlocked(player, asked, AreaTime(player))
+                || requestedAt is double asked && PlayerActionBlocked(player, asked, AreaTime(player), instant)
                 || actionToken is int original && player.ActionCount != original) return false;
             // Covers object/self and instant routes before creating or spending cooldown state or a new action.
             if ((skillId is ushort id ? ActorSkillInstanceDisabled(player, effect, id)

@@ -2,6 +2,9 @@ using GameServer.Core.Projectiles;
 
 static partial class Game
 {
+    static readonly IReadOnlySet<ProjectileEndReason> SurgingEndReasons = new HashSet<ProjectileEndReason>
+        { ProjectileEndReason.Enemy };
+
     static bool IsGalvanicArrow(string? effect) => effect is "GalvanicArrow" or "GalvanicArrowAltX" or "GalvanicArrowAltY";
 
     static ProjectileUse GalvanicArrowRelease(ProjectileReleaseContext context, ProjectileUse use,
@@ -19,8 +22,9 @@ static partial class Game
             ReplacesDirectContact = false,
         };
         double flightFactor = Math.Max(.01, 1 + (ordinarySpeed + speedBonus) / 100d)
-            * Math.Max(.01, 1 + context.Own(Stat.SupportSlowerProjectilesProjectileSpeedPlusPctFinal) / 100d);
-        double speedFactor = Math.Max(.01, 100 + ordinarySpeed + speedBonus) / Math.Max(.01, 100 + ordinarySpeed);
+            * Math.Max(.01, 1 + context.Own(Stat.SupportSlowerProjectilesProjectileSpeedPlusPctFinal) / 100d)
+            * Math.Max(.01, 1 + context.Get(Stat.ActiveSkillProjectileSpeedPlusPctFinal) / 100d);
+        double speedFactor = Math.Max(1d, 100 + ordinarySpeed + speedBonus) / Math.Max(1d, 100 + ordinarySpeed);
         var shot = (ProjectileOffense)use.Payload!;
         return use with
         {
@@ -31,7 +35,7 @@ static partial class Game
                 Range = Math.Min(use.Profile.Range, Math.Max(1, 28 * flightFactor)),
                 LaunchArea = surging ? null : cone,
                 EndArea = surging ? cone : null,
-                EndAreaReasons = surging ? new HashSet<ProjectileEndReason> { ProjectileEndReason.Enemy } : null,
+                EndAreaReasons = surging ? SurgingEndReasons : null,
             },
             Payload = shot with
             {

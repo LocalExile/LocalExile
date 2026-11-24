@@ -345,8 +345,9 @@ public static partial class Game
             {
                 ScheduleBarrage(player, session, totem.SkillId, gem.Effect, now, seconds, sequence,
                     () => ReferenceEquals(lifetime, CombatLifetime) && SpellTotemCurrent(player, totem),
-                    _ => CaptureGemProjectile(player, session, totem.SkillId, gem, ReleaseAim(),
-                        CaptureSkillCriticalRoll(player, totem.SkillId), sequence, totem: totem));
+                    _ => ClientDrawnVolley(player, session, totem.SkillId, gem,
+                        CaptureGemProjectile(player, session, totem.SkillId, gem, ReleaseAim(),
+                            CaptureSkillCriticalRoll(player, totem.SkillId), sequence, totem: totem), sequence, 0));
                 continue;
             }
             session.Schedule(ProjectileRuntime.Time(totem.NextCast),

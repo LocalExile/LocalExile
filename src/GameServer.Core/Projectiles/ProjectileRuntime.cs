@@ -416,7 +416,12 @@ public sealed partial class ProjectileRuntime(IProjectileWorld world)
                 TargetedHits(p, target, strikes);
             if (result != ProjectileHitResult.Hit) splitBonus = 0;
             bool needsNearby = (!p.Profile.CannotSplit && (p.Split > 0 || splitBonus > 0)) || (!p.Profile.CannotChain && p.Chain > 0);
-            if (Continue(p, needsNearby ? world.Actors(Now, Now) : [], splitBonus)) return;
+            if (Continue(p, needsNearby ? world.Actors(Now, Now) : [], splitBonus))
+            {
+                if (p.Profile.EndEmission is { EmitOnContinueContact: true } emission)
+                    EmitAfterEnd(p, emission, emission.ExcludeImpactTarget ? target.Key : null);
+                return;
+            }
             End(p, ProjectileEndReason.Enemy, victim: target.Key, hitTarget: result == ProjectileHitResult.Hit ? target.Key : null);
         }
         else if (c.End == ProjectileEndReason.Terrain && p.Legs is { } blockedLegs && p.Phase == 0

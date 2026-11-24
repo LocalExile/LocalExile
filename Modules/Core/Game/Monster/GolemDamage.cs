@@ -225,10 +225,15 @@ public static partial class Game
         {
             int redirectable = (int)Math.Min(int.MaxValue, nonChaos);
             var kept = RedirectTotemHitLocked(protection.Owner, protection.Totem, redirectable, chaos,
-                protection.Totem.Aura!.HitRedirectPercent, AreaTime(protection.Owner),
-                protection.Owner == player ? currentPlayer : null);
+                RejuvenationRedirectPct(protection.Owner, protection.Totem.Aura!), AreaTime(protection.Owner),
+                protection.Owner == player ? currentPlayer : PlayerStatValues(protection.Owner));
             // Totem redirection reduces the mitigated hit before Soul Link and the minion's Energy Shield use it.
-            damage = nonChaos - redirectable;
+            for (long overflow = nonChaos - redirectable; overflow > 0;)
+            {
+                int chunk = (int)Math.Min(int.MaxValue, overflow);
+                TakePoolDamage(chunk, false);
+                overflow -= chunk;
+            }
             TakePoolDamage(kept.NonChaos, false);
             TakePoolDamage(kept.Chaos, true);
         }

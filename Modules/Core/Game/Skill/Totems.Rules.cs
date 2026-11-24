@@ -292,8 +292,9 @@ public static partial class Game
         int baseLife = Monsters.BaseLife(variety, level) ?? 1;
         bool decoy = SkillsFor(player).EffectId(effect) == "DecoyTotem";
         int moreLifePerTotem = Get(Stat.StygianSpireTotemLifePlusPctFinalPerMaximumTotem);
-        double moreLife = moreLifePerTotem == 0 ? 1
-            : Math.Max(0, 1 + moreLifePerTotem * (double)TotemAllowance(player, effect, own, stats) / 100);
+        double moreLife = (moreLifePerTotem == 0 ? 1
+            : Math.Max(0, 1 + moreLifePerTotem * (double)TotemAllowance(player, effect, own, stats) / 100))
+            * Math.Max(0, 1 + Get(Stat.TotemLifePlusPctFinal) / 100d);
         uint life = (uint)Math.Clamp(baseLife * (100L + Get(Stat.TotemLifePlusPct)) / 100d * moreLife, 1, int.MaxValue);
         double seconds = Get(Stat.BaseTotemDuration) / 1000d * TotemDurationFactor(Get(Stat.TotemDurationPlusPct));
         TotemState.Aura? aura = null;
@@ -492,15 +493,28 @@ public static partial class Game
     public static (int NonChaos, int Chaos) TotemsTakeHitLocked(Player player, int nonChaos, int chaos, double now,
         IReadOnlyDictionary<uint, int> stats)
     {
-        int pct = TotemRedirectStat is var key ? stats.GetValueOrDefault(key) : 0;
+        int pct = TotemRedirectStat is var key ? Math.Clamp(stats.GetValueOrDefault(key), 0, 100) : 0;
         // The totems live on the connection clock; the hit's world time places the player.
         double clock = AreaTime(player);
         var at = player.Walk.Position(now);
-        // This protection follows the totem that grants the aura. An unrelated closer totem cannot absorb its share.
-        if (RejuvenationTotemAt(player, at) is { } source)
-            (nonChaos, chaos) = RedirectTotemHitLocked(source.Owner, source.Totem, nonChaos, chaos,
-                source.Totem.Aura!.HitRedirectPercent, AreaTime(source.Owner), source.Owner == player ? stats : null);
-        return pct > 0 && player.Totems.Nearest(at, clock) is { } nearest
+        var rejuvenation = RejuvenationTotemAt(player, at);
+        int vrtPct = rejuvenation is { } src ? RejuvenationRedirectPct(src.Owner, src.Totem.Aura!) : 0;
+        var nearest = pct > 0 ? player.Totems.Nearest(at, clock) : null;
+        if (rejuvenation is { } source && vrtPct > 0)
+        {
+            if (nearest is not null && ReferenceEquals(nearest, source.Totem))
+                return RedirectTotemHitLocked(source.Owner, source.Totem, nonChaos, chaos,
+                    Math.Min(100, vrtPct + pct), AreaTime(source.Owner), source.Owner == player ? stats : null);
+            var afterVrt = RedirectTotemHitLocked(source.Owner, source.Totem, nonChaos, chaos,
+                vrtPct, AreaTime(source.Owner), source.Owner == player ? stats : null);
+            int remainingPct = Math.Min(pct, Math.Max(0, 100 - vrtPct));
+            if (nearest is null || remainingPct <= 0) return afterVrt;
+            var afterNearest = RedirectTotemHitLocked(player, nearest, nonChaos, chaos, remainingPct, clock, stats);
+            int takenNonChaos = (nonChaos - afterVrt.NonChaos) + (nonChaos - afterNearest.NonChaos);
+            int takenChaos = (chaos - afterVrt.Chaos) + (chaos - afterNearest.Chaos);
+            return (Math.Max(0, nonChaos - takenNonChaos), Math.Max(0, chaos - takenChaos));
+        }
+        return nearest is not null
             ? RedirectTotemHitLocked(player, nearest, nonChaos, chaos, pct, clock, stats) : (nonChaos, chaos);
     }
 
@@ -517,7 +531,7 @@ public static partial class Game
             MarkPlayerStats(player, PlayerStatStep.TotemAura);
             PresentNearby(player);
             SyncRejuvenationAllyZones(player, clock);
-            TotemsDiedLocked(player, clock, stats ?? CharacterPlayerStats(player));
+            TotemsDiedLocked(player, clock, stats ?? PlayerStatValues(player));
         }
         return (keptNonChaos, keptChaos);
     }
@@ -590,25 +604,30 @@ public static partial class Game
                 .Select(t => (t.Id, t.Aura!.Radius, t.At)),
             new(ReachesOnly(player.Id), Changed: _ => MarkPlayerStats(player, PlayerStatStep.TotemAura)));
         SyncRejuvenationAllyZones(player, now);
+        SyncReceivedTotemAuraLocked(player, now, bytes);
+        return bytes.Count == 0 ? null : bytes.Build();
+    }
+
+    static void SyncReceivedTotemAuraLocked(Player player, double now, WorldRecordBuilder bytes)
+    {
+        var totems = player.Totems;
         var auraSource = player.PlayerLife > 0 ? ReceivedTotemAura(player, now) : null;
         uint source = auraSource?.Totem.Id ?? 0;
-        if (source != totems.SentAuraTotem)
+        if (source == totems.SentAuraTotem) return;
+        if (totems.SentAuraInstance != 0)
+            player.Area.Buffs.Clear(player.Id, totems.SentAuraInstance, player.Id, tag: (ushort)BuffTag.TotemAura);
+        totems.SentAuraInstance = 0;
+        // shortcut: the buff names the player as its source (the shape every server buff uses), not the totem and its
+        // skill; send the totem once a live check shows the client takes a monster source for a player buff.
+        if (auraSource is { Totem.Aura: { } aura })
         {
-            if (totems.SentAuraInstance != 0) player.Area.Buffs.Clear(player.Id, totems.SentAuraInstance, player.Id, tag: (ushort)BuffTag.TotemAura);
-            totems.SentAuraInstance = 0;
-            // shortcut: the buff names the player as its source (the shape every server buff uses), not the totem and its
-            // skill; send the totem once a live check shows the client takes a monster source for a player buff.
-            if (auraSource is { Totem.Aura: { } aura })
-            {
-                // The aura's row is kept to end it (SentAuraInstance).
-                totems.SentAuraInstance = aura.Row;
-                player.Area.Buffs.Set(player.Id, new(aura.Row, player.Id, Tag: (ushort)BuffTag.TotemAura));
-            }
-            totems.SentAuraTotem = source;
-            MarkPlayerStats(player, PlayerStatStep.TotemAura);
-            bytes.World(player.Id, PlayerStatsOffFrames(player));
+            // The aura's row is kept to end it (SentAuraInstance).
+            totems.SentAuraInstance = aura.Row;
+            player.Area.Buffs.Set(player.Id, new(aura.Row, player.Id, Tag: (ushort)BuffTag.TotemAura));
         }
-        return bytes.Count == 0 ? null : bytes.Build();
+        totems.SentAuraTotem = source;
+        MarkPlayerStats(player, PlayerStatStep.TotemAura);
+        bytes.World(player.Id, PlayerStatsOffFrames(player));
     }
 
     // A totem with a skill of its own uses it. Shockwave Totem (a nova) casts while a targetable hostile is within its

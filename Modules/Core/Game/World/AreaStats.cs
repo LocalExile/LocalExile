@@ -42,8 +42,7 @@ public static partial class Game
             {
                 typed += Get(Stat.ShrapnelShotRadiusPlusPct);
                 if (Get(Stat.AdditiveArrowSpeedModifiersApplyToAreaOfEffect) != 0)
-                    typed += (playerStats?.GetValueOrDefault(Stat.ProjectileSpeedPlusPct)
-                            ?? stats.GetValueOrDefault(Stat.ProjectileSpeedPlusPct))
+                    typed += stats.GetValueOrDefault(Stat.ProjectileSpeedPlusPct)
                         + own.GetValueOrDefault(Stat.BaseProjectileSpeedPlusPct)
                         + Get(Stat.GalvanicArrowProjectileSpeedPlusPct);
             }

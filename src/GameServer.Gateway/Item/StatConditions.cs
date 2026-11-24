@@ -1071,7 +1071,8 @@ public static class StatConditions
         IReadOnlyDictionary<string, bool>? Flags = null,
         IReadOnlyDictionary<string, long>? Amounts = null,
         Func<Item, string, int?>? ItemValue = null,
-        IReadOnlySet<string>? NamedConditions = null)
+        IReadOnlySet<string>? NamedConditions = null,
+        IReadOnlyCollection<Item>? InfluencedEquipment = null)
     {
         /// <summary>Nothing known: every condition is NotModelled and no stat changes.</summary>
         public static Subject Unknown => new();

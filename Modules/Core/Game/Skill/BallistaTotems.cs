@@ -7,7 +7,7 @@ public static partial class Game
         && SkillsFor(player).EffectId(effect) is not ("ArtilleryBallista" or "ArtilleryBallistaAltX" or "ArtilleryBallistaAltY");
 
     static bool BallistaRain(Player player, int effect) =>
-        SkillsFor(player).EffectId(effect) is "BlastRain" or "ToxicRainAltX" or "ToxicRainAltY";
+        SkillsFor(player).EffectId(effect) is var id && (id == "BlastRain" || IsToxicRain(id));
 
     public static bool BallistaPathAvailable(Player player, ushort skill)
     {

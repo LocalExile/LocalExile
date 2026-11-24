@@ -67,6 +67,8 @@ public sealed record ProjectileEmissionRecipe(ProjectileProfile Child, bool Radi
     /// <summary>Adapts the parent's release data once for each group of child projectiles.</summary>
     public Func<object?, object?>? ChildPayload { get; init; }
     public bool ExcludeImpactTarget { get; init; }
+    /// <summary>Emit children on continuing enemy contacts (chain, fork, split, pierce) as well as terminal stops.</summary>
+    public bool EmitOnContinueContact { get; init; }
     public IReadOnlySet<ProjectileEndReason>? EndReasons { get; init; }
     /// <summary>Optional individually timed groups emitted after the parent stops.</summary>
     public IReadOnlyList<(long Delay, int Count)>? Waves { get; init; }

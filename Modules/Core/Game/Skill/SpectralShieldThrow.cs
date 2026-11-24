@@ -5,7 +5,7 @@ public static partial class Game
     static readonly IReadOnlySet<ProjectileEndReason> ShieldImpact = new HashSet<ProjectileEndReason>
         { ProjectileEndReason.Enemy, ProjectileEndReason.Terrain };
     static readonly IReadOnlySet<ProjectileEndReason> ShieldAtTarget = new HashSet<ProjectileEndReason>
-        { ProjectileEndReason.Distance };
+        { ProjectileEndReason.Distance, ProjectileEndReason.Terrain };
 
     static void RegisterSpectralShieldThrows(Dictionary<string, ProjectileSkillDefinition> definitions)
     {
@@ -18,13 +18,14 @@ public static partial class Game
             string secondary = stationary ? "Metadata/Projectiles/TrarthanShieldThrowSecondary" : "Metadata/Projectiles/ShieldThrowSecondary";
             definitions[effect] = SkillProjectileDefinition(effect, primary, new((get, speed, _) =>
             {
-                var shard = GatewayProjectileDefaults.Create(secondary, get, speed) with { Count = 0 };
+                var shard = GatewayProjectileDefaults.Create(secondary, get, speed);
                 double more = Math.Max(0, 1 + get(Stat.ThrownShieldSecondaryProjectileDamagePlusPctFinal) / 100d);
                 var burst = new ProjectileEmissionRecipe(shard, Radial: true,
                     RandomDirections: get(Stat.ThrownShieldProjectileFireRandomDirections) != 0)
                 {
                     ChildPayload = payload => payload is ProjectileOffense offense ? offense.ScaleDamage(more) : payload,
                     ExcludeImpactTarget = true,
+                    EmitOnContinueContact = !stationary,
                     EndReasons = stationary ? ShieldAtTarget : ShieldImpact,
                 };
                 var profile = GatewayProjectileDefaults.Create(primary, get, speed) with

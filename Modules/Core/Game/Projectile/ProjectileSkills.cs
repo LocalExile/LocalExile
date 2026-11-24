@@ -136,7 +136,8 @@ public static partial class Game
                 if (effect == "BlazingSalvo") return BlazingSalvoRelease(use, Get);
                 if (effect == "SpectralShieldThrowAltY") return StationaryShieldRelease(context, use);
                 var shot = (ProjectileOffense)use.Payload!;
-                if (effect == "RollingMagma" && use.Profile.EndArea is { } magma)
+                if (effect is "RollingMagma" or "RollingMagmaAltX" or "RollingMagmaAltY" or "RollingMagmaRoyale"
+                    && use.Profile.EndArea is { } magma)
                 {
                     var profile = use.Profile;
                     if (Get(Stat.MagmaOrbSkillAreaOfEffectPlusPctPerBounce) is int area and not 0)

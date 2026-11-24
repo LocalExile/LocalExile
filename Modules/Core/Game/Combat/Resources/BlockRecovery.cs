@@ -30,7 +30,15 @@ public static partial class Game
                 life += (long)player.PlayerMaxLife * staffRecovery / 100;
         }
         long mana = (long)player.Pools.ManaGainedOnBlock + recovery.Mana;
-        uint shield = Get(Stat.CannotRecoverEnergyShield) == 0 && Get(Stat.NoEnergyShieldRecovery) == 0 ? recovery.EnergyShield : 0;
+        uint shield = 0;
+        if (Get(Stat.CannotRecoverEnergyShield) == 0 && Get(Stat.NoEnergyShieldRecovery) == 0)
+        {
+            long shieldTotal = recovery.EnergyShield;
+            if (!attack && Get(Stat.RecoverPctEnergyShieldWhenYouBlockSpellDamageWhileWieldingAStaff) is int staffEs and > 0
+                && WeaponProfileFor(player, activeSet: true).Staff)
+                shieldTotal += (long)player.EnergyShield.Maximum * staffEs / 100;
+            shield = (uint)Math.Min(uint.MaxValue, shieldTotal);
+        }
         if (life > 0) player.PlayerLife = PetrifiedBlood.RecoverLife(player, player.PlayerLife, life, ref leech.LifeInstantCarry, minimum: 1);
         if (mana > 0) player.PlayerMana = RecoveryPool.Advance(player.PlayerMana, (uint)UnreservedMana(player), mana, ref leech.ManaInstantCarry);
         if (shield > 0) player.EnergyShield.Recover(shield);

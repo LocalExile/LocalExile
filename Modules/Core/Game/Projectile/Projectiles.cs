@@ -882,7 +882,7 @@ public static partial class Game
             }
             uint lifeBefore = target.Life;
             var hit = ApplyMonsterHitLocked(Player, target, damage, rampageSource: null, playerStats: player,
-                allyAt: shot.ActualCaster is null ? null : ((int)contact.Projectile.Use.Origin.X, (int)contact.Projectile.Use.Origin.Y),
+                allyAt: shot.ActualCaster is null && !shot.FromTrapOrMine && !shot.Mirage ? null : ((int)contact.Projectile.Use.Origin.X, (int)contact.Projectile.Use.Origin.Y),
                 cull: Cull.Of(player, shot.SkillStats, critical, shot.Spell).WithWeapon(weaponLocal),
                 cullPlayer: null, chaosDamage: chaosDamage);
             if (hit is null) return ProjectileHitResult.Miss;
@@ -1094,7 +1094,7 @@ public static partial class Game
                     && (value.Reason is ProjectileEndReason.Enemy or ProjectileEndReason.Terrain or ProjectileEndReason.Landing
                         || value.Reason == ProjectileEndReason.Lifetime && p.Profile.EndArea is not null
                             && p.Profile.EndAreaReasons?.Contains(ProjectileEndReason.Lifetime) == true)
-                    || presentation.StayAtEndOfRange && value.Reason == ProjectileEndReason.Distance;
+                    || presentation.StayAtEndOfRange && value.Reason is ProjectileEndReason.Distance or ProjectileEndReason.Terrain;
                 var height = end.Arc is { } arc ? arc.Height(arc.Fraction(p.Distance))
                     : endRay is { } ray ? ray.MarkerAt(value.Position)
                     : end.Height;
@@ -1345,7 +1345,7 @@ public static partial class Game
         return session;
     }
 
-    static readonly PlayerStatStep[] ProjectileClockSteps = [PlayerStatStep.VaalPrevention, PlayerStatStep.Rage, PlayerStatStep.Rampage, PlayerStatStep.Resonance];
+    static readonly PlayerStatStep[] ProjectileClockSteps = [PlayerStatStep.PanelDefaults, PlayerStatStep.VaalPrevention, PlayerStatStep.Rage, PlayerStatStep.Rampage, PlayerStatStep.Resonance];
 
     public static void AdvanceProjectiles(Player player) => player.ProjectileRuntime?.Advance();
 

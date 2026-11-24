@@ -11,7 +11,8 @@ static partial class Game
     {
         double now = ProjectileWorldTime(player);
         var stats = SupportedSkill(player, skillId).Stats;
-        int extraReach = stats.GetValueOrDefault(Stat.MeleeWeaponRangePlus);
+        int extraReach = ActorScale.Saturate((long)PlayerStatValues(player).GetValueOrDefault(Stat.MeleeWeaponRangePlus)
+            + stats.GetValueOrDefault(Stat.MeleeWeaponRangePlus));
         uint id = LightningStrikeTarget(player, from, aim, targetId, now, extraReach);
         if (id == 0 || !player.Area.Monsters.TryGetValue(id, out var target)) return null;
 
@@ -31,13 +32,15 @@ static partial class Game
         // The blades start at the accepted melee contact and aim outward within the gem's native spread.
         var use = CaptureGemProjectile(player, session, skillId, gem, at, critical, sequence, cryExerted: cryExerted, from: at);
         var shot = (ProjectileOffense)use.Payload!;
-        var forward = (origin - ProjectileSession.Vector(from)).Unit;
+        var fromVec = ProjectileSession.Vector(from);
+        var delta = origin - fromVec;
+        var forward = (delta.Length >= 1e-6 ? delta : ProjectileSession.Vector(aim) - fromVec).Unit;
         double heading = Math.Atan2(forward.Y, forward.X);
         double half = Math.Clamp(stats.GetValueOrDefault(Stat.TotalProjectileSpreadAngleOverride), 0, 360) * Math.PI / 360;
         double Offset(ProjectileVector point)
         {
-            var delta = point - origin;
-            return Math.IEEERemainder(Math.Atan2(delta.Y, delta.X) - heading, Math.Tau);
+            var pointDelta = point - origin;
+            return Math.IEEERemainder(Math.Atan2(pointDelta.Y, pointDelta.X) - heading, Math.Tau);
         }
         var angles = player.Area.MonstersNear(at, use.Profile.Range)
             .Where(pair => pair.Key != id && pair.Value is { Hostile: true, Dead: false, Life: > 0, OwnerId: null, WorldHidden: false })
@@ -54,14 +57,7 @@ static partial class Game
             Origin = origin,
             Aim = origin + forward,
             Profile = use.Profile with { NativeVolley = new() { Angles = [.. angles] } },
-            Payload = shot with
-            {
-                ExcludedTarget = excluded,
-                Hit = shot.Hit.Scale(more),
-                Ignite = RepeatAilment(shot.Ignite, more),
-                Bleed = RepeatAilment(shot.Bleed, more),
-                Poison = RepeatAilment(shot.Poison, more),
-            },
+            Payload = shot.ScaleDamage(more) with { ExcludedTarget = excluded },
         };
     }
 }

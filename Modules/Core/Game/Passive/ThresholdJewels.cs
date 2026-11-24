@@ -71,15 +71,8 @@ public static class ThresholdJewels
                     continue;
                 }
                 if (!TryParse(Program.Stats.Name(id), out string target, out Attributes attributes, out int required)) continue;
-                // These legacy keys still say 50, but their client stat descriptions use 40.
-                if (id is Stat.LocalUniqueJewelShrapnelShotRadiusPlusPctWith50DexInRadius
-                    or Stat.LocalUniqueJewelFreezingPulseNumberOfAdditionalProjectilesWith50IntInRadius
-                    or Stat.LocalUniqueJewelFreezingPulseDamagePlusPctIfEnemyShatteredRecentlyWith50IntInRadius
-                    or Stat.LocalUniqueJewelEtherealKnivesProjectilesNovaWith50DexInRadius
-                    or Stat.LocalUniqueJewelEtherealKnivesNumberOfAdditionalProjectilesWith50DexInRadius
-                    or Stat.LocalUniqueJewelCleaveFortifyOnHitWith50StrInRadius
-                    or Stat.LocalUniqueJewelMagmaOrbSkillAreaOfEffectPlusPctPerBounceWith50IntInRadius)
-                    required = 40;
+                // Legacy *_with_50_*_in_radius threshold jewel keys all require 40 in current client stat descriptions.
+                if (required == 50) required = 40;
                 uint? key = Program.Stats.Key(target);
                 if (Aliases.TryGetValue(target, out var alias))
                 {

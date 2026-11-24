@@ -254,9 +254,9 @@ public static partial class Game
         }
     }
 
-    public static bool PlayerActionBlocked(Player player, double requestedAt, double now) =>
+    public static bool PlayerActionBlocked(Player player, double requestedAt, double now, bool instant = false) =>
         player.HitRecovery.BlocksInput(requestedAt, now) || player.ElementalAilments.ActionFactor(now) == 0
-        || VaalArcticArmourActive(player, now);
+        || !instant && VaalArcticArmourActive(player, now);
 
     /// <summary>The signed <c>action_speed_-%</c> from the character's raw sources and dev overrides: positive is slower.
     /// The client's own action-speed bucket, and the planned ActionSpeed/EffectClock contract (#246), keep it separate

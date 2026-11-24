@@ -24,6 +24,13 @@ public static partial class Game
             {
                 var use = captured ??= capture(first);
                 var profile = use.Profile with { Count = groupCount };
+                if (profile.NativeVolley is { Angles: not null })
+                    profile = profile with { NativeVolley = profile.NativeVolley with
+                    {
+                        Angles = RandomVolleyAngles(sequence, groupCount, use.Emitter.Id, use.Aim - use.Origin, (uint)ordinal),
+                    } };
+                if (profile.ReturnRolls is not null)
+                    profile = profile with { ReturnRolls = ReturnRolls(sequence, groupCount, use.Emitter.Id, (uint)ordinal) };
                 // A group shares its contact history. Later launches are independent and may hit that target again.
                 if (!spread) return use with { Profile = profile };
                 var rng = new AnimationVariantSelector.NativeRandom([sequence, use.Emitter.Id, (uint)ordinal]);
@@ -45,7 +52,7 @@ public static partial class Game
         int repeat = Animations.ClipLengthMs(ao, loop) ?? 200;
         double contact = Animations.SkillAttackContact(ao, weapon, loop)?.Contact ?? .33;
         // Each rig has a separate windup and loop. Scale their combined timeline to the paid attack duration.
-        double scale = attackSeconds / (windup + repeat * projectiles);
+        double scale = attackSeconds / Math.Max(1, windup + repeat * projectiles);
         return ((windup + repeat * contact) * scale, repeat * scale);
     }
 }

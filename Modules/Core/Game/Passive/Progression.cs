@@ -666,7 +666,8 @@ public static partial class Game
                 ? activeItems.Where(item => !ReferenceEquals(item, shield)).ToArray()
                 : activeItems;
 
-        StatConditions.Subject ConditionSubject(IReadOnlyDictionary<uint, long> raw, IReadOnlyList<Item>? activeItems = null)
+        StatConditions.Subject ConditionSubject(IReadOnlyDictionary<uint, long> raw, IReadOnlyList<Item>? activeItems = null,
+            IReadOnlyCollection<Item>? influencedEquipment = null)
         {
             var attributes = AttributeInputs(raw).Apply(c.Strength + (player.God ? 1000 : 0),
                 c.Dexterity + (player.God ? 1000 : 0), c.Intelligence + (player.God ? 1000 : 0));
@@ -686,7 +687,8 @@ public static partial class Game
                     "life" => life, "mana" => mana, "energy_shield" => energyShield,
                     _ => equipmentValues.TryGetValue(name, out int count) ? count : null,
                 }, KnownRecent: TrackedItemRecentEvents, Flags: itemFlags, Amounts: recentAmounts,
-                ItemValue: ConditionalRings(equipment, activeItems).Value, NamedConditions: NamedItemConditionSuffixes);
+                ItemValue: ConditionalRings(equipment, activeItems).Value, NamedConditions: NamedItemConditionSuffixes,
+                InfluencedEquipment: influencedEquipment);
         }
 
         Dictionary<uint, long> RawAttributes(IEnumerable<Item> active)
@@ -753,6 +755,9 @@ public static partial class Game
             if (exempt.Count > 0) active = [.. active, .. exempt];
             inactive.ExceptWith(exemptions);
         }
+        // Keep the actual active equipment set before Kalandra's Touch reflection or Necromantic Aegis filtering
+        // so influence thresholds (Bound By Destiny) count genuine equipped items without double-counting reflections.
+        var equippedActive = active;
         // Kalandra's Touch: the opposite active ring's modifiers once more (RingReflections).
         active = AbyssJewels.Sources(active.Concat(RingReflections(equipment, i => !inactive.Contains(i.Id), catalog.Mods)),
             catalog).ToArray();
@@ -799,7 +804,7 @@ public static partial class Game
         // from state the server already keeps: the weapon profile, the auras running right now, the events of the last
         // four seconds (RecentEvents), and the attributes an "if you have at least N X" id compares. A condition it
         // cannot answer stays unmodelled and keeps its previous behaviour rather than counting wrongly.
-        var conditionSubject = ConditionSubject(rawAttributes, active);
+        var conditionSubject = ConditionSubject(rawAttributes, active, equippedActive);
         var sources = ItemModStats.Plus(FoldPassiveConditions(passives, conditionSubject),
             ItemModStats.Global(itemBonuses, ItemsFor(player).Mods, Stats, conditionSubject));
         // The tree's base_devotion and the item's ..._per_10_devotion stats meet here: replace the latter with their
@@ -814,8 +819,9 @@ public static partial class Game
                 RequalifyChargeConditions(player, conditionFlags, sources), phaseInputs, recentEvents, auraEffects, conditionNow);
             if (chargeFlags.All(p => conditionFlags.TryGetValue(p.Key, out bool prior) && p.Value == prior)) break;
             conditionFlags = chargeFlags;
-            sources = ItemModStats.Plus(FoldPassiveConditions(passives, ConditionSubject(rawAttributes, active)),
-                ItemModStats.Global(itemBonuses, ItemsFor(player).Mods, Stats, ConditionSubject(rawAttributes, active)));
+            var passSubject = ConditionSubject(rawAttributes, active, equippedActive);
+            sources = ItemModStats.Plus(FoldPassiveConditions(passives, passSubject),
+                ItemModStats.Global(itemBonuses, ItemsFor(player).Mods, Stats, passSubject));
             DevotionStats.Apply(sources, Stats);
             GrandSpectrum.Apply(sources, Stats);
         }
@@ -1245,7 +1251,7 @@ public static partial class Game
         bonus = bonus with { AdditionalMana = (long)finalAttributes.Dexterity * perDexterity };
         int areaAccuracy = map?.Get(Stat.MapPlayerAccuracyRatingPlusPctFinal) ?? 0;
         int weaponAccuracy = (int)RawAccuracy(Stat.GladiatorAccuracyRatingPlusPctFinalWhileWieldingSword);
-        if (weaponAccuracy != 0 && !WeaponProfileFor(player, activeSet: true).Sword) weaponAccuracy = 0;
+        if (weaponAccuracy != 0 && !activeWeapon.Sword) weaponAccuracy = 0;
         int ResolveAccuracy(long basis, long increased) => PlayerAccuracyModifiers.Calculate(basis, increased,
             (int)RawAccuracy(PlayerAccuracyModifiers.BootsMore), blindLess: 0, areaMorePct: areaAccuracy, weaponMorePct: weaponAccuracy);
         var pools = CharacterStats.For(classInfo, level, bonus, ResolveAccuracy);

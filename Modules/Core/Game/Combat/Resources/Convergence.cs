@@ -14,10 +14,10 @@ public static partial class Game
         IReadOnlyDictionary<uint, int>? stats)
     {
         if (target.Rarity != MonsterRarity.Unique || !target.Hostile || player.PlayerLife == 0
-            || player.Frames.Area is not { } area) return;
+            || player.Closed || player.LeavingArea || player.Frames.Area is not { } area) return;
         if (ConvergenceWindows.TryGetValue(player, out var window) && ReferenceEquals(window.Area, area)
             && now < window.NextGain) return;
-        stats ??= CharacterPlayerStats(player);
+        stats ??= PlayerStatValues(player);
         if (stats.GetValueOrDefault(Stat.GainConvergenceOnHittingUniqueEnemy) == 0) return;
 
         ConvergenceWindows.AddOrUpdate(player, new(area, now + ConvergenceSeconds, now + ConvergenceCooldown));
@@ -31,7 +31,7 @@ public static partial class Game
         int increasedArea = stats.GetValueOrDefault(Stat.AreaOfEffectPlusPctWhileYouDoNotHaveConvergence);
         if (increasedArea == 0 && stats.GetValueOrDefault(Stat.GainConvergenceOnHittingUniqueEnemy) == 0) return;
         if (player.PlayerLife != 0 && ConvergenceWindows.TryGetValue(player, out var window)
-            && ReferenceEquals(window.Area, player.Area) && ProjectileWorldTime(player) < window.Until)
+            && ReferenceEquals(window.Area, player.Frames.Area ?? player.Area) && ProjectileWorldTime(player) < window.Until)
         {
             StatsChangeAt(window.Until, () => ProjectileWorldTime(player));
             stats[Stat.HaveConvergence] = 1;

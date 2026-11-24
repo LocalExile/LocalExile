@@ -22,13 +22,22 @@ public static partial class Game
             return SkillGemLevel.Resolve(intrinsic, supportedBonus, []);
         var skills = SkillsFor(player);
         int variant = info.Variant(gem.GemVariant).Index;
-        uint[] stats = info.IsSupport
-            ? [.. skills.IsExceptional(type.Row, variant) ? Array.Empty<uint>() : [SkillGemLevel.NonExceptionalSupports],
-                .. skills.GemHasTag(type.Row, variant, "critical") ? [Stat.CriticalSupportGemLevelPlus] : Array.Empty<uint>()]
-            : [SkillGemLevel.AllSkillGems, .. SkillGemLevel.FamilyStats.Where(stat => skills.FamilyStatRaises(stat, type.Row, variant)),
-                .. SkillGemLevel.TaggedActiveLevelStats.Where(entry => skills.GemHasTag(type.Row, variant, entry.Tag)).Select(entry => entry.Stat),
-                .. AttributeStat(info.Colour) is { } attribute ? [attribute] : Array.Empty<uint>()];
-        return SkillGemLevel.Resolve(intrinsic, supportedBonus, stats.Select(stat => RawGemStat(player, stat)));
+        long bonus = (long)intrinsic + supportedBonus;
+        if (info.IsSupport)
+        {
+            if (!skills.IsExceptional(type.Row, variant)) bonus += RawGemStat(player, SkillGemLevel.NonExceptionalSupports);
+            if (skills.GemHasTag(type.Row, variant, "critical")) bonus += RawGemStat(player, Stat.CriticalSupportGemLevelPlus);
+        }
+        else
+        {
+            bonus += RawGemStat(player, SkillGemLevel.AllSkillGems);
+            foreach (uint stat in SkillGemLevel.FamilyStats)
+                if (skills.FamilyStatRaises(stat, type.Row, variant)) bonus += RawGemStat(player, stat);
+            foreach (var (stat, tag) in SkillGemLevel.TaggedActiveLevelStats)
+                if (skills.GemHasTag(type.Row, variant, tag)) bonus += RawGemStat(player, stat);
+            if (AttributeStat(info.Colour) is { } attribute) bonus += RawGemStat(player, attribute);
+        }
+        return (int)Math.Clamp(bonus, 1, int.MaxValue);
     }
 
     // The attribute gem-level stat for a SkillGems GemColour (Active gems only: support gems have their own).

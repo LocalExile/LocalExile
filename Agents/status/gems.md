@@ -154,7 +154,8 @@ Nothing yet.
   one aura of a kind runs at a time (`GemSkillIds.cs`; [19](../docs/protocol/19-gems.md) §3).
 - **Gem levels (tested, level 1 → 2 checked with the real client).** A gem's level comes from its experience up to its
   experience type's cap; its skill uses that level's cost, damage, reservation and cooldown, and its quality stats;
-  Transfigured and Trarthan gems grant their own skill. Vaal gems grant their Vaal skill and base skill.
+  Transfigured and Trarthan gems grant their own skill.
+  Vaal gems grant their Vaal skill and base skill.
   Effective levels include the gem's native tags, its host item's socketed bonuses and active equipment conditions.
   Vaal soul collection/native budget payloads are implemented, pending native acceptance. Vaal Clarity spends souls
   to grant a timed aura that removes mana costs for the caster and nearby allies while preserving other skill costs.

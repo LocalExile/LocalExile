@@ -23,7 +23,7 @@ public static partial class Game
                 if (totem.Aura is not { HitRedirectPercent: > 0 } aura || !totem.Alive(now)) continue;
                 double reach = Dist(totem.At, at);
                 if (reach > aura.Radius) continue;
-                double strength = preferRegeneration ? LifeRegenerationRate(owner, aura) : aura.HitRedirectPercent;
+                double strength = preferRegeneration ? LifeRegenerationRate(owner, aura) : RejuvenationRedirectPct(owner, aura);
                 if (strength < strongest || strength == strongest && reach >= distance) continue;
                 source = (owner, totem);
                 strongest = strength;
@@ -34,15 +34,22 @@ public static partial class Game
         return source;
     }
 
+    static int RejuvenationRedirectPct(Player owner, TotemState.Aura aura) =>
+        Math.Clamp((int)TotemAuraStat(owner, aura.HitRedirectPercent), 0, 100);
+
     static void SyncRejuvenationAllyZones(Player owner, double now, bool leaving = false)
     {
         if (owner.Frames.Area is not { } area) return;
         var casters = RejuvenationCasters.TryGetValue(area, out var known) ? known : [];
         bool registered = Array.IndexOf(casters, owner) >= 0;
-        if (!registered && (leaving || owner.Totems.All.Count == 0)) return;
-        TotemState.Totem[] live = leaving ? [] : owner.Totems.Living(now)
-            .Where(t => t.Aura is { HitRedirectPercent: > 0 }).ToArray();
-        if (live.Length == 0)
+        List<TotemState.Totem>? live = null;
+        if (!leaving)
+        {
+            foreach (var t in owner.Totems.All)
+                if (t.Aura is { HitRedirectPercent: > 0 } && t.Alive(now))
+                    (live ??= []).Add(t);
+        }
+        if (live is null)
         {
             if (!registered) return;
             if (casters.Length == 1) RejuvenationCasters.Remove(area);
@@ -64,7 +71,7 @@ public static partial class Game
         }
 
         SyncZones(owner, owner.Id, ZoneKind.RejuvenationTotemAllies,
-            live.Select(t => (t.Id, t.Aura!.Radius, t.At)),
+            live is null ? [] : live.Select(t => (t.Id, t.Aura!.Radius, t.At)),
             new(ReachesPlayersBut(owner.Id), Changed: MarkAlly));
 
         void MarkAlly(EntityId id)
@@ -73,6 +80,21 @@ public static partial class Game
             MarkPlayerStats(ally, PlayerStatStep.TotemAura);
             PresentNearby(ally);
         }
+    }
+
+    static Task SendReceivedTotemAura(Player player)
+    {
+        if (player.Totems.All.Count > 0) return Task.CompletedTask;
+        if (player.Totems.SentAuraTotem == 0
+            && (player.Frames.Area is not { } area || !RejuvenationCasters.TryGetValue(area, out _)))
+            return Task.CompletedTask;
+        return SendWorldBatch(player, [], admission =>
+        {
+            if (!CurrentGameWork || player.Paused || player.Closed || player.LeavingArea) return null;
+            var bytes = new WorldRecordBuilder(player, admission);
+            SyncReceivedTotemAuraLocked(player, AreaTime(player), bytes);
+            return bytes.Count == 0 ? null : bytes.Build();
+        });
     }
 
     internal static void EndRejuvenationTotemAura(Player owner)
@@ -84,8 +106,14 @@ public static partial class Game
     static double TotemAuraStat(Player source, int value) =>
         Math.Round(value * Math.Max(0d, 100d + source.Pools.AuraEffectPct) / 100d, MidpointRounding.AwayFromZero);
 
-    static double LifeRegenerationRate(Player owner, TotemState.Aura aura) =>
-        TotemAuraStat(owner, aura.Stats.FirstOrDefault(s => s.Stat == Stat.BaseLifeRegenerationRatePerMinute).Value);
+    static double LifeRegenerationRate(Player owner, TotemState.Aura aura)
+    {
+        var stats = aura.Stats;
+        for (int i = 0; i < stats.Count; i++)
+            if (stats[i].Stat == Stat.BaseLifeRegenerationRatePerMinute)
+                return TotemAuraStat(owner, stats[i].Value);
+        return 0;
+    }
 
     static (Player Owner, TotemState.Totem Totem)? ReceivedTotemAura(Player player, double now)
     {

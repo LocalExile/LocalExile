@@ -49,9 +49,13 @@ public static partial class Game
     static void EndVaalArcticArmour(Player player)
     {
         if (!VaalArcticArmours.TryGetValue(player, out var state)) return;
-        VaalArcticArmours.Remove(player);
-        state.Area.Buffs.Clear(player.Id, VaalArcticArmourIceRow, player.Id);
-        state.Area.Buffs.Clear(player.Id, VaalArcticArmourRecoveryRow, player.Id);
+        lock (state)
+        {
+            if (!VaalArcticArmours.TryGetValue(player, out var current) || !ReferenceEquals(current, state)) return;
+            VaalArcticArmours.Remove(player);
+            state.Area.Buffs.Clear(player.Id, VaalArcticArmourIceRow, player.Id);
+            state.Area.Buffs.Clear(player.Id, VaalArcticArmourRecoveryRow, player.Id);
+        }
         MarkPlayerStats(player, PlayerStatStep.Sources);
     }
 
@@ -74,14 +78,22 @@ public static partial class Game
     {
         if (!VaalArcticArmours.TryGetValue(player, out var state)) return Task.CompletedTask;
         double now = AreaTime(player);
-        if (!VaalArcticArmourCurrent(player, state, now)) EndVaalArcticArmour(player);
-        else if (!state.RecoveryPresented && now >= state.CastFinishes)
+        bool end = false, presented = false;
+        lock (state)
         {
-            state.RecoveryPresented = true;
-            player.Area.Buffs.Set(player.Id, new(VaalArcticArmourRecoveryRow, player.Id, state.Skill,
-                Values: [(uint)state.ManaRegen, (uint)state.ShieldRegen], U68: Buff.Seconds(state.Until - now)));
-            MarkPlayerStats(player, PlayerStatStep.Sources);
+            if (!VaalArcticArmours.TryGetValue(player, out var current) || !ReferenceEquals(current, state))
+                return Task.CompletedTask;
+            if (!VaalArcticArmourCurrent(player, state, now)) end = true;
+            else if (!state.RecoveryPresented && now >= state.CastFinishes)
+            {
+                state.RecoveryPresented = true;
+                presented = true;
+                state.Area.Buffs.Set(player.Id, new(VaalArcticArmourRecoveryRow, player.Id, state.Skill,
+                    Values: [(uint)state.ManaRegen, (uint)state.ShieldRegen], U68: Buff.Seconds(state.Until - now)));
+            }
         }
+        if (end) EndVaalArcticArmour(player);
+        else if (presented) MarkPlayerStats(player, PlayerStatStep.Sources);
         return Task.CompletedTask;
     }
 
@@ -90,7 +102,9 @@ public static partial class Game
         double now = AreaTime(player);
         if (!VaalArcticArmours.TryGetValue(player, out var state) || !VaalArcticArmourCurrent(player, state, now))
             return stats;
+        StatsChangeIn((now < state.CastFinishes ? state.CastFinishes : state.Until) - now);
         stats[Stat.IsFrozen] = 1;
+        stats[Stat.YouCountAsFrozen] = 1;
         if (now < state.CastFinishes) return stats;
         Add(Stat.BaseManaRegenerationRatePerMinute, state.ManaRegen);
         Add(Stat.BaseEnergyShieldRegenerationRatePerMinute, state.ShieldRegen);
@@ -102,10 +116,19 @@ public static partial class Game
     static (int Physical, int Other, int Chaos) VaalArcticArmourHit(Player player,
         int physical, int other, int chaos, double at)
     {
-        if (((long)physical + other + chaos) <= 0 || !VaalArcticArmours.TryGetValue(player, out var state)
-            || !VaalArcticArmourCurrent(player, state, at)) return (physical, other, chaos);
-        long percent = Math.Max(0, 100L + state.HitDamageChange);
-        if (--state.Hits == 0) EndVaalArcticArmour(player);
+        if (((long)physical + other + chaos) <= 0 || !VaalArcticArmours.TryGetValue(player, out var state))
+            return (physical, other, chaos);
+        long percent;
+        bool exhausted;
+        lock (state)
+        {
+            if (!VaalArcticArmours.TryGetValue(player, out var current) || !ReferenceEquals(current, state)
+                || !VaalArcticArmourCurrent(player, state, at))
+                return (physical, other, chaos);
+            percent = Math.Max(0, 100L + state.HitDamageChange);
+            exhausted = --state.Hits == 0;
+        }
+        if (exhausted) EndVaalArcticArmour(player);
         int Kept(int value) => (int)Math.Clamp(value * percent / 100, 0, int.MaxValue);
         return (Kept(physical), Kept(other), Kept(chaos));
     }

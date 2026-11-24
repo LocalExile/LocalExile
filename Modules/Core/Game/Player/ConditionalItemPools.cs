@@ -370,8 +370,7 @@ public static partial class Game
         bool conditionalEquipment = before is null && (current.Key.Flags?.ContainsKey(StatConditions.CelestialBossInPresence) == true
             || current.Worn.Any(w => w.Item.Mods.Any(m =>
             ItemsFor(player).Mods.ByHash(m.Hash)?.Stats.Any(s => !s.Local
-                && (s.Name.Contains("_if_", StringComparison.Ordinal)
-                    || s.Name.Contains("_while_", StringComparison.Ordinal)
+                && (StatConditions.Of(s.Name, default) != StatConditions.State.None
                     || StatConditions.IsActiveNonVaalSkillMinionCoefficient(s.Name)
                     || OwnedCountItemStats.IsCoefficient(s.Id)
                     || IsFlaggedItemStat(s.Id))) == true)));

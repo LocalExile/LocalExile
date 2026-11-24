@@ -233,6 +233,8 @@ public static partial class Game
         int Own(uint k) => own.GetValueOrDefault(k);
         int Get(uint key) => Player(key) + Own(key);
         use = use with { Profile = ClientDrawnProfile(player, use.Profile, Get, sequence, use.Aim - use.Origin, repeatsLeft, use.Emitter.Id) };
+        if (SkillsFor(player).EffectId(gem.Effect) == "BlazingSalvo" && use.Profile.NativeVolley is { Angles: null, Nova: false })
+            use = use with { Profile = use.Profile with { NativeVolley = null } };
         if (use.Emitter.Id != player.Id && NativeProjectileTotem(player, gem.Effect)
             && use.Payload is ProjectileOffense nativeTotemShot && SkillsFor(player).Clips(use.Profile.Id) is { Flight: not null } clips)
             use = use with { Payload = nativeTotemShot with { ClientPredicted = false,

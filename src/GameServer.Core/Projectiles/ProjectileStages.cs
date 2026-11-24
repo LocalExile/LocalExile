@@ -72,8 +72,8 @@ public sealed partial class ProjectileRuntime
                 });
             return;
         }
-        if (recipe.Delay > 0) Schedule(Now + recipe.Delay, () => EmitChildren(parent, recipe, excluded));
-        else EmitChildren(parent, recipe, excluded);
+        if (recipe.Delay > 0) Schedule(Now + recipe.Delay, () => { parent.ChildEmission = 0; EmitChildren(parent, recipe, excluded); });
+        else { parent.ChildEmission = 0; EmitChildren(parent, recipe, excluded); }
     }
 
     void EmitChildren(ProjectileEntity parent, ProjectileEmissionRecipe recipe, ProjectileActorKey? excluded = null)

@@ -263,6 +263,7 @@ public static partial class Game
         player.StrikeLocations.Clear();   // skill_location_memory is CancelOnDeath
         player.SpiritChieftains.End(AreaTime(player));   // the chieftain minion dies with the player
         player.Totems.KillAll(AreaTime(player));   // and his totems (the tick sends their deaths)
+        SyncRejuvenationAllyZones(player, AreaTime(player), leaving: true);
         // Every "Recently" ends at death, the enemies' "hit by you" and "hit you" recently too.
         foreach (var monster in player.Area.Monsters.Values) monster.PlayerHitAt = monster.HitPlayerAt = double.NegativeInfinity;
         foreach (var (id, life) in RecoverBossesOnDeath(player))
@@ -1343,13 +1344,14 @@ public static partial class Game
         foreach (var e in ended)
             if (FlaskBuffs && e.Buff != 0) { player.Area.Buffs.Clear(player.Id, e.BuffRow, player.Id, tag: e.Buff); Note($"player buff {e.Buff}: flask {e.Slot} effect ends ({why})"); }
             else Console.WriteLine($"[gateway] {player.Connection.Remote} flask {e.Slot} effect ends ({why})");
-        // A life, mana or hybrid flask's "during effect" mods end with its recovery.
-        bool changed;
-        changed = player.RecoveryFlaskStats.Prune(player.FlaskEffects);
+        // A life, mana or hybrid flask's "during effect" mods end with its recovery; plain recovery flasks can also
+        // satisfy "_during_any_flask_effect" item modifiers when the last active recovery flask ends.
+        bool changed = player.RecoveryFlaskStats.Prune(player.FlaskEffects);
         if (changed) RecomputePoolsAndSpeed(player);
-        if (changed)
+        bool conditionalChanged = !changed && !player.FlaskEffects.Any && ended.Count > 0 && EnsureConditionalItemPools(player);
+        if (changed || conditionalChanged)
         {
-            Console.WriteLine($"[gateway] {player.Connection.Remote} recovery flask during effect ends ({why})");
+            if (changed) Console.WriteLine($"[gateway] {player.Connection.Remote} recovery flask during effect ends ({why})");
             await SendCharacterStats(player, PlayerStatChange.Flasks);
         }
     }

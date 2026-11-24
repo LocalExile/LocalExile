@@ -28,6 +28,8 @@ public sealed class NativeShieldProjectileTests
         Assert.True(shot.Hit[DamageType.Physical].IsZero);
         Assert.Equal(1, launch.Profile.Count);
         Assert.NotNull(launch.Profile.EndEmission);
+        Assert.Equal(7, launch.Profile.EndEmission!.Child.Count);
+        Assert.True(launch.Profile.EndEmission.EmitOnContinueContact);
         Assert.True(launch.Profile.CannotPierce);
 
         items.Remove(PlayerInventories.Offhand1, equipped.Id);

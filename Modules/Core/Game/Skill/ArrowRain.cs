@@ -95,7 +95,7 @@ public static partial class Game
         double duration = SkillDurationModifiers.Seconds(Own(Stat.BaseSkillEffectDuration), Player, Own);
         var damageContext = new SkillDamageContext(SkillHitKind.Attack, shot.ActualCaster ?? playerStats);
         double dps = toxic && id != "ToxicRainAltX" && !damageContext.Suppressed
-            ? ToxicPodDps(Get, Own) * (mirage ? MirageDamageFactor(own) : 1) * podDamageFactor : 0;
+            ? ToxicPodDps(Get, Own, totem is not null) * (mirage ? MirageDamageFactor(own) : 1) * podDamageFactor : 0;
         if (totem is not null && dps > 0)
             dps *= Math.Max(0, 1 + Get(Stat.SupportTotemDamagePlusPctFinal) / 100d);
         double? withered = Own(Stat.ToxicRainSporesApplyWithered) != 0
@@ -136,15 +136,17 @@ public static partial class Game
         }
     }
 
-    static double ToxicPodDps(Func<uint, int> get, Func<uint, int> own) => ChaosGroundDps(get, own, Stat.ToxicRainDamagePlusPct);
+    static double ToxicPodDps(Func<uint, int> get, Func<uint, int> own, bool totem = false) =>
+        ChaosGroundDps(get, own, Stat.ToxicRainDamagePlusPct, totem);
 
     // A projectile attack's chaos damage over time in an area: Toxic Rain's pods and Caustic Arrow's ground.
     // skillIncrease: the skill's own increased damage stat, if it has one.
-    static double ChaosGroundDps(Func<uint, int> get, Func<uint, int> own, uint? skillIncrease)
+    static double ChaosGroundDps(Func<uint, int> get, Func<uint, int> own, uint? skillIncrease, bool totem = false)
     {
         if (DamageStats.Prohibited(DamageType.Chaos, get)) return 0;
         double increased = (double)get(Stat.DamagePlusPct) + get(Stat.ChaosDamagePlusPct) + get(Stat.AreaDamagePlusPct)
             + get(Stat.ProjectileDamagePlusPct) + get(Stat.DamageOverTimePlusPct) + get(Stat.ChaosDamageOverTimePlusPct)
+            + (totem ? get(Stat.TotemDamagePlusPct) : 0)
             + (skillIncrease is uint key ? get(key) : 0);
         double more = 1;
         foreach (var stat in new[] { Stat.SupportVoidManipulationChaosDamagePlusPctFinal, Stat.SupportRapidDecayDamageOverTimePlusPctFinal,

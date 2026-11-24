@@ -31,19 +31,22 @@ public static partial class Game
         if (life != lifeBefore) state.Packets.Add(new([], $"0x01b1 player life {life} (flask)", FlaskOutputPool.Life));
         if (mana != manaBefore) state.Packets.Add(new([], $"0x01b1 player mana {mana} (flask)", FlaskOutputPool.Mana));
         if (local.GetValueOrDefault(Stat.LocalUniqueFlaskStartEnergyShieldRecharge) != 0)
-            player.EnergyShield.StartRecharge(now, CharacterPlayerStats(player).GetValueOrDefault);
+            player.EnergyShield.StartRecharge(now, character);
         ApplyConditionalFlaskAilmentProtectionLocked(player, local, now);
+        bool hadRecoveryFlask = player.FlaskEffects.Any;
         if (recovery.ExtraLife > 0)
             player.FlaskEffects.Start(new((byte)slot, 0, 0, recovery.ExtraLife / FlaskRecovery.ExtraLifeSeconds, 0, now, now + FlaskRecovery.ExtraLifeSeconds));
         var effects = Flasks.RecoveryEffects(recovery, (byte)slot, now, () => player.NextBuff++, FlaskEffectLifeBuffRow, FlaskEffectManaBuffRow);
         StartRecoveryEffectsLocked(player, effects, copyLife);
-        if (during is { Count: > 0 } && effects.Count > 0)
+        bool startedDuring = during is { Count: > 0 } && effects.Count > 0;
+        if (startedDuring) player.RecoveryFlaskStats.Start(effects, during!);
+        if (startedDuring || !hadRecoveryFlask && player.FlaskEffects.Any)
         {
-            player.RecoveryFlaskStats.Start(effects, during);
             RecomputePoolsAndSpeed(player);
             state.StatRevision++;   // PublishFlaskChanges sends the character's stats
-            Console.WriteLine($"[gateway] {player.Connection.Remote} flask {slot} ({type.Name}) during effect: " +
-                string.Join(", ", during.Select(s => $"{s.Stat} {s.Value}")));
+            if (startedDuring)
+                Console.WriteLine($"[gateway] {player.Connection.Remote} flask {slot} ({type.Name}) during effect: " +
+                    string.Join(", ", during!.Select(s => $"{s.Stat} {s.Value}")));
         }
         // IsRecovery rows carry one u32 recovery-per-minute value, duration as f32 seconds (+0x68),
         // and the flask-bar source cell (+0x60). Preserve the existing native timer/sound payloads.
