@@ -16,7 +16,7 @@ The rules the code follows are the wiki's for 3.29; what the client data and cod
   `Legion_EncounterLocator`; `LegionEndgame_EncounterLocator` is the endgame's and is not used. One monolith per area: the
   first locator found.
 - `LegionInitiator` StateMachine states: `charging=1` (build-up, untargetable, no collision), `shattered=1` (shatter, then idle),
-  `locked=1` (untargetable, at the end), `spawn_lightning=1` (bolts from the monolith towards the general while it stands frozen).
+  `shattered=2` (at the end: the crystal leaves, minimap icon hidden) with `locked=1` (untargetable, at the end), `spawn_lightning=1` (bolts from the monolith towards the general while it stands frozen).
 - Every Legion monster and war chest has the states `breakout`, `activated` (generals also `general`, `fleeing`, `disappear`).
   The crystal is part of the monster's own model, so a new monster is drawn encased with nothing sent.
   Frozen is `breakout` 0, `activated` 0; broken out is `breakout` 1 (crystal off, freed glow); fighting is `activated` 1.

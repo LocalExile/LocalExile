@@ -148,7 +148,11 @@ static partial class LegionMonolith
         var states = Defaults!;
         if (phase >= Phase.Charging) states = states.Set("charging", 1);
         if (phase >= Phase.Running) states = states.Set("shattered", 1);
-        if (phase >= Phase.Finished) states = states.Set("locked", 1);
+        if (phase >= Phase.Finished)
+        {
+            // The end: shattered=2 plays crystal_out.epk and death_02 and hides the minimap icon, so no crystal stays in the shattered monolith.
+            states = states.Set("shattered", 2).Set("locked", 1);
+        }
         // The general indicator: bolts from the monolith towards the general while it stands frozen, until it breaks out (R3 section 4).
         if (e?.Army is { } army && army.Any(m => m.Tier == 3 && !m.Chest && !m.Broken)) states = states.Set("spawn_lightning", 1);
         return states;
@@ -276,7 +280,7 @@ static partial class LegionMonolith
     {
         foreach (var member in Members(player))
             await PlayerOf(member).Send(InstanceTimers.HideMissionTimer(InstanceTimers.MissionTimerType.Legion), "0x0163 mission timer Legion: hidden");
-        await ToAll(player, e, StatesOf(Phase.Finished, e), "locked=1");
+        await ToAll(player, e, StatesOf(Phase.Finished, e), "locked=1, shattered=2");
         if (pulse != 0 && InArea(player, pulse)) await LegionOutput.Remove(player, pulse);
         module.Log($"{PlayerOf(player).Character}: monolith 0x{e.Id:x} ended ({reason})");
         await ReleaseArmy(module, player, reason);
