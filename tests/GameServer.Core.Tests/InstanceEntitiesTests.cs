@@ -822,4 +822,15 @@ public class InstanceEntitiesTests
         Assert.Equal("02BC" + "00004000" + "00000000" + "0000" + (1 + beamBody.Length).ToString("X4") + "04" + Convert.ToHexString(beamBody),
             Convert.ToHexString(beam));
     }
+
+    [Fact]
+    public void Action_update_0x2c8_encodes_action_header_and_flame_dash_tail()
+    {
+        byte[] tail = new BlobWriter().I32(10).I32(20).I32(30).I32(40).F32(4.0f).ToArray();
+        byte[] packet = InstanceProtocol.ActionUpdate(0x1000, 0x5CCD, 0x0104, 0x0007, tail);
+        Assert.Equal(
+            "02C8" + "00001000" + "00000000" + "0000" + "5CCD" + "0104" + "0007" + "00" + "0014"
+            + "0A000000" + "14000000" + "1E000000" + "28000000" + "00008040",
+            Convert.ToHexString(packet));
+    }
 }

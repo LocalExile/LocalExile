@@ -337,7 +337,19 @@ public static class InstanceProtocol
         return w.ToArray();
     }
 
-    public const ushort ActionResultFlagId = 0x1b0;
+    public const ushort ActionResultFlagId = 0x1b0, ActionUpdateId = 0x2c8;
+
+    /// <summary>
+    /// S→C 0x2c8 <c>InstanceClientActionUpdate</c> (world group, class <c>0x1435ccb78</c>, reader <c>0x141fe54d0</c>,
+    /// Actor dispatch <c>0x14219be04</c>): 10-byte world header, u16 BE <paramref name="actionTypeHash"/> (+0x38 →
+    /// action +0x118 <c>ActionTypes.HASH16</c>), u16 BE <paramref name="skillId"/> (+0x3a → skill +0x40), u16 BE
+    /// <paramref name="actionSequence"/> (+0x3c → action +0x11a), u8 <paramref name="detachId"/> (+0x3e → action
+    /// +0x11c), then blob16 class-specific little-endian payload passed to the action's virtual slot +0x300 reader.
+    /// </summary>
+    public static byte[] ActionUpdate(uint entityId, ushort actionTypeHash, ushort skillId, ushort actionSequence,
+        byte[] data, byte detachId = 0, uint orderKey = 0, ushort checkpoint = 0) =>
+        new LoginWriter().U16(ActionUpdateId).U32(entityId).U32(orderKey).U16(checkpoint)
+            .U16(actionTypeHash).U16(skillId).U16(actionSequence).U8(detachId).Blob(data).ToArray();
 
     /// <summary>
     /// S→C 0x1b0 (world group, reader 0x141fe4440, writer 0x141fe43f0; Actor handler 0x14219bc1a → 0x141e974d0):

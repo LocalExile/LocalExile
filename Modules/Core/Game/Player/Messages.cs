@@ -310,6 +310,7 @@ public static partial class Game
                 (uint Id, (int X, int Y) At, (int X, int Y) Landing)? flickerTo = null;
                 LeapSlam.Use? leap = null;
                 bool movedByCast = false;
+                (int X, int Y) moveLanding = default;
                 void StartAction()
                 {
                     bool lockstep = player.Connection.LockstepClient;
@@ -335,6 +336,7 @@ public static partial class Game
                     {
                         var landing = MovementLanding(player, gem.Effect, (px, py), (use.X, use.Y), use.SkillId, use.Flags);
                         player.Walk.Teleport(landing.X, landing.Y, at);
+                        moveLanding = landing;
                         movedByCast = landing != (px, py);
                     }
                     player.ChannelSkill = cast ? use.SkillId : (ushort)0;
@@ -431,6 +433,10 @@ public static partial class Game
                         + $"at ({flickerDestination.At.X}, {flickerDestination.At.Y}) (t={at:0.000})");
                 }
                 if (flicker) await GrantFlickerSpeed(player, use.SkillId);
+                if (cast && gem.Name is not null && movedByCast && IsFlameDashEffect(SkillsFor(player).EffectId(gem.Effect)))
+                    await SendWorldRecord(player, player.Id,
+                        FlameDashGroundSegment(player, use.SkillId, gem.Effect, use.Slot, (px, py), moveLanding),
+                        $"0x02c8 Flame Dash burning ground ({px}, {py}) -> ({moveLanding.X}, {moveLanding.Y})");
                 // Flicker Strike strikes from where it lands, at the monster it went to.
                 var (strikeFrom, strikeAt) = flickerTo is { } struck ? (struck.Landing, struck.At) : ((px, py), (use.X, use.Y));
                 if (cast && !projectileRuntime) _ = CastGemSkill(player, use.SkillId, strikeFrom, strikeAt, targetId: flickerTo?.Id ?? 0, sequence: use.Slot,
