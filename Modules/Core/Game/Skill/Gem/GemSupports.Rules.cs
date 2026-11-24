@@ -744,6 +744,9 @@ public static partial class Game
             : name is var k ? stats.GetValueOrDefault(k) : 0;
         bool attack = SkillsFor(player).IsAttack(gem.Effect);
         var types = Supports.Of(gem.Effect)?.Types.ToHashSet() ?? [];
+        // Support-converted traps and mines receive the same hit modifiers as native placed skills.
+        if (placed.Trap) types.Add(32);
+        if (placed.Mine) types.Add(35);
         // Lightning Strike's two components share a gem, not a damage context. Its bolts do not gain melee
         // modifiers, and its strike does not gain projectile modifiers or the projectile-only less multiplier.
         bool lightningStrike = IsLightningStrike(gem.Effect);

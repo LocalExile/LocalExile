@@ -308,6 +308,15 @@ public static partial class Game
             extraMods, scripted, ownedLooks, extraKit: null, ownedAdmission, ownedInitialDeath, placement, lifePercent,
             movement, attachTo, instanceOwned, bulk, nonBlocking);
 
+    static async Task EnsureMonsterTypeSent(Player player, MonsterCatalog.Variety variety, byte level)
+    {
+        if (player.MonsterTypes.Contains((variety.Row, level))) return;
+        await Send(player, [], $"0x0020 monster type {variety.Id}@{level} (row {variety.Row})", atGate: () =>
+            CurrentGameWork && !player.Closed && !player.LeavingArea
+                && player.MonsterTypes.Add((variety.Row, level))
+                ? InstanceEntities.MonsterTypes([((ushort)variety.Row, level)]) : null);
+    }
+
     public static async Task<uint> SpawnMonster(Player player, MonsterCatalog.Variety variety,
         byte level, MonsterRarity rarity, int x, int y, string? name = null, bool friendly = false, bool log = true, uint? damagedLife = null,
         MonsterModSet? mods = null, bool alone = true, bool? unrisen = null, float rotation = 0,
