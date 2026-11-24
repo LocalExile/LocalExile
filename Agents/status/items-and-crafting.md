@@ -58,6 +58,10 @@ Part of [Status](../Status.md); what to build next in this area is in
 - On-kill explosions and Eater of Worlds attribute damage reduction.
   Docs: [13](../docs/protocol/13-items.md), "Kill explosions and attribute damage reduction".
 - Conditional item operators and qualified source lifetimes (#504). Docs: [13](../docs/protocol/13-items.md).
+- Influenced item mods (Shaper, Elder, conquerors) apply, curses on hit and ground immunities included.
+  Not checked live: ground immunities, bleeding removal on warcry.
+  Not read yet: nearby-enemy auras, reflect, Unholy Might, Conflux, triggered marks, damage against ailing enemies,
+  damage over time with attacks and the weapon-local ailment stats.
 - Item modifier effect and affix-cap implicits. Docs: [13](../docs/protocol/13-items.md), "Item modifier effect".
 - Utility-flask orbs: Enkindling/Instilling enchantments and incoming Bleed/Poison triggers.
   Docs: [13](../docs/protocol/13-items.md), "Enkindling Orb and Instilling Orb".

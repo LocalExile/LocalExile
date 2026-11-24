@@ -43,6 +43,8 @@ public static partial class Game
         {
             [RecentSavageHitItemFlag] = alive && !player.Closed && !player.LeavingArea
                 && player.RecentEvents.Happened(StatConditions.TakenSavageHit, now),
+            [RecentlyDamagedByHitItemFlag] = alive && !player.Closed && !player.LeavingArea
+                && player.RecentEvents.Happened(DamagedByHitEvent, now),
             ["_while_on_full_life"] = CountsAsFullLife(player.PlayerLife, player.PlayerMaxLife, lowLifeSources),
             ["_while_on_low_life"] = lowLife,
             ["_while_not_low_life"] = alive && !lowLife,
@@ -288,6 +290,7 @@ public static partial class Game
                     if (StatConditions.Of(st.Name, default) != StatConditions.State.None
                         || StatConditions.IsActiveNonVaalSkillMinionCoefficient(st.Name)
                         || OwnedCountItemStats.IsCoefficient(st.Id)
+                        || IsFlaggedItemStat(st.Id)
                         || st.Id == HerEmbraceGain
                         || st.Id == Stat.OnslaughtEffectPlusPct)
                         return true;
@@ -370,7 +373,8 @@ public static partial class Game
                 && (s.Name.Contains("_if_", StringComparison.Ordinal)
                     || s.Name.Contains("_while_", StringComparison.Ordinal)
                     || StatConditions.IsActiveNonVaalSkillMinionCoefficient(s.Name)
-                    || OwnedCountItemStats.IsCoefficient(s.Id))) == true)));
+                    || OwnedCountItemStats.IsCoefficient(s.Id)
+                    || IsFlaggedItemStat(s.Id))) == true)));
         bool sameHerEmbrace = (before?.Key.Flags?.GetValueOrDefault("_while_in_her_embrace") == true)
             == (current.Key.Flags?.GetValueOrDefault("_while_in_her_embrace") == true);
         if (!providersChanged && sameElusive && sameHerEmbrace && sameOnslaughtEffect

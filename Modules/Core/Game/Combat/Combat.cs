@@ -581,7 +581,8 @@ public static partial class Game
                 int chaosDamage = MonsterHitChaosDamage(m, mitigated, spell: false, at, damage);
                 LeechOnHitTargetLocked(player, m, MonsterTakenComponents(m, mitigated, spell: false, at), damage,
                     HitLeechSources(playerStats, true, ownPenetration, weapon.LocalSources, weapon.Melee), targetId);
-                (damage, stored, impaled) = WithImpaleHitLocked(player, m, damage, ownRolled, critical, sourceCriticalMultiplier,
+                (damage, stored, impaled) = WithImpaleHitLocked(player, m, damage, ownRolled, critical,
+                    sourceCriticalMultiplier + FullLifeCriticalMultiplier(m, playerStats, ownPenetration),
                     ImpaleStats.From(playerStats, Stats, attack: true, ownPenetration, weapon.LocalSources, critical));
                 impaleStacks = m.Impale.Stacks;
                 impaleStored = m.Impale.Bonus;
@@ -2936,7 +2937,8 @@ public static partial class Game
                     if (more != 1) damage = (int)Math.Floor(damage * Math.Max(0, more));
                     int chaosDamage = MonsterHitChaosDamage(m, mitigated, spell, at, damage);
                     LeechOnHitTargetLocked(player, m, taken, damage, leech!, id);
-                    damage = WithImpaleHitLocked(player, m, damage, rolled, critical, sourceMultiplier,
+                    damage = WithImpaleHitLocked(player, m, damage, rolled, critical,
+                        sourceMultiplier + FullLifeCriticalMultiplier(m, playerStats, skillStats),
                         critical ? criticalImpale : impale, more).Damage;
                     if (removeStunAndKnockback)
                         stun = default;
@@ -3029,7 +3031,8 @@ public static partial class Game
                         bool strike = !spell && SkillsFor(player).IsStrike(gem.Effect);
                         var fortifySkill = WithStrikeFortifySkillStat(playerStats, skillStats, strike);
                         bool fortifiedThisHit = !fortificationGranted && (fortificationGranted = FortificationOnHitLocked(player, m,
-                            fortificationDamage, !spell && SkillsFor(player).IsMelee(gem.Effect), playerStats, fortifySkill));
+                            fortificationDamage, !spell && SkillsFor(player).IsMelee(gem.Effect), playerStats, fortifySkill,
+                            movement: SkillsFor(player).IsMovement(gem.Effect)));
                         if (fortifiedThisHit) AfterFortificationGainLocked(player, playerStats);
                         stun = stun with { FortificationDamage = fortificationDamage, Fortified = fortifiedThisHit };
                         if (!rageGranted) rageGranted = RageOnHitLocked(player, attack: !spell,
