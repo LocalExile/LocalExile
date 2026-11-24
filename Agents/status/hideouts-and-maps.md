@@ -67,7 +67,7 @@ Part of [Status](../Status.md); what to build next in this area is in
   re-sends 0x1a3 right after 0x1a4 so the Atlas and portal labels update without an area change. Map-device rarity and
   corruption qualify a separate, one-time passive point and objective count ([21](../docs/protocol/21-hideouts.md)).
   Atlas passive gold respec (C→S 0x3f gold flag and 0x40 Refund All via Kirac's Atlas Respecialisation), preset
-  renaming (C→S 0x2a7 / S→C 0x3c), one-off free resets (0x3d bit 0 / C→S 0x41) and 0x129 → 0x91/0x12a replies are wired.
+  renaming (C→S 0x2a7 / S→C 0x3c), free resets (0x3d bit 0 / C→S 0x41) and 0x129 → 0x91/0x12a replies are wired.
   Incremental Voidstone deltas (0x1a5), Atlas Scrying (0x7b kind 0x13, 0x1a7), Atlas node currency use (0x75/0x76),
   Primordial Altar HUD ruleset 99 (0x1f/0x2c9), and 0x18/0x1d5 Atlas notifications are wired (live check pending).
   Map device activations forward eligible primordial boss options (C→S 0xd8 index) to `map_atlas_primordial_boss_influence`

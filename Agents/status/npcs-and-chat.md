@@ -102,8 +102,8 @@ Part of [Status](../Status.md); what to build next in this area is in
   Spreads by volume, a market of 6 steps, fills limited per hour, orders filling while away and with time are written.
   Moving out of reach closes open NPC dialogue, shops, vendor sales (`0x00b9`/`0x0084` object 0), stashes and benches.
   See [29](../docs/protocol/29-currency-exchange.md).
-- Localized chat text (`0x18`), broadcasts (`0x19`), awards (`0x1d5`/`0x1d6`), notices (`0x2cc`) and trackers (`0x15f`).
-  Protocol encoders and initial emitters are wired (live check pending); docs: [30](../docs/protocol/30-hud-signals-and-timers.md).
+- Localized chat (`0x18`), broadcasts (`0x19`), awards (`0x1d5`/`0x1d6`), notices (`0x2cc`) and trackers (`0x15f`).
+  Encoders and emitters are wired (live check pending); docs: [30](../docs/protocol/30-hud-signals-and-timers.md).
 - Ruthless selects its native gem/reward restrictions and purchase costs; equipment uses local generation policy.
   Ordinary vendors offer no gems or jewellery; unlocked Siosa exchanges Uncarved Gemstones for eligible active gems.
   Support gems are excluded from deterministic rewards and the opening support chest.
