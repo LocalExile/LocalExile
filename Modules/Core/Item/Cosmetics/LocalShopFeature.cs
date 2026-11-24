@@ -133,6 +133,7 @@ public static class LocalShopFeature
     /// <summary>C→S 0x012c: local offline shop purchase. Grants a resolved package from <c>client.db</c> locally.</summary>
     public static async Task HandleBuy(Player player, InstanceShop.BuyRequest req)
     {
+        if (player.Closed || player.LeavingArea) return;
         uint? hash = ResolvePackageHash(req.PackageId);
         if (hash is not uint resolved)
         {
@@ -157,6 +158,7 @@ public static class LocalShopFeature
     /// <summary>C→S 0x012e: local offline shop/inventory reload.</summary>
     public static async Task HandleReload(Player player)
     {
+        if (player.Closed || player.LeavingArea) return;
         var owned = CombinedOwned(player);
         await Send(player, InstanceShop.EncodePoints(DefaultOfflinePoints),
             $"0x0131 local offline shop points ({DefaultOfflinePoints})");
@@ -171,6 +173,7 @@ public static class LocalShopFeature
     /// <summary>C→S 0x0130: offline shipping quote — responds locally with zero cost and makes no network calls.</summary>
     public static async Task HandleShippingQuote(Player player, InstanceShop.FourStringsRequest req)
     {
+        if (player.Closed || player.LeavingArea) return;
         Console.WriteLine($"[gateway] {player.Connection.Remote} <= 0x0130 local offline shipping quote");
         await Send(player, InstanceShop.EncodeShippingQuote(0, "{\"cost\":0}"),
             "0x0133 local offline shipping quote");
@@ -179,6 +182,7 @@ public static class LocalShopFeature
     /// <summary>C→S 0x0138: real-money checkout is disabled on local offline servers; replies cleanly without network I/O.</summary>
     public static async Task HandlePlaceOrder(Player player, InstanceShop.FourStringsRequest req)
     {
+        if (player.Closed || player.LeavingArea) return;
         Console.WriteLine($"[gateway] {player.Connection.Remote} <= 0x0138 offline checkout refused");
         await Send(player, InstanceShop.EncodeJsonErrorMessage("Real-money store checkout is unavailable on local servers."),
             "0x0282 local offline checkout refused");
@@ -189,6 +193,7 @@ public static class LocalShopFeature
     /// <summary>C→S 0x0206: open an owned Mystery Box locally using <c>client.db</c> tables.</summary>
     public static async Task HandleOpenMysteryBox(Player player, uint recordId)
     {
+        if (player.Closed || player.LeavingArea) return;
         var catalog = _catalog;
         var found = FindOwnedBox(player, recordId);
         if (found is null || !catalog.MysteryBoxHashes.Contains(found.Value.Record.MtxTypeHash) || catalog.MysteryRewardPool.Count == 0)
@@ -211,6 +216,7 @@ public static class LocalShopFeature
     /// <summary>C→S 0x026e: open a Salvage Box locally, rolling a resolvable outcome from <c>MicrotransactionRecycleOutcomes</c>.</summary>
     public static async Task HandleOpenSalvageBox(Player player, InstanceShop.OpenSalvageBoxRequest req)
     {
+        if (player.Closed || player.LeavingArea) return;
         var catalog = _catalog;
         var box = FindOwnedBox(player, req.BoxRecordId);
         var pool = catalog.SalvageOutcomePool.Count > 0 ? catalog.SalvageOutcomePool : catalog.MysteryRewardPool;

@@ -143,6 +143,7 @@ public static partial class Game
     // sends S→C 0x136 kind 2, S→C 0x02ae earnings balances, and S→C 0x7b kind 0x63. Refused in SSF.
     public static async Task OpenAsyncTradeStash(Player player)
     {
+        if (player.Closed || player.LeavingArea) return;
         player.TalkingTo = 0;
         player.InNpcTalk = false;
         player.NpcFinishFlag = null;
@@ -177,6 +178,7 @@ public static partial class Game
     // C→S 0x02ac: sends the full async-trade sale history snapshot (S→C 0x02ad, trailing isIncremental = 0).
     public static async Task SendAsyncTradeHistory(Player player)
     {
+        if (player.Closed || player.LeavingArea) return;
         if (player.Character.Ssf)
         {
             await Send(player, InstanceAsyncTrade.EncodeHistory([], isIncremental: false),
@@ -202,7 +204,7 @@ public static partial class Game
     // C→S 0x02b0: withdraw earned currency from async-trade earnings into the player's main inventory.
     public static async Task TakeAsyncTradeEarnings(Player player, InstanceAsyncTrade.TakeEarningsRequest req)
     {
-        if (player.Character.Ssf) return;
+        if (player.Closed || player.LeavingArea || player.Character.Ssf) return;
         var trade = TradeStashOf(player);
         var balance = trade.TradeEarnings().FirstOrDefault(b => b.CurrencyTypeHash == req.CurrencyTypeHash);
         uint take = Math.Min(req.Amount, balance.Amount);

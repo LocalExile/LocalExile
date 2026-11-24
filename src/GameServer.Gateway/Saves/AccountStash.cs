@@ -227,10 +227,12 @@ public sealed partial class AccountStash
         Persist();
     }
 
-    Dictionary<uint, uint> ReadTradeEarningsLocked() =>
-        _moduleData.TryGetValue(TradeEarningsModuleKey, out var json) && !string.IsNullOrWhiteSpace(json)
-            ? JsonSerializer.Deserialize<Dictionary<uint, uint>>(json, Opts) ?? []
-            : [];
+    Dictionary<uint, uint> ReadTradeEarningsLocked()
+    {
+        if (!_moduleData.TryGetValue(TradeEarningsModuleKey, out var json) || string.IsNullOrWhiteSpace(json)) return [];
+        try { return JsonSerializer.Deserialize<Dictionary<uint, uint>>(json, Opts) ?? []; }
+        catch (JsonException) { return []; }
+    }
 
     void WriteTradeEarningsLocked(Dictionary<uint, uint> map)
     {
@@ -238,10 +240,12 @@ public sealed partial class AccountStash
         else _moduleData.Remove(TradeEarningsModuleKey);
     }
 
-    List<SavedTradeSale> ReadTradeHistoryLocked() =>
-        _moduleData.TryGetValue(TradeHistoryModuleKey, out var json) && !string.IsNullOrWhiteSpace(json)
-            ? JsonSerializer.Deserialize<List<SavedTradeSale>>(json, Opts) ?? []
-            : [];
+    List<SavedTradeSale> ReadTradeHistoryLocked()
+    {
+        if (!_moduleData.TryGetValue(TradeHistoryModuleKey, out var json) || string.IsNullOrWhiteSpace(json)) return [];
+        try { return JsonSerializer.Deserialize<List<SavedTradeSale>>(json, Opts) ?? []; }
+        catch (JsonException) { return []; }
+    }
 
     static AccountStash Create(string account, ItemCatalog catalog, uint firstInventoryId, uint firstItemId, SavedTab[] starter) =>
         ByAccount.GetOrAdd(account, name =>
