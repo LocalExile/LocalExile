@@ -130,10 +130,21 @@ public static partial class Game
         if (playerStats.GetValueOrDefault(Stat.WarcriesDoNotApplyBuffsToSelfOrAllies) != 0
             || own.GetValueOrDefault(Stat.WarcriesDoNotApplyBuffsToSelfOrAllies) != 0
             || duration <= 0 || WarcryBuffRow(effectId) is not ushort row) return;
-        int power = playerStats.GetValueOrDefault(Stat.WarcriesHaveInfinitePower) != 0 ? InfiniteWarcryPower
-            : player.Area.Monsters.Values.Where(m => m.Hostile && !m.Dead && m.Life > 0 && Dist(m.Walk.Position(now), at) <= radius)
-                .Sum(m => WarcryPower(m.Rarity));
-        if (playerStats.GetValueOrDefault(Stat.WarcriesHaveMinimum10Power) != 0) power = Math.Max(power, 10);
+        int minimum = playerStats.GetValueOrDefault(Stat.WarcriesHaveMinimum10Power) != 0 ? 10 : 0;
+        minimum = Math.Max(minimum, effectId switch
+        {
+            "AncestralCry" => playerStats.GetValueOrDefault(Stat.AncestralCryMinimumPower),
+            "SeismicCry" => playerStats.GetValueOrDefault(Stat.SeismicCryMinimumPower),
+            _ => 0
+        });
+        int power = InfiniteWarcryPower;
+        if (playerStats.GetValueOrDefault(Stat.WarcriesHaveInfinitePower) == 0)
+        {
+            int nearby = player.Area.Monsters.Values.Where(m => m.Hostile && !m.Dead && m.Life > 0
+                    && Dist(m.Walk.Position(now), at) <= radius).Sum(m => WarcryPower(m.Rarity));
+            power = Math.Max(minimum, ActorScale.Saturate(nearby * (100L + playerStats.GetValueOrDefault(Stat.WarcryMonsterPowerPlusPct)) / 100));
+        }
+        if (effectId == "BattlemagesCry") buffEffect += playerStats.GetValueOrDefault(Stat.BattlemagesCryBuffEffectPlusPct) / 100d;
         if (WarcryBuffStats(effectId, power, buffEffect, key => own.GetValueOrDefault(key)) is not { } stats) return;
         var gift = new WarcryGrant(player.Area, row, player.Id, now + duration, stats);
         void Grant(Player recipient)
