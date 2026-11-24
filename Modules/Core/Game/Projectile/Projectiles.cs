@@ -86,6 +86,7 @@ public static partial class Game
             public bool StaysAfterEnd;
         }
         readonly Dictionary<long, Visual> visuals = [];
+        readonly Dictionary<long, ProjectileAimHeight.Ray> flightRays = [];
         readonly Dictionary<SpawnedMonster, int> generations = new(ReferenceEqualityComparer.Instance);
         int generation, seed;
         bool invalid;
@@ -316,7 +317,7 @@ public static partial class Game
             }
             Runtime.Clear();
             foreach (var visual in visuals.Values) Player.ProjectileObjects.Remove(visual.Id);
-            visuals.Clear(); later.Clear(); output.Writer.TryComplete();
+            visuals.Clear(); flightRays.Clear(); later.Clear(); output.Writer.TryComplete();
         }
 
         public void Enqueue(Func<Task> intent) => Write(intent, keepsWorldGroup: false);
@@ -412,7 +413,10 @@ public static partial class Game
         // predictive client gets both records in one write. Neither waits for the birth: a lockstep create is written
         // at the next frame end, and holding the session's queue for every object was what left the presentation of a
         // 130 ms volley about a quarter of a second behind the simulation.
-        public void CreateFlight(uint id, Func<byte[]?> create, Func<byte[][]?> glide, string? log = null) => Enqueue(async () =>
+        public void CreateFlight(uint id, Func<byte[]?> create, Func<byte[][]?> glide, string? log = null) =>
+            Enqueue(() => CreateFlightNow(id, create, glide, log));
+
+        async Task CreateFlightNow(uint id, Func<byte[]?> create, Func<byte[][]?> glide, string? log)
         {
             while (Active)
             {
@@ -425,7 +429,7 @@ public static partial class Game
                     if (glide() is not { } moves) return [bytes];
                     return [bytes, .. moves.Where(m => m.Length > 0)];
                 }
-                if (!Player.Connection.LockstepClient)
+                if (!Player.Connection.LockstepClient && !InAreaFrame(Player))
                     await Send(Player, [], log, atGate: () => Project() is { } records
                         ? [.. records.SelectMany(p => p)] : null);
                 else
@@ -433,9 +437,10 @@ public static partial class Game
                     {
                         if (Project() is not { } records) return null;
                         var birth = admission.NewObject(id);
-                        BinaryPrimitives.WriteUInt32BigEndian(records[0].AsSpan(6), uint.MaxValue);
-                        BinaryPrimitives.WriteUInt16BigEndian(records[0].AsSpan(10), 0);
-                        List<OutputRecord> batch = [OutputRecord.Create(birth, records[0], log)];
+                        var created = records[0].ToArray();
+                        BinaryPrimitives.WriteUInt32BigEndian(created.AsSpan(6), uint.MaxValue);
+                        BinaryPrimitives.WriteUInt16BigEndian(created.AsSpan(10), 0);
+                        List<OutputRecord> batch = [OutputRecord.Create(birth, created, log)];
                         foreach (var move in records[1..])
                             batch.Add(OutputRecord.AfterBirth(birth, RecordOrder(move, id), move, log));
                         return new([.. batch]);
@@ -443,7 +448,7 @@ public static partial class Game
                 if (completed || Player.Connection.WorldOutput.Closed) return;
                 await AreaDelay(Player, 0.016);
             }
-        });
+        }
         public void WorldRecords(uint id, Func<byte[][]?> snapshot, string? log = null, bool create = false,
             bool remove = false, bool wake = false)
         {
@@ -590,6 +595,27 @@ public static partial class Game
                     { Size = LivingCollision.PlayerSize });
         }
 
+        public ProjectileActor? Actor(ProjectileActorKey key, long at)
+        {
+            if (key.Id == Player.Id && key.Generation == epoch)
+                return Player.PlayerLife > 0
+                    ? playerActor ??= new(new(Player.Id, epoch), 1,
+                        t => Vector(Player.Walk.Position(t / (double)ProjectileRuntime.QuantaPerSecond)), 0)
+                        { Size = LivingCollision.PlayerSize }
+                    : null;
+            var totems = Player.Totems.All;
+            double clock = AreaTime(Player);
+            for (int i = 0; i < totems.Count; i++)
+                if (totems[i].Id == key.Id && key.Generation == epoch && totems[i].Alive(clock))
+                    return TotemActor(totems[i]);
+            if (Player.Area.Monsters.TryGetValue(key.Id, out var monster)
+                && !monster.Dead && monster.Life > 0 && !monster.WorldHidden
+                && !ArenaHazards.Untargetable(Player, monster)
+                && generations.TryGetValue(monster, out int gen) && gen == key.Generation)
+                return CachedMonsterActor(key.Id, monster);
+            return null;
+        }
+
         public IReadOnlyList<ProjectileActor> Actors(long from, long until)
         {
             var living = Player.Area.SyncLivingMonsters();
@@ -686,14 +712,40 @@ public static partial class Game
             return heights?.At(x, y);
         }
 
-        // A player's primary projectile flies at the ground its aim gives it (ProjectileAimHeight); returns,
-        // continuation children and monster shots keep the plain projectile grid.
-        int? FlightGround(ProjectileEntity p) => p.ParentId != 0 || p.Phase > 0 || p.Use.Team != 1 ? null
-            : ProjectileAimHeight.Ground(p.Use.Origin, p.Use.Aim, Height);
+        // Ground-crawling skills bind projectile vtable +0x548 to return 0 in 3.29.3c: they sample terrain height each
+        // frame (0x7fffffff) and never block on explicit 3D terrain height.
+        bool IsTerrainFollowingProjectile(ProjectileEntity p) =>
+            p.Use.Payload is ProjectileOffense shot
+            && SkillsFor(Player).EffectId(shot.Effect) is
+                "Spark" or "SparkAltX" or "SparkAltY" or "VaalSpark" or "Twister"
+                or "FreezingPulse" or "FreezingPulseAltX" or "FreezingPulseAltY" or "FreezingPulseRoyale"
+                or "LightningStrike" or "LightningStrikeAltX" or "LightningStrikeAltY" or "VaalLightningStrike";
+
+        static int LaunchStepsFor(ProjectileEntity p, ProjectilePresentation presentation) =>
+            presentation.LaunchHeight
+            ?? (int.TryParse(Environment.GetEnvironmentVariable("Game_PROJECTILE_HEIGHT"), out int up)
+                ? up
+                : p.Use.Payload is ProjectileOffense { Spell: true }
+                    ? ProjectileAimHeight.SpellLaunchSteps
+                    : ProjectileHeight.DefaultSteps);
+
+        // 1:1 3.29.3c sloped 3D height ray for explicit-height player projectiles (outbound primary + return/redirect
+        // legs). Lobbed arcs, ground-crawling skills, continuation children and monster shots keep the plain grid.
+        ProjectileAimHeight.Ray? FlightRayFor(ProjectileEntity p)
+        {
+            if (flightRays.TryGetValue(p.Id, out var existing)) return existing;
+            if (p.ParentId != 0 || p.Phase > 0 || p.Use.Team != 1 || p.Profile.Lobbed || IsTerrainFollowingProjectile(p))
+                return null;
+            if (ProjectileAimHeight.Primary(p.Use.Origin, p.Use.Aim, LaunchStepsFor(p, PresentationFor(p)), Height) is not { } primary)
+                return null;
+            var ray = primary.WithLeg(p.Position, p.Direction);
+            flightRays[p.Id] = ray;
+            return ray;
+        }
 
         public TerrainContact? TraceFlight(ProjectileEntity p, ProjectileVector from, ProjectileVector to) =>
-            FlightGround(p) is int ground
-                ? ProjectileGeometry.TraceGrid(from, to, (x, y) => Wall(x, y) || ProjectileAimHeight.Blocks(x, y, ground, Height))
+            FlightRayFor(p) is { } ray
+                ? ProjectileGeometry.TraceGrid(from, to, (x, y) => Wall(x, y) || ray.Blocks(x, y, Height))
                 : TraceTerrain(from, to);
 
         public ProjectileHitResult Hit(ProjectileDamage contact)
@@ -945,6 +997,22 @@ public static partial class Game
                     spawn ? presentation.SpawnFlags0 : (byte)0, spawn ? presentation.SpawnAnimationWord : 0,
                     spawn ? presentation.SpawnAnimationValue : 0, spawn ? presentation.SpawnAnimatedId : 0);
             }
+            // Maintain the 3.29.3c 3D flight height ray for both client-drawn and server-drawn projectiles before any
+            // visual-hiding return so simulation terrain-height checks and return slopes match the client 1:1.
+            ProjectileAimHeight.Ray? endRay = null;
+            if (value.Kind == ProjectileEventKind.Spawn)
+                _ = FlightRayFor(p);
+            else if (value.Kind == ProjectileEventKind.Redirect && flightRays.TryGetValue(p.Id, out var prevRay))
+            {
+                double currentSteps = prevRay.StepsAt(p.Position);
+                if (p.Phase > 0 && p.Use.ReturnAnchor is { } anchorKey && Actor(anchorKey, value.At) is { } anchor)
+                    flightRays[p.Id] = ProjectileAimHeight.Return(p.Position, anchor.Position(value.At), currentSteps, Height)
+                        ?? prevRay.WithLeg(p.Position, p.Direction);
+                else
+                    flightRays[p.Id] = new ProjectileAimHeight.Ray(p.Position, p.Direction.Unit, currentSteps, 0);
+            }
+            else if (value.Kind == ProjectileEventKind.End && flightRays.Remove(p.Id, out var removedRay))
+                endRay = removedRay;
             // The client draws its own primary projectiles of a skill use; the server still simulates them (contacts,
             // areas and continuation children, which do get objects). Client-predicted zig-zag secondaries stay hidden too.
             if (value.Kind == ProjectileEventKind.Spawn && p.Profile.HideVisual) return;
@@ -955,9 +1023,12 @@ public static partial class Game
             {
                 string? flightVisual = (p.Use.Payload as ProjectileOffense)?.FlightVisual ?? presentation.FlightVisual;
                 uint id = Player.TakeObjectId();
-                // A shot aimed at higher ground flies at that ground's height, so its object clears the cliff it passes over.
-                var height = ProjectileHeight.Flight(FlightGround(p) ?? TerrainHeights.At(Player.Layout.Id, Player.Seed, x, y),
-                    Environment.GetEnvironmentVariable("Game_PROJECTILE_HEIGHT"), presentation.LaunchHeight);
+                var height = flightRays.TryGetValue(p.Id, out var spawnRay)
+                    ? spawnRay.MarkerAt(value.Position)
+                    : IsTerrainFollowingProjectile(p)
+                        ? ProjectileHeight.Terrain
+                        : ProjectileHeight.Flight(TerrainHeights.At(Player.Layout.Id, Player.Seed, x, y),
+                            Environment.GetEnvironmentVariable("Game_PROJECTILE_HEIGHT"), presentation.LaunchHeight);
                 var visual = new Visual(id, height) { SpawnedAt = value.Position };
                 visuals[p.Id] = visual; Player.ProjectileObjects.Add(id);
                 if (p.Profile.Lobbed) BeginArc(p, visual);
@@ -1006,7 +1077,9 @@ public static partial class Game
                     && (value.Reason is ProjectileEndReason.Enemy or ProjectileEndReason.Terrain or ProjectileEndReason.Landing
                         || value.Reason == ProjectileEndReason.Lifetime && p.Profile.EndArea is not null
                             && p.Profile.EndAreaReasons?.Contains(ProjectileEndReason.Lifetime) == true);
-                var height = end.Arc is { } arc ? arc.Height(arc.Fraction(p.Distance)) : end.Height;
+                var height = end.Arc is { } arc ? arc.Height(arc.Fraction(p.Distance))
+                    : endRay is { } ray ? ray.MarkerAt(value.Position)
+                    : end.Height;
                 if (end.StaysAfterEnd)
                 {
                     // The stop ends the glide and the object stays for ImpactLifetime of game time: for the rig's own impact
@@ -1207,7 +1280,7 @@ public static partial class Game
                 end = p.Position + p.Direction * Math.Min(p.Remaining, (next - fraction) * arc.Distance);
                 startHeight = arc.Height(fraction);
             }
-            if (!(p.Phase > 0 && p.Profile.IgnoreTerrainOnReturn) && TraceTerrain(p.Position, end) is { } wall)
+            if (!(p.Phase > 0 && p.Profile.IgnoreTerrainOnReturn) && TraceFlight(p, p.Position, end) is { } wall)
                 end = p.Position + (end - p.Position) * wall.Fraction;
             if (visual.Arc is { } path) endHeight = path.Height(path.Fraction(p.Distance + (end - p.Position).Length));
             // The first move starts where the object was created (the release point), without a stop there and with
@@ -1215,6 +1288,11 @@ public static partial class Game
             // first stop at the simulated position. A move replaced before it was projected was never the first.
             bool first = !visual.Glided;
             var start = first ? visual.SpawnedAt : p.Position;
+            if (visual.Arc is null && flightRays.TryGetValue(p.Id, out var glideRay))
+            {
+                startHeight = glideRay.MarkerAt(start);
+                endHeight = glideRay.MarkerAt(end);
+            }
             float duration = (float)Math.Max(.001, (end - start).Length / p.Speed);
             byte[] move = endHeight.MoveTo(visual.Id, (int)Math.Round(end.X), (int)Math.Round(end.Y), duration);
             if (ServerTrace.Projectiles && !Quiet(p.Use.Payload))

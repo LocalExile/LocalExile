@@ -152,10 +152,9 @@ public static partial class Game
                 m.Level, m.Rarity, rng, iir,
                 balance.ItemDropMultiplier * (modded?.Quantity ?? 1) * iiq,
                 balance.EquipmentRarityMultiplier * (modded?.Rarity ?? 1),
-                mapTier, mapMods, MapScarabQuantity(mapMods),
-                areaId: player.Layout.Id,
+                mapTier, mapMods, player.Layout.Id, MapScarabQuantity(mapMods),
                 characterLevel: player.Pools.Level,
-                areaLevel: areaLevel));
+                areaLevel: areaLevel, weights: modded?.Weights));
             drops.AddRange(PartyCurrency(player, drops, rng));
             if (RollMapDropForKill(player, m.Level, m.Rarity, mapTier, rng, modded?.MapRelated ?? 1) is { } mapDrop)
                 drops.Add(mapDrop);

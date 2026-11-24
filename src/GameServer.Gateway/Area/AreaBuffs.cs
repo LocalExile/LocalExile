@@ -205,9 +205,11 @@ public sealed class AreaBuffs(GameArea area)
                     area.Delta.Add(entity, InstanceEntities.RemoveBuff(entity, was.Instance));
                     continue;
                 }
-                if (had && was.Buff.Same(buff)) continue;
-                // The client runs a buff's countdown from its instance's creation: a new duration is a new instance.
-                if (had && was.Buff.U68 != buff.U68 && !buff.KeepInstance)
+                bool timed = buff.U68 is not null;
+                if (had && !timed && was.Buff.Same(buff)) continue;
+                // The client runs a buff's countdown from its instance's creation: a timed refresh (even with the same
+                // U68) or duration change needs a new instance unless KeepInstance updates it in place.
+                if (had && (timed || was.Buff.U68 is not null) && !buff.KeepInstance)
                 {
                     area.Delta.Add(entity, InstanceEntities.RemoveBuff(entity, was.Instance));
                     had = false;

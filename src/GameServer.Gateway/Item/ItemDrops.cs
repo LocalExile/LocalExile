@@ -249,7 +249,7 @@ public sealed class ItemDrops
     /// is supplied. Campaign areas (<paramref name="mapTier"/> == 0) match strictly by <c>WorldAreas.Id</c> against
     /// <c>min_map_tier = 0</c> rows; maps resolve by <c>area_id</c>, <c>area_name</c>, <c>WorldAreas.Id</c> → <c>Name</c>,
     /// or name without trailing " Map", falling back to global weights when unmapped.</summary>
-    public Drop? Card(Random rng, int level, string? areaId, int mapTier = 0)
+    public Drop? Card(Random rng, int level, string? areaId, int mapTier, DropWeights? factors = null)
     {
         if (!string.IsNullOrEmpty(areaId))
         {
@@ -270,24 +270,21 @@ public sealed class ItemDrops
                         if (mapTier >= minTier) allowedIds.Add(cardId);
                 }
             }
-            if (allowedIds is { Count: > 0 })
+            if (allowedIds is not null)
             {
                 var matched = _cards.Where(t => Allowed(t, level) && (allowedIds.Contains(t.Name) || allowedIds.Contains(t.Id))).ToList();
-                if (matched.Count == 0) return null;
-                if (PickPublished(matched, "card", level, rng) is { } weightedArea)
-                    return new Drop(ItemCatalog.Create(weightedArea) with { StackSize = 1 }, weightedArea);
-                var picked = matched[rng.Next(matched.Count)];
-                return new Drop(ItemCatalog.Create(picked) with { StackSize = 1 }, picked);
+                return PickCategory(matched, "card", level, rng, factors) is { } picked
+                    ? new Drop(ItemCatalog.Create(picked) with { StackSize = 1 }, picked)
+                    : null;
             }
-            if (mapTier <= 0) return null;
         }
-        if (PickPublished(_cards, "card", level, rng) is { } weighted)
-            return new Drop(ItemCatalog.Create(weighted) with { StackSize = 1 }, weighted);
-        var cards = Droppable(_cards, level);
-        if (cards.Count == 0) return null;
-        var type = cards[rng.Next(cards.Count)];
-        return new Drop(ItemCatalog.Create(type) with { StackSize = 1 }, type);
+        return Card(rng, level, factors);
     }
+    /// <param name="factors">A mod's factor per card (<see cref="DropWeights.Item"/>) on its published or uniform weight.</param>
+    public Drop? Card(Random rng, int level, DropWeights? factors) =>
+        PickCategory(_cards, "card", level, rng, factors) is { } type
+            ? new Drop(ItemCatalog.Create(type) with { StackSize = 1 }, type)
+            : null;
 
     List<(string CardId, int MinMapTier)>? ResolveMapCardRows(CardAreaIndex index, string areaId)
     {
@@ -312,15 +309,19 @@ public sealed class ItemDrops
             .Where(row => row.Key.Category == category && row.Value is { Enabled: true, Weight: > 0 })
             .ToDictionary(row => row.Key.ItemId, row => row.Value.Weight, StringComparer.Ordinal);
 
-    /// <summary>One of the types the published weights name (and whose DropLevel the level meets), by weight; null when
-    /// no published weight covers one, so the caller keeps its uniform fallback.</summary>
-    ItemCatalog.BaseType? PickPublished(List<ItemCatalog.BaseType> types, string category, int level, Random rng)
+    /// <summary>One of the types, by the published weights when they cover one whose DropLevel the level meets, else
+    /// uniformly; either weight times the type's factor in <paramref name="factors"/>. Null when none can drop.</summary>
+    ItemCatalog.BaseType? PickCategory(List<ItemCatalog.BaseType> types, string category, int level, Random rng, DropWeights? factors)
     {
         var weights = category == "card" ? _cardWeights : _scarabWeights;
-        if (weights.Count == 0) return null;
-        var weighted = types.Where(t => weights.ContainsKey(t.Id) && Allowed(t, level))
-            .Select(t => (Value: t, Weight: weights[t.Id])).ToList();
-        return Pick(weighted, rng);
+        if (weights.Count > 0 && types.Where(t => weights.ContainsKey(t.Id) && Allowed(t, level))
+                .Select(t => (Value: t, Weight: weights[t.Id] * (factors?.Item(t.Id) ?? 1))).ToList() is { Count: > 0 } published)
+            return Pick(published, rng);
+        var pool = Droppable(types, level);
+        if (pool.Count == 0) return null;
+        return factors is { Items.Count: > 0 }
+            ? Pick(pool.Select(t => (Value: t, Weight: factors.Item(t.Id))).ToList(), rng)
+            : pool[rng.Next(pool.Count)];
     }
 
     static bool Allowed(ItemCatalog.BaseType type, int level) => level <= 0 || type.DropLevel <= level;
@@ -388,24 +389,25 @@ public sealed class ItemDrops
     /// <summary>A random scarab, with the area's scarab-type stats (ScarabTypes): its <c>MoreLikely</c> stat (the Atlas
     /// "Carapaces" notables, <c>map_&lt;type&gt;_scarab_more_likely_%</c>: "Scarabs found in your Maps are X% more likely to be
     /// &lt;type&gt; Scarabs") multiplies the type's weight by (100 + X)%, and its <c>DisableDrops</c> stat drops none of it.</summary>
-    public Drop? Scarab(Random rng, int level, MapMods? mods)
+    public Drop? Scarab(Random rng, int level, MapMods? mods) => Scarab(rng, level, mods, null);
+
+    /// <param name="factors">A mod's factor per scarab (<see cref="DropWeights.Item"/>), on top of the area's.</param>
+    public Drop? Scarab(Random rng, int level, MapMods? mods, DropWeights? factors)
     {
-        if (mods is not null && ScarabFactors(mods) is { Count: > 0 } factors)
+        if (mods is not null && ScarabFactors(mods) is { Count: > 0 } areaFactors)
         {
             var weights = _scarabWeights;
             var pool = Droppable(_scarabs, level);
             bool published = weights.Count > 0 && pool.Any(t => weights.ContainsKey(t.Id));
             var favoured = pool.Where(t => !published || weights.ContainsKey(t.Id))
-                .Select(t => (Value: t, Weight: (published ? weights[t.Id] : 1) * factors.GetValueOrDefault(t.Row, 1)))
+                .Select(t => (Value: t, Weight: (published ? weights[t.Id] : 1) * areaFactors.GetValueOrDefault(t.Row, 1)
+                    * (factors?.Item(t.Id) ?? 1)))
                 .Where(p => p.Weight > 0).ToList();
             return Pick(favoured, rng) is { } picked ? new Drop(ItemCatalog.Create(picked) with { StackSize = 1 }, picked) : null;
         }
-        if (PickPublished(_scarabs, "scarab", level, rng) is { } weighted)
-            return new Drop(ItemCatalog.Create(weighted) with { StackSize = 1 }, weighted);
-        var scarabs = Droppable(_scarabs, level);
-        if (scarabs.Count == 0) return null;
-        var type = scarabs[rng.Next(scarabs.Count)];
-        return new Drop(ItemCatalog.Create(type) with { StackSize = 1 }, type);
+        return PickCategory(_scarabs, "scarab", level, rng, factors) is { } type
+            ? new Drop(ItemCatalog.Create(type) with { StackSize = 1 }, type)
+            : null;
     }
 
     /// <summary>Extra drops from any MapFragmentMods / map-quality stats: card packs, card/scarab/currency drop chances.
@@ -450,13 +452,25 @@ public sealed class ItemDrops
         double quantityMultiplier = 1, double rarityMultiplier = 1, int mapTier = 0) =>
         Roll(monsterLevel, rarity, rng, increasedRarity, quantityMultiplier, rarityMultiplier, mapTier, null);
 
+    public IReadOnlyList<Drop> Roll(int monsterLevel, MonsterRarity rarity, Random rng, int increasedRarity,
+        double quantityMultiplier, double rarityMultiplier, int mapTier, MapMods? mods, double scarabQuantity = 1) =>
+        Roll(monsterLevel, rarity, rng, increasedRarity, quantityMultiplier, rarityMultiplier, mapTier, mods, scarabQuantity, weights: null);
+
+    /// <param name="mods">The map's stats, for its scarab-type weights (<see cref="Scarab(Random, int, MapMods?)"/>).</param>
+    /// <param name="weights">The mods' factors on the kinds, the map's base card and scarab chances and single types
+    /// (<see cref="DropRoll.Weights"/>); null for none.</param>
+    public IReadOnlyList<Drop> Roll(int monsterLevel, MonsterRarity rarity, Random rng, int increasedRarity,
+        double quantityMultiplier, double rarityMultiplier, int mapTier, MapMods? mods, double scarabQuantity,
+        DropWeights? weights) =>
+        Roll(monsterLevel, rarity, rng, increasedRarity, quantityMultiplier, rarityMultiplier, mapTier, mods, areaId: null, scarabQuantity: scarabQuantity, weights: weights);
+
     /// <param name="mods">The map's stats, for its scarab-type weights (<see cref="Scarab(Random, int, MapMods?)"/>).</param>
     /// <param name="areaId">Current world area id or map name for <c>drop_card_areas</c> filtering.</param>
     /// <param name="characterLevel">Killing character's level for currency/card drop penalty (optional).</param>
     /// <param name="areaLevel">Current area level for currency/card drop penalty (defaults to <paramref name="monsterLevel"/>).</param>
     public IReadOnlyList<Drop> Roll(int monsterLevel, MonsterRarity rarity, Random rng, int increasedRarity,
-        double quantityMultiplier, double rarityMultiplier, int mapTier, MapMods? mods, double scarabQuantity = 1,
-        string? areaId = null, int? characterLevel = null, int? areaLevel = null)
+        double quantityMultiplier, double rarityMultiplier, int mapTier, MapMods? mods, string? areaId,
+        double scarabQuantity = 1, int? characterLevel = null, int? areaLevel = null, DropWeights? weights = null)
     {
         double quantity = double.IsFinite(quantityMultiplier) ? Math.Max(0, quantityMultiplier) : 1;
         int whole = (int)Math.Min(Math.Floor(quantity), int.MaxValue);
@@ -478,21 +492,22 @@ public sealed class ItemDrops
             // No draw for a whole multiplier, so the ordinary 1 rolls exactly as before.
             int times = whole + ((quantity < 1 || part > 0) && rng.NextDouble() < part ? 1 : 0);
             for (int r = 0; r < times; r++)
-                if (RollOne(monsterLevel, monsterLevel + ItemLevelBonus(rarity), chances, rng, inMap: mapTier > 0, dropPenalty: dropPenalty) is { } d)
+                if (RollOne(monsterLevel, monsterLevel + ItemLevelBonus(rarity), chances, rng, inMap: mapTier > 0, dropPenalty: dropPenalty, weights: weights) is { } d)
                     drops.Add(d);
         }
         if (mapTier > 0)
         {
-            if (scarabQuantity > 0 && MapExtra("drop_scarab_chance_pct", quantity * scarabQuantity, rng)
-                && Scarab(rng, monsterLevel, mods) is { } scarab)
+            double scarabChance = scarabQuantity * (weights?.Scarabs ?? 1);
+            if (scarabChance > 0 && MapExtra("drop_scarab_chance_pct", quantity * scarabChance, rng)
+                && Scarab(rng, monsterLevel, mods, weights) is { } scarab)
                 drops.Add(scarab with { Item = scarab.Item with { ItemLevel = (byte)Math.Clamp(monsterLevel, 1, 100) } });
-            if (MapExtra("drop_card_chance_pct", quantity * dropPenalty, rng) && Card(rng, monsterLevel, areaId, mapTier) is { } card)
+            if (MapExtra("drop_card_chance_pct", quantity * dropPenalty * (weights?.Cards ?? 1), rng) && Card(rng, monsterLevel, areaId, mapTier, weights) is { } card)
                 drops.Add(card);
         }
         else if (!string.IsNullOrEmpty(areaId) && HasCampaignCards(areaId))
         {
-            double campaignChance = SystemSettings.Default.DropCampaignCardChancePct / 100.0 * quantity * dropPenalty;
-            if (campaignChance > 0 && rng.NextDouble() < campaignChance && Card(rng, monsterLevel, areaId, mapTier: 0) is { } card)
+            double campaignChance = SystemSettings.Default.DropCampaignCardChancePct / 100.0 * quantity * dropPenalty * (weights?.Cards ?? 1);
+            if (campaignChance > 0 && rng.NextDouble() < campaignChance && Card(rng, monsterLevel, areaId, mapTier: 0, weights) is { } card)
                 drops.Add(card);
         }
         return drops;
@@ -617,8 +632,11 @@ public sealed class ItemDrops
 
     /// <summary>A weighted currency drop using this instance's resolved, DropDataProvider-backed currency pool
     /// (respecting <c>drop_currency_weights.drop_level</c>).</summary>
-    public Drop? CurrencyDrop(int level, Random rng) =>
-        PickCurrency(_pools.Currency, level, rng) is { } picked
+    public Drop? CurrencyDrop(int level, Random rng) => CurrencyDrop(level, rng, null);
+
+    /// <param name="weights">A mod's factor per currency type (<see cref="DropWeights.Item"/>); null for none.</param>
+    public Drop? CurrencyDrop(int level, Random rng, DropWeights? weights) =>
+        PickCurrency(_pools.Currency, level, rng, weights) is { } picked
             ? new Drop(ItemCatalog.Create(picked) with { StackSize = 1, ItemLevel = (byte)Math.Clamp(level, 1, 100) }, picked)
             : null;
 
@@ -870,14 +888,14 @@ public sealed class ItemDrops
     const double ExceptionalGemChance = 0.0015;
 
     // One item: its kind, for equipment its slot and level-weighted base, then its rarity (stages 2 to 4).
-    Drop? RollOne(int level, int itemLevel, Chances chances, Random rng, bool inMap = false, double dropPenalty = 1.0)
+    Drop? RollOne(int level, int itemLevel, Chances chances, Random rng, bool inMap = false, double dropPenalty = 1.0, DropWeights? weights = null)
     {
         var pools = _pools;
         var settings = SystemSettings.Default;
-        double currencyWeight = settings.DropWeightCurrency * settings.DropMultiplier("currency");
-        double gemWeight = settings.DropWeightGems * settings.DropMultiplier("gems");
-        double flaskWeight = settings.DropWeightFlasks * settings.DropMultiplier("flasks");
-        double equipmentWeight = settings.DropWeightEquipment * settings.DropMultiplier("equipment");
+        double currencyWeight = settings.DropWeightCurrency * settings.DropMultiplier("currency") * (weights?.Currency ?? 1);
+        double gemWeight = settings.DropWeightGems * settings.DropMultiplier("gems") * (weights?.Gems ?? 1);
+        double flaskWeight = settings.DropWeightFlasks * settings.DropMultiplier("flasks") * (weights?.Flasks ?? 1);
+        double equipmentWeight = settings.DropWeightEquipment * settings.DropMultiplier("equipment") * (weights?.Equipment ?? 1);
         double totalWeight = currencyWeight + gemWeight + flaskWeight + equipmentWeight;
         if (totalWeight <= 0) return null;
         double kind = rng.NextDouble() * totalWeight;
@@ -885,7 +903,7 @@ public sealed class ItemDrops
         if (kind < currencyWeight)
         {
             if (dropPenalty < 1.0 && rng.NextDouble() >= dropPenalty) return null;
-            type = PickCurrency(pools.Currency, level, rng);
+            type = PickCurrency(pools.Currency, level, rng, weights);
         }
         else if (kind < currencyWeight + gemWeight)
         {
@@ -1199,23 +1217,31 @@ public sealed class ItemDrops
         return weights;
     }
 
-    static ItemCatalog.BaseType? PickCurrency(List<(ItemCatalog.BaseType Type, double Weight, int DropLevel)> pool, int level, Random rng)
+    // Allocation-free: a kill's currency rolls run here. A mod's factors (DropWeights.Item) multiply each type's weight.
+    static ItemCatalog.BaseType? PickCurrency(List<(ItemCatalog.BaseType Type, double Weight, int DropLevel)> pool, int level, Random rng,
+        DropWeights? factors = null)
     {
+        if (factors is not { Items.Count: > 0 }) factors = null;
         double total = 0;
         for (int i = 0; i < pool.Count; i++)
-            if (pool[i].DropLevel <= level && pool[i].Weight > 0) total += pool[i].Weight;
+            if (pool[i].DropLevel <= level && Weight(pool[i]) is var w && w > 0) total += w;
         if (total <= 0) return null;
         double pick = rng.NextDouble() * total;
         ItemCatalog.BaseType? last = null;
         for (int i = 0; i < pool.Count; i++)
         {
             var entry = pool[i];
-            if (entry.DropLevel > level || entry.Weight <= 0) continue;
+            if (entry.DropLevel > level) continue;
+            double weight = Weight(entry);
+            if (weight <= 0) continue;
             last = entry.Type;
-            if (pick < entry.Weight) return entry.Type;
-            pick -= entry.Weight;
+            if (pick < weight) return entry.Type;
+            pick -= weight;
         }
         return last;
+
+        double Weight((ItemCatalog.BaseType Type, double Weight, int DropLevel) entry) =>
+            factors is null ? entry.Weight : entry.Weight * factors.Item(entry.Type.Id);
     }
 
     static T? Pick<T>(List<(T Value, double Weight)> weighted, Random rng) where T : class

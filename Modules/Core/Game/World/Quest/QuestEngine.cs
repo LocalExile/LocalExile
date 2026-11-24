@@ -472,7 +472,7 @@ public static partial class Game
         if (!QuestsOf(player).Exists(rule.ObjectType, f => ClientHasQuestFlag(player, f))) return;
         uint id = player.TakeObjectId();
         lock (player.QuestObjects) player.QuestObjects[id] = (rule, at, info);
-        if (info.Blocking) player.SetBlocker(id, at.X, at.Y, info.Size);
+        if (info.Blocking) player.SetObjectBlocker(id, at.X, at.Y, info.Size, info.ActorOrChest);
         await SendWorldCreate(player, id, () => InstanceEntities.CreateObject(id, InstanceEntities.ObjectTypeHash(rule.ObjectType), QuestObjectBlob(player, rule, at, info)),
             $"0x02bb quest object 0x{id:x} {rule.ObjectType} at ({at.X}, {at.Y}), {(QuestObjectTransitioned(player, rule) ? "transitioned" : "untransitioned")}" +
             (rule.TransitionedBy is { } f ? $" (flag {f})" : ""), wake: true, awaitBirth: false);
@@ -719,7 +719,7 @@ public static partial class Game
             uint next = player.TakeObjectId();
             lock (player.QuestChests) { player.QuestChests.Remove(id); player.QuestChests[next] = (rule, at); }
             player.RemoveBlocker(id);
-            player.SetBlocker(next, at.X, at.Y, QuestChestSize);
+            player.SetObjectBlocker(next, at.X, at.Y, QuestChestSize, QuestObjectTypes.Find(rule.ChestType)?.ActorOrChest ?? true);
             await SendWorldRemoval(player, id, null);
             await SendWorldCreate(player, next, () => InstanceEntities.CreateObject(next, InstanceEntities.ObjectTypeHash(rule.ChestType),
                 QuestChestBlob(player, rule, at, rule.Guards is not null || player.Instance.ChestOpened(at.X, at.Y), hideMinimapIcon: true)),
@@ -732,7 +732,7 @@ public static partial class Game
             uint next = player.TakeObjectId();
             lock (player.GlyphNests) { player.GlyphNests.Remove(id); player.GlyphNests[next] = nest; }
             player.RemoveBlocker(id);
-            player.SetBlocker(next, nest.At.X, nest.At.Y, GlyphQuest.NestSize);
+            player.SetObjectBlocker(next, nest.At.X, nest.At.Y, GlyphQuest.NestSize, QuestObjectTypes.Find(nest.Type)?.ActorOrChest ?? true);
             await SendWorldRemoval(player, id, null);
             await SendWorldCreate(player, next, () => InstanceEntities.CreateObject(next, InstanceEntities.ObjectTypeHash(nest.Type),
                 GlyphQuest.NestBlob(nest.At, player.Instance.ChestOpened(nest.At.X, nest.At.Y), hideMinimapIcon: true)),
@@ -747,7 +747,7 @@ public static partial class Game
         bool opened = collected || player.Instance.ChestOpened(at.X, at.Y, QuestChestOwner(player, rule));
         uint id = player.TakeObjectId();
         lock (player.QuestChests) player.QuestChests[id] = (rule, at);
-        player.SetBlocker(id, at.X, at.Y, QuestChestSize);
+        player.SetObjectBlocker(id, at.X, at.Y, QuestChestSize, QuestObjectTypes.Find(rule.ChestType)?.ActorOrChest ?? true);
         bool pending = !opened && rule.Guards is not null && !QuestChestReady(player, rule);
         await SendWorldCreate(player, id, () => InstanceEntities.CreateObject(id, InstanceEntities.ObjectTypeHash(rule.ChestType), QuestChestBlob(player, rule, at, opened, hideMinimapIcon: collected)),
             $"0x02bb quest chest 0x{id:x} {rule.ChestType} at ({at.X}, {at.Y}), opened={opened}" + (rule.OpensWith is { } f ? $", opens with {f}" : ""), wake: true, awaitBirth: false);
@@ -782,7 +782,7 @@ public static partial class Game
         uint opened = player.TakeObjectId();
         lock (player.QuestChests) { player.QuestChests.Remove(use.TargetId); player.QuestChests[opened] = (rule, at); }
         player.RemoveBlocker(use.TargetId);
-        player.SetBlocker(opened, at.X, at.Y, QuestChestSize);
+        player.SetObjectBlocker(opened, at.X, at.Y, QuestChestSize, QuestObjectTypes.Find(rule.ChestType)?.ActorOrChest ?? true);
         await Game.SendWorldRemoval(player, use.TargetId, null);
         await SendWorldCreate(player, opened, () => InstanceEntities.CreateObject(opened, InstanceEntities.ObjectTypeHash(rule.ChestType), QuestChestBlob(player, rule, at, true)),
             $"0x02bb opened quest chest 0x{opened:x} (was 0x{use.TargetId:x})", wake: true, awaitBirth: false);

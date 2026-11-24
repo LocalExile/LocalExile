@@ -81,7 +81,7 @@ public static partial class Game
         follows |= defensive && summon?.Family != "Clone";
         if (follows && Dist(here, owner) > 150)
         {
-            var at = NextToPlayer(player);
+            var at = NextToPlayer(player, LivingCollision.Size(m), g.Id);
             m.Walk = player.NewMonsterWalk(g.Id, at.X, at.Y, m.Mods.Effects.MovementSpeed(m.Variety!.MovementSpeed)
                 * MonsterSpeedRoll.Factor(m.SpeedRoll), LivingCollision.Size(m), false);
             m.ActionGeneration++; m.LastTarget = null;
@@ -212,7 +212,8 @@ public static partial class Game
         if (output.TargetId is not uint id || OwnedFighter(player, id) is not { } g || !GolemCurrent(player, g)
             || g.Monster.Dead || g.Pending is not { Started: false } pending || pending.Generation != output.Action
             || pending.Generation != g.Monster.ActionGeneration) return null;
-        double now = AreaTime(player); var from = g.Monster.Walk.Position(now); var a = MinionSupportAction(player, g, pending);
+        double now = LockstepOrderStart(player, AreaTime(player));
+        var from = g.Monster.Walk.Position(now); var a = MinionSupportAction(player, g, pending);
         g.Pending = pending = pending with { Ability = a };
         pending.Started = true; pending.At = now + a.Attack.Seconds * a.Contact;
         g.Monster.BusyUntil = now + a.Attack.Seconds;
@@ -231,25 +232,33 @@ public static partial class Game
         // Contact publishes the authoritative landing position after checking the path again.
         if (a.Effect == 10844)
             return [InstanceProtocol.ActionStarted(id, from.X, from.Y, pending.Aim.X, pending.Aim.Y,
-                0x2909, player.NextActionSequence(), 0x0408)];
+                0x2909, NextMonsterMoveSequence(player, g.Monster), player.MonsterOrderFlags)];
         var action = a.Effect is 9927 or 9928
             ? InstanceProtocol.InstantAction(id, a.Skill, pending.Aim.X, pending.Aim.Y)
             : InstanceProtocol.ActionStarted(id, from.X, from.Y, pending.Aim.X, pending.Aim.Y, a.Skill,
-                0xffff, 0x0408, targetObjectId: pending.Target == 0 ? null : pending.Target);
+                0xffff, player.MonsterOrderFlags, targetObjectId: pending.Target == 0 ? null : pending.Target);
         return [InstanceEntities.PlayerSkillsChange(id, GolemNativeSkills(player, g.Monster.Level, [a]), []), action];
     }
 
     // Skitterbots actively seek nearby enemies so their Chilling and Shocking auras reach monsters instead of orbiting
-    // the player. Prefer enemies not yet affected by this bot's ailment, falling back to the nearest enemy in leash range.
+    // the player. Armed traps/mines take priority before enemy-seeking can set NextMove. Prefer enemies not yet
+    // affected by this bot's ailment, falling back to the nearest enemy in leash range, and approach an adjacent clear
+    // cell rather than the enemy's own solid body.
     static void SkitterStepLocked(Player player, GolemState.Golem g, (int X, int Y) here, (int X, int Y) owner, double now)
     {
+        if (PendingSkitterPlaced(player, g, owner, now) is { } pending)
+        {
+            if (now >= g.NextMove && Dist(here, pending.At) > 8 && SkitterApproachCell(player, g, pending.At) is { } goal)
+                GolemMoveLocked(player, g, goal, now);
+            return;
+        }
         var ailment = g.Definition.Kind == "SkitterCold"
             ? MonsterElementalAilments.Kind.Chill : MonsterElementalAilments.Kind.Shock;
         int auraRadius = SkitterAuraRadius(g);
         bool bestUncovered = false;
         double bestDist = double.MaxValue;
         (int X, int Y) bestAt = default;
-        bool found = false;
+        SpawnedMonster? best = null;
         foreach (var (id, monster) in player.Area.Monsters)
         {
             if (monster is not { Hostile: true, Dead: false, Life: > 0, Invulnerable: false, Asleep: false }
@@ -258,32 +267,74 @@ public static partial class Game
             if (Dist(at, owner) > 100) continue;
             bool uncovered = monster.Ailments.Magnitude(ailment, now) <= 0;
             double dist = Dist(at, here);
-            if (!found || (uncovered && !bestUncovered) || (uncovered == bestUncovered && dist < bestDist))
+            if (best is null || (uncovered && !bestUncovered) || (uncovered == bestUncovered && dist < bestDist))
             {
-                found = true;
+                best = monster;
                 bestUncovered = uncovered;
                 bestDist = dist;
                 bestAt = at;
             }
         }
-        if (!found) { GolemFollowLocked(player, g, owner, now); return; }
-        if (bestDist > Math.Max(6, auraRadius * 0.5))
-            GolemMoveLocked(player, g, bestAt, now);
+        if (best is null) { GolemFollowLocked(player, g, owner, now); return; }
+        if (bestDist <= Math.Max(6, auraRadius * 0.5) || now < g.NextMove) return;
+        int size = Math.Max(0, LivingCollision.Size(g.Monster));
+        int offset = Math.Max(2, Math.Max(0, LivingCollision.Size(best)) + size + 1);
+        GolemMoveLocked(player, g, SkitterApproachCell(player, g.Id, here, bestAt, size, offset), now);
+    }
+
+    static (int X, int Y) SkitterApproachCell(Player player, uint selfId, (int X, int Y) here, (int X, int Y) target, int size, int offset)
+    {
+        bool Floor(int x, int y) => player.Layout.WalkableFor(x, y, size) && !player.Barrier.Contains((x, y));
+        var blockers = player.MonsterBlockers(selfId);
+        int w = player.Layout.GridW > 0 ? player.Layout.GridW : int.MaxValue;
+        int h = player.Layout.GridH > 0 ? player.Layout.GridH : int.MaxValue;
+        ReadOnlySpan<(int Dx, int Dy)> dirs =
+            [(1, 0), (1, 1), (0, 1), (-1, 1), (-1, 0), (-1, -1), (0, -1), (1, -1)];
+        double baseAngle = Math.Atan2(here.Y - target.Y, here.X - target.X);
+        int start = ((int)Math.Round(baseAngle / (Math.PI / 4)) % 8 + 8) % 8;
+        (int X, int Y)? walkableFallback = null;
+        for (int i = 0; i < 8; i++)
+        {
+            int idx = (start + (i % 2 == 1 ? (i + 1) / 2 : -i / 2) + 8) % 8;
+            int cx = target.X + dirs[idx].Dx * offset;
+            int cy = target.Y + dirs[idx].Dy * offset;
+            if (!Floor(cx, cy)) continue;
+            walkableFallback ??= (cx, cy);
+            if (CollisionEscape.Clear((cx, cy), w, h, Floor, blockers, moverSize: size))
+                return (cx, cy);
+        }
+        return walkableFallback ?? target;
     }
 
     static void GolemFollowLocked(Player player, GolemState.Golem g, (int X, int Y) owner, double now)
     {
-        double distance = Dist(g.Monster.Walk.Position(now), owner);
-        if (distance > 18) GolemMoveLocked(player, g, NextToPlayer(player), now);
+        var m = g.Monster;
+        int size = Math.Max(0, LivingCollision.Size(m));
+        var here = m.Walk.Position(now);
+        double distance = Dist(here, owner);
+        if (distance > 18)
+        {
+            if (now >= g.NextMove) GolemMoveLocked(player, g, NextToPlayer(player, size, g.Id), now);
+        }
         else
         {
             var wander = GolemWander.GetOrCreateValue(g);
-            if (now >= wander.Next && now >= g.NextMove && now >= g.Monster.Walk.ArrivesAt)
+            if (now >= wander.Next && now >= g.NextMove && now >= m.Walk.ArrivesAt)
             {
-                int n = (int)((g.Id + (uint)(now / 4)) % 8);
-                double angle = n * Math.PI / 4;
-                GolemMoveLocked(player, g, (owner.X + (int)(Math.Cos(angle) * 9), owner.Y + (int)(Math.Sin(angle) * 9)), now);
-                wander.Next = now + 3 + g.Id % 3;
+                int start = (int)((g.Id + (uint)(now / 4)) % 8);
+                int radius = Math.Max(9, size + LivingCollision.PlayerSize + 2);
+                for (int i = 0; i < 8; i++)
+                {
+                    double angle = ((start + i) % 8) * Math.PI / 4;
+                    var dest = (owner.X + (int)Math.Round(Math.Cos(angle) * radius),
+                        owner.Y + (int)Math.Round(Math.Sin(angle) * radius));
+                    if (!player.Layout.WalkableFor(dest.Item1, dest.Item2, size) || player.Barrier.Contains(dest)) continue;
+                    if (player.Connection.LockstepClient && !LockstepTakesMove(here, dest)) continue;
+                    GolemMoveLocked(player, g, dest, now);
+                    wander.Next = now + 3 + g.Id % 3;
+                    return;
+                }
+                wander.Next = now + 1;
             }
         }
     }
@@ -293,19 +344,56 @@ public static partial class Game
         if (now < g.NextMove || g.Monster.LastTarget is { } old && Dist(old, to) < 5 && now < g.Monster.Walk.ArrivesAt) return;
         if (!player.Layout.WalkableFor(to.X, to.Y, Math.Max(0, LivingCollision.Size(g.Monster))) || player.Barrier.Contains(to)) return;
         var m = g.Monster; var from = m.Walk.Position(now);
+        if (player.Connection.LockstepClient)
+        {
+            if (!LockstepTakesMove(from, to)) return;
+            if (InAreaFrame(player))
+            {
+                g.NextMove = now + .5;
+                int generation = ++m.ActionGeneration;
+                player.Minions.OutputQueue.Add(new([], null, g.Id, m, Action: generation, At: to, WorldId: g.Id));
+                return;
+            }
+        }
         g.NextMove = now + .5;
         m.Walk.Order(to.X, to.Y, now);
         if (m.Walk.Destination == from)
         {
-            if (m.LastTarget is not null)
+            if (!player.Connection.LockstepClient && m.LastTarget is not null)
                 player.Minions.OutputQueue.Add(new(InstanceProtocol.ActionEnded(g.Id), null, g.Id, m,
                     Action: ++m.ActionGeneration, WorldId: g.Id));
             m.LastTarget = null;
             return;
         }
-        m.LastTarget = to; int generation = ++m.ActionGeneration;
+        m.LastTarget = to; int gen = ++m.ActionGeneration;
         player.Minions.OutputQueue.Add(new(InstanceProtocol.ActionStarted(g.Id, from.X, from.Y, to.X, to.Y,
-            0x2909, player.NextActionSequence(), 0x0408), null, g.Id, m, Action: generation, WorldId: g.Id));
+            0x2909, NextMonsterMoveSequence(player, m), player.MonsterOrderFlags), null, g.Id, m, Action: gen, WorldId: g.Id));
+    }
+
+    static byte[]? GolemMoveAtGate(Player player, uint id, SpawnedMonster m, (int X, int Y) to)
+    {
+        if (m.Dead || m.Life == 0 || MonsterAsleep(player, id)) return null;
+        double at;
+        if (player.Connection.LockstepClient && player.Connection.LockstepFrame is { } frame)
+        {
+            StepWalkers(player, frame.Start);
+            at = frame.Start;
+        }
+        else at = AreaTime(player);
+        var from = m.Walk.Position(at);
+        if (player.Connection.LockstepClient && !LockstepTakesMove(from, to)) return null;
+        var saved = m.Walk.Save();
+        var start = m.Walk.Order(to.X, to.Y, at);
+        if (m.Walk.Destination == from)
+        {
+            m.Walk.Restore(saved);
+            return null;
+        }
+        m.ClientChase = null;
+        m.ClientActionWalkStop = null;
+        m.LastTarget = to;
+        return InstanceProtocol.ActionStarted(id, start.X, start.Y, to.X, to.Y,
+            0x2909, NextMonsterMoveSequence(player, m), player.MonsterOrderFlags);
     }
 
     public static void GolemAbilityContactLocked(Player player,
@@ -577,6 +665,9 @@ public static partial class Game
             target.Ailments.Inflict(mitigated, critical, target.MaxLife, now, Golem,
                 n => target.Mods.Effects[n], AreaRng(player));
             HitDebuffsOnHitLocked(target, Golem, a.Attack.Spell, critical, now, AreaRng(player));
+            // Unnatural Strength: a minion with Unholy Might withers on hit (25% for 2 s, from the buff row's
+            // stats in its Mods); the player path does this in MonsterAilments, the minion path did not.
+            WitherOnHitLocked(target, Golem, now, AreaRng(player));
             InflictMonsterBlind(player, id, target, now, BlindHitInput.Capture(Golem), a.Attack.Spell, critical,
                 AreaRng(player));
             MinionAilmentsLocked(player, g, a, id, target, critical, now);
@@ -590,7 +681,7 @@ public static partial class Game
     {
         long increased = (long)mods.Effects[Stat.CriticalStrikeChancePlusPct] + additionalIncrease
             + (ability.Attack.Spell ? mods.Effects[Stat.SpellCriticalStrikeChancePlusPct] : 0);
-        double chance = (ability.Crit + (double)mods.Effects[WakenedFuryChance]) * Math.Max(0, 100L + increased) / 100.0;
+        double chance = (ability.Crit + (double)mods.Effects[WakenedFuryChance] + mods.Effects[Stat.AdditionalBaseCriticalStrikeChance]) * Math.Max(0, 100L + increased) / 100.0;
         return (int)Math.Clamp(chance, 0, 10_000);
     }
 

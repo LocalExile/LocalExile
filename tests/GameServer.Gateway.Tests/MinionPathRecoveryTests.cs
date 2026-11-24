@@ -1,3 +1,5 @@
+using GameServer.Core.Protocol.Instance;
+
 namespace GameServer.Gateway.Tests;
 
 public sealed class MinionPathRecoveryTests
@@ -26,4 +28,53 @@ public sealed class MinionPathRecoveryTests
         Assert.Contains(f.Player.Minions.OutputQueue, o => o.Packet.Length > 1 && o.Packet[0] == 1 && o.Packet[1] == 0xab);
     }
 
+    [Fact]
+    public void Stone_golem_placement_clears_player_body_skitterbot_ailment_uses_stat_names_and_fire_trap_uses_native_throw()
+    {
+        using var f = new MinionUtilityTests.Fixture();
+        f.Player.Use(f.Player.Layout with { Walkable = (_, _) => true, Clearance = null });
+        f.Player.Walk.Teleport(100, 100, 0);
+
+        // Stone Golem (ObjectSize = 3 -> bodySize = 2) must spawn outside the player's collision hull (Chebyshev >= 4).
+        var spot = Game.NextToPlayer(f.Player, bodySize: 2);
+        Assert.True(Math.Max(Math.Abs(spot.X - 100), Math.Abs(spot.Y - 100)) >= 4, $"expected Chebyshev >= 4, got {spot}");
+
+        // SkitterAilmentStat must resolve minion_chill_effect_+% via stat name, not numeric stat ID.
+        var skitterMonster = new SpawnedMonster("skitter", new(100, 100, 0), 0, 0, 100) { Hostile = false };
+        var skitterDef = new GolemCatalog.Definition(0, "SummonSkitterbots", "SkitterCold",
+            "Metadata/Monsters/Skitterbot/SkitterbotCold", 0, [], false, false, IsGolem: false);
+        var skitter = new GolemState.Golem(902, skitterMonster, skitterDef, 0)
+        {
+            Player = new() { [Stat.Of("minion_chill_effect_+%")] = 40 },
+        };
+        Assert.Equal(40, Game.SkitterAilmentStat(skitter, Stat.VirtualChillEffectPlusPct));
+
+        // PlacedThrowRecords must let BeThrown drive flight natively without appending an overwriting 0x01ba MoveTo.
+        var records = Game.PlacedThrowRecords(f.Player, 903, (100, 100), (125, 100), 0.975);
+        Assert.Single(records);
+        Assert.Equal(0x01, records[0][0]);
+        Assert.Equal(0xab, records[0][1]);
+        Assert.DoesNotContain(records, r => r.Length >= 2 && r[0] == 0x01 && r[1] == 0xba);
+
+        // Fire Trap base radius matches native TrapGroundFire (16).
+        ushort fireTrap = f.Equip(("Fire Trap", 1)).Single();
+        var gem = Game.GemSkillEffects(f.Player).Single(g => g.Id == fireTrap);
+        Assert.Equal(16, Game.SkillRadius(f.Player, new Dictionary<uint, int>(), spell: true, gem.Effect));
+
+        // A strongbox is a stationary blocker. The same held Fire Trap press after removal queues no throw.
+        f.Player.SetBlocker(904, 120, 100, 1);
+        byte[] press = [1, 0x8f, 0, 0, 3, 0x88, (byte)(fireTrap >> 8), (byte)fireTrap, 4, 0, 0];
+        Game.OnLockstepRequest(f.Player, InstanceProtocol.LockstepUseOnObjectId, press);
+        Assert.True(f.Player.LockstepSkill.Pending);
+        Assert.Equal((120, 100), f.Player.LockstepSkill.Aim);
+        f.Player.RemoveBlocker(904);
+        var shrine = InstanceEntities.CreateObject(904, InstanceEntities.ObjectTypeHash("Metadata/Shrines/Shrine"),
+            new ShrineObject(105, 123).Blob());
+        f.Player.Area.Objects.RecordDirect(904, shrine, AreaDelta.Kind.Create, f.Player);
+        Game.OnLockstepRequest(f.Player, InstanceProtocol.LockstepUseOnObjectId, press);
+        Assert.Equal((105, 123), f.Player.LockstepSkill.Aim);
+        f.Player.Area.Objects.RecordDirect(904, InstanceProtocol.RemoveObject(904), AreaDelta.Kind.Remove, f.Player);
+        Game.OnLockstepRequest(f.Player, InstanceProtocol.LockstepUseOnObjectId, press);
+        Assert.False(f.Player.LockstepSkill.Pending);
+    }
 }

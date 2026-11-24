@@ -142,6 +142,7 @@ public static class CosmeticsFeature
         await SendEquipment(player, ItemsOf(player));
         // A skin that turns the character into another creature in towns and hideouts (the Goblin Shaman Skin).
         await SendMorph(player, morph);
+        RefreshFlaskEffectCosmetic(player, pick.Slot);
         if (pick.Slot is 18 or 19) await SpawnPets(player);
         if (pick.Slot == PortraitSlot)
         {
