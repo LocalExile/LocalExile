@@ -2715,7 +2715,6 @@ public static partial class Game
         // The enemies this sweep struck and where, for Holy Sweep's hammers (RunHolyHammers).
         var hammerTargets = new List<(uint Id, (int X, int Y) At)>();
         double bloodMore = BloodChargeDamageMore(player, Stat);
-        int flamethrowerBurningMore = Stat(global::Stat.FlamethrowerTrapDamagePlusPctFinalVsBurningEnemies);
         int landed = 0;
         // One sweep, one hit: its offensive inputs are read once, at the first contact (inside the projectile mutation, after
         // earlier contacts caught up), and rolled per monster. They were computed again for every monster (a whole stat
@@ -2935,10 +2934,8 @@ public static partial class Game
                             Poison = RepeatAilment(profile.Poison, overexertionMore),
                         };
                     var hex = hexblast ? HexblastHex(m, ProjectileWorldTime(player)) : null;
-                    double burningTargetMore = flamethrowerBurningMore != 0 && BurningTarget(player, m)
-                        ? Math.Max(0, 1 + flamethrowerBurningMore / 100d) : 1;
-                    double targetAilmentMore = hex is null ? burningTargetMore : burningTargetMore
-                        * Math.Max(0, 1 + Stat(global::Stat.HexblastAilmentDamagePlusPctFinalIfHexed) / 100d);
+                    double targetAilmentMore = hex is null ? 1
+                        : Math.Max(0, 1 + Stat(global::Stat.HexblastAilmentDamagePlusPctFinalIfHexed) / 100d);
                     if (targetAilmentMore != 1)
                         profile = profile with
                         {
@@ -2974,8 +2971,8 @@ public static partial class Game
                                 intelligence: player.Pools.Intelligence), cryExerted == true)
                             .ForWeapon(weaponLocal).RollOutgoingHit(contactHit, AreaRng(player))),
                         ProjectileWorldTime(player));
-                    double targetHitMore = hex is null ? burningTargetMore : burningTargetMore
-                        * Math.Max(0, 1 + Stat(global::Stat.HexblastHitDamagePlusPctFinalIfHexed) / 100d);
+                    double targetHitMore = hex is null ? 1
+                        : Math.Max(0, 1 + Stat(global::Stat.HexblastHitDamagePlusPctFinalIfHexed) / 100d);
                     if (targetHitMore != 1) rolled = rolled.Scale(targetHitMore);
                     // Hallow: an attack against an enemy affected by Hallowing Flame gains its share of physical damage as
                     // extra fire, and removes the flame.
