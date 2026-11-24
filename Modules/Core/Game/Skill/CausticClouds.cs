@@ -79,8 +79,13 @@ public static partial class Game
             visual.Ended = true;
             ground.Source.Player.ProjectileObjects.Remove(visual.Id);
             if (!visual.Created) return;
-            if (area.Driven) area.Delta.RemoveSharedObject(visual.Id, InstanceProtocol.RemoveObject(visual.Id));
-            else ground.Source.WorldRecords(visual.Id, () => [InstanceProtocol.RemoveObject(visual.Id)], remove: true);
+            byte[] endGround = InstanceEntities.GroundEffectUpdate(visual.Id, 0, 0f);
+            if (area.Driven)
+            {
+                area.Delta.Add(visual.Id, endGround);
+                area.Delta.RemoveSharedObject(visual.Id, InstanceProtocol.RemoveObject(visual.Id));
+            }
+            else ground.Source.WorldRecords(visual.Id, () => [endGround, InstanceProtocol.RemoveObject(visual.Id)], remove: true);
         }
 
         internal void PlaceCausticCloud(ProjectileVector centre, ProjectileOffense.CausticCloudSpec spec) =>

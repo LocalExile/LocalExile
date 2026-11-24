@@ -346,6 +346,28 @@ public static class InstanceEntities
     public static byte[] TransitionableUpdate(uint entityId, byte componentIndex, byte state) =>
         ComponentUpdate(entityId, componentIndex, [state]);
 
+    /// <summary>S→C 0x2bc to a Shrine component (slot 20 reader <c>0x1415e49f0</c>): creation layout plus u32 LE taker
+    /// object id. Claiming flips bit 7 (0 → 1) and plays Animated clip 0, ShrineSounds, and Shrines.Description.</summary>
+    public static byte[] ShrineUpdate(uint entityId, byte shrineRow, uint takerObjectId, bool claimed = true,
+        byte state = 0, byte componentIndex = ShrineObject.ShrineComponentIndex) =>
+        ComponentUpdate(entityId, componentIndex, ShrineObject.UpdateBlob(shrineRow, takerObjectId, claimed, state));
+
+    /// <summary>S→C 0x2bc to a GroundEffect component (slot 20 reader <c>0x141e1ea90</c> → <c>0x141e1ead0</c>):
+    /// u8 state (+0x38) and f32 LE remaining seconds (+0x44); values &lt;= 0 trigger the component's EndEffect.</summary>
+    public static byte[] GroundEffectUpdate(uint entityId, byte state, float remainingSeconds,
+        byte componentIndex = GroundEffectObject.GroundEffectComponentIndex) =>
+        ComponentUpdate(entityId, componentIndex, new BlobWriter().U8(state).F32(remainingSeconds).ToArray());
+
+    /// <summary>S→C 0x2bc to a Beam component (slot 20 reader <c>0x1416710c0</c>, shared with slot 17 creation):
+    /// updates the MiscBeams art row and/or start and end endpoints.</summary>
+    public static byte[] BeamUpdate(uint entityId, BeamEffectObject beam,
+        byte componentIndex = BeamEffectObject.BeamComponentIndex)
+    {
+        var w = new BlobWriter();
+        beam.WriteBeamComponent(w);
+        return ComponentUpdate(entityId, componentIndex, w.ToArray());
+    }
+
     public const ushort BlockageUpdateId = 0x1c6;
 
     /// <summary>
@@ -1110,6 +1132,8 @@ public sealed record EffectObject(int GridX, int GridY, string AnimatedObject)
 public sealed record GroundEffectObject(int GridX, int GridY, ushort GroundEffectRow, string AnimatedObject, float Seconds)
 {
     public const string TypePath = "Metadata/Effects/Spells/ground_effects/VisibleServerGroundEffect";
+    /// <summary>GroundEffect in <c>VisibleServerGroundEffect</c>'s component order (Positioned, BaseEvents, GroundEffect, Buffs, Animated).</summary>
+    public const byte GroundEffectComponentIndex = 2;
 
     /// <summary>The art's uniform scale (Positioned flags0 0x20); 1 sends none.</summary>
     public float Scale { get; init; } = 1;
@@ -1143,16 +1167,14 @@ public sealed record BeamEffectObject(int StartGridX, int StartGridY, uint Start
     uint EndObject, ushort BeamRow = 0, string? StartBone = null)
 {
     public const string TypePath = "Metadata/Effects/ServerBeamEffect";
+    /// <summary>Beam in <c>ServerBeamEffect</c>'s component order (Positioned, BaseEvents, Animated, LimitedLifespan, Beam).</summary>
+    public const byte BeamComponentIndex = 4;
     /// <summary>Positioned x/y are cells; the Beam's endpoints are world units (ten per cell).</summary>
     public const float WorldPerCell = 10;
 
-    public byte[] Blob()
+    /// <summary>Writes the Beam component body (0x1416710c0, used for both 0x2bb creation and 0x2bc updates).</summary>
+    internal void WriteBeamComponent(BlobWriter w)
     {
-        var w = new BlobWriter();
-        w.U8(0).U8(0);                                                  // object flags, base data entries
-        // Positioned: the corpse's cell, no rotation, team 0, no extra flags or visibility bytes (19 bytes before Beam).
-        w.I32(StartGridX).I32(StartGridY).F32(0).U16(0).U8(0).U8(0);
-        w.U8(0);                                                        // Animated: the Beam row's art
         // Beam, exactly as the official server's (3.29.3c capture): row + 1, flags A0|A1|A2|A4|A7|B2|B3, then each end's
         // world position and object id (the client follows the objects; the positions are their snapshot).
         w.U16((ushort)(BeamRow + 1)).U8((byte)(StartBone is null ? 0x97 : 0xD7)).U8(0x0C).U8(0x00)
@@ -1164,6 +1186,16 @@ public sealed record BeamEffectObject(int StartGridX, int StartGridY, uint Start
             w.U32((uint)bone.Length).Bytes(bone);
         }
         w.F32(EndWorldX).F32(EndWorldY).U32(EndObject).U32(0);
+    }
+
+    public byte[] Blob()
+    {
+        var w = new BlobWriter();
+        w.U8(0).U8(0);                                                  // object flags, base data entries
+        // Positioned: the corpse's cell, no rotation, team 0, no extra flags or visibility bytes (19 bytes before Beam).
+        w.I32(StartGridX).I32(StartGridY).F32(0).U16(0).U8(0).U8(0);
+        w.U8(0);                                                        // Animated: the Beam row's art
+        WriteBeamComponent(w);
         w.U8(0);                                                        // tasks
         return w.ToArray();
     }

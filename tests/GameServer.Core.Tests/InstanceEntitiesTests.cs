@@ -801,4 +801,25 @@ public class InstanceEntitiesTests
         Assert.Equal(1, deadMonster[^12]);
         Assert.Equal(aliveMonster[^11..], deadMonster[^11..]);
     }
+
+    [Fact]
+    public void Component_updates_encode_shrine_ground_effect_and_beam_layouts()
+    {
+        // Shrine 0x2bc (component 7): key (row | 0x80), state 0, extra 0, u32 LE taker id.
+        byte[] shrine = InstanceEntities.ShrineUpdate(0x2000, 11, 0x1000, claimed: true);
+        Assert.Equal("02BC" + "00002000" + "00000000" + "0000" + "0008" + "07" + "8B" + "00" + "00" + "00100000",
+            Convert.ToHexString(shrine));
+
+        // GroundEffect 0x2bc (component 2): u8 state, f32 LE remaining seconds.
+        byte[] ground = InstanceEntities.GroundEffectUpdate(0x3000, 1, 2.5f);
+        Assert.Equal("02BC" + "00003000" + "00000000" + "0000" + "0006" + "02" + "01" + "00002040",
+            Convert.ToHexString(ground));
+
+        // Beam 0x2bc (component 4): matches the Beam section of BeamEffectObject.Blob().
+        var beamObj = new BeamEffectObject(1421, 612, 0x452, 14099.1f, 5936.7f, 0x4B9);
+        byte[] beam = InstanceEntities.BeamUpdate(0x4000, beamObj);
+        byte[] beamBody = beamObj.Blob()[19..^1];
+        Assert.Equal("02BC" + "00004000" + "00000000" + "0000" + (1 + beamBody.Length).ToString("X4") + "04" + Convert.ToHexString(beamBody),
+            Convert.ToHexString(beam));
+    }
 }
