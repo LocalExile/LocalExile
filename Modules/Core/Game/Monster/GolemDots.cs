@@ -44,19 +44,19 @@ public static partial class Game
         if (!(to > from) || !GolemCurrent(player, golem) || m.Dead || m.Life == 0) return;
         bool elementalImmune = GolemElementalImmune(golem);
         bool ignoresDots = GolemIgnoresDots(golem);
-        double meatShield = GolemMeatShieldDamageFactor(golem);
+        double supportReduction = GolemMeatShieldDamageFactor(golem) * CompanionshipDamageTaken(player, golem, to);
         double soulLink = MinionSoulLinkDamageTaken(player, golem, Math.BitDecrement(to));
         double fireFactor = elementalImmune || ignoresDots ? 0
             : MonsterDotTaken(m, DamageType.Fire, to) * GolemElementalReductionFactor(m.Effects) * soulLink;
-        int fire = m.Ignites.Advance(to, fireFactor * meatShield, 0, out double? fireAt);
+        int fire = m.Ignites.Advance(to, fireFactor * supportReduction, 0, out double? fireAt);
         int legion = InfernalLegionSelfDamage(golem, to - from, fireFactor);
         int blessing = ignoresDots ? 0 : (int)(GuardianBlessingMinionDamage(player, golem, from, to) * soulLink);
         double bleedFactor = ignoresDots ? 0
-            : BleedTaken(m, to, m.Effects[Stat.NoExtraBleedDamageWhileMoving] != 0) * meatShield * soulLink
+            : BleedTaken(m, to, m.Effects[Stat.NoExtraBleedDamageWhileMoving] != 0) * supportReduction * soulLink
                 * (100 - m.Effects.PhysicalReduction) / 100d;
         int bleed = m.Bleeds.Advance(to, bleedFactor,
             ignoresDots ? 0 : AggravatedExtra(m, to) * soulLink, out double? bleedAt);
-        int poison = m.Poisons.Advance(to, ignoresDots ? 0 : MonsterDotTaken(m, DamageType.Chaos, to) * meatShield * soulLink,
+        int poison = m.Poisons.Advance(to, ignoresDots ? 0 : MonsterDotTaken(m, DamageType.Chaos, to) * supportReduction * soulLink,
             out double? poisonAt);
         if (ignoresDots) fire = bleed = poison = 0;
 

@@ -163,7 +163,8 @@ public static partial class Game
         bool chaosNoBypass = effects[Stat.ChaosDamageDoesNotBypassEnergyShield] != 0;
         bool spellHit = attack.Spell && !attack.Secondary;
         double taken = effects.DamageTaken(spellHit, m.Ailments.Magnitude(MonsterElementalAilments.Kind.Shock, now)
-            + m.Ailments.ChillDamageTakenPct(now) + HitDebuffTaken(m, spellHit, now)) * MinionFortificationAt(player, g, now);
+            + m.Ailments.ChillDamageTakenPct(now) + HitDebuffTaken(m, spellHit, now)) * MinionFortificationAt(player, g, now)
+            * CompanionshipDamageTaken(player, g, now);
         int prevented = 0;
         if (spellHit)
         {
