@@ -14,7 +14,9 @@ public static partial class Game
     public readonly record struct AllyFortificationBonus(int ChampionFortification, int KingmakerFortify,
         bool KingmakerCulling, int KingmakerCritMulti, int KingmakerIir);
 
-    static readonly System.Runtime.CompilerServices.ConditionalWeakTable<FortificationSession, PermanentPresentation> PresentedPermanent = new();
+    static readonly RuleTable<FortificationSession, PermanentPresentation> PresentedPermanent = new();
+    static readonly RuleTable<Item, CachedItemKingmaker> ItemKingmakers = new();
+    static readonly RuleTable<Player, CachedOwnKingmaker> OwnKingmakerCache = new();
 
     sealed class PermanentPresentation
     {
@@ -23,32 +25,60 @@ public static partial class Game
         public bool HasExpiry;
     }
 
-    public static KingmakerAura ReadKingmaker(IEnumerable<Item> items, ModCatalog mods)
+    sealed class CachedItemKingmaker(ModCatalog mods, KingmakerAura aura)
     {
+        public readonly ModCatalog Mods = mods;
+        public readonly KingmakerAura Aura = aura;
+    }
+
+    sealed class CachedOwnKingmaker
+    {
+        public PlayerInventories? Items;
+        public long Changes;
+        public HashSet<uint>? Inactive;
+        public int InactiveCount;
+        public ModCatalog? Mods;
+        public KingmakerAura Aura;
+    }
+
+    static KingmakerAura ReadKingmaker(Item item, ModCatalog mods)
+    {
+        if (item.Mods.Count == 0) return default;
+        if (ItemKingmakers.TryGetValue(item, out var cached) && ReferenceEquals(cached.Mods, mods))
+            return cached.Aura;
         int fortify = 0, critMulti = 0, iir = 0;
         bool culling = false;
+        foreach (var mod in item.Mods)
+        {
+            if (mods.ByHash(mod.Hash) is not { } row) continue;
+            for (int s = 0; s < row.Stats.Count && s < mod.Values.Count; s++)
+                switch (row.Stats[s].Id)
+                {
+                    case Stat.LocalDisplayNearbyAlliesHaveFortify:
+                        fortify = Math.Max(fortify, mod.Values[s]);
+                        break;
+                    case Stat.LocalDisplayAuraAlliesHaveCullingStrike:
+                        if (mod.Values[s] != 0) culling = true;
+                        break;
+                    case Stat.LocalDisplayNearbyAlliesCriticalStrikeMultiplierPlus:
+                        critMulti = Math.Max(critMulti, mod.Values[s]);
+                        break;
+                    case Stat.LocalDisplayAuraAlliesHaveIncreasedItemRarityPlusPct:
+                        iir = Math.Max(iir, mod.Values[s]);
+                        break;
+                }
+        }
+        var aura = new KingmakerAura(fortify, culling, critMulti, iir);
+        ItemKingmakers.AddOrUpdate(item, new CachedItemKingmaker(mods, aura));
+        return aura;
+    }
+
+    public static KingmakerAura ReadKingmaker(IEnumerable<Item> items, ModCatalog mods)
+    {
+        KingmakerAura combined = default;
         foreach (var item in items)
-            foreach (var mod in item.Mods)
-            {
-                if (mods.ByHash(mod.Hash) is not { } row) continue;
-                for (int s = 0; s < row.Stats.Count && s < mod.Values.Count; s++)
-                    switch (row.Stats[s].Id)
-                    {
-                        case Stat.LocalDisplayNearbyAlliesHaveFortify:
-                            fortify = Math.Max(fortify, mod.Values[s]);
-                            break;
-                        case Stat.LocalDisplayAuraAlliesHaveCullingStrike:
-                            if (mod.Values[s] != 0) culling = true;
-                            break;
-                        case Stat.LocalDisplayNearbyAlliesCriticalStrikeMultiplierPlus:
-                            critMulti = Math.Max(critMulti, mod.Values[s]);
-                            break;
-                        case Stat.LocalDisplayAuraAlliesHaveIncreasedItemRarityPlusPct:
-                            iir = Math.Max(iir, mod.Values[s]);
-                            break;
-                    }
-            }
-        return new(fortify, culling, critMulti, iir);
+            combined = MergeKingmaker(combined, ReadKingmaker(item, mods));
+        return combined;
     }
 
     static KingmakerAura MergeKingmaker(KingmakerAura a, KingmakerAura b) => new(
@@ -59,18 +89,48 @@ public static partial class Game
 
     static (GolemState.Golem? Guardian, KingmakerAura Aura) LiveAnimatedGuardianKingmakerLocked(Player player)
     {
-        var ag = player.Summons.Fighters.Values.FirstOrDefault(g =>
-            g.Definition.Kind == "AnimatedGuardian" && !g.Monster.Dead && g.Monster.Life > 0);
-        if (ag is null || player.Summons.GuardianEquipment.Count == 0) return default;
-        return (ag, ReadKingmaker(player.Summons.GuardianEquipment.Values, ItemsFor(player).Mods));
+        if (player.Summons.GuardianEquipment.Count == 0) return default;
+        GolemState.Golem? ag = null;
+        foreach (var g in player.Summons.Fighters.Values)
+            if (g.Definition.Kind == "AnimatedGuardian" && !g.Monster.Dead && g.Monster.Life > 0)
+            {
+                ag = g;
+                break;
+            }
+        if (ag is null) return default;
+        var mods = ItemsFor(player).Mods;
+        KingmakerAura combined = default;
+        foreach (var item in player.Summons.GuardianEquipment.Values)
+            combined = MergeKingmaker(combined, ReadKingmaker(item, mods));
+        return (ag, combined);
     }
 
     static KingmakerAura OwnEquippedKingmakerLocked(Player player)
     {
-        var active = EquipmentForStats(player)
-            .Where(e => !IsInactive(player, e.Item.Id))
-            .Select(e => e.Item.Item);
-        return ReadKingmaker(active, ItemsFor(player).Mods);
+        var items = ItemsOf(player);
+        var mods = ItemsFor(player).Mods;
+        var inactive = InactiveItems.GetValueOrDefault(CharacterName(player));
+        int inactiveCount = inactive?.Count ?? 0;
+        long changes = items.Changes;
+        var entry = OwnKingmakerCache.GetOrCreateValue(player);
+        if (ReferenceEquals(entry.Items, items) && entry.Changes == changes
+            && ReferenceEquals(entry.Inactive, inactive) && entry.InactiveCount == inactiveCount
+            && ReferenceEquals(entry.Mods, mods))
+            return entry.Aura;
+
+        KingmakerAura aura = default;
+        foreach (byte row in ItemModStats.EquipmentRows)
+            foreach (var placed in items.Items(row))
+                if (inactive is null || !inactive.Contains(placed.Id))
+                    aura = MergeKingmaker(aura, ReadKingmaker(placed.Item, mods));
+
+        entry.Items = items;
+        entry.Changes = changes;
+        entry.Inactive = inactive;
+        entry.InactiveCount = inactiveCount;
+        entry.Mods = mods;
+        entry.Aura = aura;
+        return aura;
     }
 
     static bool HasGuardianOrPeerFortificationAura(Player player)
@@ -119,14 +179,14 @@ public static partial class Game
 
     public static (FortificationState.Value Value, int Above20AttackSpeedPct, int Above20DefenceMorePct, int SuppressionPct, int MinionDoubleDamagePct)
         EvaluateFortificationLocked(Player player, double now, IReadOnlyDictionary<uint, int>? stats = null,
-            bool skipPeerShare = false)
+            bool skipPeerShare = false, AllyFortificationBonus? allyOverride = null)
     {
         var session = FortificationOf(player);
         int GetStat(uint key) => (stats ?? player.StatSourcesCache?.Sources)?.GetValueOrDefault(key) ?? 0;
         int addedMax = stats is not null ? GetStat(FortificationState.MaximumStat) : session.AddedMaximum;
         int maximum = FortificationState.Maximum(addedMax);
         bool hasChampionFortitude = GetStat(Stat.YouHaveYourMaximumFortification) != 0;
-        var ally = skipPeerShare ? default : SelfAllyFortificationBonusLocked(player, now);
+        var ally = allyOverride ?? (skipPeerShare ? default : SelfAllyFortificationBonusLocked(player, now));
         int minimumOverride = Math.Max(hasChampionFortitude ? maximum : 0, ally.ChampionFortification);
         var value = session.Read(now, addedMax, ally.KingmakerFortify, minimumOverride);
         int above20 = Math.Max(0, value.Current - 20);
@@ -173,7 +233,7 @@ public static partial class Game
         var session = FortificationOf(player);
         var sessionValue = session.Read(now);
         int GetStat(uint key) => stats.GetValueOrDefault(key);
-        var eval = EvaluateFortificationLocked(player, now, stats);
+        var eval = EvaluateFortificationLocked(player, now, stats, allyOverride: ally);
         int deltaStacks = eval.Value.Current - sessionValue.Current;
         bool countsChanged = eval.Value != sessionValue;
         int extraAttackSpeed = deltaStacks * session.SpeedPerStack + eval.Above20AttackSpeedPct;
@@ -262,7 +322,7 @@ public static partial class Game
     {
         int total = 0;
         if (minionFullLife)
-            total += GolemStat(g.Player, Stat.Of("minion_chance_to_deal_double_damage_while_on_full_life_%"));
+            total += GolemStat(g.Player, Stat.MinionChanceToDealDoubleDamageWhileOnFullLifePct);
         total += g.Monster.Effects[Stat.MinionChanceToDealDoubleDamagePct];
         int perFort = GolemStat(g.Player, Stat.MinionChanceToDealDoubleDamagePctPerFortification);
         if (perFort > 0)
