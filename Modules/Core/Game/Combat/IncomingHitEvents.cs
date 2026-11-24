@@ -29,6 +29,7 @@ public static partial class Game
         if (lifeDamage > 0 && lifeDamage * 100 >= (long)player.PlayerMaxLife * 15)
         {
             player.RecentEvents.Record(StatConditions.TakenSavageHit, now);
+            player.RecentEvents.Record(VengefulCryOpportunity, now);
             QueueFlaskTrigger(player, FlaskEnchantments.Trigger.SavageHit);
         }
         ChargesWhenHit(player, blocked, spell, critical, by, stats, now, byId);

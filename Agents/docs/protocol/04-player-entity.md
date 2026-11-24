@@ -365,7 +365,7 @@ not the inventory manager that UI uses; that one needs 0xc0 ([05](05-inventories
 | u32 n + n × UTF-16 | | a metadata path, looked up with `0x141728230`. Empty for us |
 | u16 | +0x21c | |
 | u8 | → `0x141e9d3f0` | initial stance: 0 base, 68 WashedUp |
-| u8, u8 | +0x230, +0x234 | **only if** a runtime value (`… +0x1a8 < 1`) holds. It does **not** for our player (traced: 15 bytes in the main body) |
+| u8, u8 | +0x230, +0x234 | **only if** Life `+0x1a8 <= 0` (`0x1421995dc`): death `Animation.dat` row (`6` = Death) and clip index (`0`) |
 | u32 | +0x26c | |
 | u32 | +0x274 | |
 | then own vtable slot 20 `0x142199c20` | | 2 flag bytes (f0, f1). f0 0x40 → `0x14219e480`, else f0 0x20 → `0x14219f170`; f0 0x01 → u16 + `0x14193e340` record; f0 0x04 → u16 + record + u8; f0 0x08, f0 0x10 and f1 0x01 → further sections; f1 0x02 → a flag. All 0 for us |

@@ -289,10 +289,15 @@ public static partial class Game
     {
         int basePct = m.Effects.MovementPct;
         int maimPct = now < m.MaimedUntil ? -30 : 0;
-        int hinderPct = Math.Max(SpiderHinder(m, now), m.HinderedUntil > now ? 30 : 0);
+        // The totem notable's local stat specifies 25%. The common 30% Hinder can expire independently.
+        int timedHinder = Math.Max(m.HinderedUntil > now ? 30 : 0, m.TotemHinderedUntil > now ? 25 : 0);
+        int hinderPct = Math.Max(SpiderHinder(m, now), timedHinder);
         int lowLife = MonsterOnLowLife(m) ? m.Effects[Stat.MovementVelocityPlusPctWhenOnLowLife] : 0;
         int totalPct = basePct + maimPct - hinderPct + lowLife;
-        if ((maimPct != 0 || hinderPct != 0 || lowLife != 0) && m.Effects[Stat.MovementSpeedCannotBeReducedBelowBase] > 0)
+        bool debilitated = now < m.DebilitatedUntil;
+        if (debilitated) totalPct = ActorScale.Saturate((100L + totalPct) * (100 + DebilitateMovementPct) / 100 - 100);
+        if ((maimPct != 0 || hinderPct != 0 || lowLife != 0 || debilitated)
+            && m.Effects[Stat.MovementSpeedCannotBeReducedBelowBase] > 0)
             totalPct = Math.Max(0, totalPct);
         double Movement(double pct) => m.Variety is { } variety
             ? MonsterSpeedRoll.Factor(m.SpeedRoll) * Math.Max(1, variety.MovementSpeed * (100 + pct) / 100.0)
@@ -363,12 +368,17 @@ public static partial class Game
         // "You gain Onslaught for 4 seconds on Hit" and "Gain Arcane Surge on Hit with Spells" (Honoured Berserker
         // and Flood tattoos): every player hit, the spells-only one gated by the hit's own spell flag.
         if (playerHit) OnslaughtOnHitLocked(player, now);
+        if (playerHit && m.Hostile && m.Rarity == MonsterRarity.Unique)
+            player.RecentEvents.Record(StatConditions.HitUniqueEnemy, now);
         if (playerHit && spell && !EffectRules.LiveFor(player, Stat.GainArcaneSurgeOnHitPctChance))
             ArcaneSurgeOnSpellHitLocked(player, playerStats, now, random);
         // "on Critical Strike against Marked Unique Enemy" (Loyalty Tattoo of Rakiata).
         if (playerHit && critical) LoyaltyCritVsMarkedUniqueLocked(player, m, playerStats);
         if (playerHit && !spell && player.Summons.Fighters.Values.Any(g => g.Definition.Kind == "HolyRelic"))
             HolyRelicsOnHitLocked(player, targetId, m, now);
+        if (playerHit && !spell && m.Hostile && skill?.GetValueOrDefault(Stat.GainVaalSoulOnHitCooldownMs) is int soulInterval and > 0
+            && skill.GetValueOrDefault(Stat.PreventVaalSoulsOnHit) == 0)
+            HarvestVaalSoulOnHitLocked(player, soulInterval, now, playerStats);
         double factor = MonsterDamageTaken(m, spell, now, hit: true) * (critical ? criticalMultiplier / 100.0 : 1);
         int Player(uint key) => playerStats.GetValueOrDefault(key);
         int Skill(uint name) => skill is not null && name is var key ? skill.GetValueOrDefault(key) : 0;
@@ -420,7 +430,13 @@ public static partial class Game
                 if (m.Hostile) GainFromAttackAilmentLocked(player, attackGains.FreezeEndurance,
                     ChargeType.Endurance, EnduranceOnAttackFreeze);
             }
-            else if (effect.Kind == Kind.Shock) player.RecentEvents.Record(StatConditions.ShockedEnemy, now);
+            else if (effect.Kind == Kind.Shock)
+            {
+                player.RecentEvents.Record(StatConditions.ShockedEnemy, now);
+                if (playerHit && m.Hostile && !m.Dead && m.Life > 0
+                    && Player(Stat.CreateHeraldOfThunderStormOnShockingEnemy) != 0)
+                    ReservationShockLocked(player, now);
+            }
         }
         if (m.Dead || m.Life == 0)
         {
@@ -604,7 +620,7 @@ public static partial class Game
             a.SentActionSpeed = speed;
             SetStats(player, id, [(key, speed)]);
         }
-        bool maimed = m.MaimedUntil > now || m.HinderedUntil > now || SpiderHinder(m, now) != 0
+        bool maimed = TimedWalkDebuff(now, m) || SpiderHinder(m, now) != 0
             || lowLifeMove || trap != 1 || snare != 1;
         bool maimShown = m.MaimedMovementShown;
         bool movementChanged = maimed

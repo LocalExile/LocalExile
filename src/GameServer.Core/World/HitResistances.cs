@@ -24,6 +24,8 @@ namespace GameServer.Core.World;
 /// </summary>
 public static class HitResistances
 {
+    public enum ResistanceSelection { Default, Lowest, Highest }
+
     /// <summary>The hit's resistance stats as a stats dictionary holds them: 1 for the flags, a percentage for the
     /// penetration. <see cref="Mods.UnconditionalIgnoreElemental"/> is an explicit hit fact for sources that ignore
     /// elemental resistance without requiring a critical strike; it is kept separate from the critical flags.</summary>
@@ -37,6 +39,7 @@ public static class HitResistances
         /// less than none.</summary>
         public int Overwhelm { get; init; }
         public bool IgnoreCold { get; init; }
+        public ResistanceSelection ChaosSelection { get; init; }
 
         /// <summary>Additional elemental resistance penetration applied only to a critical strike.</summary>
         public int CriticalPenetration { get; init; }

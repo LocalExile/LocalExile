@@ -585,6 +585,8 @@ public sealed class SpawnedMonster(string label, PlayerWalk walk, int aggroRange
     // Maimed by his hits until when (the sole movement owner) and the physical damage increase its support gave, whose
     // independent time plain Maim does not refresh; shown with its own maimed buff.
     public double MaimedUntil = double.NegativeInfinity, MaimShownUntil;
+    public double DebilitatedUntil = double.NegativeInfinity;
+    public uint DebilitateSource;
     public double MaimedPhysicalTakenUntil = double.NegativeInfinity;
     public ushort MaimBuff;
     public int MaimedPhysicalTakenPct;
@@ -594,6 +596,7 @@ public sealed class SpawnedMonster(string label, PlayerWalk walk, int aggroRange
     // Hindered by a spell hit until when, shown with the client's hinder buff (ReminderTextHinder: 4 seconds);
     // hindered enemies have 30% reduced movement speed (Game.HinderSeconds and the walk factor).
     public double HinderedUntil = double.NegativeInfinity, HinderShownUntil;
+    public double TotemHinderedUntil = double.NegativeInfinity;
     public ushort HinderBuff;
     // Knocked back by a hit (Game.KnockbackOnHitLocked): the cell the AI tick presents with a Teleport, null when none.
     public (int X, int Y)? KnockbackPending;
@@ -816,6 +819,9 @@ public sealed record RighteousFireState(ushort Buff, ushort SelfAura, ushort Ski
     public string? RingArt { get; init; }
     /// <summary>The current gem's neutral righteous_fire_spell_damage_+%_final value, refreshed from its own stats.</summary>
     public int SpellDamageMore { get; set; }
+    public int CastSpeedMore { get; set; }
+    public int ManaBurnPctPerMinute { get; init; }
+    public int ManaDamagePctPerMinute { get; init; }
     /// <summary>The retained skill's two conditional support values and its pending changes in added damage factor.</summary>
     public (int Lifetap, int PerInspiration) ConditionalSupportMore { get; set; }
     public List<(double At, double Extra)>? SupportDamageChanges { get; set; }
@@ -1508,6 +1514,8 @@ public sealed partial class Player(AreaLayout layout, uint ticket, uint seed) : 
     public (int X, int Y) CraftingBenchAt;
     public bool StashOpen;
     public bool GuildStashOpen;
+    public bool TradeStashOpen;
+    public (int X, int Y) TradeStashAt;
     public int InteractionClosing;
     // Whether this connection opened the stash already (only the first open selects the account's last tab), and while
     // that first open runs (until StashForcedUntil, Clock seconds) the tab it selects: the panel's own request for the

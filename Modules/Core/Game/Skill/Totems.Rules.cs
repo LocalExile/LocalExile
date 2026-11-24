@@ -361,6 +361,7 @@ public static partial class Game
             return CollisionEscape.Find(around, width, height, Floor, blockers,
                 maxRadius: TotemPlacementSearchRadius, moverSize: bodySize) ?? around;
         }
+        bool onslaughtChanged = false;
         void Activate(uint objectId, WorldRecordBuilder bytes)
         {
             double now = AreaTime(player);
@@ -377,6 +378,7 @@ public static partial class Game
             placed.BonusSlots = ballista && !singleTotem ? Math.Max(0, limit - ordinaryLimit) : 0;
             if (spellTotem) BindTotemSource(player, placed);
             var replaced = player.Totems.Place(placed, limit, now, singleTotem ? null : ordinaryLimit);
+            onslaughtChanged |= TotemSummonedLocked(player, placed.At, now, playerStats);
             StartTotemTimer(player);
             if (replaced.Count > 0)
             {
@@ -449,6 +451,7 @@ public static partial class Game
             if (finishPlacement is null) TotemRecords(player, bytes);
             return bytes.Build();
         });
+        if (onslaughtChanged) await SendKillOnslaught(player);
         if (created is not uint pendingId || finishPlacement is null) return created;
         bool active = false;
         try
@@ -477,6 +480,7 @@ public static partial class Game
                 });
                 if (!paused) break;
             }
+            if (onslaughtChanged) await SendKillOnslaught(player);
             return active ? pendingId : null;
         }
         finally
@@ -495,6 +499,29 @@ public static partial class Game
             || own.Supports.Any(s => s.Effect.Id is "SupportMultipleTotems" or "SupportMultipleTotemsRoyale")
             || Random.Shared.Next(100) < GolemStat(SupportedStats(player, skillId), Stat.ChanceToSummonTwoTotemsPct);
         return two ? 2 : 1;
+    }
+
+    static bool TotemSummonedLocked(Player player, (int X, int Y) at, double now,
+        IReadOnlyDictionary<uint, int> stats)
+    {
+        player.RecentEvents.Record(StatConditions.SummonedTotem, now);
+        if (stats.GetValueOrDefault(Stat.AttackAndCastSpeedPlusPctOnPlacingTotem) != 0)
+        {
+            MarkPlayerStats(player, PlayerStatStep.Sources);
+            PresentStats(player);
+        }
+        if (stats.GetValueOrDefault(Stat.GainArcaneSurgeWhenYouSummonATotem) != 0)
+            GainArcaneSurgeLocked(player, now);
+
+        const int hinderRadius = 30;
+        if (stats.GetValueOrDefault(Stat.TotemHinderNearbyEnemiesWhenSummonedWith25PctReducedMovementSpeed) != 0)
+            foreach (var (_, enemy) in player.Area.MonstersNear(at, hinderRadius))
+                if (enemy.Hostile && !enemy.Dead && enemy.Life > 0 && !enemy.Invulnerable
+                    && Dist(enemy.Walk.Position(now), at) <= hinderRadius)
+                    ApplyHinderLocked(enemy, now, fromTotem: true);
+
+        return stats.GetValueOrDefault(Stat.HasOnslaughtIfTotemSummonedRecently) != 0
+            && KillOnslaughtOf(player).Gain(now, RecentlySeconds) && Marked(player, PlayerStatStep.Onslaught);
     }
 
     /// <summary>

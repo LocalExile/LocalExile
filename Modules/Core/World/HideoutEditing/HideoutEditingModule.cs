@@ -54,6 +54,11 @@ public sealed class HideoutEditingModule : IModule
             await SetMusic(player, InstanceHideoutEditing.ReadMusic(bytes));
             return true;
         });
+        GameEvents.Packet(InstanceHideoutEditing.LayoutId).Add(module.Manifest.Id, async (player, bytes) =>
+        {
+            await ImportLayout(player, InstanceHideoutEditing.ReadLayout(bytes));
+            return true;
+        });
         GameEvents.Packet(InstanceHideoutEditing.DisplayCasePlaceId).Add(module.Manifest.Id, async (player, bytes) =>
         {
             await PlaceDisplayCaseItem(player, InstanceHideoutEditing.ReadDisplayCasePlace(bytes));
