@@ -301,10 +301,11 @@ public static partial class Game
         foreach (var worn in WornCosmetics(player))
         {
             if (MtxEffects.SlotOf(worn.Slot) is not { ModelSlot: byte model } slot || MtxEffects.Of(worn.MtxTypeHash) is not { } fx) continue;
+            byte tier = fx.ResolveTier(worn.Option);
             if (cosmeticSlots.ContainsKey(model))
             {
                 if (fx.Visual != 0)
-                    cosmeticSlots[model] = new VisibleItem(model, fx.Visual) { SkinVisual = fx.Visual, SkinHash = worn.MtxTypeHash };
+                    cosmeticSlots[model] = new VisibleItem(model, fx.Visual) { SkinVisual = fx.Visual, SkinHash = worn.MtxTypeHash, SkinTier = tier };
                 continue;
             }
             // With a bow the main hand's cosmetics dress the bow, which is the left hand's entry, and the off hand's dress
@@ -314,9 +315,9 @@ public static partial class Game
             if (at < 0 || looks[at].VisualIdentity == 0) continue;   // nothing equipped there to dress
             if (!classes.TryGetValue(model, out int itemClass) || !fx.Fits(itemClass)) continue;   // not an item it dresses
             if (slot.IsWeaponEffect && fx.WeaponEffect != 0)
-                looks[at] = looks[at] with { EffectVisual = fx.WeaponEffect, EffectHash = worn.MtxTypeHash };
+                looks[at] = looks[at] with { EffectVisual = fx.WeaponEffect, EffectHash = worn.MtxTypeHash, EffectTier = tier };
             else if (!slot.IsWeaponEffect && fx.Visual != 0)
-                looks[at] = looks[at] with { SkinVisual = fx.Visual, SkinHash = worn.MtxTypeHash };
+                looks[at] = looks[at] with { SkinVisual = fx.Visual, SkinHash = worn.MtxTypeHash, SkinTier = tier };
         }
         return [.. looks, .. cosmeticSlots.Values];
     }

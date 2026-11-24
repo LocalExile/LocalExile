@@ -328,16 +328,19 @@ public sealed record Item(uint TypeHash, IReadOnlyList<string> Components, ushor
 public sealed record VisibleItem(byte Slot, ushort VisualIdentity, byte Stance = 0xff, byte Type = 1)
 {
     /// <summary>
-    /// A worn skin (the first reference, 0x1424fab70 → entry +0x18): the cosmetic's ItemVisualIdentity HASH16 and its
-    /// MTXTypeGameSpecific HASH32, which the client also looks up for tiered cosmetics. 0 shows the item's own art.
+    /// A worn skin (the first reference, 0x1424fab70 → entry +0x18): the cosmetic's ItemVisualIdentity HASH16, its
+    /// MTXTypeGameSpecific HASH32, and its 1-based TieredMicrotransactions tier (+0x38; 0 for non-tiered cosmetics).
+    /// 0 visual shows the item's own art.
     /// </summary>
     public ushort SkinVisual { get; init; }
     public uint SkinHash { get; init; }
+    public byte SkinTier { get; init; }
 
     /// <summary>A worn effect (the second reference, 0x1424fae00 → entry +0x40): an ItemVisualEffect HASH16 (weapon
-    /// effects) and its MTXTypeGameSpecific HASH32; 0 for none.</summary>
+    /// effects), its MTXTypeGameSpecific HASH32, and its 1-based tier (+0x60); 0 for none.</summary>
     public ushort EffectVisual { get; init; }
     public uint EffectHash { get; init; }
+    public byte EffectTier { get; init; }
 
     /// <summary>An empty slot (tag 0): what clears an unequipped item from the model. A slot left out of the list keeps
     /// whatever the model showed before.</summary>
@@ -347,8 +350,8 @@ public sealed record VisibleItem(byte Slot, ushort VisualIdentity, byte Stance =
     {
         if (VisualIdentity == 0) { w.U8(Slot).U8(0); return; }
         w.U8(Slot).U8(Type)
-            .U16(SkinVisual != 0 ? SkinVisual : VisualIdentity).U32(SkinHash).U8(0)
-            .U16(EffectVisual).U32(EffectHash).U8(0)
+            .U16(SkinVisual != 0 ? SkinVisual : VisualIdentity).U32(SkinHash).U8(SkinTier)
+            .U16(EffectVisual).U32(EffectHash).U8(EffectTier)
             .U8(Stance).U16(VisualIdentity).U8(0);
     }
 }
