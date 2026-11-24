@@ -728,11 +728,10 @@ public static partial class Game
             EndArea = p.Lobbed ? new("golem mortar", a.Radius) : null,
             EndAreaReasons = p.Lobbed ? new HashSet<ProjectileEndReason> { ProjectileEndReason.Landing, ProjectileEndReason.Terrain } : null,
         };
-        // The profile already contains the native skill's quantity; the minion's own modifiers add to it once.
+        // The profile already contains the native skill's quantity; the minion's own modifiers add to it once,
+        // including ProjectileNumberOfTargetsToPierce / ProjectileBaseNumberOfTargetsToPierce inside Resolve.
         profile = GatewayProjectileModifiers.Resolve(profile, name => mods[name], attack: !a.Attack.Spell,
-            // number_of_additional_projectiles_to_pierce is not a Stats row; the two real pierce stats, as
-            // GatewayProjectileModifiers reads them.
-            arrows: g.Weapon is { Bow: true }, skillPierce: Math.Max(mods[Stat.ProjectileNumberOfTargetsToPierce], mods[Stat.ProjectileBaseNumberOfTargetsToPierce]));
+            arrows: g.Weapon is { Bow: true });
         var offense = new ObjectProjectileOffense(a.Id, (s, contact) =>
         {
             if (!CurrentGameWork || player.Area.Monsters.GetValueOrDefault(contact.Target.Id) is not { Hostile: true } victim) return ProjectileHitResult.Miss;
