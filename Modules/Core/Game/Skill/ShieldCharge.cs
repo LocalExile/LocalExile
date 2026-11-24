@@ -15,23 +15,103 @@ public static partial class Game
     {
         public int Percent, Token, ActionToken;
         public double AttackSpeedMultiplier = 1, EndAttackSeconds;
-        public bool Traveling, Arrived;
-        public (int X, int Y) Start, ArrivedAtCell;
-        public double MaxDistance;
+        public bool Traveling, Arrived, Interrupted, EndCompleted;
+        public (int X, int Y) Start, End, ArrivedAtCell;
+        public double StartedAt, ArrivedAt, MaxDistance, LastHitDist;
+        public long LengthSq;
+        public uint TargetObjectId;
+        public bool ContinuePastTarget;
+        public int KnockbackSpeedPct;
+        public int PathRadius, EndRadius, WaveRadius;
+        public readonly HashSet<uint> PushedMonsters = [];
     }
     static readonly Store<Player, ShieldChargeRun> ShieldChargeRuns = new();
 
     /// <summary>The minimum straight-line distance in grid cells required to enter Shield Charge's travel phase (0x141a6ee79).</summary>
     public const int ShieldChargeMinDistance = 24;
 
+    public static bool IsShieldChargeActive(Player player) =>
+        ShieldChargeRuns.TryGetValue(player, out var run) && (run.Traveling || run.Percent != 0);
+
+    public static void RefreshShieldChargeArrival(Player player)
+    {
+        if (ShieldChargeRuns.TryGetValue(player, out var run) && run.Traveling && !run.Interrupted && PlayerActionCurrent(player, run.ActionToken))
+            player.NextAttackAt = player.Walk.ArrivesAt + run.EndAttackSeconds;
+    }
+
+    // Client step collision for Shield Charge (FUN_141a6f9b0): passes through non-target Actors and Chests (pushing
+    // hostile knockbackable enemies perpendicularly aside at 60 × (1 + knockback_speed_+%/100)), stops on terrain,
+    // stationary non-Actor/non-Chest blockers, and an object-targeted monster at ≥ 15 cells (dist² > 0xe0).
+    public static bool ShieldChargeStepBlocked(Player owner, uint id, GameServer.Core.World.PlayerWalk walk, double at,
+        (int X, int Y) cell, IReadOnlyList<GameServer.Core.World.ClientPathfinder.Blocker>? stationary = null)
+    {
+        Player? p = id == owner.Id ? owner : owner.Frames.Players().FirstOrDefault(x => x.Id == id);
+        if (p is null || !ShieldChargeRuns.TryGetValue(p, out var run) || !run.Traveling || run.Interrupted
+            || !PlayerActionCurrent(p, run.ActionToken))
+            return false;
+        stationary ??= p.SceneryBlockers;
+        bool blocked = GameServer.Core.World.ClientPathfinder.ObjectBlocks(stationary, cell.X, cell.Y, walk.Size + 1, walk.Size + 4);
+        if (blocked && !walk.WalksThrough) return true;
+        if (!blocked) walk.WalksThrough = false;
+        long sdx = cell.X - run.Start.X, sdy = cell.Y - run.Start.Y;
+        bool past15 = sdx * sdx + sdy * sdy > 0xe0;
+        if (run.TargetObjectId != 0 && !run.ContinuePastTarget && past15
+            && owner.Area.Monsters.TryGetValue(run.TargetObjectId, out var tm) && !tm.Dead && tm.Life > 0)
+        {
+            var tPos = tm.Walk.Position(at);
+            int tSize = LivingCollision.Size(tm);
+            if (Math.Max(Math.Abs(cell.X - tPos.X), Math.Abs(cell.Y - tPos.Y)) - tSize < walk.Size + 1)
+                return true;
+        }
+        if (run.LengthSq > 100)
+        {
+            double vx = run.End.X - run.Start.X, vy = run.End.Y - run.Start.Y;
+            double segLen = Math.Sqrt(run.LengthSq);
+            foreach (var (mId, m) in owner.Area.MonstersNear(cell, walk.Size + 12))
+            {
+                if ((mId == run.TargetObjectId && past15) || run.PushedMonsters.Contains(mId)
+                    || !KnockbackAllowed(m) || !LivingCollision.Blocks(m)) continue;
+                var mPos = m.Walk.Position(at);
+                int mSize = LivingCollision.Size(m);
+                if (Math.Max(Math.Abs(cell.X - mPos.X), Math.Abs(cell.Y - mPos.Y)) - mSize >= walk.Size + 1) continue;
+                double t = Math.Clamp(((mPos.X - run.Start.X) * vx + (mPos.Y - run.Start.Y) * vy) / run.LengthSq, 0.0, 1.0);
+                double cx = run.Start.X + t * vx, cy = run.Start.Y + t * vy;
+                double ox = mPos.X - cx, oy = mPos.Y - cy;
+                double perpDist = Math.Sqrt(ox * ox + oy * oy);
+                double want = mSize + 6 + walk.Size;
+                if (perpDist >= want) continue;
+                double px, py;
+                if (perpDist > 1e-4) (px, py) = (ox / perpDist, oy / perpDist);
+                else (px, py) = (-vy / segLen, vx / segLen);
+                var pushTo = mPos;
+                int maxSteps = (int)Math.Ceiling(want - perpDist);
+                for (int step = 1; step <= maxSteps; step++)
+                {
+                    int nx = (int)Math.Round(mPos.X + px * step);
+                    int ny = (int)Math.Round(mPos.Y + py * step);
+                    if ((nx, ny) == pushTo) continue;
+                    if (!owner.Layout.WalkableFor(nx, ny, mSize) || owner.Barrier.Contains((nx, ny))) break;
+                    pushTo = (nx, ny);
+                }
+                if (pushTo != mPos)
+                {
+                    double kbSpeed = 60.0 * Math.Max(0.1, 1.0 + run.KnockbackSpeedPct / 100.0);
+                    m.Walk.Slide(pushTo.X, pushTo.Y, Dist(mPos, pushTo) / kbSpeed, at);
+                    run.PushedMonsters.Add(mId);
+                }
+            }
+        }
+        return false;
+    }
+
     // The running charge's movement bonus, for the pools (PoolsFor); 0 when none runs.
     public static int ShieldChargeMovementPct(Player player) =>
-        ShieldChargeRuns.TryGetValue(player, out var run) && run.Traveling && PlayerActionCurrent(player, run.ActionToken)
+        ShieldChargeRuns.TryGetValue(player, out var run) && run.Traveling && !run.Interrupted && PlayerActionCurrent(player, run.ActionToken)
             ? run.Percent : 0;
 
     // The running charge's off-hand attack-speed multiplier for Player.ApplyMovementSpeedAt (0x141a70760); 1 when none runs.
     public static double MovementSpeedMultiplier(Player player) =>
-        ShieldChargeRuns.TryGetValue(player, out var run) && run.Traveling && PlayerActionCurrent(player, run.ActionToken)
+        ShieldChargeRuns.TryGetValue(player, out var run) && run.Traveling && !run.Interrupted && PlayerActionCurrent(player, run.ActionToken)
             ? run.AttackSpeedMultiplier : 1;
 
     // A movement skill that needs a shield and carries its own movement bonus: it walks there faster, it does not blink.
@@ -57,33 +137,36 @@ public static partial class Game
 
     public static double ShieldChargeEndAttackSeconds(Player player, ushort skillId, bool noCharge)
     {
-        double seconds = ShieldWeapon(player, skillId) is { } shieldWeapon
-            ? SupportedOffHandAttackSeconds(player, skillId, shieldWeapon)
-            : SupportedAttackSeconds(player, skillId);
+        // The minimum is one complete action per frame, including the in-place bash's duration modifier.
+        double seconds = SupportedAttackSecondsFor(player, skillId, ShieldWeapon(player, skillId), clampToTick: false);
         if (noCharge && SupportedStats(player, skillId).GetValueOrDefault(Stat.ShieldChargeAttackTimePlus30PctIfNoCharge) != 0)
             seconds *= 1.3;
-        return seconds;
+        return Math.Max(Program.TickSeconds, seconds);
     }
 
-    static void SyncShieldChargeMovementStat(Player player)
+    static void SyncShieldChargeMovementStat(Player player, double at)
     {
-        RecomputePoolsAndSpeed(player);
+        player.Pools = PoolsFor(player, player.Pools.Level);
+        int publishedPct = player.Pools.MovementVelocityPct + player.Rampage.Current.MovementPercent;
         // Publish into Area.Stats immediately so the 0x1b3 movement-speed update ships in the same frame as Shield Charge's
-        // 0x1ab start/end (and RelayWalkForStats updates player.Walk.Speed before the frame steps).
-        if (player.Connection.LockstepClient && player.Frames.Running && player.Area.Stats.HasWritten(player.Id))
-            player.Area.Stats.Set(player.Id, Stat.MovementVelocityPlusPct,
-                player.Pools.MovementVelocityPct + player.Rampage.Current.MovementPercent);
+        // 0x1ab start/end for both Lockstep and Predictive clients.
+        if (player.Frames.Running && player.Area.Stats.HasWritten(player.Id))
+            player.Area.Stats.Set(player.Id, Stat.MovementVelocityPlusPct, publishedPct);
+        player.ApplyMovementSpeedAt(at, forceRelay: true, movementPctOverride: publishedPct);
     }
 
     static void EndShieldChargeMovement(Player player, ShieldChargeRun run, double? arrivedAt = null)
     {
-        if (!run.Traveling && run.Percent == 0) return;
+        if (!run.Traveling && run.Percent == 0 && !player.Walk.ChargesThrough) return;
         run.Traveling = false;
         run.Percent = 0;
         run.AttackSpeedMultiplier = 1;
+        player.Walk.ChargesThrough = false;
         if (arrivedAt is double at && run.EndAttackSeconds > 0)
             player.NextAttackAt = Math.Min(player.NextAttackAt, at + run.EndAttackSeconds);
-        SyncShieldChargeMovementStat(player);
+        else if (arrivedAt is null)
+            player.NextAttackAt = Math.Min(player.NextAttackAt, AreaTime(player));
+        SyncShieldChargeMovementStat(player, arrivedAt ?? AreaTime(player));
     }
 
     /// <summary>Whether Shield Charge is still in its un-cancellable travel phase (+0x3e5 != 0, 0x141a6fd50) at
@@ -91,21 +174,37 @@ public static partial class Game
     public static bool ShieldChargeTraveling(Player player, double at)
     {
         if (!ShieldChargeRuns.TryGetValue(player, out var run) || !run.Traveling) return false;
-        if (!PlayerActionCurrent(player, run.ActionToken) || player.Closed || player.PlayerLife == 0)
+        if (run.Interrupted || !PlayerActionCurrent(player, run.ActionToken) || player.Closed || player.PlayerLife == 0)
         {
             EndShieldChargeMovement(player, run);
             return false;
         }
         if (at < player.Walk.ArrivesAt - 1e-9) return true;
         run.Arrived = true;
+        run.ArrivedAt = player.Walk.ArrivesAt;
         run.ArrivedAtCell = player.Walk.Position(player.Walk.ArrivesAt);
         EndShieldChargeMovement(player, run, player.Walk.ArrivesAt);
         return false;
     }
 
+    // A queued attack may replace the action token before the frame's delayed hit jobs run.
+    // Remember which end animation had already finished on the action clock.
+    static void AdvanceShieldChargeForUse(Player player, double at, bool attack)
+    {
+        ShieldChargeTraveling(player, at);
+        if (!ShieldChargeRuns.TryGetValue(player, out var run) || run.Traveling || run.Interrupted
+            || !PlayerActionCurrent(player, run.ActionToken)) return;
+        double nextStart = LockstepScheduledAt(player, at);
+        if (attack) nextStart = Math.Max(nextStart, player.NextAttackAt);
+        double end = (run.Arrived ? run.ArrivedAt : run.StartedAt) + run.EndAttackSeconds;
+        run.EndCompleted = nextStart + 1e-9 >= end;
+    }
+
     public static void EndShieldChargeIfInterrupted(Player player)
     {
-        if (ShieldChargeRuns.TryGetValue(player, out var run) && (run.Traveling || run.Percent != 0))
+        if (!ShieldChargeRuns.TryGetValue(player, out var run)) return;
+        if (!run.Arrived && !run.EndCompleted) run.Interrupted = true;
+        if (run.Traveling || run.Percent != 0 || player.Walk.ChargesThrough)
             EndShieldChargeMovement(player, run);
     }
 
@@ -114,48 +213,69 @@ public static partial class Game
     public static int BeginShieldCharge(Player player, ushort skillId, int percent, int x, int y, double at) =>
         BeginShieldCharge(player, skillId, percent, x, y, at, player.ActionCount, out _);
 
-    public static int BeginShieldCharge(Player player, ushort skillId, int percent, int x, int y, double at, int actionToken, out bool charged)
+    public static int BeginShieldCharge(Player player, ushort skillId, int percent, int x, int y, double at, int actionToken, out bool charged) =>
+        BeginShieldCharge(player, skillId, percent, x, y, at, actionToken, out charged, targetObjectId: 0, previousNextAttackAt: null);
+
+    public static int BeginShieldCharge(Player player, ushort skillId, int percent, int x, int y, double at, int actionToken, out bool charged,
+        uint targetObjectId = 0, double? previousNextAttackAt = null)
     {
-        var run = ShieldChargeRuns.GetOrCreateValue(player);
+        bool hadBonus = player.Walk.ChargesThrough;
+        int nextToken = 1;
+        if (ShieldChargeRuns.TryGetValue(player, out var previous))
+        {
+            hadBonus |= previous.Traveling || previous.Percent != 0;
+            nextToken = previous.Token + 1;
+        }
+        var run = new ShieldChargeRun { Token = nextToken };
+        ShieldChargeRuns.AddOrUpdate(player, run);
+        var supported = SupportedSkill(player, skillId);
+        var gem = GemSkillEffects(player).FirstOrDefault(g => g.Id == skillId);
+        int effect = gem.Name is not null ? gem.Effect : supported.Effect;
         int max = ShieldChargeMaxDistance(player, skillId);
-        int extra = SupportedStats(player, skillId).GetValueOrDefault(Stat.ShieldChargeExtraDistance);
+        int extra = supported.Stats.GetValueOrDefault(Stat.ShieldChargeExtraDistance);
         double attackMult = ShieldChargeAttackSpeedMultiplier(player, skillId);
-        double startAt = player.Connection.LockstepClient && player.Connection.LockstepFrame is { } frame ? frame.Start : at;
+        double startAt = LockstepScheduledAt(player, at);
+        run.StartedAt = startAt;
         run.Start = player.Walk.Position(startAt);
         run.MaxDistance = Math.Max(1, max);
         run.ActionToken = actionToken;
-        run.Arrived = false;
-        int token = ++run.Token;
+        run.TargetObjectId = targetObjectId;
+        run.ContinuePastTarget = supported.Stats.GetValueOrDefault(Stat.ShieldChargeContinuePastTarget) != 0;
+        run.KnockbackSpeedPct = CharacterPlayerStats(player).GetValueOrDefault(Stat.KnockbackSpeedPlusPct);
+        run.PathRadius = Math.Max(1, SkillRadius(player, ShieldChargePathRadius, supported.Stats, spell: false, effect));
+        run.EndRadius = Math.Max(1, SkillRadius(player, ShieldChargeEndRadius, supported.Stats, spell: false, effect));
+        run.WaveRadius = Math.Max(1, SkillRadius(player, ShieldChargeWaveRadius, supported.Stats, spell: false, effect));
         player.Walk.Charge(x, y, max, startAt, extra, ShieldChargeMinDistance, out charged);
         if (!charged)
         {
-            bool hadBonus = run.Traveling || run.Percent != 0;
-            run.Traveling = false;
-            run.Percent = 0;
-            run.AttackSpeedMultiplier = 1;
+            run.End = (x, y);
+            run.LengthSq = 0;
+            player.Walk.ChargesThrough = false;
             double endSeconds = ShieldChargeEndAttackSeconds(player, skillId, noCharge: true);
             run.EndAttackSeconds = endSeconds;
-            if (hadBonus) SyncShieldChargeMovementStat(player);
-            player.NextAttackAt = AttackTiming.After(startAt, player.NextAttackAt, endSeconds);
+            if (hadBonus) SyncShieldChargeMovementStat(player, startAt);
+            double baseNext = previousNextAttackAt ?? player.NextAttackAt;
+            player.NextAttackAt = AttackTiming.After(startAt, baseNext, endSeconds);
             if (player.Connection.LockstepClient)
             {
                 double frameEnd = player.Connection.LockstepFrame?.End ?? startAt;
                 string ao = Environment.GetEnvironmentVariable("Game_PLAYER_AO") ?? SkillsFor(player).ClassFor(player.Character.ClassRow).AnimatedObject;
                 double cutIn = endSeconds * Animations.AttackCutIn(ao, AnimationWeaponProfileFor(player), "bash1");
-                player.LockstepBusyUntil = Math.Max(player.LockstepBusyUntil, frameEnd + cutIn + player.LockstepActionTail);
+                player.LockstepBusyUntil = Math.Max(player.LockstepBusyUntil, Math.Min(startAt + endSeconds, frameEnd + cutIn));
             }
-            return token;
+            return run.Token;
         }
+        run.End = player.Walk.Destination;
+        long ldx = run.End.X - run.Start.X, ldy = run.End.Y - run.Start.Y;
+        run.LengthSq = ldx * ldx + ldy * ldy;
         run.Percent = percent;
         run.Traveling = true;
         run.AttackSpeedMultiplier = attackMult;
         run.EndAttackSeconds = ShieldChargeEndAttackSeconds(player, skillId, noCharge: false);
-        SyncShieldChargeMovementStat(player);
-        // Re-lay the newly started charge walk with the updated off-hand attack speed multiplier (on Lockstep,
-        // RelayWalkForStats will also apply the +90% movement speed before this frame ticks).
-        player.ApplyMovementSpeedAt(startAt);
-        player.NextAttackAt = Math.Max(player.NextAttackAt, player.Walk.ArrivesAt + run.EndAttackSeconds);
-        return token;
+        player.Walk.ChargesThrough = true;
+        SyncShieldChargeMovementStat(player, startAt);
+        player.NextAttackAt = Math.Max(previousNextAttackAt ?? player.NextAttackAt, player.Walk.ArrivesAt + run.EndAttackSeconds);
+        return run.Token;
     }
 
     // A shield skill's attack swings the shield (Shield Charge, Shield Crush), which has no weapon damage: the gem's own
@@ -178,68 +298,165 @@ public static partial class Game
         return new SkillCatalog.Unarmed(attackMs > 0 ? attackMs : WeaponFor(player).AttackMs, min, Math.Max(min, max), WeaponFor(player).Range);
     }
 
-    // The client's charge hits (Frida 2026-11-01, scripts/re/frida/trace-charge-hits.js): a path hit at its position as it
-    // starts and then about every 100 ms (every ~8 cells at charge speed), each within 8 cells, and a final hit within
-    // 16 cells where it arrives. The server lands them on its own walk at the same cadence; each monster takes one path hit
-    // per charge (neighbouring path areas overlap), and the final hit reaches every monster in its area.
-    const double ShieldChargePathSeconds = 0.1;
-    const int ShieldChargePathRadius = 8, ShieldChargeEndRadius = 16;
+    // The client's charge hits (FUN_141a6ea70:75-92, 0x141a70170): Kind 0 path hits triggered by distance traveled
+    // (every PathRadius cells along the charge, base 8, each monster at most once per charge), Kind 1 arrival hit
+    // within EndRadius (base 16, reaching every monster there), and Kind 2 forward 55° cone wave up to WaveRadius
+    // (base 28, hitting monsters not already hit by Kind 1).
+    const double ShieldChargePollSeconds = 0.016;
+    const double ShieldChargeConeCos = 0.573576436351046; // cos(55°)
+    const int ShieldChargePathRadius = 8, ShieldChargeEndRadius = 16, ShieldChargeWaveRadius = 28;
 
-    // After the use's echo: the faster movement speed to the client, the path hits while the server's walk runs, the final
-    // hit and the speed back where it arrives (a later charge or interruption takes over the run, its hits and its end).
+    // After the use's echo: distance-driven path hits while the server's walk runs, the arrival hit + forward cone wave
+    // where it arrives, and guaranteed speed cleanup on interruption (a later charge takes over with its own run).
     public static Task RunShieldCharge(Player player,
         int token, double arrivesAt, ushort skillId, ushort sequence, int actionToken, CooldownUseTicket? cooldownUse, bool cryExerted) =>
         RunShieldCharge(player, token, charged: true, skillId, sequence, actionToken, cooldownUse, cryExerted);
 
-    public static async Task RunShieldCharge(Player player,
-        int token, bool charged, ushort skillId, ushort sequence, int actionToken, CooldownUseTicket? cooldownUse, bool cryExerted)
+    public static Task RunShieldCharge(Player player,
+        int token, bool charged, ushort skillId, ushort sequence, int actionToken, CooldownUseTicket? cooldownUse, bool cryExerted) =>
+        RunShieldChargeHits(player, token, charged, skillId, sequence, actionToken, cooldownUse, cryExerted, null);
+
+    static async Task RunShieldChargeHits(Player player,
+        int token, bool charged, ushort skillId, ushort sequence, int actionToken, CooldownUseTicket? cooldownUse, bool cryExerted, SkillCriticalRoll? criticalRoll)
     {
-        bool Current() => ShieldChargeRuns.TryGetValue(player, out var r) && r.Token == token
-            && (r.Arrived || PlayerActionCurrent(player, actionToken)) && !player.Closed && player.PlayerLife > 0;
+        if (!ShieldChargeRuns.TryGetValue(player, out var run) || run.Token != token) return;
+        int epoch = player.ProjectileEpoch, interruption = player.ActionInterruptionGeneration;
+        bool Current() => !run.Interrupted && !player.LeavingArea && !player.Closed && player.PlayerLife > 0
+            && player.ProjectileEpoch == epoch && player.ActionInterruptionGeneration == interruption
+            && (run.EndCompleted || run.Arrived || (ShieldChargeRuns.TryGetValue(player, out var cur) && ReferenceEquals(cur, run)
+                && PlayerActionCurrent(player, actionToken)));
         var gem = GemSkillEffects(player).FirstOrDefault(g => g.Id == skillId);
-        var (start, maxDistance) = ShieldChargeRuns.TryGetValue(player, out var begun) ? (begun.Start, begun.MaxDistance) : default;
-        int maximumMore = Stat.ShieldChargeDamagePlusPctMaximum is var moreKey
-            ? SupportedStats(player, skillId).GetValueOrDefault(moreKey) : 0;
-        double More((int X, int Y) at) => maxDistance > 0 ? 1 + maximumMore / 100.0 * Math.Min(1, Dist(start, at) / maxDistance) : 1;
+        var skillStats = SupportedStats(player, skillId);
+        int maximumMore = skillStats.TryGetValue(Stat.ShieldChargeDamagePlusPctMaximum, out int dmgMax) ? dmgMax : 100;
+        int maxStunReduction = skillStats.TryGetValue(Stat.ShieldChargeScalingStunThresholdReductionPlusPctAtMaximumRange, out int stunRedMax) ? stunRedMax : 75;
+        int maxStunDuration = skillStats.GetValueOrDefault(Stat.ShieldChargeStunDurationPlusPctMaximum);
+        int maxKnockbackDist = skillStats.GetValueOrDefault(Stat.ShieldChargeKnockbackDistancePlusPctMaximum);
+        bool removeStunAndKnockback = skillStats.GetValueOrDefault(Stat.ShieldChargeRemoveStunAndKnockback) != 0;
+        int damagePerTargetPct = skillStats.GetValueOrDefault(Stat.ShieldChargeDamagePerTargetHitPlusPct);
         if (ShieldWeapon(player, skillId) is { } shieldWeapon)
             Console.WriteLine($"[gateway] {player.Connection.Remote} Shield Charge damage: shield base {shieldWeapon.MinDamage}-{shieldWeapon.MaxDamage}, " +
-                $"up to {maximumMore}% more at {maxDistance:0} cells{(charged ? "" : " (no-charge)")}");
-        Task Hit((int X, int Y) at, int radius, ISet<uint>? once, int? hitAction) => gem.Name is null ? Task.CompletedTask
-            : AreaSkillHit(player, skillId, gem, at, at, immediate: true, sequence: sequence,
-                actionToken: hitAction, cooldownUse: cooldownUse, damageMore: More(at), radiusOverride: radius, once: once, cryExerted: cryExerted);
+                $"up to {maximumMore}% more at {run.MaxDistance:0} cells{(charged ? "" : " (no-charge)")}");
+        criticalRoll ??= CaptureSkillCriticalRoll(player, skillId);
+        double ruthless = RuthlessBlowMore(player, skillId, id => skillStats.GetValueOrDefault(id));
+        var pathHit = new HashSet<uint>();
+        Task Hit((int X, int Y) at, int radius, ISet<uint>? once, int? hitAction, double distForScale,
+            Func<uint, (int X, int Y), bool>? targetFilter = null)
+        {
+            if (gem.Name is null) return Task.CompletedTask;
+            double frac = run.MaxDistance > 0 ? Math.Clamp(distForScale / run.MaxDistance, 0.0, 1.0) : 0.0;
+            double more = 1.0 + maximumMore / 100.0 * frac;
+            if (damagePerTargetPct != 0 && pathHit.Count > 0)
+                more *= Math.Max(0.0, 1.0 + damagePerTargetPct * pathHit.Count / 100.0);
+            int stunRed = (int)Math.Round(maxStunReduction * frac);
+            int stunDur = (int)Math.Round(maxStunDuration * frac);
+            int kbDist = (int)Math.Round(maxKnockbackDist * frac);
+            return AreaSkillHitForUse(ruthless, player, skillId, gem, at, at, immediate: true, sequence: sequence,
+                actionToken: hitAction, cooldownUse: hitAction is null ? null : cooldownUse,
+                damageMore: more, criticalRoll: criticalRoll, radiusOverride: radius, once: once, cryExerted: cryExerted,
+                targetFilter: targetFilter, extraStunThresholdReduction: stunRed,
+                extraStunDurationPct: stunDur, extraKnockbackDistancePct: kbDist,
+                removeStunAndKnockback: removeStunAndKnockback, offHandWeapon: true);
+        }
+        Task HitCone((int X, int Y) origin, (int X, int Y) dirFrom, (int X, int Y) dirTo, int radius, ISet<uint> once,
+            int? hitAction, double distForScale)
+        {
+            double dx = dirTo.X - dirFrom.X, dy = dirTo.Y - dirFrom.Y;
+            double len = Math.Sqrt(dx * dx + dy * dy);
+            if (len <= 1e-6) return Task.CompletedTask;
+            double fx = dx / len, fy = dy / len;
+            bool InCone(uint _, (int X, int Y) mPos)
+            {
+                double mx = mPos.X - origin.X, my = mPos.Y - origin.Y;
+                double dSq = mx * mx + my * my;
+                if (dSq <= 16.0) return true;
+                double d = Math.Sqrt(dSq);
+                return (mx * fx + my * fy) / d >= ShieldChargeConeCos;
+            }
+            return Hit(origin, radius, once, hitAction, distForScale, InCone);
+        }
+        async Task EndWave((int X, int Y) origin, double starts, HashSet<uint> endHit, double distance)
+        {
+            double left = starts + run.EndAttackSeconds - AreaTime(player);
+            if (left > 0) await AreaDelay(player, left);
+            if (Current() && (run.EndCompleted || PlayerActionCurrent(player, actionToken)))
+                await HitCone(origin, run.Start, run.End, run.WaveRadius, endHit, run.EndCompleted ? null : actionToken, distance);
+        }
         if (!charged)
         {
-            if (Current()) await Hit(player.Walk.Position(AreaTime(player)), ShieldChargeEndRadius, null, actionToken);
+            string ao = Environment.GetEnvironmentVariable("Game_PLAYER_AO") ?? SkillsFor(player).ClassFor(player.Character.ClassRow).AnimatedObject;
+            double cutIn = run.EndAttackSeconds * Animations.AttackCutIn(ao, AnimationWeaponProfileFor(player), "bash1");
+            if (cutIn > 0)
+            {
+                await AreaDelay(player, cutIn);
+                await WhilePaused(player);
+            }
+            if (!Current()) return;
+            var at = run.Start;
+            var endHit = new HashSet<uint>();
+            await Hit(at, run.EndRadius, endHit, run.EndCompleted ? null : actionToken, distForScale: 0);
+            await EndWave(at, run.StartedAt, endHit, 0);
             return;
         }
-        await SendPlayerStatSnapshot(player, () => PlayerStatsOffFrames(player),
-            $"0x01b3 player stats (Shield Charge starts: movement_velocity_+% {player.Pools.MovementVelocityPct}, " +
-            $"+{ShieldChargeMovementPct(player)} while charging)");
-        var pathHit = new HashSet<uint>();
-        // The step pass may end the run early on a body or a wall, and a mid-charge speed change updates ArrivesAt live.
-        for (double tick = AreaTime(player); tick < player.Walk.ArrivesAt; tick += ShieldChargePathSeconds)
+        try
         {
-            double wait = tick - AreaTime(player);
-            if (wait > 0) await AreaDelay(player, wait);
-            await WhilePaused(player);
-            if (!Current() || ShieldChargeRuns.TryGetValue(player, out var check) && check.Arrived) break;
-            if (AreaTime(player) >= player.Walk.ArrivesAt) break;
-            await Hit(player.Walk.Position(AreaTime(player)), ShieldChargePathRadius, pathHit, actionToken);
+            if (!player.Frames.Running)
+                await SendPlayerStatSnapshot(player, () => PlayerStatsOffFrames(player),
+                    $"0x01b3 player stats (Shield Charge starts: movement_velocity_+% {player.Pools.MovementVelocityPct}, " +
+                    $"+{ShieldChargeMovementPct(player)} while charging)");
+            else
+            {
+                // Let the frame send the accepted action start before publishing its hits.
+                await AreaDelay(player, 0);
+                await WhilePaused(player);
+            }
+            if (!Current()) return;
+            await Hit(run.Start, run.PathRadius, pathHit, run.Arrived ? null : actionToken, distForScale: 0);
+            double segLen = run.LengthSq > 0 ? Math.Sqrt(run.LengthSq) : 0;
+            while ((run.Traveling || run.Arrived) && Current())
+            {
+                double now = AreaTime(player);
+                var pos = run.Arrived ? run.ArrivedAtCell : player.Walk.Position(now);
+                double traveled = Dist(run.Start, pos);
+                while (traveled - run.LastHitDist >= run.PathRadius && Current())
+                {
+                    run.LastHitDist += run.PathRadius;
+                    var hitAt = segLen > 0
+                        ? ((int)Math.Round(run.Start.X + (run.End.X - run.Start.X) * (run.LastHitDist / segLen)),
+                           (int)Math.Round(run.Start.Y + (run.End.Y - run.Start.Y) * (run.LastHitDist / segLen)))
+                        : pos;
+                    await Hit(hitAt, run.PathRadius, pathHit, run.Arrived ? null : actionToken, distForScale: run.LastHitDist);
+                }
+                if (!run.Traveling || run.Arrived || !Current()) break;
+                double left = player.Walk.ArrivesAt - AreaTime(player);
+                if (left <= 1e-6) break;
+                await AreaDelay(player, Math.Min(ShieldChargePollSeconds, left));
+                await WhilePaused(player);
+            }
+            if (!Current()) return;
+            if (run.Arrived || AreaTime(player) >= player.Walk.ArrivesAt - 1e-6)
+            {
+                double arrivedAt = run.Arrived ? run.ArrivedAt : player.Walk.ArrivesAt;
+                var endAt = run.Arrived ? run.ArrivedAtCell : player.Walk.Position(arrivedAt);
+                double endDist = Dist(run.Start, endAt);
+                if (ShieldChargeRuns.TryGetValue(player, out var active) && ReferenceEquals(active, run))
+                    ShieldChargeTraveling(player, arrivedAt);
+                var endHit = new HashSet<uint>();
+                // On Lockstep a Move can immediately cancel charge_*_end on the arrival frame, after the client already
+                // delivered the arrival hit (0x141a70910); when run.Arrived is true, still land Kind 1 at the arrival cell.
+                await Hit(endAt, run.EndRadius, endHit, run.Arrived ? null : actionToken, distForScale: endDist);
+
+                if (!player.Connection.LockstepClient)
+                    ResyncAfter(player, 0.05, gem.Name ?? "Shield Charge");
+                if (!player.Frames.Running)
+                    await SendPlayerStatSnapshot(player, () => PlayerStatsOffFrames(player),
+                        $"0x01b3 player stats (Shield Charge ends: movement_velocity_+% {player.Pools.MovementVelocityPct})");
+                await EndWave(endAt, arrivedAt, endHit, endDist);
+            }
         }
-        while (Current() && !(ShieldChargeRuns.TryGetValue(player, out var waitRun) && waitRun.Arrived))
+        finally
         {
-            double rest = player.Walk.ArrivesAt - AreaTime(player);
-            if (rest <= 1e-6) break;
-            await AreaDelay(player, rest);
-            await WhilePaused(player);
+            if (run.Traveling && ShieldChargeRuns.TryGetValue(player, out var cur) && ReferenceEquals(cur, run))
+                EndShieldChargeMovement(player, run);
         }
-        if (!Current() || !ShieldChargeRuns.TryGetValue(player, out var run)) return;
-        // On Lockstep a Move can immediately cancel charge_*_end on the arrival frame, after the client already delivered
-        // the arrival hit (0x141a70910); when run.Arrived is true, still land the arrival hit at the arrival cell.
-        var endAt = run.Arrived ? run.ArrivedAtCell : player.Walk.Position(AreaTime(player));
-        await Hit(endAt, ShieldChargeEndRadius, null, run.Arrived ? null : actionToken);
-        EndShieldChargeMovement(player, run, player.Walk.ArrivesAt);
-        await SendPlayerStatSnapshot(player, () => PlayerStatsOffFrames(player),
-            $"0x01b3 player stats (Shield Charge ends: movement_velocity_+% {player.Pools.MovementVelocityPct})");
     }
 }

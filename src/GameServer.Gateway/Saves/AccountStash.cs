@@ -544,6 +544,9 @@ public sealed partial class AccountStash
         return true;
     }
 
+    /// <summary>Whether <paramref name="tab"/> is marked Public (trade-listed; currency cannot be used out of it).</summary>
+    public bool IsPublic(int tab) { lock (_lock) return tab >= 0 && tab < _tabs.Count && _tabs[tab].Saved.Public; }
+
     /// <summary>Sets or clears an item's price note (C→S 0x1a1) inside an open, visible, public, premium <paramref name="tab"/>.</summary>
     public InventoryItem? SetItemNote(int tab, uint itemId, string? note)
     {

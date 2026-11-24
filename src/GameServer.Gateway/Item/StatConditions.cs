@@ -22,6 +22,14 @@ public static class StatConditions
 {
     public const string UsingPride = "using_pride";
 
+    /// <summary>The subject flag a "while a Pinnacle Boss is in your Presence" mod is gated on: published by
+    /// <see cref="Game.ItemConditionFlags"/> from <c>Game.CelestialBossInPresenceLocked</c> (the tree's existing
+    /// <c>PresenceRadius</c> of 80; the predicate is the client's <c>PinnacleAtlasBoss</c> marker mod on the
+    /// monster's variety). Absent from a subject, the mod counts as before; present and false, its effect stats
+    /// do not count.</summary>
+    public const string CelestialBossInPresence = "_while_celestial_boss_in_presence";
+
+
     /// <summary>What the server can say about a stat's condition.</summary>
     public enum State
     {
@@ -317,7 +325,9 @@ public static class StatConditions
             "armour" or "armour_+" or "X_armour" => "base_physical_damage_reduction_rating",
             "local_chance_to_bleed_%" => "local_chance_to_bleed_on_hit_%",
             "physical_damage_reduction_rating_%" => "physical_damage_reduction_rating_+%",
-            "maximum_es_+%" => "maximum_energy_shield_+%",
+            "maximum_es_+%" or "energy_shield_+%" => "maximum_energy_shield_+%",
+            "energy_shield_recharge_+%" => "energy_shield_recharge_rate_+%",
+            "armour_and_evasion_+%" or "armour_evasion_+%" => "evasion_and_physical_damage_reduction_rating_+%",
             "life_+%" => "maximum_life_+%",
             "movement_speed_+%" or "movement_velocity_+%" => "base_movement_velocity_+%",
             "spell_damage_taken_+%" => "base_spell_damage_taken_+%",
@@ -455,6 +465,8 @@ public static class StatConditions
             return [.. new[] { "base_cannot_be_chilled", "base_cannot_be_frozen" }.Where(exists)];
         if (plainName == "cannot_be_shocked_or_ignited")
             return [.. new[] { "base_cannot_be_shocked", "base_cannot_be_ignited" }.Where(exists)];
+        if (plainName == "maximum_life_and_mana_+%")
+            return [.. new[] { "maximum_life_+%", "maximum_mana_+%" }.Where(exists)];
         return FoldFromPlain(statId, exists, plainName) is { } plain ? [plain] : [];
     }
 

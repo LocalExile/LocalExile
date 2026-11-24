@@ -33,6 +33,10 @@ public static partial class Game
         }
     }
 
+    static Cull MinionIgniteKillRule(IReadOnlyDictionary<uint, int> owner, SpawnedMonster target, double now) =>
+        new(0, 0, CannotKill: owner.GetValueOrDefault(Stat.MinionsHitsCanOnlyKillIgnitedEnemies) != 0
+            && !target.Ignites.IgnitedAt(now));
+
     // The hit's own damage, then the cull. A boss stage this hit starts, or one still running, keeps the boss alive.
     public static (uint Life, bool StageStarts) TakeOwnerHitLocked(Player player, SpawnedMonster m, int damage, Cull cull,
         bool? rampageSource = null, IReadOnlyDictionary<uint, int>? playerStats = null,

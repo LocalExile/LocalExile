@@ -104,7 +104,7 @@ static partial class QuestobjectsRules
         uint id = player.TakeObjectId();
         var map = ActiveTrickChests.GetOrCreateValue(player);
         lock (map) map[id] = chest;
-        player.SetBlocker(id, chest.X, chest.Y, info.Size);
+        player.SetObjectBlocker(id, chest.X, chest.Y, info.Size, info.ActorOrChest);
         await SendWorldCreate(player, id,
             InstanceEntities.CreateObject(id, InstanceEntities.ObjectTypeHash(rule.ChestType), TrickChestBlob(chest, info, opened)),
             $"0x02bb trick chest 0x{id:x} {rule.ChestType} at ({chest.X}, {chest.Y}), opened={opened}");
@@ -192,7 +192,7 @@ static partial class QuestobjectsRules
             map[openedId] = chest;
         }
         player.RemoveBlocker(oldId);
-        player.SetBlocker(openedId, chest.X, chest.Y, info.Size);
+        player.SetObjectBlocker(openedId, chest.X, chest.Y, info.Size, info.ActorOrChest);
         await SendWorldRemoval(player, oldId, null);
         await SendWorldCreate(player, openedId,
             InstanceEntities.CreateObject(openedId, InstanceEntities.ObjectTypeHash(chest.Rule.ChestType), TrickChestBlob(chest, info, opened: true)),

@@ -278,6 +278,7 @@ public static partial class Game
     /// <summary>The Stats phase: the own auras' timed changes (<see cref="OwnAurasNextChangeAt"/>) once due.</summary>
     internal static void StepOwnAuras(Player player)
     {
+        ExpireWarcryBuffs(player);
         if (ReservationInputCaches.TryGetValue(player, out var cache) && AreaTime(player) >= cache.NextAt)
             EnsureOwnAuraPools(player);
     }

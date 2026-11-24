@@ -287,6 +287,7 @@ public static partial class Game
             GridX = at.X,
             GridY = at.Y,
             Life = corpse ? 1u : m.Life,
+            EnergyShield = corpse ? 0u : MonsterEnergyShieldOf(m) is { Max: > 0 } es ? es.Current : o.Object.EnergyShield,
             Team = m.TemporarilyAllied ? (ushort)0 : o.Object.Team,
         };
         // One that has risen meanwhile is created risen (targetable), not in the wait it was placed in.
@@ -361,7 +362,9 @@ public static partial class Game
     {
         if (!player.Area.MonsterTypes.Add((row, level))) return;
         var bytes = InstanceEntities.MonsterTypes([(row, level)]);
-        if (player.Area.Owned) player.Area.Delta.Add(0, bytes, log, AreaDelta.Kind.Message);
-        if (!player.Connection.WorldOutput.Started) await Send(player, bytes, log);
+        bool direct = !player.Connection.WorldOutput.Started;
+        if (player.Area.Owned) player.Area.Delta.Add(0, bytes, log, AreaDelta.Kind.Message, except: direct ? player : null);
+        // Direct writes encrypt in place. The area keeps its plaintext for other clients.
+        if (direct) await Send(player, bytes.ToArray(), log);
     }
 }

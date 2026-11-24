@@ -13,6 +13,8 @@ public static partial class Game
     public static void LoadMonsterModsData()
     {
         MonsterModRolls = new MonsterModCatalog(Items.Mods);
+        LoadMonsterChargesData();
+        LoadMonsterAurasData();
     }
 
     static bool MonsterOnLowLife(SpawnedMonster monster) => !monster.Dead && monster.Life > 0
@@ -112,18 +114,17 @@ public static partial class Game
     }
 
     /// <summary>The monster's own part of its hit on the player, after the roll and before the player's defences: its
-    /// critical strike (only with a chance from its mods: of Deadliness; × Monster.ot's 130% multiplier less the
-    /// player's <paramref name="selfCriticalReduction"/>, base_self_critical_strike_multiplier_-%, read only on a crit)
-    /// and the increased damage per 10% of the player's missing life (Executioner's). Call in the area's frame.</summary>
+    /// critical strike (base 5% for attacks or skill SpellCritChance, scaled by critical_strike_chance_+% and power
+    /// charges; × Monster.ot's 130% multiplier less the player's <paramref name="selfCriticalReduction"/>), Frenzy
+    /// charge more damage (+4% per charge), and Executioner's missing-life scaling. Call in the area's frame.</summary>
     public static DamagePacket MonsterModHit(SpawnedMonster m, DamagePacket rolled, uint playerLife, uint playerMaxLife, Random random,
         out bool critical, Func<int>? selfCriticalReduction = null, double now = double.NaN, bool cannotCrit = false,
-        int additionalCritical = 0, Func<int>? extraCriticalMultiplier = null)
+        int additionalCritical = 0, Func<int>? extraCriticalMultiplier = null, int baseCritPermyriad = -1)
     {
         var e = m.Effects;
         // additionalCritical: the target's Brittle (PlayerBrittleCriticalChance), in hundredths as the mods' chance.
-        int baseCrit = e.CriticalChance;
-        if (baseCrit == 0 && e[Stat.CriticalStrikeChancePlusPct] is int incCrit and > 0)
-            baseCrit = (int)Math.Clamp(500L * (100 + incCrit) / 100, 0, 10_000);
+        int basePermyriad = baseCritPermyriad >= 0 ? baseCritPermyriad : MonsterBaseCritChancePermyriad;
+        int baseCrit = e.CriticalChanceWith(basePermyriad);
         int chance = baseCrit + additionalCritical;
         critical = !cannotCrit && chance > 0 && random.Next(10_000) < chance;
         int extraMult = critical
@@ -131,6 +132,7 @@ public static partial class Game
             : 0;
         int selfReduction = critical ? Math.Clamp(selfCriticalReduction?.Invoke() ?? 0, 0, 100) : 0;
         double factor = critical ? (100 + extraMult * (100 - selfReduction) / 100.0) / 100.0 : 1;
+        factor *= MonsterFrenzyDamageFactor(m);
         factor *= Math.Max(0, 1 + e[m.Rarity is MonsterRarity.Rare or MonsterRarity.Unique
             ? Stat.EnfeebleDamagePlusPctVsRareOrUniqueFinal : Stat.EnfeebleDamagePlusPctFinal] / 100.0);
         int executioner = e.ExecutionerPct(playerLife, playerMaxLife);
@@ -160,6 +162,21 @@ public static partial class Game
         Penetration.PerType pen, double now = double.NaN)
     {
         var resistance = HitMitigation.Resistance(Monsters, m.Variety, m.Level, type);
+        // Doryani's Prototype ("Nearby Enemies have Lightning Resistance equal to yours"): while a wearer keeps his own
+        // resistance on the monster (EnemyDebuffsTick's zone), the whole composed value is replaced with it — negative
+        // and zero included — and only the cap and penetration still apply. Zero-alloc when no source values are set;
+        // multiple wearers deterministically take the lowest resistance.
+        if (type == DamageType.Lightning && m.HasSourceValues)
+        {
+            int? lowest = null;
+            foreach (var (_, encoded) in m.SourceValues(LightningResistEqualsYours))
+            {
+                int v = encoded - DoryaniResistOffset;
+                if (lowest is null || v < lowest.Value) lowest = v;
+            }
+            if (lowest is int ownResist)
+                return resistance with { Value = ownResist, Maximum = m.Effects.MaximumResistance(type), Penetration = pen.Of(type) };
+        }
         return resistance with { Value = resistance.Value + m.Effects.Resistance(type) + MonsterExposure(m, type, now)
                 + ScorchedResistance(m, type, now)
                 + (type == DamageType.Physical ? 0 : m.SpiderWebs.Resistance(now)),
@@ -195,7 +212,8 @@ public static partial class Game
         if (m.Effects[Stat.BaseCannotBeDamaged] > 0) return 0;
         var e = m.Effects;
         double physical = mitigated[DamageType.Physical].Min;
-        int physReduction = e.PhysicalReduction - CrushReduction(m, now);
+        double physReduction = HitMitigation.PhysicalReduction(Monsters, m, physical,
+            e.PhysicalReduction - CrushReduction(m, now), MonsterArmourEnabled);
         if (ignorePhysicalReduction && physReduction > 0) physReduction = 0;
         double physicalTaken = physical * Math.Max(0, 1 - physReduction / 100.0)
             * (1 + MaimedPhysicalTaken(m, now) / 100.0);
@@ -204,9 +222,10 @@ public static partial class Game
         // increase on fire, cold and lightning only, his Withered on chaos only, and Pride's more Physical Damage on the
         // physical part.
         double factor = MonsterDamageTaken(m, spell, now, elemental: false, hit: true, chaos: false, increasedPct: additionalTakenPct);
+        double chaosFactor = m.Withered.Count == 0 ? factor
+            : MonsterDamageTaken(m, spell, now, elemental: false, hit: true, chaos: true, increasedPct: additionalTakenPct);
         double withered = m.Withered.Count == 0 ? 0
-            : mitigated[DamageType.Chaos].Min * (MonsterDamageTaken(m, spell, now, elemental: false, hit: true, chaos: true,
-                increasedPct: additionalTakenPct) - factor);
+            : mitigated[DamageType.Chaos].Min * (chaosFactor - factor);
         double elementalDamage = mitigated[DamageType.Fire].Min + mitigated[DamageType.Cold].Min + mitigated[DamageType.Lightning].Min;
         double elementalFactor = m.TakenFromPlayer.Elemental == 0 ? factor
             : MonsterDamageTaken(m, spell, now, elemental: true, hit: true, chaos: false, increasedPct: additionalTakenPct);
@@ -230,6 +249,42 @@ public static partial class Game
         return (int)Math.Round(damage);
     }
 
+    /// <summary>Computes the explicit chaos-damage portion of <paramref name="finalDamage"/> (after crits, suppression,
+    /// and global multipliers, before physical Impale reflection) so <see cref="AbsorbMonsterEnergyShieldLocked"/> lets
+    /// chaos bypass monster Energy Shield without any mutable side-channel state.</summary>
+    public static int MonsterHitChaosDamage(SpawnedMonster m, DamagePacket mitigated, bool spell, double now,
+        int finalDamage, int additionalTakenPct = 0, bool ignorePhysicalReduction = false)
+    {
+        double rawChaos = mitigated[DamageType.Chaos].Min;
+        if (finalDamage <= 0 || rawChaos <= 0 || m.Effects[Stat.BaseCannotBeDamaged] > 0) return 0;
+        var e = m.Effects;
+        double physical = mitigated[DamageType.Physical].Min;
+        double physReduction = HitMitigation.PhysicalReduction(Monsters, m, physical,
+            e.PhysicalReduction - CrushReduction(m, now), MonsterArmourEnabled);
+        if (ignorePhysicalReduction && physReduction > 0) physReduction = 0;
+        double physicalTaken = physical * Math.Max(0, 1 - physReduction / 100.0)
+            * (1 + MaimedPhysicalTaken(m, now) / 100.0);
+        double total = mitigated.MinTotal - physical + physicalTaken;
+        double factor = MonsterDamageTaken(m, spell, now, elemental: false, hit: true, chaos: false, increasedPct: additionalTakenPct);
+        double chaosFactor = m.Withered.Count == 0 ? factor
+            : MonsterDamageTaken(m, spell, now, elemental: false, hit: true, chaos: true, increasedPct: additionalTakenPct);
+        double withered = m.Withered.Count == 0 ? 0 : rawChaos * (chaosFactor - factor);
+        double elementalDamage = mitigated[DamageType.Fire].Min + mitigated[DamageType.Cold].Min + mitigated[DamageType.Lightning].Min;
+        double elementalFactor = m.TakenFromPlayer.Elemental == 0 ? factor
+            : MonsterDamageTaken(m, spell, now, elemental: true, hit: true, chaos: false, increasedPct: additionalTakenPct);
+        double physicalFactor = (1 + Math.Max(0, m.PridePhysicalMore) / 100.0)
+            * (1 + Math.Max(0, FleshTaken(m, now)) / 100.0)
+            * (1 + e[Stat.PhysicalDamageTakenPlusPct] / 100.0);
+        double typed = mitigated[DamageType.Fire].Min * ElementalHitTakenPercent(e, m, DamageType.Fire, now)
+            + mitigated[DamageType.Cold].Min * ElementalHitTakenPercent(e, m, DamageType.Cold, now)
+            + mitigated[DamageType.Lightning].Min * ElementalHitTakenPercent(e, m, DamageType.Lightning, now);
+        double totalTaken = (total - elementalDamage) * factor + elementalDamage * elementalFactor + withered
+            + physicalTaken * factor * (physicalFactor - 1) + typed / 100.0 * elementalFactor;
+        if (totalTaken <= 0) return 0;
+        double chaosTaken = rawChaos * chaosFactor;
+        return Math.Clamp((int)Math.Round(finalDamage * Math.Clamp(chaosTaken / totalTaken, 0.0, 1.0)), 0, finalDamage);
+    }
+
     static double ElementalHitTakenPercent(MonsterModEffects effects, SpawnedMonster m, DamageType type, double now) => type switch
     {
         DamageType.Fire => (double)effects[Stat.FireDamageTakenPlusPct] + CoveredInAshFireTaken(m, now),
@@ -239,11 +294,15 @@ public static partial class Game
     };
 
     public static DamagePacket MonsterTakenComponents(SpawnedMonster m, DamagePacket mitigated, bool spell,
-        double now = double.NaN) =>
-        mitigated.Select((type, range) => range.Scale(type == DamageType.Physical
-            ? Math.Max(0, 1 - (m.Effects.PhysicalReduction - CrushReduction(m, now)) / 100.0)
+        double now = double.NaN)
+    {
+        double physReduction = HitMitigation.PhysicalReduction(Monsters, m, mitigated[DamageType.Physical].Min,
+            m.Effects.PhysicalReduction - CrushReduction(m, now), MonsterArmourEnabled);
+        return mitigated.Select((type, range) => range.Scale(type == DamageType.Physical
+            ? Math.Max(0, 1 - physReduction / 100.0)
                 * (1 + MaimedPhysicalTaken(m, now) / 100.0) : 1))
             .Scale(m.Effects.DamageTaken(spell) * MonsterToughnessFactor(m.Effects));
+    }
 
     /// <summary>The player's base_self_critical_strike_multiplier_-% (critical strikes against them deal less extra damage).</summary>
     public static int SelfCriticalReduction(Player player)
@@ -256,16 +315,17 @@ public static partial class Game
         get(Stat.SelfTakeNoExtraDamageFromCriticalStrikes) != 0 ? 100
             : get(Stat.BaseSelfCriticalStrikeMultiplierMinusPct);
 
-    /// <summary>Whether the monster blocks a hit of the player (Stalwart's monster_base_block_%: attacks only). Rolled
-    /// before anything of the hit happens: a blocked hit has no damage, impale, flinch or hit message. The skill's
-    /// "reduced Enemy Block Chance" (Block Chance Reduction) applies to the roll, and a blocked supported hit applies
-    /// Overpowered, which lowers the monster's block chance further for its duration.</summary>
+    /// <summary>Whether the monster blocks a hit of the player (Stalwart's / species monster_base_block_% for attacks,
+    /// and species base_spell_block_% for spells). Rolled before anything of the hit happens: a blocked hit has no
+    /// damage, impale, flinch or hit message. The skill's "reduced Enemy Block Chance" (Block Chance Reduction) applies
+    /// to both attack and spell block, and a blocked supported hit applies Overpowered.</summary>
     public static bool MonsterBlocks(SpawnedMonster m, Random random, bool spell, double now = 0,
         IReadOnlyDictionary<uint, int>? skill = null)
     {
-        if (spell) return false;
+        int baseChance = spell ? m.Effects.SpellBlockChance : m.Effects.BlockChance;
+        if (baseChance <= 0) return false;
         int Skill(uint name) => skill is not null && name is var k ? skill.GetValueOrDefault(k) : 0;
-        int chance = m.Effects.BlockChance - Math.Max(0, Skill(Stat.SupportReduceEnemyBlockAndSpellBlockPct));
+        int chance = baseChance - Math.Max(0, Skill(Stat.SupportReduceEnemyBlockAndSpellBlockPct));
         if (m.OverpoweredUntil > now) chance -= m.OverpoweredPercent;
         if (chance <= 0 || random.Next(100) >= chance) return false;
         if (Skill(Stat.ApplyOverpoweredOnEnemyBlockReducedBlockAndSpellBlockPct) is var overpowered and > 0

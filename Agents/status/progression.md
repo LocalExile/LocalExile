@@ -5,10 +5,10 @@ Part of [Status](../Status.md); what to build next in this area is in
 
 ## Works (verified with the real client)
 
-- Experience and levels from kills, with the level penalty and party share.
+- Experience and levels from kills, with the level penalty, party share and unpenalised 10% socketed gem XP carry.
   Docs: [15](../docs/protocol/15-progression.md) §1.
-- Passive Skill Tree: allocation, refunds, Orbs of Regret, Books of Skill, Regrets and one-off free resets (0x33 bit 0
-  and C→S 0x38).
+- Passive Skill Tree: allocation, refunds, Orbs of Regret, Books of Skill, Regrets, Books of Reform (bandit respec)
+  and one-off free resets (0x33 bit 0 and C→S 0x38).
   Docs: [15](../docs/protocol/15-progression.md) §2.
 - Passive masteries, with Block, Fire and Wand Mastery effects. Docs: [15](../docs/protocol/15-progression.md) §2.
 - A passive node's conditional stats (`..._while_dual_wielding`, `..._if_..._recently`) count only while their
@@ -58,7 +58,10 @@ Part of [Status](../Status.md); what to build next in this area is in
 - Permanent Achievements (S→C 0x124–0x127, C→S 0x123): tracks permanent achievement items (`SetId == 2`), persists
   progress account-wide, syncs packed bitsets on entry and panel open, and emits completion toasts (not yet checked live).
 - Dual Wielding Mastery's different-weapon-types damage. Docs: [20](../docs/protocol/20-damage.md) §2b.
-- Armour Mastery grants +1 to all maximum elemental resistances when all four armour pieces provide Armour.
+- Passive mastery effects on defences, attributes and equipment: slot increases (helmet ES, gloves and boots armour,
+  body evasion), the all-equipment and socket conditions, per-mastery attributes, six Life masteries, the full-life
+  threshold, per-dagger suppression and the shield, claw and dual-wield effects.
+  Not checked live: the socket, ring and amulet conditions, Claw2, Leech2 and Reservation2.
 - Hierophant, except the Brand nodes. Docs: [Hierophant](../docs/game/hierophant.md).
 - Behemoth through the optional Phrecia module. Docs: [Behemoth](../docs/game/behemoth.md).
 - Whisperer through the optional module. Docs: [Whisperer](../docs/game/whisperer.md).

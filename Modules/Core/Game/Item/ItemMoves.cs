@@ -100,32 +100,31 @@ public static class ItemMoves
     public sealed record Price(PlayerInventories.Payment? Inventory, AccountStash.Payment? Stash);
 
     public sealed record VendorPurchase(IReadOnlyList<Price> Payments, IReadOnlyList<InventoryItem> Bought,
-        PlayerInventories.Placement? Equipped = null);
+        PlayerInventories.Placement? Equipped = null, PlayerInventories.Placement? Placed = null);
+
+    public sealed record VendorSocketPurchase(IReadOnlyList<Price> Payments, InventoryItem Host, InventoryItem? Displaced);
 
     public static VendorPurchase? PurchaseVendor(PlayerInventories items, AccountStash? stash, AccountStash gold,
         Item offer, ItemCatalog catalog, Func<Item, PlayerInventories.Shape?> shapeOf, Func<bool> consume,
-        byte? destination = null, byte x = 0, byte y = 0) => Saves.Atomically<VendorPurchase?>(() =>
+        byte? destination = null, byte x = 0, byte y = 0, bool expandedAllowed = false) => Saves.Atomically<VendorPurchase?>(() =>
     {
         if (offer.Price.Count == 0 || offer.Price.Any(p => p.Amount == 0)) return null;
         byte row = destination ?? Main;
         bool equipment = row is >= 1 and <= 11 or 14 or 15 or 102;
-        if (row != Main && row != Cursor && !equipment) return null;
+        bool expanded = row == PlayerInventories.ExpandedInventory;
+        if (row != Main && row != Cursor && !equipment && !(expanded && expandedAllowed)) return null;
         var bought = offer with { Price = [] };
-        if (equipment)
-        {
-            if (items.PreviewPurchase(row, x, y, bought, shapeOf) is null) return null;
-        }
-        else if (destination is null)
+        if (destination is null)
         {
             if (!items.Fits(Main, bought, shapeOf)) return null;
         }
+        else if (row == Cursor)
+        {
+            if (items.Items(Cursor).Count != 0) return null;
+        }
         else
         {
-            if (shapeOf(bought) is not { } shape) return null;
-            var grid = InstanceInventories.PlayerDefaults[row];
-            if (x + shape.Width > grid.Width || y + shape.Height > grid.Height
-                || items.Items(row).Any(i => shapeOf(i.Item) is { } s && i.X < x + shape.Width
-                    && x < i.X + s.Width && i.Y < y + shape.Height && y < i.Y + s.Height)) return null;
+            if (items.PreviewPurchase(row, x, y, bought, shapeOf, expandedAllowed, allowDisplace: equipment) is null) return null;
         }
         var costs = offer.Price.GroupBy(p => p.TypeHash).Select(g => (Currency:g.Key, Amount:g.Sum(p => (long)p.Amount))).ToArray();
         foreach (var (currency, amount) in costs)
@@ -143,18 +142,53 @@ public static class ItemMoves
             }
             else payments.Add(Pay(items,stash,currency,(int)amount)
                 ?? throw new InvalidOperationException("Vendor payment changed during purchase"));
-        if (equipment)
+        if (destination is null)
         {
-            items.Add(Cursor, 0, 0, bought);
-            var equipped = items.Place(row, x, y, shapeOf, out var why)
-                ?? throw new InvalidOperationException($"Vendor equipment placement changed during purchase: {why}");
-            return new(payments, [equipped.Placed], equipped);
+            var into = items.AddStacked(Main,bought,shapeOf);
+            if (into.Left != 0) throw new InvalidOperationException("Vendor item no longer fits after payment");
+            return new(payments,[.. into.Changed, .. into.Added]);
         }
-        if (destination is not null) return new(payments,[items.Add(row,x,y,bought)]);
-        var into = items.AddStacked(Main,bought,shapeOf);
-        if (into.Left != 0) throw new InvalidOperationException("Vendor item no longer fits after payment");
-        return new(payments,[.. into.Changed, .. into.Added]);
+        if (row == Cursor) return new(payments, [items.Add(Cursor, 0, 0, bought)]);
+        var placed = items.PlaceIncoming(row, x, y, bought, shapeOf, out var why, expandedAllowed, allowDisplace: equipment)
+            ?? throw new InvalidOperationException($"Vendor placement changed during purchase: {why}");
+        return new(payments, [placed.Placed], equipment ? placed : null, placed);
     });
+
+    /// <summary>Buys a vendor item and sockets it directly into <paramref name="targetItemId"/>'s <paramref name="socket"/>
+    /// (<c>C→S 0x0089</c>) in one transaction, moving any displaced gem onto the empty cursor.</summary>
+    public static VendorSocketPurchase? PurchaseAndSocketVendor(PlayerInventories items, AccountStash? stash, AccountStash gold,
+        Item offer, ItemCatalog catalog, byte targetRow, uint targetItemId, int socket,
+        Func<Item, PlayerInventories.Shape?> shapeOf, Func<bool> consume, out string why)
+    {
+        string reason = "";
+        var result = Saves.Atomically<VendorSocketPurchase?>(() =>
+        {
+            if (offer.Price.Count == 0 || offer.Price.Any(p => p.Amount == 0)) { reason = "invalid price"; return null; }
+            var bought = offer with { Price = [] };
+            if (items.PreviewSocketItem(targetRow, targetItemId, socket, bought, shapeOf, out reason) is null) return null;
+            var costs = offer.Price.GroupBy(p => p.TypeHash).Select(g => (Currency: g.Key, Amount: g.Sum(p => (long)p.Amount))).ToArray();
+            foreach (var (currency, amount) in costs)
+            {
+                if (amount <= 0 || amount > int.MaxValue || catalog.ByHash(currency) is not { } type) { reason = "invalid price"; return null; }
+                if (type.Class == ItemDrops.GoldClass ? gold.Gold < amount
+                    : (long)items.Count(Main, currency) + (stash?.CountOf(currency) ?? 0) < amount) { reason = "insufficient currency"; return null; }
+            }
+            if (!consume()) { reason = "out of stock"; return null; }
+            var payments = new List<Price>();
+            foreach (var (currency, amount) in costs)
+                if (catalog.ByHash(currency)!.Class == ItemDrops.GoldClass)
+                {
+                    if (gold.TrySpendGold(amount) is null) throw new InvalidOperationException("Vendor gold changed during purchase");
+                }
+                else payments.Add(Pay(items, stash, currency, (int)amount)
+                    ?? throw new InvalidOperationException("Vendor payment changed during purchase"));
+            if (items.SocketItem(targetRow, targetItemId, socket, bought, shapeOf, items.NewItemId, out reason) is not var (host, displaced))
+                throw new InvalidOperationException($"Vendor socket placement changed during purchase: {reason}");
+            return new(payments, host, displaced);
+        });
+        why = reason;
+        return result;
+    }
 
     public sealed record BenchResult(InventoryItem Changed, IReadOnlyList<Price> Payments);
 
@@ -436,33 +470,50 @@ public static class ItemMoves
             return (left, part);
         });
 
-    /// <summary>Where an item is for <see cref="UseAcross"/>: a stash tab (<paramref name="Tab"/>) or a character
+    /// <summary>Where an item is for <see cref="Use"/>: a stash tab (<paramref name="Tab"/>) or a character
     /// inventory row (<paramref name="Row"/>), and its id.</summary>
     public readonly record struct Spot(int? Tab, byte Row, uint Id);
 
-    /// <summary>A currency item used on an item, each in a character inventory or a stash tab (C→S 0x71 naming a stash tab
-    /// for either: the currency tab's crafting slot, live 2026-10-23): one leaves the currency's stack (the last one removes
-    /// it) and the target becomes <paramref name="change"/>(target), together. Returns the currency's stack as it is now
-    /// (null when it is gone) and the changed target, or null when either is gone (nothing changes).</summary>
-    public static (InventoryItem? Left, InventoryItem Changed)? UseAcross(PlayerInventories items, AccountStash stash, Spot used, Spot target,
-        Func<Item, Item> change) =>
-        Saves.Atomically<(InventoryItem?, InventoryItem)?>(() =>
+    /// <summary>A currency item used on an item (C→S 0x71 / Shift 0x72), each in a character inventory or a stash tab (the
+    /// currency tab's crafting slot included, live 2026-10-23): one leaves the currency's stack (the last one removes it)
+    /// and, together, the target becomes <paramref name="change"/> and/or <paramref name="held"/> goes onto the empty cursor
+    /// as a new character item (a Mirror of Kalandra's copy, the target unchanged). Returns the currency's stack as it is now
+    /// (null when it is gone), the changed target and the held item, or null (nothing changes) when either item is gone or
+    /// something is held while <paramref name="held"/> is set.</summary>
+    public static (InventoryItem? Left, InventoryItem? Changed, InventoryItem? Held)? Use(PlayerInventories items, AccountStash stash,
+        Spot used, Spot target, Item? change, Item? held) =>
+        Saves.Atomically<(InventoryItem?, InventoryItem?, InventoryItem?)?>(() =>
         {
+            if (used == target) return null;
             bool there(Spot s) => s.Tab is int t ? t >= 0 && t < stash.Count && stash.Inventory(t).Items.Any(i => i.Id == s.Id)
                 : items.Items(s.Row).Any(i => i.Id == s.Id);
-            if (!there(used) || !there(target)) return null;
-            InventoryItem? left = null;
-            if (used.Tab is int tab)
+            if (change is null && held is null || !there(used) || !there(target)) return null;
+            if (held is not null && items.Items(Cursor).Count > 0) return null;
+            if (!TakeOne(items, stash, used, out var left)) return null;
+            InventoryItem? changed = null;
+            if (change is not null)
             {
-                var stack = stash.Inventory(tab).Items.First(i => i.Id == used.Id);
-                if (stack.Item.StackSize <= 1) { if (stash.Take(tab, used.Id) is null) return null; }
-                else if ((left = stash.Shrink(tab, used.Id, 1)) is null) return null;
+                changed = target.Tab is int targetTab ? stash.Change(targetTab, target.Id, _ => change) : items.Change(target.Row, target.Id, _ => change);
+                if (changed is null) return null;
             }
-            else if (items.ConsumeOne(used.Row, used.Id) is { } consumed) left = consumed.Left;
-            else return null;
-            var changed = target.Tab is int targetTab ? stash.Change(targetTab, target.Id, change) : items.Change(target.Row, target.Id, change);
-            return changed is null ? null : (left, changed);
+            return (left, changed, held is null ? null : items.Add(Cursor, 0, 0, held));
         });
+
+    // One currency item leaves its stack, in a stash tab or a character inventory row (the last one removes the stack).
+    // False when the stack is gone or offered in a trade; nothing changes then.
+    static bool TakeOne(PlayerInventories items, AccountStash stash, Spot used, out InventoryItem? left)
+    {
+        left = null;
+        if (used.Tab is int tab)
+        {
+            if (tab < 0 || tab >= stash.Count || stash.Inventory(tab).Items.FirstOrDefault(i => i.Id == used.Id) is not { } stack) return false;
+            if (stack.Item.StackSize <= 1) return stash.Take(tab, used.Id) is not null;
+            return (left = stash.Shrink(tab, used.Id, 1)) is not null;
+        }
+        if (items.ConsumeOne(used.Row, used.Id) is not { } consumed) return false;
+        left = consumed.Left;
+        return true;
+    }
 
     /// <summary>
     /// A purchase (C→S 0x88): the price (<paramref name="price"/>: currency type and amount, or null when free) paid from the
@@ -496,15 +547,5 @@ public static class ItemMoves
             if (items.ConsumeOne(row, itemId) is not { } taken) return null;
             CharacterSaves.SetExtraPassivePoints(character, extraPoints);
             return taken;
-        });
-
-    /// <summary>A currency item used on an item (C→S 0x71): one leaves its stack and the target becomes
-    /// <paramref name="change"/>(target), together. Null when either is gone (nothing changes).</summary>
-    public static (PlayerInventories.Consumption Used, InventoryItem Changed)? UseOn(PlayerInventories items, byte usedRow, uint usedId,
-        byte targetRow, uint targetId, Func<Item, Item> change) =>
-        Saves.Atomically<(PlayerInventories.Consumption, InventoryItem)?>(() =>
-        {
-            if (!items.Items(targetRow).Any(i => i.Id == targetId) || items.ConsumeOne(usedRow, usedId) is not { } used) return null;
-            return (used, items.Change(targetRow, targetId, change)!);
         });
 }

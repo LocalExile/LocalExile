@@ -17,7 +17,8 @@ public static partial class Game
             if (!player.Summons.Restored) return;
             double now = AreaTime(player);
             text = JsonSerializer.Serialize(player.Summons.Fighters.Values.Where(g => !g.Monster.Dead && g.Monster.Life > 0
-                    && player.Summons.Definitions[g.Id].Persistent)
+                    && player.Summons.Definitions.GetValueOrDefault(g.Id)?.Persistent == true
+                    && player.Summons.Until.TryGetValue(g.Id, out double until) && double.IsPositiveInfinity(until))
                 .Select(g => SavedSummon(player, g, now)).ToArray());
             guardian = JsonSerializer.Serialize(player.Summons.GuardianEquipment);
             character = CharacterName(player);
@@ -69,26 +70,118 @@ public static partial class Game
         definition.Family == "Skeleton" ? Math.Max(1, new[] { Stat.NumberOfMeleeSkeletonsToSummon,
             Stat.NumberOfArcherSkeletonsToSummon, Stat.NumberOfMageSkeletonsToSummon }.Sum(stat)) : 1;
 
-    public static int SummonLimit(Player player, SummonCatalog.Definition definition, SupportedGem gem)
+    internal static string? DarkMonarchMinionFamily(int value) => value switch
     {
-        if (definition.LimitStat == 0) return 1;
-        var playerStats = CharacterPlayerStats(player);
-        uint final = definition.FinalLimitStat;
-        int value = GolemStat(gem.Stats, definition.LimitStat) + GolemStat(playerStats, definition.LimitStat) + GolemStat(playerStats, final);
-        // Clones have no ordinary cap; duration is their lifetime constraint.
-        return Math.Clamp(value == 0 && definition.Family == "Clone" ? 100 : value, 0, 200);
+        1 => "AnimatedWeapon",
+        2 => "Golem",
+        3 => "RagingSpirit",
+        4 => "Spectre",
+        5 => "Spider",
+        6 => "Zombie",
+        7 => "Reaper",
+        8 => "Absolution",
+        9 => "Dominating",
+        10 => "Purity",
+        11 => "HolyRelic",
+        12 => "Phantasm",
+        13 => "Skeleton",
+        14 => "SpectralWolf",
+        15 => "LivingLightning",
+        16 => "HolyArmament",
+        _ => null,
+    };
+
+    static string CanonicalMinionFamily(string family) => family switch
+    {
+        "VaalAbsolution" => "Absolution",
+        "VaalDomination" => "Dominating",
+        "VaalSkeleton" => "Skeleton",
+        "VaalAnimatedWeapon" => "AnimatedWeapon",
+        _ when family.StartsWith("Dominating", StringComparison.Ordinal) => "Dominating",
+        _ => family,
+    };
+
+    public static bool MinionFamilyAllowed(Func<uint, int> playerStat, string family)
+    {
+        string canon = CanonicalMinionFamily(family);
+        if (playerStat(Stat.YouCannotHaveNonSpectreMinions) != 0 && canon != "Spectre") return false;
+        if (playerStat(Stat.YouCannotHaveNonAnimatedMinions) != 0 && canon is not ("AnimatedWeapon" or "AnimatedGuardian")) return false;
+        if (playerStat(Stat.YouCannotHaveNonGolemMinions) != 0 && canon != "Golem") return false;
+        int monarch = playerStat(Stat.MaximumNumberOfXMinionTypeDoubled);
+        return monarch == 0 || DarkMonarchMinionFamily(monarch) == canon;
     }
+
+    public static int ApplyDarkMonarchLimit(int limit, Func<uint, int> playerStat, string family) =>
+        !MinionFamilyAllowed(playerStat, family) ? 0
+        : playerStat(Stat.MaximumNumberOfXMinionTypeDoubled) is int monarch and > 0
+            && DarkMonarchMinionFamily(monarch) == CanonicalMinionFamily(family)
+            ? Math.Clamp(limit * 2, 0, 200)
+            : limit;
+
+    public static int SummonLimit(Player player, SummonCatalog.Definition definition, SupportedGem gem) =>
+        SummonLimit(definition, gem, CharacterPlayerStats(player));
+
+    static int SummonLimit(SummonCatalog.Definition definition, SupportedGem gem, IReadOnlyDictionary<uint, int> playerStats)
+    {
+        int PlayerStat(uint key) => GolemStat(playerStats, key);
+        if (!MinionFamilyAllowed(PlayerStat, definition.Family)) return 0;
+        if (definition.LimitStat == 0) return 1;
+        uint final = definition.FinalLimitStat;
+        long value = (long)GolemStat(gem.Stats, definition.LimitStat) + GolemStat(playerStats, definition.LimitStat) + GolemStat(playerStats, final);
+        if (definition.Family == "Zombie")
+        {
+            int PerAttribute(uint attribute, uint threshold) => GolemStat(playerStats, threshold) is int step and > 0
+                ? Math.Max(0, GolemStat(playerStats, attribute)) / step : 0;
+            value += (long)PerAttribute(Stat.Strength, Stat.NumberOfZombiesAllowedPlus1PerXStrength)
+                + PerAttribute(Stat.Intelligence, Stat.NumberOfZombiesAllowedPlus1PerXIntelligenceFromFoulbornBaron);
+            int scaled = (int)Math.Clamp(value * (1 + GolemStat(playerStats, Stat.NumberOfZombiesAllowedPlusPct) / 100d), 0, 200);
+            return ApplyDarkMonarchLimit(scaled, PlayerStat, definition.Family);
+        }
+        if (definition.Family == "Skeleton")
+            value += GolemStat(playerStats, Stat.NumberOfSkeletonsAllowedPer2Old) / 2;
+        if (definition.Family == "RagingSpirit")
+        {
+            int scaled = (int)Math.Clamp(value * (1 + GolemStat(playerStats, Stat.PctNumberOfRagingSpiritsAllowed) / 100d), 0, 200);
+            return ApplyDarkMonarchLimit(scaled, PlayerStat, definition.Family);
+        }
+        // Clones have no ordinary cap; duration is their lifetime constraint.
+        if (value == 0 && definition.Family == "Clone") return 100;
+        return ApplyDarkMonarchLimit((int)Math.Clamp(value, 0, 200), PlayerStat, definition.Family);
+    }
+
+    static bool PermanentSkeletonWarriors(SummonCatalog.Definition definition, IReadOnlyDictionary<uint, int> owner) =>
+        definition.Id == "SummonSkeletons" && GolemStat(owner, Stat.SkeletonsArePermanentMinions) != 0;
 
     static double SummonDuration(Player player, SummonCatalog.Definition definition, SupportedGem gem)
     {
-        if (definition.Persistent) return double.PositiveInfinity;
+        IReadOnlyDictionary<uint, int>? playerStats = null;
+        int spectreDuration = 0;
+        if (definition.Family == "Spectre")
+        {
+            playerStats = CharacterPlayerStats(player);
+            spectreDuration = Math.Max(GolemStat(playerStats, Stat.SpectresHaveBaseDurationMs),
+                GolemStat(gem.Stats, Stat.SpectresHaveBaseDurationMs));
+        }
+        if (definition.Persistent && spectreDuration <= 0) return double.PositiveInfinity;
         bool secondary = definition.Family == "Absolution" || definition.Family.StartsWith("Dominating", StringComparison.Ordinal);
-        int ms = GolemStat(gem.Stats, definition.Family == "Spectre" ? Stat.SpectresHaveBaseDurationMs
-            : secondary ? Stat.BaseSecondarySkillEffectDuration : Stat.BaseSkillEffectDuration);
-        var playerStats = CharacterPlayerStats(player);
-        return SkillDurationModifiers.Seconds(ms, n => GolemStat(playerStats, n), n => GolemStat(gem.Stats, n),
+        int ms = definition.Family == "Spectre" ? spectreDuration
+            : GolemStat(gem.Stats, secondary ? Stat.BaseSecondarySkillEffectDuration : Stat.BaseSkillEffectDuration);
+        playerStats ??= CharacterPlayerStats(player);
+        uint familyDuration = definition.Family switch
+        {
+            "Skeleton" or "VaalSkeleton" => Stat.SkeletonDurationPlusPct,
+            "RagingSpirit" => Stat.SummonedRagingSpiritDurationPlusPct,
+            _ => 0,
+        };
+        int Read(uint key) => key == SkillDurationModifiers.IncreasedDuration && familyDuration != 0
+            ? ActorScale.Saturate((long)GolemStat(playerStats, key) + GolemStat(playerStats, familyDuration))
+            : GolemStat(playerStats, key);
+        return SkillDurationModifiers.Seconds(ms, Read, n => GolemStat(gem.Stats, n),
             DurationKinds(player, gem.Effect) | (secondary ? SkillDurationModifiers.Kinds.Secondary : 0));
     }
+
+    static bool SummonNeedsCorpse(SummonCatalog.Definition definition, IReadOnlyDictionary<uint, int> playerStats) =>
+        definition.Corpse && (definition.Family != "Zombie" || GolemStat(playerStats, Stat.RaiseZombieDoesNotUseCorpses) == 0);
 
     static SpawnedMonster? SummonCorpse(Player player, (int X, int Y) aim, uint target, double radius = 15)
     {
@@ -116,6 +209,14 @@ public static partial class Game
         {
             var gem = SupportedSkill(player, source);
             int count = SummonCount(definition, gem, AreaRng(player));
+            if (definition.Family == "Skeleton" && GolemStat(gem.Stats, Stat.NumberOfMeleeSkeletonsToSummon) > 0)
+            {
+                var owner = CharacterPlayerStats(player);
+                if (PermanentSkeletonWarriors(definition, owner))
+                    count = 1;
+                else if (GolemStat(owner, Stat.SummonSkeletonsNumAdditionalWarriorSkeletons) is int extra and not 0)
+                    count = Math.Min(Math.Max(1, ActorScale.Add(Stat.NumberOfMeleeSkeletonsToSummon, count, extra)), SummonLimit(player, definition, gem));
+            }
             for (int i = 0; i < count && current(); i++)
             {
                 if (definition.Family == "Reaper" && definition.Id != "SummonReaperAltX")
@@ -148,9 +249,9 @@ public static partial class Game
         Dictionary<byte, Item>? restoredEquipment = null, double? remaining = null,
         GolemState.MinionResourceSnapshot? resources = null, bool legacyArrival = false,
         GolemState.Golem? replacingOld = null, bool triggered = false, MonsterModSet? inheritedMods = null,
-        MonsterRarity rarity = MonsterRarity.Normal) =>
+        MonsterRarity rarity = MonsterRarity.Normal, bool arrival = false) =>
         SummonFighterCore(player, source, definition, aim, target, restoredVariety, life,
-            current, restoredEquipment, remaining, resources, legacyArrival, replacingOld, triggered, inheritedMods: inheritedMods, rarity: rarity);
+            current, restoredEquipment, remaining, resources, legacyArrival, replacingOld, triggered, inheritedMods: inheritedMods, rarity: rarity, arrival: arrival);
 
     static async Task<uint> SummonFighterCore(Player player,
         ushort source, SummonCatalog.Definition definition, (int X, int Y) aim, uint target = 0,
@@ -159,8 +260,28 @@ public static partial class Game
         GolemState.MinionResourceSnapshot? resources = null, bool legacyArrival = false,
         GolemState.Golem? replacingOld = null, bool triggered = false, SpawnedMonster? consumedCorpse = null, bool playerConsumesCorpse = true, MonsterModSet? inheritedMods = null,
         MonsterRarity rarity = MonsterRarity.Normal, IReadOnlyDictionary<uint, int>? retainedStats = null,
-        AnimatedSource? preparedEquipment = null)
+        AnimatedSource? preparedEquipment = null, bool arrival = false)
     {
+        if (replacingOld is null)
+        {
+            string? prePath = restoredVariety ?? (definition.Variety.Length > 0 && definition.Id != "SummonSkeletonsAltY"
+                && definition.Id != "SummonHolyRelicAltX" && definition.Family != "Clone" ? definition.Variety : null);
+            if (prePath is not null && Monsters.Find(prePath) is { Supported: true } preVariety)
+            {
+                var preGem = SupportedSkill(player, source);
+                if (preGem.RequirementsMet && SkillsFor(player).EffectId(preGem.Effect) == definition.Id)
+                {
+                    if (definition.Family == "Phantasm") preGem = PhantasmGem(player, preGem);
+                    if (retainedStats is not null) preGem = preGem with { Stats = MergeSummonStats(preGem.Stats, retainedStats) };
+                    int preActorLevel = GolemStat(preGem.Stats, definition.Family == "Spectre" ? Stat.RaisedSpectreLevel : Stat.BaseDisplayMinionActorLevel);
+                    if (preActorLevel <= 0 && (definition.Family.StartsWith("Dominating", StringComparison.Ordinal) || definition.Family == "VaalDomination"))
+                        preActorLevel = SkillsFor(player).PlayerLevelReq(preGem.Effect, preGem.Level);
+                    byte preLevel = (byte)Math.Clamp(preActorLevel, 1, 100);
+                    await EnsureMonsterTypeSent(player, preVariety, preLevel);
+                    if (!CurrentGameWork || player.Closed || player.LeavingArea) return 0;
+                }
+            }
+        }
         SupportedGem gem;
         Dictionary<uint, int> playerStats;
         FreshSummonAdmission? fresh;
@@ -181,7 +302,10 @@ public static partial class Game
             if (replacingOld is not null && replacement is null) return 0;
         }
         if (!gem.RequirementsMet || gemSource is null || replacingOld is null && fresh is null
-            || SkillsFor(player).EffectId(gem.Effect) != definition.Id) return 0;
+            || SkillsFor(player).EffectId(gem.Effect) != definition.Id
+            || !CanHaveMinion(playerStats, SummonFamily(definition.Family))) return 0;
+        if (PermanentSkeletonWarriors(definition, playerStats))
+            definition = definition with { Persistent = true, Follows = true };
         if (definition.Family == "Phantasm") gem = PhantasmGem(player, gem);
         inheritedMods ??= replacingOld?.InheritedMods;
         if (replacingOld is not null) rarity = replacingOld.Monster.Rarity;
@@ -194,7 +318,7 @@ public static partial class Game
         SpawnedMonster? corpse = consumedCorpse;
         AnimatedSource? animated = null;
         string path = restoredVariety ?? definition.Variety;
-        if (restoredVariety is null && definition.Corpse)
+        if (restoredVariety is null && SummonNeedsCorpse(definition, playerStats))
         {
             corpse = SummonCorpse(player, aim, target);
             if (corpse is null) return 0;
@@ -263,7 +387,8 @@ public static partial class Game
             fighter.Abilities = GolemAbilities(player, variety, level, fighter, playerStats);
             fighter.Skills = GolemNativeSkills(player, level, fighter.Abilities);
         }
-        if (!player.Layout.WalkableFor(aim.X, aim.Y, 0)) aim = NextToPlayer(player);
+        int bodySize = Math.Clamp(variety.ObjectSize - 1, 0, 127);
+        if (!player.Layout.WalkableFor(aim.X, aim.Y, bodySize) || player.Barrier.Contains(aim)) aim = NextToPlayer(player, bodySize);
         var consumed = corpse;
         uint id = await SpawnMonster(player, variety, level, rarity, aim.X, aim.Y,
             friendly: true, mods: mods, unrisen: false, extraStats: MinionStats,
@@ -278,7 +403,7 @@ public static partial class Game
             ownedCurrent: () => player.PlayerLife > 0 && (current?.Invoke() ?? true) && (consumed is null || !consumed.CorpseConsumed)
                 && (replacement is { } admission
                     ? SummonReplacementCurrentLocked(player, admission)
-                    : fresh is { } captured && FreshSummonCurrentLocked(player, captured)
+                    : fresh is { } captured && FreshSummonCurrentLocked(player, captured, arrival: arrival)
                         && GemSkillInstanceDisabled(player, gem.Effect, source, triggered: triggered || restoredVariety is not null) is null),
             owned: (id, monster) =>
             {
@@ -350,30 +475,80 @@ public static partial class Game
 
     public static async Task SummonsTick(Player player, double now)
     {
+        if (!player.Connection.PlayerSent || !CurrentGameWork || player.Closed || player.LeavingArea) return;
+        // Persistent summons are suppressed in Town; keep Restored = false so SaveSummons on leaving Town never wipes them.
+        if (InTown(player)) return;
         await HitSummonsTick(player, now);
         var state = player.Summons;
         if (!state.Restored)
         {
-            state.Restored = true;
-            var saved = CharacterSaves.Load(CharacterName(player))?.ModuleData?.GetValueOrDefault(SummonSaveKey);
-            var guardian = CharacterSaves.Load(CharacterName(player))?.ModuleData?.GetValueOrDefault(GuardianSaveKey);
-            if (guardian is not null)
-                try { state.GuardianEquipment = JsonSerializer.Deserialize<Dictionary<byte, Item>>(guardian) ?? []; }
-                catch (JsonException) { state.GuardianEquipment = []; }
-            if (saved is not null)
+            var guard = SummonRestoreGuards.GetOrCreateValue(state);
+            if (guard.Restoring) return;
+            guard.Restoring = true;
+            try
             {
-                SummonedMinions.Saved[] restore;
-                try { restore = JsonSerializer.Deserialize<SummonedMinions.Saved[]>(saved) ?? []; }
-                catch (JsonException) { restore = []; }
-                foreach (var old in restore)
-                    if (SummonData.Find(old.Effect) is { Persistent: true } definition)
+                if (guard.NextIndex == 0)
+                {
+                    var guardian = CharacterSaves.Load(CharacterName(player))?.ModuleData?.GetValueOrDefault(GuardianSaveKey);
+                    if (guardian is not null)
+                        try { state.GuardianEquipment = JsonSerializer.Deserialize<Dictionary<byte, Item>>(guardian) ?? []; }
+                        catch (JsonException) { state.GuardianEquipment = []; }
+                }
+                var saved = CharacterSaves.Load(CharacterName(player))?.ModuleData?.GetValueOrDefault(SummonSaveKey);
+                SummonedMinions.Saved[] restore = [];
+                if (saved is not null)
+                {
+                    try { restore = JsonSerializer.Deserialize<SummonedMinions.Saved[]>(saved) ?? []; }
+                    catch (JsonException) { restore = []; }
+                }
+                bool transientAbort = false;
+                for (int i = guard.NextIndex; i < restore.Length; i++)
+                {
+                    if (!CurrentGameWork || player.Closed || player.LeavingArea || player.PlayerLife == 0)
+                    { transientAbort = true; break; }
+                    var old = restore[i];
+                    if (SummonData.Find(old.Effect) is not { } definition || !definition.Persistent
+                        && (definition.Id != "SummonSkeletons" || !PermanentSkeletonWarriors(definition, CharacterPlayerStats(player))))
                     {
-                        ushort source = RestoredSummonSource(player, old);
-                        if (source != 0) await SummonFighter(player, source, definition,
-                            NextToPlayer(player), restoredVariety: old.Variety, life: old.Life, restoredEquipment: old.Equipment,
-                            resources: old.Resources, legacyArrival: old.Resources is null);
+                        guard.NextIndex = i + 1;
+                        continue;
                     }
+                    ushort source = RestoredSummonSource(player, old);
+                    if (source == 0) { guard.NextIndex = i + 1; continue; }
+                    int bodySize = Monsters.Find(old.Variety) is { } v ? Math.Clamp(v.ObjectSize - 1, 0, 127) : 1;
+                    uint restoredId = await SummonFighter(player, source, definition,
+                        NextToPlayer(player, bodySize), restoredVariety: old.Variety, life: old.Life, restoredEquipment: old.Equipment,
+                        resources: old.Resources, legacyArrival: old.Resources is null, arrival: true);
+                    if (restoredId == 0)
+                    {
+                        if (!CurrentGameWork || player.Closed || player.LeavingArea || player.PlayerLife == 0)
+                        {
+                            transientAbort = true;
+                            break;
+                        }
+                        var check = SupportedSkill(player, source);
+                        bool nonTransientDead = old.Resources is { Life: 0 }
+                            || old.Resources is null && (!double.IsFinite(old.Life) || old.Life <= 0);
+                        if (!nonTransientDead
+                            && check.RequirementsMet && SkillsFor(player).EffectId(check.Effect) == definition.Id
+                            && Monsters.Find(old.Variety) is { Supported: true }
+                            && SummonLimit(player, definition, check) >= 1
+                            && (definition.Family != "AnimatedGuardian" || old.Equipment is { Count: > 0 } || state.GuardianEquipment.Count > 0)
+                            && GemSkillInstanceDisabled(player, check.Effect, source, triggered: true) is null
+                            && ++guard.Retries < MaxMinionRestoreRetries)
+                        {
+                            transientAbort = true;
+                            break;
+                        }
+                    }
+                    guard.NextIndex = i + 1;
+                    guard.Retries = 0;
+                }
+                if (!transientAbort && CurrentGameWork && !player.Closed && !player.LeavingArea)
+                    state.Restored = true;
             }
+            finally { guard.Restoring = false; }
+            if (!state.Restored) return;
         }
         if (state.Fighters.Count == 0 && state.HolyBuff == 0) return;
         bool changed = false;
@@ -388,7 +563,28 @@ public static partial class Game
                 state.HolyBuff = 0; state.HolyRegenerationPerMinute = 0; player.Minions.StatRevision++;
             }
             var playerStats = now >= state.RefreshAt && state.Fighters.Count > 0 ? CharacterPlayerStats(player) : null;
-            if (playerStats is not null) state.RefreshAt = now + .5;
+            if (playerStats is not null)
+            {
+                state.RefreshAt = now + .5;
+                List<GolemState.Golem>? zombies = null;
+                foreach (var fighter in state.Fighters.Values)
+                    if (fighter.Definition.Kind == "Zombie" && !fighter.Monster.Dead && fighter.Monster.Life > 0)
+                        (zombies ??= []).Add(fighter);
+                if (zombies is { Count: > 0 })
+                {
+                    zombies.Sort(static (a, b) => b.SummonedAt.CompareTo(a.SummonedAt));
+                    var newest = zombies[0];
+                    if (SupportedSkill(player, newest.Source) is { RequirementsMet: true } skill)
+                    {
+                        int limit = Math.Max(0, SummonLimit(state.Definitions[newest.Id], skill, playerStats));
+                        for (int i = limit; i < zombies.Count; i++)
+                        {
+                            RemoveSummonLocked(player, zombies[i], now);
+                            changed = true;
+                        }
+                    }
+                }
+            }
             foreach (var fighter in state.Fighters.Values.ToArray())
             {
                 if (player.PlayerLife == 0 || fighter.Monster.Dead || fighter.Monster.Life == 0 || now >= state.Until[fighter.Id])
@@ -396,6 +592,9 @@ public static partial class Game
                     RemoveSummonLocked(player, fighter, now); changed = true; continue;
                 }
                 if (playerStats is null) { GolemStepLocked(player, fighter, now); continue; }
+                if (state.Definitions[fighter.Id] is { Id: "SummonSkeletons", Persistent: true } definition
+                    && !PermanentSkeletonWarriors(definition, playerStats))
+                { RemoveSummonLocked(player, fighter, now); changed = true; continue; }
                 var gem = SupportedSkill(player, fighter.Source);
                 if (fighter.Definition.Kind == "Phantasm") gem = PhantasmGem(player, gem);
                 if (fighter.Definition.Kind == "Phantasm" && GolemStat(gem.Stats, Stat.BaseNumberOfSupportGhostsAllowed) <= 0)
@@ -405,6 +604,9 @@ public static partial class Game
                     || SkillsFor(player).EffectId(gem.Effect) != fighter.Definition.Id || !gem.RequirementsMet)
                 { RemoveSummonLocked(player, fighter, now); changed = true; continue; }
                 gem = gem with { Stats = MergeSummonStats(gem.Stats, fighter.RetainedSkillStats) };
+                int liveLimit = SummonLimit(player, state.Definitions[fighter.Id], gem);
+                if (liveLimit <= 0 || state.Fighters.Values.Count(g => g.Definition.Kind == fighter.Definition.Kind && !g.Monster.Dead) > liveLimit)
+                { RemoveSummonLocked(player, fighter, now); changed = true; continue; }
                 int actorLevel = GolemStat(gem.Stats, fighter.Definition.Kind == "Spectre" ? Stat.RaisedSpectreLevel : Stat.BaseDisplayMinionActorLevel);
                 if (actorLevel <= 0 && (fighter.Definition.Kind.StartsWith("Dominating", StringComparison.Ordinal) || fighter.Definition.Kind == "VaalDomination"))
                     actorLevel = SkillsFor(player).PlayerLevelReq(gem.Effect, gem.Level);
@@ -425,6 +627,24 @@ public static partial class Game
                 restoredVariety: variety, restoredEquipment: equipment, replacingOld: old) != 0)
                 changed = true;
         if (changed) SaveSummons(player);
+    }
+
+    static int LivingSummons(Player player, string family, double now)
+    {
+        int count = 0;
+        foreach (var minion in player.Summons.Fighters.Values)
+            if (minion.Definition.Kind == family && !minion.Monster.Dead && minion.Monster.Life > 0
+                && player.Summons.Until.TryGetValue(minion.Id, out double until) && now < until)
+                count++;
+        return count;
+    }
+
+    static void ApplyZombieDamageBonus(Player player, Dictionary<uint, int> stats, double now)
+    {
+        if (GolemStat(stats, Stat.DamagePlusPctPerRaisedZombie) is not (int amount and not 0)) return;
+        int live = LivingSummons(player, "Zombie", now);
+        if (live > 0)
+            stats[Stat.DamagePlusPct] = ActorScale.Saturate((long)GolemStat(stats, Stat.DamagePlusPct) + (long)amount * live);
     }
 
     static void AddSummonCounts(Player player, StatMap stats)

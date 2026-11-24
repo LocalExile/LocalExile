@@ -39,13 +39,16 @@ public static partial class Game
     // echo starts the action, in key 0 as every other send here is. Those handlers hold the skills' rules; a second copy
     // for lockstep would drift from them. Beside the frames, which must not wait for a cast.
     static void StartLockstepSkill(Player player, ushort sequence, double at,
-        int actionBefore = -1, double busyBefore = 0, double busySet = 0)
+        int actionBefore = -1, double busyBefore = 0, double busySet = 0,
+        double startedBefore = 0, double scheduledBefore = 0)
     {
         void ReleaseIfRejected()
         {
             if (actionBefore >= 0 && player.ActionCount == actionBefore && player.LockstepBusyUntil == busySet)
             {
                 player.LockstepBusyUntil = busyBefore;
+                player.LockstepActionStartedAt = startedBefore;
+                player.LockstepActionScheduledAt = scheduledBefore;
                 player.LockstepCastWindow = null;
             }
         }
@@ -86,10 +89,12 @@ public static partial class Game
         double lowest = player.Connection.LockstepLatency.Lowest;
         double when = now - ((double.IsNaN(lowest) ? 0 : lowest / 1000) + 2d * FrameMs / 1000);
         (int X, int Y)? cell = null;
+        double best = double.PositiveInfinity;
         foreach (var (at, past) in player.Connection.LockstepTrail)
         {
-            if (at > when) break;
-            cell = past;
+            double diff = Math.Abs(at - when);
+            if (diff <= best) (best, cell) = (diff, past);
+            else if (at > when) break;
         }
         return cell ?? player.Walk.Position(now);
     }

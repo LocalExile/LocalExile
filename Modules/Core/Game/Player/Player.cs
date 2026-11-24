@@ -155,6 +155,19 @@ public static partial class Game
         await Task.CompletedTask;
     }
 
+    // The resurrect Grace (the official's 20 s, after the teleport so the protection's origin is the new position).
+    public static async Task StartResurrectGracePeriod(Player player)
+    {
+        double now = AreaTime(player);
+        bool hideout = HideoutCatalog.ByArea(player.Layout.Hash) is not null;
+        if (player.EntryProtection.StartResurrect(now, player.Walk.Position(now), GracePeriod.BuffRow, InTown(player), hideout))
+        {
+            player.Area.Buffs.Set(player.Id, GracePeriod.BeginResurrectPacket(player.Id));
+            Note($"Grace Period: {GracePeriod.ResurrectSeconds} seconds of resurrect protection");
+        }
+        await Task.CompletedTask;
+    }
+
     /// <summary>Commits all unsaved in-memory progress (XP, inventory, vitals, golems, and cached character/stash saves)
     /// to the permanent SQLite database when leaving an area or exiting.</summary>
     public static void FlushAreaProgress(Player player)
@@ -219,6 +232,7 @@ public static partial class Game
         RecordHardcoreDeath(player);
         player.InvalidateIncomingHits();
         player.DeathNotificationEpoch = deathEpoch = player.IncomingHitEpoch;
+        player.PlayerDeaths++;
         FortificationOf(player).Clear();
         LeechOf(player).Clear(AreaTime(player));
         ClearRageOnDeath(player);
@@ -234,6 +248,7 @@ public static partial class Game
         player.ChannelGeneration++;
         player.PaidChannel = null;
         player.ChannelMovement = default;
+        EndShieldChargeIfInterrupted(player);
         ChargesOnDeath(player);
         ClearBloodChargesOnDeath(player);
         ClearResonance(player);
@@ -260,16 +275,28 @@ public static partial class Game
         if (xpPenaltyPct > 0)
             await Send(player, InstanceChat.ChatLine($"You have lost {xpPenaltyPct}% experience."),
                 $"0x0017 death XP penalty chat ({xpPenaltyPct}%)");
-        await SendPlayerDeathPresentation(player, label, deathEpoch, deathKind);
+        int deaths = player.PlayerDeaths;
+        await SendPlayerDeathPresentation(player, label, deathEpoch, deaths, deathKind);
     }
 
-    public static Task SendPlayerDeathPresentation(Player player, string label, int deathEpoch, byte deathKind = InstanceProtocol.DeathKindNormal) => SendWorldBatch(player, [], admission =>
+    public static Task SendPlayerDeathPresentation(Player player, string label, int deathEpoch, int deaths, byte deathKind = InstanceProtocol.DeathKindNormal) => SendWorldBatch(player, [], admission =>
     {
         if (player.Closed || player.LeavingArea || player.PlayerLife != 0 || player.IncomingHitEpoch != deathEpoch) return null;
         var records = new WorldRecordBuilder(player, admission);
         Note(label);
+        // main hides the mini life bar on death and shows it again once the resurrect fade is over; kept as it is.
         SetStats(player, player.Id, [(Stat.HideMiniLifeBar, 1)]);
-        records.Immediate(InstanceProtocol.DeathScreen(DeathScreenFlags(player)));
+        // The official death order, measured on 12 official 3.29.3b captures, in one frame (the killing hit already
+        // sent life 0 before this frame): the is_dead row, the message naming the dead character, the death screen
+        // carrying the death count, the alive-state row, component 4, then component 6 with the experience. The
+        // message and the death screen carry no object header, so they go out immediately, not as world records
+        // (RecordOrder throws on them); the frame's world records keep their native order at the frame end.
+        records.World(player.Id, InstanceEntities.StatsUpdate(player.Id, [(Stat.IsDead, 1)]));
+        records.Immediate(InstanceProtocol.DeathMessage(CharacterName(player)));
+        records.Immediate(InstanceProtocol.DeathScreen(DeathScreenFlags(player), (ushort)Math.Clamp(deaths, 0, ushort.MaxValue)));
+        records.World(player.Id, InstanceProtocol.AliveState(player.Id, 0xfffffffe, dead: true));
+        records.World(player.Id, InstanceEntities.ComponentUpdate(player.Id, 4, [0x01]));
+        records.World(player.Id, InstanceEntities.PlayerExperienceUpdate(player.Id, player.Character.Experience));
         return records.Build();
     });
 
@@ -943,15 +970,13 @@ public static partial class Game
         }
     }
 
-    // The content's work for this area (GameEvents.AreaTick: boss fights, Delve, Delirium), every frame while the player's
-    // updates run; no timer when no content has work here. With Game_PRESENT_VERIFY=1 the presentations' check (a debug
-    // tool) runs every PlayerTickMs.
+    // A mod can add area work while the player is still in this area. The runner reuses its bindings until a subscription changes.
+    // With Game_PRESENT_VERIFY=1 the presentations' check (a debug tool) runs every PlayerTickMs.
     static void StartContentTick(Player player, PlayerUpdatesState state)
     {
-        var work = GameEvents.AreaTickWork(player);
-        if (work.Count > 0)
-            EveryFrameAsPlayer(player, () => PlayerUpdatesCurrent(player, state),
-                player => GameEvents.RunAreaTick(work, player, FrameSeconds));
+        var content = new GameEvents.AreaTickRunner(player);
+        EveryFrameAsPlayer(player, () => PlayerUpdatesCurrent(player, state), _ => content.Run(FrameSeconds),
+            needsWork: () => content.NeedsTick);
         EveryAsPlayer(player, PlayerTickMs, () => PlayerUpdatesCurrent(player, state), async player =>
         {
             // Elemental Overload's diamond: the client does not expire the invisible indicator buff itself, so remove it
@@ -1528,8 +1553,76 @@ public static partial class Game
         // The native button is hidden for HC, but a forged 0x54 must not revive the old character in its source league.
         if (player.Character.Hardcore || player.Character.HardcoreDeathRecorded) return;
         if (player.PlayerLife > 0) return;
-        player.InvalidateIncomingHits();
-        LeechOf(player).Clear(AreaTime(player));
+        if (Interlocked.CompareExchange(ref player.Resurrecting, 1, 0) != 0) return;
+        try
+        {
+            player.InvalidateIncomingHits();
+            LeechOf(player).Clear(AreaTime(player));
+            foreach (var m in player.Area.Monsters.Values) m.Aggro = false;
+            Console.WriteLine($"[gateway] {player.Connection.Remote} <= 0x0054 resurrect {(inTown ? "in town" : "at checkpoint")}");
+            if (inTown && player.Character.LastTown != 0 && player.Layout.Hash != player.Character.LastTown)
+            {
+                await Send(player, InstanceProtocol.DeathScreen(0x02), "0x0055 hide the death screen");
+                RestorePlayerOnResurrect(player);
+                await GainFlaskCharges(player, int.MaxValue, "resurrected");
+                // The new area's player object is created with full life.
+                await ChangeArea(player, new PendingTransfer(player.Character.LastTown, 0, false, AtSpawn: true), "resurrect in town");
+                await GameEvents.RunResurrected(player);
+                return;
+            }
+            if (!inTown && MapCheckpointExit(player) is { } exit)
+            {
+                await Send(player, InstanceProtocol.DeathScreen(0x02), "0x0055 hide the death screen");
+                RestorePlayerOnResurrect(player);
+                await GainFlaskCharges(player, int.MaxValue, "resurrected");
+                // The area the map was entered from is remade on the next entry (a town or a hideout) and an empty instance is
+                // gone six minutes after its last player leaves, so the instance the device recorded may be gone: Auth refuses
+                // that transfer ("instance N unavailable in this league") and leaves the dead player in the map (live
+                // 2026-11-18, the Simulacrum). Then enter a new instance of that area by its device, as the portal back does
+                // (PortalsFeature.ReturnTransfer): it is seed 1, so the cell is the same, and the run's portals follow there.
+                if (exit.Instance != 0 && AreaInstances.RecreatedOnEntry(exit.Area)
+                    && await AreaInstances.Gone(player, exit.Area, exit.Instance))
+                    exit = exit with { Instance = 0 };
+                await ChangeArea(player, exit, "resurrect at checkpoint: out of the map, where it was entered from");
+                await GameEvents.RunResurrected(player);
+                return;
+            }
+            // The checkpoint: the area's waypoint once activated, else where the player entered the area, as in the real game
+            // before any checkpoint is activated. Checkpoint objects and boss arenas (revive at the arena's door) are not done.
+            bool activated;
+            lock (player.Character.Waypoints)
+                activated = WaypointCatalog.Areas.Find(player.Layout.Hash) is { } entry && player.Character.Waypoints.Contains(entry.Id);
+            var (x, y) = player.Layout.Checkpoint(activated);
+            // Hide the death screen and start the continuous blackout in one write while still dead, then revive and
+            // teleport behind black right before FadeFromBlack starts so FadeController+0x24 never hits 0 mid-fade.
+            await SendResurrectFade(player, (x, y));
+            if (player.Closed || player.LeavingArea) return;
+            RestorePlayerOnResurrect(player);
+            player.Walk.Teleport(x, y, AreaTime(player));
+            await StartResurrectGracePeriod(player);
+            await GainFlaskCharges(player, int.MaxValue, "resurrected");
+            // Revive first: a teleport sent while the player is dead left them where they died (live 2026-10-17).
+            Note($"0x01b1 player revived with {player.PlayerLife} life");
+            await SendPlayerMana(player, $"0x01b1 player mana {player.PlayerMana}");
+            SetStats(player, player.Id, [(Stat.HideMiniLifeBar, 0)]); Note("0x01b3 player hide_mini_life_bar = 0");
+            // Death may have published false full-pool conditions while the player ticker kept its pre-death chance.
+            // Publish the restored life/ES conditions explicitly even when that cached chance is unchanged.
+            await SendCharacterStats(player, PlayerStatChange.Panel);
+            // The official resurrect first: 0x1f1 with the alive flag clear, then is_dead 0 — the checkpoint resurrect
+            // sends the alive-state row before the stats row, as the official respawn capture does.
+            await SendWorldRecord(player, player.Id, InstanceProtocol.AliveState(player.Id, 0, dead: false),
+                "0x01f1 resurrect: actor alive again, b=0");
+            await SendWorldRecord(player, player.Id, InstanceEntities.StatsUpdate(player.Id, [(Stat.IsDead, 0)]),
+                "0x01b3 player is_dead = 0");
+            await SendWorldRecord(player, player.Id, InstanceProtocol.Teleport(player.Id, x, y),
+                $"0x01b7 player to the checkpoint ({x}, {y}): {(activated && player.Layout.Waypoint is not null ? "the activated waypoint" : "the arrival point")}");
+            await GameEvents.RunResurrected(player);
+        }
+        finally { Volatile.Write(ref player.Resurrecting, 0); }
+    }
+
+    static void RestorePlayerOnResurrect(Player player)
+    {
         player.PlayerLife = LifeCap(player);
         InitializePlayerEnergyShield(player);
         player.HitRecovery.Clear();
@@ -1537,50 +1630,6 @@ public static partial class Game
         player.AuraDeathHandled = false;
         player.BossRecoveryHandled = false;
         player.PlayerMana = (uint)UnreservedMana(player);
-        foreach (var m in player.Area.Monsters.Values) m.Aggro = false;
-        Console.WriteLine($"[gateway] {player.Connection.Remote} <= 0x0054 resurrect {(inTown ? "in town" : "at checkpoint")}");
-        await Send(player, InstanceProtocol.DeathScreen(0x02), "0x0055 hide the death screen");
-        // The flasks are full again after a death.
-        await GainFlaskCharges(player, int.MaxValue, "resurrected");
-        if (inTown && player.Character.LastTown != 0 && player.Layout.Hash != player.Character.LastTown)
-        {
-            // The new area's player object is created with full life.
-            await ChangeArea(player, new PendingTransfer(player.Character.LastTown, 0, false, AtSpawn: true), "resurrect in town");
-            await GameEvents.RunResurrected(player);
-            return;
-        }
-        if (!inTown && MapCheckpointExit(player) is { } exit)
-        {
-            // The area the map was entered from is remade on the next entry (a town or a hideout) and an empty instance is
-            // gone six minutes after its last player leaves, so the instance the device recorded may be gone: Auth refuses
-            // that transfer ("instance N unavailable in this league") and leaves the dead player in the map (live
-            // 2026-11-18, the Simulacrum). Then enter a new instance of that area by its device, as the portal back does
-            // (PortalsFeature.ReturnTransfer): it is seed 1, so the cell is the same, and the run's portals follow there.
-            if (exit.Instance != 0 && AreaInstances.RecreatedOnEntry(exit.Area)
-                && await AreaInstances.Gone(player, exit.Area, exit.Instance))
-                exit = exit with { Instance = 0 };
-            await ChangeArea(player, exit, "resurrect at checkpoint: out of the map, where it was entered from");
-            await GameEvents.RunResurrected(player);
-            return;
-        }
-        // Revive first: a teleport sent while the player is dead left them where they died (live 2026-10-17).
-        Note($"0x01b1 player revived with {player.PlayerLife} life");
-        await SendPlayerMana(player, $"0x01b1 player mana {player.PlayerMana}");
-        // Death may have published false full-pool conditions while the player ticker kept its pre-death chance.
-        // Publish the restored life/ES conditions explicitly even when that cached chance is unchanged.
-        await SendCharacterStats(player, PlayerStatChange.Panel);
-        // The checkpoint: the area's waypoint once activated, else where the player entered the area, as in the real game
-        // before any checkpoint is activated. Checkpoint objects and boss arenas (revive at the arena's door) are not done.
-        bool activated;
-        lock (player.Character.Waypoints)
-            activated = WaypointCatalog.Areas.Find(player.Layout.Hash) is { } entry && player.Character.Waypoints.Contains(entry.Id);
-        var (x, y) = player.Layout.Checkpoint(activated);
-        player.Walk.Teleport(x, y, AreaTime(player));
-        await SendWorldRecord(player, player.Id, InstanceProtocol.Teleport(player.Id, x, y),
-            $"0x01b7 player to the checkpoint ({x}, {y}): {(activated && player.Layout.Waypoint is not null ? "the activated waypoint" : "the arrival point")}");
-        SetStats(player, player.Id, [(Stat.HideMiniLifeBar, 0)]); Note("0x01b3 player hide_mini_life_bar = 0");
-        await StartGracePeriod(player);
-        await GameEvents.RunResurrected(player);
     }
 
     // "Resurrect at Checkpoint" in a map leaves it for where it was entered from, the map device's area (the hideout),

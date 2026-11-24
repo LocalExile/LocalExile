@@ -56,6 +56,7 @@ public static partial class Game
             ["_while_es_full"] = alive && player.EnergyShield.Full,
             ["_on_full_energy_shield"] = alive && player.EnergyShield.Full,
             ["_while_no_energy_shield"] = player.EnergyShield.Current == 0,
+            [HaveEnergyShieldCondition] = alive && player.EnergyShield.Current > 0,
             ["_while_moving"] = moving, ["_while_stationary"] = !moving, ["_while_not_moving"] = !moving,
             ["_while_phasing"] = player.IsPhasing,
             ["_while_affected_by_elusive"] = player.IsElusive,
@@ -98,6 +99,15 @@ public static partial class Game
         flags["_while_on_consecrated_ground"] = player.FlaskGrounds.Consecrated;
         bool onslaught = HasIndependentOnslaught(player);
         flags["independent_onslaught"] = onslaught;
+        // "while a Pinnacle Boss is in your Presence": the monster scan behind this flag ran on every
+        // item-stat lookup (~450 a second in a fight), so work it out only when a worn item carries a mod
+        // with the condition stat (LocalInfluenceModRequiresCelestialBossPresence, Stats 15802). The
+        // per-item answer is remembered by reference (ItemModStats.LocalValue), so repeat lookups pay
+        // only a cache hit per worn item. Otherwise the flag stays absent, which ItemModStats reads as
+        // the mod counting as before — and no such mod is worn anyway. The flag rides the stat-sum cache
+        // key, so a pinnacle boss entering or leaving presence recomputes the sources.
+        if (WornHasCelestialPresenceMod(player, activeItems))
+            flags[StatConditions.CelestialBossInPresence] = alive && CelestialBossInPresenceLocked(player, now);
         flags["_while_onslaught_is_active"] = onslaught;
         flags["_while_have_onslaught"] = onslaught;
         flags["_while_channelling"] = player.ChannelSkill != 0;
@@ -246,6 +256,20 @@ public static partial class Game
 
     static readonly Store<Player, ConditionalItemPoolState> ConditionalItemPools = new();
 
+    /// <summary>Whether any of the given items carries a mod with a nonzero
+    /// <c>local_influence_mod_requires_celestial_boss_presence</c> (Stats 15802, IsLocal): the one
+    /// question the pinnacle-presence flag needs, answered per item from the local-sum cache
+    /// (<see cref="ItemModStats.LocalValue"/>), never a fresh mod scan or <c>ItemModStats.Sum</c>.</summary>
+    static bool WornHasCelestialPresenceMod(Player player, IEnumerable<Item>? activeItems)
+    {
+        if (activeItems is null) return false;
+        var mods = ItemsFor(player).Mods;
+        foreach (var item in activeItems)
+            if (ItemModStats.LocalValue(item, mods, Stat.LocalInfluenceModRequiresCelestialBossPresence) != 0)
+                return true;
+        return false;
+    }
+
     static bool WornHasConditionalMods(Player player, IReadOnlyList<ItemModStats.Worn> worn)
     {
         var mods = ItemsFor(player).Mods;
@@ -322,7 +346,8 @@ public static partial class Game
             state.CheckedTattooRevision = tattooRevision;
             state.CheckedLevel = level;
             state.CheckedGod = god;
-            state.HasConditionalMods = WornHasConditionalMods(player, current.Worn);
+            state.HasConditionalMods = current.Key.Flags?.ContainsKey(StatConditions.CelestialBossInPresence) == true
+                || WornHasConditionalMods(player, current.Worn);
             state.HasBeastCompanions = HasAnyBeastCompanionState(player)
                 || AllWornGrantedSkillsOf(player).Any(g => BeastSourceEligible(player, g));
         }
@@ -338,12 +363,13 @@ public static partial class Game
         state.AppliedOnslaughtEffect = onslaughtEffect;
         // After a Game-module reload the source marker is new but the connection's old final pools survive.
         // Rebuild conditional equipment on first observation instead of accepting an already-expired old bonus.
-        bool conditionalEquipment = before is null && current.Worn.Any(w => w.Item.Mods.Any(m =>
+        bool conditionalEquipment = before is null && (current.Key.Flags?.ContainsKey(StatConditions.CelestialBossInPresence) == true
+            || current.Worn.Any(w => w.Item.Mods.Any(m =>
             ItemsFor(player).Mods.ByHash(m.Hash)?.Stats.Any(s => !s.Local
                 && (s.Name.Contains("_if_", StringComparison.Ordinal)
                     || s.Name.Contains("_while_", StringComparison.Ordinal)
                     || StatConditions.IsActiveNonVaalSkillMinionCoefficient(s.Name)
-                    || OwnedCountItemStats.IsCoefficient(s.Id))) == true));
+                    || OwnedCountItemStats.IsCoefficient(s.Id))) == true)));
         bool sameHerEmbrace = (before?.Key.Flags?.GetValueOrDefault("_while_in_her_embrace") == true)
             == (current.Key.Flags?.GetValueOrDefault("_while_in_her_embrace") == true);
         if (!providersChanged && sameElusive && sameHerEmbrace && sameOnslaughtEffect
