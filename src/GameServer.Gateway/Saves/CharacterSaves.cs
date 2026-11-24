@@ -284,11 +284,14 @@ public static class CharacterSaves
         return save with { SkillBar = bar };
     });
 
+    public static void SetSkillBarOption(string character, bool attackInPlace, byte slot, bool on) =>
+        SetSkillBarOption(character, attackInPlace, slot, on, null);
+
     /// <summary>Sets or clears a skill bar slot's bit in one of the two option masks (C→S 0x4f "Always Attack Without
     /// Moving", or 0x52). <paramref name="seed"/> is the mask the character counts as having had until now, for a save
     /// that holds none: the first box the player touches then keeps the other slots' own defaults instead of clearing
     /// them. What those defaults are belongs to the caller (Game.AttackInPlaceDefaults).</summary>
-    public static void SetSkillBarOption(string character, bool attackInPlace, byte slot, bool on, ushort? seed = null) => Update(character, save =>
+    public static void SetSkillBarOption(string character, bool attackInPlace, byte slot, bool on, ushort? seed) => Update(character, save =>
     {
         ushort mask = (attackInPlace ? save.AttackInPlaceSlots : save.SkillBarMask52) ?? seed ?? 0;
         mask = on ? (ushort)(mask | 1 << slot) : (ushort)(mask & ~(1 << slot));
