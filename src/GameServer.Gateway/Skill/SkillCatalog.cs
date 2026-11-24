@@ -1355,11 +1355,16 @@ public sealed class SkillCatalog
 
     /// <summary>A storm skill's cast, from its own stats: Firestorm's <c>base_skill_effect_duration</c> and
     /// <c>fire_storm_fireball_delay_ms</c>, the drop area's <c>active_skill_base_area_of_effect_radius</c> scaled by
-    /// <c>firestorm_base_area_of_effect_+%</c>, and the fall's own hit, the skill's fire damage. Fire Fury's
+    /// <c>firestorm_base_area_of_effect_+%</c>, each fall's explosion radius (<c>ImpactRadius</c>, scaled by
+    /// <c>firestorm_explosion_area_of_effect_+%</c> when present), and the fall's own hit, the skill's fire damage. Fire Fury's
     /// (<c>FemaleCannibalBossFireStorm</c>, stat set 1474) is 3000 ms / 100 ms: 30 falls 0.1 s apart, each in a
     /// 5-cell drop area.</summary>
     public sealed record StormInfo(int DurationMs, int DelayMs, double Radius, DamagePacket Damage)
     {
+        /// <summary>Each individual fall's explosion radius in cells. Kept separate from <see cref="Radius"/> (the drop
+        /// scatter zone) so large-spread storms like Gravicius's (+600% storm area) do not inflate each fireball's blast
+        /// to the whole arena, and zero-spread storms (-100% storm area) keep their base blast radius.</summary>
+        public double ImpactRadius { get; init; }
         /// <summary>The falls one cast brings: the duration over the delay (30 for Fire Fury's 3000 ms / 100 ms).</summary>
         public int Falls => Math.Clamp(DurationMs / DelayMs, 1, MaxFalls);
         public double IntervalSeconds => DelayMs / 1000.0;
@@ -1368,21 +1373,30 @@ public sealed class SkillCatalog
         public const int MaxFalls = 128;
     }
 
-    /// <summary>A downpour spell's falls, or null for every other skill. The gate is the skill's own
-    /// <c>fire_storm_fireball_delay_ms</c> with a duration and fire damage: the ice and chaos storms (an Icestorm's
-    /// cold, a Chaosstorm's chaos, all sharing ActiveSkills row 206 with Firestorm) drop nothing extra here.</summary>
+    /// <summary>A downpour spell's falls for a monster at <paramref name="level"/>, or null for every other skill. The
+    /// gate is ActionTypes <c>FireStorm</c> with <c>fire_storm_fireball_delay_ms</c>, a duration, a base radius and fire
+    /// damage: the ice and chaos storms (an Icestorm's cold, a Chaosstorm's chaos, all sharing ActiveSkills row 206 with
+    /// Firestorm) and non-FireStorm cascades drop nothing extra here.</summary>
     public StormInfo? MonsterStorm(int effectRow, int level)
     {
-        var stats = EffectStats(effectRow, level);
+        if (ActionTypeId(effectRow) != "FireStorm") return null;
+        int effectLevel = MonsterEffectLevel(effectRow, level);
+        var stats = EffectStats(effectRow, effectLevel);
         int Get(uint key) => stats.FirstOrDefault(s => s.Item1 == key).Item2;
         int delay = Get(Stat.FireStormFireballDelayMs), duration = Get(Stat.BaseSkillEffectDuration);
         if (delay <= 0 || duration <= 0) return null;
-        var damage = HitDamage(effectRow, level);
+        int baseRadius = Get(Stat.ActiveSkillBaseAreaOfEffectRadius);
+        if (baseRadius <= 0) return null;
+        var damage = HitDamage(effectRow, effectLevel);
         if (damage[DamageType.Fire].Max <= 0) return null;
         // SkillArea.Radius's rule, over the storm's own base area stat: the radius times the square root of its area.
-        int baseRadius = Math.Max(0, Get(Stat.ActiveSkillBaseAreaOfEffectRadius));
         double area = Math.Max(0, 1 + Get(Stat.FirestormBaseAreaOfEffectPlusPct) / 100.0);
-        return new(duration, delay, baseRadius * Math.Sqrt(area), damage);
+        double dropRadius = baseRadius * Math.Sqrt(area);
+        int explosionPct = Get(Stat.FirestormExplosionAreaOfEffectPlusPct);
+        double impactRadius = explosionPct != 0
+            ? baseRadius * Math.Sqrt(Math.Max(0, 1 + explosionPct / 100.0))
+            : dropRadius > 0 ? Math.Min(baseRadius, dropRadius) : baseRadius;
+        return new(duration, delay, dropRadius, damage) { ImpactRadius = impactRadius };
     }
 
     /// <summary>Measured launch frames for monster projectile skills: frames of 33 ms from the start of the action,

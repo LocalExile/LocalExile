@@ -30,25 +30,37 @@ public static partial class Game
     /// <summary>A storm skill's cast (Fire Fury's Firestorm): one fall per interval for the skill's duration, each
     /// resolving on the server where the bolt would have landed. The client draws the storm from the cast (0x01ab),
     /// so the server sends no lobbed bolt per fall: at each fall's time the bolt's own EndArea resolves on the fall's
-    /// cell, with the skill's fire damage (HostileHit -> CommitMonsterHitLocked). The falls outlive the action — the
-    /// storm lasts its duration, not its caster's cast — and stop with the monster: <paramref name="still"/> keeps
-    /// them only while it is present. <paramref name="startsAt"/> is the first fall's time, seconds of the connection
+    /// cell, with the monster's scaled skill damage (HostileHit -> CommitMonsterHitLocked). The falls outlive the
+    /// action — the storm lasts its duration, not its caster's cast — and stop with the monster
+    /// (<c>MonsterPresent</c>). <paramref name="startsAt"/> is the first fall's time, seconds of the connection
     /// clock.</summary>
     public static void MonsterFirestormStorm(Player player, uint id, SpawnedMonster m, MonsterAttack a, int action,
         SkillCatalog.StormInfo storm, double startsAt, (int X, int Y) aim, ushort sequence)
     {
+        var session = ProjectilesFor(player);
+        if (!session.Active) return;
+        session.Advance();
         var skills = SkillsFor(player);
         int speed = skills.Projectile(StormFallProjectile) is (_, int rowSpeed) ? rowSpeed : 3260;
         int collision = skills.ProjectileContactCells(StormFallProjectile) ?? 2;
-        var falling = a with { Damage = storm.Damage, Spell = true };
+        double aoeScale = m.Effects.AreaScaleFactor > 0 ? m.Effects.AreaScaleFactor : 1;
+        double impactRadius = (storm.ImpactRadius > 0 ? storm.ImpactRadius : storm.Radius) * aoeScale;
+        var scaledStorm = aoeScale == 1 ? storm : storm with { Radius = storm.Radius * aoeScale, ImpactRadius = impactRadius };
+        // Preserve the monster's level-interpolated and mod-scaled damage when present; fall back to the raw storm row.
+        var falling = a with { Damage = a.Damage.IsZero ? storm.Damage : a.Damage, Spell = true };
         var fall = new SkillCatalog.MonsterProjectileInfo(StormFallProjectile, speed, Lobbed: true, collision)
         {
             Count = 1,
-            // The drop area is also the fall's own explosion: the skill's one area stat, scaled by its storm area stat.
-            AreaRadius = storm.Radius,
+            AreaRadius = impactRadius,
         };
-        foreach (var (at, cell) in StormFalls(storm, startsAt, aim, id, sequence))
-            LaunchMonsterFirestormFall(player, id, m, falling, fall, action, at, cell, sequence);
+        double cellsPerSecond = ProjectileSpeed.CellsPerSecond(fall.Speed, _ => 0, _ => 0,
+            Environment.GetEnvironmentVariable("Game_PROJECTILE_SPEED"));
+        var profile = MonsterProjectileProfile(fall, cellsPerSecond, 1, Math.Max(1, falling.Range) * 1.5 + 5);
+        if (profile.EndArea is not { } area) return;
+        var offense = new HostileProjectileOffense(id, m, falling, action, $"{m.Label} {fall.Metadata}")
+            { Sequence = sequence };
+        foreach (var (at, cell) in StormFalls(scaledStorm, startsAt, aim, id, sequence))
+            ScheduleMonsterFirestormFall(session, player, id, m, profile, area, offense, at, cell);
     }
 
     /// <summary>One fall of a storm: no projectile object. At the fall's time, resolve the bolt's own EndArea where
@@ -60,26 +72,33 @@ public static partial class Game
         SkillCatalog.MonsterProjectileInfo projectile, int action, double at, (int X, int Y) cell, ushort sequence)
     {
         var session = ProjectilesFor(player);
+        if (!session.Active) return;
+        session.Advance();
+        double speed = ProjectileSpeed.CellsPerSecond(projectile.Speed, _ => 0, _ => 0,
+            Environment.GetEnvironmentVariable("Game_PROJECTILE_SPEED"));
+        var profile = MonsterProjectileProfile(projectile, speed, 1, Math.Max(1, a.Range) * 1.5 + 5);
+        if (profile.EndArea is not { } area) return;
+        var offense = new HostileProjectileOffense(id, m, a, action, $"{m.Label} {projectile.Metadata}")
+            { Sequence = sequence };
+        ScheduleMonsterFirestormFall(session, player, id, m, profile, area, offense, at, cell);
+    }
+
+    static void ScheduleMonsterFirestormFall(ProjectileSession session, Player player, uint id, SpawnedMonster m,
+        ProjectileProfile profile, ProjectileAreaRecipe area, HostileProjectileOffense offense, double at, (int X, int Y) cell)
+    {
         session.Runtime.Schedule(Math.Max(session.Runtime.Now, ProjectileRuntime.Time(at)), () =>
         {
-            if (!MonsterPresent(player, id, m) || InGracePeriod(player)) return;
+            if (!session.Active || !MonsterPresent(player, id, m) || InGracePeriod(player)) return;
             try
             {
                 // The impact's origin is the monster's cell at the fall's time, as a lobbed shot's would be; the hit
                 // itself is read from the fall's cell (the contact position), exactly as the bolt's explosion is.
-                var from = ProjectileSession.Vector(m.Walk.Position(at));
+                double now = session.Runtime.Now / (double)ProjectileRuntime.QuantaPerSecond;
+                var from = ProjectileSession.Vector(m.Walk.Position(now));
                 var centre = ProjectileSession.Vector(cell);
-                double speed = ProjectileSpeed.CellsPerSecond(projectile.Speed, _ => 0, _ => 0,
-                    Environment.GetEnvironmentVariable("Game_PROJECTILE_SPEED"));
-                double landing = Math.Max(0.5, (centre - from).Length);
-                var profile = MonsterProjectileProfile(projectile, speed, landing, Math.Max(landing, a.Range) * 1.5 + 5);
                 var owner = session.ActorKey(id, m);
-                var use = new ProjectileUse(profile, owner, owner, 2, from, centre)
-                {
-                    Payload = new HostileProjectileOffense(id, m, a, action, $"{m.Label} {projectile.Metadata}")
-                        { Sequence = sequence },
-                };
-                if (profile.EndArea is { } area) session.Runtime.Impact(use, centre, area);
+                var use = new ProjectileUse(profile, owner, owner, 2, from, centre) { Payload = offense };
+                session.Runtime.Impact(use, centre, area);
             }
             catch (InvalidOperationException ex)
             { Console.WriteLine($"[gateway] {player.Connection.Remote} firestorm fall unavailable: {ex.Message}"); }

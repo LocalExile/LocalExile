@@ -19,6 +19,7 @@ public sealed class MonsterStormsLaunchTests
         Assert.Equal(30, storm.Falls);
         Assert.Equal(0.1, storm.IntervalSeconds, 9);
         Assert.Equal(10 * Math.Sqrt(.26), storm.Radius, 6);
+        Assert.Equal(10 * Math.Sqrt(.26), storm.ImpactRadius, 6);
         Assert.Equal(3, storm.Damage[DamageType.Fire].Min, 6);
         Assert.Equal(4, storm.Damage[DamageType.Fire].Max, 6);
         var falls = Game.StormFalls(storm, 5, (100, 100), owner: 0x3001, sequence: Game.MonsterActionSequence);
@@ -31,6 +32,17 @@ public sealed class MonsterStormsLaunchTests
             Assert.True(Math.Sqrt(dx * dx + dy * dy) <= storm.Radius + .71, $"fall {i} at {falls[i].Cell}");
         }
         Assert.True(falls.Select(f => f.Cell).Distinct().Count() > 20);
+        // Multi-level monster storm resolves by MonsterEffectLevel (Act 3 Gravicius level 28 -> gem level 1, not level 3)
+        // and keeps its individual fireball blast radius (10) separate from its +600% drop zone radius.
+        var gravicius = skills.MonsterStorm(1457, 28);
+        Assert.NotNull(gravicius);
+        Assert.Equal(128, gravicius.Damage[DamageType.Fire].Min, 6);
+        Assert.Equal(192, gravicius.Damage[DamageType.Fire].Max, 6);
+        Assert.Equal(10 * Math.Sqrt(7), gravicius.Radius, 6);
+        Assert.Equal(10, gravicius.ImpactRadius, 6);
+        // Non-FireStorm ActionTypes (EnchantmentMeteor / FireStormCascade) without a base radius return null.
+        Assert.Null(skills.MonsterStorm(5442, 60));
+        Assert.Null(skills.MonsterStorm(6160, 70));
         // The ice and chaos storms share Firestorm's ActiveSkills row and its fire_storm_fireball_delay_ms, but
         // their damage is not fire, so they take no fall schedule.
         Assert.Equal("CannibalIcestorm", skills.EffectId(1383));
@@ -39,14 +51,15 @@ public sealed class MonsterStormsLaunchTests
         Assert.Null(skills.MonsterStorm(1390, 1));
     }
 
-    // A skill with a measured row releases at its row x 33 ms from the start of its action; a skill without a row
-    // keeps the clip contact's fraction of the attack time.
+    // A skill with a measured row releases at its row x 33 ms from the start of its action (scaled by runtime action
+    // speed and clamped inside the action duration); a skill without a row keeps the clip contact's fraction.
     [Fact]
     public void A_measured_skill_releases_at_its_launch_frame()
     {
         var skills = new SkillCatalog();
         Assert.Equal(14, skills.LaunchFrames("MonsterSpark"));
         Assert.Equal(5, skills.LaunchFrames("HeraldOfAgonyMinionTailSpike"));
+        Assert.Equal(0, skills.LaunchFrames("MonsterSplitArrow"));
         Assert.Null(skills.LaunchFrames("Firestorm"));
         Assert.Null(skills.LaunchFrames(null));
         var attack = new MonsterAttack(0, 1.0, 10, DamagePacket.Of(DamageType.Physical, 10, 20))
@@ -55,6 +68,13 @@ public sealed class MonsterStormsLaunchTests
             LaunchFrames = skills.LaunchFrames("MonsterSpark"),
         };
         Assert.Equal(14 * 0.033, Game.MonsterLaunchDelay(attack, 0.375, 1.0), 10);
+        // Runtime action-speed slow (e.g. 50% slower from chill) stretches the launch frame proportionally.
+        Assert.Equal(14 * 0.033 * 1.5, Game.MonsterLaunchDelay(attack, 0.375, 1.5), 10);
+        // Accelerated cast/attack shorter than the raw measured frame clamps strictly before the action ends.
+        var fast = attack with { Seconds = 0.40 };
+        Assert.Equal(0.40 - 0.033, Game.MonsterLaunchDelay(fast, 0.375, 0.40), 10);
+        // Frame 0 releases immediately on the action start.
+        Assert.Equal(0, Game.MonsterLaunchDelay(attack with { LaunchFrames = 0 }, 0.375, 1.0), 10);
         // A skill without a row keeps the contact path.
         Assert.Equal(0.375, Game.MonsterLaunchDelay(attack with { LaunchFrames = null }, 0.375, 1.0), 10);
     }

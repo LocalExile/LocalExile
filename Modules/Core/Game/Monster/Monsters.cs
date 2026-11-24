@@ -1752,11 +1752,18 @@ public static partial class Game
     }
 
     /// <summary>When a monster's projectile skill releases its shot, as a delay from the start of its action
-    /// 0x1ab: its measured launch frame when it has one (MonsterAttack.LaunchFrames); every skill without a
-    /// row keeps the clip contact's fraction of the attack time. Read from the attack built once per skill,
-    /// never per hit.</summary>
-    public static double MonsterLaunchDelay(MonsterAttack attack, double contact, double seconds) =>
-        attack.LaunchFrames is int frames ? frames * Program.FrameMs / 1000d : seconds * contact;
+    /// 0x1ab: its measured launch frame when it has one (MonsterAttack.LaunchFrames), scaled by any runtime action-speed
+    /// change (chill/haste) and clamped strictly inside the action duration so accelerated monsters never overrun
+    /// <c>BusyUntil</c> and drop their shot; every skill without a row keeps the clip contact's fraction of the attack
+    /// time. Read from the attack built once per skill, never per hit.</summary>
+    public static double MonsterLaunchDelay(MonsterAttack attack, double contact, double seconds)
+    {
+        if (attack.LaunchFrames is not int frames) return seconds * contact;
+        double frameSeconds = Program.FrameMs / 1000d;
+        double scale = attack.Seconds > 0 && seconds > 0 ? seconds / attack.Seconds : 1;
+        double delay = Math.Max(0, frames) * frameSeconds * scale;
+        return seconds > 0 ? Math.Min(delay, Math.Max(0, seconds - frameSeconds)) : delay;
+    }
 
     public static bool MonsterPresent(Player player, uint id, SpawnedMonster m) =>
         CurrentGameWork && !player.Closed && !player.LeavingArea && !player.RageRetired && player.PendingTransfer is null && !m.Dead && m.Life > 0
@@ -2446,7 +2453,7 @@ public static partial class Game
             if (a.Projectile is not null && a.Effect is int barrageEffect
                 && BossMoves.BarrageOf(SkillsFor(player), barrageEffect) is { } pendingBarrage)
                 m.BusyUntil = Math.Max(m.BusyUntil,
-                    startedAt + seconds * contact + (pendingBarrage.Count - 1) * pendingBarrage.Seconds + player.LockstepActionTail);
+                    startedAt + MonsterLaunchDelay(a, contact, seconds) + (pendingBarrage.Count - 1) * pendingBarrage.Seconds + player.LockstepActionTail);
             if (player.Connection.LockstepClient && a.Projectile is { Variation: > 0, Lobbed: false } nativeProjectile)
             {
                 // Like the player's native shot, the monster emits at the end of the frame that crosses contact.
