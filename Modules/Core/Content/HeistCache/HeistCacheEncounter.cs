@@ -1,4 +1,5 @@
 using System.Runtime.CompilerServices;
+using GameServer.Core;
 using GameServer.Core.Protocol.Instance;
 using GameServer.Core.World;
 using GameServer.Modding;
@@ -76,13 +77,17 @@ public sealed class HeistCacheEncounter
     /// <summary>
     /// A new instance's population: as many caches as the Heist row gives it (the client's WorldAreaLeagueChances,
     /// column 18), each on a walkable cell with room, apart from the others. Deterministic in the area and its seed.
-    /// Only in map areas, and only when the map's stats allow extra content.
+    /// Runs in Acts 6–10 campaign areas (11–15% per WorldAreaLeagueChances; Acts 1–5 naturally roll 0%) and maps,
+    /// skipping towns, hideouts, Twilight Strand, and Labyrinth.
     /// </summary>
     public async Task OnAreaPopulated(AreaPopulated area)
     {
         var player = area.Player;
         var layout = player.Layout;
-        if (layout.Walkable is null || !MapDevices.IsMapArea(layout.Hash)) return;
+        if (layout.Walkable is null || InTown(player)
+            || HideoutCatalog.ByArea(layout.Hash) is not null
+            || layout.Id == TutorialObjects.Strand
+            || LabyrinthTrials.InLabyrinth(layout.Id)) return;
         var state = For(player);
         await state.Gate.WaitAsync();
         try
@@ -97,7 +102,8 @@ public sealed class HeistCacheEncounter
             // The encounter's own draws, apart from the packs' (the same instance gets the same caches). When the map
             // zeroes the base chance, only the added chance rolls: the base is scaled to nothing, not the whole roll.
             var rng = new Random(area.Seed ^ 0x48656973);
-            int count = LeagueChances.Current.Count(layout.Id, LeagueChances.Heist, rng, alternate: false,
+            bool hardMode = player.LeagueModule?.HardMode == true;
+            int count = LeagueChances.Current.Count(layout.Id, LeagueChances.Heist, rng, alternate: hardMode,
                 increased: S(Stat.MapExtraContentHasNoBaseChanceToSpawn) > 0 ? -100 : S(Stat.MapLeagueBaseChancePlusPctFinal),
                 added: S(Stat.MapLeagueContentAdditionalChancePct) + S(Stat.MapSmugglersCacheAdditionalChancePct),
                 encounterIncrease: S(Stat.MapHeistSmugglersCacheEncounterChancePlusPct));
@@ -224,7 +230,12 @@ public sealed class HeistCacheEncounter
         return true;
     }
 
-    /// <summary>Present the opened cache once when players finish their walks together.</summary>
+    const string HeistCoinId = "Metadata/Items/Heist/HeistCoin";
+    const string RampartsAreaId = "2_8_1";
+    const string RampartsCacheFlag = "RampartsSmugglersCacheOpened";
+    const string UsedHeistCoinFlag = "UsedHeistCoin";
+
+    /// <summary>Present the opened cache once when players finish their walks together, then drop retail Heist loot.</summary>
     public async Task<bool> Open(Player player, Box box, State? state = null)
     {
         state ??= For(player);
@@ -238,6 +249,159 @@ public sealed class HeistCacheEncounter
             await Present(player, box);
         }
         finally { state.Gate.Release(); }
+        await DropLoot(player, box);
         return true;
+    }
+
+    static async Task DropLoot(Player player, Box box)
+    {
+        if (Environment.GetEnvironmentVariable("Game_DROPS") == "0" || !GameEvents.AllowsLoot(player)) return;
+        var stats = player.Instance.AreaStats(() => AreaLeagueStats(player));
+        if (stats.GetValueOrDefault(Stat.MapDisableHeistCoinContractBlueprintDrops) > 0) return;
+
+        var catalog = ItemsFor(player);
+        var rolls = RollsFor(player);
+        int level = Math.Clamp(box.Level > 0 ? box.Level : ServerLevels.AreaLevel(player.Layout.Id), 1, 100);
+        bool isCampaign = !MapDevices.IsMapArea(player.Layout.Hash);
+        bool hardMode = player.LeagueModule?.HardMode == true;
+        var rng = new Random(HashCode.Combine(player.Seed, box.Cell.X, box.Cell.Y, level, 0x48434143));
+        var drops = new List<ItemDrops.Drop>();
+
+        // 1. Rogue's Markers (Metadata/Items/Heist/HeistCoin), scaled by area level.
+        if (catalog.Find(HeistCoinId) is { Supported: true } coinType)
+        {
+            int count = level >= 68
+                ? 120 + (level - 68) * 10 + rng.Next(40, 141)
+                : 45 + Math.Max(0, level - 45) * 3 + rng.Next(15, 56);
+            // First Smuggler's Cache opened in Acts 6-10 guarantees enough Rogue's Markers to introduce Rogue Harbour.
+            if (isCampaign && !player.Character.QuestFlags.Contains(UsedHeistCoinFlag))
+                count = Math.Max(count, 120);
+            int doublePct = stats.GetValueOrDefault(Stat.HeistCoinsFromWorldChestsDoublePct);
+            if (doublePct > 0 && rng.Next(100) < doublePct) count *= 2;
+            ushort stack = (ushort)Math.Clamp(count, 1, Math.Max(1, (int)coinType.MaxStack));
+            drops.Add(new(ItemCatalog.Create(coinType) with { StackSize = stack }, coinType));
+        }
+
+        // 2. Contracts (DropLevel <= areaLevel, L48-60+; filtered by Supported so wire serialization never throws).
+        var contracts = catalog.All
+            .Where(t => t.Class == "HeistContract" && t.Supported && t.DropLevel <= level
+                && !t.Id.Contains("/QuestContracts/", StringComparison.OrdinalIgnoreCase))
+            .ToArray();
+        if (contracts.Length > 0)
+        {
+            int contractCount = rng.Next(100) < 50 ? 2 : 1;
+            for (int i = 0; i < contractCount; i++)
+            {
+                var cType = contracts[rng.Next(contracts.Length)];
+                var item = ItemCatalog.Create(cType) with { ItemLevel = (byte)level };
+                item = RollHeistItemRarity(item, rolls, rng);
+                drops.Add(new(item, cType));
+            }
+        }
+
+        // 3. Blueprints (DropLevel <= areaLevel, L50+; fully wire-supported via HeistBlueprintState).
+        if (level >= 50)
+        {
+            int bpChance = contracts.Length > 0 ? 15 : 35;
+            if (rng.Next(100) < bpChance)
+            {
+                var blueprints = catalog.All
+                    .Where(t => t.Class == "HeistBlueprint" && t.Supported && t.DropLevel <= level)
+                    .ToArray();
+                if (blueprints.Length > 0)
+                {
+                    var bpType = blueprints[rng.Next(blueprints.Length)];
+                    if (BuildBlueprint(bpType, level, hardMode, rng) is { } bpItem)
+                    {
+                        bpItem = RollHeistItemRarity(bpItem, rolls, rng);
+                        drops.Add(new(bpItem, bpType));
+                    }
+                }
+            }
+        }
+
+        if (isCampaign && player.Layout.Id == RampartsAreaId
+            && !player.Character.QuestFlags.Contains(RampartsCacheFlag))
+            await SetQuestFlags(player, [RampartsCacheFlag]);
+
+        foreach (var drop in ItemDrops.Stacked(drops))
+        {
+            var at = player.Layout.Near((box.Cell.X + rng.Next(-4, 5), box.Cell.Y + rng.Next(-4, 5)));
+            var ground = new WorldItemObject(at.X, at.Y, drop.Item);
+            uint id = player.Instance.Ground.Add(ground, player);
+            await SendGroundItem(player, id, ground, $"Smuggler's Cache drops {drop.Type.Name}", justDropped: true);
+        }
+    }
+
+    static Item RollHeistItemRarity(Item item, ItemRolls rolls, Random rng)
+    {
+        int roll = rng.Next(100);
+        if (roll < 10) return rolls.Roll(item, ItemRarity.Rare, rng) with { Identified = false };
+        if (roll < 35) return rolls.Roll(item, ItemRarity.Magic, rng) with { Identified = false };
+        return item;
+    }
+
+    static Item? BuildBlueprint(ItemCatalog.BaseType type, int areaLevel, bool hardMode, Random rng)
+    {
+        if (!ClientTables.Has("HeistAreas") || !ClientTables.Has("HeistChestRewardTypes")) return null;
+        var areas = ClientTables.Table("HeistAreas").Where(r => r.IntOrNull("Blueprint_BaseItemTypesKey") == type.Row).ToArray();
+        if (areas.Length == 0) return null;
+        var jobs = areas[0].Ints("HeistJobsKeys").Where(j => j is >= 0 and < 255).ToArray();
+        if (jobs.Length == 0) return null;
+        var rewards = ClientTables.Table("HeistChestRewardTypes");
+        int escape = -1;
+        var rooms = new List<(int Row, int Min, int Max, int Weight, HashSet<int> Jobs)>();
+        for (int row = 0; row < rewards.Count; row++)
+        {
+            var r = rewards[row];
+            string rid = r.Text("Id") ?? "";
+            if (rid == "EscapeRoom") { escape = row; continue; }
+            if (!hardMode && rid.StartsWith("HardMode", StringComparison.OrdinalIgnoreCase)) continue;
+            int weight = r.IntOrNull("Weight") ?? 0;
+            if (weight <= 0 || row >= 128) continue;
+            rooms.Add((row, r.IntOrNull("MinLevel") ?? 0, r.IntOrNull("MaxLevel") ?? 100, weight, r.Ints("HeistJobsKey").ToHashSet()));
+        }
+        if (escape < 0 || escape >= 128) return null;
+
+        byte bpLevel = (byte)Math.Clamp(areaLevel, 50, 83);
+        int maxJobLevel = Math.Clamp((bpLevel - 40) / 10 + 1, 1, 5);
+        int wingCount = rng.Next(3, 5);
+        var wings = new List<HeistWing>(wingCount);
+        for (int w = 0; w < wingCount; w++)
+        {
+            bool revealed = w == 0;
+            int jobCount = Math.Min(jobs.Length, rng.Next(2, 4));
+            var pickedJobs = jobs.OrderBy(_ => rng.Next()).Take(jobCount).ToArray();
+            var allowed = rooms.Where(r => r.Min <= bpLevel && r.Max >= bpLevel && r.Jobs.Overlaps(pickedJobs)).ToArray();
+            if (allowed.Length == 0) allowed = rooms.Where(r => r.Min <= bpLevel && r.Max >= bpLevel).ToArray();
+            if (allowed.Length == 0) return null;
+
+            int totalWeight = allowed.Sum(r => r.Weight);
+            int roomCount = rng.Next(3, 7);
+            var wingRooms = new List<HeistRoom>(roomCount + 2);
+            for (int r = 0; r < roomCount; r++)
+            {
+                int draw = rng.Next(totalWeight);
+                var selected = allowed[^1];
+                foreach (var candidate in allowed)
+                    if ((draw -= candidate.Weight) < 0) { selected = candidate; break; }
+                wingRooms.Add(new((byte)selected.Row, revealed && r < 2));
+            }
+            wingRooms.Add(new((byte)escape, revealed));
+            wingRooms.Add(new((byte)escape, false));
+
+            wings.Add(new(
+                revealed,
+                [.. pickedJobs.Select(j => new HeistJob((byte)j, (byte)rng.Next(1, maxJobLevel + 1)))],
+                [.. Enumerable.Repeat((byte)0xff, jobCount)],
+                wingRooms));
+        }
+
+        uint seed = (uint)rng.NextInt64(1, (long)uint.MaxValue + 1);
+        return ItemCatalog.Create(type) with
+        {
+            ItemLevel = bpLevel,
+            HeistBlueprint = new HeistBlueprintState(seed, bpLevel, 1, false, wings),
+        };
     }
 }

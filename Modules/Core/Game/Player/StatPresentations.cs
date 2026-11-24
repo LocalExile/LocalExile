@@ -127,8 +127,9 @@ public static partial class Game
         // a1q4: coming near the Glyph Wall ("Investigate the Mud Flats for a way to lower the water").
         if (player.Glyphs?.Wall is not null && !player.Character.HasQuestFlag(GlyphQuest.SeenGlyphWall) && Sees(player, GlyphWallSight))
             await SetQuestFlags(player, [GlyphQuest.SeenGlyphWall]);
-        // The quest engine's sight rules (room objects, exits).
+        // The quest engine's sight rules (room objects, exits) and town NPC voice-line proximity triggers.
         await CheckQuestSights(player, at);
+        await CharacterVoiceLines.CheckNpcProximity(player, at);
         if (player.QuestNearSpawns.Count > 0) await CheckQuestNearSpawns(player, at);
     }
 

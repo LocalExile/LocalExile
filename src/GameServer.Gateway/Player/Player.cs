@@ -1454,6 +1454,14 @@ public sealed partial class Player(AreaLayout layout, uint ticket, uint seed) : 
     // The previous recovery tick's states of the once-per-transition Loyalty triggers (Energy Shield Recharge started,
     // Low Life reached): Game.LoyaltyResourceStateLocked.
     public bool LoyaltyRechargeSeen, LoyaltyLowLifeSeen;
+    // O(1) Pantheon combat state (Brine King, Arakaali, Solaris, Abberath, Shakari, Tukohama, Ryslatha).
+    public double LastStunnedOrBlockedStunAt = double.NegativeInfinity;
+    public double LastStoppedTakingDotAt = double.NegativeInfinity;
+    public bool TakingDotLastTick;
+    public double LastCritTakenAt = double.NegativeInfinity;
+    public double StationarySince = double.NegativeInfinity;
+    public bool OnBurningGround;
+    public bool InCausticCloud;
     /// <summary>The degeneration on the player from what is around them (a trial's trap, an encounter's pool, a ground or a
     /// debuff), points a second, energy shield first: StartResourceRecovery deals the total, and while any runs the client is
     /// sent no recovery rates to predict a rise with. In the area's frame.</summary>

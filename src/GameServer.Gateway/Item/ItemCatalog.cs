@@ -316,7 +316,7 @@ public sealed class ItemCatalog
     /// <summary>The gems a shop sells of one colour, active or support: creatable, writable, dropping (DropLevel above 0),
     /// not Vaal or awakened, one per name, by drop level then name.</summary>
     public IReadOnlyList<BaseType> ShopGems(int colour, bool support) =>
-        [.. _rows.Rows.Where(t => t.Supported && t.DropLevel > 0 && !t.Name.Contains("Playtest")
+        [.. _rows.Rows.Where(t => t.Supported && t.DropLevel > 0 && !t.Name.Contains("Playtest") && !t.Id.Contains("Royale")
                 // Same-name legacy rows differ in progression/pricing; these are absent from the official vendor capture.
                 && t.Id is not ("Metadata/Items/Gems/SkillGemNewPhaseRun" or "Metadata/Items/Gems/SkillGemNewArcticArmour"
                     or "Metadata/Items/Gems/SkillGemConvocation")

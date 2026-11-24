@@ -52,6 +52,7 @@ public static class Slayer
     // 0x14274c820), each with its own cap or threshold.
     static readonly uint[] OtherNearbyReaders =
     [
+        Stat.PhysicalDamageReductionPctIfOnlyOneEnemyNearby,
         Stat.PhysicalDamageReductionPctPerNearbyEnemy, Stat.MovementSpeedPlusPctPerNearbyEnemy,
         Stat.MovementSpeedPlusPctPerNearbyEnemyUpTo50Pct, Stat.AttackAndCastSpeedPlusPctPerNearbyEnemyUpTo30Pct,
         Stat.AdditionalBlockPctWith5OrMoreNearbyEnemies, Stat.SelfTakeNoExtraDamageFromCriticalStrikesIfOnlyOneNearbyEnemy,
@@ -163,8 +164,11 @@ public static class Slayer
         int killed = state.KilledWithin(now), areaPerKill = Raw(player, AreaPerEnemyKilled);
         bool readsKills = areaPerKill != 0 || Raw(player, MoreIfKilledRecently) != 0;
         if (!readsKills) killed = 0;
+        var currentStats = PlayerStatValues(player);
+        bool otherNearby = OtherNearbyReaders.Any(n => currentStats.GetValueOrDefault(n) != 0);
+        bool otherKills = OtherKillReaders.Any(n => Raw(player, n) != 0);
         int nearby = 0, critPerEnemy = Raw(player, CritPerNearbyEnemy);
-        if (alive && critPerEnemy != 0)
+        if (alive && (critPerEnemy != 0 || otherNearby))
         {
             // Awake hostile monsters the client has been shown, as Flicker Strike's targets (FlickerDestination).
             var here = player.Walk.Position(now);
@@ -178,7 +182,6 @@ public static class Slayer
         // The counts sent are the real ones; a resend happens when a value one of the player's stats reads changes.
         // With only Slayer's stats that is each count up to where its capped product stops (at one for Bane's
         // "killed recently" alone); another stat reading a count makes every change of it count.
-        bool otherNearby = OtherNearbyReaders.Any(n => Raw(player, n) != 0), otherKills = OtherKillReaders.Any(n => Raw(player, n) != 0);
         int Near(int count) => otherNearby ? count : UpToCap(count, critPerEnemy, 100);
         int Kills(int count) => otherKills ? count : areaPerKill != 0 ? UpToCap(count, areaPerKill, 50) : Math.Min(count, 1);
         changed = (Near(nearby), Kills(killed), movement, attackSpeed)

@@ -225,7 +225,9 @@ public static partial class Game
         int alchemist = player.Summons.Fighters.Values.Any(f => f.Definition.Kind == "Spectre"
             && f.Monster.Variety?.Id == "Metadata/Monsters/LeagueAzmeri/SpecialCorpses/FlaskloverHigh"
             && !f.Monster.Dead && f.Monster.Life > 0 && GolemCurrent(player, f)) ? 1 : 0;
-        int Get(uint key) => character.GetValueOrDefault(key) + (key == Stat.LifeFlaskChargesRecoveredPer3Seconds ? alchemist : 0);
+        int ryslatha = !player.RecentEvents.Happened(StatConditions.UsedLifeFlask, AreaTime(player))
+            ? character.GetValueOrDefault(Stat.LifeFlasksGainXChargesEvery3SecondsIfYouHaveNotUsedALifeFlaskRecently) : 0;
+        int Get(uint key) => character.GetValueOrDefault(key) + (key == Stat.LifeFlaskChargesRecoveredPer3Seconds ? alchemist + ryslatha : 0);
         bool lowLife = FlaskRecovery.LowLife(player.PlayerLife, player.PlayerMaxLife);
         return GainFlaskCharges(player, (f, _) => ItemsFor(player).ByHash(f.Item.TypeHash) is not { } t ? 0
             : FlaskCharges.PerThreeSeconds(Get, life: ItemsFor(player).FlaskOf(t)?.LifePerUse > 0, mana: ItemsFor(player).FlaskOf(t)?.ManaPerUse > 0,

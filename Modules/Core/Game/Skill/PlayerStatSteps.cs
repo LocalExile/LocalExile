@@ -271,6 +271,13 @@ public static partial class Game
         {
             int Get(uint name) => GetIn(stats, name);
             double statsAt = AreaTime(player);
+            if (Get(Stat.LifeAndEnergyShieldRecoveryRatePlusPctIfStoppedTakingDamageOverTimeRecently) is int stoppedDotRec and not 0
+                && statsAt - player.LastStoppedTakingDotAt <= RecentEvents.WindowSeconds)
+            {
+                AddTo(stats, Stat.LifeRecoveryRatePlusPct, stoppedDotRec);
+                AddTo(stats, Stat.EnergyShieldRecoveryRatePlusPct, stoppedDotRec);
+                StatsChangeIn(player.LastStoppedTakingDotAt + RecentEvents.WindowSeconds - statsAt + 1e-6);
+            }
             bool moving = player.Walk.Moving(statsAt);
             var recovery = PanelStats.WhileMoving(Get, moving);
             if (Stat.EvasionRating is var evasionKey)

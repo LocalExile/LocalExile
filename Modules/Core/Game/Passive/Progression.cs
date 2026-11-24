@@ -170,6 +170,9 @@ public static partial class Game
         AddAlchemistsGeniusStats(player, sources);
         AddBannerAuraStats(player, sources);
         sources = WithLinks(player, GameEvents.WithPlayerStatSources(player, WithQuestStats(player, WithAntiquarian(player, WithFortification(player, WithCharges(player, WithSupportGemBuffs(player, sources))), equipment, inactive))));
+        if (sources.GetValueOrDefault(Stat.MovementSpeedPlusPctPerNearbyEnemy) is int perEnemy and not 0)
+            sources[Stat.BaseMovementVelocityPlusPct] = ActorScale.Saturate((long)sources.GetValueOrDefault(Stat.BaseMovementVelocityPlusPct)
+                + (long)Math.Min(8, sources.GetValueOrDefault(Stat.NumberOfNearbyEnemies)) * perEnemy);
         // The stat buffs on the player's entity in its area (AreaStatBuffs): sources like any other, so the pools have them.
         if (player.Frames.Area is { } statArea) statArea.AddStatBuffs(new EntityId(player.Id), sources);
         AddWarcryStats(player, sources);

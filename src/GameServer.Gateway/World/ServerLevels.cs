@@ -489,19 +489,31 @@ public static class ServerLevels
     static readonly HashSet<string> OrdinaryDoorTypes = new(StringComparer.OrdinalIgnoreCase)
     {
         "Metadata/MiscellaneousObjects/Door",
+        "Metadata/MiscellaneousObjects/Door_grate_temp",
         "Metadata/MiscellaneousObjects/Lights/IncaDoorLight",
         "Metadata/MiscellaneousObjects/Lights/ScepterDoorLight",
         "Metadata/MiscellaneousObjects/Smashable",
+        "Metadata/MiscellaneousObjects/SmashableNoHighlight",
+        "Metadata/Terrain/Act8/Area3/Objects/GoldenDoor",
+        "Metadata/QuestObjects/BanditDoor",
+    };
+
+    static readonly HashSet<string> SpecialCampaignChestTypes = new(StringComparer.OrdinalIgnoreCase)
+    {
+        "Metadata/Chests/StrongBoxes/ChemistGrainGate",
+        "Metadata/Chests/GrainGate/GrainGateChemistStrongbox",
+        "Metadata/Chests/QuestChests/ProminadeGardenChest",
     };
 
     public static bool IsOrdinaryDoorType(string type) => OrdinaryDoorTypes.Contains(type);
 
     public static bool IsOrdinaryChestType(string type) =>
-        type.StartsWith("Metadata/Chests/", StringComparison.OrdinalIgnoreCase)
-        && !type.Contains("/QuestChests/", StringComparison.OrdinalIgnoreCase)
-        && !type.Contains("/StrongBoxes/", StringComparison.OrdinalIgnoreCase)
-        && !type.Contains("/Labyrinth/", StringComparison.OrdinalIgnoreCase)
-        && !type.Contains("/League", StringComparison.OrdinalIgnoreCase);
+        SpecialCampaignChestTypes.Contains(type)
+        || (type.StartsWith("Metadata/Chests/", StringComparison.OrdinalIgnoreCase)
+            && !type.Contains("/QuestChests/", StringComparison.OrdinalIgnoreCase)
+            && !type.Contains("/StrongBoxes/", StringComparison.OrdinalIgnoreCase)
+            && !type.Contains("/Labyrinth/", StringComparison.OrdinalIgnoreCase)
+            && !type.Contains("/League", StringComparison.OrdinalIgnoreCase));
 
     static bool WithinReach(byte[] cells, int w, int h, int x, int y, int r)
     {

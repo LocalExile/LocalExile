@@ -20,7 +20,10 @@ public static partial class Game
             $"{(recovery.ExtraLife > 0 ? $", {recovery.ExtraLife:0.#} more life over {FlaskRecovery.ExtraLifeSeconds} s" : "")}");
         double now = AreaTime(player);
         GrantAlchemistsGeniusLocked(player, now, character(Stat.GainAlchemistsGeniusOnFlaskUsePct));
-        if (use.LifePerUse > 0) player.RecentEvents.Record(StatConditions.UsedLifeFlask, now);
+        if (use.LifePerUse > 0)
+        {
+            player.RecentEvents.Record(StatConditions.UsedLifeFlask, now);
+        }
         ApplyMinionRecoveryFlasksLocked(player, flask.Item, (byte)slot, use, recovery, local, character, now);
         if (!appliesToPlayer) return;
         uint lifeBefore = player.PlayerLife, manaBefore = player.PlayerMana;
