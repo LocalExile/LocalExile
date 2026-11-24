@@ -75,7 +75,8 @@ public static partial class Game
             else
             {
                 var resistance = MonsterHitResistance(body, type, default, now);
-                mitigated = DamageModel.Mitigate(basis, resistance.Percent, resistance.Maximum) * GolemElementalReductionFactor(effects);
+                mitigated = DamageModel.Mitigate(DamagePacket.Of(type, basis, basis), _ => resistance)[type].Min
+                    * GolemElementalReductionFactor(effects);
             }
             int damage = (int)Math.Min(int.MaxValue, Math.Round(mitigated * reflectable * taken
                 * effects.DamageTaken(false, body.Ailments.Magnitude(MonsterElementalAilments.Kind.Shock, now)
