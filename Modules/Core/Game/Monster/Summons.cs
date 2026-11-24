@@ -8,13 +8,112 @@ public static partial class Game
     public static SummonCatalog SummonData = null!;
     const string SummonSaveKey = "Game.SummonedMinions";
     const string GuardianSaveKey = "Game.AnimatedGuardianEquipment";
+    const string SpectreBankSaveKey = "Game.SpectreBank";
+    const int MaxSpectreBankCount = 16;
+
+    // BuffDefinitions "spectre_buff": BuffVisuals raise_specter_02/monster.epk (translucent spectral model) + is_raised_spectre.
+    static ushort _spectreBuffRow;
+    static ushort SpectreBuffRowValue()
+    {
+        if (_spectreBuffRow != 0) return _spectreBuffRow;
+        if (!GameServer.Core.ClientTables.Has("BuffDefinitions")) return 61;
+        foreach (var row in GameServer.Core.ClientTables.Table("BuffDefinitions"))
+            if (row.Text("Id") == "spectre_buff") return _spectreBuffRow = (ushort)row.Index;
+        return _spectreBuffRow = 61;
+    }
+
+    const uint AlternateRaiseSpectreMtxHash = 3158447165u;
+    static Dictionary<string, ushort>? _spectreVisualRows;
+    static ushort? SpectreVisualRowById(string id)
+    {
+        if (_spectreVisualRows is null && GameServer.Core.ClientTables.Has("BuffVisuals"))
+        {
+            var map = new Dictionary<string, ushort>(StringComparer.Ordinal);
+            foreach (var row in GameServer.Core.ClientTables.Table("BuffVisuals"))
+            {
+                string? rowId = row.Text("Id");
+                if (rowId is "spectre_alternate" or "black_spectres" or "cultist_spectres" or "celestial_spectres"
+                    or "arcane_spectres" or "stygian_spectres" or "darkwood_spectres" or "oblivion_spectres"
+                    or "onyx_oblivion_spectres")
+                    map[rowId] = (ushort)row.Index;
+            }
+            _spectreVisualRows = map;
+        }
+        return _spectreVisualRows is not null && _spectreVisualRows.TryGetValue(id, out ushort v) ? v : null;
+    }
+
+    static (bool HasCosmetic, ushort? Visual) SpectreBuffVisual(Player player, ushort source)
+    {
+        uint gemHash = GemSkillEffects(player).FirstOrDefault(g => g.Id == source).Gem;
+        if (gemHash == 0) return (false, null);
+        string character = CharacterName(player);
+        var wornMap = CharacterSaves.SkillCosmetics(string.IsNullOrEmpty(character) ? "Exile" : character);
+        foreach (var (key, worn) in wornMap)
+        {
+            if (CharacterSaves.SkillCosmeticGem(key) != gemHash || Mtx.Resolve(worn) is not { } record) continue;
+            if (record.MtxTypeHash == AlternateRaiseSpectreMtxHash)
+                return (true, SpectreVisualRowById("spectre_alternate"));
+            if (MtxEffects.Of(record.MtxTypeHash) is { } fx)
+            {
+                int art = fx.Stats.FirstOrDefault(s => s.Stat == Stat.SkillArtVariation).Value;
+                string? visualId = art switch
+                {
+                    1 => "black_spectres",
+                    2 => "cultist_spectres",
+                    4 => "celestial_spectres",
+                    5 => "arcane_spectres",
+                    6 => "stygian_spectres",
+                    7 => "darkwood_spectres",
+                    8 => "oblivion_spectres",
+                    9 => "onyx_oblivion_spectres",
+                    _ => null,
+                };
+                return (true, visualId is null ? null : SpectreVisualRowById(visualId));
+            }
+            return (true, null);
+        }
+        return (false, null);
+    }
+
+    static void ApplySpectreBuffVisualLocked(Player player, uint id, GolemState.Golem live)
+    {
+        var (hasCosmetic, visual) = SpectreBuffVisual(player, live.Source);
+        if (!hasCosmetic || visual is not null)
+        {
+            live.SpectreBuff = 1;
+            player.Area.Buffs.Set(id, new(SpectreBuffRowValue(), id, Visual: visual));
+        }
+        else
+        {
+            if (live.SpectreBuff != 0)
+            {
+                player.Area.Buffs.Clear(id, SpectreBuffRowValue(), id);
+                live.SpectreBuff = 0;
+            }
+        }
+    }
+
+    public static void RefreshSpectreCosmetics(Player player, uint gemHash)
+    {
+        var matchingSources = GemSkillEffects(player).Where(g => g.Gem == gemHash).Select(g => g.Id).ToHashSet();
+        if (matchingSources.Count == 0) return;
+        using (ProjectileMutation(player, advance: false, phase: "spectre cosmetic refresh"))
+        {
+            foreach (var (id, live) in player.Summons.Fighters)
+            {
+                if (live.Monster.Dead || live.Monster.Life == 0 || !matchingSources.Contains(live.Source)) continue;
+                if (player.Summons.Definitions.GetValueOrDefault(id)?.Family != "Spectre") continue;
+                ApplySpectreBuffVisualLocked(player, id, live);
+            }
+        }
+    }
 
     public static void SaveSummons(Player player)
     {
         lock (MinionSaveLocks.GetOrCreateValue(player))
         {
             string text, guardian, character;
-            if (!player.Summons.Restored) return;
+            if (!player.Summons.Restored || player.Summons.LostPersistentOnDeath) return;
             double now = AreaTime(player);
             text = JsonSerializer.Serialize(player.Summons.Fighters.Values.Where(g => !g.Monster.Dead && g.Monster.Life > 0
                     && player.Summons.Definitions[g.Id].Persistent)
@@ -77,6 +176,36 @@ public static partial class Game
         int value = GolemStat(gem.Stats, definition.LimitStat) + GolemStat(playerStats, definition.LimitStat) + GolemStat(playerStats, final);
         // Clones have no ordinary cap; duration is their lifetime constraint.
         return Math.Clamp(value == 0 && definition.Family == "Clone" ? 100 : value, 0, 200);
+    }
+
+    internal static void EnsureSpectreBankLoaded(Player player)
+    {
+        if (player.Summons.SpectreBankLoaded) return;
+        player.Summons.SpectreBankLoaded = true;
+        var saved = CharacterSaves.Load(CharacterName(player))?.ModuleData?.GetValueOrDefault(SpectreBankSaveKey);
+        if (saved is null) return;
+        try
+        {
+            foreach (string id in JsonSerializer.Deserialize<string[]>(saved) ?? [])
+                if (!string.IsNullOrWhiteSpace(id) && !player.Summons.SpectreBank.Contains(id, StringComparer.Ordinal))
+                    player.Summons.SpectreBank.Add(id);
+        }
+        catch (JsonException) { }
+    }
+
+    internal static void RememberSpectreVariety(Player player, string varietyId)
+    {
+        if (string.IsNullOrWhiteSpace(varietyId)) return;
+        EnsureSpectreBankLoaded(player);
+        var bank = player.Summons.SpectreBank;
+        int idx = bank.FindIndex(id => id.Equals(varietyId, StringComparison.Ordinal));
+        if (idx == 0) return;
+        if (idx > 0) bank.RemoveAt(idx);
+        bank.Insert(0, varietyId);
+        while (bank.Count > MaxSpectreBankCount) bank.RemoveAt(bank.Count - 1);
+        string text = JsonSerializer.Serialize(bank);
+        string character = CharacterName(player);
+        Saves.Atomically(() => CharacterSaves.ChangeModuleData(character, SpectreBankSaveKey, _ => text));
     }
 
     static double SummonDuration(Player player, SummonCatalog.Definition definition, SupportedGem gem)
@@ -348,6 +477,12 @@ public static partial class Game
                 if (pools.Fatal) GolemDieLocked(player, fighter, AreaTime(player), emitLife: false);
                 else ReconcileGuardianBlessingLocked(player);
             });
+        if (id != 0 && definition.Family == "Spectre" && !pools.Fatal)
+        {
+            RememberSpectreVariety(player, variety.Id);
+            if (player.Summons.Fighters.TryGetValue(id, out var live) && !live.Monster.Dead && live.Monster.Life > 0)
+                ApplySpectreBuffVisualLocked(player, id, live);
+        }
         return id;
     }
 
@@ -370,11 +505,17 @@ public static partial class Game
     public static async Task SummonsTick(Player player, double now)
     {
         if (!player.Connection.PlayerSent || !CurrentGameWork || player.Closed || player.LeavingArea) return;
+        var state = player.Summons;
+        EnsureSpectreBankLoaded(player);
         // Persistent summons are suppressed in Town; keep Restored = false so SaveSummons on leaving Town never wipes them.
         if (InTown(player)) return;
         await HitSummonsTick(player, now);
-        var state = player.Summons;
-        if (!state.Restored)
+        if (player.PlayerLife > 0 && state.LostPersistentOnDeath)
+        {
+            state.LostPersistentOnDeath = false;
+            state.Restored = false;
+        }
+        if (!state.Restored && player.PlayerLife > 0)
         {
             var guard = SummonRestoreGuards.GetOrCreateValue(state);
             if (guard.Restoring) return;
@@ -455,7 +596,14 @@ public static partial class Game
             if (playerStats is not null) state.RefreshAt = now + .5;
             foreach (var fighter in state.Fighters.Values.ToArray())
             {
-                if (player.PlayerLife == 0 || fighter.Monster.Dead || fighter.Monster.Life == 0 || now >= state.Until[fighter.Id])
+                if (player.PlayerLife == 0)
+                {
+                    if (state.Definitions.TryGetValue(fighter.Id, out var def) && def.Persistent)
+                        state.LostPersistentOnDeath = true;
+                    RemoveSummonLocked(player, fighter, now);
+                    continue;
+                }
+                if (fighter.Monster.Dead || fighter.Monster.Life == 0 || now >= state.Until[fighter.Id])
                 {
                     RemoveSummonLocked(player, fighter, now); changed = true; continue;
                 }

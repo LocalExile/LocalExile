@@ -108,6 +108,7 @@ public static class CosmeticsFeature
         // Active reservation skills (Tempest Shield, auras, heralds, Arctic Armour) likewise re-emit their buffs with
         // the new art variation / hide flag so the pick applies immediately.
         await RefreshReservationCosmetics(player, slot.GemHash);
+        global::Game.RefreshSpectreCosmetics(player, slot.GemHash);
     }
 
     // C→S 0x1f9: a pick in the Cosmetics tab's slot flyout (record 0 empties the slot). Saved per character, then the whole
