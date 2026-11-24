@@ -312,6 +312,7 @@ public static partial class Game
             lifetime?.Dispose();
             ClearPods();
             ClearDamageGrounds();
+            RetireBannerLocked(Player);
             ClearKnifeBlades();
             ClearEnsnares();
             ClearExplosiveFuses();

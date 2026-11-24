@@ -99,7 +99,7 @@ public static partial class Game
         foreach (var ally in owner.Instance.PlayersExcept(owner.Id)) For(ally);
     }
 
-    static void EndBannerLocked(Player player, BannerState state, PlacedBanner banner)
+    static void EndBannerLocked(Player player, BannerState state, PlacedBanner banner, bool retiring = false)
     {
         state.Active = null;
         if (AreaBanners.TryGetValue(player.Instance, out var held)) held.Remove(banner.Object);
@@ -110,11 +110,18 @@ public static partial class Game
             MarkPlayerStats(recipient, PlayerStatStep.Sources);
         }
         banner.Recipients.Clear();
-        if (!player.LeavingArea && !player.Closed)
-        {
-            player.UntrackProjectileObject(banner.Object);
-            ProjectilesFor(player).Enqueue(() => SendWorldRemoval(player, banner.Object));
-        }
+        player.ProjectileObjects.Remove(banner.Object);
+        if (player.LeavingArea || player.Closed) return;
+        if (retiring) player.RetiredCombatObjects.Add(banner.Object);
+        else ProjectilesFor(player).WorldRecords(banner.Object, () => [InstanceProtocol.RemoveObject(banner.Object)], remove: true);
+    }
+
+    static void RetireBannerLocked(Player player)
+    {
+        if (!Banners.TryGetValue(player, out var state)) return;
+        Banners.Remove(player);
+        if (state.Active is { } banner) EndBannerLocked(player, state, banner, retiring: true);
+        player.Area.Buffs.Clear(player.Id, ValourBuffRow, player.Id);
     }
 
     static async Task<bool> ToggleBanner(Player player, ushort skill, Func<bool> current)
@@ -168,7 +175,7 @@ public static partial class Game
                 string art = BannerArtRoot + (row == WarBannerAuraRow ? "WarBannerPole.ao" : row == DreadBannerAuraRow
                     ? "DreadBannerPole.ao" : "ArmourEvasionBannerPole.ao");
                 var visual = new EffectObject(at.X, at.Y, art);
-                player.TrackProjectileObject(id);
+                player.ProjectileObjects.Add(id);
                 ProjectilesFor(player).Create(id, () => ReferenceEquals(state.Active, banner)
                     ? InstanceEntities.CreateObject(id, InstanceEntities.ObjectTypeHash(EffectObject.TypePath), visual.Blob())
                     : null, wake: true);
