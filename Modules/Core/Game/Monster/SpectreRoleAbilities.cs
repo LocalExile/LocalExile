@@ -6,6 +6,7 @@ public static partial class Game
     const string FieryCannibal = "Metadata/Monsters/LeagueAzmeri/SpecialCorpses/Firefury/FirefuryHigh_";
     const int CannibalGlacialHammer = 1016, CannibalGlacialCascade = 3342, CannibalIceCrash = 4823, CannibalIceNova = 7601;
     const int CannibalMoltenStrike = 3756, CannibalCremation = 8817;
+    const string SerpentWarrior = "Metadata/Monsters/LeagueAzmeri/SpecialCorpses/BasaliskHigh";
     const int SerpentSword = 417, SerpentShroud = 6863;
     const int NavalCannonFire = 10349, NavalCannonImpact = 7603;
     const int CannibalPartnerRadius = 60;
@@ -35,9 +36,9 @@ public static partial class Game
         if (fighter.Monster.Variety?.Id == FrozenCannibal && ability.Effect is CannibalIceCrash or CannibalIceNova) return false;
         if (fighter.Monster.Variety?.Id == FieryCannibal && ability.Effect is CannibalMoltenStrike or CannibalCremation)
             return pairedCannibal;
-        if (SpectreShoulderMortar(ability.Effect))
-            return defensive && distance >= GolemStat(ability.Stats, Stat.ProjectileMinimumRange);
-        if (ability.Effect == SerpentSword && fighter.Abilities.Any(a => SpectreShoulderMortar(a.Effect))) return !defensive;
+        if (fighter.Monster.Variety?.Id == SerpentWarrior)
+            return defensive ? SpectreShoulderMortar(ability.Effect)
+                && distance >= GolemStat(ability.Stats, Stat.ProjectileMinimumRange) : ability.Effect == SerpentSword;
         return ability.Effect is not (SerpentShroud or NavalCannonImpact);
     }
 

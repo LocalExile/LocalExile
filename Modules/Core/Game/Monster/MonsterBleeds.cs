@@ -69,7 +69,8 @@ public static partial class Game
             ? Math.Max(0, get(Stat.SupportRuptureBleedingDamageTakenPlusPctFinal)) : 0;
         return new((int)Math.Clamp(chance, 0, 100), Row("minimum", "non_critical"), Row("maximum", "non_critical"),
             Row("minimum", "critical"), Row("maximum", "critical"), seconds, (int)Math.Clamp(critical, 0, 100),
-            dance ? CrimsonDanceStacks : 1, Math.Clamp(aggravate, 0, 100),
+            Math.Max(dance ? CrimsonDanceStacks : 1, Math.Clamp(get(Stat.BleedingStacksUpToXTimes), 1, 100)),
+            Math.Clamp(aggravate, 0, 100),
             dance ? 0 : (int)Math.Clamp((long)aggravate + get(Stat.AggravateBleedingOnAttackCritChancePct), 0, 100),
             !dance && get(Stat.AggravateInflictedBleeding) != 0, rupture,
             NeverFromCrit: get(Stat.KeystoneElementalOverload) != 0,

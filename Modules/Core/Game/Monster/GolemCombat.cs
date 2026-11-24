@@ -226,7 +226,18 @@ public static partial class Game
         }
         if (ability is null)
         {
-            double range = g.Abilities.Where(a => GolemUsable(g, a)).Select(a => a.Attack.Range).DefaultIfEmpty(8).Min();
+            if (spectre && defensive && g.Monster.Variety?.Id == SerpentWarrior
+                && g.Abilities.FirstOrDefault(a => SpectreShoulderMortar(a.Effect)) is { } mortar
+                && GolemStat(mortar.Stats, Stat.ProjectileMinimumRange) is > 0 and var minimum && distance < minimum)
+            {
+                double dx = distance == 0 ? 1 : (here.X - target.At.X) / distance;
+                double dy = distance == 0 ? 0 : (here.Y - target.At.Y) / distance;
+                var retreat = (target.At.X + (int)Math.Round(dx * (minimum + 3)), target.At.Y + (int)Math.Round(dy * (minimum + 3)));
+                if (Dist(owner, retreat) <= ownerRange) GolemMoveLocked(player, g, retreat, now);
+                return;
+            }
+            double range = g.Abilities.Where(a => GolemUsable(g, a)
+                && (!spectre || SpectreActionAllowed(g, a, defensive, pairedCannibal, distance))).Select(a => a.Attack.Range).DefaultIfEmpty(8).Min();
             double f = distance > 0 ? Math.Max(0, range - 2) / distance : 0;
             GolemMoveLocked(player, g, ((int)Math.Round(target.At.X + (here.X - target.At.X) * f),
                 (int)Math.Round(target.At.Y + (here.Y - target.At.Y) * f)), now);

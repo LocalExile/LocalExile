@@ -117,15 +117,18 @@ public static partial class Game
         var ailment = a.Effect is 8725 or 8727 ? MonsterElementalAilments.Kind.Chill : MonsterElementalAilments.Kind.Shock;
         uint duration = ailment == MonsterElementalAilments.Kind.Chill
             ? Stat.ActiveSkillChillDurationPlusPctFinal : Stat.ActiveSkillShockDurationPlusPctFinal;
+        uint effect = ailment == MonsterElementalAilments.Kind.Chill
+            ? Stat.ActiveSkillChillEffectPlusPctFinal : Stat.ActiveSkillShockEffectPlusPctFinal;
         int Get(uint stat) => GolemStat(a.Stats, stat);
         double seconds = 2 * Math.Max(0, 1 + Get(duration) / 100d);
+        int magnitude = ((ailment == MonsterElementalAilments.Kind.Chill ? 10 : 15) * (100 + Get(effect))) / 100;
         int chains = Get(Stat.NumberOfChains);
         uint id = action.Target;
         var visited = new HashSet<uint>();
         for (int jump = 0; jump <= chains; jump++)
         {
             visited.Add(id);
-            monster.Ailments.WithoutDamage(ailment, seconds, now, Get, n => monster.Effects[n]);
+            monster.Ailments.WithoutDamage(ailment, seconds, now, Get, n => monster.Effects[n], stated: magnitude);
             monster.PresentationChanged?.Invoke();
             if (jump == chains) break;
             var next = HarbingerNextEnemy(player, monster.Walk.Position(now), HarbingerChainRadius, now, visited: visited);
