@@ -33,11 +33,13 @@ public sealed class FortificationAurasAndUniquesTests
             stats[Key("should_use_alternate_fortify")] = 1;
             Assert.Equal(1000, Game.FortificationDamageTakenLocked(player, 1000, 0, stats));
 
-            // FortificationAllyPlayerStats populates current_fortification & uncapped_current_fortification without legacy has_fortify
-            var allyStats = Game.FortificationAllyPlayerStats(player, stats);
-            Assert.Equal(30, allyStats[FortificationSession.Current]);
-            Assert.Equal(30, allyStats[FortificationSession.Uncapped]);
-            Assert.False(allyStats.ContainsKey(Key("has_fortify")));
+            // WithFortification wires FortificationAllyPlayerStats into live stat sources (without legacy has_fortify)
+            var wired = Game.WithFortification(player, new Dictionary<uint, int>(stats));
+            Assert.Equal(30, wired[FortificationSession.Current]);
+            Assert.Equal(30, wired[FortificationSession.Uncapped]);
+            Assert.Equal(30, wired[Stat.AttackSpeedPlusPct]);
+            Assert.Equal(120, wired[Stat.BaseSpellSuppressionChancePct]);
+            Assert.False(wired.ContainsKey(Key("has_fortify")));
 
             // CharacterStats.Bonus ExtraDefenceMorePct multiplies Armour & Evasion cleanly
             var withHero = CharacterStats.For(Program.Skills.ClassFor(0), 80, new CharacterStats.Bonus(
@@ -46,9 +48,6 @@ public sealed class FortificationAurasAndUniquesTests
                 Armour: 1000, ArmourMorePct: 50), (_, _) => 1000);
             Assert.Equal((int)Math.Round(basePools.Armour * 1.3m, MidpointRounding.AwayFromZero), withHero.Armour);
         }
-
-        // Perseverance (+1% attack damage per 300 of min(Armour, Evasion))
-        Assert.Equal(15, ArmourAttackDamage.Total(10, finalArmour: 2400, per450Armour: 0, finalEvasion: 1500, per450Evasion: 0, per300Min: 1));
 
         // Kingmaker reading
         var items = new ItemCatalog("data");

@@ -41,7 +41,7 @@ public static partial class Game
         }
         Add(FortificationSession.AttackSpeed, value.IncreasedAttackSpeedPercent(session.SpeedPerStack));
         AddFortificationCounts(new PlainStatMap(sources), value);
-        return sources;
+        return FortificationAllyPlayerStats(player, sources);
     }
 
     public static void AddFortificationCounts(StatMap stats, FortificationState.Value value)
@@ -80,11 +80,8 @@ public static partial class Game
             Get, random ?? AreaRng(player));
     }
 
-    public static int FortificationDamageTaken(Player player, int damage)
-    {
-        var value = FortificationOf(player).Read(AreaTime(player));
-        return (int)((long)Math.Max(0, damage) * (100 - Math.Min(100, value.Current)) / 100);
-    }
+    public static int FortificationDamageTaken(Player player, int damage) =>
+        FortificationDamageTakenLocked(player, Math.Max(0, damage), AreaTime(player));
 
     public static void ConfigureFortificationRecovery(Player player, uint maximumLife,
         IReadOnlyDictionary<uint, int> sources)

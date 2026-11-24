@@ -70,7 +70,7 @@ public static partial class Game
             ["_while_frozen"] = ailments.Freeze, ["_while_shocked"] = ailments.Shock > 0,
             ["_while_blinded"] = alive && player.ResourceEffectsState is ResourceEffectsState blindOwner
                 && ResourceEffectsCurrent(player, blindOwner) && blindOwner.PlayerBlind.Read(now).Less > 0,
-            ["_while_fortified"] = FortificationOf(player).Read(now).Current > 0,
+            ["_while_fortified"] = EvaluateFortificationLocked(player, now, lowLifeSources).Value.Current > 0,
             ["_while_life_leeching"] = alive && leech.Life,
             ["_while_mana_leeching"] = alive && leech.Mana,
             ["_while_energy_shield_leeching"] = alive && leech.EnergyShield,

@@ -32,18 +32,18 @@ public static partial class Game
             {
                 if (mods.ByHash(mod.Hash) is not { } row) continue;
                 for (int s = 0; s < row.Stats.Count && s < mod.Values.Count; s++)
-                    switch (Stats.Name(row.Stats[s].Id))
+                    switch (row.Stats[s].Id)
                     {
-                        case "local_display_nearby_allies_have_fortify":
+                        case Stat.LocalDisplayNearbyAlliesHaveFortify:
                             fortify = Math.Max(fortify, mod.Values[s]);
                             break;
-                        case "local_display_aura_allies_have_culling_strike":
+                        case Stat.LocalDisplayAuraAlliesHaveCullingStrike:
                             if (mod.Values[s] != 0) culling = true;
                             break;
-                        case "local_display_nearby_allies_critical_strike_multiplier_+":
+                        case Stat.LocalDisplayNearbyAlliesCriticalStrikeMultiplierPlus:
                             critMulti = Math.Max(critMulti, mod.Values[s]);
                             break;
-                        case "local_display_aura_allies_have_increased_item_rarity_+%":
+                        case Stat.LocalDisplayAuraAlliesHaveIncreasedItemRarityPlusPct:
                             iir = Math.Max(iir, mod.Values[s]);
                             break;
                     }
@@ -128,7 +128,7 @@ public static partial class Game
         bool hasChampionFortitude = GetStat(Stat.YouHaveYourMaximumFortification) != 0;
         var ally = skipPeerShare ? default : SelfAllyFortificationBonusLocked(player, now);
         int minimumOverride = Math.Max(hasChampionFortitude ? maximum : 0, ally.ChampionFortification);
-        var value = session.Read(AreaTime(player), addedMax, ally.KingmakerFortify, minimumOverride);
+        var value = session.Read(now, addedMax, ally.KingmakerFortify, minimumOverride);
         int above20 = Math.Max(0, value.Current - 20);
         int speed = above20 * GetStat(Stat.AttackSpeedPlusPctPerFortificationAbove20);
         int defenceMore = above20 * GetStat(Stat.ArmourEvasionRatingPlusPctFinalPerFortificationAbove20);
