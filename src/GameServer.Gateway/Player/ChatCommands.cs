@@ -68,14 +68,6 @@ public sealed class ChatCommands
             Console.WriteLine($"[gateway] /{parts[0]} failed, its mod was built for another LocalExile version: {ex.Message}");
             await Reply($"/{parts[0]} was built for another LocalExile version. Update the mod.");
         }
-        // Anything else a module's handler throws: a mistyped argument that reached the command's own code, a lookup that
-        // found nothing. The command fails, the player is told why and stays connected (2026-11-24: /village assign
-        // threw InvalidOperationException and the connection was dropped).
-        catch (Exception ex)
-        {
-            Console.WriteLine($"[gateway] /{parts[0]} failed: {ex.GetType().Name}: {ex.Message}");
-            await Reply($"/{parts[0]} failed: {ex.Message}");
-        }
         return true;
     }
 
