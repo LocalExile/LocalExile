@@ -30,7 +30,7 @@ public static class InstanceTimers
         IReadOnlyList<(byte Slot, int Value)>? NumericArgs = null,
         IReadOnlyList<string>? StringArgs = null);
 
-    /// <summary>S→C 0x015f (class 0x1435e7640, write <c>0x1421ae770</c>, read <c>0x1421ae910</c> -> <c>0x141fa9720</c>,
+    /// <summary>S→C 0x015f (write <c>0x1421ae770</c>, read <c>0x1421ae910</c> -> <c>0x141fa9720</c>,
     /// dispatcher case 0x67): non-quest HUD tracker record (<c>u16 BE trackerId</c>, <c>u8 flags</c>, <c>u8 count</c>,
     /// followed by <c>count</c> × <see cref="TrackerEntry"/>).</summary>
     public static byte[] NonQuestTrackerRecord(ushort trackerId, byte flags, IReadOnlyList<TrackerEntry> entries)

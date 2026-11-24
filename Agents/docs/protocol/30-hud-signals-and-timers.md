@@ -259,11 +259,11 @@ u8      choice              1 = Help button (+0x2d8), 0 = Kill button (+0x2e0)
 
 Verified in `Client/Game.exe` 3.29.3c/d instance dispatcher `0x142150ae0`:
 
-| S→C | Case | 3.29.3c `Cls` | Write / Read | Wire layout (after `u16 BE` opcode) |
-|---|---|---|---|---|
-| `0x0018` | `0x03` | `0x1435e6bc8` | `0x1421a3980` / `0x1421a3ab0` | `u16 BE encodedId` (`<= 0x02d2` = 1-based `BackendErrors`, `> 0x02d2` = `ClientStrings2` shifted by `0x02d3`, bit `0x8000` = `ClientStrings`), `u16 BE npcRow` (`0xffff` = none), **`u16 LE flags`**, `u32 BE holdTimeMs`, **`u32 LE chatColour`** (`ChatColours.dat` row), `u8 numCount`, `u8 strCount`, `numCount × (u8 slot, CompactInt)`, `strCount × WStr` |
-| `0x0019` | `0x04` | `0x1435ca068` | `0x141fa21d0` / `0x141fa2240` | `WStr` server broadcast text |
-| `0x015f` | `0x67` | `0x1435e7640` | `0x1421ae770` / `0x1421ae910` | `u16 BE trackerId`, `u8 flags`, `u8 count`, `count × (u16 BE key, u16 BE clientStringRow1Based, u16 BE value, u8 numCount, u8 strCount, args)` |
-| `0x01d5` | `0x86` | `0x14346cd80` | `0x140e27980` | `u8 awardRow` (0-based `AwardDisplay.dat` row) — toast banner (`FavouredMapSlotUnlocked` = 6, `AtlasPassiveAllocationSetUnlock1/2` = 37/38) |
-| `0x01d6` | `0x87` | `0x1431767e8` | `0x140911270` | `u32 BE modHash32` (`Mods.HASH32`) — Craft Received toast resolved via `CraftingBenchOptions.Name` |
-| `0x02cc` | `0xea` | `0x1435e6828` | `0x1421b74f0` / `0x1421b7550` | **`u16 LE clientStringId`** (raw unswapped) — client-string notice |
+| S→C | Case | Write / Read | Wire layout (after `u16 BE` opcode) |
+|---|---|---|---|
+| `0x0018` | `0x03` | `0x1421a3980` / `0x1421a3ab0` | `u16 BE encodedId` (`<= 0x02d2` = 1-based `BackendErrors`, `> 0x02d2` = `ClientStrings2` shifted by `0x02d3`, bit `0x8000` = `ClientStrings`), `u16 BE npcRow` (`0xffff` = none), **`u16 LE flags`**, `u32 BE holdTimeMs`, **`u32 LE chatColour`** (`ChatColours.dat` row), `u8 numCount`, `u8 strCount`, `numCount × (u8 slot, CompactInt)`, `strCount × WStr` |
+| `0x0019` | `0x04` | `0x1421a3ce0` / `0x1421a3d40` | `WStr` server broadcast text |
+| `0x015f` | `0x67` | `0x1421ae770` / `0x1421ae910` | `u16 BE trackerId`, `u8 flags`, `u8 count`, `count × (u16 BE key, u16 BE clientStringRow1Based, u16 BE value, u8 numCount, u8 strCount, args)` |
+| `0x01d5` | `0x86` | `0x140e27980` | `u8 awardRow` (0-based `AwardDisplay.dat` row) — toast banner (`FavouredMapSlotUnlocked` = 6, `AtlasPassiveAllocationSetUnlock1/2` = 37/38) |
+| `0x01d6` | `0x87` | `0x140911270` | `u32 BE modHash32` (`Mods.HASH32`) — Craft Received toast resolved via `CraftingBenchOptions.Name` |
+| `0x02cc` | `0xea` | `0x1421b74f0` / `0x1421b7550` | **`u16 LE clientStringId`** (raw unswapped) — client-string notice |

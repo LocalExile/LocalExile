@@ -20,13 +20,13 @@ public static class InstanceDelve
     public static byte[] SulphiteChanged(ushort previous, ushort current) =>
         new LoginWriter().U16(0x226).U16(previous).U16(current).ToArray();
 
-    /// <summary>S→C 0x0227 (6 bytes, class 0x1431767e8, read 0x140911270, dispatcher case 0xa8 at 0x142159863):
+    /// <summary>S→C 0x0227 (6 bytes, read 0x140911270, dispatcher case 0xa8 at 0x142159863):
     /// live Azurite balance update (<c>u32 BE azurite</c>). Notifies <c>instance+0x2978</c> with (previous, current)
     /// and updates <c>instance+0xd882</c>.</summary>
     public static byte[] AzuriteChanged(uint azurite) =>
         new LoginWriter().U16(AzuriteChangedId).U32(azurite).ToArray();
 
-    /// <summary>S→C 0x022c (class 0x1435e6b88, read 0x1421bab40 / write 0x1421ba9f0, dispatcher case 0xab at
+    /// <summary>S→C 0x022c (read 0x1421bab40 / write 0x1421ba9f0, dispatcher case 0xab at
     /// 0x142159a1d): incremental Subterranean Chart node delta (<c>u16 BE count</c>, then <c>count</c> × four big-endian
     /// coordinates <c>blockX, blockY, cellX, cellY</c> via <c>0x141fac7f0</c>).</summary>
     public static byte[] ChartDelta(IReadOnlyList<RoutePoint> points)
@@ -41,7 +41,7 @@ public static class InstanceDelve
         return w.ToArray();
     }
 
-    /// <summary>S→C 0x0242 (class 0x1435cb230, read 0x141fa6a10 / write 0x141fa69c0 -> 0x141fabb30, dispatcher case
+    /// <summary>S→C 0x0242 (read 0x141fa6a10 / write 0x141fa69c0 -> 0x141fabb30, dispatcher case
     /// 0xb6 at 0x142159a87): confirmed Crawler route echo after C→S 0x0241 (<c>u8 count</c>, then <c>count</c> × four
     /// big-endian coordinates <c>blockX, blockY, cellX, cellY</c>). Sets <c>instance+0xe169 = 1</c> and stores route
     /// endpoints when at least two points are present.</summary>

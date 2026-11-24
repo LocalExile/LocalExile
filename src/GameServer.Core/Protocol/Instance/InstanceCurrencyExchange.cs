@@ -101,7 +101,7 @@ public static class InstanceCurrencyExchange
     /// <summary>S→C 0x2f7: the gold an order pays per item bought, or with <paramref name="itemsPerGold"/> how many items one gold pays for.</summary>
     public static byte[] Fee(uint item, uint fee, bool itemsPerGold) => new LoginWriter().U16(FeeId).U32(item).U32(fee).Bool(itemsPerGold).ToArray();
 
-    /// <summary>S→C 0x2ef (16 bytes, class 0x1435e6888, read 0x1421b80e0 / write 0x1421b8020, dispatcher case 0xf3 at
+    /// <summary>S→C 0x2ef (16 bytes, read 0x1421b80e0 / write 0x1421b8020, dispatcher case 0xf3 at
     /// 0x14215157a): Currency Exchange query order result (<c>u32 BE queryId</c>, <c>u16 BE status</c>,
     /// <c>u32 BE bought</c>, <c>u32 BE sold</c>).</summary>
     public static byte[] QueryOrderResult(uint queryId, ushort status, uint bought, uint sold) =>

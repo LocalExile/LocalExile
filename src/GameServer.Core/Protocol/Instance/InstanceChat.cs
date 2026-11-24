@@ -83,7 +83,7 @@ public static class InstanceChat
 
     public const ushort ChatLineId = 0x17, ServerBroadcastId = 0x19;
 
-    /// <summary>S→C 0x0019 (class 0x1435e6e60, write 0x1421a3ce0 / read 0x1421a3d40 -> 0x142212190, dispatcher case 4):
+    /// <summary>S→C 0x0019 (write 0x1421a3ce0 / read 0x1421a3d40 -> 0x142212190, dispatcher case 4):
     /// multi-language server broadcast (<c>WStr text</c>; prefix with <c>"*"</c> for all client locales).</summary>
     public static byte[] ServerBroadcast(string text) => new LoginWriter().U16(ServerBroadcastId).WStr(text).ToArray();
 

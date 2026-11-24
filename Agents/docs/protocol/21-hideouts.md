@@ -916,7 +916,7 @@ the exported SulphiteEnrage rows do not disclose the official daemon's radius or
   - Flipping a `RecipeUnlockDisplay.RecipeId` league quest flag bit `0 → 1` via `PlayerLeagueQuestFlagsUpdate` triggers
     the client's native recipe unlock toast (`0x140d6d030` → `0x1402a7210`), paired with `S→C 0x01d6` (`Mods.HASH32`).
 - **Atlas endgame deltas, Scrying, Primordial Altar HUD, Vault Pass, and Delve live sync (3.29.3c).**
-  - `S→C 0x01a5` (4 bytes, read `0x1421afc20`): `u8 regionIndex`, `u8 upgraded` toggles one Voidstone T16 quadrant bit incrementally.
+  - `S→C 0x01a5` (4 bytes, read `0x1421b09f0`): `u8 regionIndex`, `u8 upgraded` toggles one Voidstone T16 quadrant bit incrementally.
   - `S→C 0x7b` kind `0x13` (`0x14216a456` → `0x140dcb750`: `a = 1`, `b = sourceObjectId`) opens the Atlas in Scrying mode; `C→S 0x01a7` (10 bytes: `u16 BE fromAreaHash`, `u16 BE toAreaHash`, `u32 BE objectId`) swaps divination card drop pools.
   - `C→S 0x0075` (12 bytes: `u32 BE inventoryId`, `u32 BE itemId`, `u16 BE nodeHash16`) and `C→S 0x0076` (17 bytes: `u32 BE typeHash`, `u32 BE inventoryId`, `u16 BE tabIndex`, `u16 BE subIndex`, `u8 flags`, `u16 BE nodeHash16`) apply currency items to Atlas nodes.
   - `Rulesets.dat` row `99` (`AtlasPrimordialBossInfluenceRules`, `0x141750170` / `0x141e4c7e0`): `S→C 0x001f` + `S→C 0x02c9` sub-id `0` carries 6 lists of `(u8 count, count × (u16 LE Mods.HASH16, compact-int stat values))` for the Primordial Altar HUD tracker.

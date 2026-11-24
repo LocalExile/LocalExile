@@ -526,7 +526,7 @@ public static class InstanceProtocol
     }
 
     /// <summary>
-    /// S→C 0x18 (class 0x1435e6bc8, read <c>0x1421a3ab0</c> -> <c>0x1429a60d0</c>, write <c>0x1421a3980</c> ->
+    /// S→C 0x18 (read <c>0x1421a3ab0</c> -> <c>0x1429a60d0</c>, write <c>0x1421a3980</c> ->
     /// <c>0x1429a5f50</c>, dispatcher case 3): localized system/error chat message by text table id.
     /// Wire: <c>u16 BE encodedId</c>, <c>u16 BE npcRow</c> (<c>0xffff</c> = none), <c>u16 LE flags</c> (raw),
     /// <c>u32 BE holdTimeMs</c>, <c>u32 LE chatColour</c> (raw <c>ChatColours.dat</c> row), <c>u8 numArgCount</c>,
@@ -591,16 +591,16 @@ public static class InstanceProtocol
         public const byte SixthMapDeviceSlotUnlocked = 40;
     }
 
-    /// <summary>S→C 0x01d5 (3 bytes, class 0x14346cd80, read 0x140e27980, dispatcher case 0x86 at 0x142157206):
+    /// <summary>S→C 0x01d5 (3 bytes, read 0x140e27980, dispatcher case 0x86 at 0x142157206):
     /// displays an <c>AwardDisplay.dat</c> toast (0-based <paramref name="awardRow"/>).</summary>
     public static byte[] AwardDisplay(byte awardRow) => [0x01, 0xd5, awardRow];
 
-    /// <summary>S→C 0x01d6 (6 bytes, class 0x1431767e8, read 0x140911270, dispatcher case 0x87 at 0x142157278):
+    /// <summary>S→C 0x01d6 (6 bytes, read 0x140911270, dispatcher case 0x87 at 0x142157278):
     /// displays a Craft Received toast resolving <c>Mods.HASH32</c> (<paramref name="modHash32"/>) via
     /// <c>CraftingBenchOptions.Name</c> with <c>AwardDisplay</c> row 12 (<c>AtlasMissionGeneric</c>).</summary>
     public static byte[] CraftAward(uint modHash32) => new LoginWriter().U16(CraftAwardId).U32(modHash32).ToArray();
 
-    /// <summary>S→C 0x02cc (4 bytes, class 0x1435e6828, write 0x1421b74f0 / read 0x1421b7550, dispatcher case 0xea):
+    /// <summary>S→C 0x02cc (4 bytes, write 0x1421b74f0 / read 0x1421b7550, dispatcher case 0xea):
     /// displays a <c>ClientStrings</c> notice (<c>u16 LE clientStringId</c>, raw unswapped).</summary>
     public static byte[] ClientStringNotice(ushort clientStringId) =>
         [0x02, 0xcc, (byte)clientStringId, (byte)(clientStringId >> 8)];

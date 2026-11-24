@@ -12,7 +12,7 @@ public static class InstanceLabyrinth
     public const ushort CraftApplyId = 0x0245;
     public const int CraftApplyLength = 3;
 
-    /// <summary>C→S 0x0247 (4 bytes, class 0x1435ca200, writer 0x141f99160, sender 0x140bcb030): select a Divine Font
+    /// <summary>C→S 0x0247 (4 bytes, writer 0x141f99160, sender 0x140bcb030): select a Divine Font
     /// craft option (<c>u16 BE LabyrinthCraftOptions.HASH16</c>).</summary>
     public const ushort CraftSelectId = 0x0247;
     public const int CraftSelectLength = 4;
@@ -22,12 +22,12 @@ public static class InstanceLabyrinth
     public const ushort CraftResultSelectId = 0x02a3;
     public const int CraftResultSelectLength = 3;
 
-    /// <summary>S→C 0x0246 (class 0x1435e6668, read 0x1421b43b0 / write 0x1421b42e0, dispatcher case 0xb8 at 0x142159b0d):
+    /// <summary>S→C 0x0246 (read 0x1421b43b0 / write 0x1421b42e0, dispatcher case 0xb8 at 0x142159b0d):
     /// Divine Font craft options list (<c>u8 count</c>, <c>count</c> × <c>u16 BE LabyrinthCraftOptions.HASH16</c>,
     /// <c>u8 remainingUses</c>). Notifies <c>instance+0x5f8</c> listened to by <c>LabyrinthCraftingWindow</c> (<c>0x140bc9a23</c>).</summary>
     public const ushort CraftOptionsId = 0x0246;
 
-    /// <summary>S→C 0x02a2 (class 0x1435ca750, read 0x141fa8860 / write 0x141fa87a0, dispatcher case 0xe0 at 0x142159b44):
+    /// <summary>S→C 0x02a2 (read 0x141fa8860 / write 0x141fa87a0, dispatcher case 0xe0 at 0x142159b44):
     /// <c>InstanceClientLabyrinthCraftResultOptionsList</c> (<c>u64 LE count</c>, then <c>count</c> × <see cref="Item.Wire"/>).
     /// Pairs with <see cref="CraftResultSelectId"/> (<c>C→S 0x02a3</c>).</summary>
     public const ushort CraftResultOptionsListId = 0x02a2;

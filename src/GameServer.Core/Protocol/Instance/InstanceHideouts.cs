@@ -116,13 +116,13 @@ public static class InstanceMapDevice
     public static Socket ReadSocket(ReadOnlySpan<byte> m) =>
         new(BinaryPrimitives.ReadUInt32BigEndian(m[2..]), m[6], m[7]);
 
-    /// <summary>S→C 0x01a5 (4 bytes, class 0x1435e7960, read 0x1421b09f0 / write 0x1421b0970, dispatcher case 0x81
+    /// <summary>S→C 0x01a5 (4 bytes, read 0x1421b09f0 / write 0x1421b0970, dispatcher case 0x81
     /// at 0x142157801): incremental Voidstone T16 region-mask delta (<c>u8 regionBit</c> 0..3, <c>u8 on</c>). Toggles
     /// bit <paramref name="regionBit"/> of <c>instance+0xd0f8</c> via <c>0x1407d08a0</c> and notifies <c>+0xb178</c>.</summary>
     public static byte[] AtlasVoidstoneDelta(byte regionBit, bool socketed) =>
         [0x01, 0xa5, regionBit, socketed ? (byte)1 : (byte)0];
 
-    /// <summary>C→S 0x01a7 (10 bytes, class 0x1435ca3e0, write 0x141fa6080, sender 0x140788370): Atlas Scrying swap
+    /// <summary>C→S 0x01a7 (10 bytes, write 0x141fa6080, sender 0x140788370): Atlas Scrying swap
     /// between two Atlas maps (<c>WorldAreas.HASH16</c> from, to) triggered from <paramref name="ObjectId"/>.</summary>
     public readonly record struct AtlasScryRequest(ushort FromAreaHash, ushort ToAreaHash, uint ObjectId);
 
@@ -130,7 +130,7 @@ public static class InstanceMapDevice
         new(BinaryPrimitives.ReadUInt16BigEndian(m[2..]), BinaryPrimitives.ReadUInt16BigEndian(m[4..]),
             BinaryPrimitives.ReadUInt32BigEndian(m[6..]));
 
-    /// <summary>C→S 0x0075 (12 bytes, class 0x1435cad30, write 0x141f9af00, caller 0x14079cb30): apply a currency item
+    /// <summary>C→S 0x0075 (12 bytes, write 0x141f9af00, caller 0x14079cb30): apply a currency item
     /// directly to an Atlas node (<c>u32 BE inventoryId</c> from <c>msg+0x14</c>, <c>u32 BE itemId</c> from
     /// <c>msg+0x10</c>, <c>u16 BE nodeHash16</c>).</summary>
     public readonly record struct UseItemOnAtlasNode(uint InventoryId, uint ItemId, ushort NodeHash16);
@@ -139,7 +139,7 @@ public static class InstanceMapDevice
         new(BinaryPrimitives.ReadUInt32BigEndian(m[2..]), BinaryPrimitives.ReadUInt32BigEndian(m[6..]),
             BinaryPrimitives.ReadUInt16BigEndian(m[10..]));
 
-    /// <summary>C→S 0x0076 (17 bytes, class 0x1435cadf0, write 0x141f9b0b0, caller 0x14079cb60): apply a currency type
+    /// <summary>C→S 0x0076 (17 bytes, write 0x141f9b0b0, caller 0x14079cb60): apply a currency type
     /// (Shift-held repeat) to an Atlas node (<c>u32 BE typeHash</c>, <c>u32 BE inventoryId</c>, <c>u16 BE tabIndex</c>,
     /// <c>u16 BE subIndex</c>, <c>u8 flags</c>, <c>u16 BE nodeHash16</c>).</summary>
     public readonly record struct UseItemTypeOnAtlasNode(uint TypeHash, uint InventoryId, ushort TabIndex, ushort SubIndex,
@@ -150,7 +150,7 @@ public static class InstanceMapDevice
             BinaryPrimitives.ReadUInt16BigEndian(m[10..]), BinaryPrimitives.ReadUInt16BigEndian(m[12..]),
             m[14], BinaryPrimitives.ReadUInt16BigEndian(m[15..]));
 
-    /// <summary>S→C 0x012a (class 0x1435e6988, read 0x1421ad220 / write 0x1421ad110, dispatcher case 0x51): Atlas
+    /// <summary>S→C 0x012a (read 0x1421ad220 / write 0x1421ad110, dispatcher case 0x51): Atlas
     /// Vault Pass state. Enables <c>OpenAtlasPassButton</c> (<c>0x1406baef0</c>) and <c>AtlasPassRewardButton</c>
     /// (<c>HUD+0x530</c>). Wire: <c>u16 BE mapCompletions</c>, <c>WStr passId</c> (<c>BattlePasses.dat</c>),
     /// <c>u8 purchased</c>, <c>u8 active</c>, <c>u8 trackFlags</c>, <c>u64 LE unlockedMask</c>, <c>u64 LE claimedMask</c>,
