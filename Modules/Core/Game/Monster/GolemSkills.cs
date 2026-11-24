@@ -82,6 +82,7 @@ public static partial class Game
                 target = name[7..] switch
                 {
                     "elemental_resistance_%" => Stat.BaseResistAllElementsPct,
+                    "maximum_all_elemental_resistances_%" => Stat.AdditionalMaximumAllElementalResistancesPct,
                     "fire_damage_resistance_%" => Stat.BaseFireDamageResistancePct,
                     "cold_damage_resistance_%" => Stat.BaseColdDamageResistancePct,
                     "lightning_damage_resistance_%" => Stat.BaseLightningDamageResistancePct,
@@ -103,7 +104,16 @@ public static partial class Game
             // Spell Totem changes the summoning skill, not the actor that skill summons.
             if (name is "is_totem" or "base_skill_is_totemified" or "skill_is_totemified" or "is_ranged_attack_totem") continue;
             uint id = key;
-            if (name.StartsWith("minion_", StringComparison.Ordinal)) id = Stat.Of(name = name[7..]);
+            if (name.StartsWith("minion_", StringComparison.Ordinal))
+            {
+                name = name[7..];
+                id = key switch
+                {
+                    Stat.MinionElementalResistancePct => Stat.BaseResistAllElementsPct,
+                    Stat.MinionMaximumAllElementalResistancesPct => Stat.AdditionalMaximumAllElementalResistancesPct,
+                    _ => Stat.Of(name),
+                };
+            }
             if (key == Stat.MinionAreaOfEffectPlusPct) id = Stat.BaseSkillAreaOfEffectPlusPct;
             // SupportedSkill already projects its global added damage into the attack and spell forms.
             if (name.StartsWith("global_", StringComparison.Ordinal) && name.Contains("_added_", StringComparison.Ordinal)
