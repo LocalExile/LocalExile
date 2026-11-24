@@ -10,24 +10,27 @@ using GameServer.Core.Projectiles;
 /// shortcut: distance scales with projectile speed at the same 0.85 s; that is assumed, not traced.
 /// shortcut: a wall stops the flight without a return (the runtime returns only before the flight's life ends).
 /// </summary>
-public sealed class SpectralThrowLegs(double speed) : IProjectileLegs
+public sealed class SpectralThrowLegs(double speed, double deceleration) : IProjectileLegs
 {
+    public SpectralThrowLegs(double speed) : this(speed, 1) { }
     public const double BaseSpeed = 92, BaseDistance = 42, OutboundSeconds = .85, RestSeconds = .26;
     const int Segments = 10;
     const double RestSpeed = 1;
     public const double ReturnSpeed = 50;
 
-    readonly double distance = BaseDistance * speed / BaseSpeed;
+    readonly double distance = BaseDistance * speed / BaseSpeed / deceleration;
+    readonly double outbound = OutboundSeconds / deceleration;
     ProjectileVector start, direction;
     int segment;
 
     /// <summary>The rest leg ends here; the runtime then returns the projectile.</summary>
-    public static double Leash(double speed) => BaseDistance * speed / BaseSpeed + RestSpeed * RestSeconds;
+    public static double Leash(double speed) => Leash(speed, 1);
+    public static double Leash(double speed, double deceleration) => BaseDistance * speed / BaseSpeed / deceleration + RestSpeed * RestSeconds;
 
     /// <summary>The rest leg's speed times this is the return's speed.</summary>
     public const double ReturnSpeedMultiplier = ReturnSpeed / RestSpeed;
 
-    public double Lifetime => OutboundSeconds + RestSeconds + 2;
+    public double Lifetime => outbound + RestSeconds + 2;
 
     public ProjectileLeg First(ProjectileVector from, ProjectileVector aim)
     {
@@ -47,7 +50,7 @@ public sealed class SpectralThrowLegs(double speed) : IProjectileLegs
         static double Covered(double f) => 1 - (1 - f) * (1 - f);
         double share = distance * (Covered((segment + 1d) / Segments) - Covered((double)segment / Segments));
         segment++;
-        return new(start + direction * (distance * Covered((double)segment / Segments)), share / (OutboundSeconds / Segments));
+        return new(start + direction * (distance * Covered((double)segment / Segments)), share / (outbound / Segments));
     }
 }
 
