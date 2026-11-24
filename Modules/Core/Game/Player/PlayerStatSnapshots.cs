@@ -50,6 +50,7 @@ public static partial class Game
             StepWalkers(player, frame.Start);
             if (ChargeSessions.TryGetValue(player, out var charges)) charges.SettleDegeneration(frame.Start);
             player.ApplyMovementSpeedAt(frame.Start, forceRelay: true);
+            RefreshShieldChargeArrival(player);
         }
     }
 

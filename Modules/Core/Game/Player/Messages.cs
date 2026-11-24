@@ -312,6 +312,7 @@ public static partial class Game
                         : Math.Max(at, player.ProjectileRuntime?.Runtime.Now / 120000d ?? 0);
                     at = Math.Max(at, player.ProjectileRuntime?.Runtime.Now / 120000d ?? 0);
                     if (lockstep) StepWalkers(player, actionAt);
+                    AdvanceShieldChargeForUse(player, actionAt, attack);
                     if (chargeBonus == 0) EndShieldChargeIfInterrupted(player);
                     CancelMeleeRepeats(player, at);
                     action = Interlocked.Increment(ref player.ActionCount);
@@ -369,16 +370,19 @@ public static partial class Game
                         // A lockstep client's default attack at the ground is a swing where it stands (inPlace), which takes
                         // the attack time: the next use waits for it, as after a swing at a monster (Attack).
                         if (inPlace && !cast && use.SkillId == SkillCatalog.FirstSkillId)
-                            player.NextAttackAt = AttackTiming.After(at, player.NextAttackAt,
+                            player.NextAttackAt = AttackTiming.After(LockstepScheduledAt(player, at), player.NextAttackAt,
                                 Math.Max(TickSeconds, DefaultAttackSeconds(player, use.Slot, CharacterPlayerStats(player)) / PlayerActionFactor(player)));
                     }
                 }
                 Mark("begin");
-                bool projectileRuntime = cast && gem.Name is not null && (UsesProjectileRuntime(gem.Effect) || leapSkill);
-                double? swingAt = attack ? at : null;
-                Task<bool>? castTask = projectileRuntime ? CastGemSkill(player, use.SkillId,
+                bool projectileRuntime = cast && gem.Name is not null && (UsesProjectileRuntime(gem.Effect) || leapSkill || chargeBonus != 0);
+                double? swingAt = attack || player.Connection.LockstepClient ? LockstepScheduledAt(player, at) : null;
+                Action? startCharge = null;
+                Task<bool>? castTask = projectileRuntime ? CastGemSkillWithAdmission(player,
+                    chargeBonus != 0 ? start => startCharge = start : null, use.SkillId,
                     (px, py), (use.X, use.Y), sequence: use.Slot, actionToken: cooldownUse?.ActionToken ?? action, cooldownUse: cooldownUse,
                     swingAt: swingAt, leap: leap, movedByCast: movedByCast) : null;
+                if (chargeBonus != 0 && !await castTask!) continue;
                 if (castTask is { IsCompletedSuccessfully: true, Result: false }) continue;
                 Mark("cast");
                 bool acknowledged = false;
@@ -393,6 +397,7 @@ public static partial class Game
                         : (cooldownUse?.CommitNativeUse(player, use.SkillId) ?? PlayerActionCurrent(player, action)),
                     atGate: () =>
                     {
+                        Interlocked.Exchange(ref startCharge, null)?.Invoke();
                         byte[] reply = [.. InstanceProtocol.ActionStarted(player.Id, px, py, use.X, use.Y, use.SkillId, use.Slot, use.Flags),
                             .. cast ? InstanceProtocol.ActionEnded(player.Id) : []];
                         return predictedLeap ? LeapSlamAcknowledgement(player, reply) : reply;
@@ -408,6 +413,7 @@ public static partial class Game
                 // and the client never ran the action (live 2026-11-17: 51 of 59 Kinetic Blast casts, no casting animation).
                 await echo();
                 Mark("echo");
+                if (chargeBonus != 0 && !acknowledged) continue;
                 if (!projectileRuntime && !acknowledged) continue;
                 if (!cast && HasOpenInteraction(player) && SkillsFor(player).ActionName(use.SkillId) == "Move")
                     await CloseInteractionsIfMovingAway(player, (use.X, use.Y), at);

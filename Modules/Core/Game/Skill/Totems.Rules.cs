@@ -358,7 +358,7 @@ public static partial class Game
                 TotemsDiedLocked(player, now, playerStats);
             }
             // A totem blocks paths on the client as any body does.
-            if (bodySize >= 0) player.SetBlocker(objectId, place.X, place.Y, bodySize);
+            if (bodySize >= 0) player.SetObjectBlocker(objectId, place.X, place.Y, bodySize, true);
             if (NativeProjectileTotem(player, effect) && seconds > 0)
             {
                 var groundStats = SkillAreaStats(player, own, effect, playerStats);

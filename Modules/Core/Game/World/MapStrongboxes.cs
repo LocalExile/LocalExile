@@ -366,7 +366,7 @@ public static partial class MapStrongboxes
             area.Shown[box.Id] = box;
         }
         // The box blocks each player's own walk.
-        player.SetBlocker(box.Id, box.X, box.Y, 1);
+        player.SetObjectBlocker(box.Id, box.X, box.Y, 1, true);
         shown.Add(box.Id);
         await Wear(player, box);
     }
