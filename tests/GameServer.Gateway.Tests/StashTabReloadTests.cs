@@ -122,7 +122,7 @@ public class StashTabReloadTests : IDisposable
             var tainted = catalog.Find("Metadata/Items/Currency/MushruneCorrupt")!;
             InventoryItem New(ItemCatalog.BaseType type) => new(stash.NewItemId(), 0, 0, ItemCatalog.Create(type));
             InventoryItem Blighted(string mod) => New(map) with
-                { Item = ItemCatalog.Create(map) with { Mods = [new(ModSection.Implicit, catalog.Mods.ById(mod)!.Hash, [1])] } };
+                { Item = ItemCatalog.Create(map) with { Mods = [catalog.Mods.ById(mod)!.Roll(ModSection.Implicit, new Random(7))] } };
 
             // Ctrl + click on an oil (0xf5) with the anoint cell empty: not into the input cells.
             var stack = stash.Place(blight, 0, 0, New(oil) with { Item = ItemCatalog.Create(oil) with { StackSize = 3 } }, ShapeOf, out _)!.Value.Placed;
