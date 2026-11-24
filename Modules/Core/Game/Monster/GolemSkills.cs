@@ -19,6 +19,11 @@ public static partial class Game
     static bool FreshMeatActive(GolemState.Golem minion, double now) =>
         minion.FreshMeatUntil > 0 && minion.FreshMeatUntil > now && GolemStat(minion.Own, FreshMeatDurationPercent) > 0;
 
+    static int ExemplarAttackCriticals(Player player, GolemState.Golem minion, double now) =>
+        GolemStat(minion.Own, Stat.MinionCriticalStrikeChancePlusPctPerAttackCritRecentlyUpTo100) > 0
+        || GolemStat(minion.Own, Stat.MinionCriticalStrikeMultiplierPlusPerAttackCritRecentlyUpTo100) > 0
+            ? player.RecentEvents.RecentAttackCriticals(now) : 0;
+
     static double MindlessAggressionDamage(IReadOnlyDictionary<uint, int> stats) =>
         Math.Max(0, 1 + GolemStat(stats, Stat.NecromancerMinionDamagePlusPctFinal) / 100.0);
 
@@ -151,6 +156,13 @@ public static partial class Game
             values[WakenedFuryChance] = GolemStat(golem.Own, WakenedFuryChance);
             values[Stat.BaseCriticalStrikeMultiplierPlus] = ActorScale.Saturate(
                 (long)values.GetValueOrDefault(Stat.BaseCriticalStrikeMultiplierPlus) + GolemStat(golem.Own, WakenedFuryMultiplier));
+        }
+        if (ExemplarAttackCriticals(player, golem, now) is int criticals and > 0)
+        {
+            AddStat(Stat.CriticalStrikeChancePlusPct, (int)Math.Min(100,
+                (long)criticals * GolemStat(golem.Own, Stat.MinionCriticalStrikeChancePlusPctPerAttackCritRecentlyUpTo100)));
+            AddStat(Stat.BaseCriticalStrikeMultiplierPlus, (int)Math.Min(100,
+                (long)criticals * GolemStat(golem.Own, Stat.MinionCriticalStrikeMultiplierPlusPerAttackCritRecentlyUpTo100)));
         }
         foreach (var (name, value) in golem.Auras.Concat(golem.Utility)) values[name] = values.GetValueOrDefault(name) + value;
         foreach (var (name, value) in golem.Gear) values[name] = values.GetValueOrDefault(name) + value;
@@ -583,6 +595,7 @@ public static partial class Game
         hash.Add(MinionHeraldCount(player, playerStats));
         hash.Add(PresentMinionDevouredSoulsLocked(player, golem, now));
         hash.Add(FreshMeatActive(golem, now));
+        hash.Add(ExemplarAttackCriticals(player, golem, now));
         hash.Add(now < golem.OnslaughtUntil);
         hash.Add(SpectreArcaneSurgeActiveLocked(player, golem, now));
         hash.Add(MinionLinkOffenceAt(player, golem, playerStats, now));

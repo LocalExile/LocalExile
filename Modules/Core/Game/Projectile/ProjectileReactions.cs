@@ -20,7 +20,8 @@ public static partial class Game
         {
             player.LastEnemyHitAt = now;
             // The "recently" stats (issue #504): a projectile hit is an enemy hit, and a critical one is a crit.
-            player.RecentEvents.RecordHit(now, critical);
+            player.RecentEvents.RecordHit(now, critical, attack: !shot.Spell && !shot.FromTrapOrMine && !shot.Mirage
+                && (shot.Effect < 0 || SkillsFor(player).IsAttack(shot.Effect)));
         }
         uint id = contact.Target.Id;
         var random = contact.Projectile.ReactionRandomSource;

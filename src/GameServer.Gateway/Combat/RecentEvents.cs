@@ -17,6 +17,7 @@ public sealed class RecentEvents
     readonly Dictionary<string, double> last = new(StringComparer.Ordinal);
     readonly Dictionary<string, double> windows = new(StringComparer.Ordinal);
     readonly Dictionary<string, List<(double At, long Amount)>> amounts = new(StringComparer.Ordinal);
+    Queue<double>? attackCriticals;
 
     // Amounts are recorded only at one authoritative commit per counted operation. Boolean observations may be
     // repeated by existing consumers without accidentally counting the same kill or payment twice.
@@ -80,16 +81,30 @@ public sealed class RecentEvents
     /// <summary>A successful player hit commits its direction and critical outcome. The eight-second key is separate
     /// from ordinary four-second crit so an explicit eight-second modifier changes neither every recent stat nor the
     /// ordinary window.</summary>
-    public void RecordHit(double now, bool critical)
+    public void RecordHit(double now, bool critical, bool attack = false)
     {
         Record(StatConditions.HitEnemy, now);
-        RecordCriticalOutcome(now, critical);
+        RecordCriticalOutcome(now, critical, attack);
     }
 
-    public void RecordCriticalOutcome(double now, bool critical)
+    public void RecordCriticalOutcome(double now, bool critical, bool attack = false)
     {
         Record(critical ? StatConditions.Crit : StatConditions.NonCrit, now);
-        if (critical) Record(StatConditions.Crit8Seconds, now, EightSecondWindow);
+        if (!critical) return;
+        Record(StatConditions.Crit8Seconds, now, EightSecondWindow);
+        if (attack)
+        {
+            RecentAttackCriticals(now);
+            (attackCriticals ??= new()).Enqueue(now);
+        }
+    }
+
+    public int RecentAttackCriticals(double now)
+    {
+        if (attackCriticals is null) return 0;
+        while (attackCriticals.TryPeek(out double at) && !Recent(at, now, WindowSeconds))
+            attackCriticals.Dequeue();
+        return attackCriticals.Count;
     }
 
     // Elemental Overload's window is per skill (poewiki /wiki/Elemental_Overload): the skill that dealt the critical
@@ -129,5 +144,5 @@ public sealed class RecentEvents
     }
 
     /// <summary>Forgets every event (a new area, a death, a login).</summary>
-    public void Clear() { last.Clear(); windows.Clear(); amounts.Clear(); Changed?.Invoke(); }
+    public void Clear() { last.Clear(); windows.Clear(); amounts.Clear(); attackCriticals?.Clear(); Changed?.Invoke(); }
 }

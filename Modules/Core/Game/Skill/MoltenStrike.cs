@@ -402,7 +402,7 @@ public static partial class Game
                 ReleaseCriticalTrigger(player, ProjectilesFor(player), criticalTrigger, critical, m.Hostile, mAt, now);
                 if (hit.Life == 0) ReleaseMeleeKillTrigger(player, ProjectilesFor(player),
                     meleeKillTrigger, true, m.Hostile, mAt, now);
-                player.RecentEvents.RecordCriticalOutcome(now, critical);
+                player.RecentEvents.RecordCriticalOutcome(now, critical, attack: true);
                 if (ElementalOverloadCritLocked(player, skillId, null, playerStats, critical) is { } eoBuff)
                     ProjectilesFor(player).Packet(eoBuff, $"elemental overload on skill 0x{skillId:x4}");
                 if (global::Stat.BaseKilledMonsterDroppedItemQuantityPlusPct is var quantityKey)
