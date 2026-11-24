@@ -43,20 +43,9 @@ public static class DominusEncounter
     const string LightningExplosionArt = "Metadata/Effects/Spells/monsters_effects/act3/dominus/lightning_souls/lightningexplosion.ao";
     const string BirdcageModel = "Metadata/Terrain/Doodads/RuinedCity/Scepter_of_god/birdcage.ao";
 
-    // Verified from metadata/npc/act3/scioncage.ot (extends "nothing"): 5 deserialized common-pass components;
-    // client-only Render and Targetable are never serialized in the 0x02bb blob.
-    static readonly QuestObjectTypes.Info ScionCageFallback = new(
-        ScionCageType,
-        ["Positioned", "BaseEvents", "Animated", "InteractionAction", "Transitionable"],
-        States: 2,
-        Size: 6,
-        Blocking: false,
-        Model: null)
-    {
-        AnimatedModel = BirdcageModel,
-        OwnModel = true,
-        Static = true,
-    };
+    // The client registers Door in MiscObjects. Its two states play the cage model's
+    // opening animation and disable interaction once open.
+    const string CageWireType = "Metadata/MiscellaneousObjects/Door";
 
     static readonly RuleTable<InstanceState, Fight> Fights = new();
     static readonly RuleTable<Player, BloodRainExposure> BloodExposures = new();
@@ -198,17 +187,18 @@ public static class DominusEncounter
         {
             if (cageCreated) return;
             cageCreated = true;
-            var info = QuestObjectTypes.Find(ScionCageType) ?? ScionCageFallback;
-            if (!QuestObject.CanSerialize(info.Components))
+            var info = QuestObjectTypes.Find(CageWireType);
+            if (info is null || !QuestObject.CanSerialize(info.Components))
                 return;
             cageTransitionIdx = QuestObject.TransitionableIndex(info.Components);
             CageAt = cagePlacement ?? WalkableNear(player, (player.Layout.SpawnX + 12, player.Layout.SpawnY + 8));
             CageId = player.TakeObjectId();
             bool opened = cageOpened || ClientHasQuestFlag(player, ScionUnlockedFlag);
             byte state = (byte)(opened ? 2 : 1);
-            var blob = new QuestObject(CageAt.X, CageAt.Y, info.Components, 0f, null, info.OwnModel ? null : BirdcageModel, state).Blob();
+            var model = QuestObjectTypes.Find(ScionCageType)?.AnimatedModel ?? BirdcageModel;
+            var blob = new QuestObject(CageAt.X, CageAt.Y, info.Components, Model: model, TransitionState: state).Blob();
             await SendWorldCreate(player, CageId,
-                () => InstanceEntities.CreateObject(CageId, InstanceEntities.ObjectTypeHash(ScionCageType), blob),
+                () => InstanceEntities.CreateObject(CageId, InstanceEntities.ObjectTypeHash(CageWireType), blob),
                 $"0x02bb ScionCage 0x{CageId:x} at ({CageAt.X}, {CageAt.Y}), opened={opened}", wake: true, awaitBirth: false);
         }
 
