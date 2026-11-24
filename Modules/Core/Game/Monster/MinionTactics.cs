@@ -92,7 +92,7 @@ public static partial class Game
             + GolemStat(own, direct) + GolemStat(own, minionScoped);
         long chance = Current(Stat.ChanceToTauntOnHitPct, Stat.MinionChanceToTauntOnHitPct)
             + GolemStat(ability.Stats, Stat.ChanceToTauntOnHitPct);
-        if (!ability.Attack.Spell) chance += Current(Stat.AttacksChanceToTauntOnHitPct, Stat.MinionAttacksChanceToTauntOnHitPct);
+        if (!ability.Attack.Spell && !ability.Attack.Secondary) chance += Current(Stat.AttacksChanceToTauntOnHitPct, Stat.MinionAttacksChanceToTauntOnHitPct);
         if (fighter.Definition.Kind == "Zombie") chance += GolemStat(fighter.Player, Stat.RaisedZombiePctChanceToTaunt);
         if (chance <= 0 || target.Effects[Stat.CannotBeTaunted] != 0
             || player.Summons.Definitions.GetValueOrDefault(fighter.Id) is { Targetable: false }
