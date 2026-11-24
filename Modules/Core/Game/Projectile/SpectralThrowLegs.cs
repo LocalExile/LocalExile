@@ -8,11 +8,12 @@ using GameServer.Core.Projectiles;
 /// shortcut: the client's return speeds up from rest and reaches the thrower 0.84 s after the turn; this one flies
 /// back at that average speed, so a return hit near the far end lands up to ~0.15 s early and near the thrower late.
 /// shortcut: distance scales with projectile speed at the same 0.85 s; that is assumed, not traced.
-/// shortcut: a wall stops the flight without a return (the runtime returns only before the flight's life ends).
+/// Materialising starts its return at the blocked point when its outbound path meets terrain.
 /// </summary>
-public sealed class SpectralThrowLegs(double speed, double deceleration) : IProjectileLegs
+public sealed class SpectralThrowLegs(double speed, double deceleration, bool returnAtWall) : IProjectileLegs
 {
     public SpectralThrowLegs(double speed) : this(speed, 1) { }
+    public SpectralThrowLegs(double speed, double deceleration) : this(speed, deceleration, false) { }
     public const double BaseSpeed = 92, BaseDistance = 42, OutboundSeconds = .85, RestSeconds = .26;
     const int Segments = 10;
     const double RestSpeed = 1;
@@ -22,6 +23,7 @@ public sealed class SpectralThrowLegs(double speed, double deceleration) : IProj
     readonly double outbound = OutboundSeconds / deceleration;
     ProjectileVector start, direction;
     int segment;
+    bool returningAtWall;
 
     /// <summary>The rest leg ends here; the runtime then returns the projectile.</summary>
     public static double Leash(double speed) => Leash(speed, 1);
@@ -37,6 +39,17 @@ public sealed class SpectralThrowLegs(double speed, double deceleration) : IProj
         start = from;
         direction = (aim - from).Length > 0 ? (aim - from).Unit : new(1, 0);
         return Next(from, blocked: false);
+    }
+
+    public bool EndsAfterLegs => returningAtWall;
+
+    public ProjectileLegTurn? NextTurn(ProjectileVector from, bool blocked)
+    {
+        if (returningAtWall) return null;
+        if (!blocked || !returnAtWall) return new(Next(from, blocked));
+        // End the outbound path just outside the wall at the same speed as the ordinary turnaround.
+        returningAtWall = true;
+        return new(new ProjectileLeg(from, RestSpeed));
     }
 
     public ProjectileLeg Next(ProjectileVector from, bool blocked)

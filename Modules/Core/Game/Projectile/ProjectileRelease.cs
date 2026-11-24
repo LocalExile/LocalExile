@@ -241,6 +241,7 @@ public static partial class Game
                 Presentation = MonsterProjectilePresentation(clips, use.Profile.Range / Math.Max(1, use.Profile.Speed)) } };
         if (SkillsFor(player).EffectId(gem.Effect) is "SpectralThrow" or "SpectralThrowAltX")
         {
+            bool materialising = SkillsFor(player).EffectId(gem.Effect) == "SpectralThrowAltX";
             double thrown = use.Profile.Speed;
             double deceleration = Math.Max(.01, 1 + Get(Stat.SpectralThrowProjectileDecelerationPlusPct) / 100d);
             return use with
@@ -249,7 +250,7 @@ public static partial class Game
                 Payload = (ProjectileOffense)use.Payload! with { HitPacket = true, ActionSequence = sequence },
                 Profile = use.Profile with
                 {
-                    Legs = _ => new SpectralThrowLegs(thrown, deceleration),
+                    Legs = _ => new SpectralThrowLegs(thrown, deceleration, returnAtWall: materialising),
                     LegLeash = SpectralThrowLegs.Leash(thrown, deceleration), ReturnOvershoot = 0,
                     ReturnSpeedMultiplier = use.Profile.ReturnSpeedMultiplier * SpectralThrowLegs.ReturnSpeedMultiplier
                 }
