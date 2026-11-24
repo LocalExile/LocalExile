@@ -721,6 +721,10 @@ public static partial class Game
         if (shieldLeechDamage != 1) a = MinionDamageScale(a, shieldLeechDamage, shieldLeechDamage);
         double ailmentFactor = DoedreSewers.MinionDamageFactor(player) * MinionTacticsDamage(player, g, id, target, now)
             * MapMinionDamageFactor(player) * deliveryMore;
+        bool controlledBlaze = supported.Stats.ContainsKey(Stat.SupportRecentIgnitesDamagePerRecentIgnitePlusPctFinal)
+            && MinionMelee(player, a);
+        int recentIgnites = controlledBlaze ? RecentMinionSkillIgnites(g, a.Effect, now) : 0;
+        ailmentFactor *= ControlledBlazeDamageFactor(supported.Stats, recentIgnites);
         double factor = ailmentFactor * SappedDamageFactor(g.Monster, now);
         if (supported.Stats.ContainsKey(Stat.SupportDamageWhileOnFullLifePlusPctFinal)
             || supported.Stats.ContainsKey(Stat.SupportDebilitateHitDamagePlusPctFinalPerPoisonStack)
@@ -841,7 +845,8 @@ public static partial class Game
             WitherOnHitLocked(target, Golem, now, random);
             InflictMonsterBlind(player, id, target, now, BlindHitInput.Capture(Golem), a.Attack.Spell, critical,
                 AreaRng(player));
-            MinionAilmentsLocked(player, a, id, target, critical, now, ailmentFactor);
+            MinionAilmentsLocked(player, g, a, supported.Stats, id, target, critical, now, ailmentFactor,
+                controlledBlaze, recentIgnites);
             ApplyMinionDecayLocked(player, g, a, id, target, now);
             MinionTauntOnHitLocked(player, g, a, supported.Stats, id, target, now);
             if (damage > 0)

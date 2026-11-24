@@ -30,8 +30,16 @@ public static partial class Game
             Expose(target, element, DefaultExposure, now);
     }
 
-    static void MinionAilmentsLocked(Player player, GolemState.Ability ability,
-        uint id, SpawnedMonster target, bool critical, double now, double factor)
+    static int RecentMinionSkillIgnites(GolemState.Golem minion, int effect, double now)
+    {
+        if (minion.RecentSkillIgnites?.GetValueOrDefault(effect) is not { } ignites) return 0;
+        while (ignites.TryPeek(out double at) && at <= now - RecentEvents.WindowSeconds) ignites.Dequeue();
+        return ignites.Count;
+    }
+
+    static void MinionAilmentsLocked(Player player, GolemState.Golem minion, GolemState.Ability ability,
+        IReadOnlyDictionary<uint, int> own, uint id, SpawnedMonster target, bool critical, double now, double factor,
+        bool controlledBlaze, int recentIgnites)
     {
         if (!MinionHitProfiles.TryGetValue(ability, out var profile)) return;
         if (factor != 1)
@@ -44,10 +52,24 @@ public static partial class Game
                     CriticalMin = poison.CriticalMin * factor, CriticalMax = poison.CriticalMax * factor } };
         }
         var packets = new List<byte[]>();
-        var ignite = profile.Ignite with { Seconds = profile.Ignite.Seconds * MonsterIgnites.SelfDuration(n => target.Effects[n]) };
+        double igniteMore = controlledBlaze ? ControlledBlazeIgniteFactor(
+            GolemStat(own, Stat.SupportRecentIgnitesIgniteDamagePerRecentIgnitePlusPctFinal),
+            GolemStat(own, Stat.SupportRecentIgnitesIgniteDamagePerRecentIgnitePlusPctFinalMaximum), recentIgnites) : 1;
+        var ignite = profile.Ignite with
+        {
+            Seconds = profile.Ignite.Seconds * MonsterIgnites.SelfDuration(n => target.Effects[n]),
+            Min = profile.Ignite.Min * igniteMore, Max = profile.Ignite.Max * igniteMore,
+            CriticalMin = profile.Ignite.CriticalMin * igniteMore, CriticalMax = profile.Ignite.CriticalMax * igniteMore,
+        };
         if (target.Ignites.TryApply(ignite, critical, now, target.Effects[Stat.AvoidIgnitePct],
             target.Effects[Stat.ImmuneToIgnite] != 0 || target.Effects[Stat.CannotBeIgnited] != 0, AreaRng(player)))
         {
+            if (controlledBlaze)
+            {
+                var skills = minion.RecentSkillIgnites ??= [];
+                if (!skills.TryGetValue(ability.Effect, out var ignites)) skills.Add(ability.Effect, ignites = new());
+                ignites.Enqueue(now);
+            }
             player.Area.ActiveIgniteMonsters.Add(id);
             player.Area.RecentlyIgnitedMonsters.Add(id);
             ApplyIgniteFirePenaltyLocked(target, ignite, now);
