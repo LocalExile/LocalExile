@@ -1346,9 +1346,11 @@ public static partial class Game
         // A life, mana or hybrid flask's "during effect" mods end with its recovery; plain recovery flasks can also
         // satisfy "_during_any_flask_effect" item modifiers when the last active recovery flask ends.
         bool changed = player.RecoveryFlaskStats.Prune(player.FlaskEffects);
-        if (changed) RecomputePoolsAndSpeed(player);
+        bool arcaneSurgeEnded = ended.Any(e => e.RestoresMana) && !player.FlaskEffects.AnyMana
+            && StatSourceValues(player).GetValueOrDefault(Stat.ArcaneSurgeDuringManaFlaskEffect) != 0;
+        if (changed || arcaneSurgeEnded) RecomputePoolsAndSpeed(player);
         bool conditionalChanged = !changed && !player.FlaskEffects.Any && ended.Count > 0 && EnsureConditionalItemPools(player);
-        if (changed || conditionalChanged)
+        if (changed || conditionalChanged || arcaneSurgeEnded)
         {
             if (changed) Console.WriteLine($"[gateway] {player.Connection.Remote} recovery flask during effect ends ({why})");
             await SendCharacterStats(player, PlayerStatChange.Flasks);

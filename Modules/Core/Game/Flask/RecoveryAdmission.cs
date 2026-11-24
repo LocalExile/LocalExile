@@ -40,7 +40,8 @@ public static partial class Game
         StartRecoveryEffectsLocked(player, effects, copyLife);
         bool startedDuring = during is { Count: > 0 } && effects.Count > 0;
         if (startedDuring) player.RecoveryFlaskStats.Start(effects, during!);
-        if (startedDuring || !hadRecoveryFlask && player.FlaskEffects.Any)
+        bool grantedArcaneSurge = character(Stat.ArcaneSurgeDuringManaFlaskEffect) != 0 && effects.Any(e => e.RestoresMana);
+        if (startedDuring || grantedArcaneSurge || !hadRecoveryFlask && player.FlaskEffects.Any)
         {
             RecomputePoolsAndSpeed(player);
             state.StatRevision++;   // PublishFlaskChanges sends the character's stats
