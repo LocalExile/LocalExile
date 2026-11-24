@@ -599,6 +599,17 @@ public static partial class Game
             : (at.X + (int)Math.Round((at.X - player.X) / away * 20), at.Y + (int)Math.Round((at.Y - player.Y) / away * 20));
     }
 
+    static void LeechPlacedMineHitLocked(Player player, SpawnedMonster target, DamagePacket mitigated, bool spell,
+        int damage, double now, IReadOnlyDictionary<uint, int> owner, uint targetId = 0)
+    {
+        int coefficient = GolemStat(owner, Stat.MineDamageLeechedAsLifeToYouPermyriad);
+        if (coefficient <= 0) return;
+        var life = DamageTypes.ConversionOrder.Aggregate(DamagePacket.Empty,
+            (sum, type) => sum.Add(DamagePacket.Of(type, coefficient, coefficient)));
+        LeechOnHitTargetLocked(player, target, MonsterTakenComponents(target, mitigated, spell, now), damage,
+            new(life, DamagePacket.Empty, DamagePacket.Empty), targetId);
+    }
+
     static void PlacedDamageLocked(Player player,
         PlacedSkills.Placed placed, double now, WorldRecordBuilder bytes)
     {
@@ -660,7 +671,7 @@ public static partial class Game
                 var use = CaptureGemProjectile(player, session, placed.Skill, payload, shot, critical, from: at);
                 use = ClientDrawnVolley(player, session, placed.Skill, payload, use, 0, 0);
                 var offense = ((ProjectileOffense)use.Payload!).ScaleDamage(inventionMore);
-                return use with { Payload = offense with { ClientPredicted = false, FromTrapOrMine = true } };
+                return use with { Payload = offense with { ClientPredicted = false, FromTrapOrMine = true, FromMine = placed.Mine } };
             });
             return;
         }
@@ -713,17 +724,7 @@ public static partial class Game
             if (critical) damage = DamageModel.CriticalDamage(damage, hitMultiplier);
             int chaosDamage = MonsterHitChaosDamage(m, mitigated, spell, now, damage, BearTrapDamageTaken(m, now));
             if (placed.Mine)
-            {
-                // This is an explicit owner-leech grant, not the player's ordinary attack/spell leech.
-                int coefficient = Math.Max(0, GolemStat(owner, Stat.MineDamageLeechedAsLifeToYouPermyriad));
-                if (coefficient > 0)
-                {
-                    var life = DamageTypes.ConversionOrder.Aggregate(DamagePacket.Empty,
-                        (sum, type) => sum.Add(DamagePacket.Of(type, coefficient, coefficient)));
-                    LeechOnHitLocked(player, m, MonsterTakenComponents(m, mitigated, spell, now), damage,
-                        new(life, DamagePacket.Empty, DamagePacket.Empty));
-                }
-            }
+                LeechPlacedMineHitLocked(player, m, mitigated, spell, damage, now, owner);
             if (ApplyMonsterHitLocked(player, m, damage, null, null, allyAt: placed.At, default, null, chaosDamage) is not { } hit) continue;
             if (hit.StageStarts) { CommitBossStage(player, id, m, now); hit = hit with { StageStarts = false }; }
             OwnedKillLocked(m, hit.Life);

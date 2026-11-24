@@ -885,8 +885,11 @@ public static partial class Game
             int chaosDamage = MonsterHitChaosDamage(target, mitigated, shot.Spell, at, damage,
                 additionalTakenPct: additionalTaken + (shot.FromTrapOrMine ? BearTrapDamageTaken(target, at) : 0));
             bool immune = target.Invulnerable;
-            LeechOnHitTargetLocked(Player, target, MonsterTakenComponents(target, mitigated, shot.Spell, at), damage,
-                shot.Leech, contact.Target.Id);
+            if (shot.FromMine)
+                LeechPlacedMineHitLocked(Player, target, mitigated, shot.Spell, damage, at, player, contact.Target.Id);
+            else if (!shot.FromTrapOrMine)
+                LeechOnHitTargetLocked(Player, target, MonsterTakenComponents(target, mitigated, shot.Spell, at), damage,
+                    shot.Leech, contact.Target.Id);
             if (!immune)
             {
                 var settings = (critical ? shot.CriticalImpaleSettings : null) ?? shot.ImpaleSettings ?? new(shot.ImpaleChance);
