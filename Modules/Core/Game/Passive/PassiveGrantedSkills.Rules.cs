@@ -16,6 +16,9 @@ public static partial class Game
     static PassiveGrantedSkills RuthlessGrantedSkills = default!;
     static PassiveGrantedSkills NewGrantedSkills(bool ruthless) => new(ruthless ? HardModeSkills : Skills, ruthless: ruthless);
 
+    public static IReadOnlyList<PassiveGrantedSkills.Grant> PassiveSkillGrants(Player player, IEnumerable<ushort> nodes) =>
+        (LeagueFor(player).HardMode ? RuthlessGrantedSkills : GrantedSkills).For(nodes);
+
     /// <summary>The skills the player's allocated passives grant whose node carries this trigger stat
     /// (<c>has_trigger_on_crit_by_unique_enemy</c> and the like; the level row's AdditionalFlags name the same trigger).
     /// A tattoo that replaces such a node (the Loyalty summons) is a grant of its own: its
