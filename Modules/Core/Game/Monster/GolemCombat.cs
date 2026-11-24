@@ -659,6 +659,10 @@ public static partial class Game
 
     public static bool GolemHitLocked(Player player, GolemState.Golem g,
         GolemState.Ability a, uint id, SpawnedMonster target, double now)
+        => GolemHitLocked(player, g, a, id, target, now, 1, false);
+
+    static bool GolemHitLocked(Player player, GolemState.Golem g,
+        GolemState.Ability a, uint id, SpawnedMonster target, double now, double deliveryMore, bool projectile)
     {
         if (!GolemCurrent(player, g) || !CurrentGameWork || target.Dead || target.Invulnerable || !target.Hostile
             || player.Area.Monsters.GetValueOrDefault(id) != target
@@ -695,7 +699,7 @@ public static partial class Game
         double shieldLeechDamage = MinionShieldLeechDamageFactor(g, a);
         if (shieldLeechDamage != 1) a = MinionDamageScale(a, shieldLeechDamage, shieldLeechDamage);
         double ailmentFactor = DoedreSewers.MinionDamageFactor(player) * MinionTacticsDamage(player, g, id, target, now)
-            * MapMinionDamageFactor(player);
+            * MapMinionDamageFactor(player) * deliveryMore;
         double factor = ailmentFactor * SappedDamageFactor(g.Monster, now);
         if (supported.Stats.ContainsKey(Stat.SupportDamageWhileOnFullLifePlusPctFinal)
             || supported.Stats.ContainsKey(Stat.SupportDebilitateHitDamagePlusPctFinalPerPoisonStack)
@@ -736,7 +740,8 @@ public static partial class Game
             type => HitResistances.Effective(type, MonsterHitResistance(target, type, profile?.Penetration ?? default, now), strike, resistanceMods));
         var random = AreaRng(player);
         bool ignorePhysical = MinionIgnoresPhysicalReduction(mitigated, effects, target, random, a.Stats);
-        int damage = MonsterTakesMitigated(target, mitigated, a.Attack.Spell, now, ignorePhysicalReduction: ignorePhysical, random: random);
+        int projectileTaken = projectile ? MinionProjectileCurseStat(target, Stat.ProjectileDamageTakenPlusPct, now) : 0;
+        int damage = MonsterTakesMitigatedCore(target, mitigated, a.Attack.Spell, now, projectileTaken, ignorePhysical, random);
         var from = g.Monster.Walk.Position(now);
         var to = target.Walk.Position(now);
         var cull = Cull.Of(effects.Stats, a.Stats, critical, a.Attack.Spell).WithWeapon(g.Weapon?.LocalSources) with { RecoverLifePct = 0 };
@@ -880,16 +885,40 @@ public static partial class Game
         // The profile already contains the native skill's quantity; the minion's own modifiers add to it once.
         profile = GatewayProjectileModifiers.Resolve(profile, name => mods[name], attack: !a.Attack.Spell,
             arrows: g.Weapon is { Bow: true }, skillPierce: mods[Stat.Of("number_of_additional_projectiles_to_pierce")]);
+        if (!nova && !p.Lobbed && mods[Stat.SupportParallelProjectileNumberOfPointsPerSide] is > 0 and var points)
+        {
+            int x = Math.Max(mods[Stat.VirtualAdditionalProjectilesFireParallelXDist],
+                Math.Max(mods[Stat.VolleyAdditionalProjectilesFireParallelXDist], mods[Stat.GreaterVolleyAdditionalProjectilesFireParallelXDist]));
+            const double unitsPerCell = 10.869565;
+            profile = profile with { ParallelOrigins = new(points, x / unitsPerCell,
+                mods[Stat.AdditionalProjectilesFireParallelYDist] / unitsPerCell) };
+        }
+        bool canReturn = !profile.CannotReturn && (profile.Returns || profile.ReturnChancePercent > 0);
+        double returnMore = canReturn ? ProjectileReturn.DamageMore(name => mods[name] + GolemStat(a.Stats, name)) : 1;
         var offense = new ObjectProjectileOffense(a.Id, (s, contact) =>
         {
             if (!CurrentGameWork || player.Area.Monsters.GetValueOrDefault(contact.Target.Id) is not { Hostile: true } victim) return ProjectileHitResult.Miss;
             double at = Math.Max(AreaTime(player), contact.At / (double)ProjectileRuntime.QuantaPerSecond);
-            bool hit = GolemHitLocked(player, g, a, contact.Target.Id, victim, at);
+            double more = contact.Multiplier * (contact.Phase > 0 ? returnMore : 1);
+            bool hit = GolemHitLocked(player, g, a, contact.Target.Id, victim, at, more, !contact.IsArea);
             if (hit) s.Enqueue(() => PublishMinionOutcomes(player));
             return hit ? ProjectileHitResult.Hit : ProjectileHitResult.Miss;
         }) { Quiet = true, Presentation = MonsterProjectilePresentation(SkillsFor(player).Clips(p.Metadata), distance / profile.Speed) };
         session.Schedule(ProjectileRuntime.Time(now), () => CurrentGameWork && !player.Closed && !player.LeavingArea,
-            () => new(profile, owner, owner, 1, from, to) { Payload = offense });
+            () => new(profile, owner, owner, 1, from, to)
+            {
+                Payload = offense, ReturnAnchor = canReturn ? owner : null,
+                TargetSplit = (target, at) => player.Area.Monsters.GetValueOrDefault(target.Id) is { Hostile: true } victim
+                    ? MinionProjectileCurseStat(victim, Stat.ProjectilesHittingSelfSplitIntoX,
+                        at / (double)ProjectileRuntime.QuantaPerSecond) : 0
+            });
+    }
+
+    static int MinionProjectileCurseStat(SpawnedMonster target, uint stat, double now)
+    {
+        if (!target.HasCurses || target.Curses[stat] == 0) return 0;
+        target.Curses.Expire(now);
+        return target.Curses[stat];
     }
 
     static void GolemMeteorLocked(Player player, GolemState.Golem g, double now)

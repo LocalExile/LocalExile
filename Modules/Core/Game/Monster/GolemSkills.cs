@@ -273,6 +273,10 @@ public static partial class Game
             }
             int Raw(uint name) => GolemStat(raw, name);
             bool spell = catalog.IsSpell(effect) && !catalog.IsAttack(effect);
+            var projectile = catalog.MonsterProjectile(effect, includeWeaponAttacks: true) ?? GolemProjectile(effect, catalog);
+            if (effect != 9511 && !spell && (variety.RangedWeapon || golem.Weapon is { Melee: false }))
+                projectile ??= new(golem.Weapon is { WieldingWand: true } ? OrdinaryRangedAttack.Wand : OrdinaryRangedAttack.Arrow, 750, false, 2);
+            bool projectileSkill = projectile is not null || Raw(Stat.BaseIsProjectile) != 0 || catalog.IsProjectile(effect);
             double seconds = (spell || Raw(Stat.CastTimeOverridesAttackDuration) != 0) && catalog.CastTimeMs(effect) > 0
                 ? catalog.CastTimeMs(effect) / 1000.0 : (golem.Weapon?.AttackMs ?? variety.AttackMs) / 1000.0;
             double speed = (1 + mods[Stat.MonsterRarityAttackCastSpeedPlusPctAndDamageMinusPctFinal] / 100d) * (1 + (spell ? mods[Stat.CastSpeedPlusPct] + mods[Stat.BaseCastSpeedPlusPct] + mods[Stat.AttackAndCastSpeedPlusPct] : mods[Stat.AttackSpeedPlusPct] + Raw(Stat.AttackSpeedPlusPct)) / 100.0);
@@ -282,6 +286,8 @@ public static partial class Game
             if (!spell && catalog.IsMelee(effect))
                 speed *= (multistrike ? Math.Max(.01, 1 + Own(Stat.SupportMultipleAttacksMeleeAttackSpeedPlusPctFinal) / 100d) : 1)
                     * Math.Max(.01, 1 + Own(Stat.Of("support_melee_physical_attack_speed_+%_final")) / 100d);
+            if (!spell && projectileSkill)
+                speed *= Math.Max(.01, 1 + Own(Stat.SupportProjectileAttackSpeedPlusPctFinal) / 100d);
             if (!spell) speed *= Math.Max(.01, 1 + catalog.AttackSpeedMultiplier(effect, skillLevel) / 100.0);
             seconds = Math.Max(.1, seconds / Math.Max(.1, speed));
             var damage = DamagePacket.Empty;
@@ -346,9 +352,9 @@ public static partial class Game
             if (golem.Definition.Kind != "Reaper") more *= Math.Max(0, 1 + GolemStat(playerStats, Stat.ActiveSkillNonReaperMinionDamagePlusPctFinal) / 100d);
             var types = new HashSet<int>();
             if (spell) types.Add(1);
-            else { types.Add(0); if (catalog.IsMelee(effect) && golem.Weapon is not { Melee: false }) types.Add(19); }
+            else { types.Add(0); if (catalog.IsMelee(effect) && projectile is null && golem.Weapon is not { Melee: false }) types.Add(19); }
             if (Raw(Stat.IsAreaDamage) != 0) types.Add(7);
-            if (Raw(Stat.BaseIsProjectile) != 0) types.Add(2);
+            if (projectileSkill) types.Add(2);
             var supportStats = golem.Own.Select(p => (Id: p.Key, p.Value))
                 .Where(p => multistrike || p.Id != Stat.SupportMultipleAttackDamagePlusPctFinal).ToArray();
             var modified = DamagePacket.Empty;
@@ -386,11 +392,6 @@ public static partial class Game
                 * Math.Sqrt(Math.Max(0, 1 + (mods[Stat.BaseSkillAreaOfEffectPlusPct] + Raw(Stat.BaseSkillAreaOfEffectPlusPct)) / 100.0));
             ushort skill = (ushort)(0x4000 + index);
             var attack = new MonsterAttack(skill, seconds, range, damage) { Spell = spell, Ranged = spell || variety.RangedWeapon || golem.Weapon is { Melee: false }, Scripted = true };
-            var projectile = catalog.MonsterProjectile(effect, includeWeaponAttacks: true);
-            // Ice spear / Flame spray are named active skills rather than monster_projectile_spell rows.
-            projectile ??= GolemProjectile(effect, catalog);
-            if (effect != 9511 && !spell && (variety.RangedWeapon || golem.Weapon is { Melee: false }))
-                projectile ??= new(golem.Weapon is { WieldingWand: true } ? OrdinaryRangedAttack.Wand : OrdinaryRangedAttack.Arrow, 750, false, 2);
             var contact = projectile is null ? null : MonsterReleaseFor(player, variety, effect, level, projectile);
             double cd = catalog.CooldownMs(effect, skillLevel) / 1000.0 / Math.Max(.01, 1 +
                 (GolemStat(playerStats, Stat.MinionCooldownRecoveryPlusPct) + (golem.Definition.IsGolem ? GolemStat(playerStats, Stat.GolemSkillCooldownRecoveryPlusPct) : 0) + Own(Stat.MinionCooldownRecoveryPlusPct)) / 100.0);
