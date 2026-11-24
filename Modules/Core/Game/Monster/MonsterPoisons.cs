@@ -108,9 +108,9 @@ public static partial class Game
         Stacks: (ushort)Math.Clamp(m.Poisons.Stacks(now), 1, ushort.MaxValue),
         U68: Buff.Seconds(m.Poisons.Until - now), Visual: AilmentArtVisual(player, "poison"));
 
-    /// <summary>Show a hit's poison now, with the same record the tick shows: the tick then finds the same buff
-    /// already shown and sends nothing again. The caller sends it right after the hit's 0x1b1. No stat is read here;
-    /// the stacks and the countdown are the monster's own counters.</summary>
+    /// <summary>Stage a hit's poison buff in the area's frame under lock, with the same record the tick shows: the
+    /// tick then finds the same buff already shown and sends nothing again. No stat is read here; the stacks and the
+    /// countdown are the monster's own counters.</summary>
     public static void ShowPoisonBuff(Player player, uint id, SpawnedMonster m, Buff buff) =>
         ShowDot(player, id, ref m.Poisons.Buff, ref m.Poisons.BuffSource, buff);
 

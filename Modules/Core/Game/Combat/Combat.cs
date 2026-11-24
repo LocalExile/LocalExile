@@ -553,7 +553,6 @@ public static partial class Game
             bool impaled, critical;
             string? resistance;
             List<byte[]>? ignited = null, bled = null;
-            Buff? poisoned = null;
             string igniteLog = "", bleedLog = "";
             StunHit stun;
             SpawnedMonster.NativeKnockback? nativeKnockback = null;
@@ -671,7 +670,7 @@ public static partial class Game
                         if (!wasAggro) AlertPackLocked(player, m, pos, contactAt);
                     }
                 }
-                poisoned = AilmentsOnHitLocked(player, targetId, m, mitigated, spell: false, critical, criticalMultiplier, playerStats,
+                AilmentsOnHitLocked(player, targetId, m, mitigated, spell: false, critical, criticalMultiplier, playerStats,
                     ownPenetration, at, AreaRng(player), poison: prehit.Poison,
                     blind: BlindHitInput.Capture(playerStats), attackGains: AttackAilmentGains.Capture(playerStats, attack: true));
                 nativeKnockback = TakeNativeKnockbackLocked(m);
@@ -716,7 +715,6 @@ public static partial class Game
                 (stored > 0 ? $", impale +{stored:0.#} ({impaleStacks} stack(s))" : "") +
                 (impaled ? $", impaled ({impaleStacks} stack(s), {impaleStored:0.#} stored)" : "") +
                 $", life {life}/{m.MaxLife}{(life == 0 ? " (dies)" : "")}");
-            if (poisoned is { } poisonBuff) ShowPoisonBuff(player, targetId, m, poisonBuff);
             await SendDotBuff(player, ignited, igniteLog);
             await SendDotBuff(player, bled, bleedLog);
             if (life == 0) await MonsterKilled(player, targetId, m);
@@ -2791,7 +2789,6 @@ public static partial class Game
                 bool critical;
                 string? resistance;
                 List<byte[]>? ignited = null, bled = null;
-                Buff? poisoned = null;
                 string igniteLog = "", bleedLog = "";
                 StunHit stun;
                 SpawnedMonster.NativeKnockback? nativeKnockback = null;
@@ -3097,7 +3094,7 @@ public static partial class Game
                         if (!spell && player.TinctureEffects.AnyEffective) TinctureOnWeaponHitLocked(player, playerStats, m, lifeBefore, at, AreaRng(player));
                         // Devour: a killing blow recovers the support's life/mana and consumes the corpse (the kill removes it).
                         if (applied.Value.Life == 0) DevourOnKill(player, m, skillStats);
-                        poisoned = AilmentsOnHitLocked(player, id, m, mitigated, spell, critical, multiplier, playerStats, ailmentSkillStats!, at,
+                        AilmentsOnHitLocked(player, id, m, mitigated, spell, critical, multiplier, playerStats, ailmentSkillStats!, at,
                             AreaRng(player), reflected: reflected, poison: profile.Poison, sourceSkill: skillId,
                             blind: BlindHitInput.Capture(playerStats, skillStats),
                             hitOrigin: IsLeapSlam(player, gem.Effect) ? centre : null,
@@ -3153,7 +3150,6 @@ public static partial class Game
                             settleKill: singleStrikeTarget is not null, hitCode: hitCode, knockback: nativeKnockback);
                         if (singleStrikeTarget is null && hit.Life == 0) deaths.Add((id, m));
                     }
-                    if (poisoned is { } scheduledPoison) scheduled.Enqueue(() => { ShowPoisonBuff(player, id, m, scheduledPoison); return Task.CompletedTask; });
                     scheduled.Enqueue(() => SendDotBuff(player, ignited, igniteLog));
                     scheduled.Enqueue(() => SendDotBuff(player, bled, bleedLog));
                     continue;
@@ -3165,7 +3161,6 @@ public static partial class Game
                     melee: melee ?? !spell, sequence: sequence, deaths: deaths, hitCode: hitCode, stun: stun, critical: critical,
                     impactArt: !spell && hammer is null ? MeleeImpactArt(SkillsFor(player).EffectId(gem.Effect)) : null,
                     knockback: nativeKnockback);
-                if (poisoned is { } poisonBuff) ShowPoisonBuff(player, id, m, poisonBuff);
                 await SendDotBuff(player, ignited, igniteLog);
                 await SendDotBuff(player, bled, bleedLog);
                 ChargesOnHit(player, m, critical, spell, gem.Effect, gem.Level, gem.Quality, primary: id == targets[0].Id, skillStats: skillStats);
