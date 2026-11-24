@@ -18,14 +18,15 @@ public static partial class Game
     {
         int intrinsic = ItemsFor(player).GemLevel(gem);
         var type = ItemsFor(player).ByHash(gem.TypeHash);
-        if (type is null || ItemsFor(player).Gem(type) is not { } info)
+        if (type is null || ItemsFor(player).Gem(type) is not { Variants.Count: > 0 } info)
             return SkillGemLevel.Resolve(intrinsic, supportedBonus, []);
         var skills = SkillsFor(player);
+        int variant = info.Variant(gem.GemVariant).Index;
         uint[] stats = info.IsSupport
-            ? [.. skills.IsExceptional(type.Row) ? Array.Empty<uint>() : [SkillGemLevel.NonExceptionalSupports],
-                .. skills.GemHasTag(type.Row, "critical") ? [Stat.CriticalSupportGemLevelPlus] : Array.Empty<uint>()]
-            : [SkillGemLevel.AllSkillGems, .. SkillGemLevel.FamilyStats.Where(stat => skills.FamilyStatRaises(stat, type.Row)),
-                .. SkillGemLevel.TaggedActiveLevelStats.Where(entry => skills.GemHasTag(type.Row, entry.Tag)).Select(entry => entry.Stat),
+            ? [.. skills.IsExceptional(type.Row, variant) ? Array.Empty<uint>() : [SkillGemLevel.NonExceptionalSupports],
+                .. skills.GemHasTag(type.Row, variant, "critical") ? [Stat.CriticalSupportGemLevelPlus] : Array.Empty<uint>()]
+            : [SkillGemLevel.AllSkillGems, .. SkillGemLevel.FamilyStats.Where(stat => skills.FamilyStatRaises(stat, type.Row, variant)),
+                .. SkillGemLevel.TaggedActiveLevelStats.Where(entry => skills.GemHasTag(type.Row, variant, entry.Tag)).Select(entry => entry.Stat),
                 .. AttributeStat(info.Colour) is { } attribute ? [attribute] : Array.Empty<uint>()];
         return SkillGemLevel.Resolve(intrinsic, supportedBonus, stats.Select(stat => RawGemStat(player, stat)));
     }
@@ -37,9 +38,10 @@ public static partial class Game
     public static int GemQualityBonus(Player player, GameServer.Core.Protocol.Instance.Item gem)
     {
         var items = ItemsFor(player);
-        if (items.ByHash(gem.TypeHash) is not { } type || items.Gem(type) is not { IsSupport: false }) return 0;
+        if (items.ByHash(gem.TypeHash) is not { } type || items.Gem(type) is not { IsSupport: false, Variants.Count: > 0 } info) return 0;
         int quality = RawGemStat(player, SkillGemLevel.AllSkillGemQuality);
-        return !SkillsFor(player).FamilyStatRaises(Stat.LocalSocketedMinionGemLevelPlus, type.Row) ? quality
+        int variant = info.Variant(gem.GemVariant).Index;
+        return !SkillsFor(player).FamilyStatRaises(Stat.LocalSocketedMinionGemLevelPlus, type.Row, variant) ? quality
             : ActorScale.Saturate((long)quality + RawGemStat(player, Stat.MinionSkillGemQualityPlus));
     }
 

@@ -643,9 +643,14 @@ public sealed class SkillCatalog
     public bool FamilyStatRaises(uint stat, int gemRow) =>
         stat is var key && _families.Raises((int)key - 1, gemRow);
 
+    public bool FamilyStatRaises(uint stat, int gemRow, int variantIndex) =>
+        _families.Raises((int)stat - 1, gemRow, variantIndex);
+
     public bool IsExceptional(int gemRow) => _families.IsExceptional(gemRow);
 
-    public bool GemHasTag(int gemRow, string tag) => _families.HasTag(gemRow, tag);
+    public bool IsExceptional(int gemRow, int variantIndex) => _families.IsExceptional(gemRow, variantIndex);
+
+    public bool GemHasTag(int gemRow, int variantIndex, string tag) => _families.HasTag(gemRow, variantIndex, tag);
 
     readonly SkillGemFamilies _families;
 

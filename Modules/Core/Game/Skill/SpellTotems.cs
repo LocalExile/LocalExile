@@ -275,7 +275,7 @@ public static partial class Game
                 continue;
             }
             bool rain = totem.Ballista && BallistaRain(player, gem.Effect);
-            if (arc || rain || nova || curse is not null)
+            if (arc || nova || curse is not null)
             {
                 session.Runtime.Schedule(Math.Max(session.Runtime.Now, ProjectileRuntime.Time(totem.NextCast)), () =>
                 {
@@ -295,9 +295,6 @@ public static partial class Game
                         int radius = SkillRadius(player, SupportedSkill(player, totem.SkillId).Stats, spell: true, gem.Effect);
                         ReleaseTotemNova(player, session, totem, radius, sequence, SkillArtVariation(player, gem.Gem));
                     }
-                    else if (rain)
-                        ReleaseArrowRain(session, totem.SkillId, gem, aim, CaptureSkillCriticalRoll(player, totem.SkillId),
-                            sequence, mirage: false, transform: null, podDamageFactor: 1, totem);
                     else if (player.Area.Monsters.GetValueOrDefault(target.Id) == target.Monster)
                         ReleaseArcTotem(player, session, totem, target.Id, sequence);
                 });
@@ -316,7 +313,7 @@ public static partial class Game
                 return Dist(livePos, totem.At) <= range ? NonZeroTotemAim(totem.At, livePos) : initialAim;
             }
 
-            if (totem.Ballista && BallistaRain(player, gem.Effect))
+            if (rain)
             {
                 session.Runtime.Schedule(Math.Max(session.Runtime.Now, ProjectileRuntime.Time(totem.NextCast)), () =>
                 {
