@@ -23,4 +23,24 @@ public sealed class SlamSweepTests
         Assert.False(profile.DirectDamage);
         Assert.NotNull(profile.EndArea);
     }
+
+    [Fact]
+    public void Slam_wave_and_melee_area_scale_with_aoe_and_fist_of_war()
+    {
+        // Level 1 (gemBasePlus = 0, radius = 12): 60; +350% AoE -> radius 25 -> >120 cells; Fist of War -> proportional.
+        Assert.Equal(60, GroundSlamWave.Length(12), 6);
+        Assert.Equal(70, GroundSlamWave.Length(22, gemBasePlus: 10), 6);
+        Assert.True(GroundSlamWave.Length(46, gemBasePlus: 10) > 140);
+        Assert.True(GroundSlamWave.Length(27, gemBasePlus: 10) > 85);
+
+        // Pulverise more area multiplies SkillArea.Radius.
+        int baseRadius = SkillArea.Radius(18, _ => 0, spell: false);
+        int withPulverise = SkillArea.Radius(18, k => k == Stat.SupportPulveriseAreaOfEffectPlusPctFinal ? 54 : 0, spell: false);
+        Assert.True(withPulverise > baseRadius);
+
+        // Area check helper covers all Slam / Sweep melee gems.
+        Assert.True(Program.Skills.IsArea(Program.Skills.EffectRow("GroundSlam")));
+        Assert.True(Program.Skills.IsArea(Program.Skills.EffectRow("Sunder")));
+        Assert.True(Program.Skills.IsArea(Program.Skills.EffectRow("Earthquake")));
+    }
 }
