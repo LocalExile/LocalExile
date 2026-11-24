@@ -176,6 +176,8 @@ public static partial class Game
                 + 4 * endurance;
         }
         int Get(uint n) => GolemStat(playerStats, n);
+        if (Get(Stat.MinionsHaveSameMaximumNumOfChargesAsOwner) != 0)
+            foreach (var (stat, value) in ChargeMaxima.Compute(Get)) values[stat] = value;
         if (Get(Stat.NecromancerMinionDamagePlusPctFinal) is int damageMore and not 0)
             values[Stat.NecromancerMinionDamagePlusPctFinal] = damageMore;
         // Ancient Skull's real MinionCriticalStrikeChanceMaximumPowerChargeUnique__1 row uses the owner's maximum Power
@@ -533,6 +535,7 @@ public static partial class Game
     static void RefreshGolemLocked(Player player, GolemState.Golem golem, IReadOnlyDictionary<uint, int> playerStats, double? at = null)
     {
         double now = at ?? AreaTime(player);
+        SyncInheritedMinionChargesLocked(player, golem, playerStats, now);
         golem.Auras = MinionAuraStats(player, golem);
         var hash = new HashCode();
         hash.Add(CombatLifetime);
@@ -557,6 +560,8 @@ public static partial class Game
             || (Stats.Name(p.Key) ?? "").Contains("golem", StringComparison.Ordinal)).OrderBy(p => p.Key)) hash.Add(p);
         if (Stat.Dexterity is var dexKey) hash.Add((dexKey, playerStats.GetValueOrDefault(dexKey)));
         hash.Add(OwnerMaximumPowerCharges(playerStats));
+        if (GolemStat(playerStats, Stat.MinionsHaveSameMaximumNumOfChargesAsOwner) != 0)
+            foreach (var (stat, value) in ChargeMaxima.Compute(key => GolemStat(playerStats, key))) hash.Add((stat, value));
         if (golem.CombatCharges is { } charges)
         {
             hash.Add(charges.Held(ChargeType.Endurance));

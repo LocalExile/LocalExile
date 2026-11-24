@@ -69,12 +69,44 @@ public static partial class Game
 
     static void GrantMinionChargeLocked(Player owner, GolemState.Golem fighter, ChargeType type, int amount, double now)
     {
+        if (PlayerStat(owner, Stat.MinionsHaveSameNumOfChargesAsOwner) != 0) return;
         ExpireMinionChargesLocked(owner, fighter, now);
         var charges = fighter.CombatCharges ??= new();
-        var limits = Charges.LimitsOf(type, name => fighter.Monster.Effects[name], charges.Held(type));
+        int? maximum = PlayerStat(owner, Stat.MinionsHaveSameMaximumNumOfChargesAsOwner) != 0
+            ? ChargeMaxima.Of(type, key => PlayerStat(owner, key)) : null;
+        var limits = Charges.LimitsOf(type, name => fighter.Monster.Effects[name], charges.Held(type), maximum);
         var (_, count) = charges.Gain(type, amount, now, limits);
         if (count == 0) return;
         PublishMinionChargeLocked(owner, fighter, type, count, charges.ExpiresAt(type), now);
+    }
+
+    static void SyncInheritedMinionChargesLocked(Player player, GolemState.Golem fighter,
+        IReadOnlyDictionary<uint, int> stats, double now)
+    {
+        bool follows = player.PlayerLife > 0 && GolemStat(stats, Stat.MinionsHaveSameNumOfChargesAsOwner) != 0;
+        if (!follows && !fighter.ChargesFollowOwner) return;
+        fighter.ChargesFollowOwner = follows;
+        var local = fighter.CombatCharges ??= new();
+        var source = player.PlayerChargeState;
+        int Get(uint key) => GolemStat(stats, key);
+        foreach (var type in Charges.Types)
+        {
+            int count = 0;
+            double until = double.NegativeInfinity;
+            if (follows)
+            {
+                var limits = ChargeMaxima.LimitsOf(type, Get);
+                double end = source.ExpiresAt(type);
+                int gained = end > now ? Math.Min(source.Held(type), limits.Maximum) : 0;
+                count = Math.Max(gained, limits.Minimum);
+                if (count > 0) until = count > limits.Minimum ? end : double.PositiveInfinity;
+            }
+            if (local.Held(type) == count && local.ExpiresAt(type) == until) continue;
+            if (count == 0) local.Set(type, 0, now, default);
+            else local.Restore([new(type, count, (until - now) * local.ExpiryRate)], now);
+            PublishMinionChargeLocked(player, fighter, type, count, until, now);
+        }
+        if (!follows) fighter.CombatCharges = null;
     }
 
     static void ExpireMinionChargesLocked(Player owner, GolemState.Golem fighter, double now)
@@ -102,6 +134,7 @@ public static partial class Game
         ushort buff = player.NextBuff++;
         shown[(int)type] = new(count, until, buff);
         QueueGolemDotPacket(player, fighter, InstanceEntities.AddBuff(fighter.Id, buff, ChargeBuffs.Row(type), fighter.Id,
-            u68: Buff.Seconds(Math.Max(0, until - now)), stacks: (ushort)Math.Clamp(count, 0, ushort.MaxValue)));
+            u68: double.IsPositiveInfinity(until) ? 0 : Buff.Seconds(Math.Max(0, until - now)),
+            stacks: (ushort)Math.Clamp(count, 0, ushort.MaxValue)));
     }
 }

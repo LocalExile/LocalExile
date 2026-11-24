@@ -44,6 +44,7 @@ public sealed class GolemState
         public double HolyRegenerationSince, HolyRegenerationUntil, HolyRegenerationPerSecond;
         public readonly Dictionary<int, Queue<double>> Charges = [];
         public Charges.State? CombatCharges;
+        public bool ChargesFollowOwner;
         public IReadOnlyList<GrantedSkill> Skills = [];
         public IReadOnlyList<Ability> Abilities = [];
         public Action? Pending;
