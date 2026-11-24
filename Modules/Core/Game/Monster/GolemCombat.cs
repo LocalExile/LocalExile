@@ -879,6 +879,7 @@ public static partial class Game
             if (critical) MinionWhispersOnCriticalLocked(player, g, now);
             FeedingFrenzyOnHitLocked(player, g, now);
             MinionGrantsNearbyChargesOnHitLocked(player, g, from, now, random);
+            MinionMapThornsOnHitLocked(player, g, a, id, target, rolled, critical, now);
         }
         return true;
     }

@@ -92,6 +92,8 @@ public static partial class Game
                 new(RandomPhysicalGain[Random.Shared.Next(RandomPhysicalGain.Length)])).Stat;
             extra[element] = ActorScale.Saturate((long)extra.GetValueOrDefault(element) + elementalGain);
         }
+        Gain(Stat.MapRareMonstersPhysicalThornsForXDamage, Stat.PhysicalThornsBaseDamage);
+        Gain(Stat.MapRareMonstersElementalThornsForXDamage, Stat.ElementalThornsBaseDamage);
         Gain(Stat.MapMonstersAttackSpeedPlusPct, Stat.AttackSpeedPlusPct);
         Gain(Stat.MapMonstersCastSpeedPlusPct, Stat.BaseCastSpeedPlusPct);
         Gain(Stat.MapMonstersMovementSpeedPlusPct, Stat.BaseMovementVelocityPlusPct);
