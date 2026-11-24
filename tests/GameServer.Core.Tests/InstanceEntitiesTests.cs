@@ -812,19 +812,56 @@ public class InstanceEntitiesTests
         }
         Assert.Equal(skills.Length, totalSkillsEncoded);
 
-        // PlayerObject.Blob() with 28 heavy skills exceeds 65,535 bytes; FitSkillList splits cleanly.
+        // PlayerObject.Blob() with 24 heavy skills exceeds 65,535 bytes; FitSkillList splits cleanly.
         var fullPlayer = new PlayerObject("Exile", ClassIndex: 1, GridX: 10, GridY: 10, Life: 100, Mana: 50,
             AnimatedObject: "Metadata/Characters/Int/Int", Skills: skills, Stats: [(1, 10)]);
         Assert.Throws<OverflowException>(() => InstanceEntities.CreateObject(0x1000, 0x1234, fullPlayer.Blob()));
 
-        var (fitted, overflow) = fullPlayer.FitSkillList();
+        var (fitted, overflow) = fullPlayer.FitSkillList(out byte[] fittedBlob);
         Assert.NotEmpty(fitted.Skills!);
         Assert.NotEmpty(overflow);
         Assert.Equal(skills.Length, fitted.Skills!.Count + overflow.Count);
         Assert.Equal(skills.Select(s => s.Id), fitted.Skills.Concat(overflow).Select(s => s.Id));
-        byte[] createPkt = InstanceEntities.CreateObject(0x1000, 0x1234, fitted.Blob());
+        Assert.Equal(fitted.Blob(), fittedBlob);
+        byte[] createPkt = InstanceEntities.CreateObject(0x1000, 0x1234, fittedBlob);
         int createBlobLen = (createPkt[16] << 8) | createPkt[17];
         Assert.Equal(createPkt.Length - 18, createBlobLen);
         Assert.InRange(createBlobLen, 1, InstanceEntities.MaxSkillBlobBytes);
+
+        // More than 255 light skills (fitting in < 56 KB) still split at 255 so u8 count never wraps;
+        // and tight maxBlobBytes with empty Souls never exceeds maxBlobBytes by the 6-byte skill-list header.
+        var lightSkills = Enumerable.Range(0, 260)
+            .Select(i => new GrantedSkill((ushort)(0x0102 + i), 4394, 4320, []))
+            .ToArray();
+        var manyLightPlayer = fullPlayer with { Skills = lightSkills, Souls = null };
+        var (lightFitted, lightOverflow) = manyLightPlayer.FitSkillList(out byte[] lightBlob);
+        Assert.Equal(255, lightFitted.Skills!.Count);
+        Assert.Equal(5, lightOverflow.Count);
+        Assert.Equal(lightFitted.Blob(), lightBlob);
+
+        int tightLimit = (manyLightPlayer with { Skills = [.. lightSkills.Take(5)] }).Blob().Length;
+        var (tightFitted, tightOverflow) = manyLightPlayer.FitSkillList(out byte[] tightBlob, maxBlobBytes: tightLimit);
+        Assert.Equal(5, tightFitted.Skills!.Count);
+        Assert.Equal(255, tightOverflow.Count);
+        Assert.Equal(tightLimit, tightBlob.Length);
+
+        // > 255 removed skill IDs split into <= 255-entry trailing batches; last skill + oversized tail splits cleanly.
+        ushort[] manyRemoved = Enumerable.Range(0, 260).Select(i => (ushort)(0x0200 + i)).ToArray();
+        byte[][] removedBatches = InstanceEntities.PlayerSkillsChangeBatches(0x1000, [lightSkills[0]], manyRemoved,
+            soulSeeds: [new(12, 50)], soulUpdates: [new(12, 10, 50)]);
+        Assert.True(removedBatches.Length >= 3);
+        Assert.Equal(1, removedBatches.Sum(p => p[17]));
+        Assert.Equal(260, removedBatches.Sum(p => p[18]));
+        Assert.All(removedBatches, p => Assert.InRange((p[12] << 8) | p[13], 1, InstanceEntities.MaxSkillBlobBytes));
+
+        int oneHeavyLen = InstanceEntities.PlayerSkillsChange(0x1000, [skills[0]], []).Length - 14;
+        byte[][] tailSplit = InstanceEntities.PlayerSkillsChangeBatches(0x1000, [skills[0]], [0x0103, 0x0104],
+            soulSeeds: [new(12, 50)], soulUpdates: [new(12, 10, 50)], maxBlobBytes: oneHeavyLen + 2);
+        Assert.Equal(2, tailSplit.Length);
+        Assert.Equal(1, tailSplit[0][17]);
+        Assert.Equal(0, tailSplit[0][18]);
+        Assert.Equal(0, tailSplit[1][17]);
+        Assert.Equal(2, tailSplit[1][18]);
+        Assert.All(tailSplit, p => Assert.InRange((p[12] << 8) | p[13], 1, oneHeavyLen + 2));
     }
 }

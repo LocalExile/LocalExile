@@ -1877,10 +1877,10 @@ public static partial class Game
                         if (player.Closed || player.LeavingArea || player.RageRetired) return null;
                         ReconcileOwnAuras(player, validateSkills: true);
                         var raw = PlayerForCreation(player);
-                        var (fitted, overflow) = raw.FitSkillList();
+                        var (fitted, overflow) = raw.FitSkillList(out byte[] fittedBlob);
                         overflowSkills = overflow;
                         player.PeerTemplate = fitted;
-                        player.ClientSkillIds = [.. fitted.Skills!.Select(s => s.Id), .. overflow.Select(s => s.Id)];
+                        player.ClientSkillIds = [.. raw.Skills!.Select(s => s.Id)];
                         player.SentVaalSouls.Clear();
                         foreach (var budget in fitted.Souls ?? [])
                             player.SentVaalSouls.Add(budget.ActiveSkillsRow, budget);
@@ -1893,7 +1893,7 @@ public static partial class Game
                         player.AuraStatsDirty = false;
                         player.Connection.PlayerObjectCreated = true;
                         RecordPlayerSkills(player, raw.Skills!);
-                        return InstanceEntities.CreateObject(player.Id, player.PeerType, fitted.Blob());
+                        return InstanceEntities.CreateObject(player.Id, player.PeerType, fittedBlob);
                     }, label);
                     if (overflowSkills.Count > 0)
                         await SendWorldRecords(player, player.Id,
