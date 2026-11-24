@@ -6,6 +6,7 @@ using Progression = GameServer.Core.World.Progression;
 using DamageModel = GameServer.Core.World.DamageModel;
 using TargetAccuracy = GameServer.Core.World.TargetAccuracy;
 using DamageType = GameServer.Core.World.DamageType;
+using DamageTypes = GameServer.Core.World.DamageTypes;
 using DamagePacket = GameServer.Core.World.DamagePacket;
 using DamageRange = GameServer.Core.World.DamageRange;
 using HitResistances = GameServer.Core.World.HitResistances;
