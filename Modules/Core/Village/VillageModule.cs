@@ -342,6 +342,8 @@ public sealed class VillageModule : IModule
             payload.AddRange(BitConverter.GetBytes(settlement.Resources.GetValueOrDefault(i)));
         for (int j = 0; j < 15; j++) payload.AddRange(BitConverter.GetBytes((uint)settlement.Counters[j]));
         payload.AddRange(BitConverter.GetBytes(settlement.Gold));
+        // The u32 after the treasury sits at +0x198 and its meaning is unknown. Writing the wage total in it crashed the
+        // client (fault 0x162869f, inside the shipping failure roll), so it stays 0.
         payload.AddRange(BitConverter.GetBytes(0u));
         // The six plot slots the map icons name: a plot growing crop n is VillageResources row 9 + n, a bare plot is
         // 0xff. Row 0 has no name object and the client's label resolver does not check, so a zero slot faults at 0x8.
