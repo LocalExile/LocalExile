@@ -13,7 +13,7 @@ public sealed class MercenaryTests
 {
     // The area's own Mercenaries chance (CoreLeagues row 28 is never rolled by LeagueChances.Count, so the module reads the
     // WorldAreaLeagueChances column itself): 8 in a map area, 0 in a town, and the map's stats force, add to, scale or remove it.
-    [GameFilesFact]
+    [Fact]
     public void A_map_area_rolls_the_Mercenaries_column_and_the_maps_stats_change_it()
     {
         MercenaryModule.LoadData();

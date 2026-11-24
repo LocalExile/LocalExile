@@ -66,11 +66,6 @@ public static class MercenaryTables
         return (kind, builds[rng.Next(builds.Count)]);
     }
 
-    /// <summary>A class by its MercenaryClasses Id or the end of its variety path, for the dev command; null when none matches.</summary>
-    public static Class? FindKind(string kind) =>
-        Classes.FirstOrDefault(c => c.Id.Equals(kind, StringComparison.OrdinalIgnoreCase))
-        ?? Classes.FirstOrDefault(c => c.Path.EndsWith(kind, StringComparison.OrdinalIgnoreCase));
-
     public static Class? ClassOf(int row) => Classes.FirstOrDefault(c => c.Row == row);
 
     public static Build? BuildOf(int row) => Builds.FirstOrDefault(b => b.Row == row);

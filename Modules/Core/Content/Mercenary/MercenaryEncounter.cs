@@ -152,25 +152,28 @@ public sealed partial class MercenaryModule
     /// id; that one goes and the mercenary is placed again.</summary>
     async Task Enter(Player player)
     {
-        if (Peek(player) is not { Body: not 0, Stage: Stage.Met or Stage.Talk or Stage.Countdown } run
+        if (Peek(player) is not { Stage: not Stage.None } run
             || MercenaryTables.ClassOf(run.Class) is not { } kind || MercenaryTables.BuildOf(run.Build) is not { } build) return;
-        var host = player.Instance.World.Runner ?? player;
-        if (!host.Area.Monsters.ContainsKey(run.Body))
+        if (run.Body != 0 && run.Stage is Stage.Met or Stage.Talk or Stage.Countdown)
         {
-            lock (run)
+            var host = player.Instance.World.Runner ?? player;
+            if (!host.Area.Monsters.ContainsKey(run.Body) && !host.Area.DormantMonsters.ContainsKey(run.Body))
             {
-                if (run.Busy) return;
-                run.Busy = true;
+                lock (run)
+                {
+                    if (run.Busy) return;
+                    run.Busy = true;
+                }
+                try
+                {
+                    foreach (var (id, monster) in player.Area.Monsters.ToArray())
+                        if (monster.Variety?.Id == kind.Path && !monster.Hostile) await Remove(player, id);
+                    if (!await Spawn(player, run, kind, build, (run.X, run.Y), run.Level, run.Seed)) return;
+                }
+                finally { lock (run) run.Busy = false; }
             }
-            try
-            {
-                foreach (var (id, monster) in player.Area.Monsters.ToArray())
-                    if (monster.Variety?.Id == kind.Path && !monster.Hostile) await Remove(player, id);
-                if (!await Spawn(player, run, kind, build, (run.X, run.Y), run.Level, run.Seed)) return;
-            }
-            finally { run.Busy = false; }
+            Register(player, run);
         }
-        Register(player, run);
         await SendRulesets(player, kind, GearOf(kind, build, run.Level, run.Seed));
     }
 
@@ -185,13 +188,20 @@ public sealed partial class MercenaryModule
         await Everyone(player, member => SendWorldRemoval(member, id, $"0x02bd remove mercenary 0x{id:x}"));
     }
 
+    static int IndexOf(IReadOnlyList<string> items, string value)
+    {
+        for (int i = 0; i < items.Count; i++)
+            if (items[i] == value) return i;
+        return -1;
+    }
+
     /// <summary>The body's StateMachine to these values: for the instance's record (a later player), the server's monster and every
     /// client's component.</summary>
     async Task SetStates(Player player, uint id, int[] values, string what)
     {
         if (!player.Area.Monsters.TryGetValue(id, out var body) || body.Variety is not { } variety
             || States(variety, values) is not { } states) return;
-        int component = variety.ComponentsOrBase.ToList().IndexOf("StateMachine");
+        int component = IndexOf(variety.ComponentsOrBase, "StateMachine");
         if (component < 0) return;
         if (player.Instance.World.MonsterOrigins.TryGetValue(id, out var origin))
             player.Instance.World.MonsterOrigins[id] = origin with { Object = origin.Object with { StateMachine = states } };
@@ -251,13 +261,16 @@ public sealed partial class MercenaryModule
         return true;
     }
 
-    /// <summary>The countdown, on the frames of one connection of the instance (the one with the lowest id): the second mark,
+    /// <summary>The countdown, on the frames of the connection that steps the instance's monsters: the second mark,
     /// the quiet state, then the switch to the duel, at the frames the official duels show.</summary>
     async Task Tick(Player player, double seconds)
     {
-        if (Peek(player) is not { Stage: Stage.Countdown } run || run.Busy || player.Paused
-            || !ReferenceEquals(Members(player).MinBy(m => m.Id), player)) return;
-        run.Busy = true;
+        if (player.Paused || Peek(player) is not { Stage: Stage.Countdown } run || !IsMonsterRunner(player)) return;
+        lock (run)
+        {
+            if (run.Stage != Stage.Countdown || run.Busy) return;
+            run.Busy = true;
+        }
         try
         {
             run.Clock += seconds;
@@ -278,7 +291,7 @@ public sealed partial class MercenaryModule
                 }
             }
         }
-        finally { run.Busy = false; }
+        finally { lock (run) run.Busy = false; }
     }
 
     /// <summary>The switch: the friendly mercenary is replaced by a hostile one of its variety (a monster's scripted and hostile
@@ -315,9 +328,12 @@ public sealed partial class MercenaryModule
     {
         if (Peek(kill.Player) is not { Stage: Stage.Duel } run || MercenaryTables.ClassOf(run.Class) is not { } kind
             || kill.VarietyId != kind.Path) return;
+        uint bodyId;
+        lock (run) bodyId = run.Body;
+        if (bodyId != 0 && kill.Player.Area.Monsters.TryGetValue(bodyId, out var body) && !ReferenceEquals(body, kill.Monster)) return;
         lock (run)
         {
-            if (run.Stage != Stage.Duel) return;
+            if (run.Stage != Stage.Duel || run.Body != bodyId) return;
             run.Stage = Stage.Hired;
         }
         Save(kill.Player, run);
@@ -339,39 +355,8 @@ public sealed partial class MercenaryModule
             });
         if (id == 0) return;
         if (player.Area.Monsters.TryGetValue(id, out var body)) body.States = hired;
-        run.Hired = id;
+        lock (run) run.Hired = id;
         Save(player, run);
         context.Log($"{player.Layout.Id}: mercenary hired as 0x{id:x} ({allied.Id})");
     }
-
-    // ---- dev commands -------------------------------------------------------------------------------------------------------------
-
-    async Task Start(Player player, string[] args)
-    {
-        var talk = PlayerOf(player);
-        var run = State(player);
-        if (run.Stage is Stage.Met or Stage.Talk or Stage.Countdown or Stage.Duel)
-        {
-            await talk.Tell("Mercenary: one is already here.");
-            return;
-        }
-        if (player.Layout.Walkable is null) { await talk.Tell("Mercenary: this area has no walkability."); return; }
-        var rng = new Random((int)player.Seed ^ PlanTag);
-        MercenaryTables.Class? kind = args.Length > 0 ? MercenaryTables.FindKind(args[0]) : null;
-        if (args.Length > 0 && kind is null) { await talk.Tell($"Mercenary: no MercenaryClasses row matches \"{args[0]}\"."); return; }
-        var builds = kind is null ? null : MercenaryTables.BuildsOf(kind.Row);
-        var pick = kind is null ? MercenaryTables.Pick(rng) : builds is { Count: > 0 } ? (kind, builds[rng.Next(builds.Count)]) : null;
-        if (pick is not { } chosen) { await talk.Tell("Mercenary: no variety this server can create."); return; }
-        var here = player.Walk.Position(AreaTime(player));
-        var at = player.Layout.Near((here.X + 10, here.Y));
-        byte level = (byte)Math.Clamp(ServerLevels.AreaLevel(player.Layout.Id), 1, 100);
-        run.Rolled = true;
-        bool placed = await Spawn(player, run, chosen.Item1, chosen.Item2, at, level, (int)player.Seed);
-        await talk.Tell(placed ? Describe(player) : "Mercenary: not placed.");
-    }
-
-    string Describe(Player player) => Peek(player) is { Stage: not Stage.None } run && MercenaryTables.ClassOf(run.Class) is { } kind
-        ? $"Mercenary {MercenaryTables.BuildOf(run.Build)?.Name} ({kind.Id}, {kind.House}) 0x{run.Body:x} {run.Stage} at ({run.X}, {run.Y}), level {run.Level}"
-            + (run.Hired == 0 ? "." : $", hired 0x{run.Hired:x}.")
-        : "Mercenary: none in this instance.";
 }

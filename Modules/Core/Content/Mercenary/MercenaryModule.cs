@@ -63,15 +63,13 @@ public sealed partial class MercenaryModule : IModule
         module.Lifetime.Own(new Cleanup(() => { runs.Clear(); told.Clear(); }));
         GameEvents.AreaPopulated.Add(id, Place);
         GameEvents.PlayerEntered.Add(id, Enter);
-        GameEvents.AreaTick.Add(id, GameEvents.Always(Tick));
+        // Only a map area can hold a mercenary, and only the connection stepping the instance's monsters advances the countdown.
+        GameEvents.AreaTick.Add(id, start => MapDevices.IsMapArea(start.Layout.Hash) ? (player, seconds) => Tick(player, seconds) : null);
         // The press: the mercenary is a monster, so its click reaches the module as the talk of the NPC it is registered as.
         GameEvents.NpcTalk.Add(id, Talk);
         // The panel's duel choice, a C→S ruleset action.
         GameEvents.Packet(InstanceRulesets.ActionId).Add(id, Choose);
         GameEvents.Kill.Add(id, OnKill);
-        GameEvents.Command(id, "mercenary_start", "/mercenary_start [class] (dev: place a mercenary beside the player)", Start);
-        GameEvents.Command(id, "mercenary_status", "/mercenary_status (dev: this area's mercenary and its stage)",
-            async (player, _) => await PlayerOf(player).Tell(Describe(player)));
     }
 
     Run? Peek(Player player)
@@ -83,5 +81,10 @@ public sealed partial class MercenaryModule : IModule
 
     Run State(Player player) => Peek(player) ?? runs.GetValue(player.Instance, _ => new());
 
-    void Save(Player player, Run run) => player.Instance.ContentState[StateKey] = JsonSerializer.Serialize(run);
+    void Save(Player player, Run run)
+    {
+        string json;
+        lock (run) json = JsonSerializer.Serialize(run);
+        player.Instance.ContentState[StateKey] = json;
+    }
 }
