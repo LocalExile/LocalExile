@@ -80,10 +80,13 @@ public sealed class PlacedSupportsTests(ITestOutputHelper output)
                 var gems = new List<(string, int)>
                 {
                     ("Ice Nova", 1), (placement, 1), ("Invention Support", 1),
-                    ("Added Cold Damage Support", 1), ("Increased Area of Effect Support", 1),
+                    ("Added Cold Damage Support", 1), ("Summon Skitterbots", 1),
                 };
                 if (placement == "Trap Support") gems.Add(("Elemental Focus Support", 1));
-                ushort skillId = Assert.Single(fixture.Equip(gems.ToArray()));
+                fixture.Equip(gems.ToArray());
+                var equipped = Game.GemSkillEffects(player);
+                ushort skillId = equipped.Single(g => Program.Skills.EffectId(g.Effect) == "IceNova").Id;
+                var skitter = equipped.Single(g => Program.Skills.EffectId(g.Effect) == "SummonSkitterbots");
                 Assert.Equal(14, Game.SupportedSkill(player, skillId).Stats
                     .GetValueOrDefault(Stat.SupportInventionTrapAndMineDamagePlusPctFinalPerSecondPlacedUpTo100));
                 var (fresh, age) = await Contact(0);
@@ -93,13 +96,24 @@ public sealed class PlacedSupportsTests(ITestOutputHelper output)
                 // The spells retain their small native damage range on top of the fixed added damage.
                 Assert.InRange(aged, expected * .9995, expected * 1.0005);
 
+                player.Auras[skitter.Id] = new(skitter.Id, skitter.Effect, "SummonSkitterbots", "Summon Skitterbots", 1, 0, 0, 0);
+                Game.MarkPlayerStats(player, PlayerStatStep.Auras);
+                var (buffed, buffedAge) = await Contact(0);
+                player.Auras.Remove(skitter.Id);
+                Game.MarkPlayerStats(player, PlayerStatStep.Auras);
+                double bonus = Program.Skills.EffectStats(skitter.Effect, 1)
+                    .Single(p => p.Item1 == Stat.SkitterbotsTrapMineDamagePlusPctFinal).Item2 / 100d;
+                double withSkitterbots = fresh * (1 + bonus) * (1 + buffedAge * .14) / (1 + age * .14);
+                output.WriteLine($"{placement}: plain {fresh}, Skitterbots {buffed}, expected {withSkitterbots:F0}.");
+                Assert.InRange(buffed, withSkitterbots * .9995, withSkitterbots * 1.0005);
+
                 async Task<(uint Damage, double Age)> Contact(double wait)
                 {
                     clock.At += 1;
                     fixture.Session.AdvanceTo(ProjectileRuntime.Time(clock.At));
                     Assert.True(await Game.CastGemSkill(player, skillId, (100, 100), (112, 100)));
                     var placed = Assert.Single(player.Placed.All.Values);
-                    Assert.Empty(player.Area.Monsters);
+                    Assert.DoesNotContain(player.Area.Monsters.Values, m => m.Hostile);
                     const uint Target = 750;
                     var monster = new SpawnedMonster("invention target", new(placed.At.X, placed.At.Y, 0), 0, 0, 1_000_000);
                     player.Area.Monsters.Add(Target, monster);

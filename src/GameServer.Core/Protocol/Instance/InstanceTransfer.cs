@@ -45,6 +45,10 @@ public static class InstanceTransfer
     /// <see cref="CtrlFlag"/> it chooses an NPC's shortcut (17-npcs.md §3).</summary>
     public const ushort AltFlag = 0x0200;
 
+    /// <summary>0x24 / 0x018f flag bit set only on the initial fresh press (3.29.3c <c>0x1401285b0</c>), cleared on
+    /// held-button repeat ticks.</summary>
+    public const ushort InitialPressFlag = 0x0400;
+
     /// <summary>
     /// C→S 0x24 (12 bytes, 0x25's sibling aimed at an object): u32 target object id, u16 skill id (0x0266 = interact,
     /// seen on area transitions), u16 sequence, u16 flags (0x0408; | 0x0004 with Ctrl; | 0x0200 with Alt on an NPC).
@@ -54,6 +58,7 @@ public static class InstanceTransfer
         public bool Ctrl => (Flags & CtrlFlag) != 0;
         public bool Alt => (Flags & AltFlag) != 0;
         public bool AutoEquip => (Flags & AutoEquipFlag) != 0;
+        public bool InitialPress => (Flags & InitialPressFlag) != 0;
 
         /// <summary>The use's start (0x1ab) has already gone to the client: a lockstep client's frame pass sends it before
         /// the handler runs, so the handler sends none of its own. A second start put the client back to its from cell

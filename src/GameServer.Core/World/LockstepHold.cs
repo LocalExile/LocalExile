@@ -39,9 +39,15 @@ public sealed class LockstepHold
     {
         if (!_held) return;
         Offset = offset;
-        if (_target == target) return;
+        if (offset is null && _target == target) return;
         _target = target;
         _pending = true;
+    }
+
+    /// <summary>Syncs the held target to a projected close-range destination without marking a new pending update.</summary>
+    public void SetTarget((int X, int Y) target)
+    {
+        if (_held) _target = target;
     }
 
     /// <summary>C→S 0x195.</summary>

@@ -138,7 +138,7 @@ public static partial class Game
                 sequence = player.Connection.LockstepClient ? order.Sequence : attacker.NextSequence();
                 // The clip, and so the release, the action's sequence picks (the Sand Spitter's attack1 or attack2).
                 attack = MonsterAttackForSequence(player, attacker, attack, sequence);
-                (startedAt, contact) = (order.StartedAt, order.Seconds * (attack.Release?.Fraction ?? .5));
+                (startedAt, contact) = (order.StartedAt, MonsterLaunchDelay(attack, attack.Release?.Fraction ?? .5, order.Seconds));
                 var from = order.From;
                 // An in-place attack leaves a walk going under it, as the client does; a melee one stands to swing and
                 // needs the 0x1ac to begin (MonsterSwing).

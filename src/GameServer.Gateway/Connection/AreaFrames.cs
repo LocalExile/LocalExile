@@ -465,7 +465,7 @@ public sealed class AreaFrames
                         next = Math.Max(next, Math.Ceiling(watch.Elapsed.TotalSeconds / frame) * frame);
                         continue;
                     }
-                    if (paused.Player.Connection.LockstepClient) await Pumping(Guard(paused, async () => { await Program.EndPausedFrame(paused.Player); return true; }));
+                    if (paused.Player.Connection.LockstepClient) await Pumping(Guard(paused, async () => { await EndPausedFrame(paused.Player); return true; }));
                     await Task.Delay(Math.Max(1, Program.FrameMs / 3));
                     if (Stopwatch.GetElapsedTime(pausedStep).TotalMilliseconds >= Program.FrameMs)
                     {
@@ -484,7 +484,6 @@ public sealed class AreaFrames
                 if (wait > 0) await Task.Delay(TimeSpan.FromMilliseconds(Math.Ceiling(wait * 1000)));
                 double now = watch.Elapsed.TotalSeconds;
                 if (now < next) continue;
-                var ended = new List<Member>();
                 // A frame missed by a late timer goes out now; each one ends after the loops stepped at its start ran.
                 for (; next <= now; next += frame)
                 {
@@ -513,6 +512,7 @@ public sealed class AreaFrames
                     // The frame's changes, made once, go to every member with its end. Never drain Area.Delta when no
                     // member is due to receive this frame (e.g. catch-up frames while a slow entry's First is ahead of
                     // boundary), or creates queued into Area.Delta during those frames are lost before the first frame.
+                    List<Member>? ended = null;
                     if (anyDue)
                     {
                         if (Area is { } components) OnFrame(() => { components.Buffs.Publish(); components.Stats.Publish(); components.Life.Publish(); });
@@ -520,10 +520,12 @@ public sealed class AreaFrames
                         foreach (var m in snap)
                         {
                             if (!m.Framed || boundary < m.First + frame - 1e-9) continue;
+                            if (delta.Count > 0 && Program.GameLogicOrNull is { } logic)
+                                OnFrame(() => logic.WritingWorldDelta(m.Player, delta));
                             if (await Pumping(Guard(m, () => Program.EndWorldFrame(m.Player, (boundary, boundary + frame), delta))))
                             {
                                 m.LastEnded = boundary;
-                                if (!ended.Contains(m)) ended.Add(m);
+                                (ended ??= []).Add(m);
                             }
                         }
                     }
@@ -534,6 +536,16 @@ public sealed class AreaFrames
                     long t4 = Stopwatch.GetTimestamp();
                     OnFrame(() => Step(due));
                     Pump();
+                    // Start each frame's lockstep actions immediately after its step so catch-up frames never go out empty
+                    // or drop LockstepTrail samples.
+                    if (Program.GameLogicOrNull is { } rules && ended is { Count: > 0 })
+                    {
+                        OnFrame(() =>
+                        {
+                            foreach (var m in ended) _ = Logged(rules.WorldFrameEnded(m.Player, boundary));
+                        });
+                        Pump();
+                    }
                     // A frame whose steps took 100 ms or more, by stage: what the client waited for.
                     if (Stopwatch.GetElapsedTime(t0).TotalMilliseconds >= 100)
                         Console.WriteLine($"[frames] slow frame {Frame}: settle {Ms(t0, t1):0} ms, input {Ms(t1, t2):0} ms" +
@@ -541,18 +553,25 @@ public sealed class AreaFrames
                             $" ({due.Count} due: {string.Join(" ", due.GroupBy(w => w.Role).Select(g => $"{g.Key}x{g.Count()}"))})" +
                             (Area is { Systems.All.Count: > 0 } slow ? "; slowest systems: " + string.Join(", ", slow.Systems.Slowest(3).Select(s => $"{s.Name} {s.LastMs:0} ms")) : ""));
                 }
-                if (Program.GameLogicOrNull is { } rules && ended.Count > 0)
-                {
-                    OnFrame(() =>
-                    {
-                        foreach (var m in ended) _ = Logged(rules.WorldFrameEnded(m.Player, m.LastEnded));
-                    });
-                    Pump();
-                }
             }
         }
         catch (Exception ex) { Console.WriteLine($"[frames] area driver failed: {ServerLog.Describe(ex)}"); }
         finally { Stop(generation); }
+    }
+
+    /// <summary>A paused member's frame of 0 ms (Program.EndPausedFrame). What its messages changed meanwhile (a passive
+    /// point's maximum life and mana, its pools) is the area's components': the Stats phase steps it and they publish it
+    /// here, as a frame's end does, so it goes out now and not at the resume.</summary>
+    internal Task EndPausedFrame(Player player)
+    {
+        IReadOnlyList<AreaDelta.Record> delta = [];
+        if (Area is { } area)
+        {
+            OnFrame(() => area.Systems.Run(area, AreaPhase.Stats, AreaPhase.Stats));
+            Pump();
+            OnFrame(() => { area.Buffs.Publish(); area.Stats.Publish(); area.Life.Publish(); delta = area.Delta.Take(); });
+        }
+        return Program.EndPausedFrame(player, delta);
     }
 
     static double Ms(long from, long to) => (to - from) * 1000.0 / Stopwatch.Frequency;

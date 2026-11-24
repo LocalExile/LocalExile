@@ -491,13 +491,13 @@ public static partial class Game
     }
 
     internal static async Task<bool> ResolveCastBrand(Player player, ushort skillId, (ushort Id, int Effect, string Name, int Level, int Quality, uint Gem) gem,
-        (int X, int Y) to, int recoveryGeneration, Func<bool> current)
+        (int X, int Y) to, int? recoveryGeneration, Func<bool> current)
     {
         bool spawned = false;
         await SendWorldBatch(player, [], admission =>
         {
             if (!CurrentGameWork || player.Closed || player.LeavingArea || player.Paused || player.PlayerLife == 0
-                || !current() || player.ActionInterruptionGeneration != recoveryGeneration) return null;
+                || !current() || recoveryGeneration is int generation && player.ActionInterruptionGeneration != generation) return null;
             var supported = SupportedSkill(player, skillId);
             if (supported.Effect != gem.Effect || !supported.RequirementsMet) return null;
             if (BrandFamilyOf(SkillsFor(player).EffectId(gem.Effect)) is not { } family) return null;
@@ -505,7 +505,7 @@ public static partial class Game
             double now = AreaTime(player);
             var state = BrandStates.GetOrCreateValue(player);
             state.Epoch = player.ProjectileEpoch;
-            state.LastBrandCastAt = now;
+            if (recoveryGeneration is not null) state.LastBrandCastAt = now;
 
             var playerStats = CharacterPlayerStats(player);
             var own = supported.Stats;
@@ -848,7 +848,7 @@ public static partial class Game
                     var packet = DamagePacket.Of(DamageType.Chaos, chaosDmg, chaosDmg);
                     var mitigated = DamageModel.Mitigate(packet, type => MonsterHitResistance(m, type, default, now));
                     int dmg = (int)Math.Floor(mitigated.Components.Sum(c => c.Range.Min) * MonsterDamageTaken(m, false, now, false, true, true));
-                    if (dmg <= 0 || ApplyMonsterHitLocked(player, m, dmg) is not { } hit) continue;
+                    if (dmg <= 0 || ApplyTypedMonsterHitLocked(player, m, dmg, dmg) is not { } hit) continue;
                     CommitAcceptedHitLocked(player, id, m, hit, dmg, now, "branded enemy explosion", playerKill: true);
                 }
             }
@@ -1327,7 +1327,9 @@ public static partial class Game
             + Get(Stat.DamageOverTimePlusPct) + Get(Stat.ColdDamageOverTimePlusPct) + Get(Stat.AreaDamagePlusPct)
             + Get(Stat.SigilDamagePlusPct) + Get(Stat.WinterBrandDamagePlusPct)
             + (Get(Stat.SpellDamageModifiersApplyToSkillDot) != 0 ? Get(Stat.SpellDamagePlusPct) : 0);
-        double more = WintertideDotSupportMore.Aggregate(1.0, (m, name) => m * Math.Max(0, 1 + Own(name) / 100.0));
+        double more = WintertideDotSupportMore.Aggregate(
+            DamageStats.ElementalMore(Get(Stat.CombinedElementalDamagePlusPctFinal)),
+            (m, name) => m * Math.Max(0, 1 + Own(name) / 100.0));
         if (Get(Stat.KeystoneElementalOverloadDamagePlusPctFinal) is int eo and not 0)
             more *= Math.Max(0, 1 + eo / 100.0);
         int perStage = Math.Max(0, GolemStat(gem.Stats, Stat.ImmolationBrandBurnDamagePlusPctFinalPerStage));
@@ -1400,7 +1402,7 @@ public static partial class Game
             double total = vis.WintertideCarry + totalDps * step * MonsterDotTaken(m, DamageType.Cold, now);
             int damage = (int)Math.Min(int.MaxValue, Math.Floor(total));
             vis.WintertideCarry = total - damage;
-            if (damage <= 0 || ApplyMonsterHitLocked(player, m, damage) is not { } hit) continue;
+            if (damage <= 0 || ApplyMonsterHitLocked(player, m, damage, allyAt: m.Walk.Position(now)) is not { } hit) continue;
             if (hit.StageStarts) { CommitBossStage(player, id, m, now); hit = hit with { StageStarts = false }; }
             CommitAcceptedHitLocked(player, id, m, hit, damage, now, "Wintertide Brand", playerKill: true);
         }
@@ -1428,7 +1430,7 @@ public static partial class Game
                 bytes.World(id, InstanceEntities.AddBuff(id, end.BuffInstance, WintertideSecondaryBuffRow, player.Id,
                     u68: BitConverter.SingleToUInt32Bits((float)Math.Max(0.1, end.Until - now))));
             }
-            if (damage <= 0 || ApplyMonsterHitLocked(player, m, damage) is not { } hit) continue;
+            if (damage <= 0 || ApplyMonsterHitLocked(player, m, damage, allyAt: m.Walk.Position(now)) is not { } hit) continue;
             if (hit.StageStarts) { CommitBossStage(player, id, m, now); hit = hit with { StageStarts = false }; }
             CommitAcceptedHitLocked(player, id, m, hit, damage, now, "Wintertide's End", playerKill: true);
         }
@@ -1569,7 +1571,7 @@ public static partial class Game
             SupportedCriticalChanceVsBlinded(player, skillId, release: false),
             SupportedCriticalChanceVsGround(player, skillId, release: false));
         bool critical = RollCriticalStrike(player, critChance, gem.Stats, attack: false, playerStats: playerStats);
-        int critMult = CriticalMultiplierOn(m, SupportedCriticalMultiplier(player, skillId), playerStats, gem.Stats);
+        int critMult = CriticalMultiplierOn(m, SupportedCriticalMultiplier(player, skillId), now, playerStats, gem.Stats);
 
         var pen = Penetration.Of(playerStats, Stats, attack: false, gem.Stats);
         if (extraPenetrationType is { } ep)
@@ -1591,9 +1593,11 @@ public static partial class Game
         var leech = HitLeechSources(playerStats, attack: false, gem.Stats, null, melee: false);
         LeechOnHitLocked(player, m, taken, damage, leech);
 
-        var stun = OwnerStun(player, m, damage, mitigated, melee: false, spell: true, critical, playerStats, gem.Stats);
+        var stun = OwnerStun(player, gem.Effect, m, damage, mitigated, melee: false, spell: true, critical, playerStats, gem.Stats);
+        int chaosDamage = MonsterHitChaosDamage(m, mitigated, spell: true, now, damage);
         if (ApplyMonsterHitLocked(player, m, damage, null, null, allyAt: null,
-                cull: Cull.Of(playerStats, gem.Stats, critical, spell: true), cullPlayer: playerStats)
+                cull: Cull.Of(playerStats, gem.Stats, critical, spell: true), cullPlayer: playerStats,
+                chaosDamage: chaosDamage)
             is not { } applied) return;
         if (applied.StageStarts) { CommitBossStage(player, monsterId, m, now); applied = applied with { StageStarts = false }; }
 

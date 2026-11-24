@@ -20,8 +20,15 @@ public static partial class Game
             partyMultiplier: partyMultiplier);
         uint beforePenalty = Progression.MonsterExperience(baseExperience, multiplierPercent, rarity, playerLevel,
             monsterLevel, levelPenalty: false, partyMultiplier: partyMultiplier);
-        return (GameEvents.RunExperience(PlayerOf(player), monster, character),
-            GameEvents.RunExperience(PlayerOf(player), monster, beforePenalty));
+        var owner = PlayerOf(player);
+        // "#% increased Experience gain": one stat read per kill per player.
+        if (PlayerStat(owner, Stat.ExperienceGainPlusPct) is int gain and not 0)
+        {
+            uint Scaled(uint xp) => (uint)Math.Clamp(xp * (100L + gain) / 100, 0, uint.MaxValue);
+            (character, beforePenalty) = (Scaled(character), Scaled(beforePenalty));
+        }
+        return (GameEvents.RunExperience(owner, monster, character),
+            GameEvents.RunExperience(owner, monster, beforePenalty));
     }
 
     public sealed class CharacterLevelUpdates

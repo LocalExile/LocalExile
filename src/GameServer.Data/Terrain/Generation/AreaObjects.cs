@@ -14,6 +14,49 @@ public sealed record PlacedArmRoom(string Path, int X, int Y, int Width, int Hei
 /// <see cref="AreaObjects.RoomObjects"/> returns.</summary>
 public sealed record PlacedLink(int From, int To, string Name);
 
+/// <summary>Compact read-only lookup of each tile corner's ground type name (.gt first line) for a generated
+/// <see cref="TileGrid"/>. Derived purely after generation with zero RNG draws.</summary>
+public sealed record TileGrounds(int TileWidth, int TileHeight, string[] Palette, byte[] Corners)
+{
+    /// <summary>Ground name at the tile corner nearest to grid cell (<paramref name="cellX"/>, <paramref name="cellY"/>), or null.</summary>
+    public string? AtCell(int cellX, int cellY)
+    {
+        if (TileWidth <= 0 || TileHeight <= 0 || Palette.Length == 0) return null;
+        int vx = Math.Clamp((cellX + 11) / 23, 0, TileWidth);
+        int vy = Math.Clamp((cellY + 11) / 23, 0, TileHeight);
+        byte idx = Corners[vy * (TileWidth + 1) + vx];
+        return idx < Palette.Length ? Palette[idx] : null;
+    }
+
+    /// <summary>True when any corner of the tile covering (<paramref name="cellX"/>, <paramref name="cellY"/>) matches one of <paramref name="grounds"/>.</summary>
+    public bool CellMatchesAny(int cellX, int cellY, IReadOnlyList<string> grounds)
+    {
+        if (TileWidth <= 0 || TileHeight <= 0 || Palette.Length == 0 || grounds.Count == 0) return false;
+        int tx = Math.Clamp(cellX / 23, 0, TileWidth - 1);
+        int ty = Math.Clamp(cellY / 23, 0, TileHeight - 1);
+        int stride = TileWidth + 1;
+        for (int dy = 0; dy <= 1; dy++)
+            for (int dx = 0; dx <= 1; dx++)
+            {
+                byte idx = Corners[(ty + dy) * stride + (tx + dx)];
+                if (idx >= Palette.Length) continue;
+                string g = Palette[idx];
+                for (int i = 0; i < grounds.Count; i++)
+                    if (string.Equals(g, grounds[i], StringComparison.OrdinalIgnoreCase)) return true;
+            }
+        return false;
+    }
+
+    /// <summary>True when the corner nearest to (<paramref name="cellX"/>, <paramref name="cellY"/>) matches an excluded ground.</summary>
+    public bool CellExcluded(int cellX, int cellY, IReadOnlyList<string> grounds)
+    {
+        if (grounds.Count == 0 || AtCell(cellX, cellY) is not { } g) return false;
+        for (int i = 0; i < grounds.Count; i++)
+            if (string.Equals(g, grounds[i], StringComparison.OrdinalIgnoreCase)) return true;
+        return false;
+    }
+}
+
 /// <summary>The area transitions and waypoints of a generated grid, placed as <see cref="DoodadStage"/>'s tile lines
 /// place tile objects (<c>0x142047a50</c>): row by row, every tile origin's objects (the record master's Reskin copy
 /// when there is one; per sub-tile for a tile made of them), then the .tmd the .tdt names (+0x180), turned by the
@@ -136,6 +179,37 @@ public static class AreaObjects
     /// plays on creation) is placed with that .ao, as the doodad stage takes it; live, the static model hung the client.</remarks>
     public static List<PlacedTileObject> TileObjects(TerrainCache files, GenerationResult result, Func<string, bool> keep) =>
         Place(files, result, keep, _ => false, (o, tdt) => ClientModel(files, o, tdt));
+
+    /// <summary>Compact read-only ground type name grid derived from the already-placed <see cref="TileGrid"/> corners
+    /// (zero RNG draws, zero grid mutation).</summary>
+    public static TileGrounds Grounds(TerrainCache files, GenerationResult result)
+    {
+        var grid = result.Grid;
+        int w = grid.Width, h = grid.Height;
+        int stride = w + 1;
+        var corners = new byte[(w + 1) * (h + 1)];
+        var palette = new List<string>();
+        var index = new Dictionary<string, byte>(StringComparer.Ordinal);
+        for (int vy = 0; vy <= h; vy++)
+            for (int vx = 0; vx <= w; vx++)
+            {
+                string? name = grid.Corner(vx, vy).Ground is { } path ? files.Ground(path)?.Name : null;
+                if (string.IsNullOrEmpty(name))
+                {
+                    corners[vy * stride + vx] = byte.MaxValue;
+                    continue;
+                }
+                if (!index.TryGetValue(name, out byte id))
+                {
+                    if (palette.Count >= byte.MaxValue) { corners[vy * stride + vx] = byte.MaxValue; continue; }
+                    id = (byte)palette.Count;
+                    palette.Add(name);
+                    index[name] = id;
+                }
+                corners[vy * stride + vx] = id;
+            }
+        return new TileGrounds(w, h, [.. palette], corners);
+    }
 
     // The record's model as the client holds it (record +0x38, which 0x142047e30 places): the virtual
     // "<.tdt folder>/<name>.ao" when that file exists, else the .ao the record names.

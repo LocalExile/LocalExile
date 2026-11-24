@@ -53,7 +53,13 @@ public sealed partial class DeliriumModule
     Run? Preview(Player player, Run run)
     {
         if (run.Active || run.Wave >= 15) return null;
-        if (run.Next is not null) return run.Next;
+        if (run.Next is not null)
+        {
+            // A preview saved before the reward-type mods existed still shows its rewards.
+            if (run.Next.RewardMods.Length == 0 && run.Next.Rewards.Length > 0)
+            { run.Next.RewardMods = RewardModsFor(player, run.Next.Rewards); Save(player, run); }
+            return run.Next;
+        }
         var next = PrepareWave(player, run.Wave + 1, run);
         run.Next ??= next; Save(player, run); return run.Next;
     }
@@ -70,14 +76,25 @@ public sealed partial class DeliriumModule
         }
         string type = StarterType(player.Layout.Id);
         var placed = player.Layout.Level?.TileQuestObjects.FirstOrDefault(o => o.Type.EndsWith(type.Split('/')[^1], StringComparison.OrdinalIgnoreCase));
-        var at = placed is null ? player.Layout.Near((player.Layout.SpawnX + 18, player.Layout.SpawnY + 12)) : (placed.X, placed.Y);
+        var spot = StarterSpot(player.Layout.Id);
+        var at = spot is { } s ? player.Layout.Near((s.X, s.Y))
+            : placed is null ? player.Layout.Near((player.Layout.SpawnX + 18, player.Layout.SpawnY + 12)) : (placed.X, placed.Y);
+        float turn = spot?.Turn ?? placed?.Rotation ?? 0;
         var preview = Preview(player, run);
-        var obj = new QuestObject(at.Item1, at.Item2, StarterComponents, Rotation: placed?.Rotation ?? 0)
-        { StateMachine = StarterStates(run), Mods = preview?.Affixes ?? run.Affixes };
+        var affixes = preview?.Affixes ?? run.Affixes;
+        var rewardMods = preview?.RewardMods ?? run.RewardMods;
+        var obj = new QuestObject(at.Item1, at.Item2, StarterComponents, Rotation: turn)
+        {
+            StateMachine = StarterStates(run),
+            Mods = [.. affixes, .. rewardMods],
+            Stats = [.. rewardMods.Select((m, i) => (Stat.Of($"map_endgame_affliction_reward_{i + 1}"), m.Values[0]))
+                .Where(s => StatCatalog.IsClientId(s.Item1))],
+        };
         uint id = player.TakeObjectId();
         await SendWorldCreate(player, id, () => InstanceEntities.CreateObject(id,
             InstanceEntities.ObjectTypeHash(placed?.Type ?? type), obj.Blob()),
-                $"Simulacrum native starter {type} at {at}, wave {run.Wave}, active {run.Active}", wake: true, awaitBirth: false);
+                $"Simulacrum native starter {type} at {at}, wave {run.Wave}, active {run.Active}, " +
+                $"reward types [{string.Join(", ", rewardMods.Select(m => m.Values[0]))}]", wake: true, awaitBirth: false);
         view.Entity = id; view.At = at; view.Native = true;
         SaveView(player, view);
     }

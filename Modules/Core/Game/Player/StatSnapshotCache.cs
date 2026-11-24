@@ -216,6 +216,12 @@ public static partial class Game
             if (Get(LowestAttributeDamage) is int perFive and not 0 && Stat.DamagePlusPct is var damageKey)
                 stats[damageKey] = (int)Math.Clamp(Get(Stat.DamagePlusPct) + (long)perFive
                     * (Math.Min(Get(Stat.Strength), Math.Min(Get(Stat.Dexterity), Get(Stat.Intelligence))) / 5), int.MinValue, int.MaxValue);
+            // Prodigal Perfection counts complete hundreds of final maximum mana, with the native description's 40% cap.
+            if (Get(Stat.SpellDamagePlusPctPer100MaximumManaUpTo60Pct) is int perHundredMana and not 0)
+            {
+                long increased = (long)Math.Max(0, Get(Stat.MaximumMana)) / 100 * perHundredMana;
+                stats[Stat.SpellDamagePlusPct] = ActorScale.Saturate(Get(Stat.SpellDamagePlusPct) + Math.Min(40, increased));
+            }
             // Aristocrat: "cannot be X if A is higher than B" becomes the plain cannot_be_X while it holds (strictly higher),
             // which the Defence tab shows and the ailment consumer reads.
             foreach (var (conditional, plain, higher, lower) in AttributeAilmentConditions)

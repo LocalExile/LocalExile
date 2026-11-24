@@ -379,7 +379,7 @@ internal static class DeepwaterLoot
         if (!await global::Game.SendWorldCreate(modPlayer, id, InstanceEntities.CreateObject(id, InstanceEntities.ObjectTypeHash(thing.Type), blob),
             $"0x02bb Allflame {thing.Kind} 0x{id:x} {thing.Type.Split('/')[^1]} at ({thing.X}, {thing.Y}){(thing.Done ? " (used)" : "")}")) return;
         await global::Game.SendWorldRecord(modPlayer, id, InstanceProtocol.EnterWakeZone(id));
-        if (info.Blocking) player.SetBlocker(id, thing.X, thing.Y, Math.Max(1, info.Size));
+        if (info.Blocking) player.SetObjectBlocker(id, thing.X, thing.Y, Math.Max(1, info.Size), info.ActorOrChest);
     }
 
     // The Golden Lantern buff's instance on each connection.
