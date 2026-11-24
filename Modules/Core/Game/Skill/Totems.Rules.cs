@@ -604,7 +604,7 @@ public static partial class Game
             bytes.Remove(t.Id);
         }
         SyncZones(player, player.Id, TotemAuraZones, totems.Living(now)
-                .Select(t => (t.Id, Radius: t.Aura?.Radius ?? VaalWarchiefActivationRange(t), t.At))
+                .Select(t => (t.Id, Radius: t.Aura?.Radius ?? VaalWarchiefActivationRange(player, t), t.At))
                 .Where(t => t.Radius > 0),
             new(ReachesOnly(player.Id), Changed: _ => MarkPlayerStats(player, PlayerStatStep.TotemAura)));
         SyncRejuvenationAllyZones(player, now);

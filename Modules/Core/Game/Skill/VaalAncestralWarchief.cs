@@ -9,13 +9,13 @@ public static partial class Game
     sealed record VaalWarchiefBuffState(int Bonus);
     static readonly RuleTable<Player, VaalWarchiefBuffState> SentVaalWarchiefBuff = new();
 
-    static int VaalWarchiefActivationRange(TotemState.Totem totem) =>
+    static int VaalWarchiefActivationRange(Player player, TotemState.Totem totem) =>
         TotemSources.TryGetValue(totem, out var source)
-            && Skills.EffectId(totem.Effect) == VaalAncestralWarchiefEffect
+            && SkillsFor(player).EffectId(totem.Effect) == VaalAncestralWarchiefEffect
             ? GolemStat(source.Stats, Stat.AncestorTotemParentActiviationRange) : 0;
 
     static bool VaalWarchiefInRange(Player player, TotemState.Totem totem, double now) =>
-        VaalWarchiefActivationRange(totem) is > 0 and var range
+        VaalWarchiefActivationRange(player, totem) is > 0 and var range
             && Dist(totem.At, player.Walk.Position(now)) <= range;
 
     static int VaalWarchiefMeleeBonus(Player player, double now)
@@ -25,7 +25,7 @@ public static partial class Game
         foreach (var totem in player.Totems.All)
         {
             if (!totem.Alive(now) || !InZone(player, player.Id, TotemAuraZones, totem.Id, player.Id)
-                || VaalWarchiefActivationRange(totem) == 0 || !TotemSources.TryGetValue(totem, out var source)) continue;
+                || VaalWarchiefActivationRange(player, totem) == 0 || !TotemSources.TryGetValue(totem, out var source)) continue;
             best = Math.Max(best, GolemStat(source.Stats, Stat.SlamAncestorTotemGrantOwnerMeleeDamagePlusPctFinal));
             StatsChangeIn(totem.Until - now);
         }

@@ -114,7 +114,10 @@ public static partial class Game
         var arrivals = new Dictionary<uint, SpawnedMonster>();
         foreach (var (id, target) in targets)
         {
-            if (!MonsterPresent(player, id, target) || target.Invulnerable || !target.Hostile) continue;
+            if (!MonsterPresent(player, id, target) || target.Invulnerable || !target.Hostile
+                || target.Rarity == MonsterRarity.Unique
+                || target.Variety is { MovementSpeed: 0 } or { Immobile: true }
+                || target.Variety is not null && target.Walk.Speed <= 0) continue;
             var at = target.Walk.Position(now);
             if (Dist(origin, at) > radius) continue;
             var destination = (X: landing.X + at.X - origin.X, Y: landing.Y + at.Y - origin.Y);

@@ -218,9 +218,12 @@ public static partial class Game
                     due / (double)ProjectileRuntime.QuantaPerSecond, 0, Player.ProjectileEpoch, 0, use);
                 lock (markers) markers.Place(marker);
                 if (loop is not null)
+                {
+                    Player.TrackProjectileObject(marker.Object);
                     Create(marker.Object, () => InstanceEntities.CreateObject(marker.Object,
                         InstanceEntities.ObjectTypeHash(EffectObject.TypePath),
                         new EffectObject(at.X, at.Y, loop) { Flags0 = EffectObject.FixedRotation }.Blob()), wake: true);
+                }
                 int chance = Own(Stat.StormCallChanceToStrikeOnCastPct);
                 if (chance > 0 && AreaRng(Player).Next(100) < chance)
                     CommitPlacedStormCallStrike(marker, use, removeMarker: false);
@@ -242,7 +245,10 @@ public static partial class Game
         {
             if (Player.ProjectileEpoch != marker.Epoch) return;
             if (removeMarker && use.Loop is not null)
+            {
+                Player.UntrackProjectileObject(marker.Object);
                 WorldRecords(marker.Object, () => [InstanceProtocol.RemoveObject(marker.Object)], remove: true);
+            }
             if (Player.PlayerLife == 0 || !use.Current()) return;
             var device = use.Placement.Device;
             int radius = SkillRadius(Player, device.Own, spell: true, device.Effect);
