@@ -2419,6 +2419,13 @@ public static partial class Game
             ? (a.Summon is not null ? $"0x01d1 monster 0x{id:x} ({m.Label}) summons, cast time {seconds:0.00} s"
                 : $"0x01ab monster 0x{id:x} ({m.Label}) attacks the player with {(a.Effect is int used ? SkillsFor(player).EffectId(used) : null) ?? "its attack"} 0x{a.SkillId:x4}, attack time {seconds:0.00} s")
             : null)) return false;
+        if (a.Summon is null && BossKits.EffectOf(m, a) is int channelEffect && SkillsFor(player).IsChannelled(channelEffect))
+        {
+            double remaining = Math.Max(0, startedAt + seconds - AreaTime(player));
+            SendAfter(player, remaining, () => MonsterActionCurrent(player, id, m, action)
+                ? SendWorldRecord(player, id, InstanceProtocol.ChannelFinished(id, seq), $"0x01ae monster 0x{id:x} channel 0x{seq:x4} ended")
+                : Task.CompletedTask);
+        }
 // A clip-only action (a dev command's NoContact) lands nothing: its hit or area belongs to the caller, which
         // sends it on its own clock. A zero-damage contact here would only play the clip's hit effect.
         if (a.NoContact) return true;

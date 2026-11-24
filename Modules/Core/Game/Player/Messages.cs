@@ -766,7 +766,14 @@ public static partial class Game
                 }
             }
             else if (id == InstanceProtocol.ChannelEndId)
+            {
+                bool hadChannel = player.ChannelSkill != 0;
+                int channelGen = player.ChannelGeneration;
+                ushort endedSequence = player.ChannelSkillSequence;
                 ChannelReleased(player, player.ClockAt(readAt));
+                if (hadChannel && !player.Connection.LockstepClient)
+                    await EmitPredictiveChannelFinished(player, channelGen, endedSequence);
+            }
             else if (id == InstanceProtocol.RetargetActionId)
                 await RetargetAction(player, InstanceProtocol.ReadRetargetAction(bytes), readAt);
             else if (id == InstanceProtocol.SwapWeaponsId)
