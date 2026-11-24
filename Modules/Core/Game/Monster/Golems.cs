@@ -276,7 +276,7 @@ public static partial class Game
             LocalGolemSave[] local;
             string character;
             Guid owner;
-            if (!player.Golems.Restored) return;
+            if (!player.Golems.Restored || InTown(player)) return;
             double now = AreaTime(player);
             canonical = PlayerSkillSourcesLocked(player).Where(source => source.Active)
                 .GroupBy(source => source.Id).ToDictionary(group => group.Key, group => group.First());

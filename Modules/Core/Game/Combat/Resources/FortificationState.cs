@@ -44,20 +44,22 @@ public sealed class FortificationState
     public static int Maximum(int addedMaximum) =>
         (int)Math.Clamp((long)BaseMaximum + addedMaximum, 0, int.MaxValue);
 
-    public Value Read(double now, int addedMaximum = 0)
+    public Value Read(double now, int addedMaximum = 0, int additiveFloor = 0, int minimumOverride = 0)
     {
         Advance(now);
-        long uncapped = 0;
+        long grantsCount = 0;
         double? nextExpiry = null, latestExpiry = null;
         foreach (var grant in grants)
         {
-            uncapped += grant.Count;
+            grantsCount += grant.Count;
             nextExpiry = nextExpiry is null ? grant.ExpiresAt : Math.Min(nextExpiry.Value, grant.ExpiresAt);
             latestExpiry = latestExpiry is null ? grant.ExpiresAt : Math.Max(latestExpiry.Value, grant.ExpiresAt);
         }
         int maximum = Maximum(addedMaximum);
         activeMaximum = maximum;
-        return new((int)Math.Min(uncapped, maximum), uncapped, maximum, nextExpiry)
+        long uncapped = grantsCount + Math.Max(0, additiveFloor);
+        int current = (int)Math.Clamp(Math.Max(Math.Min(uncapped, maximum), minimumOverride), 0, int.MaxValue);
+        return new(current, Math.Max(uncapped, minimumOverride), Math.Max(maximum, minimumOverride), nextExpiry)
         {
             LatestExpiry = latestExpiry,
         };

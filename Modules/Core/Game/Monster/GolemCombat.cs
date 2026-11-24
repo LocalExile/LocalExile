@@ -812,8 +812,10 @@ public static partial class Game
             (g.Monster.Mods.Effects[Stat.BaseCriticalStrikeMultiplierPlus] + g.Monster.Mods.Effects[Stat.Of("critical_strike_multiplier_+")]
                 + target.Curses[Stat.EnemyAdditionalCriticalStrikeMultiplierAgainstSelf]
                 + (prey ? GolemStat(g.Own, Stat.SupportMinionFocusFireCriticalStrikeMultiplierPlusVsFocusedTarget) : 0)) / 100.0;
+        bool fullLife = g.Monster.Life >= g.Monster.MaxLife;
+        int extraDoubleDamage = MinionDoubleDamageChanceLocked(player, g, fullLife, now);
         var rolled = GolemRollHit(a.Attack.Damage.Scale(factor), effects, a.Attack.Spell, AreaRng(player),
-            fullLife: g.Monster.Life >= g.Monster.MaxLife, tripleDamage: SkeletonWeaponTripleDamage(player, g, a, now));
+            fullLife, SkeletonWeaponTripleDamage(player, g, a, now), extraDoubleDamage);
         MinionHitProfiles.TryGetValue(a, out var profile);
         bool ignoreElemental = g.Shield > 0
             && g.Monster.Mods.Effects[Stat.HitsIgnoreEnemyElementalResistancesWhileHasEnergyShield] != 0;
@@ -844,7 +846,12 @@ public static partial class Game
         var from = g.Monster.Walk.Position(now);
         var to = target.Walk.Position(now);
         var cull = Cull.Of(effects.Stats, a.Stats, critical, a.Attack.Spell).WithWeapon(g.Weapon?.LocalSources);
-        cull = cull with { RecoverLifePct = 0, CannotKill = cull.CannotKill || MinionIgniteKillRule(currentPlayer, target, now).CannotKill };
+        cull = cull with
+        {
+            Threshold = Math.Max(cull.Threshold, MinionCullLocked(player, g, from, now).Threshold),
+            RecoverLifePct = 0,
+            CannotKill = cull.CannotKill || MinionIgniteKillRule(currentPlayer, target, now).CannotKill,
+        };
         int chaosDamage = MonsterHitChaosDamage(target, mitigated, a.Attack.Spell, now, damage, projectileTaken, ignorePhysical);
         bool attackCanImpale = !a.Attack.Spell && !a.Attack.Secondary && rolled[DamageType.Physical].Min > 0
             && (effects[Stat.AttacksImpaleOnHitPctChance] != 0 || effects[Stat.ImpaleOnHitPctChance] != 0
@@ -988,10 +995,10 @@ public static partial class Game
         GolemRollHit(damage, effects, spell, random, fullLife: false, tripleDamage: false);
 
     static DamagePacket GolemRollHit(DamagePacket damage, MonsterModEffects effects, bool spell, Random random,
-        bool fullLife, bool tripleDamage)
+        bool fullLife, bool tripleDamage, int extraDoubleDamage = 0)
     {
-        var modifiers = GamblerModifiers.From(name => effects[name]).ForSkill(name => fullLife && name == Stat.ChanceToDealDoubleDamagePct
-            ? effects[Stat.ChanceToDealDoubleDamageWhileOnFullLifePct] : 0, spell);
+        var modifiers = GamblerModifiers.From(name => effects[name]).ForSkill(name => name == Stat.ChanceToDealDoubleDamagePct
+            ? extraDoubleDamage + (fullLife ? effects[Stat.ChanceToDealDoubleDamageWhileOnFullLifePct] : 0) : 0, spell);
         if (tripleDamage) modifiers = modifiers with { TripleDamageChance = 100 };
         return modifiers.RollOutgoingHit(damage, random);
     }

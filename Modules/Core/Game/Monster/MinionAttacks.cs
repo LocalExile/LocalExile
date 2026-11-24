@@ -91,7 +91,8 @@ public static partial class Game
             cannotPenetrateOrIgnore: m.Mods.Effects[Stat.CannotPenetrateOrIgnoreElementalResistances]);
         bool ignorePhysical = MinionIgnoresPhysicalReduction(mitigated, m.Effects, t, random, supported?.Stats);
         int damage = MonsterTakesMitigated(t, mitigated, spell: false, now: now, ignorePhysicalReduction: ignorePhysical);
-        var cull = player.Minions.Owns(id, m) ? MinionIgniteKillRule(PlayerStatValues(player), t, now) : default;
+        var cull = (player.Minions.Owns(id, m) ? MinionIgniteKillRule(PlayerStatValues(player), t, now) : default)
+            with { Threshold = MinionCullLocked(player, null, at, now).Threshold };
         int chaosDamage = MonsterHitChaosDamage(t, mitigated, spell: false, now, damage, ignorePhysicalReduction: ignorePhysical);
         if (ApplyMonsterHitLocked(player, t, damage, rampageSource: null, playerStats: null, allyAt: at,
             cull: cull, cullPlayer: null, chaosDamage: chaosDamage) is not { } hit) return null;

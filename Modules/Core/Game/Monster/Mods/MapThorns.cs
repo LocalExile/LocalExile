@@ -81,7 +81,7 @@ public static partial class Game
             int damage = (int)Math.Min(int.MaxValue, Math.Round(mitigated * reflectable * taken
                 * effects.DamageTaken(false, body.Ailments.Magnitude(MonsterElementalAilments.Kind.Shock, now)
                     + body.Ailments.ChillDamageTakenPct(now) + HitDebuffTaken(body, false, now))
-                * MinionFortificationAt(player, minion, now) * GolemMeatShieldDamageFactor(minion)
+                * MinionFortificationHitFactor(player, minion, now) * GolemMeatShieldDamageFactor(minion)
                 * MinionLinkDamageTaken(player, minion, now) * CompanionshipDamageTaken(player, minion, now)));
             if (damage <= 0) return;
             receivedAt = now;

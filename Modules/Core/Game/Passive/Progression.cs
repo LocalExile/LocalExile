@@ -1167,6 +1167,7 @@ public static partial class Game
             EnergyShield = (int)Math.Min(int.MaxValue, (long)bonus.EnergyShield + aura.EnergyShield),
             ArmourMorePct = (100m + aura.ArmourMorePct) * (100m + EquipmentInput(Stat.ArmourPlusPctFinalFromSeismicCryBuff)) / 100m - 100m,
             EvasionMorePct = aura.EvasionMorePct,
+            ExtraDefenceMorePct = EvaluateFortificationLocked(player, AreaTime(player), sources).Above20DefenceMorePct,
             CriticalStrikeChancePct = attackIncrease,
             SpellCriticalStrikeChancePct = spellIncrease,
             AttackSpeedPct = bonus.AttackSpeedPct + aura.AttackSpeedPct + cat.AttackSpeedPct,
@@ -2223,6 +2224,7 @@ public static partial class Game
             }
             await SendCharacterStats(player, PlayerStatChange.Build);
             await Send(player, [], "0x01c1/0x01c2 passive buffs (passives)", atGate: () => PassiveBuffAuras.Presentation(player));
+            await SendFortification(player);
             // A refund can lower the maximum life: the current life needs its own 0x1b1 (0x1b3 only carries the maximum).
             Note($"0x01b1 player life {player.PlayerLife} (passives)");
             await SendPlayerMana(player, $"0x01b1 player mana {player.PlayerMana} (passives)");

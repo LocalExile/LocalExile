@@ -18,6 +18,12 @@ public static partial class Game
             MinionFortificationAt(player, fighter, now);
     }
 
+    static double MinionFortificationHitFactor(Player player, GolemState.Golem fighter, double now)
+    {
+        int shared = MinionFortificationStacksLocked(player, fighter, fighter.Monster.Walk.Position(now), now);
+        return Math.Min(MinionFortificationAt(player, fighter, now), Math.Max(0, 1 - shared / 100d));
+    }
+
     static double MinionFortificationAt(Player player, GolemState.Golem fighter, double now)
     {
         if (!MinionFortification.TryGetValue(fighter, out var session)) return 1;
