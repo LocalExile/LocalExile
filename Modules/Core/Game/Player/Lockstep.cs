@@ -70,7 +70,14 @@ public static partial class Game
             player.LockstepSkill.Clear(finishChannel: true);
             if (SkillsFor(player).IsGemSkill(skill) || skill == SkillCatalog.FirstSkillId)
             {
-                var aim = player.Area.Monsters.TryGetValue(target, out var m) ? m.Walk.Position(AreaTime(player)) : here;
+                var m = player.Area.Monsters.GetValueOrDefault(target);
+                if (m is not { Hostile: true, Dead: false, OwnerId: null } && GroundPlaceableGemSkill(player, skill))
+                {
+                    if (ResolveObjectAimCell(player, target, m, AreaTime(player)) is { } cell)
+                        player.LockstepSkill.Press(cell, null, skill, flags, target != player.Id && LockstepRepeats(player, skill));
+                    return;
+                }
+                var aim = m?.Walk.Position(AreaTime(player)) ?? here;
                 player.LockstepSkill.Press(aim, target, skill, flags, target != player.Id && LockstepRepeats(player, skill));
             }
             else
