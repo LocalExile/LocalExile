@@ -505,12 +505,22 @@ public static class InstanceEntities
     public static byte[] PlayerPortraitUpdate(uint playerId, ushort portrait) =>
         ComponentUpdate(playerId, PlayerObject.PlayerComponentIndex, new BlobWriter().U16(0x40).U16(portrait).ToArray());
 
-    public const ushort GoldId = 0x2aa;
+    public const ushort GoldId = 0x2aa, WorldPopupIconId = 0x278;
 
     /// <summary>S→C 0x2aa (class 0x1431767e8, read 0x140911270): u32 BE, the character's gold. The instance dispatcher (case
     /// 0xe2, 0x142154531) stores it at session +0xc40c (the inventory's and the gold respec's amount) and plays
     /// Gold_Spend.ogg when it drops.</summary>
     public static byte[] Gold(uint amount) => new LoginWriter().U16(GoldId).U32(amount).ToArray();
+
+    /// <summary>
+    /// S→C 0x278 (19 bytes, class 0x1435e6f80, read 0x1421b5640, dispatcher case 0xd0 at 0x14215a675 →
+    /// InGameUI::vtable[+0xb00] 0x140d7a560): floating world/entity popup icon with signed amount.
+    /// Layout: u16 BE id, i32 BE gridX, i32 BE gridY, u32 BE entityId (0 anchors to the world cell; non-zero follows
+    /// that entity and merges mergeable popups within the row's merge window via 0x140cb2660), u8 1-based
+    /// <c>WorldPopupIconTypes</c> row (0x140cb1478 decrements by 1; e.g. 4 = row 3 <c>GoldCoin</c>), i32 BE amount.
+    /// </summary>
+    public static byte[] WorldPopupIcon(int gridX, int gridY, uint entityId, byte iconType, int amount) =>
+        new LoginWriter().U16(WorldPopupIconId).U32((uint)gridX).U32((uint)gridY).U32(entityId).U8(iconType).U32((uint)amount).ToArray();
 
     /// <summary>The player's Inventories component again (0x2bc): what its model wears after an equipment change.</summary>
     public static byte[] PlayerEquipmentUpdate(uint playerId, IReadOnlyList<VisibleItem> equipped)

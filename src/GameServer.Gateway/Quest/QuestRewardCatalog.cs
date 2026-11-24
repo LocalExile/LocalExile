@@ -88,11 +88,35 @@ public sealed class QuestRewardCatalog
         {
             if (rolls is null || choice.Level is < 1 or > 100 || choice.Rarity is not (0 or 1 or 2)
                 || !type.Components.Contains("Mods")) return null;
-            var (sockets, links) = items.DefaultSockets(type);
+            var (sockets, links) = RewardSockets(type, choice.Level, items, Random.Shared);
             return rolls.Roll(ItemCatalog.Create(type, sockets, links) with { ItemLevel = (byte)choice.Level },
                 (ItemRarity)choice.Rarity.Value, Random.Shared);
         }
         return ItemCatalog.Create(type) with { StackSize = (ushort)Math.Min(choice.Stack, ushort.MaxValue), ItemLevel = (byte)choice.Level };
+    }
+
+    // Act-appropriate linked sockets for quest reward gear: 2L in Act 1, up to 3L from level 12+,
+    // and up to 4L from level 25+ (capped by the slot's and item level's socket limit).
+    static (IReadOnlyList<ItemSocket> Sockets, IReadOnlyList<byte>? Links) RewardSockets(
+        ItemCatalog.BaseType type, int itemLevel, ItemCatalog items, Random random)
+    {
+        if (!type.Components.Contains("Sockets") || ItemCatalog.ResonatorSockets(type) > 0
+            || type.Id == AbyssJewels.StygianVise || type.HasOneSocket)
+            return items.DefaultSockets(type, itemLevel, random: random);
+        int classCap = SystemSettings.Default.SocketMax(type.Class);
+        if (classCap <= 0)
+            return SystemSettings.Default.Values.Count == 0
+                ? items.DefaultSockets(type, itemLevel, random: random)
+                : ([], null);
+        int levelCap = itemLevel >= 50 ? 6 : itemLevel >= 35 ? 5 : itemLevel >= 25 ? 4 : itemLevel >= 2 ? 3 : 2;
+        int max = Math.Min(classCap, levelCap);
+        int target = itemLevel >= 25 ? Math.Min(max, 4) : itemLevel >= 12 ? Math.Min(max, 3) : Math.Min(max, 2);
+        if (target <= 0) return ([], null);
+        var requirements = items.Requirements(type);
+        var sockets = new ItemSocket[target];
+        for (int i = 0; i < target; i++)
+            sockets[i] = new(SocketColours.Roll(requirements, itemLevel, 0, random));
+        return (sockets, [(byte)target]);
     }
 
     /// <summary>Pack rewards using their actual sizes; HardMode gear choices must not overlap like 1×1 gems.</summary>
@@ -121,6 +145,26 @@ public sealed class QuestRewardCatalog
         takenFlag is not null ? has(takenFlag)
         : quest?.Grant is not { } grant || has(grant) || quest.Remove is { } remove && has(remove);
 
+    static bool IsOfferTaken(HashSet<string> saved, string? takenFlag, QuestItemFlags? quest, PlayerInventories inventory,
+        Item reward, int? leagueFlag, AccountStash? leagueFlags, bool reclaimable)
+    {
+        bool league = leagueFlag is not null && leagueFlags is not null;
+        return league && leagueFlags!.LeagueQuestFlags.Contains(leagueFlag!.Value)
+            || (reclaimable
+                ? QuestItems.Carried(inventory).Any(c => c.Item.Item.TypeHash == reward.TypeHash)
+                : (!league || takenFlag is not null || quest is not null) && Taken(takenFlag, quest, saved.Contains));
+    }
+
+    static void RecordOfferTaken(string character, HashSet<string> saved, string? takenFlag, QuestItemFlags? quest,
+        int? leagueFlag, AccountStash? leagueFlags)
+    {
+        if (leagueFlag is int lf && leagueFlags is not null) leagueFlags.ChangeLeagueQuestFlags([lf], true);
+        var flags = new List<string>();
+        if (takenFlag is not null) flags.Add(takenFlag);
+        if (quest is not null) flags.AddRange(new[] { quest.Grant, quest.Extra, quest.Extra2 }.OfType<string>().Where(f => !saved.Contains(f)));
+        if (flags.Count > 0) CharacterSaves.ChangeQuestFlags(character, flags, true);
+    }
+
     /// <summary>Puts the reward into an admitted carried grid and records the offer as taken (its taken flag, or the quest item's
     /// pickup flags: an Act 1 book's a1q7-HaveRewardBook), in one save transaction. Null (nothing changes) when it is taken
     /// already or does not fit. With <paramref name="leagueFlag"/> (an <see cref="Offer.TakenLeagueFlag"/>) and the account's
@@ -133,23 +177,66 @@ public sealed class QuestRewardCatalog
         if (row != PlayerInventories.MainInventory && (row != PlayerInventories.ExpandedInventory || !expandedAllowed)) return null;
         // Read the durable flags again inside the transaction: a retry or another connection cannot duplicate a reward.
         var saved = (CharacterSaves.Load(character)?.QuestFlags ?? []).ToHashSet();
-        bool league = leagueFlag is int lf && leagueFlags is not null;
-        // A reclaimable offer prevents claiming duplicates while allowing any missing unlocked item;
-        // otherwise an offer with only a league flag is taken by it alone (Taken(null, null) would call it taken already).
-        bool taken = league && leagueFlags!.LeagueQuestFlags.Contains(leagueFlag!.Value)
-            || (reclaimable
-                ? QuestItems.Carried(inventory).Any(c => c.Item.Item.TypeHash == reward.TypeHash)
-                : (!league || takenFlag is not null || quest is not null) && Taken(takenFlag, quest, saved.Contains));
-        if (taken || !inventory.Fits(row, reward, shapeOf)) return null;
+        if (IsOfferTaken(saved, takenFlag, quest, inventory, reward, leagueFlag, leagueFlags, reclaimable)
+            || !inventory.Fits(row, reward, shapeOf)) return null;
         var added = inventory.AddStacked(row, reward, shapeOf);
         if (added.Left != 0) throw new InvalidOperationException("A quest reward did not fit after its capacity check");
-        if (league) leagueFlags!.ChangeLeagueQuestFlags([leagueFlag!.Value], true);
-        var flags = new List<string>();
-        if (takenFlag is not null) flags.Add(takenFlag);
-        if (quest is not null) flags.AddRange(new[] { quest.Grant, quest.Extra }.OfType<string>().Where(f => !saved.Contains(f)));
-        if (flags.Count > 0) CharacterSaves.ChangeQuestFlags(character, flags, true);
+        RecordOfferTaken(character, saved, takenFlag, quest, leagueFlag, leagueFlags);
         return added;
     });
+
+    /// <summary>Claims a quest reward directly into a specific inventory row and cell (<c>C→S 0x0088</c>): main or
+    /// expanded inventory (exact cell, stack merge, or single-item swap to cursor), equipment/flask slot, or empty cursor,
+    /// recording the offer as taken in the same transaction.</summary>
+    public static PlayerInventories.Placement? ClaimAt(string character, string? takenFlag, QuestItemFlags? quest,
+        PlayerInventories inventory, Item reward, Func<Item, PlayerInventories.Shape?> shapeOf, byte row, byte x, byte y,
+        bool expandedAllowed = false, int? leagueFlag = null, AccountStash? leagueFlags = null, bool reclaimable = false) => Saves.Atomically(() =>
+    {
+        bool equipment = row is >= 1 and <= 11 or 14 or 15 or 102;
+        if (row != PlayerInventories.MainInventory && row != PlayerInventories.Cursor && !equipment
+            && (row != PlayerInventories.ExpandedInventory || !expandedAllowed)) return null;
+        var saved = (CharacterSaves.Load(character)?.QuestFlags ?? []).ToHashSet();
+        if (IsOfferTaken(saved, takenFlag, quest, inventory, reward, leagueFlag, leagueFlags, reclaimable)) return null;
+        PlayerInventories.Placement? placement;
+        if (row == PlayerInventories.Cursor)
+        {
+            if (inventory.Items(PlayerInventories.Cursor).Count != 0) return null;
+            var placed = inventory.Add(PlayerInventories.Cursor, 0, 0, reward);
+            placement = new(PlayerInventories.Cursor, placed, placed, null);
+        }
+        else
+        {
+            placement = inventory.PlaceIncoming(row, x, y, reward, shapeOf, out _, expandedAllowed, allowDisplace: equipment);
+            if (placement is null) return null;
+        }
+        RecordOfferTaken(character, saved, takenFlag, quest, leagueFlag, leagueFlags);
+        return placement;
+    });
+
+    /// <summary>Claims a quest reward gem directly into a target item's socket (<c>C→S 0x0089</c>), moving any displaced
+    /// gem onto the empty cursor and recording the offer as taken in the same transaction.</summary>
+    public static (InventoryItem Item, InventoryItem? Displaced)? ClaimIntoSocket(string character, string? takenFlag,
+        QuestItemFlags? quest, PlayerInventories inventory, Item reward, byte targetRow, uint targetItemId, int socket,
+        Func<Item, PlayerInventories.Shape?> shapeOf, out string why, int? leagueFlag = null, AccountStash? leagueFlags = null,
+        bool reclaimable = false)
+    {
+        string reason = "";
+        var result = Saves.Atomically<(InventoryItem Item, InventoryItem? Displaced)?>(() =>
+        {
+            var saved = (CharacterSaves.Load(character)?.QuestFlags ?? []).ToHashSet();
+            if (IsOfferTaken(saved, takenFlag, quest, inventory, reward, leagueFlag, leagueFlags, reclaimable))
+            {
+                reason = "already taken";
+                return null;
+            }
+            if (inventory.SocketItem(targetRow, targetItemId, socket, reward, shapeOf, inventory.NewItemId, out reason) is not { } socketed)
+                return null;
+            RecordOfferTaken(character, saved, takenFlag, quest, leagueFlag, leagueFlags);
+            return socketed;
+        });
+        why = reason;
+        return result;
+    }
 
     /// <summary>Result of claiming all available rewards from a multi-item quest reward offer (<c>C→S 0x008b</c>).</summary>
     public sealed record ClaimAllResult(
@@ -217,7 +304,7 @@ public sealed class QuestRewardCatalog
             claimedIds.Add(offerItemId);
             carriedTypes?.Add(reward.TypeHash);
             if (quest is not null)
-                foreach (var f in new[] { quest.Grant, quest.Extra }.OfType<string>())
+                foreach (var f in new[] { quest.Grant, quest.Extra, quest.Extra2 }.OfType<string>())
                     if (saved.Add(f)) granted.Add(f);
         }
 

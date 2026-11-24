@@ -167,6 +167,7 @@ public sealed class PlayerWalk
         Reached = true;
         _goalReached = false;
         WalksThrough = false;
+        ChargesThrough = false;
     }
 
     /// <summary>Whether the step at <paramref name="at"/> (a time from <see cref="Steps"/>) ends a piece of the path: the
@@ -216,6 +217,7 @@ public sealed class PlayerWalk
         Reached = true;
         _goalReached = true;
         WalksThrough = false;
+        ChargesThrough = false;
     }
 
     // When the tick from `from` to `until` steps the walker into a waypoint (the end of a piece of its path), if it does.
@@ -239,6 +241,7 @@ public sealed class PlayerWalk
     /// (<see cref="StopAfter"/>); without frames it stands where it is. Returns where it stands.</summary>
     public (int X, int Y) Cancel(double now)
     {
+        ChargesThrough = false;
         if (FrameOf?.Invoke(now) is { } frame)
         {
             // A walker already standing has no step time for the stop to act on (0x141e38420 does nothing then): the
@@ -333,20 +336,20 @@ public sealed class PlayerWalk
         readonly (double At, double Moving, int Teleports)? _travel;
         readonly (double, double) _kept;
         readonly int _maxRange, _tolerance, _precision;
-        readonly bool _reached, _goalReached, _walksThrough;
+        readonly bool _reached, _goalReached, _walksThrough, _chargesThrough, _slides;
 
         internal Snapshot(PlayerWalk w)
         {
             _travel = w._travel;
-            (_segments, _rest, _target, _restSince, _kept, _maxRange, _tolerance, _precision, _reached, _goalReached, _walksThrough) =
-                (w._segments, w._rest, w._target, w._restSince, w._kept, w._maxRange, w._tolerance, w._precision, w.Reached, w._goalReached, w.WalksThrough);
+            (_segments, _rest, _target, _restSince, _kept, _maxRange, _tolerance, _precision, _reached, _goalReached, _walksThrough, _chargesThrough, _slides) =
+                (w._segments, w._rest, w._target, w._restSince, w._kept, w._maxRange, w._tolerance, w._precision, w.Reached, w._goalReached, w.WalksThrough, w.ChargesThrough, w.Slides);
         }
 
         internal void Into(PlayerWalk w)
         {
             (w._segments, w._rest, w._target, w._restSince, w._kept, w._maxRange, w._tolerance, w._precision) =
                 (_segments, _rest, _target, _restSince, _kept, _maxRange, _tolerance, _precision);
-            (w.Reached, w._goalReached, w.WalksThrough) = (_reached, _goalReached, _walksThrough);
+            (w.Reached, w._goalReached, w.WalksThrough, w.ChargesThrough, w.Slides) = (_reached, _goalReached, _walksThrough, _chargesThrough, _slides);
             w._travel = _travel;
         }
     }
@@ -401,6 +404,7 @@ public sealed class PlayerWalk
         Reached = true;
         _goalReached = true;
         WalksThrough = false;
+        ChargesThrough = false;
     }
 
     /// <summary>Holds the walker where it is for <paramref name="seconds"/>; then the walk goes on, as the client's does
@@ -510,25 +514,67 @@ public sealed class PlayerWalk
     }
 
     /// <summary>
-    /// Shield Charge's run (setup 0x141a6e4f0): no search, a straight line to the aim cut to <paramref name="range"/> cells.
-    /// An aim off the floor moves back along the line to the first cell the mover can stand on. The steps are checked as
-    /// any walk's are, so the first blocked one ends the run.
+    /// Shield Charge's run (setup 0x141a6e4f0): no search, a straight line to the aim cut to <paramref name="range"/> cells,
+    /// extended by <paramref name="extraDistance"/>, and raycast forward along walkable cells (0x141a7b120). When the
+    /// resulting travel distance is below <paramref name="minDistance"/> (24 cells at 0x141a6ee79, dx²+dy² &lt; 0x240), the
+    /// client does not move and performs the in-place end attack instead.
     /// </summary>
-    public (int X, int Y) Charge(int targetX, int targetY, int range, double now)
+    public (int X, int Y) Charge(int targetX, int targetY, int range, double now) =>
+        Charge(targetX, targetY, range, now, extraDistance: 0, minDistance: 0, out _);
+
+    public (int X, int Y) Charge(int targetX, int targetY, int range, double now, int extraDistance, int minDistance, out bool charged)
     {
+        now = Frame(now);
         var here = At(now, out double fraction);
-        double length = Math.Sqrt((double)(targetX - here.X) * (targetX - here.X) + (double)(targetY - here.Y) * (targetY - here.Y));
+        if (MovementBlocked(now))
+        {
+            Teleport(here.X, here.Y, now);
+            charged = false;
+            return here;
+        }
+        int dx = targetX - here.X, dy = targetY - here.Y;
         (int X, int Y) end = (targetX, targetY);
-        if (length > range)
-            end = (here.X + (int)((targetX - here.X) * (double)range / length), here.Y + (int)((targetY - here.Y) * (double)range / length));
-        if (!_walkable(end.X, end.Y))
-            end = ClientPathfinder.Line(end, here).FirstOrDefault(c => _walkable(c.X, c.Y), here);
+        if (dx != 0 || dy != 0)
+        {
+            float length = MathF.Sqrt((float)dx * dx + (float)dy * dy);
+            if (length > range)
+            {
+                float scale = range / length;
+                end = (here.X + (int)MathF.Floor(dx * scale + .5f), here.Y + (int)MathF.Floor(dy * scale + .5f));
+            }
+            if (extraDistance != 0)
+            {
+                int edx = end.X - here.X, edy = end.Y - here.Y;
+                float elen = MathF.Sqrt((float)edx * edx + (float)edy * edy);
+                if (elen > 0f)
+                {
+                    float escale = (elen + extraDistance) / elen;
+                    end = (here.X + (int)MathF.Floor(edx * escale + .5f), here.Y + (int)MathF.Floor(edy * escale + .5f));
+                }
+            }
+            // Forward walkable raycast (0x141a7b120): stop at the last walkable cell before the first unwalkable cell.
+            var last = here;
+            foreach (var cell in ClientPathfinder.Line(here, end).Skip(1))
+            {
+                if (cell.X < 0 || cell.Y < 0 || cell.X >= _w || cell.Y >= _h || !_walkable(cell.X, cell.Y)) break;
+                last = cell;
+            }
+            end = last;
+        }
+        long cdx = end.X - here.X, cdy = end.Y - here.Y;
+        if (end == here || (minDistance > 0 && cdx * cdx + cdy * cdy < (long)minDistance * minDistance))
+        {
+            Cancel(now);
+            charged = false;
+            return here;
+        }
         (_target, _maxRange, _tolerance) = (end, 0, -1);
-        // From a stand the run starts a whole step after the use, with no kept time: its setup goes through 0x141ea0c60,
-        // not the MoveTo the kept time was traced on, and its first step from a stand is not traced.
-        Follow(end == here ? [here] : [here, end], here, fraction, 0, now);
+        Follow([here, end], here, fraction, 0, now);
+        ChargesThrough = true;
         Reached = true;
+        _goalReached = true;
         WalksThrough = false;
+        charged = true;
         return here;
     }
 
@@ -614,12 +660,14 @@ public sealed class PlayerWalk
         Reached = true;
         _goalReached = true;
         WalksThrough = false;
+        ChargesThrough = false;
         Slides = true;
     }
 
     private void Follow(IReadOnlyList<(int X, int Y)> path, (int X, int Y) here, double fraction, double kept, double now)
     {
         Slides = false;
+        ChargesThrough = false;
         if (path.Count < 2)
         {
             _rest = here;
