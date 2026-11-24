@@ -48,6 +48,17 @@ public static partial class Game
         if (state.Active.Remove(id, out var held)) player.Area.Buffs.Clear(player.Id, held.Row, player.Id, tag: id);
     }
 
+    static bool CancelCooldownTriggerLocked(Player player, Buff buff)
+    {
+        if (buff.Row is not (AutomationBuffRow or AutoexertionBuffRow) || buff.Source != player.Id
+            || !CooldownTriggers.TryGetValue(player, out var state)
+            || !state.Active.TryGetValue(buff.SourceSkill, out var active) || active.Row != buff.Row) return false;
+        EndCooldownTrigger(player, state, buff.SourceSkill);
+        (_, state.Mana, state.Life) = ReadCooldownTriggers(player, state);
+        ClampReservedResources(player);
+        return true;
+    }
+
     static (List<(ushort Controller, CooldownTrigger Trigger, ushort Skill, SupportedGem Gem)> Children, int Mana, int Life)
         ReadCooldownTriggers(Player player, CooldownTriggerState state)
     {
