@@ -63,6 +63,8 @@ public sealed class MonsterCatalog
         /// <summary>The row's ModelSizeMultiplier as a factor (100 → 1): the client scales the model, and a skill with
         /// <c>use_scaled_contact_offset</c> scales its release offset with it.</summary>
         public double ModelScale { get; init; } = 1;
+        /// <summary>The row's MinAgroRange (cells); 0 when the row has none.</summary>
+        public int MinAgroRange { get; init; }
         /// <summary>The row's AilmentThreshold multiplier (percent of DefaultMonsterStats.AilmentThreshold); 0 means use LifeMultiplier.</summary>
         public int AilmentThreshold { get; init; }
         /// <summary>The row's MinimumAttackDistance (cells).</summary>
@@ -647,6 +649,7 @@ public sealed class MonsterCatalog
                         Hash16 = (ushort)r.Int("HASH16"),
                         SpeedRollMin = Column(r, "__col75"), SpeedRollMax = Column(r, "__col76"),
                         ModelScale = Column(r, "ModelSizeMultiplier") is int scale and > 0 ? scale / 100.0 : 1,
+                        MinAgroRange = r.IntOrNull("MinAgroRange") ?? 0,
                         AilmentThreshold = ailmentThreshold,
                         MinimumAttackDistance = r.IntOrNull("MinimumAttackDistance") ?? 0,
                         ActiveSpeciesMods = activeSpeciesMods,
