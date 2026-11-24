@@ -612,7 +612,7 @@ public static partial class Game
             HitDebuffsOnHitLocked(target, Golem, a.Attack.Spell, critical, now, AreaRng(player));
             InflictMonsterBlind(player, id, target, now, BlindHitInput.Capture(Golem), a.Attack.Spell, critical,
                 AreaRng(player));
-            if (profile is not null) MinionAilmentsLocked(player, g, id, target, critical, now, profile);
+            MinionAilmentsLocked(player, g, a, id, target, critical, now);
             MinionTauntOnHitLocked(player, g, a, supported.Stats, id, target, now);
         }
         if (damage > 0) FeedingFrenzyOnHitLocked(player, g, now);

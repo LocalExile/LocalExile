@@ -3,12 +3,14 @@ using GameServer.Core.Protocol.Instance;
 
 public static partial class Game
 {
-    static readonly Lazy<(Dictionary<int, int> ByItem, HashSet<int> Bodies)> ItemisedCorpses = new(() =>
+    static (Dictionary<int, int> ByItem, HashSet<int> Bodies) ItemisedCorpses = ([], []);
+
+    static void LoadItemisedCorpseData()
     {
         var rows = ClientTables.TableOrEmpty("ItemisedCorpse")
             .ToDictionary(row => row.Int("BaseItem"), row => row.Int("MonsterVariety"));
-        return (rows, new(rows.Values));
-    });
+        ItemisedCorpses = (rows, new(rows.Values));
+    }
 
     static readonly MonsterModSet ItemisedCorpseStats = MonsterModSet.None with
         { Effects = new(new Dictionary<uint, int> { [Stat.IsSpectreCorpse] = 1 }) };
@@ -21,7 +23,7 @@ public static partial class Game
 
     static async Task<bool> TryUseItemisedCorpse(Player player, PlayerInventories items, byte row, InventoryItem item, ItemCatalog.BaseType type)
     {
-        if (!ItemisedCorpses.Value.ByItem.TryGetValue(type.Row, out int body)) return false;
+        if (!ItemisedCorpses.ByItem.TryGetValue(type.Row, out int body)) return false;
         if (row is not (PlayerInventories.MainInventory or PlayerInventories.ExpandedInventory)
             || (uint)body >= (uint)Monsters.All.Count || Monsters.All[body] is not { Supported: true } variety) return true;
 
@@ -66,13 +68,13 @@ public static partial class Game
     }
 
     static bool WasItemisedCorpse(SavedMonster saved) =>
-        saved.Life == 0 && saved.Mods.Effects[Stat.IsSpectreCorpse] != 0 && ItemisedCorpses.Value.Bodies.Contains(saved.Variety);
+        saved.Life == 0 && saved.Mods.Effects[Stat.IsSpectreCorpse] != 0 && ItemisedCorpses.Bodies.Contains(saved.Variety);
 
     static IEnumerable<SavedMonster> KeepItemisedCorpses(IEnumerable<SpawnedMonster> monsters, double now)
     {
         foreach (var corpse in monsters)
             if (corpse.CreatedAsCorpse && corpse.Dead && !corpse.CorpseConsumed && IsSpectreCorpse(corpse)
-                && corpse.Variety is { } body && ItemisedCorpses.Value.Bodies.Contains(body.Row))
+                && corpse.Variety is { } body && ItemisedCorpses.Bodies.Contains(body.Row))
             {
                 var at = corpse.Walk.Position(now);
                 yield return new(body.Row, corpse.Level, MonsterRarity.Normal, true, at.X, at.Y, 0) { Mods = corpse.Mods };

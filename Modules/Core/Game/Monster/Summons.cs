@@ -9,8 +9,15 @@ public static partial class Game
     public static SummonCatalog SummonData = null!;
     const string SummonSaveKey = "Game.SummonedMinions";
     const string GuardianSaveKey = "Game.AnimatedGuardianEquipment";
-    static readonly Lazy<Dictionary<int, int>> SpectreOverrides = new(() =>
-        ClientTables.TableOrEmpty("SpectreOverrides").ToDictionary(row => row.Int("Monster"), row => row.Int("Spectre")));
+    static Dictionary<int, int> SpectreOverrides = [];
+
+    internal static void LoadOwnedSummonsData()
+    {
+        SpectreOverrides = ClientTables.TableOrEmpty("SpectreOverrides")
+            .ToDictionary(row => row.Int("Monster"), row => row.Int("Spectre"));
+        LoadItemisedCorpseData();
+        LoadDivineSentinelAuraData();
+    }
 
     public static void SaveSummons(Player player)
     {
@@ -124,7 +131,7 @@ public static partial class Game
     // The living actor uses the raised body's row, including the old saves that recorded the ordinary monster's row.
     static MonsterCatalog.Variety RaisedSpectreVariety(MonsterCatalog.Variety corpse)
     {
-        int row = SpectreOverrides.Value.GetValueOrDefault(corpse.Row, corpse.Row);
+        int row = SpectreOverrides.GetValueOrDefault(corpse.Row, corpse.Row);
         return (uint)row < (uint)Monsters.All.Count ? Monsters.All[row] : corpse;
     }
 
@@ -259,7 +266,7 @@ public static partial class Game
             actorLevel = SkillsFor(player).PlayerLevelReq(gem.Effect, gem.Level);
         byte level = (byte)Math.Clamp(actorLevel, 1, 100);
         if (inheritedMods is null && (definition.Family == "RagingSpirit"
-            || definition.Family == "Spectre" && ItemisedCorpses.Value.Bodies.Contains(variety.Row)))
+            || definition.Family == "Spectre" && ItemisedCorpses.Bodies.Contains(variety.Row)))
             inheritedMods = MonsterModRolls.Create(MonsterModRolls.Species(variety.SpeciesModsOrEmpty, Random.Shared),
                 [], MonsterRarity.Normal, level);
         var native = new GolemCatalog.Definition(gem.Effect, definition.Id, definition.Family, path, 0, [], false, false, false);

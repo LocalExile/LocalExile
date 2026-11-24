@@ -3,10 +3,13 @@ using GameServer.Core.Protocol.Instance;
 
 public static partial class Game
 {
-    static readonly Lazy<PlayerMinions.Aura[]> DivineSentinelAuras = new(() =>
+    static PlayerMinions.Aura[] DivineSentinelAuras = [];
+    static readonly RuleTable<GameArea, Dictionary<uint, (Player Owner, PlayerMinions.Minion Source)>> DivineSentinels = new();
+
+    static void LoadDivineSentinelAuraData()
     {
-        var definitions = ClientTables.Table("BuffDefinitions");
-        return [.. ClientTables.Table("BuffTemplates").Where(row =>
+        var definitions = ClientTables.TableOrEmpty("BuffDefinitions");
+        DivineSentinelAuras = [.. ClientTables.TableOrEmpty("BuffTemplates").Where(row =>
             row.Text("Id")?.StartsWith("DivineSentinelAura", StringComparison.Ordinal) == true).Select(row =>
         {
             int buff = row.Int("BuffDefinitionsKey");
@@ -15,8 +18,7 @@ public static partial class Game
             return new PlayerMinions.Aura(row.Text("Id")!, checked((ushort)buff), row.Int("AuraRadius"), stats)
             { SharesWithAllies = true };
         })];
-    });
-    static readonly RuleTable<GameArea, Dictionary<uint, (Player Owner, PlayerMinions.Minion Source)>> DivineSentinels = new();
+    }
 
     static PlayerMinions.Aura? RollDivineSentinelAura(Player owner, GolemState.Golem minion, PlayerMinions.Aura? retained = null)
     {
@@ -24,7 +26,7 @@ public static partial class Game
         if (kind is not ("Purity" or "Absolution" or "VaalAbsolution" or "VaalDomination")
             && !kind.StartsWith("Dominating", StringComparison.Ordinal)) return null;
         if (GolemStat(minion.Own, Stat.SummonedSentinelsHaveRandomTemplarAura) == 0) return null;
-        var choices = DivineSentinelAuras.Value;
+        var choices = DivineSentinelAuras;
         return retained is { SharesWithAllies: true } ? retained
             : choices.Length > 0 ? choices[AreaRng(owner).Next(choices.Length)] : null;
     }
