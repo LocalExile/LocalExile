@@ -34,9 +34,6 @@ public sealed class AtlasModule : IModule
             earned == 1 ? InstanceProtocol.BackendErrorId.ReceivedAtlasPassivePoint1 : InstanceProtocol.BackendErrorId.ReceivedAtlasPassivePointN,
             numericArgs: earned == 1 ? null : [(0, earned)]),
             $"0x0018 Atlas passive point(s) earned: +{earned} ({player.Character.AtlasPassivePoints}/{MapCompletionPoints})");
-        if (player.Character.AtlasPassivePoints - earned == 0)
-            await Send(player, InstanceProtocol.AwardDisplay(InstanceProtocol.AwardDisplayRow.FavouredMapSlotUnlocked),
-                "0x01d5 award display: favoured map slot unlocked");
     }
 
     /// <summary>This module's game data, built in a fixed order when it loads: before the Gateway listens, as the
@@ -493,6 +490,7 @@ public static class AtlasFeature
     // C→S 0x01a7: swap divination card drop pools between two Atlas maps (Atlas Scrying).
     internal static async Task ScrySwap(Player player, InstanceMapDevice.AtlasScryRequest req)
     {
+        if (player.Closed || player.LeavingArea || player.PlayerLife == 0) return;
         var from = AtlasProgress.FindByAreaHash16(req.FromAreaHash);
         var to = AtlasProgress.FindByAreaHash16(req.ToAreaHash);
         if (from is null || to is null || from.Id == to.Id)
@@ -509,6 +507,7 @@ public static class AtlasFeature
     // C→S 0x0075: apply a specific currency item (by inventory + item id) to an Atlas node.
     internal static async Task UseItemOnNode(Player player, InstanceMapDevice.UseItemOnAtlasNode req)
     {
+        if (player.Closed || player.LeavingArea || player.PlayerLife == 0) return;
         var items = ItemsOf(player);
         var stash = global::Game.StashOf(player);
         var (spot, used) = global::Game.Locate(items, stash, req.InventoryId, req.ItemId);
@@ -517,9 +516,22 @@ public static class AtlasFeature
             Console.WriteLine($"[gateway] {player.Connection.Remote} <= 0x0075 Atlas node item {req.ItemId} on 0x{req.NodeHash16:x4}: item not found");
             return;
         }
-        if (spot.Tab is int pubTab && stash.IsPublic(pubTab))
+        if (spot.Tab is int tab)
         {
-            Console.WriteLine($"[gateway] {player.Connection.Remote} <= 0x0075 Atlas node item {req.ItemId}: refused (public stash tab {pubTab})");
+            if (!(player.StashOpen || player.GuildStashOpen))
+            {
+                Console.WriteLine($"[gateway] {player.Connection.Remote} <= 0x0075 Atlas node item {req.ItemId}: refused (stash closed)");
+                return;
+            }
+            if (stash.IsPublic(tab))
+            {
+                Console.WriteLine($"[gateway] {player.Connection.Remote} <= 0x0075 Atlas node item {req.ItemId}: refused (public stash tab {tab})");
+                return;
+            }
+        }
+        else if (spot.Row is not (PlayerInventories.MainInventory or PlayerInventories.ExpandedInventory))
+        {
+            Console.WriteLine($"[gateway] {player.Connection.Remote} <= 0x0075 Atlas node item {req.ItemId}: refused (inventory row {spot.Row})");
             return;
         }
         await ApplyAtlasNodeCurrency(player, spot, used, req.NodeHash16);
@@ -528,11 +540,14 @@ public static class AtlasFeature
     // C→S 0x0076: Shift-held currency type applied to an Atlas node.
     internal static async Task UseItemTypeOnNode(Player player, InstanceMapDevice.UseItemTypeOnAtlasNode req)
     {
+        if (player.Closed || player.LeavingArea || player.PlayerLife == 0) return;
         var items = ItemsOf(player);
         var stash = global::Game.StashOf(player);
         InventoryItem? found = null;
         uint foundInv = 0;
-        byte[] rows = [PlayerInventories.MainInventory, .. Enumerable.Range(0, InstanceInventories.PlayerDefaults.Length).Select(r => (byte)r)];
+        byte[] rows = ExpandedInventoryGranted(player)
+            ? [PlayerInventories.MainInventory, PlayerInventories.ExpandedInventory]
+            : [PlayerInventories.MainInventory];
         foreach (byte row in rows)
         {
             if (items.Items(row).FirstOrDefault(i => i.Item.TypeHash == req.TypeHash) is { } hit)
@@ -542,7 +557,7 @@ public static class AtlasFeature
                 break;
             }
         }
-        if (found is null)
+        if (found is null && (player.StashOpen || player.GuildStashOpen))
         {
             for (int t = 0; t < stash.Count; t++)
             {

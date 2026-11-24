@@ -1113,32 +1113,41 @@ public static partial class Game
 
     static (uint InventoryId, uint ItemId) LocateCurrencyStackByType(Player player, uint typeHash, uint preferredInventoryId)
     {
+        if (player.Closed || player.LeavingArea) return (0, 0);
         var items = ItemsOf(player);
         var stash = StashOf(player);
+        bool stashAllowed = player.StashOpen || player.GuildStashOpen;
+        bool expandedAllowed = ExpandedInventoryGranted(player);
         if (preferredInventoryId != 0)
         {
             if (stash.TabOf(preferredInventoryId) is int prefTab)
             {
-                if (!stash.IsPublic(prefTab) && stash.Inventory(prefTab).Items.FirstOrDefault(i => i.Item.TypeHash == typeHash) is { } prefStashHit)
+                if (stashAllowed && !stash.IsPublic(prefTab)
+                    && stash.Inventory(prefTab).Items.FirstOrDefault(i => i.Item.TypeHash == typeHash) is { } prefStashHit)
                     return (preferredInventoryId, prefStashHit.Id);
             }
-            else if (PlayerInventories.Row(preferredInventoryId) is byte prefRow && prefRow < InstanceInventories.PlayerDefaults.Length
+            else if (PlayerInventories.Row(preferredInventoryId) is byte prefRow
+                && (prefRow == PlayerInventories.MainInventory || (expandedAllowed && prefRow == PlayerInventories.ExpandedInventory))
                 && items.Items(prefRow).FirstOrDefault(i => i.Item.TypeHash == typeHash) is { } prefInvHit)
                 return (preferredInventoryId, prefInvHit.Id);
         }
-        byte[] rows = [PlayerInventories.MainInventory, .. Enumerable.Range(0, InstanceInventories.PlayerDefaults.Length).Select(r => (byte)r)];
+        byte[] rows = expandedAllowed
+            ? [PlayerInventories.MainInventory, PlayerInventories.ExpandedInventory]
+            : [PlayerInventories.MainInventory];
         foreach (byte row in rows)
             if (items.Items(row).FirstOrDefault(i => i.Item.TypeHash == typeHash) is { } hit)
                 return (PlayerInventories.InventoryId(row), hit.Id);
-        for (int t = 0; t < stash.Count; t++)
-            if (!stash.IsPublic(t) && stash.Inventory(t).Items.FirstOrDefault(i => i.Item.TypeHash == typeHash) is { } hit)
-                return (stash.InventoryOf(t), hit.Id);
+        if (stashAllowed)
+            for (int t = 0; t < stash.Count; t++)
+                if (!stash.IsPublic(t) && stash.Inventory(t).Items.FirstOrDefault(i => i.Item.TypeHash == typeHash) is { } hit)
+                    return (stash.InventoryOf(t), hit.Id);
         return (0, 0);
     }
 
     static async Task SendSingleForesightPreview(Player player, ushort key, uint currencyInventory, uint currencyId,
         uint targetInventory, uint targetId)
     {
+        if (player.Closed || player.LeavingArea) return;
         var items = ItemsOf(player);
         var stash = StashOf(player);
         var (usedSpot, currency) = currencyId != 0 ? Locate(items, stash, currencyInventory, currencyId) : default;
@@ -1154,6 +1163,7 @@ public static partial class Game
 
     static async Task SendDualForesightPreview(Player player, InstanceItems.DualCurrencyApplicationForesightRequest req)
     {
+        if (player.Closed || player.LeavingArea) return;
         var items = ItemsOf(player);
         var stash = StashOf(player);
         var (usedSpot, currency) = Locate(items, stash, req.CurrencyInventory, req.CurrencyId);

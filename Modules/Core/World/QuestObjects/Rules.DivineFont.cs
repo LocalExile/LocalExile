@@ -12,6 +12,8 @@ static partial class QuestobjectsRules
         public byte RemainingUses;
         public List<DivineFontOption> Options = [];
         public List<Item> PendingResults = [];
+        public uint PendingSourceItemId;
+        public Item? PendingSourceItem;
     }
 
     static readonly ConditionalWeakTable<InstanceState, Dictionary<string, DivineFontSession>> DivineFontSessions = new();
@@ -35,7 +37,7 @@ static partial class QuestobjectsRules
                 {
                     string id = row.Text("Id") ?? "";
                     string script = row.Text("Script") ?? "";
-                    string arg = row.Text("ScriptArgument") ?? "";
+                    string arg = (row.Text("ScriptArgument") ?? "").Trim().Trim('\'');
                     int tier = row.IntOrNull("Tier") ?? 0;
                     ushort hash16 = (ushort)(row.IntOrNull("HASH16") ?? 0);
                     if (hash16 == 0 || script.Length == 0) continue;
@@ -145,10 +147,22 @@ static partial class QuestobjectsRules
     {
         if (player.Closed || player.LeavingArea || player.PlayerLife == 0) return;
         byte usesLeft;
-        lock (session.Gate) usesLeft = session.RemainingUses;
+        List<Item>? existingPending = null;
+        lock (session.Gate)
+        {
+            usesLeft = session.RemainingUses;
+            if (session.PendingResults.Count > 0) existingPending = [.. session.PendingResults];
+        }
         if (usesLeft == 0)
         {
             await SendDivineFontOptions(player, session);
+            return;
+        }
+        // Prevent infinite rerolling: once a 0x02a2 candidate list is rolled, re-send it instead of rolling again.
+        if (existingPending is not null)
+        {
+            await SendFont(player, InstanceLabyrinth.CraftResultOptionsList(existingPending),
+                $"0x02a2 Divine Font pending results ({existingPending.Count} gem(s))");
             return;
         }
         var items = ItemsOf(player);
@@ -163,7 +177,7 @@ static partial class QuestobjectsRules
 
         if (option.Script == "use_x_gemcutter")
         {
-            int addQuality = int.TryParse(option.Argument, out int q) ? q : 2;
+            int addQuality = int.TryParse(option.Argument.Trim().Trim('\''), out int q) ? q : 2;
             byte nextQuality = (byte)Math.Min(20, slotItem.Item.Quality + addQuality);
             if (nextQuality == slotItem.Item.Quality) return;
             var updated = slotItem.Item with { Quality = nextQuality };
@@ -173,7 +187,7 @@ static partial class QuestobjectsRules
 
         if (option.Script == "add_experience_to_gem")
         {
-            int addXp = int.TryParse(option.Argument, out int xp) ? xp : 3_000_000;
+            int addXp = int.TryParse(option.Argument.Trim().Trim('\''), out int xp) ? xp : 3_000_000;
             if (CurrencyEffects.ApplyFacetorsLens(slotItem.Item, gemType, addXp) is not { } updated) return;
             await CommitDivineFontGem(player, session, slotItem, updated, $"Divine Font +{addXp} gem XP");
             return;
@@ -188,9 +202,24 @@ static partial class QuestobjectsRules
                 Console.WriteLine($"[gateway] {player.Connection.Remote} <= Divine Font {option.Id}: no transfigured variants for {baseType.Name}");
                 return;
             }
-            lock (session.Gate) session.PendingResults = candidates;
-            await SendFont(player, InstanceLabyrinth.CraftResultOptionsList(candidates),
-                $"0x02a2 Divine Font craft results ({candidates.Count} gem(s) for {option.Id})");
+            List<Item> toSend;
+            lock (session.Gate)
+            {
+                if (session.RemainingUses == 0) return;
+                if (session.PendingResults.Count > 0)
+                {
+                    toSend = [.. session.PendingResults];
+                }
+                else
+                {
+                    session.PendingResults = candidates;
+                    session.PendingSourceItemId = slotItem.Id;
+                    session.PendingSourceItem = slotItem.Item;
+                    toSend = candidates;
+                }
+            }
+            await SendFont(player, InstanceLabyrinth.CraftResultOptionsList(toSend),
+                $"0x02a2 Divine Font craft results ({toSend.Count} gem(s) for {option.Id})");
             return;
         }
 
@@ -264,44 +293,57 @@ static partial class QuestobjectsRules
     {
         if (player.Closed || player.LeavingArea || player.PlayerLife == 0) return;
         if (TryGetDivineFontSession(player) is not { } session) return;
-        Item? chosen;
+        Item chosen;
+        uint expectedItemId;
+        Item? expectedItem;
         lock (session.Gate)
         {
             if (session.RemainingUses == 0 || choiceIndex >= session.PendingResults.Count) return;
             chosen = session.PendingResults[choiceIndex];
-            session.PendingResults.Clear();
+            expectedItemId = session.PendingSourceItemId;
+            expectedItem = session.PendingSourceItem;
         }
         var items = ItemsOf(player);
         var slotItem = items.Items(PlayerInventories.CraftingBench).FirstOrDefault();
-        if (slotItem is null || slotItem.Item.Corrupted || slotItem.Item.Mirrored || slotItem.Item.Vestigial)
+        if (slotItem is null || slotItem.Id != expectedItemId || slotItem.Item != expectedItem
+            || slotItem.Item.Corrupted || slotItem.Item.Mirrored || slotItem.Item.Vestigial)
         {
-            await SendFont(player, InstanceLabyrinth.CraftResultOptionsList([]), "0x02a2 Divine Font clear results (slot empty or ineligible)");
+            await SendFont(player, InstanceLabyrinth.CraftResultOptionsList([]), "0x02a2 Divine Font clear results (source gem changed or removed)");
             return;
         }
-        await CommitDivineFontGem(player, session, slotItem, chosen, $"Divine Font result choice #{choiceIndex}");
-        await SendFont(player, InstanceLabyrinth.CraftResultOptionsList([]), "0x02a2 Divine Font clear results");
+        bool committed = await CommitDivineFontGem(player, session, slotItem, chosen, $"Divine Font result choice #{choiceIndex}", clearPending: true);
+        if (committed)
+            await SendFont(player, InstanceLabyrinth.CraftResultOptionsList([]), "0x02a2 Divine Font clear results");
     }
 
-    static async Task CommitDivineFontGem(Player player, DivineFontSession session, InventoryItem before, Item after, string label)
+    static async Task<bool> CommitDivineFontGem(Player player, DivineFontSession session, InventoryItem before, Item after, string label, bool clearPending = false)
     {
         var items = ItemsOf(player);
         var shape = ShapeOf(after);
         InventoryItem? replaced = null;
         lock (session.Gate)
         {
-            if (session.RemainingUses == 0) return;
+            if (session.RemainingUses == 0) return false;
             replaced = Saves.Atomically(() =>
             {
-                if (items.Items(PlayerInventories.CraftingBench).FirstOrDefault(i => i.Id == before.Id) is null) return null;
+                var current = items.Items(PlayerInventories.CraftingBench).FirstOrDefault(i => i.Id == before.Id);
+                if (current is null || current.Item != before.Item) return null;
                 var next = shape is { } s ? PlayerInventories.Completed(before with { Item = after }, s).Item : after;
                 return items.Change(PlayerInventories.CraftingBench, before.Id, _ => next);
             });
-            if (replaced is null) return;
+            if (replaced is null) return false;
             session.RemainingUses--;
+            if (clearPending)
+            {
+                session.PendingResults.Clear();
+                session.PendingSourceItemId = 0;
+                session.PendingSourceItem = null;
+            }
         }
         await SendFont(player, InstanceItems.InventoryChange(PlayerInventories.InventoryId(PlayerInventories.CraftingBench),
             items.NextRevision(PlayerInventories.CraftingBench), [before.Id], [replaced]),
             $"0x00bf CraftingBench: {label}");
         await SendDivineFontOptions(player, session);
+        return true;
     }
 }

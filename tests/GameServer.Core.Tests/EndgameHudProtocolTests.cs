@@ -44,11 +44,11 @@ public sealed class EndgameHudProtocolTests
         Assert.Equal(0x55667788u, scry.ObjectId);
 
         // C->S 0x0075 / 0x0076: Use item / item type on Atlas node.
-        byte[] useNode = new LoginWriter().U16(InstanceMapDevice.UseItemOnAtlasNodeId).U32(42u).U32(1u).U16(0x9a23).ToArray();
+        byte[] useNode = new LoginWriter().U16(InstanceMapDevice.UseItemOnAtlasNodeId).U32(1u).U32(42u).U16(0x9a23).ToArray();
         Assert.Equal(InstanceMapDevice.UseItemOnAtlasNodeLength, useNode.Length);
         AssertFramed(useNode, InstanceMapDevice.UseItemOnAtlasNodeId);
         var u75 = InstanceMapDevice.ReadUseItemOnAtlasNode(useNode);
-        Assert.Equal((42u, 1u, (ushort)0x9a23), (u75.ItemId, u75.InventoryId, u75.NodeHash16));
+        Assert.Equal((1u, 42u, (ushort)0x9a23), (u75.InventoryId, u75.ItemId, u75.NodeHash16));
 
         byte[] useTypeNode = new LoginWriter().U16(InstanceMapDevice.UseItemTypeOnAtlasNodeId)
             .U32(0xaabbccddu).U32(1u).U16(2).U16(3).U8(4).U16(0x9a23).ToArray();

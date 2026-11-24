@@ -69,12 +69,29 @@ public sealed class BatchEndgameAtlasDelveHudTests
         var items = Game.ItemsOf(labPlayer);
         var gem = items.Put(PlayerInventories.CraftingBench, new InventoryItem(items.NewItemId(), 0, 0, ItemCatalog.Create(fireballType)));
 
-        // Option 0 is transfigure-gem-of-same-colour: sends S->C 0x02a2 candidate list, then 0x02a3 swaps the gem and spends 1 use.
+        // Option 0 is transfigure-gem-of-same-colour: sends S->C 0x02a2 candidate list; repeating 0x0247 must NOT reroll.
         outbox.Clear();
         await QuestobjectsRules.UseDivineFontOption(labPlayer, firstHash);
         byte[] resultList = Assert.Single(outbox, p => BinaryPrimitives.ReadUInt16BigEndian(p) == InstanceLabyrinth.CraftResultOptionsListId);
         Assert.True(BinaryPrimitives.ReadUInt64LittleEndian(resultList.AsSpan(2, 8)) >= 1UL);
 
+        outbox.Clear();
+        await QuestobjectsRules.UseDivineFontOption(labPlayer, firstHash);
+        byte[] repeatedList = Assert.Single(outbox, p => BinaryPrimitives.ReadUInt16BigEndian(p) == InstanceLabyrinth.CraftResultOptionsListId);
+        Assert.Equal(resultList, repeatedList);
+
+        // Swapping the gem in CraftingBench before 0x02a3 must be refused without spending a use.
+        var removedOriginal = items.Remove(PlayerInventories.CraftingBench, gem.Id)!;
+        var decoy = items.Put(PlayerInventories.CraftingBench, new InventoryItem(items.NewItemId(), 0, 0, ItemCatalog.Create(fireballType)));
+        outbox.Clear();
+        await QuestobjectsRules.PickDivineFontResult(labPlayer, 0);
+        Assert.DoesNotContain(outbox, p => BinaryPrimitives.ReadUInt16BigEndian(p) == InstanceItems.InventoryChangeId);
+        byte[] refusedClear = Assert.Single(outbox, p => BinaryPrimitives.ReadUInt16BigEndian(p) == InstanceLabyrinth.CraftResultOptionsListId);
+        Assert.Equal(0UL, BinaryPrimitives.ReadUInt64LittleEndian(refusedClear.AsSpan(2, 8)));
+
+        // Restoring the exact source gem allows 0x02a3 to swap and spend 1 use.
+        items.Remove(PlayerInventories.CraftingBench, decoy.Id);
+        items.Put(PlayerInventories.CraftingBench, removedOriginal);
         outbox.Clear();
         await QuestobjectsRules.PickDivineFontResult(labPlayer, 0);
         Assert.Contains(outbox, p => BinaryPrimitives.ReadUInt16BigEndian(p) == InstanceItems.InventoryChangeId);
@@ -83,8 +100,9 @@ public sealed class BatchEndgameAtlasDelveHudTests
         var swapped = Assert.Single(items.Items(PlayerInventories.CraftingBench));
         Assert.NotEqual(gem.Item, swapped.Item);
 
-        // Quality option (use_x_gemcutter) boosts gem quality in place and spends the final use.
+        // Quality option (use_x_gemcutter) parses single-quoted ScriptArgument (e.g. '8'/'15'), boosts quality, and spends the final use.
         ushort qualityHash = 0;
+        int expectedQualityAdd = 0;
         if (ClientTables.Has("LabyrinthCraftOptions"))
         {
             var offered = new HashSet<ushort>();
@@ -94,17 +112,20 @@ public sealed class BatchEndgameAtlasDelveHudTests
                 if (row.Text("Script") == "use_x_gemcutter" && offered.Contains((ushort)(row.IntOrNull("HASH16") ?? 0)))
                 {
                     qualityHash = (ushort)row.Int("HASH16");
+                    string rawArg = (row.Text("ScriptArgument") ?? "").Trim().Trim('\'');
+                    Assert.True(int.TryParse(rawArg, out expectedQualityAdd));
                     break;
                 }
         }
         Assert.NotEqual((ushort)0, qualityHash);
+        Assert.True(expectedQualityAdd > 2);
         byte qualityBefore = swapped.Item.Quality;
         outbox.Clear();
         await QuestobjectsRules.UseDivineFontOption(labPlayer, qualityHash);
         byte[] afterQuality = Assert.Single(outbox, p => BinaryPrimitives.ReadUInt16BigEndian(p) == InstanceLabyrinth.CraftOptionsId);
         Assert.Equal((byte)0, afterQuality[^1]);
         var qualityGem = Assert.Single(items.Items(PlayerInventories.CraftingBench));
-        Assert.True(qualityGem.Item.Quality > qualityBefore);
+        Assert.Equal((byte)Math.Min(20, qualityBefore + expectedQualityAdd), qualityGem.Item.Quality);
     }
 
     [Fact]

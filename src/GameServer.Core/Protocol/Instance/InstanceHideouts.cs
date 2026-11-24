@@ -131,8 +131,9 @@ public static class InstanceMapDevice
             BinaryPrimitives.ReadUInt32BigEndian(m[6..]));
 
     /// <summary>C→S 0x0075 (12 bytes, class 0x1435cad30, write 0x141f9af00, caller 0x14079cb30): apply a currency item
-    /// directly to an Atlas node (<c>u32 BE itemId</c>, <c>u32 BE inventoryId</c>, <c>u16 BE nodeHash16</c>).</summary>
-    public readonly record struct UseItemOnAtlasNode(uint ItemId, uint InventoryId, ushort NodeHash16);
+    /// directly to an Atlas node (<c>u32 BE inventoryId</c> from <c>msg+0x14</c>, <c>u32 BE itemId</c> from
+    /// <c>msg+0x10</c>, <c>u16 BE nodeHash16</c>).</summary>
+    public readonly record struct UseItemOnAtlasNode(uint InventoryId, uint ItemId, ushort NodeHash16);
 
     public static UseItemOnAtlasNode ReadUseItemOnAtlasNode(ReadOnlySpan<byte> m) =>
         new(BinaryPrimitives.ReadUInt32BigEndian(m[2..]), BinaryPrimitives.ReadUInt32BigEndian(m[6..]),
