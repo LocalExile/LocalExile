@@ -353,7 +353,8 @@ public sealed class ItemRolls
     /// that is modifiable, not unique and not corrupted/mirrored is always corrupted. A normal or magic item becomes
     /// rare with 4-6 affixes; a rare one replaces 1-5 affixes or rerolls all of them. One white socket is coloured.
     /// Maps and MapKeys are corrupted the same way (white/magic become rare; a rare map can gain extra affixes up to
-    /// 4/4). Refused targets return null before rolling or spending, including missing/empty pools on equipment.</summary>
+    /// 4/4). Gems roll one of the rows' outcomes (see VaalGem). Refused targets return null before rolling or
+    /// spending, including missing/empty pools on equipment.</summary>
     public Item? Vaal(Item item, ItemCatalog.BaseType type, (int Str, int Dex, int Int) requirements, Random random)
     {
         if (CurrencyEffects.IsMap(item, type))
@@ -372,6 +373,8 @@ public sealed class ItemRolls
             }
             return map with { Corrupted = true, Identified = true };
         }
+        if (item.Components.Contains("SkillGem")) return VaalGem(item, type, random);
+
         bool target = item.Components.Contains("Weapon") || item.Components.Contains("Armour") ||
             type.Class is "Ring" or "Amulet" or "Belt";
         if (!target || item.Rarity == ItemRarity.Unique || !TryModifiable(item, out _) ||
@@ -386,6 +389,50 @@ public sealed class ItemRolls
             int at = whites[random.Next(whites.Length)];
             sockets[at] = sockets[at] with { Colour = SocketColours.Colour(requirements, random) };
             result = result with { Sockets = sockets };
+        }
+        return result with { Corrupted = true, Identified = true };
+    }
+
+    /// <summary>Vaal Orb on a gem, quality to this %: the Gemcutter cap is 20 (CurrencyEffects.MaximumQuality);
+    /// 23 is the Vaal outcome, a known game rule, not a client row.</summary>
+    public const int VaalGemQuality = 23;
+
+    /// <summary>Vaal Orb on a gem: one of the outcomes the client's rows settle, each equally likely among those
+    /// available for this gem — one level higher (above the cap when already at it, never past cap + 1), quality to
+    /// 23%, or its Vaal variant (SkillGems VaalVariant_BaseItemTypesKey) — and the gem is corrupted. A corrupted or
+    /// mirrored gem is refused, as is a gem with no outcome available (already a Vaal gem at 23% quality and above
+    /// its cap). Equipment and maps are untouched by this branch.</summary>
+    Item? VaalGem(Item item, ItemCatalog.BaseType type, Random random)
+    {
+        if (item.Corrupted || item.Mirrored || catalog.Gem(type) is not { } gem || gem.MaxLevel <= 0) return null;
+        ItemCatalog.BaseType? vaalBase = gem.VaalBaseRow is { } vaalRow ? catalog.Row(vaalRow) : null;
+        ItemCatalog.GemType? vaalGem = vaalBase is not null ? catalog.Gem(vaalBase) : null;
+        // 0 a level higher, 1 quality to 23%, 2 its Vaal variant. The level outcome needs the gem at or below its
+        // cap: at the cap the experience -1 is cap + 1 (GemType.Level); above the cap there is nowhere higher to go.
+        var outcomes = new List<int>();
+        int level = catalog.GemLevel(item);
+        if (level <= gem.MaxLevel) outcomes.Add(0);
+        if (item.Components.Contains("Quality") && item.Quality < VaalGemQuality) outcomes.Add(1);
+        if (!gem.IsVaalOrAwakened && vaalBase is not null && vaalGem is not null) outcomes.Add(2);
+        if (outcomes.Count == 0) return null;
+        Item result = item;
+        switch (outcomes[random.Next(outcomes.Count)])
+        {
+            case 0:
+                result = item with { GemExperience = level < gem.MaxLevel ? gem.ExperienceFor(level + 1) : -1 };
+                break;
+            case 1:
+                result = item with { Quality = (byte)VaalGemQuality };
+                break;
+            case 2:
+                // The two rows' GemVariants run in parallel, so the same variant index is the Vaal version of this
+                // variant; out of range falls back to the Vaal gem itself.
+                result = item with
+                {
+                    TypeHash = vaalBase!.Hash,
+                    GemVariant = item.GemVariant < vaalGem!.Variants.Count ? item.GemVariant : 0,
+                };
+                break;
         }
         return result with { Corrupted = true, Identified = true };
     }
