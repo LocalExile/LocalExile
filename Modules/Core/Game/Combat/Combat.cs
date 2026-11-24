@@ -1016,6 +1016,10 @@ public static partial class Game
                 $"0x01b7 {gem.Name} to ({landing.X}, {landing.Y}) for the monster at ({aim.X}, {aim.Y}) (t={castAt:0.000})");
         }
         if (flicker && spellAcknowledged) await GrantFlickerSpeed(player, use.SkillId);
+        if (spellAcknowledged && movedByCast && IsFlameDashEffect(SkillsFor(player).EffectId(gem.Effect)))
+            await SendWorldRecord(player, player.Id,
+                FlameDashGroundSegment(player, use.SkillId, gem.Effect, use.Sequence, stand, landing),
+                $"0x02c8 Flame Dash burning ground ({stand.X}, {stand.Y}) -> ({landing.X}, {landing.Y})");
         if (spellAcknowledged) await SendNativeCooldownRefresh(player);
         if (leap is { } jump)
             ResyncAfter(player,
@@ -2222,11 +2226,31 @@ public static partial class Game
 
     public const double ChannelSilenceSeconds = 1.0;
 
+    sealed class ChannelEndTracker { public int FinishedGeneration = -1; }
+    static readonly System.Runtime.CompilerServices.ConditionalWeakTable<Player, ChannelEndTracker> ChannelEnds = new();
+
+    public static bool IsDivineIre(Player player, int effect) =>
+        SkillsFor(player).EffectId(effect) is "DivineIre" or "DivineIreAltX" or "DivineIreAltY" or "DivineIreRoyale";
+
+    public static async Task EmitPredictiveChannelFinished(Player player, int generation, ushort sequence)
+    {
+        if (player.Closed || player.LeavingArea || player.Connection.LockstepClient) return;
+        var tracker = ChannelEnds.GetOrCreateValue(player);
+        lock (tracker)
+        {
+            if (generation <= tracker.FinishedGeneration) return;
+            tracker.FinishedGeneration = generation;
+        }
+        await SendWorldRecord(player, player.Id, InstanceProtocol.ChannelFinished(player.Id, sequence),
+            $"0x01ae channel 0x{sequence:x4} ended");
+    }
+
     public static async Task RunChannel(Player player,
         ushort skillId, (ushort Id, int Effect, string Name, int Level, int Quality, uint Gem) gem, int action,
         (int X, int Y) initialAim = default)
     {
         int generation = player.ChannelGeneration;
+        ushort channelSequence = player.ChannelSkillSequence;
         double channelStarted = AreaTime(player);
         bool Running() => ChannelCurrent(player, skillId, action, generation);
         // Winter Orb's orb and its firing loop live in WinterOrb.cs: the loop starts with the channel and outlives it,
@@ -2234,12 +2258,22 @@ public static partial class Game
         uint orbEffect = 0;
         bool snipe = IsSnipe(gem.Effect);
         bool firstSnipeStage = snipe;
+        bool divineIre = IsDivineIre(player, gem.Effect);
+        int divineIreMaxStages = divineIre && SkillsFor(player).EffectId(gem.Effect) == "DivineIreRoyale" ? 20 : 10;
+        int divineIreStages = 0;
         try
         {
             if (IsWinterOrb(gem.Effect))
                 orbEffect = await WinterOrbStart(player, skillId, gem, action);
             else if (snipe)
                 await SnipeStart(player, skillId, gem, action, initialAim);
+            else if (divineIre)
+            {
+                divineIreStages = 1;
+                await SendWorldRecord(player, player.Id,
+                    InstanceEntities.StatsUpdate(player.Id, [(Stat.DivineTempestCurrentNumberOfStages, divineIreStages)]),
+                    $"0x01b3 Divine Ire stage {divineIreStages}");
+            }
             // Overheat's per-3 value, read once for the channel rather than a skill build on every tick.
             const uint overheatStat = Stat.SupportOverheatAilmentDamagePlusPctFinalPer3FortificationConsumed;
             int overheatPerThree = overheatStat is var overheatKey
@@ -2323,6 +2357,13 @@ public static partial class Game
                     await SnipePresentStages(player);
                     continue;
                 }
+                if (divineIre && divineIreStages < divineIreMaxStages)
+                {
+                    divineIreStages++;
+                    await SendWorldRecord(player, player.Id,
+                        InstanceEntities.StatsUpdate(player.Id, [(Stat.DivineTempestCurrentNumberOfStages, divineIreStages)]),
+                        $"0x01b3 Divine Ire stage {divineIreStages}");
+                }
                 var at = player.Walk.Position(AreaTime(player));
                 await AreaSkillHit(player, skillId, gem, at, at,
                     immediate: true, sequence: player.ChannelSkillSequence, actionToken: action, channelGeneration: generation,
@@ -2338,6 +2379,13 @@ public static partial class Game
             // of its own to remove: the client draws the orb from the stage buff.
             if (orbEffect != 0) WinterOrbRelease(player, generation, action);
             if (snipe) await SnipeRelease(player, generation, action);
+            if (!player.Connection.LockstepClient)
+                await EmitPredictiveChannelFinished(player, generation, channelSequence);
+            if (divineIreStages > 0 && !player.Closed && !player.LeavingArea
+                && (player.ChannelSkill == 0 || player.ChannelGeneration == generation))
+                await SendWorldRecord(player, player.Id,
+                    InstanceEntities.StatsUpdate(player.Id, [(Stat.DivineTempestCurrentNumberOfStages, 0)]),
+                    "0x01b3 Divine Ire stages cleared");
         }
     }
 
@@ -2451,7 +2499,8 @@ public static partial class Game
                     && player.LockstepSkill.Channel == player.ChannelSkillSequence
                 || IsSnipeChannelling(player, skill)
                 || player.PaidChannel is { } paid && paid.Skill == skill
-                    && SkillsFor(player).EffectId(paid.Effect) is "LightningTendrils" or "LightningTendrilsAltX" or "LightningTendrilsAltY" or "LightningTendrilsRoyale"
+                    && (SkillsFor(player).EffectId(paid.Effect) is "LightningTendrils" or "LightningTendrilsAltX" or "LightningTendrilsAltY" or "LightningTendrilsRoyale"
+                        || IsDivineIre(player, paid.Effect))
                 || AreaTime(player) - player.LastChannelUpdateAt <= ChannelSilenceSeconds);
     }
 

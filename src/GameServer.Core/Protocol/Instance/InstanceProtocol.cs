@@ -337,7 +337,47 @@ public static class InstanceProtocol
         return w.ToArray();
     }
 
-    public const ushort ActionResultFlagId = 0x1b0;
+    public const ushort FreezeActionsId = 0x00bb, ActionLockoutId = 0x00bc, PlaySoundEffectId = 0x01c9;
+
+    /// <summary>
+    /// S→C 0x00bb <c>FreezeActions</c> (class <c>0x1435e6868</c>, reader <c>0x1421a9480</c>, dispatcher case 0x31
+    /// <c>0x142153e58..0x142153f1e</c>): 1-byte bitfield (bit 0 = frozen → world +0x110, bit 1 = notify).
+    /// </summary>
+    public static byte[] FreezeActions(bool frozen, bool notify = false) =>
+        new LoginWriter().U16(FreezeActionsId).U8((byte)((frozen ? 1 : 0) | (notify ? 2 : 0))).ToArray();
+
+    /// <summary>
+    /// S→C 0x00bc <c>ActionLockout</c> (class <c>0x1435e7380</c>, reader <c>0x1421a95d0</c>, dispatcher case 0x32
+    /// <c>0x142153f23..0x142153f7f</c>): u8 active; when non-zero, followed by u8 lockout duration in seconds.
+    /// </summary>
+    public static byte[] ActionLockout(bool active, byte durationSeconds = 0)
+    {
+        var w = new LoginWriter().U16(ActionLockoutId).U8(active ? (byte)1 : (byte)0);
+        if (active) w.U8(durationSeconds);
+        return w.ToArray();
+    }
+
+    /// <summary>
+    /// S→C 0x01c9 <c>PlaySoundEffect</c> (class <c>0x1435e6788</c>, reader <c>0x1421afa00</c>, dispatcher case 0x82
+    /// <c>0x142152628..0x1421527e6</c>): u32 BE entityId (0 for 2D / non-positional), u16 BE SoundEffects row,
+    /// u16 BE param (10 bytes total).
+    /// </summary>
+    public static byte[] PlaySoundEffect(uint entityId, ushort soundEffectRow, ushort param = 0) =>
+        new LoginWriter().U16(PlaySoundEffectId).U32(entityId).U16(soundEffectRow).U16(param).ToArray();
+
+    public const ushort ActionResultFlagId = 0x1b0, ActionUpdateId = 0x2c8;
+
+    /// <summary>
+    /// S→C 0x2c8 <c>InstanceClientActionUpdate</c> (world group, class <c>0x1435ccb78</c>, reader <c>0x141fe54d0</c>,
+    /// Actor dispatch <c>0x14219be04</c>): 10-byte world header, u16 BE <paramref name="actionTypeHash"/> (+0x38 →
+    /// action +0x118 <c>ActionTypes.HASH16</c>), u16 BE <paramref name="skillId"/> (+0x3a → skill +0x40), u16 BE
+    /// <paramref name="actionSequence"/> (+0x3c → action +0x11a), u8 <paramref name="detachId"/> (+0x3e → action
+    /// +0x11c), then blob16 class-specific little-endian payload passed to the action's virtual slot +0x300 reader.
+    /// </summary>
+    public static byte[] ActionUpdate(uint entityId, ushort actionTypeHash, ushort skillId, ushort actionSequence,
+        byte[] data, byte detachId = 0, uint orderKey = 0, ushort checkpoint = 0) =>
+        new LoginWriter().U16(ActionUpdateId).U32(entityId).U32(orderKey).U16(checkpoint)
+            .U16(actionTypeHash).U16(skillId).U16(actionSequence).U8(detachId).Blob(data).ToArray();
 
     /// <summary>
     /// S→C 0x1b0 (world group, reader 0x141fe4440, writer 0x141fe43f0; Actor handler 0x14219bc1a → 0x141e974d0):
