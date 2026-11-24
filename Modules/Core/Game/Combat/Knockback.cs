@@ -164,10 +164,11 @@ static partial class Game
         int Stat(uint name)
         {
             if (!(name is var key)) return 0;
+            if (guaranteed && key == KnockbackChanceStat) return 100;
             return (int)Math.Clamp((long)playerStats.GetValueOrDefault(key) + (skill?.GetValueOrDefault(key) ?? 0),
                 int.MinValue, int.MaxValue);
         }
-        if (!guaranteed && !RandomRolls.Chance(Stat(KnockbackChanceStat), 100, random)) return false;
+        if (!RandomRolls.Chance(Stat(KnockbackChanceStat), 100, random)) return false;
         var at = m.Walk.Position(now);
         var from = origin ?? player.Walk.Position(now);
         bool reversed = Stat(KnockbackReversedStat) != 0;
