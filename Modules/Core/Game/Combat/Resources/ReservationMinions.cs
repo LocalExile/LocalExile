@@ -100,7 +100,8 @@ public static partial class Game
                 monster.Mods = mods;
                 player.Reservations.Fighters.Add(id, fighter);
                 player.Reservations.Until[id] = double.IsFinite(summonDuration) ? committed + summonDuration : double.PositiveInfinity;
-                player.Minions.Add(new(id, monster, aura.EffectId, kind) { Until = player.Reservations.Until[id] });
+                player.Minions.Add(new(id, monster, aura.EffectId, kind)
+                { Until = player.Reservations.Until[id], OwnerAura = RollDivineSentinelAura(player, fighter) });
                 monster.NoRewards = true; monster.Aggro = true;
                 if (pools.Fatal) GolemDieLocked(player, fighter, committed, emitLife: false);
             });

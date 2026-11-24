@@ -154,6 +154,11 @@ public static partial class Game
             if (bytes.Count > 0) player.Minions.OutputQueue.Add(new([.. bytes], "minion teleport", minion.Id, m));
             bytes.Clear();
             if (minion.OwnerAura is not { } aura) continue;
+            if (aura.SharesWithAllies)
+            {
+                SyncDivineSentinelAura(player, minion, aura, now);
+                continue;
+            }
             // The aura is a zone around the minion that reaches its owner (OwnedZones).
             SyncZones(player, minion.Id, MinionAuraZones, [(0u, aura.Radius, default((int, int)))],
                 new(ReachesOnly(player.Id), new EntityId(minion.Id)));
@@ -173,6 +178,7 @@ public static partial class Game
     {
         List<PlayerMinions.Aura> auras;
         auras = [.. player.Minions.All.Where(m => m.OwnerBuff != 0).Select(m => m.OwnerAura).OfType<PlayerMinions.Aura>()];
+        auras.AddRange(DivineSentinelAurasReaching(player, player.Id));
         foreach (var aura in auras)
         {
             var same = own.Where(a => AuraCatalog.Family(a.EffectId) == AuraCatalog.Family(aura.EffectId)).ToList();

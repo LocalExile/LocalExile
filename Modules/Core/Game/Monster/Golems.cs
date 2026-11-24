@@ -455,6 +455,8 @@ public static partial class Game
 
     static void RemoveGolemLocked(Player player, GolemState.Golem golem, double now, bool reconcileBlessing = true)
     {
+        if (player.Minions.All.FirstOrDefault(minion => minion.Id == golem.Id)?.OwnerAura is { SharesWithAllies: true } aura)
+            ClearDivineSentinelAura(player, golem.Id, aura);
         player.Golems.All.Remove(golem.Id); player.Minions.Remove(golem.Id);
         MinionLifeLeeches.Remove(golem);
         player.Golems.IncomingHits.RemoveAll(hit => ReferenceEquals(hit.Target, golem));

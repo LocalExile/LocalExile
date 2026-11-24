@@ -343,6 +343,8 @@ public static partial class Game
                         .MinBy(g => g.SummonedAt)!, committed, reconcileBlessing: false);
                 SummonReplacementResources? committedResources = replacement is null
                     ? null : CaptureReplacementResources(replacement.Old, committed);
+                var retainedAura = replacement is null ? null
+                    : player.Minions.All.FirstOrDefault(minion => minion.Id == replacement.Old.Id)?.OwnerAura;
                 fighter.Id = id; fighter.Monster = monster;
                 monster.DamageImmune = holyArmament;
                 if (replacement is not null)
@@ -368,7 +370,8 @@ public static partial class Game
                 player.Summons.Fighters.Add(id, fighter); player.Summons.Definitions[id] = definition;
                 player.Summons.Until[id] = remaining is double duration ? committed + duration
                     : replacement?.Until ?? reformUntil ?? committed + SummonDuration(player, definition, gem);
-                player.Minions.Add(new(id, monster, definition.Id, definition.Family) { Until = player.Summons.Until[id] });
+                player.Minions.Add(new(id, monster, definition.Id, definition.Family)
+                { Until = player.Summons.Until[id], OwnerAura = RollDivineSentinelAura(player, fighter, retainedAura) });
                 PresentPhantasmalMightLocked(player, fighter, playerStats, committed);
                 monster.NoRewards = true; monster.Aggro = true;
                 if (definition.Id == "RaiseZombieAltY" && fighter.Abilities.FirstOrDefault(a => a.Effect == 7133) is { } fall)

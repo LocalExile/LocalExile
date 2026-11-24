@@ -89,6 +89,8 @@ public static partial class Game
             int value = (int)Math.Clamp(raw, int.MinValue, int.MaxValue);
             if (value != 0) values[name] = values.GetValueOrDefault(name) + value;
         }
+        foreach (var aura in DivineSentinelAurasReaching(player, minion.Id))
+            foreach (var (stat, value) in aura.Stats) Add(stat, value);
         Add(Stat.BaseFireDamageResistancePct, bonus.FireResistance);
         Add(Stat.BaseColdDamageResistancePct, bonus.ColdResistance);
         Add(Stat.BaseLightningDamageResistancePct, bonus.LightningResistance);
