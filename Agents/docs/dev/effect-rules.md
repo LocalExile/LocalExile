@@ -70,7 +70,11 @@ rebuilt for every mod, passive or area modifier that carries it.
 `fx_modifiers.counts_as` (added by an update, so it is not in the base file) is the plain stat a conditional stat's
 amount is counted onto while its conditions hold; a condition there may carry `"not": true`. The first 1,856 rows were
 read from the code (the plain stats it names, and what `StatConditions` decides and folds for each stat) and record
-what happens today; `StatConditions` still does the work.
+what happens today. `StatConditions.LoadTable` reads them when the game data loads: for a stat with a row, the plain
+stats come from `counts_as`, and the condition comes from the row when every part is a state flag, a weapon set-up,
+auras or one recent event (641 stats); any other part (a count, an amount) stays the id's own. The effect rules'
+on/off switch turns this off too (`StatConditions.UseTable`). Run over all 23,362 stats with 60 random subjects each,
+table and id agree everywhere; per stat the table costs less (the plain stats are a stored array).
 
 A plain number is granted to the calculator the game module already has (the stat graph); `fx_modifiers` records what
 the number means so that a formula can later move to a table one quantity at a time, each measured. Nothing reads these

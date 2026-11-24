@@ -432,10 +432,20 @@ public static class StatConditions
 
     /// <summary>The real consumer names for a conditional stat that expands to more than one pool input.</summary>
     public static IReadOnlyList<string> FoldAll(string statId, Func<string, bool> exists) =>
-        FoldAllFromPlain(statId, exists, PlainOf(statId));
+        TableTargets(statId, exists) ?? FoldAllFromPlain(statId, exists, PlainOf(statId));
 
     public static IReadOnlyList<string> FoldAll(string statId, Func<string, bool> exists, in Subject subject) =>
-        FoldAllFromPlain(statId, exists, PlainOf(statId, subject));
+        TableTargets(statId, exists) ?? FoldAllFromPlain(statId, exists, PlainOf(statId, subject));
+
+    // The plain stats fx_modifiers gives a stat (counts_as), those of them this build has; null when it gives none.
+    static IReadOnlyList<string>? TableTargets(string statId, Func<string, bool> exists)
+    {
+        if (Volatile.Read(ref _conditions).Table is not { } table || !table.TryGetValue(statId, out var entry)
+            || entry.Targets.Length == 0) return null;
+        foreach (string target in entry.Targets)
+            if (!exists(target)) return [.. entry.Targets.Where(exists)];
+        return entry.Targets;
+    }
 
     /// <summary>What a stat that counts (<see cref="Counts"/>) adds, for items and passives alike (issue #504): when its
     /// condition holds it takes its recent amount and moves onto its plain names (<paramref name="targets"/>, with the
@@ -482,7 +492,13 @@ public static class StatConditions
         return FoldFromPlain(statId, exists, plainName) is { } plain ? [plain] : [];
     }
 
-    public static int ValueForFold(string statId, int value) => PlainOf(statId) switch
+    public static int ValueForFold(string statId, int value) =>
+        Volatile.Read(ref _conditions).Table is { } table && table.TryGetValue(statId, out var entry) && entry.Targets.Length > 0
+            && entry.Scale is 1 or -1
+            ? entry.Scale == 1 ? value : ActorScale.Saturate(-(long)value)
+            : ValueFromId(statId, value);
+
+    static int ValueFromId(string statId, int value) => PlainOf(statId) switch
     {
         "extra_damage_taken_from_crit_+%" or "debuff_time_passed_-%" => ActorScale.Saturate(-(long)value),
         "intimidate_enemies_on_hit" or "inflict_withered_for_2_seconds_on_hit" or "inflict_fire_exposure"
@@ -580,15 +596,116 @@ public static class StatConditions
     /// twice.
     /// </para>
     /// </summary>
-    static readonly System.Collections.Concurrent.ConcurrentDictionary<string, Func<Subject, State>> ParsedConditions = new(StringComparer.Ordinal);
+    /// <summary>What fx_modifiers says of one conditional stat: its condition (null: the id's own, read below), the
+    /// plain stats its amount is counted onto, and the amount's scale.</summary>
+    public sealed record TableEntry(Func<Subject, State>? Condition, string[] Targets, double Scale);
 
-    public static State Of(string statId, in Subject subject) =>
-        ParsedConditions.GetOrAdd(statId, ParseCondition)(subject);
+    // One set per table and switch state: each stat's condition is resolved once (from the table, else from the id)
+    // and looked up by one dictionary read after that, as before the table existed.
+    sealed class ConditionSet(IReadOnlyDictionary<string, TableEntry>? table)
+    {
+        public readonly IReadOnlyDictionary<string, TableEntry>? Table = table;
+        public readonly System.Collections.Concurrent.ConcurrentDictionary<string, Func<Subject, State>> Parsed = new(StringComparer.Ordinal);
+        public Func<Subject, State> Resolve(string statId) =>
+            Table is not null && Table.TryGetValue(statId, out var entry) && entry.Condition is { } condition
+                ? WithNamedState(statId, condition) : ParseCondition(statId);
+    }
+
+    static readonly object TableGate = new();
+    static IReadOnlyDictionary<string, TableEntry> _table = new Dictionary<string, TableEntry>();
+    static bool _useTable = true;
+    static ConditionSet _conditions = new(null);
+
+    /// <summary>Whether fx_modifiers decides the stats it has rows for (the effect rules' on/off switch sets it). Off:
+    /// every condition is read from its stat's id, as on a server without the table.</summary>
+    public static bool UseTable
+    {
+        get => _useTable;
+        set { lock (TableGate) { _useTable = value; Volatile.Write(ref _conditions, new(value ? _table : null)); } }
+    }
+
+    /// <summary>How many stats the loaded table decides the condition of, and how many it gives plain stats for.</summary>
+    public static (int Conditions, int Targets) TableCounts =>
+        (_table.Values.Count(e => e.Condition is not null), _table.Values.Count(e => e.Targets.Length > 0));
+
+    /// <summary>Reads fx_modifiers' conditional rows when the game data loads: per stat, the plain stats it counts
+    /// onto (counts_as, in row order) and its condition when every part of it is one this class answers by itself
+    /// (a state flag, a weapon set-up, auras, one recent event). A condition with another part (a count, an amount)
+    /// stays the id's own.</summary>
+    public static void LoadTable(IReadOnlyList<GameServer.Storage.GameDataStore.FxModifierRow> rows)
+    {
+        var table = new Dictionary<string, TableEntry>(StringComparer.Ordinal);
+        foreach (var group in rows.GroupBy(r => r.Stat, StringComparer.Ordinal))
+        {
+            var first = group.First();
+            Func<Subject, State>? condition = null;
+            try { condition = TableCondition(first.Conditions); }
+            catch (Exception e) when (e is FormatException or System.Text.Json.JsonException or InvalidOperationException or KeyNotFoundException)
+            { Console.WriteLine($"[rules] fx_modifiers {first.Stat}: {e.Message}; its condition is read from its id"); }
+            table[group.Key] = new(condition, [.. group.Where(r => r.CountsAs is not null).Select(r => r.CountsAs!)], first.Scale);
+        }
+        lock (TableGate) { _table = table; Volatile.Write(ref _conditions, new(_useTable ? table : null)); }
+    }
+
+    // A row's conditions as one predicate, or null when a part is not one of the four kinds answered here.
+    static Func<Subject, State>? TableCondition(string json)
+    {
+        using var document = System.Text.Json.JsonDocument.Parse(json);
+        var parts = document.RootElement.EnumerateArray().ToArray();
+        if (parts.Length == 0) return null;
+        string Word(System.Text.Json.JsonElement part, string name) =>
+            part.TryGetProperty(name, out var word) ? word.GetString() ?? "" : throw new FormatException($"a condition needs \"{name}\"");
+        bool Not(System.Text.Json.JsonElement part) => part.TryGetProperty("not", out var not) && not.GetBoolean();
+        if (parts.All(p => Word(p, "if") == "affected_by"))
+        {
+            if (parts.Any(Not)) return null;
+            string family = string.Join("_and_", parts.Select(p => Word(p, "aura")));
+            if (!IsModelledAura(family)) return static _ => State.NotModelled;
+            return subject => subject.Auras is { } running ? AuraHolds(family, running) ? State.Holds : State.Fails : State.NotModelled;
+        }
+        if (parts.Length != 1) return null;
+        var part = parts[0];
+        bool negated = Not(part);
+        switch (Word(part, "if"))
+        {
+            case "state":
+                string key = part.TryGetProperty("key", out var exact) ? exact.GetString() ?? "" : "_" + Word(part, "is");
+                return subject => subject.Flags is { } flags && flags.TryGetValue(key, out bool active)
+                    ? active != negated ? State.Holds : State.Fails : State.NotModelled;
+            case "recently":
+                string happening = Word(part, "event");
+                return subject =>
+                {
+                    if (subject.Recent is not { } recent || subject.KnownRecent is { } known && !known.Contains(happening)) return State.NotModelled;
+                    return recent.Contains(happening) != negated ? State.Holds : State.Fails;
+                };
+            case "weapon":
+                if (negated) return null;
+                return Word(part, "is") switch
+                {
+                    "dual wielding" => static subject => subject.DualWield is bool d ? (d ? State.Holds : State.Fails) : State.NotModelled,
+                    "shield" => static subject => subject.Shield is bool s ? (s ? State.Holds : State.Fails) : State.NotModelled,
+                    "two-handed" => static subject => subject.TwoHanded is bool t ? (t ? State.Holds : State.Fails) : State.NotModelled,
+                    "one-handed" => static subject => subject.OneHanded is bool o ? (o ? State.Holds : State.Fails) : State.NotModelled,
+                    _ => null,
+                };
+            default: return null;
+        }
+    }
+
+    public static State Of(string statId, in Subject subject)
+    {
+        var set = Volatile.Read(ref _conditions);
+        return set.Parsed.GetOrAdd(statId, static (id, from) => from.Resolve(id), set)(subject);
+    }
 
     // Parse the immutable stat id once; the predicate still reads the live subject on every call.
-    static Func<Subject, State> ParseCondition(string statId)
+    static Func<Subject, State> ParseCondition(string statId) => WithNamedState(statId, ParseKnownCondition(statId));
+
+    // A condition with the id's trailing named state on top: a state a module names for this subject is asked when
+    // the condition itself cannot be answered.
+    static Func<Subject, State> WithNamedState(string statId, Func<Subject, State> legacy)
     {
-        var legacy = ParseKnownCondition(statId);
         if (TrailingNamedState(statId) is not { } named) return legacy;
         string prefix = statId[..named.At];
         return subject =>

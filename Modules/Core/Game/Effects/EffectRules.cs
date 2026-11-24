@@ -25,7 +25,13 @@ public static class EffectRules
     static readonly string[] WhatNames = ["hit", "kill", "when_hit", "block", "stun", "skill_use", "worn"];
 
     /// <summary>Turns every rule off (the code a rule replaced runs again from the next stat build). A testing switch.</summary>
-    public static volatile bool Enabled = true;
+    public static bool Enabled
+    {
+        get => _enabled;
+        // The conditional stats fx_modifiers decides follow the same switch (StatConditions.UseTable).
+        set { _enabled = value; StatConditions.UseTable = value; }
+    }
+    static volatile bool _enabled = true;
 
     /// <summary>The loop guard: an effect kind that can cause events of its own (<see cref="Kind.Chains"/>: a released
     /// skill) does not run for an event deeper than its rule allows ("depth" on the row, 0 unless it says otherwise:

@@ -87,6 +87,7 @@ public static class GameData
         var effectSkills = store.LoadEffectSkills();
         var effectBuffs = store.LoadEffectBuffs();
         var fxRules = store.LoadFxRules();
+        var fxModifiers = store.LoadFxModifiers();
 
         // Build the catalogues and settings first: a bad payload leaves the previous ranges/limits and catalogues intact.
         GameDataCatalog.Reload(store);
@@ -99,6 +100,7 @@ public static class GameData
         Volatile.Write(ref _effectSkills, effectSkills);
         Volatile.Write(ref _effectBuffs, effectBuffs);
         Volatile.Write(ref _fxRules, fxRules);
+        StatConditions.LoadTable(fxModifiers);
         Volatile.Write(ref _snapshot, snapshot);
         var (uniqueWeights, uniqueWeightOverrides) = store.UniqueWeightCounts();
         var drop = store.DropCounts();

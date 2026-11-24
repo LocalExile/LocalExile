@@ -97,6 +97,29 @@ public sealed class GameDataStore : IDisposable
 
     /// <summary>The enabled rows of <c>effect_skills</c>.</summary>
     /// <summary>One enabled row of <c>effect_buffs</c>: the buff a released skill gives its user.</summary>
+    /// <summary>One fx_modifiers row that has conditions or a plain stat to count onto: what the game data's
+    /// conditional stats are read from (StatConditions.LoadTable).</summary>
+    public sealed record FxModifierRow(string Stat, int Ord, double Scale, string Conditions, string? CountsAs);
+
+    /// <summary>The enabled fx_modifiers rows with conditions or a counts_as, in order. Empty when the table or its
+    /// counts_as column is not there (an older world.db in a test).</summary>
+    public IReadOnlyList<FxModifierRow> LoadFxModifiers()
+    {
+        lock (_gate)
+        {
+            using (var column = Command("SELECT 1 FROM pragma_table_info('fx_modifiers') WHERE name = 'counts_as'"))
+                if (column.ExecuteScalar() is null) return [];
+            using var command = Command("SELECT stat, ord, scale, conditions, counts_as FROM fx_modifiers " +
+                "WHERE enabled = 1 AND (counts_as IS NOT NULL OR conditions <> '[]') ORDER BY stat, ord");
+            using var reader = command.ExecuteReader();
+            var result = new List<FxModifierRow>();
+            while (reader.Read())
+                result.Add(new(reader.GetString(0), reader.GetInt32(1), reader.GetDouble(2), reader.GetString(3),
+                    reader.IsDBNull(4) ? null : reader.GetString(4)));
+            return result;
+        }
+    }
+
     /// <summary>One fx rule with its rows (fx_rules, fx_rule_sources, fx_rule_when, fx_rule_if, fx_rule_do), as written:
     /// the game module turns it into a rule of its engine (Modules/Core/Game/Effects/FxRules.cs).</summary>
     public sealed record FxRuleRow(string Id, string Book, string Title, string? Replaces, string Status,
