@@ -19,6 +19,103 @@ public static partial class Game
     public const string CorpseExplosionAo = "Metadata/Effects/Spells/monsters_effects/gore_explode/gore_explosion_no_gibs.ao";
     const int CorpseExplosionArtMs = 2000;
 
+    public const ushort SeismicCryBuffRow = 1544, AncestralCryBuffRow = 1545,
+        InfernalCryBuffRow = 1540, BattlemagesCryBuffRow = 1866;
+
+    /// <summary>The BuffDefinitions row a warcry's own buff uses, or null when no buff is granted for it.</summary>
+    public static ushort? WarcryBuffRow(string effectId) => effectId switch
+    {
+        "SeismicCry" => SeismicCryBuffRow,
+        "AncestralCry" => AncestralCryBuffRow,
+        "InfernalCry" => InfernalCryBuffRow,
+        "BattlemagesCry" => BattlemagesCryBuffRow,
+        _ => null,
+    };
+
+    /// <summary>A warcry buff's stats, in its BuffDefinitions row's GrantedStats order, or null when the warcry has
+    /// no granted buff. <paramref name="own"/> reads the gem's own stats by their <see cref="Stat"/> id.</summary>
+    public static (uint Key, int Value)[]? WarcryBuffStats(string effectId, int power, double buffEffect, Func<uint, int> own)
+    {
+        if (WarcryBuffRow(effectId) is null) return null;
+        int capped = Math.Clamp(power, 0, effectId == "AncestralCry" ? 30 : 25);
+        int steps5 = capped / 5, steps10 = capped / 10;
+        int Scaled(int steps, int per) => (int)Math.Clamp(Math.Floor(steps * (double)per * buffEffect), 0, int.MaxValue);
+        return effectId switch
+        {
+            "SeismicCry" =>
+            [
+                (Stat.ArmourPlusPctFinalFromSeismicCryBuff, Scaled(steps5, own(Stat.SeismicCryArmourPlusPctFinalPer5PowerUpToCap))),
+                (Stat.StunThresholdPlusPct, Scaled(steps5, own(Stat.SeismicCryStunThresholdPlusPctPer5PowerUpToCap))),
+            ],
+            "AncestralCry" =>
+            [
+                (Stat.BaseResistAllElementsPct, Scaled(steps5, own(Stat.AncestralCryElementalResistPctPer5PowerUpToCap))),
+                (Stat.AdditionalMaximumAllElementalResistancesPct, Scaled(steps10, own(Stat.AncestralCryMaximumElementalResistPctPer10PowerUpToCap))),
+            ],
+            "InfernalCry" =>
+                [(Stat.PhysicalDamagePctToAddAsFire, Scaled(steps5, own(Stat.InfernalCryPhysicalDamagePctToAddAsFirePer5PowerUpToCap)))],
+            "BattlemagesCry" =>
+                [(Stat.AdditionalBaseCriticalStrikeChance, Scaled(steps5, own(Stat.DivineCryAdditionalBaseCriticalStrikeChancePer5PowerUpToCap)))],
+            _ => null,
+        };
+    }
+
+    sealed record WarcryGrant(ushort Row, double Until, int Epoch, (uint Key, int Value)[] Values);
+    static readonly Store<Player, List<WarcryGrant>> WarcryGrants = new();
+
+    static void AddWarcryStats(Player player, Dictionary<uint, int> stats)
+    {
+        if (!WarcryGrants.TryGetValue(player, out var grants) || player.PlayerLife == 0) return;
+        double now = AreaTime(player);
+        foreach (var grant in grants)
+            if (grant.Until > now && grant.Epoch == player.ProjectileEpoch)
+                foreach (var (key, value) in grant.Values)
+                    stats[key] = ActorScale.Saturate((long)stats.GetValueOrDefault(key) + value);
+    }
+
+    static void UpdateWarcryStats(Player player)
+    {
+        RebuildPools(player);
+        MarkPlayerStats(player, PlayerStatStep.Sources);
+        PresentStats(player);
+    }
+
+    internal static void ExpireWarcryBuffs(Player player)
+    {
+        if (!WarcryGrants.TryGetValue(player, out var grants)) return;
+        double now = AreaTime(player);
+        bool changed = false;
+        for (int i = grants.Count - 1; i >= 0; i--)
+        {
+            var grant = grants[i];
+            if (player.PlayerLife > 0 && grant.Until > now && grant.Epoch == player.ProjectileEpoch) continue;
+            player.Area.Buffs.Clear(player.Id, grant.Row, player.Id);
+            grants.RemoveAt(i);
+            changed = true;
+        }
+        if (grants.Count == 0) WarcryGrants.Remove(player);
+        if (changed) UpdateWarcryStats(player);
+    }
+
+    public static void ApplyWarcryBuffLocked(Player player, string effectId, IReadOnlyDictionary<uint, int> own,
+        IReadOnlyDictionary<uint, int> playerStats, (int X, int Y) at, int radius, double now, double duration, double buffEffect)
+    {
+        if (playerStats.GetValueOrDefault(Stat.WarcriesDoNotApplyBuffsToSelfOrAllies) != 0
+            || own.GetValueOrDefault(Stat.WarcriesDoNotApplyBuffsToSelfOrAllies) != 0
+            || duration <= 0 || WarcryBuffRow(effectId) is not ushort row) return;
+        int power = playerStats.GetValueOrDefault(Stat.WarcriesHaveInfinitePower) != 0 ? InfiniteWarcryPower
+            : player.Area.Monsters.Values.Where(m => m.Hostile && !m.Dead && m.Life > 0 && Dist(m.Walk.Position(now), at) <= radius)
+                .Sum(m => WarcryPower(m.Rarity));
+        if (playerStats.GetValueOrDefault(Stat.WarcriesHaveMinimum10Power) != 0) power = Math.Max(power, 10);
+        if (WarcryBuffStats(effectId, power, buffEffect, key => own.GetValueOrDefault(key)) is not { } stats) return;
+        var grants = WarcryGrants.GetOrCreateValue(player);
+        grants.RemoveAll(grant => grant.Row == row);
+        grants.Add(new(row, now + duration, player.ProjectileEpoch, stats));
+        player.Area.Buffs.Set(player.Id, new Buff(row, player.Id, U68: Buff.Seconds(duration)));
+        UpdateWarcryStats(player);
+        Console.WriteLine($"[gateway] {effectId}: warcry buff row {row} power={power} for {duration:0.###} s");
+    }
+
     public static async Task WarcryReleased(Player player,
         (int X, int Y) at, int radius, int epoch)
     {
