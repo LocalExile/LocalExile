@@ -3341,9 +3341,26 @@ public static partial class Game
         var strike = new HitResistances.Strike(Critical: critical, Attack: attack);
         var mitigated = rolled.Select((type, range) =>
         {
+            var resistanceType = type;
             var value = MonsterHitResistance(m, type, pen, now);
-            if (rolled[type].Max > 0 && HitResistances.Describe(type, value, strike, mods) is { } note) described.Add(note);
-            double effective = HitResistances.FinalValue(type, value, strike, mods, invertElemental);
+            if (type == DamageType.Chaos && range.Max > 0
+                && mods.ChaosSelection != HitResistances.ResistanceSelection.Default)
+            {
+                bool highest = mods.ChaosSelection == HitResistances.ResistanceSelection.Highest;
+                int selected = DamageModel.Capped(value.Value, value.Maximum);
+                foreach (var alternative in DamageTypes.ConversionOrder)
+                {
+                    if (!DamageTypes.IsElemental(alternative)) continue;
+                    var candidate = MonsterHitResistance(m, alternative, pen, now);
+                    int resistance = DamageModel.Capped(candidate.Value, candidate.Maximum);
+                    if (highest ? resistance <= selected : resistance >= selected) continue;
+                    selected = resistance;
+                    resistanceType = alternative;
+                    value = candidate;
+                }
+            }
+            if (range.Max > 0 && HitResistances.Describe(resistanceType, value, strike, mods) is { } note) described.Add(note);
+            double effective = HitResistances.FinalValue(resistanceType, value, strike, mods, invertElemental);
             return range.Scale(Math.Max(0, 1 - effective / 100));
         });
         int ignorePhysicalChance = ActorScale.Saturate((long)mods.IgnorePhysicalReductionChance
@@ -3368,6 +3385,9 @@ public static partial class Game
             IgnoreChaos: Has(Stat.VirtualHitsIgnoreEnemyChaosResistance),
             IgnorePhysicalReductionChance: Value(Stat.HitsIgnoreEnemyMonsterPhysicalDamageReductionPctChance))
         {
+            ChaosSelection = Has(Stat.ChaosDamageResistedByHighestResistance) ? HitResistances.ResistanceSelection.Highest
+                : Has(Stat.ChaosDamageResistedByLowestResistance) ? HitResistances.ResistanceSelection.Lowest
+                : HitResistances.ResistanceSelection.Default,
             TincturedWeaponIgnorePhysicalReductionChance = Has(Stat.TinctureApplied)
                 ? Value(Stat.HitsIgnoreEnemyMonsterPhysicalDamageReductionPctChanceWithTincturedWeapons) : 0,
             CriticalPenetration = Value(Stat.CriticalStrikesPenetratesPctElementalResistancesWhileAffectedByZealotry),
