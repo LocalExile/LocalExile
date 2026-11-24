@@ -197,12 +197,13 @@ Part of [Status](../Status.md); what to build next in this area is in
 - Approaching Flames from Annihilation's Approach toggles Flame-Touched, its Adrenaline and its fire damage.
 - Owned minions: relics, chieftains and the 17 golems. Docs: [11](../docs/protocol/11-skills.md) §10h.
   Mindless Aggression and minion area mastery scale minions. Fresh Meat grants timed Adrenaline and Wakened Fury.
-- Spectre roars grant Power, Frenzy and Endurance Charges. Presentation still needs live verification.
-- Itemised corpses can be placed and raised using their native spectre bodies. Dark Marionettes can reform after death.
-- Wraithlord counts Ghastly Eye Jewels in its sockets toward the raised spectre limit.
-- Holy Strike hits create timed, undamageable copies of the main-hand weapon that attack the strike target.
-- Holy Relic nova shares recovery with nearby allies. The Black Cane's Phantasmal Might stacks with active Phantasms.
-- Summon hits apply linked penetration and life leech. Supported defences mitigate incoming hits and ailments.
+- Spectre roars grant their native charges in offline combat ([minions](../docs/protocol/11-skills.md#10h-player-minions-that-fight)).
+- Itemised corpses raise native bodies, including reforming Marionettes ([minions](../docs/protocol/11-skills.md#10h-player-minions-that-fight)).
+- Wraithlord uses socketed Ghastly Eye Jewels for the spectre limit ([minions](../docs/protocol/11-skills.md#10h-player-minions-that-fight)).
+- Holy Strike hits summon attacking weapon copies ([minions](../docs/protocol/11-skills.md#10h-player-minions-that-fight)).
+- Holy Relic nova reaches allied recipients ([minions](../docs/protocol/11-skills.md#10h-player-minions-that-fight)).
+- Phantasmal Might follows active Phantasms ([minions](../docs/protocol/11-skills.md#10h-player-minions-that-fight)).
+- Equipped and linked summons resolve the active source ([minions](../docs/protocol/11-skills.md#10h-player-minions-that-fight)).
 - Link skills. Docs: [11](../docs/protocol/11-skills.md) §13, [Paladin](../docs/game/paladin.md#link-skills).
   Docs: [11](../docs/protocol/11-skills.md) Â§13, [Paladin](../docs/game/paladin.md).
 - Owned minions: relics, chieftains and the 17 golems. Docs: [11](../docs/protocol/11-skills.md) Â§10h.

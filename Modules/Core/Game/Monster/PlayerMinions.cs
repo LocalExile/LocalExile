@@ -185,16 +185,26 @@ public static partial class Game
 
     static PlayerMinions.Aura[] SelectMinionAuras(Player player, uint target, List<AuraCatalog.Aura> auras, int effect)
     {
-        var candidates = SharedMinionAurasReaching(player, target);
+        Dictionary<string, (PlayerMinions.Aura Aura, long Strength)>? strongest = null;
+        foreach (var shared in SharedMinionAurasReaching(player, target)) Include(shared);
         if (target == player.Id)
-            candidates = candidates.Concat(player.Minions.All.Where(m => m.OwnerBuff != 0)
-                .Select(m => m.OwnerAura).OfType<PlayerMinions.Aura>().Where(a => !a.SharesWithAllies));
-        var selected = candidates.GroupBy(aura => AuraCatalog.Family(aura.EffectId))
-            .Select(family => family.MaxBy(aura => aura.Stats.Sum(stat => (long)stat.Value))!)
+            foreach (var minion in player.Minions.All)
+                if (minion.OwnerBuff != 0 && minion.OwnerAura is { SharesWithAllies: false } own) Include(own);
+        if (strongest is null) return [];
+        var selected = strongest.Values.Select(entry => entry.Aura)
             .Where(aura => !PlayerAuraAtLeastAsStrong(player, aura, auras, effect)).ToArray();
         if (selected.Length > 0)
             auras.RemoveAll(a => selected.Any(other => AuraCatalog.Family(other.EffectId) == AuraCatalog.Family(a.EffectId)));
         return selected;
+
+        void Include(PlayerMinions.Aura candidate)
+        {
+            string family = AuraCatalog.Family(candidate.EffectId);
+            long strength = candidate.Stats.Sum(stat => (long)stat.Value);
+            strongest ??= new(StringComparer.Ordinal);
+            if (!strongest.TryGetValue(family, out var current) || strength > current.Strength)
+                strongest[family] = (candidate, strength);
+        }
     }
 
     // A triggered Summon Elemental Relic: a relic of a random element next to the player at his level up to the skill's
