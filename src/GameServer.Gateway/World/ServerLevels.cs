@@ -389,6 +389,7 @@ public static class ServerLevels
             int level = areaLevel > 0 ? areaLevel : AreaLevel(areaId);
             bool exact = AreaLayouts.Recording || Environment.GetEnvironmentVariable("Game_SEED") is { Length: > 0 };
             if (!exact && seed == 1 && SeedInPlaceOfOne(areaId) is { } seedOneReplacement) seed = seedOneReplacement;
+            if (!exact && areaId.Contains("Chateau", StringComparison.OrdinalIgnoreCase)) seed = 1174023763;
             uint Reserve(uint candidate)
             {
                 while (PlayedContexts.TryGetValue((areaId, candidate), out var prior) && prior != (level, statsKey, category, statesKey))
