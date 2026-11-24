@@ -874,6 +874,11 @@ public static partial class Game
             ? SupportedAttackDamage.Raw(attackWeapon, Get, new(WeaponAccuracyFor(player, weapon, caster, gem.Stats, gem.Effect)),
                 coefficients.Base, coefficients.Added, melee: types.Contains(19) && !SkillsFor(player).RequiresShield(gem.Effect))
             : DamageStats.RawAdded(plan.SpellBaseWith(Get), Get, spell: true, AddedEffectiveness(player, gem.Effect, gem.Level));
+        if (!attack && !secondary && gem.Stats.GetValueOrDefault(Stat.SpellBaseFireDamagePctMaximumLife) is int lifePct and > 0)
+        {
+            double fire = (long)player.PlayerMaxLife * lifePct / 100d;
+            raw = raw.Add(GameServer.Core.World.DamageType.Fire, new(fire, fire));
+        }
         if (!attack && !secondary && Get(Stat.KeystoneBattlemage) != 0
             && WeaponIn(player, ActiveMainHand(player))?.LocalDamage is { } mainHandDamage)
             raw = raw.Add(mainHandDamage.Scale(AddedEffectiveness(player, gem.Effect, gem.Level)));
