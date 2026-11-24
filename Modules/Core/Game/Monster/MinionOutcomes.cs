@@ -138,7 +138,7 @@ public static partial class Game
             var mapMods = MapModsOf(player);
             drops.AddRange(DropsFor(player).Roll(monster.Level, monster.Rarity, AreaRng(player), IncreasedItemRarity(player, monster),
                 balance.ItemDropMultiplier * (modded?.Quantity ?? 1) * ItemQuantityFactor(player, monster),
-                balance.EquipmentRarityMultiplier * (modded?.Rarity ?? 1), mapTier, mapMods, MapScarabQuantity(mapMods)));
+                balance.EquipmentRarityMultiplier * (modded?.Rarity ?? 1), mapTier, mapMods, MapScarabQuantity(mapMods), modded?.Weights));
             drops.AddRange(PartyCurrency(player, drops, AreaRng(player)));
             if (RollMapDropForKill(player, monster.Level, monster.Rarity, mapTier, AreaRng(player), modded?.MapRelated ?? 1) is { } map) drops.Add(map);
             if (DropsFor(player).Gold(monster.Level, monster.Rarity, AreaRng(player),
