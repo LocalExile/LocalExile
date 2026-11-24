@@ -18,6 +18,7 @@ public static partial class Game
         public bool Pending;
         public uint Actor;
         public SpawnedMonster? Body;
+        public Action<bool>? RemoveActor;
     }
     static readonly RuleTable<Player, ShaperMemoryState> ShaperMemories = new();
 
@@ -97,13 +98,16 @@ public static partial class Game
             .OrderBy(p => Dist(p.Value.Walk.Position(AreaTime(player)), aim)).ThenBy(p => p.Key).FirstOrDefault();
         if (target.Value is not null) aim = target.Value.Walk.Position(AreaTime(player));
         session.World(id, InstanceProtocol.ActionStarted(id, from.X, from.Y, aim.X, aim.Y, ShaperMemorySkill, 0xffff, player.MonsterOrderFlags));
-        long start = session.Runtime.Now, finish = start + ProjectileRuntime.Time(castMs / 1000d);
+        long start = Math.Max(session.Runtime.Now, ProjectileRuntime.Time(AreaTime(player)));
+        long finish = start + ProjectileRuntime.Time(castMs / 1000d);
+        state.RemoveActor = Remove;
         if (effect == Devastation)
         {
             var weapon = HandWeapon(player, AttackHand.Main);
-            var scale = catalog.AttackDamageMultiplier(effect, level);
-            var raw = SupportedAttackDamage.WeaponBase(weapon).Scale(Math.Max(0, scale / 10000d));
-            var hit = PlayerHitDamage.Resolve(raw, Get, new DamageConversion(), spell: false, melee: true, area: true);
+            var (coefficient, effectiveness) = catalog.DamageCoefficients(effect, level);
+            var raw = SupportedAttackDamage.Raw(weapon, Get, default, coefficient, effectiveness, melee: true);
+            var hit = PlayerHitDamage.Resolve(raw, Get, SupportedAttackDamage.WithWeaponGains(new(), weapon), spell: false,
+                melee: true, area: true, additionalIncreased: SupportedAttackDamage.WeaponIncrease(weapon, Get));
             session.Runtime.Schedule(finish, () =>
             {
                 if (Alive())
@@ -144,7 +148,7 @@ public static partial class Game
                             Damage(enemyId, enemy, damage, true, now);
                         }
                 });
-            session.Runtime.Schedule(until, Remove);
+            session.Runtime.Schedule(until, () => Remove());
         }
         else
         {
@@ -163,14 +167,12 @@ public static partial class Game
                             if (!sourceCurrent() || area.Monsters.GetValueOrDefault(contact.Target.Id) is not { Hostile: true, Dead: false } enemy)
                                 return ProjectileHitResult.Miss;
                             double now = contact.At / (double)ProjectileRuntime.QuantaPerSecond;
-                            double pen = GolemStat(own, Stat.BaseReduceEnemyColdResistancePct);
-                            var effective = DamageModel.Mitigate(raw, type => MonsterHitResistance(enemy, type,
-                                new Penetration.PerType(Cold: (int)pen), now));
-                            int damage = MonsterTakesMitigatedCore(enemy, effective, spell: true, now, 0, false, AreaRng(player));
+                            var pen = new Penetration.PerType(0, GolemStat(own, Stat.BaseReduceEnemyColdResistancePct), 0, 0);
+                            int damage = MonsterTakes(enemy, raw, spell: true, AreaRng(player), pen, now);
                             return Damage(contact.Target.Id, enemy, damage, false, now) ? ProjectileHitResult.Hit : ProjectileHitResult.Miss;
                         }),
                     });
-            session.Runtime.Schedule(finish + ProjectileRuntime.Time(.1), Remove);
+            session.Runtime.Schedule(finish + ProjectileRuntime.Time(.1), () => Remove());
         }
         session.Runtime.Schedule(start + ProjectileRuntime.Time(.1), Check);
 
@@ -186,7 +188,7 @@ public static partial class Game
             double now = AreaTime(player);
             foreach (var (enemyId, enemy) in area.MonstersNear(at, radius).ToArray())
                 if (enemy.Hostile && !enemy.Dead && Dist(enemy.Walk.Position(now), at) <= radius)
-                    Damage(enemyId, enemy, MonsterTakesRolled(enemy, packet, spell, now: now), false, now);
+                    Damage(enemyId, enemy, MonsterTakes(enemy, packet, spell, AreaRng(player), now: now), false, now);
         }
 
         bool Damage(uint enemyId, SpawnedMonster enemy, int amount, bool dot, double now)
@@ -202,14 +204,17 @@ public static partial class Game
             return true;
         }
 
-        void Remove()
+        void Remove(bool retire = false)
         {
             if (state.Actor != id) return;
-            state.Actor = 0; state.Body = null;
+            state.Actor = 0;
+            state.Body = null;
+            state.RemoveActor = null;
             if (ReferenceEquals(area.Monsters.GetValueOrDefault(id), body)) area.Monsters.Remove(id);
             player.MinionOrigins.TryRemove(id, out _);
             area.Buffs.Clear(player.Id, ShaperMemoryNoChargeBuff, id);
-            session.Enqueue(() => SendWorldRemoval(player, id));
+            if (retire) player.RetiredCombatObjects.Add(id);
+            else session.Enqueue(() => SendWorldRemoval(player, id));
         }
     }
 }

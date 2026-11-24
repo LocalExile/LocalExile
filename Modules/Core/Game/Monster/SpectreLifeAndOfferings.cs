@@ -36,7 +36,8 @@ public static partial class Game
 
             void Heal(Player recipient)
             {
-                if (recipient.PlayerLife > 0 && Dist(recipient.Walk.Position(now), at) <= SpectreAidRadius)
+                if (recipient.PlayerLife > 0 && recipient.PlayerLife < recipient.PlayerUnreservedLife
+                    && Dist(recipient.Walk.Position(now), at) <= SpectreAidRadius)
                 {
                     recipient.PlayerLife = (uint)Math.Min(recipient.PlayerUnreservedLife, (long)recipient.PlayerLife + healing);
                     recipient.Frames.Area?.Life.Resend(recipient);

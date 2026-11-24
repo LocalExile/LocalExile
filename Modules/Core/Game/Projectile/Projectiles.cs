@@ -312,6 +312,7 @@ public static partial class Game
             ClearExplosiveFuses();
             if (archer is { } currentArcher) EndMirage(currentArcher, retire: true);
             EndSacredWisps(retire: true);
+            if (ShaperMemories.TryGetValue(Player, out var memory)) memory.RemoveActor?.Invoke(true);
             lock (flaskBarGate)
             {
                 flasksPending = null;

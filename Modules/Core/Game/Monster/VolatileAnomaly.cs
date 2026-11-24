@@ -1,3 +1,4 @@
+using GameServer.Core.Projectiles;
 using GameServer.Core.Protocol.Instance;
 using GameServer.Core.World;
 
@@ -51,7 +52,7 @@ public static partial class Game
         if (catalog.ActionHash(VolatileAnomalyDetonation) is ushort hash)
             session.World(orb.Id, InstanceProtocol.ActionStarted(orb.Id, at.X, at.Y, at.X, at.Y, (ushort)(hash & 0x3fff),
                 0xffff, player.MonsterOrderFlags));
-        session.PlaceDamageGround(ProjectileSession.Vector(at), radius, seconds, DamageType.Cold, dps, session.Runtime.Now,
+        session.PlaceDamageGround(ProjectileSession.Vector(at), radius, seconds, DamageType.Cold, dps, ProjectileRuntime.Time(now),
             Own(Stat.GroundMaelstromArtVariation), stats);
         session.Enqueue(() => AreaSkillHit(player, orb.Source, (orb.Source, gem.Effect, "Volatile Anomaly",
             gem.Level, gem.Quality, 0), at, at, immediate: true, melee: false, radiusOverride: blast, triggeredCurrent: Current));

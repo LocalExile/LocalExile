@@ -30,7 +30,7 @@ public static partial class Game
     public sealed partial class ProjectileSession
     {
         sealed record DamageGround(ProjectileVector Centre, double Radius, long Start, long End,
-            DamageType Type, double Dps, Visual? Visual, IReadOnlyDictionary<uint, int>? ChillStats);
+            DamageType Type, double Dps, Visual? Visual, uint ChillSource, IReadOnlyDictionary<uint, int>? ChillStats);
 
         readonly List<DamageGround> damageGrounds = [];
         sealed class GroundDamageCarry { public double Fire, Cold, Chaos; }
@@ -42,11 +42,16 @@ public static partial class Game
         void ClearDamageGrounds()
         {
             foreach (var ground in damageGrounds)
+            {
                 if (ground.Visual is { } visual)
                 {
                     visual.Ended = true;
                     Player.ProjectileObjects.Remove(visual.Id);
                 }
+                if (ground.ChillSource != 0)
+                    foreach (var monster in Player.Area.Monsters.Values)
+                        monster.Ailments.RemoveAura(ground.ChillSource);
+            }
             damageGrounds.Clear();
             groundRemainders.Clear();
             damageGroundTickScheduled = false;
@@ -89,7 +94,8 @@ public static partial class Game
         {
             start = Math.Max(Runtime.Now, start);
             long end = start + Math.Max(1, ProjectileRuntime.Time(seconds));
-            damageGrounds.Add(new(centre, radius, start, end, type, dps, visual, chillStats));
+            uint chillSource = chillStats is null ? 0 : visual?.Id ?? Player.TakeObjectId();
+            damageGrounds.Add(new(centre, radius, start, end, type, dps, visual, chillSource, chillStats));
             if (damageGroundTickScheduled) return;
             damageGroundTickScheduled = true;
             damageGroundPreviousTick = start;
@@ -158,14 +164,14 @@ public static partial class Game
                 {
                     if (from < ground.Start || from >= ground.End) continue;
                     bool covered = (pos - ground.Centre).Length <= ground.Radius;
-                    if (ground.Visual is { } visual && ground.ChillStats is { } chill)
+                    if (ground.ChillStats is { } chill)
                     {
                         double left = (ground.End - to) / (double)ProjectileRuntime.QuantaPerSecond;
                         if (covered && left > 0)
-                            monster.Ailments.ApplyAura(MonsterElementalAilments.Kind.Chill, visual.Id, Math.Min(.1, left), at,
+                            monster.Ailments.ApplyAura(MonsterElementalAilments.Kind.Chill, ground.ChillSource, Math.Min(.2, left), at,
                                 key => chill.GetValueOrDefault(key), key => monster.Effects[key],
                                 chill.GetValueOrDefault(Stat.ChilledGroundBaseMagnitudeOverride));
-                        else monster.Ailments.RemoveAura(visual.Id);
+                        else monster.Ailments.RemoveAura(ground.ChillSource);
                     }
                     if (!covered) continue;
                     if (ground.Type == DamageType.Fire) fire = Math.Max(fire, ground.Dps);
