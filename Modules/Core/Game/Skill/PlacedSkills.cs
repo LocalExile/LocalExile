@@ -621,7 +621,9 @@ public static partial class Game
     {
         int inventionRate = GolemStat(placed.Own, Stat.SupportInventionTrapAndMineDamagePlusPctFinalPerSecondPlacedUpTo100);
         double inventionMore = 1 + Math.Clamp(inventionRate * Math.Max(0, now - placed.LandAt), 0, 100) / 100;
-        bool bear = SkillsFor(player).EffectId(placed.Effect) is "BearTrap" or "BearTrapAltX";
+        var effect = SkillsFor(player).EffectId(placed.Effect);
+        bool bear = effect is "BearTrap" or "BearTrapAltX";
+        bool hexblast = IsHexblastEffect(effect);
         double radius = SkillRadius(player, placed.Own, spell: true, placed.Effect);
         bool spellDamage = SkillHitPlan.ForSkill(SkillsFor(player), placed.Effect, 1).Kind != SkillHitKind.Secondary;
         var payload = GemSkillEffects(player).FirstOrDefault(g => g.Id == placed.Skill);
@@ -650,14 +652,19 @@ public static partial class Game
                     .Select(m => m.Value.Walk.Position(now)).Where(p => Dist(p, placed.At) <= 60).OrderBy(p => Dist(p, placed.At))
                     .Select(p => ((int X, int Y)?)p).FirstOrDefault() ?? placed.At;
         }
-        else if (bear)
+        else if (bear || hexblast)
         {
-            target = player.Area.MonstersNear(placed.At, radius).Where(p => p.Value is { Hostile: true, Dead: false, Life: > 0, Invulnerable: false, Asleep: false }
-                    && !MonsterAsleep(player, p.Key) && Dist(p.Value.Walk.Position(now), placed.At) <= radius)
-                .OrderBy(p => Dist(p.Value.Walk.Position(now), placed.At)).FirstOrDefault();
-            aim = target.Value?.Walk.Position(now) ?? placed.At;
+            var origin = hexblast && locusAim ? player.Walk.Position(now) : placed.At;
+            double reach = hexblast ? 60 : radius;
+            target = player.Area.MonstersNear(origin, reach)
+                .Where(p => p.Value is { Hostile: true, Dead: false, Life: > 0, Invulnerable: false, Asleep: false }
+                    && (!hexblast || !p.Value.WorldHidden)
+                    && !MonsterAsleep(player, p.Key) && Dist(p.Value.Walk.Position(now), origin) <= reach)
+                .OrderBy(p => Dist(p.Value.Walk.Position(now), origin)).ThenBy(p => p.Key).FirstOrDefault();
+            aim = target.Value?.Walk.Position(now) ?? origin;
         }
         bytes.World(placed.Id, InstanceProtocol.ActionStarted(placed.Id, placed.At.X, placed.At.Y, aim.X, aim.Y, 0x4000, 0xffff, player.MonsterOrderFlags));
+        if (hexblast && target.Value is null) return;
         if (currentSkill && placed.Source is { } source && SupportedSkill(player, placed.Skill) is var gem
             && TriggerSummonSpell(player, gem))
         {
@@ -751,10 +758,19 @@ public static partial class Game
         GroundCritical? vsGround = currentSkill ? SupportedCriticalChanceVsGround(player, placed.Skill, release: true) : null;
         int multiplier = currentSkill ? SupportedCriticalMultiplier(player, placed.Skill) : 100;
         var criticalRoll = currentSkill ? new SkillCriticalRoll(CriticalExtraRollsFor(player, owner, placed.Own)) : null;
-        foreach (var (id, m) in player.Area.Monsters.ToArray())
+        bool Critical(uint id) => currentSkill && RollCriticalStrike(player, CriticalChanceOn(player, id, chance, vsBlinded, vsGround),
+            placed.Own, attack, criticalRoll, owner);
+        var resistanceMods = hexblast ? HitResistMods(playerStats, placed.Own) : default;
+        var penetration = hexblast ? Penetration.Of(playerStats, Stats, attack, placed.Own) : default;
+        bool hexblastSplash = false;
+        var monsters = player.Area.Monsters.ToArray();
+        var victims = hexblast ? monsters.Where(p => p.Key != target.Key).Prepend(target) : monsters;
+        foreach (var (id, m) in victims)
         {
             if (m is not { Hostile: true, Dead: false, Life: > 0, Invulnerable: false, Asleep: false }
-                || bear && id != target.Key || MonsterAsleep(player, id) || Dist(m.Walk.Position(now), placed.At) > radius
+                || (bear || hexblast && !hexblastSplash) && id != target.Key
+                || hexblast && m.WorldHidden || MonsterAsleep(player, id)
+                || Dist(m.Walk.Position(now), hexblast ? aim : placed.At) > radius
                 || !player.Area.Monsters.TryGetValue(id, out var current) || !ReferenceEquals(current, m)) continue;
             var profile = offenseSnapshot is { } captured
                 ? Blinded(player, id, now) ? captured.Blinded : captured.Normal
@@ -770,12 +786,26 @@ public static partial class Game
             var rolled = WithConditionalSupportDamageLocked(player, placed.Own, !spell, m,
                 profile.Hit.Scale(hitMore).Roll(AreaRng(player)), now);
             if (targetMore != 1) rolled = rolled.Scale(targetMore);
-            var mitigated = MitigateMonsterHit(m, rolled, now, cannotPenetrateOrIgnore:
-                Math.Max(GolemStat(owner, Stat.CannotPenetrateOrIgnoreElementalResistances),
-                    GolemStat(placed.Own, Stat.CannotPenetrateOrIgnoreElementalResistances)));
-            int damage = MonsterTakesTrapOrMineHit(m, mitigated, spell, now, AreaRng(player));
-            bool critical = currentSkill && RollCriticalStrike(player, CriticalChanceOn(player, id, chance, vsBlinded, vsGround),
-                placed.Own, attack, criticalRoll, owner);
+            var hex = hexblast ? HexblastHex(m, now) : null;
+            if (hex is not null)
+                rolled = rolled.Scale(Math.Max(0, 1 + GolemStat(placed.Own, Stat.HexblastHitDamagePlusPctFinalIfHexed) / 100d));
+            DamagePacket mitigated;
+            int damage;
+            bool critical;
+            if (hexblast)
+            {
+                critical = Critical(id);
+                (damage, _, mitigated) = MonsterHitDamage(m, rolled, critical, attack, now, resistanceMods, penetration,
+                    GamblerFor(playerStats).InvertsResistance(AreaRng(player)), AreaRng(player), trapOrMine: true);
+            }
+            else
+            {
+                mitigated = MitigateMonsterHit(m, rolled, now, cannotPenetrateOrIgnore:
+                    Math.Max(GolemStat(owner, Stat.CannotPenetrateOrIgnoreElementalResistances),
+                        GolemStat(placed.Own, Stat.CannotPenetrateOrIgnoreElementalResistances)));
+                damage = MonsterTakesTrapOrMineHit(m, mitigated, spell, now, AreaRng(player));
+                critical = Critical(id);
+            }
             int hitMultiplier = critical ? CriticalMultiplierOn(m, multiplier, now, owner, placed.Own) : 100;
             if (critical) damage = DamageModel.CriticalDamage(damage, hitMultiplier);
             int chaosDamage = MonsterHitChaosDamage(m, mitigated, spell, now, damage, BearTrapDamageTaken(m, now));
@@ -785,6 +815,8 @@ public static partial class Game
             if (hit.StageStarts) { CommitBossStage(player, id, m, now); hit = hit with { StageStarts = false }; }
             OwnedKillLocked(m, hit.Life);
             double targetAilmentMore = ailmentMore * targetMore;
+            if (hex is not null)
+                targetAilmentMore *= Math.Max(0, 1 + GolemStat(placed.Own, Stat.HexblastAilmentDamagePlusPctFinalIfHexed) / 100d);
             var poison = RepeatAilment(profile.Poison, targetAilmentMore);
             AilmentsOnHitLocked(player, id, m, mitigated, spell, critical, hitMultiplier, playerStats, placed.Own, now,
                 AreaRng(player), poison: poison, sourceSkill: placed.Skill, blind: BlindHitInput.Capture(playerStats, placed.Own), playerHit: false);
@@ -799,6 +831,13 @@ public static partial class Game
                 var bleed = RepeatAilment(profile.Bleed, targetAilmentMore);
                 foreach (var packet in BleedOnHitLocked(player, id, m, bleed, critical, now) ?? [])
                     player.Minions.OutputQueue.Add(new(packet, "trap/mine bleed", id, m));
+            }
+            if (hex is not null)
+            {
+                if (id == target.Key) hexblastSplash = true;
+                int keep = GolemStat(placed.Own, Stat.HexblastPctChanceToNotConsumeHex);
+                if (keep < 100 && (keep <= 0 || !RandomRolls.Chance(keep, 100, AreaRng(player))))
+                    ConsumeHexblastHex(player, id, m, hex);
             }
             CommitAcceptedHitLocked(player, id, m, hit, damage, now, "trap/mine", playerKill: false);
             if (bear)

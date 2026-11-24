@@ -306,6 +306,8 @@ public static partial class Game
                 ApplyCurseLocked(player, monster, skill, now, false, gem, playerStats);
     }
 
+    static bool IsHexblastEffect(string? effect) => effect is "Hexblast" or "HexblastAltX" or "HexblastAltY";
+
     static MonsterCurses.Curse? HexblastHex(SpawnedMonster monster, double now)
     {
         MonsterCurses.Curse? chosen = null;

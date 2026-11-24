@@ -2672,7 +2672,7 @@ public static partial class Game
         bool ring = !immediate && SkillsFor(player).ActionHash(gem.Effect) == IceNovaRing.Action;
         int frostboltCap = ring ? Stat(global::Stat.IceNovaNumberOfFrostBoltsToCastOn) : 0;
         double frostboltMore = 1;
-        bool hexblast = SkillsFor(player).EffectId(gem.Effect) is "Hexblast" or "HexblastAltX" or "HexblastAltY";
+        bool hexblast = IsHexblastEffect(SkillsFor(player).EffectId(gem.Effect));
         bool hexblastExpanded = false;
         int artVariation = ring ? SkillArtVariation(player, gem.Gem) : 0;
         double sweepStart = 0;
