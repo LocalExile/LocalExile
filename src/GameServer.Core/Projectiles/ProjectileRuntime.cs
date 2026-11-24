@@ -119,7 +119,7 @@ public sealed partial class ProjectileRuntime(IProjectileWorld world)
 
     ProjectileEntity Spawn(ProjectileUse use, long useId, long emission, long parent,
         ProjectileVector position, ProjectileVector direction, ProjectileEntity? continuing = null, bool split = false,
-        int index = 0)
+        int index = 0, bool fork = false)
     {
         var p = new ProjectileEntity(++sequence, useId, emission, parent, use, position, direction, Now)
             { VolleyIndex = index, HasSplit = split || continuing?.HasSplit == true };
@@ -133,7 +133,8 @@ public sealed partial class ProjectileRuntime(IProjectileWorld world)
             p.OutboundContacts = previous.OutboundContacts;
             p.Phase = previous.Phase; p.ReturnContacts = previous.ReturnContacts;
             p.TurnaroundTarget = previous.TurnaroundTarget;
-            p.Pierce = previous.Pierce; p.Fork = previous.Fork; p.Chain = previous.Chain; p.Split = 0;
+            p.Pierce = fork && p.Profile.PierceAllAfterFork && !p.Profile.CannotPierce ? -1 : previous.Pierce;
+            p.Fork = previous.Fork; p.Chain = previous.Chain; p.Split = 0;
             p.Contacts.UnionWith(previous.Contacts); p.Interactions.UnionWith(previous.Interactions);
         }
         if (split && p.Profile.SplitForm is { } splitForm)
@@ -588,7 +589,7 @@ public sealed partial class ProjectileRuntime(IProjectileWorld world)
 
     void ContinueChild(ProjectileEntity p, ProjectileVector direction)
     {
-        Spawn(p.Use, p.UseId, p.EmissionId, p.Id, p.Position, direction, continuing: p);
+        Spawn(p.Use, p.UseId, p.EmissionId, p.Id, p.Position, direction, continuing: p, fork: true);
     }
 
     void End(ProjectileEntity p, ProjectileEndReason reason, bool allowReturn = true, ProjectileActorKey? victim = null,

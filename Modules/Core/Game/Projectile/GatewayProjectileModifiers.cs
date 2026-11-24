@@ -24,6 +24,10 @@ public static class GatewayProjectileModifiers
         if (get(Stat.AlwaysPierce) != 0 || get(Stat.VirtualAlwaysPierce) != 0
             || attack && (get(Stat.ArrowsAlwaysPierce) != 0 || get(Stat.BaseArrowsAlwaysPierce) != 0)) pierce = -1;
         int chains = Math.Max(get(Stat.NumberOfChains), get(Stat.VirtualNumberOfChainsForProjectiles));
+        if (arrows) chains += get(Stat.ArrowChainsPlus);
+        if (get(Stat.VirtualMaximumFrenzyCharges) is > 0 and var maximumFrenzy
+            && get(Stat.CurrentFrenzyCharges) >= maximumFrenzy)
+            chains += get(Stat.NumOfAdditionalChainsAtMaxFrenzyCharges);
         // "Supported Skills Chain X% more times" (Greater Chain): a more multiplier on the whole count. PoB keeps the
         // resulting fraction instead of rounding up, so a single chain no longer gains one from a fractional result.
         int chainMore = get(Stat.SupportChainCountPlusPctFinal);
@@ -85,6 +89,7 @@ public static class GatewayProjectileModifiers
             SplitRange = target.SplitRange ?? target.ChainRange,
             ChainRange = target.ChainRange * chainRangeFactor,
             ForkAngleRadians = Math.Min(Math.PI, target.ForkAngleRadians * forkAngleFactor),
+            PierceAllAfterFork = target.PierceAllAfterFork || arrows && get(Stat.ArrowsAlwaysPierceAfterForking) != 0,
             ReturnChancePercent = Math.Max(target.ReturnChancePercent, Math.Clamp(get(Stat.ProjectileReturnPctChance), 0, 100)),
             PierceAllOnReturn = target.PierceAllOnReturn || get(Stat.ReturningProjectilesAlwaysPierce) != 0,
             ReturnSpeedMultiplier = target.ReturnSpeedMultiplier * Math.Max(.01, 1 + get(Stat.ReturnedProjectileSpeedPlusPct) / 100d)

@@ -175,6 +175,7 @@ public sealed record ProjectileProfile(string Id)
     public int Pierce { get; init; }
     public int Fork { get; init; }
     public double ForkAngleRadians { get; init; } = Math.PI / 6;
+    public bool PierceAllAfterFork { get; init; }
     /// <summary>"X% chance for an additional Projectile when Forking" (Greater Fork): the extra child flies straight
     /// ahead between the fork's two.</summary>
     public int ForkExtraProjectileChancePercent { get; init; }
