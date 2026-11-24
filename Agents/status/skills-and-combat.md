@@ -284,6 +284,8 @@ Part of [Status](../Status.md); what to build next in this area is in
 - Native knockback hit presentation (`0x1af` bit 11 + `u3c`/`u3e`), totem directional `HitAngle`/`HitCode`, `0x1b0`
   `ActionResultFlag` encoder, and chance-based instant cooldown reset sync (`0x50cd`/`0x52e2`; not checked live).
   Docs: [11](../docs/protocol/11-skills.md) §5, §9, §10g.
+- Predictive/monster `0x1ae` channel end, Divine Ire `0x233f` stages, Flame Dash `0x2c8` segment (not checked live).
+- Incremental `0x00c6` flask charges, `0x0174` item-use results and 0x00bb/0x00bc/0x01c9/0x01ca/0x02d9 encoders.
 - Vaal Animate Weapon transforms eligible melee drops and landed Bladefall of Trarthus blades into temporary unique weapons.
 - Conversion Trap temporarily changes the triggering enemy's allegiance. Converted enemies can attack hostiles,
   and unique enemies are immune.

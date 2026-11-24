@@ -4329,3 +4329,21 @@ to the same packet writer. Native icon was confirmed; corrected countdown awaits
   serialize with `NonBlocking` `Positioned` flags (`flags1 = 0x0a`, trailing `1` → `+0x1e6` bit `0x40`, matching
   `PetObject`) so the client never blocks player movement on the warrior's cell, and render via `BuffDefinitions`
   `1748` with `BuffVisuals` `1215` (`mirage_warrior_visual`).
+
+### Channel release, action updates and combat deltas (3.29.3c client findings)
+
+- **Channel end (`S→C 0x1ae`) and Divine Ire (`0x233f`)**: `0x141fe4740` ends held channels for predictive players,
+  lockstep players, totems and channelled monster actions. Divine Ire release (`0x141d292d0` / `0x141d2a0c0`) reads
+  live actor stat `0x233f` (`divine_tempest_current_number_of_stages`) and skips the beam when zero.
+- **Flame Dash segment (`S→C 0x2c8`)**: `InstanceClientActionUpdate` (`0x141fe54d0`, Actor dispatch `0x14219be04`)
+  carries `(u16 actionTypeHash, u16 skillId, u16 actionSequence, u8 detachId, blob16)`. Flame Dash's slot `+0x300`
+  reader (`0x141478930` → `0x1414786c0` → `0x142196f20`) takes 20 LE bytes `(i32 x1, i32 y1, i32 x2, i32 y2, f32 duration)`.
+- **Component updates (`S→C 0x2bc`)**: Shrine slot 20 (`0x1415e49f0`, index `7`) reads the creation layout
+  (`0x141e3e0c0`, bit 7 claimed flag + `Shrines.dat` row) plus `u32 LE` taker object id; `GroundEffect` slot 20
+  (`0x141e1ea90` → `0x141e1ead0`, index `2`) reads `(u8 state, f32 LE remainingSeconds)` (`<= 0` triggers `EndEffect`);
+  `Beam` slot 20 (`0x1416710c0`, index `4`) shares the creation layout.
+- **Combat/action deltas**: `S→C 0x00c6` (`0x141f99010`: `u32 itemId, u32 charges`), `S→C 0x0174` (`0x141f99e10`:
+  `u32 inventoryId, u32 itemId, u8 result`, companion to `C→S 0x0057`), `S→C 0x00bb` (`0x1421a9480`: 1B `FreezeActions`
+  bitfield), `S→C 0x00bc` (`0x1421a95d0`: `u8 active`, optional `u8 durationSeconds`), `S→C 0x01c9` (`0x1421afa00`:
+  `u32 entityId, u16 soundEffectRow, u16 param`), `S→C 0x01ca` (`0x1421afcc0`: `MiscObjectSpawn`) and `S→C 0x02d9`
+  (`0x1421b8d30`, table `0x1435e6c78`: `EntityVariantDelta` with raw LE tagged variants).
