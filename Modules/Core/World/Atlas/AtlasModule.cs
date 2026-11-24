@@ -29,8 +29,14 @@ public sealed class AtlasModule : IModule
         await AtlasFeature.SyncTreeFlags(player);
         if (earned == 0) return;
         await global::Game.SendAtlasSlots(player, label);
-        await modPlayer.Tell($"Atlas: {earned} passive point(s) for completed bonus objectives " +
-            $"({player.Character.AtlasPassivePoints}/{MapCompletionPoints}).");
+        await Send(player, InstanceProtocol.GameMessage(
+            InstanceProtocol.GameMessageSource.BackendError,
+            earned == 1 ? InstanceProtocol.BackendErrorId.ReceivedAtlasPassivePoint1 : InstanceProtocol.BackendErrorId.ReceivedAtlasPassivePointN,
+            numericArgs: earned == 1 ? null : [(0, earned)]),
+            $"0x0018 Atlas passive point(s) earned: +{earned} ({player.Character.AtlasPassivePoints}/{MapCompletionPoints})");
+        if (player.Character.AtlasPassivePoints - earned == 0)
+            await Send(player, InstanceProtocol.AwardDisplay(InstanceProtocol.AwardDisplayRow.FavouredMapSlotUnlocked),
+                "0x01d5 award display: favoured map slot unlocked");
     }
 
     /// <summary>This module's game data, built in a fixed order when it loads: before the Gateway listens, as the
@@ -200,7 +206,8 @@ public sealed class AtlasModule : IModule
             if (AtlasFeature.KiracHeardFlags(player, talk) is { Count: > 0 } heard)
                 await SetLeagueQuestFlags(player, heard);
             await AtlasFeature.GiveMavenInvitation(player, talk.Script);
-            if (talk.Script is not null && talk.Script.Contains("scry", StringComparison.OrdinalIgnoreCase))
+            if ((talk.Script is not null && talk.Script.Contains("scry", StringComparison.OrdinalIgnoreCase))
+                || string.Equals(talk.Option, "Scry a Map", StringComparison.OrdinalIgnoreCase))
                 await AtlasFeature.OpenScrying(player, player.TalkingTo);
             return true;
         });
@@ -346,12 +353,21 @@ public static class AtlasFeature
         return changed;
     }
 
-    /// <summary>Re-evaluates the tree flags and sends the league flags again (S→C 0x2bc) when they changed.</summary>
+    /// <summary>Re-evaluates the tree flags and sends the league flags again (S→C 0x2bc) when they changed, emitting
+    /// S→C 0x01d5 award toasts when Atlas trees II or III unlock.</summary>
     internal static async Task SyncTreeFlags(Player player)
     {
+        bool hadTree2 = player.Character.LeagueQuestFlags.Contains(TreeFlags[1].Unlocked);
+        bool hadTree3 = player.Character.LeagueQuestFlags.Contains(TreeFlags[2].Unlocked);
         if (!ApplyTreeFlags(player) || !player.Connection.PlayerSent) return;
         await global::Game.SendWorldRecord(player, player.Id,
             InstanceEntities.PlayerLeagueQuestFlagsUpdate(player.Id, Quests.League.Bits(player.Character.LeagueQuestFlags)), "0x02bc Atlas tree flags");
+        if (!hadTree2 && player.Character.LeagueQuestFlags.Contains(TreeFlags[1].Unlocked))
+            await Send(player, InstanceProtocol.AwardDisplay(InstanceProtocol.AwardDisplayRow.AtlasPassiveAllocationSetUnlock1),
+                "0x01d5 award display: Atlas tree II unlocked");
+        if (!hadTree3 && player.Character.LeagueQuestFlags.Contains(TreeFlags[2].Unlocked))
+            await Send(player, InstanceProtocol.AwardDisplay(InstanceProtocol.AwardDisplayRow.AtlasPassiveAllocationSetUnlock2),
+                "0x01d5 award display: Atlas tree III unlocked");
     }
 
     static bool ApplyLeagueFlags(Player player)
@@ -691,6 +707,9 @@ public static class AtlasFeature
         if (totalCost > 0)
             await Send(player, InstanceEntities.Gold(goldLeft), $"0x02aa gold: {goldLeft} (Atlas refund all, {totalCost} paid)");
         await SendAtlasSlots(player, "Atlas refund all");
+        await Send(player, InstanceProtocol.GameMessage(InstanceProtocol.GameMessageSource.BackendError,
+            InstanceProtocol.BackendErrorId.FullAtlasPassiveSkillRefund),
+            "0x0018 full Atlas passive skill refund");
     }
 
     // C→S 0x41: consume an unused one-off free full reset on an Atlas preset.

@@ -341,7 +341,7 @@ public sealed class GameModule : IModule, IDisposable
         module.Lifetime.Own(Rules.CleanupBrandsOnUnload());
         GameEvents.AreaGenerated.Add(id, CharacterVoiceLines.OnAreaGenerated);
         GameEvents.Kill.Add(id, CharacterVoiceLines.OnKill);
-        GameEvents.AreaHeader.Add(id, _ => new AreaHeader(null, [InstanceAchievements.PermanentAchievementSetId]));
+        GameEvents.AreaHeader.Add(id, player => new AreaHeader(null, Rules.ActiveAchievementSets(player)));
         GameEvents.EnterMessages.Add(id, Rules.AchievementEnterMessages);
         GameEvents.PlayerEntered.Add(id, Rules.CheckAreaEntryAchievements);
         GameEvents.Kill.Add(id, Rules.OnMonsterKillAchievements);

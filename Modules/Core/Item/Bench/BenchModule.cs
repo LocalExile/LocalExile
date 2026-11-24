@@ -183,10 +183,33 @@ static class BenchFeature
         // (e.g. default league recipe flags published at area entry), only persist them to AccountStash.
         bool anyUnsetInPlayer = fresh.Any(id => !player.Character.LeagueQuestFlags.Contains(id));
         if (anyUnsetInPlayer)
+        {
             await global::Game.SetLeagueQuestFlags(player, fresh);
+            await SendCraftAwards(player, fresh);
+        }
         else
             stash.ChangeLeagueQuestFlags(fresh, on: true);
         return fresh;
+    }
+
+    static async Task SendCraftAwards(Player player, IReadOnlyList<int> unlockedRecipeIds)
+    {
+        if (!player.Connection.PlayerSent || player.Closed || player.LeavingArea
+            || !GameServer.Core.ClientTables.Has("Mods"))
+            return;
+        var freshSet = unlockedRecipeIds.ToHashSet();
+        var modsTable = GameServer.Core.ClientTables.Table("Mods");
+        var sent = new HashSet<uint>();
+        foreach (var recipe in Bench.All)
+        {
+            if (recipe.Mod is not { } mod || !recipe.Unlocks.Any(freshSet.Contains)) continue;
+            if (mod.Row < 0 || mod.Row >= modsTable.Count) continue;
+            uint hash32 = unchecked((uint)modsTable[mod.Row].Int("HASH32"));
+            if (hash32 == 0 || !sent.Add(hash32)) continue;
+            await Send(player, InstanceProtocol.CraftAward(hash32),
+                $"0x01d6 craft award: {mod.Id} (HASH32 0x{hash32:x8})");
+            if (sent.Count >= 8) break;
+        }
     }
 
 }
