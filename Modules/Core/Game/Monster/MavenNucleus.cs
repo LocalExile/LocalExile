@@ -77,14 +77,17 @@ public static partial class Game
                     // Corpse-utility spells deal no direct hit damage and require a corpse target the ordinary AI does
                     // not supply (e.g. Stygian Revenant's RevenantReviveUndead, Avian Retch's BirdmanConsumeCorpse).
                     || id.Contains("Revive", StringComparison.Ordinal)
-                    || id.Contains("ConsumeCorpse", StringComparison.Ordinal))) continue;
+                    || id.Contains("ConsumeCorpse", StringComparison.Ordinal)
+                    || id.Contains("Emerge", StringComparison.Ordinal))) continue;
                 if (!(skills.IsAttack(effect) || skills.IsSpell(effect) || skills.IsProjectile(effect))) continue;
                 if (Shot(skills, effect) is not null) return effect;
                 fallback ??= effect;
             }
-            // The leap's damage row asks Goatman2.act for GroundSlam. Use the monster's
-            // ordinary swing when it has one; keep the damage row for payload-only actors.
-            if (fallback is int chosen && skills.EffectId(chosen) == "GAGoatmanLeapSlamDamage")
+            // A GA* GeometryAttack payload (e.g. GAGoatmanLeapSlamDamage, GANavaliGoatmanLeapDamage) is a secondary
+            // hit paired with a leap rather than an ordinary swing. Use the monster's ordinary swing when it has one;
+            // keep the damage row for payload-only actors.
+            if (fallback is int chosen && skills.EffectId(chosen)?.StartsWith("GA", StringComparison.Ordinal) == true
+                && SkillCatalog.ActionTypeId(chosen) == "GeometryAttack")
                 foreach (int effect in effects)
                     if (skills.EffectId(effect)?.StartsWith("MeleeAtAnimationSpeed", StringComparison.Ordinal) == true)
                         return effect;
