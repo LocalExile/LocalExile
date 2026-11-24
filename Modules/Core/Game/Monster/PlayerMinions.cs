@@ -63,7 +63,7 @@ public static partial class Game
             await tick(player, now);
             if (!Current()) return;
         }
-        await TickVoidSpawnTimer(player, now);
+        await TickEquippedItemMinions(player, now);
         if (!Current()) return;
         await TickWeaponMinionTriggers(player, now);
         if (!Current()) return;

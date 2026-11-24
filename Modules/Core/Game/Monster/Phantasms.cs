@@ -35,6 +35,11 @@ public static partial class Game
 
     static SupportedGem PhantasmGem(Player player, SupportedGem source)
     {
+        if (source.WornGrant is { } item && TriggeredItemMinion(item) == ItemSoulwrestPhantasm)
+            return source with { Stats = new Dictionary<uint, int>(source.Stats)
+            {
+                [Stat.BaseDisplayMinionActorLevel] = SkillsFor(player).PlayerLevelReq(source.Effect, source.Level),
+            } };
         var support = source.Supports.FirstOrDefault(s => s.Effect.Id == "SupportSummonPhantasm");
         var stats = new Dictionary<uint, int>(source.Stats);
         void Set(uint name, int value) { if (name is var key) stats[key] = value; }

@@ -15,6 +15,7 @@ static partial class Game
     internal static void NoteCorpseConsumedLocked(Player player, SpawnedMonster corpse)
     {
         if (corpse.Ignites.IgnitedAt(ProjectileWorldTime(player))) { Interlocked.Increment(ref player.IgnitedCorpsesConsumed); PresentStats(player); }
+        QueueSoulwrestPhantasmLocked(player, corpse, AreaTime(player));
     }
 
     /// <summary>The killing blow's corpse consumption: true when the corpse was consumed (the caller removes the corpse

@@ -5,7 +5,8 @@ public static partial class Game
 {
     const string WolfKill = "SummonWolfOnKillUnique__1", WolfCritical = "SummonWolfOnCritUnique__1",
         SpiritKill = "SummonRagingSpiritOnKillUnique__1", SpiderKill = "SummonSpidersOnKillUnique__1",
-        VolatileKill = "SummonVoidSphereOnKillUnique__1_";
+        VolatileKill = "SummonVoidSphereOnKillUnique__1_", EssenceSpirits = "SpiritMinionEssence1",
+        SoulwrestPhantasm = "TriggerSummonPhantasmOnCorpseConsumeUnique__1";
     const int SpiderCorpseRadius = 25;
     const string VoidSpawnFamily = "VoidSpawn";
     const double VoidSpawnInterval = 4;
@@ -21,12 +22,20 @@ public static partial class Game
     static readonly SummonCatalog.Definition ItemVoidSpawn = new("SummonVoidSpawn", VoidSpawnFamily,
         "Metadata/Monsters/ElderTentacle/ElderTentacleMinionLargePlayer", Stat.BaseNumberOfVoidSpawnsAllowed, Stat.NumberOfActiveVoidSpawn);
 
+    const string SpectralSpiritFamily = "SpectralSpirit";
+    static readonly SummonCatalog.Definition ItemSpectralSpirit = new("SpectralSpirits", SpectralSpiritFamily,
+        "Metadata/Monsters/SummonedSkull/SpectralSummonedSkull", Stat.BaseNumberOfEssenceSpiritsAllowed,
+        Stat.NumberOfActiveEssenceSpirits, Targetable: false);
+    static readonly SummonCatalog.Definition ItemSoulwrestPhantasm = PhantasmDefinition("TriggeredSummonGhostOnKill");
+
     static SummonCatalog.Definition? TriggeredItemMinion(WornGrantedSkills.Grant grant) => grant.ModId switch
     {
         WolfKill or WolfCritical when grant.EffectId == ItemWolf.Id => ItemWolf,
         SpiritKill when grant.EffectId == ItemSpirit.Id => ItemSpirit,
         SpiderKill when grant.EffectId == ItemSpider.Id => ItemSpider,
         VolatileKill when grant.EffectId == ItemVolatileAnomaly.Id => ItemVolatileAnomaly,
+        EssenceSpirits when grant.EffectId == ItemSpectralSpirit.Id => ItemSpectralSpirit,
+        SoulwrestPhantasm when grant.EffectId == ItemSoulwrestPhantasm.Id => ItemSoulwrestPhantasm,
         ("GrantsSummonVoidSpawnUnique__1" or "DivergentGrantsSummonVoidSpawnUnique__1")
             when grant.EffectId == ItemVoidSpawn.Id => ItemVoidSpawn,
         _ => null,
@@ -81,10 +90,53 @@ public static partial class Game
     sealed record VoidSpawnIntervalState(WornGrantedSkills.Grant Grant, int Epoch, double Next);
     static readonly RuleTable<Player, VoidSpawnIntervalState> VoidSpawnTimers = new();
 
+    static void QueueSoulwrestPhantasmLocked(Player player, SpawnedMonster corpse, double now)
+    {
+        if (player.PlayerLife == 0 || !AllWornGrantedSkillsOf(player).Any(grant => TriggeredItemMinion(grant) == ItemSoulwrestPhantasm))
+            return;
+        foreach (var row in GemSkillEffects(player))
+        {
+            var gem = SupportedSkill(player, row.Id);
+            if (!gem.RequirementsMet || gem.WornGrant is not { } grant || TriggeredItemMinion(grant) != ItemSoulwrestPhantasm)
+                continue;
+            if (RandomRolls.Chance(GolemStat(gem.Stats, Stat.TriggerOnCorpseConsumePctChance), 100, AreaRng(player)))
+                WeaponMinionTriggers.GetOrCreateValue(player).Enqueue(new(row.Id, grant, ItemSoulwrestPhantasm,
+                    corpse.Walk.Position(now), player.ProjectileEpoch, CombatLifetime));
+        }
+    }
+
+    static async Task TickEquippedItemMinions(Player player, double now)
+    {
+        if (player.Closed || player.LeavingArea || player.Paused) return;
+        if (player.PlayerLife == 0 || InTown(player))
+        {
+            VoidSpawnTimers.Remove(player);
+            return;
+        }
+        var worn = AllWornGrantedSkillsOf(player);
+        if (worn.Any(grant => TriggeredItemMinion(grant) == ItemVoidSpawn)) await TickVoidSpawnTimer(player, now);
+        else VoidSpawnTimers.Remove(player);
+        if (!worn.Any(grant => TriggeredItemMinion(grant) == ItemSpectralSpirit)
+            || !DarkMonarchAllows(SpectralSpiritFamily, CharacterPlayerStats(player))) return;
+        foreach (var row in GemSkillEffects(player))
+        {
+            var gem = SupportedSkill(player, row.Id);
+            if (!gem.RequirementsMet || gem.WornGrant is not { } grant || TriggeredItemMinion(grant) != ItemSpectralSpirit) continue;
+            int limit = GolemStat(gem.Stats, Stat.NumberOfMonstersToSummon);
+            int active = player.Summons.Fighters.Values.Count(fighter => fighter.Definition.Kind == SpectralSpiritFamily
+                && fighter.Source == row.Id && GolemCurrent(player, fighter) && !fighter.Monster.Dead && fighter.Monster.Life > 0);
+            for (int i = active; i < limit; i++)
+            {
+                var trigger = new ItemMinionTrigger(row.Id, grant, ItemSpectralSpirit, NextToPlayer(player),
+                    player.ProjectileEpoch, CombatLifetime);
+                if (!await FireItemMinionTrigger(player, trigger, now)) break;
+            }
+        }
+    }
+
     static async Task TickVoidSpawnTimer(Player player, double now)
     {
-        if (player.PlayerLife == 0 || InTown(player) || player.Closed || player.LeavingArea || player.Paused
-            || !AllWornGrantedSkillsOf(player).Any(grant => TriggeredItemMinion(grant) == ItemVoidSpawn))
+        if (player.PlayerLife == 0 || InTown(player) || player.Closed || player.LeavingArea || player.Paused)
         {
             VoidSpawnTimers.Remove(player);
             return;
@@ -116,23 +168,20 @@ public static partial class Game
         foreach (var trigger in pending) await FireItemMinionTrigger(player, trigger, now);
     }
 
-    static async Task FireItemMinionTrigger(Player player, ItemMinionTrigger trigger, double now)
+    static async Task<bool> FireItemMinionTrigger(Player player, ItemMinionTrigger trigger, double now)
     {
         bool Current() => CurrentGameWork && ReferenceEquals(trigger.Rules, CombatLifetime)
             && player.ProjectileActive(trigger.Epoch) && !player.Paused && player.PlayerLife > 0
             && SupportedSkill(player, trigger.Skill) is { RequirementsMet: true, WornGrant: { } grant } && grant == trigger.Grant;
-        if (!Current()) return;
+        if (!Current()) return false;
         var gem = SupportedSkill(player, trigger.Skill);
-        if (GemSkillInstanceDisabled(player, gem.Effect, trigger.Skill, triggered: true) is not null) return;
+        if (GemSkillInstanceDisabled(player, gem.Effect, trigger.Skill, triggered: true) is not null) return false;
         var definition = trigger.Definition;
         int limit = SummonLimit(player, definition, gem);
-        if (limit <= 0) return;
+        if (limit <= 0) return false;
         if (definition == ItemVolatileAnomaly)
-        {
-            if (UseItemMinionCooldown(player, trigger.Skill, gem, now))
-                await SummonFighterCore(player, trigger.Skill, definition, trigger.From, current: Current, triggered: true);
-            return;
-        }
+            return UseItemMinionCooldown(player, trigger.Skill, gem, now)
+                && await SummonFighterCore(player, trigger.Skill, definition, trigger.From, current: Current, triggered: true) != 0;
         var active = player.Summons.Fighters.Values.Where(f => f.Definition.Kind == definition.Family
             && !f.Monster.Dead && f.Monster.Life > 0 && GolemCurrent(player, f)).ToArray();
 
@@ -144,23 +193,20 @@ public static partial class Game
             foreach (var minion in player.Minions.All.Where(m => m.Id == wolf.Id)) minion.Until = until;
             wolf.Monster.Life = wolf.Monster.MaxLife;
             player.Minions.OutputQueue.Add(new([], "spectral wolf refreshed", wolf.Id, wolf.Monster, PlayerMinions.OutputKind.Life));
-            return;
+            return true;
         }
-        if (definition == ItemVoidSpawn && active.Length >= limit) return;
+        if (definition == ItemVoidSpawn && active.Length >= limit) return false;
         if (definition != ItemSpider)
-        {
-            await SummonFighterCore(player, trigger.Skill, definition, trigger.From, current: Current, triggered: true);
-            return;
-        }
+            return await SummonFighterCore(player, trigger.Skill, definition, trigger.From, current: Current, triggered: true) != 0;
 
         int remaining = limit - active.Length;
-        if (remaining <= 0) return;
+        if (remaining <= 0) return false;
         var corpses = player.Area.Monsters
             .Where(pair => IsCorpse(pair.Value) && !pair.Value.Ailments.Shattered
                 && Dist(pair.Value.Walk.Position(now), trigger.From) <= SpiderCorpseRadius)
             .OrderBy(pair => Dist(pair.Value.Walk.Position(now), trigger.From)).ThenBy(pair => pair.Key)
             .Take((remaining + 1) / 2).ToArray();
-        if (corpses.Length == 0 || !UseItemMinionCooldown(player, trigger.Skill, gem, now)) return;
+        if (corpses.Length == 0 || !UseItemMinionCooldown(player, trigger.Skill, gem, now)) return false;
         foreach (var (id, corpse) in corpses)
         {
             if (!Current() || remaining <= 0) break;
@@ -174,6 +220,7 @@ public static partial class Game
             if (--remaining > 0 && await SummonFighterCore(player, trigger.Skill, definition, at,
                     current: Current, triggered: true) != 0) remaining--;
         }
+        return remaining < limit - active.Length;
     }
 
     static bool UseItemMinionCooldown(Player player, ushort skill, SupportedGem gem, double now)

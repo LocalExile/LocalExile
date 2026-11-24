@@ -304,7 +304,7 @@ public static partial class Game
         if (variety is not { Supported: true }) return 0;
         int actorLevel = GolemStat(gem.Stats, definition.Family == "Spectre" ? Stat.RaisedSpectreLevel : Stat.BaseDisplayMinionActorLevel);
         if (actorLevel <= 0 && (definition.Family.StartsWith("Dominating", StringComparison.Ordinal)
-            || definition.Family is "VaalDomination" or "HolyArmament" or "Spider" || definition.Id == GuardianWeaponEffect))
+            || definition.Family is "VaalDomination" or "HolyArmament" or "Spider" or SpectralSpiritFamily || definition.Id == GuardianWeaponEffect))
             actorLevel = SkillsFor(player).PlayerLevelReq(gem.Effect, gem.Level);
         byte level = spectreChild?.Parent.Monster.Level ?? (byte)Math.Clamp(actorLevel, 1, 100);
         if (inheritedMods is null && (definition.Family is "RagingSpirit" or "Spider"
@@ -359,7 +359,7 @@ public static partial class Game
             && (!g.Monster.Dead || double.IsFinite(g.ReviveAt))
             && (spectreChild is null || g.Monster.SummonerId == spectreChild.Parent.Id)
             && (definition.Family != "Clone" || player.Summons.Definitions[g.Id].LimitStat == definition.LimitStat);
-        bool damageImmune = definition.Family is "HolyArmament" or "Spider" or LivingLightningFamily;
+        bool damageImmune = definition.Family is "HolyArmament" or "Spider" or LivingLightningFamily or SpectralSpiritFamily;
         uint id = await SpawnMonster(player, variety, level, rarity, aim.X, aim.Y,
             friendly: true, mods: mods, unrisen: false,
             extraStats: damageImmune ? [.. MinionStats, (Stat.BaseCannotBeDamaged, 1)]
@@ -636,6 +636,10 @@ public static partial class Game
             foreach (var fighter in state.Fighters.Values.ToArray())
             {
                 if (!state.Until.TryGetValue(fighter.Id, out double until)) continue;
+                if (fighter.Definition.Kind == SpectralSpiritFamily && player.PlayerLife == 0)
+                {
+                    RemoveSummonLocked(player, fighter, now); changed = true; continue;
+                }
                 if (player.PlayerLife == 0 || now >= until || !SpectreChildStillOwned(player, fighter))
                 {
                     if (now >= until && !fighter.Monster.Dead && fighter.Monster.Life > 0)
