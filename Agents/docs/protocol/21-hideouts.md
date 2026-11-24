@@ -611,7 +611,8 @@ Rogue Harbour screens open via S→C `0x7b` kinds `0x34` (`HeistMission`), `0x35
 `0` Whakano / `1` Gianna / `2` Niles or `3` Adiyah planning, arg2 = `-1`), and `0x36` (`HeistNPCInventory`, arg1 =
 rogue row `0..8`). Player inventories: row `44` (`HeistContractMission`), rows `45..53` (`HeistNpcEquipment1..9`), row
 `55` (`HeistBlueprintMission`), and row `56` (`HeistStorage1`). Nine `Metadata/NPC/League/Heist/PlanningNPC` entities
-(`Positioned`, `Animated`) stand in `ops_1.arm` around the planning table with each rogue's `HeistNPCs.AOFile`. Rogue
+stand in `ops_1.arm` around the planning table with each rogue's `HeistNPCs.AOFile`. Their object type sets
+`BaseEvents.client_only` and `no_serialise`. The client creates them from the room. Rogue
 unlock league quest flags are `739..744` (`HeistNPCs.__col10`; `736` = `HeistVisitedHub`).
 
 Verified wire layouts in 3.29.3c/d `Client/Game.exe`:

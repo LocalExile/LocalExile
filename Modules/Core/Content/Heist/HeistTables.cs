@@ -9,7 +9,6 @@ namespace GameServer.Modules.Heist;
 public static class HeistTables
 {
     public const string HeistCoinPath = "Metadata/Items/Heist/HeistCoin";
-    public const string PlanningNpcPath = "Metadata/NPC/League/Heist/PlanningNPC";
     public const string HeistHubId = "HeistHub";
     public const string HeistHubEndlessId = "HeistHubEndless";
     public const string HeistPluginId = "HeistPlugin";

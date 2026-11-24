@@ -242,6 +242,11 @@ public static class HeistPlanning
             }
 
             revealedWingCount = revealedWings.Length;
+            if (!LevelGenerator.PortsPlugin(HeistTables.HeistPluginId))
+            {
+                failure = "Grand Heist missions are unavailable. Your blueprint and Rogue's Markers were kept.";
+                return;
+            }
             markerCost = Math.Max(200, revealedWingCount * (250 + bp.AreaLevel * 8));
             if (!TryComputeMarkerSplit(items, coinHash, markerCost, out int fromMain, out int fromLocker))
             {
@@ -276,10 +281,7 @@ public static class HeistPlanning
             $"0x00bf confirm blueprint {replaced.Id}");
         await HeistProgress.SendState(player, reason: "after blueprint confirmed");
 
-        if (!LevelGenerator.PortsPlugin(HeistTables.HeistPluginId))
-            await PlayerOf(player).Tell($"Grand Heist plans confirmed ({revealedWingCount} wing(s), {markerCost} Markers). Grand Heist wing portal entry requires the unported HeistPlugin terrain generator.");
-        else
-            await PlayerOf(player).Tell($"Grand Heist plans confirmed ({revealedWingCount} wing(s)).");
+        await PlayerOf(player).Tell($"Grand Heist plans confirmed ({revealedWingCount} wing(s)).");
         module.Log($"{PlayerOf(player).Character}: confirmed blueprint {replaced.Id} ({revealedWingCount} wings, {markerCost} Markers)");
         return true;
     }

@@ -6,7 +6,7 @@ using GameServer.Modding;
 namespace GameServer.Modules.Heist;
 
 /// <summary>
-/// Heist module: hideout Heist Locker, Rogue Harbour native screens (<c>0x34</c>–<c>0x37</c>), <c>PlanningNPC</c> spawns,
+/// Heist module: hideout Heist Locker, Rogue Harbour native screens (<c>0x34</c>–<c>0x37</c>),
 /// blueprint reveal/crew/confirm &amp; contract signing handlers (<c>0x279</c>, <c>0x27d</c>–<c>0x27f</c>), S→C <c>0x27c</c>
 /// rogue state, and alert/lockdown mission controller (<c>0x164</c>, <c>0x163</c> type 8).
 /// </summary>
@@ -26,7 +26,6 @@ public sealed partial class HeistModule : IModule
     sealed class Cleanup(Action clean) : IDisposable { public void Dispose() => clean(); }
 
     readonly ConditionalWeakTable<IPlayer, State> _states = new();
-    readonly HeistPlanningNpcs _planningNpcs = new();
     readonly HeistMissionController _missions = new();
 
     public static void LoadData() => HeistTables.LoadGameData();
@@ -39,7 +38,6 @@ public sealed partial class HeistModule : IModule
         module.Lifetime.Own(new Cleanup(() =>
         {
             _states.Clear();
-            _planningNpcs.Clear();
             _missions.Clear();
         }));
 
@@ -65,7 +63,6 @@ public sealed partial class HeistModule : IModule
             {
                 await HeistProgress.EnsureRogueUnlocks(player);
                 await HeistProgress.SendState(player, reason: "entered Rogue Harbour");
-                await _planningNpcs.OnPlayerEntered(module, player);
             }
             else if (HeistTables.IsMissionArea(player.Layout.Id, player.Layout.Hash))
             {

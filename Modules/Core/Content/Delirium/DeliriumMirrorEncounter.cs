@@ -641,14 +641,14 @@ public sealed class DeliriumMirrorEncounter
     public void OnKill(KillContext kill)
     {
         if (!IsEligibleMap(kill.Player) || Existing(kill.Player) is not { } state) return;
+        if (!IsActive(state)) return;
         var stats = kill.Player.Instance.AreaStats(() => AreaLeagueStats(kill.Player));
         int bonusPct = stats.GetValueOrDefault(Stat.MapAfflictionRewardProgressOnKillPlusPct);
-        uint deadId = kill.Player.Area.Monsters.FirstOrDefault(p => ReferenceEquals(p.Value, kill.Monster)).Key;
         lock (state)
         {
             if (state.Stage != MirrorStage.Active) return;
             state.RecordKill(kill.Monster.Rarity, bonusPct);
-            if (deadId != 0) state.Monsters.Remove(deadId);
+            state.Monsters.Remove(kill.Monster.ObjectId);
             SaveLocked(kill.Player, state);
         }
     }
