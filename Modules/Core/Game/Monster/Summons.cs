@@ -630,7 +630,7 @@ public static partial class Game
                     player.Minions.OutputQueue.Add(new(InstanceProtocol.RemoveObject(animated.Id), "animated item consumed", WorldId: animated.Id, RemovesObject: true));
                 if (animated?.BladeSource is not null)
                 {
-                    bool projectileBlade = player.ProjectileObjects.Remove(animated.Id);
+                    bool projectileBlade = player.UntrackProjectileObject(animated.Id);
                     player.Minions.OutputQueue.Add(new(InstanceProtocol.RemoveObject(animated.Id), "lingering blade animated",
                         WorldId: projectileBlade ? animated.Id : null, RemovesObject: projectileBlade));
                 }

@@ -157,10 +157,14 @@ public static partial class Game
     }
 
     public static byte[] PlayerSkillsWithVaalSouls(Player player, IReadOnlyList<GrantedSkill> skills,
+        IReadOnlyList<ushort> gone) =>
+        [.. PlayerSkillsBatchesWithVaalSouls(player, skills, gone).SelectMany(p => p)];
+
+    public static byte[][] PlayerSkillsBatchesWithVaalSouls(Player player, IReadOnlyList<GrantedSkill> skills,
         IReadOnlyList<ushort> gone)
     {
         var changes = VaalSoulChanges(player);
-        return InstanceEntities.PlayerSkillsChange(player.Id, skills, gone, changes.Seeds, changes.Updates, CanDetonateMines(player));
+        return InstanceEntities.PlayerSkillsChangeBatches(player.Id, skills, gone, changes.Seeds, changes.Updates, CanDetonateMines(player));
     }
 
     public static byte[]? VaalSoulPresentation(Player player)

@@ -11,7 +11,7 @@ public static partial class Game
         public readonly object? Rules = rules;
         public readonly Dictionary<int, double> ReadyAt = [];
         public Dictionary<ushort, ManaforgedProgress>? Manaforged;
-        public readonly Dictionary<(uint Host, int Group, string Family), (LinkedTriggerSource Source, int Next)> Rotation = [];
+        public readonly Dictionary<(uint Host, int Group, string Family), (LinkedTriggerSource? Source, int Next)> Rotation = [];
     }
     static readonly Store<Player, LinkedTriggerState> LinkedTriggers = new();
     static LinkedTriggerState LinkedTriggersOf(Player player)
@@ -108,7 +108,7 @@ public static partial class Game
         bool Same(LinkedTriggerSource a, LinkedTriggerSource b) => SameTriggerSource(a.Gem, b.Gem)
             && a.Spells.Length == b.Spells.Length && a.Spells.Zip(b.Spells)
                 .All(p => p.First.Skill == p.Second.Skill && SameTriggerSource(p.First.Gem, p.Second.Gem));
-        int next = state.Rotation.TryGetValue(key, out var previous) && Same(previous.Source, source) ? previous.Next : 0;
+        int next = state.Rotation.TryGetValue(key, out var previous) && previous.Source is { } prevSource && Same(prevSource, source) ? previous.Next : 0;
         double now = Math.Max(at, AreaTime(player));
         for (int i = 0; i < source.Spells.Length; i++)
         {
@@ -129,6 +129,8 @@ public static partial class Game
             }
             int milliseconds = Math.Max(SkillsFor(player).CooldownMs(gem.Effect, gem.Level),
                 SkillsFor(player).CooldownMs(trigger.Gem.Effect, trigger.Gem.Level));
+            if (gem.Stats.GetValueOrDefault(Stat.SpellCastTimeAddedToCooldownIfTriggered) != 0)
+                milliseconds += SkillsFor(player).CastTimeMs(gem.Effect);
             var playerStats = CharacterPlayerStats(player);
             double rate = Math.Max(0, 1 + (GolemStat(playerStats, Stat.VirtualCooldownSpeedPlusPct)
                 + GolemStat(playerStats, Stat.BaseSpellCooldownSpeedPlusPct) + GolemStat(gem.Stats, Stat.BaseSpellCooldownSpeedPlusPct)

@@ -279,19 +279,26 @@ public static partial class Game
         MitigateTakenWithArmour(player, type, amount, resistance, maxResistance, effectiveArmour, stats, attack, ranged, spell: false);
 
     public static int MitigateTakenWithArmour(Player player, DamageType type, int amount, int resistance, int maxResistance,
-        int effectiveArmour, IReadOnlyDictionary<uint, int> stats, bool attack, bool ranged, bool spell)
+        int effectiveArmour, IReadOnlyDictionary<uint, int> stats, bool attack, bool ranged, bool spell) =>
+        FortificationDamageTaken(player, TakenAfterResistance(player, type,
+            type == DamageType.Physical ? amount : DamageModel.Mitigate(amount, resistance, maxResistance),
+            effectiveArmour, stats, attack, ranged, spell));
+
+    // A part of a hit after its resistance: armour and damage reduction, the flat damage taken, a ranged attack's physical
+    // and the increased damage taken with the shock's. Fortification is the caller's, so a hit with several parts can
+    // apply it once to its totals as a monster's hit does.
+    public static int TakenAfterResistance(Player player, DamageType type, int resisted, int effectiveArmour,
+        IReadOnlyDictionary<uint, int> stats, bool attack, bool ranged, bool spell)
     {
         int Get(uint key) => stats.GetValueOrDefault(key);
         int increased = PlayerDamageTaken.IncreasedPct(type, melee: attack && !ranged, Get, spell: spell);
         var reduction = PlayerDamageReduction(player, stats);
-        int resisted = type == DamageType.Physical ? amount : DamageModel.Mitigate(amount, resistance, maxResistance);
         int value = Math.Max(0, PlayerHitMitigation.AfterResistance(player.Pools, type, resisted,
             reduction.Physical, reduction.Elemental, effectiveArmour, PlayerHitMitigation.ArmourPercent(player.Pools, type, Get),
             imbalancedGuard: Get(Stat.KeystoneSacredBastion) != 0)
             + PlayerDamageTaken.Flat(type, attack, Get));
         if (type == DamageType.Physical) value = AntiquarianEffects.RangedPhysical(value, ranged, Get);
-        return FortificationDamageTaken(player, (int)Math.Round(value
-            * player.ElementalAilments.DamageTakenFactor(AreaTime(player), increased)));
+        return (int)Math.Round(value * player.ElementalAilments.DamageTakenFactor(AreaTime(player), increased));
     }
 
     // A warcry (CastGemSkill), when its cast is over: it taunts the hostile monsters within its radius (wiki Warcry: every
@@ -545,9 +552,9 @@ public static partial class Game
         await SendPlayerStatSnapshot(player,
             () =>
             {
-                var bytes = PlayerSkillsIfChanged(player, skills);
-                skillsSent = bytes.Length > 0;
-                return bytes;
+                var batches = PlayerSkillsBatchesIfChanged(player, skills);
+                skillsSent = batches.Length > 0;
+                return batches;
             },
             $"0x02bc player Actor: {skills.Count} skill(s), charge stats");
         if (skillsSent) await RestoreSkillBarAfterActorUpdate(player);

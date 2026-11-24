@@ -514,6 +514,8 @@ public static partial class Game
         if (!SkillsFor(player).IsAttack(gem.Effect) || !SkillsFor(player).IsMelee(gem.Effect)
             || SkillsFor(player).IsChannelled(gem.Effect)
             || Stat(global::Stat.DisableAttackRepeats) != 0 || Stat(global::Stat.DisableSkillRepeats) != 0) return 0;
+        if (SkillsFor(player).EffectId(gem.Effect) == "VaalSweep")
+            return Math.Clamp(gem.Stats.GetValueOrDefault(global::Stat.BaseAttackRepeatCount), 0, 64);
         return Math.Clamp(global::Stat.BaseMeleeAttackRepeatCount is var key
             ? gem.Stats.GetValueOrDefault(key) : 0, 0, 3);
     }
@@ -682,6 +684,15 @@ public static partial class Game
         // Supports.AttackSpeedMultiplier reads the skill's own GEPL row too: its inherent -20 on Tornado Shot is
         // already part of this factor. Do not apply the same GEPL value again.
         int additional = SkillAttackTiming.AdditionalMilliseconds(stats);
+        if (SkillsFor(player).EffectId(gem.Effect) == "VaalSweep"
+            && gem.Stats.GetValueOrDefault(Stat.CastTimeOverridesAttackDuration) != 0
+            && SkillsFor(player).CastMs(gem.Effect) is > 0 and var swingMilliseconds)
+        {
+            int speed = (offHand ?? WeaponFor(player)).IncreasedAttackSpeed(stats);
+            more *= Math.Max(.01, 1 + gem.Stats.GetValueOrDefault(Stat.ActiveSkillAttackSpeedPlusPctFinal) / 100d);
+            return (SkillAttackTiming.Seconds(swingMilliseconds, speed, more, additional,
+                proxy ? 1 : PlayerActionFactor(player), clampToTick), speed, more);
+        }
         if (additional != 0)
         {
             var weapon = offHand ?? WeaponFor(player);
@@ -979,6 +990,7 @@ public static partial class Game
             additional: inputs.WeaponTypedIncreases, trackPhysicalOrigin: inputs.Melee && !inputs.Secondary
                 && inputs.Get(Stat.SupportBloodlustMeleePhysicalDamagePlusPctFinalVsBleedingEnemies) != 0);
         if (inputs.Attack) hit = MaximumAttackDamage.Apply(Volatility.Apply(RageStats.ApplyAttack(hit, inputs.Get), inputs.Get), inputs.Get);
+        if (inputs.Melee && !inputs.Secondary) hit = WithVaalWarchiefBuff(hit, inputs.Get);
         double intensityMore = SupportedHitIntensityMore(inputs);
         if (intensityMore != 1) hit = hit.Scale(intensityMore);
         return suppress ? new SkillDamageContext(inputs.Plan.Kind, inputs.Caster).Hit(hit) : hit;
