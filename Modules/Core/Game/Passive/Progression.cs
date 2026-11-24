@@ -742,6 +742,9 @@ public static partial class Game
         // Kalandra's Touch: the opposite active ring's modifiers once more (RingReflections).
         active = AbyssJewels.Sources(active.Concat(RingReflections(equipment, i => !inactive.Contains(i.Id), catalog.Mods)),
             catalog).ToArray();
+        // The Bow Mastery's increased effect on the equipped quiver's own modifiers: scale the quiver in the copy
+        // whose stats become the character's, before the raw attributes and the item sum read it.
+        active = WithQuiverModifierEffect(active, catalog, passives);
         var rawAttributes = RawAttributes(active);
         // Qualification for this exact build is now known. Re-evaluate reservation-only conditions from that active set,
         // so an item's first action after a requirement change cannot use the previous inactive cache.

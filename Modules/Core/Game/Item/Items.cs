@@ -501,15 +501,38 @@ public static partial class Game
         // One scaled copy per jewel and percentage: the stat sources' cache compares worn items by reference (and then
         // their mod lists), so a new copy at every build missed it each time.
         if (AdornedJewels.TryGetValue(item, out var kept) && kept.Percent == percent) return kept.Item;
-        var scaled = item with
-        {
-            Mods = [.. item.Mods.Select(mod => mod with
-            {
-                Values = [.. mod.Values.Select(value => (int)Math.Floor(value * (100 + percent) / 100.0))],
-            })],
-        };
+        var scaled = ScaledModifiers(item, percent);
         AdornedJewels.AddOrUpdate(item, new(percent, scaled));
         return scaled;
+    }
+
+    /// <summary>Every modifier of one item raised by an increased-modifier-effect percentage, in every list (implicit,
+    /// explicit, enchant …): the game's increased-effect multiplication on each integer value, rounded down as The
+    /// Adorned's jewel effect and <c>ItemModStats</c>' own explicit-effect stats are.</summary>
+    public static Item ScaledModifiers(Item item, int percent) => percent == 0 ? item : item with
+    {
+        Mods = [.. item.Mods.Select(mod => mod with
+        {
+            Values = [.. mod.Values.Select(value => (int)Math.Floor(value * (100 + percent) / 100.0))],
+        })],
+    };
+
+    /// <summary>The equipped quiver's modifiers raised by <c>quiver_mod_effect_+%</c> (the Bow Mastery's Bow5, "20%
+    /// increased bonuses gained from your Equipped Quiver"; a unique's mod and the Crucible weapon-tree ones also grant
+    /// it). It scales every modifier on the quiver, implicit and explicit alike, so the scaling happens here, on the
+    /// copy whose stats become the character's, and leaves the item in the inventory as it is. The percentage comes
+    /// from the allocated passives and from the other equipped items, never from the quiver's own scaled values.</summary>
+    static IReadOnlyList<Item> WithQuiverModifierEffect(IReadOnlyList<Item> active, ItemCatalog catalog,
+        IReadOnlyDictionary<uint, int> passives)
+    {
+        bool IsQuiver(Item i) => catalog.ByHash(i.TypeHash)?.Class == "Quiver";
+        if (!active.Any(IsQuiver)) return active;
+        int percent = passives.GetValueOrDefault(Stat.QuiverModEffectPlusPct);
+        foreach (var item in active)
+            if (!IsQuiver(item))
+                foreach (var (id, value) in ItemModStats.Values(item, catalog.Mods))
+                    if (id == Stat.QuiverModEffectPlusPct) percent += value;
+        return percent == 0 ? active : [.. active.Select(i => IsQuiver(i) ? ScaledModifiers(i, percent) : i)];
     }
 
     sealed record ScaledJewel(int Percent, Item Item);
