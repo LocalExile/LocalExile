@@ -36,6 +36,7 @@ public static partial class Game
         g.Regeneration += elapsed * (m.MaxLife * regen + Player(Stat.Of("minion_base_life_regeneration_rate_per_minute")) / 60.0
             + Player(Stat.MinionLifeRegenerationRatePerSecond) + m.Mods.Effects[Stat.BaseLifeRegenerationRatePerMinute] / 60.0
             + (now < g.HolyRegenerationUntil ? g.HolyRegenerationPerSecond : 0)
+            + (m.Life < m.MaxLife ? RejuvenationMinionRegeneration(player, m, now) : 0)
             + (now - g.BlockedAt <= 4 ? m.MaxLife * m.Mods.Effects[Stat.LifeRegenerationRatePerMinutePctIfBlockedRecently] / 6000d : 0));
         int heal = (int)Math.Min(int.MaxValue, g.Regeneration); g.Regeneration -= heal;
         if (heal > 0 && m.Life < m.MaxLife)

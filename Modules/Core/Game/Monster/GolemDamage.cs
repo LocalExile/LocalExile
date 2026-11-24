@@ -133,6 +133,7 @@ public static partial class Game
             .Scale(SappedDamageFactor(source, now));
         bool elementalImmune = GolemElementalImmune(g);
         bool chaosNoBypass = effects[Stat.ChaosDamageDoesNotBypassEnergyShield] != 0;
+        var rejuvenation = RejuvenationTotemAt(player, m.Walk.Position(now));
         long damage = 0;
         var mitigated = DamagePacket.Empty;
         foreach (var (type, range) in rolled.Components)
@@ -162,6 +163,10 @@ public static partial class Game
             if (value > 0)
             {
                 mitigated = mitigated.Add(type, new(value, value));
+                if (rejuvenation is { Totem.Life: > 0 } protection)
+                    value = RedirectTotemHitLocked(protection.Owner, protection.Totem, value, 0,
+                        protection.Totem.Aura!.HitRedirectPercent, AreaTime(protection.Owner),
+                        protection.Owner == player ? currentPlayer : null).NonChaos;
                 damage += g.ShieldPool.Damage(value, type == DamageType.Chaos && !chaosNoBypass, now);
             }
         }
