@@ -48,6 +48,8 @@ public sealed partial class ProjectileRuntime(IProjectileWorld world)
             Area(new ProjectileEntity(++sequence, useId, ++sequence, 0, use, use.Origin, direction, Now), area);
         }
         var random = use.Profile.RandomSpread ? new Random(unchecked(use.Seed * 397 ^ (int)useId)) : null;
+        var speedRandom = use.ProjectileSpeeds is null && use.Profile.SpeedVariationPercent > 0
+            ? new Random(unchecked(use.Seed * 397 ^ (int)useId ^ 0x4e79da25)) : null;
         int count = use.Profile.Count;
         double spread = use.Profile.SpreadRadians;
         if (spread is > 0 and < Math.PI && use.Profile.AimSpreadDistance > 0)
@@ -88,6 +90,11 @@ public sealed partial class ProjectileRuntime(IProjectileWorld world)
             if (use.ProjectileSpeeds is { } projectileSpeeds)
                 projectileUse = projectileUse with { ProjectileSpeeds = null,
                     Profile = projectileUse.Profile with { Speed = projectileSpeeds[i] } };
+            else if (speedRandom is not null)
+            {
+                double factor = 1 + (2 * speedRandom.NextDouble() - 1) * use.Profile.SpeedVariationPercent / 100d;
+                projectileUse = projectileUse with { Profile = projectileUse.Profile with { Speed = projectileUse.Profile.Speed * factor } };
+            }
             int index = i;
             void Emit()
             {
@@ -106,6 +113,7 @@ public sealed partial class ProjectileRuntime(IProjectileWorld world)
         if (p.Count is < 0 or > 256 || p.Count == 0 && p.LaunchArea is null || !double.IsFinite(p.Speed) || p.Speed <= 0
             || !double.IsFinite(p.Range) || p.Range <= 0 || !double.IsFinite(p.Radius) || p.Radius < 0
             || p.Lifetime <= 0 || p.SequentialDelay < 0 || p.ReturnChancePercent is < 0 or > 100
+            || p.SpeedVariationPercent is < 0 or > 99
             || p.ReturnRolls is { } rolls && rolls.Count < p.Count
             || !double.IsFinite(p.ReturnSpeedMultiplier) || p.ReturnSpeedMultiplier <= 0
             || !double.IsFinite(p.ReturnOvershoot) || p.ReturnOvershoot < 0 || p.ReturnHitLimit < 0 || p.OutboundHitLimit < 0)

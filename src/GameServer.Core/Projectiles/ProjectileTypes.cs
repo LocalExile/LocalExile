@@ -182,6 +182,8 @@ public sealed record ProjectileProfile(string Id)
     /// max(CollisionRadius, CollisionCandidateRadius). Set, a flight cell contacts an actor whose Chebyshev cell distance
     /// is at most this plus the actor's <see cref="ProjectileActor.Size"/>, and <see cref="Radius"/> is not used for actors.</summary>
     public int? ContactCells { get; init; }
+    /// <summary>Symmetric speed variation sampled for each initial launch with no explicit speed.</summary>
+    public int SpeedVariationPercent { get; init; }
     public long Lifetime { get; init; } = 1200000;
     public long SequentialDelay { get; init; }
     public bool ShareSequentialHits { get; init; }
