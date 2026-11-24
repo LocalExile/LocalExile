@@ -644,7 +644,10 @@ public static partial class Game
         int damage = MonsterTakesMitigated(target, mitigated, a.Attack.Spell, now, random: AreaRng(player));
         var from = g.Monster.Walk.Position(now);
         var to = target.Walk.Position(now);
-        if (ApplyTypedMonsterHitLocked(player, target, damage, MonsterHitChaosDamage(target, mitigated, a.Attack.Spell, now, damage), allyAt: from) is not { } hit) return false;
+        var cull = MinionIgniteKillRule(currentPlayer, target, now);
+        int chaosDamage = MonsterHitChaosDamage(target, mitigated, a.Attack.Spell, now, damage);
+        if (ApplyMonsterHitLocked(player, target, damage, rampageSource: null, playerStats: null, allyAt: from,
+            cull: cull, cullPlayer: null, chaosDamage: chaosDamage) is not { } hit) return false;
         if (!target.Dead && damage > 0) MinionExposureOnHitLocked(g.Own, target, mitigated, now, AreaRng(player));
         if (hit.StageStarts)
         { CommitBossStage(player, id, target, now); hit = hit with { StageStarts = false }; }
@@ -665,9 +668,13 @@ public static partial class Game
             target.Ailments.Inflict(mitigated, critical, target.MaxLife, now, Golem,
                 n => target.Mods.Effects[n], AreaRng(player));
             HitDebuffsOnHitLocked(target, Golem, a.Attack.Spell, critical, now, AreaRng(player));
-            // Unnatural Strength: a minion with Unholy Might withers on hit (25% for 2 s, from the buff row's
-            // stats in its Mods); the player path does this in MonsterAilments, the minion path did not.
+            // The minion's Mods include the Wither chance from Unnatural Strength's Unholy Might.
             WitherOnHitLocked(target, Golem, now, AreaRng(player));
+            if (RandomRolls.Chance(Golem(Stat.CoverInAshOnHitPct), 100, AreaRng(player)))
+            {
+                target.CoveredInAshUntil = Math.Max(target.CoveredInAshUntil, now + HitDebuffSeconds);
+                target.PresentationChanged?.Invoke();
+            }
             InflictMonsterBlind(player, id, target, now, BlindHitInput.Capture(Golem), a.Attack.Spell, critical,
                 AreaRng(player));
             MinionAilmentsLocked(player, g, a, id, target, critical, now);
@@ -681,7 +688,8 @@ public static partial class Game
     {
         long increased = (long)mods.Effects[Stat.CriticalStrikeChancePlusPct] + additionalIncrease
             + (ability.Attack.Spell ? mods.Effects[Stat.SpellCriticalStrikeChancePlusPct] : 0);
-        double chance = (ability.Crit + (double)mods.Effects[WakenedFuryChance] + mods.Effects[Stat.AdditionalBaseCriticalStrikeChance]) * Math.Max(0, 100L + increased) / 100.0;
+        double baseChance = ability.Crit + (double)mods.Effects[WakenedFuryChance] + mods.Effects[Stat.AdditionalBaseCriticalStrikeChance];
+        double chance = baseChance * Math.Max(0, 100L + increased) / 100.0;
         return (int)Math.Clamp(chance, 0, 10_000);
     }
 
