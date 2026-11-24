@@ -527,7 +527,80 @@ public static class InstanceEntities
     public static byte[] PlayerPortraitUpdate(uint playerId, ushort portrait) =>
         ComponentUpdate(playerId, PlayerObject.PlayerComponentIndex, new BlobWriter().U16(0x40).U16(portrait).ToArray());
 
-    public const ushort GoldId = 0x2aa, WorldPopupIconId = 0x278;
+    public const ushort GoldId = 0x2aa, WorldPopupIconId = 0x278, MiscObjectSpawnId = 0x01ca, EntityVariantDeltaId = 0x02d9;
+
+    /// <summary>
+    /// S→C 0x01ca <c>MiscObjectSpawn</c> (class <c>0x1435e65e8</c>, reader <c>0x1421afcc0</c>, dispatcher case 0x83
+    /// <c>0x1421527eb..0x142152c30</c>): spawns a <c>MiscObjects</c> (flags bit 0 clear) or <c>MiscAnimated</c>
+    /// (flags bit 0 set) visual by HASH16. Bit 1 selects world cell coords (<c>i32 BE x, i32 BE y</c>) instead of an
+    /// attached entity (<c>u32 BE entityId</c> when bit 3 is clear, plus optional <c>i16 BE offsetX, i16 BE offsetY</c>
+    /// when bit 2 is set). Bit 5 adds <c>u32 BE delayMs</c>; bit 6 adds <c>f32 BE rotation</c>.
+    /// </summary>
+    public static byte[] MiscObjectSpawn(ushort tableHash16, bool miscAnimated = false, uint? entityId = null,
+        (int X, int Y)? coords = null, (short X, short Y)? offset = null, uint? delayMs = null, float? rotation = null,
+        byte extraFlags = 0)
+    {
+        byte flags = (byte)((extraFlags & 0x90) | (miscAnimated ? 0x01 : 0));
+        if (coords is not null) flags |= 0x02;
+        else
+        {
+            if (entityId is null) flags |= 0x08;
+            if (offset is not null) flags |= 0x04;
+        }
+        if (delayMs is not null) flags |= 0x20;
+        if (rotation is not null) flags |= 0x40;
+        var w = new LoginWriter().U16(MiscObjectSpawnId).U8(flags).U16(tableHash16);
+        if (coords is { } c) w.U32((uint)c.X).U32((uint)c.Y);
+        else
+        {
+            if (entityId is { } id) w.U32(id);
+            if (offset is { } o) w.U16((ushort)o.X).U16((ushort)o.Y);
+        }
+        if (delayMs is { } d) w.U32(d);
+        if (rotation is { } r) w.U32(BitConverter.SingleToUInt32Bits(r));
+        return w.ToArray();
+    }
+
+    /// <summary>
+    /// S→C 0x02d9 <c>EntityVariantDelta</c> (class <c>0x1435e6928</c>, reader <c>0x1421b8d30</c>, writer
+    /// <c>0x1421b8aa0</c>, variant dispatch table <c>0x1435e6c78</c>, dispatcher case 0xf0): u8 flag, CompactUInt
+    /// count, then count entries of u32 BE entityId, u16 BE <c>(kind &amp; 0x7fff) | (hasVariant ? 0x8000 : 0)</c>,
+    /// optional <c>i32 BE x, i32 BE y</c> when <c>(kind &amp; 0x7fff) != 0</c>, and optional tagged raw-LE variant
+    /// (tag 0/2 = u16 LE, tag 1 = u32 LE).
+    /// </summary>
+    public static byte[] EntityVariantDelta(byte flag, IReadOnlyList<EntityVariantDeltaEntry> entries)
+    {
+        var w = new LoginWriter().U16(EntityVariantDeltaId).U8(flag);
+        InstanceProtocol.CompactUInt(w, (uint)entries.Count);
+        foreach (var entry in entries)
+        {
+            ushort kind = (ushort)(entry.Kind & 0x7fff);
+            ushort raw = (ushort)(kind | (entry.Variant is not null ? 0x8000 : 0));
+            w.U32(entry.EntityId).U16(raw);
+            if (kind != 0)
+            {
+                var pos = entry.Position ?? default;
+                w.U32((uint)pos.X).U32((uint)pos.Y);
+            }
+            if (entry.Variant is { } v)
+            {
+                w.U8(v.Tag);
+                switch (v.Tag)
+                {
+                    case 0:
+                    case 2:
+                        w.U8((byte)v.Value).U8((byte)(v.Value >> 8));
+                        break;
+                    case 1:
+                        w.RawU32(v.Value);
+                        break;
+                    default:
+                        throw new ArgumentOutOfRangeException(nameof(entries), v.Tag, "S→C 0x02d9 variant tag must be 0, 1, or 2");
+                }
+            }
+        }
+        return w.ToArray();
+    }
 
     /// <summary>S→C 0x2aa (class 0x1431767e8, read 0x140911270): u32 BE, the character's gold. The instance dispatcher (case
     /// 0xe2, 0x142154531) stores it at session +0xc40c (the inventory's and the gold respec's amount) and plays
@@ -1327,6 +1400,19 @@ public readonly record struct MinionOwnershipChange(uint Id, ushort Source, usho
 /// <summary>One ordinary stored-use budget; the native duration is base time, not wall time.</summary>
 public readonly record struct SingleUseCooldownUpdate(ushort SkillId, float RemainingBaseSeconds,
     float TotalBaseSeconds, float RecoveryRate, int SpentUses = 1);
+
+/// <summary>3-arm tagged variant payload inside S→C 0x02d9 (<c>0x1421b8d30</c>, table <c>0x1435e6c78</c>):
+/// tags 0 and 2 carry raw little-endian u16 values; tag 1 carries a raw little-endian u32 value.</summary>
+public readonly record struct EntityVariantValue(byte Tag, uint Value)
+{
+    public static EntityVariantValue Tag0(ushort value) => new(0, value);
+    public static EntityVariantValue Tag1(uint value) => new(1, value);
+    public static EntityVariantValue Tag2(ushort value) => new(2, value);
+}
+
+/// <summary>One entry of S→C 0x02d9 (<see cref="InstanceEntities.EntityVariantDelta"/>).</summary>
+public readonly record struct EntityVariantDeltaEntry(uint EntityId, ushort Kind,
+    (int X, int Y)? Position = null, EntityVariantValue? Variant = null);
 
 /// <summary>ObjectMagicProperties rarity (flags bits 0-2 → +0x7c).</summary>
 public enum MonsterRarity : byte { Normal = 0, Magic = 1, Rare = 2, Unique = 3 }

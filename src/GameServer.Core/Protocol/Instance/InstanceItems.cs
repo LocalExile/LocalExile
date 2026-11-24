@@ -651,8 +651,24 @@ public static class InstanceItems
     // C→S 0x2d (class 0x1435cacf0, write 0x141f96c30, senders 0x142165e90 / 0x142165ee0; 8 bytes): an inventory request,
     // not mapped yet. The right-click item use is 0x58 below.
 
-    public const ushort UseItemClickId = 0x57;
+    public const ushort UseItemClickId = 0x57, FlaskChargesId = 0x00c6, ItemUseResultId = 0x0174;
     public const int UseItemClickLength = 11;
+
+    /// <summary>
+    /// S→C 0x00c6 <c>FlaskCharges</c> (class <c>0x1435ca2c0</c>, reader <c>0x141f99010</c>, dispatcher case 0x3a
+    /// <c>0x142154656..0x1421546e1</c>): incremental flask charge update on the flask bar (row 0x0b) without resending
+    /// the full item blob via 0x00bf. Layout: u16 BE id, u32 BE itemId, u32 BE charges (10 bytes total).
+    /// </summary>
+    public static byte[] FlaskCharges(uint itemId, uint charges) =>
+        new LoginWriter().U16(FlaskChargesId).U32(itemId).U32(charges).ToArray();
+
+    /// <summary>
+    /// S→C 0x0174 <c>ItemUseResult</c> (class <c>0x1435cae90</c>, reader <c>0x141f99e10</c>, dispatcher case 0x71
+    /// <c>0x1421550c5..0x1421550e5</c>): companion reply to C→S 0x0057 (<see cref="UseItemClickId"/>).
+    /// Layout: u16 BE id, u32 BE inventoryId, u32 BE itemId, u8 result (11 bytes total).
+    /// </summary>
+    public static byte[] ItemUseResult(uint inventoryId, uint itemId, byte result = 1) =>
+        new LoginWriter().U16(ItemUseResultId).U32(inventoryId).U32(itemId).U8(result).ToArray();
 
     /// <summary>
     /// C→S 0x57 (11 bytes, live 2026-11-22): right-clicking a self-usable stacked item such as Stacked Deck

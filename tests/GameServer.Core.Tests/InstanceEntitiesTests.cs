@@ -833,4 +833,34 @@ public class InstanceEntitiesTests
             + "0A000000" + "14000000" + "1E000000" + "28000000" + "00008040",
             Convert.ToHexString(packet));
     }
+
+    [Fact]
+    public void Combat_and_action_delta_encoders_match_3293c_wire_layouts()
+    {
+        Assert.Equal("00C6010203040000002D", Convert.ToHexString(InstanceItems.FlaskCharges(0x01020304, 45)));
+        Assert.Equal("0174000000010000004201", Convert.ToHexString(InstanceItems.ItemUseResult(1, 0x42, 1)));
+        Assert.Equal("00BB03", Convert.ToHexString(InstanceProtocol.FreezeActions(frozen: true, notify: true)));
+        Assert.Equal("00BC00", Convert.ToHexString(InstanceProtocol.ActionLockout(active: false)));
+        Assert.Equal("00BC0105", Convert.ToHexString(InstanceProtocol.ActionLockout(active: true, durationSeconds: 5)));
+        Assert.Equal("01C91122334401230007", Convert.ToHexString(InstanceProtocol.PlaySoundEffect(0x11223344, 0x0123, 7)));
+
+        // 0x01ca MiscObjectSpawn: entity-attached + offset vs world coords + delay + rotation.
+        Assert.Equal("01CA0455AA0000004D000AFFFB",
+            Convert.ToHexString(InstanceEntities.MiscObjectSpawn(0x55AA, entityId: 77, offset: (10, -5))));
+        Assert.Equal("01CA63123400000064000000C8000001F43FC00000",
+            Convert.ToHexString(InstanceEntities.MiscObjectSpawn(0x1234, miscAnimated: true, coords: (100, 200), delayMs: 500, rotation: 1.5f)));
+
+        // 0x02d9 EntityVariantDelta: all 3 tagged LE variant arms plus position-only and bare entries.
+        byte[] delta = InstanceEntities.EntityVariantDelta(1, [
+            new(0x1000, 2, (10, 20), EntityVariantValue.Tag0(0x1234)),
+            new(0x2000, 0, Variant: EntityVariantValue.Tag1(0x11223344)),
+            new(0x3000, 0, Variant: EntityVariantValue.Tag2(0x5678)),
+        ]);
+        Assert.Equal(
+            "02D9" + "01" + "03"
+            + "00001000" + "8002" + "0000000A" + "00000014" + "00" + "3412"
+            + "00002000" + "8000" + "01" + "44332211"
+            + "00003000" + "8000" + "02" + "7856",
+            Convert.ToHexString(delta));
+    }
 }
