@@ -19,8 +19,9 @@ static class LegionStasis
 {
     /// <summary>A spawned army member: its object id, the army (index into the plan's factions), the rank tier (0 normal,
     /// 1 elite, 2 sergeant, 3 general), whether it is a chest monster (a War Hoard when WarHoard), whether it broke out, the
-    /// sequence of its LegionBreakout action (the 0x2c8 updates must carry it) and whether it was revealed (state 2).</summary>
-    public sealed record Member(uint Id, ushort Buff, int Faction, int Tier, bool Chest, bool WarHoard, bool Broken = false, ushort Sequence = 0, bool Revealed = false);
+    /// sequence of its LegionBreakout action (the 0x2c8 updates must carry it), whether it was revealed (state 2) and its reward types
+    /// (LegionRewardTypeVisuals rows; null or empty: none).</summary>
+    public sealed record Member(uint Id, ushort Buff, int Faction, int Tier, bool Chest, bool WarHoard, bool Broken = false, ushort Sequence = 0, bool Revealed = false, int[]? Rewards = null);
 
     /// <summary>The LegionBreakout action: ActionTypes HASH16 (the 0x2c8 header's action type) and its skill id, the type's HASH16 &amp; 0x3fff (R11 section 0).</summary>
     const ushort ActionType = 0xd8fe, ActionSkill = 0x18fe;
@@ -61,7 +62,7 @@ static class LegionStasis
         var counts = new int[plan.Factions.Length];
         bool stopped = false;   // the timer ended while the army was being spawned
 
-        async Task Add(int faction, int row, MonsterRarity rarity, int tier, bool chest, bool hoard, int from, int to)
+        async Task Add(int faction, int row, MonsterRarity rarity, int tier, bool chest, bool hoard, int from, int to, int[]? rewards = null)
         {
             if (stopped) return;
             if (Monsters.Find(row.ToString()) is not { Supported: true } variety || player.Closed || player.LeavingArea) { skipped++; skippedBy[faction]++; return; }
@@ -75,7 +76,7 @@ static class LegionStasis
                 placement: MonsterPlacement.Established);   // the formation checked the spot (walkable, clear of the others): no nearest-clear search that could stack two
             if (id == 0) { skipped++; return; }
             ushort buff = await Freeze(player, id, variety.Id, TimeLockVisual(plan.Factions[faction].Id));
-            var member = new Member(id, buff, faction, tier, chest, hoard, Sequence: sequence);
+            var member = new Member(id, buff, faction, tier, chest, hoard, Sequence: sequence, Rewards: rewards is { Length: > 0 } ? rewards : null);
             if (!keep(member)) { stopped = true; await Remove(player, [member]); return; }
             await standing(member);
             counts[faction]++;
@@ -89,10 +90,10 @@ static class LegionStasis
             {
                 // A GUESS to confirm in the live check: elite Magic, sergeant Rare; the general is Unique through its MonsterMapBoss mod.
                 var rarity = squad.Tier switch { 1 => MonsterRarity.Magic, 2 => MonsterRarity.Rare, 3 => MonsterRarity.Unique, _ => MonsterRarity.Normal };
-                for (int i = 0; i < squad.Count; i++) await Add(f, squad.Monster, rarity, squad.Tier, false, false, squad.FromPct, squad.ToPct);
+                for (int i = 0; i < squad.Count; i++) await Add(f, squad.Monster, rarity, squad.Tier, false, false, squad.FromPct, squad.ToPct, squad.Rewards is { } r && i < r.Length ? r[i] : null);
             }
             foreach (var chest in faction.Chests)
-                await Add(f, chest.Monster, MonsterRarity.Normal, 0, true, chest.WarHoard, chest.FromPct, chest.ToPct);
+                await Add(f, chest.Monster, MonsterRarity.Normal, 0, true, chest.WarHoard, chest.FromPct, chest.ToPct, chest.Rewards);
         }
         string names = string.Join(" + ", plan.Factions.Select((f, i) => $"{f.Id} {counts[i]}"));
         module.Log($"army spawned: {names} ({sergeants} sergeants, {generals} general, {chests} chests), {skipped} skipped, formations {string.Join(", ", formations.Select((f, i) => $"{f.Describe()} skipped {skippedBy[i]}"))}");

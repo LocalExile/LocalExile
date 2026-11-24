@@ -10,11 +10,12 @@ namespace GameServer.Modules.Legion;
 static class LegionArmy
 {
     /// <summary>A group of monsters of one variety (LegionMonsterVarieties.MonsterVarietiesKey) of one rank tier
-    /// (0 normal, 1 elite, 2 sergeant, 3 general), standing from FromPct to ToPct of the formation's depth.</summary>
-    public sealed record Squad(int Tier, int Monster, int Count, int FromPct, int ToPct);
+    /// (0 normal, 1 elite, 2 sergeant, 3 general), standing from FromPct to ToPct of the formation's depth.
+    /// Rewards (sergeants only): one entry per monster of the squad, its LegionRewardTypeVisuals rows (empty: none); null when the plan has none.</summary>
+    public sealed record Squad(int Tier, int Monster, int Count, int FromPct, int ToPct, int[][]? Rewards = null);
 
     /// <summary>A chest monster (LegionChestTypes col0) with the Chests row it turns into; WarHoard uses the faction's second LegionChestTypes row (the Epic chest).</summary>
-    public sealed record ChestPlan(int Monster, int Chest, bool WarHoard, int FromPct, int ToPct);
+    public sealed record ChestPlan(int Monster, int Chest, bool WarHoard, int FromPct, int ToPct, int[]? Rewards = null);
 
     public sealed record FactionPlan(int Faction, string Id, Squad[] Squads, ChestPlan[] Chests);
 
@@ -38,6 +39,27 @@ static class LegionArmy
     /// <summary>The fewest chests an army has (GUESS, see PlanChests); chests are never scaled by <see cref="CampaignArmyScale"/>.</summary>
     const int MinChestsPerArmy = 1;
 
+    // ---- the rewards (P2-E1). ALL OF THESE ARE GUESSES; the live game's numbers are not known. Rolled only in Plan/Compose. ----
+
+    /// <summary>GUESS: the percent chance a sergeant carries a reward, before map_legion_sergeants_reward_additional_chance_% (added to it, as percentage points).</summary>
+    const int SergeantRewardChance = 75;
+    /// <summary>GUESS: the number of reward types a War Hoard carries (inclusive range); a normal chest carries <see cref="ChestRewards"/>.</summary>
+    const int HoardRewardsMin = 2, HoardRewardsMax = 3, ChestRewards = 1;
+    /// <summary>LegionRewardTypeVisuals rows that are never rolled: 11 is Essences again (the same icon and symbol as row 10), 17 is Incubators (no longer drop in 3.29).</summary>
+    static readonly int[] ExcludedRewardRows = [11, 17];
+
+    /// <summary>The reward rows that can be rolled, equal weights: every LegionRewardTypeVisuals row but <see cref="ExcludedRewardRows"/>.</summary>
+    static int[] RewardPool(LegionData data) => [.. data.RewardTypes.Where(r => !ExcludedRewardRows.Contains(r.Row)).Select(r => r.Row)];
+
+    /// <summary>n different reward rows from the pool (fewer when the pool is smaller).</summary>
+    static int[] RollRewards(int[] pool, int n, Random rng)
+    {
+        var left = pool.ToList();
+        var picked = new int[Math.Min(n, left.Count)];
+        for (int i = 0; i < picked.Length; i++) { int k = rng.Next(left.Count); picked[i] = left[k]; left.RemoveAt(k); }
+        return picked;
+    }
+
     /// <summary>Scales a normal or elite squad (tier 0, 1) by <see cref="CampaignArmyScale"/>, rounded, at least 1; sergeants, the general and chests stay.</summary>
     static Squad ScaleCampaign(Squad s) => s.Tier >= 2 ? s : s with { Count = Math.Max(1, (int)Math.Round(s.Count * CampaignArmyScale)) };
 
@@ -46,9 +68,10 @@ static class LegionArmy
     public static ArmyPlan Plan(LegionData data, int level, string areaId, IReadOnlyDictionary<uint, int> stats, Random rng)
     {
         var chosen = ChooseFactions(data, level, areaId, stats, rng);
+        int sergeantChance = Math.Clamp(SergeantRewardChance + stats.GetValueOrDefault(Stat.MapLegionSergeantsRewardAdditionalChancePct), 0, 100);
         int general = RollGeneral(data, chosen, level, stats, rng);
         var plans = new FactionPlan[chosen.Count];
-        for (int i = 0; i < plans.Length; i++) plans[i] = Compose(data, chosen[i], level, i == general, rng);
+        for (int i = 0; i < plans.Length; i++) plans[i] = Compose(data, chosen[i], level, i == general, rng, sergeantChance);
         if (Campaign.ContainsKey(areaId)) for (int i = 0; i < plans.Length; i++) plans[i] = plans[i] with { Squads = [.. plans[i].Squads.Select(ScaleCampaign)] };
         return new ArmyPlan(level, plans);
     }
@@ -119,7 +142,7 @@ static class LegionArmy
     ///   that one of its chests (or one extra if it has none) is a War Hoard (the faction's second LegionChestTypes row). The other reading, a roll per chest,
     ///   gives more hoards; the chest's type is one of the faction's two LegionChestTypes.
     /// </summary>
-    static FactionPlan Compose(LegionData data, LegionData.Faction faction, int level, bool general, Random rng)
+    static FactionPlan Compose(LegionData data, LegionData.Faction faction, int level, bool general, Random rng, int sergeantChance)
     {
         var squads = new List<Squad>();
         if (FindGroup(data, faction, level) is { } rows)
@@ -136,7 +159,15 @@ static class LegionArmy
                 for (int i = 0; i < per.Length; i++)
                     if (per[i] > 0) squads.Add(new Squad(tier, varieties[i].Monster, per[i], count.Col4, count.Col5));
             }
-        return new FactionPlan(faction.Row, faction.Id, [.. squads], [.. PlanChests(data, faction, level, rng)]);
+        var pool = RewardPool(data);
+        for (int i = 0; i < squads.Count; i++)
+            if (squads[i].Tier == 2 && pool.Length > 0)   // the general has none: its drops come from its own rolls
+                squads[i] = squads[i] with { Rewards = [.. Enumerable.Range(0, squads[i].Count).Select(_ => rng.Next(100) < sergeantChance ? RollRewards(pool, 1, rng) : [])] };
+        var chests = PlanChests(data, faction, level, rng);
+        if (pool.Length > 0)
+            for (int i = 0; i < chests.Count; i++)
+                chests[i] = chests[i] with { Rewards = RollRewards(pool, chests[i].WarHoard ? rng.Next(HoardRewardsMin, HoardRewardsMax + 1) : ChestRewards, rng) };
+        return new FactionPlan(faction.Row, faction.Id, [.. squads], [.. chests]);
     }
 
     static List<ChestPlan> PlanChests(LegionData data, LegionData.Faction faction, int level, Random rng)
@@ -171,12 +202,15 @@ static class LegionArmy
     /// <summary>The activation's one log line.</summary>
     public static string Summary(ArmyPlan plan)
     {
-        int monsters = 0, sergeants = 0, generals = 0, chests = 0;
+        int monsters = 0, sergeants = 0, generals = 0, chests = 0, rewards = 0;
+        var types = new SortedSet<int>();
         foreach (var f in plan.Factions)
         {
             chests += f.Chests.Length;
+            foreach (var c in f.Chests) if (c.Rewards is { } cr) { rewards += cr.Length; types.UnionWith(cr); }
+            foreach (var s in f.Squads) if (s.Rewards is { } sr) foreach (var r in sr) { rewards += r.Length; types.UnionWith(r); }
             foreach (var s in f.Squads) { monsters += s.Count; if (s.Tier == 2) sergeants += s.Count; else if (s.Tier == 3) generals += s.Count; }
         }
-        return $"factions {string.Join("+", plan.Factions.Select(f => f.Id))}, {monsters} monsters ({sergeants} sergeants, {generals} general), {chests} chests";
+        return $"factions {string.Join("+", plan.Factions.Select(f => f.Id))}, {monsters} monsters ({sergeants} sergeants, {generals} general), {chests} chests, {rewards} rewards (types {string.Join(",", types)})";
     }
 }

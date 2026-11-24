@@ -35,6 +35,10 @@ public sealed class LegionData
         public int DurationMs => Cols[2];
     }
 
+    /// <summary>A LegionRewardTypeVisuals row: its minimap icon (MinimapIcons row; the monster stat is the row + 1). The client draws the symbol by row.</summary>
+    public sealed record RewardType(int Row, int MinimapIcon);
+
+    public IReadOnlyList<RewardType> RewardTypes { get; }
     public IReadOnlyList<Faction> Factions { get; }
     public IReadOnlyList<Rank> Ranks { get; }
     public IReadOnlyList<MonsterVariety> MonsterVarieties { get; }
@@ -80,6 +84,7 @@ public sealed class LegionData
         ChestCounts = [.. ClientTables.TableOrEmpty("LegionChestCounts").Select(r => new ChestCount(r.Index,
             r.IntOrNull("LegionFactionsKey") ?? -1, r.IntOrNull("LegionRanksKey") ?? -1, r.Int("MinLevel"), r.Int("__col2"), r.Int("__col3"),
             r.Int("__col4"), r.Int("__col5"), r.Int("__col7")))];
+        RewardTypes = [.. ClientTables.TableOrEmpty("LegionRewardTypeVisuals").Select(r => new RewardType(r.Index, r.IntOrNull("MinimapIconsKey") ?? -1))];
         Balances = [.. ClientTables.TableOrEmpty("LegionBalancePerLevel").Select(r => new Balance(r.Index, r.Int("MinLevel"),
             [.. Enumerable.Range(1, 15).Select(c => r.Int($"__col{c}"))]))];
     }

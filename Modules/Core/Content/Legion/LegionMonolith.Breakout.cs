@@ -25,8 +25,9 @@ static partial class LegionMonolith
     /// <summary>MiscAnimated 3326 LegionChestBreakoutExplode.</summary>
     const int ChestExplodeKey = 3326;
 
-    /// <summary>The openable chest that a broken-out war chest became (kept in the save; its id changes when it is opened).</summary>
-    public sealed record Box(uint Id, string Type, int X, int Y, float Rotation, float? Z, string? Model, bool Hoard, bool Opened);
+    /// <summary>The openable chest that a broken-out war chest became (kept in the save; its id changes when it is opened). Rewards are its
+    /// LegionRewardTypeVisuals rows; Faction is the LegionFactions ROW of its army (-1: unknown, an old save).</summary>
+    public sealed record Box(uint Id, string Type, int X, int Y, float Rotation, float? Z, string? Model, bool Hoard, bool Opened, int[]? Rewards = null, int Faction = -1);
 
     /// <summary>What the server keeps of one frozen member: whether it broke out (its life is the monster's own).</summary>
     sealed class Hold(Encounter e, LegionStasis.Member member)
@@ -231,7 +232,8 @@ static partial class LegionMonolith
             module.Log($"chest row {row} cannot be shown: no chest at ({x}, {y})");
             return;
         }
-        var box = new Box(player.TakeObjectId(), type, x, y, 0, null, info.OwnModel ? null : info.Model, member.WarHoard, false);
+        var box = new Box(player.TakeObjectId(), type, x, y, 0, null, info.OwnModel ? null : info.Model, member.WarHoard, false, member.Rewards,
+            e.Plan is { } fp && member.Faction < fp.Factions.Length ? fp.Factions[member.Faction].Faction : -1);
         lock (e) { e.Boxes = [.. e.Boxes ?? [], box]; Keep(player, e); }
         if (await ShowBox(player, box, info))
             foreach (var p in Members(player)) BlockBox(p, box, info);
