@@ -17,8 +17,11 @@ public static class MonsterSurround
     public readonly record struct Asker(uint Id, int X, int Y, int Size, (int X, int Y)? Last,
         double Reach = double.PositiveInfinity, bool Ranged = false);
 
-    // Assign's refused cells, reused by each thread's next assignment (it is not reentrant).
+    // Assign's scratch buffers, reused by each thread's next assignment (it is not reentrant). Reusing BlockerSet
+    // avoids allocating a 512 KB LOH grid array on every monster AI pass (which caused 500-750 ms Gen-2 GC pauses).
     [ThreadStatic] static HashSet<(int X, int Y, int Size)>? t_refused;
+    [ThreadStatic] static BlockerSet? t_taken;
+    [ThreadStatic] static List<ClientPathfinder.Blocker>? t_occupied;
 
     /// <summary>How many rings out a monster may be placed before it simply aims at the player.</summary>
     const int Rings = 6;
@@ -40,7 +43,11 @@ public static class MonsterSurround
         int centreSize = LivingCollision.PlayerSize)
     {
         // Inflate reservations by one: threshold size+1 then preserves the existing size+size+2 separation.
-        var taken = new BlockerSet(occupied.Select(p => new ClientPathfinder.Blocker(p.X, p.Y, p.Size + 1)));
+        var occupiedList = t_occupied ??= [];
+        occupiedList.Clear();
+        foreach (var p in occupied) occupiedList.Add(new ClientPathfinder.Blocker(p.X, p.Y, p.Size + 1));
+        var taken = t_taken ??= new BlockerSet();
+        taken.Reset(occupiedList);
         var ordered = askers.ToArray();
         Array.Sort(ordered, (a, b) =>
         {

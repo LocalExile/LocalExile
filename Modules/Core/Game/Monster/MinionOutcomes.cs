@@ -111,7 +111,7 @@ public static partial class Game
             var mapMods = MapModsOf(player);
             drops.AddRange(DropsFor(player).Roll(monster.Level, monster.Rarity, AreaRng(player), IncreasedItemRarity(player, monster),
                 balance.ItemDropMultiplier * (modded?.Quantity ?? 1) * ItemQuantityFactor(player, monster),
-                balance.EquipmentRarityMultiplier * (modded?.Rarity ?? 1), mapTier, mapMods, MapScarabQuantity(mapMods)));
+                balance.EquipmentRarityMultiplier * (modded?.Rarity ?? 1), mapTier, mapMods, MapScarabQuantity(mapMods), modded?.Weights));
             drops.AddRange(PartyCurrency(player, drops, AreaRng(player)));
             if (RollMapDropForKill(player, monster.Level, monster.Rarity, mapTier, AreaRng(player), modded?.MapRelated ?? 1) is { } map) drops.Add(map);
             if (DropsFor(player).Gold(monster.Level, monster.Rarity, AreaRng(player),
@@ -260,6 +260,9 @@ public static partial class Game
                     PlayerMinions.OutputKind.Flinch => output.Target is { Dead: false } m && m.ActionGeneration == output.Action
                         && output.Until > AreaTime(player) ? TakeHitPacket(player, output.TargetId!.Value, m, output.Until,
                             AreaTime(player)) : null,
+                    PlayerMinions.OutputKind.Packet when output.Packet.Length == 0 && output.At is { } moveTo
+                        && output.Target is { } mover && output.TargetId is uint moverId
+                        => GolemMoveAtGate(player, moverId, mover, moveTo),
                     _ => output.Packet,
                 };
             }

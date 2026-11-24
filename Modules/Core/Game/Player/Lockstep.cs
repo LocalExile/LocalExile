@@ -19,13 +19,18 @@ public static partial class Game
     // swing comes with u8 3, and is served like any other.
     public static void OnLockstepRequest(Player player, ushort id, byte[] bytes)
     {
-        var here = LockstepClientCell(player, AreaTime(player));
+        var here = LockstepClientCell(player, player.Connection.LockstepFrame?.End ?? AreaTime(player));
         if (id == InstanceProtocol.LockstepMoveStartId)
         {
             var click = InstanceProtocol.ReadLockstepMoveStart(bytes);
+            // An object interaction owns this press. A ground pickup releases it once the item is gone.
+            bool move = SkillsFor(player).ActionName(click.SkillId) == "Move";
+            if (move && (click.Flags & InstanceTransfer.InitialPressFlag) == 0 && player.LockstepInteractionTarget is uint used
+                && !player.Instance.Ground.WasTaken(used)) return;
+            player.LockstepInteractionTarget = null;
             (int X, int Y) aim = (here.X + click.Dx, here.Y + click.Dy);
             player.LockstepUse = null;
-            if (SkillsFor(player).ActionName(click.SkillId) == "Move")
+            if (move)
             {
                 player.LockstepSkill.Clear(finishChannel: true);
                 player.LockstepHold.Press(aim, click.SkillId, click.Flags, (click.Dx, click.Dy));
@@ -66,16 +71,34 @@ public static partial class Game
         else if (id == InstanceProtocol.LockstepUseOnObjectId)
         {
             var (target, skill, flags, _) = InstanceProtocol.ReadLockstepUseOnObject(bytes);
+            if (skill == 0x266 && (flags & InstanceTransfer.InitialPressFlag) == 0)
+                lock (player.Npcs)
+                    if (player.Npcs.ContainsKey(target)) return;
+            player.LockstepInteractionTarget = null;
             player.LockstepHold.Clear();
             player.LockstepSkill.Clear(finishChannel: true);
             if (SkillsFor(player).IsGemSkill(skill) || skill == SkillCatalog.FirstSkillId)
             {
-                var aim = player.Area.Monsters.TryGetValue(target, out var m) ? m.Walk.Position(AreaTime(player)) : here;
+                var m = player.Area.Monsters.GetValueOrDefault(target);
+                if (m is not { Hostile: true, Dead: false, OwnerId: null } && GroundPlaceableGemSkill(player, skill))
+                {
+                    if (ResolveObjectAimCell(player, target, m, AreaTime(player)) is { } cell)
+                        player.LockstepSkill.Press(cell, null, skill, flags, target != player.Id && LockstepRepeats(player, skill));
+                    return;
+                }
+                var aim = m?.Walk.Position(AreaTime(player)) ?? here;
                 player.LockstepSkill.Press(aim, target, skill, flags, target != player.Id && LockstepRepeats(player, skill));
             }
             else
             {
                 player.LockstepUse = new(target, skill, 0, flags);
+                if (skill == 0x266)
+                {
+                    bool npc;
+                    lock (player.Npcs) npc = player.Npcs.ContainsKey(target);
+                    if (npc || player.Instance.Ground.Get(target) is not null)
+                        player.LockstepInteractionTarget = target;
+                }
             }
         }
     }
@@ -293,12 +316,28 @@ public static partial class Game
         return LockstepTakesMove(here, target) ? player.Walk.Order(target.X, target.Y, at) : null;
     }
 
+    static readonly double LockstepHoldLookaheadSeconds = FrameMs / 1000.0 + 0.005;
+
+    static bool LockstepHeldDirection((int Dx, int Dy) off) => (long)off.Dx * off.Dx + (long)off.Dy * off.Dy >= 4;
+
+    static (int X, int Y) ExtendCloseHeldMove(Player player, (int X, int Y) here, (int Dx, int Dy) off)
+    {
+        // A 2-4 cell target finishes in 50-100 ms (faster than the 69-99 ms 0x0192 cadence) and would either stall on
+        // the client or trigger 33 ms 0x01ab integer-cell snaps. Scale close held offsets along their exact direction
+        // to ~140 ms of travel (~5-6 cells at base speed) so walks stay smooth at the normal 0x0192 cadence.
+        double dist = Math.Sqrt((long)off.Dx * off.Dx + (long)off.Dy * off.Dy);
+        double minDist = Math.Clamp(player.Walk.Speed * 0.14, 5.0, 12.0);
+        if (dist >= minDist) return (here.X + off.Dx, here.Y + off.Dy);
+        double scale = minDist / dist;
+        return (here.X + (int)Math.Round(off.Dx * scale), here.Y + (int)Math.Round(off.Dy * scale));
+    }
+
     /// <summary>
-    /// Chooses the lockstep Move target due at <paramref name="frameStart"/>. When the move button is held close to
-    /// the character, <see cref="LockstepClientCell"/> lags behind <see cref="Player.Walk"/> by RTT + 2 frames, which
-    /// could put <c>clientCell + offset</c> within 2 cells of (or behind) the character or let the short walk finish
-    /// and stop dead before the next 0x192 arrives. Projecting the held cursor offset from <c>here</c> whenever the
-    /// lagged cell falls short or the walk would finish within two frames keeps close-range held movement continuous.
+    /// Chooses the lockstep Move target due at <paramref name="frameStart"/>. While held, stops cleanly on the
+    /// character's feet (<c>|offset| &lt; 2</c>), extends very close offsets along their exact direction so walks last
+    /// across the 69–99 ms <c>0x0192</c> cadence without 33 ms integer-cell snaps or stutters, projects forward when
+    /// lagged <see cref="LockstepClientCell"/> lands shorter than <c>|offset|</c> or behind <c>here</c>, and extends
+    /// within 1 frame of arrival if <c>0x0192</c> is delayed.
     /// </summary>
     public static (int X, int Y)? LockstepMoveDue(Player player, double frameStart)
     {
@@ -306,15 +345,30 @@ public static partial class Game
         bool walking = player.Walk.Moving(frameStart);
         if (player.LockstepHold.Due(walking, here) is { } due)
         {
-            if (LockstepTakesMove(here, due)) return due;
-            if (player.LockstepHold.Held && player.LockstepHold.Offset is { } off && LockstepTakesMove((0, 0), off))
-                return (here.X + off.Dx, here.Y + off.Dy);
-            return null;
+            if (player.LockstepHold.Held && player.LockstepHold.Offset is { } off)
+            {
+                if (!LockstepHeldDirection(off)) return null;
+                double minDist = Math.Clamp(player.Walk.Speed * 0.14, 5.0, 12.0);
+                long dx = due.X - here.X, dy = due.Y - here.Y;
+                long dot = dx * off.Dx + dy * off.Dy;
+                long dueDist2 = dx * dx + dy * dy;
+                long offDist2 = (long)off.Dx * off.Dx + (long)off.Dy * off.Dy;
+                if (dot > 0 && LockstepTakesMove(here, due) && dueDist2 >= offDist2 && dueDist2 >= minDist * minDist)
+                    return due;
+                var projected = ExtendCloseHeldMove(player, here, off);
+                player.LockstepHold.SetTarget(projected);
+                return projected;
+            }
+            return LockstepTakesMove(here, due) ? due : null;
         }
-        if (player.LockstepHold.Held && player.LockstepHold.Offset is { } heldOffset
-            && LockstepTakesMove((0, 0), heldOffset)
-            && !player.Walk.Moving(frameStart + 2d * FrameMs / 1000d))
-            return (here.X + heldOffset.Dx, here.Y + heldOffset.Dy);
+        if (walking && player.LockstepHold.Held && player.LockstepHold.Offset is { } heldOff
+            && LockstepHeldDirection(heldOff)
+            && player.Walk.ArrivesAt - frameStart <= LockstepHoldLookaheadSeconds)
+        {
+            var projected = ExtendCloseHeldMove(player, here, heldOff);
+            player.LockstepHold.SetTarget(projected);
+            return projected;
+        }
         return null;
     }
 
