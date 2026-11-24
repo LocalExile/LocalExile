@@ -2801,6 +2801,10 @@ public static partial class Game
         if (outcome is not null) MapEssences.MiseryOnAttack(player, m, player);
     }
 
+    static int DamageTakenFromMonster(SpawnedMonster? monster, IReadOnlyDictionary<uint, int> stats) =>
+        stats.GetValueOrDefault(Stat.DamageTakenPlusPctFromSkeletons) is int skeletons and not 0
+        && monster?.Variety is { } variety && MonsterModRolls.HasVarietyTag(variety.Row, "skeleton") ? skeletons : 0;
+
     /// <summary>The monster hit packet's flags: generic particles (0x4000), main hand (0x0200) and blood (0x0001) always,
     /// 0x0040 for a blocked hit and 0x0020 for a critical strike (action-hit-packet-3.29.3b.md §2).</summary>
     public static ushort MonsterHitFlags(bool blocked, bool critical) =>
@@ -2907,7 +2911,7 @@ public static partial class Game
         int rawDamage = (int)Math.Round(taken[DamageType.Physical].Min);
         int damage = 0, chaosDamage = 0, physicalDamage = 0;
         var ailmentTaken = DamagePacket.Empty;
-        int blindedPct = DamageTakenFromBlindedPct(player, id, stats);
+        int sourceTakenPct = DamageTakenFromBlindedPct(player, id, stats) + DamageTakenFromMonster(m, stats);
         double reservationFactor = ReservationHitTakenFactor(player, m, now);
         foreach (var (type, range) in mitigated.Components)
         {
@@ -2923,7 +2927,7 @@ public static partial class Game
             if (type == DamageType.Physical)
                 value = AntiquarianEffects.RangedPhysical(value, a.Ranged, StatOf);
             value = (int)Math.Round(value * player.ElementalAilments.DamageTakenFactor(now,
-                    blindedPct + PlayerDamageTaken.IncreasedPct(type, melee: !a.Ranged && attackHit, StatOf, spell: spellHit))
+                    sourceTakenPct + PlayerDamageTaken.IncreasedPct(type, melee: !a.Ranged && attackHit, StatOf, spell: spellHit))
                 * reservationFactor * ReservationTypedHitTakenFactor(player, type, now)
                 * (blocked ? PlayerDamageTaken.BlockedPct(type, StatOf) / 100.0 : 1));
             // Suppression prevents calculated damage. Armour must see the unsuppressed hit, and flat taken damage
