@@ -454,9 +454,11 @@ public static partial class Game
             if (area ? Dist(m.Walk.Position(now), centre) > a.Radius + LivingCollision.Size(m)
                 : id != action.Target || Dist(m.Walk.Position(now), at) > a.Attack.Range + LivingCollision.Size(m) + 2) continue;
             bool landed = GolemHitLocked(player, g, a, id, m, now);
+            if (!landed || area || !MinionMelee(player, a)) continue;
+            int? animatedSplash = AnimatedMinionSplashPenalty(g);
             int SplashStat(uint n) => g.Monster.Mods.Effects[n] + GolemStat(a.Stats, n);
-            if (landed && !area && MinionMelee(player, a) && MinionSupportMatches(a.Effect, "SupportMeleeSplash")
-                && MeleeSplash.Settings(SplashStat) is { } splash)
+            if ((animatedSplash is not null || MinionSupportMatches(a.Effect, "SupportMeleeSplash"))
+                && MeleeSplash.Settings(SplashStat, animatedSplash) is { } splash)
             {
                 var splashAt = m.Walk.Position(now);
                 var spread = MinionDamageScale(a, splash.More, splash.More);

@@ -11,6 +11,11 @@ public static partial class Game
         GolemState.Golem Guardian, Item Weapon, (int X, int Y) Position, int Epoch);
     static readonly RuleTable<Player, Queue<GuardianWeaponSummon>> PendingGuardianWeapons = new();
 
+    static int? AnimatedMinionSplashPenalty(GolemState.Golem fighter) =>
+        fighter.Definition.Kind is "AnimatedGuardian" or "AnimatedWeapon" or "VaalAnimatedWeapon"
+        && GolemStat(fighter.Player, Stat.AnimatedMinionsMeleeSplash) != 0
+            ? GolemStat(fighter.Player, Stat.GrantAnimatedMinionMeleeSplashDamagePlusPctFinalForSplash) : null;
+
     static void QueueGuardianWeaponOnKillLocked(Player player, GolemState.Golem killer, (int X, int Y) position, double now)
     {
         var kind = killer.Definition.Kind;
