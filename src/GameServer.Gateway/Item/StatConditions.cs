@@ -158,11 +158,15 @@ public static class StatConditions
     static bool EndsWithCondition(string id, string condition) => id.EndsWith(condition, StringComparison.Ordinal)
         || TrailingUnits.Any(unit => id.EndsWith(condition + unit, StringComparison.Ordinal));
 
-    static string? StateSuffix(string statId) =>
-        // These flags change how leech behaves at full ES; they are active below full ES as well.
+    static bool IsRecipientRule(string statId) =>
+        // Resource and ailment rules consume these flags at the point where they apply.
         statId is "energy_shield_leech_does_not_stop_on_full_energy_shield"
             or "energy_shield_leech_from_attacks_does_not_stop_on_full_energy_shield"
-            ? null : StateSuffixes.FirstOrDefault(s => EndsWithCondition(statId, s));
+            or "minion_chance_to_deal_double_damage_while_on_full_life_%"
+            or "minion_no_extra_bleed_damage_while_moving";
+
+    static string? StateSuffix(string statId) =>
+        IsRecipientRule(statId) ? null : StateSuffixes.FirstOrDefault(s => EndsWithCondition(statId, s));
 
     /// <summary>The plain stat a conditional id names: <c>spell_damage_+%_while_dual_wielding</c> →
     /// <c>spell_damage_+%</c>, and <c>damage_+%_if_you_have_frozen_enemy_recently</c> → <c>damage_+%</c>. Null when the
@@ -184,6 +188,7 @@ public static class StatConditions
 
     static (int At, string Suffix)? TrailingNamedState(string id)
     {
+        if (IsRecipientRule(id)) return null;
         int at = Math.Max(id.LastIndexOf("_if_", StringComparison.Ordinal), id.LastIndexOf("_while_", StringComparison.Ordinal));
         if (at < 0) return null;
         string suffix = id[at..];

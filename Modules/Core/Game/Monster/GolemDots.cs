@@ -20,12 +20,18 @@ public static partial class Game
                 && Player(Stat.ElementalGolemImmunityToElementalDamage) > 0);
     }
 
-    /// <summary>The invulnerable reservation families reject every contact and every owned damaging ailment.</summary>
+    /// <summary>Undamageable owned actors reject enemy hits and damaging ailments.</summary>
     public static bool GolemIgnoresDots(GolemState.Golem golem) =>
-        !golem.Definition.IsGolem && golem.Definition.Kind is "Agony" or "SkitterCold" or "SkitterLightning";
+        golem.Monster.Invulnerable || !golem.Definition.IsGolem && golem.Definition.Kind is "Agony" or "SkitterCold" or "SkitterLightning";
 
     static bool GolemHasDots(GolemState.Golem golem) =>
         !golem.Monster.Ignites.Idle || !golem.Monster.Bleeds.Idle || !golem.Monster.Poisons.Idle;
+
+    static double GolemMeatShieldDamageFactor(GolemState.Golem golem) =>
+        Math.Max(0, 1 + GolemStat(golem.Own, Stat.SupportMinionDefensiveStanceMinionDamageTakenPlusPctFinal) / 100d);
+
+    static double GolemElementalReductionFactor(MonsterModEffects effects) =>
+        (100 - Math.Clamp(effects[Stat.AdditionalElementalDamageReductionPct], 0, DamageModel.DamageReductionCap)) / 100d;
 
     static void QueueGolemDotPacket(Player player, GolemState.Golem golem, byte[] packet, string? log = null) =>
         player.Minions.OutputQueue.Add(new(packet, log, golem.Id, golem.Monster, WorldId: golem.Id));
@@ -37,22 +43,29 @@ public static partial class Game
         var m = golem.Monster;
         if (!(to > from) || !GolemCurrent(player, golem) || m.Dead || m.Life == 0) return;
         bool elementalImmune = GolemElementalImmune(golem);
-        bool ignoresDots = GolemIgnoresDots(golem);
-        double fireFactor = elementalImmune || ignoresDots ? 0 : MonsterDotTaken(m, DamageType.Fire, to);
-        int fire = m.Ignites.Advance(to, fireFactor, 0, out double? fireAt);
+        bool ignoresDots = GolemIgnoresDots(golem) || m.Effects[Stat.BaseCannotBeDamaged] != 0;
+        double supportReduction = GolemMeatShieldDamageFactor(golem) * CompanionshipDamageTaken(player, golem, to);
+        double linkDamageTaken = MinionLinkDamageTaken(player, golem, Math.BitDecrement(to));
+        double fireFactor = elementalImmune || ignoresDots ? 0
+            : MonsterDotTaken(m, DamageType.Fire, to) * GolemElementalReductionFactor(m.Effects) * linkDamageTaken;
+        int fire = m.Ignites.Advance(to, fireFactor * supportReduction, 0, out double? fireAt);
         int legion = InfernalLegionSelfDamage(golem, to - from, fireFactor);
-        int blessing = ignoresDots ? 0 : GuardianBlessingMinionDamage(player, golem, from, to);
-        int bleed = m.Bleeds.Advance(to, ignoresDots ? 0 : BleedTaken(m, to),
-            ignoresDots ? 0 : AggravatedExtra(m, to), out double? bleedAt);
-        int poison = m.Poisons.Advance(to, ignoresDots ? 0 : MonsterDotTaken(m, DamageType.Chaos, to),
-            out double? poisonAt);
+        int blessing = ignoresDots ? 0 : (int)(GuardianBlessingMinionDamage(player, golem, from, to) * linkDamageTaken);
+        double bleedFactor = ignoresDots ? 0
+            : BleedTaken(m, to, m.Effects[Stat.NoExtraBleedDamageWhileMoving] != 0) * supportReduction * linkDamageTaken
+                * (100 - m.Effects.PhysicalReduction) / 100d;
+        int bleed = m.Bleeds.Advance(to, bleedFactor,
+            ignoresDots ? 0 : AggravatedExtra(m, to) * linkDamageTaken, out double? bleedAt);
+        double chaosFactor = ignoresDots ? 0 : MonsterDotTaken(m, DamageType.Chaos, to) * supportReduction * linkDamageTaken;
+        int poison = m.Poisons.Advance(to, chaosFactor, out double? poisonAt);
+        int whispers = MinionWhispersDamageLocked(player, golem, from, to, chaosFactor);
         if (ignoresDots) fire = bleed = poison = 0;
 
         double? lastDamageAt = null;
         foreach (double? at in new[] { fireAt, bleedAt, poisonAt })
             if (at is double value && (lastDamageAt is not double last || value > last))
                 lastDamageAt = value;
-        if (legion > 0 || blessing > 0) lastDamageAt = to;
+        if (legion > 0 || blessing > 0 || whispers > 0) lastDamageAt = to;
         if (lastDamageAt is double endpoint) golem.ShieldPool.Interrupt(endpoint);
 
         long lifeDamage = 0;
@@ -60,8 +73,8 @@ public static partial class Game
         if (legion > 0) lifeDamage += golem.ShieldPool.Damage(legion, bypass: false, to);
         if (blessing > 0) lifeDamage += golem.ShieldPool.Damage(blessing, bypass: false, to);
         if (bleed > 0) lifeDamage += golem.ShieldPool.Damage(bleed, bypass: false, lastDamageAt!.Value);
-        if (poison > 0)
-            lifeDamage += golem.ShieldPool.Damage(poison,
+        if (poison > 0 || whispers > 0)
+            lifeDamage += golem.ShieldPool.Damage(ActorScale.Saturate((long)poison + whispers),
                 m.Mods.Effects[Stat.ChaosDamageDoesNotBypassEnergyShield] == 0, lastDamageAt!.Value);
 
         if (lifeDamage > 0)
@@ -121,7 +134,7 @@ public static partial class Game
     /// <summary>Admits hostile bleed and poison from an accepted contact's real source effects onto the golem's own
     /// monster ailment sets, using the player pipeline's frozen chance, damage and duration contract.</summary>
     public static void GolemHostileAilmentsLocked(Player player, GolemState.Golem golem, uint attacker,
-        SpawnedMonster source, DamagePacket rolled, bool critical, bool attack, double now)
+        SpawnedMonster source, DamagePacket rolled, bool critical, bool attack, double now, double damagingAilmentFactor = 1)
     {
         var target = golem.Monster;
         var effects = source.Mods.Effects;
@@ -130,6 +143,7 @@ public static partial class Game
         // The hit roll carries the monster's 1.3 critical multiplier; ailments use their own ordinary 50%-more critical
         // DoT row, so remove only that hit multiplier before deriving their bases.
         var baseHit = critical ? rolled.Scale(1 / 1.3) : rolled;
+        if (damagingAilmentFactor != 1) baseHit = baseHit.Scale(damagingAilmentFactor);
         double physical = baseHit[DamageType.Physical].Min;
         double chaos = baseHit[DamageType.Chaos].Min;
         bool elementalImmune = GolemElementalImmune(golem);

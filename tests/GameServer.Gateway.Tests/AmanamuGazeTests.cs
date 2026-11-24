@@ -31,7 +31,7 @@ public sealed class AmanamuGazeTests
             var attacks = Game.GolemAbilities(player, variety, 70, actor, stats);
             var attack = attacks.First(a => Program.Skills.IsMelee(a.Effect) && a.Attack.Damage.MaxTotal > 0);
             var enemy = new SpawnedMonster("target", new(105, 100, 0), 100, 3, 100000) { Hostile = true };
-            applyAilment.Invoke(null, [player, actor, attack, 998u, enemy, false, 1d]);
+            applyAilment.Invoke(null, [player, actor, attack, actor.Own, 998u, enemy, false, 1d, 1d, false, 0]);
             return (attack.Attack.Damage.MaxTotal, enemy.Poisons.TotalDps(1));
         }
 

@@ -7,16 +7,17 @@ public static class MeleeSplash
 {
     public const int BaseRadius = 14;
 
-    /// <summary>The splash radius and damage multiplier, or null when the skill has no splash
-    /// (neither Melee Splash Support nor an active Mightblood Ire tincture).</summary>
-    public static (int Radius, double More)? Settings(Func<uint, int> get)
+    /// <summary>The splash radius and damage multiplier when a support or tincture grants splash.</summary>
+    public static (int Radius, double More)? Settings(Func<uint, int> get) => Settings(get, null);
+
+    internal static (int Radius, double More)? Settings(Func<uint, int> get, int? inherentDamagePct)
     {
         int damage = get(Stat.SupportMeleeSplashDamagePlusPctFinalForSplash);
         bool tinctureSplash = damage == 0 && get(Stat.MeleeSplashWithTincturedWeapons) != 0 && get(Stat.TinctureApplied) != 0;
-        if (damage == 0 && !tinctureSplash) return null;
+        if (damage == 0 && !tinctureSplash && inherentDamagePct is null) return null;
         double area = Math.Max(0, 1 + (get(Stat.MeleeSplashAreaOfEffectPlusPctFinal)
             + (tinctureSplash ? get(Stat.MeleeSplashAreaOfEffectPlusPct) : 0)) / 100.0);
         int radius = (int)Math.Floor(BaseRadius * Math.Sqrt(SkillArea.Modifier(get, spell: false) * area));
-        return (radius, tinctureSplash ? 1.0 : Math.Max(0, 1 + damage / 100.0));
+        return (radius, Math.Max(0, 1 + damage / 100d) * Math.Max(0, 1 + (inherentDamagePct ?? 0) / 100d));
     }
 }

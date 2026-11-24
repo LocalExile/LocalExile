@@ -141,4 +141,20 @@ public sealed class RecoveryKeystoneTests
         leech.Configure(3.2, LeechLimits.Resolve(GetPlain, 1000, 400, 300), GetPlain);
         Assert.Equal(0, leech.TakeRecovery(3.2).EnergyShield, 6);
     }
+
+    [Fact]
+    public void Full_life_preserves_vampiric_link_leech_with_immortal_ambition()
+    {
+        var leech = new LeechSession();
+        int Get(uint key) => key == Stat.KeystoneSoulTether ? 1 : 0;
+        leech.Configure(0, LeechLimits.Resolve(Get, 1000, 400, 300), Get);
+        leech.SetLifeRecoveryRedirected(0, true);
+        leech.Hit(0, (100, 0, 0), lifeFull: true, manaFull: true, shieldFull: false);
+
+        leech.ClearFull(1, life: true, mana: true, shield: false);
+        var recovery = leech.TakeRecovery(1);
+
+        Assert.Equal(20, recovery.Life, 6);
+        Assert.Equal(0, recovery.EnergyShield, 6);
+    }
 }
