@@ -114,7 +114,8 @@ public static partial class Game
         if (detonating.Count == 0) return;
 
         var caster = TotemCasterStats(ownerStats);
-        double at = ProjectileWorldTime(player);
+        // A placement can finish between projectile ticks. Its burn starts no earlier than the placement.
+        double at = Math.Max(now, ProjectileWorldTime(player));
         foreach (var (totem, source) in detonating)
         {
             int Own(uint key) => source.Stats.GetValueOrDefault(key);
