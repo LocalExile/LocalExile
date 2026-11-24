@@ -119,7 +119,8 @@ public static partial class Game
             ? source.SkillStats : null;
         CommitMinionHitLocked(player, contact.Target.Id, target, hit, accepted.Damage, now,
             $"minion 0x{shot.MinionId:x} ({shot.Monster.Label})", source: shot.Monster, skill: skill,
-            fighter: hit.Life == 0 ? OwnedFighter(player, shot.MinionId) : null);
+            fighter: hit.Life == 0 || player.Links.On(shot.MinionId) is { EffectId: "IntuitiveLink" }
+                ? OwnedFighter(player, shot.MinionId) : null);
         session.Enqueue(() => PublishMinionOutcomesFor(player,
             CombatLifetime));
         return ProjectileHitResult.Hit;

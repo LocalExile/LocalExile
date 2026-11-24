@@ -9,12 +9,14 @@ public static partial class Game
     // Call in the admitted contact transaction, before any network await. There is no deferred Game kill closure.
     static void CommitMinionHitLocked(Player player, uint id, SpawnedMonster monster, MonsterHit hit, int damage,
         double now, string by, StunHit? stun = null, SpawnedMonster? source = null, IReadOnlyDictionary<uint, int>? skill = null,
-        GolemState.Golem? fighter = null)
+        GolemState.Golem? fighter = null, bool damageOverTime = false)
     {
         OwnedKillLocked(monster, hit.Life);
         if (hit.Life == 0 && monster.Hostile && fighter is not null && ReferenceEquals(source, fighter.Monster))
             MinionOnslaughtOnKillLocked(player, fighter, now);
         CommitAcceptedHitLocked(player, id, monster, hit, damage, now, by, playerKill: false, stun: stun);
+        if (!damageOverTime && monster.Hostile && fighter is not null && ReferenceEquals(source, fighter.Monster))
+            ReleaseIntuitiveLinkLocked(player, fighter, monster.Walk.Position(now), now);
         if (hit.Life == 0 && source is not null) ResolveCursedMinionKillLocked(player, id, monster, source, skill, now);
     }
 

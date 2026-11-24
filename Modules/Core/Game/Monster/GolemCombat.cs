@@ -725,7 +725,7 @@ public static partial class Game
                 if (damage <= 0 || ApplyMonsterHitLocked(player, m, damage, allyAt: centre) is not { } hit) continue;
                 if (hit.StageStarts) { CommitBossStage(player, id, m, now); hit = hit with { StageStarts = false }; }
                 CommitMinionHitLocked(player, id, m, hit, damage, now, $"golem {g.Id:x} ground damage",
-                    source: g.Monster, skill: g.Own, fighter: g);
+                    source: g.Monster, skill: g.Own, fighter: g, damageOverTime: true);
             }
             if (now >= hazard.Until)
             {

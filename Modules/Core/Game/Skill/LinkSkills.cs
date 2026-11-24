@@ -65,6 +65,7 @@ public static partial class Game
             SourceBuff = player.NextBuff++, TargetBuff = player.NextBuff++, SourceRow = rows.Source, TargetRow = rows.Target,
         };
         player.Links.Add(link);
+        if (effectId == "IntuitiveLink") CaptureIntuitiveLink(player, link, gem);
         player.Area.Buffs.Set(player.Id, new(rows.Source, player.Id, skillId, U68: Buff.Seconds(seconds), Tag: link.SourceBuff));
         player.Area.Buffs.Set(target, new(rows.Target, player.Id, skillId, U68: Buff.Seconds(seconds), Tag: link.TargetBuff));
         LinksChangedLocked(player);
