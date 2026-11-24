@@ -243,20 +243,24 @@ public static partial class Game
         while (!player.Closed && AreaTime(player) < until) await AreaDelay(player, 0.016);
     }
 
-    // Resurrect at Checkpoint uses one 0x00cb FadeMove(0.35 s): the client darkens to full black over 0.28 s (0.8 * s),
-    // holds pitch black until 0.70 s (2 * s), and clears over 0.56 s (1.6 * s). Waiting 0.45 s guarantees full blackout
-    // plus a ~170 ms black pause before reviving and teleporting, with ~250 ms of blackout left for camera/wake settle
-    // before the fade-out begins.
-    const float ResurrectFadeSeconds = 0.35f;
-    const double ResurrectBlackHoldSeconds = 0.45;
+    // Resurrect at Checkpoint sends two 0x00cb FadeMove messages (with 0x0055 hide death screen in the same write):
+    // the second replaces FadeToBlack's duration (0.8 * 0.66 = 0.528 s) while the first fires FadeFromBlack
+    // (1.6 * 0.25 = 0.40 s) at 2 * 0.25 = 0.50 s. Because 0.528 s > 0.50 s, FadeController+0x24 (checked by
+    // DrawMiniLifeBars at 0x140222829) never drops to 0 between fade-in and fade-out, preventing the local player's
+    // overhead healthbar from flickering over the black screen. The client skips the move body in 0x14218b898, so
+    // the second entry's later expiry is a no-op.
+    const float ResurrectMoveSeconds = 0.25f, ResurrectDarkenSeconds = 0.66f;
+    const double ResurrectReviveDelaySeconds = 0.46;
 
-    /// <summary>Darkens the screen to full black and pauses briefly before reviving and teleporting on checkpoint
-    /// resurrection, leaving time behind full black before the client's fade-out animation begins.</summary>
+    /// <summary>Hides the death screen and darkens continuously into the fade-out without letting FadeController+0x24
+    /// drop to zero between darken and clear, waiting until the screen is dark before reviving and teleporting.</summary>
     public static async Task SendResurrectFade(Player player, (int X, int Y) to)
     {
-        await Send(player, InstanceProtocol.FadeMove(player.Id, to.X, to.Y, ResurrectFadeSeconds),
-            $"0x00cb resurrect fade to ({to.X}, {to.Y}), {ResurrectFadeSeconds} s");
-        double until = AreaTime(player) + ResurrectBlackHoldSeconds;
+        await Send(player, [.. InstanceProtocol.DeathScreen(0x02),
+                .. InstanceProtocol.FadeMove(player.Id, to.X, to.Y, ResurrectMoveSeconds),
+                .. InstanceProtocol.FadeMove(player.Id, to.X, to.Y, ResurrectDarkenSeconds)],
+            $"0x0055 hide death screen + 0x00cb resurrect fade to ({to.X}, {to.Y}), {ResurrectMoveSeconds} s and {ResurrectDarkenSeconds} s");
+        double until = AreaTime(player) + ResurrectReviveDelaySeconds;
         while (!player.Closed && AreaTime(player) < until) await AreaDelay(player, 0.016);
     }
 

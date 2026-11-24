@@ -1535,9 +1535,9 @@ public static partial class Game
             LeechOf(player).Clear(AreaTime(player));
             foreach (var m in player.Area.Monsters.Values) m.Aggro = false;
             Console.WriteLine($"[gateway] {player.Connection.Remote} <= 0x0054 resurrect {(inTown ? "in town" : "at checkpoint")}");
-            await Send(player, InstanceProtocol.DeathScreen(0x02), "0x0055 hide the death screen");
             if (inTown && player.Character.LastTown != 0 && player.Layout.Hash != player.Character.LastTown)
             {
+                await Send(player, InstanceProtocol.DeathScreen(0x02), "0x0055 hide the death screen");
                 RestorePlayerOnResurrect(player);
                 await GainFlaskCharges(player, int.MaxValue, "resurrected");
                 // The new area's player object is created with full life.
@@ -1547,6 +1547,7 @@ public static partial class Game
             }
             if (!inTown && MapCheckpointExit(player) is { } exit)
             {
+                await Send(player, InstanceProtocol.DeathScreen(0x02), "0x0055 hide the death screen");
                 RestorePlayerOnResurrect(player);
                 await GainFlaskCharges(player, int.MaxValue, "resurrected");
                 // The area the map was entered from is remade on the next entry (a town or a hideout) and an empty instance is
@@ -1567,9 +1568,8 @@ public static partial class Game
             lock (player.Character.Waypoints)
                 activated = WaypointCatalog.Areas.Find(player.Layout.Hash) is { } entry && player.Character.Waypoints.Contains(entry.Id);
             var (x, y) = player.Layout.Checkpoint(activated);
-            // Darken to full black and pause briefly (while the player is still dead on the ground), then revive and
-            // teleport behind the black screen before the client's fade-out animation begins.
-            double fadeStart = AreaTime(player);
+            // Hide the death screen and start the continuous blackout in one write while still dead, then revive and
+            // teleport behind black right before FadeFromBlack starts so FadeController+0x24 never hits 0 mid-fade.
             await SendResurrectFade(player, (x, y));
             if (player.Closed || player.LeavingArea) return;
             RestorePlayerOnResurrect(player);
@@ -1579,20 +1579,13 @@ public static partial class Game
             // Revive first: a teleport sent while the player is dead left them where they died (live 2026-10-17).
             Note($"0x01b1 player revived with {player.PlayerLife} life");
             await SendPlayerMana(player, $"0x01b1 player mana {player.PlayerMana}");
+            SetStats(player, player.Id, [(Stat.HideMiniLifeBar, 0)]); Note("0x01b3 player hide_mini_life_bar = 0");
             // Death may have published false full-pool conditions while the player ticker kept its pre-death chance.
             // Publish the restored life/ES conditions explicitly even when that cached chance is unchanged.
             await SendCharacterStats(player, PlayerStatChange.Panel);
             await SendWorldRecord(player, player.Id, InstanceProtocol.Teleport(player.Id, x, y),
                 $"0x01b7 player to the checkpoint ({x}, {y}): {(activated && player.Layout.Waypoint is not null ? "the activated waypoint" : "the arrival point")}");
             await GameEvents.RunResurrected(player);
-            // The overhead mini life bar renders in the 2D HUD above the 3D blackout quad: keep it hidden until the
-            // client's full fade cycle finishes (2 * s black + 1.6 * s clear = 3.6 * s) so it never appears over the
-            // fade or before the restored 0x01b1 life has settled.
-            double fadeEndsAt = fadeStart + 3.6 * ResurrectFadeSeconds;
-            while (!player.Closed && !player.LeavingArea && player.PlayerLife > 0 && AreaTime(player) < fadeEndsAt)
-                await AreaDelay(player, 0.016);
-            if (player.Closed || player.LeavingArea || player.PlayerLife == 0) return;
-            SetStats(player, player.Id, [(Stat.HideMiniLifeBar, 0)]); Note("0x01b3 player hide_mini_life_bar = 0");
         }
         finally { Volatile.Write(ref player.Resurrecting, 0); }
     }
