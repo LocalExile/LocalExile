@@ -58,7 +58,7 @@ public static partial class Game
         }
 
         internal void PlaceToxicPod(ProjectileUse use, ProjectileVector centre, int radius, double duration,
-            double dps, int slow, int cap, string? burst, double? withered)
+            double dps, int slow, int cap, string? burst, double? withered = null)
         {
             long previous = Runtime.Now, end = previous + Math.Max(1, ProjectileRuntime.Time(duration));
             var pod = new ToxicPod(slow, cap, end / (double)ProjectileRuntime.QuantaPerSecond, withered);
