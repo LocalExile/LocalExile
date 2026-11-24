@@ -109,14 +109,19 @@ public static partial class Game
                 && Dist(at, pair.Value.Walk.Position(now)) <= PresenceRadius);
             int chance = wisps.Native.AttackChance + (inPresence ? wisps.Native.PresenceChance : 0);
             ProjectileOffense? copy = null;
-            ProjectileOffense Copy()
+            object?[]? perProjectile = null;
+            Dictionary<uint, int>? caster = null;
+            ProjectileOffense Copy(ProjectileOffense payload)
             {
-                var own = new Dictionary<uint, int>(shot.SkillStats) { [Stat.SkillUsedBySacredWisp] = 1 };
+                var own = new Dictionary<uint, int>(payload.SkillStats) { [Stat.SkillUsedBySacredWisp] = 1 };
                 own.Remove(Stat.SummonLivingLightningOnLightningHit);
-                var caster = new Dictionary<uint, int>(PlayerStatValues(Player));
-                caster.Remove(Stat.KeystoneAncestralBond);
-                caster.Remove(Stat.DealNoDamageYourself);
-                return shot.ScaleDamage(Math.Max(0, 1 + own.GetValueOrDefault(Stat.SkillUsedBySacredWispDamagePlusPctFinal) / 100d)) with
+                if (caster is null)
+                {
+                    caster = new(PlayerStatValues(Player));
+                    caster.Remove(Stat.KeystoneAncestralBond);
+                    caster.Remove(Stat.DealNoDamageYourself);
+                }
+                return payload.ScaleDamage(Math.Max(0, 1 + own.GetValueOrDefault(Stat.SkillUsedBySacredWispDamagePlusPctFinal) / 100d)) with
                 {
                     ActualCaster = caster, ClientPredicted = false, CriticalTrigger = null, MirageSource = null,
                     FirstHit = null, ActionSequence = null, SkillStats = own, TinctureKill = null,
@@ -135,9 +140,9 @@ public static partial class Game
                 Runtime.Release(use with
                 {
                     Seed = ++seed, Emitter = actor, Origin = Vector(from), ReturnAnchor = actor,
-                    Payload = copy ??= Copy(), CanEmit = () => CurrentSacredWisps(wisps) && Runtime.Now < wisps.Expires
+                    Payload = copy ??= Copy(shot), CanEmit = () => CurrentSacredWisps(wisps) && Runtime.Now < wisps.Expires
                         && !body.Dead && ReferenceEquals(Player.Area.Monsters.GetValueOrDefault(id), body),
-                    ProjectilePayloads = use.ProjectilePayloads?.Select(payload => payload is ProjectileOffense offense
+                    ProjectilePayloads = perProjectile ??= use.ProjectilePayloads?.Select(payload => payload is ProjectileOffense offense
                         ? Copy(offense) : payload).ToArray(),
                 });
             }
