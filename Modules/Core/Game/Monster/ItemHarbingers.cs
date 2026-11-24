@@ -138,7 +138,7 @@ public static partial class Game
     {
         ItemHarbingerRecipients.GetOrCreateValue(recipient)[(source, buff.Row)] = buff;
         recipient.Area.Buffs.Set(recipient.Id, new(buff.Row, source, Values: buff.Values, U68: Buff.Seconds(buff.Until - now)));
-        MarkPlayerStats(recipient);
+        MarkPlayerStats(recipient, PlayerStatStep.Sources);
         PresentStats(recipient);
     }
 
@@ -146,7 +146,7 @@ public static partial class Game
     {
         if (!ItemHarbingerRecipients.TryGetValue(recipient, out var buffs) || !buffs.Remove((source, row))) return;
         recipient.Area.Buffs.Clear(recipient.Id, row, source);
-        MarkPlayerStats(recipient);
+        MarkPlayerStats(recipient, PlayerStatStep.Sources);
         PresentStats(recipient);
     }
 
