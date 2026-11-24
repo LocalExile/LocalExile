@@ -11,7 +11,7 @@ public static partial class Game
         SendAntiquarian, SendKillOnslaught, SendSoulEater, SendVaalAuraExpiry, SendRecentEnemyHits,
         SendAvatarOfFire, SendHerEmbrace, SendElusive, SendConditionalItemStats, SendElementalAilmentChanges,
         SendIncomingAilmentChanges, SendLeechBuffs, SendSpreadPoisonRegeneration,
-        SendSupportGemBuffs, SendLifetap, SendPetrifiedBloodLoss,
+        SendSupportGemBuffs, SendLifetap, SendPetrifiedBloodLoss, PresentAlchemistsGenius,
         SendPhysicalAegis, SendUnhinged, SyncPhasing, SendLifeAndManaEndings,
         SendAttackerSlows, SendExpandedInventory, SendQuestItems, SendRage, SendFortification, DrainFlaskTriggers,
         SendConsumedCorpseCharges,

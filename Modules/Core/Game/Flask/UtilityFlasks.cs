@@ -42,8 +42,7 @@ public static partial class Game
             return false;
         }
         int adjacentEffect = AdjacentTinctureFlaskEffect(player, (byte)slot, Get, AreaTime(player));
-        Func<uint, int> flaskCharacter = adjacentEffect == 0 ? Get
-            : stat => stat == Stat.FlaskEffectPlusPct ? Get(stat) + adjacentEffect : Get(stat);
+        var flaskCharacter = SelfFlaskEffectValues(Get, adjacentEffect);
         double finalMultiplier = MapFlaskEffectMultiplier(player);
         var (stats, seconds) = ItemUtilityFlaskFor(utility, flask.Item, local, flaskCharacter, playerLevel, finalMultiplier);
         int heal = local.GetValueOrDefault(Stat.LocalUniqueFlaskInstantlyRecoversPctMaximumLife);
@@ -60,6 +59,7 @@ public static partial class Game
             var state = Automation(player);
             if (signal is { } step) state.Accepted(step, flask.Id);
             double now = AreaTime(player);
+            GrantAlchemistsGeniusLocked(player, now, Get(Stat.GainAlchemistsGeniusOnFlaskUsePct));
             if (NamedFlaskRecent(type.Id) is { } recent) player.RecentEvents.Record(recent, now);
             if (Get(Stat.FlasksApplyToYourZombiesAndSpectres) != 0)
                 foreach (var minion in FlaskMinions(player, raisedOnly: true))

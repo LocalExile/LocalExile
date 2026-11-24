@@ -76,8 +76,7 @@ public static partial class Game
             if (items.ByHash(flask.Item.TypeHash) is { } type && items.UtilityFlaskOf(type) is { } utility)
             {
                 int adjacentEffect = flask.X <= byte.MaxValue ? AdjacentTinctureFlaskEffect(player, (byte)flask.X, character, now) : 0;
-                Func<uint, int> flaskCharacter = adjacentEffect == 0 ? character
-                    : stat => stat == Stat.FlaskEffectPlusPct ? character(stat) + adjacentEffect : character(stat);
+                var flaskCharacter = SelfFlaskEffectValues(character, adjacentEffect);
                 sources.AddRange(ItemUtilityFlaskFor(utility, flask.Item, ItemModStats.Local(flask.Item, items.Mods), flaskCharacter, playerLevel ?? player.Pools.Level, finalMultiplier).Stats);
             }
         return sources;
