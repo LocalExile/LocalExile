@@ -204,8 +204,19 @@ public static partial class Game
 
     // "Flasks gain # charges every 3 seconds" (FlaskCharges.PerThreeSeconds: every flask, utility, life, life on low life,
     // mana), every 3 s of the area's frames (a pause holds them) while the player's updates run.
-    static void StartFlaskChargeRegen(Player player, PlayerUpdatesState updates) =>
-        EveryAsPlayer(player, 3000, () => PlayerUpdatesCurrent(player, updates), GainPeriodicFlaskCharges);
+    static void StartFlaskChargeRegen(Player player, PlayerUpdatesState updates)
+    {
+        bool Current() => PlayerUpdatesCurrent(player, updates);
+        EveryAsPlayer(player, 3000, Current, GainPeriodicFlaskCharges);
+        EveryAsPlayer(player, 1000, Current, GainUniqueHitFlaskCharges, () => player.PlayerLife > 0
+            && player.RecentEvents.Happened(StatConditions.HitUniqueEnemy, AreaTime(player)));
+    }
+
+    static Task GainUniqueHitFlaskCharges(Player player)
+    {
+        int charges = CharacterPlayerStats(player).GetValueOrDefault(Stat.GainFlaskChargesEverySecondIfHitUniqueEnemyRecently);
+        return charges > 0 ? GainFlaskCharges(player, charges, "recent unique enemy hit") : Task.CompletedTask;
+    }
 
     internal static Task GainPeriodicFlaskCharges(Player player)
     {

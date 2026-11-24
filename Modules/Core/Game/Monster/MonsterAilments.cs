@@ -327,6 +327,8 @@ public static partial class Game
         // "You gain Onslaught for 4 seconds on Hit" and "Gain Arcane Surge on Hit with Spells" (Honoured Berserker
         // and Flood tattoos): every player hit, the spells-only one gated by the hit's own spell flag.
         if (playerHit) OnslaughtOnHitLocked(player, now);
+        if (playerHit && m.Hostile && m.Rarity == MonsterRarity.Unique)
+            player.RecentEvents.Record(StatConditions.HitUniqueEnemy, now);
         if (playerHit && spell) ArcaneSurgeOnSpellHitLocked(player, playerStats, now, random);
         // "on Critical Strike against Marked Unique Enemy" (Loyalty Tattoo of Rakiata).
         if (playerHit && critical) LoyaltyCritVsMarkedUniqueLocked(player, m, playerStats);
