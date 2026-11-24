@@ -173,6 +173,13 @@ public class HideoutStashInventoryErgonomicsTests : IDisposable
         Assert.Equal(20u, BinaryPrimitives.ReadUInt32BigEndian(gemPkt.AsSpan(2)));
         Assert.Equal(20, inv.Items(PlayerInventories.Weapon1).Single().Item.Sockets[0].Gem!.GemExperience);
 
+        // A minion reward can be sent after a socket swap. Project only the host that actually earned XP.
+        var deferred = new List<(byte Row, uint[] Items)>();
+        Assert.Empty(Game.CommitGemExperience(player, 200, deferred).Packets);
+        var credited = Assert.Single(deferred);
+        Assert.Equal(PlayerInventories.Weapon1, credited.Row);
+        Assert.Equal(equippedWand.Id, Assert.Single(credited.Items));
+
         // With an inactive equipped host (high level requirement > character level 20) alongside an active one,
         // CommitGemExperience falls back to 0x00bf instead of 0x00c3 so only the active host's gem gains XP.
         var highWandType = catalog.All.First(t => t.Class == "Wand" && t.DropLevel > 50 && t.Supported);
@@ -182,7 +189,7 @@ public class HideoutStashInventoryErgonomicsTests : IDisposable
         var (fallbackPackets, _) = Game.CommitGemExperience(player, 200);
         var fb = Assert.Single(fallbackPackets);
         Assert.Equal(InstanceItems.InventoryChangeId, BinaryPrimitives.ReadUInt16BigEndian(fb));
-        Assert.Equal(40, inv.Items(PlayerInventories.Weapon1).Single().Item.Sockets[0].Gem!.GemExperience);
+        Assert.Equal(60, inv.Items(PlayerInventories.Weapon1).Single().Item.Sockets[0].Gem!.GemExperience);
         Assert.Equal(0, inv.Items(PlayerInventories.Offhand1).Single().Item.Sockets[0].Gem!.GemExperience);
         Game.InactiveItems.TryRemove(character, out _);
     }

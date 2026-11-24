@@ -244,7 +244,7 @@ public static partial class Game
     /// for C→S 0x0213 template import. Refuses if any Item Display Case in this area holds a stored item.</summary>
     public static bool ReplaceAccountHideoutLayout(Player player, string area,
         IReadOnlyDictionary<string, HideoutPlacement> placements,
-        IReadOnlyList<SavedHideoutDecoration> decorations, ushort? musicRow)
+        IReadOnlyList<SavedHideoutDecoration> decorations, ushort? musicRow) => Saves.Atomically(() =>
     {
         if (player.Character.Account is null || HideoutHasStoredDisplayCaseItems(player, area)) return false;
         if (decorations.Count > MaxHideoutDecorations) return false;
@@ -271,7 +271,7 @@ public static partial class Game
             return p with { Placements = nextPlacements, Decorations = nextDecorations, Music = nextMusic };
         });
         return true;
-    }
+    });
 
     static Dictionary<string, Dictionary<string, CharacterSaves.SavedItem>>? ReadDisplayCaseMap(AccountStash stash) =>
         stash.ModuleData(LeagueDisplayCasesKey) is { } text

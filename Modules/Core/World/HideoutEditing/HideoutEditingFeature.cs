@@ -232,6 +232,8 @@ static class HideoutEditingFeature
         InventoryItem? removed = null, restored = null;
         bool ok = Saves.Atomically(() =>
         {
+            if (entry.Key.StartsWith(DecorationKeyPrefix, StringComparison.Ordinal)
+                && !global::Game.AccountHideoutDecorations(player).Any(d => d.Key == entry.Key)) return false;
             var held = items.Items(PlayerInventories.Cursor).FirstOrDefault(i => i.Id == place.ItemId);
             if (held is null) return false;
             if (held.Item.Components.Contains("Quest") || catalog.Stash.IsQuestItem(held.Item.TypeHash)) return false;

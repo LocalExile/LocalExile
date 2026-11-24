@@ -2381,7 +2381,7 @@ public static partial class Game
             }
         }
         var packets = new List<byte[]>();
-        if (!leveled && !gemDiverges && CanEmitIncrementalGemExperience(player, items, catalog))
+        if (projectRows is null && !leveled && !gemDiverges && CanEmitIncrementalGemExperience(player, items, catalog))
         {
             // S→C 0x00c3 distributes the exact share across every eligible socketed gem on equipment without resending
             // full 0x00bf item blobs; when any item would diverge (inactive host, de-level stall, bonus stat or level-up),
