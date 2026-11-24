@@ -53,7 +53,7 @@ public sealed class DarkMonarchAndVeiledUniquesTests
     }
 
     [Fact]
-    public void Dark_monarch_and_minion_exclusivity_rules_match_retail_families()
+    public async Task Dark_monarch_and_minion_exclusivity_rules_match_retail_families()
     {
         Func<uint, int> Monarch(int value) => s => s == Stat.MaximumNumberOfXMinionTypeDoubled ? value : 0;
 
@@ -61,6 +61,7 @@ public sealed class DarkMonarchAndVeiledUniquesTests
             Assert.NotNull(Game.DarkMonarchMinionFamily(i));
 
         Assert.True(Game.MinionFamilyAllowed(Monarch(1), "AnimatedWeapon"));
+        Assert.True(Game.MinionFamilyAllowed(Monarch(1), "VaalAnimatedWeapon"));
         Assert.False(Game.MinionFamilyAllowed(Monarch(1), "AnimatedGuardian"));
         Assert.Equal(10, Game.ApplyDarkMonarchLimit(5, Monarch(4), "Spectre"));
         Assert.Equal(0, Game.ApplyDarkMonarchLimit(5, Monarch(4), "Zombie"));
@@ -81,17 +82,14 @@ public sealed class DarkMonarchAndVeiledUniquesTests
 
         Func<uint, int> AnimatedOnly = s => s == Stat.YouCannotHaveNonAnimatedMinions ? 1 : 0;
         Assert.True(Game.MinionFamilyAllowed(AnimatedOnly, "AnimatedWeapon"));
+        Assert.True(Game.MinionFamilyAllowed(AnimatedOnly, "VaalAnimatedWeapon"));
         Assert.True(Game.MinionFamilyAllowed(AnimatedOnly, "AnimatedGuardian"));
         Assert.False(Game.MinionFamilyAllowed(AnimatedOnly, "Skeleton"));
 
         Func<uint, int> GolemOnly = s => s == Stat.YouCannotHaveNonGolemMinions ? 1 : 0;
         Assert.True(Game.MinionFamilyAllowed(GolemOnly, "Golem"));
         Assert.False(Game.MinionFamilyAllowed(GolemOnly, "Spectre"));
-    }
 
-    [Fact]
-    public async Task Dark_monarch_doubles_selected_summon_limit_and_removes_other_minions()
-    {
         using var f = new MinionUtilityTests.Fixture();
         f.Equip(("Summon Skeletons", 20), ("Raise Zombie", 20), ("Summon Chaos Golem", 20));
         var skeletonsDef = Game.SummonData.Find("SummonSkeletons")!;

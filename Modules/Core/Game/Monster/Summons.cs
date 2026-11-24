@@ -95,6 +95,7 @@ public static partial class Game
         "VaalAbsolution" => "Absolution",
         "VaalDomination" => "Dominating",
         "VaalSkeleton" => "Skeleton",
+        "VaalAnimatedWeapon" => "AnimatedWeapon",
         _ when family.StartsWith("Dominating", StringComparison.Ordinal) => "Dominating",
         _ => family,
     };

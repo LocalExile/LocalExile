@@ -627,7 +627,8 @@ public static partial class Game
                 if (!sources.TryGetValue(golem.Source, out int effect) || effect != golem.Definition.Effect)
                 { RemoveGolemLocked(player, golem, now); changed = true; continue; }
                 var gem = SupportedSkill(player, golem.Source);
-                if (!gem.RequirementsMet) { RemoveGolemLocked(player, golem, now); changed = true; continue; }
+                if (!gem.RequirementsMet || !MinionFamilyAllowed(n => GolemStat(playerStats, n), "Golem"))
+                { RemoveGolemLocked(player, golem, now); changed = true; continue; }
                 if (golem.Monster.Dead)
                 {
                     continue;
