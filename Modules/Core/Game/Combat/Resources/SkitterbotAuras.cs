@@ -16,7 +16,7 @@ public static partial class Game
         if (ring?.Item is not { } item || !item.Sockets.Any(s => s.Gem is not null)) return null;
         uint replaces = cold ? Stat.LocalLeftRingSocketedCurseReplacesSkitterbotsChillingAura
             : Stat.LocalRightRingSocketedCurseReplacesSkitterbotsShockingAura;
-        if (ItemModStats.Sum([item], ItemsFor(player).Mods).GetValueOrDefault(replaces) == 0) return null;
+        if (ItemModStats.LocalValue(item, ItemsFor(player).Mods, replaces) == 0) return null;
         foreach (var source in GemSkillEffects(player))
         {
             string? effect = SkillsFor(player).EffectId(source.Effect);
