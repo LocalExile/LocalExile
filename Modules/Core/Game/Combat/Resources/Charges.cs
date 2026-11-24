@@ -356,13 +356,10 @@ public static partial class Game
             if (!enduring)
             {
                 string effectId = SkillsFor(player).EffectId(effect) ?? "";
-                if (!suppressBuffs)
-                {
-                    if (effectId == "IntimidatingCry")
-                        ApplyIntimidatingCryLocked(player, own, CharacterPlayerStats(player), now);
-                    else
-                        ApplyWarcryBuffLocked(player, effectId, own, playerStats, here, radius, now, duration, buffEffect);
-                }
+                if (effectId == "IntimidatingCry")
+                    ApplyIntimidatingCryLocked(player, own, CharacterPlayerStats(player), now, applyMovementBuff: !suppressBuffs);
+                else if (!suppressBuffs)
+                    ApplyWarcryBuffLocked(player, effectId, own, playerStats, here, radius, now, duration, buffEffect);
                 var warriors = skillId != 0 && IsGeneralsCry(player, effect)
                     ? GeneralsCryReleased(player, skillId, here, radius, epoch)
                     : Task.CompletedTask;
