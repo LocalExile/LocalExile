@@ -77,7 +77,8 @@ public static partial class Game
                 .Where(pair => pair.Value is { Hostile: true, Dead: false, Life: > 0, Invulnerable: false }
                     && Dist(pair.Value.Walk.Position(now), marker.At) <= impact.Radius + LivingCollision.Size(pair.Value)).ToArray();
             bool mine = marker.Effect == AstralMineImpact;
-            if (mine && now < marker.ChainAt && (double.IsFinite(marker.ChainAt) || victims.Length == 0)) continue;
+            if (mine && (double.IsFinite(marker.ChainAt) ? now < marker.ChainAt : victims.Length == 0
+                || markers.Active.Any(other => other.Group == marker.Group && double.IsFinite(other.ChainAt)))) continue;
             foreach (var (id, monster) in victims) GolemHitLocked(player, spectre, impact, id, monster, now);
             RemoveSpectreMarker(player, markers, marker);
             if (mine && markers.Active.Where(other => other.Group == marker.Group && other.Effect == AstralMineImpact

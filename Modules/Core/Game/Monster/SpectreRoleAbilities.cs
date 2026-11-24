@@ -45,6 +45,12 @@ public static partial class Game
 
     static bool ReleaseSpectreRoleLocked(Player player, GolemState.Golem fighter, GolemState.Action action, double now)
     {
+        if (fighter.Monster.Variety?.Id == SerpentWarrior && (action.Ability.Effect == SerpentSword || SpectreShoulderMortar(action.Ability.Effect)))
+        {
+            var source = SupportedSkill(player, fighter.Source);
+            var (_, defensive) = MinionStance(source.Stats, fighter.Player, false, now - fighter.BlockedAt is >= 0 and <= 4);
+            if (!source.RequirementsMet || defensive != SpectreShoulderMortar(action.Ability.Effect)) return true;
+        }
         if (!TryPaySpectreLifeLocked(player, fighter, action.Ability, now)) return true;
         if (ReleaseSpectreTimedPayloadLocked(player, fighter, action, now)) return true;
         if (action.Ability.Effect is SpectreFireOffering or SpectreChaosOffering)
