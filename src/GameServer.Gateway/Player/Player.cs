@@ -1578,6 +1578,7 @@ public sealed partial class Player(AreaLayout layout, uint ticket, uint seed) : 
     public ushort LockstepSequence;
     // The object use (C→S 0x18f) the next frame starts.
     public InstanceTransfer.UseSkillOnObject? LockstepUse;
+    public uint? LockstepInteractionTarget;
     public readonly GameServer.Core.World.LockstepSkillHold LockstepSkill = new();
     // Until when the skill started last keeps the player (Clock seconds).
     public double LockstepBusyUntil;

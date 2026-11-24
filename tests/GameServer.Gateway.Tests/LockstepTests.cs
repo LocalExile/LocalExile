@@ -478,8 +478,26 @@ public class LockstepTests : IDisposable
         // projects forward when lagged 0x192 lands shorter or behind here, and stops on feet (< 2 cells) or release.
         var player = new Player(new(1, "close-hold", 300, 300, 100, 100, null, []), 1, 1)
         {
+            Instance = new(),
             Connection = { LockstepClient = true }
         };
+        player.Npcs[0x04000000] = new(Game.Npcs.Find("Metadata/NPC/Act1/Nessa")!, 105, 100);
+        var npcClick = Convert.FromHexString("018F040000000266040000");
+        var heldMove = Convert.FromHexString("018E00000006000000002909000800");
+        Game.OnLockstepRequest(player, InstanceProtocol.LockstepUseOnObjectId, npcClick);
+        Game.OnLockstepRequest(player, InstanceProtocol.LockstepMoveStartId, heldMove);
+        Assert.NotNull(player.LockstepUse);
+        Assert.False(player.LockstepHold.Held);
+        var drop = player.Instance.Ground.Add(new(105, 100, ItemCatalog.Create(Program.Items.Find("Scroll of Wisdom")!)));
+        var pickup = new LoginWriter().U16(InstanceProtocol.LockstepUseOnObjectId).U32(drop).U16(0x266).U16(0x400).U8(0).ToArray();
+        Game.OnLockstepRequest(player, InstanceProtocol.LockstepUseOnObjectId, pickup);
+        Game.OnLockstepRequest(player, InstanceProtocol.LockstepMoveStartId, heldMove);
+        Assert.Equal(drop, player.LockstepUse?.TargetId);
+        player.Instance.Ground.Take(drop);
+        Game.OnLockstepRequest(player, InstanceProtocol.LockstepMoveStartId, heldMove);
+        Assert.True(player.LockstepHold.Held);
+        Assert.Null(player.LockstepUse);
+
         player.LockstepHold.Press((96, 100), 0x2909, 0x0400, (-4, 0));
         var first = Game.LockstepMoveDue(player, 0);
         Assert.NotNull(first);

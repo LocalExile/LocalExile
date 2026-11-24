@@ -23,9 +23,14 @@ public static partial class Game
         if (id == InstanceProtocol.LockstepMoveStartId)
         {
             var click = InstanceProtocol.ReadLockstepMoveStart(bytes);
+            // An object interaction owns this press. A ground pickup releases it once the item is gone.
+            bool move = SkillsFor(player).ActionName(click.SkillId) == "Move";
+            if (move && (click.Flags & InstanceTransfer.InitialPressFlag) == 0 && player.LockstepInteractionTarget is uint used
+                && !player.Instance.Ground.WasTaken(used)) return;
+            player.LockstepInteractionTarget = null;
             (int X, int Y) aim = (here.X + click.Dx, here.Y + click.Dy);
             player.LockstepUse = null;
-            if (SkillsFor(player).ActionName(click.SkillId) == "Move")
+            if (move)
             {
                 player.LockstepSkill.Clear(finishChannel: true);
                 player.LockstepHold.Press(aim, click.SkillId, click.Flags, (click.Dx, click.Dy));
@@ -66,6 +71,10 @@ public static partial class Game
         else if (id == InstanceProtocol.LockstepUseOnObjectId)
         {
             var (target, skill, flags, _) = InstanceProtocol.ReadLockstepUseOnObject(bytes);
+            if (skill == 0x266 && (flags & InstanceTransfer.InitialPressFlag) == 0)
+                lock (player.Npcs)
+                    if (player.Npcs.ContainsKey(target)) return;
+            player.LockstepInteractionTarget = null;
             player.LockstepHold.Clear();
             player.LockstepSkill.Clear(finishChannel: true);
             if (SkillsFor(player).IsGemSkill(skill) || skill == SkillCatalog.FirstSkillId)
@@ -82,10 +91,14 @@ public static partial class Game
             }
             else
             {
-                bool npcRepeat;
-                lock (player.Npcs)
-                    npcRepeat = skill == 0x266 && (flags & InstanceTransfer.InitialPressFlag) == 0 && player.Npcs.ContainsKey(target);
-                if (!npcRepeat) player.LockstepUse = new(target, skill, 0, flags);
+                player.LockstepUse = new(target, skill, 0, flags);
+                if (skill == 0x266)
+                {
+                    bool npc;
+                    lock (player.Npcs) npc = player.Npcs.ContainsKey(target);
+                    if (npc || player.Instance.Ground.Get(target) is not null)
+                        player.LockstepInteractionTarget = target;
+                }
             }
         }
     }
