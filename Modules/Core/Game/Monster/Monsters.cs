@@ -2945,9 +2945,9 @@ public static partial class Game
             if (type == DamageType.Physical) physicalDamage += value;
             damage += value;
         }
-        damage = FortificationDamageTaken(player, damage);
-        chaosDamage = FortificationDamageTaken(player, chaosDamage);
-        physicalDamage = Math.Min(FortificationDamageTaken(player, physicalDamage), Math.Max(0, damage - chaosDamage));
+        damage = FortificationDamageTakenLocked(player, damage, now, stats);
+        chaosDamage = FortificationDamageTakenLocked(player, chaosDamage, now, stats);
+        physicalDamage = Math.Min(FortificationDamageTakenLocked(player, physicalDamage, now, stats), Math.Max(0, damage - chaosDamage));
         if (attackHit && !a.Ranged && damage > 0)
         {
             int before = damage; damage = GolemSafeguardLocked(player, damage, now);
@@ -2968,7 +2968,7 @@ public static partial class Game
         if (blocked) RecoverOnBlockLocked(player, stats);
         // A blocked hit recoups the share it deals (ailmentTaken holds it).
         RecoupHitLocked(player, ailmentTaken.Select((_, r) =>
-            new(FortificationDamageTaken(player, (int)r.Min), FortificationDamageTaken(player, (int)r.Max))), now, stats);
+            new(FortificationDamageTakenLocked(player, (int)r.Min, now, stats), FortificationDamageTakenLocked(player, (int)r.Max, now, stats))), now, stats);
         long lifeBefore = player.PlayerLife;
         int lifeDamage = DamagePlayerHitTyped(player, physicalDamage, Math.Max(0, damage - physicalDamage - chaosDamage), chaosDamage, now, stats,
             ailmentTaken);
@@ -2976,10 +2976,10 @@ public static partial class Game
         TrimLeechLocked(player);
         var incomingAilments = MergeMonsterModAilments(a.Ailments, m.Effects);
         ApplyPlayerAilmentsLocked(player, baseHit, ailmentTaken.Select((_, r) =>
-            new(FortificationDamageTaken(player, (int)r.Min), FortificationDamageTaken(player, (int)r.Max))),
+            new(FortificationDamageTakenLocked(player, (int)r.Min, now, stats), FortificationDamageTakenLocked(player, (int)r.Max, now, stats))),
             monsterCritical, blocked, now, stats, incomingAilments, source: id);
         AlternateAilmentsOnPlayerLocked(player, m, ailmentTaken.Select((_, r) =>
-            new(FortificationDamageTaken(player, (int)r.Min), FortificationDamageTaken(player, (int)r.Max))), blocked, now, stats, incomingAilments);
+            new(FortificationDamageTakenLocked(player, (int)r.Min, now, stats), FortificationDamageTakenLocked(player, (int)r.Max, now, stats))), blocked, now, stats, incomingAilments);
         ApplyMonsterDamagingAilmentsLocked(player, id, m, baseHit, blocked, now, attack: attackHit, prepared: stats,
             skillPoisonChance: a.PoisonChance, skillPoisonSeconds: a.PoisonSeconds);
         ApplyMonsterDecayLocked(player, id, m, blocked, now, stats);

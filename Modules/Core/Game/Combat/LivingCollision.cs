@@ -134,6 +134,7 @@ public static partial class Game
         player.SharedAuras = [.. player.Auras.Values.Where(a => SharedPlayerAura(a.EffectId)).Select(a => new SharedAura(a,
                 AuraRadius.Of(a, player.Pools.AuraAreaPct, SkillsFor(player), Stats),
                 player.Pools.AuraEffectPct + a.SupportEffectPct)).Concat(SharedAvianAuras(player))];
+        player.Fortification = OwnFortificationShareLocked(player, AreaTime(player));
         SyncSharedAuraZones(player, player.SharedAuras);
     }
 

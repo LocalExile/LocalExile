@@ -108,6 +108,8 @@ public static partial class Game
         Add(Stat.BasePhysicalDamageReductionRating, bonus.Armour);
         Add(Stat.DeterminationAuraArmourPlusPctFinal, bonus.ArmourMorePct);
         Add(Stat.BaseEvasionRating, bonus.Evasion); Add(Stat.GraceAuraEvasionRatingPlusPctFinal, bonus.EvasionMorePct);
+        var fortAlly = MinionAllyFortificationLocked(player, minion, minion.Monster?.Walk.Position(AreaTime(player)) ?? player.Walk.Position(AreaTime(player)), AreaTime(player));
+        Add(Stat.BaseCriticalStrikeMultiplierPlus, fortAlly.KingmakerCritMulti);
         return values;
     }
 }

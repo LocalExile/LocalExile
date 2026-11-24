@@ -60,6 +60,9 @@ public sealed class FortificationSession
         return Value;
     }
 
+    public FortificationState.Value Read(double now, int addedMaximum, int additiveFloor, int minimumOverride) =>
+        State.Read(snapshotTime ?? now, addedMaximum, additiveFloor, minimumOverride);
+
     public FortificationState.Value Observe(double now, Func<uint, int> get)
     {
         Read(now); // Settle the previous cap and recovery inputs before adopting new sources.
