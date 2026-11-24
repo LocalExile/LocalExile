@@ -858,6 +858,7 @@ public static partial class Game
                 return;
             }
             player.TransferAccepted = true;
+            ClearSessionQuestFlags(player, r.Area, r.Instance);
             player.TransferredTo = (r.Area, r.Instance);
             t.Done?.Invoke(r);
             foreach (var resolved in GameEvents.TransferResolved.For(player)) await resolved(player, t, r);
@@ -890,5 +891,24 @@ public static partial class Game
             Program.Instances.ClearPreparedLayoutIfEmpty(r.Instance, r.Created, soloOwner);
             await TryLeaveTicket(r.Ticket).ConfigureAwait(false);
         }
+    }
+
+    // A session quest flag (SessionQuestFlags.dat) lasts only while the player stays in the same instance: drop it from
+    // the connection once Auth has accepted the move, before the client is sent to the new instance. Only here: Transfer
+    // is the move's single commit point, and a failed transfer returns before this point, so a player who stays keeps
+    // the flag. A reload into the exact same area and instance (the ascendancy / descendancy reloads, which re-enter the
+    // instance they are in) is not a move and keeps it too; entering a new instance of the same area (e.g. Ctrl-click
+    // instance reset or another map on the same tileset) or another area clears it. Only IsSession flags go, never the
+    // login-granted ones (Quests.EveryCharacter: five of them are session rows too), never UnearnedQuestFlags, never
+    // LeagueQuestFlags, and nothing is written to the save (the save never holds a session flag:
+    // CharacterSaves.ChangeQuestFlags filters them). CommitQuestFlags must not do this: its monster-kill callers run
+    // mid-combat. This runs on the area frame, where QuestFlags is changed.
+    internal static void ClearSessionQuestFlags(Player player, ushort destinationArea, ulong destinationInstance)
+    {
+        if (destinationArea == player.Layout.Hash && destinationInstance == player.InstanceNumber) return;
+        List<string> cleared = [.. player.Character.QuestFlags.Where(f => QuestStates.Default.IsSession(f) && !Quests.EveryCharacter.Contains(f))];
+        foreach (string flag in cleared) player.Character.QuestFlags.Remove(flag);
+        if (cleared.Count > 0)
+            Console.WriteLine($"[gateway] {CharacterName(player)}: session quest flag(s) cleared on instance change: {string.Join(", ", cleared)}");
     }
 }
