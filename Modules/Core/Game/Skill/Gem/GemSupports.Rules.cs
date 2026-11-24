@@ -150,6 +150,7 @@ public static partial class Game
             + GemQualityBonus(player, selected.Place.Gem);
         var own = SkillsFor(player).EffectStats(selected.Effect, level, quality).ToDictionary(kv => kv.Item1, kv => kv.Item2);
         ApplySupportStats(player, own, supports);
+        ApplySocketedGolemEquipment(player, selected.Effect, host, local, own);
         AddIntensityBaseStats(player, own);
         if (CrueltySupportedStat is var crueltyFlag && own.GetValueOrDefault(crueltyFlag) != 0
             && CrueltyActivePct(player, skillId) is int crueltyPct and > 0
@@ -376,11 +377,13 @@ public static partial class Game
     }
 
     [Flags]
-    enum CostEfficiency { None = 0, Spell = 1, Curse = 2 }
+    enum CostEfficiency { None = 0, Spell = 1, Curse = 2, Spectre = 4, Minion = 8 }
 
     static CostEfficiency CostEfficiencyFor(SkillCatalog skills, int effect) =>
         (skills.IsSpell(effect) ? CostEfficiency.Spell : CostEfficiency.None)
-        | (skills.HasType(effect, "AppliesCurse") ? CostEfficiency.Curse : CostEfficiency.None);
+        | (skills.HasType(effect, "AppliesCurse") ? CostEfficiency.Curse : CostEfficiency.None)
+        | (skills.EffectId(effect) is "RaiseSpectre" or "RaiseSpectreAltX" ? CostEfficiency.Spectre : CostEfficiency.None)
+        | (skills.HasType(effect, "Minion") ? CostEfficiency.Minion : CostEfficiency.None);
 
     static double SkillCostMore(Player player, IReadOnlyDictionary<uint, int> own)
     {
@@ -434,7 +437,13 @@ public static partial class Game
         if (conditionalEfficiency != 0)
             write(ItemChargeCosts.ManaEfficiency, ActorScale.Saturate(read(ItemChargeCosts.ManaEfficiency) + conditionalEfficiency));
         if (Stat.ManaCost is var mana && own.TryGetValue(mana, out int baseCost))
-            write(mana, ManaRecoveryRules.Cost(baseCost, name => name is var key ? read(key) : 0, channelled, costMore));
+        {
+            long scopedCost = ((efficiency & CostEfficiency.Spectre) != 0 ? (long)read(Stat.RaiseSpectreManaCostPlusPct) : 0)
+                + ((efficiency & CostEfficiency.Minion) != 0 ? read(Stat.MinionSkillManaCostPlusPct) : 0);
+            int ManaInput(uint name) => name == Stat.ManaCostPlusPct
+                ? ActorScale.Saturate(read(name) + scopedCost) : read(name);
+            write(mana, ManaRecoveryRules.Cost(baseCost, ManaInput, channelled, costMore));
+        }
         long nativeLife = own.GetValueOrDefault(Stat.LifeCost);
         int additiveLife = read(Stat.BaseSkillGainLifeCostPctOfManaCost);
         if (additiveLife > 0 && !ManaRecoveryRules.ConvertsManaToLife(read))
@@ -960,6 +969,8 @@ public static partial class Game
         }
         if (SkillsFor(player).IsBrand(gem.Effect) || Own(Stat.SkillGetsBrandDamageCritModifiers) != 0)
             extraIncrease += Player(Stat.SigilCriticalStrikeChancePlusPct) + Own(Stat.SigilCriticalStrikeChancePlusPct);
+        if (Player(Stat.SpellCriticalStrikeChancePlusPctPerRaisedSpectre) is int perSpectre and not 0)
+            extraIncrease += (long)perSpectre * LivingSummons(player, "Spectre", AreaTime(player));
         return DisplayedCriticalChance(player, SpellCriticalStrike.Chance(SkillsFor(player).SpellCritChance(gem.Effect, gem.Level),
             Player, Own, player.Pools.SpellCriticalStrikeChancePct + extraIncrease), Player);
     }
