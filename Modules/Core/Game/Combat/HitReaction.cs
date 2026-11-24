@@ -63,7 +63,12 @@ public static class HitReaction
         // already Fortify it rolls the chance once and grants the hit's damage-based stacks. A stun during a running
         // recovery counts too, before the recovery shortcut below.
         if (hit.Melee && !hit.Fortified && hit.FortificationDamage > 0 && hit.Owner is { } fortifier)
+        {
+            long revBefore = Game.FortificationOf(fortifier).Revision;
             Game.FortificationFromMeleeStun(fortifier, hit.FortificationDamage, m.MaxLife, m.Rarity, random);
+            if (Game.FortificationOf(fortifier).Revision != revBefore)
+                Game.AfterFortificationGainLocked(fortifier);
+        }
         double seconds = Seconds(hit, m);
         if (RandomRolls.Chance(hit.DoubleDurationChance, 100, random)) seconds *= 2;
         double nextUntil = now + seconds;

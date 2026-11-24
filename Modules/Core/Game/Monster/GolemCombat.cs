@@ -611,6 +611,9 @@ public static partial class Game
         }
         if (MonsterBlocks(target, AreaRng(player), a.Attack.Spell)) return false;
         double factor = DoedreSewers.MinionDamageFactor(player) * MinionTacticsDamage(player, g, id, target, now);
+        if (MinionDoubleDamageChanceLocked(player, g, g.Monster.Life >= g.Monster.MaxLife, now) is int doubleChance and > 0
+            && RandomRolls.Chance(doubleChance, 100, AreaRng(player)))
+            factor *= 2.0;
         if (g.Definition.Kind == "Carrion")
         {
             var here = g.Monster.Walk.Position(now);
@@ -644,7 +647,7 @@ public static partial class Game
         int damage = MonsterTakesMitigated(target, mitigated, a.Attack.Spell, now, random: AreaRng(player));
         var from = g.Monster.Walk.Position(now);
         var to = target.Walk.Position(now);
-        if (ApplyTypedMonsterHitLocked(player, target, damage, MonsterHitChaosDamage(target, mitigated, a.Attack.Spell, now, damage), allyAt: from) is not { } hit) return false;
+        if (ApplyTypedMonsterHitLocked(player, target, damage, MonsterHitChaosDamage(target, mitigated, a.Attack.Spell, now, damage), allyAt: from, cull: MinionCullLocked(player, g, from, now)) is not { } hit) return false;
         if (!target.Dead && damage > 0) MinionExposureOnHitLocked(g.Own, target, mitigated, now, AreaRng(player));
         if (hit.StageStarts)
         { CommitBossStage(player, id, target, now); hit = hit with { StageStarts = false }; }
@@ -779,7 +782,7 @@ public static partial class Game
                 double total = resisted * MonsterDamageTaken(m, spell: true, now, chaos: hazard.Type == DamageType.Chaos)
                     + hazard.DamageCarry.GetValueOrDefault(id);
                 int damage = (int)Math.Floor(total); hazard.DamageCarry[id] = total - damage;
-                if (damage <= 0 || ApplyTypedMonsterHitLocked(player, m, damage, hazard.Type == DamageType.Chaos ? damage : 0, allyAt: centre) is not { } hit) continue;
+                if (damage <= 0 || ApplyTypedMonsterHitLocked(player, m, damage, hazard.Type == DamageType.Chaos ? damage : 0, allyAt: centre, cull: MinionCullLocked(player, g, centre, now)) is not { } hit) continue;
                 if (hit.StageStarts) { CommitBossStage(player, id, m, now); hit = hit with { StageStarts = false }; }
                 CommitMinionHitLocked(player, id, m, hit, damage, now, $"golem {g.Id:x} ground damage",
                     source: g.Monster, skill: g.Own);
