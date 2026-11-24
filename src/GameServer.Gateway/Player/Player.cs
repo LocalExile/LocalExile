@@ -1014,6 +1014,7 @@ public sealed partial class Player(AreaLayout layout, uint ticket, uint seed) : 
     {
         get
         {
+            if (Instance?.World.AreaBodies is { } area) return area(Id);
             var fixedOnes = _blockerList;
             if (IsPhasing) return fixedOnes;   // phasing (Quartz Flask, Rampage threshold): monsters do not block
             double now = Clock.Elapsed.TotalSeconds;
@@ -1070,6 +1071,11 @@ public sealed partial class Player(AreaLayout layout, uint ticket, uint seed) : 
     }
 
     public IReadOnlyList<ClientPathfinder.Blocker> StationaryBlockers => _blockerList;
+
+    public (int X, int Y)? StationaryPosition(uint id)
+    {
+        lock (_blockers) return _blockers.TryGetValue(id, out var b) ? (b.X, b.Y) : null;
+    }
 
     public int StationaryInteractionSize(uint id)
     {
