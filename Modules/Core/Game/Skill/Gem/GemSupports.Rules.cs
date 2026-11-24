@@ -53,6 +53,7 @@ public static partial class Game
         return [.. AllWornGrantedSkillsOf(player, equipment).Where(g => !g.Support && (g.ManuallyCast || g.EffectId is SpiritBurstEffect or GuardianWeaponEffect || TriggeredItemMinion(g) is not null)
             && LeagueFor(player).Rules.AllowsGemEffect(g.EffectId)
             && (g.EffectId == UnhingeEffect || g.EffectId == MadnessEffect || IsDashEffect(g.EffectId)
+                || SkillsFor(player).IsWarcry(g.Effect)
                 || IsSummonBeastialCompanionEffect(g.EffectId) || g.EffectId == TwisterEffect || g.EffectId == CatStealthCryEffect
                 || g.EffectId is SnipeEffect or SpiritBurstEffect or "DoryanisTouch" or ApproachingFlamesEffect
                     or "BearTrap" or "WintertideBrand" or "DecoyTotem" or "Smite" or "Frostblink"
@@ -480,6 +481,8 @@ public static partial class Game
                 ? ActorScale.Saturate(read(name) + scopedCost) : read(name);
             write(mana, ManaRecoveryRules.Cost(baseCost, ManaInput, channelled, costMore));
         }
+        // "Socketed Movement Skills Cost no Mana": the item's support grants no_mana_cost to the skills it supports.
+        if (own.GetValueOrDefault(Stat.NoManaCost) != 0) write(Stat.ManaCost, 0);
         long nativeLife = own.GetValueOrDefault(Stat.LifeCost);
         int additiveLife = read(Stat.BaseSkillGainLifeCostPctOfManaCost);
         if (additiveLife > 0 && !ManaRecoveryRules.ConvertsManaToLife(read))

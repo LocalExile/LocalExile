@@ -48,6 +48,10 @@ public static partial class Game
             caster.Remove(name);
         // Arcane Surge is a buff on the owner, not on his totems: its more Spell Damage stays his.
         if (ArcaneSurgeSpellMore is var arcane) caster.Remove(arcane);
+        // "Gain Arcane Surge when you deal a Critical Strike": the owner's critical strikes, not his totems'.
+        caster.Remove(Stat.GainArcaneSurgeOnCritPctChance);
+        // "Curse Enemies with <Hex> on Hit" is the owner's hits too.
+        foreach (var (stat, _) in ItemCurseOnHitStats) caster.Remove(stat);
         return caster;
     }
 

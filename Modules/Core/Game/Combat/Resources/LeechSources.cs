@@ -55,7 +55,10 @@ public sealed record LeechSources(DamagePacket Life, DamagePacket Mana, DamagePa
                 + Local(Stat.LocalLifeAndManaGainPerTarget)),
             Math.Max(0, get(Stat.ManaGainPerTarget) + Local(Stat.LocalManaGainPerTarget)
                 + Local(Stat.LocalLifeAndManaGainPerTarget)),
-            Math.Max(0, get(Stat.EnergyShieldGainPerTarget))) : default;
+            Math.Max(0, get(Stat.EnergyShieldGainPerTarget)))
+            // "Gain # Life/Mana/Energy Shield per Enemy Hit with Spells".
+            : (Math.Max(0, get(Stat.BaseLifeGainedOnSpellHit)), Math.Max(0, get(Stat.ManaGainedOnSpellHit)),
+                Math.Max(0, get(Stat.EnergyShieldGainedOnSpellHit)));
         return new(Coefficients("life", get, attack, local), Coefficients("mana", get, attack, local),
             Coefficients("energy_shield", get, attack, local))
         {

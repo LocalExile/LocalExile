@@ -12,7 +12,7 @@ using GameServer.Core.World;
 public enum PlayerStatStep : byte
 {
     Sources, Siphoning, SpiritCharges, CryMovement, Golems, Offerings, PanelDefaults, God, Auras, AuraPenetration, CatAspect,
-    AvianCrab, Subscribers, ClassAttributes, OvercapCrit, AttackSpeed, UtilityFlasks, SelfVulnerability,
+    AvianCrab, Subscribers, ClassAttributes, OvercapCrit, BlockDamage, AttackSpeed, UtilityFlasks, SelfVulnerability,
     Onslaught, VaalPrevention, VaalAura, SpiritLeadership, TotemAura, Rage, Blind, UsingFlask, SoulEater, MaximumPoolItems,
     ActorScale, Recovery, TimedRecovery, TailPanels, Rampage, TailOffence, TailCritical, LeechingDefences, AuraRestriction, AlwaysHit, RecentHits, Ward, Resonance,
 }
@@ -133,6 +133,22 @@ public static partial class Game
             foreach (var (k, v) in AuraCatalog.RawStats(auras.Where(a => a.AffectsSelf), player.Pools.AuraEffectPct, SkillsFor(player), Stats,
                          heraldEffectPct).Concat(minionAuras.SelectMany(a => a.Stats)).ToList())
                 AddTo(stats, k, v);
+            // "Auras from your Skills grant #% increased Damage to you and Allies": once for each of the player's own Aura
+            // skills affecting them, scaled by that aura's effect as its other stats are.
+            // shortcut: allies and minions do not get it yet.
+            if (GetIn(stats, Stat.AurasGrantDamagePlusPctToYouAndYourAllies) is int perAura and not 0)
+            {
+                var skills = SkillsFor(player);
+                long auraDamage = 0;
+                for (int i = 0; i < auras.Count; i++)
+                {
+                    var aura = auras[i];
+                    if (aura.AffectsSelf && aura.ExternalEffectPct is null && skills.IsAura(aura.Effect))
+                        auraDamage += (long)Math.Round(perAura * Math.Max(0, 100 + player.Pools.AuraEffectPct + aura.SupportEffectPct) / 100.0,
+                            MidpointRounding.AwayFromZero);
+                }
+                if (auraDamage != 0) AddTo(stats, Stat.DamagePlusPct, auraDamage);
+            }
         });
         Step(PlayerStatStep.AuraPenetration, (player, stats, _) =>
         {
@@ -179,6 +195,13 @@ public static partial class Game
         {
             if (player.Pools.LightningOvercapCritPct is int overCrit and not 0 && Stat.CriticalStrikeChancePlusPct is var critInc)
                 stats[critInc] = (int)Math.Clamp((long)stats.GetValueOrDefault(critInc) + overCrit, int.MinValue, int.MaxValue);
+        });
+        // "#% increased Damage per 1% Chance to Block Attack Damage": the capped attack block chance in Pools.
+        Step(PlayerStatStep.BlockDamage, (player, stats, _) =>
+        {
+            if (GetIn(stats, Stat.DamagePlusPctPer1PctBlockChance) is int perBlock and not 0)
+                AddTo(stats, Stat.DamagePlusPct,
+                    (long)perBlock * Math.Clamp(player.Pools.BlockChance, 0, player.Pools.BlockChanceMax));
         });
         // The passives' conditional attack speed is already one final value in Pools. main_hand_attack_speed_+% is the
         // total the client swings with, so Unarmed reads only it.

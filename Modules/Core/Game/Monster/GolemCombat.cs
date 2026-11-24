@@ -63,7 +63,7 @@ public static partial class Game
             (Player(Stat.MinionLifeRegenerationRatePerMinutePct) + Own(Stat.MinionLifeRegenerationRatePerMinutePct)
                 + GolemStat(g.Auras, Stat.LifeRegenerationRatePerMinutePct)
                 + (g.Definition.IsGolem ? Player(Stat.GolemLifeRegenerationPerMinutePct) : 0)) / 6000.0;
-        recovery += elapsed * (m.MaxLife * regen + Player(Stat.Of("minion_base_life_regeneration_rate_per_minute")) / 60.0
+        recovery += elapsed * (m.MaxLife * regen
             + Player(Stat.MinionLifeRegenerationRatePerSecond) + m.Mods.Effects[Stat.BaseLifeRegenerationRatePerMinute] / 60.0
             + (now - g.BlockedAt <= 4 ? m.MaxLife * m.Mods.Effects[Stat.LifeRegenerationRatePerMinutePctIfBlockedRecently] / 6000d : 0));
         if (g.Definition.Kind == "Spectre") recovery += SpectreLifeRecoveryLocked(player, g, elapsed, now);
@@ -804,7 +804,7 @@ public static partial class Game
             if (a.Effect == 10802 && g.Combo >= 3) factor *= 1 + GolemStat(a.Stats, Stat.BoneGolemDamagePlusPctFinalAfterThirdComboIndex) / 100.0;
         }
         bool prey = IsPrey(player, g.Own, id, target, now);
-        int roll = a.RepeatCriticalRoll ?? (effects[Stat.Of("never_crit")] == 0 && effects[Stat.AlwaysCrit] == 0 ? AreaRng(player).Next(10_000) : 0);
+        int roll = a.RepeatCriticalRoll ?? (effects[Stat.Of("cannot_crit")] == 0 && effects[Stat.AlwaysCrit] == 0 ? AreaRng(player).Next(10_000) : 0);
         bool critical = GolemCriticalStrike(a, g.Monster.Mods, roll,
             prey ? GolemStat(g.Own, Stat.SupportMinionFocusFireCriticalStrikeChancePlusPctVsFocusedTarget) : 0,
             target.Curses[Stat.EnemyAdditionalCriticalStrikeChanceAgainstSelf] + BrittleCriticalChance(target, now));
@@ -1006,7 +1006,7 @@ public static partial class Game
     /// <summary><paramref name="additionalChance"/>: flat chance in hundredths added after the increases (the target's Brittle).</summary>
     public static bool GolemCriticalStrike(GolemState.Ability ability, MonsterModSet mods, int roll, int additionalIncrease = 0,
         int additionalChance = 0) =>
-        mods.Effects[Stat.Of("never_crit")] == 0 && (mods.Effects[Stat.AlwaysCrit] != 0
+        mods.Effects[Stat.Of("cannot_crit")] == 0 && (mods.Effects[Stat.AlwaysCrit] != 0
             || roll < GolemCriticalChance(ability, mods, additionalIncrease) + additionalChance);
 
     static void GolemLaunch(Player player, GolemState.Golem g,
@@ -1031,9 +1031,10 @@ public static partial class Game
             EndArea = p.Lobbed ? new("golem mortar", a.Radius) : null,
             EndAreaReasons = p.Lobbed ? new HashSet<ProjectileEndReason> { ProjectileEndReason.Landing, ProjectileEndReason.Terrain } : null,
         };
-        // The profile already contains the native skill's quantity; the minion's own modifiers add to it once.
+        // The profile already contains the native skill's quantity; the minion's own modifiers add to it once,
+        // including ProjectileNumberOfTargetsToPierce / ProjectileBaseNumberOfTargetsToPierce inside Resolve.
         profile = GatewayProjectileModifiers.Resolve(profile, name => mods[name], attack: !a.Attack.Spell,
-            arrows: g.Weapon is { Bow: true }, skillPierce: mods[Stat.Of("number_of_additional_projectiles_to_pierce")]);
+            arrows: g.Weapon is { Bow: true });
         if (!nova && !p.Lobbed && mods[Stat.SupportParallelProjectileNumberOfPointsPerSide] is > 0 and var points)
         {
             int x = Math.Max(mods[Stat.VirtualAdditionalProjectilesFireParallelXDist],

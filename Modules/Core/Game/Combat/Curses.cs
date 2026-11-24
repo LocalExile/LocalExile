@@ -220,8 +220,11 @@ public static partial class Game
     {
         if (target.Dead || target.Life == 0 || player.Reservations.Secondary) return;
         if (playerHit)
+        {
             TemporalChainsOnSuccessfulHitLocked(player, target, now, hitStats,
                 hitStats.GetValueOrDefault(Stat.CurseOnHitPctTemporalChains), random);
+            ItemCursesOnHitLocked(player, target, hitStats, now);
+        }
         bool mayHextouch = sourceSkill != 0
             && (sourceStats is null || GolemStat(sourceStats, Stat.ApplyLinkedCursesOnHitPct) > 0);
         if (!mayHextouch && (spell || target.Rarity is not (MonsterRarity.Rare or MonsterRarity.Unique))) return;

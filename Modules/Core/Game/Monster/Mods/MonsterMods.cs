@@ -370,7 +370,7 @@ public static partial class Game
     {
         if (noExtra || m.Effects.NoExtraCriticalDamage) return 100;
         long ordinary = (long)multiplier + m.Curses[Stat.EnemyAdditionalCriticalStrikeMultiplierAgainstSelf];
-        if (m.Life == m.MaxLife) ordinary += bonuses.FullLife;
+        if (m.MaxLife > 0 && m.Life >= m.MaxLife) ordinary += bonuses.FullLife;
         if (m.Rarity == MonsterRarity.Unique) ordinary += bonuses.Unique;
         if (m.TauntedUntil > at) ordinary += bonuses.Taunted;
         if (ordinary > 100)
@@ -380,6 +380,13 @@ public static partial class Game
         }
         return CriticalHitMultiplier(ordinary, noExtra: false);
     }
+
+    // For an impale's source multiplier.
+    static int FullLifeCriticalMultiplier(SpawnedMonster m, IReadOnlyDictionary<uint, int> player,
+        IReadOnlyDictionary<uint, int>? own) => m.MaxLife > 0 && m.Life >= m.MaxLife
+        ? ActorScale.Saturate((long)player.GetValueOrDefault(Stat.CriticalStrikeMultiplierVsEnemiesOnFullLifePlus)
+            + (own?.GetValueOrDefault(Stat.CriticalStrikeMultiplierVsEnemiesOnFullLifePlus) ?? 0))
+        : 0;
 
     static int CriticalMultiplierWithWeapon(int multiplier, SpawnedMonster target, IReadOnlyDictionary<uint, int>? local)
     {

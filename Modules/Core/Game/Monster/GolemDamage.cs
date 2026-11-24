@@ -209,7 +209,7 @@ public static partial class Game
                 * GolemMeatShieldDamageFactor(g)
                 * soulDamageTaken
                 * Math.Max(0, 1 + GolemStat(g.Own, Stat.VaalUpgradeMinionDamageTakenPlusPctFinal) / 100d)
-                * (area ? Math.Max(0, 1 + effects[Stat.Of("damage_taken_+%_from_area_hits")] / 100.0) : 1));
+                * (area ? Math.Max(0, 1 + effects[Stat.AreaDamageTakenFromHitsPlusPct] / 100.0) : 1));
             if (prevented != 0) value = DamageModel.Suppress(value, prevented);
             if (value > 0)
             {
@@ -318,6 +318,11 @@ public static partial class Game
         EndDot(player, g.Id, ref g.Monster.Ignites.Buff, g.Monster.Ignites.BuffSource);
         EndDot(player, g.Id, ref g.Monster.Bleeds.Buff, g.Monster.Bleeds.BuffSource);
         EndDot(player, g.Id, ref g.Monster.Poisons.Buff, g.Monster.Poisons.BuffSource);
+        if (g.SpectreBuff != 0)
+        {
+            player.Area.Buffs.Clear(g.Id, SpectreBuffRowValue(), g.Id);
+            g.SpectreBuff = 0;
+        }
         g.Monster.Ignites.Clear();
         g.Monster.Bleeds.Clear();
         g.Monster.Poisons.Clear();

@@ -499,6 +499,9 @@ public static partial class MapStrongboxes
         var here = player.Walk.Position(at);
         bool alive = player.PlayerLife > 0 && !player.Paused && !InGracePeriod(player);
         var inside = alive ? zones.Where(z => Distance(here, z.At) <= z.Radius).ToArray() : [];
+        if (inside.Length > 0 && UnaffectedByGround(player) is var unaffected)
+            inside = [.. inside.Where(z => !(unaffected.Burning && z.Type == DamageType.Fire && z.Dps > 0
+                || unaffected.Chilled && z.Ailment == "chill" || unaffected.Shocked && z.Ailment == "shock"))];
         var immune = inside.Length > 0 ? PlayerImmunities(player) : [];
         double dps = inside.Where(z => z.Dps > 0 && !immune.Contains(z.Type))
             .Sum(z => z.Dps * (z.Type == DamageType.Physical ? 1 : 1 - Math.Min(MaxResistance(player, z.Type), Resistance(player, z.Type)) / 100.0));

@@ -383,7 +383,8 @@ public static partial class Game
                 if (more != 1) damage = (int)Math.Floor(damage * Math.Max(0, more));
                 int chaosDamage = MonsterHitChaosDamage(m, mitigated, spell: false, now, damage);
                 LeechOnHitTargetLocked(player, m, taken, damage, leech, id);
-                damage = WithImpaleHitLocked(player, m, damage, rolled, critical, sourceMultiplier,
+                damage = WithImpaleHitLocked(player, m, damage, rolled, critical,
+                    sourceMultiplier + FullLifeCriticalMultiplier(m, playerStats, skillStats),
                     critical ? criticalImpale : impale, more).Damage;
                 var stun = OwnerStun(player, gem.Effect, m, damage, mitigated, melee: true, spell: false, critical, playerStats, skillStats,
                     weaponClass: (swingWeapon ?? WeaponFor(player)).ItemClass ?? "");
