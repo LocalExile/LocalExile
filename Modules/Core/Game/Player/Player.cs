@@ -1109,9 +1109,8 @@ public static partial class Game
                 else
                 {
                     uint lifeCap = LifeCap(player);
-                    leech.ClearFull(now, lifeBefore >= lifeCap, manaBefore >= manaCap,
+                    var leeched = TakeLeechRecovery(player, now, lifeBefore >= lifeCap, manaBefore >= manaCap,
                         player.EnergyShield.Current >= player.EnergyShield.Maximum);
-                    var leeched = leech.TakeRecovery(now);
                     int IncomingStat(uint name) => RecoveryStat(name);
                     double mapRecovery = PanelStats.MapRecoveryMultiplier(RecoveryStat);
                     bool noRegeneration = RecoveryStat(Stat.MapPlayersNoRegenerationIncludingEs) != 0;

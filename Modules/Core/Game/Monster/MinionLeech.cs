@@ -10,6 +10,41 @@ public static partial class Game
 
     static readonly RuleTable<GolemState.Golem, MinionLifeLeech> MinionLifeLeeches = new();
 
+    static SpawnedMonster? VampiricMinionAt(Player player, LinkSkills.Link link, double now) =>
+        link.EffectId == "VampiricLink" && now < link.Until && player.PlayerLife > 0 && !player.Closed && !player.LeavingArea
+        && (link.AwaySince is not double away || now - away < LinkSkills.BreakSeconds)
+        && player.Area.Monsters.GetValueOrDefault(link.Target) is { Dead: false, Life: > 0 } monster
+        && player.Minions.Owns(link.Target, monster) ? monster : null;
+
+    static bool HasVampiricMinion(Player player, double now)
+    {
+        foreach (var link in player.Links.All)
+            if (VampiricMinionAt(player, link, now) is not null) return true;
+        return false;
+    }
+
+    sealed class VampiricLeechCarry { public double Life; }
+    static readonly RuleTable<SpawnedMonster, VampiricLeechCarry> VampiricLeechCarries = new();
+
+    static bool RecoverVampiricMinions(Player player, double recovery, double now)
+    {
+        bool redirected = false;
+        foreach (var link in player.Links.All)
+        {
+            if (VampiricMinionAt(player, link, now) is not { } monster) continue;
+            redirected = true;
+            if (monster.Effects[Stat.CannotRecoverLife] != 0) continue;
+            var carry = VampiricLeechCarries.GetOrCreateValue(monster);
+            uint life = RecoveryPool.Advance(monster.Life, monster.MaxLife, recovery, ref carry.Life);
+            if (life == monster.Life) continue;
+            monster.Life = life;
+            if (life == monster.MaxLife && OwnedFighter(player, link.Target) is { } fighter)
+                MinionLifeLeeches.Remove(fighter);
+            player.Minions.OutputQueue.Add(new([], null, link.Target, monster, PlayerMinions.OutputKind.Life));
+        }
+        return redirected;
+    }
+
     static void GrantMinionLifeLeech(GolemState.Golem minion, SpawnedMonster target, DamagePacket coefficients,
         DamagePacket mitigated, int damage, double now)
     {
