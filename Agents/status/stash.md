@@ -13,7 +13,8 @@ Part of [Status](../Status.md); what to build next in this area is in
   See protocol/18-stash.md.
 - Tab settings, live 2026-11-24, all kept after a relog: the public flag (C→S 0xcf), item price notes (0x1a1) on a
   public tab's items, the tab order (0xcc), and folders: Create New Folder (0xd1), renaming it (0xcd) and Delete Folder
-  (0xd2). Currency in a public tab is refused for use.
+  (0xd2). Currency in a public tab is refused for use; a price note is cleared when its item lands in a tab that
+  isn't public, as in retail.
 - **Currency withdrawal (#249).** Ctrl + left click takes at most one normal inventory stack from the clicked slot;
   Ctrl + right click uses the separate `0xe3` bulk boolean to take as much of that stack as fits.
   Ctrl + right click on an inventory stack moves every stack of its type into the stash, to its affinity tab or the shown tab.
@@ -98,8 +99,9 @@ Part of [Status](../Status.md); what to build next in this area is in
 - **Crafting cells.** Delve crafting cells accept equipment, support swaps and retain their contents after reload.
   Lioneye's Watch now creates a guild stash beside its personal stash.
   Persistence checks pass; the real client opened the city guild stash and loaded its guild tab.
-- **Blight tab:** oils in their slots, the anoint cell, the oil cells and the 60-cell map row take their items and
-  keep them after a relog; Ctrl + click on an oil (`C→S 0xf5`) moves it to the inventory (live 2026-11-24).
+- **Blight tab:** oils in their slots, the anoint cell, the oil cells and the 60-cell map row (blighted maps only)
+  take their items and keep them after a relog; Ctrl + click on an oil (`C→S 0xf5`) moves it to the inventory, or one
+  oil to a free oil cell while the anoint cell holds an item (live 2026-11-24).
   Delve sockets (colour 6) now accept only Fossils and reject skill gems (offline verified; live client check pending).
 
 ## Not working yet

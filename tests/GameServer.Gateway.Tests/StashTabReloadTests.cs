@@ -119,23 +119,42 @@ public class StashTabReloadTests : IDisposable
             var amulet = catalog.All.First(t => t.Class == "Amulet" && t.Supported);
             var oil = catalog.Find("Metadata/Items/Currency/Mushrune1")!;
             var map = catalog.All.First(t => catalog.Stash.MapTier(t.Hash) is not null);
+            var tainted = catalog.Find("Metadata/Items/Currency/MushruneCorrupt")!;
             InventoryItem New(ItemCatalog.BaseType type) => new(stash.NewItemId(), 0, 0, ItemCatalog.Create(type));
+            InventoryItem Blighted(string mod) => New(map) with
+                { Item = ItemCatalog.Create(map) with { Mods = [new(ModSection.Implicit, catalog.Mods.ById(mod)!.Hash, [1])] } };
+
+            // Ctrl + click on an oil (0xf5) with the anoint cell empty: not into the input cells.
+            var stack = stash.Place(blight, 0, 0, New(oil) with { Item = ItemCatalog.Create(oil) with { StackSize = 3 } }, ShapeOf, out _)!.Value.Placed;
+            Assert.Null(ItemMoves.StashToAnointInput(stash, blight, stack.Id, ShapeOf, out bool full));
+            Assert.False(full);
 
             // The anoint cell (CraftingItem, slot 13), an oil input (CraftingInputs1, slot 15) and two of the 60 map cells
-            // (BlightedMapSlots, slots 18..77) keep what is dropped there; a map cell refuses what is not a map.
+            // (BlightedMapSlots, slots 18..77) keep what is dropped there; a map cell takes only blighted maps.
             Assert.NotNull(stash.Place(blight, 13, 0, New(amulet), ShapeOf, out _));
             Assert.NotNull(stash.Place(blight, 15, 0, New(oil), ShapeOf, out _));
-            Assert.NotNull(stash.Place(blight, 18, 0, New(map), ShapeOf, out _));
-            Assert.NotNull(stash.Place(blight, 77, 0, New(map), ShapeOf, out _));
-            Assert.Null(stash.Place(blight, 19, 0, New(amulet), ShapeOf, out string why));
+            Assert.NotNull(stash.Place(blight, 18, 0, Blighted("InfectedMap"), ShapeOf, out _));
+            Assert.NotNull(stash.Place(blight, 77, 0, Blighted("UberInfectedMap__"), ShapeOf, out _));
+            Assert.Null(stash.Place(blight, 19, 0, New(map), ShapeOf, out string why));
             Assert.Contains("maps only", why);
+            Assert.Null(stash.Place(blight, 19, 0, New(amulet), ShapeOf, out _));
             // An amulet anywhere else on the tab is still refused.
             Assert.Null(stash.Place(blight, 16, 0, New(amulet), ShapeOf, out _));
 
+            // With an item in the anoint cell, one oil goes to the first free input (15 is taken), a Tainted Oil to its own
+            // cell (78), and nothing moves once the inputs are full.
+            var moved = ItemMoves.StashToAnointInput(stash, blight, stack.Id, ShapeOf, out _)!;
+            Assert.Equal((16, 1, 2), ((int)moved.TabAdded[0].X, (int)moved.TabAdded[0].Item.StackSize, (int)moved.LeftInTab!.Item.StackSize));
+            Assert.NotNull(ItemMoves.StashToAnointInput(stash, blight, stack.Id, ShapeOf, out _));
+            Assert.Null(ItemMoves.StashToAnointInput(stash, blight, stack.Id, ShapeOf, out full));
+            Assert.True(full);
+            var taint = stash.Place(blight, 1, 0, New(tainted), ShapeOf, out _)!.Value.Placed;
+            Assert.Equal(78, ItemMoves.StashToAnointInput(stash, blight, taint.Id, ShapeOf, out _)!.TabAdded[0].X);
+
             AccountStash.Forget(account);
             var cells = AccountStash.For(account, catalog).Inventory(blight).Items
-                .Select(i => (i.X, i.Item.TypeHash)).OrderBy(c => c.X).ToArray();
-            Assert.Equal([(13, amulet.Hash), (15, oil.Hash), (18, map.Hash), (77, map.Hash)],
+                .Select(i => (i.X, i.Item.TypeHash)).Where(c => c.X >= 13).OrderBy(c => c.X).ToArray();
+            Assert.Equal([(13, amulet.Hash), (15, oil.Hash), (16, oil.Hash), (17, oil.Hash), (18, map.Hash), (77, map.Hash), (78, tainted.Hash)],
                 cells.Select(c => ((int)c.X, c.TypeHash)).ToArray());
         }
         finally

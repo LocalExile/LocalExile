@@ -151,13 +151,15 @@ connection. Later opens send b = 0x16: the panel keeps its own tab while the con
 - **0x1a1** (variable length, writer `0x141fa2270`, senders `0x14021de00`/`0x1402fbbf0`/`0x140b10ca0`): sets or clears
   an item's price note (u32 BE inventory id, u32 BE item id with bit 31 flag, WStr note) on items in an open, visible,
   public, premium stash tab.
-  Live 2026-11-24: the note stays on the item when it leaves the tab (inventory, then a normal tab); whether retail
-  clears it is not known.
+  Retail clears the note when the item lands in a tab that isn't public (2026-11-24), and so does the server
+  (`AccountStash.Place`); whether the inventory on the way clears it in retail is not known (ours keeps it there).
   The note travels in the item's `Base` component bit 4 (0x10) as `WStr32` before `SkinTransferSource` (0x40) and
   `Price` (0x80).
 - **0xf5** (12 bytes, writer `0x141f9a550`, sender `0x1403136e1`): Blight tab oil take-out (u32 BE item id, u8 kind,
   u32 BE tab, u8 uiPanelState — UI panel state at `0x1403136d5`/`0x140313879`, not a bulk flag). Ctrl + click on an
-  oil in the Blight tab sends it with panelState 1, and the oil goes to the inventory (live 2026-11-24).
+  oil in the Blight tab sends it with panelState 1 whatever the anoint cell holds. Retail (2026-11-24): with the anoint
+  cell empty the oil goes to the inventory; with an item there one oil goes to the first free input cell (15–17), and
+  nothing happens when they are full. The server sends a Tainted Oil to cell 78 (from BlightCraftingItems.UseType 1).
 - **0xd2** (5 bytes: u16 BE folder, u8 kind; `0x14025c5c0`, registered at `0x140258e87`): the folder settings' "Delete
   Folder", sent only for type 16 after the client cleared +0x3a of the tabs in it. The server moves them out and keeps
   the folder as a record with the hidden flag (0x20, so the panel leaves it out), which the next new folder reuses:
@@ -255,7 +257,8 @@ item moved into or out of a tab (0x28, 0x2a, 0xe0, 0xe3). Stacks merge into a ta
   The Delve (StashType 12, DelveStashTabLayout) and
   Blight (13, BlightStashTabLayout) and Delirium (15, DeliriumStashTabLayout) tabs are slotted the same way; the
   Blight tab's crafting rows are cells too (live 2026-11-24): CraftingItem (13) takes any item, CraftingInputs1–3 and
-  CraftingInputCorrupt (15–17, 78) the tab's own items, and BlightedMapSlots (18, Width 60) maps in cells 18–77.
+  CraftingInputCorrupt (15–17, 78) the tab's own items, and BlightedMapSlots (18, Width 60) in cells 18–77 maps with
+  the `InfectedMap` or `UberInfectedMap__` modifier (retail refuses an ordinary map there).
   Its Anoint button is the client's: without the quest flag `CassiaOnAnointingOils` it shows
   BlightAnointErrorNoCassia ("Strange Growths") and sends nothing. The
   Divination tab (6) too, a card's slot being its DivinationCardStashTabLayout row. The client builds a

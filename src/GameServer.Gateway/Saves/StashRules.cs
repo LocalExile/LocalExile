@@ -39,6 +39,27 @@ public sealed class StashRules
     readonly List<uint> _mapBases = [];                              // the map tab's bases: MapKeys rows + the four special maps
     readonly List<uint> _legendaryMaps = [];                         // MapStashUniqueMapInfo HASH16: the legendary maps' pages
     readonly Dictionary<ushort, (int Group, int Id)> _guardianMods = [];   // Mods HASH16 → map tab group and guardian id
+    readonly HashSet<ushort> _blightedMapMods = [];                  // Mods HASH16 of InfectedMap and UberInfectedMap
+    readonly Dictionary<byte, int> _corruptInput = [];               // StashType row → CraftingInputCorrupt slot
+    readonly Dictionary<uint, int> _oilUse = [];                     // oil HASH32 → BlightCraftingItems.UseType
+
+    /// <summary>Whether a map carries the Blighted (InfectedMap) or Blight-ravaged (UberInfectedMap) modifier: the
+    /// blight tab's map cells take only these (retail refuses an ordinary map there, 2026-11-24).</summary>
+    public bool IsBlightedMap(Item item) => item.Mods.Any(m => _blightedMapMods.Contains(m.Hash));
+
+    /// <summary>The input cells an oil goes to on Ctrl + click while the anoint cell holds an item, in order: a plain oil
+    /// (UseType 0) the CraftingInputs slots, a Tainted Oil (1) the CraftingInputCorrupt slot; none for anything else.</summary>
+    public IReadOnlyList<int> AnointInputs(byte tabType, uint itemType)
+    {
+        if (!_oilUse.TryGetValue(itemType, out int use) || !_inputSlots.TryGetValue(tabType, out var inputs)) return [];
+        int corrupt = _corruptInput.TryGetValue(tabType, out int c) ? c : -1;
+        return use switch
+        {
+            0 => [.. inputs.Where(s => s != corrupt).Order()],
+            1 when corrupt >= 0 => [corrupt],
+            _ => [],
+        };
+    }
 
     /// <summary>The map tab group and guardian of an item from its map modifiers, or (0, 0) when it carries none:
     /// `MapConquerorContainsBossN` (map_contains_citadel 1..4) for a conqueror, `MapElderContainsBossN`
@@ -173,6 +194,8 @@ public sealed class StashRules
         foreach (var r in ClientTables.Table("Mods"))
         {
             if (r.TextOrNull("Id") is not string modId) continue;
+            if ((modId == "InfectedMap" || modId.StartsWith("UberInfectedMap", StringComparison.Ordinal)) && r.IntOrNull("HASH16") is int blighted)
+                rules._blightedMapMods.Add((ushort)blighted);
             var match = System.Text.RegularExpressions.Regex.Match(modId, "^Map(Conqueror|Elder)ContainsBoss([1-9])");
             if (!match.Success || !int.TryParse(match.Groups[2].Value, out int guardian)
                 || guardian > AccountStash.SpecialGroups) continue;
@@ -240,6 +263,7 @@ public sealed class StashRules
                 if (id.StartsWith("CraftingInput", StringComparison.Ordinal))
                 {
                     (rules._inputSlots.TryGetValue(tabType, out var inputs) ? inputs : rules._inputSlots[tabType] = []).Add(slot);
+                    if (id == "CraftingInputCorrupt") rules._corruptInput[tabType] = slot;
                     continue;
                 }
                 if (id == "BlightedMapSlots")
@@ -284,6 +308,11 @@ public sealed class StashRules
                 cards.TryAdd(card, r.Index);
                 Give(card, DivinationCards);
             }
+
+        if (ClientTables.Has("BlightCraftingItems"))
+            foreach (var r in ClientTables.Table("BlightCraftingItems"))
+                if (r.IntOrNull("Oil") is int oil && HashOfRow(oil) is uint hash && r.IntOrNull("UseType") is int use)
+                    rules._oilUse.TryAdd(hash, use);
 
         rules.Loaded = true;
         return rules;

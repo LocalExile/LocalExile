@@ -326,6 +326,33 @@ public static partial class Game
         await SendTransfer(player, items, stash, moved, tabFirst: true);
     }
 
+    // Ctrl + click on an oil in the blight tab (C→S 0xf5; panelState is 1 either way): with an item in the anoint cell one
+    // oil goes to the first free input cell, and nothing happens when they are full; otherwise into the inventory
+    // (retail, 2026-11-24).
+    public static async Task TakeBlightOil(Player player, int tab, uint itemId, byte kind)
+    {
+        var stash = kind switch
+        {
+            InstanceStash.Guild when !player.Character.Ssf => GuildStashOf(player),
+            InstanceStash.Guild => null,
+            InstanceStash.Personal => PersonalStashOf(player),
+            _ => StashOf(player),
+        };
+        if (stash is null) return;
+        if (ItemMoves.StashToAnointInput(stash, tab, itemId, ShapeOf, out bool full) is { } moved)
+        {
+            Console.WriteLine($"[gateway] {player.Connection.Remote} 0x00f5 oil {itemId} -> anoint input cell {moved.TabAdded[0].X}");
+            await SendTransfer(player, ItemsOf(player), stash, moved, tabFirst: true);
+            return;
+        }
+        if (full)
+        {
+            Console.WriteLine($"[gateway] {player.Connection.Remote} 0x00f5 oil {itemId}: the anoint input cells are full, nothing moves");
+            return;
+        }
+        await TakeFromStash(player, tab, itemId, all: false, kind);
+    }
+
     // What a Ctrl + click moved (ItemMoves.Transfer), to the client: one 0xbf for the inventory row, one for the tab
     // (SendTabChange).
     public static async Task SendTransfer(Player player, PlayerInventories items,
