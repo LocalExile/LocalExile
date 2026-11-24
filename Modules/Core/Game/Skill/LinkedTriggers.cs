@@ -119,7 +119,7 @@ public static partial class Game
                 && SameTriggerSource(spell.Gem, SupportedSkill(player, spell.Skill)) && (activeTarget?.Invoke() ?? true);
             var release = PrepareTriggeredPayload(player, session, spell.Skill, aim, Current, origin);
             if (release is null) continue;
-            var trigger = gem.Supports.Single(s => SupportHas(s, spellFlag));
+            var trigger = gem.Supports.First(s => SupportHas(s, spellFlag));
             if (!PayMana(player, spell.Skill, out uint mana, out uint life))
             {
                 state.Rotation[key] = (source, (index + 1) % source.Spells.Length);

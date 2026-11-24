@@ -152,18 +152,24 @@ public static partial class Game
 
     static void RemoveRallyingCryOnWeaponSwapLocked(Player player)
     {
-        if (!WarcryGrants.TryGetValue(player, out var grants)) return;
-        bool changed = false;
-        for (int i = grants.Count - 1; i >= 0; i--)
+        var area = player.Area;
+        bool RemoveOutgoing(uint recipient, List<WarcryGrant> grants)
         {
-            var grant = grants[i];
-            if (grant.Row != RallyingCryBuffRow) continue;
-            if (grant.Area == player.Area) player.Area.Buffs.Clear(player.Id, grant.Row, grant.Source);
-            grants.RemoveAt(i);
-            changed = true;
+            if (grants.RemoveAll(grant => grant.Area == area && grant.Row == RallyingCryBuffRow
+                && grant.Source == player.Id) == 0) return false;
+            area.Buffs.Clear(recipient, RallyingCryBuffRow, player.Id);
+            return true;
         }
-        if (grants.Count == 0) WarcryGrants.Remove(player);
-        if (changed) MarkPlayerStats(player, PlayerStatStep.Sources);
+        foreach (var ally in player.Instance.PlayersExcept(player.Id))
+            if (WarcryGrants.TryGetValue(ally, out var grants) && RemoveOutgoing(ally.Id, grants))
+            {
+                if (grants.Count == 0) WarcryGrants.Remove(ally);
+                UpdateWarcryStats(ally);
+            }
+        foreach (var (id, monster) in area.Monsters)
+            if (MinionWarcryGrants.TryGetValue(monster, out var grants) && RemoveOutgoing(id, grants)
+                && grants.Count == 0)
+                MinionWarcryGrants.Remove(monster);
     }
 
     public static void ApplyWarcryBuffLocked(Player player, string effectId, IReadOnlyDictionary<uint, int> own,

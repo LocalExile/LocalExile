@@ -21,11 +21,11 @@ public static partial class Game
 
     static SupportedGem LivingLightningGem(Player player, SupportedGem source)
     {
-        var support = source.Supports.Single(s => s.Effect.Id == LivingLightningSupport);
+        var support = source.Supports.First(s => s.Effect.Id == LivingLightningSupport);
         var catalog = SkillsFor(player);
         int effect = catalog.EffectRow("TriggeredSupportLivingLightning");
-        var stats = new Dictionary<uint, int>(source.Stats);
-        foreach (var (key, value) in catalog.EffectStats(effect, support.Gem.Level)) stats[key] = value;
+        var stats = catalog.EffectStats(effect, support.Gem.Level).ToDictionary(kv => kv.Item1, kv => kv.Item2);
+        ApplySupportStats(player, stats, source.Supports);
         stats[Stat.BaseDisplayMinionActorLevel] = catalog.PlayerLevelReq(effect, support.Gem.Level);
         stats[Stat.LivingLightningNumberOfAttacks] = GolemStat(stats, Stat.LivingLightningNumberOfAttacks)
             + support.Gem.Quality / 10;
@@ -41,12 +41,12 @@ public static partial class Game
         var gem = SupportedSkill(player, source);
         if (!gem.RequirementsMet || PlacedKind(gem) != (false, false) || GolemStat(gem.Stats, Stat.IsTotem) != 0
             || LivingLightningDefinition(player, gem) is null) return;
-        var support = gem.Supports.Single(s => s.Effect.Id == LivingLightningSupport);
+        var support = gem.Supports.First(s => s.Effect.Id == LivingLightningSupport);
         var catalog = SkillsFor(player);
         int effect = catalog.EffectRow("TriggeredSupportLivingLightning");
         var own = LivingLightningGem(player, gem).Stats;
         if (SingleUseCooldown.ForSkill(catalog, Stats, effect, support.Gem.Level,
-                CharacterPlayerStats(player), own) is not { } plan) return;
+                PlayerStatValues(player), own) is not { } plan) return;
         if (!LivingLightningCooldowns.TryGetValue(player, out var cooldownState) || cooldownState.Epoch != player.ProjectileEpoch)
         {
             cooldownState = new(player.ProjectileEpoch, new(now, plan.RecoveryRate));

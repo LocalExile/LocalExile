@@ -405,7 +405,7 @@ public static partial class Game
         byte level = spectreChild?.Parent.Monster.Level ?? (byte)Math.Clamp(actorLevel, 1, 100);
         if (inheritedMods is null && (definition.Family is "RagingSpirit" or "Spider"
             || definition.Family == "Spectre" && ItemisedCorpses.Bodies.Contains(variety.Row) || spectreChild is not null))
-            inheritedMods = MonsterModRolls.Create(MonsterModRolls.Species(variety.SpeciesModsOrEmpty, Random.Shared),
+            inheritedMods = MonsterModRolls.Create(MonsterModRolls.Species(variety.SpeciesModsOrEmpty, AreaRng(player)),
                 [], MonsterRarity.Normal, level);
         var native = new GolemCatalog.Definition(gem.Effect, definition.Id, definition.Family, path, 0, [], false, false, false);
         double freshMeat = remaining is null && replacement is null && restoredVariety is null && resources is null && !legacyArrival
@@ -476,7 +476,13 @@ public static partial class Game
                         && GemSkillInstanceDisabled(player, gem.Effect, source, triggered: triggered || restoredVariety is not null) is null),
             owned: (id, monster) =>
             {
-                if (consumed is not null) ConsumeSummonCorpseLocked(player, consumed, playerConsumesCorpse);
+                if (consumed is not null)
+                {
+                    ConsumeSummonCorpseLocked(player, consumed, playerConsumesCorpse);
+                    if (definition == ItemSpider)
+                        player.Minions.OutputQueue.Add(new(InstanceProtocol.RemoveObject(consumed.ObjectId),
+                            "Raise Spiders consumes a corpse", WorldId: consumed.ObjectId, RemovesObject: true));
+                }
                 if (animated?.Ground is not null)
                     player.Minions.OutputQueue.Add(new(InstanceProtocol.RemoveObject(animated.Id), "animated item consumed", WorldId: animated.Id, RemovesObject: true));
                 if (animated?.BladeSource is not null)

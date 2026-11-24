@@ -210,7 +210,8 @@ public static partial class Game
                 inactive.MinionLifeLossCarry = inactive.MinionShieldLossCarry = 0;
             return;
         }
-        if (now <= from || HardcoreProgressBlocked(player) || InGracePeriod(player)) return;
+        if (now <= from || InTown(player) || player.Immune || stats.GetValueOrDefault(Stat.BaseCannotBeDamaged) > 0
+            || HardcoreProgressBlocked(player) || InGracePeriod(player)) return;
         var state = ResourceEffectsOf(player);
         if (!ResourceEffectsCurrent(player, state)) return;
         int count = player.Minions.All.Count(minion => minion.Until > now && !minion.Monster.Dead && minion.Monster.Life > 0

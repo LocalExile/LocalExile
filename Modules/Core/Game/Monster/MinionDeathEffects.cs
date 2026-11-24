@@ -8,9 +8,10 @@ public static partial class Game
 
     static void OwnedMinionDeathEffectsLocked(Player player, GolemState.Golem dead, double now)
     {
-        if (dead.DeathEffectsApplied || !GolemCurrent(player, dead) || player.PlayerLife == 0) return;
+        if (dead.DeathEffectsApplied || !GolemCurrent(player, dead) || player.PlayerLife == 0
+            || dead.Definition.Kind is ItemHarbingerFamily or "DoedresEffigy" || SpectreGroundHex(dead.Definition.Kind) is not null) return;
         dead.DeathEffectsApplied = true;
-        var stats = CharacterPlayerStats(player);
+        var stats = PlayerStatValues(player);
         int recovery = GolemStat(stats, Stat.MinionRecoverPctMaximumLifeOnMinionDeath);
         if (recovery > 0)
             foreach (var minion in player.Minions.All)
@@ -92,7 +93,7 @@ public static partial class Game
 
     static void ApplyMinionDeathHitLocked(Player player, int physical, double now)
     {
-        var stats = CharacterPlayerStats(player);
+        var stats = PlayerStatValues(player);
         int Get(uint stat) => stats.GetValueOrDefault(stat);
         if (player.Immune || Get(Stat.BaseCannotBeDamaged) != 0) return;
         using var defenceTime = FortificationOf(player).Capture(now);

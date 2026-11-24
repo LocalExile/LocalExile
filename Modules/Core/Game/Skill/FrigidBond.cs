@@ -45,7 +45,7 @@ public static partial class Game
                 damage.Renew(time, dps, seconds, source);
                 FrigidBondTargets.GetOrCreateValue(player.Area).Add(id);
             }
-            monster.Ailments.ApplyAura(MonsterElementalAilments.Kind.Chill, link.Target, seconds, time, Get, key => monster.Effects[key]);
+            monster.Ailments.ApplyAura(MonsterElementalAilments.Kind.Chill, source, seconds, time, Get, key => monster.Effects[key]);
         }
     }
 

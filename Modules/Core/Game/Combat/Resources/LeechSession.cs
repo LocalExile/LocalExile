@@ -195,7 +195,11 @@ public sealed class LeechSession
         // Full Life, not Low Life: Petrified Blood ignores leech recovery above Low Life without removing the
         // instance, so it keeps its full-pool cap and can resume when Life drops.
         fullLife = life; fullShield = shield;
-        if (life) { LifeInstantCarry = 0; pendingLifeRecovery = 0; }
+        if (life)
+        {
+            LifeInstantCarry = 0;
+            if (!lifeRecoveryRedirected) pendingLifeRecovery = 0;
+        }
         if (shield) pendingShieldRecovery = 0;
         if (mana) ManaInstantCarry = 0;
         if (life && !keepLife && !lifeRecoveryRedirected) Life.Clear(now);

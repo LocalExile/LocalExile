@@ -29,32 +29,56 @@ public static partial class Game
 
     public sealed partial class ProjectileSession
     {
-        sealed record DamageGround(ProjectileVector Centre, double Radius, long Start, long End,
-            DamageType Type, double Dps, Visual? Visual, uint ChillSource, IReadOnlyDictionary<uint, int>? ChillStats);
+        sealed record DamageGround(ProjectileSession Source, ProjectileVector Centre, double Radius, long Start, long End,
+            DamageType Type, double Dps, Visual? Visual, uint ChillSource, IReadOnlyDictionary<uint, int>? ChillStats)
+        {
+            public readonly HashSet<SpawnedMonster> Chilled = [];
+        }
 
-        readonly List<DamageGround> damageGrounds = [];
         sealed class GroundDamageCarry { public double Fire, Cold, Chaos; }
 
-        readonly ConditionalWeakTable<SpawnedMonster, GroundDamageCarry> groundRemainders = new();
-        bool damageGroundTickScheduled;
-        long damageGroundPreviousTick;
+        sealed class AreaDamageGrounds
+        {
+            public readonly List<DamageGround> Grounds = [];
+            public readonly ConditionalWeakTable<SpawnedMonster, GroundDamageCarry> Remainders = new();
+            public long Previous, Next;
+        }
+
+        static readonly RuleTable<GameArea, AreaDamageGrounds> DamageGroundsByArea = new();
+        static readonly long DamageGroundInterval = ProjectileRuntime.QuantaPerSecond / 10;
+        GameArea? damageGroundArea;
+        bool groundFallbackScheduled;
 
         void ClearDamageGrounds()
         {
-            foreach (var ground in damageGrounds)
+            if (damageGroundArea is not { } area) return;
+            damageGroundArea = null;
+            groundFallbackScheduled = false;
+            if (area.Driven && !area.Owned) area.Defer(RemoveDamageGrounds);
+            else RemoveDamageGrounds(area);
+        }
+
+        void RemoveDamageGrounds(GameArea area)
+        {
+            if (!DamageGroundsByArea.TryGetValue(area, out var state)) return;
+            for (int i = state.Grounds.Count - 1; i >= 0; i--)
             {
-                if (ground.Visual is { } visual)
-                {
-                    visual.Ended = true;
-                    Player.ProjectileObjects.Remove(visual.Id);
-                }
-                if (ground.ChillSource != 0)
-                    foreach (var monster in Player.Area.Monsters.Values)
-                        monster.Ailments.RemoveAura(ground.ChillSource);
+                var ground = state.Grounds[i];
+                if (!ReferenceEquals(ground.Source, this)) continue;
+                state.Grounds.RemoveAt(i);
+                RemoveDamageGround(area, ground);
             }
-            damageGrounds.Clear();
-            groundRemainders.Clear();
-            damageGroundTickScheduled = false;
+            if (state.Grounds.Count == 0) state.Remainders.Clear();
+        }
+
+        static void RemoveDamageGround(GameArea area, DamageGround ground)
+        {
+            foreach (var monster in ground.Chilled)
+                monster.Ailments.RemoveAura(MonsterElementalAilments.Kind.Chill, ground.ChillSource);
+            if (ground.Visual is not { } visual) return;
+            visual.Ended = true;
+            ground.Source.Player.ProjectileObjects.Remove(visual.Id);
+            if (visual.Created) area.Delta.RemoveSharedObject(visual.Id, InstanceProtocol.RemoveObject(visual.Id));
         }
 
         internal void PlaceCausticCloud(ProjectileVector centre, ProjectileOffense.CausticCloudSpec spec) =>
@@ -92,118 +116,169 @@ public static partial class Game
         void AddDamageGround(ProjectileVector centre, double radius, double seconds, DamageType type,
             double dps, long start, Visual? visual = null, IReadOnlyDictionary<uint, int>? chillStats = null)
         {
-            start = Math.Max(Runtime.Now, start);
+            var area = Player.Area;
+            var state = DamageGroundsByArea.GetOrCreateValue(area);
+            damageGroundArea = area;
+            start = Math.Max(start, Math.Max(Runtime.Now, state.Grounds.Count == 0 ? 0 : state.Previous));
             long end = start + Math.Max(1, ProjectileRuntime.Time(seconds));
             uint chillSource = chillStats is null ? 0 : visual?.Id ?? Player.TakeObjectId();
-            damageGrounds.Add(new(centre, radius, start, end, type, dps, visual, chillSource, chillStats));
-            if (damageGroundTickScheduled) return;
-            damageGroundTickScheduled = true;
-            damageGroundPreviousTick = start;
-            Runtime.Schedule(Math.Min(end, start + ProjectileRuntime.QuantaPerSecond / 10), TickDamageGrounds);
+            if (state.Grounds.Count == 0)
+            {
+                state.Previous = start;
+                state.Next = start + DamageGroundInterval;
+            }
+            state.Grounds.Add(new(this, centre, radius, start, end, type, dps, visual, chillSource, chillStats));
+            state.Next = Math.Min(state.Next, end);
+            if (AreaRunsGame(Player) || groundFallbackScheduled) return;
+            groundFallbackScheduled = true;
+            Runtime.Schedule(Math.Max(Runtime.Now + 1, state.Next), TickFallbackDamageGrounds);
         }
 
-        void TickDamageGrounds()
+        void TickFallbackDamageGrounds()
         {
-            if (damageGrounds.Count == 0) { damageGroundTickScheduled = false; return; }
-            long now = Runtime.Now;
-            long previous = damageGroundPreviousTick;
+            if (damageGroundArea is not { } area || !DamageGroundsByArea.TryGetValue(area, out var state)
+                || AreaRunsGame(Player))
+            {
+                groundFallbackScheduled = false;
+                return;
+            }
+            AdvanceDamageGrounds(area, Runtime.Now);
+            groundFallbackScheduled = state.Grounds.Any(ground => ReferenceEquals(ground.Source, this));
+            if (groundFallbackScheduled) Runtime.Schedule(Math.Max(Runtime.Now + 1, state.Next), TickFallbackDamageGrounds);
+        }
+
+        internal static void AdvanceAreaDamageGrounds(GameArea area) => AdvanceDamageGrounds(area, ProjectileRuntime.Time(area.Time));
+
+        static void AdvanceDamageGrounds(GameArea area, long now)
+        {
+            if (!DamageGroundsByArea.TryGetValue(area, out var state) || state.Grounds.Count == 0 || now < state.Next) return;
+            long previous = state.Previous;
             var boundaries = new SortedSet<long> { now };
-            foreach (var ground in damageGrounds)
+            foreach (var ground in state.Grounds)
             {
                 if (previous < ground.Start && ground.Start < now) boundaries.Add(ground.Start);
                 if (previous < ground.End && ground.End < now) boundaries.Add(ground.End);
             }
-            var monsters = Player.Area.Monsters.ToArray();
             foreach (long through in boundaries)
             {
-                if (through > previous) ApplyDamageGrounds(monsters, previous, through);
+                if (through > previous) ApplyDamageGrounds(area, state, previous, through);
                 previous = through;
             }
-            damageGroundPreviousTick = now;
-
-            for (int i = damageGrounds.Count - 1; i >= 0; i--)
+            state.Previous = now;
+            state.Next = now + DamageGroundInterval;
+            for (int i = state.Grounds.Count - 1; i >= 0; i--)
             {
-                var ground = damageGrounds[i];
-                if (now < ground.End) continue;
-                damageGrounds.RemoveAt(i);
-                if (ground.Visual is not { } visual) continue;
-                visual.Ended = true;
-                WorldRecords(visual.Id, () =>
+                var ground = state.Grounds[i];
+                if (now < ground.End && ground.Source.Active)
                 {
-                    Player.ProjectileObjects.Remove(visual.Id);
-                    return visual.Created ? [InstanceProtocol.RemoveObject(visual.Id)] : null;
-                }, remove: true);
+                    state.Next = Math.Min(state.Next, ground.End);
+                    continue;
+                }
+                state.Grounds.RemoveAt(i);
+                RemoveDamageGround(area, ground);
             }
-            if (damageGrounds.Count == 0)
-            {
-                groundRemainders.Clear();
-                damageGroundTickScheduled = false;
-                return;
-            }
-            Runtime.Schedule(Math.Min(damageGrounds.Min(ground => ground.End), now + ProjectileRuntime.QuantaPerSecond / 10),
-                TickDamageGrounds);
+            if (state.Grounds.Count == 0) state.Remainders.Clear();
         }
 
-        void ApplyDamageGrounds(KeyValuePair<uint, SpawnedMonster>[] monsters, long from, long to)
+        sealed class GroundExposure(SpawnedMonster monster)
+        {
+            public readonly SpawnedMonster Monster = monster;
+            public DamageGround? Fire, Cold, Chaos;
+
+            public void Consider(DamageGround ground)
+            {
+                switch (ground.Type)
+                {
+                    case DamageType.Fire:
+                        if (ground.Dps > (Fire?.Dps ?? 0)) Fire = ground;
+                        break;
+                    case DamageType.Cold:
+                        if (ground.Dps > (Cold?.Dps ?? 0)) Cold = ground;
+                        break;
+                    case DamageType.Chaos:
+                        if (ground.Dps > (Chaos?.Dps ?? 0)) Chaos = ground;
+                        break;
+                }
+            }
+        }
+
+        static bool DamageGroundTarget(SpawnedMonster monster) =>
+            monster is { Hostile: true, Dead: false, Life: > 0, Invulnerable: false }
+            && monster.Effects[Stat.BaseCannotBeDamaged] == 0;
+
+        static void ApplyDamageGrounds(GameArea area, AreaDamageGrounds state, long from, long to)
         {
             double at = to / (double)ProjectileRuntime.QuantaPerSecond;
             double seconds = (to - from) / (double)ProjectileRuntime.QuantaPerSecond;
-            int Accrue(double dps, ref double fraction)
+            var exposures = new SortedDictionary<uint, GroundExposure>();
+            foreach (var ground in state.Grounds)
             {
-                double total = fraction + seconds * dps;
-                double whole = Math.Floor(total);
-                fraction = total - whole;
-                return (int)Math.Clamp(whole, 0, int.MaxValue);
-            }
-            foreach (var (id, monster) in monsters)
-            {
-                if (!monster.Hostile || monster.Dead || monster.Life == 0) continue;
-                var pos = Vector(monster.Walk.Position(at));
-                double fire = 0, cold = 0, chaos = 0;
-                foreach (var ground in damageGrounds)
-                {
-                    if (from < ground.Start || from >= ground.End) continue;
-                    bool covered = (pos - ground.Centre).Length <= ground.Radius;
-                    if (ground.ChillStats is { } chill)
+                if (!ground.Source.Active || from < ground.Start || from >= ground.End) continue;
+                double chillLeft = Math.Min(.2, (ground.End - to) / (double)ProjectileRuntime.QuantaPerSecond);
+                bool Covers(SpawnedMonster monster) => DamageGroundTarget(monster)
+                    && (Vector(monster.Walk.Position(at)) - ground.Centre).Length <= ground.Radius;
+                if (ground.ChillStats is not null)
+                    ground.Chilled.RemoveWhere(monster =>
                     {
-                        double left = (ground.End - to) / (double)ProjectileRuntime.QuantaPerSecond;
-                        if (covered && left > 0)
-                            monster.Ailments.ApplyAura(MonsterElementalAilments.Kind.Chill, ground.ChillSource, Math.Min(.2, left), at,
-                                key => chill.GetValueOrDefault(key), key => monster.Effects[key],
-                                chill.GetValueOrDefault(Stat.ChilledGroundBaseMagnitudeOverride));
-                        else monster.Ailments.RemoveAura(ground.ChillSource);
+                        if (chillLeft > 0 && Covers(monster)) return false;
+                        monster.Ailments.RemoveAura(MonsterElementalAilments.Kind.Chill, ground.ChillSource);
+                        return true;
+                    });
+                foreach (var (id, monster) in area.MonstersNear((ground.Centre.X, ground.Centre.Y), ground.Radius))
+                {
+                    if (!Covers(monster)) continue;
+                    if (ground.ChillStats is { } chill && chillLeft > 0)
+                    {
+                        monster.Ailments.ApplyAura(MonsterElementalAilments.Kind.Chill, ground.ChillSource, chillLeft, at,
+                            key => chill.GetValueOrDefault(key), key => monster.Effects[key],
+                            chill.GetValueOrDefault(Stat.ChilledGroundBaseMagnitudeOverride));
+                        ground.Chilled.Add(monster);
                     }
-                    if (!covered) continue;
-                    if (ground.Type == DamageType.Fire) fire = Math.Max(fire, ground.Dps);
-                    else if (ground.Type == DamageType.Cold) cold = Math.Max(cold, ground.Dps);
-                    else chaos = Math.Max(chaos, ground.Dps);
+                    if (ground.Dps <= 0) continue;
+                    if (!exposures.TryGetValue(id, out var exposure)) exposures.Add(id, exposure = new(monster));
+                    exposure.Consider(ground);
                 }
-                if (fire == 0 && cold == 0 && chaos == 0) continue;
-                var carry = groundRemainders.GetValue(monster, _ => new GroundDamageCarry());
-                int fireDamage = fire > 0 ? Accrue(fire * MonsterDotTaken(monster, DamageType.Fire, at), ref carry.Fire) : 0;
-                int coldDamage = cold > 0 ? Accrue(cold * MonsterDotTaken(monster, DamageType.Cold, at), ref carry.Cold) : 0;
-                int chaosDamage = chaos > 0 ? Accrue(chaos * MonsterDotTaken(monster, DamageType.Chaos, at), ref carry.Chaos) : 0;
-                int damage = ActorScale.Saturate((long)fireDamage + coldDamage + chaosDamage);
+            }
+
+            foreach (var (id, exposure) in exposures)
+            {
+                var monster = exposure.Monster;
+                var carry = state.Remainders.GetOrCreateValue(monster);
+                int Accrue(DamageGround? ground, ref double fraction)
+                {
+                    if (ground is null) return 0;
+                    double total = fraction + seconds * ground.Dps * MonsterDotTaken(monster, ground.Type, at);
+                    double whole = Math.Floor(total);
+                    fraction = total - whole;
+                    return (int)Math.Clamp(whole, 0, int.MaxValue);
+                }
+                int fire = Accrue(exposure.Fire, ref carry.Fire);
+                int cold = Accrue(exposure.Cold, ref carry.Cold);
+                int chaos = Accrue(exposure.Chaos, ref carry.Chaos);
+                int damage = ActorScale.Saturate((long)fire + cold + chaos);
                 if (damage == 0) continue;
-                int lifeDamage = AbsorbMonsterEnergyShieldLocked(Player.Area, monster, damage, chaosDamage, at);
+                int lifeDamage = AbsorbMonsterEnergyShieldLocked(area, monster, damage, chaos, at);
                 if (lifeDamage <= 0) continue;
-                var (life, stage) = TakeOwnerDamageLocked(Player, monster, lifeDamage);
+                var source = (fire >= cold && fire >= chaos ? exposure.Fire : cold >= chaos ? exposure.Cold : exposure.Chaos)!.Source;
+                var player = source.Player;
+                var (life, stage) = TakeOwnerDamageLocked(player, monster, lifeDamage);
                 monster.Life = life;
                 monster.Aggro = life > 0;
-                if (stage) CommitProjectileBossStage(this, id, monster, to);
+                if (stage) CommitProjectileBossStage(source, id, monster, to);
                 if (life == 0)
                 {
-                    SetStats(Player, id, [(Stat.HideMiniLifeBar, 1)]);
+                    SetStats(player, id, [(Stat.HideMiniLifeBar, 1)]);
                     if (DotDeathKind(monster, life) is var deathKind && deathKind != InstanceProtocol.DeathKindNormal)
-                        World(id, InstanceProtocol.LifeUpdate(id, life, u2c: deathKind,
-                            orderKey: Player.Connection.LockstepClient ? uint.MaxValue : 0u));
+                        source.World(id, InstanceProtocol.LifeUpdate(id, life, u2c: deathKind,
+                            orderKey: player.Connection.LockstepClient ? uint.MaxValue : 0u));
                     monster.Dead = true;
-                    monster.LastHitBy = Player;
-                    CollectVaalSoulAtDeathLocked(Player, monster);
-                    Enqueue(() => DotKilled(Player, id, monster));
+                    monster.LastHitBy = player;
+                    CleanupDeadMonsterLocked(area, id, monster);
+                    CollectVaalSoulAtDeathLocked(player, monster);
+                    source.Enqueue(() => DotKilled(player, id, monster));
                 }
-                else if (!Player.Connection.LockstepClient)
-                    World(id, InstanceProtocol.LifeUpdate(id, life));
+                else if (!player.Connection.LockstepClient)
+                    source.World(id, InstanceProtocol.LifeUpdate(id, life));
             }
         }
     }

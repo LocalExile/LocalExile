@@ -41,7 +41,7 @@ public static partial class Game
         var state = SkitterAuras.GetOrCreateValue(fighter);
         if (state.Curse != hex?.Effect)
         {
-            foreach (var monster in state.Covered) RemoveSkitterAura(fighter.Id, monster, state.Curse);
+            foreach (var monster in state.Covered) RemoveSkitterAura(fighter, monster, state.Curse);
             state.Covered.Clear();
             state.Curse = hex?.Effect;
         }
@@ -61,21 +61,22 @@ public static partial class Game
             state.Current.Add(monster);
         }
         foreach (var monster in state.Covered)
-            if (!state.Current.Contains(monster)) RemoveSkitterAura(fighter.Id, monster, state.Curse);
+            if (!state.Current.Contains(monster)) RemoveSkitterAura(fighter, monster, state.Curse);
         (state.Covered, state.Current) = (state.Current, state.Covered);
         state.Current.Clear();
     }
 
-    static void RemoveSkitterAura(uint bot, SpawnedMonster monster, string? curse)
+    static void RemoveSkitterAura(GolemState.Golem bot, SpawnedMonster monster, string? curse)
     {
-        if (curse is not null) monster.Curses.Remove(bot, curse);
-        else monster.Ailments.RemoveAura(bot);
+        if (curse is not null) monster.Curses.Remove(bot.Id, curse);
+        else monster.Ailments.RemoveAura(bot.Definition.Kind == "SkitterCold"
+            ? MonsterElementalAilments.Kind.Chill : MonsterElementalAilments.Kind.Shock, bot.Id);
     }
 
     static void ClearSkitterAuraLocked(GolemState.Golem fighter)
     {
         if (!SkitterAuras.TryGetValue(fighter, out var state)) return;
-        foreach (var monster in state.Covered) RemoveSkitterAura(fighter.Id, monster, state.Curse);
+        foreach (var monster in state.Covered) RemoveSkitterAura(fighter, monster, state.Curse);
         SkitterAuras.Remove(fighter);
     }
 }

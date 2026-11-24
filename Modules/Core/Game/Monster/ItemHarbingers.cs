@@ -1,3 +1,4 @@
+using System.Collections.Concurrent;
 using GameServer.Core;
 using GameServer.Core.Protocol.Instance;
 
@@ -9,16 +10,17 @@ public static partial class Game
     const int HarbingerSecondaryShockChance = 15;
     const int HarbingerWarp = 8722;
 
-    sealed record ItemHarbingerBuff(ushort Row, double Until, IReadOnlyDictionary<uint, int> Stats, uint[] Values);
+    sealed record ItemHarbingerBuff(GameArea Area, ushort Row, double Until, IReadOnlyDictionary<uint, int> Stats, uint[] Values);
     sealed class ItemHarbingerState
     {
         public readonly Dictionary<ushort, ItemHarbingerBuff> Buffs = [];
         public readonly Dictionary<uint, Player> PlayersInTime = [];
         public readonly Dictionary<uint, SpawnedMonster> MonstersInTime = [];
+        public ItemHarbingerBuff? LastTimeBuff;
         public double NextTimeCheck;
     }
     static readonly RuleTable<GolemState.Golem, ItemHarbingerState> ItemHarbingers = new();
-    static readonly RuleTable<Player, Dictionary<(uint Source, ushort Row), ItemHarbingerBuff>> ItemHarbingerRecipients = new();
+    static readonly RuleTable<Player, ConcurrentDictionary<(uint Source, ushort Row), ItemHarbingerBuff>> ItemHarbingerRecipients = new();
 
     static KeyValuePair<uint, SpawnedMonster> HarbingerNextEnemy(Player player, (int X, int Y) at, int radius,
         double now, Func<SpawnedMonster, bool>? filter = null, HashSet<uint>? visited = null) =>
@@ -35,7 +37,7 @@ public static partial class Game
         {
             RemoveItemHarbingerBuff(player, harbinger.Id, buff.Row);
             state.Buffs.Remove(buff.Row);
-            if (buff.Row is 921 or 922) ClearHarbingerTime(player, harbinger, state, buff.Row);
+            if (buff.Row is 921 or 922) ClearHarbingerTime(harbinger, state, buff);
         }
         if (InTown(player)) { GolemFollowLocked(player, harbinger, owner, now); return; }
         if (state.Buffs.Values.FirstOrDefault(b => b.Row is 921 or 922) is { } time && now >= state.NextTimeCheck)
@@ -101,7 +103,7 @@ public static partial class Game
             values[Stat.ImmuneToElementalAilments] = 1;
         }
         if (row == 929) values[Stat.BaseChanceToShockPct] = HarbingerSecondaryShockChance;
-        var buff = new ItemHarbingerBuff(row, now + duration / 1000d, values,
+        var buff = new ItemHarbingerBuff(player.Area, row, now + duration / 1000d, values,
             [.. keys.Select(key => unchecked((uint)values[key]))]);
         var state = ItemHarbingers.GetOrCreateValue(fighter);
         state.Buffs[row] = buff;
@@ -140,27 +142,30 @@ public static partial class Game
     static void GrantItemHarbingerBuff(Player recipient, uint source, ItemHarbingerBuff buff, double now)
     {
         ItemHarbingerRecipients.GetOrCreateValue(recipient)[(source, buff.Row)] = buff;
-        recipient.Area.Buffs.Set(recipient.Id, new(buff.Row, source, Values: buff.Values, U68: Buff.Seconds(buff.Until - now)));
+        buff.Area.Buffs.Set(recipient.Id, new(buff.Row, source, Values: buff.Values, U68: Buff.Seconds(buff.Until - now)));
         MarkPlayerStats(recipient, PlayerStatStep.Sources);
         PresentStats(recipient);
     }
 
     static void RemoveItemHarbingerBuff(Player recipient, uint source, ushort row)
     {
-        if (!ItemHarbingerRecipients.TryGetValue(recipient, out var buffs) || !buffs.Remove((source, row))) return;
-        recipient.Area.Buffs.Clear(recipient.Id, row, source);
-        MarkPlayerStats(recipient, PlayerStatStep.Sources);
-        PresentStats(recipient);
+        if (!ItemHarbingerRecipients.TryGetValue(recipient, out var buffs) || !buffs.TryRemove((source, row), out var buff)) return;
+        buff.Area.Buffs.Clear(recipient.Id, row, source);
+        if (ReferenceEquals(recipient.Frames.Area, buff.Area) && !recipient.LeavingArea && !recipient.Closed)
+        {
+            MarkPlayerStats(recipient, PlayerStatStep.Sources);
+            PresentStats(recipient);
+        }
     }
 
     public static Dictionary<uint, int> ItemHarbingerStatSources(Player player, Dictionary<uint, int> stats)
     {
-        if (!ItemHarbingerRecipients.TryGetValue(player, out var buffs) || buffs.Count == 0 || player.PlayerLife == 0) return stats;
+        if (!ItemHarbingerRecipients.TryGetValue(player, out var buffs) || buffs.IsEmpty || player.PlayerLife == 0) return stats;
         double now = AreaTime(player);
         int time = 0;
-        foreach (var buff in buffs.Values)
+        foreach (var (_, buff) in buffs)
         {
-            if (now >= buff.Until) continue;
+            if (!ReferenceEquals(player.Area, buff.Area) || now >= buff.Until) continue;
             StatsChangeIn(buff.Until - now);
             if (buff.Row is 921 or 922)
             {
@@ -178,12 +183,16 @@ public static partial class Game
         ItemHarbingerBuff buff, (int X, int Y) at, double now)
     {
         bool Near((int X, int Y) cell) => Dist(at, cell) <= HarbingerBuffRadius;
+        bool refreshed = !ReferenceEquals(state.LastTimeBuff, buff);
+        state.LastTimeBuff = buff;
         var players = owner.Instance.PlayersExcept(owner.Id)
-            .Where(p => ReferenceEquals(p.Area, owner.Area) && p.PlayerLife > 0 && Near(p.Walk.Position(now))).ToDictionary(p => p.Id);
-        foreach (var old in state.PlayersInTime.Values.Where(old => !players.ContainsKey(old.Id)))
-            RemoveItemHarbingerBuff(old, fighter.Id, buff.Row);
+            .Where(p => !p.Closed && !p.LeavingArea && ReferenceEquals(p.Frames.Area, buff.Area)
+                && p.PlayerLife > 0 && Near(p.Walk.Position(now))).ToDictionary(p => p.Id);
+        foreach (var old in state.PlayersInTime.Values)
+            if (!ReferenceEquals(players.GetValueOrDefault(old.Id), old)) RemoveItemHarbingerBuff(old, fighter.Id, buff.Row);
         foreach (var player in players.Values)
-            if (!state.PlayersInTime.ContainsKey(player.Id)) GrantItemHarbingerBuff(player, fighter.Id, buff, now);
+            if (refreshed || !ReferenceEquals(state.PlayersInTime.GetValueOrDefault(player.Id), player))
+                GrantItemHarbingerBuff(player, fighter.Id, buff, now);
         state.PlayersInTime.Clear();
         foreach (var (id, player) in players) state.PlayersInTime.Add(id, player);
 
@@ -198,7 +207,7 @@ public static partial class Game
                 owner.Area.Buffs.Clear(id, buff.Row, fighter.Id);
             }
         foreach (var (id, monster) in monsters)
-            if (!ReferenceEquals(state.MonstersInTime.GetValueOrDefault(id), monster))
+            if (refreshed || !ReferenceEquals(state.MonstersInTime.GetValueOrDefault(id), monster))
             {
                 monster.SetTemporaryStats(key, buff.Stats);
                 owner.Area.Buffs.Set(id, new(buff.Row, fighter.Id, Values: buff.Values, U68: Buff.Seconds(buff.Until - now)));
@@ -207,16 +216,17 @@ public static partial class Game
         foreach (var (id, monster) in monsters) state.MonstersInTime.Add(id, monster);
     }
 
-    static void ClearHarbingerTime(Player owner, GolemState.Golem fighter, ItemHarbingerState state, ushort row)
+    static void ClearHarbingerTime(GolemState.Golem fighter, ItemHarbingerState state, ItemHarbingerBuff buff)
     {
-        foreach (var recipient in state.PlayersInTime.Values) RemoveItemHarbingerBuff(recipient, fighter.Id, row);
+        foreach (var recipient in state.PlayersInTime.Values) RemoveItemHarbingerBuff(recipient, fighter.Id, buff.Row);
         foreach (var (id, monster) in state.MonstersInTime)
         {
             monster.RemoveTemporaryStats($"harbinger-time:{fighter.Id}");
-            owner.Area.Buffs.Clear(id, row, fighter.Id);
+            buff.Area.Buffs.Clear(id, buff.Row, fighter.Id);
         }
         state.PlayersInTime.Clear();
         state.MonstersInTime.Clear();
+        state.LastTimeBuff = null;
     }
 
     static void ClearItemHarbingerLocked(Player owner, GolemState.Golem fighter)
@@ -225,7 +235,7 @@ public static partial class Game
         foreach (var buff in state.Buffs.Values)
         {
             RemoveItemHarbingerBuff(owner, fighter.Id, buff.Row);
-            if (buff.Row is 921 or 922) ClearHarbingerTime(owner, fighter, state, buff.Row);
+            if (buff.Row is 921 or 922) ClearHarbingerTime(fighter, state, buff);
         }
         ItemHarbingers.Remove(fighter);
     }
