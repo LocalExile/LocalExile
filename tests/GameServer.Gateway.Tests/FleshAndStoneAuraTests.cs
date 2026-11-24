@@ -102,10 +102,11 @@ public class FleshAndStoneAuraTests
         Game.WithOwnAuraRecords(c, () => [], replay: true);
         c.Area.Buffs.Publish();
         Assert.False(c.Area.Buffs.Has(c.Id, AuraCatalog.FleshAndStoneBloodRow, c.Id, tag: 0));
+        Assert.False(c.Area.Buffs.Has(c.Id, AuraCatalog.FleshAndStoneBloodRow, c.Id, tag: (ushort)BuffTag.BloodAndSand));
         Assert.True(c.Area.Buffs.Has(c.Id, AuraCatalog.FleshAndStoneSandRow, c.Id, tag: 0));
         Assert.True(c.Area.Buffs.Has(c.Id, AuraCatalog.FleshAndStoneSandRow, c.Id, tag: (ushort)BuffTag.BloodAndSand));
 
-        // Right-clicking Blood and Sand's buff cancels only Blood and Sand while keeping Flesh and Stone active.
+        // Right-clicking Blood and Sand's buff cancels only Blood and Sand's tagged buffs while keeping Flesh and Stone intact.
         ushort bloodInstance = Enumerable.Range(1, 200)
             .Select(i => (ushort)i)
             .First(i => c.Area.Buffs.Find(c.Id, i) is { Row: AuraCatalog.FleshAndStoneSandRow, Tag: (ushort)BuffTag.BloodAndSand });
@@ -114,5 +115,9 @@ public class FleshAndStoneAuraTests
         c.Area.Buffs.Publish();
         Assert.False(c.Auras.ContainsKey(bloodAndSand.Id));
         Assert.True(c.Auras.ContainsKey(fleshAndStone.Id));
+        Assert.False(c.Area.Buffs.Has(c.Id, AuraCatalog.FleshAndStoneSandRow, c.Id, tag: (ushort)BuffTag.BloodAndSand));
+        Assert.False(c.Area.Buffs.Has(c.Id, AuraCatalog.FleshAndStoneSandRow, c.Id, auraSource: true, tag: (ushort)BuffTag.BloodAndSand));
+        Assert.True(c.Area.Buffs.Has(c.Id, AuraCatalog.FleshAndStoneSandRow, c.Id, tag: 0));
+        Assert.True(c.Area.Buffs.Has(c.Id, AuraCatalog.FleshAndStoneSandRow, c.Id, auraSource: true, tag: 0));
     }
 }

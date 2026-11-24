@@ -1850,10 +1850,13 @@ public static partial class Game
         return true;
     }
 
+    static ushort OwnAuraBuffTag(AuraCatalog.Aura aura) =>
+        StanceCatalog.SourceFamily(aura.EffectId) == StanceCatalog.BloodAndSand
+            ? (ushort)BuffTag.BloodAndSand : (ushort)0;
+
     public static IEnumerable<Buff> AuraBuffs(uint id, AuraCatalog.Aura aura, double? seconds = null)
     {
-        ushort tag = StanceCatalog.SourceFamily(aura.EffectId) == StanceCatalog.BloodAndSand
-            ? (ushort)BuffTag.BloodAndSand : (ushort)0;
+        ushort tag = OwnAuraBuffTag(aura);
         if (seconds is not double duration)
         {
             foreach (var buff in AuraCatalog.Buffs(aura, id, Skills.ActionHash(aura.Effect), aura.AffectsSelf ? null : (byte?)0, tag))
