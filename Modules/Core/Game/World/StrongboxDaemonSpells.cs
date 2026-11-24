@@ -279,7 +279,7 @@ public static partial class MapStrongboxes
             if (hit.Damage > 0)
             {
                 var stats = CharacterPlayerStats(player);
-                ApplyPlayerAilmentsLocked(player, DamagePacket.Of(type, amount, amount), DamagePacket.Of(type, hit.Damage, hit.Damage),
+                ApplyPlayerAilmentsLocked(player, DamagePacket.Of(type, amount, amount), hit.Taken,
                     false, hit.Blocked, AreaTime(player), stats);
             }
             await SendWorldRecord(player, player.Id, InstanceProtocol.LifeUpdate(player.Id, player.PlayerLife, player.PlayerReservedLife), "strongbox daemon hit");

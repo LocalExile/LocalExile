@@ -20,7 +20,7 @@ public static partial class Game
     /// volley, so it stops there too. Other projectiles keep their full range.</summary>
     public static double PrimaryRange(string? effect, double range, double targetDistance, bool toTarget = false) =>
         // Caustic Arrow stops and bursts at the aimed point, where the client draws its impact (live 2026-11-17).
-        toTarget || effect is "TornadoShot" or "TornadoShotAltX" or "TornadoShotAltY"
+        toTarget || IsCreepingFrost(effect) || effect is "TornadoShot" or "TornadoShotAltX" or "TornadoShotAltY"
             || effect?.StartsWith("CausticArrow", StringComparison.Ordinal) == true
             ? Math.Min(range, Math.Max(.001, targetDistance)) : range;
 
