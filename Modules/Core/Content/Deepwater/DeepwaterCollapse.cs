@@ -20,6 +20,16 @@ internal static class DeepwaterCollapse
     const double Between = 10, SwarmEvery = 4;
     const int MaxSwarmPacks = 30;
 
+    /// <summary>Remaining seconds on the active collapse/descent mission timer, or 0 when inactive or ended.</summary>
+    public static uint RemainingTimerSeconds(DeepwaterRun run, double now)
+    {
+        lock (run.Gate)
+        {
+            if (run.Phase == DeepwaterRun.RunPhase.Ended || run.CollapseState == 0 || run.CollapseEndAt <= now) return 0;
+            return (uint)Math.Ceiling(run.CollapseEndAt - now);
+        }
+    }
+
     /// <summary>Starts the collapse of the lanterns that <paramref name="collapses"/> picks (a Voyage keeps the light at
     /// the called Bathysphere); <paramref name="floor"/> is the lantern that stops at the floor radius, if any. Once per
     /// run; false when it had started already.</summary>
@@ -27,6 +37,7 @@ internal static class DeepwaterCollapse
     {
         double now = AreaTime(player);
         List<(DeepwaterRun.Lantern Lantern, DeepwaterRun.Shrink Shrink)> order;
+        uint timerSeconds;
         lock (run.Gate)
         {
             if (run.CollapseState != 0) return false;
@@ -40,13 +51,30 @@ internal static class DeepwaterCollapse
                 order.Add((lantern, shrink));
                 i++;
             }
+            double endAt = run.LandAt;
+            bool hasExtinguishing = order.Any(o => !o.Shrink.Floor);
+            foreach (var (lantern, shrink) in order)
+            {
+                if (hasExtinguishing && shrink.Floor) continue;
+                var (a, _) = lantern.At(now);
+                double targetA = shrink.Floor ? FloorA : 0;
+                double duration = shrink.Rate > 0 ? Math.Max(0, a - targetA) / shrink.Rate : 0;
+                endAt = Math.Max(endAt, shrink.Start + duration);
+            }
+            run.CollapseEndAt = endAt;
+            timerSeconds = endAt > now ? (uint)Math.Ceiling(endAt - now) : 0;
             run.NextSwarm = now + SwarmEvery;
         }
         module.Log($"{CharacterName(player)}: Allflame collapse: {order.Count} lanterns shrink newest first ("
             + string.Join(", ", order.Select(o => $"{o.Lantern.Order} at +{o.Shrink.Start - now:0} s{(o.Shrink.Floor ? " to the floor" : "")}")) + ")");
         foreach (var member in DeepwaterLoot.Members(player))
+        {
             if (DeepwaterRuleset.Collapse(1) is { } state)
                 await PlayerOf(member).Send(state, "0x02c9 ruleset DeepwaterRules mode 3: collapse 1 (DeepwaterCollapseStart)");
+            if (timerSeconds > 0)
+                await PlayerOf(member).Send(InstanceTimers.MissionTimer(InstanceTimers.MissionTimerType.Deepwater, timerSeconds),
+                    $"0x0163 mission timer Deepwater: {timerSeconds} s");
+        }
         await Tick(module, player, run);
         return true;
     }

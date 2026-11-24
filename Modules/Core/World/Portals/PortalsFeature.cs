@@ -103,12 +103,54 @@ static class PortalsFeature
     // C→S 0x00d8, the map device window's Activate (21-hideouts.md §5): one map (its affixes and the scarabs/fragments)
     // or a MapDeviceRecipes set with no map. Then one item from each slot's stack is consumed, the area opens (the first
     // portal taken makes its instance) and its portals appear around the device, replacing any open before. Otherwise the chat says why.
-    internal static async Task ActivateMapDevice(Player player, (ushort Target, byte Index) activate)
+    internal static Task ActivateMapDevice(Player player, (ushort Target, byte Index) activate) =>
+        ActivateDeviceSlots(player, PlayerInventories.MapDevice, ItemsOf(player).Items(PlayerInventories.MapDevice),
+            activate.Target, activate.Index, $"0x00d8 activate the map device (target 0x{activate.Target:x4}, index {activate.Index})",
+            allowCampaign: true);
+
+    // C→S 0x0297, the map receptacle's Memory Line Activate (mode 0x5e, inventory row 94 MemoryLineMaps1).
+    internal static Task ActivateMemoryLine(Player player, byte bossOption) =>
+        ActivateDeviceSlots(player, PlayerInventories.MemoryLineMaps, ItemsOf(player).Items(PlayerInventories.MemoryLineMaps),
+            target: 0, bossOption, $"0x0297 activate memory line (index {bossOption})", allowCampaign: false);
+
+    sealed class ActivationConsumeAbortedException : Exception;
+
+    // C→S 0x0298, the map receptacle's Maven Invitation Activate (mode 0x56, inventory row 86 MavenInvitations, slot 0..10).
+    internal static async Task ActivateMavenInvitation(Player player, byte invitationIndex)
+    {
+        if (invitationIndex > 10)
+        {
+            Console.WriteLine($"[gateway] {player.Connection.Remote} <= 0x0298 activate Maven invitation slot {invitationIndex}: out of range");
+            await Send(player, InstanceChat.ChatLine("Invalid Maven invitation slot."),
+                "0x0017 chat line \"Invalid Maven invitation slot.\"");
+            return;
+        }
+        var all = ItemsOf(player).Items(PlayerInventories.MavenInvitations);
+        var chosen = all.Where(i => i.X == invitationIndex).ToList();
+        if (chosen.Count == 0)
+        {
+            Console.WriteLine($"[gateway] {player.Connection.Remote} <= 0x0298 activate Maven invitation slot {invitationIndex}: empty");
+            await Send(player, InstanceChat.ChatLine("No Maven invitation is placed in that slot."),
+                "0x0017 chat line \"No Maven invitation is placed in that slot.\"");
+            return;
+        }
+        if (chosen.Count != 1 || !MapDevice.IsMavenInvitation(chosen[0].Item.TypeHash))
+        {
+            Console.WriteLine($"[gateway] {player.Connection.Remote} <= 0x0298 activate Maven invitation slot {invitationIndex}: not a Maven invitation");
+            await Send(player, InstanceChat.ChatLine("Only a Maven invitation can be activated in that slot."),
+                "0x0017 chat line \"Only a Maven invitation can be activated in that slot.\"");
+            return;
+        }
+        await ActivateDeviceSlots(player, PlayerInventories.MavenInvitations, chosen,
+            target: 0, bossOptionInput: 0, $"0x0298 activate Maven invitation slot {invitationIndex}", allowCampaign: false);
+    }
+
+    static async Task ActivateDeviceSlots(Player player,
+        byte inventoryRow, IReadOnlyList<InventoryItem> slots, ushort target, byte bossOptionInput, string logHeader, bool allowCampaign)
     {
         var device = MapDeviceHere(player);
         var items = ItemsOf(player);
-        var slots = items.Items(PlayerInventories.MapDevice);
-        Console.WriteLine($"[gateway] {player.Connection.Remote} <= 0x00d8 activate the map device (target 0x{activate.Target:x4}, index {activate.Index}): " +
+        Console.WriteLine($"[gateway] {player.Connection.Remote} <= {logHeader}: " +
             $"{string.Join(", ", slots.Select(i =>
             {
                 string name = Items.ByHash(i.Item.TypeHash)?.Name ?? $"0x{i.Item.TypeHash:x8}";
@@ -116,16 +158,21 @@ static class PortalsFeature
             }).DefaultIfEmpty("empty"))}");
         Task Tell(string text) => Send(player, InstanceChat.ChatLine(text), $"0x0017 chat line \"{text}\"");
         if (device is null) { await Tell("There is no Map Device here."); return; }
+        bool campaign = allowCampaign && device.Value.Campaign;
         if (!device.Value.Campaign && !OwnHideout(player)) { await Tell("Only the hideout owner can activate this Map Device."); return; }
+        if (!allowCampaign && device.Value.Campaign) { await Tell("This Map Device cannot activate that mode."); return; }
         MapDevice.Slot[] checkedSlots = [.. slots.Select(i => Items.ByHash(i.Item.TypeHash) is { } t
             ? new MapDevice.Slot(i.Item.TypeHash, t.Class, t.Name, t.Row, i.Item.Mods, i.Item.Quality)
             {
                 AlternateQualityType = i.Item.AlternateQualityType, Components = t.Components,
-                Rarity = i.Item.Rarity, Corrupted = i.Item.Corrupted, BaseId = t.Id,
+                Rarity = i.Item.Rarity, Corrupted = i.Item.Corrupted, BaseId = t.Id, NameWords = i.Item.NameWords,
             }
             : new MapDevice.Slot(i.Item.TypeHash, "", $"Item 0x{i.Item.TypeHash:x8}", -1, [], 0))];
-        var opening = MapDevices.Check(checkedSlots, CharacterName(player), Items.Mods, out string why, campaign: device.Value.Campaign);
-        var request = new MapOpening(player, checkedSlots, device.Value.Campaign, opening, why) { Target = activate.Target };
+        byte bossOption = !campaign && bossOptionInput is >= 1 and <= 3 ? bossOptionInput : (byte)0;
+        var opening = MapDevices.Check(checkedSlots, CharacterName(player), Items.Mods, out string why, campaign: campaign);
+        if (opening is not null && bossOption != 0)
+            opening = opening with { BossOption = global::Game.EligibleBossOption(player, opening, bossOption) };
+        var request = new MapOpening(player, checkedSlots, campaign, opening, why) { Target = target };
         GameEvents.ResolveMapOpening(request);
         opening = request.Opening;
         why = request.Reason;
@@ -141,34 +188,53 @@ static class PortalsFeature
             return;
         }
         var area = opening.Area;
+        byte resolvedBossOption = !campaign
+            ? global::Game.EligibleBossOption(player, opening, opening.BossOption != 0 ? opening.BossOption : bossOption)
+            : (byte)0;
         // One from each slot's stack, in one transaction: leftover stacks stay in the device (a shop scarab stack is 20).
-        var consumed = Saves.Atomically(() =>
+        (List<uint> gone, List<InventoryItem> left) consumed;
+        try
         {
-            var gone = new List<uint>();
-            var left = new List<InventoryItem>();
-            foreach (int index in consumedIndices)
+            consumed = Saves.Atomically(() =>
             {
-                var slot = slots[index];
-                if (items.ConsumeOne(PlayerInventories.MapDevice, slot.Id) is not { } take) continue;
-                gone.Add(slot.Id);
-                if (take.Left is { } remain) left.Add(remain);
-            }
-            return (gone, left);
-        });
-        await Send(player, InstanceItems.InventoryChange(PlayerInventories.InventoryId(PlayerInventories.MapDevice),
-            items.NextRevision(PlayerInventories.MapDevice), consumed.gone, consumed.left),
-            $"0x00bf inventory {PlayerInventories.InventoryId(PlayerInventories.MapDevice)}: the map device consumed {consumed.gone.Count} slot(s)"
+                var current = items.Items(inventoryRow);
+                foreach (int index in consumedIndices)
+                    if (!current.Any(i => i.Id == slots[index].Id))
+                        throw new ActivationConsumeAbortedException();
+                var gone = new List<uint>();
+                var left = new List<InventoryItem>();
+                foreach (int index in consumedIndices)
+                {
+                    var slot = slots[index];
+                    if (items.ConsumeOne(inventoryRow, slot.Id) is not { } take)
+                        throw new ActivationConsumeAbortedException();
+                    gone.Add(slot.Id);
+                    if (take.Left is { } remain) left.Add(remain);
+                }
+                return (gone, left);
+            });
+        }
+        catch (ActivationConsumeAbortedException)
+        {
+            Console.WriteLine($"[gateway] {player.Connection.Remote} map device activation aborted: input slot(s) changed before consumption");
+            await Tell("The items in the Map Device changed; activation cancelled.");
+            return;
+        }
+        await Send(player, InstanceItems.InventoryChange(PlayerInventories.InventoryId(inventoryRow),
+            items.NextRevision(inventoryRow), consumed.gone, consumed.left),
+            $"0x00bf inventory {PlayerInventories.InventoryId(inventoryRow)}: the map device consumed {consumed.gone.Count} slot(s)"
             + (consumed.left.Count == 0 ? "" : $", {consumed.left.Count} stack(s) left"));
         var entrance = player.Layout.Near((device.Value.X, device.Value.Y));
         var open = MapDevice.Activate(CharacterName(player), area, opening.Mods, opening.ItemRow,
-            device.Value.Campaign || request.ReturnToSource ? new(player.Layout.Hash, player.InstanceNumber, device.Value.X, device.Value.Y) : null,
-            entrance: new(player.Layout.Hash, player.InstanceNumber, entrance.X, entrance.Y));
-        if (device.Value.Campaign)
+            campaign || request.ReturnToSource ? new(player.Layout.Hash, player.InstanceNumber, device.Value.X, device.Value.Y) : null,
+            entrance: new(player.Layout.Hash, player.InstanceNumber, entrance.X, entrance.Y), bossOption: resolvedBossOption);
+        if (campaign)
             await SetQuestFlags(player, ["a7q2-DeliveredItem"]);
         string extra = opening.Mods.ExtraMagicPacks > 0 || opening.Mods.PacksDropCards > 0
             ? $", +{opening.Mods.ExtraMagicPacks} magic packs, {opening.Mods.PacksDropCards} pack(s) drop cards"
             : "";
-        Console.WriteLine($"[gateway] {player.Connection.Remote} map device opened {area.Name} ({area.Id}, 0x{area.Hash16:x4}, tier {area.Tier}, {opening.Mods}{extra}): {open.PortalsLeft} portals");
+        string bossLabel = resolvedBossOption switch { 1 => ", boss Maven", 2 => ", boss Eater of Worlds", 3 => ", boss Searing Exarch", _ => "" };
+        Console.WriteLine($"[gateway] {player.Connection.Remote} map device opened {area.Name} ({area.Id}, 0x{area.Hash16:x4}, tier {area.Tier}, {opening.Mods}{extra}{bossLabel}): {open.PortalsLeft} portals");
         foreach (var visitor in DeviceVisitors(player))
         {
             try

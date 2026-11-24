@@ -133,6 +133,10 @@ public sealed class DropRoll(Player player, MonsterInfo monster)
     /// <c>map_related_item_drop_chance_+%_final_from_league</c> does.</summary>
     public double MapRelated { get; set; } = 1;
 
+    /// <summary>Factors on what the server's own roll picks: the kinds (currency, gems, flasks, equipment), a map's base
+    /// card and scarab chances, and single currency, card and scarab types (1: the server's own).</summary>
+    public DropWeights Weights { get; } = new();
+
     /// <summary>True: nothing of the server's own drops (the <see cref="Items"/> still do).</summary>
     public bool Cancel { get; set; }
 

@@ -16,6 +16,9 @@ public static partial class Game
     static PassiveGrantedSkills RuthlessGrantedSkills = default!;
     static PassiveGrantedSkills NewGrantedSkills(bool ruthless) => new(ruthless ? HardModeSkills : Skills, ruthless: ruthless);
 
+    public static IReadOnlyList<PassiveGrantedSkills.Grant> PassiveSkillGrants(Player player, IEnumerable<ushort> nodes) =>
+        (LeagueFor(player).HardMode ? RuthlessGrantedSkills : GrantedSkills).For(nodes);
+
     /// <summary>The skills the player's allocated passives grant whose node carries this trigger stat
     /// (<c>has_trigger_on_crit_by_unique_enemy</c> and the like; the level row's AdditionalFlags name the same trigger).
     /// A tattoo that replaces such a node (the Loyalty summons) is a grant of its own: its
@@ -75,7 +78,7 @@ public static partial class Game
         ushort[] nodes;
         nodes = [.. player.Character.Passives, .. player.Character.MainAscendancy.Allocated];
         return [.. (LeagueFor(player).HardMode ? RuthlessGrantedSkills : GrantedSkills).For(nodes)
-            .Where(g => AuraCatalog.Supported(g.EffectId)
+            .Where(g => AuraCatalog.Supported(g.EffectId) || IsRelicSkill(g.EffectId)
                 || GameEvents.GrantedSkillExecutable.For(player).Any(accept => accept(player, g.EffectId)))];
     }
 
@@ -327,12 +330,14 @@ public static partial class Game
             var types = Supports.Of(skill.Effect)?.Types.ToHashSet();
             long additionalIncreased = PlayerHitDamage.VsBlindedDamageStat is var damageKey
                 ? (long)playerStats.GetValueOrDefault(damageKey) + own.GetValueOrDefault(damageKey) : 0;
+            int staffSpell = Merged(Stat.SpellStaffDamagePlusPct) is int staff and not 0
+                && WeaponTypeDamage.FamilyOf(WeaponFor(player).ItemClass) == "staff" ? staff : 0;
             AreaSkillDamageProfile Profile(long increased, int webs = 0)
             {
                 increased += SpiderDamageIncrease(Merged, webs);
                 var woven = SpiderRawDamage(raw, Merged, webs, AddedEffectiveness(player, skill.Effect, skill.Level));
                 var hit = context.Hit(PlayerHitDamage.Resolve(woven, Merged, conversion, spell: true,
-                    area: Merged(Stat.IsAreaDamage) != 0, skillTypes: types, additionalIncreased: increased));
+                    area: Merged(Stat.IsAreaDamage) != 0, skillTypes: types, additionalIncreased: increased + staffSpell));
                 var rows = AilmentPanelStats.Compute(new("spell", Spell: true), woven, conversion, Merged, increased);
                 var ignite = MonsterIgnites.Settings.From(rows, "spell", Merged);
                 var poison = MonsterPoisons.Settings.From(rows, "spell", Merged);
@@ -378,10 +383,11 @@ public static partial class Game
                 bool critical = RollCriticalStrike(player, CriticalChanceOn(player, id, chance, vsBlinded, vsProfane), own, attack: false);
                 double hitAt = ProjectileWorldTime(player);
                 var (damage, _, mitigated) = MonsterHitDamage(m, rolled, critical, attack: false, hitAt, mods, pen,
-                    gambler.InvertsResistance(AreaRng(player)));
+                    gambler.InvertsResistance(AreaRng(player)), AreaRng(player));
                 if (critical) damage = DamageModel.CriticalDamage(damage, CriticalMultiplierOn(m, multiplier, playerStats, own));
-                var stun = OwnerStun(player, m, damage, mitigated, melee: false, spell: true, critical, playerStats, own);
-                var applied = ApplyMonsterHitLocked(player, m, damage);
+                int chaosDamage = MonsterHitChaosDamage(m, mitigated, spell: true, hitAt, damage);
+                var stun = OwnerStun(player, skill.Effect, m, damage, mitigated, melee: false, spell: true, critical, playerStats, own);
+                var applied = ApplyTypedMonsterHitLocked(player, m, damage, chaosDamage);
                 if (applied is { StageStarts: true } staged)
                 {
                     CommitBossStage(player, id, m, ProjectileWorldTime(player));

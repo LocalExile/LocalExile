@@ -12,14 +12,16 @@ sequenceDiagram
     participant G as Gateway (instance A)
     participant A as Auth (registry, tickets)
     C->>G: 0x24 use skill 0x0266 on exit object (flags 0x0408)
-    G->>C: 0x2b4 change area (dest HASH16, loading screen)
-    Note over C: "Entering The Coast", loading screen
+    G->>C: 0x2b4 change area (dest HASH16, override)
+    Note over C: HUD "Entering The Coast" (no loading screen yet)
     C->>G: 0x2cd (870 bytes, once)
     G->>A: control "transfer" (ticket, area, instance/new)
-    A-->>G: new ticket, instance, seed
+    A-->>G: new ticket, instance, created, seed
+    Note over G: Pre-generates destination seed & layout
     G->>C: 0x27 connect to instance (host, port, ip, ticket, area, key)
+    Note over C: Hides banner, opens loading screen
     C->>G: new connection: opening with the new ticket (instance B)
-    Note over C,G: same opening as after login: 0x11, 0x1d, 0x7d, player, 0x21 ...
+    Note over C,G: same opening as after login: 0x11, 0x1d (cached layout), 0x7d, player, 0x21 ...
 ```
 
 With Ctrl held, 0x24's flags are 0x040c. The server then answers 0xae (instance list). The client opens the chooser and
@@ -52,9 +54,17 @@ So the old instance server tells the client where to go next.
 
 ### S→C 0x2b4 — change area
 
-Class `0x1435ca918`, write `0x141f99270`, dispatcher case 0xe8. Fields: `u16 destination WorldAreas.HASH16, u16
-LoadingScreenOverrides row` (0 = the area's default). The handler shows the loading screen and calls `0x14214efe0`. That
-function sends 0x2cd once (flag +0xcd4a) and flushes. An unknown hash is fatal.
+Class `0x1435ca918`, write `0x141f99270`, dispatcher case 0xe8 (`0x142152417`). Fields: `u16 destination WorldAreas.HASH16, u16
+LoadingScreenOverrides row` (0 = the area's default). The handler notifies `+0x6d70` (`0x140d5acb0` → `InGameUI` `+0x570`
+`0x140dc70b0`), which shows the HUD `HUDChangingAreaMessage` banner (`ClientStrings` row 695, `"Entering {0}"`) and stores
+the override flag on `LoadingState+0x88a` **without** pushing the loading screen yet; it then calls `0x14214efe0`, which
+sends 0x2cd once (flag `+0xcd4a`) and flushes. An unknown hash is fatal.
+
+### S→C 0x2b5 — cancel change area
+
+Empty message (`0x1431768d8`, 2 bytes `02 B5`), dispatcher case 0xe9 (`0x1421524d3`). Notifies `+0x6df0` (`0x140d60720` →
+`InGameUI` `+0x578` `0x140dc73a0`), hiding the `"Entering <area>"` HUD banner on a refused transfer. Does not clear `+0xcd4a`
+(so any later 0x2b4 on the same connection relies on the Gateway's 2 s fallback timer).
 
 ### C→S 0x2cd — leaving (870 bytes)
 
@@ -65,6 +75,8 @@ If no 0x2cd arrives, the Gateway transfers anyway after 2 s.
 ### S→C 0x27 — connect to instance
 
 Class vtable `0x1435e7180` (ctor `0x1421a4700`, write `0x1421a4760`, read `0x1421a4900`), dispatcher case 0xe.
+The listener `0x140d57090` hides the `"Entering <area>"` banner (`InGameUI` `+0x578`), pushes `LoadingState`
+(`0x140d5cc00`, starting the loading screen), and opens the new instance connection.
 
 | Wire order | Type | Field | Use |
 |---|---|---|---|
@@ -127,9 +139,12 @@ keeps the ids of the last list it sent (`ChooserList`).
   so a Gateway that stopped without sending `leave` (a restart, a crash) does not keep its players' instances alive.
 - **Gateway**:
   - Ctrl+click → `list` → 0xae.
-  - 0xaf or a plain click → 0x2b4.
-  - 0x2cd → `transfer` → 0x27 with the key for the new ticket.
-  - On the new connection, `resolve` gives the area and seed. Layout: `data/walkability/<id>_seed<seed>.bin` + `.json`.
+  - 0xaf or a plain click → 0x2b4 (client shows `"Entering <area>"`).
+  - 0x2cd → `transfer` (returns `Ticket`, `Instance`, `Created`, `Seed`) → Gateway pre-generates the destination playable
+    seed and layout (`PrepareTransferArea`, cached on `InstanceState`) off the message handler and area frame while
+    `"Entering <area>"` is displayed → 0x27 with the key for the new ticket (or 0x2b5 on refusal).
+  - On the new connection, `resolve` gives the area and seed, and `HandleAsync` reuses the prepared instance layout so
+    0x11 and 0x1d go out without regenerating during the loading screen. Layout fallback: `data/walkability/<id>_seed<seed>.bin` + `.json`.
     The player arrives next to the exit leading back to the area they left (`AreaLayout.Arrival`, `SpawnNear`'s
     nearest walkable cell 6–20 cells away). `Transfer` remembers that area per destination ticket
     (`AreaLayouts.CameFrom`, in memory); Resurrect in Town (`PendingTransfer.AtSpawn`) and logins have none and use

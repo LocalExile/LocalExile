@@ -233,7 +233,11 @@ public static class ModSettings
     {
         if (n < d.Min) return $"is below {d.Min}";
         if (n > d.Max) return $"is above {d.Max}";
-        if (d.Step is { } step && Math.Abs((n - (d.Min ?? 0)) / step - Math.Round((n - (d.Min ?? 0)) / step)) > 1e-9) return $"is not a step of {step}";
+        // The tolerance follows the rounding error, which grows with the values against the step (300000.03 / 0.01 is
+        // 30000003.000000004), and stays below half a step.
+        if (d.Step is { } step && (n - (d.Min ?? 0)) / step is var steps
+            && Math.Abs(steps - Math.Round(steps)) > Math.Min(0.25, Math.Max(1e-9, 8e-15 * (Math.Abs(n) + Math.Abs(d.Min ?? 0)) / step)))
+            return $"is not a step of {step}";
         return null;
     }
 

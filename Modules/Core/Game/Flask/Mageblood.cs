@@ -69,6 +69,7 @@ public static partial class Game
         var items = ItemsFor(player);
         var count = MagebloodFlaskCount(belt, items);
         if (count.Count == 0) return [];
+        double finalMultiplier = MapFlaskEffectMultiplier(player);
         List<UtilityFlasks.Source> sources = [];
         double now = AreaTime(player);
         foreach (var flask in MagebloodFlasks(ItemsOf(player).Items(PlayerInventories.Flask), count, items))
@@ -77,7 +78,7 @@ public static partial class Game
                 int adjacentEffect = flask.X <= byte.MaxValue ? AdjacentTinctureFlaskEffect(player, (byte)flask.X, character, now) : 0;
                 Func<uint, int> flaskCharacter = adjacentEffect == 0 ? character
                     : stat => stat == Stat.FlaskEffectPlusPct ? character(stat) + adjacentEffect : character(stat);
-                sources.AddRange(ItemUtilityFlaskFor(utility, flask.Item, ItemModStats.Local(flask.Item, items.Mods), flaskCharacter, playerLevel ?? player.Pools.Level).Stats);
+                sources.AddRange(ItemUtilityFlaskFor(utility, flask.Item, ItemModStats.Local(flask.Item, items.Mods), flaskCharacter, playerLevel ?? player.Pools.Level, finalMultiplier).Stats);
             }
         return sources;
     }
