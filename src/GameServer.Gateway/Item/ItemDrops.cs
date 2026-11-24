@@ -110,18 +110,18 @@ public sealed class ItemDrops
     // Exalted and Divine Orbs and the Mirror of Kalandra.
     public static readonly (string Id, double Weight)[] Currency =
     [
-        ("Metadata/Items/Currency/CurrencyIdentification", 1000), ("Metadata/Items/Currency/CurrencyPortal", 300),
+        ("Metadata/Items/Currency/CurrencyIdentification", 1150), ("Metadata/Items/Currency/CurrencyPortal", 360),
         ("Metadata/Items/Currency/CurrencyUpgradeToMagic", 500), ("Metadata/Items/Currency/CurrencyArmourQuality", 450),
         ("Metadata/Items/Currency/CurrencyWeaponQuality", 300), ("Metadata/Items/Currency/CurrencyAddModToMagic", 400),
-        ("Metadata/Items/Currency/CurrencyRerollMagic", 250), ("Metadata/Items/Currency/CurrencyRerollSocketColours", 200),
+        ("Metadata/Items/Currency/CurrencyRerollMagic", 250), ("Metadata/Items/Currency/CurrencyRerollSocketColours", 110),
         ("Metadata/Items/Currency/CurrencyRerollSocketNumbers", 150), ("Metadata/Items/Currency/CurrencyUpgradeRandomly", 120),
         ("Metadata/Items/Currency/CurrencyUpgradeToRare", 90), ("Metadata/Items/Currency/CurrencyFlaskQuality", 60),
         ("Metadata/Items/Currency/CurrencyRerollSocketLinks", 50), ("Metadata/Items/Currency/CurrencyRerollRare", 40),
-        ("Metadata/Items/Currency/CurrencyConvertToNormal", 30), ("Metadata/Items/Currency/CurrencyPassiveRefund", 25),
+        ("Metadata/Items/Currency/CurrencyConvertToNormal", 30), ("Metadata/Items/Currency/CurrencyPassiveRefund", 16),
         ("Metadata/Items/Currency/CurrencyCorrupt", 25), ("Metadata/Items/Currency/CurrencyUpgradeMagicToRare", 20),
         ("Metadata/Items/Currency/CurrencyGemQuality", 20), ("Metadata/Items/Currency/CurrencyRerollImplicit", 15),
-        ("Metadata/Items/Currency/CurrencyAddModToRare", 2), ("Metadata/Items/Currency/CurrencyRemoveMod", 1.5),
-        ("Metadata/Items/Currency/CurrencyModValues", 1), ("Metadata/Items/Currency/CurrencyDuplicate", 0.01),
+        ("Metadata/Items/Currency/CurrencyAddModToRare", 2.2), ("Metadata/Items/Currency/CurrencyRemoveMod", 1.5),
+        ("Metadata/Items/Currency/CurrencyModValues", 2.2), ("Metadata/Items/Currency/CurrencyDuplicate", 0.0014),
     ];
 
     // Equipment slots (ItemClasses Id) and how often each is picked: armour pieces most, then weapons, jewellery seldom.
@@ -510,7 +510,34 @@ public sealed class ItemDrops
             if (campaignChance > 0 && rng.NextDouble() < campaignChance && Card(rng, monsterLevel, areaId, mapTier: 0, weights) is { } card)
                 drops.Add(card);
         }
+        if ((monsterLevel >= DivineVesselDropLevel || mapTier >= 1)
+            && DivineVessel(monsterLevel, rarity, quantity, rng) is { } vessel)
+            drops.Add(vessel);
         return drops;
+    }
+
+    public const string DivineVesselId = "Metadata/Items/MapFragments/FragmentPantheonFlask";
+    public const int DivineVesselDropLevel = 68;
+
+    /// <summary>Retail Divine Vessel drop roll at monster level 68+ (or inside Atlas maps), scaled by monster rarity
+    /// and item quantity via <c>drop_divine_vessel_chance_pct</c>.</summary>
+    public Drop? DivineVessel(int monsterLevel, MonsterRarity rarity, double quantityMultiplier, Random rng)
+    {
+        double baseChance = SystemSettings.Default.DropDivineVesselChancePct / 100.0;
+        if (baseChance <= 0) return null;
+        double rarityScale = rarity switch
+        {
+            MonsterRarity.Magic => 2.0,
+            MonsterRarity.Rare => 5.0,
+            MonsterRarity.Unique => 10.0,
+            _ => 1.0,
+        };
+        double quantity = double.IsFinite(quantityMultiplier) ? Math.Max(0, quantityMultiplier) : 1.0;
+        double chance = Math.Min(1.0, baseChance * rarityScale * quantity);
+        if (chance <= 0 || rng.NextDouble() >= chance) return null;
+        return catalog.Find(DivineVesselId) is { Supported: true } vesselType
+            ? new Drop(ItemCatalog.Create(vesselType) with { ItemLevel = (byte)Math.Clamp(monsterLevel, 1, 100) }, vesselType)
+            : null;
     }
 
     static int RollExpectedCount(double expected, Random rng)
@@ -867,10 +894,11 @@ public sealed class ItemDrops
     /// scales the chance (a monster's or league's map-related drop chance), and <paramref name="tierUpgradePermillage"/>
     /// rolls a +1 tier upgrade (clamped to 16) only after the map drop roll succeeds.</summary>
     public Drop? Map(int monsterLevel, MonsterRarity monster, int mapTier, Random rng, int voidstones = 0,
-        double chanceFactor = 1, int tierUpgradePermillage = 0)
+        double chanceFactor = 1, int tierUpgradePermillage = 0, int increasedRarity = 0)
     {
         if (maps is null || (mapTier <= 0 && monsterLevel < MinCampaignMapDropLevel())) return null;
         double chance = monster switch { MonsterRarity.Normal => 0.004, MonsterRarity.Magic => 0.012, MonsterRarity.Rare => 0.05, _ => 0.20 };
+        if (mapTier <= 0) chance *= SystemSettings.Default.DropCampaignMapChanceMultiplier;
         chance = Math.Min(1, chance * SystemSettings.Default.DropMultiplier("maps") * Math.Max(0, chanceFactor));
         if (chance <= 0 || rng.NextDouble() >= chance) return null;
         int stones = Math.Max(0, voidstones);
@@ -883,7 +911,17 @@ public sealed class ItemDrops
         if (maps.KeyOfTier(tier) is not uint hash || catalog.ByHash(hash) is not { Supported: true } type
             || (mapTier <= 0 && monsterLevel < type.DropLevel)) return null;
         var item = ItemCatalog.Create(type) with { ItemLevel = (byte)Math.Clamp(monsterLevel + ItemLevelBonus(monster), 1, 100) };
-        if (rolls is not null && rng.NextDouble() < 0.10) item = rolls.Roll(item, ItemRarity.Magic, rng) with { Identified = true };
+        if (rolls is not null)
+        {
+            double iirFactor = Math.Max(0, 100 + increasedRarity) / 100.0;
+            double rareChance = Math.Min(0.50, 0.04 * iirFactor);
+            double magicChance = Math.Min(1.0 - rareChance, 0.12 * iirFactor);
+            double rarityRoll = rng.NextDouble();
+            if (rarityRoll < rareChance)
+                item = rolls.Roll(item, ItemRarity.Rare, rng) with { Identified = false };
+            else if (rarityRoll < rareChance + magicChance)
+                item = rolls.Roll(item, ItemRarity.Magic, rng) with { Identified = false };
+        }
         return new(item, type);
     }
 
@@ -974,7 +1012,7 @@ public sealed class ItemDrops
         return 0.01;
     }
 
-    static ItemCatalog.BaseType PickLevelWeighted(List<ItemCatalog.BaseType> bases, int monsterLevel, Random rng)
+    public static ItemCatalog.BaseType PickLevelWeighted(IReadOnlyList<ItemCatalog.BaseType> bases, int monsterLevel, Random rng)
     {
         if (bases.Count == 1) return bases[0];
         int maxDropLevel = 0;
