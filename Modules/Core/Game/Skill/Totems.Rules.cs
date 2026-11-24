@@ -718,9 +718,9 @@ public static partial class Game
         foreach (var (id, target) in player.Area.Monsters.ToArray())
         {
             if (ringArt is not int variation) { Contact(id, target); continue; }
-            double distance = Dist(target.Walk.Position(releasedAt), totem.At);
+            double distance = Dist(target.Walk.Position(releasedAt), centre);
             if (!TotemTargetable(target) || distance > radius) continue;
-            session.Runtime.Schedule(release + ProjectileRuntime.Time(IceNovaRing.Reach(distance, radius, variation)), () =>
+            session.Runtime.Schedule(release + ProjectileRuntime.Time(IceNovaRing.Reach(distance, (int)Math.Round(radius), variation)), () =>
             {
                 if (session.Active && ReferenceEquals(lifetime, CombatLifetime) && player.PlayerLife != 0
                     && player.Area.Monsters.GetValueOrDefault(id) == target)
