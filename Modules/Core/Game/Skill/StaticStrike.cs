@@ -173,9 +173,10 @@ static partial class Game
         double more = Math.Max(0, 1 + source.Stats.GetValueOrDefault(Stat.StaticStrikeBeamDamagePlusPctFinal) / 100.0);
         foreach (var target in targets)
         {
+            int reach = Math.Max(radius, (int)Math.Ceiling(Dist(from, target.Position)) + 1);
             var task = AreaSkillHitForUse(1, player, state.SkillId, state.Gem,
                 from, target.Position, immediate: true, sequence: state.Sequence, melee: false, criticalRoll: null,
-                damageMore: more, radiusOverride: radius, singleStrikeTarget: target.Id,
+                damageMore: more, radiusOverride: reach, singleStrikeTarget: target.Id,
                 scheduledSession: session, cryExerted: false);
             if (!task.IsCompleted) throw new InvalidOperationException("Static Strike beam contact must not yield.");
             task.GetAwaiter().GetResult();

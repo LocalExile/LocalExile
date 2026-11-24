@@ -76,10 +76,16 @@ public sealed class TemporaryAuraTests
         Assert.Equal((ushort)2, buff.SourceSkill);
         Assert.Equal((skill.Id, (ushort)0x2254), buff.ActiveSkill);
 
+        var farPrimary = new SpawnedMonster("primary", new(78, 100, 0), 0, 1, 1000000);
+        var chained = new SpawnedMonster("chained", new(55, 100, 0), 0, 1, 1000000);
+        c.Area.Monsters[42] = farPrimary;
+        c.Area.Monsters[43] = chained;
         uint lifeBeforePulse = target.Life;
         c.TemporarySkillEffects.Clear();
         await Game.PulseStaticStrike(c);
         Assert.True(target.Life < lifeBeforePulse);
+        Assert.True(farPrimary.Life < farPrimary.MaxLife);
+        Assert.True(chained.Life < chained.MaxLife);
         Assert.Empty(c.TemporarySkillEffects);
 
         // Removing the Static Strike gem clears static_strike_buff and stops periodic beam hits immediately.
