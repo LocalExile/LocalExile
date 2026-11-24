@@ -640,6 +640,79 @@ public class LockstepTests : IDisposable
     }
 
     [Fact]
+    public async Task Shield_charge_collision_push_and_lockstep_continuous_action_pacing()
+    {
+        using var fixture = new TriggeredSummonTests.Fixture();
+        var player = fixture.Player;
+        player.Connection.PlayerSent = true;
+        player.Connection.LockstepClient = true;
+        player.Connection.LockstepFrame = (1.0, 1.033);
+        player.Walk.Teleport(100, 100, 1.0);
+        var items = Game.ItemsOf(player);
+        items.Change(PlayerInventories.Weapon1, items.Items(PlayerInventories.Weapon1).Single().Id,
+            _ => ItemCatalog.Create(Program.Items.Find("Driftwood Club")!));
+        items.Add(PlayerInventories.Offhand1, 0, 0, ItemCatalog.Create(Program.Items.Find("Splintered Tower Shield")!));
+        var skills = fixture.Equip(("Shield Charge", 1), ("Fireball", 1));
+        ushort chargeId = skills[0], fireballId = skills[1];
+        var scGem = Game.GemSkillEffects(player).Single(g => g.Id == chargeId);
+        int bonusPct = Game.ShieldChargeBonusPct(player, chargeId, scGem.Effect);
+
+        // Non-target hostile monster at (110, 100) is passed through and pushed perpendicularly aside (FUN_141a6f9b0);
+        // an object-targeted monster at (120, 100) (>= 15 cells, dist^2 = 400 > 0xe0) stops the charge; a stationary blocker also stops it.
+        var bystander = new SpawnedMonster("Zombie", new PlayerWalk(110, 100, 10, size: 2), 0, 4, 100) { Hostile = true, Life = 100, MaxLife = 100 };
+        var target = new SpawnedMonster("Zombie", new PlayerWalk(120, 100, 10, size: 2), 0, 4, 100) { Hostile = true, Life = 100, MaxLife = 100 };
+        player.Area.Monsters[0x8000001] = bystander;
+        player.Area.Monsters[0x8000002] = target;
+        int action = ++player.ActionCount;
+        Game.BeginShieldCharge(player, chargeId, bonusPct, 160, 100, 1.0, action, out bool charged, targetObjectId: 0x8000002, previousNextAttackAt: 1.0);
+        Assert.True(charged);
+        Assert.True(player.Walk.ChargesThrough);
+        Assert.False(Game.ShieldChargeStepBlocked(player, player.Id, player.Walk, 1.05, (109, 100), []));
+        Assert.True(bystander.Walk.Slides);
+        Assert.True(Game.ShieldChargeStepBlocked(player, player.Id, player.Walk, 1.15, (119, 100), []));
+        Assert.True(Game.ShieldChargeStepBlocked(player, player.Id, player.Walk, 1.05, (105, 100), [new ClientPathfinder.Blocker(106, 100, 2)]));
+        Game.EndShieldChargeIfInterrupted(player);
+        Assert.False(player.Walk.ChargesThrough);
+        Assert.Equal(0, Game.ShieldChargeMovementPct(player));
+
+        // No-charge (< 24 cells) reserves 1.3x shield attack time from previousNextAttackAt, never double-stacking 2.3x.
+        double noChargeSeconds = Game.ShieldChargeEndAttackSeconds(player, chargeId, noCharge: true);
+        player.NextAttackAt = 2.0 + noChargeSeconds; // simulate prior reservation overwritten by previousNextAttackAt
+        Game.BeginShieldCharge(player, chargeId, bonusPct, 110, 100, 2.0, ++player.ActionCount, out bool shortCharged, previousNextAttackAt: 2.0);
+        Assert.False(shortCharged);
+        Assert.Equal(2.0 + noChargeSeconds, player.NextAttackAt, 6);
+
+        // Lockstep attack hold drops the legacy +66 ms tail and continuous 1-frame-early pre-queuing preserves fractional cadence.
+        Assert.Equal(Game.LockstepAttackCutIn(player, SkillCatalog.FirstSkillId, 0x8001), Game.LockstepActionHold(player, SkillCatalog.FirstSkillId, 0x8001), 6);
+        player.NextAttackAt = 5.0;
+        player.LockstepBusyUntil = 5.0;
+        player.LockstepActionStartedAt = 5.0;
+        player.LockstepActionScheduledAt = 5.0;
+        player.LockstepActionBackswingUntil = 0;
+        player.Connection.LockstepFrame = (5.0, 5.033);
+        player.LockstepSkill.Press((120, 100), null, fireballId, 0x0409, repeats: true);
+        Game.HoldLockstepSkill(player, 0x8010, 5.0, 5.0);
+        double firstEnd = player.LockstepBusyUntil;
+        double spellDuration = firstEnd - 5.0;
+        Assert.True(spellDuration > 0.05);
+        // Advance to the frame [fStart, fStart + 0.033] containing firstEnd: HoldLockstepSkill queues continuously at firstEnd.
+        double fStart = Math.Floor((firstEnd - 5.0) / 0.033) * 0.033 + 5.0;
+        if (firstEnd - fStart >= 0.0329) fStart += 0.033;
+        player.Connection.LockstepFrame = (fStart, fStart + 0.033);
+        Game.HoldLockstepSkill(player, 0x8011, fStart, fStart);
+        Assert.Equal(firstEnd, player.LockstepActionStartedAt, 6);
+        Assert.Equal(firstEnd + spellDuration, player.LockstepBusyUntil, 6);
+
+        // Late Move-cancel after a spell's contact preserves LockstepActionBackswingUntil (Actor +0x2a0).
+        double lateAt = player.LockstepCastWindow!.Value.Start + player.LockstepCastWindow.Value.LateFrom + 0.01;
+        player.Connection.LockstepFrame = (lateAt, lateAt + 0.033);
+        player.LockstepSkill.Clear();
+        player.LockstepHold.Press((130, 100), 0x2909, 0x0408, (30, 0));
+        await Game.StartLockstepActions(player, lateAt);
+        Assert.Equal(firstEnd + spellDuration, player.LockstepActionBackswingUntil, 6);
+    }
+
+    [Fact]
     public async Task Lockstep_leap_slam_hold_published_speed_sync_and_no_silent_collision_teleport()
     {
         // Leap Slam in Lockstep holds until startup-skipped landing (timing.Land), not unskipped AttackCutIn.
