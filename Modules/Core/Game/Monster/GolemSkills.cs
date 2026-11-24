@@ -91,7 +91,7 @@ public static partial class Game
             double effect = Math.Max(0, 1 + values.GetValueOrDefault(Stat.OnslaughtEffectPlusPct) / 100d);
             foreach (var source in UtilityFlasks.OnslaughtSources(onslaught, effect))
                 values[source.Stat] = ActorScale.Saturate((long)values.GetValueOrDefault(source.Stat) + source.Value);
-            values[Stat.HasOnslaught] = 1;
+            values[Stat.CurrentlyHasOnslaught] = 1;
         }
         if (golem.CombatCharges is { } charges)
         {
