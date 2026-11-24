@@ -207,8 +207,13 @@ public sealed class MonsterIgnites
     }
 
     /// <summary>Whether this monster or its intact corpse still has an unexpired ignite.</summary>
-    public bool IgnitedAt(double now) => active.Count > 0
-        ? active.Any(i => i.From <= now && now < i.Until) : now < corpseIgnitedUntil;
+    public bool IgnitedAt(double now)
+    {
+        if (active.Count == 0) return now < corpseIgnitedUntil;
+        foreach (var ignite in active)
+            if (ignite.From <= now && now < ignite.Until) return true;
+        return false;
+    }
 
     /// <summary>The strongest ignite's damage per second at <paramref name="now"/> (0 when none burns; the
     /// <see cref="Stacks"/> strongest together).</summary>

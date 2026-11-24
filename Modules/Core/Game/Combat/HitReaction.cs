@@ -11,6 +11,7 @@ public readonly record struct StunHit(double Damage, int ThresholdReductionPct =
     double BaseSeconds = 0, IReadOnlyDictionary<uint, int>? Skill = null)
 {
     public int DoubleDurationChance { get; init; }
+    public int FinalDurationPct { get; init; }
 }
 
 /// <summary>
@@ -46,6 +47,7 @@ public static class HitReaction
 
     // Character.ot's object_inherent_melee_hit_stun_duration_+%_final is 50.
     static double Seconds(StunHit hit, SpawnedMonster m) => (hit.BaseSeconds > 0 ? hit.BaseSeconds : BaseSeconds) * Math.Max(0, 1 + hit.DurationPct / 100.0)
+        * Math.Max(0, 1 + hit.FinalDurationPct / 100.0)
         * (hit.Melee ? 1.5 : 1) / Math.Max(.01, 1 + m.Mods.Effects[Stat.BaseStunRecoveryPlusPct] / 100.0);
 
     /// <summary>Rolls the stun; true when a new recovery started (<c>FlinchUntil</c>), to present. Call in the area's frame.</summary>
@@ -94,7 +96,13 @@ public static partial class Game
     /// Monsters lock.</summary>
     public static StunHit OwnerStun(Player player, SpawnedMonster m, int damage, DamagePacket mitigated, bool melee, bool spell,
         bool critical, IReadOnlyDictionary<uint, int> playerStats, IReadOnlyDictionary<uint, int>? own, uint? lifeBefore = null,
-        int? localStunReduction = null, string? weaponClass = null)
+        int? localStunReduction = null, string? weaponClass = null) =>
+        OwnerStun(player, -1, m, damage, mitigated, melee, spell, critical, playerStats, own, lifeBefore,
+            localStunReduction, weaponClass);
+
+    static StunHit OwnerStun(Player player, int effect, SpawnedMonster m, int damage, DamagePacket mitigated, bool melee,
+        bool spell, bool critical, IReadOnlyDictionary<uint, int> playerStats, IReadOnlyDictionary<uint, int>? own,
+        uint? lifeBefore = null, int? localStunReduction = null, string? weaponClass = null)
     {
         int Get(uint key) => playerStats.GetValueOrDefault(key) + (own?.GetValueOrDefault(key) ?? 0);
         var taken = MonsterTakenComponents(m, mitigated, spell);
@@ -106,22 +114,42 @@ public static partial class Game
         uint preLife = lifeBefore ?? m.Life;
         bool fullLife = preLife > 0 && preLife == m.MaxLife;
         bool tinctureWeapon = !spell && Get(Stat.TinctureApplied) != 0;
-        int duration = Get(Stat.BaseStunDurationPlusPct)
+        long duration = (long)Get(Stat.BaseStunDurationPlusPct)
             + (tinctureWeapon ? Get(Stat.StunDurationPlusPctWithTincturedWeapons) : 0)
-            + (fullLife ? Get(Stat.StunDurationPlusPctVsEnemiesThatAreOnFullLife) : 0);
-        int thresholdReduction = Get(Stat.BaseStunThresholdReductionPlusPct) + local
+            + (fullLife ? Get(Stat.StunDurationPlusPctVsEnemiesThatAreOnFullLife) : 0)
+            + (critical ? Get(Stat.StunDurationOnCriticalStrikePlusPct) : 0);
+        long thresholdReduction = (long)Get(Stat.BaseStunThresholdReductionPlusPct) + local
             + (tinctureWeapon ? Get(Stat.StunThresholdReductionPlusPctWithTincturedWeapons) : 0);
+        int lightningReduction = Get(Stat.LightningSkillStunThresholdPlusPct);
+        if (effect >= 0 && lightningReduction != 0 && SkillsFor(player).HasType(effect, "Lightning"))
+            thresholdReduction += lightningReduction;
+        int finalDuration = 0;
         if (!spell)
         {
             weaponClass ??= WeaponFor(player).ItemClass;
-            if (melee && IsTwoHandMeleeClass(weaponClass))
-                duration = ActorScale.Saturate((long)duration + Get(Stat.TwoHandedMeleeStunDurationPlusPct));
-            if (WeaponTypeDamage.FamilyOf(weaponClass) == "mace")
-                thresholdReduction = ActorScale.Saturate((long)thresholdReduction + Get(Stat.WhileUsingMaceStunThresholdReductionPlusPct));
+            bool twoHandedMelee = IsTwoHandMeleeClass(weaponClass);
+            if (melee && twoHandedMelee) duration += Get(Stat.TwoHandedMeleeStunDurationPlusPct);
+            if (weaponClass == "Bow")
+            {
+                duration += Get(Stat.BowStunDurationPlusPct);
+                thresholdReduction += Get(Stat.BowStunThresholdReductionPlusPct);
+            }
+            else
+            {
+                string? family = WeaponTypeDamage.FamilyOf(weaponClass);
+                if (family == "mace") thresholdReduction += Get(Stat.WhileUsingMaceStunThresholdReductionPlusPct);
+                else if (family == "staff") duration += Get(Stat.StaffStunDurationPlusPct);
+            }
+            if (twoHandedMelee || weaponClass == "Bow")
+                finalDuration = Get(Stat.PassiveMasteryStunDurationPlusPctFinalWithTwoHandWeapon);
         }
         bool guaranteed = stunning > 0 && fullLife && (Get(Stat.AlwaysStunEnemiesThatAreOnFullLife) > 0
             || tinctureWeapon && Get(Stat.AlwaysStunEnemiesThatAreOnFullLifeWithTincturedWeapons) > 0);
-        return new(stunning, thresholdReduction, duration, melee, player, Guaranteed: guaranteed,
-            Skill: own) { DoubleDurationChance = Get(Stat.ChanceToDoubleStunDurationPct) };
+        return new(stunning, ActorScale.Saturate(thresholdReduction), ActorScale.Saturate(duration), melee, player,
+            Guaranteed: guaranteed, Skill: own)
+        {
+            DoubleDurationChance = Get(Stat.ChanceToDoubleStunDurationPct),
+            FinalDurationPct = finalDuration,
+        };
     }
 }
