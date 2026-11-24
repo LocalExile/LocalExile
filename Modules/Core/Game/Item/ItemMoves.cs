@@ -66,22 +66,9 @@ public static class ItemMoves
         bool isFull = false;
         var result = Saves.Atomically(() =>
         {
-            if (stash.AnointInputFor(tab, itemId, out isFull) is not var (x, y)
-                || stash.Inventory(tab).Items.FirstOrDefault(i => i.Id == itemId) is not { } oil) return null;
-            InventoryItem? left = null;
-            InventoryItem one;
-            if (oil.Item.StackSize > 1)
-            {
-                left = stash.Shrink(tab, itemId, 1);
-                one = new InventoryItem(stash.NewItemId(), 0, 0, oil.Item with { StackSize = 1 });
-            }
-            else if (stash.Take(tab, itemId) is { } taken) one = taken with { Id = stash.NewItemId() };   // a new id: one 0xbf removes the old
-            else return null;
-            if (stash.Place(tab, x, y, one, shapeOf, out _) is not var (placed, _)) return null;
+            if (stash.MoveToAnointInput(tab, itemId, shapeOf, out isFull) is not var (placed, left)) return null;
             stash.SetLastTab(tab);
-            return oil.Item.StackSize > 1
-                ? new Transfer(Main, 0, null, tab, [], [placed], [], [], itemId, left)
-                : new Transfer(Main, 0, null, tab, [], [placed], [], [], itemId);
+            return new Transfer(Main, 0, null, tab, [], [placed], [], [], itemId, left);
         });
         full = isFull;
         return result;
