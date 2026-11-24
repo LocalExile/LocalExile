@@ -100,17 +100,19 @@ Part of [Status](../Status.md); what to build next in this area is in
 
 - Kingsmarch (Settlers of Kalguur): the hub's villagers stand on their room's own lines (the cells, the facings and the
   models of `kingsmarch.arm`; the client's own type table gives the farmer Isla's model) and talk, the farm plots grow and
-  harvest (workers, wages, a saved store), the treasury takes gold from Johan's "Fund the Treasury", and the harbour
-  sends crops to the seven ports with travel time, risk and the shipping failure rows. The client's own town panel opens
-  (its "Toggle Town Map" button) once the server sends the settlement records with the area's own messages (wire
-  `0x1f`, kind `0x9b`, before `0x21`): the client reads them once, when it builds the area, and a record that arrives
-  later is never read. The panel draws and works: the workers (name, job, level, wage), the recruits (price, wage, level),
-  the reroll (2,000 gold, the high-quality reroll 16,000), the hire (the price out of the treasury), the release, the
-  assign (a move between the job and the idle column) and the treasury's add/remove (the player's gold) — but the town's
-  resource and production counters are still empty and the panel's total wage stays 0 (the production rows' job keys are
-  unknown); the
-  town's floor and buildings come from a client-side doodad patch
-  (`scripts/dev/kingsmarch-doodads.py`), not from the protocol. Mining/smelting and shipping quotas are not written.
+  harvest at a rate (workers with ranks, wages, a saved store), the treasury takes gold from Johan's "Fund the Treasury",
+  and the harbour sends crops to the seven ports with travel time, risk and the shipping failure rows. The town panel
+  opens: the server sends the settlement records with the area's own messages (`0x1f`, kind `0x9b`, before `0x21`), which
+  the client reads once when it builds the area, and then `0x7b` kind `0x56` shows the window — a record that arrives
+  after the area is never read. The panel draws and works: the workers (name, job, level, wage), the recruits (price,
+  wage, level), the reroll, the hire (the price out of the treasury, then the player's own gold), the assign and the
+  remove (a move between a plot, the mine, the smithy and the idle column), the treasury's add/remove, the population,
+  the crops in the store and the wage line. The mine and smithy site counters still read the client's stat cache, which
+  only grows with upgrades, so they show the base numbers rather than the workers standing there. The town's floor and
+  buildings come from a client-side doodad patch (`scripts/dev/kingsmarch-doodads.py`), not from the protocol; the
+  client's own walking ignores the server, so the walls, the props and the villagers stop a click where the baked hulls
+  say they are (`src/GameServer.Gateway/World/DoodadCollision.cs`). Mining/smelting production and shipping quotas are
+  not written.
   The Atlas Runner line works as commands (`/mapping`): three map devices each hold a queue of up to twelve maps, hired
   runners work them, and every map settles its completion, its time and the chance a runner dies for good; the drops and
   the gold go to the town treasury, and bandits can take runners hostage for a ransom or a rescue. The client's own
