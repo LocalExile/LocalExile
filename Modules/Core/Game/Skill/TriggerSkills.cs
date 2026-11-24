@@ -191,4 +191,87 @@ public static partial class Game
         if (mana > 0 || life > 0) session.Enqueue(() => SendSkillCost(player, life, label + " cost"));
         return true;
     }
+
+    sealed class CraftedWeaponTriggerState(int epoch, object? rules)
+    {
+        public readonly int Epoch = epoch;
+        public readonly object? Rules = rules;
+        public double ReadyAt;
+        public int NextIndex;
+    }
+    static readonly Store<Player, CraftedWeaponTriggerState> CraftedWeaponTriggers = new();
+
+    static double TriggerCooldownRate(IReadOnlyDictionary<uint, int> playerStats, SupportedGem gem) => Math.Max(0.01,
+        1 + (GolemStat(playerStats, Stat.VirtualCooldownSpeedPlusPct)
+            + GolemStat(playerStats, Stat.BaseSpellCooldownSpeedPlusPct)
+            + GolemStat(gem.Stats, Stat.BaseSpellCooldownSpeedPlusPct)
+            + GolemStat(gem.Stats, Stat.BaseCooldownSpeedPlusPct)
+            + GolemStat(gem.Stats, Stat.VirtualCooldownSpeedPlusPct)) / 100.0);
+
+    public static void TriggerCraftedWeaponSpells(Player player, (int X, int Y) aim)
+    {
+        if (!CurrentGameRules || player.Closed || player.LeavingArea || player.Paused || player.PlayerLife == 0 || InTown(player)) return;
+        var candidates = GemSkillEffects(player)
+            .Where(s => (GolemStat(SupportedSkill(player, s.Id).Stats, Stat.SpellHasTriggerFromCraftedItemMod) != 0
+                || SupportedSkill(player, s.Id).Supports.Any(sup => sup.Effect.Id == "SupportTriggerSpellOnSkillUse"))
+                && TriggerPayloadAvailable(player, SupportedSkill(player, s.Id)))
+            .ToList();
+        if (candidates.Count == 0) return;
+
+        double now = AreaTime(player);
+        if (!CraftedWeaponTriggers.TryGetValue(player, out var state) || state.Epoch != player.ProjectileEpoch
+            || !ReferenceEquals(state.Rules, CombatLifetime))
+        {
+            CraftedWeaponTriggers.Remove(player);
+            CraftedWeaponTriggers.Add(player, state = new(player.ProjectileEpoch, CombatLifetime));
+        }
+        if (now < state.ReadyAt) return;
+
+        var origin = player.Walk.Position(now);
+        if (aim == default || aim == (origin.X, origin.Y))
+        {
+            aim = player.Area.Monsters.Where(e => e.Value.Hostile && !e.Value.Dead && e.Value.Life > 0)
+                .OrderBy(e => Dist(origin, e.Value.Walk.Position(now))).ThenBy(e => e.Key)
+                .Select(e => e.Value.Walk.Position(now)).FirstOrDefault((origin.X + 20, origin.Y));
+        }
+
+        for (int i = 0; i < candidates.Count; i++)
+        {
+            int idx = (state.NextIndex + i) % candidates.Count;
+            var spell = candidates[idx];
+            var gem = SupportedSkill(player, spell.Id);
+            if (GemSkillInstanceDisabled(player, gem.Effect, spell.Id, triggered: true) is not null) continue;
+            if (now < LinkedTriggersOf(player).ReadyAt.GetValueOrDefault(gem.Effect)) continue;
+
+            int cdMs = GolemStat(gem.Stats, Stat.LocalWeaponTriggerSocketedSpellOnSkillUseDisplayCooldownMs);
+            if (cdMs <= 0 && gem.Supports.FirstOrDefault(s => s.Effect.Id == "SupportTriggerSpellOnSkillUse") is { } sup)
+                cdMs = SkillsFor(player).CooldownMs(sup.Gem.Effect, sup.Gem.Level);
+            cdMs = cdMs > 0 ? cdMs : 4000;
+
+            var playerStats = CharacterPlayerStats(player);
+            double rate = TriggerCooldownRate(playerStats, gem);
+            var session = ProjectilesFor(player);
+            bool Current() => state.Epoch == player.ProjectileEpoch && CurrentGameRules
+                && ReferenceEquals(state.Rules, CombatLifetime) && session.Active && !player.Paused
+                && player.PlayerLife > 0 && !player.LeavingArea && player.PendingTransfer is null;
+
+            var release = PrepareTriggeredPayload(player, session, spell.Id, aim, Current);
+            if (release is null) continue;
+
+            if (!PayMana(player, spell.Id, out uint cost, out uint lifeCost))
+            {
+                state.NextIndex = (idx + 1) % candidates.Count;
+                return;
+            }
+
+            double firedAt = AreaTime(player);
+            state.ReadyAt = firedAt + (cdMs / 1000.0) / rate;
+            LinkedTriggersOf(player).ReadyAt[gem.Effect] = state.ReadyAt;
+            state.NextIndex = (idx + 1) % candidates.Count;
+            release();
+            if (cost > 0 || lifeCost > 0)
+                session.Enqueue(() => SendSkillCost(player, lifeCost, "trigger wand cost"));
+            return;
+        }
+    }
 }
