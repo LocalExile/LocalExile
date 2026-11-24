@@ -359,7 +359,7 @@ public static partial class Game
                 var warriors = skillId != 0 && IsGeneralsCry(player, effect)
                     ? GeneralsCryReleased(player, skillId, here, radius, epoch)
                     : Task.CompletedTask;
-                await Task.WhenAll(warriors, WarcryReleased(player, here, radius, epoch));
+                await Task.WhenAll(warriors, WarcryReleased(player, here, radius, epoch, effectId));
                 return;
             }
             if (!player.ProjectileActive(epoch) || player.PlayerLife == 0) return;
@@ -376,7 +376,7 @@ public static partial class Game
             int charges = per > 0 ? power / per : 0;
             Console.WriteLine($"[gateway] Enduring Cry: {power} power within {radius} cells, {charges} endurance charge(s), {taunted} taunted");
             if (charges > 0 && !callToArms && !suppressBuffs) ChargesOf(player).Enqueue(new ChargeEvent.Grant(ChargeType.Endurance, charges, $"Enduring Cry ({power} power)"));
-            await WarcryReleased(player, here, radius, epoch);
+            await WarcryReleased(player, here, radius, epoch, "EnduringCry");
         });
         return true;
     }

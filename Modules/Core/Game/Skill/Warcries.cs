@@ -96,11 +96,21 @@ public static partial class Game
     static readonly Store<Player, List<WarcryGrant>> WarcryGrants = new();
     static readonly RuleTable<SpawnedMonster, List<WarcryGrant>> MinionWarcryGrants = new();
 
+    sealed record WarningCallGrant(GameArea Area, int Armour, double Until);
+    static readonly Store<Player, WarningCallGrant> WarningCallGrants = new();
+
     static void AddWarcryStats(Player player, Dictionary<uint, int> stats)
     {
-        if (player.PlayerLife == 0 || !WarcryGrants.TryGetValue(player, out var grants)) return;
+        if (player.PlayerLife == 0) return;
         var area = player.Area;
         double now = AreaTime(player);
+        if (WarningCallGrants.TryGetValue(player, out var warning) && warning.Area == area && warning.Until > now)
+        {
+            uint key = Stat.PhysicalDamageReductionRatingPlusPct;
+            stats[key] = ActorScale.Add(key, stats.GetValueOrDefault(key), warning.Armour);
+            StatsChangeIn(warning.Until - now);
+        }
+        if (!WarcryGrants.TryGetValue(player, out var grants)) return;
         AddWarcryStats(grants, area, now, stats);
         foreach (var grant in grants)
             if (grant.Row == VengefulCryBuffRow && grant.Area == area && grant.Until > now)
@@ -155,9 +165,15 @@ public static partial class Game
 
     internal static void ExpireWarcryBuffs(Player player)
     {
-        if (!WarcryGrants.TryGetValue(player, out var grants)) return;
         double now = AreaTime(player);
-        bool changed = false;
+        bool changed = WarningCallGrants.TryGetValue(player, out var warning)
+            && (warning.Until <= now || warning.Area != player.Area || player.PlayerLife == 0)
+            && WarningCallGrants.Remove(player);
+        if (!WarcryGrants.TryGetValue(player, out var grants))
+        {
+            if (changed) UpdateWarcryStats(player);
+            return;
+        }
         for (int i = grants.Count - 1; i >= 0; i--)
         {
             var grant = grants[i];
@@ -201,21 +217,7 @@ public static partial class Game
         bool rallying = row == RallyingCryBuffRow;
         var nearbyPlayers = player.Instance.PlayersExcept(player.Id)
             .Where(ally => !ally.LeavingArea && ally.PlayerLife > 0 && Dist(ally.Walk.Position(now), at) <= radius).ToArray();
-        var nearbyMonsters = player.Area.Monsters.Values.Where(m => !m.Dead && m.Life > 0 && Dist(m.Walk.Position(now), at) <= radius);
-        int minimum = playerStats.GetValueOrDefault(Stat.WarcriesHaveMinimum10Power) != 0 ? 10 : 0;
-        minimum = Math.Max(minimum, effectId switch
-        {
-            "AncestralCry" => playerStats.GetValueOrDefault(Stat.AncestralCryMinimumPower),
-            "SeismicCry" => playerStats.GetValueOrDefault(Stat.SeismicCryMinimumPower),
-            _ => 0
-        });
-        int power = InfiniteWarcryPower;
-        if (playerStats.GetValueOrDefault(Stat.WarcriesHaveInfinitePower) == 0)
-        {
-            long nearby = nearbyMonsters.Where(m => m.Hostile || rallying).Sum(m => (long)WarcryPower(m.Rarity));
-            if (rallying) nearby += 5L * nearbyPlayers.Length;
-            power = Math.Max(minimum, ActorScale.Saturate(nearby * (100L + playerStats.GetValueOrDefault(Stat.WarcryMonsterPowerPlusPct)) / 100));
-        }
+        int power = WarcryPowerAt(player, at, radius, now, effectId, playerStats, nearbyPlayers.Length);
         if (effectId == "BattlemagesCry") buffEffect += playerStats.GetValueOrDefault(Stat.BattlemagesCryBuffEffectPlusPct) / 100d;
         WarcryGrant gift;
         WarcryGrant? ownMinionGift = null;
@@ -252,8 +254,29 @@ public static partial class Game
         Console.WriteLine($"[gateway] {effectId}: warcry buff row {row} power={power} for {duration:0.###} s");
     }
 
-    public static async Task WarcryReleased(Player player,
-        (int X, int Y) at, int radius, int epoch)
+    static int WarcryPowerAt(Player player, (int X, int Y) at, int radius, double now, string effectId,
+        IReadOnlyDictionary<uint, int> stats, int nearbyAllies)
+    {
+        if (stats.GetValueOrDefault(Stat.WarcriesHaveInfinitePower) != 0) return InfiniteWarcryPower;
+        int minimum = stats.GetValueOrDefault(Stat.WarcriesHaveMinimum10Power) != 0 ? 10 : 0;
+        minimum = Math.Max(minimum, effectId switch
+        {
+            "AncestralCry" => stats.GetValueOrDefault(Stat.AncestralCryMinimumPower),
+            "SeismicCry" => stats.GetValueOrDefault(Stat.SeismicCryMinimumPower),
+            _ => 0
+        });
+        bool rallying = effectId == "RallyingCry";
+        long nearby = player.Area.Monsters.Values.Where(m => !m.Dead && m.Life > 0
+            && (m.Hostile || rallying) && Dist(m.Walk.Position(now), at) <= radius).Sum(m => (long)WarcryPower(m.Rarity));
+        if (rallying) nearby += 5L * nearbyAllies;
+        return Math.Max(minimum, ActorScale.Saturate(nearby * (100L + stats.GetValueOrDefault(Stat.WarcryMonsterPowerPlusPct)) / 100));
+    }
+
+    public static Task WarcryReleased(Player player, (int X, int Y) at, int radius, int epoch) =>
+        WarcryReleased(player, at, radius, epoch, "");
+
+    static async Task WarcryReleased(Player player,
+        (int X, int Y) at, int radius, int epoch, string effectId)
     {
         List<Player>? onslaught = null;
         Dictionary<uint, int> stats;
@@ -263,6 +286,18 @@ public static partial class Game
             double now = ProjectileWorldTime(player);
             player.RecentEvents.RecordAmount(StatConditions.UsedWarcry, now);
             stats = AreaPlayerStats(player);
+            if (stats.GetValueOrDefault(Stat.WarcryPhysicalDamageReductionRatingPlusPctPer5PowerFor8Seconds) is int armour and > 0)
+            {
+                int allies = effectId == "RallyingCry" ? player.Instance.PlayersExcept(player.Id)
+                    .Count(ally => !ally.LeavingArea && ally.PlayerLife > 0 && Dist(ally.Walk.Position(now), at) <= radius) : 0;
+                int power = WarcryPowerAt(player, at, radius, now, effectId, stats, allies);
+                int increase = (int)Math.Min(100L, (long)(power / 5) * armour);
+                if (increase > 0)
+                {
+                    WarningCallGrants.AddOrUpdate(player, new(player.Area, increase, now + 8));
+                    UpdateWarcryStats(player);
+                }
+            }
             if (stats.GetValueOrDefault(Stat.YouAndNearbyAllysGainOnslaughtFor4SecondsOnWarcry) != 0)
             {
                 const double duration = 4;
