@@ -121,7 +121,8 @@ public static partial class Game
 
     static double SummonDuration(Player player, SummonCatalog.Definition definition, SupportedGem gem)
     {
-        if (definition.Persistent || GolemStat(gem.Stats, Stat.InfiniteMinionDuration) != 0) return double.PositiveInfinity;
+        if (definition.Persistent || definition.Family == ItemHarbingerFamily || GolemStat(gem.Stats, Stat.InfiniteMinionDuration) != 0)
+            return double.PositiveInfinity;
         bool secondary = definition.Family == "Absolution" || definition.Family.StartsWith("Dominating", StringComparison.Ordinal);
         int ms = GolemStat(gem.Stats, definition.Family == "Spectre" ? Stat.SpectresHaveBaseDurationMs
             : secondary ? Stat.BaseSecondarySkillEffectDuration : Stat.BaseSkillEffectDuration);
@@ -436,6 +437,7 @@ public static partial class Game
                 { Until = player.Summons.Until[id], OwnerAura = RollDivineSentinelAura(player, fighter, retainedAura) });
                 PresentPhantasmalMightLocked(player, fighter, playerStats, committed);
                 monster.NoRewards = true; monster.Aggro = true;
+                if (definition.Family == ItemHarbingerFamily) monster.Invulnerable = true;
                 if (definition.Id == "RaiseZombieAltY" && fighter.Abilities.FirstOrDefault(a => a.Effect == 7133) is { } fall)
                     GolemReserveLocked(player, fighter, fall, 0, null, aim, AreaTime(player));
                 player.Minions.StatRevision++;
@@ -464,6 +466,7 @@ public static partial class Game
             foreach (var child in player.Summons.Fighters.Values.Where(child => child.Monster.SummonerId == fighter.Id).ToArray())
                 RemoveSummonLocked(player, child, now, reconcileBlessing: false);
         ClearEffigyHexesLocked(fighter);
+        if (fighter.Definition.Kind == ItemHarbingerFamily) ClearItemHarbingerLocked(player, fighter);
         SpectreChildParents.Remove(fighter);
         player.Summons.Fighters.Remove(fighter.Id); player.Summons.Until.Remove(fighter.Id);
         player.Summons.Definitions.Remove(fighter.Id); player.Summons.Weapons.Remove(fighter.Id);

@@ -136,6 +136,11 @@ public static partial class Game
             player.Minions.OutputQueue.Add(new(InstanceProtocol.Teleport(g.Id, at.X, at.Y), "golem follows owner", g.Id, m, WorldId: g.Id));
             return;
         }
+        if (g.Definition.Kind == ItemHarbingerFamily)
+        {
+            ItemHarbingerStepLocked(player, g, here, owner, now);
+            return;
+        }
         if (InTown(player)) { GolemFollowLocked(player, g, owner, now); return; }
         if (g.Definition.Kind.StartsWith("Skitter", StringComparison.Ordinal))
         { SkitterStepLocked(player, g, here, owner, now); return; }
@@ -509,6 +514,11 @@ public static partial class Game
             return;
         }
         var a = action.Ability; var at = g.Monster.Walk.Position(now);
+        if (g.Definition.Kind == ItemHarbingerFamily)
+        {
+            ReleaseItemHarbingerSkillLocked(player, g, action, now);
+            return;
+        }
         if (g.Definition.Kind == LivingLightningFamily && a.Effect == LivingLightningZapEffect)
         {
             ReleaseLivingLightningZapLocked(player, g, action, now);

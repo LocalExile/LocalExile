@@ -52,6 +52,8 @@ public sealed class SummonCatalog
         var effects = ClientTables.Table("GrantedEffects");
         var skills = ClientTables.Table("ActiveSkills");
         var result = new Dictionary<string, Definition>(StringComparer.Ordinal);
+        // Alternate minion values 0-11 select these twelve distinct player Harbinger bodies.
+        string[] harbingers = ["TheArcane", "Time", "Focus", "Directions", "Storms", "Brutality"];
         var definitions = new Definition[] {
             new("RaiseZombie", "Zombie", "Metadata/Monsters/RaisedZombies/RaisedZombieStandard", Stat.BaseNumberOfZombiesAllowed, Stat.Of("active_zombie_count"), true, true),
             new("RaiseSpectre", "Spectre", "", Stat.BaseNumberOfSpectresAllowed, Stat.Of("active_spectre_count"), true, true),
@@ -72,6 +74,18 @@ public sealed class SummonCatalog
         {
             string id = row.Text("Id")!;
             var template = definitions.FirstOrDefault(d => id == d.Id || id == d.Id + "AltX" || id == d.Id + "AltY");
+            if (id.StartsWith("SummonHarbingerOf", StringComparison.Ordinal))
+            {
+                bool greater = id.EndsWith("Uber", StringComparison.Ordinal);
+                string kind = id["SummonHarbingerOf".Length..(greater ? ^4 : ^0)];
+                int index = Array.IndexOf(harbingers, kind);
+                if (index >= 0)
+                {
+                    int variety = index + (greater ? harbingers.Length : 0) + 1;
+                    string suffix = variety == 9 ? "_" : "";
+                    template = new(id, "ItemHarbinger", $"Metadata/Monsters/Harbinger/HarbingerMinion{variety}{suffix}", 0, 0, Targetable: false);
+                }
+            }
             if (template is null || row.IntOrNull("ActiveSkill") is not int key) continue;
             string name = skills[key].Text("DisplayedName") ?? "";
             if (name.StartsWith("[", StringComparison.Ordinal)) continue;
