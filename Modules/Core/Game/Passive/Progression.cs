@@ -655,8 +655,8 @@ public static partial class Game
         var shield = offhand is not null && catalog.ByHash(offhand.TypeHash)?.Class == "Shield" ? offhand : null;
         bool passiveAegis = passives.GetValueOrDefault(Stat.MinionsGetShieldStatsInsteadOfYou) != 0;
         var aegisItems = shield is null || passiveAegis ? [] : worn.Select(i => i.Item)
-            .Where(item => !ReferenceEquals(item, shield) && item.Mods.Any(mod =>
-                catalog.Mods.ByHash(mod.Hash)?.Stats.Any(stat => stat.Id == Stat.MinionsGetShieldStatsInsteadOfYou) == true))
+            .Where(item => !ReferenceEquals(item, shield)
+                && PlainItemSum(item, catalog.Mods).GetValueOrDefault(Stat.MinionsGetShieldStatsInsteadOfYou) != 0)
             .ToHashSet(ReferenceEqualityComparer.Instance);
         IReadOnlyList<Item> ItemBonuses(IReadOnlyList<Item> activeItems)
             => shield is not null && (passiveAegis || aegisItems.Count > 0 && activeItems.Any(aegisItems.Contains))
@@ -784,7 +784,7 @@ public static partial class Game
         conditionFlags = RequalifySourcePhasing(player, conditionFlags, phaseInputs, recentEvents, auraEffects, conditionNow);
         conditionFlags = QualifiedEquipmentItemFlags(conditionFlags, equipment, catalog, active);
         int qualifiedItemReservationPercent = LifeReservation.ItemPercentStat is var itemReservationKey
-            ? ItemModStats.Sum(itemBonuses, ItemsFor(player).Mods).GetValueOrDefault(LifeReservation.ItemPercentStat)
+            ? WornItemSum(player, itemBonuses).GetValueOrDefault(itemReservationKey)
             : 0;
         sourcesKey = sourcesKey with
         {
