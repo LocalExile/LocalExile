@@ -27,12 +27,15 @@ public static partial class Game
         internal (int X, int Y) LastWarpDestination;
     }
 
+    const string VaalLightningWarpEffect = "VaalLightningWarpInstant";
+
     static bool ScheduleLightningWarp(Player player,
         (ushort Id, int Effect, string Name, int Level, int Quality, uint Gem) gem, (int X, int Y) aim,
         Func<bool> current, SkillCriticalRoll? critical)
     {
         var session = ProjectilesFor(player);
         var source = SupportedSkill(player, gem.Id);
+        bool vaal = SkillsFor(player).EffectId(gem.Effect) == VaalLightningWarpEffect;
         int Own(uint name) => GolemStat(source.Stats, name);
         if (CastMs(player, gem.Effect, gem.Id) is not int cast) return false;
         var lifetime = CombatLifetime;
@@ -45,14 +48,22 @@ public static partial class Game
         session.Runtime.Schedule(release, () =>
         {
             if (!Active() || !current() || !SameTriggerSource(source, SupportedSkill(player, gem.Id))
-                || session.WarpCount >= Own(Stat.MaxNumberOfLightningWarpMarkers)) return;
+                || !vaal && session.WarpCount >= Own(Stat.MaxNumberOfLightningWarpMarkers)) return;
             double now = session.Runtime.Now / (double)ProjectileRuntime.QuantaPerSecond;
-            var origin = session.WarpCount == 0 ? player.Walk.Position(now) : session.LastWarpDestination;
+            var origin = vaal || session.WarpCount == 0 ? player.Walk.Position(now) : session.LastWarpDestination;
             var landing = MovementLanding(player, gem.Effect, origin, aim);
             if (origin == landing || player.Walk.Speed <= 0) return;
             var playerStats = CharacterPlayerStats(player);
             int walkMs = (int)Math.Min(int.MaxValue, 1000 * Dist(origin, landing) / player.Walk.Speed);
             double delay = .1 + SkillDurationModifiers.Seconds(walkMs, n => GolemStat(playerStats, n), Own);
+            if (vaal)
+            {
+                session.Runtime.Schedule(session.Runtime.Now + ProjectileRuntime.Time(delay), () =>
+                {
+                    if (Active()) session.Enqueue(() => WarpEnemies(player, gem, origin, landing, source, critical, Active));
+                });
+                return;
+            }
             long due = Math.Max(session.Runtime.Now, session.LastWarpTime) + ProjectileRuntime.Time(delay);
             session.WarpCount++;
             session.LastWarpTime = due;
@@ -76,5 +87,56 @@ public static partial class Game
             });
         });
         return true;
+    }
+
+    static async Task WarpEnemies(Player player,
+        (ushort Id, int Effect, string Name, int Level, int Quality, uint Gem) gem,
+        (int X, int Y) origin, (int X, int Y) landing, SupportedGem source, SkillCriticalRoll? critical, Func<bool> inArea)
+    {
+        bool Current() => inArea() && SameTriggerSource(source, SupportedSkill(player, gem.Id));
+        if (!Current()) return;
+        int radius = SkillRadius(player, source.Stats, spell: true, gem.Effect);
+        double now = ProjectileWorldTime(player);
+        var targets = player.Area.MonstersNear(origin, radius).Where(entry =>
+            entry.Value is { Hostile: true, Dead: false, Life: > 0, WorldHidden: false, Invulnerable: false, OwnerId: null }
+            && Dist(origin, entry.Value.Walk.Position(now)) <= radius).ToDictionary();
+        if (targets.Count == 0) return;
+
+        var sacrifice = new SacrificeUse(player, gem.Id, gem.Effect, gem.Gem);
+        Task Hit((int X, int Y) at, IReadOnlyDictionary<uint, SpawnedMonster> eligible) =>
+            AreaSkillHitForUse(null, player, gem.Id, gem, at, at, immediate: true, criticalRoll: critical, radiusOverride: radius,
+                sacrifice: sacrifice, triggeredCurrent: Current, targetFilter: (id, _) =>
+                    eligible.TryGetValue(id, out var target) && ReferenceEquals(target, player.Area.Monsters.GetValueOrDefault(id)));
+        await Hit(origin, targets);
+
+        var arrivals = new Dictionary<uint, SpawnedMonster>();
+        var moves = new List<(uint Id, (int X, int Y) Destination)>();
+        using (ProjectileMutation(player))
+        {
+            if (!Current()) return;
+            now = ProjectileWorldTime(player);
+            foreach (var (id, target) in targets)
+            {
+                if (!MonsterPresent(player, id, target) || target.Invulnerable || !target.Hostile) continue;
+                var at = target.Walk.Position(now);
+                if (Dist(origin, at) > radius) continue;
+                var destination = (X: landing.X + at.X - origin.X, Y: landing.Y + at.Y - origin.Y);
+                int size = LivingCollision.Size(target);
+                bool Walkable((int X, int Y) cell) =>
+                    player.Layout.WalkableFor(cell.X, cell.Y, size) && !player.Barrier.Contains(cell);
+                if (!Walkable(destination)) destination = landing;
+                if (!Walkable(destination)) continue;
+                target.Walk.Teleport(destination.X, destination.Y, now);
+                player.Area.Grid.Set(new(id), destination);
+                target.ActionGeneration++;
+                target.SwingGeneration = null;
+                target.LastTarget = null;
+                moves.Add((id, destination));
+                arrivals.Add(id, target);
+            }
+        }
+        foreach (var (id, at) in moves)
+            await SendWorldRecord(player, id, InstanceProtocol.Teleport(id, at.X, at.Y), "Vaal Lightning Warp");
+        if (arrivals.Count > 0) await Hit(landing, arrivals);
     }
 }
