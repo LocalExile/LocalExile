@@ -164,7 +164,9 @@ Part of [Status](../Status.md); what to build next in this area is in
   Docs: [11](../docs/protocol/11-skills.md) Â§9a.
 - Heavy Strike and Trarthus confirmed-hit particles/audio, with typed and critical melee feedback. Single-clip Heavy Strike stances use their ACT contact.
   Docs: [11](../docs/protocol/11-skills.md), "Hit effects".
-- Warcry release and cooldowns. Intimidating Cry applies War Bringer's exertion count and carries the spent exertion
+- Seismic, Ancestral, Infernal and Battlemage's Cry grant their timed buffs to the caster and nearby allies.
+- Poison hits and spread use increased Poison Duration. Unnatural Strength grants minions conversion and Wither on hit.
+- Intimidating Cry applies War Bringer's exertion count and carries the spent exertion
   to the attack's melee and projectile hits for Overexertion. Docs: [11](../docs/protocol/11-skills.md) Â§10i.
 - Strike targeting: spirit strikes and the previous location. Docs: [11](../docs/protocol/11-skills.md) Â§10d.
 - Passive enemy auras. Docs: [11](../docs/protocol/11-skills.md) Â§10e.

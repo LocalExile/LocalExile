@@ -154,12 +154,9 @@ public static partial class Game
                 Console.WriteLine($"[gateway] Bino's: regeneration granted to player 0x{peer.Id:x} for {seconds:0.0} s");
     }
 
-    /// <summary>The spread starts a fresh default-duration poison, with global duration modifiers (<c>base_poison_duration_+%</c>
-    /// is the stat every poison duration mod and passive carries). Its copied DPS already includes faster-poison modifiers;
-    /// applying those a second time would shorten the new poison twice.</summary>
-    public static double SpreadPoisonSeconds(Func<uint, int> get) => Ailments.PoisonDurationSeconds
-        * Math.Max(0, 1 + ((double)get(Stat.PoisonDurationPlusPct) + get(Stat.BasePoisonDurationPlusPct)
-            + get(Stat.BaseAllAilmentDurationPlusPct)) / 100);
+    /// <summary>The spread starts a fresh default-duration poison, with global duration modifiers. Its copied DPS
+    /// already includes faster-poison modifiers; applying those a second time would shorten the new poison twice.</summary>
+    public static double SpreadPoisonSeconds(Func<uint, int> get) => MonsterPoisons.BaseSeconds(get);
 
     /// <summary>The regeneration's Life per minute while it applies (CharacterStatSources).</summary>
     static Dictionary<uint, int> WithSpreadPoisonRegeneration(Player player, Dictionary<uint, int> sources)

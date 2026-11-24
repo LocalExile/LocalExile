@@ -55,6 +55,8 @@ Items keep the Roadmap's priority groups, and are in rough priority order within
     Restore laid trails on reentry, finish shared sulphite migration and equipment cable visual tiers.
     The ordinary Mines cell pass is ported; the initial entrance still uses its capture.
   - Heist (80): the contract and blueprint areas; the layout comes from the heist plan.
+    For the rewards, world.db's `heist_curio_rewards` holds what a Grand Heist curio display offered over 29,287
+    recorded curios (169 rewards with their counts); nothing reads it yet.
   - Synthesis (24): the memories (`Synthesis_Main*`, `Synthesis_Single*`).
   - Incursion (10): the temples (`Incursion_Temple*`); the client needs the room hash of the opened and upgraded
     rooms ("Unknown Incursion Temple room hash").
