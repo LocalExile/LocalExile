@@ -1123,9 +1123,47 @@ public static class KingsmarchTown
     static readonly int[][] Adjacency = [[1, 2], [0, 3], [0, 3, 4], [1, 2, 5], [2, 5], [3, 4]];
 
     /// <summary>How a worker's farming rank multiplies its contribution to the rate. The per-rank curve is a server-side
-    /// coefficient the client never sees (RE C.1), so this is the linear stand-in -rank 1 = 1, rank 5 = 2 -to be
-    /// replaced by a live sample of the rate table.</summary>
-    static double RankMult(int rank) => 1.0 + 0.25 * Math.Max(0, Math.Min(rank, StatCropRankMax) - 1);
+    /// coefficient the client never sees (RE C.1), so this is the linear stand-in -rank 1 = 1, rank 5 = 2 - unless
+    /// <c>data/kingsmarch-rank.txt</c> calibrates it: one multiplier a line, rank 1 first.</summary>
+    static double RankMult(int rank)
+    {
+        int at = Math.Clamp(rank, 1, Math.Max(1, (int)StatCropRankMax));
+        double[]? curve = Ranks();
+        return curve is not null && at <= curve.Length ? curve[at - 1] : 1.0 + 0.25 * (at - 1);
+    }
+
+    /// <summary>The per-rank multipliers from <c>data/kingsmarch-rank.txt</c>, or null while the file is absent. Sample the
+    /// real curve by putting one worker of a known rank alone on a plot and reading the rate <c>/village</c> reports: the
+    /// rate is 3600 x rank_mult / BaseTimeSec, so rank_mult is rate x BaseTimeSec / 3600.</summary>
+    const string RankFile = "data/kingsmarch-rank.txt";
+    static double[]? _ranks;
+    static DateTime _ranksStamp;
+
+    static double[]? Ranks()
+    {
+        var stamp = File.Exists(RankFile) ? File.GetLastWriteTimeUtc(RankFile) : DateTime.MinValue;
+        if (stamp == _ranksStamp) return _ranks;
+        _ranksStamp = stamp;
+        var values = new List<double>();
+        try
+        {
+            if (File.Exists(RankFile))
+            {
+                foreach (string line in File.ReadAllLines(RankFile))
+                {
+                    string text = line.Trim();
+                    if (text.Length == 0 || text[0] == '#') continue;
+                    if (double.TryParse(text, System.Globalization.NumberStyles.Float,
+                            System.Globalization.CultureInfo.InvariantCulture, out double value))
+                        values.Add(value);
+                }
+            }
+        }
+        catch (IOException) { }
+        _ranks = values.Count > 0 ? [.. values] : null;
+        Console.WriteLine($"[gateway] kingsmarch rank curve: {values.Count} value(s) from {RankFile}");
+        return _ranks;
+    }
 
     /// <summary>What the town pays a working worker per hour, from the treasury (Johan's Fund the Treasury). The wage
     /// itself is a server-side worker record field, so this is the calibration stand-in; it is charged only while a worker
