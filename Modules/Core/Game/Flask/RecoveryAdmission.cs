@@ -65,12 +65,28 @@ public static partial class Game
         }
     }
 
-    // The extracted "if bleeding/poisoned" suffixes remove an ailment that exists when the paid use is accepted and
-    // then protect against new applications for the rolled seconds. Neither suffix grants protection if its trigger
-    // ailment was absent. Both live in the shared incoming-ailment owner.
+    // The extracted "if afflicted" suffixes remove an ailment that exists when the paid use is accepted and then
+    // protect against new applications for the rolled seconds. None grants protection if its trigger ailment was
+    // absent. Bleed/poison live in IncomingAilments; elemental ailments live in ElementalAilments.
     static int BleedFlaskProtection(IReadOnlyDictionary<uint, int> local) =>
         Math.Max(local.GetValueOrDefault(Stat.LocalFlaskBleedingImmunityIfBleedingAndRemoveCorruptedBloodS),
             local.GetValueOrDefault(Stat.LocalFlaskBleedingImmunityIfBleedingAndRemoveCorruptedBlood) != 0 ? 4 : 0);
+
+    static int PoisonFlaskProtection(IReadOnlyDictionary<uint, int> local) =>
+        Math.Max(local.GetValueOrDefault(Stat.LocalFlaskPoisonImmunityIfPoisonedS),
+            local.GetValueOrDefault(Stat.LocalFlaskPoisonImmunityIfPoisoned) != 0 ? 4 : 0);
+
+    static int ChillFreezeFlaskProtection(IReadOnlyDictionary<uint, int> local) =>
+        Math.Max(local.GetValueOrDefault(Stat.LocalFlaskChillOrFreezeImmunityIfChilledOrFrozenS),
+            local.GetValueOrDefault(Stat.LocalFlaskChillOrFreezeImmunityIfChilledOrFrozen) != 0 ? 4 : 0);
+
+    static int IgniteFlaskProtection(IReadOnlyDictionary<uint, int> local) =>
+        Math.Max(local.GetValueOrDefault(Stat.LocalFlaskIgniteImmunityIfIgnitedAndRemoveBurningS),
+            local.GetValueOrDefault(Stat.LocalFlaskIgniteImmunityIfIgnitedAndRemoveBurning) != 0 ? 4 : 0);
+
+    static int ShockFlaskProtection(IReadOnlyDictionary<uint, int> local) =>
+        Math.Max(local.GetValueOrDefault(Stat.LocalFlaskShockImmunityIfShockedS),
+            local.GetValueOrDefault(Stat.LocalFlaskShockImmunityIfShocked) != 0 ? 4 : 0);
 
     static bool DispelsBurning(IReadOnlyDictionary<uint, int> local) =>
         local.GetValueOrDefault(Stat.LocalFlaskDispelsBurningAndIgniteImmunityDuringEffect) != 0
@@ -88,9 +104,24 @@ public static partial class Game
             if (bleed > 0 || CharacterPlayerStats(player).GetValueOrDefault(Stat.RemoveCorruptedBloodWhenYouUseAFlask) != 0)
                 RemoveCorruptedBlood(player, now, bleed);
         }
-        if (local.GetValueOrDefault(Stat.LocalFlaskPoisonImmunityIfPoisonedS) is int poison
-            && poison > 0 && player.IncomingAilments.RemoveOrProtectPoison(now, poison))
+        int poison = PoisonFlaskProtection(local);
+        if (poison > 0 && player.IncomingAilments.RemoveOrProtectPoison(now, poison))
             Console.WriteLine($"[gateway] flask removed poison and protects for {poison} s");
+        int chillFreeze = ChillFreezeFlaskProtection(local);
+        bool dispelsFreezeChill = local.GetValueOrDefault(Stat.LocalFlaskDispelsFreezeAndChill) != 0;
+        if ((chillFreeze > 0 || dispelsFreezeChill)
+            && player.ElementalAilments.RemoveOrProtectChillFreeze(now, chillFreeze))
+        {
+            if (player.FreezeHeldUntil > now) player.FreezeHeldUntil = now;
+            player.ApplyMovementSpeedAt(now);
+            Console.WriteLine($"[gateway] flask removed chill/freeze{(chillFreeze > 0 ? $" and protects for {chillFreeze} s" : "")}");
+        }
+        int ignite = IgniteFlaskProtection(local);
+        if (ignite > 0 && player.ElementalAilments.RemoveOrProtectIgnite(now, ignite))
+            Console.WriteLine($"[gateway] flask removed ignite and protects for {ignite} s");
+        int shock = ShockFlaskProtection(local);
+        if (shock > 0 && player.ElementalAilments.RemoveOrProtectShock(now, shock))
+            Console.WriteLine($"[gateway] flask removed shock and protects for {shock} s");
         if (DispelsBurning(local))
             EndFlameTouched(player, now);
     }
@@ -99,7 +130,14 @@ public static partial class Game
         IReadOnlyDictionary<uint, int> local, double now) =>
         BleedFlaskProtection(local) > 0
             && (player.IncomingAilments.Bleeding(now) || CorruptedBloodStacks(player, now) > 0)
-        || local.GetValueOrDefault(Stat.LocalFlaskPoisonImmunityIfPoisonedS) > 0
+        || PoisonFlaskProtection(local) > 0
             && player.IncomingAilments.PoisonStacks(now) > 0
+        || (ChillFreezeFlaskProtection(local) > 0 || local.GetValueOrDefault(Stat.LocalFlaskDispelsFreezeAndChill) != 0)
+            && (player.ElementalAilments.Magnitude(PlayerElementalAilments.Kind.Chill, now) > 0
+                || player.ElementalAilments.Magnitude(PlayerElementalAilments.Kind.Freeze, now) > 0)
+        || IgniteFlaskProtection(local) > 0
+            && player.ElementalAilments.Magnitude(PlayerElementalAilments.Kind.Ignite, now) > 0
+        || ShockFlaskProtection(local) > 0
+            && player.ElementalAilments.Magnitude(PlayerElementalAilments.Kind.Shock, now) > 0
         || DispelsBurning(local) && FlameTouchedActive(player);
 }

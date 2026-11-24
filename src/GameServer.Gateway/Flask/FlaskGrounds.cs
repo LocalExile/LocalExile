@@ -117,7 +117,7 @@ public static class FlaskGrounds
         var ids = ClientTables.Table("GroundEffectTypes").Select(r => r.Text("Id")).ToList();
         var e = ClientTables.Table("GroundEffects");
         foreach (var (kind, id) in new[] { (Kind.SmokeCloud, "Smoke"), (Kind.ConsecratedGround, "Consecration"),
-            (Kind.ProfaneGround, "Profane"), (Kind.ChilledGround, "Chilled") })
+            (Kind.ProfaneGround, "Profane"), (Kind.ChilledGround, "Ice") })
             foreach (var r in e)
                 if (r.IntOrNull("GroundEffectTypesKey") is int k && ids.ElementAtOrDefault(k) == id
                     && r.Int("__col1") == 0 && r.Int("__col2") == 2
@@ -172,7 +172,7 @@ public static class FlaskGrounds
             get
             {
                 lock (_lock) return _blinded.Count > 0 || _profane.Count > 0
-                    || _grounds.Any(g => g.Kind is Kind.SmokeCloud or Kind.ProfaneGround);
+                    || _grounds.Any(g => g.Kind is Kind.SmokeCloud or Kind.ProfaneGround or Kind.ChilledGround);
             }
         }
 

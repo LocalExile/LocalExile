@@ -101,17 +101,6 @@ public static class UtilityFlasks
         (Stat.LocalFlaskImmuneToPoisonDuringFlaskEffect, Stat.ImmuneToPoison, 1, true),
         (Stat.LocalFlaskImmuneToBleedingAndCorruptedBloodDuringFlaskEffect, Stat.ImmuneToBleeding, 1, true),
         (Stat.LocalFlaskImmuneToBleedingAndCorruptedBloodDuringFlaskEffect, Stat.ImmuneToCorruptedBlood, 1, true),
-        // The conditional immunity suffixes ("Grants Immunity to ... for {0} seconds if ..."): the same flag
-        // rows as the bleeding row above, one per ailment the player already reads
-        // (PlayerElementalAilments.Immune: immune_to_chill / freeze / ignite / shock, summed by PanelStats
-        // from base_immune_to_*). The stat's own seconds are not carried, as for the bleeding row:
-        // presence for the flask effect's duration applies, and Reconcile drops the ailment already on
-        // the player once the immunity lands. The "if ..." trigger condition itself is not enforced: a use
-        // while not afflicted still grants the immunity for the effect.
-        (Stat.LocalFlaskChillOrFreezeImmunityIfChilledOrFrozenS, Stat.BaseImmuneToChill, 1, true),
-        (Stat.LocalFlaskChillOrFreezeImmunityIfChilledOrFrozenS, Stat.BaseImmuneToFreeze, 1, true),
-        (Stat.LocalFlaskIgniteImmunityIfIgnitedAndRemoveBurningS, Stat.BaseImmuneToIgnite, 1, true),
-        (Stat.LocalFlaskShockImmunityIfShockedS, Stat.BaseImmuneToShock, 1, true),
         // Dying Sun: "(10-20)% increased Area of Effect during Effect", "Skills fire 2 additional Projectiles during
         // Effect". Both scale with increased flask effect, rounded down (2 x 1.5 = 3 projectiles).
         (Stat.LocalFlaskAreaOfEffectPlusPctDuringFlaskEffect, Stat.BaseSkillAreaOfEffectPlusPct, 1, false),
