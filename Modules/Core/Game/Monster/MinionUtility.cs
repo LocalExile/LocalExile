@@ -61,13 +61,18 @@ static partial class Game
     internal static bool StartOfferingLocked(Player player, ushort source, SupportedGem gem, string effect,
         (int X, int Y) aim, uint target, double now)
     {
-        bool Usable(SpawnedMonster m) => m.Hostile && m.Dead && !m.CorpseConsumed && !m.Ailments.Shattered
-            && CorpseTypeAllowsUse(m, minionSkill: SkillsFor(player).HasType(gem.Effect, "Minion"),
-                cannotUseSpectreCorpses: GolemStat(gem.Stats, Stat.CannotUseSpectreCorpses) != 0);
+        var playerStats = CharacterPlayerStats(player);
+        bool livingZombies = GolemStat(playerStats, Stat.RaisedZombiesAreUsableAsCorpsesWhenAlive) > 0;
+        GolemState.Golem? LivingZombie(SpawnedMonster corpse) => livingZombies && !corpse.Dead && corpse.Life > 0
+            && player.Summons.Fighters.GetValueOrDefault(corpse.ObjectId) is { Definition.Kind: "Zombie" } zombie
+            && ReferenceEquals(zombie.Monster, corpse) && GolemCurrent(player, zombie) ? zombie : null;
+        bool Usable(SpawnedMonster m) => !m.CorpseConsumed && !m.Ailments.Shattered
+            && (LivingZombie(m) is not null || m.Hostile && m.Dead
+                && CorpseTypeAllowsUse(m, minionSkill: SkillsFor(player).HasType(gem.Effect, "Minion"),
+                    cannotUseSpectreCorpses: GolemStat(gem.Stats, Stat.CannotUseSpectreCorpses) != 0));
         var first = player.Area.Monsters.GetValueOrDefault(target);
         if (first is null || !Usable(first)) first = player.Area.Monsters.Values.Where(Usable)
             .Where(m => Dist(m.Walk.Position(now), aim) <= 15).MinBy(m => Dist(m.Walk.Position(now), aim));
-        var playerStats = CharacterPlayerStats(player);
         if (first is null && GolemStat(playerStats, Stat.OfferingSkillsDoNotRequireCorpses) == 0) return false;
         var centre = first?.Walk.Position(now) ?? aim;
         var corpses = player.Area.Monsters.Where(p => Usable(p.Value) && Dist(p.Value.Walk.Position(now), centre) <= 15)
@@ -77,7 +82,12 @@ static partial class Game
             corpse.CorpseConsumed = true;
             NoteCorpseConsumedLocked(player, corpse);
             player.RecentEvents.Record(StatConditions.ConsumedCorpse, now);
-            if (!corpse.CreatedAsCorpse)
+            if (LivingZombie(corpse) is { } zombie)
+            {
+                GolemDieLocked(player, zombie, now, emitLife: false);
+                RemoveSummonLocked(player, zombie, now);
+            }
+            else if (!corpse.CreatedAsCorpse)
                 player.Minions.OutputQueue.Add(new(InstanceProtocol.RemoveObject(id), "Offering corpse consumed"));
         }
         int extra = Math.Max(0, corpses.Length - 1);

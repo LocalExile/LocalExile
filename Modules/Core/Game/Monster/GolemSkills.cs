@@ -104,6 +104,7 @@ public static partial class Game
         foreach (var (name, value) in golem.Auras.Concat(golem.Utility)) values[name] = values.GetValueOrDefault(name) + value;
         foreach (var (name, value) in golem.Gear) values[name] = values.GetValueOrDefault(name) + value;
         AddMapMinionActionStats(MapModsOf(player), values);
+        if (LivingZombieCorpse(golem, playerStats)) values[Stat.IsUsableAsCorpseWhenAlive] = 1;
         if (SpectreSurges.TryGetValue(golem, out var surge) && now < surge.Until)
         {
             values[Stat.CastSpeedPlusPct] = values.GetValueOrDefault(Stat.CastSpeedPlusPct) + ArcaneSurgeCastSpeedPct;
@@ -446,6 +447,9 @@ public static partial class Game
         GolemStat(stats, Stat.MinionsUseYourMainHandBaseCritChanceFromWeapon) != 0 && WeaponIn(player, ActiveMainHand(player)) is not null
             ? HandWeaponCritical(player, AttackHand.Main) : null;
 
+    static bool LivingZombieCorpse(GolemState.Golem golem, IReadOnlyDictionary<uint, int> stats) =>
+        golem.Definition.Kind == "Zombie" && GolemStat(stats, Stat.RaisedZombiesAreUsableAsCorpsesWhenAlive) > 0;
+
     static int GolemTether(IReadOnlyDictionary<uint, int> player, string kind)
     {
         uint? derived = Stats.Key($"golem_{kind}_+%_final_from_unique_primordial_tether");
@@ -496,6 +500,7 @@ public static partial class Game
         hash.Add(MapModsOf(player));
         hash.Add(SkeletonShieldChaos(player, golem, playerStats));
         hash.Add(MinionOwnerAttackCritical(player, playerStats));
+        hash.Add(LivingZombieCorpse(golem, playerStats));
         foreach (var p in playerStats.Where(p => (Stats.Name(p.Key) ?? "").Contains("minion", StringComparison.Ordinal)
             || (Stats.Name(p.Key) ?? "").Contains("golem", StringComparison.Ordinal)).OrderBy(p => p.Key)) hash.Add(p);
         if (Stat.Dexterity is var dexKey) hash.Add((dexKey, playerStats.GetValueOrDefault(dexKey)));
@@ -518,8 +523,11 @@ public static partial class Game
         golem.InputHash = input;
         golem.Player = new(playerStats);
         var m = golem.Monster;
+        int previousCorpse = m.Effects[Stat.IsUsableAsCorpseWhenAlive];
         var mods = GolemModifiers(player, golem, playerStats, now, ownerResistances);
         m.Mods = mods;
+        if (previousCorpse != mods.Effects[Stat.IsUsableAsCorpseWhenAlive])
+            SetStats(player, golem.Id, [(Stat.IsUsableAsCorpseWhenAlive, mods.Effects[Stat.IsUsableAsCorpseWhenAlive])]);
         var pools = GolemPools.Calculate(Monsters, m.Variety!, m.Level, golem, playerStats, mods.Effects);
         if (pools.Fatal)
         {

@@ -342,7 +342,8 @@ public static partial class Game
         bool holyArmament = definition.Family == "HolyArmament";
         uint id = await SpawnMonster(player, variety, level, rarity, aim.X, aim.Y,
             friendly: true, mods: mods, unrisen: false,
-            extraStats: holyArmament ? [.. MinionStats, (Stat.BaseCannotBeDamaged, 1)] : MinionStats,
+            extraStats: holyArmament ? [.. MinionStats, (Stat.BaseCannotBeDamaged, 1)]
+                : LivingZombieCorpse(fighter, playerStats) ? [.. MinionStats, (Stat.IsUsableAsCorpseWhenAlive, 1)] : MinionStats,
             ownedSkills: fighter.Skills, ownedMaximumLife: transportMaximum, ownedMaximumEnergyShield: maximumEnergyShield,
             ownedEnergyShield: energyShield,
             damagedLife: wireLife,
