@@ -15,8 +15,12 @@ public static class BossMods
         Rows = Load();
     }
 
-    /// <summary>BossHealOnPlayerDeath is not here: its stat (<c>heal_aura_owner_%_max_life_on_death</c>) is 0 in the
-    /// extracted table for both it and its Minor form, so how much life comes back is not something the data says.</summary>
+    /// <summary>Retail act/quest boss heal-on-player-death marker mods. The extracted Mods table stores 0 for
+    /// <c>heal_aura_owner_%_max_life_on_death</c>; retail heals nearby living bosses for +10% max life on
+    /// <see cref="HealOnPlayerDeath"/> and +5% max life on <see cref="HealOnPlayerDeathMinor"/>.</summary>
+    public const string HealOnPlayerDeath = "BossHealOnPlayerDeath";
+    public const string HealOnPlayerDeathMinor = "BossHealOnPlayerDeathMinor";
+
     public const string ImmuneToKnockback = "ImmuneToKnockback";
 
     /// <summary>The monster gives no items and no experience (a boss's first stage: Piety's escape, Malachai, Shakari).</summary>
@@ -102,6 +106,13 @@ public static class BossMods
             if (mod.StartsWith("MonsterQuestBoss", StringComparison.Ordinal)) return true;
         return false;
     }
+
+    /// <summary>Fraction of max life restored to this monster when a nearby player dies: 10% for
+    /// <see cref="HealOnPlayerDeath"/>, 5% for <see cref="HealOnPlayerDeathMinor"/>, or 0 otherwise.</summary>
+    public static double PlayerDeathHealFraction(MonsterCatalog.Variety? variety) =>
+        Has(variety, HealOnPlayerDeath) ? 0.10
+        : Has(variety, HealOnPlayerDeathMinor) ? 0.05
+        : 0;
 
     static Dictionary<string, Row> Load()
     {
