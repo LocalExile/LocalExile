@@ -235,7 +235,7 @@ internal static class DeepwaterProgression
                 $"0x02bb CorpseBattery 0x{id:x} at ({batteryAt.X}, {batteryAt.Y}), open {(velkaFlameGiven ? 1 : 0)}"))
             {
                 await global::Game.SendWorldRecord(PlayerOf(player), id, InstanceProtocol.EnterWakeZone(id));
-                if (batteryInfo.Blocking) player.SetBlocker(id, batteryAt.X, batteryAt.Y, Math.Max(1, batteryInfo.Size));
+                if (batteryInfo.Blocking) player.SetObjectBlocker(id, batteryAt.X, batteryAt.Y, Math.Max(1, batteryInfo.Size), batteryInfo.ActorOrChest);
                 scene.CorpseBatteryId = id;
             }
         }

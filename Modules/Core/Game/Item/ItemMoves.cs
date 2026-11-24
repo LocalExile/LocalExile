@@ -100,32 +100,31 @@ public static class ItemMoves
     public sealed record Price(PlayerInventories.Payment? Inventory, AccountStash.Payment? Stash);
 
     public sealed record VendorPurchase(IReadOnlyList<Price> Payments, IReadOnlyList<InventoryItem> Bought,
-        PlayerInventories.Placement? Equipped = null);
+        PlayerInventories.Placement? Equipped = null, PlayerInventories.Placement? Placed = null);
+
+    public sealed record VendorSocketPurchase(IReadOnlyList<Price> Payments, InventoryItem Host, InventoryItem? Displaced);
 
     public static VendorPurchase? PurchaseVendor(PlayerInventories items, AccountStash? stash, AccountStash gold,
         Item offer, ItemCatalog catalog, Func<Item, PlayerInventories.Shape?> shapeOf, Func<bool> consume,
-        byte? destination = null, byte x = 0, byte y = 0) => Saves.Atomically<VendorPurchase?>(() =>
+        byte? destination = null, byte x = 0, byte y = 0, bool expandedAllowed = false) => Saves.Atomically<VendorPurchase?>(() =>
     {
         if (offer.Price.Count == 0 || offer.Price.Any(p => p.Amount == 0)) return null;
         byte row = destination ?? Main;
         bool equipment = row is >= 1 and <= 11 or 14 or 15 or 102;
-        if (row != Main && row != Cursor && !equipment) return null;
+        bool expanded = row == PlayerInventories.ExpandedInventory;
+        if (row != Main && row != Cursor && !equipment && !(expanded && expandedAllowed)) return null;
         var bought = offer with { Price = [] };
-        if (equipment)
-        {
-            if (items.PreviewPurchase(row, x, y, bought, shapeOf) is null) return null;
-        }
-        else if (destination is null)
+        if (destination is null)
         {
             if (!items.Fits(Main, bought, shapeOf)) return null;
         }
+        else if (row == Cursor)
+        {
+            if (items.Items(Cursor).Count != 0) return null;
+        }
         else
         {
-            if (shapeOf(bought) is not { } shape) return null;
-            var grid = InstanceInventories.PlayerDefaults[row];
-            if (x + shape.Width > grid.Width || y + shape.Height > grid.Height
-                || items.Items(row).Any(i => shapeOf(i.Item) is { } s && i.X < x + shape.Width
-                    && x < i.X + s.Width && i.Y < y + shape.Height && y < i.Y + s.Height)) return null;
+            if (items.PreviewPurchase(row, x, y, bought, shapeOf, expandedAllowed, allowDisplace: equipment) is null) return null;
         }
         var costs = offer.Price.GroupBy(p => p.TypeHash).Select(g => (Currency:g.Key, Amount:g.Sum(p => (long)p.Amount))).ToArray();
         foreach (var (currency, amount) in costs)
@@ -143,18 +142,53 @@ public static class ItemMoves
             }
             else payments.Add(Pay(items,stash,currency,(int)amount)
                 ?? throw new InvalidOperationException("Vendor payment changed during purchase"));
-        if (equipment)
+        if (destination is null)
         {
-            items.Add(Cursor, 0, 0, bought);
-            var equipped = items.Place(row, x, y, shapeOf, out var why)
-                ?? throw new InvalidOperationException($"Vendor equipment placement changed during purchase: {why}");
-            return new(payments, [equipped.Placed], equipped);
+            var into = items.AddStacked(Main,bought,shapeOf);
+            if (into.Left != 0) throw new InvalidOperationException("Vendor item no longer fits after payment");
+            return new(payments,[.. into.Changed, .. into.Added]);
         }
-        if (destination is not null) return new(payments,[items.Add(row,x,y,bought)]);
-        var into = items.AddStacked(Main,bought,shapeOf);
-        if (into.Left != 0) throw new InvalidOperationException("Vendor item no longer fits after payment");
-        return new(payments,[.. into.Changed, .. into.Added]);
+        if (row == Cursor) return new(payments, [items.Add(Cursor, 0, 0, bought)]);
+        var placed = items.PlaceIncoming(row, x, y, bought, shapeOf, out var why, expandedAllowed, allowDisplace: equipment)
+            ?? throw new InvalidOperationException($"Vendor placement changed during purchase: {why}");
+        return new(payments, [placed.Placed], equipment ? placed : null, placed);
     });
+
+    /// <summary>Buys a vendor item and sockets it directly into <paramref name="targetItemId"/>'s <paramref name="socket"/>
+    /// (<c>C→S 0x0089</c>) in one transaction, moving any displaced gem onto the empty cursor.</summary>
+    public static VendorSocketPurchase? PurchaseAndSocketVendor(PlayerInventories items, AccountStash? stash, AccountStash gold,
+        Item offer, ItemCatalog catalog, byte targetRow, uint targetItemId, int socket,
+        Func<Item, PlayerInventories.Shape?> shapeOf, Func<bool> consume, out string why)
+    {
+        string reason = "";
+        var result = Saves.Atomically<VendorSocketPurchase?>(() =>
+        {
+            if (offer.Price.Count == 0 || offer.Price.Any(p => p.Amount == 0)) { reason = "invalid price"; return null; }
+            var bought = offer with { Price = [] };
+            if (items.PreviewSocketItem(targetRow, targetItemId, socket, bought, shapeOf, out reason) is null) return null;
+            var costs = offer.Price.GroupBy(p => p.TypeHash).Select(g => (Currency: g.Key, Amount: g.Sum(p => (long)p.Amount))).ToArray();
+            foreach (var (currency, amount) in costs)
+            {
+                if (amount <= 0 || amount > int.MaxValue || catalog.ByHash(currency) is not { } type) { reason = "invalid price"; return null; }
+                if (type.Class == ItemDrops.GoldClass ? gold.Gold < amount
+                    : (long)items.Count(Main, currency) + (stash?.CountOf(currency) ?? 0) < amount) { reason = "insufficient currency"; return null; }
+            }
+            if (!consume()) { reason = "out of stock"; return null; }
+            var payments = new List<Price>();
+            foreach (var (currency, amount) in costs)
+                if (catalog.ByHash(currency)!.Class == ItemDrops.GoldClass)
+                {
+                    if (gold.TrySpendGold(amount) is null) throw new InvalidOperationException("Vendor gold changed during purchase");
+                }
+                else payments.Add(Pay(items, stash, currency, (int)amount)
+                    ?? throw new InvalidOperationException("Vendor payment changed during purchase"));
+            if (items.SocketItem(targetRow, targetItemId, socket, bought, shapeOf, items.NewItemId, out reason) is not var (host, displaced))
+                throw new InvalidOperationException($"Vendor socket placement changed during purchase: {reason}");
+            return new(payments, host, displaced);
+        });
+        why = reason;
+        return result;
+    }
 
     public sealed record BenchResult(InventoryItem Changed, IReadOnlyList<Price> Payments);
 
