@@ -12,11 +12,13 @@ public static partial class Game
         InventoryItem flask, ItemCatalog.BaseType type, UtilityFlasks.Utility utility, FlaskAutomationStep? signal = null)
     {
         var owner = CombatLifetime;
-        bool CurrentUse() => CurrentGameWork && ReferenceEquals(CombatLifetime, owner) && !player.Closed
+        bool CurrentUse(Flasks.Flask? fullCost = null) => CurrentGameWork && ReferenceEquals(CombatLifetime, owner) && !player.Closed
             && !player.LeavingArea && !player.RageRetired && !player.Paused && player.PlayerLife > 0
             && ItemsOf(player).Items(PlayerInventories.Flask).FirstOrDefault(i => i.Id == flask.Id && i.X == slot) is { } current
             && (signal is null || Automation(player).CanAccept(signal.Value, current.Id))
-            && EndSignalCurrent(player, current, signal);
+            && EndSignalCurrent(player, current, signal)
+            && (signal?.Trigger != FlaskEnchantments.Trigger.Full || fullCost is null
+                || current.Item.Charges >= fullCost.MaxCharges);
         if (!CurrentUse()) return false;
         // Mageblood: its magic utility flasks are always on and cannot be used (the client enforces the mod; this is the
         // server backstop).
@@ -46,7 +48,7 @@ public static partial class Game
         if (FlaskGrounds.OnUse(local).Any(g => g.Kind != FlaskGrounds.Kind.Taunt)) _ = FlaskGroundArt;
         // Payment and installation are one admitted transaction. A reload after the inventory send cannot
         // strand paid charges without their accepted snapshot, deadline, Adjacent edge and presentation.
-        if (await SpendFlask(player, flask, charges, slot, CurrentUse, _ =>
+        if (await SpendFlask(player, flask, charges, slot, () => CurrentUse(charges), _ =>
         {
             var state = Automation(player);
             if (signal is { } step) state.Accepted(step, flask.Id);
