@@ -261,7 +261,10 @@ public static partial class Game
         int hinderPct = Math.Max(SpiderHinder(m, now), m.HinderedUntil > now ? 30 : 0);
         int lowLife = MonsterOnLowLife(m) ? m.Effects[Stat.MovementVelocityPlusPctWhenOnLowLife] : 0;
         int totalPct = basePct + maimPct - hinderPct + lowLife;
-        if ((maimPct != 0 || hinderPct != 0 || lowLife != 0) && m.Effects[Stat.MovementSpeedCannotBeReducedBelowBase] > 0)
+        bool debilitated = now < m.DebilitatedUntil;
+        if (debilitated) totalPct = ActorScale.Saturate((100L + totalPct) * (100 + DebilitateMovementPct) / 100 - 100);
+        if ((maimPct != 0 || hinderPct != 0 || lowLife != 0 || debilitated)
+            && m.Effects[Stat.MovementSpeedCannotBeReducedBelowBase] > 0)
             totalPct = Math.Max(0, totalPct);
         double Movement(double pct) => m.Variety is { } variety
             ? MonsterSpeedRoll.Factor(m.SpeedRoll) * Math.Max(1, variety.MovementSpeed * (100 + pct) / 100.0)
@@ -559,7 +562,7 @@ public static partial class Game
             a.SentActionSpeed = speed;
             SetStats(player, id, [(key, speed)]);
         }
-        bool maimed = m.MaimedUntil > now || m.HinderedUntil > now || SpiderHinder(m, now) != 0
+        bool maimed = TimedWalkDebuff(now, m) || SpiderHinder(m, now) != 0
             || lowLifeMove || trap != 1 || snare != 1;
         bool maimShown = m.MaimedMovementShown;
         bool movementChanged = maimed

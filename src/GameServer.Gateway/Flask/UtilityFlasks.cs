@@ -394,6 +394,7 @@ public static class UtilityFlasks
     {
         public long Activation { get; set; }
         public int SelfChaosDamageLifePctPerMinute { get; init; }
+        public IReadOnlyDictionary<uint, int>? LocalStats { get; init; }
         public double Ends { get; set; } = Ends;
         public double ExpiryRate { get; set; } = 1;
         /// <summary>The "during effect" suffix buffs this use sends: (buff instance, BuffDefinitions

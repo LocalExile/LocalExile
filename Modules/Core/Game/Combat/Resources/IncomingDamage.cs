@@ -169,11 +169,14 @@ public static partial class Game
         int nonChaosAbsorbed = Math.Min(nonChaosEligible, absorbed);
         int physicalEligible = physical - (int)((long)physical * bypass / 100);
         int physicalAbsorbed = Math.Min(physicalEligible, nonChaosAbsorbed);
-        if (!wasBroken && player.Ward.Broken
-            && player.Antiquarian.GrantAdrenaline(now, Get(AntiquarianEffects.AdrenalineSource)))
+        if (!wasBroken && player.Ward.Broken)
         {
-            player.Pools = PoolsFor(player, player.Pools.Level);
-            player.ApplyMovementSpeed();
+            if (player.Antiquarian.GrantAdrenaline(now, Get(AntiquarianEffects.AdrenalineSource)))
+            {
+                player.Pools = PoolsFor(player, player.Pools.Level);
+                player.ApplyMovementSpeed();
+            }
+            EndOnWardBreakLocked(player, now);
         }
         return (physical - physicalAbsorbed, Math.Max(0, other - (nonChaosAbsorbed - physicalAbsorbed)),
             Math.Max(0, chaos - (absorbed - nonChaosAbsorbed)));

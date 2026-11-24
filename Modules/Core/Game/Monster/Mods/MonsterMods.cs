@@ -134,6 +134,7 @@ public static partial class Game
         int selfReduction = critical ? Math.Clamp(selfCriticalReduction?.Invoke() ?? 0, 0, 100) : 0;
         double factor = critical ? (100 + extraMult * (100 - selfReduction) / 100.0) / 100.0 : 1;
         factor *= MonsterFrenzyDamageFactor(m);
+        if (now < m.DebilitatedUntil) factor *= 1 + DebilitateDamagePct / 100d;
         factor *= Math.Max(0, 1 + e[m.Rarity is MonsterRarity.Rare or MonsterRarity.Unique
             ? Stat.EnfeebleDamagePlusPctVsRareOrUniqueFinal : Stat.EnfeebleDamagePlusPctFinal] / 100.0);
         int executioner = e.ExecutionerPct(playerLife, playerMaxLife);

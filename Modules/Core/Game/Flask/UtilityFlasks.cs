@@ -79,7 +79,7 @@ public static partial class Game
                 .Select(row => (Buff: player.NextBuff++, Row: row)).ToArray();
             var effect = new UtilityFlasks.Active(flask.Id, (byte)slot, type.Name, utility, player.NextBuff++,
                 utility.Extra is null ? null : player.NextBuff++, stats, now, now + seconds)
-                { SelfChaosDamageLifePctPerMinute = selfChaosRate, SuffixBuffs = suffixBuffs };
+                { SelfChaosDamageLifePctPerMinute = selfChaosRate, LocalStats = local, SuffixBuffs = suffixBuffs };
             AccrueUtilityFlaskDamage(player, now);
             if (player.UtilityFlaskEffects.Of(flask.Id) is { } previous)
                 QueueUtilityFlaskEnd(player, state, previous, "refreshed");
@@ -240,12 +240,41 @@ public static partial class Game
         var state = Automation(player);
         foreach (var effect in ended)
         {
-            QueueUtilityFlaskEnd(player, state, effect, dead ? "death" : Gone(effect) ? "the flask left its cell" : "its time is up");
-            // Record this admitted edge before any await or second lifetime read can lose it.
-            if (!dead && !Gone(effect)) state.Enqueue(new(FlaskEnchantments.Trigger.End,
-                effect.ItemId, effect.Slot, effect.Activation));
+            bool triggered = !dead && !Gone(effect);
+            EndUtilityFlaskLocked(player, state, effect, now,
+                dead ? "death" : triggered ? "its time is up" : "the flask left its cell", triggered);
         }
         state.StatRevision++;
+    }
+
+    static void EndOnWardBreakLocked(Player player, double now)
+    {
+        if (!player.UtilityFlaskEffects.Any) return;
+        AccrueUtilityFlaskDamage(player, now);
+        bool Breaks(UtilityFlasks.Active effect) =>
+            effect.LocalStats?.GetValueOrDefault(Stat.LocalFlaskRemoveEffectWhenWardBreaks) > 0;
+        var ended = UtilityFlasks.EndDue(player, now, dead: false, Breaks,
+            () => RecomputePoolsAndSpeed(player), out _);
+        if (ended.Count == 0) return;
+        var state = Automation(player);
+        foreach (var effect in ended) EndUtilityFlaskLocked(player, state, effect, now,
+            effect.Ends > now ? "Ward broke" : "its time is up", triggered: true);
+        state.StatRevision++;
+    }
+
+    static void EndUtilityFlaskLocked(Player player, FlaskAutomationState state, UtilityFlasks.Active effect,
+        double now, string why, bool triggered)
+    {
+        QueueUtilityFlaskEnd(player, state, effect, why);
+        if (!triggered) return;
+        state.Enqueue(new(FlaskEnchantments.Trigger.End, effect.ItemId, effect.Slot, effect.Activation));
+        if (effect.LocalStats?.GetValueOrDefault(Stat.LocalFlaskDebilitateNearbyEnemiesForXSecondsWhenFlaskEffectEnds)
+            is not int seconds or <= 0) return;
+        const int nearby = 30; // The native description of Vorana's Preparation specifies three metres.
+        var at = player.Walk.Position(now);
+        foreach (var (id, monster) in player.Area.MonstersNear(at, nearby))
+            if (monster.Hostile && !monster.Dead && monster.Life > 0 && Dist(at, monster.Walk.Position(now)) <= nearby)
+                ApplyDebilitateLocked(player, id, monster, now, seconds);
     }
 
     static void QueueUtilityFlaskEnd(Player player, FlaskAutomationState state, UtilityFlasks.Active effect, string why)

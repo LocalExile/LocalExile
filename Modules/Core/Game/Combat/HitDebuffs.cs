@@ -99,7 +99,37 @@ public static partial class Game
 
     /// <summary>Whether a timed movement debuff is running, so an otherwise idle monster still needs its walk factor
     /// recomputed (the ailment-idle skip must not starve Maim, Hinder or Covered in Ash).</summary>
-    internal static bool TimedWalkDebuff(double now, SpawnedMonster m) => m.MaimedUntil > now || m.HinderedUntil > now || m.CoveredInAshUntil > now;
+    const ushort DebilitateBuffRow = 1583;
+    const int DebilitateDamagePct = -10, DebilitateMovementPct = -20;
+    static readonly IReadOnlyDictionary<uint, int> DebilitateStats = new Dictionary<uint, int>
+    {
+        [Stat.DebilitateDamagePlusPctFinal] = DebilitateDamagePct,
+        [Stat.DebilitateMovementSpeedPlusPctFinal] = DebilitateMovementPct,
+    };
+
+    static void ApplyDebilitateLocked(Player player, uint id, SpawnedMonster monster, double now, double seconds)
+    {
+        double until = now + seconds;
+        if (until <= monster.DebilitatedUntil) return;
+        if (monster.DebilitateSource != 0)
+            player.Area.Buffs.Clear(id, DebilitateBuffRow, monster.DebilitateSource);
+        monster.DebilitateSource = player.Id;
+        monster.DebilitatedUntil = until;
+        player.Area.Buffs.Set(id, BuffRows.Spec(DebilitateBuffRow, player.Id, DebilitateStats, seconds));
+        monster.PresentationChanged?.Invoke();
+    }
+
+    static void StepDebilitateLocked(Player player, uint id, SpawnedMonster monster, double now)
+    {
+        if (monster.DebilitateSource == 0 || monster.Hostile && !monster.Dead && monster.Life > 0
+            && now < monster.DebilitatedUntil) return;
+        player.Area.Buffs.Clear(id, DebilitateBuffRow, monster.DebilitateSource);
+        monster.DebilitateSource = 0;
+        monster.DebilitatedUntil = double.NegativeInfinity;
+    }
+
+    internal static bool TimedWalkDebuff(double now, SpawnedMonster m) => m.MaimedUntil > now || m.HinderedUntil > now
+        || m.CoveredInAshUntil > now || m.DebilitatedUntil > now;
 
     /// <summary>The increased fire damage Covered in Ash applies at <paramref name="now"/> (20% while active, 0 otherwise).</summary>
     public static int CoveredInAshFireTaken(SpawnedMonster m, double now) => m.CoveredInAshUntil > now ? CoveredInAshFireTakenPct : 0;

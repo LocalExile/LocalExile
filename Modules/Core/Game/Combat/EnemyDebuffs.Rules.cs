@@ -263,6 +263,7 @@ public static partial class Game
         Timed(ref m.MaimedUntil, ref m.MaimShownUntil, ref m.MaimBuff, MaimedBuffRow, null);
         Timed(ref m.HinderedUntil, ref m.HinderShownUntil, ref m.HinderBuff, HinderedBuffRow, null);
         Timed(ref m.CoveredInAshUntil, ref m.CoveredInAshShownUntil, ref m.CoveredInAshBuff, CoveredInAshBuffRow, null);
+        StepDebilitateLocked(player, id, m, now);
         for (int i = 0; i < ExposureTypes.Length; i++)
             if (!Timed(ref m.ExposureUntil[i], ref m.ExposureShownUntil[i], ref m.ExposureBuff[i], ExposureBuffRows[i], null))
                 EndExposureLocked(m, ExposureTypes[i]);
@@ -341,7 +342,7 @@ public static partial class Game
         // Its next timed change: a debuff or curse ending.
         void Next(double until) { if (until > now && until < wake) wake = until; }
         Next(m.TauntedUntil); Next(m.IntimidatedUntil); Next(m.UnnervedUntil); Next(m.CrushedUntil);
-        Next(m.MaimedUntil); Next(m.HinderedUntil); Next(m.CoveredInAshUntil);
+        Next(m.MaimedUntil); Next(m.HinderedUntil); Next(m.CoveredInAshUntil); Next(m.DebilitatedUntil);
         foreach (double until in m.ExposureUntil) Next(until);
         foreach (var stack in m.Withered) Next(stack.Until);
         foreach (var curse in m.Curses.All.Values) { Next(curse.Until); Next(curse.AmplifiesAt); }
