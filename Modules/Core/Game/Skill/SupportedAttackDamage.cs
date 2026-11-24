@@ -6,7 +6,8 @@ using GameServer.Core.World;
 public static class SupportedAttackDamage
 {
     const uint ColdPerDexterityMin = Stat.AttacksWithThisWeaponMinimumAddedColdDamagePer10Dexterity,
-        ColdPerDexterityMax = Stat.AttacksWithThisWeaponMaximumAddedColdDamagePer10Dexterity;
+        ColdPerDexterityMax = Stat.AttacksWithThisWeaponMaximumAddedColdDamagePer10Dexterity,
+        EphemeralEdgeLightningFromEs = Stat.EphemeralEdgeMaximumLightningDamageFromEsPct;
 
     static readonly (DamageType Type, uint Min, uint Max)[] WandAddedRanges =
     [
@@ -101,10 +102,16 @@ public static class SupportedAttackDamage
             lightRadiusIncrease * get(Stat.MinimumAddedFireDamageToAttacksPer1PctLightRadius),
             lightRadiusIncrease * get(Stat.MaximumAddedFireDamageToAttacksPer1PctLightRadius)));
         long dexterityGroups = Math.Max(0, get(Stat.Dexterity)) / 10;
-        if (weapon.LocalSources is { } source && dexterityGroups > 0)
-            added = added.Add(DamageType.Cold, new(
-                dexterityGroups * (double)source.GetValueOrDefault(ColdPerDexterityMin),
-                dexterityGroups * (double)source.GetValueOrDefault(ColdPerDexterityMax)));
+        if (weapon.LocalSources is { } source)
+        {
+            if (dexterityGroups > 0)
+                added = added.Add(DamageType.Cold, new(
+                    dexterityGroups * (double)source.GetValueOrDefault(ColdPerDexterityMin),
+                    dexterityGroups * (double)source.GetValueOrDefault(ColdPerDexterityMax)));
+            int esPct = source.GetValueOrDefault(EphemeralEdgeLightningFromEs);
+            if (esPct > 0 && get(Stat.MaximumEnergyShield) is int maxEnergyShield and > 0)
+                added = added.Add(DamageType.Lightning, new(0, maxEnergyShield * (esPct / 100.0)));
+        }
         foreach (var (itemClass, ranges) in MeleeFamilyAddedRanges)
             if (WeaponIdentity.CountsAs(weapon.ItemClass, weapon.LocalSources, itemClass)
                 || itemClass == "Dagger" && weapon.ItemClass == "Rune Dagger")
