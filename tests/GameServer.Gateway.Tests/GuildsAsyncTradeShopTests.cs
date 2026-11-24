@@ -1,4 +1,6 @@
 using System.Buffers.Binary;
+using System.Net;
+using System.Net.Sockets;
 using System.Text;
 using GameServer.Core.Accounts;
 using GameServer.Core.Protocol.Instance;
@@ -12,6 +14,41 @@ namespace GameServer.Gateway.Tests;
 
 public class GuildsAsyncTradeShopTests
 {
+    sealed class DrainingWire : IDisposable
+    {
+        readonly TcpListener _listener = new(IPAddress.Loopback, 0);
+        readonly TcpClient _writer = new();
+        readonly TcpClient _reader;
+        readonly Task _drain;
+        public readonly ConnectionCiphers Ciphers = new(new byte[64], false);
+        public NetworkStream Stream => _writer.GetStream();
+
+        public DrainingWire()
+        {
+            _listener.Start();
+            var accepting = _listener.AcceptTcpClientAsync();
+            _writer.Connect(IPAddress.Loopback, ((IPEndPoint)_listener.LocalEndpoint).Port);
+            _reader = accepting.GetAwaiter().GetResult();
+            _drain = Task.Run(async () =>
+            {
+                try
+                {
+                    var buf = new byte[65536];
+                    var stream = _reader.GetStream();
+                    while (await stream.ReadAsync(buf) > 0) { }
+                }
+                catch { }
+            });
+        }
+
+        public void Dispose()
+        {
+            _writer.Dispose();
+            _reader.Dispose();
+            _listener.Stop();
+            try { _drain.GetAwaiter().GetResult(); } catch { }
+        }
+    }
     static (List<byte[]> Messages, Func<byte[], string?, Task> Outbox) Capture()
     {
         var messages = new List<byte[]>();
@@ -58,7 +95,7 @@ public class GuildsAsyncTradeShopTests
             Saves.Open(saves);
             using var runtime = new PartyFollowerTests.Runtime();
             var instance = new InstanceState();
-            using var wire = new PartyFollowerTests.Wire();
+            using var wire = new DrainingWire();
             var store = new SqliteAccountStore(Saves.Db);
             var accA = new Account(Guid.NewGuid(), "GuildAccA", "", "", DateTimeOffset.UtcNow);
             var accB = new Account(Guid.NewGuid(), "GuildAccB", "", "", DateTimeOffset.UtcNow);
@@ -209,7 +246,7 @@ public class GuildsAsyncTradeShopTests
             using var runtime = new PartyFollowerTests.Runtime();
             LocalShopFeature.LoadData();
             var instance = new InstanceState();
-            using var wire = new PartyFollowerTests.Wire();
+            using var wire = new DrainingWire();
             var layout = new AreaLayout(0x235c, "1_1_town", 300, 300, 100, 100, null, []);
             player = new Player(layout, 1, 1)
             {
