@@ -367,13 +367,15 @@ public static partial class Game
             $"0x0136 stash {kind} tab list again ({tabs.Count} tabs, after the tab settings)");
     }
 
+    // The stash is the one the message's kind names, not the open panel's: with the guild panel open, a kind 1 change was
+    // refused and the guild tabs went out as the personal list.
     public static async Task SetTabAffinities(Player player, InstanceStash.SetAffinities set)
     {
-        var stash = StashOf(player);
-        uint? now = set.Kind == InstanceStash.Personal ? stash.SetAffinities(set.Tab, set.Changes) : null;
-        Console.WriteLine($"[gateway] {player.Connection.Remote} <= 0x00d3 stash tab {set.Tab} affinities [{string.Join(", ", set.Changes.Select(c => $"{c.Affinity}={(c.On ? "on" : "off")}"))}]" +
-            (now is uint bits ? $": now 0x{bits:x}" : ": refused (no such personal tab)"));
-        var tabs = stash.Records(null, TabsSentOf(player, stash));
-        await Send(player, InstanceStash.TabList(tabs), $"0x0136 stash tab list again ({tabs.Count} tabs, after the affinities)");
+        if (set.Kind > InstanceStash.Guild || (set.Kind == InstanceStash.Guild && player.Character.Ssf)) return;
+        var stash = set.Kind == InstanceStash.Guild ? GuildStashOf(player) : PersonalStashOf(player);
+        uint? now = stash.SetAffinities(set.Tab, set.Changes);
+        Console.WriteLine($"[gateway] {player.Connection.Remote} <= 0x00d3 stash {set.Kind} tab {set.Tab} affinities [{string.Join(", ", set.Changes.Select(c => $"{c.Affinity}={(c.On ? "on" : "off")}"))}]" +
+            (now is uint bits ? $": now 0x{bits:x}" : ": refused (no such tab)"));
+        await SendTabListAgain(player, set.Kind);
     }
 }

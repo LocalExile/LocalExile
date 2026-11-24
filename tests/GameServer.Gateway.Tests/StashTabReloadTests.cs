@@ -62,6 +62,48 @@ public class StashTabReloadTests : IDisposable
     }
 
     [Fact]
+    public async Task Tab_affinities_save_to_the_stash_their_kind_names_whichever_panel_is_open()
+    {
+        var catalog = new ItemCatalog("data");
+        TestEnvironment.OpenOwnSaves("stashaffinities");
+        string account = "Affinities" + Guid.NewGuid().ToString("N");
+        string personalKey = AccountStash.Key(account, "Standard"), guildKey = "guild:" + personalKey;
+        var player = new Player(new(ushort.MaxValue, "AffinitiesTest", 128, 128, 32, 32, null, []), 0, 1)
+            { Character = { Account = account, Name = account, League = "Standard" }, GuildStashOpen = true };
+        using var wire = new Wire();
+        player.Connection.Session = new("stash-test", wire.Stream, wire.Ciphers);
+        try
+        {
+            var personal = Game.PersonalStashOf(player);
+            var guild = Game.GuildStashOf(player);
+            uint Bits(AccountStash s) => s.Records(null, new HashSet<int>())[0].Affinities;
+
+            // The guild panel is open: a guild change goes to the guild stash and its list goes out as kind 1.
+            await Game.SetTabAffinities(player, new(0, InstanceStash.Guild, [(3, true)]));
+            Assert.Equal(1u << 3, Bits(guild));
+            Assert.Equal(0u, Bits(personal));
+            wire.Expect(InstanceStash.TabList(guild.Records(null, player.Connection.GuildStashTabsSent), InstanceStash.Guild));
+
+            // A personal change with the guild panel still open goes to the personal stash, not the guild's.
+            await Game.SetTabAffinities(player, new(0, InstanceStash.Personal, [(5, true)]));
+            Assert.Equal(1u << 5, Bits(personal));
+            Assert.Equal(1u << 3, Bits(guild));
+            wire.Expect(InstanceStash.TabList(personal.Records(null, player.Connection.StashTabsSent)));
+
+            // Both are kept after a reload.
+            AccountStash.Forget(personalKey);
+            AccountStash.Forget(guildKey);
+            Assert.Equal(1u << 5, Bits(Game.PersonalStashOf(player)));
+            Assert.Equal(1u << 3, Bits(Game.GuildStashOf(player)));
+        }
+        finally
+        {
+            AccountStash.Forget(personalKey);
+            AccountStash.Forget(guildKey);
+        }
+    }
+
+    [Fact]
     public async Task Unique_collection_categories_remain_registered_after_another_tab_loads()
     {
         var catalog = new ItemCatalog("data");
