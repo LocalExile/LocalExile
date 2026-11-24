@@ -71,7 +71,8 @@ static class LegionStasis
             var action = BreakoutAction(player, variety, row, sequence, Hidden, 100);
             uint id = await SpawnMonster(player, variety, areaLevel, rarity, at.X, at.Y,
                 friendly: false, unrisen: false, alone: false, scripted: true, instanceOwned: true, bulk: true, log: false, rotation: formations[faction].Facing,
-                currentAction: action, noBodyUntilReleased: true);
+                currentAction: action, noBodyUntilReleased: true,
+                placement: MonsterPlacement.Established);   // the formation checked the spot (walkable, clear of the others): no nearest-clear search that could stack two
             if (id == 0) { skipped++; return; }
             ushort buff = await Freeze(player, id, variety.Id, TimeLockVisual(plan.Factions[faction].Id));
             var member = new Member(id, buff, faction, tier, chest, hoard, Sequence: sequence);

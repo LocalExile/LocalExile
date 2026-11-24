@@ -41,7 +41,7 @@ static partial class LegionMonolith
 
     enum Phase { Idle, Charging, Running, Finished }
 
-    sealed record Saved(uint Id, int X, int Y, int Level, int Phase, double ChargeEnd, double EndsAt, uint Pulse, float Rotation = 0, float? Z = null, LegionArmy.ArmyPlan? Plan = null, LegionStasis.Member[]? Army = null, Box[]? Boxes = null);
+    sealed record Saved(uint Id, int X, int Y, int Level, int Phase, double ChargeEnd, double EndsAt, uint Pulse, float Rotation = 0, float? Z = null, LegionArmy.ArmyPlan? Plan = null, LegionStasis.Member[]? Army = null, Box[]? Boxes = null, float PulseScale = 1);
 
     /// <summary>The instance's encounter. Fields change under the object's lock.</summary>
     sealed class Encounter(Saved saved)
@@ -51,6 +51,8 @@ static partial class LegionMonolith
         public Phase Phase = (Phase)saved.Phase;
         public double ChargeEnd = saved.ChargeEnd, EndsAt = saved.EndsAt;
         public uint Pulse = saved.Pulse;
+        /// <summary>The scale the pulse ring was sent with (it reaches the army's farthest member).</summary>
+        public float PulseScale = saved.PulseScale;
         public float Rotation = saved.Rotation;
         public float? Z = saved.Z;
         public LegionArmy.ArmyPlan? Plan = saved.Plan;
@@ -60,7 +62,7 @@ static partial class LegionMonolith
         public bool Spawning;
         /// <summary>The chests the war chests became (kept in the save).</summary>
         public Box[]? Boxes = saved.Boxes;
-        public Saved ToSaved() => new(Id, X, Y, Level, (int)Phase, ChargeEnd, EndsAt, Pulse, Rotation, Z, Plan, Army, Boxes);
+        public Saved ToSaved() => new(Id, X, Y, Level, (int)Phase, ChargeEnd, EndsAt, Pulse, Rotation, Z, Plan, Army, Boxes, PulseScale);
     }
 
     static readonly ConditionalWeakTable<object, Encounter> Encounters = new();
@@ -187,7 +189,8 @@ static partial class LegionMonolith
         lock (e) (phase, pulse) = (e.Phase, e.Pulse);
         if (phase == Phase.Idle && Info!.Blocking) player.SetBlocker(e.Id, e.X, e.Y, Math.Max(1, Info.Size));
         if (phase == Phase.Running && pulse != 0) await ShowPulse(player, e, pulse);
-        if (phase is Phase.Charging or Phase.Running)
+        // The timer shows from the shatter: the charge is not part of the countdown.
+        if (phase == Phase.Running)
         {
             double left = Math.Ceiling(endsAt - global::Game.AreaTime(player));
             if (left > 0 && left < 3600)
@@ -198,7 +201,7 @@ static partial class LegionMonolith
     static async Task ShowPulse(Player player, Encounter e, uint id)
     {
         if (InArea(player, id)) return;
-        var create = InstanceEntities.CreateObject(id, InstanceEntities.ObjectTypeHash(EffectObject.TypePath), new EffectObject(e.X, e.Y, PulseModel).Blob());
+        var create = InstanceEntities.CreateObject(id, InstanceEntities.ObjectTypeHash(EffectObject.TypePath), new EffectObject(e.X, e.Y, PulseModel) { Scale = e.PulseScale }.Blob());
         await LegionOutput.ToArea(player, async p =>
         {
             if (await global::Game.SendWorldCreate(PlayerOf(p), id, create, $"0x02bb Legion monolith pulse 0x{id:x}"))
@@ -241,7 +244,7 @@ static partial class LegionMonolith
             e.Plan = LegionArmy.Plan(LegionData.Current, e.Level, player.Layout.Id, stats, global::Game.AreaRng(player));
             plan = LegionArmy.Summary(e.Plan);
             double now = global::Game.AreaTime(player);
-            (e.Phase, e.ChargeEnd, e.EndsAt) = (Phase.Charging, now + ChargeSeconds, now + seconds);
+            (e.Phase, e.ChargeEnd, e.EndsAt) = (Phase.Charging, now + ChargeSeconds, now + ChargeSeconds + seconds);   // the timer starts at the shatter
             Keep(player, e);
         }
         module.Log($"{PlayerOf(player).Character}: monolith activated at ({e.X}, {e.Y}), timer {seconds} s");
@@ -249,8 +252,6 @@ static partial class LegionMonolith
         await ToAll(player, e, StatesOf(Phase.Charging, e), "charging=1");
         foreach (var member in Members(player)) await SendRules(member, LegionRules.Add(), "0x001f ruleset LegionRules");
         foreach (var member in Members(player)) member.RemoveBlocker(e.Id);
-        foreach (var member in Members(player))
-            await PlayerOf(member).Send(InstanceTimers.MissionTimer(InstanceTimers.MissionTimerType.Legion, SecondsShown(seconds)), $"0x0163 mission timer Legion: {seconds} s");
         await BeginArmy(module, player);
         return true;
     }
@@ -273,9 +274,11 @@ static partial class LegionMonolith
         if (step == 1)
         {
             await ToAll(player, e, StatesOf(Phase.Running, e), "shattered=1");
-            if (InArea(player, e.Id)) await ShowPulse(player, e, pulse);
+            double left = Math.Max(1, e.EndsAt - global::Game.AreaTime(player));
+            foreach (var member in Members(player))
+                await PlayerOf(member).Send(InstanceTimers.MissionTimer(InstanceTimers.MissionTimerType.Legion, SecondsShown(left)), $"0x0163 mission timer Legion: {left:0.0} s (at the shatter)");
             foreach (var member in Members(player)) await SendRules(member, RulesBegin(player, e), "0x02c9 LegionRules mode 0 (HUD and area audio)");
-            await RevealArmy(module, player, e);
+            await RevealArmy(module, player, e, pulse);   // the pulse and the reveal start at the same instant
             await EarlyEnd(module, player, e);   // a break-out during the charge could not end it yet
         }
         else if (step == 2) await Finish(module, player, e, pulse, "timer");

@@ -10,14 +10,17 @@ namespace GameServer.Modules.Legion;
 /// </summary>
 static partial class LegionMonolith
 {
-    /// <summary>GUESS (live check, R10 L1): the seconds the reveal takes from the nearest member to the farthest, standing for the pulse wave
-    /// (the pulse clip is 0.791 s).</summary>
-    const double RevealSeconds = 0.8;
-    /// <summary>How many steps the reveal has: the members are grouped by distance, one area timer per step, not one per member.</summary>
-    const int RevealSteps = 8;
+    /// <summary>The pulse ring's clip (monolith_pulse.ao, 0.791 s) and the radius it reaches at scale 1 (R10: the mesh is +-267 units, about 24.6 cells).
+    /// GUESS: a larger scale stretches the ring, not the clip's duration (live check).</summary>
+    const double PulseSeconds = 0.791, PulseRadiusCells = 24.6;
+    /// <summary>The largest scale the ring is sent with (a ring of 8 x 24.6 = 197 cells).</summary>
+    const float PulseMaxScale = 8;
+    /// <summary>How many steps the reveal has: members are grouped by when the ring reaches them (one area timer per step; a step is a server frame, 33 ms, at the finest).</summary>
+    const int RevealSteps = 16;
 
-    /// <summary>The shatter: every member standing is revealed in steps by its distance from the monolith, over <see cref="RevealSeconds"/>.</summary>
-    static async Task RevealArmy(IModuleContext module, Player player, Encounter e)
+    /// <summary>The shatter: the pulse ring is created, scaled to reach the farthest member, and each member is revealed as the ring reaches it:
+    /// after distance / ring radius x <see cref="PulseSeconds"/>. The pulse object and the first step go out in the same frame.</summary>
+    static async Task RevealArmy(IModuleContext module, Player player, Encounter e, uint pulse)
     {
         LegionStasis.Member[] army;
         lock (e) army = e.Army ?? [];
@@ -29,20 +32,30 @@ static partial class LegionMonolith
             var (x, y) = monster.Walk.Position(now);
             distances.Add((m, Math.Sqrt((double)(x - e.X) * (x - e.X) + (double)(y - e.Y) * (y - e.Y))));
         }
+        double farthest = distances.Count == 0 ? 0 : distances.Max(d => d.Distance);
+        float scale = (float)Math.Clamp(farthest / PulseRadiusCells, 1, PulseMaxScale);
+        lock (e) { e.PulseScale = scale; Keep(player, e); }
+        if (InArea(player, e.Id)) await ShowPulse(player, e, pulse);
         if (distances.Count == 0) return;
-        double farthest = Math.Max(1, distances.Max(d => d.Distance));
-        var steps = distances.GroupBy(d => Math.Min(RevealSteps - 1, (int)(d.Distance / farthest * RevealSteps))).OrderBy(g => g.Key).ToList();
+        double ring = PulseRadiusCells * scale;
+        var steps = distances.GroupBy(d => Math.Min(RevealSteps - 1, (int)(d.Distance / ring * RevealSteps))).OrderBy(g => g.Key).ToList();
         foreach (var step in steps)
         {
             var members = step.Select(d => d.Member).ToList();
-            double delay = RevealSeconds * step.Key / RevealSteps;
-            if (delay <= 0) await RevealMembers(player, e, members);
-            else global::Game.SendAfter(player, delay, () => RevealMembers(player, e, members));
+            int k = step.Key;
+            double delay = PulseSeconds * k / RevealSteps;
+            async Task Run()
+            {
+                await RevealMembers(player, e, members);
+                module.Log($"reveal step {k} at +{(global::Game.AreaTime(player) - now):0.00}s: {members.Count} members");
+            }
+            if (delay <= 0) await Run();
+            else global::Game.SendAfter(player, delay, Run);   // seconds of the area's time, rounded up to whole 33 ms frames
         }
-        module.Log($"army reveal: {distances.Count} members in {steps.Count} steps over {RevealSeconds} s");
+        module.Log($"army reveal: {distances.Count} members in {steps.Count} steps over {PulseSeconds} s, pulse scale {scale:0.00} (farthest {farthest:0.0} cells)");
     }
 
-    /// <summary>Reveals members (once each): the body is theirs again, hits count (the break-out handler), and every client gets the 0x2c8 state 2; the origin stays in state 0 for a joiner (LegionStasis.Present).
+    /// <summary>Reveals members (once each): the body is theirs again, hits count (the break-out handler), and every client gets the 0x2c8 state 2; the origin stays in state 0 for a joiner (LegionStasis.Present).</summary>
     static async Task RevealMembers(Player player, Encounter e, IReadOnlyList<LegionStasis.Member> members, bool keep = true)
     {
         if (player.Instance is null) return;
