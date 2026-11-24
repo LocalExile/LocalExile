@@ -131,7 +131,7 @@ public static partial class Game
         {
             foreach (var spirit in owner.Summons.Fighters.Values)
             {
-                if (spirit.Monster?.Variety?.Row != 10242 || spirit.Monster.Dead || spirit.Monster.Life == 0 || owner.PlayerLife == 0
+                if (spirit.Monster?.Variety?.Row is not (10241 or 10242) || spirit.Monster.Dead || spirit.Monster.Life == 0 || owner.PlayerLife == 0
                     || !GolemCurrent(owner, spirit) || Dist(spirit.Monster.Walk.Position(now), at) > SpectreAidRadius
                     || spirit.Abilities.FirstOrDefault(a => a.Effect == JudgementSkeletonAura) is not { } aura) continue;
                 int strength = JudgementAttackDamage.Sum(key => GolemStat(aura.Stats, key));
