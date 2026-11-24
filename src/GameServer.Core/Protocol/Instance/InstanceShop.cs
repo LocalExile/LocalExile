@@ -97,6 +97,8 @@ public static class InstanceShop
         if (m.Length < 8) throw new InvalidDataException($"0x026e is {m.Length} bytes, too short");
         uint boxId = BinaryPrimitives.ReadUInt32BigEndian(m[2..]);
         ushort count = BinaryPrimitives.ReadUInt16BigEndian(m[6..]);
+        if (m.Length < 8 + count * 4)
+            throw new InvalidDataException($"0x026e truncated: {m.Length} bytes for {count} consumed record(s)");
         var consumed = new uint[count];
         for (int i = 0, at = 8; i < count; i++, at += 4)
             consumed[i] = BinaryPrimitives.ReadUInt32BigEndian(m[at..]);
@@ -267,8 +269,10 @@ public static class InstanceShop
 
     static string ReadNarrowStr(ReadOnlySpan<byte> m, ref int pos)
     {
+        if (pos + 2 > m.Length) throw new InvalidDataException("narrow string length prefix truncated");
         ushort len = BinaryPrimitives.ReadUInt16BigEndian(m[pos..]);
         pos += 2;
+        if (pos + len > m.Length) throw new InvalidDataException($"narrow string truncated: need {len} bytes");
         string s = Encoding.UTF8.GetString(m.Slice(pos, len));
         pos += len;
         return s;

@@ -31,8 +31,8 @@ Part of [Status](../Status.md); what to build next in this area is in
   answered with S→C 0x135 and "You have joined global chat channel N.", so they do not time out and the Global and
   Trade tabs work.
   The client joins once per session, so every area entry sends 0x135 for the channels already joined.
-  Guild (`&`) lines reach online members of the sender's guild with the guild tag. A `%` party line reaches every member
-  of the sender's party, in whatever area each one is (S→C 0x17 with the sender prefixed `%`); a player in no party is
+  Guild (`&`) lines reach online members of the sender's guild with the tag. A `%` party line reaches every member of
+  the sender's party, in whatever area each one is (S→C 0x17 with the sender prefixed `%`); a player in no party is
   sent none (tested, not yet checked with the real client).
   A name already on a chat server gets a number there (`Name_1`); nothing proves a name.
   Code: `Modules/Core/Player/Chat`, `Modules/Core/Player/Social`, `src/GameServer.Core/Chat`.

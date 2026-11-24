@@ -178,5 +178,9 @@ public class GuildAsyncTradeShopProtocolTests
         Assert.Equal((byte)1, upsert[^1]);
         byte[] remove = InstanceMicrotransactions.RecordRemove(0x100005u);
         Assert.Equal([0x02, 0x05, 0x00, 0x00, 0x00, 0x10, 0x00, 0x05], remove);
+
+        // Truncated spans throw InvalidDataException.
+        Assert.Throws<InvalidDataException>(() => InstanceShop.ReadOpenSalvageBox([0x02, 0x6e, 0, 0, 0, 1, 0, 2, 0, 0, 0, 9]));
+        Assert.Throws<InvalidDataException>(() => InstanceShop.ReadFourStrings([0x01, 0x30, 0x00, 0x05, 0x41]));
     }
 }

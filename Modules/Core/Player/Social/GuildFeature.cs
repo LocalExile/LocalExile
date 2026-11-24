@@ -76,7 +76,31 @@ public static class GuildFeature
         ?? (Online.TryGetValue(name, out var p) && !p.Closed && !p.LeavingArea && !p.Controlled ? p : null);
 
     static bool CanAct(Player player) =>
-        !player.Closed && !player.LeavingArea && !player.Controlled;
+        Saves.IsOpen && !player.Closed && !player.LeavingArea && !player.Controlled;
+
+    /// <summary>Clears in-memory runtime caches on module unload/hot-reload.</summary>
+    public static void ResetRuntime()
+    {
+        Online.Clear();
+        DbCaches.Clear();
+    }
+
+    /// <summary>Whether <paramref name="player"/> may manage shared guild stash tabs (Officer/Leader, or solo when not in a guild).</summary>
+    public static bool CanManageStash(Player player)
+    {
+        if (player.Character.Ssf || player.Controlled) return false;
+        if (!Saves.IsOpen) return true;
+        string account = AccountOf(player);
+        var cache = Cache;
+        lock (cache.Gate)
+        {
+            EnsureLoadedLocked(cache);
+            if (!cache.AccountGuild.TryGetValue(account, out ulong gid) || !cache.Guilds.TryGetValue(gid, out var guild))
+                return true; // Not in a guild: solo per-account guild stash fallback.
+            return guild.Members.TryGetValue(account, out var member)
+                && member.Rank is InstanceGuilds.RankLeader or InstanceGuilds.RankOfficer;
+        }
+    }
 
     static void EnsureLoadedLocked(GuildDbCache cache)
     {

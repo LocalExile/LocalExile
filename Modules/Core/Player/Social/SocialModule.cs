@@ -77,6 +77,8 @@ public sealed class SocialModule : IModule
         GameEvents.GuildHideoutSelected.Add(module.Manifest.Id, GuildFeature.SelectGuildHideout);
         GameEvents.GuildHideoutHash.Add(module.Manifest.Id, GuildFeature.HideoutHashOf);
         GameEvents.GuildTagQuery.Add(module.Manifest.Id, GuildFeature.TagOf);
+        GameEvents.GuildCanManageStash.Add(module.Manifest.Id, GuildFeature.CanManageStash);
+        module.Lifetime.Own(new GuildCleanup());
         GameEvents.Packet(InstanceGuilds.CreateId).Add(module.Manifest.Id, async (player, bytes) =>
         {
             await GuildFeature.Create(player, InstanceGuilds.ReadText(bytes));
@@ -215,6 +217,11 @@ public sealed class SocialModule : IModule
             uint party = PartyRoster.PartyOf(player);
             return party == 0 ? [] : PartyRoster.Players(party);
         }));
+    }
+
+    sealed class GuildCleanup : IDisposable
+    {
+        public void Dispose() => GuildFeature.ResetRuntime();
     }
 }
 

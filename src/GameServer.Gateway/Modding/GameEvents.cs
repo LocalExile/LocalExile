@@ -622,6 +622,8 @@ public static class GameEvents
     public static readonly GameEvent<Func<Player, ushort?>> GuildHideoutHash = new();
     /// <summary>The player's guild tag (for chat display), or null when none.</summary>
     public static readonly GameEvent<Func<Player, string?>> GuildTagQuery = new();
+    /// <summary>Whether the player is permitted to manage shared guild stash tabs (Officer/Leader, or solo fallback).</summary>
+    public static readonly GameEvent<Func<Player, bool>> GuildCanManageStash = new();
     /// <summary>A party invitation requested by target character or account name (such as <c>/invite</c>); true when a
     /// subscriber handled the request.</summary>
     public static readonly GameEvent<Func<Player, string, Task<bool>>> PartyInvite = new();
@@ -842,6 +844,18 @@ public static class GameEvents
                 return answer;
         }
         return "";
+    }
+
+    public static bool CanManageGuildStash(Player player)
+    {
+        foreach (var (owner, run) in GuildCanManageStash.Subscribers(player))
+        {
+            bool allowed = false;
+            if (GameEventOwners.Guard(owner, nameof(GuildCanManageStash), () => allowed = run(player)))
+                return allowed;
+            return false;
+        }
+        return true;
     }
 
     public static async Task<bool> RunPartyInvite(Player player, string target)

@@ -34,6 +34,15 @@ public static partial class Game
         _ => null,
     };
 
+    // Whether the player may manage tab metadata (reorder/rename/colour/public/folder) for this stash kind.
+    public static bool CanManageStashKind(Player player, byte kind) => kind switch
+    {
+        InstanceStash.Personal => true,
+        InstanceStash.Guild => !player.Character.Ssf && player.GuildStashOpen && GameEvents.CanManageGuildStash(player),
+        InstanceStash.Trade => !player.Character.Ssf && player.TradeStashOpen,
+        _ => false,
+    };
+
     // The tabs of that stash whose contents this connection has.
     public static HashSet<int> TabsSentOf(Player player, AccountStash stash) =>
         stash.IsGuild ? player.Connection.GuildStashTabsSent
@@ -204,20 +213,34 @@ public static partial class Game
     // C→S 0x02b0: withdraw earned currency from async-trade earnings into the player's main inventory.
     public static async Task TakeAsyncTradeEarnings(Player player, InstanceAsyncTrade.TakeEarningsRequest req)
     {
-        if (player.Closed || player.LeavingArea || player.Character.Ssf) return;
+        if (player.Closed || player.LeavingArea || player.Character.Ssf || !player.TradeStashOpen || player.PlayerLife == 0) return;
         var trade = TradeStashOf(player);
-        var balance = trade.TradeEarnings().FirstOrDefault(b => b.CurrencyTypeHash == req.CurrencyTypeHash);
-        uint take = Math.Min(req.Amount, balance.Amount);
-        if (take == 0 || ItemsFor(player).ByHash(req.CurrencyTypeHash) is not { } currencyType)
+        if (req.Amount == 0 || ItemsFor(player).ByHash(req.CurrencyTypeHash) is not { Supported: true } currencyType)
         {
             await Send(player, InstanceAsyncTrade.EncodeEarnings(trade.TradeEarnings()),
                 $"0x02ae async-trade earnings unchanged (req 0x{req.CurrencyTypeHash:x8} x{req.Amount})");
             return;
         }
-        int capped = (int)Math.Min(take, int.MaxValue);
         var items = ItemsOf(player);
-        var (placed, stacks) = ItemMoves.ReceiveCurrency(items, ItemCatalog.Create(currencyType), capped, ShapeOf,
-            amount => amount > 0 && trade.TryDebitTradeEarnings(req.CurrencyTypeHash, (uint)amount, out _));
+        bool hadBalance = false;
+        int placed = 0;
+        IReadOnlyList<PlayerInventories.Stacking> stacks = [];
+        IReadOnlyList<InstanceAsyncTrade.EarningBalance> after = [];
+        // Compute available balance, stack into inventory, and debit earnings inside one atomic DB transaction so
+        // concurrent 0x02b0 packets serialize cleanly without TOCTOU overdraw or partial mutation.
+        Saves.Atomically(() =>
+        {
+            var balance = trade.TradeEarnings().FirstOrDefault(b => b.CurrencyTypeHash == req.CurrencyTypeHash);
+            uint take = Math.Min(req.Amount, balance.Amount);
+            if (take > 0)
+            {
+                hadBalance = true;
+                int capped = (int)Math.Min(take, int.MaxValue);
+                (placed, stacks) = ItemMoves.ReceiveCurrency(items, ItemCatalog.Create(currencyType), capped, ShapeOf,
+                    amount => amount > 0 && trade.TryDebitTradeEarnings(req.CurrencyTypeHash, (uint)amount, out _));
+            }
+            after = trade.TradeEarnings();
+        });
         if (placed > 0)
         {
             foreach (var stack in stacks)
@@ -225,11 +248,11 @@ public static partial class Game
                     items.NextRevision(PlayerInventories.MainInventory), stack.RemovedIds, stack.AddedItems),
                     $"0x00bf async-trade earnings withdrawn: {placed} {currencyType.Name}");
         }
-        else
+        else if (hadBalance)
         {
             await Send(player, InstanceItems.InventoryFull(), "0x0117 inventory full taking async-trade earnings");
         }
-        await Send(player, InstanceAsyncTrade.EncodeEarnings(trade.TradeEarnings()),
+        await Send(player, InstanceAsyncTrade.EncodeEarnings(after),
             $"0x02ae async-trade earnings after taking {placed} {currencyType.Name}");
     }
 

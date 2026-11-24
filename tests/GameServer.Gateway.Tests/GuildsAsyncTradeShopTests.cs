@@ -52,7 +52,7 @@ public class GuildsAsyncTradeShopTests
     {
         string saves = Path.Combine(Path.GetTempPath(), $"localexile-guilds-{Guid.NewGuid():N}.db");
         Player? alpha = null, beta = null;
-        IDisposable? subKey = null, subPeers = null, subHo = null, subTag = null;
+        IDisposable? subKey = null, subPeers = null, subHo = null, subTag = null, subManage = null;
         try
         {
             Saves.Open(saves);
@@ -73,6 +73,7 @@ public class GuildsAsyncTradeShopTests
             subPeers = GameEvents.GuildPeers.Add("Social", GuildFeature.PeersOf);
             subHo = GameEvents.GuildHideoutHash.Add("Social", GuildFeature.HideoutHashOf);
             subTag = GameEvents.GuildTagQuery.Add("Social", GuildFeature.TagOf);
+            subManage = GameEvents.GuildCanManageStash.Add("Social", GuildFeature.CanManageStash);
 
             var layout = new AreaLayout(0x235c, "1_1_town", 300, 300, 100, 100, null, []);
             alpha = new Player(layout, 1, 1) { Instance = instance, Character = { Account = accA.Name, Name = "GuildAlpha", League = "Standard" } };
@@ -145,9 +146,13 @@ public class GuildsAsyncTradeShopTests
             Assert.Equal("Hello guild!", cr.WStr());
             Assert.Equal("DAWN", cr.WStr());
 
-            // 4. Guild stash tab reorder (C->S 0x00cc) broadcasts S->C 0x00cc to online guildmates.
+            // 4. Guild stash tab reorder (C->S 0x00cc): requires GuildStashOpen + Officer/Leader rank, broadcasts S->C 0x00cc.
             betaMsgs.Clear();
             byte[] reorderMsg = InstanceStash.EncodeReorderTabs(InstanceStash.Guild, [(1, 0), (0, 1)]);
+            alpha.GuildStashOpen = false;
+            await Game.OnClientMessages([(InstanceStash.ReorderTabsId, reorderMsg)], [], alpha);
+            Assert.Empty(WithId(betaMsgs, InstanceStash.ReorderTabsId));
+            alpha.GuildStashOpen = true;
             await Game.OnClientMessages([(InstanceStash.ReorderTabsId, reorderMsg)], [], alpha);
             var broadcast = Assert.Single(WithId(betaMsgs, InstanceStash.ReorderTabsId));
             Assert.Equal(reorderMsg, broadcast);
@@ -179,6 +184,7 @@ public class GuildsAsyncTradeShopTests
             subPeers?.Dispose();
             subHo?.Dispose();
             subTag?.Dispose();
+            subManage?.Dispose();
             foreach (var c in new[] { alpha, beta })
             {
                 if (c is null) continue;
@@ -305,6 +311,12 @@ public class GuildsAsyncTradeShopTests
             await LocalShopFeature.HandleBuy(player, new("MysteryPackSalvageBox", "", 1, 0));
             uint salvageBoxId = BinaryPrimitives.ReadUInt32BigEndian(
                 Assert.Single(WithId(SentSince(wire.Ciphers, ref cursor), InstanceMicrotransactions.RecordUpsertId)).AsSpan(9));
+
+            // Bogus / unowned consumed IDs are rejected with 0x0282 without minting rewards.
+            await LocalShopFeature.HandleOpenSalvageBox(player, new(salvageBoxId, [0x999999u]));
+            var bogusSent = SentSince(wire.Ciphers, ref cursor);
+            Assert.Single(WithId(bogusSent, InstanceShop.JsonErrorId));
+            Assert.Empty(WithId(bogusSent, InstanceMicrotransactions.RecordUpsertId));
 
             await LocalShopFeature.HandleOpenSalvageBox(player, new(salvageBoxId, [rewardId]));
             var salvageSent = SentSince(wire.Ciphers, ref cursor);

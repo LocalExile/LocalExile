@@ -16,6 +16,8 @@ public static class LocalShopFeature
     const string LocalGrantsKey = "cosmetics.local-grants.v1";
     const uint FirstLocalGrantId = 0x100000;
     const uint DefaultOfflinePoints = 10000;
+    const int MaxLocalGrants = 500;
+    const int MaxSalvageConsumed = 64;
 
     static readonly JsonSerializerOptions JsonOpts = new() { PropertyNameCaseInsensitive = true };
 
@@ -145,7 +147,14 @@ public static class LocalShopFeature
             return;
         }
 
-        var granted = AddLocalGrant(player, resolved);
+        if (!TryConsumeAndGrant(player, [], resolved, out var granted, out string? error) || granted is null)
+        {
+            await Send(player, InstanceShop.EncodeBuyResult(1, error ?? "Unable to grant microtransaction."),
+                $"0x012d local shop buy refused (\"{req.PackageId}\")");
+            await Send(player, InstanceShop.EncodeJsonErrorMessage(error ?? "Unable to grant microtransaction."),
+                "0x0282 local shop buy refused");
+            return;
+        }
         Console.WriteLine($"[gateway] {player.Connection.Remote} <= 0x012c local shop buy \"{req.PackageId}\": granted record {granted.Id} (0x{granted.MtxTypeHash:x8})");
         await Send(player, InstanceMicrotransactions.RecordUpsert(granted, isStore: false, isGuild: false, justReceived: true),
             $"0x0204 local shop granted record {granted.Id} (0x{granted.MtxTypeHash:x8})");
@@ -205,7 +214,13 @@ public static class LocalShopFeature
         }
 
         uint rewardHash = catalog.MysteryRewardPool[RandomNumberGenerator.GetInt32(catalog.MysteryRewardPool.Count)];
-        var reward = ConsumeAndGrant(player, found.Value.IsLocal ? [recordId] : [], rewardHash);
+        uint[] requiredLocal = found.Value.IsLocal ? [recordId] : [];
+        if (!TryConsumeAndGrant(player, requiredLocal, rewardHash, out var reward, out string? error) || reward is null)
+        {
+            await Send(player, InstanceShop.EncodeJsonErrorMessage(error ?? "That mystery box is no longer available."),
+                $"0x0282 mystery box open refused ({recordId})");
+            return;
+        }
         Console.WriteLine($"[gateway] {player.Connection.Remote} <= 0x0206 opened mystery box {recordId}: reward record {reward.Id} (0x{reward.MtxTypeHash:x8})");
         if (found.Value.IsLocal)
             await Send(player, InstanceMicrotransactions.RecordRemove(recordId), $"0x0205 consumed local mystery box {recordId}");
@@ -221,7 +236,7 @@ public static class LocalShopFeature
         var box = FindOwnedBox(player, req.BoxRecordId);
         var pool = catalog.SalvageOutcomePool.Count > 0 ? catalog.SalvageOutcomePool : catalog.MysteryRewardPool;
         if (box is null || !catalog.SalvageBoxHashes.Contains(box.Value.Record.MtxTypeHash)
-            || req.ConsumedRecordIds.Count == 0 || pool.Count == 0)
+            || req.ConsumedRecordIds.Count is 0 or > MaxSalvageConsumed || pool.Count == 0)
         {
             Console.WriteLine($"[gateway] {player.Connection.Remote} <= 0x026e open salvage box {req.BoxRecordId} ({req.ConsumedRecordIds.Count} item(s)): invalid");
             await Send(player, InstanceShop.EncodeJsonErrorMessage("Unable to salvage the selected microtransactions."),
@@ -229,14 +244,35 @@ public static class LocalShopFeature
             return;
         }
 
+        // Validate every sacrificed record: distinct, not the salvage box itself, and actually owned by the player.
+        var seenConsumed = new HashSet<uint>();
         var localIdsToRemove = new List<uint>();
         if (box.Value.IsLocal) localIdsToRemove.Add(req.BoxRecordId);
         foreach (uint consumedId in req.ConsumedRecordIds)
-            if (consumedId >= FirstLocalGrantId && !localIdsToRemove.Contains(consumedId))
-                localIdsToRemove.Add(consumedId);
+        {
+            if (consumedId == req.BoxRecordId || !seenConsumed.Add(consumedId))
+            {
+                await Send(player, InstanceShop.EncodeJsonErrorMessage("Duplicate or invalid microtransaction selected for salvage."),
+                    $"0x0282 invalid salvage consumed id {consumedId}");
+                return;
+            }
+            var ownedItem = FindOwnedBox(player, consumedId);
+            if (ownedItem is null)
+            {
+                await Send(player, InstanceShop.EncodeJsonErrorMessage("Selected microtransaction is not owned."),
+                    $"0x0282 unowned salvage consumed id {consumedId}");
+                return;
+            }
+            if (ownedItem.Value.IsLocal) localIdsToRemove.Add(consumedId);
+        }
 
         uint rewardHash = pool[RandomNumberGenerator.GetInt32(pool.Count)];
-        var reward = ConsumeAndGrant(player, localIdsToRemove, rewardHash);
+        if (!TryConsumeAndGrant(player, localIdsToRemove, rewardHash, out var reward, out string? error) || reward is null)
+        {
+            await Send(player, InstanceShop.EncodeJsonErrorMessage(error ?? "Selected microtransaction is no longer available."),
+                $"0x0282 salvage box atomic check failed ({req.BoxRecordId})");
+            return;
+        }
         Console.WriteLine($"[gateway] {player.Connection.Remote} <= 0x026e opened salvage box {req.BoxRecordId} ({req.ConsumedRecordIds.Count} sacrificed): reward record {reward.Id} (0x{reward.MtxTypeHash:x8})");
         foreach (uint removed in localIdsToRemove)
             await Send(player, InstanceMicrotransactions.RecordRemove(removed), $"0x0205 removed local salvaged record {removed}");
@@ -282,29 +318,52 @@ public static class LocalShopFeature
         return Mtx.Find(recordId) is { } rec ? (rec, false) : null;
     }
 
-    static InstanceMicrotransactions.Record AddLocalGrant(Player player, uint hash) =>
-        ConsumeAndGrant(player, [], hash);
-
-    static InstanceMicrotransactions.Record ConsumeAndGrant(Player player, IReadOnlyList<uint> removeIds, uint rewardHash)
+    static bool TryConsumeAndGrant(Player player, IReadOnlyList<uint> requiredLocalIds, uint rewardHash,
+        out InstanceMicrotransactions.Record? granted, out string? error)
     {
-        uint newId = FirstLocalGrantId;
-        if (Saves.IsOpen)
+        granted = null;
+        error = null;
+        if (!Saves.IsOpen)
         {
-            var stash = global::Game.PersonalStashOf(player);
-            stash.ChangeModuleData(LocalGrantsKey, text =>
-            {
-                var save = Deserialize(text);
-                if (removeIds.Count > 0)
-                {
-                    var removeSet = removeIds.ToHashSet();
-                    save.Grants.RemoveAll(g => removeSet.Contains(g.Id));
-                }
-                newId = Math.Max(FirstLocalGrantId, save.NextId);
-                var next = new LocalGrantSave(newId + 1, [.. save.Grants, new LocalGrant(newId, rewardHash)]);
-                return JsonSerializer.Serialize(next, JsonOpts);
-            });
+            error = "Local microtransaction storage is unavailable.";
+            return false;
         }
-        return new InstanceMicrotransactions.Record(rewardHash, newId);
+        uint newId = FirstLocalGrantId;
+        string? failure = null;
+        var stash = global::Game.PersonalStashOf(player);
+        bool changed = stash.ChangeModuleData(LocalGrantsKey, text =>
+        {
+            var save = Deserialize(text);
+            if (requiredLocalIds.Count > 0)
+            {
+                var present = save.Grants.Select(g => g.Id).ToHashSet();
+                foreach (uint reqId in requiredLocalIds)
+                {
+                    if (!present.Contains(reqId))
+                    {
+                        failure = "Selected microtransaction record is no longer available.";
+                        return null;
+                    }
+                }
+                var removeSet = requiredLocalIds.ToHashSet();
+                save.Grants.RemoveAll(g => removeSet.Contains(g.Id));
+            }
+            if (save.Grants.Count >= MaxLocalGrants)
+            {
+                failure = $"Local microtransaction grant limit ({MaxLocalGrants}) reached.";
+                return null;
+            }
+            newId = Math.Max(FirstLocalGrantId, save.NextId);
+            var next = new LocalGrantSave(newId + 1, [.. save.Grants, new LocalGrant(newId, rewardHash)]);
+            return JsonSerializer.Serialize(next, JsonOpts);
+        });
+        if (!changed)
+        {
+            error = failure ?? "Unable to update local microtransaction records.";
+            return false;
+        }
+        granted = new InstanceMicrotransactions.Record(rewardHash, newId);
+        return true;
     }
 
     static LocalGrantSave ReadSave(AccountStash stash) => Deserialize(stash.ModuleData(LocalGrantsKey));
