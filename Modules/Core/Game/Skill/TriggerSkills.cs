@@ -59,6 +59,9 @@ public static partial class Game
             return "Spirit Burst triggers on skill use while a Spirit Charge is held";
         if (gem.Effect >= 0 && IsRelicSkill(Skills.EffectId(gem.Effect) ?? ""))
             return "Summon Elemental Relic triggers automatically; manual use is unavailable";
+        if (ItemEffectRules.Enabled && gem.Supports.Any(s => s.Effect.Added.Contains(36)
+            && ItemEffectRules.Current.TriggersOnBlock(s.Stats)))
+            return "this socketed spell triggers when you block";
         if (GolemStat(gem.Stats, Stat.SpellUncastableIfTriggerable) != 0
             || gem.Supports.Any(s => s.Effect.Added.Contains(36)))
             return "this trigger has no server executor; manual use is unavailable";

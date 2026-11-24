@@ -8,6 +8,7 @@ sealed class ItemEffectRules
     sealed record OnslaughtRule(uint Stat, bool Roll, int Milliseconds, uint? DurationStat);
     readonly List<OnslaughtRule> onKill = [];
     readonly List<MarkRule> onHit = [];
+    readonly HashSet<uint> blockSupportStats = [];
     readonly ConcurrentDictionary<(SkillCatalog Skills, int Effect, int Level), MarkRule[]> grantedMarks = new();
     internal readonly bool NeedsRareHit;
 
@@ -37,12 +38,19 @@ sealed class ItemEffectRules
                 case ("hit", "cast_granted_mark"):
                     onHit.Add(new(stat, (long)row["rare_or_unique"]! != 0, (long)row["requires_no_mark"]! != 0));
                     break;
+                case ("block", "cast_supported_socketed_spell"):
+                    blockSupportStats.Add(stat);
+                    break;
                 default:
                     throw new InvalidDataException($"Unknown item effect rule {row["id"]}");
             }
         }
         NeedsRareHit = onHit.All(rule => rule.RareOrUnique);
     }
+
+    internal bool HasBlockRules => blockSupportStats.Count != 0;
+    internal bool TriggersOnBlock(IReadOnlyList<(uint Key, int Value)> stats) =>
+        stats.Any(s => s.Value != 0 && blockSupportStats.Contains(s.Key));
 
     internal IReadOnlyList<(int Chance, double Seconds)> OnslaughtRolls(Func<uint, int> get)
     {
