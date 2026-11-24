@@ -102,15 +102,18 @@ public static partial class Game
     static void AddWarcryStats(Player player, Dictionary<uint, int> stats)
     {
         if (player.PlayerLife == 0) return;
+        WarningCallGrants.TryGetValue(player, out var warning);
+        WarcryGrants.TryGetValue(player, out var grants);
+        if (warning is null && grants is null) return;
         var area = player.Area;
         double now = AreaTime(player);
-        if (WarningCallGrants.TryGetValue(player, out var warning) && warning.Area == area && warning.Until > now)
+        if (warning is not null && warning.Area == area && warning.Until > now)
         {
             uint key = Stat.PhysicalDamageReductionRatingPlusPct;
             stats[key] = ActorScale.Add(key, stats.GetValueOrDefault(key), warning.Armour);
             StatsChangeIn(warning.Until - now);
         }
-        if (!WarcryGrants.TryGetValue(player, out var grants)) return;
+        if (grants is null) return;
         AddWarcryStats(grants, area, now, stats);
         foreach (var grant in grants)
             if (grant.Row == VengefulCryBuffRow && grant.Area == area && grant.Until > now)
@@ -165,11 +168,14 @@ public static partial class Game
 
     internal static void ExpireWarcryBuffs(Player player)
     {
+        WarningCallGrants.TryGetValue(player, out var warning);
+        WarcryGrants.TryGetValue(player, out var grants);
+        if (warning is null && grants is null) return;
         double now = AreaTime(player);
-        bool changed = WarningCallGrants.TryGetValue(player, out var warning)
+        bool changed = warning is not null
             && (warning.Until <= now || warning.Area != player.Area || player.PlayerLife == 0)
             && WarningCallGrants.Remove(player);
-        if (!WarcryGrants.TryGetValue(player, out var grants))
+        if (grants is null)
         {
             if (changed) UpdateWarcryStats(player);
             return;
