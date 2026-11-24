@@ -42,31 +42,48 @@ public sealed partial class ProjectileRuntime(IProjectileWorld world)
         int returnRoll = new Random(unchecked(use.Seed * 397 ^ (int)useId ^ 0x3172c85d)).Next(100);
         var unresolved = use.Profile;
         use = use with { Profile = ResolveReturn(use.Profile, returnRoll) };
+        if (use.Profile.LaunchArea is { } area && use.CanEmit?.Invoke() != false)
+        {
+            var direction = (use.Aim - use.Origin).Unit;
+            Area(new ProjectileEntity(++sequence, useId, ++sequence, 0, use, use.Origin, direction, Now), area);
+        }
         var random = use.Profile.RandomSpread ? new Random(unchecked(use.Seed * 397 ^ (int)useId)) : null;
         int count = use.Profile.Count;
         double spread = use.Profile.SpreadRadians;
         if (spread is > 0 and < Math.PI && use.Profile.AimSpreadDistance > 0)
             spread = 2 * Math.Atan(Math.Tan(spread / 2) * use.Profile.AimSpreadDistance
                 / Math.Max(.001, (use.Aim - use.Origin).Length));
+        var ray = use.Aim - use.Origin;
+        var forward = ray.Unit;
+        var parallel = use.Profile.ParallelOrigins;
+        var layout = parallel?.Distribution(count);
         bool sharedSeries = use.Profile.SequentialDelay > 0 && use.Profile.ShareSequentialHits && count > 1;
         if (sharedSeries) pendingEmissions.Add(emission);
         for (int i = 0; i < count; i++)
         {
-            double angle = use.Profile.NativeVolley is { } volley ? volley.Angle(i, count, (use.Aim - use.Origin).Length)
-                : random is not null ? spread * (random.NextDouble() - .5) : count <= 1 ? 0 : spread *
-                (i / (double)((use.Profile.CircularSpread ?? spread >= Math.Tau) ? count : count - 1) - .5);
-            var direction = (use.Aim - use.Origin).Unit.Rotate(angle);
+            var (point, slot, groupCount) = layout?[i] ?? (0, i, count);
+            double angle = use.Profile.NativeVolley is { } volley ? volley.Angle(slot, groupCount, ray.Length)
+                : random is not null ? spread * (random.NextDouble() - .5) : groupCount <= 1 ? 0 : spread *
+                (slot / (double)((use.Profile.CircularSpread ?? spread >= Math.Tau) ? groupCount : groupCount - 1) - .5);
+            var direction = forward.Rotate(angle);
             long group = use.Profile.SequentialDelay > 0 && !use.Profile.ShareSequentialHits && i > 0 ? ++sequence : emission;
             var projectileUse = use.ProjectilePayloads is { } snapshots
                 ? use with { Payload = snapshots[i], ProjectilePayloads = null } : use;
+            var origin = use.Origin;
+            if (point != 0 && parallel is not null)
+            {
+                origin += new ProjectileVector(forward.Y, -forward.X) * (point * parallel.Lateral)
+                    + forward * (Math.Abs(point) * parallel.Forward);
+                projectileUse = projectileUse with { Origin = origin, Aim = origin + ray };
+            }
             if (unresolved.ReturnRolls is { } rolls)
                 projectileUse = projectileUse with { Profile = ResolveReturn(unresolved, rolls[i]) };
             if (use.ProjectileTargets is { } destinations)
             {
                 var target = destinations[i];
-                direction = (target - use.Origin).Unit;
+                direction = (target - origin).Unit;
                 projectileUse = projectileUse with { Aim = target, ProjectileTargets = null,
-                    Profile = projectileUse.Profile with { Range = Math.Max(.001, (target - use.Origin).Length) } };
+                    Profile = projectileUse.Profile with { Range = Math.Max(.001, (target - origin).Length) } };
             }
             if (use.ProjectileSpeeds is { } projectileSpeeds)
                 projectileUse = projectileUse with { ProjectileSpeeds = null,
@@ -75,8 +92,8 @@ public sealed partial class ProjectileRuntime(IProjectileWorld world)
             void Emit()
             {
                 if (sharedSeries && index == count - 1) pendingEmissions.Remove(emission);
-                if (use.CanEmit?.Invoke() != false)
-                    Spawn(projectileUse, useId, group, 0, use.Origin, direction, index: index);
+                if (use.CanEmit?.Invoke() != false && (point == 0 || world.TraceTerrain(use.Origin, origin) is null))
+                    Spawn(projectileUse, useId, group, 0, origin, direction, index: index);
             }
             if (use.Profile.SequentialDelay > 0 && i > 0) Schedule(Now + i * use.Profile.SequentialDelay, Emit);
             else Emit();
@@ -86,15 +103,17 @@ public sealed partial class ProjectileRuntime(IProjectileWorld world)
 
     static void Validate(ProjectileProfile p)
     {
-        if (p.Count is < 1 or > 256 || !double.IsFinite(p.Speed) || p.Speed <= 0
+        if (p.Count is < 0 or > 256 || p.Count == 0 && p.LaunchArea is null || !double.IsFinite(p.Speed) || p.Speed <= 0
             || !double.IsFinite(p.Range) || p.Range <= 0 || !double.IsFinite(p.Radius) || p.Radius < 0
             || p.Lifetime <= 0 || p.SequentialDelay < 0 || p.ReturnChancePercent is < 0 or > 100
             || p.ReturnRolls is { } rolls && rolls.Count < p.Count
             || !double.IsFinite(p.ReturnSpeedMultiplier) || p.ReturnSpeedMultiplier <= 0
             || !double.IsFinite(p.ReturnOvershoot) || p.ReturnOvershoot < 0 || p.ReturnHitLimit < 0 || p.OutboundHitLimit < 0)
             throw new ArgumentOutOfRangeException(nameof(p));
-        foreach (var area in new[] { p.ContactArea, p.EndArea })
-            if (area is { Delay: < 0 } or { Interval: < 0 }) throw new ArgumentOutOfRangeException(nameof(p));
+        foreach (var area in new[] { p.LaunchArea, p.ContactArea, p.EndArea })
+            if (area is { Delay: < 0 } or { Interval: < 0 } or { ConeHalfAngle: < 0 or > Math.PI }
+                || area is not null && !double.IsFinite(area.ConeHalfAngle))
+                throw new ArgumentOutOfRangeException(nameof(p));
     }
 
     static ProjectileProfile ResolveReturn(ProjectileProfile profile, int roll) => profile with
@@ -110,7 +129,7 @@ public sealed partial class ProjectileRuntime(IProjectileWorld world)
         int index = 0)
     {
         var p = new ProjectileEntity(++sequence, useId, emission, parent, use, position, direction, Now)
-            { VolleyIndex = index };
+            { VolleyIndex = index, HasSplit = split || continuing?.HasSplit == true };
         projectiles.Add(p.Id, p);
         if (continuing is { } previous)
         {
@@ -270,7 +289,8 @@ public sealed partial class ProjectileRuntime(IProjectileWorld world)
             }
         int? contactLimit = p.Phase == 0 ? p.Profile.OutboundHitLimit : p.Profile.ReturnHitLimit;
         int contacts = p.Phase == 0 ? p.OutboundContacts : p.ReturnContacts;
-        if (!p.Profile.DirectDamage || p.Profile.Lobbed || contactLimit is int limit && contacts >= limit) return best;
+        if (!p.Profile.DirectDamage || p.Profile.Lobbed && !p.Profile.LobbedEnemyContacts
+            || contactLimit is int limit && contacts >= limit) return best;
         var directRule = DirectHitRule(p);
         bool skipDenied = p.Phase == 0 ? p.Profile.SkipDeniedContacts || p.Profile.OutboundHitLimit is not null
             : p.Profile.SkipDeniedReturnContacts || p.Profile.ReturnHitLimit is not null;
@@ -382,7 +402,10 @@ public sealed partial class ProjectileRuntime(IProjectileWorld world)
             p.Contacts.Add(target.Key);
             if (p.Phase > 0) p.ReturnContacts++;
             else p.OutboundContacts++;
-            var terminal = p.Profile.EndArea is { } endArea && AllowsEndArea(p, ProjectileEndReason.Enemy)
+            int splitBonus = p.Profile is { DirectDamage: true, CannotSplit: false } && !p.HasSplit
+                ? Math.Clamp(p.Use.TargetSplit?.Invoke(target.Key, Now) ?? 0, 0, 256) : 0;
+            var terminal = p.Profile.EndArea is { ReplacesDirectContact: true } endArea
+                && AllowsEndArea(p, ProjectileEndReason.Enemy) && splitBonus == 0
                 && !CanContinue(p, actors) && ReturnAnchor(p, ProjectileEndReason.Enemy) is null ? endArea : null;
             var result = Damage(p, target, terminal?.Stage ?? "direct", multiplier: terminal?.Multiplier ?? 1,
                 admissionStage: "direct", isArea: terminal is not null);
@@ -391,8 +414,14 @@ public sealed partial class ProjectileRuntime(IProjectileWorld world)
                 Area(p, area, area.ExcludeContactTarget ? target.Key : null);
             if (result == ProjectileHitResult.Hit && p.Profile.ContactTargets is { } strikes)
                 TargetedHits(p, target, strikes);
-            bool needsNearby = (!p.Profile.CannotSplit && p.Split > 0) || (!p.Profile.CannotChain && p.Chain > 0);
-            if (Continue(p, target, needsNearby ? world.Actors(Now, Now) : [])) return;
+            if (result != ProjectileHitResult.Hit) splitBonus = 0;
+            bool needsNearby = (!p.Profile.CannotSplit && (p.Split > 0 || splitBonus > 0)) || (!p.Profile.CannotChain && p.Chain > 0);
+            if (Continue(p, needsNearby ? world.Actors(Now, Now) : [], splitBonus))
+            {
+                if (p.Profile.EndEmission is { EmitOnContinueContact: true } emission)
+                    EmitAfterEnd(p, emission, emission.ExcludeImpactTarget ? target.Key : null);
+                return;
+            }
             End(p, ProjectileEndReason.Enemy, victim: target.Key, hitTarget: result == ProjectileHitResult.Hit ? target.Key : null);
         }
         else if (c.End == ProjectileEndReason.Terrain && p.Legs is { } blockedLegs && p.Phase == 0
@@ -416,7 +445,7 @@ public sealed partial class ProjectileRuntime(IProjectileWorld world)
             if (p.Profile.SplitOnTerrain && !p.Profile.CannotSplit && p.Split > 0)
             {
                 p.Position += c.Normal * .001; // Children start on the incident side of the blocking surface.
-                if (Split(p, actors, c.Normal)) return;
+                if (Split(p, actors, p.Split, fill: true, terrainNormal: c.Normal)) return;
             }
             // "chance to be able to Chain when colliding with terrain": the Chain off the wall needs and spends one of the
             // projectile's remaining chains, and its target must be in sight of the point hit (as a terrain split's). Every
@@ -507,12 +536,13 @@ public sealed partial class ProjectileRuntime(IProjectileWorld world)
     static ProjectileHitRule DirectHitRule(ProjectileEntity p) =>
         p.Phase > 0 ? p.Profile.ReturnHitRule ?? p.Profile.HitRule : p.Profile.HitRule;
 
-    bool Continue(ProjectileEntity p, ProjectileActor target, IReadOnlyList<ProjectileActor> actors)
+    bool Continue(ProjectileEntity p, IReadOnlyList<ProjectileActor> actors, int splitBonus)
     {
         var profile = p.Profile;
         // Explicit contact budgets limit actor attempts, never the remaining flight.
         if (p.Phase == 0 && profile.OutboundHitLimit is not null) return true;
-        if (p.Split > 0 && !profile.CannotSplit && Split(p, actors)) return true;
+        int split = p.Split + Math.Min(splitBonus, Math.Max(0, 256 - p.Split));
+        if (split > 0 && !profile.CannotSplit && Split(p, actors, split, profile.SplitWithoutTargets || splitBonus > 0)) return true;
         if (p.Phase == 0 && p.Legs is { TurnsOnEnemy: true } legs && legs.NextTurn(p.Position, blocked: false) is { } turn)
         {
             ApplyLegTurn(p, turn);
@@ -547,19 +577,19 @@ public sealed partial class ProjectileRuntime(IProjectileWorld world)
             && (a.Position(Now) - p.Position).Length <= p.Profile.ChainRange)
         .OrderBy(a => (a.Position(Now) - p.Position).Length).ThenBy(a => a.Key.Id).ThenBy(a => a.Key.Generation);
 
-    bool Split(ProjectileEntity p, IReadOnlyList<ProjectileActor> actors, ProjectileVector? terrainNormal = null)
+    bool Split(ProjectileEntity p, IReadOnlyList<ProjectileActor> actors, int count, bool fill, ProjectileVector? terrainNormal = null)
     {
         var targets = Nearby(p, actors)
             .Where(a => terrainNormal is null || world.TraceTerrain(p.Position, a.Position(Now)) is null)
-            .Take(p.Split).ToArray();
-        if (targets.Length == 0 && terrainNormal is null && !p.Profile.SplitWithoutTargets) return false;
+            .Take(count).ToArray();
+        if (targets.Length == 0 && !fill) return false;
         foreach (var other in targets)
             Spawn(p.Use, p.UseId, p.EmissionId, p.Id, p.Position, (other.Position(Now) - p.Position).Unit,
                 continuing: p, split: true);
-        if (terrainNormal is not null || p.Profile.SplitWithoutTargets)
+        if (fill)
             // LocalExile provisional geometry for unclaimed slots: seeded azimuths after enemy hits,
             // incident hemisphere after terrain hits. The split count does not depend on this geometry.
-            for (int i = targets.Length; i < p.Split; i++)
+            for (int i = targets.Length; i < count; i++)
                 Spawn(p.Use, p.UseId, p.EmissionId, p.Id, p.Position,
                     terrainNormal is { } normal ? normal.Unit.Rotate((p.Random.NextDouble() - .5) * Math.PI)
                         : p.Direction.Rotate(p.Random.NextDouble() * Math.Tau), continuing: p, split: true);
@@ -592,11 +622,8 @@ public sealed partial class ProjectileRuntime(IProjectileWorld world)
             or ProjectileEndReason.Lifetime or ProjectileEndReason.Landing or ProjectileEndReason.Returned)
         {
             if (AllowsEndArea(p, reason) && p.Profile.EndArea is { } area) Area(p, area, victim);
-            if (p.Profile.EndEmission is { } emission)
-            {
-                if (emission.Delay > 0) Schedule(Now + emission.Delay, () => EmitChildren(p, emission));
-                else EmitChildren(p, emission);
-            }
+            if (p.Profile.EndEmission is { } emission && emission.EndReasons?.Contains(reason) != false)
+                EmitAfterEnd(p, emission, emission.ExcludeImpactTarget ? victim : null);
         }
         if (reason == ProjectileEndReason.Landing && p.GroundChains > 0)
         {

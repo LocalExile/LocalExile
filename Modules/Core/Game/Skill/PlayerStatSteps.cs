@@ -12,7 +12,7 @@ using GameServer.Core.World;
 public enum PlayerStatStep : byte
 {
     Sources, Siphoning, SpiritCharges, CryMovement, Golems, Offerings, PanelDefaults, God, Auras, AuraPenetration, CatAspect,
-    AvianCrab, Subscribers, ClassAttributes, OvercapCrit, AttackSpeed, UtilityFlasks, SelfVulnerability,
+    AvianCrab, Subscribers, ClassAttributes, OvercapCrit, BlockDamage, AttackSpeed, UtilityFlasks, SelfVulnerability,
     Onslaught, VaalPrevention, VaalAura, SpiritLeadership, TotemAura, Rage, Blind, UsingFlask, SoulEater, MaximumPoolItems,
     ActorScale, Recovery, TimedRecovery, TailPanels, Rampage, TailOffence, TailCritical, LeechingDefences, AuraRestriction, AlwaysHit, RecentHits, Ward, Resonance,
 }
@@ -79,10 +79,7 @@ public static partial class Game
             var sources = CharacterStatSources(player, nodes).Stats;
             outputs.Sources = sources;
             foreach (var (k, v) in sources) stats[k] = v;
-            // Only the general increased/reduced minion stats transfer. Equivalent damage rules use the highest share.
-            int minionDamageShare = Math.Max(sources.GetValueOrDefault(Stat.AdditiveMinionDamageModifiersApplyToYouAtPctValue),
-                sources.GetValueOrDefault(Stat.AdditiveMinionDamageModifiersApplyToYouAt150PctValue) != 0 ? 150
-                : sources.GetValueOrDefault(Stat.MinionDamageIncreasesAndReductionsAlsoAffectsYou) != 0 ? 100 : 0);
+            int minionDamageShare = PlayerMinionDamageShare(sources);
             if (minionDamageShare > 0)
                 AddTo(stats, Stat.DamagePlusPct, (long)sources.GetValueOrDefault(Stat.MinionDamagePlusPct) * minionDamageShare / 100);
             if (MapModsOf(player) is { } map)
@@ -99,6 +96,8 @@ public static partial class Game
             if (player.RecentEvents.NextExpiry(now) is double expiry) StatsChangeIn(expiry - now);
             if (player.ElementalAilments.NextChangeAt(now) is double ailment) StatsChangeIn(ailment - now);
             if (player.IncomingAilments.NextChangeAt(now) is double incoming) StatsChangeIn(incoming - now);
+            if (player.UtilityFlaskEffects.NextExpiry(now) is double utilityFlask) StatsChangeIn(utilityFlask - now);
+            if (player.FlaskEffects.NextExpiry(now) is double recoveryFlask) StatsChangeIn(recoveryFlask - now);
             MarkLaterStep(player, PlayerStatStep.Onslaught);
         });
         Step(PlayerStatStep.Siphoning, (player, stats, _) =>
@@ -114,8 +113,9 @@ public static partial class Game
         });
         Step(PlayerStatStep.Golems, (player, stats, _) => AddGolemStats(player, stats));
         Step(PlayerStatStep.Offerings, (player, stats, _) => AddSelfOfferingStats(player, stats));
-        Step(PlayerStatStep.PanelDefaults, (_, stats, _) =>
+        Step(PlayerStatStep.PanelDefaults, (player, stats, _) =>
         {
+            ApplyConvergenceStats(player, stats);
             foreach (var (stat, value) in PanelStatDefaults.Compute(name => GetIn(stats, name)))
                 if (stat is var key) stats[key] = value;
         });
@@ -132,9 +132,26 @@ public static partial class Game
             if (OwnEternalBlessingActive(player)) stats[Stat.NonBlessingSkillsWithManaReservationAreDisabled] = 1;
             // "X% increased Effect of Herald Buffs on you" (passives, gear and tattoos) scales the heralds' buff stats.
             int heraldEffectPct = GetIn(stats, Stat.HeraldEffectOnSelfPlusPct);
+            var minionAuras = SelectMinionAuras(player, player.Id, auras, player.Pools.AuraEffectPct);
             foreach (var (k, v) in AuraCatalog.RawStats(auras.Where(a => a.AffectsSelf), player.Pools.AuraEffectPct, SkillsFor(player), Stats,
-                         heraldEffectPct).Concat(MinionAuraStats(player, auras)).ToList())
+                         heraldEffectPct).Concat(minionAuras.SelectMany(a => a.Stats)).ToList())
                 AddTo(stats, k, v);
+            // "Auras from your Skills grant #% increased Damage to you and Allies": once for each of the player's own Aura
+            // skills affecting them, scaled by that aura's effect as its other stats are.
+            // shortcut: allies and minions do not get it yet.
+            if (GetIn(stats, Stat.AurasGrantDamagePlusPctToYouAndYourAllies) is int perAura and not 0)
+            {
+                var skills = SkillsFor(player);
+                long auraDamage = 0;
+                for (int i = 0; i < auras.Count; i++)
+                {
+                    var aura = auras[i];
+                    if (aura.AffectsSelf && aura.ExternalEffectPct is null && skills.IsAura(aura.Effect))
+                        auraDamage += (long)Math.Round(perAura * Math.Max(0, 100 + player.Pools.AuraEffectPct + aura.SupportEffectPct) / 100.0,
+                            MidpointRounding.AwayFromZero);
+                }
+                if (auraDamage != 0) AddTo(stats, Stat.DamagePlusPct, auraDamage);
+            }
         });
         Step(PlayerStatStep.AuraPenetration, (player, stats, _) =>
         {
@@ -181,6 +198,13 @@ public static partial class Game
         {
             if (player.Pools.LightningOvercapCritPct is int overCrit and not 0 && Stat.CriticalStrikeChancePlusPct is var critInc)
                 stats[critInc] = (int)Math.Clamp((long)stats.GetValueOrDefault(critInc) + overCrit, int.MinValue, int.MaxValue);
+        });
+        // "#% increased Damage per 1% Chance to Block Attack Damage": the capped attack block chance in Pools.
+        Step(PlayerStatStep.BlockDamage, (player, stats, _) =>
+        {
+            if (GetIn(stats, Stat.DamagePlusPctPer1PctBlockChance) is int perBlock and not 0)
+                AddTo(stats, Stat.DamagePlusPct,
+                    (long)perBlock * Math.Clamp(player.Pools.BlockChance, 0, player.Pools.BlockChanceMax));
         });
         // The passives' conditional attack speed is already one final value in Pools. main_hand_attack_speed_+% is the
         // total the client swings with, so Unarmed reads only it.
@@ -250,7 +274,7 @@ public static partial class Game
                 stats[turtle] = (int)Math.Clamp(stats.GetValueOrDefault(turtle)
                     + (player.Antiquarian.RecoveryPerSecond(now) + player.EnduringCryRecovery.Rate(now)) * 60, 0, int.MaxValue);
             var session = FortificationOf(player);
-            var value = session.Read(now);
+            var value = EvaluateFortificationLocked(player, now, stats).Value;
             if (value.NextExpiry is double expires) StatsChangeIn(expires - now);
             AddFortificationCounts(stats, value);
             if (FortificationSession.Regeneration is var regen)

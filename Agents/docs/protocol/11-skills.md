@@ -2790,6 +2790,18 @@ Actor update flag `0x0100` (`0x142199c20`) reads a u16 count followed by `(u32 o
 A zero source removes the id; other entries append, so a changed entry needs removal before addition.
 The native vector at Actor `+0x740` uses twelve-byte entries after widening MinionType.
 `MinionType` rows 1/2/3/4 describe normal/magic/rare/ascended Dominance; 50/51 are ordinary/ascended Absolution.
+`MinionType` row 78 is the Holy Armament. Its body's native `HolyStrikeMinionAttack` reads the main-hand weapon copy.
+
+`ItemisedCorpse` maps the inventory base to its body. The placed corpse carries `is_spectre_corpse`, which the
+client's Life predicate checks alongside the consuming skill context. `SpectreOverrides` maps ordinary corpse
+rows to their raised counterparts. The three Marionette bodies share `AzmeriMannequinReviveAfterTime` with a
+4,000 ms delay.
+
+Phantasmal Might uses BuffDefinitions row 1472 with the spell physical minimum and maximum. The two values per
+Phantasm come from its source's per-level stats.
+
+Spectral Spirits use the `SpectralSummonedSkull` body while the Essence of Insanity grant is active. Soulwrest's
+`TriggeredSummonGhostOnKill` row names a corpse-consumption trigger in its stats and supplies the Phantasm lifetime.
 
 UpgradeMinion's availability check (`0x1412ea7d0`) requires a matching ownership entry.
 It maps a skill id to `0xc000 | (id & 0x3fff)`, or `0x8000 | (id & 0x3fff)` for an id already tagged `0xc000`.

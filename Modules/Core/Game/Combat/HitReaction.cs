@@ -12,6 +12,7 @@ public readonly record struct StunHit(double Damage, int ThresholdReductionPct =
 {
     public int DoubleDurationChance { get; init; }
     public int FinalDurationPct { get; init; }
+    public Action? OnStun { get; init; }
 }
 
 /// <summary>
@@ -54,8 +55,11 @@ public static class HitReaction
     public static bool TryFlinch(SpawnedMonster m, StunHit hit, double now, Random random)
     {
         if (m.Life == 0 || m.Dead || m.Invulnerable || m.HitAnimations is not { Count: > 0 }) return false;
-        if (m.CannotBeStunned || m.Mods.Effects.CannotBeStunned || m.Effects.CannotBeStunned || now < m.StunImmuneUntil) return false;   // Unwavering / MonsterImplicitCannotBeStunned1
-        if (random.NextDouble() * 100 >= Chance(hit, m.MaxLife * Math.Max(.01, 1 + m.Mods.Effects[Stat.StunThresholdPlusPct] / 100d))) return false;
+        if (m.CannotBeStunned || m.Effects.CannotBeStunned || now < m.StunImmuneUntil) return false;
+        double threshold = m.MaxLife * Math.Max(.01, 1 + m.Effects[Stat.StunThresholdPlusPct] / 100d);
+        if (random.NextDouble() * 100 >= Chance(hit, threshold)) return false;
+        hit.OnStun?.Invoke();
+        hit.OnStun?.Invoke();
         if (hit.Owner is { } owner)
         {
             Func<uint, int>? own = hit.Skill is { } skill ? key => skill.GetValueOrDefault(key) : null;
@@ -65,7 +69,12 @@ public static class HitReaction
         // already Fortify it rolls the chance once and grants the hit's damage-based stacks. A stun during a running
         // recovery counts too, before the recovery shortcut below.
         if (hit.Melee && !hit.Fortified && hit.FortificationDamage > 0 && hit.Owner is { } fortifier)
+        {
+            long revBefore = Game.FortificationOf(fortifier).Revision;
             Game.FortificationFromMeleeStun(fortifier, hit.FortificationDamage, m.MaxLife, m.Rarity, random);
+            if (Game.FortificationOf(fortifier).Revision != revBefore)
+                Game.AfterFortificationGainLocked(fortifier);
+        }
         double seconds = Seconds(hit, m);
         if (RandomRolls.Chance(hit.DoubleDurationChance, 100, random)) seconds *= 2;
         double nextUntil = now + seconds;

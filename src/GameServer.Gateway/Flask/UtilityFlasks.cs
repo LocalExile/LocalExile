@@ -532,9 +532,12 @@ public static class UtilityFlasks
 
         /// <summary>The running effects' sources, unreduced: callers that also have other sources of the same effects
         /// (Mageblood's permanent ones) combine them before one strongest-per-(effect, stat) pass.</summary>
-        public IReadOnlyList<Source> Sources()
+        public IReadOnlyList<Source> Sources() => Sources(null);
+
+        public IReadOnlyList<Source> Sources(double? at)
         {
-            lock (_lock) return [.. _active.SelectMany(a => a.Stats)];
+            lock (_lock) return [.. _active.Where(a => at is not double now || a.Started <= now && now < a.Ends)
+                .SelectMany(a => a.Stats)];
         }
 
         /// <summary>The strongest positive value of one stat without allocating a source snapshot.</summary>
@@ -565,6 +568,17 @@ public static class UtilityFlasks
         public bool ActiveAt(double now)
         {
             lock (_lock) return _active.Any(a => a.Started <= now && now < a.Ends);
+        }
+
+        public double? NextExpiry(double now)
+        {
+            lock (_lock)
+            {
+                double next = double.PositiveInfinity;
+                foreach (var a in _active)
+                    if (a.Ends > now) next = Math.Min(next, a.Ends);
+                return double.IsFinite(next) ? next : null;
+            }
         }
     }
 

@@ -122,7 +122,8 @@ Part of [Status](../Status.md); what to build next in this area is in
   supports' more or less area, Duration masteries and warcry and Vaal duration (not checked live).
   Docs: [11](../docs/protocol/11-skills.md) Â§12.
 - Lifetap Support and Blood Magic publish converted wire `life_cost` / `life_cost_per_minute` (zeroing wire mana cost)
-  so the client spends Life only. Docs: [25](../docs/protocol/25-gem-supports.md).
+  so the client spends Life only; Blood Magic also removes all Mana, gives 10% more maximum Life and reserves Life
+  instead of Mana. Docs: [25](../docs/protocol/25-gem-supports.md).
 - Movement, travel and stance skill cooldowns read their recovery stats. Spell and curse costs read their efficiency.
   Mark waivers, Cannibalistic Rite, the Covenant and Rathpith Globe use the server's resource admission.
 - Energy Shield skill costs (Energy Blade, Wild Strike of Extremes, Replica Covenant) and Eldritch Battery: costs paid
@@ -200,7 +201,13 @@ Part of [Status](../Status.md); what to build next in this area is in
 - Approaching Flames from Annihilation's Approach toggles Flame-Touched, its Adrenaline and its fire damage.
 - Owned minions: relics, chieftains and the 17 golems. Docs: [11](../docs/protocol/11-skills.md) §10h.
   Mindless Aggression and minion area mastery scale minions. Fresh Meat grants timed Adrenaline and Wakened Fury.
-- Raised Host and Carnage Chieftains grant Power and Frenzy Charges with their native roars. Spectre charge visuals still need live verification.
+- Spectre roars grant native charges ([minions](../docs/protocol/11-skills.md#10h-player-minions-that-fight)).
+- Itemised corpses raise native spectres ([minions](../docs/protocol/11-skills.md#10h-player-minions-that-fight)).
+- Wraithlord counts socketed Ghastly Eyes ([minions](../docs/protocol/11-skills.md#10h-player-minions-that-fight)).
+- Holy Strike summons weapon copies ([minions](../docs/protocol/11-skills.md#10h-player-minions-that-fight)).
+- Holy Relic nova reaches allies ([minions](../docs/protocol/11-skills.md#10h-player-minions-that-fight)).
+- Phantasmal Might follows active Phantasms ([minions](../docs/protocol/11-skills.md#10h-player-minions-that-fight)).
+- Equipped summons use active sources ([minions](../docs/protocol/11-skills.md#10h-player-minions-that-fight)).
 - Link skills. Docs: [11](../docs/protocol/11-skills.md) §13, [Paladin](../docs/game/paladin.md#link-skills).
   Docs: [11](../docs/protocol/11-skills.md) Â§13, [Paladin](../docs/game/paladin.md).
 - Owned minions: relics, chieftains and the 17 golems. Docs: [11](../docs/protocol/11-skills.md) Â§10h.

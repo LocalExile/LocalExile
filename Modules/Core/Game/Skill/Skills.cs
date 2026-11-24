@@ -383,6 +383,8 @@ public static partial class Game
             // A separate spell block row is only drawn when display_spell_block_chance is non-zero.
             (Stat.SpellBlockPct, pools.SpellBlockChance), (Stat.DisplaySpellBlockChance, pools.SpellBlockChance),
             (Stat.BaseSpellBlockPct, 0),
+            (Stat.AttackBlockLuck, pools.AttackBlockLucky == pools.AttackBlockUnlucky ? 0 : pools.AttackBlockLucky ? 1 : -1),
+            (Stat.SpellBlockLuck, pools.SpellBlockLucky == pools.SpellBlockUnlucky ? 0 : pools.SpellBlockLucky ? 1 : -1),
             // Resistance display: the client shows fire_damage_resistance_% as the capped value and
             // uncapped_fire_damage_resistance_% (and the other three) in parentheses as the overcap. The passives' base
             // resistances are already summed into the pools, so zero the all-elements input to avoid counting it twice. The
@@ -827,8 +829,7 @@ public static partial class Game
                     Stat.NumberOfDominatedMonsters, Stat.NumberOfDominatedVaalMonsters }) Publish(count, GolemStat(playerStats, count));
             }
             if (GolemData.Find(SkillsFor(player).EffectId(effect)) is { IsGolem: true })
-                Publish(Stat.NumberOfGolemsAllowed, GolemEffectiveLimit(OwnPanel(Stat.BaseNumberOfGolemsAllowed),
-                    n => GolemStat(playerStats, n)));
+                Publish(Stat.NumberOfGolemsAllowed, GolemRosterLimit(own, playerStats));
             var placed = PlacedKind(supported);
             if (placed.Trap || placed.Mine)
             {
@@ -1124,6 +1125,9 @@ public static partial class Game
         if (VaalMinionProxyDisabled(player, effect, skillId) is { } proxy) return proxy;
         if (SkillMinionFamily(SkillsFor(player).EffectId(effect)) is { } family && !CanHaveMinion(PlayerStatValues(player), family))
             return "equipment prevents summoning this type of minion";
+        if (DarkMonarchCastFamily(SkillsFor(player).EffectId(effect)) is { } darkFamily
+            && !DarkMonarchAllows(darkFamily, StatSourceValues(player)))
+            return "The Dark Monarch prevents this minion type";
         if (OwnAuraSkillRestricted(player, effect, skillId)) return "own aura skills are disabled";
         if (skillId is ushort beastSkill && BeastKindFor(SkillsFor(player).EffectId(effect)) is { } beastKind)
         {
@@ -1165,6 +1169,8 @@ public static partial class Game
         if (gem.Effect != effect || gem.SourceGem is null && !gem.Granted && gem.WornGrant is null)
             return "skill is unavailable";
         if (gem.WornGrant is not null && !gem.RequirementsMet) return "the granting item is inactive";
+        if (!triggered && gem.WornGrant is { } grant && TriggeredItemMinion(grant) is not null)
+            return "this minion is triggered by its item";
         if (GolemStat(gem.Stats, Stat.CannotCastCurses) != 0) return "this curse is triggered by Hextouch";
         if (!triggered && CurseCatalog.Hex(SkillsFor(player).EffectId(effect)) && IsBaneLinkedHex(player, gem))
             return "this curse is triggered by Bane";
@@ -1448,16 +1454,19 @@ public static partial class Game
             var gem = SupportedSkill(player, id);
             if (gem.Effect < 0 || SupportedReservationCost(player, id) is not { } reservation) continue;
             var before = player.Auras[id];
+            var context = ReservationContext(player, id);
             var skillStats = gem.Stats.Select(kv => (kv.Key, kv.Value)).ToArray();
             player.Auras[id] = before with
             {
                 ManaFlat = reservation.ManaFlat, ManaPercent = reservation.ManaPercent,
                 LifeFlat = reservation.LifeFlat, LifePercent = reservation.LifePercent,
+                ReservesLife = context.Life, ReservationEfficiencyPct = context.Efficiency,
                 Level = gem.Level, Quality = gem.Quality, WornGrant = gem.WornGrant,
                 SkillStats = skillStats
             };
             player.AuraStatsDirty |= before.ManaFlat != reservation.ManaFlat || before.ManaPercent != reservation.ManaPercent
                 || before.LifeFlat != reservation.LifeFlat || before.LifePercent != reservation.LifePercent
+                || before.ReservesLife != context.Life || before.ReservationEfficiencyPct != context.Efficiency
                 || before.Level != gem.Level || before.Quality != gem.Quality || before.WornGrant != gem.WornGrant
                 || before.SkillStats is null || !before.SkillStats.SequenceEqual(skillStats);
         }
@@ -1473,7 +1482,7 @@ public static partial class Game
                 var context = ReservationContext(player, id);
                 player.PetrifiedBlood.Refresh(gem.Effect, Get(stats, PetrifiedBlood.LoseOverTimeSource),
                     Get(stats, PetrifiedBlood.PreventSource), Get(stats, PetrifiedBlood.LifeCostSource),
-                    reservation.ManaPercent, LowLifeThresholdPct(CharacterPlayerStats(player)), context.Life, context.Efficiency);
+                    reservation.Percent, LowLifeThresholdPct(CharacterPlayerStats(player)), context.Life, context.Efficiency);
                 if (!ReservationBudgetFits(player)) player.PetrifiedBlood.Suspend();
                 ClampReservedResources(player);
                 player.AuraStatsDirty = true;

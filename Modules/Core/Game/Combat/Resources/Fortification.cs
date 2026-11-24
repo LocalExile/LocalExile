@@ -41,28 +41,31 @@ public static partial class Game
         }
         Add(FortificationSession.AttackSpeed, value.IncreasedAttackSpeedPercent(session.SpeedPerStack));
         AddFortificationCounts(new PlainStatMap(sources), value);
-        return sources;
+        return FortificationAllyPlayerStats(player, sources);
     }
 
     public static void AddFortificationCounts(StatMap stats, FortificationState.Value value)
     {
         foreach (var (name, amount) in new[] { (FortificationSession.Current, value.Current),
             (FortificationSession.Uncapped, (int)Math.Min(int.MaxValue, value.Uncapped)),
-            (FortificationSession.Maximum, value.Maximum), (Stat.HasFortify, value.Current > 0 ? 1 : 0),
+            (FortificationSession.Maximum, value.Maximum),
             (Stat.HasFortification, value.Current > 0 ? 1 : 0) })
             if (name is var key) stats[key] = amount;
     }
 
     // Called only at an accepted melee damage commit, before any notification can yield to another action/area.
     public static bool FortificationOnHitLocked(Player player, SpawnedMonster target, decimal rawDamage,
-        bool melee, IReadOnlyDictionary<uint, int> playerStats, IReadOnlyDictionary<uint, int>? skill = null, Random? random = null)
+        bool melee, IReadOnlyDictionary<uint, int> playerStats, IReadOnlyDictionary<uint, int>? skill = null, Random? random = null,
+        bool movement = false)
     {
         if (!melee || !target.Hostile || player.Closed || player.LeavingArea || player.Paused || player.PlayerLife == 0) return false;
-        int Get(uint name)
+        int Get(uint key)
         {
-            if (!(name is var key)) return 0;
-            return (int)Math.Clamp((long)playerStats.GetValueOrDefault(key) + (skill?.GetValueOrDefault(key) ?? 0),
-                int.MinValue, int.MaxValue);
+            long value = (long)playerStats.GetValueOrDefault(key) + (skill?.GetValueOrDefault(key) ?? 0);
+            // "Melee Movement Skills have #% chance to Fortify on Hit".
+            if (movement && key == FortificationSession.ChanceOnMeleeHit)
+                value += playerStats.GetValueOrDefault(Stat.MeleeMovementSkillChanceToFortifyOnHitPct);
+            return (int)Math.Clamp(value, int.MinValue, int.MaxValue);
         }
         return FortificationOf(player).Hit(AreaTime(player), rawDamage, target.MaxLife,
             target.Rarity, Get, random ?? AreaRng(player));
@@ -80,11 +83,8 @@ public static partial class Game
             Get, random ?? AreaRng(player));
     }
 
-    public static int FortificationDamageTaken(Player player, int damage)
-    {
-        var value = FortificationOf(player).Read(AreaTime(player));
-        return (int)((long)Math.Max(0, damage) * (100 - Math.Min(100, value.Current)) / 100);
-    }
+    public static int FortificationDamageTaken(Player player, int damage) =>
+        FortificationDamageTakenLocked(player, Math.Max(0, damage), AreaTime(player));
 
     public static void ConfigureFortificationRecovery(Player player, uint maximumLife,
         IReadOnlyDictionary<uint, int> sources)
@@ -132,7 +132,7 @@ public static partial class Game
     // presentation: without Fortification shown and with nothing changed since the last presentation (every gain moves
     // the revision) there is nothing to send, so the send gate and the area's frame are left alone.
     public static Task SendFortification(Player player) =>
-        FortificationOf(player) is { Buff: 0 } idle && idle.PresentedRevision == idle.Revision ? Task.CompletedTask : Send(player, [], null, atGate: () =>
+        FortificationOf(player) is { Buff: 0 } idle && idle.PresentedRevision == idle.Revision && !HasGuardianOrPeerFortificationAura(player) ? Task.CompletedTask : Send(player, [], null, atGate: () =>
         {
             {
                 if (!CurrentGameWork || player.Closed || player.LeavingArea || player.RageRetired || player.Paused) return null;
@@ -140,28 +140,30 @@ public static partial class Game
                 double now = AreaTime(player);
                 using var snapshot = session.Capture(now);
                 if (player.PlayerLife == 0) { if (session.Value.Uncapped > 0) session.Clear(); }
-                session.Read(AreaTime(player));
-                if (session.PresentedRevision == session.Revision) return null;
+                session.Read(now);
+                bool permanentDirty = FortificationPresentationDirtyLocked(player, session, now);
+                if (session.PresentedRevision == session.Revision && !permanentDirty) return null;
                 ReconcileOwnAuras(player);
                 player.Pools = PoolsFor(player, player.Pools.Level);
                 return WithOwnAuraChanges(player, () =>
                 {
                     // Build and acknowledge the tail AFTER any aura prefix, in the same order as its wire packets.
-                    var value = session.Read(AreaTime(player));
+                    var value = EvaluateFortificationLocked(player, now).Value;
                     var packets = new List<byte[]>();
                     session.Buff = (ushort)(value.Current > 0 ? 1 : 0);
                     if (value.Current > 0)
-                        player.Area.Buffs.Set(player.Id, new(1943, player.Id,
+                        player.Area.Buffs.Set(player.Id, new(FortificationBuffRow, player.Id,
                             Visual: BuffArtVisual(player, "fortify_buff", Stat.VirtualFortifyArtVariation),
-                            U68: Buff.Seconds((value.LatestExpiry!.Value - now) * session.State.ExpiryRate),
+                            U68: value.LatestExpiry is double expiry ? Buff.Seconds((expiry - now) * session.State.ExpiryRate) : null,
                             Stacks: (ushort)Math.Min(ushort.MaxValue, value.Current)));
-                    else player.Area.Buffs.Clear(player.Id, 1943, player.Id);
+                    else player.Area.Buffs.Clear(player.Id, FortificationBuffRow, player.Id);
                     // Fortification changes on every melee hit; rebuilding the whole skill list here held the
                     // Monsters lock and the send gate for 50-110 ms (2026-11-05), starving input and the other sends.
                     // Its stacks and attack speed are in the 0x1b3 stats; the server keeps the authoritative action
                     // timings, so the skill records are left to the next gem/equipment refresh.
                     packets.Add(PlayerStatsOffFrames(player));
                     session.PresentedRevision = session.Revision;
+                    MarkFortificationPresentedLocked(player, session, now);
                     return packets.SelectMany(p => p).ToArray();
                 });
             }

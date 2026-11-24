@@ -132,12 +132,20 @@ public sealed partial class InstanceState
 
     readonly Lock _areaStatsGate = new();
     IReadOnlyDictionary<uint, int>? _areaStats;
+    IReadOnlyDictionary<uint, int>? _areaDisplayStats;
 
     /// <summary>The area stats the instance is played with (InstanceEvents.AreaStats), composed by its first connection and
     /// kept for its life: a later atlas change or another map does not change a level already generated.</summary>
     public IReadOnlyDictionary<uint, int> AreaStats(Func<IReadOnlyDictionary<uint, int>> compose)
     {
         lock (_areaStatsGate) return _areaStats ??= System.Collections.Frozen.FrozenDictionary.ToFrozenDictionary(compose());
+    }
+
+    /// <summary>The area stats shown in the right-hand map modifier list (S→C 0x1d's second stat list, world +0x140),
+    /// composed by its first connection and kept for the instance's life.</summary>
+    public IReadOnlyDictionary<uint, int> AreaDisplayStats(Func<IReadOnlyDictionary<uint, int>> compose)
+    {
+        lock (_areaStatsGate) return _areaDisplayStats ??= System.Collections.Frozen.FrozenDictionary.ToFrozenDictionary(compose());
     }
 
     int? _leagueCategory;

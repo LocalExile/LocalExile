@@ -142,6 +142,13 @@ public static partial class Game
             ? PlayerActionCurrent(player, action)
             : player.PlayerLife > 0 && player.ElementalAilments.ActionFactor(AreaTime(player)) > 0 && !player.HitRecovery.Active(AreaTime(player))))
             && GemSkillInstanceDisabled(player, gem.Effect, skillId) is null;
+        if (IsBarrageGem(SkillsFor(player).EffectId(gem.Effect)))
+        {
+            ScheduleBarrage(player, session, skillId, gem.Effect, acceptedAt, SupportedAttackSeconds(player, skillId, sequence),
+                sequence, Valid, firstRelease => CaptureGemProjectile(player, session, skillId, gem, aim, criticalRoll,
+                    sequence, releaseDelay: firstRelease, cryExerted: cryExerted, sacrifice: sacrifice));
+            return Task.CompletedTask;
+        }
         // A spell's repeats (SpellRepeats) release again a cast time apart, with the use's critical roll; a new action
         // cancels the rest, as it ends the client's.
         // shortcut: a repeat keeps the cast's aim point; check live whether the client re-aims at a moving target.
@@ -226,6 +233,8 @@ public static partial class Game
         int Own(uint k) => own.GetValueOrDefault(k);
         int Get(uint key) => Player(key) + Own(key);
         use = use with { Profile = ClientDrawnProfile(player, use.Profile, Get, sequence, use.Aim - use.Origin, repeatsLeft, use.Emitter.Id) };
+        if (SkillsFor(player).EffectId(gem.Effect) == "BlazingSalvo" && use.Profile.NativeVolley is { Angles: null, Nova: false })
+            use = use with { Profile = use.Profile with { NativeVolley = null } };
         if (use.Emitter.Id != player.Id && NativeProjectileTotem(player, gem.Effect)
             && use.Payload is ProjectileOffense nativeTotemShot && SkillsFor(player).Clips(use.Profile.Id) is { Flight: not null } clips)
             use = use with { Payload = nativeTotemShot with { ClientPredicted = false,
@@ -349,6 +358,21 @@ public static partial class Game
         var admittedGem = SupportedSkill(player, skillId);
         var own = admittedGem.Stats;
         var merged = MergeSkillStats(playerStats, own);
+        if (SkillsFor(player).EffectId(gem.Effect) is "Fireball" or "FireballAltX" or "FireballAltY")
+        {
+            bool cannotIgnite = merged.GetValueOrDefault(Stat.FireballCannotIgnite) != 0;
+            int scorch = merged.GetValueOrDefault(Stat.FireballChanceToScorchPct);
+            if (cannotIgnite || scorch != 0)
+            {
+                var projected = new Dictionary<uint, int>(own);
+                if (cannotIgnite) projected[Stat.NeverIgnite] = 1;
+                if (scorch != 0) projected[Stat.ChanceToScorchPct] =
+                    ActorScale.Add(Stat.ChanceToScorchPct, projected.GetValueOrDefault(Stat.ChanceToScorchPct), scorch);
+                own = projected;
+                admittedGem = admittedGem with { Stats = own };
+                merged = MergeSkillStats(playerStats, own);
+            }
+        }
         int Get(uint k) => merged.GetValueOrDefault(k);
         int Player(uint k) => playerStats.GetValueOrDefault(k);
         int Own(uint k) => own.GetValueOrDefault(k);
@@ -398,9 +422,10 @@ public static partial class Game
         // A dual-wielded attack's projectiles carry the hand this use swings (AttackHands): its weapon's damage, local
         // modifiers, accuracy and critical chance. A totem's own use swings the main hand.
         var swingHand = spell || totem is not null ? AttackHand.Main : AttackHandFor(player, skillId, sequence);
-        var handWeapon = OffHandSwing(player, swingHand);
+        var shield = spell ? null : ShieldWeapon(player, skillId);
+        var handWeapon = shield ?? OffHandSwing(player, swingHand);
         int? handCritical = SwingWeaponCritical(player, swingHand);
-        var local = spell ? null : HandLocalSources(player, swingHand);
+        var local = spell || shield is not null ? null : HandLocalSources(player, swingHand);
         int addedChaos = sacrifice?.AddedChaos() ?? 0;
         string hand = spell ? "spell" : "main_hand";
         var hitInputs = SupportedHitInputsFor(player, skillId, area: false, weapon: handWeapon, capturedGem: admittedGem, projectile: true, addedChaos: addedChaos, totem: totem is not null);
@@ -419,6 +444,7 @@ public static partial class Game
         {
             WeaponAttack = weaponAttack,
             TargetCritical = TargetCriticalBonuses.From(playerStats, own),
+            SkeletonWeaponContactSource = weaponAttack && totem is null ? SkeletonWeaponContactSource(player, swingHand, local) : null,
             ProjectileAttack = !spell && SkillsFor(player).IsProjectile(gem.Effect),
             TinctureKill = weaponAttack && totem is null ? TinctureKillBonusFor(player, playerStats, swingHand) : null,
             NoExtraCriticalDamage = CriticalHitsDealNoExtraDamage(playerStats, own),

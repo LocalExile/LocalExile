@@ -60,6 +60,7 @@ public static partial class Game
         /// <summary>Keep the stopped object for <see cref="ImpactLifetime"/> without a clip: an arrow left in its target
         /// or a wall (DefaultArrow has stuck/bounce art the client plays only for its own arrows).</summary>
         public bool StayOnImpact { get; init; }
+        public bool StayAtEndOfRange { get; init; }
         /// <summary>The release point's height above the ground in marker steps, from the releasing clip's contact
         /// keyframe (<see cref="ContactPoint.HeightSteps"/>: the Ranger's bow 16, the Sand Spitter's spit 9); null keeps
         /// <c>Game_PROJECTILE_HEIGHT</c> (<see cref="ProjectileHeight.DefaultSteps"/>).</summary>

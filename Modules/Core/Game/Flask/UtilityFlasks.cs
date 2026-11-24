@@ -61,6 +61,17 @@ public static partial class Game
             if (signal is { } step) state.Accepted(step, flask.Id);
             double now = AreaTime(player);
             if (NamedFlaskRecent(type.Id) is { } recent) player.RecentEvents.Record(recent, now);
+            if (Get(Stat.FlasksApplyToYourZombiesAndSpectres) != 0)
+                foreach (var minion in FlaskMinions(player, raisedOnly: true))
+                    ApplyMinionUtilityFlaskLocked(player, minion, flask, type, utility, local, Get, now);
+            FlaskToLinkedTargetsLocked(player, flask.Item, local, utility, Get);
+            if (Get(Stat.CannotBeAffectedByFlasks) != 0)
+            {
+                state.Enqueue(new(FlaskEnchantments.Trigger.Adjacent, flask.Id, (byte)slot), signal?.Chain);
+                state.Packets.Add(new(InstanceItems.ItemUsed(flask.Item.TypeHash,
+                    PlayerInventories.InventoryId(PlayerInventories.Flask), flask.Id), $"0x0263 flask {slot} used"));
+                return;
+            }
             // The "during effect" suffix buffs this use sends — one buff instance per suffix, on the
             // flask's slot with the flask's duration (UtilityFlasks.ShowBuffs), so the effect carries them and
             // EndBuffs removes exactly those.
@@ -81,7 +92,6 @@ public static partial class Game
                 string.Join(", ", stats.Select(s => $"{s.Stat} {s.Value}")) + $"; walk estimate {player.Walk.Speed:0.##} cells/s");
             state.Packets.Add(new([], $"0x01c1 player buff: {type.Name} (flask {slot}), {seconds:0.##} s",
                 UtilityStart: effect));
-            FlaskToLinkedTargetsLocked(player, flask.Item, local, utility, Get);
             // "Gain X Endurance/Frenzy/Power Charge(s) on use" (Replica Rumi's Concoction).
             foreach (var (stat, charge) in ChargesOnFlaskUse)
                 if (local.GetValueOrDefault(stat) is int count and > 0)

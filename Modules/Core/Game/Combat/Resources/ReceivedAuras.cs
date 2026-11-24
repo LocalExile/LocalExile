@@ -6,13 +6,20 @@ public static partial class Game
     // friendly monsters: an ally coming in or going out presents its auras again (a minion: its owner's stats).
     const ZoneKind SharedAuraZones = ZoneKind.SharedAuras;
 
-    static void SyncSharedAuraZones(Player player, IReadOnlyList<SharedAura> shared) =>
-        SyncZones(player, player.Id, SharedAuraZones, shared.Select(a => ((uint)a.Aura.SkillId, a.Radius, default((int, int)))),
+    static bool NonCurseAurasOnlyReachLinks(Player player) =>
+        StatSourceValues(player).GetValueOrDefault(Stat.NonCurseAurasOnlyApplyToYouAndLinkedTargets) != 0;
+
+    static void SyncSharedAuraZones(Player player, IReadOnlyList<SharedAura> shared)
+    {
+        bool linkedOnly = NonCurseAurasOnlyReachLinks(player);
+        var ordinary = shared.Where(aura => !linkedOnly || !SharedPlayerAura(aura.Aura.EffectId));
+        SyncZones(player, player.Id, SharedAuraZones, ordinary.Select(a => ((uint)a.Aura.SkillId, a.Radius, default((int, int)))),
             new(ReachesAlliesBut(player, player.Id), new EntityId(player.Id), id =>
             {
                 if (AreaPlayer(player, id.Value) is { } ally) PresentNearby(ally);
                 else PresentStats(player);
             }));
+    }
 
     // Whether a player's shared aura reaches the entity.
     static bool SharedAuraReaches(Player player, uint owner, ushort skill, uint id) => InZone(player, owner, SharedAuraZones, skill, id);
@@ -67,21 +74,29 @@ public static partial class Game
         // A minion without a body stands with its owner: every aura of his reaches it.
         bool Reaches(uint owner, ushort skill) => minion.Monster is null ? owner == player.Id : SharedAuraReaches(player, owner, skill, minion.Id);
         var skills = SkillsFor(player);
+        bool linkedOnly = player.Auras.Count > 0 && NonCurseAurasOnlyReachLinks(player);
+        bool linked = linkedOnly && minion.Monster is not null && ActiveMinionLink(player, minion, AreaTime(player)) is not null;
         var own = player.PlayerLife == 0 || InTown(player) ? [] : player.Auras.Values
-            .Where(a => SharedPlayerAura(a.EffectId) && Reaches(player.Id, a.SkillId))
+            .Where(a => SharedPlayerAura(a.EffectId) && (linkedOnly ? linked : Reaches(player.Id, a.SkillId)))
             .Select(a => a with { AffectsSelf = true, ExternalEffectPct = player.Pools.AuraEffectPct + a.SupportEffectPct });
         var directAvian = SharedAvianAuras(player).Where(a => Reaches(player.Id, a.Aura.SkillId)).Select(a => a.Aura);
         var auras = own.Concat(directAvian).Concat(player.Instance.PlayersExcept(player.Id).Where(p => p.PlayerLife > 0)
                 .SelectMany(p => p.SharedAuras.Where(a => Reaches(p.Id, a.Aura.SkillId))
                     .Select(a => a.Aura with { AffectsSelf = true, ExternalEffectPct = a.Effect })))
-            .ToArray();
+            .ToList();
+        var shared = SelectMinionAuras(player, minion.Id, auras, 0);
         var values = AuraCatalog.RawStats(auras, 0, skills, Stats).ToDictionary(p => p.Key, p => p.Value);
         WithTemporaryAuraStats(auras, 0, values);
         if (minion.Monster is { } monster && MinionWarcryGrants.TryGetValue(monster, out var cries))
         {
             double now = AreaTime(player);
             for (int i = cries.Count - 1; i >= 0; i--)
-                if (cries[i].Until <= now || monster.Dead) cries.RemoveAt(i);
+            {
+                var cry = cries[i];
+                if (cry.Area == player.Area && cry.Until > now && !monster.Dead) continue;
+                if (cry.Area == player.Area) player.Area.Buffs.Clear(minion.Id, cry.Row, cry.Source);
+                cries.RemoveAt(i);
+            }
             if (cries.Count == 0) MinionWarcryGrants.Remove(monster);
             else AddWarcryStats(cries, player.Area, now, values);
         }
@@ -97,6 +112,8 @@ public static partial class Game
             int value = (int)Math.Clamp(raw, int.MinValue, int.MaxValue);
             if (value != 0) values[name] = values.GetValueOrDefault(name) + value;
         }
+        foreach (var aura in shared)
+            foreach (var (stat, value) in aura.Stats) Add(stat, value);
         Add(Stat.BaseFireDamageResistancePct, bonus.FireResistance);
         Add(Stat.BaseColdDamageResistancePct, bonus.ColdResistance);
         Add(Stat.BaseLightningDamageResistancePct, bonus.LightningResistance);
@@ -108,6 +125,15 @@ public static partial class Game
         Add(Stat.BasePhysicalDamageReductionRating, bonus.Armour);
         Add(Stat.DeterminationAuraArmourPlusPctFinal, bonus.ArmourMorePct);
         Add(Stat.BaseEvasionRating, bonus.Evasion); Add(Stat.GraceAuraEvasionRatingPlusPctFinal, bonus.EvasionMorePct);
+        double auraTime = AreaTime(player);
+        if (minion.Monster is not null)
+        {
+            AddMinionNecromancerCorpseAuras(player, minion, values, auraTime);
+            AddSpectreSkeletonDamage(player, minion, values, auraTime);
+        }
+        var at = minion.Monster?.Walk.Position(auraTime) ?? player.Walk.Position(auraTime);
+        var fortAlly = MinionAllyFortificationLocked(player, minion, at, auraTime);
+        Add(Stat.BaseCriticalStrikeMultiplierPlus, fortAlly.KingmakerCritMulti);
         return values;
     }
 }

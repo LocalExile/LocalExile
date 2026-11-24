@@ -12,6 +12,7 @@ public sealed record ProjectileOffense(DamagePacket Hit, bool Spell, int Accurac
     int CriticalMultiplier, string Label)
 {
     public bool WeaponAttack { get; init; }
+    public GameServer.Core.Protocol.Instance.Item? SkeletonWeaponContactSource { get; init; }
     /// <summary>Whether an attack hit counts as a projectile attack (false for non-projectile rains and secondary explosions).</summary>
     public bool? ProjectileAttack { get; init; }
     public Game.TinctureKillBonus? TinctureKill { get; init; }
@@ -75,6 +76,7 @@ public sealed record ProjectileOffense(DamagePacket Hit, bool Spell, int Accurac
     public bool FarShot { get; init; }
     public bool PointBlank { get; init; }
     public double ReturnMultiplier { get; init; } = 1;
+    public int DamageMorePerGroundBounce { get; init; }
     public BlindHitInput Blind { get; init; }
     /// <summary>The hit, area hit and damaging ailments captured with the conditional increased damage against a
     /// Blinded target, or null when the shot has none.</summary>
