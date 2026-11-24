@@ -395,9 +395,15 @@ public sealed record InventoryItem(uint Id, byte X, byte Y, Item Item);
 
 public static class InstanceItems
 {
-    public const ushort InventoryChangeId = 0xbf, PickUpItemId = 0x28, DropItemId = 0x29, PlaceItemId = 0x2a, InventoryRequestId = 0x2d,
+    public const ushort InventoryChangeId = 0xbf, GemExperienceId = 0xc3, PickUpItemId = 0x28, DropItemId = 0x29, PlaceItemId = 0x2a, InventoryRequestId = 0x2d,
         ItemActionId = 0x4a, SplitStackId = 0x7c, CommandId = 0x16, SocketGemId = 0x30, UnsocketGemId = 0x2f,
         LevelUpGemId = 0x31, LevelUpAllGemsId = 0x32, LockGemId = 0xd7, InventoryFullId = 0x117;
+
+    /// <summary>S→C 0x00c3 (class 0x1431767e8, read 0x140911270; dispatcher 0x142154507 → 0x14217a930):
+    /// grants every eligible gem socketed in equipped items (both weapon sets) its incremental XP share without
+    /// resending full item blobs. u16 BE 0x00c3, u32 BE experience (6 bytes total).</summary>
+    public static byte[] GemExperience(uint experience) =>
+        new LoginWriter().U16(GemExperienceId).U32(experience).ToArray();
 
     /// <summary>S→C 0x0117 (2 bytes, id only; dispatcher case 0x44 at 0x142155509 → subscriber 0x140d60680):
     /// plays the local character's <c>InvFull</c> audio event (<c>CharacterAudioEvents</c> row 247).</summary>

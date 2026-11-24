@@ -132,7 +132,9 @@ public static partial class Game
         if (!MonsterGivesNoRewards(monster) && player.PlayerLife > 0 && Dist(at, player.Walk.Position(now)) <= ExperienceRange)
             (xp, gemXp) = ComputeKillExperience(player, monster, variety, modMonster, PartyExperienceShareOf(partyShares, player));
         var gemRows = new List<(byte Row, uint[] Items)>();
-        var (_, leveled) = CommitGemExperience(player, gemXp, gemRows);
+        var (gemPackets, leveled) = CommitGemExperience(player, gemXp, gemRows);
+        foreach (var gemPacket in gemPackets)
+            state.OutputQueue.Add(new(gemPacket, "0x00c3 gem experience"));
         foreach (var (row, ids) in gemRows)
             state.OutputQueue.Add(new([], "gem experience (current)", Kind: PlayerMinions.OutputKind.GemInventory, InventoryRow: row, ItemIds: ids));
         if (leveled) state.StatRevision++;

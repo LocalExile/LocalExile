@@ -1805,8 +1805,13 @@ public static partial class Game
         {
             var slot = GameEvents.ResolveInventorySlot(player, row);
             var inside = items.Items(slot.Row);
-            messages.Add(($"0x00c0 inventory {PlayerInventories.InventoryId(slot.Row)} row {slot.Row}" + (inside.Count > 0 ? $" items {inside.Count}" : ""),
-                InstanceInventories.AddInventory(PlayerInventories.InventoryId(slot.Row), slot, items: inside)));
+            uint invId = PlayerInventories.InventoryId(slot.Row);
+            messages.Add(($"0x00c0 inventory {invId} row {slot.Row}" + (inside.Count > 0 ? $" items {inside.Count}" : ""),
+                InstanceInventories.AddInventory(invId, slot, items: inside)));
+            // Flag remove-only inventories (row 114 Deepwater collection, or row 84 expanded backpack in recovery mode).
+            if (slot.Row == 114 || (slot.Row == PlayerInventories.ExpandedInventory && ExpandedInventoryMode(player) == 2))
+                messages.Add(($"0x00c2 inventory {invId} row {slot.Row} remove-only",
+                    InstanceInventories.InventoryPermissions(invId, notWritable: true, skipScans: false)));
         }
         messages.AddRange(AtlasPresetMessages(player, "player"));
         if (ExtraPlayerMessages is { } extra)

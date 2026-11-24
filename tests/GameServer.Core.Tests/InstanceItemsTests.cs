@@ -309,4 +309,15 @@ public class InstanceItemsTests
         Assert.Equal("0000" + "0A000000" + "14000000" + "00000000" + "0000" + "00" + "00" + "00" + "00000000" + "00" + "00000000" +
                      Convert.ToHexString(item.Payload()) + "00" + "00", Convert.ToHexString(new WorldItemObject(10, 20, item).Blob()));
     }
+
+    [Fact]
+    public void Inventory_permissions_and_gem_experience_layouts()
+    {
+        Assert.Equal("00C2" + "00" + "00000073" + "01" + "00",
+            Convert.ToHexString(InstanceInventories.InventoryPermissions(115, notWritable: true, skipScans: false)));
+        Assert.Equal("00C2" + "02" + "00000900" + "01" + "01",
+            Convert.ToHexString(InstanceInventories.InventoryPermissions(0x900, notWritable: true, skipScans: true, manager: 2)));
+        Assert.Equal("00C3" + "00001234",
+            Convert.ToHexString(InstanceItems.GemExperience(0x1234)));
+    }
 }
