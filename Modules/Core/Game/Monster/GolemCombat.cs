@@ -198,9 +198,14 @@ public static partial class Game
                 return;
             }
         }
-        var ability = g.Abilities.Where(a => (g.Definition.IsGolem || a.Attack.Damage.MaxTotal > 0) && GolemUsable(g, a) && GolemReady(g, a, now)
+        bool spectre = g.Definition.Kind == "Spectre";
+        bool pairedCannibal = spectre && CannibalEmpowered(player, g, now);
+        var ability = g.Abilities.Where(a => (g.Definition.IsGolem || a.Attack.Damage.MaxTotal > 0 || spectre && SpectreUtilityAction(a.Effect))
+                && GolemUsable(g, a) && GolemReady(g, a, now)
+                && (!spectre || SpectreActionAllowed(g, a, defensive, pairedCannibal, distance))
                 && distance <= a.Attack.Range + LivingCollision.Size(target.M))
-            .OrderByDescending(a => a.Cooldown > 0).ThenByDescending(a => a.Effect == 10800).FirstOrDefault();
+            .OrderByDescending(a => a.Effect == NavalCannonFire).ThenByDescending(a => a.Cooldown > 0)
+            .ThenByDescending(a => a.Effect == 10800).FirstOrDefault();
         if (g.Definition.Kind == "Spectre"
             && g.Abilities.FirstOrDefault(a => CanUseSpectreSummon(player, g, a, distance, now)) is { } summonAbility)
         {
@@ -507,7 +512,11 @@ public static partial class Game
         GolemState.Golem g, GolemState.Action action, double now)
     {
         if (!MinionPowered(player, g, now)) return;
-        if (g.Definition.Kind == "Spectre") QueueSpectreChildrenLocked(player, g, action);
+        if (g.Definition.Kind == "Spectre")
+        {
+            if (ReleaseSpectreRoleLocked(player, g, action, now)) return;
+            QueueSpectreChildrenLocked(player, g, action);
+        }
         if (SpectreChargeRoar(g, action.Ability.Effect) is { } charge)
         {
             ReleaseSpectreChargeRoarLocked(player, g.Monster.Walk.Position(now), charge, action.Ability, now);
@@ -867,6 +876,7 @@ public static partial class Game
                 } };
         }
         CommitMinionHitLocked(player, id, target, hit, damage, now, $"golem {g.Id:x} {a.Id}", stun, g.Monster, g.Own, g);
+        if (g.Definition.Kind == "Spectre" && damage > 0) SpectreRoleOnHitLocked(player, g, a, id, target, now);
         SpectreShockExplosionLocked(player, g, a, target, to, now);
         if (!target.Dead)
         {
@@ -997,6 +1007,19 @@ public static partial class Game
         }
         bool canReturn = !profile.CannotReturn && (profile.Returns || profile.ReturnChancePercent > 0);
         double returnMore = canReturn ? ProjectileReturn.DamageMore(name => mods[name] + GolemStat(a.Stats, name)) : 1;
+        IReadOnlyList<ProjectileVector>? landings = null;
+        if (p.Lobbed && SpectreShoulderMortar(a.Effect) && GolemStat(a.Stats, Stat.ProjectileSpreadRadius) is > 0 and var scatter)
+        {
+            var random = AreaRng(player);
+            var targets = new ProjectileVector[profile.Count];
+            for (int i = 0; i < targets.Length; i++)
+            {
+                double theta = random.NextDouble() * Math.PI * 2;
+                double radius = scatter * Math.Sqrt(random.NextDouble());
+                targets[i] = to + new ProjectileVector(radius * Math.Cos(theta), radius * Math.Sin(theta));
+            }
+            landings = targets;
+        }
         var offense = new ObjectProjectileOffense(a.Id, (s, contact) =>
         {
             if (!CurrentGameWork || player.Area.Monsters.GetValueOrDefault(contact.Target.Id) is not { Hostile: true } victim) return ProjectileHitResult.Miss;
@@ -1009,7 +1032,7 @@ public static partial class Game
         session.Schedule(ProjectileRuntime.Time(now), () => CurrentGameWork && !player.Closed && !player.LeavingArea,
             () => new(profile, owner, owner, 1, from, to)
             {
-                Payload = offense, ReturnAnchor = canReturn ? owner : null,
+                Payload = offense, ReturnAnchor = canReturn ? owner : null, ProjectileTargets = landings,
                 TargetSplit = (target, at) => player.Area.Monsters.GetValueOrDefault(target.Id) is { Hostile: true } victim
                     ? MinionProjectileCurseStat(victim, Stat.ProjectilesHittingSelfSplitIntoX,
                         at / (double)ProjectileRuntime.QuantaPerSecond) : 0

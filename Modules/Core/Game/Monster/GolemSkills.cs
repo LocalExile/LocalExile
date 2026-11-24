@@ -635,6 +635,8 @@ public static partial class Game
     {
         2378 => new("Metadata/Projectiles/FireElementalSpray", 750, false, 2),
         5025 or 5026 => new("Metadata/Projectiles/IceElementalProjectile", 750, false, 2),
+        9992 or 9994 when skills.Projectile("Metadata/Projectiles/AtlasExileBasiliskShoulderSnakeMortar") is { } mortar
+            => new(mortar.Id, mortar.Speed, true, skills.ProjectileContactCells(mortar.Id) ?? 2),
         9427 or 9428 when skills.Projectile("Metadata/Projectiles/SummonPhantasmFadingProjectile") is { } p
             => new(p.Id, p.Speed, false, skills.ProjectileContactCells(p.Id) ?? 2),
         _ => null,
