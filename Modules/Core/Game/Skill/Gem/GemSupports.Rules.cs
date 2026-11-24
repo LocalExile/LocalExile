@@ -377,11 +377,12 @@ public static partial class Game
     }
 
     [Flags]
-    enum CostEfficiency { None = 0, Spell = 1, Curse = 2 }
+    enum CostEfficiency { None = 0, Spell = 1, Curse = 2, Minion = 4 }
 
     static CostEfficiency CostEfficiencyFor(SkillCatalog skills, int effect) =>
         (skills.IsSpell(effect) ? CostEfficiency.Spell : CostEfficiency.None)
-        | (skills.HasType(effect, "AppliesCurse") ? CostEfficiency.Curse : CostEfficiency.None);
+        | (skills.HasType(effect, "AppliesCurse") ? CostEfficiency.Curse : CostEfficiency.None)
+        | (skills.HasType(effect, "Minion") ? CostEfficiency.Minion : CostEfficiency.None);
 
     static double SkillCostMore(Player player, IReadOnlyDictionary<uint, int> own)
     {
@@ -431,7 +432,8 @@ public static partial class Game
                 ? ArcaneMight.Combine(key, read(key), value) : read(key) + value);
         }
         long conditionalEfficiency = ((efficiency & CostEfficiency.Spell) != 0 ? (long)read(Stat.BaseSpellManaCostEfficiencyPlusPct) : 0)
-            + ((efficiency & CostEfficiency.Curse) != 0 ? read(Stat.BaseManaCostEfficiencyPlusPctOfCurseSkills) : 0);
+            + ((efficiency & CostEfficiency.Curse) != 0 ? read(Stat.BaseManaCostEfficiencyPlusPctOfCurseSkills) : 0)
+            + ((efficiency & CostEfficiency.Minion) != 0 ? read(Stat.BaseManaCostEfficiencyPlusPctOfMinionSkills) : 0);
         if (conditionalEfficiency != 0)
             write(ItemChargeCosts.ManaEfficiency, ActorScale.Saturate(read(ItemChargeCosts.ManaEfficiency) + conditionalEfficiency));
         if (Stat.ManaCost is var mana && own.TryGetValue(mana, out int baseCost))
