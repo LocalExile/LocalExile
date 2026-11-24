@@ -1,3 +1,5 @@
+using GameServer.Core.Protocol.Instance;
+
 public static partial class Game
 {
     static IEnumerable<GolemState.Golem> FlaskMinions(Player player, bool raisedOnly)
