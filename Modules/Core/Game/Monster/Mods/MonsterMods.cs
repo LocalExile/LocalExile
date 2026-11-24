@@ -162,6 +162,12 @@ public static partial class Game
         Penetration.PerType pen, double now = double.NaN)
     {
         var resistance = HitMitigation.Resistance(Monsters, m.Variety, m.Level, type);
+        // Doryani's Prototype ("Nearby Enemies have Lightning Resistance equal to yours"): while a wearer keeps his own
+        // resistance on the monster (EnemyDebuffsTick's zone), the whole composed value is replaced with it — negative
+        // included — and only the cap and penetration still apply.
+        var equalsYours = type == DamageType.Lightning ? m.SourceValues(LightningResistEqualsYours).ToList() : null;
+        if (equalsYours is { Count: > 0 })
+            return resistance with { Value = equalsYours[0].Value, Maximum = m.Effects.MaximumResistance(type), Penetration = pen.Of(type) };
         return resistance with { Value = resistance.Value + m.Effects.Resistance(type) + MonsterExposure(m, type, now)
                 + ScorchedResistance(m, type, now)
                 + (type == DamageType.Physical ? 0 : m.SpiderWebs.Resistance(now)),
