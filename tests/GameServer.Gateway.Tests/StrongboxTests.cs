@@ -129,6 +129,12 @@ public sealed class StrongboxTests
             Assert.True(await MapStrongboxes.UseItemOn(owner.Player, UseMsg(stash.InventoryOf(0), orb, id)));
             Assert.True(ReadBoxes(owner.Player)[0]!["Corrupted"]!.GetValue<bool>());
             Assert.Equal(4, stash.CountOf(vaal.Hash));
+
+            // Another player tops up the same stack while the strongbox handler waits for the area.
+            var last = stash.Shrink(0, orb, 3)!;
+            stash.AddStacked(0, item, Game.ShapeOf, out _);
+            Assert.NotNull(stash.PayOne(0, last));
+            Assert.Equal(5, stash.CountOf(vaal.Hash));
         }
         finally
         {
