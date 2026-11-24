@@ -86,7 +86,7 @@ public static partial class Game
             offense = offense.Scale(MeatShieldDamage(player, companion.SkillStats, t, now));
         var mitigated = DamageModel.Mitigate(offense.Roll(random), type => MonsterHitResistance(t, type, default, now));
         int damage = MonsterTakesMitigated(t, mitigated, spell: false, now: now);
-        var cull = player.Minions.Owns(id, m) ? MinionIgniteKillRule(StatSourceValues(player), t, now) : default;
+        var cull = player.Minions.Owns(id, m) ? MinionIgniteKillRule(PlayerStatValues(player), t, now) : default;
         int chaosDamage = MonsterHitChaosDamage(t, mitigated, spell: false, now, damage);
         if (ApplyMonsterHitLocked(player, t, damage, rampageSource: null, playerStats: null, allyAt: at,
             cull: cull, cullPlayer: null, chaosDamage: chaosDamage) is not { } hit) return null;

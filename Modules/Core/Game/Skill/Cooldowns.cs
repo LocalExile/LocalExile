@@ -7,16 +7,17 @@ public static partial class Game
 {
     public static SingleUseCooldown? CooldownFor(Player player, int effect, int level, int quality)
     {
+        var skills = SkillsFor(player);
+        if (skills.CooldownMs(effect, level) <= 0 && skills.EffectId(effect) != "SummonSkeletons") return null;
         var sources = GemSkillEffects(player).Where(g => g.Effect == effect).ToArray();
         if (sources.Length == 0)
         {
-            if (SkillsFor(player).CooldownMs(effect, level) <= 0 || !IsDashEffect(SkillsFor(player).EffectId(effect))) return null;
-            var fallback = SingleUseCooldown.ForSkill(SkillsFor(player), Stats, effect, level,
-                CharacterPlayerStats(player), SkillsFor(player).EffectStats(effect, level, quality).ToDictionary(s => s.Item1, s => s.Item2));
+            if (skills.CooldownMs(effect, level) <= 0 || !IsDashEffect(skills.EffectId(effect))) return null;
+            var fallback = SingleUseCooldown.ForSkill(skills, Stats, effect, level,
+                CharacterPlayerStats(player), skills.EffectStats(effect, level, quality).ToDictionary(s => s.Item1, s => s.Item2));
             return WithMapCooldown(player, fallback is { } dash ? dash with { SharedGroup = 9 } : null);
         }
-        ushort source;
-        source = player.CooldownSources.GetValueOrDefault(effect);
+        ushort source = player.CooldownSources.GetValueOrDefault(effect);
         return CooldownForSkill(player, sources.FirstOrDefault(g => g.Id == source).Name is not null ? source : sources[0].Id);
     }
 

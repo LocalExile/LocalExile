@@ -382,7 +382,7 @@ public static partial class Game
     static CostEfficiency CostEfficiencyFor(SkillCatalog skills, int effect) =>
         (skills.IsSpell(effect) ? CostEfficiency.Spell : CostEfficiency.None)
         | (skills.HasType(effect, "AppliesCurse") ? CostEfficiency.Curse : CostEfficiency.None)
-        | (skills.EffectId(effect) == "RaiseSpectre" ? CostEfficiency.Spectre : CostEfficiency.None)
+        | (skills.EffectId(effect) is "RaiseSpectre" or "RaiseSpectreAltX" ? CostEfficiency.Spectre : CostEfficiency.None)
         | (skills.HasType(effect, "Minion") ? CostEfficiency.Minion : CostEfficiency.None);
 
     static double SkillCostMore(Player player, IReadOnlyDictionary<uint, int> own)

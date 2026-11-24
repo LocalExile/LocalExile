@@ -337,9 +337,8 @@ public static partial class Game
         GolemAdd(own, Stat.MinionLifeRegenerationRatePerMinutePct,
             GolemStat(local, Stat.LocalDisplaySocketedGolemLifeRegenerationRatePerMinutePct));
         // This display row is global in Stats.dat but refers to gems in this exact item.
-        foreach (var (key, value) in ItemModStats.Values(host, ItemsFor(player).Mods))
-            if (key == Stat.LocalDisplaySocketedGolemSkillGrantsOnslaughtWhenSummoned)
-                GolemAdd(own, key, value);
+        GolemAdd(own, Stat.LocalDisplaySocketedGolemSkillGrantsOnslaughtWhenSummoned,
+            PlainItemSum(host, ItemsFor(player).Mods).GetValueOrDefault(Stat.LocalDisplaySocketedGolemSkillGrantsOnslaughtWhenSummoned));
     }
 
     internal static Task<bool> CastGolem(Player player,
