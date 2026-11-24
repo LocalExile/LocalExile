@@ -291,13 +291,12 @@ public static partial class Game
         // carrying the death count, the alive-state row, component 4, then component 6 with the experience. The
         // message and the death screen carry no object header, so they go out immediately, not as world records
         // (RecordOrder throws on them); the frame's world records keep their native order at the frame end.
-        // The mini life bar is no longer hidden on death: the official order has no such row.
         records.World(player.Id, InstanceEntities.StatsUpdate(player.Id, [(Stat.IsDead, 1)]));
         records.Immediate(InstanceProtocol.DeathMessage(CharacterName(player)));
-        records.Immediate(InstanceProtocol.DeathScreen(DeathScreenFlags(player), (ushort)deaths));
+        records.Immediate(InstanceProtocol.DeathScreen(DeathScreenFlags(player), (ushort)Math.Clamp(deaths, 0, ushort.MaxValue)));
         records.World(player.Id, InstanceProtocol.AliveState(player.Id, 0xfffffffe, dead: true));
         records.World(player.Id, InstanceEntities.ComponentUpdate(player.Id, 4, [0x01]));
-        records.World(player.Id, InstanceEntities.ComponentUpdate(player.Id, 6, new BlobWriter().U16(1).U32(player.Character.Experience).ToArray()));
+        records.World(player.Id, InstanceEntities.PlayerExperienceUpdate(player.Id, player.Character.Experience));
         return records.Build();
     });
 

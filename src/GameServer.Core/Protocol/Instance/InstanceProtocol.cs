@@ -507,13 +507,13 @@ public static class InstanceProtocol
     public const ushort GameMessageId = 0x18;
 
     /// <summary>
-    /// S→C 0x18 on the instance connection, the message with strings: message id 198, then 0xffff, four empty
-    /// u16 fields, and a stat list with no stats and ONE string (the u16 counts, then u16 length + UTF-8 bytes).
+    /// S→C 0x18 on the instance connection, the message with strings (read 0x1421a3ab0 → 0x1429a60d0): message id 198,
+    /// 0xffff, u16 0, two u32 0 fields, and a stat/string list with 0 stats and 1 compact wide string (<c>WStr</c>).
     /// The official server sends it on the player's death with the dead character's name, measured on 12 official
     /// 3.29.3b captures.
     /// </summary>
     public static byte[] DeathMessage(string characterName) =>
-        new LoginWriter().U16(GameMessageId).U16(198).U16(0xffff).U16(0).U16(0).U16(0).U16(0).U16(1).Str(characterName).ToArray();
+        new LoginWriter().U16(GameMessageId).U16(198).U16(0xffff).U16(0).U32(0).U32(0).U8(0).U8(1).WStr(characterName).ToArray();
 
     public const ushort AliveStateId = 0x1f1;
 

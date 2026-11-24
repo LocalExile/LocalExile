@@ -12,8 +12,11 @@ public class DeathResurrectOrderTests
     public void Death_wire_order_bytes()
     {
         Assert.Equal("00550C000000000001", Convert.ToHexString(InstanceProtocol.DeathScreen(0x0C, 1)));
-        Assert.Equal("001800C6FFFF000000000000000000010008546573744E616D65",
+        Assert.Equal("001800C6FFFF0000000000000000000000010008546573744E616D65",
             Convert.ToHexString(InstanceProtocol.DeathMessage("TestName")));
+        // Non-ASCII character names must encode with compact WStr (0x80 + UTF-16LE), matching 0x1429a60d0, not UTF-8.
+        Assert.Equal("001800C6FFFF000000000000000000000001000180C900",
+            Convert.ToHexString(InstanceProtocol.DeathMessage("É")));
         Assert.Equal("01F100000010FFFFFFFE00000101",
             Convert.ToHexString(InstanceProtocol.AliveState(0x10, 0xfffffffe, dead: true)));
         byte[] alive = InstanceProtocol.AliveState(0x10, 0, dead: false);
