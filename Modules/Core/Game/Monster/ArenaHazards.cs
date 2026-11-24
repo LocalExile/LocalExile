@@ -114,7 +114,7 @@ internal static class ArenaHazards
                 g.Monster.Life = (uint)Math.Max(0, (long)g.Monster.Life - damage);
                 if (absorbed > 0 || damage > 0) p.Minions.OutputQueue.Add(new([], "campaign ground damages minion", g.Id, g.Monster, PlayerMinions.OutputKind.Life,
                     DeathKind: DotDeathKind(g.Monster, g.Monster.Life)));
-                if (g.Monster.Life == 0) GolemDieLocked(p, g, now);
+                if (g.Monster.Life == 0) GolemDieLocked(p, g, now, killedByEnemy: true);
             }
             return before == p.PlayerLife ? null : InstanceProtocol.LifeUpdate(p.Id, p.PlayerLife, p.PlayerReservedLife,
                 u2c: p.PlayerLife == 0 ? InstanceProtocol.DeathKindDegen : InstanceProtocol.DeathKindNormal);
