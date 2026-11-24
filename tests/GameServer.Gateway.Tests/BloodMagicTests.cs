@@ -113,32 +113,41 @@ public sealed class BloodMagicTests
         player.PlayerUpdatesState = updates;
         Assert.True(player.PlayerUpdatesWorker.TryStart(player, updates.Rules, null, updates, out updates.Generation));
         await Program.BeginWorldFrames(player, Program.FrameMs / 1000d);
-        var stats = new List<(uint Key, int Value)>();
+        // Register the Stats system as Game.StartStats does so EndPausedFrame steps StepPlayerStats inside OnFrame
+        // (Area.Owned = true -> synchronous ShareInFrame, no off-frame SendRecordsAsync race).
+        area.Systems.Add("stats", AreaPhase.Stats, _ => Game.StepPlayerStats(player), source: f.Lifetime);
+        var statBatches = new List<(uint Key, int Value)[]>();
         var sent = new List<byte[]>();
         var written = AreaStats.Written;
         var outgoing = Program.Outgoing;
-        AreaStats.Written = (a, entity, list) => { written?.Invoke(a, entity, list); if (entity == player.Id) stats.AddRange(list); };
+        AreaStats.Written = (a, entity, list) =>
+        {
+            written?.Invoke(a, entity, list);
+            if (ReferenceEquals(a, area) && entity == player.Id) lock (statBatches) statBatches.Add([.. list]);
+        };
         Program.Outgoing = (p, bytes) => { outgoing?.Invoke(p, bytes); if (ReferenceEquals(p, player)) lock (sent) sent.Add(bytes.ToArray()); };
         try
         {
-            Game.StepPlayerStats(player);
-            area.Buffs.Publish(); area.Stats.Publish(); area.Life.Publish(); area.Delta.Take();
             player.Clock.Stop();
+            await player.Frames.EndPausedFrame(player);
             foreach (bool allocated in new[] { false, true })
             {
-                bloodMagic = allocated;
-                stats.Clear();
+                lock (statBatches) statBatches.Clear();
                 lock (sent) sent.Clear();
+                bloodMagic = allocated;
                 Game.RecomputePoolsAndSpeed(player);
                 await Game.SendCharacterStats(player, PlayerStatChange.Build);
                 await Game.SendPlayerMana(player);
-                Game.StepPlayerStats(player);
                 await player.Frames.EndPausedFrame(player);
-                Assert.Equal(allocated ? 0 : (int)player.Pools.Mana, stats.Last(s => s.Key == Stat.MaximumMana).Value);
-                Assert.Equal((int)player.Pools.Life, stats.Last(s => s.Key == Stat.MaximumLife).Value);
+                (uint Key, int Value)[][] batches;
+                lock (statBatches) batches = [.. statBatches];
+                var flatStats = batches.SelectMany(b => b).ToArray();
+                Assert.Equal(allocated ? 0 : (int)player.Pools.Mana, flatStats.Last(s => s.Key == Stat.MaximumMana).Value);
+                Assert.Equal((int)player.Pools.Life, flatStats.Last(s => s.Key == Stat.MaximumLife).Value);
+                var manaBatch = batches.Last(b => b.Any(s => s.Key == Stat.MaximumMana));
                 lock (sent)
                 {
-                    Assert.Contains(sent, p => p.AsSpan().SequenceEqual(InstanceEntities.StatsUpdate(player.Id, stats)));
+                    Assert.Contains(sent, p => p.AsSpan().SequenceEqual(InstanceEntities.StatsUpdate(player.Id, manaBatch)));
                     Assert.Contains(sent, p => p.AsSpan().SequenceEqual(InstanceProtocol.LifeUpdate(player.Id, player.PlayerMana,
                         AreaLife.ReservedMana?.Invoke(player) ?? 0, AreaLife.ManaPool, orderKey: uint.MaxValue)));
                 }
