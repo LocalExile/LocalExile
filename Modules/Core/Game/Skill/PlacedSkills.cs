@@ -530,6 +530,8 @@ public static partial class Game
     // The wait before a mine of a detonation sequence goes off after the one before it: the mine's detonation time
     // (base_mine_detonation_time_ms, 250 in every 3.29.3c mine row) at 10% more detonation speed for each mine before
     // it in the sequence (Detonate Mines' display_mine_deontation_mechanics_detonation_speed_+%_final_per_sequence_mine).
+    static bool IsMineDetonation(string? effect) => effect is "DetonateMines" or "GemDetonateMines" or "TriggeredDetonateMines";
+
     public static double MineSequenceGap(int milliseconds, int prior) =>
         (milliseconds > 0 ? milliseconds : 250) / 1000d / (1 + .1 * Math.Max(0, prior));
 
@@ -804,6 +806,7 @@ public static partial class Game
         double ailmentMore = skitterMore * damageMore;
         bool spell = offenseSnapshot?.Spell ?? spellDamage;
         bool attack = SkillsFor(player).IsAttack(placed.Effect);
+        int burningMorePct = GolemStat(placed.Own, Stat.FlamethrowerTrapDamagePlusPctFinalVsBurningEnemies);
         int chance = currentSkill ? SupportedReleaseCriticalChance(player, placed.Skill) : 0;
         int? vsBlinded = currentSkill ? SupportedCriticalChanceVsBlinded(player, placed.Skill, release: true) : null;
         GroundCritical? vsGround = currentSkill ? SupportedCriticalChanceVsGround(player, placed.Skill, release: true) : null;
@@ -823,8 +826,11 @@ public static partial class Game
                     m.Ignites.IgnitedAt(now), m.Bleeds.IgnitedAt(now), EnemyOnLowLife(m), m.MaimedUntil > now,
                     spider.Melee && TargetAccuracy.InCloseRange(Dist(centre, m.Walk.Position(now))),
                     ContactDamage(player, m, now, spider.Stats));
+            double targetMore = burningMorePct != 0 && BurningTarget(player, m, now)
+                ? Math.Max(0, 1 + burningMorePct / 100d) : 1;
             var rolled = WithConditionalSupportDamageLocked(player, placed.Own, !spell, m,
                 profile.Hit.Scale(hitMore).Roll(AreaRng(player)), now);
+            if (targetMore != 1) rolled = rolled.Scale(targetMore);
             var mitigated = MitigateMonsterHit(m, rolled, now, cannotPenetrateOrIgnore:
                 Math.Max(GolemStat(owner, Stat.CannotPenetrateOrIgnoreElementalResistances),
                     GolemStat(placed.Own, Stat.CannotPenetrateOrIgnoreElementalResistances)));
@@ -839,21 +845,19 @@ public static partial class Game
             if (ApplyMonsterHitLocked(player, m, damage, null, null, allyAt: centre, default, null, chaosDamage) is not { } hit) continue;
             if (hit.StageStarts) { CommitBossStage(player, id, m, now); hit = hit with { StageStarts = false }; }
             OwnedKillLocked(m, hit.Life);
-            var poison = profile.Poison with { Min = profile.Poison.Min * ailmentMore, Max = profile.Poison.Max * ailmentMore,
-                CriticalMin = profile.Poison.CriticalMin * ailmentMore, CriticalMax = profile.Poison.CriticalMax * ailmentMore };
+            double targetAilmentMore = ailmentMore * targetMore;
+            var poison = RepeatAilment(profile.Poison, targetAilmentMore);
             AilmentsOnHitLocked(player, id, m, mitigated, spell, critical, hitMultiplier, playerStats, placed.Own, now,
                 AreaRng(player), poison: poison, sourceSkill: placed.Skill, blind: BlindHitInput.Capture(playerStats, placed.Own), playerHit: false);
             if (!m.Dead && profile.Ignite.Max > 0)
             {
-                var ignite = profile.Ignite with { Min = profile.Ignite.Min * ailmentMore, Max = profile.Ignite.Max * ailmentMore,
-                    CriticalMin = profile.Ignite.CriticalMin * ailmentMore, CriticalMax = profile.Ignite.CriticalMax * ailmentMore };
+                var ignite = RepeatAilment(profile.Ignite, targetAilmentMore);
                 foreach (var packet in IgniteOnHitLocked(player, id, m, ignite, critical, now, playerIgnite: false) ?? [])
                     player.Minions.OutputQueue.Add(new(packet, "trap/mine ignite", id, m));
             }
             if (!m.Dead && !spell && rolled[DamageType.Physical].Max > 0)
             {
-                var bleed = profile.Bleed with { Min = profile.Bleed.Min * ailmentMore, Max = profile.Bleed.Max * ailmentMore,
-                    CriticalMin = profile.Bleed.CriticalMin * ailmentMore, CriticalMax = profile.Bleed.CriticalMax * ailmentMore };
+                var bleed = RepeatAilment(profile.Bleed, targetAilmentMore);
                 foreach (var packet in BleedOnHitLocked(player, id, m, bleed, critical, now) ?? [])
                     player.Minions.OutputQueue.Add(new(packet, "trap/mine bleed", id, m));
             }

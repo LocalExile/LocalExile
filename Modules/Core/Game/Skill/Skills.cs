@@ -1225,6 +1225,7 @@ public static partial class Game
         if (TravelSkillsExceptDashDisabled(player, effect, skillId) is { } travel) return travel;
         if (gem.Supports.Any(s => s.Effect.Added.Contains(36))
             && !TriggeredSpellExecutable(player, skillId, gem)
+            && !CooldownTriggerExecutable(player, gem)
             && !SnipeTriggeredAttackExecutable(player, skillId, gem)
             && !ManaforgedAttackExecutable(player, skillId, gem)) return "this trigger payload has no server executor";
         if (!triggered && TriggerOnlyReason(gem) is { } trigger) return trigger;

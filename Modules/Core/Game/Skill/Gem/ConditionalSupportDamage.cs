@@ -59,7 +59,8 @@ public static partial class Game
         double more = ConditionalSupportMore(skill, attack, target.Ailments.Magnitude(MonsterElementalAilments.Kind.Chill, now) > 0,
             FlaskRecovery.LowLife(target.Life, target.MaxLife), fullLife,
             Lifetap.ActiveAt(player, now), target.Poisons.Stacks(now), powerCharges: ChargesOf(player).Effective(ChargeType.Power),
-            arcaneSurge: ArcaneSurgeActive(player, now), recentIgnites: recentIgnites,
+            arcaneSurge: Get(Stat.SupportArcaneSurgeSpellDamagePlusPctFinalWhileYouHaveArcaneSurge) != 0
+                && ArcaneSurgeActive(player, now), recentIgnites: recentIgnites,
             enduranceCharges: ChargesOf(player).Effective(ChargeType.Endurance));
         var packet = more == 1 ? rolled : rolled.Scale(more);
         if (attack && target.Bleeds.Burning && Get(Stat.SupportBloodlustMeleePhysicalDamagePlusPctFinalVsBleedingEnemies) is int bloodlust and not 0)
