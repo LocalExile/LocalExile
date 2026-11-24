@@ -52,6 +52,26 @@ WHERE checked = 0;` lists what still needs comparing with the real game (today: 
 Rows are added with a new file in `sql/updates/pending_world/` ([databases](databases.md)); the tables' own files are in
 `sql/base/world/`.
 
+## The fx tables
+
+The next form of the rules, being filled stat by stat; the engine still reads the three tables above until the
+`fx_` loader replaces them. The unit is the stat: a mod is a list of stats (client.db `Mods`), so a stat rebuilt once is
+rebuilt for every mod, passive or area modifier that carries it.
+
+| Table | Holds |
+|---|---|
+| `fx_triggers`, `fx_conditions`, `fx_timers`, `fx_values`, `fx_targets`, `fx_actions` | the parts rules are built from, one row each, with what it takes, whether its code exists (`built`), where it came from and what it does |
+| `fx_quantities` | the numbers the game works out for an actor (maximum life, action speed), and whether code or a table does the arithmetic |
+| `fx_modifiers` | the short form for a plain number: a stat changes a quantity (flat, increased, more, override, minimum, maximum, flag), under conditions |
+| `fx_rules` with `fx_rule_sources`, `fx_rule_when`, `fx_rule_if`, `fx_rule_do` | a rule: what switches it on, any of its triggers, its condition groups (all in a group, any group), its actions in order |
+| `fx_stats` | every stat: its kind, how it is handled (modifier, rule, item, code, display, deferred, none), the files that read it, and for one not rebuilt, why and how it could fit |
+
+A plain number is granted to the calculator the game module already has (the stat graph); `fx_modifiers` records what
+the number means so that a formula can later move to a table one quantity at a time, each measured. Nothing reads these
+tables during play: they are loaded at startup into arrays by stat id, and an actor's rules are worked out when its
+sources change, not per hit. `scripts/dev/fx_stats.py` writes the first sort of `fx_stats` (11,660 stats: 2,758 named
+by code, 8,902 by nothing); later updates correct rows and never regenerate the file.
+
 ## A rule
 
 ```json
