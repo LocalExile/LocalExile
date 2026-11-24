@@ -8,6 +8,8 @@ public static partial class Game
     public static GolemCatalog GolemData = null!;
     const string GolemSaveKey = "Game.Golems";
     static int GolemStat(IReadOnlyDictionary<uint, int> stats, uint name) => name is var key ? stats.GetValueOrDefault(key) : 0;
+    static int GolemEffectiveLimit(int gemGolems, Func<uint, int> playerStat) =>
+        Math.Min(100, ApplyDarkMonarchLimit(GolemCatalog.Limit(gemGolems, playerStat), playerStat, "Golem"));
     static void GolemAdd(Dictionary<uint, int> stats, uint name, int value)
     { if (value != 0 && name is var key) stats[key] = ActorScale.Saturate((long)stats.GetValueOrDefault(key) + value); }
 
@@ -675,7 +677,8 @@ public static partial class Game
                 if (!sources.TryGetValue(golem.Source, out int effect) || effect != golem.Definition.Effect)
                 { RemoveGolemLocked(player, golem, now); changed = true; continue; }
                 var gem = SupportedSkill(player, golem.Source);
-                if (!gem.RequirementsMet) { RemoveGolemLocked(player, golem, now); changed = true; continue; }
+                if (!gem.RequirementsMet || !MinionFamilyAllowed(n => GolemStat(playerStats, n), "Golem"))
+                { RemoveGolemLocked(player, golem, now); changed = true; continue; }
                 if (golem.Monster.Dead)
                 {
                     continue;

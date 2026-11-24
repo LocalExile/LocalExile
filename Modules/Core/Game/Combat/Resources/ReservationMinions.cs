@@ -167,6 +167,22 @@ public static partial class Game
                 if (!player.Auras.TryGetValue(fighter.Source, out var aura)) continue;
                 if (refresh)
                 {
+                    int PlayerStat(uint s) => GolemStat(playerStats!, s);
+                    if (!MinionFamilyAllowed(PlayerStat, fighter.Definition.Kind))
+                    {
+                        RemoveReservationFighterLocked(player, fighter, now);
+                        continue;
+                    }
+                    if (fighter.Definition.Kind == "Purity")
+                    {
+                        int purityLimit = ApplyDarkMonarchLimit(ReservationStat(player, aura, Stat.BaseNumberOfChampionsOfLightAllowed)
+                            + PlayerStat(Stat.BaseNumberOfChampionsOfLightAllowed), PlayerStat, "Purity");
+                        if (state.Fighters.Values.Count(g => g.Definition.Kind == "Purity" && !g.Monster.Dead) > purityLimit)
+                        {
+                            RemoveReservationFighterLocked(player, fighter, now);
+                            continue;
+                        }
+                    }
                     fighter.Own = ReservationMinionStats(player, aura, fighter.Definition.Kind);
                     RefreshGolemLocked(player, fighter, playerStats!, now);
                 }
