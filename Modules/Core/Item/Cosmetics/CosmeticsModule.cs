@@ -1,6 +1,7 @@
 using System.Net.Sockets;
 using GameServer.Core.Protocol.Instance;
 using GameServer.Core.Protocol.Login;
+using GameServer.Core.World;
 using GameServer.Modding;
 using static Program;
 
@@ -84,6 +85,47 @@ public sealed class CosmeticsModule : IModule
         GameEvents.Packet(InstanceMicrotransactions.ResetRecordStatsId).Add(module.Manifest.Id, async (player, bytes) =>
         {
             await CosmeticsFeature.ResetRecordStats(player, InstanceMicrotransactions.ReadRecordIdU32(bytes, InstanceMicrotransactions.ResetRecordStatsId));
+            return true;
+        });
+        GameEvents.ObjectUse.Add(module.Manifest.Id, CosmeticsFeature.UseMannequin);
+        GameEvents.Packet(InstanceMicrotransactions.TargetSlotId).Add(module.Manifest.Id, async (player, bytes) =>
+        {
+            await CosmeticsFeature.PickTargetCosmetic(player, InstanceMicrotransactions.ReadTargetSlot(bytes));
+            return true;
+        });
+        GameEvents.Packet(InstanceMicrotransactions.TargetExtraEquipId).Add(module.Manifest.Id, async (player, bytes) =>
+        {
+            await CosmeticsFeature.EquipTargetExtra(player, InstanceMicrotransactions.ReadTargetExtraEquip(bytes));
+            return true;
+        });
+        GameEvents.Packet(InstanceMicrotransactions.TargetExtraUnequipId).Add(module.Manifest.Id, async (player, bytes) =>
+        {
+            await CosmeticsFeature.UnequipTargetExtra(player, InstanceMicrotransactions.ReadTargetExtraUnequip(bytes));
+            return true;
+        });
+        GameEvents.Packet(InstanceMicrotransactions.TargetSlotTierId).Add(module.Manifest.Id, async (player, bytes) =>
+        {
+            await CosmeticsFeature.SetTargetSlotTier(player, InstanceMicrotransactions.ReadTargetSlotTier(bytes));
+            return true;
+        });
+        GameEvents.Packet(InstanceMicrotransactions.TargetExtraTierId).Add(module.Manifest.Id, async (player, bytes) =>
+        {
+            await CosmeticsFeature.SetTargetExtraTier(player, InstanceMicrotransactions.ReadTargetExtraTier(bytes));
+            return true;
+        });
+        GameEvents.Packet(InstanceMicrotransactions.TargetWeaponClassId).Add(module.Manifest.Id, async (player, bytes) =>
+        {
+            await CosmeticsFeature.SetTargetWeaponClass(player, InstanceMicrotransactions.ReadTargetWeaponClass(bytes));
+            return true;
+        });
+        GameEvents.Packet(InstanceMicrotransactions.TargetDisplayFlagId).Add(module.Manifest.Id, async (player, bytes) =>
+        {
+            await CosmeticsFeature.SetTargetDisplayFlag(player, InstanceMicrotransactions.ReadTargetDisplayFlag(bytes));
+            return true;
+        });
+        GameEvents.Packet(InstanceMicrotransactions.TargetSwapId).Add(module.Manifest.Id, async (player, bytes) =>
+        {
+            await CosmeticsFeature.SwapTargetWithCharacter(player, InstanceMicrotransactions.ReadTargetSwap(bytes));
             return true;
         });
     }
@@ -303,6 +345,180 @@ public static class CosmeticsFeature
             $"0x0210 reset MTX stat counter for record {record.Id}");
         await Send(player, InstanceMicrotransactions.RecordUpsert(record with { Qword = 0 }),
             $"0x0204 upsert MTX record {record.Id} after stat reset");
+    }
+
+    static bool IsPlacedMannequin(Player player, uint targetId, out HideoutCatalog.Doodad? doodad)
+    {
+        lock (player.HideoutDoodads) doodad = player.HideoutDoodads.GetValueOrDefault(targetId);
+        return targetId != 0 && HideoutCatalog.IsMannequin(doodad?.Type);
+    }
+
+    static bool CanEditMannequin(Player player, uint targetId) =>
+        targetId != 0 && OwnHideout(player) && IsPlacedMannequin(player, targetId, out _);
+
+    /// <summary>Object click on a hideout Armour Mannequin: walks up, syncs S→C 0x006a/0x006f, and opens S→C 0x7b kind 0x47.</summary>
+    internal static async Task<bool> UseMannequin(Player player, InstanceTransfer.UseSkillOnObject use, double requestedAt)
+    {
+        if (!IsPlacedMannequin(player, use.TargetId, out var doodad) || doodad is null) return false;
+        if (!TryBeginObjectWalk(player, requestedAt, doodad.X, doodad.Y, player.StationaryInteractionSize(use.TargetId), out var walk))
+            return true;
+        var (action, now, _, stop, arrive) = walk;
+        if (arrive > now) await AreaDelay(player, arrive - now);
+        if (player.Closed || !PlayerActionCurrent(player, action)
+            || !PlayerWalk.InWalkUpRange(stop, (doodad.X, doodad.Y), player.StationaryInteractionSize(use.TargetId)))
+            return true;
+        await OpenMannequinTarget(player, use.TargetId, () => PlayerActionCurrent(player, action));
+        return true;
+    }
+
+    internal static async Task OpenMannequinTarget(Player player, uint targetId, Func<bool>? still = null)
+    {
+        if (targetId == 0) return;
+        var saved = global::Game.LoadMannequin(player, targetId);
+        var (worn, extras) = global::Game.ResolveMannequinSlots(saved);
+        byte flags = (byte)(saved.DisplayFlags | InstanceMicrotransactions.DefaultFlags);
+        await Send(player, InstanceMicrotransactions.TargetSnapshot(targetId, [], worn, extras, flags),
+            $"0x006a mannequin 0x{targetId:x} snapshot ({worn.Count} worn, {extras.Count} extra, flags=0x{flags:x2})", still: still);
+        await Send(player, InstanceMicrotransactions.TargetWeaponClasses(targetId, saved.MainWeaponClass, saved.OffWeaponClass),
+            $"0x006f mannequin 0x{targetId:x} weapon classes ({saved.MainWeaponClass}, {saved.OffWeaponClass})", still: still);
+        await Send(player, InstanceWaypoints.OpenUi(InstanceMicrotransactions.CosmeticsEquipScreenUi, targetId),
+            $"0x007b open mannequin CosmeticsEquipScreen 0x{targetId:x} (kind 0x{InstanceMicrotransactions.CosmeticsEquipScreenUi:x2})", still: still);
+    }
+
+    internal static async Task PickTargetCosmetic(Player player, (uint TargetId, byte Slot, uint RecordId, byte Option) pick)
+    {
+        if (!CanEditMannequin(player, pick.TargetId)) return;
+        var record = pick.RecordId == 0 ? null : Mtx.Find(pick.RecordId);
+        if (pick.Slot == 0 || pick.Slot >= InstanceMicrotransactions.SlotCount || (pick.RecordId != 0 && record is null)) return;
+        global::Game.UpdateMannequin(player, pick.TargetId, m =>
+        {
+            var worn = m.Worn is null ? new Dictionary<byte, CharacterSaves.SavedCosmetic>() : new Dictionary<byte, CharacterSaves.SavedCosmetic>(m.Worn);
+            if (record is null) worn.Remove(pick.Slot);
+            else worn[pick.Slot] = new CharacterSaves.SavedCosmetic(record.Id, pick.Option, record.MtxTypeHash);
+            return m with { Worn = worn };
+        });
+        var entry = record is not null
+            ? new InstanceMicrotransactions.Equipped(pick.Slot, record.Id, record.MtxTypeHash, record.Qword, pick.Option)
+            : new InstanceMicrotransactions.Equipped(pick.Slot, 0, 0, 0, 0);
+        await Send(player, InstanceMicrotransactions.TargetWornSlotUpdate(pick.TargetId, entry),
+            $"0x006b mannequin 0x{pick.TargetId:x} slot {pick.Slot} = record {entry.Id}");
+    }
+
+    internal static async Task EquipTargetExtra(Player player, (uint TargetId, uint RecordId, byte Option) equip)
+    {
+        if (!CanEditMannequin(player, equip.TargetId) || Mtx.Find(equip.RecordId) is not { } record) return;
+        uint key = 0;
+        global::Game.UpdateMannequin(player, equip.TargetId, m =>
+        {
+            var extras = m.Extras is null ? new List<global::Game.SavedExtraCosmetic>() : [.. m.Extras];
+            if (extras.Count >= byte.MaxValue) return m;
+            key = extras.Count == 0 ? 1u : extras.Max(e => e.Key) + 1u;
+            extras.Add(new global::Game.SavedExtraCosmetic(key, record.Id, equip.Option, record.MtxTypeHash));
+            return m with { Extras = extras };
+        });
+        if (key == 0) return;
+        await Send(player, InstanceMicrotransactions.TargetExtraSlotUpdate(equip.TargetId,
+            new(key, record.Id, record.MtxTypeHash, record.Qword, equip.Option)),
+            $"0x006c mannequin 0x{equip.TargetId:x} extra key {key} = record {record.Id}");
+    }
+
+    internal static async Task UnequipTargetExtra(Player player, (uint TargetId, uint Key) unequip)
+    {
+        if (!CanEditMannequin(player, unequip.TargetId)) return;
+        bool removed = false;
+        global::Game.UpdateMannequin(player, unequip.TargetId, m =>
+        {
+            if (m.Extras is not { Count: > 0 }) return m;
+            var extras = m.Extras.Where(e => e.Key != unequip.Key).ToList();
+            if (extras.Count == m.Extras.Count) return m;
+            removed = true;
+            return m with { Extras = extras };
+        });
+        if (!removed) return;
+        await Send(player, InstanceMicrotransactions.TargetExtraSlotRemove(unequip.TargetId, unequip.Key),
+            $"0x006d mannequin 0x{unequip.TargetId:x} remove extra key {unequip.Key}");
+    }
+
+    internal static async Task SetTargetSlotTier(Player player, (uint TargetId, byte Slot, byte Tier) change)
+    {
+        if (!CanEditMannequin(player, change.TargetId) || change.Slot == 0 || change.Slot >= InstanceMicrotransactions.SlotCount) return;
+        InstanceMicrotransactions.Equipped? updated = null;
+        global::Game.UpdateMannequin(player, change.TargetId, m =>
+        {
+            if (m.Worn is null || !m.Worn.TryGetValue(change.Slot, out var cur) || Mtx.Resolve(cur) is not { } record) return m;
+            byte tier = MtxEffects.Of(record.MtxTypeHash) is { TierCount: > 0 } fx
+                ? (byte)Math.Clamp(change.Tier == 0 ? 1 : change.Tier, 1, fx.TierCount)
+                : change.Tier;
+            var worn = new Dictionary<byte, CharacterSaves.SavedCosmetic>(m.Worn) { [change.Slot] = cur with { Option = tier } };
+            updated = new InstanceMicrotransactions.Equipped(change.Slot, record.Id, record.MtxTypeHash, record.Qword, tier);
+            return m with { Worn = worn };
+        });
+        if (updated is null) return;
+        await Send(player, InstanceMicrotransactions.TargetWornSlotUpdate(change.TargetId, updated),
+            $"0x006b mannequin 0x{change.TargetId:x} slot {change.Slot} tier={updated.Option}");
+    }
+
+    internal static async Task SetTargetExtraTier(Player player, (uint TargetId, uint Key, byte Tier) change)
+    {
+        if (!CanEditMannequin(player, change.TargetId)) return;
+        InstanceMicrotransactions.ExtraSlot? updated = null;
+        global::Game.UpdateMannequin(player, change.TargetId, m =>
+        {
+            if (m.Extras is null) return m;
+            int idx = m.Extras.FindIndex(e => e.Key == change.Key);
+            if (idx < 0) return m;
+            var cur = m.Extras[idx];
+            if (Mtx.Resolve(new CharacterSaves.SavedCosmetic(cur.Record, cur.Option, cur.Hash)) is not { } record) return m;
+            byte tier = MtxEffects.Of(record.MtxTypeHash) is { TierCount: > 0 } fx
+                ? (byte)Math.Clamp(change.Tier == 0 ? 1 : change.Tier, 1, fx.TierCount)
+                : change.Tier;
+            var extras = new List<global::Game.SavedExtraCosmetic>(m.Extras) { [idx] = cur with { Option = tier } };
+            updated = new InstanceMicrotransactions.ExtraSlot(change.Key, record.Id, record.MtxTypeHash, record.Qword, tier);
+            return m with { Extras = extras };
+        });
+        if (updated is null) return;
+        await Send(player, InstanceMicrotransactions.TargetExtraSlotUpdate(change.TargetId, updated),
+            $"0x006c mannequin 0x{change.TargetId:x} extra key {change.Key} tier={updated.Option}");
+    }
+
+    internal static async Task SetTargetWeaponClass(Player player, (uint TargetId, uint WeaponClass, byte Hand) change)
+    {
+        if (!CanEditMannequin(player, change.TargetId)) return;
+        var updated = global::Game.UpdateMannequin(player, change.TargetId, m =>
+            change.Hand == 0 ? m with { MainWeaponClass = change.WeaponClass } : m with { OffWeaponClass = change.WeaponClass });
+        await Send(player, InstanceMicrotransactions.TargetWeaponClasses(change.TargetId, updated.MainWeaponClass, updated.OffWeaponClass),
+            $"0x006f mannequin 0x{change.TargetId:x} weapon classes ({updated.MainWeaponClass}, {updated.OffWeaponClass})");
+    }
+
+    internal static async Task SetTargetDisplayFlag(Player player, (uint TargetId, bool Flag) change)
+    {
+        if (!CanEditMannequin(player, change.TargetId)) return;
+        var updated = global::Game.UpdateMannequin(player, change.TargetId, m =>
+        {
+            byte flags = (byte)(m.DisplayFlags | InstanceMicrotransactions.DefaultFlags);
+            flags = change.Flag ? (byte)(flags | 0x02) : (byte)(flags & ~0x02);
+            return m with { DisplayFlags = flags };
+        });
+        await Send(player, InstanceMicrotransactions.TargetDisplayFlags(change.TargetId, updated.DisplayFlags),
+            $"0x006e mannequin 0x{change.TargetId:x} display flags=0x{updated.DisplayFlags:x2}");
+    }
+
+    internal static async Task SwapTargetWithCharacter(Player player, uint targetId)
+    {
+        if (!CanEditMannequin(player, targetId)) return;
+        string character = CharacterName(player);
+        var charWorn = new Dictionary<byte, CharacterSaves.SavedCosmetic>(CharacterSaves.Cosmetics(character));
+        var mannequin = global::Game.LoadMannequin(player, targetId);
+        var manWorn = mannequin.Worn is null ? new Dictionary<byte, CharacterSaves.SavedCosmetic>() : new Dictionary<byte, CharacterSaves.SavedCosmetic>(mannequin.Worn);
+        var updated = global::Game.UpdateMannequin(player, targetId, m => m with { Worn = charWorn });
+        foreach (byte slot in charWorn.Keys.Union(manWorn.Keys).ToArray())
+            CharacterSaves.SetCosmetic(character, slot, manWorn.GetValueOrDefault(slot));
+        player.Character.WornCosmetics = null;
+        var (worn, extras) = global::Game.ResolveMannequinSlots(updated);
+        await Send(player, InstanceMicrotransactions.TargetSnapshot(targetId, [], worn, extras, updated.DisplayFlags),
+            $"0x006a mannequin 0x{targetId:x} swapped with {character} ({worn.Count} worn)");
+        await SendWornCosmetics(player, "mannequin swap");
+        await SendEquipment(player, ItemsOf(player), refreshCosmetics: false);
     }
 
     // The worn pets (Pet slots 18 and 19): one PetObject each beside the player, owned by it (PetAi). A pick removes the

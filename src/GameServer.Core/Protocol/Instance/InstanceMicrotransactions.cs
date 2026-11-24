@@ -12,6 +12,12 @@ public static class InstanceMicrotransactions
 {
     public const ushort PurchasedId = 0x1f3;
     public const ushort AddedId = 0x1f4;
+    public const ushort TargetSnapshotId = 0x006a;
+    public const ushort TargetWornSlotUpdateId = 0x006b;
+    public const ushort TargetExtraSlotUpdateId = 0x006c;
+    public const ushort TargetExtraSlotRemoveId = 0x006d;
+    public const ushort TargetDisplayFlagsId = 0x006e;
+    public const ushort TargetWeaponClassesId = 0x006f;
     public const ushort WornSlotUpdateId = 0x1ff;
     public const ushort SkillSlotUpdateId = 0x200;
     public const ushort SkillSlotRemoveId = 0x201;
@@ -22,6 +28,9 @@ public static class InstanceMicrotransactions
     public const ushort ReclaimQueryResultId = 0x20c;
     public const ushort RecordStatUpdateId = 0x210;
     public const ushort RecordStatResetId = 0x211;
+
+    /// <summary>S→C 0x7b kind 0x47: opens CosmeticsEquipScreen bound to a non-zero cosmetic target (hideout Armour Mannequin).</summary>
+    public const byte CosmeticsEquipScreenUi = 0x47;
 
     /// <summary>
     /// One owned microtransaction, in wire order. <paramref name="MtxTypeHash"/> lands at +0x04 and is the key the
@@ -150,6 +159,49 @@ public static class InstanceMicrotransactions
     /// <summary>S→C 0x211 (vtable 0x1431767e8, write 0x140911210, read 0x140911270, case 0x9f): clear one record's stat counter.</summary>
     public static byte[] RecordStatReset(uint recordId) =>
         new LoginWriter().U16(RecordStatResetId).U32(recordId).ToArray();
+
+    /// <summary>S→C 0x006a (vtable 0x1435e73e0, write 0x1421a6430, read 0x1421a64f0, case 0x15): full cosmetic target
+    /// (mannequin) snapshot synced into session +0xd678. Wire: u32 BE targetId, vec8 records, vec8 worn slots, vec8 extra
+    /// slots, u8 display flags (bits 0..2).</summary>
+    public static byte[] TargetSnapshot(uint targetId, IReadOnlyList<Record>? records = null,
+        IReadOnlyList<Equipped>? equipped = null, IReadOnlyList<ExtraSlot>? extras = null, byte flags = DefaultFlags)
+    {
+        records ??= [];
+        equipped ??= [];
+        extras ??= [];
+        if (records.Count > byte.MaxValue) throw new ArgumentOutOfRangeException(nameof(records), records.Count, "0x006a counts records in one byte");
+        if (equipped.Count > byte.MaxValue) throw new ArgumentOutOfRangeException(nameof(equipped), equipped.Count, "0x006a counts worn slots in one byte");
+        if (extras.Count > byte.MaxValue) throw new ArgumentOutOfRangeException(nameof(extras), extras.Count, "0x006a counts extra slots in one byte");
+        var w = new LoginWriter().U16(TargetSnapshotId).U32(targetId).U8((byte)records.Count);
+        foreach (var r in records) WriteRecord(w, r);
+        w.U8((byte)equipped.Count);
+        foreach (var e in equipped) WriteWornEntry(w.U8(e.Slot), e.Id, e.MtxTypeHash, e.Qword, e.Option);
+        w.U8((byte)extras.Count);
+        foreach (var x in extras.OrderBy(x => x.Key)) WriteWornEntry(w.RawU32(x.Key), x.Id, x.MtxTypeHash, x.Qword, x.Option);
+        return w.U8(flags).ToArray();
+    }
+
+    /// <summary>S→C 0x006b (vtable 0x1435e74e0, write 0x1421a66a0, read 0x1421a6730, case 0x16): update one worn slot on a cosmetic target.</summary>
+    public static byte[] TargetWornSlotUpdate(uint targetId, Equipped entry) =>
+        WriteWornEntry(new LoginWriter().U16(TargetWornSlotUpdateId).U32(targetId).U8(entry.Slot),
+            entry.Id, entry.MtxTypeHash, entry.Qword, entry.Option).ToArray();
+
+    /// <summary>S→C 0x006c (vtable 0x1435e6808, write 0x1421a6850, read 0x1421a68e0, case 0x17): upsert one extra slot on a cosmetic target.</summary>
+    public static byte[] TargetExtraSlotUpdate(uint targetId, ExtraSlot entry) =>
+        WriteWornEntry(new LoginWriter().U16(TargetExtraSlotUpdateId).U32(targetId).RawU32(entry.Key),
+            entry.Id, entry.MtxTypeHash, entry.Qword, entry.Option).ToArray();
+
+    /// <summary>S→C 0x006d (vtable 0x1435cae30, write 0x141f9a710, read 0x141f9a790, case 0x18): remove one extra slot from a cosmetic target.</summary>
+    public static byte[] TargetExtraSlotRemove(uint targetId, uint key) =>
+        new LoginWriter().U16(TargetExtraSlotRemoveId).U32(targetId).RawU32(key).ToArray();
+
+    /// <summary>S→C 0x006e (vtable 0x1435e69e8, write 0x1421a6a10, read 0x1421a6ab0, case 0x19): sync cosmetic target display flags (bits 0..2).</summary>
+    public static byte[] TargetDisplayFlags(uint targetId, byte flags) =>
+        new LoginWriter().U16(TargetDisplayFlagsId).U32(targetId).U8(flags).ToArray();
+
+    /// <summary>S→C 0x006f (vtable 0x1435e70c0, write 0x1421a6bd0, read 0x1421a6c70, case 0x1a): sync cosmetic target Main/Offhand WeaponClass (u32 BE targetId, raw u32 LE main, raw u32 LE off).</summary>
+    public static byte[] TargetWeaponClasses(uint targetId, uint mainWeaponClass, uint offWeaponClass) =>
+        new LoginWriter().U16(TargetWeaponClassesId).U32(targetId).RawU32(mainWeaponClass).RawU32(offWeaponClass).ToArray();
 
     static void WriteRecord(LoginWriter w, Record r) =>
         w.U8(r.Flags8)
@@ -360,6 +412,89 @@ public static class InstanceMicrotransactions
             throw new InvalidDataException($"invalid 0x{expectedId:x4} packet");
         return BinaryPrimitives.ReadUInt32BigEndian(m[2..]);
     }
+
+    /// <summary>C→S 0x005f (12 bytes, write 0x141f9a550, senders 0x140cdbc40/0x140cdc5f0): equip or clear a mannequin worn slot.</summary>
+    public const ushort TargetSlotId = 0x005f;
+    public const int TargetSlotLength = 12;
+
+    public static (uint TargetId, byte Slot, uint RecordId, byte Option) ReadTargetSlot(ReadOnlySpan<byte> m)
+    {
+        if (m.Length < TargetSlotLength || BinaryPrimitives.ReadUInt16BigEndian(m) != TargetSlotId)
+            throw new InvalidDataException("invalid 0x005f target slot packet");
+        return (BinaryPrimitives.ReadUInt32BigEndian(m[2..]), m[6], BinaryPrimitives.ReadUInt32BigEndian(m[7..]), m[11]);
+    }
+
+    /// <summary>C→S 0x0060 (11 bytes, write 0x141f99d70, sender 0x140cdc580): equip an extra cosmetic slot on a mannequin.</summary>
+    public const ushort TargetExtraEquipId = 0x0060;
+    public const int TargetExtraEquipLength = 11;
+
+    public static (uint TargetId, uint RecordId, byte Option) ReadTargetExtraEquip(ReadOnlySpan<byte> m)
+    {
+        if (m.Length < TargetExtraEquipLength || BinaryPrimitives.ReadUInt16BigEndian(m) != TargetExtraEquipId)
+            throw new InvalidDataException("invalid 0x0060 target extra equip packet");
+        return (BinaryPrimitives.ReadUInt32BigEndian(m[2..]), BinaryPrimitives.ReadUInt32BigEndian(m[6..]), m[10]);
+    }
+
+    /// <summary>C→S 0x0061 (10 bytes, write 0x141f9a710, sender 0x140cdc670): remove an extra cosmetic slot on a mannequin.</summary>
+    public const ushort TargetExtraUnequipId = 0x0061;
+    public const int TargetExtraUnequipLength = 10;
+
+    public static (uint TargetId, uint Key) ReadTargetExtraUnequip(ReadOnlySpan<byte> m)
+    {
+        if (m.Length < TargetExtraUnequipLength || BinaryPrimitives.ReadUInt16BigEndian(m) != TargetExtraUnequipId)
+            throw new InvalidDataException("invalid 0x0061 target extra unequip packet");
+        return (BinaryPrimitives.ReadUInt32BigEndian(m[2..]), BinaryPrimitives.ReadUInt32LittleEndian(m[6..]));
+    }
+
+    /// <summary>C→S 0x0062 (8 bytes, write 0x141f993f0, sender 0x140cdbcc0): set a mannequin worn slot's visual tier.</summary>
+    public const ushort TargetSlotTierId = 0x0062;
+    public const int TargetSlotTierLength = 8;
+
+    public static (uint TargetId, byte Slot, byte Tier) ReadTargetSlotTier(ReadOnlySpan<byte> m)
+    {
+        if (m.Length < TargetSlotTierLength || BinaryPrimitives.ReadUInt16BigEndian(m) != TargetSlotTierId)
+            throw new InvalidDataException("invalid 0x0062 target slot tier packet");
+        return (BinaryPrimitives.ReadUInt32BigEndian(m[2..]), m[6], m[7]);
+    }
+
+    /// <summary>C→S 0x0063 (11 bytes, write 0x141f9a960, sender 0x140cdbd30): set a mannequin extra slot's visual tier.</summary>
+    public const ushort TargetExtraTierId = 0x0063;
+    public const int TargetExtraTierLength = 11;
+
+    public static (uint TargetId, uint Key, byte Tier) ReadTargetExtraTier(ReadOnlySpan<byte> m)
+    {
+        if (m.Length < TargetExtraTierLength || BinaryPrimitives.ReadUInt16BigEndian(m) != TargetExtraTierId)
+            throw new InvalidDataException("invalid 0x0063 target extra tier packet");
+        return (BinaryPrimitives.ReadUInt32BigEndian(m[2..]), BinaryPrimitives.ReadUInt32LittleEndian(m[6..]), m[10]);
+    }
+
+    /// <summary>C→S 0x0064 (11 bytes, write 0x141f9a960, sender 0x140cdc950): set mannequin main (hand=0) or offhand (hand=1) WeaponClass.</summary>
+    public const ushort TargetWeaponClassId = 0x0064;
+    public const int TargetWeaponClassLength = 11;
+
+    public static (uint TargetId, uint WeaponClass, byte Hand) ReadTargetWeaponClass(ReadOnlySpan<byte> m)
+    {
+        if (m.Length < TargetWeaponClassLength || BinaryPrimitives.ReadUInt16BigEndian(m) != TargetWeaponClassId)
+            throw new InvalidDataException("invalid 0x0064 target weapon class packet");
+        return (BinaryPrimitives.ReadUInt32BigEndian(m[2..]), BinaryPrimitives.ReadUInt32LittleEndian(m[6..]), m[10]);
+    }
+
+    /// <summary>C→S 0x0065 (7 bytes, write 0x141f96e50, sender 0x140cdc430): toggle a mannequin cosmetic display flag.</summary>
+    public const ushort TargetDisplayFlagId = 0x0065;
+    public const int TargetDisplayFlagLength = 7;
+
+    public static (uint TargetId, bool Flag) ReadTargetDisplayFlag(ReadOnlySpan<byte> m)
+    {
+        if (m.Length < TargetDisplayFlagLength || BinaryPrimitives.ReadUInt16BigEndian(m) != TargetDisplayFlagId)
+            throw new InvalidDataException("invalid 0x0065 target display flag packet");
+        return (BinaryPrimitives.ReadUInt32BigEndian(m[2..]), m[6] != 0);
+    }
+
+    /// <summary>C→S 0x0066 (6 bytes, write 0x140911210, sender 0x140cdc8e0): swap mannequin cosmetics with the character.</summary>
+    public const ushort TargetSwapId = 0x0066;
+    public const int TargetSwapLength = 6;
+
+    public static uint ReadTargetSwap(ReadOnlySpan<byte> m) => ReadRecordIdU32(m, TargetSwapId);
 
     /// <summary>The skill slots' target variant index for a skill gem (0x1424b34d0's table 0x143645770: 0 empty, 1 a skill
     /// gem, 2 two u32s).</summary>
