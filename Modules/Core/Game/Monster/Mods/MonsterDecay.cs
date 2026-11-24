@@ -96,12 +96,13 @@ public static partial class Game
         int Get(uint key) => playerStats.GetValueOrDefault(key);
         bool immune = player.Immune || chaosImmune || Get(Stat.BaseCannotBeDamaged) != 0;
         if (immune) { state.Damage.DiscardDamageCarry(); state.TakenCarry = 0; }
-        double factor = immune ? 0 : DamageModel.Mitigate(1d, Resistance(player, DamageType.Chaos), MaxResistance(player, DamageType.Chaos))
+        double factor = immune ? 0 : DamageModel.Mitigate(1d, Resistance(player, DamageType.Chaos) + Get(Stat.AdditionalChaosResistanceAgainstDamageOverTimePct), MaxResistance(player, DamageType.Chaos))
             * player.ElementalAilments.DamageTakenFactor(now, 0) * dotTakenFactor;
         int damage = state.Damage.Advance(now, factor);
         if (!state.Damage.Burning) DecayIcon(player, state, now);
         damage = IncomingResourceDefences.TakenOverTime(damage, Get, ref state.TakenCarry,
-            IncomingResourceDefences.LessTakenPct(player.Pools, Get), typedIncreasedPct: Get(Stat.ChaosDamageTakenPlusPct),
+            IncomingResourceDefences.LessTakenPct(player.Pools, Get), typedIncreasedPct: Get(Stat.ChaosDamageTakenPlusPct)
+                + (player.InCausticCloud ? Get(Stat.ChaosDamageTakenOverTimePlusPctWhileInCausticCloud) : 0),
             finalTakenPct: Get(IncomingResourceDefences.UnhingedSaneDamageFinal));
         return DamagePlayerChaosOverTime(player, damage, now, playerStats);
     }

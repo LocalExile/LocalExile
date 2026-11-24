@@ -1,5 +1,6 @@
 using System.Net.Sockets;
 using System.Text.Json.Nodes;
+using GameServer.Core;
 using GameServer.Core.Protocol.Instance;
 using GameServer.Core.Protocol.Login;
 using GameServer.Modding;
@@ -26,6 +27,7 @@ public sealed class PantheonModule : IModule
             await PantheonRules.ChooseGod(player, InstancePantheon.ReadChooseGod(bytes.AsSpan()));
             return true;
         });
+        GameEvents.NpcOptionPicked.Add(module.Manifest.Id, PantheonRules.UnlockSoulFromItem);
         GameEvents.PlayerStatSources.Add(module.Manifest.Id, PantheonRules.WithGods);
         GameEvents.StateBuilding.Add(module.Manifest.Id, (player, state) => state["pantheon"] = PantheonRules.Json(player));
         GameEvents.CommandsBuilding.Add(module.Manifest.Id, (commands, player) => commands
@@ -96,12 +98,60 @@ static class PantheonRules
             $"0x02bc player Pantheon: major {major}, minor {minor} ({why})");
     }
 
+    /// <summary>Sin's <c>UnlockPantheonPowerFromItem()</c> NPCTalk rows: require and consume the matching filled
+    /// <c>CapturedVessel</c> from the player's main inventory, grant the upgrade flag, and refresh Pantheon stats before
+    /// Sin's audio plays and <c>SendOpenScreen(PantheonScreen)</c> opens the panel.</summary>
+    internal static async Task<bool> UnlockSoulFromItem(Player player, NpcCatalog.Talk talk)
+    {
+        if (!talk.Script.Contains("UnlockPantheonPowerFromItem", StringComparison.Ordinal)) return true;
+        var soul = PantheonCatalog.Default?.SoulByUpgradeFlag(talk.StartFlag);
+        if (soul is null)
+        {
+            Console.WriteLine($"[gateway] {player.Connection.Remote} NPCTalk {talk.Row}: UnlockPantheonPowerFromItem has no PantheonSouls row for {talk.StartFlag}");
+            return false;
+        }
+        var items = ItemsOf(player);
+        const byte row = PlayerInventories.MainInventory;
+        uint vesselHash = InstanceEntities.ObjectTypeHash(soul.VesselItemId);
+        await player.Character.QuestGate.WaitAsync();
+        try
+        {
+            uint spent = 0;
+            PlayerInventories.Consumption? taken = null;
+            global::Game.QuestFlagCommit? commit = null;
+            Saves.Atomically(() =>
+            {
+                if (ClientHasQuestFlag(player, soul.UpgradeFlag) || global::Game.HardcoreProgressBlocked(player)) return;
+                var vessel = items.Items(row).FirstOrDefault(i => i.Item.TypeHash == vesselHash);
+                if (vessel is null) return;
+                taken = items.ConsumeOne(row, vessel.Id);
+                if (taken is null) return;
+                spent = vessel.Id;
+                commit = global::Game.CommitQuestFlags(player, [soul.UpgradeFlag]);
+                if (commit is null) throw new InvalidOperationException("Unable to commit the Pantheon upgrade.");
+            });
+            if (commit is null || taken is null) return false;
+            uint inventoryId = PlayerInventories.InventoryId(row);
+            await Send(player, InstanceItems.InventoryChange(inventoryId, items.NextRevision(row),
+                [spent], taken.Left is { } left ? [left] : []), $"0x00bf handed {soul.VesselItemId} to Sin");
+            await global::Game.PublishQuestFlags(player, commit);
+        }
+        finally { player.Character.QuestGate.Release(); }
+        player.Pools = PoolsFor(player, player.Pools.Level);
+        player.ApplyMovementSpeed();
+        await SendCharacterStats(player, PlayerStatChange.Build);
+        Console.WriteLine($"[gateway] {player.Connection.Remote} {CharacterName(player)}: unlocked Pantheon soul {soul.UpgradeFlag} ({soul.VesselItemId})");
+        return true;
+    }
+
     /// <summary>The chosen gods' stats on top of the character's other sources (PantheonCatalog.ChosenStats): a god whose
     /// unlock flag the character lost grants nothing, the souls' upgrades count once EndGameAvailable is earned.</summary>
     internal static Dictionary<uint, int> WithGods(Player player, Dictionary<uint, int> sources)
     {
         foreach (var (key, value) in PantheonCatalog.Default.ChosenStats(player, f => ClientHasQuestFlag(player, f)))
             sources[key] = (int)Math.Clamp((long)sources.GetValueOrDefault(key) + value, int.MinValue, int.MaxValue);
+        if (player.OnBurningGround && sources.GetValueOrDefault(Stat.MovementSpeedPlusPctWhileOnBurningGround) is int burnMove and not 0)
+            sources[Stat.BaseMovementVelocityPlusPct] = (int)Math.Clamp((long)sources.GetValueOrDefault(Stat.BaseMovementVelocityPlusPct) + burnMove, int.MinValue, int.MaxValue);
         return sources;
     }
 
