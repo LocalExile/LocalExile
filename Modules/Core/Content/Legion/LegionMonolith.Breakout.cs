@@ -7,10 +7,11 @@ using GameServer.Modding;
 namespace GameServer.Modules.Legion;
 
 /// <summary>
-/// Damage on a frozen army member and its break-out. A hit on a member is added to the damage it stores and zeroed (its
-/// life does not drop); at its maximum life it breaks out: its crystal goes (StateMachine <c>breakout</c> 1), the
-/// frozen buff ends and the faction's effect plays. It stays where it stands, still without AI, until the encounter ends (ReleaseArmy
-/// wakes it). A war chest that breaks out frees the tier 0 and 1 monsters near it and becomes an openable chest object.
+/// Damage on a frozen army member and its break-out. A hit on a member lowers its life (the area writes it to the
+/// clients' life bars) and is zeroed so nothing else is dealt; when it would reach 0 it is refilled and the member
+/// breaks out: its crystal goes (StateMachine <c>breakout</c> 1), the frozen buff ends and the faction's effect plays. It stays
+/// where it stands, still without AI, until the encounter ends (ReleaseArmy wakes it). A war chest that breaks out frees the
+/// tier 0 and 1 monsters near it and becomes an openable chest object.
 /// </summary>
 static partial class LegionMonolith
 {
@@ -26,12 +27,11 @@ static partial class LegionMonolith
     /// <summary>The openable chest that a broken-out war chest became (kept in the save; its id changes when it is opened).</summary>
     public sealed record Box(uint Id, string Type, int X, int Y, float Rotation, float? Z, string? Model, bool Hoard, bool Opened);
 
-    /// <summary>What the server keeps of one frozen member: the damage it stored and whether it broke out.</summary>
+    /// <summary>What the server keeps of one frozen member: whether it broke out (its life is the monster's own).</summary>
     sealed class Hold(Encounter e, LegionStasis.Member member)
     {
         public readonly Encounter E = e;
         public readonly LegionStasis.Member Member = member;
-        public double Damage;
         public bool Broken;
     }
 
@@ -46,7 +46,7 @@ static partial class LegionMonolith
         return Models.GetValueOrDefault(key);
     }
 
-    /// <summary>A member just spawned frozen: from now its hits are held. Ignite, poison, bleed and the other life takers
+    /// <summary>A member just spawned frozen: from now its hits lower its life. Ignite, poison, bleed and the other life takers
     /// end in TakeDamageLocked, which does nothing while the monster is Invulnerable: LegionStasis.Freeze sets EntranceGrace.</summary>
     static void Arm(Player player, Encounter e, LegionStasis.Member member)
     {
@@ -57,7 +57,7 @@ static partial class LegionMonolith
     }
 
     /// <summary>GameEvents.OutgoingDamage (per hit): the common path is a flag and one table lookup, no allocation. A hit on a
-    /// member of the army is stored and zeroed, also after the member broke out, until the timer ends.</summary>
+    /// member of the army lowers its life (not below 1) and is zeroed, also after the member broke out, until the timer ends.</summary>
     static DamagePacket Hit(IModuleContext module, Player player, SpawnedMonster target, DamagePacket rolled)
     {
         if (!anyHold || !Holds.TryGetValue(target, out var hold)) return rolled;
@@ -66,12 +66,13 @@ static partial class LegionMonolith
         {
             if (!hold.Broken)
             {
-                // GUESS: the member breaks out when the damage it stored reaches its maximum life. The damage is the rolled hit
-                // before resistances and crit, and map_legion_frozen_monsters_damage_taken_+% is ignored.
+                // GUESS: the damage is the rolled hit before resistances and crit, and map_legion_frozen_monsters_damage_taken_+%
+                // is ignored. Setting Life marks it for the area's life write (AreaLife), which sends it to every client.
+                // Damage over time is not counted: EntranceGrace makes TakeDamageLocked ignore it.
                 double total = 0;
                 for (int i = 0; i < 5; i++) total += rolled[(DamageType)i].Average;
-                hold.Damage += total;
-                if (hold.Damage >= target.MaxLife) hold.Broken = breaks = true;
+                if (total >= target.Life) { target.Life = 1; hold.Broken = breaks = true; }
+                else if (total >= 1) target.Life -= (uint)total;
             }
         }
         if (breaks) global::Game.SendAfter(player, 0, () => BreakOut(module, player, hold, target));
@@ -118,6 +119,8 @@ static partial class LegionMonolith
         foreach (var (hold, monster) in items)
         {
             uint id = hold.Member.Id;
+            // Seen in the live test: the life bar must not stay near 0 after the break-out. Full life makes the client hide it; later hits stay zeroed.
+            monster.Life = monster.MaxLife;
             var states = (monster.States ?? monster.Variety?.StateMachine)?.Set("breakout", 1);
             if (states is not null)
             {
@@ -187,7 +190,7 @@ static partial class LegionMonolith
         await LegionStasis.Remove(player, [chest]);
         await SpawnBox(module, player, e, chest, x, y);
         await Free(player, e, near);
-        module.Log($"Legion: chest broke out at ({x}, {y}), freed {near.Count}");
+        module.Log($"chest broke out at ({x}, {y}), freed {near.Count}");
     }
 
     // ---- the openable chest ----
@@ -200,7 +203,7 @@ static partial class LegionMonolith
         string? type = ClientTables.TableOrEmpty("Chests").Where(r => r.Index == row).Select(r => r.Text("Id")).FirstOrDefault();
         if (type is null || QuestObjectTypes.Find(type) is not { } info || !QuestObject.CanSerialize(info.Components))
         {
-            module.Log($"Legion: chest row {row} cannot be shown: no chest at ({x}, {y})");
+            module.Log($"chest row {row} cannot be shown: no chest at ({x}, {y})");
             return;
         }
         var box = new Box(player.TakeObjectId(), type, x, y, 0, null, info.OwnModel ? null : info.Model, member.WarHoard, false);

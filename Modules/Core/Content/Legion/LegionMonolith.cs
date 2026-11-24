@@ -103,7 +103,7 @@ static partial class LegionMonolith
         var saved = JsonSerializer.Deserialize<Saved>(text, Json);
         if (saved is null) return null;
         var restored = Encounters.GetValue(instance, _ => new Encounter(saved));
-        // The old module's holds are gone but its members keep EntranceGrace: hold them again (stored damage restarts from 0).
+        // The old module's holds are gone but its members keep EntranceGrace: hold them again (their life is kept).
         if (restored.Army is { } army && restored.Phase != Phase.Finished)
             foreach (var m in army) Arm(player, restored, m);
         return restored;
@@ -387,7 +387,7 @@ static partial class LegionMonolith
                 foreach (var g in flee) await global::Game.SendWorldRemoval(p, g.Id);
             }));
         string general = flee.Count > 0 ? "fled" : generalFought ? "fought" : "none";
-        module.Log($"Legion: army released ({reason}): {army.Count(m => m.Broken)} of {army.Length} broken out, general {general}");
+        module.Log($"army released ({reason}): {army.Count(m => m.Broken)} of {army.Length} broken out, general {general}");
         await ToAll(player, e, StatesOf(Phase.Finished, e), "spawn_lightning=0");
     }
 }

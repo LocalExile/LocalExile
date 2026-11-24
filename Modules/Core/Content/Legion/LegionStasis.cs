@@ -82,7 +82,7 @@ static class LegionStasis
                 await Add(f, chest.Monster, MonsterRarity.Normal, 0, true, chest.WarHoard, chest.FromPct, chest.ToPct);
         }
         string names = string.Join(" + ", plan.Factions.Select((f, i) => $"{f.Id} {counts[i]}"));
-        module.Log($"Legion: army spawned: {names} ({sergeants} sergeants, {generals} general, {chests} chests), {skipped} skipped");
+        module.Log($"army spawned: {names} ({sergeants} sergeants, {generals} general, {chests} chests), {skipped} skipped");
     }
 
     /// <summary>The stasis of one spawned monster: held like the Essence's encased previews (EssenceEncased.cs).</summary>

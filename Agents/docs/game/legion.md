@@ -24,7 +24,7 @@ The rules the code follows are the wiki's for 3.29; what the client data and cod
 - Buff 1311 `frozen_in_time` (flags: cannot be knocked back, minions take no actions) holds the monster while it is frozen.
   Its default visual is BuffVisuals 1082 `legion_petrify`; the faction ones 1099-1103 `legion_time_lock_*` are used by no
   buff row and could only be sent as a visual override. The server uses 1082.
-- The client keeps no damage for the stasis, so the stored damage is the server's (`GameEvents.OutgoingDamage`).
+- The client keeps no damage for the stasis: `GameEvents.OutgoingDamage` zeroes a hit on a frozen member and lowers its life on the server instead (the area writes the new life to every life bar).
 - A broken war chest (`LegionChestTypes`: the chest monster, and the `Chests` row it becomes) is replaced by that chest object.
 
 ## Effects (MiscAnimated)
@@ -64,7 +64,8 @@ The ruleset `LegionRules` (Rulesets 94) reads the same duration from the S->C 0x
 - Does the HUD gauge need `LegionRules` (0x1f with row 94, then 0x2c9) or is 0x163 alone enough? Only 0x163 is sent.
 - Formation radii (`LegionStasis.MinRadius`, `MaxRadius`, the sector width) and the chest break-out radius are guesses.
 - Tier rarity (elite Magic, sergeant Rare, general Unique) is a guess.
-- Is the swap of a broken-out monster for a fresh fighting one visible, and does a stored hit show a number or a flinch?
+- Is the swap of a broken-out monster for a fresh fighting one visible, and does a hit on a frozen monster show a number or a flinch?
+- Does the joiner's life bar match the lowered life? At break-out the member's life is refilled to its maximum (the bar must not stay near 0: live test), so its bar disappears.
 - Does buff 1311 with visual 1082 look right, or the faction visual?
 - Does the animation stay paused after the buff is removed, and does a fleeing general play its animation?
 - With two players, does the one who enters during the timer see the army frozen? The area gives a joiner the monsters
@@ -80,7 +81,7 @@ The ruleset `LegionRules` (Rulesets 94) reads the same duration from the S->C 0x
 - The factions: in The Climb Eternal Empire and Karui, in The Dried Lake Eternal Empire and one random; elsewhere two are
   drawn by `SpawnWeight` and the `map_legion_monoliths_chance_for_*` stats, among those whose balance row allows the level.
 - The army spawns frozen for every player in the area, 12 to 60 cells from the monolith, in a sector per army.
-- Only the player's own direct hits count, stored and not applied; a monster breaks out when they reach its maximum life.
+- Only the player's own direct hits count: each lowers the frozen monster's life and its life bar, and at 0 it breaks out and its life is refilled (the bar goes). Damage over time does not count (the frozen buff makes the monster invulnerable, and no general hook lowers an invulnerable monster's life).
   Totems, brands, traps, mines and minions do not count yet.
 - A broken war chest breaks out the non-sergeant, non-general monsters near it and becomes an openable chest.
 - The encounter ends at the timer, or early at 90% of the plain and elite monsters broken plus every chest, sergeant and general.
