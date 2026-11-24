@@ -215,7 +215,8 @@ public static partial class Game
             ReceiveWarcry(player.Area, recipient.Id, WarcryGrants.GetOrCreateValue(recipient), gift, now);
             UpdateWarcryStats(recipient);
         }
-        if (!rallying) GrantPlayer(player);
+        // Call to Arms suppresses the caster's own warcry buffs. Allies still get theirs.
+        if (!rallying && playerStats.GetValueOrDefault(Stat.KeystoneCallToArms) == 0) GrantPlayer(player);
         foreach (var ally in nearbyPlayers) GrantPlayer(ally);
         var ownMinions = ownMinionGift is null ? null : player.Minions.All.Select(m => m.Id).ToHashSet();
         foreach (var (id, ally) in player.Area.Monsters)
