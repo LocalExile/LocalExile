@@ -21,6 +21,9 @@ public static partial class Game
     /// </summary>
     public sealed record StatBundle(string Name, (uint Stat, int Min, int Max, double PerOwn)[] Stats, int LeftOut)
     {
+        /// <summary>How a list of live rules shows it.</summary>
+        public override string ToString() => $"\"{Name}\" ({Stats.Length} stat(s))";
+
         /// <summary>The bundle's stats at one roll: <paramref name="roll"/> percent of the way through each range (0 the
         /// lowest, 100 the highest), or <paramref name="own"/> (the giving line's rolled value) times the stat's scale
         /// for a stat that takes it; then <paramref name="effect"/> percent of that. A stat that comes to 0 is dropped.</summary>
