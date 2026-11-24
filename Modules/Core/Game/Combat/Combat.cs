@@ -2693,6 +2693,7 @@ public static partial class Game
         // The enemies this sweep struck and where, for Holy Sweep's hammers (RunHolyHammers).
         var hammerTargets = new List<(uint Id, (int X, int Y) At)>();
         double bloodMore = BloodChargeDamageMore(player, Stat);
+        int flamethrowerBurningMore = Stat(global::Stat.FlamethrowerTrapDamagePlusPctFinalVsBurningEnemies);
         int landed = 0;
         // One sweep, one hit: its offensive inputs are read once, at the first contact (inside the projectile mutation, after
         // earlier contacts caught up), and rolled per monster. They were computed again for every monster (a whole stat
@@ -2910,6 +2911,15 @@ public static partial class Game
                             Bleed = RepeatAilment(profile.Bleed, overexertionMore),
                             Poison = RepeatAilment(profile.Poison, overexertionMore),
                         };
+                    double burningTargetMore = flamethrowerBurningMore != 0 && BurningTarget(player, m)
+                        ? Math.Max(0, 1 + flamethrowerBurningMore / 100d) : 1;
+                    if (burningTargetMore != 1)
+                        profile = profile with
+                        {
+                            Ignite = RepeatAilment(profile.Ignite, burningTargetMore),
+                            Bleed = RepeatAilment(profile.Bleed, burningTargetMore),
+                            Poison = RepeatAilment(profile.Poison, burningTargetMore),
+                        };
                     var contactHit = profile.Hit;
                     if (frostboltMore != 1) contactHit = contactHit.Scale(frostboltMore);
                     if (spell && repeat > 0) contactHit = contactHit.Scale(GreaterEchoHitMore(repeat, Stat));
@@ -2938,6 +2948,7 @@ public static partial class Game
                                 intelligence: player.Pools.Intelligence), cryExerted == true)
                             .ForWeapon(weaponLocal).RollOutgoingHit(contactHit, AreaRng(player))),
                         ProjectileWorldTime(player));
+                    if (burningTargetMore != 1) rolled = rolled.Scale(burningTargetMore);
                     // Hallow: an attack against an enemy affected by Hallowing Flame gains its share of physical damage as
                     // extra fire, and removes the flame.
                     if (!spell && m.HallowingFlameUntil > ProjectileWorldTime(player) && rolled[DamageType.Physical].Min is > 0 and var flamePhys)
