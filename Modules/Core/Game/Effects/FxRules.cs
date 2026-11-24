@@ -114,6 +114,9 @@ public static class FxRules
                 case "enemy_rarity" or "enemy_state" or "skill_type":
                     Add(facts, group, Fact(Word("is") ?? throw new FormatException($"\"{condition}\" needs \"is\"")));
                     break;
+                case "damage_type":
+                    Add(facts, group, Fact("deals_" + (Word("is") ?? throw new FormatException("\"damage_type\" needs \"is\""))));
+                    break;
                 case "self_state":
                     Add(facts, group, Fact("self_" + (Word("is") ?? throw new FormatException("\"self_state\" needs \"is\""))));
                     break;
@@ -175,6 +178,8 @@ public static class FxRules
                     effect["kind"] = "debuff";
                     effect["debuff"] = with["debuff"]?.DeepClone() ?? throw new FormatException("the action \"debuff\" needs \"debuff\"");
                     effect["seconds"] = Duration() ?? throw new FormatException("a debuff needs a \"duration\" timer");
+                    // Its base magnitude, for a debuff that has one (an Exposure's resistance).
+                    if (Value(JsonNode.Parse(value)) is { } amount) effect["amount"] = amount;
                     break;
                 case "charge":
                     if (target != "self") throw new FormatException("charges are given to the actor itself");

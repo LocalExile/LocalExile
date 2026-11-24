@@ -86,8 +86,14 @@ code. The `charge` action gains, fills to the maximum, or takes one or all, of a
 Intimidate, Unnerve, Crush and Hinder on hit (`HitDebuffs.cs`) are fx rules on the `hit` trigger with `"who": "any"`.
 A chance may be several stats added up and rolled once (`{"from":"sum","of":[{"stat":...,"when":"attack"}]}`): the rule
 is one engine rule, live while any of the stats is there, and each term counts only for an event with its fact. The
-`debuff` action times the debuff from the hit's own clock (`HitLanded.At`). Maim, Blind, Exposure and Withered are
-still the code's.
+`debuff` action times the debuff from the hit's own clock (`HitLanded.At`).
+
+Maim, Blind, Withered and Exposure on hit are rules the same way. The rule rolls the chance and names the debuff, its
+base duration and, for Exposure, its base magnitude (the action's value). What the debuff asks of the monster (immunity,
+`avoid_maim_%_chance`) and what the hitting side's other stats do to it (`blind_duration_+%`, `withered_effect_+%`, the
+Exposure extras) stays in `ApplyNamedDebuffLocked`, read from the hit's own stats (`HitLanded.PlayerStats` with
+`SkillStats`); `fx_modifiers` lists those stats. A term's `when` may be `deals_fire`, `deals_cold` or `deals_lightning`
+(`HitLanded.Damage`, after mitigation). Elemental Equilibrium and the projectile-only Maim chance are still the code's.
 
 A plain number is granted to the calculator the game module already has (the stat graph); `fx_modifiers` records what
 the number means so that a formula can later move to a table one quantity at a time, each measured. Nothing reads these

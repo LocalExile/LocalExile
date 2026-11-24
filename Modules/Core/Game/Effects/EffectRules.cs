@@ -207,7 +207,8 @@ public static class EffectRules
     /// <summary>The facts each event can answer, for a rule's checks.</summary>
     static readonly Dictionary<What, string[]> Facts = new()
     {
-        [What.Hit] = ["critical", "spell", "attack", "melee", "bow", "killed", "frozen", "ignited", "bleeding", "marked", "has_mark", "normal", "magic", "rare", "unique", "rare_or_unique"],
+        [What.Hit] = ["critical", "spell", "attack", "melee", "bow", "killed", "frozen", "ignited", "bleeding", "marked", "has_mark",
+            "deals_fire", "deals_cold", "deals_lightning", "normal", "magic", "rare", "unique", "rare_or_unique"],
         [What.Kill] = ["frozen", "ignited", "bleeding", "poisoned", "five_poisons", "shield", "dual_wield", "normal", "magic", "rare", "unique", "rare_or_unique"],
         [What.SkillHit] = ["critical", "spell", "attack", "melee", "killed", "primary", "frozen", "bleeding", "marked", "self_bleeding", "self_poisoned",
             "shield", "dual_wield", "wand", "claw_or_dagger", "normal", "magic", "rare", "unique", "rare_or_unique"],
@@ -620,6 +621,10 @@ public static class EffectRules
         ("melee", ChargeEvent.Stun s) => s.Melee,
         ("melee", HitLanded h) => Game.MeleeHit(player, h),
         ("bow", HitLanded h) => !h.Spell && Game.BowWorn(player),
+        // The hit's own damage by type, after the monster's mitigation ("on Hit with Fire Damage").
+        ("deals_fire", HitLanded h) => h.Damage is { } dealt && dealt[GameServer.Core.World.DamageType.Fire].Max > 0,
+        ("deals_cold", HitLanded h) => h.Damage is { } dealt && dealt[GameServer.Core.World.DamageType.Cold].Max > 0,
+        ("deals_lightning", HitLanded h) => h.Damage is { } dealt && dealt[GameServer.Core.World.DamageType.Lightning].Max > 0,
         ("vaal", ChargeEvent.SkillUse u) => u.Vaal,
         (_, ChargeEvent.SkillUse { Effect: >= 0 } u) when fact is not ("curse" or "trap") => UseFact(fact, u.Effect, player),
         ("curse", ChargeEvent.SkillUse u) => u.Curse,

@@ -52,13 +52,21 @@ public static partial class Game
 
         EnsureTriggeredSkills();
 
-        // A timed debuff on the monster of the event (the one hit) for "seconds": intimidated, unnerved, crushed or
-        // hindered, timed from the hit as its site times it; a later one restarts it.
-        EffectRules.Register(new("debuff", ["seconds"], ["debuff"], fire =>
+        // A debuff on the monster of the event (the one hit) for "seconds" (its base duration), timed from the hit as
+        // its site times it; a later one restarts it, and Withered adds a stack. "amount": its base magnitude, for the
+        // ones that have one (an Exposure's resistance). The names and what each asks of the monster and of the
+        // hitting side's other stats: ApplyNamedDebuffLocked.
+        EffectRules.Register(new("debuff", ["seconds", "amount"], ["debuff"], fire =>
         {
-            if (fire.Event.Monster is { } monster)
-                ApplyNamedDebuffLocked(monster, fire.Word("debuff") ?? "", fire.Number("seconds"), (fire.Event as HitLanded)?.At ?? fire.Now);
-        }, (_, word) => word is "intimidated" or "unnerved" or "crushed" or "hindered"));
+            if (fire.Event.Monster is not { } monster) return;
+            var hit = fire.Event as HitLanded;
+            var (own, skill) = (hit?.PlayerStats, hit?.SkillStats);
+            ApplyNamedDebuffLocked(fire.Conn, monster, hit?.MonsterId ?? 0, fire.Word("debuff") ?? "", fire.Number("seconds"), fire.Number("amount"),
+                hit?.At ?? fire.Now, key => (own?.GetValueOrDefault(key) ?? 0) + (skill?.GetValueOrDefault(key) ?? 0));
+        }, (_, word) => NamedDebuff(word))
+        {
+            Defaults = new Dictionary<string, double> { ["amount"] = 0 },
+        });
 
         // Charges of "type" (endurance, frenzy, power, or random: one of the three, drawn when the rule fires), through
         // the charge rules at their next step, with the maximum and the refresh they give any gain. "does": gain "count"

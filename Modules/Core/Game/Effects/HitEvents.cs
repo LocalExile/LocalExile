@@ -13,6 +13,15 @@ public sealed record HitLanded(bool Critical, bool Spell, bool Killed, IReadOnly
     /// <summary>When the hit landed, on the clock its site works by (what a debuff it causes is timed from); null
     /// where the site gave none.</summary>
     public double? At { get; init; }
+    /// <summary>The hit's damage after the monster's mitigation, by type, where the site has it (what "deals fire
+    /// damage" asks); null for a site that has none.</summary>
+    public GameServer.Core.World.DamagePacket? Damage { get; init; }
+    /// <summary>The hitting character's stats as the site read them for this hit; with <see cref="SkillStats"/> they
+    /// are what a debuff the hit causes works its numbers out from. Null for a site that has none.</summary>
+    public IReadOnlyDictionary<uint, int>? PlayerStats { get; init; }
+    /// <summary>The monster's id in its area, where the site has it (what the character's own state about a monster,
+    /// like its Blind, is kept under); 0 for a site that has none.</summary>
+    public uint MonsterId { get; init; }
 }
 
 public static partial class Game
@@ -67,12 +76,13 @@ public static partial class Game
 
     // Per hit, inside the Monsters lock: nothing is built unless a rule or a subscriber listens.
     public static void HitLandedLocked(Player player, SpawnedMonster m, bool critical, bool spell,
-        IReadOnlyDictionary<uint, int>? skill, string who, ushort sourceSkill = 0, double? at = null)
+        IReadOnlyDictionary<uint, int>? skill, string who, ushort sourceSkill = 0, double? at = null,
+        GameServer.Core.World.DamagePacket? damage = null, IReadOnlyDictionary<uint, int>? playerStats = null, uint monsterId = 0)
     {
         bool rules = EffectRules.Listens(player, EffectRules.What.Hit);
         if (!rules && !GameEvents.Combat.Any) return;
         var hit = new HitLanded(critical, spell, m.Dead || m.Life == 0, skill)
-        { Monster = m, Who = who, Depth = TriggerDepth, Skill = sourceSkill, At = at };
+        { Monster = m, Who = who, Depth = TriggerDepth, Skill = sourceSkill, At = at, Damage = damage, PlayerStats = playerStats, MonsterId = monsterId };
         if (rules) EffectRules.Run(player, hit);
         GameEvents.RaiseCombat(player, hit);
     }
