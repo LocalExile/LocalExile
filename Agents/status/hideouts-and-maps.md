@@ -193,16 +193,8 @@ Part of [Status](../Status.md); what to build next in this area is in
   selector). Not compared with a retail capture: Oshabi's state sequence (soul tree progression, interactable, emerge, energy and colour stages, death; her emerge,
   travelling and repeat_fight states).
 
-- Legion (partial, not checked in the client): the Timeless Monolith stands at the Legion room locator.
-  Using it charges and shatters it and starts the Legion timer (from `LegionBalancePerLevel`: 30 s at level 1
-  to 15 s from level 68, times `map_legion_duration_+%`; not checked in the client), and the monolith locks at
-  the end. The two factions and the army composition are chosen on use and the two armies spawn frozen (stasis
-  buff, paused) around the monolith, the general shown by the monolith's bolts. Hits on a frozen monster are stored
-  (and do no damage; only the player's own direct hits count, not totems, brands, traps, mines or minions) and
-  break it out at its maximum life; a broken war chest frees the monsters near it and
-  becomes an openable chest. When the timer ends each monster that broke out is replaced by a new ordinary one that
-  fights, the unbroken ones vanish and an unbroken general flees; the encounter ends early at 90% broken plus every
-  chest, sergeant and general.
+- Legion (partial): the Timeless Monolith, its timer, the two armies frozen around it and their break-out and release.
+  Splinters, reward symbols, the Domain and the Atlas stats are not built. Docs: [Legion](../docs/game/legion.md).
 
 - Simulacrum: five arenas and a 15-wave controller; opening and the wave-start prompt checked in the client, wave
   combat and the reward display not yet. Starting a wave destroys every item on the ground, as the client warns.

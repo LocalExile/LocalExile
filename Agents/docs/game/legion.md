@@ -1,0 +1,77 @@
+# Legion: the Timeless Monolith encounter
+
+Phase 1 of the Legion league mechanic: the monolith, the timer, two armies in stasis, the break-out and the release.
+Module `Modules/Core/Content/Legion` (`LegionMonolith`, `LegionArmy`, `LegionStasis`, `LegionData`); the area roll that
+puts the monolith room in an area is in [league-encounters](league-encounters.md).
+The rules the code follows are the wiki's for 3.29; what the client data and code say is below, marked as a guess where it is one.
+
+## Client objects and states
+
+- `Metadata/Terrain/Leagues/Legion/Objects/Legion_EncounterLocator` is only a marker (`server_only`) at the centre of the
+  room `legion_monolith.arm`. The server creates the clickable `LegionInitiator` there; no formation file exists in the
+  client, so where each monster stands is the server's.
+- `LegionInitiator` StateMachine states: `charging=1` (build-up, untargetable, no collision), `shattered=1` (shatter, then idle),
+  `locked=1` (untargetable, at the end), `spawn_lightning=1` (bolts from the monolith towards the general while it stands frozen).
+- Every Legion monster and war chest has the states `breakout`, `activated` (generals also `general`, `fleeing`, `disappear`).
+  The crystal is part of the monster's own model, so a new monster is drawn encased with nothing sent.
+  Frozen is `breakout` 0, `activated` 0; broken out is `breakout` 1 (crystal off, freed glow); fighting is `activated` 1.
+  A general still frozen carries the about-to-flee effect; `fleeing=1` plays its flee animation.
+- Buff 1311 `frozen_in_time` (flags: cannot be knocked back, minions take no actions) holds the monster while it is frozen.
+  Its default visual is BuffVisuals 1082 `legion_petrify`; the faction ones 1099-1103 `legion_time_lock_*` are used by no
+  buff row and could only be sent as a visual override. The server uses 1082.
+- The client keeps no damage for the stasis, so the stored damage is the server's (`GameEvents.OutgoingDamage`).
+- A broken war chest (`LegionChestTypes`: the chest monster, and the `Chests` row it becomes) is replaced by that chest object.
+
+## Effects (MiscAnimated)
+
+- 3270 `LegionMonolithPulse`: the ring when the monolith shatters.
+- 3326 `LegionChestBreakoutExplode`: a war chest breaking out.
+- `LegionFactions.MiscAnimatedKey1` (break-out, `breaking_free.ao`) is played at each break-out;
+  keys 2 to 5 (threshold shards, freeze, general break) are not used yet.
+
+## The Legion tables
+
+| Table, column | Meaning | Source |
+|---|---|---|
+| `LegionBalancePerLevel` col3 | the timer, in ms; the row is the one with the highest `MinLevel` <= area level | client code |
+| `LegionBalancePerLevel` col2, col4, col15 | pre-timer ms (0), fall-off ms (500), alert gauge maximum | client code, not used here |
+| `LegionBalancePerLevel` col1, col5 to col14 | unknown (col5 and col6 are copied by the client and never read) | not read |
+| `LegionFactions.SpawnWeight`, `LegionBalancePerLevelKey`, `StatsKey` | faction draw weight, the first level it appears at, its `map_legion_monoliths_chance_for_*` stat | guess, fits the wiki |
+| `LegionRanks` col0 | tier: 0 normal, 1 elite, 2 sergeant, 3 general | guess |
+| `LegionRanks` tier 3 col7 | percent chance of a general (0 below level 46, 1 at 46, up to 8 at 82) | guess |
+| `LegionMonsterCounts` col2 to col6 | min and max count, the depth band in percent, the number of varieties | guess, server-only table |
+| `LegionChestCounts` col2 to col5, col7 | min and max chests, the depth band, War Hoard percent (tier 1 row) | guess, server-only table |
+| `LegionMonsterVarieties` | the monsters of a faction and tier | client code reads it for the break-out |
+
+The client has no `LegionMonsterCounts` or `LegionChestCounts` loader, so the count, chest and rank columns can only be
+settled by comparing with the real game.
+The code that reads them is `LegionArmy.Compose`; a correction goes there.
+
+## The timer
+
+`0x1416290a0` (the encounter constructor) sets the timer to `(col3 / 1000 + stat 9772) * (100 + map_legion_duration_+%) / 100`
+seconds; stat 9772 is the endless mode's, ignored here. The row is picked by `0x141eb5c00`: the highest `MinLevel` <= level.
+So 30 s at level 1, 28 s from 15, 15 s from 68. The server sends it with S->C 0x163 type 4 (`InstanceTimers.MissionTimer`).
+The ruleset `LegionRules` (Rulesets 94) reads the same duration from the S->C 0x2c9 payload (mode 0 creates the encounter, mode 5 sets active and state).
+
+## Open questions for the live check
+
+- Does the HUD gauge need `LegionRules` (0x1f with row 94, then 0x2c9) or is 0x163 alone enough? Only 0x163 is sent.
+- Formation radii (`LegionStasis.MinRadius`, `MaxRadius`, the sector width) and the chest break-out radius are guesses.
+- Tier rarity (elite Magic, sergeant Rare, general Unique) is a guess.
+- Is the swap of a broken-out monster for a fresh fighting one visible, and does a stored hit show a number or a flinch?
+- Does buff 1311 with visual 1082 look right, or the faction visual?
+- Does the animation stay paused after the buff is removed, and does a fleeing general play its animation?
+
+## What the encounter does
+
+- The monolith is used from 12 cells away; charging lasts 1 s, then it shatters and the timer runs.
+- The factions: in The Climb Eternal Empire and Karui, in The Dried Lake Eternal Empire and one random; elsewhere two are
+  drawn by `SpawnWeight` and the `map_legion_monoliths_chance_for_*` stats, among those whose balance row allows the level.
+- The army spawns frozen for every player in the area, 12 to 60 cells from the monolith, in a sector per army.
+- Only the player's own direct hits count, stored and not applied; a monster breaks out when they reach its maximum life.
+  Totems, brands, traps, mines and minions do not count yet.
+- A broken war chest breaks out the non-sergeant, non-general monsters near it and becomes an openable chest.
+- The encounter ends at the timer, or early at 90% of the plain and elite monsters broken plus every chest, sergeant and general.
+  Each broken member is then swapped for a new fighting monster, the others vanish, and an unbroken general flees.
+- An encounter whose army did not survive a Gateway restart is ended when the area is entered again.
