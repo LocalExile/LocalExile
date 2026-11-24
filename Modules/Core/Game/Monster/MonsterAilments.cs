@@ -258,7 +258,9 @@ public static partial class Game
     {
         int basePct = m.Effects.MovementPct;
         int maimPct = now < m.MaimedUntil ? -30 : 0;
-        int hinderPct = Math.Max(SpiderHinder(m, now), m.HinderedUntil > now ? 30 : 0);
+        // The totem notable's local stat specifies 25%. The common 30% Hinder can expire independently.
+        int timedHinder = Math.Max(m.HinderedUntil > now ? 30 : 0, m.TotemHinderedUntil > now ? 25 : 0);
+        int hinderPct = Math.Max(SpiderHinder(m, now), timedHinder);
         int lowLife = MonsterOnLowLife(m) ? m.Effects[Stat.MovementVelocityPlusPctWhenOnLowLife] : 0;
         int totalPct = basePct + maimPct - hinderPct + lowLife;
         bool debilitated = now < m.DebilitatedUntil;

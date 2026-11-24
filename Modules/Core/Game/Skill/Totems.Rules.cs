@@ -506,7 +506,7 @@ public static partial class Game
             foreach (var (_, enemy) in player.Area.MonstersNear(at, hinderRadius))
                 if (enemy.Hostile && !enemy.Dead && enemy.Life > 0 && !enemy.Invulnerable
                     && Dist(enemy.Walk.Position(now), at) <= hinderRadius)
-                    ApplyHinderLocked(enemy, now);
+                    ApplyHinderLocked(enemy, now, fromTotem: true);
 
         return stats.GetValueOrDefault(Stat.HasOnslaughtIfTotemSummonedRecently) != 0
             && KillOnslaughtOf(player).Gain(now, RecentlySeconds) && Marked(player, PlayerStatStep.Onslaught);

@@ -73,10 +73,11 @@ public static partial class Game
             ApplyHinderLocked(m, now);
     }
 
-    static void ApplyHinderLocked(SpawnedMonster monster, double now)
+    static void ApplyHinderLocked(SpawnedMonster monster, double now, bool fromTotem = false)
     {
         if (monster.Effects[Stat.YouCannotBeHindered] != 0 || monster.Effects[Stat.ImmuneToHinder] != 0) return;
-        monster.HinderedUntil = Math.Max(monster.HinderedUntil, now + HinderSeconds);
+        if (fromTotem) monster.TotemHinderedUntil = Math.Max(monster.TotemHinderedUntil, now + HinderSeconds);
+        else monster.HinderedUntil = Math.Max(monster.HinderedUntil, now + HinderSeconds);
         monster.PresentationChanged?.Invoke();
     }
 
@@ -136,7 +137,7 @@ public static partial class Game
     }
 
     internal static bool TimedWalkDebuff(double now, SpawnedMonster m) => m.MaimedUntil > now || m.HinderedUntil > now
-        || m.CoveredInAshUntil > now || m.DebilitatedUntil > now;
+        || m.TotemHinderedUntil > now || m.CoveredInAshUntil > now || m.DebilitatedUntil > now;
 
     /// <summary>The increased fire damage Covered in Ash applies at <paramref name="now"/> (20% while active, 0 otherwise).</summary>
     public static int CoveredInAshFireTaken(SpawnedMonster m, double now) => m.CoveredInAshUntil > now ? CoveredInAshFireTakenPct : 0;
