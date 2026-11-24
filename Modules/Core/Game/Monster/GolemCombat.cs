@@ -499,6 +499,11 @@ public static partial class Game
             return;
         }
         var a = action.Ability; var at = g.Monster.Walk.Position(now);
+        if (g.Definition.Kind == LivingLightningFamily && a.Effect == LivingLightningZapEffect)
+        {
+            ReleaseLivingLightningZapLocked(player, g, action, now);
+            return;
+        }
         if (a.Effect == 10844)
         {
             if (GolemDashPath(player, g.Monster, at, action.Aim))

@@ -477,6 +477,8 @@ public static partial class Game
                 conversion.AddGain(DamageType.Physical, type, mods[Stat.Of($"physical_damage_%_to_add_as_{slug}")]);
             }
             if (effect == 306) conversion.AddSkill(DamageType.Physical, prismatic, 100);
+            if (golem.Definition.Kind == LivingLightningFamily && effect == LivingLightningZapEffect)
+                conversion.AddSkill(DamageType.Physical, DamageType.Lightning, Own(Stat.SkillPhysicalDamagePctToConvertToLightning));
             conversion.AddSkill(DamageType.Cold, DamageType.Fire,
                 Raw(Stat.SkillColdDamagePctToConvertToFire) + Own(Stat.SkillColdDamagePctToConvertToFire));
             conversion.AddGain(DamageType.Cold, DamageType.Fire, Raw(Stat.ColdDamagePctToAddAsFire) + mods[Stat.ColdDamagePctToAddAsFire]);

@@ -88,19 +88,24 @@ public static partial class Game
         foreach (var request in pending)
         {
             var gem = SupportedSkill(player, request.Source);
-            var definition = request.Kind == "Phantasm" ? PhantasmDefinition(SkillsFor(player).EffectId(gem.Effect) ?? "")
-                : HitSummonDefinition(SkillsFor(player).EffectId(gem.Effect), request.ConsumeCorpse ? request.Monster.Rarity : MonsterRarity.Normal);
+            var definition = request.Kind switch
+            {
+                "Phantasm" => PhantasmDefinition(SkillsFor(player).EffectId(gem.Effect) ?? ""),
+                LivingLightningFamily => LivingLightningDefinition(player, gem),
+                _ => HitSummonDefinition(SkillsFor(player).EffectId(gem.Effect),
+                    request.ConsumeCorpse ? request.Monster.Rarity : MonsterRarity.Normal),
+            };
             bool Current() => CurrentGameWork && !player.Closed && !player.LeavingArea && player.PlayerLife > 0
                 && (request.Weapon is not null || player.Area.Monsters.GetValueOrDefault(request.Target) == request.Monster)
                 && (!request.ConsumeCorpse || request.Monster.Dead && !request.Monster.CorpseConsumed && !request.Monster.Ailments.Shattered)
                 && SameTriggerSource(gem, SupportedSkill(player, request.Source))
-                && (request.Kind != "Phantasm" || request.Supports == SummonSupportStamp(gem));
+                && (request.Kind is not ("Phantasm" or LivingLightningFamily) || request.Supports == SummonSupportStamp(gem));
             if (definition is null || gem.Effect != request.Effect || !(gem.SourceGem is not null && request.Gem is not null
                     && ReferenceEquals(PlayerInventories.GemIdentity(gem.SourceGem), PlayerInventories.GemIdentity(request.Gem)))
                 || !gem.RequirementsMet) continue;
             if (!Current()) continue;
             if (!DarkMonarchAllows(definition.Family, StatSourceValues(player))) continue;
-            int limit = SummonLimit(player, definition, gem);
+            int limit = SummonLimit(player, definition, definition.Family == LivingLightningFamily ? LivingLightningGem(player, gem) : gem);
             if (limit <= 0) continue;
             var alive = player.Summons.Fighters.Values.Where(g => g.Definition.Kind == definition.Family && !g.Monster.Dead && g.Monster.Life > 0).ToArray();
             if (alive.Length >= limit && definition.Family == "Absolution")

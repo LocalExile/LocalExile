@@ -252,6 +252,7 @@ public static partial class Game
             || SkillsFor(player).EffectId(gem.Effect) != definition.Id) return 0;
         if (!DarkMonarchAllows(definition.Family, playerStats)) return 0;
         if (definition.Family == "Phantasm") gem = PhantasmGem(player, gem);
+        if (definition.Family == LivingLightningFamily) gem = LivingLightningGem(player, gem);
         inheritedMods ??= replacingOld?.InheritedMods;
         if (replacingOld is not null) rarity = replacingOld.Monster.Rarity;
         // A replacement keeps the stats its body was given at summon (a Vaal ascension's upgrade).
@@ -350,7 +351,7 @@ public static partial class Game
             && (!g.Monster.Dead || double.IsFinite(g.ReviveAt))
             && (spectreChild is null || g.Monster.SummonerId == spectreChild.Parent.Id)
             && (definition.Family != "Clone" || player.Summons.Definitions[g.Id].LimitStat == definition.LimitStat);
-        bool damageImmune = definition.Family is "HolyArmament" or "Spider";
+        bool damageImmune = definition.Family is "HolyArmament" or "Spider" or LivingLightningFamily;
         uint id = await SpawnMonster(player, variety, level, rarity, aim.X, aim.Y,
             friendly: true, mods: mods, unrisen: false,
             extraStats: damageImmune ? [.. MinionStats, (Stat.BaseCannotBeDamaged, 1)]
