@@ -96,9 +96,7 @@ public static class StrongboxLoot
             _ => [],
         };
         var currency = box.Kind is Contents.Currency or Contents.QualityCurrency
-            ? ItemDrops.Currency.Where(c => box.Kind == Contents.Currency || QualityCurrency.Contains(c.Id))
-                .Select(c => (Type: catalog.Find(c.Id), c.Weight)).Where(c => c.Type is { Supported: true } && c.Type.DropLevel <= level)
-                .Select(c => (Type: c.Type!, c.Weight)).ToArray()
+            ? CurrencyPool(catalog, level, box.Kind == Contents.QualityCurrency)
             : [];
         // "All contained Scarabs are the same type" (Operative's): one scarab type for the box.
         ItemCatalog.BaseType? sameScarab = null;
@@ -225,8 +223,9 @@ public static class StrongboxLoot
                 case Contents.Card: return drops.Card(rng, level);
                 case Contents.Scarab:
                 {
+                    if (ScarabsDisabled(stats)) return null;
                     if (sameScarab is not null) return new(ItemCatalog.Create(sameScarab) with { StackSize = 1 }, sameScarab);
-                    var drop = drops.Scarab(rng, level);
+                    var drop = drops.Scarab(rng, level, stats);
                     if (drop is not null && boxStat("chest_all_dropped_scarabs_are_same_content_type") != 0) sameScarab = drop.Type;
                     return drop;
                 }
@@ -249,14 +248,33 @@ public static class StrongboxLoot
             }
         }
 
-        // A piece of equipment of these bases: of the given rarity, or by the box's rarity chances (rare, else magic).
+        // A piece of equipment of these bases: of the given rarity, or by the box's rarity chances (unique, rare, else magic).
         ItemDrops.Drop? Equipment(ItemCatalog.BaseType[] pool, ItemRarity? rarity)
         {
             if (pool.Length == 0) return null;
             var type = pool[rng.Next(pool.Length)];
             var (socketList, links) = catalog.DropSockets(type, level, rng);
             var item = ItemCatalog.Create(type, socketList, links, random: rng) with { ItemLevel = (byte)level };
-            rarity ??= rng.NextDouble() < chances.Rare ? ItemRarity.Rare : rng.NextDouble() < chances.Magic ? ItemRarity.Magic : ItemRarity.Normal;
+            if (rarity is null)
+            {
+                bool rolledUnique = rng.NextDouble() < chances.Unique * SystemSettings.Default.DropUniqueChanceMultiplier;
+                if (rolledUnique && drops.TryUnique(type, level, level, rng) is { } unique)
+                {
+                    var uniqueType = catalog.ByHash(unique.TypeHash) ?? type;
+                    return new(unique with { Identified = false }, uniqueType);
+                }
+                if (type.Class.EndsWith("Flask", StringComparison.Ordinal))
+                    rarity = rolledUnique || rng.NextDouble() < chances.Magic ? ItemRarity.Magic : ItemRarity.Normal;
+                else if (type.Class is "Jewel" or "AbyssJewel")
+                    rarity = rolledUnique || rng.NextDouble() < chances.Rare ? ItemRarity.Rare : ItemRarity.Magic;
+                else
+                    rarity = rolledUnique || rng.NextDouble() < chances.Rare ? ItemRarity.Rare
+                        : rng.NextDouble() < chances.Magic ? ItemRarity.Magic : ItemRarity.Normal;
+            }
+            else if (rarity == ItemRarity.Normal && type.Class is "Jewel" or "AbyssJewel")
+            {
+                rarity = ItemRarity.Magic;
+            }
             if (rarity != ItemRarity.Normal) item = rolls.Roll(item, rarity.Value, rng) with { Identified = false };
             return new(item, type);
         }
@@ -266,8 +284,8 @@ public static class StrongboxLoot
         ItemDrops.Drop? Unique(Func<ItemCatalog.BaseType, bool> kind, Func<UniqueCatalog.Definition, bool>? named = null)
         {
             var uniqueCatalog = UniquesFor(player);
-            var pool = uniqueCatalog.All.Where(u => (named is null ? !u.EncounterOnly : named(u)) && catalog.Find(u.BaseTypeId) is { } t
-                && (named is not null || t.DropLevel <= level) && ItemDrops.Droppable(t) && kind(t)).ToArray();
+            var pool = uniqueCatalog.All.Where(u => (named is null ? drops.IsDropEligibleUnique(u, level) : named(u))
+                && catalog.Find(u.BaseTypeId) is { } t && ItemDrops.Droppable(t) && kind(t)).ToArray();
             if (pool.Length == 0) return null;
             var chosen = drops.PickUnique(pool, rng) ?? (named is null ? null : pool[rng.Next(pool.Length)]);
             if (chosen is null || uniqueCatalog.Create(chosen, rng) is not { } item
@@ -299,6 +317,7 @@ public static class StrongboxLoot
 
         ItemDrops.Drop? Scarab(string family)
         {
+            if (ScarabsDisabled(stats)) return null;
             string prefix = "Metadata/Items/Scarabs/Scarab" + family;
             // The current scarabs, not the retired Rusted / Polished / Gilded / Winged tiers.
             var pool = catalog.All.Where(t => t.Supported && t.DropLevel <= level && t.Id.StartsWith(prefix, StringComparison.Ordinal)
@@ -318,5 +337,23 @@ public static class StrongboxLoot
             if (MapDevices.Atlas?.KeyOfTier(tier) is not uint hash || catalog.ByHash(hash) is not { Supported: true } type) return null;
             return new(ItemCatalog.Create(type) with { ItemLevel = (byte)level }, type);
         }
+    }
+
+    static (ItemCatalog.BaseType Type, double Weight)[] CurrencyPool(ItemCatalog catalog, int level, bool qualityOnly)
+    {
+        var seeded = DropDataProvider.Default.Current.CurrencyWeights;
+        var list = new List<(ItemCatalog.BaseType Type, double Weight)>();
+        foreach (var row in seeded.Values)
+            if (row is { Enabled: true, Weight: > 0 }
+                && (!qualityOnly || QualityCurrency.Contains(row.CurrencyId))
+                && catalog.Find(row.CurrencyId) is { Supported: true } type && type.Id == row.CurrencyId
+                && Math.Max(type.DropLevel, row.DropLevel) <= level)
+                list.Add((type, row.Weight));
+        if (list.Count == 0)
+            foreach (var (id, weight) in ItemDrops.Currency)
+                if ((!qualityOnly || QualityCurrency.Contains(id))
+                    && catalog.Find(id) is { Supported: true } type && type.DropLevel <= level)
+                    list.Add((type, weight));
+        return [.. list];
     }
 }

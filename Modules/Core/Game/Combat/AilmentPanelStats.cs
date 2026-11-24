@@ -45,6 +45,7 @@ public static class AilmentPanelStats
     [
         new(Stat.DoedreAuraDamagePlusPctFinal), new(Stat.CastOnDamageTakenDamagePlusPctFinal),
         new(Stat.SupportCastWhileChannellingTriggeredSkillDamagePlusPctFinal),
+        new(Stat.SupportManaforgedArrowsDamagePlusPctFinal),
         new(Stat.SupportEchoDamagePlusPctFinal), new(Stat.SupportReducedDurationDamagePlusPctFinal),
         new(Stat.SupportSpiritStrikeDamagePlusPctFinal), new(Stat.SupportStormBarrierDamagePlusPctFinal),
         new(Stat.SupportPureShockDamagePlusPctFinal), new(Stat.SupportBloodThirstDamagePlusPctFinal),
@@ -97,9 +98,12 @@ public static class AilmentPanelStats
         }
         bool tinctureWeapon = context.Attack && !context.Spell && get(Stat.TinctureApplied) != 0;
         if (context.Attack) Add("bleeding", DamageType.Physical, [DamageType.Physical], BleedPercent);
-        Add("ignite", DamageType.Fire, get(Stat.AllDamageCanIgnite) != 0
+        DamageType[] ignite = get(Stat.AllDamageCanIgnite) != 0
             || tinctureWeapon && get(Stat.AllDamageWithTincturedWeaponsCanIgnite) != 0
-            ? DamageTypes.ConversionOrder : [DamageType.Fire], IgnitePercent);
+            ? DamageTypes.ConversionOrder : get(Stat.UniqueColdDamageIgnites) != 0
+                ? [DamageType.Fire, DamageType.Cold] : [DamageType.Fire];
+        if (get(Stat.UniqueFireDamageShocks) != 0) ignite = [.. ignite.Where(type => type != DamageType.Fire)];
+        Add("ignite", DamageType.Fire, ignite, IgnitePercent);
         Add("poison", DamageType.Chaos, get(Stat.AllDamageCanPoison) != 0
             || tinctureWeapon && get(Stat.AllDamageWithTincturedWeaponsCanPoison) != 0
             ? DamageTypes.ConversionOrder : [DamageType.Physical, DamageType.Chaos], PoisonPercent);
@@ -130,9 +134,12 @@ public static class AilmentPanelStats
                 _ => get(Stat.BasePoisonDamagePlusPct)
                     + (tinctureWeapon ? get(Stat.PoisonDamagePlusPctWithTincturedWeapons) : 0),
             };
-        bool bowAttack = context.Attack && !context.Spell
+        bool attack = context.Attack && !context.Spell;
+        bool bowAttack = attack
             && get(context.Hand == "off_hand" ? Stat.OffHandWeaponType : Stat.MainHandWeaponType) == WeaponTypeStats.Bow;
-        if (bowAttack) common += (double)get(Stat.BowDamagePlusPct) + get(Stat.BowAilmentDamagePlusPct) + get(Stat.BowHitAndAilmentDamagePlusPct);
+        if (attack) common += get(Stat.AttackAilmentDamagePlusPct);
+        if (bowAttack) common += (double)get(Stat.BowDamagePlusPct) + get(Stat.BowAilmentDamagePlusPct)
+            + get(Stat.BowHitAndAilmentDamagePlusPct) + get(Stat.DamageOverTimePlusPctWithBowSkills);
         // The tree's "with <weapon type>" rows reach an ailment as they reach the hit (issue #1102): the plain and
         // hit-and-ailment rows, the family's own ailment row, and the two families' shared ailment rows.
         (int weaponAny, HitIncreases weaponExtra) = context.Attack && !context.Spell
@@ -159,6 +166,9 @@ public static class AilmentPanelStats
                 + (tinctureWeapon ? get(Stat.CriticalStrikeMultiplierPlusWithTincturedWeapons) : 0)) / 100.0)
             : Math.Max(0, 1 + ((double)get(Stat.DotMultiplierPlus) + get(Stat.Of(Slug(ailmentType) + "_dot_multiplier_+"))
                 + get(Stat.AilmentDotMultiplierPlus) + get(Stat.Of(ailment + "_dot_multiplier_+"))
+                + (ailmentType == DamageType.Fire && context.Attack ? get(Stat.FireDamageOverTimeMultiplierPlusWithAttacks) : 0)
+                + (context.Spell && ailment == "poison" ? get(Stat.PoisonDotMultiplierPlusWithSpells) : 0)
+                + (bowAttack ? get(Stat.DotMultiplierPlusWithBowSkills) : 0)
                 + (tinctureWeapon ? get(Stat.DamageOverTimeMultiplierPlusWithTincturedWeapons) : 0)
                 + (critical && !neverFromCrit ? get(Stat.CriticalAilmentDotMultiplierPlus) + get(Stat.Of("critical_" + ailment + "_dot_multiplier_+")) : 0)) / 100);
         double multiplier = dotMultiplier
@@ -170,6 +180,9 @@ public static class AilmentPanelStats
             * (ailment == "bleeding" && get(Stat.KeystoneCrimsonDance) != 0 ? .5 : 1);
         var typed = DamageTypes.ConversionOrder.Select(type => (History: DamageTypes.HistoryOf(type), Increased: get(Stat.Of(Slug(type) + "_damage_+%")))).ToArray();
         int elemental = get(Stat.ElementalDamagePlusPct);
+        int attackFire = attack ? get(Stat.FireDamageWithAttackSkillsPlusPct) : 0,
+            attackCold = attack ? get(Stat.ColdDamageWithAttackSkillsPlusPct) : 0,
+            attackLightning = attack ? get(Stat.LightningDamageWithAttackSkillsPlusPct) : 0;
         double min = 0, max = 0;
         foreach (var path in paths)
         {
@@ -192,6 +205,9 @@ public static class AilmentPanelStats
             if ((path.History & DamageTypeHistory.Elemental) != 0 && ailmentType != DamageType.Fire) increased += elemental;
             // A typed support counts the portion's visited types and the ailment's own (PoB's typeFlags).
             var types = path.History | DamageTypes.HistoryOf(ailmentType);
+            if (attackFire != 0 && (types & DamageTypeHistory.Fire) != 0) increased += attackFire;
+            if (attackCold != 0 && (types & DamageTypeHistory.Cold) != 0) increased += attackCold;
+            if (attackLightning != 0 && (types & DamageTypeHistory.Lightning) != 0) increased += attackLightning;
             double factor = Math.Max(0, 1 + increased / 100) * multiplier * more
                 .Where(m => m.Type == DamageTypeHistory.None || (types & m.Type) != 0)
                 .Aggregate(1.0, (v, m) => v * Math.Max(0, 1 + get(m.Stat) / 100.0));

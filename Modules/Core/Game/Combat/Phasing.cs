@@ -54,7 +54,25 @@ public static partial class Game
     }
 
     static Buff PhasingBuff(Player player, double? seconds) =>
-        new(PhasingBuffRow, player.Id, U68: seconds is { } s ? Buff.Seconds(s) : null, Visual: PhasingVisualRow);
+        new(PhasingBuffRow, player.Id, U68: seconds is { } s ? Buff.Seconds(s) : null,
+            Visual: seconds is null ? PhasingVisual(player) : PhasingVisualRow);
+
+    // Phasing from a flask (a Quartz Flask's phase_through_objects) wears the flask's effect, phase.epk: the flask effect
+    // cosmetic on the cell of a flask that grants it now (running, or one of Mageblood's) replaces it, and Invisible
+    // Flask Effect hides it (FlaskEffectVisual).
+    static ushort PhasingVisual(Player player)
+    {
+        if (!player.Phasing) return PhasingVisualRow;
+        var items = ItemsFor(player);
+        var bar = ItemsOf(player).Items(PlayerInventories.Flask).OrderBy(f => f.X).ToList();
+        IReadOnlyList<InventoryItem> permanent = MagebloodBelt(player) is { } belt ? MagebloodFlasks(bar, MagebloodFlaskCount(belt, items), items) : [];
+        foreach (var flask in bar)
+            if ((player.UtilityFlaskEffects.Of(flask.Id) is not null || permanent.Contains(flask))
+                && items.ByHash(flask.Item.TypeHash) is { } type
+                && items.UtilityFlaskOf(type) is { } utility && UtilityFlasks.Phasing(utility.Stats))
+                return FlaskEffectVisual(player, flask.X) ?? PhasingVisualRow;
+        return PhasingVisualRow;
+    }
 
     /// <summary>The Phasing Buff (BuffDefinitions "phasing_buff") and the virtual stat the client's pathfinder reads. The
     /// server's own blockers already follow <see cref="Player.IsPhasing"/>; without the stat the client walks around them and
@@ -68,7 +86,24 @@ public static partial class Game
         if (player.PhasingUntil > now) PresentIn(player, player.PhasingUntil - now);
         if (!active) player.Area.Buffs.Clear(player.Id, PhasingBuffRow, player.Id);
         else if (player.PhasingUntil <= now) player.Area.Buffs.Set(player.Id, PhasingBuff(player, null));
-        SetStats(player, player.Id, [(Stat.VirtualPhaseThroughObjects, active ? 1 : 0), (Stat.PhaseThroughObjects, active ? 1 : 0)]);
+        var stats = new List<(uint Key, int Value)>(3)
+        {
+            (Stat.VirtualPhaseThroughObjects, active ? 1 : 0),
+            (Stat.PhaseThroughObjects, active ? 1 : 0),
+        };
+        var current = PlayerStatValues(player);
+        int phasedBonus = current.GetValueOrDefault(Stat.LightRadiusPlusPctWhilePhased);
+        if (phasedBonus != 0)
+        {
+            int baseLight = current.GetValueOrDefault(Stat.LightRadiusPlusPct);
+            int mapLight = MapModsOf(player)?.Get(Stat.MapPlayerLightRadiusPlusPct) ?? 0;
+            int desiredLight = ActorScale.Saturate((long)baseLight + (active ? phasedBonus : 0) + mapLight);
+            if (current.GetValueOrDefault(Stat.VirtualLightRadiusPlusPct) != desiredLight)
+                MarkPlayerStats(player, PlayerStatStep.TailPanels);
+            if (!player.Frames.Running)
+                stats.Add((Stat.VirtualLightRadiusPlusPct, desiredLight));
+        }
+        SetStats(player, player.Id, stats);
         return Task.CompletedTask;
     }
 }

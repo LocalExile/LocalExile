@@ -84,6 +84,51 @@ public sealed class RetargetActionTests : IDisposable
     }
 
     [Fact]
+    public void Channel_aim_updates_keep_the_mode_selected_by_the_action_start()
+    {
+        foreach (var (start, lockstep) in new[]
+        {
+            (InstanceProtocol.UseSkillAtLocationId, false), (InstanceProtocol.LockstepMoveStartId, true)
+        })
+        {
+            var player = new Player(new(1, "channel-mode", 400, 400, 100, 100, null, []), 1, 1);
+            var connection = player.Connection;
+            Assert.Null(connection.NotePacket("channel-mode", start));
+            Assert.Null(connection.NotePacket("channel-mode", InstanceProtocol.ChannelUpdateId));
+            Assert.Null(connection.NotePacket("channel-mode", InstanceProtocol.ChannelUpdateAltId));
+            if (!lockstep) Assert.Null(connection.NotePacket("channel-mode", InstanceProtocol.ChannelEndId));
+            Assert.Equal(lockstep, connection.LockstepClient);
+        }
+    }
+
+    [Fact]
+    public async Task Network_mode_diagnostic_sends_six_independently_encrypted_chat_messages()
+    {
+        var (server, client, serverCiphers, clientCiphers, cleanup) = Loopback();
+        using var _ = cleanup;
+        var player = new Player(new(1, "mixed-mode", 400, 400, 100, 100, null, []), 1, 1)
+        {
+            Connection = { Session = new("mixed-mode", server, serverCiphers) },
+        };
+        var inbox = new ClientInbox(player.Connection.Performance);
+        Assert.Null(player.Connection.NotePacket("mixed-mode", InstanceProtocol.UseSkillAtLocationId));
+        byte[] holdRelease = new LoginWriter().U16(InstanceProtocol.LockstepMoveStopId).ToArray();
+        clientCiphers.Send.Process(holdRelease);
+        await Program.OnClientData("mixed-mode", server, serverCiphers, holdRelease, player, inbox, readAt: 0);
+
+        const string diagnostic = "Network mode error: this area received both Predictive-only (0x0025) and Lockstep-only " +
+            "(0x0195) client messages. Please report this to the developers with these packet ids.";
+        byte[] expected = InstanceChat.ChatLine(diagnostic);
+        byte[] received = new byte[6 * expected.Length];
+        using var readTimeout = new CancellationTokenSource(TimeSpan.FromSeconds(3));
+        await client.ReadExactlyAsync(received, readTimeout.Token);
+        clientCiphers.Receive.Process(received);
+        for (int i = 0; i < 6; i++)
+            Assert.True(expected.AsSpan().SequenceEqual(received.AsSpan(i * expected.Length, expected.Length)),
+                $"Diagnostic message {i + 1} does not match the expected plaintext.");
+    }
+
+    [Fact]
     public async Task Predictive_channel_retargets_toward_living_monster_position_and_refreshes_activity()
     {
         var (serverStream, _, serverCiphers, _, cleanup) = Loopback();

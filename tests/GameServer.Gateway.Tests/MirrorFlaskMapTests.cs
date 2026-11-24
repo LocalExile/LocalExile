@@ -101,4 +101,138 @@ public class MirrorFlaskMapTests
         }
         finally { PlayerInventories.Forget(name); AccountStash.Forget(name); TestEnvironment.ReleaseSaves(save); }
     }
+
+    [Fact]
+    public async Task Mirror_from_and_onto_stash_tabs_spends_one_and_holds_the_copy()
+    {
+        string save = Path.Combine(Path.GetTempPath(), $"mirror-stash-{Guid.NewGuid():N}.db");
+        Saves.Open(save);
+        using var runtime = new PartyFollowerTests.Runtime();
+        using var wire = new PartyFollowerTests.Wire();
+        string name = "MirrorStash" + Guid.NewGuid().ToString("N");
+        var c = runtime.PlayerOf(new(), wire, name);
+        var items = Game.ItemsOf(c);
+        const byte main = PlayerInventories.MainInventory;
+        uint inventory = PlayerInventories.InventoryId(main);
+        // The key the server uses for this player's stash (it depends on the league catalog other tests may load).
+        string key = AccountStash.Key(c.Character.Account ?? name, c.Character.League);
+        try
+        {
+            var stash = Game.StashOf(c);
+            var tabs = stash.Records(null, new HashSet<int>()).Where(t => t.Type is 0 or 1 && !t.Hidden && t.HiddenKey == 0).Select(t => t.Index).ToArray();
+            int mirrorTab = tabs[0], targetTab = tabs[1];
+            var mirror = ItemCatalog.Create(Program.Items.Find(CurrencyEffects.MirrorOfKalandra)!) with { StackSize = 2 };
+            var source = ItemCatalog.Create(Program.Items.All.First(t => t.Supported && t.Components.Contains("Flask"))) with { Quality = 20, ItemLevel = 83 };
+            var tabMirror = stash.Place(mirrorTab, 11, 0, new InventoryItem(stash.NewItemId(), 0, 0, mirror), Game.ShapeOf, out _)!.Value.Placed;
+            var invMirror = items.Add(main, 0, 0, mirror);
+            var invFlask = items.Add(main, 3, 0, source);
+            var tabFlask = stash.Place(targetTab, 0, 0, new InventoryItem(stash.NewItemId(), 0, 0, source), Game.ShapeOf, out _)!.Value.Placed;
+            async Task<InventoryItem> Use(uint usedInventory, uint usedId, uint targetInventory, uint targetId, byte column)
+            {
+                byte[] packet = new byte[18];
+                BinaryPrimitives.WriteUInt16BigEndian(packet, InstanceItems.UseItemOnId);
+                BinaryPrimitives.WriteUInt32BigEndian(packet.AsSpan(2), usedInventory);
+                BinaryPrimitives.WriteUInt32BigEndian(packet.AsSpan(6), usedId);
+                BinaryPrimitives.WriteUInt32BigEndian(packet.AsSpan(10), targetInventory);
+                BinaryPrimitives.WriteUInt32BigEndian(packet.AsSpan(14), targetId);
+                await Game.OnClientMessages([(InstanceItems.UseItemOnId, packet)], [], c);
+                var held = Assert.Single(items.Items(PlayerInventories.Cursor));
+                Assert.Equal(source with { Mirrored = true }, held.Item);
+                Assert.True(held.Id < AccountStash.FirstItemId);
+                // Holding the copy, a second use spends nothing.
+                await Game.OnClientMessages([(InstanceItems.UseItemOnId, packet)], [], c);
+                Assert.Single(items.Items(PlayerInventories.Cursor));
+                items.Remove(PlayerInventories.Cursor, held.Id);
+                items.Add(main, 6, column, held.Item);
+                return held;
+            }
+            // A Mirror in a tab on a flask in the inventory: the tab is sent before its change.
+            await Use(stash.InventoryOf(mirrorTab), tabMirror.Id, inventory, invFlask.Id, 0);
+            Assert.Equal(1, stash.Inventory(mirrorTab).Items.Single(i => i.Id == tabMirror.Id).Item.StackSize);
+            Assert.Equal(source, items.Items(main).Single(i => i.Id == invFlask.Id).Item);
+            Assert.Contains(mirrorTab, c.Connection.StashTabsSent);
+            // The tab's last Mirror on a flask in another tab: the stack goes, the target stays as it was.
+            await Use(stash.InventoryOf(mirrorTab), tabMirror.Id, stash.InventoryOf(targetTab), tabFlask.Id, 1);
+            Assert.DoesNotContain(stash.Inventory(mirrorTab).Items, i => i.Id == tabMirror.Id);
+            Assert.Equal(source, stash.Inventory(targetTab).Items.Single(i => i.Id == tabFlask.Id).Item);
+            // A Mirror in the inventory on the flask in the tab.
+            await Use(inventory, invMirror.Id, stash.InventoryOf(targetTab), tabFlask.Id, 2);
+            Assert.Equal(1, items.Items(main).Single(i => i.Id == invMirror.Id).Item.StackSize);
+            // A worn item (here the flask bar) takes no currency: refused, nothing spent, nothing held.
+            var worn = items.Add(PlayerInventories.Flask, 0, 0, source);
+            byte[] onWorn = new byte[18];
+            BinaryPrimitives.WriteUInt16BigEndian(onWorn, InstanceItems.UseItemOnId);
+            BinaryPrimitives.WriteUInt32BigEndian(onWorn.AsSpan(2), inventory);
+            BinaryPrimitives.WriteUInt32BigEndian(onWorn.AsSpan(6), invMirror.Id);
+            BinaryPrimitives.WriteUInt32BigEndian(onWorn.AsSpan(10), PlayerInventories.InventoryId(PlayerInventories.Flask));
+            BinaryPrimitives.WriteUInt32BigEndian(onWorn.AsSpan(14), worn.Id);
+            await Game.OnClientMessages([(InstanceItems.UseItemOnId, onWorn)], [], c);
+            Assert.Empty(items.Items(PlayerInventories.Cursor));
+            Assert.Equal(1, items.Items(main).Single(i => i.Id == invMirror.Id).Item.StackSize);
+            Assert.Equal(source, items.Items(PlayerInventories.Flask).Single(i => i.Id == worn.Id).Item);
+            // Quality currency works on a worn item: a Glassblower's Bauble on a flask in the flask bar.
+            var plain = items.Add(PlayerInventories.Flask, 1, 0, source with { Quality = 0 });
+            var bauble = items.Add(main, 9, 0, ItemCatalog.Create(Program.Items.Find(CurrencyEffects.GlassblowersBauble)!) with { StackSize = 2 });
+            BinaryPrimitives.WriteUInt32BigEndian(onWorn.AsSpan(6), bauble.Id);
+            BinaryPrimitives.WriteUInt32BigEndian(onWorn.AsSpan(14), plain.Id);
+            await Game.OnClientMessages([(InstanceItems.UseItemOnId, onWorn)], [], c);
+            Assert.True(items.Items(PlayerInventories.Flask).Single(i => i.Id == plain.Id).Item.Quality > 0);
+            Assert.Equal(1, items.Items(main).Single(i => i.Id == bauble.Id).Item.StackSize);
+            // A mirrored or corrupted target is refused with the client's reason, before anything is spent.
+            Assert.Equal("ItemErrorItemMirrored", GameServer.Core.ClientTables.Table("ClientStrings").Row(InstanceItems.ItemErrorItemMirrored - 1)?.TextOrNull("Id"));
+            Assert.Equal("ItemErrorTargetCorrupted", GameServer.Core.ClientTables.Table("ClientStrings").Row(InstanceItems.ItemErrorTargetCorrupted - 1)?.TextOrNull("Id"));
+            BinaryPrimitives.WriteUInt32BigEndian(onWorn.AsSpan(10), inventory);
+            BinaryPrimitives.WriteUInt32BigEndian(onWorn.AsSpan(6), invMirror.Id);
+            BinaryPrimitives.WriteUInt32BigEndian(onWorn.AsSpan(14), items.Items(main).First(i => i.Item.Mirrored).Id);
+            await Game.OnClientMessages([(InstanceItems.UseItemOnId, onWorn)], [], c);
+            Assert.Empty(items.Items(PlayerInventories.Cursor));
+            Assert.Equal(1, items.Items(main).Single(i => i.Id == invMirror.Id).Item.StackSize);
+            var corrupted = items.Add(main, 10, 0, source with { Quality = 0, Corrupted = true });
+            BinaryPrimitives.WriteUInt32BigEndian(onWorn.AsSpan(6), bauble.Id);
+            BinaryPrimitives.WriteUInt32BigEndian(onWorn.AsSpan(14), corrupted.Id);
+            await Game.OnClientMessages([(InstanceItems.UseItemOnId, onWorn)], [], c);
+            Assert.Equal(0, items.Items(main).Single(i => i.Id == corrupted.Id).Item.Quality);
+            Assert.Equal(1, items.Items(main).Single(i => i.Id == bauble.Id).Item.StackSize);
+            // Currency inside a public stash tab cannot be used out of it: refused, nothing spent.
+            int publicTab = stash.Records(null, new HashSet<int>()).First(t => t.Type == 1 && !t.Hidden && t.HiddenKey == 0).Index;
+            Assert.True(stash.SetPublic(publicTab, true));
+            Assert.True(stash.IsPublic(publicTab));
+            var pubMirror = stash.Place(publicTab, 0, 0, new InventoryItem(stash.NewItemId(), 0, 0, mirror), Game.ShapeOf, out _)!.Value.Placed;
+            var pubBauble = stash.Place(publicTab, 1, 0, new InventoryItem(stash.NewItemId(), 0, 0,
+                ItemCatalog.Create(Program.Items.Find(CurrencyEffects.GlassblowersBauble)!) with { StackSize = 1 }), Game.ShapeOf, out _)!.Value.Placed;
+            var plainMain = items.Add(main, 11, 0, source with { Quality = 0 });
+            byte[] fromPublic = new byte[18];
+            BinaryPrimitives.WriteUInt16BigEndian(fromPublic, InstanceItems.UseItemOnId);
+            BinaryPrimitives.WriteUInt32BigEndian(fromPublic.AsSpan(2), stash.InventoryOf(publicTab));
+            BinaryPrimitives.WriteUInt32BigEndian(fromPublic.AsSpan(6), pubMirror.Id);
+            BinaryPrimitives.WriteUInt32BigEndian(fromPublic.AsSpan(10), inventory);
+            BinaryPrimitives.WriteUInt32BigEndian(fromPublic.AsSpan(14), invFlask.Id);
+            await Game.OnClientMessages([(InstanceItems.UseItemOnId, fromPublic)], [], c);
+            Assert.Empty(items.Items(PlayerInventories.Cursor));
+            Assert.Equal(2, stash.Inventory(publicTab).Items.Single(i => i.Id == pubMirror.Id).Item.StackSize);
+            BinaryPrimitives.WriteUInt32BigEndian(fromPublic.AsSpan(6), pubBauble.Id);
+            BinaryPrimitives.WriteUInt32BigEndian(fromPublic.AsSpan(14), plainMain.Id);
+            await Game.OnClientMessages([(InstanceItems.UseItemOnId, fromPublic)], [], c);
+            Assert.Equal(0, items.Items(main).Single(i => i.Id == plainMain.Id).Item.Quality);
+            Assert.Equal(1, stash.Inventory(publicTab).Items.Single(i => i.Id == pubBauble.Id).Item.StackSize);
+            // Self-targeting a stack of size 1 is refused without consuming the stack.
+            var singleSpot = new ItemMoves.Spot(null, main, bauble.Id);
+            Assert.Null(ItemMoves.Use(items, stash, singleSpot, singleSpot, bauble.Item, null));
+            Assert.Equal(1, items.Items(main).Single(i => i.Id == bauble.Id).Item.StackSize);
+            PlayerInventories.Forget(name);
+            AccountStash.Forget(key);
+            var restored = PlayerInventories.For(name, Program.Items);
+            var restoredStash = AccountStash.For(key, Program.Items);
+            Assert.Equal(3, restored.Items(main).Count(i => i.Item.Mirrored));
+            Assert.Equal(1, restored.Items(main).Single(i => i.Item.TypeHash == mirror.TypeHash).Item.StackSize);
+            Assert.DoesNotContain(restoredStash.Inventory(mirrorTab).Items, i => i.Item.TypeHash == mirror.TypeHash);
+            Assert.True(restoredStash.IsPublic(publicTab));
+            Assert.Equal(2, restoredStash.Inventory(publicTab).Items.Single(i => i.Id == pubMirror.Id).Item.StackSize);
+            Assert.Equal(1, restoredStash.Inventory(publicTab).Items.Single(i => i.Id == pubBauble.Id).Item.StackSize);
+            var restoredFlask = restoredStash.Inventory(targetTab).Items.Single(i => i.Id == tabFlask.Id).Item;
+            Assert.False(restoredFlask.Mirrored);
+            Assert.Equal((source.TypeHash, source.Quality, source.ItemLevel), (restoredFlask.TypeHash, restoredFlask.Quality, restoredFlask.ItemLevel));
+        }
+        finally { PlayerInventories.Forget(name); AccountStash.Forget(key); TestEnvironment.ReleaseSaves(save); }
+    }
 }
