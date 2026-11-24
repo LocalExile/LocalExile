@@ -8,7 +8,11 @@ public static class SkillGemLevel
             Stat.RaiseZombieGemLevelPlus, Stat.RaiseSpectreGemLevelPlus, Stat.CurseSkillGemLevelPlus];
 
     public static readonly (uint Stat, string Tag)[] TaggedActiveLevelStats =
-        [(Stat.ChaosSkillGemLevelPlus, "chaos"), (Stat.ColdSkillGemLevelPlus, "cold"), (Stat.SpellSkillGemLevelPlus, "spell")];
+    [
+        (Stat.PhysicalSkillGemLevelPlus, "physical"), (Stat.FireSkillGemLevelPlus, "fire"),
+        (Stat.ColdSkillGemLevelPlus, "cold"), (Stat.LightningSkillGemLevelPlus, "lightning"),
+        (Stat.ChaosSkillGemLevelPlus, "chaos"), (Stat.SpellSkillGemLevelPlus, "spell"),
+    ];
 
     // "All Skill Gems" means active skill gems (PoB keyword grants_active_skill); supports have their own stat.
     public const uint AllSkillGems = Stat.AllSkillGemLevelPlus;
