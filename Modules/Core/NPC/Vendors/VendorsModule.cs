@@ -162,6 +162,11 @@ public sealed class VendorsModule : IModule
             await BuyFromShop(player, InstanceNpcs.ReadBuy(bytes));
             return true;
         });
+        GameEvents.Packet(InstanceNpcs.BuyAndSocketId).Add(module.Manifest.Id, async (player, bytes) =>
+        {
+            await BuyAndSocketFromShop(player, InstanceNpcs.ReadBuyAndSocket(bytes));
+            return true;
+        });
         GameEvents.Packet(InstanceNpcs.CtrlBuyId).Add(module.Manifest.Id, async (player, bytes) =>
         {
             await CtrlBuyFromShop(player, InstanceNpcs.ReadCtrlBuy(bytes));

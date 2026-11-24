@@ -52,7 +52,7 @@ public static partial class Game
                 player.IncomingHitRandom.Next(100), suppression.Lucky, suppression.Unlucky);
             if (suppressed) dealt = DamageModel.Suppress(dealt, suppression.Effect);
             uint manaBefore = player.PlayerMana;
-            if (blocked) RecoverOnBlockLocked(player, stats);
+            if (blocked) RecoverOnBlockLocked(player, stats, now, attack: !spell);
             var taken = DamagePacket.Of(type, dealt, dealt);
             RecoupHitLocked(player, taken, now, stats);
             if (type == DamageType.Physical) PreventedDamageOf(player).Add(now, amount - dealt);
@@ -62,7 +62,7 @@ public static partial class Game
                 type == DamageType.Chaos ? dealt : 0, now, stats, taken);
             player.PlayerLife = (uint)Math.Max(0, (long)lifeBefore - lifeDamage);
             TrimLeechLocked(player);
-            RecordIncomingHitLocked(player, now, spell, blocked, suppressed, lifeDamage);
+            RecordIncomingHitLocked(player, now, spell, blocked, suppressed, lifeDamage, dealt > 0);
             RecentHitLifeLossOnHitLocked(player, now);
             UnhingedHitRecoveryLocked(player, now, stats);
             if (player.PlayerLife == 0) { player.InvalidateIncomingHits(); ClearAntiquarianOnDeath(player); }

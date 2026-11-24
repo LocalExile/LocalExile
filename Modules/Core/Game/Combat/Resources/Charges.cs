@@ -67,7 +67,8 @@ public static partial class Game
         ChargesOf(player).Enqueue(new ChargeEvent.Hit(critical, spell, melee, m.Rarity, effect >= 0 ? SkillsFor(player).EffectId(effect) : null,
             skill, Killed: m.Dead || m.Life == 0, Primary: primary, Frozen: frozen, Bleeding: bleeding, Marked: marked,
             SelfBleeding: selfBleeding, SelfPoisoned: selfPoisoned));
-        CurseCharges(player, m, false);
+        CurseCharges(player, m, death: false, now);
+        PlayerGrantsNearbyChargesLocked(player, kill: false, now);
     }
 
     // The player died (PlayerDied): every gained charge goes now, not at the ticker's next step, which a pause holds back.
@@ -92,7 +93,8 @@ public static partial class Game
         ChargesOf(player).Enqueue(new ChargeEvent.Kill(m.Rarity, frozen, poisons));
         SpiritChargeOnKill(player, AreaTime(player));
         SelfBuffsOnKill(player);
-        CurseCharges(player, m, true);
+        CurseCharges(player, m, death: true, now);
+        PlayerGrantsNearbyChargesLocked(player, kill: true, now);
     }
 
     // A monster's hit on the player that landed or was blocked (when hit), and on block when blocked: "if you've been hit
@@ -239,7 +241,22 @@ public static partial class Game
         stats ??= CharacterPlayerStats(player);
         int Get(uint key) => stats.GetValueOrDefault(key);
         var reduction = ChargeEffects.Reduction(Get);
-        return (ActorScale.Saturate((long)reduction.Physical + Get(SiphoningHitReduction)), reduction.Elemental);
+        int perMinion = Get(Stat.AdditionalPhysicalDamageReductionPctPerMinionUpTo10Pct);
+        long minionReduction = perMinion <= 0 ? 0 : Math.Min(10,
+            (long)perMinion * player.Minions.All.Count(minion => !minion.Monster.Dead && minion.Monster.Life > 0
+                && player.Area.Monsters.GetValueOrDefault(minion.Id) == minion.Monster));
+        double now = AreaTime(player);
+        int nearby = Slayer.Of(player).Nearby;
+        long pantheonPhysical = 0;
+        if (nearby == 1) pantheonPhysical += Get(Stat.PhysicalDamageReductionPctIfOnlyOneEnemyNearby);
+        int perNearby = Get(Stat.PhysicalDamageReductionPctPerNearbyEnemy);
+        if (perNearby != 0 && nearby > 0) pantheonPhysical += (long)Math.Min(8, nearby) * perNearby;
+        int perRecentHit = Get(Stat.PhysicalDamageReductionPctPerHitYouHaveTakenRecently);
+        if (perRecentHit != 0) pantheonPhysical += (long)Math.Min(5, player.RecentEnemyHits.Count(now)) * perRecentHit;
+        int tukohamaPerSec = Get(Stat.WhileStationaryGainAdditionalPhysicalDamageReductionPct);
+        if (tukohamaPerSec > 0 && !player.Walk.Moving(now) && double.IsFinite(player.StationarySince))
+            pantheonPhysical += Math.Min(9L, (long)Math.Min(3, (int)Math.Floor(Math.Max(0, now - player.StationarySince))) * tukohamaPerSec);
+        return (ActorScale.Saturate((long)reduction.Physical + Get(SiphoningHitReduction) + minionReduction + pantheonPhysical), reduction.Elemental);
     }
 
     // A hit's damage taken after the player's mitigation (the dev /hit commands, MonsterSwing's rules): physical through
@@ -283,7 +300,8 @@ public static partial class Game
     // its life regeneration (Path of Building: power 1 normal, 2 magic, 10 rare, 20 unique). warcries_have_infinite_power
     // (Bring the Battle) makes the power 999999 (PoB CalcPerform's override): the charges reach their maximum and the
     // regeneration its 25-power cap. Every warcry then runs the on-warcry effects (WarcryReleased). The other warcries'
-    // own buffs and exerted attacks remain separate, except Intimidating Cry (IntimidatingCry.cs).
+    // supported buffs are granted by ApplyWarcryBuffLocked, except Intimidating Cry, which has its own
+    // (IntimidatingCry.cs); their exerted attacks are still not modelled.
     // True when the skill was a warcry.
     public static bool UseWarcryInstance(Player player,
         ushort skillId, int effect)
@@ -317,7 +335,9 @@ public static partial class Game
         double castSeconds = WarcryCastSeconds(player, effect, playerStats, own);
         double until = AreaTime(player) + castSeconds;
         int epoch = player.ProjectileEpoch;
-        double duration = SkillDurationModifiers.Seconds(Own(Stat.BaseSkillEffectDuration), Player, Own, DurationKinds(player, effect));
+        double duration = SkillDurationModifiers.Seconds(Own(Stat.BaseSkillEffectDuration), Player, Own, DurationKinds(player, effect))
+            * SkillDurationModifiers.CallToArmsMore(Player);
+        bool callToArms = Player(Stat.KeystoneCallToArms) != 0;
         double buffEffect = Math.Max(0, 1 + ((long)Player(Stat.WarcryBuffEffectPlusPct) + Own(Stat.WarcryBuffEffectPlusPct)) / 100d);
         _ = AreaFrames.Start(async () =>
         {
@@ -337,9 +357,11 @@ public static partial class Game
                 Console.WriteLine($"[gateway] {SkillsFor(player).EffectId(effect)}: taunts {taunted} monster(s) within {radius} cells for {taunt:0.##} s");
             if (!enduring)
             {
-                if (SkillsFor(player).EffectId(effect) == "IntimidatingCry")
-                    if (player.ProjectileActive(epoch) && player.PlayerLife > 0)
-                        ApplyIntimidatingCryLocked(player, own, CharacterPlayerStats(player), now);
+                string effectId = SkillsFor(player).EffectId(effect) ?? "";
+                if (effectId == "IntimidatingCry")
+                    ApplyIntimidatingCryLocked(player, own, CharacterPlayerStats(player), now);
+                else
+                    ApplyWarcryBuffLocked(player, effectId, own, playerStats, here, radius, now, duration, buffEffect);
                 var warriors = skillId != 0 && IsGeneralsCry(player, effect)
                     ? GeneralsCryReleased(player, skillId, here, radius, epoch)
                     : Task.CompletedTask;
@@ -354,12 +376,12 @@ public static partial class Game
             double percentPerMinute = Math.Min(25, power) / 5d
                 * Own(Stat.EnduringCryLifeRegenerationRatePerMinutePctPer5PowerUpToCap)
                 * buffEffect;
-            player.EnduringCryRecovery.Begin(now, duration, player.PlayerMaxLife * percentPerMinute / 6000d);
+            if (!callToArms) player.EnduringCryRecovery.Begin(now, duration, player.PlayerMaxLife * percentPerMinute / 6000d);
             Console.WriteLine($"[gateway] Enduring Cry recovery: {power} power, {duration:0.###} seconds, "
                 + $"{percentPerMinute:0.###}% Life/min (Whaletooth included)");
             int charges = per > 0 ? power / per : 0;
             Console.WriteLine($"[gateway] Enduring Cry: {power} power within {radius} cells, {charges} endurance charge(s), {taunted} taunted");
-            if (charges > 0) ChargesOf(player).Enqueue(new ChargeEvent.Grant(ChargeType.Endurance, charges, $"Enduring Cry ({power} power)"));
+            if (charges > 0 && !callToArms) ChargesOf(player).Enqueue(new ChargeEvent.Grant(ChargeType.Endurance, charges, $"Enduring Cry ({power} power)"));
             await WarcryReleased(player, here, radius, epoch);
         });
         return true;

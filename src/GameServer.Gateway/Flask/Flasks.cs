@@ -43,7 +43,11 @@ public static class Flasks
     /// IsRecovery rows' one u32 per GrantedStats entry.</summary>
     /// Two effects of one row run side by side (two Life flasks): each is its own buff (<paramref name="tag"/>: its number).
     public static Buff Buff(uint player, ushort tag, ushort row, byte slot, double? seconds, IReadOnlyList<uint>? values = null) =>
-        new(row, player, slot, values, U68: seconds is double s ? global::Buff.Seconds(s) : null, Tag: tag);
+        Buff(player, tag, row, slot, seconds, values, null);
+
+    public static Buff Buff(uint player, ushort tag, ushort row, byte slot, double? seconds, IReadOnlyList<uint>? values,
+        ushort? visual) =>
+        new(row, player, slot, values, U68: seconds is double s ? global::Buff.Seconds(s) : null, Visual: visual, Tag: tag);
 
     /// <summary>A hybrid's Life and Mana recover and end independently (wiki Hybrid flask; PoB CalcPerform).
     /// Give each resource its own existing recovery queue, native buff and remaining duration. Its companion continues
@@ -139,6 +143,18 @@ public static class Flasks
         public double Remaining(Effect effect)
         {
             lock (_lock) return _running.FirstOrDefault(r => ReferenceEquals(r.Effect, effect))?.Remaining ?? 0;
+        }
+
+        /// <summary>The earliest instant at which a running recovery effect can finish, or null when none are running.</summary>
+        public double? NextExpiry(double now)
+        {
+            lock (_lock)
+            {
+                double next = double.PositiveInfinity;
+                foreach (var r in _running)
+                    if (r.Remaining > Done) next = Math.Min(next, now + r.Remaining);
+                return double.IsFinite(next) ? next : null;
+            }
         }
 
         /// <summary>The life and mana recovered between <paramref name="from"/> and <paramref name="to"/>, and the effects

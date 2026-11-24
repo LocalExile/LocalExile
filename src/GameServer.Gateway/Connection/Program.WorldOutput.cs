@@ -103,16 +103,16 @@ public partial class Program
         Func<WorldAdmission, OutputBatch?> atGate, Func<bool>? still, IWorldAdmissionRules? rules)
     {
         var output = player.Connection.WorldOutput;
-        if (player.Closed || player.LeavingArea || output.Closed) return false;
-        foreach (var target in dependencies)
-            if (target.State == WorldObject.BirthState.Retired || target.RemovalRequested) return false;
-        if (rules is not null && (!ReferenceEquals(GameLogicOrNull, rules) || !rules.WorldAdmissionActive)) return false;
-        if (ProjectileOutputGuard.Value is { } guard && !guard()) return false;
-        if (still is not null && !still()) return false;
         var admission = new WorldAdmission(output, reservations);
         bool admitted = false;
         try
         {
+            if (player.Closed || player.LeavingArea || output.Closed) return false;
+            foreach (var target in dependencies)
+                if (target.State == WorldObject.BirthState.Retired || target.RemovalRequested) return false;
+            if (rules is not null && (!ReferenceEquals(GameLogicOrNull, rules) || !rules.WorldAdmissionActive)) return false;
+            if (ProjectileOutputGuard.Value is { } guard && !guard()) return false;
+            if (still is not null && !still()) return false;
             if (atGate(admission) is not { } batch) return false;
             if (!output.TryShared(batch, admission)) return false;
             var delta = player.Area.Delta;
@@ -214,16 +214,7 @@ public partial class Program
             long writing = Stopwatch.GetTimestamp();
             int bytes = 0;
             // The frame's records and its end in one write.
-            IEnumerable<WorldOutput.Packet> records = frame.Packets;
-            // The area's frame: the same records for every connection (what is for this one), in the client's frame order.
-            if (delta is { Count: > 0 })
-            {
-                var shared = new List<WorldOutput.Packet>(delta.Count);
-                foreach (var record in delta)
-                    if (record.For(player))
-                        shared.Add(new(record.Bytes, record.Log, record.Order, IsWorld: record.Kind != AreaDelta.Kind.Message, SharedView: true));
-                if (shared.Count > 0) records = frame.Packets.Concat(shared).OrderBy(p => p.Order).ToList();
-            }
+            var records = FrameRecords(player, frame, delta);
             var packets = new List<(byte[], string?, WorldOutput.Packet?)>(frame.Packets.Count + 1);
             foreach (var packet in records)
             {
@@ -240,12 +231,24 @@ public partial class Program
         finally { gate.Release(); }
     }
 
+    // The connection's own records and the area's frame (the same records for every connection: what is for this one), in
+    // the client's frame order.
+    static IReadOnlyList<WorldOutput.Packet> FrameRecords(Player player, WorldOutput.Frame frame, IReadOnlyList<AreaDelta.Record>? delta)
+    {
+        if (delta is not { Count: > 0 }) return frame.Packets;
+        var shared = new List<WorldOutput.Packet>(delta.Count);
+        foreach (var record in delta)
+            if (record.For(player))
+                shared.Add(new(record.Bytes, record.Log, record.Order, IsWorld: record.Kind != AreaDelta.Kind.Message, SharedView: true));
+        return shared.Count > 0 ? [.. frame.Packets.Concat(shared).OrderBy(p => p.Order)] : frame.Packets;
+    }
+
     /// <summary>While paused, what the server sends the player (a passive point's stats, an item's) still reaches a lockstep
     /// client, which applies world records only in the frames it runs: they go out in a frame of 0 ms (S→C 0x2b8 0, the
     /// records, 0x2b7, then 0x2b8 back to the frame length). The client runs a frame its time already covers at once, and
     /// a 0 ms frame is covered by no time at all (0x14218a2a0), so its records apply and the world does not move. Not on
-    /// the frame timeline: it ends no frame of the clock's.</summary>
-    public static async Task EndPausedFrame(Player player)
+    /// the frame timeline: it ends no frame of the clock's. <paramref name="delta"/>: the area's records (AreaFrames).</summary>
+    public static async Task EndPausedFrame(Player player, IReadOnlyList<AreaDelta.Record>? delta = null)
     {
         var wire = player.Connection.Session;
         var gate = SendGates.GetValue(wire.Ciphers, _ => new(1, 1));
@@ -256,10 +259,11 @@ public partial class Program
             WorldOutput.Frame frame;
             if (player.Closed || player.Connection.WorldOutput.Closed || !player.Paused || !player.Connection.WorldOutput.Started) return;
             frame = player.Connection.WorldOutput.TakeFrame();
-            if (frame.Packets.Count == 0) return;
+            var records = FrameRecords(player, frame, delta);
+            if (records.Count == 0) return;
             committed = true;
             List<(byte[], string?, WorldOutput.Packet?)> packets = [(InstanceProtocol.FrameLength(0), "0x02b8 frame length 0 ms (paused)", null)];
-            foreach (var packet in frame.Packets) packets.Add((packet.Bytes, packet.Log, packet));
+            foreach (var packet in records) packets.Add((packet.Bytes, packet.Log, packet));
             packets.Add((InstanceProtocol.FrameEnd(), null, null));
             packets.Add((InstanceProtocol.FrameLength(FrameMs), null, null));
             await WritePackets(wire.Remote, wire.Stream, wire.Ciphers, packets);

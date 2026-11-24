@@ -29,7 +29,7 @@ public static partial class Game
         return source is { Active: true } && source.Effect == effect && source.Identity == lifetime.Key;
     }
 
-    static IReadOnlyList<PlayerSkillSource> GemSourceRowsLocked(Player player, uint host, int socket, Item gem)
+    public static IReadOnlyList<PlayerSkillSource> GemSourceRowsLocked(Player player, uint host, int socket, Item gem)
     {
         var effects = ItemsFor(player).GemEffects(gem).ToHashSet();
         return [.. PlayerSkillSourcesLocked(player).Where(source =>
@@ -45,7 +45,7 @@ public static partial class Game
     // A successful manual physical removal is already the source's end. Retire every canonical row for that gem, including
     // inactive regular/Vaal rows, then eagerly remove the actual owned actors and persist before the handler's first send
     // suspend. The normal equipment publication that follows reconciles the player's stat and skill lists.
-    static void RetireDirectMinionSourcesLocked(Player player, IReadOnlyList<PlayerSkillSource> sources)
+    public static void RetireDirectMinionSourcesLocked(Player player, IReadOnlyList<PlayerSkillSource> sources)
     {
         if (sources.Count == 0) return;
         var expectedRf = player.RighteousFire;
@@ -99,6 +99,8 @@ public static partial class Game
             if (retiring.Count == 0) return;
             var identities = retiring.Select(source => source.Identity).ToHashSet();
             pending.RemoveAll(source => identities.Contains(source.Identity));
+            if (ShaperMemories.TryGetValue(player, out var memory) && retiring.Any(source => source.WornGrant == memory.Grant))
+                RetireShaperMemoryLocked(player, memory);
             RetireDirectMinionSourcesLocked(player, retiring);
         }
     }

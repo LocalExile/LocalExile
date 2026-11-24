@@ -1,3 +1,4 @@
+using GameServer.Core.Protocol.Instance;
 using GameServer.Core.World;
 
 namespace GameServer.Gateway.Tests;
@@ -77,5 +78,35 @@ public sealed class ElementalArmyExposureTests
         var far = Game.MinionHitTargetLocked(f.Player, beast.Id, beast.Monster, 900, target, 1,
             new Random(1), checkReach: false, accuracy: 1000000);
         Assert.True(near!.Value.Damage > far!.Value.Damage);
+    }
+
+    [Fact]
+    public async Task Speakers_Wreath_keeps_an_unignited_enemy_alive_from_an_owned_beast_hit()
+    {
+        using var f = new MinionUtilityTests.Fixture();
+        f.Player.God = true;
+        var items = Game.ItemsOf(f.Player);
+        var catalog = new UniqueCatalog(Program.Items);
+        var armour = Assert.IsType<Item>(catalog.Create("Yriel's Fostering (Ursa)", new Random(17)));
+        var wreath = Assert.IsType<Item>(catalog.Create("Speaker's Wreath", new Random(19)));
+        var weapon = items.Items(PlayerInventories.Weapon1).Single();
+        items.Remove(PlayerInventories.Weapon1, weapon.Id);
+        items.Add(PlayerInventories.BodyArmour, 0, 0, armour);
+        items.Add(PlayerInventories.Helmet, 0, 0, wreath);
+        var source = Assert.Single(Game.GemSkillEffects(f.Player));
+        Game.QueueBeastCompanionLocked(f.Player, Game.SupportedSkill(f.Player, source.Id), source.Id, null);
+        await Game.TickBeastCompanions(f.Player, 1, Game.CombatLifetime);
+        var beast = Assert.IsType<BeastCompanions.ActiveBeast>(f.Player.Beasts.Active);
+        f.Player.Area.Monsters[900] = new("unignited target", new(105, 100, 0), 100, 3, 2) { Hostile = true };
+        f.Player.Area.Monsters[901] = new("ignited target", new(105, 102, 0), 100, 3, 2) { Hostile = true };
+        var ordinary = f.Player.Area.Monsters[900];
+        var ignited = f.Player.Area.Monsters[901];
+        Assert.True(ignited.Ignites.Add(1, 1, 4));
+        Assert.NotNull(Game.MinionHitTargetLocked(f.Player, beast.Id, beast.Monster, 900, ordinary, 1,
+            new Random(1), checkReach: false, accuracy: 1_000_000));
+        Assert.NotNull(Game.MinionHitTargetLocked(f.Player, beast.Id, beast.Monster, 901, ignited, 1,
+            new Random(1), checkReach: false, accuracy: 1_000_000));
+        Assert.Equal(1u, ordinary.Life);
+        Assert.True(ignited.Dead);
     }
 }

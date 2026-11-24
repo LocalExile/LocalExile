@@ -61,10 +61,24 @@ public static partial class Game
         int? Replacement(uint key) => replacements is not null && replacements.TryGetValue(key, out int value) ? value : null;
         int claws = (WeaponIdentity.CountsAs(ActiveMainHand(player), ItemsFor(player).Mods, "Claw") ? 1 : 0)
             + (WeaponIdentity.CountsAs(ActiveOffHand(player), ItemsFor(player).Mods, "Claw") ? 1 : 0);
-        LeechOf(player).Configure(ProjectileWorldTime(player),
-            LeechLimits.Resolve(get, player.Pools.Life, player.Pools.Mana, player.Pools.EnergyShield, Replacement, onLowLife),
+        double now = ProjectileWorldTime(player);
+        var session = LeechOf(player);
+        long lifeLeechCap = 0;
+        bool redirects = false;
+        foreach (var link in player.Links.All)
+        {
+            if (VampiricMinionAt(player, link, now) is null) continue;
+            redirects = true;
+            lifeLeechCap += ScaledLinkStat(link, Stat.RemoraLinkGrantsMaximumLifeLeechRatePctPerMinute,
+                Math.Max(0, 100L + get(Stat.LinkSkillBuffEffectPlusPct)));
+        }
+        int WithVampiricCap(uint key) => key != Stat.MaximumLifeLeechRatePctPerMinute
+            ? get(key) : ActorScale.Saturate(get(key) + lifeLeechCap);
+        session.SetLifeRecoveryRedirected(now, redirects);
+        session.Configure(now,
+            LeechLimits.Resolve(WithVampiricCap, player.Pools.Life, player.Pools.Mana, player.Pools.EnergyShield, Replacement, onLowLife),
             get, Replacement, claws);
-        LeechOf(player).OnKill = KillRecovery.From(get, player.Pools.Level);
+        session.OnKill = KillRecovery.From(get, player.Pools.Level);
         TrimLeechLocked(player);
     }
 
@@ -75,7 +89,9 @@ public static partial class Game
         if (player.PlayerLife == 0) LeechOf(player).Clear(now);
         else
         {
-            LeechOf(player).ClearFull(now, player.PlayerLife >= LifeCap(player),
+            var session = LeechOf(player);
+            session.SetLifeRecoveryRedirected(now, HasVampiricMinion(player, now));
+            session.ClearFull(now, player.PlayerLife >= LifeCap(player),
                 player.PlayerMana >= UnreservedMana(player), player.EnergyShield.Current >= player.EnergyShield.Maximum);
             SettleFullManaLocked(player, ResourceEffectsTime(player));
         }
@@ -120,11 +136,13 @@ public static partial class Game
             }
         }
         double now = ProjectileWorldTime(player);
+        session.SetLifeRecoveryRedirected(now, HasVampiricMinion(player, now));
         double powerInstant = sources.InstantLeechPerEnemyPower == 0 ? 0
             : (double)sources.InstantLeechPerEnemyPower * WarcryPower(target.Rarity);
         var instant = session.HitWithWeapon(now, amounts, player.PlayerLife >= LifeCap(player),
             player.PlayerMana >= UnreservedMana(player), player.EnergyShield.Current >= player.EnergyShield.Maximum,
             sources.Attack, sources.Melee, sources.WeaponLifeLeechInstant, powerInstant);
+        if (instant.Life > 0 && RecoverVampiricMinions(player, instant.Life, now)) instant.Life = 0;
         var gain = sources.GainOnHit;
         if (sources.LifeOnBlindedHit > 0)
         {
@@ -144,6 +162,41 @@ public static partial class Game
         player.EnergyShield.Gain(instant.EnergyShield + (session.RecoversEnergyShield ? gain.EnergyShield : 0));
         session.InstantLifeChanged |= life != player.PlayerLife;
         session.InstantManaChanged |= mana != player.PlayerMana;
+        TrimLeechLocked(player);
+    }
+
+    internal static (double Life, double Mana, double EnergyShield) TakeLeechRecovery(Player player, double now,
+        bool lifeFull, bool manaFull, bool shieldFull)
+    {
+        var session = LeechOf(player);
+        session.SetLifeRecoveryRedirected(now, HasVampiricMinion(player, now));
+        session.ClearFull(now, lifeFull, manaFull, shieldFull);
+        var recovery = session.TakeRecovery(now);
+        if (recovery.Life > 0 && RecoverVampiricMinions(player, recovery.Life, now, overTime: true)) recovery.Life = 0;
+        return recovery;
+    }
+
+    static void LeechFromMinionDamageLocked(Player player, SpawnedMonster target, int damage, double now,
+        IReadOnlyDictionary<uint, int>? ownerStats)
+    {
+        if (damage <= 0 || player.PlayerLife == 0 || target.Effects[Stat.CannotHaveLifeLeechedFrom] != 0
+            || target.Effects[Stat.MapMonstersCannotBeLeechedFrom] != 0) return;
+        ownerStats ??= CharacterPlayerStats(player);
+        int rate = ownerStats.GetValueOrDefault(Stat.LifeLeechFromMinionDamagePct);
+        if (rate <= 0) return;
+        var session = LeechOf(player);
+        if (session.ConvertsLifeToEnergyShield && target.Effects[Stat.CannotHaveEnergyShieldLeechedFrom] != 0) return;
+        session.SetLifeRecoveryRedirected(now, HasVampiricMinion(player, now));
+        var instant = session.Hit(now, (damage * (rate / 100d), 0, 0),
+            player.PlayerLife >= LifeCap(player), player.PlayerMana >= UnreservedMana(player),
+            player.EnergyShield.Current >= player.EnergyShield.Maximum);
+        if (instant.Life > 0 && !RecoverVampiricMinions(player, instant.Life, now))
+        {
+            uint before = player.PlayerLife;
+            player.PlayerLife = PetrifiedBlood.RecoverLife(player, before, instant.Life, ref session.LifeInstantCarry, minimum: 1);
+            session.InstantLifeChanged |= player.PlayerLife != before;
+        }
+        player.EnergyShield.Gain(instant.EnergyShield);
         TrimLeechLocked(player);
     }
 

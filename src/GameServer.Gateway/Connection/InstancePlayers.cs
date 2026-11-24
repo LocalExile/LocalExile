@@ -3,6 +3,10 @@ using GameServer.Core.Protocol.Instance;
 /// <summary>An aura a player shares with the allies in its radius, at the caster's effect.</summary>
 public sealed record SharedAura(AuraCatalog.Aura Aura, int Radius, int Effect);
 
+public sealed record FortificationShare(int ChampionFortification, int ChampionRadius,
+    int KingmakerFortify, bool KingmakerCulling, int KingmakerCritMulti, int KingmakerIir, int KingmakerRadius,
+    (int X, int Y)? AnimatedGuardianAt);
+
 /// <summary>The players of one Auth instance: the area's, and in an SSF town the other solo worlds' sharing it (chat,
 /// party and friends see them; their world state stays apart). A player is in it from entering until leaving.</summary>
 public sealed class InstancePresence
@@ -25,16 +29,39 @@ public static class InstanceEvents
     /// <summary>An instance to join for a transfer without a chosen one (a party member's), 0 for the default choice.</summary>
     public static readonly GameEvent<Func<Player, PendingTransfer, ulong>> TransferInstance = new();
 
+    /// <summary>The waypoint an area shows, before it is sent: a subscriber may move it, replace it, or return null for
+    /// none at all. Each subscriber sees what the ones before it left.</summary>
+    public static readonly GameEvent<Func<Player, WaypointObject?, WaypointObject?>> AreaWaypoint = new();
+
+    public static WaypointObject? RunAreaWaypoint(Player player, WaypointObject? waypoint)
+    {
+        foreach (var (owner, run) in AreaWaypoint.Subscribers(player))
+            GameEventOwners.Guard(owner, nameof(AreaWaypoint), () => waypoint = run(player, waypoint));
+        return waypoint;
+    }
+
     /// <summary>The area stats a new instance is played with (0x1d's first stat list, 1-based Stats ids): the client's
     /// level generator reads them, so the Gateway generates the level with the same list. Asked once per instance, by
     /// its first connection, before that connection's state exists; the answers are summed.</summary>
     public static readonly GameEvent<Func<AreaStatsRequest, IReadOnlyDictionary<uint, int>?>> AreaStats = new();
 
+    /// <summary>The stats displayed under the map overlay header (S→C 0x1d's second stat list): map mods (scaled by Atlas
+    /// modifier effect) and fragments/scarabs, without raw Atlas passive tree stats.</summary>
+    public static readonly GameEvent<Func<AreaStatsRequest, IReadOnlyDictionary<uint, int>?>> AreaDisplayStats = new();
+
     /// <summary>The league's answers to <see cref="AreaStats"/>, summed; a failing answer counts as none.</summary>
-    public static IReadOnlyDictionary<uint, int> ComposeAreaStats(LeagueRuntime league, AreaStatsRequest request)
+    public static IReadOnlyDictionary<uint, int> ComposeAreaStats(LeagueRuntime league, AreaStatsRequest request) =>
+        ComposeAreaStatEvent(AreaStats, league, request);
+
+    /// <summary>The league's answers to <see cref="AreaDisplayStats"/>, summed; a failing answer counts as none.</summary>
+    public static IReadOnlyDictionary<uint, int> ComposeAreaDisplayStats(LeagueRuntime league, AreaStatsRequest request) =>
+        ComposeAreaStatEvent(AreaDisplayStats, league, request);
+
+    static IReadOnlyDictionary<uint, int> ComposeAreaStatEvent(GameEvent<Func<AreaStatsRequest, IReadOnlyDictionary<uint, int>?>> ev,
+        LeagueRuntime league, AreaStatsRequest request)
     {
         var sum = new Dictionary<uint, int>();
-        foreach (var compose in AreaStats.For(league))
+        foreach (var compose in ev.For(league))
         {
             IReadOnlyDictionary<uint, int>? part;
             try { part = compose(request); }
@@ -182,6 +209,7 @@ public sealed partial class Player
     public PlayerObject? PeerTemplate;
     /// <summary>The auras this player shares with its allies, set when its stats change (RefreshPeerScale).</summary>
     public IReadOnlyList<SharedAura> SharedAuras = [];
+    public FortificationShare? Fortification;
     public uint PeerType;
     /// <summary>This player's minions as created (SharedMonsters.cs), and as of its last frame, for the other clients.</summary>
     public readonly System.Collections.Concurrent.ConcurrentDictionary<uint, SharedMonsterOrigin> MinionOrigins = new();

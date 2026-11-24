@@ -45,10 +45,10 @@ public static class VendorStock
             && t.Components.Contains("Mods") && !rules.ShopExcludedClasses.Contains(t.Class)
             && !t.Name.StartsWith('[') && !t.Id.Contains("Royale") && t.ModDomain == 1;
         var classes = profile.Kind == "Weapons"
-            ? new[] { "OneHandSword", "TwoHandSword", "ThrustingOneHandSword", "OneHandAxe", "TwoHandAxe",
-                "OneHandMace", "TwoHandMace", "Dagger", "RuneDagger", "Claw", "Bow", "Staff", "Warstaff",
-                "Sceptre", "Shield", "BodyArmour", "Helmet", "Gloves", "Boots", "Quiver" }
-            : new[] { "Wand", "Ring", "Amulet", "Belt", "LifeFlask", "ManaFlask", "HybridFlask", "UtilityFlask", "Tincture" };
+            ? new[] { "One Hand Sword", "Two Hand Sword", "Thrusting One Hand Sword", "One Hand Axe", "Two Hand Axe",
+                "One Hand Mace", "Two Hand Mace", "Dagger", "Rune Dagger", "Claw", "Bow", "Staff", "Warstaff",
+                "Sceptre", "Shield", "Body Armour", "Helmet", "Gloves", "Boots", "Quiver" }
+            : new[] { "Wand", "Ring", "Amulet", "Belt", "LifeFlask", "ManaFlask", "HybridFlask", "UtilityFlask", "UtilityFlaskCritical", "Tincture" };
         var pool = new Lazy<List<ItemCatalog.BaseType>>(() =>
         {
             var selected = items.All.Where(t => Eligible(t) && classes.Contains(t.Class)).ToList();
@@ -104,12 +104,14 @@ public static class VendorStock
             int max = CurrencyEffects.MaximumSockets(item, type);
             if (max > 0)
             {
-                var choices = new[] { (Count:1, Weight:50), (Count:2, Weight:120), (Count:3, Weight:100),
-                    (Count:4, Weight:30), (Count:6, Weight:1) }.Where(c => c.Count <= max).ToArray();
+                int capacity = CurrencyEffects.SocketCapacity(item, type);
+                var choices = (capacity == 4
+                    ? new[] { (Count: 1, Weight: 100), (Count: 2, Weight: 90), (Count: 3, Weight: 80), (Count: 4, Weight: 30) }
+                    : new[] { (Count: 1, Weight: 50), (Count: 2, Weight: 120), (Count: 3, Weight: 100),
+                        (Count: 4, Weight: 30), (Count: 5, Weight: 5), (Count: 6, Weight: 1) }).Where(c => c.Count <= max).ToArray();
                 int draw = random.Next(choices.Sum(c => c.Weight)), sockets = 1;
                 foreach (var c in choices) { draw -= c.Weight; if (draw < 0) { sockets = c.Count; break; } }
-                var links = new List<byte> { 1 };
-                for (int i = 1; i < sockets; i++) if (random.Next(2) == 0) links[^1]++; else links.Add(1);
+                var links = ItemCatalog.RollSocketLinks(sockets, random);
                 item = item with { Sockets = [.. Enumerable.Range(0, sockets).Select(_ => new ItemSocket(
                     SocketColours.Roll(items.Requirements(type), itemLevel, item.Quality, random)))], Links = links };
             }
@@ -125,12 +127,15 @@ public static class VendorStock
             refreshKirac |= profile.Kind == "Kirac" && old is not null && offeredTier > old.OfferedTier;
             var entries = old is null || refreshKirac ? new List<Entry>() : new List<Entry>(old.Entries);
             bool changed = old is null || refreshKirac;
+            int refreshLevels = SystemSettings.Default.VendorRefreshLevels;
             for (int i = 0; i < count; i++)
             {
                 if (i < entries.Count && (profile.Kind == "Kirac" || entries[i].RefreshAt > level)) continue;
                 if (Generate(i) is not { } item) { notes.Add($"No priced generated offer for {npc} slot {i}"); continue; }
-                int next = i < entries.Count ? entries[i].RefreshAt + ((level - entries[i].RefreshAt) / 3 + 1) * 3
-                    : level + i % 3 + 1;
+                int next = refreshLevels <= 1
+                    ? level + 1
+                    : (i < entries.Count ? entries[i].RefreshAt + ((level - entries[i].RefreshAt) / refreshLevels + 1) * refreshLevels
+                        : level + i % refreshLevels + 1);
                 var entry = new Entry(Guid.NewGuid(), next, CharacterSaves.ToSaved(item, items.Mods),
                     Price:[.. item.Price.Select(p => new Cost(p.TypeHash,p.Amount))]);
                 if (i < entries.Count) entries[i] = entry; else entries.Add(entry);
@@ -154,12 +159,15 @@ public static class VendorStock
             var item = ItemCatalog.Create(type);
             if (price.Price(item) is { } priced) goods.Add((priced, null));
         }
-        if (profile.Kind == "Weapons") { Supply("Armourer's Scrap"); if (profile.Act >= 2) Supply("Blacksmith's Whetstone"); }
-        if (profile.Kind == "Magic")
+        if (!hardMode)
         {
-            foreach (string name in profile.Act == 1 ? new[] { "Orb of Transmutation", "Orb of Alteration", "Orb of Augmentation", "Portal Scroll" }
-                : profile.Act == 2 ? new[] { "Orb of Regret", "Orb of Scouring", "Portal Scroll", "Orb of Fusing", "Jeweller's Orb" }
-                : new[] { "Orb of Alchemy", "Orb of Chance", "Orb of Regret", "Orb of Transmutation", "Orb of Alteration", "Orb of Scouring", "Orb of Augmentation", "Portal Scroll", "Orb of Fusing", "Jeweller's Orb" }) Supply(name);
+            if (profile.Kind == "Weapons") { Supply("Armourer's Scrap"); if (profile.Act >= 2) Supply("Blacksmith's Whetstone"); }
+            if (profile.Kind == "Magic")
+            {
+                foreach (string name in profile.Act == 1 ? new[] { "Orb of Transmutation", "Orb of Alteration", "Orb of Augmentation", "Portal Scroll" }
+                    : profile.Act == 2 ? new[] { "Orb of Regret", "Orb of Scouring", "Portal Scroll", "Orb of Fusing", "Jeweller's Orb", "Chromatic Orb" }
+                    : new[] { "Orb of Alchemy", "Orb of Chance", "Orb of Regret", "Orb of Transmutation", "Orb of Alteration", "Orb of Scouring", "Orb of Augmentation", "Portal Scroll", "Orb of Fusing", "Jeweller's Orb", "Chromatic Orb", "Glassblower's Bauble" }) Supply(name);
+            }
         }
         if (profile.Kind == "Kirac") Supply("Orb of Unmaking");
         var tabs = new List<NpcShops.ShopTab>();
@@ -222,7 +230,7 @@ public static class VendorStock
                 foreach (string id in group)
                 {
                     if (!remaining.Remove(id,out var type) || items.Gem(type) is not { } gem) continue;
-                    int gemLevel = profile.Act <= 4 && profile.Kind != "Gems" && !hardMode
+                    int gemLevel = profile.Act <= 9 && profile.Kind != "Gems" && !hardMode
                         ? Math.Min(gem.MaxLevel, skills.MaxLevelAt(gem.Variant(0).Effect, Math.Min(level,52))) : 1;
                     var item = ItemCatalog.Create(type) with { GemExperience = gem.ExperienceFor(gemLevel) };
                     if (price.Price(item) is not { } priced) { notes.Add($"No price for vendor gem {id}"); continue; }

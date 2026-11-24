@@ -13,7 +13,7 @@ public static partial class Game
         Task pass = Task.CompletedTask;
         area.Systems.Add("monster damage over time", AreaPhase.Ailments, a =>
         {
-            if (!a.HasActiveDots || !pass.IsCompleted || !CurrentGameWork || frames.View is not { } view || view.Closed || view.LeavingArea
+            if (!(a.HasActiveDots || HasFrigidBondDamage(a)) || !pass.IsCompleted || !CurrentGameWork || frames.View is not { } view || view.Closed || view.LeavingArea
                 || view.Paused || !view.Connection.PlayerSent || view.PlayerUpdatesState is not PlayerUpdatesState updates
                 || !PlayerUpdatesCurrent(view, updates)) return;
             var player = view;
@@ -22,6 +22,8 @@ public static partial class Game
                 await BurnIgnited(view);
                 await BleedMonsters(view);
                 await TickPoisons(view);
+                await TickMinionDecays(view);
+                await TickFrigidBondDamage(view);
                 await TickContagions(view);
                 await TickEssenceDrains(view);
             });
