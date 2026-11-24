@@ -133,10 +133,18 @@ public static partial class Game
             // skills affecting them, scaled by that aura's effect as its other stats are.
             // shortcut: allies and minions do not get it yet.
             if (GetIn(stats, Stat.AurasGrantDamagePlusPctToYouAndYourAllies) is int perAura and not 0)
-                AddTo(stats, Stat.DamagePlusPct, auras
-                    .Where(a => a.ExternalEffectPct is null && SkillsFor(player).IsAura(a.Effect))
-                    .Sum(a => (long)Math.Round(perAura * Math.Max(0, 100 + player.Pools.AuraEffectPct + a.SupportEffectPct) / 100.0,
-                        MidpointRounding.AwayFromZero)));
+            {
+                var skills = SkillsFor(player);
+                long auraDamage = 0;
+                for (int i = 0; i < auras.Count; i++)
+                {
+                    var aura = auras[i];
+                    if (aura.AffectsSelf && aura.ExternalEffectPct is null && skills.IsAura(aura.Effect))
+                        auraDamage += (long)Math.Round(perAura * Math.Max(0, 100 + player.Pools.AuraEffectPct + aura.SupportEffectPct) / 100.0,
+                            MidpointRounding.AwayFromZero);
+                }
+                if (auraDamage != 0) AddTo(stats, Stat.DamagePlusPct, auraDamage);
+            }
         });
         Step(PlayerStatStep.AuraPenetration, (player, stats, _) =>
         {

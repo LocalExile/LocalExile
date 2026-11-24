@@ -23,7 +23,7 @@ public static partial class Game
         foreach (var (stat, effect) in ItemCurseOnHitStats)
         {
             if (hitStats.GetValueOrDefault(stat) is not (int level and > 0)) continue;
-            if (target.Curses.All.TryGetValue((player.Id, effect), out var held) && now - held.Applied < 1) continue;
+            if (target.Curses.All.TryGetValue((player.Id, effect), out var held) && now < held.Until && now - held.Applied < 1) continue;
             var curse = ItemCurseOnHitGemStats.GetValue(SkillsFor(player), static _ => new()).GetOrAdd((effect, level),
                 static IReadOnlyDictionary<uint, int> (key, catalog) => catalog.EffectRow(key.Effect) is int row and >= 0
                     ? catalog.EffectStats(row, key.Level).ToDictionary(p => p.Item1, p => p.Item2) : new Dictionary<uint, int>(),

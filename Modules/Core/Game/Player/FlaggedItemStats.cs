@@ -14,6 +14,13 @@ public static partial class Game
         (Stat.BlockChanceOnDamageTakenPct, RecentlyDamagedByHitItemFlag, [Stat.AdditionalBlockPct]),
     ];
 
+    public static bool IsFlaggedItemStat(uint id)
+    {
+        for (int i = 0; i < FlaggedItemStatRules.Length; i++)
+            if (FlaggedItemStatRules[i].Input == id) return true;
+        return false;
+    }
+
     public static void ApplyFlaggedItemStats(Dictionary<uint, int> stats, IReadOnlyDictionary<string, bool>? flags)
     {
         if (flags is null) return;
