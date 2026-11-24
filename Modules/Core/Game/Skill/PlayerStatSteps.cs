@@ -79,6 +79,12 @@ public static partial class Game
             var sources = CharacterStatSources(player, nodes).Stats;
             outputs.Sources = sources;
             foreach (var (k, v) in sources) stats[k] = v;
+            // Only the general increased/reduced minion stats transfer. Equivalent damage rules use the highest share.
+            int minionDamageShare = Math.Max(sources.GetValueOrDefault(Stat.AdditiveMinionDamageModifiersApplyToYouAtPctValue),
+                sources.GetValueOrDefault(Stat.AdditiveMinionDamageModifiersApplyToYouAt150PctValue) != 0 ? 150
+                : sources.GetValueOrDefault(Stat.MinionDamageIncreasesAndReductionsAlsoAffectsYou) != 0 ? 100 : 0);
+            if (minionDamageShare > 0)
+                AddTo(stats, Stat.DamagePlusPct, (long)sources.GetValueOrDefault(Stat.MinionDamagePlusPct) * minionDamageShare / 100);
             if (MapModsOf(player) is { } map)
             {
                 AddTo(stats, Stat.MapPlayersNoRegenerationIncludingEs, map.Get(Stat.MapPlayersNoRegenerationIncludingEs));
