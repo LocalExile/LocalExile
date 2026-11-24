@@ -66,6 +66,7 @@ public static partial class Game
                     $"(BuffDefinitions row {effect.BuffRow}), {perMinute} per minute, {(withDuration ? $"{duration:0.##} s" : "no duration")}");
             }
         }
+        TryGrantAlchemistsGenius(player);
     }
 
     // The extracted "if afflicted" suffixes remove an ailment that exists when the paid use is accepted and then
