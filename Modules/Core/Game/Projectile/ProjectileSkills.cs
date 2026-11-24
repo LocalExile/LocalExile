@@ -31,6 +31,9 @@ public static partial class Game
         const string coldMine = "Metadata/Projectiles/ColdProjectileMine";
         foreach (string effect in new[] { "IcicleMine", "IcicleMineAltX", "IcicleMineAltY" })
             definitions[effect] = SkillProjectileDefinition(effect, coldMine, SkillProjectileParameters(effect, coldMine));
+        const string pyroclast = "Metadata/Projectiles/MortarBarrageMine";
+        foreach (string effect in new[] { "PyroclastMine", "PyroclastMineAltX", "PyroclastMineAltY" })
+            definitions[effect] = SkillProjectileDefinition(effect, pyroclast, SkillProjectileParameters(effect, pyroclast));
         const string fissureProjectile = "Metadata/Projectiles/VolcanicSlamMortar";
         definitions["VolcanicFissure"] = SkillProjectileDefinition("VolcanicFissure", fissureProjectile,
             SkillProjectileParameters("VolcanicFissure", fissureProjectile));

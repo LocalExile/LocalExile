@@ -265,6 +265,8 @@ public static partial class Game
     {
         if (SupportedHitInputsFor(player, skill, capturedGem: gem) is not { } inputs) return null;
         inputs = inputs with { Caster = TotemCasterStats(inputs.Caster) };
+        if (IsPyroclastMine(SkillsFor(player).EffectId(gem.Effect)))
+            inputs = inputs with { Projectile = false };
         int recentArea = inputs.Area && PlacedKind(gem).Mine
             ? inputs.Get(Stat.MineAreaDamagePlusPctIfDetonatedMineRecently) : 0;
         if (recentArea == 0) return CapturePlacedProfile(player, skill, gem, inputs);
@@ -487,6 +489,7 @@ public static partial class Game
     static void RemovePlacedLocked(Player player, PlacedSkills.Placed placed, WorldRecordBuilder bytes)
     {
         if (!player.Placed.All.Remove(placed.Id)) return;
+        RemovePyroclastAura(player, placed.Id);
         if (!player.Placed.Grounds.Any(g => g.Object == placed.Id))
             bytes.Remove(placed.Id);
         player.Placed.Dirty = true;
@@ -498,6 +501,7 @@ public static partial class Game
     static void RetirePlacedLocked(Player player, PlacedSkills.Placed placed, double now)
     {
         if (!player.Placed.All.Remove(placed.Id)) return;
+        RemovePyroclastAura(player, placed.Id);
         if (!player.Placed.Grounds.Any(g => g.Object == placed.Id)) player.Placed.Leaving.Add((placed.Id, now + .6));
         player.Placed.Dirty = true;
         player.Minions.StatRevision++;
@@ -620,7 +624,9 @@ public static partial class Game
     {
         int inventionRate = GolemStat(placed.Own, Stat.SupportInventionTrapAndMineDamagePlusPctFinalPerSecondPlacedUpTo100);
         double inventionMore = 1 + Math.Clamp(inventionRate * Math.Max(0, now - placed.LandAt), 0, 100) / 100;
-        bool bear = SkillsFor(player).EffectId(placed.Effect) is "BearTrap" or "BearTrapAltX";
+        string? effect = SkillsFor(player).EffectId(placed.Effect);
+        bool bear = effect is "BearTrap" or "BearTrapAltX";
+        bool pyroclast = IsPyroclastMine(effect);
         double radius = SkillRadius(player, placed.Own, spell: true, placed.Effect);
         bool spellDamage = SkillHitPlan.ForSkill(SkillsFor(player), placed.Effect, 1).Kind != SkillHitKind.Secondary;
         var payload = GemSkillEffects(player).FirstOrDefault(g => g.Id == placed.Skill);
@@ -713,21 +719,27 @@ public static partial class Game
             session.Schedule(session.Runtime.Now, () => session.Active && ReferenceEquals(lifetime, CombatLifetime), () =>
             {
                 var use = CaptureGemProjectile(player, session, placed.Skill, payload, shot, critical, (ushort)placed.Id, from: at);
-                if (placed.Mine && placed.Chain >= 2 && GolemStat(placed.Own, Stat.DisplayAdditionalProjectilePer2MinesInDetonationSequence) != 0
-                    && GolemStat(CharacterPlayerStats(player), Stat.MaximumNumberOfProjectilesToFireIs1) == 0)
-                    use = use with { Profile = use.Profile with { Count = Math.Min(256, use.Profile.Count + placed.Chain / 2) } };
+                if (placed.Mine && placed.Chain > 0)
+                {
+                    int group = GolemStat(placed.Own, Stat.DisplayAdditionalProjectilePer2MinesInDetonationSequence) != 0 ? 2
+                        : GolemStat(placed.Own, Stat.DisplayAdditionalProjectilePer3MinesInDetonationSequence) != 0 ? 3 : 0;
+                    if (group > 0 && placed.Chain >= group
+                        && GolemStat(CharacterPlayerStats(player), Stat.MaximumNumberOfProjectilesToFireIs1) == 0)
+                        use = use with { Profile = use.Profile with { Count = Math.Min(256, use.Profile.Count + placed.Chain / group) } };
+                }
                 // The volley's rules are the player's own cast's, some of which start it at the player's cell (Spark's
                 // and Twister's wander): it leaves from the trap or mine whatever the skill.
                 var origin = use.Origin;
                 // Its random spread and wander are seeded by the use's sequence: the object's id, so two do not match.
                 use = ClientDrawnVolley(player, session, placed.Skill, payload, use, (ushort)placed.Id, 0) with { Origin = origin };
+                if (pyroclast) use = PyroclastMortars(player, placed, use);
                 // The rig's flight clip is what shows art that has no default animation (Spark's sparks).
                 var offense = ((ProjectileOffense)use.Payload!).ScaleDamage(inventionMore);
                 return use with { Payload = offense with { ClientPredicted = false, FromTrapOrMine = true, FromMine = placed.Mine,
                     Presentation = WithProjectileClips(offense.Presentation, SkillsFor(player).Clips(use.Profile.Id),
                         use.Profile.Range / Math.Max(1, use.Profile.Speed)) } };
             });
-            return;
+            if (!pyroclast) return;
         }
         using var statScope = new PlayerStatScope(player, fresh: true);
         var owner = CharacterPlayerStats(player);
@@ -919,6 +931,8 @@ public static partial class Game
                     { RemovePlacedLocked(player, placed, bytes); continue; }
                     LandPlacedRecordsLocked(player, placed, now, bytes);
                     if (now < placed.Armed) continue;
+                    if (placed.Mine && IsPyroclastMine(SkillsFor(player).EffectId(placed.Effect)))
+                        KeepPyroclastAura(player, placed);
                     if (placed.Mine && !MineCanDetonateFrom(placed, playerAt))
                     {
                         if (now >= placed.DetonateAt) placed.DetonateAt = double.PositiveInfinity;
@@ -964,6 +978,7 @@ public static partial class Game
                     Console.WriteLine($"[gateway] placed skill 0x{placed.Id:x} {(skitter ? "Skitterbot" : nearby ? "proximity" : expired ? "duration" : "chain")} trigger; rearm={rearm}");
                     if (rearm)
                     {
+                        RemovePyroclastAura(player, placed.Id);
                         player.Placed.All[placed.Id] = placed with
                         {
                             Armed = now + PlacedArmSeconds,

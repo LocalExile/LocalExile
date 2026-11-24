@@ -23,7 +23,7 @@ public static class SkillArea
         effect is "LightningWarp" or "VaalLightningWarpInstant" ? 16
             : effect == "VaalGroundSlam" ? 40 : IsCyclone(effect) ? 16 : effect == "RollingMagma" ? 14
             : effect is "FireTrap" or "VaalFireTrap" ? 16 : effect == "StormblastMine" ? 20 : effect is "DarkPact" or "DarkPactRoyale" ? 26
-            : effect is "StormCall" or "Frostblink" or "FrostblinkHardMode" ? 20
+            : effect is "StormCall" or "Frostblink" or "FrostblinkHardMode" || Game.IsPyroclastMine(effect) ? 20
             : effect is "GalvanicArrow" or "GalvanicArrowAltX" or "GalvanicArrowAltY" ? 28
             : effect is "StormBrand" or "StormBrandAltX" or "StormBrandAltY"
                 or "PenanceBrand" or "PenanceBrandAltX" or "PenanceBrandAltY"

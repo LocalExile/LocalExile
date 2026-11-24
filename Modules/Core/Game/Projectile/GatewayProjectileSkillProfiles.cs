@@ -116,6 +116,14 @@ public static class GatewayProjectileSkillProfiles
                 EndAreaReasons = new HashSet<ProjectileEndReason> { ProjectileEndReason.Landing, ProjectileEndReason.Terrain }
             };
 
+        else if (Game.IsPyroclastMine(effect))
+            p = p with
+            {
+                Lobbed = true, DirectDamage = false,
+                CannotPierce = true, CannotFork = true, CannotSplit = true, CannotChain = true, CannotReturn = true,
+                EndArea = new("pyroclast-mine", 0),
+                EndAreaReasons = new HashSet<ProjectileEndReason> { ProjectileEndReason.Landing },
+            };
         else if (effect == "VolcanicFissure")
             p = p with
             {
@@ -370,6 +378,8 @@ public static class GatewayProjectileSkillProfiles
             var scaled = causticArea with { Radius = SkillArea.Radius(baseRadius, AreaStat, spell) };
             return p with { ContactArea = scaled, EndArea = scaled };
         }
+        if (Game.IsPyroclastMine(effect) && p.EndArea is { } pyroclast)
+            return p with { EndArea = pyroclast with { Radius = SkillArea.Radius(12, get, spell) } };
         if (p.EndArea is { } terminal)
             return p with { EndArea = terminal with
                 { Radius = SkillArea.Radius(SkillArea.BaseRadius(effect, get), get, spell) } };
