@@ -219,11 +219,13 @@ public static class ClientPackets
         P(InstanceGuilds.DeclineInviteId, InstanceGuilds.DeclineInviteLength),
         P(InstanceAsyncTrade.RequestHistoryId, InstanceAsyncTrade.RequestHistoryLength),
         P(InstanceAsyncTrade.TakeEarningsId, InstanceAsyncTrade.TakeEarningsLength),
+        P(InstanceShop.ReloadId, InstanceShop.ReloadLength),
+        P(InstanceShop.OpenMysteryBoxId, InstanceShop.OpenMysteryBoxLength),
         P(InstancePvp.LeaveQueueId, 2),
         P(InstancePvp.WithdrawId, 2),
         // Remaining exact fixed-length C→S instance opcodes from 3.29.3c (Agents/docs/protocol/c2s.json), excluding
         // plaintext opening 0x000e/0x000f and 0x001a (ExitToLoginId above).
-        .. new ushort[] { 0x012e, 0x013c, 0x013e, 0x0159, 0x0168, 0x0169, 0x016a, 0x016c, 0x0171,
+        .. new ushort[] { 0x013c, 0x013e, 0x0159, 0x0168, 0x0169, 0x016a, 0x016c, 0x0171,
             0x018a, 0x019b, 0x020e, 0x021e, 0x0224, 0x0243, 0x024c, 0x0257,
             0x025d, 0x0260, 0x0264, 0x027e, 0x0296, 0x02a6, 0x02ce, 0x02d5 }.Select(id => P(id, 2, name: $"0x{id:x4}")),
         .. new ushort[] { 0x0083, 0x00ac, 0x00d9, 0x00da, 0x0156, 0x0187, 0x01f7, 0x01f8,
@@ -231,7 +233,7 @@ public static class ClientPackets
         .. new ushort[] { 0x011d, 0x016b, 0x01fd, 0x021d, 0x0221, 0x0222, 0x0247, 0x02b1,
             0x02d0, 0x02d1 }.Select(id => P(id, 4, name: $"0x{id:x4}")),
         .. new ushort[] { 0x0249, 0x027d }.Select(id => P(id, 5, name: $"0x{id:x4}")),
-        .. new ushort[] { 0x005c, 0x0066, 0x0069, 0x00a2, 0x00d0, 0x01fc, 0x0206, 0x020b,
+        .. new ushort[] { 0x005c, 0x0066, 0x0069, 0x00a2, 0x00d0, 0x01fc, 0x020b,
             0x020f, 0x0217, 0x0218, 0x0259, 0x026b, 0x0275, 0x027a, 0x0284, 0x0288, 0x0289,
             0x02a1, 0x02fd }.Select(id => P(id, 6, name: $"0x{id:x4}")),
         .. new ushort[] { 0x002e, 0x0065, 0x0107, 0x0152, 0x017c, 0x017f, 0x0180, 0x0185, 0x01da,

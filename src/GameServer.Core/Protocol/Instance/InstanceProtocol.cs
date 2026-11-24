@@ -696,10 +696,10 @@ public static class InstanceProtocol
             case 0x0081 or 0x0280:
                 return MeasureTwoWStrMessage(data, suffixBytes: 0, out length);
             // 2 + WStr + WStr + u32 + u8 (shop buy, writer 0x141fa1160).
-            case 0x012c:
+            case InstanceShop.BuyId:
                 return MeasureTwoWStrMessage(data, suffixBytes: 5, out length);
             // u16 id + 4 narrow UTF-8 strings (each u16 BE len + bytes; shop delivery quote/order, writer 0x141fa1600).
-            case 0x0130 or 0x0138:
+            case InstanceShop.ShippingQuoteRequestId or InstanceShop.PlaceOrderId:
                 return MeasureFourNarrowStrMessage(data, out length);
             // u16 id, u8 flags, optional u32 when bit 0 is clear (writer 0x141fa1b30, main frame loop 0x140d551f0).
             case 0x0158:
@@ -711,7 +711,7 @@ public static class InstanceProtocol
             case 0x0281:
                 return MeasureTwoBlob16(data, out length);
             // u16 id, u32 BE, u16 BE n, n * u32 BE (salvage box open, writer 0x141fa3bf0 → 0x141faa4a0).
-            case 0x026e:
+            case InstanceShop.OpenSalvageBoxId:
                 return MeasureSalvageBox(data, out length);
             // u16 id, u8 count, count * u8 (Heist sign contract, writer 0x141fa3d30 → 0x141fab790).
             case 0x0279:
