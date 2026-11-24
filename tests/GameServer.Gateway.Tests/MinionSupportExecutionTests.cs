@@ -47,8 +47,9 @@ public sealed class MinionSupportExecutionTests
     public void Living_lightning_resolves_its_own_chain_and_duration_supports()
     {
         using var f = new TriggeredSummonTests.Fixture();
-        ushort skill = Assert.Single(f.Equip(("Shock Nova", 1), ("Living Lightning Support", 1),
-            ("Chain Support", 1), ("More Duration Support", 1)));
+        f.Equip(("Shock Nova", 1), ("Living Lightning Support", 1),
+            ("Chain Support", 1), ("More Duration Support", 1));
+        ushort skill = Game.GemSkillEffects(f.Player).Single(g => Program.Skills.EffectId(g.Effect) == "ShockNova").Id;
         var source = Game.SupportedSkill(f.Player, skill);
         Assert.Contains(source.Supports, support => support.Effect.Id == "SupportLivingLightning");
         Assert.DoesNotContain(source.Supports, support => support.Effect.Id == "SupportChain");
