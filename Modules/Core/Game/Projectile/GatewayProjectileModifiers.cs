@@ -17,13 +17,15 @@ public static class GatewayProjectileModifiers
                 + get(attack ? Stat.AttacksNumberOfAdditionalProjectiles : Stat.SpellsNumberOfAdditionalProjectiles)
                 + (attack && WeaponIdentity.WieldingClawOrDagger(get)
                     ? get(Stat.AttackSkillAdditionalNumProjectilesWhileWieldingClawsDaggers) : 0)
+                + (get(Stat.IsTotem) != 0 ? get(Stat.TotemNumberOfAdditionalProjectiles) : 0)
                 + (arrows ? AdditionalArrows(get) : 0);
         }
         int pierce = skillPierce + Math.Max(get(Stat.ProjectileNumberOfTargetsToPierce), get(Stat.ProjectileBaseNumberOfTargetsToPierce));
         if (attack) pierce += Math.Max(get(Stat.ArrowNumberOfTargetsToPierce), get(Stat.ArrowBaseNumberOfTargetsToPierce));
         if (get(Stat.AlwaysPierce) != 0 || get(Stat.VirtualAlwaysPierce) != 0
             || attack && (get(Stat.ArrowsAlwaysPierce) != 0 || get(Stat.BaseArrowsAlwaysPierce) != 0)) pierce = -1;
-        int chains = Math.Max(get(Stat.NumberOfChains), get(Stat.VirtualNumberOfChainsForProjectiles));
+        int chains = Math.Max(get(Stat.NumberOfChains), get(Stat.VirtualNumberOfChainsForProjectiles))
+            + get(Stat.NumberOfAdditionalChainsForProjectiles);
         if (arrows) chains += get(Stat.ArrowChainsPlus);
         if (get(Stat.VirtualMaximumFrenzyCharges) is > 0 and var maximumFrenzy
             && get(Stat.CurrentFrenzyCharges) >= maximumFrenzy)
@@ -108,6 +110,11 @@ public static class GatewayProjectileModifiers
         if (p.TravelEmission is { } travelEmission)
             p = p with { TravelEmission = travelEmission with { Child = ContinuationControls(ProjectileParameters.Resolve(travelEmission.Child,
                 modifiers with { ExtraProjectiles = 0 })) } };
+        int locusCount = get(Stat.NumberOfProjectilesPlusPctFinalFromLocusMineSupport);
+        if (locusCount != 0 && p.Count > 0)
+            p = p with { Count = (int)Math.Clamp(Math.Floor(p.Count * (1 + locusCount / 100d)), 1, 256) };
+        if (get(Stat.MaximumNumberOfProjectilesToFireIs1) != 0)
+            p = p with { Count = Math.Min(1, p.Count) };
         if (get(Stat.ProjectilesCanShotgun) != 0)
             p = p with { HitRule = new(ProjectileHitScope.Projectile) };
         return p;
