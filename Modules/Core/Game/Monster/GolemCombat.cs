@@ -66,6 +66,7 @@ public static partial class Game
         recovery += elapsed * (m.MaxLife * regen + Player(Stat.Of("minion_base_life_regeneration_rate_per_minute")) / 60.0
             + Player(Stat.MinionLifeRegenerationRatePerSecond) + m.Mods.Effects[Stat.BaseLifeRegenerationRatePerMinute] / 60.0
             + (now - g.BlockedAt <= 4 ? m.MaxLife * m.Mods.Effects[Stat.LifeRegenerationRatePerMinutePctIfBlockedRecently] / 6000d : 0));
+        if (g.Definition.Kind == "Spectre") recovery += SpectreLifeRecoveryLocked(player, g, elapsed, now);
         g.Regeneration += recovery * recoveryRate;
         int heal = (int)Math.Min(int.MaxValue, g.Regeneration); g.Regeneration -= heal;
         heal = ActorScale.Saturate((long)heal + TakeMinionLifeLeech(g, now, recoveryRate));
@@ -208,7 +209,7 @@ public static partial class Game
         bool pairedCannibal = spectre && CannibalEmpowered(player, g, now);
         var ability = g.Abilities.Where(a => (g.Definition.IsGolem || a.Attack.Damage.MaxTotal > 0 || spectre && SpectreUtilityAction(a.Effect))
                 && GolemUsable(g, a) && GolemReady(g, a, now)
-                && (!spectre || SpectreActionAllowed(g, a, defensive, pairedCannibal, distance))
+                && (!spectre || SpectreActionAllowed(g, a, defensive, pairedCannibal, distance) && SpectreCanSpendLife(g, a))
                 && distance <= a.Attack.Range + LivingCollision.Size(target.M))
             .OrderByDescending(a => a.Effect == NavalCannonFire).ThenByDescending(a => a.Cooldown > 0)
             .ThenByDescending(a => a.Effect == 10800).FirstOrDefault();

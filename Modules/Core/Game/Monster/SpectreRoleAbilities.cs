@@ -13,7 +13,7 @@ public static partial class Game
 
     static bool SpectreShoulderMortar(int effect) => effect is 9992 or 9994;
 
-    static bool SpectreUtilityAction(int effect) => effect == NavalCannonFire;
+    static bool SpectreUtilityAction(int effect) => effect is NavalCannonFire or SpectreFireOffering or SpectreChaosOffering;
 
     static bool CannibalEmpowered(Player player, GolemState.Golem fighter, double now)
     {
@@ -44,6 +44,12 @@ public static partial class Game
 
     static bool ReleaseSpectreRoleLocked(Player player, GolemState.Golem fighter, GolemState.Action action, double now)
     {
+        if (!TryPaySpectreLifeLocked(player, fighter, action.Ability, now)) return true;
+        if (action.Ability.Effect is SpectreFireOffering or SpectreChaosOffering)
+        {
+            ReleaseSpectreOfferingLocked(player, fighter, action, now);
+            return true;
+        }
         if (fighter.Monster.Variety?.Id == FieryCannibal && action.Ability.Effect is CannibalMoltenStrike or CannibalCremation)
             return !CannibalEmpowered(player, fighter, now);
         if (action.Ability.Effect == TurtleBoon)
