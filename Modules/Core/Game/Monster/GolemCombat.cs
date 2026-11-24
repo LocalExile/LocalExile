@@ -8,6 +8,8 @@ public static partial class Game
 {
     sealed class GolemWanderClock { public double Next; }
     static readonly RuleTable<GolemState.Golem, GolemWanderClock> GolemWander = new();
+    sealed record GolemActionClock(int Generation, ActionTimeClock Clock, double Duration);
+    static readonly RuleTable<GolemState.Golem, GolemActionClock> GolemActionClocks = new();
 
     internal static bool GolemCurrent(Player player, GolemState.Golem g) => CurrentGameWork && !player.Closed && !player.LeavingArea
         && (player.Golems.All.GetValueOrDefault(g.Id) == g || player.Reservations.Fighters.GetValueOrDefault(g.Id) == g || player.Summons.Fighters.GetValueOrDefault(g.Id) == g)
@@ -76,13 +78,15 @@ public static partial class Game
             return;
         }
         GolemHazardsLocked(player, g, now);
-        if (MonsterActionFactor(m, now) == 0)
+        double actionRate = MonsterActionFactor(m, now);
+        if (actionRate == 0)
         {
             g.Pending = null; g.Repeat = null; g.Pulses.RemoveAll(p => p.Follows);
             if (double.IsPositiveInfinity(m.BusyUntil)) m.BusyUntil = now;
             m.Walk.Order(m.Walk.Position(now).X, m.Walk.Position(now).Y, now);
             return;
         }
+        RetimeGolemAction(g, now, actionRate);
         GolemPulsesLocked(player, g, now);
         if (g.Pending is { } pending)
         {
@@ -100,9 +104,10 @@ public static partial class Game
             }
             else return;
         }
-        if (now < m.BusyUntil || now < m.FlinchUntil || MonsterActionFactor(m, now) == 0) return;
+        if (now < m.BusyUntil || now < m.FlinchUntil) return;
         if (RepeatMinionAttackLocked(player, g, now)) return;
-        m.Walk.SetSpeed(m.Mods.Effects.MovementSpeed(m.Variety!.MovementSpeed) * MonsterSpeedRoll.Factor(m.SpeedRoll), now);
+        double walkSpeed = GolemWalkSpeed(m, now, actionRate);
+        m.Walk.SetSpeed(walkSpeed, now);
         var here = m.Walk.Position(now); var owner = player.Walk.Position(now);
         var (aggressive, defensive) = MinionStance(g.Own, g.Player, g.Definition.IsGolem, now - g.BlockedAt is >= 0 and <= 4);
         bool follows = !player.Summons.Definitions.TryGetValue(g.Id, out var summon) || summon.Follows;
@@ -110,8 +115,7 @@ public static partial class Game
         if (follows && Dist(here, owner) > 150)
         {
             var at = NextToPlayer(player, LivingCollision.Size(m), g.Id);
-            m.Walk = player.NewMonsterWalk(g.Id, at.X, at.Y, m.Mods.Effects.MovementSpeed(m.Variety!.MovementSpeed)
-                * MonsterSpeedRoll.Factor(m.SpeedRoll), LivingCollision.Size(m), false);
+            m.Walk = player.NewMonsterWalk(g.Id, at.X, at.Y, walkSpeed, LivingCollision.Size(m), false);
             m.ActionGeneration++; m.LastTarget = null;
             player.Minions.OutputQueue.Add(new(InstanceProtocol.Teleport(g.Id, at.X, at.Y), "golem follows owner", g.Id, m, WorldId: g.Id));
             return;
@@ -250,14 +254,24 @@ public static partial class Game
             || pending.Generation != g.Monster.ActionGeneration) return null;
         double now = LockstepOrderStart(player, AreaTime(player));
         if (!MinionPowered(player, g, now)) return null;
+        double rate = MonsterActionFactor(g.Monster, now);
+        if (rate == 0)
+        {
+            g.Pending = null;
+            g.Monster.BusyUntil = now;
+            return null;
+        }
         var from = g.Monster.Walk.Position(now); var a = MinionSupportAction(player, g, pending);
         g.Pending = pending = pending with { Ability = a };
-        pending.Started = true; pending.At = now + a.Attack.Seconds * a.Contact;
-        g.Monster.BusyUntil = now + a.Attack.Seconds;
+        var clock = new ActionTimeClock(now, rate);
+        GolemActionClocks.AddOrUpdate(g, new(pending.Generation, clock, a.Attack.Seconds));
+        pending.Started = true;
+        pending.At = clock.Deadline(a.Attack.Seconds * a.Contact);
+        g.Monster.BusyUntil = clock.Deadline(a.Attack.Seconds);
         g.Monster.Walk.Order(from.X, from.Y, now);
         if (a.Effect is 349 or 2563)
         {
-            double speed = g.Monster.Mods.Effects.MovementSpeed(g.Monster.Variety!.MovementSpeed) * MonsterSpeedRoll.Factor(g.Monster.SpeedRoll);
+            double speed = GolemWalkSpeed(g.Monster, now, rate);
             if (a.Effect == 2563) speed *= 1 + GolemStat(a.Stats, Stat.CycloneMovementSpeedPlusPctFinal) / 100.0;
             g.Monster.Walk.SetSpeed(speed, now);
             g.Monster.Walk.Order(pending.Aim.X, pending.Aim.Y, now);
@@ -275,6 +289,29 @@ public static partial class Game
             : InstanceProtocol.ActionStarted(id, from.X, from.Y, pending.Aim.X, pending.Aim.Y, a.Skill,
                 0xffff, player.MonsterOrderFlags, targetObjectId: pending.Target == 0 ? null : pending.Target);
         return [InstanceEntities.PlayerSkillsChange(id, GolemNativeSkills(player, g.Monster.Level, [a]), []), action];
+    }
+
+    static void RetimeGolemAction(GolemState.Golem g, double now, double rate)
+    {
+        if (!GolemActionClocks.TryGetValue(g, out var timing)) return;
+        var m = g.Monster;
+        if (m.ActionGeneration != timing.Generation || now >= m.BusyUntil)
+        {
+            GolemActionClocks.Remove(g);
+            return;
+        }
+        if (rate == timing.Clock.Rate) return;
+        timing.Clock.SetRate(now, rate);
+        m.BusyUntil = timing.Clock.Deadline(timing.Duration);
+        if (g.Pending is { Started: true } pending && now < pending.At)
+            pending.At = timing.Clock.Deadline(timing.Duration * pending.Ability.Contact);
+    }
+
+    static double GolemWalkSpeed(SpawnedMonster m, double now, double rate)
+    {
+        var (factor, _) = MonsterWalkModifiers(m, now, rate, ToxicWalkFactor(m), BearTrapWalkFactor(m, now), EnsnaredWalkFactor(m, now));
+        m.Ailments.WalkFactor = factor;
+        return m.Effects.MovementSpeed(m.Variety!.MovementSpeed) * MonsterSpeedRoll.Factor(m.SpeedRoll) * Math.Max(.01, factor);
     }
 
     // Skitterbots actively seek nearby enemies so their Chilling and Shocking auras reach monsters instead of orbiting
