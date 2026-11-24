@@ -154,10 +154,18 @@ public static partial class Game
             var (children, mana, life) = ReadCooldownTriggers(player, state);
             if (!FitsCooldownTriggerReservation(player, mana, life))
             {
+                bool ended = false;
                 foreach (var (id, trigger) in state.Active.ToArray())
-                    if (trigger.Row == AutoexertionBuffRow) EndCooldownTrigger(player, state, id);
-                (children, mana, life) = ReadCooldownTriggers(player, state);
-                changed = true;
+                    if (trigger.Row == AutoexertionBuffRow)
+                    {
+                        EndCooldownTrigger(player, state, id);
+                        ended = true;
+                    }
+                if (ended)
+                {
+                    (children, mana, life) = ReadCooldownTriggers(player, state);
+                    changed = true;
+                }
             }
             if (state.Mana != mana || state.Life != life)
             {

@@ -221,7 +221,7 @@ public static partial class Game
             area.Buffs.Clear(recipient, RallyingCryBuffRow, player.Id);
             return true;
         }
-        foreach (var ally in player.Instance.PlayersExcept(player.Id))
+        foreach (var ally in player.Instance?.PlayersExcept(player.Id) ?? [])
             if (WarcryGrants.TryGetValue(ally, out var grants) && RemoveOutgoing(ally.Id, grants))
             {
                 if (grants.Count == 0) WarcryGrants.Remove(ally);
@@ -240,7 +240,7 @@ public static partial class Game
             || own.GetValueOrDefault(Stat.WarcriesDoNotApplyBuffsToSelfOrAllies) != 0
             || duration <= 0 || WarcryBuffRow(effectId) is not ushort row) return;
         bool rallying = row == RallyingCryBuffRow;
-        var nearbyPlayers = player.Instance.PlayersExcept(player.Id)
+        var nearbyPlayers = (player.Instance?.PlayersExcept(player.Id) ?? [])
             .Where(ally => !ally.LeavingArea && ally.PlayerLife > 0 && Dist(ally.Walk.Position(now), at) <= radius).ToArray();
         int power = WarcryPowerAt(player, at, radius, now, effectId, playerStats, nearbyPlayers.Length);
         if (effectId == "BattlemagesCry") buffEffect += playerStats.GetValueOrDefault(Stat.BattlemagesCryBuffEffectPlusPct) / 100d;
@@ -316,7 +316,7 @@ public static partial class Game
             stats = AreaPlayerStats(player);
             if (stats.GetValueOrDefault(Stat.WarcryPhysicalDamageReductionRatingPlusPctPer5PowerFor8Seconds) is int armour and > 0)
             {
-                int allies = effectId == "RallyingCry" ? player.Instance.PlayersExcept(player.Id)
+                int allies = effectId == "RallyingCry" ? (player.Instance?.PlayersExcept(player.Id) ?? [])
                     .Count(ally => !ally.LeavingArea && ally.PlayerLife > 0 && Dist(ally.Walk.Position(now), at) <= radius) : 0;
                 int power = WarcryPowerAt(player, at, radius, now, effectId, stats, allies);
                 int increase = (int)Math.Min(100L, (long)(power / 5) * armour);
@@ -329,7 +329,7 @@ public static partial class Game
             if (stats.GetValueOrDefault(Stat.YouAndNearbyAllysGainOnslaughtFor4SecondsOnWarcry) != 0)
             {
                 const double duration = 4;
-                foreach (var owner in player.Instance.PlayersExcept(player.Id).Prepend(player))
+                foreach (var owner in (player.Instance?.PlayersExcept(player.Id) ?? []).Prepend(player))
                 {
                     if (owner.Closed || owner.LeavingArea || owner.PlayerLife == 0) continue;
                     if ((ReferenceEquals(owner, player) || Dist(owner.Walk.Position(now), at) <= radius)
