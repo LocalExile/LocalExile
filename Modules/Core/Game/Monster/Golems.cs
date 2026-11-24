@@ -496,6 +496,7 @@ public static partial class Game
     {
         ClearSharedMinionAuras(player, golem.Id);
         ClearMinionFlasksLocked(player, golem, now);
+        ReconcileLinkedMinionModifiersLocked(player, golem, now, dead: true);
         player.Golems.All.Remove(golem.Id); player.Minions.Remove(golem.Id);
         MinionLifeLeeches.Remove(golem);
         MinionShieldLeeches.Remove(golem);

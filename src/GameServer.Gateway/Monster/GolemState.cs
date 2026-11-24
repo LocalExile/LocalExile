@@ -26,6 +26,7 @@ public sealed class GolemState
         public double Regeneration;
         public Flasks.Effects? RecoveryFlasks;
         public UtilityFlasks.Effects? UtilityFlasks;
+        public StolenMods? LinkedModifiers;
         public Dictionary<int, Queue<double>>? RecentSkillIgnites;
         public readonly EnergyShield ShieldPool = new();
         public uint Shield => ShieldPool.Current;

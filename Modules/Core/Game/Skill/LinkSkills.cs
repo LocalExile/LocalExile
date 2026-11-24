@@ -102,6 +102,40 @@ public static partial class Game
         player.PlayerLife > 0 && player.Links.On(fighter.Id) is { } link && now < link.Until
         && (link.AwaySince is not double away || now - away < LinkSkills.BreakSeconds) ? link : null;
 
+    public static void GrantLinkedMinionRareModifiers(GameServer.Modding.KillContext kill)
+    {
+        var player = kill.Player;
+        var monster = kill.Monster;
+        if (player.Links.Count == 0 || player.PlayerLife == 0 || monster.Rarity != MonsterRarity.Rare
+            || monster.Mods.Affixes.Count == 0 || !KilledByPlayerOrOwned(kill)) return;
+        var stats = CharacterPlayerStats(player);
+        int centiseconds = stats.GetValueOrDefault(Stat.LinkSkillsGrantRandomLinkedMinionRareMonsterModsOnKillCentiseconds);
+        if (centiseconds <= 0) return;
+        double now = AreaTime(player);
+        var recipients = player.Links.All.Select(link => OwnedFighter(player, link.Target))
+            .OfType<GolemState.Golem>().Where(minion => LinkTargetAliveLocked(player, minion.Id)
+                && ActiveMinionLink(player, minion, now) is not null).ToArray();
+        if (recipients.Length == 0) return;
+        var target = recipients[AreaRng(player).Next(recipients.Length)];
+        (target.LinkedModifiers ??= new()).Steal(monster.Mods, ItemsFor(player).Mods, now, centiseconds / 100d);
+        RefreshGolemLocked(player, target, stats, now);
+    }
+
+    static void ReconcileLinkedMinionModifiersLocked(Player player, GolemState.Golem fighter, double now, bool dead = false)
+    {
+        if (fighter.LinkedModifiers is not { } modifiers) return;
+        if (modifiers.Step(now, dead, out var buff, out _) is null && modifiers.Count > 0) return;
+        fighter.InputHash = 0;
+        if (buff.Count > 0)
+            player.Area.Buffs.Set(fighter.Id, new(StolenMods.BuffRow, player.Id, U68: Buff.Seconds(buff.Remaining),
+                Stacks: (ushort)Math.Min(ushort.MaxValue, buff.Count)));
+        else
+        {
+            fighter.LinkedModifiers = null;
+            player.Area.Buffs.Clear(fighter.Id, StolenMods.BuffRow, player.Id);
+        }
+    }
+
     static long LinkBuffPercent(GolemState.Golem fighter, IReadOnlyDictionary<uint, int> casterStats) =>
         Math.Max(0, 100L + casterStats.GetValueOrDefault(Stat.LinkSkillBuffEffectPlusPct)
             + fighter.InheritedMods.Effects[Stat.LinkBuffEffectOnSelfPlusPct]

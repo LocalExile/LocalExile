@@ -291,6 +291,7 @@ public static partial class Game
         OwnedMinionDeathEffectsLocked(player, g, now);
         ClearSharedMinionAuras(player, g.Id);
         ClearMinionFlasksLocked(player, g, now);
+        ReconcileLinkedMinionModifiersLocked(player, g, now, dead: true);
         MinionLifeLeeches.Remove(g);
         MinionShieldLeeches.Remove(g);
         ClearSpectreArcaneSurgeLocked(player, g);

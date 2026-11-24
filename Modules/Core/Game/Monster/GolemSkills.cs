@@ -177,6 +177,9 @@ public static partial class Game
         }
         foreach (var (name, value) in golem.Auras.Concat(golem.Utility)) values[name] = values.GetValueOrDefault(name) + value;
         foreach (var (name, value) in golem.Gear) values[name] = values.GetValueOrDefault(name) + value;
+        if (golem.LinkedModifiers is { } stolen)
+            foreach (var (name, value) in stolen.Stats())
+                AddStat(name, value);
         int addedStrength = SharedMinionStrength(playerStats);
         if (addedStrength > 0)
         {
@@ -663,6 +666,7 @@ public static partial class Game
         hash.Add(ExemplarAttackCriticals(player, golem, now));
         hash.Add(now < golem.OnslaughtUntil);
         EndMinionUtilityFlasksLocked(player, golem, now);
+        ReconcileLinkedMinionModifiersLocked(player, golem, now);
         foreach (var flaskSource in MinionUtilityFlaskSources(player, golem, now)) hash.Add(flaskSource);
         hash.Add(SpectreArcaneSurgeActiveLocked(player, golem, now));
         hash.Add(MinionLinkOffenceAt(player, golem, playerStats, now));
