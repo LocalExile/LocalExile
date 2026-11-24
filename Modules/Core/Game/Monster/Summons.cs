@@ -18,6 +18,7 @@ public static partial class Game
         LoadItemisedCorpseData();
         LoadDivineSentinelAuraData();
         LoadDarkMonarchData();
+        LoadSpectreChildrenData();
     }
 
     public static void SaveSummons(Player player)
@@ -197,7 +198,8 @@ public static partial class Game
         GolemState.MinionResourceSnapshot? resources = null, bool legacyArrival = false,
         GolemState.Golem? replacingOld = null, bool triggered = false, SpawnedMonster? consumedCorpse = null, bool playerConsumesCorpse = true, MonsterModSet? inheritedMods = null,
         MonsterRarity rarity = MonsterRarity.Normal, IReadOnlyDictionary<uint, int>? retainedStats = null,
-        AnimatedSource? preparedEquipment = null, GolemState.Golem? reformingSpectre = null)
+        AnimatedSource? preparedEquipment = null, GolemState.Golem? reformingSpectre = null,
+        SpectreChildSummon? spectreChild = null)
     {
         SupportedGem gem;
         Dictionary<uint, int> playerStats;
@@ -227,7 +229,7 @@ public static partial class Game
         // A replacement keeps the stats its body was given at summon (a Vaal ascension's upgrade).
         retainedStats ??= replacingOld?.RetainedSkillStats;
         if (retainedStats is not null) gem = gem with { Stats = MergeSummonStats(gem.Stats, retainedStats) };
-        int limit = definition.LimitStat == 0 ? 1 : SummonLimit(definition, gem.Stats, playerStats);
+        int limit = spectreChild?.Plan.Limit ?? (definition.LimitStat == 0 ? 1 : SummonLimit(definition, gem.Stats, playerStats));
         if (limit < 1) return 0;
         if (resources is { Life: 0 } || legacyArrival && (!double.IsFinite(life) || life <= 0)) return 0;
         SpawnedMonster? corpse = consumedCorpse;
@@ -267,9 +269,9 @@ public static partial class Game
         if (actorLevel <= 0 && (definition.Family.StartsWith("Dominating", StringComparison.Ordinal)
             || definition.Family is "VaalDomination" or "HolyArmament" || definition.Id == GuardianWeaponEffect))
             actorLevel = SkillsFor(player).PlayerLevelReq(gem.Effect, gem.Level);
-        byte level = (byte)Math.Clamp(actorLevel, 1, 100);
+        byte level = spectreChild?.Parent.Monster.Level ?? (byte)Math.Clamp(actorLevel, 1, 100);
         if (inheritedMods is null && (definition.Family == "RagingSpirit"
-            || definition.Family == "Spectre" && ItemisedCorpses.Bodies.Contains(variety.Row)))
+            || definition.Family == "Spectre" && ItemisedCorpses.Bodies.Contains(variety.Row) || spectreChild is not null))
             inheritedMods = MonsterModRolls.Create(MonsterModRolls.Species(variety.SpeciesModsOrEmpty, Random.Shared),
                 [], MonsterRarity.Normal, level);
         var native = new GolemCatalog.Definition(gem.Effect, definition.Id, definition.Family, path, 0, [], false, false, false);
@@ -314,6 +316,7 @@ public static partial class Game
         var consumed = corpse;
         bool SameLimit(GolemState.Golem g) => g.Definition.Kind == definition.Family
             && (!g.Monster.Dead || double.IsFinite(g.ReviveAt))
+            && (spectreChild is null || g.Monster.SummonerId == spectreChild.Parent.Id)
             && (definition.Family != "Clone" || player.Summons.Definitions[g.Id].LimitStat == definition.LimitStat);
         bool holyArmament = definition.Family == "HolyArmament";
         uint id = await SpawnMonster(player, variety, level, rarity, aim.X, aim.Y,
@@ -377,6 +380,11 @@ public static partial class Game
                 }
                 else if (legacyArrival) fighter.ShieldPool.Interrupt(committed);
                 monster.Mods = mods;
+                if (spectreChild is not null)
+                {
+                    monster.SummonerId = spectreChild.Parent.Id;
+                    SpectreChildParents.AddOrUpdate(fighter, spectreChild.Parent);
+                }
                 player.Summons.Fighters.Add(id, fighter); player.Summons.Definitions[id] = definition;
                 player.Summons.Until[id] = remaining is double duration ? committed + duration
                     : replacement?.Until ?? reformUntil ?? committed + SummonDuration(player, definition, gem);
@@ -406,6 +414,10 @@ public static partial class Game
     {
         if (fighter.Definition.Kind == "Phantasm")
             player.Area.Buffs.Clear(player.Id, PhantasmalMightBuff, fighter.Id);
+        if (fighter.Definition.Kind == "Spectre")
+            foreach (var child in player.Summons.Fighters.Values.Where(child => child.Monster.SummonerId == fighter.Id).ToArray())
+                RemoveSummonLocked(player, child, now, reconcileBlessing: false);
+        SpectreChildParents.Remove(fighter);
         player.Summons.Fighters.Remove(fighter.Id); player.Summons.Until.Remove(fighter.Id);
         player.Summons.Definitions.Remove(fighter.Id); player.Summons.Weapons.Remove(fighter.Id);
         RemoveGolemLocked(player, fighter, now, reconcileBlessing);
@@ -471,6 +483,7 @@ public static partial class Game
     {
         await HitSummonsTick(player, now);
         await GuardianWeaponsTick(player);
+        await SpectreChildrenTick(player);
         var state = player.Summons;
         if (!state.Restored)
         {
@@ -517,7 +530,8 @@ public static partial class Game
             }
             foreach (var fighter in state.Fighters.Values.ToArray())
             {
-                if (player.PlayerLife == 0 || now >= state.Until[fighter.Id])
+                if (!state.Until.TryGetValue(fighter.Id, out double until)) continue;
+                if (player.PlayerLife == 0 || now >= until || !SpectreChildStillOwned(player, fighter))
                 {
                     RemoveSummonLocked(player, fighter, now); changed = true; continue;
                 }

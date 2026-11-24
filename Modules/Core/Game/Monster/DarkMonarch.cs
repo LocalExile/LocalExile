@@ -42,6 +42,7 @@ public static partial class Game
 
     static ushort? DarkMonarchAllowedType(string family) => family switch
     {
+        "SpectreSkeleton" or "SpectreConstruct" => 0,
         "VaalAbsolution" => 50,
         "VaalDomination" => 1,
         _ => DarkMonarchMinionFamily(family),

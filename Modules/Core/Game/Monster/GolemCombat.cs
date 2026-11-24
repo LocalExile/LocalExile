@@ -24,7 +24,8 @@ public static partial class Game
     public static void GolemStepLocked(Player player, GolemState.Golem g, double now)
     {
         var m = g.Monster;
-        if (!GolemCurrent(player, g) || m.Dead || player.PlayerLife == 0) return;
+        if (!GolemCurrent(player, g) || m.Dead || player.PlayerLife == 0
+            || m.SummonerId is not null && !SpectreChildStillOwned(player, g)) return;
         using PlayerStatScope? dotScope = GolemHasDots(g) ? new PlayerStatScope(player, fresh: true) : null;
         var currentPlayer = dotScope is null ? g.Player : CharacterPlayerStats(player);
         // The half-second source cadence is too slow for an exact eight-second window. Re-evaluate only this golem's
@@ -168,6 +169,12 @@ public static partial class Game
         var ability = g.Abilities.Where(a => (g.Definition.IsGolem || a.Attack.Damage.MaxTotal > 0) && GolemUsable(g, a) && GolemReady(g, a, now)
                 && distance <= a.Attack.Range + LivingCollision.Size(target.M))
             .OrderByDescending(a => a.Cooldown > 0).ThenByDescending(a => a.Effect == 10800).FirstOrDefault();
+        if (g.Definition.Kind == "Spectre"
+            && g.Abilities.FirstOrDefault(a => CanUseSpectreSummon(player, g, a, distance, now)) is { } summon)
+        {
+            GolemReserveLocked(player, g, summon, target.Key, target.M, target.At, now);
+            return;
+        }
         if (g.Definition.Kind == "Spectre"
             && g.Abilities.FirstOrDefault(a => SpectreChargeRoar(g, a.Effect) is not null && GolemReady(g, a, now)) is { } roar)
         {
@@ -342,6 +349,7 @@ public static partial class Game
         GolemState.Golem g, GolemState.Action action, double now)
     {
         if (!MinionPowered(player, g, now)) return;
+        if (g.Definition.Kind == "Spectre") QueueSpectreChildrenLocked(player, g, action);
         if (SpectreChargeRoar(g, action.Ability.Effect) is { } charge)
         {
             ReleaseSpectreChargeRoarLocked(player, g.Monster.Walk.Position(now), charge, action.Ability, now);
@@ -528,6 +536,7 @@ public static partial class Game
     {
         if (!GolemCurrent(player, g) || !CurrentGameWork || target.Dead || target.Invulnerable || !target.Hostile
             || player.Area.Monsters.GetValueOrDefault(id) != target
+            || g.Monster.SummonerId is not null && !SpectreChildStillOwned(player, g)
             || g.Definition.Kind == "HolyArmament" && !IsHolyArmamentTarget(player, g, id, target)) return false;
         using var scope = new PlayerStatScope(player, fresh: true);
         var currentPlayer = CharacterPlayerStats(player);
