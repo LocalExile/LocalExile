@@ -97,6 +97,10 @@ public static partial class Game
         Gain(Stat.MapMonstersAttackSpeedPlusPct, Stat.AttackSpeedPlusPct);
         Gain(Stat.MapMonstersCastSpeedPlusPct, Stat.BaseCastSpeedPlusPct);
         Gain(Stat.MapMonstersMovementSpeedPlusPct, Stat.BaseMovementVelocityPlusPct);
+        Gain(Stat.MapMonsterSkillsChainXAdditionalTimes, Stat.NumberOfChains);
+        Gain(Stat.MapMonsterProjectileChainFromTerrainChancePct, Stat.ProjectileChainFromTerrainChancePct);
+        if (mods.Get(Stat.DelveBiomeMonsterProjectilesAlwaysPierce) != 0)
+            extra[Stat.AlwaysPierce] = 1;
         if (mods.Get(Stat.MapMonstersMovementSpeedCannotBeReducedBelowBase) != 0)
             extra[Stat.MovementSpeedCannotBeReducedBelowBase] = 1;
         if (mods.Get(Stat.MapMonsterActionSpeedCannotBeReducedBelowBase) != 0)
@@ -161,8 +165,20 @@ public static partial class Game
             chanceFactor *= MapDropFactor(mods, Stat.MapMapItemDropChancePlusPctFinalFromUberMod,
                 Stat.MapUnscaledMapItemDropChancePlusPctFinalFromUberMod);
         }
+        chanceFactor *= ItemQuantityFactor(player);
+        int voidstones = 0;
+        if (tier > 0 && MapBossFights.Current is { } fights)
+        {
+            int mask = 0;
+            var catalog = ItemsFor(player);
+            foreach (var entry in ItemsOf(player).Items(PlayerInventories.AtlasUpgrades))
+                if (catalog.ByHash(entry.Item.TypeHash) is { } type && fights.StoneByItem(type.Id) is { } stone)
+                    mask |= 1 << stone.Slot;
+            voidstones = System.Numerics.BitOperations.PopCount((uint)mask);
+        }
         int upgrade = mods?.Get(Stat.MapTierBonusPermillage) ?? 0;
-        return DropsFor(player).Map(level, rarity, tier, rng, chanceFactor: chanceFactor, tierUpgradePermillage: upgrade);
+        return DropsFor(player).Map(level, rarity, tier, rng, voidstones: voidstones, chanceFactor: chanceFactor,
+            tierUpgradePermillage: upgrade, increasedRarity: IncreasedItemRarity(player));
     }
 
     /// <summary>A map's extra drops: a card from each monster of the card-dropping magic packs, and the map's card and

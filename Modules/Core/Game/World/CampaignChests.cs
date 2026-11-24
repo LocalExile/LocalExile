@@ -13,7 +13,17 @@ using static Game;
 public static class CampaignChests
 {
     const string BaseChestType = "Metadata/Chests/Chest";
+    const string ChemistGrainGateType = "Metadata/Chests/StrongBoxes/ChemistGrainGate";
+    const string GrainGateChemistStrongboxType = "Metadata/Chests/GrainGate/GrainGateChemistStrongbox";
+    const string ProminadeGardenChestType = "Metadata/Chests/QuestChests/ProminadeGardenChest";
     enum ChestTier { Breakable, Standard, Rich }
+
+    static readonly HashSet<string> SpecialStaticChests = new(StringComparer.OrdinalIgnoreCase)
+    {
+        ChemistGrainGateType,
+        GrainGateChemistStrongboxType,
+        ProminadeGardenChestType,
+    };
 
     sealed record ChestDef(string Id, string Name, string Model, IReadOnlyList<string> Components, int States,
         int MinLevel, int MaxLevel, ChestTier Tier);
@@ -73,6 +83,18 @@ public static class CampaignChests
         ["BarrelsOld", "InfestationEggsPurpleSmall", "FungalBloomCluster", "BarrelsSmallOld"],
         ["Metadata/Chests/BonePile1", "Metadata/Chests/CopperChest1", "Metadata/Chests/CopperChest2", "Metadata/Chests/Boulder1"]);
 
+    static readonly Theme TempleOrnateTheme = new(
+        ["GoldPots", "SilverPots", "VaseOrnateCluster", "VaseMetalCluster"],
+        ["Metadata/Chests/SilverChest1", "Metadata/Chests/SilverChest2", "Metadata/Chests/SilverChest3", "Metadata/Chests/GoldenChest1", "Metadata/Chests/GoldenChest2", "Metadata/Chests/GoldenChest3", "Metadata/Chests/TemplarChest01", "Metadata/Chests/TemplarChest02"]);
+
+    static readonly Theme DesertTheme = new(
+        ["MarakethUrns", "CairnsSmall", "Urns", "BasketsOld"],
+        ["Metadata/Chests/BonePile1", "Metadata/Chests/TribalChest1", "Metadata/Chests/TribalChest2", "Metadata/Chests/TribalChest3", "Metadata/Chests/CopperChest1", "Metadata/Chests/CopperChest2", "Metadata/Chests/AmphoraChest1", "Metadata/Chests/AmphoraChest2"]);
+
+    /// <summary>True when <paramref name="areaId"/> resolved to an explicit biome theme rather than <see cref="DefaultTheme"/>.</summary>
+    public static bool HasSpecificTheme(string areaId) =>
+        AreaThemes.TryGetValue(areaId, out var theme) && !ReferenceEquals(theme, DefaultTheme);
+
     /// <summary>Loads verified ordinary chests, chest clusters, and area themes from client.db at startup.</summary>
     public static void LoadGameData()
     {
@@ -88,7 +110,10 @@ public static class CampaignChests
             {
                 string id = row.Text("Id") ?? "";
                 string? inheritsFrom = row.TextOrNull("InheritsFrom");
-                if (!IsOrdinaryChestRow(id, inheritsFrom)) continue;
+                bool isSpecial = SpecialStaticChests.Contains(id)
+                    || (inheritsFrom is { Length: > 0 } && SpecialStaticChests.Contains(inheritsFrom));
+                bool isOrdinary = IsOrdinaryChestRow(id, inheritsFrom);
+                if (!isOrdinary && !isSpecial) continue;
                 if (!types.TryGetValue(id, out var ot)
                     && !(inheritsFrom is { Length: > 0 } parent && types.TryGetValue(parent, out ot)))
                     continue;
@@ -100,9 +125,13 @@ public static class CampaignChests
                 int minLevel = row.IntOrNull("MinLevel") ?? 0;
                 int maxLevel = row.IntOrNull("MaxLevel") ?? 100;
                 string name = row.Text("Name") ?? id.Split('/')[^1];
-                var def = new ChestDef(id, name, model, components, states, minLevel, maxLevel, ClassifyTier(id, name));
+                var tier = isSpecial ? ChestTier.Rich : ClassifyTier(id, name);
+                var def = new ChestDef(id, name, model, components, states, minLevel, maxLevel, tier);
                 catalog[id] = def;
-                byRow[row.Index] = def;
+                if (isSpecial && inheritsFrom is { Length: > 0 } specialParent && SpecialStaticChests.Contains(specialParent))
+                    catalog.TryAdd(specialParent, def with { Id = specialParent });
+                if (isOrdinary)
+                    byRow[row.Index] = def;
             }
         }
 
@@ -199,14 +228,24 @@ public static class CampaignChests
 
     static Theme ResolveTheme(HashSet<string> tags)
     {
-        if (tags.Contains("inca") || tags.Contains("temple")) return VaalTheme;
-        if (tags.Contains("church") || tags.Contains("crypt_area") || tags.Contains("library") || tags.Contains("mausoleum_area")) return CryptTheme;
+        if (tags.Contains("inca") || tags.Contains("temple")
+            || tags.Contains("vaal_ruin_area") || tags.Contains("vaal_pyramid_area")) return VaalTheme;
+        if (tags.Contains("solaris") || tags.Contains("lunaris")) return TempleOrnateTheme;
+        if (tags.Contains("desert_area")) return DesertTheme;
+        if (tags.Contains("forestdark")) return ForestTheme;
+        if (tags.Contains("church") || tags.Contains("crypt_area") || tags.Contains("library")
+            || tags.Contains("mausoleum_area") || tags.Contains("sins")
+            || tags.Contains("chamber_of_sins_area") || tags.Contains("catacombs")) return CryptTheme;
         if (tags.Contains("sewers") || tags.Contains("belly_area") || tags.Contains("sewer_area")) return SewerTheme;
         if (tags.Contains("prison") || tags.Contains("barracks") || tags.Contains("prison_area")) return PrisonTheme;
-        if (tags.Contains("cavern") || tags.Contains("cave_area") || tags.Contains("mine_area")) return CavernTheme;
-        if (tags.Contains("city1") || tags.Contains("city2") || tags.Contains("city3") || tags.Contains("urban_sarn_area")) return CityTheme;
+        if (tags.Contains("cavern") || tags.Contains("cave_area") || tags.Contains("mine_area")
+            || tags.Contains("mountain") || tags.Contains("snow_area")) return CavernTheme;
+        if (tags.Contains("city1") || tags.Contains("city2") || tags.Contains("city3")
+            || tags.Contains("urban_sarn_area") || tags.Contains("gardens")
+            || tags.Contains("docks") || tags.Contains("aqueduct_area")) return CityTheme;
         if (tags.Contains("shore")) return ShoreTheme;
-        if (tags.Contains("southernforest") || tags.Contains("inland") || tags.Contains("fields_area")) return ForestTheme;
+        if (tags.Contains("southernforest") || tags.Contains("southernforest2")
+            || tags.Contains("inland") || tags.Contains("fields_area")) return ForestTheme;
         return DefaultTheme;
     }
 
@@ -256,10 +295,10 @@ public static class CampaignChests
         if (layout.Level is { } lvl)
         {
             foreach (var o in lvl.TileQuestObjects)
-                if (o.Type.StartsWith("Metadata/Chests/", StringComparison.OrdinalIgnoreCase))
+                if (o.Type.StartsWith("Metadata/Chests/", StringComparison.OrdinalIgnoreCase) && !SpecialStaticChests.Contains(o.Type))
                     cells.Add((o.X, o.Y));
             foreach (var o in lvl.RoomObjects)
-                if (o.Type.StartsWith("Metadata/Chests/QuestChests/", StringComparison.OrdinalIgnoreCase))
+                if (o.Type.StartsWith("Metadata/Chests/QuestChests/", StringComparison.OrdinalIgnoreCase) && !SpecialStaticChests.Contains(o.Type))
                     cells.Add((o.X, o.Y));
         }
         lock (player.QuestChests)
@@ -521,15 +560,22 @@ public static class CampaignChests
         switch (def.Tier)
         {
             case ChestTier.Rich:
-                // 2–4 Rare-rarity rolls + gold (matching Large/Silver/Golden Chests).
+                // 2–4 Rare-rarity rolls + gold (matching Large/Silver/Golden Chests), plus Tier 1 map chance at L58+.
                 rolled.AddRange(drops.Roll(level, MonsterRarity.Rare, rng, increasedRarity: 0, quantityMultiplier: 1,
                     rarityMultiplier: 1, mapTier: 0, mods: null, areaId: areaId, characterLevel: charLevel, areaLevel: level));
+                if (SpecialStaticChests.Contains(def.Id))
+                    rolled.AddRange(drops.Roll(level, MonsterRarity.Magic, rng, increasedRarity: 0, quantityMultiplier: 1,
+                        rarityMultiplier: 1, mapTier: 0, mods: null, areaId: areaId, characterLevel: charLevel, areaLevel: level));
+                if (level >= 58 && drops.Map(level, MonsterRarity.Rare, mapTier: 0, rng, chanceFactor: areaIiq) is { } richMap)
+                    rolled.Add(richMap);
                 if (drops.Gold(level, MonsterRarity.Rare, rng, multiplier: 0.8, increasedRarity: areaIir, quantityFactor: areaIiq) is { } richGold) rolled.Add(richGold);
                 break;
             case ChestTier.Standard:
-                // 1–2 Magic-rarity rolls + moderate gold (Copper/Tribal/Sarcophagus/Boulder).
+                // 1–2 Magic-rarity rolls + moderate gold (Copper/Tribal/Sarcophagus/Boulder), plus Tier 1 map chance at L58+.
                 rolled.AddRange(drops.Roll(level, MonsterRarity.Magic, rng, increasedRarity: 0, quantityMultiplier: 1,
                     rarityMultiplier: 1, mapTier: 0, mods: null, areaId: areaId, characterLevel: charLevel, areaLevel: level));
+                if (level >= 58 && drops.Map(level, MonsterRarity.Magic, mapTier: 0, rng, chanceFactor: areaIiq) is { } stdMap)
+                    rolled.Add(stdMap);
                 if (rng.Next(100) < 60 && drops.Gold(level, MonsterRarity.Magic, rng, multiplier: 0.6, increasedRarity: areaIir, quantityFactor: areaIiq) is { } stdGold) rolled.Add(stdGold);
                 break;
             default:

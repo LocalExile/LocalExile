@@ -76,6 +76,7 @@ Nothing yet.
   curse, mark, link and retaliation speed bonuses.
   Retaliation hits apply their damage, stun and ailment duration modifiers.
   A throw takes the trap or mine throwing time, held throws land, and a projectile spell leaves the trap or mine.
+  A rain skill (Rain of Arrows, Blast Rain, Toxic Rain) from a trap or mine comes down as the player's own does.
   Several traps or mines scatter around the aim (the supports' circle, or a radius growing with their number), Swift
   Assembly rolls its extra throws, and Charged Traps and Charged Mines grant charges, throwing speed and critical bonuses.
   Flight and arming times and the native multi-throw patterns remain open.

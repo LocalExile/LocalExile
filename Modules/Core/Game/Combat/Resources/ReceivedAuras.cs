@@ -126,12 +126,35 @@ public static partial class Game
         Add(Stat.DeterminationAuraArmourPlusPctFinal, bonus.ArmourMorePct);
         Add(Stat.BaseEvasionRating, bonus.Evasion); Add(Stat.GraceAuraEvasionRatingPlusPctFinal, bonus.EvasionMorePct);
         double auraTime = AreaTime(player);
+        var at = minion.Monster?.Walk.Position(auraTime) ?? player.Walk.Position(auraTime);
+        if (player.PlayerLife > 0 && !InTown(player)
+            && (minion.Monster is null || Dist(at, player.Walk.Position(auraTime)) <= AuraCatalog.BaseRadius))
+        {
+            var (_, ownCommanderRes, ownCommanderDamage) = CommanderOfDarkness(StatSourceValues(player));
+            if (ownCommanderRes > 0 || ownCommanderDamage > 0)
+            {
+                int auraRes = 0, auraDmg = 0;
+                foreach (var a in auras)
+                    if (AuraCatalog.CommanderEligible(a, skills))
+                    {
+                        auraRes = Math.Max(auraRes, a.CommanderElementalResistancePct);
+                        auraDmg = Math.Max(auraDmg, a.CommanderDamagePct);
+                    }
+                if (ownCommanderRes > auraRes)
+                {
+                    int extraRes = ownCommanderRes - auraRes;
+                    Add(Stat.BaseFireDamageResistancePct, extraRes);
+                    Add(Stat.BaseColdDamageResistancePct, extraRes);
+                    Add(Stat.BaseLightningDamageResistancePct, extraRes);
+                }
+                if (ownCommanderDamage > auraDmg) Add(Stat.DamagePlusPct, ownCommanderDamage - auraDmg);
+            }
+        }
         if (minion.Monster is not null)
         {
             AddMinionNecromancerCorpseAuras(player, minion, values, auraTime);
             AddSpectreSkeletonDamage(player, minion, values, auraTime);
         }
-        var at = minion.Monster?.Walk.Position(auraTime) ?? player.Walk.Position(auraTime);
         var fortAlly = MinionAllyFortificationLocked(player, minion, at, auraTime);
         Add(Stat.BaseCriticalStrikeMultiplierPlus, fortAlly.KingmakerCritMulti);
         return values;

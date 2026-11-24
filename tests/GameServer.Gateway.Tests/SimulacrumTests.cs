@@ -1,3 +1,4 @@
+using System.Buffers.Binary;
 using System.Text.Json;
 using GameServer.Core.Protocol.Instance;
 using GameServer.Modules.Delirium;
@@ -172,5 +173,89 @@ public sealed class SimulacrumTests
         Assert.Equal(3, DeliriumModule.ClearGround(ground).Count);
         Assert.Empty(ground.All());
         Assert.Empty(DeliriumModule.ClearGround(ground));
+    }
+
+    [Fact]
+    public void Per_type_reward_bars_and_affliction_ruleset_tiles_encode_expected_wire_bytes()
+    {
+        // AfflictionEndGameRules resolves to Rulesets row 103 (0x67).
+        Assert.Equal((byte)103, AfflictionRuleset.Row);
+
+        // Pre-PR saved run (empty RewardPoints/RewardCounts) still advances bars on RecordKill via SizeRewards.
+        var run = new DeliriumModule.Run
+        {
+            Wave = 1, Active = true, ProgressGoal = 120, SpawnPoints = 120,
+            Rewards = [0, 1], // Currency (pace 6 -> goal 20), Uniques (pace 2 -> goal 60)
+            Monsters = [10, 11],
+            MonsterPoints = new() { [10] = 25, [11] = 40 },
+        };
+        Assert.True(run.RecordKill(10));
+        Assert.Equal([5, 25], run.RewardPoints);
+        Assert.Equal([1, 0], run.RewardCounts);
+
+        Assert.True(run.RecordKill(11));
+        Assert.Equal([5, 5], run.RewardPoints);
+        Assert.Equal([3, 1], run.RewardCounts);
+
+        // 0x02c9 wire layout: u16 BE 0x02c9, u8 103, compact-uint len (2 + 2*13 = 28), u8 mode 1, u8 count 2, 13-byte LE entries.
+        var packet = AfflictionRuleset.RewardTiles([
+            new(0, (uint)run.RewardPoints[0], (uint)DeliriumModule.RewardGoal(run, 0), (uint)run.RewardCounts[0]),
+            new(1, (uint)run.RewardPoints[1], (uint)DeliriumModule.RewardGoal(run, 1), (uint)run.RewardCounts[1]),
+        ]);
+        Assert.NotNull(packet);
+        Assert.Equal(4 + 28, packet!.Length);
+        Assert.Equal(0x02, packet[0]);
+        Assert.Equal(0xc9, packet[1]);
+        Assert.Equal(103, packet[2]);
+        Assert.Equal(28, packet[3]);
+        Assert.Equal(1, packet[4]); // mode 1
+        Assert.Equal(2, packet[5]); // count 2
+
+        // Entry 0: type 0, cur 5, max 20, count 3
+        Assert.Equal(0, packet[6]);
+        Assert.Equal(5u, BinaryPrimitives.ReadUInt32LittleEndian(packet.AsSpan(7, 4)));
+        Assert.Equal(20u, BinaryPrimitives.ReadUInt32LittleEndian(packet.AsSpan(11, 4)));
+        Assert.Equal(3u, BinaryPrimitives.ReadUInt32LittleEndian(packet.AsSpan(15, 4)));
+
+        // Entry 1: type 1, cur 5, max 60, count 1
+        Assert.Equal(1, packet[19]);
+        Assert.Equal(5u, BinaryPrimitives.ReadUInt32LittleEndian(packet.AsSpan(20, 4)));
+        Assert.Equal(60u, BinaryPrimitives.ReadUInt32LittleEndian(packet.AsSpan(24, 4)));
+        Assert.Equal(1u, BinaryPrimitives.ReadUInt32LittleEndian(packet.AsSpan(28, 4)));
+
+        // ClearRewardTiles encodes mode 1, count 0 (payload length 2).
+        var clear = AfflictionRuleset.ClearRewardTiles();
+        Assert.Equal(new byte[] { 0x02, 0xc9, 103, 0x02, 0x01, 0x00 }, clear);
+    }
+
+    [Fact]
+    public void Area_waypoint_event_and_level_tile_lookup_handle_suppression_and_bounds()
+    {
+        const string owner = "SimulacrumWaypointTest";
+        var league = new LeagueRuntime(new GameServer.Core.Accounts.League("test", "Standard", false, false), new HashSet<string>([owner]));
+        var original = new WaypointObject(10, 20);
+        var moved = new WaypointObject(30, 40);
+        var arena = new Player(new AreaLayout(1, "AfflictionTown6", 32, 32, 16, 16, (_, _) => true, []), 1, 1) { LeagueModule = league };
+        var town = new Player(new AreaLayout(2, "1_1_town", 32, 32, 16, 16, (_, _) => true, []), 2, 1) { LeagueModule = league };
+        using (InstanceEvents.AreaWaypoint.Add(owner, (p, wp) => SimulacrumRules.IsArena(p.Layout.Id) ? null : moved))
+        {
+            Assert.Null(InstanceEvents.RunAreaWaypoint(arena, original));
+            Assert.Equal(moved, InstanceEvents.RunAreaWaypoint(town, original));
+        }
+        Assert.Equal(original, InstanceEvents.RunAreaWaypoint(arena, original));
+
+        // TileLookup maps 23x23 cell slots to tile paths without retaining TileGrid or needing game-files.zip.
+        var grid = new GameServer.Data.Terrain.Generation.TileGrid(2, 2);
+        const string ship = "Metadata/Terrain/Beach/Town_v3_AfflictionLeague/AfflictionShip_v01_01.tdt";
+        grid.Place(new(ship, "ship", new() { Width = 1, Height = 1 }), 0, 1, 0, 0);
+        var tileAt = ServerLevels.TileLookup(grid);
+        Assert.Null(tileAt(-1, 0));
+        Assert.Null(tileAt(0, -23));
+        Assert.Null(tileAt(46, 0));
+        Assert.Null(tileAt(0, 46));
+        Assert.Null(tileAt(0, 0));
+        Assert.Equal(ship, tileAt(23, 0));
+        Assert.Equal(ship, tileAt(45, 22));
+        Assert.Null(tileAt(23, 23));
     }
 }

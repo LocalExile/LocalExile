@@ -158,12 +158,13 @@ static partial class Game
     /// do not. Under the Monsters lock, after the hit's damage.</summary>
     internal static bool KnockbackOnHitLocked(Player player, SpawnedMonster m, IReadOnlyDictionary<uint, int> playerStats,
         IReadOnlyDictionary<uint, int>? skill, double now, Random random, (int X, int Y)? origin = null,
-        int attackerSize = LivingCollision.PlayerSize, bool attackerHasReversedStat = true)
+        int attackerSize = LivingCollision.PlayerSize, bool attackerHasReversedStat = true, bool guaranteed = false)
     {
         if (!KnockbackAllowed(m)) return false;
         int Stat(uint name)
         {
             if (!(name is var key)) return 0;
+            if (guaranteed && key == KnockbackChanceStat) return 100;
             return (int)Math.Clamp((long)playerStats.GetValueOrDefault(key) + (skill?.GetValueOrDefault(key) ?? 0),
                 int.MinValue, int.MaxValue);
         }

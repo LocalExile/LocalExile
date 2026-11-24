@@ -50,6 +50,14 @@ public static partial class Game
         if (alive || !progress.Bosses.IsSubsetOf(progress.Killed)) return;
         progress.Completed = true;
         Console.WriteLine($"[gateway] {run.Owner} map run {run.Run} completed: {run.Area.Id}");
+        if (run.PantheonSoul is { } soul)
+            await DeliverCapturedSouls(player, run.Owner, soul.VesselItemId);
+        foreach (var member in Program.InGame.Keys.Where(c => ReferenceEquals(c.Instance, instance)
+            && !c.Closed && !c.LeavingArea && !c.Character.LeagueQuestFlags.Contains(1037)))
+        {
+            try { await SetLeagueQuestFlags(member, [1037]); }
+            catch (Exception ex) when (ex is IOException or ObjectDisposedException) { }
+        }
         foreach (var visitor in Program.InGame.Keys.Where(c => c.MapPortalRun?.Run == run.Run
             && c.Connection.PlayerSent && !c.Closed && !c.LeavingArea))
         {
@@ -63,6 +71,49 @@ public static partial class Game
                 // A visitor disconnected; the next listing still reads this run's completed state.
             }
         }
+    }
+
+    const string PendingSoulsKey = "pantheon.pendingSouls";
+
+    // A guest can finish the owner's map while the owner is offline or has both inventories full.
+    // Keep undelivered vessels in the character save until the owner makes space and opens the device.
+    public static async Task DeliverCapturedSouls(Player context, string ownerName, string? captured = null)
+    {
+        var owner = Program.InGame.Keys.FirstOrDefault(p => !p.Closed
+            && string.Equals(CharacterName(p), ownerName, StringComparison.OrdinalIgnoreCase));
+        var catalog = ItemsFor(owner ?? context);
+        var items = PlayerInventories.For(ownerName, catalog);
+        List<(byte Row, PlayerInventories.Stacking Change)> placed = [];
+        Saves.Atomically(() =>
+        {
+            string prior = CharacterSaves.ModuleData(ownerName, PendingSoulsKey) ?? "";
+            if (captured is null && prior.Length == 0) return;
+            var pending = prior.Split('|', StringSplitOptions.RemoveEmptyEntries).ToList();
+            if (captured is not null) pending.Add(captured);
+            var remaining = new List<string>();
+            foreach (string id in pending)
+            {
+                if (catalog.Find(id) is not { Supported: true } type) { remaining.Add(id); continue; }
+                var changes = items.StackAcross([PlayerInventories.MapDevice, PlayerInventories.MainInventory],
+                    ItemCatalog.Create(type), ShapeOf);
+                if (changes.Values.All(c => !c.Any)) remaining.Add(id);
+                foreach (var (row, change) in changes)
+                    if (change.Any) placed.Add((row, change));
+            }
+            string next = string.Join('|', remaining);
+            if (next != prior) CharacterSaves.ChangeModuleData(ownerName, PendingSoulsKey, _ => next);
+        });
+        if (owner is null || owner.Closed) return;
+        try
+        {
+            foreach (var (row, change) in placed)
+                await Send(owner, InstanceItems.InventoryChange(PlayerInventories.InventoryId(row),
+                    items.NextRevision(row), change.RemovedIds, change.AddedItems), "0x00bf captured Pantheon soul");
+            if (captured is not null && placed.Count == 0)
+                await Send(owner, InstanceChat.ChatLine("Soul captured. Make room and open your Map Device to collect it."),
+                    "0x0017 pending Pantheon soul");
+        }
+        catch (Exception ex) when (ex is IOException or ObjectDisposedException) { }
     }
 
     public static (uint Id, int X, int Y, bool Campaign)? MapDeviceHere(Player player)

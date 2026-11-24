@@ -166,6 +166,14 @@ public static partial class Game
                     return use with { Payload = shot with { AreaVisual = Art.AnimatedInPlaceOf(KineticBlastExplosionAo, context.Variation),
                         Presentation = new() { EffectLifetime = ProjectileRuntime.Time(.35) } } };
                 if (IsEnsnaringArrow(effect)) return use with { Payload = shot with { Ensnare = CaptureEnsnare(context, Get) } };
+                if (context.Own(Stat.EtherealKnivesBladeLeftInGroundForEveryXProjectiles) is > 0 and var every
+                    && context.Own(Stat.MaximumNumberOfBladesLeftInGround) is > 0 and var maximum)
+                {
+                    double duration = SkillDurationModifiers.Seconds(context.Own(Stat.BaseSkillEffectDuration),
+                        context.PlayerStat, context.Own);
+                    if (duration > 0)
+                        return use with { Payload = shot with { GroundBlade = new(every, maximum, ProjectileRuntime.Time(duration)) } };
+                }
                 if (!GatewayProjectileSkillProfiles.IsFireball(metadata)) return use;
                 string ao = Art.AnimatedInPlaceOf(DefaultProjectileImpactAo, context.Variation);
                 return use with { Payload = shot with { Presentation = new()

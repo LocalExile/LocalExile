@@ -89,8 +89,8 @@ public static partial class Game
             player.NextBuff++, row, 0, 0, source.Level, source.Quality, SourceBuff: player.NextBuff++,
             SkillStats: [.. source.Stats.Select(p => (p.Key, p.Value))],
             SupportEffectPct: support.EffectPct, AffectsSelf: support.AffectsSelf,
-            ArtVariation: artVariation, HideVisual: hideVisual, SourceVisual: sourceVisual, BuffVisual: buffVisual,
-            PerAuraEffectPct: AuraCatalog.PerAuraEffectPctFor(family, CharacterStatSources(player).Stats));
+            ArtVariation: artVariation, HideVisual: hideVisual, SourceVisual: sourceVisual, BuffVisual: buffVisual);
+        aura = WithCasterAuraStamps(aura, CharacterStatSources(player).Stats);
         state.Active[id] = new(aura, AreaTime(player) + seconds, source, blessing);
         state.StatsPending = false; // The activation publishes its new character snapshot itself.
         player.Auras[id] = aura;

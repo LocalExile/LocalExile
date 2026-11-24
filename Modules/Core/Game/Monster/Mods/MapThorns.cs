@@ -64,6 +64,7 @@ public static partial class Game
             double taken = Math.Max(0, 1 + (typedReflect + (double)effects[Stat.ReflectDamageTakenPlusPct]
                 + Owner(Stat.MinionsReflectedDamageTakenPlusPct) + Owner(Stat.ReflectDamageTakenAndMinionReflectDamageTakenPlusPct)) / 100d);
             double reflectable = Math.Max(0, 1 - (Owner(Stat.MinionsHaveMinusPctOfThierDamageCannotBeReflected)
+                + Owner(Stat.PctOfYourAndYourMinionsDamageCannotBeReflected)
                 + (double)Skill(Stat.MinusPctOfYourDamageCannotBeReflected)) / 100d);
             double mitigated = basis;
             if (phys)
