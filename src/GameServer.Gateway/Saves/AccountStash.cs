@@ -1005,6 +1005,36 @@ public sealed partial class AccountStash
     /// <summary>What <see cref="Pay"/> took, per tab: the stacks it emptied (ids) and the ones it left smaller.</summary>
     public sealed record Payment(IReadOnlyDictionary<int, (List<uint> Removed, List<InventoryItem> Changed)> Tabs);
 
+    /// <summary>Spends one unit from the named stack, using its current size when multiple players share a stash.</summary>
+    public Payment? PayOne(int tab, InventoryItem selected)
+    {
+        Payment payment;
+        lock (_lock)
+        {
+            if (tab < 0 || tab >= _tabs.Count || _tabs[tab].Saved.Public) return null;
+            var items = _tabs[tab].Items;
+            int at = items.FindIndex(i => i.Id == selected.Id && i.Item.TypeHash == selected.Item.TypeHash);
+            if (at < 0) return null;
+            var current = items[at];
+            var tabs = new Dictionary<int, (List<uint> Removed, List<InventoryItem> Changed)>();
+            if (current.Item.StackSize > 1)
+            {
+                var left = current with { Item = current.Item with { StackSize = (ushort)(current.Item.StackSize - 1) } };
+                items[at] = left;
+                tabs[tab] = ([], [left]);
+            }
+            else
+            {
+                items.RemoveAt(at);
+                if (current.Item.Note is { Length: > 0 }) _itemNotesDirty = true;
+                tabs[tab] = ([current.Id], []);
+            }
+            payment = new(tabs);
+        }
+        Persist(tab);
+        return payment;
+    }
+
     /// <summary>
     /// Takes <paramref name="amount"/> of an item type from the stash's stacks, in any tab (smallest stacks first), in one
     /// save (a vendor takes its price from the stash too). Null (nothing changes) when the stash holds fewer.

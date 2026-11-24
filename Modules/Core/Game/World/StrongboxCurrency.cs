@@ -102,7 +102,7 @@ public static partial class MapStrongboxes
             {
                 // One orb from the clicked stack, not the smallest stack of its type anywhere in the stash: the client
                 // named (tab, item). SendStashPayment notifies the tab it changed.
-                if (PayOne(stash!, stashTab, used) is not { } paid) { Console.WriteLine(Log("the item is gone")); return true; }
+                if (stash!.PayOne(stashTab, used) is not { } paid) { Console.WriteLine(Log("the item is gone")); return true; }
                 notify = () => SendStashPayment(player, stash!, paid);
             }
             area.Boxes[box.Index] = changed;
@@ -127,25 +127,6 @@ public static partial class MapStrongboxes
         }
         finally { area.Gate.Release(); }
         return true;
-    }
-
-    /// <summary>One unit of the stack the client named by (tab, item): <see cref="AccountStash.Shrink"/> for a stack that
-    /// keeps some, <see cref="AccountStash.Take"/> for the last one. Null when the stack is gone. Shared with the essence
-    /// monolith's Vaal Orb.</summary>
-    internal static AccountStash.Payment? PayOne(AccountStash stash, int tab, InventoryItem item)
-    {
-        var tabs = new Dictionary<int, (List<uint> Removed, List<InventoryItem> Changed)>();
-        if (item.Item.StackSize > 1)
-        {
-            if (stash.Shrink(tab, item.Id, 1) is not { } left) return null;
-            tabs[tab] = ([], [left]);
-        }
-        else
-        {
-            if (stash.Take(tab, item.Id) is not { } taken) return null;
-            tabs[tab] = ([taken.Id], []);
-        }
-        return new(tabs);
     }
 
     /// <summary>The box's ObjectMagicProperties by S→C 0x2bc: the same bytes a created box's component carries
