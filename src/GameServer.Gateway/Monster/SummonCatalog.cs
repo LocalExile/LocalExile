@@ -14,9 +14,9 @@ public sealed class SummonCatalog
     }
 
     public sealed record Definition(string Id, string Family, string Variety, uint LimitStat,
-        uint CountStat, bool Persistent = false, bool Corpse = false, bool Follows = true, bool Targetable = true,
-        int LimitWithoutStat = 1)
+        uint CountStat, bool Persistent = false, bool Corpse = false, bool Follows = true, bool Targetable = true)
     {
+        public int LimitWithoutStat { get; init; } = 1;
         /// <summary>The limit without its base_ prefix (the final stat the panel shows), 0 when none.</summary>
         public uint FinalLimitStat => LimitStat == 0 ? 0 : Stat.Of(Program.Stats.Name(LimitStat).Replace("base_", "", StringComparison.Ordinal));
     }
@@ -124,11 +124,17 @@ public sealed class SummonedMinions
     public Prey? SignalledPrey;
     public readonly Queue<uint> Corpses = [];
     public sealed record HitMark(SpawnedMonster Monster, ushort Source, int Effect,
-        GameServer.Core.Protocol.Instance.Item? Gem, double Until, bool PlayerConsumesCorpse = true);
+        GameServer.Core.Protocol.Instance.Item? Gem, double Until)
+    {
+        public bool PlayerConsumesCorpse { get; init; } = true;
+    }
     public readonly Dictionary<(uint Id, ushort Source), HitMark> HitMarks = [];
     public sealed record HitSummon(uint Target, SpawnedMonster Monster, ushort Source, int Effect,
-        GameServer.Core.Protocol.Instance.Item? Gem, bool ConsumeCorpse, string Kind = "", string Supports = "",
-        GameServer.Core.Protocol.Instance.Item? Weapon = null, bool PlayerConsumesCorpse = true);
+        GameServer.Core.Protocol.Instance.Item? Gem, bool ConsumeCorpse, string Kind = "", string Supports = "")
+    {
+        public GameServer.Core.Protocol.Instance.Item? Weapon { get; init; }
+        public bool PlayerConsumesCorpse { get; init; } = true;
+    }
     public readonly List<HitSummon> HitSummons = [];
     public readonly Dictionary<uint, GameServer.Core.Protocol.Instance.MinionOwnershipChange> PresentedOwnership = [];
     public Dictionary<byte, GameServer.Core.Protocol.Instance.Item> GuardianEquipment = [];

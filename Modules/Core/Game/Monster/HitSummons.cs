@@ -28,7 +28,7 @@ public static partial class Game
         var gem = SupportedSkill(player, source);
         if (!gem.RequirementsMet || SkillsFor(player).EffectId(gem.Effect) != "HolyStrike") return;
         HolyArmamentTargets.GetOrCreateValue(player)[source] = new(id, monster);
-        player.Summons.HitSummons.Add(new(id, monster, source, gem.Effect, gem.SourceGem, false, Weapon: weapon.Item));
+        player.Summons.HitSummons.Add(new(id, monster, source, gem.Effect, gem.SourceGem, false) { Weapon = weapon.Item });
     }
 
     static bool IsHolyArmamentTarget(Player player, GolemState.Golem fighter, uint id, SpawnedMonster monster) =>
@@ -53,7 +53,8 @@ public static partial class Game
         if (monster.Rarity == MonsterRarity.Unique) return;
         double duration = SkillDurationModifiers.Seconds(GolemStat(skill, Stat.BaseSkillEffectDuration),
             n => GolemStat(CharacterPlayerStats(player), n), n => GolemStat(skill, n));
-        player.Summons.HitMarks[(pair.Key, source)] = new(monster, source, gem.Effect, gem.SourceGem, now + duration, playerConsumesCorpse);
+        player.Summons.HitMarks[(pair.Key, source)] = new(monster, source, gem.Effect, gem.SourceGem, now + duration)
+            { PlayerConsumesCorpse = playerConsumesCorpse };
         if (monster.Dead || monster.Life == 0) HitSummonsOnDeathLocked(player, pair.Key, monster, now);
     }
 
@@ -71,8 +72,8 @@ public static partial class Game
         {
             player.Summons.HitMarks.Remove(key);
             if (!ReferenceEquals(mark.Monster, monster) || now >= mark.Until || monster.Rarity == MonsterRarity.Unique) continue;
-            player.Summons.HitSummons.Add(new(id, monster, mark.Source, mark.Effect, mark.Gem, true,
-                PlayerConsumesCorpse: mark.PlayerConsumesCorpse));
+            player.Summons.HitSummons.Add(new(id, monster, mark.Source, mark.Effect, mark.Gem, true)
+                { PlayerConsumesCorpse = mark.PlayerConsumesCorpse });
         }
     }
 

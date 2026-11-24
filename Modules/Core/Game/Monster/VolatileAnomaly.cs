@@ -10,7 +10,8 @@ public static partial class Game
     const int VolatileAnomalyContactRadius = 5;
 
     static readonly SummonCatalog.Definition ItemVolatileAnomaly = new("VolatileAnomaly", VolatileAnomalyFamily,
-        "Metadata/Monsters/Anomaly/AnomalyUniqueRing", 0, 0, Follows: false, Targetable: false, LimitWithoutStat: int.MaxValue);
+        "Metadata/Monsters/Anomaly/AnomalyUniqueRing", 0, 0, Follows: false, Targetable: false)
+        { LimitWithoutStat = int.MaxValue };
 
     static void VolatileAnomalyStepLocked(Player player, GolemState.Golem orb, double now)
     {

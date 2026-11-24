@@ -81,13 +81,17 @@ public sealed class RecentEvents
     /// <summary>A successful player hit commits its direction and critical outcome. The eight-second key is separate
     /// from ordinary four-second crit so an explicit eight-second modifier changes neither every recent stat nor the
     /// ordinary window.</summary>
-    public void RecordHit(double now, bool critical, bool attack = false)
+    public void RecordHit(double now, bool critical) => RecordHit(now, critical, attack: false);
+
+    public void RecordHit(double now, bool critical, bool attack)
     {
         Record(StatConditions.HitEnemy, now);
         RecordCriticalOutcome(now, critical, attack);
     }
 
-    public void RecordCriticalOutcome(double now, bool critical, bool attack = false)
+    public void RecordCriticalOutcome(double now, bool critical) => RecordCriticalOutcome(now, critical, attack: false);
+
+    public void RecordCriticalOutcome(double now, bool critical, bool attack)
     {
         Record(critical ? StatConditions.Crit : StatConditions.NonCrit, now);
         if (!critical) return;

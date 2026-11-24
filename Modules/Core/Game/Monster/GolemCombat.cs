@@ -976,8 +976,11 @@ public static partial class Game
         return (int)Math.Clamp(chance, 0, 10_000);
     }
 
-    public static DamagePacket GolemRollHit(DamagePacket damage, MonsterModEffects effects, bool spell, Random random,
-        bool fullLife = false, bool tripleDamage = false)
+    public static DamagePacket GolemRollHit(DamagePacket damage, MonsterModEffects effects, bool spell, Random random) =>
+        GolemRollHit(damage, effects, spell, random, fullLife: false, tripleDamage: false);
+
+    static DamagePacket GolemRollHit(DamagePacket damage, MonsterModEffects effects, bool spell, Random random,
+        bool fullLife, bool tripleDamage)
     {
         var modifiers = GamblerModifiers.From(name => effects[name]).ForSkill(name => fullLife && name == Stat.ChanceToDealDoubleDamagePct
             ? effects[Stat.ChanceToDealDoubleDamageWhileOnFullLifePct] : 0, spell);
