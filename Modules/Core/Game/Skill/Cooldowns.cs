@@ -79,6 +79,9 @@ public static partial class Game
                 + own.GetValueOrDefault(Stat.SummonSkeletonsCooldownModifierMs)) : 0;
         if (SingleUseCooldown.ForSkill(skills, Stats, effect, supported.Level, playerStats, own, addedMilliseconds) is not { } plan)
             return null;
+        if (IsDischarge(skills.EffectId(effect)) && (long)playerStats.GetValueOrDefault(Stat.DischargeCooldownOverrideMs)
+            + own.GetValueOrDefault(Stat.DischargeCooldownOverrideMs) is > 0 and var dischargeCooldown)
+            plan = plan with { BaseMilliseconds = ActorScale.Saturate(dischargeCooldown) };
         if (skills.EffectId(effect) == MadnessEffect && MadnessActiveLocked(player))
             plan = plan with { BaseMilliseconds = plan.BaseMilliseconds
                 + MadnessSkillValue(player, Stat.EmbraceMadnessAmountOfCooldownToGainMs) };

@@ -28,6 +28,12 @@ public static partial class Game
         if (known && skills.EffectId(effect) is { } id)
         {
             if (IsHeraldAura(id)) typed += Get(Stat.AreaOfEffectPlusPctWithHeraldSkills);
+            if (IsDischarge(id) && Get(Stat.DischargeAreaOfEffectPlusPctFinal) is int dischargeArea and not 0)
+            {
+                const uint more = Stat.SkillAreaOfEffectPlusPctFinalFromSkillSpecificStat;
+                stats[more] = ActorScale.Saturate(Math.Max(0L, 100L + Get(more))
+                    * Math.Max(0L, 100L + dischargeArea) / 100 - 100);
+            }
             if (IsGalvanicArrow(id))
             {
                 typed += Get(Stat.ShrapnelShotRadiusPlusPct);
