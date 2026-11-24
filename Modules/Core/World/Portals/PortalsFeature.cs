@@ -434,6 +434,7 @@ static class PortalsFeature
         // Beside the player, so the click that opens it is not on the player (a reopened portal stands where it stood).
         var (x, y) = !replace || player.Layout.Walkable is not { } walkable || !walkable(px + 3, py) ? (px, py) : (px + 3, py);
         uint id = player.TakeObjectId();
+        ushort variation = global::Game.PortalVariation(player, id);
         ushort leadsTo = toHideout ? mapOrigin?.Area ?? home!.AreaHash16 : town;
         var previousView = Program.ViewOf.Value;
         Program.ViewOf.Value = player;
@@ -448,7 +449,7 @@ static class PortalsFeature
                 player.ReturnPortalTo = 0;
             }
             // Standing again on entry (not replace): listed before its create, so it shows idle rather than opening.
-            if (!replace) await global::Game.ListStandingPortal(player, id, leadsTo, "the town portal");
+            if (!replace) await global::Game.ListStandingPortal(player, id, leadsTo, "the town portal", variation: variation);
             if (!await global::Game.SendWorldCreate(player, id, InstanceEntities.CreateObject(id, InstanceEntities.ObjectTypeHash(MapPortalObject.MetadataPath),
                 new MapPortalObject(x, y, -1, MapPortalType, Open: 1).Blob()), $"0x02bb create the Portal Scroll's portal 0x{id:x} at ({x}, {y})")) return;
             await global::Game.SendWorldRecord(player, id, InstanceProtocol.EnterWakeZone(id), null);
@@ -457,23 +458,44 @@ static class PortalsFeature
         player.ReturnPortal = (id, x, y);
         player.ReturnPortalTo = toHideout ? (ushort)0 : town;
         string owner = CharacterName(player);
+        // Remove the owner's stale peer portal from viewers still in the previous (area, instance) before replacing it.
+        if (replace)
+        {
+            List<(ushort Area, ulong Instance)> staleAreas = [];
+            void CollectPrevious(OpenPortal? prev)
+            {
+                if (prev is { } p && (p.Area != here || p.Instance != player.InstanceNumber) && !staleAreas.Contains((p.Area, p.Instance)))
+                    staleAreas.Add((p.Area, p.Instance));
+            }
+            if (MapTownPortals.TryGetValue(owner, out var prevMap)) CollectPrevious(prevMap);
+            if (OpenPortals.TryGetValue(owner, out var prevOpen)) CollectPrevious(prevOpen);
+            foreach (var (oldArea, oldInstance) in staleAreas)
+                foreach (var other in InGame.Keys)
+                {
+                    if (ReferenceEquals(other, player) || other.Closed || other.LeavingArea || !other.Connection.PlayerSent
+                        || other.Layout.Hash != oldArea || other.InstanceNumber != oldInstance) continue;
+                    try { await RemovePeerPortal(other, owner); }
+                    catch (Exception e) when (e is IOException or ObjectDisposedException or InvalidOperationException) { }
+                }
+        }
         // Map return portals never create an extra entrance beside the device: re-entry spends its shared six portals, and
         // arrives at this portal (MapEntrySpot).
-        var portal = new OpenPortal(here, player.InstanceNumber, x, y, leadsTo);
+        var portal = new OpenPortal(here, player.InstanceNumber, x, y, leadsTo, variation);
         if (toHideout) { OpenPortals.TryRemove(owner, out _); MapTownPortals[owner] = portal; }
         else { MapTownPortals.TryRemove(owner, out _); OpenPortals[owner] = portal; }
         Console.WriteLine($"[gateway] {player.Connection.Remote} {why}: town portal at ({x}, {y}) of 0x{here:x4} instance {player.InstanceNumber} → 0x{leadsTo:x4}");
         // 0x8f only reaches a portal the client has finished creating (Game.ListPortal).
         global::Game.ListPortal(player, id, leadsTo,
             $"the Portal Scroll's portal, to {(toHideout ? "the hideout" : "the last town")}",
-            global::Game.PortalScrollListMs, global::Game.PortalScrollRelistMs);
+            global::Game.PortalScrollListMs, global::Game.PortalScrollRelistMs, variation: variation);
         if (replace && player.Instance is { } instance)
         {
             foreach (var other in instance.Presence.PlayersExcept(player.Id))
             {
                 if (other.Closed || other.LeavingArea || !other.Connection.PlayerSent
-                    || !ReferenceEquals(other.Instance, instance)) continue;
-                try { await ShowPeerPortal(other, owner, portal, toHideout, replace: true, opener: player); }
+                    || !ReferenceEquals(other.Instance, instance)
+                    || other.Layout.Hash != here || other.InstanceNumber != player.InstanceNumber) continue;
+                try { await ShowPeerPortal(other, owner, portal, toHideout, replace: true); }
                 catch (Exception e) when (e is IOException or ObjectDisposedException or InvalidOperationException) { }
             }
         }
@@ -493,11 +515,37 @@ static class PortalsFeature
         return list;
     }
 
-    static async Task ShowPeerPortal(Player viewer, string owner, OpenPortal portal, bool toHideout, bool replace,
-        Player? opener = null)
+    static async Task RemovePeerPortal(Player viewer, string owner)
     {
         if (viewer.Closed || viewer.LeavingArea) return;
+        uint? staleId = null;
+        lock (viewer.PeerPortals)
+        {
+            foreach (var kv in viewer.PeerPortals)
+            {
+                if (!string.Equals(kv.Value.Owner, owner, StringComparison.OrdinalIgnoreCase)) continue;
+                staleId = kv.Key;
+                viewer.PeerPortals.Remove(kv.Key);
+                break;
+            }
+        }
+        if (staleId is not uint stale) return;
+        var previousView = Program.ViewOf.Value;
+        Program.ViewOf.Value = viewer;
+        try
+        {
+            await Send(viewer, InstanceMapDevice.Portals(0, [new(stale, 0)]), null);
+            await global::Game.SendWorldRemoval(viewer, stale, $"0x{InstanceProtocol.RemoveObjectId:x4} remove old peer portal 0x{stale:x}");
+        }
+        finally { Program.ViewOf.Value = previousView; }
+    }
+
+    static async Task ShowPeerPortal(Player viewer, string owner, OpenPortal portal, bool toHideout, bool replace)
+    {
+        if (viewer.Closed || viewer.LeavingArea) return;
+        uint id;
         uint? oldId = null;
+        var entry = (owner, portal.X, portal.Y, toHideout ? (ushort)0 : portal.LeadsTo);
         lock (viewer.PeerPortals)
         {
             foreach (var kv in viewer.PeerPortals)
@@ -508,10 +556,11 @@ static class PortalsFeature
                 viewer.PeerPortals.Remove(kv.Key);
                 break;
             }
+            id = viewer.TakeObjectId();
+            viewer.PeerPortals[id] = entry;
         }
-        opener ??= InGame.Keys.FirstOrDefault(p => !p.Closed && string.Equals(CharacterName(p), owner, StringComparison.OrdinalIgnoreCase));
-        uint id = viewer.TakeObjectId();
-        ushort variation = opener is not null ? global::Game.PortalVariation(opener, id) : (ushort)0;
+        ushort variation = portal.Variation;
+        bool created = false;
         var previousView = Program.ViewOf.Value;
         Program.ViewOf.Value = viewer;
         try
@@ -526,11 +575,15 @@ static class PortalsFeature
             if (!await global::Game.SendWorldCreate(viewer, id, InstanceEntities.CreateObject(id, InstanceEntities.ObjectTypeHash(MapPortalObject.MetadataPath),
                 new MapPortalObject(portal.X, portal.Y, -1, MapPortalType, Open: 1).Blob()),
                 $"0x02bb create {owner}'s portal 0x{id:x} at ({portal.X}, {portal.Y})")) return;
+            created = true;
             await global::Game.SendWorldRecord(viewer, id, InstanceProtocol.EnterWakeZone(id), null);
         }
-        finally { Program.ViewOf.Value = previousView; }
-        lock (viewer.PeerPortals)
-            viewer.PeerPortals[id] = (owner, portal.X, portal.Y, toHideout ? (ushort)0 : portal.LeadsTo);
+        finally
+        {
+            Program.ViewOf.Value = previousView;
+            if (!created)
+                lock (viewer.PeerPortals) viewer.PeerPortals.Remove(id);
+        }
         global::Game.ListPortal(viewer, id, portal.LeadsTo,
             $"{owner}'s portal, to {(toHideout ? "the hideout" : "the last town")}",
             replace ? global::Game.PortalScrollListMs : global::Game.MapPortalListMs,

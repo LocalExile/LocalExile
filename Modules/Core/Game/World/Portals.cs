@@ -146,6 +146,14 @@ public static partial class Game
     // town portal): object id Ã¢â€ ’ the area it leads to, for the connection that made them.
     static readonly Store<Player, System.Collections.Concurrent.ConcurrentDictionary<uint, (ushort Area, string? Owner, ushort? Variation)>> SinglePortals = new();
 
+    /// <summary>
+    /// Lists a portal that stands without a map device, <paramref name="afterMs"/> after its create and once more
+    /// MapPortalRelistMs (or <paramref name="relistMs"/>) later. 0x8f only reaches a portal object the client has built.
+    /// The client reads its socket once per update and handles 0x8f at once, while the create waits for its world frame,
+    /// so a list that arrives in the same read as the create is lost and the portal is never drawn (seen live 2026-11-12,
+    /// a background window in the lockstep mode: 0x8f handled 3 ms before the object was built, sent 100 ms after it).
+    /// An entry listed again unchanged leaves the portal as it is.
+    /// </summary>
     public static void ListPortal(Player player, uint id, ushort area,
         string what, int afterMs, int? relistMs = null, string? owner = null, ushort? variation = null)
     {

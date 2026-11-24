@@ -163,6 +163,24 @@ public sealed class MapReentryPortalTests
                 Assert.True(listed >= 0 && created >= 0 && listed < created);
             }
             finally { lateConn.Closed = true; Program.InGame.TryRemove(lateConn, out _); }
+
+            // Opening a new portal in a different instance removes the owner's stale peer portal from viewers in the old one.
+            using var movedWire = new PartyFollowerTests.Wire();
+            var otherInstance = new InstanceState();
+            var movedOwner = new Player(new(area.Hash16, area.Id, 300, 300, 10, 10, null, []), 0, 1)
+            {
+                Character = { Name = owner, Account = owner },
+                Connection = { PlayerSent = true, Session = new(owner, movedWire.Stream, movedWire.Ciphers) },
+                Instance = otherInstance, InstanceNumber = 987721, PlayerLife = 100,
+            };
+            Program.InGame.TryAdd(movedOwner, 0);
+            otherInstance.AddPlayer(movedOwner);
+            try
+            {
+                await PortalsFeature.OpenTownPortal(movedOwner, 130, 150, "moved");
+                Assert.Empty(guestConn.PeerPortals);
+            }
+            finally { movedOwner.Closed = true; Program.InGame.TryRemove(movedOwner, out _); }
         }
         finally
         {
