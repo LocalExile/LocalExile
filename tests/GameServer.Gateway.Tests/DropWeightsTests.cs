@@ -10,13 +10,16 @@ public class DropWeightsTests
     [Fact]
     public void Kind_and_type_factors_steer_the_roll()
     {
+        Assert.NotNull(typeof(ItemDrops).GetMethod(nameof(ItemDrops.CurrencyDrop), [typeof(int), typeof(Random)]));
+        Assert.NotNull(typeof(ItemDrops).GetMethod(nameof(ItemDrops.Roll), [typeof(int), typeof(MonsterRarity), typeof(Random),
+            typeof(int), typeof(double), typeof(double), typeof(int), typeof(MapMods), typeof(double)]));
         var drops = new ItemDrops(new ItemCatalog());
         var weights = new DropWeights { Gems = 0, Flasks = 0, Equipment = 0 };
         weights.Items[Wisdom] = 0;
         weights.Items[Chaos] = 1000;
         var random = new Random(7);
         var rolled = Enumerable.Range(0, 64)
-            .SelectMany(_ => drops.Roll(80, MonsterRarity.Unique, random, 0, 1, 1, 0, null, weights: weights)).ToList();
+            .SelectMany(_ => drops.Roll(80, MonsterRarity.Unique, random, 0, 1, 1, 0, null, 1, weights)).ToList();
 
         Assert.NotEmpty(rolled);
         Assert.All(rolled, drop => Assert.Equal("StackableCurrency", drop.Type.Class));
@@ -32,7 +35,7 @@ public class DropWeightsTests
         var weights = new DropWeights { Currency = 0, Gems = 0, Flasks = 0, Equipment = 0, Cards = 0, Scarabs = 500 };
         var random = new Random(11);
         var rolled = Enumerable.Range(0, 32)
-            .Select(_ => drops.Roll(80, MonsterRarity.Normal, random, 0, 1, 1, 1, null, weights: weights)).ToList();
+            .Select(_ => drops.Roll(80, MonsterRarity.Normal, random, 0, 1, 1, 1, null, 1, weights)).ToList();
 
         Assert.All(rolled, kill => Assert.Single(kill));
         Assert.All(rolled, kill => Assert.Contains("Scarab", kill[0].Type.Id));

@@ -309,12 +309,16 @@ public sealed class ItemDrops
         double quantityMultiplier = 1, double rarityMultiplier = 1, int mapTier = 0) =>
         Roll(monsterLevel, rarity, rng, increasedRarity, quantityMultiplier, rarityMultiplier, mapTier, null);
 
+    public IReadOnlyList<Drop> Roll(int monsterLevel, MonsterRarity rarity, Random rng, int increasedRarity,
+        double quantityMultiplier, double rarityMultiplier, int mapTier, MapMods? mods, double scarabQuantity = 1) =>
+        Roll(monsterLevel, rarity, rng, increasedRarity, quantityMultiplier, rarityMultiplier, mapTier, mods, scarabQuantity, null);
+
     /// <param name="mods">The map's stats, for its scarab-type weights (<see cref="Scarab(Random, int, MapMods?)"/>).</param>
     /// <param name="weights">The mods' factors on the kinds, the map's base card and scarab chances and single types
     /// (<see cref="DropRoll.Weights"/>); null for none.</param>
     public IReadOnlyList<Drop> Roll(int monsterLevel, MonsterRarity rarity, Random rng, int increasedRarity,
-        double quantityMultiplier, double rarityMultiplier, int mapTier, MapMods? mods, double scarabQuantity = 1,
-        DropWeights? weights = null)
+        double quantityMultiplier, double rarityMultiplier, int mapTier, MapMods? mods, double scarabQuantity,
+        DropWeights? weights)
     {
         double quantity = double.IsFinite(quantityMultiplier) ? Math.Max(0, quantityMultiplier) : 1;
         int whole = (int)Math.Min(Math.Floor(quantity), int.MaxValue);
@@ -355,8 +359,10 @@ public sealed class ItemDrops
 
     /// <summary>A weighted currency drop using this instance's resolved, DropDataProvider-backed currency pool
     /// (respecting <c>drop_currency_weights.drop_level</c>).</summary>
+    public Drop? CurrencyDrop(int level, Random rng) => CurrencyDrop(level, rng, null);
+
     /// <param name="weights">A mod's factor per currency type (<see cref="DropWeights.Item"/>); null for none.</param>
-    public Drop? CurrencyDrop(int level, Random rng, DropWeights? weights = null) =>
+    public Drop? CurrencyDrop(int level, Random rng, DropWeights? weights) =>
         PickCurrency(_pools.Currency, level, rng, weights) is { } picked
             ? new Drop(ItemCatalog.Create(picked) with { StackSize = 1, ItemLevel = (byte)Math.Clamp(level, 1, 100) }, picked)
             : null;
