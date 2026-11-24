@@ -23,9 +23,11 @@ public static partial class Game
         int Own(uint k) => gem.Stats.GetValueOrDefault(k);
         (ushort Id, ushort Action)? icon = SkillsFor(player).ActionHash(gem.Effect) is ushort action ? (skillId, action) : null;
         BladefallTrarthusState state;
-        if (player.BladefallTrarthus is not null || player.PlayerLife == 0 || player.PlayerMana == 0 || player.Closed || player.LeavingArea) return false;
-        bool paysLife = Lifetap.ConvertsCostToLife(gem.Stats, CharacterPlayerStats(player));
-        if (player.BladefallTrarthus is not null || player.PlayerLife == 0 || (paysLife ? player.PlayerLife <= 1 : player.PlayerMana == 0) || player.Closed || player.LeavingArea) return false;
+        if (player.BladefallTrarthus is not null || player.PlayerLife == 0 || player.Closed || player.LeavingArea) return false;
+        var stats = CharacterPlayerStats(player);
+        bool paysLife = Lifetap.ConvertsCostToLife(gem.Stats, stats);
+        bool freeMana = stats.GetValueOrDefault(Stat.NoManaCost) != 0;
+        if (paysLife ? player.PlayerLife <= 1 : !freeMana && player.PlayerMana == 0) return false;
         int rate = BladefallVolleys.ManaPerMinute(Own(Stat.BaseManaCostPctPerMinute), paysLife ? player.Pools.Life : player.Pools.Mana);
         state = new(player.NextBuff++, player.NextBuff++, skillId)
         {
@@ -35,7 +37,7 @@ public static partial class Game
         player.BladefallTrarthus = state;
         player.LingeringBladeSources.Add(state);
         player.Area.Buffs.Set(player.Id, new(costRow, player.Id, skillId, ActiveSkill: icon, List: [0]));
-        await SendBladefallCost(player, state.PaysLife, state.CostPerMinute);
+        await SendBladefallCost(player, state.PaysLife, !paysLife && freeMana ? 0 : rate);
         player.Area.Buffs.Set(player.Id, new(bladesRow, player.Id, skillId, ActiveSkill: icon));
         Note($"{BladefallVolleys.BladesBuff} (BuffDefinitions row {bladesRow}): " +
             $"a volley every {BladefallVolleySeconds(player, Own) * 1000:0} ms, {state.CostPerMinute / 60.0:0.#} {(state.PaysLife ? "life" : "mana")} per second");
@@ -55,7 +57,8 @@ public static partial class Game
 
     // The mana Bladefall of Trarthus spends over this recovery step (StartResourceRecovery takes it off with regeneration).
     public static double BladefallManaSpent(Player player, double seconds) =>
-        player.BladefallTrarthus is { Ended: false, PaysLife: false } state ? state.CostPerMinute / 60.0 * seconds : 0;
+        player.BladefallTrarthus is { Ended: false, PaysLife: false } state
+        && CharacterPlayerStats(player).GetValueOrDefault(Stat.NoManaCost) == 0 ? state.CostPerMinute / 60.0 * seconds : 0;
 
     public static async Task EndBladefallTrarthus(Player player, string why)
     {

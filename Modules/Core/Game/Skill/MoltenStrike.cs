@@ -318,7 +318,7 @@ public static partial class Game
             var mods = HitResistMods(playerStats, skillStats);
             var meleeHit = SupportedSwingHit(player, skillId, hand, w => SupportedHitFor(player, skillId, suppress: true, weapon: w));
             if (ruthless != 1) meleeHit = meleeHit.Scale(ruthless);
-            int criticalMultiplierBase = SupportedCriticalMultiplier(player, skillId);
+            int criticalMultiplierBase = SupportedCriticalMultiplier(player, skillId, swingWeapon);
             var accuracy = SupportedAccuracy(player, skillId, hand);
             var leech = HitLeechSources(playerStats, true, skillStats, local, melee: true);
             var impale = ImpaleStats.From(playerStats, Stats, true, skillStats, local);
@@ -370,7 +370,7 @@ public static partial class Game
                 bool critical = RollCriticalStrike(player, criticalChance, skillStats, attack: true, skillRoll: criticalRoll, playerStats: playerStats)
                     && EvasionEntropy.ConfirmsCritical(hitChance, player.AttackAccuracyRandom);
                 int sourceMultiplier = CriticalMultiplierWithWeapon(criticalMultiplierBase, m, local);
-                int multiplier = CriticalMultiplierOn(m, sourceMultiplier);
+                int multiplier = CriticalMultiplierOn(m, sourceMultiplier, now, playerStats, skillStats);
                 var resonance = WithResonanceHitLocked(player, skillStats, rolled, mods, pen, now);
                 rolled = resonance.Packet;
                 var (damage, resistance, mitigated) = MonsterHitDamage(m, rolled, critical, attack: true, now,
@@ -384,7 +384,7 @@ public static partial class Game
                 LeechOnHitTargetLocked(player, m, taken, damage, leech, id);
                 damage = WithImpaleHitLocked(player, m, damage, rolled, critical, sourceMultiplier,
                     critical ? criticalImpale : impale, more).Damage;
-                var stun = OwnerStun(player, m, damage, mitigated, melee: true, spell: false, critical, playerStats, skillStats,
+                var stun = OwnerStun(player, gem.Effect, m, damage, mitigated, melee: true, spell: false, critical, playerStats, skillStats,
                     weaponClass: (swingWeapon ?? WeaponFor(player)).ItemClass ?? "");
                 var mAt = m.Walk.Position(now);
                 var rampageSource = RampageOnMeleeHitLocked(player, m, melee: true, playerStats);
