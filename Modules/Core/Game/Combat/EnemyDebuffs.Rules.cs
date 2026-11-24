@@ -89,7 +89,7 @@ public static partial class Game
     // The player's own side of the step: what every monster's step reads. Its Hash changes when any of it does.
     sealed record EnemyDebuffScope(bool Alive, IReadOnlyList<PassiveBuffAuras.Aura> Auras, bool Pride, (int Min, int Max) PrideValues,
         int FleshRadius, int FleshPhysical, int TauntedTakenPct, int PerAilmentType, CurseAura[] Curses,
-        IReadOnlyDictionary<uint, int>? CurseStats, uint[] CursedCorpses, int Hash);
+        IReadOnlyDictionary<uint, int>? CurseStats, uint[] CursedCorpses, IReadOnlyDictionary<ushort, double>? Impurities, int Hash);
 
     static EnemyDebuffScope PrepareEnemyDebuffs(Player player, double now, IReadOnlyList<PassiveBuffAuras.Aura> current,
         DebuffSteps steps)
@@ -126,6 +126,7 @@ public static partial class Game
             if (flesh.Stance != "Sand")
                 fleshPhysical = AuraCatalog.FleshAndStonePhysicalTaken(flesh, player.Pools.AuraEffectPct, skills, Stats);
         }
+        var impurities = AddImpurityEnemyAuras(player, now, auras);
         var curses = CurseAuras(player, out var curseStats);
         var cursedCorpses = alive && StatOf(playerStats, CursedCorpseBlast) > 0 ? OwnCursedCorpses(player, now).ToArray() : [];
         if (cursedCorpses.Length > 0 || steps.HadCursedCorpses)
@@ -153,11 +154,13 @@ public static partial class Game
             foreach (var s in a.Stats) hash.Add(s);
         }
         hash.Add(prideValues); hash.Add(fleshRadius); hash.Add(fleshPhysical);
+        if (impurities is not null)
+            foreach (var (row, until) in impurities) { hash.Add(row); hash.Add(until); }
         // A curse aura's application reads the player's stats.
         foreach (var c in curses) { hash.Add(c.Aura.SkillId); hash.Add(c.Radius); }
         if (curseStats is not null) hash.Add(System.Runtime.CompilerServices.RuntimeHelpers.GetHashCode(curseStats));
         return new(alive, auras, pride is not null, prideValues, fleshRadius, fleshPhysical, player.EnemyDebuffs.TauntedDamageTakenPct,
-            perAilmentType, curses, curseStats, [.. cursedCorpses.Select(c => c.Id)], hash.ToHashCode());
+            perAilmentType, curses, curseStats, [.. cursedCorpses.Select(c => c.Id)], impurities, hash.ToHashCode());
     }
 
     public static async Task EnemyDebuffsTick(Player player, double now)
@@ -279,6 +282,8 @@ public static partial class Game
                 player.Area.Buffs.Set(id, new(aura.Definition, player.Id));
                 counts[0]++;
             }
+            if (scope.Impurities?.TryGetValue(aura.Definition, out double until) == true)
+                m.MarkSource(player.Id, ImpurityMark(aura.Definition)!, until);
             elemental += aura.Stats.Where(s => s.Key == elementalKey).Sum(s => s.Value);
         }
         double wake = double.PositiveInfinity;
@@ -307,7 +312,10 @@ public static partial class Game
         Next(m.MaimedUntil); Next(m.HinderedUntil); Next(m.CoveredInAshUntil);
         foreach (double until in m.ExposureUntil) Next(until);
         foreach (var stack in m.Withered) Next(stack.Until);
-        foreach (var curse in m.Curses.All.Values) Next(curse.Until);
+        foreach (var curse in m.Curses.All.Values) { Next(curse.Until); Next(curse.AmplifiesAt); }
+        if (scope.Impurities is not null)
+            foreach (var (row, until) in scope.Impurities)
+                if (In(row)) Next(until);
         if (!double.IsFinite(wake)) return;
         lock (steps.Gate)
         {

@@ -139,7 +139,8 @@ public static partial class Game
         {
             if (!target.Hostile || target.Dead || target.Life == 0 || target.Invulnerable || target.Asleep
                 || Dist(target.Walk.Position(now), at) > radius + LivingCollision.Size(target)) continue;
-            var mitigated = DamageModel.Mitigate(damagePacket, type => MonsterHitResistance(target, type, default, now));
+            var mitigated = MitigateMonsterHit(target, damagePacket, now,
+                cannotPenetrateOrIgnore: monster.Mods.Effects[Stat.CannotPenetrateOrIgnoreElementalResistances]);
             int damage = MonsterTakesMitigated(target, mitigated, spell: false, now);
             if (damage > 0) CommitMinionFireDamage(player, id, target, damage, at, now, "Minion Instability", minion);
         }
