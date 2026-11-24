@@ -23,11 +23,13 @@ public static partial class Game
     public static string PlacedObjectPath(bool mine, Func<uint, int> get) => mine ? "Metadata/MiscellaneousObjects/RemoteMine"
         : TrapVisuals.GetValueOrDefault(get(Stat.TrapVariation), "Metadata/MiscellaneousObjects/LightningTrap");
 
-    /// <summary>How long a thrown trap or a placed mine flies before it lands (trap_throw_arm_time_override, else .975 s
-    /// for a trap, .6 s for a mine), and the half second after landing it arms in.</summary>
+    /// <summary>How long a thrown trap or placed mine takes to fly and arm (trap_throw_arm_time_override, else .975 s
+    /// for a trap, .6 s for a mine). The client's BeThrown action plays the combined throw+arm clip over this duration;
+    /// <see cref="PlacedArmSeconds"/> is only used when Skitterbots re-arm a mine after triggering it.</summary>
     public static double PlacedFlightSeconds(bool mine, Func<uint, int> get) =>
         get(Stat.TrapThrowArmTimeOverride) is > 0 and var armMs ? armMs / 1000d : mine ? .6 : .975;
     public const double PlacedArmSeconds = .5;
+    public const double PlacedThrowMaxRange = 70;
 
     /// <summary>A trap's or mine's lifetime after landing: base_trap_duration (else 4 s) or base_mine_duration (else 5 s)
     /// with trap_duration_+% or mine_duration_+%.</summary>
@@ -51,24 +53,23 @@ public static partial class Game
         return stats;
     }
 
-    /// <summary>The throw as the client draws it: the object's BeThrown action from the thrower to the aim, then its walk
-    /// there over the flight.</summary>
+    /// <summary>The throw as the client draws it: the object's BeThrown action from the thrower to the aim, which natively
+    /// calls Positioned::StartMove to fly to the aim at hit_ground and then plays the arming tail over throw_arm
+    /// (0x141c11350). Only fall back to MoveTo if BeThrown is absent, because sending MoveTo after BeThrown overwrites
+    /// its faster flight speed with a full-duration glide.</summary>
     public static List<byte[]> PlacedThrowRecords(Player player, uint id, (int X, int Y) from, (int X, int Y) aim, double flight)
     {
-        List<byte[]> records = [];
         if (SkillsFor(player).ActionSkillId("BeThrown") is ushort thrown)
-            records.Add(InstanceProtocol.ActionStarted(id, from.X, from.Y, aim.X, aim.Y, thrown, 0xffff, 0x0408));
-        records.Add(InstanceProtocol.MoveTo(id, aim.X, aim.Y, (float)Math.Max(0, flight), InstanceProtocol.FollowTerrain));
-        return records;
+            return [InstanceProtocol.ActionStarted(id, from.X, from.Y, aim.X, aim.Y, thrown, 0xffff, player.MonsterOrderFlags)];
+        return [InstanceProtocol.MoveTo(id, aim.X, aim.Y, (float)Math.Max(0, flight), InstanceProtocol.FollowTerrain)];
     }
 
-    /// <summary>The landing: the throw ends, the object stands at its cell and plays Arm.</summary>
-    static void PlacedLandRecords(Player player, uint id, (int X, int Y) at, WorldRecordBuilder bytes)
+    /// <summary>The landing once BeThrown's combined throw+arm finishes: balance the action counter and confirm the cell.
+    /// Do not play Arm again here because BeThrown already played throw_arm; Arm is only played when Skitterbots re-arm a mine.</summary>
+    static void PlacedLandRecords(uint id, (int X, int Y) at, WorldRecordBuilder bytes)
     {
         bytes.World(id, InstanceProtocol.ActionEnded(id));
         bytes.World(id, InstanceProtocol.Teleport(id, at.X, at.Y));
-        if (SkillsFor(player).ActionSkillId("Arm") is ushort arm)
-            bytes.World(id, InstanceProtocol.ActionStarted(id, at.X, at.Y, at.X, at.Y, arm, 0xffff, 0x0408));
     }
 
     public static (bool Trap, bool Mine) PlacedKind(SupportedGem gem)
@@ -163,9 +164,9 @@ public static partial class Game
         return Math.Clamp(1 + GolemStat(gem.Stats, additional) + GolemStat(playerStats, additional), 1, 200);
     }
 
-    // Throwing takes its own time, not the supported spell's cast time: 0.6 s for a trap and 0.3 s for a mine (PoB
-    // CalcOffence TrapThrowingTime and MineLayingTime; PoE Wiki "Trap", "Mine"), over the summed throwing speed and
-    // each support's "more" throwing speed. The caller applies action speed.
+    // Throwing takes its own time, not the supported spell's cast time: 0.5 s for a trap (3.29.3c ThrowTrap::Start
+    // 0x1419660b8 = 0.5f) and 0.3 s for a mine, over the summed throwing speed and each support's "more" throwing
+    // speed. The caller applies action speed.
     static readonly uint[] TrapThrowFinal =
         [Stat.SupportTrapAndMineDamageTrapThrowingSpeedPlusPctFinal, Stat.ActiveSkillTrapThrowingSpeedPlusPctFinal];
     static readonly uint[] MineThrowFinal =
@@ -177,7 +178,52 @@ public static partial class Game
             + get(Stat.TrapAndMineThrowingSpeedPlusPct) + frenzyCharges
                 * get(mine ? Stat.MineThrowingSpeedPlusPctPerFrenzyCharge : Stat.TrapThrowingSpeedPlusPctPerFrenzyCharge)) / 100d);
         foreach (uint stat in mine ? MineThrowFinal : TrapThrowFinal) speed *= Math.Max(0, 1 + get(stat) / 100d);
-        return (mine ? .3 : .6) / Math.Max(.01, speed);
+        return (mine ? .3 : .5) / Math.Max(.01, speed);
+    }
+
+    static double PlacedThrowContactFraction(Player player)
+    {
+        string ao = Environment.GetEnvironmentVariable("Game_PLAYER_AO")
+            ?? SkillsFor(player).ClassFor(player.Character.ClassRow).AnimatedObject;
+        if (Animations?.SkillAttackContact(ao, AnimationWeaponProfileFor(player), "throwfast") is { } clip)
+            return clip.Contact;
+        return ao.Contains("/Int/", StringComparison.OrdinalIgnoreCase) ? .2 : .266;
+    }
+
+    static (int X, int Y)? ClampPlacedThrowAim(AreaLayout layout, (int X, int Y) from, (int X, int Y) aim)
+    {
+        int maxX = Math.Max(0, layout.GridW - 1), maxY = Math.Max(0, layout.GridH - 1);
+        int dx = aim.X - from.X, dy = aim.Y - from.Y;
+        double dist = Math.Sqrt((double)dx * dx + (double)dy * dy);
+        if (dist > PlacedThrowMaxRange)
+        {
+            double scale = PlacedThrowMaxRange / dist;
+            aim = (from.X + (int)Math.Truncate(dx * scale), from.Y + (int)Math.Truncate(dy * scale));
+        }
+        (int X, int Y) clamped = (Math.Clamp(aim.X, 0, maxX), Math.Clamp(aim.Y, 0, maxY));
+        if (!layout.WalkableFor(clamped.X, clamped.Y, 0))
+        {
+            int rx = clamped.X - from.X, ry = clamped.Y - from.Y;
+            int steps = (int)Math.Ceiling(Math.Sqrt((double)rx * rx + (double)ry * ry));
+            bool found = false;
+            for (int step = steps - 1; step >= 0; step--)
+            {
+                double t = steps > 0 ? (double)step / steps : 0;
+                int cx = Math.Clamp(from.X + (int)Math.Round(rx * t), 0, maxX);
+                int cy = Math.Clamp(from.Y + (int)Math.Round(ry * t), 0, maxY);
+                if (layout.WalkableFor(cx, cy, 0))
+                {
+                    clamped = (cx, cy);
+                    found = true;
+                    break;
+                }
+            }
+            if (!found)
+                clamped = CollisionEscape.Find(clamped, layout.GridW, layout.GridH,
+                    (x, y) => layout.WalkableFor(x, y, 0), [], moverSize: 0) ?? from;
+            if (!layout.WalkableFor(clamped.X, clamped.Y, 0)) return null;
+        }
+        return clamped;
     }
 
     // Swift Assembly: three separate chances, of 1, 2 and 3 additional traps or mines. Each is rolled on its own and
@@ -293,23 +339,26 @@ public static partial class Game
             return bytes.Build();
         });
         double started = AreaTime(player);
-        double release = started + seconds;
-        Console.WriteLine($"[gateway] {(admission.Mine ? "mine" : "trap")} throw of skill 0x{admission.Skill:x4}: {seconds:0.000} s");
-        // While the button is held the client starts its next throw when its own throw has finished, which can be before
-        // this wait ends. A throw replaced after at least half its time has left the hand, so it still lands; before that
-        // it was cancelled.
+        double contact = seconds * PlacedThrowContactFraction(player);
+        double release = started + contact;
+        Console.WriteLine($"[gateway] {(admission.Mine ? "mine" : "trap")} throw of skill 0x{admission.Skill:x4}: {seconds:0.000} s (contact {contact:0.000} s)");
+        // The trap or mine leaves the player's hand at the throw clip's contact keyframe; once contact passes it still
+        // lands even if the action is replaced, while a cancel before contact aborts the throw.
         bool replaced = false;
         while (true)
         {
             if (!PlacedCastStructuralOwnerCurrentLocked(player, admission)) return false;
             if (!current() || recovery != player.ActionInterruptionGeneration)
             {
-                if (AreaTime(player) - started < seconds / 2) return false;
+                if (AreaTime(player) - started < contact) return false;
                 replaced = true;
                 break;
             }
             if (!player.Paused && AreaTime(player) >= release) break;
-            await AreaWait(PlayerUpdateRole.Minions, 25);
+            if (AreaUpdateContext.Value is not null)
+                await AreaWait(PlayerUpdateRole.Minions, 25);
+            else
+                await AreaDelay(player, player.Paused ? FrameSeconds : Math.Clamp(release - AreaTime(player), 0.001, FrameSeconds));
         }
         // A replaced throw is no longer the current action, so it is held to its source and area, not to the action.
         int? action = replaced ? null : recovery;
@@ -320,14 +369,7 @@ public static partial class Game
             {
                 if (!PlacedCastStructuralOwnerCurrentLocked(player, admission, action)
                     || (!replaced && !current())) return null;
-                (int X, int Y) clamped = (Math.Clamp(aim.X, 0, Math.Max(0, player.Layout.GridW - 1)),
-                    Math.Clamp(aim.Y, 0, Math.Max(0, player.Layout.GridH - 1)));
-                if (!player.Layout.WalkableFor(clamped.X, clamped.Y, 0))
-                {
-                    clamped = CollisionEscape.Find(clamped, player.Layout.GridW, player.Layout.GridH,
-                        (x, y) => player.Layout.WalkableFor(x, y, 0), [], moverSize: 0) ?? from;
-                    if (!player.Layout.WalkableFor(clamped.X, clamped.Y, 0)) return null;
-                }
+                if (ClampPlacedThrowAim(player.Layout, from, aim) is not { } clamped) return null;
                 aim = clamped;
                 using var scope = new PlayerStatScope(player, fresh: true);
                 var gem = SupportedSkill(player, admission.Skill);
@@ -385,7 +427,7 @@ public static partial class Game
                     if (!player.Layout.WalkableFor(point.X, point.Y, 0)) point = aim;
                     uint id = player.TakeObjectId();
                     double land = now + flight;
-                    var placement = new PlacedSkills.Placed(id, admission.Skill, gem.Effect, point, admission.Mine, land + PlacedArmSeconds,
+                    var placement = new PlacedSkills.Placed(id, admission.Skill, gem.Effect, point, admission.Mine, land,
                         land + PlacedDurationSeconds(admission.Mine, Get),
                         damage, new Dictionary<uint, int>(gem.Stats), reserve?.Flat ?? 0, reserve?.Percent ?? 0,
                         context.Life, context.Efficiency)
@@ -435,8 +477,7 @@ public static partial class Game
             foreach (var (id, landsAt, point) in born)
                 await SendWorldRecords(player, id, () =>
                 {
-                    if (!PlacedCastStructuralOwnerCurrentLocked(player, admission, action)
-                        || (!replaced && !current()) || !player.Placed.All.ContainsKey(id)) return null;
+                    if (player.Closed || player.LeavingArea || !player.Placed.All.ContainsKey(id)) return null;
                     return [.. PlacedThrowRecords(player, id, from, point, Math.Max(0, landsAt - AreaTime(player)))];
                 }, "throw trap/mine after birth");
         return accepted;
@@ -534,8 +575,16 @@ public static partial class Game
     static void LandPlacedRecordsLocked(Player player, PlacedSkills.Placed placed, double now, WorldRecordBuilder bytes)
     {
         if (placed.Landed || now < placed.LandAt) return;
+        if (placed.SkitterTriggered)
+        {
+            if (now < placed.Armed - PlacedArmSeconds * 0.5) return;
+            placed.Landed = true;
+            if (SkillsFor(player).ActionSkillId("Arm") is ushort arm)
+                bytes.World(placed.Id, InstanceProtocol.ActionStarted(placed.Id, placed.At.X, placed.At.Y, placed.At.X, placed.At.Y, arm, 0xffff, player.MonsterOrderFlags));
+            return;
+        }
         placed.Landed = true;
-        PlacedLandRecords(player, placed.Id, placed.At, bytes);
+        PlacedLandRecords(placed.Id, placed.At, bytes);
     }
 
     // Where a trap or mine at a cell fires its projectile skill: at the nearest enemy within 60 cells that does not
@@ -575,7 +624,7 @@ public static partial class Game
                 .OrderBy(p => Dist(p.Value.Walk.Position(now), placed.At)).FirstOrDefault();
             aim = target.Value?.Walk.Position(now) ?? placed.At;
         }
-        bytes.World(placed.Id, InstanceProtocol.ActionStarted(placed.Id, placed.At.X, placed.At.Y, aim.X, aim.Y, 0x4000, 0xffff, 0x0408));
+        bytes.World(placed.Id, InstanceProtocol.ActionStarted(placed.Id, placed.At.X, placed.At.Y, aim.X, aim.Y, 0x4000, 0xffff, player.MonsterOrderFlags));
         // A projectile spell leaves the trap or mine towards the nearest enemy as its own projectile, with the hit and
         // support modifiers of the supported skill, instead of an area hit around the object. The server draws it, as it
         // does a triggered spell's: no local input action predicts it.
@@ -596,15 +645,21 @@ public static partial class Game
             return;
         }
         using var statScope = new PlayerStatScope(player, fresh: true);
-        double more = ReservationAura(player, "SummonSkitterbots") is { } skitter
-            ? Math.Max(0, 1 + ReservationStat(player, skitter, Stat.SkitterbotsTrapMineDamagePlusPctFinal) / 100d) : 1;
-        more *= inventionMore;
         var owner = CharacterPlayerStats(player);
         var offenseSnapshot = placed.Offense;
         if (offenseSnapshot is not null && placed.Mine && RecentMineAreaProfiles.TryGetValue(offenseSnapshot, out var active)
             && player.RecentEvents.Happened(StatConditions.DetonatedMine, now))
             offenseSnapshot = active;
         var playerStats = offenseSnapshot?.Caster ?? owner;
+        int skitterPct = playerStats.GetValueOrDefault(Stat.SkitterbotsTrapMineDamagePlusPctFinal);
+        if (placed.Offense is null && skitterPct == 0 && ReservationAura(player, "SummonSkitterbots") is { } skitter)
+            skitterPct = ReservationStat(player, skitter, Stat.SkitterbotsTrapMineDamagePlusPctFinal);
+        double skitterMore = Math.Max(0, 1 + skitterPct / 100d);
+        // PlayerHitDamage already applies Skitterbots' trap/mine more multiplier when placed.Offense was captured;
+        // apply it here only for synthetic Offense-less placements, for ailments (AilmentPanelStats omits it),
+        // and for Fire Trap's burning ground DoT below.
+        double hitMore = (placed.Offense is null ? skitterMore : 1) * inventionMore;
+        double ailmentMore = skitterMore * inventionMore;
         bool spell = offenseSnapshot?.Spell ?? spellDamage;
         bool attack = SkillsFor(player).IsAttack(placed.Effect);
         int chance = currentSkill ? SupportedReleaseCriticalChance(player, placed.Skill) : 0;
@@ -627,7 +682,7 @@ public static partial class Game
                     spider.Melee && TargetAccuracy.InCloseRange(Dist(placed.At, m.Walk.Position(now))),
                     ContactDamage(player, m, now, spider.Stats));
             var rolled = WithConditionalSupportDamageLocked(player, placed.Own, !spell, m,
-                profile.Hit.Scale(more).Roll(AreaRng(player)), now);
+                profile.Hit.Scale(hitMore).Roll(AreaRng(player)), now);
             var mitigated = MitigateMonsterHit(m, rolled, now, cannotPenetrateOrIgnore:
                 Math.Max(GolemStat(owner, Stat.CannotPenetrateOrIgnoreElementalResistances),
                     GolemStat(placed.Own, Stat.CannotPenetrateOrIgnoreElementalResistances)));
@@ -651,21 +706,21 @@ public static partial class Game
             if (ApplyMonsterHitLocked(player, m, damage, allyAt: placed.At) is not { } hit) continue;
             if (hit.StageStarts) { CommitBossStage(player, id, m, now); hit = hit with { StageStarts = false }; }
             OwnedKillLocked(m, hit.Life);
-            var poison = profile.Poison with { Min = profile.Poison.Min * more, Max = profile.Poison.Max * more,
-                CriticalMin = profile.Poison.CriticalMin * more, CriticalMax = profile.Poison.CriticalMax * more };
+            var poison = profile.Poison with { Min = profile.Poison.Min * ailmentMore, Max = profile.Poison.Max * ailmentMore,
+                CriticalMin = profile.Poison.CriticalMin * ailmentMore, CriticalMax = profile.Poison.CriticalMax * ailmentMore };
             AilmentsOnHitLocked(player, id, m, mitigated, spell, critical, hitMultiplier, playerStats, placed.Own, now,
                 AreaRng(player), poison: poison, sourceSkill: placed.Skill, blind: BlindHitInput.Capture(playerStats, placed.Own), playerHit: false);
             if (!m.Dead && profile.Ignite.Max > 0)
             {
-                var ignite = profile.Ignite with { Min = profile.Ignite.Min * more, Max = profile.Ignite.Max * more,
-                    CriticalMin = profile.Ignite.CriticalMin * more, CriticalMax = profile.Ignite.CriticalMax * more };
+                var ignite = profile.Ignite with { Min = profile.Ignite.Min * ailmentMore, Max = profile.Ignite.Max * ailmentMore,
+                    CriticalMin = profile.Ignite.CriticalMin * ailmentMore, CriticalMax = profile.Ignite.CriticalMax * ailmentMore };
                 foreach (var packet in IgniteOnHitLocked(player, id, m, ignite, critical, now, playerIgnite: false) ?? [])
                     player.Minions.OutputQueue.Add(new(packet, "trap/mine ignite", id, m));
             }
             if (!m.Dead && !spell && rolled[DamageType.Physical].Max > 0)
             {
-                var bleed = profile.Bleed with { Min = profile.Bleed.Min * more, Max = profile.Bleed.Max * more,
-                    CriticalMin = profile.Bleed.CriticalMin * more, CriticalMax = profile.Bleed.CriticalMax * more };
+                var bleed = profile.Bleed with { Min = profile.Bleed.Min * ailmentMore, Max = profile.Bleed.Max * ailmentMore,
+                    CriticalMin = profile.Bleed.CriticalMin * ailmentMore, CriticalMax = profile.Bleed.CriticalMax * ailmentMore };
                 foreach (var packet in BleedOnHitLocked(player, id, m, bleed, critical, now) ?? [])
                     player.Minions.OutputQueue.Add(new(packet, "trap/mine bleed", id, m));
             }
@@ -684,7 +739,7 @@ public static partial class Game
                 "damage_over_time_+%_final", "trap_damage_+%_final", "area_damage_+%_final" }
                 .Aggregate(1d, (factor, n) => factor * Math.Max(0, 1 + Get(Stat.Of(n)) / 100d));
             double dps = Get(Stat.BaseFireDamageToDealPerMinute) / 60d * Math.Max(0, 1 + increased / 100d)
-                * Math.Max(0, 1 + (Get(Stat.DotMultiplierPlus) + Get(Stat.FireDotMultiplierPlus)) / 100d) * groundMore * inventionMore;
+                * Math.Max(0, 1 + (Get(Stat.DotMultiplierPlus) + Get(Stat.FireDotMultiplierPlus)) / 100d) * groundMore * skitterMore * inventionMore;
             var damage = new SkillDamageContext(SkillHitKind.Spell, placed.Offense?.Caster ?? TotemCasterStats(playerStats))
                 .OverTime(new(DamageType.Fire, dps, 1));
             int baseDuration = Get(Stat.BaseSkillEffectDuration);
@@ -737,6 +792,36 @@ public static partial class Game
         }
     }
 
+    static (int X, int Y)? SkitterApproachCell(Player player, GolemState.Golem bot, (int X, int Y) target, int maxRadius = 8)
+    {
+        int size = Math.Max(0, LivingCollision.Size(bot.Monster));
+        bool Clear(int x, int y) => player.Layout.WalkableFor(x, y, size) && !player.Barrier.Contains((x, y));
+        if (Clear(target.X, target.Y)) return target;
+        int maxX = player.Layout.GridW - 1, maxY = player.Layout.GridH - 1;
+        (int X, int Y)? best = null;
+        int bestDistSq = int.MaxValue;
+        int maxDistSq = maxRadius * maxRadius;
+        for (int r = 1; r <= maxRadius; r++)
+        {
+            for (int dy = -r; dy <= r; dy++)
+            {
+                int y = target.Y + dy;
+                if (y < 0 || y > maxY) continue;
+                for (int dx = -r; dx <= r; dx++)
+                {
+                    if (Math.Abs(dx) != r && Math.Abs(dy) != r) continue;
+                    int x = target.X + dx;
+                    if (x < 0 || x > maxX) continue;
+                    int d2 = dx * dx + dy * dy;
+                    if (d2 > maxDistSq || d2 >= bestDistSq) continue;
+                    if (Clear(x, y)) { best = (x, y); bestDistSq = d2; }
+                }
+            }
+            if (best is not null && r * r >= bestDistSq) break;
+        }
+        return best;
+    }
+
     static async Task PlacedSkillsTick(Player player, double now)
     {
         if (player.Placed.All.Count == 0 && player.Placed.Grounds.Count == 0) return;
@@ -760,13 +845,19 @@ public static partial class Game
                     }
 
                     bool skitter = false;
-                    if (!placed.SkitterTriggered)
+                    if (!placed.SkitterTriggered && Dist(placed.At, playerAt) <= 100)
                     {
-                        var bot = player.Reservations.Fighters.Values.Where(g => g.Definition.Kind.StartsWith("Skitter", StringComparison.Ordinal) && now >= g.NextOrb)
+                        var bot = player.Reservations.Fighters.Values
+                            .Where(g => g.Definition.Kind.StartsWith("Skitter", StringComparison.Ordinal)
+                                && !g.Monster.Dead && g.Monster.Life > 0 && now >= g.NextOrb)
                             .MinBy(g => Dist(g.Monster.Walk.Position(now), placed.At));
                         if (bot is not null)
                         {
-                            if (Dist(bot.Monster.Walk.Position(now), placed.At) > 8) GolemMoveLocked(player, bot, placed.At, now);
+                            if (Dist(bot.Monster.Walk.Position(now), placed.At) > 8)
+                            {
+                                if (now >= bot.NextMove && SkitterApproachCell(player, bot, placed.At) is { } goal)
+                                    GolemMoveLocked(player, bot, goal, now);
+                            }
                             else { skitter = true; bot.NextOrb = now + 3; }
                         }
                     }
@@ -788,8 +879,13 @@ public static partial class Game
                     Console.WriteLine($"[gateway] placed skill 0x{placed.Id:x} {(skitter ? "Skitterbot" : nearby ? "proximity" : "chain")} trigger; rearm={rearm}");
                     if (rearm)
                     {
-                        placed.SkitterTriggered = true; placed.DetonateAt = double.PositiveInfinity;
-                        player.Placed.All[placed.Id] = placed with { Armed = now + .5 };
+                        player.Placed.All[placed.Id] = placed with
+                        {
+                            Armed = now + PlacedArmSeconds,
+                            SkitterTriggered = true,
+                            DetonateAt = double.PositiveInfinity,
+                            Landed = false,
+                        };
                     }
                     else RetirePlacedLocked(player, placed, now);
                 }

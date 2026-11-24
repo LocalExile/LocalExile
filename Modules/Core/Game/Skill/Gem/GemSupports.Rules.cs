@@ -566,12 +566,23 @@ public static partial class Game
     public static double SupportedAttackSecondsFor(Player player, ushort skillId, SkillCatalog.Unarmed? offHand,
         bool clampToTick = true, bool proxy = false) => SupportedAttackTiming(player, skillId, offHand, clampToTick, proxy).Seconds;
 
+    /// <summary>The supported off-hand attack's duration and speed components: increased % (combined_off_hand_attack_speed_+%),
+    /// more/less % (combined_off_hand_attack_speed_+%_final) and final % (off_hand_attack_speed_+%, 0x127).</summary>
+    public static (double Seconds, int IncreasedPct, int MorePct, int FinalPct) SupportedOffHandAttackSpeed(
+        Player player, ushort skillId, SkillCatalog.Unarmed offHand)
+    {
+        var (seconds, increased, more) = SupportedAttackTiming(player, skillId, offHand, clampToTick: true, proxy: false);
+        int morePct = (int)MathF.Round(((float)more - 1f) * 100f, MidpointRounding.AwayFromZero);
+        int finalPct = SkillAttackTiming.FinalSpeedPercent(increased, more);
+        return (seconds, increased, morePct, finalPct);
+    }
+
     /// <summary>The supported attack's main-hand increased attack speed, the increase its swing time divides by before
     /// any more multiplier: what the client reads as the skill's <c>combined_main_hand_attack_speed_+%</c>.</summary>
     public static int SupportedMainHandAttackSpeedPct(Player player, ushort skillId) =>
         SupportedAttackTiming(player, skillId, null, clampToTick: true, proxy: false).Increased;
 
-    static (double Seconds, int Increased) SupportedAttackTiming(Player player, ushort skillId, SkillCatalog.Unarmed? offHand,
+    static (double Seconds, int Increased, double More) SupportedAttackTiming(Player player, ushort skillId, SkillCatalog.Unarmed? offHand,
         bool clampToTick, bool proxy)
     {
         var stats = new Dictionary<uint, int>(SupportedStats(player, skillId));
@@ -648,7 +659,7 @@ public static partial class Game
             // (Progression's attackSpeedMore), so neither hand strips a local multiplier from it here.
             int speed = weapon.IncreasedAttackSpeed(stats);
             return (SkillAttackTiming.Seconds(weapon.AttackMs, speed, more, additional,
-                proxy ? 1 : PlayerActionFactor(player), clampToTick), speed);
+                proxy ? 1 : PlayerActionFactor(player), clampToTick), speed, more);
         }
         int baseSpeed = offHand is null ? WeaponFor(player).IncreasedAttackSpeed(stats)
             : SkillCatalog.Unarmed.OffHandAttackSpeedPct(stats.GetValueOrDefault(Stat.MainHandAttackSpeedPlusPct),
@@ -657,7 +668,7 @@ public static partial class Game
         // Preserve the zero-additional-time path's existing minimum and integer final-speed rounding.
         double paced = seconds * Math.Max(.01, 1 + baseSpeed / 100.0)
             / (1 + SkillAttackTiming.FinalSpeedPercent(baseSpeed, more) / 100.0) / (proxy ? 1 : PlayerActionFactor(player));
-        return (clampToTick ? Math.Max(TickSeconds, paced) : Math.Max(.001, paced), baseSpeed);
+        return (clampToTick ? Math.Max(TickSeconds, paced) : Math.Max(.001, paced), baseSpeed, more);
     }
 
     public static GameServer.Core.World.DamagePacket SupportedHit(Player player, ushort skillId)
@@ -774,6 +785,9 @@ public static partial class Game
             : name is var k ? stats.GetValueOrDefault(k) : 0;
         bool attack = SkillsFor(player).IsAttack(gem.Effect);
         var types = Supports.Of(gem.Effect)?.Types.ToHashSet() ?? [];
+        // Support-converted traps and mines receive the same hit modifiers as native placed skills.
+        if (placed.Trap) types.Add(32);
+        if (placed.Mine) types.Add(35);
         if (skills.IsRetaliation(gem.Effect))
         {
             if (Get(Stat.RetaliationSkillDamagePlusPct) is int retaliation and not 0)

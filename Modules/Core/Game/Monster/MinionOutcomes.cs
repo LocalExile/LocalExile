@@ -261,6 +261,9 @@ public static partial class Game
                     PlayerMinions.OutputKind.Flinch => output.Target is { Dead: false } m && m.ActionGeneration == output.Action
                         && output.Until > AreaTime(player) ? TakeHitPacket(player, output.TargetId!.Value, m, output.Until,
                             AreaTime(player)) : null,
+                    PlayerMinions.OutputKind.Packet when output.Packet.Length == 0 && output.At is { } moveTo
+                        && output.Target is { } mover && output.TargetId is uint moverId
+                        => GolemMoveAtGate(player, moverId, mover, moveTo),
                     _ => output.Packet,
                 };
             }

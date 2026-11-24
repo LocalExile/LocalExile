@@ -861,11 +861,15 @@ public static partial class Game
             castAt = leap?.At ?? ProjectileWorldTime(player);
             double actionAt = lockstep && player.Connection.LockstepFrame is { } frame ? frame.Start : castAt;
             if (lockstep) StepWalkers(player, actionAt);
+            if (chargeBonus == 0) EndShieldChargeIfInterrupted(player);
             castAction = Interlocked.Increment(ref player.ActionCount);
             aim = m.Walk.Position(actionAt);
             stand = player.Walk.Position(actionAt);
-            if (lockstep) player.Walk.Cancel(actionAt);
-            else player.Walk.Order(stand.X, stand.Y, castAt);
+            if (chargeBonus == 0)
+            {
+                if (lockstep) player.Walk.Cancel(actionAt);
+                else player.Walk.Order(stand.X, stand.Y, castAt);
+            }
             // A movement skill aimed at a monster travels as one aimed at the ground does.
             if (leap is not null) CommitLeapSlam(player, leap);
             else if (flicker && flickerTo is { } to)
@@ -1246,7 +1250,9 @@ public static partial class Game
         if (vaalUse is null && cooldownUse?.Attack is null && gem.Name is not null
             && !IsTotemSkill(player, skillId) && SkillsFor(player).IsAttack(gem.Effect))
         {
-            double duration = SupportedAttackSeconds(player, skillId, sequence);
+            double duration = ShieldWeapon(player, skillId) is { } shieldWeapon
+                ? SupportedOffHandAttackSeconds(player, skillId, shieldWeapon)
+                : SupportedAttackSeconds(player, skillId, sequence);
             double now = swingAt ?? AreaTime(player), next;
             bool ready;
             next = player.NextAttackAt;
@@ -1771,6 +1777,10 @@ public static partial class Game
         await SendCharacterStats(player, PlayerStatChange.Auras);
         await SendPlayerMana(player,
             $"0x01b1 player mana {player.PlayerMana}/{player.Pools.Mana}, {ReservedMana(player)} reserved");
+        // The toggle's skill refresh can empty the aura's own bound slot (live 2026-11-22: Malevolence with Eternal
+        // Blessing left Q), and the full refresh above resends the skill list without the bar, so the saved bar goes out
+        // again after it.
+        await RestoreSkillBarAfterActorUpdate(player);
         return true;
     }
 
@@ -1871,9 +1881,11 @@ public static partial class Game
         int chargeBonus = ShieldChargeBonusPct(player, skillId, gem.Effect);
         if (chargeBonus != 0)
         {
-            int token = BeginShieldCharge(player, skillId, chargeBonus, to.X, to.Y, AreaTime(player));
-            return RunShieldCharge(player, token, player.Walk.ArrivesAt, skillId, sequence,
-                actionToken ?? player.ActionCount, cooldownUse, cryExerted);
+            double chargeAt = player.Connection.LockstepClient && player.Connection.LockstepFrame is { } frame
+                ? frame.Start : AreaTime(player);
+            int chargeAction = actionToken ?? player.ActionCount;
+            int token = BeginShieldCharge(player, skillId, chargeBonus, to.X, to.Y, chargeAt, chargeAction, out bool charged);
+            return RunShieldCharge(player, token, charged, skillId, sequence, chargeAction, cooldownUse, cryExerted);
         }
         criticalRoll ??= CaptureSkillCriticalRoll(player, skillId);
         if (GatewayProjectileSkillProfiles.IsMoltenStrike(SkillsFor(player).EffectId(gem.Effect)))

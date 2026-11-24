@@ -1,5 +1,4 @@
 using System.Net.Sockets;
-using System.Runtime.CompilerServices;
 using GameServer.Core.Protocol.Instance;
 using GameServer.Core.Protocol.Login;
 
@@ -24,7 +23,6 @@ public static partial class Game
         if (id == InstanceProtocol.LockstepMoveStartId)
         {
             var click = InstanceProtocol.ReadLockstepMoveStart(bytes);
-            if (!PressAfterUse(player, click.Flags)) return;
             (int X, int Y) aim = (here.X + click.Dx, here.Y + click.Dy);
             player.LockstepUse = null;
             if (SkillsFor(player).ActionName(click.SkillId) == "Move")
@@ -72,40 +70,28 @@ public static partial class Game
             player.LockstepSkill.Clear(finishChannel: true);
             if (SkillsFor(player).IsGemSkill(skill) || skill == SkillCatalog.FirstSkillId)
             {
-                var aim = player.Area.Monsters.TryGetValue(target, out var m) ? m.Walk.Position(AreaTime(player)) : here;
+                var m = player.Area.Monsters.GetValueOrDefault(target);
+                if (m is not { Hostile: true, Dead: false, OwnerId: null } && GroundPlaceableGemSkill(player, skill))
+                {
+                    if (ResolveObjectAimCell(player, target, m, AreaTime(player)) is { } cell)
+                        player.LockstepSkill.Press(cell, null, skill, flags, target != player.Id && LockstepRepeats(player, skill));
+                    return;
+                }
+                var aim = m?.Walk.Position(AreaTime(player)) ?? here;
                 player.LockstepSkill.Press(aim, target, skill, flags, target != player.Id && LockstepRepeats(player, skill));
             }
             else
             {
                 player.LockstepUse = new(target, skill, 0, flags);
-                UsePressConsumed.AddOrUpdate(player, new StrongBox<bool>(true));
             }
         }
     }
-
-    // A use on an object (0x18f with a skill that is not a gem's: a pickup, a chest, a door, an NPC) uses up the button
-    // press. The client sends its own 0x195 right after the 0x18f (0x140128980 → 0x140123d60). Once the object under
-    // the cursor is gone, its held path (0x14011d730 → 0x14011ecb0, arg press 0) changes the latched kind at +0x120 from
-    // 2 to 1 and asks for a Move without 0x400. Live 2026-11-16, 3 of 3 pickups with LMB held: 0x18e skill 0x2909 flags
-    // 0x8, 77–81 ms after the 0x18f, then 0x192 every 70 ms until the release. On the client, such a Move cannot replace
-    // the use's Interaction: the gate 0x141e941a0 lets an action in over the current one only with 0x400 or when the
-    // current action can be cancelled. So the Move waits in the queue, and when the completion starts it (0x141e95f10),
-    // 0x141e9b860 discards its path. The player stands. Only a new press (0x400) asks again.
-    static readonly ConditionalWeakTable<Player, StrongBox<bool>> UsePressConsumed = new();
 
     // A channelled skill starts once and runs until the release; anything else repeats while the button stays down.
     // A native channelled totem skill (Holy Flame Totem) is placed with a single cast by its owner, not channelled.
     static bool LockstepRepeats(Player player, ushort skill) =>
         !(GemSkillEffects(player).FirstOrDefault(g => g.Id == skill) is { Name: not null } gem
             && SkillsFor(player).IsChannelled(gem.Effect) && !IsTotemSkill(player, skill));
-
-    static bool PressAfterUse(Player player, ushort flags)
-    {
-        if (!UsePressConsumed.TryGetValue(player, out var consumed) || !consumed.Value) return true;
-        if ((flags & 0x400) == 0) return false;
-        consumed.Value = false;
-        return true;
-    }
 
     static ushort NextLockstepSequence(Player player)
     {
@@ -116,6 +102,7 @@ public static partial class Game
     // A Move can cancel at either end of a spell. A different spell can replace it only early; a held repeat waits.
     public static bool LockstepPlayerFree(Player player, double at)
     {
+        if (ShieldChargeTraveling(player, at)) return false;
         if (!MeleeRepeatAllowsMove(player, at)) return false;
         if (at >= player.LockstepBusyUntil) return true;
         if (!player.Connection.LockstepClient || player.LockstepCastWindow is not { } cast) return false;
@@ -138,14 +125,17 @@ public static partial class Game
         ushort sequence = 0, ended = 0;
         (ushort Sequence, (int X, int Y) Aim)? channelAim = null;
         bool skill = false;
+        int skillActionBefore = 0;
+        double skillBusyBefore = 0, skillBusySet = 0;
         double at;
-        InstanceTransfer.UseSkillOnObject? use = null;
+        InstanceTransfer.UseSkillOnObject? use = null, staleUse = null;
         using (ProjectileMutation(player, phase: "lockstep"))
         {
             if (player.Closed || player.LeavingArea) return;
             // What a dead player asked for dies with it: a skill kept for the revival moved it off its checkpoint.
             if (player.PlayerLife == 0)
             {
+                EndShieldChargeIfInterrupted(player);
                 player.LockstepHold.Clear();
                 player.LockstepSkill.Clear();
                 player.LockstepChannelAimPending = false;
@@ -201,12 +191,21 @@ public static partial class Game
                 // 2026-11-03: a ground attack sent as soon as the player was free came 0.4 s into a 0.645 s swing, and
                 // the client queued it until the swing's end). A new click goes at the next frame start over an open
                 // walk-up, as over a walk, and its action ends that walk-up (PlayerWalkUpOpen); only a swing holds it.
-                bool attack = LockstepAttackSkill(player, player.LockstepSkill.Skill);
+                // Actor's gate (0x141e941a0 -> 0x141e9479e / 0x141e947aa) lets only Move (0x2909 / 0xc266) cut in after
+                // an attack's contact or while its cancelled backswing lockout (+0x2a0) runs; non-Move uses (object
+                // pickups, spells, attacks) wait for the attack time (NextAttackAt) before the client runs them.
+                bool attackReady = at + 1e-9 >= player.NextAttackAt;
                 bool canStartSkill = LockstepSkillCanStart(player, player.LockstepSkill.Skill);
                 if (!canStartSkill && player.LockstepSkill.Pending) player.LockstepSkill.ClearPending();
                 // Pinned (a spike trap's risen spikes: Pins.cs): no walk starts, and a use waits, as it walks up.
                 bool pinned = Pinned(player, at);
-                if (!pinned && player.LockstepUse is { } object_)
+                if (!pinned && attackReady && player.LockstepUse is { } candidate
+                    && candidate.SkillId == 0x266 && player.Instance.Ground.WasTaken(candidate.TargetId))
+                {
+                    player.LockstepUse = null;
+                    staleUse = candidate;
+                }
+                if (!pinned && attackReady && player.LockstepUse is { } object_)
                 {
                     player.LockstepCastWindow = null;
                     player.LockstepUse = null;
@@ -214,17 +213,21 @@ public static partial class Game
                     from = player.Walk.Position(frameStart);
                     sequence = NextLockstepSequence(player);
                 }
-                else if (canStartSkill && (!attack || at + 1e-9 >= player.NextAttackAt)
+                else if (canStartSkill && attackReady
                     && player.LockstepSkill.Due(free, repeat: player.LockstepAttack is null))
                 {
                     skill = true;
                     sequence = NextLockstepSequence(player);
+                    skillActionBefore = player.ActionCount;
+                    skillBusyBefore = player.LockstepBusyUntil;
                     player.LockstepCastWindow = null;
                     HoldLockstepSkill(player, sequence, frameStart, at);
+                    skillBusySet = player.LockstepBusyUntil;
                 }
                 else if (!pinned && LockstepMoveDue(player, frameStart) is { } due)
                 {
                     target = due;
+                    EndShieldChargeIfInterrupted(player);
                     CancelMeleeRepeats(player, at);
                     action = Interlocked.Increment(ref player.ActionCount);
                     player.ChannelSkill = 0;
@@ -242,8 +245,9 @@ public static partial class Game
         // GGG ends a channel with 0x1ae on the release (35 ms later).
         if (ended != 0) await SendWorldRecord(player, player.Id, InstanceProtocol.ChannelFinished(player.Id, ended), $"0x01ae channel 0x{ended:x4} ended");
         if (channelAim is { } aimed) await SendLockstepChannelAim(player, aimed.Sequence, aimed.Aim);
+        if (staleUse is not null) _ = OnUseObject(player, staleUse, at);
         if (sequence == 0) return;
-        if (skill) StartLockstepSkill(player, sequence, at);
+        if (skill) StartLockstepSkill(player, sequence, at, skillActionBefore, skillBusyBefore, skillBusySet);
         else if (use is not null)
         {
             // The client walks up on this 0x1ab, where a predictive client starts by itself; the server's use goes on as
@@ -404,35 +408,69 @@ public static partial class Game
         return (here, aim);
     }
 
-    public static bool LockstepGroundMelee(Player player, ushort skill, ushort flags) =>
-        skill == SkillCatalog.FirstSkillId && (flags & 1) == 0 && WeaponProfileFor(player, activeSet: true).Melee;
+    public static bool LockstepGroundMelee(Player player, ushort skill, ushort flags)
+    {
+        if ((flags & 1) != 0 || !WeaponProfileFor(player, activeSet: true).Melee) return false;
+        if (skill == SkillCatalog.FirstSkillId) return true;
+        var gem = GemSkillEffects(player).FirstOrDefault(g => g.Id == skill);
+        return gem.Name is not null && !IsTotemSkill(player, skill) && !SkillsFor(player).IsChannelled(gem.Effect)
+            && SkillsFor(player).IsAttack(gem.Effect) && !SkillsFor(player).IsMovement(gem.Effect)
+            && (!SkillsFor(player).IsProjectile(gem.Effect)
+                || GatewayProjectileSkillProfiles.IsMoltenStrike(SkillsFor(player).EffectId(gem.Effect)));
+    }
 
-    // Actor starts a ground melee use with MoveTo too (0x141e95400 -> 0x141e81c20): weapon range minus one,
-    // tolerance -1, precision 1. Only flag 1 forces a swing in place. Its fixed aim shares the monster walk-up's
-    // frame stepping and cancellation; the attack timer starts when the walk-up reaches its goal.
+    // Actor starts a ground melee use (default attack or melee attack gem) with MoveTo too (0x141e95400 -> 0x141e81c20):
+    // weapon range minus one, tolerance -1, precision 1. Only flag 1 forces a swing in place. Its fixed aim shares the
+    // monster walk-up's frame stepping and cancellation; the swing hold, cost, and attack timer start when the walk-up
+    // reaches its goal (immediately if already in reach), with no second 0x1ab.
     public static async Task StartLockstepGroundMelee(Player player, (int X, int Y) aim, ushort skill, ushort sequence, ushort flags)
     {
         if (InTown(player)) return;
-        LockstepAttack attack;
         double now = ProjectileWorldTime(player);
         if (player.Closed || player.LeavingArea || player.PlayerLife == 0 || PlayerActionBlocked(player, now, now)) return;
-        int action = Interlocked.Increment(ref player.ActionCount);
-        player.ChannelSkill = 0;
+        var gem = skill == SkillCatalog.FirstSkillId ? default : GemSkillEffects(player).FirstOrDefault(g => g.Id == skill);
+        int action = 0;
+        CooldownUseTicket? approachTicket = null;
+        if (gem.Name is not null)
+        {
+            if (GemSkillInstanceDisabled(player, gem.Effect, skill) is not null) return;
+            if (!ProjectilePathAvailable(player, skill, gem.Effect)) return;
+            if (!AttackReady(player, skill, gem.Effect, gem.Level, out _, sequence)) return;
+            if (!TryBeginSkillCooldownUse(player, skill, gem.Effect, CooldownForSkill(player, skill), false, () =>
+            {
+                now = ProjectileWorldTime(player);
+                CancelMeleeRepeats(player, now);
+                action = Interlocked.Increment(ref player.ActionCount);
+                player.ChannelSkill = 0;
+            }, out approachTicket, reserve: false, requestedAt: now)) return;
+        }
+        else
+        {
+            CancelMeleeRepeats(player, now);
+            action = Interlocked.Increment(ref player.ActionCount);
+            player.ChannelSkill = 0;
+        }
+        var weapon = gem.Name is not null ? HandWeapon(player, AttackHandFor(player, skill, sequence)) : WeaponFor(player);
+        LockstepAttack attack;
         player.LockstepAttack?.Fails();
-        player.LockstepAttack = attack = new(action, 0, null, WalkUpRange(WeaponFor(player)), -1, 1,
+        player.LockstepAttack = attack = new(action, 0, null, WalkUpRange(weapon), -1, 1,
             () => LockstepAttackCutIn(player, skill, sequence) + player.LockstepActionTail)
         {
             GroundTarget = aim,
-            GroundAttackSeconds = () => LockstepAttackSeconds(player, skill, sequence),
+            GroundAttackSeconds = gem.Name is null ? () => LockstepAttackSeconds(player, skill, sequence) : null,
         };
         try
         {
             await EndGracePeriod(player, action: true);
-            await SendWorldRecord(player, player.Id, [], $"0x01ab lockstep ground attack 0x{skill:x4}", atGate: () =>
+            await SendWorldRecord(player, player.Id, [], $"0x01ab lockstep ground {(gem.Name ?? "attack")} 0x{skill:x4}", atGate: () =>
             {
                 using (ProjectileMutation(player, phase: "send"))
                 {
-                    if (player.LockstepAttack != attack || !PlayerActionCurrent(player, attack.Action)) return null;
+                    if (player.LockstepAttack != attack || !PlayerActionCurrent(player, attack.Action))
+                    {
+                        attack.Fails();
+                        return null;
+                    }
                     double at = player.Connection.LockstepFrame?.Start ?? ProjectileWorldTime(player);
                     StepWalkers(player, at);
                     var placed = PlaceLockstepAttack(player, attack, at);
@@ -441,8 +479,29 @@ public static partial class Game
                 }
             });
             if (!attack.Open) attack.Fails();
-            await attack.Decided;
+            var swung = await attack.Decided;
+            if (swung is not { } decided || gem.Name is null) return;
+            if (player.Closed || player.LeavingArea || !PlayerActionCurrent(player, action)
+                || approachTicket?.Current(player) == false) return;
+            if (!TryBeginSkillCooldownUse(player, skill, gem.Effect, CooldownForSkill(player, skill), false,
+                () => { }, out var cooldownUse, actionToken: action))
+            {
+                if (player.LockstepBusyUntil > decided.Start) player.LockstepBusyUntil = decided.Start;
+                return;
+            }
+            LockstepAttackOver(player, action);
+            double? swingAt = decided.Start;
+            bool projectileRuntime = UsesProjectileRuntime(gem.Effect);
+            Task<bool>? attackTask = projectileRuntime ? CastGemSkill(player, skill, decided.From, aim,
+                sequence: sequence, actionToken: action, cooldownUse: cooldownUse, swingAt: swingAt) : null;
+            if (attackTask is { IsCompletedSuccessfully: true, Result: false }) return;
+            bool acknowledged = SkillAcknowledgementAllowed(player, gem.Effect, skill,
+                () => cooldownUse?.CommitNativeUse(player, skill) ?? PlayerActionCurrent(player, action));
+            if (acknowledged) await SendNativeCooldownRefresh(player);
+            if (!projectileRuntime && acknowledged) _ = CastGemSkill(player, skill, decided.From, aim,
+                sequence: sequence, actionToken: action, cooldownUse: cooldownUse, swingAt: swingAt);
         }
+        catch (Exception ex) when (ex is IOException or ObjectDisposedException) { }
         finally { LockstepAttackOver(player, attack.Action); }
     }
 
@@ -469,11 +528,6 @@ public static partial class Game
         player.LockstepBusyUntil = start + hold;
         if (spell) player.LockstepCastWindow = LockstepSpellMoveWindow(player, requested, gem.Effect, start, hold);
     }
-
-    // Whether a held skill is an attack (the default attack or an attack gem): its uses share the attack timer.
-    static bool LockstepAttackSkill(Player player, ushort skill) =>
-        skill == SkillCatalog.FirstSkillId
-        || GemSkillEffects(player).FirstOrDefault(g => g.Id == skill) is { Name: not null } gem && SkillsFor(player).IsAttack(gem.Effect);
 
     // Whether the requested skill can actually start right now (enabled and payable). Checked before HoldLockstepSkill
     // so an unpayable cast (e.g. insufficient mana) does not advance LockstepBusyUntil and block subsequent Moves.
@@ -514,6 +568,18 @@ public static partial class Game
                 return (SpellTimingFor(player, gem.Effect, skill)?.DurationSeconds ?? 0)
                     * (1d + SpellRepeats(player, skill, gem.Effect)) / PlayerActionFactor(player);
             if (!SkillsFor(player).IsAttack(gem.Effect)) return SkillsFor(player).CastTimeMs(gem.Effect) / 1000d / PlayerActionFactor(player);
+            // LeapSlam::CanCancel (0x1412faf60) clears +0x368 at hit_ground and allows cancellation at contact = hit_ground
+            // (0x141942cf0). With startup skip (0x1419fda80, seek to leave_ground - 10 ms), the client lands at timing.Land
+            // (~36% of attack time), not the unskipped clip fraction (~67-74%) which locked the player after landing.
+            if (IsLeapSlam(player, gem.Effect))
+            {
+                try { return LeapSlamTiming(player, skill, gem.Effect, SupportedAttackSeconds(player, skill, sequence)).Land; }
+                catch (InvalidOperationException) { }
+            }
+            // ShieldCharge::CanCancel (0x141a6fd50) blocks cancellation while traveling (+0x3e5 != 0), which LockstepPlayerFree
+            // enforces dynamically via ShieldChargeTraveling (automatically shortening on body/wall stops); once arrived,
+            // charge_*_end has contact = 0. No-charge uses (< 24 cells) set their own in-place bash hold in BeginShieldCharge.
+            if (ShieldChargeBonusPct(player, skill, gem.Effect) != 0) return 0;
         }
         return LockstepAttackCutIn(player, skill, sequence) + player.LockstepActionTail;
     }

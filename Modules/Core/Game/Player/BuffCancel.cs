@@ -212,6 +212,17 @@ public static partial class Game
                 return true;
             }
 
+            // 11. Lifetap (row 1846, Removable = 1).
+            if (activeBuff.Row == Lifetap.BuffRow && activeBuff.Source == player.Id
+                && player.Lifetap.Until > 0)
+            {
+                player.Lifetap.Until = 0;
+                player.Area.Buffs.Clear(player.Id, Lifetap.BuffRow, player.Id);
+                if (player.RighteousFire is { ConditionalSupportMore.Lifetap: not 0 } rf)
+                    RecordRighteousFireSupportChangeLocked(player, rf, now);
+                return true;
+            }
+
             return false;
         }
     }
