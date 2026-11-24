@@ -102,6 +102,17 @@ public static partial class Game
             foreach (var expired in fighter.Taunts.Where(t => t.Value <= now || !player.Area.Monsters.ContainsKey(t.Key)).ToArray())
                 fighter.Taunts.Remove(expired.Key);
         fighter.Taunts[id] = now + FlaskGrounds.TauntSeconds / target.RecipientDebuffRate;
+        MinionTauntSources.AddOrUpdate(target, fighter);
+    }
+
+    static readonly RuleTable<SpawnedMonster, GolemState.Golem> MinionTauntSources = new();
+
+    static double TauntedHitAgainstMinion(Player player, uint attacker, SpawnedMonster source, GolemState.Golem target, double now)
+    {
+        if (source.TauntedUntil > now || DecoyTarget(source, now) is not null) return .9;
+        return MinionTauntSources.TryGetValue(source, out var taunter) && !ReferenceEquals(target, taunter)
+            && taunter.Taunts.GetValueOrDefault(attacker) > now && !taunter.Monster.Dead
+            && ReferenceEquals(player.Area.Monsters.GetValueOrDefault(taunter.Id), taunter.Monster) ? .9 : 1;
     }
 
     internal static void FeedingFrenzyOnHitLocked(Player player, GolemState.Golem fighter, double now)

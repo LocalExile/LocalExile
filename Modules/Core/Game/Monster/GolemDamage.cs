@@ -155,11 +155,14 @@ public static partial class Game
             player.Minions.OutputQueue.Add(new([], null, g.Id, m, PlayerMinions.OutputKind.Life));
             return false;
         }
-        var rolled = MonsterModHit(source, attack.Damage.Roll(random), m.Life, m.MaxLife, random, out bool critical, now: now, cannotCrit: VaalOversoul.CannotCrit(source, attack))
-            .Scale(SappedDamageFactor(source, now));
+        var rolled = MonsterModHit(source, attack.Damage.Roll(random), m.Life, m.MaxLife, random, out bool critical,
+            now: now, cannotCrit: VaalOversoul.CannotCrit(source, attack), additionalCritical: BrittleCriticalChance(m, now))
+            .Scale(SappedDamageFactor(source, now) * TauntedHitAgainstMinion(player, attacker, source, g, now));
         bool elementalImmune = GolemElementalImmune(g);
         bool chaosNoBypass = effects[Stat.ChaosDamageDoesNotBypassEnergyShield] != 0;
         bool spellHit = attack.Spell && !attack.Secondary;
+        double taken = effects.DamageTaken(spellHit, m.Ailments.Magnitude(MonsterElementalAilments.Kind.Shock, now)
+            + m.Ailments.ChillDamageTakenPct(now) + HitDebuffTaken(m, spellHit, now));
         int prevented = 0;
         if (spellHit)
         {
@@ -184,7 +187,7 @@ public static partial class Game
         foreach (var (type, range) in rolled.Components)
         {
             if (elementalImmune && type is DamageType.Fire or DamageType.Cold or DamageType.Lightning) continue;
-            var resistance = MonsterHitResistance(m, type, default);
+            var resistance = MonsterHitResistance(m, type, default, now);
             if (type != DamageType.Physical)
                 resistance = resistance with { Maximum = Math.Clamp(resistance.Maximum
                     + effects[Stat.Of($"base_maximum_{type.ToString().ToLowerInvariant()}_damage_resistance_%")], 0, 90) };
@@ -192,12 +195,13 @@ public static partial class Game
             if (type == DamageType.Physical)
             {
                 double armour = GolemArmour(g);
-                double reduction = Math.Min(.9, armour / Math.Max(1, armour + 5 * value) + effects.PhysicalReduction / 100.0);
+                double reduction = Math.Min(.9, armour / Math.Max(1, armour + 5 * value)
+                    + (effects.PhysicalReduction - CrushReduction(m, now)) / 100.0);
                 value = (int)Math.Round(value * (1 - reduction));
             }
             else if (DamageTypes.IsElemental(type))
                 value = (int)Math.Round(value * GolemElementalReductionFactor(effects));
-            value = (int)Math.Round(value * effects.DamageTaken(spellHit)
+            value = (int)Math.Round(value * taken
                 * GolemMeatShieldDamageFactor(g)
                 * soulDamageTaken
                 * Math.Max(0, 1 + GolemStat(g.Own, Stat.VaalUpgradeMinionDamageTakenPlusPctFinal) / 100d)
@@ -221,8 +225,16 @@ public static partial class Game
         if (!elementalImmune)
             m.Ailments.Inflict(rolled, critical, m.MaxLife, now, n => n == Stat.NeverFreeze && attack.Ailments.NeverFreeze ? 1 : source.Effects[n], n => effects[n], random);
         if (m.Life > 0)
+        {
             GolemHostileAilmentsLocked(player, g, attacker, source, rolled, critical, !attack.Spell && !attack.Secondary, now,
                 (100 - prevented) / 100d);
+            if (!attack.Secondary && mitigated.MinTotal > 0)
+            {
+                int Source(uint name) => source.Effects[name];
+                ApplyContactDebuffsLocked(m, Source, spellHit, critical, now, random);
+                AlternateAilmentsOnHitLocked(m, mitigated, critical, now, Source, random);
+            }
+        }
         var from = source.Walk.Position(now);
         var to = m.Walk.Position(now);
         // Immediate kind 3 reaches the attacker's native result consumer; 0xffff never supplies a consuming action.
@@ -238,12 +250,21 @@ public static partial class Game
             if (g.Abilities.FirstOrDefault(a => a.Effect == 4839) is { } death)
                 GolemReserveLocked(player, g, death, 0, null, m.Walk.Position(now), now);
         }
-        else if (HitReaction.TryFlinch(m, new((int)Math.Min(int.MaxValue, damage)), now, random))
+        else if (!attack.Secondary && source.Effects[Stat.CannotStun] == 0
+            && !(critical && mitigated[DamageType.Cold].Min > 0)
+            && HitReaction.TryFlinch(m, MinionIncomingStun(source, attack, damage, mitigated), now, random))
         {
             g.Pending = null; g.Pulses.RemoveAll(p => p.Follows);
             player.Minions.OutputQueue.Add(new([], null, g.Id, m, PlayerMinions.OutputKind.Flinch, Until: m.FlinchUntil, Action: m.ActionGeneration));
         }
         return true;
+    }
+
+    static StunHit MinionIncomingStun(SpawnedMonster source, MonsterAttack attack, long damage, DamagePacket taken)
+    {
+        bool melee = !attack.Spell && !attack.Ranged;
+        return new(HitReaction.StunningDamage(damage, taken[DamageType.Physical].Min / Math.Max(1, taken.MinTotal), melee),
+            source.Effects[Stat.BaseStunThresholdReductionPlusPct], source.Effects[Stat.BaseStunDurationPlusPct], Melee: melee);
     }
 
     static double GolemArmour(GolemState.Golem minion)
