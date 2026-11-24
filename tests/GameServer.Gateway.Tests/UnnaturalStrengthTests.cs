@@ -6,6 +6,20 @@ namespace GameServer.Gateway.Tests;
 public sealed class UnnaturalStrengthTests
 {
     [Fact]
+    public void Hit_and_spread_poisons_include_the_same_global_duration_bonuses()
+    {
+        int Get(uint key) => key switch
+        {
+            Stat.BasePoisonDurationPlusPct => 50,
+            Stat.PoisonDurationPlusPct => 20,
+            Stat.BaseAllAilmentDurationPlusPct => 5,
+            _ => 0
+        };
+        Assert.Equal(3.5, MonsterPoisons.Settings.From([], "main", Get).Seconds);
+        Assert.Equal(3.5, Game.SpreadPoisonSeconds(Get));
+    }
+
+    [Fact]
     public void Minion_with_minion_has_unholy_might_gains_full_conversion_and_the_wither_chance()
     {
         using var f = new TriggeredSummonTests.Fixture();
