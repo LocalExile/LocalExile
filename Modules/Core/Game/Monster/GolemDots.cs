@@ -74,7 +74,7 @@ public static partial class Game
         if (blessing > 0) lifeDamage += golem.ShieldPool.Damage(blessing, bypass: false, to);
         if (bleed > 0) lifeDamage += golem.ShieldPool.Damage(bleed, bypass: false, lastDamageAt!.Value);
         if (poison > 0 || whispers > 0)
-            lifeDamage += golem.ShieldPool.Damage((long)poison + whispers,
+            lifeDamage += golem.ShieldPool.Damage(ActorScale.Saturate((long)poison + whispers),
                 m.Mods.Effects[Stat.ChaosDamageDoesNotBypassEnergyShield] == 0, lastDamageAt!.Value);
 
         if (lifeDamage > 0)
