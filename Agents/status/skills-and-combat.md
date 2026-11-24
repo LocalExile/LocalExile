@@ -264,6 +264,7 @@ Part of [Status](../Status.md); what to build next in this area is in
 - Summon Reaper of Eviscerating follows its owner, consumes allies and attacks on recast.
 - Predator targeting, Feeding Frenzy buffs, aggressive Skeleton Warrior dashes, defensive targeting and Meat Shield proximity damage.
   Docs: [11](../docs/protocol/11-skills.md) Â§10h.
+- Minion equipment rules: limits, restrictions, Triad Grip, Speaker's Wreath, Alberon's Warpath, and on-hit ailments.
 - Absolution and Dominating sentinels, Phantasms, direct Vaal Skeletons and Vaal Absolution/Domination ascensions.
   HUD minion counter icons (`PlayerMinionsChange`) now publish for all active player minion types (not checked live).
   Docs: [11](../docs/protocol/11-skills.md) Â§10h.

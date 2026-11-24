@@ -174,8 +174,12 @@ public static partial class Game
         sources = WithSummonBuffs(player, sources);
         sources = WithRighteousFireSpellBonus(player, sources);
         sources = WithSpreadPoisonRegeneration(player, sources);
+        if (sources.GetValueOrDefault(Stat.AdditiveModifiersToMinionAttackSpeedAlsoAffectYou) != 0)
+            sources[Stat.AttackSpeedPlusPct] = ActorScale.Saturate((long)sources.GetValueOrDefault(Stat.AttackSpeedPlusPct)
+                + sources.GetValueOrDefault(Stat.MinionAttackSpeedPlusPct) + sources.GetValueOrDefault(Stat.MinionAttackAndCastSpeedPlusPct));
         ApplyRecoveryKeystoneStats(sources);
         double now = AreaTime(player);
+        ApplyZombieDamageBonus(player, sources, now);
         int mapBuffTime = MapModsOf(player)?.Get(Stat.MapPlayerBuffTimePassedPlusPctOnlyBuffCategory) ?? 0;
         int Get(uint k) => k == Stat.BuffTimePassedPlusPctOnlyBuffCategory
             ? ActorScale.Saturate((long)sources.GetValueOrDefault(k) + mapBuffTime)
@@ -801,6 +805,7 @@ public static partial class Game
             GrandSpectrum.Apply(sources, Stats);
         }
         sourcesKey = sourcesKey with { Flags = conditionFlags };
+        ApplyMinionSocketConversions(active, catalog, sources);
         // Clamp only this outgoing integer view; the authoritative attribute inputs remain wide beside it.
         foreach (var (name, value) in rawAttributes)
             sources[name] = AttributeModifiers.Signed(value);

@@ -1122,6 +1122,8 @@ public static partial class Game
     static string? ActorSkillDisabledNow(Player player, int effect, ushort? skillId)
     {
         if (VaalMinionProxyDisabled(player, effect, skillId) is { } proxy) return proxy;
+        if (SkillMinionFamily(SkillsFor(player).EffectId(effect)) is { } family && !CanHaveMinion(PlayerStatValues(player), family))
+            return "equipment prevents summoning this type of minion";
         if (OwnAuraSkillRestricted(player, effect, skillId)) return "own aura skills are disabled";
         if (skillId is ushort beastSkill && BeastKindFor(SkillsFor(player).EffectId(effect)) is { } beastKind)
         {
