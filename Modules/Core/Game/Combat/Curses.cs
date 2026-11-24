@@ -30,11 +30,24 @@ public static partial class Game
     static bool ExternalTemporalChains(Player player, string effect) => effect == "TemporalChains"
         && GameEvents.GrantedSkillExecutable.For(player).Any(accept => accept(player, effect));
 
-    static void CurseCharges(Player player, SpawnedMonster target, bool death)
+    static readonly (ChargeType Type, uint Death, uint Hit)[] CurseChargeStats =
+    [
+        (ChargeType.Power, Stat.ChanceToGrantPowerChargeOnDeathPct, Stat.GrantAttackerPowerChargeWhenHitPctChance),
+        (ChargeType.Frenzy, Stat.ChanceToGrantFrenzyChargeOnDeathPct, Stat.GrantAttackerFrenzyChargeWhenHitPctChance),
+        (ChargeType.Endurance, Stat.ChanceToGrantEnduranceChargeOnDeathPct, Stat.GrantAttackerEnduranceChargeWhenHitPctChance),
+    ];
+
+    static void CurseCharges(Player player, SpawnedMonster target, bool death, double now, GolemState.Golem? fighter = null)
     {
-        foreach (var (kind, name) in new[] { (ChargeType.Power, "power"), (ChargeType.Frenzy, "frenzy"), (ChargeType.Endurance, "endurance") })
-            if (RandomRolls.Chance(target.Curses[Stat.Of(death ? $"chance_to_grant_{name}_charge_on_death_%" : $"grant_attacker_{name}_charge_when_hit_%_chance")], 100, AreaRng(player)))
-                ChargesOf(player).Enqueue(new ChargeEvent.Grant(kind, 1, "curse"));
+        if (target.Curses.All.Count == 0) return;
+        target.Curses.Expire(now);
+        var random = AreaRng(player);
+        foreach (var (type, onDeath, onHit) in CurseChargeStats)
+            if (RandomRolls.Chance(target.Curses[death ? onDeath : onHit], 100, random))
+            {
+                if (fighter is null) ChargesOf(player).Enqueue(new ChargeEvent.Grant(type, 1, "curse"));
+                else GrantMinionChargeLocked(player, fighter, type, 1, now);
+            }
     }
 
     static int CurseLimit(Player player, IReadOnlyDictionary<uint, int> playerStats)

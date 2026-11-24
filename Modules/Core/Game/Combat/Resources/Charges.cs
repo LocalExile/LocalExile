@@ -67,7 +67,7 @@ public static partial class Game
         ChargesOf(player).Enqueue(new ChargeEvent.Hit(critical, spell, melee, m.Rarity, effect >= 0 ? SkillsFor(player).EffectId(effect) : null,
             skill, Killed: m.Dead || m.Life == 0, Primary: primary, Frozen: frozen, Bleeding: bleeding, Marked: marked,
             SelfBleeding: selfBleeding, SelfPoisoned: selfPoisoned));
-        CurseCharges(player, m, false);
+        CurseCharges(player, m, death: false, now);
     }
 
     // The player died (PlayerDied): every gained charge goes now, not at the ticker's next step, which a pause holds back.
@@ -92,7 +92,7 @@ public static partial class Game
         ChargesOf(player).Enqueue(new ChargeEvent.Kill(m.Rarity, frozen, poisons));
         SpiritChargeOnKill(player, AreaTime(player));
         SelfBuffsOnKill(player);
-        CurseCharges(player, m, true);
+        CurseCharges(player, m, death: true, now);
     }
 
     // A monster's hit on the player that landed or was blocked (when hit), and on block when blocked: "if you've been hit

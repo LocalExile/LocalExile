@@ -12,10 +12,15 @@ public static partial class Game
         GolemState.Golem? fighter = null, bool damageOverTime = false)
     {
         OwnedKillLocked(monster, hit.Life);
-        if (hit.Life == 0 && monster.Hostile && fighter is not null && ReferenceEquals(source, fighter.Monster))
+        if (monster.Hostile && fighter is not null && ReferenceEquals(source, fighter.Monster))
         {
-            MinionOnslaughtOnKillLocked(player, fighter, now);
-            QueueGuardianWeaponOnKillLocked(player, fighter, monster.Walk.Position(now), now);
+            if (!damageOverTime) CurseCharges(player, monster, death: false, now, fighter);
+            if (hit.Life == 0)
+            {
+                CurseCharges(player, monster, death: true, now, fighter);
+                MinionOnslaughtOnKillLocked(player, fighter, now);
+                QueueGuardianWeaponOnKillLocked(player, fighter, monster.Walk.Position(now), now);
+            }
         }
         if (!damageOverTime && monster.Hostile && source is not null)
             LeechFromMinionDamageLocked(player, monster, damage, now, fighter?.Player);

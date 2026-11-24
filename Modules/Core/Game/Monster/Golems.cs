@@ -205,6 +205,11 @@ public static partial class Game
             MinionLifeLeeches.Add(replacement, leech);
         if (MinionShieldLeeches.TryGetValue(oldGolem, out var shieldLeech))
             MinionShieldLeeches.Add(replacement, shieldLeech);
+        if (MinionFortification.TryGetValue(oldGolem, out var fortification))
+        {
+            fortification.PresentedRevision = -1;
+            MinionFortification.Add(replacement, fortification);
+        }
 
         target.ReceivedActionFactor = old.ReceivedActionFactor;
         target.ReceivedActionUntil = old.ReceivedActionUntil;
@@ -489,6 +494,7 @@ public static partial class Game
         player.Golems.All.Remove(golem.Id); player.Minions.Remove(golem.Id);
         MinionLifeLeeches.Remove(golem);
         MinionShieldLeeches.Remove(golem);
+        MinionFortification.Remove(golem);
         player.Golems.IncomingHits.RemoveAll(hit => ReferenceEquals(hit.Target, golem));
         golem.Pending = null;
         foreach (var hazard in golem.Hazards) if (hazard.Object is uint art)

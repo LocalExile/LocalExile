@@ -11,6 +11,7 @@ public readonly record struct StunHit(double Damage, int ThresholdReductionPct =
     double BaseSeconds = 0, IReadOnlyDictionary<uint, int>? Skill = null)
 {
     public int DoubleDurationChance { get; init; }
+    public Action? OnStun { get; init; }
 }
 
 /// <summary>
@@ -54,6 +55,7 @@ public static class HitReaction
         if (m.Life == 0 || m.Dead || m.Invulnerable || m.HitAnimations is not { Count: > 0 }) return false;
         if (m.CannotBeStunned || m.Mods.Effects.CannotBeStunned || now < m.StunImmuneUntil) return false;   // Unwavering
         if (random.NextDouble() * 100 >= Chance(hit, m.MaxLife)) return false;
+        hit.OnStun?.Invoke();
         if (hit.Owner is { } owner)
         {
             Func<uint, int>? own = hit.Skill is { } skill ? key => skill.GetValueOrDefault(key) : null;

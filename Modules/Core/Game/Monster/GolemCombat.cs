@@ -61,6 +61,7 @@ public static partial class Game
         }
         GolemDotsLocked(player, g, oldLastStep, now);
         if (m.Dead || m.Life == 0 || MinionInstabilityLocked(player, g, now)) return;
+        _ = MinionFortificationAt(player, g, now);
         g.ShieldPool.Advance(oldLastStep, now, name => m.Mods.Effects[name], alive: true);
         RecoverMinionShieldLeech(g, now);
         PublishEnergyShieldLocked(player, g);
@@ -665,6 +666,7 @@ public static partial class Game
             || g.Definition.Kind == "HolyArmament" && !IsHolyArmamentTarget(player, g, id, target)) return false;
         using var scope = new PlayerStatScope(player, fresh: true);
         var currentPlayer = CharacterPlayerStats(player);
+        ExpireMinionChargesLocked(player, g, now);
         RefreshGolemLocked(player, g, currentPlayer, now);
         if (!GolemCurrent(player, g) || player.PlayerLife == 0 || g.Monster.Dead || g.Monster.Life == 0) return false;
         var source = CurrentPlayerSkillSourceLocked(player, g.Source);
@@ -695,9 +697,11 @@ public static partial class Game
         double factor = DoedreSewers.MinionDamageFactor(player) * MinionTacticsDamage(player, g, id, target, now)
             * SappedDamageFactor(g.Monster, now);
         if (supported.Stats.ContainsKey(Stat.SupportDamageWhileOnFullLifePlusPctFinal)
-            || supported.Stats.ContainsKey(Stat.SupportDebilitateHitDamagePlusPctFinalPerPoisonStack))
+            || supported.Stats.ContainsKey(Stat.SupportDebilitateHitDamagePlusPctFinalPerPoisonStack)
+            || supported.Stats.ContainsKey(Stat.EnduranceChargeOnMeleeStunDamagePlusPctFinalPerEnduranceCharge))
             factor *= ConditionalSupportMore(supported.Stats, attack: !a.Attack.Spell, chilled: false, lowLife: false,
-                fullLife: g.Monster.Life >= g.Monster.MaxLife, lifetap: false, poisonStacks: target.Poisons.Stacks(now));
+                fullLife: g.Monster.Life >= g.Monster.MaxLife, lifetap: false, poisonStacks: target.Poisons.Stacks(now),
+                enduranceCharges: g.CombatCharges?.Held(ChargeType.Endurance) ?? 0);
         if (g.Definition.Kind == "Carrion")
         {
             var here = g.Monster.Walk.Position(now);
@@ -759,10 +763,23 @@ public static partial class Game
             null, id, target, WorldId: g.Id));
         PhantasmsOnHitLocked(player, target, g.Source, now, AreaRng(player), g);
         bool melee = MinionMelee(player, a);
+        if (melee && damage > 0) MinionFortifyOnHitLocked(player, g, target, rolled, a.Stats, now, random);
         double physicalShare = rolled[DamageType.Physical].Min / Math.Max(1, rolled.MinTotal);
-        var stun = new StunHit(HitReaction.StunningDamage(damage, physicalShare, melee),
+        double stunning = effects[Stat.CannotStun] != 0 || critical && mitigated[DamageType.Cold].Min > 0
+            ? 0 : HitReaction.StunningDamage(damage, physicalShare, melee);
+        var stun = new StunHit(stunning,
             g.Monster.Mods.Effects[Stat.BaseStunThresholdReductionPlusPct], g.Monster.Mods.Effects[Stat.BaseStunDurationPlusPct],
             Melee: melee, BaseSeconds: GolemStat(a.Stats, Stat.SupportRuthlessBigHitStunBaseDurationOverrideMs) / 1000d);
+        if (melee)
+        {
+            int gain = GolemStat(supported.Stats, Stat.GainEnduranceChargeOnMeleeStun) != 0 ? 100
+                : GolemStat(supported.Stats, Stat.GainEnduranceChargeOnMeleeStunPct);
+            if (gain > 0)
+                stun = stun with { OnStun = () =>
+                {
+                    if (RandomRolls.Chance(gain, 100, random)) GrantMinionChargeLocked(player, g, ChargeType.Endurance, 1, now);
+                } };
+        }
         CommitMinionHitLocked(player, id, target, hit, damage, now, $"golem {g.Id:x} {a.Id}", stun, g.Monster, g.Own, g);
         if (!target.Dead)
         {

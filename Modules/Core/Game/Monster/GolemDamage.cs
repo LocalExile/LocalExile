@@ -107,6 +107,7 @@ public static partial class Game
         if (GolemIgnoresDots(g)) return false;
         using var scope = new PlayerStatScope(player, fresh: true);
         var currentPlayer = CharacterPlayerStats(player);
+        ExpireMinionChargesLocked(player, g, now);
         RefreshGolemLocked(player, g, currentPlayer, now);
         if (g.Monster.Dead || g.Monster.Life == 0) return false;
         var m = g.Monster; var effects = m.Effects;
@@ -162,7 +163,7 @@ public static partial class Game
         bool chaosNoBypass = effects[Stat.ChaosDamageDoesNotBypassEnergyShield] != 0;
         bool spellHit = attack.Spell && !attack.Secondary;
         double taken = effects.DamageTaken(spellHit, m.Ailments.Magnitude(MonsterElementalAilments.Kind.Shock, now)
-            + m.Ailments.ChillDamageTakenPct(now) + HitDebuffTaken(m, spellHit, now));
+            + m.Ailments.ChillDamageTakenPct(now) + HitDebuffTaken(m, spellHit, now)) * MinionFortificationAt(player, g, now);
         int prevented = 0;
         if (spellHit)
         {
@@ -283,6 +284,8 @@ public static partial class Game
         g.Monster.Dead = true; g.Monster.Life = 0; g.Monster.ActionGeneration++; g.Pending = null;
         MinionLifeLeeches.Remove(g);
         MinionShieldLeeches.Remove(g);
+        MinionFortification.Remove(g);
+        player.Area.Buffs.Clear(g.Id, FortificationBuffRow, g.Id);
         if (g.Definition.Kind == "Phantasm")
         {
             player.Area.Buffs.Clear(player.Id, PhantasmalMightBuff, g.Id);
