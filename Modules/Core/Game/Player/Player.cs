@@ -1750,7 +1750,7 @@ public static partial class Game
             AnimatedObject: WornMorph(player)?.Model ?? Environment.GetEnvironmentVariable("Game_PLAYER_AO") ?? cls.AnimatedObject,
             Skills: [.. PlayerDefaultSkills(player, weaponStats, stats), .. GemSkills(player, [.. weaponStats, .. statList], characterInputs, panelSources!)], Stats: [.. weaponStats, .. statList],
             Equipped: Looks(player, PlayerInventories.For(string.IsNullOrEmpty(name) ? "Exile" : name, ItemsFor(player))),
-            QuestFlags: PlayerQuestFlags(player), Hideout: HomeHideout(player)?.Hash16 ?? 0, LeagueQuestFlags: [.. Quests.League.Bits(player.Character.LeagueQuestFlags)],
+            QuestFlags: PlayerQuestFlags(player), Hideout: HomeHideout(player)?.Hash16 ?? 0, Hideout2: GameEvents.ResolveGuildHideoutHash(player) ?? 0, LeagueQuestFlags: [.. Quests.League.Bits(player.Character.LeagueQuestFlags)],
             Portrait: WornPortrait(player), PortraitFrame: player.Character.PortraitFrame)
         {
             // A worn morph's animation set (WornMorph: the Goblin Shaman Skin in a town or hideout).

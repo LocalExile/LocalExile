@@ -20,7 +20,7 @@ public sealed class SocialModule : IModule
     public void Load(IModuleContext module)
     {
         LoadData();
-        GameEvents.EnterMessages.Add(module.Manifest.Id, player => FriendsFeature.Enter(player));
+        GameEvents.EnterMessages.Add(module.Manifest.Id, player => FriendsFeature.Enter(player).Concat(GuildFeature.Enter(player)));
         // The first tick after the entry: the party (after an area change) and the friends' presence as they are now.
         GameEvents.AreaTick.Add(module.Manifest.Id, _ =>
         {
@@ -32,6 +32,7 @@ public sealed class SocialModule : IModule
                 if (!SocialFeature.Rebound.TryAdd(c, null)) return;
                 await PartyRoster.Rebind(c);
                 await FriendsFeature.AfterEntry(c);
+                await GuildFeature.AfterEntry(c);
             };
         });
         InstanceEvents.TransferInstance.Add(module.Manifest.Id, PartyRoster.SharedInstance);
@@ -39,6 +40,7 @@ public sealed class SocialModule : IModule
         {
             await PartyRoster.DisconnectHuman(player, why);
             await FriendsFeature.Leaving(player);
+            await GuildFeature.Leaving(player);
         });
         GameEvents.Packet(InstanceSocial.FriendAddId).Add(module.Manifest.Id, async (player, bytes) =>
         {
@@ -68,7 +70,59 @@ public sealed class SocialModule : IModule
         });
         GameEvents.PartyInvite.Add(module.Manifest.Id, PartyRoster.InviteHuman);
         GameEvents.PlayerIgnored.Add(module.Manifest.Id, (viewer, sender) => FriendsFeature.IsIgnoring(viewer.Character.Account, sender));
-        GameEvents.HideoutVisitAllowed.Add(module.Manifest.Id, FriendsFeature.CanVisitHideout);
+        GameEvents.HideoutVisitAllowed.Add(module.Manifest.Id, (visitor, owner) => FriendsFeature.CanVisitHideout(visitor, owner) || GuildFeature.SameGuild(visitor, owner));
+        GameEvents.GuildChat.Add(module.Manifest.Id, GuildFeature.DeliverChat);
+        GameEvents.GuildStorageKey.Add(module.Manifest.Id, GuildFeature.StorageKeyOf);
+        GameEvents.GuildPeers.Add(module.Manifest.Id, GuildFeature.PeersOf);
+        GameEvents.GuildHideoutSelected.Add(module.Manifest.Id, GuildFeature.SelectGuildHideout);
+        GameEvents.GuildHideoutHash.Add(module.Manifest.Id, GuildFeature.HideoutHashOf);
+        GameEvents.GuildTagQuery.Add(module.Manifest.Id, GuildFeature.TagOf);
+        GameEvents.Packet(InstanceGuilds.CreateId).Add(module.Manifest.Id, async (player, bytes) =>
+        {
+            await GuildFeature.Create(player, InstanceGuilds.ReadText(bytes));
+            return true;
+        });
+        GameEvents.Packet(InstanceGuilds.InviteId).Add(module.Manifest.Id, async (player, bytes) =>
+        {
+            await GuildFeature.Invite(player, InstanceGuilds.ReadText(bytes));
+            return true;
+        });
+        GameEvents.Packet(InstanceGuilds.AcceptInviteId).Add(module.Manifest.Id, async (player, bytes) =>
+        {
+            await GuildFeature.AcceptInvite(player, InstanceGuilds.ReadInviteIndex(bytes));
+            return true;
+        });
+        GameEvents.Packet(InstanceGuilds.DeclineInviteId).Add(module.Manifest.Id, async (player, bytes) =>
+        {
+            await GuildFeature.DeclineInvite(player, InstanceGuilds.ReadInviteIndex(bytes));
+            return true;
+        });
+        GameEvents.Packet(InstanceGuilds.SetMemberRankId).Add(module.Manifest.Id, async (player, bytes) =>
+        {
+            var (target, rank) = InstanceGuilds.ReadSetMemberRank(bytes);
+            await GuildFeature.SetMemberRank(player, target, rank);
+            return true;
+        });
+        GameEvents.Packet(InstanceGuilds.RemoveMemberId).Add(module.Manifest.Id, async (player, bytes) =>
+        {
+            await GuildFeature.LeaveOrKick(player, InstanceGuilds.ReadText(bytes));
+            return true;
+        });
+        GameEvents.Packet(InstanceGuilds.SetStatusId).Add(module.Manifest.Id, async (player, bytes) =>
+        {
+            await GuildFeature.SetStatus(player, InstanceGuilds.ReadText(bytes));
+            return true;
+        });
+        GameEvents.Packet(InstanceGuilds.RenameId).Add(module.Manifest.Id, async (player, bytes) =>
+        {
+            await GuildFeature.Rename(player, InstanceGuilds.ReadText(bytes));
+            return true;
+        });
+        GameEvents.Packet(InstanceGuilds.SetTagId).Add(module.Manifest.Id, async (player, bytes) =>
+        {
+            await GuildFeature.SetTag(player, InstanceGuilds.ReadText(bytes));
+            return true;
+        });
         GameEvents.PlayerLeaving.Add(module.Manifest.Id, (player, why) => SocialFeature.CancelPlayerTrade(player, why));
         GameEvents.PlayerLeaving.Add(module.Manifest.Id, (player, _) => PvpQueue.Leaving(player));
         GameEvents.Packet(InstancePvp.LeaveQueueId).Add(module.Manifest.Id, async (player, _) =>

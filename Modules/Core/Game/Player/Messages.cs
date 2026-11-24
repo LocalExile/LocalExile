@@ -749,6 +749,19 @@ public static partial class Game
                 var target = kind == InstanceStash.Guild ? GuildStashOf(player) : PersonalStashOf(player);
                 int moved = target.SetPositions(order);
                 Console.WriteLine($"[gateway] {player.Connection.Remote} <= 0x00cc stash {kind} tab order: {string.Join(", ", order.Select(o => $"{o.Index}->{o.Position}"))} ({moved} moved, saved)");
+                if (kind == InstanceStash.Guild && moved > 0)
+                {
+                    foreach (var peer in GameEvents.ResolveGuildPeers(player))
+                    {
+                        if (peer is not { Controlled: false, Closed: false, LeavingArea: false, Connection.Outbox: { } outbox }) continue;
+                        try
+                        {
+                            await outbox(InstanceStash.EncodeReorderTabs(InstanceStash.Guild, order),
+                                $"0x00cc broadcast guild stash tab order ({order.Count} tab(s))");
+                        }
+                        catch (Exception ex) when (ex is IOException or ObjectDisposedException) { }
+                    }
+                }
             }
             else if (InstanceProtocol.IsChannelUpdate(id))
             {

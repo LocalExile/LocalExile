@@ -176,6 +176,17 @@ public static class InstanceStash
         return (m[2], order);
     }
 
+    /// <summary>S→C 0xcc (reader <c>0x141f9cbd0</c>, vector <c>0x141faaa80</c>, dispatcher case <c>0x3e</c> at
+    /// <c>0x142155ec1</c>): guild stash tab reorder broadcast. Same wire layout as C→S 0xcc: <c>u16 BE 0x00cc</c>,
+    /// <c>u8 kind</c> (<see cref="Guild"/> = 1), <c>u8 count</c>, <c>count × (u16 BE tab index, u16 BE position)</c>.</summary>
+    public static byte[] EncodeReorderTabs(byte kind, IReadOnlyList<(ushort Index, ushort Position)> order)
+    {
+        if (order.Count > byte.MaxValue) throw new ArgumentOutOfRangeException(nameof(order));
+        var w = new LoginWriter().U16(ReorderTabsId).U8(kind).U8((byte)order.Count);
+        foreach (var (index, position) in order) w.U16(index).U16(position);
+        return w.ToArray();
+    }
+
     /// <summary>C→S 0xd1 (7 bytes, vtable 0x1435cabd0, write 0x141f9d680; 0x14216dd20): a tab into a folder. u16 BE tab,
     /// u16 BE folder (0xffff: out of it; the tab's own index: into a new folder), u8 kind.</summary>
     public const int MoveTabLength = 7;

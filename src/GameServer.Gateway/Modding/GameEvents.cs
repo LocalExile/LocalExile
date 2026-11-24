@@ -610,6 +610,18 @@ public static class GameEvents
     /// <summary>A party line ("%…"), cleaned: the party is a module's to know, the text is the Chat module's; true when
     /// the module delivered it to the party.</summary>
     public static readonly GameEvent<Func<Player, string, IReadOnlyList<ChatLineItem>?, Task<bool>>> PartyChat = new();
+    /// <summary>A guild line ("&amp;…"), cleaned: true when a subscriber delivered it to the sender's guild.</summary>
+    public static readonly GameEvent<Func<Player, string, IReadOnlyList<ChatLineItem>?, Task<bool>>> GuildChat = new();
+    /// <summary>Shared guild storage key for the player's guild, or null when the player is not in a guild.</summary>
+    public static readonly GameEvent<Func<Player, string?>> GuildStorageKey = new();
+    /// <summary>Online peers in the player's guild (excluding the player or including them as decided by the provider).</summary>
+    public static readonly GameEvent<Func<Player, IReadOnlyList<Player>>> GuildPeers = new();
+    /// <summary>The player selected a guild hideout template row via C→S 0x254 (bit 15 set); true when handled.</summary>
+    public static readonly GameEvent<Func<Player, int, Task<bool>>> GuildHideoutSelected = new();
+    /// <summary>The Hideouts.dat HASH16 of the player's guild hideout, or null when none is selected.</summary>
+    public static readonly GameEvent<Func<Player, ushort?>> GuildHideoutHash = new();
+    /// <summary>The player's guild tag (for chat display), or null when none.</summary>
+    public static readonly GameEvent<Func<Player, string?>> GuildTagQuery = new();
     /// <summary>A party invitation requested by target character or account name (such as <c>/invite</c>); true when a
     /// subscriber handled the request.</summary>
     public static readonly GameEvent<Func<Player, string, Task<bool>>> PartyInvite = new();
@@ -764,6 +776,72 @@ public static class GameEvents
     {
         foreach (var run in PartyChat.For(player)) if (await run(player, text, items)) return true;
         return false;
+    }
+
+    public static async Task<bool> RunGuildChat(Player player, string text, IReadOnlyList<ChatLineItem>? items)
+    {
+        foreach (var (owner, run) in GuildChat.Subscribers(player))
+        {
+            bool delivered = false;
+            if (await GameEventOwners.Guard(owner, nameof(GuildChat), async () => delivered = await run(player, text, items)) && delivered)
+                return true;
+        }
+        return false;
+    }
+
+    public static string? ResolveGuildStorageKey(Player player)
+    {
+        foreach (var (owner, run) in GuildStorageKey.Subscribers(player))
+        {
+            string? answer = null;
+            if (GameEventOwners.Guard(owner, nameof(GuildStorageKey), () => answer = run(player)) && !string.IsNullOrEmpty(answer))
+                return answer;
+        }
+        return null;
+    }
+
+    public static IReadOnlyList<Player> ResolveGuildPeers(Player player)
+    {
+        foreach (var (owner, run) in GuildPeers.Subscribers(player))
+        {
+            IReadOnlyList<Player>? answer = null;
+            if (GameEventOwners.Guard(owner, nameof(GuildPeers), () => answer = run(player)) && answer is { Count: > 0 })
+                return answer;
+        }
+        return [];
+    }
+
+    public static async Task<bool> RunGuildHideoutSelected(Player player, int row)
+    {
+        foreach (var (owner, run) in GuildHideoutSelected.Subscribers(player))
+        {
+            bool handled = false;
+            if (await GameEventOwners.Guard(owner, nameof(GuildHideoutSelected), async () => handled = await run(player, row)) && handled)
+                return true;
+        }
+        return false;
+    }
+
+    public static ushort? ResolveGuildHideoutHash(Player player)
+    {
+        foreach (var (owner, run) in GuildHideoutHash.Subscribers(player))
+        {
+            ushort? answer = null;
+            if (GameEventOwners.Guard(owner, nameof(GuildHideoutHash), () => answer = run(player)) && answer is { } value)
+                return value;
+        }
+        return null;
+    }
+
+    public static string ResolveGuildTag(Player player)
+    {
+        foreach (var (owner, run) in GuildTagQuery.Subscribers(player))
+        {
+            string? answer = null;
+            if (GameEventOwners.Guard(owner, nameof(GuildTagQuery), () => answer = run(player)) && !string.IsNullOrEmpty(answer))
+                return answer;
+        }
+        return "";
     }
 
     public static async Task<bool> RunPartyInvite(Player player, string target)

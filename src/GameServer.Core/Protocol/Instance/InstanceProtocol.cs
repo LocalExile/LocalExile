@@ -679,10 +679,13 @@ public static class InstanceProtocol
             case InstanceSocial.FriendAddId: return InstanceSocial.MeasureFriendAddLength(data, out length);
             // 2 + WStr (writer 0x141f98140).
             case InstanceSocial.PartyInviteId or InstanceSocial.PartyKickId or InstanceSocial.PartyTravelId
-                or 0x0097 or InstanceSocial.SocialStatusId or 0x0140 or 0x0141 or 0x0145 or 0x014d or 0x014e or 0x014f or InstanceSocial.DuelChallengeId:
+                or 0x0097 or InstanceSocial.SocialStatusId
+                or InstanceGuilds.CreateId or InstanceGuilds.InviteId or InstanceGuilds.RemoveMemberId
+                or InstanceGuilds.SetStatusId or InstanceGuilds.RenameId or InstanceGuilds.SetTagId
+                or InstanceSocial.DuelChallengeId:
                 return MeasureWStrMessage(data, prefixBytes: 2, suffixBytes: 0, out length);
             // 2 + WStr + u8 (writer 0x141f9baf0).
-            case InstanceSocial.PublicPartyId or 0x0144 or InstanceSocial.HideoutInviteId:
+            case InstanceSocial.PublicPartyId or InstanceGuilds.SetMemberRankId or InstanceSocial.HideoutInviteId:
                 return MeasureWStrMessage(data, prefixBytes: 2, suffixBytes: 1, out length);
             // 2 + u8 + WStr (Atlas tree rename, writer 0x141fa5e60).
             case InstanceEntities.AtlasTreeRenameId:

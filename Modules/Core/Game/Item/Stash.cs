@@ -12,9 +12,10 @@ public static partial class Game
     // character's league (AccountStash.Key).
     public static AccountStash PersonalStashOf(Player player) => AccountStash.For(AccountStash.Key(player.Character.Account ?? CharacterName(player), player.Character.League), ItemsFor(player));
 
-    // The guild stash: no guilds yet, so each account has its own per league. SSF refuses this storage boundary.
+    // The guild stash: shared by members of the same guild when in a guild, else per-account fallback. SSF refuses it.
     public static AccountStash GuildStashOf(Player player) =>
-        AccountStash.ForGuild(player.Character.Account ?? CharacterName(player), ItemsFor(player), player.Character.League, player.Character.Ssf);
+        AccountStash.ForGuild(GameEvents.ResolveGuildStorageKey(player) ?? player.Character.Account ?? CharacterName(player),
+            ItemsFor(player), player.Character.League, player.Character.Ssf);
 
     // The tabs of that stash whose contents this connection has.
     public static HashSet<int> TabsSentOf(Player player, AccountStash stash) => stash.IsGuild ? player.Connection.GuildStashTabsSent : player.Connection.StashTabsSent;

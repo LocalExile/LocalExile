@@ -215,6 +215,8 @@ public static class ClientPackets
         P(InstanceCurrencyExchange.RequestMarketId, InstanceCurrencyExchange.RequestMarketLength),
         P(InstanceCurrencyExchange.RequestPartnersId, InstanceCurrencyExchange.RequestPartnersLength),
         P(InstanceCurrencyExchange.RequestFeeId, InstanceCurrencyExchange.RequestFeeLength),
+        P(InstanceGuilds.AcceptInviteId, InstanceGuilds.AcceptInviteLength),
+        P(InstanceGuilds.DeclineInviteId, InstanceGuilds.DeclineInviteLength),
         P(InstancePvp.LeaveQueueId, 2),
         P(InstancePvp.WithdrawId, 2),
         // Remaining exact fixed-length C→S instance opcodes from 3.29.3c (Agents/docs/protocol/c2s.json), excluding
@@ -224,7 +226,7 @@ public static class ClientPackets
             0x025d, 0x0260, 0x0264, 0x027e, 0x0296, 0x02a6, 0x02ac, 0x02ce, 0x02d5 }.Select(id => P(id, 2, name: $"0x{id:x4}")),
         .. new ushort[] { 0x0083, 0x00ac, 0x00d9, 0x00da, 0x0156, 0x0187, 0x01f7, 0x01f8,
             0x0245, 0x024f, 0x02a3, 0x02a4 }.Select(id => P(id, 3, name: $"0x{id:x4}")),
-        .. new ushort[] { 0x011d, 0x0142, 0x0143, 0x016b, 0x01fd, 0x021d, 0x0221, 0x0222, 0x0247, 0x02b1,
+        .. new ushort[] { 0x011d, 0x016b, 0x01fd, 0x021d, 0x0221, 0x0222, 0x0247, 0x02b1,
             0x02d0, 0x02d1 }.Select(id => P(id, 4, name: $"0x{id:x4}")),
         .. new ushort[] { 0x0249, 0x027d }.Select(id => P(id, 5, name: $"0x{id:x4}")),
         .. new ushort[] { 0x005c, 0x0066, 0x0069, 0x00a2, 0x00d0, 0x01fc, 0x0206, 0x020b,

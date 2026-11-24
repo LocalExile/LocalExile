@@ -65,7 +65,13 @@ public static class CosmeticsFeature
             await Send(player, InstanceMicrotransactions.Hideouts(HideoutCatalog.OwnedRows),
                 $"0x01f5 owned hideouts: all {HideoutCatalog.OwnedRows.Length} templates including MTX");
         if (asked.HasFlag(InstanceMicrotransactions.Lists.GuildHideouts))
-            await Send(player, InstanceMicrotransactions.Hideouts([], guild: true), "0x01f5 guild hideouts: none");
+        {
+            byte[] guildRows = GameEvents.ResolveGuildStorageKey(player) is not null ? HideoutCatalog.OwnedRows : [];
+            await Send(player, InstanceMicrotransactions.Hideouts(guildRows, guild: true),
+                guildRows.Length > 0
+                    ? $"0x01f5 guild hideouts: all {guildRows.Length} templates"
+                    : "0x01f5 guild hideouts: none");
+        }
     }
 
     // C→S 0x1fa: a pick in one of the Cosmetics tab's skill slots (record 0 empties it). Saved for the slot's gem type and

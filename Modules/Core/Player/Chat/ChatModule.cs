@@ -224,6 +224,13 @@ sealed class ChatService : IDisposable
                     Log($"{player.Connection.Remote} <= 0x0015 party line \"{finalText}\" from {name} with no party to take it");
                 break;
             }
+            case TypedChannel.Guild:
+            {
+                var (finalText, finalLinks) = ChatWire.ExpandNamedLinks(text, chat.Links, prefix, namedLinks);
+                if (!await GameEvents.RunGuildChat(player, finalText, OwnLine(finalLinks, linked, finalText, prefix)))
+                    Log($"{player.Connection.Remote} <= 0x0015 guild line \"{finalText}\" from {name} with no guild to take it");
+                break;
+            }
             case TypedChannel.Global or TypedChannel.Trade:
             {
                 var (finalText, finalLinks) = ChatWire.ExpandNamedLinks(text, chat.Links, prefix, namedLinks);
