@@ -290,8 +290,8 @@ public static partial class Game
         QueueUtilityFlaskEnd(player, state, effect, why);
         if (!triggered) return;
         state.Enqueue(new(FlaskEnchantments.Trigger.End, effect.ItemId, effect.Slot, effect.Activation));
-        if (effect.LocalStats?.GetValueOrDefault(Stat.LocalFlaskDebilitateNearbyEnemiesForXSecondsWhenFlaskEffectEnds)
-            is not int seconds or <= 0) return;
+        int seconds = effect.LocalStats?.GetValueOrDefault(Stat.LocalFlaskDebilitateNearbyEnemiesForXSecondsWhenFlaskEffectEnds) ?? 0;
+        if (seconds <= 0) return;
         const int nearby = 30; // The native description of Vorana's Preparation specifies three metres.
         var at = player.Walk.Position(now);
         foreach (var (id, monster) in player.Area.MonstersNear(at, nearby))
