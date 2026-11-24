@@ -219,6 +219,8 @@ public static partial class Game
                 if (preGem.RequirementsMet && SkillsFor(player).EffectId(preGem.Effect) == definition.Id)
                 {
                     if (definition.Family == "Phantasm") preGem = PhantasmGem(player, preGem);
+                    if (definition.Family == LivingLightningFamily && LivingLightningDefinition(player, preGem) is not null)
+                        preGem = LivingLightningGem(player, preGem);
                     if (retainedStats is not null) preGem = preGem with { Stats = MergeSummonStats(preGem.Stats, retainedStats) };
                     int preActorLevel = GolemStat(preGem.Stats, definition.Family == "Spectre" ? Stat.RaisedSpectreLevel : Stat.BaseDisplayMinionActorLevel);
                     if (preActorLevel <= 0 && (definition.Family.StartsWith("Dominating", StringComparison.Ordinal) || definition.Family == "VaalDomination"))
@@ -252,7 +254,11 @@ public static partial class Game
             || SkillsFor(player).EffectId(gem.Effect) != definition.Id) return 0;
         if (!DarkMonarchAllows(definition.Family, playerStats)) return 0;
         if (definition.Family == "Phantasm") gem = PhantasmGem(player, gem);
-        if (definition.Family == LivingLightningFamily) gem = LivingLightningGem(player, gem);
+        if (definition.Family == LivingLightningFamily)
+        {
+            if (LivingLightningDefinition(player, gem) is null) return 0;
+            gem = LivingLightningGem(player, gem);
+        }
         inheritedMods ??= replacingOld?.InheritedMods;
         if (replacingOld is not null) rarity = replacingOld.Monster.Rarity;
         // A replacement keeps the stats its body was given at summon (a Vaal ascension's upgrade).
@@ -509,6 +515,8 @@ public static partial class Game
             {
                 var gem = SupportedSkill(player, fighter.Source);
                 if (fighter.Definition.Kind == "Phantasm") gem = PhantasmGem(player, gem);
+                if (fighter.Definition.Kind == LivingLightningFamily && LivingLightningDefinition(player, gem) is not null)
+                    gem = LivingLightningGem(player, gem);
                 fighter.Limit = SummonLimit(state.Definitions[fighter.Id], gem.Stats, stats);
             }
             int surplus = family.Count() - family.Max(fighter => fighter.Limit);
@@ -640,6 +648,12 @@ public static partial class Game
                 if (playerStats is null) { GolemStepLocked(player, fighter, now); continue; }
                 var gem = SupportedSkill(player, fighter.Source);
                 if (fighter.Definition.Kind == "Phantasm") gem = PhantasmGem(player, gem);
+                if (fighter.Definition.Kind == LivingLightningFamily)
+                {
+                    if (LivingLightningDefinition(player, gem) is null)
+                    { RemoveSummonLocked(player, fighter, now); changed = true; continue; }
+                    gem = LivingLightningGem(player, gem);
+                }
                 if (fighter.Definition.Kind == "Phantasm" && GolemStat(gem.Stats, Stat.BaseNumberOfSupportGhostsAllowed) <= 0)
                 { RemoveSummonLocked(player, fighter, now); changed = true; continue; }
                 if (fighter.SourceIdentity is not null && (fighter.Definition.Kind == "Phantasm" || SentinelNativeType(fighter.Definition.Kind) != 0)

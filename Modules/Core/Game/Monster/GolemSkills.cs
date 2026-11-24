@@ -429,6 +429,8 @@ public static partial class Game
             if (!spell && projectileSkill)
                 speed *= Math.Max(.01, 1 + Own(Stat.SupportProjectileAttackSpeedPlusPctFinal) / 100d);
             if (!spell) speed *= Math.Max(.01, 1 + catalog.AttackSpeedMultiplier(effect, skillLevel) / 100.0);
+            if (golem.Definition.Kind == LivingLightningFamily && effect == LivingLightningZapEffect)
+                seconds = Own(Stat.LivingLightningBeamAttackTimeMs) / 1000d;
             seconds = Math.Max(.1, seconds / Math.Max(.1, speed));
             var damage = DamagePacket.Empty;
             if (spell)
@@ -478,7 +480,7 @@ public static partial class Game
             }
             if (effect == 306) conversion.AddSkill(DamageType.Physical, prismatic, 100);
             if (golem.Definition.Kind == LivingLightningFamily && effect == LivingLightningZapEffect)
-                conversion.AddSkill(DamageType.Physical, DamageType.Lightning, Own(Stat.SkillPhysicalDamagePctToConvertToLightning));
+                conversion.AddSkill(DamageType.Physical, DamageType.Lightning, Own(Stat.MinionBasePhysicalDamagePctToConvertToLightning));
             conversion.AddSkill(DamageType.Cold, DamageType.Fire,
                 Raw(Stat.SkillColdDamagePctToConvertToFire) + Own(Stat.SkillColdDamagePctToConvertToFire));
             conversion.AddGain(DamageType.Cold, DamageType.Fire, Raw(Stat.ColdDamagePctToAddAsFire) + mods[Stat.ColdDamagePctToAddAsFire]);

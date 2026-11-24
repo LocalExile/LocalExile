@@ -6,7 +6,8 @@ public static partial class Game
     const string LivingLightningSupport = "SupportLivingLightning";
     const int LivingLightningZapEffect = 9346;
 
-    static readonly RuleTable<Player, SingleUseCooldownState> LivingLightningCooldowns = new();
+    sealed record LivingLightningCooldown(int Epoch, SingleUseCooldownState State);
+    static readonly RuleTable<Player, LivingLightningCooldown> LivingLightningCooldowns = new();
     sealed class LivingLightningAttacks { public int Released; }
     static readonly RuleTable<GolemState.Golem, LivingLightningAttacks> LivingLightningAttackCounts = new();
 
@@ -47,8 +48,12 @@ public static partial class Game
         int capacity = catalog.CooldownUses(effect, support.Gem.Level);
         if (cooldown <= 0 || capacity <= 0) return;
         var plan = new SingleUseCooldown(cooldown, GolemStat(CharacterPlayerStats(player), Stat.CooldownRecoverySpeedPlusPct), capacity);
-        var state = LivingLightningCooldowns.GetValue(player, _ => new(now, plan.RecoveryRate));
-        if (!state.TryUse(now, plan)) return;
+        if (!LivingLightningCooldowns.TryGetValue(player, out var cooldownState) || cooldownState.Epoch != player.ProjectileEpoch)
+        {
+            cooldownState = new(player.ProjectileEpoch, new(now, plan.RecoveryRate));
+            LivingLightningCooldowns.AddOrUpdate(player, cooldownState);
+        }
+        if (!cooldownState.State.TryUse(now, plan)) return;
         player.Summons.HitSummons.Add(new(id, target, source, gem.Effect, gem.SourceGem, false,
             Kind: LivingLightningFamily, Supports: SummonSupportStamp(gem)));
     }
@@ -58,7 +63,7 @@ public static partial class Game
         var ability = action.Ability;
         if (action.Victim is not { Hostile: true, Dead: false } current
             || !ReferenceEquals(player.Area.Monsters.GetValueOrDefault(action.Target), current)) return;
-        int chains = GolemStat(minion.Own, Stat.NumberOfAdditionalChains);
+        int chains = GolemStat(minion.Own, Stat.NumberOfChains);
         uint id = action.Target;
         var visited = new HashSet<uint>();
         for (int jump = 0; jump <= chains; jump++)
