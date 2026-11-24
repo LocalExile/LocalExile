@@ -44,10 +44,9 @@ public static partial class Game
         var support = gem.Supports.Single(s => s.Effect.Id == LivingLightningSupport);
         var catalog = SkillsFor(player);
         int effect = catalog.EffectRow("TriggeredSupportLivingLightning");
-        int cooldown = catalog.CooldownMs(effect, support.Gem.Level);
-        int capacity = catalog.CooldownUses(effect, support.Gem.Level);
-        if (cooldown <= 0 || capacity <= 0) return;
-        var plan = new SingleUseCooldown(cooldown, GolemStat(CharacterPlayerStats(player), Stat.CooldownRecoverySpeedPlusPct), capacity);
+        var own = LivingLightningGem(player, gem).Stats;
+        if (SingleUseCooldown.ForSkill(catalog, Stats, effect, support.Gem.Level,
+                CharacterPlayerStats(player), own) is not { } plan) return;
         if (!LivingLightningCooldowns.TryGetValue(player, out var cooldownState) || cooldownState.Epoch != player.ProjectileEpoch)
         {
             cooldownState = new(player.ProjectileEpoch, new(now, plan.RecoveryRate));
