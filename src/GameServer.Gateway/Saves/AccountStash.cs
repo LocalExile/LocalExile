@@ -673,10 +673,16 @@ public sealed partial class AccountStash
             { why = "this unique does not belong to the collection category"; return null; }
             return (unique.X, unique.Y);
         }
-        if (_rules.TakesAnything(t.Saved.Type, x, y)) return (x, y);   // the currency tab's crafting slot: any item, where dropped
+        if (_rules.TakesAnything(t.Saved.Type, x, y)) return (x, y);   // a crafting slot (currency, delve, blight's anoint cell): any item
+        if (_rules.IsMapSlot(t.Saved.Type, x, y))
+        {
+            if (_rules.MapTier(item.TypeHash) is null) { why = $"the {TypeName(t)} tab's map cells take maps only"; return null; }
+            return (x, y);
+        }
         if (!_rules.Holds(t.Saved.Type, item.TypeHash)) { why = $"the {TypeName(t)} tab doesn't hold that item"; return null; }
         if (!_rules.Slotted(t.Saved.Type)) return (x, y);
         if (_rules.IsOverflowSlot(t.Saved.Type, x, y)) return (x, y);   // a spare cell under the crafting slot: where dropped
+        if (_rules.IsInputSlot(t.Saved.Type, x, y)) return (x, y);      // a crafting input beside the anoint cell: where dropped
         if (_rules.SlotOf(t.Saved.Type, item.TypeHash) is not int slot) { why = $"the {TypeName(t)} tab has no slot for that item"; return null; }
         return SlotCell(t, slot);
     }
@@ -696,7 +702,8 @@ public sealed partial class AccountStash
     // slot, which holds any item at its own stack size).
     int MaxStack(TabState t, Item item, PlayerInventories.Shape shape, int x, int y) =>
         !item.Components.Contains("Stack") ? 1 :
-        _rules.TakesAnything(t.Saved.Type, x, y) ? shape.MaxStack : _rules.MaxStack(t.Saved.Type, item.TypeHash) ?? shape.MaxStack;
+        _rules.TakesAnything(t.Saved.Type, x, y) || _rules.IsInputSlot(t.Saved.Type, x, y) || _rules.IsMapSlot(t.Saved.Type, x, y)
+            ? shape.MaxStack : _rules.MaxStack(t.Saved.Type, item.TypeHash) ?? shape.MaxStack;
 
     /// <summary>The item put into a tab at (x, y) (in a slotted tab, its own slot), and the one item it was dropped on
     /// (taken out, for the cursor), or null with the reason: the tab doesn't hold it, outside the grid or more than one

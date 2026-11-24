@@ -156,7 +156,8 @@ connection. Later opens send b = 0x16: the panel keeps its own tab while the con
   The note travels in the item's `Base` component bit 4 (0x10) as `WStr32` before `SkinTransferSource` (0x40) and
   `Price` (0x80).
 - **0xf5** (12 bytes, writer `0x141f9a550`, sender `0x1403136e1`): Blight tab oil take-out (u32 BE item id, u8 kind,
-  u32 BE tab, u8 uiPanelState — UI panel state at `0x1403136d5`/`0x140313879`, not a bulk flag).
+  u32 BE tab, u8 uiPanelState — UI panel state at `0x1403136d5`/`0x140313879`, not a bulk flag). Ctrl + click on an
+  oil in the Blight tab sends it with panelState 1, and the oil goes to the inventory (live 2026-11-24).
 - **0xd2** (5 bytes: u16 BE folder, u8 kind; `0x14025c5c0`, registered at `0x140258e87`): the folder settings' "Delete
   Folder", sent only for type 16 after the client cleared +0x3a of the tabs in it. The server moves them out and keeps
   the folder as a record with the hidden flag (0x20, so the panel leaves it out), which the next new folder reuses:
@@ -253,6 +254,10 @@ item moved into or out of a tab (0x28, 0x2a, 0xe0, 0xe3). Stacks merge into a ta
   Other slotted tabs retain 5000 (`StashRules.SlotStack`), also the fallback for absent or invalid currency limits.
   The Delve (StashType 12, DelveStashTabLayout) and
   Blight (13, BlightStashTabLayout) and Delirium (15, DeliriumStashTabLayout) tabs are slotted the same way; the
+  Blight tab's crafting rows are cells too (live 2026-11-24): CraftingItem (13) takes any item, CraftingInputs1–3 and
+  CraftingInputCorrupt (15–17, 78) the tab's own items, and BlightedMapSlots (18, Width 60) maps in cells 18–77.
+  Its Anoint button is the client's: without the quest flag `CassiaOnAnointingOils` it shows
+  BlightAnointErrorNoCassia ("Strange Growths") and sends nothing. The
   Divination tab (6) too, a card's slot being its DivinationCardStashTabLayout row. The client builds a
   map from each row's card (its BaseItemTypes Id) to the row index (`0x140b306d0`), and 470 rows run past the tab's
   255 cells. So slot n is cell (n mod width, n / width): rows 255–469 go into the second row of its 255 × 2. Every other

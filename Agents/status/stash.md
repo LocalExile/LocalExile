@@ -98,7 +98,8 @@ Part of [Status](../Status.md); what to build next in this area is in
 - **Crafting cells.** Delve crafting cells accept equipment, support swaps and retain their contents after reload.
   Lioneye's Watch now creates a guild stash beside its personal stash.
   Persistence checks pass; the real client opened the city guild stash and loaded its guild tab.
-- **Blight oil withdrawal:** `C→S 0xf5` withdraws Blight oils from stash; not checked live.
+- **Blight tab:** oils in their slots, the anoint cell, the oil cells and the 60-cell map row take their items and
+  keep them after a relog; Ctrl + click on an oil (`C→S 0xf5`) moves it to the inventory (live 2026-11-24).
   Delve sockets (colour 6) now accept only Fossils and reject skill gems (offline verified; live client check pending).
 
 ## Not working yet

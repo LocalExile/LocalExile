@@ -33,6 +33,8 @@ public sealed class StashRules
     readonly Dictionary<byte, Dictionary<uint, int>> _slots = [];     // StashType row → item type → slot
     readonly Dictionary<uint, ushort> _currencyTabStack = [];  // CurrencyItems.CurrencyTab_StackSize; else SlotStack
     readonly Dictionary<byte, HashSet<int>> _anySlots = [];          // StashType row → slots that take any item
+    readonly Dictionary<byte, HashSet<int>> _inputSlots = [];        // StashType row → crafting inputs: the tab's items, where dropped
+    readonly Dictionary<byte, HashSet<int>> _mapSlots = [];          // StashType row → slots that take maps, where dropped
     readonly Dictionary<uint, int> _mapTiers = [];                   // map item HASH32 → MapKeys.MapTier (1..16)
     readonly List<uint> _mapBases = [];                              // the map tab's bases: MapKeys rows + the four special maps
     readonly List<uint> _legendaryMaps = [];                         // MapStashUniqueMapInfo HASH16: the legendary maps' pages
@@ -69,6 +71,15 @@ public sealed class StashRules
     /// live 2026-10-23). An item there keeps its own stack size.
     /// </summary>
     public bool TakesAnything(byte tabType, int x, int y) => y == 0 && _anySlots.TryGetValue(tabType, out var s) && s.Contains(x);
+
+    /// <summary>Whether cell (x, y) is a crafting input (BlightStashTabLayout CraftingInputs1–3 and CraftingInputCorrupt,
+    /// the oils beside the anoint cell): an item the tab holds, where dropped, at its own stack size; never a Ctrl + click
+    /// target.</summary>
+    public bool IsInputSlot(byte tabType, int x, int y) => y == 0 && _inputSlots.TryGetValue(tabType, out var s) && s.Contains(x);
+
+    /// <summary>Whether cell (x, y) is one of the blight tab's map cells (BlightStashTabLayout BlightedMapSlots, Width 60
+    /// cells from its FirstSlotIndex): a map, where dropped.</summary>
+    public bool IsMapSlot(byte tabType, int x, int y) => y == 0 && _mapSlots.TryGetValue(tabType, out var s) && s.Contains(x);
 
     readonly Dictionary<byte, List<int>> _overflowSlots = [];   // StashType row → spare slots, in screen order
 
@@ -221,9 +232,20 @@ public sealed class StashRules
                 // Fragment slots address an inventory row as well as a column. Later pages reuse columns 0..254.
                 if (tabType == Fragment) slot += (r.IntOrNull("Subtab") ?? 0) * AccountStash.Types[Fragment].Width;
                 string id = r.Text("Id") ?? "";
-                if (id == "CraftingSlot" || (tabType == Delve && id.StartsWith("GenericSlot", StringComparison.Ordinal)))
+                if (id is "CraftingSlot" or "CraftingItem" || (tabType == Delve && id.StartsWith("GenericSlot", StringComparison.Ordinal)))
                 {
                     (rules._anySlots.TryGetValue(tabType, out var any) ? any : rules._anySlots[tabType] = []).Add(slot);
+                    continue;
+                }
+                if (id.StartsWith("CraftingInput", StringComparison.Ordinal))
+                {
+                    (rules._inputSlots.TryGetValue(tabType, out var inputs) ? inputs : rules._inputSlots[tabType] = []).Add(slot);
+                    continue;
+                }
+                if (id == "BlightedMapSlots")
+                {
+                    var maps = rules._mapSlots.TryGetValue(tabType, out var m) ? m : rules._mapSlots[tabType] = [];
+                    for (int i = 0; i < (r.IntOrNull("Width") ?? 1); i++) maps.Add(slot + i);
                     continue;
                 }
                 if (id.StartsWith("Generic", StringComparison.Ordinal) && r.Has("XOffset") && r.Has("YOffset"))

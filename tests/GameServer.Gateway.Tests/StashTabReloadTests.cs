@@ -106,6 +106,45 @@ public class StashTabReloadTests : IDisposable
     }
 
     [Fact]
+    public void Blight_tab_anoint_oil_and_map_cells_take_their_items_and_keep_them_after_a_reload()
+    {
+        var catalog = new ItemCatalog("data");
+        TestEnvironment.OpenOwnSaves("blightcells");
+        string account = "BlightCells" + Guid.NewGuid().ToString("N");
+        PlayerInventories.Shape? ShapeOf(Item i) => catalog.ByHash(i.TypeHash) is { } t ? new(t.Width, t.Height, t.Class, t.MaxStack) : null;
+        try
+        {
+            var stash = AccountStash.For(account, catalog);
+            int blight = Enumerable.Range(0, stash.Count).Single(i => stash.TabType(i) == StashRules.Blight);
+            var amulet = catalog.All.First(t => t.Class == "Amulet" && t.Supported);
+            var oil = catalog.Find("Metadata/Items/Currency/Mushrune1")!;
+            var map = catalog.All.First(t => catalog.Stash.MapTier(t.Hash) is not null);
+            InventoryItem New(ItemCatalog.BaseType type) => new(stash.NewItemId(), 0, 0, ItemCatalog.Create(type));
+
+            // The anoint cell (CraftingItem, slot 13), an oil input (CraftingInputs1, slot 15) and two of the 60 map cells
+            // (BlightedMapSlots, slots 18..77) keep what is dropped there; a map cell refuses what is not a map.
+            Assert.NotNull(stash.Place(blight, 13, 0, New(amulet), ShapeOf, out _));
+            Assert.NotNull(stash.Place(blight, 15, 0, New(oil), ShapeOf, out _));
+            Assert.NotNull(stash.Place(blight, 18, 0, New(map), ShapeOf, out _));
+            Assert.NotNull(stash.Place(blight, 77, 0, New(map), ShapeOf, out _));
+            Assert.Null(stash.Place(blight, 19, 0, New(amulet), ShapeOf, out string why));
+            Assert.Contains("maps only", why);
+            // An amulet anywhere else on the tab is still refused.
+            Assert.Null(stash.Place(blight, 16, 0, New(amulet), ShapeOf, out _));
+
+            AccountStash.Forget(account);
+            var cells = AccountStash.For(account, catalog).Inventory(blight).Items
+                .Select(i => (i.X, i.Item.TypeHash)).OrderBy(c => c.X).ToArray();
+            Assert.Equal([(13, amulet.Hash), (15, oil.Hash), (18, map.Hash), (77, map.Hash)],
+                cells.Select(c => ((int)c.X, c.TypeHash)).ToArray());
+        }
+        finally
+        {
+            AccountStash.Forget(account);
+        }
+    }
+
+    [Fact]
     public async Task Unique_collection_categories_remain_registered_after_another_tab_loads()
     {
         var catalog = new ItemCatalog("data");
