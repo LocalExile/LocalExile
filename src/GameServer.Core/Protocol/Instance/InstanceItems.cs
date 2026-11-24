@@ -573,6 +573,41 @@ public static class InstanceItems
         return new(r.U16(), r.U32(), r.U32(), r.U32(), r.U32());
     }
 
+    /// <summary>
+    /// C→S 0x29e DualCurrencyApplicationForesightRequest (class 0x1435ca790, writer 0x141fa5510, caller 0x1402d0514;
+    /// 28 bytes): u16 id, u16 BE key, u32 BE currency inventory, u32 BE currency item id, u32 BE first target inventory,
+    /// u32 BE first target item id, u32 BE second target inventory, u32 BE second target item id. Answered with S→C 0x2a0.
+    /// </summary>
+    public const ushort DualCurrencyApplicationForesightRequestId = 0x29e;
+    public const int DualCurrencyApplicationForesightRequestLength = 28;
+
+    public sealed record DualCurrencyApplicationForesightRequest(ushort Key, uint CurrencyInventory, uint CurrencyId,
+        uint FirstTargetInventory, uint FirstTargetId, uint SecondTargetInventory, uint SecondTargetId);
+
+    public static DualCurrencyApplicationForesightRequest ReadDualCurrencyApplicationForesightRequest(ReadOnlySpan<byte> m)
+    {
+        var r = new LoginReader(m[2..]);
+        return new(r.U16(), r.U32(), r.U32(), r.U32(), r.U32(), r.U32(), r.U32());
+    }
+
+    /// <summary>
+    /// C→S 0x29f CurrencyTypeApplicationForesightRequest (class 0x1435ca440, writer 0x141fa57e0, caller 0x1402d0599;
+    /// 25 bytes): Shift-repeat Hinekora's Lock preview naming the currency by <c>BaseItemTypes.HASH32</c>: u16 id,
+    /// u16 BE key, u32 BE currency type hash, u32 BE currency inventory, u16 BE tab index, u16 BE sub index,
+    /// u32 BE target inventory, u32 BE target item id, u8 flags. Answered with S→C 0x2a0.
+    /// </summary>
+    public const ushort CurrencyTypeApplicationForesightRequestId = 0x29f;
+    public const int CurrencyTypeApplicationForesightRequestLength = 25;
+
+    public sealed record CurrencyTypeApplicationForesightRequest(ushort Key, uint CurrencyTypeHash, uint CurrencyInventory,
+        ushort TabIndex, ushort SubIndex, uint TargetInventory, uint TargetId, byte Flags);
+
+    public static CurrencyTypeApplicationForesightRequest ReadCurrencyTypeApplicationForesightRequest(ReadOnlySpan<byte> m)
+    {
+        var r = new LoginReader(m[2..]);
+        return new(r.U16(), r.U32(), r.U32(), r.U16(), r.U16(), r.U32(), r.U32(), r.U8());
+    }
+
     public const ushort CurrencyApplicationForesightResultId = 0x2a0;
 
     /// <summary>The 0x2a0 result code that plays the client's Hinekora fail animation (0 shows the preview).</summary>

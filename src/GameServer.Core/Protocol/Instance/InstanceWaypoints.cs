@@ -85,6 +85,10 @@ public static class InstanceWaypoints
     /// <summary>S→C 0x7b kind 0x11: the Atlas **passive tree** screen (HUD +0x668, listener 0x140dcb810), not the map screen.</summary>
     public const byte AtlasUi = 0x11;
 
+    /// <summary>S→C 0x7b kind 0x13: the Atlas screen (HUD +0x660, listener 0x140dcb750). Passing <c>a = 1</c> enables
+    /// Atlas Scrying mode (<c>[atlas+0x3d8] = 1</c>) and stores <c>b</c> as the scrying source object id (<c>+0x3dc</c>).</summary>
+    public const byte AtlasScryingUi = 0x13;
+
     /// <summary>S→C 0x7b kind 0x33: instance +0x22f8 → HUD virtual +0x8e0 (0x140dd8e80) → 0x140c3e780.
     /// The first u32 is the CraftingBenchTypes row (0: ordinary bench, 1: runesmithing), not an object id.</summary>
     public const byte CraftingBenchUi = 0x33;

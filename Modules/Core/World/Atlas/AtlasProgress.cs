@@ -21,9 +21,9 @@ public static class AtlasProgress
     }
 
     public sealed record Node(int Row, string Id, ushort Hash16, string Name, IReadOnlySet<string> Areas, IReadOnlySet<string> Bosses,
-        IReadOnlySet<string> FinalBosses);
+        IReadOnlySet<string> FinalBosses, IReadOnlySet<ushort> AreaHashes);
 
-    const string CompletedKey = "completed", BonusKey = "atlas.bonusCompleted";
+    const string CompletedKey = "completed", BonusKey = "atlas.bonusCompleted", ScryKeyPrefix = "atlas.scry.";
 
     /// <summary>The masks' rows: the client reads 22 bytes and keeps rows below 170 (the Atlas's maps; later rows are
     /// RandomContent nodes).</summary>
@@ -39,6 +39,11 @@ public static class AtlasProgress
 
     public static Node? Find(string idOrName) => Maps.FirstOrDefault(n =>
         n.Id.Equals(idOrName, StringComparison.OrdinalIgnoreCase) || n.Name.Equals(idOrName, StringComparison.OrdinalIgnoreCase));
+
+    public static Node? FindByHash16(ushort hash16) => Maps.FirstOrDefault(n => n.Hash16 == hash16);
+
+    public static Node? FindByAreaHash16(ushort areaHash16) =>
+        Maps.FirstOrDefault(n => n.AreaHashes.Contains(areaHash16)) ?? FindByHash16(areaHash16);
 
     public static Node? OfArea(string areaId) => Maps.FirstOrDefault(n => n.Areas.Contains(areaId));
 
@@ -105,6 +110,29 @@ public static class AtlasProgress
         return clearedMaps || clearedBonuses;
     }
 
+    public static bool Uncomplete(ISavedData data, Node node)
+    {
+        PreserveExistingCredit(data);
+        bool RemoveFrom(string key) => data.Change(key, old =>
+        {
+            var ids = ReadIds(old);
+            if (!ids.Remove(node.Id)) return null;
+            return string.Join(',', ids.Order(StringComparer.Ordinal));
+        });
+        bool removedCompleted = RemoveFrom(CompletedKey);
+        bool removedBonus = RemoveFrom(BonusKey);
+        return removedCompleted || removedBonus;
+    }
+
+    public static bool SetScry(ISavedData data, Node from, Node to) =>
+        data.Change(ScryKeyPrefix + from.Id, old => old == to.Id ? null : to.Id);
+
+    public static string? ScryTarget(ISavedData data, Node from) => data.Get(ScryKeyPrefix + from.Id);
+
+    /// <summary>S→C 0x01a5: incremental Voidstone T16 region-mask delta for one socketed/unsocketed slot (0..3).</summary>
+    public static byte[] VoidstoneDeltaMessage(int slot, bool socketed) =>
+        InstanceMapDevice.AtlasVoidstoneDelta((byte)RegionBit(slot), socketed);
+
     /// <summary>S→C 0x1a3 +0x70 bit for a Voidstone slot: the client tests AtlasNode.Region, not AtlasVoidstoneSlots
     /// order. Maven (slot 0) sits in region 2, Elder (1) in 1, Tangled (2) in 3, Cleansing Fire (3) in 0. Sending
     /// slot-as-bit only raised the Elder / top-right quadrant.</summary>
@@ -166,10 +194,11 @@ public static class AtlasProgress
     static (IReadOnlyList<Node> Maps, IReadOnlySet<int> OnAtlas) Load(string folder)
     {
         if (!ClientTables.Has("AtlasNode") || !ClientTables.Has("WorldAreas")) return ([], new HashSet<int>());
-        var areaRows = new List<(string Id, string Name, int[] Bosses)>();
+        var areaRows = new List<(string Id, string Name, ushort Hash16, int[] Bosses)>();
         var a = ClientTables.Table("WorldAreas");
         foreach (var row in a)
             areaRows.Add((row.Text("Id") ?? "", row.Text("Name") ?? "",
+                (ushort)(row.IntOrNull("HASH16") ?? 0),
                 [.. row.Ints("Bosses_MonsterVarietiesKeys")]));
         var byRow = new Dictionary<int, (string Id, ushort Hash16, string Name, HashSet<int> Areas)>();
         void Add(int r, string id, ushort hash, string name, IEnumerable<int> areaIndexes)
@@ -235,7 +264,8 @@ public static class AtlasProgress
                 .Select(list => Variety(list[^1])).Where(id => id.Length > 0).ToHashSet(StringComparer.Ordinal);
             return new Node(kv.Key, n.Id, n.Hash16, n.Name,
                 n.Areas.Select(i => areaRows[i].Id).ToHashSet(StringComparer.Ordinal),
-                bosses, finals.Count > 0 ? finals : bosses);
+                bosses, finals.Count > 0 ? finals : bosses,
+                n.Areas.Select(i => areaRows[i].Hash16).Where(h => h != 0).ToHashSet());
         })], onAtlas);
     }
 }

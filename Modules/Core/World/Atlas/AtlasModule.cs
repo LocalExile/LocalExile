@@ -46,6 +46,7 @@ public sealed class AtlasModule : IModule
     {
         LoadData();
         ExtraPlayerMessages = player => AtlasFeature.Restore(player);
+        GameEvents.EnterMessages.Add(module.Manifest.Id, player => AtlasFeature.PrimordialEnterMessages(player));
         GameEvents.PlayerEntered.Add(module.Manifest.Id, player => AtlasFeature.EnsureUnlocked(player));
         // Once the player is in the area (AreaGenerated may come before the player is sent).
         GameEvents.AreaTick.Add(module.Manifest.Id, _ =>
@@ -144,8 +145,30 @@ public sealed class AtlasModule : IModule
         GameEvents.Packet(InstanceEntities.AtlasWindowRequestId).Add(module.Manifest.Id, async (player, _) =>
         {
             await Send(player, InstanceEntities.AtlasWindowReply(), "0x0091 Atlas window reply");
+            if (AtlasFeature.VaultPassMessage(player) is { } pass)
+                await Send(player, pass, "0x012a Atlas Vault Pass");
             return true;
         });
+        GameEvents.Packet(InstanceMapDevice.AtlasScryId).Add(module.Manifest.Id, async (player, bytes) =>
+        {
+            if (bytes.Length < InstanceMapDevice.AtlasScryLength) return false;
+            await AtlasFeature.ScrySwap(player, InstanceMapDevice.ReadAtlasScry(bytes));
+            return true;
+        });
+        GameEvents.Packet(InstanceMapDevice.UseItemOnAtlasNodeId).Add(module.Manifest.Id, async (player, bytes) =>
+        {
+            if (bytes.Length < InstanceMapDevice.UseItemOnAtlasNodeLength) return false;
+            await AtlasFeature.UseItemOnNode(player, InstanceMapDevice.ReadUseItemOnAtlasNode(bytes));
+            return true;
+        });
+        GameEvents.Packet(InstanceMapDevice.UseItemTypeOnAtlasNodeId).Add(module.Manifest.Id, async (player, bytes) =>
+        {
+            if (bytes.Length < InstanceMapDevice.UseItemTypeOnAtlasNodeLength) return false;
+            await AtlasFeature.UseItemTypeOnNode(player, InstanceMapDevice.ReadUseItemTypeOnAtlasNode(bytes));
+            return true;
+        });
+        GameEvents.Command(module.Manifest.Id, "atlas_scry", "/atlas_scry (opens the Atlas in scrying mode)",
+            async (player, _) => await AtlasFeature.OpenScrying(player, 0));
         GameEvents.Packet(InstanceMapDevice.SocketId).Add(module.Manifest.Id, async (player, bytes) =>
         {
             await AtlasFeature.SocketVoidstone(player,
@@ -177,6 +200,8 @@ public sealed class AtlasModule : IModule
             if (AtlasFeature.KiracHeardFlags(player, talk) is { Count: > 0 } heard)
                 await SetLeagueQuestFlags(player, heard);
             await AtlasFeature.GiveMavenInvitation(player, talk.Script);
+            if (talk.Script is not null && talk.Script.Contains("scry", StringComparison.OrdinalIgnoreCase))
+                await AtlasFeature.OpenScrying(player, player.TalkingTo);
             return true;
         });
     }
@@ -384,6 +409,9 @@ public static class AtlasFeature
     /// <summary>Gold cost per Atlas passive node refund (GameConstants.AtlasPassiveRespecCost = 2000; 0x141ef5ad0).</summary>
     static uint AtlasGoldRespecCost = 2000u;
 
+    /// <summary>Latest BattlePasses.dat Id for S→C 0x012a (<see cref="InstanceMapDevice.AtlasVaultPass"/>).</summary>
+    static string ActiveBattlePassId = "";
+
     internal static void LoadAtlasFeatureData()
     {
         uint cost = 2000u;
@@ -395,6 +423,202 @@ public static class AtlasFeature
                     break;
                 }
         AtlasGoldRespecCost = cost;
+        string passId = "";
+        if (GameServer.Core.ClientTables.Has("BattlePasses"))
+            foreach (var row in GameServer.Core.ClientTables.Table("BattlePasses"))
+                if (row.Text("Id") is { Length: > 0 } id)
+                    passId = id;
+        ActiveBattlePassId = passId;
+    }
+
+    internal static byte[]? VaultPassMessage(Player player)
+    {
+        if (ActiveBattlePassId.Length == 0) return null;
+        int bonus = AtlasProgress.BonusCompleted(WorldOf(PlayerOf(player)).CharacterData).Count;
+        return InstanceMapDevice.AtlasVaultPass((ushort)Math.Clamp(bonus, 0, ushort.MaxValue), ActiveBattlePassId,
+            purchased: false, active: true);
+    }
+
+    /// <summary>Attaches <c>Rulesets.dat</c> row 99 (<c>AtlasPrimordialBossInfluenceRules</c>) and sends its initial
+    /// empty S→C 0x2c9 sub-id 0 payload when entering an Eldritch-influenced map so the Primordial Altar HUD tracker
+    /// is active.</summary>
+    internal static IReadOnlyList<(string Log, byte[] Message)> PrimordialEnterMessages(Player player)
+    {
+        if (global::Game.MapModsOf(player) is not { } mods
+            || mods.Get(Stat.MapAtlasPrimordialBossInfluence) <= 0)
+            return [];
+        return
+        [
+            ($"0x001f ruleset AtlasPrimordialBossInfluenceRules (row {InstanceRulesets.PrimordialInfluenceRulesetRow})",
+                InstanceProtocol.AddRuleset(InstanceRulesets.PrimordialInfluenceRulesetRow)),
+            ("0x02c9 AtlasPrimordialBossInfluenceRules sub-id 0 (initial empty altar mods)",
+                InstanceRulesets.PrimordialAltarHud([], [], [], [], [], [])),
+        ];
+    }
+
+    /// <summary>Updates the active Primordial Altar HUD mod lists (S→C 0x2c9 ruleset 99 sub-id 0).</summary>
+    public static Task SendPrimordialAltarHud(
+        Player player,
+        IReadOnlyList<InstanceRulesets.PrimordialAltarMod> playerUpsides,
+        IReadOnlyList<InstanceRulesets.PrimordialAltarMod> playerDownsides,
+        IReadOnlyList<InstanceRulesets.PrimordialAltarMod> minionUpsides,
+        IReadOnlyList<InstanceRulesets.PrimordialAltarMod> minionDownsides,
+        IReadOnlyList<InstanceRulesets.PrimordialAltarMod> bossUpsides,
+        IReadOnlyList<InstanceRulesets.PrimordialAltarMod> bossDownsides) =>
+        Send(player, InstanceRulesets.PrimordialAltarHud(
+                playerUpsides, playerDownsides, minionUpsides, minionDownsides, bossUpsides, bossDownsides),
+            "0x02c9 AtlasPrimordialBossInfluenceRules sub-id 0 (altar mods update)");
+
+    /// <summary>Opens the Atlas in scrying mode (S→C 0x7b kind 0x13, mode 1, source object id).</summary>
+    public static Task OpenScrying(Player player, uint sourceObjectId) =>
+        Send(player, InstanceWaypoints.OpenUi(InstanceWaypoints.AtlasScryingUi, 1, sourceObjectId),
+            $"0x007b open Atlas in scrying mode (kind 0x{InstanceWaypoints.AtlasScryingUi:x2}, source 0x{sourceObjectId:x})");
+
+    // C→S 0x01a7: swap divination card drop pools between two Atlas maps (Atlas Scrying).
+    internal static async Task ScrySwap(Player player, InstanceMapDevice.AtlasScryRequest req)
+    {
+        var from = AtlasProgress.FindByAreaHash16(req.FromAreaHash);
+        var to = AtlasProgress.FindByAreaHash16(req.ToAreaHash);
+        if (from is null || to is null || from.Id == to.Id)
+        {
+            Console.WriteLine($"[gateway] {player.Connection.Remote} <= 0x01a7 Atlas scry 0x{req.FromAreaHash:x4} -> 0x{req.ToAreaHash:x4} refused: unknown or identical map");
+            return;
+        }
+        var data = WorldOf(PlayerOf(player)).CharacterData;
+        AtlasProgress.SetScry(data, from, to);
+        Console.WriteLine($"[gateway] {player.Connection.Remote} <= 0x01a7 Atlas scry: {from.Name} ({from.Id}) -> {to.Name} ({to.Id}) (source 0x{req.ObjectId:x})");
+        await PlayerOf(player).Tell($"Atlas Scrying: {from.Name} now shares divination card drops with {to.Name}.");
+    }
+
+    // C→S 0x0075: apply a specific currency item (by inventory + item id) to an Atlas node.
+    internal static async Task UseItemOnNode(Player player, InstanceMapDevice.UseItemOnAtlasNode req)
+    {
+        var items = ItemsOf(player);
+        var stash = global::Game.StashOf(player);
+        var (spot, used) = global::Game.Locate(items, stash, req.InventoryId, req.ItemId);
+        if (used is null)
+        {
+            Console.WriteLine($"[gateway] {player.Connection.Remote} <= 0x0075 Atlas node item {req.ItemId} on 0x{req.NodeHash16:x4}: item not found");
+            return;
+        }
+        if (spot.Tab is int pubTab && stash.IsPublic(pubTab))
+        {
+            Console.WriteLine($"[gateway] {player.Connection.Remote} <= 0x0075 Atlas node item {req.ItemId}: refused (public stash tab {pubTab})");
+            return;
+        }
+        await ApplyAtlasNodeCurrency(player, spot, used, req.NodeHash16);
+    }
+
+    // C→S 0x0076: Shift-held currency type applied to an Atlas node.
+    internal static async Task UseItemTypeOnNode(Player player, InstanceMapDevice.UseItemTypeOnAtlasNode req)
+    {
+        var items = ItemsOf(player);
+        var stash = global::Game.StashOf(player);
+        InventoryItem? found = null;
+        uint foundInv = 0;
+        byte[] rows = [PlayerInventories.MainInventory, .. Enumerable.Range(0, InstanceInventories.PlayerDefaults.Length).Select(r => (byte)r)];
+        foreach (byte row in rows)
+        {
+            if (items.Items(row).FirstOrDefault(i => i.Item.TypeHash == req.TypeHash) is { } hit)
+            {
+                found = hit;
+                foundInv = PlayerInventories.InventoryId(row);
+                break;
+            }
+        }
+        if (found is null)
+        {
+            for (int t = 0; t < stash.Count; t++)
+            {
+                if (!stash.IsPublic(t) && stash.Inventory(t).Items.FirstOrDefault(i => i.Item.TypeHash == req.TypeHash) is { } hit)
+                {
+                    found = hit;
+                    foundInv = stash.InventoryOf(t);
+                    break;
+                }
+            }
+        }
+        if (found is null)
+        {
+            Console.WriteLine($"[gateway] {player.Connection.Remote} <= 0x0076 Atlas node currency type 0x{req.TypeHash:x8} on 0x{req.NodeHash16:x4}: none left");
+            return;
+        }
+        var (spot, located) = global::Game.Locate(items, stash, foundInv, found.Id);
+        if (located is null) return;
+        await ApplyAtlasNodeCurrency(player, spot, located, req.NodeHash16);
+    }
+
+    static async Task ApplyAtlasNodeCurrency(Player player, ItemMoves.Spot spot, InventoryItem used, ushort nodeHash16)
+    {
+        var node = AtlasProgress.FindByHash16(nodeHash16) ?? AtlasProgress.FindByAreaHash16(nodeHash16);
+        var type = ItemsFor(player).ByHash(used.Item.TypeHash);
+        if (node is null || type is null)
+        {
+            Console.WriteLine($"[gateway] {player.Connection.Remote} <= Atlas node currency on 0x{nodeHash16:x4}: unknown node or item");
+            return;
+        }
+        bool isSeal = type.Id.Contains("CartographerSeal", StringComparison.OrdinalIgnoreCase)
+            || type.Id.Contains("Unshaping", StringComparison.OrdinalIgnoreCase)
+            || type.Id.Contains("AtlasSeal", StringComparison.OrdinalIgnoreCase);
+        bool isSextant = type.Id.Contains("Sextant", StringComparison.OrdinalIgnoreCase)
+            || type.Id.Contains("AtlasRadius", StringComparison.OrdinalIgnoreCase);
+        bool isScry = type.Id.Contains("Scry", StringComparison.OrdinalIgnoreCase);
+
+        if (isScry)
+        {
+            await OpenScrying(player, 0);
+            return;
+        }
+        if (!isSeal && !isSextant)
+        {
+            Console.WriteLine($"[gateway] {player.Connection.Remote} <= Atlas node currency {type.Id} on {node.Name}: unsupported currency");
+            return;
+        }
+
+        var data = WorldOf(PlayerOf(player)).CharacterData;
+        if (isSeal && !AtlasProgress.Completed(data).Contains(node.Id))
+        {
+            await PlayerOf(player).Tell($"Atlas: {node.Name} is not completed.");
+            return;
+        }
+
+        var items = ItemsOf(player);
+        var stash = global::Game.StashOf(player);
+        (InventoryItem? Replaced, uint RemovedId)? spent = Saves.Atomically<(InventoryItem?, uint)?>(() =>
+        {
+            var cur = spot.Tab is int tab ? stash.Inventory(tab).Items.FirstOrDefault(i => i.Id == used.Id)
+                : items.Items(spot.Row).FirstOrDefault(i => i.Id == used.Id);
+            if (cur is null) return null;
+            if (cur.Item.StackSize > 1)
+            {
+                var updated = cur.Item with { StackSize = (ushort)(cur.Item.StackSize - 1) };
+                var next = spot.Tab is int tab2 ? stash.Change(tab2, cur.Id, _ => updated)
+                    : items.Change(spot.Row, cur.Id, _ => updated);
+                return next is null ? null : (next, cur.Id);
+            }
+            var removed = spot.Tab is int tab3 ? stash.Take(tab3, cur.Id) : items.Remove(spot.Row, cur.Id);
+            return removed is null ? null : (null, cur.Id);
+        });
+        if (spent is null) return;
+
+        uint invId = spot.Tab is int sTab ? stash.InventoryOf(sTab) : PlayerInventories.InventoryId(spot.Row);
+        uint rev = spot.Tab is int sTab2 ? stash.NextRevision(sTab2) : items.NextRevision(spot.Row);
+        IReadOnlyList<InventoryItem> added = spent.Value.Replaced is { } rep ? [rep] : [];
+        await Send(player, InstanceItems.InventoryChange(invId, rev, [spent.Value.RemovedId], added),
+            $"0x00bf consume {type.Name} on Atlas node {node.Name}");
+
+        if (isSeal)
+        {
+            AtlasProgress.Uncomplete(data, node);
+            await SyncTreeFlags(player);
+            await Refresh(player);
+            await PlayerOf(player).Tell($"Atlas: {node.Name} uncompleted.");
+        }
+        else
+        {
+            Console.WriteLine($"[gateway] {player.Connection.Remote} <= Atlas node currency {type.Name} applied to {node.Name}");
+            await PlayerOf(player).Tell($"Atlas: applied {type.Name} to {node.Name}.");
+        }
     }
 
     // C→S 0x2a7: rename one Atlas passive tree preset (0..2), persisted in module data and echoed via S→C 0x3c.
@@ -668,6 +892,8 @@ public static class AtlasFeature
             $"0x00f6 Voidstone: item {itemId} into row {move.To} slot {move.Placed.X}");
         if (into && stone.Flag.Length > 0 && !ClientHasQuestFlag(player, stone.Flag))
             await SetQuestFlags(player, [stone.Flag]);
+        await Send(player, AtlasProgress.VoidstoneDeltaMessage(stone.Slot, into),
+            $"0x01a5 Atlas voidstone delta: slot {stone.Slot} (region bit {AtlasProgress.RegionBit(stone.Slot)}) = {(into ? 1 : 0)}");
         await Refresh(player);
         return true;
     }
@@ -687,16 +913,23 @@ public static class AtlasFeature
                 Console.WriteLine($"[gateway] {player.Connection.Remote} <= 0x0028 Voidstone pick {pick.ItemId}: refused (not in Atlas upgrades)");
                 return true;
             }
+            int? unsocketedSlot = null;
             if (ItemsFor(player).ByHash(held.Item.TypeHash) is { } type
-                && MapBossFights.Current.StoneByItem(type.Id) is { } stone
-                && CharacterName(player) is { } name)
-                MapBossFights.Current.SetSocketed(name, stone.Slot, false);
+                && MapBossFights.Current.StoneByItem(type.Id) is { } stone)
+            {
+                unsocketedSlot = stone.Slot;
+                if (CharacterName(player) is { } name)
+                    MapBossFights.Current.SetSocketed(name, stone.Slot, false);
+            }
             await Send(player, InstanceItems.InventoryChange(pick.InventoryId,
                 items.NextRevision(PlayerInventories.AtlasUpgrades), [held.Id], []),
                 $"0x0028 Voidstone: item {held.Id} leaves Atlas upgrades");
             await Send(player, InstanceItems.InventoryChange(cursor,
                 items.NextRevision(PlayerInventories.Cursor), [], [held]),
                 $"0x00bf cursor: add item {held.Id} (unsocketed Voidstone)");
+            if (unsocketedSlot is int slot)
+                await Send(player, AtlasProgress.VoidstoneDeltaMessage(slot, false),
+                    $"0x01a5 Atlas voidstone delta: slot {slot} (region bit {AtlasProgress.RegionBit(slot)}) = 0");
             await Refresh(player);
             return true;
         }
