@@ -62,7 +62,7 @@ public static partial class Game
     {
         if (player.Minions.All.Count == 0 || player.Closed || player.LeavingArea || player.Paused
             || DarkMonarchSelection(StatSourceValues(player)) is not ushort selected) return;
-        bool saveGolems = false, saveSummons = false, retired = false;
+        bool saveGolems = false, saveSummons = false, retired = false, endedLinks = false;
         var links = new List<byte>();
         using (ProjectileMutation(player))
         {
@@ -71,7 +71,11 @@ public static partial class Game
             {
                 var fighter = OwnedFighter(player, minion.Id);
                 if (DarkMonarchAllowedType(fighter?.Definition.IsGolem == true ? "Golem" : minion.Kind) == selected) continue;
-                if (player.Links.On(minion.Id) is { } link) EndLinkLocked(player, link, links);
+                if (player.Links.On(minion.Id) is { } link)
+                {
+                    EndLinkLocked(player, link, links);
+                    endedLinks = true;
+                }
                 if (player.Golems.All.ContainsKey(minion.Id) && fighter is not null)
                 {
                     RemoveGolemLocked(player, fighter, now);
@@ -94,11 +98,8 @@ public static partial class Game
                 }
                 retired = true;
             }
-            if (links.Count != 0)
-            {
-                LinksChangedLocked(player);
-                player.Minions.OutputQueue.Add(new([.. links], "links to retired minions end"));
-            }
+            if (endedLinks) LinksChangedLocked(player);
+            if (links.Count != 0) player.Minions.OutputQueue.Add(new([.. links], "links to retired minions end"));
             if (retired) player.Minions.StatRevision++;
         }
         if (saveGolems) SaveGolems(player);

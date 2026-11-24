@@ -441,14 +441,16 @@ public static partial class Game
     {
         var state = player.Summons;
         var current = DarkMonarchSelection(stats);
+        if (current is null && !state.Fighters.Values.Any(fighter => DarkMonarchSelection(fighter.Player) is not null))
+            return false;
         var families = state.Fighters.Values.Where(fighter => !fighter.Monster.Dead
-                && now < state.Until[fighter.Id] && fighter.Definition.Kind != "Spectre"
-                && DarkMonarchMinionFamily(fighter.Definition.Kind) is ushort type
-                && (type == current || type == DarkMonarchSelection(fighter.Player)))
+                && now < state.Until[fighter.Id] && fighter.Definition.Kind != "Spectre")
             .GroupBy(fighter => fighter.Definition.Kind);
         bool changed = false;
         foreach (var family in families)
         {
+            if (DarkMonarchMinionFamily(family.Key) is not ushort type
+                || (type != current && !family.Any(fighter => type == DarkMonarchSelection(fighter.Player)))) continue;
             foreach (var fighter in family)
             {
                 var gem = SupportedSkill(player, fighter.Source);
