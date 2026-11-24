@@ -13,8 +13,8 @@ static partial class LegionMonolith
     /// <summary>The pulse ring's clip (monolith_pulse.ao, 0.791 s) and the radius it reaches at scale 1 (R10: the mesh is +-267 units, about 24.6 cells).
     /// GUESS: a larger scale stretches the ring, not the clip's duration (live check).</summary>
     const double PulseSeconds = 0.791, PulseRadiusCells = 24.6;
-    /// <summary>The largest scale the ring is sent with (a ring of 8 x 24.6 = 197 cells).</summary>
-    const float PulseMaxScale = 8;
+    /// <summary>The largest scale the ring is sent with (a ring of 14 x 24.6 = 345 cells). GUESS: the client renders the scaled ring.</summary>
+    const float PulseMaxScale = 14;
     /// <summary>How many steps the reveal has: members are grouped by when the ring reaches them (one area timer per step; a step is a server frame, 33 ms, at the finest).</summary>
     const int RevealSteps = 16;
 
@@ -34,7 +34,7 @@ static partial class LegionMonolith
         }
         double farthest = distances.Count == 0 ? 0 : distances.Max(d => d.Distance);
         float scale = (float)Math.Clamp(farthest / PulseRadiusCells, 1, PulseMaxScale);
-        lock (e) { e.PulseScale = scale; Keep(player, e); }
+        lock (e) { e.Pulse = pulse; e.PulseScale = scale; Keep(player, e); }   // together: a joiner gets the pulse with its scale
         if (InArea(player, e.Id)) await ShowPulse(player, e, pulse);
         if (distances.Count == 0) return;
         double ring = PulseRadiusCells * scale;
@@ -46,6 +46,7 @@ static partial class LegionMonolith
             double delay = PulseSeconds * k / RevealSteps;
             async Task Run()
             {
+                lock (e) { if (e.Phase != Phase.Running) return; }   // the encounter ended meanwhile
                 await RevealMembers(player, e, members);
                 module.Log($"reveal step {k} at +{(global::Game.AreaTime(player) - now):0.00}s: {members.Count} members");
             }

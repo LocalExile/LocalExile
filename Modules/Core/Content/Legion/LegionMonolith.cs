@@ -267,7 +267,7 @@ static partial class LegionMonolith
         {
             if (e.Phase is Phase.Idle or Phase.Finished) return;
             double now = global::Game.AreaTime(player);
-            if (e.Phase == Phase.Charging && now >= e.ChargeEnd) { e.Phase = Phase.Running; e.Pulse = pulse = player.TakeObjectId(); step = 1; }
+            if (e.Phase == Phase.Charging && now >= e.ChargeEnd) { e.Phase = Phase.Running; pulse = player.TakeObjectId(); step = 1; }   // e.Pulse is set with its scale (RevealArmy)
             else if (e.Phase == Phase.Running && now >= e.EndsAt) { e.Phase = Phase.Finished; pulse = e.Pulse; step = 2; }
             if (step != 0) Keep(player, e);
         }

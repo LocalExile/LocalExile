@@ -20,9 +20,9 @@ sealed class LegionFormation
     const double FrontGapSpacings = 1.5;
     /// <summary>Centre-to-centre spacing of rows: max(minimum, ObjectSize x factor) cells. ObjectSize is the collision size; the drawn
     /// soldier with its crystal coat is 6-8 cells across (tune after live check).</summary>
-    const double GridSpacingMin = 12, GridSpacingPerBody = 4.5;
+    const double GridSpacingMin = 15, GridSpacingPerBody = 5.6;
     /// <summary>Minimum distance of two loose members: max(minimum, mean of the two ObjectSizes x factor) cells (tune after live check).</summary>
-    const double LooseSpacingMin = 13, LooseSpacingPerBody = 5;
+    const double LooseSpacingMin = 16, LooseSpacingPerBody = 6.2;
     /// <summary>Each loose member draws its minimum distance factor in this range, so the gaps differ (tune after live check).</summary>
     const double LooseFactorMin = 0.85, LooseFactorMax = 1.4;
     /// <summary>A body's size in cells is its variety's ObjectSize, clamped here (tune after live check).</summary>
@@ -43,6 +43,7 @@ sealed class LegionFormation
     const double GridJitter = 0.3, GeneralSpread = 1.0;
 
     readonly Player _player;
+    int _walkBody;
     readonly Random _rng;
     readonly bool _orderly;
     readonly int _cx, _cy;
@@ -106,6 +107,7 @@ sealed class LegionFormation
     /// <paramref name="body"/> is its size in cells; <paramref name="centred"/> puts it in the middle of the rear (the general).</summary>
     public (int X, int Y)? Place(int fromPct, int toPct, int body, bool centred)
     {
+        _walkBody = body;   // walkability needs the real size; the cap is for spacing
         body = Body(body);
         return _orderly ? PlaceOnGrid(fromPct, toPct, body, centred) : PlaceLoose(fromPct, toPct, body, centred);
     }
@@ -117,7 +119,7 @@ sealed class LegionFormation
     {
         var layout = _player.Layout;
         return x >= 0 && y >= 0 && x < layout.GridW && y < layout.GridH
-            && layout.WalkableFor(x, y, Math.Clamp(body - 1, 0, 127)) && !_player.Barrier.Contains((x, y));
+            && layout.WalkableFor(x, y, Math.Clamp(_walkBody - 1, 0, 127)) && !_player.Barrier.Contains((x, y));
     }
 
     /// <summary>Rows and columns: a row per spacing from the front, columns from the middle outwards, so a half-filled row stays
