@@ -235,12 +235,32 @@ public static partial class Game
     public static async Task WarcryReleased(Player player,
         (int X, int Y) at, int radius, int epoch)
     {
+        List<Player>? onslaught = null;
+        Dictionary<uint, int> stats;
         using (ProjectileMutation(player, advance: false))
         {
             if (!player.ProjectileActive(epoch) || player.PlayerLife == 0) return;
-            player.RecentEvents.RecordAmount(StatConditions.UsedWarcry, ProjectileWorldTime(player));
+            double now = ProjectileWorldTime(player);
+            player.RecentEvents.RecordAmount(StatConditions.UsedWarcry, now);
+            stats = AreaPlayerStats(player);
+            if (stats.GetValueOrDefault(Stat.YouAndNearbyAllysGainOnslaughtFor4SecondsOnWarcry) != 0)
+            {
+                const double duration = 4;
+                foreach (var owner in player.Instance.PlayersExcept(player.Id).Prepend(player))
+                {
+                    if (owner.Closed || owner.LeavingArea || owner.PlayerLife == 0) continue;
+                    if ((ReferenceEquals(owner, player) || Dist(owner.Walk.Position(now), at) <= radius)
+                        && KillOnslaughtOf(owner).Gain(now, duration) && Marked(owner, PlayerStatStep.Onslaught))
+                        (onslaught ??= []).Add(owner);
+                    foreach (var fighter in owner.Summons.Fighters.Values)
+                        if (!fighter.Monster.Hostile && !fighter.Monster.Dead && fighter.Monster.Life > 0
+                            && Dist(fighter.Monster.Walk.Position(now), at) <= radius && GolemCurrent(owner, fighter))
+                            GainMinionOnslaughtLocked(owner, fighter, now, duration);
+                }
+            }
         }
-        var stats = AreaPlayerStats(player);
+        if (onslaught is not null)
+            foreach (var recipient in onslaught) await SendKillOnslaught(recipient);
         int Get(uint key) => stats.GetValueOrDefault(key);
         // "Removes Bleeding when you use a Warcry": the bleed owner a flask's bleed suffix also clears, with no protection.
         if (Get(Stat.RemoveBleedingOnWarcry) != 0) player.IncomingAilments.RemoveOrProtectBleeding(AreaTime(player), 0);

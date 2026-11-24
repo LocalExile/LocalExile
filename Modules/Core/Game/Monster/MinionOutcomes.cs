@@ -59,7 +59,11 @@ public static partial class Game
         int chance = fighter.Monster.Effects[Stat.ChanceToGainOnslaughtOnKillFor4SecondsPct];
         if (chance <= 0 || fighter.Monster.Dead || !GolemCurrent(player, fighter)
             || !GameServer.Core.World.RandomRolls.Chance(chance, 100, AreaRng(player))) return;
-        const double seconds = 4;
+        GainMinionOnslaughtLocked(player, fighter, now, 4);
+    }
+
+    static void GainMinionOnslaughtLocked(Player player, GolemState.Golem fighter, double now, double seconds)
+    {
         if (fighter.OnslaughtUntil >= now + seconds) return;
         fighter.OnslaughtUntil = now + seconds;
         if (ItemsFor(player).Onslaught is { } onslaught)
