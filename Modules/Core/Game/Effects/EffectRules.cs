@@ -1,4 +1,5 @@
 using System.Text.Json;
+using GameServer.Storage;
 
 /// <summary>
 /// Effect rules: a stat turns a rule on for an actor, an event fires it, its checks, chance and cooldown gate it, and
@@ -226,6 +227,27 @@ public static class EffectRules
         lock (Gate) { Kinds[kind.Name] = kind; _table = new(-1, [], [], new()); }
     }
 
+    /// <summary>A hand-over for mods and modules: rules of their own, in the fx tables' shape (one
+    /// <see cref="GameDataStore.FxRuleRow"/> per rule, as LoadFxRules reads them), loaded with the tables' rules and by
+    /// the same loader. A stat the tables already have a rule for can get more rules this way; nothing is replaced.
+    /// Disposing the result takes the rules back. They reach a player at that player's next stat build.</summary>
+    public static IDisposable Add(IReadOnlyList<GameDataStore.FxRuleRow> rules)
+    {
+        lock (Gate) { _added = [.. _added, rules]; _addedVersion++; _table = new(-1, [], [], new()); }
+        return new Added(rules);
+    }
+
+    sealed class Added(IReadOnlyList<GameDataStore.FxRuleRow> rules) : IDisposable
+    {
+        public void Dispose()
+        {
+            lock (Gate) { _added = [.. _added.Where(r => !ReferenceEquals(r, rules))]; _addedVersion++; _table = new(-1, [], [], new()); }
+        }
+    }
+
+    static IReadOnlyList<GameDataStore.FxRuleRow>[] _added = [];
+    static int _addedVersion;
+
     /// <summary>Makes a carrier name known, so rows may use it ("carrier":"skill").</summary>
     public static void RegisterCarrier(string carrier)
     {
@@ -247,7 +269,7 @@ public static class EffectRules
 
     /// <summary>Changes whenever the loaded rules do (and with the on/off switch): what a carrier's owner keys a
     /// remembered answer about them by.</summary>
-    public static int Revision => Enabled ? Current().Revision : -1;
+    public static int Revision => Enabled ? Current().Revision + 100003 * Volatile.Read(ref _addedVersion) : -1;
 
     /// <summary>Whether an effect rule drives this stat now, so the code that read it before leaves it alone.</summary>
     public static bool Handles(uint stat) => Enabled && Current().Stats.Contains(stat);
@@ -272,7 +294,8 @@ public static class EffectRules
             var rules = new List<Rule>();
             // The fx tables first: a stat they have a rule for is theirs, and its effect_rules rows are left out.
             var fromTables = new HashSet<string>(StringComparer.Ordinal);
-            foreach (var compiled in FxRules.Compile(GameData.FxRules,
+            IReadOnlyList<GameDataStore.FxRuleRow> rows = _added.Length == 0 ? GameData.FxRules : [.. GameData.FxRules, .. _added.SelectMany(r => r)];
+            foreach (var compiled in FxRules.Compile(rows,
                 (rule, why) => Console.WriteLine($"[rules] left out the fx rule {rule}: {why}")))
             {
                 try { rules.Add(Parse(compiled.Stat, compiled.Ord, compiled.Json)); fromTables.Add(compiled.Stat); }

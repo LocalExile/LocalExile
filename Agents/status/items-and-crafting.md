@@ -149,7 +149,10 @@ Part of [Status](../Status.md); what to build next in this area is in
   Inferno, Blazing Glare, Shield Shatter, Storm Cascade, Starfall and others, as area hits with an effect object for
   art); Raging Spirits, spiders and wolves on kill; Blood Rage on kill and Shade Form; and the always-on Death Aura,
   Abberath's Fury and Blinding Aura. Seen in the client 2026-11-22 and 2026-11-23. Every art, radius and storm
-  number is a guess until its row has `checked = 1`. Mageblood's lines work from any worn item.
+  number is a guess until its row has `checked = 1`. Mageblood's lines work from any worn item. "Nearby Enemies
+  have/take ..." lines (the four resistances, all resistances, physical and elemental damage taken) give their rolled
+  value to enemies within 6 metres, and "Nearby Enemies are Blinded / Intimidated" lines work as the auras do
+  (offline tests only so far; the 6 metres is not measured).
   Code: `Modules/Core/Game/Effects/`. Not yet: see the doc's "Not yet".
 
 ## Not working yet

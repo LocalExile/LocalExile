@@ -26,7 +26,7 @@ public static partial class Game
         ConfigureLeech(player, Get, CriticalOnLowLife(player, stats));
         // A stat an effect rule drives is the rule's: the older Onslaught code reads it as 0.
         ConfigureKillOnslaught(player, EffectRules.Unhandled(Get));
-        EffectRules.Configure(player, Get, TriggeredSkillSources(player));
+        EffectRules.Configure(player, Get, RuleSources(player));
         ConfigureSoulEater(player, stats);
         ObserveAntiquarian(player, stats);
         ReconcileRampageSource(player, stats);

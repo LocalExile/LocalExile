@@ -463,6 +463,7 @@ public sealed class GameLogic(IModuleLifetime? lifetime = null) : IGameLogic, IC
         Rules.ReleaseCharacter(player);
         Rules.ForgetVitalsAdmission(player);
         Rules.ForgetSourceValues(player);
+        Rules.ForgetGrants(player);
         // The instance keeps its monsters as they are now, for the next connection (#12); the player's minions go with him.
         Rules.KeepInstanceMonsters(player);
     }

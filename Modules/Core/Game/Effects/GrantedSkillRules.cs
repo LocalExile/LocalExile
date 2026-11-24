@@ -100,6 +100,48 @@ public static partial class Game
         return sources ?? (IReadOnlyList<EffectRules.Source>)[];
     }
 
+    /// <summary>The carrier of a rule whose stat belongs to its item (a local stat): each worn item.</summary>
+    public const string ItemCarrier = "item";
+    static readonly Dictionary<string, double> NoSourceData = [];
+
+    // An item's own (local) stats as its lines state them, added up per stat. Not ItemModStats.Local: that sum is for
+    // what the item itself is (its armour, its attack speed) and leaves out the lines that speak about other creatures
+    // ("Nearby Enemies have ..."), which are exactly the ones a rule gives away. A line's value is taken as rolled.
+    static readonly System.Runtime.CompilerServices.ConditionalWeakTable<Item, Dictionary<uint, int>> OwnLines = new();
+    static Dictionary<uint, int> OwnLinesOf(Item item, ModCatalog mods)
+    {
+        var lines = new Dictionary<uint, int>();
+        foreach (var mod in item.Mods)
+            if (mods.ByHash(mod.Hash) is { } row)
+                for (int s = 0; s < row.Stats.Count && s < mod.Values.Count; s++)
+                    if (row.Stats[s].Local) lines[row.Stats[s].Id] = ActorScale.Saturate((long)lines.GetValueOrDefault(row.Stats[s].Id) + mod.Values[s]);
+        return lines;
+    }
+
+    /// <summary>Everything of the player that can turn a carrier's rules on: the skills its items grant, and each worn
+    /// item that has a local stat one of the "item" rules names. Asked once per stat build; with no "item" rule
+    /// loaded it costs one lookup.</summary>
+    public static IReadOnlyList<EffectRules.Source> RuleSources(Player player)
+    {
+        var skills = TriggeredSkillSources(player);
+        if (!EffectRules.HasCarrierRules(ItemCarrier)) return skills;
+        var mods = ItemsFor(player).Mods;
+        List<EffectRules.Source>? all = null;
+        foreach (var (_, worn) in ItemsOf(player).EquipmentSnapshot())
+        {
+            if (IsInactive(player, worn.Id)) continue;
+            var item = worn.Item;
+            var lines = OwnLines.GetValue(item, i => OwnLinesOf(i, mods));
+            if (lines.Count == 0) continue;
+            int Get(uint key) => lines.GetValueOrDefault(key);
+            if (!EffectRules.CarrierRuleFor(ItemCarrier, Get)) continue;
+            // The key tells two worn items apart and changes when the item itself does (a new roll is a new item).
+            (all ??= [.. skills]).Add(new(ItemCarrier, (worn.Id, System.Runtime.CompilerServices.RuntimeHelpers.GetHashCode(item)),
+                Get, NoSourceData, item, $"worn item 0x{worn.Id:x}"));
+        }
+        return all ?? skills;
+    }
+
     // The Actor skill of a granted skill: its id is what the cost, the supports and the client know it by.
     static (ushort Id, SupportedGem Gem)? ActorSkillOf(Player player, WornGrantedSkills.Grant grant)
     {
@@ -121,6 +163,7 @@ public static partial class Game
     static void EnsureTriggeredSkills()
     {
         EffectRules.RegisterCarrier(SkillCarrier);
+        EffectRules.RegisterCarrier(ItemCarrier);
 
         // Releases the granted skill whose stat turned the rule on, "at" the event's monster (the hit or killed one)
         // or at the character itself ("self": a skill that targets its user). What it releases can hit and kill, so the

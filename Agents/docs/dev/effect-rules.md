@@ -129,6 +129,26 @@ An area modifier that gives the area's monsters a stat they already act on is a 
 those after its own pairs while the rules are on. `scripts/dev/fx_needs.py` notes for every stat nothing reads what it
 would need (`fx_stats.fit`), and ranks the needs.
 
+`grant` gives OTHER actors a bundle of stats (`Bundles.cs`, `Grants.cs`). A bundle is read from the game's own data:
+a unique's lines (`"unique"`), Mods rows (`"mod"`) or listed stats (`"stats"`: a number, `[min, max]`, or
+`{"from":"roll"}` for the giving line's own rolled value); stats that describe the item itself are left out. `roll`
+(where in its ranges the bundle sits, 100 unless said) and `effect` (a percent of all of it) are values like any other.
+To `enemies_area` or `enemies_near` (`radius` in cells) the grant stands while its rule is active: a step every 200 ms
+puts it on the living enemies it names, the ones that arrive later too, and takes it off when the rule ends or they
+leave the radius. To `enemy` it lasts for the duration timer on the event's monster. A monster carries it as a temporary
+stat source keyed `fx:<player id>:...`, so its stat graph adds and removes it; `ForgetGrants` takes a leaving player's
+off the instance's monsters. A stat does on a monster what monster code reads it for; flat maximum life is taught in
+`ChangeGrantLocked`. Two sources of one bundle stack.
+
+A rule with a source of kind `item` reads a local stat (Stats `IsLocal`) and has the worn item as its carrier:
+the stat never reaches the character's sums, and `ItemModStats` drops the whole row of a line that speaks about other
+creatures, so `RuleSources` reads each worn item's own lines as rolled. The rule is live once per worn item that has
+the stat. In those rows the game's data pairs the display stat with the stat meant for the nearby creature (54 Mods
+rows); the rules name the stats monster code reads instead, since several of the paired ones are player names.
+
+`EffectRules.Add` takes rules in the tables' shape from a mod or module and loads them with the tables' (disposing the
+result takes them back): how a mod ships rules of its own without a world.db update.
+
 A plain number is granted to the calculator the game module already has (the stat graph); `fx_modifiers` records what
 the number means so that a formula can later move to a table one quantity at a time, each measured. Nothing reads these
 tables during play: they are loaded at startup into arrays by stat id, and an actor's rules are worked out when its
@@ -172,7 +192,8 @@ by code, 8,902 by nothing); later updates correct rows and never regenerate the 
 | `charge` | charges, through the charge rules' own step | `type`, `count` |
 | `buff` | a timed buff | `seconds`, `effect`, and `template` or `buff` + `values` |
 | `skill` | releases the carrier's granted skill through its executor | `at`: `monster` or `self` |
-| `stats` | stats the actor has while a `worn` rule stands | `stats`: name to value |
+| `stats` | stats the actor has while a `worn` rule stands | `stats`: name to value; `percent` of them (a value) |
+| `grant` | a bundle of stats for other actors, standing or timed | `bundle`, `to`, `roll`, `effect`, `radius`, `seconds` |
 
 A kind is registered with `EffectRules.Register(new Kind(...))`; a mod can add its own. A kind that can stand has
 `Stand`; one that only stands has `StandOnly`.
@@ -254,4 +275,6 @@ The reverse-engineering behind the art and buff choices is in
 
 Real projectiles for the skills that are a volley (Bone Nova, Icicle Burst, Molten Burst, Starfall are one-hit
 stand-ins), ground effects, the "with this weapon" and "socketed in this item" facts, the four elemental aegises, minion
-and monster hits as events, areas and ground patches as carriers, and moving the charge rules over.
+and monster hits as events, areas and ground patches as carriers, and moving the charge rules over. For grants:
+monsters carrying rules and granted skills of their own (a bundle is stats only), bundles for players and allies,
+flasks, maps and scarabs as givers, a debuff as part of a bundle, and an icon on the monster for what it was given.

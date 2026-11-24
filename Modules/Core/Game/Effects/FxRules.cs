@@ -1,6 +1,7 @@
 using System.Text.Json;
 using System.Text.Json.Nodes;
 using GameServer.Storage;
+using GameServer.Core;
 
 /// <summary>
 /// Turns the fx rule tables (fx_rules, fx_rule_sources, fx_rule_when, fx_rule_if, fx_rule_do) into rules of the engine
@@ -39,10 +40,16 @@ public static class FxRules
                 bool summed = rule["chance"] is JsonObject chance && chance.ContainsKey("sum");
                 foreach (var (kind, key) in summed ? row.Sources.Take(1) : row.Sources)
                 {
-                    if (kind is not ("stat" or "skill")) throw new FormatException($"a source of kind \"{kind}\" has no code yet");
+                    if (kind is not ("stat" or "skill" or "item")) throw new FormatException($"a source of kind \"{kind}\" has no code yet");
                     var json = (JsonObject)rule.DeepClone();
                     if (kind == "skill") json["carrier"] = "skill";
                     else if (json.ContainsKey("only")) throw new FormatException("\"source_is\" names a skill, and the source is not a skill's stat");
+                    // An "item" source: a stat that belongs to its item (Stats IsLocal: "Nearby Enemies have -9% to
+                    // Fire Resistance" is one). It never reaches the character's own stats, so the worn item is the
+                    // rule's carrier, and the rule is live once for each worn item that has the stat.
+                    else if (kind == "item")
+                        json["carrier"] = LocalStat(key) ? Game.ItemCarrier
+                            : throw new FormatException($"an \"item\" source reads the item's own (local) stats, and \"{key}\" is the character's: its kind is \"stat\"");
                     int ord = ords.GetValueOrDefault(key);
                     ords[key] = ord + 1;
                     result.Add(new(row.Id, key, ord, json.ToJsonString()));
@@ -118,6 +125,10 @@ public static class FxRules
         }
         return result;
     }
+
+    static HashSet<string>? _localStats;
+    static bool LocalStat(string stat) =>
+        (_localStats ??= [.. ClientTables.Table("Stats").Where(r => r.Bool("IsLocal")).Select(r => r.Text("Id") ?? "")]).Contains(stat);
 
     // The rule without its source, in the engine's own form (EffectRules.Parse reads it).
     static JsonObject Engine(GameDataStore.FxRuleRow row)
@@ -204,7 +215,7 @@ public static class FxRules
         }
 
         var effects = new JsonArray();
-        foreach (var (action, text, target, _, value, timers) in row.Do)
+        foreach (var (action, text, target, targetArgs, value, timers) in row.Do)
         {
             var with = Object(text);
             var effect = new JsonObject();
@@ -277,6 +288,33 @@ public static class FxRules
                     if (target != "self" || !with.ContainsKey("stats")) throw new FormatException("the action \"quantity\" gives the actor \"stats\" while the rule is active so far");
                     effect["kind"] = "stats";
                     effect["stats"] = with["stats"]!.DeepClone();
+                    // The value, when there is one, is a percent of the listed numbers (the line's roll can be it).
+                    if (Value(JsonNode.Parse(value)) is { } percent) effect["percent"] = percent;
+                    break;
+                case "grant":
+                    // A bundle of stats for other actors. Standing ("active") for the enemies of the area or within a
+                    // radius; for the "duration" timer on the enemy of an event.
+                    effect["kind"] = "grant";
+                    effect["bundle"] = with["bundle"]?.DeepClone() ?? throw new FormatException("the action \"grant\" needs \"bundle\"");
+                    foreach (string number in (string[])["roll", "effect"])
+                        if (with.ContainsKey(number)) effect[number] = Value(with[number]) ?? throw new FormatException($"the action \"grant\" has an empty \"{number}\"");
+                    foreach (var (name, _) in with)
+                        if (name is not ("bundle" or "roll" or "effect")) throw new FormatException($"the action \"grant\" has no \"{name}\"");
+                    effect["to"] = target;
+                    // The line's own rolled value, for a bundle stat that takes it.
+                    effect["own"] = new JsonObject { ["from"] = "stat" };
+                    switch (target)
+                    {
+                        case "enemies_area" or "enemies_near" when when != "worn":
+                            throw new FormatException($"a grant to \"{target}\" stands while its rule does: its trigger is \"active\"");
+                        case "enemies_area": break;
+                        case "enemies_near":
+                            effect["radius"] = Value(Object(targetArgs)["radius"]) ?? throw new FormatException("a grant to \"enemies_near\" needs a \"radius\" in its target_args");
+                            break;
+                        case "enemy" when when == "worn": throw new FormatException("a grant to \"enemy\" is for an event: an active rule has no enemy");
+                        case "enemy": effect["seconds"] = Duration() ?? throw new FormatException("a grant to the event's enemy needs a \"duration\" timer"); break;
+                        default: throw new FormatException($"the action \"grant\" cannot target \"{target}\" yet");
+                    }
                     break;
                 case "debuff":
                     if (target != "enemy") throw new FormatException("a debuff is put on the trigger's enemy");

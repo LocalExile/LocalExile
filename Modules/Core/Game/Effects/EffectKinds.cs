@@ -34,8 +34,11 @@ public static partial class Game
         // Stats the actor has while a "worn" rule stands ("stats": stat name to value): a skill that is simply on while
         // its item is worn and whose whole effect is a stat the server already acts on (Blinding Aura: nearby enemies
         // are blinded). For "worn" rules only.
-        EffectRules.Register(new("stats", [], [], _ => { })
+        // "percent": how much of each listed number is given (100 unless said). It is a value like any other, so it can
+        // be the line's own roll: {"stats": {"x": 1}, "percent": {"from": "stat", "scale": 100}} gives x the roll.
+        EffectRules.Register(new("stats", ["percent"], [], _ => { })
         {
+            Defaults = new Dictionary<string, double> { ["percent"] = 100 },
             Extra = ["stats"],
             Prepare = effect =>
             {
@@ -46,8 +49,30 @@ public static partial class Game
                     stats.Add((Program.Stats.Key(stat.Name) ?? throw new FormatException($"unknown stat \"{stat.Name}\""), stat.Value.GetInt32()));
                 return stats.ToArray();
             },
-            Stand = standing => GainStandingStats(standing.Conn, ((uint, int)[])standing.Data!, standing.On),
+            Stand = standing =>
+            {
+                var listed = ((uint, int)[])standing.Data!;
+                double percent = standing.Values[0];
+                GainStandingStats(standing.Conn, percent == 100 ? listed
+                    : [.. listed.Select(s => (s.Item1, ActorScale.Saturate((long)Math.Round(s.Item2 * percent / 100, MidpointRounding.AwayFromZero))))], standing.On);
+            },
             StandOnly = true,
+        });
+
+        // A bundle of stats (Bundles.cs) for OTHER actors (Grants.cs). "to": enemies_area or enemies_near ("radius", in
+        // cells) for a "worn" rule, which holds while the rule stands; enemy for an event's rule (the one hit, or the
+        // one that hit the actor), which lasts "seconds". "roll": where in its ranges the bundle sits, 0 to 100 (100,
+        // the best roll, unless said); "effect": a percent of the whole bundle (100 unless said). Both are values, so
+        // either can be the line's own roll: an item line that rolls 50 to 100 can give 50 to 100% of the bundle.
+        // "own": the giving line's rolled value, for a bundle stat that takes it ({"from": "roll"}).
+        EffectRules.Register(new("grant", ["roll", "effect", "radius", "seconds", "own"], ["to"], GrantOnEvent,
+            (_, word) => word is "enemies_area" or "enemies_near" or "enemy")
+        {
+            Defaults = new Dictionary<string, double> { ["roll"] = 100, ["effect"] = 100, ["radius"] = 0, ["seconds"] = 0, ["own"] = 0 },
+            Extra = ["bundle"],
+            Prepare = effect => BundleOf(effect.TryGetProperty("bundle", out var bundle) ? bundle
+                : throw new FormatException("the effect \"grant\" needs \"bundle\"")),
+            Stand = StandGrant,
         });
 
         EnsureTriggeredSkills();
