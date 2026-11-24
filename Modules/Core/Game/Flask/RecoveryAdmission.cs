@@ -21,7 +21,6 @@ public static partial class Game
         double now = AreaTime(player);
         if (use.LifePerUse > 0)
         {
-            player.LastLifeFlaskUseAt = now;
             player.RecentEvents.Record(StatConditions.UsedLifeFlask, now);
         }
         ApplyMinionRecoveryFlasksLocked(player, flask.Item, (byte)slot, use, recovery, local, character, now);

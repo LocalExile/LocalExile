@@ -158,6 +158,7 @@ public sealed class IncomingDamagingAilments
             return 0;
         }
 
+        double movingBleed = 0;
         if (!immune)
         {
             // The wall-to-wall partitions make mid-interval applications and expiries explicit.
@@ -182,9 +183,9 @@ public sealed class IncomingDamagingAilments
                     .Select(x => x.DamagePerSecond).DefaultIfEmpty(0).Max();
                 if (strongest > 0)
                 {
-                    double moved = get(Stat.NoExtraBleedDamageWhileMoving) == 0
-                        ? Math.Clamp(movingSeconds(start, end), 0, seconds) : 0;
-                    bleedFraction += strongest * (seconds + 2 * moved);
+                    double moved = Math.Clamp(movingSeconds(start, end), 0, seconds);
+                    bleedFraction += strongest * (seconds - moved);
+                    movingBleed += strongest * moved * (get(Stat.NoExtraBleedDamageWhileMoving) == 0 ? 3 : 1);
                 }
                 foreach (var p in poisons)
                     if (Active(p.From, p.Until, start)) poisonFraction += p.DamagePerSecond * seconds;
@@ -218,13 +219,20 @@ public sealed class IncomingDamagingAilments
             poisonTakenFraction = 0;
         }
 
-        bool movedInInterval = movingSeconds(from, until) > 0;
         int less = IncomingResourceDefences.LessTakenPct(pools, get);
         int bleedRaw = IncomingResourceDefences.TakenOverTime(bleedMitigated, get, ref bleedTakenFraction, less,
-            typedIncreasedPct: get(Stat.PhysicalDamageTakenPlusPct)
-                + (movedInInterval ? get(Stat.PhysicalDamageOverTimeTakenPlusPctWhileMoving) : 0),
+            typedIncreasedPct: get(Stat.PhysicalDamageTakenPlusPct),
             reductionPct: ChargeEffects.Reduction(get).Physical,
             finalTakenPct: get(IncomingResourceDefences.UnhingedSaneDamageFinal));
+        if (movingBleed > 0 && !unaffectedBleed && !physicalImmune)
+        {
+            double movingMitigated = DamageModel.Mitigate(movingBleed, bleedResistance, bleedMaxResistance) * dotTakenFactor;
+            int movingRaw = IncomingResourceDefences.TakenOverTime(movingMitigated, get, ref bleedTakenFraction, less,
+                typedIncreasedPct: get(Stat.PhysicalDamageTakenPlusPct) + get(Stat.PhysicalDamageOverTimeTakenPlusPctWhileMoving),
+                reductionPct: ChargeEffects.Reduction(get).Physical,
+                finalTakenPct: get(IncomingResourceDefences.UnhingedSaneDamageFinal));
+            bleedRaw = (int)Math.Min(int.MaxValue, (long)bleedRaw + movingRaw);
+        }
         int poisonRaw = IncomingResourceDefences.TakenOverTime(poisonMitigated, get, ref poisonTakenFraction, less,
             typedIncreasedPct: get(Stat.ChaosDamageTakenPlusPct)
                 + (inCausticCloud ? get(Stat.ChaosDamageTakenOverTimePlusPctWhileInCausticCloud) : 0),

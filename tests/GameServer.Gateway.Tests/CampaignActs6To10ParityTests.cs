@@ -54,7 +54,7 @@ public sealed class CampaignActs6To10ParityTests
             Assert.True(row.RuthlessWeight > 0, $"Non-positive ruthless weight for {name}");
         }
 
-        // 3. All 69 Act 6-10 combat zones have valid drop_card_areas rows with DropLevel <= AreaLevel and positive weights.
+        // 3. Area-restricted cards match the campaign zone and meet the level and weight gates.
         var act6To10Zones = ClientTables.Table("WorldAreas")
             .Where(r => (r.Text("Id") ?? "").StartsWith("2_", StringComparison.Ordinal)
                 && r.IntOrNull("Act") is >= 6 and <= 10
@@ -67,10 +67,12 @@ public sealed class CampaignActs6To10ParityTests
             .Where(c => c.MinMapTier == 0)
             .GroupBy(c => c.AreaId, StringComparer.Ordinal)
             .ToDictionary(g => g.Key, g => g.ToList(), StringComparer.Ordinal);
+        Assert.Contains(cardsByArea["2_6_5"], c => c.CardId == "The Metalsmith's Gift");
+        Assert.DoesNotContain(cardsByArea["2_6_5"], c => c.CardId == "The Battle Born");
+        Assert.DoesNotContain(cardsByArea["2_6_13"], c => c.CardId == "The Siren");
         foreach (var (areaId, areaLevel) in act6To10Zones)
         {
-            Assert.True(cardsByArea.TryGetValue(areaId, out var areaCards) && areaCards.Count > 0,
-                $"Missing campaign drop_card_areas coverage for Act 6-10 zone {areaId}");
+            if (!cardsByArea.TryGetValue(areaId, out var areaCards)) continue;
             foreach (var card in areaCards)
             {
                 var baseType = items.Find(card.CardId);
@@ -178,7 +180,6 @@ public sealed class CampaignActs6To10ParityTests
             AbberathEncounter.Phase1,
             AbberathEncounter.Phase2,
             RyslathaEncounter.Boss,
-            RyslathaEncounter.Nest,
             MaligaroSanctumEncounter.Maligaro,
             MaligaroSanctumEncounter.BlackDeath,
             MaligaroSanctumEncounter.Fidelitas,

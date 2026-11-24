@@ -35,7 +35,6 @@ public static class Act6To8Encounters
 
         // Act 6 — Wetlands (Ryslatha)
         RyslathaEncounter.Boss,
-        RyslathaEncounter.Nest,
         RyslathaEncounter.Egg,
 
         // Act 7 — Maligaro's Sanctum (Maligaro, Black Death, Fidelitas)

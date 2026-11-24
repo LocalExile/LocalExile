@@ -125,8 +125,7 @@ public static class Slayer
         // Impact's area joins the base form, which the panel's total and every skill read (as Rampage's does): the
         // client takes the player's stats as sent and evaluates none of them (04-player-entity.md §4.1a).
         Add(SkillArea.BaseIncreased, (int)AreaFromKills(name => name is var k ? stats.GetValueOrDefault(k) : 0));
-        int lunarisMove = Math.Min(8, state.Nearby) * stats.GetValueOrDefault(Stat.MovementSpeedPlusPctPerNearbyEnemy);
-        Add(Stat.BaseMovementVelocityPlusPct, state.Movement + lunarisMove);
+        Add(Stat.BaseMovementVelocityPlusPct, state.Movement);
         Add(Stat.AttackSpeedPlusPct, state.AttackSpeed);
         return stats;
     }
@@ -165,7 +164,9 @@ public static class Slayer
         int killed = state.KilledWithin(now), areaPerKill = Raw(player, AreaPerEnemyKilled);
         bool readsKills = areaPerKill != 0 || Raw(player, MoreIfKilledRecently) != 0;
         if (!readsKills) killed = 0;
-        bool otherNearby = OtherNearbyReaders.Any(n => Raw(player, n) != 0), otherKills = OtherKillReaders.Any(n => Raw(player, n) != 0);
+        var currentStats = PlayerStatValues(player);
+        bool otherNearby = OtherNearbyReaders.Any(n => currentStats.GetValueOrDefault(n) != 0);
+        bool otherKills = OtherKillReaders.Any(n => Raw(player, n) != 0);
         int nearby = 0, critPerEnemy = Raw(player, CritPerNearbyEnemy);
         if (alive && (critPerEnemy != 0 || otherNearby))
         {

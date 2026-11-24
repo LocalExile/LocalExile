@@ -1454,7 +1454,6 @@ public sealed partial class Player(AreaLayout layout, uint ticket, uint seed) : 
     public bool TakingDotLastTick;
     public double LastCritTakenAt = double.NegativeInfinity;
     public double StationarySince = double.NegativeInfinity;
-    public double LastLifeFlaskUseAt = double.NegativeInfinity;
     public bool OnBurningGround;
     public bool InCausticCloud;
     /// <summary>The degeneration on the player from what is around them (a trial's trap, an encounter's pool, a ground or a

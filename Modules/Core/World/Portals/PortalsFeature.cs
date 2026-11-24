@@ -285,6 +285,7 @@ static class PortalsFeature
         Console.WriteLine($"[gateway] {player.Connection.Remote} <= 0x0024 {device.Name} ({use}) from ({here.X}, {here.Y}): reached at ({stop.X}, {stop.Y}) in {arrive - now:0.00} s");
         if (arrive > now) await AreaDelay(player, arrive - now);
         if (!PlayerActionCurrent(player, action)) return;
+        await global::Game.DeliverCapturedSouls(player, CharacterName(player));
         await Send(player, InstanceWaypoints.OpenUi(InstanceWaypoints.HideoutMapDeviceUi, use.TargetId),
             "0x007b open the map device window", still: () => PlayerActionCurrent(player, action));
     }

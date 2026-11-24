@@ -45,7 +45,16 @@ public sealed class MapPortalLabelTests
             { Variety = Game.Monsters.Find(row.ToString()), Rarity = MonsterRarity.Unique, Dead = dead, Life = dead ? 0u : 100u };
         try
         {
-            var run = MapDevice.Activate(owner, area);
+            var soul = PantheonCatalog.Default.Souls.First();
+            var ownerItems = PlayerInventories.For(owner, Program.Items);
+            var filler = ItemCatalog.Create(Program.Items.Find("Metadata/Items/Rings/Ring1")!);
+            Saves.Atomically(() =>
+            {
+                foreach (byte row in new[] { PlayerInventories.MapDevice, PlayerInventories.MainInventory })
+                    while (ownerItems.FreeCell(row, 1, 1, Game.ShapeOf) is { } at)
+                        ownerItems.Add(row, at.X, at.Y, filler);
+            });
+            var run = MapDevice.Activate(owner, area, pantheonSoul: soul);
             MapDevice.Entered(run, 987654);
             var instance = new InstanceState();
             var player = Player(instance, 987654, area); // The guest can finish it with the owner absent.
@@ -63,6 +72,13 @@ public sealed class MapPortalLabelTests
             (last.Dead, last.Life) = (true, 0);
             await Game.TickMapRunBoss(player, force: true);
             Assert.True(Game.RunBossKilled(run)); // The unrelated unique is still alive.
+            Assert.Equal(soul.VesselItemId, CharacterSaves.ModuleData(owner, "pantheon.pendingSouls"));
+            Assert.NotNull(ownerItems.ConsumeOne(PlayerInventories.MapDevice, ownerItems.Items(PlayerInventories.MapDevice).First().Id));
+            await Game.DeliverCapturedSouls(player, owner);
+            await Game.DeliverCapturedSouls(player, owner);
+            Assert.True(string.IsNullOrEmpty(CharacterSaves.ModuleData(owner, "pantheon.pendingSouls")));
+            Assert.Single(ownerItems.Items(PlayerInventories.MapDevice), item =>
+                item.Item.TypeHash == InstanceEntities.ObjectTypeHash(soul.VesselItemId));
             var returned = Player(new InstanceState(), 1234, area);
             returned.MapPortalRun = MapDevice.OpenOf(owner);
             Assert.True(Game.RunBossKilled(returned.MapPortalRun));

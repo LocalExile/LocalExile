@@ -160,8 +160,7 @@ sealed class Act6 : Act
                 On.Chest(TidalIslandAct6, Act6Objects.BestelChest, Act6Items.BestelsManuscript),
             },
             // a6q6 "The Puppet Mistress": Ryslatha in The Wetlands (bossfight.arm mapboss): her Pantheon unlock, and Sin
-            // (1000). On.Forms keeps LaterFormPoints[Ryslatha] for RyslathaEncounter (which spawns Ryslatha active from
-            // pull alongside her 3 nests; FormQuestBosses skips duplicating an already-spawned boss). Tarkleigh's
+            // (1000). Her three nests form the boss at the arena marker. Tarkleigh's
             // "Puppet Mistress Reward" (offer 44) is a Book of Skill.
             new Quest("a6q6")
             {

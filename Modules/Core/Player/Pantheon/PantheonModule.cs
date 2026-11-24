@@ -110,26 +110,33 @@ static class PantheonRules
             Console.WriteLine($"[gateway] {player.Connection.Remote} NPCTalk {talk.Row}: UnlockPantheonPowerFromItem has no PantheonSouls row for {talk.StartFlag}");
             return false;
         }
-        if (ClientHasQuestFlag(player, soul.UpgradeFlag))
-        {
-            Console.WriteLine($"[gateway] {player.Connection.Remote} NPCTalk {talk.Row}: UnlockPantheonPowerFromItem skipped ({soul.UpgradeFlag} already unlocked)");
-            return false;
-        }
-        uint vesselHash = InstanceEntities.ObjectTypeHash(soul.VesselItemId);
         var items = ItemsOf(player);
-        var vessel = items.Items(PlayerInventories.MainInventory).FirstOrDefault(i => i.Item.TypeHash == vesselHash);
-        if (vessel is null)
+        const byte row = PlayerInventories.MainInventory;
+        uint vesselHash = InstanceEntities.ObjectTypeHash(soul.VesselItemId);
+        await player.Character.QuestGate.WaitAsync();
+        try
         {
-            Console.WriteLine($"[gateway] {player.Connection.Remote} NPCTalk {talk.Row}: UnlockPantheonPowerFromItem refused (missing {soul.VesselItemId})");
-            return false;
+            uint spent = 0;
+            PlayerInventories.Consumption? taken = null;
+            global::Game.QuestFlagCommit? commit = null;
+            Saves.Atomically(() =>
+            {
+                if (ClientHasQuestFlag(player, soul.UpgradeFlag) || global::Game.HardcoreProgressBlocked(player)) return;
+                var vessel = items.Items(row).FirstOrDefault(i => i.Item.TypeHash == vesselHash);
+                if (vessel is null) return;
+                taken = items.ConsumeOne(row, vessel.Id);
+                if (taken is null) return;
+                spent = vessel.Id;
+                commit = global::Game.CommitQuestFlags(player, [soul.UpgradeFlag]);
+                if (commit is null) throw new InvalidOperationException("Unable to commit the Pantheon upgrade.");
+            });
+            if (commit is null || taken is null) return false;
+            uint inventoryId = PlayerInventories.InventoryId(row);
+            await Send(player, InstanceItems.InventoryChange(inventoryId, items.NextRevision(row),
+                [spent], taken.Left is { } left ? [left] : []), $"0x00bf handed {soul.VesselItemId} to Sin");
+            await global::Game.PublishQuestFlags(player, commit);
         }
-        if (items.ConsumeOne(PlayerInventories.MainInventory, vessel.Id) is not { } taken)
-            return false;
-        uint inventoryId = PlayerInventories.InventoryId(PlayerInventories.MainInventory);
-        await Send(player, InstanceItems.InventoryChange(inventoryId, items.NextRevision(PlayerInventories.MainInventory),
-            [vessel.Id], taken.Left is { } left ? [left] : []),
-            $"0x00bf inventory {inventoryId}: handed {soul.VesselItemId} to Sin");
-        await SetQuestFlags(player, [soul.UpgradeFlag]);
+        finally { player.Character.QuestGate.Release(); }
         player.Pools = PoolsFor(player, player.Pools.Level);
         player.ApplyMovementSpeed();
         await SendCharacterStats(player, PlayerStatChange.Build);
