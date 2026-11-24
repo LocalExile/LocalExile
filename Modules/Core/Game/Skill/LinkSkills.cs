@@ -265,7 +265,11 @@ public static partial class Game
                 link.AwaySince = away ? link.AwaySince ?? now : null;
                 if (away && now - link.AwaySince >= LinkSkills.BreakSeconds) why = $"out of range ({range} cells) for 4 s";
             }
-            if (why is null) continue;
+            if (why is null)
+            {
+                ApplyFrigidBondLocked(player, link, here, playerStats, now);
+                continue;
+            }
             EndLinkLocked(player, link, bytes);
             ended.Add($"{link.EffectId} on 0x{link.Target:x}: {why}");
         }
