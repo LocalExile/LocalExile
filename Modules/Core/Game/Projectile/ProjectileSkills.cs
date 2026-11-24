@@ -28,6 +28,7 @@ public static partial class Game
         const string ember = "Metadata/Projectiles/Ember";
         definitions["BlazingSalvo"] = SkillProjectileDefinition("BlazingSalvo", ember, SkillProjectileParameters("BlazingSalvo", ember));
         RegisterSpectralShieldThrows(definitions);
+        RegisterEyeOfWinter(definitions);
         const string coldMine = "Metadata/Projectiles/ColdProjectileMine";
         foreach (string effect in new[] { "IcicleMine", "IcicleMineAltX", "IcicleMineAltY" })
             definitions[effect] = SkillProjectileDefinition(effect, coldMine, SkillProjectileParameters(effect, coldMine));

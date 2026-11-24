@@ -54,7 +54,8 @@ public sealed partial class ProjectileRuntime
             {
                 if (!projectiles.ContainsKey(p.Id)) return;
                 EmitChildren(p, emission);
-                Schedule(Now + emission.Interval, Emit);
+                if (emission.TravelGroups is not int limit || p.EmissionNumber < limit)
+                    Schedule(Now + emission.Interval, Emit);
             }
             Schedule(Now + emission.Interval, Emit);
         }
