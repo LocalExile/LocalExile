@@ -203,6 +203,8 @@ public static partial class Game
         old.Ailments.MoveTo(target.Ailments);
         if (MinionLifeLeeches.TryGetValue(oldGolem, out var leech))
             MinionLifeLeeches.Add(replacement, leech);
+        if (MinionShieldLeeches.TryGetValue(oldGolem, out var shieldLeech))
+            MinionShieldLeeches.Add(replacement, shieldLeech);
 
         target.ReceivedActionFactor = old.ReceivedActionFactor;
         target.ReceivedActionUntil = old.ReceivedActionUntil;
@@ -486,6 +488,7 @@ public static partial class Game
             ClearDivineSentinelAura(player, golem.Id, aura);
         player.Golems.All.Remove(golem.Id); player.Minions.Remove(golem.Id);
         MinionLifeLeeches.Remove(golem);
+        MinionShieldLeeches.Remove(golem);
         player.Golems.IncomingHits.RemoveAll(hit => ReferenceEquals(hit.Target, golem));
         golem.Pending = null;
         foreach (var hazard in golem.Hazards) if (hazard.Object is uint art)

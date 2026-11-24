@@ -413,7 +413,11 @@ public static partial class Game
                 && mods[Stat.CannotLeechLife] == 0 && mods[Stat.BaseCannotLeechLife] == 0
                 ? LeechSources.Coefficients("life", LeechStat, !spell, weaponLocal is null ? null : weaponLocal.GetValueOrDefault)
                 : DamagePacket.Empty;
-            MinionHitProfiles.Add(ability, new(ignite, bleed, poison, chance, penetration, lifeLeech));
+            var shieldLeech = damage.MaxTotal > 0 && mods[Stat.CannotLeech] == 0 && mods[Stat.BaseCannotLeech] == 0
+                && mods[Stat.CannotLeechEnergyShield] == 0 && mods[Stat.BaseCannotLeechEnergyShield] == 0
+                ? LeechSources.Coefficients("energy_shield", LeechStat, !spell, weaponLocal is null ? null : weaponLocal.GetValueOrDefault)
+                : DamagePacket.Empty;
+            MinionHitProfiles.Add(ability, new(ignite, bleed, poison, chance, penetration, lifeLeech, shieldLeech));
         }
         return result;
     }

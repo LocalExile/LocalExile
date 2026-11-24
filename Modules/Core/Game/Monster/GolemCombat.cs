@@ -60,6 +60,7 @@ public static partial class Game
         GolemDotsLocked(player, g, oldLastStep, now);
         if (m.Dead || m.Life == 0 || MinionInstabilityLocked(player, g, now)) return;
         g.ShieldPool.Advance(oldLastStep, now, name => m.Mods.Effects[name], alive: true);
+        RecoverMinionShieldLeech(g, now);
         PublishEnergyShieldLocked(player, g);
         if (!MinionPowered(player, g, now))
         {
@@ -651,6 +652,8 @@ public static partial class Game
             if (!DamageModel.Hits(DamageModel.AccuracyHitChance(evasion, accuracy), AreaRng(player).Next(100))) return false;
         }
         if (MonsterBlocks(target, AreaRng(player), a.Attack.Spell)) return false;
+        double shieldLeechDamage = MinionShieldLeechDamageFactor(g, a, now);
+        if (shieldLeechDamage != 1) a = MinionDamageScale(a, shieldLeechDamage, shieldLeechDamage);
         double factor = DoedreSewers.MinionDamageFactor(player) * MinionTacticsDamage(player, g, id, target, now);
         if (g.Definition.Kind == "Carrion")
         {
@@ -694,7 +697,10 @@ public static partial class Game
         if (!a.Attack.Spell && !a.Attack.Secondary && damage > 0)
             MinionGainsLifeOnHitLocked(player, g, a);
         if (damage > 0 && profile is not null)
+        {
             GrantMinionLifeLeech(g, target, profile.LifeLeech, mitigated, damage, now);
+            GrantMinionShieldLeech(g, target, profile.ShieldLeech, mitigated, damage, now);
+        }
         if (!target.Dead && damage > 0) MinionExposureOnHitLocked(g.Own, target, mitigated, now, AreaRng(player));
         if (hit.StageStarts)
         { CommitBossStage(player, id, target, now); hit = hit with { StageStarts = false }; }

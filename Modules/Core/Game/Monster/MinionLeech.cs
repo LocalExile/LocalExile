@@ -9,6 +9,7 @@ public static partial class Game
     }
 
     static readonly RuleTable<GolemState.Golem, MinionLifeLeech> MinionLifeLeeches = new();
+    static readonly RuleTable<GolemState.Golem, LeechRecoveryState> MinionShieldLeeches = new();
 
     static SpawnedMonster? VampiricMinionAt(Player player, LinkSkills.Link link, double now) =>
         link.EffectId == "VampiricLink" && now < link.Until && player.PlayerLife > 0 && !player.Closed && !player.LeavingArea
@@ -55,14 +56,51 @@ public static partial class Game
         var monster = minion.Monster;
         if (ReferenceEquals(coefficients, DamagePacket.Empty) || monster.Life >= monster.MaxLife
             || target.Effects[Stat.CannotHaveLifeLeechedFrom] != 0 || target.Effects[Stat.MapMonstersCannotBeLeechedFrom] != 0) return;
-        double total = mitigated.MinTotal;
-        if (total <= 0) return;
-        double amount = mitigated.Components.Sum(part => part.Range.Min * coefficients[part.Type].Min)
-            * damage / total / 10_000d;
+        double amount = MinionLeechAmount(coefficients, mitigated, damage);
         if (amount <= 0) return;
         var leech = MinionLifeLeeches.GetOrCreateValue(minion);
         leech.Timed.Configure(now, new(1, monster.MaxLife * LeechLimits.BaseLifeManaRatePercentPerMinute / 6000d, 1));
         leech.Timed.Grant(now, amount, monster.MaxLife, monster.MaxLife * LeechLimits.BaseInstancePercent / 100d);
+    }
+
+    static double MinionLeechAmount(DamagePacket coefficients, DamagePacket mitigated, int damage) =>
+        mitigated.MinTotal > 0 ? mitigated.Components.Sum(part => part.Range.Min * coefficients[part.Type].Min)
+            * damage / mitigated.MinTotal / 10_000d : 0;
+
+    static double MinionShieldLeechDamageFactor(GolemState.Golem minion, GolemState.Ability ability, double now)
+    {
+        if (minion.MaximumShield == 0) return 1;
+        var effects = minion.Monster.Effects;
+        bool full = minion.ShieldPool.Full;
+        uint stat = full ? Stat.SupportEnergyShieldLeechDamagePlusPctOnFullEnergyShieldFinal
+            : Stat.SupportEnergyShieldLeechDamagePlusPctWhileLeechingEnergyShieldFinal;
+        int more = effects[stat] + GolemStat(ability.Stats, stat);
+        if (more == 0 || !full && (!MinionShieldLeeches.TryGetValue(minion, out var leech) || !leech.Active(now))) return 1;
+        return Math.Max(0, 1 + more / 100d);
+    }
+
+    static void GrantMinionShieldLeech(GolemState.Golem minion, SpawnedMonster target, DamagePacket coefficients,
+        DamagePacket mitigated, int damage, double now)
+    {
+        if (ReferenceEquals(coefficients, DamagePacket.Empty) || minion.MaximumShield == 0 || minion.ShieldPool.Full
+            || target.Effects[Stat.CannotHaveEnergyShieldLeechedFrom] != 0 || target.Effects[Stat.MapMonstersCannotBeLeechedFrom] != 0) return;
+        double amount = MinionLeechAmount(coefficients, mitigated, damage);
+        if (amount <= 0) return;
+        var leech = MinionShieldLeeches.GetOrCreateValue(minion);
+        uint maximum = minion.MaximumShield;
+        leech.Configure(now, new(1, maximum * LeechLimits.BaseEnergyShieldRatePercentPerMinute / 6000d, 1));
+        leech.Grant(now, amount, maximum, maximum * LeechLimits.BaseInstancePercent / 100d);
+    }
+
+    static void RecoverMinionShieldLeech(GolemState.Golem minion, double now)
+    {
+        if (!MinionShieldLeeches.TryGetValue(minion, out var leech)) return;
+        var shield = minion.ShieldPool;
+        var effects = minion.Monster.Effects;
+        double recovery = leech.TakeRecovery(now);
+        if (!shield.Full && effects[Stat.CannotRecoverEnergyShield] == 0 && effects[Stat.NoEnergyShieldRecovery] == 0)
+            shield.Gain(recovery * Math.Max(0, 1 + effects[Stat.EnergyShieldRecoveryRatePlusPct] / 100d));
+        if (shield.Full || shield.Maximum == 0 || leech.Count == 0) MinionShieldLeeches.Remove(minion);
     }
 
     static int TakeMinionLifeLeech(GolemState.Golem minion, double now, double recoveryRate)

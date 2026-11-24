@@ -146,6 +146,7 @@ public static partial class Game
                 double recovery = effects[Stat.EnergyShieldGainedOnBlock]
                     + (fromArmour > 0 ? GolemArmour(g) * fromArmour / 100 : 0);
                 g.ShieldPool.Recover((uint)Math.Clamp(recovery, 0, uint.MaxValue));
+                if (g.ShieldPool.Full) MinionShieldLeeches.Remove(g);
             }
             player.Minions.OutputQueue.Add(new([], null, g.Id, m, PlayerMinions.OutputKind.Life));
             return false;
@@ -256,6 +257,7 @@ public static partial class Game
         if (g.Monster.Dead && double.IsFinite(g.ReviveAt)) return;
         g.Monster.Dead = true; g.Monster.Life = 0; g.Monster.ActionGeneration++; g.Pending = null;
         MinionLifeLeeches.Remove(g);
+        MinionShieldLeeches.Remove(g);
         if (g.Definition.Kind == "Phantasm")
         {
             player.Area.Buffs.Clear(player.Id, PhantasmalMightBuff, g.Id);

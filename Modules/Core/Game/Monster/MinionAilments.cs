@@ -5,7 +5,7 @@ using GameServer.Core.World;
 public static partial class Game
 {
     sealed record MinionHitProfile(MonsterIgnites.Settings Ignite, MonsterIgnites.Settings Bleed,
-        MonsterPoisons.Settings Poison, int PoisonChance, Penetration.PerType Penetration, DamagePacket LifeLeech);
+        MonsterPoisons.Settings Poison, int PoisonChance, Penetration.PerType Penetration, DamagePacket LifeLeech, DamagePacket ShieldLeech);
     static readonly RuleTable<GolemState.Ability, MinionHitProfile> MinionHitProfiles = new();
 
     static void MinionExposureOnHitLocked(IReadOnlyDictionary<uint, int> skillStats, SpawnedMonster target,
