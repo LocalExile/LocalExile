@@ -260,6 +260,9 @@ public static partial class Game
                     PlayerMinions.OutputKind.Flinch => output.Target is { Dead: false } m && m.ActionGeneration == output.Action
                         && output.Until > AreaTime(player) ? TakeHitPacket(player, output.TargetId!.Value, m, output.Until,
                             AreaTime(player)) : null,
+                    PlayerMinions.OutputKind.Packet when output.Packet.Length == 0 && output.At is { } moveTo
+                        && output.Target is { } mover && output.TargetId is uint moverId
+                        => GolemMoveAtGate(player, moverId, mover, moveTo),
                     _ => output.Packet,
                 };
             }
@@ -325,6 +328,8 @@ public static partial class Game
         }
         await SendSentinelOwnership(player, Current);
         if (!Current() || account == state.PresentedAccountRevision) return;
+        if (!HardcoreProgressBlocked(player)) await BroadcastLevelChange(player, player.Pools.Level);
+        if (!Current()) return;
         await SynchronizeAccountLevel(player);
         if (Current() && !player.Closed && !player.LeavingArea) state.PresentedAccountRevision = Math.Max(state.PresentedAccountRevision, account);
     }

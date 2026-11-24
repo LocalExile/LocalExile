@@ -294,6 +294,15 @@ public static partial class Game
         await SendRemainingMonsters(player);
     }
 
+    static async Task EnsureMonsterTypeSent(Player player, MonsterCatalog.Variety variety, byte level)
+    {
+        if (player.MonsterTypes.Contains((variety.Row, level))) return;
+        await Send(player, [], $"0x0020 monster type {variety.Id}@{level} (row {variety.Row})", atGate: () =>
+            CurrentGameWork && !player.Closed && !player.LeavingArea
+                && player.MonsterTypes.Add((variety.Row, level))
+                ? InstanceEntities.MonsterTypes([((ushort)variety.Row, level)]) : null);
+    }
+
     public static async Task<uint> SpawnMonster(Player player, MonsterCatalog.Variety variety,
         byte level, MonsterRarity rarity, int x, int y, string? name = null, bool friendly = false, bool log = true, uint? damagedLife = null,
         MonsterModSet? mods = null, bool alone = true, bool? unrisen = null, float rotation = 0,
@@ -301,7 +310,7 @@ public static partial class Game
         IReadOnlyList<GrantedSkill>? ownedSkills = null,
         uint? ownedMaximumLife = null, uint ownedMaximumEnergyShield = 0,
         uint ownedEnergyShield = 0,
-        MonsterModSet? extraMods = null, bool scripted = false, IReadOnlyList<VisibleItem>? ownedLooks = null,
+        MonsterModSet? extraMods = null, bool scripted = false, IReadOnlyList<VisibleItem>? ownedLooks = null, IReadOnlyList<MonsterKitSkill>? extraKit = null,
         Func<bool>? ownedAdmission = null, bool ownedInitialDeath = false,
         MonsterPlacement placement = MonsterPlacement.Proposed, int? lifePercent = null,
         MonsterMovement? movement = null, (uint Parent, string Bone, byte Kind, byte Flags)? attachTo = null, bool instanceOwned = false,
@@ -460,7 +469,7 @@ public static partial class Game
             ReleaseEffect = projectile is null || effect < 0 ? null : effect,
             Release = projectile is null || effect < 0 ? null : MonsterReleaseFor(player, variety, effect, level, projectile),
         };
-        if (variety.Id == EssenceExplosiveInsect) attack = EssenceInsectAttack(player, level, skillId, mods.Effects);
+        if (IsEssenceExplosiveInsect(variety.Id)) attack = EssenceInsectAttack(player, level, skillId, mods.Effects, EssenceInsectEffectFor(variety.Id));
         var skill = effect >= 0
             ? catalog.FindByRow(attack.SkillId, effect, level,
                 MonsterActionSkillStats(player, effect, level, attack, mods.Effects)) : null;
@@ -487,6 +496,13 @@ public static partial class Game
         // its own actions.
         var kit = scripted || kingSkills is not null ? (IReadOnlyList<MonsterKitSkill>)[]
             : BossKits.Kit(player, variety, level, effect, attack, unique: !friendly && rarity == MonsterRarity.Unique);
+        // An extra-only kit (the essence spells on a monster with no kit of its own) starts with the monster's own attack:
+        // BossKits.Choose replaces the attack with a kit entry on every pass, so without that entry the essence rare lost
+        // its melee and only ever cast the kit's cooldown spells — or, given an instant summon, swung that at nothing.
+        if (kit.Count == 0 && extraKit is { Count: > 0 } && skill is not null)
+            kit = [new MonsterKitSkill(effect, attack with { SkillId = (ushort)0x4000 }, 0)];
+        // A caller's extra specials (a summon's own usable kit, BossKits.SummonKit) append to the built kit.
+        kit = BossKits.WithExtra(kit, extraKit);
         // The kit's first entry is the effect the default attack uses, given its own id in the kit: the actor needs that
         // list, not a second copy of the default attack under the hash-derived id. The stage skill stays: it is 0x0103.
         var skills = kingSkills is { Count: > 0 } ? kingSkills
@@ -2095,12 +2111,12 @@ public static partial class Game
                 : InstanceProtocol.ActionStarted(id, from.X, from.Y, playerAt.X, playerAt.Y, a.SkillId, seq, player.MonsterOrderFlags, targetObjectId: player.Id);
         }, ServerTrace.Combat || ServerTrace.Ai
             ? (a.Summon is not null ? $"0x01d1 monster 0x{id:x} ({m.Label}) summons, cast time {seconds:0.00} s"
-                : $"0x01ab monster 0x{id:x} ({m.Label}) attacks the player, attack time {seconds:0.00} s")
+                : $"0x01ab monster 0x{id:x} ({m.Label}) attacks the player with {(a.Effect is int used ? SkillsFor(player).EffectId(used) : null) ?? "its attack"} 0x{a.SkillId:x4}, attack time {seconds:0.00} s")
             : null)) return false;
-        // A clip-only action (a dev command's NoContact) lands nothing: its hit or area belongs to the caller, which
+// A clip-only action (a dev command's NoContact) lands nothing: its hit or area belongs to the caller, which
         // sends it on its own clock. A zero-damage contact here would only play the clip's hit effect.
         if (a.NoContact) return true;
-        if (m.Variety?.Id == EssenceExplosiveInsect)
+        if (IsEssenceExplosiveInsect(m.Variety?.Id))
         {
             if (await WaitMonsterActionTime(player, id, m, action, startedAt + seconds))
                 await ExplodeEssenceInsect(player, id, m, a, action);
@@ -2140,6 +2156,10 @@ public static partial class Game
             // clock does not select this unused fallback or load the legacy contact corpus at its first swing.
             double contact = a.Release?.Fraction ?? stanceContact ?? (walkUp && m.Variety is { } variety
                 ? SkillsFor(player).MonsterContact(variety.Id, "Melee", seq)?.ContactFraction : null) ?? 0.5;
+            if (a.Projectile is not null && a.Effect is int barrageEffect
+                && BossMoves.BarrageOf(SkillsFor(player), barrageEffect) is { } pendingBarrage)
+                m.BusyUntil = Math.Max(m.BusyUntil,
+                    startedAt + seconds * contact + (pendingBarrage.Count - 1) * pendingBarrage.Seconds + player.LockstepActionTail);
             if (player.Connection.LockstepClient && a.Projectile is { Variation: > 0, Lobbed: false } nativeProjectile)
             {
                 // Like the player's native shot, the monster emits at the end of the frame that crosses contact.
@@ -2162,6 +2182,20 @@ public static partial class Game
         }
         if (a.Strike is { } strike)
         {
+            // A hazard that stays (BossMoves.Strikes: Merveil's geysers): several come up, the first under the player and
+            // the rest around it, and each strikes again while its art stands.
+            if (a.Effect is int strikeEffect && BossMoves.StrikeOf(SkillsFor(player), strikeEffect, m.Level) is { } many)
+            {
+                List<(int X, int Y)> spots = [areaAim, .. BossMoves.StrikeSpots(areaAim, many.Count - 1, many.Spread, AreaRng(player), player.Layout, player.Barrier)];
+                foreach (var spot in spots)
+                {
+                    await PlaceMonsterMarker(player, id, m, a, strike, spot);
+                    for (int pulse = 1; pulse <= many.Pulses; pulse++)
+                        await PlaceMonsterMarker(player, id, m, a,
+                            strike with { Seconds = strike.Seconds + pulse * many.Pulse, MarkerArt = null, ImpactArt = null }, spot);
+                }
+                return false;
+            }
             await PlaceMonsterMarker(player, id, m, a, strike, areaAim);
             return false;
         }
@@ -2169,6 +2203,16 @@ public static partial class Game
         {
             // The shot leaves at the contact and flies; its hit lands when it reaches the player (Program.ProjectileHostile.cs).
             LaunchMonsterProjectile(player, id, m, a, projectile, action, projectileAim, sequence: seq);
+            // A barrage (BossMoves.Barrages: Merveil's Ice Spears): the rest follow from the same cast, each at where
+            // the player then stands, while the action is still the monster's.
+            if (a.Effect is int shotEffect && BossMoves.BarrageOf(SkillsFor(player), shotEffect) is { } barrage)
+            {
+                double releaseNow = AreaTime(player);
+                m.BusyUntil = Math.Max(m.BusyUntil, releaseNow + (barrage.Count - 1) * barrage.Seconds + player.LockstepActionTail);
+                for (int i = 1; i < barrage.Count; i++)
+                    LaunchMonsterProjectile(player, id, m, a, projectile, action, null, releaseNow + i * barrage.Seconds,
+                        sequence: seq, turn: true);
+            }
             return false;
         }
         if (a.AreaRadius > 0 && !area)
@@ -2236,6 +2280,7 @@ public static partial class Game
             if (await SpawnMonster(player, variety, m.Level, MonsterRarity.Normal, at.X, at.Y, alone: true,
                 extraMods: EssenceSummonModifiers(variety),
                 ownedSkills: skills,
+                extraKit: summon.Effect >= 0 ? null : BossKits.SummonKit(player, variety, m.Level),
                 ownedAdmission: () => MonsterSummonerCurrentLocked(player, id, m) && EssenceSummonCanSpawnLocked(player, id, variety),
                 owned: (_, summoned) =>
                 {
@@ -2244,6 +2289,8 @@ public static partial class Game
                     if (acts is not null) summoned.Attack = acts;
                 }) != 0) created++;
         Console.WriteLine($"[gateway] {player.Connection.Remote} monster 0x{id:x} ({m.Label}) summons {created}/{summon.Count} {variety.Name} at ({at.X}, {at.Y})");
+        // Doubt's spiders land with their mortar burst; the essence's own landing art for the variety.
+        if (created > 0) MapEssences.OnSummonSpawned(player, variety.Id, at);
     }
 
     /// <summary>Piety, the Abomination's rotating 360-degree beam (<c>PietyCorruptedLightningBeam</c>): aims at the
@@ -2468,6 +2515,9 @@ public static partial class Game
             return outcome?.HitPacket;
         }, ServerTrace.Combat ? $"0x01af monster 0x{id:x} hit on the player (kind 3, sequence 0x{sequence:x4})" : null)) return;
         if (outcome is not null) await PresentMonsterHit(player, id, outcome);
+        // An essence's Misery rare adds a stack to the player its attack hits (the wiki); a monster without it is a
+        // cheap no-op.
+        if (outcome is not null) MapEssences.MiseryOnAttack(player, m, player);
     }
 
     /// <summary>The monster hit packet's flags: generic particles (0x4000), main hand (0x0200) and blood (0x0001) always,
@@ -2635,7 +2685,8 @@ public static partial class Game
             monsterCritical, blocked, now, stats, a.Ailments, source: id);
         AlternateAilmentsOnPlayerLocked(player, m, ailmentTaken.Select((_, r) =>
             new(FortificationDamageTaken(player, (int)r.Min), FortificationDamageTaken(player, (int)r.Max))), blocked, now, stats, a.Ailments);
-        ApplyMonsterDamagingAilmentsLocked(player, id, m, baseHit, blocked, now, attack: attackHit, prepared: stats);
+        ApplyMonsterDamagingAilmentsLocked(player, id, m, baseHit, blocked, now, attack: attackHit, prepared: stats,
+            skillPoisonChance: a.PoisonChance, skillPoisonSeconds: a.PoisonSeconds);
         ApplyMonsterDecayLocked(player, id, m, blocked, now, stats);
         ApplyCorruptedBloodOnHit(player, a, baseHit, blocked, now, stats);
         RecordIncomingHitLocked(player, now, spellHit, blocked, suppressed, lifeDamage, monsterCritical);

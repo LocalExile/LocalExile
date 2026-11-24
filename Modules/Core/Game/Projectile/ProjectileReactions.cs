@@ -201,6 +201,7 @@ public static partial class Game
                 session.Enqueue(() => SendCharacterStats(player, PlayerStatChange.Build));
                 session.Enqueue(() => SendPlayerMana(player, "projectile kill level"));
                 session.Packet(PassivesMessage(player).Bytes);
+                session.Enqueue(() => BroadcastLevelChange(player, level));
                 // Account-level persistence is a projection of the committed XP ledger.
                 session.Enqueue(async () => { await SynchronizeAccountLevel(player); });
             }

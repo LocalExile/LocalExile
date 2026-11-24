@@ -621,8 +621,10 @@ public static partial class Game
                 var (mainHandMore, dualWieldMore) = SkillsFor(player).IsAttack(effect) && shieldWeapon is null
                     ? HandDamageMore(player, own) : (1, 1);
                 if (mainHandMore * dualWieldMore != 1) supportedHit = supportedHit.Scale(mainHandMore * dualWieldMore);
+                var shieldSpeed = SkillsFor(player).IsAttack(effect) && shieldWeapon is not null
+                    ? SupportedOffHandAttackSpeed(player, id, shieldWeapon) : ((double Seconds, int IncreasedPct, int MorePct, int FinalPct)?)null;
                 double seconds = SkillsFor(player).IsAttack(effect)
-                    ? shieldWeapon is null ? SupportedAttackSeconds(player, id) : SupportedOffHandAttackSeconds(player, id, shieldWeapon)
+                    ? shieldSpeed?.Seconds ?? SupportedAttackSeconds(player, id)
                     : Math.Max(.001, (CastMs(player, effect, id) ?? 0) / 1000.0);
                 var finalPlan = SkillHitPlan.ForSkill(SkillsFor(player), effect, supported.Level, supported.Quality);
                 int criticalChance = SupportedCriticalChance(player, id);
@@ -645,6 +647,15 @@ public static partial class Game
                     if (additionalAttackMs != 0) attackBaseMs = SkillAttackTiming.BaseMilliseconds(attackBaseMs, additionalAttackMs);
                     stats[Stat.MainHandAttackSpeedPlusPct] = (int)Math.Round((attackBaseMs / (seconds * 1000) - 1) * 100);
                     stats[Stat.HundredTimesAttacksPerSecond] = (int)Math.Round(100 / seconds);
+                    // Shield Charge (and shield attacks, +0x311 = 0) read off_hand_attack_speed_+% (0x127, 0x141b58740) for
+                    // their end-attack time and combined_off_hand_attack_speed_+% / _final (0x211e / 0x531e, 0x141a70760)
+                    // for charge travel speed. Network skill stats run no calculators, so publish all three explicitly.
+                    if (shieldSpeed is { } shieldOffSpeed)
+                    {
+                        stats[Stat.OffHandAttackSpeedPlusPct] = shieldOffSpeed.FinalPct;
+                        stats[Stat.CombinedOffHandAttackSpeedPlusPct] = shieldOffSpeed.IncreasedPct;
+                        stats[Stat.CombinedOffHandAttackSpeedPlusPctFinal] = shieldOffSpeed.MorePct;
+                    }
                     foreach (var (field, value) in new[]
                     {
                         (Stat.MainHandAccuracyRating, accuracy.Rating),
@@ -900,11 +911,21 @@ public static partial class Game
             _ = Task.Delay(2 * FrameMs + 16).ContinueWith(_ =>
             {
                 if (!player.Closed && !player.LeavingArea && player.SkillBarRestoreGeneration == gen)
-                    _ = player.Frames.Run(() => SendSkillBar(player));
+                    _ = player.Frames.Run(() => SendSkillBarHoldingGuard(player));
             });
             return Task.CompletedTask;
         }
-        return SendSkillBar(player);
+        return SendSkillBarHoldingGuard(player);
+    }
+
+    // The bar re-creates every slot's cooldown entry, so a held guard's frozen entry goes out again behind it, or its
+    // cooldown counts while the buff runs (issue #1127). Built at the send gate, as SendSkills' re-hold is.
+    static async Task SendSkillBarHoldingGuard(Player player)
+    {
+        await SendSkillBar(player);
+        if (TriggeredGuards.TryGetValue(player, out _))
+            await Send(player, [], "0x02bc guard cooldown re-held after the skill bar",
+                atGate: () => HeldGuardCooldownRefresh(player));
     }
 
     // A bind received while an earlier refresh waits for the send gate must win over that refresh.
@@ -1307,6 +1328,47 @@ public static partial class Game
         await PublishLevelChange(player, before, level);
     }
 
+    public static string ClassDisplayName(Player player)
+    {
+        var cls = SkillsFor(player).ClassFor(player.Character.ClassRow);
+        if (player.Character.MainAscendancy?.Selection is { } sel
+            && Ascendancies?.Find(sel) is { } asc
+            && asc.BaseClass == (byte)cls.IntegerId)
+            return asc.Name;
+        var baseClass = (GameServer.Core.Accounts.CharacterClass)cls.IntegerId;
+        return Enum.IsDefined(baseClass) ? baseClass.ToString() : "Exile";
+    }
+
+    public static string ClassDisplayName(GameServer.Core.Accounts.CharacterClass baseClass, string? ascendancyId, string? ascendancyFamily = null)
+    {
+        if (!string.IsNullOrEmpty(ascendancyId) && Ascendancies is { } catalog)
+        {
+            AscendancyFamily? family = Enum.TryParse<AscendancyFamily>(ascendancyFamily, ignoreCase: true, out var parsed)
+                && Enum.IsDefined(parsed) ? parsed : null;
+            if (catalog.Definitions.FirstOrDefault(d => d.BaseClass == (byte)baseClass
+                && (family is null || d.Identity.Family == family)
+                && d.Identity.Id.Equals(ascendancyId, StringComparison.OrdinalIgnoreCase)) is { } asc)
+                return asc.Name;
+        }
+        return Enum.IsDefined(baseClass) ? baseClass.ToString() : "Exile";
+    }
+
+    internal static async Task BroadcastLevelChange(Player player, int level)
+    {
+        if (player.Instance is not { Presence: { } presence }) return;
+        // BackendErrors LevelUp (143): "{0} ({1}) is now level {2}". Each recipient gets its own bytes (in-place cipher).
+        string text = $"{CharacterName(player)} ({ClassDisplayName(player)}) is now level {level}";
+        var seen = new HashSet<Player>(ReferenceEqualityComparer.Instance);
+        foreach (var recipient in InGame.Keys.Append(player))
+        {
+            if (!seen.Add(recipient)
+                || recipient is not { Controlled: false, Closed: false, LeavingArea: false, Connection: { PlayerSent: true, Outbox: { } outbox } }
+                || !ReferenceEquals(recipient.Instance?.Presence, presence)) continue;
+            try { await outbox(InstanceChat.ChatLine(text), $"0x0017 level up \"{text}\""); }
+            catch (Exception ex) when (ex is IOException or ObjectDisposedException) { }
+        }
+    }
+
     public static async Task PublishLevelChange(Player player, int before, int level)
     {
         if (HardcoreProgressBlocked(player)) return;
@@ -1321,6 +1383,7 @@ public static partial class Game
         await SendPlayerMana(player, $"0x01b1 player mana {player.PlayerMana}");
         await SendPassives(player);
         await CheckLevelAchievements(player, level);
+        await BroadcastLevelChange(player, level);
     }
 
     // The player's stats (0x1b3) and the skills computed with them (0x2bc Actor), after the level or the passives changed.

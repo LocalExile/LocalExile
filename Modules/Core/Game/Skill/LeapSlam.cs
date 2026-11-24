@@ -69,7 +69,9 @@ public static partial class Game
 
     public static LeapSlam.Use? PlanLeapSlam(Player player, ushort skillId, int effect, (int X, int Y) aim, double at)
     {
-        var from = player.Walk.Position(at);
+        double planAt = player.Connection.LockstepClient && player.Connection.LockstepFrame is { } frame ? frame.Start : at;
+        if (player.Connection.LockstepClient) StepWalkers(player, planAt);
+        var from = player.Walk.Position(planAt);
         var landing = LeapSlam.Landing(player.Layout, player.Barrier, from, aim, SkillsFor(player).BehaviourVariation(effect));
         LeapSlam.Phases timing;
         try { timing = LeapSlamTiming(player, skillId, effect, SupportedAttackSeconds(player, skillId)); }
@@ -78,7 +80,7 @@ public static partial class Game
             Console.WriteLine($"[gateway] Leap Slam unavailable: {ex.Message}");
             return null;
         }
-        return new(from, landing, at, timing, player.ActionCount + 1, player.ActionInterruptionGeneration);
+        return new(from, landing, planAt, timing, player.ActionCount + 1, player.ActionInterruptionGeneration);
     }
 
     public static void CommitLeapSlam(Player player, LeapSlam.Use use)

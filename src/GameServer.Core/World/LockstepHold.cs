@@ -18,20 +18,28 @@ public sealed class LockstepHold
     /// <summary>The Move skill of the click (0x18e).</summary>
     public ushort Skill { get; private set; }
 
+    /// <summary>Whether the move button is currently held down (between 0x18e and 0x195).</summary>
+    public bool Held => _held;
+
+    /// <summary>The newest cursor offset from the player cell reported by 0x18e/0x192 while held.</summary>
+    public (int Dx, int Dy)? Offset { get; private set; }
+
     /// <summary>Whether a held or pending movement request still has a destination.</summary>
     public bool Active => _target is not null;
 
-    /// <summary>C→S 0x18e: a click, with the target as a cell.</summary>
-    public void Press((int X, int Y) target, ushort skill, ushort flags)
+    /// <summary>C→S 0x18e: a click, with the target as a cell and optional cursor offset from the player.</summary>
+    public void Press((int X, int Y) target, ushort skill, ushort flags, (int Dx, int Dy)? offset = null)
     {
-        (_target, Skill, Flags) = (target, skill, flags);
+        (_target, Skill, Flags, Offset) = (target, skill, flags, offset);
         _pending = _held = true;
     }
 
     /// <summary>C→S 0x192: the held button's newest target. Only a held Move has one.</summary>
-    public void Update((int X, int Y) target)
+    public void Update((int X, int Y) target, (int Dx, int Dy)? offset = null)
     {
-        if (!_held || _target == target) return;
+        if (!_held) return;
+        Offset = offset;
+        if (_target == target) return;
         _target = target;
         _pending = true;
     }
@@ -40,6 +48,7 @@ public sealed class LockstepHold
     public void Release()
     {
         _held = false;
+        Offset = null;
         if (!_pending) _target = null;
     }
 
@@ -47,6 +56,7 @@ public sealed class LockstepHold
     public void Clear()
     {
         _target = null;
+        Offset = null;
         _pending = _held = false;
     }
 

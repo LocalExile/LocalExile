@@ -375,13 +375,18 @@ public static partial class Game
             }
         }
         // Fleeing (MonsterFlee): its own draws (AreaRng(player)), so a projectile's reaction draws stay in order.
-        if (!m.Fleeing && MonsterFlee.Rolls(MonsterFlee.Chance(spell, Player, Skill),
-                m.Effects[Stat.MonsterChanceToNotFleePct], AreaRng(player)))
+        int fleeChance = MonsterFlee.Chance(spell, Player, Skill);
+        if (!m.Fleeing && MonsterFlee.Rolls(fleeChance, m.Effects[Stat.MonsterChanceToNotFleePct], AreaRng(player)))
         {
             int size = Math.Max(0, LivingCollision.Size(m));
             m.FleeTo = MonsterFlee.Point(m.Walk.Position(now), player.Walk.Position(now),
                 (x, y) => player.Layout.WalkableFor(x, y, size) && !player.Barrier.Contains((x, y)), AreaRng(player));
             m.Fleeing = m.FleeTo is not null;
+            // Which hit made it run, and from what chance: the stat sources are not logged by the panel, and a fleeing
+            // monster reads as broken AI (reported live 2026-11-23).
+            if (m.Fleeing)
+                Console.WriteLine($"[gateway] monster 0x{targetId:x} ({m.Label}) flees from a {(spell ? "spell" : "hit")} " +
+                    $"0x{sourceSkill:x4}: {fleeChance}% chance, {m.Effects[Stat.MonsterChanceToNotFleePct]}% not to, to {m.FleeTo}");
         }
         if (added.Count + alternate.Count == 0 || player.PlayerLife == 0
             || !RandomRolls.Chance(m.Effects[Stat.ReflectNonDamagingAilmentsPctChance], 100, random)) return;

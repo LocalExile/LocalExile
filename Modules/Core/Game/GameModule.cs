@@ -119,6 +119,8 @@ public sealed class GameModule : IModule, IDisposable
         global::HarbingerCatalog.LoadGameData();
         Rules.LoadEssenceAurasData();
         Rules.LoadEssenceSummonsData();
+        Rules.LoadEssenceProjectiles();
+        Rules.LoadRemnantAuraData();
         Rules.LoadSelfBuffSkillsData();
         Rules.LoadMapAreaStats();
         Rules.LoadAchievementsData();
@@ -135,6 +137,7 @@ public sealed class GameModule : IModule, IDisposable
         module.Lifetime.Own(Rules.CleanupTemporaryAuras());
         module.Lifetime.Own(Rules.CleanupEssenceAuras());
         module.Lifetime.Own(Rules.CleanupMonsterSummons());
+        module.Lifetime.Own(Rules.CleanupRemnantAuras());
         GameEvents.AreaTick.Add(module.Manifest.Id, GameEvents.InArea(global::Sirus.Area, global::Sirus.Tick));
         GameEvents.AreaTick.Add(module.Manifest.Id, GameEvents.Always((player, _) => Rules.CloseInteractionsIfMovingAway(player, null, Rules.AreaTime(player))));
         // A map device's portal labels read "<area> (Completed)" once that run's boss is dead (World/Portals.cs).
@@ -143,6 +146,9 @@ public sealed class GameModule : IModule, IDisposable
         // A dead monster's debuffs come off: each player's step for it.
         GameEvents.MonsterKilled.Add(module.Manifest.Id, kill =>
         {
+            // A Misery proximity shield dies with its monster: the counter is a hot-path guard, not a state that
+            // outlives the monster (nothing would ever decrement it for a monster that leaves the area).
+            MapEssences.ClearProximityShield(kill.Player, kill.Monster.ObjectId);
             foreach (var p in kill.Player.Frames.Players()) global::Game.MonsterDebuffsChanged(p, kill.Monster.ObjectId);
             return Task.CompletedTask;
         });
@@ -170,6 +176,8 @@ public sealed class GameModule : IModule, IDisposable
         GameEvents.Packet(GameServer.Core.Protocol.Instance.InstanceItems.UseItemTypeOnObjectId).Add(module.Manifest.Id, MapEssences.UseItemTypeOn);
         GameEvents.AreaTick.Add(module.Manifest.Id, GameEvents.Always(MapEssences.Tick));
         GameEvents.Drops.Add(module.Manifest.Id, MapEssences.Drops);
+        GameEvents.PlayerStatSources.Add(module.Manifest.Id, Rules.RemnantAuraStats);
+        GameEvents.PlayerStatSources.Add(module.Manifest.Id, MapEssences.EssenceDebuffStats);
         GameEvents.PlayerLeaving.Add(module.Manifest.Id, (player, _) => { MapEssences.Leave(player); return Task.CompletedTask; });
         GameEvents.StateBuilding.Add(module.Manifest.Id, MapEssences.Describe);
         GameEvents.MapOpening.Add(module.Manifest.Id, MapTorment.Opening);
@@ -407,6 +415,7 @@ public sealed class GameLogic(IModuleLifetime? lifetime = null) : IGameLogic, IC
     public IPlayerWorld WorldFor(Player player) => new Rules.ModuleWorld(player);
     public IEnumerable<(string Value, string Detail)>? CompletionValues(string kind) => Rules.CompletionValues(kind);
     public double PlayerActionFactor(Player player) => Rules.PlayerActionFactor(player);
+    public double MovementSpeedMultiplier(Player player) => Rules.MovementSpeedMultiplier(player);
     public CharacterSaves.Save BuildControlled(GameServer.Core.Accounts.CharacterClass characterClass, int level) => Rules.BuildControlledPlayer(characterClass, level);
     public Task InitializeControlled(Player player, Player leader) => Rules.InitializeControlledPlayer(player, leader);
     public Task StepControlled(Player player, Player leader) => Rules.StepControlledPlayer(player, leader);

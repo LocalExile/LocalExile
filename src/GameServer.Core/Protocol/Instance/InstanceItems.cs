@@ -368,7 +368,13 @@ public sealed record WorldItemObject(int GridX, int GridY, Item Item)
 
     public byte[] Blob() => Blob(justDropped: false);
 
-    public byte[] Blob(bool justDropped)
+    /// <summary>
+    /// Serializes the WorldItem creation blob. Optional zero-payload <paramref name="tasks"/> (each a
+    /// <c>GameObjectTasks</c> HASH16, little-endian; inline reader <c>0x141ee6950</c>) are attached to the object so a
+    /// later S→C <c>0x2c3</c> <see cref="InstanceEntities.UpdateTask"/> can trigger them (e.g.
+    /// <c>AutoPickupWorldItem</c>, <c>0x9c67</c>).
+    /// </summary>
+    public byte[] Blob(bool justDropped, IReadOnlyList<ushort>? tasks = null)
     {
         var w = new BlobWriter();
         w.U8(0).U8(0);                                   // object flags, base data entry count
@@ -376,7 +382,9 @@ public sealed record WorldItemObject(int GridX, int GridY, Item Item)
         w.U8(0);                                         // Animated: none
         w.U32(0).U8(justDropped ? (byte)1 : (byte)0).U32(0).Bytes(Item.Payload()); // WorldItem
         w.U8(0);                                         // InteractionAction
-        w.U8(0);                                         // tasks
+        w.U8(checked((byte)(tasks?.Count ?? 0)));        // tasks (0x141ee6950): u8 count, then u16 LE hash16 per task
+        if (tasks is not null)
+            foreach (ushort task in tasks) w.U16(task);
         return w.ToArray();
     }
 }
@@ -389,7 +397,11 @@ public static class InstanceItems
 {
     public const ushort InventoryChangeId = 0xbf, PickUpItemId = 0x28, DropItemId = 0x29, PlaceItemId = 0x2a, InventoryRequestId = 0x2d,
         ItemActionId = 0x4a, SplitStackId = 0x7c, CommandId = 0x16, SocketGemId = 0x30, UnsocketGemId = 0x2f,
-        LevelUpGemId = 0x31, LevelUpAllGemsId = 0x32, LockGemId = 0xd7;
+        LevelUpGemId = 0x31, LevelUpAllGemsId = 0x32, LockGemId = 0xd7, InventoryFullId = 0x117;
+
+    /// <summary>S→C 0x0117 (2 bytes, id only; dispatcher case 0x44 at 0x142155509 → subscriber 0x140d60680):
+    /// plays the local character's <c>InvFull</c> audio event (<c>CharacterAudioEvents</c> row 247).</summary>
+    public static byte[] InventoryFull() => new LoginWriter().U16(InventoryFullId).ToArray();
 
     /// <summary>C→S 0x010e, 0x010f, 0x0111, 0x0112, 0x0115: Ctrl + click on an item with a league window open (one class, writer
     /// 0x141f993f0; 0x0112 sender 0x14216f0d0 from 0x14030e970, sent only while UI slot +0x8a0 is true). 0x010e is
@@ -466,11 +478,17 @@ public static class InstanceItems
     /// <summary>Commands.dat row 4 (<c>ShowDeaths</c>, "/deaths") + 1.</summary>
     public const byte DeathsCommand = 5;
 
+    /// <summary>Commands.dat row 6 (<c>ShowLadder</c>, "/ladder") + 1.</summary>
+    public const byte LadderCommand = 7;
+
     /// <summary>Commands.dat row 8 (DestroyCursorItem, "/destroy") + 1: what the Keep / Destroy popup's Destroy sends.</summary>
     public const byte DestroyCursorItemCommand = 9;
 
     /// <summary>Commands.dat row 9 (<c>Whois</c>, "/whois") + 1.</summary>
     public const byte WhoisCommand = 10;
+
+    /// <summary>Commands.dat row 11 (<c>ShowCursorItemLevel</c>, "/itemlevel") + 1.</summary>
+    public const byte ItemLevelCommand = 12;
 
     /// <summary>Commands.dat row 34 (<c>AutoReply</c>, "/autoreply") + 1.</summary>
     public const byte AutoReplyCommand = 35;
@@ -480,6 +498,12 @@ public static class InstanceItems
 
     /// <summary>Commands.dat row 49 (SaveHideout, "/save_hideout") + 1: exports/saves the current hideout layout.</summary>
     public const byte SaveHideoutCommand = 50;
+
+    /// <summary>Commands.dat row 52 (<c>ForceResyncPlayer</c>, "/oosme") + 1.</summary>
+    public const byte ForceResyncPlayerCommand = 53;
+
+    /// <summary>Commands.dat row 55 (<c>ShowKills</c>, "/kills") + 1.</summary>
+    public const byte KillsCommand = 56;
 
     /// <summary>Commands.dat row 70 (WarpToDeepwaterHub, "/boat") + 1: the chat command that goes to The Sovereign.</summary>
     public const byte WarpToDeepwaterHubCommand = 71;

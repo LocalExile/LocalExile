@@ -301,4 +301,28 @@ Removed and created again with `opened` = 1 it shows opened with no minimap mark
 A unique box (live 2026-11-18, Strange Barrel and Redblade Cache) is its base strongbox's object with rarity 3, the
 UniqueChests row's `AOFile` as the Animated model, its Words row's HASH32 as the name (flags bit 8, as a unique item),
 and its UniqueChests mods in the explicit list: the nameplate shows the name in unique colour and the mod lines. A currency used on it is C→S 0x74 ([13](13-items.md)).
-Not verified live: whether the box plays its opening (`.ao` animation `open`), and what `started` does.
+Its opening is the model's one clip: `Art/Models/Chests/Strongboxes/<box>.amd` declares `1 "open" once 1166`, and the
+`.ao`'s client `SoundEvents` bind the model's lid sounds to it (`Small_Open`/`Small_Stop_01`, `Large_Open`/`Large_Stop`,
+`Armoury_Open`/`Armoury_Stop`, `Ornate_Open`/`Ornate_Close`, `SB_Open`/`SB_Stop`, or a unique box's `Kaoms`,
+`Malachais`, `Pendarus`, `Vase`+`VaseMagic`, `BaroqueVase_01`+`_02`+`BaroqueVaseMagic`, `ChestMetal`+`ChestMetalMagic`).
+Live (2026-11-22): the client's own opened-flag path (Chest vtable +0xc0, `0x141e17130`) looks the clip up by name and
+resolves nothing for these objects, so the server plays clip 0 with S→C 0x1b2; the Chest component has **no 0x2bc
+reader** (slot 20 is `ret`), so `opened` = 1 reaches the client only in a created object, and the box is created again
+opened once the clip is over (nameplate and marker gone). `Chests.ChestEffectsKey` names the `ChestEffects` row that
+gives the per-rarity `…_Closed_AOFile` looping glow (no SoundEvents) and the `…_Open_AOFile` open effect, whose
+`openfx` clip carries `Chests/Strongbox/Effect_$(#)`; the boxes' monster-spawn art is `MiscAnimated
+SummonedMonsterEffect` (`chestsummon.ao`: `Chests/TrapTrigger/MonsterSpawn/Spawn_$(#)` and `Layer_$(#)`) and
+`StrongboxCorpseExplode`'s is `MiscAnimated StrongboxExplosion` (`strongbox_explode/rig.ao`: `NewStrongBoxExplode`).
+What `started` does is not verified.
+The Chest flag byte's **bit 1** is the box's activated flag: the client's warning routine (`0x1415d6470`) reads it and
+plays `Audio/…/Chests/TrapTrigger/Trigger_$(#).ogg` for a mod with `chest_play_warning_sound`. A closed box created
+with the bit set showed no nameplate at all (live 2026-11-22), so the server sets it only on the opened object. The
+`ObjectMagicProperties` component has a real 0x2bc reader (slot 17 forwards to slot 20 `0x141e7e080`), so a currency
+change is sent in place and the client's nameplate and selection stay. A daemon skill's record must carry the area
+level's `active_skill_area_of_effect_radius` and `total_skill_area_of_effect_radius_+%_including_final`, and its
+`skill_behaviour_variation` (`GrantedEffects.SkillID`, e.g. ChestExplode's 30), or the client draws the wrong effect or
+none. The daemon's action is held open for the skill's own cast time (GrantedEffects `CastTime`: Ice Nova 800 ms,
+storms 900 ms, Explode 1000 ms) and ended together with the effect: ending it at once made every spell appear the
+moment the box opened (live 2026-11-23). Not solved (issue "Strongbox daemon spells"): Firestorm's and Lightning
+Storm's falling projectiles (the client draws only the first) and Putrifying's corpse detonation (one delayed cast,
+21 cells).

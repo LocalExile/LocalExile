@@ -9,7 +9,8 @@ Part of [Status](../Status.md); what to build next in this area is in
   unlock after her introduction: [17](../docs/protocol/17-npcs.md).
 - Gold gambling at the gamble NPCs (black-market window, 3.29 prices and rolls): [17](../docs/protocol/17-npcs.md) §5.
 - `/played` saves online character time across area changes, relog and module reload: [10](../docs/protocol/10-chat-and-commands.md).
-  Retail commands `/remaining`, `/deaths`, `/age`, `/whois`, `/invite`, `/afk` and `/dnd` are implemented.
+  Retail commands `/remaining`, `/deaths`, `/kills`, `/age`, `/itemlevel`, `/whois`, `/ladder`, `/invite`, `/afk`,
+  `/dnd`, `/autoreply`, `/atlaspassives` and `/oosme`, plus area-wide level-up announcements, are implemented.
   Their live client check is pending.
 
 - Chat commands `/commands` (`/com`; paged, `/com <name>` for one; replies as chat lines). The development commands
