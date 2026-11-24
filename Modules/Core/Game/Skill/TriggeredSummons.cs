@@ -7,7 +7,7 @@ static partial class Game
     }
 
     internal static async Task ReleaseTriggeredSummon(Player player, ProjectileSession session, ushort source,
-        (int X, int Y) aim, Func<bool> current)
+        (int X, int Y) aim, Func<bool> current, bool playerConsumesCorpse = true)
     {
         var gem = SupportedSkill(player, source);
         var lifetime = CombatLifetime;
@@ -23,6 +23,6 @@ static partial class Game
                 player.ActionInterruptionGeneration, Current, triggered: true);
         else if (SummonData.Find(effect) is { } summon)
             await CastSummon(player, source, summon, aim, 0,
-                player.ActionInterruptionGeneration, Current, triggered: true);
+                player.ActionInterruptionGeneration, Current, triggered: true, playerConsumesCorpse: playerConsumesCorpse);
     }
 }
