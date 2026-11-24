@@ -277,7 +277,7 @@ static partial class LegionMonolith
 
     /// <summary>A click on one of the chests: walk up, open it once (it is created again opened under a new id, as a Chest
     /// has no update reader) and drop its items.</summary>
-    static async Task<bool> OpenBox(Player player, Encounter e, uint targetId, double requestedAt)
+    static async Task<bool> OpenBox(IModuleContext module, Player player, Encounter e, uint targetId, double requestedAt)
     {
         Box? box;
         lock (e) box = e.Boxes?.FirstOrDefault(b => b.Id == targetId);
@@ -297,25 +297,32 @@ static partial class LegionMonolith
         if (InArea(player, targetId)) await LegionOutput.Remove(player, targetId);
         if (await ShowBox(player, opened, info))
             foreach (var member in Members(player)) BlockBox(member, opened, info);
-        await DropBox(player, e, opened, info.Size);
+        await DropBox(module, player, e, opened, info.Size);
         return true;
     }
 
-    /// <summary>The chest's items on the ground in a ring around it: the server's container roll at the area level (GUESS for the
-    /// number of rolls; no per-chest drop table is known).</summary>
-    static async Task DropBox(Player player, Encounter e, Box box, int size)
+    /// <summary>The chest's items on the ground in a ring around it: by its reward types and its faction's splinters (LegionRewards.Chest); an old save
+    /// without rewards keeps the server's container roll at the area level (GUESS for the number of rolls; no per-chest drop table is known).</summary>
+    static async Task DropBox(IModuleContext module, Player player, Encounter e, Box box, int size)
     {
         if (!GameEvents.AllowsLoot(player) || Environment.GetEnvironmentVariable("Game_DROPS") == "0") return;
         var rng = global::Game.AreaRng(player);
-        var drops = global::Game.DropsFor(player).Container(Math.Clamp(e.Level, 1, 100), box.Hoard ? HoardRolls : ChestRolls, 0, rng);
+        int level = Math.Clamp(e.Level, 1, 100);
+        List<(Item Item, string Name)> items;
+        if (box.Rewards is { Length: > 0 } rewards)
+        {
+            string? faction = e.Plan is { } plan && plan.Factions.FirstOrDefault(f => f.Faction == box.Faction) is { } fp ? fp.Id : null;
+            items = [.. LegionRewards.Chest(player, rewards, faction, box.Hoard, level, rng).Select(i => (i, global::Game.ItemsFor(player).ByHash(i.TypeHash)?.Name ?? "item"))];
+        }
+        else items = [.. global::Game.DropsFor(player).Container(level, box.Hoard ? HoardRolls : ChestRolls, 0, rng).Select(d => (d.Item, d.Type.Name))];
         int ring = Math.Max(2, size / 2 + 2);
-        for (int i = 0; i < drops.Count; i++)
+        for (int i = 0; i < items.Count; i++)
         {
             double angle = i * 2.399963229728653 + rng.NextDouble();
             var at = player.Layout.Near((box.X + (int)Math.Round(Math.Cos(angle) * ring), box.Y + (int)Math.Round(Math.Sin(angle) * ring)));
-            var ground = new WorldItemObject(at.X, at.Y, drops[i].Item);
+            var ground = new WorldItemObject(at.X, at.Y, items[i].Item);
             uint id = player.Instance.Ground.Add(ground, player);
-            await global::Game.SendGroundItem(player, id, ground, $"Legion chest 0x{box.Id:x} drops {drops[i].Type.Name} x{drops[i].Item.StackSize}", justDropped: true);
+            await global::Game.SendGroundItem(player, id, ground, $"Legion chest 0x{box.Id:x} drops {items[i].Name} x{items[i].Item.StackSize}", justDropped: true);
         }
     }
 }

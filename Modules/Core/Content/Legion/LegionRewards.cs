@@ -114,6 +114,26 @@ static class LegionRewards
         _ => false,
     };
 
+    /// <summary>GUESS: a chest's items per reward type, a War Hoard's; and the splinters of its faction (percent chance, then min..max).</summary>
+    const int ChestItemsPerReward = 3, HoardItemsPerReward = 4;
+    const int ChestSplinterChance = 60, ChestSplinterMin = 4, ChestSplinterMax = 10, HoardSplinterChance = 100, HoardSplinterMin = 10, HoardSplinterMax = 20;
+
+    /// <summary>The items of an opened chest by its reward types, plus its faction's splinters (factionId null: none); the same mapping as a fighter's.</summary>
+    public static List<Item> Chest(Player player, int[] rewards, string? factionId, bool hoard, int level, Random rng)
+    {
+        var made = new List<Item>();
+        var stacks = new List<(string Item, int Count)>();
+        foreach (int row in rewards) RollReward(player, made, stacks, row, level, hoard ? HoardItemsPerReward : ChestItemsPerReward, rng);
+        if (factionId is not null && rng.Next(100) < (hoard ? HoardSplinterChance : ChestSplinterChance))
+            Splinter(stacks, factionId, hoard ? HoardSplinterMin : ChestSplinterMin, hoard ? HoardSplinterMax : ChestSplinterMax, rng);
+        var catalog = global::Game.ItemsFor(player);
+        foreach (var (id, count) in stacks)
+            if (catalog.Find(id) is { Supported: true } type)
+                for (int left = count; left > 0; left -= Math.Max(1, (int)type.MaxStack))
+                    made.Add(ItemCatalog.Create(type) with { ItemLevel = (byte)level, StackSize = (ushort)Math.Min(left, Math.Max(1, (int)type.MaxStack)) });
+        return made;
+    }
+
     static bool warned;
 
     /// <summary>GameEvents.MonsterKilled: a fighter's reward symbols end at its death (the area's Buffs end them only at removal). Only reads the entry:

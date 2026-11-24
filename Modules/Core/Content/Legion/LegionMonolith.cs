@@ -229,7 +229,7 @@ static partial class LegionMonolith
     static async Task<bool> Use(IModuleContext module, Player player, InstanceTransfer.UseSkillOnObject use, double requestedAt)
     {
         if (Of(player) is not { } e) return false;
-        if (use.TargetId != e.Id) return await OpenBox(player, e, use.TargetId, requestedAt);
+        if (use.TargetId != e.Id) return await OpenBox(module, player, e, use.TargetId, requestedAt);
         if (player.Closed || player.LeavingArea || player.PlayerLife == 0) return true;
         lock (e) if (e.Phase != Phase.Idle) return true;
         if (!await WorldOf(player).WalkUpTo(e.X, e.Y, Reach, requestedAt)) return true;
