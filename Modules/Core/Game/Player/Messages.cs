@@ -888,7 +888,7 @@ public static partial class Game
                 if (move.Kind == InstanceStash.Personal && !player.StashOpen) continue;
                 Console.WriteLine($"[gateway] {player.Connection.Remote} <= 0x00f5 take blight oil {move.ItemId} from stash kind {move.Kind} tab {move.Tab} (panelState {move.UiPanelState})");
                 if (move.Tab <= int.MaxValue)
-                    await TakeFromStash(player, (int)move.Tab, move.ItemId, all: false, kind: move.Kind);
+                    await TakeBlightOil(player, (int)move.Tab, move.ItemId, move.Kind);
             }
             else if (id == InstanceHarvest.MoveItemId)
             {
