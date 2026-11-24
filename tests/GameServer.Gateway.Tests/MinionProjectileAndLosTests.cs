@@ -70,6 +70,32 @@ public sealed class MinionProjectileAndLosTests
             Assert.Null(golem.Pending);
             Assert.Equal((120, 100), golem.Monster.LastTarget);
 
+            // 1b. A pit-anchored large boss whose centre is on blocked terrain (x >= 110) but whose hitbox edge
+            //     (ObjectSize 15 -> radius 14, edge at x = 106) protrudes into clear arena cells must be attackable.
+            f.Player.Use(new AreaLayout(1, "minion-pit-boss-test", 200, 200, 100, 100,
+                (x, y) => x >= 10 && x < 190 && y >= 10 && y < 190, [])
+            {
+                Sight = (x, _) => x >= 110 ? 0 : 1,
+            });
+            f.Player.Area.Monsters.Remove(6001);
+            var pitBoss = new SpawnedMonster("PitBoss", new(120, 100, 20), 60, 15, 5000)
+            {
+                Hostile = true,
+                Variety = enemyVariety with { ObjectSize = 15 },
+                Level = 70,
+                Walk = f.Player.NewMonsterWalk(6002, 120, 100, 20, 14, false),
+            };
+            f.Player.Area.Monsters[6002] = pitBoss;
+            golem.NextMove = 0;
+            golem.Monster.Walk.Teleport(100, 100, 1.5);
+            clock.Time = 1.5;
+            Game.GolemStepLocked(f.Player, golem, 1.5);
+            Assert.NotNull(golem.Pending);
+            golem.Pending = null;
+            golem.Monster.BusyUntil = 0;
+            f.Player.Area.Monsters.Remove(6002);
+            f.Player.Area.Monsters[6001] = enemy;
+
             // 2. Clear LOS, but all abilities are on cooldown while distance (20) < range - 2:
             //    pursuit must clamp f <= 1.0 and never push the minion backward past its current position (x < 100).
             f.Player.Use(new AreaLayout(1, "minion-clear-test", 200, 200, 100, 100,
