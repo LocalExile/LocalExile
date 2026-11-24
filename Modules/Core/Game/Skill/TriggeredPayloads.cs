@@ -62,32 +62,54 @@ public static partial class Game
         return () => session.Enqueue(() => ReleaseTriggeredNonProjectile(player, session, id, aim, current));
     }
 
-    public static async Task ReleaseTriggeredNonProjectile(Player player, ProjectileSession session, ushort id,
-        (int X, int Y) aim, Func<bool> current)
+    static bool PlacedUtilityPayload(string? effect) =>
+        effect is "FleshOffering" or "BoneOffering" or "SpiritOffering" || CurseCatalog.All.ContainsKey(effect ?? "");
+
+    public static Task ReleaseTriggeredNonProjectile(Player player, ProjectileSession session, ushort id,
+        (int X, int Y) aim, Func<bool> current) => ReleaseTriggeredNonProjectile(player, session, id, aim, current, fromPlacement: false);
+
+    static async Task ReleaseTriggeredNonProjectile(Player player, ProjectileSession session, ushort id,
+        (int X, int Y) aim, Func<bool> current, bool fromPlacement)
     {
         var gem = SupportedSkill(player, id);
         var skill = GemSkillEffects(player).FirstOrDefault(g => g.Id == id);
         if (skill.Name is null || !current()) return;
         if (MinionUtility(SkillsFor(player).EffectId(gem.Effect)))
         {
-            if (!current() || !CurrentGameWork || player.Closed || player.LeavingArea || player.Paused || player.PlayerLife == 0) return;
-            double now = AreaTime(player);
-            string effect = SkillsFor(player).EffectId(gem.Effect)!;
-            if (effect is "ConvocationOld" or "Convocation") RecallMinionsLocked(player, gem, now);
-            else StartOfferingLocked(player, id, gem, effect, aim, 0, now);
+            using (ProjectileMutation(player, advance: false))
+            {
+                if (!current() || !CurrentGameWork || player.Closed || player.LeavingArea || player.Paused || player.PlayerLife == 0) return;
+                double now = AreaTime(player);
+                string effect = SkillsFor(player).EffectId(gem.Effect)!;
+                if (effect is "ConvocationOld" or "Convocation") RecallMinionsLocked(player, gem, now);
+                else StartOfferingLocked(player, id, gem, effect, aim, 0, now);
+            }
             await PublishMinionOutcomes(player);
         }
         else if (CurseCatalog.All.TryGetValue(SkillsFor(player).EffectId(gem.Effect) ?? "", out var curse))
         {
-            if (!current()) return;
-            double now = AreaTime(player);
-            var playerStats = CharacterPlayerStats(player);
-            int radius = CurseRadius(player, id, false, gem, playerStats);
-            var target = player.Area.Monsters.Where(m => m.Value.Hostile && !m.Value.Dead && m.Value.Life > 0)
-                .OrderBy(m => Dist(m.Value.Walk.Position(now), aim)).ThenBy(m => m.Key).FirstOrDefault();
-            foreach (var (objectId, monster) in player.Area.Monsters)
-                if (curse.Mark ? objectId == target.Key : Dist(monster.Walk.Position(now), aim) <= radius)
-                    ApplyCurseLocked(player, monster, id, now, false, gem, playerStats);
+            using (ProjectileMutation(player, advance: false))
+            {
+                if (!current() || !CurrentGameWork || player.Closed || player.LeavingArea || player.Paused || player.PlayerLife == 0) return;
+                double now = AreaTime(player);
+                var playerStats = CharacterPlayerStats(player);
+                if (curse.Mark)
+                {
+                    var target = player.Area.Monsters.Values.Where(m => m is { Hostile: true, Dead: false, Life: > 0, OwnerId: null }
+                            && (!fromPlacement || Dist(m.Walk.Position(now), aim) <= 60 && !m.Asleep && !m.Invulnerable))
+                        .OrderBy(m => Dist(m.Walk.Position(now), aim)).ThenBy(m => m.ObjectId).FirstOrDefault();
+                    if (target is not null)
+                        ApplyCurseLocked(player, target, id, now, false, gem, playerStats, 0, 1, fromPlacement);
+                }
+                else
+                {
+                    int radius = CurseRadius(player, id, false, gem, playerStats);
+                    foreach (var monster in player.Area.Monsters.Values)
+                        if (Dist(monster.Walk.Position(now), aim) <= radius
+                            && (!fromPlacement || monster is { OwnerId: null, Asleep: false, Invulnerable: false }))
+                            ApplyCurseLocked(player, monster, id, now, false, gem, playerStats, 0, 1, fromPlacement);
+                }
+            }
             await EnemyDebuffsTick(player, AreaTime(player));
         }
         else if (TriggerBrandSpell(player, gem.Effect))

@@ -664,7 +664,7 @@ public static partial class Game
         }
         bytes.World(placed.Id, InstanceProtocol.ActionStarted(placed.Id, placed.At.X, placed.At.Y, aim.X, aim.Y, 0x4000, 0xffff, player.MonsterOrderFlags));
         if (currentSkill && placed.Source is { } source && SupportedSkill(player, placed.Skill) is var gem
-            && TriggerSummonSpell(player, gem))
+            && (TriggerSummonSpell(player, gem) || PlacedUtilityPayload(effect)))
         {
             var session = ProjectilesFor(player);
             var lifetime = CombatLifetime;
@@ -675,8 +675,11 @@ public static partial class Game
                 var kind = PlacedKind(supported);
                 return kind.Mine == placed.Mine && (kind.Mine || kind.Trap) && SameLinkedSkillSource(gem, supported);
             }
-            session.Enqueue(() => ReleaseTriggeredSummon(player, session, placed.Skill, placed.At, Current,
-                useProxyOrigin: true));
+            if (TriggerSummonSpell(player, gem))
+                session.Enqueue(() => ReleaseTriggeredSummon(player, session, placed.Skill, placed.At, Current,
+                    useProxyOrigin: true));
+            else session.Enqueue(() => ReleaseTriggeredNonProjectile(player, session, placed.Skill, placed.At,
+                Current, fromPlacement: true));
             return;
         }
         // A rain skill (Rain of Arrows, Blast Rain, Toxic Rain) comes down as the player's own does, around the nearest
