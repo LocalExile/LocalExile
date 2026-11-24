@@ -130,6 +130,7 @@ public static partial class Game
             maximumBlock = Math.Clamp(player.Pools.BlockChanceMax, 0, DamageModel.BlockChanceCap);
             block = player.Pools.AttackBlockAtMaximum ? maximumBlock : player.Pools.BlockChance;
         }
+        if (!attack.Spell && effects[Stat.CannotBlockAttacks] != 0) block = 0;
         if (!attack.Secondary && random.Next(100) < Math.Clamp(block, 0, maximumBlock))
         {
             g.BlockedAt = now;

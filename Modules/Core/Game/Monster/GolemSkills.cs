@@ -138,6 +138,7 @@ public static partial class Game
         }
         foreach (var (name, value) in golem.Auras.Concat(golem.Utility)) values[name] = values.GetValueOrDefault(name) + value;
         foreach (var (name, value) in golem.Gear) values[name] = values.GetValueOrDefault(name) + value;
+        AddNecromanticShieldStats(player, playerStats, values);
         if (golem.Definition.Kind is "Skeleton" or "VaalSkeleton")
         {
             const uint conversion = Stat.PhysicalDamagePctToConvertToChaos;
@@ -544,6 +545,7 @@ public static partial class Game
         hash.Add(MinionLinkOffenceAt(player, golem, playerStats, now));
         hash.Add(MapModsOf(player));
         hash.Add(SkeletonShieldChaos(player, golem, playerStats));
+        hash.Add(NecromanticShield(player, playerStats));
         hash.Add(MinionOwnerAttackCritical(player, playerStats));
         hash.Add(LivingZombieCorpse(golem, playerStats));
         if (golem.Definition.Kind is "Skeleton" or "VaalSkeleton")
