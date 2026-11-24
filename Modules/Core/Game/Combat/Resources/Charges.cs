@@ -534,9 +534,9 @@ public static partial class Game
         await SendPlayerStatSnapshot(player,
             () =>
             {
-                var bytes = PlayerSkillsIfChanged(player, skills);
-                skillsSent = bytes.Length > 0;
-                return bytes;
+                var batches = PlayerSkillsBatchesIfChanged(player, skills);
+                skillsSent = batches.Length > 0;
+                return batches;
             },
             $"0x02bc player Actor: {skills.Count} skill(s), charge stats");
         if (skillsSent) await RestoreSkillBarAfterActorUpdate(player);

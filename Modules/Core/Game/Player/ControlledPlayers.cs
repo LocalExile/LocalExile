@@ -12,7 +12,7 @@ public static partial class Game
         var at = ControlledFollowerPoint(player, leader, arrival: true);
         player.Walk.Teleport(at.X, at.Y, AreaTime(player));
         player.PeerType = InstanceEntities.ObjectTypeHash(SkillsFor(player).ClassFor(player.Character.ClassRow).ObjectType);
-        player.PeerTemplate = PlayerForCreation(player) with { GridX = at.X, GridY = at.Y };
+        player.PeerTemplate = PlayerForCreation(player).FitSkillList().Fitted with { GridX = at.X, GridY = at.Y };
         player.ClientSkillIds = [.. player.PeerTemplate.Skills!.Select(s => s.Id)];
         player.Connection.PlayerSent = player.Connection.PlayerObjectCreated = true;
         Program.InGame[player] = 0;

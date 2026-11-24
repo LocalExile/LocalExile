@@ -1841,19 +1841,23 @@ public static partial class Game
         // mark them as this player's view so they are never recorded in Area.Objects and replayed to later joiners.
         var previousView = Program.ViewOf.Value;
         Program.ViewOf.Value = player;
+        IReadOnlyList<GrantedSkill> overflowSkills = [];
         try
         {
             foreach (var (label, bytes) in messages)
                 if (label == creationLabel)
+                {
                     await SendWorldCreate(player, player.Id, () =>
                     {
                         if (player.Closed || player.LeavingArea || player.RageRetired) return null;
                         ReconcileOwnAuras(player, validateSkills: true);
-                        var playerObject = PlayerForCreation(player);
-                        player.PeerTemplate = playerObject;
-                        player.ClientSkillIds = [.. playerObject.Skills!.Select(s => s.Id)];
+                        var raw = PlayerForCreation(player);
+                        var (fitted, overflow) = raw.FitSkillList();
+                        overflowSkills = overflow;
+                        player.PeerTemplate = fitted;
+                        player.ClientSkillIds = [.. fitted.Skills!.Select(s => s.Id), .. overflow.Select(s => s.Id)];
                         player.SentVaalSouls.Clear();
-                        foreach (var budget in playerObject.Souls ?? [])
+                        foreach (var budget in fitted.Souls ?? [])
                             player.SentVaalSouls.Add(budget.ActiveSkillsRow, budget);
                         // A new player object has no buffs: every system's are written again.
                         player.Area.Buffs.Removed(player.Id);
@@ -1863,8 +1867,15 @@ public static partial class Game
                         player.PetrifiedBlood.SentLossExpiry = 0;
                         player.AuraStatsDirty = false;
                         player.Connection.PlayerObjectCreated = true;
-                        return InstanceEntities.CreateObject(player.Id, player.PeerType, playerObject.Blob());
+                        RecordPlayerSkills(player, raw.Skills!);
+                        return InstanceEntities.CreateObject(player.Id, player.PeerType, fitted.Blob());
                     }, label);
+                    if (overflowSkills.Count > 0)
+                        await SendWorldRecords(player, player.Id,
+                            () => InstanceEntities.PlayerSkillsChangeBatches(player.Id, overflowSkills, [],
+                                canDetonateMines: CanDetonateMines(player)),
+                            $"0x02bc overflow player skills ({overflowSkills.Count})");
+                }
                 else if (label == "0x01b3 class attributes")
                     await SendPlayerStatSnapshot(player,
                         () => PublishPlayerStats(player), label);
