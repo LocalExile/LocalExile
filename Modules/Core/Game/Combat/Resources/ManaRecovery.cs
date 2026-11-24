@@ -94,7 +94,8 @@ public static class ManaRecoveryRules
             + stat(Stat.BaseLifeCostPlusPct) + stat(Stat.LifeCostPlusPct)) / 100m), 0, int.MaxValue);
 }
 
-/// <summary>Owned mana-spend progress and exact hit recoup. ReminderTextRecoup pins four game seconds.</summary>
+/// <summary>Owned mana-spend progress and exact hit recoup. ReminderTextRecoup pins four game seconds, which "Recoup
+/// Effects instead occur over 3 seconds" shortens to three.</summary>
 public sealed class ManaRecoupState
 {
     public const double RecoupSeconds = 4;
@@ -113,11 +114,14 @@ public sealed class ManaRecoupState
         SpentRemainder = (int)(total % 200);
         return total / 200 * ragePer200;
     }
-    public void Hit(double now, int damage, int percent)
+    /// <param name="seconds">The window the hit's recoup is paid over: <see cref="RecoupSeconds"/>, or three with
+    /// "Recoup Effects instead occur over 3 seconds" (<see cref="Game.ManaRecoupSeconds"/>). The total is the same;
+    /// only the rate changes.</param>
+    public void Hit(double now, int damage, int percent, double seconds)
     {
         Integrate(now);
-        if (damage > 0 && percent > 0)
-            recoup.Add(new(now + RecoupSeconds, damage * (decimal)percent / 400, damage * (decimal)percent / 100));
+        if (damage > 0 && percent > 0 && seconds > 0)
+            recoup.Add(new(now + seconds, damage * (decimal)percent / 100 / (decimal)seconds, damage * (decimal)percent / 100));
     }
     void Integrate(double now)
     {
