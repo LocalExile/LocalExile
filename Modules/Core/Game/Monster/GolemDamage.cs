@@ -289,6 +289,11 @@ public static partial class Game
         MinionLifeLeeches.Remove(g);
         MinionShieldLeeches.Remove(g);
         ClearSpectreArcaneSurgeLocked(player, g);
+        if (g.DevouredSouls is not null)
+        {
+            g.DevouredSouls = null;
+            player.Area.Buffs.Clear(g.Id, SoulEaterBuffRow, g.Id);
+        }
         MinionFortification.Remove(g);
         player.Area.Buffs.Clear(g.Id, FortificationBuffRow, g.Id);
         if (g.Definition.Kind == "Phantasm")

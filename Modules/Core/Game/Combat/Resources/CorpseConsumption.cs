@@ -44,15 +44,18 @@ static partial class Game
     /// object). The support's life/mana recovery already happened when the hit landed; this takes the corpse from
     /// summoning, explosions and warcries and records the consumed-corpse recently event. A shattered or already
     /// consumed corpse is not consumed again. Call in the area's frame.</summary>
-    internal static bool ConsumeDevouredCorpseLocked(Player player, uint id, SpawnedMonster m, double now)
+    internal static bool ConsumeDevouredCorpseLocked(Player player, uint id, SpawnedMonster m, double now, bool playerConsumes = true)
     {
         if (!m.DevourCorpse) return false;
         m.DevourCorpse = false;
         if (m.Ailments.Shattered || !IsCorpse(m)) return false;
         m.CorpseConsumed = true;
-        NoteCorpseConsumedLocked(player, m);
         player.Area.Monsters.Remove(id);
-        player.RecentEvents.Record(StatConditions.ConsumedCorpse, now);
+        if (playerConsumes)
+        {
+            NoteCorpseConsumedLocked(player, m);
+            player.RecentEvents.Record(StatConditions.ConsumedCorpse, now);
+        }
         return true;
     }
 }

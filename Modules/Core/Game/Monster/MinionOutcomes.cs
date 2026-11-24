@@ -30,6 +30,9 @@ public static partial class Game
         if (!damageOverTime && monster.Hostile && fighter is not null && ReferenceEquals(source, fighter.Monster))
             ReleaseIntuitiveLinkLocked(player, fighter, monster.Walk.Position(now), now);
         if (hit.Life == 0 && source is not null) ResolveCursedMinionKillLocked(player, id, monster, source, skill, now);
+        if (hit.Life == 0 && !damageOverTime && monster.Hostile && fighter is not null && ReferenceEquals(source, fighter.Monster)
+            && skill is not null)
+            MinionDevourKillingBlowLocked(player, fighter, id, monster, skill, now);
     }
 
     static void MinionRecoversFromPoisonedKillLocked(Player player, GolemState.Golem fighter, SpawnedMonster victim, double now)

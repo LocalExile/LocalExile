@@ -45,6 +45,7 @@ public sealed class GolemState
         public readonly Dictionary<int, Queue<double>> Charges = [];
         public Charges.State? CombatCharges;
         public bool ChargesFollowOwner;
+        public SoulEaterState? DevouredSouls;
         public IReadOnlyList<GrantedSkill> Skills = [];
         public IReadOnlyList<Ability> Abilities = [];
         public Action? Pending;

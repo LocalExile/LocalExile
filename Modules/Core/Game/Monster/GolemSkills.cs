@@ -134,6 +134,11 @@ public static partial class Game
             AddStat(Stat.BaseMovementVelocityPlusPct, ActorScale.Saturate((long)heralds
                 * GolemStat(playerStats, Stat.MinionMovementVelocityPlusPctForEachHeraldAffectingYou)));
         }
+        if (golem.DevouredSouls?.Stacks(now) is > 0 and int souls)
+        {
+            AddStat(Stat.AttackSpeedPlusPct, 5 * souls);
+            AddStat(Stat.CastSpeedPlusPct, 5 * souls);
+        }
         if (link.MainHandCrit is int linkedCrit)
         {
             values[Stat.DisplayCriticalLinkOverridesMainHandCriticalStrikeChance] = 1;
@@ -570,6 +575,7 @@ public static partial class Game
         hash.Add(HasRecentCreationEffects(playerStats) && MinionCreatedRecently(golem, now));
         hash.Add(OwnerUsedMinionSkillRecently(player, playerStats, now));
         hash.Add(MinionHeraldCount(player, playerStats));
+        hash.Add(PresentMinionDevouredSoulsLocked(player, golem, now));
         hash.Add(FreshMeatActive(golem, now));
         hash.Add(now < golem.OnslaughtUntil);
         hash.Add(SpectreArcaneSurgeActiveLocked(player, golem, now));
