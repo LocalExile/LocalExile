@@ -781,4 +781,24 @@ public class InstanceEntitiesTests
         Assert.EndsWith("4000" + "01" + "0201" + "00" + "2A110000" + "00" + "E0100000" + "00" + "00" +
             "00000000" + "00000000" + "00000000" + "00" + "02" + "8142" + "8960" + "C04F32" + "01" + "00" + "00000000" + "00", hex);
     }
+
+    [Fact]
+    public void Dead_player_and_monster_blobs_emit_two_dead_pose_bytes_after_stance()
+    {
+        byte[] alivePlayer = new PlayerObject("Exile", 3, 10, 20, Life: 50, Mana: 40).Blob();
+        byte[] deadPlayer = new PlayerObject("Exile", 3, 10, 20, Life: 0, Mana: 40).Blob();
+        Assert.Equal(alivePlayer.Length + 2, deadPlayer.Length);
+        // Trailing bytes of Actor (no skills) + tasks: u32 + u32 + u8 + u8 + u8 = 11 bytes after dead pose.
+        Assert.Equal(PlayerObject.DeadPoseAnimation, deadPlayer[^13]);
+        Assert.Equal(0, deadPlayer[^12]);
+        Assert.Equal(alivePlayer[^11..], deadPlayer[^11..]);
+
+        byte[] aliveMonster = new MonsterObject(10, 20, Life: 15, MonsterObject.BaseComponents) { ActorStance = 2 }.Blob();
+        byte[] deadMonster = new MonsterObject(10, 20, Life: 0, MonsterObject.BaseComponents) { ActorStance = 2, DeadPoseClip = 1 }.Blob();
+        Assert.Equal(aliveMonster.Length + 2, deadMonster.Length);
+        Assert.Equal(2, deadMonster[^14]);
+        Assert.Equal(PlayerObject.DeadPoseAnimation, deadMonster[^13]);
+        Assert.Equal(1, deadMonster[^12]);
+        Assert.Equal(aliveMonster[^11..], deadMonster[^11..]);
+    }
 }

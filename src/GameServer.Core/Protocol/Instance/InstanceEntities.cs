@@ -790,6 +790,8 @@ public sealed record MonsterObject(int GridX, int GridY, uint Life, IReadOnlyLis
     public bool HasDialogue { get; init; }
     /// <summary>The Actor's native stance byte, retained in an instance's creation snapshot.</summary>
     public byte ActorStance { get; init; }
+    /// <summary>Clip index within <see cref="PlayerObject.DeadPoseAnimation"/> when created dead (<c>Life == 0</c>).</summary>
+    public byte DeadPoseClip { get; init; }
     /// <summary>The Actor animation seed (0x142199562 -> +0x21c); varies unseeded clip selection across identical pack
     /// monsters (0x141e9f579). Defaults to 0 so unconfigured fixtures keep the legacy blob.</summary>
     public ushort AnimationSeed { get; init; }
@@ -874,10 +876,12 @@ public sealed record MonsterObject(int GridX, int GridY, uint Life, IReadOnlyLis
                             .U8(AttachKind).U8(AttachFlags).F32(0).F32(0).F32(0);
                     break;
                 case "Inventories": PlayerObject.WriteInventories(w, Equipped); break;
-                // path, u16 animation seed (+0x21c), u8 stance (+0x21e), (life >= 1: no conditional bytes), u32, u32,
-                // then slot 20's two flag bytes.
+                // path, u16 animation seed (+0x21c), u8 stance (+0x21e); when Life <= 0, Actor reader 0x1421993f0 reads
+                // two dead-pose bytes (Animation.dat row → +0x230, clip index → +0x234) before u32, u32 and slot 20.
                 case "Actor":
-                    w.WStr32("").U16(AnimationSeed).U8(ActorStance).U32(0).U32(0);
+                    w.WStr32("").U16(AnimationSeed).U8(ActorStance);
+                    if (Life == 0) w.U8(PlayerObject.DeadPoseAnimation).U8(DeadPoseClip);
+                    w.U32(0).U32(0);
                     if (Skills is { Count: > 0 }) { w.U8(0x40).U8(0); PlayerObject.WriteSkillList(w, Skills); }   // its skills (11-skills.md §3)
                     else w.U8(0).U8(0);
                     break;
@@ -1381,6 +1385,10 @@ public sealed record PlayerObject(string Name, byte ClassIndex, int GridX, int G
     public float Rotation { get; init; }
     // All seven 3.29.3b character .act files put WashedUp at stance index 68 (0 is the base stance).
     public const byte WashedUpStance = 68;
+    /// <summary>Animation.dat row 6 (<c>Death</c>): written after stance in Actor creation (0x1421993f0) when Life == 0.</summary>
+    public const byte DeadPoseAnimation = 6;
+    /// <summary>Clip index within <see cref="DeadPoseAnimation"/> when created dead (<c>Life == 0</c>).</summary>
+    public byte DeadPoseClip { get; init; }
     /// <summary>The Player component's index in the player object's component order (04 §3).</summary>
     public const byte PlayerComponentIndex = 6;
     /// <summary>The Animated component's index in the same order.</summary>
@@ -1469,11 +1477,13 @@ public sealed record PlayerObject(string Name, byte ClassIndex, int GridX, int G
          .U32(0)             // u32 count + u32 list (vtable +0x158)
          .U8(0);             // microtransaction counters (0x141e89d10)
         WriteInventories(w, Equipped);   // Inventories (0x141e22490): what the model wears
-        // comp9 = Actor (0x1421993f0): u32-counted UTF-16 string, u16 +0x21c, u8; two more u8 (+0x230, +0x234) only
-        // when a runtime value is < 1 (false here: traced live, comp9 read 15 bytes); u32 +0x26c, u32 +0x274; then its
-        // vtable+0xa0 reader 0x142199c20: two flag bytes. f0 0x40 = the skill list (0x14219e480); the rest stay off.
+        // comp9 = Actor (0x1421993f0): u32-counted UTF-16 string, u16 +0x21c, u8 stance; when Life <= 0 (0x1421995dc),
+        // two dead-pose bytes follow (Animation.dat row → +0x230, clip index → +0x234); then u32 +0x26c, u32 +0x274
+        // and its vtable+0xa0 reader 0x142199c20 (two flag bytes: f0 0x40 = the skill list 0x14219e480).
         // Player's WashedUp flag selects that stance, but Actor is read afterwards and replaces it with this byte.
-        w.WStr32(ActorFile ?? "").U16(0).U8(WashedUp ? WashedUpStance : (byte)0).U32(0).U32(0);
+        w.WStr32(ActorFile ?? "").U16(0).U8(WashedUp ? WashedUpStance : (byte)0);
+        if (Life == 0) w.U8(DeadPoseAnimation).U8(DeadPoseClip);
+        w.U32(0).U32(0);
         if (Skills is { Count: > 0 } || Souls is { Count: > 0 })
         {
             w.U8(0x40).U8(0);
