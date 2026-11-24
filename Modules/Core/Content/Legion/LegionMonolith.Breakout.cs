@@ -9,7 +9,7 @@ namespace GameServer.Modules.Legion;
 /// <summary>
 /// Damage on a frozen army member and its break-out. A hit on a member is added to the damage it stores and zeroed (its
 /// life does not drop); at its maximum life it breaks out: its crystal goes (StateMachine <c>breakout</c> 1), the
-/// frozen buff ends and the faction's effect plays. It stays where it stands, still without AI, until the timer ends (E6
+/// frozen buff ends and the faction's effect plays. It stays where it stands, still without AI, until the encounter ends (ReleaseArmy
 /// wakes it). A war chest that breaks out frees the tier 0 and 1 monsters near it and becomes an openable chest object.
 /// </summary>
 static partial class LegionMonolith
@@ -51,7 +51,8 @@ static partial class LegionMonolith
     static void Arm(Player player, Encounter e, LegionStasis.Member member)
     {
         if (!player.Area.Monsters.TryGetValue(member.Id, out var monster)) return;
-        Holds.AddOrUpdate(monster, new Hold(e, member) { Broken = member.Broken });
+        // TryAdd: a hold that already exists is kept, as it may be mid break-out (two restores in Of() can run at once).
+        Holds.TryAdd(monster, new Hold(e, member) { Broken = member.Broken });
         anyHold = true;
     }
 
@@ -88,6 +89,7 @@ static partial class LegionMonolith
             if (hold.Member.Chest) await BreakChest(module, player, hold, x, y);
             else await Free(player, hold.E, [(hold, monster)]);
             done = true;
+            await EarlyEnd(module, player, hold.E);   // once per break-out, not per hit
         }
         finally { if (!done) lock (hold) hold.Broken = false; }
     }

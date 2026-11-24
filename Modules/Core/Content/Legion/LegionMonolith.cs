@@ -10,7 +10,7 @@ namespace GameServer.Modules.Legion;
 /// The Timeless Monolith: the room <c>legion_monolith.arm</c> only marks a point (<see cref="LocatorType"/>), so the server
 /// creates the clickable <see cref="InitiatorType"/> there. Using it charges and shatters the monolith (its StateMachine
 /// states <c>charging</c>, then <c>shattered</c>), plays the pulse and starts the Legion timer; when the timer ends the
-/// monolith is <c>locked</c>. The army that stands in stasis meanwhile is not built yet: <see cref="BeginArmy"/> and
+/// monolith is <c>locked</c>. The army stands in stasis meanwhile: <see cref="BeginArmy"/> and
 /// <see cref="ReleaseArmy"/> are the hand-over points for it. The encounter is the instance's, kept in
 /// <c>Instance.ContentState</c>, and a client that enters later is shown it as it is.
 /// </summary>
@@ -25,6 +25,8 @@ static partial class LegionMonolith
     const double ChargeSeconds = 1.0;
     /// <summary>The cells the player may stand from the monolith to use it.</summary>
     const int Reach = 12;
+    /// <summary>GUESS (live check): how long an unbroken general stands fleeing before it is removed.</summary>
+    const double FleeSeconds = 2;
 
     enum Phase { Idle, Charging, Running, Finished }
 
@@ -43,6 +45,8 @@ static partial class LegionMonolith
         public LegionArmy.ArmyPlan? Plan = saved.Plan;
         /// <summary>The spawned army (kept in the save); null until it was spawned.</summary>
         public LegionStasis.Member[]? Army = saved.Army;
+        /// <summary>True while BeginArmy still spawns: the early end waits for the whole army (not saved).</summary>
+        public bool Spawning;
         /// <summary>The chests the war chests became (kept in the save).</summary>
         public Box[]? Boxes = saved.Boxes;
         public Saved ToSaved() => new(Id, X, Y, Level, (int)Phase, ChargeEnd, EndsAt, Pulse, Rotation, Z, Plan, Army, Boxes);
@@ -176,17 +180,19 @@ static partial class LegionMonolith
     }
 
     /// <summary>The Legion timer's length: the LegionBalancePerLevel row with the highest MinLevel &lt;= level (the first row if
-    /// none), DurationMs / 1000 seconds (30 s at level 1 to 15 s from 68), times map_legion_duration_+% (client 0x1416290a0).
+    /// none), DurationMs milliseconds, exact (30 s at level 1 to 15 s from 68), times map_legion_duration_+% (client 0x1416290a0).
     /// The endless-mode stat is ignored: endless is the Domain, phase 3.</summary>
-    public static int TimerSeconds(LegionData data, int level, int durationPercent)
+    public static double TimerMilliseconds(LegionData data, int level, int durationPercent)
     {
         LegionData.Balance? row = null;
         foreach (var b in data.Balances)
             if (b.MinLevel <= level && (row is null || b.MinLevel > row.MinLevel)) row = b;
         row ??= data.Balances.Count > 0 ? data.Balances[0] : null;
-        double seconds = (row?.DurationMs ?? 20000) / 1000.0;
-        return Math.Max(1, (int)Math.Round(seconds * Math.Max(0, 100 + durationPercent) / 100));
+        // Exact: the server's end time is not rounded; only the whole seconds the client's timer shows are (SecondsShown, up).
+        return Math.Max(1000, (row?.DurationMs ?? 20000) * Math.Max(0, 100 + durationPercent) / 100.0);
     }
+
+    static uint SecondsShown(double seconds) => (uint)Math.Max(1, Math.Ceiling(seconds));
 
     static async Task<bool> Use(IModuleContext module, Player player, InstanceTransfer.UseSkillOnObject use, double requestedAt)
     {
@@ -195,7 +201,7 @@ static partial class LegionMonolith
         if (player.Closed || player.LeavingArea || player.PlayerLife == 0) return true;
         lock (e) if (e.Phase != Phase.Idle) return true;
         if (!await WorldOf(player).WalkUpTo(e.X, e.Y, Reach, requestedAt)) return true;
-        int seconds;
+        double seconds;
         string plan;
         lock (e)
         {
@@ -204,7 +210,7 @@ static partial class LegionMonolith
             // TODO(phase 4): the other map_legion_* stats (monster counts, chests, factions) are read with the atlas.
             var stats = global::Game.AreaLeagueStats(player);
             int percent = stats.GetValueOrDefault(Stat.MapLegionDurationPlusPct);
-            seconds = TimerSeconds(LegionData.Current, e.Level, percent);
+            seconds = TimerMilliseconds(LegionData.Current, e.Level, percent) / 1000.0;
             e.Plan = LegionArmy.Plan(LegionData.Current, e.Level, player.Layout.Id, stats, global::Game.AreaRng(player));
             plan = LegionArmy.Summary(e.Plan);
             double now = global::Game.AreaTime(player);
@@ -216,7 +222,7 @@ static partial class LegionMonolith
         await ToAll(player, e, StatesOf(Phase.Charging, e), "charging=1");
         foreach (var member in Members(player)) member.RemoveBlocker(e.Id);
         foreach (var member in Members(player))
-            await PlayerOf(member).Send(InstanceTimers.MissionTimer(InstanceTimers.MissionTimerType.Legion, (uint)seconds), $"0x0163 mission timer Legion: {seconds} s");
+            await PlayerOf(member).Send(InstanceTimers.MissionTimer(InstanceTimers.MissionTimerType.Legion, SecondsShown(seconds)), $"0x0163 mission timer Legion: {seconds} s");
         await BeginArmy(module, player);
         return true;
     }
@@ -240,16 +246,43 @@ static partial class LegionMonolith
         {
             await ToAll(player, e, StatesOf(Phase.Running, e), "shattered=1");
             foreach (var member in Members(player).Where(m => Shown.TryGetValue(m, out var s) && s.Contains(e.Id))) await ShowPulse(member, e, pulse);
+            await EarlyEnd(module, player, e);   // a break-out during the charge could not end it yet
         }
-        else if (step == 2)
+        else if (step == 2) await Finish(module, player, e, pulse, "timer");
+    }
+
+    /// <summary>The end of the encounter, reached once: the caller moved the phase to Finished under the encounter's lock (the
+    /// timer in Tick, or EarlyEnd). Hides the timer, locks the monolith and releases the army.</summary>
+    static async Task Finish(IModuleContext module, Player player, Encounter e, uint pulse, string reason)
+    {
+        foreach (var member in Members(player))
+            await PlayerOf(member).Send(InstanceTimers.HideMissionTimer(InstanceTimers.MissionTimerType.Legion), "0x0163 mission timer Legion: hidden");
+        await ToAll(player, e, StatesOf(Phase.Finished, e), "locked=1");
+        if (pulse != 0) foreach (var member in Members(player).Where(m => Shown.TryGetValue(m, out var s) && s.Contains(pulse))) await global::Game.SendWorldRemoval(member, pulse);
+        module.Log($"{PlayerOf(player).Character}: monolith 0x{e.Id:x} ended ({reason})");
+        await ReleaseArmy(module, player, reason);
+    }
+
+    /// <summary>After a break-out: at least 90% of the plain and elite monsters and every chest, sergeant and general broken out
+    /// ends the encounter at once (wiki). One scan of the army per break-out; the phase moves to Finished under the lock, so the
+    /// timer and this cannot both finish it.</summary>
+    static async Task EarlyEnd(IModuleContext module, Player player, Encounter e)
+    {
+        uint pulse;
+        lock (e)
         {
-            foreach (var member in Members(player))
-                await PlayerOf(member).Send(InstanceTimers.HideMissionTimer(InstanceTimers.MissionTimerType.Legion), "0x0163 mission timer Legion: hidden");
-            await ToAll(player, e, StatesOf(Phase.Finished, e), "locked=1");
-            if (pulse != 0) foreach (var member in Members(player).Where(m => Shown.TryGetValue(m, out var s) && s.Contains(pulse))) await global::Game.SendWorldRemoval(member, pulse);
-            module.Log($"{PlayerOf(player).Character}: monolith 0x{e.Id:x} timer ended");
-            await ReleaseArmy(module, player);
+            if (e.Phase != Phase.Running || e.Spawning || e.Army is not { Length: > 0 } army) return;
+            int plain = 0, plainBroken = 0;
+            foreach (var m in army)
+            {
+                if (m.Chest || m.Tier >= 2) { if (!m.Broken) return; }
+                else { plain++; if (m.Broken) plainBroken++; }
+            }
+            if (plainBroken * 10 < plain * 9) return;
+            e.Phase = Phase.Finished; pulse = e.Pulse;
+            Keep(player, e);
         }
+        await Finish(module, player, e, pulse, "early");
     }
 
     static async Task ToAll(Player player, Encounter e, StateMachineData states, string what)
@@ -267,7 +300,7 @@ static partial class LegionMonolith
     {
         if (Of(player) is not { } e) return;
         LegionArmy.ArmyPlan? plan;
-        lock (e) { if (e.Army is not null || e.Plan is null) return; plan = e.Plan; e.Army = []; }
+        lock (e) { if (e.Army is not null || e.Plan is null) return; plan = e.Plan; e.Army = []; e.Spawning = true; }
         // Each member joins e.Army as soon as it stands, so a timer that ends meanwhile (ReleaseArmy) removes it too;
         // once the encounter is Finished a new member is refused and Spawn removes it itself.
         bool Keeps(LegionStasis.Member m)
@@ -280,23 +313,65 @@ static partial class LegionMonolith
                 return true;
             }
         }
-        await LegionStasis.Spawn(module, player, plan, e.X, e.Y, e.Level, Keeps, Members(player));
+        try { await LegionStasis.Spawn(module, player, plan, e.X, e.Y, e.Level, Keeps, Members(player)); }
+        finally { lock (e) e.Spawning = false; }
         Phase phase;
         lock (e) { phase = e.Phase; Keep(player, e); }
+        await EarlyEnd(module, player, e);   // a break-out during the spawn could not end it yet
         // The general indicator is part of the monolith's states: the bolts show where the general stands.
         if (phase != Phase.Finished && e.Army!.Any(m => m.Tier == 3 && !m.Chest)) await ToAll(player, e, StatesOf(phase, e), "spawn_lightning=1");
     }
 
-    /// <summary>The timer ended. MINIMAL until E6: every member still standing, broken out or not, is
-    /// removed (E6 makes the broken-out ones fight), and the general indicator goes out with it.</summary>
-    static async Task ReleaseArmy(IModuleContext module, Player player)
+    /// <summary>The encounter ended (the timer or EarlyEnd). The members that broke out wake and fight (LegionStasis.Wake) and leave
+    /// the army list and the holds; the others are removed; a general still frozen flees and goes after <see cref="FleeSeconds"/>.
+    /// Chests that were opened or are openable are objects, not members, and stay.</summary>
+    static async Task ReleaseArmy(IModuleContext module, Player player, string reason)
     {
         if (Of(player) is not { } e) return;
         LegionStasis.Member[]? army;
         lock (e) { army = e.Army; e.Army = []; Keep(player, e); }
         if (army is not { Length: > 0 }) return;
-        await LegionStasis.Remove(player, army, Members(player));
-        module.Log($"Legion: army released: {army.Count(m => m.Broken)} of {army.Length} broken out");
+        var members = Members(player).ToList();
+        var remove = new List<LegionStasis.Member>();
+        var flee = new List<LegionStasis.Member>();
+        int woken = 0;
+        bool generalFought = false;
+        foreach (var m in army)
+        {
+            if (!player.Area.Monsters.TryGetValue(m.Id, out var monster) || monster.Dead) continue;
+            if (m.Broken && !m.Chest)
+            {
+                Holds.Remove(monster);   // its hits count again
+                if (await LegionStasis.Wake(player, m, monster, members)) { woken++; generalFought |= m.Tier == 3; }
+                else remove.Add(m);   // no replacement could be made: it goes like an unbroken one
+            }
+            else if (m.Tier == 3 && !m.Chest) flee.Add(m);
+            else remove.Add(m);
+        }
+        await LegionStasis.Remove(player, remove, members);
+        foreach (var g in flee)
+        {
+            if (!player.Area.Monsters.TryGetValue(g.Id, out var monster)) continue;
+            Holds.Remove(monster);
+            // LIVE CHECK: with the frozen buff gone and the animation running again, the client plays its flee animation (fleeing=1).
+            foreach (var p in members)
+            {
+                await global::Game.SendWorldRecord(p, g.Id, InstanceEntities.RemoveBuff(g.Id, g.Buff), null);
+                await global::Game.SendWorldRecord(p, g.Id, InstanceProtocol.AnimationUpdate(g.Id, 0, 0, 1), null);
+            }
+            await LegionStasis.SetState(player, g.Id, monster, members, "fleeing");
+            // The server forgets it now (no leak if the timer below is dropped, and it gives no rewards); only the client's removal waits.
+            if (player.Area.Monsters.Remove(g.Id, out var gone)) { gone.Dead = true; gone.Life = 0; gone.ActionGeneration++; }
+            player.Instance.World.MonsterOrigins.TryRemove(g.Id, out _);
+        }
+        if (flee.Count > 0)
+            global::Game.SendAfter(player, FleeSeconds, async () =>
+            {
+                foreach (var p in Members(player))
+                    foreach (var g in flee) await global::Game.SendWorldRemoval(p, g.Id);
+            });
+        string general = flee.Count > 0 ? "fled" : generalFought ? "fought" : "none";
+        module.Log($"Legion: army released ({reason}): {army.Count(m => m.Broken)} of {army.Length} broken out, general {general}");
         await ToAll(player, e, StatesOf(Phase.Finished, e), "spawn_lightning=0");
     }
 }

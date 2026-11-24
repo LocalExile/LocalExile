@@ -200,8 +200,9 @@ Part of [Status](../Status.md); what to build next in this area is in
   buff, paused) around the monolith, the general shown by the monolith's bolts. Hits on a frozen monster are stored
   (and do no damage; only the player's own direct hits count, not totems, brands, traps, mines or minions) and
   break it out at its maximum life; a broken war chest frees the monsters near it and
-  becomes an openable chest. Monsters do not fight after the timer yet (the armies are removed at its end), not
-  checked in the client.
+  becomes an openable chest. When the timer ends each monster that broke out is replaced by a new ordinary one that
+  fights, the unbroken ones vanish and an unbroken general flees; the encounter ends early at 90% broken plus every
+  chest, sergeant and general.
 
 - Simulacrum: five arenas and a 15-wave controller; opening and the wave-start prompt checked in the client, wave
   combat and the reward display not yet. Starting a wave destroys every item on the ground, as the client warns.

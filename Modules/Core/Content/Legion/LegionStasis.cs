@@ -120,6 +120,39 @@ static class LegionStasis
         }
     }
 
+    /// <summary>Sets StateMachine states (each to 1) on a monster, server-side (a player who enters later is created with them) and for the given players.</summary>
+    public static async Task SetState(Player player, uint id, SpawnedMonster monster, IEnumerable<Player> members, params string[] names)
+    {
+        var states = monster.States ?? monster.Variety?.StateMachine;
+        if (states is null) return;
+        foreach (var name in names) states = states.Set(name, 1);
+        monster.States = states;
+        if (player.Instance.World.MonsterOrigins.TryGetValue(id, out var origin))
+            player.Instance.World.MonsterOrigins[id] = origin with { Object = origin.Object with { StateMachine = states } };
+        int component = monster.Variety?.ComponentsOrBase.ToList().IndexOf("StateMachine") ?? -1;
+        if (component < 0) return;
+        foreach (var p in members)
+            await global::Game.SendWorldRecord(p, id, InstanceEntities.StateMachineUpdate(id, (byte)component, states), null);
+    }
+
+    /// <summary>The end of the stasis for a member that broke out. The frozen monster was spawned scripted (no AI, no kit, cannot be
+    /// stunned: all fixed at spawn), so it is swapped for a new ordinary monster of the same variety, rarity and cell, with its own
+    /// kit, AI and rewards, already <c>breakout</c> 1 and <c>activated</c> 1. LIVE CHECK: whether the swap is visible.
+    /// Returns false when the new monster could not be made (the frozen one is then left standing).</summary>
+    public static async Task<bool> Wake(Player player, Member member, SpawnedMonster monster, IEnumerable<Player> members)
+    {
+        var present = members.ToList();
+        var variety = monster.Variety;
+        if (variety is null) return false;
+        var (x, y) = monster.Walk.Position(global::Game.AreaTime(player));
+        uint id = await SpawnMonster(player, variety, monster.Level, monster.Rarity, x, y, mods: monster.Mods,
+            friendly: false, unrisen: false, alone: false, instanceOwned: true, bulk: true, log: false, placement: MonsterPlacement.Established);
+        if (id == 0 || !player.Area.Monsters.TryGetValue(id, out var woken)) return false;   // the frozen one stays: the caller removes it
+        await Remove(player, [member], present);
+        await SetState(player, id, woken, present, "breakout", "activated");
+        return true;
+    }
+
     /// <summary>Removes the members still standing from the instance and from every member's client; returns how many.</summary>
     public static async Task<int> Remove(Player player, IEnumerable<Member> army, IEnumerable<Player> members)
     {
