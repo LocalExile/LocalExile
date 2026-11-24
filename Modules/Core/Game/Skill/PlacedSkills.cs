@@ -615,8 +615,11 @@ public static partial class Game
         (int X, int Y) aim = placed.At;
         if (projectile)
         {
-            aim = PlacedProjectileAim(placed.At, player.Walk.Position(now), player.Area.MonstersNear(placed.At, 60)
-                .Where(m => m.Value is { Hostile: true, Dead: false, Life: > 0 }).Select(m => m.Value.Walk.Position(now)));
+            var ownerAt = player.Walk.Position(now);
+            aim = placed.Mine && GolemStat(placed.Own, Stat.SupportLocusMineMinesAlwaysTargetYourLocation) != 0
+                ? ownerAt
+                : PlacedProjectileAim(placed.At, ownerAt, player.Area.MonstersNear(placed.At, 60)
+                    .Where(m => m.Value is { Hostile: true, Dead: false, Life: > 0 }).Select(m => m.Value.Walk.Position(now)));
         }
         else if (bear)
         {
