@@ -129,6 +129,15 @@ public static partial class Game
             Defaults = new Dictionary<string, double> { ["seconds"] = 4, ["amount"] = 0 },
         });
 
+        // An ailment taken off the actor at once: "what" bleeding, poison, chill_freeze, ignite, shock, corrupted_blood,
+        // elemental (chill, freeze, ignite and shock) or ailments (all of them). "seconds": how long it then cannot be
+        // put on again (0 unless said). The same removal a flask's own "if used while ..." suffix does.
+        EffectRules.Register(new("remove", ["seconds"], ["what"],
+            fire => RemoveByRuleLocked(fire.Conn, fire.Word("what") ?? "", fire.Number("seconds"), fire.Now),
+            (_, word) => word is "bleeding" or "poison" or "chill_freeze" or "ignite" or "shock" or "corrupted_blood" or "elemental" or "ailments")
+        {
+            Defaults = new Dictionary<string, double> { ["seconds"] = 0 },
+        });
         // Life, mana or energy shield at once: "pool" life, mana or energy_shield; "does" gain (the default) or lose;
         // "amount" flat and "percent" of the pool's maximum.
         EffectRules.Register(new("recover", ["amount", "percent"], ["pool", "does"],

@@ -46,6 +46,9 @@ public static class GameData
     /// <summary>A character's stats that are a general stat for one skill (fx_skill_stats).</summary>
     public static IReadOnlyList<GameDataStore.FxSkillStatRow> FxSkillStats => Volatile.Read(ref _fxSkillStats);
     static IReadOnlyList<GameDataStore.FxSkillStatRow> _fxSkillStats = [];
+    /// <summary>Stats that are also another stat, with no condition (fx_aliases).</summary>
+    public static IReadOnlyList<GameDataStore.FxAliasRow> FxAliases => Volatile.Read(ref _fxAliases);
+    static IReadOnlyList<GameDataStore.FxAliasRow> _fxAliases = [];
     /// <summary>What an actor of another kind reads for a stat a bundle gives it (fx_reads_as).</summary>
     public static IReadOnlyList<GameDataStore.FxReadsAsRow> FxReadsAs => Volatile.Read(ref _fxReadsAs);
     static IReadOnlyList<GameDataStore.FxReadsAsRow> _fxReadsAs = [];
@@ -121,6 +124,7 @@ public static class GameData
         Volatile.Write(ref _fxAreaMonsterStats, fxAreaMonsterStats);
         Volatile.Write(ref _fxReadsAs, store.LoadFxReadsAs());
         Volatile.Write(ref _fxSkillStats, store.LoadFxSkillStats());
+        Volatile.Write(ref _fxAliases, store.LoadFxAliases());
         Volatile.Write(ref _fxAreaPlayerStats, store.LoadFxAreaPlayerRows());
         StatConditions.LoadTable(fxModifiers);
         ChargeEffects.LoadTable(fxPerRows);

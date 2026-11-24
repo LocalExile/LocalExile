@@ -205,7 +205,7 @@ public static partial class Game
         => MonsterTakesMitigatedCore(m, mitigated, spell, now, BearTrapDamageTaken(m, now), ignorePhysicalReduction, random);
 
     static int MonsterTakesMitigatedCore(SpawnedMonster m, DamagePacket mitigated, bool spell, double now,
-        int additionalTakenPct, bool ignorePhysicalReduction, Random? random)
+        int additionalTakenPct, bool ignorePhysicalReduction, Random? random, int overwhelm = 0)
     {
         // The shrine aura's base_cannot_be_damaged (MonsterAuraEffect, temporary stats by name): the Divine shrine's
         // monsters cannot be damaged while it is unclaimed, as the row's own buff promises.
@@ -215,6 +215,8 @@ public static partial class Game
         double physReduction = HitMitigation.PhysicalReduction(Monsters, m, physical,
             e.PhysicalReduction - CrushReduction(m, now), MonsterArmourEnabled);
         if (ignorePhysicalReduction && physReduction > 0) physReduction = 0;
+        // Overwhelm takes its percent off the reduction the hit meets, and never turns it into damage taken.
+        if (overwhelm > 0 && physReduction > 0) physReduction = Math.Max(0, physReduction - overwhelm);
         double physicalTaken = physical * Math.Max(0, 1 - physReduction / 100.0)
             * (1 + MaimedPhysicalTaken(m, now) / 100.0);
         double total = mitigated.MinTotal - physical + physicalTaken;

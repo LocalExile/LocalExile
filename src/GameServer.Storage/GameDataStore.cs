@@ -174,6 +174,24 @@ public sealed class GameDataStore : IDisposable
         }
     }
 
+    /// <summary>One fx_aliases row: a stat that is also another stat, with no condition.</summary>
+    public sealed record FxAliasRow(string Stat, string CountsAs, double Scale);
+
+    /// <summary>The enabled fx_aliases rows. Empty when the table is not there (an older world.db in a test).</summary>
+    public IReadOnlyList<FxAliasRow> LoadFxAliases()
+    {
+        lock (_gate)
+        {
+            using (var exists = Command("SELECT 1 FROM sqlite_master WHERE type = 'table' AND name = 'fx_aliases'"))
+                if (exists.ExecuteScalar() is null) return [];
+            using var command = Command("SELECT stat, counts_as, scale FROM fx_aliases WHERE enabled = 1 ORDER BY stat, ord");
+            using var reader = command.ExecuteReader();
+            var result = new List<FxAliasRow>();
+            while (reader.Read()) result.Add(new(reader.GetString(0), reader.GetString(1), reader.GetDouble(2)));
+            return result;
+        }
+    }
+
     /// <summary>The fx_aura_effects rows (an aura or buff skill, a stat that is its own increased effect). Empty when the
     /// table is not there (an older world.db in a test).</summary>
     public IReadOnlyList<(string Family, string Stat)> LoadFxAuraEffects()

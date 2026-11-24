@@ -306,6 +306,12 @@ public static class FxRules
                     // The value is flat, or a percent of the pool's maximum with "of": "maximum".
                     if (Value(JsonNode.Parse(value)) is { } recovered) effect[with["of"]?.GetValue<string>() == "maximum" ? "percent" : "amount"] = recovered;
                     break;
+                case "remove":
+                    if (target != "self") throw new FormatException("an ailment is taken off the actor itself so far");
+                    effect["kind"] = "remove";
+                    effect["what"] = (with["what"]?.GetValue<string>() ?? throw new FormatException("the action \"remove\" needs \"what\"")).Replace(' ', '_');
+                    if (Value(JsonNode.Parse(value)) is { } protects) effect["seconds"] = protects;
+                    break;
                 case "raise":
                     if (target != "self") throw new FormatException("an event is recorded for the actor itself");
                     effect["kind"] = "remember";

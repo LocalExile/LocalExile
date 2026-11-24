@@ -3468,7 +3468,7 @@ public static partial class Game
         bool ignorePhys = mods.IgnorePhysicalReduction || (rolled[DamageType.Physical].Max > 0
             && GameServer.Core.World.RandomRolls.Chance(ignorePhysicalChance, 100, random ?? Random.Shared));
         int takenPct = additionalTakenPct + (trapOrMine ? BearTrapDamageTaken(m, now) : 0);
-        int damage = MonsterTakesMitigatedCore(m, mitigated, spell: !attack, now, takenPct, ignorePhys, random);
+        int damage = MonsterTakesMitigatedCore(m, mitigated, spell: !attack, now, takenPct, ignorePhys, random, mods.Overwhelm);
         return (damage,
             described.Count > 0 ? string.Join(", ", described) : null, mitigated);
     }
@@ -3488,6 +3488,7 @@ public static partial class Game
             TincturedWeaponIgnorePhysicalReductionChance = Has(Stat.TinctureApplied)
                 ? Value(Stat.HitsIgnoreEnemyMonsterPhysicalDamageReductionPctChanceWithTincturedWeapons) : 0,
             CriticalPenetration = Value(Stat.CriticalStrikesPenetratesPctElementalResistancesWhileAffectedByZealotry),
+            Overwhelm = Math.Max(0, Value(Stat.EnemyPhysReductionPctPenaltyVsHit)),
         };
 
         bool Has(uint name) => name is var key

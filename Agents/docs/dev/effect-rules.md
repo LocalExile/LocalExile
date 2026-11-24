@@ -301,6 +301,14 @@ The reverse-engineering behind the art and buff choices is in
 - An always-on item skill has `cast_on_gain_skill` in its stat set (the aegises, Death Aura, Blinding Aura, Abberath's
   Fury, Death Walk); most of them have no radius or period in their data.
 
+## Aliases and `remove`
+
+`fx_aliases` holds stats that are another stat under a second id, with no condition (`stat`, `counts_as`, `scale`).
+`ItemStatAliases.Apply` adds them after its own list, only while the rules are on. A stat with a condition belongs in
+`fx_modifiers` with `counts_as` instead. The part `remove` takes an ailment off the actor at once (`what`: bleeding,
+poison, chill freeze, ignite, shock, corrupted blood, elemental, ailments; the value is seconds of protection after
+it) with the removal a flask's own suffix uses. Curses and other debuffs are not removed by it.
+
 ## Flasks
 
 A flask in the flask bar carries rules as a worn item does (source kind `item`, the flask's own local stat). Its

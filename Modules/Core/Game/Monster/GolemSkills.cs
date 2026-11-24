@@ -92,6 +92,8 @@ public static partial class Game
                     // (GolemDamage) takes the base stat.
                     "spell_suppression_chance_%" => Stat.BaseSpellSuppressionChancePct,
                     "additional_physical_damage_reduction_%" => Stat.BaseAdditionalPhysicalDamageReductionPct,
+                    // "Minions take X% increased Damage": the reader (MonsterModSet.DamageTaken) takes the base stat.
+                    "damage_taken_+%" => Stat.BaseDamageTakenPlusPct,
                     "chance_to_impale_on_attack_hit_%" => Stat.AttacksImpaleOnHitPctChance,
                     "skill_area_of_effect_+%" or "area_of_effect_+%" => Stat.BaseSkillAreaOfEffectPlusPct,
                     var plain => Stat.Of(plain),
@@ -118,6 +120,7 @@ public static partial class Game
                     Stat.MinionChaosResistancePct => Stat.BaseChaosDamageResistancePct,
                     Stat.MinionChanceToImpaleOnAttackHitPct => Stat.AttacksImpaleOnHitPctChance,
                     Stat.MinionSpellSuppressionChancePct => Stat.BaseSpellSuppressionChancePct,
+                    Stat.MinionDamageTakenPlusPct => Stat.BaseDamageTakenPlusPct,
                     _ => Stat.Of(name),
                 };
             }
