@@ -57,7 +57,7 @@ public sealed partial class ReservationCurseSummonTests
 
             ushort golemSource = Source("SummonFlameGolem");
             var golemSupport = Game.SupportedSkill(player, golemSource).Stats;
-            Assert.Equal(7, Game.GolemSummonLimit(1, golemSupport, new Dictionary<uint, int>
+            Assert.Equal(7, Game.GolemRosterLimit(golemSupport, new Dictionary<uint, int>
             {
                 [Stat.NumberOfGolemsAllowed] = 2, [Stat.DoubleGolemLimit] = 1,
             }));

@@ -44,6 +44,27 @@ public sealed class MinionSupportExecutionTests
     }
 
     [Fact]
+    public void Living_lightning_resolves_its_own_chain_and_duration_supports()
+    {
+        using var f = new TriggeredSummonTests.Fixture();
+        f.Equip(("Shock Nova", 1), ("Living Lightning Support", 1),
+            ("Chain Support", 1), ("More Duration Support", 1));
+        ushort skill = Game.GemSkillEffects(f.Player).Single(g => Program.Skills.EffectId(g.Effect) == "ShockNova").Id;
+        var source = Game.SupportedSkill(f.Player, skill);
+        Assert.Contains(source.Supports, support => support.Effect.Id == "SupportLivingLightning");
+        Assert.DoesNotContain(source.Supports, support => support.Effect.Id == "SupportChain");
+        Assert.Contains(source.LivingLightningSupports, support => support.Effect.Id == "SupportChain");
+        Assert.Contains(source.LivingLightningSupports, support => support.Effect.Id == "SupportMoreDuration");
+
+        var sourceStats = new Dictionary<uint, int>(source.Stats) { [Stat.SpellDamagePlusPct] = 777 };
+        var lightning = Game.LivingLightningGem(f.Player, source with { Stats = sourceStats });
+        Assert.False(lightning.Stats.ContainsKey(Stat.SpellDamagePlusPct));
+        Assert.True(lightning.Stats.GetValueOrDefault(Stat.NumberOfChains) > 3);
+        Assert.True(SkillDurationModifiers.Seconds(lightning.Stats.GetValueOrDefault(Stat.BaseSkillEffectDuration),
+            _ => 0, lightning.Stats.GetValueOrDefault) > 5);
+    }
+
+    [Fact]
     public async Task Multistrike_repeats_after_recovery_and_ruthless_counts_uses_per_minion()
     {
         using var f = new AnimatedAdmissionTests.Fixture();
@@ -62,7 +83,7 @@ public sealed class MinionSupportExecutionTests
             double Poison(GolemState.Ability hit)
             {
                 var target = new SpawnedMonster("poison target", new(105, 100, 0), 100, 3, 100000) { Hostile = true };
-                Invoke("MinionAilmentsLocked", f.Player, fighter, hit, 998u, target, false, time.Time);
+                Invoke("MinionAilmentsLocked", f.Player, fighter, hit, fighter.Own, 998u, target, false, time.Time, 1d, false, 0);
                 return target.Poisons.TotalDps(time.Time);
             }
             double originalPoison = Poison(ability);

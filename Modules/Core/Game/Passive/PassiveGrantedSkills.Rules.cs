@@ -134,35 +134,42 @@ public static partial class Game
     /// <summary>
     /// A hit or kill that may trigger Summon Elemental Relic, in the area's frame: a kill, and a hit with damage on a
     /// rare or unique monster, each roll the skill's skill_triggered_by_nearby_allies_kill_or_hit_rare_unique_%_chance (25)
-    /// once, by the living player or by his minion at <paramref name="allyAt"/> within the buff's radius of him. A success
+    /// once, by the player, a nearby ally, or a living minion at <paramref name="allyAt"/>. A success
     /// spends the skill's 0.3 s cooldown (with cooldown recovery; a roll while it recovers is not made) and queues the
     /// summon for the minion step. True when one was queued.
     /// </summary>
     public static bool TriggerElementalRelicLocked(Player player, SpawnedMonster target, bool hit, bool killed,
         (int X, int Y)? allyAt = null)
     {
-        if (!CurrentGameWork || !target.Hostile || player.PlayerLife == 0 || player.Closed || player.LeavingArea) return false;
-        bool queued = false;
-        if (hit && target.Rarity is MonsterRarity.Rare or MonsterRarity.Unique) queued = Roll();
-        if (killed) queued |= Roll();
+        bool rareHit = hit && target.Rarity is MonsterRarity.Rare or MonsterRarity.Unique;
+        if (!CurrentGameWork || !target.Hostile || player.PlayerLife == 0 || player.Closed || player.LeavingArea
+            || !rareHit && !killed) return false;
+        var contact = allyAt ?? player.Walk.Position(AreaTime(player));
+        bool queued = RollFor(player, allyAt);
+        foreach (var ally in player.Instance.PlayersExcept(player.Id))
+            if (ally.PlayerLife > 0 && !ally.Closed && !ally.LeavingArea && ReferenceEquals(player.Instance, ally.Instance))
+                queued |= RollFor(ally, contact);
         return queued;
 
-        bool Roll()
+        bool RollFor(Player recipient, (int X, int Y)? at)
         {
-            if (RelicTriggerOf(player) is not { } relic) return false;
+            if (RelicTriggerOf(recipient) is not { } relic) return false;
             var (grant, radius) = relic;
-            double now = AreaTime(player);
-            if (allyAt is { } ally && Dist(ally, player.Walk.Position(now)) > radius) return false;
-            if (now < player.SkillReadyAt.GetValueOrDefault(grant.Effect) - 1e-9) return false;
-            var own = SkillsFor(player).EffectStats(grant.Effect, grant.Level).ToDictionary(s => s.Item1, s => s.Item2);
+            double now = AreaTime(recipient);
+            if (at is { } ally && Dist(ally, recipient.Walk.Position(now)) > radius) return false;
+            if (now < recipient.SkillReadyAt.GetValueOrDefault(grant.Effect) - 1e-9) return false;
+            var skills = SkillsFor(recipient);
+            var own = skills.EffectStats(grant.Effect, grant.Level).ToDictionary(s => s.Item1, s => s.Item2);
             int chance = Stat.SkillTriggeredByNearbyAlliesKillOrHitRareUniquePctChance is var c ? own.GetValueOrDefault(c) : 0;
-            if (player.Minions.Random.Next(100) >= chance) return false;
-            if (SingleUseCooldown.ForSkill(SkillsFor(player), Stats, grant.Effect, grant.Level, CharacterPlayerStats(player), own)
+            bool success = rareHit && recipient.Minions.Random.Next(100) < chance
+                || killed && recipient.Minions.Random.Next(100) < chance;
+            if (!success) return false;
+            if (SingleUseCooldown.ForSkill(skills, Stats, grant.Effect, grant.Level, CharacterPlayerStats(recipient), own)
                 is not { } plan) return false;
-            var state = CooldownStateLocked(player, grant.Effect, plan, now);
+            var state = CooldownStateLocked(recipient, grant.Effect, plan, now);
             if (!state.TryUse(now, plan)) return false;
-            player.SkillReadyAt[grant.Effect] = now + state.RemainingSeconds;
-            player.Minions.PendingRelics++;
+            recipient.SkillReadyAt[grant.Effect] = now + state.RemainingSeconds;
+            recipient.Minions.PendingRelics++;
             return true;
         }
     }

@@ -23,7 +23,7 @@ public static partial class Game
 
         var inherited = golem.InheritedMods.Effects;
         double rawBaseLife = (double)(monsters.BaseLife(variety, level) ?? 100)
-            + golem.Gear.GetValueOrDefault(Stat.BaseMaximumLife)
+            + effects[Stat.BaseMaximumLife]
             + (golem.Definition.Kind == "Zombie" ? Player(Stat.ZombieMaximumLifePlus) : 0);
         int familyLife = golem.Definition.IsGolem ? Player(Stat.GolemMaximumLifePlusPct) : golem.Definition.Kind switch
         {
@@ -32,8 +32,7 @@ public static partial class Game
             "RagingSpirit" => Player(Stat.MinionRagingSpiritMaximumLifePlusPct),
             _ => 0,
         };
-        double lifeIncreased = (long)Player(Stat.MinionMaximumLifePlusPct) + Own(Stat.MinionMaximumLifePlusPct)
-            + familyLife + golem.Gear.GetValueOrDefault(Stat.MaximumLifePlusPct) + inherited[Stat.MaximumLifePlusPct];
+        double lifeIncreased = (long)effects[Stat.MaximumLifePlusPct] + familyLife;
         if (Player(Stat.MinionLifeIncreasedByOvercappedFireResistance) != 0)
         {
             const GameServer.Core.World.DamageType fire = GameServer.Core.World.DamageType.Fire;
@@ -79,8 +78,7 @@ public static partial class Game
             * Math.Max(0, 1 + effects[Stat.EnergyShieldPlusPctFinalForMinion] / 100.0);
         double gained = rawBaseLife * Math.Max(0, effects[Stat.MaximumLifePctToAddAsMaximumEnergyShield]
             + conversion) / 100d * joint * lifeMore * energyShieldMore;
-        double flat = ((long)golem.Auras.GetValueOrDefault(Stat.BaseMaximumEnergyShield)
-            + golem.Gear.GetValueOrDefault(Stat.BaseMaximumEnergyShield))
+        double flat = effects[Stat.BaseMaximumEnergyShield]
             * Math.Max(0, 1 + (energyShieldIncreased + defencesIncreased) / 100d)
             * energyShieldMore;
         bool noEnergyShield = effects[Stat.MinionsHaveNoArmourOrEnergyShield] != 0;
