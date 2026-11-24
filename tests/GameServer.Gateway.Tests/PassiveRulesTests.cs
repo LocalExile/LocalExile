@@ -72,8 +72,15 @@ public sealed class PassiveRulesTests
         quick.Hit(0, 400, 25, 3);
         Assert.Equal(33, quick.Take(1), 6);
 
-        // Call to Arms: 100% more Warcry Duration.
+        // Call to Arms: 100% more Warcry Duration, and warcries grant no buffs to the player.
         Assert.Equal(1, SkillDurationModifiers.CallToArmsMore(_ => 0));
         Assert.Equal(2, SkillDurationModifiers.CallToArmsMore(key => key == Stat.KeystoneCallToArms ? 1 : 0));
+        var cryOwn = new Dictionary<uint, int> { [Stat.SeismicCryArmourPlusPctFinalPer5PowerUpToCap] = 10 };
+        var cryStats = new Dictionary<uint, int> { [Stat.WarcriesHaveInfinitePower] = 1, [Stat.KeystoneCallToArms] = 1 };
+        Game.ApplyWarcryBuffLocked(player, "SeismicCry", cryOwn, cryStats, (100, 100), 60, now: 10, duration: 8, buffEffect: 1);
+        Assert.False(player.Area.Buffs.HasRow(player.Id, Game.SeismicCryBuffRow));
+        cryStats.Remove(Stat.KeystoneCallToArms);
+        Game.ApplyWarcryBuffLocked(player, "SeismicCry", cryOwn, cryStats, (100, 100), 60, now: 10, duration: 4, buffEffect: 1);
+        Assert.True(player.Area.Buffs.HasRow(player.Id, Game.SeismicCryBuffRow));
     }
 }

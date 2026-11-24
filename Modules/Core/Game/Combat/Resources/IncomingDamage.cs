@@ -41,9 +41,9 @@ public static partial class Game
         // Apply it before every resource pool so it is not repeated between mitigation and allocation.
         physical = ApplyUnhingedTaken(physical, DamageType.Physical, Get);
         chaos = ApplyUnhingedTaken(chaos, DamageType.Chaos, Get);
-        // Recoup counts the hit's damage before the guards, Aegis, Ward and Energy Shield take any of it.
-        int recoupable = (int)Math.Min(int.MaxValue, (long)physical + other + chaos);
         (physical, other, chaos) = MitigateTriggeredGuardHit(player, physical, other, chaos, at);
+        // Recoup counts the mitigated hit damage before Aegis, guard absorption, Ward and Energy Shield absorb any of it.
+        int recoupable = (int)Math.Min(int.MaxValue, (long)physical + other + chaos);
         // Physical Aegis follows mitigation and totem redirection. Path of Exile's damage order puts an Aegis before
         // Ward; only the Aegis overflow reaches Ward, ES, Mana and Life.
         physical = PhysicalAegisDamage(player, physical, at);
