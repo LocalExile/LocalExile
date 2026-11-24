@@ -5,6 +5,8 @@ Part of [Status](../Status.md); what to build next in this area is in
 
 ## Works (verified with the real client)
 
+- Map entry and re-entry report the level of the instance to the client.
+
 - Rotting Core: organ portals, Black Heart and the blood passage to Lilly work ([Act 9](../docs/game/campaign/act9.md)).
 - Instance connection: opening, encryption switch (0x11), framing, dispatcher.
   Code: `GameServer.Gateway`, `GameServer.Core/Protocol/Instance`.

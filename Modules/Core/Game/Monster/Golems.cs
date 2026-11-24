@@ -8,6 +8,8 @@ public static partial class Game
     public static GolemCatalog GolemData = null!;
     const string GolemSaveKey = "Game.Golems";
     static int GolemStat(IReadOnlyDictionary<uint, int> stats, uint name) => name is var key ? stats.GetValueOrDefault(key) : 0;
+    static int GolemEffectiveLimit(int gemGolems, Func<uint, int> playerStat) =>
+        Math.Min(100, ApplyDarkMonarchLimit(GolemCatalog.Limit(gemGolems, playerStat), playerStat, "Golem"));
     static void GolemAdd(Dictionary<uint, int> stats, uint name, int value)
     { if (value != 0 && name is var key) stats[key] = ActorScale.Saturate((long)stats.GetValueOrDefault(key) + value); }
 
@@ -329,14 +331,40 @@ public static partial class Game
     internal static ushort RestoredGolemSource(Player player, GolemState.Saved saved) =>
         RestoredMinionSource(player, saved.Effect, saved.Skill, saved.Host, saved.Socket);
 
+    static void ApplySocketedGolemEquipment(Player player, int effect, Item host, IReadOnlyDictionary<uint, int> local,
+        Dictionary<uint, int> own)
+    {
+        if (host.Mods.Count == 0 || GolemData.Find(SkillsFor(player).EffectId(effect)) is null) return;
+        GolemAdd(own, Stat.MinionChanceToTauntOnHitPct, GolemStat(local, Stat.LocalDisplaySocketedGolemChanceToTauntPct));
+        GolemAdd(own, Stat.MinionLifeRegenerationRatePerMinutePct,
+            GolemStat(local, Stat.LocalDisplaySocketedGolemLifeRegenerationRatePerMinutePct));
+        // This display row is global in Stats.dat but refers to gems in this exact item.
+        GolemAdd(own, Stat.LocalDisplaySocketedGolemSkillGrantsOnslaughtWhenSummoned,
+            PlainItemSum(host, ItemsFor(player).Mods).GetValueOrDefault(Stat.LocalDisplaySocketedGolemSkillGrantsOnslaughtWhenSummoned));
+    }
+
     internal static Task<bool> CastGolem(Player player,
         ushort source, GolemCatalog.Definition definition, (int X, int Y) aim, int recovery, Func<bool> current,
-        bool triggered = false) =>
-        RepeatSummonCast(player, source, recovery, current, triggered, async () =>
+        bool triggered = false)
+    {
+        int onslaughtMs = triggered ? 0 : GolemStat(SupportedSkill(player, source).Stats,
+            Stat.LocalDisplaySocketedGolemSkillGrantsOnslaughtWhenSummoned);
+        return RepeatSummonCast(player, source, recovery, current, triggered, async () =>
         {
-            await SummonGolem(player, source, definition, aim, current: current);
+            uint id = await SummonGolem(player, source, definition, aim, current: current);
+            if (id != 0 && onslaughtMs > 0)
+            {
+                bool present;
+                using (ProjectileMutation(player, advance: false))
+                    present = current() && player.PlayerLife > 0 && !player.LeavingArea
+                        && KillOnslaughtOf(player).Gain(AreaTime(player), onslaughtMs / 1000d)
+                        && Marked(player, PlayerStatStep.Onslaught);
+                onslaughtMs = 0;
+                if (present) await SendKillOnslaught(player);
+            }
             return true;
         });
+    }
 
     public static async Task<uint> SummonGolem(Player player,
         ushort source, GolemCatalog.Definition definition, (int X, int Y) aim, double life = 1, bool arrival = false,
@@ -378,11 +406,12 @@ public static partial class Game
             if (replacingOld is not null && replacement is null) return 0;
         }
         if (supported.Effect != definition.Effect || !supported.RequirementsMet
+            || !CanHaveMinion(playerStats, OwnedMinionFamily.Golem)
             || gemSource is null || replacingOld is null && fresh is null
             || Monsters.Find(definition.Variety) is not { Supported: true } variety) return 0;
         int Own(uint name) => GolemStat(supported.Stats, name);
         int Player(uint name) => GolemStat(playerStats, name);
-        int limit = GolemCatalog.Limit(Own(Stat.BaseNumberOfGolemsAllowed), Player);
+        int limit = GolemEffectiveLimit(Own(Stat.BaseNumberOfGolemsAllowed), Player);
         if (limit == 0) return 0;
         byte level = (byte)Math.Clamp(Own(Stat.BaseDisplayMinionActorLevel), 1, 100);
         double remaining = arrival && double.IsFinite(summonedSecondsRemaining)
@@ -625,13 +654,14 @@ public static partial class Game
                 if (!sources.TryGetValue(golem.Source, out int effect) || effect != golem.Definition.Effect)
                 { RemoveGolemLocked(player, golem, now); changed = true; continue; }
                 var gem = SupportedSkill(player, golem.Source);
-                if (!gem.RequirementsMet) { RemoveGolemLocked(player, golem, now); changed = true; continue; }
+                if (!gem.RequirementsMet || !MinionFamilyAllowed(n => GolemStat(playerStats, n), "Golem"))
+                { RemoveGolemLocked(player, golem, now); changed = true; continue; }
                 if (golem.Monster.Dead)
                 {
                     continue;
                 }
                 golem.Own = new(gem.Stats); golem.GemLevel = gem.Level; golem.Quality = gem.Quality;
-                golem.Limit = GolemCatalog.Limit(GolemStat(gem.Stats, Stat.BaseNumberOfGolemsAllowed), n => GolemStat(playerStats, n));
+                golem.Limit = GolemEffectiveLimit(GolemStat(gem.Stats, Stat.BaseNumberOfGolemsAllowed), n => GolemStat(playerStats, n));
                 int level = GolemStat(gem.Stats, Stat.BaseDisplayMinionActorLevel);
                 if (level != golem.Monster.Level)
                 {
