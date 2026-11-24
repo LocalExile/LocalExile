@@ -295,8 +295,24 @@ public static partial class Game
     static bool AreaStep(Player first, AreaBodies bodies, uint id, PlayerWalk walk, double at, (int X, int Y) cell)
     {
         bool floor = walk.Slides || walk.Floor(cell.X, cell.Y);
-        bool body = floor && ClientPathfinder.ObjectBlocks(bodies.For(id), cell.X, cell.Y, walk.Size + 1, walk.Size + 4);
-        if (!floor || body && !walk.WalksThrough && !walk.ChargesThrough && !walk.Slides)
+        if (!floor)
+        {
+            walk.StopAt(at);
+            return false;
+        }
+        if (walk.ChargesThrough && !walk.Slides)
+        {
+            if (ShieldChargeStepBlocked(first, id, walk, at, cell))
+            {
+                walk.StopAt(at);
+                return false;
+            }
+            bodies.Move(id, cell.X, cell.Y);
+            ClientEntityGrid.Stepped(first, id, cell);
+            return true;
+        }
+        bool body = ClientPathfinder.ObjectBlocks(bodies.For(id), cell.X, cell.Y, walk.Size + 1, walk.Size + 4);
+        if (body && !walk.WalksThrough && !walk.Slides)
         {
             walk.StopAt(at);
             return false;

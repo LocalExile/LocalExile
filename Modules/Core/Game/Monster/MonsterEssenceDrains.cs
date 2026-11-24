@@ -176,12 +176,15 @@ static partial class Game
                 // Its damage, Rampage, Vaal soul and kill go to that instance's owner, never to this connection for running
                 // the world; with the owner gone, the death without any player's on-kill effects.
                 var owner = DotOwner(player, winner?.Caster);
-                (m.Life, bool stageStarts) = owner is null ? TakeDamageLocked(m, damage) : TakeOwnerDamageLocked(owner, m, damage);
+                int lifeDamage = ApplyMonsterDotEnergyShieldLocked(player.Area, m, damage, chaos: true, AreaTime(player));
+                bool stageStarts = false;
+                if (lifeDamage > 0) (m.Life, stageStarts) = owner is null ? TakeDamageLocked(m, lifeDamage) : TakeOwnerDamageLocked(owner, m, lifeDamage);
                 ApplyLosses(Math.Clamp((before - m.Life) / Math.Min(damage, before), 0, 1));
                 m.Aggro = m.Life > 0;
                 if (m.Life == 0)
                 {
                     m.Dead = true;
+                    CleanupDeadMonsterLocked(player.Area, id, m);
                     m.LastHitBy = owner;
                     if (owner is not null) CollectVaalSoulAtDeathLocked(owner, m);
                     m.EssenceDrain.Clear();

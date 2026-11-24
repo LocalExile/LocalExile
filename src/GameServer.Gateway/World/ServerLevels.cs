@@ -43,6 +43,14 @@ public static class ServerLevels
         /// <summary>The lore interactables its tiles place (<c>Metadata/NPC/Info/</c>: Weathered Carvings, Arteri's
         /// Letter, Library books, Stained Glass Windows, Kaom's Carvings, Victario's Graffiti).</summary>
         public IReadOnlyList<PlacedTileObject> TileLoreObjects { get; init; } = [];
+        /// <summary>Ordinary interactive dungeon doors and smashables placed by tiles (.tmd), verified against object_types.</summary>
+        public IReadOnlyList<PlacedTileObject> TileDoors { get; init; } = [];
+        /// <summary>Ordinary non-quest, non-strongbox chests placed by tiles (.tmd).</summary>
+        public IReadOnlyList<PlacedTileObject> TileChests { get; init; } = [];
+        /// <summary>Tile-placed boss spawners (e.g. Marketplace Marceus statue spawner).</summary>
+        public IReadOnlyList<PlacedTileObject> TileBossSpawners { get; init; } = [];
+        /// <summary>Compact read-only ground type name grid derived from the generated tile corners (for biome pack filtering).</summary>
+        public TileGrounds? Grounds { get; init; }
         /// <summary>The server objects of the placed rooms and the objects their point lists name (AreaObjects.RoomObjects):
         /// the quest engine's places for room objects data/room-points.json does not keep (QuestObjectTypes.AreaPlacements).</summary>
         public IReadOnlyList<PlacedTileObject> RoomObjects { get; init; } = [];
@@ -196,6 +204,35 @@ public static class ServerLevels
     /// level of 0).</summary>
     static int LevelOf(string areaId, uint seed, int areaLevel) =>
         areaLevel > 0 ? areaLevel : PlayedLevels.TryGetValue((areaId, seed), out int played) ? played : AreaLevel(areaId);
+
+    /// <summary>The level this instance is really played at — the one a map device set for it, else the area's own
+    /// WorldAreas level. It is the level the layout was generated at, so the area's first message can carry it.</summary>
+    public static int PlayedLevel(string areaId, uint seed) => LevelOf(areaId, seed, 0);
+
+    /// <summary>Whether this area's level comes from the item that opens it rather than from the act's own
+    /// progression: <c>WorldAreas.IsMapArea</c>, the client's own flag. It decides whether the area's first message
+    /// carries a level.</summary>
+    public static bool IsMapArea(string areaId)
+    {
+        lock (MapAreasGate) { _mapAreas ??= LoadMapAreas(); return _mapAreas.Contains(areaId); }
+    }
+
+    static readonly Lock MapAreasGate = new();
+    static HashSet<string>? _mapAreas;
+
+    // The WorldAreas rows flagged IsMapArea, read once; a missing or unreadable table means no area carries a level.
+    static HashSet<string> LoadMapAreas()
+    {
+        var areas = new HashSet<string>(StringComparer.Ordinal);
+        try
+        {
+            if (ClientTables.Has("WorldAreas"))
+                foreach (var row in ClientTables.Table("WorldAreas"))
+                    if ((row.IntOrNull("IsMapArea") ?? 0) != 0 && row.Text("Id") is { Length: > 0 } id) areas.Add(id);
+        }
+        catch (Exception ex) when (ex is FileNotFoundException or InvalidOperationException or KeyNotFoundException) { }
+        return areas;
+    }
 
     /// <summary>Whether the Gateway generates this area itself (<see cref="Supported"/>).</summary>
     public static bool IsSupported(string areaId) => Enabled && Supported.Contains(areaId);
@@ -430,6 +467,10 @@ public static class ServerLevels
                 TileLabyrinthObjects = AreaObjects.TileObjects(files, result, t => t.StartsWith("Metadata/Terrain/Labyrinth/", StringComparison.Ordinal)
                     || t.StartsWith(LabyrinthTrials.StatueFolder, StringComparison.Ordinal)),
                 TileLoreObjects = AreaObjects.TileObjects(files, result, t => t.StartsWith("Metadata/NPC/Info/", StringComparison.OrdinalIgnoreCase)),
+                TileDoors = AreaObjects.TileObjects(files, result, IsOrdinaryDoorType),
+                TileChests = AreaObjects.TileObjects(files, result, IsOrdinaryChestType),
+                TileBossSpawners = AreaObjects.TileObjects(files, result, AreaPopulation.BossSpawners.ContainsKey),
+                Grounds = AreaObjects.Grounds(files, result),
                 RoomObjects = AreaObjects.RoomObjects(result, points: true, links: roomLinks),
                 RoomLinks = roomLinks,
                 PackRooms = AreaPopulation.PackRooms(result.Records),
@@ -443,6 +484,24 @@ public static class ServerLevels
             return null;
         }
     }
+
+    // Verified interactive ordinary door / smashable types present in client.db object_types with supported components.
+    static readonly HashSet<string> OrdinaryDoorTypes = new(StringComparer.OrdinalIgnoreCase)
+    {
+        "Metadata/MiscellaneousObjects/Door",
+        "Metadata/MiscellaneousObjects/Lights/IncaDoorLight",
+        "Metadata/MiscellaneousObjects/Lights/ScepterDoorLight",
+        "Metadata/MiscellaneousObjects/Smashable",
+    };
+
+    public static bool IsOrdinaryDoorType(string type) => OrdinaryDoorTypes.Contains(type);
+
+    public static bool IsOrdinaryChestType(string type) =>
+        type.StartsWith("Metadata/Chests/", StringComparison.OrdinalIgnoreCase)
+        && !type.Contains("/QuestChests/", StringComparison.OrdinalIgnoreCase)
+        && !type.Contains("/StrongBoxes/", StringComparison.OrdinalIgnoreCase)
+        && !type.Contains("/Labyrinth/", StringComparison.OrdinalIgnoreCase)
+        && !type.Contains("/League", StringComparison.OrdinalIgnoreCase);
 
     static bool WithinReach(byte[] cells, int w, int h, int x, int y, int r)
     {

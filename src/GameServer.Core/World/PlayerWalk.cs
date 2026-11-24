@@ -167,6 +167,7 @@ public sealed class PlayerWalk
         Reached = true;
         _goalReached = false;
         WalksThrough = false;
+        ChargesThrough = false;
     }
 
     /// <summary>Whether the step at <paramref name="at"/> (a time from <see cref="Steps"/>) ends a piece of the path: the
@@ -216,6 +217,7 @@ public sealed class PlayerWalk
         Reached = true;
         _goalReached = true;
         WalksThrough = false;
+        ChargesThrough = false;
     }
 
     // When the tick from `from` to `until` steps the walker into a waypoint (the end of a piece of its path), if it does.
@@ -239,6 +241,7 @@ public sealed class PlayerWalk
     /// (<see cref="StopAfter"/>); without frames it stands where it is. Returns where it stands.</summary>
     public (int X, int Y) Cancel(double now)
     {
+        ChargesThrough = false;
         if (FrameOf?.Invoke(now) is { } frame)
         {
             // A walker already standing has no step time for the stop to act on (0x141e38420 does nothing then): the
@@ -333,20 +336,20 @@ public sealed class PlayerWalk
         readonly (double At, double Moving, int Teleports)? _travel;
         readonly (double, double) _kept;
         readonly int _maxRange, _tolerance, _precision;
-        readonly bool _reached, _goalReached, _walksThrough;
+        readonly bool _reached, _goalReached, _walksThrough, _chargesThrough, _slides;
 
         internal Snapshot(PlayerWalk w)
         {
             _travel = w._travel;
-            (_segments, _rest, _target, _restSince, _kept, _maxRange, _tolerance, _precision, _reached, _goalReached, _walksThrough) =
-                (w._segments, w._rest, w._target, w._restSince, w._kept, w._maxRange, w._tolerance, w._precision, w.Reached, w._goalReached, w.WalksThrough);
+            (_segments, _rest, _target, _restSince, _kept, _maxRange, _tolerance, _precision, _reached, _goalReached, _walksThrough, _chargesThrough, _slides) =
+                (w._segments, w._rest, w._target, w._restSince, w._kept, w._maxRange, w._tolerance, w._precision, w.Reached, w._goalReached, w.WalksThrough, w.ChargesThrough, w.Slides);
         }
 
         internal void Into(PlayerWalk w)
         {
             (w._segments, w._rest, w._target, w._restSince, w._kept, w._maxRange, w._tolerance, w._precision) =
                 (_segments, _rest, _target, _restSince, _kept, _maxRange, _tolerance, _precision);
-            (w.Reached, w._goalReached, w.WalksThrough) = (_reached, _goalReached, _walksThrough);
+            (w.Reached, w._goalReached, w.WalksThrough, w.ChargesThrough, w.Slides) = (_reached, _goalReached, _walksThrough, _chargesThrough, _slides);
             w._travel = _travel;
         }
     }
@@ -401,6 +404,7 @@ public sealed class PlayerWalk
         Reached = true;
         _goalReached = true;
         WalksThrough = false;
+        ChargesThrough = false;
     }
 
     /// <summary>Holds the walker where it is for <paramref name="seconds"/>; then the walk goes on, as the client's does
@@ -566,6 +570,7 @@ public sealed class PlayerWalk
         }
         (_target, _maxRange, _tolerance) = (end, 0, -1);
         Follow([here, end], here, fraction, 0, now);
+        ChargesThrough = true;
         Reached = true;
         _goalReached = true;
         WalksThrough = false;
@@ -655,12 +660,14 @@ public sealed class PlayerWalk
         Reached = true;
         _goalReached = true;
         WalksThrough = false;
+        ChargesThrough = false;
         Slides = true;
     }
 
     private void Follow(IReadOnlyList<(int X, int Y)> path, (int X, int Y) here, double fraction, double kept, double now)
     {
         Slides = false;
+        ChargesThrough = false;
         if (path.Count < 2)
         {
             _rest = here;

@@ -109,6 +109,12 @@ public static partial class Game
         !(GemSkillEffects(player).FirstOrDefault(g => g.Id == skill) is { Name: not null } gem
             && SkillsFor(player).IsChannelled(gem.Effect) && !IsTotemSkill(player, skill));
 
+    static double LockstepScheduledAt(Player player, double fallback) =>
+        player.Connection.LockstepClient && player.Connection.LockstepFrame is { } frame
+            ? (player.LockstepActionScheduledAt >= frame.Start && player.LockstepActionScheduledAt <= frame.End
+                ? player.LockstepActionScheduledAt : frame.Start)
+            : fallback;
+
     static ushort NextLockstepSequence(Player player)
     {
         player.LockstepSequence = (ushort)((player.LockstepSequence + 1) & 0x7fff);
@@ -142,7 +148,7 @@ public static partial class Game
         (ushort Sequence, (int X, int Y) Aim)? channelAim = null;
         bool skill = false;
         int skillActionBefore = 0;
-        double skillBusyBefore = 0, skillBusySet = 0;
+        double skillBusyBefore = 0, skillBusySet = 0, skillStartedBefore = 0, skillScheduledBefore = 0;
         double at;
         InstanceTransfer.UseSkillOnObject? use = null, staleUse = null;
         using (ProjectileMutation(player, phase: "lockstep"))
@@ -156,6 +162,9 @@ public static partial class Game
                 player.LockstepSkill.Clear();
                 player.LockstepChannelAimPending = false;
                 player.LockstepCastWindow = null;
+                player.LockstepActionStartedAt = 0;
+                player.LockstepActionScheduledAt = 0;
+                player.LockstepActionBackswingUntil = 0;
                 player.LockstepUse = null;
                 return;
             }
@@ -196,32 +205,44 @@ public static partial class Game
             }
             // Readiness belongs to the client's frame. Projectile time may already be ahead of it; using that
             // clock can start a Move before pickup completion, whose cleanup then discards the new path.
-            bool free = LockstepPlayerFree(player, frameStart);
-            if (!PlayerActionBlocked(player, at, at) && free)
+            double frameLen = FrameMs / 1000.0;
+            double frameEnd = player.Connection.LockstepFrame?.End ?? (frameStart + frameLen);
+            double queueHorizon = frameEnd - 1e-4;
+            bool moveFree = LockstepPlayerFree(player, frameStart);
+            // Client AnimationController::AdvanceClip (0x141dbf670) carries exact leftover frame dt into the next action
+            // when a 0x01ab is pre-queued in Actor +0x1c0 before the running clip ends mid-frame, while Actor +0x29c
+            // enforces at most one 0x01ab start per 33 ms tick (30.303 actions/s). Only early-queue once the previous
+            // action has actually begun (frameStart >= LockstepActionStartedAt) so +0x1c0 is never overwritten.
+            bool canQueueSkill = !ShieldChargeTraveling(player, frameStart)
+                && frameStart >= player.LockstepActionStartedAt - 1e-9
+                && player.LockstepBusyUntil <= queueHorizon
+                && player.LockstepActionBackswingUntil <= queueHorizon;
+            bool skillFree = moveFree || canQueueSkill;
+            if (!PlayerActionBlocked(player, frameStart, frameStart) && skillFree)
             {
                 if (player.LockstepSkill.Target is { } aimedAt && aimedAt != player.Id
                     && !(player.Area.Monsters.TryGetValue(aimedAt, out var m) && !m.Dead && m.Life > 0))
                     player.LockstepSkill.LoseTarget();
-                // A held skill repeats once per action, as GGG's does: an attack's next use waits for the attack time of
-                // the one before, aimed at a monster (its walk-up and swing: LockstepAttackStart) or at the ground (live
-                // 2026-11-03: a ground attack sent as soon as the player was free came 0.4 s into a 0.645 s swing, and
-                // the client queued it until the swing's end). A new click goes at the next frame start over an open
-                // walk-up, as over a walk, and its action ends that walk-up (PlayerWalkUpOpen); only a swing holds it.
                 // Actor's gate (0x141e941a0 -> 0x141e9479e / 0x141e947aa) lets only Move (0x2909 / 0xc266) cut in after
                 // an attack's contact or while its cancelled backswing lockout (+0x2a0) runs; non-Move uses (object
-                // pickups, spells, attacks) wait for the attack time (NextAttackAt) before the client runs them.
-                bool attackReady = at + 1e-9 >= player.NextAttackAt;
+                // pickups, spells, attacks) wait for the action to finish (NextAttackAt / LockstepActionBackswingUntil).
+                bool attackReadyForUse = frameStart + 1e-9 >= player.NextAttackAt
+                    && frameStart + 1e-9 >= player.LockstepActionBackswingUntil;
+                bool earlySkillCancel = moveFree && player.LockstepCastWindow is { } cw
+                    && frameStart < cw.Start + cw.Duration;
+                bool attackReadyForSkill = earlySkillCancel
+                    || (player.NextAttackAt <= queueHorizon && player.LockstepActionBackswingUntil <= queueHorizon);
                 bool canStartSkill = LockstepSkillCanStart(player, player.LockstepSkill.Skill);
                 if (!canStartSkill && player.LockstepSkill.Pending) player.LockstepSkill.ClearPending();
                 // Pinned (a spike trap's risen spikes: Pins.cs): no walk starts, and a use waits, as it walks up.
                 bool pinned = Pinned(player, at);
-                if (!pinned && attackReady && player.LockstepUse is { } candidate
+                if (moveFree && !pinned && attackReadyForUse && player.LockstepUse is { } candidate
                     && candidate.SkillId == 0x266 && player.Instance.Ground.WasTaken(candidate.TargetId))
                 {
                     player.LockstepUse = null;
                     staleUse = candidate;
                 }
-                if (!pinned && attackReady && player.LockstepUse is { } object_)
+                if (moveFree && !pinned && attackReadyForUse && player.LockstepUse is { } object_)
                 {
                     player.LockstepCastWindow = null;
                     player.LockstepUse = null;
@@ -229,24 +250,29 @@ public static partial class Game
                     from = player.Walk.Position(frameStart);
                     sequence = NextLockstepSequence(player);
                 }
-                else if (canStartSkill && attackReady
-                    && player.LockstepSkill.Due(free, repeat: player.LockstepAttack is null))
+                else if (canStartSkill && attackReadyForSkill
+                    && player.LockstepSkill.Due(skillFree, repeat: player.LockstepAttack is null))
                 {
                     skill = true;
                     sequence = NextLockstepSequence(player);
                     skillActionBefore = player.ActionCount;
                     skillBusyBefore = player.LockstepBusyUntil;
-                    player.LockstepCastWindow = null;
+                    skillStartedBefore = player.LockstepActionStartedAt;
+                    skillScheduledBefore = player.LockstepActionScheduledAt;
                     HoldLockstepSkill(player, sequence, frameStart, at);
                     skillBusySet = player.LockstepBusyUntil;
                 }
-                else if (!pinned && LockstepMoveDue(player, frameStart) is { } due)
+                else if (moveFree && !pinned && LockstepMoveDue(player, frameStart) is { } due)
                 {
                     target = due;
                     EndShieldChargeIfInterrupted(player);
                     CancelMeleeRepeats(player, at);
                     action = Interlocked.Increment(ref player.ActionCount);
                     player.ChannelSkill = 0;
+                    // Late Move-cancel after a spell's contact sets Actor +0x2a0 to the remaining cast duration
+                    // (0x141e947d0 -> 0x141942f00), gating subsequent non-Move actions while allowing Move.
+                    if (player.LockstepCastWindow is { } cast && frameStart >= cast.Start + cast.LateFrom)
+                        player.LockstepActionBackswingUntil = Math.Max(player.LockstepActionBackswingUntil, cast.Start + cast.Duration);
                     player.LockstepCastWindow = null;
                     player.LockstepBusyUntil = frameStart;
                     sequence = NextLockstepSequence(player);
@@ -263,7 +289,7 @@ public static partial class Game
         if (channelAim is { } aimed) await SendLockstepChannelAim(player, aimed.Sequence, aimed.Aim);
         if (staleUse is not null) _ = OnUseObject(player, staleUse, at);
         if (sequence == 0) return;
-        if (skill) StartLockstepSkill(player, sequence, at, skillActionBefore, skillBusyBefore, skillBusySet);
+        if (skill) StartLockstepSkill(player, sequence, at, skillActionBefore, skillBusyBefore, skillBusySet, skillStartedBefore, skillScheduledBefore);
         else if (use is not null)
         {
             // The client walks up on this 0x1ab, where a predictive client starts by itself; the server's use goes on as
@@ -386,7 +412,7 @@ public static partial class Game
         LockstepAttack attack;
         player.LockstepAttack?.Fails();
         player.LockstepAttack = attack = new(action, use.TargetId, m, WalkUpRange(weapon), m.StopRange - 2, precision,
-            () => LockstepAttackCutIn(player, use.SkillId, use.Sequence) + player.LockstepActionTail)
+            () => LockstepAttackCutIn(player, use.SkillId, use.Sequence))
         {
             InPlace = (use.Flags & 1) != 0,
         };
@@ -501,7 +527,7 @@ public static partial class Game
         LockstepAttack attack;
         player.LockstepAttack?.Fails();
         player.LockstepAttack = attack = new(action, 0, null, WalkUpRange(weapon), -1, 1,
-            () => LockstepAttackCutIn(player, skill, sequence) + player.LockstepActionTail)
+            () => LockstepAttackCutIn(player, skill, sequence))
         {
             GroundTarget = aim,
             GroundAttackSeconds = gem.Name is null ? () => LockstepAttackSeconds(player, skill, sequence) : null,
@@ -552,14 +578,27 @@ public static partial class Game
         finally { LockstepAttackOver(player, attack.Action); }
     }
 
-    // A spell advances in its first native frame. Preserve its fractional duration so a short cast can repeat on
-    // the next frame. Attacks retain their separately traced end-of-frame anchor and walk-up swing timing.
+    // A spell or attack advances in its first native frame and carries leftover dt across 33 ms ticks when the next
+    // 0x01ab is pre-queued in Actor +0x1c0 (0x141dbf670). Preserve the continuous start time inside [frameStart, frameEnd]
+    // so both attacks and spells match Predictive APS/CPS up to the client's 1-start-per-frame (+0x29c) ceiling.
     public static void HoldLockstepSkill(Player player, ushort sequence, double frameStart, double at)
     {
         bool monster = player.LockstepSkill.Target is { } target && target != player.Id;
         ushort requested = player.LockstepSkill.Skill;
         var gem = GemSkillEffects(player).FirstOrDefault(g => g.Id == requested);
         bool spell = gem.Name is not null && SkillsFor(player).IsSpell(gem.Effect) && !SkillsFor(player).IsAttack(gem.Effect);
+        bool isAttack = requested == SkillCatalog.FirstSkillId
+            || gem.Name is not null && !IsTotemSkill(player, requested) && SkillsFor(player).IsAttack(gem.Effect);
+        double frameLen = FrameMs / 1000.0;
+        double frameEnd = player.Connection.LockstepFrame?.End ?? (frameStart + frameLen);
+        bool earlyCancel = player.LockstepCastWindow is { } cw && frameStart < cw.Start + cw.Duration
+            && LockstepPlayerFree(player, frameStart);
+        player.LockstepCastWindow = null;
+        double prevEnd = earlyCancel ? frameStart
+            : Math.Max(player.LockstepActionBackswingUntil, Math.Max(player.NextAttackAt, player.LockstepBusyUntil));
+        double actualStart = prevEnd > frameStart && prevEnd <= frameEnd ? prevEnd : frameStart;
+        player.LockstepActionStartedAt = actualStart;
+        player.LockstepActionScheduledAt = actualStart;
         // Only skills that go through LockstepAttackStart or StartLockstepGroundMelee defer their hold until the
         // walk-up reaches its swing; immediate casts on a monster (spells, totems, movement skills, and attack gems
         // with "always attack without moving", Flags bit 0) hold from here.
@@ -570,10 +609,23 @@ public static partial class Game
                     && (player.LockstepSkill.Flags & 0x1) == 0
             : LockstepGroundMelee(player, requested, player.LockstepSkill.Flags);
         if (defersHold) return;
-        double start = spell ? frameStart : player.Connection.LockstepFrame?.End ?? at;
         double hold = LockstepActionHold(player, requested, sequence);
-        player.LockstepBusyUntil = start + hold;
-        if (spell) player.LockstepCastWindow = LockstepSpellMoveWindow(player, requested, gem.Effect, start, hold);
+        if (spell)
+        {
+            player.LockstepBusyUntil = actualStart + hold;
+            player.LockstepCastWindow = LockstepSpellMoveWindow(player, requested, gem.Effect, actualStart, hold);
+        }
+        else if (hold <= 0)
+            player.LockstepBusyUntil = actualStart;
+        else if (isAttack)
+        {
+            // Keep the 1-frame Move-cancel safety margin for slow weapons, clamped to the attack's own duration so
+            // Move-cancel never extends past the swing or throttles fast repeating attacks / Multistrike.
+            double duration = LockstepAttackSeconds(player, requested, sequence);
+            player.LockstepBusyUntil = Math.Min(actualStart + duration, actualStart + frameLen + hold);
+        }
+        else
+            player.LockstepBusyUntil = actualStart + hold;
     }
 
     // Whether the requested skill can actually start right now (enabled and payable). Checked before HoldLockstepSkill
@@ -628,7 +680,7 @@ public static partial class Game
             // charge_*_end has contact = 0. No-charge uses (< 24 cells) set their own in-place bash hold in BeginShieldCharge.
             if (ShieldChargeBonusPct(player, skill, gem.Effect) != 0) return 0;
         }
-        return LockstepAttackCutIn(player, skill, sequence) + player.LockstepActionTail;
+        return LockstepAttackCutIn(player, skill, sequence);
     }
 
     static GameServer.Core.World.LockstepCastWindow? LockstepSpellMoveWindow(Player player, ushort skill, int effect, double start, double duration)
@@ -658,7 +710,9 @@ public static partial class Game
     // A dual-wielded use takes its own hand's time (AttackHands, from the use's sequence).
     static double LockstepAttackSeconds(Player player, ushort skill, ushort sequence = 0) => skill == SkillCatalog.FirstSkillId
         ? Math.Max(TickSeconds, DefaultAttackSeconds(player, sequence, CharacterPlayerStats(player)) / PlayerActionFactor(player))
-        : SupportedAttackSeconds(player, skill, sequence);
+        : ShieldWeapon(player, skill) is { } shieldWeapon
+            ? SupportedOffHandAttackSeconds(player, skill, shieldWeapon)
+            : SupportedAttackSeconds(player, skill, sequence);
 
     // When, after a swing's start, the client lets a Move cut the attack short: its clip's lock_cancelling keyframe where
     // it has one, else its contact (live 2026-11-03, the first Move the client ran at once: a wand's 0.334 s into a
@@ -690,10 +744,19 @@ public static partial class Game
     // at its frame's end, 48 of 48). Under conn.Monsters.
     public static void LockstepAttackSwings(Player player, LockstepAttack attack, double start, double end)
     {
-        player.LockstepBusyUntil = Math.Max(player.LockstepBusyUntil, end + attack.Hold());
+        double swingStart = player.LockstepActionScheduledAt >= start && player.LockstepActionScheduledAt <= end
+            ? player.LockstepActionScheduledAt : start;
+        player.LockstepActionStartedAt = swingStart;
+        double hold = attack.Hold();
         if (attack.GroundAttackSeconds is { } seconds)
-            player.NextAttackAt = AttackTiming.After(start, player.NextAttackAt, seconds());
-        attack.Swings(start, end, player.Walk.Destination);
+        {
+            double duration = seconds();
+            player.NextAttackAt = AttackTiming.After(swingStart, player.NextAttackAt, duration);
+            player.LockstepBusyUntil = Math.Max(player.LockstepBusyUntil, Math.Min(swingStart + duration, end + hold));
+        }
+        else
+            player.LockstepBusyUntil = Math.Max(player.LockstepBusyUntil, end + hold);
+        attack.Swings(swingStart, end, player.Walk.Destination);
     }
 
     // The attack is over, swung or not: nothing more holds the held skill's next use.
