@@ -15,7 +15,8 @@ public static partial class Game
         && !SkillsFor(player).IsAttack(effect) && !SkillsFor(player).IsTravel(effect)
         && Supports.Of(effect)?.Types.Contains(47) != true
         && (TotemSummon(player, effect) is not null || GolemData.Find(SkillsFor(player).EffectId(effect)) is not null
-            || (SkillsFor(player).EffectId(effect) == "Arc" || UsesProjectileRuntime(effect) && ResolveProjectileDefinition(effect) is not null)
+            || (SkillsFor(player).EffectId(effect) == "Arc" || IsAbsolutionHitSpell(player, effect)
+                || UsesProjectileRuntime(effect) && ResolveProjectileDefinition(effect) is not null)
                 && SkillHitPlan.ForSkill(SkillsFor(player), effect, 1).CanHit);
 
     static SummonCatalog.Definition? TotemSummon(Player player, int effect) =>
@@ -268,6 +269,17 @@ public static partial class Game
                     if (session.Active && ReferenceEquals(lifetime, CombatLifetime) && SpellTotemCurrent(player, totem)
                         && player.Area.Monsters.GetValueOrDefault(target.Id) == target.Monster)
                         ReleaseArcTotem(player, session, totem, target.Id, sequence);
+                });
+                continue;
+            }
+            if (IsAbsolutionHitSpell(player, gem.Effect))
+            {
+                var spell = SupportedSkill(player, totem.SkillId);
+                int radius = SkillRadius(player, spell.Stats, spell: true, gem.Effect);
+                session.Runtime.Schedule(Math.Max(session.Runtime.Now, ProjectileRuntime.Time(totem.NextCast)), () =>
+                {
+                    if (session.Active && ReferenceEquals(lifetime, CombatLifetime) && SpellTotemCurrent(player, totem))
+                        TotemNovaLocked(player, session, totem, aim, radius, sequence, hitSummon: true);
                 });
                 continue;
             }

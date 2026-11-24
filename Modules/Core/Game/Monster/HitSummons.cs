@@ -7,6 +7,9 @@ public static partial class Game
     sealed record HolyArmamentTarget(uint Id, SpawnedMonster Monster);
     static readonly RuleTable<Player, Dictionary<ushort, HolyArmamentTarget>> HolyArmamentTargets = new();
 
+    static bool IsAbsolutionHitSpell(Player player, int effect) =>
+        SkillsFor(player).EffectId(effect) is "Absolution" or "AbsolutionAltX";
+
     static SummonCatalog.Definition? HitSummonDefinition(string? effect, MonsterRarity rarity = MonsterRarity.Normal) => effect switch
     {
         "Absolution" or "AbsolutionAltX" => new(effect, "Absolution", "Metadata/Monsters/TemplarJudge/AbsolutionTemplarJudge",
@@ -33,7 +36,7 @@ public static partial class Game
             && target.Id == id && ReferenceEquals(target.Monster, monster);
 
     internal static void HitSummonsOnHitLocked(Player player, SpawnedMonster monster,
-        IReadOnlyDictionary<uint, int>? skill, ushort source, double now, Random random)
+        IReadOnlyDictionary<uint, int>? skill, ushort source, double now, Random random, bool playerConsumesCorpse = true)
     {
         if (skill is null || GolemStat(skill, Stat.BaseMaxNumberOfAbsolutionSentinels) + GolemStat(skill, Stat.BaseMaxNumberOfDominatedNormalMonsters) <= 0
             || !monster.Hostile || player.PlayerLife == 0) return;
@@ -50,7 +53,7 @@ public static partial class Game
         if (monster.Rarity == MonsterRarity.Unique) return;
         double duration = SkillDurationModifiers.Seconds(GolemStat(skill, Stat.BaseSkillEffectDuration),
             n => GolemStat(CharacterPlayerStats(player), n), n => GolemStat(skill, n));
-        player.Summons.HitMarks[(pair.Key, source)] = new(monster, source, gem.Effect, gem.SourceGem, now + duration);
+        player.Summons.HitMarks[(pair.Key, source)] = new(monster, source, gem.Effect, gem.SourceGem, now + duration, playerConsumesCorpse);
         if (monster.Dead || monster.Life == 0) HitSummonsOnDeathLocked(player, pair.Key, monster, now);
     }
 
@@ -68,7 +71,8 @@ public static partial class Game
         {
             player.Summons.HitMarks.Remove(key);
             if (!ReferenceEquals(mark.Monster, monster) || now >= mark.Until || monster.Rarity == MonsterRarity.Unique) continue;
-            player.Summons.HitSummons.Add(new(id, monster, mark.Source, mark.Effect, mark.Gem, true));
+            player.Summons.HitSummons.Add(new(id, monster, mark.Source, mark.Effect, mark.Gem, true,
+                PlayerConsumesCorpse: mark.PlayerConsumesCorpse));
         }
     }
 
@@ -111,6 +115,7 @@ public static partial class Game
             }
             uint id = await SummonFighterCore(player, request.Source, definition,
                 request.Monster.Walk.Position(now), current: Current, triggered: true,
+                playerConsumesCorpse: request.PlayerConsumesCorpse,
                 consumedCorpse: request.ConsumeCorpse ? request.Monster : null,
                 preparedEquipment: request.Weapon is { } weapon ? new(0, null, new() { [2] = weapon }) : null,
                 inheritedMods: definition.Family.StartsWith("Dominating", StringComparison.Ordinal) && request.ConsumeCorpse
@@ -125,7 +130,7 @@ public static partial class Game
 
     static void ConsumeHitSummonCorpseLocked(Player player, SummonedMinions.HitSummon request)
     {
-        ConsumeSummonCorpseLocked(player, request.Monster);
+        ConsumeSummonCorpseLocked(player, request.Monster, request.PlayerConsumesCorpse);
         player.Minions.OutputQueue.Add(new(InstanceProtocol.RemoveObject(request.Target), "Sentinel corpse consumed",
             WorldId: request.Target, RemovesObject: true));
     }

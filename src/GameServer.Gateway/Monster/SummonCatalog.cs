@@ -108,11 +108,11 @@ public sealed class SummonedMinions
     public Prey? SignalledPrey;
     public readonly Queue<uint> Corpses = [];
     public sealed record HitMark(SpawnedMonster Monster, ushort Source, int Effect,
-        GameServer.Core.Protocol.Instance.Item? Gem, double Until);
+        GameServer.Core.Protocol.Instance.Item? Gem, double Until, bool PlayerConsumesCorpse = true);
     public readonly Dictionary<(uint Id, ushort Source), HitMark> HitMarks = [];
     public sealed record HitSummon(uint Target, SpawnedMonster Monster, ushort Source, int Effect,
         GameServer.Core.Protocol.Instance.Item? Gem, bool ConsumeCorpse, string Kind = "", string Supports = "",
-        GameServer.Core.Protocol.Instance.Item? Weapon = null);
+        GameServer.Core.Protocol.Instance.Item? Weapon = null, bool PlayerConsumesCorpse = true);
     public readonly List<HitSummon> HitSummons = [];
     public readonly Dictionary<uint, GameServer.Core.Protocol.Instance.MinionOwnershipChange> PresentedOwnership = [];
     public Dictionary<byte, GameServer.Core.Protocol.Instance.Item> GuardianEquipment = [];
