@@ -86,6 +86,7 @@ The ruleset `LegionRules` (Rulesets 94) reads the same duration from the S->C 0x
   1.5 spacings apart. Eternal Empire and Templar stand in rows and columns, the others in loose groups. The band percent is the distance from
   the front (0) to the rear (100): a member fills its band first and spills to the rows behind, then in front, only when the band is full.
   The general is placed first, centred at the rear, and falls back to the rear half (loose groups) or any free slot (rows). A blocked cell tries its neighbours, then the member is skipped.
+- The campaign monoliths (The Climb, The Dried Lake) bring `CampaignArmyScale` = 0.5 of the planned normal and elite monsters (at least 1 per squad; sergeants, the general and chests unchanged). A guess from memory.
 - Only the player's own direct hits count: each lowers the frozen monster's life and its life bar, and at 0 it breaks out and its life is refilled (the bar goes). Damage over time does not count (the frozen buff makes the monster invulnerable, and no general hook lowers an invulnerable monster's life).
   Totems, brands, traps, mines and minions do not count yet.
 - A broken war chest breaks out the non-sergeant, non-general monsters near it and becomes an openable chest.

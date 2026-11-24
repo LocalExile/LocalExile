@@ -31,6 +31,13 @@ static class LegionArmy
         ["1_4_2"] = ["EternalEmpire"],
     };
 
+    /// <summary>The share of the planned monsters and elites that the campaign's fixed monoliths bring. A GUESS from the user's memory (the
+    /// campaign encounter looked smaller than the maps'); tune after live check.</summary>
+    const double CampaignArmyScale = 0.5;
+
+    /// <summary>Scales a normal or elite squad (tier 0, 1) by <see cref="CampaignArmyScale"/>, rounded, at least 1; sergeants, the general and chests stay.</summary>
+    static Squad ScaleCampaign(Squad s) => s.Tier >= 2 ? s : s with { Count = Math.Max(1, (int)Math.Round(s.Count * CampaignArmyScale)) };
+
     /// <summary>Chooses the two factions and plans both armies for an area of this level. <paramref name="stats"/> are the
     /// area's league stats (Game.AreaLeagueStats); <paramref name="rng"/> is the instance's seeded generator.</summary>
     public static ArmyPlan Plan(LegionData data, int level, string areaId, IReadOnlyDictionary<uint, int> stats, Random rng)
@@ -39,6 +46,7 @@ static class LegionArmy
         int general = RollGeneral(data, chosen, level, stats, rng);
         var plans = new FactionPlan[chosen.Count];
         for (int i = 0; i < plans.Length; i++) plans[i] = Compose(data, chosen[i], level, i == general, rng);
+        if (Campaign.ContainsKey(areaId)) for (int i = 0; i < plans.Length; i++) plans[i] = plans[i] with { Squads = [.. plans[i].Squads.Select(ScaleCampaign)] };
         return new ArmyPlan(level, plans);
     }
 
