@@ -96,14 +96,15 @@ public static partial class Game
             && Get(Stat.IgnoreHexproof) == 0 && Get(Stat.Of("hexes_ignore_hexproof")) == 0
             && (effect != "ElementalWeakness" || Get(Stat.ElementalWeaknessIgnoresHexproof) == 0)
             && !RandomRolls.Chance(Get(Stat.ChanceToIgnoreHexproofPct), 100, AreaRng(player))) return false;
+        var recipientEffects = monster.Effects;
         int increased = Get(Stat.CurseEffectPlusPct) + Get(Stat.Of(definition.Mark ? "mark_effect_+%" : "hex_effect_+%"))
             + (definition.Mark ? Get(Stat.MarkSkillsCurseEffectPlusPct) : 0)
             + Get(Stat.Of(ReservationNames.GetValueOrDefault(effect, effect.ToLowerInvariant()) + "_curse_effect_+%"))
-            + monster.Mods.Effects[Stat.CurseEffectOnSelfPlusPct] + addedEffect;
+            + recipientEffects[Stat.CurseEffectOnSelfPlusPct] + addedEffect;
         double more = Math.Max(0, 1 + Own(Stat.SupportBlasphemyCurseEffectPlusPctFinal) / 100.0)
             * Math.Max(0, 1 + Own(Stat.SupportHextouchCurseEffectPlusPctFinal) / 100.0)
-            * Math.Max(0, 1 + monster.Mods.Effects[Stat.CurseEffectOnSelfPlusPctFinal] / 100.0)
-            * Math.Max(0, 1 + monster.Mods.Effects[Stat.MapMonstersCurseEffectOnSelfPlusPctFinal] / 100.0)
+            * Math.Max(0, 1 + recipientEffects[Stat.CurseEffectOnSelfPlusPctFinal] / 100.0)
+            * Math.Max(0, 1 + recipientEffects[Stat.MapMonstersCurseEffectOnSelfPlusPctFinal] / 100.0)
             * effectMultiplier * (hexMaster ? .8 : 1);
         Dictionary<uint, int> RecipientStats(int extra) => curseStats.Where(p => CurseRecipientStats.Contains(p.Key))
             .ToDictionary(p => p.Key, p => (int)Math.Truncate(p.Value * Math.Max(0, 1 + ((long)increased + extra) / 100d) * more));
@@ -111,7 +112,6 @@ public static partial class Game
         double seconds = definition.Mark ? double.PositiveInfinity : SkillDurationModifiers.Seconds(Own(Stat.BaseSkillEffectDuration),
             n => GolemStat(playerStats, n) + (n == SkillDurationModifiers.IncreasedDuration ? Get(Stat.CurseDurationPlusPct) + Get(Stat.CurseSkillEffectDurationPlusPct) : 0),
             n => Own(n) + (n == SkillDurationModifiers.IncreasedDuration ? Own(Stat.BaseCurseDurationPlusPct) : 0));
-        var recipientEffects = monster.Effects;
         bool temporalChains = effect == "TemporalChains";
         double rate = RecipientEffectTime.Rate(5, n => recipientEffects[n], temporalChains);
         seconds *= Math.Max(0, 1 + Own(Stat.HextouchSupportCurseDurationPlusPctFinal) / 100d);

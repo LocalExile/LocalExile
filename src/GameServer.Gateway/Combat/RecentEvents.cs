@@ -36,16 +36,23 @@ public sealed class RecentEvents
     /// <see cref="NextExpiry"/> tells.)</summary>
     public Action? Changed;
 
+    public long Amount(string key, double now)
+    {
+        if (!amounts.TryGetValue(key, out var entries)) return 0;
+        long total = 0;
+        foreach (var (at, amount) in entries)
+            if (at <= now && Recent(at, now, WindowSeconds))
+                total = amount > long.MaxValue - total ? long.MaxValue : total + amount;
+        return total;
+    }
+
     public Dictionary<string, long> Amounts(double now)
     {
         var totals = new Dictionary<string, long>(StringComparer.Ordinal);
         foreach (var (key, entries) in amounts)
         {
             entries.RemoveAll(e => !Recent(e.At, now, WindowSeconds));
-            long total = 0;
-            foreach (var entry in entries)
-                if (entry.At <= now) total = entry.Amount > long.MaxValue - total ? long.MaxValue : total + entry.Amount;
-            totals[key] = total;
+            totals[key] = Amount(key, now);
         }
         return totals;
     }

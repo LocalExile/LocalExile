@@ -371,6 +371,7 @@ public static partial class Game
         // The connection's timed states report their changes; the steps that read them report when they change by
         // themselves (StatsChangeIn, StatsChangeAt).
         void On(PlayerStatStep[] steps, Action<Action> wire) => wire(() => { foreach (var s in steps) MarkPlayerStats(player, s); });
+        On([PlayerStatStep.Sources], a => player.RecentEvents.Changed = a);
         On([PlayerStatStep.Rage], a => player.Rage.Changed = a);
         // A soul eaten at the cap changes no stat, but its beam is shown.
         On([PlayerStatStep.SoulEater, PlayerStatStep.AttackSpeed], a => player.SoulEater.Changed = () => { a(); PresentStats(player); });
