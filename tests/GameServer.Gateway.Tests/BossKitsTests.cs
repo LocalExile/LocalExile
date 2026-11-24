@@ -381,6 +381,18 @@ public sealed class BossKitsTests
         });
     }
 
+    [Fact]
+    public void Burning_Menace_keeps_its_animated_cleave()
+    {
+        InGame(player =>
+        {
+            var catalog = Game.SkillsFor(player);
+            var monster = Assert.IsType<MonsterCatalog.Variety>(Game.Monsters.Find("Metadata/Monsters/Hellion/HellionBoss"));
+            var kit = BossKits.Kit(player, monster, 6, Game.MavenNucleus.CombatEffect(catalog, monster), unique: true);
+            Assert.Contains(kit, k => catalog.EffectId(k.Effect) == "GABurningMenaceCleave");
+        });
+    }
+
     /// <summary>Runs the body with the game module mounted on a connection of its own, as BossStageTests does.</summary>
     static void InGame(Action<Player> body)
     {

@@ -84,8 +84,7 @@ public static class BossKits
                 || id.Contains("Retreat", StringComparison.Ordinal)
                 // GA* GeometryAttack rows (e.g. GANavaliGoatmanLeapDamage, GAGoatmanLeapSlamDamage) are secondary
                 // payloads paired with another action (such as a leap), not standalone swings.
-                || (id.StartsWith("GA", StringComparison.Ordinal)
-                    && SkillCatalog.ActionTypeId(effect) == "GeometryAttack"))) continue;
+                || IsLeapDamagePayload(id, effect))) continue;
             // A summon row the tables give no attack, spell or projectile type (Piety's eye spawners: their
             // ActiveSkills rows carry no type at all) is still an action when the server can name what it raises;
             // anything else without a type is no action.
@@ -96,6 +95,10 @@ public static class BossKits
         }
         return usable;
     }
+
+    internal static bool IsLeapDamagePayload(string id, int effect) =>
+        id.StartsWith("GA", StringComparison.Ordinal) && id.Contains("Leap", StringComparison.Ordinal)
+        && id.EndsWith("Damage", StringComparison.Ordinal) && SkillCatalog.ActionTypeId(effect) == "GeometryAttack";
 
     /// <summary>A summoned monster's kit: its whole usable effect list, not only its cooldown spells. A totem casts its
     /// Arc (no cooldown) as well as its shocked ground, a spider its Viper Strike, a summoned daemon its nova / ball

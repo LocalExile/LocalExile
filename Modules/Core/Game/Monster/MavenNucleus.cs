@@ -86,8 +86,8 @@ public static partial class Game
             // A GA* GeometryAttack payload (e.g. GAGoatmanLeapSlamDamage, GANavaliGoatmanLeapDamage) is a secondary
             // hit paired with a leap rather than an ordinary swing. Use the monster's ordinary swing when it has one;
             // keep the damage row for payload-only actors.
-            if (fallback is int chosen && skills.EffectId(chosen)?.StartsWith("GA", StringComparison.Ordinal) == true
-                && SkillCatalog.ActionTypeId(chosen) == "GeometryAttack")
+            if (fallback is int chosen && skills.EffectId(chosen) is { } fallbackId
+                && BossKits.IsLeapDamagePayload(fallbackId, chosen))
                 foreach (int effect in effects)
                     if (skills.EffectId(effect)?.StartsWith("MeleeAtAnimationSpeed", StringComparison.Ordinal) == true)
                         return effect;
