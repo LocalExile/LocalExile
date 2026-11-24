@@ -323,12 +323,14 @@ public static partial class Game
     // The stats worn cosmetics give the character (footprints, apparitions, …), summed per stat. A pet is the stat the client
     // spawns it from: pet_slot1 for the first Pet slot (MicrotransactionSlot 18), pet_slot2 for the second (19).
     // Skill Gem Effect (slot 49) is left out: its skill_art_variation belongs to one skill's stats, not the character's.
+    // A Flask Effect slot's flask_effect_variation belongs to its flask's buff (FlaskEffectVisual); its other stats stay.
     // The stats the client reads in place of a cosmetic's own join them (CosmeticDerivedStats): it does not work out a
     // derived stat for a player the server describes.
     public static IEnumerable<(uint Stat, int Value)> CosmeticStats(Player player)
     {
         var worn = WornCosmetics(player).Where(w => w.Slot != 49).SelectMany(w => MtxEffects.Of(w.MtxTypeHash) is not { } fx ? [] :
-                fx.Pet != 0 ? [.. fx.Stats, (w.Slot == 19 ? Stat.PetSlot2 : Stat.PetSlot1, fx.Pet)] : fx.Stats)
+                (fx.Pet != 0 ? [.. fx.Stats, (w.Slot == 19 ? Stat.PetSlot2 : Stat.PetSlot1, fx.Pet)] : fx.Stats)
+                    .Where(s => !IsFlaskEffectSlot(w.Slot) || s.Stat != Stat.FlaskEffectVariation))
             .GroupBy(s => s.Stat, s => s.Value).Select(g => (Stat: g.Key,
                 Value: ActorScale.IsInput(g.Key) ? ActorScale.Saturate(g.Sum(v => (long)v)) : g.Sum())).ToList();
         return [.. worn, .. CosmeticDerivedStats(player, worn.ToDictionary(s => s.Stat, s => s.Value))];

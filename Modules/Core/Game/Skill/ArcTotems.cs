@@ -42,7 +42,8 @@ public static partial class Game
                 GamblerFor(caster).InvertsResistance(AreaRng(player)), AreaRng(player));
             if (crit) damage = DamageModel.CriticalDamage(damage, CriticalMultiplierOn(m, SupportedCriticalMultiplier(player, totem.SkillId)
                 + FullLifeCriticalMultiplier(m, caster, skill.Stats)));
-            if (ApplyMonsterHitLocked(player, m, damage) is not { } accepted) return;
+            int chaosDamage = MonsterHitChaosDamage(m, mitigated, spell: true, now, damage);
+            if (ApplyMonsterHitLocked(player, m, damage, null, null, allyAt: from, default, null, chaosDamage) is not { } accepted) return;
             var targetAt = m.Walk.Position(now);
             if (!m.Dead && damage > 0)
                 AilmentsOnHitLocked(player, id, m, mitigated, true, crit, 100, caster, skill.Stats, now, AreaRng(player),

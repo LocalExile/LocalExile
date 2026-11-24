@@ -50,7 +50,7 @@ public static partial class Game
             if (FlaskBuffs)
             {
                 player.Area.Buffs.Set(player.Id, Flasks.Buff(player.Id, effect.Buff, effect.BuffRow, (byte)slot,
-                    withDuration ? duration : null, [perMinute]));
+                    withDuration ? duration : null, [perMinute], FlaskEffectVisual(player, (byte)slot)));
                 Note($"player buff {effect.Buff}: {(effect.BuffRow == FlaskEffectLifeBuffRow ? "flask_effect_life" : "flask_effect_mana")} " +
                     $"(BuffDefinitions row {effect.BuffRow}), {perMinute} per minute, {(withDuration ? $"{duration:0.##} s" : "no duration")}");
             }

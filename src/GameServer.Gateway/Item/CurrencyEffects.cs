@@ -559,11 +559,10 @@ public static class CurrencyEffects
         return item with { Links = choices[^1].Links };
     }
 
-    // Initial local rules: 1, 2, 3, 4 or 6 sockets (five deliberately excluded).
-    // Weights and link chances are approximations, not recovered client/server constants.
+    // Retail item-level socket caps: 2 at ilvl 1, 3 at ilvl 2+, 4 at ilvl 25+, 5 at ilvl 35+, 6 at ilvl 50+.
     public static int MaximumSockets(Item item, ItemCatalog.BaseType type)
     {
-        int levelLimit = item.ItemLevel >= 50 ? 6 : item.ItemLevel >= 25 ? 4 : item.ItemLevel >= 2 ? 3 : 2;
+        int levelLimit = item.ItemLevel >= 50 ? 6 : item.ItemLevel >= 35 ? 5 : item.ItemLevel >= 25 ? 4 : item.ItemLevel >= 2 ? 3 : 2;
         return Math.Min(SocketCapacity(item, type), levelLimit);
     }
 
@@ -581,7 +580,7 @@ public static class CurrencyEffects
     {
         int max = MaximumSockets(item, type);
         if (max == 0 || item.Sockets.Count >= SocketCapacity(item, type) || item.Sockets.Any(s => s.Gem is not null)) return null;
-        (int Count, int Weight)[] choices = [(1, 50), (2, 120), (3, 100), (4, 30), (6, 1)];
+        (int Count, int Weight)[] choices = [(1, 50), (2, 120), (3, 100), (4, 30), (5, 5), (6, 1)];
         var abyss = item.Sockets.Where(s => s.Colour == SocketColour.Abyss).ToArray();
         if (abyss.Length > 0 && ItemModStats.Local(item, Program.Items.Mods).ContainsKey(Stat.LocalCannotHaveNonAbyssalSockets))
             return null;
@@ -595,16 +594,15 @@ public static class CurrencyEffects
             if (roll < choice.Weight) { count = choice.Count; break; }
             roll -= choice.Weight;
         }
-        var sockets = new List<ItemSocket>();
-        var links = new List<byte> { 1 };
+        int ordinaryCount = count - abyss.Length;
+        var sockets = new List<ItemSocket>(count);
         for (int i = 0; i < count; i++)
         {
-            bool isAbyss = i >= count - abyss.Length;
-            sockets.Add(isAbyss ? abyss[i - (count - abyss.Length)] : i < ordinary.Length ? ordinary[i] : new(SocketColour.White));
-            if (i == 0) continue;
-            if (!isAbyss && random.Next(2) == 0) links[^1]++;
-            else links.Add(1);
+            bool isAbyss = i >= ordinaryCount;
+            sockets.Add(isAbyss ? abyss[i - ordinaryCount] : i < ordinary.Length ? ordinary[i] : new(SocketColour.White));
         }
+        var links = new List<byte>(ItemCatalog.RollSocketLinks(ordinaryCount, random));
+        for (int i = 0; i < abyss.Length; i++) links.Add(1);
         return item with { Sockets = sockets, Links = links };
     }
 

@@ -88,9 +88,13 @@ public static partial class Game
             ? Math.Max(0, Get(Stat.AdditionalPoisonsPlusToApplyVsNonPoisonedEnemies)) : 0);
         perSecond = min + (Math.Max(min, max) - min) * random.NextDouble();
         seconds = settings.Seconds * MonsterPoisons.SelfDuration(name => target.Mods.Effects[name]);
+        // Master Toxicist: "Poisons you inflict during any Flask Effect have N% chance to deal 100% more Damage", rolled for
+        // each poison applied.
+        int doubled = Get(Stat.PathfinderPoisonDamagePlus100PctFinalChanceDuringFlaskEffect) is var finalChance and > 0 && AnyFlaskEffect(player)
+            ? Math.Min(finalChance, 100) : 0;
         int accepted = 0;
         for (int i = 0; i < stacks; i++)
-            if (target.Poisons.Add(now, perSecond, seconds)) accepted++;
+            if (target.Poisons.Add(now, doubled > 0 && RandomRolls.Chance(doubled, 100, random) ? perSecond * 2 : perSecond, seconds)) accepted++;
         if (accepted == 0) return false;
         InflictedLocked(player, target, AilmentType.Poison, now + seconds);
         ReservationPoisonLocked(player, now);
@@ -117,11 +121,14 @@ public static partial class Game
                 else damage = m.Poisons.Advance(now, MonsterDotTaken(m, DamageType.Chaos, now), m.Life);
                 if (damage > 0)
                 {
-                    (m.Life, bool stageStarts) = TakeOwnerDamageLocked(player, m, damage);
+                    int lifeDamage = ApplyMonsterDotEnergyShieldLocked(player.Area, m, damage, chaos: true, AreaTime(player));
+                    bool stageStarts = false;
+                    if (lifeDamage > 0) (m.Life, stageStarts) = TakeOwnerDamageLocked(player, m, lifeDamage);
                     m.Aggro = m.Life > 0;
                     if (m.Life == 0)
                     {
                         m.Dead = true;
+                        CleanupDeadMonsterLocked(player.Area, id, m);
                         CollectVaalSoulAtDeathLocked(player, m);
                         m.Poisons.ClearAtDeath(now, poisonDeath: true);
                     }

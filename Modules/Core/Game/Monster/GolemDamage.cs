@@ -16,13 +16,24 @@ public static partial class Game
         var to = golem.G.Monster.Walk.Position(now);
         if (golem.Distance > attack.Range + LivingCollision.Size(golem.G.Monster))
         {
-            if (enemy.LastTarget is { } old && Dist(old, to) < 5 && now < enemy.Walk.ArrivesAt) return true;
             double factor = golem.Distance > 0 ? Math.Max(1, attack.Range - 1) / golem.Distance : 0;
             var aim = ((int)Math.Round(to.X + (here.X - to.X) * factor), (int)Math.Round(to.Y + (here.Y - to.Y) * factor));
+            if (enemy.LastTarget is { } old && (Dist(old, to) < 5 || Dist(old, aim) < 5) && now < enemy.Walk.ArrivesAt) return true;
+            if (player.Connection.LockstepClient)
+            {
+                if (!LockstepTakesMove(here, aim)) aim = to;
+                if (!LockstepTakesMove(here, aim)) return true;
+                if (InAreaFrame(player))
+                {
+                    int gen = ++enemy.ActionGeneration;
+                    player.Minions.OutputQueue.Add(new([], null, id, enemy, Action: gen, At: aim, WorldId: id));
+                    return true;
+                }
+            }
             int generation = ++enemy.ActionGeneration; enemy.LastTarget = to;
             enemy.Walk.Order(aim.Item1, aim.Item2, now);
             player.Minions.OutputQueue.Add(new(InstanceProtocol.ActionStarted(id, here.X, here.Y, aim.Item1, aim.Item2,
-                0x2909, player.NextActionSequence(), 0x0408), null, id, enemy, Action: generation, WorldId: id));
+                0x2909, NextMonsterMoveSequence(player, enemy), player.MonsterOrderFlags), null, id, enemy, Action: generation, WorldId: id));
             return true;
         }
         int action = ++enemy.ActionGeneration;
@@ -47,13 +58,14 @@ public static partial class Game
     {
         var hit = player.Golems.IncomingHits.FirstOrDefault(h => h.Enemy == output.TargetId && h.Generation == output.Action);
         if (hit is null || hit.Started || hit.Monster.Dead || hit.Monster.ActionGeneration != hit.Generation || hit.Target.Monster.Dead) return null;
-        double now = AreaTime(player); var from = hit.Monster.Walk.Position(now); var to = hit.Target.Monster.Walk.Position(now);
+        double now = LockstepOrderStart(player, AreaTime(player));
+        var from = hit.Monster.Walk.Position(now); var to = hit.Target.Monster.Walk.Position(now);
         hit.Started = true;
         hit.ContactAt = now + hit.Attack.Seconds * (IsEssenceExplosiveInsect(hit.Monster.Variety?.Id) ? 1 : hit.Attack.Release?.Fraction ?? .5);
         hit.Monster.BusyUntil = now + hit.Attack.Seconds;
         hit.Monster.Walk.Order(from.X, from.Y, now);
         return InstanceProtocol.ActionStarted(hit.Enemy, from.X, from.Y, to.X, to.Y, hit.Attack.SkillId,
-            0xffff, 0x0408, targetObjectId: hit.Target.Id);
+            0xffff, player.MonsterOrderFlags, targetObjectId: hit.Target.Id);
     }
 
     static void GolemIncomingContactsLocked(Player player, double now)
@@ -129,14 +141,16 @@ public static partial class Game
             var resistance = MonsterHitResistance(m, type, default);
             if (type != DamageType.Physical)
                 resistance = resistance with { Maximum = Math.Clamp(resistance.Maximum
-                    + effects[Stat.Of($"base_maximum_{type.ToString().ToLowerInvariant()}_damage_resistance_%")], 0, 90) };
+                    + effects[Stat.Of($"base_maximum_{type.ToString().ToLowerInvariant()}_damage_resistance_%")]
+                    + (type != DamageType.Chaos ? effects[Stat.AdditionalMaximumAllElementalResistancesPct] : 0), 0, 90) };
             int value = (int)Math.Round(DamageModel.Mitigate(DamagePacket.Of(type, range.Min, range.Min), _ => resistance)[type].Min);
             if (type == DamageType.Physical)
             {
                 double armour = Math.Max(0, Player(Stat.MinionPhysicalDamageReductionRating)
                     + (g.Definition.IsGolem ? Player(Stat.GolemPhysicalDamageReductionRating) : 0)
                     + effects[Stat.BasePhysicalDamageReductionRating])
-                    * Math.Max(0, 1 + effects[Stat.DeterminationAuraArmourPlusPctFinal] / 100.0);
+                    * Math.Max(0, 1 + effects[Stat.DeterminationAuraArmourPlusPctFinal] / 100.0)
+                    * Math.Max(0, 1 + effects[Stat.ArmourPlusPctFinalFromSeismicCryBuff] / 100.0);
                 double reduction = Math.Min(.9, armour / Math.Max(1, armour + 5 * value) + effects.PhysicalReduction / 100.0);
                 value = (int)Math.Round(value * (1 - reduction));
             }

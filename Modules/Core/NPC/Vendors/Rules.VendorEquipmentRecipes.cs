@@ -146,8 +146,9 @@ sealed partial class VendorRecipes
             while (list.Count >= 3)
             {
                 var used = list.Take(3).ToArray();
+                var rarity = (ItemRarity)used.Min(i => (int)i.Item.Rarity);
                 rewards.Add(_rolls.Roll(ItemCatalog.Create(next) with { ItemLevel = used.Min(i => i.Item.ItemLevel),
-                    Quality = used.Min(i => i.Item.Quality) }, (ItemRarity)used.Min(i => (int)i.Item.Rarity), rng) with { Identified = false });
+                    Quality = used.Min(i => i.Item.Quality) }, rarity, rng) with { Identified = rarity == ItemRarity.Normal });
                 foreach (var i in used) i.Left--;
                 recipes.Add("flask base upgrade"); list.RemoveRange(0, 3);
             }

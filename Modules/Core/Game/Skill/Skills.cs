@@ -621,8 +621,10 @@ public static partial class Game
                 var (mainHandMore, dualWieldMore) = SkillsFor(player).IsAttack(effect) && shieldWeapon is null
                     ? HandDamageMore(player, own) : (1, 1);
                 if (mainHandMore * dualWieldMore != 1) supportedHit = supportedHit.Scale(mainHandMore * dualWieldMore);
+                var shieldSpeed = SkillsFor(player).IsAttack(effect) && shieldWeapon is not null
+                    ? SupportedOffHandAttackSpeed(player, id, shieldWeapon) : ((double Seconds, int IncreasedPct, int MorePct, int FinalPct)?)null;
                 double seconds = SkillsFor(player).IsAttack(effect)
-                    ? shieldWeapon is null ? SupportedAttackSeconds(player, id) : SupportedOffHandAttackSeconds(player, id, shieldWeapon)
+                    ? shieldSpeed?.Seconds ?? SupportedAttackSeconds(player, id)
                     : Math.Max(.001, (CastMs(player, effect, id) ?? 0) / 1000.0);
                 var finalPlan = SkillHitPlan.ForSkill(SkillsFor(player), effect, supported.Level, supported.Quality);
                 int criticalChance = SupportedCriticalChance(player, id);
@@ -645,6 +647,15 @@ public static partial class Game
                     if (additionalAttackMs != 0) attackBaseMs = SkillAttackTiming.BaseMilliseconds(attackBaseMs, additionalAttackMs);
                     stats[Stat.MainHandAttackSpeedPlusPct] = (int)Math.Round((attackBaseMs / (seconds * 1000) - 1) * 100);
                     stats[Stat.HundredTimesAttacksPerSecond] = (int)Math.Round(100 / seconds);
+                    // Shield Charge (and shield attacks, +0x311 = 0) read off_hand_attack_speed_+% (0x127, 0x141b58740) for
+                    // their end-attack time and combined_off_hand_attack_speed_+% / _final (0x211e / 0x531e, 0x141a70760)
+                    // for charge travel speed. Network skill stats run no calculators, so publish all three explicitly.
+                    if (shieldSpeed is { } shieldOffSpeed)
+                    {
+                        stats[Stat.OffHandAttackSpeedPlusPct] = shieldOffSpeed.FinalPct;
+                        stats[Stat.CombinedOffHandAttackSpeedPlusPct] = shieldOffSpeed.IncreasedPct;
+                        stats[Stat.CombinedOffHandAttackSpeedPlusPctFinal] = shieldOffSpeed.MorePct;
+                    }
                     foreach (var (field, value) in new[]
                     {
                         (Stat.MainHandAccuracyRating, accuracy.Rating),
@@ -785,7 +796,11 @@ public static partial class Game
                 Publish(Stat.BladefallVolleyFrequencyMs, BladefallVolleys.FrequencyMs(volleyMs,
                     Get(Stat.BladefallVolleyFrequencyPlusPctPer100MaximumMana), player.Pools.Mana));
             if (SummonData.Find(SkillsFor(player).EffectId(effect)) is { LimitStat: > 0 } summon)
-                Publish(summon.FinalLimitStat, SummonLimit(player, summon, supported));
+            {
+                int limit = SummonLimit(player, summon, supported);
+                Publish(summon.FinalLimitStat, limit);
+                Publish(summon.LimitStat, limit);
+            }
             if (SkillsFor(player).EffectId(effect) is "DominatingBlow" or "DominatingBlowAltX")
                 foreach (var rarity in new[] { MonsterRarity.Normal, MonsterRarity.Magic, MonsterRarity.Rare })
                     if (HitSummonDefinition(SkillsFor(player).EffectId(effect), rarity) is { } sentinel)
@@ -799,14 +814,15 @@ public static partial class Game
                 uint display = absolution ? Stat.DisplayMaxUpgradedSentinelsOfAbsolution : Stat.DisplayMaxUpgradedSentinelsOfDominance;
                 int basis = GolemStat(own, Stat.Of("base_max_number_of_vaal_" + family));
                 if (basis == 0) basis = GolemStat(own, display);
-                Publish(Stat.Of("max_number_of_vaal_" + family), Math.Clamp(basis
+                Publish(Stat.Of("max_number_of_vaal_" + family), ApplyDarkMonarchLimit(Math.Clamp(basis
                     + GolemStat(playerStats, Stat.Of("base_max_number_of_vaal_" + family))
-                    + GolemStat(playerStats, Stat.Of("max_number_of_vaal_" + family)), 0, 200));
+                    + GolemStat(playerStats, Stat.Of("max_number_of_vaal_" + family)), 0, 200),
+                    n => GolemStat(playerStats, n), absolution ? "VaalAbsolution" : "VaalDomination"));
                 foreach (uint count in new[] { Stat.NumberOfActiveAbsolutionSentinels, Stat.NumberOfActiveVaalAbsolutionSentinels,
                     Stat.NumberOfDominatedMonsters, Stat.NumberOfDominatedVaalMonsters }) Publish(count, GolemStat(playerStats, count));
             }
             if (GolemData.Find(SkillsFor(player).EffectId(effect)) is { IsGolem: true })
-                Publish(Stat.NumberOfGolemsAllowed, GolemCatalog.Limit(OwnPanel(Stat.BaseNumberOfGolemsAllowed),
+                Publish(Stat.NumberOfGolemsAllowed, GolemEffectiveLimit(OwnPanel(Stat.BaseNumberOfGolemsAllowed),
                     n => GolemStat(playerStats, n)));
             var placed = PlacedKind(supported);
             if (placed.Trap || placed.Mine)
@@ -900,11 +916,21 @@ public static partial class Game
             _ = Task.Delay(2 * FrameMs + 16).ContinueWith(_ =>
             {
                 if (!player.Closed && !player.LeavingArea && player.SkillBarRestoreGeneration == gen)
-                    _ = player.Frames.Run(() => SendSkillBar(player));
+                    _ = player.Frames.Run(() => SendSkillBarHoldingGuard(player));
             });
             return Task.CompletedTask;
         }
-        return SendSkillBar(player);
+        return SendSkillBarHoldingGuard(player);
+    }
+
+    // The bar re-creates every slot's cooldown entry, so a held guard's frozen entry goes out again behind it, or its
+    // cooldown counts while the buff runs (issue #1127). Built at the send gate, as SendSkills' re-hold is.
+    static async Task SendSkillBarHoldingGuard(Player player)
+    {
+        await SendSkillBar(player);
+        if (TriggeredGuards.TryGetValue(player, out _))
+            await Send(player, [], "0x02bc guard cooldown re-held after the skill bar",
+                atGate: () => HeldGuardCooldownRefresh(player));
     }
 
     // A bind received while an earlier refresh waits for the send gate must win over that refresh.
