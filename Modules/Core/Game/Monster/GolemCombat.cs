@@ -645,8 +645,13 @@ public static partial class Game
             MinionAilmentsLocked(player, g, a, id, target, critical, now);
             MinionTauntOnHitLocked(player, g, a, supported.Stats, id, target, now);
             if (damage > 0)
-                TryFleeFromHitLocked(player, target, from,
-                    MonsterFlee.Chance(a.Attack.Spell, name => effects[name], name => GolemStat(a.Stats, name)), now);
+            {
+                int flee = Golem(Stat.GlobalHitCausesMonsterFleePct);
+                if (!a.Attack.Spell)
+                    flee += Golem(Stat.MainHandHitCausesMonsterFleePct)
+                        + (g.Weapon?.LocalSources?.GetValueOrDefault(Stat.LocalHitCausesMonsterFleePct) ?? 0);
+                TryFleeFromHitLocked(player, target, from, flee, now);
+            }
         }
         if (damage > 0) FeedingFrenzyOnHitLocked(player, g, now);
         return true;
