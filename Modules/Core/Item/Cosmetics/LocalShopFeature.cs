@@ -126,7 +126,7 @@ public static class LocalShopFeature
     {
         if (!Saves.IsOpen) return [];
         var catalog = _catalog;
-        var save = ReadSave(global::Game.PersonalStashOf(player));
+        var save = ReadSave(AccountStorage(player));
         return [.. save.Grants
             .Where(g => catalog.ResolvableHashes.Count == 0 || catalog.ResolvableHashes.Contains(g.MtxTypeHash))
             .Select(g => new InstanceMicrotransactions.Record(g.MtxTypeHash, g.Id))];
@@ -330,7 +330,7 @@ public static class LocalShopFeature
         }
         uint newId = FirstLocalGrantId;
         string? failure = null;
-        var stash = global::Game.PersonalStashOf(player);
+        var stash = AccountStorage(player);
         bool changed = stash.ChangeModuleData(LocalGrantsKey, text =>
         {
             var save = Deserialize(text);
@@ -365,6 +365,9 @@ public static class LocalShopFeature
         granted = new InstanceMicrotransactions.Record(rewardHash, newId);
         return true;
     }
+
+    static AccountStash AccountStorage(Player player) =>
+        AccountStash.For(player.Character.Account ?? CharacterName(player), ItemsFor(player));
 
     static LocalGrantSave ReadSave(AccountStash stash) => Deserialize(stash.ModuleData(LocalGrantsKey));
 

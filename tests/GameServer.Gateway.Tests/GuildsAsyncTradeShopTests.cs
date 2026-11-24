@@ -344,6 +344,11 @@ public class GuildsAsyncTradeShopTests
             var rewardPkt = Assert.Single(WithId(openBoxSent, InstanceMicrotransactions.RecordUpsertId));
             Assert.Equal((byte)1, rewardPkt[^1]); // justReceived = 1
             uint rewardId = BinaryPrimitives.ReadUInt32BigEndian(rewardPkt.AsSpan(9));
+            var leagueCharacter = new Player(layout, 2, 2)
+            {
+                Character = { Account = account, Name = "AnotherHero", League = "Hardcore" },
+            };
+            Assert.Contains(LocalShopFeature.LocalRecordsOf(leagueCharacter), r => r.Id == rewardId);
 
             await LocalShopFeature.HandleBuy(player, new("MysteryPackSalvageBox", "", 1, 0));
             uint salvageBoxId = BinaryPrimitives.ReadUInt32BigEndian(
