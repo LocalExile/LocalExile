@@ -470,33 +470,50 @@ public static class ItemMoves
             return (left, part);
         });
 
-    /// <summary>Where an item is for <see cref="UseAcross"/>: a stash tab (<paramref name="Tab"/>) or a character
+    /// <summary>Where an item is for <see cref="Use"/>: a stash tab (<paramref name="Tab"/>) or a character
     /// inventory row (<paramref name="Row"/>), and its id.</summary>
     public readonly record struct Spot(int? Tab, byte Row, uint Id);
 
-    /// <summary>A currency item used on an item, each in a character inventory or a stash tab (C→S 0x71 naming a stash tab
-    /// for either: the currency tab's crafting slot, live 2026-10-23): one leaves the currency's stack (the last one removes
-    /// it) and the target becomes <paramref name="change"/>(target), together. Returns the currency's stack as it is now
-    /// (null when it is gone) and the changed target, or null when either is gone (nothing changes).</summary>
-    public static (InventoryItem? Left, InventoryItem Changed)? UseAcross(PlayerInventories items, AccountStash stash, Spot used, Spot target,
-        Func<Item, Item> change) =>
-        Saves.Atomically<(InventoryItem?, InventoryItem)?>(() =>
+    /// <summary>A currency item used on an item (C→S 0x71 / Shift 0x72), each in a character inventory or a stash tab (the
+    /// currency tab's crafting slot included, live 2026-10-23): one leaves the currency's stack (the last one removes it)
+    /// and, together, the target becomes <paramref name="change"/> and/or <paramref name="held"/> goes onto the empty cursor
+    /// as a new character item (a Mirror of Kalandra's copy, the target unchanged). Returns the currency's stack as it is now
+    /// (null when it is gone), the changed target and the held item, or null (nothing changes) when either item is gone or
+    /// something is held while <paramref name="held"/> is set.</summary>
+    public static (InventoryItem? Left, InventoryItem? Changed, InventoryItem? Held)? Use(PlayerInventories items, AccountStash stash,
+        Spot used, Spot target, Item? change, Item? held) =>
+        Saves.Atomically<(InventoryItem?, InventoryItem?, InventoryItem?)?>(() =>
         {
+            if (used == target) return null;
             bool there(Spot s) => s.Tab is int t ? t >= 0 && t < stash.Count && stash.Inventory(t).Items.Any(i => i.Id == s.Id)
                 : items.Items(s.Row).Any(i => i.Id == s.Id);
-            if (!there(used) || !there(target)) return null;
-            InventoryItem? left = null;
-            if (used.Tab is int tab)
+            if (change is null && held is null || !there(used) || !there(target)) return null;
+            if (held is not null && items.Items(Cursor).Count > 0) return null;
+            if (!TakeOne(items, stash, used, out var left)) return null;
+            InventoryItem? changed = null;
+            if (change is not null)
             {
-                var stack = stash.Inventory(tab).Items.First(i => i.Id == used.Id);
-                if (stack.Item.StackSize <= 1) { if (stash.Take(tab, used.Id) is null) return null; }
-                else if ((left = stash.Shrink(tab, used.Id, 1)) is null) return null;
+                changed = target.Tab is int targetTab ? stash.Change(targetTab, target.Id, _ => change) : items.Change(target.Row, target.Id, _ => change);
+                if (changed is null) return null;
             }
-            else if (items.ConsumeOne(used.Row, used.Id) is { } consumed) left = consumed.Left;
-            else return null;
-            var changed = target.Tab is int targetTab ? stash.Change(targetTab, target.Id, change) : items.Change(target.Row, target.Id, change);
-            return changed is null ? null : (left, changed);
+            return (left, changed, held is null ? null : items.Add(Cursor, 0, 0, held));
         });
+
+    // One currency item leaves its stack, in a stash tab or a character inventory row (the last one removes the stack).
+    // False when the stack is gone or offered in a trade; nothing changes then.
+    static bool TakeOne(PlayerInventories items, AccountStash stash, Spot used, out InventoryItem? left)
+    {
+        left = null;
+        if (used.Tab is int tab)
+        {
+            if (tab < 0 || tab >= stash.Count || stash.Inventory(tab).Items.FirstOrDefault(i => i.Id == used.Id) is not { } stack) return false;
+            if (stack.Item.StackSize <= 1) return stash.Take(tab, used.Id) is not null;
+            return (left = stash.Shrink(tab, used.Id, 1)) is not null;
+        }
+        if (items.ConsumeOne(used.Row, used.Id) is not { } consumed) return false;
+        left = consumed.Left;
+        return true;
+    }
 
     /// <summary>
     /// A purchase (C→S 0x88): the price (<paramref name="price"/>: currency type and amount, or null when free) paid from the
@@ -530,15 +547,5 @@ public static class ItemMoves
             if (items.ConsumeOne(row, itemId) is not { } taken) return null;
             CharacterSaves.SetExtraPassivePoints(character, extraPoints);
             return taken;
-        });
-
-    /// <summary>A currency item used on an item (C→S 0x71): one leaves its stack and the target becomes
-    /// <paramref name="change"/>(target), together. Null when either is gone (nothing changes).</summary>
-    public static (PlayerInventories.Consumption Used, InventoryItem Changed)? UseOn(PlayerInventories items, byte usedRow, uint usedId,
-        byte targetRow, uint targetId, Func<Item, Item> change) =>
-        Saves.Atomically<(PlayerInventories.Consumption, InventoryItem)?>(() =>
-        {
-            if (!items.Items(targetRow).Any(i => i.Id == targetId) || items.ConsumeOne(usedRow, usedId) is not { } used) return null;
-            return (used, items.Change(targetRow, targetId, change)!);
         });
 }
