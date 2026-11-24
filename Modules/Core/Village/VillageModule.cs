@@ -1,4 +1,4 @@
-using System.Runtime.CompilerServices;
+﻿using System.Runtime.CompilerServices;
 using GameServer.Core.Protocol.Instance;
 using GameServer.Modding;
 using GameServer.Modules.Village.Mapping;
@@ -60,6 +60,21 @@ public sealed class VillageModule : IModule
         public int StatePushed = -1;
         /// <summary>The VillageResources rows the town holds (the panel's resource counters).</summary>
         public readonly Dictionary<int, uint> Resources = [];
+        /// <summary>What the town has bought on top of <c>VillageBaseStats</c>, by stat row (none yet: the upgrade table
+        /// is not in the client's data).</summary>
+        public readonly Dictionary<int, int> Stats = [];
+        /// <summary>The work each <c>VillageProduction</c> row has done on the unit it is making, 0 to 1. The line's own
+        /// <c>BaseProductionTime</c> turns it into the production counter the panel reads.</summary>
+        public readonly double[] Progress = new double[15];
+        /// <summary>Unix seconds the town was last advanced to. The town's works run on the wall clock, not the area's
+        /// clock: they keep going while the character is in a map, or offline (up to <see cref="VillageProduction.MaxStep"/>),
+        /// which is the whole point of hiring miners.</summary>
+        public long WallAt;
+        /// <summary>The wall clock when the state was last pushed: the panels are told once a second, not once a frame.</summary>
+        public long StateAt = long.MinValue;
+        /// <summary>Gold the mined ore has earned since the last push, waiting to be paid into the treasury: the harbour
+        /// writes its save on every change, so a unit-by-unit payment would write it dozens of times a minute.</summary>
+        public uint OreGold;
     }
 
     readonly ConditionalWeakTable<IPlayer, Settlement> _settlements = new();
@@ -100,8 +115,116 @@ public sealed class VillageModule : IModule
         [0x1d] = "set option (u8)",
     };
 
-    /// <summary>The village of a player in the league.</summary>
-    public Settlement Of(IPlayer player) => _settlements.GetValue(player, _ => new Settlement());
+    /// <summary>The village of a player in the league, restored from the character's stored town the first time it is asked
+    /// for.</summary>
+    public Settlement Of(IPlayer player) => _settlements.GetValue(player, _ => Restore(player));
+
+    /// <summary>
+    /// The settlement's stored half: what the town holds and who works where. The treasury and the harbour have their own
+    /// file (<see cref="KingsmarchPort"/>); this one keeps the ore, the bars, the work in progress and the workers, so a
+    /// town does not forget its miners at a relog or a restart.
+    /// </summary>
+    public sealed class SavedVillage
+    {
+        public Dictionary<byte, byte> Assignments { get; set; } = [];
+        public Dictionary<byte, byte> Ranks { get; set; } = [];
+        public Dictionary<int, uint> Resources { get; set; } = [];
+        public double[] Progress { get; set; } = new double[VillageProduction.Counters];
+        public List<int> Upgrades { get; set; } = [];
+        /// <summary>Unix seconds when the town was last written: the town keeps working while nobody is in it (up to
+        /// <see cref="VillageProduction.MaxStep"/>), so the restore advances it by the gap this stamp leaves behind.</summary>
+        public long LastSeen { get; set; }
+    }
+
+    /// <summary>Where the settlement is kept, relative to the repository root (the mapping line keeps its own the same way).
+    /// </summary>
+    public const string SaveFile = "data/kingsmarch-village.json";
+
+    static readonly object _saveLock = new();
+    static readonly Dictionary<string, SavedVillage> _saved = new(StringComparer.Ordinal);
+    static bool _loaded;
+
+    static Settlement Restore(IPlayer player)
+    {
+        var settlement = new Settlement();
+        string who = player.Character ?? "";
+        if (who.Length == 0) return settlement;
+        var saved = Stored(who);
+        foreach (var (worker, job) in saved.Assignments) if (job != 0) settlement.Assignments[worker] = job;
+        foreach (var (worker, rank) in saved.Ranks) settlement.Ranks[worker] = rank;
+        foreach (var (row, count) in saved.Resources) settlement.Resources[row] = count;
+        for (int i = 0; i < settlement.Progress.Length && i < saved.Progress.Length; i++)
+            settlement.Progress[i] = saved.Progress[i];
+        foreach (int row in saved.Upgrades) settlement.Upgrades.Add(row);
+        settlement.Workers = (byte)settlement.Assignments.Count;
+        // The first tick advances the town from this stamp, so time spent offline is worked (bounded by MaxStep in
+        // Advance) instead of being lost with the session.
+        settlement.WallAt = saved.LastSeen;
+        // The treasure is the harbour's own number: read it so the panel's gold and the town's spending agree at once.
+        settlement.Gold = (uint)Math.Clamp(KingsmarchPort.Gold(who), 0, uint.MaxValue);
+        return settlement;
+    }
+
+    /// <summary>The character's stored town, read from disk once per process; a file that cannot be read leaves the town
+    /// empty rather than failing the load.</summary>
+    static SavedVillage Stored(string who)
+    {
+        lock (_saveLock)
+        {
+            LoadSaves();
+            if (_saved.TryGetValue(who, out var saved)) return saved;
+            return _saved[who] = new SavedVillage();
+        }
+    }
+
+    static void LoadSaves()
+    {
+        if (_loaded) return;
+        _loaded = true;
+        try
+        {
+            if (!File.Exists(SaveFile)) return;
+            var all = System.Text.Json.JsonSerializer.Deserialize<Dictionary<string, SavedVillage>>(File.ReadAllBytes(SaveFile));
+            if (all is not null) foreach (var (key, value) in all) _saved[key] = value;
+        }
+        catch (Exception ex) when (ex is IOException or System.Text.Json.JsonException or UnauthorizedAccessException)
+        {
+            Console.WriteLine($"[gateway] {SaveFile}: {ex.Message}");
+        }
+    }
+
+    /// <summary>Writes the character's town back: to a temporary file first, so a crash mid-write cannot leave a
+    /// half-written save behind.</summary>
+    static void SaveVillage(string who, Settlement settlement)
+    {
+        if (who.Length == 0) return;
+        lock (_saveLock)
+        {
+            var saved = new SavedVillage
+            {
+                Assignments = new(settlement.Assignments),
+                Ranks = new(settlement.Ranks),
+                Resources = new(settlement.Resources),
+                Progress = (double[])settlement.Progress.Clone(),
+                Upgrades = [.. settlement.Upgrades],
+                LastSeen = DateTimeOffset.UtcNow.ToUnixTimeSeconds(),
+            };
+            _saved[who] = saved;
+            try
+            {
+                string? folder = Path.GetDirectoryName(SaveFile);
+                if (!string.IsNullOrEmpty(folder)) Directory.CreateDirectory(folder);
+                string temp = SaveFile + ".tmp";
+                File.WriteAllBytes(temp, System.Text.Json.JsonSerializer.SerializeToUtf8Bytes(_saved,
+                    new System.Text.Json.JsonSerializerOptions { WriteIndented = true }));
+                File.Move(temp, SaveFile, overwrite: true);
+            }
+            catch (Exception ex) when (ex is IOException or UnauthorizedAccessException)
+            {
+                Console.WriteLine($"[gateway] {SaveFile}: {ex.Message}");
+            }
+        }
+    }
 
     /// <summary>The states the client has already been sent, per connection: the file's stamp and what went out.</summary>
     static readonly System.Runtime.CompilerServices.ConditionalWeakTable<IPlayer, string> _sent = new();
@@ -238,7 +361,11 @@ public sealed class VillageModule : IModule
         var payload = new List<byte>(245);
         for (int i = 0; i < 21; i++)
             payload.AddRange(BitConverter.GetBytes(settlement.Resources.GetValueOrDefault(i)));
-        for (int j = 0; j < 15; j++) payload.AddRange(BitConverter.GetBytes(0u));
+        // The production counters: the work the town's lines have done on the unit they are making, in hundredths of
+        // that unit's own BaseProductionTime (the client's 0x1424c5b80 divides the remaining work by the crew's
+        // efficiency). A panel that reads them draws its "Time" and "Production Rate"; zeros mean nothing is running.
+        for (int j = 0; j < 15; j++)
+            payload.AddRange(BitConverter.GetBytes(VillageProduction.Counter(settlement, j)));
         payload.AddRange(BitConverter.GetBytes(settlement.Gold));
         payload.AddRange(BitConverter.GetBytes(0u));
         payload.AddRange(new byte[6]);
@@ -264,6 +391,58 @@ public sealed class VillageModule : IModule
         payload.AddRange(BitConverter.GetBytes((ulong)clock));
         await player.Send(StateFrame(TownRecordKind, 4, payload.ToArray()),
             $"0x02c9 village state: gold {settlement.Gold}, 21 resources, 15 production counters");
+    }
+
+    /// <summary>
+    /// Runs the town's mining and smelting lines for the game time since the last tick, and keeps the treasury's gold in
+    /// step (<c>village_gold_per_ore_mined</c> a mined unit). The counters the panels draw are the record's own, so the
+    /// settlement is marked changed while a line moves — but the panels are told once a second rather than once a frame:
+    /// the client re-simulates its own copy between pushes anyway (<c>0x1424c4550</c>), and a frame a frame would be one
+    /// state message every 17 ms.
+    /// </summary>
+    /// <param name="player">A player in the town.</param>
+    /// <param name="now">The area time of this tick, in game seconds.</param>
+    async Task RunProduction(IPlayer player, double now)
+    {
+        if (player.AreaId != "KalguuranSettlersLeague") return;
+        var settlement = Of(player);
+        // The town's works run on the wall clock, and on the area's own frame delta they would stop the moment the
+        // character walked into a map. Advance() bounds one step, so a week offline stops at MaxStep.
+        long stamp = DateTimeOffset.UtcNow.ToUnixTimeSeconds();
+        double elapsed = settlement.WallAt <= 0 ? 0 : stamp - settlement.WallAt;
+        settlement.WallAt = stamp;
+        if (elapsed <= 0) return;
+        var moved = VillageProduction.Advance(settlement, elapsed);
+        settlement.OreGold += moved.Gold;
+        // Once a second is enough for both the save and the panel: the client re-simulates its own copy between pushes
+        // (F-108), and a save per frame would write the file every 17 ms.
+        if (stamp - settlement.StateAt < 1) return;
+        settlement.StateAt = stamp;
+        SaveVillage(player.Character ?? "", settlement);
+        if (settlement.OreGold > 0)
+        {
+            // The ore's own gold (village_gold_per_ore_mined a unit): it goes into the town's treasury, which is the same
+            // purse the wages, the shipments and the recruiting draw on, so the panel and the payouts cannot drift apart.
+            long treasury = KingsmarchPort.Fund(player.Character ?? "", settlement.OreGold);
+            settlement.OreGold = 0;
+            settlement.Gold = (uint)Math.Clamp(treasury, 0, uint.MaxValue);
+        }
+        if (moved.Units > 0 || moved.Progressed) settlement.Version++;
+    }
+
+    /// <summary>Puts claimed ore into the town's "Ore Marked" counters and tells the panel: what a map's ore deposit does
+    /// once the player has finished its encounter (<see cref="KingsmarchOre"/>).</summary>
+    /// <param name="player">The player whose town it is.</param>
+    /// <param name="rank">The ore's rank, 1 (Crimson Iron) to 5 (Verisium).</param>
+    /// <param name="amount">How many units the deposit was worth.</param>
+    public async Task MarkOre(IPlayer player, int rank, int amount)
+    {
+        var settlement = Of(player);
+        uint marked = VillageProduction.AddPendingOre(settlement, rank, amount);
+        settlement.Version++;
+        SaveVillage(player.Character ?? "", settlement);
+        if (player.AreaId == "KalguuranSettlersLeague") await PushState(player);
+        Console.WriteLine($"[gateway] kingsmarch: rank {rank} ore +{amount} marked ({marked} waiting)");
     }
 
     /// <summary>Puts a worker in the town and tells the panel about it: the dev stand-in for the recruitment panel's hire
@@ -339,6 +518,8 @@ public sealed class VillageModule : IModule
     public void Load(IModuleContext module)
     {
         VillageWorkers.LoadGameData();
+        VillageProduction.LoadGameData();
+        KingsmarchOre.Install(module.Manifest.Id, MarkOre);
         MappingCommands.Register(module.Manifest.Id);
         GameEvents.CommandsBuilding.Add(module.Manifest.Id, (commands, connection) =>
         {
@@ -372,7 +553,18 @@ public sealed class VillageModule : IModule
                     await player.Tell($"Kingsmarch: the purse holds {total}");
                     return;
                 }
-                await player.Tell("usage: /villagepanel hire <VillageJobs row> [rank 1-5] | /villagepanel gold <amount> | /villagepanel purse <amount>");
+                if (args.Length >= 2 && string.Equals(args[0], "ore", StringComparison.OrdinalIgnoreCase)
+                    && int.TryParse(args[1], out int oreRank))
+                {
+                    int amount = args.Length >= 3 && int.TryParse(args[2], out int given) ? given : 100;
+                    var settlement = Of(player);
+                    uint marked = VillageProduction.AddPendingOre(settlement, oreRank, amount);
+                    settlement.Version++;
+                    await PushState(player);
+                    await player.Tell($"Kingsmarch: {amount} ore of rank {oreRank} marked ({marked} waiting)");
+                    return;
+                }
+                await player.Tell("usage: /villagepanel hire <VillageJobs row> [rank] | /villagepanel ore <rank 1-5> [amount] | /villagepanel gold <amount> | /villagepanel purse <amount>");
             });
         });
         GameEvents.AreaTick.Add(module.Manifest.Id, GameEvents.Always(async (connection, now) =>
@@ -380,6 +572,7 @@ public sealed class VillageModule : IModule
             var player = Program.PlayerOf(connection);
             await OpenPort(player);
             await StatePoll(player, now);
+            await RunProduction(player, now);
             await PushWorkers(player);
             await PushRecruits(player);
             await PushState(player);
@@ -472,8 +665,13 @@ public sealed class VillageModule : IModule
         if (take == 0) return $"the account has no gold to put into the treasury ({stash.Gold} held)";
         uint? left = stash.TrySpendGold(take);
         if (left is null) return $"the account has {stash.Gold} gold, less than the {take} asked for";
-        settlement.Gold += take;
+        // The treasury is the harbour object's own gold (the same purse the wages, the shipments and the rerolls draw on),
+        // so the panel, the payout and the spending all see one number instead of two that drift apart.
+        long treasury = KingsmarchPort.Fund(player.Character ?? "", take);
+        settlement.Gold = (uint)Math.Clamp(treasury, 0, uint.MaxValue);
         settlement.Version++;
+        // Johan's "Quest Complete" row waits for this flag (NPCTalk __col16 1436).
+        await global::Game.SetLeagueQuestFlags(Program.PlayerOf(player), [KingsmarchDialogue.GoldAdded]);
         await player.Send(InstanceEntities.Gold(left.Value), $"0x02aa gold: {left} (put {take} into the treasury)");
         return $"treasury +{take} (gold now {settlement.Gold})";
     }
@@ -483,7 +681,9 @@ public sealed class VillageModule : IModule
     {
         uint taken = (uint)Math.Min(amount, settlement.Gold);
         if (taken == 0) return "the treasury is empty";
-        settlement.Gold -= taken;
+        if (!KingsmarchPort.Spend(player.Character ?? "", (int)Math.Min(taken, int.MaxValue)))
+            return $"the treasury holds {KingsmarchPort.Gold(player.Character ?? "")} gold, less than the {taken} asked for";
+        settlement.Gold = (uint)Math.Clamp(KingsmarchPort.Gold(player.Character ?? ""), 0, uint.MaxValue);
         settlement.Version++;
         var stash = global::Game.PersonalStashOf(Program.PlayerOf(player));
         uint gold = stash.AddGold(taken);
@@ -504,7 +704,7 @@ public sealed class VillageModule : IModule
         // recruits (the client's tier 1 sender is 0x140510400)
         bool high = tier != 0;
         int cost = high ? 16000 : 2000;
-        int lowest = high ? 2 : 0;              // a high quality reroll never brings a recruit below rank 3
+        int lowest = high ? 3 : 1;              // a high quality reroll never brings a recruit below rank 3
         if (stash.Gold < cost) return $"reroll: {cost} gold needed, {stash.Gold} on hand";
         uint? left = stash.TrySpendGold(cost);
         RollRecruits(settlement, lowest);
@@ -528,31 +728,35 @@ public sealed class VillageModule : IModule
             return $"no recruit in slot {index} ({settlement.Recruits.Count} waiting)";
         if (settlement.Gold < RecruitPrice)
             return $"hiring needs {RecruitPrice} gold in the treasury ({settlement.Gold} there)";
+        if (!KingsmarchPort.Spend(player.Character ?? "", (int)RecruitPrice))
+            return $"hiring needs {RecruitPrice} gold in the treasury ({KingsmarchPort.Gold(player.Character ?? "")} there)";
 
         var (row, skill) = settlement.Recruits[index];
         settlement.Recruits.RemoveAt(index);
         settlement.RecruitVersion++;
-        settlement.Gold -= RecruitPrice;
+        settlement.Gold = (uint)Math.Clamp(KingsmarchPort.Gold(player.Character ?? ""), 0, uint.MaxValue);
         byte worker = (byte)(settlement.Assignments.Count + 1);
         settlement.Assignments[worker] = row;
         settlement.Ranks[worker] = skill;
         settlement.Workers = (byte)settlement.Assignments.Count;
         settlement.Version++;
+        // Johan's "Invest in Recruitment" row waits for this flag (NPCTalk __col16 1434).
+        await global::Game.SetLeagueQuestFlags(Program.PlayerOf(player), [KingsmarchDialogue.RecruitHired]);
         await PushWorkers(player);
         await PushRecruits(player);
         await PushState(player);
         return $"hired recruit {index}: worker {worker} takes VillageJobs row {row} at rank " +
-            $"{VillageWages.Rank(skill) + 1} for {RecruitPrice} gold (treasury {settlement.Gold})";
+            $"{VillageWages.Rank(skill)} for {RecruitPrice} gold (treasury {settlement.Gold})";
     }
 
     /// <summary>Picks the two recruits waiting to be hired: a job that has a name to show and a skill level.</summary>
     /// <param name="settlement">The settlement the recruits belong to.</param>
-    static void RollRecruits(Settlement settlement, int lowest = 0)
+    static void RollRecruits(Settlement settlement, int lowest = 1)
     {
         settlement.Recruits.Clear();
         // the jobs that have a name to show: the five mining and the five smelting ones, plus disenchanting and mapping
         int[] jobs = [1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 17, 18];
-        int top = Math.Max(VillageWages.Ranks, lowest + 1);
+        int top = Math.Max(VillageWages.Ranks, lowest) + 1;
         for (int i = 0; i < 2; i++)
             settlement.Recruits.Add(((byte)jobs[Random.Shared.Next(jobs.Length)],
                 (byte)Random.Shared.Next(lowest, top)));
@@ -633,7 +837,24 @@ public sealed class VillageModule : IModule
             settlement.Version++;
             return $"worker {order[worker].Key} back to idle ({settlement.Workers}/{settlement.Capacity})";
         }
-        // The panel's ASSIGN button: one of the available workers takes the job.
+        // The panel's ASSIGN button: one of the available workers takes the job. The town's own limits come first: an
+        // ore rank the town cannot work yet leaves the row locked (the client's "Job is locked", 7578), and a job type's
+        // crew is capped by its VillageJobTypes MaxWorkersStat (12 miners, 6 smiths).
+        int kind = VillageProduction.KindOfJob(row);
+        if (!VillageProduction.Unlocked(settlement, row))
+        {
+            int reach = VillageProduction.Stat(settlement,
+                kind == VillageProduction.MiningKind ? VillageProduction.MineRank : VillageProduction.SmithRank);
+            return $"assign worker {worker}: VillageJobs row {row} is locked (the town works ores up to rank {reach})";
+        }
+        int cap = kind switch
+        {
+            VillageProduction.MiningKind => VillageProduction.Stat(settlement, VillageProduction.MaxMiners),
+            VillageProduction.SmeltingKind => VillageProduction.Stat(settlement, VillageProduction.MaxSmiths),
+            _ => int.MaxValue,
+        };
+        if (cap > 0 && VillageProduction.CrewOf(settlement, kind) >= cap)
+            return $"assign worker {worker}: the town already has {cap} on that job";
         var idle = order.Where(pair => pair.Value == 0).ToList();
         if (idle.Count <= worker) return $"assign worker {worker}: no available worker to assign";
         settlement.Assignments[idle[worker].Key] = row;

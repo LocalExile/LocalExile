@@ -36,22 +36,24 @@ public static class VillageWages
         [0, 0, 0, 0, 0],                      // Fishing
     ];
 
-    /// <summary>The skill byte a worker of the given rank carries. The client names the levels 0 to 5
-    /// (<c>VillageJobSkillLevels</c>), the game counts the ranks 1 to 5, so the lowest rank is level 0.</summary>
+    /// <summary>The skill byte a worker of the given rank carries: the <c>VillageJobSkillLevels</c> row the client looks
+    /// the rank up by (<c>0x1424c2af0</c>), whose <c>JobLevel</c> column is the rank itself (1 to 5). The table's row 0 is
+    /// "no rank", which is also the byte a worker with no specialisation would carry.</summary>
     /// <param name="rank">The rank, 1 to 5.</param>
-    public static byte Skill(int rank) => (byte)Math.Clamp(rank - 1, 0, Ranks - 1);
+    public static byte Skill(int rank) => (byte)Math.Clamp(rank, 1, Ranks);
 
     /// <summary>The rank a skill byte stands for, 1 to 5.</summary>
     /// <param name="skill">The worker's skill level (the client's job level).</param>
-    public static int Rank(byte skill) => Math.Clamp((int)skill + 1, 1, Ranks);
+    public static int Rank(byte skill) => Math.Clamp((int)skill, 1, Ranks);
 
     /// <summary>What a worker of this job and rank costs the town every hour.</summary>
     /// <param name="jobType">The worker's job (a <c>VillageJobTypes</c> row).</param>
-    /// <param name="skill">The worker's skill level (the client's job level).</param>
+    /// <param name="skill">The worker's job level (the skill byte the row carries, 1 to 5).</param>
     public static ushort Wage(byte jobType, byte skill)
     {
         if (jobType >= Wages.Length) return 0;
         var row = Wages[jobType];
-        return row[Math.Clamp((int)skill, 0, Ranks - 1)];
+        // the table is per rank, 1 to 5; the level-0 byte a worker with no rank carries is paid as the first rank
+        return row[Math.Clamp((int)skill - 1, 0, Ranks - 1)];
     }
 }
