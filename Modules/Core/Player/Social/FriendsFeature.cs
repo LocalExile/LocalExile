@@ -428,6 +428,8 @@ static class FriendsFeature
         }
         if (IsIgnoring(target.Character.Account, player.Character.Account ?? CharacterName(player))) return;
         Console.WriteLine($"[gateway] <= 0x0155 duel challenge: {CharacterName(player)} -> {CharacterName(target)}");
+        await PvpQueue.Enqueue(player, CharacterName(target), otherPlayers: 0, isChallenge: true, showWithdraw: true,
+            nextMatchTimeUnix: 0, opponent: target);
         try
         {
             await SocialFeature.SendTo(target, InstanceSocial.DuelChallengeNotify(CharacterName(player)),
