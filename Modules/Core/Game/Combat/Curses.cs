@@ -305,6 +305,22 @@ public static partial class Game
                 ApplyCurseLocked(player, monster, skill, now, false, gem, playerStats);
     }
 
+    static MonsterCurses.Curse? HexblastHex(SpawnedMonster monster, double now)
+    {
+        MonsterCurses.Curse? chosen = null;
+        foreach (var curse in monster.Curses.All.Values)
+            if (!curse.Mark && curse.Until > now && (chosen is null || curse.Until < chosen.Until))
+                chosen = curse;
+        return chosen;
+    }
+
+    static void ConsumeHexblastHex(Player player, uint id, SpawnedMonster monster, MonsterCurses.Curse curse)
+    {
+        monster.Curses.Remove(curse.Caster, curse.Effect);
+        if (monster.Curses.Presented.Remove((curse.Caster, curse.Effect), out var presented))
+            player.Area.Buffs.Clear(id, presented.Row, presented.Caster, tag: presented.Buff);
+    }
+
     static bool WitchbaneImmunityActive(Player player, double now) =>
         player.PlayerLife > 0 && player.WitchbaneImmunityUntil > now;
 

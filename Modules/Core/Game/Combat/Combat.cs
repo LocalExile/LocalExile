@@ -2602,6 +2602,8 @@ public static partial class Game
         bool ring = !immediate && SkillsFor(player).ActionHash(gem.Effect) == IceNovaRing.Action;
         int frostboltCap = ring ? Stat(global::Stat.IceNovaNumberOfFrostBoltsToCastOn) : 0;
         double frostboltMore = 1;
+        bool hexblast = SkillsFor(player).EffectId(gem.Effect) is "Hexblast" or "HexblastAltX" or "HexblastAltY";
+        bool hexblastExpanded = false;
         int artVariation = ring ? SkillArtVariation(player, gem.Gem) : 0;
         double sweepStart = 0;
         double[] reach = [];
@@ -2650,6 +2652,19 @@ public static partial class Game
                     && (!wave || GroundSlamWave.Covers(waveDir, from, e.At, waveHalfAngle, waveLength))
                     && (targetFilter is null || targetFilter(e.Key, e.At)));
             var found = (centres is null ? TargetsAt(centre) : centres.SelectMany(TargetsAt)).ToList();
+            if (hexblast)
+            {
+                var primary = targetId != 0 ? found.Find(entry => entry.Key == targetId)
+                    : found.OrderBy(entry => entry.Distance).ThenBy(entry => entry.Key).FirstOrDefault();
+                found.Clear();
+                if (primary.Value is not null)
+                {
+                    found.Add(primary);
+                    centre = primary.At;
+                    if (HexblastHex(primary.Value, now) is not null)
+                        found.AddRange(TargetsAt(primary.At).Where(entry => entry.Key != primary.Key));
+                }
+            }
             // Hits that may reach each monster only once across several sweeps record it here.
             if (once is not null) foreach (var f in found) once.Add(f.Key);
             if (ring || wave || fissure)
@@ -2731,6 +2746,7 @@ public static partial class Game
         {
             for (int victim = 0; victim < targets.Count; victim++)
             {
+                if (hexblast && victim > 0 && !hexblastExpanded) break;
                 var (id, m) = targets[victim];
                 // A ring and a wave arrive over time: the victim nearest the caster (or the player) first, each one when its
                 // front reaches it. A retired wave (death, area change, a closed connection) stops the rest of the sweep.
@@ -2918,14 +2934,17 @@ public static partial class Game
                             Bleed = RepeatAilment(profile.Bleed, overexertionMore),
                             Poison = RepeatAilment(profile.Poison, overexertionMore),
                         };
+                    var hex = hexblast ? HexblastHex(m, ProjectileWorldTime(player)) : null;
                     double burningTargetMore = flamethrowerBurningMore != 0 && BurningTarget(player, m)
                         ? Math.Max(0, 1 + flamethrowerBurningMore / 100d) : 1;
-                    if (burningTargetMore != 1)
+                    double targetAilmentMore = hex is null ? burningTargetMore : burningTargetMore
+                        * Math.Max(0, 1 + Stat(global::Stat.HexblastAilmentDamagePlusPctFinalIfHexed) / 100d);
+                    if (targetAilmentMore != 1)
                         profile = profile with
                         {
-                            Ignite = RepeatAilment(profile.Ignite, burningTargetMore),
-                            Bleed = RepeatAilment(profile.Bleed, burningTargetMore),
-                            Poison = RepeatAilment(profile.Poison, burningTargetMore),
+                            Ignite = RepeatAilment(profile.Ignite, targetAilmentMore),
+                            Bleed = RepeatAilment(profile.Bleed, targetAilmentMore),
+                            Poison = RepeatAilment(profile.Poison, targetAilmentMore),
                         };
                     var contactHit = profile.Hit;
                     if (frostboltMore != 1) contactHit = contactHit.Scale(frostboltMore);
@@ -2955,7 +2974,9 @@ public static partial class Game
                                 intelligence: player.Pools.Intelligence), cryExerted == true)
                             .ForWeapon(weaponLocal).RollOutgoingHit(contactHit, AreaRng(player))),
                         ProjectileWorldTime(player));
-                    if (burningTargetMore != 1) rolled = rolled.Scale(burningTargetMore);
+                    double targetHitMore = hex is null ? burningTargetMore : burningTargetMore
+                        * Math.Max(0, 1 + Stat(global::Stat.HexblastHitDamagePlusPctFinalIfHexed) / 100d);
+                    if (targetHitMore != 1) rolled = rolled.Scale(targetHitMore);
                     // Hallow: an attack against an enemy affected by Hallowing Flame gains its share of physical damage as
                     // extra fire, and removes the flame.
                     if (!spell && m.HallowingFlameUntil > ProjectileWorldTime(player) && rolled[DamageType.Physical].Min is > 0 and var flamePhys)
@@ -3083,6 +3104,13 @@ public static partial class Game
                             && BleedOnHitLocked(player, id, m, profile.Bleed, critical, at,
                                 BleedReflected(playerStats)) is { } cut)
                             (bled, bleedLog) = (cut, BleedingLog(id, m, critical, at));
+                        if (hex is not null)
+                        {
+                            if (victim == 0) hexblastExpanded = true;
+                            int keep = Stat(global::Stat.HexblastPctChanceToNotConsumeHex);
+                            if (keep < 100 && (keep <= 0 || !RandomRolls.Chance(keep, 100, AreaRng(player))))
+                                ConsumeHexblastHex(player, id, m, hex);
+                        }
                     }
                     if (applied is { StageStarts: true } staged)
                     {
