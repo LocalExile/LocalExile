@@ -43,7 +43,6 @@ sealed class LegionFormation
     const double GridJitter = 0.3, GeneralSpread = 1.0;
 
     readonly Player _player;
-    int _walkBody;
     readonly Random _rng;
     readonly bool _orderly;
     readonly int _cx, _cy;
@@ -107,24 +106,24 @@ sealed class LegionFormation
     /// <paramref name="body"/> is its size in cells; <paramref name="centred"/> puts it in the middle of the rear (the general).</summary>
     public (int X, int Y)? Place(int fromPct, int toPct, int body, bool centred)
     {
-        _walkBody = body;   // walkability needs the real size; the cap is for spacing
+        int walk = body;   // walkability takes the real size; the capped one is for spacing
         body = Body(body);
-        return _orderly ? PlaceOnGrid(fromPct, toPct, body, centred) : PlaceLoose(fromPct, toPct, body, centred);
+        return _orderly ? PlaceOnGrid(fromPct, toPct, body, walk, centred) : PlaceLoose(fromPct, toPct, body, walk, centred);
     }
 
     (int X, int Y) At(double along, double lateral) =>
         ((int)Math.Round(_cx + _ux * (_frontGap + along) + _vx * lateral), (int)Math.Round(_cy + _uy * (_frontGap + along) + _vy * lateral));
 
-    bool Open(int x, int y, int body)
+    bool Open(int x, int y, int walk)
     {
         var layout = _player.Layout;
         return x >= 0 && y >= 0 && x < layout.GridW && y < layout.GridH
-            && layout.WalkableFor(x, y, Math.Clamp(_walkBody - 1, 0, 127)) && !_player.Barrier.Contains((x, y));
+            && layout.WalkableFor(x, y, Math.Clamp(walk - 1, 0, 127)) && !_player.Barrier.Contains((x, y));
     }
 
     /// <summary>Rows and columns: a row per spacing from the front, columns from the middle outwards, so a half-filled row stays
     /// centred. The band picks the rows (the nearest row when it holds none). A blocked slot tries the cells next to it, then the next slot.</summary>
-    (int X, int Y)? PlaceOnGrid(int from, int to, int body, bool centred)
+    (int X, int Y)? PlaceOnGrid(int from, int to, int body, int walk, bool centred)
     {
         int first = Math.Min(_rows - 1, (int)Math.Ceiling(from / 100.0 * _depth / _pitch));
         int last = Math.Clamp((int)Math.Floor(to / 100.0 * _depth / _pitch), first, _rows - 1);
@@ -145,7 +144,7 @@ sealed class LegionFormation
                 double lateral = col * _pitch + (_rng.NextDouble() * 2 - 1) * GridJitter * _pitch;
                 double along = row * _pitch + (_rng.NextDouble() * 2 - 1) * GridJitter * _pitch * (row == 0 ? 0 : 1);
                 var (x, y) = At(Math.Max(0, along), lateral);
-                if (TryCell(x, y, body, out var at)) return at;
+                if (TryCell(x, y, body, walk, out var at)) return at;
                 blocked++;   // the slot is lost (the cursor moved past it): the next slot of the row
             }
         }
@@ -153,17 +152,17 @@ sealed class LegionFormation
     }
 
     /// <summary>The cell itself or one of the cells next to it, when walkable and clear of the members already placed.</summary>
-    bool TryCell(int x, int y, int body, out (int X, int Y) at)
+    bool TryCell(int x, int y, int body, int walk, out (int X, int Y) at)
     {
-        if (Open(x, y, body) && !Crowded(x, y, body)) { Remember(x, y, body); at = (x, y); return true; }
+        if (Open(x, y, walk) && !Crowded(x, y, body)) { Remember(x, y, body); at = (x, y); return true; }
         foreach (var (dx, dy) in Nearby)
-            if (Open(x + dx, y + dy, body) && !Crowded(x + dx, y + dy, body)) { Remember(x + dx, y + dy, body); at = (x + dx, y + dy); return true; }
+            if (Open(x + dx, y + dy, walk) && !Crowded(x + dx, y + dy, body)) { Remember(x + dx, y + dy, body); at = (x + dx, y + dy); return true; }
         at = default;
         return false;
     }
 
     /// <summary>A loose group: random spots in the band's rectangle, each at least the two bodies' spacing from every member placed.</summary>
-    (int X, int Y)? PlaceLoose(int from, int to, int body, bool centred)
+    (int X, int Y)? PlaceLoose(int from, int to, int body, int walk, bool centred)
     {
         // the band first; when it is full, the whole block (the rear half for the general)
         for (int pass = 0; pass < 2; pass++)
@@ -177,7 +176,7 @@ sealed class LegionFormation
                 double lateral = middle ? (_rng.NextDouble() * 2 - 1) * GeneralSpread * _pitch : (_rng.NextDouble() - 0.5) * _width;
                 if (middle) along = _depth;
                 var (x, y) = At(along, lateral);
-                if (!Open(x, y, body) || Crowded(x, y, body, factor)) continue;
+                if (!Open(x, y, walk) || Crowded(x, y, body, factor)) continue;
                 Remember(x, y, body);
                 return (x, y);
             }

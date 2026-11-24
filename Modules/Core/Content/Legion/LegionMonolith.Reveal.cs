@@ -34,7 +34,13 @@ static partial class LegionMonolith
         }
         double farthest = distances.Count == 0 ? 0 : distances.Max(d => d.Distance);
         float scale = (float)Math.Clamp(farthest / PulseRadiusCells, 1, PulseMaxScale);
-        lock (e) { e.Pulse = pulse; e.PulseScale = scale; Keep(player, e); }   // together: a joiner gets the pulse with its scale
+        bool running;
+        lock (e)
+        {
+            running = e.Phase == Phase.Running;   // the encounter may have ended during the awaits before
+            if (running) { e.Pulse = pulse; e.PulseScale = scale; Keep(player, e); }   // together: a joiner gets the pulse with its scale
+        }
+        if (!running) return;
         if (InArea(player, e.Id)) await ShowPulse(player, e, pulse);
         if (distances.Count == 0) return;
         double ring = PulseRadiusCells * scale;

@@ -35,6 +35,9 @@ static class LegionArmy
     /// campaign encounter looked smaller than the maps'); tune after live check.</summary>
     const double CampaignArmyScale = 0.5;
 
+    /// <summary>The fewest chests an army has (GUESS, see PlanChests); chests are never scaled by <see cref="CampaignArmyScale"/>.</summary>
+    const int MinChestsPerArmy = 1;
+
     /// <summary>Scales a normal or elite squad (tier 0, 1) by <see cref="CampaignArmyScale"/>, rounded, at least 1; sergeants, the general and chests stay.</summary>
     static Squad ScaleCampaign(Squad s) => s.Tier >= 2 ? s : s with { Count = Math.Max(1, (int)Math.Round(s.Count * CampaignArmyScale)) };
 
@@ -148,7 +151,8 @@ static class LegionArmy
         int hoardPct = Tier(1)?.Col7 ?? 0;
         var types = data.ChestTypes.Where(t => t.Faction == faction.Row).ToList();
         if (types.Count == 0) return chests;
-        int n = rng.Next(main.Col2, Math.Max(main.Col2, main.Col3) + 1);
+        // GUESS: the real game shows chests in nearly every army; the table's col2 is 0, so a roll of 0 would leave an army without one.
+        int n = Math.Max(MinChestsPerArmy, rng.Next(main.Col2, Math.Max(main.Col2, main.Col3) + 1));
         bool hoard = rng.Next(100) < hoardPct;
         int hoardAt = hoard && n > 0 ? rng.Next(n) : 0;
         if (hoard && n == 0) n = 1;
