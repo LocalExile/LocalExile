@@ -228,6 +228,7 @@ public static partial class Game
             m.Ailments.Inflict(rolled, critical, m.MaxLife, now, n => n == Stat.NeverFreeze && attack.Ailments.NeverFreeze ? 1 : source.Effects[n], n => effects[n], random);
         if (m.Life > 0)
         {
+            if (mitigated.MinTotal > 0) SpectreDamagedLocked(player, g, now, random);
             GolemHostileAilmentsLocked(player, g, attacker, source, rolled, critical, !attack.Spell && !attack.Secondary, now,
                 (100 - prevented) / 100d);
             if (!attack.Secondary && mitigated.MinTotal > 0)

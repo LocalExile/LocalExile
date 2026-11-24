@@ -216,7 +216,7 @@ public static partial class Game
             _ => a.Effect == 406,
         } : a.Effect switch
     {
-        4839 or 5026 or 5268 or 10801 or 10844 or 12032 or 12033 or 10584 => false,
+        4839 or 5026 or 5268 or MeatsackCausticCloud or EldritchEyeShockExplosion or 10801 or 10844 or 12032 or 12033 or 10584 => false,
         4336 => !g.Definition.Special,
         4337 => g.Definition.Special,
         5069 => !g.Definition.Special,
@@ -230,6 +230,14 @@ public static partial class Game
         if (!g.Charges.TryGetValue(a.Effect, out var charges)) return true;
         while (charges.TryPeek(out double at) && at <= now) charges.Dequeue();
         return charges.Count < a.Uses;
+    }
+
+    static void GolemStartCooldown(GolemState.Golem g, GolemState.Ability ability, double now)
+    {
+        if (ability.Cooldown <= 0) return;
+        if (!g.Charges.TryGetValue(ability.Effect, out var charges)) g.Charges[ability.Effect] = charges = new();
+        double readyAt = charges.TryPeek(out _) ? Math.Max(now, charges.Last()) : now;
+        charges.Enqueue(readyAt + ability.Cooldown);
     }
 
     static void GolemReserveLocked(Player player, GolemState.Golem g, GolemState.Ability ability, uint target,
@@ -277,9 +285,7 @@ public static partial class Game
             g.Monster.Walk.SetSpeed(speed, now);
             g.Monster.Walk.Order(pending.Aim.X, pending.Aim.Y, now);
         }
-        if (!g.Charges.TryGetValue(a.Effect, out var charges)) g.Charges[a.Effect] = charges = new();
-        double after = charges.TryPeek(out _) ? charges.Last() : now;
-        if (pending.RepeatIndex == 0 && a.Cooldown > 0) charges.Enqueue(Math.Max(now, after) + a.Cooldown);
+        if (pending.RepeatIndex == 0) GolemStartCooldown(g, a, now);
         // The skeleton dash needs movement presentation. A generic skill start can crash the 3.29.3d client.
         // Contact publishes the authoritative landing position after checking the path again.
         if (a.Effect == 10844)
@@ -791,6 +797,7 @@ public static partial class Game
                 } };
         }
         CommitMinionHitLocked(player, id, target, hit, damage, now, $"golem {g.Id:x} {a.Id}", stun, g.Monster, g.Own, g);
+        SpectreShockExplosionLocked(player, g, a, target, to, now);
         if (!target.Dead)
         {
             int Golem(uint name) => g.Monster.Mods.Effects[name] + GolemStat(a.Stats, name);

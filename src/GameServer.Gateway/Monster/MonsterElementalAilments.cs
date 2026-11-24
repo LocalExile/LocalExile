@@ -71,6 +71,15 @@ public sealed class MonsterElementalAilments
     public double Magnitude(Kind kind, double now) =>
         effects.Count == 0 && spread.Count == 0 ? 0 : Active(kind, now).Select(e => e.Magnitude).DefaultIfEmpty().Max();
 
+    /// <summary>Removes the selected active ailment, including weaker sources under the strongest one.</summary>
+    public bool RemoveActive(Kind kind, double now)
+    {
+        if (Magnitude(kind, now) <= 0) return false;
+        effects.RemoveAll(e => e.Kind == kind && e.From <= now);
+        spread.Remove(kind);
+        return true;
+    }
+
     /// <summary>Whether it was frozen when it died: a shattered one was, though its freeze is gone.</summary>
     public bool FrozenAtDeath(double now) => Shattered || Magnitude(Kind.Freeze, now) > 0;
 
