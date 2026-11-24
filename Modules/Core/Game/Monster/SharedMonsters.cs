@@ -152,26 +152,33 @@ public static partial class Game
     /// <paramref name="player"/>: the official square, max(|dx|, |dy|) &lt;= 172. The same test decides leaving
     /// and coming back.</summary>
     public static bool InWakeZone((int X, int Y) at, (int X, int Y) player) =>
-        Math.Max(Math.Abs(at.X - player.X), Math.Abs(at.Y - player.Y)) <= WakeZoneHalfSide;
+        Math.Max(Math.Abs((long)at.X - player.X), Math.Abs((long)at.Y - player.Y)) <= WakeZoneHalfSide;
 
     internal static void StepAreaWake(Player view)
     {
-        var area = view.Area;
         double now = AreaTime(view);
         var players = view.Frames.Players().Where(p => !p.Closed && !p.LeavingArea && p.Connection.PlayerSent)
             .Select(p => p.Walk.Position(now)).ToArray();
         if (players.Length == 0) return;
+        StepAreaWake(view, players, now);
+    }
+
+    internal static void StepAreaWake(Player view, (int X, int Y)[] players, double now)
+    {
+        if (players.Length == 0) return;
+        var area = view.Area;
         foreach (var (id, m) in area.Monsters.Concat(area.DormantMonsters))
         {
-            if (m.OwnerId is not null || m.WorldHidden) continue;
+            if (m.OwnerId is not null || m.WorldHidden || m.CorpseConsumed || m.Ailments.Shattered) continue;
             // Corpses join the wake zone too: the official wakes and sleeps them like live monsters, but they get
             // only the enter / leave messages -- no walk to stop, no AI to clear, no teleport back (a corpse stands
-            // where it died).
+            // where it died). Consumed or shattered corpses were already removed from the client (0x2bd / shatter)
+            // and stay skipped.
             bool corpse = m.Dead || m.Life <= 0;
             var at = m.Walk.Position(now);
-            int nearest = int.MaxValue;
+            long nearest = long.MaxValue;
             foreach (var p in players)
-                nearest = Math.Min(nearest, Math.Max(Math.Abs(at.X - p.X), Math.Abs(at.Y - p.Y)));
+                nearest = Math.Min(nearest, Math.Max(Math.Abs((long)at.X - p.X), Math.Abs((long)at.Y - p.Y)));
             if (!m.Asleep && nearest > WakeZoneHalfSide)
             {
                 m.Asleep = true;
