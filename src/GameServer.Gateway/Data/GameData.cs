@@ -35,6 +35,11 @@ public static class GameData
     /// <summary>The fx rules as their tables have them (fx_rules and its four tables).</summary>
     public static IReadOnlyList<GameDataStore.FxRuleRow> FxRules => Volatile.Read(ref _fxRules);
     static IReadOnlyList<GameDataStore.FxRuleRow> _fxRules = [];
+
+    /// <summary>The area modifiers the fx tables turn into stats of the area's monsters (fx_modifiers rows with the
+    /// target enemies_area).</summary>
+    public static IReadOnlyList<GameDataStore.FxAreaMonsterRow> FxAreaMonsterStats => Volatile.Read(ref _fxAreaMonsterStats);
+    static IReadOnlyList<GameDataStore.FxAreaMonsterRow> _fxAreaMonsterStats = [];
     static IReadOnlyList<GameDataStore.EffectBuffRow> _effectBuffs = [];
     public static Snapshot Current => Volatile.Read(ref _snapshot);
 
@@ -89,6 +94,7 @@ public static class GameData
         var fxRules = store.LoadFxRules();
         var fxModifiers = store.LoadFxModifiers();
         var fxPerRows = store.LoadFxPerRows();
+        var fxAreaMonsterStats = store.LoadFxAreaMonsterRows();
 
         // Build the catalogues and settings first: a bad payload leaves the previous ranges/limits and catalogues intact.
         GameDataCatalog.Reload(store);
@@ -101,6 +107,7 @@ public static class GameData
         Volatile.Write(ref _effectSkills, effectSkills);
         Volatile.Write(ref _effectBuffs, effectBuffs);
         Volatile.Write(ref _fxRules, fxRules);
+        Volatile.Write(ref _fxAreaMonsterStats, fxAreaMonsterStats);
         StatConditions.LoadTable(fxModifiers);
         ChargeEffects.LoadTable(fxPerRows);
         StatConditions.SetRecorderStats(fxRules.Where(r => r.Status != "not built" && r.Do.Any(d => d.Action == "raise"))

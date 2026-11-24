@@ -140,6 +140,25 @@ public sealed class GameDataStore : IDisposable
         }
     }
 
+    /// <summary>One fx_modifiers row of an area modifier that gives the area's monsters a stat they already act on: the
+    /// area's stat, the monster's stat (the row's quantity) and how many of it one point gives.</summary>
+    public sealed record FxAreaMonsterRow(string Stat, string MonsterStat, double Scale);
+
+    /// <summary>The enabled fx_modifiers rows whose target is the area's monsters ("enemies_area"), in order.</summary>
+    public IReadOnlyList<FxAreaMonsterRow> LoadFxAreaMonsterRows()
+    {
+        lock (_gate)
+        {
+            using (var exists = Command("SELECT 1 FROM sqlite_master WHERE type = 'table' AND name = 'fx_modifiers'"))
+                if (exists.ExecuteScalar() is null) return [];
+            using var command = Command("SELECT stat, quantity, scale FROM fx_modifiers WHERE enabled = 1 AND target = 'enemies_area' ORDER BY stat, ord");
+            using var reader = command.ExecuteReader();
+            var result = new List<FxAreaMonsterRow>();
+            while (reader.Read()) result.Add(new(reader.GetString(0), reader.GetString(1), reader.GetDouble(2)));
+            return result;
+        }
+    }
+
     /// <summary>One fx rule with its rows (fx_rules, fx_rule_sources, fx_rule_when, fx_rule_if, fx_rule_do), as written:
     /// the game module turns it into a rule of its engine (Modules/Core/Game/Effects/FxRules.cs).</summary>
     public sealed record FxRuleRow(string Id, string Book, string Title, string? Replaces, string Status,

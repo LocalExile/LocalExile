@@ -124,6 +124,11 @@ hit found it (`enemy_state`: bleeding, poisoned, chilled, shocked, blinded, curs
 for it. A stat whose rule records the event its own condition waits for keeps its id in the sums whatever the condition
 says (`StatConditions.KeepsOwnId`), or the rule could never be live.
 
+An area modifier that gives the area's monsters a stat they already act on is a modifier row with the target
+`enemies_area` (the quantity is the monster's stat, the scale how many of it one point gives): `MapMonsterEffects` adds
+those after its own pairs while the rules are on. `scripts/dev/fx_needs.py` notes for every stat nothing reads what it
+would need (`fx_stats.fit`), and ranks the needs.
+
 A plain number is granted to the calculator the game module already has (the stat graph); `fx_modifiers` records what
 the number means so that a formula can later move to a table one quantity at a time, each measured. Nothing reads these
 tables during play: they are loaded at startup into arrays by stat id, and an actor's rules are worked out when its

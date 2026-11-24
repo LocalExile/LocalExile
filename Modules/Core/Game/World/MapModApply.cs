@@ -129,7 +129,31 @@ public static partial class Game
                 extra.GetValueOrDefault(Stat.BaseChanceToPoisonOnHitPct) + 100;
         Gain(Stat.MapMonstersBasePoisonDurationPlusPct, Stat.BasePoisonDurationPlusPct);
         Gain(Stat.MapMonstersAllDamageCanPoison, Stat.AllDamageCanPoison);
+        // The pairs the fx tables add (area modifiers no code read before), while the effect rules are on.
+        if (EffectRules.Enabled)
+            foreach (var (map, monster, scale) in TableMonsterPairs())
+                if (mods.Get(map) is int value and not 0)
+                    extra[monster] = ActorScale.Saturate((long)extra.GetValueOrDefault(monster) + (long)Math.Round(value * scale));
         return extra;
+    }
+
+    // fx_modifiers rows with the target enemies_area, by stat key: worked out once for each load of the game data.
+    sealed record TableMonsterStats(IReadOnlyList<GameServer.Storage.GameDataStore.FxAreaMonsterRow> Rows, (uint Map, uint Monster, double Scale)[] Pairs);
+    static TableMonsterStats _tableMonsterPairs = new([], []);
+
+    static (uint Map, uint Monster, double Scale)[] TableMonsterPairs()
+    {
+        var rows = GameData.FxAreaMonsterStats;
+        var cached = Volatile.Read(ref _tableMonsterPairs);
+        if (ReferenceEquals(cached.Rows, rows)) return cached.Pairs;
+        var pairs = new List<(uint, uint, double)>();
+        foreach (var row in rows)
+            if (Stats.Key(row.Stat) is uint map && Stats.Key(row.MonsterStat) is uint monster) pairs.Add((map, monster, row.Scale));
+            else Console.WriteLine($"[rules] fx_modifiers {row.Stat}: unknown stat; the area modifier is left out");
+        if (pairs.Count > 0) Console.WriteLine($"[rules] {pairs.Count} area modifier(s) on monsters from the fx tables");
+        var worked = new TableMonsterStats(rows, [.. pairs]);
+        Volatile.Write(ref _tableMonsterPairs, worked);
+        return worked.Pairs;
     }
 
     public static IReadOnlyDictionary<uint, int> MapBossEffects(MapMods mods) => new Dictionary<uint, int>
