@@ -73,16 +73,18 @@ public static partial class Game
         => ApplyCurseLocked(player, monster, skill, now, aura, captured, sources, 0, 1);
 
     static bool ApplyCurseLocked(Player player, SpawnedMonster monster, ushort skill, double now, bool aura,
-        SupportedGem? captured, IReadOnlyDictionary<uint, int>? sources, int addedEffect, double effectMultiplier)
+        SupportedGem? captured, IReadOnlyDictionary<uint, int>? sources, int addedEffect, double effectMultiplier,
+        bool fromPlacement = false)
     {
         var gem = captured ?? SupportedSkill(player, skill);
         return gem.RequirementsMet && ApplyCurseDataLocked(player, monster, skill, SkillsFor(player).EffectId(gem.Effect) ?? "",
-            gem.Stats, now, aura, sources, addedEffect, effectMultiplier);
+            gem.Stats, now, aura, sources, addedEffect, effectMultiplier, fromPlacement: fromPlacement);
     }
 
     static bool ApplyCurseDataLocked(Player player, SpawnedMonster monster, ushort skill, string effect,
         IReadOnlyDictionary<uint, int> curseStats, double now, bool aura, IReadOnlyDictionary<uint, int>? sources,
-        int addedEffect = 0, double effectMultiplier = 1, uint? casterId = null, int additionalCapacity = 0, uint? auraSource = null)
+        int addedEffect = 0, double effectMultiplier = 1, uint? casterId = null, int additionalCapacity = 0, uint? auraSource = null,
+        bool fromPlacement = false)
     {
         if (!CurseCatalog.All.TryGetValue(effect, out var definition) || casterId is null && ExternalTemporalChains(player, effect)
             || monster.Dead || monster.Life == 0 || !monster.Hostile) return false;
@@ -92,6 +94,7 @@ public static partial class Game
         bool hexMaster = Get(Stat.KeystoneHexMaster) != 0;
         if (monster.Mods.Effects[Stat.ImmuneToCurses] != 0 || !definition.Mark && monster.Mods.Effects[Stat.Hexproof] != 0
             && Get(Stat.IgnoreHexproof) == 0 && Get(Stat.Of("hexes_ignore_hexproof")) == 0
+            && (effect != "ElementalWeakness" || Get(Stat.ElementalWeaknessIgnoresHexproof) == 0)
             && !RandomRolls.Chance(Get(Stat.ChanceToIgnoreHexproofPct), 100, AreaRng(player))) return false;
         int increased = Get(Stat.CurseEffectPlusPct) + Get(Stat.Of(definition.Mark ? "mark_effect_+%" : "hex_effect_+%"))
             + (definition.Mark ? Get(Stat.MarkSkillsCurseEffectPlusPct) : 0)
@@ -142,12 +145,12 @@ public static partial class Game
         };
         monster.Curses.Put(curse, limit);
         if (!ReferenceEquals(monster.Curses.All.GetValueOrDefault((curse.Caster, curse.Effect)), curse)) return false;
-        if (!aura && Get(Stat.RefreshDurationOfShockChillIgniteOnEnemyWhenCursingEnemy) != 0)
+        if (!fromPlacement && !aura && Get(Stat.RefreshDurationOfShockChillIgniteOnEnemyWhenCursingEnemy) != 0)
         {
             monster.Ailments.RefreshChillAndShock(now);
             monster.Ignites.Refresh(now);
         }
-        if (newlyCursed && !aura && casterId is null)
+        if (newlyCursed && !fromPlacement && !aura && casterId is null)
         {
             if (Get(Stat.NonCursedEnemiesYouCurseAreBlindedFor4Seconds) != 0)
                 InflictMonsterBlind(player, monster.ObjectId, monster, now, 100, Get(Stat.BlindEffectPlusPct), BlindSeconds(Get), null);
@@ -303,6 +306,24 @@ public static partial class Game
         foreach (var monster in player.Area.Monsters.Values)
             if (Dist(monster.Walk.Position(now), aim) <= radius)
                 ApplyCurseLocked(player, monster, skill, now, false, gem, playerStats);
+    }
+
+    static bool IsHexblastEffect(string? effect) => effect is "Hexblast" or "HexblastAltX" or "HexblastAltY";
+
+    static MonsterCurses.Curse? HexblastHex(SpawnedMonster monster, double now)
+    {
+        MonsterCurses.Curse? chosen = null;
+        foreach (var curse in monster.Curses.All.Values)
+            if (!curse.Mark && curse.Until > now && (chosen is null || curse.Until < chosen.Until))
+                chosen = curse;
+        return chosen;
+    }
+
+    static void ConsumeHexblastHex(Player player, uint id, SpawnedMonster monster, MonsterCurses.Curse curse)
+    {
+        monster.Curses.Remove(curse.Caster, curse.Effect);
+        if (monster.Curses.Presented.Remove((curse.Caster, curse.Effect), out var presented))
+            player.Area.Buffs.Clear(id, presented.Row, presented.Caster, tag: presented.Buff);
     }
 
     static bool WitchbaneImmunityActive(Player player, double now) =>

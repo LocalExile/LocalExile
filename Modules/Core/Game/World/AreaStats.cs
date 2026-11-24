@@ -49,6 +49,15 @@ public static partial class Game
         }
         if (Get(Stat.AreaOfEffectPlusPctWhileWieldingBow) is int bow and not 0 && WeaponFor(player).Bow)
             typed += bow;
+        if (Get(Stat.AoePlusPctPerSecondWhileStationaryUpTo50) is int stationaryRate and > 0)
+        {
+            StatGraph.ReadInput((int)StatInput.Walk);
+            double now = AreaTime(player), rest = player.Walk.ArrivesAt;
+            double fullSeconds = Math.Max(0, Math.Floor(now - rest));
+            int increase = (int)Math.Min(50, fullSeconds * stationaryRate);
+            if (increase < 50) StatsChangeIn(rest + fullSeconds + 1 - now);
+            typed = ActorScale.Saturate((long)typed + increase);
+        }
         if (typed != 0)
             stats[SkillArea.Increase] = stats.GetValueOrDefault(SkillArea.Increase) + typed;
         if (Get(Stat.StygianSpireTotemAreaOfEffectPlusPctFinalPerMaximumTotem) is int totemMore and not 0)

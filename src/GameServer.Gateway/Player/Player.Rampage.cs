@@ -2,6 +2,8 @@ public sealed partial class Player
 {
     public RampageSession Rampage { get; } = new();
     public SoulEaterState SoulEater { get; } = new();
+    /// <summary>Alchemist's Genius on this player: the buff a flask use grants, while it runs.</summary>
+    public AlchemistsGeniusState AlchemistsGenius { get; } = new();
     // "Gain Physical Damage Immunity for X seconds on Rampage" and "Phasing for X seconds on Rampage" thresholds.
     public double PhysicalImmunityUntil;
     public double PhasingUntil;
@@ -88,6 +90,11 @@ public sealed partial class Player
         SoulEater.SentStacks = 0;
         SoulEater.Souls.Clear();
         SoulEater.Clear();
+        if (AlchemistsGenius.Active)
+        {
+            AlchemistsGenius.Clear();
+            MarkStatsDirty(StatInput.FlaskEffects);
+        }
     }
 
     public void ApplyMovementSpeedAt(double at) => ApplyMovementSpeedAt(at, forceRelay: false, movementPctOverride: null);

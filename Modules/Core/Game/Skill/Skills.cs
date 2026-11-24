@@ -337,6 +337,7 @@ public static partial class Game
             conversion ?? new(), spell: false, melee: melee, projectile: !melee, wieldingBow: weapon.Bow, wieldingWand: weapon.WieldingWand,
             additionalIncreased: additionalIncreased + SupportedAttackDamage.WeaponIncrease(weapon, Get),
             additional: WeaponTypeDamage.Of(weapon, Get));
+        if (melee) hit = WithVaalWarchiefBuff(hit, Get);
         return MaximumAttackDamage.Apply(RageStats.ApplyAttack(hit, Get), Get).Scale(GamblerFor(stats).DamageFactor);
     }
 
@@ -748,6 +749,17 @@ public static partial class Game
             // Published like the own-aura reason (never zero over another); the client also derives it (FUN_1428d6330).
             if (CastingSpell(player, effect) && Stat.YourSpellsAreDisabled is var spellsOff
                 && playerStats.GetValueOrDefault(spellsOff) != 0) stats[OwnAuraRestriction.SkillDisabled] = 1;
+            // Crafted trigger-wand spells carry spell_has_trigger_from_crafted_item_mod without
+            // spell_uncastable_if_triggerable in GrantedEffectStatSets; publish both disable flags so the client greys
+            // out manual slots and avoids playing bogus local cast animations for server-rejected triggers.
+            if (GolemStat(own, Stat.SpellHasTriggerFromCraftedItemMod) != 0
+                || supported.Supports.Any(s => s.Effect.Id == "SupportTriggerSpellOnSkillUse"))
+            {
+                stats[Stat.SpellUncastableIfTriggerable] = 1;
+                stats[OwnAuraRestriction.SkillDisabled] = 1;
+            }
+            else if (TriggerOnlyReason(supported) is not null)
+                stats[OwnAuraRestriction.SkillDisabled] = 1;
             // These display aliases use the same raw snapshot as the character derivation. Apply them after
             // runtime radius calculations so an already-derived selected AoE alias cannot count its base twice.
             int RawPanel(uint key) => panelSources.Raw.GetValueOrDefault(key);
@@ -1213,6 +1225,7 @@ public static partial class Game
         if (TravelSkillsExceptDashDisabled(player, effect, skillId) is { } travel) return travel;
         if (gem.Supports.Any(s => s.Effect.Added.Contains(36))
             && !TriggeredSpellExecutable(player, skillId, gem)
+            && !CooldownTriggerExecutable(player, gem)
             && !SnipeTriggeredAttackExecutable(player, skillId, gem)
             && !ManaforgedAttackExecutable(player, skillId, gem)) return "this trigger payload has no server executor";
         if (!triggered && TriggerOnlyReason(gem) is { } trigger) return trigger;

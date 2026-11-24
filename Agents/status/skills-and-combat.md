@@ -260,6 +260,9 @@ Part of [Status](../Status.md); what to build next in this area is in
   discharges, and Life held at 1 while the buff runs. Docs: [11](../docs/protocol/11-skills.md) Â§11, Â§12.
 - Vaal Molten Shell: soul-paid armour and hit absorption, fire reflection each second and on removal, and a single
   active guard buff with separate Vaal and regular cooldowns.
+- Vaal Sweep repeats its attack and knocks back eligible enemies. Vaal Lightning Warp damages and moves nearby
+  enemies without moving its caster. Vaal Ancestral Warchief slams, leaps and grants its owner more melee damage
+  while active. Offline checks cover the server's timing, damage and movement.
 - Steelskin, Immortal Call and Molten Shell cast by hand start the triggered guard buff; a running or recovering
   guard refuses the next before its cost. Docs: [11](../docs/protocol/11-skills.md) Â§12.
 - Phase Run: movement speed and Phasing for its duration, longer per Frenzy Charge consumed; the next skill use
@@ -282,12 +285,14 @@ Part of [Status](../Status.md); what to build next in this area is in
 - Absolution and Dominating sentinels, Phantasms, direct Vaal Skeletons and Vaal Absolution/Domination ascensions.
   HUD minion counter icons (`PlayerMinionsChange`) now publish for all active player minion types (not checked live).
   Docs: [11](../docs/protocol/11-skills.md) Â§10h.
-  Vaal minion totem, trap and mine casts are refused before spending souls or starting an action.
+  Vaal minion casts linked to a totem, trap or mine support are refused before spending souls or starting an action.
 - Removable player buffs can be right-click cancelled via C→S `0x4b` (Grace Period, Shrines, guards, auras, Arcane
   Surge, phasing; non-removable debuffs rejected; not checked live). Docs: [11](../docs/protocol/11-skills.md) §12.
 - Native knockback hit presentation (`0x1af` bit 11 + `u3c`/`u3e`), totem directional `HitAngle`/`HitCode`, `0x1b0`
   `ActionResultFlag` encoder, and chance-based instant cooldown reset sync (`0x50cd`/`0x52e2`; not checked live).
   Docs: [11](../docs/protocol/11-skills.md) §5, §9, §10g.
+- Predictive/monster `0x1ae` channel end, Divine Ire `0x233f` stages, Flame Dash `0x2c8` segment (not checked live).
+- Incremental `0x00c6` flask charges, `0x0174` item-use results and 0x00bb/0x00bc/0x01c9/0x01ca/0x02d9 encoders.
 - Vaal Animate Weapon transforms eligible melee drops and landed Bladefall of Trarthus blades into temporary unique weapons.
 - Conversion Trap temporarily changes the triggering enemy's allegiance. Converted enemies can attack hostiles,
   and unique enemies are immune.
@@ -338,6 +343,7 @@ Part of [Status](../Status.md); what to build next in this area is in
 - Self-targeted spells, including Convocation and corpse offerings. Docs: [11](../docs/protocol/11-skills.md) §9a.
 - Winter Orb. Docs: [11](../docs/protocol/11-skills.md) §9a.
 - Dark Bargain (self-cast only; Summon Skeletons does not work yet). Docs: [11](../docs/protocol/11-skills.md) §9a.
+- War, Dread and Defiance Banner spend melee Valour to plant a local aura with a finite radius and duration.
 - Brand system: Storm Brand (+ Indecision), Armageddon Brand (+ Volatility, Recall), Penance Brand (+ Dissipation,
   Conduction), Wintertide Brand, Arcanist Brand, Brand Recall and Brandsurge with attachment, limits, Swiftbrand
   cadence, `ActiveSigil`/`magma_pustule`/`immolation_brand_burn` buffs and `SigilDisplay` counters.
@@ -360,5 +366,5 @@ Part of [Status](../Status.md); what to build next in this area is in
   Docs: [11](../docs/protocol/11-skills.md) Â§10f.
 - Where Flicker Strike lands beside the monster is the server's guess, and its buff ignores increased buff effect.
   Docs: [11](../docs/protocol/11-skills.md) Â§9a.
-- Effects attached to bones (Righteous Fire's orbs) are not sent; banners and combat auras are not implemented.
+- Effects attached to bones (Righteous Fire's orbs) are not sent.
   Docs: [11](../docs/protocol/11-skills.md) Â§12.

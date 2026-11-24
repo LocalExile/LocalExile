@@ -146,6 +146,72 @@ public class PlayerDamageTakenTests
         }
     }
 
+    // A synthetic contact -- which is how a shrine's and a strongbox daemon's spell damage is committed -- goes through
+    // the player's whole defence as a monster's hit does, and "damage taken as" splits the hit before any mitigation.
+    // With 50% of Physical Damage from Hits taken as Fire and 50% Fire Resistance, 200 physical is 100 physical +
+    // 100 fire at half = 150; the hit that ignored the shift took 200.
+    [Fact]
+    public void A_synthetic_spell_hit_takes_physical_damage_as_fire_and_meets_the_fire_resistance()
+    {
+        var plain = SyntheticPhysicalHit("plain", shifted: false, armour: 0, out var plainPlayer);
+        var asFire = SyntheticPhysicalHit("asfire", shifted: true, armour: 0, out var asFirePlayer);
+        Assert.Equal(200, plain.Damage);
+        Assert.Equal(800u, plainPlayer.PlayerLife);
+        Assert.Equal(150, asFire.Damage);
+        Assert.Equal(850u, asFirePlayer.PlayerLife);
+        Assert.Equal(150, (int)asFire.Taken[DamageType.Fire].Min + (int)asFire.Taken[DamageType.Physical].Min);
+    }
+
+    // Armour is one decision for the hit but reduces only the physical part: with half of the physical hit taken as fire,
+    // the fire part meets resistance alone, whatever the armour (a fire part is not armoured, and a part the shift made
+    // physical would be).
+    [Fact]
+    public void A_synthetic_hit_with_a_fire_part_lets_armour_reduce_only_the_physical_part()
+    {
+        var hit = SyntheticPhysicalHit("armour", shifted: true, armour: 1_000_000, out var player);
+        int expectedPhysical = DamageModel.Reduce(100, DamageModel.ArmourReduction(1_000_000, 100));
+        Assert.Equal(100, (int)hit.Taken[DamageType.Fire].Min);
+        Assert.Equal(expectedPhysical, (int)hit.Taken[DamageType.Physical].Min);
+        Assert.Equal(100 + expectedPhysical, hit.Damage);
+        Assert.Equal(1000u - (uint)hit.Damage, player.PlayerLife);
+    }
+
+    static Game.SyntheticEnemyHit SyntheticPhysicalHit(string name, bool shifted, int armour, out Player player)
+    {
+        TestEnvironment.OpenOwnSaves("synthetic-taken-as-" + name);
+        var previousLogic = Program.GameLogicOrNull;
+        var previousLifetime = Game.CombatLifetime;
+        var lifetime = new ModuleLifetime("Game");
+        Game.CombatLifetime = lifetime;
+        Program.SetGameLogic(new GameServer.Modules.Game.GameLogic(lifetime));
+        try
+        {
+            var created = new Player(new(1, "synthetic-taken-as", 1000, 1000, 100, 100, null, []), 1, 1)
+            {
+                Character = { Name = "SyntheticTakenAs" + name },
+                PlayerLife = 1000, PlayerMana = 100, Instance = new(), EvasionEntropy = 100,
+                IncomingHitRandom = new Random(7),
+                Pools = new(1, 1000, 100, 0, 0, Armour: armour, FireResistance: shifted && armour == 0 ? 50 : 0),
+            };
+            player = created;
+            uint takenAs = Program.Stats.Key("physical_damage_taken_%_as_fire")!.Value;
+            using var stats = GameEvents.PlayerStatSources.Add("Game", (owner, values) =>
+            {
+                if (shifted && ReferenceEquals(owner, created)) values[takenAs] = 50;
+                return values;
+            });
+            Assert.True(Game.TrySyntheticEnemyHit(created, DamageType.Physical, 200, block: false, spell: true,
+                suppress: false, out var hit));
+            return hit;
+        }
+        finally
+        {
+            Program.SetGameLogic(previousLogic!);
+            Game.CombatLifetime = previousLifetime;
+            TestEnvironment.ReleaseOwnSaves();
+        }
+    }
+
     // Chill reads the damage taken, so physical taken as cold chills; ignite reads the damage dealt, so fire taken as
     // physical still ignites on a critical strike (wiki Damage taken as, "Ailments and damage over time"), but only the
     // part that lands: avoided fire cannot ignite.

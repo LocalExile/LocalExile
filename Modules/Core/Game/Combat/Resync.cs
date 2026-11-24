@@ -38,9 +38,28 @@ public static partial class Game
     /// <summary>Whether a skill immediately puts the player where it was aimed. A channelled one (Cyclone) reports its own way.</summary>
     public static bool LandsAtAim(Player player, int effect) =>
         SkillsFor(player).IsMovement(effect) && !SkillsFor(player).IsChannelled(effect)
-        && !(SkillsFor(player).EffectId(effect) is { } id && (id == "LightningWarp" || id == "FrostblinkAltX"
+        && !(SkillsFor(player).EffectId(effect) is { } id && (id is "LightningWarp" or VaalLightningWarpEffect or "FrostblinkAltX"
             || id.StartsWith("BlinkArrow", StringComparison.Ordinal)
             || MovementInPlace.Any(name => id.StartsWith(name, StringComparison.Ordinal))));
+
+    public static bool IsFlameDashEffect(string? effectId) =>
+        effectId is "FlameDash" or "FlameDashAltX" or "FlameDashAltY" or "FlameDashHardMode" or "FlameDashRoyale";
+
+    /// <summary>Builds Flame Dash's S→C 0x2c8 burning-ground segment update (reader 0x141478930 → 0x1414786c0):
+    /// four i32 LE grid coordinates (x1, y1, x2, y2) and f32 LE duration in seconds.</summary>
+    public static byte[] FlameDashGroundSegment(Player player, ushort skillId, int effect, ushort sequence,
+        (int X, int Y) from, (int X, int Y) to)
+    {
+        var own = SupportedSkill(player, skillId).Stats;
+        var playerStats = CharacterPlayerStats(player);
+        int baseMs = GolemStat(own, Stat.BaseSkillEffectDuration);
+        double seconds = baseMs > 0
+            ? SkillDurationModifiers.Seconds(baseMs, k => GolemStat(playerStats, k), k => GolemStat(own, k))
+            : 4.0;
+        ushort actionTypeHash = SkillsFor(player).ActionHash(effect) ?? 0x5ccd;
+        byte[] tail = new BlobWriter().I32(from.X).I32(from.Y).I32(to.X).I32(to.Y).F32((float)seconds).ToArray();
+        return InstanceProtocol.ActionUpdate(player.Id, actionTypeHash, skillId, sequence, tail);
+    }
 
     public static (int X, int Y) MovementLanding(Player player, int effect, (int X, int Y) from, (int X, int Y) aim) =>
         MovementLanding(player, effect, from, aim, 0, 0);

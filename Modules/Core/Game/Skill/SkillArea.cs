@@ -20,12 +20,13 @@ public static class SkillArea
         get(Stat.ActiveSkillBaseAreaOfEffectRadius) is int radius and > 0 ? radius : KnownBaseRadius(effect) ?? 12;
 
     static int? KnownBaseRadius(string? effect) =>
-        effect == "LightningWarp" ? 16 : effect == "VaalGroundSlam" ? 40 : IsCyclone(effect) ? 16 : effect == "RollingMagma" ? 14
+        effect is "LightningWarp" or "VaalLightningWarpInstant" ? 16
+            : effect == "VaalGroundSlam" ? 40 : IsCyclone(effect) ? 16 : effect == "RollingMagma" ? 14
             : effect is "Earthquake" or "Earthshatter" ? 18
             : effect == "Cleave" ? 20
             : effect == "TectonicSlam" ? 15
             : effect is "FireTrap" or "VaalFireTrap" ? 16 : effect == "StormblastMine" ? 20 : effect is "DarkPact" or "DarkPactRoyale" ? 26
-            : effect is "StormCall" or "Frostblink" or "FrostblinkHardMode" or "FrostblinkAltX" ? 20
+            : effect is "StormCall" or "Frostblink" or "FrostblinkHardMode" or "FrostblinkAltX" || Game.IsPyroclastMine(effect) ? 20
             : effect is "GalvanicArrow" or "GalvanicArrowAltX" or "GalvanicArrowAltY" ? 28
             : effect is "StormBrand" or "StormBrandAltX" or "StormBrandAltY"
                 or "PenanceBrand" or "PenanceBrandAltX" or "PenanceBrandAltY"
