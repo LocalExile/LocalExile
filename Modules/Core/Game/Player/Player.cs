@@ -1163,6 +1163,11 @@ public static partial class Game
                     player.EnergyShield.Empty();
                     KeystoneRecovery.Remove(player);
                     ClearAntiquarianOnDeath(player);
+                    player.LastStunnedOrBlockedStunAt = double.NegativeInfinity;
+                    player.LastStoppedTakingDotAt = double.NegativeInfinity;
+                    player.TakingDotLastTick = false;
+                    player.LastCritTakenAt = double.NegativeInfinity;
+                    player.StationarySince = double.NegativeInfinity;
                     periodicRegenStart = null;
                     lifeAfter = lifeBefore;
                     manaAfter = manaBefore;
@@ -1177,7 +1182,26 @@ public static partial class Game
                     bool noRegeneration = RecoveryStat(Stat.MapPlayersNoRegenerationIncludingEs) != 0;
                     life *= mapRecovery;
                     double takenFactor = IncomingStat(Stat.BaseCannotBeDamaged) > 0 ? 0
-                        : IncomingResourceDefences.FinalTakenFactor(player.Pools, IncomingStat);
+                        : IncomingResourceDefences.FinalTakenFactor(player.Pools, IncomingStat)
+                            * Math.Max(0, 1 + IncomingStat(Stat.DegenEffectPlusPct) / 100.0);
+                    bool movingNow = player.Walk.Moving(now);
+                    if (movingNow) player.StationarySince = double.NegativeInfinity;
+                    else if (!double.IsFinite(player.StationarySince)) player.StationarySince = now;
+                    bool takingDotNow = player.TrapDegenPerSecond > 0 || burnPerSecond > 0
+                        || player.ElementalAilments.Magnitude(PlayerElementalAilments.Kind.Ignite, now) > 0
+                        || player.IncomingAilments.Bleeding(now)
+                        || player.IncomingAilments.PoisonStacks(now) > 0
+                        || CorruptedBloodStacks(player, now) > 0;
+                    if (player.TakingDotLastTick && !takingDotNow)
+                    {
+                        player.LastStoppedTakingDotAt = now;
+                        if (IncomingStat(Stat.LifeAndEnergyShieldRecoveryRatePlusPctIfStoppedTakingDamageOverTimeRecently) != 0)
+                        {
+                            rates.Stale = true;
+                            MarkPlayerStats(player, PlayerStatStep.Recovery);
+                        }
+                    }
+                    player.TakingDotLastTick = takingDotNow;
                     double trapTakenFactor = takenFactor
                         * Math.Max(0, 1 + IncomingStat(IncomingResourceDefences.UnhingedSaneDamageFinal) / 100.0);
                     burnCarry += (InGracePeriod(player) ? 0 : burnPerSecond * player.ElementalAilments.DamageTakenFactor(now))

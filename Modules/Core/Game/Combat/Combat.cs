@@ -3605,6 +3605,10 @@ public static partial class Game
         if (PlayerHasEnergyShieldForRecovery(player, Get)) { Trace("energy shield present"); return null; }
         // A freeze already holds the player, and its action factor would stretch the recovery a hundredfold.
         if (player.ElementalAilments.ActionFactor(now) == 0) { Trace("frozen"); return null; }
+        // Soul of the Brine King: cannot be stunned if stunned or blocked a stunning hit in the past 2 seconds.
+        if (Get(Stat.CannotBeStunnedIfHaveBeenStunnedOrBlockedStunningHitInPast2Seconds) != 0
+            && now - player.LastStunnedOrBlockedStunAt < 2.0)
+        { Trace("brine king stun immunity"); return null; }
         double chance = PlayerHitRecovery.Chance(damage, player.PlayerMaxLife, Get);
         int ignoreWhileCasting = Get(Stat.AvoidInterruptionWhileCastingPct);
         if (chance > 0 && ignoreWhileCasting > 0 && InSpellCast(player, now))
@@ -3614,6 +3618,7 @@ public static partial class Game
             || player.Closed || player.PlayerLife == 0 || !player.HitRecovery.Begin(now, seconds))
         { Trace($"not accepted (chance {chance:0.###}%, duration {seconds:0.###} s)"); return null; }
         Trace($"accepted ({seconds:0.###} s, {Get(AntiquarianEffects.StunRecoverySource)}% Life over one second)");
+        player.LastStunnedOrBlockedStunAt = now;
         player.RecentEvents.Record(StatConditions.BeenStunned, now);
         player.Antiquarian.Stunned(now, player.PlayerMaxLife, Get(AntiquarianEffects.StunRecoverySource));
         CancelMeleeRepeats(player, now);
@@ -3994,6 +3999,15 @@ public static partial class Game
         MonsterKits.GrantKinDeathChargesLocked(player.Area, id, m, now);
         _ = AreaFrames.Start(() => MonsterKits.ExecuteDeathSkills(player, id, m, at));
         bool firstBossKill = HasUnsetKillQuestFlag(player, variety.Id);
+        if (!firstBossKill && player.Instance is { } killInstance)
+        {
+            foreach (var peer in killInstance.Presence.PlayersExcept(player.Id))
+            {
+                if (peer is not { Closed: false, LeavingArea: false } other || !other.Connection.PlayerSent
+                    || HardcoreProgressBlocked(other)) continue;
+                if (HasUnsetKillQuestFlag(other, variety.Id)) { firstBossKill = true; break; }
+            }
+        }
         await SetQuestFlags(player, QuestFlagsOnKill(player, variety.Id));
         // The party's kill: every living player within the experience range takes their share
         // (Progression.PartyMultiplier), the killer included. The presence of a private area is the party (an area is

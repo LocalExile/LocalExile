@@ -472,7 +472,7 @@ public static partial class Game
         if (!QuestsOf(player).Exists(rule.ObjectType, f => ClientHasQuestFlag(player, f))) return;
         uint id = player.TakeObjectId();
         lock (player.QuestObjects) player.QuestObjects[id] = (rule, at, info);
-        if (info.Blocking) player.SetObjectBlocker(id, at.X, at.Y, info.Size, info.ActorOrChest);
+        if (info.Blocking && !QuestObjectTransitioned(player, rule)) player.SetObjectBlocker(id, at.X, at.Y, info.Size, info.ActorOrChest);
         await SendWorldCreate(player, id, () => InstanceEntities.CreateObject(id, InstanceEntities.ObjectTypeHash(rule.ObjectType), QuestObjectBlob(player, rule, at, info)),
             $"0x02bb quest object 0x{id:x} {rule.ObjectType} at ({at.X}, {at.Y}), {(QuestObjectTransitioned(player, rule) ? "transitioned" : "untransitioned")}" +
             (rule.TransitionedBy is { } f ? $" (flag {f})" : ""), wake: true, awaitBirth: false);
@@ -594,6 +594,11 @@ public static partial class Game
         foreach (var (id, rule, at, info) in objects)
         {
             bool done = QuestObjectTransitioned(player, rule);
+            if (info.Blocking)
+            {
+                if (done) player.RemoveBlocker(id);
+                else player.SetObjectBlocker(id, at.X, at.Y, info.Size, info.ActorOrChest);
+            }
             if (done && QuestObjectTypes.OpensInPlace(rule.ObjectType) && QuestObject.TransitionableIndex(info.Components) is int opening and >= 0)
             {
                 await SendWorldRecord(player, id, InstanceEntities.TransitionableUpdate(id, (byte)opening, (byte)info.States),

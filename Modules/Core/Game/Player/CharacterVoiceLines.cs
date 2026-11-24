@@ -77,7 +77,7 @@ public static class CharacterVoiceLines
         // Act 5 & Act 9 side bosses
         ["Metadata/Monsters/MotherOfFlames/MotherOfFlamesBoss"] = [("1_5_3", "KilledMatriarchOriathSquare")],
         ["Metadata/Monsters/Axis/Cleric/BlackguardClericPureBoss"] = [("1_5_4b", "KilledCatoTorchedCourts")],
-        ["Metadata/Monsters/Kira/Kira"] = [("2_9_2", "a9q2-KilledKira")],
+        ["Metadata/Monsters/Kira/Kira"] = [("2_9_8", "a9q2-KilledKira")],
 
         // Endgame / pinnacle bosses (if not already granted by Atlas unlock flags)
         ["Metadata/Monsters/AtlasExiles/AtlasExile5"] = [("", "SirusDefeated")],
@@ -156,8 +156,39 @@ public static class CharacterVoiceLines
         if (areaId == TutorialObjects.Strand && !Game.LyingOnBeach(player))
             await GrantAudioFlag(player, WashedUpFlag);
         bool isMap = Game.MapDevices.IsMapArea(player.Layout.Hash);
+        if (isMap && !player.Character.HasQuestFlag("InMapArea"))
+            await Game.SetQuestFlags(player, ["InMapArea"]);
         if (FlagForAreaEntry(areaId, isMap) is { } flag)
             await GrantAudioFlag(player, flag);
+    }
+
+    // Town NPC proximity voice-line triggers (CharacterAudioEvents ApproachEramir / MetSinA6).
+    static readonly (string AreaId, string NpcId, string Flag)[] NpcProximityTriggers =
+    [
+        ("2_6_town", "Metadata/NPC/Act6/SinTown", "MetSinA6"),
+        ("2_7_town", "Metadata/NPC/Act7/Eramir", "A7ApproachEramir"),
+    ];
+
+    /// <summary>Grants proximity-triggered town NPC voice-line quest flags (<c>MetSinA6</c>, <c>A7ApproachEramir</c>).</summary>
+    public static async Task CheckNpcProximity(Player player, (int X, int Y) at)
+    {
+        if (player.Closed || player.LeavingArea || !player.Connection.PlayerSent) return;
+        string areaId = player.Layout.Id;
+        foreach (var (area, npcId, flag) in NpcProximityTriggers)
+        {
+            if (area != areaId || player.Character.HasQuestFlag(flag)) continue;
+            bool near = false;
+            lock (player.Npcs)
+            {
+                foreach (var spawned in player.Npcs.Values)
+                {
+                    if (spawned.Npc.Id != npcId) continue;
+                    double dx = at.X - spawned.X, dy = at.Y - spawned.Y;
+                    if (dx * dx + dy * dy <= Quests.SightRange * Quests.SightRange) { near = true; break; }
+                }
+            }
+            if (near) await GrantAudioFlag(player, flag);
+        }
     }
 
     /// <summary>Grants the Twilight Strand wake-up voice-line quest flag (<c>EventWashedUp</c>) when the exile stands up.</summary>
