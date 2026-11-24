@@ -16,6 +16,7 @@ public sealed class SummonCatalog
     public sealed record Definition(string Id, string Family, string Variety, uint LimitStat,
         uint CountStat, bool Persistent = false, bool Corpse = false, bool Follows = true, bool Targetable = true)
     {
+        public int LimitWithoutStat { get; init; } = 1;
         /// <summary>The limit without its base_ prefix (the final stat the panel shows), 0 when none.</summary>
         public uint FinalLimitStat => LimitStat == 0 ? 0 : Stat.Of(Program.Stats.Name(LimitStat).Replace("base_", "", StringComparison.Ordinal));
     }
@@ -51,6 +52,8 @@ public sealed class SummonCatalog
         var effects = ClientTables.Table("GrantedEffects");
         var skills = ClientTables.Table("ActiveSkills");
         var result = new Dictionary<string, Definition>(StringComparer.Ordinal);
+        // Alternate minion values 0-11 select these twelve distinct player Harbinger bodies.
+        string[] harbingers = ["TheArcane", "Time", "Focus", "Directions", "Storms", "Brutality"];
         var definitions = new Definition[] {
             new("RaiseZombie", "Zombie", "Metadata/Monsters/RaisedZombies/RaisedZombieStandard", Stat.BaseNumberOfZombiesAllowed, Stat.Of("active_zombie_count"), true, true),
             new("RaiseSpectre", "Spectre", "", Stat.BaseNumberOfSpectresAllowed, Stat.Of("active_spectre_count"), true, true),
@@ -59,11 +62,15 @@ public sealed class SummonCatalog
             new("SummonRagingSpirit", "RagingSpirit", "Metadata/Monsters/SummonedSkull/SummonedSkull", Stat.BaseNumberOfRagingSpiritsAllowed, Stat.Of("active_raging_spirit_count"), Follows: false, Targetable: false),
             new("SummonReaper", "Reaper", "Metadata/Monsters/SummonedReaper/SummonedReaper", Stat.BaseNumberOfReapersAllowed, Stat.Of("active_reaper_count"), true),
             new("SummonHolyRelic", "HolyRelic", "Metadata/Monsters/AnimatedItem/HolyLivingRelic", Stat.BaseNumberOfRelicsAllowed, Stat.NumberOfActiveRelics, true, Targetable: false),
+            new("SummonDoedresEffigy", "DoedresEffigy", "Metadata/Monsters/Effigy/DoedresEffigySummoned", Stat.BaseNumberOfEffigiesAllowed, 0, Follows: false, Targetable: false),
             new("VaalAnimateWeapon", "VaalAnimatedWeapon", "Metadata/Monsters/AnimatedItem/AnimatedWeapon", Stat.BaseNumberOfAnimatedWeaponsAllowed, Stat.NumberOfActiveVaalAnimatedWeapons),
             new("AnimateWeapon", "AnimatedWeapon", "Metadata/Monsters/AnimatedItem/AnimatedWeapon", Stat.BaseNumberOfAnimatedWeaponsAllowed, Stat.Of("active_animated_weapon_count")),
+            new("AnimateGuardiansWeapon", "AnimatedWeapon", "Metadata/Monsters/AnimatedItem/AnimatedWeapon", Stat.BaseNumberOfAnimatedWeaponsAllowed, Stat.NumberOfActiveAnimatedWeapons),
             new("AnimateGuardian", "AnimatedGuardian", "Metadata/Monsters/AnimatedItem/AnimatedArmour", 0, Stat.Of("active_animated_guardian_count"), true),
-            new("BlinkArrow", "Clone", "Metadata/Monsters/Clone/MarauderCloneImmobile", Stat.Of("base_number_of_mirror_arrow_clones_allowed"), 0, Follows: false),
-            new("MirrorArrow", "Clone", "Metadata/Monsters/Clone/MarauderCloneImmobile", Stat.Of("base_number_of_mirror_arrow_clones_allowed"), 0, Follows: false),
+            // base_number_of_mirror_arrow_clones_allowed is not a Stats row; the real cap stat is
+            // base_number_of_clones_allowed (Stats 8217).
+            new("BlinkArrow", "Clone", "Metadata/Monsters/Clone/MarauderCloneImmobile", Stat.BaseNumberOfClonesAllowed, 0, Follows: false),
+            new("MirrorArrow", "Clone", "Metadata/Monsters/Clone/MarauderCloneImmobile", Stat.BaseNumberOfClonesAllowed, 0, Follows: false),
             // Summons an item triggers (their GrantedEffects are their own, not the gems'): Raging Spirits on kill,
             // Arakaali's Fang's spiders, The Scourge's and Rigwald's Crest's wolves.
             new("AshwakerSummonRagingSpiritOnKill", "RagingSpirit", "Metadata/Monsters/SummonedSkull/SummonedSkull", Stat.Of("base_number_of_raging_spirits_allowed"), Stat.Of("active_raging_spirit_count"), Follows: false, Targetable: false),
@@ -74,6 +81,18 @@ public sealed class SummonCatalog
         {
             string id = row.Text("Id")!;
             var template = definitions.FirstOrDefault(d => id == d.Id || id == d.Id + "AltX" || id == d.Id + "AltY");
+            if (id.StartsWith("SummonHarbingerOf", StringComparison.Ordinal))
+            {
+                bool greater = id.EndsWith("Uber", StringComparison.Ordinal);
+                string kind = id["SummonHarbingerOf".Length..(greater ? ^4 : ^0)];
+                int index = Array.IndexOf(harbingers, kind);
+                if (index >= 0)
+                {
+                    int variety = index + (greater ? harbingers.Length : 0) + 1;
+                    string suffix = variety == 9 ? "_" : "";
+                    template = new(id, "ItemHarbinger", $"Metadata/Monsters/Harbinger/HarbingerMinion{variety}{suffix}", 0, 0, Targetable: false);
+                }
+            }
             if (template is null || row.IntOrNull("ActiveSkill") is not int key) continue;
             string name = skills[key].Text("DisplayedName") ?? "";
             if (name.StartsWith("[", StringComparison.Ordinal)) continue;
@@ -104,6 +123,9 @@ public sealed class SummonedMinions
     public long OfferingRevision;
     public double RefreshAt;
     public bool Restored;
+    public bool LostPersistentOnDeath;
+    public bool SpectreBankLoaded;
+    public readonly List<string> SpectreBank = [];
     public double HolyRegenerationUntil;
     public int HolyRegenerationPerMinute;
     public ushort HolyBuff;
@@ -112,10 +134,18 @@ public sealed class SummonedMinions
     public Prey? SignalledPrey;
     public readonly Queue<uint> Corpses = [];
     public sealed record HitMark(SpawnedMonster Monster, ushort Source, int Effect,
-        GameServer.Core.Protocol.Instance.Item? Gem, double Until);
+        GameServer.Core.Protocol.Instance.Item? Gem, double Until)
+    {
+        public bool PlayerConsumesCorpse { get; init; } = true;
+    }
     public readonly Dictionary<(uint Id, ushort Source), HitMark> HitMarks = [];
     public sealed record HitSummon(uint Target, SpawnedMonster Monster, ushort Source, int Effect,
-        GameServer.Core.Protocol.Instance.Item? Gem, bool ConsumeCorpse, string Kind = "", string Supports = "");
+        GameServer.Core.Protocol.Instance.Item? Gem, bool ConsumeCorpse, string Kind = "", string Supports = "")
+    {
+        public GameServer.Core.Protocol.Instance.Item? Weapon { get; init; }
+        public WornGrantedSkills.Grant? WornGrant { get; init; }
+        public bool PlayerConsumesCorpse { get; init; } = true;
+    }
     public readonly List<HitSummon> HitSummons = [];
     public readonly Dictionary<uint, GameServer.Core.Protocol.Instance.MinionOwnershipChange> PresentedOwnership = [];
     public Dictionary<byte, GameServer.Core.Protocol.Instance.Item> GuardianEquipment = [];

@@ -46,9 +46,7 @@ public sealed class KillOnslaught
         double seconds = 0;
         foreach (var (chance, s) in Rolls)
             if (RandomRolls.Chance(chance, 100, random)) seconds = Math.Max(seconds, s);
-        if (seconds <= 0 || now + seconds <= Until) return false;
-        Until = now + seconds;
-        return true;
+        return Gain(now, seconds);
     }
 
     /// <summary>A gain of <paramref name="seconds"/> at <paramref name="now"/> (an effect rule's): whether it started
@@ -62,10 +60,12 @@ public sealed class KillOnslaught
 
     /// <summary>One hit at <paramref name="now"/>: whether it started or lengthened Onslaught ("You gain Onslaught for
     /// X seconds on Hit"). A gain never shortens the Onslaught running.</summary>
-    public bool Hit(double now)
+    public bool Hit(double now) => Gain(now, HitMs / 1000d);
+
+    public bool Gain(double now, double seconds)
     {
-        if (HitMs <= 0 || now + HitMs / 1000.0 <= Until) return false;
-        Until = now + HitMs / 1000.0;
+        if (seconds <= 0 || now + seconds <= Until) return false;
+        Until = now + seconds;
         return true;
     }
 

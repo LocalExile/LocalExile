@@ -382,6 +382,7 @@ public static partial class Game
                     player.LockstepBusyUntil = Math.Max(player.LockstepBusyUntil, frame.Start + (frames + 1) * (frame.End - frame.Start));
                 return InstanceProtocol.ActionStarted(player.Id, here.X, here.Y, x, y, TutorialObjects.WashedUpSkillId, sequence, flags);
             });
+        await CharacterVoiceLines.OnWakeUpOnBeach(player);
     }
 
     public static bool LyingOnBeach(Player player) => player.PeerTemplate is { WashedUp: true } && !player.TutorialGettingUp;

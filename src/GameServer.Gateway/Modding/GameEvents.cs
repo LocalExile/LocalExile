@@ -11,8 +11,15 @@ using GameServer.Core.World;
 /// the handles.</summary>
 public sealed class GameEvent<T> : GameEventOwners.IOwned where T : Delegate
 {
-    ImmutableArray<(string Owner, int Rank, T Run)> _subscribers = [];
-    long _revision;
+    internal readonly record struct Subscriber(string Owner, int Rank, T Run, long Id)
+    {
+        public bool AppliesTo(LeagueRuntime league) => Rank == GameEventOwners.ModRank || league.Modules.Contains(Owner)
+            || (Rank == GameEventOwners.LeagueRank && league.Id.Equals(Owner, StringComparison.OrdinalIgnoreCase));
+    }
+
+    ImmutableArray<Subscriber> _subscribers = [];
+    internal ImmutableArray<Subscriber> Snapshot => _subscribers;
+    long _nextSubscriberId, _revision;
     /// <summary>Changes when a provider is added or removed, for consumers that retain derived state.</summary>
     public long Revision => Volatile.Read(ref _revision);
 
@@ -21,17 +28,18 @@ public sealed class GameEvent<T> : GameEventOwners.IOwned where T : Delegate
     public IDisposable Add(string owner, T run)
     {
         int rank = GameEventOwners.RankOf(owner);
+        var subscriber = new Subscriber(owner, rank, run, Interlocked.Increment(ref _nextSubscriberId));
         ImmutableInterlocked.Update(ref _subscribers, s =>
         {
             int at = s.Length;
             while (at > 0 && s[at - 1].Rank > rank) at--;
-            return s.Insert(at, (owner, rank, run));
+            return s.Insert(at, subscriber);
         });
         Interlocked.Increment(ref _revision);
         return new Subscription(() =>
         {
-            ImmutableInterlocked.Update(ref _subscribers, s => s.RemoveAll(e => ReferenceEquals(e.Run, run)));
-            Interlocked.Increment(ref _revision);
+            if (ImmutableInterlocked.Update(ref _subscribers, s => s.RemoveAll(e => e.Id == subscriber.Id)))
+                Interlocked.Increment(ref _revision);
         });
     }
 
@@ -59,10 +67,8 @@ public sealed class GameEvent<T> : GameEventOwners.IOwned where T : Delegate
     {
         var subscribers = _subscribers;
         if (subscribers.IsEmpty) yield break;
-        foreach (var (owner, rank, run) in subscribers)
-            if (rank == GameEventOwners.ModRank || league.Modules.Contains(owner)
-                || (rank == GameEventOwners.LeagueRank && league.Id.Equals(owner, StringComparison.OrdinalIgnoreCase)))
-                yield return (owner, run);
+        foreach (var subscriber in subscribers)
+            if (subscriber.AppliesTo(league)) yield return (subscriber.Owner, subscriber.Run);
     }
 
     void GameEventOwners.IOwned.Release(string owner, int rank)
@@ -343,6 +349,44 @@ public static class GameEvents
     public static async Task RunAreaTick(List<(string Owner, Func<Player, double, Task> Run)> work, Player player, double seconds)
     {
         foreach (var (owner, run) in work) await GameEventOwners.Guard(owner, nameof(AreaTick), () => run(player, seconds));
+    }
+
+    /// <summary>One player's area work, refreshed only when its subscriptions change.</summary>
+    public sealed class AreaTickRunner(Player player)
+    {
+        long _revision = -1;
+        Dictionary<long, Func<Player, double, Task>?> _bindings = [];
+        List<(string Owner, Func<Player, double, Task> Run)> _work = [];
+
+        /// <summary>Whether an area frame has callbacks to run or changed subscriptions to bind.</summary>
+        public bool NeedsTick => _work.Count != 0 || AreaTick.Revision != _revision;
+
+        public Task Run(double seconds)
+        {
+            long revision = AreaTick.Revision;
+            if (revision != _revision) Refresh(revision);
+            return _work.Count == 0 ? Task.CompletedTask : RunAreaTick(_work, player, seconds);
+        }
+
+        void Refresh(long revision)
+        {
+            var league = Program.LeagueFor(player);
+            Dictionary<long, Func<Player, double, Task>?> bindings = [];
+            List<(string Owner, Func<Player, double, Task> Run)> work = [];
+            foreach (var subscriber in AreaTick.Snapshot)
+            {
+                if (!subscriber.AppliesTo(league)) continue;
+                // Other subscribers keep the state they already bound, including ones that opted out of the area.
+                if (!_bindings.TryGetValue(subscriber.Id, out var run))
+                    GameEventOwners.Guard(subscriber.Owner, nameof(AreaTick), () => { run = subscriber.Run(player); });
+                bindings.Add(subscriber.Id, run);
+                if (run is not null) work.Add((subscriber.Owner, run));
+            }
+            _bindings = bindings;
+            _work = work;
+            // Record the revision read before enumeration, so a concurrent change is seen on the next frame.
+            _revision = revision;
+        }
     }
 
     public static async Task RunAreaGenerated(Player player)

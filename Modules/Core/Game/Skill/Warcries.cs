@@ -19,6 +19,219 @@ public static partial class Game
     public const string CorpseExplosionAo = "Metadata/Effects/Spells/monsters_effects/gore_explode/gore_explosion_no_gibs.ao";
     const int CorpseExplosionArtMs = 2000;
 
+    public const ushort RallyingCryBuffRow = 1538, SeismicCryBuffRow = 1544, AncestralCryBuffRow = 1545,
+        InfernalCryBuffRow = 1540, BattlemagesCryBuffRow = 1866;
+
+    /// <summary>The BuffDefinitions row a warcry's own buff uses, or null when no buff is granted for it.</summary>
+    public static ushort? WarcryBuffRow(string effectId) => effectId switch
+    {
+        "RallyingCry" => RallyingCryBuffRow,
+        "SeismicCry" => SeismicCryBuffRow,
+        "AncestralCry" => AncestralCryBuffRow,
+        "InfernalCry" => InfernalCryBuffRow,
+        "BattlemagesCry" => BattlemagesCryBuffRow,
+        _ => null,
+    };
+
+    /// <summary>Stats for buffs derived from the gem, in the order used by BuffDefinitions.
+    /// Rallying Cry derives its damage separately from the main-hand weapon.</summary>
+    public static (uint Key, int Value)[]? WarcryBuffStats(string effectId, int power, double buffEffect, Func<uint, int> own)
+    {
+        if (WarcryBuffRow(effectId) is null) return null;
+        int capped = Math.Clamp(power, 0, effectId == "AncestralCry" ? 30 : 25);
+        int steps5 = capped / 5, steps10 = capped / 10;
+        int Scaled(int steps, int per) => (int)Math.Clamp(Math.Floor(steps * (double)per * buffEffect), 0, int.MaxValue);
+        return effectId switch
+        {
+            "SeismicCry" =>
+            [
+                (Stat.ArmourPlusPctFinalFromSeismicCryBuff, Scaled(steps5, own(Stat.SeismicCryArmourPlusPctFinalPer5PowerUpToCap))),
+                (Stat.StunThresholdPlusPct, Scaled(steps5, own(Stat.SeismicCryStunThresholdPlusPctPer5PowerUpToCap))),
+            ],
+            "AncestralCry" =>
+            [
+                (Stat.BaseResistAllElementsPct, Scaled(steps5, own(Stat.AncestralCryElementalResistPctPer5PowerUpToCap))),
+                (Stat.AdditionalMaximumAllElementalResistancesPct, Scaled(steps10, own(Stat.AncestralCryMaximumElementalResistPctPer10PowerUpToCap))),
+            ],
+            "InfernalCry" =>
+                [(Stat.PhysicalDamagePctToAddAsFire, Scaled(steps5, own(Stat.InfernalCryPhysicalDamagePctToAddAsFirePer5PowerUpToCap)))],
+            "BattlemagesCry" =>
+                [(Stat.AdditionalBaseCriticalStrikeChance, Scaled(steps5, own(Stat.DivineCryAdditionalBaseCriticalStrikeChancePer5PowerUpToCap)))],
+            _ => null,
+        };
+    }
+
+    // BuffDefinitions lists all five minima first, followed by all five maxima.
+    static readonly (DamageType Type, uint Min, uint Max)[] RallyingDamageStats =
+    [
+        (DamageType.Physical, Stat.AttackMinimumAddedPhysicalDamage, Stat.AttackMaximumAddedPhysicalDamage),
+        (DamageType.Fire, Stat.AttackMinimumAddedFireDamage, Stat.AttackMaximumAddedFireDamage),
+        (DamageType.Cold, Stat.AttackMinimumAddedColdDamage, Stat.AttackMaximumAddedColdDamage),
+        (DamageType.Lightning, Stat.AttackMinimumAddedLightningDamage, Stat.AttackMaximumAddedLightningDamage),
+        (DamageType.Chaos, Stat.AttackMinimumAddedChaosDamage, Stat.AttackMaximumAddedChaosDamage),
+    ];
+
+    static (uint Key, int Value)[] RallyingCryDamage(DamagePacket weapon, double fraction)
+    {
+        var values = new (uint, int)[2 * RallyingDamageStats.Length];
+        for (int i = 0; i < RallyingDamageStats.Length; i++)
+        {
+            var (type, min, max) = RallyingDamageStats[i];
+            var range = weapon[type];
+            values[i] = (min, (int)Math.Clamp(Math.Floor(range.Min * fraction), 0, int.MaxValue));
+            values[i + RallyingDamageStats.Length] = (max, (int)Math.Clamp(Math.Floor(range.Max * fraction), 0, int.MaxValue));
+        }
+        return values;
+    }
+
+    sealed record WarcryGrant(GameArea Area, ushort Row, uint Source, double Until, (uint Key, int Value)[] Values, long Strength = 0);
+    static readonly Store<Player, List<WarcryGrant>> WarcryGrants = new();
+    static readonly RuleTable<SpawnedMonster, List<WarcryGrant>> MinionWarcryGrants = new();
+
+    static void AddWarcryStats(Player player, Dictionary<uint, int> stats)
+    {
+        if (player.PlayerLife > 0 && WarcryGrants.TryGetValue(player, out var grants))
+            AddWarcryStats(grants, player.Area, AreaTime(player), stats);
+    }
+
+    static void AddWarcryStats(List<WarcryGrant> grants, GameArea area, double now, Dictionary<uint, int> stats)
+    {
+        // One copy of a given buff applies. A weaker caster's unexpired grant takes over when the stronger ends.
+        for (int i = 0; i < grants.Count; i++)
+        {
+            var grant = grants[i];
+            if (grant.Until <= now || grant.Area != area) continue;
+            for (int k = 0; k < grant.Values.Length; k++)
+            {
+                var (key, value) = grant.Values[k];
+                bool strongest = true;
+                for (int j = 0; j < grants.Count && strongest; j++)
+                {
+                    var other = grants[j];
+                    if (j == i || other.Row != grant.Row || other.Area != area || other.Until <= now) continue;
+                    long strength = grant.Row == RallyingCryBuffRow ? grant.Strength : value;
+                    long competing = grant.Row == RallyingCryBuffRow ? other.Strength : other.Values[k].Value;
+                    strongest = competing < strength || competing == strength && i < j;
+                }
+                if (strongest && value != 0) stats[key] = ActorScale.Saturate((long)stats.GetValueOrDefault(key) + value);
+            }
+        }
+    }
+
+    static void ReceiveWarcry(GameArea area, uint entity, List<WarcryGrant> grants, WarcryGrant gift, double now)
+    {
+        grants.RemoveAll(g => g.Until <= now || g.Row == gift.Row && g.Source == gift.Source);
+        grants.Add(gift);
+        uint[]? values = gift.Row == RallyingCryBuffRow ? [.. gift.Values.Select(v => (uint)v.Value)] : null;
+        area.Buffs.Set(entity, new Buff(gift.Row, gift.Source, Values: values, U68: Buff.Seconds(gift.Until - now)));
+    }
+
+    static void UpdateWarcryStats(Player player)
+    {
+        RebuildPools(player);
+        MarkPlayerStats(player, PlayerStatStep.Sources);
+        PresentStats(player);
+    }
+
+    internal static void ExpireWarcryBuffs(Player player)
+    {
+        if (!WarcryGrants.TryGetValue(player, out var grants)) return;
+        double now = AreaTime(player);
+        bool changed = false;
+        for (int i = grants.Count - 1; i >= 0; i--)
+        {
+            var grant = grants[i];
+            if (player.PlayerLife > 0 && grant.Until > now && grant.Area == player.Area) continue;
+            if (grant.Area == player.Area) player.Area.Buffs.Clear(player.Id, grant.Row, grant.Source);
+            grants.RemoveAt(i);
+            changed = true;
+        }
+        if (grants.Count == 0) WarcryGrants.Remove(player);
+        if (changed) UpdateWarcryStats(player);
+    }
+
+    static void RemoveRallyingCryOnWeaponSwapLocked(Player player)
+    {
+        var area = player.Area;
+        bool RemoveOutgoing(uint recipient, List<WarcryGrant> grants)
+        {
+            if (grants.RemoveAll(grant => grant.Area == area && grant.Row == RallyingCryBuffRow
+                && grant.Source == player.Id) == 0) return false;
+            area.Buffs.Clear(recipient, RallyingCryBuffRow, player.Id);
+            return true;
+        }
+        foreach (var ally in player.Instance.PlayersExcept(player.Id))
+            if (WarcryGrants.TryGetValue(ally, out var grants) && RemoveOutgoing(ally.Id, grants))
+            {
+                if (grants.Count == 0) WarcryGrants.Remove(ally);
+                UpdateWarcryStats(ally);
+            }
+        foreach (var (id, monster) in area.Monsters)
+            if (MinionWarcryGrants.TryGetValue(monster, out var grants) && RemoveOutgoing(id, grants)
+                && grants.Count == 0)
+                MinionWarcryGrants.Remove(monster);
+    }
+
+    public static void ApplyWarcryBuffLocked(Player player, string effectId, IReadOnlyDictionary<uint, int> own,
+        IReadOnlyDictionary<uint, int> playerStats, (int X, int Y) at, int radius, double now, double duration, double buffEffect)
+    {
+        if (playerStats.GetValueOrDefault(Stat.WarcriesDoNotApplyBuffsToSelfOrAllies) != 0
+            || own.GetValueOrDefault(Stat.WarcriesDoNotApplyBuffsToSelfOrAllies) != 0
+            || duration <= 0 || WarcryBuffRow(effectId) is not ushort row) return;
+        bool rallying = row == RallyingCryBuffRow;
+        var nearbyPlayers = player.Instance.PlayersExcept(player.Id)
+            .Where(ally => !ally.LeavingArea && ally.PlayerLife > 0 && Dist(ally.Walk.Position(now), at) <= radius).ToArray();
+        var nearbyMonsters = player.Area.Monsters.Values.Where(m => !m.Dead && m.Life > 0 && Dist(m.Walk.Position(now), at) <= radius);
+        int minimum = playerStats.GetValueOrDefault(Stat.WarcriesHaveMinimum10Power) != 0 ? 10 : 0;
+        minimum = Math.Max(minimum, effectId switch
+        {
+            "AncestralCry" => playerStats.GetValueOrDefault(Stat.AncestralCryMinimumPower),
+            "SeismicCry" => playerStats.GetValueOrDefault(Stat.SeismicCryMinimumPower),
+            _ => 0
+        });
+        int power = InfiniteWarcryPower;
+        if (playerStats.GetValueOrDefault(Stat.WarcriesHaveInfinitePower) == 0)
+        {
+            long nearby = nearbyMonsters.Where(m => m.Hostile || rallying).Sum(m => (long)WarcryPower(m.Rarity));
+            if (rallying) nearby += 5L * nearbyPlayers.Length;
+            power = Math.Max(minimum, ActorScale.Saturate(nearby * (100L + playerStats.GetValueOrDefault(Stat.WarcryMonsterPowerPlusPct)) / 100));
+        }
+        if (effectId == "BattlemagesCry") buffEffect += playerStats.GetValueOrDefault(Stat.BattlemagesCryBuffEffectPlusPct) / 100d;
+        WarcryGrant gift;
+        WarcryGrant? ownMinionGift = null;
+        if (rallying)
+        {
+            if (WeaponIn(player, ActiveMainHand(player)) is not { LocalDamage: { } weapon }) return;
+            double fraction = Math.Clamp(power, 0, 30) / 5 * own.GetValueOrDefault(Stat.RallyingCryWeaponDamagePctForAlliesPer5MonsterPower)
+                * Math.Max(0, buffEffect + playerStats.GetValueOrDefault(Stat.RallyingCryBuffEffectPlusPct) / 100d) / 100d;
+            if (fraction <= 0) return;
+            var values = RallyingCryDamage(weapon, fraction);
+            gift = new(player.Area, row, player.Id, now + duration, values, values.Sum(v => (long)v.Value));
+            double minionEffect = Math.Max(0, 1 + own.GetValueOrDefault(Stat.RallyingCryBuffEffectOnMinionsPlusPctFinal) / 100d);
+            var minionValues = RallyingCryDamage(weapon, fraction * minionEffect);
+            ownMinionGift = gift with { Values = minionValues, Strength = minionValues.Sum(v => (long)v.Value) };
+        }
+        else
+        {
+            if (WarcryBuffStats(effectId, power, buffEffect, key => own.GetValueOrDefault(key)) is not { } stats) return;
+            gift = new(player.Area, row, player.Id, now + duration, stats);
+        }
+        void GrantPlayer(Player recipient)
+        {
+            ReceiveWarcry(player.Area, recipient.Id, WarcryGrants.GetOrCreateValue(recipient), gift, now);
+            UpdateWarcryStats(recipient);
+        }
+        // Call to Arms suppresses the caster's own warcry buffs. Allies still get theirs.
+        if (!rallying && playerStats.GetValueOrDefault(Stat.KeystoneCallToArms) == 0) GrantPlayer(player);
+        foreach (var ally in nearbyPlayers) GrantPlayer(ally);
+        var ownMinions = ownMinionGift is null ? null : player.Minions.All.Select(m => m.Id).ToHashSet();
+        foreach (var (id, ally) in player.Area.Monsters)
+            if (!ally.Hostile && !ally.Dead && ally.Life > 0 && Dist(ally.Walk.Position(now), at) <= radius)
+                ReceiveWarcry(player.Area, id, MinionWarcryGrants.GetOrCreateValue(ally),
+                    ownMinions?.Contains(id) == true ? ownMinionGift! : gift, now);
+        Console.WriteLine($"[gateway] {effectId}: warcry buff row {row} power={power} for {duration:0.###} s");
+    }
+
     public static async Task WarcryReleased(Player player,
         (int X, int Y) at, int radius, int epoch)
     {
@@ -26,6 +239,8 @@ public static partial class Game
         player.RecentEvents.Record(StatConditions.UsedWarcry, ProjectileWorldTime(player));
         var stats = AreaPlayerStats(player);
         int Get(uint key) => stats.GetValueOrDefault(key);
+        // "Removes Bleeding when you use a Warcry": the bleed owner a flask's bleed suffix also clears, with no protection.
+        if (Get(Stat.RemoveBleedingOnWarcry) != 0) player.IncomingAilments.RemoveOrProtectBleeding(AreaTime(player), 0);
         if (Get(CorpseExplosionStat) is int percent and > 0)
             await ExplodeCorpses(player, at, radius, epoch, percent, Get,
                 DamageStats.Conversion(stats, Stats, attack: null));
@@ -60,7 +275,7 @@ public static partial class Game
 
     // A corpse the engine has: a monster killed in this area visit whose Life type allows corpse use, not yet consumed.
     static bool IsCorpse(SpawnedMonster m) =>
-        m.Dead && m.Life == 0 && !m.CorpseConsumed && m.Variety?.LifeData.IsUsableAsCorpse(m.Life) == true;
+        m.Dead && m.Life == 0 && !m.CorpseConsumed && CorpseTypeAllowsUse(m);
 
     // The explosion's hit before the target's mitigation: the corpse's maximum Life x percent as physical damage, with the
     // owner's global increases and more multipliers, then his global conversion and gain as extra (poewiki Explode: global,
@@ -99,8 +314,10 @@ public static partial class Game
                 foreach (var (targetId, m) in player.Area.MonstersNear(centre, blast).Where(e => e.Value.Hostile && !e.Value.Dead && e.Value.Life > 0
                     && Dist(e.Value.Walk.Position(now), centre) <= blast).ToList())
                 {
-                    int damage = MonsterTakes(m, hit, AreaRng(player), spell: false, now: now);
-                    if (ApplyMonsterHitLocked(player, m, damage) is not { } applied) continue;
+                    var rng = AreaRng(player);
+                    var resisted = DamageModel.Mitigate(hit.Roll(rng), type => MonsterHitResistance(m, type, default, now));
+                    int damage = MonsterTakesMitigated(m, resisted, false, now, random: rng);
+                    if (ApplyTypedMonsterHitLocked(player, m, damage, MonsterHitChaosDamage(m, resisted, false, now, damage)) is not { } applied) continue;
                     if (applied.StageStarts)
                     {
                         CommitBossStage(player, targetId, m, now);

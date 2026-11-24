@@ -39,8 +39,7 @@ public static class PartyRoster
     static bool Available(Player c) => !c.Controlled && !c.Closed && !c.LeavingArea && !c.Character.Ssf;
     static bool SameLeague(Player a, Player b) => a.Character.Hardcore == b.Character.Hardcore && a.Character.LeagueForm == b.Character.LeagueForm
         && string.Equals(a.Character.League, b.Character.League, StringComparison.OrdinalIgnoreCase);
-    static bool Compatible(Player a, Player b) => Available(a) && Available(b) && SameLeague(a, b)
-        && ReferenceEquals(a.Instance.Presence, b.Instance.Presence);
+    static bool Compatible(Player a, Player b) => Available(a) && Available(b) && SameLeague(a, b);
     static uint Find(Player c) => Humans.FirstOrDefault(p => p.Value.Any(m => Same(m, c))).Key;
     static int Count(uint id) => (Humans.GetValueOrDefault(id)?.Count ?? 0) + (Companions.GetValueOrDefault(id)?.Count ?? 0);
     static uint Allocate()

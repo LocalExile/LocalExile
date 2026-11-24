@@ -353,7 +353,7 @@ public static partial class MapStrongboxes
         double now = AreaTime(player);
         foreach (var (id, m) in player.Area.Monsters)
         {
-            if (!m.Hostile || !m.Dead || m.CorpseConsumed || m.Ailments.Shattered) continue;
+            if (!m.Hostile || !m.Dead || m.CorpseConsumed || m.Ailments.Shattered || Game.IsSpectreCorpse(m)) continue;
             var spot = m.Walk.Position(now);
             if (Distance(spot, at) > radius) continue;
             m.CorpseConsumed = true;
@@ -375,7 +375,7 @@ public static partial class MapStrongboxes
         var dead = new List<(uint Id, MonsterCatalog.Variety Variety, byte Level, MonsterRarity Rarity, (int X, int Y) At, bool Remove)>();
         double now = AreaTime(player);
         foreach (var (id, m) in player.Area.Monsters)
-            if (m.Hostile && m.Dead && !m.CorpseConsumed && !m.Ailments.Shattered && m.Variety is { } variety
+            if (m.Hostile && m.Dead && !m.CorpseConsumed && !m.Ailments.Shattered && !Game.IsSpectreCorpse(m) && m.Variety is { } variety
                 && Distance(m.Walk.Position(now), (box.X, box.Y)) <= radius * 2)
             {
                 m.CorpseConsumed = true;
@@ -499,6 +499,9 @@ public static partial class MapStrongboxes
         var here = player.Walk.Position(at);
         bool alive = player.PlayerLife > 0 && !player.Paused && !InGracePeriod(player);
         var inside = alive ? zones.Where(z => Distance(here, z.At) <= z.Radius).ToArray() : [];
+        if (inside.Length > 0 && UnaffectedByGround(player) is var unaffected)
+            inside = [.. inside.Where(z => !(unaffected.Burning && z.Type == DamageType.Fire && z.Dps > 0
+                || unaffected.Chilled && z.Ailment == "chill" || unaffected.Shocked && z.Ailment == "shock"))];
         var immune = inside.Length > 0 ? PlayerImmunities(player) : [];
         double dps = inside.Where(z => z.Dps > 0 && !immune.Contains(z.Type))
             .Sum(z => z.Dps * (z.Type == DamageType.Physical ? 1 : 1 - Math.Min(MaxResistance(player, z.Type), Resistance(player, z.Type)) / 100.0));

@@ -54,7 +54,26 @@ public static partial class Game
     }
 
     static Buff PhasingBuff(Player player, double? seconds) =>
-        new(PhasingBuffRow, player.Id, U68: seconds is { } s ? Buff.Seconds(s) : null, Visual: PhasingVisualRow);
+        new(PhasingBuffRow, player.Id, U68: seconds is { } s ? Buff.Seconds(s) : null,
+            Visual: seconds is null ? PhasingVisual(player) : PhasingVisualRow);
+
+    // Phasing from a flask (a Quartz Flask's phase_through_objects) wears the flask's effect, phase.epk: the flask effect
+    // cosmetic on the cell of a flask that grants it now (running, or one of Mageblood's) replaces it, and Invisible
+    // Flask Effect hides it (FlaskEffectVisual).
+    static ushort PhasingVisual(Player player)
+    {
+        if (!player.Phasing) return PhasingVisualRow;
+        var items = ItemsFor(player);
+        var bar = ItemsOf(player).Items(PlayerInventories.Flask).OrderBy(f => f.X).ToList();
+        var always = MagebloodCount(player);
+        IReadOnlyList<InventoryItem> permanent = always.Count > 0 ? MagebloodFlasks(bar, always, items) : [];
+        foreach (var flask in bar)
+            if ((player.UtilityFlaskEffects.Of(flask.Id) is not null || permanent.Contains(flask))
+                && items.ByHash(flask.Item.TypeHash) is { } type
+                && items.UtilityFlaskOf(type) is { } utility && UtilityFlasks.Phasing(utility.Stats))
+                return FlaskEffectVisual(player, flask.X) ?? PhasingVisualRow;
+        return PhasingVisualRow;
+    }
 
     /// <summary>The Phasing Buff (BuffDefinitions "phasing_buff") and the virtual stat the client's pathfinder reads. The
     /// server's own blockers already follow <see cref="Player.IsPhasing"/>; without the stat the client walks around them and

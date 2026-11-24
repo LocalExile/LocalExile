@@ -6,6 +6,23 @@ using Kind = MonsterElementalAilments.Kind;
 // inflicted by every outgoing hit, shock as increased damage taken, chill and freeze in the monster AI, and their buffs.
 public static partial class Game
 {
+    static void ApplyRetaliationAilmentDuration(Dictionary<uint, int> stats)
+    {
+        uint duration = Stat.BaseAllAilmentDurationPlusPct;
+        if (stats.GetValueOrDefault(Stat.RetaliationSkillsAllAilmentDurationPlusPct) is int increased and not 0)
+            stats[duration] = ActorScale.Add(duration, stats.GetValueOrDefault(duration), increased);
+    }
+
+    static Func<uint, int> SupportedAilmentStats(Player player, ushort skillId,
+        IReadOnlyDictionary<uint, int> playerStats, SupportedHitInputs? capturedInputs)
+    {
+        if (capturedInputs is not null) return capturedInputs.Get;
+        var skill = SupportedSkill(player, skillId);
+        var merged = MergeSkillStats(playerStats, skill.Stats);
+        if (SkillsFor(player).IsRetaliation(skill.Effect)) ApplyRetaliationAilmentDuration(merged);
+        return merged.GetValueOrDefault;
+    }
+
     /// <summary>The factor on damage a monster takes: its mods' increased damage taken, its shock, Glacial Wave's chill and
     /// the player's debuffs on it (his taunt's on every type, his enemy auras' on <paramref name="elemental"/> damage, his
     /// Withered on <paramref name="chaos"/> damage), added together (PoB DamageTaken, ElementalDamageTaken and
@@ -21,6 +38,7 @@ public static partial class Game
             + (chaos ? WitheredTaken(m, now) : 0)
             + m.Ignites.DamageTaken(now)
             + PerAilmentTypeTakenPct(m, now)
+            + (m.HasCurses ? m.Curses.DamageTaken(now) : 0)
             + BrandMonsterTakenPctLocked(m)
             + (m.Life * 2L <= m.MaxLife ? m.Curses[Stat.DamageTakenPlusPctOnLowLife] : 0))
         * MonsterToughnessFactor(m.Effects);
@@ -287,8 +305,12 @@ public static partial class Game
         // or a trap's for a site that only says the hit is not the character's.
         HitLandedLocked(player, m, critical, spell, skill, who ?? (playerHit ? CombatActors.Self : CombatActors.Trap), sourceSkill);
         HitSummonsOnHitLocked(player, m, skill, sourceSkill, now, random);
+        if (playerHit) QueueLivingLightningLocked(player, targetId, m, sourceSkill, skill, mitigated, now);
+        if (playerHit && !spell && skill is not null && GolemStat(skill, Stat.HolyStrikeAnimatesOwnersMainHandWeapon) != 0)
+            QueueHolyArmamentLocked(player, targetId, m, sourceSkill);
         PhantasmsOnHitLocked(player, m, sourceSkill, now, random, skill: skill);
         CursesOnHitLocked(player, m, sourceSkill, spell, now, skill, playerStats, playerHit, random);
+        if (playerHit && critical) ArcaneSurgeOnCritLocked(player, playerStats, now, random);
         KnockbackOnHitLocked(player, m, playerStats, skill, now, random, hitOrigin,
             attackerSize: attackerSize, attackerHasReversedStat: attackerHasReversedStat);
         // "You gain Onslaught for 4 seconds on Hit" and "Gain Arcane Surge on Hit with Spells" (Honoured Berserker
@@ -302,10 +324,13 @@ public static partial class Game
         double factor = MonsterDamageTaken(m, spell, now, hit: true) * (critical ? criticalMultiplier / 100.0 : 1);
         int Player(uint key) => playerStats.GetValueOrDefault(key);
         int Skill(uint name) => skill is not null && name is var key ? skill.GetValueOrDefault(key) : 0;
-        // The physical part counts after the monster's physical reduction and its Maim, as the hit's damage does.
+        // The physical part counts after the monster's armour + physical reduction and its Maim, as the hit's damage does.
+        double physRaw = mitigated[DamageType.Physical].Min;
+        double physReduction = HitMitigation.PhysicalReduction(Monsters, m, physRaw,
+            m.Effects.PhysicalReduction - CrushReduction(m, now), MonsterArmourEnabled);
         var taken = mitigated.Select((type, range) => range.Scale(factor
             * (type == DamageType.Physical
-                ? Math.Max(0, 1 - (m.Effects.PhysicalReduction - CrushReduction(m, now)) / 100.0)
+                ? Math.Max(0, 1 - physReduction / 100.0)
                     * (1 + MaimedPhysicalTaken(m, now) / 100.0) : 1)));
         bool tinctureWeapon = !spell && Player(Stat.TinctureApplied) != 0;
         int frozenShock = spell && m.Ailments.Magnitude(Kind.Freeze, now) > 0
@@ -329,7 +354,11 @@ public static partial class Game
                 _ => value,
             };
         }
-        var added = m.Ailments.Inflict(taken, critical, m.MaxLife, now, Attacker, name => m.Effects[name], random,
+        double thresholdScale = MonsterAilmentThresholdScaling;
+        long ailmentThreshold = thresholdScale > 0 && m.Variety is not null
+            ? Math.Max(1L, (long)Math.Round(Monsters.AilmentThreshold(m.Variety, m.Level, m.MaxLife) * thresholdScale))
+            : m.MaxLife;
+        var added = m.Ailments.Inflict(taken, critical, (uint)Math.Min(uint.MaxValue, ailmentThreshold), now, Attacker, name => m.Effects[name], random,
             AilmentArea(Player, Skill, spell));
         // Scorch, Brittle and Sap (MonsterAlternateAilments): only from a source, after chill, freeze and shock's draws.
         var alternate = AlternateAilmentsOnHitLocked(m, taken, critical, now, Attacker, random);
@@ -381,17 +410,12 @@ public static partial class Game
         }
         // Fleeing (MonsterFlee): its own draws (AreaRng(player)), so a projectile's reaction draws stay in order.
         int fleeChance = MonsterFlee.Chance(spell, Player, Skill);
-        if (!m.Fleeing && MonsterFlee.Rolls(fleeChance, m.Effects[Stat.MonsterChanceToNotFleePct], AreaRng(player)))
+        if (TryFleeFromHitLocked(player, m, player.Walk.Position(now), fleeChance, now))
         {
-            int size = Math.Max(0, LivingCollision.Size(m));
-            m.FleeTo = MonsterFlee.Point(m.Walk.Position(now), player.Walk.Position(now),
-                (x, y) => player.Layout.WalkableFor(x, y, size) && !player.Barrier.Contains((x, y)), AreaRng(player));
-            m.Fleeing = m.FleeTo is not null;
             // Which hit made it run, and from what chance: the stat sources are not logged by the panel, and a fleeing
             // monster reads as broken AI (reported live 2026-11-23).
-            if (m.Fleeing)
-                Console.WriteLine($"[gateway] monster 0x{targetId:x} ({m.Label}) flees from a {(spell ? "spell" : "hit")} " +
-                    $"0x{sourceSkill:x4}: {fleeChance}% chance, {m.Effects[Stat.MonsterChanceToNotFleePct]}% not to, to {m.FleeTo}");
+            Console.WriteLine($"[gateway] monster 0x{targetId:x} ({m.Label}) flees from a {(spell ? "spell" : "hit")} " +
+                $"0x{sourceSkill:x4}: {fleeChance}% chance, {m.Effects[Stat.MonsterChanceToNotFleePct]}% not to, to {m.FleeTo}");
         }
         if (added.Count + alternate.Count == 0 || player.PlayerLife == 0
             || !RandomRolls.Chance(m.Effects[Stat.ReflectNonDamagingAilmentsPctChance], 100, random)) return;
@@ -400,6 +424,16 @@ public static partial class Game
         if (added.Count == 0) return;
         if (reflected is not null) reflected.AddRange(added);
         else ReflectAilmentsLocked(player, added, now, playerStats, random);
+    }
+
+    static bool TryFleeFromHitLocked(Player player, SpawnedMonster monster, (int X, int Y) from, int chance, double now)
+    {
+        if (chance <= 0 || monster.Fleeing
+            || !MonsterFlee.Rolls(chance, monster.Effects[Stat.MonsterChanceToNotFleePct], AreaRng(player))) return false;
+        int size = Math.Max(0, LivingCollision.Size(monster));
+        monster.FleeTo = MonsterFlee.Point(monster.Walk.Position(now), from,
+            (x, y) => player.Layout.WalkableFor(x, y, size) && !player.Barrier.Contains((x, y)), AreaRng(player));
+        return monster.Fleeing = monster.FleeTo is not null;
     }
 
     internal static void ReflectPendingAilmentsLocked(Player player, List<MonsterElementalAilments.Effect> pending,
@@ -491,16 +525,7 @@ public static partial class Game
             }
         }
         double action = MonsterActionFactor(m, now, freeze: false);
-        // Maim changes movement only: fold its -30 into the movement bucket rather than scaling action speed. So does
-        // Bear Trap's more-multiplier: the client's walk reads movement_velocity_+%, not bear_trap_movement_speed_+%_final.
-        bool speedFloored = m.Effects[Stat.MovementSpeedCannotBeReducedBelowBase] > 0;
-        var movement = MaimedMovementFactor(m, now);
-        double lessMove = trap * snare * (now < m.CoveredInAshUntil ? 0.8 : 1.0);
-        if (lessMove != 1 && !(speedFloored && lessMove < 1))
-            movement = (movement.Factor * lessMove, (int)Math.Round((100 + movement.Pct) * lessMove - 100));
-        double walk = (speedFloored ? Math.Max(1, action) : action)
-            * movement.Factor;
-        if (!speedFloored) walk *= vines;
+        var (walk, movementPct) = MonsterWalkModifiers(m, now, action, vines, trap, snare);
         if (walk != a.WalkFactor)
         {
             // PlayerWalk cannot represent zero. Keep the last recoverable speed so thawing or an expiry can restore
@@ -529,18 +554,30 @@ public static partial class Game
             || lowLifeMove || trap != 1 || snare != 1;
         bool maimShown = m.MaimedMovementShown;
         bool movementChanged = maimed
-            ? !maimShown || movement.Pct != m.MaimedMovementShownPct
-            : maimShown && movement.Pct != m.MaimedMovementShownPct;
+            ? !maimShown || movementPct != m.MaimedMovementShownPct
+            : maimShown && movementPct != m.MaimedMovementShownPct;
         m.MaimedMovementShown = maimed;
         if (movementChanged)
         {
-            m.MaimedMovementShownPct = movement.Pct;
-            SetStats(player, id, [(Stat.MovementVelocityPlusPct, movement.Pct)]);
+            m.MaimedMovementShownPct = movementPct;
+            SetStats(player, id, [(Stat.MovementVelocityPlusPct, movementPct)]);
         }
         else if (!m.MaimedMovementShown)
         {
             m.MaimedMovementShownPct = 0;
         }
+    }
+
+    static (double Factor, int Pct) MonsterWalkModifiers(SpawnedMonster m, double now, double action, double vines, double trap, double snare)
+    {
+        // Maim changes movement only. Bear Trap's movement multiplier also enters the client's movement_velocity stat.
+        bool speedFloored = m.Effects[Stat.MovementSpeedCannotBeReducedBelowBase] > 0;
+        var movement = MaimedMovementFactor(m, now);
+        double lessMove = trap * snare * (now < m.CoveredInAshUntil ? .8 : 1);
+        if (lessMove != 1 && !(speedFloored && lessMove < 1))
+            movement = (movement.Factor * lessMove, (int)Math.Round((100 + movement.Pct) * lessMove - 100));
+        double walk = (speedFloored ? Math.Max(1, action) : action) * movement.Factor;
+        return (speedFloored ? walk : walk * vines, movement.Pct);
     }
 
     /// <summary>

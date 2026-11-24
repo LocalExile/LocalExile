@@ -33,6 +33,7 @@ public static partial class Game
         state.ArcaneSurgeCastSpeedPct = running ? Math.Max(state.ArcaneSurgeCastSpeedPct, castSpeedPct) : castSpeedPct;
         state.ArcaneSurgeManaRegenPct = running ? Math.Max(state.ArcaneSurgeManaRegenPct, manaRegenPct) : manaRegenPct;
         state.ArcaneSurgeUntil = running ? Math.Max(state.ArcaneSurgeUntil, until) : until;
+        GrantSpectreArcaneSurgeLocked(player, now);
         PresentStats(player);
         if (stronger || state.ArcaneSurgeUntil - state.ArcaneSurgeShownUntil >= ArcaneSurgeRepresentSeconds)
         {
@@ -189,6 +190,15 @@ public static partial class Game
     {
         uint key = Stat.GainArcaneSurgeOnHitPctChance;
         if (RandomRolls.Chance(playerStats.GetValueOrDefault(key), 100, random)) GainArcaneSurgeLocked(player, now);
+    }
+
+    /// <summary>"#% chance to gain Arcane Surge when you deal a Critical Strike": one roll per critical player hit, attack
+    /// or spell. In the area's frame, with the other on-hit gains.</summary>
+    public static void ArcaneSurgeOnCritLocked(Player player, IReadOnlyDictionary<uint, int> playerStats, double now,
+        Random random)
+    {
+        if (RandomRolls.Chance(playerStats.GetValueOrDefault(Stat.GainArcaneSurgeOnCritPctChance), 100, random))
+            GainArcaneSurgeLocked(player, now);
     }
 
     static void ExpireInspirationLocked(SupportGemState state, double now)

@@ -43,7 +43,8 @@ public static partial class Game
                 || !ReferenceEquals(peer.Instance, player.Instance)) continue;
             if (!ReferenceEquals(peer, player) && !peer.Connection.PlayerSent) continue;
             double distance = Dist(at, peer.Walk.Position(now));
-            if (!ReferenceEquals(peer, player) && distance > WakeZoneRadius + 16) continue;
+            // The peer's wake zone is the square: a Euclid distance must reach its corner to cover it.
+            if (!ReferenceEquals(peer, player) && distance > WakeZoneCorner + 16) continue;
             if (winner is null || distance < bestDistance || distance == bestDistance && peer.Id < winner.Id)
                 (winner, bestDistance) = (peer, distance);
         }
