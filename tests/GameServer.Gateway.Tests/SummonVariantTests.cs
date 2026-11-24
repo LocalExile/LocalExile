@@ -49,6 +49,69 @@ public sealed class SummonVariantTests
         Assert.Equal(spirit.Action, spiritWithSkeletonModifiers.Action, precision: 6);
         Assert.Equal(spirit.Move, spiritWithSkeletonModifiers.Move, precision: 6);
         Assert.Equal(spirit.Duration, spiritWithSkeletonModifiers.Duration, precision: 6);
+
+        // Regression #1: number_of_skeletons_allowed_per_2_old stores 2 for +1 skeleton.
+        using (var capFixture = new TriggeredSummonTests.Fixture())
+        {
+            var player = capFixture.Player;
+            ushort skill = Assert.Single(capFixture.Equip(("Summon Skeletons", 1)));
+            var definition = Assert.IsType<SummonCatalog.Definition>(Game.SummonData.Find("SummonSkeletons"));
+            int baseLimit = Game.SummonLimit(player, definition, Game.SupportedSkill(player, skill));
+            using var perTwo = GameEvents.PlayerStatSources.Add("Game", (owner, values) =>
+            {
+                if (ReferenceEquals(owner, player)) values[Stat.NumberOfSkeletonsAllowedPer2Old] = 2;
+                return values;
+            });
+            Assert.Equal(baseLimit + 1, Game.SummonLimit(player, definition, Game.SupportedSkill(player, skill)));
+        }
+
+        // Regression #4: minion restrictions keep Blink/Mirror Arrow castable while blocking clone spawns.
+        using (var cloneFixture = new TriggeredSummonTests.Fixture())
+        {
+            var player = cloneFixture.Player;
+            ushort[] skills = cloneFixture.Equip(("Blink Arrow", 1), ("Mirror Arrow", 1));
+            using var restrict = GameEvents.PlayerStatSources.Add("Game", (owner, values) =>
+            {
+                if (ReferenceEquals(owner, player)) values[Stat.YouCannotHaveNonGolemMinions] = 1;
+                return values;
+            });
+            foreach (ushort skill in skills)
+            {
+                var supported = Game.SupportedSkill(player, skill);
+                string effectId = Assert.IsType<string>(Program.Skills.EffectId(supported.Effect));
+                Assert.Null(Game.ActorSkillDisabled(player, supported.Effect));
+                var definition = Assert.IsType<SummonCatalog.Definition>(Game.SummonData.Find(effectId));
+                Assert.Equal(0u, await Game.SummonFighter(player, skill, definition, (100, 100)));
+            }
+        }
+
+        // Regression #8: dropping a flat zombie cap bonus trims excess zombies without negative percentage scaling.
+        using (var zombieFixture = new TriggeredSummonTests.Fixture())
+        {
+            var player = zombieFixture.Player;
+            ushort skill = Assert.Single(zombieFixture.Equip(("Raise Zombie", 1)));
+            var definition = Assert.IsType<SummonCatalog.Definition>(Game.SummonData.Find("RaiseZombie"));
+            bool bonus = true;
+            using var zombieStats = GameEvents.PlayerStatSources.Add("Game", (owner, values) =>
+            {
+                if (ReferenceEquals(owner, player))
+                {
+                    values[Stat.RaiseZombieDoesNotUseCorpses] = 1;
+                    if (bonus) values[Stat.NumberOfZombiesAllowed] = 2;
+                }
+                return values;
+            });
+            int boostedLimit = Game.SummonLimit(player, definition, Game.SupportedSkill(player, skill));
+            for (int i = 0; i < boostedLimit; i++)
+                Assert.NotEqual(0u, await Game.SummonFighter(player, skill, definition, (100, 100)));
+            Assert.Equal(boostedLimit, player.Summons.Fighters.Count);
+            bonus = false;
+            int reducedLimit = Game.SummonLimit(player, definition, Game.SupportedSkill(player, skill));
+            Assert.Equal(boostedLimit - 2, reducedLimit);
+            player.Summons.RefreshAt = 0;
+            await Game.SummonsTick(player, Game.AreaTime(player) + 1);
+            Assert.Equal(reducedLimit, player.Summons.Fighters.Count);
+        }
     }
 
     static ushort Equip(AnimatedAdmissionTests.Fixture f, string name, string weapon = "Rusted Sword", int sockets = 1)

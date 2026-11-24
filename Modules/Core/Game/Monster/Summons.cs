@@ -151,7 +151,7 @@ public static partial class Game
             value = (long)Math.Clamp(value * (1 + GolemStat(playerStats, Stat.NumberOfZombiesAllowedPlusPct) / 100d), 0, 200);
         }
         if (definition.Family == "Skeleton")
-            value += GolemStat(playerStats, Stat.NumberOfSkeletonsAllowedPer2Old);
+            value += GolemStat(playerStats, Stat.NumberOfSkeletonsAllowedPer2Old) / 2;
         if (definition.Family == "RagingSpirit")
             value = (long)Math.Clamp(value * (1 + GolemStat(playerStats, Stat.PctNumberOfRagingSpiritsAllowed) / 100d), 0, 200);
         // Clones have no ordinary cap; duration is their lifetime constraint.
@@ -737,16 +737,20 @@ public static partial class Game
             if (playerStats is not null)
             {
                 state.RefreshAt = now + .5;
-                if (GolemStat(playerStats, Stat.NumberOfZombiesAllowedPlusPct) < 0)
+                List<GolemState.Golem>? zombies = null;
+                foreach (var fighter in state.Fighters.Values)
+                    if (fighter.Definition.Kind == "Zombie" && !fighter.Monster.Dead && fighter.Monster.Life > 0)
+                        (zombies ??= []).Add(fighter);
+                if (zombies is { Count: > 0 })
                 {
-                    var zombies = state.Fighters.Values.Where(fighter => fighter.Definition.Kind == "Zombie"
-                        && !fighter.Monster.Dead && fighter.Monster.Life > 0).OrderByDescending(fighter => fighter.SummonedAt).ToArray();
-                    if (zombies.FirstOrDefault() is { } newest && SupportedSkill(player, newest.Source) is { RequirementsMet: true } skill)
+                    zombies.Sort(static (a, b) => b.SummonedAt.CompareTo(a.SummonedAt));
+                    var newest = zombies[0];
+                    if (SupportedSkill(player, newest.Source) is { RequirementsMet: true } skill)
                     {
                         int limit = SummonLimit(state.Definitions[newest.Id], skill.Stats, playerStats);
-                        foreach (var extra in zombies.Skip(limit))
+                        for (int i = limit; i < zombies.Count; i++)
                         {
-                            RemoveSummonLocked(player, extra, now);
+                            RemoveSummonLocked(player, zombies[i], now);
                             changed = true;
                         }
                     }
@@ -833,9 +837,15 @@ public static partial class Game
         if (changed) SaveSummons(player);
     }
 
-    static int LivingSummons(Player player, string family, double now) => player.Summons.Fighters.Values.Count(minion =>
-        minion.Definition.Kind == family && !minion.Monster.Dead && minion.Monster.Life > 0
-        && player.Summons.Until.TryGetValue(minion.Id, out double until) && now < until);
+    static int LivingSummons(Player player, string family, double now)
+    {
+        int count = 0;
+        foreach (var minion in player.Summons.Fighters.Values)
+            if (minion.Definition.Kind == family && !minion.Monster.Dead && minion.Monster.Life > 0
+                && player.Summons.Until.TryGetValue(minion.Id, out double until) && now < until)
+                count++;
+        return count;
+    }
 
     static void ApplyZombieDamageBonus(Player player, Dictionary<uint, int> stats, double now)
     {

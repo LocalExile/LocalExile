@@ -7,6 +7,7 @@ public static partial class Game
     const uint WakenedFuryChance = Stat.SupportRecentMinionsAdditionalCriticalStrikeChanceFromWakenedFury;
     const uint WakenedFuryMultiplier = Stat.SupportRecentMinionsAdditionalCriticalStrikeMultiplierFromWakenedFury;
     const string UsedMinionSkillRecently = "used_minion_skill";
+    static readonly DamageType[] AvatarOfFireConversionSources = [DamageType.Physical, DamageType.Cold, DamageType.Lightning];
 
     static double FreshMeatSeconds(IReadOnlyDictionary<uint, int> own, double summonSeconds)
     {
@@ -523,7 +524,7 @@ public static partial class Game
             int physicalAsChaos = GolemStat(playerStats, Stat.MinionsDealPctOfPhysicalDamageAsAdditionalChaosDamage);
             if (physicalAsChaos != 0) conversion.AddGain(DamageType.Physical, DamageType.Chaos, physicalAsChaos);
             if (avatarOfFire)
-                foreach (var type in new[] { DamageType.Physical, DamageType.Cold, DamageType.Lightning })
+                foreach (var type in AvatarOfFireConversionSources)
                     conversion.AddGlobal(type, DamageType.Fire, 50);
             int DamageStat(uint name) => avatarOfFire && name == Stat.DealNoNonFireDamage ? 1 : mods[name] + Raw(name);
             if (effect == 306) conversion.AddSkill(DamageType.Physical, prismatic, 100);

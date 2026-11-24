@@ -1121,7 +1121,7 @@ public static partial class Game
     static string? ActorSkillDisabledNow(Player player, int effect, ushort? skillId)
     {
         if (VaalMinionProxyDisabled(player, effect, skillId) is { } proxy) return proxy;
-        if (SkillMinionFamily(SkillsFor(player).EffectId(effect)) is { } family && !CanHaveMinion(CharacterPlayerStats(player), family))
+        if (SkillMinionFamily(SkillsFor(player).EffectId(effect)) is { } family && !CanHaveMinion(PlayerStatValues(player), family))
             return "equipment prevents summoning this type of minion";
         if (DarkMonarchCastFamily(SkillsFor(player).EffectId(effect)) is { } darkFamily
             && !DarkMonarchAllows(darkFamily, StatSourceValues(player)))

@@ -30,14 +30,15 @@ public static partial class Game
     {
         if (GolemData.Find(effect) is not null) return OwnedMinionFamily.Golem;
         if (effect is "ManifestDancingDervish" or "ManifestDancingDervishUnique") return OwnedMinionFamily.Animated;
-        if (SummonData.Find(effect) is { } summon) return SummonFamily(summon.Family);
+        if (SummonData.Find(effect) is { } summon)
+            return summon.Family == "Clone" ? null : SummonFamily(summon.Family);
         return BeastKindFor(effect) is not null ? OwnedMinionFamily.Other : null;
     }
 
     static bool CanHaveMinion(IReadOnlyDictionary<uint, int> stats, OwnedMinionFamily family) =>
         (AllowedMinionFamilies(stats) & family) != 0;
 
-    static bool CanHaveOtherMinions(Player player) => CanHaveMinion(CharacterPlayerStats(player), OwnedMinionFamily.Other);
+    static bool CanHaveOtherMinions(Player player) => CanHaveMinion(PlayerStatValues(player), OwnedMinionFamily.Other);
 
     // An equipment restriction retires an owned actor without counting as that minion dying in combat.
     static void RetireDisallowedMinions(Player player, double now)
@@ -45,7 +46,7 @@ public static partial class Game
         if (player.Minions.All.Count == 0 || player.Closed || player.LeavingArea || player.Paused) return;
         var allowed = AllowedMinionFamilies(StatSourceValues(player));
         if (allowed == OwnedMinionFamily.All) return;
-        bool saveGolems = false, saveSummons = false;
+        bool saveGolems = false, saveSummons = false, aurasChanged = false;
         using (ProjectileMutation(player))
         {
             if (!CurrentGameWork || player.Closed || player.LeavingArea) return;
@@ -77,7 +78,11 @@ public static partial class Game
                 else
                 {
                     DropZones(player, minion.Id, MinionAuraZones);
-                    if (minion.OwnerBuff != 0) player.Area.Buffs.ClearSource(player.Id, minion.Id);
+                    if (minion.OwnerBuff != 0)
+                    {
+                        player.Area.Buffs.ClearSource(player.Id, minion.Id);
+                        aurasChanged = true;
+                    }
                     RetireOwnedMinionLocked(player, minion, now);
                 }
                 retired = true;
@@ -86,6 +91,7 @@ public static partial class Game
             if (links.Count > 0) player.Minions.OutputQueue.Add(new([.. links], "links to retired minions end"));
             if (retired) player.Minions.StatRevision++;
         }
+        if (aurasChanged) PlayerStatBuffsChanged(player);
         if (saveGolems) SaveGolems(player);
         if (saveSummons) SaveSummons(player);
     }

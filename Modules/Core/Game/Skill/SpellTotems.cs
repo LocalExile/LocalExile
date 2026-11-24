@@ -215,7 +215,7 @@ public static partial class Game
             var aim = nova || target.Monster is null ? totem.At : target.Pos;
             if (!nova && summon is null && golem is null) aim = NonZeroTotemAim(totem.At, aim);
             uint summonTarget = 0;
-            if (summon is { Corpse: true } && SummonNeedsCorpse(summon, CharacterPlayerStats(player)))
+            if (summon is { Corpse: true } && SummonNeedsCorpse(summon, PlayerStatValues(player)))
             {
                 var spell = SupportedSkill(player, totem.SkillId);
                 if (SummonCorpse(player, totem.At, 0, range,

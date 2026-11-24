@@ -150,7 +150,7 @@ public static partial class Game
     static void CommitMinionFireDamage(Player player, uint id, SpawnedMonster target, int damage,
         (int X, int Y) at, double now, string effect, GolemState.Golem minion)
     {
-        var cull = MinionIgniteKillRule(minion.Player, target, now);
+        var cull = MinionIgniteKillRule(PlayerStatValues(player), target, now);
         if (ApplyMonsterHitLocked(player, target, damage, allyAt: at, cull: cull) is not { } hit) return;
         if (hit.StageStarts)
         {

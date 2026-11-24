@@ -18,23 +18,31 @@ public static partial class Game
     // current rows count the gems' own colours and treat empty gem sockets as the separate chaos conversion.
     static void ApplyMinionSocketConversions(IReadOnlyList<Item> active, ItemCatalog catalog, Dictionary<uint, int> stats)
     {
-        if (!MinionSocketConversions.Any(rule => stats.ContainsKey(rule.Source))) return;
-        foreach (var item in active)
+        bool any = false;
+        for (int i = 0; i < MinionSocketConversions.Length; i++)
+            if (stats.ContainsKey(MinionSocketConversions[i].Source)) { any = true; break; }
+        if (!any) return;
+        for (int a = 0; a < active.Count; a++)
         {
+            var item = active[a];
             if (item.Sockets.Count == 0) continue;
-            foreach (var (key, value) in ItemModStats.Values(item, catalog.Mods))
+            var itemStats = PlainItemSum(item, catalog.Mods);
+            for (int i = 0; i < MinionSocketConversions.Length; i++)
             {
-                if (value == 0) continue;
-                foreach (var (source, conversion, colour, gemColour) in MinionSocketConversions)
+                var (source, conversion, colour, gemColour) = MinionSocketConversions[i];
+                if (!itemStats.TryGetValue(source, out int value) || value == 0) continue;
+                int count = 0;
+                for (int s = 0; s < item.Sockets.Count; s++)
                 {
-                    if (source != key) continue;
-                    int count = item.Sockets.Count(socket => !gemColour ? socket.Colour == colour
+                    var socket = item.Sockets[s];
+                    if (!gemColour ? socket.Colour == colour
                         : colour == SocketColour.White ? socket.Colour != SocketColour.Abyss && socket.Gem is null
                         : socket.Colour != SocketColour.Abyss && socket.Gem is { } gem
-                            && catalog.ByHash(gem.TypeHash) is { } type && catalog.Gem(type)?.Colour == (int)colour);
-                    GolemAdd(stats, conversion, ActorScale.Saturate((long)value * count));
-                    break;
+                            && catalog.ByHash(gem.TypeHash) is { } type && catalog.Gem(type)?.Colour == (int)colour)
+                        count++;
                 }
+                if (count > 0)
+                    GolemAdd(stats, conversion, ActorScale.Saturate((long)value * count));
             }
         }
     }

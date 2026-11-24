@@ -309,7 +309,7 @@ public static partial class Game
             var at = minion.Monster.Walk.Position(now);
             amount = (int)Math.Min(int.MaxValue, minion.Monster.MaxLife * (long)blast.LifePct / 100);
             var packet = DamagePacket.Of(blast.Type, amount, amount);
-            var ownerStats = CharacterPlayerStats(player);
+            var ownerStats = PlayerStatValues(player);
             foreach (var (id, m) in player.Area.Monsters.ToArray())
             {
                 if (!m.Hostile || m.Dead || m.Life == 0 || Dist(m.Walk.Position(now), at) > blast.Radius) continue;
