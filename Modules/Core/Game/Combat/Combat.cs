@@ -256,6 +256,46 @@ public static partial class Game
     // The swing's hit still tests the whole range (+ 2).
     static int WalkUpRange(SkillCatalog.Unarmed weapon) => Math.Max(weapon.Range, 1) - 1;
 
+    // Effective melee swing reach in cells: weapon/unarmed base range plus character and skill melee strike range bonuses.
+    public static int MeleeSkillReach(Player player, SkillCatalog.Unarmed weapon, int effect,
+        IReadOnlyDictionary<uint, int>? skillStats = null)
+    {
+        if (!weapon.Melee) return weapon.Range;
+        var ps = CharacterPlayerStats(player);
+        int Val(uint k) => ps.GetValueOrDefault(k) + (skillStats?.GetValueOrDefault(k) ?? 0);
+        int bonus = Val(Stat.MeleeRangePlus) + Val(Stat.MeleeWeaponRangePlus);
+        string cls = weapon.ItemClass ?? "";
+        if (cls is "Staff" or "Warstaff") bonus += Val(Stat.MeleeRangePlusWithStaff);
+        else if (cls is "One Hand Axe" or "Two Hand Axe") bonus += Val(Stat.MeleeRangePlusWithAxe);
+        else if (cls is "One Hand Sword" or "Thrusting One Hand Sword" or "Two Hand Sword") bonus += Val(Stat.MeleeRangePlusWithSword);
+        else if (cls is "One Hand Mace" or "Sceptre" or "Two Hand Mace") bonus += Val(Stat.MeleeRangePlusWithMace);
+        else if (cls is "Dagger" or "Rune Dagger") bonus += Val(Stat.MeleeRangePlusWithDagger);
+        else if (cls is "Claw") bonus += Val(Stat.MeleeRangePlusWithClaw);
+        if (cls.StartsWith("Two Hand", StringComparison.Ordinal) || cls is "Staff" or "Warstaff")
+            bonus += Val(Stat.MeleeRangePlusWithTwoHanded);
+        else if (!string.IsNullOrEmpty(cls))
+            bonus += Val(Stat.MeleeRangePlusWithOneHanded);
+        if (OffhandWeaponFor(player) is not null) bonus += Val(Stat.MeleeRangePlusWhileDualWielding);
+        else if (ActiveOffHand(player)?.Type?.Class == "Shield") bonus += Val(Stat.MeleeRangePlusWhileWieldingShield);
+        return Math.Max(1, weapon.Range + bonus);
+    }
+
+    static double MeleeAreaSwingReach(Player player, SkillCatalog.Unarmed weapon, int effect,
+        IReadOnlyDictionary<uint, int> skillStats, int swingReach)
+    {
+        double reach = swingReach + 2;
+        if (!weapon.Melee || !SkillsFor(player).IsArea(effect) || SkillsFor(player).IsStrike(effect)) return reach;
+        int radius = SkillRadius(player, skillStats, spell: false, effect);
+        string? effectId = SkillsFor(player).EffectId(effect);
+        double areaReach = SkillsFor(player).ActionHash(effect) == GroundSlamWave.Action
+            ? GroundSlamWave.Length(radius, skillStats.GetValueOrDefault(Stat.ActiveSkillBaseRadiusPlus))
+            : effectId is "IceCrash" or "IceCrashAltX" or "IceCrashAltY"
+                ? SkillRadius(player, skillStats.GetValueOrDefault(Stat.ActiveSkillBaseTertiaryAreaOfEffectRadius) is > 0 and var t ? t : 31,
+                    skillStats, spell: false, effect) + swingReach
+                : radius + swingReach;
+        return Math.Max(reach, areaReach);
+    }
+
     // A predictive client's walk-up to a monster for a swing at it, from where the estimate has the player at `now`. Swing:
     // the swing starts at once, when MoveTo finds its goal where the player stands (0x141e81c20 → 0x141e81950). A walk-up
     // with steps swings once it is over at a cell in reach. A lockstep client's is PlaceLockstepAttack's.
@@ -326,12 +366,16 @@ public static partial class Game
             if (!AttackReady(player, use.SkillId, gem.Effect, gem.Level, out _, use.Slot)) return;
             (int X, int Y) aim = (use.X, use.Y);
             (int X, int Y) stop = default;
+            var groundWeapon = WeaponFor(player);
+            var groundStats = SupportedSkill(player, use.SkillId).Stats;
+            int groundSwingReach = MeleeSkillReach(player, groundWeapon, gem.Effect, groundStats);
+            double groundAdmitReach = MeleeAreaSwingReach(player, groundWeapon, gem.Effect, groundStats, groundSwingReach);
             // Not in reach of the aim (no path, an aim off the map, a body in the way): the client's action ends without
             // a swing, so nothing is paid or echoed, as CastOn's SwingInReach refuses it for a monster. The reach is the
             // weapon's range plus the same 2 cells of slack CastOn and Attack give; a normal arrival stops at range - 1.
             if (!TryBeginSkillCooldownUse(player, use.SkillId, gem.Effect, CooldownForSkill(player, use.SkillId), false,
                 () => stop = player.Walk.Position(ProjectileWorldTime(player)), out var cooldownUse, actionToken: action,
-                admit: () => !GroundAttackWalks(player.Walk.Position(ProjectileWorldTime(player)), aim, WeaponFor(player).Range + 2)))
+                admit: () => !GroundAttackWalks(player.Walk.Position(ProjectileWorldTime(player)), aim, groundAdmitReach)))
                 return;
             bool projectileRuntime = UsesProjectileRuntime(gem.Effect);
             if (projectileRuntime) _ = CastGemSkill(player, use.SkillId, stop, aim,
@@ -746,7 +790,9 @@ public static partial class Game
         if (gem.Name is not null && !VaalMinionTargetAvailable(player, use.SkillId, use.TargetId)) return;
         // A movement attack (Flicker Strike, Leap Slam) closes the distance itself, and an attack used with "always attack
         // without moving" (Flags bit 0) swings from where the player stands: both keep the immediate cast.
-        if (gem.Name is not null && !IsTotemSkill(player, use.SkillId) && SkillsFor(player).IsAttack(gem.Effect) && !SkillsFor(player).IsMovement(gem.Effect) && (use.Flags & 0x1) == 0)
+        // A trapped or mined attack is thrown from where the player stands, at the throwing time (Messages.cs).
+        bool thrown = gem.Name is not null && PlacedKind(SupportedSkill(player, use.SkillId)) is not { Trap: false, Mine: false };
+        if (gem.Name is not null && !thrown && !IsTotemSkill(player, use.SkillId) && SkillsFor(player).IsAttack(gem.Effect) && !SkillsFor(player).IsMovement(gem.Effect) && (use.Flags & 0x1) == 0)
         {
             if (!AttackReady(player, use.SkillId, gem.Effect, gem.Level, out double attackSeconds, use.Sequence))
             {
@@ -755,6 +801,10 @@ public static partial class Game
             }
             // The reach of the weapon this use swings (AttackHands): a dual-wielded off hand walks up to its own.
             var weapon = HandWeapon(player, AttackHandFor(player, use.SkillId, use.Sequence));
+            var supportedStats = SupportedSkill(player, use.SkillId).Stats;
+            int swingReach = MeleeSkillReach(player, weapon, gem.Effect, supportedStats);
+            weapon = weapon with { Range = swingReach };
+            double admitReach = MeleeAreaSwingReach(player, weapon, gem.Effect, supportedStats, swingReach);
             int precision = AttackPrecision(player);
             double now = AreaTime(player);
             int action = 0;
@@ -795,9 +845,9 @@ public static partial class Game
             now = AreaTime(player);
             // A lockstep client's swing began at the start of its goal frame, tested against the monster's cell then.
             target = m.Walk.Position(started ? begun : now);
-            if (!SwingInReach(player, m, stop, target, weapon.Range + 2))
+            if (!SwingInReach(player, m, stop, target, admitReach))
             {
-                Console.WriteLine($"[gateway] {player.Connection.Remote} skill 0x{use.SkillId:x4} {gem.Name} on 0x{use.TargetId:x} out of reach: {Dist(stop, target):0.0} > {weapon.Range}");
+                Console.WriteLine($"[gateway] {player.Connection.Remote} skill 0x{use.SkillId:x4} {gem.Name} on 0x{use.TargetId:x} out of reach: {Dist(stop, target):0.0} > {admitReach:0.#}");
                 LockstepAttackOver(player, action);
                 return;
             }
@@ -833,7 +883,7 @@ public static partial class Game
         bool leapSkill = gem.Name is not null && !IsTotemSkill(player, use.SkillId) && IsLeapSlam(player, gem.Effect);
         int chargeBonus = gem.Name is null ? 0 : ShieldChargeBonusPct(player, use.SkillId, gem.Effect);
         bool shieldCharge = chargeBonus != 0;
-        bool immediateAttack = gem.Name is not null && !IsTotemSkill(player, use.SkillId)
+        bool immediateAttack = gem.Name is not null && !thrown && !IsTotemSkill(player, use.SkillId)
             && SkillsFor(player).IsAttack(gem.Effect) && (!SkillsFor(player).IsMovement(gem.Effect) || shieldCharge);
         if (immediateAttack && !AttackReady(player, use.SkillId, gem.Effect, gem.Level, out double immediateAttackSeconds, use.Sequence))
         {
@@ -1299,8 +1349,10 @@ public static partial class Game
         if (cooldownUse?.Attack is { } admittedAttack
             && (admittedAttack.Skill != skillId || cooldownUse.Effect != gem.Effect)) return false;
         double? reservedNextAttackAt = null;
+        // A trapped or mined attack is a throw: it neither waits for the weapon's attack time nor reserves it.
         if (vaalUse is null && cooldownUse?.Attack is null && gem.Name is not null
-            && !IsTotemSkill(player, skillId) && SkillsFor(player).IsAttack(gem.Effect))
+            && !IsTotemSkill(player, skillId) && SkillsFor(player).IsAttack(gem.Effect)
+            && PlacedKind(SupportedSkill(player, skillId)) is { Trap: false, Mine: false })
         {
             double duration = ShieldWeapon(player, skillId) is { } shieldWeapon
                 ? SupportedOffHandAttackSeconds(player, skillId, shieldWeapon)
@@ -1397,7 +1449,7 @@ public static partial class Game
                     }
                     criticalRoll = CaptureSkillCriticalRoll(player, skillId);
                     // Reserve the whole paid use before cost publication can yield to another held input.
-                    if (!IsTotemSkill(player, skillId) && SkillsFor(player).IsAttack(gem.Effect)
+                    if (placedAdmission is null && !IsTotemSkill(player, skillId) && SkillsFor(player).IsAttack(gem.Effect)
                         && !SkillsFor(player).IsChannelled(gem.Effect) && !shieldCharge)
                         ReserveMeleeRepeats(player, skillId, SupportedAttackSeconds(player, skillId, sequence));
                 }
@@ -1807,10 +1859,8 @@ public static partial class Game
                 SkillStats: [.. supported.Stats.Select(kv => (kv.Key, kv.Value))],
                 SupportEffectPct: supportEffect, AffectsSelf: affectsSelf, Stance: stance,
                 ReservesLife: context.Life, ReservationEfficiencyPct: context.Efficiency, IsHerald: IsHeraldAura(effectId),
-                ArtVariation: artVariation, HideVisual: hideVisual, SourceVisual: sourceVisual, BuffVisual: buffVisual,
-                // This aura's own named effect term, from the caster's raw sources; the reconcile re-stamps it
-                // whenever those sources change, so the record stays fresh without another read per hit.
-                PerAuraEffectPct: AuraCatalog.PerAuraEffectPctFor(effectId, CharacterStatSources(player).Stats));
+                ArtVariation: artVariation, HideVisual: hideVisual, SourceVisual: sourceVisual, BuffVisual: buffVisual);
+            aura = WithCasterAuraStamps(aura, CharacterStatSources(player).Stats);
             bool blessing = IsBlessingAura(aura);
             bool eternal = EternalBlessingAura(aura);
             var proposedAuras = player.Auras.Values.Where(a => (!blessing || !IsBlessingAura(a))
@@ -2532,7 +2582,7 @@ public static partial class Game
         // the Vaal blast keeps its radial hit.
         bool wave = !immediate && !spell && SkillsFor(player).ActionHash(gem.Effect) == GroundSlamWave.Action;
         bool fissure = !immediate && IsVolcanicFissure(gem.Effect);
-        double waveLength = wave ? GroundSlamWave.Length(radius) : 0;
+        double waveLength = wave ? GroundSlamWave.Length(radius, skillStats.GetValueOrDefault(global::Stat.ActiveSkillBaseRadiusPlus)) : 0;
         int waveCloseDamage = wave ? Stat(global::Stat.GroundslamDamageToCloseTargetsPlusPctFinal) : 0;
         double waveHalfAngle = wave ? GroundSlamWave.HalfAngle(Stat) : 0;
         (double X, double Y) waveDir = wave ? GroundSlamWave.Direction(from, to) : (0, 0);
@@ -2542,7 +2592,7 @@ public static partial class Game
         var centre = IsSmite(gem.Effect) && singleStrikeTarget is null ? to
             : wave || SkillsFor(player).EffectId(gem.Effect) == "VaalGroundSlam" ? from
             : spell ? SpellCentre(player, gem.Effect, from, to)
-            : MeleeAreaCentre.Of(SkillsFor(player).ActionHash(gem.Effect), from, to, radius + weapon.Range);
+            : MeleeAreaCentre.Of(SkillsFor(player).ActionHash(gem.Effect), from, to, radius + MeleeSkillReach(player, weapon, gem.Effect, skillStats));
         int action = actionToken ?? cooldownUse?.ActionToken ?? player.ActionCount;
         // A later action (a Move, another use) replaces the swing; nothing of it lands from then on. The ordinary attack
         // says so at its own contact (Attack's HitTarget); this says so for a gem skill's sweep, whose drop was otherwise
@@ -3560,6 +3610,10 @@ public static partial class Game
         if (PlayerHasEnergyShieldForRecovery(player, Get)) { Trace("energy shield present"); return null; }
         // A freeze already holds the player, and its action factor would stretch the recovery a hundredfold.
         if (player.ElementalAilments.ActionFactor(now) == 0) { Trace("frozen"); return null; }
+        // Soul of the Brine King: cannot be stunned if stunned or blocked a stunning hit in the past 2 seconds.
+        if (Get(Stat.CannotBeStunnedIfHaveBeenStunnedOrBlockedStunningHitInPast2Seconds) != 0
+            && now - player.LastStunnedOrBlockedStunAt < 2.0)
+        { Trace("brine king stun immunity"); return null; }
         double chance = PlayerHitRecovery.Chance(damage, player.PlayerMaxLife, Get);
         int ignoreWhileCasting = Get(Stat.AvoidInterruptionWhileCastingPct);
         if (chance > 0 && ignoreWhileCasting > 0 && InSpellCast(player, now))
@@ -3569,6 +3623,7 @@ public static partial class Game
             || player.Closed || player.PlayerLife == 0 || !player.HitRecovery.Begin(now, seconds))
         { Trace($"not accepted (chance {chance:0.###}%, duration {seconds:0.###} s)"); return null; }
         Trace($"accepted ({seconds:0.###} s, {Get(AntiquarianEffects.StunRecoverySource)}% Life over one second)");
+        player.LastStunnedOrBlockedStunAt = now;
         player.RecentEvents.Record(StatConditions.BeenStunned, now);
         player.Antiquarian.Stunned(now, player.PlayerMaxLife, Get(AntiquarianEffects.StunRecoverySource));
         CancelMeleeRepeats(player, now);
@@ -3949,6 +4004,15 @@ public static partial class Game
         MonsterKits.GrantKinDeathChargesLocked(player.Area, id, m, now);
         _ = AreaFrames.Start(() => MonsterKits.ExecuteDeathSkills(player, id, m, at));
         bool firstBossKill = HasUnsetKillQuestFlag(player, variety.Id);
+        if (!firstBossKill && player.Instance is { } killInstance)
+        {
+            foreach (var peer in killInstance.Presence.PlayersExcept(player.Id))
+            {
+                if (peer is not { Closed: false, LeavingArea: false } other || !other.Connection.PlayerSent
+                    || HardcoreProgressBlocked(other)) continue;
+                if (HasUnsetKillQuestFlag(other, variety.Id)) { firstBossKill = true; break; }
+            }
+        }
         await SetQuestFlags(player, QuestFlagsOnKill(player, variety.Id));
         // The party's kill: every living player within the experience range takes their share
         // (Progression.PartyMultiplier), the killer included. The presence of a private area is the party (an area is

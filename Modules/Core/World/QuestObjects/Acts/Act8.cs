@@ -100,8 +100,8 @@ sealed class Act8 : Act
                 On.Killed(SolarisTemple2, Act8Monsters.Dawn, "a8q3-KilledMiniboss"),
                 On.Drops(SolarisTemple2, Act8Monsters.Dawn, Act8Items.SolarisOrb),
                 On.KilledAll(HarbourBridge, [Act8Monsters.Lunaris, Act8Monsters.Solaris], "a8q23-KilledBosses"),
-                On.Appears(HarbourBridge, Act8Monsters.Lunaris, Act8Objects.SinSolarisLunaris, null),
-                On.Appears(HarbourBridge, Act8Monsters.Solaris, Act8Objects.SinSolarisLunaris, null),
+                On.Appears(HarbourBridge, Act8Monsters.Lunaris, Act8Objects.SinSolarisLunaris, "Visited-11_town"),
+                On.Appears(HarbourBridge, Act8Monsters.Solaris, Act8Objects.SinSolarisLunaris, "Visited-11_town"),
                 On.Exit(HarbourBridge, BloodAqueduct, "a8q23-KilledBosses"),
             },
             // a8q4 "Reflection of Terror" (act8.md a8q4): Sin's row (after The High Gardens or the Wings); Yugul dies in The
@@ -123,15 +123,16 @@ sealed class Act8 : Act
                 On.Chest(BathHouse, Act8Objects.TituciusChest, Act8Items.WingsOfVastiri, opensWith: "a8q5-KilledBoss"),
             },
             // a8q6 "Love is Dead" (act8.md a8q6): the Sealed Casket on The Quay (quest_chest.arm point line) holds the Ankh;
-            // Clarissa at the resurrection site (boss.arm; NPCTalk 1153: QuestFlag4 a8q6-KilledBoss, script SetQuestFlag
-            // a8q6-DeliveredItem, the Ankh's remove_flag, and her own Transition) takes it; in 3.29 the row itself completes
-            // the fight (no kill rule for Tolman, so the row may set KilledBoss). She is gone with the town's congratulation.
+            // Clarissa at the resurrection site (boss.arm; NPCTalk 1153 sets a8q6-DeliveredItem and starts TolmanEncounter's
+            // undead waves + Tolman fight; On.Killed keeps NPCTalk 1153's QuestFlag4 from granting a8q6-KilledBoss before
+            // Tolman actually falls). She is gone with the town's congratulation.
             // Clarissa's "Tolman Reward" (offer 57) is a book (QSR 21: 1 passive, 2 respec).
             new Quest("a8q6")
             {
                 On.Chest(Quay, Act8Objects.AnkhChest, Act8Items.AnkhOfEternity),
                 On.Npc(Quay, Act8Objects.ClarissaQuay, "a8q6-Congratulated", transitionedBy: "a8q6-DeliveredItem"),
                 On.Seen(Quay, Act8Monsters.Tolman, "a8q6-SeenBoss"),
+                On.Killed(Quay, Act8Monsters.Tolman, "a8q6-KilledBoss"),
             },
             // a8q7 "The Gemling Legion" (act8.md a8q7): the seven of The Grain Gate (boss_legion.arm mapboss1-7, run by the
             // room's BossController in the real game): KilledBoss once none is left. Maramoa's "Gemling Legion Reward" (offer

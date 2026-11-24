@@ -18,6 +18,7 @@ public static partial class Game
             }
         }
         player.RecentEvents.Record(StatConditions.BeenHit, now);
+        if (critical) player.LastCritTakenAt = now;
         if (blocked)
         {
             player.RecentEvents.Record(StatConditions.Blocked, now);

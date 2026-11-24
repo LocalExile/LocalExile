@@ -166,6 +166,24 @@ public static partial class Game
         return presentation;
     }
 
+    /// <summary>Attaches flight and impact clips to a server-drawn projectile without clobbering existing clips,
+    /// custom event effects (e.g. Arrow Nova's rain rig), or launch-height settings.</summary>
+    public static ProjectilePresentation? WithProjectileClips(ProjectilePresentation? existing,
+        SkillCatalog.ProjectileClips? clips, double flightSeconds)
+    {
+        if (existing is { EventEffect: not null } || existing is { FlightClip: not null } or { ImpactClip: not null })
+            return existing;
+        if (MonsterProjectilePresentation(clips, flightSeconds) is not { } clipPresentation)
+            return existing;
+        return existing is null ? clipPresentation : existing with
+        {
+            FlightClip = clipPresentation.FlightClip,
+            FlightClipSpeed = clipPresentation.FlightClipSpeed,
+            ImpactClip = clipPresentation.ImpactClip,
+            ImpactLifetime = clipPresentation.ImpactLifetime,
+        };
+    }
+
     // The release at the attack's contact: the flight owns contact and damage (HostileHit).
     // The AI action must still be current when the runtime releases it.
     /// <summary>A monster skill's shot that no longer belongs to the monster's own action (a trap's, set off): released now
@@ -230,6 +248,11 @@ public static partial class Game
     public static MonsterHitOutcome? CommitHostilePlayerHitLocked(ProjectileSession session, ProjectileDamage contact, HostileProjectileOffense shot)
     {
         var player = session.Player;
+        // Soul of Lunaris: avoid projectiles that have chained.
+        if (contact.Projectile.ChainsRemaining < contact.Projectile.Profile.Chain
+            && PlayerStat(player, Stat.AvoidChainedProjectilePctChance) is int avoidChained and > 0
+            && GameServer.Core.World.RandomRolls.Chance(avoidChained, 100, player.IncomingHitRandom))
+            return null;
         // The hit pipeline's timers (fortification, recent hits, ailments, evasion entropy) run on the connection clock and
         // refuse to go backwards. The contact's simulated instant lies a few milliseconds behind that clock, which other
         // reads (a stats refresh, a melee swing) may already have advanced, so the hit lands at whichever is later. The

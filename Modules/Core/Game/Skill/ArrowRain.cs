@@ -69,23 +69,37 @@ public static partial class Game
     internal static void ReleaseArrowRain(ProjectileSession session, ushort skill,
         (ushort Id, int Effect, string Name, int Level, int Quality, uint Gem) gem, (int X, int Y) aim,
         SkillCriticalRoll critical, ushort sequence, bool mirage = false,
-        Func<ProjectileOffense, ProjectileOffense>? transform = null, double podDamageFactor = 1)
-        => ReleaseArrowRain(session, skill, gem, aim, critical, sequence, mirage, transform, podDamageFactor, totem: null);
+        Func<ProjectileOffense, ProjectileOffense>? transform = null, double podDamageFactor = 1, (int X, int Y)? from = null)
+        => ReleaseArrowRain(session, skill, gem, aim, critical, sequence, mirage, transform, podDamageFactor, totem: null, from);
 
     static void ReleaseArrowRain(ProjectileSession session, ushort skill,
         (ushort Id, int Effect, string Name, int Level, int Quality, uint Gem) gem, (int X, int Y) aim,
         SkillCriticalRoll critical, ushort sequence, bool mirage, Func<ProjectileOffense, ProjectileOffense>? transform,
-        double podDamageFactor, TotemState.Totem? totem)
+        double podDamageFactor, TotemState.Totem? totem, (int X, int Y)? from = null)
     {
         var player = session.Player;
         string id = SkillsFor(player).EffectId(gem.Effect)!;
-        var use = CaptureGemProjectile(player, session, skill, gem, aim, critical, sequence, totem: totem);
+        // from: where the volley leaves when it is not the player or a totem (a trap or mine).
+        var use = CaptureGemProjectile(player, session, skill, gem, aim, critical, sequence, from: from, totem: totem);
         var shot = (ProjectileOffense)use.Payload!;
+        var supported = SupportedSkill(player, skill);
+        var own = supported.Stats;
+        var playerStats = CharacterPlayerStats(player);
+        var placedKind = from is not null ? PlacedKind(supported) : default;
+        bool fromPlaced = from is not null && (placedKind.Trap || placedKind.Mine);
+        if (fromPlaced)
+            shot = shot with
+            {
+                ActualCaster = shot.ActualCaster ?? TotemCasterStats(playerStats),
+                MirageSource = null,
+                CriticalTrigger = null,
+                Leech = new(DamagePacket.Empty, DamagePacket.Empty, DamagePacket.Empty),
+            };
         if (mirage) shot = MirageOffense(player, shot);
         if (transform is not null) shot = transform(shot);
-        use = use with { Payload = shot with { AreaVisual = null, Presentation = new(), ClientPredicted = true } };
-        var own = SupportedSkill(player, skill).Stats;
-        var playerStats = CharacterPlayerStats(player);
+        use = use with { Payload = shot with { AreaVisual = null, Presentation = new(), ClientPredicted = true,
+            FromTrapOrMine = shot.FromTrapOrMine || from is not null,
+            FromMine = shot.FromMine || placedKind.Mine } };
         int Own(uint stat) => own.GetValueOrDefault(stat);
         int Player(uint stat) => playerStats.GetValueOrDefault(stat);
         int Get(uint key) => Own(key) + Player(key);
@@ -129,8 +143,10 @@ public static partial class Game
         double spacing = blast ? Math.Max(0, Get(Stat.BlastRainArrowDelayMs)) / 1000d : toxic ? 0 : .04;
         double duration = SkillDurationModifiers.Seconds(Own(Stat.BaseSkillEffectDuration), Player, Own);
         var damageContext = new SkillDamageContext(SkillHitKind.Attack, shot.ActualCaster ?? playerStats);
+        bool recentMine = placedKind.Mine && player.RecentEvents.Happened(StatConditions.DetonatedMine, AreaTime(player));
         double dps = toxic && id != "ToxicRainAltX" && !damageContext.Suppressed
-            ? ToxicPodDps(Get, Own, totem is not null) * (mirage ? MirageDamageFactor(own) : 1) * podDamageFactor : 0;
+            ? ToxicPodDps(Get, Own, totem is not null, placedKind.Trap, placedKind.Mine, recentMine)
+                * (mirage ? MirageDamageFactor(own) : 1) * podDamageFactor : 0;
         if (totem is not null && dps > 0)
             dps *= Math.Max(0, 1 + Get(Stat.SupportTotemDamagePlusPctFinal) / 100d);
         double? withered = Own(Stat.ToxicRainSporesApplyWithered) != 0
@@ -173,22 +189,44 @@ public static partial class Game
         }
     }
 
-    static double ToxicPodDps(Func<uint, int> get, Func<uint, int> own, bool totem = false) =>
-        ChaosGroundDps(get, own, Stat.ToxicRainDamagePlusPct, totem);
+    static readonly uint[] ChaosGroundMoreStats =
+    [
+        Stat.SupportVoidManipulationChaosDamagePlusPctFinal, Stat.SupportRapidDecayDamageOverTimePlusPctFinal,
+        Stat.SupportEfficacyDamageOverTimePlusPctFinal, Stat.SupportPhysChaosProjectileChaosDamageOverTimePlusPctFinal,
+        Stat.SupportAreaConcentrateAreaDamagePlusPctFinal, Stat.CrueltyDamageOverTimePlusPctFinal,
+    ];
+
+    static readonly uint[] PlacedChaosGroundMoreStats =
+    [
+        Stat.SupportTrapDamagePlusPctFinal, Stat.SupportTrapAndMineDamagePlusPctFinal,
+        Stat.SupportClustertrapDamagePlusPctFinal, Stat.SupportMultithrowDamagePlusPctFinal,
+        Stat.SupportGemMineDamagePlusPctFinal, Stat.SupportRemoteMine2DamagePlusPctFinal,
+        Stat.SupportLocusMineDamagePlusPctFinal,
+    ];
+
+    static double ToxicPodDps(Func<uint, int> get, Func<uint, int> own, bool totem = false,
+        bool trap = false, bool mine = false, bool recentMine = false) =>
+        ChaosGroundDps(get, own, Stat.ToxicRainDamagePlusPct, totem, trap, mine, recentMine);
 
     // A projectile attack's chaos damage over time in an area: Toxic Rain's pods and Caustic Arrow's ground.
     // skillIncrease: the skill's own increased damage stat, if it has one.
-    static double ChaosGroundDps(Func<uint, int> get, Func<uint, int> own, uint? skillIncrease, bool totem = false)
+    static double ChaosGroundDps(Func<uint, int> get, Func<uint, int> own, uint? skillIncrease, bool totem = false,
+        bool trap = false, bool mine = false, bool recentMine = false)
     {
         if (DamageStats.Prohibited(DamageType.Chaos, get)) return 0;
         double increased = (double)get(Stat.DamagePlusPct) + get(Stat.ChaosDamagePlusPct) + get(Stat.AreaDamagePlusPct)
             + get(Stat.ProjectileDamagePlusPct) + get(Stat.DamageOverTimePlusPct) + get(Stat.ChaosDamageOverTimePlusPct)
             + (totem ? get(Stat.TotemDamagePlusPct) : 0)
+            + (trap || mine ? (double)get(mine ? Stat.MineDamagePlusPct : Stat.TrapDamagePlusPct)
+                + get(Stat.TrapOrMineDamagePlusPct) + (recentMine ? get(Stat.MineAreaDamagePlusPctIfDetonatedMineRecently) : 0) : 0)
             + (skillIncrease is uint key ? get(key) : 0);
         double more = 1;
-        foreach (var stat in new[] { Stat.SupportVoidManipulationChaosDamagePlusPctFinal, Stat.SupportRapidDecayDamageOverTimePlusPctFinal,
-            Stat.SupportEfficacyDamageOverTimePlusPctFinal, Stat.SupportPhysChaosProjectileChaosDamageOverTimePlusPctFinal,
-            Stat.SupportAreaConcentrateAreaDamagePlusPctFinal, Stat.CrueltyDamageOverTimePlusPctFinal }) more *= Math.Max(0, 1 + own(stat) / 100d);
+        foreach (var stat in ChaosGroundMoreStats) more *= Math.Max(0, 1 + own(stat) / 100d);
+        if (trap || mine)
+        {
+            more *= Math.Max(0, 1 + get(Stat.SkitterbotsTrapMineDamagePlusPctFinal) / 100d);
+            foreach (var stat in PlacedChaosGroundMoreStats) more *= Math.Max(0, 1 + own(stat) / 100d);
+        }
         return Math.Max(0, get(Stat.BaseChaosDamageToDealPerMinute) / 60d) * more * Math.Max(0, 1 + increased / 100)
             * Math.Max(0, 1 + ((double)get(Stat.DotMultiplierPlus) + get(Stat.ChaosDotMultiplierPlus)
                 + get(Stat.DotMultiplierPlusWithBowSkills)) / 100);

@@ -39,6 +39,8 @@ essence upgrading remain separate features.
   carriers (map mods, fragments, atlas passives, a worn item's map modifier); (4) ground patches as carriers; (5) every
   item mod one for one, the charge rules moving over then; and checking each `effect_skills` row's art and radius against
   the real game (`checked = 0`).
+  Divine Vessels capture Pantheon souls from matching Atlas map bosses into the Map Device for Sin's upgrades
+  ([pantheon](../docs/game/campaign/pantheon.md)).
 - **Start:** special mods and the uniques' own mechanics (#60, 13 §2e: `UniqueCatalog`
   has every unique's base, mods and rolls, the mechanics behind those mods are the open part), and chancing.
   Mageblood's "effects cannot be removed" waits for a server mechanic that removes flask effects (13 §2e).

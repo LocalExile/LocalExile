@@ -142,6 +142,9 @@ Part of [Status](../Status.md); what to build next in this area is in
   Docs: [13](../docs/protocol/13-items.md), "Currency metamod protection".
 - Repeat currency use by type on passives (`C→S 0x78`) and world objects (`C→S 0x79`) routes to Tattoo/Scouring,
   Strongbox and Essence handlers (offline verified; live client check pending).
+- Divine Vessels capture Pantheon souls in matching Atlas maps into the Map Device and unlock upgrades at Sin
+  (not checked live).
+  Docs: [pantheon](../docs/game/campaign/pantheon.md).
 
 - Effect rules: item triggers as rows in world.db ([effect rules](../docs/dev/effect-rules.md)). Onslaught and
   Adrenaline on kill, hit or crit; marks on hit; item-granted skills triggered on hit, crit, kill, when hit, on
