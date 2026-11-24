@@ -239,7 +239,7 @@ public static partial class Game
         // cast and hit with nothing flying), so the server draws a totem's shots, with the rig's flight and impact clips.
         if (use.Emitter.Id != player.Id && use.Payload is ProjectileOffense totemShot)
             use = use with { Payload = totemShot with { ClientPredicted = false,
-                Presentation = totemShot.Presentation ?? MonsterProjectilePresentation(SkillsFor(player).Clips(use.Profile.Id),
+                Presentation = WithProjectileClips(totemShot.Presentation, SkillsFor(player).Clips(use.Profile.Id),
                     use.Profile.Range / Math.Max(1, use.Profile.Speed)) } };
         if (SkillsFor(player).EffectId(gem.Effect) is "SpectralThrow" or "SpectralThrowAltX")
         {

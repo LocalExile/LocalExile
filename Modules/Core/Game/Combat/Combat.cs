@@ -1401,7 +1401,7 @@ public static partial class Game
                     }
                     criticalRoll = CaptureSkillCriticalRoll(player, skillId);
                     // Reserve the whole paid use before cost publication can yield to another held input.
-                    if (!IsTotemSkill(player, skillId) && SkillsFor(player).IsAttack(gem.Effect)
+                    if (placedAdmission is null && !IsTotemSkill(player, skillId) && SkillsFor(player).IsAttack(gem.Effect)
                         && !SkillsFor(player).IsChannelled(gem.Effect) && !shieldCharge)
                         ReserveMeleeRepeats(player, skillId, SupportedAttackSeconds(player, skillId, sequence));
                 }

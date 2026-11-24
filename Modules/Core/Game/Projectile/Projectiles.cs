@@ -1053,7 +1053,9 @@ public static partial class Game
             // areas and continuation children, which do get objects). Client-predicted zig-zag secondaries stay hidden too.
             if (value.Kind == ProjectileEventKind.Spawn && p.Profile.HideVisual) return;
             if (value.Kind == ProjectileEventKind.Spawn && p.Use.Payload is ProjectileOffense primary
-                && ((p.ParentId == 0 && ClientDrawsPrimaryProjectile(primary.ClientPredicted, SkillsFor(Player).EffectId(primary.Effect)))
+                && ((p.ParentId == 0 && (primary.ClientPredicted
+                        || !primary.FromTotem && !primary.FromTrapOrMine
+                            && ClientDrawsPrimaryProjectile(false, SkillsFor(Player).EffectId(primary.Effect))))
                     || (primary.ClientPredicted && p.Profile.HidePredictedVisual))) return;
             if (value.Kind == ProjectileEventKind.Spawn)
             {

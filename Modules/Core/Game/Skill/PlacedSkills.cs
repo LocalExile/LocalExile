@@ -624,17 +624,29 @@ public static partial class Game
         bool spellDamage = SkillHitPlan.ForSkill(SkillsFor(player), placed.Effect, 1).Kind != SkillHitKind.Secondary;
         var payload = GemSkillEffects(player).FirstOrDefault(g => g.Id == placed.Skill);
         bool currentSkill = payload.Name is not null && payload.Effect == placed.Effect;
+        bool rainSkill = !bear && currentSkill && ArrowRain(SkillsFor(player).EffectId(placed.Effect));
         bool projectile = !bear && currentSkill
             && UsesProjectileRuntime(placed.Effect) && ResolveProjectileDefinition(placed.Effect) is not null;
         KeyValuePair<uint, SpawnedMonster> target = default;
         (int X, int Y) aim = placed.At;
+        bool locusAim = placed.Mine && GolemStat(placed.Own, Stat.SupportLocusMineMinesAlwaysTargetYourLocation) != 0;
         if (projectile)
         {
             var ownerAt = player.Walk.Position(now);
-            aim = placed.Mine && GolemStat(placed.Own, Stat.SupportLocusMineMinesAlwaysTargetYourLocation) != 0
+            aim = locusAim
                 ? ownerAt
                 : PlacedProjectileAim(placed.At, ownerAt, player.Area.MonstersNear(placed.At, 60)
                     .Where(m => m.Value is { Hostile: true, Dead: false, Life: > 0 }).Select(m => m.Value.Walk.Position(now)), AreaRng(player));
+        }
+        else if (rainSkill)
+        {
+            aim = locusAim
+                ? player.Walk.Position(now)
+                : player.Area.MonstersNear(placed.At, 60)
+                    .Where(m => m.Value is { Hostile: true, Dead: false, Life: > 0, Invulnerable: false, Asleep: false, WorldHidden: false }
+                        && !MonsterAsleep(player, m.Key))
+                    .Select(m => m.Value.Walk.Position(now)).Where(p => Dist(p, placed.At) <= 60).OrderBy(p => Dist(p, placed.At))
+                    .Select(p => ((int X, int Y)?)p).FirstOrDefault() ?? placed.At;
         }
         else if (bear)
         {
@@ -662,19 +674,29 @@ public static partial class Game
         }
         // A rain skill (Rain of Arrows, Blast Rain, Toxic Rain) comes down as the player's own does, around the nearest
         // enemy within 60 cells or on the trap or mine itself, instead of one area hit with nothing drawn.
-        if (!bear && currentSkill && ArrowRain(SkillsFor(player).EffectId(placed.Effect)))
+        if (rainSkill)
         {
             var session = ProjectilesFor(player);
             var lifetime = CombatLifetime;
             var critical = CaptureSkillCriticalRoll(player, placed.Skill);
             var at = placed.At;
-            var rain = player.Area.MonstersNear(at, 60).Where(m => m.Value is { Hostile: true, Dead: false, Life: > 0 })
-                .Select(m => m.Value.Walk.Position(now)).Where(p => Dist(p, at) <= 60).OrderBy(p => Dist(p, at))
-                .Select(p => ((int X, int Y)?)p).FirstOrDefault() ?? at;
+            var rain = aim;
+            var rainSource = placed.Source;
             session.Runtime.Schedule(session.Runtime.Now, () =>
             {
-                if (session.Active && ReferenceEquals(lifetime, CombatLifetime) && player.PlayerLife > 0)
-                    ReleaseArrowRain(session, placed.Skill, payload, rain, critical, 0, from: at);
+                if (!session.Active || !ReferenceEquals(lifetime, CombatLifetime) || player.PlayerLife == 0) return;
+                if (rainSource is not null && !player.GemSourceLifetimes.IsCurrent(rainSource)) return;
+                if (SupportedSkill(player, placed.Skill).Effect != placed.Effect) return;
+                try
+                {
+                    ReleaseArrowRain(session, placed.Skill, payload, rain, critical, (ushort)placed.Id,
+                        transform: inventionMore == 1 ? null : s => s.ScaleDamage(inventionMore),
+                        podDamageFactor: inventionMore, from: at);
+                }
+                catch (InvalidOperationException ex)
+                {
+                    Console.WriteLine($"[gateway] {player.Connection.Remote} placed rain skill unavailable: {ex.Message}");
+                }
             });
             return;
         }
@@ -689,7 +711,7 @@ public static partial class Game
             var shot = aim;
             session.Schedule(session.Runtime.Now, () => session.Active && ReferenceEquals(lifetime, CombatLifetime), () =>
             {
-                var use = CaptureGemProjectile(player, session, placed.Skill, payload, shot, critical, from: at);
+                var use = CaptureGemProjectile(player, session, placed.Skill, payload, shot, critical, (ushort)placed.Id, from: at);
                 // The volley's rules are the player's own cast's, some of which start it at the player's cell (Spark's
                 // and Twister's wander): it leaves from the trap or mine whatever the skill.
                 var origin = use.Origin;
@@ -698,7 +720,7 @@ public static partial class Game
                 // The rig's flight clip is what shows art that has no default animation (Spark's sparks).
                 var offense = ((ProjectileOffense)use.Payload!).ScaleDamage(inventionMore);
                 return use with { Payload = offense with { ClientPredicted = false, FromTrapOrMine = true, FromMine = placed.Mine,
-                    Presentation = offense.Presentation ?? MonsterProjectilePresentation(SkillsFor(player).Clips(use.Profile.Id),
+                    Presentation = WithProjectileClips(offense.Presentation, SkillsFor(player).Clips(use.Profile.Id),
                         use.Profile.Range / Math.Max(1, use.Profile.Speed)) } };
             });
             return;
