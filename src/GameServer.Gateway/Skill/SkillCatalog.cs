@@ -634,6 +634,9 @@ public sealed class SkillCatalog
     /// gem's hit takes melee_damage_+% (the default attack does by its weapon profile instead).</summary>
     public bool IsMelee(int effectRow) => _meleeEffects.Contains(effectRow);
 
+    /// <summary>Whether a GrantedEffects row's ActiveSkill has the Area type (slams, sweeps, novas, area spells).</summary>
+    public bool IsArea(int effectRow) => _skillTypes.HasType(effectRow, "Area");
+
     public bool IsSpell(int effectRow) => _spellEffects.Contains(effectRow);
     public bool IsProjectile(int effectRow) => _projectileEffects.Contains(effectRow);
     // Generic monster Melee also carries Projectile. Actual melee classification takes precedence.

@@ -525,6 +525,8 @@ public static partial class Game
             player.ChannelSkill = 0;
         }
         var weapon = gem.Name is not null ? HandWeapon(player, AttackHandFor(player, skill, sequence)) : WeaponFor(player);
+        if (gem.Name is not null)
+            weapon = weapon with { Range = MeleeSkillReach(player, weapon, gem.Effect, SupportedSkill(player, skill).Stats) };
         LockstepAttack attack;
         player.LockstepAttack?.Fails();
         player.LockstepAttack = attack = new(action, 0, null, WalkUpRange(weapon), -1, 1,
