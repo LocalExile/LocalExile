@@ -20,7 +20,7 @@ public static partial class Game
     const int CorpseExplosionArtMs = 2000;
 
     public const ushort RallyingCryBuffRow = 1538, SeismicCryBuffRow = 1544, AncestralCryBuffRow = 1545,
-        InfernalCryBuffRow = 1540, BattlemagesCryBuffRow = 1866;
+        InfernalCryBuffRow = 1540, BattlemagesCryBuffRow = 1866, VengefulCryBuffRow = 2476;
 
     /// <summary>The BuffDefinitions row a warcry's own buff uses, or null when no buff is granted for it.</summary>
     public static ushort? WarcryBuffRow(string effectId) => effectId switch
@@ -30,6 +30,7 @@ public static partial class Game
         "AncestralCry" => AncestralCryBuffRow,
         "InfernalCry" => InfernalCryBuffRow,
         "BattlemagesCry" => BattlemagesCryBuffRow,
+        "VengefulCry" => VengefulCryBuffRow,
         _ => null,
     };
 
@@ -57,6 +58,13 @@ public static partial class Game
                 [(Stat.PhysicalDamagePctToAddAsFire, Scaled(steps5, own(Stat.InfernalCryPhysicalDamagePctToAddAsFirePer5PowerUpToCap)))],
             "BattlemagesCry" =>
                 [(Stat.AdditionalBaseCriticalStrikeChance, Scaled(steps5, own(Stat.DivineCryAdditionalBaseCriticalStrikeChancePer5PowerUpToCap)))],
+            "VengefulCry" =>
+            [
+                (Stat.BaseRageRegenerationPerMinute, Scaled(steps5, own(Stat.RageWarcryGainXRagePerMinutePer5MonsterPowerMax25Power))),
+                (Stat.MaximumRage, Scaled(1, own(Stat.RageWarcryMaximumRagePlus))),
+                (Stat.NoInherentRageLoss, 1),
+                (Stat.AffectedByAWarcry, 1),
+            ],
             _ => null,
         };
     }
@@ -90,8 +98,13 @@ public static partial class Game
 
     static void AddWarcryStats(Player player, Dictionary<uint, int> stats)
     {
-        if (player.PlayerLife > 0 && WarcryGrants.TryGetValue(player, out var grants))
-            AddWarcryStats(grants, player.Area, AreaTime(player), stats);
+        if (player.PlayerLife == 0 || !WarcryGrants.TryGetValue(player, out var grants)) return;
+        var area = player.Area;
+        double now = AreaTime(player);
+        AddWarcryStats(grants, area, now, stats);
+        foreach (var grant in grants)
+            if (grant.Row == VengefulCryBuffRow && grant.Area == area && grant.Until > now)
+                StatsChangeIn(grant.Until - now);
     }
 
     static void AddWarcryStats(List<WarcryGrant> grants, GameArea area, double now, Dictionary<uint, int> stats)
@@ -122,8 +135,15 @@ public static partial class Game
     {
         grants.RemoveAll(g => g.Until <= now || g.Row == gift.Row && g.Source == gift.Source);
         grants.Add(gift);
+        double seconds = gift.Until - now;
+        if (gift.Row == VengefulCryBuffRow)
+        {
+            area.Buffs.Set(entity, BuffRows.Spec(gift.Row, gift.Source,
+                gift.Values.ToDictionary(v => v.Key, v => v.Value), seconds));
+            return;
+        }
         uint[]? values = gift.Row == RallyingCryBuffRow ? [.. gift.Values.Select(v => (uint)v.Value)] : null;
-        area.Buffs.Set(entity, new Buff(gift.Row, gift.Source, Values: values, U68: Buff.Seconds(gift.Until - now)));
+        area.Buffs.Set(entity, new Buff(gift.Row, gift.Source, Values: values, U68: Buff.Seconds(seconds)));
     }
 
     static void UpdateWarcryStats(Player player)
