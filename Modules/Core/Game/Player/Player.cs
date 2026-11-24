@@ -155,6 +155,19 @@ public static partial class Game
         await Task.CompletedTask;
     }
 
+    // The resurrect Grace (the official's 20 s, after the teleport so the protection's origin is the new position).
+    public static async Task StartResurrectGracePeriod(Player player)
+    {
+        double now = AreaTime(player);
+        bool hideout = HideoutCatalog.ByArea(player.Layout.Hash) is not null;
+        if (player.EntryProtection.StartResurrect(now, player.Walk.Position(now), GracePeriod.BuffRow, InTown(player), hideout))
+        {
+            player.Area.Buffs.Set(player.Id, GracePeriod.BeginResurrectPacket(player.Id));
+            Note($"Grace Period: {GracePeriod.ResurrectSeconds} seconds of resurrect protection");
+        }
+        await Task.CompletedTask;
+    }
+
     /// <summary>Commits all unsaved in-memory progress (XP, inventory, vitals, golems, and cached character/stash saves)
     /// to the permanent SQLite database when leaving an area or exiting.</summary>
     public static void FlushAreaProgress(Player player)
@@ -1572,7 +1585,7 @@ public static partial class Game
             if (player.Closed || player.LeavingArea) return;
             RestorePlayerOnResurrect(player);
             player.Walk.Teleport(x, y, AreaTime(player));
-            await StartGracePeriod(player);
+            await StartResurrectGracePeriod(player);
             await GainFlaskCharges(player, int.MaxValue, "resurrected");
             // Revive first: a teleport sent while the player is dead left them where they died (live 2026-10-17).
             Note($"0x01b1 player revived with {player.PlayerLife} life");
@@ -1581,6 +1594,12 @@ public static partial class Game
             // Death may have published false full-pool conditions while the player ticker kept its pre-death chance.
             // Publish the restored life/ES conditions explicitly even when that cached chance is unchanged.
             await SendCharacterStats(player, PlayerStatChange.Panel);
+            // The official resurrect first: 0x1f1 with the alive flag clear, then is_dead 0 — the checkpoint resurrect
+            // sends the alive-state row before the stats row, as the official respawn capture does.
+            await SendWorldRecord(player, player.Id, InstanceProtocol.AliveState(player.Id, 0, dead: false),
+                "0x01f1 resurrect: actor alive again, b=0");
+            await SendWorldRecord(player, player.Id, InstanceEntities.StatsUpdate(player.Id, [(Stat.IsDead, 0)]),
+                "0x01b3 player is_dead = 0");
             await SendWorldRecord(player, player.Id, InstanceProtocol.Teleport(player.Id, x, y),
                 $"0x01b7 player to the checkpoint ({x}, {y}): {(activated && player.Layout.Waypoint is not null ? "the activated waypoint" : "the arrival point")}");
             await GameEvents.RunResurrected(player);

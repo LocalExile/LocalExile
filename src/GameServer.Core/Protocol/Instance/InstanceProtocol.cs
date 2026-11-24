@@ -497,12 +497,32 @@ public static class InstanceProtocol
     /// flag is set); its right button "Resurrect at Checkpoint" with bit2 (without bit0); a third "Spectate" (PvP).
     /// Live 2026-10-17: 0x04 showed only "Resurrect at Checkpoint".
     /// </summary>
-    public static byte[] DeathScreen(byte flags)
+    public static byte[] DeathScreen(byte flags, ushort deaths = 0)
     {
         var w = new LoginWriter().U16(DeathScreenId).U8(flags);
-        if ((flags & 2) == 0) w.U32(0).U16(0);
+        if ((flags & 2) == 0) w.U32(0).U16(deaths);
         return w.ToArray();
     }
+
+    public const ushort GameMessageId = 0x18;
+
+    /// <summary>
+    /// S→C 0x18 on the instance connection, the message with strings: message id 198, then 0xffff, four empty
+    /// u16 fields, and a stat list with no stats and ONE string (the u16 counts, then u16 length + UTF-8 bytes).
+    /// The official server sends it on the player's death with the dead character's name, measured on 12 official
+    /// 3.29.3b captures.
+    /// </summary>
+    public static byte[] DeathMessage(string characterName) =>
+        new LoginWriter().U16(GameMessageId).U16(198).U16(0xffff).U16(0).U16(0).U16(0).U16(0).U16(1).Str(characterName).ToArray();
+
+    public const ushort AliveStateId = 0x1f1;
+
+    /// <summary>
+    /// S→C 0x1f1 (world group): object header, u8, u8; the second u8 is 1 when the object is dead and 0 when it
+    /// lives. The official death sends it with the dead flag set, the checkpoint resurrect with it clear.
+    /// </summary>
+    public static byte[] AliveState(uint objectId, uint chain, bool dead) =>
+        new LoginWriter().U16(AliveStateId).U32(objectId).U32(chain).U16(0).U8(1).U8((byte)(dead ? 1 : 0)).ToArray();
 
     /// <summary>C→S 0x153 (id only): Esc → "Exit to Character Selection" (0x140cf1a20) and the hardcore death screen's
     /// Exit (0x140291180); the client skips it while its instance connection is already down (state +0xc3a0 = 1). The
