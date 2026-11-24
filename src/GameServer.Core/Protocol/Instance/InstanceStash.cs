@@ -190,7 +190,45 @@ public static class InstanceStash
 
     public static (byte Kind, ushort Folder) ReadDeleteFolder(ReadOnlySpan<byte> m) => (m[4], (ushort)(m[2] << 8 | m[3]));
 
-    public const ushort MoveToTabId = 0xe0, TakeFromTabId = 0xe3;
+    public const ushort MoveToTabId = 0xe0, QuickPlaceInTabId = 0xe2, TakeFromTabId = 0xe3,
+        SubTabClickId = 0x2b, CollectionToStashId = 0x114;
+
+    /// <summary>C→S 0x00e2 (9 bytes, writer 0x141f9e6d0, sender 0x140b1df20): click on a specialty/Unique/Map stash tab
+    /// while holding an item on the cursor to quick-place it. u16 BE tab (+2), u32 BE item id (+4), u8 kind (+8: 0 personal, 1 guild).</summary>
+    public const int QuickPlaceInTabLength = 9;
+    public readonly record struct QuickPlaceInTab(ushort Tab, uint ItemId, byte Kind);
+
+    public static QuickPlaceInTab ReadQuickPlaceInTab(ReadOnlySpan<byte> m)
+    {
+        var r = new LoginReader(m[2..]);
+        return new(r.U16(), r.U32(), r.U8());
+    }
+
+    /// <summary>C→S 0x002b (21 bytes, writer 0x141f96570, senders 0x140b3b770 / 0x140b7fae0): click a cell on a specialty
+    /// sub-tab (Map page or Unique category). u8 kind (+2), u16 BE tab (+3), u64 LE subTabKey (+5..+12), u32 BE x (+13), u32 BE y (+17).</summary>
+    public const int SubTabClickLength = 21;
+    public readonly record struct SubTabClick(byte Kind, ushort Tab, ulong SubTabKey, uint X, uint Y);
+
+    public static SubTabClick ReadSubTabClick(ReadOnlySpan<byte> m)
+    {
+        byte kind = m[2];
+        ushort tab = System.Buffers.Binary.BinaryPrimitives.ReadUInt16BigEndian(m[3..]);
+        ulong subTabKey = System.Buffers.Binary.BinaryPrimitives.ReadUInt64LittleEndian(m[5..]);
+        uint x = System.Buffers.Binary.BinaryPrimitives.ReadUInt32BigEndian(m[13..]);
+        uint y = System.Buffers.Binary.BinaryPrimitives.ReadUInt32BigEndian(m[17..]);
+        return new(kind, tab, subTabKey, x, y);
+    }
+
+    /// <summary>C→S 0x0114 (16 bytes, writer 0x141fa08c0, sender 0x1403133bb): Ctrl + click an item in row 0x72
+    /// (DeepwaterCollectionInventory1) to move it directly into the open personal stash tab.
+    /// u32 BE item id (+2), u16 BE tab (+6), u64 LE subTabKey (+8..+15).</summary>
+    public const int CollectionToStashLength = 16;
+    public readonly record struct CollectionToStash(uint ItemId, ushort Tab, ulong SubTabKey);
+
+    public static CollectionToStash ReadCollectionToStash(ReadOnlySpan<byte> m) =>
+        new(System.Buffers.Binary.BinaryPrimitives.ReadUInt32BigEndian(m[2..]),
+            System.Buffers.Binary.BinaryPrimitives.ReadUInt16BigEndian(m[6..]),
+            System.Buffers.Binary.BinaryPrimitives.ReadUInt64LittleEndian(m[8..]));
 
     /// <summary>C→S 0xe0: Ctrl + click on an inventory item while a stash tab is shown. Tab: the shown tab's index (the
     /// stash page's +0x4a4); Kind: the page's stash kind (+0x491); Flags: bit 0 (unknown, 0 live), <see cref="MoveAllOfType"/>; Token: a u16

@@ -654,8 +654,27 @@ public static class InstanceItems
 
     public const int InventoryRequestLength = 8;
 
-    // C→S 0x2d (class 0x1435cacf0, write 0x141f96c30, senders 0x142165e90 / 0x142165ee0; 8 bytes): an inventory request,
-    // not mapped yet. The right-click item use is 0x58 below.
+    /// <summary>C→S 0x2d (8 bytes, class 0x1435cacf0, write 0x141f96c30, senders 0x142165e90 / 0x142165ee0):
+    /// controller quick-move between player inventory and Heist NPC equipment (kind 0x22, rows 45..53).
+    /// u8 slot (0..8), u32 BE item id, u8 outOfTarget (0 = into target, 1 = out of target; opposite polarity to 0x00fd).</summary>
+    public readonly record struct InventoryRequest(byte Slot, uint ItemId, bool OutOfTarget)
+    {
+        public bool IntoTarget => !OutOfTarget;
+    }
+
+    public static InventoryRequest ReadInventoryRequest(ReadOnlySpan<byte> m) =>
+        new(m[2], System.Buffers.Binary.BinaryPrimitives.ReadUInt32BigEndian(m[3..]), m[7] != 0);
+
+    /// <summary>C→S 0xfd (9 bytes, writer 0x141fa0230, sender 0x14216ecb0): keyboard/mouse Ctrl + click quick-move
+    /// between player inventory (main or expanded) and Heist NPC equipment (kind 0x22, rows 45..53).
+    /// u32 BE item id (+2), u8 fromExpanded (+6), u8 slot (0..8, +7), u8 intoTarget (+8: 1 = into target, 0 = out).</summary>
+    public const ushort InventoryQuickMoveId = 0xfd;
+    public const int InventoryQuickMoveLength = 9;
+
+    public readonly record struct InventoryQuickMove(uint ItemId, bool FromExpanded, byte Slot, bool IntoTarget);
+
+    public static InventoryQuickMove ReadInventoryQuickMove(ReadOnlySpan<byte> m) =>
+        new(System.Buffers.Binary.BinaryPrimitives.ReadUInt32BigEndian(m[2..]), m[6] != 0, m[7], m[8] != 0);
 
     public const ushort UseItemClickId = 0x57;
     public const int UseItemClickLength = 11;

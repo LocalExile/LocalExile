@@ -41,6 +41,10 @@ public sealed class BenchModule : IModule
             await BenchFeature.CraftBench(player, InstanceBench.ReadCraft(bytes));
             return true;
         });
+        GameEvents.Packet(InstanceBench.CloseId).Add(module.Manifest.Id, async (player, bytes) =>
+        {
+            return await BenchFeature.CloseBench(player, InstanceBench.ReadClose(bytes));
+        });
     }
 }
 
@@ -110,6 +114,18 @@ static class BenchFeature
         await RefreshBenchBalance(player);
         await Send(player, InstanceWaypoints.OpenUi(InstanceWaypoints.CraftingBenchUi),
             "0x007b open the crafting bench window (type 0)", still: () => PlayerActionCurrent(player, action));
+    }
+
+    internal static async Task<bool> CloseBench(Player player, (byte Flags, byte UiKind) request)
+    {
+        if (request.UiKind != InstanceWaypoints.CraftingBenchUi) return false;
+        if (player.BenchOpen)
+        {
+            player.BenchOpen = false;
+            await RefreshBenchBalance(player, clear: true);
+            Console.WriteLine($"[gateway] {player.Connection.Remote} <= 0x02b1 crafting bench closed (flags 0x{request.Flags:x2})");
+        }
+        return true;
     }
 
     internal static async Task MoveToBench(Player player, (uint ItemId, bool IntoBench) request)

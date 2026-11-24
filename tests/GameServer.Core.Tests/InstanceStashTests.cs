@@ -104,4 +104,24 @@ public class InstanceStashTests
         Assert.Equal("00D6" + "0004" + "0008" + "3030303030303035",
             Convert.ToHexString(InstanceStash.EncodePersonalStashTabId(4, "00000005")));
     }
+
+    [Fact]
+    public void Specialty_stash_and_collection_quick_move_layouts()
+    {
+        // C→S 0x00e2 (9B): tab=5, itemId=0x12345678, kind=0 (personal)
+        byte[] e2 = Convert.FromHexString("00E2" + "0005" + "12345678" + "00");
+        // C→S 0x002b (21B): kind=0, tab=15, subTabKey=0x0102030405060708 LE, x=3, y=2
+        byte[] s2b = Convert.FromHexString("002B" + "00" + "000F" + "0807060504030201" + "00000003" + "00000002");
+        // C→S 0x0114 (16B): itemId=0x42, tab=2, subTabKey=0x1122334455667788 LE
+        byte[] s114 = Convert.FromHexString("0114" + "00000042" + "0002" + "8877665544332211");
+        var messages = InstanceProtocol.SplitClientMessages([.. e2, .. s2b, .. s114], out var partial, out var unknown);
+
+        Assert.Equal([InstanceStash.QuickPlaceInTabId, InstanceStash.SubTabClickId, InstanceStash.CollectionToStashId],
+            messages.Select(m => m.Id));
+        Assert.Equal(new InstanceStash.QuickPlaceInTab(5, 0x12345678u, 0), InstanceStash.ReadQuickPlaceInTab(messages[0].Bytes));
+        Assert.Equal(new InstanceStash.SubTabClick(0, 15, 0x0102030405060708ul, 3, 2), InstanceStash.ReadSubTabClick(messages[1].Bytes));
+        Assert.Equal(new InstanceStash.CollectionToStash(0x42u, 2, 0x1122334455667788ul), InstanceStash.ReadCollectionToStash(messages[2].Bytes));
+        Assert.Empty(partial);
+        Assert.Empty(unknown);
+    }
 }

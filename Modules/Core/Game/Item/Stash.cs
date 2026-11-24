@@ -214,20 +214,22 @@ public static partial class Game
 
     // C→S 0x28 on a stash tab: the item leaves the tab for the (empty) cursor, keeping its id; both saves in one transaction
     // (ItemMoves).
-    public static async Task PickUpFromStash(Player player, int tab, InstanceItems.PickUpItem pick)
+    public static Task PickUpFromStash(Player player, int tab, InstanceItems.PickUpItem pick) =>
+        PickUpFromStashFor(player, StashOf(player), tab, pick.ItemId, $"0x0028 pick up {pick}");
+
+    static async Task PickUpFromStashFor(Player player, AccountStash stash, int tab, uint itemId, string label)
     {
-        var stash = StashOf(player);
         var items = ItemsOf(player);
-        if (stash.Inventory(tab).Items.FirstOrDefault(i => i.Id == pick.ItemId) is { } source
+        if (stash.Inventory(tab).Items.FirstOrDefault(i => i.Id == itemId) is { } source
             && ShapeOf(source.Item) is { } shape && source.Item.StackSize > Math.Max(1, (int)shape.MaxStack))
         {
             await SplitStack(player,
-                new(stash.InventoryOf(tab), pick.ItemId, (uint)Math.Max(1, (int)shape.MaxStack), 0), "");
+                new(stash.InventoryOf(tab), itemId, (uint)Math.Max(1, (int)shape.MaxStack), 0), "");
             return;
         }
-        if (ItemMoves.StashToCursor(stash, items, tab, pick.ItemId) is not { } held)
+        if (ItemMoves.StashToCursor(stash, items, tab, itemId) is not { } held)
         {
-            Console.WriteLine($"[gateway] {player.Connection.Remote} <= 0x0028 pick up {pick} from stash tab {tab}: refused");
+            Console.WriteLine($"[gateway] {player.Connection.Remote} <= {label} from stash tab {tab}: refused");
             return;
         }
         // The tab the click names, not the id the client sent: that id can be one it just unloaded (live 2026-11-06, #605).
@@ -238,13 +240,15 @@ public static partial class Game
 
     // C→S 0x2a on a stash tab: the held item goes into the tab (with a stash id, AccountStash.Place) or onto a stack of its
     // type there; the one item it was dropped on comes onto the cursor. One transaction (ItemMoves.HeldToStash).
-    public static async Task PlaceInStash(Player player, int tab, InstanceItems.PlaceItem place)
+    public static Task PlaceInStash(Player player, int tab, InstanceItems.PlaceItem place) =>
+        PlaceInStashFor(player, StashOf(player), tab, (int)place.X, (int)place.Y, place.A != 0, $"0x002a place {place}");
+
+    static async Task PlaceInStashFor(Player player, AccountStash stash, int tab, int x, int y, bool one, string label)
     {
-        var stash = StashOf(player);
         var items = ItemsOf(player);
-        if (ItemMoves.HeldToStash(stash, items, tab, (int)place.X, (int)place.Y, place.A != 0, ShapeOf, out string why) is not { } done)
+        if (ItemMoves.HeldToStash(stash, items, tab, x, y, one, ShapeOf, out string why) is not { } done)
         {
-            Console.WriteLine($"[gateway] {player.Connection.Remote} <= 0x002a place {place} in stash tab {tab}: refused ({why})");
+            Console.WriteLine($"[gateway] {player.Connection.Remote} <= {label} in stash tab {tab}: refused ({why})");
             return;
         }
         tab = done.Tab;
@@ -257,6 +261,85 @@ public static partial class Game
         await Send(player, InstanceItems.InventoryChange(PlayerInventories.InventoryId(PlayerInventories.Cursor),
             items.NextRevision(PlayerInventories.Cursor), [before.Id], done.Held is null ? [] : [done.Held]),
             "0x00bf cursor: " + (done.Held is null ? $"remove item {before.Id}" : done.Displaced is null ? $"stack {before.Id} now {done.Held.Item.StackSize}" : $"remove item {before.Id}, hold item {done.Held.Id}"));
+    }
+
+    static AccountStash? OpenStashForKind(Player player, byte kind) => kind switch
+    {
+        InstanceStash.Personal when player.StashOpen => PersonalStashOf(player),
+        InstanceStash.Guild when !player.Character.Ssf && player.GuildStashOpen => GuildStashOf(player),
+        _ => null,
+    };
+
+    // C→S 0x00e2: cursor quick-place into a specialty/Unique/Map stash tab.
+    public static async Task QuickPlaceInStash(Player player, InstanceStash.QuickPlaceInTab request)
+    {
+        if (player.Closed || player.LeavingArea || player.PlayerLife == 0) return;
+        if (OpenStashForKind(player, request.Kind) is not { } stash)
+        {
+            Console.WriteLine($"[gateway] {player.Connection.Remote} <= 0x00e2 quick-place item {request.ItemId} in stash kind {request.Kind} tab {request.Tab}: refused (stash closed)");
+            return;
+        }
+        var items = ItemsOf(player);
+        var moved = ItemMoves.HeldQuickToStash(stash, items, request.Tab, request.ItemId, ShapeOf, out string why);
+        Console.WriteLine($"[gateway] {player.Connection.Remote} <= 0x00e2 quick-place cursor item {request.ItemId} into stash kind {request.Kind} tab {request.Tab}" + (moved is null ? $": refused ({why})" : $" -> tab {moved.Tab}"));
+        if (moved is not null) await SendTransfer(player, items, stash, moved, tabFirst: false);
+    }
+
+    // C→S 0x002b: click cell (x, y) on a specialty sub-tab (Map page or Unique category). Places the cursor item if one
+    // is held, otherwise picks up the item covering (x, y) onto the cursor.
+    public static async Task SubTabClickInStash(Player player, InstanceStash.SubTabClick request)
+    {
+        if (player.Closed || player.LeavingArea || player.PlayerLife == 0) return;
+        if (OpenStashForKind(player, request.Kind) is not { } stash)
+        {
+            Console.WriteLine($"[gateway] {player.Connection.Remote} <= 0x002b sub-tab click kind {request.Kind} tab {request.Tab}: refused (stash closed)");
+            return;
+        }
+        if (stash.FindSubTab(request.Tab, request.SubTabKey) is not int targetTab)
+        {
+            Console.WriteLine($"[gateway] {player.Connection.Remote} <= 0x002b sub-tab click tab {request.Tab} key 0x{request.SubTabKey:x}: refused (unknown sub-tab)");
+            return;
+        }
+        var items = ItemsOf(player);
+        if (items.Items(PlayerInventories.Cursor).Count > 0)
+        {
+            await PlaceInStashFor(player, stash, targetTab, (int)request.X, (int)request.Y, one: false,
+                $"0x002b sub-tab place ({request.X}, {request.Y})");
+            return;
+        }
+        var (_, tabItems) = stash.Inventory(targetTab);
+        var clicked = tabItems.FirstOrDefault(i =>
+            i.X == request.X && i.Y == request.Y
+            || ShapeOf(i.Item) is { } s && request.X >= i.X && request.X < i.X + s.Width && request.Y >= i.Y && request.Y < i.Y + s.Height);
+        if (clicked is null)
+        {
+            Console.WriteLine($"[gateway] {player.Connection.Remote} <= 0x002b sub-tab pick up at ({request.X}, {request.Y}) in tab {targetTab}: empty cell");
+            return;
+        }
+        await PickUpFromStashFor(player, stash, targetTab, clicked.Id, $"0x002b sub-tab pick up item {clicked.Id}");
+    }
+
+    // C→S 0x0114: Ctrl + click an item in special inventory row 114 (DeepwaterCollectionInventory1) directly into the open personal stash.
+    public static async Task<bool> MoveCollectionToStash(Player player, InstanceStash.CollectionToStash request)
+    {
+        if (player.Closed || player.LeavingArea || player.PlayerLife == 0 || !player.StashOpen)
+        {
+            Console.WriteLine($"[gateway] {player.Connection.Remote} <= 0x0114 collection item {request.ItemId} to stash tab {request.Tab}: refused (personal stash closed)");
+            return false;
+        }
+        var items = ItemsOf(player);
+        if (items.RowOf(request.ItemId) != PlayerInventories.DeepwaterCollection)
+        {
+            Console.WriteLine($"[gateway] {player.Connection.Remote} <= 0x0114 item {request.ItemId} to stash tab {request.Tab}: refused (not in collection row 114)");
+            return false;
+        }
+        var stash = PersonalStashOf(player);
+        int targetTab = request.SubTabKey != 0 ? (stash.FindSubTab(request.Tab, request.SubTabKey) ?? request.Tab) : request.Tab;
+        var moved = ItemMoves.InventoryToStash(stash, items, targetTab, request.ItemId, ShapeOf, out string refused);
+        Console.WriteLine($"[gateway] {player.Connection.Remote} <= 0x0114 collection item {request.ItemId} to stash tab {targetTab}" + (moved is null ? $": refused ({refused})" : ""));
+        if (moved is null) return false;
+        await SendTransfer(player, items, stash, moved, tabFirst: false);
+        return true;
     }
 
     // C→S 0xe0: Ctrl + click on an inventory item while a stash tab is shown: into that tab (ItemMoves.InventoryToStash: a
@@ -275,6 +358,7 @@ public static partial class Game
     // the client picked for it (StashTabAffinities) with room, emitting S→C 0x00d5 on both success and refusal.
     public static async Task MoveToAffinityTab(Player player, InstanceStash.MoveToAffinityTab move, string hex)
     {
+        if (player.Closed || player.LeavingArea || player.PlayerLife == 0 || (!player.StashOpen && !player.GuildStashOpen)) return;
         if (move.Tabs is not [var (firstTab, firstAffinity), ..])
         {
             Console.WriteLine($"[gateway] {player.Connection.Remote} <= 0x00e1 move item {move.ItemId} to its affinity tab: refused (no tab named): {hex}");
@@ -417,5 +501,29 @@ public static partial class Game
             (now is uint bits ? $": now 0x{bits:x}" : ": refused (no such personal tab)"));
         var tabs = stash.Records(null, TabsSentOf(player, stash));
         await Send(player, InstanceStash.TabList(tabs), $"0x0136 stash tab list again ({tabs.Count} tabs, after the affinities)");
+    }
+
+    // C→S 0x002d: controller quick-move between carried inventory and Heist NPC equipment (rows 45..53, kind 0x22).
+    public static Task QuickMoveHeistNpcEquipment(Player player, InstanceItems.InventoryRequest request) =>
+        QuickMoveHeistNpcEquipmentCore(player, request.Slot, request.ItemId, request.IntoTarget, fromExpanded: false, "0x002d");
+
+    // C→S 0x00fd: keyboard/mouse Ctrl + click quick-move between carried inventory and Heist NPC equipment (rows 45..53).
+    public static Task QuickMoveHeistNpcEquipment(Player player, InstanceItems.InventoryQuickMove request) =>
+        QuickMoveHeistNpcEquipmentCore(player, request.Slot, request.ItemId, request.IntoTarget, request.FromExpanded, "0x00fd");
+
+    static async Task QuickMoveHeistNpcEquipmentCore(Player player, byte slot, uint itemId, bool intoTarget, bool fromExpanded, string opcode)
+    {
+        var items = ItemsOf(player);
+        if (ItemMoves.MoveHeistNpcEquipment(items, slot, itemId, intoTarget, fromExpanded, ShapeOf) is not { } moved)
+        {
+            Console.WriteLine($"[gateway] {player.Connection.Remote} <= {opcode} Heist NPC slot {slot} item {itemId} ({(intoTarget ? "into" : "out")}): refused");
+            return;
+        }
+        await Send(player, InstanceItems.InventoryChange(PlayerInventories.InventoryId(moved.From),
+            items.NextRevision(moved.From), [itemId], []),
+            $"{opcode} Heist NPC quick-move: item {itemId} leaves row {moved.From}");
+        await Send(player, InstanceItems.InventoryChange(PlayerInventories.InventoryId(moved.To),
+            items.NextRevision(moved.To), [], [moved.Placed]),
+            $"{opcode} Heist NPC quick-move: item {itemId} into row {moved.To} at ({moved.Placed.X}, {moved.Placed.Y})");
     }
 }

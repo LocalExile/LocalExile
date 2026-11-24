@@ -320,4 +320,27 @@ public class InstanceItemsTests
         Assert.Equal("00C3" + "00001234",
             Convert.ToHexString(InstanceItems.GemExperience(0x1234)));
     }
+
+    [Fact]
+    public void Inventory_quick_move_and_request_layouts()
+    {
+        // C→S 0x00fd (9B): item=0x15, fromExpanded=1, slot=4, intoTarget=1
+        byte[] fd = Convert.FromHexString("00FD" + "00000015" + "01" + "04" + "01");
+        // C→S 0x002d (8B): slot=4, item=0x15, outOfTarget=0 (into target) and outOfTarget=1 (out of target)
+        byte[] d2In = Convert.FromHexString("002D" + "04" + "00000015" + "00");
+        byte[] d2Out = Convert.FromHexString("002D" + "04" + "00000015" + "01");
+        var messages = InstanceProtocol.SplitClientMessages([.. fd, .. d2In, .. d2Out], out var partial, out var unknown);
+
+        Assert.Equal([InstanceItems.InventoryQuickMoveId, InstanceItems.InventoryRequestId, InstanceItems.InventoryRequestId],
+            messages.Select(m => m.Id));
+        Assert.Equal(new InstanceItems.InventoryQuickMove(0x15u, true, 4, true), InstanceItems.ReadInventoryQuickMove(messages[0].Bytes));
+        var reqIn = InstanceItems.ReadInventoryRequest(messages[1].Bytes);
+        Assert.Equal(new InstanceItems.InventoryRequest(4, 0x15u, false), reqIn);
+        Assert.True(reqIn.IntoTarget);
+        var reqOut = InstanceItems.ReadInventoryRequest(messages[2].Bytes);
+        Assert.Equal(new InstanceItems.InventoryRequest(4, 0x15u, true), reqOut);
+        Assert.False(reqOut.IntoTarget);
+        Assert.Empty(partial);
+        Assert.Empty(unknown);
+    }
 }
