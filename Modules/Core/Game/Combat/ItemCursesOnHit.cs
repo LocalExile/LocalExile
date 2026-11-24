@@ -29,6 +29,9 @@ public static partial class Game
         }
     }
 
+    /// <summary>Whether a curse (a hex, not a mark) is running on the monster: "against Cursed Enemies".</summary>
+    public static bool CursedNow(SpawnedMonster m, double now) => m.Curses.All.Count != 0 && m.Curses.All.Values.Any(c => !c.Mark && c.Until > now);
+
     /// <summary>A hit curses its monster with a hex at a gem level, as a cast of it would (curse limit, hexproof): what
     /// "Curse Enemies with X on Hit" does, and the effect rules' "curse". <paramref name="resend"/>: a hit within this
     /// many seconds of the last application leaves the running curse alone (0: every hit applies it again).</summary>

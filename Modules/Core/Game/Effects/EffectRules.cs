@@ -208,6 +208,7 @@ public static class EffectRules
     static readonly Dictionary<What, string[]> Facts = new()
     {
         [What.Hit] = ["critical", "spell", "attack", "melee", "bow", "killed", "frozen", "ignited", "bleeding", "marked", "has_mark",
+            "poisoned", "chilled", "shocked", "blinded", "cursed",
             "deals_fire", "deals_cold", "deals_lightning", "normal", "magic", "rare", "unique", "rare_or_unique"],
         [What.Kill] = ["frozen", "ignited", "bleeding", "poisoned", "five_poisons", "shield", "dual_wield", "normal", "magic", "rare", "unique", "rare_or_unique"],
         [What.SkillHit] = ["critical", "spell", "attack", "melee", "killed", "primary", "frozen", "bleeding", "marked", "self_bleeding", "self_poisoned",
@@ -621,6 +622,13 @@ public static class EffectRules
         ("ignited", ChargeEvent.Kill { Monster: { } m }) => DiedWith(player, m.Ignites),
         ("bleeding", ChargeEvent.Kill { Monster: { } m }) => DiedWith(player, m.Bleeds),
         ("marked", HitLanded { Monster: { } m }) => Game.MarkedBy(player, m),
+        // The monster's state as the hit found it (the event is raised before the hit's own ailments and debuffs).
+        // Read at the hit's own time where its site gave one.
+        ("poisoned", HitLanded { Monster: { } m } h) => m.Poisons.Stacks(h.At ?? Game.ProjectileWorldTime(player)) > 0,
+        ("chilled", HitLanded { Monster: { } m } h) => m.Ailments.Magnitude(MonsterElementalAilments.Kind.Chill, h.At ?? Game.ProjectileWorldTime(player)) > 0,
+        ("shocked", HitLanded { Monster: { } m } h) => m.Ailments.Magnitude(MonsterElementalAilments.Kind.Shock, h.At ?? Game.ProjectileWorldTime(player)) > 0,
+        ("blinded", HitLanded h) => h.MonsterId != 0 && Game.Blinded(player, h.MonsterId, h.At ?? Game.ProjectileWorldTime(player)),
+        ("cursed", HitLanded { Monster: { } m } h) => Game.CursedNow(m, h.At ?? Game.ProjectileWorldTime(player)),
         ("has_mark", HitLanded) => Game.HasMarkedEnemy(player),
         ("poisoned", ChargeEvent.Kill k) => k.Poisons > 0,
         ("melee", ChargeEvent.Stun s) => s.Melee,
