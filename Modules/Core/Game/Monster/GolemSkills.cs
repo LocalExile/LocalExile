@@ -128,6 +128,14 @@ public static partial class Game
         }
         foreach (var (name, value) in golem.Auras.Concat(golem.Utility)) values[name] = values.GetValueOrDefault(name) + value;
         foreach (var (name, value) in golem.Gear) values[name] = values.GetValueOrDefault(name) + value;
+        if (golem.Definition.Kind is "Skeleton" or "VaalSkeleton")
+        {
+            const uint conversion = Stat.PhysicalDamagePctToConvertToChaos;
+            values[conversion] = ActorScale.Saturate((long)values.GetValueOrDefault(conversion)
+                + GolemStat(playerStats, Stat.SummonedSkeletonPctPhysicalToChaos));
+            values[Stat.WitheredOnHitFor2SecondsPctChance] = ActorScale.Saturate((long)values.GetValueOrDefault(Stat.WitheredOnHitFor2SecondsPctChance)
+                + GolemStat(playerStats, Stat.SummonedSkeletonPctChanceToWitherFor2Seconds));
+        }
         AddMapMinionActionStats(MapModsOf(player), values);
         if (LivingZombieCorpse(golem, playerStats)) values[Stat.IsUsableAsCorpseWhenAlive] = 1;
         if (SpectreSurges.TryGetValue(golem, out var surge) && now < surge.Until)
@@ -528,6 +536,11 @@ public static partial class Game
         hash.Add(SkeletonShieldChaos(player, golem, playerStats));
         hash.Add(MinionOwnerAttackCritical(player, playerStats));
         hash.Add(LivingZombieCorpse(golem, playerStats));
+        if (golem.Definition.Kind is "Skeleton" or "VaalSkeleton")
+        {
+            hash.Add(GolemStat(playerStats, Stat.SummonedSkeletonPctPhysicalToChaos));
+            hash.Add(GolemStat(playerStats, Stat.SummonedSkeletonPctChanceToWitherFor2Seconds));
+        }
         foreach (var p in playerStats.Where(p => (Stats.Name(p.Key) ?? "").Contains("minion", StringComparison.Ordinal)
             || (Stats.Name(p.Key) ?? "").Contains("golem", StringComparison.Ordinal)).OrderBy(p => p.Key)) hash.Add(p);
         if (Stat.Dexterity is var dexKey) hash.Add((dexKey, playerStats.GetValueOrDefault(dexKey)));

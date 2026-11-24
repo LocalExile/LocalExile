@@ -800,6 +800,7 @@ public static partial class Game
             if (damage > 0 && mitigated.MinTotal > 0 && Golem(Stat.ChanceToInflictSappedPct) > 0)
                 AlternateAilmentsOnHitLocked(target, mitigated.Scale(damage / mitigated.MinTotal), critical, now, Golem, random);
             HitDebuffsOnHitLocked(target, Golem, a.Attack.Spell, critical, now, AreaRng(player));
+            WitherOnHitLocked(target, Golem, now, random);
             InflictMonsterBlind(player, id, target, now, BlindHitInput.Capture(Golem), a.Attack.Spell, critical,
                 AreaRng(player));
             MinionAilmentsLocked(player, a, id, target, critical, now, ailmentFactor);
