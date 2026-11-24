@@ -6,8 +6,11 @@ public static class PlayerAccuracyModifiers
     public const uint BootsMore = Stat.BootsImplicitAccuracyRatingPlusPctFinal;
 
     // Keep flat, increased and more inputs unrounded until the final rating is published or used.
-    public static int Calculate(long basis, long increased, int morePct, int blindLess = 0,
-        int areaMorePct = 0, int weaponMorePct = 0)
+    public static int Calculate(long basis, long increased, int morePct, int blindLess = 0, int areaMorePct = 0) =>
+        Calculate(basis, increased, morePct, blindLess, areaMorePct, weaponMorePct: 0);
+
+    public static int Calculate(long basis, long increased, int morePct, int blindLess,
+        int areaMorePct, int weaponMorePct)
     {
         var scaled = BigInteger.Max(0, basis) * BigInteger.Max(0, (BigInteger)100 + increased)
             * Math.Max(0L, 100L + morePct) * Math.Max(0L, 100L - blindLess);

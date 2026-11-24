@@ -1225,7 +1225,7 @@ public static partial class Game
         int weaponAccuracy = (int)RawAccuracy(Stat.GladiatorAccuracyRatingPlusPctFinalWhileWieldingSword);
         if (weaponAccuracy != 0 && !WeaponProfileFor(player, activeSet: true).Sword) weaponAccuracy = 0;
         int ResolveAccuracy(long basis, long increased) => PlayerAccuracyModifiers.Calculate(basis, increased,
-            (int)RawAccuracy(PlayerAccuracyModifiers.BootsMore), areaMorePct: areaAccuracy, weaponMorePct: weaponAccuracy);
+            (int)RawAccuracy(PlayerAccuracyModifiers.BootsMore), blindLess: 0, areaMorePct: areaAccuracy, weaponMorePct: weaponAccuracy);
         var pools = CharacterStats.For(classInfo, level, bonus, ResolveAccuracy);
         // Reservation-derived defences are a second, explicit projection from the completed full maximum Life. The
         // added Energy Shield is a global flat source and cannot feed back into Life conversion or reservation.
