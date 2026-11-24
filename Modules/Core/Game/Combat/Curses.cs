@@ -82,7 +82,7 @@ public static partial class Game
 
     static bool ApplyCurseDataLocked(Player player, SpawnedMonster monster, ushort skill, string effect,
         IReadOnlyDictionary<uint, int> curseStats, double now, bool aura, IReadOnlyDictionary<uint, int>? sources,
-        int addedEffect = 0, double effectMultiplier = 1, uint? casterId = null)
+        int addedEffect = 0, double effectMultiplier = 1, uint? casterId = null, int additionalCapacity = 0)
     {
         if (!CurseCatalog.All.TryGetValue(effect, out var definition) || (casterId is null || aura) && ExternalTemporalChains(player, effect)
             || monster.Dead || monster.Life == 0 || !monster.Hostile) return false;
@@ -116,10 +116,14 @@ public static partial class Game
             foreach (var m in player.Area.Monsters.Values.Where(m => !ReferenceEquals(m, monster)))
                 foreach (var mark in m.Curses.All.Values.Where(c => c.Caster == player.Id && c.Mark).ToArray())
                 { m.Curses.Remove(mark.Caster, mark.Effect); m.PresentationChanged?.Invoke(); }
+        int limit = CurseLimit(player, playerStats);
         var curse = new MonsterCurses.Curse(caster, effect, skill, definition.Buff, player.NextBuff++, now,
             aura || hexMaster && !definition.Mark ? double.PositiveInfinity : now + seconds / rate, aura, definition.Mark, stats)
-            { RemainsOnDeath = !aura && Get(Stat.CursesYouInflictRemainAfterDeath) != 0 };
-        monster.Curses.Put(curse, CurseLimit(player, playerStats));
+        {
+            RemainsOnDeath = !aura && Get(Stat.CursesYouInflictRemainAfterDeath) != 0,
+            ExpandedCapacity = additionalCapacity > 0 ? ActorScale.Saturate((long)limit + additionalCapacity) : 0,
+        };
+        monster.Curses.Put(curse, limit);
         if (!aura && Get(Stat.RefreshDurationOfShockChillIgniteOnEnemyWhenCursingEnemy) != 0
             && ReferenceEquals(monster.Curses.All.GetValueOrDefault((curse.Caster, curse.Effect)), curse))
         {

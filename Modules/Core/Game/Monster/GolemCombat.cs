@@ -35,6 +35,11 @@ public static partial class Game
         ExpireMinionChargesLocked(player, g, now);
         RefreshGolemLocked(player, g, currentPlayer, now);
         if (m.Dead || m.Life == 0) return;
+        if (g.Definition.Kind == "DoedresEffigy")
+        {
+            EffigyHexesTickLocked(player, g, now);
+            return;
+        }
         double oldLastStep = g.LastStep;
         double elapsed = Math.Max(0, now - oldLastStep);
         double recoveryRate = MinionLifeRecoveryMultiplier(m);

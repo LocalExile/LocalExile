@@ -462,6 +462,7 @@ public static partial class Game
         if (fighter.Definition.Kind == "Spectre")
             foreach (var child in player.Summons.Fighters.Values.Where(child => child.Monster.SummonerId == fighter.Id).ToArray())
                 RemoveSummonLocked(player, child, now, reconcileBlessing: false);
+        ClearEffigyHexesLocked(fighter);
         SpectreChildParents.Remove(fighter);
         player.Summons.Fighters.Remove(fighter.Id); player.Summons.Until.Remove(fighter.Id);
         player.Summons.Definitions.Remove(fighter.Id); player.Summons.Weapons.Remove(fighter.Id);
