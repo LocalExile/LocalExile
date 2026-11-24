@@ -246,14 +246,7 @@ public static partial class Game
         player.Area.ActiveIgniteMonsters.Add(id);
         player.Area.RecentlyIgnitedMonsters.Add(id);
         InflictedLocked(player, target, AilmentType.Ignite, now + settings.Seconds);
-        // Combustion: ignites from the supported skill apply their fire resistance reduction for the ignite's duration.
-        if (settings.FireExposure < 0)
-        {
-            double until = target.Ignites.Until;
-            var key = (DamageType.Fire, settings.FireExposure);
-            target.Exposures[key] = Math.Max(target.Exposures.GetValueOrDefault(key, double.NegativeInfinity), until);
-            { target.ExposureUntil[0] = Math.Max(target.ExposureUntil[0], until); target.PresentationChanged?.Invoke(); }
-        }
+        ApplyIgniteFirePenaltyLocked(target, settings, now);
         if (playerIgnite && target.Hostile)
         {
             player.RecentEvents.Record(StatConditions.IgnitedEnemy, now);
@@ -262,6 +255,16 @@ public static partial class Game
         }
         ShowDotBuffLocked(player, id, target.Ignites, IgnitedBuffRow, now);
         return [];
+    }
+
+    static void ApplyIgniteFirePenaltyLocked(SpawnedMonster target, MonsterIgnites.Settings settings, double now)
+    {
+        if (settings.FireExposure >= 0) return;
+        double until = now + settings.Seconds;
+        var key = (DamageType.Fire, settings.FireExposure);
+        target.Exposures[key] = Math.Max(target.Exposures.GetValueOrDefault(key, double.NegativeInfinity), until);
+        target.ExposureUntil[0] = Math.Max(target.ExposureUntil[0], until);
+        target.PresentationChanged?.Invoke();
     }
 
     public static string IgnitedLog(uint id, SpawnedMonster target, bool critical, double now) =>

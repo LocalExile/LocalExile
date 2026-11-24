@@ -67,15 +67,11 @@ public static partial class Game
         mitigated.MinTotal > 0 ? mitigated.Components.Sum(part => part.Range.Min * coefficients[part.Type].Min)
             * damage / mitigated.MinTotal / 10_000d : 0;
 
-    static double MinionShieldLeechDamageFactor(GolemState.Golem minion, GolemState.Ability ability, double now)
+    static double MinionShieldLeechDamageFactor(GolemState.Golem minion, GolemState.Ability ability)
     {
-        if (minion.MaximumShield == 0) return 1;
-        var effects = minion.Monster.Effects;
-        bool full = minion.ShieldPool.Full;
-        uint stat = full ? Stat.SupportEnergyShieldLeechDamagePlusPctOnFullEnergyShieldFinal
-            : Stat.SupportEnergyShieldLeechDamagePlusPctWhileLeechingEnergyShieldFinal;
-        int more = effects[stat] + GolemStat(ability.Stats, stat);
-        if (more == 0 || !full && (!MinionShieldLeeches.TryGetValue(minion, out var leech) || !leech.Active(now))) return 1;
+        if (!minion.ShieldPool.Full) return 1;
+        const uint stat = Stat.SupportEnergyShieldLeechDamagePlusPctOnFullEnergyShieldFinal;
+        int more = minion.Monster.Effects[stat] + GolemStat(ability.Stats, stat);
         return Math.Max(0, 1 + more / 100d);
     }
 
