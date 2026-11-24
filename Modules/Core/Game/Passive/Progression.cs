@@ -1075,10 +1075,11 @@ public static partial class Game
         };
         List<AuraCatalog.Aura> auras;
         auras = AffectingAuras(player);
+        var minionAuras = SelectMinionAuras(player, player.Id, auras, bonus.AuraEffectPct);
         var aura = AuraCatalog.Bonus(auras.Where(a => a.AffectsSelf), bonus.AuraEffectPct, SkillsFor(player), Stats);
         aura = WithTemporaryAuraBonus(auras, bonus.AuraEffectPct, aura);
         int sentinelChaos = 0;
-        foreach (var sentinel in DivineSentinelAurasReaching(player, player.Id))
+        foreach (var sentinel in minionAuras)
             foreach (var (key, value) in sentinel.Stats)
                 if (key == Stat.BaseChaosDamageResistancePct) sentinelChaos += value;
         int CatInput(uint key) => sources.GetValueOrDefault(key);

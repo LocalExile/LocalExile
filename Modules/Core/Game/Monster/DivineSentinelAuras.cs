@@ -4,7 +4,7 @@ using GameServer.Core.Protocol.Instance;
 public static partial class Game
 {
     static PlayerMinions.Aura[] DivineSentinelAuras = [];
-    static readonly RuleTable<GameArea, Dictionary<uint, (Player Owner, PlayerMinions.Minion Source)>> DivineSentinels = new();
+    static readonly RuleTable<GameArea, Dictionary<uint, (Player Owner, PlayerMinions.Minion Source)>> SharedMinionAuraEmitters = new();
 
     static void LoadDivineSentinelAuraData()
     {
@@ -31,28 +31,34 @@ public static partial class Game
             : choices.Length > 0 ? choices[AreaRng(owner).Next(choices.Length)] : null;
     }
 
-    static bool DivineSentinelAuraActive(Player owner, PlayerMinions.Minion source, double now) =>
-        owner.PlayerLife > 0 && !owner.Closed && !owner.LeavingArea && !source.Monster.Dead
-        && now < owner.Reservations.Until.GetValueOrDefault(source.Id, owner.Summons.Until.GetValueOrDefault(source.Id))
-        && OwnedFighter(owner, source.Id) is { } fighter
-        && ReferenceEquals(fighter.Monster, source.Monster)
-        && GolemStat(fighter.Own, Stat.SummonedSentinelsHaveRandomTemplarAura) != 0;
+    static bool SharedMinionAuraActive(Player owner, PlayerMinions.Minion source, double now)
+    {
+        if (owner.PlayerLife == 0 || owner.Closed || owner.LeavingArea || source.Monster.Dead || source.Monster.Life == 0
+            || !ReferenceEquals(owner.Area.Monsters.GetValueOrDefault(source.Id), source.Monster)) return false;
+        if (IsRelicSkill(source.Skill)) return now < source.Until;
+        return now < owner.Reservations.Until.GetValueOrDefault(source.Id, owner.Summons.Until.GetValueOrDefault(source.Id))
+            && OwnedFighter(owner, source.Id) is { } fighter
+            && ReferenceEquals(fighter.Monster, source.Monster)
+            && GolemStat(fighter.Own, Stat.SummonedSentinelsHaveRandomTemplarAura) != 0;
+    }
 
-    static void SyncDivineSentinelAura(Player owner, PlayerMinions.Minion source, PlayerMinions.Aura aura, double now)
+    static void SyncSharedMinionAura(Player owner, PlayerMinions.Minion source, PlayerMinions.Aura aura, double now)
     {
         if (owner.Frames.Area is not { } area) return;
-        if (!DivineSentinelAuraActive(owner, source, now))
+        if (!SharedMinionAuraActive(owner, source, now))
         {
-            ClearDivineSentinelAura(owner, source.Id, aura);
+            ClearSharedMinionAura(owner, source.Id, aura);
             return;
         }
-        DivineSentinels.GetOrCreateValue(area)[source.Id] = (owner, source);
+        SharedMinionAuraEmitters.GetOrCreateValue(area)[source.Id] = (owner, source);
         int radius = (int)Math.Round(aura.Radius * Math.Sqrt(Math.Max(0, 1
             + source.Monster.Effects[Stat.BaseSkillAreaOfEffectPlusPct] / 100d)));
         SyncZones(owner, source.Id, MinionAuraZones, [(0, radius, source.Monster.Walk.Position(now))],
             new(ReachesAlliesBut(owner, 0), new(source.Id), recipient =>
             {
-                if (InZone(owner, source.Id, MinionAuraZones, 0, recipient.Value))
+                bool inside = InZone(owner, source.Id, MinionAuraZones, 0, recipient.Value);
+                if (recipient.Value == owner.Id) source.OwnerBuff = inside ? (ushort)1 : (ushort)0;
+                if (inside)
                     owner.Area.Buffs.Set(recipient.Value, new(aura.BuffRow, source.Id,
                         Values: [.. aura.Stats.Select(stat => unchecked((uint)stat.Value))]));
                 else owner.Area.Buffs.Clear(recipient.Value, aura.BuffRow, source.Id);
@@ -60,10 +66,11 @@ public static partial class Game
             }));
     }
 
-    static void ClearDivineSentinelAura(Player owner, uint source, PlayerMinions.Aura aura)
+    static void ClearSharedMinionAura(Player owner, uint source, PlayerMinions.Aura aura)
     {
-        if (owner.Frames.Area is not { } area || !DivineSentinels.TryGetValue(area, out var emitters)
-            || !emitters.Remove(source)) return;
+        if (owner.Frames.Area is not { } area || !SharedMinionAuraEmitters.TryGetValue(area, out var emitters)
+            || !emitters.Remove(source, out var emitter)) return;
+        emitter.Source.OwnerBuff = 0;
         var recipients = ZoneMembers(owner, source, MinionAuraZones, 0).ToArray();
         DropZones(owner, source, MinionAuraZones);
         foreach (var recipient in recipients)
@@ -84,13 +91,20 @@ public static partial class Game
         PresentNearby(player);
     }
 
-    static IEnumerable<PlayerMinions.Aura> DivineSentinelAurasReaching(Player recipient, uint id)
+    static IEnumerable<PlayerMinions.Aura> SharedMinionAurasReaching(Player recipient, uint id)
     {
-        if (recipient.Frames.Area is not { } area || !DivineSentinels.TryGetValue(area, out var emitters) || emitters.Count == 0)
+        if (recipient.Frames.Area is not { } area || !SharedMinionAuraEmitters.TryGetValue(area, out var emitters) || emitters.Count == 0)
             return [];
         double now = AreaTime(recipient);
-        return emitters.Values.Where(entry => DivineSentinelAuraActive(entry.Owner, entry.Source, now)
+        return emitters.Values.Where(entry => SharedMinionAuraActive(entry.Owner, entry.Source, now)
                 && InZone(entry.Owner, entry.Source.Id, MinionAuraZones, 0, id))
-            .Select(entry => entry.Source.OwnerAura!).DistinctBy(aura => aura.BuffRow);
+            .Select(entry => entry.Source.OwnerAura!);
+    }
+
+    static bool PlayerAuraAtLeastAsStrong(Player player, PlayerMinions.Aura minion, IEnumerable<AuraCatalog.Aura> auras, int effect)
+    {
+        var same = auras.Where(a => AuraCatalog.Family(a.EffectId) == AuraCatalog.Family(minion.EffectId)).ToArray();
+        return same.Length > 0 && AuraCatalog.RawStats(same, effect, SkillsFor(player), Stats).Sum(s => (long)s.Value)
+            >= minion.Stats.Sum(s => (long)s.Value);
     }
 }

@@ -74,7 +74,8 @@ public static partial class Game
         var auras = own.Concat(directAvian).Concat(player.Instance.PlayersExcept(player.Id).Where(p => p.PlayerLife > 0)
                 .SelectMany(p => p.SharedAuras.Where(a => Reaches(p.Id, a.Aura.SkillId))
                     .Select(a => a.Aura with { AffectsSelf = true, ExternalEffectPct = a.Effect })))
-            .ToArray();
+            .ToList();
+        var shared = SelectMinionAuras(player, minion.Id, auras, 0);
         var values = AuraCatalog.RawStats(auras, 0, skills, Stats).ToDictionary(p => p.Key, p => p.Value);
         WithTemporaryAuraStats(auras, 0, values);
         if (MinionIntimidatingCryMovement(player, minion.Monster) is > 0 and var cryMovement)
@@ -89,7 +90,7 @@ public static partial class Game
             int value = (int)Math.Clamp(raw, int.MinValue, int.MaxValue);
             if (value != 0) values[name] = values.GetValueOrDefault(name) + value;
         }
-        foreach (var aura in DivineSentinelAurasReaching(player, minion.Id))
+        foreach (var aura in shared)
             foreach (var (stat, value) in aura.Stats) Add(stat, value);
         Add(Stat.BaseFireDamageResistancePct, bonus.FireResistance);
         Add(Stat.BaseColdDamageResistancePct, bonus.ColdResistance);
