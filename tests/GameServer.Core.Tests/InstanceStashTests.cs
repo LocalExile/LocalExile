@@ -93,4 +93,15 @@ public class InstanceStashTests
         Assert.Empty(partial);
         Assert.Empty(unknown);
     }
+
+    [Fact]
+    public void Affinity_move_result_and_personal_tab_id_layouts()
+    {
+        Assert.Equal("00D5" + "01" + "0005" + "0A" + "03" + "00",
+            Convert.ToHexString(InstanceStash.EncodeAffinityMoveResult(true, 5, 10, 3, InstanceStash.Personal)));
+        Assert.Equal("00D5" + "00" + "FFFF" + "00" + "16" + "00",
+            Convert.ToHexString(InstanceStash.EncodeAffinityMoveResult(false, InstanceStash.LockerTabIndex, 0, 0x16)));
+        Assert.Equal("00D6" + "0004" + "0008" + "3030303030303035",
+            Convert.ToHexString(InstanceStash.EncodePersonalStashTabId(4, "00000005")));
+    }
 }

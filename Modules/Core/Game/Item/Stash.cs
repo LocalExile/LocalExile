@@ -155,6 +155,9 @@ public static partial class Game
         foreach (int child in stash.UniqueChildren(tab)) await SendUniqueChild(player, stash, child);
     }
 
+    public static Task SendPersonalStashTabId(Player player, ushort tab, string id) =>
+        Send(player, InstanceStash.EncodePersonalStashTabId(tab, id), $"0x00d6 personal stash tab {tab} id \"{id}\"");
+
     static async Task SendUniqueChild(Player player, AccountStash stash, int tab)
     {
         var sent = TabsSentOf(player, stash);
@@ -268,16 +271,51 @@ public static partial class Game
         await CtrlClickToStash(player, move.Tab, move.ItemId, move.Flags, $"0x00e0 ({move})");
     }
 
-    // C→S 0xe1: Ctrl + click on an inventory item that has an affinity tab (currency …): into the tab the client picked for it
-    // (StashTabAffinities), whichever tab is shown.
+    // C→S 0xe1: Ctrl + click on an inventory item that has an affinity tab (currency …): into the first matching tab
+    // the client picked for it (StashTabAffinities) with room, emitting S→C 0x00d5 on both success and refusal.
     public static async Task MoveToAffinityTab(Player player, InstanceStash.MoveToAffinityTab move, string hex)
     {
-        if (move.Tabs is not [var (tab, affinity), ..])
+        if (move.Tabs is not [var (firstTab, firstAffinity), ..])
         {
             Console.WriteLine($"[gateway] {player.Connection.Remote} <= 0x00e1 move item {move.ItemId} to its affinity tab: refused (no tab named): {hex}");
             return;
         }
-        await CtrlClickToStash(player, tab, move.ItemId, move.Flags, $"0x00e1 (affinity {affinity})");
+        var stash = StashOf(player);
+        byte kind = stash.IsGuild ? InstanceStash.Guild : InstanceStash.Personal;
+        var items = ItemsOf(player);
+        uint[] ids = (move.Flags & InstanceStash.MoveAllOfType) != 0 && items.RowOf(move.ItemId) is byte row
+            && items.Items(row).FirstOrDefault(i => i.Id == move.ItemId) is { } clicked
+            ? [clicked.Id, .. items.Items(row).Where(i => i.Item.TypeHash == clicked.Item.TypeHash && i.Id != clicked.Id).Select(i => i.Id)]
+            : [move.ItemId];
+        ItemMoves.Transfer? lastMoved = null;
+        byte matchedAffinity = firstAffinity;
+        foreach (uint id in ids)
+        {
+            foreach (var (tab, affinity) in move.Tabs)
+            {
+                string why = ids.Length > 1
+                    ? $"0x00e1 (affinity {affinity}) Ctrl + right click, all {ids.Length} stacks"
+                    : $"0x00e1 (affinity {affinity})";
+                if (await TryCtrlClickToStash(player, tab, id, why) is { } moved)
+                {
+                    lastMoved = moved;
+                    matchedAffinity = affinity;
+                    break;
+                }
+            }
+        }
+        if (lastMoved is { } done)
+        {
+            byte cellX = done.TabAdded.Count > 0 ? done.TabAdded[0].X
+                : done.TabChanged.Count > 0 ? done.TabChanged[0].X : (byte)0;
+            await Send(player, InstanceStash.EncodeAffinityMoveResult(true, (ushort)done.Tab, cellX, matchedAffinity, kind),
+                $"0x00d5 affinity move succeeded: tab {done.Tab} x={cellX} affinity={matchedAffinity} kind={kind}");
+        }
+        else
+        {
+            await Send(player, InstanceStash.EncodeAffinityMoveResult(false, firstTab, 0, firstAffinity, kind),
+                $"0x00d5 affinity move refused: tab {firstTab} affinity={firstAffinity} kind={kind}");
+        }
     }
 
     // Ctrl + right click (both messages' flag): every stack of that type in the same inventory goes, the clicked one first; each
@@ -290,19 +328,23 @@ public static partial class Game
         {
             uint[] ids = [clicked.Id, .. items.Items(row).Where(i => i.Item.TypeHash == clicked.Item.TypeHash && i.Id != clicked.Id).Select(i => i.Id)];
             foreach (uint id in ids)
-                await CtrlClickToStash(player, tab, id, $"{why} Ctrl + right click, all {ids.Length} stacks");
+                await TryCtrlClickToStash(player, tab, id, $"{why} Ctrl + right click, all {ids.Length} stacks");
             return;
         }
-        await CtrlClickToStash(player, tab, itemId, why);
+        await TryCtrlClickToStash(player, tab, itemId, why);
     }
 
-    public static async Task CtrlClickToStash(Player player, int tab, uint itemId, string why)
+    public static Task CtrlClickToStash(Player player, int tab, uint itemId, string why) =>
+        TryCtrlClickToStash(player, tab, itemId, why);
+
+    static async Task<ItemMoves.Transfer?> TryCtrlClickToStash(Player player, int tab, uint itemId, string why)
     {
         var stash = StashOf(player);
         var items = ItemsOf(player);
         var moved = ItemMoves.InventoryToStash(stash, items, tab, itemId, ShapeOf, out string refused);
         Console.WriteLine($"[gateway] {player.Connection.Remote} <= {why}: move item {itemId} to stash tab {tab}" + (moved is null ? $": refused ({refused})" : ""));
         if (moved is not null) await SendTransfer(player, items, stash, moved, tabFirst: false);
+        return moved;
     }
 
     // An item out of a stash tab into the main inventory (C→S 0xe3 / 0xf5 / 0xf9), a stack onto the inventory's stacks first

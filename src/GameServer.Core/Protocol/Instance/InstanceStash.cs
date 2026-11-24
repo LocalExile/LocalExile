@@ -241,7 +241,30 @@ public static class InstanceStash
         return new(r.U32(), r.U8(), r.U32(), r.U8());
     }
 
-    public const ushort MoveToAffinityTabId = 0xe1, SetAffinitiesId = 0xd3;
+    public const ushort MoveToAffinityTabId = 0xe1, SetAffinitiesId = 0xd3,
+        AffinityMoveResultId = 0xd5, PersonalStashTabId = 0xd6;
+    /// <summary>Sentinel tab index in S→C 0x00d5 indicating a league locker rather than a stash tab.</summary>
+    public const ushort LockerTabIndex = 0xffff;
+
+    /// <summary>
+    /// S→C 0x00d5 (class 0x1435e6fe0, read 0x1421aab70; dispatcher case 0x40 at 0x14215483e..0x142154cec → HUD
+    /// 0x140dd8890): result of a C→S 0x00e1 affinity deposit. u8 success, u16 BE tab (child tab index for Map/Unique
+    /// tabs so the HUD resolves Parent and HiddenKey, or <see cref="LockerTabIndex"/> for a league locker), u8 cellX,
+    /// u8 affinity (StashTabAffinityId row), u8 stashKind (0 personal, 1 guild).
+    /// </summary>
+    public static byte[] EncodeAffinityMoveResult(bool success, ushort tab, byte cellX, byte affinity, byte stashKind = Personal) =>
+        new LoginWriter().U16(AffinityMoveResultId).U8((byte)(success ? 1 : 0)).U16(tab).U8(cellX).U8(affinity).U8(stashKind).ToArray();
+
+    /// <summary>
+    /// S→C 0x00d6 (class 0x1435e6da0, read 0x1421aae00; dispatcher case 0x41 at 0x142154cf1..0x142154d2e): updates a
+    /// personal stash tab's narrow id string (+0x48). u16 BE tab index, narrow UTF-8 string (u16 BE length + bytes).
+    /// </summary>
+    public static byte[] EncodePersonalStashTabId(ushort tab, string id)
+    {
+        var w = new LoginWriter().U16(PersonalStashTabId).U16(tab);
+        StrNarrow(w, id);
+        return w.ToArray();
+    }
 
     /// <summary>C→S 0xe1: Ctrl + click on an inventory item with an affinity tab while the stash is open. Tabs: the tabs
     /// the client picked for it, each with the affinity (StashTabAffinityId row) it matched.</summary>
