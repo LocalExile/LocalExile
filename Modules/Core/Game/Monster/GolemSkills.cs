@@ -384,7 +384,7 @@ public static partial class Game
                     ? Math.Max(0, 1 + Own(Stat.SupportMinionTotemResistanceElementalDamagePlusPctFinal) / 100.0) : 1;
                 modified = modified.Add(path.Type, path.Range.Scale(Math.Max(0, 1 + increase / 100) * more * physicalMore * auraMore * general * typed * elementalMore));
             }
-            damage = modified;
+            damage = spell ? modified : Volatility.Apply(modified, name => mods[name] + Raw(name));
             string id = catalog.EffectId(effect) ?? "";
             double range = spell ? Math.Max(20, 70 * (1 + Raw(Stat.SpellMaximumActionDistancePlusPct) / 100.0)) : variety.AttackRange;
             if (!spell && golem.Weapon is { } weapon) range = weapon.Melee ? weapon.Range : 70;
