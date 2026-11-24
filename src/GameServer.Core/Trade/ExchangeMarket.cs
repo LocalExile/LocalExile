@@ -221,6 +221,27 @@ public sealed class ExchangeBook
     /// <summary>Whether an order has anything waiting to be claimed.</summary>
     public bool HasClaims => Orders.Exists(o => o.State != InstanceCurrencyExchange.OrderState.Listed && o.ClaimWant + o.ClaimHave > 0);
 
+    /// <summary>Atomically claims up to <paramref name="maxAmount"/> from <paramref name="orderId"/>'s claimable
+    /// balance without risking unsigned underflow. Returns the updated order (marked <c>Removed</c> and removed from
+    /// <see cref="Orders"/> once nothing remains), or null when the order is missing, still listed, or empty.</summary>
+    public ExchangeOrder? TryClaim(uint orderId, bool bought, uint maxAmount, out uint taken)
+    {
+        taken = 0;
+        if (maxAmount == 0 || Orders.Find(o => o.Id == orderId) is not { } order
+            || order.State == InstanceCurrencyExchange.OrderState.Listed) return null;
+        uint available = bought ? order.ClaimWant : order.ClaimHave;
+        taken = Math.Min(available, maxAmount);
+        if (taken == 0) return null;
+        if (bought) order.ClaimWant -= taken;
+        else order.ClaimHave -= taken;
+        if (order.ClaimWant + order.ClaimHave + order.Remaining == 0)
+        {
+            order.State = InstanceCurrencyExchange.OrderState.Removed;
+            Orders.Remove(order);
+        }
+        return order;
+    }
+
     /// <summary>Whether <see cref="Settle"/> has anything to do: a new hour, or a patient order someone has come to.</summary>
     public bool SettleDue(ExchangeMarket market, long now) => Orders.Exists(o => o.State == InstanceCurrencyExchange.OrderState.Listed
         && (o.LastHour < market.Hour || o.PlacedAt == 0 || o.PatientDue(market, now, UsedAt(market.Hour) ?? [])));

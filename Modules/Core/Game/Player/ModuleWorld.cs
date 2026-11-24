@@ -62,6 +62,8 @@ public static partial class Game
         {
             player.BenchOpen = false;
             player.ModuleWindow = owner;
+            var here = player.Walk.Position(AreaTime(player));
+            player.ModuleWindowAnchor = (owner, here.X, here.Y);
             await RefreshBenchBalance(player, clear: true);
             await Send(InstanceWaypoints.OpenUi(ui), log);
         }

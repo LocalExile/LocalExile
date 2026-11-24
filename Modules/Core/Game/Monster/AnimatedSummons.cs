@@ -129,8 +129,12 @@ public static partial class Game
             [InstanceProtocol.ActionStarted(player.Id, here.X, here.Y, aim.GridX, aim.GridY, use.SkillId, use.Sequence, use.Flags, targetObjectId: use.TargetId),
                 InstanceProtocol.ActionEnded(player.Id)], "animate ground equipment",
             still: () => acknowledged = SkillAcknowledgementAllowed(player, skill.Effect, use.SkillId, () => accepted?.CommitNativeUse(player, use.SkillId) ?? true));
-        if (acknowledged) _ = CastGemSkill(player, use.SkillId, here, aim, use.TargetId,
-            sequence: use.Sequence, actionToken: accepted?.ActionToken, cooldownUse: accepted);
+        if (acknowledged)
+        {
+            await SendNativeCooldownRefresh(player);
+            _ = CastGemSkill(player, use.SkillId, here, aim, use.TargetId,
+                sequence: use.Sequence, actionToken: accepted?.ActionToken, cooldownUse: accepted);
+        }
         return true;
     }
 }

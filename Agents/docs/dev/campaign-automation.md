@@ -5,7 +5,9 @@
 waypoints, area transitions, portals and NPC transports (never `/goto`: a missing way is a server bug, and the run fails
 loudly on it), and bosses die through `/kill`, which uses the normal death path, so quest progress comes from the
 server's [quest engine](../game/campaign-quests.md) reacting to real kills, pickups, object use and NPC talk. Each
-quest is a small step file; quests without one are reported as not implemented and skipped.
+quest is a small step file; quests without one are reported as not implemented and skipped. The dev slash commands used
+by the runner (`/tp`, `/kill`, `/state`, `/quest_preset`, `/quest_flag`, `/god`, as well as `/goto` and `/waypoints`)
+come from the `gm-commands` mod in `LocalExile-Mods` (installed under `Mods/`), not built-in core Gateway commands.
 
 `order.py` lists the whole campaign (Acts 1–10 and the Epilogue, 82 entries). Step files exist for the acts that are
 on the quest engine: Act 1 (`a1q1` … `a1q9`), Act 2 (`a2q1` … `a2q11`, `a2q8a3` the arrival in Act 3), Act 3
@@ -68,8 +70,9 @@ CharacterStartQuestState flags (`Act1Complete` …) are missing, and the time.
 
 ## Prerequisites
 
-- The normal live setup ([GettingStarted](../../GettingStarted.md), [live testing](live-testing.md)) and the
-  repository `.venv` with `frida` (as for `client_control.py`).
+- The normal live setup ([GettingStarted](../../GettingStarted.md), [live testing](live-testing.md)), the `gm-commands`
+  mod from `LocalExile-Mods` installed under `Mods/` (provides `/tp`, `/kill`, `/state`, `/quest_preset`, `/god`, etc.),
+  and the repository `.venv` with `frida` (as for `client_control.py`).
 - The local account's password in `data/offline-login.txt` (untracked; a `Password: <x>` line). Without it the runner
   asks once. The password is never logged.
 - A copied save database: set `$env:Game_CHARACTERS_DB` before starting (required unless `-AllowDefaultSaves`). The

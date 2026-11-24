@@ -13,7 +13,7 @@ public sealed class DropDataTests
         Assert.Equal(36, counts.CurrencyWeights);
         Assert.Equal(634, counts.Bosses);
         Assert.Equal(126, counts.BossItems);
-        Assert.Equal(555, counts.CardAreas);
+        Assert.Equal(647, counts.CardAreas);
         Assert.Equal(531, counts.ItemWeights);
 
         var provider = new DropDataProvider();

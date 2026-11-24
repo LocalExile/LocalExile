@@ -32,7 +32,7 @@ public static class ShrineGuards
     /// is what lets a map's rule change without touching the campaign's.
     /// </summary>
     public static (Rule Rule, IReadOnlyList<PackCatalog.Pack> Packs) Resolve(ShrineCatalog.ShrineDefinition shrine,
-        bool mapArea, Func<string, PackCatalog.Pack?> find)
+        bool mapArea, Func<string, PackCatalog.Pack?> find, bool magic = false)
     {
         if (shrine.GuardPacks.Count > 0)
         {
@@ -41,8 +41,8 @@ public static class ShrineGuards
                 shrine.GuardPacks.Min(p => p.MinCount), shrine.GuardPacks.Max(p => p.MaxCount), null, MonsterRarity.Normal);
             return (rule, resolved);
         }
-        // A basic shrine: one of the area's packs, at that pack's own count.
-        return (new Rule(true, true, [], 0, 0, null, MonsterRarity.Normal), []);
+        // A basic shrine: one of the area's packs, at that pack's own count; Drawn to Power upgrades it to Magic in maps.
+        return (new Rule(true, true, [], 0, 0, null, mapArea && magic ? MonsterRarity.Magic : MonsterRarity.Normal), []);
     }
 
     /// <summary>Whether a shrine stands too close to the area's entrance (the arrival point) or an area transition —

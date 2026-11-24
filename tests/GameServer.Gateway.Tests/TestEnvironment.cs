@@ -25,6 +25,7 @@ static class TestEnvironment
         // The Ruthless tests' data set, which a server builds for its first Ruthless character.
         global::Game.LoadHardModeData();
         GameServer.Modules.M_vendors.VendorsModule.LoadData();
+        GameServer.Modules.M_commands.CommandsModule.LoadData();
         GameServer.Modules.Social.SocialModule.LoadData();
         GameServer.Modules.Atlas.AtlasModule.LoadData();
         GameServer.Modules.M_portals.PortalsModule.LoadData();

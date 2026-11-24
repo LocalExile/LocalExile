@@ -39,10 +39,24 @@ public sealed class AreaDelta(GameArea area)
 
     public int Count => records.Count;
 
+    /// <summary>Whether this frame's undrained records already contain a create for <paramref name="entity"/>
+    /// that will be written to <paramref name="player"/> when this frame ends.</summary>
+    public bool HasCreateFor(uint entity, Player player) =>
+        created.Contains(entity) && records.Any(r => r.Kind == Kind.Create && r.Entity == entity && r.For(player));
+
+    /// <summary>Remove a shared object even when its replay was sent only to individual joining players.</summary>
+    public void RemoveSharedObject(uint entity, byte[] bytes, string? log = null)
+    {
+        area.AssertOwner();
+        lock (viewers) viewers.Remove(entity);
+        Add(entity, bytes, log, Kind.Remove);
+    }
+
     public void Add(Record record)
     {
         area.AssertOwner();
-        if (record.Kind == Kind.Create && record.Only is { } owner && record.Except is null && !area.Monsters.ContainsKey(record.Entity))
+        if (record.Kind == Kind.Create && record.Only is { } owner && record.Except is null
+            && !area.Monsters.ContainsKey(record.Entity) && !area.Objects.Has(record.Entity))
         {
             lock (viewers)
             {
@@ -72,7 +86,17 @@ public sealed class AreaDelta(GameArea area)
         area.Objects.Written(record);
         if (record.Kind == Kind.Create) created.Add(record.Entity);
         // An object removed takes its components with it (its id may come back as another object).
-        else if (record.Kind == Kind.Remove) { area.Buffs.Removed(record.Entity); area.Stats.Removed(record.Entity); area.Life.Removed(record.Entity); }
+        else if (record.Kind == Kind.Remove)
+        {
+            area.Buffs.Removed(record.Entity); area.Stats.Removed(record.Entity); area.Life.Removed(record.Entity);
+            // A removal in the same frame as the object's create waits for the next frame so it never precedes
+            // or drops below any AfterBirth/World records held for that frame (matching WorldOutput).
+            if (created.Contains(record.Entity))
+            {
+                held.Add(record);
+                return;
+            }
+        }
         // The client applies a frame's creates in its last phase (WorldOrder.Last, 0x142183ce0): a record about an object
         // created in this frame that would be applied before that goes in the next frame.
         else if (record.Kind != Kind.Message && created.Contains(record.Entity) && record.Order.CompareTo(WorldOrder.Last) < 0)

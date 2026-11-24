@@ -20,13 +20,14 @@ public sealed class ShrinesModule : IModule
         ShrineRegistry.RegisterDefaults();
         GameEvents.AreaGenerated.Add(id, player => ShrineManager.SpawnArea(player));
         GameEvents.ObjectUse.Add(id, (player, use, requestedAt) => ShrineManager.Use(player, use, requestedAt));
-        GameEvents.CompanionTick.Add(id, (player, _) => ShrineManager.Tick(player));
-        GameEvents.Kill.Add(id, LesserShrines.OnKill);
+        GameEvents.CompanionTick.Add(id, async (player, _) => { await ShrineManager.Tick(player); await ShrineGearEffects.Tick(player); });
+        GameEvents.Kill.Add(id, kill => { LesserShrines.OnKill(kill); ShrineManager.OnKill(kill); });
         GameEvents.MapOpening.Add(id, ShrineMapAdmission.Check);
-        GameEvents.PlayerLeaving.Add(id, (player, _) => ShrineManager.LeaveArea(player));
+        GameEvents.BuffCancel.Add(id, ShrineManager.CancelBuff);
+        GameEvents.PlayerLeaving.Add(id, (player, _) => { ShrineGearEffects.LeaveArea(player); return ShrineManager.LeaveArea(player); });
         // The claimed shrines' buff stats join the character's own sum, so the hit, crit, armour and resistance paths
         // reading it see them; the buff's expiry takes them out again.
-        module.Lifetime.Own(GameEvents.PlayerStatSources.Add(id, (player, stats) => ShrineManager.AddStats(player, stats)));
+        module.Lifetime.Own(GameEvents.PlayerStatSources.Add(id, (player, stats) => ShrineGearEffects.AddStats(player, ShrineManager.AddStats(player, stats))));
         module.Lifetime.Own(ShrineManager.Lifetime());
     }
 }

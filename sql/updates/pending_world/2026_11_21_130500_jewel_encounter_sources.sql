@@ -16,4 +16,5 @@ VALUES
     ('Metadata/Monsters/AtlasMemory/IgnoranceBoss/IgnoranceBoss', 'Bound By Destiny', 'unique', NULL, 'unknown',
      'PoEDB Incarnation of Neglect', 'Native encounter source; no verified exact rate.'),
     ('Metadata/Monsters/AtlasMemory/IgnoranceBoss/IgnoranceBossUBER', 'Bound By Destiny', 'unique', NULL, 'unknown',
-     'PoEDB Incarnation of Neglect', 'Native encounter source; no verified exact rate.');
+     'PoEDB Incarnation of Neglect', 'Native encounter source; no verified exact rate.')
+ON CONFLICT(boss_id, item_id) DO NOTHING;
