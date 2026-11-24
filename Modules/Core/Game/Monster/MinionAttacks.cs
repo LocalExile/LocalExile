@@ -85,7 +85,8 @@ public static partial class Game
         if (supported is not null && player.Beasts.Active is { } companion)
             offense = offense.Scale(MeatShieldDamage(player, companion.SkillStats, t, now));
         var mitigated = DamageModel.Mitigate(offense.Roll(random), type => MonsterHitResistance(t, type, default, now));
-        int damage = MonsterTakesMitigated(t, mitigated, spell: false, now: now);
+        bool ignorePhysical = MinionIgnoresPhysicalReduction(mitigated, m.Effects, t, random, supported?.Stats);
+        int damage = MonsterTakesMitigated(t, mitigated, spell: false, now: now, ignorePhysicalReduction: ignorePhysical);
         if (ApplyMonsterHitLocked(player, t, damage, allyAt: at) is not { } hit) return null;
         if (!t.Dead && damage > 0 && supported is not null && player.Beasts.Active is { } beast)
             MinionExposureOnHitLocked(beast.SkillStats, t, mitigated, now, random);

@@ -172,7 +172,7 @@ public static partial class Game
         session.SetLifeRecoveryRedirected(now, HasVampiricMinion(player, now));
         session.ClearFull(now, lifeFull, manaFull, shieldFull);
         var recovery = session.TakeRecovery(now);
-        if (recovery.Life > 0 && RecoverVampiricMinions(player, recovery.Life, now)) recovery.Life = 0;
+        if (recovery.Life > 0 && RecoverVampiricMinions(player, recovery.Life, now, overTime: true)) recovery.Life = 0;
         return recovery;
     }
 

@@ -34,8 +34,9 @@ public static partial class Game
         if (m.Dead || m.Life == 0) return;
         double oldLastStep = g.LastStep;
         double elapsed = Math.Max(0, now - oldLastStep);
-        g.Regeneration += Math.Max(0, Math.Min(now, g.RecallUntil) - oldLastStep) * m.MaxLife * g.RecallRate / 6000d;
-        g.Regeneration += HolyRelicRecoveryBetween(g, oldLastStep, now);
+        double recoveryRate = MinionLifeRecoveryMultiplier(m);
+        double recovery = Math.Max(0, Math.Min(now, g.RecallUntil) - oldLastStep) * m.MaxLife * g.RecallRate / 6000d
+            + HolyRelicRecoveryBetween(g, oldLastStep, now);
         g.LastStep = Math.Max(oldLastStep, now);
         int Own(uint n) => GolemStat(g.Own, n);
         int Player(uint n) => GolemStat(g.Player, n);
@@ -43,11 +44,12 @@ public static partial class Game
             (Player(Stat.MinionLifeRegenerationRatePerMinutePct) + Own(Stat.MinionLifeRegenerationRatePerMinutePct)
                 + GolemStat(g.Auras, Stat.LifeRegenerationRatePerMinutePct)
                 + (g.Definition.IsGolem ? Player(Stat.GolemLifeRegenerationPerMinutePct) : 0)) / 6000.0;
-        g.Regeneration += elapsed * (m.MaxLife * regen + Player(Stat.Of("minion_base_life_regeneration_rate_per_minute")) / 60.0
+        recovery += elapsed * (m.MaxLife * regen + Player(Stat.Of("minion_base_life_regeneration_rate_per_minute")) / 60.0
             + Player(Stat.MinionLifeRegenerationRatePerSecond) + m.Mods.Effects[Stat.BaseLifeRegenerationRatePerMinute] / 60.0
             + (now - g.BlockedAt <= 4 ? m.MaxLife * m.Mods.Effects[Stat.LifeRegenerationRatePerMinutePctIfBlockedRecently] / 6000d : 0));
+        g.Regeneration += recovery * recoveryRate;
         int heal = (int)Math.Min(int.MaxValue, g.Regeneration); g.Regeneration -= heal;
-        heal = ActorScale.Saturate((long)heal + TakeMinionLifeLeech(g, now));
+        heal = ActorScale.Saturate((long)heal + TakeMinionLifeLeech(g, now, recoveryRate));
         if (heal > 0 && m.Life < m.MaxLife)
         {
             m.Life = (uint)Math.Min(m.MaxLife, (long)m.Life + heal);
@@ -584,7 +586,9 @@ public static partial class Game
         var strike = new HitResistances.Strike(Critical: critical, Attack: !a.Attack.Spell);
         var mitigated = DamageModel.Mitigate(rolled,
             type => HitResistances.Effective(type, MonsterHitResistance(target, type, profile?.Penetration ?? default, now), strike, resistanceMods));
-        int damage = MonsterTakesMitigated(target, mitigated, a.Attack.Spell, now, random: AreaRng(player));
+        var random = AreaRng(player);
+        bool ignorePhysical = MinionIgnoresPhysicalReduction(mitigated, effects, target, random, a.Stats);
+        int damage = MonsterTakesMitigated(target, mitigated, a.Attack.Spell, now, ignorePhysicalReduction: ignorePhysical, random: random);
         var from = g.Monster.Walk.Position(now);
         var to = target.Walk.Position(now);
         if (ApplyMonsterHitLocked(player, target, damage, allyAt: from) is not { } hit) return false;
@@ -617,6 +621,16 @@ public static partial class Game
         }
         if (damage > 0) FeedingFrenzyOnHitLocked(player, g, now);
         return true;
+    }
+
+    static bool MinionIgnoresPhysicalReduction(DamagePacket hit, MonsterModEffects effects, SpawnedMonster target, Random random,
+        IReadOnlyDictionary<uint, int>? skill = null)
+    {
+        if (hit[DamageType.Physical].Min <= 0 || target.Effects.PhysicalReduction <= 0) return false;
+        uint chance = Stat.HitsIgnoreEnemyMonsterPhysicalDamageReductionPctChance;
+        return effects[Stat.HitsIgnoreEnemyMonsterPhysicalDamageReduction] != 0
+            || skill?.GetValueOrDefault(Stat.HitsIgnoreEnemyMonsterPhysicalDamageReduction) > 0
+            || RandomRolls.Chance(ActorScale.Saturate((long)effects[chance] + (skill?.GetValueOrDefault(chance) ?? 0)), 100, random);
     }
 
     public static int GolemCriticalChance(GolemState.Ability ability, MonsterModSet mods, int additionalIncrease = 0)

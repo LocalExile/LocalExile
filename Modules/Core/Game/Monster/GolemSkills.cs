@@ -53,6 +53,7 @@ public static partial class Game
                     "cold_damage_resistance_%" => Stat.BaseColdDamageResistancePct,
                     "lightning_damage_resistance_%" => Stat.BaseLightningDamageResistancePct,
                     "chaos_resistance_%" => Stat.BaseChaosDamageResistancePct,
+                    "maximum_all_elemental_resistances_%" => Stat.AdditionalMaximumAllElementalResistancesPct,
                     "additional_physical_damage_reduction_%" => Stat.BaseAdditionalPhysicalDamageReductionPct,
                     "skill_area_of_effect_+%" or "area_of_effect_+%" => Stat.BaseSkillAreaOfEffectPlusPct,
                     var plain => Stat.Of(plain),

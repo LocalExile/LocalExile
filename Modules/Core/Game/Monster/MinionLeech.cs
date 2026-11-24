@@ -26,7 +26,10 @@ public static partial class Game
     sealed class VampiricLeechCarry { public double Life; }
     static readonly RuleTable<SpawnedMonster, VampiricLeechCarry> VampiricLeechCarries = new();
 
-    static bool RecoverVampiricMinions(Player player, double recovery, double now)
+    static double MinionLifeRecoveryMultiplier(SpawnedMonster monster) =>
+        Math.Max(0, 1 + monster.Effects[Stat.LifeRecoveryRatePlusPct] / 100d);
+
+    static bool RecoverVampiricMinions(Player player, double recovery, double now, bool overTime = false)
     {
         bool redirected = false;
         foreach (var link in player.Links.All)
@@ -35,7 +38,8 @@ public static partial class Game
             redirected = true;
             if (monster.Effects[Stat.CannotRecoverLife] != 0) continue;
             var carry = VampiricLeechCarries.GetOrCreateValue(monster);
-            uint life = RecoveryPool.Advance(monster.Life, monster.MaxLife, recovery, ref carry.Life);
+            uint life = RecoveryPool.Advance(monster.Life, monster.MaxLife,
+                overTime ? recovery * MinionLifeRecoveryMultiplier(monster) : recovery, ref carry.Life);
             if (life == monster.Life) continue;
             monster.Life = life;
             if (life == monster.MaxLife && OwnedFighter(player, link.Target) is { } fighter)
@@ -61,7 +65,7 @@ public static partial class Game
         leech.Timed.Grant(now, amount, monster.MaxLife, monster.MaxLife * LeechLimits.BaseInstancePercent / 100d);
     }
 
-    static int TakeMinionLifeLeech(GolemState.Golem minion, double now)
+    static int TakeMinionLifeLeech(GolemState.Golem minion, double now, double recoveryRate)
     {
         if (!MinionLifeLeeches.TryGetValue(minion, out var leech)) return 0;
         if (minion.Monster.Life >= minion.Monster.MaxLife)
@@ -69,7 +73,7 @@ public static partial class Game
             MinionLifeLeeches.Remove(minion);
             return 0;
         }
-        double total = leech.Carry + leech.Timed.TakeRecovery(now);
+        double total = leech.Carry + leech.Timed.TakeRecovery(now) * recoveryRate;
         int heal = (int)Math.Min(int.MaxValue, total);
         leech.Carry = total - heal;
         return heal;
