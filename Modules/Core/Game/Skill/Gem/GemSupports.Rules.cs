@@ -623,6 +623,9 @@ public static partial class Game
                 ? profile.DualClaws && Get(Stat.DualWieldInherentAttackSpeedIsDoubledWhileDualWieldingClaws) != 0 ? 1.2 : 1.1
                 : 1;
             int skillSpeed = gem.Stats.GetValueOrDefault(raw) + TaggedAttackAndCastSpeedPct(SkillsFor(player), gem.Effect, Get);
+            if (gem.Stats.GetValueOrDefault(Stat.AttackSpeedPlusPctIfChangedStanceRecently) is int stanceSpeed and not 0
+                && player.RecentEvents.Happened(StatConditions.ChangedStance, AreaTime(player)))
+                skillSpeed += stanceSpeed;
             if (Supports.Of(gem.Effect)?.Types.Contains(120) == true)
                 skillSpeed += Get(Stat.RetaliationSkillSpeedPlusPct);
             stats[final] = stats.GetValueOrDefault(final) + (int)Math.Round(skillSpeed * factor);
