@@ -21,8 +21,8 @@ public sealed class LegionData
     /// <summary>A LegionMonsterCounts row; cols 2-7 meaning unknown.</summary>
     public sealed record MonsterCount(int Row, int Faction, int RankKey, int Col2, int Col3, int Col4, int Col5, int Col6, int Col7);
 
-    /// <summary>A LegionChestTypes row; col0 and col3 meaning unknown.</summary>
-    public sealed record ChestType(int Row, int Col0, int Chest, int HardmodeChest, int Col3, int Faction);
+    /// <summary>A LegionChestTypes row; col0 and col3 meaning unknown. HardmodeChest is not read: the War Hoard is the faction's second row.</summary>
+    public sealed record ChestType(int Row, int Col0, int Chest, int Col3, int Faction);
 
     /// <summary>A LegionChestCounts row; cols 2-5 and 7 meaning unknown.</summary>
     public sealed record ChestCount(int Row, int Faction, int RankKey, int MinLevel, int Col2, int Col3, int Col4, int Col5, int Col7);
@@ -65,7 +65,7 @@ public sealed class LegionData
             r.IntOrNull("LegionFactionsKey") ?? -1, r.IntOrNull("LegionRanksKey") ?? -1, r.Int("__col2"), r.Int("__col3"), r.Int("__col4"),
             r.Int("__col5"), r.Int("__col6"), r.Int("__col7")))];
         ChestTypes = [.. ClientTables.TableOrEmpty("LegionChestTypes").Select(r => new ChestType(r.Index, r.IntOrNull("__col0") ?? -1,
-            r.IntOrNull("Chest") ?? -1, r.IntOrNull("HardmodeChest") ?? -1, r.Int("__col3"), r.IntOrNull("Faction") ?? -1))];
+            r.IntOrNull("Chest") ?? -1, r.Int("__col3"), r.IntOrNull("Faction") ?? -1))];
         ChestCounts = [.. ClientTables.TableOrEmpty("LegionChestCounts").Select(r => new ChestCount(r.Index,
             r.IntOrNull("LegionFactionsKey") ?? -1, r.IntOrNull("LegionRanksKey") ?? -1, r.Int("MinLevel"), r.Int("__col2"), r.Int("__col3"),
             r.Int("__col4"), r.Int("__col5"), r.Int("__col7")))];

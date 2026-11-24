@@ -9,7 +9,7 @@ namespace GameServer.Modules.Legion;
 /// instance's own hostile monsters, held the way the Essence's encased previews are (no aggro, no attack, no rewards, AI
 /// held, buff 1311 frozen_in_time, animation paused). The client draws the crystal itself (it is in the Legion monsters'
 /// models, and their StateMachine defaults breakout 0 / activated 0 mean frozen), so no state is sent at spawn.
-/// Hits on a frozen monster are stored and zeroed until it breaks out (LegionMonolith.Breakout.cs).
+/// Hits on a frozen monster are stored and zeroed until the encounter ends (LegionMonolith.Breakout.cs).
 /// </summary>
 static class LegionStasis
 {

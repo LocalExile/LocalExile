@@ -2,8 +2,9 @@ using GameServer.Modding;
 
 namespace GameServer.Modules.Legion;
 
-/// <summary>The Legion encounter (monolith, two armies in stasis, break-out). This part only loads the Legion client
-/// tables (<see cref="LegionData"/>); the encounter itself follows.</summary>
+/// <summary>The Legion encounter: the Timeless Monolith and its timer, the two armies in stasis around it, their break-out by the
+/// player's hits and the release when the timer ends. Loads the Legion client tables (<see cref="LegionData"/>) and registers the
+/// monolith (<see cref="LegionMonolith"/>); the army is planned in LegionArmy and spawned in LegionStasis.</summary>
 public sealed class LegionModule : IModule
 {
     /// <inheritdoc/>

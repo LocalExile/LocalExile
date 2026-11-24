@@ -13,7 +13,7 @@ static class LegionArmy
     /// (0 normal, 1 elite, 2 sergeant, 3 general), standing from FromPct to ToPct of the formation's depth.</summary>
     public sealed record Squad(int Tier, int Monster, int Count, int FromPct, int ToPct);
 
-    /// <summary>A chest monster (LegionChestTypes col0) with the Chests row it turns into; WarHoard picks the HardmodeChest row.</summary>
+    /// <summary>A chest monster (LegionChestTypes col0) with the Chests row it turns into; WarHoard uses the faction's second LegionChestTypes row (the Epic chest).</summary>
     public sealed record ChestPlan(int Monster, int Chest, bool WarHoard, int FromPct, int ToPct);
 
     public sealed record FactionPlan(int Faction, string Id, Squad[] Squads, ChestPlan[] Chests);
@@ -105,7 +105,7 @@ static class LegionArmy
     ///   whose rank is endless, MinLevel &gt; 100, are left out), each monster picking one uniformly;
     /// - LegionChestCounts: the faction's rows with the highest MinLevel &lt;= level; the tier 0 row gives col2..col3 chests
     ///   (0 to 2, no forced minimum) and the band col4..col5; the tier 1 row's col7 is the percent chance, rolled once per army,
-    ///   that one of its chests (or one extra if it has none) is a War Hoard (HardmodeChest). The other reading, a roll per chest,
+    ///   that one of its chests (or one extra if it has none) is a War Hoard (the faction's second LegionChestTypes row). The other reading, a roll per chest,
     ///   gives more hoards; the chest's type is one of the faction's two LegionChestTypes.
     /// </summary>
     static FactionPlan Compose(LegionData data, LegionData.Faction faction, int level, bool general, Random rng)
