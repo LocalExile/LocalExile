@@ -537,6 +537,7 @@ public static partial class Game
         bool running = player.Placed.All.Values.Any(p => p.Mine && !double.IsPositiveInfinity(p.DetonateAt));
         double next = running ? player.Placed.NextChain : now;
         int prior = running ? player.Placed.Chain : 0;
+        if (!running) player.Placed.TriggeredInChain = 0;
         var playerAt = player.Walk.Position(now);
         IReadOnlyDictionary<uint, int>? stats = null;
         foreach (var mine in player.Placed.All.Values.Where(p => p.Mine && double.IsPositiveInfinity(p.DetonateAt)
@@ -712,6 +713,9 @@ public static partial class Game
             session.Schedule(session.Runtime.Now, () => session.Active && ReferenceEquals(lifetime, CombatLifetime), () =>
             {
                 var use = CaptureGemProjectile(player, session, placed.Skill, payload, shot, critical, (ushort)placed.Id, from: at);
+                if (placed.Mine && placed.Chain >= 2 && GolemStat(placed.Own, Stat.DisplayAdditionalProjectilePer2MinesInDetonationSequence) != 0
+                    && GolemStat(CharacterPlayerStats(player), Stat.MaximumNumberOfProjectilesToFireIs1) == 0)
+                    use = use with { Profile = use.Profile with { Count = Math.Min(256, use.Profile.Count + placed.Chain / 2) } };
                 // The volley's rules are the player's own cast's, some of which start it at the player's cell (Spark's
                 // and Twister's wander): it leaves from the trap or mine whatever the skill.
                 var origin = use.Origin;
@@ -948,7 +952,11 @@ public static partial class Game
                     // Scheduling, an unarmed mine, a retired placement and a Skitterbot's detonation are not a
                     // player detonation. Record only this accepted player-chain trigger, even without a hit target.
                     if (placed.Mine && !skitter)
+                    {
+                        placed.Chain = player.Placed.TriggeredInChain++;
                         player.RecentEvents.RecordAmount(StatConditions.DetonatedMine, now);
+                    }
+                    else if (placed.Mine) placed.Chain = 0;
                     if (conversion) TriggerConversionTrap(player, placed, trigger, now, bytes);
                     else PlacedDamageLocked(player, placed, now, bytes);
                     PlacedChargesLocked(player, placed, nearby, now);
