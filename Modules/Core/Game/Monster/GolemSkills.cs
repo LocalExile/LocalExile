@@ -264,6 +264,7 @@ public static partial class Game
         double now = at ?? AreaTime(player);
         var mods = GolemModifiers(player, golem, playerStats, now, ownerResistances).Effects;
         int shieldChaos = SkeletonShieldChaos(player, golem, playerStats);
+        int? ownerAttackCrit = MinionOwnerAttackCritical(player, playerStats);
         int Own(uint name) => GolemStat(golem.Own, name);
         foreach (var (effect, index) in (variety.GrantedEffects ?? []).Select((e, i) => (e, i)))
         {
@@ -306,7 +307,8 @@ public static partial class Game
                 }
             else if (catalog.IsAttack(effect) && Raw(Stat.BaseDealNoDamage) == 0)
             {
-                if (crit == 0) crit = MinionWeaponCritical(player, golem);
+                if (ownerAttackCrit is int inheritedCrit) crit = inheritedCrit;
+                else if (crit == 0) crit = MinionWeaponCritical(player, golem);
                 if (mods[Stat.DisplayCriticalLinkOverridesMainHandCriticalStrikeChance] != 0)
                     crit = mods[Stat.OverrideMainHandCriticalStrikeChancePctFromCriticalLink];
                 var (min, max) = Monsters.BaseDamage(variety, level) ?? (1, 1);
@@ -440,6 +442,10 @@ public static partial class Game
             weapon.LocalSources?.GetValueOrDefault(Stat.LocalCriticalStrikeChancePlusPct) ?? 0);
     }
 
+    static int? MinionOwnerAttackCritical(Player player, IReadOnlyDictionary<uint, int> stats) =>
+        GolemStat(stats, Stat.MinionsUseYourMainHandBaseCritChanceFromWeapon) != 0 && WeaponIn(player, ActiveMainHand(player)) is not null
+            ? HandWeaponCritical(player, AttackHand.Main) : null;
+
     static int GolemTether(IReadOnlyDictionary<uint, int> player, string kind)
     {
         uint? derived = Stats.Key($"golem_{kind}_+%_final_from_unique_primordial_tether");
@@ -489,6 +495,7 @@ public static partial class Game
         hash.Add(MinionLinkOffenceAt(player, golem, playerStats, now));
         hash.Add(MapModsOf(player));
         hash.Add(SkeletonShieldChaos(player, golem, playerStats));
+        hash.Add(MinionOwnerAttackCritical(player, playerStats));
         foreach (var p in playerStats.Where(p => (Stats.Name(p.Key) ?? "").Contains("minion", StringComparison.Ordinal)
             || (Stats.Name(p.Key) ?? "").Contains("golem", StringComparison.Ordinal)).OrderBy(p => p.Key)) hash.Add(p);
         if (Stat.Dexterity is var dexKey) hash.Add((dexKey, playerStats.GetValueOrDefault(dexKey)));
