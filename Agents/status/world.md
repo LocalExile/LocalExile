@@ -1,4 +1,4 @@
-# Status: World, movement and the network
+﻿# Status: World, movement and the network
 
 Part of [Status](../Status.md); what to build next in this area is in
 [roadmap/world.md](../roadmap/world.md).
@@ -104,11 +104,18 @@ Part of [Status](../Status.md); what to build next in this area is in
   `0x1f`, kind `0x9b`, before `0x21`): the client reads them once, when it builds the area, and a record that arrives
   later is never read. The panel draws and works: the workers (name, job, level, wage), the recruits (price, wage, level),
   the reroll (2,000 gold, the high-quality reroll 16,000), the hire (the price out of the treasury), the release, the
-  assign (a move between the job and the idle column) and the treasury's add/remove (the player's gold) — but the town's
-  resource and production counters are still empty and the panel's total wage stays 0 (the production rows' job keys are
-  unknown); the
-  town's floor and buildings come from a client-side doodad patch
-  (`scripts/dev/kingsmarch-doodads.py`), not from the protocol. Mining/smelting and shipping quotas are not written.
+  assign (a move between the job and the idle column) and the treasury's add/remove (the player's gold) — and the town's
+  resource and production counters follow the town's own lines: mining eats the "Ore Marked" counters and fills the ore,
+  smelting eats the ore and fills the bars, each production row at the client's own rate (3600 x the crew's summed
+  job-level efficiency / BaseProductionTime), a crew whose ore has nothing marked works another ore the town holds, and
+  the assign button enforces the twelve-miner and six-smith caps and the ore rank the town can work. Ore deposits in maps
+  fill the "Ore Marked" counters, after the deposit's own encounter: the Crimson Iron Growths and their Flesh Beyond,
+  the Orichalcum altar's demons, the Petrified Amber pack (whose amber pays only what is left of its durability) and the
+  Verisium guards; Bismuth has none and pays on touch. Only a deposit the area load places is interactable, and the
+  unproven Kalguur fight monsters are held behind `Game_ORE_ENCOUNTERS=all` since spawning them crashed the client. The Orichalcum fight leaves K'Tash's Anger or Beidat's Wrath on
+  every player in the instance, by the Beyond faction that answered the altar; the amber's and Verisium's own buffs have
+  no row the server can send. The panel's total wage line still stays 0 (it is the client's own wage model), and
+  shipping quotas are not written.
   The Atlas Runner line works as commands (`/mapping`): three map devices each hold a queue of up to twelve maps, hired
   runners work them, and every map settles its completion, its time and the chance a runner dies for good; the drops and
   the gold go to the town treasury, and bandits can take runners hostage for a ransom or a rescue. The client's own
