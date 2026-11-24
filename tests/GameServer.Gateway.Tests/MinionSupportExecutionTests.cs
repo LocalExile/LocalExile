@@ -148,7 +148,11 @@ public sealed class MinionSupportExecutionTests
     [Fact]
     public async Task Spell_echo_repeats_spectre_spell_and_launches_spiral_nova_with_returning_projectiles()
     {
-        using var f = new AnimatedAdmissionTests.Fixture();
+        bool wall = true;
+        using var f = new AnimatedAdmissionTests.Fixture(new AreaLayout(1, "defiler-spiral-test", 200, 200, 100, 100, null, [])
+        {
+            Sight = (x, _) => wall && x == 110 ? 0 : 1,
+        });
         var time = new Clock();
         var before = Game.AreaUpdateContext.Value;
         Game.AreaUpdateContext.Value = new(Game.CombatLifetime!, time);
@@ -184,11 +188,16 @@ public sealed class MinionSupportExecutionTests
             Assert.Equal(50, spell.Projectile.SpiralAngle);
             Assert.Equal(750, spell.Projectile.SpiralTimeMs);
             Assert.Equal(1, Game.SkillsFor(f.Player).MonsterProjectile(spell.Effect)!.Count);
-            var enemy = new SpawnedMonster("target", new(130, 100, 0), 100, 3, 1_000_000) { Hostile = true };
+            var enemy = new SpawnedMonster("target", new(120, 100, 0), 100, 3, 1_000_000) { Hostile = true };
             f.Player.Area.Monsters[999] = enemy;
 
             var session = Game.ProjectilesFor(f.Player);
-            Invoke("GolemReserveLocked", f.Player, fighter, spell, 999u, enemy, (130, 100), time.Time);
+            fighter.Abilities = [spell];
+            Game.GolemStepLocked(f.Player, fighter, time.Time);
+            Assert.Null(fighter.Pending);
+            wall = false;
+            Game.GolemStepLocked(f.Player, fighter, time.Time);
+            Assert.Equal(spell.Id, fighter.Pending?.Ability.Id);
             for (int repeat = 0; repeat < 2; repeat++)
             {
                 Invoke("GolemActionRecords", f.Player, new PlayerMinions.Output([], null, fighter.Id, fighter.Monster,
@@ -210,6 +219,9 @@ public sealed class MinionSupportExecutionTests
                         }
                     }
                     Assert.Equal(9, shots.Count);
+                    double sweep = .750 * spell.Attack.Seconds / (Game.SkillsFor(f.Player).CastTimeMs(spell.Effect) / 1000d);
+                    long span = GameServer.Core.Projectiles.ProjectileRuntime.Time(sweep);
+                    Assert.InRange(shots.Values.Max() - shots.Values.Min(), span - 1, span + 1);
                     Assert.Equal(9, shots.Values.Distinct().Count());
                 }
                 if (repeat == 0)
