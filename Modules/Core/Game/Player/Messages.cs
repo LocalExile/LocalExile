@@ -215,7 +215,8 @@ public static partial class Game
                     && WeaponProfileFor(player).Melee)
                 {
                     var here = player.Walk.Position(at);
-                    if (GroundAttackWalks(here, (use.X, use.Y), WeaponFor(player).Range))
+                    int swingReach = MeleeSkillReach(player, WeaponFor(player), gem.Effect, SupportedSkill(player, use.SkillId).Stats);
+                    if (GroundAttackWalks(here, (use.X, use.Y), swingReach))
                     {
                         int walkAction = 0;
                         double arrive = at;
@@ -229,7 +230,7 @@ public static partial class Game
                                 CancelMeleeRepeats(player, at);
                                 walkAction = Interlocked.Increment(ref player.ActionCount);
                                 if (player.Connection.LockstepClient) player.Walk.Order(use.X, use.Y, at);
-                                else arrive = player.Walk.Approach(use.X, use.Y, WalkUpRange(WeaponFor(player)), at).At;
+                                else arrive = player.Walk.Approach(use.X, use.Y, Math.Max(swingReach, 1) - 1, at).At;
                                 player.ChannelSkill = 0;
                             },
                             out var approachTicket, reserve: false, requestedAt: at)) continue;
