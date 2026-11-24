@@ -28,6 +28,33 @@ public static partial class Game
         && !player.Closed && !player.LeavingArea && player.PendingTransfer is null && !player.Paused && player.PlayerLife > 0
         && SameTriggerSource(source.Gem, SupportedSkill(player, source.Skill));
 
+    static readonly RuleTable<LinkSkills.Link, LinkedTriggerSource> IntuitiveLinkSources = new();
+
+    static void CaptureIntuitiveLink(Player player, LinkSkills.Link link, SupportedGem gem)
+    {
+        if (CurrentPlayerSkillSourceLocked(player, link.SkillId) is not { } active) return;
+        var spells = GemSkillEffects(player).Select(row => new LinkedSpell(row.Id, SupportedSkill(player, row.Id)))
+            .Where(spell => spell.Gem.Host == gem.Host && spell.Gem.Group == gem.Group
+                && spell.Gem.Supports.Any(support => support.Effect.Id == "SupportIntuitiveLink"
+                    && support.Gem.Socket == active.Identity.Socket && SupportHas(support, Stat.TriggerOnTriggerLinkTargetHit))
+                && TriggeredSpellExecutable(player, spell.Skill, spell.Gem)).ToArray();
+        if (spells.Length > 0)
+            IntuitiveLinkSources.Add(link, new(link.SkillId, gem, spells, player.ProjectileEpoch, CombatLifetime));
+    }
+
+    static void ReleaseIntuitiveLinkLocked(Player player, GolemState.Golem fighter, (int X, int Y) aim, double now)
+    {
+        if (fighter.Monster.Dead || ActiveMinionLink(player, fighter, now) is not { EffectId: "IntuitiveLink" } link
+            || !IntuitiveLinkSources.TryGetValue(link, out var source) || !GolemCurrent(player, fighter)
+            || !LinkedSourceCurrent(player, source)) return;
+        var session = ProjectilesFor(player);
+        if (!session.Active) return;
+        bool StillLinked() => GolemCurrent(player, fighter) && !fighter.Monster.Dead
+            && ReferenceEquals(ActiveMinionLink(player, fighter, AreaTime(player)), link);
+        ReleaseLinkedSpell(player, session, source, "Intuitive Link", aim, now, Stat.TriggerOnTriggerLinkTargetHit,
+            fighter.Monster.Walk.Position(now), StillLinked);
+    }
+
     public static LinkedTriggerSource? CaptureCriticalTriggerSource(Player player, ushort skill)
     {
         var gem = SupportedSkill(player, skill);
@@ -73,7 +100,8 @@ public static partial class Game
     // rotation: the host and group the cycle over the spells belongs to, when it is not the driving gem's own socket
     // group (an item's trigger cycles for the item: ReleaseItemCriticalTrigger).
     static bool ReleaseLinkedSpell(Player player, ProjectileSession session, LinkedTriggerSource source,
-        string family, (int X, int Y) aim, double at, uint spellFlag, (uint Host, int Group)? rotation = null)
+        string family, (int X, int Y) aim, double at, uint spellFlag, (int X, int Y)? origin = null,
+        Func<bool>? activeTarget = null, (uint Host, int Group)? rotation = null)
     {
         var state = LinkedTriggersOf(player);
         var key = (rotation?.Host ?? source.Gem.Host, rotation?.Group ?? source.Gem.Group, family);
@@ -90,10 +118,10 @@ public static partial class Game
             if (!SameTriggerSource(spell.Gem, gem) || now < state.ReadyAt.GetValueOrDefault(gem.Effect)
                 || GemSkillInstanceDisabled(player, gem.Effect, spell.Skill, triggered: true) is not null) continue;
             bool Current() => session.Active && LinkedSourceCurrent(player, source)
-                && SameTriggerSource(spell.Gem, SupportedSkill(player, spell.Skill));
-            var release = PrepareTriggeredPayload(player, session, spell.Skill, aim, Current);
+                && SameTriggerSource(spell.Gem, SupportedSkill(player, spell.Skill)) && (activeTarget?.Invoke() ?? true);
+            var release = PrepareTriggeredPayload(player, session, spell.Skill, aim, Current, origin);
             if (release is null) continue;
-            var trigger = gem.Supports.Single(s => SupportHas(s, spellFlag));
+            if (gem.Supports.FirstOrDefault(s => SupportHas(s, spellFlag)) is not { } trigger) continue;
             if (!PayMana(player, spell.Skill, out uint mana, out uint life))
             {
                 state.Rotation[key] = (source, (index + 1) % source.Spells.Length);

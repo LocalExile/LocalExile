@@ -19,7 +19,10 @@ public static partial class Game
     static WornGrantedSkills RuthlessWornGrantedSkillCatalog = default!;
     public sealed record SupportedGem(int Effect, int Level, int Quality, IReadOnlyList<GemSupports.Applied> Supports,
         IReadOnlyDictionary<uint, int> Stats, Item? SourceGem = null, bool RequirementsMet = true, bool Granted = false,
-        WornGrantedSkills.Grant? WornGrant = null, uint Host = 0, int Group = -1);
+        WornGrantedSkills.Grant? WornGrant = null, uint Host = 0, int Group = -1)
+    {
+        internal IReadOnlyList<GemSupports.Applied> LivingLightningSupports { get; init; } = [];
+    }
 
     public sealed record PlayerSkillSource(ushort Id, int Effect, string Name, int Level, int Quality, uint Gem,
         GemSkillIds.Gem Identity, Item? SourceGem, WornGrantedSkills.Grant? WornGrant,
@@ -47,14 +50,17 @@ public static partial class Game
         IReadOnlyList<(byte Row, InventoryItem Item)>? equipment = null)
     {
         equipment ??= ItemsOf(player).EquipmentSnapshot();
-        return [.. AllWornGrantedSkillsOf(player, equipment).Where(g => !g.Support && (g.ManuallyCast || g.EffectId == SpiritBurstEffect)
+        return [.. AllWornGrantedSkillsOf(player, equipment).Where(g => !g.Support && (g.ManuallyCast || g.EffectId is SpiritBurstEffect or GuardianWeaponEffect || TriggeredItemMinion(g) is not null)
             && LeagueFor(player).Rules.AllowsGemEffect(g.EffectId)
             && (g.EffectId == UnhingeEffect || g.EffectId == MadnessEffect || IsDashEffect(g.EffectId)
                 || SkillsFor(player).IsWarcry(g.Effect)
                 || IsSummonBeastialCompanionEffect(g.EffectId) || g.EffectId == TwisterEffect || g.EffectId == CatStealthCryEffect
                 || g.EffectId is SnipeEffect or SpiritBurstEffect or "DoryanisTouch" or ApproachingFlamesEffect
                     or "BearTrap" or "WintertideBrand" or "DecoyTotem" or "Smite" or "Frostblink"
-                    or "SummonStoneGolem" or "Convocation" or "EnduringCry" or "IntimidatingCry"
+                    or "SummonStoneGolem" or "Convocation" or "EnduringCry" or "IntimidatingCry" or GuardianWeaponEffect
+                || TriggeredItemMinion(g) is not null
+                || g.EffectId == ShaperMemoryEffect
+                || SummonData.Find(g.EffectId) is { Family: "DoedresEffigy" or ItemHarbingerFamily }
                 || AuraCatalog.Supported(g.EffectId)
                 || GameEvents.GrantedSkillExecutable.For(player).Any(accept => accept(player, g.EffectId))))];
     }
@@ -124,7 +130,8 @@ public static partial class Game
                         candidates.Add(new(effect, EffectiveGemLevel(player, p.Gem, LocalBonus(p.Socket, p.Gem).Level),
                             Quality(p.Socket, p.Gem), p.Socket));
                 else if (variant.Effect2 >= 0
-                    && Supports.Of(variant.Effect2) is { Support: true, Id: SnipeSupportEffect or GeneralsCrySupportEffect or "SupportBrandSupport" })
+                    && Supports.Of(variant.Effect2) is { Support: true, Id: SnipeSupportEffect or GeneralsCrySupportEffect
+                        or "SupportBrandSupport" or "SupportIntuitiveLink" })
                     candidates.Add(new(variant.Effect2, EffectiveGemLevel(player, p.Gem, LocalBonus(p.Socket, p.Gem).Level),
                         Quality(p.Socket, p.Gem), p.Socket));
             }
@@ -164,7 +171,11 @@ public static partial class Game
         return new(selected.Effect, level, quality, supports, own, selected.Place.Gem,
             inactive?.Contains(selected.Place.ItemId) != true
                 && GemRequirementsUnmetAt(player, selected.Place.Gem, requirements) is null,
-            Host: selected.Place.ItemId, Group: group);
+            Host: selected.Place.ItemId, Group: group)
+        {
+            LivingLightningSupports = ResolveLivingLightningSupports(player, supports, candidates, equipment,
+                requirements?.Inactive ?? inactive),
+        };
     }
 
     /// <summary>
@@ -213,7 +224,7 @@ public static partial class Game
 
     static SupportedGem WornSupportedSkill(Player player, WornGrantedSkills.Grant grant,
         IReadOnlyList<(byte Row, InventoryItem Item)> equipment,
-        GemRequirementSnapshot? requirements)
+        GemRequirementSnapshot? requirements, int? supportTarget = null)
     {
         // The accepted-use path cannot trust the last panel publication: requirements and support eligibility must
         // come from the current equipment/attribute snapshot even when no stat update announced the change.
@@ -240,7 +251,7 @@ public static partial class Game
                         Quality(place.Socket, place.Gem), place.Socket));
             }
         candidates.AddRange(Supports.ItemCandidates(host, ItemsFor(player).Mods));
-        var supports = ResolveEquippedSupports(player, grant.Effect, grant.Level, candidates, equipment,
+        var supports = ResolveEquippedSupports(player, supportTarget ?? grant.Effect, grant.Level, candidates, equipment,
             requirements.Inactive, sourceIsGem: false);
         var own = SkillsFor(player).EffectStats(grant.Effect, grant.Level).ToDictionary(kv => kv.Item1, kv => kv.Item2);
         ApplySupportStats(player, own, supports);
@@ -249,7 +260,10 @@ public static partial class Game
             own[OwnAuraRestriction.BaseAura] = 1;
         own[OwnAuraRestriction.Aura] = OwnAuraRestriction.IsAura(own) ? 1 : 0;
         return new(grant.Effect, grant.Level, 0, supports, own,
-            RequirementsMet: !requirements.Inactive.Contains(grant.Host), WornGrant: grant);
+            RequirementsMet: !requirements.Inactive.Contains(grant.Host), WornGrant: grant)
+        {
+            LivingLightningSupports = ResolveLivingLightningSupports(player, supports, candidates, equipment, requirements.Inactive),
+        };
     }
 
     static IReadOnlyList<GemSupports.Applied> ResolveEquippedSupports(Player player, int effect, int level,
@@ -457,7 +471,8 @@ public static partial class Game
                 ? ArcaneMight.Combine(key, read(key), value) : read(key) + value);
         }
         long conditionalEfficiency = ((efficiency & CostEfficiency.Spell) != 0 ? (long)read(Stat.BaseSpellManaCostEfficiencyPlusPct) : 0)
-            + ((efficiency & CostEfficiency.Curse) != 0 ? read(Stat.BaseManaCostEfficiencyPlusPctOfCurseSkills) : 0);
+            + ((efficiency & CostEfficiency.Curse) != 0 ? read(Stat.BaseManaCostEfficiencyPlusPctOfCurseSkills) : 0)
+            + ((efficiency & CostEfficiency.Minion) != 0 ? read(Stat.BaseManaCostEfficiencyPlusPctOfMinionSkills) : 0);
         if (conditionalEfficiency != 0)
             write(ItemChargeCosts.ManaEfficiency, ActorScale.Saturate(read(ItemChargeCosts.ManaEfficiency) + conditionalEfficiency));
         if (Stat.ManaCost is var mana && own.TryGetValue(mana, out int baseCost))
@@ -760,6 +775,11 @@ public static partial class Game
         public double ReleaseAilmentMore { get; init; } = 1;
     }
 
+    static int PlayerMinionDamageShare(IReadOnlyDictionary<uint, int> stats) =>
+        Math.Max(stats.GetValueOrDefault(Stat.AdditiveMinionDamageModifiersApplyToYouAtPctValue),
+            stats.GetValueOrDefault(Stat.AdditiveMinionDamageModifiersApplyToYouAt150PctValue) != 0 ? 150
+            : stats.GetValueOrDefault(Stat.MinionDamageIncreasesAndReductionsAlsoAffectsYou) != 0 ? 100 : 0);
+
     public static SupportedHitInputs? SupportedHitInputsFor(Player player, ushort skillId, bool? area = null,
         SkillCatalog.Unarmed? weapon = null, IReadOnlyDictionary<ChargeType, int>? charges = null, SupportedGem? capturedGem = null,
         bool projectile = false, int addedChaos = 0, bool totem = false)
@@ -783,6 +803,18 @@ public static partial class Game
             if (added == 0) return;
             stats[min] = ActorScale.Add(min, stats.GetValueOrDefault(min), added);
             stats[max] = ActorScale.Add(max, stats.GetValueOrDefault(max), added);
+        }
+        int globalMinionShare = PlayerMinionDamageShare(caster);
+        int skillMinionShare = Math.Max(gem.Stats.GetValueOrDefault(Stat.ActiveSkillAdditiveMinionDamageModifiersApplyToAllDamageAtPctValue),
+            caster.GetValueOrDefault(Stat.DominatingBlowAndAbsolutionAdditiveMinionDamageModifiersApplyToYouAt150PctValue) != 0
+                && skills.EffectId(gem.Effect) is { } effect && (effect.StartsWith("Absolution", StringComparison.Ordinal)
+                    || effect.StartsWith("DominatingBlow", StringComparison.Ordinal)) ? 150 : 0);
+        if (skillMinionShare > 0)
+        {
+            // Only the strongest transfer applies. The character snapshot already carries the global share.
+            long increased = (long)stats.GetValueOrDefault(Stat.MinionDamagePlusPct) * Math.Max(globalMinionShare, skillMinionShare) / 100
+                - (long)caster.GetValueOrDefault(Stat.MinionDamagePlusPct) * globalMinionShare / 100;
+            stats[Stat.DamagePlusPct] = ActorScale.Saturate(stats.GetValueOrDefault(Stat.DamagePlusPct) + increased);
         }
         if (skills.IsVaal(gem.Effect) && stats.GetValueOrDefault(Stat.VaalSkillDamagePlusPct) is int vaalDamage and not 0)
             stats[Stat.DamagePlusPct] = ActorScale.Add(Stat.DamagePlusPct, stats.GetValueOrDefault(Stat.DamagePlusPct), vaalDamage);

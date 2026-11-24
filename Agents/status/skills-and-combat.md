@@ -203,7 +203,13 @@ Part of [Status](../Status.md); what to build next in this area is in
 - Approaching Flames from Annihilation's Approach toggles Flame-Touched, its Adrenaline and its fire damage.
 - Owned minions: relics, chieftains and the 17 golems. Docs: [11](../docs/protocol/11-skills.md) §10h.
   Mindless Aggression and minion area mastery scale minions. Fresh Meat grants timed Adrenaline and Wakened Fury.
-- Raised Host and Carnage Chieftains grant Power and Frenzy Charges with their native roars. Spectre charge visuals still need live verification.
+- Spectre roars grant native charges ([minions](../docs/protocol/11-skills.md#10h-player-minions-that-fight)).
+- Itemised corpses raise native spectres ([minions](../docs/protocol/11-skills.md#10h-player-minions-that-fight)).
+- Wraithlord counts socketed Ghastly Eyes ([minions](../docs/protocol/11-skills.md#10h-player-minions-that-fight)).
+- Holy Strike summons weapon copies ([minions](../docs/protocol/11-skills.md#10h-player-minions-that-fight)).
+- Holy Relic nova reaches allies ([minions](../docs/protocol/11-skills.md#10h-player-minions-that-fight)).
+- Phantasmal Might follows active Phantasms ([minions](../docs/protocol/11-skills.md#10h-player-minions-that-fight)).
+- Equipped summons use active sources ([minions](../docs/protocol/11-skills.md#10h-player-minions-that-fight)).
 - Link skills. Docs: [11](../docs/protocol/11-skills.md) §13, [Paladin](../docs/game/paladin.md#link-skills).
   Docs: [11](../docs/protocol/11-skills.md) Â§13, [Paladin](../docs/game/paladin.md).
 - Owned minions: relics, chieftains and the 17 golems. Docs: [11](../docs/protocol/11-skills.md) Â§10h.
