@@ -120,6 +120,26 @@ public sealed class GameDataStore : IDisposable
         }
     }
 
+    /// <summary>One fx_modifiers row whose stat counts once per something the character has ("per Power Charge"): the
+    /// stat it adds to (the row's quantity) and what it is per, as written (ChargeEffects.LoadTable).</summary>
+    public sealed record FxPerRow(string Stat, int Ord, string Target, string Per);
+
+    /// <summary>The enabled fx_modifiers rows with a "per", in order. Empty when the table or the column is not there
+    /// (an older world.db in a test).</summary>
+    public IReadOnlyList<FxPerRow> LoadFxPerRows()
+    {
+        lock (_gate)
+        {
+            using (var column = Command("SELECT 1 FROM pragma_table_info('fx_modifiers') WHERE name = 'per'"))
+                if (column.ExecuteScalar() is null) return [];
+            using var command = Command("SELECT stat, ord, quantity, per FROM fx_modifiers WHERE enabled = 1 AND per IS NOT NULL ORDER BY stat, ord");
+            using var reader = command.ExecuteReader();
+            var result = new List<FxPerRow>();
+            while (reader.Read()) result.Add(new(reader.GetString(0), reader.GetInt32(1), reader.GetString(2), reader.GetString(3)));
+            return result;
+        }
+    }
+
     /// <summary>One fx rule with its rows (fx_rules, fx_rule_sources, fx_rule_when, fx_rule_if, fx_rule_do), as written:
     /// the game module turns it into a rule of its engine (Modules/Core/Game/Effects/FxRules.cs).</summary>
     public sealed record FxRuleRow(string Id, string Book, string Title, string? Replaces, string Status,

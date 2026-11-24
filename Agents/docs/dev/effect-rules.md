@@ -109,6 +109,10 @@ The `when_hit` and `block` events carry what their site had (`ChargeEvent.Player
 monster is the attacker. The `ailment` action puts an ailment without damage on it (chill, shock or freeze for the
 duration timer; scorch, brittle or sap at their own length), and `debuff` with `blinded` blinds it.
 
+A stat that counts once per charge held is a modifier row with a `per` (`{"of":"power_charge"}`, also `special`,
+`maximum`, `cap`, and `when` for "with no / any charges"); the row's quantity is the stat it adds to, one row for each.
+`ChargeEffects.LoadTable` reads them, and `Expand` uses the tables' lists while the rules are on.
+
 A plain number is granted to the calculator the game module already has (the stat graph); `fx_modifiers` records what
 the number means so that a formula can later move to a table one quantity at a time, each measured. Nothing reads these
 tables during play: they are loaded at startup into arrays by stat id, and an actor's rules are worked out when its
