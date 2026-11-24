@@ -55,11 +55,13 @@ public static class InstanceProtocol
     /// </summary>
     /// <remarks>Flag bit 0 (+0x78) is the active weapon set: set = the second (Weapon2 / Offhand2). The handler copies it
     /// to the session's +0xcd31 (the dispatcher's r13 is the session + 8, so its "[r13+0xcd29]"), as S→C 0xde does.</remarks>
-    public static byte[] EnterArea(IReadOnlyList<InstanceStash.Tab>? stash = null, bool secondWeaponSet = false, byte frameMs = 0)
+    public static byte[] EnterArea(IReadOnlyList<InstanceStash.Tab>? stash = null, bool secondWeaponSet = false,
+        byte frameMs = 0, IReadOnlyList<InstanceStash.Tab>? tradeStash = null)
     {
         var w = new LoginWriter().U16(EnterAreaId);
         InstanceStash.WriteTabs(w, stash ?? []);
-        return w.U16(0).U16(0).WStr("").Bytes([(byte)(secondWeaponSet ? 0x01 : 0), 0, 0]).U8(frameMs).U8(0).ToArray();
+        InstanceStash.WriteTabs(w, tradeStash ?? []);
+        return w.U16(0).WStr("").Bytes([(byte)(secondWeaponSet ? 0x01 : 0), 0, 0]).U8(frameMs).U8(0).ToArray();
     }
 
     /// <summary>C→S 0xdd (3 bytes, built by 0x14216faa0): swap the weapon set. u8: the set wanted (1 the second, 0 the
@@ -719,10 +721,13 @@ public static class InstanceProtocol
             case InstanceSocial.FriendAddId: return InstanceSocial.MeasureFriendAddLength(data, out length);
             // 2 + WStr (writer 0x141f98140).
             case InstanceSocial.PartyInviteId or InstanceSocial.PartyKickId or InstanceSocial.PartyTravelId
-                or 0x0097 or InstanceSocial.SocialStatusId or 0x0140 or 0x0141 or 0x0145 or 0x014d or 0x014e or 0x014f or InstanceSocial.DuelChallengeId:
+                or 0x0097 or InstanceSocial.SocialStatusId
+                or InstanceGuilds.CreateId or InstanceGuilds.InviteId or InstanceGuilds.RemoveMemberId
+                or InstanceGuilds.SetStatusId or InstanceGuilds.RenameId or InstanceGuilds.SetTagId
+                or InstanceSocial.DuelChallengeId:
                 return MeasureWStrMessage(data, prefixBytes: 2, suffixBytes: 0, out length);
             // 2 + WStr + u8 (writer 0x141f9baf0).
-            case InstanceSocial.PublicPartyId or 0x0144 or InstanceSocial.HideoutInviteId:
+            case InstanceSocial.PublicPartyId or InstanceGuilds.SetMemberRankId or InstanceSocial.HideoutInviteId:
                 return MeasureWStrMessage(data, prefixBytes: 2, suffixBytes: 1, out length);
             // 2 + u8 + WStr (Atlas tree rename, writer 0x141fa5e60).
             case InstanceEntities.AtlasTreeRenameId:
@@ -731,10 +736,10 @@ public static class InstanceProtocol
             case 0x0081 or 0x0280:
                 return MeasureTwoWStrMessage(data, suffixBytes: 0, out length);
             // 2 + WStr + WStr + u32 + u8 (shop buy, writer 0x141fa1160).
-            case 0x012c:
+            case InstanceShop.BuyId:
                 return MeasureTwoWStrMessage(data, suffixBytes: 5, out length);
             // u16 id + 4 narrow UTF-8 strings (each u16 BE len + bytes; shop delivery quote/order, writer 0x141fa1600).
-            case 0x0130 or 0x0138:
+            case InstanceShop.ShippingQuoteRequestId or InstanceShop.PlaceOrderId:
                 return MeasureFourNarrowStrMessage(data, out length);
             // u16 id, u8 flags, optional u32 when bit 0 is clear (writer 0x141fa1b30, main frame loop 0x140d551f0).
             case 0x0158:
@@ -746,7 +751,7 @@ public static class InstanceProtocol
             case 0x0281:
                 return MeasureTwoBlob16(data, out length);
             // u16 id, u32 BE, u16 BE n, n * u32 BE (salvage box open, writer 0x141fa3bf0 → 0x141faa4a0).
-            case 0x026e:
+            case InstanceShop.OpenSalvageBoxId:
                 return MeasureSalvageBox(data, out length);
             // u16 id, u8 count, count * u8 (Heist sign contract, writer 0x141fa3d30 → 0x141fab790).
             case 0x0279:

@@ -27,7 +27,11 @@ public sealed partial class AccountStash
     /// never mixes them up with the personal stash's: inventory ids from 0x900, item ids from 0x50000000.</summary>
     public const uint GuildFirstInventoryId = 0x900, GuildFirstItemId = 0x50000000;
 
-    /// <summary>The size of each stash's item id range (personal 0x40000000…, guild 0x50000000…).</summary>
+    /// <summary>The async-trade merchant stash's tabs and items (S→C 0x7b kind 0x63, 0x136 kind 2) take their own range
+    /// in manager 0: inventory ids from 0xa00, item ids from 0x60000000.</summary>
+    public const uint TradeFirstInventoryId = 0xa00, TradeFirstItemId = 0x60000000;
+
+    /// <summary>The size of each stash's item id range (personal 0x40000000…, guild 0x50000000…, trade 0x60000000…).</summary>
     const uint ItemIdRange = 0x10000000;
 
     /// <summary>This stash's tab i inventory id.</summary>
@@ -35,6 +39,12 @@ public sealed partial class AccountStash
 
     /// <summary>Whether this is the guild stash.</summary>
     public bool IsGuild => _firstInventoryId == GuildFirstInventoryId;
+
+    /// <summary>Whether this is the async-trade merchant stash.</summary>
+    public bool IsTrade => _firstInventoryId == TradeFirstInventoryId;
+
+    /// <summary>The S→C 0x136 / C→S 0xc7 / S→C 0xc8 stash kind byte for this stash.</summary>
+    public byte StashKind => IsGuild ? InstanceStash.Guild : IsTrade ? InstanceStash.Trade : InstanceStash.Personal;
 
     /// <summary>A tab: name, StashType row, colour, items, and its affinities (a bitset of StashTabAffinityId rows, set in the
     /// tab settings, C→S 0xd3).</summary>
@@ -58,7 +68,7 @@ public sealed partial class AccountStash
     /// slots are cells x = slot index of a StorageSlots-wide grid, as their layouts' FirstSlotIndex).</summary>
     public static readonly Dictionary<byte, (string Name, byte Width, byte Height)> Types = new()
     {
-        [0] = ("NormalStash", 12, 12), [1] = ("PremiumStash", 12, 12), [3] = ("CurrencyStash", 142, 4), [4] = ("UniqueStash", 254, 4),
+        [0] = ("NormalStash", 12, 12), [1] = ("PremiumStash", 12, 12), [2] = ("TradeStash", 12, 12), [3] = ("CurrencyStash", 142, 4), [4] = ("UniqueStash", 254, 4),
         [5] = ("MapStash", 12, 6), [7] = ("QuadStash", 24, 24), [8] = ("EssenceStash", 110, 4), [9] = ("FragmentStash", 255, 9),
         [6] = ("DivinationCardStash", 255, 2), [12] = ("DelveStash", 41, 4), [13] = ("BlightStash", 83, 4),
         [14] = ("UltimatumStash", 62, 5), [15] = ("DeliriumStash", 88, 1),
@@ -133,6 +143,110 @@ public sealed partial class AccountStash
         new("Guild 1", 1, 0x1e, 0x8c, 0x3c, []), new("Guild 2", 1, 0x1e, 0x8c, 0x3c, []), new("Guild Quad", 7, 0x8a, 0x2b, 0xe2, []),
     ];
 
+    /// <summary>The async-trade merchant stash of the account, scoped to the league. Refused in SSF.</summary>
+    public static AccountStash ForTrade(string account, ItemCatalog catalog, string? league = null, bool solo = false) =>
+        solo ? throw new InvalidOperationException("Async-trade storage is unavailable in Solo Self-Found.")
+            : Create("trade:" + Key(account, league), catalog, TradeFirstInventoryId, TradeFirstItemId, TradeStarterTabs);
+
+    /// <summary>The starter tabs for an async-trade merchant stash (StashType row 2 TradeStash, 12 × 12).</summary>
+    static readonly SavedTab[] TradeStarterTabs =
+    [
+        new("Merchant Tab 1", StashRules.Trade, 0x2c, 0x6e, 0xc8, [], Public: true),
+        new("Merchant Tab 2", StashRules.Trade, 0xc8, 0x8c, 0x1e, [], Public: true),
+    ];
+
+    const string TradeEarningsModuleKey = "async-trade.earnings.v1";
+    const string TradeHistoryModuleKey = "async-trade.history.v1";
+
+    /// <summary>One persisted async-trade sale history record.</summary>
+    public sealed record SavedTradeSale(ulong Timestamp, uint CurrencyTypeHash, uint CurrencyAmount, bool Sold, CharacterSaves.SavedItem Item);
+
+    /// <summary>Current async-trade earnings currency balances saved in this stash.</summary>
+    public IReadOnlyList<InstanceAsyncTrade.EarningBalance> TradeEarnings()
+    {
+        lock (_lock)
+        {
+            var map = ReadTradeEarningsLocked();
+            return [.. map.Where(kv => kv.Value > 0).OrderBy(kv => kv.Key).Select(kv => new InstanceAsyncTrade.EarningBalance(kv.Key, kv.Value))];
+        }
+    }
+
+    /// <summary>Credits async-trade earnings currency atomically and persists.</summary>
+    public uint AddTradeEarnings(uint currencyTypeHash, uint amount)
+    {
+        if (currencyTypeHash == 0 || amount == 0) return 0;
+        uint next;
+        lock (_lock)
+        {
+            var map = ReadTradeEarningsLocked();
+            ulong sum = (ulong)map.GetValueOrDefault(currencyTypeHash) + amount;
+            next = (uint)Math.Min(sum, uint.MaxValue);
+            map[currencyTypeHash] = next;
+            WriteTradeEarningsLocked(map);
+        }
+        Persist();
+        return next;
+    }
+
+    /// <summary>Debits up to <paramref name="amount"/> of <paramref name="currencyTypeHash"/> from saved async-trade
+    /// earnings if available. Returns false without mutation if insufficient balance.</summary>
+    public bool TryDebitTradeEarnings(uint currencyTypeHash, uint amount, out uint remaining)
+    {
+        remaining = 0;
+        if (currencyTypeHash == 0 || amount == 0) return false;
+        lock (_lock)
+        {
+            var map = ReadTradeEarningsLocked();
+            uint held = map.GetValueOrDefault(currencyTypeHash);
+            if (held < amount) { remaining = held; return false; }
+            remaining = held - amount;
+            if (remaining == 0) map.Remove(currencyTypeHash);
+            else map[currencyTypeHash] = remaining;
+            WriteTradeEarningsLocked(map);
+        }
+        Persist();
+        return true;
+    }
+
+    /// <summary>Persisted async-trade sale history entries (oldest or insertion order, capped at 200).</summary>
+    public IReadOnlyList<SavedTradeSale> TradeSaleHistory()
+    {
+        lock (_lock) return ReadTradeHistoryLocked();
+    }
+
+    /// <summary>Appends an async-trade sale history record and persists.</summary>
+    public void RecordTradeSale(ulong timestamp, uint currencyTypeHash, uint currencyAmount, bool sold, Item item)
+    {
+        lock (_lock)
+        {
+            var list = ReadTradeHistoryLocked();
+            list.Add(new SavedTradeSale(timestamp, currencyTypeHash, currencyAmount, sold, CharacterSaves.ToSaved(item, _mods)));
+            if (list.Count > 200) list.RemoveRange(0, list.Count - 200);
+            _moduleData[TradeHistoryModuleKey] = JsonSerializer.Serialize(list, Opts);
+        }
+        Persist();
+    }
+
+    Dictionary<uint, uint> ReadTradeEarningsLocked()
+    {
+        if (!_moduleData.TryGetValue(TradeEarningsModuleKey, out var json) || string.IsNullOrWhiteSpace(json)) return [];
+        try { return JsonSerializer.Deserialize<Dictionary<uint, uint>>(json, Opts) ?? []; }
+        catch (JsonException) { return []; }
+    }
+
+    void WriteTradeEarningsLocked(Dictionary<uint, uint> map)
+    {
+        if (map.Count > 0) _moduleData[TradeEarningsModuleKey] = JsonSerializer.Serialize(map, Opts);
+        else _moduleData.Remove(TradeEarningsModuleKey);
+    }
+
+    List<SavedTradeSale> ReadTradeHistoryLocked()
+    {
+        if (!_moduleData.TryGetValue(TradeHistoryModuleKey, out var json) || string.IsNullOrWhiteSpace(json)) return [];
+        try { return JsonSerializer.Deserialize<List<SavedTradeSale>>(json, Opts) ?? []; }
+        catch (JsonException) { return []; }
+    }
+
     static AccountStash Create(string account, ItemCatalog catalog, uint firstInventoryId, uint firstItemId, SavedTab[] starter) =>
         ByAccount.GetOrAdd(account, name =>
         {
@@ -146,7 +260,7 @@ public sealed partial class AccountStash
             var headers = save?.Tabs ?? [.. starter];
             // A stash saved before a starter tab existed gets it at the end: a special tab type it has none of (Delve,
             // Blight, Unique …: 2026-10-22), or a normal tab "3" / "4" (the real game starts with four).
-            var added = save is null ? [] : starter.Where(s => s.Type is not (0 or 1 or 7) ? headers.All(h => h.Type != s.Type)
+            var added = save is null ? [] : starter.Where(s => s.Type is not (0 or 1 or 2 or 7) ? headers.All(h => h.Type != s.Type)
                 : s.Type == 0 && headers.All(h => h.Type != 0 || h.Name != s.Name)).ToList();
             if (added.Count > 0) headers = [.. headers, .. added];
             for (int i = 0; i < headers.Count; i++)
@@ -547,7 +661,7 @@ public sealed partial class AccountStash
     /// <summary>Whether <paramref name="tab"/> is marked Public (trade-listed; currency cannot be used out of it).</summary>
     public bool IsPublic(int tab) { lock (_lock) return tab >= 0 && tab < _tabs.Count && _tabs[tab].Saved.Public; }
 
-    /// <summary>Sets or clears an item's price note (C→S 0x1a1) inside an open, visible, public, premium <paramref name="tab"/>.</summary>
+    /// <summary>Sets or clears an item's price note (C→S 0x1a1) inside an open, visible, public premium tab or async-trade tab.</summary>
     public InventoryItem? SetItemNote(int tab, uint itemId, string? note)
     {
         string? normalized = string.IsNullOrWhiteSpace(note) ? null : note.Trim();
@@ -557,7 +671,7 @@ public sealed partial class AccountStash
         {
             if (tab < 0 || tab >= _tabs.Count) return null;
             var t = _tabs[tab];
-            if (t.Saved.Hidden || !t.Saved.Public || !IsPremium(t.Saved.Type)) return null;
+            if (t.Saved.Hidden || (!IsTrade && t.Saved.Type != StashRules.Trade && (!t.Saved.Public || !IsPremium(t.Saved.Type)))) return null;
             int at = t.Items.FindIndex(i => i.Id == itemId);
             if (at < 0) return null;
             result = t.Items[at] = t.Items[at] with { Item = t.Items[at].Item with { Note = normalized } };

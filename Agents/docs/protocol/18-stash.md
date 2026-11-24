@@ -377,7 +377,25 @@ inventory ids from 0x900 and its items ids from 0x50000000, so they never meet t
 (0xc7 kind 1 → 0xc0 + 0xc8 kind 1, 0x28, 0x2a, Ctrl + click) act on it (`StashOf`); opening the personal stash switches back.
 Its tab inventories and their 0xbf changes go to **inventory manager 2** (`InstanceStash.GuildManager`, instance
 `+0xcb90`): sent under manager 0 the panel shows no grid and the client hangs.
+Reordering guild tabs (`C→S 0x00cc` kind 1) broadcasts `S→C 0x00cc` (same wire layout, dispatcher case `0x3e` at
+`0x142155ec1`) to online guild members.
 Gold stays with the personal stash.
+
+## Async-trade merchant stash (mode 2)
+
+Faustus's "Manage Shop" option (`NPCTalkCategory` 62 `ManageAsyncTrade`, `SendOpenScreen(AsyncTradeStashWindow)`) emits
+`S→C 0x0136` kind `2`, `S→C 0x02ae` earnings balances, and `S→C 0x007b` kind `0x63` (`0x142169ebf`). Trade tabs use
+`StashType` row 2 (`TradeStash`, 12 × 12) in inventory manager 0 (ids `0xa00..`, item ids `0x60000000..`, refused in
+SSF). Pricing an unpriced held cursor item sends `C→S 0x01a1` with bit 31 set (`Flag == true`, sender `0x1402fbbf0`)
+before `C→S 0x002a`.
+
+- **C→S 0x02ac** (2 B) → **S→C 0x02ad** (`0x1421b9520`, case `0xe4`): `CompactUInt count`, `count × (RawU64 timestamp,
+  u32 BE currencyTypeHash, u32 BE amount, u8 sold, u16 BE itemWireLen, byte[itemWireLen])`, trailing `u8 isIncremental`
+  (`0` for full snapshot replying to `0x02ac`, `1` for incremental sale push).
+- **S→C 0x02ae** (`0x1421b9820`, case `0xe5`): `CompactUInt count`, `count × (u32 BE currencyTypeHash, u32 BE amount)`.
+- **C→S 0x02b0** (12 B, `0x141f9c880`): `u32 BE currencyTypeHash`, `u32 BE amount`, `u8 flagA`, `u8 flagB`.
+- **S→C 0x008e** (`0x141fa8ef0`, case `0x20`): `u16 BE errorCode`, `u32 BE inventoryId`, `u32 BE itemId`,
+  `u32 LE rawItemClass` (no byte-swap at `0x141fa8f6f..0x141fa8f80`), `u8 count`, `count × (u32 BE typeHash, CompactUInt amount)`.
 
 ## Open
 

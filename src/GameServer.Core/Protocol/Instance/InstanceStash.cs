@@ -25,6 +25,8 @@ public static class InstanceStash
     public const byte Personal = 0;
     /// <summary>The guild stash: 0x136 / 0xc8 kind 1; S→C 0x7b kind 2 opens its panel (listener 0x140dcb010, tabs at instance +0xc4b0).</summary>
     public const byte Guild = 1, OpenGuildStashUi = 2;
+    /// <summary>The async-trade merchant stash: 0x136 / 0xc7 / 0xc8 kind 2; S→C 0x7b kind 0x63 opens its panel (0x142169ebf, tabs at instance +0xc4c8).</summary>
+    public const byte Trade = 2, OpenAsyncTradeStashUi = InstanceAsyncTrade.OpenUiKind;
 
     /// <summary>The guild stash tabs' inventory manager in S→C 0xc0 (instance +0xcb90); the personal stash uses 0.</summary>
     public const byte GuildManager = 2;
@@ -174,6 +176,17 @@ public static class InstanceStash
         var order = new List<(ushort, ushort)>();
         for (int i = 0, at = 4; i < m[3]; i++, at += 4) order.Add(((ushort)(m[at] << 8 | m[at + 1]), (ushort)(m[at + 2] << 8 | m[at + 3])));
         return (m[2], order);
+    }
+
+    /// <summary>S→C 0xcc (reader <c>0x141f9cbd0</c>, vector <c>0x141faaa80</c>, dispatcher case <c>0x3e</c> at
+    /// <c>0x142155ec1</c>): guild stash tab reorder broadcast. Same wire layout as C→S 0xcc: <c>u16 BE 0x00cc</c>,
+    /// <c>u8 kind</c> (<see cref="Guild"/> = 1), <c>u8 count</c>, <c>count × (u16 BE tab index, u16 BE position)</c>.</summary>
+    public static byte[] EncodeReorderTabs(byte kind, IReadOnlyList<(ushort Index, ushort Position)> order)
+    {
+        if (order.Count > byte.MaxValue) throw new ArgumentOutOfRangeException(nameof(order));
+        var w = new LoginWriter().U16(ReorderTabsId).U8(kind).U8((byte)order.Count);
+        foreach (var (index, position) in order) w.U16(index).U16(position);
+        return w.ToArray();
     }
 
     /// <summary>C→S 0xd1 (7 bytes, vtable 0x1435cabd0, write 0x141f9d680; 0x14216dd20): a tab into a folder. u16 BE tab,

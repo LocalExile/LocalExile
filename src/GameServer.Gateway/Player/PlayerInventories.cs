@@ -150,6 +150,24 @@ public sealed partial class PlayerInventories
         return item;
     }
 
+    /// <summary>Sets or clears an item's price note (e.g. C→S 0x1a1 with Flag=1 pricing a held cursor item before
+    /// placement into an async-trade tab). Returns the updated item or null if not found.</summary>
+    public InventoryItem? SetItemNote(byte row, uint itemId, string? note)
+    {
+        string? normalized = string.IsNullOrWhiteSpace(note) ? null : note.Trim();
+        if (normalized is { Length: > 250 }) normalized = normalized[..250];
+        InventoryItem updated;
+        lock (_lock)
+        {
+            if (!_items.TryGetValue(row, out var list)) return null;
+            int at = list.FindIndex(i => i.Id == itemId);
+            if (at < 0) return null;
+            updated = list[at] = list[at] with { Item = list[at].Item with { Note = normalized } };
+        }
+        Persist();
+        return updated;
+    }
+
     /// <summary>What an item needs for placement: its grid size, ItemClasses Id, how many share a cell (1: no stack),
     /// what a full stack becomes (null: it stays; 5 Scroll Fragments → a Scroll of Wisdom) and whether it is a Delve Fossil.</summary>
     public readonly record struct Shape(byte Width, byte Height, string Class, ushort MaxStack = 1, Func<Item>? FullStack = null,
