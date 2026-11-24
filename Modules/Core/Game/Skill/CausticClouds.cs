@@ -85,7 +85,7 @@ public static partial class Game
         }
 
         void AddDamageGround(ProjectileVector centre, double radius, double seconds, DamageType type,
-            double dps, long start, Visual? visual, IReadOnlyDictionary<uint, int>? chillStats)
+            double dps, long start, Visual? visual = null, IReadOnlyDictionary<uint, int>? chillStats = null)
         {
             start = Math.Max(Runtime.Now, start);
             long end = start + Math.Max(1, ProjectileRuntime.Time(seconds));

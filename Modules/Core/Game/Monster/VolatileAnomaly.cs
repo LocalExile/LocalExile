@@ -53,7 +53,7 @@ public static partial class Game
                 0xffff, player.MonsterOrderFlags));
         session.PlaceDamageGround(ProjectileSession.Vector(at), radius, seconds, DamageType.Cold, dps, session.Runtime.Now,
             Own(Stat.GroundMaelstromArtVariation), stats);
-        session.Enqueue(() => AreaSkillHit(player, orb.Source, (orb.Source, gem.Effect, gem.Name ?? ItemVolatileAnomaly.Id,
+        session.Enqueue(() => AreaSkillHit(player, orb.Source, (orb.Source, gem.Effect, "Volatile Anomaly",
             gem.Level, gem.Quality, 0), at, at, immediate: true, melee: false, radiusOverride: blast, triggeredCurrent: Current));
     }
 }
