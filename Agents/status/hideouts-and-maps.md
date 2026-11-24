@@ -125,14 +125,35 @@ Part of [Status](../Status.md); what to build next in this area is in
 
 ## Partly working
 
+- Smuggler's Caches in maps: one per map area from the Heist roll, opens on click, back open on re-entry; no loot yet.
+- Rogue Harbour: NPCs and stashes at the room's cells; Heist screens open (0x34, 0x35, 0x36), no contract start yet.
 - Nightmare maps apply their levelled hexes while the player is in the map.
 - Map and Atlas modifiers govern scarab drops, monster combat and player recovery, skill area, defences, accuracy and aura effect.
+- Channel and Waterways use walkable arrival and portal anchors on generated layouts.
 
+- Legendary maps: a unique map opens its own area (`UniqueMaps.WorldAreasKey`, by its name word) at the level of the
+  `Maps` tier that names it, on the tier-1 key or a MapWorlds base (#1092); checked offline.
+  The client still refuses them: on their own Atlas node it shows "The device requires a map" and sends no 0x00d8, and an
+  ordinary node does not take them (live 2026-11-22; a WorldAreas HASH16 in MapKey flag bit 1 did not change it).
+  Their fixed unique modifiers are not applied.
 - Named scarabs: Domination/Cloister, Ambush boxes, Essence release/Ascent/Calcification/Stability and Terrors bosses;
-  Essence: corruption/transfers, Toughness, enrage, Decay, Envy, Karui and death insects; other skills/scaling partial (#505).
-- Tormented Spirits in maps and the campaign: touch, possession, right-click Possession cancellation (`C→S 0x004b`),
-  rewards, the Torment scarabs, the Atlas tree's stats and the Idols' once they reach maps (#1091) (name plate update:
-  [14](../docs/protocol/14-monster-packs.md) §5).
+  Essence supports Vaal corruption, Adaptation transfers, low-life enrage, Decay, Toughness (damage-taken, not life),
+  the imprisoned pack (mini monoliths release magic guards with the rare), encased preview monsters (+0x104 panel),
+  the 3.29 Atlas cluster (CoreLeagues count, additional/higher-tier/max-tier/Remnant/Essence-Rare-Chance rolls, Crystal
+  Resonance boss inheritance) and all released rare/daemon behaviours in `Monster/Mods/`: Hatred/Anger/Wrath novas with
+  −10% res debuffs and Hatred's chilling trail, Misery's chaos aura (extra stacks on hit) and triggered proximity shield,
+  Envy's degen aura and grab, Rage's TrapFireRune mines, Suffering's Frost Bomb (−30% exposure) and on-death Arctic Golem,
+  Anguish's Meteor Firestorm and fracturing Fiery Rubble, Dread's chaos Firestorm and Guardian Golem, Greed's blood-orb
+  Corrupted Blood bombs, Torment's Ball Lightning, Sorrow's Vortex totems, Spite's Arc and shocked-ground totem, Doubt's
+  Flicker/Viper Strike spiders, Woe's Energy Locus, Fear's Charging Corsairs, Contempt's invulnerable chasing Karui
+  spirits, Zeal/Loathing/Scorn alternating buffs, Insanity's Storm Call beacons and invulnerable Spectral Spirits,
+  Hysteria's Flameblast, 8-Fireball burst, Meteor Golem and burning ground, Horror's 9-circle ice-explosion cascade,
+  chilled-ground Maelströms and periodic Endurance/Frenzy/Power charges, Delirium's piercing caustic chaos projectile,
+  Explosive Crawlers and on-death insect, Desolation's poison flesh boulder and Remnant of Corruption's slow/physical
+  aura and on-death Fleshmonsters.
+  Not right yet: crystal/statue visuals (`rig.ao` state-1 shards) and Adaptation's per-essence scaling (#505, #1206).
+- Tormented Spirits in maps and the campaign: touch, possession, rewards, the Torment scarabs, the Atlas tree's stats
+  and the Idols' once they reach maps (#1091) (name plate update: [14](../docs/protocol/14-monster-packs.md) §5).
   Not yet: the spirits' and Grips' own skills, possessed Rogue Exiles, scarab weights, Refiner's Bargain (#1129).
 - Beyond in maps (3.29 Scourge rework, #1156): kill-triggered blood orbs (`BeyondPortal1`) merge into pack
   (`BeyondPortal2`) and boss (`BeyondPortal3`) portals for the rolled `BeyondFactions` faction (Demon, Flesh, Pale),
@@ -414,8 +435,8 @@ Part of [Status](../Status.md); what to build next in this area is in
 - Hideouts: adding/removing decorative trees/tents and changing decoration appearance are not implemented.
   Personal template selection, saved home login and functional furniture placement are implemented
   ([21](../docs/protocol/21-hideouts.md)).
-- Map device: a map without a walk-map capture puts the player at an arbitrary cell (Beach is captured);
-  such a map now gets a random seed instead of seed 1, which is the seed captures are dumped at — pinning it there handed
+- Without a generated layout or walk-map capture, a map can place the player at an arbitrary cell.
+  Such a map gets a random seed instead of seed 1, which is the seed captures are dumped at — pinning it there handed
   the client a layout it could not build and it exited (`MapWorldsColosseum`: "no suitable room found … cage_turn");
   the arena gates land next to their pair, not on the telepads;
   the portals look like player portals; the open map is lost on a Gateway restart

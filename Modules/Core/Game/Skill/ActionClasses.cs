@@ -114,6 +114,15 @@ public static class ActionClasses
                 _ => "Metadata/Projectiles/Flamethrower1",
             },
         },
+        new("TotemFireSpray")
+        {
+            ActionDistance = get => SpellDistance(128, get),
+            Projectile = get => get(Stat.SkillArtVariation) switch
+            {
+                1 => "Metadata/Projectiles/FlameBearerFireSprayGold",
+                _ => "Metadata/Projectiles/FlameBearerFireSpray",
+            },
+        },
         new("BoneLance") { ActionDistance = _ => 90 },
         new("ShadowProjectiles") { ActionDistance = get => 45 * (100 + get(Stat.ProjectileSpeedPlusPct)) / 100 },
         new("SkeletalChains") { ActionDistance = get => SpellDistance(80, get) },

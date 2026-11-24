@@ -43,15 +43,22 @@ public static partial class Game
         (ushort Id, int Effect, string Name, int Level, int Quality, uint Gem) gem, (int X, int Y) aim,
         SkillCriticalRoll critical, ushort sequence, bool mirage = false,
         Func<ProjectileOffense, ProjectileOffense>? transform = null, double podDamageFactor = 1, (int X, int Y)? from = null)
+        => ReleaseArrowRain(session, skill, gem, aim, critical, sequence, mirage, transform, podDamageFactor, totem: null, from);
+
+    static void ReleaseArrowRain(ProjectileSession session, ushort skill,
+        (ushort Id, int Effect, string Name, int Level, int Quality, uint Gem) gem, (int X, int Y) aim,
+        SkillCriticalRoll critical, ushort sequence, bool mirage, Func<ProjectileOffense, ProjectileOffense>? transform,
+        double podDamageFactor, TotemState.Totem? totem, (int X, int Y)? from = null)
     {
         var player = session.Player;
         string id = SkillsFor(player).EffectId(gem.Effect)!;
-        // from: where the volley leaves when it is not the player (a trap or mine).
-        var use = CaptureGemProjectile(player, session, skill, gem, aim, critical, sequence, from: from);
+        // from: where the volley leaves when it is not the player or a totem (a trap or mine).
+        var use = CaptureGemProjectile(player, session, skill, gem, aim, critical, sequence, from: from, totem: totem);
         var shot = (ProjectileOffense)use.Payload!;
         if (mirage) shot = MirageOffense(player, shot);
         if (transform is not null) shot = transform(shot);
-        use = use with { Payload = shot with { AreaVisual = null, Presentation = new(), ClientPredicted = true, FromTrapOrMine = from is not null } };
+        use = use with { Payload = shot with { AreaVisual = null, Presentation = new(), ClientPredicted = true,
+            FromTrapOrMine = shot.FromTrapOrMine || from is not null } };
         var own = SupportedSkill(player, skill).Stats;
         var playerStats = CharacterPlayerStats(player);
         int Own(uint stat) => own.GetValueOrDefault(stat);

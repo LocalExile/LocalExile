@@ -114,8 +114,7 @@ public static partial class Game
         damage = IncomingResourceDefences.TakenOverTime(damage, Get, ref state.TakenCarry,
             IncomingResourceDefences.LessTakenPct(player.Pools, Get), typedIncreasedPct: Get(Stat.ChaosDamageTakenPlusPct),
             finalTakenPct: Get(IncomingResourceDefences.UnhingedSaneDamageFinal));
-        return IncomingResourceDefences.DamageOverTime(player.EnergyShield, damage,
-            ChaosDamageBypassesEnergyShield(player, playerStats) ? 100 : 0, until, ref player.ChaosDotBypassCarry);
+        return DamagePlayerChaosOverTime(player, damage, until, playerStats);
     }
 
     public static void TickEssenceAurasLocked(Player player, double now)
