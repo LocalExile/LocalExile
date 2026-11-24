@@ -470,6 +470,8 @@ public static class StatConditions
             return [.. new[] { "base_cannot_be_shocked", "base_cannot_be_ignited" }.Where(exists)];
         if (plainName == "maximum_life_and_mana_+%")
             return [.. new[] { "maximum_life_+%", "maximum_mana_+%" }.Where(exists)];
+        if (plainName == "spell_and_attack_block_chance_is_lucky")
+            return [.. new[] { "base_block_luck" }.Where(exists)];
         return FoldFromPlain(statId, exists, plainName) is { } plain ? [plain] : [];
     }
 
