@@ -132,10 +132,11 @@ Part of [Status](../Status.md); what to build next in this area is in
   waves and guard the box, Revive raises the dead near it. An opening plays as the game's (live 2026-11-22): the
   model's own `open` clip with its lid sounds, the rarity's `ChestEffects` glow while closed and its open effect, the
   box shown opened once the clip is over; the guards' dust columns and spawn sounds come in three waves 7, 14 and 22
-  frames after the click, and the items drop when the daemons are gone, not when the guards die (as recorded). The spell daemons' hits act, but their falling projectiles are not right yet: Firestorm and
-  Lightning Storm show only the client's first meteor/bolt, and Putrifying's single delayed corpse explosion finds
-  nothing unless corpses already lie within 21 cells (the "Strongbox daemon spells" issue). Gems with experience drop at a random level up to 20;
-  Deshret's weapons drop identified; the party's currency bonus applies (not to Diviner's or Cartographer's). Strongbox
+  frames after the click, and the items drop only once all the guards are dead. The spell daemons' hits act, but their
+  falling projectiles are not right yet: Firestorm and Lightning Storm show only the client's first meteor/bolt, and
+  Putrifying's single delayed corpse explosion finds nothing unless corpses already lie within 21 cells (the "Strongbox
+  daemon spells" issue). Gems with experience drop at a random level up to 20; Deshret's weapons drop identified; the
+  party's currency bonus applies (not to Diviner's or Cartographer's). Strongbox
   Rogue Exiles spawn on ambush; Vaalsmithed daemons remain open (roadmap, "Vaal Vessels"). Currency changes a closed
   box (C→S 0x74, live: Transmutation, Alteration, Regal, Chaos), Annulment, Divine and Chance (which may make it
   unique, at our 5%) included; a Vaal Orb corrupts it and its contents; unique boxes take none (our choice). The orb is

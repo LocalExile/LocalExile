@@ -33,9 +33,9 @@ public static partial class MapStrongboxes
         public RolledMod[] Mods { get; init; } = [];
         /// <summary>No currency changes it any more (<c>map_strongboxes_are_corrupted</c>, a Vaal Orb).</summary>
         public bool Corrupted { get; init; }
-        /// <summary>When the items drop (UTC ticks), once the box is open: its daemons are gone (<see cref="DropFrames"/>).
-        /// 0 for a box whose mods do not delay the drop (<c>chest_delay_drops_until_daemons_finish</c>), whose items wait for the
-        /// guards.</summary>
+        /// <summary>The earliest the items drop (UTC ticks): the daemons' finish (<see cref="DropFrames"/>), never
+        /// before a summon wave the daemons still owe. The drop still waits for every guard to die. 0 for a box whose
+        /// mods do not delay the drop (<c>chest_delay_drops_until_daemons_finish</c>).</summary>
         public long DropAtTicks { get; init; }
         /// <summary>A unique box's UniqueChests Id (<see cref="StrongboxCatalog.Uniques"/>); its mods are in <see cref="Mods"/>.</summary>
         public string? Unique { get; init; }
@@ -581,7 +581,8 @@ public static partial class MapStrongboxes
 
     const double FramesPerSecond = 30;
 
-    /// <summary>Opens a closed box (under the area's gate): its guards spawn, and its loot drops when its daemons are gone.</summary>
+    /// <summary>Opens a closed box (under the area's gate): its guards spawn, and its loot drops once every guard is dead
+    /// (and, when its mods delay the drop, not before its daemons are gone).</summary>
     static async Task Open(Player player, Area area, Box box)
     {
         bool first = area.Boxes!.All(b => b.Phase == 0 && b.Cycle == 0);
@@ -817,7 +818,8 @@ public static partial class MapStrongboxes
         finally { area.Gate.Release(); }
     }
 
-    /// <summary>The tests' way past the daemons' real-time wait: every open box's drop is due now.</summary>
+    /// <summary>The tests' way past the daemons' real-time wait: every open box's drop time is due now. The guard gate
+    /// still applies: a box drops only once its guards are dead.</summary>
     internal static async Task DropNow(Player player)
     {
         if (player.Instance is null || !Areas.TryGetValue(player.Instance, out var area) || area.Boxes is null) return;
@@ -847,16 +849,12 @@ public static partial class MapStrongboxes
                     Keep(player, area);
                 }
                 if (prior.Pending.Count > 0) await SpawnPending(player, area, prior);
-                if (prior.DropAtTicks > 0)
-                {
-                    // The drop does not wait for the guards: in the recordings none was dead at 9 of 10 drops.
-                    if (DateTime.UtcNow.Ticks < prior.DropAtTicks) continue;
-                }
-                else
-                {
-                    if (prior.Pending.Count > 0 || prior.Waves.Count > 0 || prior.Guards.Count == 0) continue;
-                    if (prior.Guards.Any(id => player.Area.Monsters.TryGetValue(id, out var m) && !m.Dead && m.Life > 0)) continue;
-                }
+                // The drop waits for every guard to die (chest_delay_drops_until_daemons_finish): no branch drops
+                // while a wave is still unspawned, a spawn still pending, or a guard still standing. DropAtTicks is
+                // only an extra minimum floor on top of that gate.
+                if (prior.Pending.Count > 0 || prior.Waves.Count > 0 || prior.Guards.Count == 0) continue;
+                if (prior.Guards.Any(id => player.Area.Monsters.TryGetValue(id, out var m) && !m.Dead && m.Life > 0)) continue;
+                if (prior.DropAtTicks > 0 && DateTime.UtcNow.Ticks < prior.DropAtTicks) continue;
                 if (!player.Instance.SetState($"Ambush/rewards/{prior.Index}/{prior.Cycle}")) continue;
                 var opened = prior with { Phase = 2 };
                 area.Boxes[prior.Index] = opened;
