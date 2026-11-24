@@ -166,6 +166,24 @@ public static partial class Game
         return presentation;
     }
 
+    /// <summary>Attaches flight and impact clips to a server-drawn projectile without clobbering existing clips,
+    /// custom event effects (e.g. Arrow Nova's rain rig), or launch-height settings.</summary>
+    public static ProjectilePresentation? WithProjectileClips(ProjectilePresentation? existing,
+        SkillCatalog.ProjectileClips? clips, double flightSeconds)
+    {
+        if (existing is { EventEffect: not null } || existing is { FlightClip: not null } or { ImpactClip: not null })
+            return existing;
+        if (MonsterProjectilePresentation(clips, flightSeconds) is not { } clipPresentation)
+            return existing;
+        return existing is null ? clipPresentation : existing with
+        {
+            FlightClip = clipPresentation.FlightClip,
+            FlightClipSpeed = clipPresentation.FlightClipSpeed,
+            ImpactClip = clipPresentation.ImpactClip,
+            ImpactLifetime = clipPresentation.ImpactLifetime,
+        };
+    }
+
     // The release at the attack's contact: the flight owns contact and damage (HostileHit).
     // The AI action must still be current when the runtime releases it.
     /// <summary>A monster skill's shot that no longer belongs to the monster's own action (a trap's, set off): released now

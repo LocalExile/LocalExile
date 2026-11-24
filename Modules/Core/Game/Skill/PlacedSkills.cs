@@ -589,11 +589,16 @@ public static partial class Game
     }
 
     // Where a trap or mine at a cell fires its projectile skill: at the nearest enemy within 60 cells that does not
-    // stand on it, and with none in range 20 cells straight away from the player, so that it still uses its skill.
-    public static (int X, int Y) PlacedProjectileAim((int X, int Y) at, (int X, int Y) player, IEnumerable<(int X, int Y)> enemies)
+    // stand on it, and with none in range 20 cells any way (straight away from the player without a random source), so
+    // that it still uses its skill.
+    public static (int X, int Y) PlacedProjectileAim((int X, int Y) at, (int X, int Y) player, IEnumerable<(int X, int Y)> enemies,
+        Random? random = null)
     {
         var near = enemies.Where(e => Dist(e, at) is >= 1 and <= 60).OrderBy(e => Dist(e, at)).ToArray();
         if (near.Length > 0) return near[0];
+        // With no target the official client's mines fire any way (seen 2026-11-19).
+        if (random is not null && random.NextDouble() * Math.Tau is var turn)
+            return (at.X + (int)Math.Round(Math.Cos(turn) * 20), at.Y + (int)Math.Round(Math.Sin(turn) * 20));
         double away = Dist(at, player);
         return away < 1 ? (at.X + 20, at.Y)
             : (at.X + (int)Math.Round((at.X - player.X) / away * 20), at.Y + (int)Math.Round((at.Y - player.Y) / away * 20));
@@ -619,17 +624,29 @@ public static partial class Game
         bool spellDamage = SkillHitPlan.ForSkill(SkillsFor(player), placed.Effect, 1).Kind != SkillHitKind.Secondary;
         var payload = GemSkillEffects(player).FirstOrDefault(g => g.Id == placed.Skill);
         bool currentSkill = payload.Name is not null && payload.Effect == placed.Effect;
+        bool rainSkill = !bear && currentSkill && ArrowRain(SkillsFor(player).EffectId(placed.Effect));
         bool projectile = !bear && currentSkill
             && UsesProjectileRuntime(placed.Effect) && ResolveProjectileDefinition(placed.Effect) is not null;
         KeyValuePair<uint, SpawnedMonster> target = default;
         (int X, int Y) aim = placed.At;
+        bool locusAim = placed.Mine && GolemStat(placed.Own, Stat.SupportLocusMineMinesAlwaysTargetYourLocation) != 0;
         if (projectile)
         {
             var ownerAt = player.Walk.Position(now);
-            aim = placed.Mine && GolemStat(placed.Own, Stat.SupportLocusMineMinesAlwaysTargetYourLocation) != 0
+            aim = locusAim
                 ? ownerAt
                 : PlacedProjectileAim(placed.At, ownerAt, player.Area.MonstersNear(placed.At, 60)
-                    .Where(m => m.Value is { Hostile: true, Dead: false, Life: > 0 }).Select(m => m.Value.Walk.Position(now)));
+                    .Where(m => m.Value is { Hostile: true, Dead: false, Life: > 0 }).Select(m => m.Value.Walk.Position(now)), AreaRng(player));
+        }
+        else if (rainSkill)
+        {
+            aim = locusAim
+                ? player.Walk.Position(now)
+                : player.Area.MonstersNear(placed.At, 60)
+                    .Where(m => m.Value is { Hostile: true, Dead: false, Life: > 0, Invulnerable: false, Asleep: false, WorldHidden: false }
+                        && !MonsterAsleep(player, m.Key))
+                    .Select(m => m.Value.Walk.Position(now)).Where(p => Dist(p, placed.At) <= 60).OrderBy(p => Dist(p, placed.At))
+                    .Select(p => ((int X, int Y)?)p).FirstOrDefault() ?? placed.At;
         }
         else if (bear)
         {
@@ -655,6 +672,34 @@ public static partial class Game
                 useProxyOrigin: true));
             return;
         }
+        // A rain skill (Rain of Arrows, Blast Rain, Toxic Rain) comes down as the player's own does, around the nearest
+        // enemy within 60 cells or on the trap or mine itself, instead of one area hit with nothing drawn.
+        if (rainSkill)
+        {
+            var session = ProjectilesFor(player);
+            var lifetime = CombatLifetime;
+            var critical = CaptureSkillCriticalRoll(player, placed.Skill);
+            var at = placed.At;
+            var rain = aim;
+            var rainSource = placed.Source;
+            session.Runtime.Schedule(session.Runtime.Now, () =>
+            {
+                if (!session.Active || !ReferenceEquals(lifetime, CombatLifetime) || player.PlayerLife == 0) return;
+                if (rainSource is not null && !player.GemSourceLifetimes.IsCurrent(rainSource)) return;
+                if (SupportedSkill(player, placed.Skill).Effect != placed.Effect) return;
+                try
+                {
+                    ReleaseArrowRain(session, placed.Skill, payload, rain, critical, (ushort)placed.Id,
+                        transform: inventionMore == 1 ? null : s => s.ScaleDamage(inventionMore),
+                        podDamageFactor: inventionMore, from: at);
+                }
+                catch (InvalidOperationException ex)
+                {
+                    Console.WriteLine($"[gateway] {player.Connection.Remote} placed rain skill unavailable: {ex.Message}");
+                }
+            });
+            return;
+        }
         // The trap or mine emits its own projectile with the supported skill's hit and the device's resolved aim.
         // The server draws it because no local input action predicts it.
         if (projectile)
@@ -666,10 +711,17 @@ public static partial class Game
             var shot = aim;
             session.Schedule(session.Runtime.Now, () => session.Active && ReferenceEquals(lifetime, CombatLifetime), () =>
             {
-                var use = CaptureGemProjectile(player, session, placed.Skill, payload, shot, critical, from: at);
-                use = ClientDrawnVolley(player, session, placed.Skill, payload, use, 0, 0);
+                var use = CaptureGemProjectile(player, session, placed.Skill, payload, shot, critical, (ushort)placed.Id, from: at);
+                // The volley's rules are the player's own cast's, some of which start it at the player's cell (Spark's
+                // and Twister's wander): it leaves from the trap or mine whatever the skill.
+                var origin = use.Origin;
+                // Its random spread and wander are seeded by the use's sequence: the object's id, so two do not match.
+                use = ClientDrawnVolley(player, session, placed.Skill, payload, use, (ushort)placed.Id, 0) with { Origin = origin };
+                // The rig's flight clip is what shows art that has no default animation (Spark's sparks).
                 var offense = ((ProjectileOffense)use.Payload!).ScaleDamage(inventionMore);
-                return use with { Payload = offense with { ClientPredicted = false, FromTrapOrMine = true, FromMine = placed.Mine } };
+                return use with { Payload = offense with { ClientPredicted = false, FromTrapOrMine = true, FromMine = placed.Mine,
+                    Presentation = WithProjectileClips(offense.Presentation, SkillsFor(player).Clips(use.Profile.Id),
+                        use.Profile.Range / Math.Max(1, use.Profile.Speed)) } };
             });
             return;
         }
@@ -856,7 +908,11 @@ public static partial class Game
                 foreach (var placed in player.Placed.All.Values.ToArray())
                 {
                     if (player.Connection.LockstepClient && !player.Connection.WorldOutput.PublishedObject(placed.Id).IsReady) continue;
-                    if (player.PlayerLife == 0 || now >= placed.Until) { RemovePlacedLocked(player, placed, bytes); continue; }
+                    // A trap goes off when its duration ends (seen on the official client 2026-11-19); a mine is removed.
+                    // A Conversion Trap that was never set off converts nobody at its end: it only leaves.
+                    bool expired = now >= placed.Until;
+                    if (player.PlayerLife == 0 || expired && (placed.Mine || SkillsFor(player).EffectId(placed.Effect) == "ConversionTrap"))
+                    { RemovePlacedLocked(player, placed, bytes); continue; }
                     LandPlacedRecordsLocked(player, placed, now, bytes);
                     if (now < placed.Armed) continue;
                     if (placed.Mine && !MineCanDetonateFrom(placed, playerAt))
@@ -888,7 +944,7 @@ public static partial class Game
                     bool nearby = !placed.Mine && (conversion ? trigger.Value is not null
                         : player.Area.MonstersNear(placed.At, placed.TriggerRadius).Any(m => m.Value is { Hostile: true, Dead: false, Life: > 0 }
                             && Dist(m.Value.Walk.Position(now), placed.At) <= placed.TriggerRadius));
-                    if (!skitter && !nearby && now < placed.DetonateAt) continue;
+                    if (!skitter && !nearby && !expired && now < placed.DetonateAt) continue;
                     // Scheduling, an unarmed mine, a retired placement and a Skitterbot's detonation are not a
                     // player detonation. Record only this accepted player-chain trigger, even without a hit target.
                     if (placed.Mine && !skitter)
@@ -897,7 +953,7 @@ public static partial class Game
                     else PlacedDamageLocked(player, placed, now, bytes);
                     PlacedChargesLocked(player, placed, nearby, now);
                     bool rearm = skitter && placed.Mine && effect != "SmokeMine";
-                    Console.WriteLine($"[gateway] placed skill 0x{placed.Id:x} {(skitter ? "Skitterbot" : nearby ? "proximity" : "chain")} trigger; rearm={rearm}");
+                    Console.WriteLine($"[gateway] placed skill 0x{placed.Id:x} {(skitter ? "Skitterbot" : nearby ? "proximity" : expired ? "duration" : "chain")} trigger; rearm={rearm}");
                     if (rearm)
                     {
                         player.Placed.All[placed.Id] = placed with
