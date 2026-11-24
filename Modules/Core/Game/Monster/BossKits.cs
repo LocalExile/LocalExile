@@ -274,7 +274,7 @@ public static class BossKits
     /// <summary>Whether an attack does anything: it hits for damage, summons, flies a projectile, throws a trap, puts a
     /// debuff on the player or leaves a ground.</summary>
     public static bool Acts(MonsterAttack a) => !a.Damage.IsZero || a.Summon is not null || a.Projectile is not null
-        || a.Trap is not null || a.Debuffs.Count > 0 || a.Ground is not null;
+        || a.Storm is not null || a.Trap is not null || a.Debuffs.Count > 0 || a.Ground is not null;
 
     /// <summary>A unique's skill as it plays, by what the skill is (its ActiveSkillTypes) and what its client action
     /// class does (<see cref="ActionClasses"/>), in this order:
@@ -633,6 +633,8 @@ public static class BossKits
             Ranged = ranged,
             Projectile = projectile,
             Summon = summon,
+            Storm = catalog.MonsterStorm(effect, actorLevel),
+            LaunchFrames = catalog.LaunchFrames(catalog.EffectId(effect)),
             ReleaseEffect = projectile is null ? null : effect,
             Release = projectile is null ? null : MonsterReleaseFor(player, variety, effect, actorLevel, projectile),
             Hits = catalog.IsMelee(effect) && !catalog.IsChannelled(effect) ? hits : 1,
