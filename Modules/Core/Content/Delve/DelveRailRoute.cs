@@ -57,7 +57,7 @@ sealed record DelveRailRoute(IReadOnlyList<(int X, int Y)> Points)
     public static void Warmup()
     {
         try { ReadSources(); }
-        catch (Exception ex) when (ex is IOException or JsonException or KeyNotFoundException or InvalidOperationException or FormatException)
+        catch (Exception ex) when (ex is IOException or JsonException or KeyNotFoundException or InvalidOperationException or FormatException or ArgumentException)
         { Console.WriteLine($"[gateway] Delve rail catalog warmup unavailable: {ex.Message}"); }
     }
 
@@ -120,7 +120,12 @@ sealed record DelveRailRoute(IReadOnlyList<(int X, int Y)> Points)
                 return route;
             }
         }
-        catch (Exception ex) when (ex is IOException or JsonException or KeyNotFoundException or InvalidOperationException or FormatException)
+        // ArgumentException is on the list for the catalog's own keys: Sources builds a dictionary of the
+        // delve_path_rooms room names and one of a room's node indexes, and a duplicate key in either throws it.
+        // The shipped client.db holds none (57 room names unique ignoring case, no repeated (room, index) pair),
+        // so this is a refusal for a catalog that is not, not a repair: a rail catalog the Gateway cannot read is
+        // one the trip has to abort on, never a reason to drop the connection carrying it.
+        catch (Exception ex) when (ex is IOException or JsonException or KeyNotFoundException or InvalidOperationException or FormatException or ArgumentException)
         {
             Console.WriteLine($"[gateway] Delve rails unavailable for {area} seed {seed}: {ex.Message}");
             return null;
@@ -275,6 +280,20 @@ sealed record DelveRailRoute(IReadOnlyList<(int X, int Y)> Points)
                 else return null; // Never open a trip whose rail crosses an impassable wall.
             }
             points = walkable;
+        }
+        // Every caller travels these points: DelveTrips.StartTrip, DelveModule.SpawnCrawler and
+        // DelveRoutes.ResetScene build a DelveJourney from them, and RequestTrip asks Shape() for their first
+        // direction. Both need two points at different cells -- the journey's constructor throws
+        // ArgumentException and Shape's first-direction scan InvalidOperationException, and neither is on the
+        // catch list above (nor could it be: both run outside Load). No degenerate pair is reachable from this
+        // graph (the two terrain anchors are different checkpoint cells, 575 units apart, and the other two
+        // branches pick different nodes), so this is the refusal that keeps it that way: a route nobody can
+        // travel is no route, and Why() then says the graph held none.
+        if (points.Count < 2 || points.All(p => p == points[0]))
+        {
+            Console.WriteLine($"[gateway] Delve rail route degenerate: seed {seed}, {points.Count} point(s)"
+                + (points.Count > 0 ? $" at {points[0]}" : ""));
+            return null;
         }
         return new(points) { Encounters = encounters.Where(e => seed == 1 || e.Room != nodes[start].Room)
             .Select(e => e with { Destination = e.Room == nodes[end].Room && Distance((e.X, e.Y), nodes[end].At) <= 60 }).ToArray() };

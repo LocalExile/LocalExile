@@ -6,5 +6,6 @@
   "ssf": true,
   "entryOf": "Hardcore Allflame",
   "entryKind": "ssf",
-  "description": "Plunder sunken treasures and harness the power of the Allflame. Solo Self-Found. A character killed moves to SSF Allflame."
+  "description": "Plunder sunken treasures and harness the power of the Allflame. Solo Self-Found. A character killed moves to SSF Allflame.",
+  "launchCategory": 59
 }

@@ -5,8 +5,8 @@ using GameServer.Core.Protocol.Login;
 
 /// <summary>
 /// A monster's traps, for any monster whose skill is a trap (ActiveSkillTypes Trapped): the same object, throw, landing,
-/// arming and lifetime as the player's (PlacedSkills: PlacedObjectPath, PlacedFlightSeconds, PlacedArmSeconds,
-/// PlacedDurationSeconds, TrapTriggerRadius), on the monsters' team. Set off by the player or a minion of theirs within
+/// arming and lifetime as the player's (PlacedSkills: PlacedObjectPath, PlacedFlightSeconds, PlacedDurationSeconds,
+/// TrapTriggerRadius), on the monsters' team. Set off by the player or a minion of theirs within
 /// its trigger radius, it plays its skill from where it lies (MonsterAttack.Trap), with its owner's stats, whatever its
 /// owner does meanwhile: its projectiles from the trap, its area around the trap, or, for a trap with neither (Bear Trap),
 /// a hit on whoever set it off. A trap whose own action draws the ground it leaves (Fire Trap's burning ground:
@@ -62,7 +62,7 @@ public static partial class Game
                 }
                 uint trap = player.TakeObjectId();
                 landsAt = now + flight;
-                player.MonsterPlaced.Traps[trap] = new(trap, id, m, payload, aim, landsAt, landsAt + PlacedArmSeconds,
+                player.MonsterPlaced.Traps[trap] = new(trap, id, m, payload, aim, landsAt, landsAt,
                     landsAt + PlacedDurationSeconds(false, Get), TrapTriggerRadius(Get)) { Landed = false };
                 bytes.Create(trap, InstanceEntities.CreateObject(trap, InstanceEntities.ObjectTypeHash(path),
                     new TrapMineObject(from.X, from.Y, false, [skill], PlacedObjectStats(false, flight), Team: 1).Blob()));
@@ -77,7 +77,7 @@ public static partial class Game
                 await SendWorldRecords(player, born, () =>
                 {
                     return player.MonsterPlaced.Traps.ContainsKey(born) && !player.Closed && !player.LeavingArea
-                        ? [.. PlacedThrowRecords(player, born, from, aim, landsAt - AreaTime(player))] : null;
+                        ? [.. PlacedThrowRecords(player, born, from, aim, Math.Max(0, landsAt - AreaTime(player)))] : null;
                 }, "throw a monster's trap after birth");
             Console.WriteLine($"[gateway] {player.Connection.Remote} monster 0x{id:x} ({m.Label}) throws trap 0x{born:x} {path} to ({aim.X}, {aim.Y})");
         }
@@ -109,7 +109,7 @@ public static partial class Game
                 if (!trap.Landed && now >= trap.LandAt)
                 {
                     trap.Landed = true;
-                    PlacedLandRecords(player, trap.Id, trap.At, bytes);
+                    PlacedLandRecords(trap.Id, trap.At, bytes);
                 }
                 if (now < trap.Armed || player.PlayerLife == 0 || InGracePeriod(player)) continue;
                 (int X, int Y)? enemy = Dist(player.Walk.Position(now), trap.At) <= trap.TriggerRadius ? player.Walk.Position(now)
@@ -119,7 +119,7 @@ public static partial class Game
                         .Where(p => Dist(p, trap.At) <= trap.TriggerRadius)
                         .Select(p => ((int X, int Y)?)p).FirstOrDefault();
                 if (enemy is not { } aim) continue;
-                bytes.World(trap.Id, InstanceProtocol.ActionStarted(trap.Id, trap.At.X, trap.At.Y, aim.X, aim.Y, 0x4000, 0xffff, 0x0408));
+                bytes.World(trap.Id, InstanceProtocol.ActionStarted(trap.Id, trap.At.X, trap.At.Y, aim.X, aim.Y, 0x4000, 0xffff, player.MonsterOrderFlags));
                 if (trap.Payload.Ground is { ClientDrawn: true } drawn)
                     player.MonsterPlaced.Traps[trap.Id] = trap with { Until = now + drawn.Seconds, Spent = true, Landed = true };
                 else player.MonsterPlaced.Traps.Remove(trap.Id);

@@ -77,7 +77,7 @@ public static partial class Game
         await MonsterMarkersTick(player);
         await HostileGroundsTick(player);
         await PlayerDebuffsTick(player);
-        if (DamageTriggers.TryGetValue(player, out _))
+        if (IncomingHitTriggersPending(player))
             ReleaseDamageTakenTriggers(player, ProjectilesFor(player));
         player.Connection.Performance.MaybeLog(player.Connection.Remote);
     }

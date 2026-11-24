@@ -142,7 +142,7 @@ public static partial class Game
     {
         if (player.Closed || player.LeavingArea || player.RageRetired) return null;
         // Refresh the source before deciding what to publish. Recovery flasks can start/end without a soul gain.
-        var currentStats = CharacterPlayerStats(player);
+        var currentStats = PlayerStatValues(player);
         double now = AreaTime(player);
         bool active = player.SoulEater.Enabled && player.PlayerLife > 0;
         bool usingFlask = Stat.UsingFlask is var flaskKey && currentStats.GetValueOrDefault(flaskKey) != 0;

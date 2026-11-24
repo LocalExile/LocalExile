@@ -89,8 +89,9 @@ public sealed partial class DeliriumModule
     async Task SpawnBatch(Player player, Run run)
     {
         double now = AreaTime(player);
-        int count = run.SpawnAllowance(now, (int)Math.Clamp(Setting("simulacrum_pack_size", 15), 10, 20),
-            (int)Math.Clamp(Setting("simulacrum_active_limit", 100), 20, 100));
+        int activeLimit = (int)Math.Clamp(Setting("simulacrum_active_limit", 100), 20, 100);
+        int count = run.SpawnAllowance(now, (int)Math.Clamp(Setting("simulacrum_pack_size", 15), 10, 20), activeLimit);
+        if (count == 0 && run.CanSpawnDueBoss(now, activeLimit)) count = 1;
         if (count == 0) return;
         // The instance clock pauses with gameplay; no timer, worker or catch-up burst after a stall.
         run.NextSpawnAt = now + Math.Clamp(Setting("simulacrum_pack_interval_ms", 750), 250, 5000) / 1000;
@@ -105,10 +106,10 @@ public sealed partial class DeliriumModule
         {
             if (!context.Lifetime.IsActive || !Current(player) || player.PlayerLife == 0) break;
             if (run.SpawningDone) break;
-            // Bosses enter the wave too, rather than being held behind an unknown final monster count.
-            bool omni = run.OmniThisWave && run.Spawned == 20;
-            bool kosis = run.KosisThisWave && run.Spawned == 40;
-            string? boss = omni ? SimulacrumRules.Omniphobia : kosis ? SimulacrumRules.Kosis : null;
+            // Keep the usual ordinals and release any remaining boss when the wave spends its points early.
+            string? boss = run.DueBoss();
+            bool omni = boss == SimulacrumRules.Omniphobia;
+            bool kosis = boss == SimulacrumRules.Kosis;
             var variety = boss is not null ? Monsters.Find(boss) : pool[AreaRng(player).Next(pool.Length)];
             if (variety is not { Supported: true })
             {
@@ -146,8 +147,8 @@ public sealed partial class DeliriumModule
                     run.Bodies[spawnedId] = monster;
                     if (points > 0) { run.MonsterPoints[spawnedId] = points; run.SpawnPoints += points; }
                     run.Spawned++;
-                    if (omni) run.OmniCount++;
-                    if (kosis) run.KosisCount++;
+                    if (omni) { run.OmniCount++; run.OmniSpawnedThisWave = true; }
+                    if (kosis) { run.KosisCount++; run.KosisSpawnedThisWave = true; }
                     Save(player, run);
                 });
             if (id == 0) break;

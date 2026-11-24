@@ -45,8 +45,9 @@ public static class FlaskCharges
 
     /// <summary>How much more a flask gains from any source: (1 + the character's flask_charges_gained_+%) × (1 + the
     /// flask's local_charges_added_+%, "increased Charge Recovery"); poewiki: these "stack multiplicatively".</summary>
-    public static double GainMultiplier(IReadOnlyDictionary<uint, int> local, Func<uint, int> character) =>
-        Math.Max(0, 100.0 + character(Stat.FlaskChargesGainedPlusPct)) / 100.0 * Math.Max(0, 100.0 + local.GetValueOrDefault(Stat.LocalChargesAddedPlusPct)) / 100.0;
+    public static double GainMultiplier(IReadOnlyDictionary<uint, int> local, Func<uint, int> character, int areaIncrease = 0) =>
+        Math.Max(0, 100.0 + character(Stat.FlaskChargesGainedPlusPct) + areaIncrease) / 100.0
+        * Math.Max(0, 100.0 + local.GetValueOrDefault(Stat.LocalChargesAddedPlusPct)) / 100.0;
 
     /// <summary>The cooldown shared by every "gain a flask charge on critical strike" effect: 0.1 s, which the game's
     /// 0.033 s server frames make 0.132 s (poewiki); not affected by cooldown recovery.</summary>

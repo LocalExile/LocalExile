@@ -13,7 +13,7 @@ public sealed partial class PlayerInventories
     public const byte MainInventory = 0, BodyArmour = 1, Weapon1 = 2, Offhand1 = 3, Helmet = 4, Amulet = 5,
         Ring1 = 6, Ring2 = 7, Gloves = 8, Boots = 9, Belt = 10, Flask = 11, MapDevice = 13, Weapon2 = 14,
         Offhand2 = 15, CraftingBench = 16, PassiveJewels = 23, AtlasUpgrades = 39, HarvestCrafting = 43,
-        ExpandedInventory = 84, Ring3 = 102, Cursor = InstanceInventories.CursorRow;
+        ExpandedInventory = 84, MavenInvitations = 86, MemoryLineMaps = 94, Ring3 = 102, Cursor = InstanceInventories.CursorRow;
 
     private static readonly ConcurrentDictionary<string, PlayerInventories> ByCharacter = new(StringComparer.OrdinalIgnoreCase);
 
@@ -128,6 +128,7 @@ public sealed partial class PlayerInventories
         InventoryItem placed;
         lock (_lock)
         {
+            if (row == Cursor) _heldFrom = null;
             placed = new InventoryItem(_nextItemId++, x, y, item);
             (_items.TryGetValue(row, out var l) ? l : _items[row] = []).Add(placed);
         }
@@ -138,14 +139,19 @@ public sealed partial class PlayerInventories
     /// <summary>Puts an item (keeping its id) at a cell.</summary>
     public InventoryItem Put(byte row, InventoryItem item)
     {
-        lock (_lock) (_items.TryGetValue(row, out var l) ? l : _items[row] = []).Add(item);
+        lock (_lock)
+        {
+            if (row == Cursor) _heldFrom = null;
+            (_items.TryGetValue(row, out var l) ? l : _items[row] = []).Add(item);
+        }
         Persist();
         return item;
     }
 
-    /// <summary>What an item needs for placement: its grid size, ItemClasses Id, how many share a cell (1: no stack) and
-    /// what a full stack becomes (null: it stays; 5 Scroll Fragments → a Scroll of Wisdom).</summary>
-    public readonly record struct Shape(byte Width, byte Height, string Class, ushort MaxStack = 1, Func<Item>? FullStack = null);
+    /// <summary>What an item needs for placement: its grid size, ItemClasses Id, how many share a cell (1: no stack),
+    /// what a full stack becomes (null: it stays; 5 Scroll Fragments → a Scroll of Wisdom) and whether it is a Delve Fossil.</summary>
+    public readonly record struct Shape(byte Width, byte Height, string Class, ushort MaxStack = 1, Func<Item>? FullStack = null,
+        bool IsFossil = false);
 
     /// <summary>A stack that reached its max becomes its full-stack item (one of it, same id and cell).</summary>
     public static InventoryItem Completed(InventoryItem it, Shape shape) =>
@@ -154,9 +160,9 @@ public sealed partial class PlayerInventories
     /// <summary>The held item went to <see cref="Row"/> as <see cref="Placed"/>; <see cref="Displaced"/> (the one it was
     /// dropped on) is now held. <see cref="Merged"/>: the held stack went onto a stack of its type instead, which is
     /// <see cref="Placed"/> now (same id, larger); <see cref="Rest"/> is what is still held (same id as <see cref="Held"/>),
-    /// or null.</summary>
+    /// or null. <see cref="FromRow"/> is the inventory row the held item came from, if picked up from one.</summary>
     public sealed record Placement(byte Row, InventoryItem Placed, InventoryItem Held, InventoryItem? Displaced,
-        bool Merged = false, InventoryItem? Rest = null);
+        bool Merged = false, InventoryItem? Rest = null, byte? FromRow = null);
 
     /// <summary>
     /// Puts the item held on the cursor into inventory <paramref name="row"/> at (x, y). Equipment and other single-item
@@ -174,9 +180,22 @@ public sealed partial class PlayerInventories
         return result;
     }
 
-    // Vendor preflight uses the same placement checks without putting an unpaid item on the cursor.
-    public Placement? PreviewPurchase(byte row, int x, int y, Item item, Func<Item, Shape?> shapeOf) =>
-        PlaceCore(row, x, y, shapeOf, out _, incoming: new InventoryItem(0, 0, 0, item), preview: true);
+    // Vendor and quest-reward preflight uses the same placement checks without putting an unpaid item on the cursor.
+    public Placement? PreviewPurchase(byte row, int x, int y, Item item, Func<Item, Shape?> shapeOf,
+        bool expandedAllowed = false, bool allowDisplace = true) =>
+        PlaceCore(row, x, y, shapeOf, out _, expandedAllowed: expandedAllowed, incoming: new InventoryItem(0, 0, 0, item),
+            preview: true, allowDisplace: allowDisplace);
+
+    /// <summary>Places a newly acquired item (quest reward or vendor purchase) directly at (<paramref name="x"/>, <paramref name="y"/>)
+    /// in <paramref name="row"/> using the same placement, stack-merge and single-item swap rules as <see cref="Place"/>.</summary>
+    public Placement? PlaceIncoming(byte row, int x, int y, Item item, Func<Item, Shape?> shapeOf, out string why,
+        bool expandedAllowed = false, bool allowDisplace = true)
+    {
+        var result = PlaceCore(row, x, y, shapeOf, out why, expandedAllowed: expandedAllowed,
+            incoming: new InventoryItem(0, 0, 0, item), allowDisplace: allowDisplace);
+        if (result is not null) Persist();
+        return result;
+    }
 
     /// <summary>The single item that placing the held item at (<paramref name="x"/>, <paramref name="y"/>) in
     /// <paramref name="row"/> would swap out onto the cursor, or null when nothing (or more than one item) is in the way,
@@ -202,7 +221,7 @@ public sealed partial class PlayerInventories
     }
 
     Placement? PlaceCore(byte row, int x, int y, Func<Item, Shape?> shapeOf, out string why, bool one = false, bool expandedAllowed = false,
-        InventoryItem? incoming = null, bool preview = false)
+        InventoryItem? incoming = null, bool preview = false, bool allowDisplace = true)
     {
         lock (_lock)
         {
@@ -233,11 +252,17 @@ public sealed partial class PlayerInventories
                 if (x < 0 || y < 0 || x + shape.Width > slot.Width || y + shape.Height > slot.Height) { why = "outside the grid"; return null; }
                 if (row == Flask && !Accepts(row, shape.Class)) { why = $"{shape.Class} does not go in the flask slots"; return null; }
                 if (row == MapDevice && !global::MapDevice.AcceptsItem(held.Item.TypeHash, shape.Class)) { why = $"{shape.Class} does not go in the map device"; return null; }
+                if (row == MavenInvitations && !AcceptsItem(row, held.Item.TypeHash, shape.Class)) { why = "only Maven invitations go in the Maven invitation slots"; return null; }
+                if (row == MemoryLineMaps && !AcceptsItem(row, held.Item.TypeHash, shape.Class)) { why = $"{shape.Class} does not go in the memory line map device"; return null; }
                 inTheWay = [.. ItemsIn(row).Where(i => shapeOf(i.Item) is { } s && i.X < x + shape.Width && x < i.X + s.Width && i.Y < y + shape.Height && y < i.Y + s.Height)];
             }
             if (inTheWay.Count > 1) { why = $"{inTheWay.Count} items in the way"; return null; }
             if (inTheWay.Any(i => _offered.ContainsKey(i.Id))) { why = "an item offered for sale is in the way"; return null; }
-            if (preview) return new(row, held with { X = (byte)x, Y = (byte)y }, held, inTheWay.FirstOrDefault());
+            bool canMerge = inTheWay is [var mergeTarget] && mergeTarget.Item.TypeHash == held.Item.TypeHash
+                && shape.MaxStack > 1 && mergeTarget.Item.StackSize < shape.MaxStack;
+            if (!allowDisplace && inTheWay.Count > 0 && !canMerge) { why = "cell is occupied"; return null; }
+            byte? fromRow = incoming is null ? _heldFrom?.Row : null;
+            if (preview) return new(row, held with { X = (byte)x, Y = (byte)y }, held, inTheWay.FirstOrDefault(), FromRow: fromRow);
             var items = ItemsIn(row);
             int amount = one ? 1 : held.Item.StackSize;
             if (inTheWay is [var under] && under.Item.TypeHash == held.Item.TypeHash && shape.MaxStack > 1 && under.Item.StackSize < shape.MaxStack)
@@ -246,9 +271,17 @@ public sealed partial class PlayerInventories
                 var filled = Completed(under with { Item = under.Item with { StackSize = (ushort)(under.Item.StackSize + moved) } }, shape);
                 items[items.IndexOf(under)] = filled;
                 InventoryItem? rest = null;
-                if (moved < held.Item.StackSize) cursor[0] = rest = held with { Item = held.Item with { StackSize = (ushort)(held.Item.StackSize - moved) } };
-                else cursor.RemoveAt(0);
-                return new(row, filled, held, null, Merged: true, rest);
+                if (moved < held.Item.StackSize)
+                {
+                    if (incoming is null) cursor[0] = rest = held with { Item = held.Item with { StackSize = (ushort)(held.Item.StackSize - moved) } };
+                    else { rest = new InventoryItem(_nextItemId++, 0, 0, held.Item with { StackSize = (ushort)(held.Item.StackSize - moved) }); cursor.Add(rest); _heldFrom = null; }
+                }
+                else
+                {
+                    if (incoming is null) cursor.RemoveAt(0);
+                    _heldFrom = null;
+                }
+                return new(row, filled, held, null, Merged: true, rest, fromRow);
             }
             if (amount < held.Item.StackSize)
             {
@@ -257,19 +290,21 @@ public sealed partial class PlayerInventories
                 var single = new InventoryItem(_nextItemId++, (byte)x, (byte)y, held.Item with { StackSize = (ushort)amount });
                 items.Add(single);
                 var left = cursor[0] = held with { Item = held.Item with { StackSize = (ushort)(held.Item.StackSize - amount) } };
-                return new(row, single, held, null, Rest: left);
+                return new(row, single, held, null, Rest: left, FromRow: fromRow);
             }
-            cursor.RemoveAt(0);
+            if (incoming is null) cursor.RemoveAt(0);
             InventoryItem? displaced = null;
             if (inTheWay.Count == 1)
             {
                 items.Remove(inTheWay[0]);
                 displaced = inTheWay[0] with { X = 0, Y = 0 };
                 cursor.Add(displaced);
+                _heldFrom = (row, inTheWay[0].X, inTheWay[0].Y);
             }
-            var placed = held with { X = (byte)x, Y = (byte)y };
+            else _heldFrom = null;
+            var placed = incoming is null ? held with { X = (byte)x, Y = (byte)y } : new InventoryItem(_nextItemId++, (byte)x, (byte)y, held.Item);
             items.Add(placed);
-            return new(row, placed, held, displaced);
+            return new(row, placed, held, displaced, FromRow: fromRow);
         }
     }
 
@@ -345,15 +380,34 @@ public sealed partial class PlayerInventories
         return result;
     }
 
-    (InventoryItem Item, InventoryItem HeldBefore, InventoryItem? HeldNow)? SocketCore(byte row, uint itemId, int socket,
+    /// <summary>Checks whether <paramref name="incoming"/> can be socketed directly into <paramref name="itemId"/>'s
+    /// <paramref name="socket"/> without mutating state (for <c>C→S 0x0089</c> buy/reward direct socketing).</summary>
+    public (InventoryItem Item, InventoryItem? Displaced)? PreviewSocketItem(byte row, uint itemId, int socket, Item incoming,
+        Func<Item, Shape?> shapeOf, out string why) =>
+        SocketCore(row, itemId, socket, shapeOf, () => 0, out why, incoming, preview: true) is { } r ? (r.Item, r.HeldNow) : null;
+
+    /// <summary>Sockets a newly acquired item (quest reward or vendor gem) directly into <paramref name="itemId"/>'s
+    /// <paramref name="socket"/>; any gem already in that socket moves onto the empty cursor.</summary>
+    public (InventoryItem Item, InventoryItem? Displaced)? SocketItem(byte row, uint itemId, int socket, Item incoming,
         Func<Item, Shape?> shapeOf, Func<uint> newId, out string why)
+    {
+        var result = SocketCore(row, itemId, socket, shapeOf, newId, out why, incoming);
+        if (result is not null) Persist();
+        return result is { } r ? (r.Item, r.HeldNow) : null;
+    }
+
+    (InventoryItem Item, InventoryItem HeldBefore, InventoryItem? HeldNow)? SocketCore(byte row, uint itemId, int socket,
+        Func<Item, Shape?> shapeOf, Func<uint> newId, out string why, Item? incoming = null, bool preview = false)
     {
         lock (_lock)
         {
             why = "";
-            if (!_items.TryGetValue(Cursor, out var cursor) || cursor.Count == 0) { why = "nothing held"; return null; }
-            var held = cursor[0];
-            var heldClass = shapeOf(held.Item)?.Class;
+            var cursor = ItemsIn(Cursor);
+            if (incoming is null && cursor.Count == 0) { why = "nothing held"; return null; }
+            if (incoming is not null && cursor.Count != 0) { why = "something is held"; return null; }
+            var held = incoming is null ? cursor[0] : new InventoryItem(0, 0, 0, incoming);
+            var heldShape = shapeOf(held.Item);
+            var heldClass = heldShape?.Class;
             var items = ItemsIn(row);
             int at = items.FindIndex(i => i.Id == itemId);
             if (at < 0) { why = "no such item"; return null; }
@@ -361,19 +415,45 @@ public sealed partial class PlayerInventories
             var item = items[at];
             if (socket < 0 || socket >= item.Item.Sockets.Count) { why = "no such socket"; return null; }
             var sockets = item.Item.Sockets.ToList();
-            if (sockets[socket].Colour == SocketColour.Abyss ? heldClass != "AbyssJewel"
-                : heldClass is not ("Active Skill Gem" or "Support Skill Gem"))
+            var colour = sockets[socket].Colour;
+            if (colour == SocketColour.Abyss)
             {
-                why = sockets[socket].Colour == SocketColour.Abyss ? "an Abyss socket requires an Abyss jewel" : "the held item is not a gem";
+                if (heldClass != "AbyssJewel") { why = "an Abyss socket requires an Abyss jewel"; return null; }
+            }
+            else if (colour == SocketColour.Delve)
+            {
+                if (heldShape?.IsFossil != true) { why = "a Delve socket requires a Fossil"; return null; }
+                if (item.Item.StackSize > 1) { why = "split the resonator stack before socketing a Fossil"; return null; }
+                for (int i = 0; i < sockets.Count; i++)
+                    if (i != socket && sockets[i].Gem?.TypeHash == held.Item.TypeHash)
+                    { why = "cannot socket identical Fossils into the same Resonator"; return null; }
+                if (held.Item.StackSize > 1 && sockets[socket].Gem is not null)
+                { why = "cannot swap a stack of Fossils into an occupied socket"; return null; }
+            }
+            else if (heldClass is not ("Active Skill Gem" or "Support Skill Gem"))
+            {
+                why = "the held item is not a gem";
                 return null;
             }
             var old = sockets[socket].Gem;
-            sockets[socket] = sockets[socket] with { Gem = held.Item };
+            if (preview) return (item, held, old is null ? null : new InventoryItem(0, 0, 0, old));
+            bool splitStack = incoming is null && colour == SocketColour.Delve && held.Item.StackSize > 1;
+            sockets[socket] = sockets[socket] with { Gem = splitStack ? held.Item with { StackSize = 1 } : held.Item };
             items[at] = item with { Item = item.Item with { Sockets = sockets } };
             _gemSourceLifetimes.RetireSocket(item.Id, socket);
-            cursor.RemoveAt(0);
-            InventoryItem? now = old is null ? null : new InventoryItem(newId(), 0, 0, old);
-            if (now is not null) cursor.Add(now);
+            InventoryItem? now;
+            if (splitStack)
+            {
+                now = held with { Item = held.Item with { StackSize = (ushort)(held.Item.StackSize - 1) } };
+                cursor[0] = now;
+            }
+            else
+            {
+                if (incoming is null) cursor.RemoveAt(0);
+                _heldFrom = null;
+                now = old is null ? null : new InventoryItem(newId(), 0, 0, old);
+                if (now is not null) cursor.Add(now);
+            }
             return (items[at], held, now);
         }
     }
@@ -404,6 +484,7 @@ public sealed partial class PlayerInventories
             sockets[socket] = sockets[socket] with { Gem = null };
             items[at] = item with { Item = item.Item with { Sockets = sockets } };
             _gemSourceLifetimes.RetireSocket(item.Id, socket);
+            _heldFrom = null;
             var held = new InventoryItem(newId(), 0, 0, gem);
             cursor.Add(held);
             return (items[at], held);
@@ -448,8 +529,26 @@ public sealed partial class PlayerInventories
     {
         lock (_lock)
             return [.. VisibleSlots.Keys.Order().SelectMany(r => (_items.TryGetValue(r, out var l) ? l : []).Select(i => (Row: r, Item: i)))
-                .SelectMany(x => x.Item.Item.Sockets.Select((s, socket) => (x.Row, x.Item.Id, socket, s.Gem, s.Colour)).Where(g => g.Colour != SocketColour.Abyss && g.Gem is not null)
+                .SelectMany(x => x.Item.Item.Sockets.Select((s, socket) => (x.Row, x.Item.Id, socket, s.Gem, s.Colour)).Where(g => g.Colour is not (SocketColour.Abyss or SocketColour.Delve) && g.Gem is not null)
                     .Select(g => (g.Row, g.Id, g.socket, g.Gem!)))];
+    }
+
+    /// <summary>Whether any gem socketed in <see cref="GemExperienceRows"/> matches <paramref name="predicate"/>, without allocating.</summary>
+    public bool AnySocketedGem(Func<uint, Item, bool> predicate)
+    {
+        lock (_lock)
+            foreach (var row in GemExperienceRows)
+            {
+                if (!_items.TryGetValue(row, out var items)) continue;
+                for (int at = 0; at < items.Count; at++)
+                {
+                    if (items[at].Item.Sockets is not { Count: > 0 } held) continue;
+                    for (int socket = 0; socket < held.Count; socket++)
+                        if (held[socket] is { Colour: not SocketColour.Abyss, Gem: { } gem } && predicate(items[at].Id, gem))
+                            return true;
+                }
+            }
+        return false;
     }
 
     /// <summary>
@@ -473,7 +572,7 @@ public sealed partial class PlayerInventories
                     var sockets = held.ToArray();
                     var gems = new List<(Item, Item)>();
                     for (int socket = 0; socket < sockets.Length; socket++)
-                        if (sockets[socket] is { Colour: not SocketColour.Abyss, Gem: { } gem } && change(items[at].Id, gem) is { } after)
+                        if (sockets[socket] is { Colour: not (SocketColour.Abyss or SocketColour.Delve), Gem: { } gem } && change(items[at].Id, gem) is { } after)
                         {
                             after = PreserveGemIdentity(gem, after);
                             gems.Add((gem, after));
@@ -507,8 +606,19 @@ public sealed partial class PlayerInventories
         9 => itemClass == "Boots",
         10 => itemClass == "Belt",
         MapDevice => global::MapDevice.AcceptsClass(itemClass),
+        MavenInvitations => itemClass is global::MapDevice.MiscClass or "QuestItem",
+        MemoryLineMaps => global::MapDevice.AcceptsMemoryLineClass(itemClass),
         Flask => itemClass is "LifeFlask" or "ManaFlask" or "HybridFlask" or "UtilityFlask" or "UtilityFlaskCritical" or "Tincture",
         _ => true,
+    };
+
+    /// <summary>Item-specific placement check for grid receptacles that restrict beyond ItemClass (Map1, MavenInvitations, MemoryLineMaps).</summary>
+    public static bool AcceptsItem(byte row, uint typeHash, string itemClass) => row switch
+    {
+        MapDevice => global::MapDevice.AcceptsItem(typeHash, itemClass),
+        MavenInvitations => global::MapDevice.IsMavenInvitation(typeHash),
+        MemoryLineMaps => global::MapDevice.AcceptsMemoryLineClass(itemClass),
+        _ => Accepts(row, itemClass),
     };
 
     /// <summary>
@@ -672,6 +782,7 @@ public sealed partial class PlayerInventories
             var stack = items[at];
             if (amount < 1 || amount >= stack.Item.StackSize) { why = $"cannot split {amount} off a stack of {stack.Item.StackSize}"; return null; }
             items[at] = stack with { Item = stack.Item with { StackSize = (ushort)(stack.Item.StackSize - amount) } };
+            _heldFrom = (row, stack.X, stack.Y);
             var held = new InventoryItem(_nextItemId++, 0, 0, stack.Item with { StackSize = (ushort)amount });
             cursor.Add(held);
             return (items[at], held);
@@ -892,6 +1003,7 @@ public sealed partial class PlayerInventories
             if (!_items.TryGetValue(row, out var l) || l.FindIndex(i => i.Id == itemId) is var at && at < 0) return null;
             var it = l[at];
             l.RemoveAt(at);
+            if (row == Cursor) _heldFrom = null;
             return it;
         }
     }
@@ -1096,6 +1208,7 @@ public sealed partial class PlayerInventories
                     : FreeCellIn(MainInventory, main, shape.Width, shape.Height, shapeOf);
                 if (cell is not { } at) return null;
                 ItemsIn(Cursor).Remove(it);
+                _heldFrom = null;
                 it = it with { X = at.X, Y = at.Y };
                 main.Add(it);
                 (row, moved) = (MainInventory, true);
