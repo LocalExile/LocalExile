@@ -69,11 +69,12 @@ public static partial class Game
         {
             visited.Add(id);
             GolemHitLocked(player, minion, ability, id, current, now);
+            if (jump == chains) break;
             var last = current.Walk.Position(now);
             var next = player.Area.MonstersNear(last, ability.Attack.Range)
                 .Where(m => !visited.Contains(m.Key) && m.Value is { Hostile: true, Dead: false, Life: > 0, Invulnerable: false }
                     && Dist(m.Value.Walk.Position(now), last) <= ability.Attack.Range)
-                .MinBy(m => Dist(m.Value.Walk.Position(now), last));
+                .OrderBy(m => Dist(m.Value.Walk.Position(now), last)).ThenBy(m => m.Key).FirstOrDefault();
             if (next.Value is null) break;
             (id, current) = (next.Key, next.Value);
         }
