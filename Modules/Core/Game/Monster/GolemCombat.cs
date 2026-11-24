@@ -659,9 +659,9 @@ public static partial class Game
 
     public static bool GolemHitLocked(Player player, GolemState.Golem g,
         GolemState.Ability a, uint id, SpawnedMonster target, double now)
-        => GolemHitLocked(player, g, a, id, target, now, 1, false);
+        => ResolveGolemHitLocked(player, g, a, id, target, now, 1, false);
 
-    static bool GolemHitLocked(Player player, GolemState.Golem g,
+    static bool ResolveGolemHitLocked(Player player, GolemState.Golem g,
         GolemState.Ability a, uint id, SpawnedMonster target, double now, double deliveryMore, bool projectile)
     {
         if (!GolemCurrent(player, g) || !CurrentGameWork || target.Dead || target.Invulnerable || !target.Hostile
@@ -913,7 +913,7 @@ public static partial class Game
             if (!CurrentGameWork || player.Area.Monsters.GetValueOrDefault(contact.Target.Id) is not { Hostile: true } victim) return ProjectileHitResult.Miss;
             double at = Math.Max(AreaTime(player), contact.At / (double)ProjectileRuntime.QuantaPerSecond);
             double more = contact.Multiplier * (contact.Phase > 0 ? returnMore : 1);
-            bool hit = GolemHitLocked(player, g, a, contact.Target.Id, victim, at, more, !contact.IsArea);
+            bool hit = ResolveGolemHitLocked(player, g, a, contact.Target.Id, victim, at, more, !contact.IsArea);
             if (hit) s.Enqueue(() => PublishMinionOutcomes(player));
             return hit ? ProjectileHitResult.Hit : ProjectileHitResult.Miss;
         }) { Quiet = true, Presentation = MonsterProjectilePresentation(SkillsFor(player).Clips(p.Metadata), distance / profile.Speed) };
