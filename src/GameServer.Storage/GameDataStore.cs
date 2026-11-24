@@ -174,6 +174,22 @@ public sealed class GameDataStore : IDisposable
         }
     }
 
+    /// <summary>The fx_aura_effects rows (an aura or buff skill, a stat that is its own increased effect). Empty when the
+    /// table is not there (an older world.db in a test).</summary>
+    public IReadOnlyList<(string Family, string Stat)> LoadFxAuraEffects()
+    {
+        lock (_gate)
+        {
+            using (var exists = Command("SELECT 1 FROM sqlite_master WHERE type = 'table' AND name = 'fx_aura_effects'"))
+                if (exists.ExecuteScalar() is null) return [];
+            using var command = Command("SELECT family, stat FROM fx_aura_effects ORDER BY family, ord");
+            using var reader = command.ExecuteReader();
+            var result = new List<(string, string)>();
+            while (reader.Read()) result.Add((reader.GetString(0), reader.GetString(1)));
+            return result;
+        }
+    }
+
     /// <summary>One fx_reads_as row: a stat as a bundle writes it, and the stat an actor of this kind reads for it.</summary>
     public sealed record FxReadsAsRow(string Actor, string Stat, string Reads, double Scale);
 

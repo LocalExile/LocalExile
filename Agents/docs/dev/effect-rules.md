@@ -164,6 +164,10 @@ A character's stat that is a general stat for one skill ("40% increased Fireball
 skill's own stats where they are put together (`SupportedSkillAt`, after the supports), so whatever merges a skill's
 stats with the character's reads it. The skill is named by its ActiveSkills Id or its GrantedEffects Id in snake case.
 
+An aura or buff skill's own "increased effect" stat is a row of `fx_aura_effects` (the skill's GrantedEffects Id, the
+stat), added to the fifteen `AuraCatalog.PerAuraEffectStats` has in code (`PerAuraEffectPctFor`, while the tables are
+on): the heralds, Arctic Armour, Tempest Shield.
+
 A number that is set in stone once rolled is "unscalable" (`ModScaling`): the game marks it per stat (Stats
 `IsScalable`) and per line (Mods `IsUnscalable`), and the tables hold the same marks as rows the server reads
 (`fx_stats.unscalable`, `fx_lines`), so a new unique's line can be marked or an existing one opened up by a row; a mod

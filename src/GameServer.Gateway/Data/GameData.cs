@@ -125,6 +125,7 @@ public static class GameData
         StatConditions.LoadTable(fxModifiers);
         ChargeEffects.LoadTable(fxPerRows);
         ModScaling.LoadTable(fxUnscalable.Stats, fxUnscalable.Lines);
+        AuraCatalog.LoadEffectTable(store.LoadFxAuraEffects());
         StatConditions.SetRecorderStats(fxRules.Where(r => r.Status != "not built" && r.Do.Any(d => d.Action == "raise"))
             .SelectMany(r => r.Sources.Where(s => s.Kind == "stat").Select(s => s.Key)));
         Volatile.Write(ref _snapshot, snapshot);
