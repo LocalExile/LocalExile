@@ -57,10 +57,95 @@ public static partial class Game
             return "Spirit Burst triggers on skill use while a Spirit Charge is held";
         if (gem.Effect >= 0 && IsRelicSkill(Skills.EffectId(gem.Effect) ?? ""))
             return "Summon Elemental Relic triggers automatically; manual use is unavailable";
+        if (gem.Supports.Any(s => s.Effect.Id == "SupportTriggerElementalSpellOnBlock"))
+            return "this skill triggers automatically when you block";
         if (GolemStat(gem.Stats, Stat.SpellUncastableIfTriggerable) != 0
             || gem.Supports.Any(s => s.Effect.Added.Contains(36)))
             return "this trigger has no server executor; manual use is unavailable";
         return null;
+    }
+
+    sealed class OnBlockTriggerState(int epoch, object? rules)
+    {
+        public readonly int Epoch = epoch;
+        public readonly object? Rules = rules;
+        public double ReadyAt;
+        public int NextIndex;
+    }
+    static readonly Store<Player, OnBlockTriggerState> OnBlockTriggers = new();
+
+    static double BlockTriggerCooldownRate(IReadOnlyDictionary<uint, int> playerStats, SupportedGem gem) => Math.Max(0.01,
+        1 + (GolemStat(playerStats, Stat.VirtualCooldownSpeedPlusPct)
+            + GolemStat(playerStats, Stat.BaseSpellCooldownSpeedPlusPct)
+            + GolemStat(gem.Stats, Stat.BaseSpellCooldownSpeedPlusPct)
+            + GolemStat(gem.Stats, Stat.BaseCooldownSpeedPlusPct)
+            + GolemStat(gem.Stats, Stat.VirtualCooldownSpeedPlusPct)) / 100.0);
+
+    /// <summary>Svalinn ("Trigger a Socketed Elemental Spell when you Block, with a 0.25 second Cooldown"): triggers the
+    /// next eligible socketed elemental spell supported by <c>SupportTriggerElementalSpellOnBlock</c>.</summary>
+    public static void TriggerOnBlockSpells(Player player, uint attackerId)
+    {
+        if (!CurrentGameRules || player.Closed || player.LeavingArea || player.Paused || player.PlayerLife == 0 || InTown(player)) return;
+        var candidates = GemSkillEffects(player)
+            .Where(s => SupportedSkill(player, s.Id) is var gem
+                && gem.Supports.Any(sup => sup.Effect.Id == "SupportTriggerElementalSpellOnBlock")
+                && TriggeredSpellExecutable(player, s.Id, gem))
+            .ToList();
+        if (candidates.Count == 0) return;
+        double now = AreaTime(player);
+        if (!OnBlockTriggers.TryGetValue(player, out var state) || state.Epoch != player.ProjectileEpoch
+            || !ReferenceEquals(state.Rules, CombatLifetime))
+        {
+            OnBlockTriggers.Remove(player);
+            OnBlockTriggers.Add(player, state = new(player.ProjectileEpoch, CombatLifetime));
+        }
+        if (now < state.ReadyAt) return;
+
+        var origin = player.Walk.Position(now);
+        var aim = player.Area.Monsters.TryGetValue(attackerId, out var attacker) && attacker.Hostile && !attacker.Dead && attacker.Life > 0
+            ? attacker.Walk.Position(now)
+            : player.Area.Monsters.Where(e => e.Value.Hostile && !e.Value.Dead && e.Value.Life > 0)
+                .OrderBy(e => Dist(origin, e.Value.Walk.Position(now))).ThenBy(e => e.Key)
+                .Select(e => e.Value.Walk.Position(now)).FirstOrDefault((origin.X + 20, origin.Y));
+
+        for (int i = 0; i < candidates.Count; i++)
+        {
+            int idx = (state.NextIndex + i) % candidates.Count;
+            var spell = candidates[idx];
+            var gem = SupportedSkill(player, spell.Id);
+            if (GemSkillInstanceDisabled(player, gem.Effect, spell.Id, triggered: true) is not null) continue;
+            if (now < LinkedTriggersOf(player).ReadyAt.GetValueOrDefault(gem.Effect)) continue;
+
+            var sup = gem.Supports.FirstOrDefault(s => s.Effect.Id == "SupportTriggerElementalSpellOnBlock");
+            int cdMs = Math.Max(SkillsFor(player).CooldownMs(gem.Effect, gem.Level),
+                sup is null ? 0 : SkillsFor(player).CooldownMs(sup.Gem.Effect, sup.Gem.Level));
+            if (cdMs <= 0) cdMs = 250;
+            var playerStats = CharacterPlayerStats(player);
+            double rate = BlockTriggerCooldownRate(playerStats, gem);
+
+            var session = ProjectilesFor(player);
+            bool Current() => state.Epoch == player.ProjectileEpoch && CurrentGameRules
+                && ReferenceEquals(state.Rules, CombatLifetime) && session.Active && !player.Paused
+                && player.PlayerLife > 0 && !player.LeavingArea && player.PendingTransfer is null;
+
+            var release = PrepareTriggeredPayload(player, session, spell.Id, aim, Current);
+            if (release is null) continue;
+
+            if (!PayMana(player, spell.Id, out uint cost, out uint lifeCost))
+            {
+                state.NextIndex = (idx + 1) % candidates.Count;
+                return;
+            }
+
+            double firedAt = AreaTime(player);
+            state.ReadyAt = firedAt + (cdMs / 1000.0) / rate;
+            LinkedTriggersOf(player).ReadyAt[gem.Effect] = state.ReadyAt;
+            state.NextIndex = (idx + 1) % candidates.Count;
+            release();
+            if (cost > 0 || lifeCost > 0)
+                session.Enqueue(() => SendSkillCost(player, lifeCost, "trigger on block cost"));
+            return;
+        }
     }
     static bool SameTriggerSource(SupportedGem a, SupportedGem b) => a.Effect == b.Effect && a.Level == b.Level
         && a.Quality == b.Quality && a.Host == b.Host && a.Group == b.Group && (a.SourceGem is null ? b.SourceGem is null

@@ -3093,6 +3093,7 @@ public static partial class Game
         else
         {
             if (!hit.Blocked) await SendAttackerSlows(player, id);
+            else TriggerOnBlockSpells(player, id);
             await GainFlaskChargesWhenHit(player);
             if (hit.Debuffs is { } debuffs)
                 foreach (var spec in debuffs.Specs) await AddPlayerDebuff(player, spec.Row, debuffs.Caster, spec.Stats, spec.Seconds);
