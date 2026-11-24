@@ -1,5 +1,6 @@
 using System.Net.Sockets;
 using System.Runtime.CompilerServices;
+using GameServer.Core.Protocol.Instance;
 using GameServer.Core.Protocol.Login;
 using GameServer.Core.World;
 
