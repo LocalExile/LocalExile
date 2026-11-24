@@ -67,7 +67,7 @@ public static partial class Game
 
     static void AddBannerAuraStats(Player player, Dictionary<uint, int> stats)
     {
-        if (!AreaBanners.TryGetValue(player.Instance, out var placed) || placed.Count == 0) return;
+        if (player.Instance is not { } instance || !AreaBanners.TryGetValue(instance, out var placed) || placed.Count == 0) return;
         double now = AreaTime(player);
         foreach (var banner in placed.Values.Where(b => b.Recipients.Contains(player) && BannerReaches(player, b, now))
             .GroupBy(b => b.Row).Select(g => g.MaxBy(b => b.AuraEffect)!))
@@ -102,8 +102,10 @@ public static partial class Game
     static void EndBannerLocked(Player player, BannerState state, PlacedBanner banner, bool retiring = false)
     {
         state.Active = null;
-        if (AreaBanners.TryGetValue(player.Instance, out var held)) held.Remove(banner.Object);
-        player.Area.Buffs.Clear(player.Id, PlacedBannerBuffRow, player.Id);
+        if (AreaBanners.TryGetValue(player.Instance, out var held)
+            && ReferenceEquals(held.GetValueOrDefault(banner.Object), banner)) held.Remove(banner.Object);
+        if (!Banners.TryGetValue(player, out var other) || ReferenceEquals(other, state) || other.Active is null)
+            player.Area.Buffs.Clear(player.Id, PlacedBannerBuffRow, player.Id);
         foreach (var recipient in banner.Recipients)
         {
             player.Area.Buffs.Clear(recipient.Id, banner.Row, banner.Object);
@@ -119,9 +121,18 @@ public static partial class Game
     static void RetireBannerLocked(Player player)
     {
         if (!Banners.TryGetValue(player, out var state)) return;
-        Banners.Remove(player);
-        if (state.Active is { } banner) EndBannerLocked(player, state, banner, retiring: true);
-        player.Area.Buffs.Clear(player.Id, ValourBuffRow, player.Id);
+        var area = player.Area;
+        void Cleanup(GameArea _)
+        {
+            using var mutation = ProjectileMutation(player, advance: false);
+            if (Banners.TryGetValue(player, out var current) && ReferenceEquals(current, state)) Banners.Remove(player);
+            if (state.Active is { } banner) EndBannerLocked(player, state, banner, retiring: true);
+            if (!Banners.TryGetValue(player, out var other) || other.Valour < 1)
+                area.Buffs.Clear(player.Id, ValourBuffRow, player.Id);
+        }
+        // The module watcher also retires projectile sessions. Shared aura state and buff records belong to the area.
+        if (area.Driven && !area.Owned) area.Defer(Cleanup);
+        else Cleanup(area);
     }
 
     static async Task<bool> ToggleBanner(Player player, ushort skill, Func<bool> current)
@@ -129,7 +140,7 @@ public static partial class Game
         uint mana = 0, life = 0;
         using (ProjectileMutation(player, advance: false))
         {
-            if (!current() || player.Paused || InTown(player) || !CanUseBanner(player, skill)
+            if (!current() || player.Paused || player.Instance is null || InTown(player) || !CanUseBanner(player, skill)
                 || !Banners.TryGetValue(player, out var state)) return false;
             if (state.Active is { } previous) EndBannerLocked(player, state, previous);
             else
