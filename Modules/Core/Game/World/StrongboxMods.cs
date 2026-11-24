@@ -10,10 +10,12 @@ using GameServer.Core.Protocol.Instance;
 /// </summary>
 public static class StrongboxMods
 {
-    /// <summary>A box's base chances to be rare, else magic, in percent. INVENTED (our own values, not the game's): no
-    /// client table gives a chest's rarity odds (Strongboxes, Chests, Rarity and ChestEffects have none) and no public
-    /// source states them. Constants rather than settings: no other module exposes its drop odds as a setting.</summary>
-    public const int RareChance = 10, MagicChance = 35;
+    /// <summary>A box's base chances to be rare, else magic, in percent. No client table gives a chest's rarity odds
+    /// (Strongboxes, Chests, Rarity and ChestEffects have none): these are the mix of the closed boxes in the official
+    /// recordings, 11 normal, 9 magic and 9 rare of 29 (the one unique box is rolled apart, <see cref="MapStrongboxes.UniqueChance"/>).
+    /// A small sample, so the odds are rounded to the whole numbers it supports. Constants rather than settings: no other
+    /// module exposes its drop odds as a setting.</summary>
+    public const int RareChance = 31, MagicChance = 31;
 
     /// <summary>The chest domain (Mods.Domain).</summary>
     public const int ChestDomain = 4;

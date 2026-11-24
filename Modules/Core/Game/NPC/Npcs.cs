@@ -51,8 +51,8 @@ public static partial class Game
         var quests = QuestsOf(player);
         foreach (var p in placements)
         {
-            // A town NPC a quest stages (DiallaTown / DiallaTownWithered …) comes with the quest NPCs (World/Quest/QuestNpcs.cs).
-            if (quests.ManagesNpc(player.Layout.Id, p.Id)) continue;
+            // A town NPC a quest stages (DiallaTown / DiallaTownWithered, Lilly shipside / sitting …) comes with the quest NPCs (World/Quest/QuestNpcs.cs).
+            if (quests.ManagesNpc(player.Layout.Id, p.Id) || p.ShownBy is not null || p.GoneWith is not null) continue;
             if (Npcs.Place(p) is not { Supported: true } npc) { Console.WriteLine($"[gateway] {player.Connection.Remote} npc {p.Id}: unknown or unsupported components"); continue; }
             var at = furniture is null ? TownNpcCell(player.Layout, p) : (p.X, p.Y);
             if (at != (p.X, p.Y))
@@ -72,6 +72,9 @@ public static partial class Game
     public static async Task TalkToNpc(Player player,
         InstanceTransfer.UseSkillOnObject use, SpawnedNpc npc, double requestedAt)
     {
+        // Only a fresh click opens/reopens NPC dialogue; held-LMB repeats (~100 ms later, 0x0400 clear) must not wipe
+        // an open quest reward offer and send 0x0084 over it.
+        if (!use.InitialPress) return;
         if (!TryBeginObjectWalk(player, requestedAt, npc.X, npc.Y, Math.Max(0, StationaryCollision.Resolve(npc.Npc.Id, npc.Npc.Model).Size), out var objectWalk)) return;
         var (action, now, here, stop, arrive) = objectWalk;
         Console.WriteLine($"[gateway] {player.Connection.Remote} <= 0x0024 npc {npc.Npc} ({use}) from ({here.X}, {here.Y}): reached at ({stop.X}, {stop.Y}) in {arrive - now:0.00} s");

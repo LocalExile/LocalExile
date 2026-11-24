@@ -497,12 +497,32 @@ public static class InstanceProtocol
     /// flag is set); its right button "Resurrect at Checkpoint" with bit2 (without bit0); a third "Spectate" (PvP).
     /// Live 2026-10-17: 0x04 showed only "Resurrect at Checkpoint".
     /// </summary>
-    public static byte[] DeathScreen(byte flags)
+    public static byte[] DeathScreen(byte flags, ushort deaths = 0)
     {
         var w = new LoginWriter().U16(DeathScreenId).U8(flags);
-        if ((flags & 2) == 0) w.U32(0).U16(0);
+        if ((flags & 2) == 0) w.U32(0).U16(deaths);
         return w.ToArray();
     }
+
+    public const ushort GameMessageId = 0x18;
+
+    /// <summary>
+    /// S→C 0x18 on the instance connection, the message with strings (read 0x1421a3ab0 → 0x1429a60d0): message id 198,
+    /// 0xffff, u16 0, two u32 0 fields, and a stat/string list with 0 stats and 1 compact wide string (<c>WStr</c>).
+    /// The official server sends it on the player's death with the dead character's name, measured on 12 official
+    /// 3.29.3b captures.
+    /// </summary>
+    public static byte[] DeathMessage(string characterName) =>
+        new LoginWriter().U16(GameMessageId).U16(198).U16(0xffff).U16(0).U32(0).U32(0).U8(0).U8(1).WStr(characterName).ToArray();
+
+    public const ushort AliveStateId = 0x1f1;
+
+    /// <summary>
+    /// S→C 0x1f1 (world group): object header, u8, u8; the second u8 is 1 when the object is dead and 0 when it
+    /// lives. The official death sends it with the dead flag set, the checkpoint resurrect with it clear.
+    /// </summary>
+    public static byte[] AliveState(uint objectId, uint chain, bool dead) =>
+        new LoginWriter().U16(AliveStateId).U32(objectId).U32(chain).U16(0).U8(1).U8((byte)(dead ? 1 : 0)).ToArray();
 
     /// <summary>C→S 0x153 (id only): Esc → "Exit to Character Selection" (0x140cf1a20) and the hardcore death screen's
     /// Exit (0x140291180); the client skips it while its instance connection is already down (state +0xc3a0 = 1). The
@@ -919,11 +939,12 @@ public static class InstanceProtocol
 public sealed record AreaInstance(uint InstanceId, ushort AreaHash, uint Seed, byte Level, string Text = "",
     byte B1e = 3, byte B20 = 0, byte B1f = 2, byte B24 = 0x23, byte B1d = 0, byte B28 = 0x3c,
     IReadOnlyDictionary<uint, int>? LeagueStats = null, byte[]? TerrainData = null,
-    IReadOnlyList<byte>? AchievementSets = null, bool HideoutPermissions = false, ushort? ReturnAreaHash = null)
+    IReadOnlyList<byte>? AchievementSets = null, bool HideoutPermissions = false, ushort? ReturnAreaHash = null,
+    IReadOnlyDictionary<uint, int>? DisplayStats = null)
 {
     public byte[] Encode()
     {
-        bool hasStats = LeagueStats is { Count: > 0 };
+        bool hasStats = LeagueStats is { Count: > 0 } || DisplayStats is { Count: > 0 };
         bool hasReturnArea = ReturnAreaHash is > 0;
         var writer = new LoginWriter()
             .U16(InstanceProtocol.AreaInstanceId).U32(InstanceId).U16(AreaHash).WStr(Text).U32(Seed)
@@ -945,13 +966,20 @@ public sealed record AreaInstance(uint InstanceId, ushort AreaHash, uint Seed, b
         writer.U16(0); // vec16<u16> +0xe0
         if (hasStats)
         {
-            InstanceProtocol.CompactUInt(writer, (uint)LeagueStats!.Count);
-            foreach (var (key, value) in LeagueStats.OrderBy(p => p.Key))
+            var first = LeagueStats ?? new Dictionary<uint, int>();
+            InstanceProtocol.CompactUInt(writer, (uint)first.Count);
+            foreach (var (key, value) in first.OrderBy(p => p.Key))
             {
                 InstanceProtocol.CompactUInt(writer, key);
                 InstanceProtocol.CompactInt(writer, value);
             }
-            InstanceProtocol.CompactUInt(writer, 0); // second compact pair list (+0x120)
+            var second = DisplayStats ?? new Dictionary<uint, int>();
+            InstanceProtocol.CompactUInt(writer, (uint)second.Count);
+            foreach (var (key, value) in second.OrderBy(p => p.Key))
+            {
+                InstanceProtocol.CompactUInt(writer, key);
+                InstanceProtocol.CompactInt(writer, value);
+            }
             writer.U8(0); // third list (+0x138), u8 count, no entries
         }
         if (TerrainData is { } terrain)

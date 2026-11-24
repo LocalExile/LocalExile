@@ -268,8 +268,14 @@ public sealed class MapRunCatalog
     {
         why = "";
         var count = new Dictionary<int, int>();
+        int divineVessels = 0;
         foreach (var slot in fragments)
         {
+            if (PantheonCatalog.IsDivineVessel(slot.BaseId) && ++divineVessels > 1)
+            {
+                why = "Only 1 Divine Vessel can be used at once.";
+                return false;
+            }
             if (FragmentOf(slot.BaseRow) is not { } fragment) continue;
             if (areaLevel > 0 && areaLevel < fragment.MinAreaLevel)
             {

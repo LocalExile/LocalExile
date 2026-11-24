@@ -5,8 +5,8 @@ Part of [Status](../Status.md); what to build next in this area is in
 
 ## Works (verified with the real client)
 
-- Ordinary vendors/Kirac persist stock; hideout Lilly serves new characters; campaign Lilly saves her account shop
-  unlock after her introduction: [17](../docs/protocol/17-npcs.md).
+- Ordinary vendors/Kirac persist stock with retail-sized inventory and level-up refresh; hideout Lilly serves new
+  characters; campaign Lilly saves her account shop unlock after her introduction: [17](../docs/protocol/17-npcs.md).
 - Gold gambling at the gamble NPCs (black-market window, 3.29 prices and rolls): [17](../docs/protocol/17-npcs.md) §5.
 - `/played` saves online character time across area changes, relog and module reload: [10](../docs/protocol/10-chat-and-commands.md).
   Retail commands `/remaining`, `/deaths`, `/kills`, `/age`, `/itemlevel`, `/whois`, `/ladder`, `/invite`, `/afk`,
@@ -45,7 +45,8 @@ Part of [Status](../Status.md); what to build next in this area is in
   The shared routing and overlap correction covers spawned NPCs in towns and hideouts.
   Native walking respected the three NPCs and both stashes in Lioneye's Watch; the guild stash receives
   its native HaveGuild access flag when locally available, so its client collision matches the server.
-  League NPCs and later quest stages are not placed ([17](../docs/protocol/17-npcs.md) §2).
+  Act 6 Lilly's post-Tukohama move, Act 8 Tolman, Nessa at Brine King, Yeena at Arakaali and Epilogue Kirac/Helena are
+  placed; league NPCs and remaining quest-stage variants are not placed ([17](../docs/protocol/17-npcs.md) §2).
   Niko also stands in Act 4 Highgate at the player's confirmed position and facing.
   Clicking walks to them and opens the dialogue window (S→C 0x84); talk options play (0x82 → 0x84 + index);
   Continue and Goodbye (C→S 0x85) are answered; Purchase Items opens the shop (S→C 0xc0 manager 1 + 0x8c) and buying
@@ -119,15 +120,16 @@ Part of [Status](../Status.md); what to build next in this area is in
   Their original cells/items remain reserved in the durable save;
   take-back/cancel restores the view, disconnect/crash preserves items, and acceptance exchanges items/payment in one
   save.
-  Recipe quotes cover rare sets, gem transformations, socket/quality salvage, upgrades and common equipment recipes.
+  Recipe quotes cover rare sets, gem transforms, Books of Reform (20 Regrets + amulet), salvage, upgrades and gear.
   Acceptance pays the cached outputs atomically, refuses a full inventory and preserves ingredients on save failure.
   Exact affix prices and special league/unique recipes remain partial; real-client recipe verification is pending.
   See [vendor recipes](../docs/protocol/24-vendor-recipes.md) for supported cases and explicit limitations.
   Live visibility verification pending; see protocol/17-npcs.md.
 - Captured gem grouping is restored; uncaptured classes/vendors use documented ordering, and Kirac refresh UI remains open.
 - Campaign lore interactables (`Metadata/NPC/Info/*` from rooms and tiles, including Letters of Exile, Weathered
-  Carvings, Sailor's Skin, Damp Diary, Shavronne's Journal and Arteri's Letter) spawn with `.ot`-matched components
-  and read/close via `0x84`/`0x85` (not checked live). Docs: [17](../docs/protocol/17-npcs.md).
+  Carvings, Sailor's Skin, Damp Diary, Shavronne's Journal and Arteri's Letter) spawn with `.ot`-matched components,
+  read/close via `0x84`/`0x85` and fire `CharacterAudioEvents` lore reactions (not checked live).
+  Docs: [17](../docs/protocol/17-npcs.md).
 - Nessa's development catalogue (awakened/exceptional gems, generic/originator/unique maps) is the optional
   `NessaDevelopmentTabs` module: after her progression tabs or replacing them, live-checked; no league lists it.
   Standard uses progression stock; full unique modifiers, unique-area routing and the updated development display remain partial.

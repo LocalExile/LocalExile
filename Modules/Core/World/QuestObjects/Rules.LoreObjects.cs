@@ -13,6 +13,39 @@ static partial class QuestobjectsRules
 
     static readonly RuleTable<Player, Dictionary<string, int>> LoreReadCycles = new();
 
+    // CharacterAudioEvents reaction flags for lore interactables whose NPCTalk rows only set Read* flags
+    // (the client's CharacterAudioController fires voice reactions on 0 -> 1 transitions of these flags).
+    static readonly Dictionary<string, string> LoreAudioFlags = new(StringComparer.OrdinalIgnoreCase)
+    {
+        ["Metadata/NPC/Info/Karui/Stone1"] = "Met-KaruiGlyph1",
+        ["Metadata/NPC/Info/Karui/Stone2"] = "Met-KaruiGlyph2",
+        ["Metadata/NPC/Info/Karui/Stone3"] = "Met-KaruiGlyph3",
+        ["Metadata/NPC/Info/Karui/Stone4"] = "Met-KaruiGlyph4",
+        ["Metadata/NPC/Info/Karui/Stone5"] = "Met-KaruiGlyph5",
+        ["Metadata/NPC/Info/Karui/Stone6"] = "Met-KaruiGlyph6",
+        ["Metadata/NPC/Info/Karui/Stone7"] = "Met-KaruiGlyph7",
+        ["Metadata/NPC/Info/PrisonDiary"] = "Met-ShavronneDiary",
+        ["Metadata/NPC/Info/ArteriLetter"] = "Met-PietysLetter",
+        ["Metadata/NPC/Info/Victario/GraffitiIntro"] = "Met-Graffiti1",
+        ["Metadata/NPC/Info/Victario/GraffitiSlum"] = "Met-Graffiti2",
+        ["Metadata/NPC/Info/Victario/GraffitiWarehouse"] = "Met-Graffiti3",
+        ["Metadata/NPC/Info/Victario/GraffitiBattlefront"] = "Met-Graffiti4",
+        ["Metadata/NPC/Info/Victario/GraffitiDocks"] = "Met-Graffiti5",
+        ["Metadata/NPC/Info/Victario/GraffitiChurch"] = "Met-Graffiti6",
+        ["Metadata/NPC/Info/Victario/Notebook"] = "Met-VictarioDiary",
+        ["Metadata/NPC/Info/KaomCarving1"] = "Met-KaomCarving1",
+        ["Metadata/NPC/Info/KaomCarving2"] = "Met-KaomCarving2",
+        ["Metadata/NPC/Info/KaomCarving3"] = "Met-KaomCarving3",
+        ["Metadata/NPC/Info/KaomCarving4"] = "Met-KaomCarving4",
+        ["Metadata/NPC/Info/HighgateNote"] = "Met-AqueductLetter",
+        ["Metadata/NPC/Info/ArakaaliGlyph1"] = "Met-ArakaaliShrine",
+        ["Metadata/NPC/Info/ArakaaliGlyph2"] = "Met-ArakaaliShrine",
+        ["Metadata/NPC/Info/ArakaaliGlyph3"] = "Met-ArakaaliShrine",
+        ["Metadata/NPC/Info/ArakaaliGlyph4"] = "Met-ArakaaliShrine",
+        ["Metadata/NPC/Info/ArakaaliGlyph5"] = "Met-ArakaaliShrine",
+        ["Metadata/NPC/Info/BrineKingGlyph2"] = "ReadLeatherboundLogbook",
+    };
+
     /// <summary>Whether an object type is a <c>Metadata/NPC/Info/</c> lore interactable (excluding the Tencent tutorial NPC
     /// and crafting-bench placeholder).</summary>
     internal static bool IsLoreType(string type) =>
@@ -152,6 +185,9 @@ static partial class QuestobjectsRules
         if (talk is null) return false;
         if (available.Count > 1) cycles[npc.Npc.Id] = (available.IndexOf(talk) + 1) % available.Count;
         var toSet = LoreFlagsToSet(talk).Where(f => !ClientHasQuestFlag(player, f)).ToList();
+        if (LoreAudioFlags.TryGetValue(npc.Npc.Id, out string? audioFlag)
+            && !ClientHasQuestFlag(player, audioFlag) && !toSet.Contains(audioFlag))
+            toSet.Add(audioFlag);
         if (toSet.Count > 0) await SetQuestFlags(player, toSet);
         // Leave player.InNpcTalk = false: on C→S 0x85 (Continue / Esc / walk away), CloseNpcDialogue ends dialogue with 0x84 0.
         player.InNpcTalk = false;

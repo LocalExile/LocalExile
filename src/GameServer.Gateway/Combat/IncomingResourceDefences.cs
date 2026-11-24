@@ -96,7 +96,7 @@ public static class IncomingResourceDefences
         int typedIncreasedPct = 0, int reductionPct = 0, int finalTakenPct = 0)
     {
         double earned = Math.Max(0, damage)
-            * Math.Max(0, 1 + ((long)get(Stat.BaseDamageTakenPlusPct) + typedIncreasedPct) / 100.0)
+            * Math.Max(0, 1 + ((long)get(Stat.BaseDamageTakenPlusPct) + get(Stat.DegenEffectPlusPct) + typedIncreasedPct) / 100.0)
             * Math.Max(0, 1 - Math.Clamp(reductionPct, 0, 100) / 100.0)
             * FinalTakenFactor(get, lessPct)
             * Math.Max(0, 1 + finalTakenPct / 100.0) + carry;

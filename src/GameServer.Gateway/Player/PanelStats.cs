@@ -525,12 +525,14 @@ public static class PanelStats
         return result;
     }
 
-    /// <summary>The recovery inputs with the "while moving" stats added while the player moves (Devout of Garukhan; PoB
-    /// Condition Moving). Only the recovery finals read them; the raw inputs the player stats carry stay unchanged.</summary>
-    public static Func<uint, int> WhileMoving(Func<uint, int> get, bool moving) => !moving ? get : name => get(name) + name switch
+    /// <summary>The recovery inputs with the "while moving" (Garukhan) and "while stationary" (Tukohama) stats added
+    /// according to movement state. Only the recovery finals read them; the raw inputs the player stats carry stay unchanged.</summary>
+    public static Func<uint, int> WhileMoving(Func<uint, int> get, bool moving) => name => get(name) + name switch
     {
-        Stat.LifeRegenerationRatePerMinutePct => get(Stat.LifeRegenerationRatePerMinutePctWhileMoving),
-        Stat.ManaRegenerationRatePlusPct => get(Stat.ManaRegenerationRatePlusPctWhileMoving),
+        Stat.LifeRegenerationRatePerMinutePct => moving
+            ? get(Stat.LifeRegenerationRatePerMinutePctWhileMoving)
+            : get(Stat.LifeRegenerationRatePerMinutePctWhileStationary),
+        Stat.ManaRegenerationRatePlusPct => moving ? get(Stat.ManaRegenerationRatePlusPctWhileMoving) : 0,
         _ => 0,
     };
 
