@@ -1843,7 +1843,8 @@ public static partial class Game
         foreach (var (id, effect) in layout.Effects)
             messages.Add(($"0x02bb create transition effect 0x{id:x} {effect}",
                 Create(id, InstanceEntities.ObjectTypeHash(effect.Type), effect.Blob())));
-        if (layout.Waypoint is { } waypoint)
+        var waypoint = InstanceEvents.RunAreaWaypoint(player, layout.Waypoint);
+        if (waypoint is not null)
             messages.Add(($"0x02bb create waypoint 0x{WaypointCatalog.ObjectId:x} {waypoint}",
                 Create(WaypointCatalog.ObjectId, InstanceEntities.ObjectTypeHash(WaypointObject.MetadataPath), waypoint.Blob())));
         if (Environment.GetEnvironmentVariable("Game_GATEWAY_ENTER") == "1")
@@ -1874,7 +1875,7 @@ public static partial class Game
                 messages.Add(($"0x01a9 area transition 0x{id:x} enters wake zone", Wake(id)));
             foreach (var (id, _) in layout.Effects)
                 messages.Add(($"0x01a9 transition effect 0x{id:x} enters wake zone", Wake(id)));
-            if (layout.Waypoint is not null) messages.Add(($"0x01a9 waypoint 0x{WaypointCatalog.ObjectId:x} enters wake zone", Wake(WaypointCatalog.ObjectId)));
+            if (waypoint is not null) messages.Add(($"0x01a9 waypoint 0x{WaypointCatalog.ObjectId:x} enters wake zone", Wake(WaypointCatalog.ObjectId)));
             // The attributes once more as a stats update. UI built on entering caches them (0x141e869c0 reads the Stats
             // component's getter); live 2026-10-18 the cache held 0 while the getter returned 14/14/32.
             messages.Add(("0x01b3 class attributes", []));

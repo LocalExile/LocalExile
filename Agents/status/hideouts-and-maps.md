@@ -194,8 +194,12 @@ Part of [Status](../Status.md); what to build next in this area is in
   selector). Not compared with a retail capture: Oshabi's state sequence (soul tree progression, interactable, emerge, energy and colour stages, death; her emerge,
   travelling and repeat_fight states).
 
-- Simulacrum: five arenas and a 15-wave controller; opening and the wave-start prompt checked in the client, wave
-  combat and the reward display not yet. Starting a wave destroys every item on the ground, as the client warns.
+- Simulacrum: five arenas and a 15-wave controller; opening and the wave-start prompt checked in the client.
+  Per-type reward bars drive the native HUD via `AfflictionEndGameRules` (S→C 0x1f row 103 + S→C 0x2c9 mode 1; live
+  HUD check pending), and waves pay all counted rewards at wave end
+  ([protocol](../docs/protocol/21-hideouts.md#selected-encounter-inputs-simulacrum)).
+  Arenas hide their waypoint, use measured spots, clear hostile leftovers and keep Lunacy's Watch off its ship.
+  Starting a wave destroys every item on the ground, as the client warns.
   Its arenas use their encounter rules independently of the owner's Atlas preset.
   Scheduled bosses spawn before a scaled wave can award its rewards.
 
