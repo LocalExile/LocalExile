@@ -101,6 +101,9 @@ public sealed class SummonedMinions
     public long OfferingRevision;
     public double RefreshAt;
     public bool Restored;
+    public bool LostPersistentOnDeath;
+    public bool SpectreBankLoaded;
+    public readonly List<string> SpectreBank = [];
     public double HolyRegenerationUntil;
     public int HolyRegenerationPerMinute;
     public ushort HolyBuff;

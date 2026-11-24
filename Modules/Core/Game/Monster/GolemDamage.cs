@@ -210,6 +210,11 @@ public static partial class Game
         EndDot(player, g.Id, ref g.Monster.Ignites.Buff, g.Monster.Ignites.BuffSource);
         EndDot(player, g.Id, ref g.Monster.Bleeds.Buff, g.Monster.Bleeds.BuffSource);
         EndDot(player, g.Id, ref g.Monster.Poisons.Buff, g.Monster.Poisons.BuffSource);
+        if (g.SpectreBuff != 0)
+        {
+            player.Area.Buffs.Clear(g.Id, SpectreBuffRowValue(), g.Id);
+            g.SpectreBuff = 0;
+        }
         g.Monster.Ignites.Clear();
         g.Monster.Bleeds.Clear();
         g.Monster.Poisons.Clear();
