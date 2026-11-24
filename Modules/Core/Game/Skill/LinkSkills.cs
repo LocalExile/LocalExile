@@ -102,12 +102,12 @@ public static partial class Game
         player.PlayerLife > 0 && player.Links.On(fighter.Id) is { } link && now < link.Until
         && (link.AwaySince is not double away || now - away < LinkSkills.BreakSeconds) ? link : null;
 
-    public static void GrantLinkedMinionRareModifiers(GameServer.Modding.KillContext kill)
+    public static void GrantLinkedMinionRareModifiers(KillContext kill)
     {
         var player = kill.Player;
         var monster = kill.Monster;
         if (player.Links.Count == 0 || player.PlayerLife == 0 || monster.Rarity != MonsterRarity.Rare
-            || monster.Mods.Affixes.Count == 0 || !KilledByPlayerOrOwned(kill)) return;
+            || !monster.Mods.Affixes.Any() || !KilledByPlayerOrOwned(kill)) return;
         var stats = CharacterPlayerStats(player);
         int centiseconds = stats.GetValueOrDefault(Stat.LinkSkillsGrantRandomLinkedMinionRareMonsterModsOnKillCentiseconds);
         if (centiseconds <= 0) return;
