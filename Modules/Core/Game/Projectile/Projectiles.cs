@@ -819,6 +819,18 @@ public static partial class Game
             shot = shot.Against(Blinded(Player, contact.Target.Id, at), target.SpiderWebs.Count(at),
                 target.Ignites.IgnitedAt(at), target.Bleeds.IgnitedAt(at), EnemyOnLowLife(target), target.MaimedUntil > at,
                 conditional, areaContact: contact.IsArea);
+            int projectileFreezeChance = 0;
+            if (SkillsFor(Player).EffectId(shot.Effect) is "FreezingPulse" or "FreezingPulseAltX" or "FreezingPulseAltY" or "FreezingPulseRoyale")
+            {
+                // The gem loses up to half its damage over the flight. Its inherent freeze chance fades
+                // from 25% to zero during the first quarter, independently of other freeze sources.
+                var flight = contact.Projectile;
+                double range = Math.Min(flight.Profile.Range,
+                    flight.Profile.Speed * flight.Profile.Lifetime / ProjectileRuntime.QuantaPerSecond);
+                double progress = Math.Clamp(flight.Distance / range, 0, 1);
+                shot = shot.ScaleDamage(1 - progress * .5);
+                projectileFreezeChance = (int)Math.Round(25 * Math.Max(0, 1 - 4 * progress));
+            }
             int chainDamage = GolemStat(shot.SkillStats, Stat.CobraLashHitAndAilmentDamagePlusPctFinalForEachRemainingChain);
             double chainsMore = Math.Max(0, 1 + (double)chainDamage * contact.Projectile.ChainsRemaining / 100);
             double returnMore = contact.Phase > 0 ? shot.ReturnMultiplier : 1;
@@ -937,7 +949,7 @@ public static partial class Game
                     attackGains: AttackAilmentGains.Capture(player, shot.ActualCaster is null && !shot.Spell),
                     hitOrigin: emitterTotem?.At,
                     attackerSize: emitterTotem?.BodySize ?? LivingCollision.PlayerSize,
-                    attackerHasReversedStat: emitterTotem is null, projectileDamage: true);
+                    attackerHasReversedStat: emitterTotem is null, projectileDamage: true, projectileFreezeChance: projectileFreezeChance);
             }
             if (!immune && hit.Value.Life > 0 && shot.EssenceDrain is { } drain)
                 EssenceDrainOnHitLocked(contact.Target.Id, target, drain, at);

@@ -298,7 +298,7 @@ public static partial class Game
         double now, Random random, AttackAilmentGains attackGains, List<MonsterElementalAilments.Effect>? reflected = null,
         MonsterPoisons.Settings poison = default, ushort sourceSkill = 0, BlindHitInput blind = default, (int X, int Y)? hitOrigin = null,
         bool playerHit = true, int attackerSize = LivingCollision.PlayerSize, bool attackerHasReversedStat = true,
-        bool projectileDamage = false)
+        bool projectileDamage = false, int projectileFreezeChance = 0)
     {
         HitSummonsOnHitLocked(player, m, skill, sourceSkill, now, random);
         if (playerHit) QueueLivingLightningLocked(player, targetId, m, sourceSkill, skill, mitigated, now);
@@ -339,6 +339,7 @@ public static partial class Game
         {
             int value = Player(name) + PanelStats.Of(name, Skill);
             if (name == Stat.ChanceToShockPct) value = ActorScale.Saturate((long)value + frozenShock);
+            if (name == Stat.ChanceToFreezePct) value = ActorScale.Saturate((long)value + projectileFreezeChance);
             if (!tinctureWeapon) return value;
             return name switch
             {
