@@ -35,4 +35,23 @@ public class CelestialPresenceTests
         // A subject that does not answer presence leaves the mod as before.
         Assert.Equal(16, ItemModStats.Global([item], items.Mods, Program.Stats)[key]);
     }
+
+    [Fact]
+    public void No_scan_when_no_worn_item_carries_the_pinnacle_presence_mod()
+    {
+        var player = new Player(new(1, "no-pinnacle-mod", 100, 100, 100, 100, null, []), 1, 1)
+            { Character = { Name = "NoPinnacleMod" + Guid.NewGuid().ToString("N") } };
+        double now = player.Clock.Elapsed.TotalSeconds;
+        // No worn item at all: the flag is absent, not false - the monster scan never ran.
+        Assert.DoesNotContain(StatConditions.CelestialBossInPresence, Game.ItemConditionFlags(player, now).Keys);
+        // A worn item with an ordinary mod, and no pinnacle-presence mod, leaves the flag absent too.
+        var items = Program.Items;
+        var plain = items.Mods.All.First(m => m.Stats.Count == 1 && m.Stats[0].Id == Stat.BaseMaximumLife);
+        var item = ItemCatalog.Create(items.Find("Iron Hat")!) with
+        {
+            Mods = [new(ModSection.Explicit, plain.Hash, [42])],
+        };
+        Assert.DoesNotContain(StatConditions.CelestialBossInPresence,
+            Game.ItemConditionFlags(player, now, [item]).Keys);
+    }
 }
