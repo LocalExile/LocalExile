@@ -147,9 +147,9 @@ public static partial class Game
             monster.Ailments.RefreshChillAndShock(now);
             monster.Ignites.Refresh(now);
         }
-        if (newlyCursed)
+        if (newlyCursed && !aura && casterId is null)
         {
-            if (!aura && Get(Stat.NonCursedEnemiesYouCurseAreBlindedFor4Seconds) != 0)
+            if (Get(Stat.NonCursedEnemiesYouCurseAreBlindedFor4Seconds) != 0)
                 InflictMonsterBlind(player, monster.ObjectId, monster, now, 100, Get(Stat.BlindEffectPlusPct), BlindSeconds(Get), null);
             RecoverOnFreshCurseLocked(player, Get);
         }

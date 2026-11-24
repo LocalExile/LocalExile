@@ -1020,16 +1020,16 @@ public static partial class Game
         var placed = PlacedKind(gem);
         if (skills.IsVaal(gem.Effect))
             extraIncrease += (long)Own(Stat.VaalSkillCriticalStrikeChancePlusPct) + Player(Stat.VaalSkillCriticalStrikeChancePlusPct);
-        if (Own(Stat.MineCriticalStrikeChancePlusPctPerPowerCharge) is int minePerPower and not 0
-            && placed.Mine)
-            extraIncrease += (long)minePerPower * Player(Stat.CurrentPowerCharges);
         // The per-use critical chance families read the skill's own tags, not the hit: a totem skill by its
-        // resolved is_totem, a mine by the RemoteMined type a mine support adds. They join extraIncrease, which
-        // both the attack and the spell branch already fold in.
+        // resolved is_totem, a mine/trap by PlacedKind. They join extraIncrease, which both branches fold in.
         if (gem.Stats.GetValueOrDefault(Stat.IsTotem) != 0)
             extraIncrease += (long)Player(Stat.TotemCriticalStrikeChancePlusPct) + Own(Stat.TotemCriticalStrikeChancePlusPct);
         if (placed.Mine)
+        {
             extraIncrease += (long)Player(Stat.MineCriticalStrikeChancePlusPct) + Own(Stat.MineCriticalStrikeChancePlusPct);
+            if (Own(Stat.MineCriticalStrikeChancePlusPctPerPowerCharge) is int minePerPower and not 0)
+                extraIncrease += (long)minePerPower * Player(Stat.CurrentPowerCharges);
+        }
         else if (placed.Trap)
             extraIncrease += (long)Player(Stat.TrapCriticalStrikeChancePlusPct) + Own(Stat.TrapCriticalStrikeChancePlusPct);
         if (skills.IsAttack(gem.Effect))

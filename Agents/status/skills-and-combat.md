@@ -251,7 +251,8 @@ Part of [Status](../Status.md); what to build next in this area is in
   Docs: [11](../docs/protocol/11-skills.md) Â§9, Â§11.
 - Vaal Immortal Call: 100 souls, its 60 s cooldown, 8 s of soul gain prevention, a duration from the Endurance Charges it
   discharges, and Life held at 1 while the buff runs. Docs: [11](../docs/protocol/11-skills.md) Â§11, Â§12.
-- Vaal Molten Shell: armour, guard and reflected fire damage. [Skills](../docs/protocol/11-skills.md) §12.
+- Vaal Molten Shell: soul-paid armour and hit absorption, fire reflection each second and on removal, and a single
+  active guard buff with separate Vaal and regular cooldowns.
 - Steelskin, Immortal Call and Molten Shell cast by hand start the triggered guard buff; a running or recovering
   guard refuses the next before its cost. Docs: [11](../docs/protocol/11-skills.md) Â§12.
 - Phase Run: movement speed and Phasing for its duration, longer per Frenzy Charge consumed; the next skill use

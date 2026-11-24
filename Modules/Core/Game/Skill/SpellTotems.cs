@@ -40,7 +40,11 @@ public static partial class Game
     {
         var caster = new Dictionary<uint, int>(owner);
         // Only owner-only prohibitions are bypassed. Gruthkul's spell prohibition still belongs to the spell.
-        foreach (uint name in new[] { Stat.KeystoneAncestralBond, Stat.DealNoDamageYourself })
+        foreach (uint name in new[]
+        {
+            Stat.KeystoneAncestralBond, Stat.DealNoDamageYourself,
+            Stat.RecoverPctMaximumLifeWhenCursingNonCursedEnemy, Stat.RecoverPctMaximumManaWhenCursingNonCursedEnemy,
+        })
             caster.Remove(name);
         // Arcane Surge is a buff on the owner, not on his totems: its more Spell Damage stays his.
         if (ArcaneSurgeSpellMore is var arcane) caster.Remove(arcane);
