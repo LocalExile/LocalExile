@@ -23,8 +23,8 @@ public sealed record AreaLayout(ushort Hash, string Id, int GridW, int GridH, in
     public Func<int, int, int>? Sight { get; init; }
 
     /// <summary>A generated layout's named entrance point for a player arriving from an area
-    /// (<see cref="AreaTransitionCatalog.EntrancePoint"/>), used when no exit leads back there (a one-way entrance).</summary>
-    public Func<ushort, (int X, int Y)?>? EntranceFrom { get; init; }
+    /// (<see cref="AreaTransitionCatalog.EntrancePoint"/>), preferring the room's authored entrance slot.</summary>
+    public Func<ushort, int?, (int X, int Y, bool NamedPoint)?>? EntranceFrom { get; init; }
 
     /// <summary>Every cell's ground height, row by row (GridW × GridH), when the Gateway generated the layout itself
     /// (<see cref="ServerLevels"/>); null for a capture.</summary>
@@ -55,16 +55,25 @@ public sealed record AreaLayout(ushort Hash, string Id, int GridW, int GridH, in
         [(AreaLayouts.LioneyesWatch, 0xf00a /* 1_1_1 The Twilight Strand */)] = (123, 308),
     };
 
-    /// <summary>Where a player entering this area appears: next to the exit leading back to <paramref name="cameFrom"/>
-    /// (the area they left through an exit), else the spawn (logins, Resurrect in Town, no exit back).</summary>
+    /// <summary>Where a player entering this area appears: the room's authored entrance point for
+    /// <paramref name="cameFrom"/> when available, else next to the exit leading back to <paramref name="cameFrom"/>,
+    /// else the spawn (logins, Resurrect in Town, no exit back).</summary>
     public (int X, int Y) Arrival(ushort? cameFrom, int? entrance = null)
     {
         if (cameFrom is not { } from) return (SpawnX, SpawnY);
         if (OneWayArrivals.TryGetValue((Hash, from), out var point)) return point;
+        if (EntranceFrom?.Invoke(from, entrance) is { } authored)
+        {
+            var pt = (authored.X, authored.Y);
+            bool onTransition = AreaTransitions.Any(t => t.Transition.DestinationHash16 == from && t.Transition.TeleportTo is null
+                && Math.Abs(t.Transition.GridX - pt.X) <= 4 && Math.Abs(t.Transition.GridY - pt.Y) <= 4);
+            if (authored.NamedPoint && !onTransition && (Walkable is null || Walkable(pt.X, pt.Y)))
+                return pt;
+            return Near(pt);
+        }
         foreach (var (_, t) in AreaTransitions)
             if (t.DestinationHash16 == from && t.TeleportTo is null
                 && (entrance is null || t.Entrance == entrance)) return Near((t.GridX, t.GridY));
-        if (EntranceFrom?.Invoke(from) is { } pointEntrance) return Near(pointEntrance);
         return (SpawnX, SpawnY);
     }
 
@@ -156,7 +165,7 @@ public static class AreaLayouts
                 SightOf(generated.Projectile, generated.Width, generated.Height), generated.Start) with
             {
                 CellHeights = generated.Heights,
-                EntranceFrom = from => AreaTransitionCatalog.EntrancePoint(hash, generated.Entrances, from),
+                EntranceFrom = (from, entrance) => AreaTransitionCatalog.EntrancePoint(hash, generated.Entrances, from, entrance),
                 Level = generated,
             };
         byte[]? cells = LoadCells(id, seed, out int w, out int h);
