@@ -1353,6 +1353,70 @@ public sealed class SkillCatalog
         };
     }
 
+    /// <summary>A storm skill's cast, from its own stats: Firestorm's <c>base_skill_effect_duration</c> and
+    /// <c>fire_storm_fireball_delay_ms</c>, the drop area's <c>active_skill_base_area_of_effect_radius</c> scaled by
+    /// <c>firestorm_base_area_of_effect_+%</c>, and the fall's own hit, the skill's fire damage. Fire Fury's
+    /// (<c>FemaleCannibalBossFireStorm</c>, stat set 1474) is 3000 ms / 100 ms: 30 falls 0.1 s apart, each in a
+    /// 5-cell drop area.</summary>
+    public sealed record StormInfo(int DurationMs, int DelayMs, double Radius, DamagePacket Damage)
+    {
+        /// <summary>The falls one cast brings: the duration over the delay (30 for Fire Fury's 3000 ms / 100 ms).</summary>
+        public int Falls => Math.Clamp(DurationMs / DelayMs, 1, MaxFalls);
+        public double IntervalSeconds => DelayMs / 1000.0;
+        /// <summary>The most falls one cast schedules: a guard on a mis-typed row, above the longest fire storm the
+        /// tables ship (FireWitchFirestorm and GladiatorBossFirestorm, 15000/125 and 12000/100, are 120).</summary>
+        public const int MaxFalls = 128;
+    }
+
+    /// <summary>A downpour spell's falls, or null for every other skill. The gate is the skill's own
+    /// <c>fire_storm_fireball_delay_ms</c> with a duration and fire damage: the ice and chaos storms (an Icestorm's
+    /// cold, a Chaosstorm's chaos, all sharing ActiveSkills row 206 with Firestorm) drop nothing extra here.</summary>
+    public StormInfo? MonsterStorm(int effectRow, int level)
+    {
+        var stats = EffectStats(effectRow, level);
+        int Get(uint key) => stats.FirstOrDefault(s => s.Item1 == key).Item2;
+        int delay = Get(Stat.FireStormFireballDelayMs), duration = Get(Stat.BaseSkillEffectDuration);
+        if (delay <= 0 || duration <= 0) return null;
+        var damage = HitDamage(effectRow, level);
+        if (damage[DamageType.Fire].Max <= 0) return null;
+        // SkillArea.Radius's rule, over the storm's own base area stat: the radius times the square root of its area.
+        int baseRadius = Math.Max(0, Get(Stat.ActiveSkillBaseAreaOfEffectRadius));
+        double area = Math.Max(0, 1 + Get(Stat.FirestormBaseAreaOfEffectPlusPct) / 100.0);
+        return new(duration, delay, baseRadius * Math.Sqrt(area), damage);
+    }
+
+    /// <summary>Measured launch frames for monster projectile skills: frames of 33 ms from the start of the action,
+    /// measured on official captures, counted from the start of the action 0x1ab. The key is
+    /// the skill's GrantedEffects Id; the value is its frame and how many capture events
+    /// the frame rests on. The table is embedded here: the Gateway reads no generated JSON data file (only
+    /// data/game-files.zip comes from data/ itself), so a file-based load would need a client.db regeneration
+    /// before the first use, and a generated-table migration can replace this table when that is scheduled.</summary>
+    static readonly FrozenDictionary<string, (int Frames, int Samples)> MonsterLaunchFrameRows =
+        new Dictionary<string, (int, int)>(StringComparer.Ordinal)
+        {
+            ["EinharSnipe"] = (18, 24),
+            ["FireballIncursionChaos"] = (10, 9),
+            ["FireballIncusionFire"] = (16, 18),
+            ["FireballIncusionLightning"] = (6, 24),
+            ["HeraldOfAgonyMinionTailSpike"] = (5, 298),
+            ["IncaMinionProjectile"] = (12, 19),
+            ["IncursionAlvaProjectileFast"] = (26, 4),
+            ["IncursionIncaMinionProjectile"] = (14, 16),
+            ["IncursionWraithProjectile"] = (14, 3),
+            ["MonsterLesserMultiFireball"] = (11, 12),
+            ["MonsterMultiFireball"] = (11, 14),
+            ["MonsterSpark"] = (14, 18),
+            ["MonsterSplitArrow"] = (0, 10),
+            ["MonsterSplitFireball"] = (11, 16),
+            ["ScavengerThrow"] = (11, 14),
+            ["SkeletonSpark"] = (1, 5),
+            ["SnakeProjectileSlow"] = (15, 17),
+        }.ToFrozenDictionary();
+
+    /// <summary>A monster skill's measured launch frame, or null for every other skill, which keeps its clip contact.
+    /// Read once when the attack is built (Monsters), never per hit.</summary>
+    public int? LaunchFrames(string? effectsId) =>
+        effectsId is { Length: > 0 } id && MonsterLaunchFrameRows.TryGetValue(id, out var row) ? row.Frames : null;
     private readonly Dictionary<string, int> _monsterVarietyRowsById;
 
     static Dictionary<string, int> LoadMonsterVarietyRowsById()

@@ -533,6 +533,8 @@ public static partial class Game
             Ranged = rangedAttack,
             Projectile = projectile,
             Summon = summon,
+            Storm = effect >= 0 ? catalog.MonsterStorm(effect, level) : null,
+            LaunchFrames = effect >= 0 ? catalog.LaunchFrames(catalog.EffectId(effect)) : null,
             ReleaseEffect = projectile is null || effect < 0 ? null : effect,
             Release = projectile is null || effect < 0 ? null : MonsterReleaseFor(player, variety, effect, level, projectile),
         };
@@ -1749,6 +1751,13 @@ public static partial class Game
             && m.ActionGeneration == action && AreaTime(player) >= m.FlinchUntil;
     }
 
+    /// <summary>When a monster's projectile skill releases its shot, as a delay from the start of its action
+    /// 0x1ab: its measured launch frame when it has one (MonsterAttack.LaunchFrames); every skill without a
+    /// row keeps the clip contact's fraction of the attack time. Read from the attack built once per skill,
+    /// never per hit.</summary>
+    public static double MonsterLaunchDelay(MonsterAttack attack, double contact, double seconds) =>
+        attack.LaunchFrames is int frames ? frames * Program.FrameMs / 1000d : seconds * contact;
+
     public static bool MonsterPresent(Player player, uint id, SpawnedMonster m) =>
         CurrentGameWork && !player.Closed && !player.LeavingArea && !player.RageRetired && player.PendingTransfer is null && !m.Dead && m.Life > 0
         && ReferenceEquals(player.Area.Monsters.GetValueOrDefault(id), m);
@@ -2361,6 +2370,7 @@ public static partial class Game
         double startedAt = 0;
         bool meleeClock = false;
         (int X, int Y)? projectileAim = null;
+        (int X, int Y) stormAim = default;
         (int X, int Y) areaAim = default;
         (int X, int Y) beamOrigin = default, beamAim = default;
         bool walkUp = use is null && !area && !a.InPlace;
@@ -2374,6 +2384,8 @@ public static partial class Game
             // The client-drawn straight mortar retains the action order's aim throughout its windup
             // (141ba7c30 -> 141b6c630). Reacquiring here at release would turn a dodged shot toward the player.
             if (a.Projectile is { Variation: > 0, Lobbed: false }) projectileAim = playerAt;
+            // A storm is aimed where the player stood when the cast began; its falls scatter around that cell.
+            if (a.Storm is not null) stormAim = playerAt;
             // An area skill lands where its action aims (a nova around its user), wherever the player goes meanwhile.
             areaAim = a.AreaAtSelf ? from : playerAt;
             if (walkUp && !player.Connection.LockstepClient) seq = m.NextSequence();
@@ -2413,7 +2425,7 @@ public static partial class Game
         // their clip too), half the attack time without rig data. A weapon-stanced monster's skill lands on its stance
         // clip's contact, ahead of the native melee clock.
         double? stanceContact = a.Release is null ? StanceContact(player, m, a, seq) : null;
-        if (AreaSetup.Runs(player) && !area && a.AreaRadius <= 0 && a.Hits <= 1 && a.Summon is null && a.Trap is null && a.Strike is null && a.Projectile is null)
+        if (AreaSetup.Runs(player) && !area && a.AreaRadius <= 0 && a.Hits <= 1 && a.Summon is null && a.Trap is null && a.Strike is null && a.Storm is null && a.Projectile is null)
         {
             bool useClock = meleeClock && stanceContact is null;
             double contactAt = useClock ? 0 : startedAt + seconds * (a.Release?.Fraction ?? stanceContact ?? (walkUp && m.Variety is { } variety
@@ -2440,14 +2452,23 @@ public static partial class Game
                 // Like the player's native shot, the monster emits at the end of the frame that crosses contact.
                 // Starting between frames lets the server hit a moving player before the visible flight reaches them.
                 LaunchMonsterProjectile(player, id, m, a, nativeProjectile, action, projectileAim,
-                    LockstepShotAt(startedAt, seconds * contact), seq);
+                    LockstepShotAt(startedAt, MonsterLaunchDelay(a, contact, seconds)), seq);
                 return false;
             }
-            if (!await WaitMonsterActionTime(player, id, m, action, startedAt + seconds * contact)) return false;
+            if (!await WaitMonsterActionTime(player, id, m, action, startedAt + MonsterLaunchDelay(a, contact, seconds))) return false;
         }
         if (a.Summon is { } summon)
         {
             await MonsterSummon(player, id, m, summon);
+            return false;
+        }
+        if (a.Storm is { } storm)
+        {
+            // Its falls begin as the cast ends and run for the skill's own duration, one per delay;
+            // each fall resolves on the server where the bolt would have landed (no lobbed bolt per fall:
+            // the client draws the storm from the cast). The falls outlive the action, so they stop with
+            // the monster, not with the action.
+            MonsterFirestormStorm(player, id, m, a, action, storm, startedAt + seconds, stormAim, seq);
             return false;
         }
         if (a.Trap is { } payload)
