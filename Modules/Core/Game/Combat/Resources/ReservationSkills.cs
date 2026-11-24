@@ -39,7 +39,20 @@ public static partial class Game
                 player.Reservations.Procs.Enqueue(new(aura.SkillId, kill.At,
                     aura.EffectId == "HeraldOfAsh" ? (uint)kill.Monster.Overkill : 0));
         if (ReservationAura(player, "HeraldOfThunder") is { } thunder && kill.Monster.Ailments.ShockedAtDeath(now))
-            player.Reservations.ThunderUntil = now + ReservationDuration(player, thunder, Stat.BaseSkillEffectDuration, 6000);
+            StartThunderStormLocked(player, thunder, now);
+    }
+
+    static void ReservationShockLocked(Player player, double now)
+    {
+        if (!player.Reservations.Secondary && ReservationAura(player, "HeraldOfThunder") is { } thunder)
+            StartThunderStormLocked(player, thunder, now);
+    }
+
+    static void StartThunderStormLocked(Player player, AuraCatalog.Aura thunder, double now)
+    {
+        var state = player.Reservations;
+        if (state.ThunderUntil <= now) state.NextThunder = now;
+        state.ThunderUntil = now + ReservationDuration(player, thunder, Stat.BaseSkillEffectDuration, 6000);
     }
 
     static double ReservationDuration(Player player, AuraCatalog.Aura aura, uint name, int fallback)
@@ -151,14 +164,29 @@ public static partial class Game
         return SkillRadius(player, basis > 0 ? basis : fallback, skill.Stats, spell: false, aura.Effect, playerStats);
     }
 
-    internal static void ReservationDamageLocked(Player player,
+    // Returns whether the contact also struck the owner, for the outer tick's resource and death publication.
+    internal static bool ReservationDamageLocked(Player player,
         AuraCatalog.Aura aura, (int X, int Y) at, double now, uint target = 0)
     {
         using var statScope = new PlayerStatScope(player, fresh: true);
         var skill = SupportedSkill(player, aura.SkillId);
+        bool thunder = aura.EffectId == "HeraldOfThunder";
         if (!skill.RequirementsMet || skill.Effect != aura.Effect
-            || SkillsFor(player).EffectId(skill.Effect) != aura.EffectId) return;
+            || SkillsFor(player).EffectId(skill.Effect) != aura.EffectId)
+        {
+            if (thunder) player.Reservations.NextThunder = now + .25;
+            return false;
+        }
         var playerStats = CharacterPlayerStats(player);
+        if (thunder)
+        {
+            double frequency = 1 + ((long)ReservationStat(player, aura, Stat.HeraldOfThunderBoltFrequencyPlusPct)
+                + playerStats.GetValueOrDefault(Stat.HeraldOfThunderBoltFrequencyPlusPct)) / 100.0;
+            double interval = ReservationStat(player, aura, Stat.HeraldOfThunderBoltBaseFrequency) / 1000.0;
+            player.Reservations.NextThunder = now + Math.Max(.05, interval / Math.Max(.01, frequency));
+        }
+        int selfDamage = thunder ? playerStats.GetValueOrDefault(Stat.TakeXLightningDamageWhenHeraldOfThunderHitsAnEnemy) : 0;
+        bool selfHit = false;
         long additionalIncreased = PlayerHitDamage.VsBlindedDamageStat is var key
             ? (long)playerStats.GetValueOrDefault(key) + skill.Stats.GetValueOrDefault(key) : 0;
         ReservationDamageProfile normalProfile, blindedProfile;
@@ -166,7 +194,7 @@ public static partial class Game
         bool contactDamage = HasContactDamage(playerStats.GetValueOrDefault);
         if (aura.EffectId == "TempestShield")
         {
-            if (SupportedHitInputsFor(player, aura.SkillId, capturedGem: skill) is not { } inputs) return;
+            if (SupportedHitInputsFor(player, aura.SkillId, capturedGem: skill) is not { } inputs) return false;
             ReservationDamageProfile Profile(long increased) => new(
                 SupportedHitFrom(inputs, suppress: true, additionalIncreased: increased),
                 SupportedIgnite(player, aura.SkillId, spell: true, playerStats, additionalIncreased: increased,
@@ -197,7 +225,7 @@ public static partial class Game
         var candidates = player.Area.MonstersNear(at, radius).Where(p => p.Value is { Hostile: true, Dead: false, Life: > 0, Invulnerable: false, Asleep: false }
                 && !MonsterAsleep(player, p.Key) && Dist(p.Value.Walk.Position(now), at) <= radius)
             .OrderBy(p => target != 0 && p.Key == target ? -1 : Dist(p.Value.Walk.Position(now), at)).ToArray();
-        if (aura.EffectId == "HeraldOfThunder") candidates = candidates.Take(1).ToArray();
+        if (thunder) candidates = candidates.Take(1).ToArray();
         else if (aura.EffectId == "TempestShield") candidates = candidates.Take(1 + Math.Max(0, GolemStat(skill.Stats, Stat.NumberOfChains))).ToArray();
         player.Reservations.Secondary = true;
         try
@@ -234,7 +262,7 @@ public static partial class Game
                 { CommitBossStage(player, id, m, now); hit = hit with { StageStarts = false }; }
                 {
                     var own = new Dictionary<uint, int>(skill.Stats);
-                    if (aura.EffectId == "HeraldOfThunder" && Stat.NeverShock is var noShock) own[noShock] = 1;
+                    if (thunder) own[Stat.NeverShock] = 1;
                     AilmentsOnHitLocked(player, id, m, mitigated, spell, critical, 100, playerStats, own, now,
                         AreaRng(player), poison: profile.Poison,
                         blind: BlindHitInput.Capture(playerStats, own));
@@ -248,6 +276,11 @@ public static partial class Game
                     flags: MonsterHitFlags(blocked: false, critical), kind: 0x03, code: HitCode(mitigated),
                     angle: HitAngle(to.X - at.X, to.Y - at.Y)), aura.Name + " triggered hit", id, m, WorldId: player.Id));
                 CommitAcceptedHitLocked(player, id, m, hit, damage, now, aura.Name, playerKill: true);
+                if (selfDamage > 0)
+                {
+                    ApplySelfHitLocked(player, DamagePacket.Of(DamageType.Lightning, selfDamage, selfDamage), now);
+                    selfHit = true;
+                }
                 if (ignited is { } packetsToSend)
                     for (int i = 0; i < packetsToSend.Count; i++)
                         player.Minions.OutputQueue.Add(new(packetsToSend[i],
@@ -255,6 +288,7 @@ public static partial class Game
             }
         }
         finally { player.Reservations.Secondary = false; }
+        return selfHit;
     }
 
     public static void ReservationAshLocked(Player player, AuraCatalog.Aura aura, (int X, int Y) at, uint overkill, double now)
@@ -289,7 +323,8 @@ public static partial class Game
     public static async Task ReservationSkillsTick(Player player, double now)
     {
         var summons = new List<AuraCatalog.Aura>();
-        bool catChanged = false;
+        bool catChanged = false, thunderHitOwner = false, thunderChangedLife = false;
+        int? thunderDeathEpoch = null;
         using (ProjectileMutation(player))
         {
             if (!CurrentGameWork || player.Closed || player.LeavingArea || player.Paused) return;
@@ -313,8 +348,14 @@ public static partial class Game
             }
             if (ReservationAura(player, "HeraldOfThunder") is { } thunder && now < state.ThunderUntil && now >= state.NextThunder)
             {
-                state.NextThunder = now + Math.Max(.05, ReservationStat(player, thunder, Stat.HeraldOfThunderBoltBaseFrequency) / 1000.0);
-                ReservationDamageLocked(player, thunder, player.Walk.Position(now), now);
+                uint life = player.PlayerLife;
+                thunderHitOwner = ReservationDamageLocked(player, thunder, player.Walk.Position(now), now);
+                if (thunderHitOwner)
+                {
+                    thunderChangedLife = player.PlayerLife != life;
+                    if (player.PlayerLife == 0) thunderDeathEpoch = player.IncomingHitEpoch;
+                    player.Frames.Area?.Life.Changed(player);
+                }
             }
             if (ReservationAura(player, "TemporalRift") is not null && now >= state.NextEcho)
             {
@@ -328,7 +369,16 @@ public static partial class Game
             SpiderAspectTickLocked(player, now);
             MadnessExplosionsLocked(player, now);
         }
+        if (thunderDeathEpoch is int epoch)
+            await PlayerDiedAtEpoch(player, "death from Herald of Thunder", epoch);
+        else if (thunderHitOwner && player.Frames.Area is null && !player.Closed && !player.LeavingArea)
+        {
+            if (thunderChangedLife) await SendWorldRecord(player, player.Id, PlayerLifeUpdate(player), "life after Herald of Thunder");
+            await SendPlayerMana(player, "resources after Herald of Thunder");
+        }
         if (catChanged) await SendOwnAuraChanges(player);
+        await TickCooldownTriggers(player, now);
+        TickBanner(player, now);
         await DrainTwisterGains(player);
         await DrainCatCryLosses(player);
         await PresentSiphoningCharges(player);

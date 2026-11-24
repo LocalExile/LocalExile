@@ -77,6 +77,7 @@ public static class Flasks
     {
         // An accepted recipient snapshot, independent of the Game assembly that admitted the paid use.
         public bool CopyManaToLife { get; set; }
+        public bool RestoresMana => ManaPerSecond > 0 || ManaAtEnd > 0;
 
         /// <summary>Whether a full pool ends it: a life effect when life is full, a mana one when mana is (a hybrid one when
         /// both are), unless it stays at full.</summary>
@@ -114,21 +115,28 @@ public static class Flasks
             get { lock (_lock) return _running.Count > 0; }
         }
 
-        /// <summary><see cref="Any"/> changed (the first effect started or the last one ended). Called outside the lock.</summary>
+        /// <summary>Whether a running recovery effect restores mana, including a hybrid or a queued flask.</summary>
+        public bool AnyMana
+        {
+            get { lock (_lock) return AnyManaLocked(); }
+        }
+
+        bool AnyManaLocked() => _running.Any(r => r.Remaining > Done && r.Effect.RestoresMana);
+
+        /// <summary><see cref="Any"/> or <see cref="AnyMana"/> changed. Called outside the lock.</summary>
         public Action? AnyChanged;
 
-        // Runs a change and reports a flip of Any.
         T Changing<T>(Func<T> change)
         {
-            bool before, after;
+            bool changed;
             T result;
             lock (_lock)
             {
-                before = _running.Count > 0;
+                bool before = _running.Count > 0, hadMana = AnyManaLocked();
                 result = change();
-                after = _running.Count > 0;
+                changed = before != (_running.Count > 0) || hadMana != AnyManaLocked();
             }
-            if (before != after) AnyChanged?.Invoke();
+            if (changed) AnyChanged?.Invoke();
             return result;
         }
 
