@@ -295,8 +295,26 @@ public static partial class Game
     static bool AreaStep(Player first, AreaBodies bodies, uint id, PlayerWalk walk, double at, (int X, int Y) cell)
     {
         bool floor = walk.Slides || walk.Floor(cell.X, cell.Y);
-        bool body = floor && ClientPathfinder.ObjectBlocks(bodies.For(id), cell.X, cell.Y, walk.Size + 1, walk.Size + 4);
-        if (!floor || body && !walk.WalksThrough && !walk.ChargesThrough && !walk.Slides)
+        if (!floor)
+        {
+            walk.StopAt(at);
+            return false;
+        }
+        if (walk.ChargesThrough && !walk.Slides)
+        {
+            if (ShieldChargeStepBlocked(first, id, walk, at, cell, bodies.Fixed))
+            {
+                walk.StopAt(at);
+                return false;
+            }
+            if (!ClientPathfinder.ObjectBlocks(bodies.Fixed, cell.X, cell.Y, walk.Size + 1, walk.Size + 4))
+                walk.WalksThrough = false;
+            bodies.Move(id, cell.X, cell.Y);
+            ClientEntityGrid.Stepped(first, id, cell);
+            return true;
+        }
+        bool body = ClientPathfinder.ObjectBlocks(bodies.For(id), cell.X, cell.Y, walk.Size + 1, walk.Size + 4);
+        if (body && !walk.WalksThrough && !walk.Slides)
         {
             walk.StopAt(at);
             return false;
@@ -313,6 +331,7 @@ public static partial class Game
     sealed class AreaBodies
     {
         readonly BlockerSet current = new(), fixedSet = new();
+        public IReadOnlyList<ClientPathfinder.Blocker> Fixed => fixedSet;
         readonly Dictionary<uint, int> index = [];
         readonly Dictionary<uint, IReadOnlyList<ClientPathfinder.Blocker>> views = [];
         readonly HashSet<uint> passThrough = [];
