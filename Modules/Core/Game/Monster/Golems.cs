@@ -342,10 +342,10 @@ public static partial class Game
 
     internal static Task<bool> CastGolem(Player player,
         ushort source, GolemCatalog.Definition definition, (int X, int Y) aim, int recovery, Func<bool> current,
-        bool triggered = false) =>
+        bool triggered = false, bool atProxy = false) =>
         RepeatSummonCast(player, source, recovery, current, triggered, async () =>
         {
-            await SummonGolem(player, source, definition, aim, current: current);
+            await SummonGolem(player, source, definition, aim, current: current, atProxy: atProxy);
             return true;
         });
 
@@ -354,7 +354,7 @@ public static partial class Game
         Func<bool>? current = null, double summonedSecondsRemaining = 0,
         GolemState.MinionResourceSnapshot? resources = null, bool legacyArrival = false,
         GolemState.Golem? replacingOld = null, GemSourceLifetimes.SourceLifetime? retainedSource = null,
-        bool claimActivation = true)
+        bool claimActivation = true, bool atProxy = false)
     {
         if (replacingOld is null && Monsters.Find(definition.Variety) is { Supported: true } preVariety)
         {
@@ -426,7 +426,7 @@ public static partial class Game
             probe.Abilities = GolemAbilities(player, variety, level, probe, playerStats, preparedNow);
             probe.Skills = GolemNativeSkills(player, level, probe.Abilities);
         }
-        var at = definition.Kind == "Flame" && definition.Special && !arrival
+        var at = !arrival && (atProxy || definition.Kind == "Flame" && definition.Special)
             ? aim : NextToPlayer(player, Math.Clamp(variety.ObjectSize - 1, 0, 127));
         uint id = await SpawnMonster(player, variety, level, MonsterRarity.Normal, at.X, at.Y,
             friendly: true, mods: mods, unrisen: false, extraStats: MinionStats,

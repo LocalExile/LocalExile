@@ -607,7 +607,7 @@ public static partial class Game
                 return kind.Mine == placed.Mine && (kind.Mine || kind.Trap) && SameLinkedSkillSource(gem, supported);
             }
             session.Enqueue(() => ReleaseTriggeredSummon(player, session, placed.Skill, placed.At, Current,
-                playerConsumesCorpse: false));
+                useProxyOrigin: true));
             return;
         }
         // A projectile spell leaves the trap or mine towards the nearest enemy as its own projectile, with the hit and
