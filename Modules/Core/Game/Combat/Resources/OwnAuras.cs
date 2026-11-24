@@ -401,12 +401,21 @@ public static partial class Game
         // stamped value rides the record to every consumer (Bonus, RawStats, ResistanceStats, Pride, allies
         // and minions) without another lookup. Received auras live in player.ReceivedAuras, not player.Auras,
         // so only the caster's own auras are re-stamped here.
+        // Commander of Darkness: the caster's current values, stamped onto each running aura so the allies
+        // and minions it reaches learn them (AuraCatalog.Aura's Commander* fields). The reconcile cache
+        // compares Sources, so allocating or removing the node re-runs this loop.
+        var commander = CommanderOfDarkness(inputs.Sources);
         List<AuraCatalog.Aura>? restamped = null;
         foreach (var aura in player.Auras.Values)
         {
             int perAura = AuraCatalog.PerAuraEffectPctFor(aura, inputs.Sources);
-            if (perAura != aura.PerAuraEffectPct)
-                (restamped ??= []).Add(aura with { PerAuraEffectPct = perAura });
+            if (perAura != aura.PerAuraEffectPct
+                || commander.Speed != aura.CommanderAttackCastSpeedPct
+                || commander.Resistance != aura.CommanderElementalResistancePct
+                || commander.Damage != aura.CommanderDamagePct)
+                (restamped ??= []).Add(aura with { PerAuraEffectPct = perAura,
+                    CommanderAttackCastSpeedPct = commander.Speed, CommanderElementalResistancePct = commander.Resistance,
+                    CommanderDamagePct = commander.Damage });
         }
         if (restamped is not null)
         {

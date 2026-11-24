@@ -14,7 +14,11 @@ public static class AuraCatalog
         bool ReservesLife = false, int ReservationEfficiencyPct = 0, bool IsHerald = false,
         int LifeFlat = 0, int LifePercent = 0,
         int ArtVariation = 0, bool HideVisual = false, ushort? SourceVisual = null, ushort? BuffVisual = null,
-        int PerAuraEffectPct = 0)
+        int PerAuraEffectPct = 0,
+        // Commander of Darkness (Necromancer): the caster's stamped values, read from its own passive stats when the
+        // aura is reconciled (OwnAuras). They ride the record so the allies and minions the aura reaches can use them
+        // without reading the caster's connection; 0 when the caster has not allocated the node.
+        int CommanderAttackCastSpeedPct = 0, int CommanderElementalResistancePct = 0, int CommanderDamagePct = 0)
     {
         public object? StanceOwner { get; init; }
     }
@@ -322,6 +326,18 @@ public static class AuraCatalog
                     break;
             }
         }
+        // Commander of Darkness: each eligible aura grants the caster's speed (scaled by that aura's effect, rounded
+        // down per aura), and the resistance once for any aura affecting the recipient (PoE wiki: Commander of
+        // Darkness). The speed sums per aura; the resistance does not stack across the caster's auras.
+        int commanderSpeed = 0, commanderResistance = 0;
+        foreach (var commanderAura in auras)
+        {
+            if (!CommanderEligible(commanderAura, skills)) continue;
+            commanderSpeed += CommanderSpeed(commanderAura, auraEffectPct);
+            commanderResistance = Math.Max(commanderResistance, commanderAura.CommanderElementalResistancePct);
+        }
+        attackSpeed += commanderSpeed;
+        fire += commanderResistance; cold += commanderResistance; lightning += commanderResistance;
         return new CharacterStats.Bonus(FireResistance: fire, ColdResistance: cold, LightningResistance: lightning,
             ChaosResistance: chaos, FireMaxResistance: fireMax, ColdMaxResistance: coldMax,
             LightningMaxResistance: lightningMax, ChaosMaxResistance: chaosMax,
@@ -487,7 +503,39 @@ public static class AuraCatalog
             }
             foreach (var (key, value) in family) result[key] = ActorScale.Add(key, result.GetValueOrDefault(key), value);
         }
+        // Commander of Darkness: the speed per eligible aura (as in Bonus) reaches cast speed here, and the damage
+        // once for any aura affecting the recipient, unscaled by aura effect (PoE wiki: Commander of Darkness).
+        int commanderCastSpeed = 0, commanderDamage = 0;
+        foreach (var commanderAura in auras)
+        {
+            if (!CommanderEligible(commanderAura, skills)) continue;
+            commanderCastSpeed += CommanderSpeed(commanderAura, auraEffectPct);
+            commanderDamage = Math.Max(commanderDamage, commanderAura.CommanderDamagePct);
+        }
+        if (commanderCastSpeed != 0)
+            result[Stat.CastSpeedPlusPct] = ActorScale.Add(Stat.CastSpeedPlusPct, result.GetValueOrDefault(Stat.CastSpeedPlusPct), commanderCastSpeed);
+        if (commanderDamage != 0)
+            result[Stat.DamagePlusPct] = ActorScale.Add(Stat.DamagePlusPct, result.GetValueOrDefault(Stat.DamagePlusPct), commanderDamage);
         return result.Select(kv => (kv.Key, kv.Value));
+    }
+
+    /// <summary>Whether an aura carries Commander of Darkness grants: an aura skill (the copy's own
+    /// <see cref="SkillCatalog.IsAura"/>, the same predicate <see cref="Value"/> scales by) that reaches the
+    /// recipient as a friendly aura, not a hex or Pride, which affect enemies (PoE wiki: Commander of Darkness).
+    /// Heralds are not aura skills, so <see cref="SkillCatalog.IsAura"/> already leaves them out; the lists the
+    /// callers pass hold only auras affecting the recipient.</summary>
+    static bool CommanderEligible(Aura aura, SkillCatalog skills) =>
+        skills.IsAura(aura.Effect) && !CurseCatalog.Hex(aura.EffectId) && aura.EffectId != "Pride";
+
+    /// <summary>One aura's Commander of Darkness speed grant: the caster's stamped value, scaled by that aura's
+    /// own effect (its ExternalEffectPct, else the caller's aura effect plus the aura's support effect, as
+    /// <see cref="Value"/> reads them) and rounded down, per aura (PoE wiki: Commander of Darkness). Call only
+    /// for an eligible aura.</summary>
+    static int CommanderSpeed(Aura aura, int auraEffectPct)
+    {
+        int effect = aura.ExternalEffectPct ?? auraEffectPct + aura.SupportEffectPct;
+        int value = Math.Max(0, aura.CommanderAttackCastSpeedPct);
+        return (int)Math.Clamp((long)value * Math.Max(0, 100 + effect) / 100, 0, int.MaxValue);
     }
 
     private static int Value(SkillCatalog skills, StatCatalog stats, Aura aura, uint name, int auraEffectPct,
