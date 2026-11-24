@@ -192,7 +192,8 @@ public static partial class Game
             var resistance = MonsterHitResistance(m, type, default, now);
             if (type != DamageType.Physical)
                 resistance = resistance with { Maximum = Math.Clamp(resistance.Maximum
-                    + effects[Stat.Of($"base_maximum_{type.ToString().ToLowerInvariant()}_damage_resistance_%")], 0, 90) };
+                    + effects[Stat.Of($"base_maximum_{type.ToString().ToLowerInvariant()}_damage_resistance_%")]
+                    + (type != DamageType.Chaos ? effects[Stat.AdditionalMaximumAllElementalResistancesPct] : 0), 0, 90) };
             int value = (int)Math.Round(DamageModel.Mitigate(DamagePacket.Of(type, range.Min, range.Min), _ => resistance)[type].Min);
             if (type == DamageType.Physical)
             {
@@ -276,7 +277,8 @@ public static partial class Game
         return Math.Max(0L, (long)GolemStat(minion.Player, Stat.MinionPhysicalDamageReductionRating)
             + (minion.Definition.IsGolem ? GolemStat(minion.Player, Stat.GolemPhysicalDamageReductionRating) : 0)
             + effects[Stat.BasePhysicalDamageReductionRating])
-            * Math.Max(0, 1 + effects[Stat.DeterminationAuraArmourPlusPctFinal] / 100.0);
+            * Math.Max(0, 1 + effects[Stat.DeterminationAuraArmourPlusPctFinal] / 100.0)
+            * Math.Max(0, 1 + effects[Stat.ArmourPlusPctFinalFromSeismicCryBuff] / 100.0);
     }
 
     internal static void GolemDieLocked(Player player, GolemState.Golem g, double now, bool emitLife = true, bool canReform = true)

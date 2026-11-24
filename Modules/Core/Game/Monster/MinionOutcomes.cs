@@ -69,6 +69,8 @@ public static partial class Game
         var partyShares = PartyExperienceShares(player, at);
         ShareKill(player, victimId, monster, variety, at, partyShares);
         SoulEaterSoul(player, victimId, at);
+        MonsterKits.GrantKinDeathChargesLocked(player.Area, victimId, monster, now);
+        ProjectilesFor(player).EnqueueLater(() => MonsterKits.ExecuteDeathSkills(player, victimId, monster, at));
         var killer = PlayerOf(player); var modMonster = ModMonster(monster, at);
         // An admitted player kill retains its mod notification and charge event; owned kills do not acquire either.
         if (playerKill)
@@ -86,6 +88,7 @@ public static partial class Game
             ProjectilesFor(player).EnqueueLater(async () => await ExplodeOnKill(player, victimId, monster, at, explosionEquipment));
         }
         var packets = new List<(byte[] Packet, string? Log)>();
+        bool firstBossKill = HasUnsetKillQuestFlag(player, variety.Id);
         if (CommitQuestFlags(player, QuestFlagsOnKill(player, variety.Id)) is { } quest)
         {
             if (player.Connection.PlayerSent) state.OutputQueue.Add(new([], "0x02bc player quest flags (accepted kill)", Kind: PlayerMinions.OutputKind.QuestFlags));
@@ -102,10 +105,8 @@ public static partial class Game
         foreach (var run in GameEvents.Kill.For(player)) run(kill);
         foreach (var (packet, log) in packets) state.OutputQueue.Add(new(packet, log));
         uint xp = 0, gemXp = 0;
-        if (!monster.NoRewards && player.PlayerLife > 0 && Dist(at, player.Walk.Position(now)) <= ExperienceRange
-            && Monsters.BaseExperience(variety, monster.Level) is int baseXp)
-            (xp, gemXp) = KillExperience(killer, modMonster, baseXp, variety.ExperienceMultiplier, monster.Rarity,
-                player.Pools.Level, monster.Level, PartyExperienceShareOf(partyShares, player));
+        if (!MonsterGivesNoRewards(monster) && player.PlayerLife > 0 && Dist(at, player.Walk.Position(now)) <= ExperienceRange)
+            (xp, gemXp) = ComputeKillExperience(player, monster, variety, modMonster, PartyExperienceShareOf(partyShares, player));
         var gemRows = new List<(byte Row, uint[] Items)>();
         var (_, leveled) = CommitGemExperience(player, gemXp, gemRows);
         foreach (var (row, ids) in gemRows)
@@ -126,36 +127,14 @@ public static partial class Game
                 state.OutputQueue.Add(new([], "0x0033 current passive skill tree (accepted level)", Kind: PlayerMinions.OutputKind.Passives));
             }
         }
-        state.FlaskRewards.Add(new(monster.Rarity));
-        if (Environment.GetEnvironmentVariable("Game_DROPS") == "0") return;
-        if (monster.NoRewards || BossMods.GivesNoItems(variety) || variety.Id == TutorialObjects.Zombie) return;
-        if (!GameEvents.AllowsLoot(player)) return;
-        var balance = LeagueFor(player).Rules;
-        var modded = GameEvents.RunDrops(PlayerOf(killer), modMonster);
-        var drops = new List<ItemDrops.Drop>();
-        if (modded is not { Cancel: true })
+        if (!MonsterGivesNoRewards(monster))
+            state.FlaskRewards.Add(new(monster.Rarity));
+        var rng = AreaRng(player);
+        var stacked = RollKillLoot(player, monster, at, rng, firstBossKill);
+        if (stacked.Count == 0) return;
+        foreach (var drop in stacked)
         {
-            int mapTier = MapRunOf(player)?.Area.Tier ?? 0;
-            var mapMods = MapModsOf(player);
-            drops.AddRange(DropsFor(player).Roll(monster.Level, monster.Rarity, AreaRng(player), IncreasedItemRarity(player, monster),
-                balance.ItemDropMultiplier * (modded?.Quantity ?? 1) * ItemQuantityFactor(player, monster),
-                balance.EquipmentRarityMultiplier * (modded?.Rarity ?? 1), mapTier, mapMods, MapScarabQuantity(mapMods), modded?.Weights));
-            drops.AddRange(PartyCurrency(player, drops, AreaRng(player)));
-            if (RollMapDropForKill(player, monster.Level, monster.Rarity, mapTier, AreaRng(player), modded?.MapRelated ?? 1) is { } map) drops.Add(map);
-            if (DropsFor(player).Gold(monster.Level, monster.Rarity, AreaRng(player),
-                balance.GoldMultiplier * SystemSettings.Default.GoldDropMultiplier * (modded?.Gold ?? 1)) is { } gold) drops.Add(gold);
-        }
-        if (modded is not { Cancel: true }) drops.AddRange(Sirus.Rewards(player, monster));
-        drops = ModdedDrops(player, modded, drops, monster.Level, monster.Rarity, IncreasedItemRarity(player, monster),
-            balance.EquipmentRarityMultiplier, AreaRng(player));
-        drops.AddRange(MadeDrops(player, modded));
-        modded?.ApplyTransforms(drops);
-        if (MapBeyond.CorruptsDrops(player, variety?.Id)) CorruptDrops(drops);
-        foreach (var drop in ItemDrops.Stacked(drops))
-        {
-            double angle = AreaRng(player).NextDouble() * Math.Tau, radius = 3 + AreaRng(player).NextDouble() * 3;
-            int x = at.X + (int)Math.Round(Math.Cos(angle) * radius), y = at.Y + (int)Math.Round(Math.Sin(angle) * radius);
-            if (player.Layout.Walkable is { } walks && !walks(x, y)) (x, y) = at;
+            var (x, y) = ScatterDropPosition(player, at, rng);
             var ground = new WorldItemObject(x, y, drop.Item);
             uint id = player.Instance.Ground.Add(ground, player);
             state.OutputQueue.Add(new([], $"world item 0x{id:x} {drop.Type.Name} dropped by {monster.Label} at ({x}, {y})",

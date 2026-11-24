@@ -298,7 +298,9 @@ public static partial class Game
                 if (!m.Hostile || m.Dead || m.Life == 0 || Dist(m.Walk.Position(now), at) > blast.Radius) continue;
                 int damage = MonsterTakesRolled(m, packet, spell: false, now: now);
                 var cull = MinionIgniteKillRule(ownerStats, m, now);
-                if (ApplyMonsterHitLocked(player, m, damage, allyAt: at, cull: cull) is not { } hit) continue;
+                int chaosDamage = blast.Type == DamageType.Chaos ? damage : 0;
+                if (ApplyMonsterHitLocked(player, m, damage, rampageSource: null, playerStats: null, allyAt: at,
+                    cull: cull, cullPlayer: null, chaosDamage: chaosDamage) is not { } hit) continue;
                 if (hit.StageStarts)
                 {
                     CommitBossStage(player, id, m, ProjectileWorldTime(player));

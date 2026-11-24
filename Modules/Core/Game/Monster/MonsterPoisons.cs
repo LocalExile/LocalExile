@@ -110,11 +110,14 @@ public static partial class Game
                 else damage = m.Poisons.Advance(now, MonsterDotTaken(m, DamageType.Chaos, now), m.Life);
                 if (damage > 0)
                 {
-                    (m.Life, bool stageStarts) = TakeOwnerDamageLocked(player, m, damage);
+                    int lifeDamage = ApplyMonsterDotEnergyShieldLocked(player.Area, m, damage, chaos: true, AreaTime(player));
+                    bool stageStarts = false;
+                    if (lifeDamage > 0) (m.Life, stageStarts) = TakeOwnerDamageLocked(player, m, lifeDamage);
                     m.Aggro = m.Life > 0;
                     if (m.Life == 0)
                     {
                         m.Dead = true;
+                        CleanupDeadMonsterLocked(player.Area, id, m);
                         CollectVaalSoulAtDeathLocked(player, m);
                         m.Poisons.ClearAtDeath(now, poisonDeath: true);
                     }

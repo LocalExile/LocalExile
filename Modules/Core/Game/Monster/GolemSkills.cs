@@ -164,6 +164,18 @@ public static partial class Game
             values[Stat.AdditionalElementalDamageReductionPct] = values.GetValueOrDefault(Stat.AdditionalElementalDamageReductionPct)
                 + 4 * endurance;
         }
+        // Unnatural Strength: "Your Minions have Unholy Might". The buff row (BuffDefinitions unholy_might)
+        // grants full physical-to-chaos conversion and a 25% chance to Wither on hit for 2 seconds; the minion's
+        // own mods gain both here, so GolemAbilities converts the damage and the minion hit path rolls the wither
+        // from them. The row's withered_effect_+% and reduce_enemy_chaos_resistance_% carry no value from this
+        // grant and are left out.
+        if (values.GetValueOrDefault(Stat.HasUnholyMight) > 0)
+        {
+            uint chaos = Stat.Of("physical_damage_%_to_convert_to_chaos");
+            values[chaos] = values.GetValueOrDefault(chaos) + 100;
+            values[Stat.WitheredOnHitFor2SecondsPctChance] =
+                values.GetValueOrDefault(Stat.WitheredOnHitFor2SecondsPctChance) + 25;
+        }
         int Get(uint n) => GolemStat(playerStats, n);
         GolemAdd(values, Stat.GlobalChanceToBlindOnHitPct, Get(Stat.MinionsPctChanceToBlindOnHit));
         GolemAdd(values, Stat.BaseChanceToPoisonOnHitPct, Get(Stat.MinionsChanceToPoisonOnHitPct));

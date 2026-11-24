@@ -229,7 +229,7 @@ public static partial class Game
                 var mitigated = MitigateMonsterHit(m, rolled, now, cannotPenetrateOrIgnore:
                     Math.Max(Player(Stat.CannotPenetrateOrIgnoreElementalResistances), Own(Stat.CannotPenetrateOrIgnoreElementalResistances)));
                 int damage = MonsterTakesMitigated(m, mitigated, spell, now, random: AreaRng(player));
-                if (ApplyMonsterHitLocked(player, m, damage) is not { } hit) continue;
+                if (ApplyTypedMonsterHitLocked(player, m, damage, MonsterHitChaosDamage(m, mitigated, spell, now, damage)) is not { } hit) continue;
                 if (hit.StageStarts)
                 { CommitBossStage(player, id, m, now); hit = hit with { StageStarts = false }; }
                 {

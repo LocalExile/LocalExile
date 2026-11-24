@@ -104,6 +104,7 @@ sealed class Act2 : Act
             // gem up first sends her to town. Greust's "Blackguard Reward" is offer 13 (gems).
             new Quest("a2q6")
             {
+                On.Entered(ForestEncampment, "a2b-StartNewQuests"),
                 On.Near(ChamberOfSins2, Act2Objects.HelenaSins, "a2q6-SeenHelena"),
                 On.Object(ChamberOfSins2, Act2Objects.PietySins, "a2q6-SeenPiety"),
                 On.Near(ChamberOfSins2, Act2Objects.PietySins, "a2q6-SeenPiety"),

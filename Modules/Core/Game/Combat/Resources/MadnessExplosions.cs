@@ -107,7 +107,7 @@ public static partial class Game
                     if (critical) damage = DamageModel.CriticalDamage(damage,
                         CriticalMultiplierOn(target, CriticalHitMultiplier(150L + Get(Stat.BaseCriticalStrikeMultiplierPlus),
                             playerStats), playerStats));
-                    if (ApplyMonsterHitLocked(player, target, damage, playerStats: playerStats) is not { } hit) continue;
+                    if (ApplyTypedMonsterHitLocked(player, target, damage, MonsterHitChaosDamage(target, mitigated, false, now, damage), playerStats: playerStats) is not { } hit) continue;
                     if (hit.StageStarts)
                     {
                         CommitBossStage(player, id, target, now);

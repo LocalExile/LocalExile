@@ -38,9 +38,9 @@ public static class QuestItems
     public static bool Drops(QuestItemFlags? flags, Func<string, bool> has, bool carried, bool onGround) =>
         !(flags is not null && Removed(flags, has)) && !carried && !onGround;
 
-    /// <summary>The flags a pickup sets that the character lacks (grant_flag, extra_flag); none once the item is done with.</summary>
+    /// <summary>The flags a pickup sets that the character lacks (grant_flag, extra_flag, extra_flag2); none once the item is done with.</summary>
     public static List<string> PickupFlags(QuestItemFlags flags, Func<string, bool> has) =>
-        Removed(flags, has) ? [] : [.. new[] { flags.Grant, flags.Extra }.OfType<string>().Where(f => !has(f)).Distinct()];
+        Removed(flags, has) ? [] : [.. new[] { flags.Grant, flags.Extra, flags.Extra2 }.OfType<string>().Where(f => !has(f)).Distinct()];
 
     /// <summary>The flag changes that make the grant flags follow the quest items carried (and the extra flags, once one is
     /// carried), over every quest item type <paramref name="types"/> knows; and the types whose carried copies must go (their
@@ -58,6 +58,7 @@ public static class QuestItems
             // Two types may share a grant flag: it is held while any of them is.
             if (t.Grant is { } grant) grants[grant] = grants.GetValueOrDefault(grant) || held && !removed;
             if (held && !removed && t.Extra is { } extra && !has(extra) && !set.Contains(extra)) set.Add(extra);
+            if (held && !removed && t.Extra2 is { } extra2 && !has(extra2) && !set.Contains(extra2)) set.Add(extra2);
         }
         foreach (var (grant, want) in grants)
         {
