@@ -227,7 +227,8 @@ public static partial class Game
         {
             using var sourceAdmission = AscendancyPolicies.Enter(player, player.Character.MainAscendancy.Selection);
             ticket = null;
-            if (SkillsFor(player).EffectId(effect) is TwisterEffect or CatStealthCryEffect) return false;
+            string? effectId = SkillsFor(player).EffectId(effect);
+            if (effectId is TwisterEffect or CatStealthCryEffect) return false;
             SingleUseCooldownState? state = null;
             StanceAdmissionPlan? stancePlan = null;
             int key = skillId is ushort requestedKey ? CooldownKey(player, effect, requestedKey) : effect;
@@ -282,8 +283,11 @@ public static partial class Game
             }
             if (skillId is ushort banner && BannerAuraRow(SkillsFor(player).EffectId(effect)) != 0
                 && !CanUseBanner(player, banner)) return false;
+            bool vengeful = effectId == VengefulCryEffect;
+            if (vengeful && (triggered || skillId is not ushort vengeanceSkill || !VengefulCryReady(player, vengeanceSkill, AreaTime(player))))
+                return false;
             if (admit is not null && !admit()) return false;
-            bool bypassed = false, cooldownReset = false;
+            bool bypassed = false, cooldownReset = false, retainRetaliationUse = false;
             int resetBaseMilliseconds = 0;
             ushort? payer = reserve && vaal is null && skillId is ushort candidate && PaysOnUse(player, candidate, effect)
                 ? candidate : null;
@@ -295,7 +299,7 @@ public static partial class Game
                 var peers = SharedCooldownPeers(player, effect, key, cooldown, now);
                 state.Refresh(now, cooldown.RecoveryRate);
                 state.Capacity(cooldown.Uses);
-                if (reserve && state.Ready && CooldownResetTriggered(player, effect, skillId, AreaRng(player)))
+                if (reserve && state.Ready && CooldownResetTriggered(player, effect, skillId, AreaRng(player), out retainRetaliationUse))
                 {
                     cooldownReset = true;
                     resetBaseMilliseconds = cooldown.BaseMilliseconds;
@@ -320,6 +324,7 @@ public static partial class Game
                 if (!PayMana(player, accepted, out uint mana, out uint life)) return false;
                 paid = (mana, life);
             }
+            if (reserve && vengeful && !retainRetaliationUse) player.RecentEvents.Forget(VengefulCryOpportunity);
             if (!instant) CancelMeleeRepeats(player, requestedAt ?? ProjectileWorldTime(player));
             if (attack is { } swing)
                 player.NextAttackAt = AttackTiming.After(swing.At, player.NextAttackAt, swing.Seconds);
@@ -344,8 +349,12 @@ public static partial class Game
     internal const uint RetaliationPreventCooldownStat = Stat.RetaliationSkillKeepUseRequirementAndPreventCooldownOnUseChancePct;
     internal const uint BaseCooldownRefreshChanceStat = Stat.BaseCooldownRefreshChancePct;
 
-    internal static bool CooldownResetTriggered(Player player, int effect, ushort? skillId, Random random)
+    internal static bool CooldownResetTriggered(Player player, int effect, ushort? skillId, Random random) =>
+        CooldownResetTriggered(player, effect, skillId, random, out _);
+
+    static bool CooldownResetTriggered(Player player, int effect, ushort? skillId, Random random, out bool retainRetaliationUse)
     {
+        retainRetaliationUse = false;
         // Guard skills hold their cooldown frozen until their buff ends (Hold/Resume + guard.RecoverySeconds);
         // skipping instant reset keeps the held cooldown bar and server guard lockout synchronized.
         if (SkillsFor(player).IsGuard(effect)) return false;
@@ -353,10 +362,9 @@ public static partial class Game
         var own = skillId is ushort id ? SupportedSkill(player, id).Stats : null;
         int Value(uint key) => (int)Math.Clamp((long)stats.GetValueOrDefault(key) + (own?.GetValueOrDefault(key) ?? 0),
             int.MinValue, int.MaxValue);
-        if (SkillsFor(player).IsRetaliation(effect)
-            && RandomRolls.Chance(Value(RetaliationPreventCooldownStat), 100, random))
-            return true;
-        return RandomRolls.Chance(Value(BaseCooldownRefreshChanceStat), 100, random);
+        retainRetaliationUse = SkillsFor(player).IsRetaliation(effect)
+            && RandomRolls.Chance(Value(RetaliationPreventCooldownStat), 100, random);
+        return retainRetaliationUse || RandomRolls.Chance(Value(BaseCooldownRefreshChanceStat), 100, random);
     }
 
     // A link gem links its target with no upfront cost, only its cost over time (CastLink).

@@ -1301,6 +1301,9 @@ public static partial class Game
                 || !FlameSourceCurrent(player, flameSource)))
             return false;
         bool shieldCharge = gem.Name is not null && ShieldChargeBonusPct(player, skillId, gem.Effect) != 0;
+        if (cooldownUse is null && SkillsFor(player).EffectId(gem.Effect) == VengefulCryEffect
+            && !TryBeginSkillCooldownUse(player, skillId, gem.Effect, CooldownForSkill(player, skillId),
+                instant: false, () => { }, out cooldownUse, actionToken)) return false;
         // Eligible uses arrive with their one original preflight reservation. Never reserve again after an await.
         if (cooldownUse is not null)
         {

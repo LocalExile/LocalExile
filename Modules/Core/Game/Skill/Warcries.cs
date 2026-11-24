@@ -22,6 +22,25 @@ public static partial class Game
     public const ushort RallyingCryBuffRow = 1538, SeismicCryBuffRow = 1544, AncestralCryBuffRow = 1545,
         InfernalCryBuffRow = 1540, BattlemagesCryBuffRow = 1866, VengefulCryBuffRow = 2476;
 
+    const string VengefulCryEffect = "VengefulCry";
+    const string VengefulCryOpportunity = "vengeful_cry_opportunity";
+
+    static bool VengefulCryReady(Player player, ushort skillId, double now)
+    {
+        if (player.RecentEvents.LastWindow(VengefulCryOpportunity) is not { } opportunity
+            || now < opportunity.From) return false;
+        var own = SupportedSkill(player, skillId).Stats;
+        long milliseconds = own.GetValueOrDefault(Stat.RetaliationBaseUseWindowDurationMs);
+        if (milliseconds <= 0) return false;
+        var character = PlayerStatValues(player);
+        milliseconds += (long)own.GetValueOrDefault(Stat.RetaliationSkillAdditionalUseWindowDurationMs)
+            + character.GetValueOrDefault(Stat.RetaliationSkillAdditionalUseWindowDurationMs);
+        long increased = (long)own.GetValueOrDefault(Stat.RetaliationUseWindowDurationPlusPct)
+            + character.GetValueOrDefault(Stat.RetaliationUseWindowDurationPlusPct);
+        double seconds = Math.Max(0, milliseconds) * Math.Max(0, 100d + increased) / 100000d;
+        return now < opportunity.From + seconds;
+    }
+
     /// <summary>The BuffDefinitions row a warcry's own buff uses, or null when no buff is granted for it.</summary>
     public static ushort? WarcryBuffRow(string effectId) => effectId switch
     {
@@ -30,7 +49,7 @@ public static partial class Game
         "AncestralCry" => AncestralCryBuffRow,
         "InfernalCry" => InfernalCryBuffRow,
         "BattlemagesCry" => BattlemagesCryBuffRow,
-        "VengefulCry" => VengefulCryBuffRow,
+        VengefulCryEffect => VengefulCryBuffRow,
         _ => null,
     };
 
@@ -58,7 +77,7 @@ public static partial class Game
                 [(Stat.PhysicalDamagePctToAddAsFire, Scaled(steps5, own(Stat.InfernalCryPhysicalDamagePctToAddAsFirePer5PowerUpToCap)))],
             "BattlemagesCry" =>
                 [(Stat.AdditionalBaseCriticalStrikeChance, Scaled(steps5, own(Stat.DivineCryAdditionalBaseCriticalStrikeChancePer5PowerUpToCap)))],
-            "VengefulCry" =>
+            VengefulCryEffect =>
             [
                 (Stat.BaseRageRegenerationPerMinute, Scaled(steps5, own(Stat.RageWarcryGainXRagePerMinutePer5MonsterPowerMax25Power))),
                 (Stat.MaximumRage, Scaled(1, own(Stat.RageWarcryMaximumRagePlus))),
@@ -252,11 +271,14 @@ public static partial class Game
         // Call to Arms suppresses the caster's own warcry buffs. Allies still get theirs.
         if (!rallying && playerStats.GetValueOrDefault(Stat.KeystoneCallToArms) == 0) GrantPlayer(player);
         foreach (var ally in nearbyPlayers) GrantPlayer(ally);
-        var ownMinions = ownMinionGift is null ? null : player.Minions.All.Select(m => m.Id).ToHashSet();
-        foreach (var (id, ally) in player.Area.Monsters)
-            if (!ally.Hostile && !ally.Dead && ally.Life > 0 && Dist(ally.Walk.Position(now), at) <= radius)
-                ReceiveWarcry(player.Area, id, MinionWarcryGrants.GetOrCreateValue(ally),
-                    ownMinions?.Contains(id) == true ? ownMinionGift! : gift, now);
+        if (row != VengefulCryBuffRow)
+        {
+            var ownMinions = ownMinionGift is null ? null : player.Minions.All.Select(m => m.Id).ToHashSet();
+            foreach (var (id, ally) in player.Area.Monsters)
+                if (!ally.Hostile && !ally.Dead && ally.Life > 0 && Dist(ally.Walk.Position(now), at) <= radius)
+                    ReceiveWarcry(player.Area, id, MinionWarcryGrants.GetOrCreateValue(ally),
+                        ownMinions?.Contains(id) == true ? ownMinionGift! : gift, now);
+        }
         Console.WriteLine($"[gateway] {effectId}: warcry buff row {row} power={power} for {duration:0.###} s");
     }
 
