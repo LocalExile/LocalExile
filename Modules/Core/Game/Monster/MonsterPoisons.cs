@@ -85,19 +85,26 @@ public static partial class Game
         var (min, max) = critical ? (settings.CriticalMin, settings.CriticalMax) : (settings.Min, settings.Max);
         perSecond = min + (Math.Max(min, max) - min) * random.NextDouble();
         seconds = settings.Seconds * MonsterPoisons.SelfDuration(name => target.Mods.Effects[name]);
+        // Master Toxicist: "Poisons you inflict during any Flask Effect have N% chance to deal 100% more Damage", rolled for
+        // each poison applied.
+        int doubleChance = Get(Stat.PathfinderPoisonDamagePlus100PctFinalChanceDuringFlaskEffect) is var finalChance and > 0 && AnyFlaskEffect(player)
+            ? Math.Min(finalChance, 100) : 0;
         if (!ApplyHitPoisonsLocked(target.Poisons, now, perSecond, seconds,
-            Get(Stat.AdditionalPoisonsPlusToApplyVsNonPoisonedEnemies))) return false;
+            Get(Stat.AdditionalPoisonsPlusToApplyVsNonPoisonedEnemies), doubleChance, random)) return false;
         InflictedLocked(player, target, AilmentType.Poison, now + seconds);
         ReservationPoisonLocked(player, now);
         return true;
     }
 
-    static bool ApplyHitPoisonsLocked(MonsterPoisons target, double now, double perSecond, double seconds, int additional)
+    static bool ApplyHitPoisonsLocked(MonsterPoisons target, double now, double perSecond, double seconds, int additional,
+        int doubleChance = 0, Random? random = null)
     {
         // Decide whether Lethal Dose applies before inserting any poisons from this hit.
         int extra = additional > 0 && target.Stacks(now) == 0 ? additional : 0;
-        bool applied = target.Add(now, perSecond, seconds);
-        for (int i = 0; i < extra; i++) applied |= target.Add(now, perSecond, seconds);
+        bool AddPoison() => target.Add(now,
+            doubleChance > 0 && random is not null && RandomRolls.Chance(doubleChance, 100, random) ? perSecond * 2 : perSecond, seconds);
+        bool applied = AddPoison();
+        for (int i = 0; i < extra; i++) applied |= AddPoison();
         return applied;
     }
 
