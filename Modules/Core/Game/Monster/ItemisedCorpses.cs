@@ -30,7 +30,7 @@ public static partial class Game
         var instance = player.Instance;
         int epoch = player.ProjectileEpoch;
         bool Floor(int x, int y) => player.Layout.WalkableFor(x, y, 0) && !player.Barrier.Contains((x, y));
-        var at = NextToPlayer(player, Floor);
+        var at = NextToPlayer(player, bodySize: 0);
         bool Current() => player.PlayerLife > 0 && !player.Paused && !InTown(player)
             && ReferenceEquals(instance, player.Instance) && player.ProjectileEpoch == epoch
             && Floor(at.X, at.Y);
