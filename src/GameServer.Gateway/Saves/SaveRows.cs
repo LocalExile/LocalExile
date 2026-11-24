@@ -569,7 +569,7 @@ public static class SaveRows
         "has_mods", "name", "gem_variant", "corrupted", "fractured", "mirrored", "gem_flags", "visual", "defence_base_roll",
         "influences", "split", "synthesised", "foreseeing", "foresee_seed", "alternate_quality_type", "vestigial",
         "heist_blueprint", "deepwater_chart",
-        "memory_strands", "intangibility", "required_level", "relic_style", "scrying_area_hash",
+        "memory_strands", "intangibility", "required_level", "relic_style", "scrying_area_hash", "skill_bar_gem_id",
     ];
 
     static object?[] ItemValues(SavedItem i) =>
@@ -578,7 +578,7 @@ public static class SaveRows
         i.GemExperience, (long)i.Rarity, i.Identified, i.Mods is not null, JsonOf(i.Name), i.GemVariant, i.Corrupted, i.Fractured,
         i.Mirrored, i.GemFlags, i.Visual, i.DefenceBaseRoll, (long)i.Influences, i.Split, i.Synthesised, i.Foreseeing, i.ForeseeSeed,
         i.AlternateQualityType, i.Vestigial, JsonOf(i.HeistBlueprint), JsonOf(i.Chart),
-        i.MemoryStrands, i.Intangibility, i.RequiredLevel, i.RelicStyle, i.ScryingAreaHash,
+        i.MemoryStrands, i.Intangibility, i.RequiredLevel, i.RelicStyle, i.ScryingAreaHash, i.SkillBarGemId?.ToString("N"),
     ];
 
     static List<ItemRow> ReadItems(SaveDatabase db, Owner owner, long id, long? inventory)
@@ -637,7 +637,9 @@ public static class SaveRows
                 { SkinTransferSource = donors.GetValueOrDefault(r.Id),
                     MemoryStrands = (byte)v.Long("memory_strands")!.Value, Intangibility = (byte)v.Long("intangibility")!.Value,
                     RequiredLevel = (int?)v.Long("required_level"), RelicStyle = (byte?)v.Long("relic_style"),
-                    ScryingAreaHash = (ushort?)v.Long("scrying_area_hash"), Chart = v.Json<ChartData?>("deepwater_chart") };
+                    ScryingAreaHash = (ushort?)v.Long("scrying_area_hash"),
+                    Chart = v.Json<ChartData?>("deepwater_chart"),
+                    SkillBarGemId = v.Text("skill_bar_gem_id") is { } gemId ? Guid.ParseExact(gemId, "N") : null };
         }
         return [.. rows.Where(r => r.Parent is null).OrderBy(r => r.Inventory).ThenBy(r => r.Ord)
             .Select(r => new ItemRow(r.Id, r.Role, null, r.Ord, r.Inventory, r.Placement, r.X, r.Y, Build(r)))];

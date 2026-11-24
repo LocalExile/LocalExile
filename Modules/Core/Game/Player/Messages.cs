@@ -509,11 +509,10 @@ public static partial class Game
             else if (id == InstanceProtocol.BindSkillId)
             {
                 var (slot, skill) = InstanceProtocol.ReadBindSkill(bytes);
-                string? entry = SkillBarEntry(player, skill);
+                string? entry = BindSkillBar(player, slot, skill);
                 Console.WriteLine($"[gateway] {player.Connection.Remote} <= 0x004e bind skill 0x{skill:x4} ({(entry is null ? "unknown, not saved" : entry == "" ? "empty" : entry)}) to slot {slot}: {Convert.ToHexString(bytes)}");
-                if (entry is not null && slot < InstanceProtocol.SkillBarSlots)
+                if (entry is not null)
                 {
-                    SkillBarLayout.Bind(CharacterName(player), slot, entry);
                     // Echo 0x0053 so the client updates its server-authoritative skill bar cache (instance +0xc7d8);
                     // otherwise the next 0x02bc Actor update (e.g. unsocketing a support gem) rebuilds the bar from stale data.
                     await SendSkillBar(player);

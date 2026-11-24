@@ -941,6 +941,31 @@ public static partial class Game
     public static string? SkillBarEntry(Player player, ushort skillId) =>
         skillId == 0 ? "" : SkillEffectId(player, skillId) ?? (SkillsFor(player).ActionName(skillId) is { } a ? "Action/" + a : null);
 
+    static string? BindSkillBar(Player player, byte slot, ushort skillId)
+    {
+        if (slot >= InstanceProtocol.SkillBarSlots) return null;
+        return Saves.Atomically(() =>
+        {
+            string? entry;
+            if (SkillsFor(player).IsGemSkill(skillId))
+            {
+                var selected = PlayerSkillSourcesNow(player).FirstOrDefault(source => source.Id == skillId && source.Active);
+                if (selected is null || SkillsFor(player).EffectId(selected.Effect) is not { } effect) return null;
+                entry = effect;
+                if (selected.SourceGem is { } gem)
+                {
+                    if (ItemsOf(player).EnsureSkillBarGemId(selected.Identity.Host, selected.Identity.Socket, gem) is not Guid id)
+                        return null;
+                    entry = SkillBarLayout.GemBinding(id, effect);
+                }
+            }
+            else entry = SkillBarEntry(player, skillId);
+            if (entry is null) return null;
+            SkillBarLayout.Bind(CharacterName(player), slot, entry);
+            return entry;
+        });
+    }
+
     // The saved skill bar as the player's current skill ids, sent with S→C 0x53 together with the per-slot option
     // masks (0x53 sets them, so 0 would clear "Always Attack Without Moving": a slot the player never touched is sent
     // its skill's own default, AttackInPlaceDefaults). The default attack goes on slot 0 (left mouse button) only when
@@ -978,8 +1003,8 @@ public static partial class Game
     }
 
     // A bind received while an earlier refresh waits for the send gate must win over that refresh.
-    // The skill ids the saved bar names, slot by slot: a slot's save names a GrantedEffects Id or a basic action, since
-    // the ids themselves change with the socketed gems. Taken out of SkillBarRecord so the slot options can be read
+    // Resolve a saved slot's effect, specific gem, or basic action to the skill id the client uses now.
+    // Taken out of SkillBarRecord so the slot options can be read
     // against the same bar (AttackInPlaceDefaults).
     public static ushort[] SkillBarIds(Player player, IReadOnlyDictionary<int, string>? saved)
     {
@@ -988,12 +1013,18 @@ public static partial class Game
             .Append((Id: SkillCatalog.FirstSkillId, Effect: SkillEffectId(player, SkillCatalog.FirstSkillId)))
             .Where(e => e.Effect is not null).GroupBy(e => e.Effect!).ToDictionary(g => g.Key, g => g.First().Id);
         if (saved is { Count: > 0 })
+        {
+            if (saved.Values.Any(entry => SkillBarLayout.BoundGemEffect(entry) is not null))
+                foreach (var source in PlayerSkillSourcesNow(player))
+                    if (source.Active && source.SourceGem?.SkillBarGemId is Guid gem && SkillsFor(player).EffectId(source.Effect) is { } effect)
+                        byEffect.TryAdd(SkillBarLayout.GemBinding(gem, effect), source.Id);
             foreach (var (slot, entry) in saved)
             {
                 if (slot < 0 || slot >= ids.Length) continue;
                 if (entry.StartsWith("Action/") && SkillsFor(player).ActionSkillId(entry["Action/".Length..]) is ushort action) ids[slot] = action;
                 else if (byEffect.TryGetValue(entry, out ushort id)) ids[slot] = id;
             }
+        }
         if (saved is not { Count: > 0 } || !saved.ContainsKey(0)) ids[0] = SkillCatalog.FirstSkillId;
         foreach (var build in GameEvents.SkillBarBuilding.For(player)) build(player, ids);
         return ids;
@@ -1037,7 +1068,9 @@ public static partial class Game
         var unassigned = SkillBarLayout.Unassigned(save);
         string attack = SkillEffectId(player, SkillCatalog.FirstSkillId)!;
         var gems = GemSkillEffects(player).Select(g => SkillsFor(player).EffectId(g.Effect)).OfType<string>().ToList();
-        var added = SkillBarLayout.Fill(bar, attack, gems.Where(g => !unassigned.Contains(g)), entry => entry == attack || entry.StartsWith("Action/") || gems.Contains(entry));
+        var explicitlyBound = bar.Values.Select(SkillBarLayout.BoundGemEffect).OfType<string>().ToHashSet();
+        var added = SkillBarLayout.Fill(bar, attack, gems.Where(g => !unassigned.Contains(g) && !explicitlyBound.Contains(g)),
+            entry => entry == attack || entry.StartsWith("Action/") || SkillBarLayout.BoundGemEffect(entry) is not null || gems.Contains(entry));
         foreach (var (slot, entry) in added) CharacterSaves.SetSkillBar(character, (byte)slot, entry);
         if (added.Count > 0)
             Console.WriteLine($"[gateway] {character} skill bar: {string.Join(", ", added.Select(a => $"{a.Entry} on slot {a.Slot}"))}");
