@@ -17,7 +17,17 @@ namespace GameServer.Modules.Legion;
 /// </summary>
 static partial class LegionMonolith
 {
+    /// <summary>The generic locator of the Legion room the generator adds when an area's Legion chance rolls (maps).</summary>
     public const string LocatorType = "Metadata/Terrain/Leagues/Legion/Objects/Legion_EncounterLocator";
+    /// <summary>The locators that get a monolith: the generic one and the campaign's fixed ones, which sit inside the areas' own
+    /// rooms (chance 0 there): The Climb (1_1_6, flag_hill_1.arm) and The Dried Lake (1_4_2, nightwane_boss.arm). An exact set:
+    /// LegionEndgame_EncounterLocator belongs to the endgame (Domain), not to this encounter.</summary>
+    static readonly HashSet<string> LocatorTypes =
+    [
+        LocatorType,
+        "Metadata/Terrain/Leagues/Legion/Objects/FirstTimeLegion_EncounterLocator",
+        "Metadata/Terrain/Leagues/Legion/Objects/DriedLake_EncounterLocator",
+    ];
     public const string InitiatorType = "Metadata/Terrain/Leagues/Legion/Objects/LegionInitiator";
     /// <summary>MiscAnimated 3270 LegionMonolithPulse.</summary>
     const string PulseModel = "Metadata/Effects/Spells/monsters_effects/essence/monolith_pulse/monolith_pulse.ao";
@@ -82,7 +92,7 @@ static partial class LegionMonolith
         GameEvents.ObjectUse.Add(id, (player, use, requestedAt) => Use(module, player, use, requestedAt));
     }
 
-    static bool HasLocator(Player player) => player.Layout.Level?.RoomObjects.Any(o => o.Type == LocatorType) == true;
+    static bool HasLocator(Player player) => player.Layout.Level?.RoomObjects.Any(o => LocatorTypes.Contains(o.Type)) == true;
 
     static Encounter? Of(Player player)
     {
@@ -113,7 +123,7 @@ static partial class LegionMonolith
     {
         var player = area.Player;
         if (player.Instance is not { } instance || Of(player) is not null) return;
-        if (player.Layout.Level?.RoomObjects.FirstOrDefault(o => o.Type == LocatorType) is not { } locator) return;
+        if (player.Layout.Level?.RoomObjects.FirstOrDefault(o => LocatorTypes.Contains(o.Type)) is not { } locator) return;
         // The room's line has no fixed height (NaN): the object then takes the terrain's.
         float? z = float.IsNaN(locator.Z) ? null : locator.Z;
         var e = new Encounter(new(player.TakeObjectId(), locator.X, locator.Y, area.Level, 0, 0, 0, 0, locator.Rotation, z));

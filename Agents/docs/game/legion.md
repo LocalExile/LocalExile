@@ -10,6 +10,11 @@ The rules the code follows are the wiki's for 3.29; what the client data and cod
 - `Metadata/Terrain/Leagues/Legion/Objects/Legion_EncounterLocator` is only a marker (`server_only`) at the centre of the
   room `legion_monolith.arm`. The server creates the clickable `LegionInitiator` there; no formation file exists in the
   client, so where each monster stands is the server's.
+- The campaign's monoliths are not the league-chance roll (`WorldAreaLeagueChances` gives Legion 0 there): fixed locators sit
+  in the areas' own rooms, `FirstTimeLegion_EncounterLocator` in The Climb (1_1_6, `flag_hill_1.arm`) and
+  `DriedLake_EncounterLocator` in The Dried Lake (1_4_2, `nightwane_boss.arm`). The module places the monolith at these and at
+  `Legion_EncounterLocator`; `LegionEndgame_EncounterLocator` is the endgame's and is not used. One monolith per area: the
+  first locator found.
 - `LegionInitiator` StateMachine states: `charging=1` (build-up, untargetable, no collision), `shattered=1` (shatter, then idle),
   `locked=1` (untargetable, at the end), `spawn_lightning=1` (bolts from the monolith towards the general while it stands frozen).
 - Every Legion monster and war chest has the states `breakout`, `activated` (generals also `general`, `fleeing`, `disappear`).
