@@ -35,6 +35,11 @@ public static partial class Game
         ExpireMinionChargesLocked(player, g, now);
         RefreshGolemLocked(player, g, currentPlayer, now);
         if (m.Dead || m.Life == 0) return;
+        if (g.Definition.Kind == VolatileAnomalyFamily)
+        {
+            VolatileAnomalyStepLocked(player, g, now);
+            return;
+        }
         if (g.Definition.Kind == "DoedresEffigy")
         {
             EffigyHexesTickLocked(player, g, now);

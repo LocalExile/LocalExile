@@ -14,7 +14,8 @@ public sealed class SummonCatalog
     }
 
     public sealed record Definition(string Id, string Family, string Variety, uint LimitStat,
-        uint CountStat, bool Persistent = false, bool Corpse = false, bool Follows = true, bool Targetable = true)
+        uint CountStat, bool Persistent = false, bool Corpse = false, bool Follows = true, bool Targetable = true,
+        int LimitWithoutStat = 1)
     {
         /// <summary>The limit without its base_ prefix (the final stat the panel shows), 0 when none.</summary>
         public uint FinalLimitStat => LimitStat == 0 ? 0 : Stat.Of(Program.Stats.Name(LimitStat).Replace("base_", "", StringComparison.Ordinal));

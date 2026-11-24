@@ -353,9 +353,10 @@ public sealed class MonsterElementalAilments
         Apply(new(kind, now, now + seconds, BaseWithoutDamage(kind, attacker, target, stated))
             { Spread = SpreadRadius(kind, attacker, area) }, attacker, target);
 
-    public void ApplyAura(Kind kind, uint source, double seconds, double now, Func<uint, int> attacker, Func<uint, int> target)
+    public void ApplyAura(Kind kind, uint source, double seconds, double now, Func<uint, int> attacker, Func<uint, int> target,
+        int? stated = null)
     {
-        if (Apply(new(kind, now, now + seconds, BaseWithoutDamage(kind, attacker, target))
+        if (Apply(new(kind, now, now + seconds, BaseWithoutDamage(kind, attacker, target, stated))
             { Source = source, RemovableAura = true }, attacker, target) is null) RemoveAura(source);
     }
 

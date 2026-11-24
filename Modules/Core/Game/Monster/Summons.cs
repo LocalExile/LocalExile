@@ -82,11 +82,12 @@ public static partial class Game
             Stat.NumberOfArcherSkeletonsToSummon, Stat.NumberOfMageSkeletonsToSummon }.Sum(stat)) : 1;
 
     public static int SummonLimit(Player player, SummonCatalog.Definition definition, SupportedGem gem)
-        => definition.LimitStat == 0 ? 1 : SummonLimit(definition, gem.Stats, CharacterPlayerStats(player));
+        => SummonLimit(definition, gem.Stats, CharacterPlayerStats(player));
 
     static int SummonLimit(SummonCatalog.Definition definition, IReadOnlyDictionary<uint, int> skillStats,
         IReadOnlyDictionary<uint, int> playerStats)
     {
+        if (definition.LimitStat == 0) return definition.LimitWithoutStat;
         uint final = definition.FinalLimitStat;
         long value = (long)GolemStat(skillStats, definition.LimitStat) + GolemStat(playerStats, definition.LimitStat)
             + GolemStat(playerStats, final);
@@ -264,7 +265,7 @@ public static partial class Game
         // A replacement keeps the stats its body was given at summon (a Vaal ascension's upgrade).
         retainedStats ??= replacingOld?.RetainedSkillStats;
         if (retainedStats is not null) gem = gem with { Stats = MergeSummonStats(gem.Stats, retainedStats) };
-        int limit = spectreChild?.Plan.Limit ?? (definition.LimitStat == 0 ? 1 : SummonLimit(definition, gem.Stats, playerStats));
+        int limit = spectreChild?.Plan.Limit ?? SummonLimit(definition, gem.Stats, playerStats);
         if (limit < 1) return 0;
         if (resources is { Life: 0 } || legacyArrival && (!double.IsFinite(life) || life <= 0)) return 0;
         SpawnedMonster? corpse = consumedCorpse;
@@ -630,7 +631,11 @@ public static partial class Game
                 if (player.PlayerLife == 0 || now >= until || !SpectreChildStillOwned(player, fighter))
                 {
                     if (now >= until && !fighter.Monster.Dead && fighter.Monster.Life > 0)
-                        OwnedMinionDeathEffectsLocked(player, fighter, now);
+                    {
+                        if (fighter.Definition.Kind == VolatileAnomalyFamily && player.PlayerLife > 0)
+                            ReleaseVolatileAnomalyLocked(player, fighter, now);
+                        else OwnedMinionDeathEffectsLocked(player, fighter, now);
+                    }
                     RemoveSummonLocked(player, fighter, now); changed = true; continue;
                 }
                 if (fighter.Monster.Dead || fighter.Monster.Life == 0)

@@ -28,7 +28,7 @@ public static partial class Game
             + skill.GetValueOrDefault(Stat.SupportDamagingLinksDurationMs), playerStats.GetValueOrDefault, skill.GetValueOrDefault);
         if (seconds <= 0) return;
 
-        double dps = FrigidBondDps(skill, Get);
+        double dps = ColdSpellDamageOverTime(skill, Get);
         int radius = SkillArea.Radius(FrigidBondBeamRadius, Get, spell: true);
         double time = ProjectileWorldTime(player);
         ulong source = ((ulong)player.Id << 32) | link.Target;
@@ -49,7 +49,7 @@ public static partial class Game
         }
     }
 
-    static double FrigidBondDps(IReadOnlyDictionary<uint, int> skill, Func<uint, int> get)
+    static double ColdSpellDamageOverTime(IReadOnlyDictionary<uint, int> skill, Func<uint, int> get)
     {
         double basis = skill.GetValueOrDefault(Stat.BaseColdDamageToDealPerMinute) / 60d;
         if (basis <= 0 || DamageStats.Prohibited(DamageType.Cold, get)) return 0;

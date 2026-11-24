@@ -30,10 +30,10 @@ public static partial class Game
     public sealed partial class ProjectileSession
     {
         sealed record DamageGround(ProjectileVector Centre, double Radius, long Start, long End,
-            DamageType Type, double Dps, Visual? Visual);
+            DamageType Type, double Dps, Visual? Visual, IReadOnlyDictionary<uint, int>? ChillStats);
 
         readonly List<DamageGround> damageGrounds = [];
-        sealed class GroundDamageCarry { public double Fire, Chaos; }
+        sealed class GroundDamageCarry { public double Fire, Cold, Chaos; }
 
         readonly ConditionalWeakTable<SpawnedMonster, GroundDamageCarry> groundRemainders = new();
         bool damageGroundTickScheduled;
@@ -56,11 +56,16 @@ public static partial class Game
             PlaceDamageGround(centre, spec.Radius, spec.Duration, DamageType.Chaos, spec.Dps, Runtime.Now, spec.ArtVariation);
 
         internal void PlaceDamageGround(ProjectileVector centre, double radius, double seconds, DamageType type,
-            double dps, long start, int artVariation = 0)
+            double dps, long start, int artVariation = 0, IReadOnlyDictionary<uint, int>? chillStats = null)
         {
-            if (radius <= 0 || seconds <= 0 || dps <= 0) return;
+            if (radius <= 0 || seconds <= 0 || dps <= 0 && chillStats is null) return;
             Visual? visual = null;
-            var kind = GroundKindOf(type == DamageType.Fire ? "Fire" : "CausticCloud", artVariation);
+            var kind = GroundKindOf(type switch
+            {
+                DamageType.Fire => "Fire",
+                DamageType.Cold => "Maelstorm",
+                _ => "CausticCloud",
+            }, artVariation);
             if (kind is { Art.Length: > 0 })
             {
                 uint id = Player.TakeObjectId();
@@ -76,16 +81,15 @@ public static partial class Game
                     return InstanceEntities.CreateObject(id, InstanceEntities.ObjectTypeHash(GroundEffectObject.TypePath), ground.Blob());
                 }, wake: true);
             }
-            AddDamageGround(centre, radius, seconds, type, dps, start, visual);
+            AddDamageGround(centre, radius, seconds, type, dps, start, visual, chillStats);
         }
 
         void AddDamageGround(ProjectileVector centre, double radius, double seconds, DamageType type,
-            double dps, long start, Visual? visual = null)
+            double dps, long start, Visual? visual, IReadOnlyDictionary<uint, int>? chillStats)
         {
-            if (radius <= 0 || seconds <= 0 || dps <= 0) return;
             start = Math.Max(Runtime.Now, start);
             long end = start + Math.Max(1, ProjectileRuntime.Time(seconds));
-            damageGrounds.Add(new(centre, radius, start, end, type, dps, visual));
+            damageGrounds.Add(new(centre, radius, start, end, type, dps, visual, chillStats));
             if (damageGroundTickScheduled) return;
             damageGroundTickScheduled = true;
             damageGroundPreviousTick = start;
@@ -149,18 +153,31 @@ public static partial class Game
             {
                 if (!monster.Hostile || monster.Dead || monster.Life == 0) continue;
                 var pos = Vector(monster.Walk.Position(at));
-                double fire = 0, chaos = 0;
+                double fire = 0, cold = 0, chaos = 0;
                 foreach (var ground in damageGrounds)
                 {
-                    if (from < ground.Start || from >= ground.End || (pos - ground.Centre).Length > ground.Radius) continue;
+                    if (from < ground.Start || from >= ground.End) continue;
+                    bool covered = (pos - ground.Centre).Length <= ground.Radius;
+                    if (ground.Visual is { } visual && ground.ChillStats is { } chill)
+                    {
+                        double left = (ground.End - to) / (double)ProjectileRuntime.QuantaPerSecond;
+                        if (covered && left > 0)
+                            monster.Ailments.ApplyAura(MonsterElementalAilments.Kind.Chill, visual.Id, Math.Min(.1, left), at,
+                                key => chill.GetValueOrDefault(key), key => monster.Effects[key],
+                                chill.GetValueOrDefault(Stat.ChilledGroundBaseMagnitudeOverride));
+                        else monster.Ailments.RemoveAura(visual.Id);
+                    }
+                    if (!covered) continue;
                     if (ground.Type == DamageType.Fire) fire = Math.Max(fire, ground.Dps);
+                    else if (ground.Type == DamageType.Cold) cold = Math.Max(cold, ground.Dps);
                     else chaos = Math.Max(chaos, ground.Dps);
                 }
-                if (fire == 0 && chaos == 0) continue;
+                if (fire == 0 && cold == 0 && chaos == 0) continue;
                 var carry = groundRemainders.GetValue(monster, _ => new GroundDamageCarry());
                 int fireDamage = fire > 0 ? Accrue(fire * MonsterDotTaken(monster, DamageType.Fire, at), ref carry.Fire) : 0;
+                int coldDamage = cold > 0 ? Accrue(cold * MonsterDotTaken(monster, DamageType.Cold, at), ref carry.Cold) : 0;
                 int chaosDamage = chaos > 0 ? Accrue(chaos * MonsterDotTaken(monster, DamageType.Chaos, at), ref carry.Chaos) : 0;
-                int damage = ActorScale.Saturate((long)fireDamage + chaosDamage);
+                int damage = ActorScale.Saturate((long)fireDamage + coldDamage + chaosDamage);
                 if (damage == 0) continue;
                 int lifeDamage = AbsorbMonsterEnergyShieldLocked(Player.Area, monster, damage, chaosDamage, at);
                 if (lifeDamage <= 0) continue;

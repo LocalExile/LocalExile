@@ -4,7 +4,8 @@ using GameServer.Core.World;
 public static partial class Game
 {
     const string WolfKill = "SummonWolfOnKillUnique__1", WolfCritical = "SummonWolfOnCritUnique__1",
-        SpiritKill = "SummonRagingSpiritOnKillUnique__1", SpiderKill = "SummonSpidersOnKillUnique__1";
+        SpiritKill = "SummonRagingSpiritOnKillUnique__1", SpiderKill = "SummonSpidersOnKillUnique__1",
+        VolatileKill = "SummonVoidSphereOnKillUnique__1_";
     const int SpiderCorpseRadius = 25;
     const string VoidSpawnFamily = "VoidSpawn";
     const double VoidSpawnInterval = 4;
@@ -25,6 +26,7 @@ public static partial class Game
         WolfKill or WolfCritical when grant.EffectId == ItemWolf.Id => ItemWolf,
         SpiritKill when grant.EffectId == ItemSpirit.Id => ItemSpirit,
         SpiderKill when grant.EffectId == ItemSpider.Id => ItemSpider,
+        VolatileKill when grant.EffectId == ItemVolatileAnomaly.Id => ItemVolatileAnomaly,
         ("GrantsSummonVoidSpawnUnique__1" or "DivergentGrantsSummonVoidSpawnUnique__1")
             when grant.EffectId == ItemVoidSpawn.Id => ItemVoidSpawn,
         _ => null,
@@ -39,16 +41,17 @@ public static partial class Game
     {
         var player = kill.Player;
         if (!kill.PlayerKill || !kill.Monster.Hostile || player.PlayerLife == 0 || player.Closed || player.LeavingArea
-            || !AllWornGrantedSkillsOf(player).Any(grant => grant.ModId is WolfKill or SpiritKill or SpiderKill)) return;
+            || !AllWornGrantedSkillsOf(player).Any(grant => grant.ModId is WolfKill or SpiritKill or SpiderKill or VolatileKill)) return;
         double now = AreaTime(player);
         foreach (var skill in GemSkillEffects(player))
         {
             var gem = SupportedSkill(player, skill.Id);
-            if (!gem.RequirementsMet || gem.WornGrant is not { } grant || grant.ModId is not (WolfKill or SpiritKill or SpiderKill)
+            if (!gem.RequirementsMet || gem.WornGrant is not { } grant || grant.ModId is not (WolfKill or SpiritKill or SpiderKill or VolatileKill)
                 || TriggeredItemMinion(grant) is not { } definition) continue;
-            int chance = GolemStat(gem.Stats, Stat.ChanceToCastOnKillPctTargetSelf);
+            bool volatileAnomaly = definition == ItemVolatileAnomaly;
+            int chance = GolemStat(gem.Stats, volatileAnomaly ? Stat.ChanceToCastOnKillPct : Stat.ChanceToCastOnKillPctTargetSelf);
             if (!RandomRolls.Chance(chance, 100, AreaRng(player))) continue;
-            ItemMinionTrigger trigger = new(skill.Id, grant, definition, player.Walk.Position(now),
+            ItemMinionTrigger trigger = new(skill.Id, grant, definition, volatileAnomaly ? kill.At : player.Walk.Position(now),
                 player.ProjectileEpoch, CombatLifetime);
             kill.Later(() => FireItemMinionTrigger(player, trigger, now));
         }
@@ -124,6 +127,12 @@ public static partial class Game
         var definition = trigger.Definition;
         int limit = SummonLimit(player, definition, gem);
         if (limit <= 0) return;
+        if (definition == ItemVolatileAnomaly)
+        {
+            if (UseItemMinionCooldown(player, trigger.Skill, gem, now))
+                await SummonFighterCore(player, trigger.Skill, definition, trigger.From, current: Current, triggered: true);
+            return;
+        }
         var active = player.Summons.Fighters.Values.Where(f => f.Definition.Kind == definition.Family
             && !f.Monster.Dead && f.Monster.Life > 0 && GolemCurrent(player, f)).ToArray();
 
