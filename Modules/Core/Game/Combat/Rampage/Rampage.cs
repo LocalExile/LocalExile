@@ -37,7 +37,17 @@ public static partial class Game
         if (m.Life > 0 && result.Life == 0)
         {
             CaptureMadnessExplosionLocked(player, m);
-            m.Poisons.RememberDeath(ProjectileWorldTime(player));
+            double now = ProjectileWorldTime(player);
+            m.Poisons.RememberDeath(now);
+            m.CursedAtDeath = false;
+            m.NonAuraHexUntilAtDeath = 0;
+            foreach (var curse in m.Curses.All.Values)
+            {
+                if (curse.Until <= now) continue;
+                m.CursedAtDeath = true;
+                if (!curse.Aura && !curse.Mark)
+                    m.NonAuraHexUntilAtDeath = Math.Max(m.NonAuraHexUntilAtDeath, curse.Until);
+            }
             RampageOnKillLocked(player, m, rampageSource, playerStats);
         }
         return result;

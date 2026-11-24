@@ -74,6 +74,8 @@ public static partial class Game
         public readonly SupportedGem Supported;
         public readonly bool Channelled;
         double costMore = double.NaN;
+        int manaCostPool = -1;
+        IReadOnlyDictionary<uint, int> costStats;
         object? mapMods;
         IReadOnlyDictionary<uint, int> player = new Dictionary<uint, int>(), areaPlayer = new Dictionary<uint, int>();
         Dictionary<uint, int> areaWritten = [];
@@ -84,17 +86,19 @@ public static partial class Game
         public SkillGraph(Player owner, SupportedGem supported, bool channelled)
         {
             (this.owner, Supported, Channelled) = (owner, supported, channelled);
+            costStats = supported.Stats;
             int Tracked(IReadOnlyDictionary<uint, int> from, uint key)
             {
                 StatGraph.ReadInput((int)key);
                 return from.GetValueOrDefault(key);
             }
             // The skill's own stats and costs over the player's (Merged): written into the graph's values.
+            var efficiency = CostEfficiencyFor(SkillsFor(owner), supported.Effect);
             Dictionary<uint, int> Merge(IReadOnlyDictionary<uint, int> over, double cost)
             {
                 var written = new Dictionary<uint, int>();
                 MergeSkillStatsInto(key => written.TryGetValue(key, out int own) ? own : Tracked(over, key),
-                    (key, value) => written[key] = value, Supported.Stats, Channelled, cost);
+                    (key, value) => written[key] = value, costStats, Channelled, cost, efficiency);
                 return written;
             }
             merge = graph.AddRule(view => { foreach (var (key, value) in Merge(player, costMore)) view[key] = value; });
@@ -117,6 +121,15 @@ public static partial class Game
         {
             (player, areaPlayer) = (playerStats, areaPlayerStats);
             if (cost != costMore) { costMore = cost; graph.MarkRule(merge); }
+            int nextPool = ManaCostPool(owner, Supported);
+            if (manaCostPool != nextPool)
+            {
+                manaCostPool = nextPool;
+                costStats = WithManaPoolCost(owner, Supported, Supported.Stats, nextPool);
+                graph.MarkRule(merge);
+                graph.MarkRule(area);
+                graph.MarkRule(timing);
+            }
             // The map's cooldown mod (WithMapCooldown) is the area's, not a stat.
             var mods = MapModsOf(owner);
             if (!ReferenceEquals(mods, mapMods)) { mapMods = mods; graph.MarkRule(cooldown); }

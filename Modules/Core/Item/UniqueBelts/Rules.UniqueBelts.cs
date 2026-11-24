@@ -29,7 +29,7 @@ static partial class UniquebeltsRules
             ushort buff = player.NextBuff++;
             ushort? extra = utility.Extra is null ? null : player.NextBuff++;
             player.MagebloodBuffs[id] = (slot, buff, extra, utility.BuffRow, utility.Extra?.BuffRow ?? 0);
-            player.Area.Buffs.Set(player.Id, Flasks.Buff(player.Id, buff, utility.BuffRow, slot, seconds: null));
+            player.Area.Buffs.Set(player.Id, Flasks.Buff(player.Id, buff, utility.BuffRow, slot, seconds: null, values: null, visual: FlaskEffectVisual(player, slot)));
             if (utility.Extra is { } x && extra is ushort second) player.Area.Buffs.Set(player.Id, new(x.BuffRow, player.Id, Tag: second));
         }
         return packets;

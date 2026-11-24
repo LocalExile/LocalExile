@@ -1,5 +1,6 @@
 using System.Diagnostics;
 using System.Runtime.CompilerServices;
+using GameServer.Core.Protocol.Instance;
 using GameServer.Modding;
 using static Game;
 using static Program;
@@ -43,33 +44,102 @@ public static class LesserShrines
     {
         public readonly LesserShrineTrigger Trigger = new();
         public Stopwatch? Clock;
+        public ItemCatalog? CachedCatalog;
+        public SkillCatalog? CachedSkills;
+        public (uint Id, Item Item)[]? CachedActiveItems;
+        public int CachedPassivesCount = -1, CachedAscendancyCount = -1, CachedDescendancyCount = -1, CachedNodeHash;
+        public bool CachedHardMode;
+        public Grant? CachedGrant;
     }
     sealed record Grant(string Source, int Effect, int Level);
     sealed record Request((int X, int Y) At, double Seconds, string Type);
     static readonly ConditionalWeakTable<PlayerInventories, State> States = new();
     static readonly ConditionalWeakTable<Player, List<Request>> Pending = new();
 
-    static Grant? Equipped(Player player)
+    static int PassiveNodeHash(Player player)
+    {
+        int hash = 0;
+        foreach (ushort n in player.Character.Passives) hash ^= HashCode.Combine(1, n);
+        foreach (ushort n in player.Character.MainAscendancy.Allocated) hash ^= HashCode.Combine(2, n);
+        foreach (ushort n in player.Character.DescendancyNodes) hash ^= HashCode.Combine(3, n);
+        return hash;
+    }
+
+    public static (int Effect, int Level)? ActiveGrant(Player player) =>
+        Equipped(player, States.GetOrCreateValue(ItemsOf(player))) is { } g ? (g.Effect, g.Level) : null;
+
+    static Grant? Equipped(Player player, State state)
     {
         var items = ItemsOf(player);
         var catalog = ItemsFor(player);
         var skills = SkillsFor(player);
-        foreach (byte row in ItemModStats.EquipmentRows)
-        foreach (var item in items.Items(row))
+        bool hardMode = LeagueFor(player).HardMode;
+        int passivesCount = player.Character.Passives.Count;
+        int ascendancyCount = player.Character.MainAscendancy.Allocated.Count;
+        int descendancyCount = player.Character.DescendancyNodes.Count;
+        int nodeHash = PassiveNodeHash(player);
+        // Fast check against the last scanned active equipment & passive snapshot; avoids rescanning on every kill/tick.
+        lock (state)
         {
-            if (IsInactive(player, item.Id)) continue;
-            foreach (var mod in item.Item.Mods)
-            foreach (int levelRow in catalog.Mods.ByHash(mod.Hash)?.GrantedEffectLevels ?? [])
-                if (skills.EffectsPerLevel(levelRow) is { } level && skills.EffectId(level.Effect) == "TriggeredSummonLesserShrine")
-                    return new($"{item.Id}/{mod.Hash}/{levelRow}", level.Effect, level.Level);
+            if (ReferenceEquals(state.CachedCatalog, catalog) && ReferenceEquals(state.CachedSkills, skills)
+                && state.CachedHardMode == hardMode && state.CachedPassivesCount == passivesCount
+                && state.CachedAscendancyCount == ascendancyCount && state.CachedDescendancyCount == descendancyCount
+                && state.CachedNodeHash == nodeHash && state.CachedActiveItems is { } prev)
+            {
+                int idx = 0;
+                bool same = true;
+                foreach (byte row in ItemModStats.EquipmentRows)
+                {
+                    foreach (var item in items.Items(row))
+                    {
+                        if (IsInactive(player, item.Id)) continue;
+                        if (idx >= prev.Length || prev[idx].Id != item.Id || !ReferenceEquals(prev[idx].Item, item.Item))
+                        { same = false; break; }
+                        idx++;
+                    }
+                    if (!same) break;
+                }
+                if (same && idx == prev.Length) return state.CachedGrant;
+            }
+            var active = new List<(uint Id, Item Item)>();
+            Grant? grant = null;
+            foreach (byte row in ItemModStats.EquipmentRows)
+            foreach (var item in items.Items(row))
+            {
+                if (IsInactive(player, item.Id)) continue;
+                active.Add((item.Id, item.Item));
+                foreach (var mod in item.Item.Mods)
+                {
+                    foreach (int levelRow in catalog.Mods.ByHash(mod.Hash)?.GrantedEffectLevels ?? [])
+                        if (skills.EffectsPerLevel(levelRow) is { } level && skills.EffectId(level.Effect) == "TriggeredSummonLesserShrine"
+                            && (grant is null || level.Level > grant.Level))
+                            grant = new($"{item.Id}/{mod.Hash}/{levelRow}", level.Effect, level.Level);
+                }
+            }
+            if (passivesCount + ascendancyCount + descendancyCount > 0)
+            {
+                ushort[] nodes = [.. player.Character.Passives, .. player.Character.MainAscendancy.Allocated, .. player.Character.DescendancyNodes];
+                foreach (var passive in PassiveSkillGrants(player, nodes))
+                    if (passive.EffectId == "TriggeredSummonLesserShrine" && (grant is null || passive.Level > grant.Level))
+                        grant = new($"passive/{passive.Node}/{passive.Effect}/{passive.Level}", passive.Effect, passive.Level);
+            }
+            state.CachedCatalog = catalog;
+            state.CachedSkills = skills;
+            state.CachedHardMode = hardMode;
+            state.CachedPassivesCount = passivesCount;
+            state.CachedAscendancyCount = ascendancyCount;
+            state.CachedDescendancyCount = descendancyCount;
+            state.CachedNodeHash = nodeHash;
+            state.CachedActiveItems = [.. active];
+            state.CachedGrant = grant;
+            return grant;
         }
-        return null;
     }
 
     static double Cooldown(Player player, Grant? grant)
     {
         if (grant is null) return 0;
-        var stats = CharacterPlayerStats(player);
+        var stats = PlayerStatValues(player);
         int recovery = Stat.VirtualCooldownSpeedPlusPct is var key ? stats.GetValueOrDefault(key) : 0;
         double rate = Math.Max(0, 1 + recovery / 100.0)
             * Math.Max(0, 1 + (MapModsOf(player)?.Get(Stat.MapPlayerCooldownSpeedPlusPctFinal) ?? 0) / 100.0);
@@ -88,8 +158,8 @@ public static class LesserShrines
     {
         if (!kill.PlayerKill || kill.Player.PlayerLife == 0) return;
         var player = kill.Player;
-        var grant = Equipped(player);
         var state = States.GetOrCreateValue(ItemsOf(player));
+        var grant = Equipped(player, state);
         double cooldown = Cooldown(player, grant);
         lock (state)
         {
@@ -97,7 +167,7 @@ public static class LesserShrines
             if (grant is null || !state.Trigger.TryUse(AreaTime(player), cooldown)) return;
         }
         var stats = SkillsFor(player).EffectStats(grant.Effect, grant.Level).ToDictionary(s => s.Item1, s => s.Item2);
-        var playerStats = CharacterPlayerStats(player);
+        var playerStats = PlayerStatValues(player);
         int Own(uint key) => stats.GetValueOrDefault(key);
         double seconds = SkillDurationModifiers.Seconds(Own(Stat.BaseSkillEffectDuration),
             name => playerStats.GetValueOrDefault(name), Own);
@@ -112,7 +182,7 @@ public static class LesserShrines
     {
         Request[] requests;
         var state = States.GetOrCreateValue(ItemsOf(player));
-        var grant = Equipped(player);
+        var grant = Equipped(player, state);
         lock (state) Observe(state, player, grant, Cooldown(player, grant));
         if (!Pending.TryGetValue(player, out var pending)) return;
         requests = [.. pending]; pending.Clear();

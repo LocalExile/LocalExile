@@ -25,6 +25,7 @@ public static partial class Game
     // time per connection (QuestGate), so a background sync never interleaves with another change.
     public static async Task SetQuestFlags(Player player, IEnumerable<string> flags, bool on = true)
     {
+        if (flags is ICollection<string> { Count: 0 }) return;
         if (QuestKillCommitOutput is not null)
         {
             await SetQuestFlagsHeld(player, flags, on);
@@ -41,9 +42,16 @@ public static partial class Game
     // Gameplay and persistence commit before any notification. Caller holds the combat lock when used by simulation.
     public static QuestFlagCommit? CommitQuestFlags(Player player, IEnumerable<string> flags, bool on = true)
     {
+        if (flags is ICollection<string> { Count: 0 }) return null;
+        List<string>? wanted = null;
+        foreach (string flag in flags)
+        {
+            wanted ??= [];
+            if (!wanted.Contains(flag)) wanted.Add(flag);
+        }
+        if (wanted is null) return null;
         // Queued work cannot mutate progress after a committed Hardcore death.
         if (HardcoreProgressBlocked(player)) return null;
-        var wanted = flags.Distinct().ToList();
         var clientBefore = PlayerQuestFlags(player);
         var ownBefore = player.Character.QuestFlagsSnapshot();
         bool InstanceHas(string flag) => player.Instance?.HasState(flag) == true;
@@ -123,7 +131,11 @@ public static partial class Game
         foreach (uint id in change.Removed)
             await SendWorldRemoval(player, id, $"0x02bd remove room object 0x{id:x} (quest flag set)", atGate: () =>
             { return player.Closed || player.LeavingArea || player.QuestRoomObjects.ContainsKey(id) ? null : InstanceProtocol.RemoveObject(id); });
-        if (on) await CharacterVoiceLines.OnQuestFlagsPublishedHeld(player, change.Effective);
+        if (on)
+        {
+            await CharacterVoiceLines.OnQuestFlagsPublishedHeld(player, change.Effective);
+            await CheckQuestFlagAchievements(player, change.Changed);
+        }
     }
 
     // Whole flag sets are projections, not snapshots: combat can commit while a normal setter awaits the cipher gate.
@@ -215,6 +227,16 @@ public static partial class Game
     // QuestObjects). The area's layout is the same for every league, so what the tables add or change there is decided
     // here, per player (TransitionShown).
     public static Quests.RuleSet QuestsOf(Player player) => Quests.For(ModulesFor(player));
+
+    /// <summary>Quest flags granted when <paramref name="varietyId"/> dies in <paramref name="player"/>'s area,
+    /// excluding conflicting bandit kill flags when the player already allied with that bandit.</summary>
+    public static IReadOnlyList<string> QuestFlagsOnKill(Player player, string varietyId) =>
+        BanditChoices.FilterKillFlags(player, QuestsOf(player).OnMonsterKilled(player.Layout.Id, varietyId));
+
+    /// <summary>Quest item drops granted when <paramref name="varietyId"/> dies in <paramref name="player"/>'s area,
+    /// excluding an allied bandit's own amulet during a mixed-vote fight.</summary>
+    public static IReadOnlyList<string> QuestDropsOnKill(Player player, string varietyId) =>
+        BanditChoices.FilterKillDrops(player, varietyId, QuestsOf(player).DropsOnKill(player.Layout.Id, varietyId));
 
     // The flag a dialogue row sets when chosen: its QuestFlag4, unless the player's tables say only an event sets it.
     public static string? TalkStartFlag(Player player, NpcCatalog.Talk talk) => QuestsOf(player).TalkStartFlag(talk);
@@ -360,6 +382,7 @@ public static partial class Game
                     player.LockstepBusyUntil = Math.Max(player.LockstepBusyUntil, frame.Start + (frames + 1) * (frame.End - frame.Start));
                 return InstanceProtocol.ActionStarted(player.Id, here.X, here.Y, x, y, TutorialObjects.WashedUpSkillId, sequence, flags);
             });
+        await CharacterVoiceLines.OnWakeUpOnBeach(player);
     }
 
     public static bool LyingOnBeach(Player player) => player.PeerTemplate is { WashedUp: true } && !player.TutorialGettingUp;

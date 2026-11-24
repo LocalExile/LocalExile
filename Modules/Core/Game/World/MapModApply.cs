@@ -23,6 +23,22 @@ public static partial class Game
 
     static readonly System.Runtime.CompilerServices.ConditionalWeakTable<IReadOnlyDictionary<uint, int>, MapMods> MapModsByStats = new();
 
+    internal static bool ScarabsDisabled(MapMods? mods) => (mods?.Get(Stat.MapDisableScarabDrops) ?? 0) > 0;
+
+    public static double MapScarabQuantity(MapMods? mods) =>
+        ScarabsDisabled(mods) ? 0 : Math.Max(0, 1 + (mods?.Get(Stat.MapPlusPctIncreasedScarabDrops) ?? 0) / 100d);
+
+    public static ItemDrops.Drop? MapScarab(ItemDrops drops, Random random, int level, MapMods? mods) =>
+        MapScarab(drops, random, level, mods, null);
+
+    public static ItemDrops.Drop? MapScarab(ItemDrops drops, Random random, int level, MapMods? mods, DropWeights? weights) =>
+        ScarabsDisabled(mods) ? null : drops.Scarab(random, level, mods, weights);
+
+    static readonly uint[] RandomPhysicalGain =
+        [Stat.PhysicalDamagePctToAddAsFire, Stat.PhysicalDamagePctToAddAsCold, Stat.PhysicalDamagePctToAddAsLightning];
+    sealed record MapElement(uint Stat);
+    static readonly System.Runtime.CompilerServices.ConditionalWeakTable<MapMods, MapElement> PhysicalGainElementByMap = new();
+
     /// <summary>The vital and deadly Atlas keystones' more monster life and damage (Wellspring of Creation, Dance of
     /// Destruction): the area's map_ stat becomes the monster stat of the same name, which acts as a more modifier on
     /// the monster's life or hit (handed over to MonsterModEffects.HandOverMore in GameModule.Load).</summary>
@@ -48,20 +64,34 @@ public static partial class Game
         Gain(Stat.MapMonstersPctPhysicalDamageToAddAsFire, Stat.PhysicalDamagePctToAddAsFire);
         Gain(Stat.MapMonstersPctPhysicalDamageToAddAsCold, Stat.PhysicalDamagePctToAddAsCold);
         Gain(Stat.MapMonstersPctPhysicalDamageToAddAsLightning, Stat.PhysicalDamagePctToAddAsLightning);
+        Gain(Stat.MapMonstersPctPhysicalDamageToAddAsChaos, Stat.PhysicalDamagePctToAddAsChaos);
+        if (mods.Get(Stat.MapMonstersPhysicalDamagePctToAddAsRandomElement) is int elementalGain and > 0)
+        {
+            uint element = PhysicalGainElementByMap.GetValue(mods, static _ =>
+                new(RandomPhysicalGain[Random.Shared.Next(RandomPhysicalGain.Length)])).Stat;
+            extra[element] = ActorScale.Saturate((long)extra.GetValueOrDefault(element) + elementalGain);
+        }
         Gain(Stat.MapMonstersAttackSpeedPlusPct, Stat.AttackSpeedPlusPct);
         Gain(Stat.MapMonstersCastSpeedPlusPct, Stat.BaseCastSpeedPlusPct);
         Gain(Stat.MapMonstersMovementSpeedPlusPct, Stat.BaseMovementVelocityPlusPct);
         if (mods.Get(Stat.MapMonstersMovementSpeedCannotBeReducedBelowBase) != 0)
             extra[Stat.MovementSpeedCannotBeReducedBelowBase] = 1;
+        if (mods.Get(Stat.MapMonsterActionSpeedCannotBeReducedBelowBase) != 0)
+            extra[Stat.ActionSpeedCannotBeReducedBelowBase] = 1;
+        Gain(Stat.MapMonsterDebuffTimePassedPlusPct, Stat.DebuffTimePassedPlusPct);
         Gain(Stat.MapMonstersAdditionalPhysicalDamageReduction, Stat.BaseAdditionalPhysicalDamageReductionPct);
+        Gain(Stat.MapMonstersBaseBlockPct, Stat.MonsterBaseBlockPct);
         Gain(Stat.MapMonstersAdditionalElementalResistance, Stat.BaseResistAllElementsPct);
         Gain(Stat.MapMonstersAdditionalChaosResistance, Stat.BaseChaosDamageResistancePct);
+        Gain(Stat.MapMonstersSpellSuppressionChancePct, Stat.BaseSpellSuppressionChancePct);
         if (mods.Get(Stat.MapMonstersAreHexproof) != 0)
             extra[Stat.Hexproof] = 1;
         Gain(Stat.MapMonstersCurseEffectOnSelfPlusPctFinal, Stat.MapMonstersCurseEffectOnSelfPlusPctFinal);
         Gain(Stat.MapMonstersChanceToBlindOnHitPct, Stat.GlobalChanceToBlindOnHitPct);
         Gain(Stat.MapMonstersCriticalStrikeChancePlusPct, Stat.CriticalStrikeChancePlusPct);
         Gain(Stat.MapMonstersCriticalStrikeMultiplierPlus, Stat.BaseCriticalStrikeMultiplierPlus);
+        Gain(Stat.MapMonstersBaseSelfCriticalStrikeMultiplierMinusPct, Stat.BaseSelfCriticalStrikeMultiplierMinusPct);
+        Gain(Stat.MapMonstersCannotBeLeechedFrom, Stat.MapMonstersCannotBeLeechedFrom);
         Gain(Stat.MapMonstersPenetrateElementalResistancesPct, Stat.ReduceEnemyElementalResistancePct);
         Gain(Stat.MapMonstersBaseBleedDurationPlusPct, Stat.BaseBleedDurationPlusPct);
         // The extracted map rows use the real monster stats rather than a synthetic "global" flag:
@@ -94,31 +124,55 @@ public static partial class Game
         return list;
     }
 
+    public static ItemDrops.Drop? RollMapDropForKill(Player player, int level, MonsterRarity rarity, int tier, Random rng, double chanceFactor) =>
+        RollMapDropForKill(player, level, rarity, tier, rng, chanceFactor, boss: false);
+
+    static ItemDrops.Drop? RollMapDropForKill(Player player, int level, MonsterRarity rarity, int tier, Random rng, double chanceFactor, bool boss)
+    {
+        var mods = MapModsOf(player);
+        if (mods is not null)
+        {
+            if (mods.Get(Stat.MapMonsterNoMapDrops) > 0) return null;
+            int explicitMods = mods.Get(Stat.MapNumberOfExplicitMods);
+            if (explicitMods == 0) explicitMods = mods.ExplicitMods.Count;
+            long increased = 100L + mods.Get(Stat.MapMapItemDropChancePlusPct)
+                + (long)mods.Get(Stat.MapMapItemDropChancePlusPctPerMapMod) * explicitMods;
+            chanceFactor *= Math.Max(0L, increased) / 100.0;
+            chanceFactor *= MapDropFactor(mods, Stat.MapMapItemDropChancePlusPctFinalFromUberMod,
+                Stat.MapUnscaledMapItemDropChancePlusPctFinalFromUberMod);
+        }
+        int upgrade = mods?.Get(Stat.MapTierBonusPermillage) ?? 0;
+        return DropsFor(player).Map(level, rarity, tier, rng, mapBoss: boss, chanceFactor: chanceFactor, tierUpgradePermillage: upgrade);
+    }
+
     /// <summary>A map's extra drops: a card from each monster of the card-dropping magic packs, and the map's card and
     /// scarab drop factors (its increased and more modifiers multiplied, 1 for none) on the base map chances
     /// (<c>drop_card_chance_pct</c>, <c>drop_scarab_chance_pct</c>, ItemDrops.Roll): a factor f adds the base chance
-    /// × (f − 1) per kill.</summary>
-    static IEnumerable<ItemDrops.Drop> ExtraDropsFromMap(Player player, int monsterLevel, MonsterRarity rarity, Random rng)
+    /// × (f − 1) per kill. A mod's factors per card, scarab and currency (<see cref="DropWeights.Item"/>) weigh the picks;
+    /// a currency kind factor of 0 leaves the extra currency out.</summary>
+    static IEnumerable<ItemDrops.Drop> ExtraDropsFromMap(Player player, int monsterLevel, MonsterRarity rarity, Random rng,
+        DropWeights? weights = null)
     {
         if (MapModsOf(player) is not { } mods) yield break;
         var drops = DropsFor(player);
-        if (rarity == MonsterRarity.Magic && mods.PacksDropCards > 0 && drops.Card(rng, monsterLevel) is { } packCard)
+        if (rarity == MonsterRarity.Magic && mods.PacksDropCards > 0 && drops.Card(rng, monsterLevel, weights) is { } packCard)
             yield return packCard;
         double card = MapDropFactor(mods, Stat.MapDivinationCardDropChancePlusPct, Stat.MapDivinationCardDropChancePlusPctFinalFromQuality,
             Stat.MapDivinationCardDropChancePlusPctFinalFromFaridunWish);
-        if (card > 1 && MapDropExtra("drop_card_chance_pct", card - 1, rng) && drops.Card(rng, monsterLevel) is { } extraCard)
+        if (card > 1 && MapDropExtra("drop_card_chance_pct", card - 1, rng) && drops.Card(rng, monsterLevel, weights) is { } extraCard)
             yield return extraCard;
         double scarab = MapDropFactor(mods, Stat.MapScarabDropChancePlusPctFinalFromUberMod,
             Stat.MapUnscaledScarabDropChancePlusPctFinalFromUberMod, Stat.MapScarabDropChancePlusPctFinalFromFaridunWish);
-        if (scarab > 1 && MapDropExtra("drop_scarab_chance_pct", scarab - 1, rng) && drops.Scarab(rng, monsterLevel, mods) is { } extraScarab)
+        if (scarab > 1 && MapDropExtra("drop_scarab_chance_pct", (scarab - 1) * MapScarabQuantity(mods), rng)
+            && MapScarab(drops, rng, monsterLevel, mods, weights) is { } extraScarab)
             yield return extraScarab;
         double currency = MapDropFactor(mods, Stat.MapCurrencyDropChancePlusPctFinalFromUberMod);
-        if (currency > 1)
+        if (currency > 1 && (weights is null || weights.Currency > 0))
         {
             double expected = CurrencyDropExpected(rarity) * (currency - 1);
             int whole = (int)expected + (rng.NextDouble() < expected - (int)expected ? 1 : 0);
             for (int i = 0; i < whole; i++)
-                if (drops.CurrencyDrop(monsterLevel, rng) is { } extraCurrency) yield return extraCurrency;
+                if (drops.CurrencyDrop(monsterLevel, rng, weights) is { } extraCurrency) yield return extraCurrency;
         }
     }
 
@@ -142,7 +196,7 @@ public static partial class Game
             if (snapshot.CurrencyWeights.Count > 0)
             {
                 foreach (var row in snapshot.CurrencyWeights.Values)
-                    if (row.Weight > 0 && catalog.Find(row.CurrencyId) is { Supported: true } t && t.Id == row.CurrencyId)
+                    if (row is { Enabled: true, Weight: > 0 } && catalog.Find(row.CurrencyId) is { Supported: true } t && t.Id == row.CurrencyId)
                         list.Add((t, row.Weight, Math.Max(t.DropLevel, row.DropLevel)));
             }
             if (list.Count == 0)

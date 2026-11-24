@@ -20,13 +20,6 @@ public static partial class Game
     public static bool RunBossKilled(MapDevice.OpenMap? run) => run is not null
         && MapRuns.Any(p => p.Value.Run == run.Run && p.Value.Completed);
 
-    static ItemDrops.Drop? ProgressionMapDrop(Player player, SpawnedMonster monster, int tier, Random random, double chanceFactor)
-    {
-        bool boss = tier > 0 && monster.Rarity == MonsterRarity.Unique && monster.Variety is { } variety
-            && Packs.For(player.Layout.Id)?.Bosses.Contains(variety.Row) == true;
-        return DropsFor(player).Map(monster.Level, monster.Rarity, tier, random, chanceFactor: chanceFactor, mapBoss: boss);
-    }
-
     static int[] CompletionBosses(string area)
     {
         var bosses = (Packs.For(area)?.Bosses ?? []).Select(row => Monsters.Find(row.ToString()))

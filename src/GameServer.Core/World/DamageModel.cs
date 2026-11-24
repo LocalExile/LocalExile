@@ -28,6 +28,7 @@ public static class DamageModel
 
     /// <summary>Path of Building's <c>SuppressionChanceCap</c>: Spell Suppression chance cannot exceed 100%.</summary>
     public const int SpellSuppressionChanceCap = 100;
+    public const int SpellDodgeChanceCap = 75;
 
     /// <summary>Path of Building's <c>SuppressionEffect</c>: a suppressed spell hit takes 40% less damage.</summary>
     public const int SpellSuppressionEffect = 40;

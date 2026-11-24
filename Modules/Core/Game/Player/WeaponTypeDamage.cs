@@ -133,7 +133,8 @@ public static class WeaponTypeDamage
         {
             value += get(Stat.DamagePlusPctWithOneHandedWeapons) + get(Stat.OneHandedWeaponHitAndAilmentDamagePlusPct);
             if (ailment) value += get(Stat.OneHandedWeaponAilmentDamagePlusPct)
-                + get(Stat.AttackAilmentDamagePlusPctWhileWieldingOneHandedWeapon);
+                + get(Stat.AttackAilmentDamagePlusPctWhileWieldingOneHandedWeapon)
+                + (melee ? get(Stat.OneHandedMeleeWeaponAilmentDamagePlusPct) : 0);
         }
         // A row two families read together counts once, however many of them this hand counts as.
         if (Has(families, "mace") || Has(families, "staff"))

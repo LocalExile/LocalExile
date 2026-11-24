@@ -1,7 +1,9 @@
 /// <summary>Connection-owned, pausable combat state. No wall-clock or character-name global lifetime.</summary>
 public sealed class AntiquarianCombatState
 {
-    public double AdrenalineUntil { get; private set; } = double.NegativeInfinity;
+    public double TimedAdrenalineUntil { get; private set; } = double.NegativeInfinity;
+    public bool SustainedAdrenaline { get; private set; }
+    public double AdrenalineUntil => SustainedAdrenaline ? double.PositiveInfinity : TimedAdrenalineUntil;
     public bool Adrenaline(double now) => now < AdrenalineUntil;
     double recoveryAt, recoveryUntil, recoveryPerSecond, pendingRecovery;
     public double RecoveryPerSecond(double now) => now < recoveryUntil ? recoveryPerSecond : 0;
@@ -14,8 +16,8 @@ public sealed class AntiquarianCombatState
     {
         Integrate(now);
         if (!alive) { Clear(); return; }
-        bool changed = !adrenalineSource && Adrenaline(now) || !recoverySource && RecoveryPerSecond(now) > 0;
-        if (!adrenalineSource) AdrenalineUntil = double.NegativeInfinity;
+        bool changed = !adrenalineSource && now < TimedAdrenalineUntil || !recoverySource && RecoveryPerSecond(now) > 0;
+        if (!adrenalineSource) TimedAdrenalineUntil = double.NegativeInfinity;
         if (!recoverySource) recoveryPerSecond = 0;
         if (changed) Changed?.Invoke();
     }
@@ -24,9 +26,24 @@ public sealed class AntiquarianCombatState
     public bool GrantAdrenaline(double now, int milliseconds)
     {
         if (milliseconds <= 0 || Adrenaline(now)) return false;
-        AdrenalineUntil = now + milliseconds / 1000d;
+        TimedAdrenalineUntil = now + milliseconds / 1000d;
         Changed?.Invoke();
         return true;
+    }
+
+    public void SustainAdrenaline(double now)
+    {
+        if (Adrenaline(now)) return;
+        SustainedAdrenaline = true;
+        Changed?.Invoke();
+    }
+
+    public void EndSustainedAdrenaline(bool removeTimed = false)
+    {
+        if (!SustainedAdrenaline && (!removeTimed || double.IsNegativeInfinity(TimedAdrenalineUntil))) return;
+        SustainedAdrenaline = false;
+        if (removeTimed) TimedAdrenalineUntil = double.NegativeInfinity;
+        Changed?.Invoke();
     }
 
     // LocalExile v1: another accepted stun refreshes this one-second recovery, without stacking rates.
@@ -53,8 +70,9 @@ public sealed class AntiquarianCombatState
 
     public void Clear()
     {
-        bool had = double.IsFinite(AdrenalineUntil) || recoveryPerSecond != 0;
-        AdrenalineUntil = double.NegativeInfinity;
+        bool had = SustainedAdrenaline || double.IsFinite(TimedAdrenalineUntil) || recoveryPerSecond != 0;
+        TimedAdrenalineUntil = double.NegativeInfinity;
+        SustainedAdrenaline = false;
         recoveryAt = recoveryUntil = recoveryPerSecond = pendingRecovery = 0;
         if (had) Changed?.Invoke();
     }
@@ -64,12 +82,12 @@ public sealed class AntiquarianCombatState
     public Carried Carry(double now)
     {
         Integrate(now);
-        return new(Math.Max(0, AdrenalineUntil - now), Math.Max(0, recoveryUntil - now),
+        return new(Math.Max(0, TimedAdrenalineUntil - now), Math.Max(0, recoveryUntil - now),
             recoveryPerSecond, pendingRecovery);
     }
     public void Restore(Carried state, double now)
     {
-        Clear(); AdrenalineUntil = now + state.AdrenalineSeconds;
+        Clear(); TimedAdrenalineUntil = now + state.AdrenalineSeconds;
         recoveryAt = now; recoveryUntil = now + state.RecoverySeconds;
         recoveryPerSecond = state.RecoveryPerSecond; pendingRecovery = state.PendingRecovery;
         Changed?.Invoke();

@@ -69,7 +69,9 @@ public static partial class Game
 
     public static LeapSlam.Use? PlanLeapSlam(Player player, ushort skillId, int effect, (int X, int Y) aim, double at)
     {
-        var from = player.Walk.Position(at);
+        double planAt = player.Connection.LockstepClient && player.Connection.LockstepFrame is { } frame ? frame.Start : at;
+        if (player.Connection.LockstepClient) StepWalkers(player, planAt);
+        var from = player.Walk.Position(planAt);
         var landing = LeapSlam.Landing(player.Layout, player.Barrier, from, aim, SkillsFor(player).BehaviourVariation(effect));
         LeapSlam.Phases timing;
         try { timing = LeapSlamTiming(player, skillId, effect, SupportedAttackSeconds(player, skillId)); }
@@ -78,7 +80,7 @@ public static partial class Game
             Console.WriteLine($"[gateway] Leap Slam unavailable: {ex.Message}");
             return null;
         }
-        return new(from, landing, at, timing, player.ActionCount + 1, player.ActionInterruptionGeneration);
+        return new(from, landing, planAt, timing, player.ActionCount + 1, player.ActionInterruptionGeneration);
     }
 
     public static void CommitLeapSlam(Player player, LeapSlam.Use use)
@@ -89,7 +91,8 @@ public static partial class Game
 
     public static Task ScheduleLeapSlam(Player player,
         ushort skillId, (ushort Id, int Effect, string Name, int Level, int Quality, uint Gem) gem,
-        LeapSlam.Use use, SkillCriticalRoll criticalRoll, ushort sequence, double damageMore, double radiusMore)
+        LeapSlam.Use use, SkillCriticalRoll criticalRoll, ushort sequence, double damageMore, double radiusMore,
+        bool cryExerted = false)
     {
         var session = ProjectilesFor(player);
         session.Advance();
@@ -108,7 +111,7 @@ public static partial class Game
             var hit = AreaSkillHit(player, skillId, gem, use.Landing, use.Landing,
                 immediate: true, sequence: sequence, criticalRoll: criticalRoll,
                 damageMore: damageMore, radiusMore: radiusMore, triggeredCurrent: Valid,
-                onHit: _ => count++, scheduledSession: session);
+                onHit: _ => count++, scheduledSession: session, cryExerted: cryExerted);
             if (!hit.IsCompleted) throw new InvalidOperationException("Scheduled Leap Slam landing must not yield.");
             hit.GetAwaiter().GetResult();
             Console.WriteLine($"[gateway] {player.Connection.Remote} skill 0x{skillId:x4} {gem.Name}: landed sequence=0x{sequence:x4} "
