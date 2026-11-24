@@ -2967,9 +2967,11 @@ into `movement_velocity_+%` and queued directly into `Area.Stats` so the `0x1b3`
 `0x1ab` (`ShieldCharge.cs`, `Progression.cs`).
 
 **Route.** The charge runs no path search. The setup lays a straight line to the aim, up to its maximum distance
-(below); an aim off the floor moves back along the line to the first cell the mover can stand on. Each step is checked
-as a walk's is ([07](07-latency-visibility-movement.md) §5), so the first blocked step ends the run, on a body as on a
-wall. A charge from inside a ring does not move at all (`PlayerWalk.Charge`).
+(below); an aim off the floor moves back along the line to the first cell the mover can stand on. Per-step collision
+(`FUN_141a6f9b0`) passes through non-target Actors and Chests (pushing hostile knockbackable enemies perpendicularly
+aside at `60 × (1 + knockback_speed_+%/100)`), and stops on terrain, stationary non-Actor/non-Chest blockers, or an
+object-targeted monster at ≥ 15 cells (`dist² > 0xe0`). A charge from inside a ring does not move at all
+(`PlayerWalk.Charge`).
 
 **Hits.** The client's (`trace-charge-hits.js`, four charges): kind 0 at its position as it starts and then about every
 100 ms (every ~8 cells at charge speed) within 8 cells (`0x141a70170` returns the range), kind 1 within 16 cells where

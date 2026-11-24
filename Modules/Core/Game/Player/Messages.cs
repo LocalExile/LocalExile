@@ -374,7 +374,7 @@ public static partial class Game
                     }
                 }
                 Mark("begin");
-                bool projectileRuntime = cast && gem.Name is not null && (UsesProjectileRuntime(gem.Effect) || leapSkill);
+                bool projectileRuntime = cast && gem.Name is not null && (UsesProjectileRuntime(gem.Effect) || leapSkill || chargeBonus != 0);
                 double? swingAt = attack ? at : null;
                 Task<bool>? castTask = projectileRuntime ? CastGemSkill(player, use.SkillId,
                     (px, py), (use.X, use.Y), sequence: use.Slot, actionToken: cooldownUse?.ActionToken ?? action, cooldownUse: cooldownUse,
@@ -408,6 +408,11 @@ public static partial class Game
                 // and the client never ran the action (live 2026-11-17: 51 of 59 Kinetic Blast casts, no casting animation).
                 await echo();
                 Mark("echo");
+                if (chargeBonus != 0 && !acknowledged)
+                {
+                    EndShieldChargeIfInterrupted(player);
+                    continue;
+                }
                 if (!projectileRuntime && !acknowledged) continue;
                 if (!cast && HasOpenInteraction(player) && SkillsFor(player).ActionName(use.SkillId) == "Move")
                     await CloseInteractionsIfMovingAway(player, (use.X, use.Y), at);
