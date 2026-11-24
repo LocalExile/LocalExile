@@ -1114,7 +1114,10 @@ public static partial class Game
         List<AuraCatalog.Aura> auras;
         auras = AffectingAuras(player);
         var minionAuras = SelectMinionAuras(player, player.Id, auras, bonus.AuraEffectPct);
-        var aura = AuraCatalog.Bonus(auras.Where(a => a.AffectsSelf), bonus.AuraEffectPct, SkillsFor(player), Stats);
+        int auraPerHerald = sources.GetValueOrDefault(Stat.AuraEffectOnSelfFromSkillsPlusPctPerHeraldEffectingYou);
+        var ownAuraProjection = WithHeraldScaledOwnAuras(auras, SkillsFor(player), auraPerHerald,
+            auraPerHerald == 0 ? 0 : ActiveHeraldCount(auras));
+        var aura = AuraCatalog.Bonus(ownAuraProjection.Where(a => a.AffectsSelf), bonus.AuraEffectPct, SkillsFor(player), Stats);
         aura = WithTemporaryAuraBonus(auras, bonus.AuraEffectPct, aura);
         // Commander of Darkness ("You and nearby Allies have +30% to Elemental Resistances"): applies to the caster
         // even with zero active auras, deduplicated against any Commander resistance already counted by AuraCatalog.

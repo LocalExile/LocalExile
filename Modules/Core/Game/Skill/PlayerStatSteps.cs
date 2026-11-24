@@ -132,8 +132,13 @@ public static partial class Game
             if (OwnEternalBlessingActive(player)) stats[Stat.NonBlessingSkillsWithManaReservationAreDisabled] = 1;
             // "X% increased Effect of Herald Buffs on you" (passives, gear and tattoos) scales the heralds' buff stats.
             int heraldEffectPct = GetIn(stats, Stat.HeraldEffectOnSelfPlusPct);
+            int damagePerHerald = GetIn(stats, Stat.DamagePlusPctForEachHeraldAffectingYou);
+            int auraPerHerald = GetIn(stats, Stat.AuraEffectOnSelfFromSkillsPlusPctPerHeraldEffectingYou);
+            int heralds = damagePerHerald == 0 && auraPerHerald == 0 ? 0 : ActiveHeraldCount(auras);
+            if (damagePerHerald != 0 && heralds != 0) AddTo(stats, Stat.DamagePlusPct, (long)damagePerHerald * heralds);
             var minionAuras = SelectMinionAuras(player, player.Id, auras, player.Pools.AuraEffectPct);
-            foreach (var (k, v) in AuraCatalog.RawStats(auras.Where(a => a.AffectsSelf), player.Pools.AuraEffectPct, SkillsFor(player), Stats,
+            var personalAuras = WithHeraldScaledOwnAuras(auras.Where(a => a.AffectsSelf), SkillsFor(player), auraPerHerald, heralds);
+            foreach (var (k, v) in AuraCatalog.RawStats(personalAuras, player.Pools.AuraEffectPct, SkillsFor(player), Stats,
                          heraldEffectPct).Concat(minionAuras.SelectMany(a => a.Stats)).ToList())
                 AddTo(stats, k, v);
             // Commander of Darkness ("You and nearby Allies deal 30% increased Damage"): applies to the caster even
