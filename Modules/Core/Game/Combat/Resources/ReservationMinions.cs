@@ -46,8 +46,12 @@ public static partial class Game
         if (Monsters.Find(path) is not { Supported: true } variety) return;
         var supported = SupportedSkill(player, aura.SkillId);
         if (!supported.RequirementsMet) return;
-        int limit = kind == "Purity" ? ReservationStat(player, aura, Stat.BaseNumberOfChampionsOfLightAllowed)
-            + GolemStat(CharacterPlayerStats(player), Stat.BaseNumberOfChampionsOfLightAllowed) : 1;
+        var playerStats = CharacterPlayerStats(player);
+        int PlayerStat(uint stat) => GolemStat(playerStats, stat);
+        int limit = kind == "Purity"
+            ? ApplyDarkMonarchLimit(ReservationStat(player, aura, Stat.BaseNumberOfChampionsOfLightAllowed)
+                + PlayerStat(Stat.BaseNumberOfChampionsOfLightAllowed), PlayerStat, "Purity")
+            : MinionFamilyAllowed(PlayerStat, kind) ? 1 : 0;
         if (limit <= 0) return;
         if (ReservationAura(player, aura.EffectId) is null) return;
         var existing = player.Reservations.Fighters.Values.Where(g => g.Definition.Kind == kind && !g.Monster.Dead).ToArray();
@@ -65,7 +69,7 @@ public static partial class Game
         byte level = (byte)Math.Clamp(GolemStat(supported.Stats, Stat.BaseDisplayMinionActorLevel) is > 0 and var actorLevel
             ? actorLevel : SkillsFor(player).PlayerLevelReq(aura.Effect, aura.Level), 1, 100);
         var definition = new GolemCatalog.Definition(aura.Effect, aura.EffectId, kind, path, 0, [], false, false, IsGolem: false);
-        var playerStats = CharacterPlayerStats(player);
+        playerStats = CharacterPlayerStats(player);
         bool skitter = kind.StartsWith("Skitter", StringComparison.Ordinal);
         double summonDuration = kind == "Purity"
             ? ReservationDuration(player, aura, Stat.BaseSkillEffectDuration, 12000) : double.PositiveInfinity;
@@ -151,6 +155,11 @@ public static partial class Game
                 if (!player.Auras.TryGetValue(fighter.Source, out var aura)) continue;
                 if (refresh)
                 {
+                    if (!MinionFamilyAllowed(s => GolemStat(playerStats!, s), fighter.Definition.Kind))
+                    {
+                        RemoveReservationFighterLocked(player, fighter, now);
+                        continue;
+                    }
                     fighter.Own = ReservationMinionStats(player, aura, fighter.Definition.Kind);
                     RefreshGolemLocked(player, fighter, playerStats!, now);
                 }
