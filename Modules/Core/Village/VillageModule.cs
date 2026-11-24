@@ -200,6 +200,8 @@ public sealed class VillageModule : IModule
             }
             // The pushes compare this against what the panel already has.
             settlement.Version = version + 1;
+            Console.WriteLine($"[gateway] village sync: {settlement.Assignments.Count} worker(s), gold {settlement.Gold}, "
+                + $"slots [{string.Join(' ', settlement.Slots)}], version {settlement.Version}");
         }
     }
 
@@ -219,10 +221,11 @@ public sealed class VillageModule : IModule
     /// without it).</summary>
     public const string RecruitsFile = "data/kingsmarch-recruits.txt";
 
-    /// <summary>What hiring one of the waiting recruits costs. The client weighs the button against the treasury's gold
-    /// (its own <c>VillageRecruitBalancePerTier</c> holds 2,000 gold a tier), so the price is paid out of the
-    /// treasury; the client never moves gold itself, the server does.</summary>
-    public const uint RecruitPrice = 2000;
+    /// <summary>What hiring a waiting recruit costs: one hour of the wage the recruit would earn, which is the number
+    /// the card shows (its u32 at <c>+0xa8</c>). The panel weighs the button against the treasury's gold and the client
+    /// never moves gold itself, so the server charges it. A flat 2,000 sat far above the gold a town actually runs on,
+    /// which is why every hire was refused.</summary>
+    public static uint Price(byte row, byte skill) => VillageWages.Wage(VillageWorkers.JobType(row), skill);
 
     /// <summary>Put a file here and the server opens the port window itself, the stand-in for clicking Tujen's Shipping
     /// line: a test client reaches the port panel without a hand on the mouse. Once per connection, in the town.</summary>
@@ -306,13 +309,16 @@ public sealed class VillageModule : IModule
     {
         if (player.AreaId != "KalguuranSettlersLeague") return;
         var settlement = Of(player);
-        if (settlement.Recruits.Count == 0 && settlement.RecruitVersion == 0 && File.Exists(RecruitsFile)) RollRecruits(settlement);
+        // A town always has somebody waiting: the roll cannot be gated on the switch file, or the panel's cards
+        // stay empty and every hire click answers "no recruit in slot" (the file only gates a reroll).
+        if (settlement.Recruits.Count == 0 && settlement.RecruitVersion == 0) RollRecruits(settlement);
         if (settlement.RecruitsPushed == settlement.RecruitVersion) return;
         settlement.RecruitsPushed = settlement.RecruitVersion;
         // the count is read twice: once by the handler (0x141767fc1) and once by the reader (0x141773338)
         var payload = new List<byte> { (byte)settlement.Recruits.Count, (byte)settlement.Recruits.Count };
         for (int i = 0; i < settlement.Recruits.Count; i++)
-            payload.AddRange(VillageWorkers.Recruit(settlement.Recruits[i].Row, i, settlement.Recruits[i].Skill, RecruitPrice));
+            payload.AddRange(VillageWorkers.Recruit(settlement.Recruits[i].Row, i, settlement.Recruits[i].Skill,
+                Price(settlement.Recruits[i].Row, settlement.Recruits[i].Skill)));
         await player.Send(StateFrame(TownRecordKind, 1, payload.ToArray()),
             $"0x02c9 village recruits: {settlement.Recruits.Count}");
     }
@@ -355,7 +361,9 @@ public sealed class VillageModule : IModule
     public async Task<string> Hire(IPlayer player, int jobRow, int rank = 1)
     {
         var settlement = Of(player);
-        byte worker = (byte)(settlement.Assignments.Count + 1);
+        int hired = KingsmarchTown.AddWorker(player);
+        if (hired < 1) return "the town could not take another worker";
+        byte worker = (byte)hired;
         settlement.Assignments[worker] = (byte)jobRow;
         settlement.Ranks[worker] = VillageWages.Skill(rank);
         settlement.Workers = (byte)settlement.Assignments.Count;
@@ -434,6 +442,35 @@ public sealed class VillageModule : IModule
                     await player.Tell("Kingsmarch: " + await Hire(player, row, rank));
                     return;
                 }
+                if (args.Length >= 2 && string.Equals(args[0], "hirepanel", StringComparison.OrdinalIgnoreCase)
+                    && int.TryParse(args[1], out int slot))
+                {
+                    // the recruitment panel's own hire button, without a hand on the mouse: same handler the 0x2ca
+                    // action 0x01 reaches
+                    await player.Tell("Kingsmarch: " + await HireRecruit(player, slot));
+                    return;
+                }
+                if (args.Length >= 1 && string.Equals(args[0], "resend", StringComparison.OrdinalIgnoreCase))
+                {
+                    // the tester's way of making the panel take the file again: forget what was sent, read the farm
+                    // file afresh and push every frame of the settlement
+                    _farm.Remove(player);
+                    var fresh = Of(player);
+                    fresh.Pushed = -1;
+                    fresh.RecruitsPushed = -1;
+                    fresh.StatePushed = -1;
+                    SyncFarm(player);
+                    fresh = Of(player);
+                    fresh.Pushed = -1;
+                    fresh.RecruitsPushed = -1;
+                    fresh.StatePushed = -1;
+                    await PushWorkers(player);
+                    await PushRecruits(player);
+                    await PushState(player);
+                    await player.Tell($"Kingsmarch: resent the panel (population {fresh.Workers}, gold {fresh.Gold}, "
+                        + $"slots [{string.Join(' ', fresh.Slots)}])");
+                    return;
+                }
                 if (args.Length >= 2 && string.Equals(args[0], "gold", StringComparison.OrdinalIgnoreCase)
                     && uint.TryParse(args[1], out uint gold))
                 {
@@ -454,7 +491,7 @@ public sealed class VillageModule : IModule
                     await player.Tell($"Kingsmarch: the purse holds {total}");
                     return;
                 }
-                await player.Tell("usage: /villagepanel hire <VillageJobs row> [rank 1-5] | /villagepanel gold <amount> | /villagepanel purse <amount>");
+                await player.Tell("usage: /villagepanel hire <VillageJobs row> [rank 1-5] | hirepanel <slot> | gold <amount> | purse <amount>");
             });
         });
         GameEvents.AreaTick.Add(module.Manifest.Id, GameEvents.Always(async (connection, now) =>
@@ -607,16 +644,28 @@ public sealed class VillageModule : IModule
     async Task<string> HireRecruit(IPlayer player, int index)
     {
         var settlement = Of(player);
+        // The waiting list is normally rolled by the tick that pushes it to the panel; a click that arrives before that
+        // tick has to see somebody waiting, or the panel refuses a hire it was showing cards for.
+        if (settlement.Recruits.Count == 0) RollRecruits(settlement);
         if (index < 0 || index >= settlement.Recruits.Count)
             return $"no recruit in slot {index} ({settlement.Recruits.Count} waiting)";
-        if (settlement.Gold < RecruitPrice)
-            return $"hiring needs {RecruitPrice} gold in the treasury ({settlement.Gold} there)";
+        uint price = Price(settlement.Recruits[index].Row, settlement.Recruits[index].Skill);
+        // The treasury the town really holds lives in the farm, and this settlement's copy is rewritten from it every
+        // tick, so the charge has to go through the farm or the gold would come back on the next tick.
+        if (!KingsmarchTown.PayTreasury(player, (int)price))
+            return $"hiring needs {price} gold in the treasury ({KingsmarchTown.Treasury(player)} there)";
 
         var (row, skill) = settlement.Recruits[index];
         settlement.Recruits.RemoveAt(index);
         settlement.RecruitVersion++;
-        settlement.Gold -= RecruitPrice;
-        byte worker = (byte)(settlement.Assignments.Count + 1);
+        settlement.Gold = (uint)Math.Max(0, KingsmarchTown.Treasury(player));
+        // The worker has to join the farm's own list as well: the panel is rewritten from it every tick, so a worker
+        // that only exists in this settlement's copy vanishes on the next tick.
+        int hired = KingsmarchTown.AddWorker(player, skill);
+        if (hired < 1) return "hiring failed: the town could not take another worker";
+        byte worker = (byte)hired;
+        // the farm owns the worker's job, and the panel is rewritten from the farm every tick
+        await KingsmarchTown.MoveTo(player, worker, row);
         settlement.Assignments[worker] = row;
         settlement.Ranks[worker] = skill;
         settlement.Workers = (byte)settlement.Assignments.Count;
@@ -625,7 +674,7 @@ public sealed class VillageModule : IModule
         await PushRecruits(player);
         await PushState(player);
         return $"hired recruit {index}: worker {worker} takes VillageJobs row {row} at rank " +
-            $"{VillageWages.Rank(skill) + 1} for {RecruitPrice} gold (treasury {settlement.Gold})";
+            $"{VillageWages.Rank(skill) + 1} for {price} gold (treasury {settlement.Gold})";
     }
 
     /// <summary>Picks the two recruits waiting to be hired: a job that has a name to show and a skill level.</summary>
@@ -634,7 +683,7 @@ public sealed class VillageModule : IModule
     {
         settlement.Recruits.Clear();
         // the jobs that have a name to show: the five mining and the five smelting ones, plus disenchanting and mapping
-        int[] jobs = [1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 17, 18];
+        int[] jobs = [1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11, 12, 13, 14, 15, 16, 17, 18];
         int top = Math.Max(VillageWages.Ranks, lowest + 1);
         for (int i = 0; i < 2; i++)
             settlement.Recruits.Add(((byte)jobs[Random.Shared.Next(jobs.Length)],

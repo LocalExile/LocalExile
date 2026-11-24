@@ -95,13 +95,24 @@ public static class KingsmarchTown
     static double _villageAt;
 
     /// <summary>Writes the town's numbers for the Village module, which pushes them to the panel.</summary>
+    /// <summary>The <c>VillageJobs</c> row a worker's job is named by: the mine's veins are rows 1 to 5, the smeltery's
+    /// rows 6 to 10 and the six farm plots rows 11 to 16. Row 0 is the idling worker, whose row carries no job.</summary>
+    /// <param name="plot">The worker's slot (-1 and up are plots, -2 the mine, -3 the smeltery).</param>
+    static int JobRow(int plot) => plot switch
+    {
+        >= 0 and < 6 => 11 + plot,
+        MineJob => 1,
+        SmelterJob => 6,
+        _ => 0,
+    };
+
     static void PublishVillage(Progress progress)
     {
         double now = UtcNow();
         if (now - _villageAt < 1) return;
         _villageAt = now;
         var workers = progress.Workers
-            .Select((w, i) => new { order = i + 1, row = w.Plot is >= 0 and < 6 ? 11 + w.Plot : 0, rank = w.Rank })
+            .Select((w, i) => new { order = i + 1, row = JobRow(w.Plot), rank = w.Rank })
             .ToArray();
         var file = new
         {
@@ -110,8 +121,19 @@ public static class KingsmarchTown
             capacity = 90,
             paid = workers.Count(w => w.row != 0),
             workers,
-            // What each plot grows, in plot order: the panel's state frame carries one VillageResources row per plot.
-            plots = progress.Plots.Values.OrderBy(p => p.Order).Select(p => new { order = p.Order, crop = p.Crop }).ToArray(),
+            // What each plot grows, in plot order: the panel's state frame carries one VillageResources row per plot. The
+            // live plots only exist while the town's objects have been placed this area load, so the saved plots are the
+            // fallback - a panel reopened after a reload still shows what each plot grows.
+            plots = Enumerable.Range(0, progress.Saved.Count == 0 ? 6 : Math.Max(6, progress.Saved.Count))
+                .Select(order => new
+                {
+                    order,
+                    crop = progress.Plots.TryGetValue(
+                        progress.Plots.Values.FirstOrDefault(p => p.Order == order)?.ObjectId ?? 0, out var live)
+                        ? live.Crop
+                        : order < progress.Saved.Count ? progress.Saved[order].Crop : 0,
+                })
+                .ToArray(),
             crops = progress.Store,
         };
         try
@@ -1438,6 +1460,40 @@ public static class KingsmarchTown
         return $"Worker {worker} now tends plot {plotOrder}.";
     }
 
+    /// <summary>The gold the town's treasury holds, the number the panels show.</summary>
+    /// <param name="player">The player whose town it is.</param>
+    public static long Treasury(IPlayer player) => KingsmarchPort.Gold(State(player).Who);
+
+    /// <summary>Takes gold out of the town's treasury the way the town's own purchases do (a recruit's price, a
+    /// shipment). Returns false and leaves the treasury alone when it holds too little.</summary>
+    /// <param name="player">The player whose town it is.</param>
+    /// <param name="cost">The gold to take.</param>
+    public static bool PayTreasury(IPlayer player, int cost) => KingsmarchPort.Spend(State(player).Who, cost);
+
+    /// <summary>Hires one more worker for the town, the way the recruitment panel's hire button does: the worker joins
+    /// the farm's own list, which is what the panel is rewritten from. Returns the worker's number, or 0 when the town is
+    /// already at its limit.</summary>
+    /// <param name="player">The player whose farm it is.</param>
+    /// <param name="skill">The rank the recruit was hired at, as the client's job-level byte (0 is rank 1).</param>
+    public static int AddWorker(IPlayer player, byte skill = 0)
+    {
+        Progress progress = State(player);
+        int number;
+        lock (_lock)
+        {
+            if (progress.Workers.Count >= 90) return 0;
+            number = progress.Workers.Count + 1;
+            progress.Workers.Add(new Worker
+            {
+                Order = progress.Workers.Count,
+                Name = CandidateName(progress.Who, progress.Workers.Count),
+                Rank = Math.Clamp((int)skill + 1, 1, 5),
+            });
+            Persist(progress);
+        }
+        return number;
+    }
+
     /// <summary>Moves one worker the way the town panel's own buttons do: a <c>VillageJobs</c> row names the job, 11..16
     /// being the six farm plots and 0 idling. The panel's worker list is rewritten from this state every tick, so a button
     /// the panel sends has to land here as well, or the next tick puts the worker straight back where it was.</summary>
@@ -1447,7 +1503,16 @@ public static class KingsmarchTown
     public static async Task MoveTo(IPlayer player, int worker, int jobRow)
     {
         Progress progress = State(player);
-        int plot = jobRow is >= 11 and <= 16 ? jobRow - 11 : -1;
+        // The panel names a job by its VillageJobs row: 1 to 5 are the mine's veins, 6 to 10 the smeltery, 11 to 16 the
+        // farm's six plots. Without the mine and smeltery rows a recruited miner would arrive idle and the panel would
+        // rewrite his job back to "idle" on the next tick.
+        int plot = jobRow switch
+        {
+            >= 1 and <= 5 => MineJob,
+            >= 6 and <= 10 => SmelterJob,
+            >= 11 and <= 16 => jobRow - 11,
+            _ => -1,
+        };
         lock (_lock)
         {
             if (progress.Workers.Count == 0) return;
