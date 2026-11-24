@@ -70,7 +70,14 @@ public static partial class Game
         TryApplyMaimLocked(m, get(Stat.MaimOnHitPct),
             Math.Max(0, get(Stat.SupportMaimedEnemiesPhysicalDamageTakenPlusPct)), now, random);
         if (spell && RandomRolls.Chance(get(Stat.SpellsChanceToHinderOnHitPct), 100, random))
-            { m.HinderedUntil = Math.Max(m.HinderedUntil, now + HinderSeconds); m.PresentationChanged?.Invoke(); }
+            ApplyHinderLocked(m, now);
+    }
+
+    static void ApplyHinderLocked(SpawnedMonster monster, double now)
+    {
+        if (monster.Effects[Stat.YouCannotBeHindered] != 0 || monster.Effects[Stat.ImmuneToHinder] != 0) return;
+        monster.HinderedUntil = Math.Max(monster.HinderedUntil, now + HinderSeconds);
+        monster.PresentationChanged?.Invoke();
     }
 
     /// <summary>The shared Maim application for a surviving hostile hit. RandomRolls.Chance returns false without drawing

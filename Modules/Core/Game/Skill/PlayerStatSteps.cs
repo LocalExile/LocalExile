@@ -93,6 +93,12 @@ public static partial class Game
             }
             // Their "recently" conditions change by themselves when an event ages out of its window.
             double now = AreaTime(player);
+            int totemSpeed = GetIn(stats, Stat.AttackAndCastSpeedPlusPctOnPlacingTotem);
+            if (totemSpeed != 0 && player.RecentEvents.Happened(StatConditions.SummonedTotem, now))
+            {
+                AddTo(stats, Stat.AttackSpeedPlusPct, totemSpeed);
+                AddTo(stats, Stat.CastSpeedPlusPct, totemSpeed);
+            }
             if (player.RecentEvents.NextExpiry(now) is double expiry) StatsChangeIn(expiry - now);
             if (player.ElementalAilments.NextChangeAt(now) is double ailment) StatsChangeIn(ailment - now);
             if (player.IncomingAilments.NextChangeAt(now) is double incoming) StatsChangeIn(incoming - now);
