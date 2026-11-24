@@ -599,6 +599,16 @@ public static partial class Game
             : (at.X + (int)Math.Round((at.X - player.X) / away * 20), at.Y + (int)Math.Round((at.Y - player.Y) / away * 20));
     }
 
+    static void LeechPlacedMineHitLocked(Player player, SpawnedMonster target, DamagePacket mitigated, bool spell,
+        int damage, double now, IReadOnlyDictionary<uint, int> owner, uint targetId = 0)
+    {
+        int coefficient = GolemStat(owner, Stat.MineDamageLeechedAsLifeToYouPermyriad);
+        if (coefficient <= 0) return;
+        var life = DamagePacket.Empty.Select((_, _) => new(coefficient, coefficient));
+        LeechOnHitTargetLocked(player, target, MonsterTakenComponents(target, mitigated, spell, now), damage,
+            new(life, DamagePacket.Empty, DamagePacket.Empty), targetId);
+    }
+
     static void PlacedDamageLocked(Player player,
         PlacedSkills.Placed placed, double now, WorldRecordBuilder bytes)
     {
@@ -615,8 +625,11 @@ public static partial class Game
         (int X, int Y) aim = placed.At;
         if (projectile)
         {
-            aim = PlacedProjectileAim(placed.At, player.Walk.Position(now), player.Area.MonstersNear(placed.At, 60)
-                .Where(m => m.Value is { Hostile: true, Dead: false, Life: > 0 }).Select(m => m.Value.Walk.Position(now)));
+            var ownerAt = player.Walk.Position(now);
+            aim = placed.Mine && GolemStat(placed.Own, Stat.SupportLocusMineMinesAlwaysTargetYourLocation) != 0
+                ? ownerAt
+                : PlacedProjectileAim(placed.At, ownerAt, player.Area.MonstersNear(placed.At, 60)
+                    .Where(m => m.Value is { Hostile: true, Dead: false, Life: > 0 }).Select(m => m.Value.Walk.Position(now)));
         }
         else if (bear)
         {
@@ -642,9 +655,8 @@ public static partial class Game
                 useProxyOrigin: true));
             return;
         }
-        // A projectile spell leaves the trap or mine towards the nearest enemy as its own projectile, with the hit and
-        // support modifiers of the supported skill, instead of an area hit around the object. The server draws it, as it
-        // does a triggered spell's: no local input action predicts it.
+        // The trap or mine emits its own projectile with the supported skill's hit and the device's resolved aim.
+        // The server draws it because no local input action predicts it.
         if (projectile)
         {
             var session = ProjectilesFor(player);
@@ -657,7 +669,7 @@ public static partial class Game
                 var use = CaptureGemProjectile(player, session, placed.Skill, payload, shot, critical, from: at);
                 use = ClientDrawnVolley(player, session, placed.Skill, payload, use, 0, 0);
                 var offense = ((ProjectileOffense)use.Payload!).ScaleDamage(inventionMore);
-                return use with { Payload = offense with { ClientPredicted = false, FromTrapOrMine = true } };
+                return use with { Payload = offense with { ClientPredicted = false, FromTrapOrMine = true, FromMine = placed.Mine } };
             });
             return;
         }
@@ -710,17 +722,7 @@ public static partial class Game
             if (critical) damage = DamageModel.CriticalDamage(damage, hitMultiplier);
             int chaosDamage = MonsterHitChaosDamage(m, mitigated, spell, now, damage, BearTrapDamageTaken(m, now));
             if (placed.Mine)
-            {
-                // This is an explicit owner-leech grant, not the player's ordinary attack/spell leech.
-                int coefficient = Math.Max(0, GolemStat(owner, Stat.MineDamageLeechedAsLifeToYouPermyriad));
-                if (coefficient > 0)
-                {
-                    var life = DamageTypes.ConversionOrder.Aggregate(DamagePacket.Empty,
-                        (sum, type) => sum.Add(DamagePacket.Of(type, coefficient, coefficient)));
-                    LeechOnHitLocked(player, m, MonsterTakenComponents(m, mitigated, spell, now), damage,
-                        new(life, DamagePacket.Empty, DamagePacket.Empty));
-                }
-            }
+                LeechPlacedMineHitLocked(player, m, mitigated, spell, damage, now, owner);
             if (ApplyMonsterHitLocked(player, m, damage, null, null, allyAt: placed.At, default, null, chaosDamage) is not { } hit) continue;
             if (hit.StageStarts) { CommitBossStage(player, id, m, now); hit = hit with { StageStarts = false }; }
             OwnedKillLocked(m, hit.Life);
