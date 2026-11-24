@@ -265,7 +265,7 @@ public static partial class Game
         if (variety is not { Supported: true }) return 0;
         int actorLevel = GolemStat(gem.Stats, definition.Family == "Spectre" ? Stat.RaisedSpectreLevel : Stat.BaseDisplayMinionActorLevel);
         if (actorLevel <= 0 && (definition.Family.StartsWith("Dominating", StringComparison.Ordinal)
-            || definition.Family is "VaalDomination" or "HolyArmament"))
+            || definition.Family is "VaalDomination" or "HolyArmament" || definition.Id == GuardianWeaponEffect))
             actorLevel = SkillsFor(player).PlayerLevelReq(gem.Effect, gem.Level);
         byte level = (byte)Math.Clamp(actorLevel, 1, 100);
         if (inheritedMods is null && (definition.Family == "RagingSpirit"
@@ -470,6 +470,7 @@ public static partial class Game
     public static async Task SummonsTick(Player player, double now)
     {
         await HitSummonsTick(player, now);
+        await GuardianWeaponsTick(player);
         var state = player.Summons;
         if (!state.Restored)
         {
