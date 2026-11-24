@@ -437,7 +437,7 @@ public static partial class Game
                 { Until = player.Summons.Until[id], OwnerAura = RollDivineSentinelAura(player, fighter, retainedAura) });
                 PresentPhantasmalMightLocked(player, fighter, playerStats, committed);
                 monster.NoRewards = true; monster.Aggro = true;
-                if (definition.Family == ItemHarbingerFamily) monster.Invulnerable = true;
+                if (definition.Family == ItemHarbingerFamily) monster.DamageImmune = true;
                 if (definition.Id == "RaiseZombieAltY" && fighter.Abilities.FirstOrDefault(a => a.Effect == 7133) is { } fall)
                     GolemReserveLocked(player, fighter, fall, 0, null, aim, AreaTime(player));
                 player.Minions.StatRevision++;
