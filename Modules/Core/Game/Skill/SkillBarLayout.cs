@@ -1,9 +1,9 @@
 
 
 /// <summary>
-/// Where new skills go on the skill bar (S→C 0x53, Agents/docs/protocol/11-skills.md §11). A saved bar maps slot →
-/// GrantedEffects Id, "Action/&lt;Id&gt;" or "" (<see cref="CharacterSaves.Save.SkillBar"/>). Only empty slots take new
-/// skills: the slots the player set stay as they are.
+/// Where new skills go on the skill bar (S→C 0x53, Agents/docs/protocol/11-skills.md §11). A saved bar maps each slot
+/// to an effect, a specific gem effect, an action, or an empty string (<see cref="CharacterSaves.Save.SkillBar"/>).
+/// Only empty slots take new skills.
 /// </summary>
 public static class SkillBarLayout
 {
@@ -15,6 +15,16 @@ public static class SkillBarLayout
     public static readonly int[] FillOrder = [2, 3, 4, 5, 6, 7, 1, 8, 9, 10, 11, 12];
 
     const string UnassignedKey = "Game.SkillBar.Unassigned";
+    const string GemPrefix = "Gem/";
+
+    internal static string GemBinding(Guid gem, string effect) => $"{GemPrefix}{gem:N}/{effect}";
+
+    internal static string? BoundGemEffect(string entry)
+    {
+        int separator = GemPrefix.Length + 32;
+        return entry.Length > separator + 1 && entry.StartsWith(GemPrefix, StringComparison.Ordinal)
+            && entry[separator] == '/' ? entry[(separator + 1)..] : null;
+    }
 
     public static HashSet<string> Unassigned(CharacterSaves.Save? save) =>
         (save?.ModuleData?.GetValueOrDefault(UnassignedKey) ?? "").Split('|', StringSplitOptions.RemoveEmptyEntries).ToHashSet();
@@ -26,9 +36,13 @@ public static class SkillBarLayout
             var save = CharacterSaves.Load(character);
             string? previous = save?.SkillBar?.GetValueOrDefault(slot);
             var unassigned = Unassigned(save);
-            bool changed = unassigned.Remove(entry);
-            if (!string.IsNullOrEmpty(previous) && previous != entry && !previous.StartsWith("Action/"))
-                changed |= unassigned.Add(previous);
+            string effect = BoundGemEffect(entry) ?? entry;
+            bool changed = unassigned.Remove(effect);
+            if (!string.IsNullOrEmpty(previous) && !previous.StartsWith("Action/"))
+            {
+                string previousEffect = BoundGemEffect(previous) ?? previous;
+                if (previousEffect != effect) changed |= unassigned.Add(previousEffect);
+            }
             if (changed) CharacterSaves.ChangeModuleData(character, UnassignedKey, _ => string.Join('|', unassigned.Order()));
             CharacterSaves.SetSkillBar(character, slot, entry);
             return true;

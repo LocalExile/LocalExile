@@ -94,6 +94,9 @@ public sealed record Item(uint TypeHash, IReadOnlyList<string> Components, ushor
     /// check 0x142479880 returns false then). Payload derives bit 5 from GemVariant, as the native copy does.</summary>
     public byte GemFlags { get; init; }
 
+    /// <summary>The server's persistent skill bar identity for a gem the player explicitly bound.</summary>
+    public Guid? SkillBarGemId { get; init; }
+
     public ItemRarity Rarity { get; init; }
 
     /// <summary>Unidentified items carry no <see cref="ModSection.Explicit"/> list (the client does not read it).</summary>
