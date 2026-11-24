@@ -557,7 +557,7 @@ public static partial class Game
         // The King in the Mists needs its whole granted-effect list on the actor, not only the default attack: each 0x1ab
         // names one of these ids (KingInMists.cs). The three Mystic Fetishes likewise need their hazard list, because the
         // official server sends those actions to the fetish actor.
-        var kingSkills = Sirus.SkillsFor(player, variety, level) ?? KitavaActFive.SkillsFor(player, variety, level) ?? KitavaActTen.SkillsFor(player, variety, level) ?? DepravedTrinity.SkillsFor(player, variety, level) ?? VaalOversoul.SkillsFor(player, variety, level) ?? DoedreSewers.SkillsFor(player, variety, level) ?? BrineKing.SkillsFor(player, variety, level, attack) ?? IzaroSkills.SkillsFor(player, variety, level, attack, skill) ?? IzaroIdols.SkillsFor(player, variety, level, attack, skill) ?? GoddessOfJustice.SkillsFor(player, variety, level, attack, skill) ?? KingInMists.SkillsFor(player, variety, level, attack)
+        var kingSkills = Sirus.SkillsFor(player, variety, level) ?? KitavaActFive.SkillsFor(player, variety, level) ?? KitavaActTen.SkillsFor(player, variety, level) ?? DepravedTrinity.SkillsFor(player, variety, level) ?? VaalOversoul.SkillsFor(player, variety, level) ?? DoedreSewers.SkillsFor(player, variety, level) ?? BrineKing.SkillsFor(player, variety, level, attack) ?? Arakaali.SkillsFor(player, variety, level) ?? IzaroSkills.SkillsFor(player, variety, level, attack, skill) ?? IzaroIdols.SkillsFor(player, variety, level, attack, skill) ?? GoddessOfJustice.SkillsFor(player, variety, level, attack, skill) ?? KingInMists.SkillsFor(player, variety, level, attack)
             ?? AtlasBosses.SkillsFor(player, variety, level, attack)
             ?? (KingInMists.IsFetish(variety) ? KingInMists.FetishSkillsFor(player, variety, level, attack) : null);
         // A monster the campaign places as a boss, one with a bar of its own, or a hostile unique (a Rogue Exile), and that
@@ -973,8 +973,8 @@ public static partial class Game
     static bool IsBossControllerVariety(MonsterCatalog.Variety? variety) =>
         variety is not null && BossControllerVarieties.GetOrAdd(variety, static v =>
             Sirus.IsActor(v) || KitavaActFive.IsActor(v) || KitavaActTen.IsActor(v) || DepravedTrinity.IsBoss(v)
-            || VaalOversoul.IsBoss(v) || DoedreSewers.IsBoss(v) || BrineKing.IsBoss(v) || KingInMists.IsBoss(v)
-            || KingInMists.IsFetish(v) || KingInMists.IsGuidingLight(v) || AtlasBosses.IsBoss(v));
+            || VaalOversoul.IsBoss(v) || DoedreSewers.IsBoss(v) || BrineKing.IsBoss(v) || Arakaali.IsBoss(v)
+            || KingInMists.IsBoss(v) || KingInMists.IsFetish(v) || KingInMists.IsGuidingLight(v) || AtlasBosses.IsBoss(v));
 
     /// <summary>Pack-wide aggro propagation: when one pack member aggros or takes a hit, nearby living hostile
     /// packmates sharing <see cref="SpawnedMonster.PackId"/> alert immediately and unrisen buried/lurking packmates
@@ -1634,6 +1634,7 @@ public static partial class Game
         await MonsterMarkersTick(player);
         await HostileGroundsTick(player);
         await PlayerDebuffsTick(player);
+        if (player.PlayerLife == 0) await CampaignBossHelpers.OnPlayerDiedInBossArea(player);
         if (IncomingHitTriggersPending(player))
             ReleaseDamageTakenTriggers(player, ProjectilesFor(player));
         // Advance the projectile runtime first: decisions and committed projectile contacts share one game time and pose.
@@ -3146,7 +3147,10 @@ public static partial class Game
                 $"0x01b1 player mana {hit.Mana} ({(long)hit.Mana - hit.ManaBefore:+0;-0}{(hit.Blocked ? ", blocked" : "")})");
         if (!CurrentGameWork) return;
         if (hit.Life == 0)
+        {
             await PlayerDied(player, $"0x0055 death screen ({player.Character.League ?? "?"} league)");
+            await CampaignBossHelpers.OnPlayerDiedInBossArea(player);
+        }
         else
         {
             if (!hit.Blocked) await SendAttackerSlows(player, id);
