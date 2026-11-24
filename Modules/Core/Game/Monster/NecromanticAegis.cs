@@ -1,4 +1,4 @@
-using GameServer.Core.Protocol.Login;
+using GameServer.Core.Protocol.Instance;
 using GameServer.Core.World;
 
 public static partial class Game
