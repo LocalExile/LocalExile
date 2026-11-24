@@ -45,10 +45,14 @@ public sealed class WarcryBuffTests
                 if (owner == player) values[Stat.BasePhysicalDamageReductionRating] = 100;
                 return values;
             });
+            var body = new SpawnedMonster("ally", new(100, 100, 0), 10, 3, 100) { OwnerId = player.Id, Hostile = false };
+            player.Area.Monsters[900] = body;
+            var ally = new GolemState.Golem(900, body, Game.GolemData.Find("SummonStoneGolem")!, 1);
             var before = Game.BuildPoolsFor(player, 100);
             Game.CharacterPlayerStats(player);
             Game.ApplyWarcryBuffLocked(player, "SeismicCry", gem.Stats, playerStats, (100, 100), 60, clock.Time, 4, 1);
             Assert.True(stats[0].Value > 0);
+            Assert.Equal(stats[0].Value, Game.MinionAuraStats(player, ally)[stats[0].Key]);
             Assert.True(player.Area.Buffs.Has(player.Id, 1544, player.Id));
             Assert.True(player.Pools.Armour > before.Armour);
 
@@ -62,6 +66,7 @@ public sealed class WarcryBuffTests
             clock.Time = 5;
             Game.ExpireWarcryBuffs(player);
             Assert.Equal(before.Armour, player.Pools.Armour);
+            Assert.Equal(0, Game.MinionAuraStats(player, ally).GetValueOrDefault(stats[0].Key));
             Assert.Equal(before.FireMaxResistance + 3, player.Pools.FireMaxResistance);
             clock.Time = 7;
             Game.ExpireWarcryBuffs(player);

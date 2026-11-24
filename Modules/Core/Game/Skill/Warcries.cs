@@ -60,17 +60,44 @@ public static partial class Game
         };
     }
 
-    sealed record WarcryGrant(ushort Row, double Until, int Epoch, (uint Key, int Value)[] Values);
+    sealed record WarcryGrant(GameArea Area, ushort Row, uint Source, double Until, (uint Key, int Value)[] Values);
     static readonly Store<Player, List<WarcryGrant>> WarcryGrants = new();
+    static readonly RuleTable<SpawnedMonster, List<WarcryGrant>> MinionWarcryGrants = new();
 
     static void AddWarcryStats(Player player, Dictionary<uint, int> stats)
     {
-        if (!WarcryGrants.TryGetValue(player, out var grants) || player.PlayerLife == 0) return;
-        double now = AreaTime(player);
-        foreach (var grant in grants)
-            if (grant.Until > now && grant.Epoch == player.ProjectileEpoch)
-                foreach (var (key, value) in grant.Values)
-                    stats[key] = ActorScale.Saturate((long)stats.GetValueOrDefault(key) + value);
+        if (player.PlayerLife > 0 && WarcryGrants.TryGetValue(player, out var grants))
+            AddWarcryStats(grants, player.Area, AreaTime(player), stats);
+    }
+
+    static void AddWarcryStats(List<WarcryGrant> grants, GameArea area, double now, Dictionary<uint, int> stats)
+    {
+        // One copy of a given buff applies. A weaker caster's unexpired grant takes over when the stronger ends.
+        for (int i = 0; i < grants.Count; i++)
+        {
+            var grant = grants[i];
+            if (grant.Until <= now || grant.Area != area) continue;
+            for (int k = 0; k < grant.Values.Length; k++)
+            {
+                var (key, value) = grant.Values[k];
+                bool strongest = true;
+                for (int j = 0; j < grants.Count && strongest; j++)
+                {
+                    var other = grants[j];
+                    if (j == i || other.Row != grant.Row || other.Area != area || other.Until <= now) continue;
+                    int competing = other.Values[k].Value;
+                    strongest = competing < value || competing == value && i < j;
+                }
+                if (strongest && value != 0) stats[key] = ActorScale.Saturate((long)stats.GetValueOrDefault(key) + value);
+            }
+        }
+    }
+
+    static void ReceiveWarcry(GameArea area, uint entity, List<WarcryGrant> grants, WarcryGrant gift, double now)
+    {
+        grants.RemoveAll(g => g.Until <= now || g.Row == gift.Row && g.Source == gift.Source);
+        grants.Add(gift);
+        area.Buffs.Set(entity, new Buff(gift.Row, gift.Source, U68: Buff.Seconds(gift.Until - now)));
     }
 
     static void UpdateWarcryStats(Player player)
@@ -88,8 +115,8 @@ public static partial class Game
         for (int i = grants.Count - 1; i >= 0; i--)
         {
             var grant = grants[i];
-            if (player.PlayerLife > 0 && grant.Until > now && grant.Epoch == player.ProjectileEpoch) continue;
-            player.Area.Buffs.Clear(player.Id, grant.Row, player.Id);
+            if (player.PlayerLife > 0 && grant.Until > now && grant.Area == player.Area) continue;
+            if (grant.Area == player.Area) player.Area.Buffs.Clear(player.Id, grant.Row, grant.Source);
             grants.RemoveAt(i);
             changed = true;
         }
@@ -108,11 +135,19 @@ public static partial class Game
                 .Sum(m => WarcryPower(m.Rarity));
         if (playerStats.GetValueOrDefault(Stat.WarcriesHaveMinimum10Power) != 0) power = Math.Max(power, 10);
         if (WarcryBuffStats(effectId, power, buffEffect, key => own.GetValueOrDefault(key)) is not { } stats) return;
-        var grants = WarcryGrants.GetOrCreateValue(player);
-        grants.RemoveAll(grant => grant.Row == row);
-        grants.Add(new(row, now + duration, player.ProjectileEpoch, stats));
-        player.Area.Buffs.Set(player.Id, new Buff(row, player.Id, U68: Buff.Seconds(duration)));
-        UpdateWarcryStats(player);
+        var gift = new WarcryGrant(player.Area, row, player.Id, now + duration, stats);
+        void Grant(Player recipient)
+        {
+            ReceiveWarcry(player.Area, recipient.Id, WarcryGrants.GetOrCreateValue(recipient), gift, now);
+            UpdateWarcryStats(recipient);
+        }
+        Grant(player);
+        foreach (var ally in player.Instance.PlayersExcept(player.Id))
+            if (!ally.LeavingArea && ally.PlayerLife > 0 && Dist(ally.Walk.Position(now), at) <= radius)
+                Grant(ally);
+        foreach (var (id, ally) in player.Area.Monsters)
+            if (!ally.Hostile && ally.OwnerId != null && !ally.Dead && ally.Life > 0 && Dist(ally.Walk.Position(now), at) <= radius)
+                ReceiveWarcry(player.Area, id, MinionWarcryGrants.GetOrCreateValue(ally), gift, now);
         Console.WriteLine($"[gateway] {effectId}: warcry buff row {row} power={power} for {duration:0.###} s");
     }
 
