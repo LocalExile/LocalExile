@@ -847,11 +847,15 @@ public static partial class Game
             castAt = leap?.At ?? ProjectileWorldTime(player);
             double actionAt = lockstep && player.Connection.LockstepFrame is { } frame ? frame.Start : castAt;
             if (lockstep) StepWalkers(player, actionAt);
+            if (chargeBonus == 0) EndShieldChargeIfInterrupted(player);
             castAction = Interlocked.Increment(ref player.ActionCount);
             aim = m.Walk.Position(actionAt);
             stand = player.Walk.Position(actionAt);
-            if (lockstep) player.Walk.Cancel(actionAt);
-            else player.Walk.Order(stand.X, stand.Y, castAt);
+            if (chargeBonus == 0)
+            {
+                if (lockstep) player.Walk.Cancel(actionAt);
+                else player.Walk.Order(stand.X, stand.Y, castAt);
+            }
             // A movement skill aimed at a monster travels as one aimed at the ground does.
             if (leap is not null) CommitLeapSlam(player, leap);
             else if (flicker && flickerTo is { } to)
@@ -1231,7 +1235,9 @@ public static partial class Game
         if (vaalUse is null && cooldownUse?.Attack is null && gem.Name is not null
             && !IsTotemSkill(player, skillId) && SkillsFor(player).IsAttack(gem.Effect))
         {
-            double duration = SupportedAttackSeconds(player, skillId, sequence);
+            double duration = ShieldWeapon(player, skillId) is { } shieldWeapon
+                ? SupportedOffHandAttackSeconds(player, skillId, shieldWeapon)
+                : SupportedAttackSeconds(player, skillId, sequence);
             double now = swingAt ?? AreaTime(player), next;
             bool ready;
             next = player.NextAttackAt;
@@ -1736,6 +1742,10 @@ public static partial class Game
         await SendCharacterStats(player, PlayerStatChange.Auras);
         await SendPlayerMana(player,
             $"0x01b1 player mana {player.PlayerMana}/{player.Pools.Mana}, {ReservedMana(player)} reserved");
+        // The toggle's skill refresh can empty the aura's own bound slot (live 2026-11-22: Malevolence with Eternal
+        // Blessing left Q), and the full refresh above resends the skill list without the bar, so the saved bar goes out
+        // again after it.
+        await RestoreSkillBarAfterActorUpdate(player);
         return true;
     }
 
@@ -1836,9 +1846,11 @@ public static partial class Game
         int chargeBonus = ShieldChargeBonusPct(player, skillId, gem.Effect);
         if (chargeBonus != 0)
         {
-            int token = BeginShieldCharge(player, skillId, chargeBonus, to.X, to.Y, AreaTime(player));
-            return RunShieldCharge(player, token, player.Walk.ArrivesAt, skillId, sequence,
-                actionToken ?? player.ActionCount, cooldownUse, cryExerted);
+            double chargeAt = player.Connection.LockstepClient && player.Connection.LockstepFrame is { } frame
+                ? frame.Start : AreaTime(player);
+            int chargeAction = actionToken ?? player.ActionCount;
+            int token = BeginShieldCharge(player, skillId, chargeBonus, to.X, to.Y, chargeAt, chargeAction, out bool charged);
+            return RunShieldCharge(player, token, charged, skillId, sequence, chargeAction, cooldownUse, cryExerted);
         }
         criticalRoll ??= CaptureSkillCriticalRoll(player, skillId);
         if (GatewayProjectileSkillProfiles.IsMoltenStrike(SkillsFor(player).EffectId(gem.Effect)))
@@ -3451,9 +3463,15 @@ public static partial class Game
     public static void StopCorpseBlocking(Player player, uint id, SpawnedMonster m)
     {
         RememberCursedCorpse(player, id, m);
-        bool kept;
-        kept = KeepCorpseLocked(player, id, m);
-        if (!kept) SendAfter(player, CorpseBlockDelaySeconds, () => CorpseCleared(player, id, m));
+        bool kept = KeepCorpseLocked(player, id, m);
+        if (!kept)
+        {
+            // Match the variety's native remove_collidability clip timing on predictive clients instead of delaying
+            // varieties without one by a fixed 165 ms.
+            double delay = m.Variety is { } v ? (Monsters.CorpseUnblockMs(v.Id) ?? 0) / 1000d : CorpseBlockDelaySeconds;
+            if (delay <= 0) _ = CorpseCleared(player, id, m);
+            else SendAfter(player, delay, () => CorpseCleared(player, id, m));
+        }
     }
 
     // Keeps the killed monster's body on a lockstep client and starts what ends it: the wait for its death message's
@@ -3516,15 +3534,35 @@ public static partial class Game
         if (player.Connection.LockstepFrame is not { } frame) return;
         foreach (var record in batch.Records)
         {
-            if (record.LifeWritten is not { } life || record.Object is not { } target
-                || !player.Area.Monsters.TryGetValue(target.Id, out var m)) continue;
-            bool kept = life == 0 && !player.DeathWritten(target.Id, m)
-                && KeepCorpseLocked(player, target.Id, m);
-            player.NoteLifeWritten(target.Id, m, life);
-            if (!kept || !player.CorpseAwaitsDeathOf(target.Id)) continue;
-            StepWalkers(player, frame.Start);
-            player.CorpseDied(target.Id, frame);
+            if (record.LifeWritten is not { } life || record.Object is not { } target) continue;
+            NoteMonsterLifeWrittenLocked(player, target.Id, life, frame);
         }
+    }
+
+    // AreaLife publishes monster 0x01b1 life updates directly into Area.Delta (bypassing SendWorldBatch): observe them
+    // here as each lockstep client's frame ends so corpse blocking starts immediately instead of waiting out the 1 s
+    // CorpseDeathWaitSeconds timeout.
+    public static void CorpseDeathsWritten(Player player, IReadOnlyList<AreaDelta.Record> delta)
+    {
+        if (player.Connection.LockstepFrame is not { } frame) return;
+        foreach (var record in delta)
+        {
+            if (!record.For(player) || record.Bytes.Length < 21) continue;
+            if (System.Buffers.Binary.BinaryPrimitives.ReadUInt16BigEndian(record.Bytes) != InstanceProtocol.LifeUpdateId) continue;
+            if (record.Bytes[20] != AreaLife.LifePool) continue;
+            uint life = System.Buffers.Binary.BinaryPrimitives.ReadUInt32BigEndian(record.Bytes.AsSpan(12));
+            NoteMonsterLifeWrittenLocked(player, record.Entity, life, frame);
+        }
+    }
+
+    static void NoteMonsterLifeWrittenLocked(Player player, uint id, uint life, (double Start, double End) frame)
+    {
+        if (!player.Area.Monsters.TryGetValue(id, out var m)) return;
+        bool kept = life == 0 && !player.DeathWritten(id, m) && KeepCorpseLocked(player, id, m);
+        player.NoteLifeWritten(id, m, life);
+        if (!kept || !player.CorpseAwaitsDeathOf(id)) return;
+        StepWalkers(player, frame.Start);
+        player.CorpseDied(id, frame);
     }
 
     // A monster died (its life reached 0 from the player's attack or skill): the player gains its experience when near

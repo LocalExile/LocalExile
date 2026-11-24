@@ -309,6 +309,8 @@ public sealed class GameLogic(IModuleLifetime? lifetime = null) : IGameLogic, IC
     }
     public Task WorldFrameEnded(Player player, double nextFrameStart) =>
         Rules.LockstepFrameEnded(player, nextFrameStart);
+    public void WritingWorldDelta(Player player, IReadOnlyList<AreaDelta.Record> delta) =>
+        Rules.CorpseDeathsWritten(player, delta);
     public Task OnClientMessages(IReadOnlyList<(ushort Id, byte[] Bytes)> messages, byte[] unknown, Player player, long readAt) =>
         Rules.OnClientMessages(messages, unknown, player, readAt);
 
@@ -415,6 +417,7 @@ public sealed class GameLogic(IModuleLifetime? lifetime = null) : IGameLogic, IC
     public IPlayerWorld WorldFor(Player player) => new Rules.ModuleWorld(player);
     public IEnumerable<(string Value, string Detail)>? CompletionValues(string kind) => Rules.CompletionValues(kind);
     public double PlayerActionFactor(Player player) => Rules.PlayerActionFactor(player);
+    public double MovementSpeedMultiplier(Player player) => Rules.MovementSpeedMultiplier(player);
     public CharacterSaves.Save BuildControlled(GameServer.Core.Accounts.CharacterClass characterClass, int level) => Rules.BuildControlledPlayer(characterClass, level);
     public Task InitializeControlled(Player player, Player leader) => Rules.InitializeControlledPlayer(player, leader);
     public Task StepControlled(Player player, Player leader) => Rules.StepControlledPlayer(player, leader);
