@@ -762,9 +762,18 @@ public static partial class Game
             CannotPenetrateOrIgnore: effects[Stat.CannotPenetrateOrIgnoreElementalResistances] != 0
                 || GolemStat(a.Stats, Stat.CannotPenetrateOrIgnoreElementalResistances) != 0 ? 1 : 0);
         var strike = new HitResistances.Strike(Critical: critical, Attack: !a.Attack.Spell);
-        var mitigated = DamageModel.Mitigate(rolled,
-            type => HitResistances.Effective(type, MonsterHitResistance(target, type, profile?.Penetration ?? default, now), strike, resistanceMods));
         var random = AreaRng(player);
+        int inversionChance = GolemStat(supported.Stats, Stat.TreatEnemyResistancesAsNegatedOnElementalDamageHitPctChance)
+            + GolemStat(a.Stats, Stat.TreatEnemyResistancesAsNegatedOnElementalDamageHitPctChance);
+        bool invert = inversionChance > 0 && rolled.Components.Any(component =>
+                DamageTypes.IsElemental(component.Type) && component.Range.Max > 0)
+            && RandomRolls.Chance(inversionChance, 100, random);
+        var mitigated = rolled.Select((type, range) =>
+        {
+            var resistance = MonsterHitResistance(target, type, profile?.Penetration ?? default, now);
+            double effective = HitResistances.FinalValue(type, resistance, strike, resistanceMods, invert);
+            return range.Scale(Math.Max(0, 1 - effective / 100));
+        });
         bool ignorePhysical = MinionIgnoresPhysicalReduction(mitigated, effects, target, random, a.Stats);
         int projectileTaken = projectile ? MinionProjectileCurseStat(target, Stat.ProjectileDamageTakenPlusPct, now) : 0;
         int damage = MonsterTakesMitigatedCore(target, mitigated, a.Attack.Spell, now, projectileTaken, ignorePhysical, random);
