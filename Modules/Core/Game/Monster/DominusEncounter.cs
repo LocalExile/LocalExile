@@ -14,8 +14,7 @@ using static Program;
 /// Proximity Shield safe bubble (<c>SetEncounterProximityShield</c> + buff 227, without Temporal Bubble slow) while
 /// players outside the bubble take escalating Blood Rain Corrupted Blood physical DoT (buff 238, cleared on Blood Rain
 /// end, Dominus death, <c>PlayerLeaving</c>, and module unload).</item>
-/// <item><b>Upper Sceptre Scion Cage</b>: Created ONCE per <see cref="InstanceState"/> so <c>AreaObjectRecords</c>
-/// replays it cleanly to late joiners and re-entrants; opening it sets <c>ScionUnlocked</c> (QF 531, triggering the
+/// <item><b>Upper Sceptre Scion Cage</b>: One object ID per instance, shown in each character's saved quest state; opening it sets <c>ScionUnlocked</c> (QF 531, triggering the
 /// <c>UnlockScion</c> achievement) and plays Scion's global unlock dialogue audio (NPC row 58, audio 484).</item>
 /// </list>
 /// </summary>
@@ -48,6 +47,7 @@ public static class DominusEncounter
     const string CageWireType = "Metadata/MiscellaneousObjects/Door";
 
     static readonly RuleTable<InstanceState, Fight> Fights = new();
+    static readonly RuleTable<Player, Fight> PresentedCages = new();
     static readonly RuleTable<Player, BloodRainExposure> BloodExposures = new();
 
     sealed class BloodRainExposure
@@ -58,7 +58,7 @@ public static class DominusEncounter
         public bool BuffShown;
     }
 
-    public static async Task OnAreaGenerated(Player player)
+    public static async Task OnPlayerEntered(Player player)
     {
         if (player.Layout.Id != Area || !CurrentGameWork || player.Closed || player.LeavingArea) return;
         var fight = Fights.GetValue(player.Instance, _ => new Fight(player.Area, player.Seed));
@@ -153,7 +153,6 @@ public static class DominusEncounter
         public uint CageId;
         public (int X, int Y) CageAt;
         int cageTransitionIdx = -1;
-        bool cageCreated, cageOpened;
 
         bool p1Initialized, p1Cleaned;
         uint p1BossId;
@@ -185,36 +184,47 @@ public static class DominusEncounter
 
         public async Task EnsureScionCageCreated(Player player)
         {
-            if (cageCreated) return;
-            cageCreated = true;
+            if (PresentedCages.TryGetValue(player, out var seen) && ReferenceEquals(seen, this)) return;
             var info = QuestObjectTypes.Find(CageWireType);
             if (info is null || !QuestObject.CanSerialize(info.Components))
                 return;
-            cageTransitionIdx = QuestObject.TransitionableIndex(info.Components);
-            CageAt = cagePlacement ?? WalkableNear(player, (player.Layout.SpawnX + 12, player.Layout.SpawnY + 8));
-            CageId = player.TakeObjectId();
-            bool opened = cageOpened || ClientHasQuestFlag(player, ScionUnlockedFlag);
-            byte state = (byte)(opened ? 2 : 1);
+            if (CageId == 0)
+            {
+                cageTransitionIdx = QuestObject.TransitionableIndex(info.Components);
+                CageAt = cagePlacement ?? WalkableNear(player, (player.Layout.SpawnX + 12, player.Layout.SpawnY + 8));
+                CageId = player.TakeObjectId();
+            }
+            bool opened = ClientHasQuestFlag(player, ScionUnlockedFlag);
             var model = QuestObjectTypes.Find(ScionCageType)?.AnimatedModel ?? BirdcageModel;
-            var blob = new QuestObject(CageAt.X, CageAt.Y, info.Components, Model: model, TransitionState: state).Blob();
-            await SendWorldCreate(player, CageId,
-                () => InstanceEntities.CreateObject(CageId, InstanceEntities.ObjectTypeHash(CageWireType), blob),
-                $"0x02bb ScionCage 0x{CageId:x} at ({CageAt.X}, {CageAt.Y}), opened={opened}", wake: true, awaitBirth: false);
+            var blob = new QuestObject(CageAt.X, CageAt.Y, info.Components, Model: model, TransitionState: (byte)(opened ? 2 : 1)).Blob();
+            var previousView = Program.ViewOf.Value;
+            Program.ViewOf.Value = player;
+            try
+            {
+                if (await SendWorldCreate(player, CageId,
+                    () => InstanceEntities.CreateObject(CageId, InstanceEntities.ObjectTypeHash(CageWireType), blob),
+                    $"0x02bb ScionCage 0x{CageId:x} at ({CageAt.X}, {CageAt.Y}), opened={opened}", wake: true, awaitBirth: false))
+                    PresentedCages.AddOrUpdate(player, this);
+            }
+            finally { Program.ViewOf.Value = previousView; }
         }
 
         public async Task OpenScionCage(Player player)
         {
-            cageOpened = true;
-            if (cageTransitionIdx >= 0 && CageId != 0)
-                await SendWorldRecord(player, CageId, InstanceEntities.TransitionableUpdate(CageId, (byte)cageTransitionIdx, 2),
-                    $"0x02bc ScionCage 0x{CageId:x} opened");
-            if (!ClientHasQuestFlag(player, ScionUnlockedFlag))
+            if (ClientHasQuestFlag(player, ScionUnlockedFlag)) return;
+            await SetQuestFlags(player, [ScionUnlockedFlag]);
+            var previousView = Program.ViewOf.Value;
+            Program.ViewOf.Value = player;
+            try
             {
-                await SetQuestFlags(player, [ScionUnlockedFlag]);
-                ushort scionRow = Npcs.Find(ScionNpcType) is { } npc ? (ushort)npc.Row : ScionFallbackNpcRow;
-                await Send(player, InstanceNpcs.TextAudio(0, scionRow, ScionUnlockedAudioRow), "0x01c7 Scion unlocked dialogue");
-                await Send(player, InstanceChat.ChatLine("You have freed the Scion! The Scion class is now unlocked."), null);
+                if (cageTransitionIdx >= 0)
+                    await SendWorldRecord(player, CageId, InstanceEntities.TransitionableUpdate(CageId, (byte)cageTransitionIdx, 2),
+                        $"0x02bc ScionCage 0x{CageId:x} opened");
             }
+            finally { Program.ViewOf.Value = previousView; }
+            ushort scionRow = Npcs.Find(ScionNpcType) is { } npc ? (ushort)npc.Row : ScionFallbackNpcRow;
+            await Send(player, InstanceNpcs.TextAudio(0, scionRow, ScionUnlockedAudioRow), "0x01c7 Scion unlocked dialogue");
+            await Send(player, InstanceChat.ChatLine("You have freed the Scion! The Scion class is now unlocked."), null);
         }
 
         public async Task Step(Player runner, double now)

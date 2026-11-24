@@ -266,7 +266,7 @@ public sealed class GameModule : IModule, IDisposable
         GameEvents.AreaTick.Add(id, GameEvents.InArea(global::MalachaiEncounter.Area, global::MalachaiEncounter.Tick));
         module.Lifetime.Own(global::MalachaiEncounter.CleanupOnUnload());
         GameEvents.PlayerLeaving.Add(id, (player, _) => global::MalachaiEncounter.Leaving(player));
-        GameEvents.AreaGenerated.Add(id, global::DominusEncounter.OnAreaGenerated);
+        GameEvents.PlayerEntered.Add(id, global::DominusEncounter.OnPlayerEntered);
         GameEvents.ObjectUse.Add(id, global::DominusEncounter.Use);
         GameEvents.AreaTick.Add(id, GameEvents.InArea(global::DominusEncounter.Area, global::DominusEncounter.Tick));
         module.Lifetime.Own(global::DominusEncounter.CleanupOnUnload());
