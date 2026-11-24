@@ -1165,10 +1165,43 @@ public static class KingsmarchTown
         return _ranks;
     }
 
-    /// <summary>What the town pays a working worker per hour, from the treasury (Johan's Fund the Treasury). The wage
-    /// itself is a server-side worker record field, so this is the calibration stand-in; it is charged only while a worker
-    /// is working, and an empty treasury stops the town rather than going into debt (RE C.3).</summary>
-    const int WagePerHour = 25;
+    /// <summary>What the town pays a worker every hour, by job type and rank (RE C.3). The panel's "Wage: n/h" line is the
+    /// sum of the wage field of the worker rows the server sends, so the treasury has to charge the same numbers or the
+    /// town's "runs dry in" line would lie; the rows are built by <c>Modules/Core/Village/VillageWages.cs</c>, which this
+    /// module cannot reference (they are separate assemblies), hence the copy. Idling and fishing cost nothing; the other
+    /// jobs are rank 1 to 5.</summary>
+    static readonly ushort[][] WageTable =
+    [
+        [0, 0, 0, 0, 0],                       // idling
+        [80, 120, 160, 220, 280],              // mining
+        [80, 120, 160, 220, 280],              // smelting
+        [190, 285, 391, 517, 665],             // farming
+        [170, 255, 349, 463, 595],             // disenchanting
+        [375, 560, 750, 1100, 1875],           // mapping
+        [110, 165, 225, 290, 300],             // shipping
+        [0, 0, 0, 0, 0],                       // fishing
+    ];
+
+    /// <summary>The job type a worker's place in town stands for (a VillageJobTypes row).</summary>
+    static byte JobTypeOf(Worker worker) => worker.Plot switch
+    {
+        MineJob => 1,
+        SmelterJob => 2,
+        >= 0 => 3,
+        _ => 0,
+    };
+
+    /// <summary>What a single worker costs an hour, or 0 when it is not working.</summary>
+    static int WageOf(Worker worker)
+    {
+        byte job = JobTypeOf(worker);
+        if (job == 0 || job >= WageTable.Length) return 0;
+        var row = WageTable[job];
+        return row[Math.Clamp(worker.Rank - 1, 0, row.Length - 1)];
+    }
+
+    /// <summary>The town's whole wage bill for an hour: only the workers that hold a job are paid (RE C.3).</summary>
+    static int WagesPerHour(Progress progress) => progress.Workers.Sum(WageOf);
 
     /// <summary>The mine's ores and the bar each refines into, in VillageResources order (the ore row's
     /// <c>Result</c> in VillageExports names the same pairing). The real mine digs the ore its level reaches
@@ -1456,7 +1489,7 @@ public static class KingsmarchTown
         var store = progress.Store.OrderBy(kv => kv.Key).Select(kv => $"{kv.Key} {kv.Value}").ToList();
         lines.Add("stored: " + (store.Count == 0 ? "nothing yet" : string.Join(", ", store)));
         int worked = progress.Workers.Count(w => w.Plot >= 0 || w.Plot == MineJob || w.Plot == SmelterJob);
-        lines.Add($"treasury: {KingsmarchPort.Gold(progress.Who)} gold, {worked * WagePerHour} an hour in wages"
+        lines.Add($"treasury: {KingsmarchPort.Gold(progress.Who)} gold, {WagesPerHour(progress)} an hour in wages"
             + (progress.WageDebt >= 1 ? $", {progress.WageDebt:0.#} due" : ""));
         lines.Add("commands: /recruit ; /village assign <worker> <plot 1-6 | mine | smelter> ; /treasury [gold]");
         return string.Join(" | ", lines);
@@ -1466,8 +1499,7 @@ public static class KingsmarchTown
     public static string TreasuryText(IPlayer player)
     {
         var progress = State(player);
-        int worked = progress.Workers.Count(w => w.Plot >= 0 || w.Plot == MineJob || w.Plot == SmelterJob);
-        return $"{KingsmarchPort.Gold(progress.Who)} gold in the town, {worked * WagePerHour} an hour in wages"
+        return $"{KingsmarchPort.Gold(progress.Who)} gold in the town, {WagesPerHour(progress)} an hour in wages"
             + (progress.Halted ? ", the town is halted (the treasury is empty)" : ", no wages owed")
             + " | /treasury <gold> puts more in (Johan's Fund the Treasury adds a thousand at a time)";
     }
@@ -1799,10 +1831,10 @@ public static class KingsmarchTown
         if (away <= 1) return;
         int working = progress.Workers.Count(w => w.Plot >= 0 || w.Plot == MineJob || w.Plot == SmelterJob);
         double worked = away;
-        if (working > 0)
+        int perHour = WagesPerHour(progress);
+        if (working > 0 && perHour > 0)
         {
             // The wages the gap owes, and how much of the gap the treasury could actually pay for.
-            double perHour = WagePerHour * working;
             double afford = KingsmarchPort.Gold(progress.Who) / perHour * 3600.0;
             if (afford < worked)
             {
@@ -1823,11 +1855,11 @@ public static class KingsmarchTown
         progress.WageDebt = 0;
         Persist(progress);
         Console.WriteLine($"[gateway] kingsmarch catch-up: {progress.Who} was away {away / 60:0.#} min, "
-            + $"paid {WagePerHour * working:0} gold an hour for {worked / 60:0.#} min{(progress.Halted ? " (the treasury ran out)" : "")}");
+            + $"paid {perHour:0} gold an hour for {worked / 60:0.#} min{(progress.Halted ? " (the treasury ran out)" : "")}");
     }
 
-    /// <summary>Charges the town's wages for the time since they were last settled: every working worker costs
-    /// <see cref="WagePerHour"/> an hour out of the treasury, and an idle one costs nothing (RE C.3). When the treasury
+    /// <summary>Charges the town's wages for the time since they were last settled: every worker that holds a job costs
+    /// <see cref="WageOf"/> an hour out of the treasury, and an idle one costs nothing (RE C.3). When the treasury
     /// cannot pay, the town halts -the plots keep their crops but stop growing, and one fill of the treasury restarts
     /// everything (ClientStrings 7486/7684). Time the character was away is not billed and not produced for: the town is
     /// only running while its character is in it.</summary>
@@ -1845,13 +1877,13 @@ public static class KingsmarchTown
         if (dt <= 0) return;
         // A missing tick (a reload, a lagging area load) must not bill an hour of wages at once.
         if (dt > 60) dt = 0;
-        int working = progress.Workers.Count(w => w.Plot >= 0 || w.Plot == MineJob || w.Plot == SmelterJob);
-        if (working == 0)
+        int perHour = WagesPerHour(progress);
+        if (perHour <= 0)
         {
             progress.WageDebt = 0;
             return;
         }
-        progress.WageDebt += WagePerHour * working * dt / 3600.0;
+        progress.WageDebt += perHour * dt / 3600.0;
         int due = (int)Math.Floor(progress.WageDebt);
         if (due <= 0) return;
         int pay = (int)Math.Min(due, KingsmarchPort.Gold(progress.Who));
