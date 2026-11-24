@@ -707,6 +707,10 @@ public static partial class Game
             factor *= ConditionalSupportMore(supported.Stats, attack: !a.Attack.Spell, chilled: false, lowLife: false,
                 fullLife: g.Monster.Life >= g.Monster.MaxLife, lifetap: false, poisonStacks: target.Poisons.Stacks(now),
                 enduranceCharges: g.CombatCharges?.Held(ChargeType.Endurance) ?? 0);
+        if (!a.Attack.Spell && !a.Attack.Secondary && g.Definition.Kind == "Spectre" && g.Monster.Variety?.Id is
+            ("Metadata/Monsters/LeagueAzmeri/SpecialCorpses/DualstrikeDemonMid" or
+             "Metadata/Monsters/LeagueAzmeri/SpecialCorpses/DualstrikeDemonHigh"))
+            factor *= Math.Max(0, 1 + GolemStat(currentPlayer, Stat.AttackDamagePlusPctFinalFromRage) / 100d);
         if (g.Definition.Kind == "Carrion")
         {
             var here = g.Monster.Walk.Position(now);
@@ -800,6 +804,8 @@ public static partial class Game
             if (damage > 0 && mitigated.MinTotal > 0 && Golem(Stat.ChanceToInflictSappedPct) > 0)
                 AlternateAilmentsOnHitLocked(target, mitigated.Scale(damage / mitigated.MinTotal), critical, now, Golem, random);
             HitDebuffsOnHitLocked(target, Golem, a.Attack.Spell, critical, now, AreaRng(player));
+            TemporalChainsOnSuccessfulHitLocked(player, target, now, effects.Stats,
+                Golem(Stat.CurseOnHitPctTemporalChains), random, g.Id);
             WitherOnHitLocked(target, Golem, now, random);
             InflictMonsterBlind(player, id, target, now, BlindHitInput.Capture(Golem), a.Attack.Spell, critical,
                 AreaRng(player));
