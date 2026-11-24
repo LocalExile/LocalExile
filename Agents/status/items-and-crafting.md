@@ -36,6 +36,7 @@ Part of [Status](../Status.md); what to build next in this area is in
 
 ## Partly working
 
+- Read-only inventories emit `0x00c2` permissions; Heist NPC equipment handles `0x00fd` and controller `0x002d` moves.
 - Soul Ripper spends charges for Vaal souls when allowed, and Forbidden Taste applies its recovery and chaos damage.
 - The Wise Oak, Taste of Hate and Soul Catcher apply their qualified damage modifiers during the flask effect.
 - Map flask penalties apply to utility and recovery flask effects and to awarded charges.

@@ -9,6 +9,7 @@ Nothing yet.
 
 ## Partly working
 
+- Socketed gem kills emit incremental `0x00c3` XP when exact client math matches, falling back to `0x00bf` otherwise.
 - Ruthless gems use native primary/companion effect alternatives, requirements and skill rows.
   Deterministic support rewards are disabled; eligible active gems use Siosa's Uncarved Gemstone exchange.
   Gem XP receives the configured Ruthless multiplier.

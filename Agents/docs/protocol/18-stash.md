@@ -191,7 +191,19 @@ connection. Later opens send b = 0x16: the panel keeps its own tab while the con
   orb: `00E1 000037D5 02 00 6A7D 01 0005 03`; `InstanceStash.MoveAllOfType`): the Gateway moves every stack of that item
   type in the same inventory into the tab, the clicked one first, each as one Ctrl + click (its own transaction and 0xbf
   pair), so a full slot stops only what doesn't fit.
-- **0xe2** (u16, u8; `0x14216f6b0`, the unique / special pages) is not seen yet.
+- **S→C 0xd5** (8 bytes, class `0x1435e6fe0`, read `0x1421aab70`, dispatcher case `0x40` → HUD `0x140dd8890`): result of
+  a `C→S 0xe1` affinity deposit. `u8 success`, `u16 BE tab` (child tab index for Map/Unique tabs so the HUD resolves
+  `Parent` and `HiddenKey`, or `0xffff` for a league locker), `u8 cellX`, `u8 affinity` (`StashTabAffinityId` row),
+  `u8 stashKind` (`0` personal, `1` guild). Emitted on both success and full-tab refusal.
+- **S→C 0xd6** (class `0x1435e6da0`, read `0x1421aae00`, dispatcher case `0x41`): updates a personal stash tab's narrow
+  id string (`+0x48`): `u16 BE tab`, narrow UTF-8 string (`u16 BE len` + bytes).
+- **C→S 0xe2** (9 bytes, writer `0x141f9e6d0`, sender `0x140b1df20`): cursor quick-place into a specialty/Unique/Map tab.
+  `u16 BE tab`, `u32 BE itemId`, `u8 kind` (`0` personal, `1` guild).
+- **C→S 0x2b** (21 bytes, writer `0x141f96570`, senders `0x140b3b770` / `0x140b7fae0`): click cell `(x, y)` on a
+  specialty sub-tab (Map page or Unique category). `u8 kind`, `u16 BE tab`, `u64 LE subTabKey`, `u32 BE x`, `u32 BE y`.
+- **C→S 0x114** (16 bytes, writer `0x141fa08c0`, sender `0x1403133bb`): Ctrl + click an item from row `0x72` (114,
+  `DeepwaterCollectionInventory1`) directly into the open personal stash tab (`u32 BE itemId`, `u16 BE tab`,
+  `u64 LE subTabKey`).
 
 ## 6. The server's stash
 
